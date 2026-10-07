@@ -8,6 +8,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
@@ -112,6 +113,30 @@ func TestFixTogetherStagedInternalUpdateAndHistoryThroughRouter(t *testing.T) {
 		}
 	}
 	check()
+	bundle, err := f.service.ExportAssemblyDiagnostic(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := workspace.ReplayAssemblyDiagnostic(t.Context(), f.client, bundle, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file geometry.AssemblyReplay
+	if err := json.Unmarshal(output, &file); err != nil {
+		t.Fatal(err)
+	}
+	var diagnosticResult geometry.AssemblySolve
+	if err := json.Unmarshal(file.AssemblyResult, &diagnosticResult); err != nil {
+		t.Fatal(err)
+	}
+	if diagnosticResult.Status != "CONVERGED" || len(diagnosticResult.GroupEvidence) != 1 {
+		t.Fatal("complete diagnostic lost staged group solve", diagnosticResult)
+	}
+	read, err = f.service.GetDocument(t.Context(), id)
+	if err != nil || read.Document.VersionID != product.Document.VersionID {
+		t.Fatal("group export/replay changed history", err)
+	}
+
 	old := group().GroupCaptureDigest
 	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: innerID, Value: 12, DirectionRelation: "SAME", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
 	check()

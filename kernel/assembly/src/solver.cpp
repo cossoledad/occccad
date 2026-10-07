@@ -2771,26 +2771,53 @@ private:
             }
             // Seed only a singular initial pose. This temporary tangent is not
             // an equation or a frozen rotation axis; every constraint is then solved.
-            const EigenQuaternion turn(Eigen::AngleAxisd(turn_angle, seed_axis));
-            Pose& cluster_pose = state.poses[static_cast<std::size_t>(
-                std::distance(free_cluster_indices_.begin(), free))];
+            const std::size_t pose_index = static_cast<std::size_t>(std::distance(free_cluster_indices_.begin(), free));
             const Vector3 pivot = geometry_origin(first);
-            cluster_pose.translation =
-                value(pivot + turn * (eigen(cluster_pose.translation) - pivot));
-            cluster_pose.rotation = value(turn * normalized(cluster_pose.rotation));
-
-            if (constraint.kind == ConstraintKind::Coincident &&
-                std::holds_alternative<WorldPlane>(first) &&
-                std::holds_alternative<WorldPlane>(second)) {
-                const std::vector<Pose> turned_bodies = assembly_.body_poses(cluster_poses(state));
-                const auto turned = std::get<WorldPlane>(world_geometry(
-                    first_element, turned_bodies[assembly_.body_index(first_element.body_id)]));
-                const auto& second_plane = std::get<WorldPlane>(second);
-                cluster_pose.translation =
-                    value(eigen(cluster_pose.translation) -
-                          (turned.origin - second_plane.origin).dot(second_plane.normal) *
-                              second_plane.normal);
+            const auto trial = [&](const Vector3& axis) {
+                State candidate = state;
+                const EigenQuaternion turn(Eigen::AngleAxisd(turn_angle, axis));
+                Pose& cluster_pose = candidate.poses[pose_index];
+                cluster_pose.translation = value(pivot + turn * (eigen(cluster_pose.translation) - pivot));
+                cluster_pose.rotation = value(turn * normalized(cluster_pose.rotation));
+                if (constraint.kind == ConstraintKind::Coincident &&
+                    std::holds_alternative<WorldPlane>(first) && std::holds_alternative<WorldPlane>(second)) {
+                    const auto turned_bodies = assembly_.body_poses(cluster_poses(candidate));
+                    const auto turned = std::get<WorldPlane>(world_geometry(first_element, turned_bodies[assembly_.body_index(first_element.body_id)]));
+                    const auto& plane = std::get<WorldPlane>(second);
+                    cluster_pose.translation = value(eigen(cluster_pose.translation) - (turned.origin - plane.origin).dot(plane.normal) * plane.normal);
+                }
+                return candidate;
+            };
+            std::vector<Vector3> axes{seed_axis};
+            if (!perpendicular && !spatial_angle) {
+                // At an antipodal alignment every half-turn tangent satisfies
+                // this row. Choose using the whole hard system, so the chart
+                // does not swap already aligned unoriented holes/axes.
+                axes.push_back(first_direction.cross(seed_axis).normalized());
+                for (const auto other_index : component_.constraint_indices) {
+                    const auto& other = assembly_.constraint(other_index);
+                    for (const auto& reference : {std::optional<GeometryRef>{other.first}, other.second}) {
+                        if (!reference || reference->body_id != first_element.body_id || reference->geometry_id.empty()) continue;
+                        const auto geometry = world_geometry(assembly_.geometry(*reference), bodies[assembly_.body_index(reference->body_id)]);
+                        Vector3 axis = geometry_origin(geometry) - pivot;
+                        axis -= axis.dot(first_direction) * first_direction;
+                        if (axis.norm() > assembly_.options().degeneracy_tolerance) axes.push_back(axis.normalized());
+                    }
+                }
             }
+            std::optional<State> best;
+            double best_energy = std::numeric_limits<double>::infinity();
+            for (const auto& axis : axes) {
+                if (assembly_.options().should_cancel && assembly_.options().should_cancel()) break;
+                auto candidate = trial(axis);
+                try {
+                    const double energy = residual(candidate).squaredNorm();
+                    if (std::isfinite(energy) && energy < best_energy) { best_energy = energy; best = std::move(candidate); }
+                } catch (const std::invalid_argument&) {
+                    // A temporary chart may make an exact support singular.
+                }
+            }
+            if (best) state = std::move(*best);
         }
     }
 
@@ -2940,11 +2967,26 @@ Eigen::MatrixXd orthogonal_kernel(const Eigen::MatrixXd& matrix, const SolverOpt
         return Eigen::MatrixXd(0, 0);
     if (matrix.rows() == 0)
         return Eigen::MatrixXd::Identity(matrix.cols(), matrix.cols());
-    Eigen::JacobiSVD<Eigen::MatrixXd> svd(matrix, Eigen::ComputeFullV);
+    // Equilibrate columns for rank detection, as in the physical DOF report.
+    // Long support lever arms must not make an independent translation row
+    // disappear from the preference tangent. Undo this numerical scaling before
+    // orthonormalizing; the motion metric and objective weights stay unchanged.
+    Eigen::VectorXd column_scales(matrix.cols());
+    Eigen::MatrixXd equilibrated = matrix;
+    for (Eigen::Index col = 0; col < matrix.cols(); ++col) {
+        column_scales[col] = matrix.col(col).norm();
+        if (column_scales[col] > options.rank_absolute_tolerance) equilibrated.col(col) /= column_scales[col];
+        else column_scales[col] = 1.0;
+    }
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(equilibrated, Eigen::ComputeFullV);
     const double threshold = std::max(options.rank_absolute_tolerance,
                                       options.rank_relative_tolerance * svd.singularValues()[0]);
     const Eigen::Index rank = (svd.singularValues().array() > threshold).count();
-    return svd.matrixV().rightCols(matrix.cols() - rank);
+    const Eigen::Index freedom = matrix.cols() - rank;
+    if (!freedom) return Eigen::MatrixXd(matrix.cols(), 0);
+    const Eigen::MatrixXd basis = column_scales.cwiseInverse().asDiagonal() * svd.matrixV().rightCols(freedom);
+    const Eigen::HouseholderQR<Eigen::MatrixXd> qr(basis);
+    return qr.householderQ() * Eigen::MatrixXd::Identity(matrix.cols(), freedom);
 }
 Eigen::MatrixXd canonical_image(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
     if (!matrix.cols())

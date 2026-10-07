@@ -30,15 +30,15 @@ Fix Together 保存 GroupId、成员及捕获关系；先解有效内部约束�
 
 Preview/Commit 共用草稿规范化，包含支持顺序、方向、参数/表达式、模式、组成员和完整上下文。求值结果/branch 属于候选证据，传输关联不作为用户意图。输入变化、迟到响应、目标切换或取消使旧候选失效。
 
-提交保留 actor/权限、目标、Revision/CAS、定义/意图摘要、支持证据、policy/build、TTL 与交互身份校验。真实 stale 保留草稿并要求重新预览；有效候选提升不重新完整求解；成功重试先走 receipt。确认成功关闭编辑器，失败保留草稿。
+提交保留 actor/权限、目标、Revision/CAS、定义/意图摘要、支持证据、policy/build、TTL 与交互身份校验。预览返回候选到期时间，确认前临近到期则以同一完整草稿重新预览；到期/缓存淘汰与提交竞争时最多重取一次。传输序号由 RealtimeClient 单调分配，草稿 epoch 继续隔离迟到响应。真实 Revision/意图 stale 保留草稿并要求重新预览；有效候选提升不重新完整求解；成功重试先走 receipt。确认成功关闭编辑器，失败保留草稿。
 
-合法定义完成支持解析并进入 SOLVING 后，子请求 deadline、Worker 不可用或数值未完成可产生仅定义候选（DEFINITION_ONLY）。用户显式确认才保存新定义及 NotUpdated 和结构化失败；不采用失败姿态、branch、组捕获或测量。此候选不能用于 Move，也不伪造收敛 Manifest。求解子预算为父请求保留结束时间；父取消、权限/参数错误、CAS 与数据库失败仍拒绝。新增/编辑先使旧评价失效，正常重算才能恢复 Verified。
+合法定义完成支持解析并进入 SOLVING 后，admission 隔离、子请求 deadline、Worker 不可用或数值未完成可产生仅定义候选（DEFINITION_ONLY）。用户显式确认才保存新定义及 NotUpdated 和结构化失败；不采用失败姿态、branch、组捕获或测量。此候选不能用于 Move，也不伪造收敛 Manifest。求解子预算为父请求保留结束时间；父取消、权限/参数错误、CAS 与数据库失败仍拒绝。新增/编辑先使旧评价失效，正常重算才能恢复 Verified。
 
 ## 连续操纵
 
 数值 Session 冻结 actor、Workspace、owning Product/occurrence、Head/sequence、引用/定义摘要、实际已接纳活动集合、descriptor、组阶段、nominal、branch、policy/profile/build。容量 128，空闲 TTL 两分钟；不占等待用户的数据库事务。重启可使 Session 失效，不损坏持久模型。
 
-DragTarget 是交互偏好而非 interaction-driver Fix。优先级为硬约束 → driven → held 姿态/侧向 → 剩余 nominal；静态解选择独立。pivot/frame/baseline 冻结，desired 来自累计用户输入，accepted 只作 initial guess。无 Ground 的整体运动保留。
+连续操纵通过 Begin/Update/Cancel AssemblyInteraction Session；普通精确位姿 `MOVE_INSTANCE` 仍检查硬目标，冲突时拒绝，不能用它的 Preview 验证受限操纵。DragTarget 是交互偏好而非 interaction-driver Fix。优先级为硬约束 → driven → held 姿态/侧向 → 剩余 nominal；静态解选择独立。pivot/frame/baseline 冻结，desired 来自累计用户输入，accepted 只作 initial guess。无 Ground 的整体运动保留。
 
 一个在途加一个最新待发送目标，合并而不取消饥饿，pointerup flush 最终目标。可行显示帧、合格 checkpoint、warm start、最终候选分开。Budget 不等于网络超时；最多四个 continuation bridge 共用 deadline 和总迭代预算，未合格子步不运输分支或生成 Revision。
 
@@ -79,4 +79,6 @@ SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence
 
 装配试算失败经现有 operation diagnostic repository 记录不可变 Product 基线/候选、来源 Revision、排除约束集合及精确数字重放。admission 隔离为 NotUpdated 的定义仍携带 `evaluationFailure.diagnosticId`，预览和属性面板复用 DiagnosticCopy；失败位姿不能进入已接纳集合。整体/相对 DOF 对应已接纳求解集合，不能用它替代被隔离试算的收敛证据。
 
-`.3dreplay` 只保存纯值数值输入、有效 profile 与必要结果证据。超长几何 ID 在重放私有命名空间内做 SHA-256 别名，约束的 first/second/angle-reference 一并改写；不持久更名业务拓扑或 occurrence。省略重复方程/逐约束秩诊断，以紧凑 JSON 输出。业务支持、Naming 来源和 Revision 上下文由 CAD_DIAGNOSTIC 查询，不塞入内核重放。实际风车输入及 Router 回归见 `tests/test.data/windmill-cylinder-reference.3dreplay` 与 `TestWindmillCylinderMinimalReplayThroughRouter`。
+DEBUG Tab 分别注册 `debug.part` 与 `debug.assembly`，各自调用独立诊断入口。装配下载 `GET /api/documents/{id}/assembly-diagnostic` 只读冻结当前 Head：Product 全部定义及评价/停用/测量状态、实例姿态、生产解析的精确 body-local 几何、SolverProfile、分阶段组 Manifest，以及递归引用 Revision 的 Part Body/Product 模型。不能解析的定义仍保留状态和诊断；缺失来源显式标记。导出不求解、不写 Revision/历史/暖启动，不依赖上次预览或本地归档是否存在。
+
+完整 `.3dreplay` 在既有数值请求外增加 `snapshot`；命令行重放使用其中的生产冻结 Manifest 和组求解流程，不访问数据库/BREP。默认仅求解 Verified 的未停用定义，`-include-unverified` 显式重试可解析的 NotUpdated；输出 `assemblyResult` 保留组与偏好证据，不改变包中的持久状态。数值几何引用使用 SHA-256 私有别名，完整业务身份和来源证据在 snapshot 中保留。单次失败的 CAD_DIAGNOSTIC 与有界数值归档继续保存不可变试算证据，约束面板仅提供复制诊断 ID。重放工具见[CLI](../../../services/cmd/occccad-3dreplay/README.md)。

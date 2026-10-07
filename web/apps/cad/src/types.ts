@@ -65,6 +65,7 @@ export type AssemblyComponentDof = {
   freedoms: AssemblyBodyFreedom[];
 };
 export type CommandPreview = {
+  expiresAt?: string;
  referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
   sketchCandidates?: Array<{featureId:string;entities:SketchEntity[];solve:SketchFeature["solve"]}>;
   evaluationOutcome?: "DEFINITION_ONLY";

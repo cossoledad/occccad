@@ -4557,22 +4557,6 @@
       }
     },
     {
-      "id": "debug.download",
-      "name": "下载诊断包",
-      "helpText": "导出当前文档、草图、Workspace、事务和求值诊断数据。",
-      "iconKey": "debug",
-      "repeatable": false,
-      "visibleWhen": {
-        "fact": "isMock",
-        "equals": false
-      },
-      "enabledWhen": {
-        "fact": "isMock",
-        "equals": false
-      },
-      "implementation": "handler"
-    },
-    {
       "id": "assembly.contact",
       "name": "接触",
       "helpText": "精确解析面、线、点、环接触；材料侧与分支显式。",
@@ -4989,6 +4973,70 @@
       "enabledWhen": {
         "all": []
       }
+    },
+    {
+      "id": "debug.part",
+      "name": "Part 诊断包",
+      "helpText": "导出 Part 模型、Body、事务及求值诊断。",
+      "iconKey": "debug",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "isMock",
+            "equals": false
+          },
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "isMock",
+            "equals": false
+          },
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "debug.assembly",
+      "name": "装配诊断包",
+      "helpText": "导出当前 Product 全部约束与状态、精确支持、刚体和冻结求解输入。",
+      "iconKey": "debug",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "isMock",
+            "equals": false
+          },
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "isMock",
+            "equals": false
+          },
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "handler"
     }
   ],
   "groups": [
@@ -5699,9 +5747,14 @@
       "orientation": "horizontal",
       "commands": [
         {
-          "commandId": "debug.download",
+          "commandId": "debug.part",
           "groupKey": "primary",
           "order": 10
+        },
+        {
+          "commandId": "debug.assembly",
+          "groupKey": "primary",
+          "order": 20
         }
       ]
     }
@@ -5787,6 +5840,33 @@
       "section": "document",
       "order": 2,
       "domain": "ASSEMBLY"
+    },
+    {
+      "id": "PART_DESIGN.debug",
+      "name": "DEBUG",
+      "modeLabel": "Part Design",
+      "workbench": "PART_DESIGN",
+      "section": "debug",
+      "order": 3,
+      "domain": "SOLID"
+    },
+    {
+      "id": "SKETCHER.debug",
+      "name": "DEBUG",
+      "modeLabel": "Sketcher",
+      "workbench": "SKETCHER",
+      "section": "debug",
+      "order": 3,
+      "domain": "SKETCH"
+    },
+    {
+      "id": "ASSEMBLY_DESIGN.debug",
+      "name": "DEBUG",
+      "modeLabel": "Assembly Design",
+      "workbench": "ASSEMBLY_DESIGN",
+      "section": "debug",
+      "order": 3,
+      "domain": "ASSEMBLY"
     }
   ],
   "contexts": [
@@ -5807,7 +5887,8 @@
       "tabs": [
         "PART_DESIGN.model",
         "PART_DESIGN.view",
-        "PART_DESIGN.document"
+        "PART_DESIGN.document",
+        "PART_DESIGN.debug"
       ]
     },
     {
@@ -5827,7 +5908,8 @@
       "tabs": [
         "SKETCHER.model",
         "SKETCHER.view",
-        "SKETCHER.document"
+        "SKETCHER.document",
+        "SKETCHER.debug"
       ]
     },
     {
@@ -5847,7 +5929,8 @@
       "tabs": [
         "ASSEMBLY_DESIGN.model",
         "ASSEMBLY_DESIGN.view",
-        "ASSEMBLY_DESIGN.document"
+        "ASSEMBLY_DESIGN.document",
+        "ASSEMBLY_DESIGN.debug"
       ]
     }
   ],
@@ -5988,19 +6071,19 @@
       "order": 90
     },
     {
-      "tabId": "PART_DESIGN.document",
+      "tabId": "PART_DESIGN.debug",
       "groupId": "debug",
-      "order": 100
+      "order": 10
     },
     {
-      "tabId": "SKETCHER.document",
+      "tabId": "SKETCHER.debug",
       "groupId": "debug",
-      "order": 100
+      "order": 10
     },
     {
-      "tabId": "ASSEMBLY_DESIGN.document",
+      "tabId": "ASSEMBLY_DESIGN.debug",
       "groupId": "debug",
-      "order": 100
+      "order": 10
     }
   ]
 }

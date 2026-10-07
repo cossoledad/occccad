@@ -339,9 +339,9 @@ export function DocumentCenter() {
       <Form form={documentForm} layout="vertical" onFinish={(values) => saveDocument.mutate(values)}>
         <Form.Item name="type" label="文档类型" rules={[{ required: true }]}><Segmented block disabled={Boolean(editing)}
           onChange={(value) => { if (!editing) documentForm.setFieldValue("name", defaultDocumentName(value as "PART" | "PRODUCT", catalog.data?.documents ?? [])); }}
-          options={documentTypes.map(type=>({label:`${type.name} ${type.helpText}`,value:type.id,icon:<CadIcon name={type.iconKey}/>}))} /></Form.Item>
+          options={documentTypes.map(type=>({label:type.name,value:type.id,icon:<CadIcon name={type.iconKey}/>}))} /></Form.Item>
         <Form.Item name="name" label="文档名称" rules={[{ required: true, max: 120 }]}><Input autoFocus /></Form.Item>
-        <Form.Item name="description" label="说明"><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
+        <Form.Item name="description" label="说明" style={{marginBottom:36}}><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
       </Form>
     </Modal>
     <Modal title={folderEditor !== "new" && folderEditor?.id ? "编辑文件夹" : "新建文件夹"} open={Boolean(folderEditor)} onCancel={() => { setFolderEditor(undefined); folderForm.resetFields(); }}

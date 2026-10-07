@@ -8,8 +8,8 @@ export async function copyDiagnosticText(text:string,clipboard?:Pick<Clipboard,"
 // retain selectable text instead of silently failing or claiming success.
 export function DiagnosticCopy({text}:{text:string}){
  const [state,setState]=useState<"idle"|"copied"|"manual">("idle");
- return <><Button size="small" onClick={()=>void copyDiagnosticText(text).then(ok=>setState(ok?"copied":"manual"))}>{state==="copied"?"已复制":"复制诊断"}</Button>
- {state==="manual"&&<label>剪贴板不可用，请选择并复制<Input.TextArea aria-label="手动复制诊断" readOnly value={text} autoSize={{minRows:2,maxRows:6}} onFocus={event=>event.currentTarget.select()}/></label>}</>;
+ return <div className="diagnostic-copy"><Button size="small" onClick={()=>void copyDiagnosticText(text).then(ok=>setState(ok?"copied":"manual"))}>{state==="copied"?"已复制":"复制诊断"}</Button>
+ {state==="manual"&&<Input.TextArea aria-label="手动复制诊断" readOnly value={text} autoSize={{minRows:2,maxRows:6}} onFocus={event=>event.currentTarget.select()}/>}</div>;
 }
 export function diagnosticReference(error:unknown,context?:{documentId:string;versionId:string}):string{
  const value=error as {diagnosticId?:string;code?:string;phase?:string;requestId?:string;message?:string};

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +14,7 @@ import (
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 	"google.golang.org/grpc"
 )
@@ -29,33 +29,18 @@ type compositionControlFixture struct {
 
 func newCompositionControlFixture(t *testing.T, options ...grpc.DialOption) *compositionControlFixture {
 	t.Helper()
-	binary, dsn := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_DATABASE_URL")
-	if binary == "" || dsn == "" {
-		t.Skip("ENVIRONMENT_BLOCKED: requires matching real Worker and dedicated test database")
-	}
-	parsed, err := url.Parse(dsn)
-	if err != nil || parsed.Path != "/occccad_offset_contract_test" {
-		t.Fatal("unsafe test database: only occccad_offset_contract_test is allowed")
+	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	if binary == "" {
+		t.Skip("ENVIRONMENT_BLOCKED: requires matching real Geometry Worker")
 	}
 	directory := os.Getenv("OCCCCAD_ASSEMBLY_FIXTURE_DIR")
 	if directory == "" {
 		directory = filepath.Join("..", "..", "..", "build", "constraint-composition", "analytic-fixtures")
 	}
-	if _, err = os.Stat(filepath.Join(directory, "sphere-r6.brep")); err != nil {
+	if _, err := os.Stat(filepath.Join(directory, "sphere-r6.brep")); err != nil {
 		t.Skip("ENVIRONMENT_BLOCKED: generate analytic fixtures with AssemblyExactSupport.ExportAnalyticRouterFixtures and OCCCCAD_ASSEMBLY_FIXTURE_DIR")
 	}
-	db, err := database.Open(t.Context(), dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(db.Close)
-	var actual string
-	if err = db.QueryRow(t.Context(), "SELECT current_database()").Scan(&actual); err != nil || actual != "occccad_offset_contract_test" {
-		t.Fatal("test connection is not dedicated database", err)
-	}
-	if err = database.Migrate(t.Context(), db); err != nil {
-		t.Fatal(err)
-	}
+	db := testsupport.OpenPostgres(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

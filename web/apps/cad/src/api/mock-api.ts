@@ -1176,6 +1176,6 @@ export const mockApi: CadApi = {
     jobs.set(jobID, updated); return pause(updated);
   },
   downloadJob: async () => { /* no file is produced in mock mode */ },
-	downloadAssemblyReplay: async () => { throw new Error("Mock 模式没有真实三维求解记录"); },
+	downloadAssemblyDiagnostic: async () => { throw new Error("Mock 模式没有真实三维求解记录"); },
 	downloadDiagnosticBundle: async () => { /* server diagnostics are unavailable in mock mode */ },
 };

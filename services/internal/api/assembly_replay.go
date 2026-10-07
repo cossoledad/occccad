@@ -46,3 +46,19 @@ func (server *Server) downloadAssemblyReplay(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(encoded)
 }
+
+func (server *Server) downloadAssemblyDiagnostic(w http.ResponseWriter, r *http.Request) {
+	if _, ok := server.requireDocument(w, r, access.RoleViewer); !ok {
+		return
+	}
+	data, err := server.workspace.ExportAssemblyDiagnostic(r.Context(), r.PathValue("documentID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.occccad.3dreplay+json")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="assembly-%s.3dreplay"`, r.PathValue("documentID")))
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}

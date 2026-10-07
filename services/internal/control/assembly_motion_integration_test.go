@@ -2,6 +2,7 @@ package control
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"net"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -130,19 +132,13 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 }
 
 func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
-	binary, url := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_DATABASE_URL")
-	if binary == "" || url == "" {
-		t.Skip("requires disposable OCCCCAD_TEST_DATABASE_URL and OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	if binary == "" {
+		t.Skip("requires OCCCCAD_TEST_GEOMETRY_WORKER")
 	}
-	db, err := database.Open(t.Context(), url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(db.Close)
-	if err = database.Migrate(t.Context(), db); err != nil {
-		t.Fatal(err)
-	}
-	if err = database.Migrate(t.Context(), db); err != nil {
+	db := testsupport.OpenPostgres(t)
+	// The fixture also verifies repeated migration against the same PostgreSQL.
+	if err := database.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -292,8 +288,8 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	failed.RequestID = "failed-replay-" + id
 	failed.Value = 20
 	failedPreview, err := service.PreviewCommand(t.Context(), id, failed)
-	if err != nil || failedPreview.PreviewID != "" || failedPreview.ConstraintEvaluation == nil || failedPreview.ConstraintEvaluation.Status != "NOT_UPDATED" || failedPreview.ConstraintEvaluation.Summary == "" {
-		t.Fatalf("conflicting definition must expose failure without a promotable candidate: %+v %v", failedPreview, err)
+	if err != nil || failedPreview.PreviewID == "" || failedPreview.EvaluationOutcome != "DEFINITION_ONLY" || failedPreview.ConstraintEvaluation == nil || failedPreview.ConstraintEvaluation.Status != "NOT_UPDATED" || failedPreview.ConstraintEvaluation.Summary == "" {
+		t.Fatalf("conflicting definition must expose failure with a definition-only candidate: %+v %v", failedPreview, err)
 	}
 	if failedPreview.EvaluationFailure == nil || failedPreview.EvaluationFailure.DiagnosticID == "" || failedPreview.ConstraintEvaluation.Failure == nil {
 		t.Fatal("NotUpdated preview lost copyable operation diagnostic", failedPreview)
@@ -380,6 +376,74 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	if err != nil || afterFailure.Document.VersionID != refreshed.Document.VersionID {
 		t.Fatal("archiving failed preview changed model head")
 	}
+
+	t.Run("NotUpdated candidate saves and complete diagnostic replays without history writes", func(t *testing.T) {
+		failed.PreviewID = failedPreview.PreviewID
+		saved := apply(failed)
+		if len(saved.Product.Constraints) != 3 || saved.Product.Constraints[2].ID != rejectedID || saved.Product.Constraints[2].EvaluationStatus != "NOT_UPDATED" {
+			t.Fatal("NotUpdated definition did not persist", saved.Product.Constraints)
+		}
+		check(saved, 4)
+		if saved.Document.VersionID == afterFailure.Document.VersionID {
+			t.Fatal("definition save did not create history")
+		}
+		bundle, err := service.ExportAssemblyDiagnostic(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var file geometry.AssemblyReplay
+		if err := json.Unmarshal(bundle, &file); err != nil {
+			t.Fatal(err)
+		}
+		var snapshot struct {
+			Product  workspace.ProductModel          `json:"product"`
+			Sources  []json.RawMessage               `json:"sources"`
+			Manifest workspace.AssemblySolveManifest `json:"manifest"`
+		}
+		if err := json.Unmarshal(file.Snapshot, &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.Product.Constraints) != 3 || len(snapshot.Sources) != 1 || len(snapshot.Manifest.Geometry) == 0 || len(snapshot.Manifest.Definitions) != 3 {
+			t.Fatal("complete diagnostic lost definitions or source bodies")
+		}
+		for _, includePending := range []bool{false, true} {
+			replayed, err := workspace.ReplayAssemblyDiagnostic(t.Context(), client, bundle, includePending)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var output geometry.AssemblyReplay
+			if err := json.Unmarshal(replayed, &output); err != nil {
+				t.Fatal(err)
+			}
+			var result geometry.AssemblySolve
+			if err := json.Unmarshal(output.AssemblyResult, &result); err != nil {
+				t.Fatal(err)
+			}
+			if !includePending && result.Status != "CONVERGED" {
+				t.Fatal("accepted subset failed", result.Status, result.Diagnostic)
+			}
+			if includePending && result.Status == "CONVERGED" {
+				t.Fatal("pending conflicting offset was not retried")
+			}
+			if len(output.Snapshot) == 0 {
+				t.Fatal("replay discarded snapshot")
+			}
+		}
+		reopened, err := service.GetDocument(t.Context(), id, "00000000-0000-7000-8000-000000000001")
+		if err != nil || reopened.Document.VersionID != saved.Document.VersionID || len(reopened.Product.Constraints) != 3 {
+			t.Fatal("diagnostic read/replay modified head", err)
+		}
+		undone := apply(workspace.CommandRequest{Type: "UNDO"})
+		if len(undone.Product.Constraints) != 2 {
+			t.Fatal("Undo lost accepted constraints")
+		}
+		redone := apply(workspace.CommandRequest{Type: "REDO"})
+		if len(redone.Product.Constraints) != 3 || redone.Product.Constraints[2].EvaluationStatus != "NOT_UPDATED" {
+			t.Fatal("Redo did not restore NotUpdated state")
+		}
+		check(redone, 4)
+		apply(workspace.CommandRequest{Type: "UNDO"})
+	})
 
 	t.Run("activation mode history and empty active set", func(t *testing.T) {
 		measured := "MEASURED"
@@ -476,10 +540,33 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		if math.Abs(fixed.Product.Instances[0].Translation[2]-5) > 1e-7 {
 			t.Fatal("space fix pose editing failed")
 		}
+		// Exact pose commands keep their hard target and must reject conflict.
+		// Viewport manipulation uses the frozen Session's soft DragTarget instead.
 		preview, err := service.PreviewCommand(t.Context(), id, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: a, Translation: [3]float64{0, 0, 8}, Rotation: [4]float64{0, 0, 0, 1}})
-		if err != nil || !preview.ConstraintLimited {
-			t.Fatalf("space fix unexpectedly moved: %+v %v", preview, err)
+		if !errors.Is(err, workspace.ErrValidation) || preview.PreviewID != "" {
+			t.Fatal("conflicting exact pose became a committable candidate", preview, err)
 		}
+		actor := "00000000-0000-7000-8000-000000000001"
+		session, err := service.BeginAssemblyInteraction(t.Context(), id, actor, workspace.AssemblyInteractionBegin{BaseRevisionID: fixed.Document.VersionID, InstanceID: a, FrameRotation: [4]float64{0, 0, 0, 1}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer service.CancelAssemblyInteraction(id, actor, session.SessionID)
+		goal := geometry.AssemblyDragTarget{BodyID: a, FrameRotation: [4]float64{0, 0, 0, 1}, TargetSequence: 1, TargetPose: geometry.AssemblyPose{Translation: [3]float64{0, 0, 8}, Rotation: [4]float64{0, 0, 0, 1}}, TranslationComponents: [3]bool{true, true, true}, RotationComponents: [3]bool{true, true, true}}
+		frame, err := service.UpdateAssemblyInteraction(t.Context(), id, actor, workspace.AssemblyInteractionUpdate{SessionID: session.SessionID, Sequence: 1, Final: true, Target: goal})
+		if err != nil || !frame.ConstraintLimited || !frame.Unchanged || frame.Interaction == nil || !frame.Interaction.HardFeasible || frame.PreviewID != "" || frame.CommitCommand != nil {
+			t.Fatal("SPACE Fix must constrain the real interaction without a Move candidate", frame, err)
+		}
+		for _, pose := range frame.InstancePoses {
+			if pose.InstanceID == a && (pose.Translation != fixed.Product.Instances[0].Translation || pose.Rotation != fixed.Product.Instances[0].Rotation) {
+				t.Fatal("constrained preview changed SPACE Fix pose", pose)
+			}
+		}
+		current, err := service.GetDocument(t.Context(), id, actor)
+		if err != nil || current.Document.VersionID != fixed.Document.VersionID || *current.Product.Constraints[0].FixedPose != *fixed.Product.Constraints[0].FixedPose {
+			t.Fatal("rejected pose or constrained interaction changed history/baseline", err)
+		}
+
 	})
 
 	t.Run("stable angle axis and canonical turn", func(t *testing.T) {

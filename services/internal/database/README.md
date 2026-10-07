@@ -4,7 +4,7 @@
 
 ## 选择模式
 
-默认沿用 `OCCCCAD_POSTGRES_*`；显式 `OCCCCAD_DATABASE_URL` 优先：
+PostgreSQL 是主要业务数据库与核心集成验收后端；SQLite 保留为 Local Mode 和兼容性验证。默认沿用 `OCCCCAD_POSTGRES_*`；显式 `OCCCCAD_DATABASE_URL` 优先：
 
 ```dotenv
 # PostgreSQL（继续支持原有 pgx 连接参数）
@@ -57,6 +57,8 @@ SQLite 迁移不读取 PostgreSQL，也不需要联网。`invoke data.reset --ye
 总并发为 1 时无法预留前台连接。HTTP phases_ms 记录 db-queue-wait、db-query、db-transaction 等；pgx 另有 db-pool-wait/db-batch。事务计时包含内部查询，不可简单相加。监控 snapshot 提供 active/waiting/rejected 与连接占用。
 
 ## 验证
+
+装配、候选/历史、诊断 API 与 Part 生命周期的 PostgreSQL 核心回归复用 `internal/testsupport.OpenPostgres`，显式连接当前基线的专用 `occccad_*_test` 库，拒绝应用库/SQLite/旧迁移链，不自动重置或修补迁移记录。实际运行配置见[开发环境](../../../docs/development-environment.md)。
 
 - `go test ./internal/database -count=1`：目录与迁移记录检查、SQLite 查询与事务合同；`TestMigrationBaselinePreservesDocuments` 的 PostgreSQL 子场景需通过 `OCCCCAD_TEST_MIGRATION_DATABASE_URL` 显式提供隔离空库，拒绝非空数据库。
 - SQLite 测试使用临时文件：空库迁移/重开、外键、唯一性、批量失败回滚、取消、savepoint、独立连接池与实际子进程竞争、Jobs/登录故障注入，以及真实文档命令、Undo/Redo、ACL 和冷读。

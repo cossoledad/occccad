@@ -60,6 +60,11 @@ evidenceActor.send({type:"RESOLVE",sequence:14,definitionOnly:true});
 assert.equal(evidenceActor.getSnapshot().value,"definitionReady","legal definition may confirm without successful pose evidence");
 assert.equal(evidenceActor.getSnapshot().context.components,undefined);
 evidenceActor.send({type:"CONFIRM"});
+evidenceActor.send({type:"REQUEST",sequence:14}); // expired candidate re-evaluates the same draft
+assert.equal(evidenceActor.getSnapshot().value,"pending");
+evidenceActor.send({type:"RESOLVE",sequence:14,definitionOnly:true});
+assert.equal(evidenceActor.getSnapshot().value,"definitionReady");
+evidenceActor.send({type:"CONFIRM"});
 evidenceActor.send({type:"COMMIT_SUCCESS"});
 evidenceActor.send({type:"START"});
 assert.equal(evidenceActor.getSnapshot().value,"drafting");

@@ -33,7 +33,7 @@ t' = t+\Delta t,\qquad R'=\operatorname{Exp}(\Delta\theta)R.
 长度残差除以 `length_scale`，角度和方向残差除以 `angle_scale`，使不同量纲可以进入同一个范数。两者必须由调用方按
 模型单位和容差策略显式设置，当前默认值都是 `1.0`。
 
-当前生产 build/policy 为 `assembly-six-families-composition-v10`，控制面新建/显式编辑采用公共 definition v2；八类 descriptor、独立参考轴与分阶段组证据进入冻结 manifest schema 1/profile schema 2。manifest 的 `CANONICAL_JSON_V1` 与旧字段形状摘要兼容由控制面负责，native 不改写历史或查询新几何。允许有限精确 Point–Curve 的 Line/Circle、Point–Surface 的 Plane/Cylinder/Sphere/选定叶 Cone；不声明任意曲线/曲面、网格接触或隐式 Frame 转换，Frame 其他组合必须显式派生子元素。
+当前 Worker/控制面求解合同 build/policy 为 `assembly-m4m5-reference-retraction-v13`，控制面新建/显式编辑采用公共 definition v2；八类 descriptor、独立参考轴与分阶段组证据进入冻结 manifest schema 1/profile schema 2。manifest 的 `CANONICAL_JSON_V1` 与旧字段形状摘要兼容由控制面负责，native 不改写历史或查询新几何。允许有限精确 Point–Curve 的 Line/Circle、Point–Surface 的 Plane/Cylinder/Sphere/选定叶 Cone；不声明任意曲线/曲面、网格接触或隐式 Frame 转换，Frame 其他组合必须显式派生子元素。
 
 RPC 使用 `AssemblySolverProfile schema_version=2` 传递求解策略；普通零值字段沿用 kernel 默认值；optional `max_preference_iterations` 显式为零表示不给偏好迭代预算。主要默认阈值为：length
 convergence/classification `10⁻⁷`、angle convergence/classification `10⁻⁸`、translation step `10⁻⁹`、rotation step
@@ -244,7 +244,9 @@ J_{:,j}\approx\frac{r(x+h_j e_j)-r(x-h_j e_j)}{2h_j}.
 长度/角度成功容差不放宽；small-step 仍检查几何梯度，避免大 damping 伪造驻点。
 方向验收改用 `atan2(||a×b||, a·b)`，消除 `acos(dot)` 在对齐附近的浮点精度底限。
 
-几何可行后，层级优化在无量纲切空间用同一 SVD 阈值构造正交零空间及最小范数校正。
+反向对齐的奇异初始位姿用多个半转切向试探，包括参与约束的支持元素力臂；按完整硬约束残差选择 seed，避免满足反向平面时交换已同轴的两个孔。无向轴仍允许两种方向，seed 不冻结旋转轴、改变名义位姿或添加约束。
+
+几何可行后，层级优化在无量纲切空间构造正交零空间及最小范数校正。核计算与物理 DOF 相同地先按列范数均衡后判秩，随后撤销列缩放并 QR 正交化。这样长支持力臂不再使独立平移行消失、产生虚假的剩余偏好自由度；运动目标、权重与容差不变。
 二级目标使用投影 BFGS 曲率更新和有界回溯；每体旋转步限制为 0.5 rad，平移步半径随当前目标残差尺度变化，
 避免将数百毫米自由平移限制为每轮 1 mm 而耗尽预算。trust region 只限制步长，不与几何约束竞争。
 零空间步只有一阶可行，候选需经有界几何恢复，再检查真实容差、上级目标固定上界及当前层改善。

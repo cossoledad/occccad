@@ -71,6 +71,7 @@ export const assemblyPreviewMachine = setup({
       RESET: { target: "idle", actions: "clear" },
     } },
 	committing: { on: {
+      REQUEST: { target: "pending", actions: "begin" },
 	  COMMIT_SUCCESS: { target: "committed", actions: "clear" },
 	  COMMIT_FAILURE: { target: "failed", actions: "fail" },
 	} },

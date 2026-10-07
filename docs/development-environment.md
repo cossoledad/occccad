@@ -24,6 +24,8 @@ sudo apt install postgresql
 
 部分集成测试使用显式的 `OCCCCAD_TEST_DATABASE_URL`，不会自动使用应用的数据库配置。运行前读对应测试对迁移、空库和清理的要求：可兼容现有数据的测试可复用已授权开发数据库；要求可丢弃数据库的测试使用隔离测试库，并按测试入口准备迁移。不要为使测试执行而把所有测试无差别指向开发库。
 
+装配候选、历史、诊断下载及精确 BREP/Router 验证统一使用 `services/internal/testsupport.OpenPostgres`。显式配置 `OCCCCAD_TEST_DATABASE_URL` 为同一现有 PostgreSQL 服务中的专用 `occccad_*_test` 数据库，例如 `occccad_assembly_contract_test`；同时设置 `OCCCCAD_TEST_GEOMETRY_WORKER` 指向当前构建。入口检查 PostgreSQL URL、专用库名称、`current_database()` 身份和完整迁移链，拒绝应用库及 SQLite，不自动创建或清空库，也不修补旧迁移记录。测试创建自己的文档与临时制品。SQLite Local Mode 的独立兼容测试继续保留，不替代 PostgreSQL 的核心集成验证。
+
 数据重置仍遵循[根 AGENTS 的开发数据边界](../AGENTS.md#当前开发数据边界)：先停止占用进程，仅通过 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令报告的 PostgreSQL `occccad` schema 或当前配置的专用 SQLite 数据库全部表（含迁移记录），以及本地 ArtifactStore/暂存目录，以及 S3 模式下当前配置的专用桶全部对象（含版本和未完成分片，保留桶），并在交付中说明。资源使用授权不包括清空其他数据库、schema 或 S3 bucket。S3、数据库与本地制品不构成跨存储事务：清理失败直接报错，可能已部分删除，停止写入后可重新执行。
 
 ## Chromium 与浏览器验证

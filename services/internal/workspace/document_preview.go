@@ -200,17 +200,16 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 				constraintID = payload.ConstraintID
 			}
 		}
-		unverifiedOffset := false
+		// A valid definition isolated by admission can still be committed.
+		// It carries failure evidence and never claims acceptance by the solver.
 		for _, constraint := range model.Constraints {
-			if constraint.ID == constraintID && constraint.Kind == "DISTANCE" && constraint.EvaluationStatus != modelcore.AssemblyConstraintVerified {
-				// Admission may solve the accepted subset successfully while the
-				// edited Offset is isolated as NotUpdated/Broken. That is not a
-				// successful candidate for this definition, even if solve converged.
-				unverifiedOffset = true
+			if constraint.ID == constraintID && constraint.EvaluationStatus != modelcore.AssemblyConstraintVerified {
+				retainedFailure = true
 			}
 		}
+		expiresAt := time.Now().Add(interactionCandidateTTL)
 		previewID := newID("preview")
-		if !retainedFailure && (assemblyResult.Status != "CONVERGED" || unverifiedOffset) {
+		if !retainedFailure && assemblyResult.Status != "CONVERGED" {
 			previewID = ""
 		}
 		if previewID != "" {
@@ -219,9 +218,9 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 				headRevision:   prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 				assemblyPreviewRequestID: "preview/" + prepared.requestID,
 				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
-				expiresAt: time.Now().Add(interactionCandidateTTL)})
+				expiresAt: expiresAt})
 		}
-		result := CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
+		result := CommandPreview{PreviewID: previewID, ExpiresAt: expiresAt.Format(time.RFC3339Nano), BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
 			ModelHash: canonicalModelHash(nextJSON), AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
 		if retainedFailure {
 			result.EvaluationOutcome = "DEFINITION_ONLY"

@@ -98,8 +98,8 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "view.front", execute: () => viewport.current?.setStandardView("FRONT") }),
       ({ id: "view.right", execute: () => viewport.current?.setStandardView("RIGHT") }),
       ({ id: "view.iso", execute: () => viewport.current?.setStandardView("ISO") }),
-	  ({ id: "debug.download", execute: () => editingView && (editingView.product ? api.downloadAssemblyReplay(editingView.document.id) : api.downloadDiagnosticBundle(editingView.document.id)),
-		 isEnabled: () => Boolean(editingView) }),
+	  ({ id: "debug.part", execute: () => editingView && api.downloadDiagnosticBundle(editingView.document.id), isEnabled: () => Boolean(editingView?.part) }),
+      ({ id: "debug.assembly", execute: () => editingView && api.downloadAssemblyDiagnostic(editingView.document.id), isEnabled: () => Boolean(editingView?.product) }),
  ...structureCommands(bindings.treeActions,treeNodes,showMessage),
  selectionSummaryCommand({getContext:()=>({documentId:editingView?.document.id??"",selectionCount:store.selections.length}),show:showMessage}),
  ];

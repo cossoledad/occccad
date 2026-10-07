@@ -58,6 +58,18 @@ try {
  const current=slot.begin();slot.resolve(current,key(intent),"fresh",intent);
  intent.firstAssemblyRef.geometryId="mutable";
  assert.equal(frozen.firstAssemblyRef.geometryId,"plane-a","confirmation deep freezes current candidate pair");
+
+ // Expiry refresh preserves the exact frozen intent and rejects late results.
+ const freshSlot=new AssemblyCandidateBinding();let refreshes=0;
+ const ready=freshSlot.begin();freshSlot.resolve(ready,key(build()),"ready",build(),new Date(Date.now()+45000).toISOString());
+ assert.equal((await freshSlot.ensureCurrent(key(build()),async()=>{throw new Error("unneeded refresh")})).previewId,"ready");
+ const old=freshSlot.begin();freshSlot.resolve(old,key(build()),"expired",build(),new Date(Date.now()-1).toISOString());
+ const renewed=await freshSlot.ensureCurrent(key(build()),async command=>{refreshes++;assert.deepEqual(command,build());return {previewId:"renewed",expiresAt:new Date(Date.now()+45000).toISOString()}});
+ assert.equal(renewed.previewId,"renewed");assert.equal(refreshes,1);
+ let finish;
+ const waiting=freshSlot.ensureCurrent(key(build()),()=>new Promise(resolve=>finish=resolve),true);
+ freshSlot.invalidate();finish({previewId:"late",expiresAt:new Date(Date.now()+45000).toISOString()});
+ assert.equal(await waiting,undefined);assert.equal(freshSlot.freeze(key(build())),undefined);
  for(const kind of ["DISTANCE","ANGLE","CONTACT","FIX_TOGETHER","FIX"]) {
   const fields={...store,contactKind:"FACE",contactSide:"EXTERNAL",contactBranch:-1,groupName:"g",groupMembers:["instance:a","instance:b"],quantityExpression:"angle + 10 deg",offsetExpression:"length + 2 mm"};
   const original={...c,kind,angleRelation:"DIRECTED",angleAxis:{instanceId:"axis",kind:"AXIS"},reverseAngleAxis:true,fixMode:"SPACE"};

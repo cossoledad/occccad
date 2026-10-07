@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/workspace"
 )
 
 func main() {
 	address := flag.String("worker", "127.0.0.1:51001", "Geometry Worker or Router address")
 	output := flag.String("out", "", "output file (default stdout)")
+	include := flag.Bool("include-unverified", false, "retry resolvable NotUpdated constraints in a complete diagnostic; never modifies the model")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: occccad-3dreplay [-worker address] [-out file] input.3dreplay")
@@ -26,7 +28,7 @@ func main() {
 	defer client.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	result, err := client.ReplayAssembly(ctx, data)
+	result, err := workspace.ReplayAssemblyDiagnostic(ctx, client, data, *include)
 	must(err)
 	if *output != "" {
 		must(os.WriteFile(*output, result, 0600))

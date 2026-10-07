@@ -57,7 +57,7 @@ export OCCCCAD_TEST_GEOMETRY_WORKER="$PWD/build/cmake/debug/workers/geometry/occ
 python tests/assembly-contract/runner.py baseline --case integration.router-worker
 ```
 
-数据库/历史/Release case 另要求明确配置 `OCCCCAD_TEST_DATABASE_URL`。既有集成 fixture 要求可丢弃数据库；不自动指向应用开发库，不静默切换 Mock，不清库。具体要求见[开发环境](../../docs/development-environment.md)。
+数据库/历史/Release case 另要求明确配置 `OCCCCAD_TEST_DATABASE_URL`。装配和诊断集成经 `internal/testsupport.OpenPostgres` 连接当前基线的专用 `occccad_*_test` PostgreSQL 库，检查实际库身份和迁移，使用各自的文档/临时制品；不自动指向应用开发库、不静默切换 SQLite/Mock、不清库。具体要求见[开发环境](../../docs/development-environment.md)。
 
 
 ## 按能力与风险定位

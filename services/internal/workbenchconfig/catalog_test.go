@@ -130,3 +130,36 @@ func TestCatalogRejectsPartialAndUnsafeConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestDebugCatalogSeparatesDiagnosticCommands(t *testing.T) {
+	c, err := Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	debugTabs := map[string]bool{}
+	for _, tab := range c.Tabs {
+		if tab.Name == "DEBUG" {
+			debugTabs[tab.ID] = true
+		}
+	}
+	if len(debugTabs) != 3 {
+		t.Fatal("missing context-specific DEBUG tabs", debugTabs)
+	}
+	commands := map[string]Command{}
+	for _, command := range c.Commands {
+		commands[command.ID] = command
+	}
+	if _, ok := commands["debug.download"]; ok {
+		t.Fatal("ambiguous diagnostic dispatcher retained")
+	}
+	for _, id := range []string{"debug.part", "debug.assembly"} {
+		if commands[id].Implementation != "handler" {
+			t.Fatal("missing independent diagnostic registration", id)
+		}
+	}
+	for _, placement := range c.Placements {
+		if placement.GroupID == "debug" && !debugTabs[placement.TabID] {
+			t.Fatal("diagnostics outside DEBUG tab")
+		}
+	}
+}

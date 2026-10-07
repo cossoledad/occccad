@@ -53,13 +53,23 @@ export function assemblyIntentKey(command: Record<string,unknown>, documentId: s
 
 export class AssemblyCandidateBinding {
   private generation = 0;
-  private value?: {key:string; previewId:string; command:Record<string,unknown>};
+  private value?: {key:string; previewId:string; command:Record<string,unknown>; expiresAt:number};
   invalidate() { this.generation++; this.value=undefined; }
   begin() { this.invalidate(); return this.generation; }
-  resolve(generation:number,key:string,previewId:string,command:Record<string,unknown>) {
+  resolve(generation:number,key:string,previewId:string,command:Record<string,unknown>,expiresAt?:string) {
     if(generation!==this.generation || !previewId)return false;
-    this.value={key,previewId,command:JSON.parse(JSON.stringify(command))}; return true;
+    this.value={key,previewId,command:JSON.parse(JSON.stringify(command)),expiresAt:expiresAt?Date.parse(expiresAt):0}; return true;
   }
+  async ensureCurrent(key:string, refresh:(command:Record<string,unknown>)=>Promise<{previewId:string;expiresAt?:string}>, force=false) {
+    const value=this.value;
+    if(!value || value.key!==key)return undefined;
+    if(!force && value.expiresAt>Date.now()+2000)return this.freeze(key);
+    const generation=this.begin();
+    const preview=await refresh(JSON.parse(JSON.stringify(value.command)));
+    if(!this.resolve(generation,key,preview.previewId,value.command,preview.expiresAt))return undefined;
+    return this.freeze(key);
+  }
+
   freeze(key:string) {
     if(this.value?.key!==key)return undefined;
     return JSON.parse(JSON.stringify({...this.value.command,previewId:this.value.previewId})) as Record<string,unknown>;

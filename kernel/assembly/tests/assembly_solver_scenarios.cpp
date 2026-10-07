@@ -1496,6 +1496,77 @@ TEST(AssemblyComposition, DirectionRelationsEscapeStationaryInitialAlignment) {
     }
 }
 
+
+// Exact values extracted from the two 2026-10-07 CAD_DIAGNOSTIC requests.
+TEST(AssemblySolver, AntipodalPlanePreservesBothUnorientedHoleAxes) {
+    Model model;
+    model.bodies.push_back({"instance-39406387ca3a27f3a805", {{-198.6821392989066,5.259608701240991e-16,0},{-5.169878828456423e-25,3.3985007360523406e-23,6.857244375328293e-16,1}}});
+    model.bodies.push_back({"instance-5b6f6df9b1f593dfa6e7", {{-198.6821392989066,0,0},{0,0,0,1}}});
+    model.bodies.push_back({"instance-5e4bd74dc176955d8d81", {{179.19439834277821,0,0},{0,0,0,1}}});
+    model.bodies.push_back({"instance-6b9b8166572409f54ca8", {{0,0,0},{0,0,0,1}}});
+    model.bodies.push_back({"instance-9bf0b187297dcdad6b79", {{-105.40014952670742,0,0},{0,0,0,1}}});
+    model.geometry.push_back({"geometry:af99a405d729407ab886ab9864caf4c201944ea5321f85873a0292c384f55c0f","instance-39406387ca3a27f3a805",CylinderGeometry{{4.3368086899420197e-16,8.25,12.5},{0,0,-1},0.85,-1}});
+    model.geometry.push_back({"geometry:c960cbe0d192e3e0282312617a7c37c3e9704acbc9a2c863dc084033706d4eaa","instance-39406387ca3a27f3a805",CylinderGeometry{{8.673617379884039e-16,-8.25,12.5},{0,0,-1},0.85,-1}});
+    model.geometry.push_back({"geometry:b532ec9cc5dd845b2628eff2bf3c977452ef91ca61cac294a89a5f6abb800dbc","instance-39406387ca3a27f3a805",PlaneGeometry{{0,0,12.5},{0,0,1}}});
+    model.geometry.push_back({"geometry:77702481a07daa4f8470a1c176b6fb847b225f786d4fc7c33e877da3d9099896","instance-5b6f6df9b1f593dfa6e7",CylinderGeometry{{1.38777878078145e-14,8.25,0},{0,0,1},0.9,-1}});
+    model.geometry.push_back({"geometry:e69e4d3ba6978c1281b7f4f2e3e4d9f10a049c80e0d5867f2f5618a941ce5a64","instance-5b6f6df9b1f593dfa6e7",CylinderGeometry{{-3.46944695195361e-15,-8.25,0},{0,0,1},0.9,-1}});
+    model.geometry.push_back({"geometry:8a963f83c0ef45bdb67fca0d733b7978d86b02028c318000fc40e5f82fca8341","instance-5b6f6df9b1f593dfa6e7",PlaneGeometry{{0,3.46944695195361e-15,2},{0,0,1}}});
+    auto c0 = binary("assembly-constraint-4e4ccead-cc82-5815-9cb0-4cf8b78c9905", ConstraintKind::Coincident,ref("instance-39406387ca3a27f3a805","geometry:b532ec9cc5dd845b2628eff2bf3c977452ef91ca61cac294a89a5f6abb800dbc"),ref("instance-5b6f6df9b1f593dfa6e7","geometry:8a963f83c0ef45bdb67fca0d733b7978d86b02028c318000fc40e5f82fca8341"));
+    c0.direction_relation = DirectionRelation::Opposite;
+    model.constraints.push_back(c0);
+    auto c1 = binary("assembly-constraint-889ea16c-611a-5e36-b161-f5247dd73dfd", ConstraintKind::Concentric,ref("instance-39406387ca3a27f3a805","geometry:c960cbe0d192e3e0282312617a7c37c3e9704acbc9a2c863dc084033706d4eaa"),ref("instance-5b6f6df9b1f593dfa6e7","geometry:e69e4d3ba6978c1281b7f4f2e3e4d9f10a049c80e0d5867f2f5618a941ce5a64"));
+    model.constraints.push_back(c1);
+    auto c2 = binary("assembly-constraint-a75510e3-661f-57cf-b1be-59f474141479", ConstraintKind::Concentric,ref("instance-39406387ca3a27f3a805","geometry:af99a405d729407ab886ab9864caf4c201944ea5321f85873a0292c384f55c0f"),ref("instance-5b6f6df9b1f593dfa6e7","geometry:77702481a07daa4f8470a1c176b6fb847b225f786d4fc7c33e877da3d9099896"));
+    model.constraints.push_back(c2);
+    SolverOptions options;
+    options.solve_intent = SolveIntent{{"instance-39406387ca3a27f3a805"}, {"instance-5b6f6df9b1f593dfa6e7"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
+    for (int order = 0; order < 2; ++order) {
+        const auto result = Solver{}.solve(model, options);
+        ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+        for (const auto& component : result.components) {
+            if (!component.solved) continue;
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged);
+            EXPECT_TRUE(component.preference.geometrically_feasible);
+            EXPECT_LE(component.preference.reference_optimality, options.preference_tolerance);
+            EXPECT_LE(component.preference.total_optimality, options.preference_tolerance);
+        }
+        for (const auto& residual : result.residuals) EXPECT_LE(residual.normalized_norm, 1e-7);
+        std::reverse(model.bodies.begin(), model.bodies.end());
+        std::reverse(model.geometry.begin(), model.geometry.end());
+        std::reverse(model.constraints.begin(), model.constraints.end());
+    }
+}
+TEST(AssemblySolver, ExactContactPointHasConsistentPreferenceAndPhysicalRank) {
+    Model model;
+    model.bodies.push_back({"instance-28cd6032dd5fc41d700f", {{20.433117768234997,-6.123961296958175,-24.527756824630398},{0.5798600704284028,-0.6190788933988578,0.36213154504811457,0.38647686418708044}}});
+    model.bodies.push_back({"instance-ee78cd8c4fbb10ca61d1", {{31.421585825921767,-5.5497481853993635,17.11035199645002},{0.04215168667435424,-0.7059098595396429,-0.08810465955906183,0.7015355119159761}}});
+    model.geometry.push_back({"geometry:a3f5e6adbde472ba3c1bcd8c3b19b96c9c20b654d0822a52a1914e7ae634df37","instance-28cd6032dd5fc41d700f",CylinderGeometry{{27,-9.714451465470121e-15,3},{2.31296463463574e-16,1,0},3,1}});
+    model.geometry.push_back({"geometry:6d0fde46a53aa9e9ce0cdab4ab9571926b145385f6a44de006da39fe024d2801","instance-28cd6032dd5fc41d700f",PointGeometry{{29.8913664589602,-13.9275776393068,2.2}}});
+    model.geometry.push_back({"geometry:fa8e1d9a0f89a8887f050649d4b893dd5f941186c4df26c099aac0e11efbcedf","instance-ee78cd8c4fbb10ca61d1",CylinderGeometry{{-10.9696551146029,-19,-3},{0,0,1},1.5,1}});
+    model.geometry.push_back({"geometry:7e988233d3b130e688fd0d4659b1aed091df694c3940038e527c57957996d960","instance-ee78cd8c4fbb10ca61d1",PointGeometry{{-12.4696551146029,-19,-3}}});
+    auto c0 = binary("assembly-constraint-83e1c105-b6f4-5982-a099-70541154548e", ConstraintKind::Contact,ref("instance-28cd6032dd5fc41d700f","geometry:a3f5e6adbde472ba3c1bcd8c3b19b96c9c20b654d0822a52a1914e7ae634df37"),ref("instance-ee78cd8c4fbb10ca61d1","geometry:fa8e1d9a0f89a8887f050649d4b893dd5f941186c4df26c099aac0e11efbcedf"));
+    c0.contact_kind = ContactKind::Line;
+    model.constraints.push_back(c0);
+    auto c1 = binary("assembly-constraint-a11ad299-368a-52b1-bfa1-77660beab92e", ConstraintKind::Coincident,ref("instance-28cd6032dd5fc41d700f","geometry:6d0fde46a53aa9e9ce0cdab4ab9571926b145385f6a44de006da39fe024d2801"),ref("instance-ee78cd8c4fbb10ca61d1","geometry:7e988233d3b130e688fd0d4659b1aed091df694c3940038e527c57957996d960"));
+    model.constraints.push_back(c1);
+    SolverOptions options;
+    options.solve_intent = SolveIntent{{"instance-28cd6032dd5fc41d700f"}, {"instance-ee78cd8c4fbb10ca61d1"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
+    for (int order = 0; order < 2; ++order) {
+        const auto result = Solver{}.solve(model, options);
+        ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+        for (const auto& component : result.components) {
+            if (!component.solved) continue;
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged);
+            EXPECT_TRUE(component.preference.geometrically_feasible);
+            EXPECT_LE(component.preference.reference_optimality, options.preference_tolerance);
+            EXPECT_LE(component.preference.total_optimality, options.preference_tolerance);
+        }
+        for (const auto& residual : result.residuals) EXPECT_LE(residual.normalized_norm, 1e-7);
+        std::reverse(model.bodies.begin(), model.bodies.end());
+        std::reverse(model.geometry.begin(), model.geometry.end());
+        std::reverse(model.constraints.begin(), model.constraints.end());
+    }
+}
 }  // namespace
 
 TEST(AssemblySolver, UnorientedConcentricCanReverseForLaterPlaneCoincidence) {

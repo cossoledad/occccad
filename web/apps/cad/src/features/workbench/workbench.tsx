@@ -166,8 +166,8 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
       aria-label={`Constraint status ${status.label}`}>
       <span className="assembly-status-light" style={{ background: status.color }} />
       <span><strong>{status.label}</strong><small>{previewEvaluation?.summary ?? (dirty ? "定义已修改，等待权威预览。" : constraint?.evaluationSummary ?? status.description)}</small></span>
-      {(previewEvaluation?.failure??(!dirty?constraint?.evaluationFailure:undefined))&&<DiagnosticCopy text={diagnosticReference(previewEvaluation?.failure??constraint?.evaluationFailure)}/>}
-      {constraint && evaluationStatus !== "VERIFIED" && !dirty && <Button size="small" onClick={onRefresh}>重新计算</Button>}
+      <div className="assembly-status-actions">{(previewEvaluation?.failure??(!dirty?constraint?.evaluationFailure:undefined))&&<DiagnosticCopy text={diagnosticReference(previewEvaluation?.failure??constraint?.evaluationFailure)}/>}
+      {constraint && evaluationStatus !== "VERIFIED" && !dirty && <Button size="small" onClick={onRefresh}>重新计算</Button>}</div>
     </div>
     {definition.supports > 0 && <div className="assembly-support-list"><strong>支持元素</strong>{references.slice(0, definition.supports).map((reference,index)=><div className="assembly-support-row" key={index}>
       {(() => { const base = assemblySupportPresentation(reference); const preview = index === 0 ? previewEvaluation?.first : previewEvaluation?.second;
@@ -181,11 +181,15 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
             {support.diagnosticCode && <span>{support.diagnosticCode}</span>}</small>
           {support.diagnostic && <small title={support.evidenceDigest}>{support.diagnostic}</small>}
         </span>; })()}
-        {reference && <Button size="small" onClick={()=>onLocate(reference)}>定位</Button>}
-        {reference && derivedSupportOptions(sourceTypes?.[index]).length>0 && <Select aria-label={`支持元素 ${index+1} 的精确子元素`}
-          value={reference.derivedRole??""} options={derivedSupportOptions(sourceTypes?.[index])} onChange={role=>onDerive(index as 0|1,role)}/>}
-        <Button size="small" type={replacing===index?"primary":"default"} onClick={()=>onReplace(index as 0|1)}>
-          {support.status === "NOT_CONNECTED" ? "Reconnect" : "更换"}</Button>
+        <div className="assembly-support-actions">
+          <Button size="small" disabled={!reference} onClick={()=>reference&&onLocate(reference)}>定位</Button>
+          <Button size="small" type={replacing===index?"primary":"default"} onClick={()=>onReplace(index as 0|1)}>
+            {support.status === "NOT_CONNECTED" ? "Reconnect" : "更换"}</Button>
+        </div>
+        {reference && derivedSupportOptions(sourceTypes?.[index]).length>0 && <div className="assembly-support-options">
+          <span>精确子元素</span><Select aria-label={`支持元素 ${index+1} 的精确子元素`}
+          value={reference.derivedRole??""} options={derivedSupportOptions(sourceTypes?.[index])} onChange={role=>onDerive(index as 0|1,role)}/>
+        </div>}
       </>; })()}</div>)}</div>}
     {directionApplicable && <Form.Item name="directionRelation" label="方向"><Select onChange={onValueCommit} options={relation === "PERPENDICULAR" ? [{value:"SAME",label:"正向（90°）"},{value:"OPPOSITE",label:"反向（270°）"}] : [
       {value:"UNORIENTED",label:"未定义"},{value:"SAME",label:"同向"},{value:"OPPOSITE",label:"反向"}]} /></Form.Item>}
@@ -277,6 +281,8 @@ export function Workbench() {
   const [assemblyPreviewEvaluation, setAssemblyPreviewEvaluation] = useState<CommandPreview["constraintEvaluation"]>();
   const [assemblyPreviewCommit, setAssemblyPreviewCommit] = useState(0);
   const assemblyPreviewAbort = useRef<AbortController | undefined>(undefined);
+  // Draft epoch fences UI callbacks; RealtimeClient owns monotonic wire sequences,
+  // including confirmation refreshes of the same draft.
   const assemblyPreviewSequence = useRef(0);
 	const assemblyPreviewID = useRef<string | undefined>(undefined);
   const assemblyCandidate = useRef(new AssemblyCandidateBinding());
@@ -751,13 +757,13 @@ export function Workbench() {
           reverseAngleAxis:pending?.reverseAngleAxis,angleReferenceDirection:pending?.angleReferenceDirection,fixMode:pending?.fixMode});
       const key=assemblyIntentKey(commandInput,editingView.document.id,editingView.document.versionId,activeInstancePath);
 	  void api.previewCommand(editingView.document.id, {...commandInput,
-        interactionId:assemblyInteractionID.current,previewSequence:sequence},controller.signal).then((preview) => {
+        interactionId:assemblyInteractionID.current},controller.signal).then((preview) => {
 		if (!controller.signal.aborted&&sequence===assemblyPreviewSequence.current) {
           if(preview.baseVersionId!==editingView.document.versionId) {
             assemblyPreviewActor.current?.send({type:"REJECT",sequence,error:"STALE_PREVIEW_BASE：预览基线已变化；草稿已保留，请重新预览。"});return;
           }
 		  assemblyPreviewID.current=preview.previewId;
-          if(!assemblyCandidate.current.resolve(bindingGeneration,key,preview.previewId,commandInput)) {
+          if(!assemblyCandidate.current.resolve(bindingGeneration,key,preview.previewId,commandInput,preview.expiresAt)) {
             assemblyPreviewActor.current?.send({type:"REJECT",sequence,error:"预览没有可提交候选，请修正输入并重新预览。"});return;
           }
           setAssemblyPreviewEvaluation(preview.constraintEvaluation);
@@ -1012,6 +1018,37 @@ export function Workbench() {
     await client.invalidateQueries({ queryKey: ["product-releases", documentID] });
     message.success(`产品版本 ${release.name} 已冻结`);
   };
+  const currentAssemblyCandidate = async (target:{id:string;versionId:string}, key:string, sequence:number, force=false) => {
+    return assemblyCandidate.current.ensureCurrent(key, async input => {
+      const controller=new AbortController();assemblyPreviewAbort.current?.abort();assemblyPreviewAbort.current=controller;
+      assemblyPreviewActor.current?.send({type:"REQUEST",sequence});
+      try {
+        const preview=await api.previewCommand(target.id,{...input,interactionId:assemblyInteractionID.current},controller.signal);
+        if(controller.signal.aborted || sequence!==assemblyPreviewSequence.current || preview.baseVersionId!==target.versionId)throw new Error("预览上下文已变化，请重新预览。");
+        setAssemblyPreviewEvaluation(preview.constraintEvaluation);
+        assemblyPreviewID.current=preview.previewId;
+        if(preview.instancePoses)viewport.current?.previewAssemblyPoses(preview.instancePoses);
+        assemblyPreviewActor.current?.send({type:"RESOLVE",sequence,components:preview.assemblyComponents,definitionOnly:preview.evaluationOutcome==="DEFINITION_ONLY"});
+        return preview;
+      } catch(cause) {
+        if(sequence===assemblyPreviewSequence.current && !controller.signal.aborted)assemblyPreviewActor.current?.send({type:"REJECT",sequence,error:String(cause)});
+        throw cause;
+      }
+    },force);
+  };
+  const commitAssemblyCandidate = async (target:{id:string;versionId:string},key:string,input:Record<string,unknown>,sequence:number) => {
+    try {return await api.command(target.id,input);} catch(cause) {
+      const failure=cause as {details?:string;message?:string};
+      // Expiry/eviction may race the freshness check. Re-evaluate this exact
+      // intent once; a changed base or mismatched payload still fails normally.
+      if(!/candidate_expired|candidate_missing_or_consumed/.test(`${failure.details??""} ${failure.message??""}`) || sequence!==assemblyPreviewSequence.current)throw cause;
+      const refreshed=await currentAssemblyCandidate(target,key,sequence,true);
+      if(!refreshed || sequence!==assemblyPreviewSequence.current)throw cause;
+      assemblyPreviewActor.current?.send({type:"CONFIRM"});
+      return api.command(target.id,refreshed);
+    }
+  };
+
   const closeAssemblyCandidate=()=>{
     assemblyDialogLifecycle.current.invalidate();
     assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});
@@ -1407,10 +1444,7 @@ onToggleConstruction:(node)=>{
       assemblyDraftBase.current={documentId:current.document.id,revision:current.document.versionId};
       invalidateAssemblyDefinition();
     }}>使用当前基线重新预览（保留草稿）</Button>}
-    {(assemblyPreviewFailed || motionComponents?.length) ? <Button type="link" size="small"
-      onClick={() => { if (editingView) void api.downloadAssemblyReplay(editingView.document.id).catch(error => message.error(String(error))); }}>
-      下载 3dreplay
-    </Button> : null}
+
   </>;
 
 
@@ -1550,14 +1584,15 @@ onToggleConstruction:(node)=>{
         if(!editingView||!editingAssemblyConstraint)return;
         const constraint=editingAssemblyConstraint, target=editingView.document;
         const intent=assemblyEditIntent(constraint.kind,assemblyConstraintForm.getFieldsValue(true),resolvedAssemblyReferences,lengthUnit,{...constraint,angleAxis:resolvedAngleAxis});
-        const input=assemblyCandidate.current.freeze(assemblyIntentKey(intent,target.id,target.versionId,activeInstancePath));
-        if(!input){invalidateAssemblyDefinition();return;}
+        const key=assemblyIntentKey(intent,target.id,target.versionId,activeInstancePath);
         const sequence=assemblyPreviewSequence.current;
         const dialogGeneration=assemblyDialogLifecycle.current.capture();
         await assemblyConstraintForm.validateFields();
+        const input=await currentAssemblyCandidate(target,key,sequence);
+        if(!input){invalidateAssemblyDefinition();return;}
         if(sequence!==assemblyPreviewSequence.current || !(assemblyPreviewActor.current?.getSnapshot().matches("succeeded") || assemblyPreviewActor.current?.getSnapshot().matches("definitionReady")))return;
 		assemblyPreviewActor.current?.send({type:"CONFIRM"});
-        command.mutate(()=>api.command(target.id,input),{onSuccess:(updated)=>{if(!assemblyDialogLifecycle.current.isCurrent(dialogGeneration))return;assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});if(assemblyPreviewSnapshot.matches("definitionReady"))message.info("约束已保存，等待更新");viewport.current?.clearCommandPreview(false);assemblyPreviewID.current=undefined;setAssemblyDefinitionDirty(false);setReconnectError(undefined);setEditingAssemblyConstraint(undefined);store.setSelection({kind:"assembly-constraint",id:constraint.id,constraintId:constraint.id,constraintType:constraint.kind,documentId:updated.document.id,
+        command.mutate(()=>commitAssemblyCandidate(target,key,input,sequence),{onSuccess:(updated)=>{if(!assemblyDialogLifecycle.current.isCurrent(dialogGeneration))return;assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});if(updated.product?.constraints?.find(c=>c.id === constraint.id)?.evaluationStatus === "NOT_UPDATED")message.info("约束已保存，等待更新");viewport.current?.clearCommandPreview(false);assemblyPreviewID.current=undefined;setAssemblyDefinitionDirty(false);setReconnectError(undefined);setEditingAssemblyConstraint(undefined);store.setSelection({kind:"assembly-constraint",id:constraint.id,constraintId:constraint.id,constraintType:constraint.kind,documentId:updated.document.id,
           occurrencePath:activeInstancePath??"",instancePath:editSession?.editTarget.instancePath,rootDocumentId:activeInstancePath?view?.document.id:undefined,
           treeNodeId:`${view?.constraintDisplayScopes?.find(scope=>scope.documentId===target.id && scope.instancePath.canonical===activeInstancePath)?.treeNodeId??`document:${updated.document.id}`}/assembly-constraints/constraint:${constraint.id}`});},
 		  onError:(cause)=>{if(assemblyDialogLifecycle.current.isCurrent(dialogGeneration))assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)});}});
@@ -1570,7 +1605,22 @@ onToggleConstruction:(node)=>{
           axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis}
           onChange={value=>{invalidateAssemblyDefinition();if(!angleRelationSupportsMeasured(value.angleRelation))assemblyConstraintForm.setFieldValue("constraintMode","DRIVING");if(value.angleRelation === "PERPENDICULAR") assemblyConstraintForm.setFieldValue("directionRelation", assemblyConstraintForm.getFieldValue("directionRelation") === "OPPOSITE" ? "OPPOSITE" : "SAME");setEditingAssemblyConstraint({...editingAssemblyConstraint,...value});}}
           onPick={()=>{store.setSelection(null);setReplacingAssemblyReference(2);store.setActiveTool("select","once");}} />}
-        {editingAssemblyConstraint && <Space>
+
+
+        {editingAssemblyConstraint && <AssemblyConstraintFields kind={editingAssemblyConstraint.kind} view={editingView} lengthUnit={lengthUnit}
+          exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
+          references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second]} replacing={replacingAssemblyReference}
+          constraint={editingAssemblyConstraint} previewEvaluation={assemblyPreviewEvaluation} dirty={assemblyDefinitionDirty}
+
+		  onValueCommit={invalidateAssemblyDefinition}
+          onLocate={(reference)=>{if(!viewport.current?.focusAssemblyReference(reference))setReconnectError("当前支持元素无法在视图区定位。");}}
+		  onRefresh={()=>refreshAssemblyConstraint(editingAssemblyConstraint.id)}
+		  onReplace={(index)=>{store.setSelection(null);setReconnectError(undefined);setReplacingAssemblyReference(index);store.setActiveTool("select","once");}} />}
+        {replacingAssemblyReference !== undefined && <Alert type="info" showIcon message={`Reconnect 支持元素 ${replacingAssemblyReference + 1}`}
+          description="在视图区选择新的几何元素；Esc 取消整个编辑会话。" />}
+        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={reconnectError} />}
+        {assemblyPreviewFeedback}
+        {editingAssemblyConstraint && <Space className="assembly-constraint-actions">
           <Button disabled={command.isPending} onClick={() => {
             if (!editingView) return;
             const constraint = editingAssemblyConstraint;
@@ -1589,20 +1639,6 @@ onToggleConstruction:(node)=>{
               {onSuccess:()=>setEditingAssemblyConstraint(undefined)});
           }}>{editingAssemblyConstraint.mode === "MEASURED" ? "改为驱动" : "改为测量"}</Button>}
         </Space>}
-
-        {editingAssemblyConstraint && <AssemblyConstraintFields kind={editingAssemblyConstraint.kind} view={editingView} lengthUnit={lengthUnit}
-          exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
-          references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second]} replacing={replacingAssemblyReference}
-          constraint={editingAssemblyConstraint} previewEvaluation={assemblyPreviewEvaluation} dirty={assemblyDefinitionDirty}
-
-		  onValueCommit={invalidateAssemblyDefinition}
-          onLocate={(reference)=>{if(!viewport.current?.focusAssemblyReference(reference))setReconnectError("当前支持元素无法在视图区定位。");}}
-		  onRefresh={()=>refreshAssemblyConstraint(editingAssemblyConstraint.id)}
-		  onReplace={(index)=>{store.setSelection(null);setReconnectError(undefined);setReplacingAssemblyReference(index);store.setActiveTool("select","once");}} />}
-        {replacingAssemblyReference !== undefined && <Alert type="info" showIcon message={`Reconnect 支持元素 ${replacingAssemblyReference + 1}`}
-          description="在视图区选择新的几何元素；Esc 取消整个编辑会话。" />}
-        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={reconnectError} />}
-        {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
     <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" size="M"
@@ -1615,14 +1651,15 @@ onToggleConstruction:(node)=>{
         const target=editingView.document;
         const intent=assemblyEditIntent(pending.kind.toUpperCase(),assemblyConstraintForm.getFieldsValue(true),resolvedAssemblyReferences,lengthUnit,undefined,
           {angleRelation:pending.angleRelation,angleAxis:resolvedAngleAxis,reverseAngleAxis:pending.reverseAngleAxis,angleReferenceDirection:pending.angleReferenceDirection,fixMode:pending.fixMode});
-        const input=assemblyCandidate.current.freeze(assemblyIntentKey(intent,target.id,target.versionId,activeInstancePath));
-        if(!input){invalidateAssemblyDefinition();return;}
+        const key=assemblyIntentKey(intent,target.id,target.versionId,activeInstancePath);
         const sequence=assemblyPreviewSequence.current;
         const dialogGeneration=assemblyDialogLifecycle.current.capture();
         await assemblyConstraintForm.validateFields();
+        const input=await currentAssemblyCandidate(target,key,sequence);
+        if(!input){invalidateAssemblyDefinition();return;}
         if(sequence!==assemblyPreviewSequence.current || !(assemblyPreviewActor.current?.getSnapshot().matches("succeeded") || assemblyPreviewActor.current?.getSnapshot().matches("definitionReady")))return;
 		assemblyPreviewActor.current?.send({type:"CONFIRM"});
-        command.mutate(() => api.command(target.id,input), { onSuccess: () => {if(!assemblyDialogLifecycle.current.isCurrent(dialogGeneration))return; assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});if(assemblyPreviewSnapshot.matches("definitionReady"))message.info("约束已保存，等待更新");viewport.current?.clearCommandPreview(false); assemblyPreviewID.current=undefined; setReconnectError(undefined); setAssemblyDefinitionDirty(false); setPendingAssemblyConstraint(undefined); },
+        command.mutate(() => commitAssemblyCandidate(target,key,input,sequence), { onSuccess: (updated) => {if(!assemblyDialogLifecycle.current.isCurrent(dialogGeneration))return; assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});if(updated.product?.constraints?.at(-1)?.evaluationStatus === "NOT_UPDATED")message.info("约束已保存，等待更新");viewport.current?.clearCommandPreview(false); assemblyPreviewID.current=undefined; setReconnectError(undefined); setAssemblyDefinitionDirty(false); setPendingAssemblyConstraint(undefined); },
 		  onError:(cause)=>{if(assemblyDialogLifecycle.current.isCurrent(dialogGeneration))assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)});} });
       }}>
       <Form form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>

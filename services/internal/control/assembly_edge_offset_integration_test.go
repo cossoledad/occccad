@@ -9,26 +9,19 @@ import (
 	"testing"
 
 	"github.com/occccad/occccad/internal/artifact"
-	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 // Real independent Part B-Reps, persistent EDGE selections, Router, Worker and
 // transaction history: not a Datum approximation of the reported edge failure.
 func TestOffsetParallelPartEdgesThroughRouter(t *testing.T) {
-	binary, url := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_DATABASE_URL")
-	if binary == "" || url == "" {
-		t.Skip("requires disposable TEST_DATABASE_URL and matching real Worker")
+	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	if binary == "" {
+		t.Skip("requires matching real Geometry Worker")
 	}
-	db, err := database.Open(t.Context(), url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(db.Close)
-	if err = database.Migrate(t.Context(), db); err != nil {
-		t.Fatal(err)
-	}
+	db := testsupport.OpenPostgres(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

@@ -81,13 +81,8 @@ async function downloadDiagnosticBundle(documentId: string, command: Record<stri
 	window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
 }
 
-// Exact request keys prevent a late preview or another browser's solve from
-// replacing the diagnostic requested for the current operation.
-const assemblyReplayRequests = new Map<string, string>();
-async function downloadAssemblyReplay(documentId: string): Promise<void> {
-  const key = assemblyReplayRequests.get(documentId);
-  const query = key ? `?requestId=${encodeURIComponent(key)}` : "";
-  const response = await fetch(apiURL(`/api/documents/${documentId}/assembly-replays/latest${query}`), { credentials: "include" });
+async function downloadAssemblyDiagnostic(documentId: string): Promise<void> {
+  const response = await fetch(apiURL(`/api/documents/${documentId}/assembly-diagnostic`), { credentials: "include" });
   if (!response.ok) {
     const value = await response.json().catch(() => ({}));
     throw new Error(value.error ?? `3dreplay download failed: HTTP ${response.status}`);
@@ -102,7 +97,6 @@ async function downloadAssemblyReplay(documentId: string): Promise<void> {
 
 async function executeDocumentCommand(documentId: string, command: Record<string, unknown>): Promise<DocumentView> {
 	const commandWithID: Record<string, unknown> = { requestId: previewIdentities.requestFor(documentId, command.previewId) ?? requestId(), ...command };
-	if (!commandWithID.previewId) assemblyReplayRequests.set(documentId, String(commandWithID.requestId));
 	try {
 		return documentRegistry.validate(await realtime.executeCommand(documentId, commandWithID));
 	} catch (cause) {
@@ -302,10 +296,9 @@ export const restApi = {
 	command: executeDocumentCommand,
 	downloadDiagnosticBundle: (documentId: string) => downloadDiagnosticBundle(documentId,
 		{ type: "MANUAL_DIAGNOSTIC_EXPORT", requestId: requestId() }, "manual diagnostic export"),
-  downloadAssemblyReplay,
+  downloadAssemblyDiagnostic,
   previewCommand: async (documentId: string, command: Record<string, unknown>, signal?: AbortSignal) => {
     const input = { requestId: requestId(), ...command };
-    assemblyReplayRequests.set(documentId, `preview/${input.requestId}`);
     let result;
     try {result=await realtime.previewCommand(documentId,input,signal);}
     catch(cause){if(cause instanceof Error)Object.assign(cause,{requestId:String(input.requestId)});throw cause;}

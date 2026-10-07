@@ -497,77 +497,7 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	geometryValues []AssemblyGeometry, constraints []AssemblyConstraint, options AssemblySolveOptions) (AssemblySolve, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1, AffectedBodyIds: options.AffectedBodyIDs, DisableConflictProbes: options.DisableConflictProbes}
-	if t := options.DragTarget; t != nil {
-		request.DragTarget = &workerv1.AssemblyDragTarget{BodyId: t.BodyID, LocalGrabPoint: &workerv1.Vec3{X: t.LocalGrabPoint[0], Y: t.LocalGrabPoint[1], Z: t.LocalGrabPoint[2]}, TargetPose: protoPose(t.TargetPose), FrameRotation: &workerv1.Quaternion{X: t.FrameRotation[0], Y: t.FrameRotation[1], Z: t.FrameRotation[2], W: t.FrameRotation[3]}, TranslationComponents: t.TranslationComponents[:], RotationComponents: t.RotationComponents[:], TargetSequence: t.TargetSequence, HoldTranslationComponents: t.HoldTranslationComponents[:], HoldRotationComponents: t.HoldRotationComponents[:]}
-	}
-	if options.Intent != nil {
-		request.SolveIntent = &workerv1.AssemblySolveIntent{MovingBodyIds: options.Intent.MovingBodyIDs, ReferenceBodyIds: options.Intent.ReferenceBodyIDs, PreferencePolicy: options.Intent.PreferencePolicy}
-	}
-	if options.SolverProfile != nil {
-		profile := options.SolverProfile
-		request.SolverProfile = &workerv1.AssemblySolverProfile{SchemaVersion: profile.SchemaVersion,
-			MaxIterations: profile.MaxIterations, LengthTolerance: profile.LengthTolerance,
-			AngleTolerance:                profile.AngleTolerance,
-			ClassificationLengthTolerance: profile.ClassificationLengthTolerance,
-			ClassificationAngleTolerance:  profile.ClassificationAngleTolerance,
-			TranslationStepTolerance:      profile.TranslationStepTolerance,
-			RotationStepTolerance:         profile.RotationStepTolerance,
-			DegeneracyTolerance:           profile.DegeneracyTolerance,
-			FiniteDifferenceStep:          profile.FiniteDifferenceStep,
-			InitialDamping:                profile.InitialDamping, RankTolerance: profile.RankTolerance,
-			TranslationFiniteDifferenceStep: profile.TranslationFiniteDifferenceStep,
-			RotationFiniteDifferenceStep:    profile.RotationFiniteDifferenceStep,
-			RankAbsoluteTolerance:           profile.RankAbsoluteTolerance, RankRelativeTolerance: profile.RankRelativeTolerance,
-			GradientTolerance: profile.GradientTolerance, MotionLengthScale: profile.MotionLengthScale,
-			MotionAngleScale: profile.MotionAngleScale, PreferenceTolerance: profile.PreferenceTolerance,
-			ObjectiveTolerance: profile.ObjectiveTolerance, MaxPreferenceIterations: profile.MaxPreferenceIterations,
-			MaxConflictProbes: profile.MaxConflictProbes, VerifyAnalyticJacobians: profile.VerifyAnalyticJacobians,
-			JacobianCheckTolerance: profile.JacobianCheckTolerance}
-	}
-	for _, body := range bodies {
-		item := &workerv1.AssemblyBody{Id: body.ID, InitialPose: protoPose(body.Pose)}
-		if body.InitialGuess != nil {
-			item.InitialGuess = protoPose(*body.InitialGuess)
-		}
-		request.Bodies = append(request.Bodies, item)
-	}
-	for _, value := range geometryValues {
-		request.Geometry = append(request.Geometry, &workerv1.AssemblyGeometry{Id: value.ID, BodyId: value.BodyID, Kind: value.Kind,
-			HalfAngle: value.HalfAngle, ConeLeaf: value.ConeLeaf, MaterialSide: value.MaterialSide,
-			Rotation:       &workerv1.Quaternion{X: value.Rotation[0], Y: value.Rotation[1], Z: value.Rotation[2], W: value.Rotation[3]},
-			XDirection:     &workerv1.Vec3{X: value.XDirection[0], Y: value.XDirection[1], Z: value.XDirection[2]},
-			ParameterStart: value.ParameterStart, ParameterEnd: value.ParameterEnd, LengthUnit: value.LengthUnit,
-			Origin:    &workerv1.Vec3{X: value.Origin[0], Y: value.Origin[1], Z: value.Origin[2]},
-			Direction: &workerv1.Vec3{X: value.Direction[0], Y: value.Direction[1], Z: value.Direction[2]}, Radius: value.Radius})
-	}
-	for _, value := range constraints {
-		item := &workerv1.AssemblyConstraint{Id: value.ID, Kind: value.Kind, Value: value.Value,
-			ContactKind: value.ContactKind, ContactSide: value.ContactSide, ContactBranch: value.ContactBranch, GroupId: value.GroupID,
-			ConnectionId: value.ConnectionID, Mode: value.Mode,
-			DirectionRelation: value.DirectionRelation, DistanceRelation: value.DistanceRelation,
-			First: &workerv1.AssemblyGeometryRef{BodyId: value.FirstBodyID, GeometryId: value.FirstGeometryID}}
-		if value.SecondBodyID != "" {
-			item.Second = &workerv1.AssemblyGeometryRef{BodyId: value.SecondBodyID, GeometryId: value.SecondGeometryID}
-		}
-		if value.AngleReferenceGeometryID != "" {
-			item.AngleReference = &workerv1.AssemblyGeometryRef{BodyId: value.AngleReferenceBodyID, GeometryId: value.AngleReferenceGeometryID}
-			item.ReverseAngleReference = value.ReverseAngleReference
-		}
-		if value.FixedPose != nil {
-			item.FixedPose = protoPose(*value.FixedPose)
-		}
-		if value.AngleReferenceDirection != nil {
-			item.AngleReferenceDirection = &workerv1.Vec3{X: value.AngleReferenceDirection[0], Y: value.AngleReferenceDirection[1], Z: value.AngleReferenceDirection[2]}
-		}
-		if v := value.SpatialAngleBranchDirection; v != nil {
-			item.SpatialAngleBranchDirection = &workerv1.Vec3{X: v[0], Y: v[1], Z: v[2]}
-		}
-		if value.AngleBranchState != nil {
-			item.AngleBranchState = &workerv1.AssemblyAngleBranchState{WrappedAngle: value.AngleBranchState.WrappedAngle, UnwrappedAngle: value.AngleBranchState.UnwrappedAngle, Winding: value.AngleBranchState.Winding}
-		}
-		request.Constraints = append(request.Constraints, item)
-	}
+	request := assemblySolveRequest(requestID, bodies, geometryValues, constraints, options)
 	response, err := client.worker.SolveAssembly(ctx, request)
 	if options.CaptureReplay != nil {
 		data, captureErr := makeAssemblyReplay(request, response, err)
@@ -1050,4 +980,80 @@ func (client *Client) ResolveLoftCorrespondence(ctx context.Context, requestID s
 		}
 	}
 	return result, nil
+}
+
+// assemblySolveRequest is shared by RPC execution and read-only diagnostic export.
+func assemblySolveRequest(requestID string, bodies []AssemblyBody, geometryValues []AssemblyGeometry, constraints []AssemblyConstraint, options AssemblySolveOptions) *workerv1.SolveAssemblyRequest {
+	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1, AffectedBodyIds: options.AffectedBodyIDs, DisableConflictProbes: options.DisableConflictProbes}
+	if t := options.DragTarget; t != nil {
+		request.DragTarget = &workerv1.AssemblyDragTarget{BodyId: t.BodyID, LocalGrabPoint: &workerv1.Vec3{X: t.LocalGrabPoint[0], Y: t.LocalGrabPoint[1], Z: t.LocalGrabPoint[2]}, TargetPose: protoPose(t.TargetPose), FrameRotation: &workerv1.Quaternion{X: t.FrameRotation[0], Y: t.FrameRotation[1], Z: t.FrameRotation[2], W: t.FrameRotation[3]}, TranslationComponents: t.TranslationComponents[:], RotationComponents: t.RotationComponents[:], TargetSequence: t.TargetSequence, HoldTranslationComponents: t.HoldTranslationComponents[:], HoldRotationComponents: t.HoldRotationComponents[:]}
+	}
+	if options.Intent != nil {
+		request.SolveIntent = &workerv1.AssemblySolveIntent{MovingBodyIds: options.Intent.MovingBodyIDs, ReferenceBodyIds: options.Intent.ReferenceBodyIDs, PreferencePolicy: options.Intent.PreferencePolicy}
+	}
+	if options.SolverProfile != nil {
+		profile := options.SolverProfile
+		request.SolverProfile = &workerv1.AssemblySolverProfile{SchemaVersion: profile.SchemaVersion,
+			MaxIterations: profile.MaxIterations, LengthTolerance: profile.LengthTolerance,
+			AngleTolerance:                profile.AngleTolerance,
+			ClassificationLengthTolerance: profile.ClassificationLengthTolerance,
+			ClassificationAngleTolerance:  profile.ClassificationAngleTolerance,
+			TranslationStepTolerance:      profile.TranslationStepTolerance,
+			RotationStepTolerance:         profile.RotationStepTolerance,
+			DegeneracyTolerance:           profile.DegeneracyTolerance,
+			FiniteDifferenceStep:          profile.FiniteDifferenceStep,
+			InitialDamping:                profile.InitialDamping, RankTolerance: profile.RankTolerance,
+			TranslationFiniteDifferenceStep: profile.TranslationFiniteDifferenceStep,
+			RotationFiniteDifferenceStep:    profile.RotationFiniteDifferenceStep,
+			RankAbsoluteTolerance:           profile.RankAbsoluteTolerance, RankRelativeTolerance: profile.RankRelativeTolerance,
+			GradientTolerance: profile.GradientTolerance, MotionLengthScale: profile.MotionLengthScale,
+			MotionAngleScale: profile.MotionAngleScale, PreferenceTolerance: profile.PreferenceTolerance,
+			ObjectiveTolerance: profile.ObjectiveTolerance, MaxPreferenceIterations: profile.MaxPreferenceIterations,
+			MaxConflictProbes: profile.MaxConflictProbes, VerifyAnalyticJacobians: profile.VerifyAnalyticJacobians,
+			JacobianCheckTolerance: profile.JacobianCheckTolerance}
+	}
+	for _, body := range bodies {
+		item := &workerv1.AssemblyBody{Id: body.ID, InitialPose: protoPose(body.Pose)}
+		if body.InitialGuess != nil {
+			item.InitialGuess = protoPose(*body.InitialGuess)
+		}
+		request.Bodies = append(request.Bodies, item)
+	}
+	for _, value := range geometryValues {
+		request.Geometry = append(request.Geometry, &workerv1.AssemblyGeometry{Id: value.ID, BodyId: value.BodyID, Kind: value.Kind,
+			HalfAngle: value.HalfAngle, ConeLeaf: value.ConeLeaf, MaterialSide: value.MaterialSide,
+			Rotation:       &workerv1.Quaternion{X: value.Rotation[0], Y: value.Rotation[1], Z: value.Rotation[2], W: value.Rotation[3]},
+			XDirection:     &workerv1.Vec3{X: value.XDirection[0], Y: value.XDirection[1], Z: value.XDirection[2]},
+			ParameterStart: value.ParameterStart, ParameterEnd: value.ParameterEnd, LengthUnit: value.LengthUnit,
+			Origin:    &workerv1.Vec3{X: value.Origin[0], Y: value.Origin[1], Z: value.Origin[2]},
+			Direction: &workerv1.Vec3{X: value.Direction[0], Y: value.Direction[1], Z: value.Direction[2]}, Radius: value.Radius})
+	}
+	for _, value := range constraints {
+		item := &workerv1.AssemblyConstraint{Id: value.ID, Kind: value.Kind, Value: value.Value,
+			ContactKind: value.ContactKind, ContactSide: value.ContactSide, ContactBranch: value.ContactBranch, GroupId: value.GroupID,
+			ConnectionId: value.ConnectionID, Mode: value.Mode,
+			DirectionRelation: value.DirectionRelation, DistanceRelation: value.DistanceRelation,
+			First: &workerv1.AssemblyGeometryRef{BodyId: value.FirstBodyID, GeometryId: value.FirstGeometryID}}
+		if value.SecondBodyID != "" {
+			item.Second = &workerv1.AssemblyGeometryRef{BodyId: value.SecondBodyID, GeometryId: value.SecondGeometryID}
+		}
+		if value.AngleReferenceGeometryID != "" {
+			item.AngleReference = &workerv1.AssemblyGeometryRef{BodyId: value.AngleReferenceBodyID, GeometryId: value.AngleReferenceGeometryID}
+			item.ReverseAngleReference = value.ReverseAngleReference
+		}
+		if value.FixedPose != nil {
+			item.FixedPose = protoPose(*value.FixedPose)
+		}
+		if value.AngleReferenceDirection != nil {
+			item.AngleReferenceDirection = &workerv1.Vec3{X: value.AngleReferenceDirection[0], Y: value.AngleReferenceDirection[1], Z: value.AngleReferenceDirection[2]}
+		}
+		if v := value.SpatialAngleBranchDirection; v != nil {
+			item.SpatialAngleBranchDirection = &workerv1.Vec3{X: v[0], Y: v[1], Z: v[2]}
+		}
+		if value.AngleBranchState != nil {
+			item.AngleBranchState = &workerv1.AssemblyAngleBranchState{WrappedAngle: value.AngleBranchState.WrappedAngle, UnwrappedAngle: value.AngleBranchState.UnwrappedAngle, Winding: value.AngleBranchState.Winding}
+		}
+		request.Constraints = append(request.Constraints, item)
+	}
+	return request
 }

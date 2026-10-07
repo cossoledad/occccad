@@ -1237,6 +1237,7 @@ type CommandRequest struct {
 // used by ApplyCommand. The base revision lets clients reject a response that
 // arrived after the workspace head changed.
 type CommandPreview struct {
+	ExpiresAt            string                               `json:"expiresAt,omitempty"`
 	Runtime              *EvaluationRuntime                   `json:"runtime,omitempty"`
 	ReferenceGeometry    *ReferenceGeometry                   `json:"referenceGeometry,omitempty"`
 	ParameterCandidates  []modelcore.ParameterDefinition      `json:"parameterCandidates,omitempty"`

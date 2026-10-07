@@ -767,10 +767,19 @@ select {
 .assembly-constraint-status strong, .assembly-constraint-status small { display: block; }
 .assembly-constraint-status strong { font-size: 12px; }
 .assembly-constraint-status small { margin-top: 2px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.35; }
-.assembly-support-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto; align-items: center; gap: 8px;
+.assembly-support-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px;
   min-height: 34px; padding: 4px 6px; border: 1px solid var(--color-border); background: var(--color-subtle); }
 .assembly-support-row > span { color: var(--color-text-secondary); font-size: 12px; text-align: center; }
 .assembly-support-row .assembly-support-detail { display: grid; min-width: 0; gap: 2px; text-align: left; }
+.assembly-support-actions { display: grid; grid-template-columns: 44px 76px; align-self: start; gap: 6px; }
+.assembly-status-actions { display: flex; align-items: start; gap: 6px; }
+.assembly-support-options { grid-column: 2 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px;
+  padding-top: 6px; border-top: 1px solid var(--color-border); color: var(--color-text-secondary); font-size: 12px; }
+.assembly-constraint-actions { display: flex; justify-content: flex-end; margin: 14px 0 0; padding: 8px 0 0; border-top: 1px solid var(--color-border); }
+.diagnostic-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.assembly-status-actions:has(.ant-input) { grid-column: 2 / -1; flex-wrap: wrap; }
+.assembly-status-actions .diagnostic-copy:has(.ant-input) { flex: 1; }
+.diagnostic-copy .ant-input { min-width: 0; width: 100%; font: 11px/1.4 ui-monospace, monospace; }
 .assembly-support-detail small { display: flex; overflow: hidden; align-items: center; gap: 5px; color: var(--color-text-secondary);
   font-size: 12px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .assembly-support-detail .ant-tag { margin: 0; font-size: 12px; line-height: 15px; }

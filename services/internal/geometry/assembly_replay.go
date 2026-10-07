@@ -21,6 +21,8 @@ type AssemblyReplay struct {
 	Request        json.RawMessage `json:"request"`
 	Result         json.RawMessage `json:"result,omitempty"`
 	TransportError string          `json:"transportError,omitempty"`
+	Snapshot       json.RawMessage `json:"snapshot,omitempty"`
+	AssemblyResult json.RawMessage `json:"assemblyResult,omitempty"`
 }
 
 func makeAssemblyReplay(request *workerv1.SolveAssemblyRequest, result *workerv1.SolveAssemblyResponse, solveErr error) ([]byte, error) {
@@ -75,6 +77,11 @@ func makeAssemblyReplay(request *workerv1.SolveAssemblyRequest, result *workerv1
 	return json.Marshal(replay)
 }
 
+// MakeAssemblyReplay freezes the exact production RPC encoding without a solve.
+func MakeAssemblyReplay(requestID string, bodies []AssemblyBody, values []AssemblyGeometry, constraints []AssemblyConstraint, options AssemblySolveOptions) ([]byte, error) {
+	return makeAssemblyReplay(assemblySolveRequest(requestID, bodies, values, constraints, options), nil, nil)
+}
+
 // ReplayAssembly uses the same public RPC and validation as an ordinary solve.
 func (client *Client) ReplayAssembly(ctx context.Context, data []byte) ([]byte, error) {
 	var replay AssemblyReplay
@@ -89,5 +96,14 @@ func (client *Client) ReplayAssembly(ctx context.Context, data []byte) ([]byte, 
 		return nil, err
 	}
 	result, solveErr := client.worker.SolveAssembly(ctx, &input)
-	return makeAssemblyReplay(&input, result, solveErr)
+	output, err := makeAssemblyReplay(&input, result, solveErr)
+	if err != nil {
+		return nil, err
+	}
+	var updated AssemblyReplay
+	if err = json.Unmarshal(output, &updated); err != nil {
+		return nil, err
+	}
+	updated.Snapshot = replay.Snapshot
+	return json.Marshal(updated)
 }

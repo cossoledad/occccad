@@ -88,6 +88,11 @@ try {
  const [timer, entry] = [...timers].find(([, value]) => value.ms === 125_000);
  window.clearTimeout(timer); entry.fn(); await timeoutRejected;
  assert.ok(sent.some(e => e.type === "workspace.preview.cancel.v1" && e.payload.interactionId === "timed"));
+ // Confirmation refresh keeps the draft identity while wire sequences advance.
+ onRequest = (socket, request) => { if (request.type === "workspace.preview.request.v1") socket.reply(request, {interactionId:request.payload.interactionId,previewSequence:request.payload.previewSequence,preview:{previewId:`refresh-${request.payload.previewSequence}`,baseSequence:4}}); };
+ const refreshSequences=[];
+ for(let attempt=0;attempt<3;attempt++) refreshSequences.push((await client.previewCommand("part",{type:"ADD_ASSEMBLY_CONSTRAINT",interactionId:"confirmation"})).previewId);
+ assert.deepEqual(refreshSequences,["refresh-1","refresh-2","refresh-3"]);
  // M4 uses direct typed RPC responses, not the generic preview-ready envelope.
  // Server-bound final MOVE keeps its exact logical requestId across retries.
  const interactionTarget={bodyId:"a",localGrabPoint:[1,2,3],targetPose:{translation:[4,5,6],rotation:[0,0,0,1]},frameRotation:[0,0,0,1],translationComponents:[true,false,false],rotationComponents:[false,false,false],targetSequence:9};
@@ -128,9 +133,9 @@ try {
  assert.equal(sent.filter(e=>e.type==="assembly.conflict.cancel.v1"&&e.payload.analysisId==="analysis-identity").length,1);
  delayedAnalysis.socket.reply(delayedAnalysis.request,{status:"UNSAT"});await tick();
  // Validation failures and oversize messages must never be retried as transport loss.
- onRequest = (socket, request) => socket.reply(request, undefined, { code: "VALIDATION_FAILED", message: "bad input", retryable: false, phase: "SOLVING" });
+ onRequest = (socket, request) => socket.reply(request, undefined, { code: "VALIDATION_FAILED", message: "bad input", retryable: false, phase: "SOLVING", details: "PREVIEW_CANDIDATE_STALE_OR_MISMATCHED: candidate_expired" });
  const before = sent.length;
- await assert.rejects(client.executeCommand("part", { type: "BAD" }), error => error.code === "VALIDATION_FAILED" && error.phase === "SOLVING");
+ await assert.rejects(client.executeCommand("part", { type: "BAD" }), error => error.code === "VALIDATION_FAILED" && error.phase === "SOLVING" && error.details.endsWith("candidate_expired"));
  assert.equal(sent.length, before + 1);
  await assert.rejects(client.executeCommand("part", { type: "BIG", value: "x".repeat(1 << 20) }), error => error.code === "MESSAGE_TOO_LARGE");
  const connectionCount = sockets.length;

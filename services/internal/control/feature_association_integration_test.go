@@ -18,12 +18,23 @@ import (
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/visual"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 func TestFeatureAssociationFanLifecycleThroughRouter(t *testing.T) {
 	service, artifacts, db, client := featureAssociationTestService(t)
+	verifyFeatureAssociationFanLifecycle(t, service, artifacts, db, client)
+}
+
+func TestPostgresFeatureAssociationFanLifecycleThroughRouter(t *testing.T) {
+	service, artifacts, db, client := postgresGeometryTestService(t)
+	verifyFeatureAssociationFanLifecycle(t, service, artifacts, db, client)
+}
+
+func verifyFeatureAssociationFanLifecycle(t *testing.T, service *workspace.Service, artifacts *artifact.Service, db database.DB, client *geometry.Client) {
+	t.Helper()
 	diagnostics, err := debugartifact.NewStore(t.TempDir(), 50, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -311,6 +322,21 @@ func featureAssociationRuntimeService(t *testing.T) (*workspace.Service, *artifa
 	if err = database.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
+	return geometryRuntimeTestService(t, db)
+}
+
+func postgresGeometryTestService(t *testing.T) (*workspace.Service, *artifact.Service, database.DB, *geometry.Client) {
+	t.Helper()
+	if os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER") == "" {
+		t.Skip("requires built Geometry Worker")
+	}
+	service, artifacts, db, client, _ := geometryRuntimeTestService(t, testsupport.OpenPostgres(t))
+	return service, artifacts, db, client
+}
+
+func geometryRuntimeTestService(t *testing.T, db *database.Pool) (*workspace.Service, *artifact.Service, database.DB, *geometry.Client, *GeometryPool) {
+	t.Helper()
+	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
