@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
@@ -70,20 +71,21 @@ func (service *Service) BranchWorkspace(ctx context.Context, documentID string, 
 }
 
 type Service struct {
-	prepared              preparedCache
-	database              database.DB
-	worker                *geometry.Client
-	artifacts             *artifactstore.Service
-	artifactCacheMu       sync.RWMutex
-	artifactCache         map[string]Artifact
-	artifactCacheOrder    []string
-	debugArtifacts        *debugartifact.Store
-	diagnosticArtifacts   *debugartifact.Store
-	debugArtifactWrites   chan debugArtifactWrite
-	interactionCandidates interactionCandidateCache
-	assemblyWarmStarts    assemblyWarmStartCache
-	assemblyInteractions  assemblyInteractionCache
-	selectionResolutions  sync.Map
+	prepared                 preparedCache
+	database                 database.DB
+	worker                   *geometry.Client
+	artifacts                *artifactstore.Service
+	artifactCacheMu          sync.RWMutex
+	artifactCache            map[string]Artifact
+	artifactCacheOrder       []string
+	debugArtifacts           *debugartifact.Store
+	diagnosticArtifacts      *debugartifact.Store
+	debugArtifactWrites      chan debugArtifactWrite
+	debugArtifactQueuedBytes atomic.Int64
+	interactionCandidates    interactionCandidateCache
+	assemblyWarmStarts       assemblyWarmStartCache
+	assemblyInteractions     assemblyInteractionCache
+	selectionResolutions     sync.Map
 }
 
 func New(database database.DB, worker *geometry.Client) *Service {

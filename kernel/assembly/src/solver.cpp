@@ -1,5 +1,4 @@
 #include <occccad/assembly/solver.hpp>
-#include "contact.hpp"
 
 #include <Eigen/Cholesky>
 #include <Eigen/Core>
@@ -9,16 +8,20 @@
 #include <Eigen/QR>
 #include <Eigen/SVD>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <numeric>
 #include <queue>
 #include <set>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+
+#include "contact.hpp"
 
 namespace occccad::assembly {
 namespace {
@@ -26,6 +29,57 @@ namespace {
 using Vector = Eigen::VectorXd;
 using Vector3 = Eigen::Vector3d;
 using EigenQuaternion = Eigen::Quaterniond;
+
+thread_local const char* trace_stage = "DIAGNOSTICS";
+thread_local std::size_t trace_iteration = 0;
+thread_local SolveMetrics* active_metrics = nullptr;
+struct TracePhaseScope {
+    const char* previous = trace_stage;
+    std::size_t iteration = trace_iteration;
+    const char* current;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    explicit TracePhaseScope(const char* stage) : current(stage) {
+        trace_stage = stage;
+        trace_iteration = 0;
+    }
+    ~TracePhaseScope() {
+        if (active_metrics) {
+            const double elapsed =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+                    .count();
+            if (std::string_view(current) == "HARD_FEASIBILITY")
+                active_metrics->hard_feasibility_ms += elapsed;
+            else if (std::string_view(current) == "FEASIBILITY_RETRACTION")
+                active_metrics->feasibility_retraction_ms += elapsed;
+            else if (std::string_view(current) == "PREFERENCE")
+                active_metrics->preference_ms += elapsed;
+        }
+        trace_stage = previous;
+        trace_iteration = iteration;
+    }
+};
+thread_local unsigned numerical_scopes = 0;
+class EvaluationTimer {
+public:
+    explicit EvaluationTimer(bool jacobian)
+        : jacobian_(jacobian), metrics_(active_metrics), start_(std::chrono::steady_clock::now()) {
+        ++numerical_scopes;
+        if (metrics_)
+            ++(jacobian_ ? metrics_->jacobian_evaluations : metrics_->residual_evaluations);
+    }
+    ~EvaluationTimer() {
+        --numerical_scopes;
+        if (metrics_)
+            (jacobian_ ? metrics_->jacobian_ms : metrics_->residual_ms) +=
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_)
+                    .count();
+    }
+
+private:
+    bool jacobian_;
+    SolveMetrics* metrics_;
+    std::chrono::steady_clock::time_point start_;
+};
 
 constexpr double kDirectionEpsilon = 1.0e-12;
 constexpr double kPi = 3.141592653589793238462643383279502884;
@@ -1379,10 +1433,20 @@ struct Component {
     bool selected{true};
 };
 
+struct BoundEndpoint {
+    const GeometryElement* geometry{};
+    std::size_t body{}, cluster{};
+};
+struct BoundConstraint {
+    BoundEndpoint first, second, angle;
+    Constraint numerical;
+};
+
 class CompiledAssembly final {
 public:
     CompiledAssembly(const Model& model, const SolverOptions& options)
         : model_(model), options_(options), constraints_(model.constraints) {
+        const auto compile_start = std::chrono::steady_clock::now();
         validate_and_index();
         // A zero point distance is a coincidence manifold, not a differentiable
         // scalar norm equation. Preserve its true rank at the zero solution.
@@ -1403,7 +1467,13 @@ public:
         }
         build_clusters();
         freeze_branches();
+        bind_endpoints();
         build_components();
+        if (active_metrics)
+            active_metrics->input_compile_ms +=
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                          compile_start)
+                    .count();
     }
 
     const Model& model() const { return model_; }
@@ -1412,12 +1482,18 @@ public:
     std::vector<Cluster>& clusters() { return clusters_; }
     const std::vector<Component>& components() const { return components_; }
     const Constraint& constraint(const std::size_t index) const { return constraints_.at(index); }
+    const BoundConstraint& binding(std::size_t index) const { return bindings_.at(index); }
     const ConstraintBranchState& branch(const std::size_t index) const {
         return branches_.at(index);
     }
     const std::vector<Constraint>& constraints() const { return constraints_; }
 
     const GeometryElement& geometry(const GeometryRef& reference) const {
+        if (active_metrics && numerical_scopes) {
+            ++active_metrics->hot_string_lookups;
+            active_metrics->hot_string_bytes +=
+                reference.body_id.size() + reference.geometry_id.size() + 1;
+        }
         const auto found =
             geometry_index_.find(geometry_key(reference.body_id, reference.geometry_id));
         if (found == geometry_index_.end())
@@ -1442,6 +1518,32 @@ public:
     }
 
 private:
+    void bind_endpoints() {
+        const auto bind = [&](const GeometryRef& ref) {
+            const auto body = body_index(ref.body_id);
+            return BoundEndpoint{ref.geometry_id.empty() ? nullptr : &geometry(ref), body,
+                                 body_to_cluster_.at(body)};
+        };
+        bindings_.reserve(constraints_.size());
+        for (const auto& constraint : constraints_) {
+            BoundConstraint binding;
+            binding.first = bind(constraint.first);
+            if (constraint.second)
+                binding.second = bind(*constraint.second);
+            if (constraint.angle_reference_geometry)
+                binding.angle = bind(*constraint.angle_reference_geometry);
+            binding.numerical = constraint;
+            // Numerical kernels inspect endpoint presence, not their persistent identities.
+            binding.numerical.id.clear();
+            binding.numerical.connection_id.clear();
+            binding.numerical.first = {};
+            if (binding.numerical.second)
+                binding.numerical.second = GeometryRef{};
+            if (binding.numerical.angle_reference_geometry)
+                binding.numerical.angle_reference_geometry = GeometryRef{};
+            bindings_.push_back(std::move(binding));
+        }
+    }
     void validate_and_index() {
         if (model_.bodies.empty())
             throw std::invalid_argument("assembly model requires at least one body");
@@ -1889,6 +1991,7 @@ private:
     const SolverOptions& options_;
     std::vector<Constraint> constraints_;
     std::vector<ConstraintBranchState> branches_;
+    std::vector<BoundConstraint> bindings_;
     std::unordered_map<std::string, std::size_t> body_index_;
     std::unordered_map<std::string, const GeometryElement*> geometry_index_;
     std::unordered_map<std::size_t, std::size_t> body_to_cluster_;
@@ -1938,6 +2041,32 @@ public:
                 free_cluster_indices_.push_back(cluster);
             }
         }
+        free_cluster_columns_.assign(assembly_.clusters().size(), -1);
+        for (std::size_t i = 0; i < free_cluster_indices_.size(); ++i)
+            free_cluster_columns_[free_cluster_indices_[i]] = static_cast<Eigen::Index>(i * 6);
+    }
+
+    void record_evaluation(const State& state, const Vector& residual,
+                           const Eigen::MatrixXd* jacobian) const {
+        const auto& options = assembly_.options();
+        if (!options.record_evaluation)
+            return;
+        EvaluationTrace trace;
+        trace.component_id = component_.id;
+        trace.stage = trace_stage;
+        trace.iteration = trace_iteration;
+        trace.evaluation = jacobian ? "JACOBIAN" : "RESIDUAL";
+        trace.body_poses = assembly_.body_poses(cluster_poses(state));
+        trace.residual.assign(residual.data(), residual.data() + residual.size());
+        if (jacobian && options.record_matrices) {
+            trace.jacobian_rows = static_cast<std::size_t>(jacobian->rows());
+            trace.jacobian_columns = static_cast<std::size_t>(jacobian->cols());
+            trace.jacobian.reserve(static_cast<std::size_t>(jacobian->size()));
+            for (Eigen::Index row = 0; row < jacobian->rows(); ++row)
+                for (Eigen::Index col = 0; col < jacobian->cols(); ++col)
+                    trace.jacobian.push_back((*jacobian)(row, col));
+        }
+        options.record_evaluation(std::move(trace));
     }
 
     State initial_state(bool initialize = true) const {
@@ -1991,7 +2120,11 @@ public:
     std::vector<ResidualBlock> blocks(const State& state,
                                       const bool use_classification_tolerance = false,
                                       const State* branch_reference = nullptr) const {
+        EvaluationTimer timer(false);
         const std::vector<Pose> bodies = assembly_.body_poses(cluster_poses(state));
+        const auto nominal = branch_reference
+                                 ? assembly_.body_poses(cluster_poses(*branch_reference))
+                                 : std::vector<Pose>{};
         SolverOptions tolerance_options = assembly_.options();
         if (use_classification_tolerance) {
             tolerance_options.length_tolerance =
@@ -2001,41 +2134,42 @@ public:
         std::vector<ResidualBlock> result;
         for (const std::size_t constraint_index : component_.constraint_indices) {
             const Constraint& constraint = assembly_.constraint(constraint_index);
-            const GeometryElement& first_element = assembly_.geometry(constraint.first);
-            const GeometryElement& second_element = assembly_.geometry(*constraint.second);
-            const WorldGeometry first =
-                world_geometry(first_element, bodies[assembly_.body_index(first_element.body_id)]);
-            const WorldGeometry second = world_geometry(
-                second_element, bodies[assembly_.body_index(second_element.body_id)]);
-            Constraint evaluated = constraint;
+            const auto& binding = assembly_.binding(constraint_index);
+            const GeometryElement& first_element = *binding.first.geometry;
+            const GeometryElement& second_element = *binding.second.geometry;
+            const WorldGeometry first = world_geometry(first_element, bodies[binding.first.body]);
+            const WorldGeometry second =
+                world_geometry(second_element, bodies[binding.second.body]);
+            Constraint evaluated = binding.numerical;
             ConstraintBranchState branch = assembly_.branch(constraint_index);
             if (branch_reference && branch.direction_relation == DirectionRelation::Unoriented &&
                 constraint.kind != ConstraintKind::Angle && has_direction(first) && has_direction(second)) {
-                const auto nominal = assembly_.body_poses(cluster_poses(*branch_reference));
-                const auto a = world_geometry(first_element, nominal[assembly_.body_index(first_element.body_id)]);
-                const auto b = world_geometry(second_element, nominal[assembly_.body_index(second_element.body_id)]);
+                const auto a = world_geometry(first_element, nominal[binding.first.body]);
+                const auto b = world_geometry(second_element, nominal[binding.second.body]);
                 branch.direction_relation = geometry_direction(a).dot(geometry_direction(b)) < 0
                     ? DirectionRelation::Opposite : DirectionRelation::Same;
             }
             if (branch_reference && constraint.kind == ConstraintKind::Distance &&
                 constraint.value == 0.0 && is_axis_like(first) && is_axis_like(second)) {
-                const auto nominal = assembly_.body_poses(cluster_poses(*branch_reference));
-                const auto a = world_geometry(first_element, nominal[assembly_.body_index(first_element.body_id)]);
-                const auto b = world_geometry(second_element, nominal[assembly_.body_index(second_element.body_id)]);
+                const auto a = world_geometry(first_element, nominal[binding.first.body]);
+                const auto b = world_geometry(second_element, nominal[binding.second.body]);
                 branch.zero_line_parallel_differential =
                     as_axis(a).direction.cross(as_axis(b).direction).norm() <= kDirectionEpsilon;
             }
             if(evaluated.angle_reference_geometry) {
-                const auto& axis=assembly_.geometry(*evaluated.angle_reference_geometry);
-                Vector3 axisDirection=geometry_direction(world_geometry(axis,bodies[assembly_.body_index(axis.body_id)]));
+                const auto& axis = *binding.angle.geometry;
+                Vector3 axisDirection =
+                    geometry_direction(world_geometry(axis, bodies[binding.angle.body]));
                 if(evaluated.reverse_angle_reference) axisDirection=-axisDirection;
                 evaluated.angle_reference_direction=value(axisDirection);
             } else if (evaluated.angle_reference_direction)
-                evaluated.angle_reference_direction = value(
-                    normalized(bodies[assembly_.body_index(second_element.body_id)].rotation) *
-                    eigen(*evaluated.angle_reference_direction));
+                evaluated.angle_reference_direction =
+                    value(normalized(bodies[binding.second.body].rotation) *
+                          eigen(*evaluated.angle_reference_direction));
             if (evaluated.spatial_angle_branch_direction)
-                evaluated.spatial_angle_branch_direction = value(direction(bodies[assembly_.body_index(second_element.body_id)], *evaluated.spatial_angle_branch_direction, "spatial angle branch"));
+                evaluated.spatial_angle_branch_direction = value(
+                    direction(bodies[binding.second.body],
+                              *evaluated.spatial_angle_branch_direction, "spatial angle branch"));
             Eigen::VectorXd residual =
                 constraint_residual(evaluated, first, second, assembly_.options(), &branch);
             const EquationDefinition definition = equation_definition(evaluated, first, second);
@@ -2061,6 +2195,7 @@ public:
             result.segment(offset, block.values.size()) = block.values;
             offset += block.values.size();
         }
+        record_evaluation(state, result, nullptr);
         return result;
     }
 
@@ -2129,21 +2264,18 @@ public:
     }
 
     Eigen::MatrixXd jacobian(const State& state, const Vector& residual) const {
+        EvaluationTimer timer(true);
         const std::vector<Pose> clusters = cluster_poses(state);
         const std::vector<Pose> bodies = assembly_.body_poses(clusters);
         const Eigen::Index variables = static_cast<Eigen::Index>(parameter_count());
-        auto differentiated_geometry = [&](const GeometryElement& element) -> DifferentialGeometry {
-            const WorldGeometry world =
-                world_geometry(element, bodies[assembly_.body_index(element.body_id)]);
+        auto differentiated_geometry = [&](const BoundEndpoint& endpoint) -> DifferentialGeometry {
+            const WorldGeometry world = world_geometry(*endpoint.geometry, bodies[endpoint.body]);
             auto differentiated_vector = [&](const Vector3& value, const bool point) {
                 DifferentialVector result = vector(value, variables);
-                const std::size_t cluster_index = assembly_.cluster_index(element.body_id);
-                const auto found = std::find(free_cluster_indices_.begin(),
-                                             free_cluster_indices_.end(), cluster_index);
-                if (found == free_cluster_indices_.end())
+                const std::size_t cluster_index = endpoint.cluster;
+                const Eigen::Index column = free_cluster_columns_[cluster_index];
+                if (column < 0)
                     return result;
-                const Eigen::Index column = static_cast<Eigen::Index>(
-                    std::distance(free_cluster_indices_.begin(), found) * 6);
                 if (point) {
                     result.derivative.block<3, 3>(0, column).setIdentity();
                     result.derivative.block<3, 3>(0, column + 3) =
@@ -2177,41 +2309,38 @@ public:
         Eigen::Index row = 0;
         for (const std::size_t constraint_index : component_.constraint_indices) {
             const Constraint& constraint = assembly_.constraint(constraint_index);
-            const GeometryElement& first_element = assembly_.geometry(constraint.first);
-            const GeometryElement& second_element = assembly_.geometry(*constraint.second);
-            const WorldGeometry first =
-                world_geometry(first_element, bodies[assembly_.body_index(first_element.body_id)]);
-            const WorldGeometry second = world_geometry(
-                second_element, bodies[assembly_.body_index(second_element.body_id)]);
+            const auto& binding = assembly_.binding(constraint_index);
+            const GeometryElement& first_element = *binding.first.geometry;
+            const GeometryElement& second_element = *binding.second.geometry;
+            const WorldGeometry first = world_geometry(first_element, bodies[binding.first.body]);
+            const WorldGeometry second =
+                world_geometry(second_element, bodies[binding.second.body]);
             const EquationDefinition definition = equation_definition(constraint, first, second);
             auto local_second_direction = [&](const Vec3& local) {
-                const std::size_t second_body = assembly_.body_index(second_element.body_id);
+                const std::size_t second_body = binding.second.body;
                 const Vector3 world_value =
                     direction(bodies[second_body], local, "angle branch direction");
                 DifferentialVector differentiated = vector(world_value, variables);
-                const std::size_t cluster_index = assembly_.cluster_index(second_element.body_id);
-                const auto found = std::find(free_cluster_indices_.begin(),
-                                             free_cluster_indices_.end(), cluster_index);
-                if (found != free_cluster_indices_.end()) {
-                    const Eigen::Index column = static_cast<Eigen::Index>(
-                        std::distance(free_cluster_indices_.begin(), found) * 6 + 3);
+                const std::size_t cluster_index = binding.second.cluster;
+                const Eigen::Index base = free_cluster_columns_[cluster_index];
+                if (base >= 0) {
+                    const Eigen::Index column = base + 3;
                     differentiated.derivative.block<3, 3>(0, column) = -skew(world_value);
                 }
                 return differentiated;
             };
             std::optional<DifferentialVector> reference;
             if(constraint.angle_reference_geometry) {
-                const auto& axis=assembly_.geometry(*constraint.angle_reference_geometry);
-                reference=differential_direction(differentiated_geometry(axis));
+                reference = differential_direction(differentiated_geometry(binding.angle));
                 if(constraint.reverse_angle_reference) reference=-*reference;
             } else if (constraint.angle_reference_direction)
                 reference = local_second_direction(*constraint.angle_reference_direction);
-            Constraint evaluated = constraint;
+            Constraint evaluated = binding.numerical;
             if (evaluated.spatial_angle_branch_direction)
                 evaluated.spatial_angle_branch_direction = value(local_second_direction(*evaluated.spatial_angle_branch_direction).value);
             const Eigen::MatrixXd block = differential_residual(
-                evaluated, differentiated_geometry(first_element),
-                differentiated_geometry(second_element), assembly_.branch(constraint_index),
+                evaluated, differentiated_geometry(binding.first),
+                differentiated_geometry(binding.second), assembly_.branch(constraint_index),
                 assembly_.options(), reference);
             if (block.rows() != static_cast<Eigen::Index>(definition.kinds.size()))
                 throw std::logic_error(
@@ -2229,6 +2358,7 @@ public:
                 throw std::runtime_error("analytic Jacobian differential check failed: error=" +
                                          std::to_string(error) + " scale=" + std::to_string(scale));
         }
+        record_evaluation(state, residual, &result);
         return result;
     }
 
@@ -2824,6 +2954,7 @@ private:
     const CompiledAssembly& assembly_;
     const Component& component_;
     std::vector<std::size_t> free_cluster_indices_;
+    std::vector<Eigen::Index> free_cluster_columns_;
     std::optional<std::size_t> gauge_anchor_cluster_;
     bool physically_grounded_{false};
 };
@@ -2836,6 +2967,7 @@ struct ComponentSolution {
 };
 
 ComponentSolution restore_component(const ComponentProblem& problem, const SolverOptions& options) {
+    TracePhaseScope trace_phase("HARD_FEASIBILITY");
     ComponentSolution result;
     result.state = problem.initial_state();
     Vector residual = problem.residual(result.state);
@@ -2856,6 +2988,7 @@ ComponentSolution restore_component(const ComponentProblem& problem, const Solve
     }
     double damping = options.initial_damping;
     for (std::size_t iteration = 1; iteration <= options.max_iterations; ++iteration) {
+        trace_iteration = iteration;
         if (options.should_cancel && options.should_cancel())
             return {SolveStatus::MaxIterations, result.state, iteration, "interaction cancelled"};
         const Eigen::MatrixXd jacobian = problem.jacobian(result.state, residual);
@@ -3039,6 +3172,7 @@ std::vector<std::vector<double>> vectors(const Eigen::MatrixXd& matrix) {
 bool restore_feasibility(const ComponentProblem& problem, State& state,
                          const SolverOptions& options, const Vector* preserved_drag=nullptr,
                          const Vector* preserved_reference=nullptr) {
+    TracePhaseScope trace_phase("FEASIBILITY_RETRACTION");
     const Vector scales = problem.tangent_scales();
     const auto energy=[&](const State& at) {
         double value=problem.residual(at).squaredNorm();
@@ -3191,6 +3325,7 @@ Eigen::MatrixXd motion_curvature(const ComponentProblem& problem, const State& s
 
 MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                                  const SolverOptions& options) {
+    TracePhaseScope trace_phase("PREFERENCE");
     MotionPreference report;
     report.length_scale = options.motion_length_scale;
     report.angle_scale = options.motion_angle_scale;
@@ -3223,6 +3358,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
         evidence.termination_reason="ITERATION_LIMIT";
         double best_drag_energy=problem.drag_objective(state,false).residual.squaredNorm();
         for (std::size_t iteration=0; iteration<options.max_preference_iterations; ++iteration) {
+            trace_iteration = iteration;
             if(options.should_cancel && options.should_cancel()) { evidence.status=InteractionStatus::Cancelled; break; }
             ++report.iterations;
             ++evidence.iterations;
@@ -3326,6 +3462,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
         double best_energy = problem.objective(state, level == 0, false).residual.squaredNorm();
         for (std::size_t iteration = 0; iteration < options.max_preference_iterations;
              ++iteration) {
+            trace_iteration = iteration;
             if(options.should_cancel && options.should_cancel()) { report.status=PreferenceStatus::IterationLimit; if(report.interaction) { report.interaction->status=InteractionStatus::Cancelled; report.interaction->eligible_for_commit=false; } break; }
             ++report.iterations;
             const auto ref = problem.objective(state, true);
@@ -3936,6 +4073,16 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
                     component_dof.body_ids.push_back(model.bodies[body].id);
             }
             std::sort(component_dof.body_ids.begin(), component_dof.body_ids.end());
+            if (component.selected && solution.status == SolveStatus::Inconsistent &&
+                problem.parameter_count() == 0) {
+                std::vector<std::string> ids;
+                for (const auto index : component.constraint_indices)
+                    ids.push_back(assembly.constraint(index).id);
+                result.diagnostics.push_back(
+                    {"GROUNDED_CONTRADICTION", component.id, component_dof.body_ids, ids,
+                     "all component poses are fixed by explicit Fix/Rigid conditions; hard "
+                     "residual exceeds classification tolerance"});
+            }
             result.components.push_back(std::move(component_dof));
 
             if (component.selected && solution.status != SolveStatus::NumericalFailure && !options.drag_target) {
@@ -4154,7 +4301,18 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
     }
 }
 
+const char* Solver::implementation_id() {
+    return OCCCCAD_ASSEMBLY_IMPLEMENTATION_ID;
+}
+
 SolveResult Solver::solve(const Model& model, const SolverOptions& options) const {
+    SolveMetrics metrics;
+    struct MetricsScope {
+        SolveMetrics* previous;
+        ~MetricsScope() { active_metrics = previous; }
+    } scope{active_metrics};
+    active_metrics = &metrics;
+    const auto started = std::chrono::steady_clock::now();
     auto result=solve_model(model, options, true);
     if(options.drag_target) {
         if(!result.interaction) result.interaction=InteractionEvidence{};
@@ -4169,6 +4327,10 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
         if(options.should_cancel && options.should_cancel()) { evidence.status=InteractionStatus::Cancelled; evidence.eligible_for_commit=false; evidence.termination_reason="CANCELLED_OR_DEADLINE"; }
         if(!evidence.hard_feasible) evidence.eligible_for_commit=false;
     }
+    metrics.solve_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started)
+            .count();
+    result.metrics = metrics;
     return result;
 }
 

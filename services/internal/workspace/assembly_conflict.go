@@ -21,12 +21,12 @@ import (
 type assemblyFrozenInputKey struct{}
 
 func (service *Service) FreezeAssemblyInput(ctx context.Context, documentID, revisionID string, model ProductModel) (AssemblySolveManifest, error) {
-	raw, err := json.Marshal(model)
+	copy, err := cloneAssemblyProduct(model)
 	if err != nil {
 		return AssemblySolveManifest{}, err
 	}
-	var copy ProductModel
-	if err = json.Unmarshal(raw, &copy); err != nil {
+	raw, err := json.Marshal(model)
+	if err != nil {
 		return AssemblySolveManifest{}, err
 	}
 	var frozen AssemblySolveManifest

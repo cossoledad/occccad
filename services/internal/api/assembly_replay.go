@@ -51,7 +51,7 @@ func (server *Server) downloadAssemblyDiagnostic(w http.ResponseWriter, r *http.
 	if _, ok := server.requireDocument(w, r, access.RoleViewer); !ok {
 		return
 	}
-	data, err := server.workspace.ExportAssemblyDiagnostic(r.Context(), r.PathValue("documentID"))
+	data, err := server.workspace.ExportAssemblyDiagnosticWithOptions(r.Context(), r.PathValue("documentID"), workspace.AssemblyDiagnosticExportOptions{DetailedNaming: r.URL.Query().Get("naming") == "true"})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

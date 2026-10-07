@@ -1126,7 +1126,66 @@ public:
         effective->set_max_conflict_probes(options.max_conflict_probes);
         effective->set_verify_analytic_jacobians(options.verify_analytic_jacobians);
         effective->set_jacobian_check_tolerance(options.jacobian_check_tolerance);
+        std::size_t trace_bytes = 0;
+        const auto debug = request->debug_options();
+        const std::size_t trace_budget = debug.byte_budget() == 0
+                                             ? 4U * 1024U * 1024U
+                                             : static_cast<std::size_t>(std::min<uint64_t>(
+                                                   debug.byte_budget(), 4U * 1024U * 1024U));
+        if (request->has_debug_options()) {
+            auto* effective_debug = response->mutable_effective_debug_options();
+            effective_debug->set_capture_evaluations(debug.capture_evaluations());
+            effective_debug->set_capture_matrices(debug.capture_matrices());
+            effective_debug->set_byte_budget(trace_budget);
+        }
+        response->set_implementation_id(assembly_api::Solver::implementation_id());
+        options.record_matrices = debug.capture_matrices();
+        if (debug.capture_evaluations())
+            options.record_evaluation = [&](assembly_api::EvaluationTrace trace) {
+                const std::size_t charge = 1024 + trace.component_id.size() +
+                                           trace.body_poses.size() * 512 +
+                                           (trace.residual.size() + trace.jacobian.size()) * 32;
+                if (charge > trace_budget - trace_bytes ||
+                    response->evaluation_trace_size() >= 1024) {
+                    response->set_trace_truncated(true);
+                    return;
+                }
+                trace_bytes += charge;
+                auto* out = response->add_evaluation_trace();
+                out->set_component_id(trace.component_id);
+                out->set_stage(trace.stage);
+                out->set_iteration(trace.iteration);
+                out->set_evaluation(trace.evaluation);
+                for (const auto& traced_pose : trace.body_poses) {
+                    auto* p = out->add_body_poses();
+                    p->mutable_translation()->set_x(traced_pose.translation.x);
+                    p->mutable_translation()->set_y(traced_pose.translation.y);
+                    p->mutable_translation()->set_z(traced_pose.translation.z);
+                    p->mutable_rotation()->set_x(traced_pose.rotation.x);
+                    p->mutable_rotation()->set_y(traced_pose.rotation.y);
+                    p->mutable_rotation()->set_z(traced_pose.rotation.z);
+                    p->mutable_rotation()->set_w(traced_pose.rotation.w);
+                }
+                for (double v : trace.residual)
+                    out->add_residual(v);
+                out->set_jacobian_rows(trace.jacobian_rows);
+                out->set_jacobian_columns(trace.jacobian_columns);
+                for (double v : trace.jacobian)
+                    out->add_jacobian(v);
+            };
         const auto result = assembly_solver_.solve(model, options);
+        auto* metrics = response->mutable_metrics();
+        metrics->set_residual_evaluations(result.metrics.residual_evaluations);
+        metrics->set_jacobian_evaluations(result.metrics.jacobian_evaluations);
+        metrics->set_hot_string_lookups(result.metrics.hot_string_lookups);
+        metrics->set_hot_string_bytes(result.metrics.hot_string_bytes);
+        metrics->set_input_compile_ms(result.metrics.input_compile_ms);
+        metrics->set_residual_ms(result.metrics.residual_ms);
+        metrics->set_jacobian_ms(result.metrics.jacobian_ms);
+        metrics->set_solve_ms(result.metrics.solve_ms);
+        metrics->set_hard_feasibility_ms(result.metrics.hard_feasibility_ms);
+        metrics->set_feasibility_retraction_ms(result.metrics.feasibility_retraction_ms);
+        metrics->set_preference_ms(result.metrics.preference_ms);
         for(const auto& branch:result.distance_branches) {
             auto* output=response->add_distance_branches();output->set_constraint_id(branch.constraint_id);
             output->set_side(branch.distance_relation==assembly_api::DistanceRelation::AlongSecondNormal?

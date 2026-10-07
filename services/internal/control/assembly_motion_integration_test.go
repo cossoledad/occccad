@@ -303,11 +303,11 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	if e := json.Unmarshal(diagnosticRaw, &diagnostic); e != nil {
 		t.Fatal(e)
 	}
-	if diagnostic.BaseRevisionID != refreshed.Document.VersionID || len(diagnostic.AssemblyReplay) == 0 || diagnostic.AssemblyManifestDigest == "" || len(diagnostic.Candidate) == 0 {
+	if diagnostic.BaseRevisionID != refreshed.Document.VersionID || len(diagnostic.AssemblyAttempts) == 0 || diagnostic.AssemblyManifestDigest == "" || len(diagnostic.Candidate) == 0 {
 		t.Fatal("NotUpdated diagnostic missing immutable failed trial", diagnostic)
 	}
 	var failedNumeric geometry.AssemblyReplay
-	if e := json.Unmarshal(diagnostic.AssemblyReplay, &failedNumeric); e != nil {
+	if e := json.Unmarshal(diagnostic.AssemblyAttempts[len(diagnostic.AssemblyAttempts)-1], &failedNumeric); e != nil {
 		t.Fatal(e)
 	}
 	var rejectedResult workerv1.SolveAssemblyResponse
@@ -395,17 +395,37 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		if err := json.Unmarshal(bundle, &file); err != nil {
 			t.Fatal(err)
 		}
-		var snapshot struct {
-			Product  workspace.ProductModel          `json:"product"`
-			Sources  []json.RawMessage               `json:"sources"`
-			Manifest workspace.AssemblySolveManifest `json:"manifest"`
-		}
+		var snapshot workspace.AssemblyDiagnosticSnapshot
 		if err := json.Unmarshal(file.Snapshot, &snapshot); err != nil {
 			t.Fatal(err)
 		}
-		if len(snapshot.Product.Constraints) != 3 || len(snapshot.Sources) != 1 || len(snapshot.Manifest.Geometry) == 0 || len(snapshot.Manifest.Definitions) != 3 {
-			t.Fatal("complete diagnostic lost definitions or source bodies")
+		definitions, err := snapshot.RestoreDefinitions()
+		if err != nil {
+			t.Fatal(err)
 		}
+		if len(definitions) != 3 || len(snapshot.Documents) != 1 || len(snapshot.Geometry) == 0 || len(snapshot.Attempts) != 1 || len(snapshot.Attempts[0].Sequence) == 0 {
+			t.Fatal("complete diagnostic lost definitions, bodies or original failed attempts")
+		}
+		if len(file.Request) != 0 {
+			t.Fatal("duplicate numerical authority")
+		}
+		original, err := workspace.ReplayAssemblyDiagnosticWithOptions(t.Context(), client, bundle, workspace.AssemblyReplayOptions{Mode: "original", TargetConstraintID: rejectedID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var originalFile geometry.AssemblyReplay
+		if err = json.Unmarshal(original, &originalFile); err != nil {
+			t.Fatal(err)
+		}
+		if len(originalFile.Stages) != len(snapshot.Attempts[0].Sequence) || originalFile.Outcome == "INPUT_ERROR" {
+			t.Fatal("original failure not replayed", string(original))
+		}
+		if path := os.Getenv("OCCCCAD_TEST_ASSEMBLY_REPLAY_OUTPUT"); path != "" {
+			if err := os.WriteFile(path, bundle, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+
 		for _, includePending := range []bool{false, true} {
 			replayed, err := workspace.ReplayAssemblyDiagnostic(t.Context(), client, bundle, includePending)
 			if err != nil {

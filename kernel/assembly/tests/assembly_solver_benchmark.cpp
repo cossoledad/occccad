@@ -1,5 +1,7 @@
 #include <occccad/assembly/solver.hpp>
 
+#include <sys/resource.h>
+
 #include <chrono>
 #include <cstddef>
 #include <iostream>
@@ -38,10 +40,19 @@ occccad::assembly::Model plane_chain(const std::size_t bodies) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char**) {
     using namespace occccad::assembly;
     for (const std::size_t bodies : {5U, 15U, 30U}) {
-        const Model model = plane_chain(bodies);
+        Model model = plane_chain(bodies);
+        if (argc > 1) {
+            for (auto& geometry : model.geometry)
+                geometry.id = std::string(8192, 'x') + geometry.id;
+            for (auto& c : model.constraints)
+                if (c.kind != ConstraintKind::Fix) {
+                    c.first.geometry_id = std::string(8192, 'x') + c.first.geometry_id;
+                    c.second->geometry_id = c.first.geometry_id;
+                }
+        }
         SolverOptions options;
         options.verify_analytic_jacobians = false;
         options.solve_intent = SolveIntent{{"body-" + std::to_string(bodies-1)}, {"body-1"},
@@ -57,10 +68,22 @@ int main() {
         if (result.status != SolveStatus::Converged || result.components.front().preference.status != PreferenceStatus::Converged)
             return 1;
         std::cout << "AssemblyPlaneChain" << bodies << " " << samples << " "
-                  << elapsed / static_cast<long long>(samples) << " ns/op iterations=" << result.iterations
+                  << elapsed / static_cast<long long>(samples)
+                  << " ns/op iterations=" << result.iterations
                   << " preference_iterations=" << result.components.front().preference.iterations
-                  << " residual=" << result.normalized_residual
-                  << " reference_objective=" << result.components.front().preference.reference_objective
-                  << " reference_translation=" << result.components.front().preference.bodies[1].translation << "\n";
+                  << " residual=" << result.normalized_residual << " reference_objective="
+                  << result.components.front().preference.reference_objective
+                  << " reference_translation="
+                  << result.components.front().preference.bodies[1].translation
+                  << " residual_ms=" << result.metrics.residual_ms
+                  << " jacobian_ms=" << result.metrics.jacobian_ms
+                  << " compile_ms=" << result.metrics.input_compile_ms
+                  << " evaluations=" << result.metrics.residual_evaluations << "/"
+                  << result.metrics.jacobian_evaluations
+                  << " hot_string_lookups=" << result.metrics.hot_string_lookups
+                  << " hot_string_bytes=" << result.metrics.hot_string_bytes;
+        rusage usage{};
+        getrusage(RUSAGE_SELF, &usage);
+        std::cout << " max_rss_kib=" << usage.ru_maxrss << "\n";
     }
 }

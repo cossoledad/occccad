@@ -2,25 +2,19 @@ package workspace
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
+	"github.com/occccad/occccad/internal/valuecopy"
 )
 
 type assemblySetEvaluator func(stage string, candidate *ProductModel, excluded map[string]bool) error
 
 func cloneAssemblyProduct(model ProductModel) (ProductModel, error) {
-	raw, err := json.Marshal(model)
-	if err != nil {
-		return ProductModel{}, err
-	}
-	var copy ProductModel
-	err = json.Unmarshal(raw, &copy)
-	return copy, err
+	return valuecopy.Clone(model)
 }
 
 func isolatedAssemblyFailure(err error) (*assemblySolveFailure, bool) {

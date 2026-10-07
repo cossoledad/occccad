@@ -208,7 +208,16 @@ struct InteractionEvidence {
     bool hold_converged{};
 };
 
+struct EvaluationTrace {
+    std::string component_id, stage, evaluation;
+    std::size_t iteration{};
+    std::vector<Pose> body_poses;
+    std::vector<double> residual, jacobian;
+    std::size_t jacobian_rows{}, jacobian_columns{};
+};
 struct SolverOptions {
+    std::function<void(EvaluationTrace)> record_evaluation;
+    bool record_matrices{false};
     std::size_t max_iterations{100};
     double length_tolerance{1.0e-7};
     double angle_tolerance{1.0e-8};
@@ -392,7 +401,17 @@ struct SolvedDistanceBranch {
     DistanceRelation distance_relation{DistanceRelation::Unsigned};
 };
 
+// Request-scoped summary counters; no matrices or iteration traces are retained.
+struct SolveMetrics {
+    std::size_t residual_evaluations{}, jacobian_evaluations{};
+    std::size_t hot_string_lookups{}, hot_string_bytes{};
+    double input_compile_ms{}, residual_ms{}, jacobian_ms{}, solve_ms{};
+    // Inclusive phase durations; retraction can be nested in preference.
+    double hard_feasibility_ms{}, feasibility_retraction_ms{}, preference_ms{};
+};
+
 struct SolveResult {
+    SolveMetrics metrics;
     SolveStatus status{SolveStatus::InvalidModel};
     SolveClassification classification{SolveClassification::InvalidModel};
     std::vector<SolvedBody> bodies;
@@ -416,6 +435,7 @@ struct SolveResult {
 
 class Solver final {
 public:
+    static const char* implementation_id();
     SolveResult solve(const Model& model, const SolverOptions& options = {}) const;
 };
 

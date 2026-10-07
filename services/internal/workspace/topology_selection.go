@@ -211,21 +211,15 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 			}
 			part, ok := acceptedParts[instance.ReferencedVersionID]
 			if !ok {
-				var raw []byte
-				var documentType string
-				if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v
-                    JOIN occccad.documents d ON d.id=v.document_id WHERE v.id=$1 AND v.document_id=$2`, instance.ReferencedVersionID, instance.ReferencedDocumentID).Scan(&documentType, &raw); err != nil {
+				source, err := service.readAssemblyPartModel(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID)
+				if err != nil {
 					return modelcore.SelectionSourceUnavailable, err
 				}
-				if documentType != "PART" {
+				if source.kind != "PART" {
 					reference.Resolution = &ResolutionSnapshot{TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: unavailableSelectionResolution("DATUM_SUPPORT_MISSING", "datum reference must identify its owning Part occurrence")}
 					return modelcore.SelectionSourceUnavailable, nil
 				}
-				var decodeErr error
-				part, decodeErr = decodeAssemblyPartModel(raw)
-				if decodeErr != nil {
-					return modelcore.SelectionSourceUnavailable, decodeErr
-				}
+				part = source.model
 				acceptedParts[instance.ReferencedVersionID] = part
 			}
 			if !datumAssemblyReferenceExists(part, *reference) {
@@ -297,13 +291,27 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 			}
 			continue
 		}
-		if firstErr != nil {
+		if capture, ok := ctx.Value(assemblyDiagnosticCaptureKey{}).(*assemblyDiagnosticCapture); ok {
+			for _, endpoint := range []struct {
+				name   string
+				status modelcore.SelectionResolutionStatus
+				err    error
+			}{{"FIRST", first, firstErr}, {"SECOND", second, secondErr}, {"ANGLE_AXIS", axis, axisErr}} {
+				err := endpoint.err
+				if err == nil && endpoint.status != modelcore.SelectionResolved {
+					err = fmt.Errorf("support resolution: %s", endpoint.status)
+				}
+				if err != nil {
+					capture.record(constraint.ID, endpoint.name, "SUPPORT_RESOLUTION", err)
+				}
+			}
+		} else if firstErr != nil {
 			return firstErr
 		}
-		if secondErr != nil {
+		if secondErr != nil && ctx.Value(assemblyDiagnosticCaptureKey{}) == nil {
 			return secondErr
 		}
-		if axisErr != nil {
+		if axisErr != nil && ctx.Value(assemblyDiagnosticCaptureKey{}) == nil {
 			return axisErr
 		}
 		if first != modelcore.SelectionResolved || second != modelcore.SelectionResolved || axis != modelcore.SelectionResolved {

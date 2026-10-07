@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/valuecopy"
 )
 
 func TestDiagnosticReplayActivationKeepsDefinitionStates(t *testing.T) {
@@ -29,27 +30,33 @@ func TestDiagnosticReplayActivationKeepsDefinitionStates(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, includePending := range []bool{false, true, false} {
-		if err := prepareDiagnosticManifest(&manifest, includePending); err != nil {
-			t.Fatal(err)
-		}
-		expected := map[string]string{"accepted": "DRIVING", "pending": "SUPPRESSED", "disabled": "SUPPRESSED", "measurement": "MEASURED", "broken": "SUPPRESSED"}
-		if includePending {
-			expected["pending"] = "DRIVING"
-		}
-		for _, constraint := range manifest.Constraints {
-			if constraint.Mode != expected[constraint.ID] {
-				t.Fatal("incorrect replay activation", constraint.ID, constraint.Mode)
-			}
-		}
-		after, err := json.Marshal(manifest.Definitions)
+		copy, err := valuecopy.Clone(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(before, after) {
-			t.Fatal("replay activation overwrote saved states")
+		mode := "accepted"
+		if includePending {
+			mode = "accepted-pending"
 		}
-		if manifest.Digest != assemblyManifestDigest(manifest) {
-			t.Fatal("diagnostic digest not frozen")
+		selected, err := selectDiagnosticConstraints(&copy, AssemblyReplayOptions{Mode: mode})
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := map[string]string{"accepted": "DRIVING", "measurement": "MEASURED"}
+		if includePending {
+			expected["pending"] = "DRIVING"
+		}
+		if len(copy.Constraints) != len(expected) {
+			t.Fatal("incorrect participant count", copy.Constraints)
+		}
+		for _, c := range copy.Constraints {
+			if !selected[c.ID] || c.Mode != expected[c.ID] {
+				t.Fatal("incorrect replay activation", c)
+			}
+		}
+		after, err := json.Marshal(copy.Definitions)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatal("replay activation overwrote saved states", err)
 		}
 	}
 }

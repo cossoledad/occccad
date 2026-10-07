@@ -5,6 +5,7 @@
 - 根目录五份 STEP：目标建模验证集与交换回归共用输入，配套 `modeling-assembly-*.md` 与 `analysis-assets/`。
 - `assembly-screenshots/`：原根目录 `images/` 中的五张装配实机截图。
 - 根目录 `*.3dreplay`：不依赖数据库或 BREP 的数值内核重放；`windmill-cylinder-reference.3dreplay` 对应圆柱同轴回归与同名诊断报告；`assembly-antipodal-holes.3dreplay` 与 `assembly-contact-point-preference.3dreplay` 保留实际反向平面/双孔同轴和精确接触/点重合的全部 double 输入及原失败结果，由装配 native 与真实 Router 回归覆盖。
+- `assembly-notupdated-product.3dreplay`：真实 Product 的全部约束/原始状态、当前数值表及关联失败请求，供生产 Worker 无数据库离线测试；模式与预算见 [回放工具](../../services/cmd/occccad-3dreplay/README.md)，实测数据见 [输入性能记录](assembly-input-performance.md)。
 - `sketch/`：草图求解回归输入。
 - `assembly-contract/`：测试组合索引、证据映射和回归锁；生产语义仍来自 `services/internal/assemblycontract/catalog.json`。
 

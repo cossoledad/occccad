@@ -2,6 +2,9 @@ package workspace
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,9 +101,87 @@ func (service *Service) InspectAssemblySupports(ctx context.Context, documentID 
 	return result, nil
 }
 
+// Reference identity belongs to the compiler cache, not numerical geometry.
+func assemblyReferenceKey(reference AssemblyGeometryRef) string {
+	// Resolution is evidence, not endpoint identity. Never embed its expanded JSON
+	// in a numerical ID or conflate equal geometry at different occurrences.
+	// Length-prefix semantic identity fields; display names/canonical labels
+	// and expanded resolution evidence do not identify a mathematical endpoint.
+	fields := []string{reference.InstanceID, reference.Kind, reference.GeometryID, reference.Axis, reference.DerivedRole, reference.SourceVersionID}
+	persistent, publication := []byte("null"), []byte("null")
+	if reference.PersistentSelection != nil {
+		persistent, _ = json.Marshal(reference.PersistentSelection)
+	}
+	if reference.PublicationRef != nil {
+		publication, _ = json.Marshal(reference.PublicationRef)
+	}
+	capacity := 16 + len(persistent) + len(publication)
+	for _, value := range fields {
+		capacity += 8 + len(value)
+	}
+	if path := reference.InstancePath; path != nil {
+		capacity += 8 + len("PATH") + 8 + len(path.RootDocumentID) + 8
+		for _, segment := range path.Segments {
+			capacity += 40 + len(segment.OwnerDocumentID) + len(segment.OwnerVersionID) + len(segment.InstanceID) + len(segment.ReferencedDocumentID) + len(segment.ResolvedVersionID)
+		}
+	} else {
+		capacity += 8 + len("NO_PATH")
+	}
+	raw := make([]byte, 0, capacity)
+	add := func(value string) {
+		raw = binary.BigEndian.AppendUint64(raw, uint64(len(value)))
+		raw = append(raw, value...)
+	}
+	for _, value := range fields {
+		add(value)
+	}
+	if path := reference.InstancePath; path != nil {
+		add("PATH")
+		add(path.RootDocumentID)
+		raw = binary.BigEndian.AppendUint64(raw, uint64(len(path.Segments)))
+		for _, segment := range path.Segments {
+			for _, value := range []string{segment.OwnerDocumentID, segment.OwnerVersionID, segment.InstanceID, segment.ReferencedDocumentID, segment.ResolvedVersionID} {
+				add(value)
+			}
+		}
+	} else {
+		add("NO_PATH")
+	}
+	add(string(persistent))
+	add(string(publication))
+	sum := sha256.Sum256(raw)
+	var encoded [64]byte
+	hex.Encode(encoded[:], sum[:])
+	return string(encoded[:])
+}
+
 func newAssemblySupportResolver(ctx context.Context, service *Service, model *ProductModel) *assemblySupportResolver {
 	return &assemblySupportResolver{ctx: ctx, service: service, model: model, parts: map[string]assemblyResolvedPart{}, geometry: map[string]geometry.AssemblyGeometry{}, snapHints: map[string]*AssemblySnapHints{}}
 }
+
+// Shared read-only accepted Part values live only for this solve/admission scope.
+// Poses, mutable Heads and failures are never cached by this helper.
+type assemblyAcceptedPart struct {
+	kind  string
+	model PartModel
+}
+
+func (service *Service) readAssemblyPartModel(ctx context.Context, documentID, revisionID string) (assemblyAcceptedPart, error) {
+	return assemblyRead(ctx, assemblyReadKey{"accepted-part", documentID, revisionID}, func() (assemblyAcceptedPart, error) {
+		var value assemblyAcceptedPart
+		var raw []byte
+		if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2`, documentID, revisionID).Scan(&value.kind, &raw); err != nil {
+			return value, err
+		}
+		if value.kind != "PART" {
+			return value, nil
+		}
+		var err error
+		value.model, err = decodeAssemblyPartModel(raw)
+		return value, err
+	})
+}
+
 func (resolver *assemblySupportResolver) part(instance *ProductInstance) (assemblyResolvedPart, error) {
 	if instance.ReferencedVersionID == "" {
 		return assemblyResolvedPart{}, fmt.Errorf("%w: accepted instance revision is required", ErrValidation)
@@ -109,19 +190,14 @@ func (resolver *assemblySupportResolver) part(instance *ProductInstance) (assemb
 	if cached, ok := resolver.parts[key]; ok {
 		return cached, nil
 	}
-	var kind string
-	var raw []byte
-	if err := resolver.service.database.QueryRow(resolver.ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2`, instance.ReferencedDocumentID, instance.ReferencedVersionID).Scan(&kind, &raw); err != nil {
-		return assemblyResolvedPart{}, err
-	}
-	if kind != "PART" {
-		return assemblyResolvedPart{}, fmt.Errorf("%w: precise source must be a Part leaf", ErrValidation)
-	}
-	part, err := decodeAssemblyPartModel(raw)
+	source, err := resolver.service.readAssemblyPartModel(resolver.ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID)
 	if err != nil {
 		return assemblyResolvedPart{}, err
 	}
-	value := assemblyResolvedPart{model: part}
+	if source.kind != "PART" {
+		return assemblyResolvedPart{}, fmt.Errorf("%w: precise source must be a Part leaf", ErrValidation)
+	}
+	value := assemblyResolvedPart{model: source.model}
 	resolver.parts[key] = value
 	return value, nil
 }
@@ -138,14 +214,7 @@ func (resolver *assemblySupportResolver) resolve(reference AssemblyGeometryRef) 
 	if reference.Kind == "BODY" {
 		return geometry.AssemblyGeometry{ID: reference.InstanceID + ":BODY", BodyID: reference.InstanceID, Kind: "BODY", LengthUnit: "mm"}, nil
 	}
-	persistentKey := ""
-	if reference.PersistentSelection != nil {
-		encoded, _ := json.Marshal(reference.PersistentSelection)
-		persistentKey = string(encoded)
-	}
-	pathKey, _ := json.Marshal(reference.InstancePath)
-	publicationKey, _ := json.Marshal(reference.PublicationRef)
-	key := reference.InstanceID + ":" + string(pathKey) + ":" + reference.Kind + ":" + reference.GeometryID + ":" + reference.Axis + ":" + reference.DerivedRole + ":" + persistentKey + ":" + string(publicationKey)
+	key := assemblyReferenceKey(reference)
 	if cached, ok := resolver.geometry[key]; ok {
 		return cached, nil
 	}

@@ -140,7 +140,8 @@ message SolveAssemblyRequest {
     AssemblySolveIntent solve_intent = 9;
     AssemblySolverProfile solver_profile = 10;
     AssemblyDragTarget drag_target = 11;
-    bool disable_conflict_probes = 12; // diagnostic orchestration owns the bounded subset probes
+    bool disable_conflict_probes = 12;
+    AssemblyDebugOptions debug_options = 13; // optional bounded diagnostics, never solve policy
 }
 
 // An interaction objective in owning Product millimetres/radians, not a hard
@@ -215,6 +216,26 @@ message SolveAssemblyResponse {
     AssemblyInteractionEvidence interaction = 19;
     repeated AssemblySolvedAlignmentBranch alignment_branches = 20;
     repeated AssemblySolvedDistanceBranch distance_branches = 21;
+    AssemblySolveMetrics metrics = 22;
+    repeated AssemblyEvaluationTrace evaluation_trace = 23;
+    bool trace_truncated = 24;
+    AssemblyDebugOptions effective_debug_options = 25;
+    string implementation_id = 26;
+}
+
+message AssemblySolveMetrics {
+    uint64 residual_evaluations = 1;
+    uint64 jacobian_evaluations = 2;
+    uint64 hot_string_lookups = 3;
+    uint64 hot_string_bytes = 4;
+    double input_compile_ms = 5;
+    double residual_ms = 6;
+    double jacobian_ms = 7;
+    double solve_ms = 8;
+    // Inclusive phase timings, not an additive partition of solve_ms.
+    double hard_feasibility_ms = 9;
+    double feasibility_retraction_ms = 10;
+    double preference_ms = 11;
 }
 
 enum AssemblyAlignmentDirection {
@@ -1276,4 +1297,22 @@ message ImportedTopologyIdentity {
     string stable_id = 1;
     PersistentTopologyType topology_type = 2;
     uint64 local_id = 3;
+}
+
+// Optional diagnostics never participate in numerical policy or document state.
+message AssemblyDebugOptions {
+    bool capture_evaluations = 1;
+    bool capture_matrices = 2;
+    uint64 byte_budget = 3; // default and maximum 4 MiB
+}
+message AssemblyEvaluationTrace {
+    string component_id = 1;
+    string stage = 2;
+    uint64 iteration = 3;
+    string evaluation = 4;
+    repeated RigidPose body_poses = 5; // request body order
+    repeated double residual = 6;
+    uint64 jacobian_rows = 7;
+    uint64 jacobian_columns = 8;
+    repeated double jacobian = 9; // row-major, optional
 }

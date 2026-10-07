@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
+	"github.com/occccad/occccad/internal/valuecopy"
 )
 
 const (
@@ -50,6 +53,7 @@ type AssemblySolveManifest struct {
 }
 
 type AssemblyResolutionEvidence struct {
+	GeometryID       string                 `json:"geometryId,omitempty"`
 	ConstraintID     string                 `json:"constraintId"`
 	Endpoint         string                 `json:"endpoint"`
 	InstanceID       string                 `json:"instanceId"`
@@ -122,19 +126,29 @@ func newAssemblySolveManifest(documentID, revisionID, modelHash string, bodies [
 		manifest.Definitions = append([]AssemblyConstraint(nil), definitions[0]...)
 		sort.Slice(manifest.Definitions, func(i, j int) bool { return manifest.Definitions[i].ID < manifest.Definitions[j].ID })
 	}
-	if err := validateAssemblySolveManifest(manifest); err != nil {
-		return AssemblySolveManifest{}, err
+	// Resource limits apply before copying; endpoint identities are body-scoped
+	// until the shared compiler assigns the manifest's private namespace.
+	if len(bodies) == 0 || len(bodies) > maxManifestBodies || len(geometryValues) > maxManifestGeometry || len(constraints) > maxManifestConstraints || len(manifest.Definitions) > maxManifestConstraints {
+		return AssemblySolveManifest{}, fmt.Errorf("%w: assembly SolveManifest resource limits exceeded", ErrValidation)
 	}
-	// Freeze the same value representation that persistence/replay consumes.
-	// Slice copies above protect canonical ordering, but nested poses, branch
-	// state and resolution evidence still contain caller-owned pointers/slices.
-	raw, err := json.Marshal(manifest)
+	// Clone pointer/slice fields directly; JSON remains only the persistence/digest encoding.
+	frozen, err := valuecopy.Clone(manifest)
 	if err != nil {
-		return AssemblySolveManifest{}, fmt.Errorf("%w: encode assembly SolveManifest: %v", ErrValidation, err)
-	}
-	var frozen AssemblySolveManifest
-	if err := json.Unmarshal(raw, &frozen); err != nil {
 		return AssemblySolveManifest{}, fmt.Errorf("%w: freeze assembly SolveManifest: %v", ErrValidation, err)
+	}
+	var ids map[geometry.AssemblyGeometryKey]string
+	frozen.Geometry, frozen.Constraints, ids, err = geometry.CompileAssemblyInput(frozen.Geometry, frozen.Constraints)
+	if err != nil {
+		return AssemblySolveManifest{}, fmt.Errorf("%w: %v", ErrValidation, err)
+	}
+	for i := range frozen.ResolutionEvidence {
+		e := &frozen.ResolutionEvidence[i]
+		if e.GeometryID != "" {
+			e.GeometryID = ids[geometry.AssemblyGeometryKey{BodyID: e.InstanceID, ID: e.GeometryID}]
+		}
+	}
+	if err := validateAssemblySolveManifest(frozen); err != nil {
+		return AssemblySolveManifest{}, err
 	}
 	frozen.Digest = assemblyManifestDigest(frozen)
 	return frozen, nil
@@ -172,11 +186,13 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 	if manifest.DragTarget != nil && (manifest.SolverBuildPolicy != assemblySolverBuildPolicy || !bodies[manifest.DragTarget.BodyID] || !validInteractionTarget(*manifest.DragTarget)) {
 		return fmt.Errorf("%w: invalid versioned drag target", ErrValidation)
 	}
+	geometryOwners := map[string]string{}
 	for _, item := range manifest.Geometry {
 		if item.ID == "" || geometryIDs[item.ID] || !bodies[item.BodyID] {
 			return fmt.Errorf("%w: invalid geometry identity or body reference in SolveManifest", ErrValidation)
 		}
 		geometryIDs[item.ID] = true
+		geometryOwners[item.ID] = item.BodyID
 	}
 	for _, constraint := range manifest.Constraints {
 		if constraint.ID == "" || constraints[constraint.ID] || !bodies[constraint.FirstBodyID] ||
@@ -187,6 +203,11 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 		}
 		if constraint.AngleReferenceGeometryID != "" && (!geometryIDs[constraint.AngleReferenceGeometryID] || !bodies[constraint.AngleReferenceBodyID] || constraint.Kind != "ANGLE" || (manifest.SolverBuildPolicy != assemblySolverBuildPolicy)) {
 			return fmt.Errorf("%w: invalid or unversioned directed-axis reference", ErrValidation)
+		}
+		for _, endpoint := range []struct{ body, id string }{{constraint.FirstBodyID, constraint.FirstGeometryID}, {constraint.SecondBodyID, constraint.SecondGeometryID}, {constraint.AngleReferenceBodyID, constraint.AngleReferenceGeometryID}} {
+			if endpoint.id != "" && geometryOwners[endpoint.id] != endpoint.body {
+				return fmt.Errorf("%w: geometry endpoint body mismatch", ErrValidation)
+			}
 		}
 		constraints[constraint.ID] = true
 	}
@@ -252,9 +273,13 @@ func (service *Service) recordAssemblySolveResult(ctx context.Context, manifest 
 	if solveErr != nil {
 		status, diagnostic = "FAILED", solveErr.Error()
 	}
-	resultRaw, _ := json.Marshal(result)
-	resultDigest := resolvedDigest(result)
-	_, err := service.database.Exec(ctx, `INSERT INTO occccad.product_solve_results(
+	resultRaw, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(resultRaw)
+	resultDigest := hex.EncodeToString(sum[:])
+	_, err = service.database.Exec(ctx, `INSERT INTO occccad.product_solve_results(
 		manifest_digest,request_id,result,result_digest,status,diagnostic,solver_build,completed_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,now()) ON CONFLICT (request_id) DO NOTHING`, manifest.Digest, requestID,
 		resultRaw, resultDigest, status, diagnostic, solverBuild)

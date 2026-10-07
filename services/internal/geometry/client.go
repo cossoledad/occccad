@@ -412,7 +412,26 @@ type AssemblySolverProfile struct {
 	JacobianCheckTolerance                                          float64
 }
 
+type AssemblyDebugOptions struct {
+	CaptureEvaluations bool
+	CaptureMatrices    bool
+	ByteBudget         uint64
+}
+type assemblyDebugKey struct{}
+type assemblyReplayBudgetKey struct{}
+
+// WithAssemblyReplayBudget is an explicit offline experiment override. Normal
+// command contexts keep the production per-RPC deadline unchanged.
+func WithAssemblyReplayBudget(ctx context.Context, budget time.Duration) context.Context {
+	return context.WithValue(ctx, assemblyReplayBudgetKey{}, budget)
+}
+
+func WithAssemblyDebug(ctx context.Context, options AssemblyDebugOptions) context.Context {
+	return context.WithValue(ctx, assemblyDebugKey{}, options)
+}
+
 type AssemblySolveOptions struct {
+	Debug                 *AssemblyDebugOptions
 	DisableConflictProbes bool
 	CaptureReplay         func([]byte, error)
 
@@ -495,12 +514,25 @@ func (client *Client) SolveAssembly(ctx context.Context, requestID string, bodie
 
 func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID string, bodies []AssemblyBody,
 	geometryValues []AssemblyGeometry, constraints []AssemblyConstraint, options AssemblySolveOptions) (AssemblySolve, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	budget := 10 * time.Second
+	if replayBudget, ok := ctx.Value(assemblyReplayBudgetKey{}).(time.Duration); ok && replayBudget > 0 {
+		budget = replayBudget
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	request := assemblySolveRequest(requestID, bodies, geometryValues, constraints, options)
+	if options.Debug == nil {
+		if debug, ok := ctx.Value(assemblyDebugKey{}).(AssemblyDebugOptions); ok {
+			options.Debug = &debug
+		}
+	}
+	request, compileErr := CompileAssemblyRequest(requestID, bodies, geometryValues, constraints, options)
+	if compileErr != nil {
+		return AssemblySolve{}, compileErr
+	}
+	start := time.Now()
 	response, err := client.worker.SolveAssembly(ctx, request)
 	if options.CaptureReplay != nil {
-		data, captureErr := makeAssemblyReplay(request, response, err)
+		data, captureErr := makeAssemblyReplayBudget(request, response, err, ReplayBudget(ctx, start))
 		options.CaptureReplay(data, captureErr)
 	}
 	if err != nil {
@@ -985,6 +1017,9 @@ func (client *Client) ResolveLoftCorrespondence(ctx context.Context, requestID s
 // assemblySolveRequest is shared by RPC execution and read-only diagnostic export.
 func assemblySolveRequest(requestID string, bodies []AssemblyBody, geometryValues []AssemblyGeometry, constraints []AssemblyConstraint, options AssemblySolveOptions) *workerv1.SolveAssemblyRequest {
 	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1, AffectedBodyIds: options.AffectedBodyIDs, DisableConflictProbes: options.DisableConflictProbes}
+	if debug := options.Debug; debug != nil {
+		request.DebugOptions = &workerv1.AssemblyDebugOptions{CaptureEvaluations: debug.CaptureEvaluations, CaptureMatrices: debug.CaptureMatrices, ByteBudget: debug.ByteBudget}
+	}
 	if t := options.DragTarget; t != nil {
 		request.DragTarget = &workerv1.AssemblyDragTarget{BodyId: t.BodyID, LocalGrabPoint: &workerv1.Vec3{X: t.LocalGrabPoint[0], Y: t.LocalGrabPoint[1], Z: t.LocalGrabPoint[2]}, TargetPose: protoPose(t.TargetPose), FrameRotation: &workerv1.Quaternion{X: t.FrameRotation[0], Y: t.FrameRotation[1], Z: t.FrameRotation[2], W: t.FrameRotation[3]}, TranslationComponents: t.TranslationComponents[:], RotationComponents: t.RotationComponents[:], TargetSequence: t.TargetSequence, HoldTranslationComponents: t.HoldTranslationComponents[:], HoldRotationComponents: t.HoldRotationComponents[:]}
 	}

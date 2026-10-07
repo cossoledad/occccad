@@ -53,6 +53,53 @@ Vec3 rotate(const Quaternion& q, const Vec3& vector) {
                 2.0 * q.w * cross.z};
 }
 
+TEST(AssemblySolver, CompiledEndpointsDoNotHashLongIdentitiesInNumericalLoops) {
+    const std::string id(8192, 'x');
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {{4, -2, 1}, {}}}};
+    model.geometry = {{id, "ground", PointGeometry{}}, {id, "moving", PointGeometry{}}};
+    model.constraints = {fix("ground"), binary("coincidence", ConstraintKind::Coincident,
+                                               ref("moving", id), ref("ground", id))};
+    SolverOptions options;
+    options.verify_analytic_jacobians = false;
+    const auto result = Solver{}.solve(model, options);
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    EXPECT_GT(result.metrics.residual_evaluations, 0U);
+    EXPECT_GT(result.metrics.jacobian_evaluations, 0U);
+    EXPECT_EQ(result.metrics.hot_string_lookups, 0U);
+    EXPECT_EQ(result.metrics.hot_string_bytes, 0U);
+    EXPECT_NEAR(pose(result, "moving").translation.x, 0, options.length_tolerance);
+    EXPECT_EQ(model.geometry[0].id, id);
+    EXPECT_EQ(model.bodies[1].initial_pose.translation.x, 4);
+}
+
+TEST(AssemblySolver, OptionalEvaluationTracePreservesSolveAndReportsStages) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {{4, 0, 0}, {}}}};
+    model.geometry = {{"point", "ground", PointGeometry{}}, {"point", "moving", PointGeometry{}}};
+    model.constraints = {fix("ground"), binary("coincidence", ConstraintKind::Coincident,
+                                               ref("moving", "point"), ref("ground", "point"))};
+    SolverOptions options;
+    options.verify_analytic_jacobians = false;
+    const auto baseline = Solver{}.solve(model, options);
+    std::vector<EvaluationTrace> trace;
+    options.record_matrices = true;
+    options.record_evaluation = [&](EvaluationTrace event) { trace.push_back(std::move(event)); };
+    const auto result = Solver{}.solve(model, options);
+    ASSERT_EQ(result.status, baseline.status);
+    EXPECT_DOUBLE_EQ(result.normalized_residual, baseline.normalized_residual);
+    EXPECT_DOUBLE_EQ(pose(result, "moving").translation.x, pose(baseline, "moving").translation.x);
+    ASSERT_FALSE(trace.empty());
+    EXPECT_TRUE(std::any_of(trace.begin(), trace.end(),
+                            [](const auto& e) { return e.stage == "HARD_FEASIBILITY"; }));
+    EXPECT_TRUE(
+        std::any_of(trace.begin(), trace.end(), [](const auto& e) { return !e.jacobian.empty(); }));
+    for (const auto& event : trace) {
+        EXPECT_EQ(event.body_poses.size(), model.bodies.size());
+        EXPECT_EQ(event.jacobian.size(), event.jacobian_rows * event.jacobian_columns);
+    }
+}
+
 TEST(AssemblySolver, FixAndPointCoincidentMoveOnlyTheFreeBody) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {{4.0, -2.0, 1.0}, {}}}};

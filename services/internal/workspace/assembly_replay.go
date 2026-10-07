@@ -11,7 +11,6 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
-	"github.com/occccad/occccad/internal/modelcore"
 )
 
 type debugArtifactWrite struct {
@@ -27,6 +26,7 @@ func (service *Service) SetDebugArtifactStore(store *debugartifact.Store) {
 			archiveCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			_, err := store.Save(archiveCtx, value.documentID, value.requestID, value.data)
 			cancel()
+			service.debugArtifactQueuedBytes.Add(-int64(len(value.data)))
 			if err != nil {
 				slog.Error("archive assembly replay", "document_id", value.documentID, "request_id", value.requestID, "error", err)
 			}
@@ -43,11 +43,27 @@ func (service *Service) captureAssemblyReplay(ctx context.Context, documentID, r
 		if service.debugArtifacts == nil {
 			return
 		}
-		// A bounded single-writer queue keeps diagnostics outside latency and load-bearing state.
+		if len(data) > assemblyDiagnosticBudget {
+			slog.WarnContext(ctx, "drop assembly replay: byte budget exceeded", "document_id", documentID)
+			return
+		}
+		size := int64(len(data))
+		for {
+			old := service.debugArtifactQueuedBytes.Load()
+			if old+size > 32<<20 {
+				slog.WarnContext(ctx, "drop assembly replay: queue byte budget exceeded", "document_id", documentID)
+				return
+			}
+			if service.debugArtifactQueuedBytes.CompareAndSwap(old, old+size) {
+				break
+			}
+		}
+		// Owned serialized bytes are immutable; archiving does not duplicate them.
 		select {
-		case service.debugArtifactWrites <- debugArtifactWrite{documentID: documentID, requestID: requestID, data: append([]byte(nil), data...)}:
+		case service.debugArtifactWrites <- debugArtifactWrite{documentID: documentID, requestID: requestID, data: data}:
 		default:
-			slog.WarnContext(ctx, "drop assembly replay because debug queue is full", "document_id", documentID, "request_id", requestID)
+			service.debugArtifactQueuedBytes.Add(-size)
+			slog.WarnContext(ctx, "drop assembly replay: queue frame budget exceeded", "document_id", documentID, "request_id", requestID)
 		}
 	}
 }
@@ -73,7 +89,12 @@ func (service *Service) ReadAssemblyReplay(ctx context.Context, documentID, id, 
 // ExportAssemblyDiagnostic freezes the complete current revision, including
 // disabled/unaccepted definitions. Compilation uses copies; no solve, history,
 // admission, warm start or manifest persistence runs during this read.
+type AssemblyDiagnosticExportOptions struct{ DetailedNaming bool }
+
 func (service *Service) ExportAssemblyDiagnostic(ctx context.Context, documentID string) ([]byte, error) {
+	return service.ExportAssemblyDiagnosticWithOptions(ctx, documentID, AssemblyDiagnosticExportOptions{})
+}
+func (service *Service) ExportAssemblyDiagnosticWithOptions(ctx context.Context, documentID string, options AssemblyDiagnosticExportOptions) ([]byte, error) {
 	var kind, revision string
 	var raw []byte
 	if err := service.database.QueryRow(ctx, `SELECT d.document_type,d.head_version_id::text,v.model_json FROM occccad.documents d JOIN occccad.document_versions v ON v.id=d.head_version_id WHERE d.id=$1 AND d.deleted_at IS NULL`, documentID).Scan(&kind, &revision, &raw); err != nil {
@@ -96,32 +117,84 @@ func (service *Service) ExportAssemblyDiagnostic(ctx context.Context, documentID
 	for i := range all.Constraints {
 		all.Constraints[i].Suppressed = false
 	}
+	capture := &assemblyDiagnosticCapture{invalid: map[string]bool{}}
+	ctx = context.WithValue(ctx, assemblyDiagnosticCaptureKey{}, capture)
 	frozen, err := service.FreezeAssemblyInput(ctx, documentID, revision, all)
 	if err != nil {
-		return nil, err
+		capture.record("", "", "INPUT_COMPILATION", err)
+		if frozen.SchemaVersion == 0 {
+			frozen = AssemblySolveManifest{RootProductDocumentID: documentID, RootProductRevisionID: revision, SolverProfile: defaultAssemblySolverProfile(), SolverBuildPolicy: assemblySolverBuildPolicy}
+			for _, instance := range product.Instances {
+				frozen.Bodies = append(frozen.Bodies, geometry.AssemblyBody{ID: instance.ID, Pose: geometry.AssemblyPose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)}})
+			}
+		}
 	}
-	// Preserve the actual definition states, not compilation's projected states.
-	frozen.Definitions = product.Constraints
 	frozen.ModelHash = canonicalModelHash(raw)
-	if err := prepareDiagnosticManifest(&frozen, false); err != nil {
-		return nil, err
-	}
-	input, err := geometry.MakeAssemblyReplay("diagnostic/"+documentID+"/"+revision, frozen.Bodies, frozen.Geometry, frozen.Constraints, geometry.AssemblySolveOptions{SolverProfile: &frozen.SolverProfile, DisableConflictProbes: true})
+	// Definitions are saved states, never compilation's projected state.
+	frozen.Definitions = product.Constraints
+	snapshot, err := buildAssemblyDiagnosticSnapshot(frozen, product.Constraints, capture.failures)
 	if err != nil {
 		return nil, err
 	}
-	var file map[string]json.RawMessage
-	if err = json.Unmarshal(input, &file); err != nil {
+	snapshot.Documents, err = service.assemblyDiagnosticDocuments(ctx, product)
+	if err != nil {
 		return nil, err
 	}
-	snapshot := struct {
-		Schema     string                `json:"schema"`
-		DocumentID string                `json:"documentId"`
-		RevisionID string                `json:"revisionId"`
-		Product    ProductModel          `json:"product"`
-		Manifest   AssemblySolveManifest `json:"manifest"`
-		Sources    []json.RawMessage     `json:"sources"`
-	}{Schema: "occccad.assembly-diagnostic.v1", DocumentID: documentID, RevisionID: revision, Product: product, Manifest: frozen}
+	if options.DetailedNaming {
+		if err := snapshot.appendNamingEvidence(frozen.ResolutionEvidence); err != nil {
+			return nil, err
+		}
+	}
+	service.appendDiagnosticAttempts(ctx, &snapshot, product.Constraints)
+	return encodeAssemblyDiagnostic(snapshot)
+}
+
+func encodeAssemblyDiagnostic(snapshot AssemblyDiagnosticSnapshot) ([]byte, error) {
+	encode := func() ([]byte, error) {
+		snapshot.Digest = snapshot.contentDigest()
+		raw, err := json.Marshal(snapshot)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(geometry.AssemblyReplay{Schema: geometry.AssemblyReplaySchema, Units: "mm,rad; body-local geometry; quaternion xyzw", Snapshot: raw, Outcome: "NOT_ATTEMPTED"})
+	}
+	data, err := encode()
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > snapshot.ByteBudget {
+		// Preserve the core numerical tables/definitions; budgeted historical input loss is explicit.
+		for i := range snapshot.Attempts {
+			snapshot.Attempts[i].Sequence = nil
+			snapshot.Attempts[i].Missing = append(snapshot.Attempts[i].Missing, "EXPORT_BYTE_BUDGET_EXCEEDED")
+		}
+		snapshot.Missing = append(snapshot.Missing, "HISTORICAL_INPUTS_OMITTED_BY_BYTE_BUDGET")
+		snapshot.Documents = nil
+		snapshot.NamingEvidence = nil
+		snapshot.NamingLinks = nil
+		snapshot.Missing = append(snapshot.Missing, "OPTIONAL_METADATA_OMITTED_BY_BYTE_BUDGET")
+		// Remove historical-only table objects as well as stage references.
+		expanded, expandErr := snapshot.ExpandFrame(snapshot.Current)
+		if expandErr != nil {
+			return nil, expandErr
+		}
+		snapshot.Geometry = nil
+		snapshot.Primitives = nil
+		var packErr error
+		snapshot.Current, packErr = packDiagnosticFrame(expanded, newDiagnosticTable(&snapshot.Geometry), newDiagnosticTable(&snapshot.Primitives))
+		if packErr != nil {
+			return nil, packErr
+		}
+		data, err = encode()
+	}
+	if err == nil && len(data) > snapshot.ByteBudget {
+		return nil, fmt.Errorf("assembly diagnostic core requires %d bytes; configured budget %d", len(data), snapshot.ByteBudget)
+	}
+	return data, err
+}
+
+func (service *Service) assemblyDiagnosticDocuments(ctx context.Context, product ProductModel) ([]AssemblyDiagnosticDocument, error) {
+	sources := []AssemblyDiagnosticDocument{}
 	seen := map[string]bool{}
 	queue := append([]ProductInstance(nil), product.Instances...)
 	for len(queue) > 0 {
@@ -131,123 +204,38 @@ func (service *Service) ExportAssemblyDiagnostic(ctx context.Context, documentID
 		if seen[key] {
 			continue
 		}
-		if len(seen) >= maxManifestBodies {
-			return nil, fmt.Errorf("%w: diagnostic source limit exceeded", ErrValidation)
-		}
 		seen[key] = true
-		var model []byte
-		var kind string
-		err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE v.document_id=$1 AND v.id=$2`, instance.ReferencedDocumentID, instance.ReferencedVersionID).Scan(&kind, &model)
-		source := struct {
-			DocumentID  string          `json:"documentId"`
-			RevisionID  string          `json:"revisionId"`
-			Model       json.RawMessage `json:"model,omitempty"`
-			Unavailable string          `json:"unavailable,omitempty"`
-		}{DocumentID: instance.ReferencedDocumentID, RevisionID: instance.ReferencedVersionID, Model: model}
-		if errors.Is(err, database.ErrNoRows) {
-			source.Unavailable = "SOURCE_REVISION_UNAVAILABLE"
-		} else if err != nil {
-			return nil, err
+		if len(seen) > maxManifestBodies {
+			return nil, fmt.Errorf("diagnostic document limit exceeded")
 		}
-		if kind == "PRODUCT" && len(model) > 0 {
-			var nested ProductModel
-			if err := json.Unmarshal(model, &nested); err != nil {
-				return nil, err
-			}
-			queue = append(queue, nested.Instances...)
-		}
-		encoded, err := json.Marshal(source)
+		source := AssemblyDiagnosticDocument{DocumentID: instance.ReferencedDocumentID, RevisionID: instance.ReferencedVersionID}
+		var raw []byte
+		err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE v.document_id=$1 AND v.id=$2`, source.DocumentID, source.RevisionID).Scan(&source.Type, &raw)
 		if err != nil {
-			return nil, err
+			source.Unavailable = "SOURCE_REVISION_UNAVAILABLE"
+		} else if source.Type == "PRODUCT" {
+			var nested ProductModel
+			if err := json.Unmarshal(raw, &nested); err != nil {
+				source.Unavailable = "SOURCE_MODEL_UNREADABLE"
+			} else {
+				queue = append(queue, nested.Instances...)
+			}
+		} else {
+			// No Part history/BREP bytes: exact mathematical descriptors already exist in the geometry table.
+			var part struct {
+				Bodies []struct {
+					ID string `json:"id"`
+				} `json:"bodies"`
+			}
+			if err := json.Unmarshal(raw, &part); err != nil {
+				source.Unavailable = "SOURCE_MODEL_UNREADABLE"
+			} else {
+				for _, b := range part.Bodies {
+					source.BodyIDs = append(source.BodyIDs, b.ID)
+				}
+			}
 		}
-		snapshot.Sources = append(snapshot.Sources, encoded)
+		sources = append(sources, source)
 	}
-	file["snapshot"], err = json.Marshal(snapshot)
-	if err != nil {
-		return nil, err
-	}
-	return json.MarshalIndent(file, "", "  ")
-}
-
-// prepareDiagnosticManifest changes only a replay copy. NotUpdated definitions
-// remain outside the accepted solve unless explicitly requested by a debugger.
-func prepareDiagnosticManifest(manifest *AssemblySolveManifest, includeUnverified bool) error {
-	states := map[string]AssemblyConstraint{}
-	excluded := map[string]bool{}
-	for _, definition := range manifest.Definitions {
-		states[definition.ID] = definition
-		excluded[definition.ID] = definition.Suppressed || (definition.EvaluationStatus != modelcore.AssemblyConstraintVerified && !(includeUnverified && definition.EvaluationStatus == modelcore.AssemblyConstraintNotUpdated))
-	}
-	for i := range manifest.Constraints {
-		c := &manifest.Constraints[i]
-		definition, ok := states[c.ID]
-		if !ok {
-			return fmt.Errorf("%w: diagnostic primitive has no definition", ErrValidation)
-		}
-		c.Mode = definition.Mode
-		if c.Mode == "" {
-			c.Mode = "DRIVING"
-		}
-		if excluded[c.ID] {
-			c.Mode = "SUPPRESSED"
-		}
-	}
-	var err error
-	manifest.GroupStages, err = prepareAssemblyGroupStages(*manifest, excluded)
-	if err != nil {
-		return err
-	}
-	manifest.Digest = assemblyManifestDigest(*manifest)
-	return validateAssemblySolveManifest(*manifest)
-}
-
-// ReplayAssemblyDiagnostic uses the production frozen-manifest/group solve with
-// no database, source models, admission, history or artifact writes.
-func ReplayAssemblyDiagnostic(ctx context.Context, client *geometry.Client, data []byte, includeUnverified bool) ([]byte, error) {
-	var file geometry.AssemblyReplay
-	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, err
-	}
-	if len(file.Snapshot) == 0 {
-		if includeUnverified {
-			return nil, fmt.Errorf("include-unverified requires a complete assembly diagnostic")
-		}
-		return client.ReplayAssembly(ctx, data)
-	}
-	var snapshot struct {
-		Schema   string                `json:"schema"`
-		Manifest AssemblySolveManifest `json:"manifest"`
-	}
-	if err := json.Unmarshal(file.Snapshot, &snapshot); err != nil {
-		return nil, err
-	}
-	if file.Schema != geometry.AssemblyReplaySchema || snapshot.Schema != "occccad.assembly-diagnostic.v1" || snapshot.Manifest.Digest != assemblyManifestDigest(snapshot.Manifest) {
-		return nil, fmt.Errorf("%w: invalid assembly diagnostic schema or manifest digest", ErrValidation)
-	}
-	if err := prepareDiagnosticManifest(&snapshot.Manifest, includeUnverified); err != nil {
-		return nil, err
-	}
-	file.Result, file.TransportError, file.AssemblyResult = nil, "", nil
-	var captured []byte
-	result, solveErr := New(nil, client).solveFrozenManifest(ctx, "diagnostic/replay", snapshot.Manifest, func(data []byte, err error) {
-		if err == nil {
-			captured = data
-		}
-	})
-	if len(captured) > 0 {
-		var numeric geometry.AssemblyReplay
-		if err := json.Unmarshal(captured, &numeric); err != nil {
-			return nil, err
-		}
-		file.Result, file.TransportError = numeric.Result, numeric.TransportError
-	}
-	if solveErr != nil {
-		file.TransportError = solveErr.Error()
-	}
-	var err error
-	file.AssemblyResult, err = json.Marshal(result)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(file)
+	return sources, nil
 }

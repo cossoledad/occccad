@@ -62,7 +62,7 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 新 DocumentView 即使 GeometryKey/pose 不变，也同步 owner/version/referenceMode、InstancePath、选择与操纵绑定；开始手势从当前权威快照按稳定 occurrence 冻结，旧路径严格拒绝。约束显示按 owner/occurrence/ConstraintId 增量 reconcile，增删、模式、抑制、评价、支持与标签独立失效，请求帧并清理拾取/高亮，无 GLB 下载或完整 BVH 重建。单一手柄吸附复用可见拾取与精确查询；中心重定位不是模型移动，手势框架冻结。
 
-SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence、参数解析值、模式/激活、组阶段、分支/基准、policy/profile/build、失败试算与采用结果。Replay 不查询最新几何、不依赖 Session。开发数据只支持当前 DefinitionVersion=2、Quantity 和 assembly-m4m5-reference-retraction-v13/canonical JSON 摘要；旧实验定义、Offset 符号约定、pair-Rigid 持久记录和 policy 明确拒绝，不做读取修补、换号、组迁移或多代投影。Rigid 快捷创建仍生成当前正式组，内核刚性原语继续使用。已有旧开发数据可能无法读取，未自动重置。当前格式的 JSONB 数值规范化、篡改拒绝、Revision、CAS、Undo/Redo 与 Release 冻结完整保留；记录实际重放 build，不承诺跨版本逐位一致。
+SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence、参数解析值、模式/激活、组阶段、分支/基准及 policy/profile/build；失败试算和采用结果分别记录在操作诊断与 SolveManifestResult。Replay 不查询最新几何、不依赖 Session。开发数据只支持当前 DefinitionVersion=2、Quantity 和 assembly-m4m5-reference-retraction-v13/canonical JSON 摘要；旧实验定义、Offset 符号约定、pair-Rigid 持久记录和 policy 明确拒绝，不做读取修补、换号、组迁移或多代投影。Rigid 快捷创建仍生成当前正式组，内核刚性原语继续使用。已有旧开发数据可能无法读取，未自动重置。当前格式的 JSONB 数值规范化、篡改拒绝、Revision、CAS、Undo/Redo 与 Release 冻结完整保留；记录实际重放 build，不承诺跨版本逐位一致。
 
 ## 入口与限制
 
@@ -79,6 +79,10 @@ SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence
 
 装配试算失败经现有 operation diagnostic repository 记录不可变 Product 基线/候选、来源 Revision、排除约束集合及精确数字重放。admission 隔离为 NotUpdated 的定义仍携带 `evaluationFailure.diagnosticId`，预览和属性面板复用 DiagnosticCopy；失败位姿不能进入已接纳集合。整体/相对 DOF 对应已接纳求解集合，不能用它替代被隔离试算的收敛证据。
 
-DEBUG Tab 分别注册 `debug.part` 与 `debug.assembly`，各自调用独立诊断入口。装配下载 `GET /api/documents/{id}/assembly-diagnostic` 只读冻结当前 Head：Product 全部定义及评价/停用/测量状态、实例姿态、生产解析的精确 body-local 几何、SolverProfile、分阶段组 Manifest，以及递归引用 Revision 的 Part Body/Product 模型。不能解析的定义仍保留状态和诊断；缺失来源显式标记。导出不求解、不写 Revision/历史/暖启动，不依赖上次预览或本地归档是否存在。
+DEBUG Tab 分别注册 `debug.part` 与 `debug.assembly`，各自调用独立诊断入口。装配下载 `GET /api/documents/{id}/assembly-diagnostic` 只读冻结当前 Head，输出 `occccad.assembly-diagnostic.v2`：全部原始定义/评价/停用/测量状态与来源表、精确 body-local 几何/数值约束表、当前姿态/初值/profile/参与集合、组阶段和递归来源 Revision/Part Body 身份。默认不附带完整 Part 模型历史；`?naming=true` 按需附加去重 Naming 证据。解析失败逐约束记录端点/阶段，其他可解析数据继续导出，不造假几何。导出不求解、不写 Revision/历史/暖启动。
 
-完整 `.3dreplay` 在既有数值请求外增加 `snapshot`；命令行重放使用其中的生产冻结 Manifest 和组求解流程，不访问数据库/BREP。默认仅求解 Verified 的未停用定义，`-include-unverified` 显式重试可解析的 NotUpdated；输出 `assemblyResult` 保留组与偏好证据，不改变包中的持久状态。数值几何引用使用 SHA-256 私有别名，完整业务身份和来源证据在 snapshot 中保留。单次失败的 CAD_DIAGNOSTIC 与有界数值归档继续保存不可变试算证据，约束面板仅提供复制诊断 ID。重放工具见[CLI](../../../services/cmd/occccad-3dreplay/README.md)。
+NotUpdated 通过 `evaluationFailure.diagnosticId` 关联归档的真实失败输入：实际 RPC 顺序、组阶段初始姿态/initialGuess、参与集合、有效配置、分支/意图、预算、结果/错误及实现 fingerprint。缺失或裁剪的历史显式标记，当前状态不能冒充原现场。数值捕获/导出限 8 MiB，操作序列限 4 MiB/32 帧，异步队列限 32 MiB；可选轨迹/矩阵采集有独立上限，落盘失败不破坏正式操作。
+
+完整 `.3dreplay` 仅有 snapshot 表引用这一数值来源；普通求解与回放共用 Go 编译器，按端点所属 occurrence/身份生成短 `g000000` ID，C++ 在 nominal 分支冻结后绑定几何/刚体/cluster 索引，残差和 Jacobian 循环不用长字符串拼接查找。持久身份、提交 digest 和结果的稳定 constraint ID 仍保留。默认输出计数、逐约束残差、秩/退化、候选和阶段耗时，完整矩阵/轨迹按需开启。
+
+离线入口使用同一生产适配器/C++ Worker，无数据库、S3、BREP 或在线解析。支持当前已接受集合、显式加入 NotUpdated、全部未停用驱动约束、保留固定/第三轴/组边界的完整关联子系统，以及真实失败当次的顺序回放。调试初值/分支/预算记录在派生结果，不覆盖原文件或文档。可行、偏好未收敛、输入错误、数值未收敛、执行失败分别呈现；只有已编译分支及固定姿态下、无可动参数的明确矛盾证据分类为已证矛盾，不将超时、秩亏或局部失败认定全局无解。工具、字段和限制见[CLI](../../../services/cmd/occccad-3dreplay/README.md)。

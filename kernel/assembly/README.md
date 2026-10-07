@@ -35,6 +35,30 @@ depend on OCCT, Product documents, topology naming, RPC or persistence.
   for symmetric geometric entities, while `Same`/`Opposite` and plane-side options
   preserve user intent when a result has multiple branches.
 
+## Compiled input and diagnostics
+
+The production Go adapter allocates solve-private short geometry IDs by owning
+body and endpoint identity. Here, endpoint geometry/body/cluster indices are bound
+once after branch freezing. Residual and analytic Jacobian evaluation reuse those
+bindings without concatenating or hashing business-reference strings; stable
+constraint identities still label output rows and diagnostics. Inputs are immutable.
+
+`SolveResult.metrics` reports compile, residual/Jacobian and solve durations,
+evaluation counts and hot endpoint string lookup bytes/counts. Inclusive hard
+feasibility/retraction/preference timings expose phase costs. Optional
+`SolverOptions.record_evaluation` receives bounded-by-caller numerical evaluation
+states; `record_matrices` also records Jacobians. Default solves keep summary
+evidence. `Solver::implementation_id()` fingerprints solver/contact sources,
+header, Eigen/compiler/build configuration separately from the public policy name.
+A grounded inconsistent component with no movable parameters emits explicit
+`GROUNDED_CONTRADICTION`; other numerical failures do not prove global infeasibility.
+
+The offline [replay tool](../../services/cmd/occccad-3dreplay/README.md) uses this
+same solver and production input adapter. Its tables preserve all saved constraint
+states separately from participation and original failure attempts. The
+[performance report](../../tests/test.data/assembly-input-performance.md) records
+measured payload, allocation, phase and RSS tradeoffs.
+
 ## Native primitives and public compilation
 
 The unique production capability source is

@@ -3,10 +3,12 @@ package control
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/occccad/occccad/internal/debugartifact"
 	"math"
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/workspace"
@@ -129,7 +131,7 @@ func TestFixTogetherStagedInternalUpdateAndHistoryThroughRouter(t *testing.T) {
 	if err := json.Unmarshal(file.AssemblyResult, &diagnosticResult); err != nil {
 		t.Fatal(err)
 	}
-	if diagnosticResult.Status != "CONVERGED" || len(diagnosticResult.GroupEvidence) != 1 {
+	if diagnosticResult.Status != "CONVERGED" || len(diagnosticResult.GroupEvidence) != 1 || len(file.Stages) < 2 {
 		t.Fatal("complete diagnostic lost staged group solve", diagnosticResult)
 	}
 	read, err = f.service.GetDocument(t.Context(), id)
@@ -271,6 +273,11 @@ func TestFixTogetherStagedInternalUpdateAndHistoryThroughRouter(t *testing.T) {
 
 func TestFixTogetherFailedInternalTrialIdentityAndDissolutionThroughRouter(t *testing.T) {
 	f := newCompositionControlFixture(t)
+	debugStore, err := debugartifact.NewStore(t.TempDir(), 50, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.service.SetDiagnosticArtifactStore(debugStore)
 	part := f.importPart(t, "cylinder-r6-h12")
 	product, err := f.service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: f.actor, Type: "PRODUCT", Name: "Group failure and identity"})
 	if err != nil {
@@ -319,6 +326,27 @@ func TestFixTogetherFailedInternalTrialIdentityAndDissolutionThroughRouter(t *te
 	failed := product.Product.Constraints[len(product.Product.Constraints)-1]
 	if failed.EvaluationStatus == "VERIFIED" || failed.Suppressed {
 		t.Fatal("internal impossible definition faked verification or suppression", failed)
+	}
+	bundle, err := f.service.ExportAssemblyDiagnostic(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var diagnostic geometry.AssemblyReplay
+	var snapshot workspace.AssemblyDiagnosticSnapshot
+	_ = json.Unmarshal(bundle, &diagnostic)
+	if err = json.Unmarshal(diagnostic.Snapshot, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Attempts) != 1 || len(snapshot.Attempts[0].Missing) != 0 || len(snapshot.Attempts[0].Sequence) == 0 {
+		t.Fatal("group failure lost actual ordered numerical stages", string(bundle))
+	}
+	original, err := workspace.ReplayAssemblyDiagnosticWithOptions(t.Context(), f.client, bundle, workspace.AssemblyReplayOptions{Mode: "original", TargetConstraintID: failed.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal(original, &diagnostic)
+	if diagnostic.Outcome == "INPUT_ERROR" || len(diagnostic.Stages) != len(snapshot.Attempts[0].Sequence) {
+		t.Fatal("group original sequence could not replay", string(original))
 	}
 	for _, g := range product.Product.Constraints {
 		if g.ID == groupID && (!reflect.DeepEqual(g.GroupRelations, groupBefore.GroupRelations) || g.GroupCaptureDigest != groupBefore.GroupCaptureDigest) {

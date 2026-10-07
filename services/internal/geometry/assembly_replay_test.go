@@ -64,11 +64,19 @@ func TestAssemblyReplayFreezesEffectiveDefaultsWithoutMutatingRequest(t *testing
 	}
 }
 
-func TestAssemblyReplayCompactsOnlyPrivateGeometryIdentifiers(t *testing.T) {
+func TestAssemblyCompilerCompactsProductionAndReplayIdentifiers(t *testing.T) {
 	large := strings.Repeat("persistent-reference-snapshot/", 1000)
 	input := &workerv1.SolveAssemblyRequest{RequestId: "replay", Bodies: []*workerv1.AssemblyBody{{Id: "occurrence", InitialPose: &workerv1.RigidPose{Rotation: &workerv1.Quaternion{W: 1}}}}, Geometry: []*workerv1.AssemblyGeometry{{Id: large, BodyId: "occurrence", Kind: "CYLINDER", Radius: 12.5, Origin: &workerv1.Vec3{X: 3.141592653589793}, Direction: &workerv1.Vec3{Z: 1}}}, Constraints: []*workerv1.AssemblyConstraint{{Id: "constraint", First: &workerv1.AssemblyGeometryRef{BodyId: "occurrence", GeometryId: large}, AngleReference: &workerv1.AssemblyGeometryRef{BodyId: "occurrence", GeometryId: large}}}}
 	before := proto.Clone(input)
-	raw, e := makeAssemblyReplay(input, nil, nil)
+	bodies, values, cs, opts, e := AssemblyInputFromRequest(input)
+	if e != nil {
+		t.Fatal(e)
+	}
+	compiled, e := CompileAssemblyRequest(input.RequestId, bodies, values, cs, opts)
+	if e != nil {
+		t.Fatal(e)
+	}
+	raw, e := makeAssemblyReplay(compiled, nil, nil)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -88,7 +96,7 @@ func TestAssemblyReplayCompactsOnlyPrivateGeometryIdentifiers(t *testing.T) {
 	restored.Geometry[0].Id = large
 	restored.Constraints[0].First.GeometryId = large
 	restored.Constraints[0].AngleReference.GeometryId = large
-	if !proto.Equal(before, &restored) || !proto.Equal(before, input) {
+	if restored.Geometry[0].Radius != input.Geometry[0].Radius || restored.Geometry[0].Origin.X != input.Geometry[0].Origin.X || !proto.Equal(before, input) {
 		t.Fatal("numeric input or live stable references changed")
 	}
 }

@@ -4,18 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/occccad/occccad/internal/debugartifact"
-	"github.com/occccad/occccad/internal/modelcore"
 	"log/slog"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/occccad/occccad/internal/debugartifact"
+	"github.com/occccad/occccad/internal/modelcore"
 )
 
 // Operation diagnostics reuse the bounded debug repository, never Revision or
 // commit candidates. Capture the evaluated input, not whatever Head exists later.
 type OperationDiagnostic struct {
-	AssemblyReplay         json.RawMessage          `json:"assemblyReplay,omitempty"`
+	AssemblyAttempts       []json.RawMessage `json:"assemblyAttempts,omitempty"`
+	MetadataMissing        []string          `json:"metadataMissing,omitempty"`
+	AssemblyMissing        []string          `json:"assemblyMissing,omitempty"`
+	assemblyBytes          int
 	AssemblyManifestDigest string                   `json:"assemblyManifestDigest,omitempty"`
 	ExcludedConstraintIDs  []string                 `json:"excludedConstraintIds,omitempty"`
 	Schema                 string                   `json:"schema"`
@@ -105,7 +109,19 @@ func (service *Service) finishOperationDiagnostic(ctx context.Context, d *Operat
 		}
 	}
 	data, err := json.Marshal(d)
-	if err == nil && len(data) > 8*1024*1024 {
+	if err == nil && len(data) > assemblyDiagnosticBudget && d.Mode == "ASSEMBLY" {
+		d.BaseModel = nil
+		d.Candidate = nil
+		d.Artifacts = nil
+		d.MetadataMissing = append(d.MetadataMissing, "MODEL_SNAPSHOTS_OMITTED_BY_ARCHIVE_BYTE_BUDGET")
+		data, err = json.Marshal(d)
+		if err == nil && len(data) > assemblyDiagnosticBudget {
+			d.AssemblyAttempts = nil
+			d.AssemblyMissing = append(d.AssemblyMissing, "ORIGINAL_INPUT_OMITTED_BY_ARCHIVE_BYTE_BUDGET")
+			data, err = json.Marshal(d)
+		}
+	}
+	if err == nil && len(data) > assemblyDiagnosticBudget {
 		err = errors.New("operation diagnostic exceeds 8 MiB")
 	}
 	if err == nil {
@@ -130,4 +146,16 @@ func (service *Service) ReadOperationDiagnostic(ctx context.Context, documentID,
 		return nil, ErrNotFound
 	}
 	return data, err
+}
+
+func (d *OperationDiagnostic) recordAssemblyAttempt(data []byte) {
+	if len(d.AssemblyAttempts) >= assemblyAttemptLimit || d.assemblyBytes+len(data) > assemblyAttemptBudget {
+		if len(d.AssemblyMissing) == 0 {
+			d.AssemblyMissing = append(d.AssemblyMissing, "ORIGINAL_SEQUENCE_BYTE_OR_FRAME_BUDGET_EXCEEDED")
+		}
+		return
+	}
+	// Callback transfers an owned immutable serialization; no second byte copy.
+	d.AssemblyAttempts = append(d.AssemblyAttempts, json.RawMessage(data))
+	d.assemblyBytes += len(data)
 }

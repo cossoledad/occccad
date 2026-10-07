@@ -465,6 +465,7 @@ func prepareAssemblyGroupStages(manifest AssemblySolveManifest, excluded map[str
 	for _, c := range manifest.Constraints {
 		numeric[c.ID] = c
 	}
+	inputDigests := map[string]string{}
 	for i := range stages {
 		stage := &stages[i]
 		set := stringSet(stage.MemberIDs)
@@ -494,7 +495,13 @@ func prepareAssemblyGroupStages(manifest AssemblySolveManifest, excluded map[str
 		for j := range stage.Groups {
 			group := &stage.Groups[j]
 			c := byID[group.GroupID]
-			group.InputDigest = assemblyGroupInputDigest(manifest, group.MemberIDs)
+			key := strings.Join(group.MemberIDs, "\x00")
+			digest, ok := inputDigests[key]
+			if !ok {
+				digest = assemblyGroupInputDigest(manifest, group.MemberIDs)
+				inputDigests[key] = digest
+			}
+			group.InputDigest = digest
 			group.CapturePending = c.GroupCapturePending || c.GroupCaptureDigest != group.InputDigest || len(c.GroupRelations) != len(group.MemberIDs)
 			group.CapturedRelations = append([]AssemblyGroupRelation(nil), c.GroupRelations...)
 		}
@@ -522,6 +529,13 @@ func assemblyGroupInputDigest(manifest AssemblySolveManifest, members []string) 
 		if supportIDs[descriptor.ID] {
 			descriptors = append(descriptors, descriptor)
 		}
+	}
+	// Group identity uses its own compiled scope; unrelated support insertions
+	// must not invalidate captured relations by renumbering the outer solve.
+	var err error
+	descriptors, inputs, _, err = geometry.CompileAssemblyInput(descriptors, inputs)
+	if err != nil {
+		return ""
 	}
 	input := struct {
 		Members     []string
@@ -643,7 +657,7 @@ func (service *Service) solveFrozenAssemblyGroups(ctx context.Context, requestID
 			}
 			inner = append(inner, links...)
 		}
-		result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID+"/"+stage.ID, innerBodies, innerGeometry, inner, geometry.AssemblySolveOptions{AffectedBodyIDs: stage.MemberIDs, SolverProfile: &manifest.SolverProfile, DisableConflictProbes: manifest.Purpose == "DIAGNOSTIC"})
+		result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID+"/"+stage.ID, innerBodies, innerGeometry, inner, geometry.AssemblySolveOptions{AffectedBodyIDs: stage.MemberIDs, SolverProfile: &manifest.SolverProfile, CaptureReplay: capture, DisableConflictProbes: manifest.Purpose == "DIAGNOSTIC"})
 		if err != nil {
 			return result, err
 		}

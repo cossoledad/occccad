@@ -127,7 +127,18 @@ func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraint
 }
 
 func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRevisionID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, excluded map[string]bool, probe bool, evidence ...*geometry.AssemblySolve) (returnErr error) {
-	diagnostic := service.newOperationDiagnostic(ctx, documentID, CommandRequest{RequestID: requestID, Type: "ASSEMBLY_SOLVE"}, "ASSEMBLY")
+	diagnosticCapture, _ := ctx.Value(assemblyDiagnosticCaptureKey{}).(*assemblyDiagnosticCapture)
+	reportCompileFailure := func(id, endpoint, phase string, err error) bool {
+		if diagnosticCapture == nil {
+			return false
+		}
+		diagnosticCapture.record(id, endpoint, phase, err)
+		return true
+	}
+	var diagnostic *OperationDiagnostic
+	if ctx.Value(assemblyFrozenInputKey{}) == nil {
+		diagnostic = service.newOperationDiagnostic(ctx, documentID, CommandRequest{RequestID: requestID, Type: "ASSEMBLY_SOLVE"}, "ASSEMBLY")
+	}
 	if diagnostic != nil {
 		diagnostic.BaseRevisionID = rootRevisionID
 		diagnostic.BaseModel, _ = json.Marshal(model)
@@ -150,7 +161,10 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		}
 	}()
 	if err := resolveAssemblyQuantities(model); err != nil {
-		return err
+		if diagnosticCapture == nil {
+			return err
+		}
+		resolveDiagnosticAssemblyQuantities(model, diagnosticCapture)
 	}
 	if len(model.Constraints) == 0 {
 		return nil
@@ -204,7 +218,14 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	}
 	contextVariants, err := service.contextVariantsForProductModel(ctx, *model)
 	if err != nil {
-		return err
+		if diagnosticCapture == nil {
+			return err
+		}
+		for _, c := range model.Constraints {
+			if c.Kind != "FIX" && !isAssemblyGroup(c) {
+				reportCompileFailure(c.ID, "", "CONTEXT_VARIANT", err)
+			}
+		}
 	}
 	applyVariantPublication := func(reference *AssemblyGeometryRef) error {
 		if reference == nil || reference.PublicationRef == nil {
@@ -240,14 +261,20 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			continue
 		}
 		if err := applyVariantPublication(&model.Constraints[index].First); err != nil {
-			return err
+			if !reportCompileFailure(model.Constraints[index].ID, "FIRST", "PUBLICATION", err) {
+				return err
+			}
 		}
 		if err := applyVariantPublication(model.Constraints[index].Second); err != nil {
-			return err
+			if !reportCompileFailure(model.Constraints[index].ID, "SECOND", "PUBLICATION", err) {
+				return err
+			}
 		}
 		if model.Constraints[index].AngleRelation == "DIRECTED" {
 			if err := applyVariantPublication(model.Constraints[index].AngleAxis); err != nil {
-				return err
+				if !reportCompileFailure(model.Constraints[index].ID, "ANGLE_AXIS", "PUBLICATION", err) {
+					return err
+				}
 			}
 		}
 	}
@@ -273,11 +300,17 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	constraints := make([]geometry.AssemblyConstraint, 0, len(model.Constraints))
 	hasUnresolvedActiveConstraint := false
 	resolutionEvidence := make([]AssemblyResolutionEvidence, 0, len(model.Constraints)*2)
+	descriptorDigests := map[string]string{}
 	appendResolutionEvidence := func(constraintID, endpoint, geometryKey string, reference AssemblyGeometryRef) {
-		evidence := AssemblyResolutionEvidence{ConstraintID: constraintID, Endpoint: endpoint, InstanceID: reference.InstanceID,
+		digest, ok := descriptorDigests[geometryKey]
+		if !ok {
+			digest = resolvedDigest(resolvedGeometry[geometryKey])
+			descriptorDigests[geometryKey] = digest
+		}
+		evidence := AssemblyResolutionEvidence{GeometryID: geometryKey, ConstraintID: constraintID, Endpoint: endpoint, InstanceID: reference.InstanceID,
 			PublicationRef: reference.PublicationRef, Publication: reference.PublicationResolution,
 			Persistent: reference.Resolution, SourceVersionID: reference.SourceVersionID,
-			DescriptorDigest: resolvedDigest(resolvedGeometry[geometryKey])}
+			DescriptorDigest: digest}
 		resolutionEvidence = append(resolutionEvidence, evidence)
 	}
 	if drivenInstanceID != "" {
@@ -294,7 +327,25 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		if constraint.Suppressed || excluded[constraint.ID] {
 			continue
 		}
-		if constraint.EvaluationStatus == modelcore.AssemblyConstraintBroken {
+		if diagnosticCapture != nil {
+			endpoints := []struct {
+				name string
+				ref  *AssemblyGeometryRef
+			}{{"FIRST", &constraint.First}, {"SECOND", constraint.Second}, {"ANGLE_AXIS", constraint.AngleAxis}}
+			for _, endpoint := range endpoints {
+				if endpoint.ref == nil {
+					continue
+				}
+				if _, err := resolveRef(*endpoint.ref); err != nil {
+					reportCompileFailure(constraint.ID, endpoint.name, "RESOLVING_GEOMETRY", err)
+				}
+			}
+			if diagnosticCapture.invalid[constraint.ID] {
+				hasUnresolvedActiveConstraint = true
+				continue
+			}
+		}
+		if constraint.EvaluationStatus == modelcore.AssemblyConstraintBroken && diagnosticCapture == nil {
 			hasUnresolvedActiveConstraint = true
 			// Broken definitions remain in the manifest and fail the active Release
 			// gate; unrelated connected constraints can still be solved.
@@ -313,6 +364,9 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			ContactKind: constraint.ContactKind, ContactSide: constraint.ContactSide, ContactBranch: constraint.ContactBranch,
 			AngleReferenceDirection: constraint.AngleReferenceDirection, SpatialAngleBranchDirection: constraint.SpatialAngleBranchDirection}
 		if err := applyAssemblyAngleRelation(constraint, &value); err != nil {
+			if reportCompileFailure(constraint.ID, "", "PARAMETERS", err) {
+				continue
+			}
 			return err
 		}
 		if constraint.Kind == "FIX" || constraint.Kind == "RIGID" {
@@ -323,7 +377,11 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 				constraint.FixedPose = fixedValue
 			}
 			if fixedValue == nil {
-				return fmt.Errorf("%w: rigid constraint is missing its captured relative pose", ErrValidation)
+				err := fmt.Errorf("%w: rigid constraint is missing its captured relative pose", ErrValidation)
+				if reportCompileFailure(constraint.ID, "", "PARAMETERS", err) {
+					continue
+				}
+				return err
 			}
 			fixed := geometry.AssemblyPose{Translation: fixedValue.Translation, Rotation: normalizedInstanceRotation(fixedValue.Rotation)}
 			value.FixedPose = &fixed
@@ -351,6 +409,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			}
 			axis := resolvedGeometry[axisKey]
 			if axis.Kind != "AXIS" && axis.Kind != "PLANE" && axis.Kind != "CYLINDER" {
+				reportCompileFailure(constraint.ID, "ANGLE_AXIS", "RESOLVING_GEOMETRY", fmt.Errorf("%w: reference axis has no exact direction", ErrValidation))
 				markAssemblyImpossible(constraint, fmt.Errorf("%w: reference axis has no exact direction", ErrValidation))
 				hasUnresolvedActiveConstraint = true
 				continue
@@ -371,6 +430,9 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 				value.Kind = "SURFACE_INCIDENCE" // not the legacy point-to-cylinder-axis shortcut
 			}
 			if err := compileAssemblyOffset(*constraint, &value, resolvedGeometry[firstGeometry], resolvedGeometry[value.SecondGeometryID]); err != nil {
+				if reportCompileFailure(constraint.ID, "", "PARAMETERS", err) {
+					continue
+				}
 				return err
 			}
 			capabilities := assemblyCapabilities(value.Kind, firstKind, secondKind)
@@ -387,7 +449,11 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 				constraint.DistanceRelation, value.DistanceRelation = "UNSIGNED", "UNSIGNED"
 			}
 			if value.Kind == "ANGLE" && (value.AngleReferenceDirection != nil || value.AngleReferenceGeometryID != "") && !capabilities.directedAngle {
-				return fmt.Errorf("%w: directed angle requires two directional supports", ErrValidation)
+				err := fmt.Errorf("%w: directed angle requires two directional supports", ErrValidation)
+				if reportCompileFailure(constraint.ID, "", "PARAMETERS", err) {
+					continue
+				}
+				return err
 			}
 
 		}
@@ -417,7 +483,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	}
 	// A failed resolution is not an unconstrained solve. Only a genuinely
 	// empty active set receives empty-set solver evidence.
-	if len(constraints) == 0 && hasUnresolvedActiveConstraint && !hasActiveAssemblyGroups(*model, excluded) {
+	if len(constraints) == 0 && hasUnresolvedActiveConstraint && !hasActiveAssemblyGroups(*model, excluded) && diagnosticCapture == nil {
 		return nil
 	}
 	if err := workflow.advance(context.Background()); err != nil {
@@ -445,16 +511,17 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	}
 	manifest.GroupStages, err = prepareAssemblyGroupStages(manifest, excluded)
 	if err != nil {
-		return err
+		if !reportCompileFailure("", "", "GROUP_COMPILATION", err) {
+			return err
+		}
 	}
-	manifest.Digest = assemblyManifestDigest(manifest)
 	if probe || strings.HasPrefix(requestID, "preview/") {
 		manifest.Purpose = "PREVIEW"
 		if probe {
 			manifest.Purpose = "PROBE"
 		}
-		manifest.Digest = assemblyManifestDigest(manifest)
 	}
+	manifest.Digest = assemblyManifestDigest(manifest)
 	finishPrepare()
 	preparing = false
 	// Read-only M4/M5 compilation captures exact values before persistence,
@@ -475,6 +542,9 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			return fmt.Errorf("%w: request id was already used for another SolveManifest", ErrValidation)
 		}
 		result = existing.Result
+		if diagnostic != nil {
+			diagnostic.AssemblyMissing = append(diagnostic.AssemblyMissing, "CACHED_RESULT_HAS_NO_NEW_NUMERICAL_ATTEMPT")
+		}
 		if existing.Status == "FAILED" {
 			err = fmt.Errorf("%s", existing.Diagnostic)
 		}
@@ -483,8 +553,12 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	} else {
 		work, stop := assemblyNumericalContext(ctx)
 		result, err = service.solveFrozenManifest(work, requestID, manifest, func(data []byte, e error) {
-			if diagnostic != nil && e == nil {
-				diagnostic.AssemblyReplay = append(json.RawMessage(nil), data...)
+			if diagnostic != nil {
+				if e == nil {
+					diagnostic.recordAssemblyAttempt(data)
+				} else {
+					diagnostic.AssemblyMissing = append(diagnostic.AssemblyMissing, "NUMERICAL_CAPTURE_FAILED: "+e.Error())
+				}
 			}
 			service.captureAssemblyReplay(ctx, documentID, requestID)(data, e)
 		})
