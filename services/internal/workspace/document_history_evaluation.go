@@ -83,9 +83,6 @@ func evaluateProductHistory(ctx context.Context, service *Service, input history
 	failure := func() error {
 		var model ProductModel
 		if err = json.Unmarshal(input.modelJSON, &model); err == nil {
-			if err = service.verifyAssemblyHistory(ctx, input.documentID, revisionID, input.requestID, model); err != nil {
-				return err
-			}
 			var before json.RawMessage
 			if err = service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, input.headRevision).Scan(&before); err != nil {
 				return err
@@ -93,6 +90,11 @@ func evaluateProductHistory(ctx context.Context, service *Service, input history
 			var previous ProductModel
 			if err = json.Unmarshal(before, &previous); err != nil {
 				return err
+			}
+			if !constraintVisibilityOnlyHistory(previous, model, input.changes) {
+				if err = service.verifyAssemblyHistory(ctx, input.documentID, revisionID, input.requestID, model); err != nil {
+					return err
+				}
 			}
 			input.changes = appendAssemblyEvaluationChanges(input.changes, previous, model)
 			input.modelJSON, err = json.Marshal(model)

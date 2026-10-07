@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"reflect"
 
 	"github.com/occccad/occccad/internal/modelcore"
 )
@@ -41,6 +42,29 @@ func (service *Service) verifyAssemblyHistory(ctx context.Context, documentID, r
 		}
 	}
 	return validateAssemblyHistoryPoses(snapshot, probe)
+}
+
+// Display compensation may reuse the current accepted result only when the
+// complete models match after removing each constraint's Visible property.
+// Any support, pose, status, definition or reference change retains verification.
+func constraintVisibilityOnlyHistory(before, after ProductModel, changes modelcore.ChangeSet) bool {
+	if len(changes.Changes) == 0 || len(changes.ImpactSeeds) != 0 {
+		return false
+	}
+	for _, change := range changes.Changes {
+		if change.Target.SlotID != "assembly-constraint.entity" {
+			return false
+		}
+	}
+	before.Constraints = append([]AssemblyConstraint(nil), before.Constraints...)
+	after.Constraints = append([]AssemblyConstraint(nil), after.Constraints...)
+	for i := range before.Constraints {
+		before.Constraints[i].Visible = nil
+	}
+	for i := range after.Constraints {
+		after.Constraints[i].Visible = nil
+	}
+	return reflect.DeepEqual(before, after)
 }
 
 func validateAssemblyHistoryPoses(snapshot, evaluated ProductModel) error {

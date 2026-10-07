@@ -1,0 +1,85 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { readFileSync, existsSync, statSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const require = createRequire(import.meta.url), ts = require("typescript"), React = require("react");
+const modules = new Map();
+const hooks = { ...React, useMemo: fn => fn(), useEffect() {}, useRef: value => ({ current: value }),
+  useState: value => [typeof value === "function" ? value() : value, () => {}] };
+function load(file) {
+  if (file.endsWith(".json")) return JSON.parse(readFileSync(file, "utf8"));
+  if (file.endsWith("/cad/command/command-context.tsx")) return { useOptionalCommandRegistry: () => undefined };
+  if (modules.has(file)) return modules.get(file).exports;
+  const module = { exports: {} }; modules.set(file, module);
+  const code = ts.transpileModule(readFileSync(file, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true }, fileName: file,
+  }).outputText;
+  const localRequire = createRequire(file);
+  new Function("require", "module", "exports", code)(name => {
+    if (name === "react") return hooks;
+    if (name === "@tanstack/react-virtual") return { useVirtualizer: () => ({ getTotalSize: () => 27,
+      getVirtualItems: () => [{ index: 0, key: "group", start: 0, size: 27 }] }) };
+    if (!name.startsWith(".")) return localRequire(name);
+    const path = resolve(dirname(file), name);
+    const target = [path, `${path}.ts`, `${path}.tsx`, `${path}/index.ts`].find(path => existsSync(path) && statSync(path).isFile());
+    assert(target, `cannot resolve ${name}`); return load(target);
+  }, module, module.exports);
+  return module.exports;
+}
+const base = dirname(fileURLToPath(import.meta.url));
+const { SpecificationTree } = load(resolve(base, "../specification-tree.tsx"));
+const { ContextMenuIcon } = load(resolve(base, "../../../components/context-menu-icon.tsx"));
+const { Dropdown } = require("antd");
+function dropdown(tree) {
+  if (!tree) return undefined;
+  if (Array.isArray(tree)) return tree.map(dropdown).find(Boolean);
+  if (tree.type === Dropdown) return tree;
+  return dropdown(tree.props?.children);
+}
+const node = { key: "product/assembly-constraints", kind: "ASSEMBLY_CONSTRAINT_SET", entityId: "assembly-constraints",
+  documentId: "product", title: "约束", localVisible: true, children: [{ key: "constraint", kind: "ASSEMBLY_CONSTRAINT", entityId: "mate" }] };
+const calls = [];
+function menu(target, activeDocumentId = "product") {
+  return dropdown(SpecificationTree({ nodes: [target], selectedKeys: [], selectionToken: "", activeDocumentId,
+    onSelect() {}, onActivate() {}, onOpenDocumentTab() {}, onViewResult() {}, onEdit() {}, onRename() {}, onCreatePart() {},
+    onReferenceMode() {}, onDetach() {}, onReconnect() {}, onRefresh() {}, onDelete() {}, onToggleSuppression() {},
+    onToggleVisibility: (...args) => calls.push(args) })).props.menu.items.filter(Boolean);
+}
+const hide = menu(node).find(item => item.key === "definition-visibility");
+assert.equal(hide.label, "隐藏全部约束");
+assert.equal(menu(node).some(item => item.key === "session-visibility"), false, "bulk display must use the formal definition command");
+hide.onClick();
+assert.deepEqual(calls.at(-1), [node, "DEFINITION"]);
+const hidden = { ...node, localVisible: false };
+const show = menu(hidden).find(item => item.key === "definition-visibility");
+assert.equal(show.label, "显示全部约束"); show.onClick();
+assert.deepEqual(calls.at(-1), [hidden, "DEFINITION"]);
+assert.equal(menu({ ...node, documentId: "nested-product", instancePath: { canonical: "nested" } }).some(item => item.key === "definition-visibility"), false,
+  "a referenced Product does not silently become the active edit target");
+// Verify real menu elements across domains, including the common icon slot
+// supplied through configured command declarations rather than inline JSX.
+const keys = new Set();
+for (const target of [node,
+  { ...node, kind: "INSTANCE", instancePath: { canonical: "instance" }, visibilityMode: "HIDE", capabilities: ["PIN_VERSION", "FOLLOW_HEAD", "DETACH", "DELETE"] },
+  { ...node, kind: "BODY", capabilities: ["DELETE"] },
+  { ...node, kind: "PAD", capabilities: ["EDIT", "SUPPRESS", "DELETE"] },
+  { ...node, kind: "SKETCH_ENTITY", capabilities: ["DELETE"] },
+  { ...node, kind: "ASSEMBLY_CONSTRAINT", capabilities: ["EDIT", "RECONNECT", "REFRESH", "SUPPRESS", "DELETE"] },
+  { ...node, kind: "PRODUCT", capabilities: ["CREATE_PART"] },
+  { ...node, kind: "PUBLICATION", sourceDocumentId: "source" },
+  { ...node, kind: "PARAMETER", parameterAlias: "length_1" },
+]) {
+  for (const item of menu(target)) {
+    keys.add(item.key);
+    assert(React.isValidElement(item.icon), `menu ${item.key} lost its icon slot`);
+    assert.equal(item.icon.type, ContextMenuIcon, `menu ${item.key} bypassed the common icon slot`);
+  }
+}
+for (const key of ["open-document-tab", "open-source", "activate-body", "construction", "view-result", "edit", "rename", "create-part",
+  "pin-version", "follow-head", "detach", "reconnect", "refresh", "copy-alias", "suppress", "delete",
+  "definition-visibility", "occurrence-visibility", "restore-visibility"]) {
+  assert(keys.has(key), `menu coverage omitted ${key}`);
+}
+console.log("Constraint root menu uses configured labels, stable target identity and formal display scope.");

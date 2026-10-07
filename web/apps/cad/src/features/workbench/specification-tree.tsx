@@ -277,11 +277,11 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
                   node.visibilityMode === "HIDE" || node.visibilityMode !== "SHOW" && node.localVisible === false ? "SHOW" : "HIDE");}} : null,
             canToggleNodeVisibility(node.kind) && node.instancePath?.canonical && node.visibilityMode && node.visibilityMode !== "INHERIT"
               ? {key:"restore-visibility",icon:menuIcon('tree.visibility'),label:menuLabel('tree.visibility','restore'),onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"OCCURRENCE","INHERIT");}} : null,
-            canToggleNodeVisibility(node.kind) && ["BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT"].includes(node.kind ?? "") &&
+            canToggleNodeVisibility(node.kind) && ["BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT","ASSEMBLY_CONSTRAINT_SET"].includes(node.kind ?? "") &&
               (!node.instancePath?.canonical || node.documentId === activeDocumentId)
-              ? {key:"definition-visibility",icon:menuIcon('tree.visibility'),label:menuLabel('tree.visibility',`${node.localVisible!==false?'hide':'show'}-${node.kind==='ASSEMBLY_CONSTRAINT'?'constraint':'definition'}`),
+              ? {key:"definition-visibility",icon:menuIcon('tree.visibility'),label:menuLabel('tree.visibility',`${node.localVisible!==false?'hide':'show'}-${node.kind==='ASSEMBLY_CONSTRAINT_SET'?'constraints':node.kind==='ASSEMBLY_CONSTRAINT'?'constraint':'definition'}`),
                 onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"DEFINITION");}} : null,
-            canToggleNodeVisibility(node.kind) && !["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT"].includes(node.kind ?? "")
+            canToggleNodeVisibility(node.kind) && !["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT","ASSEMBLY_CONSTRAINT_SET"].includes(node.kind ?? "")
               ? { key: "session-visibility", icon: menuIcon('tree.visibility'), label: menuLabel('tree.visibility',node.hidden?'show-session':'hide-session'),
                 onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node,"SESSION"); } } : null,
             node.kind==="PARAMETER"&&node.parameterAlias ? {key:"copy-alias",icon:menuIcon('tree.copy-alias'),label:menuLabel('tree.copy-alias'),onClick:()=>{

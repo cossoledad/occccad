@@ -108,3 +108,39 @@ func TestDocumentViewKeepsMeshOutOfStructureSnapshot(t *testing.T) {
 		t.Fatalf("DocumentView serialized decoded mesh data: %s", raw)
 	}
 }
+
+func TestAssemblyConstraintStructureNamesAndSetVisibility(t *testing.T) {
+	model := ProductModel{Constraints: []AssemblyConstraint{
+		{ID: "contact-a", Kind: "CONTACT"}, {ID: "fix", Kind: "FIX"},
+		{ID: "contact-b", Kind: "CONTACT"}, {ID: "group", Kind: "FIX_TOGETHER"},
+	}}
+	check := func(model ProductModel, wantVisible bool) {
+		t.Helper()
+		raw, _ := json.Marshal(model)
+		root, err := projectProductStructure(t.Context(), &Service{}, DocumentStructureNode{ID: "document:product", DocumentID: "product", VersionID: "revision"}, raw, InstancePath{}, map[string]bool{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var group *DocumentStructureNode
+		for i := range root.Children {
+			if root.Children[i].Kind == "ASSEMBLY_CONSTRAINT_SET" {
+				group = &root.Children[i]
+			}
+		}
+		if group == nil || group.EntityID != "assembly-constraints" || group.Subject == nil || group.Subject.DocumentID != "product" || group.LocalVisible == nil || *group.LocalVisible != wantVisible {
+			t.Fatalf("constraint set lost identity/aggregate visibility: %+v", group)
+		}
+		for i, want := range []string{"#接触.1", "#固定.1", "#接触.2", "#固联组.1"} {
+			if !strings.HasPrefix(group.Children[i].Name, want+"（") {
+				t.Fatalf("constraint name = %q, want prefix %q", group.Children[i].Name, want)
+			}
+		}
+	}
+	check(model, true)
+	for i := range model.Constraints {
+		model.Constraints[i].Visible = boolPointer(false)
+	}
+	check(model, false)
+	model.Constraints[1].Visible = boolPointer(true)
+	check(model, true)
+}

@@ -240,17 +240,22 @@ func applyConstraintVisibility(modelJSON, payloadJSON json.RawMessage) (json.Raw
 	if err := json.Unmarshal(payloadJSON, &input); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	if input.EntityKind != "ASSEMBLY_CONSTRAINT" {
+	wholeSet := input.EntityKind == "ASSEMBLY_CONSTRAINT_SET" && input.EntityID == "assembly-constraints"
+	if input.EntityKind != "ASSEMBLY_CONSTRAINT" && !wholeSet {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: unsupported Product display target", ErrValidation)
 	}
+	set := modelcore.ChangeSet{}
 	for i := range model.Constraints {
-		if model.Constraints[i].ID == input.EntityID {
+		if wholeSet || model.Constraints[i].ID == input.EntityID {
 			before := model.Constraints[i]
 			model.Constraints[i].Visible = &input.Visible
-			change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: input.EntityID, SlotID: "assembly-constraint.entity"}, before, model.Constraints[i])
-			next, _ := json.Marshal(model)
-			return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}}, nil
+			change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: before.ID, SlotID: "assembly-constraint.entity"}, before, model.Constraints[i])
+			set.Changes = append(set.Changes, change)
 		}
+	}
+	if len(set.Changes) > 0 {
+		next, _ := json.Marshal(model)
+		return next, set, nil
 	}
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: constraint does not exist", ErrValidation)
 }

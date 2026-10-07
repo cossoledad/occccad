@@ -7,6 +7,46 @@ import (
 	"testing"
 )
 
+func TestAssemblyVisibilityHistoryRetainsNonDisplayValidation(t *testing.T) {
+	before := ProductModel{Instances: []ProductInstance{{ID: "instance", ReferencedVersionID: "revision", Rotation: [4]float64{0, 0, 0, 1}}}, Constraints: []AssemblyConstraint{{ID: "constraint", Kind: "FIX", First: AssemblyGeometryRef{InstanceID: "instance", Kind: "BODY"}, EvaluationStatus: modelcore.AssemblyConstraintVerified}}}
+	raw, _ := json.Marshal(before)
+	clone := func() ProductModel {
+		var result ProductModel
+		_ = json.Unmarshal(raw, &result)
+		result.Constraints[0].Visible = boolPointer(false)
+		return result
+	}
+	set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{{Target: modelcore.PropertyAddress{EntityID: "constraint", SlotID: "assembly-constraint.entity"}}}}
+	if !constraintVisibilityOnlyHistory(before, clone(), set) || before.Constraints[0].Visible != nil {
+		t.Fatal("pure visibility must reuse accepted result without mutating prior models")
+	}
+	for name, mutate := range map[string]func(*ProductModel){
+		"pose":            func(m *ProductModel) { m.Instances[0].Translation[0] = 1 },
+		"source revision": func(m *ProductModel) { m.Instances[0].ReferencedVersionID = "different" },
+		"status":          func(m *ProductModel) { m.Constraints[0].EvaluationStatus = modelcore.AssemblyConstraintNotUpdated },
+		"support":         func(m *ProductModel) { m.Constraints[0].First.InstanceID = "other" },
+		"definition":      func(m *ProductModel) { m.Constraints[0].FixMode = "RELATIVE" },
+		"activation":      func(m *ProductModel) { m.Constraints[0].Suppressed = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			after := clone()
+			mutate(&after)
+			if constraintVisibilityOnlyHistory(before, after, set) {
+				t.Fatal("non-display change bypassed assembly history verification")
+			}
+		})
+	}
+	set.ImpactSeeds = []modelcore.DependencyKey{"assembly-constraint:constraint"}
+	if constraintVisibilityOnlyHistory(before, clone(), set) {
+		t.Fatal("geometric impact accepted as display-only history")
+	}
+	set.ImpactSeeds = nil
+	set.Changes[0].Target.SlotID = "instance.pose"
+	if constraintVisibilityOnlyHistory(before, clone(), set) {
+		t.Fatal("unrelated history slot accepted as display-only")
+	}
+}
+
 func TestAssemblyHistoryPreservesFailedDefinitionAcrossUndoRedo(t *testing.T) {
 	base := ProductModel{Instances: []ProductInstance{{ID: "a", Name: "A.1", Rotation: [4]float64{0, 0, 0, 1}}, {ID: "b", Name: "B.1", Rotation: [4]float64{0, 0, 0, 1}}}}
 	c := AssemblyConstraint{ID: "mate", Kind: "CONCENTRIC", First: AssemblyGeometryRef{InstanceID: "a", Kind: "AXIS", GeometryID: "axis"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "AXIS", GeometryID: "axis"}, EvaluationStatus: modelcore.AssemblyConstraintNotUpdated, EvaluationSummary: "preference did not converge"}

@@ -16,6 +16,7 @@ type PreviewEvent =
 	| { type: "START" }
 	| { type: "CHANGE" }
   | { type: "REQUEST"; sequence: number }
+  | { type: "REFRESH"; sequence: number }
   | { type: "RESOLVE"; sequence: number; components?: AssemblyComponentDof[]; definitionOnly?:boolean }
   | { type: "REJECT"; sequence: number; error: string; errorCode?: string; phase?: string; retryable?: boolean }
   | { type: "CANCEL"; sequence: number }
@@ -32,7 +33,7 @@ export const assemblyPreviewMachine = setup({
   },
   actions: {
     begin: assign(({ event }) => {
-      if (event.type !== "REQUEST") return {};
+      if (event.type !== "REQUEST" && event.type !== "REFRESH") return {};
       return { components: undefined, sequence: event.sequence, error: undefined, errorCode: undefined, phase: undefined, retryable: false };
     }),
 	fail: assign(({ event }) => event.type === "REJECT" || event.type === "COMMIT_FAILURE" ? {
@@ -71,9 +72,11 @@ export const assemblyPreviewMachine = setup({
       RESET: { target: "idle", actions: "clear" },
     } },
 	committing: { on: {
-      REQUEST: { target: "pending", actions: "begin" },
+      REFRESH: { target: "pending", guard: "isCurrent", actions: "begin" },
 	  COMMIT_SUCCESS: { target: "committed", actions: "clear" },
 	  COMMIT_FAILURE: { target: "failed", actions: "fail" },
+      CANCEL: { target: "cancelled", guard: "isCurrent", actions: "clear" },
+      RESET: { target: "idle", actions: "clear" },
 	} },
 	committed: { on: { RESET: { target: "idle", actions: "clear" } } },
 	cancelled: { on: { RESET: { target: "idle", actions: "clear" }, REQUEST: { target: "pending", actions: "begin" } } },
@@ -87,4 +90,10 @@ export const assemblyPreviewMachine = setup({
 
 export function createAssemblyPreviewActor() {
   return createActor(assemblyPreviewMachine);
+}
+
+// Head updates during commit are settled by the command response/CAS. They
+// must not start another automatic preview against the frozen draft baseline.
+export function assemblyAutomaticPreviewAllowed(state: AssemblyPreviewState): boolean {
+  return state !== "committing" && state !== "committed";
 }

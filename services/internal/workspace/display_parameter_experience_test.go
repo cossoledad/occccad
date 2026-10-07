@@ -149,3 +149,59 @@ func TestAssemblyConstraintVisibilityDoesNotSuppressAndRestores(t *testing.T) {
 		t.Fatal("constraint Undo")
 	}
 }
+
+func TestAssemblyConstraintSetVisibilityAtomicHistory(t *testing.T) {
+	model := ProductModel{Constraints: []AssemblyConstraint{
+		{ID: "contact", Kind: "CONTACT", EvaluationStatus: "VERIFIED"},
+		{ID: "fixed", Kind: "FIX", Visible: boolPointer(false), Suppressed: true, EvaluationStatus: "NOT_UPDATED"},
+	}}
+	initial, _ := json.Marshal(model)
+	payload, _ := json.Marshal(definitionVisibilityPayload{EntityKind: "ASSEMBLY_CONSTRAINT_SET", EntityID: "assembly-constraints", Visible: false})
+	next, set, err := applyConstraintVisibility(initial, payload)
+	if err != nil || len(set.Changes) != 2 || len(set.ImpactSeeds) != 0 {
+		t.Fatal("bulk display must record one atomic ChangeSet without geometry seeds", set, err)
+	}
+	var hidden ProductModel
+	_ = json.Unmarshal(next, &hidden)
+	for i := range hidden.Constraints {
+		if visibleOrDefault(hidden.Constraints[i].Visible) {
+			t.Fatal("constraint remained visible")
+		}
+		hidden.Constraints[i].Visible = model.Constraints[i].Visible
+	}
+	if !reflect.DeepEqual(model, hidden) {
+		t.Fatal("bulk display changed constraint definitions/status/activation")
+	}
+	before, err := modelValues("PRODUCT", initial, set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := modelValues("PRODUCT", next, set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := applyModelValues("PRODUCT", next, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var undone ProductModel
+	_ = json.Unmarshal(restored, &undone)
+	if !reflect.DeepEqual(model, undone) {
+		t.Fatal("Undo lost each constraint's prior local visibility")
+	}
+	redone, err := applyModelValues("PRODUCT", restored, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result ProductModel
+	_ = json.Unmarshal(redone, &result)
+	for _, c := range result.Constraints {
+		if visibleOrDefault(c.Visible) {
+			t.Fatal("Redo failed to hide all constraints")
+		}
+	}
+	invalid, _ := json.Marshal(definitionVisibilityPayload{EntityKind: "ASSEMBLY_CONSTRAINT_SET", EntityID: "unrelated-set"})
+	if _, _, err := applyConstraintVisibility(initial, invalid); err == nil {
+		t.Fatal("invalid group identity accepted")
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/occccad/occccad/internal/artifact"
@@ -279,6 +280,17 @@ func TestContactAnalyticSupportsAndHistoryThroughRouter(t *testing.T) {
 			apply(request)
 			definition := product.Product.Constraints[len(product.Product.Constraints)-1]
 			targetID := definition.ID
+			contactNamed := false
+			for _, group := range product.StructureTree.Children {
+				for _, node := range group.Children {
+					if node.Kind == "ASSEMBLY_CONSTRAINT" && node.EntityID == targetID {
+						contactNamed = strings.HasPrefix(node.Name, "#接触.1（")
+					}
+				}
+			}
+			if !contactNamed {
+				t.Fatal("Contact tree projection lost its default numbered name")
+			}
 			if definition.EvaluationStatus != "VERIFIED" {
 				t.Fatalf("legal target Contact excluded: %s: %s", definition.EvaluationStatus, definition.EvaluationSummary)
 			}

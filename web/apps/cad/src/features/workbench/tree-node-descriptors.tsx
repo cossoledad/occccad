@@ -12,6 +12,7 @@ type Descriptor = { icon: ReactNode; visibility?: true };
 
 const descriptors: Partial<Record<Kind, Descriptor>> = {
   ASSEMBLY_CONSTRAINT:{icon:<GatewayOutlined />,visibility:true},
+  ASSEMBLY_CONSTRAINT_SET:{icon:<GatewayOutlined />,visibility:true},
   PRODUCT: { icon: <ApartmentOutlined /> }, PART: { icon: <BuildOutlined /> },
   INSTANCE: { icon: <BuildOutlined />, visibility: true },
   ORIGIN: { icon: <GatewayOutlined />, visibility:true },

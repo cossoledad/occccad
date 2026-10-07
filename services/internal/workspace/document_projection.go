@@ -273,19 +273,26 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 		root.Children = append(root.Children, group)
 	}
 	if len(model.Constraints) > 0 {
-		group := DocumentStructureNode{ID: path + "/assembly-constraints", Kind: "ASSEMBLY_CONSTRAINT_SET", Name: "约束", DocumentID: documentID, Capabilities: []string{"SUPPRESS"}, Suppressed: true}
+		group := DocumentStructureNode{ID: path + "/assembly-constraints", Kind: "ASSEMBLY_CONSTRAINT_SET", EntityID: "assembly-constraints", Name: "约束", DocumentID: documentID, LocalVisible: boolPointer(false), Capabilities: []string{"SUPPRESS"}, Suppressed: true}
 		names := make(map[string]string, len(model.Instances))
 		for _, instance := range model.Instances {
 			names[instance.ID] = instance.Name
 		}
 		counts := map[string]int{}
-		labels := map[string]string{"FIX": "固定", "RIGID": "固连", "COINCIDENT": "重合", "CONCENTRIC": "同心", "ANGLE": "角度", "DISTANCE": "距离"}
+		labels := map[string]string{"FIX": "固定", "RIGID": "固连", "COINCIDENT": "重合", "CONCENTRIC": "同心", "ANGLE": "角度", "DISTANCE": "距离", "CONTACT": "接触", "FIX_TOGETHER": "固联组", "OFFSET": "偏移", "PARALLEL": "平行", "PERPENDICULAR": "垂直"}
 		for _, constraint := range model.Constraints {
 			if !constraint.Suppressed {
 				group.Suppressed = false
 			}
 			counts[constraint.Kind]++
-			name := fmt.Sprintf("#%s.%d（#%s", labels[constraint.Kind], counts[constraint.Kind], names[constraint.First.InstanceID])
+			label := labels[constraint.Kind]
+			if label == "" {
+				label = constraint.Kind
+			}
+			if visibleOrDefault(constraint.Visible) {
+				*group.LocalVisible = true
+			}
+			name := fmt.Sprintf("#%s.%d（#%s", label, counts[constraint.Kind], names[constraint.First.InstanceID])
 			if constraint.Second != nil {
 				name += "，#" + names[constraint.Second.InstanceID]
 			}

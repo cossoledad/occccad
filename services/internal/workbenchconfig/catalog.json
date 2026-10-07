@@ -4929,6 +4929,8 @@
         "show-definition": "显示（零件定义）",
         "hide-constraint": "隐藏（约束对象）",
         "show-constraint": "显示（约束对象）",
+        "hide-constraints": "隐藏全部约束",
+        "show-constraints": "显示全部约束",
         "hide-session": "隐藏（临时）",
         "show-session": "显示（临时）"
       }

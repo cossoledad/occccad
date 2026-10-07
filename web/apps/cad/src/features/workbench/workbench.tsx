@@ -66,7 +66,7 @@ import { contextualToolbars } from "./workbench-command-model";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } from "./product-edit-context";
-import { createAssemblyPreviewActor } from "./assembly-preview-machine";
+import { assemblyAutomaticPreviewAllowed, createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
 import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
 import { associatedTreeKeyForSelection, deletableTreeNodesForSelections, ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
@@ -610,7 +610,7 @@ export function Workbench() {
           axis:node.axis, entityId: node.selection.entityRef.entityId, ownerEntityId: node.ownerEntityId, bodyId: node.bodyId},
           store.activeSketchID ? {id:store.activeSketchID, occurrencePath:activeInstancePath ?? ""} : undefined)
         : undefined;
-      const ownVisible = semantic?.effectiveVisible ?? treeVisibilityOverride(visibilityKey, treeVisibilityOverrides) ?? true;
+      const ownVisible = semantic?.effectiveVisible ?? treeVisibilityOverride(visibilityKey, treeVisibilityOverrides) ?? node.localVisible ?? true;
       const actionOwner = node.kind === "INSTANCE" ? node.ownerDocumentId : node.documentId;
       const ownerEditable = Boolean(editingView && actionOwner === editingView.document.id &&
         ["OWNER", "EDITOR"].includes(editingView.document.permission ?? ""));
@@ -726,6 +726,8 @@ export function Workbench() {
   }, [store.selection, replacingAssemblyReference, editingAssemblyConstraint, pendingAssemblyConstraint]);
 
   useEffect(() => {
+    const previewState = assemblyPreviewActor.current?.getSnapshot().value;
+    if (previewState && !assemblyAutomaticPreviewAllowed(previewState)) return;
     const constraint = editingAssemblyConstraint;
     const pending = pendingAssemblyConstraint;
     const references = resolvedAssemblyReferences;
@@ -791,7 +793,12 @@ export function Workbench() {
           errorCode: apiError?.code, phase: apiError?.phase, retryable: apiError?.retryable });
       });
     }, 140);
-    return () => {window.clearTimeout(timer);controller.abort();assemblyCandidate.current.invalidate();assemblyPreviewActor.current?.send({type:"CANCEL",sequence});};
+    return () => {
+      window.clearTimeout(timer);controller.abort();
+      const state=assemblyPreviewActor.current?.getSnapshot().value;
+      if(state && !assemblyAutomaticPreviewAllowed(state))return;
+      assemblyCandidate.current.invalidate();assemblyPreviewActor.current?.send({type:"CANCEL",sequence});
+    };
   }, [editingView, editingAssemblyConstraint, pendingAssemblyConstraint, replacingAssemblyReference,
     assemblyDirection, assemblyDistance, assemblyPreviewCommit, assemblyConstraintForm, assemblyPreviewActor, lengthUnit,assemblySupportsReady,editingGroup,activeInstancePath,assemblyInspection,axisInspection]);
 
@@ -1021,7 +1028,7 @@ export function Workbench() {
   const currentAssemblyCandidate = async (target:{id:string;versionId:string}, key:string, sequence:number, force=false) => {
     return assemblyCandidate.current.ensureCurrent(key, async input => {
       const controller=new AbortController();assemblyPreviewAbort.current?.abort();assemblyPreviewAbort.current=controller;
-      assemblyPreviewActor.current?.send({type:"REQUEST",sequence});
+      assemblyPreviewActor.current?.send({type:assemblyPreviewActor.current.getSnapshot().matches("committing")?"REFRESH":"REQUEST",sequence});
       try {
         const preview=await api.previewCommand(target.id,{...input,interactionId:assemblyInteractionID.current},controller.signal);
         if(controller.signal.aborted || sequence!==assemblyPreviewSequence.current || preview.baseVersionId!==target.versionId)throw new Error("预览上下文已变化，请重新预览。");
