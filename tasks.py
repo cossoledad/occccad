@@ -363,7 +363,7 @@ def _validation_scopes_for_paths(paths: list[str]) -> tuple[set[str], list[str]]
         elif path.startswith("proto/") or path.startswith("services/gen/"):
             scopes.add("all")
             reasons.append(f"{path}: cross-language contract")
-        elif path.startswith("services/internal/database/migrations/"):
+        elif path.startswith(("services/internal/database/postgres_migrations/", "services/internal/database/sqlite_migrations/")):
             scopes.add("all")
             reasons.append(f"{path}: database schema")
         elif path.startswith("kernel/assembly/") or path.startswith("tests/assembly-corpus/") or (path.startswith("tests/test.data/") and path.endswith(".3dreplay")):

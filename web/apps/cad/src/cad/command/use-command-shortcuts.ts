@@ -15,7 +15,7 @@ export function useCommandShortcuts(registry: CommandRegistry): void {
       // Nonmodal command panels also own their input session; do not change history underneath them.
       if ([...document.querySelectorAll<HTMLElement>('[role="dialog"]')].some((dialog) => dialog.getClientRects().length > 0)) return;
       const shortcut = resolveCommandShortcut(event);
-      if (!shortcut || !registry.state(shortcut.command).visible || !registry.state(shortcut.command).enabled) return;
+      if (!shortcut || !registry.state(shortcut.command).enabled) return;
       event.preventDefault(); event.stopImmediatePropagation();
       void registry.execute(shortcut.command, { continuous: false }).catch((error) => message.error(String(error)));
     };

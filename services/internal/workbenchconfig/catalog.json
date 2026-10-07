@@ -1,0 +1,6006 @@
+{
+  "schemaVersion": 1,
+  "documents": [
+    {
+      "id": "PART",
+      "name": "Part",
+      "helpText": "参数化零件",
+      "iconKey": "pad",
+      "adapter": "PART"
+    },
+    {
+      "id": "PRODUCT",
+      "name": "Product",
+      "helpText": "产品与装配",
+      "iconKey": "insert",
+      "adapter": "PRODUCT"
+    }
+  ],
+  "icons": {
+    "select": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M5 3l10 8-5 .8-2.8 4.6z"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10.2 11.8l4.2 4.2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "capture": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 7V4h3M13 4h3v3M16 13v3h-3M7 16H4v-3"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "2.2"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 2v3M10 15v3M2 10h3M15 10h3"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "sketch": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 6v11h11M6 13l1-4 7-7 4 4-7 7-5 1ZM12 4l4 4"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "pad": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "className": "icon-face",
+            "d": "m4 12 6-3.5 6 3.5-6 3.5Z"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 12l6 3.5 6-3.5-6-3.5zM4 12v3l6 3 6-3v-3M10 8.5V3"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M7.5 5.5L10 3l2.5 2.5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-solid"
+    },
+    "pocket": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "className": "icon-face",
+            "d": "m4 7 6 3.5L16 7v7l-6 3-6-3Z"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 7l6 3.5L16 7M4 7v7l6 3 6-3V7"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 3v7M7.5 7.5L10 10l2.5-2.5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-solid"
+    },
+    "revolve": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M6 15a7 7 0 116 1M6 15V9M6 15h6"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 4v12"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-solid"
+    },
+    "datum-plane": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 13l10-8 4 3-10 8z"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 3v14M6 10h8"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-solid"
+    },
+    "datum-axis": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 10h14M10 3v14"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-solid"
+    },
+    "project": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 5h14M5 9h10M7 13h6M9 17h2"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 3v4M16 3v4"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "point": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "2.2"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 3v3M10 14v3M3 10h3M14 10h3"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "line": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 16L16 4"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "4",
+            "cy": "16",
+            "r": "1.5"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "16",
+            "cy": "4",
+            "r": "1.5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "circle": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "6"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "1"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 10l4-4"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "arc": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 15A9 9 0 0116 5"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "4",
+            "cy": "15",
+            "r": "1.5"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "16",
+            "cy": "5",
+            "r": "1.5"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 10l6-5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "polyline": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 15l4-8 5 5 5-8"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "3",
+            "cy": "15",
+            "r": "1.5"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "7",
+            "cy": "7",
+            "r": "1.5"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "12",
+            "cy": "12",
+            "r": "1.5"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "17",
+            "cy": "4",
+            "r": "1.5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "spline": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 14C6 2 13 18 17 6"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "3",
+            "cy": "14",
+            "r": "1.5"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "17",
+            "cy": "6",
+            "r": "1.5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "finish": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 10l4 4 8-9"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "coincident": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "7",
+            "cy": "10",
+            "r": "3.2"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "13",
+            "cy": "10",
+            "r": "3.2"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "1"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "parallel": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M5 15L10 5M10 15l5-10"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 11l2 4 4-1M11 6l4-1 2 4"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "fixed": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M5 9h10v8H5zM7 9V7a3 3 0 016 0v2"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 12v2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "horizontal": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 10h14M5 7l-2 3 2 3M15 7l2 3-2 3"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "vertical": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 3v14M7 5l3-2 3 2M7 15l3 2 3-2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "perpendicular": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 15h12M10 15V4"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 11h4v4"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "tangent": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "8",
+            "r": "4.5"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 14h14M10 12.5V14"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "equal": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 7h12M4 13h12"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M7 5v4M13 11v4"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "distance": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 6v8M16 6v8M4 10h12M7 8l-3 2 3 2M13 8l3 2-3 2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "length": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 15L16 5M6 4L3 7M17 13l-3 3M6 7l8 7"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "radius": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "9",
+            "cy": "11",
+            "r": "6"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M9 11l5-4M10 7h4v4"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "diameter": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "6"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M5 15L15 5M7 5l8 8"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "angle": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 15h12M4 15l8-10M8 15a4 4 0 012-3"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "concentric": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "6"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "3"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "0.7"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "point-on-object": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 14C7 7 12 15 17 6"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "midpoint": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 14L17 6"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "2"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 10l-1 4 4 1M13 5l4 1-1 4"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "symmetry": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 2v16"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "5",
+            "cy": "8",
+            "r": "1.7"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "15",
+            "cy": "8",
+            "r": "1.7"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M6.7 8h6.6M8 6l2 2-2 2M12 6l-2 2 2 2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-constraint"
+    },
+    "rectangle": {
+      "elements": [
+        {
+          "tag": "rect",
+          "attributes": {
+            "x": "4",
+            "y": "5",
+            "width": "12",
+            "height": "10"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "4",
+            "cy": "5",
+            "r": "1.5"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "16",
+            "cy": "15",
+            "r": "1.5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "polygon": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 3l6 3.5v7L10 17l-6-3.5v-7z"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "3",
+            "r": "1.5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-sketch"
+    },
+    "insert": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 7l6-3 6 3-6 3zM4 7v6l6 3 6-3V7"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 7v7M13 11h5M15.5 8.5v5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-assembly"
+    },
+    "pattern": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M2 7l4-2 4 2-4 2zM2 7v5l4 2 4-2V7M6 9v5"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M12 7l4-2 4 2-4 2zM12 7v5l4 2 4-2V7M16 9v5M7 17h10m-2-2 2 2-2 2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-assembly"
+    },
+    "reference": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M6 5h8v10H6zM3 8h3M14 12h3"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M3 8l2-2M3 8l2 2M17 12l-2-2M17 12l-2 2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-assembly"
+    },
+    "link": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M8 7l-1.5-1.5a3 3 0 00-4.2 4.2l2 2a3 3 0 004.2 0l2-2"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M12 13l1.5 1.5a3 3 0 004.2-4.2l-2-2a3 3 0 00-4.2 0l-2 2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-assembly"
+    },
+    "move": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 2v16M2 10h16M10 2L7 5M10 2l3 3M18 10l-3-3M18 10l-3 3M10 18l-3-3M10 18l3-3M2 10l3-3M2 10l3 3"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-assembly"
+    },
+    "copy": {
+      "elements": [
+        {
+          "tag": "rect",
+          "attributes": {
+            "x": "3",
+            "y": "3",
+            "width": "10",
+            "height": "10"
+          }
+        },
+        {
+          "tag": "rect",
+          "attributes": {
+            "x": "7",
+            "y": "7",
+            "width": "10",
+            "height": "10"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "delete": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 5h12M7 5V3h6v2M6 5l1 12h6l1-12M9 8v6M11 8v6"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "rotate": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M15 7a6 6 0 10-1 8M15 3v4h-4"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "1"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "scale": {
+      "elements": [
+        {
+          "tag": "rect",
+          "attributes": {
+            "x": "3",
+            "y": "10",
+            "width": "7",
+            "height": "7"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M7 7V3h10v10h-4M9 11l7-7M12 4h4v4"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "mirror": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 2v16M3 5l4 5-4 5zM17 5l-4 5 4 5z"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "undo": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M7 6L3 10l4 4M4 10h7a5 5 0 015 5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "redo": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M13 6l4 4-4 4M16 10H9a5 5 0 00-5 5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "version": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M5 3h8l3 3v11H5zM8 3v5h5V3M8 14h5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "share": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "5",
+            "cy": "10",
+            "r": "2"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "15",
+            "cy": "5",
+            "r": "2"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "15",
+            "cy": "15",
+            "r": "2"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M7 9l6-3M7 11l6 3"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "navigation": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "10",
+            "cy": "10",
+            "r": "7"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M12.5 7.5l-1.5 4-4 1.5 1.5-4z"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "fit": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M8 4H4v4M12 4h4v4M4 12v4h4M16 12v4h-4"
+          }
+        },
+        {
+          "tag": "rect",
+          "attributes": {
+            "x": "7",
+            "y": "7",
+            "width": "6",
+            "height": "6"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "top-view": {
+      "elements": [
+        {
+          "tag": "rect",
+          "attributes": {
+            "x": "4",
+            "y": "4",
+            "width": "12",
+            "height": "12"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M7 7h6v6H7zM10 1v3M8 2l2-1 2 1"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "front-view": {
+      "elements": [
+        {
+          "tag": "rect",
+          "attributes": {
+            "x": "4",
+            "y": "5",
+            "width": "12",
+            "height": "11"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M7 8h6v5H7zM10 2v3M8 3l2-1 2 1"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "right-view": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M5 4h10v12H5zM8 7h4v6H8zM18 10h-3M17 8l1 2-1 2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "isometric": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 3l6 3.5v7L10 17l-6-3.5v-7zM4 6.5l6 3.5 6-3.5M10 10v7"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "parameters": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 5h12M4 10h12M4 15h12"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "8",
+            "cy": "5",
+            "r": "1.5"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "13",
+            "cy": "10",
+            "r": "1.5"
+          }
+        },
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "7",
+            "cy": "15",
+            "r": "1.5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-solid"
+    },
+    "publication": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 4h8v12H4zM7 7h6M7 10h7M7 13h5"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M13 4l3 3-3 3M16 7v7"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-solid"
+    },
+    "release": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M10 2l6 3v5c0 4-2.5 6.5-6 8-3.5-1.5-6-4-6-8V5z"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M7 10l2 2 4-5"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-assembly"
+    },
+    "debug": {
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M7 7h6a3 3 0 013 3v3a6 6 0 01-12 0v-3a3 3 0 013-3zM10 7V4M7 4l3 3 3-3"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4 10H2M18 10h-2M4 14H2M18 14h-2"
+          }
+        }
+      ],
+      "className": "cad-command-icon family-view"
+    },
+    "command-search": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "9",
+            "cy": "9",
+            "r": "5"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "m13 13 6 6"
+          }
+        }
+      ]
+    },
+    "command-help": {
+      "elements": [
+        {
+          "tag": "circle",
+          "attributes": {
+            "cx": "12",
+            "cy": "12",
+            "r": "9"
+          }
+        },
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M9.5 8a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 4v.1"
+          }
+        }
+      ]
+    }
+  },
+  "commands": [
+    {
+      "id": "tool.select",
+      "name": "选择",
+      "helpText": "选择视图区或结构树中的对象。",
+      "iconKey": "select",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.start",
+      "name": "草图",
+      "helpText": "选择基准面创建草图，或选择已有草图进入编辑。",
+      "iconKey": "sketch",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "sketch.finish",
+      "name": "退出草图",
+      "helpText": "结束当前草图编辑并返回 Part Design。",
+      "iconKey": "finish",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "product.insert",
+      "name": "插入",
+      "helpText": "向 Product 插入 Part 或 Product 实例。",
+      "iconKey": "insert",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "product.pattern",
+      "name": "多实例化",
+      "helpText": "沿坐标轴重复所选组件并实时预览。",
+      "iconKey": "pattern",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "part.pad",
+      "name": "拉伸",
+      "helpText": "沿草图平面法向拉伸所选闭合草图。",
+      "iconKey": "pad",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.pocket",
+      "name": "切除",
+      "helpText": "沿草图平面法向生成工具体，并从当前 Body 移除材料。",
+      "iconKey": "pocket",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.revolve",
+      "name": "旋转",
+      "helpText": "绕草图中的构造线旋转闭合区域并应用到当前 Body。",
+      "iconKey": "revolve",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.boolean",
+      "name": "布尔",
+      "helpText": "组合当前 Part 中明确的 Body 输出阶段。",
+      "iconKey": "pocket",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.fillet",
+      "name": "圆角",
+      "helpText": "对持久引用的边创建常量半径圆角。",
+      "iconKey": "pad",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.chamfer",
+      "name": "倒角",
+      "helpText": "对持久引用的边创建等距倒角。",
+      "iconKey": "pad",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.draft",
+      "name": "拔模",
+      "helpText": "以中性平面创建恒角拔模。",
+      "iconKey": "pad",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.shell",
+      "name": "抽壳",
+      "helpText": "移除所选面并创建恒定厚度壳体。",
+      "iconKey": "pocket",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.loft",
+      "name": "放样",
+      "helpText": "按有序闭合截面创建实体放样。",
+      "iconKey": "pad",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.pattern.linear",
+      "name": "线性阵列",
+      "helpText": "关联重复选定草图几何。",
+      "iconKey": "pad",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.pattern.circular",
+      "name": "圆周阵列",
+      "helpText": "关联重复选定草图几何。",
+      "iconKey": "pad",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.pattern.mirror",
+      "name": "实体镜像",
+      "helpText": "相对引用平面镜像上游特征工具、材料范围或实体阶段。",
+      "iconKey": "pad",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "sketch.project",
+      "name": "投影",
+      "helpText": "将已有实体的边或顶点关联投影为外部几何。",
+      "iconKey": "project",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "product.publications",
+      "name": "发布",
+      "helpText": "转发子 Part Publication，形成稳定 Product 装配接口。",
+      "iconKey": "publication",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "product.release",
+      "name": "产品版本",
+      "helpText": "打开不可变产品版本中心。",
+      "iconKey": "release",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "part.parameters",
+      "name": "参数",
+      "helpText": "集中查看、编辑并复用当前 Part 的参数。",
+      "iconKey": "parameters",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "part.publications",
+      "name": "发布",
+      "helpText": "创建和管理可跨文档引用的稳定几何与参数契约。",
+      "iconKey": "publication",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "sketch.point",
+      "name": "点",
+      "helpText": "在活动草图中连续创建点；C 切换辅助几何，Esc 或右键结束。",
+      "iconKey": "point",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.line",
+      "name": "直线",
+      "helpText": "连续创建两点直线；长度/角度数值输入，Tab 切换，Enter 确认。",
+      "iconKey": "line",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.polyline",
+      "name": "多段线",
+      "helpText": "连续创建相接直线和相切圆弧；T 切换，双击或 Enter 完成。",
+      "iconKey": "polyline",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.spline",
+      "name": "拟合点样条",
+      "helpText": "采集拟合点并创建必须经过这些点的插值样条；双击或 Enter 完成。",
+      "iconKey": "spline",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.spline.control",
+      "name": "控制点样条",
+      "helpText": "创建控制点 B-Spline；不要求经过控制点，闭合缝不保证切向连续。",
+      "iconKey": "spline",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "assembly.move",
+      "name": "移动组件",
+      "helpText": "选择装配实例并使用三维操纵器移动。",
+      "iconKey": "move",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "part.datum-plane",
+      "name": "基准面",
+      "helpText": "以所选平面为参考创建偏置基准面。",
+      "iconKey": "datum-plane",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.datum-axis",
+      "name": "基准轴",
+      "helpText": "以显式原点和方向创建基准轴。",
+      "iconKey": "datum-axis",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "sketch.rectangle",
+      "name": "矩形",
+      "helpText": "用两个对角点创建带内部连接和方向约束的矩形。",
+      "iconKey": "rectangle",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.polygon",
+      "name": "内接多边形",
+      "helpText": "中心与构造圆半径；多边形边与圆相切，边数 3–50。",
+      "iconKey": "polygon",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.circle",
+      "name": "圆",
+      "helpText": "用圆心和圆周点创建圆。",
+      "iconKey": "circle",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.polygon.circumscribed",
+      "name": "外接多边形",
+      "helpText": "中心与构造圆半径；多边形顶点位于圆上，边数 3–50。",
+      "iconKey": "polygon",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.arc",
+      "name": "圆弧",
+      "helpText": "依次指定圆心、起点和终点创建圆弧。",
+      "iconKey": "arc",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.circle.three_point",
+      "name": "三点圆",
+      "helpText": "通过三个不共线点创建圆。",
+      "iconKey": "circle",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.arc.three_point",
+      "name": "三点圆弧",
+      "helpText": "通过起点、中间点和终点创建有向圆弧。",
+      "iconKey": "arc",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.rectangle.center",
+      "name": "中心矩形",
+      "helpText": "从中心和角点创建带正式中心关系的矩形。",
+      "iconKey": "rectangle",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.rectangle.oriented",
+      "name": "定向矩形",
+      "helpText": "从底边和第三点创建带正式方向约束的矩形。",
+      "iconKey": "rectangle",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.ellipse",
+      "name": "椭圆",
+      "helpText": "指定中心、长半轴与短半轴创建真实椭圆。",
+      "iconKey": "circle",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.elliptical_arc",
+      "name": "椭圆弧",
+      "helpText": "指定椭圆与起止参数范围创建有向椭圆弧。",
+      "iconKey": "arc",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "assembly.fix",
+      "name": "固定",
+      "helpText": "固定所选装配实例的当前刚体位置。",
+      "iconKey": "fixed",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "assembly.fix_together",
+      "name": "固联组",
+      "helpText": "管理组件及已有固联组；组内先解、组外整体求解。",
+      "iconKey": "link",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "assembly.coincident",
+      "name": "重合",
+      "helpText": "使两个基准点、轴或平面重合。",
+      "iconKey": "coincident",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "assembly.concentric",
+      "name": "同心",
+      "helpText": "使所选两条基准轴同轴。",
+      "iconKey": "concentric",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "assembly.angle",
+      "name": "角度",
+      "helpText": "约束两个基准轴或平面的夹角。",
+      "iconKey": "angle",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "assembly.parallel",
+      "name": "平行",
+      "helpText": "约束两方向平行，可选择同向或反向。",
+      "iconKey": "parallel",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "assembly.perpendicular",
+      "name": "垂直",
+      "helpText": "约束两方向垂直，保留正向90°或反向270°意图。",
+      "iconKey": "perpendicular",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "assembly.distance",
+      "name": "偏移",
+      "helpText": "精确 Point/Line/Plane 偏移；含平面时使用显式法向符号。",
+      "iconKey": "distance",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.delete",
+      "name": "删除",
+      "helpText": "删除选定本地几何；约束影响由原子领域操作验证。",
+      "iconKey": "delete",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.copy",
+      "name": "复制",
+      "helpText": "创建副本；默认仅几何（连接与尺寸未复制），I 切换内部约束复制，公式依赖拒绝。",
+      "iconKey": "copy",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.move",
+      "name": "移动",
+      "helpText": "使用手柄移动或旋转；实时求解并保留现有约束。",
+      "iconKey": "move",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.mirror",
+      "name": "镜像",
+      "helpText": "默认关联镜像；M 切换独立副本，选直线或 X/Y 轴；独立模式默认不复制连接/尺寸，I 切换。",
+      "iconKey": "mirror",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.extend",
+      "name": "延伸",
+      "helpText": "选择曲线，移动或拖动到目标位置；捕获边界后使用精确交点及连接关系。",
+      "iconKey": "line",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.offset",
+      "name": "偏移",
+      "helpText": "线段、圆、圆弧及连续链独立偏移；有符号距离，M 斜接/圆角，退化和自交拒绝。",
+      "iconKey": "reference",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.fillet",
+      "name": "圆角",
+      "helpText": "选择两条适用曲线，直接输入半径并预览；Enter 原子提交。",
+      "iconKey": "arc",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.chamfer",
+      "name": "倒角",
+      "helpText": "选择两条直线，直接输入距离并预览；Enter 原子提交。",
+      "iconKey": "line",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.trim",
+      "name": "修剪",
+      "helpText": "点击删除命中区间；没有边界时删除整条曲线。",
+      "iconKey": "reference",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.split",
+      "name": "分割",
+      "helpText": "点击内部位置打断；闭合曲线选两个位置。保留形状并连接新端点。",
+      "iconKey": "reference",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.construction",
+      "name": "构造线",
+      "helpText": "直接点选切换标准/构造状态；合法预选整体原子转换。",
+      "iconKey": "reference",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.complement",
+      "name": "补弧",
+      "helpText": "改为另一补弧；U 显式解除整体/端点关系，不按最近端点重连。",
+      "iconKey": "arc",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.close",
+      "name": "闭合曲线",
+      "helpText": "圆弧/椭圆弧转完整周期曲线；原端点关系需显式解除。",
+      "iconKey": "circle",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.spline_insert",
+      "name": "样条插入点/结点",
+      "helpText": "FIT 插入拟合点；CONTROL 精确插入结点，保持曲线形状。",
+      "iconKey": "point",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.spline_delete",
+      "name": "样条删除点/结点",
+      "helpText": "FIT 删除明确拟合点；CONTROL 只允许精确移除结点，不任意删 pole。",
+      "iconKey": "delete",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.spline_close",
+      "name": "样条开/闭合",
+      "helpText": "明确切换样条开闭；闭合缝不保证高阶连续。",
+      "iconKey": "spline",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.spline_control",
+      "name": "转控制点样条",
+      "helpText": "精确转换已求解 FIT canonical 曲线；U 明确释放受影响点引用。",
+      "iconKey": "spline",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.coincident",
+      "name": "重合",
+      "helpText": "使两个点引用重合。",
+      "iconKey": "coincident",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.collinear",
+      "name": "共线",
+      "helpText": "使两条直线支撑共线；可使用内置草图轴。",
+      "iconKey": "line",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.parallel",
+      "name": "平行",
+      "helpText": "使两条直线或直线与基准轴平行。",
+      "iconKey": "parallel",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.fixed",
+      "name": "固定",
+      "helpText": "固定所选几何的当前参数。",
+      "iconKey": "fixed",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.horizontal",
+      "name": "水平",
+      "helpText": "使直线平行于草图 U 轴。",
+      "iconKey": "horizontal",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.vertical",
+      "name": "垂直",
+      "helpText": "使直线平行于草图 V 轴。",
+      "iconKey": "vertical",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.perpendicular",
+      "name": "垂直相交",
+      "helpText": "使两条直线方向互相垂直。",
+      "iconKey": "perpendicular",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.tangent",
+      "name": "相切",
+      "helpText": "使支持的直线、圆或圆弧相切。",
+      "iconKey": "tangent",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.equal",
+      "name": "相等",
+      "helpText": "使两条线等长，或使圆和圆弧等半径。",
+      "iconKey": "equal",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.concentric",
+      "name": "同心",
+      "helpText": "使两个圆形元素共享圆心。",
+      "iconKey": "concentric",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.point_on_object",
+      "name": "点在对象上",
+      "helpText": "约束一个点位于直线、圆或圆弧上。",
+      "iconKey": "point-on-object",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.midpoint",
+      "name": "中点",
+      "helpText": "约束一个点位于直线中点。",
+      "iconKey": "midpoint",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.symmetry",
+      "name": "对称",
+      "helpText": "使用直线/基准轴做轴对称，或使用点/原点做中心对称。",
+      "iconKey": "symmetry",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.dimension.linear",
+      "name": "线性尺寸",
+      "helpText": "创建线长、点点距离或点线距离尺寸。",
+      "iconKey": "distance",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.horizontal_distance",
+      "name": "水平距离",
+      "helpText": "两点沿草图 U 轴的有向投影距离；按第二点减第一点，允许负值与零。",
+      "iconKey": "distance",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.vertical_distance",
+      "name": "垂直距离",
+      "helpText": "两点沿草图 V 轴的有向投影距离；按第二点减第一点，允许负值与零。",
+      "iconKey": "distance",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.radius",
+      "name": "半径",
+      "helpText": "设置圆或圆弧的半径尺寸。",
+      "iconKey": "radius",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.angle",
+      "name": "角度",
+      "helpText": "设置两条直线或直线与基准轴的夹角。",
+      "iconKey": "angle",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.major_radius",
+      "name": "长半轴",
+      "helpText": "标注椭圆或椭圆弧的长半轴尺寸。",
+      "iconKey": "radius",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.constraint.minor_radius",
+      "name": "短半轴",
+      "helpText": "标注椭圆或椭圆弧的短半轴尺寸。",
+      "iconKey": "radius",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "edit.undo",
+      "name": "撤销",
+      "helpText": "补偿最近一个可撤销的领域事务。",
+      "iconKey": "undo",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "edit.redo",
+      "name": "重做",
+      "helpText": "重新应用最近一个已撤销的领域事务。",
+      "iconKey": "redo",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "history.version",
+      "name": "创建版本",
+      "helpText": "为当前 Revision 创建命名版本。",
+      "iconKey": "version",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "document.share",
+      "name": "共享",
+      "helpText": "管理当前文档的访问授权。",
+      "iconKey": "share",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "view.fit",
+      "name": "适合窗口",
+      "helpText": "调整相机以显示全部模型。",
+      "iconKey": "fit",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "view.top",
+      "name": "顶视图",
+      "helpText": "切换到顶视图。",
+      "iconKey": "top-view",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "view.front",
+      "name": "前视图",
+      "helpText": "切换到前视图。",
+      "iconKey": "front-view",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "view.right",
+      "name": "右视图",
+      "helpText": "切换到右视图。",
+      "iconKey": "right-view",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "view.iso",
+      "name": "等轴测",
+      "helpText": "切换到等轴测标准视图。",
+      "iconKey": "isometric",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "view.normal",
+      "name": "法线视图",
+      "helpText": "选择基准面或实体平面后正对该面，保留显示比例。",
+      "iconKey": "top-view",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler",
+      "labels": {
+        "sketch": "正对草图平面",
+        "sketchHelp": "恢复当前草图支撑面的正视方向，保留缩放和关注区域。"
+      }
+    },
+    {
+      "id": "debug.download",
+      "name": "下载诊断包",
+      "helpText": "导出当前文档、草图、Workspace、事务和求值诊断数据。",
+      "iconKey": "debug",
+      "repeatable": false,
+      "visibleWhen": {
+        "fact": "isMock",
+        "equals": false
+      },
+      "enabledWhen": {
+        "fact": "isMock",
+        "equals": false
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "assembly.contact",
+      "name": "接触",
+      "helpText": "精确解析面、线、点、环接触；材料侧与分支显式。",
+      "iconKey": "tangent",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "assembly.analyze",
+      "name": "装配约束分析",
+      "helpText": "查看装配工程状态，检查相关关系并定位修复。",
+      "iconKey": "distance",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "assembly.move-receipt",
+      "name": "确认移动结果",
+      "helpText": "查询或重试同一移动提交回执，不重复创建操作。",
+      "iconKey": "move",
+      "repeatable": false,
+      "visibleWhen": {
+        "fact": "moveReceiptPending",
+        "equals": true
+      },
+      "enabledWhen": {
+        "fact": "moveReceiptPending",
+        "equals": true
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "edit.delete",
+      "name": "删除",
+      "helpText": "删除",
+      "iconKey": "delete",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "handler",
+      "labels": {
+        "many": "删除 {count} 项"
+      }
+    },
+    {
+      "id": "ui.command-search",
+      "name": "搜索工具",
+      "helpText": "搜索工具",
+      "iconKey": "command-search",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "ui.shortcut-help",
+      "name": "快捷键",
+      "helpText": "快捷键",
+      "iconKey": "command-help",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "view.selection-summary",
+      "name": "选择摘要",
+      "helpText": "显示当前编辑目标与选择数量。",
+      "iconKey": "point",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "tree.activate",
+      "name": "激活编辑目标",
+      "helpText": "激活编辑目标所选结构对象。",
+      "iconKey": "select",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "labels": {
+        "body": "设为当前工作 Body"
+      }
+    },
+    {
+      "id": "tree.open-document",
+      "name": "在新标签页中打开",
+      "helpText": "在新标签页中打开所选结构对象。",
+      "iconKey": "insert",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "labels": {
+        "source": "打开来源"
+      }
+    },
+    {
+      "id": "tree.view-result",
+      "name": "查看此步骤结果",
+      "helpText": "查看此步骤结果所选结构对象。",
+      "iconKey": "fit",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      }
+    },
+    {
+      "id": "tree.edit",
+      "name": "编辑",
+      "helpText": "编辑所选结构对象。",
+      "iconKey": "sketch",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "labels": {
+        "definition": "编辑定义"
+      }
+    },
+    {
+      "id": "tree.rename",
+      "name": "重命名",
+      "helpText": "重命名所选结构对象。",
+      "iconKey": "parameters",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "tree.create-part",
+      "name": "新建零件",
+      "helpText": "新建零件所选结构对象。",
+      "iconKey": "pad",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "fact": "busy",
+        "equals": false
+      }
+    },
+    {
+      "id": "tree.reference-mode",
+      "name": "引用模式",
+      "helpText": "引用模式所选结构对象。",
+      "iconKey": "reference",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "fact": "busy",
+        "equals": false
+      },
+      "labels": {
+        "pinned": "固定当前版本",
+        "follow": "恢复跟随最新版本"
+      }
+    },
+    {
+      "id": "tree.detach",
+      "name": "隔离关联",
+      "helpText": "隔离关联所选结构对象。",
+      "iconKey": "link",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "fact": "busy",
+        "equals": false
+      },
+      "labels": {
+        "default": "断开外部关联并冻结"
+      }
+    },
+    {
+      "id": "tree.reconnect",
+      "name": "重新连接",
+      "helpText": "重新连接所选结构对象。",
+      "iconKey": "link",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "fact": "busy",
+        "equals": false
+      },
+      "labels": {
+        "default": "Reconnect 支持元素"
+      }
+    },
+    {
+      "id": "tree.refresh",
+      "name": "更新引用",
+      "helpText": "更新引用所选结构对象。",
+      "iconKey": "reference",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "fact": "busy",
+        "equals": false
+      },
+      "labels": {
+        "default": "更新支持元素"
+      }
+    },
+    {
+      "id": "tree.construction",
+      "name": "构造线",
+      "helpText": "构造线所选结构对象。",
+      "iconKey": "reference",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "labels": {
+        "profile": "设为轮廓元素",
+        "construction": "设为构造元素"
+      }
+    },
+    {
+      "id": "tree.visibility",
+      "name": "显示/隐藏",
+      "helpText": "显示/隐藏所选结构对象。",
+      "iconKey": "fit",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      },
+      "labels": {
+        "hide-occurrence": "隐藏（当前实例）",
+        "show-occurrence": "显示（当前实例）",
+        "restore": "恢复实例继承",
+        "hide-definition": "隐藏（零件定义）",
+        "show-definition": "显示（零件定义）",
+        "hide-constraint": "隐藏（约束对象）",
+        "show-constraint": "显示（约束对象）",
+        "hide-session": "隐藏（临时）",
+        "show-session": "显示（临时）"
+      }
+    },
+    {
+      "id": "tree.suppression",
+      "name": "停用/启用",
+      "helpText": "停用/启用所选结构对象。",
+      "iconKey": "fixed",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "labels": {
+        "on": "抑制",
+        "off": "解除抑制"
+      }
+    },
+    {
+      "id": "tree.copy-alias",
+      "name": "复制参数别名",
+      "helpText": "复制所选参数的稳定显示别名。",
+      "iconKey": "copy",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": []
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "selection",
+      "name": "选择",
+      "styleKey": "standard",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "tool.select",
+          "groupKey": "primary",
+          "order": 10
+        }
+      ]
+    },
+    {
+      "id": "part-sketch",
+      "name": "草图入口",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "sketch.start",
+          "groupKey": "primary",
+          "order": 10
+        }
+      ]
+    },
+    {
+      "id": "sketch-lifecycle",
+      "name": "草图会话",
+      "styleKey": "sketch",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "sketch.finish",
+          "groupKey": "primary",
+          "order": 10
+        }
+      ]
+    },
+    {
+      "id": "product-structure",
+      "name": "产品结构",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "product.insert",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "product.pattern",
+          "groupKey": "primary",
+          "order": 20
+        }
+      ]
+    },
+    {
+      "id": "part-features",
+      "name": "实体特征",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "part.pad",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "part.pocket",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "part.revolve",
+          "groupKey": "primary",
+          "order": 30
+        },
+        {
+          "commandId": "part.boolean",
+          "groupKey": "primary",
+          "order": 55
+        },
+        {
+          "commandId": "part.fillet",
+          "groupKey": "primary",
+          "order": 60
+        },
+        {
+          "commandId": "part.chamfer",
+          "groupKey": "primary",
+          "order": 70
+        },
+        {
+          "commandId": "part.draft",
+          "groupKey": "primary",
+          "order": 80
+        },
+        {
+          "commandId": "part.shell",
+          "groupKey": "primary",
+          "order": 90
+        },
+        {
+          "commandId": "part.loft",
+          "groupKey": "primary",
+          "order": 100
+        },
+        {
+          "commandId": "part.pattern.linear",
+          "groupKey": "primary",
+          "order": 110
+        },
+        {
+          "commandId": "part.pattern.circular",
+          "groupKey": "primary",
+          "order": 120
+        },
+        {
+          "commandId": "part.pattern.mirror",
+          "groupKey": "primary",
+          "order": 130
+        }
+      ]
+    },
+    {
+      "id": "sketch-projection",
+      "name": "外部几何",
+      "styleKey": "sketch",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "sketch.project",
+          "groupKey": "primary",
+          "order": 10
+        }
+      ]
+    },
+    {
+      "id": "product-interface",
+      "name": "产品接口",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "product.publications",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "product.release",
+          "groupKey": "primary",
+          "order": 20
+        }
+      ]
+    },
+    {
+      "id": "part-knowledge",
+      "name": "参数与接口",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "part.parameters",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "part.publications",
+          "groupKey": "primary",
+          "order": 20
+        }
+      ]
+    },
+    {
+      "id": "sketch-primitives",
+      "name": "草图基本元素",
+      "styleKey": "sketch",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "sketch.point",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "sketch.line",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "sketch.polyline",
+          "groupKey": "primary",
+          "order": 40
+        },
+        {
+          "commandId": "sketch.spline",
+          "groupKey": "variants:spline",
+          "order": 50
+        },
+        {
+          "commandId": "sketch.spline.control",
+          "groupKey": "variants:spline",
+          "order": 60
+        }
+      ],
+      "variants": {
+        "variants:spline": "样条线"
+      }
+    },
+    {
+      "id": "assembly-positioning",
+      "name": "组件定位",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "assembly.move",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "assembly.analyze",
+          "groupKey": "primary",
+          "order": 110
+        },
+        {
+          "commandId": "assembly.move-receipt",
+          "groupKey": "primary",
+          "order": 120
+        }
+      ]
+    },
+    {
+      "id": "part-datums",
+      "name": "基准",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "part.datum-plane",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "part.datum-axis",
+          "groupKey": "primary",
+          "order": 20
+        }
+      ]
+    },
+    {
+      "id": "sketch-profiles",
+      "name": "草图轮廓",
+      "styleKey": "sketch",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "sketch.rectangle",
+          "groupKey": "variants:rectangle",
+          "order": 10
+        },
+        {
+          "commandId": "sketch.polygon",
+          "groupKey": "variants:polygon",
+          "order": 20
+        },
+        {
+          "commandId": "sketch.circle",
+          "groupKey": "variants:circle",
+          "order": 30
+        },
+        {
+          "commandId": "sketch.polygon.circumscribed",
+          "groupKey": "variants:polygon",
+          "order": 31
+        },
+        {
+          "commandId": "sketch.arc",
+          "groupKey": "variants:arc",
+          "order": 37
+        },
+        {
+          "commandId": "sketch.circle.three_point",
+          "groupKey": "variants:circle",
+          "order": 40
+        },
+        {
+          "commandId": "sketch.arc.three_point",
+          "groupKey": "variants:arc",
+          "order": 50
+        },
+        {
+          "commandId": "sketch.rectangle.center",
+          "groupKey": "variants:rectangle",
+          "order": 60
+        },
+        {
+          "commandId": "sketch.rectangle.oriented",
+          "groupKey": "variants:rectangle",
+          "order": 70
+        },
+        {
+          "commandId": "sketch.ellipse",
+          "groupKey": "variants:ellipse",
+          "order": 80
+        },
+        {
+          "commandId": "sketch.elliptical_arc",
+          "groupKey": "variants:arc",
+          "order": 90
+        }
+      ],
+      "variants": {
+        "variants:rectangle": "矩形",
+        "variants:polygon": "多边形",
+        "variants:circle": "圆",
+        "variants:arc": "圆弧",
+        "variants:ellipse": "椭圆"
+      }
+    },
+    {
+      "id": "assembly-constraints",
+      "name": "装配约束",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "assembly.fix",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "assembly.fix_together",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "assembly.coincident",
+          "groupKey": "primary",
+          "order": 30
+        },
+        {
+          "commandId": "assembly.concentric",
+          "groupKey": "primary",
+          "order": 40
+        },
+        {
+          "commandId": "assembly.angle",
+          "groupKey": "primary",
+          "order": 50
+        },
+        {
+          "commandId": "assembly.parallel",
+          "groupKey": "primary",
+          "order": 51
+        },
+        {
+          "commandId": "assembly.perpendicular",
+          "groupKey": "primary",
+          "order": 52
+        },
+        {
+          "commandId": "assembly.distance",
+          "groupKey": "primary",
+          "order": 60
+        },
+        {
+          "commandId": "assembly.contact",
+          "groupKey": "primary",
+          "order": 65
+        }
+      ]
+    },
+    {
+      "id": "sketch-edit",
+      "name": "草图编辑",
+      "styleKey": "sketch",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "sketch.edit.delete",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "sketch.edit.copy",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "sketch.edit.move",
+          "groupKey": "primary",
+          "order": 30
+        },
+        {
+          "commandId": "sketch.edit.mirror",
+          "groupKey": "primary",
+          "order": 60
+        },
+        {
+          "commandId": "sketch.edit.extend",
+          "groupKey": "primary",
+          "order": 61
+        },
+        {
+          "commandId": "sketch.edit.offset",
+          "groupKey": "primary",
+          "order": 62
+        },
+        {
+          "commandId": "sketch.edit.fillet",
+          "groupKey": "primary",
+          "order": 63
+        },
+        {
+          "commandId": "sketch.edit.chamfer",
+          "groupKey": "primary",
+          "order": 64
+        },
+        {
+          "commandId": "sketch.edit.trim",
+          "groupKey": "primary",
+          "order": 65
+        },
+        {
+          "commandId": "part.pattern.linear",
+          "groupKey": "primary",
+          "order": 67
+        },
+        {
+          "commandId": "part.pattern.circular",
+          "groupKey": "primary",
+          "order": 68
+        },
+        {
+          "commandId": "sketch.edit.split",
+          "groupKey": "primary",
+          "order": 70
+        },
+        {
+          "commandId": "sketch.edit.construction",
+          "groupKey": "primary",
+          "order": 80
+        },
+        {
+          "commandId": "sketch.edit.complement",
+          "groupKey": "primary",
+          "order": 81
+        },
+        {
+          "commandId": "sketch.edit.close",
+          "groupKey": "primary",
+          "order": 82
+        },
+        {
+          "commandId": "sketch.edit.spline_insert",
+          "groupKey": "variants:spline_control",
+          "order": 83
+        },
+        {
+          "commandId": "sketch.edit.spline_delete",
+          "groupKey": "variants:spline_control",
+          "order": 84
+        },
+        {
+          "commandId": "sketch.edit.spline_close",
+          "groupKey": "variants:spline_control",
+          "order": 85
+        },
+        {
+          "commandId": "sketch.edit.spline_control",
+          "groupKey": "variants:spline_control",
+          "order": 86
+        }
+      ],
+      "variants": {
+        "variants:spline_control": "样条控制"
+      }
+    },
+    {
+      "id": "sketch-geometric-constraints",
+      "name": "几何约束",
+      "styleKey": "sketch",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "sketch.constraint.coincident",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "sketch.constraint.collinear",
+          "groupKey": "primary",
+          "order": 15
+        },
+        {
+          "commandId": "sketch.constraint.parallel",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "sketch.constraint.fixed",
+          "groupKey": "primary",
+          "order": 30
+        },
+        {
+          "commandId": "sketch.constraint.horizontal",
+          "groupKey": "primary",
+          "order": 40
+        },
+        {
+          "commandId": "sketch.constraint.vertical",
+          "groupKey": "primary",
+          "order": 50
+        },
+        {
+          "commandId": "sketch.constraint.perpendicular",
+          "groupKey": "primary",
+          "order": 60
+        },
+        {
+          "commandId": "sketch.constraint.tangent",
+          "groupKey": "primary",
+          "order": 70
+        },
+        {
+          "commandId": "sketch.constraint.equal",
+          "groupKey": "primary",
+          "order": 80
+        },
+        {
+          "commandId": "sketch.constraint.concentric",
+          "groupKey": "primary",
+          "order": 90
+        },
+        {
+          "commandId": "sketch.constraint.point_on_object",
+          "groupKey": "primary",
+          "order": 100
+        },
+        {
+          "commandId": "sketch.constraint.midpoint",
+          "groupKey": "primary",
+          "order": 110
+        },
+        {
+          "commandId": "sketch.constraint.symmetry",
+          "groupKey": "primary",
+          "order": 120
+        }
+      ]
+    },
+    {
+      "id": "sketch-dimensional-constraints",
+      "name": "尺寸约束",
+      "styleKey": "sketch",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "sketch.dimension.linear",
+          "groupKey": "variants:linear",
+          "order": 10
+        },
+        {
+          "commandId": "sketch.constraint.horizontal_distance",
+          "groupKey": "variants:linear",
+          "order": 15
+        },
+        {
+          "commandId": "sketch.constraint.vertical_distance",
+          "groupKey": "variants:linear",
+          "order": 16
+        },
+        {
+          "commandId": "sketch.constraint.radius",
+          "groupKey": "variants:axis",
+          "order": 20
+        },
+        {
+          "commandId": "sketch.constraint.angle",
+          "groupKey": "variants:angle",
+          "order": 30
+        },
+        {
+          "commandId": "sketch.constraint.major_radius",
+          "groupKey": "variants:axis",
+          "order": 70
+        },
+        {
+          "commandId": "sketch.constraint.minor_radius",
+          "groupKey": "variants:axis",
+          "order": 80
+        }
+      ],
+      "variants": {
+        "variants:linear": "线性尺寸",
+        "variants:axis": "轴尺寸",
+        "variants:angle": "角度"
+      }
+    },
+    {
+      "id": "history",
+      "name": "历史",
+      "styleKey": "standard",
+      "position": "top-center",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "edit.undo",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "edit.redo",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "history.version",
+          "groupKey": "primary",
+          "order": 30
+        }
+      ]
+    },
+    {
+      "id": "collaboration",
+      "name": "协作",
+      "styleKey": "standard",
+      "position": "top-center",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "document.share",
+          "groupKey": "primary",
+          "order": 10
+        }
+      ]
+    },
+    {
+      "id": "view-navigation",
+      "name": "视图",
+      "styleKey": "standard",
+      "position": "top-right",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "view.fit",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "view.top",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "view.front",
+          "groupKey": "primary",
+          "order": 30
+        },
+        {
+          "commandId": "view.right",
+          "groupKey": "primary",
+          "order": 40
+        },
+        {
+          "commandId": "view.iso",
+          "groupKey": "primary",
+          "order": 50
+        },
+        {
+          "commandId": "view.normal",
+          "groupKey": "primary",
+          "order": 60
+        },
+        {
+          "commandId": "view.selection-summary",
+          "groupKey": "primary",
+          "order": 100
+        }
+      ]
+    },
+    {
+      "id": "debug",
+      "name": "诊断",
+      "styleKey": "debug",
+      "position": "bottom-right",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "debug.download",
+          "groupKey": "primary",
+          "order": 10
+        }
+      ]
+    }
+  ],
+  "tabs": [
+    {
+      "id": "PART_DESIGN.model",
+      "name": "建模",
+      "modeLabel": "Part Design",
+      "workbench": "PART_DESIGN",
+      "section": "model",
+      "order": 0,
+      "domain": "SOLID"
+    },
+    {
+      "id": "PART_DESIGN.view",
+      "name": "视图",
+      "modeLabel": "Part Design",
+      "workbench": "PART_DESIGN",
+      "section": "view",
+      "order": 1,
+      "domain": "SOLID"
+    },
+    {
+      "id": "PART_DESIGN.document",
+      "name": "文档与协作",
+      "modeLabel": "Part Design",
+      "workbench": "PART_DESIGN",
+      "section": "document",
+      "order": 2,
+      "domain": "SOLID"
+    },
+    {
+      "id": "SKETCHER.model",
+      "name": "草图",
+      "modeLabel": "Sketcher",
+      "workbench": "SKETCHER",
+      "section": "model",
+      "order": 0,
+      "domain": "SKETCH"
+    },
+    {
+      "id": "SKETCHER.view",
+      "name": "视图",
+      "modeLabel": "Sketcher",
+      "workbench": "SKETCHER",
+      "section": "view",
+      "order": 1,
+      "domain": "SKETCH"
+    },
+    {
+      "id": "SKETCHER.document",
+      "name": "文档与协作",
+      "modeLabel": "Sketcher",
+      "workbench": "SKETCHER",
+      "section": "document",
+      "order": 2,
+      "domain": "SKETCH"
+    },
+    {
+      "id": "ASSEMBLY_DESIGN.model",
+      "name": "装配",
+      "modeLabel": "Assembly Design",
+      "workbench": "ASSEMBLY_DESIGN",
+      "section": "model",
+      "order": 0,
+      "domain": "ASSEMBLY"
+    },
+    {
+      "id": "ASSEMBLY_DESIGN.view",
+      "name": "视图",
+      "modeLabel": "Assembly Design",
+      "workbench": "ASSEMBLY_DESIGN",
+      "section": "view",
+      "order": 1,
+      "domain": "ASSEMBLY"
+    },
+    {
+      "id": "ASSEMBLY_DESIGN.document",
+      "name": "文档与协作",
+      "modeLabel": "Assembly Design",
+      "workbench": "ASSEMBLY_DESIGN",
+      "section": "document",
+      "order": 2,
+      "domain": "ASSEMBLY"
+    }
+  ],
+  "contexts": [
+    {
+      "id": "PART_DESIGN",
+      "when": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "tabs": [
+        "PART_DESIGN.model",
+        "PART_DESIGN.view",
+        "PART_DESIGN.document"
+      ]
+    },
+    {
+      "id": "SKETCHER",
+      "when": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "tabs": [
+        "SKETCHER.model",
+        "SKETCHER.view",
+        "SKETCHER.document"
+      ]
+    },
+    {
+      "id": "ASSEMBLY_DESIGN",
+      "when": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "tabs": [
+        "ASSEMBLY_DESIGN.model",
+        "ASSEMBLY_DESIGN.view",
+        "ASSEMBLY_DESIGN.document"
+      ]
+    }
+  ],
+  "placements": [
+    {
+      "tabId": "PART_DESIGN.model",
+      "groupId": "selection",
+      "order": 0
+    },
+    {
+      "tabId": "SKETCHER.model",
+      "groupId": "selection",
+      "order": 0
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.model",
+      "groupId": "selection",
+      "order": 0
+    },
+    {
+      "tabId": "PART_DESIGN.model",
+      "groupId": "part-sketch",
+      "order": 10
+    },
+    {
+      "tabId": "SKETCHER.model",
+      "groupId": "sketch-lifecycle",
+      "order": 10
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.model",
+      "groupId": "product-structure",
+      "order": 10
+    },
+    {
+      "tabId": "PART_DESIGN.model",
+      "groupId": "part-features",
+      "order": 20
+    },
+    {
+      "tabId": "SKETCHER.model",
+      "groupId": "sketch-projection",
+      "order": 20
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.model",
+      "groupId": "product-interface",
+      "order": 20
+    },
+    {
+      "tabId": "PART_DESIGN.model",
+      "groupId": "part-knowledge",
+      "order": 30
+    },
+    {
+      "tabId": "SKETCHER.model",
+      "groupId": "sketch-primitives",
+      "order": 30
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.model",
+      "groupId": "assembly-positioning",
+      "order": 30
+    },
+    {
+      "tabId": "PART_DESIGN.model",
+      "groupId": "part-datums",
+      "order": 40
+    },
+    {
+      "tabId": "SKETCHER.model",
+      "groupId": "sketch-profiles",
+      "order": 40
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.model",
+      "groupId": "assembly-constraints",
+      "order": 40
+    },
+    {
+      "tabId": "SKETCHER.model",
+      "groupId": "sketch-edit",
+      "order": 45
+    },
+    {
+      "tabId": "SKETCHER.model",
+      "groupId": "sketch-geometric-constraints",
+      "order": 50
+    },
+    {
+      "tabId": "SKETCHER.model",
+      "groupId": "sketch-dimensional-constraints",
+      "order": 60
+    },
+    {
+      "tabId": "PART_DESIGN.document",
+      "groupId": "history",
+      "order": 70
+    },
+    {
+      "tabId": "SKETCHER.document",
+      "groupId": "history",
+      "order": 70
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.document",
+      "groupId": "history",
+      "order": 70
+    },
+    {
+      "tabId": "PART_DESIGN.document",
+      "groupId": "collaboration",
+      "order": 80
+    },
+    {
+      "tabId": "SKETCHER.document",
+      "groupId": "collaboration",
+      "order": 80
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.document",
+      "groupId": "collaboration",
+      "order": 80
+    },
+    {
+      "tabId": "PART_DESIGN.view",
+      "groupId": "view-navigation",
+      "order": 90
+    },
+    {
+      "tabId": "SKETCHER.view",
+      "groupId": "view-navigation",
+      "order": 90
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.view",
+      "groupId": "view-navigation",
+      "order": 90
+    },
+    {
+      "tabId": "PART_DESIGN.document",
+      "groupId": "debug",
+      "order": 100
+    },
+    {
+      "tabId": "SKETCHER.document",
+      "groupId": "debug",
+      "order": 100
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.document",
+      "groupId": "debug",
+      "order": 100
+    }
+  ]
+}

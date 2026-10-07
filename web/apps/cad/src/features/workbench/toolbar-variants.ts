@@ -1,13 +1,12 @@
 import type {ToolbarCatalogItem} from "../../types";
 
 export type ToolbarVariantGroup={key:string;label:string;items:ToolbarCatalogItem[]};
-const labels:Record<string,string>={spline:"样条线",rectangle:"矩形",circle:"圆",arc:"圆弧",ellipse:"椭圆",polygon:"多边形",spline_control:"样条控制",linear:"线性尺寸",axis:"轴尺寸",angle:"角度"};
 const remembered=new Map<string,string>();
 export function toolbarVariantGroups(items:ToolbarCatalogItem[]):ToolbarVariantGroup[]{
  const groups:ToolbarVariantGroup[]=[];
  for(const item of items){const family=item.groupKey.startsWith("variants:")?item.groupKey.slice(9):undefined,key=family??item.commandId;
   const group=family?groups.find(g=>g.key===key):undefined;
-  if(group)group.items.push(item);else groups.push({key,label:family?labels[family]??item.name:item.name,items:[item]});
+  if(group)group.items.push(item);else groups.push({key,label:item.variantLabel??item.name,items:[item]});
  }
  return groups;
 }

@@ -1,3 +1,4 @@
+import {documentRegistry} from "../../cad/document/document-registry";
 import type { DocumentStructureNode, DocumentView, InstancePath, ProductDesignSession } from "../../types";
 
 export type EditTarget = {
@@ -37,9 +38,9 @@ export class EditActivationGate {
 export function rootEditSession(host: DocumentView, activationGeneration: number): EditSession {
   return {
     hostDocumentId: host.document.id,
-    editTarget: { documentId: host.document.id, documentType: host.document.type },
+    editTarget: documentRegistry.target(host),
     snapshot: { hostRevisionId: host.document.versionId, targetRevisionId: host.document.versionId },
-    workingBodyId: host.part?.activeBodyId || undefined,
+    workingBodyId: documentRegistry.get(host.document.type).workingBody(host),
     activationGeneration,
   };
 }
@@ -94,7 +95,7 @@ export async function prepareOccurrenceEditSession(input: {
         instancePath: resolved.activeInstancePath },
       snapshot: { hostRevisionId: resolved.rootProductRevisionId, targetRevisionId: resolved.activeRevisionId,
         rootSnapshotDigest: resolved.rootSnapshotDigest },
-      workingBodyId: targetView.part?.activeBodyId || undefined,
+      workingBodyId: documentRegistry.get(targetView.document.type).workingBody(targetView),
       activationGeneration,
     },
     targetView,

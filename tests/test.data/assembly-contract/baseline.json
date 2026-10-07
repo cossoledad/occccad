@@ -871,8 +871,8 @@
     "assertions": {
         "m4.snapshot.current-render-bindings": "44fbb9fc3c14f09f2b2e2f1d5adc40aa6b9163b587371de3b8cdb907752869b8",
         "m4.target.diagonal-projection": "93e6f1d756a244cd2e0def0399b12a70ee53cd74d04324e42414a8be6b698482",
-        "m5.engineering.command-panel": "a62ff5ea54a70e07ee1687edbdd4cf1b3c6dce36df84c3ef89ffe090eefb989d",
-        "m5.engineering.server-catalog": "c6b99a7ca2530cb122679c943b3ad5631e06a6bda28100de1a73940bd66e034b",
+        "m5.engineering.command-panel": "62f5d9a3703627fdee21e796e803abae5bc2784e1e65e3aa063bef5168ded5fa",
+        "m5.engineering.server-catalog": "4cbe6fa37955432b3213674164441074a52a06e2ed9f57865f20258f03a56b0c",
         "m4.snapshot.metadata-only-router": "2e9107f2330b2f224e0caadf3885e4aeb57c9f1722d8d8b1b3a89d6b025f0639",
         "m4.snap.precise-frame": "0531a46c32c76513bc401d274e442749692051dc11e1cfd35e24b4bff6e18f49",
         "m4.snap.body-local-hints": "f1be736cd0e1af0a57649ba234b283b20e72f42a7df63d8fda852a7139e2ca00",
@@ -2012,5 +2012,12 @@
             "lifecycle": "implemented",
             "historyReplay": "implemented"
         }
+    },
+    "configurationReview": {
+        "reason": "The server catalog assertion now uses the single validated configuration. The panel scenario loader accepts that JSON source; all panel behavior assertions remain unchanged. Existing IDs, exact counts, target expectations and coverage floors are preserved. Only these changed assertion sources are reviewed; unrelated HEAD mismatches remain rejected.",
+        "reviewedAssertionCaseIds": [
+            "m5.engineering.server-catalog",
+            "m5.engineering.command-panel"
+        ]
     }
 }

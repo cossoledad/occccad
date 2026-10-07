@@ -3,12 +3,10 @@ import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 
 const require = createRequire(new URL("../../../../package.json", import.meta.url));
-const ts = require("typescript");
-const source = await readFile(new URL("../edit-session.ts", import.meta.url), "utf8");
-const output = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText;
-const sessions = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
+const {createServer}=await import(require.resolve("vite"));
+const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
+try {
+const sessions=await server.ssrLoadModule("/src/features/workbench/edit-session.ts");
 
 const path = (canonical, documentId, revisionId = "part-r1") => ({ rootDocumentId: "root", canonical,
   display: canonical, segments: canonical.split("/").map((instanceId, index, all) => ({
@@ -21,7 +19,7 @@ const nestedPath = path("nested-a", "nested", "nested-r1");
 const emptyPartView = { document: { id: "part", name: "Empty", type: "PART", versionId: "part-r1" },
   part: { bodies: [], activeBodyId: "", features: [], units: "mm", datumPlanes: [], axisSystems: [] } };
 const host = { document: { id: "root", name: "Root", type: "PRODUCT", versionId: "root-r1" },
-  structureTree: { id: "document:root", kind: "PRODUCT", name: "Root", documentId: "root", documentType: "PRODUCT", children: [
+  product:{instances:[]}, structureTree: { id: "document:root", kind: "PRODUCT", name: "Root", documentId: "root", documentType: "PRODUCT", children: [
     { id: "instance:a", kind: "INSTANCE", name: "A", documentId: "part", documentType: "PART", referenceMode: "FOLLOW_HEAD", instancePath: firstPath,
       children: [{ id: "instance:a/part", kind: "PART", name: "Part", documentId: "part", documentType: "PART", instancePath: firstPath }] },
     { id: "instance:b", kind: "INSTANCE", name: "B", documentId: "part", documentType: "PART", referenceMode: "FOLLOW_HEAD", instancePath: secondPath,
@@ -75,3 +73,5 @@ assert(!workbenchSource.includes("打开定义"));
 assert(!workbenchSource.includes("在此上下文打开"));
 assert(!workbenchSource.includes("定义编辑 ·"));
 console.log("Product edit-session identity, snapshot validation, empty Part, pinned path and stale activation passed");
+
+}finally{await server.close();}

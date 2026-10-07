@@ -99,7 +99,8 @@ occccad/
 ├── workers/geometry/        C++ Geometry Worker
 ├── services/cmd/            Go 可执行进程
 ├── services/internal/       Go 领域、存储和控制实现
-├── services/internal/database/migrations/
+├── services/internal/database/postgres_migrations/
+├── services/internal/database/sqlite_migrations/
 ├── web/apps/cad/            React CAD Web 应用
 ├── tests/                   仅跨模块/跨进程 conformance；单元与场景测试邻近实现
 │   └── test.data/           统一测试输入、回归语料与验收记录

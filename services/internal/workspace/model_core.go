@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/occccad/occccad/internal/database"
@@ -2219,16 +2218,14 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 			prepared.priorManifest = &manifest
 		}
 	}
-	if prepared.documentType == "PRODUCT" {
-		var model ProductModel
-		if err := json.Unmarshal(prepared.modelJSON, &model); err != nil {
-			return prepared, err
-		}
-		if err := validateAssemblyDefinitionFormat(model); err != nil {
-			return prepared, err
-		}
+	adapter, err := documentAdapters.Lookup(prepared.documentType)
+	if err != nil {
+		return prepared, err
 	}
-	command, payload, err := service.adaptLegacyCommand(ctx, documentID, prepared.documentType, prepared.modelJSON, request)
+	if err := adapter.ValidateCommandModel(prepared.modelJSON); err != nil {
+		return prepared, err
+	}
+	command, payload, err := adapter.AdaptCommand(ctx, service, documentID, prepared.modelJSON, request)
 	if err != nil {
 		return prepared, err
 	}
@@ -2334,145 +2331,18 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		return err
 	}
 	revisionID := revisionUUID.String()
-	modelHash := canonicalModelHash(nextJSON)
-	var graph *modelcore.DependencyGraph
-	var manifest modelcore.EvaluationManifest
-	revisionState, evaluationStatus := "READY", "SUCCEEDED"
-	if prepared.documentType == "PART" {
-		var model PartModel
-		var beforeModel PartModel
-		if err := json.Unmarshal(nextJSON, &model); err != nil {
-			return err
-		}
-		if err := json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
-			return err
-		}
-		diagnosticModel = &model
-		normalizePartModel(&model)
-		normalizePartModel(&beforeModel)
-		metadataOnly := isPartMetadataCommand(prepared.command)
-		if !promoted && !metadataOnly {
-			if err := resolveRuntimeParameters(ctx, &model); err != nil {
-				return err
-			}
-			diagnostic.stage("SKETCH_INPUTS")
-			finishSolve := perf.Start(ctx, "support-resolve-sketch-solve")
-			if err := service.resolveAndSolveSketches(ctx, documentID, prepared.requestID, &model); err != nil {
-				finishSolve()
-				return err
-			}
-			finishSolve()
-		}
-		if !metadataOnly {
-			if err := resolveRuntimeParameters(ctx, &model); err != nil {
-				return err
-			}
-		}
-		if err := rejectExplicitUnresolvedExternal(prepared.command, model); err != nil {
-			return err
-		}
-		if !metadataOnly {
-			if err := service.resolvePartPublications(ctx, documentID, prepared.requestID, revisionID, &model); err != nil {
-				return err
-			}
-		}
-		if err := rejectExplicitBrokenPublication(prepared.command, model); err != nil {
-			return err
-		}
-		if !metadataOnly {
-			changes = appendEvaluatedDatumChanges(appendEvaluatedSketchChanges(changes, beforeModel, model), beforeModel, model)
-		}
-		if _, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
-			revisionState, evaluationStatus = failedRevision, failedEvaluation
-			for i := range model.Bodies {
-				model.Bodies[i].GeometryKey = ""
-			}
-		} else if metadataOnly {
-			if partHasFailedFeature(model) {
-				revisionState, evaluationStatus = "FAILED", "FAILED"
-			}
-			// Display metadata and readable names do not change geometry inputs.
-			// Keep the frozen per-Body results without entering the evaluator.
-			for i := range model.Bodies {
-				for _, previous := range beforeModel.Bodies {
-					if previous.ID == model.Bodies[i].ID {
-						model.Bodies[i].GeometryKey = previous.GeometryKey
-						break
-					}
-				}
-			}
-		} else {
-			diagnostic.stage("GEOMETRY")
-			finishGeometry := perf.Start(ctx, "geometry-evaluate")
-			err = service.evaluatePartBodies(ctx, prepared.requestID, &model)
-			finishGeometry()
-			if err != nil {
-				var failed *solidEvaluationFailure
-				if !errors.As(err, &failed) || (prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetFeatureSuppression && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch) {
-					return err
-				}
-				revisionState, evaluationStatus = "FAILED", "FAILED"
-			}
-		}
-		retainFailedBodyDisplay(&model, beforeModel, prepared.headRevision)
-		nextJSON, _ = json.Marshal(model)
-		modelHash = canonicalModelHash(nextJSON)
-		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
-		attachEvaluationRuntime(ctx, &manifest)
-		if err != nil {
-			return err
-		}
-	} else {
-		var model ProductModel
-		if err := json.Unmarshal(nextJSON, &model); err != nil {
-			return err
-		}
-		if prepared.command.TypeURI == typeUpdateReferences {
-			for index := range model.ContextBindings {
-				model.ContextBindings[index].Accepted.RootProductRevisionID = revisionID
-				if len(model.ContextBindings[index].SourceInstancePath.Segments) > 0 {
-					model.ContextBindings[index].SourceInstancePath.Segments[0].OwnerVersionID = revisionID
-				}
-				if len(model.ContextBindings[index].OwningInstancePath.Segments) > 0 {
-					model.ContextBindings[index].OwningInstancePath.Segments[0].OwnerVersionID = revisionID
-				}
-			}
-		}
-		if promoted && !candidate.definitionOnly && (len(model.Constraints) > 0 || request.SessionID != "") {
-			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, candidate.assemblyPreviewRequestID, canonicalModelHash(nextJSON)); err != nil {
-				return err
-			}
-		}
-		if !promoted && prepared.command.TypeURI != typeOccurrenceVisibility && prepared.command.TypeURI != typeConstraintVisibility {
-			finishSolve := perf.Start(ctx, "assembly-solve")
-			drivenInstanceID := ""
-			var solveIntent *geometry.AssemblySolveIntent
-			if prepared.command.TypeURI == typeMoveInstance {
-				var payload moveInstancePayload
-				_ = json.Unmarshal(prepared.command.Payload, &payload)
-				drivenInstanceID = payload.InstanceID
-			} else {
-				solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
-			}
-			if err = service.solveAssembly(ctx, documentID, revisionID, prepared.requestID, drivenInstanceID, solveIntent, &model, ""); err != nil {
-				allowFailure := retainsAssemblyDefinition(prepared.command.TypeURI) || prepared.command.TypeURI == typeUpdateReferences || prepared.command.TypeURI == typeReplaceInstance
-				if err = acceptAssemblyEvaluationFailure(&model, err, allowFailure); err != nil {
-					finishSolve()
-					return err
-				}
-			}
-			finishSolve()
-		}
-		nextJSON, _ = json.Marshal(model)
-		modelHash = canonicalModelHash(nextJSON)
-		var priorProduct ProductModel
-		_ = json.Unmarshal(prepared.modelJSON, &priorProduct)
-		changes = appendAssemblyEvaluationChanges(changes, priorProduct, model)
-		graph, manifest, err = buildProductEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
-		if err != nil {
-			return err
-		}
+	adapter, err := documentAdapters.Lookup(prepared.documentType)
+	if err != nil {
+		return err
 	}
+	evaluated, err := adapter.Evaluate(ctx, service, documentEvaluationInput{documentID, revisionID, prepared, request, candidate, promoted, nextJSON, changes, diagnostic})
+	diagnosticModel = evaluated.diagnosticModel
+	if err != nil {
+		return err
+	}
+	nextJSON, changes = evaluated.nextJSON, evaluated.changes
+	modelHash, graph, manifest := evaluated.modelHash, evaluated.graph, evaluated.manifest
+	revisionState, evaluationStatus := evaluated.revisionState, evaluated.evaluationStatus
 	changes, err = reconcilePersistedChanges(prepared.documentType, prepared.modelJSON, nextJSON, changes)
 	if err != nil {
 		return err
@@ -2562,13 +2432,10 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		return err
 	}
 
-	if prepared.documentType == "PRODUCT" {
-		var model ProductModel
-		_ = json.Unmarshal(nextJSON, &model)
-		if err := insertProductInstances(ctx, tx, revisionID, model); err != nil {
-			return err
-		}
+	if err := adapter.Persist(ctx, tx, revisionID, nextJSON); err != nil {
+		return err
 	}
+
 	return tx.Commit(ctx)
 }
 
@@ -2650,226 +2517,13 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{}, err
 	}
 	diagnosticJSON = nextJSON
-	if strings.EqualFold(prepared.documentType, "PRODUCT") {
-		var model ProductModel
-		if err = json.Unmarshal(nextJSON, &model); err != nil {
-			return CommandPreview{}, err
-		}
-		driven := ""
-		var solveIntent *geometry.AssemblySolveIntent
-		if prepared.command.TypeURI == typeMoveInstance {
-			var payload moveInstancePayload
-			_ = json.Unmarshal(prepared.command.Payload, &payload)
-			driven = payload.InstanceID
-		} else {
-			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
-		}
-		var assemblyResult geometry.AssemblySolve
-		retainedFailure := false
-		warmStartKey := ""
-		if request.InteractionID != "" {
-			warmStartKey = documentID + "|" + prepared.actorID + "|" + request.InteractionID
-		}
-		if err = service.solveAssembly(ctx, documentID, prepared.headRevision, "preview/"+prepared.requestID, driven, solveIntent, &model, warmStartKey, &assemblyResult); err != nil {
-			if retained := acceptAssemblyEvaluationFailure(&model, err, retainsAssemblyDefinition(prepared.command.TypeURI)); retained == nil {
-				retainedFailure = true
-			} else {
-				return CommandPreview{}, err
-			}
-		}
-		nextJSON, err = json.Marshal(model)
-		if err != nil {
-			return CommandPreview{}, err
-		}
-		constraintID := ""
-		switch prepared.command.TypeURI {
-		case typeAddAssemblyConstraint:
-			var payload addAssemblyConstraintPayload
-			if json.Unmarshal(prepared.command.Payload, &payload) == nil {
-				constraintID = payload.Constraint.ID
-			}
-		case typeEditAssemblyConstraint:
-			var payload editAssemblyConstraintPayload
-			if json.Unmarshal(prepared.command.Payload, &payload) == nil {
-				constraintID = payload.ConstraintID
-			}
-		}
-		unverifiedOffset := false
-		for _, constraint := range model.Constraints {
-			if constraint.ID == constraintID && constraint.Kind == "DISTANCE" && constraint.EvaluationStatus != modelcore.AssemblyConstraintVerified {
-				// Admission may solve the accepted subset successfully while the
-				// edited Offset is isolated as NotUpdated/Broken. That is not a
-				// successful candidate for this definition, even if solve converged.
-				unverifiedOffset = true
-			}
-		}
-		previewID := newID("preview")
-		if !retainedFailure && (assemblyResult.Status != "CONVERGED" || unverifiedOffset) {
-			previewID = ""
-		}
-		if previewID != "" {
-			service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
-				definitionOnly: retainedFailure,
-				headRevision:   prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-				assemblyPreviewRequestID: "preview/" + prepared.requestID,
-				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
-				expiresAt: time.Now().Add(interactionCandidateTTL)})
-		}
-		result := CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
-			ModelHash: canonicalModelHash(nextJSON), AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
-		if retainedFailure {
-			result.EvaluationOutcome = "DEFINITION_ONLY"
-			result.AssemblyComponents = nil
-		}
-		for _, constraint := range model.Constraints {
-			if constraint.ID != constraintID {
-				continue
-			}
-			preview := AssemblyConstraintPreviewEvaluation{ConstraintID: constraint.ID, Status: constraint.EvaluationStatus,
-				Summary: constraint.EvaluationSummary, First: assemblySupportPreview(constraint.First), Failure: constraint.EvaluationFailure}
-			if constraint.Second != nil {
-				second := assemblySupportPreview(*constraint.Second)
-				preview.Second = &second
-			}
-			result.ConstraintEvaluation = &preview
-			if constraint.EvaluationFailure != nil {
-				result.EvaluationFailure = constraint.EvaluationFailure
-			}
-			break
-		}
-		for _, instance := range model.Instances {
-			result.InstancePoses = append(result.InstancePoses, struct {
-				InstanceID  string     `json:"instanceId"`
-				Translation [3]float64 `json:"translation"`
-				Rotation    [4]float64 `json:"rotation"`
-			}{instance.ID, instance.Translation, normalizedInstanceRotation(instance.Rotation)})
-		}
-		return result, nil
-	}
-	var model PartModel
-	var beforeModel PartModel
-	if err = json.Unmarshal(nextJSON, &model); err != nil {
-		return CommandPreview{}, err
-	}
-	if err = json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
-		return CommandPreview{}, err
-	}
-	diagnosticModel = &model
-	diagnostic.stage("PARAMETERS")
-	normalizePartModel(&model)
-	normalizePartModel(&beforeModel)
-	if err = resolveRuntimeParameters(ctx, &model); err != nil {
-		return CommandPreview{}, err
-	}
-	diagnostic.stage("SKETCH_INPUTS")
-	finishSolve := perf.Start(ctx, "support-resolve-sketch-solve")
-	if err = service.resolveAndSolveSketches(ctx, documentID, "preview/"+prepared.requestID, &model); err != nil {
-		finishSolve()
-		return CommandPreview{}, err
-	}
-	finishSolve()
-	if err = resolveRuntimeParameters(ctx, &model); err != nil {
-		return CommandPreview{}, err
-	}
-	if err = rejectExplicitUnresolvedExternal(prepared.command, model); err != nil {
-		return CommandPreview{}, err
-	}
-	if err = service.resolvePartPublications(ctx, documentID, "preview/"+prepared.requestID,
-		prepared.headRevision, &model); err != nil {
-		return CommandPreview{}, err
-	}
-	if err = rejectExplicitBrokenPublication(prepared.command, model); err != nil {
-		return CommandPreview{}, err
-	}
-	previewChanges = appendEvaluatedDatumChanges(appendEvaluatedSketchChanges(previewChanges, beforeModel, model), beforeModel, model)
-	nextJSON, _ = json.Marshal(model)
-	previewChanges, err = reconcilePersistedChanges(prepared.documentType, prepared.modelJSON, nextJSON, previewChanges)
+	adapter, err := documentAdapters.Lookup(prepared.documentType)
 	if err != nil {
 		return CommandPreview{}, err
 	}
-	modelHash := canonicalModelHash(nextJSON)
-	if _, broken := firstUnresolvedExternal(model); broken {
-		previewID := newID("preview")
-		service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
-			headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-			payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
-			expiresAt: time.Now().Add(interactionCandidateTTL)})
-		return CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: modelHash}, nil
-	}
-	diagnostic.stage("GEOMETRY")
-	finishGeometry := perf.Start(ctx, "geometry-evaluate")
-	bodyID := previewBodyID(prepared.command.Payload, model)
-	geometryKey, err := service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID, model, bodyID, true)
-	finishGeometry()
-	if err != nil {
-		return CommandPreview{}, err
-	}
-	diagnostic.stage("ARTIFACT")
-	finishArtifact := perf.Start(ctx, "artifact-load")
-	artifact, err := service.loadArtifact(ctx, geometryKey)
-	finishArtifact()
-	if err != nil {
-		return CommandPreview{}, err
-	}
-	artifact.BodyID = bodyID
-	bodyName := ""
-	bodyAssignment := "TARGET_BODY"
-	if index := bodyIndex(model, bodyID); index >= 0 {
-		model.Bodies[index].GeometryKey = geometryKey
-		bodyName = model.Bodies[index].Name
-		if bodyIndex(beforeModel, bodyID) < 0 {
-			bodyAssignment = "EXPLICIT_NEW_BODY"
-		}
-	}
-	nextJSON, _ = json.Marshal(model)
-	modelHash = canonicalModelHash(nextJSON)
-	previewID := newID("preview")
-	service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
-		headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-		payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, geometryKey: geometryKey, visualObjectID: artifact.Representations["VISUAL"].ObjectID,
-		changes: previewChanges, expiresAt: time.Now().Add(interactionCandidateTTL)})
-	artifact.RepresentationKind = "TRANSIENT_PREVIEW"
-	var loftSections []LoftSection
-	var loftConnections [][][3]float64
-	if request.Feature != nil && request.Feature.Type == "LOFT" {
-		target := request.TargetID
-		if target == "" {
-			target = commandEntityID("loft", request.RequestID)
-		}
-		earlier := map[string]Feature{}
-		for _, f := range model.Features {
-			if f.ID == target {
-				loftSections = f.Sections
-				inputs, e := service.loftGeometrySections(ctx, request.RequestID+"/connections", model, f, earlier)
-				if e != nil {
-					return CommandPreview{}, e
-				}
-				resolved, e := service.worker.ResolveLoftCorrespondence(ctx, request.RequestID+"/connections", inputs)
-				if e != nil {
-					return CommandPreview{}, e
-				}
-				if len(resolved) > 0 {
-					for j := range resolved[0].BoundaryPoints {
-						line := make([][3]float64, len(resolved))
-						for i := range resolved {
-							line[i] = resolved[i].BoundaryPoints[j]
-						}
-						loftConnections = append(loftConnections, line)
-					}
-				}
-				break
-			}
-			earlier[f.ID] = f
-		}
-	}
-	return CommandPreview{
-		LoftSections: loftSections, LoftConnections: loftConnections,
-		ReferenceGeometry: datumPreviewReferences(prepared.command, model), ParameterCandidates: parameterPreviewCandidates(prepared.command, model),
-		PreviewID: previewID, BaseVersionID: prepared.headRevision,
-		BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,
-		ResultBodyID: bodyID, ResultBodyName: bodyName, BodyAssignment: bodyAssignment,
-		SketchCandidates: solvedSketchPreviewCandidates(prepared.command, model),
-	}, nil
+	preview, model, err := adapter.Preview(ctx, service, documentPreviewInput{documentID, prepared, request, nextJSON, previewChanges, diagnostic})
+	diagnosticModel = model
+	return preview, err
 }
 
 func assemblySupportPreview(reference AssemblyGeometryRef) AssemblySupportPreviewEvaluation {

@@ -8,6 +8,7 @@ const require=createRequire(import.meta.url),React=require("react"),{renderToSta
 // Antd's CJS distribution avoids extensionless icon ESM imports in Node SSR.
 const modules=new Map();
 function load(file){
+ if(file.endsWith(".json"))return JSON.parse(readFileSync(file,"utf8"));
  if(modules.has(file))return modules.get(file).exports;
  const module={exports:{}};modules.set(file,module);
  const js=ts.transpileModule(readFileSync(file,"utf8").replaceAll("import.meta.env","({})"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true},fileName:file}).outputText;

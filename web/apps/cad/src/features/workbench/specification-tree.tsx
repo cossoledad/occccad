@@ -1,4 +1,7 @@
-import { ExportOutlined, SearchOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LinkOutlined, LockOutlined, PauseCircleOutlined, PlusOutlined, ReloadOutlined, SwapOutlined, UnlockOutlined } from "@ant-design/icons";
+import {useOptionalCommandRegistry} from "../../cad/command/command-context";
+import {builtinCatalog} from "../../cad/command/workbench-catalog";
+import {CadIcon} from "../../cad/overlay/cad-icons";
+import { SearchOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dropdown, Input, message } from "antd";
 import { isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
@@ -8,7 +11,6 @@ import { filterTree } from "./tree-filter";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
 import { canToggleNodeVisibility } from "./tree-node-descriptors";
 import { isEditTargetNode, type EditSession } from "./edit-session";
-import { copyTextToClipboard } from "../../utils/clipboard";
 import { ContextMenuIcon } from "../../components/context-menu-icon";
 
 export type SpecificationTreeNode = {
@@ -95,6 +97,10 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
   onToggleVisibility?: (node: SpecificationTreeNode, scope: "DEFINITION" | "OCCURRENCE" | "SESSION", mode?: "SHOW" | "HIDE" | "INHERIT") => void;
   onToggleSuppression?: (node: SpecificationTreeNode) => void;
 }) {
+  const registry=useOptionalCommandRegistry();
+  const declaration=(id:string)=>registry?.declaration(id)??builtinCatalog.commands.find(command=>command.id===id);
+  const menuLabel=(id:string,variant="default",count=0)=>{const command=declaration(id);return (command?.labels?.[variant]??command?.name??id).replace("{count}",String(count));};
+  const menuIcon=(id:string)=><ContextMenuIcon><CadIcon name={declaration(id)?.iconKey??""}/></ContextMenuIcon>;
   const [query, setQuery] = useState("");
   const [focusedKey, setFocusedKey] = useState<string>();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -236,56 +242,56 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
             open={contextMenu?.nodeKey === node.key}
             onOpenChange={(open) => { if (!open) setContextMenu(undefined); }}
             menu={{ items: [node.kind === "INSTANCE" && node.documentId && onOpenDocumentTab ? {
-              key: "open-document-tab", icon: <ContextMenuIcon><ExportOutlined /></ContextMenuIcon>, label: "在新标签页中打开",
+              key: "open-document-tab", icon: menuIcon('tree.open-document'), label: menuLabel('tree.open-document'),
               onClick: () => { setContextMenu(undefined); onOpenDocumentTab(node); } } : null,
             node.sourceDocumentId && onOpenDocumentTab ? {
-              key: "open-source", icon: <ContextMenuIcon><ExportOutlined /></ContextMenuIcon>, label: "打开来源",
+              key: "open-source", icon: menuIcon('tree.open-document'), label: menuLabel('tree.open-document','source'),
               onClick: () => { setContextMenu(undefined); onOpenDocumentTab(node); } } : null,
-            node.kind === "BODY" && onActivate ? { key: "activate-body", icon: <ContextMenuIcon />, label: "设为当前工作 Body",
+            node.kind === "BODY" && onActivate ? { key: "activate-body", icon: menuIcon('tree.activate'), label: menuLabel('tree.activate','body'),
               onClick: () => { setContextMenu(undefined); onActivate(node); } } : null,
-            node.kind === "SKETCH_ENTITY" ? { key: "construction", icon: <ContextMenuIcon><SwapOutlined /></ContextMenuIcon>,
-              label: node.role === "CONSTRUCTION" ? "设为轮廓元素" : "设为构造元素",
+            node.kind === "SKETCH_ENTITY" ? { key: "construction", icon: menuIcon('tree.construction'),
+              label: menuLabel('tree.construction',node.role==='CONSTRUCTION'?'profile':'construction'),
               disabled: !node.capabilities?.includes("DELETE"),
               onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,
-            ["PAD","REVOLVE","FEATURE","IMPORT"].includes(node.kind??"") && node.presentationRole!=="INPUT_REFERENCE" && onViewResult ? {key:"view-result",icon:<ContextMenuIcon />,label:"查看此步骤结果",onClick:()=>{setContextMenu(undefined);onViewResult(node);}}:null,
-            node.capabilities?.includes("EDIT") ? { key: "edit", icon: <ContextMenuIcon><EditOutlined /></ContextMenuIcon>, label: ["PAD","REVOLVE","FEATURE"].includes(node.kind??"")?"编辑定义":"编辑",
+            ["PAD","REVOLVE","FEATURE","IMPORT"].includes(node.kind??"") && node.presentationRole!=="INPUT_REFERENCE" && onViewResult ? {key:"view-result",icon:menuIcon('tree.view-result'),label:menuLabel('tree.view-result'),onClick:()=>{setContextMenu(undefined);onViewResult(node);}}:null,
+            node.capabilities?.includes("EDIT") ? { key: "edit", icon: menuIcon('tree.edit'), label: menuLabel('tree.edit',['PAD','REVOLVE','FEATURE'].includes(node.kind??'')?'definition':'default'),
               onClick: () => { setContextMenu(undefined); onEdit?.(node); } } : null,
             onRename && ["BODY", "SKETCH", "PAD", "REVOLVE", "IMPORT"].includes(node.kind ?? "") && node.documentId === activeDocumentId
-              ? { key: "rename", icon: <ContextMenuIcon />, label: "重命名", onClick: () => { setContextMenu(undefined); onRename(node); } } : null,
-            node.capabilities?.includes("CREATE_PART") ? { key: "create-part", icon: <ContextMenuIcon><PlusOutlined /></ContextMenuIcon>, label: "新建零件",
+              ? { key: "rename", icon: menuIcon('tree.rename'), label: menuLabel('tree.rename'), onClick: () => { setContextMenu(undefined); onRename(node); } } : null,
+            node.capabilities?.includes("CREATE_PART") ? { key: "create-part", icon: menuIcon('tree.create-part'), label: menuLabel('tree.create-part'),
               onClick: () => { setContextMenu(undefined); onCreatePart?.(node); } } : null,
-            node.capabilities?.includes("PIN_VERSION") ? { key: "pin-version", icon: <ContextMenuIcon><LockOutlined /></ContextMenuIcon>, label: "固定当前版本",
+            node.capabilities?.includes("PIN_VERSION") ? { key: "pin-version", icon: menuIcon('tree.reference-mode'), label: menuLabel('tree.reference-mode','pinned'),
               onClick: () => { setContextMenu(undefined); onReferenceMode?.(node, "PINNED"); } } : null,
-            node.capabilities?.includes("FOLLOW_HEAD") ? { key: "follow-head", icon: <ContextMenuIcon><UnlockOutlined /></ContextMenuIcon>, label: "恢复跟随最新版本",
+            node.capabilities?.includes("FOLLOW_HEAD") ? { key: "follow-head", icon: menuIcon('tree.reference-mode'), label: menuLabel('tree.reference-mode','follow'),
               onClick: () => { setContextMenu(undefined); onReferenceMode?.(node, "FOLLOW_HEAD"); } } : null,
-            node.capabilities?.includes("DETACH") ? { key: "detach", icon: <ContextMenuIcon><SwapOutlined /></ContextMenuIcon>, label: "断开外部关联并冻结",
+            node.capabilities?.includes("DETACH") ? { key: "detach", icon: menuIcon('tree.detach'), label: menuLabel('tree.detach'),
               onClick: () => { setContextMenu(undefined); onDetach?.(node); } } : null,
-            node.capabilities?.includes("RECONNECT") ? { key: "reconnect", icon: <ContextMenuIcon><LinkOutlined /></ContextMenuIcon>, label: "Reconnect 支持元素",
+            node.capabilities?.includes("RECONNECT") ? { key: "reconnect", icon: menuIcon('tree.reconnect'), label: menuLabel('tree.reconnect'),
               onClick: () => { setContextMenu(undefined); onReconnect?.(node); } } : null,
-            node.capabilities?.includes("REFRESH") ? { key: "refresh", icon: <ContextMenuIcon><ReloadOutlined /></ContextMenuIcon>, label: "重新解析并求解",
+            node.capabilities?.includes("REFRESH") ? { key: "refresh", icon: menuIcon('tree.refresh'), label: menuLabel('tree.refresh'),
               onClick: () => { setContextMenu(undefined); onRefresh?.(node); } } : null,
             canToggleNodeVisibility(node.kind) && node.instancePath?.canonical && ["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY"].includes(node.kind ?? "")
-              ? {key:"occurrence-visibility",icon:<ContextMenuIcon><EyeInvisibleOutlined /></ContextMenuIcon>,
-                label:`${node.visibilityMode === "HIDE" || node.visibilityMode !== "SHOW" && node.localVisible === false ? "显示" : "隐藏"}（当前实例）`,
+              ? {key:"occurrence-visibility",icon:menuIcon("tree.visibility"),
+                label:menuLabel("tree.visibility",node.visibilityMode === "HIDE" || node.visibilityMode !== "SHOW" && node.localVisible === false ? "show-occurrence" : "hide-occurrence"),
                 onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"OCCURRENCE",
                   node.visibilityMode === "HIDE" || node.visibilityMode !== "SHOW" && node.localVisible === false ? "SHOW" : "HIDE");}} : null,
             canToggleNodeVisibility(node.kind) && node.instancePath?.canonical && node.visibilityMode && node.visibilityMode !== "INHERIT"
-              ? {key:"restore-visibility",icon:<ContextMenuIcon />,label:"恢复实例继承",onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"OCCURRENCE","INHERIT");}} : null,
+              ? {key:"restore-visibility",icon:menuIcon('tree.visibility'),label:menuLabel('tree.visibility','restore'),onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"OCCURRENCE","INHERIT");}} : null,
             canToggleNodeVisibility(node.kind) && ["BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT"].includes(node.kind ?? "") &&
               (!node.instancePath?.canonical || node.documentId === activeDocumentId)
-              ? {key:"definition-visibility",icon:<ContextMenuIcon><EyeInvisibleOutlined /></ContextMenuIcon>,label:`${node.localVisible!==false ? "隐藏" : "显示"}（${node.kind==="ASSEMBLY_CONSTRAINT"?"约束对象":"零件定义"}）`,
+              ? {key:"definition-visibility",icon:menuIcon('tree.visibility'),label:menuLabel('tree.visibility',`${node.localVisible!==false?'hide':'show'}-${node.kind==='ASSEMBLY_CONSTRAINT'?'constraint':'definition'}`),
                 onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"DEFINITION");}} : null,
             canToggleNodeVisibility(node.kind) && !["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT"].includes(node.kind ?? "")
-              ? { key: "session-visibility", icon: <ContextMenuIcon><EyeInvisibleOutlined /></ContextMenuIcon>, label: node.hidden ? "显示（临时）" : "隐藏（临时）",
+              ? { key: "session-visibility", icon: menuIcon('tree.visibility'), label: menuLabel('tree.visibility',node.hidden?'show-session':'hide-session'),
                 onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node,"SESSION"); } } : null,
-            node.kind==="PARAMETER"&&node.parameterAlias ? {key:"copy-alias",icon:<ContextMenuIcon />,label:"复制参数别名",onClick:()=>{
-              setContextMenu(undefined);void copyTextToClipboard(node.parameterAlias!).then(ok=>{if(ok)message.success("已复制参数别名");else message.error("剪贴板不可用，请从参数列表选择别名复制");});
+            node.kind==="PARAMETER"&&node.parameterAlias ? {key:"copy-alias",icon:menuIcon('tree.copy-alias'),label:menuLabel('tree.copy-alias'),onClick:()=>{
+              setContextMenu(undefined);void registry?.execute("tree.copy-alias",{payload:{node}}).catch(error=>message.error(String(error)));
             }} : null,
-            node.capabilities?.includes("SUPPRESS") ? { key: "suppress", icon: <ContextMenuIcon><PauseCircleOutlined /></ContextMenuIcon>,
-              label: node.suppressed ? "解除抑制" : "抑制",
+            node.capabilities?.includes("SUPPRESS") ? { key: "suppress", icon: menuIcon('tree.suppression'),
+              label: menuLabel('tree.suppression',node.suppressed?'off':'on'),
               onClick: () => { setContextMenu(undefined); onToggleSuppression?.(node); } } : null,
-            { key: "delete", icon: <ContextMenuIcon><DeleteOutlined /></ContextMenuIcon>, danger: true,
-            label: deletable.length > 1 ? `删除 ${deletable.length} 项` : "删除", disabled: deletable.length === 0,
+            { key: "delete", icon: menuIcon('edit.delete'), danger: true,
+            label: menuLabel('edit.delete',deletable.length>1?'many':'default',deletable.length), disabled: deletable.length === 0,
             onClick: () => { setContextMenu(undefined); onDelete?.(deletable); } }] }}>{row}</Dropdown>
         </div>;
       })}

@@ -15,14 +15,14 @@ try{
   const {contextualToolbars,searchCommands}=await server.ssrLoadModule("/src/features/workbench/workbench-command-model.ts");
   const registry=new CommandRegistry();
   const toolbars=contextualToolbars(mockToolbarCatalog.toolbars,"SKETCHER");
-  let executions=0;
-  for(const toolbar of toolbars)for(const item of toolbar.items)registry.register({id:item.commandId,execute:()=>executions++});
+  let executions=0; let activeVariant=false,disabledCircle=false;
+  for(const toolbar of toolbars)for(const item of toolbar.items)registry.register({id:item.commandId,execute:()=>executions++,isActive:()=>item.commandId==="sketch.circle.three_point"&&activeVariant,isEnabled:()=>item.commandId!=="sketch.circle"||!disabledCircle});
   const advanced=toolbars.flatMap(toolbar=>toolbar.items.filter(item=>item.groupKey.startsWith("variants:")));
   assert(advanced.some(item=>item.commandId==="sketch.circle.three_point"));
   assert(advanced.some(item=>item.commandId==="sketch.spline.control"));
   assert(!toolbars.some(toolbar=>toolbar.items.some(item=>item.commandId==="sketch.slot")));
   const html=renderToStaticMarkup(React.createElement(App,null,React.createElement(UIHelpProvider,null,
-    React.createElement(CommandProvider,{registry},React.createElement(WorkbenchCommands,{toolbars,workbench:"SKETCHER"})))));
+    React.createElement(CommandProvider,{registry},React.createElement(WorkbenchCommands,{toolbars,workbench:"SKETCHER",catalog:mockToolbarCatalog,tabs:mockToolbarCatalog.tabs.filter(tab=>tab.workbench==="SKETCHER")})))));
   assert(!html.includes("草图轮廓更多方式"));assert(html.includes("矩形"));assert(html.includes("矩形方式"));assert(html.includes("圆方式"));assert(html.includes("样条线方式"));assert(html.includes("cad-split-tool-button"));
   assert(!html.includes("三点圆"),"creation variants are discoverable through their family split buttons");
   assert(!html.includes("控制点样条"));
@@ -33,10 +33,10 @@ try{
   const family=advanced.filter(item=>item.groupKey==="variants:circle");
   const renderSplit=()=>renderToStaticMarkup(React.createElement(App,null,React.createElement(UIHelpProvider,null,
     React.createElement(CommandProvider,{registry},React.createElement(CadSplitToolButton,{items:family,defaultId:"sketch.circle",familyName:"圆",toolbarName:"轮廓",onDefaultChange(){throw new Error("render must not rewrite remembered defaults");}})))));
-  registry.register({id:"sketch.circle.three_point",isActive:()=>true,execute:()=>executions++});
+  activeVariant=true;
   assert(renderSplit().includes('aria-label="三点圆"'),'shortcut activation is shown even when a different default is remembered');
-  registry.register({id:"sketch.circle.three_point",isActive:()=>false,execute:()=>executions++});
-  registry.register({id:"sketch.circle",isEnabled:()=>false,execute:()=>executions++});
+  activeVariant=false;
+  disabledCircle=true;
   const disabledDefault=renderSplit(),mainButton=disabledDefault.match(/<button[^>]*aria-label="圆"[^>]*>/)[0],arrowButton=disabledDefault.match(/<button[^>]*aria-label="圆方式"[^>]*>/)[0];
   assert(mainButton.includes('disabled'));assert(!arrowButton.includes('disabled'),'another legal variant keeps the arrow available');
   assert.equal(executions,1,'presentation does not execute domain commands');

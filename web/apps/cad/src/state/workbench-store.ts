@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import type { Selection, SelectionItem, SketchPlane } from "../types";
 
 export type WorkbenchToolID = "select" | "sketch.project" | "sketch.point" | "sketch.line" | "sketch.circle" | "sketch.arc" | "sketch.polyline" | "sketch.spline" | "sketch.spline.control" | "sketch.rectangle" | "sketch.polygon" | "sketch.polygon.circumscribed" | "sketch.ellipse" | "sketch.elliptical_arc" | "sketch.circle.three_point" | "sketch.arc.three_point" | "sketch.rectangle.center" | "sketch.rectangle.oriented"
-	| `assembly.${"move"|"fix"|"rigid"|"coincident"|"concentric"|"angle"|"parallel"|"perpendicular"|"distance"}`
+	| `assembly.${"move"|"fix"|"rigid"|"fix_together"|"contact"|"coincident"|"concentric"|"angle"|"parallel"|"perpendicular"|"distance"}`
   | `sketch.edit.${"delete"|"copy"|"move"|"rotate"|"mirror"|"split"|"trim"|"fillet"|"chamfer"|"extend"|"complement"|"close"|"offset"|"spline_insert"|"spline_delete"|"spline_close"|"spline_control"|"construction"}`
   | "sketch.dimension.linear"
   | `sketch.constraint.${"coincident"|"parallel"|"collinear"|"fixed"|"horizontal"|"vertical"|"perpendicular"|"tangent"|"equal"|"distance"|"horizontal_distance"|"vertical_distance"|"length"|"radius"|"diameter"|"major_radius"|"minor_radius"|"angle"|"concentric"|"point_on_object"|"midpoint"|"symmetry"}`;

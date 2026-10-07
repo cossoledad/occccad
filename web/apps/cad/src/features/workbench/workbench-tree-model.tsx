@@ -1,3 +1,4 @@
+import {documentRegistry} from "../../cad/document/document-registry";
 import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusFromDiagnostic } from "../../cad/assembly/assembly-constraint-ux";
 import { treeNodeIcon } from "./tree-node-descriptors";
 import type { DocumentStructureNode, DocumentView, Feature, Selection, SelectionItem } from "../../types";
@@ -198,7 +199,8 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
 }
 
 export function treeData(view: DocumentView, editingView?: DocumentView): SpecificationTreeNode[] {
-  return view.structureTree ? [mapStructureNode(view.structureTree, view, editingView)] : [];
+  const structure=documentRegistry.get(view.document.type).structure(view);
+  return structure ? [mapStructureNode(structure, view, editingView)] : [];
 }
 
 export function selectedFeature(view: DocumentView, selection: Selection): Feature | undefined {

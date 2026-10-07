@@ -887,35 +887,16 @@ func canonicalModelHash(modelJSON []byte) string {
 }
 
 func prepareInitialEvaluation(documentType, revisionID string, modelJSON []byte) ([]byte, string, *modelcore.DependencyGraph, modelcore.EvaluationManifest, string, error) {
-	modelHash := ""
-	var graph *modelcore.DependencyGraph
-	var manifest modelcore.EvaluationManifest
-	var err error
-	if documentType == "PART" {
-		var model PartModel
-		if err = json.Unmarshal(modelJSON, &model); err != nil {
-			return nil, "", nil, manifest, "", err
-		}
-		normalizePartModel(&model)
-		if err = validateAndResolvePartParameters(&model); err != nil {
-			return nil, "", nil, manifest, "", err
-		}
-		modelJSON, _ = json.Marshal(model)
-		modelHash = canonicalModelHash(modelJSON)
-		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, nil, nil)
-	} else {
-		var model ProductModel
-		if err = json.Unmarshal(modelJSON, &model); err != nil {
-			return nil, "", nil, manifest, "", err
-		}
-		modelHash = canonicalModelHash(modelJSON)
-		graph, manifest, err = buildProductEvaluation(model, revisionID, modelHash, nil, nil)
+	adapter, err := documentAdapters.Lookup(documentType)
+	if err != nil {
+		return nil, "", nil, modelcore.EvaluationManifest{}, "", err
 	}
+	raw, hash, graph, manifest, err := adapter.Prepare(revisionID, modelJSON)
 	if err != nil {
 		return nil, "", nil, manifest, "", err
 	}
 	digest, err := graph.Digest()
-	return modelJSON, modelHash, graph, manifest, digest, err
+	return raw, hash, graph, manifest, digest, err
 }
 
 func nextParameterAlias(parameters []modelcore.ParameterDefinition, base string) string {

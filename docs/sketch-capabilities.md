@@ -47,7 +47,7 @@ PlaneGCS 使用仓库锁定的 FreeCAD 1.0.2 commit `256fc7eff3379911ab5daf88e10
 | 历史/实体链 | `service_test.go` 中 `TestSketchPadSupportsTwoUndoAndTwoRedoModelSteps`、`TestSolvedSketchChangeSetUsesPersistedAfterValue` | 每类复合操作 Solve → Profile → Extrude → 修改更新 → Undo/Redo → 冷读取 |
 | 真实工具交互 | `sketch-creation/edit/dimension-lifecycle/ellipse/spline-canonical/profile-analysis.scenario.mjs`，`pnpm test -- sketch` | 动态输入、选择组合、操作预览、最后目标、迟到与取消；标注拖动不改尺寸 |
 | Product 上下文 | `product-sketch-visibility.scenario.mjs`，`sketch-session-policy.scenario.mjs` | 在 Product 内编辑 Part 后宿主、标签、显示稳定 |
-| 增量目录迁移 | `sketch_catalog_migration_test.go`，`TestSketchCatalogIncrementalMigrationPreservesDocuments` | 原迁移 checksum、文档/Revision 不变；Slot 清理、新目录和重复 Migrate 幂等 |
+| 数据库基线 | `migration_test.go`，`TestMigrationBaselinePreservesDocuments` | 重复迁移和重开不改文档、Revision、历史；checksum 或旧迁移记录错误时拒绝继续 |
 | 独立几何集成 | `sketch_workflow_integration_test.go`，匹配源码的真实 Worker/隔离数据库 | 下表列真实生产路径与独立几何断言；不推断未运行组合已验收 |
 
 | 真实生产场景 | 定向入口 | 独立断言 |
@@ -68,7 +68,7 @@ PlaneGCS 使用仓库锁定的 FreeCAD 1.0.2 commit `256fc7eff3379911ab5daf88e10
 | 线弧/弧弧圆角修改 | `TestSketchWorkflowLineArcAndArcArcFilletsExtrudeUpdate` | 真圆弧、真实端部切向、半径修改后仍合法闭合并更新实体；未据此声称邻边修改组合已测 |
 | 圆弧补弧/闭合及修改 | `TestSketchWorkflowArcComplementAndCloseExtrudeUpdate` | Arc/EllipticalArc 真实范围、补弧/闭合、尺寸修改与独立实体体积 |
 
-上述 15 个入口已使用匹配源码的真实 Worker、隔离数据库和独立几何断言运行通过（28.773 s）。C++ 74 个定向测试、Go workspace/control/geometry/database 定向测试及构建、Web sketch 11/71 与 workbench/Product/session 3/71 场景及构建通过；增量迁移真实空库回归通过。详细结果保留在 `build/sketch-audit/verification.md` 及派生日志，不推断全部曲线组合已验收。
+上述 15 个入口已使用匹配源码的真实 Worker、隔离数据库和独立几何断言运行通过（28.773 s）。C++ 74 个定向测试、Go workspace/control/geometry/database 定向测试及构建、Web sketch 11/71 与 workbench/Product/session 3/71 场景及构建通过；数据库基线及重复迁移验证入口见上表。详细结果保留在 `build/sketch-audit/verification.md` 及派生日志，不推断全部曲线组合已验收。
 
 集成复现需设置 `OCCCCAD_TEST_DATABASE_URL`（专用隔离数据库）、`OCCCCAD_TEST_WORKER_ADDRESS`（匹配本次源码的真实 Worker）和 `OCCCCAD_TEST_ARTIFACT_ROOT`（隔离本地制品目录），然后从 `services/` 运行 `go test ./internal/workspace -run '^TestSketchWorkflow' -count=1`。任一配置缺失会明确 Skip；Skip 不计通过，也不指向应用数据库或 S3 进行清理。
 
@@ -76,7 +76,7 @@ PlaneGCS 使用仓库锁定的 FreeCAD 1.0.2 commit `256fc7eff3379911ab5daf88e10
 
 ## 数据格式与目录迁移
 
-Sketch 模型增加椭圆、canonical 样条、稳定端点/点身份、Reference 与关联镜像 selfMirrorMode；保持当前版本内稳定 ParameterId、历史与严格引用校验，不为旧实验记录创建兼容层。生产目录采用新增 `0031_sketch_workflow.sql`：保留已应用的 `0023_p10_workbench_ux.sql` 精确内容，增量加入创建/编辑/约束/尺寸入口并更新帮助、移除 Slot。增量回归入口 `services/internal/database/sketch_catalog_migration_test.go` 使用专用 `OCCCCAD_TEST_MIGRATION_DATABASE_URL`，拒绝非空数据库且不删除数据；逐一安装真实 embedded 0001..0030并登记准确 checksum，保存文档/Revision sentinel 后由生产 Migrate 应用0031，再验证原checksum/文档不变及重复幂等。已有 `0024_sketch_normal_view.sql` 至 `0030_artifact_backend.sql` 不变；迁移先处理旧 Slot 占用位置与父 Toolbar，再按 `(toolbar_id,command_id)` 更新唯一目录项，不清理应用数据。
+Sketch 模型使用椭圆、canonical 样条、稳定端点/点身份、Reference 与关联镜像 selfMirrorMode，保持稳定 ParameterId、历史与严格引用校验。创建、编辑、约束和尺寸入口由 `internal/workbenchconfig/catalog.json` 定义，Mock 与真实 API 消费同一配置，并通过 Web CommandRegistry 执行。数据库只建立当前领域结构和必要管理员种子；两种后端的基线及显式重建规则见[数据库层说明](../services/internal/database/README.md#迁移)。
 
 ## 可操作的人工验收
 

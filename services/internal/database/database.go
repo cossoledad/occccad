@@ -2,13 +2,9 @@ package database
 
 import (
 	"context"
-	"crypto/sha256"
-	"embed"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,9 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-//go:embed migrations/*.sql
-var migrationFiles embed.FS
 
 func Open(ctx context.Context, databaseURL string) (*Pool, error) {
 	if strings.HasPrefix(databaseURL, "sqlite:") {
@@ -82,6 +75,10 @@ func (backend *postgresBackend) ResetDevelopmentSchema(ctx context.Context) (str
 
 func Migrate(ctx context.Context, pool *Pool) error { return pool.backend.Migrate(ctx) }
 func (backend *postgresBackend) Migrate(ctx context.Context) error {
+	migrations, err := readMigrations("postgres_migrations")
+	if err != nil {
+		return err
+	}
 	connection, err := backend.Pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire migration connection: %w", err)
@@ -100,67 +97,56 @@ func (backend *postgresBackend) Migrate(ctx context.Context) error {
 		CREATE TABLE IF NOT EXISTS occccad.schema_migrations (
 			version text PRIMARY KEY,
 			applied_at timestamptz NOT NULL DEFAULT now(),
-			checksum text,
-			execution_ms bigint
+			checksum text NOT NULL,
+			execution_ms bigint NOT NULL
 		)`); err != nil {
 		return fmt.Errorf("create migration table: %w", err)
 	}
-	if _, err := connection.Exec(ctx, `
-		ALTER TABLE occccad.schema_migrations
-		ADD COLUMN IF NOT EXISTS checksum text,
-		ADD COLUMN IF NOT EXISTS execution_ms bigint`); err != nil {
-		return fmt.Errorf("upgrade migration metadata: %w", err)
-	}
-
-	entries, err := migrationFiles.ReadDir("migrations")
+	rows, err := connection.Query(ctx, `SELECT version FROM occccad.schema_migrations ORDER BY version`)
 	if err != nil {
-		return fmt.Errorf("read migrations: %w", err)
+		return fmt.Errorf("read applied migrations: %w", err)
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		sql, err := migrationFiles.ReadFile("migrations/" + entry.Name())
-		if err != nil {
-			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
-		}
-		digest := sha256.Sum256(sql)
-		checksum := hex.EncodeToString(digest[:])
+	applied, err := CollectRows(rows, func(row CollectableRow) (string, error) {
+		var version string
+		err := row.Scan(&version)
+		return version, err
+	})
+	if err != nil {
+		return fmt.Errorf("read applied migrations: %w", err)
+	}
+	if err := validateAppliedMigrations(migrations, applied); err != nil {
+		return err
+	}
+	for _, migration := range migrations {
 		var storedChecksum *string
 		err = connection.QueryRow(ctx,
-			`SELECT checksum FROM occccad.schema_migrations WHERE version=$1`, entry.Name()).
+			`SELECT checksum FROM occccad.schema_migrations WHERE version=$1`, migration.name).
 			Scan(&storedChecksum)
 		if err == nil {
-			if storedChecksum == nil || *storedChecksum == "" {
-				if _, err := connection.Exec(ctx,
-					`UPDATE occccad.schema_migrations SET checksum=$1 WHERE version=$2`, checksum, entry.Name()); err != nil {
-					return fmt.Errorf("baseline migration %s checksum: %w", entry.Name(), err)
-				}
-			} else if *storedChecksum != checksum {
-				return fmt.Errorf("migration %s checksum changed after it was applied", entry.Name())
+			if storedChecksum == nil || *storedChecksum != migration.checksum {
+				return fmt.Errorf("migration %s checksum changed after it was applied", migration.name)
 			}
 			continue
 		}
 		if err != pgx.ErrNoRows {
-			return fmt.Errorf("check migration %s: %w", entry.Name(), err)
+			return fmt.Errorf("check migration %s: %w", migration.name, err)
 		}
 		started := time.Now()
 		tx, err := connection.Begin(ctx)
 		if err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, string(sql)); err == nil {
+		if _, err = tx.Exec(ctx, migration.sql); err == nil {
 			_, err = tx.Exec(ctx, `
 				INSERT INTO occccad.schema_migrations(version,checksum,execution_ms)
-				VALUES($1,$2,$3)`, entry.Name(), checksum, time.Since(started).Milliseconds())
+				VALUES($1,$2,$3)`, migration.name, migration.checksum, time.Since(started).Milliseconds())
 		}
 		if err != nil {
 			_ = tx.Rollback(ctx)
-			return fmt.Errorf("apply migration %s: %w", entry.Name(), err)
+			return fmt.Errorf("apply migration %s: %w", migration.name, err)
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("commit migration %s: %w", entry.Name(), err)
+			return fmt.Errorf("commit migration %s: %w", migration.name, err)
 		}
 	}
 	return nil

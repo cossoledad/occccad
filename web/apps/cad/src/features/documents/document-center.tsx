@@ -1,3 +1,4 @@
+import {CadIcon} from "../../cad/overlay/cad-icons";
 import {
   ApartmentOutlined, BuildOutlined, ClockCircleOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
   FolderAddOutlined, FolderOpenOutlined, FolderOutlined, MoreOutlined, PlusOutlined, ReloadOutlined,
@@ -49,6 +50,8 @@ export function DocumentCenter() {
   const [folderForm] = Form.useForm<FolderForm>();
   const [operationForm] = Form.useForm<{ name?: string; folderID?: string }>();
 
+  const presentation=useQuery({queryKey:["ui","toolbars"],queryFn:api.toolbarCatalog,staleTime:5*60_000});
+  const documentTypes=presentation.data?.documents??[];
   const exchangeCapabilities = useQuery({ queryKey: ["exchange-capabilities"], queryFn: () => api.exchangeCapabilities(), enabled: importOpen });
   const uploadLimit = exchangeCapabilities.data?.maxUploadBytes;
   const specialScope = scope === "recent" || scope === "shared" || scope === "trash";
@@ -267,7 +270,7 @@ export function DocumentCenter() {
       <Card className="document-browser" bordered={false}>
         <div className="browser-controls">
           <Input allowClear prefix={<SearchOutlined />} aria-label="搜索文档" placeholder="搜索文档名称或说明" value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0); }} />
-          <Segmented value={type} onChange={(value) => { setType(String(value)); setOffset(0); }} options={[{ label: "全部", value: "" }, { label: "Part", value: "PART" }, { label: "Product", value: "PRODUCT" }]} />
+          <Segmented value={type} onChange={(value) => { setType(String(value)); setOffset(0); }} options={[{label:"全部",value:""},...documentTypes.map(type=>({label:type.name,value:type.id}))]} />
           <Select value={sort} onChange={setSort} options={[{ value: "updated", label: "最近修改" }, { value: "name", label: "名称" }, { value: "created", label: "创建时间" }]} />
           <Button icon={<ReloadOutlined />} onClick={() => void documents.refetch()} />
         </div>
@@ -336,7 +339,7 @@ export function DocumentCenter() {
       <Form form={documentForm} layout="vertical" onFinish={(values) => saveDocument.mutate(values)}>
         <Form.Item name="type" label="文档类型" rules={[{ required: true }]}><Segmented block disabled={Boolean(editing)}
           onChange={(value) => { if (!editing) documentForm.setFieldValue("name", defaultDocumentName(value as "PART" | "PRODUCT", catalog.data?.documents ?? [])); }}
-          options={[{ label: "Part 零件", value: "PART", icon: <BuildOutlined /> }, { label: "Product 产品", value: "PRODUCT", icon: <ApartmentOutlined /> }]} /></Form.Item>
+          options={documentTypes.map(type=>({label:`${type.name} ${type.helpText}`,value:type.id,icon:<CadIcon name={type.iconKey}/>}))} /></Form.Item>
         <Form.Item name="name" label="文档名称" rules={[{ required: true, max: 120 }]}><Input autoFocus /></Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
       </Form>

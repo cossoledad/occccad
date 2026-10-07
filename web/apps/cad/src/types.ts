@@ -2,11 +2,11 @@ export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
 export type PlaneName = "XY" | "XZ" | "YZ";
 export type SketchPlane = { datumPlaneId: string; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3 };
-export type ToolbarCatalogItem = { commandId:string;name:string;helpText:string;iconKey:string;groupKey:string;sortOrder:number;repeatable:boolean };
-export type ToolbarCatalogEntry = { id:string;name:string;workbench:"ALL"|"PART_DESIGN"|"SKETCHER"|"ASSEMBLY_DESIGN";
+export type ToolbarCatalogItem = { variantLabel?:string;commandId:string;name:string;helpText:string;iconKey:string;groupKey:string;sortOrder:number;repeatable:boolean };
+export type ToolbarCatalogEntry = { id:string;name:string;workbench:string;section?:string;tabIds?:string[];
   position:"top-left"|"top-center"|"top-right"|"bottom-left"|"bottom-center"|"bottom-right";
   orientation:"horizontal"|"vertical";styleKey:"standard"|"part"|"sketch"|"assembly"|"debug";sortOrder:number;items:ToolbarCatalogItem[] };
-export type ToolbarCatalog = { schemaVersion:1;toolbars:ToolbarCatalogEntry[] };
+export type ToolbarCatalog = import("./cad/command/workbench-catalog").WorkbenchCatalog & { toolbars:ToolbarCatalogEntry[] };
 
 export type MeshData = {
   normals?: Vec3[];

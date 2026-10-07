@@ -129,7 +129,7 @@ Part 交互在退出 Sketcher 后把选择提升为整个 Sketch Feature，并�
 
 DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投影。开放端、分支、重复、退化和失效连接携带实体/引用/模型位置；Web 只展示后端分析，不另建闭合判定；仅 `geometryVerified=true` 的闭合结果显示检查通过，未精确验证的连通闭环明确显示等待验证。合法开放草图可以保存；封闭实体拉伸在消费 Profile 时拒绝开放边界。闭合状态与求解约束程度独立。功能支持组合及定向验证入口见[二维草图能力](../../sketch-capabilities.md)。
 
-草图生产命令目录由增量迁移 `0031_sketch_workflow.sql` 加入统一编辑工具及更多创建/约束/尺寸入口，更新原工具帮助并移除 Slot；保留已应用迁移的 checksum，不重写旧目录迁移或建立旧 Slot 兼容命令。Mock 与真实目录消费同一 Web CommandRegistry 语义。
+草图创建、编辑、约束和尺寸命令由 `internal/workbenchconfig/catalog.json` 配置注册；后端校验并提供目录，Mock 与真实前端消费同一配置和 Web CommandRegistry。数据库基线不包含界面种子，当前不提供旧 Slot 兼容命令。配置与实现职责见[公共框架](document-command-framework.md)。
 
 ## 实现与验证入口
 

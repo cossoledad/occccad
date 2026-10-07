@@ -45,6 +45,8 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 
 浏览器只负责交互和显示，不执行可信 B-Rep 运算，也不成为文档的权威存储。
 
+文档接入、Toolbar 配置、图标及命令扩展见[公共框架](../../../docs/architecture/current/document-command-framework.md)。配置唯一来源为 `services/internal/workbenchconfig/catalog.json`；实现注册在 `workbench-command-registration.ts`，独立扩展示例为 `commands/selection-summary.ts`，无需修改主工具栏或主工作台。
+
 ## 结构
 
 ```mermaid

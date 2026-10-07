@@ -1,3 +1,5 @@
+import {structureCommandIDs,type StructureActions,type StructureInvocation} from "./commands/structure-commands";
+import {useWorkbenchCommandRegistration} from "./workbench-command-registration";
 import {ParameterReferenceInput} from "./parameter-reference-input";
 import {useFeaturePreview} from "./use-feature-preview";
 import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
@@ -6,7 +8,6 @@ import type { DatumPreview } from "../../cad/rendering/datum-reference";
 import { featureSelectionHit, type FeatureSelectionSession } from "../../cad/interaction/feature-selection";
 import {formatDisplayNumber} from "../../utils/display-number";
 import {CadNumberInput as InputNumber} from "../../cad/overlay/cad-number-input";
-import { defaultSketchToolMode } from "../../cad/sketch/sketch-inline-parameter-input";
 import type { SketchCommandState, SketchCommitIntent, SketchCommitReceipt } from "../../cad/tool/sketch-command-session";
 import { selectionNamingIssue, topologyNamingIssue } from "./topology-naming-capability";
 import { openDocumentTab, registerDocumentTab, updateOpenDocumentSummary } from "./open-document-tab";
@@ -52,7 +53,7 @@ import { treeVisibilityOverride } from "../../cad/interaction/tree-visibility";
 import { DISPLAY_KINDS, visibilityResolverForView, type DisplayKind } from "../../cad/interaction/visibility-resolver";
 import { assemblyGeometryRef, type AssemblyConstraintToolKind } from "../../cad/tool/cad-tool";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
-import { resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
+import {contextTabs} from "../../cad/command/workbench-catalog";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import { displayLengthToMillimeters, effectiveLengthUnit, millimetersToDisplayLength,
   useUIPreferences } from "../../state/ui-preferences";
@@ -76,10 +77,6 @@ import { ProductReleaseCenter } from "./product-release-center";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
-const sketchToolCommands:WorkbenchToolID[]=["sketch.edit.delete","sketch.edit.copy","sketch.edit.move","sketch.edit.mirror","sketch.edit.split","sketch.edit.trim","sketch.edit.fillet","sketch.edit.chamfer","sketch.edit.extend","sketch.edit.complement","sketch.edit.close","sketch.edit.offset","sketch.edit.spline_insert","sketch.edit.spline_delete","sketch.edit.spline_close","sketch.edit.spline_control","sketch.edit.construction","sketch.project","sketch.ellipse","sketch.elliptical_arc","sketch.rectangle","sketch.rectangle.center","sketch.rectangle.oriented","sketch.circle.three_point","sketch.arc.three_point","sketch.polygon","sketch.polygon.circumscribed","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline","sketch.spline.control",
-  "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.collinear","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
-  "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
-  "sketch.constraint.horizontal_distance","sketch.constraint.vertical_distance","sketch.constraint.radius","sketch.constraint.major_radius","sketch.constraint.minor_radius","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
 
 function sketchPlane(datum: DatumPlane): SketchPlane {
   return { datumPlaneId: datum.id, plane: datum.plane, origin: datum.origin, normal: datum.normal, uDirection: datum.uDirection };
@@ -624,7 +621,7 @@ export function Workbench() {
     normalViewRequest.current+=1;
     return ()=>{normalViewRequest.current+=1;};
   },[store.selection,store.sketchPlane,store.activeSketchID,view?.document.versionId,documentID]);
-  const normalToSelection = async () => {
+  const normalToSelection = async (signal?:AbortSignal) => {
     const generation = ++normalViewRequest.current;
     if(store.sketchPlane){viewport.current?.normalToSketch();return;}
     const selection = store.selection;
@@ -635,16 +632,18 @@ export function Workbench() {
         : selection.kind === "face" && selection.geometryKey
           ? exactNormalViewPlane(await api.getTopologyProperties(selection.documentId ?? view.document.id,
               selection.geometryKey,"FACE",selection.topologyId,selection.versionId)) : undefined;
-      if (generation!==normalViewRequest.current) return;
+      if (signal?.aborted||generation!==normalViewRequest.current) return;
       if (!plane && selection.kind !== "plane") { message.info("请选择基准平面或实体的平面面；曲面没有唯一法线视图。"); return; }
       if (!viewport.current?.normalToPlane(selection,plane)) message.info("所选平面当前不可用，请重新选择。");
     } catch (error) {
-      if (generation===normalViewRequest.current) message.error(error instanceof Error ? error.message : String(error));
+      if (!signal?.aborted&&generation===normalViewRequest.current) message.error(error instanceof Error ? error.message : String(error));
     }
   };
   const canEdit = editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR";
   const canEditRoot = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
-  const activeWorkbench = resolveCadWorkbench(editingView?.document.type ?? "PART", Boolean(store.sketchPlane));
+  const commandFacts={isMock:isMockMode,moveReceiptPending,hostType:view?.document.type??"PART",targetType:editingView?.document.type??"PART",sketchActive:Boolean(store.sketchPlane),canEdit,rootCanEdit:canEditRoot,busy:command.isPending,selectionKind:store.selection?.kind??"",selectionCount:store.selections.length,hasWorkingBody:Boolean(workingBodyID)};
+  const activeTabs=toolbarCatalog.data?contextTabs(toolbarCatalog.data,commandFacts):[];
+ const activeWorkbench=activeTabs[0]?.workbench??"";
 
   useEffect(() => {
     if (!view || view.document.type !== "PRODUCT" || !canEditRoot || automaticUpdateRunning.current) return;
@@ -1013,83 +1012,168 @@ export function Workbench() {
     await client.invalidateQueries({ queryKey: ["product-releases", documentID] });
     message.success(`产品版本 ${release.name} 已冻结`);
   };
-  useEffect(() => {
-    const deletionNodes=deletableTreeNodesForSelections(treeNodes,store.selections);
-    const disposers = [
-      commandRegistry.register({id:"edit.delete",execute:()=>deleteTreeNodes(deletionNodes),isEnabled:()=>Boolean(canEdit&&!command.isPending&&store.activeToolID==="select"&&deletionNodes.some(node=>node.capabilities?.includes("DELETE")))}),
-      commandRegistry.register({ id: "tool.select", execute: () => store.setActiveTool("select", "once"),
-        isActive: () => store.activeToolID === "select" }),
-      commandRegistry.register({ id: "assembly.move", execute: () => store.setActiveTool("assembly.move", "continuous"),
-        isVisible: () => view?.document.type === "PRODUCT", isEnabled: () => Boolean(canEditRoot), isActive: () => store.activeToolID === "assembly.move" }),
-      commandRegistry.register({id:"assembly.analyze",execute:()=>setConflictOpen(true),
-        isVisible:()=>view?.document.type==="PRODUCT",isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),
-      commandRegistry.register({id:"assembly.move-receipt",execute:()=>viewport.current?.retryAssemblyMoveCommit(),
-        isVisible:()=>Boolean(moveReceiptPending),isEnabled:()=>Boolean(moveReceiptPending)}),
-      commandRegistry.register({ id: "sketch.start", execute: startSketch,
-		isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && !selectedNamingIssue && (["plane", "sketch", "face"].includes(store.selection?.kind ?? ""))) }),
-      commandRegistry.register({ id: "view.normal", execute: normalToSelection,
-        isEnabled: () => Boolean(store.sketchPlane || store.selection && ["plane","face"].includes(store.selection.kind)) }),
-      commandRegistry.register({ id: "sketch.finish", execute: finishSketch,
-        isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && !command.isPending) }),
-      ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,defaultSketchToolMode(toolID,invocation?.continuous)),
-        isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane&&(toolID!=="sketch.project"||!selectedNamingIssue)),isActive:()=>store.activeToolID===toolID})),
-      ...(["LINEAR","CIRCULAR","MIRROR"] as const).map(kind=>commandRegistry.register({id:`part.pattern.${kind.toLowerCase()}`,execute:()=>{
-        setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");
-        setSolidEditor({feature:{id:"",type:store.activeSketchID?"SKETCH":"SOLID_PATTERN",profile:store.activeSketchID,bodyId:workingBodyID,operation:"ADD",pattern:{id:"",kind,mirrorPlaneId:kind==="MIRROR"?"datum-yz":undefined,axisEntityId:kind==="MIRROR"||store.activeSketchID?undefined:`AXIS_SYSTEM:${editingView?.part?.axisSystems[0]?.id??"axis-system-default"}:${kind==="CIRCULAR"?"Z":"X"}`,distribution:kind==="CIRCULAR"?"FULL_CIRCLE":"FIXED_STEP",count:kind==="MIRROR"?2:6,spacing:kind==="MIRROR"?0:10,angle:kind==="MIRROR"?0:90,phase:0,origin:[0,0,0],direction:kind==="CIRCULAR"?[0,0,1]:[1,0,0],sourceKind:store.activeSketchID?"SKETCH_FRAME":"GENERATOR_TOOL",source:{bodyId:workingBodyID??"",featureId:store.activeSketchID??""}}}});
-      },isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>Boolean(canEdit&&!command.isPending&&(kind!=="MIRROR"||!store.activeSketchID))})),
-      commandRegistry.register({id:"part.loft",execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"LOFT",bodyId:workingBodyID,operation:"NEW_BODY",sections:[]}});},isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>!command.isPending&&!store.activeSketchID}),
-      ...(["FILLET","CHAMFER","DRAFT","SHELL"] as const).map(type=>commandRegistry.register({id:`part.${type.toLowerCase()}`, execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type,bodyId:store.selection?.bodyId??workingBodyID,length:1,angle:5,neutralPlaneId:"datum-xy",selections:[]}});},isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>!command.isPending&&!store.activeSketchID})),
-      commandRegistry.register({ id: "part.boolean", execute: () => {setDatumEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({});}, isVisible: () => editingView?.document.type === "PART", isEnabled: () => !command.isPending && !store.activeSketchID }),
-      commandRegistry.register({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isVisible: () => editingView?.document.type === "PART",
-        isEnabled: () => Boolean(canEdit && !store.activeSketchID) }),
-      commandRegistry.register({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isVisible: () => editingView?.document.type === "PART",
-        isEnabled: () => Boolean(canEdit && !store.activeSketchID && editingView?.part?.features.some((feature) => isSolidFeature(feature))) }),
-      commandRegistry.register({ id: "part.revolve", execute: () => openSolidFeature("REVOLVE"), isVisible: () => editingView?.document.type === "PART",
-        isEnabled: () => Boolean(canEdit && !store.activeSketchID) }),
-      commandRegistry.register({ id: "part.parameters", execute: () => setParameterManagerOpen(true),
-        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(editingView?.part) }),
-      commandRegistry.register({ id: "part.publications", execute: () => setPublicationManagerOpen(true),
-		isVisible: () => Boolean(editingView), isEnabled: () => Boolean(editingView?.part || editingView?.product) }),
-      commandRegistry.register({ id: "product.publications", execute: () => setPublicationManagerOpen(true),
-		isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(editingView?.product) }),
-      commandRegistry.register({ id: "part.datum-plane", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setEditingDatumId(undefined);setDatumEditor("plane"); },
-        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && !store.activeSketchID && !command.isPending) }),
-      commandRegistry.register({ id: "part.datum-axis", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setEditingDatumId(undefined);setDatumEditor("axis"); },
-        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && !store.activeSketchID && !command.isPending) }),
-      commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => editingView?.document.type === "PRODUCT",
-        isEnabled: () => Boolean(canEdit) }),
-      commandRegistry.register({ id: "product.pattern", execute: () => setPatternOpen(true),
-        isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit) }),
-      commandRegistry.register({ id: "product.release", execute: () => setReleaseOpen(true), isVisible: () => view?.document.type === "PRODUCT",
-        isEnabled: () => Boolean(canEditRoot) }),
-      ...(["fix", "rigid", "coincident", "concentric", "angle", "parallel", "perpendicular", "distance"] as const).map((constraint) => commandRegistry.register({
-        id: `assembly.${constraint}`,
-        execute: (invocation) => store.setActiveTool(`assembly.${constraint}`, invocation?.continuous ? "continuous" : "once"),
-        isVisible: () => editingView?.document.type === "PRODUCT",
-        isEnabled: () => Boolean(canEdit && (["fix", "rigid"].includes(constraint) || !selectedNamingIssue)),
-        isActive: () => store.activeToolID === `assembly.${constraint}`,
-      })),
-      commandRegistry.register({ id: "history.version", execute: () => setVersionOpen(true), isEnabled: () => Boolean(canEdit) }),
-      commandRegistry.register({ id: "document.share", execute: () => editingView && setShareResource({ type: "documents", id: editingView.document.id, name: editingView.document.name }),
-        isEnabled: () => editingView?.document.permission === "OWNER" }),
-      commandRegistry.register({ id: "edit.undo", execute: () => executeHistory("undo"),
-        isEnabled: () => Boolean(canEdit && editingView?.document.canUndo && !command.isPending) }),
-      commandRegistry.register({ id: "edit.redo", execute: () => executeHistory("redo"),
-        isEnabled: () => Boolean(canEdit && editingView?.document.canRedo && !command.isPending) }),
-      commandRegistry.register({ id: "view.fit", execute: () => viewport.current?.fit() }),
-      commandRegistry.register({ id: "view.top", execute: () => viewport.current?.setStandardView("TOP") }),
-      commandRegistry.register({ id: "view.front", execute: () => viewport.current?.setStandardView("FRONT") }),
-      commandRegistry.register({ id: "view.right", execute: () => viewport.current?.setStandardView("RIGHT") }),
-      commandRegistry.register({ id: "view.iso", execute: () => viewport.current?.setStandardView("ISO") }),
-	  commandRegistry.register({ id: "debug.download", execute: () => editingView && (editingView.product ? api.downloadAssemblyReplay(editingView.document.id) : api.downloadDiagnosticBundle(editingView.document.id)),
-		isVisible: () => !isMockMode, isEnabled: () => Boolean(editingView) }),
-    ];
-    return () => { for (const dispose of disposers.reverse()) dispose(); };
-  }, [commandRegistry, editingView, view, canEdit, canEditRoot, store.selection, store.sketchPlane, store.activeToolID, lengthUnit,
-    command.isPending, assemblyConstraintForm, selectedNamingIssue,conflictOpen,moveReceiptPending,treeNodes,store.selections]);
+  const closeAssemblyCandidate=()=>{
+    assemblyDialogLifecycle.current.invalidate();
+    assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});
+    assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;assemblyPreviewID.current=undefined;
+    viewport.current?.clearCommandPreview();setAssemblyPreviewEvaluation(undefined);setReplacingAssemblyReference(undefined);
+    setReconnectError(undefined);setAssemblyDefinitionDirty(false);setEditingAssemblyConstraint(undefined);setPendingAssemblyConstraint(undefined);
+  };
+  const closeCommandPanels=()=>{
+    closeAssemblyCandidate();stopConflictAnalysis();viewport.current?.showRemainingMotion();
+    setConflictOpen(false);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
+    setFeatureSelection(undefined);setRenameTarget(undefined);setNewPartTarget(undefined);
+    setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
+    setParameterManagerOpen(false);setPublicationManagerOpen(false);setExternalParameterID(undefined);
+    setEditingParameterID(undefined);setEditingPublication(undefined);
+  };
+  const treeActions:StructureActions={
+onViewResult:async(node,operation)=>{
+              if(!editingView?.part||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.entityId||solidEditor||booleanDialog||datumEditor||store.activeSketchID||command.isPending)return;
+              const generation=++historyGeneration.current;
+              await api.getFeatureInput(node.documentId,{versionId:editingView.document.versionId,featureId:node.entityId,resultStage:true}).then(result=>{
+                if(historyGeneration.current!==generation||(operation&&!operation.current))return;
+                viewport.current?.clearCommandPreview();setFeatureInputs([result.artifact]);setHistoryResult(String(node.entityId));
+              }).catch(error=>{if(historyGeneration.current===generation&&(!operation||operation.current))operationFeedback(error,"查看步骤结果");});
+            },
+onOpenDocumentTab:async(node,operation) => {
+              const targetDocumentId = node.kind === "INSTANCE" ? node.documentId : node.sourceDocumentId;
+              if (targetDocumentId) await openDocumentTab(targetDocumentId, client, api.openDocument, path=>{if(!operation||operation.current)navigate(path);})
+                .catch((error: Error) => {if(!operation||operation.current)message.error(`打开文档失败：${error.message}`);});
+            },
+onActivate:async(node,operation) => {
+              if (node.kind === "BODY" && node.documentId === editingView?.document.id && node.bodyId) {
+                setEditSession((current) => current ? withWorkingBody(current, node.bodyId!) : current);
+                return;
+              }
+              if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
+                const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
+                if (constraint) openAssemblyConstraintEditor(constraint);
+                return;
+              }
+              if (node.capabilities?.includes("EDIT")) { openFeatureEditor(node); return; }
+              if (node.documentId && ["PART", "PRODUCT", "INSTANCE"].includes(node.kind ?? "")) {
+                await activateDocumentNode(node,operation); return;
+              }
+              if (!canEdit || !node.selection || !editingView) return;
+              if (node.selection.kind === "sketch") {
+                const feature=editingView.part?.features.find((candidate)=>candidate.id===node.selection!.id);
+                const localPlane=feature?featureSketchPlane(editingView,feature):undefined;
+                const plane=localPlane?occurrenceSketchPlane(localPlane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation):undefined;
+                if(feature&&plane)store.beginSketch(feature.id,plane);
+              } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
+            },
+onEdit:(node) => {
+              if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
+                const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
+                if (constraint) openAssemblyConstraintEditor(constraint);
+              } else if (node.selection?.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
+              else if (node.kind === "PARAMETER" && node.entityId) openParameterEditor(node.entityId);
+ else if((node.kind==="PLANE"||node.kind==="DATUM_AXIS")&&node.entityId){setEditingDatumId(node.entityId);setDatumEditor(node.kind==="PLANE"?"plane":"axis");}
+              else if (node.kind === "PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PART");
+              else if (node.kind === "PRODUCT_PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PRODUCT");
+              else openFeatureEditor(node);
+            },
+onRename:(node) => {
+              if (!canEdit || node.documentId !== editingView?.document.id || !node.entityId) return;
+              const name = node.kind === "BODY" ? editingView.part?.bodies.find((body) => body.id === node.entityId)?.name
+                : editingView.part?.features.find((feature) => feature.id === node.entityId)?.name;
+              renameForm.setFieldsValue({name:name ?? ""}); setRenameTarget(node);
+            },
+onCreatePart:(node) => {
+			  if (node.documentType !== "PRODUCT") return;
+			  newPartForm.resetFields(); setNewPartTarget(node);
+			},
+onReferenceMode:(node, mode) => {
+			  const segment = node.instancePath?.segments.at(-1);
+			  if (!segment) return;
+			  command.mutate(() => api.setReferenceMode(segment.ownerDocumentId, segment.instanceId, mode), {
+			    onSuccess: async (updated) => {
+			      client.setQueryData(queryKeys.document(updated.document.id), updated);
+			      await client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
+			      message.success(mode === "PINNED" ? "已固定当前引用版本" : "已恢复跟随最新版本");
+			    },
+			  });
+			},
+onReconnect:(node) => {
+              if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.entityId && node.ownerEntityId && editingView) {
+                const feature = editingView.part?.features.find((candidate) => candidate.id === node.ownerEntityId);
+                const localPlane = feature ? featureSketchPlane(editingView, feature) : undefined;
+                const plane = localPlane ? occurrenceSketchPlane(localPlane, activeResolvedInstance?.translation, activeResolvedInstance?.rotation) : undefined;
+                if (plane) store.beginSketch(node.ownerEntityId, plane);
+                store.setActiveTool("sketch.project", "once");
+                viewport.current?.beginExternalReconnect(node.entityId);
+                return;
+              }
+              const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
+              if (constraint) openAssemblyConstraintEditor(constraint, true);
+            },
+onDetach:(node) => {
+              if (node.kind === "CONTEXT_REFERENCE" && node.entityId && node.documentId) {
+                command.mutate(() => api.detachContextReference(node.documentId!, node.entityId!));
+                return;
+              }
+              if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.ownerEntityId && node.entityId)
+                editSketch(node.ownerEntityId, [{type:"DETACH_EXTERNAL_GEOMETRY", externalId:node.entityId}]);
+            },
+onRefresh:(node) => {
+              if (node.kind === "CONTEXT_REFERENCE" && node.documentId) {
+                command.mutate(() => api.updateReferences(node.documentId!));
+                return;
+              }
+              refreshAssemblyConstraint(node.entityId);
+            },
+onDelete:deleteTreeNodes,
+onToggleVisibility:(node,scope,mode)=>{
+              if (scope === "DEFINITION" && node.documentId && node.entityId) {
+                command.mutate(() => api.command(node.documentId!, {type:"SET_DEFINITION_VISIBILITY",targetKind:node.kind,
+                  targetId:node.entityId,axis:node.axis,ownerEntityId:node.ownerEntityId,visible:!node.localVisible}));
+                return;
+              }
+              if (scope === "OCCURRENCE" && view?.document.type === "PRODUCT" && node.instancePath && node.entityId) {
+                command.mutate(() => api.command(view.document.id, {type:"SET_OCCURRENCE_VISIBILITY",instancePath:node.instancePath,
+                  targetKind:node.kind,targetId:node.entityId,visibilityMode:mode ?? (node.visibilityMode === "HIDE" ||
+                    node.visibilityMode !== "SHOW" && node.localVisible === false ? "SHOW" : "HIDE")}));
+                return;
+              }
+              setTreeVisibility(node.selection ? selectionKey(node.selection) : node.key, Boolean(node.hidden));
+            },
+onToggleSuppression:(node)=>{
+              if(node.kind==="SKETCH_PATTERN_DEFINITION"&&node.documentId===editingView?.document.id&&node.ownerEntityId){
+                const pattern=editingView?.part?.features.find(f=>f.id===node.ownerEntityId)?.sketch?.patterns?.find(p=>p.id===node.entityId);
+                if(pattern)editSketch(node.ownerEntityId,[{type:"EDIT_PATTERN",patternId:pattern.id,pattern:{...pattern,suppressed:!pattern.suppressed}}]);return;
+              }
+              if (node.documentId === editingView?.document.id && node.entityId && ["PAD","REVOLVE","FEATURE","SKETCH"].includes(node.kind ?? "") && node.definitionDigest) {
+                command.mutate(()=>api.command(node.documentId!,{type:"SET_FEATURE_SUPPRESSION",targetId:node.entityId,expectedFeatureDigest:node.definitionDigest,suppressed:!node.suppressed}));
+                return;
+              }
+              if(node.kind==="ASSEMBLY_CONSTRAINT"||node.kind==="ASSEMBLY_CONSTRAINT_SET") {
+                const constraints=node.kind==="ASSEMBLY_CONSTRAINT"?[node]:node.children??[];
+                if(!node.documentId)return;
+                assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});
+                assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined;
+                command.mutate(()=>api.command(node.documentId!,{type:"SET_ASSEMBLY_CONSTRAINT_STATE",constraintIds:constraints.flatMap(c=>c.entityId?[c.entityId]:[]),suppressed:!constraints.every(c=>c.suppressed)}));
+                return;
+              }
+              const leaves:SpecificationTreeNode[]=[];const visit=(item:SpecificationTreeNode)=>{if(item.kind==="SKETCH_ENTITY"||item.kind==="SKETCH_CONSTRAINT")leaves.push(item);else item.children?.forEach(visit);};visit(node);
+              const targetState=!leaves.every((item)=>item.suppressed);const bySketch=new Map<string,SketchOperation[]>();
+              for(const item of leaves){if(!item.ownerEntityId||!item.entityId)continue;const operations=bySketch.get(item.ownerEntityId)??[];
+                operations.push(item.kind==="SKETCH_ENTITY"?{type:"UPDATE_ENTITY_SUPPRESSION",entityId:item.entityId,suppressed:targetState}
+                  :{type:"UPDATE_CONSTRAINT_SUPPRESSION",constraintId:item.entityId,suppressed:targetState});bySketch.set(item.ownerEntityId,operations);}
+              for(const [sketchID,operations] of bySketch)editSketch(sketchID,operations);
+            },
+onToggleConstruction:(node)=>{
+              if(!node.ownerEntityId||!node.entityId)return;
+              editSketch(node.ownerEntityId,[{type:"UPDATE_ENTITY_ROLE",entityId:node.entityId,
+                role:node.role==="CONSTRUCTION"?"PROFILE":"CONSTRUCTION"}]);
+            }
+  };
+  const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
+  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
+    formActive:Boolean(conflictOpen||solidEditor||booleanDialog||datumEditor||renameTarget||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+    commandFacts,
+    JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
-  useEffect(() => { commandRegistry.notifyStateChanged(); }, [commandRegistry, editingView, store.selection, store.sketchPlane,
-    store.activeToolID, command.isPending]);
 
   const selected = selectedFeature(editingView ?? {} as DocumentView, store.selection);
   const publicationTarget = () => {
@@ -1252,7 +1336,7 @@ export function Workbench() {
     viewport.current?.clearCommandPreview();
     store.endSketch(); store.setSelection(null);
   };
-  const activateDocumentNode = async (node: SpecificationTreeNode) => {
+  const activateDocumentNode = async (node: SpecificationTreeNode,operation?:import("../../cad/command/command-registry").CommandOperation) => {
     if (!view || !node.documentId || !node.documentType ||
         !["PART", "PRODUCT", "INSTANCE"].includes(node.kind ?? "")) return;
     const generation = activationGate.current.begin();
@@ -1271,12 +1355,12 @@ export function Workbench() {
         getDesignSession: api.getProductDesignSession,
         getDocument: (id) => client.fetchQuery({ queryKey: queryKeys.document(id), queryFn: () => api.getDocument(id) }),
       });
-      if (!activationGate.current.isCurrent(generation)) return;
+      if (!activationGate.current.isCurrent(generation)||(operation&&!operation.current)) return;
       client.setQueryData(queryKeys.document(prepared.targetView.document.id), prepared.targetView);
       endInteractionForActivation();
       activationGate.current.commit(generation, prepared.session, setEditSession);
     } catch (error) {
-      if (activationGate.current.isCurrent(generation)) {
+      if (activationGate.current.isCurrent(generation)&&(!operation||operation.current)) {
         message.error(`无法进入上下文编辑：${error instanceof Error ? error.message : String(error)}`);
       }
     }
@@ -1330,15 +1414,16 @@ export function Workbench() {
   </>;
 
 
-  const visibleToolbars = contextualToolbars(toolbarCatalog.data?.toolbars ?? [], activeWorkbench);
+  const activeTabIDs=new Set(activeTabs.map(tab=>tab.id));
+  const visibleToolbars = contextualToolbars(configuredToolbars, activeWorkbench).filter(toolbar=>toolbar.tabIds?.some(id=>activeTabIDs.has(id)));
   const activeToolName = visibleToolbars.flatMap((toolbar) => toolbar.items)
     .find((item) => item.commandId === store.activeToolID)?.name ?? "选择";
 
-  return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
+  return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><section className="cad-workbench">
     {historyResult&&<Alert type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/> }
     <WorkbenchLayout documentName={editingView?.document.name ?? view.document.name}
       inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
-      commands={<WorkbenchCommands key={activeWorkbench} toolbars={visibleToolbars} workbench={activeWorkbench} />}
+      commands={<WorkbenchCommands toolbars={visibleToolbars} workbench={activeWorkbench} catalog={toolbarCatalog.data} tabs={activeTabs} />}
       status={<WorkbenchStatus busy={command.isPending} canEdit={canEdit} selectionCount={store.selections.length}
         sketchReceipt={sketchReceipt} onSketchReceiptCheck={()=>void viewport.current?.retrySketchReceipt()} sketchCommand={store.activeSketchID?sketchCommandState:undefined} onSketchAction={action=>viewport.current?.sketchCommandAction(action)}
         toolName={activeToolName} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
@@ -1350,150 +1435,25 @@ export function Workbench() {
             activeDocumentId={activeID}
             activeInstancePath={activeInstancePath}
             workingBodyId={workingBodyID}
-            onViewResult={(node)=>{
-              if(!editingView?.part||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.entityId||solidEditor||booleanDialog||datumEditor||store.activeSketchID||command.isPending)return;
-              const generation=++historyGeneration.current;
-              void api.getFeatureInput(node.documentId,{versionId:editingView.document.versionId,featureId:node.entityId,resultStage:true}).then(result=>{
-                if(historyGeneration.current!==generation)return;
-                viewport.current?.clearCommandPreview();setFeatureInputs([result.artifact]);setHistoryResult(String(node.entityId));
-              }).catch(error=>{if(historyGeneration.current===generation)operationFeedback(error,"查看步骤结果");});
-            }}
+            onViewResult={node=>executeTree("onViewResult",{node})}
             onSelect={(nodes) => {
               const selections = [...new Map(nodes.flatMap((node) => node.selection ? [[selectionKey(node.selection), node.selection] as const] : [])).values()];
               if(featureSelection){for(const selection of selections){const hit=featureSelectionHit(selection,featureSelection);if(hit)featureSelection.onPick(hit);}return;}
               if (!viewport.current?.captureToolSelections(selections)) store.setSelections(selections);
             }}
-            onOpenDocumentTab={(node) => {
-              const targetDocumentId = node.kind === "INSTANCE" ? node.documentId : node.sourceDocumentId;
-              if (targetDocumentId) void openDocumentTab(targetDocumentId, client, api.openDocument, navigate)
-                .catch((error: Error) => message.error(`打开文档失败：${error.message}`));
-            }}
-            onActivate={(node) => {
-              if (node.kind === "BODY" && node.documentId === editingView?.document.id && node.bodyId) {
-                setEditSession((current) => current ? withWorkingBody(current, node.bodyId!) : current);
-                return;
-              }
-              if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
-                const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
-                if (constraint) openAssemblyConstraintEditor(constraint);
-                return;
-              }
-              if (node.capabilities?.includes("EDIT")) { openFeatureEditor(node); return; }
-              if (node.documentId && ["PART", "PRODUCT", "INSTANCE"].includes(node.kind ?? "")) {
-                void activateDocumentNode(node); return;
-              }
-              if (!canEdit || !node.selection || !editingView) return;
-              if (node.selection.kind === "sketch") {
-                const feature=editingView.part?.features.find((candidate)=>candidate.id===node.selection!.id);
-                const localPlane=feature?featureSketchPlane(editingView,feature):undefined;
-                const plane=localPlane?occurrenceSketchPlane(localPlane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation):undefined;
-                if(feature&&plane)store.beginSketch(feature.id,plane);
-              } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
-            }}
-			onEdit={(node) => {
-              if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
-                const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
-                if (constraint) openAssemblyConstraintEditor(constraint);
-              } else if (node.selection?.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
-              else if (node.kind === "PARAMETER" && node.entityId) openParameterEditor(node.entityId);
- else if((node.kind==="PLANE"||node.kind==="DATUM_AXIS")&&node.entityId){setEditingDatumId(node.entityId);setDatumEditor(node.kind==="PLANE"?"plane":"axis");}
-              else if (node.kind === "PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PART");
-              else if (node.kind === "PRODUCT_PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PRODUCT");
-              else openFeatureEditor(node);
-            }}
-            onRename={(node) => {
-              if (!canEdit || node.documentId !== editingView?.document.id || !node.entityId) return;
-              const name = node.kind === "BODY" ? editingView.part?.bodies.find((body) => body.id === node.entityId)?.name
-                : editingView.part?.features.find((feature) => feature.id === node.entityId)?.name;
-              renameForm.setFieldsValue({name:name ?? ""}); setRenameTarget(node);
-            }}
-			onCreatePart={(node) => {
-			  if (node.documentType !== "PRODUCT") return;
-			  newPartForm.resetFields(); setNewPartTarget(node);
-			}}
-			onReferenceMode={(node, mode) => {
-			  const segment = node.instancePath?.segments.at(-1);
-			  if (!segment) return;
-			  command.mutate(() => api.setReferenceMode(segment.ownerDocumentId, segment.instanceId, mode), {
-			    onSuccess: async (updated) => {
-			      client.setQueryData(queryKeys.document(updated.document.id), updated);
-			      await client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
-			      message.success(mode === "PINNED" ? "已固定当前引用版本" : "已恢复跟随最新版本");
-			    },
-			  });
-			}}
-			onReconnect={(node) => {
-              if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.entityId && node.ownerEntityId && editingView) {
-                const feature = editingView.part?.features.find((candidate) => candidate.id === node.ownerEntityId);
-                const localPlane = feature ? featureSketchPlane(editingView, feature) : undefined;
-                const plane = localPlane ? occurrenceSketchPlane(localPlane, activeResolvedInstance?.translation, activeResolvedInstance?.rotation) : undefined;
-                if (plane) store.beginSketch(node.ownerEntityId, plane);
-                store.setActiveTool("sketch.project", "once");
-                viewport.current?.beginExternalReconnect(node.entityId);
-                return;
-              }
-              const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
-              if (constraint) openAssemblyConstraintEditor(constraint, true);
-            }}
-			onDetach={(node) => {
-              if (node.kind === "CONTEXT_REFERENCE" && node.entityId && node.documentId) {
-                command.mutate(() => api.detachContextReference(node.documentId!, node.entityId!));
-                return;
-              }
-              if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.ownerEntityId && node.entityId)
-                editSketch(node.ownerEntityId, [{type:"DETACH_EXTERNAL_GEOMETRY", externalId:node.entityId}]);
-            }}
-            onRefresh={(node) => {
-              if (node.kind === "CONTEXT_REFERENCE" && node.documentId) {
-                command.mutate(() => api.updateReferences(node.documentId!));
-                return;
-              }
-              refreshAssemblyConstraint(node.entityId);
-            }}
-            onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes}
-            onToggleVisibility={(node,scope,mode)=>{
-              if (scope === "DEFINITION" && node.documentId && node.entityId) {
-                command.mutate(() => api.command(node.documentId!, {type:"SET_DEFINITION_VISIBILITY",targetKind:node.kind,
-                  targetId:node.entityId,axis:node.axis,ownerEntityId:node.ownerEntityId,visible:!node.localVisible}));
-                return;
-              }
-              if (scope === "OCCURRENCE" && view?.document.type === "PRODUCT" && node.instancePath && node.entityId) {
-                command.mutate(() => api.command(view.document.id, {type:"SET_OCCURRENCE_VISIBILITY",instancePath:node.instancePath,
-                  targetKind:node.kind,targetId:node.entityId,visibilityMode:mode ?? (node.visibilityMode === "HIDE" ||
-                    node.visibilityMode !== "SHOW" && node.localVisible === false ? "SHOW" : "HIDE")}));
-                return;
-              }
-              setTreeVisibility(node.selection ? selectionKey(node.selection) : node.key, Boolean(node.hidden));
-            }}
-            onToggleSuppression={(node)=>{
-              if(node.kind==="SKETCH_PATTERN_DEFINITION"&&node.documentId===editingView?.document.id&&node.ownerEntityId){
-                const pattern=editingView?.part?.features.find(f=>f.id===node.ownerEntityId)?.sketch?.patterns?.find(p=>p.id===node.entityId);
-                if(pattern)editSketch(node.ownerEntityId,[{type:"EDIT_PATTERN",patternId:pattern.id,pattern:{...pattern,suppressed:!pattern.suppressed}}]);return;
-              }
-              if (node.documentId === editingView?.document.id && node.entityId && ["PAD","REVOLVE","FEATURE","SKETCH"].includes(node.kind ?? "") && node.definitionDigest) {
-                command.mutate(()=>api.command(node.documentId!,{type:"SET_FEATURE_SUPPRESSION",targetId:node.entityId,expectedFeatureDigest:node.definitionDigest,suppressed:!node.suppressed}));
-                return;
-              }
-              if(node.kind==="ASSEMBLY_CONSTRAINT"||node.kind==="ASSEMBLY_CONSTRAINT_SET") {
-                const constraints=node.kind==="ASSEMBLY_CONSTRAINT"?[node]:node.children??[];
-                if(!node.documentId)return;
-                assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});
-                assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined;
-                command.mutate(()=>api.command(node.documentId!,{type:"SET_ASSEMBLY_CONSTRAINT_STATE",constraintIds:constraints.flatMap(c=>c.entityId?[c.entityId]:[]),suppressed:!constraints.every(c=>c.suppressed)}));
-                return;
-              }
-              const leaves:SpecificationTreeNode[]=[];const visit=(item:SpecificationTreeNode)=>{if(item.kind==="SKETCH_ENTITY"||item.kind==="SKETCH_CONSTRAINT")leaves.push(item);else item.children?.forEach(visit);};visit(node);
-              const targetState=!leaves.every((item)=>item.suppressed);const bySketch=new Map<string,SketchOperation[]>();
-              for(const item of leaves){if(!item.ownerEntityId||!item.entityId)continue;const operations=bySketch.get(item.ownerEntityId)??[];
-                operations.push(item.kind==="SKETCH_ENTITY"?{type:"UPDATE_ENTITY_SUPPRESSION",entityId:item.entityId,suppressed:targetState}
-                  :{type:"UPDATE_CONSTRAINT_SUPPRESSION",constraintId:item.entityId,suppressed:targetState});bySketch.set(item.ownerEntityId,operations);}
-              for(const [sketchID,operations] of bySketch)editSketch(sketchID,operations);
-            }}
-            onToggleConstruction={(node)=>{
-              if(!node.ownerEntityId||!node.entityId)return;
-              editSketch(node.ownerEntityId,[{type:"UPDATE_ENTITY_ROLE",entityId:node.entityId,
-                role:node.role==="CONSTRUCTION"?"PROFILE":"CONSTRUCTION"}]);
-            }} />}
+            onOpenDocumentTab={node=>executeTree("onOpenDocumentTab",{node})}
+            onActivate={node=>executeTree("onActivate",{node})}
+			onEdit={node=>executeTree("onEdit",{node})}
+            onRename={node=>executeTree("onRename",{node})}
+			onCreatePart={node=>executeTree("onCreatePart",{node})}
+			onReferenceMode={(node,mode)=>executeTree("onReferenceMode",{node,referenceMode:mode})}
+			onReconnect={node=>executeTree("onReconnect",{node})}
+			onDetach={node=>executeTree("onDetach",{node})}
+            onRefresh={node=>executeTree("onRefresh",{node})}
+            onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={nodes=>executeTree("onDelete",{nodes})}
+            onToggleVisibility={(node,scope,mode)=>executeTree("onToggleVisibility",{node,scope,visibilityMode:mode})}
+            onToggleSuppression={node=>executeTree("onToggleSuppression",{node})}
+            onToggleConstruction={node=>executeTree("onToggleConstruction",{node})} />}
       inspector={<WorkbenchInspectorPanel documentID={activeID} view={editingView ?? view} selection={store.selection}
         feature={selected} workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
         onEditParameter={openParameterEditor} onEditPublication={openPublicationEditor}
@@ -1584,7 +1544,7 @@ export function Workbench() {
       <WorkbenchViewControls toolbars={visibleToolbars} />
     </WorkbenchLayout>
     <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" size="M"
-      onClose={() => { assemblyDialogLifecycle.current.invalidate();assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined; setAssemblyPreviewEvaluation(undefined); setReplacingAssemblyReference(undefined); setReconnectError(undefined); setAssemblyDefinitionDirty(false); setEditingAssemblyConstraint(undefined); }}
+      onClose={closeAssemblyCandidate}
       confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined ||
         Boolean(editingAssemblyConstraint?.kind === "ANGLE" && editingAssemblyConstraint.angleRelation === "DIRECTED" && !editingAssemblyConstraint.angleAxis)} onConfirm={async()=>{
         if(!editingView||!editingAssemblyConstraint)return;
@@ -1646,7 +1606,7 @@ export function Workbench() {
       </Form>
     </CommandDialog>
     <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" size="M"
-      onClose={() => { assemblyDialogLifecycle.current.invalidate();assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined; setAssemblyPreviewEvaluation(undefined); setReplacingAssemblyReference(undefined); setReconnectError(undefined); setAssemblyDefinitionDirty(false); setPendingAssemblyConstraint(undefined); }}
+      onClose={closeAssemblyCandidate}
       confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined ||
         Boolean(pendingAssemblyConstraint?.kind === "angle" && pendingAssemblyConstraint.angleRelation === "DIRECTED" && !pendingAssemblyConstraint.angleAxis)}
       onConfirm={async () => {

@@ -1,3 +1,4 @@
+import {documentRegistry} from "./cad/document/document-registry";
 import type { Artifact, Feature, AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductRelease, ProductReleaseReplay, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
 import { CommandPreviewIdentities } from "./api/command-preview-identity";
@@ -53,6 +54,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+async function requestDocumentView(path:string,init?:RequestInit):Promise<DocumentView> {
+ return documentRegistry.validate(await request<DocumentView>(path,init));
+}
+
 const requestId = (): string => randomUUID();
 
 async function downloadDiagnosticBundle(documentId: string, command: Record<string, unknown>, errorMessage: string): Promise<void> {
@@ -99,7 +104,7 @@ async function executeDocumentCommand(documentId: string, command: Record<string
 	const commandWithID: Record<string, unknown> = { requestId: previewIdentities.requestFor(documentId, command.previewId) ?? requestId(), ...command };
 	if (!commandWithID.previewId) assemblyReplayRequests.set(documentId, String(commandWithID.requestId));
 	try {
-		return await realtime.executeCommand(documentId, commandWithID);
+		return documentRegistry.validate(await realtime.executeCommand(documentId, commandWithID));
 	} catch (cause) {
 		const error = cause instanceof Error ? cause : new Error(String(cause));
  Object.assign(error,{requestId:String(commandWithID.requestId)});
@@ -167,7 +172,7 @@ export const restApi = {
   },
   listOpenDocuments: async (): Promise<DocumentSummary[]> =>
     (await request<{ documents: DocumentSummary[] }>("/api/open-documents", { headers: workspaceHeaders() })).documents,
-  openDocument: (id: string) => request<DocumentView>(`/api/open-documents/${id}`, {
+  openDocument: (id: string) => requestDocumentView(`/api/open-documents/${id}`, {
     method: "POST", headers: workspaceHeaders(),
   }),
   closeOpenDocument: async (id: string): Promise<void> => {
@@ -211,18 +216,18 @@ export const restApi = {
       throw new Error(value.error ?? `HTTP ${response.status}`);
     }
   },
-  getDocument: (id: string) => request<DocumentView>(`/api/documents/${id}`),
+  getDocument: (id: string) => requestDocumentView(`/api/documents/${id}`),
   getProductDesignSession: (id:string, activePath="") => request<ProductDesignSession>(`/api/documents/${id}/design-session?activePath=${encodeURIComponent(activePath)}`),
   getContextCatalog: (id:string, activePath:string, expectedType="") => request<ContextCatalog>(`/api/documents/${id}/context-catalog?activePath=${encodeURIComponent(activePath)}&expectedType=${encodeURIComponent(expectedType)}`),
   createProductContextBinding: (id:string, input:{name?:string;contextInputName?:string;owningInstancePath:InstancePath;
       sourceInstancePath:InstancePath;publicationId:string;publicationType?:string;targetKind:string;targetId:string;
       required?:boolean;referenceMode?:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED"}) =>
-    request<DocumentView>(`/api/documents/${id}/context-bindings`, {method:"POST", body:JSON.stringify({requestId:requestId(),...input})}),
+    requestDocumentView(`/api/documents/${id}/context-bindings`, {method:"POST", body:JSON.stringify({requestId:requestId(),...input})}),
   createPartComponent: (id:string, input:{name?:string;description?:string;targetProductInstancePath?:InstancePath}) =>
-    request<DocumentView>(`/api/documents/${id}/part-components`, {method:"POST",
+    requestDocumentView(`/api/documents/${id}/part-components`, {method:"POST",
       body:JSON.stringify({requestId:requestId(),placementMode:"PRODUCT_ORIGIN",...input})}),
   getProductUpdatePlan: (id:string) => request<ProductUpdatePlan>(`/api/documents/${id}/product-update-plan`),
-  acceptProductUpdatePlan: (id:string,digest:string) => request<DocumentView>(`/api/documents/${id}/product-update-plan/accept`,
+  acceptProductUpdatePlan: (id:string,digest:string) => requestDocumentView(`/api/documents/${id}/product-update-plan/accept`,
     {method:"POST",body:JSON.stringify({requestId:requestId(),digest})}),
   listProductReleases: async (id:string):Promise<ProductRelease[]> =>
     (await request<{releases:ProductRelease[]}>(`/api/documents/${id}/releases`)).releases,
@@ -258,12 +263,12 @@ export const restApi = {
       method: "POST", body: JSON.stringify({ requestId: requestId(), name, description }),
     })).history,
   createDocument: (type: "PART" | "PRODUCT", name: string, description = "", folderId?: string) =>
-    request<DocumentView>("/api/documents", {
+    requestDocumentView("/api/documents", {
       method: "POST", headers: workspaceHeaders(),
       body: JSON.stringify({ requestId: requestId(), type, name, description, folderId: folderId || null }),
     }),
   updateDocument: (id: string, name: string, description: string) =>
-    request<DocumentView>(`/api/documents/${id}`, {
+    requestDocumentView(`/api/documents/${id}`, {
       method: "PATCH", body: JSON.stringify({ requestId: requestId(), name, description }),
     }),
   deleteDocument: async (id: string): Promise<void> => {
@@ -275,7 +280,7 @@ export const restApi = {
       throw new Error(value.error ?? `HTTP ${response.status}`);
     }
   },
-  restoreDocument: (id: string) => request<DocumentView>(`/api/documents/${id}/restore`, {
+  restoreDocument: (id: string) => requestDocumentView(`/api/documents/${id}/restore`, {
     method: "POST", headers: { "X-Request-ID": requestId() },
   }),
   purgeDocument: async (id: string): Promise<void> => {
@@ -287,11 +292,11 @@ export const restApi = {
       throw new Error(value.error ?? `HTTP ${response.status}`);
     }
   },
-  moveDocument: (id: string, folderId?: string) => request<DocumentView>(`/api/documents/${id}/move`, {
+  moveDocument: (id: string, folderId?: string) => requestDocumentView(`/api/documents/${id}/move`, {
     method: "POST", headers: { "X-Request-ID": requestId() },
     body: JSON.stringify({ folderId: folderId || null }),
   }),
-  copyDocument: (id: string, name: string, folderId?: string) => request<DocumentView>(`/api/documents/${id}/copy`, {
+  copyDocument: (id: string, name: string, folderId?: string) => requestDocumentView(`/api/documents/${id}/copy`, {
     method: "POST", body: JSON.stringify({ requestId: requestId(), name, folderId: folderId ?? null }),
   }),
 	command: executeDocumentCommand,

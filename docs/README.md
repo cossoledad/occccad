@@ -13,6 +13,7 @@
 | 装配方程、图编译、QR/SVD、解选择、连续恢复 | [算法](../kernel/assembly/SOLVER_ALGORITHMS.md)、[模块边界](../kernel/assembly/SOLVER_ARCHITECTURE.md) |
 | 局部证据、剩余运动与修复 | [Product 分析](architecture/current/product-assembly.md#局部诊断与剩余运动) |
 | 选择、显隐、编辑宿主、标签、快照/手柄 | [Web](architecture/current/web.md)、[模型显示](architecture/current/model-display.md)、[编辑上下文](architecture/current/product-edit-context.md)、[树身份](architecture/semantic-tree-interaction.md) |
+| 文档适配器、配置目录、Toolbar 与命令注册 | [公共框架](architecture/current/document-command-framework.md) |
 | 实时链路 | [Realtime](architecture/current/realtime.md) |
 | 验证、观测、证据限制 | [验证](architecture/current/validation.md)、[测试路由](../tests/README.md)、[装配执行器](../tests/assembly-contract/README.md) |
 | 运行与环境 | [根 README](../README.md)、[开发环境](development-environment.md)、各可执行单元 README |

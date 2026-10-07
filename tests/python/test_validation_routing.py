@@ -33,7 +33,8 @@ class ValidationRoutingTest(unittest.TestCase):
     def test_shared_contracts_and_unknown_paths_escalate_to_all(self):
         for path in (
             "proto/occccad/worker/v1/geometry_worker.proto",
-            "services/internal/database/migrations/0016_example.sql",
+            "services/internal/database/postgres_migrations/0001_baseline.sql",
+            "services/internal/database/sqlite_migrations/0001_baseline.sql",
             "workers/geometry/src/main.cpp",
             "tasks.py",
             "tests/python/test_validation_routing.py",

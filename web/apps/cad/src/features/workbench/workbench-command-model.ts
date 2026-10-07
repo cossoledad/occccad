@@ -1,20 +1,20 @@
 import type { ToolbarCatalogEntry, ToolbarCatalogItem } from "../../types";
-import type { CadWorkbenchID } from "../../cad/workbench/cad-workbench";
+import type { CadWorkbenchID } from "../../cad/command/workbench-catalog";
 import type { CadCommandState } from "../../cad/command/command-registry";
 
-export type CommandSection = "model" | "view" | "document";
+export type CommandSection = string;
 export type DiscoverableCommand = ToolbarCatalogItem & { toolbarName: string; state: CadCommandState };
 
 // The catalog owns composition and order; the registry owns runtime availability.
 export function contextualToolbars(catalog: readonly ToolbarCatalogEntry[], workbench: CadWorkbenchID): ToolbarCatalogEntry[] {
-  return catalog.filter((toolbar) => toolbar.workbench === "ALL" || toolbar.workbench === workbench)
+  return catalog.filter((toolbar) => toolbar.workbench === workbench)
     .map((toolbar) => ({ ...toolbar, items: [...toolbar.items].sort((a, b) => a.sortOrder - b.sortOrder) }))
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 export function commandSection(toolbar: ToolbarCatalogEntry): CommandSection {
-  if (toolbar.workbench !== "ALL" || toolbar.position === "top-left") return "model";
-  return toolbar.position === "top-right" ? "view" : "document";
+  if (!toolbar.section) throw new Error(`Missing configured Tab section: ${toolbar.id}`);
+  return toolbar.section;
 }
 
 export function searchCommands(toolbars: readonly ToolbarCatalogEntry[], query: string,

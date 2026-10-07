@@ -2,21 +2,18 @@ package database
 
 import (
 	"context"
-	"crypto/sha256"
-	"embed"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"time"
 )
 
-//go:embed sqlite_migrations/*.sql
-var sqliteMigrations embed.FS
-
 func migrateSQLite(ctx context.Context, p *sqliteBackend) error {
+	migrations, err := readMigrations("sqlite_migrations")
+	if err != nil {
+		return err
+	}
 	// BEGIN IMMEDIATE serializes migration runners across API/Jobs processes.
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -26,26 +23,33 @@ func migrateSQLite(ctx context.Context, p *sqliteBackend) error {
 	if _, err = tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY,applied_at TEXT NOT NULL DEFAULT (now()),checksum TEXT NOT NULL,execution_ms INTEGER NOT NULL)`); err != nil {
 		return err
 	}
-	entries, err := sqliteMigrations.ReadDir("sqlite_migrations")
+	rows, err := tx.QueryContext(ctx, `SELECT version FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		return err
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		data, err := sqliteMigrations.ReadFile("sqlite_migrations/" + entry.Name())
-		if err != nil {
+	var applied []string
+	for rows.Next() {
+		var version string
+		if err = rows.Scan(&version); err != nil {
+			rows.Close()
 			return err
 		}
-		hash := sha256.Sum256(data)
-		digest := hex.EncodeToString(hash[:])
+		applied = append(applied, version)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if err = validateAppliedMigrations(migrations, applied); err != nil {
+		return err
+	}
+	for _, migration := range migrations {
 		var existing string
-		err = tx.QueryRowContext(ctx, `SELECT checksum FROM schema_migrations WHERE version=?`, entry.Name()).Scan(&existing)
+		err = tx.QueryRowContext(ctx, `SELECT checksum FROM schema_migrations WHERE version=?`, migration.name).Scan(&existing)
 		if err == nil {
-			if existing != digest {
-				return fmt.Errorf("SQLite migration %s checksum changed after application", entry.Name())
+			if existing != migration.checksum {
+				return fmt.Errorf("SQLite migration %s checksum changed after application", migration.name)
 			}
 			continue
 		}
@@ -53,10 +57,10 @@ func migrateSQLite(ctx context.Context, p *sqliteBackend) error {
 			return err
 		}
 		start := time.Now()
-		if _, err = tx.ExecContext(ctx, string(data)); err != nil {
-			return fmt.Errorf("apply SQLite migration %s: %w", entry.Name(), err)
+		if _, err = tx.ExecContext(ctx, migration.sql); err != nil {
+			return fmt.Errorf("apply SQLite migration %s: %w", migration.name, err)
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version,checksum,execution_ms) VALUES(?,?,?)`, entry.Name(), digest, time.Since(start).Milliseconds()); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version,checksum,execution_ms) VALUES(?,?,?)`, migration.name, migration.checksum, time.Since(start).Milliseconds()); err != nil {
 			return err
 		}
 	}

@@ -1,2 +1,0 @@
--- Assembly replay evidence is intentionally stored as bounded local debug
--- artifacts under OCCCCAD_LOG_DIR. It is not business state and has no table.

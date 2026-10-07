@@ -41,8 +41,8 @@ func TestSQLiteMigrationsReopenAndConstraints(t *testing.T) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = p.QueryRow(t.Context(), `SELECT count(*) FROM occccad.ui_toolbar_items`).Scan(&count); e != nil || count < 50 {
-		t.Fatalf("catalog count %d: %v", count, e)
+	if e = p.QueryRow(t.Context(), `SELECT count(*) FROM sqlite_master WHERE name IN ('ui_toolbars','ui_toolbar_items')`).Scan(&count); e != nil || count != 0 {
+		t.Fatalf("obsolete presentation storage remains %d: %v", count, e)
 	}
 	var id string
 	e = p.QueryRow(t.Context(), `INSERT INTO occccad.folders(name,owner_user_id) VALUES('root','00000000-0000-7000-8000-000000000001') RETURNING id::text`).Scan(&id)

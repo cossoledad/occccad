@@ -11,6 +11,7 @@
 | Sketch/Part | [模型与求值](architecture/current/part-sketch.md) | trimmed Arc 投影、Boundary/Section、完整专业 Sketcher、更多 Feature |
 | 命名 | [Naming/Resolver](architecture/current/persistent-naming.md) | Revolve 完整 history 未闭合；导入不是参数化 Feature history，歧义须显式重连 |
 | Product/装配 | [Product](architecture/current/product-assembly.md)、[六类合同](architecture/current/assembly-constraints.md)、[算法](../kernel/assembly/SOLVER_ALGORITHMS.md) | 局部分支最优、瞬时 DOF、非线性 UNKNOWN；不保证任意最小冲突集、工业性能或全局最近点 |
+| 文档/命令接入 | [公共框架](architecture/current/document-command-framework.md) | 默认 Part/Product；无运行时代码替换或插件运行器 |
 | 显示/交互 | [Web](architecture/current/web.md)、[模型显示](architecture/current/model-display.md)、[编辑上下文](architecture/current/product-edit-context.md) | 整体结构树/单进程打开注册表、贡献索引与子树分页、跨 Workspace 并发引用尚有限制 |
 | 验证/观测 | [验证](architecture/current/validation.md)、[测试](../tests/README.md) | Node/SSR 不替代浏览器；kernel/RPC 不代表输入至权威显示延迟 |
 

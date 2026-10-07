@@ -4,7 +4,7 @@
 
 ## 业务与数据模型
 
-PostgreSQL schema 名为 `occccad`；SQLite Local Mode 在独立本机文件中建立相同领域关系，使用显式外键、唯一与类型检查。应用通过供应商无关的数据库接口持久化；两种模式共享 Revision/CAS、幂等、补偿历史与 Outbox 合同。当前迁移建立的主要关系如下。
+PostgreSQL schema 名为 `occccad`；SQLite Local Mode 在独立本机文件中建立相同领域关系，使用显式外键、唯一与类型检查。应用通过供应商无关的数据库接口持久化；两种模式共享 Revision/CAS、幂等、补偿历史与 Outbox 合同。当前两种后端各通过一个 `0001_baseline.sql` 建立完整结构，目录分别为 `postgres_migrations/` 与 `sqlite_migrations/`；后续迁移保持同名、同编号。旧开发迁移链需要显式重建，普通迁移不会自动删除或改写旧数据。主要关系如下。
 
 ```mermaid
 erDiagram
@@ -37,10 +37,12 @@ erDiagram
 - Document 类型当前为 Part 或 Product；
 - Document 以 UUID `id` 为唯一身份，`name` 是允许重复的显示属性；创建界面按已有名称提供首个可用的 `PartN`/`ProductN` 默认值，但默认值和名称都不参与身份或引用解析；
 - Document 是容器；显式 Workspace 保存可变 Head/sequence/base，`document_versions` 是不可变 Revision 快照；
-- 每个新建或复制的 Document 自动建立 `main` Workspace，旧 Document 由迁移确定性回填；可以从任意所属 Revision 创建并列出 Branch Workspace；
+- 每个新建或复制的 Document 自动建立 `main` Workspace；可以从任意所属 Revision 创建并列出 Branch Workspace；
 - Domain Transaction、typed command envelope、语义 ChangeSet、Revision parent、EvaluationRun、dependency edge 与 outbox 在 Head CAS 的同一短事务中追加；
 - Restore 创建新的状态，而不是覆写历史；
 - Product 保存对子文档的引用和实例 Transform，不展开复制完整子树；
+
+Part/Product 通过注册的 `DocumentAdapter` 接入公共创建、投影、命令、Preview 和历史流程；类型校验、求值与结构树仍属于各自领域。接口职责见[公共框架](document-command-framework.md)，下述版本、参数与依赖机制由两者共用。
 
 ### Command 与 Undo/Redo
 

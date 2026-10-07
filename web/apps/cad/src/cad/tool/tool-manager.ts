@@ -9,7 +9,10 @@ export class ToolManager {
 
   constructor(private readonly context: ToolContext) {}
 
+  has(toolID:string):boolean {return this.tools.has(toolID);}
+
   register(tool: CadTool): () => void {
+    if (this.tools.has(tool.id)) throw new Error(`Duplicate CAD tool: ${tool.id}`);
     this.tools.set(tool.id, tool);
     return () => {
       if (this.active === tool) this.activate(undefined);

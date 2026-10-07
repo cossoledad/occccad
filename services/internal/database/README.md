@@ -36,8 +36,11 @@ SQLite 每进程一个物理连接、一个执行名额；每次连接启用 WAL
 
 ## 迁移
 
-PostgreSQL 使用 `migrations/` 与连接级 advisory lock；SQLite 使用 `sqlite_migrations/` 和 BEGIN IMMEDIATE。两者记录 SHA-256 校验值，拒绝已应用迁移被修改。SQLite 的独立空库基线覆盖 PostgreSQL 0001–0038 的当前表、外键、唯一约束、检查约束与 UI 目录；JSON、UUID、布尔值有显式检查。以后数据库变更必须同步两条迁移链。
+PostgreSQL 使用 `postgres_migrations/0001_baseline.sql`，SQLite 使用 `sqlite_migrations/0001_baseline.sql`；两边各一个完整当前基线，直接建立领域表、约束、索引及管理员种子，不包含历史工具栏种子、版本回填或废弃结构。工具栏和命令呈现配置由 `internal/workbenchconfig/catalog.json` 提供。
 
+公共迁移目录检查要求两边文件数量、文件名和连续编号一致；SQL 内容与 SHA-256 校验值按后端分别记录。后续结构变更同时增加同名、同编号的两种方言文件。PostgreSQL 使用连接级 advisory lock，SQLite 使用 BEGIN IMMEDIATE；结构变更与对应迁移记录在事务中提交。已应用文件校验失败、未知旧文件或迁移记录缺号时拒绝继续，不自动补写 checksum 或替换旧记录。
+
+当前是未发布开发基线，旧迁移链不能直接升级到该基线；已有旧库需要显式重建。普通 `Migrate` 不删除用户数据，也不会自动运行 reset。
 SQLite 迁移不读取 PostgreSQL，也不需要联网。`invoke data.reset --yes` 与 `invoke run.app --reset-data` 按环境配置选择后端：PostgreSQL 删除 `occccad` schema，SQLite 在事务内删除当前专用数据库的全部用户表、视图及迁移记录，再执行迁移恢复表结构与种子数据。SQLite 文件应专用于本应用；文件位于制品目录内时，清理目录前先关闭连接，再重新打开数据库迁移。执行前须停止 API、Jobs 等占用进程。
 
 ## 配置
@@ -55,9 +58,9 @@ SQLite 迁移不读取 PostgreSQL，也不需要联网。`invoke data.reset --ye
 
 ## 验证
 
-- `go test -race ./internal/database ./internal/jobs ./internal/authn ./internal/access ./internal/workspace`
+- `go test ./internal/database -count=1`：目录与迁移记录检查、SQLite 查询与事务合同；`TestMigrationBaselinePreservesDocuments` 的 PostgreSQL 子场景需通过 `OCCCCAD_TEST_MIGRATION_DATABASE_URL` 显式提供隔离空库，拒绝非空数据库。
 - SQLite 测试使用临时文件：空库迁移/重开、外键、唯一性、批量失败回滚、取消、savepoint、独立连接池与实际子进程竞争、Jobs/登录故障注入，以及真实文档命令、Undo/Redo、ACL 和冷读。
 - `TestSQLiteApplicationQueriesCompile` 在实际 schema 上编译静态业务查询；动态拼接与运行语义由业务测试补充，不能以查询编译代替功能验收。
-- 设置 `OCCCCAD_TEST_SCHEMA_PARITY_URL` 指向已迁移的 PostgreSQL 后运行 `go test ./internal/database -run TestSQLitePostgresSchemaAndCatalogParity`：只读比较 36 张业务表的列与 UI 目录，SQLite 侧使用临时空文件。
+- 设置 `OCCCCAD_TEST_SCHEMA_PARITY_URL` 指向已迁移的 PostgreSQL 后运行 `go test ./internal/database -run TestSQLitePostgresSchemaParity`：只读比较领域表列、主键/唯一约束、外键删除与更新策略、显式索引及管理员种子，SQLite 侧使用临时空文件。
 - 设置 `OCCCCAD_TEST_DATABASE_URL` 后运行 `go test ./internal/database -run TestPoolPostgres -count=1`：只使用连接临时表，不迁移业务数据。
 - 配置独立 SQLite 文件与 `OCCCCAD_TEST_GEOMETRY_WORKER` 后，可运行 `go test ./internal/control -run TestSolidBooleanLifecycleThroughRouter -count=1`，验证真实 Router/Worker/ArtifactStore 与持久化链。

@@ -26,10 +26,10 @@ try {
   assert.equal(searchCommands(contextualToolbars(catalog, "SKETCHER"), "拉伸", state).length, 0);
   assert.equal(searchCommands([...part, ...part], "", state).length, 2);
   assert.equal(await registry.execute("part.pocket"), false);
-  assert.equal(await registry.execute("part.revolve"), false);
+  assert.equal(await registry.execute("part.revolve"), true, "entry visibility does not authorize execution");
   assert.equal(await registry.execute("unknown"), false);
   assert.equal(await registry.execute("part.pad"), true);
-  assert.equal(executions, 1);
+  assert.equal(executions, 2);
   const leaf = { key: "stable:leaf", name: "Sketch A" };
   const branch = { key: "stable:body", name: "Body", children: [leaf, { key: "stable:pad", name: "Pad" }] };
   const roots = [{ key: "stable:root", name: "Part", children: [branch] }];

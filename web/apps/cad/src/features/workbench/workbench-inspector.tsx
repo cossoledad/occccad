@@ -4,7 +4,7 @@ import { referencePropertyRows } from "./reference-properties";
 import {formatDisplayNumber} from "../../utils/display-number";
 import { ExportOutlined } from "@ant-design/icons";
 import { Button, Descriptions, List, Space, Spin, Tag, Typography } from "antd";
-import { CAD_WORKBENCHES } from "../../cad/workbench/cad-workbench";
+import {useWorkbenchCatalog} from "../../cad/command/command-context";
 import type {
   DocumentProperties,
   DocumentView,
@@ -22,7 +22,7 @@ type PropertiesProps = {
   ownerView?: DocumentView;
   selection: Selection;
   feature?: Feature;
-  workbench: keyof typeof CAD_WORKBENCHES;
+  workbench: string;
   sketchPlane?: SketchPlane;
   activeTool: string;
   navigationProfile: string;
@@ -58,6 +58,7 @@ export function Properties(props: PropertiesProps) {
 
 function PropertySummary({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading,
   onEditParameter, onEditPublication, readErrors }: PropertiesProps) {
+ const definition=useWorkbenchCatalog().tabs.find(tab=>tab.workbench===workbench);
 	const parameterFor = (parameterId?: string) => view.part?.parameters?.find((parameter) => parameter.parameterId === parameterId);
 	const parameterItems = (parameterId?: string) => {
 		const parameter = parameterFor(parameterId);
@@ -119,7 +120,7 @@ function PropertySummary({ view, selection, feature, workbench, sketchPlane, act
     </div>
     <Descriptions column={1} size="small" className="property-list" items={[
       { key: "workspace", label: "工作区", children: view.document.workspaceName ?? "Main" },
-      { key: "workbench", label: "工作台", children: CAD_WORKBENCHES[workbench].label },
+      { key: "workbench", label: "工作台", children: definition?.modeLabel??workbench },
       { key: "permission", label: "访问权限", children: view.document.permission === "OWNER" ? "所有者"
         : view.document.permission === "EDITOR" ? "可编辑" : "只读" },
       { key: "features", label: view.document.type === "PART" ? "特征数量" : "组件数量",
@@ -129,7 +130,7 @@ function PropertySummary({ view, selection, feature, workbench, sketchPlane, act
     <PartBodies view={view} />
     <details className="inspector-diagnostics"><summary>技术详情与诊断</summary><Descriptions column={1} size="small"
       bordered className="property-list" items={[
-        { key: "workbench", label: "Workbench", children: `${CAD_WORKBENCHES[workbench].label} · ${CAD_WORKBENCHES[workbench].domain}` },
+        { key: "workbench", label: "Workbench", children: `${definition?.modeLabel??workbench} · ${definition?.domain??""}` },
         { key: "document", label: "文档", children: `${view.document.name} (${view.document.type})` },
         { key: "workspace", label: "工作区", children: view.document.workspaceName ?? "Main" },
         { key: "permission", label: "权限", children: view.document.permission },

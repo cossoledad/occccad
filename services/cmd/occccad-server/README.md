@@ -40,7 +40,7 @@ SQLite Local Mode 保留 API/Jobs 进程拓扑，所有进程共享同一个本�
 
 主要资源包括 `/api/auth/*`、`/api/session`、`/api/documents`、`/api/folders`、`/api/jobs`、`/api/teams`、`/api/users`、`/api/admin/*` 与 `/api/audit`。具体契约当前以 `services/internal/api/server.go` 为准；仓库尚未发布稳定的外部 OpenAPI。
 
-`GET /api/ui/toolbars` 返回 数据库中启用的 Toolbar Presentation Catalog，包括工作台归属、默认布局、命令稳定 ID、短名称、详细帮助、图标语义键、分组和顺序。目录只控制展示；浏览器必须在本地 `CommandRegistry` 注册命令后才允许执行，不能把数据库内容解释为脚本。
+`GET /api/ui/toolbars` 返回 `internal/workbenchconfig/catalog.json` 的完整校验配置及派生 Toolbar 投影，包括文档、Tab、组、命令、条件和图标。目录读取不访问模型数据库或 Worker；命令实现由浏览器 registry 注册并校验，不能将配置解释为脚本。文档适配器和扩展方式见[公共框架](../../../docs/architecture/current/document-command-framework.md)。
 
 文档交换使用独立资源：`POST /api/exchange/imports?format=STEP|BREP&fileName=...` 把原始 request body 流式写入 ArtifactStore，限制由 `OCCCCAD_EXCHANGE_MAX_BYTES` 配置（默认 16 GiB）；`POST /api/exchange/exports` 提交 `{documentId, format, releaseId?}`，带 ReleaseId 时从冻结 Release GeometryKey 导出而不要求当前 Head 未移动；Product occurrence placement 保留 translation 和 quaternion rotation。`GET /api/jobs` 恢复当前用户最近 100 条可见任务，`POST /api/jobs/{jobID}/cancel|retry` 执行发起者或管理员动作，任务完成后从 `GET /api/jobs/{jobID}/download` 流式下载。导入不要求先创建 Part，不使用 multipart，也不让大文件经过 WebSocket 或 gRPC bytes。
 

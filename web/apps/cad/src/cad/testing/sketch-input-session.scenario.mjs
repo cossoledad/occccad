@@ -27,6 +27,7 @@ try {
   commitSketchOperations:async ops=>{const constraint=ops[0].constraint;requests.push({kind:constraint.kind,refs:structuredClone(constraint.references),operation:structuredClone(ops[0])});},
   requestDimensionCreation:(kind,refs,...rest)=>requests.push({kind,refs:structuredClone(refs),rest}),finishToolUse:()=>{finishes++;manager.activate('select');},beginDimensionDrag:()=>false,cancelDimensionDrag:()=>{},selectionAt:()=>null};
  const manager=new ToolManager({viewport:port});manager.register(new SelectTool());manager.register(new LinearDimensionSketchTool());manager.register(new ConstraintSketchTool('DISTANCE'));
+ assert.throws(()=>manager.register(new SelectTool()),/Duplicate CAD tool/,'installed implementations are reused rather than replaced');
  const selectionController=new SelectionController(()=>picks++,()=>{},()=>{});
  const nav={wantsPointerPriority:()=>false,pointerDown:()=>InputResult.Ignored,pointerMove:()=>InputResult.Ignored,pointerUp:()=>InputResult.Ignored,cancel:()=>{},keyChanged:()=>InputResult.Ignored,wheel:()=>InputResult.Ignored,auxiliaryClick:()=>InputResult.Ignored};
  const router=new InteractionRouter(manager,selectionController,nav),surface=new Surface();
@@ -106,7 +107,7 @@ try {
  const {mockToolbarCatalog}=await server.ssrLoadModule('/src/api/mock-toolbar-catalog.ts');
  const editEntries=mockToolbarCatalog.toolbars.flatMap(toolbar=>toolbar.commands??toolbar.items??[]).filter(command=>command.commandId?.startsWith('sketch.edit.'));
  assert(editEntries.length===17,'production catalog supplies all supported editing commands');assert(!editEntries.some(e=>['sketch.edit.scale','sketch.edit.quick_trim','sketch.edit.rotate'].includes(e.commandId)),'one trim entry, no scaling or separate rotation');
- for(const entry of editEntries){selected=[];manager.register(new SketchEditTool(entry.commandId.slice('sketch.edit.'.length)));const before=states.length;manager.activate(entry.commandId);assert(states.length>before&&states.at(-1),`${entry.commandId} publishes an activation stage`);assert(key('Escape').defaultPrevented);assert.equal(manager.activeToolID,'select',`${entry.commandId} exits through real input with one Escape`);}
+ for(const entry of editEntries){selected=[];if(!manager.has(entry.commandId))manager.register(new SketchEditTool(entry.commandId.slice('sketch.edit.'.length)));const before=states.length;manager.activate(entry.commandId);assert(states.length>before&&states.at(-1),`${entry.commandId} publishes an activation stage`);assert(key('Escape').defaultPrevented);assert.equal(manager.activeToolID,'select',`${entry.commandId} exits through real input with one Escape`);}
  const {ProjectExternalGeometrySketchTool}=await server.ssrLoadModule('/src/cad/tool/cad-tool.ts');manager.register(new ProjectExternalGeometrySketchTool());
  const external={kind:'edge',id:'edge:1',geometryKey:'body-artifact',versionId:scope.versionId,occurrencePath:scope.occurrencePath,topologyId:7,ownerDocumentId:'part'};const projections=[];
  port.selectionAt=()=>external;port.commitExternalProjection=source=>{projections.push(structuredClone(source));return new Promise((resolve,reject)=>{resolveCommit=resolve;rejectCommit=reject;});};
@@ -124,7 +125,7 @@ try {
  manager.activate('select');port.previewSketchOperations=undefined;
  const splitLine={id:'split-line',kind:'LINE',start:{x:0,y:0},end:{x:20,y:0}},touchArc={id:'touch-arc',kind:'ARC',center:{x:5,y:-5},radius:5,startAngle:0,endAngle:Math.PI/2,endPointId:'contact-end'};
  currentCurves=[splitLine,touchArc];port.projectSketchPoint=p=>[p[0]*10,p[1]*10];selected=[selection(splitLine.id)];
- manager.register(new SketchEditTool('split'));manager.activate('sketch.edit.split');hit={target:'ENTITY',entityId:splitLine.id,subElement:'WHOLE'};
+ if(!manager.has('sketch.edit.split'))manager.register(new SketchEditTool('split'));manager.activate('sketch.edit.split');hit={target:'ENTITY',entityId:splitLine.id,subElement:'WHOLE'};
  const splitCount=commits.length;pointer('pointermove',5.4,.3);assert.equal(commits.length,splitCount);click(5.4,.3);
  assert.equal(commits.length,splitCount+1);const splitOperation=commits.at(-1).ops[0];assert.deepEqual(splitOperation.entityIds,[splitLine.id]);assert(Math.abs(splitOperation.parameters[0]-.25)<1e-12);assert.equal(splitOperation.firstReference.pointId,'contact-end');
  resolveCommit({document:{id:'part',versionId:scope.versionId}});await settle();assert.equal(manager.activeToolID,'select');

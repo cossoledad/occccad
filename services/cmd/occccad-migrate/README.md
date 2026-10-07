@@ -4,12 +4,14 @@ occccad-migrate 是一次性 PostgreSQL/SQLite 迁移进程，适用于部署前
 
 ## 行为
 
-- 按后端从嵌入 Go 二进制的 `internal/database/migrations/*.sql` 或 `sqlite_migrations/*.sql` 读取迁移；
+- 按后端从嵌入 Go 二进制的 `internal/database/postgres_migrations/*.sql` 或 `internal/database/sqlite_migrations/*.sql` 读取迁移；
 - PostgreSQL 使用 Advisory Lock，SQLite 使用 BEGIN IMMEDIATE 防止并发迁移；
 - 每个迁移在事务内执行；
 - 在 `occccad.schema_migrations` 记录版本与 SHA-256 校验值；
-- 已执行文件内容发生变化时拒绝继续，防止静默篡改历史；
+- 两条迁移链必须同名、同编号、同数量；已应用 checksum 改变、旧文件缺失或应用记录缺号时拒绝继续；
 - 成功后退出 0，失败后退出非 0。
+
+当前两边各有一个 `0001_baseline.sql`，直接建立最终结构和必要管理员种子。旧开发迁移记录需要显式重建，默认迁移不会自动清库。
 
 默认模式不启动 HTTP/gRPC 服务，也不迁移 ArtifactStore 中的大对象。
 
@@ -44,7 +46,7 @@ OCCCCAD_ALLOW_DEV_RESET=1 go run ./cmd/occccad-migrate --reset-development-data
 
 ```bash
 cd services
-go test ./internal/database/... ./...
+go test ./internal/database -count=1
 ```
 
 配置从根 `.env` 读取，已导出的环境变量优先。删除前报告 PostgreSQL 数据库/schema 或 SQLite 文件、本地目录和当前配置 S3 桶；只清理这一桶，不遍历其他桶。S3 清理失败时不继续删除本地目录或数据库表，但已删除对象无法回滚；清库与存储不是跨服务事务，可修复后重复执行。测试使用隔离桶，不清空实际开发桶。

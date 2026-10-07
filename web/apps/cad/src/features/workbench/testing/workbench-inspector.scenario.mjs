@@ -11,6 +11,7 @@ const { renderToStaticMarkup } = require("react-dom/server");
 const modules = new Map();
 // Load the actual component and its local helpers without a browser or a mock UI.
 function load(file) {
+  if(file.endsWith(".json"))return JSON.parse(readFileSync(file,"utf8"));
   if (modules.has(file)) return modules.get(file).exports;
   const module = { exports: {} };
   modules.set(file, module);
@@ -29,7 +30,7 @@ function load(file) {
   return module.exports;
 }
 const { Properties } = load(fileURLToPath(new URL("../workbench-inspector.tsx", import.meta.url)));
-const { CAD_WORKBENCHES } = load(fileURLToPath(new URL("../../../cad/workbench/cad-workbench.ts", import.meta.url)));
+const {builtinCatalog}=load(fileURLToPath(new URL("../../../cad/command/workbench-catalog.ts",import.meta.url)));
 const view = { document: { id: "part", type: "PART", name: "New Part", versionId: "revision", permission: "OWNER" }, part: { bodies:[], activeBodyId:"", features: [] } };
 for (const primitives of [null, undefined, []]) {
   const diagnostics = {
@@ -37,7 +38,7 @@ for (const primitives of [null, undefined, []]) {
     aggregate: { artifactCount: 1, solidCount: 0, vertexCount: 0, glbBytes: 0, brepBytes: 0 }, worker: { available: false },
   };
   const html = renderToStaticMarkup(React.createElement(Properties, {
-    view, selection: null, diagnostics, workbench: Object.keys(CAD_WORKBENCHES)[0], activeTool: "select", navigationProfile: "cad",
+    view, selection: null, diagnostics, workbench: builtinCatalog.tabs[0].workbench, activeTool: "select", navigationProfile: "cad",
   }));
   assert.ok(html.includes("New Part"));
   assert.ok(html.includes("Non-solid Geometry"));
@@ -57,7 +58,7 @@ console.log("Part Files lists both frozen Body artifact groups and scoped downlo
 assert.ok(!/<button|<input|contenteditable|ant-typography-edit/.test(files), "Body properties must be read-only");
 
 view.part.datumAxes=[{id:"axis-custom",name:"Inspection axis",origin:[3,4,5],direction:[0,1,0]}];
-const axisHTML=renderToStaticMarkup(React.createElement(Properties,{view,selection:{kind:"axis",axis:"DATUM",entityId:"axis-custom",id:"root:axis-custom"},workbench:Object.keys(CAD_WORKBENCHES)[0],activeTool:"select",navigationProfile:"cad"}));
+const axisHTML=renderToStaticMarkup(React.createElement(Properties,{view,selection:{kind:"axis",axis:"DATUM",entityId:"axis-custom",id:"root:axis-custom"},workbench:builtinCatalog.tabs[0].workbench,activeTool:"select",navigationProfile:"cad"}));
 assert.ok(axisHTML.includes("Inspection axis") && axisHTML.includes("3, 4, 5") && axisHTML.includes("0, 1, 0"),"custom axis inspector displays exact origin and direction");
 view.part.bodies[0]={...view.part.bodies[0],geometryKey:undefined,displayFallback:{geometryKey:"ga",sourceVersionId:"successful-revision"}};
 const failedHTML=renderToStaticMarkup(React.createElement(PartBodies,{view}));
@@ -68,7 +69,7 @@ const dimension={Length:1,Mass:0,Time:0,Current:0,Temperature:0,Amount:0,Luminou
 const parameter={parameterId:'parameter-stable',key:'p111',label:'Plane offset',ownerFeatureId:'plane-stable',propertySlot:'datum:distance',lifecycle:'DATUM_REQUIRED',valueType:'QUANTITY',dimension,displayUnit:'mm',role:'DRIVING',
   source:{expression:{sourceText:'r_1 + 4',reads:['parameter:upstream-stable'],ast:{kind:'binary',operator:'+',left:{parameterId:'upstream-stable'}}}},evaluatedValue:{siValue:0.0123456789012345,dimension}};
 view.part.parameters=[parameter];
-const props={view,workbench:Object.keys(CAD_WORKBENCHES)[0],activeTool:'select',navigationProfile:'cad'};
+const props={view,workbench:builtinCatalog.tabs[0].workbench,activeTool:'select',navigationProfile:'cad'};
 const render=selection=>renderToStaticMarkup(React.createElement(Properties,{...props,selection}));
 const parameterHTML=render({kind:'parameter',id:'parameter-stable',entityId:'parameter-stable',documentId:'part',versionId:'revision'});
 for(const value of ['p111','datum:distance','DATUM_REQUIRED','DRIVING','QUANTITY','upstream-stable','0.0123456789012345','完整对象数据与上下文'])assert(parameterHTML.includes(value),`parameter field missing: ${value}`);

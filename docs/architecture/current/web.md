@@ -42,7 +42,7 @@ InputManager、Tool、Selection 和 Overlay 共用完整 pointer down/move/up/ca
 
 ## 命令、预览与提交
 
-Toolbar 来自服务端版本化 Presentation Catalog，稳定 ToolbarId 表达用户意图类别；命令仍需本地 CommandRegistry 注册并满足上下文 capability。未知命令不可执行，目录不承载远程代码。默认命令区按工作台/锚点呈现；导航、捕捉和显示单位属于偏好。全局快捷键避开输入框、IME、重复按键和对话框；上下文帮助点击不执行命令。
+文档、Toolbar Tab/命令组、命令和图标来自服务端校验的统一配置；呈现与实现通过稳定 ID 关联，本地 CommandRegistry 统一执行并独立检查可用条件。文档适配器、编辑事实、注册与操作清理见[公共框架](document-command-framework.md)。未知实现使目录校验失败，目录不承载远程代码。默认命令区按工作台/锚点呈现；导航、捕捉和显示单位属于偏好。全局快捷键避开输入框、IME、重复按键和对话框；上下文帮助点击不执行命令。
 
 工具单击完成一个逻辑操作后回到选择，双击进入连续模式；Polyline/Spline 用 Enter 或双击完成多点采集。尺寸工具按引用选择、真实几何测量初值、放置、内联输入、提交运行；实体点拖动只在 pointerup 形成一个 Domain Command；尺寸标注位置拖动仅更新以 owner Document/Sketch/Constraint 稳定身份索引的浏览器显示偏好，不发送命令、不求解、不改变 Revision 或 Undo/Redo。显示重建与尺寸编辑预览复用此位置。显示/输入单位在 UI 转换，权威数量和表达式由服务端验证。
 
