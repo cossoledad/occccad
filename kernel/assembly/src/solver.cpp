@@ -58,6 +58,25 @@ struct TracePhaseScope {
         trace_iteration = iteration;
     }
 };
+// Scalar summaries only: no matrices, allocations or per-iteration trace storage.
+class MetricTimer {
+public:
+    explicit MetricTimer(double SolveMetrics::* field) : field_(field) {}
+    ~MetricTimer() {
+        if (active_metrics)
+            active_metrics->*field_ += std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start_).count();
+    }
+private:
+    double SolveMetrics::* field_;
+    std::chrono::steady_clock::time_point start_ = std::chrono::steady_clock::now();
+};
+class FactorizationTimer : public MetricTimer {
+public:
+    FactorizationTimer() : MetricTimer(&SolveMetrics::factorization_ms) {
+        if (active_metrics) ++active_metrics->factorizations;
+    }
+};
 thread_local unsigned numerical_scopes = 0;
 class EvaluationTimer {
 public:
@@ -1446,7 +1465,7 @@ class CompiledAssembly final {
 public:
     CompiledAssembly(const Model& model, const SolverOptions& options)
         : model_(model), options_(options), constraints_(model.constraints) {
-        const auto compile_start = std::chrono::steady_clock::now();
+        MetricTimer compile_timer(&SolveMetrics::input_compile_ms);
         validate_and_index();
         // A zero point distance is a coincidence manifold, not a differentiable
         // scalar norm equation. Preserve its true rank at the zero solution.
@@ -1468,12 +1487,12 @@ public:
         build_clusters();
         freeze_branches();
         bind_endpoints();
+        std::vector<Pose> initial_clusters;
+        for (const auto& cluster : clusters_)
+            initial_clusters.push_back(cluster.ground_pose.value_or(cluster.initial_pose));
+        initial_body_poses_ = body_poses(initial_clusters);
         build_components();
-        if (active_metrics)
-            active_metrics->input_compile_ms +=
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                          compile_start)
-                    .count();
+
     }
 
     const Model& model() const { return model_; }
@@ -1481,6 +1500,7 @@ public:
     const std::vector<Cluster>& clusters() const { return clusters_; }
     std::vector<Cluster>& clusters() { return clusters_; }
     const std::vector<Component>& components() const { return components_; }
+    const std::vector<Pose>& initial_body_poses() const { return initial_body_poses_; }
     const Constraint& constraint(const std::size_t index) const { return constraints_.at(index); }
     const BoundConstraint& binding(std::size_t index) const { return bindings_.at(index); }
     const ConstraintBranchState& branch(const std::size_t index) const {
@@ -1508,6 +1528,8 @@ public:
     }
 
     std::vector<Pose> body_poses(const std::vector<Pose>& cluster_poses) const {
+        MetricTimer timer(&SolveMetrics::pose_build_ms);
+        if (active_metrics) ++active_metrics->pose_builds;
         std::vector<Pose> result(model_.bodies.size());
         for (std::size_t cluster_index = 0; cluster_index < clusters_.size(); ++cluster_index) {
             const Cluster& cluster = clusters_[cluster_index];
@@ -1996,6 +2018,7 @@ private:
     std::unordered_map<std::string, const GeometryElement*> geometry_index_;
     std::unordered_map<std::size_t, std::size_t> body_to_cluster_;
     std::vector<Cluster> clusters_;
+    std::vector<Pose> initial_body_poses_;
     std::vector<Component> components_;
 };
 
@@ -2056,7 +2079,7 @@ public:
         trace.stage = trace_stage;
         trace.iteration = trace_iteration;
         trace.evaluation = jacobian ? "JACOBIAN" : "RESIDUAL";
-        trace.body_poses = assembly_.body_poses(cluster_poses(state));
+        trace.body_poses = body_poses(state);
         trace.residual.assign(residual.data(), residual.data() + residual.size());
         if (jacobian && options.record_matrices) {
             trace.jacobian_rows = static_cast<std::size_t>(jacobian->rows());
@@ -2117,13 +2140,25 @@ public:
         return result;
     }
 
+    std::vector<Pose> body_poses(const State& state) const {
+        MetricTimer timer(&SolveMetrics::pose_build_ms);
+        if (active_metrics) ++active_metrics->pose_builds;
+        auto result = assembly_.initial_body_poses();
+        for (std::size_t i = 0; i < free_cluster_indices_.size(); ++i) {
+            const auto& cluster = assembly_.clusters()[free_cluster_indices_[i]];
+            for (const auto body : cluster.body_indices)
+                result[body] = compose(state.poses[i], cluster.root_to_body.at(body));
+        }
+        return result;
+    }
+
     std::vector<ResidualBlock> blocks(const State& state,
                                       const bool use_classification_tolerance = false,
                                       const State* branch_reference = nullptr) const {
         EvaluationTimer timer(false);
-        const std::vector<Pose> bodies = assembly_.body_poses(cluster_poses(state));
+        const std::vector<Pose> bodies = body_poses(state);
         const auto nominal = branch_reference
-                                 ? assembly_.body_poses(cluster_poses(*branch_reference))
+                                 ? body_poses(*branch_reference)
                                  : std::vector<Pose>{};
         SolverOptions tolerance_options = assembly_.options();
         if (use_classification_tolerance) {
@@ -2377,7 +2412,7 @@ public:
         std::vector<std::size_t> result;
         if (free_cluster_indices_.size() != 1)
             return result;
-        const auto bodies = assembly_.body_poses(cluster_poses(state));
+        const auto bodies = body_poses(state);
         for (const auto index : component_.constraint_indices) {
             const auto& constraint = assembly_.constraint(index);
             if (constraint.kind != ConstraintKind::Distance ||
@@ -2413,7 +2448,7 @@ public:
         // These explicitly reported local-branch rows belong to preference,
         // not physical equations/rank/DOF. Coupled or nonparallel configurations
         // fall back to the exact physical tangent without these rows.
-        const auto bodies = assembly_.body_poses(cluster_poses(state));
+        const auto bodies = body_poses(state);
         for (const auto index : parallel_distance_charts(state)) {
             const auto& constraint = assembly_.constraint(index);
             const auto& first = assembly_.geometry(constraint.first);
@@ -2428,7 +2463,7 @@ public:
     std::vector<SolveDiagnostic> zero_line_diagnostics(const State& state) const {
         std::vector<SolveDiagnostic> result;
         const auto charts = parallel_distance_charts(state);
-        const auto bodies = assembly_.body_poses(cluster_poses(state));
+        const auto bodies = body_poses(state);
         for (const auto index : charts) {
             const auto& constraint = assembly_.constraint(index);
             if (constraint.value != 0.0)
@@ -2521,7 +2556,7 @@ public:
         const auto cluster = assembly_.cluster_index(target->body_id);
         if (std::find(component_.cluster_indices.begin(), component_.cluster_indices.end(), cluster) == component_.cluster_indices.end())
             return {Vector::Zero(0), Eigen::MatrixXd::Zero(0, parameter_count())};
-        const auto poses = assembly_.body_poses(cluster_poses(state));
+        const auto poses = body_poses(state);
         const auto& pose = poses[body];
         const auto& options = assembly_.options();
         const Eigen::Matrix3d frame = normalized(target->frame_rotation).toRotationMatrix().transpose();
@@ -2563,7 +2598,7 @@ public:
         // Explicit interaction profile: task -> hold -> remaining nominal.
         // Legacy/static requests retain reference -> total exactly.
         if(reference_only && holds_drag_intent())return drag_objective(state,verify,true);
-        const auto poses = assembly_.body_poses(cluster_poses(state));
+        const auto poses = body_poses(state);
         std::vector<std::size_t> bodies;
         for (auto cluster : component_.cluster_indices)
             for (auto body : assembly_.clusters()[cluster].body_indices)
@@ -2629,7 +2664,7 @@ private:
             const auto& c=assembly_.constraint(index);
             if((c.kind==ConstraintKind::Coincident || c.kind==ConstraintKind::SurfaceIncidence) && c.second) {
                 const auto& ea=assembly_.geometry(c.first); const auto& eb=assembly_.geometry(*c.second);
-                const auto bodies=assembly_.body_poses(cluster_poses(state));
+                const auto bodies=body_poses(state);
                 const auto a=world_geometry(ea,bodies[assembly_.body_index(ea.body_id)]);
                 const auto b=world_geometry(eb,bodies[assembly_.body_index(eb.body_id)]);
                 if(exact_point_incidence(c,a,b)) {
@@ -2676,7 +2711,7 @@ private:
             if(c.kind==ConstraintKind::Coincident && c.second) {
                 const auto& first=assembly_.geometry(c.first); const auto& second=assembly_.geometry(*c.second);
                 if(std::holds_alternative<FrameGeometry>(first.local_geometry) && std::holds_alternative<FrameGeometry>(second.local_geometry)) {
-                    const auto bodies=assembly_.body_poses(cluster_poses(state));
+                    const auto bodies=body_poses(state);
                     auto moving=std::find(free_cluster_indices_.begin(),free_cluster_indices_.end(),assembly_.cluster_index(second.body_id));
                     bool secondMoves=true;
                     if(moving==free_cluster_indices_.end()) {
@@ -2696,7 +2731,7 @@ private:
             }
             if(c.kind!=ConstraintKind::Contact) continue;
             const auto& ea=assembly_.geometry(c.first); const auto& eb=assembly_.geometry(*c.second);
-            const auto bodies=assembly_.body_poses(cluster_poses(state));
+            const auto bodies=body_poses(state);
             const auto a=contact_support(world_geometry(ea,bodies[assembly_.body_index(ea.body_id)]));
             const auto b=contact_support(world_geometry(eb,bodies[assembly_.body_index(eb.body_id)]));
             const auto evaluated=analytic_contact::evaluate(contact_definition(c),a,b);
@@ -2781,7 +2816,7 @@ private:
             const auto& second = assembly_.geometry(*constraint.second);
             if (assembly_.cluster_index(first.body_id) == assembly_.cluster_index(second.body_id))
                 continue;
-            const auto bodies = assembly_.body_poses(cluster_poses(state));
+            const auto bodies = body_poses(state);
             const auto a = world_geometry(first, bodies[assembly_.body_index(first.body_id)]);
             const auto b = world_geometry(second, bodies[assembly_.body_index(second.body_id)]);
             if (!is_axis_like(a) || !is_axis_like(b))
@@ -2859,7 +2894,7 @@ private:
                                         moving_cluster);
             if (free == free_cluster_indices_.end())
                 continue;
-            const std::vector<Pose> bodies = assembly_.body_poses(cluster_poses(state));
+            const std::vector<Pose> bodies = body_poses(state);
             const WorldGeometry first =
                 world_geometry(first_element, bodies[assembly_.body_index(first_element.body_id)]);
             const WorldGeometry second = world_geometry(
@@ -2911,7 +2946,7 @@ private:
                 cluster_pose.rotation = value(turn * normalized(cluster_pose.rotation));
                 if (constraint.kind == ConstraintKind::Coincident &&
                     std::holds_alternative<WorldPlane>(first) && std::holds_alternative<WorldPlane>(second)) {
-                    const auto turned_bodies = assembly_.body_poses(cluster_poses(candidate));
+                    const auto turned_bodies = body_poses(candidate);
                     const auto turned = std::get<WorldPlane>(world_geometry(first_element, turned_bodies[assembly_.body_index(first_element.body_id)]));
                     const auto& plane = std::get<WorldPlane>(second);
                     cluster_pose.translation = value(eigen(cluster_pose.translation) - (turned.origin - plane.origin).dot(plane.normal) * plane.normal);
@@ -3019,8 +3054,11 @@ ComponentSolution restore_component(const ComponentProblem& problem, const Solve
             augmented(jacobian.rows() + index, index) = scale;
             right_hand_side[residual.size() + index] = 0.0;
         }
-        Eigen::ColPivHouseholderQR<Eigen::MatrixXd> decomposition(augmented);
-        const Vector step = decomposition.solve(right_hand_side);
+        const Vector step = [&] {
+            FactorizationTimer timer;
+            Eigen::ColPivHouseholderQR<Eigen::MatrixXd> decomposition(augmented);
+            return Vector(decomposition.solve(right_hand_side));
+        }();
         if (!step.allFinite())
             return {SolveStatus::NumericalFailure, result.state, iteration,
                     "linear solve produced a non-finite step"};
@@ -3096,6 +3134,7 @@ ComponentSolution restore_component(const ComponentProblem& problem, const Solve
 
 // All optimization subspaces use dimensionless tangents and orthonormal columns.
 Eigen::MatrixXd orthogonal_kernel(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
+    FactorizationTimer timer;
     if (matrix.cols() == 0)
         return Eigen::MatrixXd(0, 0);
     if (matrix.rows() == 0)
@@ -3122,6 +3161,7 @@ Eigen::MatrixXd orthogonal_kernel(const Eigen::MatrixXd& matrix, const SolverOpt
     return qr.householderQ() * Eigen::MatrixXd::Identity(matrix.cols(), freedom);
 }
 Eigen::MatrixXd canonical_image(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
+    FactorizationTimer timer;
     if (!matrix.cols())
         return Eigen::MatrixXd(matrix.rows(), 0);
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(matrix, Eigen::ComputeThinU);
@@ -3148,6 +3188,7 @@ Eigen::MatrixXd canonical_image(const Eigen::MatrixXd& matrix, const SolverOptio
 }
 Vector minimum_step(const Eigen::MatrixXd& matrix, const Vector& rhs,
                     const SolverOptions& options) {
+    FactorizationTimer timer;
     if (!matrix.cols())
         return Vector(0);
     if (!matrix.rows())
@@ -3341,6 +3382,23 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
         return report;
     }
     const Vector scales = problem.tangent_scales();
+    std::optional<State> kernel_state;
+    Eigen::MatrixXd cached_kernel;
+    const auto physical_kernel = [&](const State& at) -> const Eigen::MatrixXd& {
+        const auto equal = [](const Pose& a, const Pose& b) {
+            return a.translation.x == b.translation.x && a.translation.y == b.translation.y &&
+                   a.translation.z == b.translation.z && a.rotation.x == b.rotation.x &&
+                   a.rotation.y == b.rotation.y && a.rotation.z == b.rotation.z && a.rotation.w == b.rotation.w;
+        };
+        if (!kernel_state || !std::equal(at.poses.begin(), at.poses.end(),
+                                         kernel_state->poses.begin(), kernel_state->poses.end(), equal)) {
+            cached_kernel = orthogonal_kernel(problem.motion_jacobian(at, problem.residual(at)) *
+                                               scales.asDiagonal(), options);
+            kernel_state = at;
+        } else if (active_metrics) ++active_metrics->physical_kernel_cache_hits;
+        return cached_kernel;
+    };
+
     report.status = PreferenceStatus::Converged;
     if(problem.holds_drag_intent()) {
         State candidate=problem.drag_seed(state);
@@ -3363,7 +3421,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
             ++report.iterations;
             ++evidence.iterations;
             const auto target=problem.drag_objective(state);
-            const auto z=orthogonal_kernel(problem.motion_jacobian(state,problem.residual(state))*scales.asDiagonal(),options);
+            const auto z=physical_kernel(state);
             const Eigen::MatrixXd reduced=target.jacobian*scales.asDiagonal()*z;
             evidence.target_optimality=(reduced.transpose()*target.residual).norm();
             evidence.target_error=target.residual.norm();
@@ -3421,7 +3479,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                 // derivative improvement and a non-accumulating energy bound.
                 if(!descent && after<=best_drag_energy+32*std::numeric_limits<double>::epsilon()*std::max(1.0,best_drag_energy)) {
                     const auto next=problem.drag_objective(candidate,false);
-                    const auto next_z=orthogonal_kernel(problem.motion_jacobian(candidate,problem.residual(candidate))*scales.asDiagonal(),options);
+                    const auto next_z=physical_kernel(candidate);
                     descent=(next_z.transpose()*scales.asDiagonal()*next.jacobian.transpose()*next.residual).norm()<0.8*evidence.target_optimality;
                 }
                 if(descent) {
@@ -3437,7 +3495,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
         report.interaction=evidence;
         drag_bound=problem.drag_objective(state).residual.squaredNorm();
         const auto current_drag=problem.drag_objective(state,false);
-        const auto physical=orthogonal_kernel(problem.motion_jacobian(state,problem.residual(state))*scales.asDiagonal(),options);
+        const auto physical=physical_kernel(state);
         const auto prior_tangent=preference_tangent(problem,state,physical,options,true);
         // Preserve the residual vector only when it is zero or constant on
         // the scalar argmin. Flat nonzero minima (sphere-center targets) must
@@ -3467,9 +3525,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
             ++report.iterations;
             const auto ref = problem.objective(state, true);
             const auto objective = level == 0 ? ref : problem.objective(state, false);
-            const Vector residual = problem.residual(state);
-            Eigen::MatrixXd z =
-                orthogonal_kernel(problem.motion_jacobian(state, residual) * scales.asDiagonal(), options);
+            Eigen::MatrixXd z = physical_kernel(state);
             if(report.interaction) z=preference_tangent(problem,state,z,options,true);
             if (level == 1) {
                 const double unrestricted = (z.transpose()*scales.asDiagonal()*objective.jacobian.transpose()*objective.residual).norm();
@@ -3495,6 +3551,8 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                 const double curvature = transported_step.dot(difference);
                 if (curvature > 1e-10 * transported_step.norm() * difference.norm() &&
                     curvature > 1e-30) {
+                    MetricTimer timer(&SolveMetrics::bfgs_update_ms);
+                    if (active_metrics) ++active_metrics->bfgs_updates;
                     const Eigen::MatrixXd update =
                         Eigen::MatrixXd::Identity(scales.size(), scales.size()) -
                         transported_step * difference.transpose() / curvature;
@@ -3515,9 +3573,12 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                     // leave those to the existing hierarchical BFGS path.
                     if (level == 1 && ref.residual.squaredNorm() > options.objective_tolerance) break;
                     const auto curvature = motion_curvature(problem, state, z, level == 0, options);
-                    const Eigen::LDLT<Eigen::MatrixXd> factor(curvature);
-                    if (factor.info() != Eigen::Success || !factor.isPositive()) break;
-                    step = -z * factor.solve(reduced.transpose() * objective.residual);
+                    {
+                        FactorizationTimer factor_timer;
+                        const Eigen::LDLT<Eigen::MatrixXd> factor(curvature);
+                        if (factor.info() != Eigen::Success || !factor.isPositive()) break;
+                        step = -z * factor.solve(reduced.transpose() * objective.residual);
+                    }
                     if (!step.allFinite() || gradient.dot(step) >= 0) break;
                 }
                 // Riemannian BFGS models objective/manifold curvature without mixing priorities.
@@ -3558,9 +3619,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                     if (!descent && after <= best_energy + roundoff) {
                         const auto next_objective = problem.objective(candidate, level == 0, false);
                         Eigen::MatrixXd next_z =
-                            orthogonal_kernel(problem.motion_jacobian(candidate, problem.residual(candidate)) *
-                                                  scales.asDiagonal(),
-                                              options);
+                            physical_kernel(candidate);
                         if(report.interaction) next_z=preference_tangent(problem,candidate,next_z,options,true);
                         if (level == 1) next_z = preference_tangent(problem,candidate,next_z,options);
                         descent = (next_z.transpose() * scales.asDiagonal() *
@@ -3603,12 +3662,11 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
     const auto all = problem.objective(state, false, false);
     report.reference_objective = ref.residual.squaredNorm();
     report.total_objective = all.residual.squaredNorm();
-    Eigen::MatrixXd final_z = orthogonal_kernel(
-        problem.motion_jacobian(state, problem.residual(state)) * scales.asDiagonal(), options);
+    Eigen::MatrixXd final_z = physical_kernel(state);
     if(report.interaction) final_z=preference_tangent(problem,state,final_z,options,true);
     if(report.interaction) {
         const auto drag=problem.drag_objective(state,false);
-        const auto physical_z=orthogonal_kernel(problem.motion_jacobian(state,problem.residual(state))*scales.asDiagonal(),options);
+        const auto physical_z=physical_kernel(state);
         report.interaction->target_error=drag.residual.norm();
         report.interaction->target_optimality=(physical_z.transpose()*scales.asDiagonal()*drag.jacobian.transpose()*drag.residual).norm();
         report.interaction->hard_feasible=problem.satisfied(state);
@@ -3648,7 +3706,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
         if(report.interaction->status!=InteractionStatus::Cancelled)report.interaction->status=InteractionStatus::Budget;
         report.interaction->termination_stage="INTENT_HOLD";report.interaction->termination_reason="PREFERENCE_STALLED";
     }
-    const auto poses = problem.assembly().body_poses(problem.cluster_poses(state));
+    const auto poses = problem.body_poses(state);
     for (auto cluster : problem.component().cluster_indices)
         for (auto body : problem.assembly().clusters()[cluster].body_indices) {
             const auto& initial = problem.assembly().model().bodies[body];
@@ -3663,12 +3721,12 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
 }
 
 std::vector<BodyFreedom> interpret_freedoms(const ComponentProblem& problem, const State& state,
-                                            const SolverOptions& options) {
+                                            const SolverOptions& options, const Eigen::MatrixXd& physical_jacobian) {
     const auto& assembly = problem.assembly();
-    const auto poses = assembly.body_poses(problem.cluster_poses(state));
+    const auto poses = problem.body_poses(state);
     const Vector scales = problem.tangent_scales();
     const Eigen::MatrixXd z = orthogonal_kernel(
-        problem.jacobian(state, problem.residual(state)) * scales.asDiagonal(), options);
+        physical_jacobian * scales.asDiagonal(), options);
     std::optional<std::size_t> anchor;
     if (problem.gauge_dof() && !options.drag_target)
         anchor =
@@ -3771,6 +3829,7 @@ struct NullSpaceAnalysis {
 };
 
 NullSpaceAnalysis analyze_null_space(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
+    FactorizationTimer timer;
     NullSpaceAnalysis result;
     if (matrix.cols() == 0)
         return result;
@@ -3816,6 +3875,7 @@ NullSpaceAnalysis analyze_null_space(const Eigen::MatrixXd& matrix, const Solver
 }
 
 std::size_t matrix_rank(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
+    FactorizationTimer timer;
     if (matrix.rows() == 0 || matrix.cols() == 0)
         return 0;
     const double absolute =
@@ -3833,6 +3893,7 @@ std::size_t matrix_rank(const Eigen::MatrixXd& matrix, const SolverOptions& opti
 std::vector<ConstraintRankInfo> constraint_rank_info(const ComponentProblem& problem,
                                                      const State& state,
                                                      const SolverOptions& options) {
+    MetricTimer timer(&SolveMetrics::redundancy_ms);
     const auto blocks = problem.blocks(state);
     const Vector all_residuals = problem.residual(state);
     const Eigen::MatrixXd all_jacobian = problem.jacobian(state, all_residuals);
@@ -4036,6 +4097,7 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
                     inconsistent_clusters[cluster] = true;
             }
 
+            const auto dof_started = std::chrono::steady_clock::now();
             const Vector residual = problem.residual(solution.state);
             const Eigen::MatrixXd jacobian = problem.jacobian(solution.state, residual);
             const NullSpaceAnalysis null_space = analyze_null_space(jacobian, options);
@@ -4049,7 +4111,7 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
             for (const auto& evidence : problem.zero_line_diagnostics(solution.state))
                 result.diagnostics.push_back(evidence);
             if (component.selected && solution.status == SolveStatus::Converged)
-                component_dof.freedoms = interpret_freedoms(problem, solution.state, options);
+                component_dof.freedoms = interpret_freedoms(problem, solution.state, options, jacobian);
             if (component.selected && preference.geometrically_feasible &&
                 preference.status != PreferenceStatus::Converged)
                 result.diagnostics.push_back({"PREFERENCE_NOT_CONVERGED",
@@ -4084,6 +4146,8 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
                      "residual exceeds classification tolerance"});
             }
             result.components.push_back(std::move(component_dof));
+            if (active_metrics) active_metrics->dof_analysis_ms +=
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - dof_started).count();
 
             if (component.selected && solution.status != SolveStatus::NumericalFailure && !options.drag_target) {
                 const auto ranks = constraint_rank_info(problem, solution.state, options);

@@ -111,7 +111,17 @@ int main(int argc, char** argv) {
     const std::vector<std::pair<std::string, Model>> scenes = {{"single", free_scene(1)},
                                                                {"connected50-200", connected()},
                                                                {"independent50", free_scene(50)},
-                                                               {"group-contact", group_contact()}};
+                                                               {"group-contact", group_contact()},
+                                                               {"grounded-failure", [] {
+                                                                   auto m = free_scene(2);
+                                                                   for (const auto& b : m.bodies) {
+                                                                       m.geometry.push_back({"p", b.id, PointGeometry{}});
+                                                                       Constraint c; c.id = "fix/" + b.id; c.kind = ConstraintKind::Fix; c.first = {b.id, {}}; m.constraints.push_back(c);
+                                                                   }
+                                                                   m.constraints.push_back(relation("impossible", ConstraintKind::Coincident, {"b0", "p"}, {"b1", "p"})); return m;
+                                                               }()},
+                                                               {"cancelled", connected()}, {"budget", connected()},
+                                                               {"invalid-input", [] { auto m = connected(); m.constraints[0].first.geometry_id = "missing"; return m; }()}};
     bool selected = false;
     for (const auto& scene : scenes) {
         if (!filter.empty() && filter != scene.first)
@@ -126,6 +136,8 @@ int main(int argc, char** argv) {
         d.body_id = "b0";
         d.target_pose = m.bodies[0].initial_pose;
         o.drag_target = d;
+        if (scene.first == "cancelled") o.should_cancel = [] { return true; };
+        if (scene.first == "budget") o.max_preference_iterations = 1;
         std::vector<double> elapsed;
         std::size_t solves = 0;
         SolveResult r;
@@ -138,11 +150,31 @@ int main(int argc, char** argv) {
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
                     .count());
             ++solves;
-            const bool valid = r.interaction && r.interaction->eligible_for_commit &&
-                               independently_valid(scene.first, m, r);
+            const bool failure = scene.first == "grounded-failure" || scene.first == "cancelled" || scene.first == "budget" || scene.first == "invalid-input";
+            const bool valid = r.interaction && (failure ? !r.interaction->eligible_for_commit :
+                r.interaction->eligible_for_commit && independently_valid(scene.first, m, r));
             std::cout << "{\"kind\":\"sample\",\"scene\":\"" << scene.first
                       << "\",\"sample\":" << sample + 1 << ",\"kernel_ms\":" << elapsed.back()
-                      << ",\"qualified\":" << (valid ? "true" : "false") << "}" << std::endl;
+                      << ",\"valid\":" << (valid ? "true" : "false")
+                      << ",\"eligible\":" << (r.interaction->eligible_for_commit ? "true" : "false")
+                      << ",\"iterations\":" << r.iterations
+                      << ",\"interaction_iterations\":" << r.interaction->iterations
+                      << ",\"status\":" << static_cast<int>(r.status)
+                      << ",\"compile_ms\":" << r.metrics.input_compile_ms
+                      << ",\"hard_ms\":" << r.metrics.hard_feasibility_ms
+                      << ",\"preference_ms\":" << r.metrics.preference_ms
+                      << ",\"retraction_ms\":" << r.metrics.feasibility_retraction_ms
+                      << ",\"dof_ms\":" << r.metrics.dof_analysis_ms
+                      << ",\"redundancy_ms\":" << r.metrics.redundancy_ms
+                      << ",\"factorization_ms\":" << r.metrics.factorization_ms
+                      << ",\"factorizations\":" << r.metrics.factorizations
+                      << ",\"kernel_cache_hits\":" << r.metrics.physical_kernel_cache_hits
+                      << ",\"bfgs_ms\":" << r.metrics.bfgs_update_ms
+                      << ",\"bfgs_updates\":" << r.metrics.bfgs_updates
+                      << ",\"pose_ms\":" << r.metrics.pose_build_ms
+                      << ",\"pose_builds\":" << r.metrics.pose_builds
+                      << ",\"residual_ms\":" << r.metrics.residual_ms
+                      << ",\"jacobian_ms\":" << r.metrics.jacobian_ms << "}" << std::endl;
             if (!valid)
                 return 1;
             for (auto& body : m.bodies)
@@ -161,7 +193,7 @@ int main(int argc, char** argv) {
                 ++updated;
         }
 #ifdef NDEBUG
-        const char* configuration = "Release";
+        const char* configuration = "optimized";
 #else
         const char* configuration = "Debug";
 #endif
@@ -177,7 +209,7 @@ int main(int argc, char** argv) {
                   << ",\"kernel_p50_ms\":" << elapsed[(elapsed.size() - 1) / 2]
                   << ",\"kernel_p95_ms\":"
                   << elapsed[static_cast<std::size_t>(std::ceil(0.95 * elapsed.size())) - 1]
-                  << ",\"hard_feasible\":true,\"transport_measured\":false,\"rendering_measured\":"
+                  << ",\"hard_feasible\":" << (r.interaction->hard_feasible ? "true" : "false") << ",\"transport_measured\":false,\"rendering_measured\":"
                      "false}\n";
     }
     return selected ? 0 : 2;

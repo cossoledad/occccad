@@ -11,6 +11,8 @@ import (
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
+	"github.com/occccad/occccad/internal/valuecopy"
 )
 
 const assemblyInteractionTTL = 2 * time.Minute
@@ -22,7 +24,10 @@ type assemblyInteraction struct {
 	sequence, baseSequence                                                uint64
 	manifest                                                              AssemblySolveManifest
 	model                                                                 ProductModel
-	nominal                                                               []InstancePoseEntry
+	nominalByID                                                           map[string]InstancePoseEntry
+	manifestConstraintIndex                                               map[string]int
+	definitionConstraintIndex                                             map[string]int
+	geometryByID                                                          map[string]geometry.AssemblyGeometry
 	localGrabPoint                                                        [3]float64
 	frameRotation                                                         [4]float64
 	occurrencePath                                                        *InstancePath
@@ -150,6 +155,13 @@ func interactionFrozenConstraints(input AssemblySolveManifest) ([]geometry.Assem
 }
 
 func (service *Service) BeginAssemblyInteraction(ctx context.Context, documentID, actor string, input AssemblyInteractionBegin) (AssemblyInteractionOpened, error) {
+	// Retained caller pointers must not mutate the Session snapshot or indices.
+	owned, err := valuecopy.Clone(input)
+	if err != nil {
+		return AssemblyInteractionOpened{}, fmt.Errorf("%w: invalid Begin snapshot: %v", ErrValidation, err)
+	}
+	input = owned
+
 	// Reuse the production command adapter and authoritative Workspace snapshot.
 	prepared, err := service.prepareDomainMutation(ctx, documentID, CommandRequest{Type: "MOVE_INSTANCE", ActorID: actor, InstanceID: input.InstanceID, Rotation: [4]float64{0, 0, 0, 1}})
 	if err != nil {
@@ -254,8 +266,24 @@ func (service *Service) BeginAssemblyInteraction(ctx context.Context, documentID
 	if !validInteractionTarget(probe) {
 		return AssemblyInteractionOpened{}, fmt.Errorf("%w: invalid frozen drag frame", ErrValidation)
 	}
-	session := &assemblyInteraction{actorID: actor, documentID: documentID, workspaceID: prepared.workspaceID, baseRevisionID: prepared.headRevision, baseSequence: prepared.headSequence, inputDigest: frozen.Digest, bodyID: bodyID, manifest: frozen, model: model, nominal: nominal, localGrabPoint: input.LocalGrabPoint, frameRotation: q, occurrencePath: input.OccurrencePath, editContext: input.EditContext, expires: time.Now().Add(assemblyInteractionTTL)}
+	session := &assemblyInteraction{actorID: actor, documentID: documentID, workspaceID: prepared.workspaceID, baseRevisionID: prepared.headRevision, baseSequence: prepared.headSequence, inputDigest: frozen.Digest, bodyID: bodyID, manifest: frozen, model: model, localGrabPoint: input.LocalGrabPoint, frameRotation: q, occurrencePath: input.OccurrencePath, editContext: input.EditContext, expires: time.Now().Add(assemblyInteractionTTL)}
 	id := newID("assembly-session")
+	session.nominalByID = make(map[string]InstancePoseEntry, len(nominal))
+	for _, pose := range nominal {
+		session.nominalByID[pose.InstanceID] = pose
+	}
+	session.manifestConstraintIndex = make(map[string]int, len(frozen.Constraints))
+	for i, c := range frozen.Constraints {
+		session.manifestConstraintIndex[c.ID] = i
+	}
+	session.definitionConstraintIndex = make(map[string]int, len(model.Constraints))
+	for i, c := range model.Constraints {
+		session.definitionConstraintIndex[c.ID] = i
+	}
+	session.geometryByID = make(map[string]geometry.AssemblyGeometry, len(frozen.Geometry))
+	for _, g := range frozen.Geometry {
+		session.geometryByID[g.ID] = g
+	}
 	cache := &service.assemblyInteractions
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
@@ -351,6 +379,7 @@ func interactionComponent(input AssemblySolveManifest, bodyID string) (AssemblyS
 }
 
 func (service *Service) validateInteractionEditContext(ctx context.Context, doc, revision string, c *AssemblyInteractionEditContext) error {
+	defer perf.Start(ctx, "assembly-edit-context")()
 	if c == nil {
 		return nil
 	}
@@ -358,20 +387,22 @@ func (service *Service) validateInteractionEditContext(ctx context.Context, doc,
 	if c.InstancePath != nil {
 		canonical = c.InstancePath.Canonical
 	}
-	design, err := service.GetProductDesignSession(ctx, c.RootDocumentID, canonical)
+	// This check needs snapshot/path/owner evidence, not a publication catalog.
+	// Keep mutable root Head and document liveness reads fresh on every check.
+	rootRevision, items, err := service.productContextRoot(withAssemblyReadCache(ctx), c.RootDocumentID)
 	if err != nil {
 		return err
+	}
+	active, ok := occurrenceByCanonical(items, canonical)
+	if !ok {
+		return fmt.Errorf("%w: active occurrence is outside the Product context", ErrValidation)
 	}
 	activeDoc, activeRevision := c.ActiveDocumentID, c.ActiveRevisionID
 	if activeDoc == "" {
 		activeDoc, activeRevision = doc, revision
 	}
-	if design.RootProductRevisionID != c.RootRevisionID || design.ActiveDocumentID != activeDoc || design.ActiveRevisionID != activeRevision || (doc == c.RootDocumentID && revision != c.RootRevisionID) {
+	if rootRevision != c.RootRevisionID || active.DocumentID != activeDoc || active.RevisionID != activeRevision || (doc == c.RootDocumentID && revision != c.RootRevisionID) {
 		return fmt.Errorf("%w: ASSEMBLY_SESSION_EDIT_CONTEXT_CHANGED", ErrValidation)
-	}
-	items, err := service.expandProductContext(ctx, c.RootDocumentID, c.RootRevisionID)
-	if err != nil {
-		return err
 	}
 	ownerFound := doc == c.RootDocumentID
 	for _, item := range items {
@@ -385,14 +416,15 @@ func (service *Service) validateInteractionEditContext(ctx context.Context, doc,
 	if !ownerFound {
 		return fmt.Errorf("%w: solver owner outside edit context snapshot", ErrValidation)
 	}
-	if c.InstancePath != nil && design.ActiveInstancePath != nil {
-		if err = validateResolvedInstancePath(*c.InstancePath, *design.ActiveInstancePath); err != nil {
+	if c.InstancePath != nil {
+		if err = validateResolvedInstancePath(*c.InstancePath, active.Path); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 func (service *Service) checkInteractionBase(ctx context.Context, s *assemblyInteraction) error {
+	defer perf.Start(ctx, "assembly-base-check")()
 	var head, workspace string
 	var seq uint64
 	err := service.database.QueryRow(ctx, `SELECT id::text,head_revision_id::text,head_sequence FROM occccad.workspaces WHERE document_id=$1 AND name='main'`, s.documentID).Scan(&workspace, &head, &seq)
@@ -406,8 +438,17 @@ func (service *Service) checkInteractionBase(ctx context.Context, s *assemblyInt
 }
 
 func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentID, actor string, input AssemblyInteractionUpdate) (AssemblyInteractionFrame, error) {
+	defer perf.Start(ctx, "assembly-update")()
 	cache := &service.assemblyInteractions
+	finishLock := perf.Start(ctx, "assembly-session-lock-wait")
 	cache.mu.Lock()
+	finishLock()
+	finishPrepare := perf.Start(ctx, "assembly-update-prepare")
+	defer func() {
+		if finishPrepare != nil {
+			finishPrepare()
+		}
+	}()
 	s := cache.values[input.SessionID]
 	if s == nil || s.actorID != actor || s.documentID != documentID || time.Now().After(s.expires) {
 		cache.mu.Unlock()
@@ -445,8 +486,10 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	target := input.Target
 	frozen.DragTarget = &target
 	frozen.InteractionGoalSequence = goal
-	frozen.Digest = assemblyManifestDigest(frozen)
 	cache.mu.Unlock()
+	frozen.Digest = assemblyManifestDigest(frozen)
+	finishPrepare()
+	finishPrepare = nil
 	defer func() {
 		cancel()
 		cache.mu.Lock()
@@ -468,11 +511,18 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	if err = service.checkInteractionBase(work, s); err != nil {
 		return AssemblyInteractionFrame{}, err
 	}
+	finishPublishWait := perf.Start(ctx, "assembly-session-lock-wait")
 	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	if cache.values[input.SessionID] != s || work.Err() != nil {
+	finishPublishWait()
+	current := cache.values[input.SessionID] == s && work.Err() == nil
+	cache.mu.Unlock()
+	if !current {
 		return AssemblyInteractionFrame{}, fmt.Errorf("%w: ASSEMBLY_SESSION_CANCELLED", ErrValidation)
 	}
+	// inFlight grants this update sole ownership of model/warm/branch state.
+	// The global lock protects lifecycle and tokens only; no DB/RPC/JSON work
+	// below holds it. Cancellation can revoke membership at any point.
+	defer perf.Start(ctx, "assembly-update-publish")()
 	frame := AssemblyInteractionFrame{CommandPreview: CommandPreview{BaseVersionID: s.baseRevisionID, BaseSequence: s.baseSequence, AssemblySolverBuild: result.SolverBuild, AssemblyComponents: result.Components}, SessionID: input.SessionID, InputDigest: s.inputDigest, Sequence: input.Sequence, RequestID: requestID, Interaction: result.Interaction, SolveMS: float64(time.Since(started).Microseconds()) / 1000}
 	if result.Interaction == nil {
 		frame.GoalSequence = goal
@@ -501,8 +551,13 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	for _, b := range result.Bodies {
 		byID[b.ID] = b.Pose
 	}
-	nextRaw, _ := json.Marshal(s.model)
-	next := mustInteractionModel(nextRaw)
+	finishCopy := perf.Start(ctx, "assembly-model-copy")
+	// Copy only the two value slices written below. Nested definitions,
+	// paths, groups and context bindings remain read-only frozen values.
+	next := s.model
+	next.Instances = append([]ProductInstance(nil), s.model.Instances...)
+	next.Constraints = append([]AssemblyConstraint(nil), s.model.Constraints...)
+	finishCopy()
 	for i := range next.Instances {
 		if p, ok := byID[next.Instances[i].ID]; ok {
 			next.Instances[i].Translation = p.Translation
@@ -527,17 +582,12 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 		}
 	}
 	for _, branch := range result.AngleBranches {
-		for i := range s.manifest.Constraints {
-			if s.manifest.Constraints[i].ID == branch.ConstraintID {
-				state := branch.State
-				s.manifest.Constraints[i].AngleBranchState = &state
-			}
+		if i, ok := s.manifestConstraintIndex[branch.ConstraintID]; ok {
+			state := branch.State
+			s.manifest.Constraints[i].AngleBranchState = &state
 		}
 	}
-	resolved := map[string]geometry.AssemblyGeometry{}
-	for _, g := range frozen.Geometry {
-		resolved[g.ID] = g
-	}
+	resolved := s.geometryByID
 	instances := map[string]*ProductInstance{}
 	for i := range next.Instances {
 		instances[next.Instances[i].ID] = &next.Instances[i]
@@ -547,8 +597,9 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 		if c.Suppressed || c.Mode == "MEASURED" {
 			continue
 		}
-		for j, compiled := range s.manifest.Constraints {
-			if compiled.ID != c.ID || compiled.Kind != "ANGLE" || compiled.AngleReferenceDirection != nil || compiled.AngleReferenceGeometryID != "" {
+		if j, ok := s.manifestConstraintIndex[c.ID]; ok {
+			compiled := s.manifest.Constraints[j]
+			if compiled.Kind != "ANGLE" || compiled.AngleReferenceDirection != nil || compiled.AngleReferenceGeometryID != "" {
 				continue
 			}
 			sense := 1.0
@@ -562,23 +613,18 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 		}
 	}
 	measurementModel := ProductModel{}
-	compiledIDs := map[string]bool{}
-	for _, c := range frozen.Constraints {
-		compiledIDs[c.ID] = true
-	}
 	for _, c := range next.Constraints {
-		if compiledIDs[c.ID] && c.Mode == "MEASURED" {
+		if _, ok := s.manifestConstraintIndex[c.ID]; ok && c.Mode == "MEASURED" {
 			measurementModel.Constraints = append(measurementModel.Constraints, c)
 		}
 	}
 	applyAssemblyMeasurements(&measurementModel, result, frozen.SolverProfile, nil)
 	for _, c := range measurementModel.Constraints {
-		for i := range next.Constraints {
-			if next.Constraints[i].ID == c.ID {
-				next.Constraints[i] = c
-			}
+		if i, ok := s.definitionConstraintIndex[c.ID]; ok {
+			next.Constraints[i] = c
 		}
 	}
+	finishNominal := perf.Start(ctx, "assembly-nominal-compare")
 	unchanged := true
 	for _, i := range next.Instances {
 		frame.InstancePoses = append(frame.InstancePoses, struct {
@@ -586,16 +632,25 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 			Translation [3]float64 `json:"translation"`
 			Rotation    [4]float64 `json:"rotation"`
 		}{i.ID, i.Translation, i.Rotation})
-		for _, n := range s.nominal {
-			if n.InstanceID == i.ID && !interactionPoseEqual(n, InstancePoseEntry{i.ID, i.Translation, i.Rotation}) {
-				unchanged = false
-			}
+		if n, ok := s.nominalByID[i.ID]; ok && !interactionPoseEqual(n, InstancePoseEntry{i.ID, i.Translation, i.Rotation}) {
+			unchanged = false
 		}
 	}
-	s.model = next
+	finishNominal()
+	finishSerialize := perf.Start(ctx, "assembly-model-serialize")
 	raw, err := json.Marshal(next)
+	finishSerialize()
 	if err != nil {
 		return frame, err
+	}
+	cache.mu.Lock()
+	current = cache.values[input.SessionID] == s && work.Err() == nil
+	if current {
+		s.model = next
+	}
+	cache.mu.Unlock()
+	if !current {
+		return frame, fmt.Errorf("%w: ASSEMBLY_SESSION_CANCELLED", ErrValidation)
 	}
 	frame.ModelHash = canonicalModelHash(raw)
 	frame.Unchanged = unchanged
@@ -624,7 +679,15 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	if err = service.recordAssemblySolveResult(work, frozen, previewRequestID, result, nil); err != nil {
 		return frame, err
 	}
+	if err = service.checkInteractionBase(work, s); err != nil {
+		return frame, err
+	}
 	previewID := newID("preview")
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.values[input.SessionID] != s || work.Err() != nil {
+		return frame, fmt.Errorf("%w: ASSEMBLY_SESSION_CANCELLED", ErrValidation)
+	}
 	service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: actor, headRevision: s.baseRevisionID, headSequence: s.baseSequence, commandType: prepared.command.TypeURI, payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: raw, assemblyPreviewRequestID: previewRequestID, expiresAt: time.Now().Add(interactionCandidateTTL)})
 	s.previewID = previewID
 	s.finalTarget = &target
@@ -663,10 +726,19 @@ func (service *Service) CancelAssemblyInteraction(documentID, actor, id string) 
 func (service *Service) validateInteractionCommit(ctx context.Context, doc string, prepared preparedDomainMutation, request CommandRequest) error {
 	cache := &service.assemblyInteractions
 	cache.mu.Lock()
-	defer cache.mu.Unlock()
 	s := cache.values[request.SessionID]
 	if s == nil || s.actorID != prepared.actorID || s.documentID != doc || time.Now().After(s.expires) || s.inFlight || s.previewID == "" || s.previewID != request.PreviewID || s.finalTarget == nil || request.InteractionTarget == nil || !reflect.DeepEqual(*s.finalTarget, *request.InteractionTarget) || prepared.headRevision != s.baseRevisionID || prepared.headSequence != s.baseSequence {
+		cache.mu.Unlock()
 		return fmt.Errorf("%w: ASSEMBLY_SESSION_FINAL_CANDIDATE_STALE_OR_MISMATCHED", ErrValidation)
 	}
-	return service.checkInteractionBase(ctx, s)
+	cache.mu.Unlock()
+	if err := service.checkInteractionBase(ctx, s); err != nil {
+		return err
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.values[request.SessionID] != s || s.inFlight || s.previewID != request.PreviewID || s.finalTarget == nil || !reflect.DeepEqual(*s.finalTarget, *request.InteractionTarget) {
+		return fmt.Errorf("%w: ASSEMBLY_SESSION_FINAL_CANDIDATE_STALE_OR_MISMATCHED", ErrValidation)
+	}
+	return ctx.Err()
 }

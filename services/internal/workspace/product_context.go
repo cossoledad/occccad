@@ -377,11 +377,21 @@ func (service *Service) expandProductContext(ctx context.Context, rootDocumentID
 		if visiting[key] {
 			return fmt.Errorf("%w: PRODUCT_REFERENCE_CYCLE", ErrValidation)
 		}
-		var documentType, name string
-		var raw []byte
-		if err := service.database.QueryRow(ctx, `SELECT d.document_type,d.name,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2 AND d.deleted_at IS NULL`, documentID, revisionID).Scan(&documentType, &name, &raw); err != nil {
+		type revisionRead struct {
+			documentType, name string
+			raw                []byte
+		}
+		// Read-only within one check/operation. A new validation gets a fresh
+		// cache, so Head changes and deletion are still checked before/after RPC.
+		read, err := assemblyRead(ctx, assemblyReadKey{"product-context-row", documentID, revisionID}, func() (revisionRead, error) {
+			var row revisionRead
+			err := service.database.QueryRow(ctx, `SELECT d.document_type,d.name,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2 AND d.deleted_at IS NULL`, documentID, revisionID).Scan(&row.documentType, &row.name, &row.raw)
+			return row, err
+		})
+		if err != nil {
 			return err
 		}
+		documentType, name, raw := read.documentType, read.name, read.raw
 		item := expandedOccurrence{Path: path, DocumentID: documentID, RevisionID: revisionID, DocumentType: documentType, Name: name, Pose: pose,
 			ReferenceMode: referenceMode}
 		if documentType == "PART" {

@@ -4,7 +4,7 @@ import { realtime } from "./api/realtime-client";
 import { CommandPreviewIdentities } from "./api/command-preview-identity";
 const previewIdentities = new CommandPreviewIdentities();
 import { randomUUID } from "./utils/random-uuid";
-import { clientPerformanceSnapshot, recordClientPerformance } from "./utils/performance";
+import { clientPerformanceSnapshot, recordClientPerformance, measureClientRequest } from "./utils/performance";
 import type { AssemblyInteractionBegin, AssemblyInteractionUpdate } from "./cad/assembly/assembly-interaction";
 import type { AssemblyConflictRequest } from "./cad/assembly/assembly-conflict";
 
@@ -38,20 +38,25 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-	const started = performance.now();
-  const response = await fetch(apiURL(path), {
-    ...init,
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...mutationHeaders(init?.method), ...init?.headers },
-  });
-	recordClientPerformance({ name: `${init?.method ?? "GET"} ${path.split("?")[0]}`, durationMs: performance.now() - started,
-		status: response.status, serverTiming: response.headers.get("Server-Timing") ?? "", at: new Date().toISOString() });
-  const body = await response.json().catch(() => ({})) as {
-    error?: string; code?: string; phase?: string; retryable?: boolean;diagnosticId?:string;
-  };
-  if (!response.ok) throw new ApiError(body.error ?? `HTTP ${response.status}`, response.status,
-    body.code, body.phase, Boolean(body.retryable),body.diagnosticId,response.headers.get("X-Request-ID")??undefined);
-  return body as T;
+  const started = performance.now();
+  let status = 0, serverTiming = "";
+  try {
+    const response = await fetch(apiURL(path), {
+      ...init, credentials: "include",
+      headers: { "Content-Type": "application/json", ...mutationHeaders(init?.method), ...init?.headers },
+    });
+    status = response.status;
+    serverTiming = response.headers.get("Server-Timing") ?? "";
+    const body = await response.json().catch(() => ({})) as {
+      error?: string; code?: string; phase?: string; retryable?: boolean; diagnosticId?: string;
+    };
+    if (!response.ok) throw new ApiError(body.error ?? `HTTP ${response.status}`, response.status,
+      body.code, body.phase, Boolean(body.retryable), body.diagnosticId, response.headers.get("X-Request-ID") ?? undefined);
+    return body as T;
+  } finally {
+    recordClientPerformance({ name: `${init?.method ?? "GET"} ${path.split("?")[0]}`,
+      durationMs: performance.now() - started, status, serverTiming, at: new Date().toISOString() });
+  }
 }
 
 async function requestDocumentView(path:string,init?:RequestInit):Promise<DocumentView> {
@@ -61,38 +66,42 @@ async function requestDocumentView(path:string,init?:RequestInit):Promise<Docume
 const requestId = (): string => randomUUID();
 
 async function downloadDiagnosticBundle(documentId: string, command: Record<string, unknown>, errorMessage: string): Promise<void> {
-	const response = await fetch(apiURL(`/api/documents/${documentId}/diagnostic-bundles`), {
-		method: "POST", credentials: "include",
-		headers: { "Content-Type": "application/json", ...mutationHeaders("POST"), "X-Request-ID": requestId() },
-		body: JSON.stringify({
-			failedCommand: command, error: errorMessage,
-			client: { generatedAt: new Date().toISOString(), page: window.location.href,
-				userAgent: navigator.userAgent, language: navigator.language,
-				performance: clientPerformanceSnapshot() },
-		}),
-	});
-	if (!response.ok) throw new Error(`diagnostic export failed with HTTP ${response.status}`);
-	const blob = await response.blob();
-	const disposition = response.headers.get("Content-Disposition") ?? "";
-	const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `occccad-diagnostic-${documentId}.json`;
-	const link = document.createElement("a");
-	link.href = URL.createObjectURL(blob); link.download = filename;
-	document.body.appendChild(link); link.click(); link.remove();
-	window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
+  return measureClientRequest("HTTP downloadDiagnosticBundle", async () => {
+    const response = await fetch(apiURL(`/api/documents/${documentId}/diagnostic-bundles`), {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json", ...mutationHeaders("POST"), "X-Request-ID": requestId() },
+      body: JSON.stringify({
+        failedCommand: command, error: errorMessage,
+        client: { generatedAt: new Date().toISOString(), page: window.location.href,
+          userAgent: navigator.userAgent, language: navigator.language,
+          performance: clientPerformanceSnapshot() },
+      }),
+    });
+    if (!response.ok) throw new Error(`diagnostic export failed with HTTP ${response.status}`);
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `occccad-diagnostic-${documentId}.json`;
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob); link.download = filename;
+    document.body.appendChild(link); link.click(); link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
+  });
 }
 
 async function downloadAssemblyDiagnostic(documentId: string): Promise<void> {
-  const response = await fetch(apiURL(`/api/documents/${documentId}/assembly-diagnostic`), { credentials: "include" });
-  if (!response.ok) {
-    const value = await response.json().catch(() => ({}));
-    throw new Error(value.error ?? `3dreplay download failed: HTTP ${response.status}`);
-  }
-  const blob = await response.blob();
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "assembly.3dreplay";
-  document.body.appendChild(link); link.click(); link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
+  return measureClientRequest("HTTP downloadAssemblyDiagnostic", async () => {
+    const response = await fetch(apiURL(`/api/documents/${documentId}/assembly-diagnostic`), { credentials: "include" });
+    if (!response.ok) {
+      const value = await response.json().catch(() => ({}));
+      throw new Error(value.error ?? `3dreplay download failed: HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "assembly.3dreplay";
+    document.body.appendChild(link); link.click(); link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
+  });
 }
 
 async function executeDocumentCommand(documentId: string, command: Record<string, unknown>): Promise<DocumentView> {
@@ -141,8 +150,10 @@ export const restApi = {
   share: (type: "documents" | "folders", id: string, subjectType: "USER" | "TEAM", subjectId: string, role: "VIEWER" | "EDITOR") =>
     request<ShareGrant>(`/api/${type}/${id}/shares`, { method: "POST", body: JSON.stringify({ subjectType, subjectId, role }) }),
   unshare: async (type: "documents" | "folders", id: string, grantId: string): Promise<void> => {
-    const response = await fetch(apiURL(`/api/${type}/${id}/shares/${grantId}`), { method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE") });
-    if (!response.ok) throw new Error((await response.json().catch(() => ({})) as { error?: string }).error ?? `HTTP ${response.status}`);
+    return measureClientRequest("HTTP unshare", async () => {
+      const response = await fetch(apiURL(`/api/${type}/${id}/shares/${grantId}`), { method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE") });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({})) as { error?: string }).error ?? `HTTP ${response.status}`);
+    });
   },
   listAudit: async (documentId: string): Promise<AuditEvent[]> =>
     (await request<{ events: AuditEvent[] }>(`/api/audit?documentId=${encodeURIComponent(documentId)}`)).events,
@@ -170,13 +181,15 @@ export const restApi = {
     method: "POST", headers: workspaceHeaders(),
   }),
   closeOpenDocument: async (id: string): Promise<void> => {
-    const response = await fetch(apiURL(`/api/open-documents/${id}`), {
-      method: "DELETE", credentials: "include", headers: { ...mutationHeaders("DELETE"), ...workspaceHeaders() },
+    return measureClientRequest("HTTP closeOpenDocument", async () => {
+      const response = await fetch(apiURL(`/api/open-documents/${id}`), {
+        method: "DELETE", credentials: "include", headers: { ...mutationHeaders("DELETE"), ...workspaceHeaders() },
     });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
       throw new Error(value.error ?? `HTTP ${response.status}`);
     }
+    });
   },
   listFolders: async (parentId = "", shared = false): Promise<FolderSummary[]> => {
     const parameters = new URLSearchParams();
@@ -197,18 +210,22 @@ export const restApi = {
       method: "PATCH", body: JSON.stringify({ name, description }),
     }),
   deleteFolder: async (id: string): Promise<void> => {
-    const response = await fetch(apiURL(`/api/folders/${id}`), { method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE") });
-    if (!response.ok) {
-      const value = await response.json().catch(() => ({})) as { error?: string };
-      throw new Error(value.error ?? `HTTP ${response.status}`);
-    }
+    return measureClientRequest("HTTP deleteFolder", async () => {
+      const response = await fetch(apiURL(`/api/folders/${id}`), { method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE") });
+      if (!response.ok) {
+        const value = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(value.error ?? `HTTP ${response.status}`);
+      }
+    });
   },
   restoreFolder: async (id: string): Promise<void> => {
-    const response = await fetch(apiURL(`/api/folders/${id}/restore`), { method: "POST", credentials: "include", headers: mutationHeaders("POST") });
-    if (!response.ok) {
-      const value = await response.json().catch(() => ({})) as { error?: string };
-      throw new Error(value.error ?? `HTTP ${response.status}`);
-    }
+    return measureClientRequest("HTTP restoreFolder", async () => {
+      const response = await fetch(apiURL(`/api/folders/${id}/restore`), { method: "POST", credentials: "include", headers: mutationHeaders("POST") });
+      if (!response.ok) {
+        const value = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(value.error ?? `HTTP ${response.status}`);
+      }
+    });
   },
   getDocument: (id: string) => requestDocumentView(`/api/documents/${id}`),
   getProductDesignSession: (id:string, activePath="") => request<ProductDesignSession>(`/api/documents/${id}/design-session?activePath=${encodeURIComponent(activePath)}`),
@@ -266,25 +283,29 @@ export const restApi = {
       method: "PATCH", body: JSON.stringify({ requestId: requestId(), name, description }),
     }),
   deleteDocument: async (id: string): Promise<void> => {
-    const response = await fetch(apiURL(`/api/documents/${id}`), {
-      method: "DELETE", credentials: "include", headers: { ...mutationHeaders("DELETE"), "X-Request-ID": requestId() },
+    return measureClientRequest("HTTP deleteDocument", async () => {
+      const response = await fetch(apiURL(`/api/documents/${id}`), {
+        method: "DELETE", credentials: "include", headers: { ...mutationHeaders("DELETE"), "X-Request-ID": requestId() },
     });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
       throw new Error(value.error ?? `HTTP ${response.status}`);
     }
+    });
   },
   restoreDocument: (id: string) => requestDocumentView(`/api/documents/${id}/restore`, {
     method: "POST", headers: { "X-Request-ID": requestId() },
   }),
   purgeDocument: async (id: string): Promise<void> => {
-    const response = await fetch(apiURL(`/api/documents/${id}/trash`), {
-      method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE"),
+    return measureClientRequest("HTTP purgeDocument", async () => {
+      const response = await fetch(apiURL(`/api/documents/${id}/trash`), {
+        method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE"),
     });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
       throw new Error(value.error ?? `HTTP ${response.status}`);
     }
+    });
   },
   moveDocument: (id: string, folderId?: string) => requestDocumentView(`/api/documents/${id}/move`, {
     method: "POST", headers: { "X-Request-ID": requestId() },
@@ -418,13 +439,15 @@ export const restApi = {
     if (!format) throw new Error("仅支持 STEP、STP、BREP 或 BRP 文件");
     const parameters = new URLSearchParams({ format, fileName: file.name });
     if (folderId) parameters.set("folderId", folderId);
-    const response = await fetch(apiURL(`/api/exchange/imports?${parameters}`), {
-      method: "POST", credentials: "include", body: file,
-      headers: { ...mutationHeaders("POST"), "X-Request-ID": requestId(), "Content-Type": file.type || "application/octet-stream" },
+    return measureClientRequest("HTTP importDocument", async () => {
+      const response = await fetch(apiURL(`/api/exchange/imports?${parameters}`), {
+        method: "POST", credentials: "include", body: file,
+        headers: { ...mutationHeaders("POST"), "X-Request-ID": requestId(), "Content-Type": file.type || "application/octet-stream" },
     });
     const value = await response.json().catch(() => ({})) as Job & { error?: string };
     if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`);
     return value;
+    });
   },
   exchangeCapabilities: (): Promise<{ maxUploadBytes: number }> => request("/api/exchange/capabilities"),
   startExport: (documentId: string, format: "STEP" | "BREP", releaseId?: string): Promise<Job> => request<Job>("/api/exchange/exports", {

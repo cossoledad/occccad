@@ -38,6 +38,10 @@ Preview/Commit 共用草稿规范化，包含支持顺序、方向、参数/表�
 
 数值 Session 冻结 actor、Workspace、owning Product/occurrence、Head/sequence、引用/定义摘要、实际已接纳活动集合、descriptor、组阶段、nominal、branch、policy/profile/build。容量 128，空闲 TTL 两分钟；不占等待用户的数据库事务。重启可使 Session 失效，不损坏持久模型。
 
+Session 拥有 Begin 上下文的值快照，复用只读 nominal/geometry/definition/compiled constraint ID 索引；accepted warm/branch 更新不改变结构。任何 owning Head/sequence、root Revision、typed path、PINNED/liveness 校验失败均拒绝使用旧 Session。EditContext 校验每次只展开一次 root snapshot，同一次校验按 document/Revision 复用只读行；RPC 前后分别使用新读取缓存，不能将 mutable Head、删除状态或授权缓存跨帧。Worker 的分解复用仅在单次纯数值 solve 内，不拥有业务真相。
+
+在途标记授予一个 Update 对 model/warm/branch 的唯一写入权。全局 Session 锁只保护成员资格、目标序列与候选 token；求解、模型值切片复制、JSON/摘要和最终证据持久化均在锁外。取消可立即撤销 Session 并取消数值/数据库上下文；最终持久化后重新校验 base，只有仍有效的 Session 能取得候选 token。Commit 的 Session 身份检查位于上下文 I/O 的前后，最终 Revision/CAS 与幂等规则继续由正式命令保证。
+
 连续操纵通过 Begin/Update/Cancel AssemblyInteraction Session；普通精确位姿 `MOVE_INSTANCE` 仍检查硬目标，冲突时拒绝，不能用它的 Preview 验证受限操纵。DragTarget 是交互偏好而非 interaction-driver Fix。优先级为硬约束 → driven → held 姿态/侧向 → 剩余 nominal；静态解选择独立。pivot/frame/baseline 冻结，desired 来自累计用户输入，accepted 只作 initial guess。无 Ground 的整体运动保留。
 
 一个在途加一个最新待发送目标，合并而不取消饥饿，pointerup flush 最终目标。可行显示帧、合格 checkpoint、warm start、最终候选分开。Budget 不等于网络超时；最多四个 continuation bridge 共用 deadline 和总迭代预算，未合格子步不运输分支或生成 Revision。

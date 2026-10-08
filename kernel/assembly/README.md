@@ -48,7 +48,12 @@ evaluation counts and hot endpoint string lookup bytes/counts. Inclusive hard
 feasibility/retraction/preference timings expose phase costs. Optional
 `SolverOptions.record_evaluation` receives bounded-by-caller numerical evaluation
 states; `record_matrices` also records Jacobians. Default solves keep summary
-evidence. `Solver::implementation_id()` fingerprints solver/contact sources,
+evidence. Scalar `factorization_ms` (including equilibration/orthonormalization),
+`bfgs_update_ms`, `pose_build_ms`, `dof_analysis_ms` and `redundancy_ms` add hotspot
+evidence without retaining traces. Factorization counters count helper invocations,
+including empty-matrix guards. These are inclusive subcosts, not an additive
+partition: residual/Jacobian/pose/factorization costs occur inside hard recovery,
+preference or diagnostics; retraction occurs inside preference. `Solver::implementation_id()` fingerprints solver/contact sources,
 header, Eigen/compiler/build configuration separately from the public policy name.
 A grounded inconsistent component with no movable parameters emits explicit
 `GROUNDED_CONTRADICTION`; other numerical failures do not prove global infeasibility.
@@ -222,8 +227,20 @@ Cross-layer evidence and safe execution requirements belong to the shared
 does not certify Web, Domain, history or Release. Maintainer feedback is scoped
 to current usage, not industrial or performance acceptance.
 
+The focused, serial optimized kernel/Router/Session runner is
+`python kernel/assembly/tests/run_performance.py --label before --samples 5`
+(and `--label after` after rebuilding the same configuration). It requires an
+optimized configured build, the existing dedicated PostgreSQL test database and
+analytic fixtures, and records actual flags/hardware, cold/warm samples, validity,
+iterations, components, phase timings and allocation probes. See the
+[first-round report](../../tests/test.data/assembly-solver-performance.md) for
+build/reproduction commands and measurement boundaries. It never resets data.
+
 `occcad_assembly_interaction_benchmark [samples] [scene]` measures kernel-only
-latency for `single`, `connected50-200`, `independent50`, and `group-contact`.
+latency for `single`, `connected50-200`, `independent50`, and `group-contact`,
+plus grounded contradiction, budget, cancellation and invalid-input paths.
+`occcad_assembly_solver_benchmark [samples] [long-ids]` covers static plane chains
+and the warm rotation objective regression (which actually exercises BFGS).
 The 50-body case is one connected component with 200 active definitions,
 including explicit dependent loop constraints; output reports physical rank,
 actual components and sample count. It does not measure transport or rendering,

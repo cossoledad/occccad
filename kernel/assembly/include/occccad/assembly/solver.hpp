@@ -408,6 +408,9 @@ struct SolveMetrics {
     double input_compile_ms{}, residual_ms{}, jacobian_ms{}, solve_ms{};
     // Inclusive phase durations; retraction can be nested in preference.
     double hard_feasibility_ms{}, feasibility_retraction_ms{}, preference_ms{};
+    // Inclusive diagnostic and numerical leaf timings; see README for overlap.
+    double dof_analysis_ms{}, redundancy_ms{}, factorization_ms{}, bfgs_update_ms{}, pose_build_ms{};
+    std::size_t factorizations{}, bfgs_updates{}, pose_builds{}, physical_kernel_cache_hits{};
 };
 
 struct SolveResult {

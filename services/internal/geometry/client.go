@@ -10,6 +10,7 @@ import (
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/geometryrpc"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -525,12 +526,29 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 			options.Debug = &debug
 		}
 	}
+	finishCompile := perf.Start(ctx, "assembly-request-compile")
 	request, compileErr := CompileAssemblyRequest(requestID, bodies, geometryValues, constraints, options)
+	finishCompile()
 	if compileErr != nil {
 		return AssemblySolve{}, compileErr
 	}
 	start := time.Now()
+	finishRPC := perf.Start(ctx, "assembly-rpc")
 	response, err := client.worker.SolveAssembly(ctx, request)
+	finishRPC()
+	if response != nil && response.Metrics != nil {
+		m := response.Metrics
+		for _, metric := range []struct {
+			name string
+			ms   float64
+		}{
+			{"assembly-kernel", m.SolveMs}, {"assembly-kernel-compile", m.InputCompileMs},
+			{"assembly-kernel-hard", m.HardFeasibilityMs}, {"assembly-kernel-preference", m.PreferenceMs},
+			{"assembly-kernel-retraction", m.FeasibilityRetractionMs},
+		} {
+			perf.RecordDuration(ctx, metric.name, time.Duration(metric.ms*float64(time.Millisecond)))
+		}
+	}
 	if options.CaptureReplay != nil {
 		data, captureErr := makeAssemblyReplayBudget(request, response, err, ReplayBudget(ctx, start))
 		options.CaptureReplay(data, captureErr)
@@ -538,6 +556,7 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	if err != nil {
 		return AssemblySolve{}, fmt.Errorf("solve assembly: %w", err)
 	}
+	defer perf.Start(ctx, "assembly-response-decode")()
 	result := AssemblySolve{SolverBuild: response.GetSolverBuild(), Status: response.GetStatus(), Classification: response.GetClassification(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual(), RedundantConstraintIDs: response.GetRedundantConstraintIds(), UnsatisfiedConstraintIDs: response.GetUnsatisfiedConstraintIds(), ConflictingConstraintIDs: response.GetConflictingConstraintIds(), SuspectedConflictingConstraintIDs: response.GetSuspectedConflictingConstraintIds()}
 	if v := response.GetInteraction(); v != nil {
 		status := strings.TrimPrefix(v.Status.String(), "ASSEMBLY_INTERACTION_")

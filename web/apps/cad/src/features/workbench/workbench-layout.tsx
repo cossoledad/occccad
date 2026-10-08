@@ -1,7 +1,16 @@
 import { MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
 import { Button } from "antd";
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { MIN_STRUCTURE_TREE_WIDTH, MAX_STRUCTURE_TREE_WIDTH, useUIPreferences } from "../../state/ui-preferences";
+
+import { lastClientPerformanceSample, subscribeClientPerformance } from "../../utils/performance";
+
+function LastRequestTime() {
+  const sample = useSyncExternalStore(subscribeClientPerformance, lastClientPerformanceSample, () => undefined);
+  return <div className="workbench-request-time" title="最后完成的一次请求，包含网络等待和响应处理" aria-label="最后一次后端请求耗时">
+    后端请求：{sample ? `${Math.round(sample.durationMs)} ms` : "—"}
+  </div>;
+}
 
 type WorkbenchLayoutProps = {
   commands: ReactNode; tree: ReactNode; inspector: ReactNode; children: ReactNode; status: ReactNode;
@@ -40,6 +49,7 @@ export function WorkbenchLayout({ commands, tree, inspector, children, status, d
           icon={<MenuFoldOutlined />} aria-label="收起模型结构" onClick={() => setTreeOpen(false)} /></div>
         <div className="workbench-document-name" title={documentName}>{documentName}</div>
         <div className="workbench-tree-content">{tree}</div>
+        <LastRequestTime />
         <div className="workbench-panel-resizer" role="separator" aria-label="调整结构树宽度" aria-orientation="vertical"
           aria-valuemin={MIN_STRUCTURE_TREE_WIDTH} aria-valuemax={Math.floor(limit)} aria-valuenow={Math.round(panelWidth)} tabIndex={0}
           onKeyDown={(event) => {

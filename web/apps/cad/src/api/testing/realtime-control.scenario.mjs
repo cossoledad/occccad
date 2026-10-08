@@ -10,8 +10,9 @@ async function compile(file, replacements = []) {
  return `data:text/javascript;base64,${Buffer.from(output).toString("base64")}`;
 }
 const lifecycle = await compile("../websocket-lifecycle.ts"), uuid = await compile("../../utils/random-uuid.ts");
+const perf = await compile("../../utils/performance.ts");
 const { RealtimeClient } = await import(await compile("../realtime-client.ts", [
- ['"./websocket-lifecycle"', JSON.stringify(lifecycle)], ['"../utils/random-uuid"', JSON.stringify(uuid)], ['import.meta.env.VITE_API_BASE_URL', '""'],
+ ['"../utils/performance"', JSON.stringify(perf)], ['"./websocket-lifecycle"', JSON.stringify(lifecycle)], ['"../utils/random-uuid"', JSON.stringify(uuid)], ['import.meta.env.VITE_API_BASE_URL', '""'],
 ]));
 const timers = new Map();
 const nativeSet = globalThis.setTimeout, nativeClear = globalThis.clearTimeout;

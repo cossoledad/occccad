@@ -24,14 +24,11 @@ func WithRecorder(ctx context.Context) (context.Context, *Recorder) {
 }
 
 func Start(ctx context.Context, phase string) func() {
-	started := time.Now()
-	return func() {
-		if recorder, ok := ctx.Value(recorderKey{}).(*Recorder); ok {
-			recorder.mu.Lock()
-			recorder.phases[phase] += time.Since(started)
-			recorder.mu.Unlock()
-		}
+	if _, ok := ctx.Value(recorderKey{}).(*Recorder); !ok {
+		return func() {}
 	}
+	started := time.Now()
+	return func() { RecordDuration(ctx, phase, time.Since(started)) }
 }
 
 func (recorder *Recorder) Header() string {
@@ -69,4 +66,14 @@ func (recorder *Recorder) SnapshotMilliseconds() map[string]float64 {
 		result[name] = float64(duration.Microseconds()) / 1000
 	}
 	return result
+}
+
+// RecordDuration adds an already measured duration, including Worker summaries.
+// Parent and child phases overlap and must not be added as a total.
+func RecordDuration(ctx context.Context, phase string, duration time.Duration) {
+	if recorder, ok := ctx.Value(recorderKey{}).(*Recorder); ok {
+		recorder.mu.Lock()
+		recorder.phases[phase] += duration
+		recorder.mu.Unlock()
+	}
 }

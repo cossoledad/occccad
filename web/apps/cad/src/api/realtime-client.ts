@@ -1,6 +1,7 @@
 import type { CommandPreview, DocumentView, Job } from "../types";
 import { closeAfterInitializationFailure } from "./websocket-lifecycle";
 import { randomUUID } from "../utils/random-uuid";
+import { measureClientRequest } from "../utils/performance";
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame } from "../cad/assembly/assembly-interaction";
 import type { AssemblyConflictRequest, AssemblyConflictReport } from "../cad/assembly/assembly-conflict";
 
@@ -259,7 +260,11 @@ export class RealtimeClient {
     return () => this.recoveryListeners.delete(listener);
   }
 
-  private async request<T>(type: string, payload: unknown, signal?: AbortSignal, timeout = 120_000): Promise<T> {
+  private request<T>(type: string, payload: unknown, signal?: AbortSignal, timeout = 120_000): Promise<T> {
+    return measureClientRequest(`WS ${type}`, () => this.sendRequest<T>(type, payload, signal, timeout));
+  }
+
+  private async sendRequest<T>(type: string, payload: unknown, signal: AbortSignal | undefined, timeout: number): Promise<T> {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     await this.ensureConnected();
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -374,10 +379,13 @@ export class RealtimeClient {
 
   private async fetchSnapshot(documentId: string): Promise<SubscriptionSnapshot> {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const response = await fetch(`${apiBaseURL}/api/documents/${encodeURIComponent(documentId)}/realtime-snapshot`, { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(30_000) });
-      if ([409, 503].includes(response.status)) continue;
-      if (!response.ok) throw new RealtimeError(response.status === 403 ? "FORBIDDEN" : response.status === 404 ? "NOT_FOUND" : "SNAPSHOT_FAILED", `snapshot failed (${response.status})`);
-      const snapshot = await response.json() as SubscriptionSnapshot;
+      const snapshot = await measureClientRequest("GET realtime-snapshot", async () => {
+        const response = await fetch(`${apiBaseURL}/api/documents/${encodeURIComponent(documentId)}/realtime-snapshot`, { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(30_000) });
+        if ([409, 503].includes(response.status)) return undefined;
+        if (!response.ok) throw new RealtimeError(response.status === 403 ? "FORBIDDEN" : response.status === 404 ? "NOT_FOUND" : "SNAPSHOT_FAILED", `snapshot failed (${response.status})`);
+        return await response.json() as SubscriptionSnapshot;
+      });
+      if (!snapshot) continue;
       this.inlineSnapshots.set(documentId, new TextEncoder().encode(JSON.stringify(snapshot.view)).byteLength <= 64 * 1024);
       return snapshot;
     }
