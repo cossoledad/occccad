@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,8 +15,8 @@ import (
 // application data changes; safe against the explicitly configured dev database.
 func TestPoolPostgresBatchAtomicityAndCancellation(t *testing.T) {
 	url := os.Getenv("OCCCCAD_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("OCCCCAD_TEST_DATABASE_URL is not set")
+	if !strings.HasPrefix(url, "postgres:") && !strings.HasPrefix(url, "postgresql:") {
+		t.Skip("PostgreSQL-specific pool test requires a PostgreSQL OCCCCAD_TEST_DATABASE_URL")
 	}
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {

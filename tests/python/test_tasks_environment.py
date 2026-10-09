@@ -34,6 +34,24 @@ assert os.path.isabs(os.environ['OCCCCAD_ENV_FILE'])
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(b'FileNotFoundError', result.stderr)
 
+    def test_test_resource_defaults_and_relative_sqlite_are_anchored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory) / '.env'
+            file.write_text('OCCCCAD_TEST_RESOURCES_DIR=build/test-resources\nOCCCCAD_TEST_DATABASE_URL=sqlite:build/test-resources/example_test.db\n')
+            env = os.environ.copy()
+            for key in list(env):
+                if key.startswith('OCCCCAD_TEST_') or key == 'OCCCCAD_ASSEMBLY_FIXTURE_DIR':
+                    env.pop(key)
+            env['OCCCCAD_ENV_FILE'] = str(file)
+            script = '''import os, tasks
+from pathlib import Path
+assert Path(os.environ['OCCCCAD_ASSEMBLY_FIXTURE_DIR']).is_absolute()
+assert Path(os.environ['OCCCCAD_TEST_GEOMETRY_WORKER']).is_absolute()
+assert Path(os.environ['OCCCCAD_TEST_IMPORT_BREP']).is_absolute()
+assert os.environ['OCCCCAD_TEST_DATABASE_URL'] == 'sqlite:' + str(tasks.PROJECT_ROOT / 'build/test-resources/example_test.db')
+'''
+            subprocess.run([sys.executable, '-c', script], cwd=ROOT, env=env, check=True)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -46,18 +46,15 @@ python tests/assembly-contract/runner.py gaps --family Offset --output build/off
 
 `--adapters` 可限定实际执行设施；排除必需 case 仍报告 NOT_RUN，不获得完整基线通过。`--build-type Release` 使用既有对应构建目录，执行器不会下载依赖或启动新平台。C++ 每次先构建 scenario target；Go 使用 `-count=1` 及结构化事件，子测试跳过不能被父 PASS 隐藏；Web 复用 `pnpm test` 的场景发现与零匹配失败规则。新增 Web 场景同时调用目录/锁校验，因此 `pnpm test -- assembly` 会发现目录映射退化；Go/C++ 新断言也进入原模块的测试入口，没有修改共享构建系统或 `invoke check` 路由。
 
-要运行真实 Router，先完成统一 Worker 和解析 fixture 构建，生成实际 B-Rep/STEP，再执行目录；不能在集成运行期间重新链接同一 Worker：
+运行真实 Router 前完成 Worker 与 `occcad_geometry_scenarios` 构建。环境从根 `.env` 读取，默认资源目录为 `build/test-resources/`、测试库为其中独立 SQLite 文件；解析 fixture 缺失时，Go fixture 自动调用 `AssemblyExactSupport.ExportAnalyticRouterFixtures`，不需要手动 export 或另外编译。也可显式预生成：
 
 ```sh
-cmake --build build/cmake/release --target occccad_geometry_worker occcad_geometry_scenarios --parallel 2
-export OCCCCAD_ASSEMBLY_FIXTURE_DIR="$PWD/build/constraint-composition/analytic-fixtures"
 build/cmake/release/kernel/occt/tests/occcad_geometry_scenarios \
   --gtest_filter=AssemblyExactSupport.ExportAnalyticRouterFixtures
-export OCCCCAD_TEST_GEOMETRY_WORKER="$PWD/build/cmake/release/workers/geometry/occccad_geometry_worker"
 python tests/assembly-contract/runner.py baseline --case integration.router-worker
 ```
 
-数据库/历史/Release case 另要求明确配置 `OCCCCAD_TEST_DATABASE_URL`。装配和诊断集成经 `internal/testsupport.OpenPostgres` 连接当前基线的专用 `occccad_*_test` PostgreSQL 库，检查实际库身份和迁移，使用各自的文档/临时制品；不自动指向应用开发库、不静默切换 SQLite/Mock、不清库。具体要求见[开发环境](../../docs/development-environment.md)。
+装配与诊断数据库入口为 `internal/testsupport.OpenTestDatabase`，支持 SQLite 或专用 `occccad_*_test` PostgreSQL，检查目标隔离和当前迁移，不自动指向应用库、不清库、不改用 Mock。SQLite 上通过的证据不证明 PostgreSQL 专用行为。不能在集成运行期间重新链接同一 Worker；具体配置见[开发环境](../../docs/development-environment.md)。
 
 
 ## 按能力与风险定位
@@ -90,7 +87,7 @@ engineering 读取指定 Revision 命令结果，不是完整网络刷新或局�
 
 motion-presentation 场景检查固联整体可动、方向子空间等价、偏置轴、显示副本/浮点噪声与完整行；标记是临时只读对象，不进入拾取/持久模型。0/1/100/500/1000 行 fixture 验证投影/分页，不认证同规模求解。
 
-`TestAssemblyDeferredDefinitionPreviewCommit` 使用真实 Router、Worker、专用 PostgreSQL，并只在数值 RPC 边界注入 deadline/Unavailable/数值失败。检查显式候选确认、编辑/新增、不重复求解、保持姿态、NotUpdated、幂等/历史/冷读取、Release gate 与正常恢复；权限和取消不得变成定义候选。`motion-presentation` 同时执行真实 viewport 方法的可控 Promise 结束/选择/屏障/取消回归及 Three.js 覆盖标记的 CSS 尺寸、相机、资源生命周期检查。面板场景执行实际 hook/row/键盘/定位回调，不只检索源码。
+`TestAssemblyDeferredDefinitionPreviewCommit` 使用真实 Router、Worker、所配置的专用测试数据库，并只在数值 RPC 边界注入 deadline/Unavailable/数值失败。检查显式候选确认、编辑/新增、不重复求解、保持姿态、NotUpdated、幂等/历史/冷读取、Release gate 与正常恢复；权限和取消不得变成定义候选。`motion-presentation` 同时执行真实 viewport 方法的可控 Promise 结束/选择/屏障/取消回归及 Three.js 覆盖标记的 CSS 尺寸、相机、资源生命周期检查。面板场景执行实际 hook/row/键盘/定位回调，不只检索源码。
 
 ```sh
 python tests/assembly-contract/runner.py baseline --case lifecycle.deferred-definition.router-worker

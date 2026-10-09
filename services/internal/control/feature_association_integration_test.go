@@ -330,7 +330,7 @@ func postgresGeometryTestService(t *testing.T) (*workspace.Service, *artifact.Se
 	if os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER") == "" {
 		t.Skip("requires built Geometry Worker")
 	}
-	service, artifacts, db, client, _ := geometryRuntimeTestService(t, testsupport.OpenPostgres(t))
+	service, artifacts, db, client, _ := geometryRuntimeTestService(t, testsupport.OpenTestDatabase(t))
 	return service, artifacts, db, client
 }
 

@@ -34,14 +34,9 @@ func newCompositionControlFixture(t *testing.T, options ...grpc.DialOption) *com
 	if binary == "" {
 		t.Skip("ENVIRONMENT_BLOCKED: requires matching real Geometry Worker")
 	}
+	testsupport.PrepareAssemblyFixtures(t)
 	directory := os.Getenv("OCCCCAD_ASSEMBLY_FIXTURE_DIR")
-	if directory == "" {
-		directory = filepath.Join("..", "..", "..", "build", "constraint-composition", "analytic-fixtures")
-	}
-	if _, err := os.Stat(filepath.Join(directory, "sphere-r6.brep")); err != nil {
-		t.Skip("ENVIRONMENT_BLOCKED: generate analytic fixtures with AssemblyExactSupport.ExportAnalyticRouterFixtures and OCCCCAD_ASSEMBLY_FIXTURE_DIR")
-	}
-	db := testsupport.OpenPostgres(t)
+	db := testsupport.OpenTestDatabase(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

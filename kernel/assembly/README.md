@@ -245,7 +245,7 @@ with five samples per scene, run serially. Sanitized/unoptimized builds are
 rejected. Each run creates a new timestamped directory under
 `build/performance/assembly/`, containing `environment.json`, raw stage logs
 and `summary.json` (native means/medians and full interaction samples).
-Explicit `service` stages require the dedicated PostgreSQL test database and
+Explicit `service` stages require the dedicated configured SQLite/PostgreSQL test database and
 analytic fixtures; an environment-blocked test fails the command instead of
 reporting performance success. No stage resets data. The underlying runner is
 `python kernel/assembly/tests/run_performance.py`; `--label` accepts a unique

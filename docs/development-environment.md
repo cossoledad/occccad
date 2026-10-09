@@ -29,9 +29,29 @@ sudo apt install postgresql
 
 部分集成测试使用显式的 `OCCCCAD_TEST_DATABASE_URL`，不会自动使用应用的数据库配置。运行前读对应测试对迁移、空库和清理的要求：可兼容现有数据的测试可复用已授权开发数据库；要求可丢弃数据库的测试使用隔离测试库，并按测试入口准备迁移。不要为使测试执行而把所有测试无差别指向开发库。
 
-装配候选、历史、诊断下载及精确 BREP/Router 验证统一使用 `services/internal/testsupport.OpenPostgres`。显式配置 `OCCCCAD_TEST_DATABASE_URL` 为同一现有 PostgreSQL 服务中的专用 `occccad_*_test` 数据库，例如 `occccad_assembly_contract_test`；同时设置 `OCCCCAD_TEST_GEOMETRY_WORKER` 指向当前构建。入口检查 PostgreSQL URL、专用库名称、`current_database()` 身份和完整迁移链，拒绝应用库及 SQLite，不自动创建或清空库，也不修补旧迁移记录。测试创建自己的文档与临时制品。SQLite Local Mode 的独立兼容测试继续保留，不替代 PostgreSQL 的核心集成验证。
+装配候选、历史、诊断下载及精确 BREP/Router 验证共用 `services/internal/testsupport.OpenTestDatabase`，按 `OCCCCAD_TEST_DATABASE_URL` 显式选择 SQLite 或 PostgreSQL。默认使用独立的 `build/test-resources/occccad_test.db`；SQLite 目标必须是绝对路径的 `*_test.db`（相对配置先按仓库根目录解析），并拒绝应用数据库及其符号链接别名。PostgreSQL 仍要求专用 `occccad_*_test` 库，并检查 `current_database()` 身份。入口仅迁移、创建各测试自己的文档与临时制品，不重置或修补旧迁移记录。SQLite 通过不代表 PostgreSQL 专用行为或双后端一致性验收。
 
 数据重置仍遵循[根 AGENTS 的开发数据边界](../AGENTS.md#当前开发数据边界)：先停止占用进程，仅通过 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令报告的 PostgreSQL `occccad` schema 或当前配置的专用 SQLite 数据库全部表（含迁移记录），以及本地 ArtifactStore/暂存目录，以及 S3 模式下当前配置的专用桶全部对象（含版本和未完成分片，保留桶），并在交付中说明。资源使用授权不包括清空其他数据库、schema 或 S3 bucket。S3、数据库与本地制品不构成跨存储事务：清理失败直接报错，可能已部分删除，停止写入后可重新执行。
+
+## 测试资源与默认目录
+
+Invoke、几何 scenario 的测试 main，以及 API/Control/Geometry/Workspace/Jobs/数据库的 Go TestMain 都读取根 `.env`；已导出变量优先，`OCCCCAD_ENV_FILE` 显式文件缺失直接失败。测试路径按仓库根目录解析，不受 `go test` 包目录或 CTest 工作目录影响。Python/Go 会把相对 SQLite 测试 URL 转成绝对路径；应用数据库 URL 的既有规则不变。
+
+| 变量 | 默认值（相对于仓库根目录） | 用途 |
+| --- | --- | --- |
+| `OCCCCAD_TEST_RESOURCES_DIR` | `build/test-resources` | 生成资源的默认根目录 |
+| `OCCCCAD_ASSEMBLY_FIXTURE_DIR` | 根目录下 `analytic-fixtures` | 七种球/圆柱/圆锥的 BREP 与 STEP |
+| `OCCCCAD_TEST_IMPORT_BREP` | 根目录下 `import-repair.brep` | 闭合盒体中反向一张面的修复样本；缺失时自动生成 |
+| `OCCCCAD_TEST_GEOMETRY_WORKER` | `build/cmake/<type>/workers/geometry/occccad_geometry_worker` | 使用已有构建，不在测试中编译 |
+| `OCCCCAD_TEST_DATABASE_URL` | `sqlite:build/test-resources/occccad_test.db` | 与应用数据隔离的测试库 |
+| `OCCCCAD_TEST_CURVED_GLB` / `OCCCCAD_TEST_GLB_FIXTURE` | 根目录下 `curved.glb` / `geometry.glb` | 对应测试的诊断导出 |
+| `OCCCCAD_TEST_ASSEMBLY_REPLAY_OUTPUT` | 根目录下 `assembly-replay.3dreplay` | 对应诊断测试的重放导出 |
+
+各具体路径可独立覆盖；修改根目录后，显式配置的子路径仍按其配置解析。大文件输入 `OCCCCAD_TEST_EXCHANGE_STEP` 不自动替换为小型合成样本，需要按测试要求提供真实 corpus。
+
+几何测试 main 在测试运行前生成缺失的修复样本，已有文件保持不变；仅列出测试时不生成。`AssemblyExactSupport.ExportAnalyticRouterFixtures` 使用默认输出目录，不再仅验证而不落盘。Go 装配 fixture 若发现任何一项 BREP/STEP 缺失，会调用当前构建中的该生成测试，成功后再执行真实导入。缺少 Worker 或生成器仍属于环境缺失，不会改用 Mock。生成修复文件后，`ImportedSolidRepairCorpus` 的导入、输入不可变、修复和幂等断言照常执行。
+
+`invoke clean` 删除 `build/`，也会删除这些测试制品和默认 SQLite 测试库；下一次测试按需生成资源并从当前 SQLite 迁移建立测试库。应用数据库、S3 与业务制品不在该测试准备流程的清理范围内。PostgreSQL 专用 pool 测试在 SQLite 配置下明确跳过；切换到专用 PostgreSQL 测试 URL 才验证该后端。
 
 ## Chromium 与浏览器验证
 

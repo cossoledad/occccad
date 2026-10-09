@@ -13,7 +13,7 @@ import (
 )
 
 func TestAssemblyDiagnosticPermissionsAndReadOnlySnapshot(t *testing.T) {
-	db := testsupport.OpenPostgres(t)
+	db := testsupport.OpenTestDatabase(t)
 	local, err := artifact.NewLocalStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

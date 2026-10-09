@@ -46,6 +46,31 @@ def _load_project_env() -> None:
 _load_project_env()
 
 
+def _load_test_environment() -> None:
+    def resolve(value: str) -> str:
+        return str((PROJECT_ROOT / value).resolve())
+
+    resource = resolve(os.environ.get("OCCCCAD_TEST_RESOURCES_DIR") or "build/test-resources")
+    paths = {
+        "OCCCCAD_TEST_RESOURCES_DIR": resource,
+        "OCCCCAD_ASSEMBLY_FIXTURE_DIR": str(Path(resource) / "analytic-fixtures"),
+        "OCCCCAD_TEST_IMPORT_BREP": str(Path(resource) / "import-repair.brep"),
+        "OCCCCAD_TEST_CURVED_GLB": str(Path(resource) / "curved.glb"),
+        "OCCCCAD_TEST_GLB_FIXTURE": str(Path(resource) / "geometry.glb"),
+        "OCCCCAD_TEST_ASSEMBLY_REPLAY_OUTPUT": str(Path(resource) / "assembly-replay.3dreplay"),
+        "OCCCCAD_TEST_GEOMETRY_WORKER": str(BUILD_DIR / (os.environ.get("OCCCCAD_BUILD_TYPE") or "Release").lower() / "workers/geometry/occccad_geometry_worker"),
+    }
+    for key, fallback in paths.items():
+        os.environ[key] = resolve(os.environ.get(key) or fallback)
+    dsn = os.environ.get("OCCCCAD_TEST_DATABASE_URL") or "sqlite:" + str(Path(resource) / "occccad_test.db")
+    if dsn.startswith("sqlite:"):
+        dsn = "sqlite:" + resolve(dsn.removeprefix("sqlite:"))
+    os.environ["OCCCCAD_TEST_DATABASE_URL"] = dsn
+
+
+_load_test_environment()
+
+
 def _get_build_type() -> str:
     """Return Debug or Release from env, defaulting to Release."""
     return os.environ.get("OCCCCAD_BUILD_TYPE", "").strip() or "Release"

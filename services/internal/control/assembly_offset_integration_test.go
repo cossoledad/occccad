@@ -21,7 +21,7 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	if binary == "" {
 		t.Skip("requires matching real Geometry Worker")
 	}
-	db := testsupport.OpenPostgres(t)
+	db := testsupport.OpenTestDatabase(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

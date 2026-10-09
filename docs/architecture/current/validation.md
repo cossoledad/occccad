@@ -46,3 +46,5 @@ API 初始化 `debug/cad-diagnostics` 的现有 `debugartifact.Store`，按文�
 Web 操作诊断和实体/阵列/布尔预览提供“复制诊断”，复制 `CAD_DIAGNOSTIC <documentId>/<recordId> <code>`；剪贴板不可用或拒绝时显示可选择的文本，不虚报成功。没有服务端记录时复制已有阶段、操作请求 ID、错误及可用文档/Revision 上下文。普通命令与预览共享结构化错误，预览保留原错误对象并清除旧成功候选。此入口当前覆盖返回错误的预览及普通 Domain Command；已接受 FAILED Revision、历史补偿、后台 Job 和离线失败的自动归档尚未贯通，不应声称全部错误途径均已统一。
 
 三维装配求解器通过 `invoke performance.assembly` 使用现有优化制品串行测量，默认 Native 静态链/BFGS 与交互/失败路径各 5 次；显式 stages 可扩展到真实 Router/Session 和分配 probes。每轮独立保存环境、二进制哈希、原始输出与 Native 汇总，不重新构建或覆盖历史结果。性能证据与语义回归、浏览器端到端验收分别记录，见 [性能记录](../../../tests/test.data/assembly-solver-performance.md)。
+
+测试资源配置由 `.env` 及各语言测试入口读取，默认派生文件和专用 SQLite 测试库位于 `build/test-resources/`。几何测试入口按需生成闭合反向面修复样本；装配 Go fixture 按需调用现有 Native 生成器准备解析 BREP/STEP。通用真实集成数据库入口 `OpenTestDatabase` 按配置支持 SQLite/PostgreSQL，不重置应用数据；PostgreSQL 专用测试仍独立，SQLite 结果不替代双后端验收。具体变量与生成规则见[开发环境](../../development-environment.md#测试资源与默认目录)。

@@ -23,6 +23,9 @@ func TestHistoryCapabilitiesAcrossTwoUndoAndRedoSteps(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+	if err := database.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
 	service := &Service{database: pool}
 	documentID := uuid.NewString()
 	revisionID := uuid.NewString()

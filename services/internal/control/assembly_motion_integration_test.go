@@ -136,7 +136,7 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	if binary == "" {
 		t.Skip("requires OCCCCAD_TEST_GEOMETRY_WORKER")
 	}
-	db := testsupport.OpenPostgres(t)
+	db := testsupport.OpenTestDatabase(t)
 	// The fixture also verifies repeated migration against the same PostgreSQL.
 	if err := database.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
