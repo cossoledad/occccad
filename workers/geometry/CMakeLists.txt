@@ -1,5 +1,3 @@
-# Geometry Worker — coarse-grained gRPC server hosting the OCCT kernel
-
 find_package(Protobuf REQUIRED CONFIG)
 find_package(gRPC REQUIRED CONFIG)
 find_package(spdlog REQUIRED CONFIG)
@@ -64,7 +62,7 @@ target_link_libraries(
         spdlog::spdlog
 )
 
-occccad_set_warnings(occccad_geometry_worker PRIVATE)
+occccad_set_warnings(occccad_geometry_worker)
 occccad_apply_sanitizers(occccad_geometry_worker)
 
 target_compile_features(

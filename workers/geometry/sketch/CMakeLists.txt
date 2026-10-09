@@ -1,8 +1,4 @@
-# PlaneGCS is an internal FreeCAD component, not a separately versioned library.
-# Fetch only the audited source manifest from the official immutable FreeCAD
-# commit. Per-file hashes make upstream drift or partial downloads fail closed.
-# FreeCAD 1.0.2 is deliberately selected because it supports this repository's
-# C++17 baseline without carrying a local source patch.
+# FreeCAD 1.0.2 supports C++17; fetch the audited manifest with per-file hashes.
 set(OCCCCAD_PLANEGCS_COMMIT 256fc7eff3379911ab5daf88e10182c509aa8052)
 set(OCCCCAD_PLANEGCS_SOURCE_ROOT "${CMAKE_CURRENT_BINARY_DIR}/upstream")
 set(OCCCCAD_PLANEGCS_MANIFEST
@@ -90,7 +86,7 @@ target_include_directories(occccad_sketch_solver
 )
 target_link_libraries(occccad_sketch_solver PRIVATE occccad_planegcs)
 target_compile_features(occccad_sketch_solver PUBLIC cxx_std_17)
-occccad_set_warnings(occccad_sketch_solver PRIVATE)
+occccad_set_warnings(occccad_sketch_solver)
 occccad_apply_sanitizers(occccad_sketch_solver)
 
 if(OCCCCAD_BUILD_TESTS)

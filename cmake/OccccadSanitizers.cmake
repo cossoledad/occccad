@@ -1,6 +1,3 @@
-# occccadSanitizers.cmake
-# Controlled sanitizer support for occccad.
-
 function(occccad_apply_sanitizers target)
     set(sanitizer_flags "")
 

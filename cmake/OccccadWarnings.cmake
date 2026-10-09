@@ -1,13 +1,6 @@
-# occccadWarnings.cmake
-# Unified compiler warning flags for the project.
-
-function(occccad_set_warnings target scope)
-    if(NOT ${scope} MATCHES "^(PUBLIC|PRIVATE|INTERFACE)$")
-        message(FATAL_ERROR "scope must be PUBLIC, PRIVATE, or INTERFACE")
-    endif()
-
+function(occccad_set_warnings target)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(${target} ${scope}
+        target_compile_options(${target} PRIVATE
             -Wall
             -Wextra
             -Wpedantic
@@ -19,7 +12,7 @@ function(occccad_set_warnings target scope)
             -Wformat=2
         )
     elseif(MSVC)
-        target_compile_options(${target} ${scope}
+        target_compile_options(${target} PRIVATE
             /W4
             /permissive-
         )

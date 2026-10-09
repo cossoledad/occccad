@@ -1,5 +1,3 @@
-# OCCT Kernel Adapter — links against OpenCASCADE from conancenter
-
 find_package(OpenCASCADE REQUIRED)
 
 add_library(occccad_occt_kernel STATIC
@@ -30,7 +28,7 @@ target_compile_features(
         cxx_std_17
 )
 
-occccad_set_warnings(occccad_occt_kernel PRIVATE)
+occccad_set_warnings(occccad_occt_kernel)
 
 if(OCCCCAD_BUILD_TESTS)
     add_subdirectory(tests)

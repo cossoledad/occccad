@@ -1,3 +1,2 @@
 conan>=2,<3
 invoke>=3,<4
-cmake-format

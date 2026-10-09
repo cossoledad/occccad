@@ -8,7 +8,7 @@ add_library(occccad_assembly_solver STATIC
 target_include_directories(occccad_assembly_solver PUBLIC include)
 target_link_libraries(occccad_assembly_solver PUBLIC Eigen3::Eigen)
 target_compile_features(occccad_assembly_solver PUBLIC cxx_std_17)
-occccad_set_warnings(occccad_assembly_solver PRIVATE)
+occccad_set_warnings(occccad_assembly_solver)
 
 # A numerical replay records the actual implementation, independently of the
 # stable solve-policy name. Source edits trigger reconfiguration automatically.
