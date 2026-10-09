@@ -25,4 +25,4 @@
 - 局部验证：`invoke check --scope assembly`
 - 精确回归：`invoke check --scope assembly --match '<test regex>'`，随后按语义风险升级到完整 assembly scope
 - 单个回归：构建 `occcad_assembly_solver_scenarios` 后用 `ctest --test-dir build/cmake/release -R '<exact regex>' --output-on-failure`
-- 数值/性能变化另运行 `invoke performance-baseline`；它不替代正确性测试。
+- 三维求解器性能：`invoke performance.assembly`，默认复用已构建优化制品串行测量 Native；Router/Session 通过 `--stages=static,interaction,service,allocations` 选测。性能测试不替代正确性测试。

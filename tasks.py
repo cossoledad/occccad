@@ -637,6 +637,20 @@ def performance_baseline(c, count=5):
     print(f"[performance] Assembly baseline written to {assembly_output}")
 
 
+@task(help={
+    "samples": "Samples per scene (2..100, default 5)",
+    "build_type": "Configured native build type (default OCCCCAD_BUILD_TYPE or Release)",
+    "stages": "Comma-separated: static,interaction,service,allocations (default native stages)",
+})
+def performance_assembly(c, samples=5, build_type=None, stages="static,interaction"):
+    """Measure the assembly solver serially using existing optimized artifacts."""
+    c.run(shlex.join([
+        sys.executable, str(PROJECT_ROOT / "kernel/assembly/tests/run_performance.py"),
+        "--build-dir", str(_get_build_dir(build_type)), "--samples", str(samples),
+        "--stages", *(stage.strip() for stage in stages.split(",")),
+    ]), pty=True)
+
+
 @task(help={"build_type": "Debug or Release"})
 def run_geometry(c, build_type=None):
     """Build and run the C++ geometry tests."""
@@ -776,6 +790,8 @@ web_collection.add_task(build_web, "build")
 data_collection = Collection("data")
 data_collection.add_task(reset_data, "reset")
 
+performance_collection = Collection("performance")
+performance_collection.add_task(performance_assembly, "assembly")
 
 ns = Collection()
 ns.add_task(info)
@@ -790,3 +806,4 @@ ns.add_task(clean)
 ns.add_collection(run_collection)
 ns.add_collection(web_collection)
 ns.add_collection(data_collection)
+ns.add_collection(performance_collection)

@@ -44,3 +44,5 @@ API 初始化 `debug/cad-diagnostics` 的现有 `debugartifact.Store`，按文�
 错误通过 HTTP/WebSocket 携带 `diagnosticId`（`documentId/recordId`）。`GET /api/documents/{documentID}/diagnostics/{diagnosticID}` 经当前文档 Viewer 权限返回失败时的不可变 JSON；不拼入查询时的新 Head，缺失/过期返回 404。服务重开仍可读取本机日志目录的记录，不创建业务 Revision或提交候选，不收集凭据或无关日志。历史手动诊断包下载入口仍可用。
 
 Web 操作诊断和实体/阵列/布尔预览提供“复制诊断”，复制 `CAD_DIAGNOSTIC <documentId>/<recordId> <code>`；剪贴板不可用或拒绝时显示可选择的文本，不虚报成功。没有服务端记录时复制已有阶段、操作请求 ID、错误及可用文档/Revision 上下文。普通命令与预览共享结构化错误，预览保留原错误对象并清除旧成功候选。此入口当前覆盖返回错误的预览及普通 Domain Command；已接受 FAILED Revision、历史补偿、后台 Job 和离线失败的自动归档尚未贯通，不应声称全部错误途径均已统一。
+
+三维装配求解器通过 `invoke performance.assembly` 使用现有优化制品串行测量，默认 Native 静态链/BFGS 与交互/失败路径各 5 次；显式 stages 可扩展到真实 Router/Session 和分配 probes。每轮独立保存环境、二进制哈希、原始输出与 Native 汇总，不重新构建或覆盖历史结果。性能证据与语义回归、浏览器端到端验收分别记录，见 [性能记录](../../../tests/test.data/assembly-solver-performance.md)。

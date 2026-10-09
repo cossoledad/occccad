@@ -227,14 +227,31 @@ Cross-layer evidence and safe execution requirements belong to the shared
 does not certify Web, Domain, history or Release. Maintainer feedback is scoped
 to current usage, not industrial or performance acceptance.
 
-The focused, serial optimized kernel/Router/Session runner is
-`python kernel/assembly/tests/run_performance.py --label before --samples 5`
-(and `--label after` after rebuilding the same configuration). It requires an
-optimized configured build, the existing dedicated PostgreSQL test database and
-analytic fixtures, and records actual flags/hardware, cold/warm samples, validity,
-iterations, components, phase timings and allocation probes. See the
-[first-round report](../../tests/test.data/assembly-solver-performance.md) for
-build/reproduction commands and measurement boundaries. It never resets data.
+Run the focused solver benchmark with one command:
+
+```sh
+invoke performance.assembly
+# Optional: more samples or all kernel/Router/Session/allocation stages.
+invoke performance.assembly --samples=20
+invoke performance.assembly --stages=static,interaction,service,allocations
+```
+
+The command uses existing optimized artifacts selected by `--build-type` or
+`OCCCCAD_BUILD_TYPE` (Release by default); it does not configure or rebuild
+native targets. Optional service/allocation stages use `go test` and may compile
+the Go test harness.
+Default stages are native static chains/BFGS and interaction/failure paths,
+with five samples per scene, run serially. Sanitized/unoptimized builds are
+rejected. Each run creates a new timestamped directory under
+`build/performance/assembly/`, containing `environment.json`, raw stage logs
+and `summary.json` (native means/medians and full interaction samples).
+Explicit `service` stages require the dedicated PostgreSQL test database and
+analytic fixtures; an environment-blocked test fails the command instead of
+reporting performance success. No stage resets data. The underlying runner is
+`python kernel/assembly/tests/run_performance.py`; `--label` accepts a unique
+run name and never overwrites an existing run. See the
+[performance report](../../tests/test.data/assembly-solver-performance.md) for
+historical comparisons and measurement boundaries.
 
 `occcad_assembly_interaction_benchmark [samples] [scene]` measures kernel-only
 latency for `single`, `connected50-200`, `independent50`, and `group-contact`,

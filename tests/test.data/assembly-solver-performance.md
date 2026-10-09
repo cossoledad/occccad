@@ -1,4 +1,8 @@
-# 三维装配求解性能基础：第一轮
+# 三维装配求解性能记录
+
+最新复测见 [2026-10-09 Release 内核对比](#2026-10-09一键命令与-release-内核复测)。以下第一轮统计保留原测量条件与结论。
+
+## 第一轮：2026-10-08
 
 测量日期：2026-10-08。基线 HEAD：`e94f3695a0460ed5a1ad036b2977f467e1b95246`。
 本轮交付了可重复运行的串行测量、轻量阶段计时、等价复用、Session 并发回归和侧栏最后请求耗时。
@@ -235,3 +239,85 @@ git diff --check
 嵌套校验还有两次 fresh DB 读取与 JSON 解码／路径构造，但没有跨帧缓存 Head。全模型复制的主要 JSON round-trip 已移除，完整响应、序列化、canonical hash/digest 仍保留。allocation probes 的 Freeze/Digest 分配数量基本没变。BFGS 大自由度用例、真正进程冷启动、长时间尾延迟、并发容量及真实拖动验收留待后续。稀疏后端、机构仿真、DMU 和部署拆分未纳入本轮。
 
 <!-- Measured tables below are generated from this run's retained logs. -->
+
+## 2026-10-09：一键命令与 Release 内核复测
+
+本次新增并实际运行 `invoke performance.assembly`。默认只测三维求解器 Native，不编译项目、不访问数据库、不启动应用进程；复用维护者刚完成的 Release 构建。旧的第一轮结果保留在上文，本节与第一轮 **After** 比较。
+
+### 复现命令与证据
+
+```sh
+invoke performance.assembly
+invoke performance.assembly --samples=20
+# 可选：扩展到 Router/Session 与 Go 分配 probes，需要专用测试 PostgreSQL 和解析几何 fixture。
+invoke performance.assembly --stages=static,interaction,service,allocations
+```
+
+- 默认每场景 5 次，串行运行静态链/BFGS → 交互/失败路径；本次使用默认命令，未运行可选 service/allocations。
+- 原始日志和机器可读统计：`build/performance/assembly/20261009T140739937053Z/{environment.json,static.txt,interaction.txt,summary.json}`；这些本地制品不作为静态 fixture 提交。每次生成唯一 UTC 时间戳目录，显式重用 label 会失败，不覆盖旧统计。
+- 测量开始：`2026-10-09T14:07:39.976071+00:00`（UTC）；机器：Intel(R) Core(TM) i7-4900MQ CPU @ 2.80GHz，8 个逻辑 CPU；系统：`Linux-6.6.114.1-microsoft-standard-WSL2-x86_64-with-glibc2.43`。
+- HEAD：`1882d398c336366ff4c36973fe51fc26991ae82c`；测量时未提交改动仅为命令与 Python runner。未修改或重建 C++ solver、benchmark 或 Worker。
+- CMake 配置：`Release`；编译器：`c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0`；实际参数：`-m64 -O3 -DNDEBUG`；ASAN/UBSAN/TSAN 均为 OFF。
+- Solver SHA256：`3070dc782d845b2729001531c0a5c0cc70ed7c255463b8035a1531a5fba97698`，与第一轮 After 一致。第三方依赖此次由维护者完整 Release 重建；第一轮则使用 Debug Conan 依赖和手动优化的项目编译。
+- static binary SHA256：`4a81044a6156ab3af1d277c428e68b19d99488b83d59bfac13a3e3b6840098e8`；interaction binary SHA256：`d757b50f96eea0f43c06520c678b868ed2f9d17c61f8e58314f5f31de36722b6`。
+- 采样期间没有由本任务启动的并行构建、测试；已有应用/开发工具继续运行。没有绑定 CPU、控制频率或消除系统背景负载。
+
+### 与第一轮 After 对比
+
+单位 ms。静态 plane5/15/30 使用 5 次平均，其余使用 5 次中位数；变化按保存的上一轮原始值计算，表中时间四舍五入。阶段包含关系仍遵循上文，不能相加。
+
+| 场景 | 统计量 | 第一轮 After | 本次 Release | 耗时变化 | 提交资格 / 判定 |
+| --- | --- | --- | --- | --- | --- |
+| plane5 | mean | 1.270 | 0.516 | -59.4% | 正常求解 |
+| plane15 | mean | 9.430 | 10.200 | +8.2% | 正常求解 |
+| plane30 | mean | 192.799 | 190.107 | -1.4% | 正常求解 |
+| warm-rotation30 | median | 1.423 | 1.461 | +2.7% | 正常求解 |
+| single | median | 0.075 | 0.076 | +0.9% | 可提交 |
+| connected50-200 | median | 687.463 | 677.770 | -1.4% | 可提交 |
+| independent50 | median | 0.568 | 0.561 | -1.2% | 可提交 |
+| group-contact | median | 0.230 | 0.238 | +3.7% | 可提交 |
+| grounded-failure | median | 0.028 | 0.030 | +6.0% | 按预期不可提交 |
+| cancelled | median | 0.381 | 0.390 | +2.3% | 按预期不可提交 |
+| budget | median | 677.458 | 684.701 | +1.1% | 按预期不可提交 |
+| invalid-input | median | 0.084 | 0.080 | -3.7% | 按预期不可提交 |
+
+50 体／200 约束拖动中位数为 677.770 ms，较上一轮 687.463 ms 减少 1.4%；30 体静态链平均减少 1.4%，5 体静态链平均减少 59.4%。15 体静态链增加 8.2%，warm rotation 增加 2.7%，group-contact 增加 3.7%，小场景及失败路径也有正负波动。本次不作“所有场景提速”或“Release 普遍显著提速”的结论。
+
+本次静态链最后一次结果保持 rank 12/42/87、hard 迭代 3/4/5、preference 迭代 2；residual 分别为 `4.50718e-25`、`3.96079e-23`、`3.12402e-22`，与上文一致。正常交互单体/connected50-200/independent50/group-contact 的 physical rank 为 0/294/0/1，组件数为 1/1/50/1，均 hard feasible、有效且可提交。grounded-failure、cancelled、budget、invalid-input 均有效地按预期拒绝提交；budget hard feasible 不等于可提交。
+
+### connected50-200 阶段中位数
+
+| 阶段 | 第一轮 After | 本次 Release |
+| --- | --- | --- |
+| compile_ms | 0.365 | 0.373 |
+| hard_ms | 1.581 | 1.600 |
+| preference_ms | 337.616 | 339.874 |
+| retraction_ms | 0.647 | 0.639 |
+| dof_ms | 347.451 | 335.286 |
+| factorization_ms | 671.441 | 660.875 |
+| pose_ms | 1.452 | 1.477 |
+
+preference 和 DOF 仍占据主要时间；factorization 横跨多个阶段，retraction 包含于 preference。本次只记录现状，没有据此削减诊断或改变数值算法。
+
+### 本次全样本
+
+按采样顺序，单位 ms；静态链程序只输出平均，没有逐次总时间，本节不补造其样本。
+
+| 场景 | 5 次总时间 |
+| --- | --- |
+| warm-rotation30 | 3.965770, 1.416590, 1.494790, 1.431190, 1.460990 |
+| single | 0.137198, 0.080299, 0.075699, 0.074300, 0.073500 |
+| connected50-200 | 526.326000, 616.672000, 677.770000, 887.039000, 941.384000 |
+| independent50 | 0.584395, 0.561496, 0.606895, 0.553795, 0.556196 |
+| group-contact | 0.265998, 0.238398, 0.231398, 0.225598, 0.251798 |
+| grounded-failure | 0.036900, 0.030000, 0.035200, 0.026000, 0.023099 |
+| cancelled | 0.416196, 0.388396, 0.389697, 0.430596, 0.384796 |
+| budget | 684.701000, 681.237000, 671.036000, 878.961000, 930.219000 |
+| invalid-input | 3.007870, 0.099199, 0.075999, 0.079999, 0.080399 |
+
+### 本次验证与限制
+
+- 新命令成功完成 12 个 Native 场景，每场景 5 次；benchmark 既有的求解状态及交互几何/资格断言通过，汇总还检查预期场景集合和采样数，失败或样本缺失直接报错。
+- 命令与统计测试覆盖 samples/build 路由、平均与中位数及 ns→ms 换算、预期失败的提交资格；已有 Python 工具测试一并运行。文档上下文审计与差异检查通过。
+- 没有运行本轮 Router/Session、分配 probes、全量 Assembly CTest/corpus、全量 Go/Web 或浏览器验收。上一轮相应统计仅为历史记录，本轮没有更新这些端到端结论。
+- 这是同机器、相同 solver.cpp SHA 的历史复测，但构建/依赖配置与运行时环境不同，不是严格控制变量的 A/B 实验。只有 5 次采样；原程序的 kernel_p95_ms 是小样本分位数，本报告不把它解释为稳定 P95、交互流畅性或吞吐容量。
