@@ -17,6 +17,7 @@ import { assemblyConstraintReferences } from "../cad/assembly/assembly-capabilit
 import type { DocumentSessions } from "../cad/document/document-session";
 import { captureDocumentCamera, documentCameraState, documentCameraPose, restoreDocumentCamera } from "../cad/navigation/document-camera-state";
 import type {MotionPresentation} from "../cad/assembly/motion-presentation";
+import {applyMotionFrame} from "../cad/assembly/motion-frame";
 import {makeMotionMarkers,disposeMotionMarkers} from "../cad/assembly/motion-markers";
 import {updateAnalysisGuides} from "../cad/rendering/analysis-guides";
 import { AssemblyInteractionController,assemblyInteractionFailureState, type AssemblyInteractionBegin, type AssemblyInteractionSession, type AssemblyInteractionUpdate, type AssemblyInteractionFrame, type AssemblyInteractionCommit, type AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
@@ -387,6 +388,17 @@ export class CadViewportEngine {
   private readonly resizeObserver: ResizeObserver;
   private animationFrame = 0;
   private disposed = false;
+  private motionDisplay?:import("../cad/assembly/motion-study").MotionPlayback;
+  private motionRestorePending=false;
+  setMotionDisplay(display?:import("../cad/assembly/motion-study").MotionPlayback):void {
+    if(!display&&this.motionDisplay){this.motionRestorePending=true;const targets=[...this.instanceGroups].flatMap(([id,object])=>{const p=this.view?.product?.instances.find(i=>i.id===id);return p?[{object,target:this.transformPose(p.translation,p.rotation??[0,0,0,1])}]:[]});this.transforms.applyBatch(targets,"immediate");}
+    this.motionDisplay=display;
+    if(!display)return;
+    if(this.view?.document.id!==display.view.document.id||this.view?.document.versionId!==display.revisionId)return;
+    this.moveManipulator.detach();this.setActiveTool("select");
+    if(!applyMotionFrame(display,this.view,this.instanceGroups,this.transforms))return;
+    this.content.updateMatrixWorld(true);this.refreshInteractionHighlights();this.refreshContentBounds();this.invalidate();
+  }
   private readonly transforms = new TransformTransitionSystem(() => this.invalidate());
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks, private readonly documentSessions?: DocumentSessions) {
@@ -695,7 +707,7 @@ export class CadViewportEngine {
     this.applyTreeVisibility();
     this.setDatumPreview(this.datumPreview);
     this.refreshContentBounds();
-    if (previousDocumentID === view.document.id && view.document.type === "PRODUCT") {
+    if (previousDocumentID === view.document.id && view.document.type === "PRODUCT" && !this.motionDisplay && !this.motionRestorePending) {
       const starts: Array<{ object: THREE.Group; target: TransformPose }> = [];
       const targets: Array<{ object: THREE.Group; target: TransformPose; frame: () => void }> = [];
       for (const [id, group] of this.instanceGroups) {
@@ -724,6 +736,8 @@ export class CadViewportEngine {
         this.frameContent();
       }
     }
+    this.motionRestorePending=false;
+    if(this.motionDisplay)this.setMotionDisplay(this.motionDisplay);
     this.emitDebugState();
     this.callbacks.documentViewReady?.(view.document.id, restoredCamera);
     this.invalidate();
@@ -1156,6 +1170,7 @@ export class CadViewportEngine {
   }
 
   setActiveTool(toolID: import("../state/workbench-store").WorkbenchToolID): void {
+    if(this.motionDisplay)toolID="select";
     const generation=++this.toolActivationGeneration;
     if(this.moveFinalization||this.moveCommitPending||this.moveInteraction.hasUncommittedFinal){
       void this.settleAssemblyInteraction().then(()=>{
@@ -1376,7 +1391,7 @@ export class CadViewportEngine {
 
   requestDimensionEdit(selection: Extract<SelectionItem, { kind: "sketch-constraint" }>, x?: number, y?: number): boolean {
     const sketchView = this.sketchView();
-    if (!sketchView) return false;
+    if (this.motionDisplay || !sketchView) return false;
     if ((selection.ownerDocumentId??selection.documentId)!==sketchView.document.id ||
         (selection.occurrencePath??"")!==(this.editContext?.occurrencePath??"") ||
         selection.versionId&&selection.versionId!==sketchView.document.versionId ||

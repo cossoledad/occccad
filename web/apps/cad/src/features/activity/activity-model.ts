@@ -27,6 +27,7 @@ type JobPresentation = {
 };
 
 const jobPresentations: Record<string, JobPresentation> = {
+  MOTION_STUDY: {title:"机构 / DMU 研究",running:"正在求解运动帧与检查几何",succeeded:"研究结果已保存，请查看运动学与 DMU 结论",failed:"研究计算未完成"},
   EXCHANGE_IMPORT: { title: "文档导入", running: "正在解析并创建文档", succeeded: "文档已导入", failed: "文档导入失败" },
   EXCHANGE_EXPORT: { title: "文档导出", running: "正在生成交换文件", succeeded: "文件已可下载", failed: "文档导出失败" },
 };

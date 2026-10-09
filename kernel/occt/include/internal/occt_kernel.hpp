@@ -7,6 +7,7 @@
 #define INTERNAL_OCCT_KERNEL_HPP
 
 #include <occccad/kernel/kernel.hpp>
+#include <occccad/kernel/dmu.hpp>
 #include <occccad/kernel/topology_naming.hpp>
 
 #include <memory>
@@ -99,8 +100,11 @@ public:
     size_t runtime_cache_bytes() const noexcept;
     size_t resident_count() const noexcept;
     bool is_loaded(const GeometryId& id) const noexcept;
+    InterferenceResult analyze_interference(const PlacedGeometry& first, const PlacedGeometry& second,
+        double clearance, double tolerance, const std::function<bool()>& cancelled = {});
 
 private:
+    const TopoDS_Shape& analysis_shape(const GeometryId& id) const;
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

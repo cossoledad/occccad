@@ -53,6 +53,17 @@ try {
  commands.find(command=>command.id==='tree.edit').execute({payload:{node}});assert.equal(edits,1);
  assert.throws(()=>structureCommands({onEdit:noop},[{...node,capabilities:[]}]).find(command=>command.id==='tree.edit').execute({payload:{node}}),/unavailable/);
  const cleanup=new CommandOperation();let released=0;cleanup.own(()=>released++);cleanup.own(()=>{throw new Error('resource failure');});assert.throws(()=>cleanup.cancel(),AggregateError);assert.equal(released,1);cleanup.cancel();assert.equal(released,1);
+ // A root-owned study must not open against the host while a nested Product is active.
+ const {workbenchCommands}=load(resolve(base,'../workbench-command-registration.ts'));
+ const product={document:{id:'root',type:'PRODUCT'},product:{instances:[]}};
+ let motionOpened=0;
+ const motionBindings={...bindings,view:product,editingView:product,setMotionOpen:()=>motionOpened++};
+ const motionCommand=()=>workbenchCommands(motionBindings).find(c=>c.id==='assembly.motion-study');
+ assert.equal(motionCommand().isEnabled(),true);motionCommand().execute();assert.equal(motionOpened,1);
+ motionBindings.editingView={document:{id:'nested',type:'PRODUCT'},product:{instances:[]}};
+ assert.equal(motionCommand().isEnabled(),false);
+ motionBindings.editingView=product;motionBindings.canEditRoot=false;
+ assert.equal(motionCommand().isEnabled(),true,'viewer can run read-only frozen research');
  // Run the actual Tab callback with controlled React state, without a browser.
  const {WorkbenchCommands}=load(resolve(base,'../workbench-commands.tsx'));
  const commandContext=load(resolve(base,'../../../cad/command/command-context.tsx'));

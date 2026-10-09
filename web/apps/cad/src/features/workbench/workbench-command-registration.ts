@@ -14,6 +14,7 @@ import type {SpecificationTreeNode} from "./specification-tree";
 import {selectionSummaryCommand} from "./commands/selection-summary";
 
 export type WorkbenchCommandBindings={
+ setMotionOpen?:(open:boolean)=>void;motionOpen?:boolean;
  treeActions?:StructureActions;closePanels?:()=>void;toolContinuation?:boolean;formActive?:boolean;
  store:ReturnType<typeof useWorkbenchStore.getState>;editingView?:DocumentView;view?:DocumentView;
  canEdit:boolean;canEditRoot:boolean;command:{isPending:boolean};selectedNamingIssue:unknown;conflictOpen:boolean;moveReceiptPending:boolean;workingBodyID?:string;
@@ -44,6 +45,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
         isActive: () => store.activeToolID === "select" }),
       ({ id: "assembly.move", execute: () => store.setActiveTool("assembly.move", "continuous"),
         isEnabled: () => Boolean(canEditRoot), isActive: () => store.activeToolID === "assembly.move" }),
+      ({id:"assembly.motion-study",execute:()=>{store.setActiveTool("select","once");bindings.setMotionOpen?.(true);},isEnabled:()=>Boolean(view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&bindings.setMotionOpen),isActive:()=>Boolean(bindings.motionOpen)}),
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),
         isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),
       ({id:"assembly.move-receipt",execute:()=>viewport.current?.retryAssemblyMoveCommit(),

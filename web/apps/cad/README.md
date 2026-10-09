@@ -219,3 +219,9 @@ Part Design 提供布尔、圆角、倒角、拔模、抽壳和基础放样命�
 实体 Feature 的真实后端浏览器回归：先运行 `invoke run.app --build-type=Release`，加载已配置的管理员登录环境后，在本目录执行 `pnpm exec playwright test --config playwright.live.config.ts`。该用例新建独立验收文档，不重置数据库；覆盖真实视图区布尔拾取/取消、倒角预选带入和编辑恢复、矩形到圆放样、自动预览、提交、精确体积和页面重开。测试打开输入诊断 Overlay 并根据当前相机投影点击真实 WebGL 视口。
 
 实体 Feature 操作使用视图区角色拾取，几何输入不显示 UUID 下拉列表。命令前预选自动带入，边/面集点击添加、再次点击取消；输入完整后自动精确预览。局部特征编辑临时显示上游阶段并恢复持久边面高亮，取消恢复正式视图。旋转轴保留单条草图直线；放样默认自动对应有序截面，支持圆/多边形和首尾真实点端，点端通过独立拾取角色选择草图点或基准原点；可显示当前成功预览的连接线、逐截面调整闭合边/圆相位/方向。`feature-selection.ts` 拥有拾取角色过滤，Feature 面板拥有短期候选与绑定集合，Viewport 拥有显示/拾取生命周期，正式修改仍经既有命令与 CAS。
+
+## 小机构与基础 DMU
+
+实际 API 模式下，在根 Product 的 Assembly Design 的“组件定位”工具栏打开“机构与基础 DMU”：定义 Ground/Rigid/Revolute/Prismatic 的实例局部 frame、保存单坐标线性研究、运行后台任务，再播放/暂停/单步/定位/复位冻结的整帧结果。静态和逐采样 DMU 可选择完整 occurrence + Body 范围、间隙与同刚体内部检查，结果行高亮、问题帧定位。播放为只读覆盖，不逐帧写 Revision；退出恢复正式姿态。Mock 不实现数值或精确分析。
+
+空 Product 提供通过正式命令创建四杆闭环的演示按钮；演示在铰接处有意报告干涉，运动学合格与干涉通过分开。人工步骤、必要验证和首版边界见[实施记录](../../../plans/kinematics-dmu.md)，语义见[当前合同](../../../docs/architecture/current/kinematics-dmu.md)。本轮未执行浏览器测试、截图或视觉验收。

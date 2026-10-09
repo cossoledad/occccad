@@ -288,7 +288,7 @@ func (service *Service) AcknowledgeCanceled(ctx context.Context, jobID, workerID
 func (service *Service) Retry(ctx context.Context, jobID, userID string, isAdmin bool) (Job, error) {
 	job, err := service.change(ctx, `UPDATE occccad.jobs SET state='QUEUED',available_at=now(),completed_at=NULL,
  cancel_requested_at=NULL,error_code=NULL,error_message=NULL,max_attempts=GREATEST(max_attempts,attempt_count+3)
- WHERE id=$1 AND ($3 OR requested_by_user_id=$2) AND state IN ('FAILED','CANCELED') RETURNING `+jobColumns,
+ WHERE id=$1 AND job_type<>'MOTION_STUDY' AND ($3 OR requested_by_user_id=$2) AND state IN ('FAILED','CANCELED') RETURNING `+jobColumns,
 		"", "", "", jobID, userID, isAdmin)
 	if errors.Is(err, database.ErrNoRows) {
 		if _, getErr := service.Get(ctx, jobID); getErr != nil {
@@ -329,7 +329,7 @@ func scan(row database.Row) (Job, error) {
 func populateCapabilities(result *Job) {
 	result.CanCancel = (result.State == "QUEUED" || result.State == "RETRY_WAIT" ||
 		(result.State == "RUNNING" && (result.Type != "EXCHANGE_IMPORT" || result.Progress < 70))) && result.CancelRequestedAt == nil
-	result.CanRetry = result.State == "FAILED" || result.State == "CANCELED"
+	result.CanRetry = result.Type != "MOTION_STUDY" && (result.State == "FAILED" || result.State == "CANCELED")
 }
 
 // change commits the state, attempt and notification in one transaction on every
@@ -343,6 +343,9 @@ func (service *Service) change(ctx context.Context, query, attemptResult, code, 
 	job, err := scan(tx.QueryRow(ctx, query, args...))
 	if err != nil {
 		return Job{}, err
+	}
+	if attemptResult == "TERMINAL_STATE" {
+		attemptResult = job.State
 	}
 	if attemptResult != "" {
 		if _, err = tx.Exec(ctx, `UPDATE occccad.job_attempts SET completed_at=now(),result=$3,error_code=NULLIF($4,''),error_message=NULLIF($5,'')
@@ -365,5 +368,18 @@ func notify(ctx context.Context, tx database.Tx, job Job) error {
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
  VALUES('JOB',$1,'job.state.changed',1,$2)`, job.ID, payload)
+	return err
+}
+
+// Completion belongs to an exact lease attempt; partial frames remain readable
+// after cancellation. Never changes Product Head or its poses.
+func (service *Service) FinishMotion(ctx context.Context, jobID, workerID string, attempt int, resultID string) error {
+	_, err := service.change(ctx, `UPDATE occccad.jobs SET state=CASE WHEN cancel_requested_at IS NULL THEN 'SUCCEEDED' ELSE 'CANCELED' END,
+ progress=100,result_object_id=$4,completed_at=now(),lease_owner=NULL,lease_expires_at=NULL
+ WHERE id=$1 AND job_type='MOTION_STUDY' AND state='RUNNING' AND lease_owner=$2 AND attempt_count=$3
+ AND lease_expires_at>now() RETURNING `+jobColumns, "TERMINAL_STATE", "", "", jobID, workerID, attempt, resultID)
+	if errors.Is(err, database.ErrNoRows) {
+		return ErrNotFound
+	}
 	return err
 }

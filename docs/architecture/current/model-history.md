@@ -34,6 +34,8 @@ erDiagram
 
 ### Document 与 Version
 
+Product 的机构/研究定义通过 `occccad://product/kinematics/set` 命令及 `product.kinematics` PropertySlot 保存，要求当前 base Revision 并遵循现有 CAS、ChangeSet 和补偿历史。纯定义的提交/Undo/Redo 不重新求解装配位姿；运行/播放是冻结版本的派生分析和临时显示，不创建逐帧 Revision。详见[机构与 DMU](kinematics-dmu.md)。
+
 - Document 类型当前为 Part 或 Product；
 - Document 以 UUID `id` 为唯一身份，`name` 是允许重复的显示属性；创建界面按已有名称提供首个可用的 `PartN`/`ProductN` 默认值，但默认值和名称都不参与身份或引用解析；
 - Document 是容器；显式 Workspace 保存可变 Head/sequence/base，`document_versions` 是不可变 Revision 快照；

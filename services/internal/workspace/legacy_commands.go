@@ -15,6 +15,11 @@ import (
 
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
 	switch request.Type {
+	case "SAVE_KINEMATICS":
+		if documentType != "PRODUCT" || request.Kinematics == nil {
+			break
+		}
+		return typeSetKinematics, request.Kinematics, nil
 	case "SET_DEFINITION_VISIBILITY":
 		if documentType == "PRODUCT" {
 			return typeConstraintVisibility, definitionVisibilityPayload{EntityKind: request.TargetKind, EntityID: request.TargetID, Visible: request.Visible}, nil

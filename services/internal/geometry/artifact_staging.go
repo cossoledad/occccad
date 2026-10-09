@@ -28,7 +28,7 @@ func artifactStagingInterceptor(store artifact.Store, local *artifact.LocalStore
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 
 		switch req.(type) {
-		case *workerv1.GetTopologyRequest, *workerv1.EvaluatePartRequest, *workerv1.InspectExchangeRequest, *workerv1.ImportExchangeRequest, *workerv1.ExportExchangeRequest:
+		case *workerv1.GetTopologyRequest, *workerv1.EvaluatePartRequest, *workerv1.InspectExchangeRequest, *workerv1.ImportExchangeRequest, *workerv1.ExportExchangeRequest, *workerv1.AnalyzeInterferenceRequest:
 		default:
 			return invoke(ctx, method, req, reply, cc, opts...)
 		}

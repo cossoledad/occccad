@@ -679,6 +679,7 @@ type AssemblyGroupMember struct {
 }
 
 type ProductModel struct {
+	Kinematics          KinematicsDefinitions  `json:"kinematics,omitzero"`
 	Instances           []ProductInstance      `json:"instances"`
 	VisibilityOverrides []OccurrenceVisibility `json:"visibilityOverrides,omitempty"`
 	Constraints         []AssemblyConstraint   `json:"constraints,omitempty"`
@@ -1123,6 +1124,7 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	Kinematics                *KinematicsDefinitions       `json:"kinematics,omitempty"`
 	DatumDefinition           *DatumTransform              `json:"datumDefinition,omitempty"`
 	DatumAngleExpression      string                       `json:"datumAngleExpression,omitempty"`
 	DatumDistanceExpression   string                       `json:"datumDistanceExpression,omitempty"`

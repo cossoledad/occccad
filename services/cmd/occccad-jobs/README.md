@@ -9,6 +9,7 @@ occccad-jobs 是当前数据库持久任务的消费者进程，适合脱离 HTT
 | `EXCHANGE_IMPORT` | ArtifactStore 中的 STEP/BREP 对象 | 一次解析 XDE Definition/Occurrence graph；唯一 Part 并行求值/命名，按依赖创建共享、嵌套 Product |
 | `EXCHANGE_EXPORT` | Part 或 Product 当前 Head 的 B-Rep 引用 | 生成 STEP/BREP，并把结果对象 ID 写回任务 |
 | `THUMBNAIL_RENDER` | 文档与版本 | 使用 `png-v4` 生成 `640×400` 正交等轴测 PNG 并更新 `document_previews` |
+| `MOTION_STUDY` | 不可变 MOTION_SNAPSHOT 制品 | SolveAssembly/AnalyzeInterference 经 Router 执行，保存 MOTION_RUN；不修改 Product Head |
 
 Worker 不提供网络 API，不接受用户认证请求，也不是通用分布式工作流引擎。
 STEP 优先保留 Definition/Occurrence 名称；无源名称时使用上传文件名。Product STEP 导出通过 XDE 共享 Definition 和 reference + local placement，保留嵌套层级。BREP 保持单 Part/Compound 语义。
@@ -33,7 +34,7 @@ flowchart LR
 - 暂态失败在达到最大次数前进入 `RETRY_WAIT`；导入域校验或 Worker `INVALID_ARGUMENT` 直接失败，避免确定性失败反复占用计算资源；
 - 用户取消排队任务时立即进入 `CANCELED`；运行任务每秒观察取消请求、取消正在进行的 Geometry 调用并由当前 lease owner 确认终态；
 - Worker 按持久阶段单调写入 0–100 进度；导入进入正式文档提交阶段后关闭取消能力，避免形成半提交的组件集合；
-- 最终失败或取消任务可在同一 Job identity 上手动重试，继续递增 attempt，不覆盖尝试历史；
+- 除 MOTION_STUDY 外，最终失败或取消任务可在同一 Job identity 上手动重试，继续递增 attempt，不覆盖尝试历史；
 - 领取语义是至少一次，任务处理器必须依赖幂等键和条件写入，不能假设“恰好一次”；
 - 最终成功、最终失败或取消与 `JOB` Outbox 在同一数据库事务中写入；API 通过 `job.state.changed.v1` 通知任务发起用户，重试等待状态不制造失败通知；
 - 轮询为空时等待 1 秒。
@@ -104,3 +105,7 @@ OCCCCAD_TEST_IMPORT_DATABASE=1 OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occcc
 Part 求值结果仅携带摘要和 BREP/VISUAL/NAMING 引用，导入 identity seed 另存 Artifact。缩略图通过 `HydrateDisplay` 读取与前端相同的 GLB，不读取数据库 Mesh；仅在渲染调用范围内解码，DocumentView 不包含完整网格。详见[几何表示](../../../docs/architecture/current/geometry-representations.md)。
 
 不提供 STEP 样本、配置 `OCCCCAD_TEST_DATABASE_URL` 与 Worker 时，上述集成测试生成共享 100 次 Part、共享子装配及同形不同定义的 fixture，并验证导出重新导入；使用独立测试库。协议细节见[交换架构](../../../docs/architecture/current/jobs-artifacts.md)。
+
+## 机构研究消费者
+
+MOTION_STUDY 使用冻结的 view、方程、solver profile 和 exact refs；执行时检查权限及输入制品 SHA/digest，计算过程不读取变化中的 Head。结果包含已完成采样帧、独立运动学/DMU 结论及失败诊断。Job SUCCEEDED 只表示结果保存；取消下保存部分帧并终结为 CANCELED。最后完成必须匹配 RUNNING、lease owner、attempt 和有效租约，迟到结果无法覆盖。此类型手动再次运行生成新 Job，保留旧结果；未持久化前基础设施自动重试仍沿用队列。无浏览器/GPU 新依赖，无新的进程拓扑。当前契约及针对真实 S3/Router/Worker 的验证、演示步骤见[机构与 DMU](../../../docs/architecture/current/kinematics-dmu.md)和[执行记录](../../../plans/kinematics-dmu.md)。

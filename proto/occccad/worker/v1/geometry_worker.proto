@@ -37,6 +37,8 @@ service GeometryWorker {
     // identity and persistence stay in the control plane; this boundary only
     // carries rigid poses, local geometric descriptors and residual equations.
     rpc SolveAssembly(SolveAssemblyRequest) returns (SolveAssemblyResponse);
+    // Immutable multi-input exact solid analysis. IDs distinguish placed instances.
+    rpc AnalyzeInterference(AnalyzeInterferenceRequest) returns (AnalyzeInterferenceResponse);
 
     // Neutral CAD exchange uses immutable ArtifactReference values. Large file
     // bytes never cross this unary gRPC boundary.
@@ -1315,4 +1317,37 @@ message AssemblyEvaluationTrace {
     uint64 jacobian_rows = 7;
     uint64 jacobian_columns = 8;
     repeated double jacobian = 9; // row-major, optional
+}
+
+message AnalysisGeometry {
+    string id = 1;
+    string geometry_id = 2;
+    ArtifactReference brep = 3;
+    RigidPose pose = 4;
+}
+message AnalysisPair { string first_id = 1; string second_id = 2; }
+message AnalyzeInterferenceRequest {
+    string request_id = 1;
+    repeated AnalysisGeometry geometry = 2;
+    repeated AnalysisPair pairs = 3;
+    double clearance_mm = 4;
+    double tolerance_mm = 5;
+}
+message InterferencePairResult {
+    string first_id = 1;
+    string second_id = 2;
+    string classification = 3;
+    double distance_mm = 4;
+    double common_volume_mm3 = 5;
+    Vec3 first_witness = 6;
+    Vec3 second_witness = 7;
+    bool complete = 8;
+    bool clearance_satisfied = 9;
+    string diagnostic = 10;
+    bool common_tested = 11;
+}
+message AnalyzeInterferenceResponse {
+    repeated InterferencePairResult pairs = 1;
+    bool complete = 2;
+    string kernel_build = 3;
 }

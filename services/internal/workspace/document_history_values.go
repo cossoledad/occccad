@@ -114,6 +114,10 @@ func productHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (m
 		return nil, err
 	}
 	for _, change := range set.Changes {
+		if change.Target.SlotID == "product.kinematics" {
+			result[change.Target], _ = json.Marshal(model.Kinematics)
+			continue
+		}
 		if change.Target.SlotID == "context-binding.entity" {
 			for _, binding := range model.ContextBindings {
 				if binding.ID == change.Target.EntityID {
@@ -428,6 +432,10 @@ func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.P
 			}
 		}
 		switch address.SlotID {
+		case "product.kinematics":
+			if err := json.Unmarshal(value, &model.Kinematics); err != nil {
+				return nil, err
+			}
 		case "context-binding.entity":
 			bindingIndex := slices.IndexFunc(model.ContextBindings, func(item ContextBinding) bool { return item.ID == address.EntityID })
 			if len(value) == 0 || string(value) == "null" {

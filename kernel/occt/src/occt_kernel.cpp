@@ -3668,6 +3668,10 @@ BoundingBox OcctKernel::getBoundingBox(const GeometryId& id) {
     return to_bbox(box);
 }
 
+const TopoDS_Shape& OcctKernel::analysis_shape(const GeometryId& id) const {
+    return impl_->find(id);
+}
+
 TopologyInfo OcctKernel::getTopologySummary(const GeometryId& id) {
     const auto& shape=impl_->find(id);TopologyInfo out;
     const auto count=[&](TopAbs_ShapeEnum type){TopTools_IndexedMapOfShape map;TopExp::MapShapes(shape,type,map);return static_cast<uint32_t>(map.Extent());};

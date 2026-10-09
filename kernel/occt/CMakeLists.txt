@@ -5,6 +5,7 @@ add_library(occccad_occt_kernel STATIC
     src/fillet_boundary.cpp
     src/exchange_graph.cpp
     src/sketch_curve.cpp
+    src/dmu.cpp
 )
 
 target_include_directories(

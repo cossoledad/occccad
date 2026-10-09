@@ -76,6 +76,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeDefinitionVisibility, "PART", applyDefinitionVisibility},
 		commandHandler{typeOccurrenceVisibility, "PRODUCT", applyOccurrenceVisibility},
 		commandHandler{typeConstraintVisibility, "PRODUCT", applyConstraintVisibility},
+		commandHandler{typeSetKinematics, "PRODUCT", applyKinematicsDefinition},
 		commandHandler{typeCreatePattern, "PART", applyCreateFeature},
 		commandHandler{typeCreateSketch, "PART", applyCreateFeature},
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
@@ -2208,6 +2209,9 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 		return prepared, ErrNotFound
 	} else if err != nil {
 		return prepared, err
+	}
+	if request.Type == "SAVE_KINEMATICS" && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
+		return prepared, fmt.Errorf("%w: KINEMATICS_BASE_REVISION_CHANGED", ErrValidation)
 	}
 	if request.ExpectedUpdateRevision != "" && prepared.headRevision != request.ExpectedUpdateRevision {
 		return prepared, fmt.Errorf("%w: PARAMETER_UPDATE_CONSUMER_CHANGED", ErrValidation)

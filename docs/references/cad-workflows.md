@@ -34,3 +34,15 @@
 ## Assembly Design 来源
 
 2026-09-21 按本机 Asm/Cfy viewdoc 索引读取用户给出的 `online/CATIAfr_C2/asmugCATIAfrs.htm` 及其关联菜单/六类约束任务页、几何兼容参考页、Activate/Deactivate 与 Manipulate 页面。逐页路径、语义与文档疑点集中见[六类约束合同](../architecture/current/assembly-constraints.md)，不再在本索引复制参数矩阵。该次核对不刷新上方其他外部产品资料，也不表示新能力已经实现。
+
+## 小机构与基础 DMU 来源
+
+2026-10-09 从本机 `control/KinEnglishC2.viewdoc`、`control/SpaEnglishC2.viewdoc` 定位并读取：
+
+- `online/kinug_C2/kinugbt0501.htm`：新建机制、关节、固定零件及 command 的定义流程。
+- `online/kinug_C2/kinugbt0201.htm`：law、时间范围/步数、播放/暂停/定位、限位及分析。
+- `online/kinug_C2/kinugbt0300.htm`：保存记录、回放与复位。
+- `online/spaug_C2/spaugbt0302.htm`：选定组的 clash/contact/clearance、结果列表、预览和高亮。CATIA 此页的网格/sag 判定不作为本项目 OCCT 实体精度依据。
+- [Onshape Mate/Animate](https://cad.onshape.com/help/Content/Assembly/mates.htm)、[Slider Mate](https://cad.onshape.com/help/Content/Assembly/slider_mate.htm)：独立运动坐标、动画 start/end 与 mate limits 分开。
+
+这些资料用于定义→规律/运行→回放→干涉定位的交互参照。本项目采用自己的 Domain Command/Revision/Job/Artifact 边界；遵循本轮明确要求，播放姿态始终暂态、不保留或写回仿真位置。当前实现见[机构与 DMU](../architecture/current/kinematics-dmu.md)。

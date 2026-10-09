@@ -179,6 +179,8 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		return err
 	}
 	switch job.Type {
+	case "MOTION_STUDY":
+		return h.executeMotion(ctx, job)
 	case "EXCHANGE_IMPORT":
 		return h.executeImport(ctx, job, payload.FileName, payload.FolderID, payload.Format, payload.RequestID)
 	case "EXCHANGE_EXPORT":

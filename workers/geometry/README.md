@@ -140,3 +140,7 @@ Multi-Body 由 Workspace 协调独立调用；一个 `naming.pb` 只允许一个
 实体阵列的 `ProfilePadSpec` 区分 `GENERATOR_TOOL`、`BODY_STAGE` 与 `FEATURE_DELTA`。新增材料范围以 `pattern_start_feature_id` 为包含的起点、`pattern_source_feature_id` 为包含的终点；Worker 在不可变阶段上以现有布尔求差，拒绝删除基线材料或不支持的中间特征，再复用 Naming 与等距成员变换。此合同限添加型拉伸/旋转/放样及随后圆角/倒角，不支持任意特征组重新执行。
 
 实体复制保留操作应用之前的真实工具体，有限放样添加/切除与拉伸、旋转共用工具留存和拓扑完整性检查。镜像使用已有 `PatternPlacement` 的正交反射矩阵（行列式 −1），仍经 `BRepBuilderAPI_Transform` 历史与 Boolean 合成 Naming，不增加 RPC 或复制整个目标 Body 代替切削工具。非等距矩阵继续拒绝。
+
+## 小机构与精确 DMU
+
+`SolveAssembly` 被机构运行复用来求完整硬关节/闭环及单 ANGLE/DISTANCE 驱动；机制和版本仍由 Go 管理。新增 `AnalyzeInterference` 接收多个带 BREP ArtifactReference 和 Pose 的独立分析实例及指定 pair，不依赖驻留 owner 或数据库。请求内按制品去重加载，isolated OcctKernel/深拷贝/非破坏性 common 保持源形体不变；等待 OCCT 锁及距/common 进度可响应取消。最多 128 个实例、8192 pair、256 MiB 不同 B-Rep。返回精确距离、实体接触/穿透/包含分类、间隙、witness、完整性和内核版本，几何失败不冒充通过。S3 输入通过既有 Go materialization → Router → Worker 路径；细节见[合同](../../docs/architecture/current/kinematics-dmu.md)。

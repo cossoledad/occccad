@@ -5030,6 +5030,30 @@
         ]
       },
       "implementation": "handler"
+    },
+    {
+      "id": "assembly.motion-study",
+      "name": "机构与基础 DMU",
+      "helpText": "定义关节、运行线性研究、整帧回放和精确干涉/间隙检查",
+      "iconKey": "distance",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
     }
   ],
   "groups": [
@@ -5273,6 +5297,11 @@
           "commandId": "assembly.move-receipt",
           "groupKey": "primary",
           "order": 120
+        },
+        {
+          "commandId": "assembly.motion-study",
+          "groupKey": "motion-study",
+          "order": 121
         }
       ]
     },

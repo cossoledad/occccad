@@ -1161,6 +1161,9 @@ export const mockApi: CadApi = {
       attemptCount: 1, maxAttempts: 3, createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };
     jobs.set(job.id, job); return pause(job);
   },
+  createMotionDemo:async()=>{throw new Error("演示创建需要实际后端");},
+  startMotionRun:async()=>{throw new Error("机构与 DMU 需要连接实际后端");},
+  getMotionRun:async()=>{throw new Error("机构与 DMU 需要连接实际后端");},
   getJob: async (jobID) => pause(jobs.get(jobID)!),
   listJobs: async () => pause([...jobs.values()].filter((job) => job.userVisible).reverse()),
   cancelJob: async (jobID) => {

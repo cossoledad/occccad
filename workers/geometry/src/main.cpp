@@ -685,6 +685,76 @@ public:
         return grpc::Status::OK;
     }
 
+    grpc::Status AnalyzeInterference(grpc::ServerContext* context,
+        const worker_api::AnalyzeInterferenceRequest* request,
+        worker_api::AnalyzeInterferenceResponse* response) override {
+        if(request->geometry_size()<2 || request->geometry_size()>128 || request->pairs_size()>8192 ||
+            !std::isfinite(request->clearance_mm()) || request->clearance_mm()<0 ||
+            !std::isfinite(request->tolerance_mm()) || request->tolerance_mm()<=0)
+            return {grpc::StatusCode::INVALID_ARGUMENT,"invalid interference request limits"};
+        std::unique_lock<std::mutex> lock(mutex_,std::defer_lock);
+        while(!lock.try_lock()) {
+            if(context->IsCancelled()) return {grpc::StatusCode::CANCELLED,"analysis cancelled while queued"};
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        occccad::kernel::OcctKernel analysis;
+        std::unordered_map<std::string,occccad::kernel::PlacedGeometry> placed;
+        std::unordered_map<std::string,std::string> loaded,failures;
+        uint64_t bytes=0;
+        for(const auto& input:request->geometry()) {
+            if(input.id().empty() || placed.count(input.id()))
+                return {grpc::StatusCode::INVALID_ARGUMENT,"duplicate/empty analysis instance identity"};
+            const auto& p=input.pose();
+            occccad::kernel::PlacedGeometry value{input.geometry_id(),
+                {p.translation().x(),p.translation().y(),p.translation().z()},
+                {p.rotation().x(),p.rotation().y(),p.rotation().z(),p.rotation().w()}};
+            placed.emplace(input.id(),value);
+            try {
+                if(context->IsCancelled()) throw std::runtime_error("CANCELLED");
+                if(!input.has_brep()) throw std::invalid_argument("B-Rep artifact required");
+                const auto cache_key=input.brep().object_key()+":"+input.brep().sha256();
+                auto existing=loaded.find(cache_key);
+                std::string id;
+                if(existing!=loaded.end()) id=existing->second;
+                else {
+                    if(input.brep().size_bytes()>256ULL*1024*1024-bytes)
+                        throw std::invalid_argument("analysis B-Rep byte budget exceeded");
+                    bytes+=input.brep().size_bytes();
+                    id=analysis.loadBrepr(read_artifact(input.brep()));
+                    loaded.emplace(cache_key,id);
+                }
+                if(id!=input.geometry_id()) throw std::invalid_argument("analysis geometry digest mismatch");
+            } catch(const Standard_Failure& e) {failures[input.id()]=e.GetMessageString();}
+              catch(const std::exception& e) {failures[input.id()]=e.what();}
+        }
+        bool complete=true;
+        for(const auto& pair:request->pairs()) {
+            auto a=placed.find(pair.first_id()),b=placed.find(pair.second_id());
+            if(a==placed.end() || b==placed.end() || a==b)
+                return {grpc::StatusCode::INVALID_ARGUMENT,"invalid interference pair identity"};
+            occccad::kernel::InterferenceResult result;
+            if(failures.count(a->first) || failures.count(b->first))
+                result.diagnostic="INPUT_GEOMETRY_FAILED:"+failures[a->first]+":"+failures[b->first];
+            else result=analysis.analyze_interference(a->second,b->second,request->clearance_mm(),
+                request->tolerance_mm(),[&]{return context->IsCancelled();});
+            auto* output=response->add_pairs();
+            output->set_first_id(a->first);output->set_second_id(b->first);
+            output->set_classification(result.classification);output->set_diagnostic(result.diagnostic);
+            output->set_distance_mm(result.distance);output->set_common_volume_mm3(result.common_volume);
+            output->set_complete(result.complete);output->set_clearance_satisfied(result.clearance_satisfied);
+            output->set_common_tested(result.common_tested);
+            output->mutable_first_witness()->set_x(result.first_witness.x);
+            output->mutable_first_witness()->set_y(result.first_witness.y);
+            output->mutable_first_witness()->set_z(result.first_witness.z);
+            output->mutable_second_witness()->set_x(result.second_witness.x);
+            output->mutable_second_witness()->set_y(result.second_witness.y);
+            output->mutable_second_witness()->set_z(result.second_witness.z);
+            complete=complete && result.complete;
+        }
+        response->set_complete(complete);response->set_kernel_build("occt-" OCC_VERSION_COMPLETE "/solid-dmu-v1");
+        return grpc::Status::OK;
+    }
+
     grpc::Status ResolveLoftCorrespondence(
         grpc::ServerContext* context, const worker_api::ResolveLoftCorrespondenceRequest* request,
         worker_api::ResolveLoftCorrespondenceResponse* response) override {

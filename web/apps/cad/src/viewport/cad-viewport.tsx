@@ -47,6 +47,7 @@ export type CadViewportHandle = {
 };
 
 type Props = {
+  motionDisplay?:import("../cad/assembly/motion-study").MotionPlayback;
   documentSessions?: DocumentSessions;
   datumPreview?:DatumPreview;
   featureSelection?:FeatureSelectionSession;
@@ -152,6 +153,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       rotation: callbacks.current.activeInstanceRotation,
       liveDefinitionProjection: callbacks.current.liveDefinitionProjection,
     } : undefined);
+    instance.setMotionDisplay(callbacks.current.motionDisplay);
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
@@ -178,6 +180,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
   }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts]);
+  useEffect(()=>{engine.current?.setMotionDisplay(props.motionDisplay)},[props.motionDisplay]);
   useEffect(() => { engine.current?.setDatumPreview(props.datumPreview); }, [props.datumPreview]);
   useEffect(() => { engine.current?.setFeatureSelection(props.featureSelection); }, [props.featureSelection]);
   useEffect(() => { engine.current?.selectMany(props.selections, false); }, [props.selections]);

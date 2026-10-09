@@ -2,7 +2,7 @@
 
 > 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-本页为长期候选设计；尚无完整产品实现。引入新模型、第三方库或服务前必须完成范围、许可证、corpus 与资源边界验证。
+当前已实现[小机构与基础 DMU](../current/kinematics-dmu.md)：Ground/Rigid/Revolute/Prismatic、单独立坐标线性硬驱动、闭环整帧回放及 OCCT 实体静态/离散分析，定义与冻结运行结果分开保存。浏览器实机验收仍待维护者完成。下列更丰富的模型和流程属于长期候选，不是现行 schema 或已交付承诺；当前不要求 Engineering Connections、多驱、动力学、可动嵌套或连续碰撞作为前置。引入第三方库或新服务前仍须验证范围、许可证、corpus 与资源边界。
 
 ### 5.6.20 Mechanism 与 Assembly Constraint 的关系
 

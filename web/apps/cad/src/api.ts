@@ -453,6 +453,9 @@ export const restApi = {
   startExport: (documentId: string, format: "STEP" | "BREP", releaseId?: string): Promise<Job> => request<Job>("/api/exchange/exports", {
     method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format, releaseId }),
   }),
+  createMotionDemo:(documentId:string,baseRevisionId:string)=>requestDocumentView(`/api/documents/${documentId}/motion-demo`,{method:"POST",body:JSON.stringify({baseRevisionId})}),
+  startMotionRun:(documentId:string,input:import("./cad/assembly/motion-study").MotionRunRequest,signal?:AbortSignal):Promise<Job>=>request<Job>(`/api/documents/${documentId}/motion-runs`,{method:"POST",body:JSON.stringify(input),signal}),
+  getMotionRun:(id:string,signal?:AbortSignal):Promise<import("./cad/assembly/motion-study").MotionRun>=>request(`/api/jobs/${id}/motion-run`,{signal}),
   getJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}`),
   listJobs: async (): Promise<Job[]> => (await request<{ jobs: Job[] }>("/api/jobs")).jobs,
   cancelJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}/cancel`, { method: "POST" }),

@@ -301,7 +301,7 @@ CREATE TABLE occccad.jobs (
     started_at timestamp with time zone,
     completed_at timestamp with time zone,
     user_visible boolean DEFAULT false NOT NULL,
-    CONSTRAINT jobs_job_type_check CHECK ((job_type = ANY (ARRAY['EXCHANGE_IMPORT'::text, 'EXCHANGE_EXPORT'::text, 'THUMBNAIL_RENDER'::text, 'ARTIFACT_BACKFILL'::text]))),
+    CONSTRAINT jobs_job_type_check CHECK ((job_type = ANY (ARRAY['EXCHANGE_IMPORT'::text, 'EXCHANGE_EXPORT'::text, 'THUMBNAIL_RENDER'::text, 'ARTIFACT_BACKFILL'::text, 'MOTION_STUDY'::text]))),
     CONSTRAINT jobs_max_attempts_check CHECK (((max_attempts >= 1) AND (max_attempts <= 20))),
     CONSTRAINT jobs_progress_check CHECK (((progress >= 0) AND (progress <= 100))),
     CONSTRAINT jobs_state_check CHECK ((state = ANY (ARRAY['QUEUED'::text, 'RUNNING'::text, 'RETRY_WAIT'::text, 'SUCCEEDED'::text, 'FAILED'::text, 'CANCELED'::text])))

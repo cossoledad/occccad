@@ -1,7 +1,7 @@
 find_package(GTest REQUIRED CONFIG)
 include(GoogleTest)
 
-add_executable(occcad_geometry_scenarios test_main.cpp geometry_exchange_scenarios.cpp fillet_boundary_scenarios.cpp assembly_support_scenarios.cpp sketch_curve_scenarios.cpp)
+add_executable(occcad_geometry_scenarios test_main.cpp geometry_exchange_scenarios.cpp fillet_boundary_scenarios.cpp assembly_support_scenarios.cpp sketch_curve_scenarios.cpp dmu_scenarios.cpp)
 target_link_libraries(occcad_geometry_scenarios PRIVATE occccad_occt_kernel occccad_kernel_api GTest::gtest)
 target_compile_definitions(occcad_geometry_scenarios PRIVATE OCCCCAD_MODEL_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/test.data")
 set_source_files_properties(test_main.cpp PROPERTIES COMPILE_DEFINITIONS OCCCCAD_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
