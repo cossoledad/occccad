@@ -89,7 +89,7 @@ PlaneGCS 原生对称的 Perpendicular 以两条线长度归一，合法轴上�
 `ReflectionNormalResidual*` 对零/非零 chord 全部参数进行中央差分导数验证。
 
 验证入口：`invoke check --scope sketch --match LinkedMirror` 与
-`ctest --test-dir build/cmake/debug -R '^geometry/ExactSketchCurve' --output-on-failure`。
+`ctest --test-dir build/cmake/release -R '^geometry/ExactSketchCurve' --output-on-failure`。
 其中 kernel 测试独立检查 rational curve 解析值/端部 D1、FIT/canonical 值和 D1、
 周期转非周期、exact split、镜像整曲线等变性及 canonical Profile Shape gate。
 

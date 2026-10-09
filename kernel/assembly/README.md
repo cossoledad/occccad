@@ -202,8 +202,8 @@ large-scale sparse backend are not implemented by this mathematical module.
 Build and run the focused scenarios with:
 
 ```sh
-cmake --build build/cmake/debug --target occcad_assembly_solver_scenarios
-ctest --test-dir build/cmake/debug -R '^assembly/' --output-on-failure
+cmake --build build/cmake/release --target occcad_assembly_solver_scenarios
+ctest --test-dir build/cmake/release -R '^assembly/' --output-on-failure
 ```
 
 For the stable, quiet domain entry (including relevant Go integration and Web assembly scenarios), use `invoke check --scope assembly`. It prints summaries on success and expands subprocess diagnostics on failure.
@@ -214,8 +214,8 @@ freedoms, conflict/degeneracy baselines, permutation invariance, branch continui
 and cold/warm-start equivalence. Run it independently with:
 
 ```sh
-cmake --build build/cmake/debug --target occcad_assembly_solver_corpus
-ctest --test-dir build/cmake/debug -R '^assembly-corpus/' --output-on-failure
+cmake --build build/cmake/release --target occcad_assembly_solver_corpus
+ctest --test-dir build/cmake/release -R '^assembly-corpus/' --output-on-failure
 ```
 
 Run the deterministic dense-backend baseline with

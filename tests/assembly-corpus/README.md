@@ -38,8 +38,8 @@ the profile degeneracy scale.
 Run only this corpus with:
 
 ```sh
-cmake --build build/cmake/debug --target occcad_assembly_solver_corpus
-ctest --test-dir build/cmake/debug -R '^assembly-corpus/' --output-on-failure
+cmake --build build/cmake/release --target occcad_assembly_solver_corpus
+ctest --test-dir build/cmake/release -R '^assembly-corpus/' --output-on-failure
 ```
 
 [face4-face6.3dreplay](../test.data/face4-face6.3dreplay) captures the original MAX_ITERATIONS result and exact numerical input

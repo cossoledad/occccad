@@ -48,6 +48,8 @@ flowchart LR
 
 ### 统一本地模式
 
+原生制品默认使用 `Release`（`build/cmake/release`）：Invoke 允许 `--build-type` 或 `OCCCCAD_BUILD_TYPE` 覆盖，控制进程独立启动时同样默认选择 Release Worker。Go API、Jobs 与 Control 制品仍位于 `build/services`；前端由独立 Vite 入口启动。
+
 `invoke run.app` 构建后启动 `occccad-control`。控制进程：
 
 1. 在 `127.0.0.1:18080` 启动 API；

@@ -76,7 +76,7 @@ func run() error {
 	app.monitoringToken = randomToken()
 	app.processSampler = monitoring.NewProcSampler()
 	workerBinary := value("OCCCCAD_GEOMETRY_WORKER_BIN", filepath.Join(root, "build", "cmake",
-		strings.ToLower(value("OCCCCAD_BUILD_TYPE", "Debug")), "workers", "geometry", "occccad_geometry_worker"))
+		strings.ToLower(value("OCCCCAD_BUILD_TYPE", "Release")), "workers", "geometry", "occccad_geometry_worker"))
 	app.pool = control.NewGeometryPool(ctx, control.GeometryPoolConfig{
 		WorkerBinary: workerBinary, DataDirectory: dataDirectory, LogDirectory: logDirectory,
 		WorkerHost:       "127.0.0.1",

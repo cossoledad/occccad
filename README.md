@@ -42,6 +42,8 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 
 开发资源授权、`.env` 加载规则、PostgreSQL 与浏览器依赖见[环境准备](docs/development-environment.md)。已有 `.env` 时直接复用，不要用示例覆盖。
 
+C++ 构建和启动默认使用 `Release`，制品位于 `build/cmake/release`。Invoke 优先使用显式 `--build-type`，其次读取 `OCCCCAD_BUILD_TYPE`，未配置时使用 `Release`。原生调试可显式选择 `--build-type=Debug`；Go 与 Web 继续使用各自的构建入口。
+
 ```bash
 sudo apt install cmake clang ninja-build build-essential
 # WSLg
@@ -51,21 +53,21 @@ curl https://mise.run | sh
 mise use --global python@3.14 node@lts go@1.26
 
 python -m pip install -r requirements-build.txt
-invoke configure --build-type=Debug
-invoke build --build-type=Debug
-invoke test --build-type=Debug
+invoke configure --build-type=Release
+invoke build --build-type=Release
+invoke test --build-type=Release
 ```
 
 首次配置且尚无 `.env` 时，复制 `.env.example` 为 `.env`，配置 PostgreSQL，或设置 `OCCCCAD_DATABASE_URL=sqlite:/absolute/path/local.db`（详见[数据库模式](services/internal/database/README.md)），并设置首次启动所需的 `OCCCCAD_ADMIN_PASSWORD`：
 
 ```bash
-invoke run.app --build-type=Debug
+invoke run.app --build-type=Release
 ```
 
 当前未发布开发阶段允许直接丢弃本地业务数据。需要从完全干净的服务端状态启动时，先停止已有 occccad 进程，再执行：
 
 ```bash
-invoke run.app --reset-data --build-type=Debug
+invoke run.app --reset-data --build-type=Release
 ```
 
 该选项按环境配置删除 PostgreSQL `occccad` schema 或 SQLite 专用数据库全部用户表、视图及迁移记录，以及`OCCCCAD_DATA_DIR` 指向的本地 ArtifactStore/暂存目录；S3 模式还清空 `OCCCCAD_S3_BUCKET` 全部对象、历史版本、删除标记和未完成分片（保留桶），随后从当前迁移重建 schema；进程内 Router/Worker 状态随新进程自然清空。若只清理和迁移而不启动，使用 `invoke data.reset --yes`。命令不可用于已经承诺保留数据的发布环境。

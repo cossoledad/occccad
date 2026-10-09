@@ -60,7 +60,7 @@ invoke run.jobs
 完整本地拓扑使用：
 
 ```bash
-invoke run.app --build-type=Debug
+invoke run.app --build-type=Release
 ```
 
 ## 失败处理

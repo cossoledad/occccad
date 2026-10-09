@@ -216,6 +216,6 @@ CAD Command/Preview 使用 `api` 门面进入 `RealtimeClient`；取消由 Abort
 
 Part Design 提供布尔、圆角、倒角、拔模、抽壳和基础放样命令。结构树的编辑入口使用同一 Feature 定义命令；局部修改通过“添加当前选择的边/面”取得服务端持久选择。预览与提交共用候选定义，输入变化、关闭及 Revision 变化使旧预览失效。工具 Body 的 consumed 状态不等于隐藏，视口不为已消耗结果创建实体和拾取对象。能力边界见[实体 Feature](../../../docs/architecture/current/solid-features.md)。
 
-实体 Feature 的真实后端浏览器回归：先运行 `invoke run.app --build-type=Debug`，加载已配置的管理员登录环境后，在本目录执行 `pnpm exec playwright test --config playwright.live.config.ts`。该用例新建独立验收文档，不重置数据库；覆盖真实视图区布尔拾取/取消、倒角预选带入和编辑恢复、矩形到圆放样、自动预览、提交、精确体积和页面重开。测试打开输入诊断 Overlay 并根据当前相机投影点击真实 WebGL 视口。
+实体 Feature 的真实后端浏览器回归：先运行 `invoke run.app --build-type=Release`，加载已配置的管理员登录环境后，在本目录执行 `pnpm exec playwright test --config playwright.live.config.ts`。该用例新建独立验收文档，不重置数据库；覆盖真实视图区布尔拾取/取消、倒角预选带入和编辑恢复、矩形到圆放样、自动预览、提交、精确体积和页面重开。测试打开输入诊断 Overlay 并根据当前相机投影点击真实 WebGL 视口。
 
 实体 Feature 操作使用视图区角色拾取，几何输入不显示 UUID 下拉列表。命令前预选自动带入，边/面集点击添加、再次点击取消；输入完整后自动精确预览。局部特征编辑临时显示上游阶段并恢复持久边面高亮，取消恢复正式视图。旋转轴保留单条草图直线；放样默认自动对应有序截面，支持圆/多边形和首尾真实点端，点端通过独立拾取角色选择草图点或基准原点；可显示当前成功预览的连接线、逐截面调整闭合边/圆相位/方向。`feature-selection.ts` 拥有拾取角色过滤，Feature 面板拥有短期候选与绑定集合，Viewport 拥有显示/拾取生命周期，正式修改仍经既有命令与 CAS。

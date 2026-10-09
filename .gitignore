@@ -6,6 +6,7 @@ out/
 # Conan
 .conan2/
 conan_imports_*
+CMakeUserPresets.json
 
 # IDE
 .idea/

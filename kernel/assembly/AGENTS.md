@@ -24,5 +24,5 @@
 - corpus：根 `tests/assembly-corpus/`
 - 局部验证：`invoke check --scope assembly`
 - 精确回归：`invoke check --scope assembly --match '<test regex>'`，随后按语义风险升级到完整 assembly scope
-- 单个回归：构建 `occcad_assembly_solver_scenarios` 后用 `ctest --test-dir build/cmake/debug -R '<exact regex>' --output-on-failure`
+- 单个回归：构建 `occcad_assembly_solver_scenarios` 后用 `ctest --test-dir build/cmake/release -R '<exact regex>' --output-on-failure`
 - 数值/性能变化另运行 `invoke performance-baseline`；它不替代正确性测试。

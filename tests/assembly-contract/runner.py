@@ -425,7 +425,7 @@ def main(argv=None):
     parser.add_argument("--layer")
     parser.add_argument("--case")
     parser.add_argument("--adapters", default="cpp,go,go-flags,web,web-catalog,integration")
-    parser.add_argument("--build-type", choices=["Debug", "Release"], default="Debug")
+    parser.add_argument("--build-type", choices=["Debug", "Release"], default="Release")
     parser.add_argument("--output", type=Path, default=ROOT / "build/assembly-contract")
     args = parser.parse_args(argv)
     catalog = load_catalog()

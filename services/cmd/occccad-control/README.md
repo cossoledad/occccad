@@ -44,7 +44,7 @@ flowchart LR
 | `OCCCCAD_SERVER_BIN` | 构建目录中的二进制 | API 可执行文件覆盖 |
 | `OCCCCAD_JOBS_BIN` | 构建目录中的二进制 | Jobs 可执行文件覆盖 |
 | `OCCCCAD_GEOMETRY_WORKER_BIN` | CMake 构建产物 | Geometry Worker 覆盖 |
-| `OCCCCAD_BUILD_TYPE` | `Debug` | 选择默认 Worker 构建目录 |
+| `OCCCCAD_BUILD_TYPE` | `Release` | 选择默认 Worker 构建目录 |
 
 ## Control API
 
@@ -64,13 +64,13 @@ flowchart LR
 ## 运行与边界
 
 ```bash
-invoke run.app --build-type=Debug
+invoke run.app --build-type=Release
 ```
 
 当前未发布开发环境需要丢弃全部服务端数据并从空基线启动时：
 
 ```bash
-invoke run.app --reset-data --build-type=Debug
+invoke run.app --reset-data --build-type=Release
 ```
 
 重置会删除数据库中固定的 `occcad` schema 与 `OCCCCAD_DATA_DIR` 本地制品/暂存目录；S3 模式还清空当前配置的专用桶全部对象、版本和未完成分片（保留桶），再执行当前迁移。它要求旧的 occccad 进程已经停止，且不能用于已发布或需要保留外部数据的环境。

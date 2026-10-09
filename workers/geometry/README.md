@@ -72,15 +72,15 @@ Worker 使用 spdlog 1.15.3 同时输出控制台与滚动文件。托管启动�
 ## 构建与运行
 
 ```bash
-invoke configure --build-type=Debug
-invoke build --build-type=Debug --target=occccad_geometry_worker
-invoke run.worker --build-type=Debug
+invoke configure --build-type=Release
+invoke build --build-type=Release --target=occccad_geometry_worker
+invoke run.worker --build-type=Release
 ```
 
 Geometry 测试邻近位于 `kernel/occt/tests`，PlaneGCS 测试邻近位于 `workers/geometry/sketch/tests`。可运行全部测试：
 
 ```bash
-invoke test --build-type=Debug
+invoke test --build-type=Release
 ```
 
 局部开发优先使用 `invoke check --scope geometry` 或 `invoke check --scope sketch`；公共 Proto、通用 Worker/RPC 和 Router 边界使用 `invoke check --scope all`。这些命令成功时保持摘要输出，失败时展开底层诊断。
@@ -88,7 +88,7 @@ invoke test --build-type=Debug
 只验证几何交换回归（包括 `tests/test.data/` 中的真实 STEP 语料和共享/嵌套 XDE Product round-trip）：
 
 ```bash
-invoke run.geometry --build-type=Debug
+invoke run.geometry --build-type=Release
 ```
 
 Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用分支。

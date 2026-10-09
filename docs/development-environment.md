@@ -8,6 +8,10 @@
 
 - 已有 `.env` 时保留原配置；首次配置才从 `.env.example` 复制。文档与脚本引用变量名，不另存一份实际密码。
 - `invoke` 在加载根目录 `tasks.py` 时读取根 `.env`，已导出的环境变量优先。加载器接受简单的 `KEY=VALUE`、可选 `export` 前缀及成对引号，不执行 shell 表达式。排障时先检查是否有旧的导出变量覆盖配置。
+- 根 `.env.example` 按数据库、账号、制品存储、独立进程、控制进程、原生构建、日志和测试资源分组；实际 `.env` 使用同一分组并保留本机连接与凭据。Web 的 `.env.development` / `.env.mock` 由 Vite 加载，只包含前端变量，与根配置分开维护。
+- 原生构建默认 `Release`：Invoke 的 `--build-type` 优先于 `OCCCCAD_BUILD_TYPE`，未配置或为空时回退到 `Release`；控制进程直接启动也默认寻找 `build/cmake/release` 中的 Worker。直接 CMake 单配置构建未指定类型时也使用 `Release`；Preset 使用 `dev-release`，原生调试显式使用 `dev-debug` 或 `--build-type=Debug`。装配合同 runner 未指定 `--build-type` 时使用 `Release`。
+- `CMakeUserPresets.json` 是 Conan 自动生成并忽略提交的文件，不维护对旧 Debug 制品的固定引用；`invoke configure` 会重新生成它。`OCCCCAD_ENABLE_ASAN` / `OCCCCAD_ENABLE_UBSAN` 在 Invoke 配置时传给 CMake，默认均为 `OFF`。
+- `invoke configure` 使用 Conan `cmake_layout` 的 `build/cmake/<type>/build/<Type>/generators/conan_toolchain.cmake`；文件缺失时直接失败。CMake 配置使用 `--fresh` 重建配置缓存，避免先前未加载 toolchain 的失败配置继续影响依赖查找；不会清理 Conan 依赖缓存，也不会执行项目编译。
 - 服务端优先使用 `OCCCCAD_DATABASE_URL`；未设置时使用 `OCCCCAD_POSTGRES_HOST`、`PORT`、`USER`、`PASSWORD`、`DB`（均带 `OCCCCAD_POSTGRES_` 前缀）。PostgreSQL 正常业务使用数据库中的 `occccad` schema。也可设置 `OCCCCAD_DATABASE_URL=sqlite:/absolute/path/local.db` 使用 SQLite Local Mode；API 与 Jobs 必须指向同一个绝对本机路径，数据库并发设为 1 或保持未配置。SQLite 运行与限制见[数据库层](../services/internal/database/README.md)。
 - 直接执行 `psql`、`go test` 等命令时，不要假定它们会自动读取项目 `.env`；显式加载所需配置或使用已有项目入口。诊断输出只需连接是否成功和错误原因，不必回显完整连接串。
 - ArtifactStore 支持 LOCAL/S3，使用根 `.env` 的 `OCCCCAD_ARTIFACT_BACKEND`、`OCCCCAD_S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY/SECURE`。HTTP MinIO 设置 `SECURE=false`，endpoint 不含协议前缀。`OCCCCAD_DATA_DIR` 在 S3 模式保留为计算暂存目录，API/Jobs/本机 Worker 共享；配置和迁移见[存储运维](../services/cmd/occccad-artifacts/README.md)。原始密码只保留在未跟踪的 `.env`。
@@ -50,6 +54,6 @@ pnpm --dir web/apps/cad exec playwright install chromium
 env -u LD_LIBRARY_PATH pnpm --dir web/apps/cad exec playwright test browser/normal-view.spec.ts
 ```
 
-当前 Playwright 配置自动启动端口 5174 的 Mock 前端，使用 Chromium 与软件 WebGL，测试后关闭进程。此入口验证真实浏览器中的前端交互；数据库、真实 API 和 Geometry Worker 的完整链路需另行连接真实后端验证。真实环境启动使用 `invoke run.app --build-type=Debug` 与 `invoke run.web --mode=api`。
+当前 Playwright 配置自动启动端口 5174 的 Mock 前端，使用 Chromium 与软件 WebGL，测试后关闭进程。此入口验证真实浏览器中的前端交互；数据库、真实 API 和 Geometry Worker 的完整链路需另行连接真实后端验证。真实环境启动使用 `invoke run.app --build-type=Release` 与 `invoke run.web --mode=api`。
 
 Invoke 与 Go 使用相同环境优先级：已导出变量 > `OCCCCAD_ENV_FILE` 指定文件（未指定时读取根 `.env`）。显式文件不存在时直接失败，不回退到默认资源。Invoke 将指定文件路径转为绝对路径，确保切换工作目录后仍读取同一文件。

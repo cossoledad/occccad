@@ -19,7 +19,7 @@ Provides:
     invoke web.build      — Build the current web application
     invoke info           — Print toolchain versions and paths
 
-All commands respect OCCCCAD_BUILD_TYPE from environment (default: Debug).
+All commands respect OCCCCAD_BUILD_TYPE from environment (default: Release).
 """
 
 import json
@@ -84,8 +84,8 @@ _IS_CLANG = "clang" in _CC
 
 
 def _get_build_type() -> str:
-    """Return Debug or Release from env, defaulting to Debug."""
-    return os.environ.get("OCCCCAD_BUILD_TYPE", "Debug")
+    """Return Debug or Release from env, defaulting to Release."""
+    return os.environ.get("OCCCCAD_BUILD_TYPE", "").strip() or "Release"
 
 
 def _get_profile(build_type: str | None = None) -> str:
@@ -103,7 +103,9 @@ def _get_build_dir(build_type: str | None = None) -> Path:
 
 
 def _get_conan_toolchain(build_type: str | None = None) -> Path:
-    return _get_build_dir(build_type) / "build" / "generators" / "conan_toolchain.cmake"
+    bt = build_type or _get_build_type()
+    # cmake_layout with Ninja nests generators under the case-sensitive type.
+    return _get_build_dir(bt) / "build" / bt / "generators" / "conan_toolchain.cmake"
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +176,7 @@ def bootstrap(c):
 
 
 @task(help={
-    "build_type": "Debug or Release (default from env OCCCCAD_BUILD_TYPE)",
+    "build_type": "Debug or Release (OCCCCAD_BUILD_TYPE, otherwise Release)",
     "profile": "Conan profile name override",
 })
 def configure(c, build_type=None, profile=None):
@@ -218,25 +220,21 @@ def configure(c, build_type=None, profile=None):
     # Step 2: CMake configure
     print("\n[configure] Step 2/2: cmake configure")
     toolchain = _get_conan_toolchain(bt)
-    if not toolchain.exists():
-        alt_toolchain = build_dir / "conan_toolchain.cmake"
-        if alt_toolchain.exists():
-            toolchain = alt_toolchain
-        else:
-            print("[configure] WARNING: Conan toolchain not found, trying without...")
-            for f in build_dir.rglob("conan_toolchain.cmake"):
-                toolchain = f
-                break
+    if not toolchain.is_file():
+        raise Exit(f"Conan toolchain not found at {toolchain}; cannot configure without Conan dependencies.")
 
     cmake_args = (
+        # Reinitialize toolchain/compiler discovery even after a failed configure.
+        f"--fresh "
         f"-S {PROJECT_ROOT} "
         f"-B {build_dir} "
         f"-G Ninja "
         f"-DCMAKE_BUILD_TYPE={bt} "
-        f"-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+        f"-DCMAKE_EXPORT_COMPILE_COMMANDS=ON "
+        f"-DOCCCCAD_ENABLE_ASAN={shlex.quote(os.environ.get('OCCCCAD_ENABLE_ASAN', 'OFF') or 'OFF')} "
+        f"-DOCCCCAD_ENABLE_UBSAN={shlex.quote(os.environ.get('OCCCCAD_ENABLE_UBSAN', 'OFF') or 'OFF')}"
     )
-    if toolchain.exists():
-        cmake_args += f" -DCMAKE_TOOLCHAIN_FILE={toolchain}"
+    cmake_args += f" -DCMAKE_TOOLCHAIN_FILE={shlex.quote(str(toolchain))}"
 
     c.run(f"cmake {cmake_args}", pty=True)
 

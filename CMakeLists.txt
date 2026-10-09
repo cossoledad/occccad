@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.30)
 
+# Default single-configuration builds to Release; preserve explicit types and
+# multi-configuration generators (which select the type at build time).
+get_property(_occccad_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(NOT CMAKE_BUILD_TYPE AND NOT _occccad_multi_config)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build configuration" FORCE)
+endif()
+
 project(
     occccad
     VERSION 0.0.6

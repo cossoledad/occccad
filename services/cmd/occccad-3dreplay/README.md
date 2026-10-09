@@ -4,7 +4,7 @@ Replay an immutable numerical snapshot using the production Go adapter and C++ s
 
 ```sh
 go run ./cmd/occccad-3dreplay \
-  -worker-binary ../build/cmake/debug/workers/geometry/occccad_geometry_worker \
+  -worker-binary ../build/cmake/release/workers/geometry/occccad_geometry_worker \
   -mode original -target <NotUpdated-constraint-id> \
   -out /tmp/original-result.3dreplay ../tests/test.data/assembly-notupdated-product.3dreplay
 ```
@@ -69,7 +69,7 @@ Unit tests can load a file and call `workspace.ReplayAssemblyDiagnosticWithOptio
 
 ```sh
 # services/, matching built Worker; offline tests do not use PostgreSQL
-OCCCCAD_TEST_GEOMETRY_WORKER="$PWD/../build/cmake/debug/workers/geometry/occccad_geometry_worker" \
+OCCCCAD_TEST_GEOMETRY_WORKER="$PWD/../build/cmake/release/workers/geometry/occccad_geometry_worker" \
   go test ./internal/workspace -run 'TestAssemblyOfflineReplay|TestAssemblyDiagnostic|TestAssemblyOriginal' -count=1
 
 go test ./internal/geometry ./internal/valuecopy -run 'TestAssembly|TestClone' -count=1

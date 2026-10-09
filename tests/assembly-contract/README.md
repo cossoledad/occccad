@@ -49,11 +49,11 @@ python tests/assembly-contract/runner.py gaps --family Offset --output build/off
 要运行真实 Router，先完成统一 Worker 和解析 fixture 构建，生成实际 B-Rep/STEP，再执行目录；不能在集成运行期间重新链接同一 Worker：
 
 ```sh
-cmake --build build/cmake/debug --target occccad_geometry_worker occcad_geometry_scenarios --parallel 2
+cmake --build build/cmake/release --target occccad_geometry_worker occcad_geometry_scenarios --parallel 2
 export OCCCCAD_ASSEMBLY_FIXTURE_DIR="$PWD/build/constraint-composition/analytic-fixtures"
-build/cmake/debug/kernel/occt/tests/occcad_geometry_scenarios \
+build/cmake/release/kernel/occt/tests/occcad_geometry_scenarios \
   --gtest_filter=AssemblyExactSupport.ExportAnalyticRouterFixtures
-export OCCCCAD_TEST_GEOMETRY_WORKER="$PWD/build/cmake/debug/workers/geometry/occccad_geometry_worker"
+export OCCCCAD_TEST_GEOMETRY_WORKER="$PWD/build/cmake/release/workers/geometry/occccad_geometry_worker"
 python tests/assembly-contract/runner.py baseline --case integration.router-worker
 ```
 
