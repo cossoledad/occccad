@@ -126,7 +126,7 @@ func TestMotionStudyPersistedRouterArtifactJobLifecycle(t *testing.T) {
 	if e == nil {
 		t.Fatal("stale definition save admitted")
 	}
-	snap, e := service.FreezeMotionStudy(t.Context(), view.Document.ID, workspace.MotionRunRequest{BaseRevisionID: view.Document.VersionID, StudyID: k.Studies[0].ID})
+	snap, e := service.FreezeMotionStudy(t.Context(), view.Document.ID, workspace.MotionRunRequest{BaseRevisionID: view.Document.VersionID, AnalysisID: k.Analyses[0].ID})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -271,9 +271,9 @@ func TestMotionStudyPersistedRouterArtifactJobLifecycle(t *testing.T) {
 	view = docCommand(view.Document.ID, workspace.CommandRequest{Type: "REPLACE_INSTANCE", InstanceID: crank.ID, ReferencedDocumentID: sub.Document.ID})
 	k = view.Product.Kinematics
 	k.Studies[0].Frames = 3
-	k.Studies[0].IncludeSameUnit = true
+	k.Analyses[0].IncludeSameUnit = true
 	view = docCommand(view.Document.ID, workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
-	nested, e := service.FreezeMotionStudy(t.Context(), view.Document.ID, workspace.MotionRunRequest{BaseRevisionID: view.Document.VersionID, StudyID: k.Studies[0].ID})
+	nested, e := service.FreezeMotionStudy(t.Context(), view.Document.ID, workspace.MotionRunRequest{BaseRevisionID: view.Document.VersionID, AnalysisID: k.Analyses[0].ID})
 	if e != nil {
 		t.Fatal(e)
 	}

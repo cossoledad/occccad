@@ -1,149 +1,230 @@
-import {useCallback,useEffect,useRef,useState} from 'react';
+import {forwardRef,useCallback,useEffect,useImperativeHandle,useRef,useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
-import {Alert,Button,Checkbox,Drawer,Input,InputNumber,Select,Slider,Space,Table,Typography} from 'antd';
-import {api,isMockMode} from '../../api/client';
-import type {DocumentView,Job,SelectionItem} from '../../types';
+import {Alert,Button,Checkbox,Input,InputNumber,Select,Slider,Space,Table,Typography} from 'antd';
+import {api} from '../../api/client';
+import type {DocumentView,Job,SelectionItem,AssemblyGeometryRef} from '../../types';
 import {randomUUID} from '../../utils/random-uuid';
-import {motionFrameAt,motionPlayback,motionProblemFrames,quantityIn,type JointEndpoint,type KinematicsDefinitions,type MechanismJoint,type MotionPlayback,type MotionRun,type MotionStudy} from '../../cad/assembly/motion-study';
+import {assemblyGeometryRef} from '../../cad/assembly/assembly-reference';
+import {useCommandRegistry} from '../../cad/command/command-context';
+import type {CommandOperation} from '../../cad/command/command-registry';
+import {CommandDialog} from '../../cad/overlay/floating-panel';
+import {ToolButton} from '../../cad/overlay/tool-button';
+import {CadIcon} from '../../cad/overlay/cad-icons';
+import {motionFrameAt,motionPlayback,motionProblemFrames,quantityIn,type JointEndpoint,type KinematicsDefinitions,type MechanismJoint,type MotionPlayback,type MotionRun,type MotionStudy,type MotionApplyRequest,type MotionApplyPlan,type InterferenceAnalysis,type MotionDriver} from '../../cad/assembly/motion-study';
 
 const identity=()=>({translation:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number]});
 const addressKey=(v:{instancePath:{canonical:string};bodyId:string})=>JSON.stringify([v.instancePath.canonical,v.bodyId]);
+const relationLabels:Record<string,string>={ground:'固定',axis:'轴线相合','axial-location':'轴向定位',orientation:'方向一致','angle-lock':'锁定角度',existing:'已有正式约束',solver:'正式装配求解'};
+const actionLabels:Record<string,string>={ADD:'新增',REUSE:'复用',UPDATE:'更新',CONFLICT:'冲突',REPLACE:'替换',SUPPRESS:'停用'};
 const done=(job:Job)=>['SUCCEEDED','FAILED','CANCELED'].includes(job.state);
-function Endpoint({value,units,onChange,onError}:{value:JointEndpoint;units:{id:string;name:string}[];onChange:(v:JointEndpoint)=>void;onError:(s:string)=>void}){
- const vector=(raw:string,length:3|4,field:'translation'|'rotation')=>{const values=raw.split(',').map(Number);if(values.length!==length||values.some(v=>!Number.isFinite(v))){onError('坐标格式为逗号分隔的有限数值');return}if(field==='rotation'&&Math.abs(values.reduce((s,v)=>s+v*v,0)-1)>1e-8){onError('四元数必须归一化，顺序为 x,y,z,w');return}onChange({...value,frame:{...value.frame,[field]:values}})};
- return <Space orientation="vertical" size={3}>
-  <Select aria-label="刚体运动单元" style={{width:180}} value={value.instanceId} options={units.map(u=>({value:u.id,label:u.name}))} onChange={instanceId=>onChange({...value,instanceId})}/>
-  <Input key={'t'+value.frame.translation.join(',')} aria-label="局部原点 mm" addonBefore="原点 mm" defaultValue={value.frame.translation.join(',')} onBlur={e=>vector(e.target.value,3,'translation')}/>
-  <Input key={'r'+value.frame.rotation.join(',')} aria-label="局部旋转四元数" addonBefore="x,y,z,w" defaultValue={value.frame.rotation.join(',')} onBlur={e=>vector(e.target.value,4,'rotation')}/>
- </Space>;
-}
+const empty=():KinematicsDefinitions=>({mechanisms:[],studies:[],drivers:[],analyses:[],associations:[]});
+export type MotionPanelHandle={execute:(action:string,objectId?:string,operation?:CommandOperation)=>void|Promise<void>;closeCommand:()=>void;enabled:(action:string)=>boolean};
+type Props={view:DocumentView;active:boolean;selection:SelectionItem|null;canEdit:boolean;onSave:(k:KinematicsDefinitions)=>Promise<void>;onApply:(req:MotionApplyRequest)=>Promise<void>;onPlayback:(p?:MotionPlayback)=>void;onHighlight:(s:SelectionItem[])=>void;onDemo:(kind:string)=>Promise<void>;onClose:()=>void;onCommandState:(active:boolean)=>void};
+export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function MotionStudyPanel({view,active,selection,canEdit,onSave,onApply,onPlayback,onHighlight,onDemo,onClose,onCommandState},ref){
+ const client=useQueryClient(),registry=useCommandRegistry();
 
-type Props={view:DocumentView;canEdit:boolean;onSave:(k:KinematicsDefinitions)=>Promise<void>;onPlayback:(p?:MotionPlayback)=>void;onHighlight:(s:SelectionItem[])=>void;onDemo:()=>Promise<void>;onClose:()=>void};
-export function MotionStudyPanel({view,canEdit,onSave,onPlayback,onHighlight,onDemo,onClose}:Props){
- const client=useQueryClient();
- const [defs,setDefs]=useState<KinematicsDefinitions>(()=>structuredClone(view.product?.kinematics??{mechanisms:[],studies:[]}));
- const [mechanismId,setMechanismId]=useState(defs.mechanisms[0]?.id??'');
- const [studyId,setStudyId]=useState(defs.studies[0]?.id??'');
- const [pending,setPending]=useState(false),[error,setError]=useState<string>(),[jobId,setJobId]=useState<string>();
+ const [defs,setDefs]=useState<KinematicsDefinitions>(()=>structuredClone(view.product?.kinematics??empty()));
+ const [mechanismId,setMechanismId]=useState(defs.mechanisms[0]?.id??''),[studyId,setStudyId]=useState(defs.studies[0]?.id??''),[analysisId,setAnalysisId]=useState('');
+ const [commandPending,setCommandPending]=useState(false),[pending,setPending]=useState(false),[error,setError]=useState<string>(),[jobId,setJobId]=useState<string>();
  const [run,setRun]=useState<MotionRun>(),[index,setIndex]=useState(0),[playing,setPlaying]=useState(false),[showing,setShowing]=useState(false);
- const [gap,setGap]=useState(0),[scope,setScope]=useState<string[]>([]),[sameUnit,setSameUnit]=useState(false);
- const epoch=useRef(0),currentJob=useRef<string|undefined>(undefined),alive=useRef(true);
- const playbackCallback=useRef(onPlayback);playbackCallback.current=onPlayback;
- const highlightCallback=useRef(onHighlight);highlightCallback.current=onHighlight;
- const selectedMechanism=defs.mechanisms.find(m=>m.id===mechanismId);
- const study=defs.studies.find(s=>s.id===studyId&&s.mechanismId===mechanismId);
- const units=view.product?.instances??[];
- const geometries=view.resolvedInstances??[];
- const scopeAddresses=geometries.filter(g=>scope.includes(addressKey(g))).map(g=>({instancePath:g.instancePath,bodyId:g.bodyId}));
- const jobs=useQuery({queryKey:['motion-jobs',view.document.id],queryFn:async()=> (await api.listJobs()).filter(j=>j.type==='MOTION_STUDY'&&j.documentId===view.document.id),refetchInterval:jobId?1000:5000});
+ const [action,setAction]=useState<string>(),[objectId,setObjectId]=useState<string>(),[name,setName]=useState('');
+ const [joint,setJoint]=useState<MechanismJoint>(),[pickRole,setPickRole]=useState<'first.axis'|'first.plane'|'second.axis'|'second.plane'>();
+ const [driver,setDriver]=useState<MotionDriver>(),[studyDraft,setStudyDraft]=useState<MotionStudy>(),[analysisDraft,setAnalysisDraft]=useState<InterferenceAnalysis>();
+ const [trialDriverId,setTrialDriverId]=useState('');
+ const [trial,setTrial]=useState(0),[proposals,setProposals]=useState<MechanismJoint[]>([]),[imports,setImports]=useState<string[]>([]),[supplemental,setSupplemental]=useState<string[]>([]),[detach,setDetach]=useState(false);
+ const [plan,setPlan]=useState<MotionApplyPlan>(),[lockAngle,setLockAngle]=useState(false),[resolutions,setResolutions]=useState<Record<string,string>>({}),[applyOpen,setApplyOpen]=useState(false);
+ const foreground=useRef<string|undefined>(undefined),loaded=useRef<string|undefined>(undefined);
+ const commandEpoch=useRef(0),commandOwner=useRef<CommandOperation|undefined>(undefined),applying=useRef(false);
+ const revisionRef=useRef(view.document.versionId);revisionRef.current=view.document.versionId;
+ const epoch=useRef(0),alive=useRef(true),activeRef=useRef(active);activeRef.current=active;
+ const callbacks=useRef({onPlayback,onHighlight});callbacks.current={onPlayback,onHighlight};
+ const selectedMechanism=defs.mechanisms.find(m=>m.id===mechanismId),study=defs.studies.find(s=>s.id===studyId&&s.mechanismId===mechanismId),analysis=defs.analyses?.find(a=>a.id===analysisId);
+ const units=view.product?.instances??[],geometries=view.resolvedInstances??[];
+ const editEnabled=canEdit&&!pending&&!commandPending&&!showing;
+ const jobs=useQuery({queryKey:['motion-jobs',view.document.id],queryFn:async()=> (await api.listJobs()).filter(j=>j.type==='MOTION_STUDY'&&j.documentId===view.document.id),refetchInterval:active&&jobId?1000:5000});
  const job=jobs.data?.find(j=>j.id===jobId);
- const dirty=JSON.stringify(defs)!==JSON.stringify(view.product?.kinematics??{mechanisms:[],studies:[]});
- const editEnabled=canEdit&&!pending&&!showing;
- const close=useCallback(()=>{epoch.current++;alive.current=false;if(currentJob.current)void api.cancelJob(currentJob.current).catch(()=>{});setPlaying(false);playbackCallback.current();onHighlight([]);onClose()},[onClose,onHighlight]);
- useEffect(()=>{alive.current=true;return()=>{alive.current=false;epoch.current++;if(currentJob.current)void api.cancelJob(currentJob.current).catch(()=>{});playbackCallback.current();highlightCallback.current([])}},[]);
+ const closeCommand=()=>{commandEpoch.current++;commandOwner.current=undefined;setCommandPending(false);setAction(undefined);setPickRole(undefined);setApplyOpen(false);setPlan(undefined);onCommandState(false)};
+ const release=()=>{foreground.current=undefined;epoch.current++;setPending(false);setPlaying(false);setShowing(false);callbacks.current.onPlayback();callbacks.current.onHighlight([])};
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;epoch.current++;callbacks.current.onPlayback();callbacks.current.onHighlight([])}},[]);
+ useEffect(()=>{if(!active){foreground.current=undefined;release();closeCommand()}},[active]);
  useEffect(()=>{
-  epoch.current++;setPending(false);setError(undefined);setPlaying(false);setShowing(false);setRun(undefined);playbackCallback.current();highlightCallback.current([]);
-  if(currentJob.current)void api.cancelJob(currentJob.current).catch(()=>{});currentJob.current=undefined;setJobId(undefined);
-  const next=structuredClone(view.product?.kinematics??{mechanisms:[],studies:[]});setDefs(next);
+  foreground.current=undefined;release();
+  // An accepted apply refreshes Head before its command promise finishes. Keep
+  // that owned invocation until it can return to assembly; explicit cancel still
+  // disposes it. External revisions always release frozen viewport state.
+  if(!applying.current||!commandOwner.current?.current)closeCommand();
+  setError(undefined);setPending(false);
+  const next=structuredClone(view.product?.kinematics??empty());setDefs(next);
   setMechanismId(id=>next.mechanisms.some(m=>m.id===id)?id:next.mechanisms[0]?.id??'');setStudyId(id=>next.studies.some(s=>s.id===id)?id:next.studies[0]?.id??'');
+  // Jobs survive panel/Revision changes. A result enters the viewport only after
+  // an explicit load or the exact foreground run's completion in this session.
  },[view.document.id,view.document.versionId]);
- useEffect(()=>{if(job&&done(job)&&currentJob.current===job.id)currentJob.current=undefined},[job]);
+ const save=async(next:KinematicsDefinitions)=>{const generation=commandEpoch.current;setCommandPending(true);setError(undefined);try{await onSave(next);if(generation===commandEpoch.current)closeCommand()}catch(e){if(generation===commandEpoch.current)setError(String(e))}finally{if(generation===commandEpoch.current)setCommandPending(false)}};
+ const execute=(nextAction:string,id?:string,operation?:CommandOperation):void|Promise<void>=>{
+  if(nextAction==='run')return start(false);
+  if(nextAction==='check')return start(!analysis?.studyId,analysisId);
+  if(nextAction==='cancel'&&job)return api.cancelJob(job.id).then(()=>client.invalidateQueries({queryKey:['motion-jobs',view.document.id]}));
+  if(nextAction.startsWith('demo-'))return onDemo(nextAction.slice(5));
+  if(nextAction==='restore'){release();return}
+  if(['play','pause','previous','next','reset'].includes(nextAction)){
+   if(!run?.frames.length)return;setShowing(true);setPlaying(nextAction==='play');
+   if(nextAction==='previous')setIndex(i=>Math.max(0,i-1));
+   if(nextAction==='next')setIndex(i=>Math.min(run.frames.length-1,i+1));
+   if(nextAction==='reset')setIndex(0);return;
+  }
+  commandEpoch.current++;commandOwner.current=operation;setCommandPending(false);setError(undefined);setPlan(undefined);setPickRole(undefined);setObjectId(id);
+  if(nextAction==='result'&&id){foreground.current=undefined;setJobId(id);setAction(undefined);onCommandState(false);const j=jobs.data?.find(j=>j.id===id);if(j?.resultObjectId)void load(id);return}
+  if(nextAction==='edit'){
+   const m=defs.mechanisms.find(m=>m.id===id),owner=defs.mechanisms.find(m=>m.joints.some(j=>j.id===id));
+   if(m){setMechanismId(m.id);setName(m.name);nextAction='mechanism'}
+   else if(owner){setMechanismId(owner.id);setJoint(structuredClone(owner.joints.find(j=>j.id===id)!));nextAction='joint'}
+   else if(defs.drivers?.some(d=>d.id===id)){const d=defs.drivers.find(d=>d.id===id)!;setMechanismId(d.mechanismId);setDriver(structuredClone(d));nextAction='driver'}
+   else if(defs.studies.some(s=>s.id===id)){const s=defs.studies.find(s=>s.id===id)!;setMechanismId(s.mechanismId);setStudyDraft(structuredClone(s));setStudyId(id!);nextAction='study'}
+   else if(defs.analyses?.some(a=>a.id===id)){setAnalysisDraft(structuredClone(defs.analyses.find(a=>a.id===id)!));setAnalysisId(id!);nextAction='interference'}
+  }
+  if(nextAction==='new'){setName('机构 '+(defs.mechanisms.length+1));setObjectId(undefined)}
+  if(['ground','revolute','prismatic','rigid'].includes(nextAction)){
+   if(!selectedMechanism){setError('请先创建或选择机构');return}
+   const kind=nextAction==='ground'?'GROUND':nextAction.toUpperCase() as MechanismJoint['kind'];const selected=selection?.instanceId??units[0]?.id??'';
+   const first:JointEndpoint={instanceId:selected,frame:identity()};setJoint({id:randomUUID(),name:registry.declaration('dmu.'+nextAction)?.name??'接合',kind,first,second:kind==='GROUND'?undefined:{instanceId:units.find(v=>v.id!==selected)?.id??'',frame:identity()},zero:{value:0,unit:kind==='REVOLUTE'?'deg':'mm'},axialOffset:{value:0,unit:'mm'},direction:1});nextAction='joint';setObjectId(undefined)
+  }
+  if(nextAction==='driver'&&!id){const j=selectedMechanism?.joints.find(j=>j.kind==='REVOLUTE'||j.kind==='PRISMATIC');if(!j){setError('请先创建可驱动的接合');return}setDriver({id:randomUUID(),name:'驱动',mechanismId:mechanismId,jointId:j.id})}
+  if(nextAction==='study'&&!id){const d=defs.drivers?.find(d=>d.mechanismId===mechanismId);if(!d){setError('请先保存独立驱动');return}const j=selectedMechanism!.joints.find(j=>j.id===d.jointId)!;const unit=j.kind==='REVOLUTE'?'deg':'mm';setStudyDraft({id:randomUUID(),name:'线性仿真',mechanismId,driverId:d.id,driverJointId:'',start:{value:0,unit},end:{value:unit==='deg'?360:30,unit},durationSeconds:5,frames:73,budgetMs:60000,checkDmu:false,includeSameUnit:false,clearance:{value:0,unit:'mm'}})}
+  if(nextAction==='trial'){const d=defs.drivers?.find(d=>d.mechanismId===mechanismId);if(!d){setError('请先保存独立驱动');return}setTrialDriverId(d.id)}
+  if(nextAction==='interference'&&!id)setAnalysisDraft({id:randomUUID(),name:'干涉分析',clearance:{value:0,unit:'mm'},includeSameUnit:false});
+  if(nextAction==='import'){setImports([]);setSupplemental(selectedMechanism?.supplementalConstraintIds??[]);setDetach(false);const generation=commandEpoch.current;void api.motionJointProposals(view.document.id).then(result=>{if(generation===commandEpoch.current&&(!operation||operation.current))setProposals(result)}).catch(e=>{if(generation===commandEpoch.current)setError(String(e))})}
+  if(nextAction==='apply'){if(!run||!jobId||!run.frames[index]?.kinematicValid){setError('先加载并选中合格的机构帧');return}setPlaying(false);setApplyOpen(true);setLockAngle(false);setResolutions({})}
+  setAction(nextAction);onCommandState(true)
+ };
+ const enabled=(command:string)=>{
+  if(!active||pending||commandPending)return false;
+  if(command==='play')return Boolean(run?.frames.length&&!playing);
+  if(command==='pause')return playing;
+  if(command==='previous'||command==='next'||command==='reset')return Boolean(run?.frames.length);
+  if(command==='restore')return showing;
+  if(command==='cancel')return Boolean(job?.canCancel);
+  if(command==='apply')return Boolean(canEdit&&run&&!run.snapshot.currentOnly&&frame?.kinematicValid);
+  if(command==='run')return Boolean(!showing&&study&&(!job||done(job)));
+  if(command==='check')return Boolean(!showing&&analysis&&(!job||done(job)));
+  if(command.startsWith('demo-'))return editEnabled&&units.length===0;
+  if(!editEnabled)return false;
+  if(command==='new'||command==='interference')return true;
+  if(!selectedMechanism)return false;
+  if(['ground','revolute','prismatic','rigid'].includes(command))return units.length>0;
+  if(command==='driver')return selectedMechanism.joints.some(j=>['REVOLUTE','PRISMATIC'].includes(j.kind));
+  if(command==='study'||command==='trial')return Boolean(defs.drivers?.some(d=>d.mechanismId===mechanismId));
+  return true;
+ };
+ useImperativeHandle(ref,()=>({execute,closeCommand,enabled}));
+ useEffect(()=>{registry.notifyStateChanged()},[registry,active,pending,commandPending,canEdit,showing,playing,run,index,study,analysis,selectedMechanism,job,defs]);
+ const commandButton=(id:string)=>{const command=registry.declaration('dmu.'+id);return command?<ToolButton key={id} command={command.id} showLabel icon={<CadIcon name={command.iconKey}/>} tooltip={command.name} helpText={command.helpText} toolbarName="机构与 DMU"/>:null};
+ const pick=async(role:NonNullable<typeof pickRole>,item:SelectionItem)=>{
+  const raw=assemblyGeometryRef(item);if(!raw){setError('请选择实例中的真实轴／圆柱面或定位平面');return}
+  const axis=role.endsWith('axis');const reference:AssemblyGeometryRef={...raw,derivedRole:undefined};const generation=++commandEpoch.current;
+  try{let inspection=await api.inspectAssemblySupports(view.document.id,[reference]);if(generation!==commandEpoch.current||!activeRef.current)return;
+   const descriptor=inspection.supports[0]?.descriptor;const derived=axis?({CYLINDER:'cylinder-axis',CIRCLE:'circle-axis',CONE:'cone-axis'} as Record<string,string>)[descriptor?.Kind??'']:undefined;
+   if(derived){Object.assign(reference,inspection.supports[0].reference,{derivedRole:derived});inspection=await api.inspectAssemblySupports(view.document.id,[reference])}if(generation!==commandEpoch.current||!activeRef.current)return;const support=inspection.supports[0];if(!support?.descriptor||support.descriptor.Kind!==(axis?'AXIS':'PLANE'))throw new Error(axis?'所选几何不能解析为轴线':'所选几何不是定位平面');
+   const [side,field]=role.split('.') as ['first'|'second','axis'|'plane'];setJoint(j=>{if(!j)return j;const end=j[side];if(!end)return j;return {...j,[side]:{...end,instanceId:reference.instanceId,[field]:support.reference,capturedX:undefined}}});setPickRole(undefined);setError(undefined)
+  }catch(e){if(generation===commandEpoch.current)setError(String(e))}
+ };
+ useEffect(()=>{if(pickRole&&selection)void pick(pickRole,selection)},[selection]);
  const load=useCallback(async(id:string)=>{
-  const generation=++epoch.current;setPending(true);setError(undefined);highlightCallback.current([]);
-  try{const result=await api.getMotionRun(id);if(!alive.current||generation!==epoch.current)return;setRun(result);setIndex(0);setPlaying(false);setShowing(result.frames.length>0)}catch(e){if(generation===epoch.current)setError(String(e))}finally{if(generation===epoch.current)setPending(false)}
+  const generation=++epoch.current;setPending(true);setError(undefined);callbacks.current.onHighlight([]);
+  try{const result=await api.getMotionRun(id);if(!alive.current||generation!==epoch.current||!activeRef.current)return;setRun(result);setIndex(0);setPlaying(false);setShowing(result.frames.length>0)}catch(e){if(generation===epoch.current)setError(String(e))}finally{if(generation===epoch.current)setPending(false)}
  },[]);
- const loadedJob=useRef<string|undefined>(undefined);
- useEffect(()=>{if(job?.resultObjectId&&done(job)&&loadedJob.current!==job.id+"/"+job.resultObjectId){loadedJob.current=job.id+"/"+job.resultObjectId;void load(job.id)}},[job,load]);
- useEffect(()=>{if(showing&&run){const p=motionPlayback(run,index);if(p)playbackCallback.current(p);else{setError('冻结结果缺少完整帧／版本身份');setShowing(false)}}else playbackCallback.current()},[run,index,showing]);
- useEffect(()=>{if(!playing||!run||!showing)return;const start=performance.now(),base=run.frames[index]?.timeSeconds??0;const end=run.frames.at(-1)?.timeSeconds??0;const timer=setInterval(()=>{const time=base+(performance.now()-start)/1000;setIndex(motionFrameAt(run,time));if(time>=end)setPlaying(false)},25);return()=>clearInterval(timer)},[playing,run,showing]);
- const changeJoint=(id:string,patch:Partial<MechanismJoint>)=>setDefs(k=>({...k,
-  mechanisms:k.mechanisms.map(m=>m.id===mechanismId?{...m,joints:m.joints.map(j=>j.id===id?{...j,...patch,...(patch.kind?{lower:undefined,upper:undefined}:{})}:j)}:m),
-  studies:k.studies.map(s=>s.mechanismId===mechanismId&&s.driverJointId===id&&(patch.kind==='REVOLUTE'||patch.kind==='PRISMATIC')
-   ?{...s,start:{value:0,unit:patch.kind==='REVOLUTE'?'deg':'mm'},end:{value:90,unit:patch.kind==='REVOLUTE'?'deg':'mm'},replaceDriverConstraintId:undefined}:s)}));
- const changeStudy=(patch:Partial<MotionStudy>)=>setDefs(k=>({...k,studies:k.studies.map(s=>s.id===studyId?{...s,...patch}:s)}));
- const addMechanism=()=>{if(units.length<2){setError('请先插入至少两个运动单元');return}const id=randomUUID(),groundId=randomUUID(),driveId=randomUUID(),sid=randomUUID();
-  const m={id,name:'机构 '+(defs.mechanisms.length+1),unitIds:[units[0].id,units[1].id],joints:[{id:groundId,name:'Ground',kind:'GROUND' as const,first:{instanceId:units[0].id,frame:identity()},zero:{value:0,unit:'mm' as const},direction:1},{id:driveId,name:'Revolute',kind:'REVOLUTE' as const,first:{instanceId:units[0].id,frame:identity()},second:{instanceId:units[1].id,frame:identity()},zero:{value:0,unit:'deg' as const},direction:1}]};
-  const s:MotionStudy={id:sid,name:'线性研究',mechanismId:id,driverJointId:driveId,start:{value:0,unit:'deg'},end:{value:90,unit:'deg'},durationSeconds:3,frames:31,budgetMs:30000,checkDmu:true,includeSameUnit:false,clearance:{value:0,unit:'mm'}};
-  setDefs(k=>({...k,mechanisms:[...k.mechanisms,m],studies:[...k.studies,s]}));setMechanismId(id);setStudyId(sid);
+ useEffect(()=>{if(active&&job?.resultObjectId&&done(job)&&foreground.current===job.id&&loaded.current!==job.resultObjectId){loaded.current=job.resultObjectId;foreground.current=undefined;void load(job.id)}},[active,job,load]);
+ useEffect(()=>{if(active&&showing&&run){const p=motionPlayback(run,index);if(p)callbacks.current.onPlayback(p);else{setError('冻结结果缺少完整帧／版本身份');setShowing(false)}}else callbacks.current.onPlayback()},[active,run,index,showing]);
+ useEffect(()=>{if(!playing||!run||!showing||!active)return;const start=performance.now(),base=run.frames[index]?.timeSeconds??0,end=run.frames.at(-1)?.timeSeconds??0;const timer=setInterval(()=>{const time=base+(performance.now()-start)/1000;setIndex(motionFrameAt(run,time));if(time>=end)setPlaying(false)},25);return()=>clearInterval(timer)},[playing,run,showing,active]);
+ const start=async(currentOnly:boolean,analysisID?:string,trialValue?:number,trialDriver?:string)=>{
+  const generation=++epoch.current;setPending(true);setError(undefined);setPlaying(false);setShowing(false);
+  try{const j=await api.startMotionRun(view.document.id,{baseRevisionId:view.document.versionId,requestId:randomUUID(),studyId:trialDriver?undefined:study?.id,driverId:trialDriver,analysisId:analysisID,currentOnly,trial:trialValue===undefined?undefined:{value:trialValue,unit:trialDriver?selectedMechanism?.joints.find(j=>j.id===defs.drivers?.find(d=>d.id===trialDriver)?.jointId)?.zero.unit??'deg':study?.start.unit??'deg'},clearance:{value:0,unit:'mm'}});if(!alive.current||generation!==epoch.current)return;setJobId(j.id);if(activeRef.current)foreground.current=j.id;loaded.current=undefined;await client.invalidateQueries({queryKey:['motion-jobs',view.document.id]});closeCommand()}catch(e){if(generation===epoch.current)setError(String(e))}finally{if(generation===epoch.current)setPending(false)}
  };
- const addJoint=()=>{if(!selectedMechanism||units.length<2)return;const j:MechanismJoint={id:randomUUID(),name:'Revolute',kind:'REVOLUTE',first:{instanceId:units[0].id,frame:identity()},second:{instanceId:units[1].id,frame:identity()},zero:{value:0,unit:'deg'},direction:1};setDefs(k=>({...k,mechanisms:k.mechanisms.map(m=>m.id===mechanismId?{...m,joints:[...m.joints,j]}:m)}))};
- const save=async()=>{setPending(true);setError(undefined);try{const next={...defs,mechanisms:defs.mechanisms.map(m=>({...m,unitIds:[...new Set(m.joints.flatMap(j=>[j.first.instanceId,...(j.second?[j.second.instanceId]:[])]))]}))};await onSave(next);setDefs(next)}catch(e){setError(String(e))}finally{setPending(false)}};
- const start=async(currentOnly:boolean)=>{const generation=++epoch.current;setPending(true);setError(undefined);setPlaying(false);setShowing(false);highlightCallback.current([]);
-  try{const j=await api.startMotionRun(view.document.id,{baseRevisionId:view.document.versionId,requestId:randomUUID(),studyId:study?.id,currentOnly,clearance:{value:gap,unit:'mm'},scope:scopeAddresses,includeSameUnit:sameUnit});if(!alive.current||generation!==epoch.current){void api.cancelJob(j.id).catch(()=>{});return}currentJob.current=j.id;setJobId(j.id);loadedJob.current=undefined;await client.invalidateQueries({queryKey:['motion-jobs',view.document.id]})}catch(e){if(generation===epoch.current)setError(String(e))}finally{if(generation===epoch.current)setPending(false)}
+ const applyInput=():MotionApplyRequest=>({jobId:jobId!,frameIndex:index,lockAngle,resolutions});
+ const review=async()=>{const generation=++commandEpoch.current;setCommandPending(true);setError(undefined);try{const result=await api.planMotionApply(view.document.id,view.document.versionId,applyInput());if(alive.current&&activeRef.current&&generation===commandEpoch.current)setPlan(result)}catch(e){if(generation===commandEpoch.current)setError(String(e))}finally{if(generation===commandEpoch.current)setCommandPending(false)}};
+ const apply=async()=>{
+  if(!plan?.ready)return;setCommandPending(true);applying.current=true;
+  const owner=commandOwner.current,generation=commandEpoch.current,revision=view.document.versionId;
+  try{await onApply({...applyInput(),planDigest:plan.digest});if(alive.current&&activeRef.current&&(!owner||owner.current)){release();closeCommand();onClose()}}
+  catch(e){if(alive.current&&activeRef.current&&(!owner||owner.current)){if(revisionRef.current!==revision)closeCommand();setError(String(e));setPlan(undefined)}}
+  finally{applying.current=false;if(generation===commandEpoch.current)setCommandPending(false)}
  };
- const highlight=(a:string,b:string)=>{if(!run)return;const selected=run.snapshot.geometryUnits.filter(g=>g.id===a||g.id===b).flatMap(g=>{const r=run.snapshot.view.resolvedInstances?.find(v=>addressKey(v)===addressKey(g.address));if(!r)return [];return [{kind:'body' as const,id:`${r.occurrencePath}:body:${r.bodyId}`,documentId:r.documentId,versionId:r.instancePath.segments.at(-1)?.resolvedVersionId,bodyId:r.bodyId,geometryKey:r.geometryKey,occurrencePath:r.occurrencePath,instancePath:r.instancePath,treeNodeId:r.bodyTreeNodeId,instanceId:g.motionUnitId}]});onHighlight(selected)};
+ const highlight=(a:string,b:string)=>{const s=run?.snapshot;const items=s?.geometryUnits.filter(g=>g.id===a||g.id===b).map(g=>({kind:'body' as const,id:`${g.address.instancePath.canonical}:body:${g.address.bodyId}`,bodyId:g.address.bodyId,instancePath:g.address.instancePath,occurrencePath:g.address.instancePath.canonical,rootDocumentId:s.documentId,instanceId:g.address.instancePath.segments[0]?.instanceId,documentId:g.address.instancePath.segments.at(-1)?.referencedDocumentId,versionId:g.address.instancePath.segments.at(-1)?.resolvedVersionId,geometryKey:g.geometryKey}));onHighlight(items??[])};
+ const label=(id:string)=>{const g=run?.snapshot.geometryUnits.find(g=>g.id===id);return g?`${g.address.instancePath.display} / ${g.address.bodyId}`:id};
  const frame=run?.frames[index];
- const label=(id:string)=>{const g=run?.snapshot.geometryUnits.find(g=>g.id===id);return g?`${g.address.instancePath.canonical} / Body ${g.address.bodyId}`:id};
- return <Drawer title="机构与基础 DMU" open onClose={close} mask={false} size={700} styles={{body:{padding:16}}}>
-  {isMockMode&&<Alert type="warning" title="请使用 API 模式连接实际后端"/>}
-  {error&&<Alert closable onClose={()=>setError(undefined)} type="error" title={error}/>}
-  {!units.length&&<Button disabled={!editEnabled||isMockMode} loading={pending} onClick={()=>{setPending(true);void onDemo().catch(e=>setError(String(e))).finally(()=>setPending(false))}}>在空 Product 创建四杆闭环演示</Button>}
-  <Typography.Paragraph>局部坐标系的 Z 为关节正轴、X 为角度零位方向。运动单元是所属 Product 的直接子实例；子 Product 内部冻结。保留所有已有硬约束，仅允许明确替换同一驱动坐标。</Typography.Paragraph>
-  <Space wrap><Select style={{width:210}} value={mechanismId||undefined} placeholder="选择机构" options={defs.mechanisms.map(m=>({label:m.name,value:m.id}))} onChange={id=>{setMechanismId(id);setStudyId(defs.studies.find(s=>s.mechanismId===id)?.id??'')}}/>
-   <Button disabled={!editEnabled} onClick={addMechanism}>新建机构</Button><Button disabled={!editEnabled||!selectedMechanism} onClick={addJoint}>添加关节</Button>
-   <Button loading={pending} disabled={!editEnabled||!dirty} onClick={()=>void save()}>保存定义</Button>
-  </Space>
-  {selectedMechanism&&<>
-   <Input aria-label="机构名称" disabled={!editEnabled} value={selectedMechanism.name} onChange={e=>setDefs(k=>({...k,mechanisms:k.mechanisms.map(m=>m.id===mechanismId?{...m,name:e.target.value}:m)}))}/>
-   <div style={{opacity:editEnabled?1:.65,pointerEvents:editEnabled?'auto':'none'}}>
-   {selectedMechanism.joints.map(j=><fieldset key={j.id} style={{margin:'12px 0',padding:8}}><legend>{j.name}</legend>
-    <Space wrap><Input aria-label="关节名称" style={{width:140}} value={j.name} onChange={e=>changeJoint(j.id,{name:e.target.value})}/>
-     <Select value={j.kind} style={{width:130}} options={['GROUND','RIGID','REVOLUTE','PRISMATIC'].map(value=>({value,label:value}))} onChange={kind=>changeJoint(j.id,{kind,second:kind==='GROUND'?undefined:j.second??{instanceId:units.find(u=>u.id!==j.first.instanceId)?.id??'',frame:identity()},zero:{value:0,unit:kind==='REVOLUTE'?'deg':'mm'}})}/>
-     <Button danger size="small" onClick={()=>setDefs(k=>({...k,mechanisms:k.mechanisms.map(m=>m.id===mechanismId?{...m,joints:m.joints.filter(v=>v.id!==j.id)}:m)}))}>删除</Button></Space>
-    <Space align="start"><div>第一端<Endpoint value={j.first} units={units} onChange={first=>changeJoint(j.id,{first})} onError={setError}/></div>
-     {j.second&&<div>第二端<Endpoint value={j.second} units={units} onChange={second=>changeJoint(j.id,{second})} onError={setError}/></div>}</Space>
-    {(j.kind==='REVOLUTE'||j.kind==='PRISMATIC')&&<Space wrap>
-     <span>零位 {j.kind==='REVOLUTE'?'deg':'mm'}</span><InputNumber value={quantityIn(j.zero,j.kind==='REVOLUTE'?'deg':'mm')} onChange={value=>changeJoint(j.id,{zero:{value:value??0,unit:j.kind==='REVOLUTE'?'deg':'mm'}})}/>
-     <Select value={j.direction} options={[{value:1,label:'正向 +Z'},{value:-1,label:'反向 -Z'}]} onChange={direction=>changeJoint(j.id,{direction})}/>
-     <InputNumber placeholder="下限（可空）" value={j.lower?quantityIn(j.lower,j.kind==='REVOLUTE'?'deg':'mm'):undefined} onChange={value=>changeJoint(j.id,{lower:value===null?undefined:{value,unit:j.kind==='REVOLUTE'?'deg':'mm'}})}/>
-     <InputNumber placeholder="上限（可空）" value={j.upper?quantityIn(j.upper,j.kind==='REVOLUTE'?'deg':'mm'):undefined} onChange={value=>changeJoint(j.id,{upper:value===null?undefined:{value,unit:j.kind==='REVOLUTE'?'deg':'mm'}})}/>
-    </Space>}
-   </fieldset>)}
-   </div>
-   <Select style={{width:220}} value={studyId||undefined} options={defs.studies.filter(s=>s.mechanismId===mechanismId).map(s=>({value:s.id,label:s.name}))} onChange={setStudyId}/>
-   <Button disabled={!editEnabled} onClick={()=>{const template=defs.studies.find(s=>s.mechanismId===mechanismId);if(!template)return;const s={...structuredClone(template),id:randomUUID(),name:'新研究'};setDefs(k=>({...k,studies:[...k.studies,s]}));setStudyId(s.id)}}>复制研究</Button>
-  </>}
-  {study&&<fieldset disabled={!editEnabled} style={{pointerEvents:editEnabled?"auto":"none",margin:'12px 0',padding:8}}><legend>单坐标线性规律</legend>
-   <Input aria-label="研究名称" value={study.name} onChange={e=>changeStudy({name:e.target.value})}/>
-   <Space wrap><span>驱动关节</span><Select style={{width:180}} value={study.driverJointId} options={selectedMechanism?.joints.filter(j=>j.kind==='REVOLUTE'||j.kind==='PRISMATIC').map(j=>({value:j.id,label:j.name}))} onChange={id=>{const j=selectedMechanism!.joints.find(j=>j.id===id)!;const unit=j.kind==='REVOLUTE'?'deg':'mm';changeStudy({driverJointId:id,start:{value:0,unit},end:{value:90,unit}})}}/>
-    <span>起止 {study.start.unit}</span><InputNumber value={study.start.value} onChange={value=>changeStudy({start:{...study.start,value:value??0}})}/><InputNumber value={quantityIn(study.end,study.start.unit)} onChange={value=>changeStudy({end:{unit:study.start.unit,value:value??0}})}/>
-    <span>时长 s</span><InputNumber min={.001} max={3600} value={study.durationSeconds} onChange={v=>changeStudy({durationSeconds:v??3})}/>
-    <span>离散帧</span><InputNumber min={2} max={500} precision={0} value={study.frames} onChange={v=>changeStudy({frames:v??31})}/>
-    <span>预算 ms</span><InputNumber min={100} max={120000} value={study.budgetMs} onChange={v=>changeStudy({budgetMs:v??30000})}/>
-    <Select style={{width:260}} allowClear placeholder="明确替换同坐标装配约束（可空）" value={study.replaceDriverConstraintId} options={view.product?.constraints?.filter(c=>!c.suppressed&&c.mode!=='MEASURED').map(c=>({value:c.id,label:c.name??c.id}))} onChange={replaceDriverConstraintId=>changeStudy({replaceDriverConstraintId})}/>
-    <Checkbox checked={study.checkDmu} onChange={e=>changeStudy({checkDmu:e.target.checked})}>逐采样帧检查 DMU</Checkbox>
-    <Checkbox checked={study.includeSameUnit} onChange={e=>changeStudy({includeSameUnit:e.target.checked})}>包含同刚体内 Body 对</Checkbox>
-    <span>间隙 mm</span><InputNumber min={0} value={quantityIn(study.clearance,'mm')} onChange={v=>changeStudy({clearance:{value:v??0,unit:'mm'}})}/>
-   </Space>
-   <Select mode="multiple" style={{width:'100%'}} placeholder="研究 DMU 范围（空为全部）" value={(study.scope??[]).map(addressKey)} options={geometries.map(g=>({value:addressKey(g),label:`${g.name} / ${g.occurrencePath} / ${g.bodyId}`}))} onChange={values=>changeStudy({scope:geometries.filter(g=>values.includes(addressKey(g))).map(g=>({instancePath:g.instancePath,bodyId:g.bodyId}))})}/>
-  </fieldset>}
-  <Space wrap><Button type="primary" disabled={isMockMode||dirty||!study||pending||Boolean(job&&!done(job))} onClick={()=>void start(false)}>运行已保存研究</Button>
-   {job&&<span>{job.state} {job.progress}%</span>}{job?.canCancel&&<Button onClick={()=>void api.cancelJob(job.id).then(()=>client.invalidateQueries({queryKey:['motion-jobs',view.document.id]}))}>取消运行</Button>}
-  </Space>
-  <Typography.Title level={5}>当前装配姿态 DMU</Typography.Title>
-  <Select mode="multiple" style={{width:'100%'}} placeholder="选择 occurrence + Body 范围（空为全部）" value={scope} options={geometries.map(g=>({value:addressKey(g),label:`${g.name} / ${g.occurrencePath} / ${g.bodyId}`}))} onChange={setScope}/>
-  <Space wrap><span>间隙 mm</span><InputNumber min={0} value={gap} onChange={v=>setGap(v??0)}/><Checkbox checked={sameUnit} onChange={e=>setSameUnit(e.target.checked)}>同刚体内 Body 对</Checkbox><Button disabled={isMockMode||pending||showing||Boolean(job&&!done(job))} onClick={()=>void start(true)}>检查当前姿态</Button></Space>
+ useEffect(()=>{commandEpoch.current++;setPlan(undefined)},[index,jobId]);
+ const changeJoint=(patch:Partial<MechanismJoint>)=>setJoint(j=>j?{...j,...patch}:j);
+ const saveJoint=async()=>{if(!joint||!selectedMechanism)return;const m={...selectedMechanism,joints:[...selectedMechanism.joints.filter(j=>j.id!==joint.id),joint]};m.unitIds=[...new Set(m.joints.flatMap(j=>[j.first.instanceId,...(j.second?[j.second.instanceId]:[])]))];await save({...defs,mechanisms:defs.mechanisms.map(v=>v.id===m.id?m:v)})};
+ const definitionValid=editEnabled&&(
+  action==='new'||action==='mechanism'?Boolean(name.trim()):
+  action==='joint'?Boolean(joint?.name&&joint.first.instanceId&&(joint.kind==='GROUND'||objectId||joint.second?.instanceId&&joint.first.axis&&joint.first.plane&&joint.second.axis&&joint.second.plane)):
+  action==='driver'?Boolean(driver?.name&&driver.jointId):action==='study'?Boolean(studyDraft?.name&&studyDraft.driverId):
+  action==='trial'?Boolean(trialDriverId):action==='interference'?Boolean(analysisDraft?.name):action==='import'?Boolean(selectedMechanism):false);
+ const confirmDefinition=async()=>{
+  if(!definitionValid)return;
+  if(action==='new'||action==='mechanism'){const id=objectId??randomUUID();setMechanismId(id);await save({...defs,mechanisms:objectId?defs.mechanisms.map(m=>m.id===objectId?{...m,name}:m):[...defs.mechanisms,{id,name,unitIds:[],joints:[]}]})}
+  if(action==='joint')await saveJoint();
+  if(action==='driver'&&driver)await save({...defs,drivers:[...(defs.drivers??[]).filter(d=>d.id!==driver.id),driver]});
+  if(action==='study'&&studyDraft){setStudyId(studyDraft.id);await save({...defs,studies:[...defs.studies.filter(s=>s.id!==studyDraft.id),studyDraft]})}
+  if(action==='trial')await start(false,undefined,trial,trialDriverId);
+  if(action==='interference'&&analysisDraft){setAnalysisId(analysisDraft.id);await save({...defs,analyses:[...(defs.analyses??[]).filter(a=>a.id!==analysisDraft.id),analysisDraft]})}
+  if(action==='import'&&selectedMechanism){
+   const joints=[...selectedMechanism.joints];for(const j of proposals.filter(j=>imports.includes(j.id))){const existing=joints.findIndex(old=>old.sources?.some(src=>j.sources?.some(s=>s.constraintId===src.constraintId)));if(existing>=0)joints[existing]={...j,id:joints[existing].id};else joints.push(j)}
+   const m={...selectedMechanism,joints,supplementalConstraintIds:supplemental,unitIds:[...new Set(joints.flatMap(j=>[j.first.instanceId,...(j.second?[j.second.instanceId]:[])]))]};
+   await save({...defs,mechanisms:defs.mechanisms.map(v=>v.id===m.id?m:v),associations:detach?(defs.associations??[]).filter(a=>a.mechanismId!==mechanismId):defs.associations});
+  }
+ };
+ return <>
+ {active&&<section className="motion-study-activity" aria-label="机构运行与回放">
+  {error&&!action&&<Alert type="error" title={error} closable onClose={()=>setError(undefined)}/>}
+  <Space wrap><span>机构</span><Select aria-label="当前机构" style={{width:210}} value={mechanismId||undefined} options={defs.mechanisms.map(m=>({value:m.id,label:m.name}))} onChange={id=>{closeCommand();setMechanismId(id);setStudyId(defs.studies.find(s=>s.mechanismId===id)?.id??'')}}/>
+  {selectedMechanism&&<Typography.Text>{selectedMechanism.joints.length} 个接合 · {(defs.drivers??[]).filter(d=>d.mechanismId===mechanismId).length} 个驱动</Typography.Text>}</Space>
+  <Typography.Title level={5}>求解与分析</Typography.Title>
+  <Space wrap><Select aria-label="当前仿真" style={{width:210}} placeholder="已保存仿真" value={studyId||undefined} options={defs.studies.filter(s=>s.mechanismId===mechanismId).map(s=>({value:s.id,label:s.name}))} onChange={setStudyId}/>{commandButton('run')}<Select aria-label="当前干涉分析" allowClear style={{width:210}} placeholder="已保存干涉分析" value={analysisId||undefined} options={defs.analyses?.map(a=>({value:a.id,label:a.name}))} onChange={setAnalysisId}/>{commandButton('check')}{job&&<span>{job.state} {job.progress}%</span>}{commandButton('cancel')}</Space>
   <Typography.Title level={5}>已保存运行与回放</Typography.Title>
-  <Select style={{width:'100%'}} disabled={pending} placeholder="选择冻结运行结果" value={jobId} options={jobs.data?.map(j=>({value:j.id,label:`${String(j.payload.studyName??'研究')} · ${j.state} · ${j.createdAt}`}))} onChange={id=>{if(currentJob.current&&currentJob.current!==id){void api.cancelJob(currentJob.current).catch(()=>{});currentJob.current=undefined}setJobId(id);const j=jobs.data?.find(j=>j.id===id);if(j?.resultObjectId){loadedJob.current=id+"/"+j.resultObjectId;void load(id)}}}/>
+  <Select aria-label="冻结运行结果" style={{width:'100%'}} disabled={pending} placeholder="选择冻结运行结果" value={jobId} options={jobs.data?.map(j=>({value:j.id,label:`${String(j.payload.studyName??'研究')} · ${j.state} · ${j.createdAt}`}))} onChange={id=>{foreground.current=undefined;setJobId(id);const j=jobs.data?.find(j=>j.id===id);if(j?.resultObjectId){loaded.current=j.resultObjectId;void load(id)}}}/>
   {job?.errorMessage&&<Alert type="error" title={job.errorMessage}/>}
   {run&&<>
-   <Alert type={run.completed?'info':'warning'} title={`${run.status} · ${run.frames.length} 帧 · ${run.elapsedMs.toFixed(0)} ms`} description={run.snapshot.revisionId!==view.document.versionId?'旧版本结果：显式回放冻结版本，未覆盖当前模型。':'整帧临时显示；退出后恢复正式装配姿态。'}/>
+   <Alert type={run.completed?'info':'warning'} title={`${run.status} · ${run.frames.length} 帧 · ${run.elapsedMs.toFixed(0)} ms`} description={run.snapshot.revisionId!==view.document.versionId?'旧版本结果：树、几何和选择使用冻结快照；应用时重新验证当前装配。':'整帧临时显示；退出恢复正式装配。'}/>
    {run.failure&&<Alert type="warning" title={run.failure.code} description={`${run.failure.detail}；停止目标 t=${run.failure.timeSeconds.toFixed(3)} s`}/>}
-   <Space wrap><Button disabled={!run.frames.length} onClick={()=>{setShowing(true);setPlaying(p=>!p)}}>{playing?'暂停':'播放'}</Button>
-    <Button disabled={!run.frames.length} onClick={()=>{setPlaying(false);setShowing(true);setIndex(i=>Math.max(0,i-1))}}>上一步</Button>
-    <Button disabled={!run.frames.length} onClick={()=>{setPlaying(false);setShowing(true);setIndex(i=>Math.min(run.frames.length-1,i+1))}}>单步</Button>
-    <Button onClick={()=>{setPlaying(false);setShowing(true);setIndex(0)}}>复位研究</Button>
-    <Button onClick={()=>{setPlaying(false);setShowing(false);onHighlight([])}}>恢复正式姿态</Button>
-   </Space>
-   {run.frames.length>0&&<Slider min={0} max={Math.max(0,run.frames.length-1)} value={index} step={1} onChange={i=>{setPlaying(false);setShowing(true);setIndex(i)}}/>}
-   <Space>定位时间 s<InputNumber min={0} max={run.frames.at(-1)?.timeSeconds??0} value={frame?.timeSeconds??0} onChange={v=>{setPlaying(false);setShowing(true);setIndex(motionFrameAt(run,v??0))}}/></Space>
+   <Space wrap>{['play','pause','previous','next','reset','restore','apply'].map(commandButton)}</Space>
+   {run.frames.length>0&&<Slider min={0} max={Math.max(0,run.frames.length-1)} value={index} step={1} onChange={i=>{setPlaying(false);setShowing(true);setIndex(i);commandEpoch.current++;setPlan(undefined)}}/>}
+   <Space>定位时间 s<InputNumber min={0} max={run.frames.at(-1)?.timeSeconds??0} value={frame?.timeSeconds??0} onChange={v=>{setPlaying(false);setShowing(true);setIndex(motionFrameAt(run,v??0));commandEpoch.current++;setPlan(undefined)}}/></Space>
    {frame&&<Typography.Paragraph>帧 {index+1} · t={frame.timeSeconds.toFixed(3)} s · 运动学 {frame.kinematicValid?'合格':'未检查'} · DMU {frame.dmuConclusion} · 驱动 {frame.driverValue.toFixed(6)} {['deg','rad'].includes(run.snapshot.study.start.unit)?'rad':'mm'}</Typography.Paragraph>}
    <Space wrap>{motionProblemFrames(run).map(i=><Button key={i} size="small" onClick={()=>{setPlaying(false);setShowing(true);setIndex(i)}}>问题帧 {i+1}</Button>)}</Space>
-   <Table size="small" pagination={{pageSize:8}} rowKey={p=>p.firstId+p.secondId} dataSource={frame?.dmu?.pairs??[]} onRow={p=>({onClick:()=>{setShowing(true);highlight(p.firstId,p.secondId)}})} columns={[
-    {title:'实例 + Body',dataIndex:'firstId',render:label},{title:'实例 + Body',dataIndex:'secondId',render:label},
-    {title:'分类',dataIndex:'classification'}, {title:'距离 mm',dataIndex:'distanceMm',render:(v:number,p)=>p.complete?v.toFixed(6):'未完成'},
-    {title:'间隙',render:(_,p)=>!p.complete?'无法判定':p.clearanceSatisfied?'满足':'不满足'}, {title:'诊断',dataIndex:'diagnostic'}]}/>
-   <Typography.Text type="secondary">离散帧精确检查，不代表帧间连续无碰撞。点击结果高亮完整实例与 Body。</Typography.Text>
+   <Table size="small" pagination={{pageSize:8}} rowKey={p=>p.firstId+p.secondId} dataSource={frame?.dmu?.pairs??[]} onRow={p=>({onClick:()=>{setShowing(true);highlight(p.firstId,p.secondId)}})} columns={[{title:'实例 + Body',dataIndex:'firstId',render:label},{title:'实例 + Body',dataIndex:'secondId',render:label},{title:'分类',dataIndex:'classification'},{title:'距离 mm',dataIndex:'distanceMm',render:(v:number,p)=>p.complete?v.toFixed(6):'未完成'},{title:'间隙',render:(_,p)=>!p.complete?'无法判定':p.clearanceSatisfied?'满足':'不满足'},{title:'诊断',dataIndex:'diagnostic'}]}/><Typography.Text type="secondary">离散帧精确检查，不代表帧间连续无碰撞。</Typography.Text>
   </>}
- </Drawer>;
-}
+ </section>}
+  <CommandDialog id={'dmu.'+(action??'definition')} open={active&&Boolean(action)&&action!=='apply'} title={action==='joint'?joint?.name:action==='mechanism'?'编辑机构':registry.declaration('dmu.'+action)?.name??'编辑对象'} onClose={closeCommand} onConfirm={confirmDefinition} confirmText={action==='trial'?'求解指定坐标':'保存'} confirmLoading={commandPending||pending} confirmDisabled={!definitionValid} size="M"><div className="motion-study-fields">
+   {error&&<Alert type="error" title={error}/>}
+   {(action==='new'||action==='mechanism')&&<><Input aria-label="机构名称" value={name} onChange={e=>setName(e.target.value)}/></>}
+   {action==='joint'&&joint&&<>
+    <Input aria-label="接合名称" value={joint.name} onChange={e=>changeJoint({name:e.target.value})}/>
+    {joint.kind==='GROUND'?<Select style={{width:'100%'}} value={joint.first.instanceId} options={units.map(v=>({value:v.id,label:v.name}))} onChange={instanceId=>changeJoint({first:{instanceId,frame:identity()}})}/>:<>
+     <Typography.Paragraph>点击拾取按钮，然后在视口或树中选择真实几何。轴可选圆柱面／圆边派生轴或基准轴；定位平面应垂直轴线。</Typography.Paragraph>
+     {(['first','second'] as const).map(side=><fieldset key={side}><legend>{side==='first'?'第一端（参考）':'第二端（运动）'} {units.find(v=>v.id===joint[side]?.instanceId)?.name}</legend>{(['axis','plane'] as const).map(field=>{const role=`${side}.${field}` as NonNullable<typeof pickRole>;return <Space key={field} style={{marginBottom:5}}><Button type={pickRole===role?'primary':'default'} onClick={()=>{setPickRole(role);if(selection)void pick(role,selection)}}>{field==='axis'?'拾取轴':'拾取定位平面'}</Button><span>{joint[side]?.[field]?`${joint[side]![field]!.kind} · 已绑定`:'未选择'}</span><Button size="small" disabled={!selection} onClick={()=>selection&&void pick(role,selection)}>使用当前选择</Button></Space>})}</fieldset>)}
+     <Space wrap><span>轴向偏移 mm</span><InputNumber value={joint.axialOffset?.value??0} onChange={v=>changeJoint({axialOffset:{value:v??0,unit:'mm'}})}/><span>零位 {joint.zero.unit}</span><InputNumber value={joint.zero.value} onChange={v=>changeJoint({zero:{...joint.zero,value:v??0}})}/><Select value={joint.direction} options={[{value:1,label:'正向 +Z'},{value:-1,label:'反向 -Z'}]} onChange={direction=>changeJoint({direction})}/><InputNumber placeholder="下限（可空）" value={joint.lower?.value} onChange={v=>changeJoint({lower:v===null?undefined:{value:v,unit:joint.zero.unit}})}/><InputNumber placeholder="上限（可空）" value={joint.upper?.value} onChange={v=>changeJoint({upper:v===null?undefined:{value:v,unit:joint.zero.unit}})}/></Space>
+     <Typography.Text type="secondary">保存时捕获两端稳定的角度基准。相合／偏移是接合的展开项。</Typography.Text>
+    </>}
+    {(joint.sources?.length??0)>0&&<><Typography.Paragraph>来源：{joint.sources!.map(v=>v.constraintId).join(', ')}。来源变化不自动改写接合；可在装配关联中重新提案并确认。</Typography.Paragraph><Button onClick={()=>changeJoint({sources:[]})}>解除来源关联</Button></>}
+
+   </>}
+   {action==='driver'&&driver&&<><Input value={driver.name} onChange={e=>setDriver({...driver,name:e.target.value})}/><Select style={{width:'100%'}} value={driver.jointId} options={selectedMechanism?.joints.filter(j=>j.kind==='REVOLUTE'||j.kind==='PRISMATIC').map(j=>({value:j.id,label:j.name}))} onChange={jointId=>setDriver({...driver,jointId})}/></>}
+   {action==='study'&&studyDraft&&<>
+    <Input value={studyDraft.name} onChange={e=>setStudyDraft({...studyDraft,name:e.target.value})}/><Select style={{width:'100%'}} value={studyDraft.driverId} options={defs.drivers?.filter(d=>d.mechanismId===studyDraft.mechanismId).map(d=>({value:d.id,label:d.name}))} onChange={driverId=>{const d=defs.drivers!.find(d=>d.id===driverId)!,j=selectedMechanism!.joints.find(j=>j.id===d.jointId)!,unit=j.kind==='REVOLUTE'?'deg':'mm';setStudyDraft({...studyDraft,driverId,driverJointId:'',start:{value:0,unit},end:{value:unit==='deg'?360:30,unit}})}}/>
+    <Space wrap><span>起止 {studyDraft.start.unit}</span><InputNumber value={studyDraft.start.value} onChange={v=>setStudyDraft({...studyDraft,start:{...studyDraft.start,value:v??0}})}/><InputNumber value={studyDraft.end.value} onChange={v=>setStudyDraft({...studyDraft,end:{...studyDraft.end,value:v??0}})}/><span>时长 s</span><InputNumber min={.01} value={studyDraft.durationSeconds} onChange={v=>setStudyDraft({...studyDraft,durationSeconds:v??5})}/><span>帧数</span><InputNumber min={2} max={500} precision={0} value={studyDraft.frames} onChange={v=>setStudyDraft({...studyDraft,frames:v??73})}/><span>预算 ms</span><InputNumber min={100} max={120000} value={studyDraft.budgetMs} onChange={v=>setStudyDraft({...studyDraft,budgetMs:v??60000})}/></Space>
+   </>}
+   {action==='trial'&&<><Select style={{width:220}} value={trialDriverId} options={defs.drivers?.filter(d=>d.mechanismId===mechanismId).map(d=>({value:d.id,label:d.name}))} onChange={setTrialDriverId}/><InputNumber value={trial} onChange={v=>setTrial(v??0)}/><span>{selectedMechanism?.joints.find(j=>j.id===defs.drivers?.find(d=>d.id===trialDriverId)?.jointId)?.zero.unit??'deg'}</span></>}
+   {action==='interference'&&analysisDraft&&<>
+    <Input value={analysisDraft.name} onChange={e=>setAnalysisDraft({...analysisDraft,name:e.target.value})}/><Select allowClear style={{width:'100%'}} placeholder="当前正式姿态（不关联仿真）" value={analysisDraft.studyId} options={defs.studies.map(s=>({value:s.id,label:s.name}))} onChange={studyId=>setAnalysisDraft({...analysisDraft,studyId})}/><Select mode="multiple" style={{width:'100%'}} placeholder="范围：完整 occurrence + Body；空为全部" value={analysisDraft.scope?.map(addressKey)??[]} options={geometries.map(g=>({value:addressKey(g),label:`${g.name} / ${g.occurrencePath} / ${g.bodyId}`}))} onChange={values=>setAnalysisDraft({...analysisDraft,scope:geometries.filter(g=>values.includes(addressKey(g))).map(g=>({instancePath:g.instancePath,bodyId:g.bodyId}))})}/><Space><span>间隙 mm</span><InputNumber min={0} value={quantityIn(analysisDraft.clearance,'mm')} onChange={v=>setAnalysisDraft({...analysisDraft,clearance:{value:v??0,unit:'mm'}})}/><Checkbox checked={analysisDraft.includeSameUnit} onChange={e=>setAnalysisDraft({...analysisDraft,includeSameUnit:e.target.checked})}>同刚体 Body 对</Checkbox></Space>
+   </>}
+   {action==='import'&&<>
+    <Typography.Paragraph>只导入确认的接合提案。来源为只读引用；已有产品约束不会再次进入机构方程。</Typography.Paragraph><Select mode="multiple" style={{width:'100%'}} placeholder="选择接合提案" value={imports} options={proposals.map(j=>({value:j.id,label:`${j.name} (${j.kind})`}))} onChange={setImports}/>
+    <Typography.Paragraph>明确采用补充装配关系：</Typography.Paragraph><Select mode="multiple" style={{width:'100%'}} value={supplemental} options={view.product?.constraints?.filter(c=>!c.suppressed&&!selectedMechanism?.joints.some(j=>j.sources?.some(s=>s.constraintId===c.id))).map(c=>({value:c.id,label:c.name??c.id}))} onChange={setSupplemental}/><Checkbox checked={detach} onChange={e=>setDetach(e.target.checked)}>解除本机构发布关联（保留产品约束）</Checkbox>
+   </>}
+  </div></CommandDialog>
+ <CommandDialog id="dmu.apply" title="应用到装配：连接关系与所选帧姿态" open={active&&applyOpen} size="L" onClose={closeCommand} onConfirm={apply} confirmText="一次提交并返回装配" confirmDisabled={!plan?.ready||commandPending} confirmLoading={commandPending}>
+  <Button loading={commandPending} onClick={()=>void review()}>生成／刷新转换计划</Button>
+  <Typography.Paragraph>帧 {index+1}；默认保留旋转自由度。约束、正式位姿、发布映射一次可撤销提交。</Typography.Paragraph><Checkbox checked={lockAngle} onChange={e=>{setLockAngle(e.target.checked);commandEpoch.current++;setPlan(undefined)}}>锁定当前角度</Checkbox>
+  {error&&<Alert type="error" title={error}/>}{plan&&<><Typography.Paragraph>{plan.poseChanges.length} 个位姿变化 · 求解 {plan.solverStatus??'待解决冲突'} · DOF {plan.degreesOfFreedom}</Typography.Paragraph>{plan.poseChanges.length>0&&<ul>{plan.poseChanges.map(id=>{const unit=units.find(v=>v.id===id),target=frame?.unitPoses[id];return <li key={id}>{unit?.name??id}：位置 mm ({unit?.translation.map(v=>v.toFixed(3)).join(', ')}) → ({target?.translation.map(v=>v.toFixed(3)).join(', ')})；方向采用所选完整帧</li>})}</ul>}<Table size="small" pagination={false} rowKey={v=>JSON.stringify([v.jointId,v.constraintId,v.role,v.action])} dataSource={plan.items} columns={[{title:'关系',dataIndex:'role',render:(role:string,item)=>`${relationLabels[role]??role} · ${view.product?.constraints?.find(c=>c.id===item.constraintId)?.name??defs.mechanisms.flatMap(m=>m.joints).find(j=>j.id===item.jointId)?.name??item.constraintId??''}`},{title:'动作',dataIndex:'action',render:(value:string)=>actionLabels[value]??value},{title:'说明',dataIndex:'detail'},{title:'冲突处理',render:(_,item)=>item.action==='CONFLICT'&&item.constraintId?<Select allowClear style={{width:150}} value={resolutions[item.constraintId]} options={[...(item.role==='existing'?[{value:'SUPPRESS',label:'明确停用'}]:[]),{value:'REPLACE',label:'采用接合替换'}]} onChange={value=>{setResolutions(r=>{const next={...r};if(value)next[item.constraintId]=value;else delete next[item.constraintId];return next});setPlan(p=>p?{...p,ready:false}:undefined)}}/>:null}]}/></>}
+ </CommandDialog></>;
+});

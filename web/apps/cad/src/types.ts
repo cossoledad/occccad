@@ -226,7 +226,7 @@ export type ProductInstance = {
   headChanged?: boolean;
 };
 
-export type AssemblyGeometryRef = { derivedRole?:string; instancePath?: InstancePath; instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "CIRCLE" | "SPHERE" | "CONE" | "FRAME" | "FACE" | "EDGE" | "VERTEX";
+export type AssemblyGeometryRef = { capturedDirection?:[number,number,number]; derivedRole?:string; instancePath?: InstancePath; instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "CIRCLE" | "SPHERE" | "CONE" | "FRAME" | "FACE" | "EDGE" | "VERTEX";
   geometryId?: string; axis?: string; geometryKey?: string; topologyId?: number; sourceVersionId?: string;
   persistentSelection?: PersistentSelection; resolution?: { sourceVersionId: string; targetVersionId: string;
     manifestDigest: string; policyDigest: string; result: SelectionResolution };
@@ -351,7 +351,7 @@ export type DocumentStructureNode = {
   subject?: EntityRef;
   occurrence?: OccurrenceRef;
   snapshot?: SnapshotScope;
-  kind: "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "DATUM_POINT" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_GROUP" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "MOTION_RUN" | "APPLICATIONS" | "MECHANISM" | "MECHANISM_JOINT" | "MOTION_DRIVER" | "MOTION_STUDY" | "INTERFERENCE_ANALYSIS" | "JOINT_EXPANSION" | "JOINT_SOURCE" | "MOTION_ASSOCIATION" | "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "DATUM_POINT" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_GROUP" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   presentationRole?: "DEFINITION" | "FEATURE_INPUT" | "INPUT_REFERENCE" | "GROUP";
   ownerDocumentId?: string;
   bodyId?: string;
@@ -391,7 +391,7 @@ export type DocumentStructureNode = {
   productPublication?: ProductPublication;
   contextInput?: ContextInput;
   contextBinding?: ContextBinding;
-  capabilities?: Array<"ACTIVATE" | "DEACTIVATE" | "DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">;
+  capabilities?: Array<"RENAME" | "ACTIVATE" | "DEACTIVATE" | "DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">;
   children?: DocumentStructureNode[];
 };
 
@@ -519,10 +519,11 @@ export type SelectionIdentity = {
   visualKey?: string;
   publicationId?: string;
   publication?: Publication;
+  productPublication?: ProductPublication;
 };
 
 export type SelectionItem =
-  | (SelectionIdentity & { kind: "part" | "product" | "feature" | "publication" | "external-reference" | "context-input" | "context-binding" | "parameter" })
+  | (SelectionIdentity & { kind: "motion-run" | "kinematic-object" | "part" | "product" | "feature" | "publication" | "external-reference" | "context-input" | "context-binding" | "parameter" })
   | (SelectionIdentity & { kind: "plane"; plane: PlaneName | "CUSTOM"; datumPlane?: DatumPlane })
   | (SelectionIdentity & {kind:"datum-point"})
   | (SelectionIdentity & { kind: "axis-system" })

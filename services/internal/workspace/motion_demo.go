@@ -129,6 +129,122 @@ func (service *Service) CreateFourBarDemo(ctx context.Context, documentID, actor
 		joints = append(joints, MechanismJoint{ID: uuid.NewString(), Name: fmt.Sprintf("转动关节 %d", i+1), Kind: "REVOLUTE", First: endpoint(ids[v.a], v.x), Second: &b, Zero: MotionQuantity{Unit: "deg"}, Direction: 1})
 	}
 	k := KinematicsDefinitions{Mechanisms: []Mechanism{{ID: mid, Name: "40/20/40/30 四杆闭环", UnitIDs: ids, Joints: joints}}}
-	k.Studies = []MotionStudy{{ID: uuid.NewString(), Name: "曲柄 20° → 120° / DMU", MechanismID: mid, DriverJointID: joints[1].ID, Start: MotionQuantity{Value: 20, Unit: "deg"}, End: MotionQuantity{Value: 120, Unit: "deg"}, DurationSeconds: 3, Frames: 21, BudgetMS: 60000, CheckDMU: true, Clearance: MotionQuantity{Value: 0.5, Unit: "mm"}}}
+	did := uuid.NewString()
+	k.Drivers = []MotionDriver{{ID: did, Name: "曲柄角度驱动", MechanismID: mid, JointID: joints[1].ID}}
+	k.Studies = []MotionStudy{{ID: uuid.NewString(), Name: "曲柄 20° → 120°", MechanismID: mid, DriverID: did, Start: MotionQuantity{Value: 20, Unit: "deg"}, End: MotionQuantity{Value: 120, Unit: "deg"}, DurationSeconds: 3, Frames: 21, BudgetMS: 60000, Clearance: MotionQuantity{Unit: "mm"}}}
+	k.Analyses = []InterferenceAnalysis{{ID: uuid.NewString(), Name: "四杆采样干涉 / 间隙 0.5 mm", StudyID: k.Studies[0].ID, Clearance: MotionQuantity{Value: .5, Unit: "mm"}}}
 	return command(documentID, CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
+}
+
+// A cylinder and a pierced two-blade propeller, made by the same sketch and
+// additive Pad commands as ordinary modeling. No mechanism/animation is seeded.
+func (service *Service) CreatePropellerDemo(ctx context.Context, doc, actor, base string) (DocumentView, error) {
+	view, e := service.GetDocument(ctx, doc)
+	if e != nil {
+		return view, e
+	}
+	if view.Product == nil || view.Document.VersionID != base || len(view.Product.Instances) != 0 {
+		return view, fmt.Errorf("%w: demo requires an empty Product", ErrValidation)
+	}
+	command := func(id string, r CommandRequest) (DocumentView, error) {
+		r.ActorID = actor
+		r.RequestID = uuid.NewString()
+		return service.ApplyCommand(ctx, id, r)
+	}
+	parts := []string{}
+	for i, name := range []string{"圆柱轴 Ø8 × 30", "简化螺旋桨（通孔 Ø9）"} {
+		p, er := service.CreateDocument(ctx, CreateDocumentRequest{ActorID: actor, RequestID: uuid.NewString(), Name: name, Type: "PART"})
+		if er != nil {
+			return view, er
+		}
+		pad := func(entities []SketchEntity, length float64) error {
+			var er error
+			p, er = command(p.Document.ID, CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+			if er != nil {
+				return er
+			}
+			sketch := ""
+			for _, f := range p.Part.Features {
+				if f.Type == "SKETCH" {
+					sketch = f.ID
+				}
+			}
+			ops := []SketchOperation{}
+			for k := range entities {
+				entities[k].ID = uuid.NewString()
+				entities[k].Role = "PROFILE"
+				v := entities[k]
+				ops = append(ops, SketchOperation{Type: "ADD_ENTITY", Entity: &v})
+			}
+			if len(entities) == 4 && entities[0].Kind == "LINE" {
+				for k := range entities {
+					c := SketchConstraint{ID: uuid.NewString(), Kind: "COINCIDENT", References: []SketchGeometryRef{{Target: "ENTITY", EntityID: entities[k].ID, SubElement: "END"}, {Target: "ENTITY", EntityID: entities[(k+1)%4].ID, SubElement: "START"}}}
+					ops = append(ops, SketchOperation{Type: "ADD_CONSTRAINT", Constraint: &c})
+				}
+			}
+			p, er = command(p.Document.ID, CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: ops})
+			if er != nil {
+				return er
+			}
+			p, er = command(p.Document.ID, CommandRequest{Type: "PAD_SKETCH", SketchID: sketch, Length: length, Operation: "ADD"})
+			return er
+		}
+		center := SketchPoint2{}
+		radius := 4.
+		length := 30.
+		if i == 1 {
+			radius = 12
+			length = 4
+		}
+		circles := []SketchEntity{{Kind: "CIRCLE", Center: &center, Radius: radius}}
+		if i == 1 {
+			circles = append(circles, SketchEntity{Kind: "CIRCLE", Center: &center, Radius: 4.5})
+		}
+		if er = pad(circles, length); er != nil {
+			return view, er
+		}
+		if i == 1 {
+			for _, bounds := range [][2]float64{{8, 40}, {-40, -8}} {
+				points := []SketchPoint2{{X: bounds[0], Y: -3}, {X: bounds[1], Y: -3}, {X: bounds[1], Y: 3}, {X: bounds[0], Y: 3}}
+				edges := []SketchEntity{}
+				for k := range 4 {
+					a, b := points[k], points[(k+1)%4]
+					edges = append(edges, SketchEntity{Kind: "LINE", Start: &a, End: &b})
+				}
+				if er = pad(edges, 4); er != nil {
+					return view, er
+				}
+			}
+		}
+		parts = append(parts, p.Document.ID)
+	}
+	latest, e := service.GetDocument(ctx, doc)
+	if e != nil {
+		return view, e
+	}
+	if latest.Document.VersionID != base {
+		return view, fmt.Errorf("%w: demo Product changed", ErrValidation)
+	}
+	for i, part := range parts {
+		view, e = command(doc, CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part})
+		if e != nil {
+			return view, e
+		}
+		id := view.Product.Instances[len(view.Product.Instances)-1].ID
+		name := "圆柱轴"
+		pose := [3]float64{}
+		if i == 1 {
+			name = "螺旋桨"
+			pose = [3]float64{22, 15, 7}
+		}
+		view, e = command(doc, CommandRequest{Type: "RENAME_INSTANCE", InstanceID: id, Name: name})
+		if e != nil {
+			return view, e
+		}
+		view, e = command(doc, CommandRequest{Type: "MOVE_INSTANCE", InstanceID: id, Translation: pose, Rotation: [4]float64{0, 0, 0, 1}})
+		if e != nil {
+			return view, e
+		}
+	}
+	return view, nil
 }

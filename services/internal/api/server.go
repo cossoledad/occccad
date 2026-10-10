@@ -258,6 +258,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/exchange/capabilities", server.exchangeCapabilities)
 	mux.HandleFunc("POST /api/exchange/imports", server.startExchangeImport)
 	mux.HandleFunc("POST /api/exchange/exports", server.startExchangeExport)
+	mux.HandleFunc("POST /api/documents/{documentID}/motion-apply-plan", server.planMotionApply)
+	mux.HandleFunc("GET /api/documents/{documentID}/motion-joint-proposals", server.motionJointProposals)
 	mux.HandleFunc("POST /api/documents/{documentID}/motion-demo", server.createMotionDemo)
 	mux.HandleFunc("POST /api/documents/{documentID}/motion-runs", server.startMotionRun)
 	mux.HandleFunc("GET /api/jobs/{jobID}/motion-run", server.getMotionRun)

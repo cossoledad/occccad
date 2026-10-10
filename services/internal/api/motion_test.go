@@ -59,7 +59,7 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 	}
 	second := end(view.Product.Instances[1].ID)
 	m := workspace.Mechanism{ID: "m", Name: "M", UnitIDs: []string{view.Product.Instances[0].ID, second.InstanceID}, Joints: []workspace.MechanismJoint{{ID: "g", Name: "g", Kind: "GROUND", First: end(view.Product.Instances[0].ID), Direction: 1}, {ID: "r", Name: "r", Kind: "REVOLUTE", First: end(view.Product.Instances[0].ID), Second: &second, Direction: 1, Zero: workspace.MotionQuantity{Unit: "deg"}}}}
-	k := workspace.KinematicsDefinitions{Mechanisms: []workspace.Mechanism{m}, Studies: []workspace.MotionStudy{{ID: "s", Name: "S", MechanismID: "m", DriverJointID: "r", Start: workspace.MotionQuantity{Unit: "deg"}, End: workspace.MotionQuantity{Value: 45, Unit: "deg"}, DurationSeconds: 1, Frames: 3, BudgetMS: 1000, Clearance: workspace.MotionQuantity{Unit: "mm"}}}}
+	k := workspace.KinematicsDefinitions{Drivers: []workspace.MotionDriver{{ID: "d", Name: "driver", MechanismID: "m", JointID: "r"}}, Mechanisms: []workspace.Mechanism{m}, Studies: []workspace.MotionStudy{{ID: "s", Name: "S", MechanismID: "m", DriverID: "d", Start: workspace.MotionQuantity{Unit: "deg"}, End: workspace.MotionQuantity{Value: 45, Unit: "deg"}, DurationSeconds: 1, Frames: 3, BudgetMS: 1000, Clearance: workspace.MotionQuantity{Unit: "mm"}}}}
 	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
 	server := &Server{database: db, workspace: domain, access: access.New(db), artifacts: objects, jobs: queue}
 	post := func(req workspace.MotionRunRequest, user string) *httptest.ResponseRecorder {
@@ -134,4 +134,23 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 	if r := get("00000000-0000-7000-8000-000000000099"); r.Code != 403 {
 		t.Fatal("unauthorized result", r.Code)
 	}
+	planRequest := func(user, base string) *httptest.ResponseRecorder {
+		b, _ := json.Marshal(map[string]any{"baseRevisionId": base, "jobId": job.ID, "frameIndex": 0})
+		r := httptest.NewRequest("POST", "/motion-apply-plan", bytes.NewReader(b))
+		r.SetPathValue("documentID", view.Document.ID)
+		r = r.WithContext(access.WithPrincipal(r.Context(), access.User{ID: user}))
+		w := httptest.NewRecorder()
+		server.planMotionApply(w, r)
+		return w
+	}
+	if response := planRequest("00000000-0000-7000-8000-000000000099", view.Document.VersionID); response.Code != 403 {
+		t.Fatal("unauthorized conversion plan", response.Code)
+	}
+	if response := planRequest(actor, "stale"); response.Code < 400 {
+		t.Fatal("stale conversion plan admitted")
+	}
+	if response := planRequest(actor, view.Document.VersionID); response.Code < 400 {
+		t.Fatal("synthetic result without qualified frames admitted")
+	}
+
 }

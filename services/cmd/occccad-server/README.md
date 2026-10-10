@@ -52,6 +52,8 @@ Product API 包括 `GET|POST /api/documents/{rootProductId}/product-update-plan[
 
 `CREATE_SKETCH` 除 DatumPlane 外还接受当前 Part Revision 的 `FACE` raw pick（`versionId/geometryKey/topologyId`）。服务端先绑定 PersistentSelection 并验证平面类型，再保存确定性 support frame；后续上游编辑通过 naming resolver 和草图之前的完整 body-prefix 制品更新 frame/dependency snapshot。浏览器和持久模型都不把 local face ID 当成长期支撑身份。
 
+机构 API：`POST /api/documents/{id}/motion-runs` 冻结所选 Study/Analysis（或单坐标 trial），`GET /api/jobs/{id}/motion-run` 获取有权限的冻结结果；`POST /api/documents/{id}/motion-demo` 在空 Product 通过普通命令创建 `kind=propeller|fourbar` 示例。`GET /api/documents/{id}/motion-joint-proposals` 只读生成来源接合提案，确认保存通过常规 SAVE_KINEMATICS 领域命令。`POST /api/documents/{id}/motion-apply-plan` 要求 Editor 和当前版本，验证所选合格帧、完整目标约束与正式求解并返回计划 digest；WebSocket 常规 `APPLY_MOTION_FRAME` 命令重新校验计划，一次 CAS 事务提交约束、位姿和映射，可一次 Undo。端点及限制见[机构当前合同](../../../docs/architecture/current/kinematics-dmu.md)。
+
 `POST /api/documents/{documentID}/diagnostic-bundles` 为具有文档读取权限的用户生成不可缓存的 `occccad.cad-diagnostic-bundle.v1` JSON 下载。Web 在草图求解命令失败时自动提交失败命令和客户端环境，也允许通过 Debug Toolbar 手动导出当前状态；服务端补充当前文档、草图、Workspace、历史、最近事务/命令错误及 evaluator provenance。该接口不导出 Cookie、密码、其他文档日志或 B-Rep 原始字节。
 
 WebSocket 首条消息必须是携带 CSRF token 的 `connection.initialize.v1`。之后可发送 `document.subscribe.v1`、`document.unsubscribe.v1`、`workspace.command.execute.v1`、`workspace.preview.request.v1`、`workspace.preview.cancel.v1` 与 `stream.ack.v1`；服务端返回 correlation response/error，并从事务 Outbox 发布 `workspace.transaction.committed.v1`。单消息限制 1 MiB，大制品仍走 HTTP/ArtifactStore。

@@ -612,6 +612,7 @@ type InstancePose struct {
 }
 
 type AssemblyGeometryRef struct {
+	CapturedDirection     *[3]float64                    `json:"capturedDirection,omitempty"`
 	DerivedRole           string                         `json:"derivedRole,omitempty"`
 	InstancePath          *InstancePath                  `json:"instancePath,omitempty"`
 	InstanceID            string                         `json:"instanceId"`
@@ -1124,6 +1125,7 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	MotionApply               *MotionApplyRequest          `json:"motionApply,omitempty"`
 	Kinematics                *KinematicsDefinitions       `json:"kinematics,omitempty"`
 	DatumDefinition           *DatumTransform              `json:"datumDefinition,omitempty"`
 	DatumAngleExpression      string                       `json:"datumAngleExpression,omitempty"`

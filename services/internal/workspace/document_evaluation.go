@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -172,6 +174,16 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				}
 			}
 			finishSolve()
+			if prepared.command.TypeURI == typeApplyMotionFrame {
+				var p motionApplyPayload
+				_ = json.Unmarshal(prepared.command.Payload, &p)
+				for _, v := range p.Model.Instances {
+					i := slices.IndexFunc(model.Instances, func(n ProductInstance) bool { return n.ID == v.ID })
+					if i < 0 || !conflictPoseClose(geometry.AssemblyPose{Translation: model.Instances[i].Translation, Rotation: model.Instances[i].Rotation}, geometry.AssemblyPose{Translation: v.Translation, Rotation: v.Rotation}, 1e-7, 1e-8) {
+						return fmt.Errorf("%w: formal assembly evaluation changed selected motion frame", ErrValidation)
+					}
+				}
+			}
 		}
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)

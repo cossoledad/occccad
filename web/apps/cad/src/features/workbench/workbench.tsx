@@ -63,7 +63,7 @@ import { displayLengthToMillimeters, effectiveLengthUnit, millimetersToDisplayLe
 import { useApplicationContext } from "../../state/application-context";
 import type { AssemblyConstraint, AssemblyGeometryRef, Artifact, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, ProductRelease, Selection, SketchOperation, SketchPlane, Vec3 } from "../../types";
 import { WorkbenchLayout } from "./workbench-layout";
-import { WorkbenchCommands, WorkbenchViewControls } from "./workbench-commands";
+import { WorkbenchCommands, WorkbenchViewControls, useWorkbenchTab } from "./workbench-commands";
 import { WorkbenchStatus } from "./workbench-status";
 import { contextualToolbars } from "./workbench-command-model";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
@@ -71,7 +71,8 @@ import { SpecificationTree, type SpecificationTreeNode } from "./specification-t
 import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } from "./product-edit-context";
 import { assemblyAutomaticPreviewAllowed, createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
-import {MotionStudyPanel} from "./motion-study-panel";
+import {kinematicKinds,motionResultNodes,motionSelectionTargets,deleteMotionObjects,renameMotionObject} from "../../cad/assembly/motion-definitions";
+import {MotionStudyPanel,type MotionPanelHandle} from "./motion-study-panel";
 import type {MotionPlayback} from "../../cad/assembly/motion-study";
 import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
 import { associatedTreeKeyForSelection, deletableTreeNodesForSelections, ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
@@ -239,7 +240,8 @@ export function Workbench() {
   const normalViewRequest = useRef(0);
   const receiptPrompt=useRef(false);
   const [moveReceiptPending,setMoveReceiptPending]=useState(false);
-  const [motionOpen,setMotionOpen]=useState(false);
+ const motionPanel=useRef<MotionPanelHandle>(null);
+ const [motionCommandActive,setMotionCommandActive]=useState(false);
   const [motionDisplay,setMotionDisplay]=useState<MotionPlayback>();
   const [conflictOpen,setConflictOpen]=useState(false);
   const [conflictReport,setConflictReport]=useState<AssemblyConflictReport>();
@@ -432,6 +434,7 @@ export function Workbench() {
   const moveCommand = useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),
     onSuccess:(updated)=>{void refresh(updated);},onError:()=>{void refresh();}});
   const view = document.data;
+ const motionJobs=useQuery({queryKey:["motion-jobs",documentID],queryFn:async()=>(await api.listJobs()).filter(j=>j.type==="MOTION_STUDY"&&j.documentId===documentID),enabled:Boolean(view?.product),refetchInterval:5000});
   const featureOccurrenceContext = activeInstancePath ? {
     instancePath: editSession?.editTarget.instancePath, rootDocumentId: documentID,
     contextVariantKey: view?.contextVariants?.find(v => v.owningInstancePath.canonical === activeInstancePath)?.variantKey,
@@ -643,7 +646,8 @@ export function Workbench() {
     return () => { disposed = true; unsubscribers.forEach((unsubscribe) => unsubscribe()); };
   }, [client, documentID, followedIDs.join("|"), message, view]);
   const treeNodes = useMemo(() => {
-    const resolver = visibilityResolverForView(view, editingView ? { view: editingView, occurrencePath: activeInstancePath,
+    const displayView=motionDisplay?.view??view;
+    const resolver = visibilityResolverForView(displayView, !motionDisplay&&editingView ? { view: editingView, occurrencePath: activeInstancePath,
       liveDefinitionProjection: Boolean(editSession && ["OWNER", "EDITOR"].includes(editingView.document.permission ?? "")) } : undefined);
     const decorate = (node: SpecificationTreeNode): SpecificationTreeNode => {
       const visibilityKey = node.selection ? selectionKey(node.selection) : node.key;
@@ -656,17 +660,17 @@ export function Workbench() {
         : undefined;
       const ownVisible = semantic?.effectiveVisible ?? treeVisibilityOverride(visibilityKey, treeVisibilityOverrides) ?? node.localVisible ?? true;
       const actionOwner = node.kind === "INSTANCE" ? node.ownerDocumentId : node.documentId;
-      const ownerEditable = Boolean(editingView && actionOwner === editingView.document.id &&
+      const ownerEditable = Boolean(!motionDisplay && editingView && actionOwner === editingView.document.id &&
         ["OWNER", "EDITOR"].includes(editingView.document.permission ?? ""));
       return { ...node, hidden: !ownVisible, definitionVisible: semantic?.definitionVisible ?? node.definitionVisible, localVisible: semantic?.localVisible ?? node.localVisible,
-        capabilities: ownerEditable ? node.capabilities : node.capabilities?.filter((capability) => capability !== "EDIT" && capability !== "DELETE" && capability !== "SUPPRESS"),
+        capabilities: ownerEditable ? node.capabilities : node.capabilities?.filter((capability) => capability !== "EDIT" && capability !== "DELETE" && capability !== "SUPPRESS" && capability !== "RENAME"),
         visibilityMode: semantic?.mode ?? node.visibilityMode,
         hiddenByAncestor: Boolean(semantic?.blockedBy && (semantic.blockedBy.kind !== kind || semantic.blockedBy.entityId !== node.entityId)),
         visibilityBlocker: semantic?.blockedBy ? `${semantic.blockedBy.kind} · ${semantic.blockedBy.entityId}` : undefined,
         children: node.children?.map(decorate) };
     };
-    return view ? treeData(view, editingView).map((node) => decorate(node)) : [];
-  }, [view, editingView, editSession, store.activeSketchID, activeInstancePath, treeVisibilityOverrides]);
+    return displayView ? treeData(displayView,motionDisplay?undefined:editingView,motionDisplay?undefined:motionResultNodes(displayView,motionJobs.data??[])).map((node) => decorate(node)) : [];
+  }, [view, motionJobs.data, motionDisplay, editingView, editSession, store.activeSketchID, activeInstancePath, treeVisibilityOverrides]);
   useEffect(()=>{
     normalViewRequest.current+=1;
     return ()=>{normalViewRequest.current+=1;};
@@ -691,9 +695,15 @@ export function Workbench() {
   };
   const canEdit = !motionDisplay && Boolean(editSession) && (editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR");
   const canEditRoot = !motionDisplay && (view?.document.permission === "OWNER" || view?.document.permission === "EDITOR");
-  const commandFacts={isMock:isMockMode,moveReceiptPending,hostType:view?.document.type??"PART",targetType:editingView?.document.type??"PART",sketchActive:Boolean(store.sketchPlane),canEdit,rootCanEdit:canEditRoot,busy:command.isPending,selectionKind:store.selection?.kind??"",selectionCount:store.selections.length,hasWorkingBody:Boolean(workingBodyID)};
+  const commandFacts={rootTarget:Boolean(view&&editingView?.document.id===view.document.id),motionActive:false,isMock:isMockMode,moveReceiptPending,hostType:view?.document.type??"PART",targetType:editingView?.document.type??"PART",sketchActive:Boolean(store.sketchPlane),canEdit,rootCanEdit:canEditRoot,busy:command.isPending,selectionKind:store.selection?.kind??"",selectionCount:store.selections.length,hasWorkingBody:Boolean(workingBodyID)};
   const activeTabs=toolbarCatalog.data?contextTabs(toolbarCatalog.data,commandFacts):[];
  const activeWorkbench=activeTabs[0]?.workbench??"";
+ const [activeCommandTab,setCommandTab]=useWorkbenchTab(documentSessions,documentID,activeWorkbench,activeTabs);
+ const motionOpen=activeCommandTab?.domain==="KINEMATICS_DMU";
+ commandFacts.motionActive=motionOpen;
+ const setMotionOpen=(open:boolean)=>{const tab=activeTabs.find(t=>open?t.domain==="KINEMATICS_DMU":t.section==="model");if(tab)setCommandTab(tab.id)};
+ const previousMotionOpen=useRef(motionOpen);
+ useEffect(()=>{if(previousMotionOpen.current&&!motionOpen){commandRegistry.cancel();store.setActiveTool("select","once");store.setSelections([])}previousMotionOpen.current=motionOpen;},[motionOpen,commandRegistry]);
 
   useEffect(() => {
     if (!view || view.document.type !== "PRODUCT" || !canEditRoot || automaticUpdateRunning.current) return;
@@ -1029,7 +1039,12 @@ export function Workbench() {
     if (!editingView || !canEdit || command.isPending) return;
     const candidates = [...new Map(nodes.filter((node) => node.entityId && node.kind && node.capabilities?.includes("DELETE") &&
       node.presentationRole !== "INPUT_REFERENCE").map((node) => [`${node.documentId}:${node.kind}:${node.entityId}`, node])).values()];
-    const selectedFeatures = new Set(candidates.filter((node) => !["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!))
+    if(candidates.some(node=>kinematicKinds.includes(node.kind??""))){
+ if(!view?.product?.kinematics||candidates.some(node=>!kinematicKinds.includes(node.kind??"")))return;
+ void message.info("删除机构对象同时清理其驱动/研究依赖；正式装配约束保留。");
+ command.mutate(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:deleteMotionObjects(view.product!.kinematics!,candidates.map(n=>n.entityId!))}));return;
+ }
+ const selectedFeatures = new Set(candidates.filter((node) => !["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!))
       .map((node) => node.entityId));
     const featureOrder = new Map((editingView.part?.features ?? []).map((feature, index) => [feature.id, index]));
     const targets = candidates.filter((node) => !node.ownerEntityId || !selectedFeatures.has(node.ownerEntityId)).sort((left, right) => {
@@ -1109,7 +1124,7 @@ export function Workbench() {
   };
   const closeCommandPanels=()=>{
     closeAssemblyCandidate();stopConflictAnalysis();viewport.current?.showRemainingMotion();
-    setMotionOpen(false);setMotionDisplay(undefined);
+    motionPanel.current?.closeCommand();
     setConflictOpen(false);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
     setFeatureSelection(undefined);setRenameTarget(undefined);setNewPartTarget(undefined);
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
@@ -1131,6 +1146,8 @@ onOpenDocumentTab:async(node,operation) => {
                 .catch((error: Error) => {if(!operation||operation.current)message.error(`打开文档失败：${error.message}`);});
             },
 onActivate:async(node,operation) => {
+ if(node.kind==="MOTION_RUN"){setMotionOpen(true);motionPanel.current?.execute("result",node.entityId,operation);return}
+ if(kinematicKinds.includes(node.kind??"")){if(!motionDisplay)await commandRegistry.execute("tree.edit",{payload:{node}});return}
               if (node.kind === "BODY" && node.documentId === editingView?.document.id && node.bodyId) {
                 setEditSession((current) => current ? withWorkingBody(current, node.bodyId!) : current);
                 return;
@@ -1152,7 +1169,8 @@ onActivate:async(node,operation) => {
                 if(feature&&plane)store.beginSketch(feature.id,plane);
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             },
-onEdit:(node) => {
+onEdit:(node,operation) => {
+ if(kinematicKinds.includes(node.kind??"")){setMotionOpen(true);motionPanel.current?.execute("edit",node.entityId,operation);return}
               if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
                 const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
                 if (constraint) openAssemblyConstraintEditor(constraint);
@@ -1165,8 +1183,9 @@ onEdit:(node) => {
             },
 onRename:(node) => {
               if (!canEdit || node.documentId !== editingView?.document.id || !node.entityId) return;
-              const name = node.kind === "BODY" ? editingView.part?.bodies.find((body) => body.id === node.entityId)?.name
-                : editingView.part?.features.find((feature) => feature.id === node.entityId)?.name;
+              const kinematic=view?.product?.kinematics;const object=kinematic?[...kinematic.mechanisms,...kinematic.mechanisms.flatMap(m=>m.joints),...(kinematic.drivers??[]),...kinematic.studies,...(kinematic.analyses??[])].find(v=>v.id===node.entityId):undefined;
+ const name = object?.name ?? (node.kind === "BODY" ? editingView.part?.bodies.find((body) => body.id === node.entityId)?.name
+                : editingView.part?.features.find((feature) => feature.id === node.entityId)?.name);
               renameForm.setFieldsValue({name:name ?? ""}); setRenameTarget(node);
             },
 onCreatePart:(node) => {
@@ -1259,8 +1278,8 @@ onToggleConstruction:(node)=>{
             }
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
-  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{setMotionOpen,motionOpen,treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    formActive:Boolean(motionOpen||conflictOpen||solidEditor||booleanDialog||datumEditor||renameTarget||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
+    formActive:Boolean(motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||renameTarget||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1508,11 +1527,12 @@ onToggleConstruction:(node)=>{
 
   return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><section className="cad-workbench">
     {motionDisplay&&<Alert type="info" title="机构回放：冻结版本临时姿态" description={motionDisplay.revisionId!==view.document.versionId?"正在回放旧版本结果；当前装配未修改。":"整帧显示，模型编辑暂停。"}/> }
-    {motionOpen&&view.product&&<MotionStudyPanel view={view} canEdit={canEditRoot} onSave={async k=>{if(!canEditRoot||command.isPending)throw new Error("当前不能修改机构定义");const updated=await command.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:k}));await refresh(updated)}} onDemo={async()=>{const updated=await command.mutateAsync(()=>api.createMotionDemo(view.document.id,view.document.versionId));await refresh(updated)}} onPlayback={setMotionDisplay} onHighlight={store.setSelections} onClose={()=>{setMotionOpen(false);setMotionDisplay(undefined)}}/>}
+
     {historyResult&&<Alert type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/> }
     <WorkbenchLayout documentName={editingView?.document.name ?? view.document.name}
       inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
-      commands={<WorkbenchCommands documentSessions={documentSessions} hostDocumentId={documentID} toolbars={visibleToolbars} workbench={activeWorkbench} catalog={toolbarCatalog.data} tabs={activeTabs} />}
+      activity={view.product&&<MotionStudyPanel ref={motionPanel} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onSave={async k=>{if(command.isPending)throw new Error("当前命令尚未完成");const updated=await command.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:k}));await refresh(updated)}} onApply={async motionApply=>{const updated=await command.mutateAsync(()=>api.command(view.document.id,{type:"APPLY_MOTION_FRAME",versionId:view.document.versionId,motionApply}));store.setSelections([]);await refresh(updated)}} onDemo={async kind=>{const updated=await command.mutateAsync(()=>api.createMotionDemo(view.document.id,view.document.versionId,kind));await refresh(updated)}} onPlayback={setMotionDisplay} onHighlight={store.setSelections} onClose={()=>{setMotionOpen(false);setMotionDisplay(undefined);store.setSelections([])}}/>}
+      commands={<WorkbenchCommands documentSessions={documentSessions} hostDocumentId={documentID} toolbars={visibleToolbars} workbench={activeWorkbench} catalog={toolbarCatalog.data} tabs={activeTabs} onTabChange={tab=>{if((tab.domain==="KINEMATICS_DMU")!==motionOpen){commandRegistry.cancel();closeCommandPanels();store.setActiveTool("select","once");store.setSelections([])}}} />}
       status={<WorkbenchStatus busy={command.isPending} canEdit={canEdit} selectionCount={store.selections.length}
         sketchReceipt={sketchReceipt} onSketchReceiptCheck={()=>void viewport.current?.retrySketchReceipt()} sketchCommand={store.activeSketchID?sketchCommandState:undefined} onSketchAction={action=>viewport.current?.sketchCommandAction(action)}
         toolName={activeToolName} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
@@ -1543,7 +1563,7 @@ onToggleConstruction:(node)=>{
             onToggleVisibility={(node,scope,mode)=>executeTree("onToggleVisibility",{node,scope,visibilityMode:mode})}
             onToggleSuppression={node=>executeTree("onToggleSuppression",{node})}
             onToggleConstruction={node=>executeTree("onToggleConstruction",{node})} />}
-      inspector={<WorkbenchInspectorPanel documentID={activeID} view={editingView ?? view} selection={store.selection}
+      inspector={<WorkbenchInspectorPanel documentID={motionDisplay?documentID:activeID} view={motionDisplay?.view??editingView??view} selection={store.selection}
         feature={selected} workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
         onEditParameter={openParameterEditor} onEditPublication={openPublicationEditor}
         navigationProfile={navigationProfile} canRestore={canEdit && !command.isPending}
@@ -1579,7 +1599,7 @@ onToggleConstruction:(node)=>{
             !pinnedReferenceInPath(view.structureTree,activeInstancePath))}
           activeInstanceRotation={activeResolvedInstance?.rotation}
           activeBodyTreeNodeId={activeResolvedInstance?.bodyTreeNodeId}
-          selections={store.selections}
+          selections={motionSelectionTargets(motionDisplay?.view??view,store.selections)}
           preselection={store.preselection}
           treeVisibilityOverrides={treeVisibilityOverrides}
           sketchPlane={motionDisplay?undefined:store.sketchPlane} activeSketchID={motionDisplay?undefined:store.activeSketchID} activeToolID={motionDisplay?"select":store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
@@ -1745,6 +1765,7 @@ onToggleConstruction:(node)=>{
         const values = await renameForm.validateFields();
         if (!renameTarget?.entityId || !editingView || renameTarget.documentId !== editingView.document.id) return;
         const target = renameTarget;
+ if(kinematicKinds.includes(target.kind??"")&&view.product?.kinematics){command.mutate(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:renameMotionObject(view.product!.kinematics!,target.entityId!,values.name.trim())}),{onSuccess:()=>setRenameTarget(undefined)});return}
         command.mutate(() => api.command(editingView.document.id, target.kind === "BODY"
           ? {type:"RENAME_BODY",bodyId:target.entityId,name:values.name.trim()}
           : {type:"RENAME_FEATURE",targetId:target.entityId,name:values.name.trim()}),

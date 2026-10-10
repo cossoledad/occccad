@@ -5,6 +5,7 @@ const server = await createServer({ server: { middlewareMode: true }, appType: "
 try {
   const { structureSelection, treeData, treeKeysForSelections } = await server.ssrLoadModule("/src/features/workbench/workbench-tree-model.tsx");
   const { bindPublicationSelection } = await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
+  const { assemblyGeometryRef } = await server.ssrLoadModule("/src/cad/assembly/assembly-reference.ts");
   const { describeAssemblyReference } = await server.ssrLoadModule("/src/cad/assembly/assembly-reference-presentation.ts");
   const view = {
     document: { id: "part", type: "PART", versionId: "revision-2" },
@@ -49,6 +50,12 @@ try {
           publication: view.part.publications[0] }] }] };
   view.resolvedInstances = [{ id: "instance-a", documentId: "part", bodyId: "body-a",
     occurrencePath: "instance-a", geometryKey: "geometry-key", instancePath }];
+  const forwarded = {id:"forwarded-surface",name:"Published mounting surface",type:"SURFACE",compatibilityVersion:"1.0.0",target:{instancePath,publicationId:"publication-face"},contract:{geometryKind:"SURFACE"},resolution:view.part.publications[0].resolution};
+  const productPick = structureSelection({id:"product/forwarded",kind:"PRODUCT_PUBLICATION",entityId:forwarded.id,documentId:"product",productPublication:forwarded},view);
+  const productReference = assemblyGeometryRef(productPick);
+  assert.equal(productReference.instanceId,"instance-a");
+  assert.equal(productReference.publicationRef.publicationId,"publication-face","forwarded geometry binds the stable source Publication at its exact occurrence");
+  assert.equal(productReference.instancePath.canonical,"instance-a");
   const rawFace = { kind: "face", id: "pick", topologyId: 7, geometryKey: "geometry-key", versionId: "revision-2", occurrencePath: "instance-a",
     instanceId: "instance-a", documentId: "part", bodyId: "body-a" };
   const promoted = bindPublicationSelection(rawFace, view.structureTree);

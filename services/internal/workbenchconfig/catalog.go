@@ -304,11 +304,11 @@ func validateCondition(c Condition, depth int, documents map[string]bool) error 
 		return fmt.Errorf("condition nesting exceeds limit")
 	}
 	if c.Fact != "" {
-		allowed := map[string]bool{"hostType": true, "targetType": true, "sketchActive": true, "canEdit": true, "busy": true, "selectionKind": true, "selectionCount": true, "hasWorkingBody": true, "rootCanEdit": true, "isMock": true, "moveReceiptPending": true}
+		allowed := map[string]bool{"hostType": true, "targetType": true, "sketchActive": true, "canEdit": true, "busy": true, "selectionKind": true, "selectionCount": true, "hasWorkingBody": true, "rootCanEdit": true, "isMock": true, "moveReceiptPending": true, "rootTarget": true, "motionActive": true}
 		if !allowed[c.Fact] {
 			return fmt.Errorf("unknown context fact %s", c.Fact)
 		}
-		isBoolean := c.Fact == "sketchActive" || c.Fact == "canEdit" || c.Fact == "busy" || c.Fact == "hasWorkingBody" || c.Fact == "rootCanEdit" || c.Fact == "isMock" || c.Fact == "moveReceiptPending"
+		isBoolean := c.Fact == "sketchActive" || c.Fact == "canEdit" || c.Fact == "busy" || c.Fact == "hasWorkingBody" || c.Fact == "rootCanEdit" || c.Fact == "isMock" || c.Fact == "moveReceiptPending" || c.Fact == "rootTarget" || c.Fact == "motionActive"
 		if isBoolean {
 			if _, ok := c.Equals.(bool); !ok {
 				return fmt.Errorf("condition %s requires a boolean", c.Fact)

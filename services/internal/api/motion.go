@@ -104,10 +104,52 @@ func (server *Server) createMotionDemo(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		BaseRevisionID string `json:"baseRevisionId"`
+		Kind           string `json:"kind"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	view, e := server.workspace.CreateFourBarDemo(r.Context(), id, principal(r).ID, req.BaseRevisionID)
+	var view workspace.DocumentView
+	var e error
+	if req.Kind == "propeller" {
+		view, e = server.workspace.CreatePropellerDemo(r.Context(), id, principal(r).ID, req.BaseRevisionID)
+	} else {
+		view, e = server.workspace.CreateFourBarDemo(r.Context(), id, principal(r).ID, req.BaseRevisionID)
+	}
 	writeWorkspaceResult(w, view, e)
+}
+
+func (server *Server) planMotionApply(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("documentID")
+	actor := principal(r).ID
+	if _, e := server.access.RequireDocument(r.Context(), id, actor, access.RoleEditor); e != nil {
+		writeAccessError(w, e)
+		return
+	}
+	var req struct {
+		BaseRevisionID string `json:"baseRevisionId"`
+		workspace.MotionApplyRequest
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	plan, e := server.workspace.PlanMotionApply(r.Context(), id, actor, req.BaseRevisionID, req.MotionApplyRequest)
+	if e != nil {
+		writeWorkspaceResult(w, workspace.DocumentView{}, e)
+		return
+	}
+	writeJSON(w, 200, plan)
+}
+func (server *Server) motionJointProposals(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("documentID")
+	if _, e := server.access.RequireDocument(r.Context(), id, principal(r).ID, access.RoleViewer); e != nil {
+		writeAccessError(w, e)
+		return
+	}
+	proposals, e := server.workspace.MotionJointProposals(r.Context(), id)
+	if e != nil {
+		writeWorkspaceResult(w, workspace.DocumentView{}, e)
+		return
+	}
+	writeJSON(w, 200, proposals)
 }

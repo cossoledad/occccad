@@ -29,6 +29,8 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     instanceId: instancePath?.segments[0]?.instanceId, treeNodeId: node.id,
   };
   switch (node.kind) {
+ case "MOTION_RUN":return {...base,kind:"motion-run",id:node.entityId??node.id};
+ case "MECHANISM":case "MECHANISM_JOINT":case "MOTION_DRIVER":case "MOTION_STUDY":case "INTERFERENCE_ANALYSIS": return {...base,kind:"kinematic-object",id:node.entityId??node.id};
     case "PART": return { ...base, kind: "part", id: node.documentId ?? node.id,
       visualKey: occurrencePath ? `occurrence:${occurrencePath}` : undefined };
     case "PRODUCT": return { ...base, kind: "product", id: node.documentId ?? node.id };
@@ -127,7 +129,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
           occurrencePath: targetOccurrence };
       }
       return { ...base, kind: "publication", id: node.entityId ?? node.id,
-        publicationId: node.entityId, publication: source, highlightTarget };
+        publicationId: node.entityId, publication: source, productPublication: forwarded, highlightTarget };
     }
     case "CONTEXT_REFERENCE": return { ...base, kind: "external-reference" };
     case "CONTEXT_INPUT": return { ...base, kind: "context-input" };
@@ -198,9 +200,11 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
     selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view, editingView)) };
 }
 
-export function treeData(view: DocumentView, editingView?: DocumentView): SpecificationTreeNode[] {
+export function treeData(view: DocumentView, editingView?: DocumentView,runs?:DocumentStructureNode[]): SpecificationTreeNode[] {
   const structure=documentRegistry.get(view.document.type).structure(view);
-  return structure ? [mapStructureNode(structure, view, editingView)] : [];
+  if(!structure)return [];
+ const projected=runs?.length?{...structure,children:structure.children?.map(n=>n.kind==="APPLICATIONS"?{...n,children:[...(n.children??[]),{id:n.id+"/runs",kind:"APPLICATIONS" as const,name:"运行结果",documentId:view.document.id,versionId:view.document.versionId,children:runs}]}:n)}:structure;
+ return [mapStructureNode(projected,view,editingView)];
 }
 
 export function selectedFeature(view: DocumentView, selection: Selection): Feature | undefined {

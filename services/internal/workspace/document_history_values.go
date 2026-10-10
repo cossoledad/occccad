@@ -433,6 +433,7 @@ func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.P
 		}
 		switch address.SlotID {
 		case "product.kinematics":
+			model.Kinematics = KinematicsDefinitions{}
 			if err := json.Unmarshal(value, &model.Kinematics); err != nil {
 				return nil, err
 			}

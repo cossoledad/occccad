@@ -3,7 +3,7 @@ import {structureCommands,structureInvocation,resolveStructureNode,type Structur
 import {useLayoutEffect,useRef} from "react";
 import {api} from "../../api/client";
 import {defaultSketchToolMode} from "../../cad/sketch/sketch-inline-parameter-input";
-import {CommandRegistry,type CadCommand,type CadCommandInvocation} from "../../cad/command/command-registry";
+import {CommandRegistry,type CadCommand,type CadCommandInvocation,type CommandOperation} from "../../cad/command/command-registry";
 import {projectToolbars,validateCatalog,type WorkbenchCatalog,type ContextFacts} from "../../cad/command/workbench-catalog";
 import {useWorkbenchStore,type WorkbenchToolID} from "../../state/workbench-store";
 import type {DocumentView,Feature} from "../../types";
@@ -14,7 +14,7 @@ import type {SpecificationTreeNode} from "./specification-tree";
 import {selectionSummaryCommand} from "./commands/selection-summary";
 
 export type WorkbenchCommandBindings={
- setMotionOpen?:(open:boolean)=>void;motionOpen?:boolean;
+ setMotionOpen?:(open:boolean)=>void;motionOpen?:boolean;motionCommandEnabled?:(action:string)=>boolean;onMotionCommand?:(action:string,operation?:CommandOperation)=>void;
  treeActions?:StructureActions;closePanels?:()=>void;toolContinuation?:boolean;formActive?:boolean;
  store:ReturnType<typeof useWorkbenchStore.getState>;editingView?:DocumentView;view?:DocumentView;
  canEdit:boolean;canEditRoot:boolean;command:{isPending:boolean};selectedNamingIssue:unknown;conflictOpen:boolean;moveReceiptPending:boolean;workingBodyID?:string;
@@ -45,6 +45,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
         isActive: () => store.activeToolID === "select" }),
       ({ id: "assembly.move", execute: () => store.setActiveTool("assembly.move", "continuous"),
         isEnabled: () => Boolean(canEditRoot), isActive: () => store.activeToolID === "assembly.move" }),
+      ...(["new","ground","revolute","prismatic","rigid","driver","study","trial","interference","import","apply","run","check","play","pause","previous","next","reset","restore","cancel","demo-propeller","demo-fourbar"] as const).map(action=>({id:"dmu."+action,execute:(invocation:CadCommandInvocation|undefined)=>{store.setActiveTool("select","once");bindings.onMotionCommand?.(action,invocation?.operation)},isEnabled:()=>Boolean(bindings.motionOpen&&view?.product&&!command.isPending&&bindings.onMotionCommand&&editingView?.document.id===view.document.id&&!store.activeSketchID&&(bindings.motionCommandEnabled?.(action)??(action==="apply"?["OWNER","EDITOR"].includes(view.document.permission??""):canEditRoot)))})),
       ({id:"assembly.motion-study",execute:()=>{store.setActiveTool("select","once");bindings.setMotionOpen?.(true);},isEnabled:()=>Boolean(view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&bindings.setMotionOpen),isActive:()=>Boolean(bindings.motionOpen)}),
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),
         isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),

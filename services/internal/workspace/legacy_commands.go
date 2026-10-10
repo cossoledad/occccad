@@ -15,11 +15,24 @@ import (
 
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
 	switch request.Type {
+	case "APPLY_MOTION_FRAME":
+		if documentType != "PRODUCT" || request.MotionApply == nil {
+			break
+		}
+		plan, e := service.PlanMotionApply(ctx, documentID, request.ActorID, request.VersionID, *request.MotionApply)
+		if e != nil {
+			return "", nil, e
+		}
+		if !plan.Ready || request.MotionApply.PlanDigest == "" || plan.Digest != request.MotionApply.PlanDigest {
+			return "", nil, fmt.Errorf("%w: conversion plan changed or conflicts unresolved", ErrValidation)
+		}
+		return typeApplyMotionFrame, motionApplyPayload{Model: plan.Candidate}, nil
 	case "SAVE_KINEMATICS":
 		if documentType != "PRODUCT" || request.Kinematics == nil {
 			break
 		}
-		return typeSetKinematics, request.Kinematics, nil
+		k, e := service.bindKinematics(ctx, modelJSON, *request.Kinematics)
+		return typeSetKinematics, k, e
 	case "SET_DEFINITION_VISIBILITY":
 		if documentType == "PRODUCT" {
 			return typeConstraintVisibility, definitionVisibilityPayload{EntityKind: request.TargetKind, EntityID: request.TargetID, Visible: request.Visible}, nil

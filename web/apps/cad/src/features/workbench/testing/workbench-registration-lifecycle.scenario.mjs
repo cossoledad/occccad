@@ -49,8 +49,8 @@ try {
  assert.equal(resolveStructureNode([node],node),node);
  assert.throws(()=>resolveStructureNode([node],{...node,instancePath:{canonical:'host/occurrence-B'}}),/context changed/);
  assert.throws(()=>resolveStructureNode([node],{...node,selection:{versionId:'revision-B'}}),/context changed/);
- let edits=0;const commands=structureCommands({onEdit(){edits++;}},[node]);
- commands.find(command=>command.id==='tree.edit').execute({payload:{node}});assert.equal(edits,1);
+ let edits=0,editOwner;const commands=structureCommands({onEdit(_node,operation){edits++;editOwner=operation;}},[node]);
+ const editOperation=new CommandOperation();commands.find(command=>command.id==='tree.edit').execute({payload:{node},operation:editOperation});assert.equal(edits,1);assert.equal(editOwner,editOperation,'tree form owns the same operation as toolbar forms');
  assert.throws(()=>structureCommands({onEdit:noop},[{...node,capabilities:[]}]).find(command=>command.id==='tree.edit').execute({payload:{node}}),/unavailable/);
  const cleanup=new CommandOperation();let released=0;cleanup.own(()=>released++);cleanup.own(()=>{throw new Error('resource failure');});assert.throws(()=>cleanup.cancel(),AggregateError);assert.equal(released,1);cleanup.cancel();assert.equal(released,1);
  // A root-owned study must not open against the host while a nested Product is active.

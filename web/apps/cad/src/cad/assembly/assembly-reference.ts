@@ -1,7 +1,24 @@
 import type { AssemblyGeometryRef, SelectionItem } from "../../types.ts";
 
 export function assemblyGeometryRef(selection: SelectionItem): AssemblyGeometryRef | undefined {
-  if (!selection.instanceId) return undefined;
+  if (selection.kind === "publication") {
+    const forwarded = selection.productPublication;
+    const path = forwarded?.target.instancePath ?? selection.instancePath;
+    const instanceId = selection.instanceId ?? path?.segments[0]?.instanceId ?? selection.highlightTarget?.instancePath?.segments[0]?.instanceId;
+    const publication = selection.publication ?? forwarded;
+    const publicationRef = publication ? {
+      publicationId: forwarded?.target.publicationId ?? publication.id,
+      expectedType: publication.type,
+      compatibilityVersion: publication.compatibilityVersion,
+      persistentSelection: selection.publication?.target.persistentSelection,
+    } : undefined;
+    const target = selection.highlightTarget ? assemblyGeometryRef({ ...selection.highlightTarget, instanceId }) : undefined;
+    if (target) return publicationRef ? { ...target, publicationRef } : target;
+    const kind = ({ AXIS: "AXIS", PLANE: "PLANE", SURFACE: "FACE", CURVE: "EDGE", POINT: "VERTEX" } as const)[publication?.type as "AXIS" | "PLANE" | "SURFACE" | "CURVE" | "POINT"];
+    if (instanceId && kind && publicationRef) return { instanceId, kind, publicationRef, ...(path ? { instancePath: path } : {}) };
+    return undefined;
+  }
+ if (!selection.instanceId) return undefined;
   const path = selection.instancePath ? { instancePath: selection.instancePath } : {};
   const publicationRef = selection.publicationId && selection.publication ? { publicationRef: {
     publicationId: selection.publicationId, expectedType: selection.publication.type,

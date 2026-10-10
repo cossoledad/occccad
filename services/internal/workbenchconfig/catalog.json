@@ -5033,7 +5033,7 @@
     },
     {
       "id": "assembly.motion-study",
-      "name": "机构与基础 DMU",
+      "name": "机构与 DMU",
       "helpText": "定义关节、运行线性研究、整帧回放和精确干涉/间隙检查",
       "iconKey": "distance",
       "repeatable": false,
@@ -5046,6 +5046,30 @@
         ]
       },
       "enabledWhen": {
+        "fact": "rootTarget",
+        "equals": true
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "dmu.new",
+      "name": "新建机构",
+      "helpText": "机构与 DMU · 新建机构",
+      "iconKey": "insert",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
         "all": [
           {
             "fact": "targetType",
@@ -5054,6 +5078,517 @@
         ]
       },
       "implementation": "form"
+    },
+    {
+      "id": "dmu.ground",
+      "name": "固定件",
+      "helpText": "机构与 DMU · 固定件",
+      "iconKey": "fixed",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.revolute",
+      "name": "旋转接合",
+      "helpText": "机构与 DMU · 旋转接合",
+      "iconKey": "rotate",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.prismatic",
+      "name": "移动接合",
+      "helpText": "机构与 DMU · 移动接合",
+      "iconKey": "move",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.rigid",
+      "name": "刚性接合",
+      "helpText": "机构与 DMU · 刚性接合",
+      "iconKey": "link",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.driver",
+      "name": "驱动",
+      "helpText": "机构与 DMU · 驱动",
+      "iconKey": "angle",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.study",
+      "name": "仿真",
+      "helpText": "机构与 DMU · 仿真",
+      "iconKey": "version",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.trial",
+      "name": "单坐标试动",
+      "helpText": "机构与 DMU · 单坐标试动",
+      "iconKey": "move",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.interference",
+      "name": "干涉检查",
+      "helpText": "机构与 DMU · 干涉检查",
+      "iconKey": "distance",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.import",
+      "name": "装配关联",
+      "helpText": "机构与 DMU · 装配关联",
+      "iconKey": "reference",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.apply",
+      "name": "应用到装配",
+      "helpText": "机构与 DMU · 应用到装配",
+      "iconKey": "coincident",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.run",
+      "name": "运行仿真",
+      "helpText": "机构与 DMU · 运行仿真",
+      "iconKey": "revolve",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
+    },
+    {
+      "id": "dmu.check",
+      "name": "运行干涉检查",
+      "helpText": "机构与 DMU · 运行干涉检查",
+      "iconKey": "distance",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
+    },
+    {
+      "id": "dmu.play",
+      "name": "播放",
+      "helpText": "机构与 DMU · 播放",
+      "iconKey": "revolve",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
+    },
+    {
+      "id": "dmu.pause",
+      "name": "暂停",
+      "helpText": "机构与 DMU · 暂停",
+      "iconKey": "fixed",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
+    },
+    {
+      "id": "dmu.previous",
+      "name": "上一步",
+      "helpText": "机构与 DMU · 上一步",
+      "iconKey": "undo",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
+    },
+    {
+      "id": "dmu.next",
+      "name": "单步",
+      "helpText": "机构与 DMU · 单步",
+      "iconKey": "redo",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
+    },
+    {
+      "id": "dmu.reset",
+      "name": "复位",
+      "helpText": "机构与 DMU · 复位",
+      "iconKey": "fit",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
+    },
+    {
+      "id": "dmu.restore",
+      "name": "恢复正式姿态",
+      "helpText": "机构与 DMU · 恢复正式姿态",
+      "iconKey": "navigation",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
+    },
+    {
+      "id": "dmu.cancel",
+      "name": "取消后台任务",
+      "helpText": "机构与 DMU · 取消后台任务",
+      "iconKey": "delete",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
+    },
+    {
+      "id": "dmu.demo-propeller",
+      "name": "圆柱与螺旋桨示例",
+      "helpText": "机构与 DMU · 圆柱与螺旋桨示例",
+      "iconKey": "debug",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
+    },
+    {
+      "id": "dmu.demo-fourbar",
+      "name": "四杆示例",
+      "helpText": "机构与 DMU · 四杆示例",
+      "iconKey": "debug",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {}
     }
   ],
   "groups": [
@@ -5300,7 +5835,7 @@
         },
         {
           "commandId": "assembly.motion-study",
-          "groupKey": "motion-study",
+          "groupKey": "primary",
           "order": 121
         }
       ]
@@ -5779,6 +6314,173 @@
           "order": 20
         }
       ]
+    },
+    {
+      "id": "dmu-definition",
+      "name": "机构定义",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "dmu.new",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "dmu.ground",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "dmu.revolute",
+          "groupKey": "variants:joints",
+          "order": 30
+        },
+        {
+          "commandId": "dmu.prismatic",
+          "groupKey": "variants:joints",
+          "order": 40
+        },
+        {
+          "commandId": "dmu.rigid",
+          "groupKey": "variants:joints",
+          "order": 50
+        }
+      ],
+      "variants": {
+        "variants:joints": "接合"
+      }
+    },
+    {
+      "id": "dmu-motion",
+      "name": "驱动与仿真",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "dmu.driver",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "dmu.study",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "dmu.trial",
+          "groupKey": "primary",
+          "order": 30
+        },
+        {
+          "commandId": "dmu.run",
+          "groupKey": "primary",
+          "order": 40
+        }
+      ]
+    },
+    {
+      "id": "dmu-analysis",
+      "name": "干涉分析",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "dmu.interference",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "dmu.check",
+          "groupKey": "primary",
+          "order": 20
+        }
+      ]
+    },
+    {
+      "id": "dmu-association",
+      "name": "装配关联",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "dmu.import",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "dmu.apply",
+          "groupKey": "primary",
+          "order": 20
+        }
+      ]
+    },
+    {
+      "id": "dmu-playback",
+      "name": "回放",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "dmu.play",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "dmu.pause",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "dmu.previous",
+          "groupKey": "primary",
+          "order": 30
+        },
+        {
+          "commandId": "dmu.next",
+          "groupKey": "primary",
+          "order": 40
+        },
+        {
+          "commandId": "dmu.reset",
+          "groupKey": "primary",
+          "order": 50
+        },
+        {
+          "commandId": "dmu.restore",
+          "groupKey": "primary",
+          "order": 60
+        },
+        {
+          "commandId": "dmu.cancel",
+          "groupKey": "primary",
+          "order": 70
+        }
+      ]
+    },
+    {
+      "id": "dmu-examples",
+      "name": "机构示例",
+      "styleKey": "debug",
+      "position": "bottom-right",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "dmu.demo-propeller",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "dmu.demo-fourbar",
+          "groupKey": "primary",
+          "order": 20
+        }
+      ]
     }
   ],
   "tabs": [
@@ -5838,7 +6540,7 @@
     },
     {
       "id": "ASSEMBLY_DESIGN.model",
-      "name": "装配",
+      "name": "装配设计",
       "modeLabel": "Assembly Design",
       "workbench": "ASSEMBLY_DESIGN",
       "section": "model",
@@ -5851,7 +6553,7 @@
       "modeLabel": "Assembly Design",
       "workbench": "ASSEMBLY_DESIGN",
       "section": "view",
-      "order": 1,
+      "order": 2,
       "domain": "ASSEMBLY"
     },
     {
@@ -5860,7 +6562,7 @@
       "modeLabel": "Assembly Design",
       "workbench": "ASSEMBLY_DESIGN",
       "section": "document",
-      "order": 2,
+      "order": 3,
       "domain": "ASSEMBLY"
     },
     {
@@ -5887,8 +6589,17 @@
       "modeLabel": "Assembly Design",
       "workbench": "ASSEMBLY_DESIGN",
       "section": "debug",
-      "order": 3,
+      "order": 4,
       "domain": "ASSEMBLY"
+    },
+    {
+      "id": "ASSEMBLY_DESIGN.kinematics",
+      "name": "机构与 DMU",
+      "modeLabel": "机构与 DMU",
+      "workbench": "ASSEMBLY_DESIGN",
+      "section": "kinematics",
+      "domain": "KINEMATICS_DMU",
+      "order": 1
     }
   ],
   "contexts": [
@@ -5939,17 +6650,57 @@
       "when": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              },
+              {
+                "fact": "sketchActive",
+                "equals": false
+              }
+            ]
           },
           {
-            "fact": "sketchActive",
-            "equals": false
+            "not": {
+              "fact": "rootTarget",
+              "equals": true
+            }
           }
         ]
       },
       "tabs": [
         "ASSEMBLY_DESIGN.model",
+        "ASSEMBLY_DESIGN.view",
+        "ASSEMBLY_DESIGN.document",
+        "ASSEMBLY_DESIGN.debug"
+      ]
+    },
+    {
+      "id": "PRODUCT_APPLICATIONS",
+      "when": {
+        "all": [
+          {
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              },
+              {
+                "fact": "sketchActive",
+                "equals": false
+              }
+            ]
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      },
+      "tabs": [
+        "ASSEMBLY_DESIGN.model",
+        "ASSEMBLY_DESIGN.kinematics",
         "ASSEMBLY_DESIGN.view",
         "ASSEMBLY_DESIGN.document",
         "ASSEMBLY_DESIGN.debug"
@@ -6106,6 +6857,36 @@
       "tabId": "ASSEMBLY_DESIGN.debug",
       "groupId": "debug",
       "order": 10
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "groupId": "dmu-definition",
+      "order": 10
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "groupId": "dmu-motion",
+      "order": 20
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "groupId": "dmu-analysis",
+      "order": 30
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "groupId": "dmu-association",
+      "order": 40
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "groupId": "dmu-playback",
+      "order": 50
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "groupId": "dmu-examples",
+      "order": 60
     }
   ]
 }

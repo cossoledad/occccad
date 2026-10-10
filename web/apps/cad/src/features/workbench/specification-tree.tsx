@@ -6,7 +6,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dropdown, Input, message } from "antd";
 import { isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { selectionSetToken } from "../../cad/interaction/selection-identity";
-import type { InstancePath, Selection } from "../../types";
+import type { DocumentStructureNode, InstancePath, Selection } from "../../types";
 import { filterTree } from "./tree-filter";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
 import { treeVisibilityAction } from "./tree-visibility-action";
@@ -29,7 +29,7 @@ export type SpecificationTreeNode = {
   resolutionStatus?: string;
   sourceDocumentId?: string; sourceRevisionId?: string; sourceDisplayPath?: string;
   instancePath?: InstancePath;
-  capabilities?: Array<"ACTIVATE" | "DEACTIVATE" | "DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
+  capabilities?: DocumentStructureNode["capabilities"]; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
   definitionDigest?: string;
   suppressed?: boolean; diagnostic?: string; hidden?: boolean;
   definitionVisible?: boolean; localVisible?: boolean; visibilityMode?: "SHOW" | "HIDE" | "INHERIT";
@@ -264,7 +264,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
             ["PAD","REVOLVE","FEATURE","IMPORT"].includes(node.kind??"") && node.presentationRole!=="INPUT_REFERENCE" && onViewResult ? {key:"view-result",icon:menuIcon('tree.view-result'),label:menuLabel('tree.view-result'),onClick:()=>{setContextMenu(undefined);onViewResult(node);}}:null,
             node.capabilities?.includes("EDIT") ? { key: "edit", icon: menuIcon('tree.edit'), label: menuLabel('tree.edit',['PAD','REVOLVE','FEATURE'].includes(node.kind??'')?'definition':'default'),
               onClick: () => { setContextMenu(undefined); onEdit?.(node); } } : null,
-            onRename && ["BODY", "SKETCH", "PAD", "REVOLVE", "IMPORT"].includes(node.kind ?? "") && node.documentId === activeDocumentId
+            onRename && ["BODY", "SKETCH", "PAD", "REVOLVE", "IMPORT", "MECHANISM","MECHANISM_JOINT","MOTION_DRIVER","MOTION_STUDY","INTERFERENCE_ANALYSIS"].includes(node.kind ?? "") && node.documentId === activeDocumentId && (!["MECHANISM","MECHANISM_JOINT","MOTION_DRIVER","MOTION_STUDY","INTERFERENCE_ANALYSIS"].includes(node.kind ?? "") || node.capabilities?.includes("RENAME"))
               ? { key: "rename", icon: menuIcon('tree.rename'), label: menuLabel('tree.rename'), onClick: () => { setContextMenu(undefined); onRename(node); } } : null,
             node.capabilities?.includes("CREATE_PART") ? { key: "create-part", icon: menuIcon('tree.create-part'), label: menuLabel('tree.create-part'),
               onClick: () => { setContextMenu(undefined); onCreatePart?.(node); } } : null,

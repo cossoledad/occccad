@@ -15,7 +15,8 @@ test("contextual commands, search, sketch tools and model tree", async ({ page }
   const search = page.getByRole("textbox", { name: "搜索工具名称或用途" });
   await search.fill("拉伸");
   await expect(page.locator(".workbench-command-result")).toHaveCount(1);
-  await expect(page.locator(".workbench-command-result")).toBeDisabled();
+  // The current solid editor can open before choosing its profile.
+  await expect(page.locator(".workbench-command-result")).toBeEnabled();
   await search.fill("参数");
   await page.locator(".workbench-command-result").filter({ hasText: "集中查看" }).click();
   const parameters = page.getByRole("dialog", { name: "参数", exact: true });
@@ -73,7 +74,11 @@ test("panel layout, viewport resizing, document switching and assembly", async (
   await page.setViewportSize({ width: 768, height: 700 });
   await page.getByRole("button", { name: "收起属性面板" }).click();
   await expect.poll(canvasWidth).toBeGreaterThan(500);
-  await page.getByRole("button", { name: "参数", exact: true }).click();
+  // At narrow widths the configured ribbon is paged; search is the stable
+  // alternate command entrance independent of the currently visible page.
+  await page.getByRole("button", { name: "搜索工具", exact: true }).click();
+  await page.getByRole("textbox", { name: "搜索工具名称或用途" }).fill("参数");
+  await page.locator(".workbench-command-result").filter({hasText:"集中查看"}).click();
   const parameters = page.getByRole("dialog", { name: "参数", exact: true });
   await expect(parameters).toBeVisible();
   const bounds = await parameters.boundingBox();

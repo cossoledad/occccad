@@ -20,9 +20,16 @@ import { useDocumentState } from "../../cad/document/document-session-context";
 
 const toolbarState = registerDocumentState<Record<string, CommandSection>>("workbench.toolbar-tabs");
 
-export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, workbench, catalog,tabs:contextTabs }: {
+/** The configured tab is the sole application/category selection for a document. */
+export function useWorkbenchTab(documentSessions:DocumentSessions|undefined,hostDocumentId:string|undefined,workbench:CadWorkbenchID,tabs:WorkbenchCatalog["tabs"]){
+ const [sections,setSections]=useDocumentState<Record<string,CommandSection>>(documentSessions,hostDocumentId,toolbarState,()=>({}));
+ const tab=tabs.find(value=>value.id===sections[workbench])??tabs[0];
+ return [tab,(id:string)=>setSections(previous=>({...previous,[workbench]:id}))] as const;
+}
+
+export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, workbench, catalog,tabs:contextTabs,onTabChange }: {
   documentSessions?: DocumentSessions; hostDocumentId?: string;
-  toolbars: ToolbarCatalogEntry[]; workbench: CadWorkbenchID; catalog?:WorkbenchCatalog;tabs:WorkbenchCatalog["tabs"];
+  toolbars: ToolbarCatalogEntry[]; workbench: CadWorkbenchID; catalog?:WorkbenchCatalog;tabs:WorkbenchCatalog["tabs"];onTabChange?:(tab:WorkbenchCatalog["tabs"][number])=>void;
 }) {
   const registry = useCommandRegistry();
   const uiHelp = useUIHelp();
@@ -30,9 +37,9 @@ export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, 
   const execute=(id:string)=>{void registry.execute(id).catch(error=>feedback(error,"命令"));};
   useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const feedback=useOperationFeedback();
-  const [sections, setSections] = useDocumentState<Record<string, CommandSection>>(documentSessions, hostDocumentId, toolbarState, () => ({}));
   const tabs=[...contextTabs].sort((a,b)=>a.order-b.order);
-  const tabID=tabs.some(tab=>tab.id===sections[workbench])?sections[workbench]:tabs[0]?.id;
+  const [activeTab,setTab]=useWorkbenchTab(documentSessions,hostDocumentId,workbench,tabs);
+  const tabID=activeTab?.id;
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   useLayoutEffect(() => {
@@ -55,8 +62,8 @@ export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, 
   useEffect(()=>{if(page!==currentPage)setPage(currentPage);},[page,currentPage]);
   return <header className="workbench-command-deck">
     <div className="workbench-command-tabs">
-      <span className={`workbench-mode mode-${workbench.toLowerCase()}`}><i />{tabs[0]?.modeLabel??workbench}</span>
-      <Tabs className="workbench-section-tabs" aria-label="命令分类" type="line" size="small" activeKey={tabID} onChange={value=>setSections(previous=>({...previous,[workbench]:value}))} items={tabs.map(tab=>({label:tab.name,key:tab.id}))} />
+      <span className={`workbench-mode mode-${workbench.toLowerCase()}`}><i />{activeTab?.modeLabel??workbench}</span>
+      <Tabs className="workbench-section-tabs" aria-label="命令分类" type="line" size="small" activeKey={tabID} onChange={id=>{const tab=tabs.find(t=>t.id===id);if(tab)onTabChange?.(tab);setTab(id)}} items={tabs.map(tab=>({label:tab.name,key:tab.id}))} />
       <div className="workbench-quick-actions">{toolbars.flatMap((toolbar) => toolbar.items
         .filter((item) => item.commandId === "edit.undo" || item.commandId === "edit.redo")
         .map((item) => <ToolButton key={`${toolbar.id}:${toolbar.tabIds?.join(",")}:${item.commandId}`} command={item.commandId} icon={<CadIcon name={item.iconKey as CadIconName} />}

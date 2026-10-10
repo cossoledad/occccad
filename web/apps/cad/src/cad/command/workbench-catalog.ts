@@ -4,7 +4,7 @@ import type { ToolbarCatalogEntry } from '../../types';
 export type CadWorkbenchID=string;
 
 export type ContextFacts = {
- isMock:boolean;moveReceiptPending:boolean;hostType: string; targetType: string; sketchActive: boolean; canEdit: boolean; rootCanEdit: boolean;
+ rootTarget?:boolean;motionActive?:boolean;isMock:boolean;moveReceiptPending:boolean;hostType: string; targetType: string; sketchActive: boolean; canEdit: boolean; rootCanEdit: boolean;
  busy: boolean; selectionKind: string; selectionCount: number; hasWorkingBody: boolean;
 };
 export type Condition = { fact?: keyof ContextFacts; equals?: string | boolean | number; all?: Condition[]; any?: Condition[]|null; not?: Condition };

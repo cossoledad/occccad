@@ -453,7 +453,9 @@ export const restApi = {
   startExport: (documentId: string, format: "STEP" | "BREP", releaseId?: string): Promise<Job> => request<Job>("/api/exchange/exports", {
     method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format, releaseId }),
   }),
-  createMotionDemo:(documentId:string,baseRevisionId:string)=>requestDocumentView(`/api/documents/${documentId}/motion-demo`,{method:"POST",body:JSON.stringify({baseRevisionId})}),
+  createMotionDemo:(documentId:string,baseRevisionId:string,kind?:string)=>requestDocumentView(`/api/documents/${documentId}/motion-demo`,{method:"POST",body:JSON.stringify({baseRevisionId,kind})}),
+  motionJointProposals:(documentId:string):Promise<import("./cad/assembly/motion-study").MechanismJoint[]>=>request(`/api/documents/${documentId}/motion-joint-proposals`),
+  planMotionApply:(documentId:string,baseRevisionId:string,input:import("./cad/assembly/motion-study").MotionApplyRequest):Promise<import("./cad/assembly/motion-study").MotionApplyPlan>=>request(`/api/documents/${documentId}/motion-apply-plan`,{method:"POST",body:JSON.stringify({baseRevisionId,...input})}),
   startMotionRun:(documentId:string,input:import("./cad/assembly/motion-study").MotionRunRequest,signal?:AbortSignal):Promise<Job>=>request<Job>(`/api/documents/${documentId}/motion-runs`,{method:"POST",body:JSON.stringify(input),signal}),
   getMotionRun:(id:string,signal?:AbortSignal):Promise<import("./cad/assembly/motion-study").MotionRun>=>request(`/api/jobs/${id}/motion-run`,{signal}),
   getJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}`),

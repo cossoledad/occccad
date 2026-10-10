@@ -186,7 +186,9 @@ func TestMotionDefinitionHistoryAndEquationAdmission(t *testing.T) {
 	for _, b := range s.Equations.Bodies {
 		model.Instances = append(model.Instances, ProductInstance{ID: b.ID, Translation: b.Pose.Translation, Rotation: b.Pose.Rotation})
 	}
-	k := KinematicsDefinitions{Mechanisms: []Mechanism{s.Mechanism}, Studies: []MotionStudy{s.Study}}
+	s.Study.DriverID = "d"
+	s.Study.DriverJointID = ""
+	k := KinematicsDefinitions{Mechanisms: []Mechanism{s.Mechanism}, Drivers: []MotionDriver{{ID: "d", Name: "driver", MechanismID: s.Mechanism.ID, JointID: "drive"}}, Studies: []MotionStudy{s.Study}}
 	raw, _ := json.Marshal(model)
 	payload, _ := json.Marshal(k)
 	after, changes, e := applyKinematicsDefinition(raw, payload)

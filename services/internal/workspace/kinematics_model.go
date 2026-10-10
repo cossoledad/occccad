@@ -17,25 +17,31 @@ type MotionQuantity struct {
 	Unit  string  `json:"unit"`
 }
 type JointEndpoint struct {
-	InstanceID string       `json:"instanceId"`
-	Frame      InstancePose `json:"frame"`
+	InstanceID string               `json:"instanceId"`
+	Frame      InstancePose         `json:"frame"` // derived; rebuilt from supports for geometry-defined joints
+	Axis       *AssemblyGeometryRef `json:"axis,omitempty"`
+	Plane      *AssemblyGeometryRef `json:"plane,omitempty"`
+	CapturedX  *[3]float64          `json:"capturedX,omitempty"`
 }
 type MechanismJoint struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Kind      string          `json:"kind"` // GROUND | RIGID | REVOLUTE | PRISMATIC
-	First     JointEndpoint   `json:"first"`
-	Second    *JointEndpoint  `json:"second,omitempty"`
-	Zero      MotionQuantity  `json:"zero"`
-	Direction int             `json:"direction"` // +1/-1 along first frame Z
-	Lower     *MotionQuantity `json:"lower,omitempty"`
-	Upper     *MotionQuantity `json:"upper,omitempty"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Kind        string          `json:"kind"` // GROUND | RIGID | REVOLUTE | PRISMATIC
+	First       JointEndpoint   `json:"first"`
+	Second      *JointEndpoint  `json:"second,omitempty"`
+	Zero        MotionQuantity  `json:"zero"`
+	Direction   int             `json:"direction"` // +1/-1 along first frame Z
+	AxialOffset MotionQuantity  `json:"axialOffset"`
+	Sources     []JointSource   `json:"sources,omitempty"`
+	Lower       *MotionQuantity `json:"lower,omitempty"`
+	Upper       *MotionQuantity `json:"upper,omitempty"`
 }
 type Mechanism struct {
-	ID      string           `json:"id"`
-	Name    string           `json:"name"`
-	UnitIDs []string         `json:"unitIds"` // direct owning Product instances; descendants frozen
-	Joints  []MechanismJoint `json:"joints"`
+	ID                        string           `json:"id"`
+	Name                      string           `json:"name"`
+	UnitIDs                   []string         `json:"unitIds"` // direct owning Product instances; descendants frozen
+	Joints                    []MechanismJoint `json:"joints"`
+	SupplementalConstraintIDs []string         `json:"supplementalConstraintIds,omitempty"`
 }
 type DMUAddress struct {
 	InstancePath InstancePath `json:"instancePath"`
@@ -45,7 +51,8 @@ type MotionStudy struct {
 	ID              string         `json:"id"`
 	Name            string         `json:"name"`
 	MechanismID     string         `json:"mechanismId"`
-	DriverJointID   string         `json:"driverJointId"`
+	DriverID        string         `json:"driverId,omitempty"`
+	DriverJointID   string         `json:"driverJointId,omitempty"`
 	Start           MotionQuantity `json:"start"`
 	End             MotionQuantity `json:"end"`
 	DurationSeconds float64        `json:"durationSeconds"`
@@ -58,9 +65,38 @@ type MotionStudy struct {
 	Clearance                 MotionQuantity `json:"clearance"`
 	BudgetMS                  int            `json:"budgetMs"`
 }
+type MotionDriver struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	MechanismID string `json:"mechanismId"`
+	JointID     string `json:"jointId"`
+}
+type InterferenceAnalysis struct {
+	ID              string         `json:"id"`
+	Name            string         `json:"name"`
+	StudyID         string         `json:"studyId,omitempty"`
+	Scope           []DMUAddress   `json:"scope,omitempty"`
+	Clearance       MotionQuantity `json:"clearance"`
+	IncludeSameUnit bool           `json:"includeSameUnit"`
+}
+type JointSource struct {
+	ConstraintID string `json:"constraintId"`
+	Baseline     string `json:"baseline"`
+}
+type MotionAssemblyMapping struct {
+	MechanismID        string `json:"mechanismId"`
+	JointID            string `json:"jointId"`
+	Role               string `json:"role"`
+	ConstraintID       string `json:"constraintId"`
+	JointBaseline      string `json:"jointBaseline"`
+	ConstraintBaseline string `json:"constraintBaseline"`
+}
 type KinematicsDefinitions struct {
-	Mechanisms []Mechanism   `json:"mechanisms"`
-	Studies    []MotionStudy `json:"studies"`
+	Drivers      []MotionDriver          `json:"drivers,omitempty"`
+	Analyses     []InterferenceAnalysis  `json:"analyses,omitempty"`
+	Associations []MotionAssemblyMapping `json:"associations,omitempty"`
+	Mechanisms   []Mechanism             `json:"mechanisms"`
+	Studies      []MotionStudy           `json:"studies"`
 }
 
 func motionValue(q MotionQuantity, angular bool) (float64, error) {
@@ -104,12 +140,8 @@ func validMotionPose(p InstancePose) bool {
 	return math.Abs(norm-1) < 1e-8
 }
 func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
-	if len(k.Mechanisms) > 16 || len(k.Studies) > 64 {
+	if len(k.Mechanisms) > 16 || len(k.Studies) > 64 || len(k.Drivers) > 64 || len(k.Analyses) > 64 || len(k.Associations) > 1024 {
 		return fmt.Errorf("%w: study resource limit", ErrValidation)
-	}
-	units := map[string]bool{}
-	for _, v := range model.Instances {
-		units[v.ID] = true
 	}
 	mechanisms := map[string]Mechanism{}
 	ids := map[string]bool{}
@@ -121,24 +153,30 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 		return true
 	}
 	for _, m := range k.Mechanisms {
-		if !claim(m.ID) || m.Name == "" || len(m.UnitIDs) < 1 || len(m.UnitIDs) > 32 || len(m.Joints) < 1 || len(m.Joints) > 64 {
+		if !claim(m.ID) || m.Name == "" || len(m.UnitIDs) > 32 || len(m.Joints) > 64 {
 			return fmt.Errorf("%w: invalid mechanism identity/size", ErrValidation)
 		}
 		member := map[string]bool{}
 		for _, id := range m.UnitIDs {
-			if !units[id] || member[id] {
+			if id == "" || member[id] {
 				return fmt.Errorf("%w: invalid rigid motion unit %s", ErrValidation, id)
 			}
 			member[id] = true
 		}
-		grounded := false
 		for _, j := range m.Joints {
 			if !claim(j.ID) || !member[j.First.InstanceID] || !validMotionPose(j.First.Frame) {
 				return fmt.Errorf("%w: invalid joint first frame", ErrValidation)
 			}
+			if j.AxialOffset.Unit != "" {
+				if _, e := motionValue(j.AxialOffset, false); e != nil {
+					return e
+				}
+			}
+			if len(j.Sources) > 64 {
+				return fmt.Errorf("%w: joint sources limit", ErrValidation)
+			}
 			switch j.Kind {
 			case "GROUND":
-				grounded = true
 				if j.Second != nil {
 					return fmt.Errorf("%w: Ground has one endpoint", ErrValidation)
 				}
@@ -176,12 +214,28 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 				}
 			}
 		}
-		if !grounded {
-			return fmt.Errorf("%w: mechanism requires Ground", ErrValidation)
-		}
 		mechanisms[m.ID] = m
 	}
+	drivers := map[string]MotionDriver{}
+	for _, d := range k.Drivers {
+		m, ok := mechanisms[d.MechanismID]
+		i := slices.IndexFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID })
+		if !ok || !claim(d.ID) || d.Name == "" || i < 0 || (m.Joints[i].Kind != "REVOLUTE" && m.Joints[i].Kind != "PRISMATIC") {
+			return fmt.Errorf("%w: invalid driver", ErrValidation)
+		}
+		drivers[d.ID] = d
+	}
 	for _, s := range k.Studies {
+		if s.DriverID == "" {
+			return fmt.Errorf("%w: motion study requires an independent Driver reference", ErrValidation)
+		}
+		if s.DriverID != "" {
+			d, ok := drivers[s.DriverID]
+			if !ok || d.MechanismID != s.MechanismID {
+				return fmt.Errorf("%w: study driver", ErrValidation)
+			}
+			s.DriverJointID = d.JointID
+		}
 		m, ok := mechanisms[s.MechanismID]
 		if !ok || !claim(s.ID) || s.Name == "" || s.Frames < 2 || s.Frames > 500 || !finiteMotion(s.DurationSeconds) || s.DurationSeconds <= 0 || s.DurationSeconds > 3600 || s.BudgetMS < 100 || s.BudgetMS > 120000 {
 			return fmt.Errorf("%w: invalid motion study", ErrValidation)
@@ -227,6 +281,15 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 			}
 		}
 	}
+	for _, a := range k.Analyses {
+		gap, e := motionValue(a.Clearance, false)
+		if !claim(a.ID) || a.Name == "" || e != nil || gap < 0 || gap > 1e6 || len(a.Scope) > 128 {
+			return fmt.Errorf("%w: invalid interference analysis", ErrValidation)
+		}
+		if a.StudyID != "" && slices.IndexFunc(k.Studies, func(s MotionStudy) bool { return s.ID == a.StudyID }) < 0 {
+			return fmt.Errorf("%w: analysis study", ErrValidation)
+		}
+	}
 	return nil
 }
 func applyKinematicsDefinition(raw, payload json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -237,6 +300,13 @@ func applyKinematicsDefinition(raw, payload json.RawMessage) (json.RawMessage, m
 	}
 	if err := json.Unmarshal(payload, &k); err != nil {
 		return nil, modelcore.ChangeSet{}, err
+	}
+	for i := range k.Studies {
+		s := &k.Studies[i]
+		s.DriverJointID = ""
+		if s.CheckDMU || len(s.Scope) > 0 || s.Clearance.Value != 0 || s.IncludeSameUnit {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: save DMU scope/settings in an InterferenceAnalysis", ErrValidation)
+		}
 	}
 	if err := validateKinematics(model, k); err != nil {
 		return nil, modelcore.ChangeSet{}, err

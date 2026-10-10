@@ -17,6 +17,13 @@ try{
  const bindings={store,editingView:part,view:host,canEdit:true,canEditRoot:true,command:{isPending:false},treeNodes:[],viewport:{current:{fit(){fits++;},clearCommandPreview:noop}},workingBodyID:'body-A',
   startSketch:noop,finishSketch:noop,normalToSelection:noop,openSolidFeature(){pads++;assert.equal(bindings.editingView.document.id,'target-part');},deleteTreeNodes:noop,executeHistory:noop,
   setConflictOpen:noop,setParameterManagerOpen:noop,setPublicationManagerOpen:noop,setInsertOpen:noop,setPatternOpen:noop,setReleaseOpen:noop,setVersionOpen:noop,setShareResource:noop,setSolidEditor:noop,setBooleanDialog:noop,setDatumEditor:noop,setEditingDatumId:noop,showMessage:text=>messages.push(text)};
+ let dmuAction,dmuOperation;bindings.onMotionCommand=(action,operation)=>{dmuAction=action;dmuOperation=operation};bindings.setMotionOpen=()=>{};bindings.motionOpen=true;
+ const dmu=workbenchCommands({...bindings,editingView:host}).find(c=>c.id==='dmu.revolute');assert(dmu.isEnabled());dmu.execute({operation:{current:true}});assert.equal(dmuAction,'revolute');assert.equal(dmuOperation.current,true,'forms receive framework-owned operation');
+ const guarded=workbenchCommands({...bindings,editingView:host,motionCommandEnabled:()=>false}).find(c=>c.id==='dmu.run');assert.equal(guarded.isEnabled(),false,'application prerequisites flow through the registry');
+ const hidden=workbenchCommands({...bindings,motionOpen:false}).find(c=>c.id==='dmu.revolute');assert.equal(hidden.isEnabled(),false);
+ const nestedDmu=workbenchCommands(bindings).find(c=>c.id==='dmu.revolute');assert.equal(nestedDmu.isEnabled(),false);
+ const viewer={...host,document:{...host.document,permission:'VIEWER'}};const viewerApply=workbenchCommands({...bindings,editingView:viewer,view:viewer}).find(c=>c.id==='dmu.apply');assert.equal(viewerApply.isEnabled(),false);
+ const playbackApply=workbenchCommands({...bindings,editingView:host,canEditRoot:false}).find(c=>c.id==='dmu.apply');assert.equal(playbackApply.isEnabled(),true,'editor can publish a valid frozen frame while ordinary edits are paused');
  const commands=workbenchCommands(bindings);
  registry.registerMany(commands);
  let facts={hostType:'PRODUCT',targetType:'PART',sketchActive:false,canEdit:true,rootCanEdit:true,busy:false,selectionKind:'',selectionCount:0,hasWorkingBody:true};

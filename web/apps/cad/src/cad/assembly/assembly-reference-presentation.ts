@@ -29,7 +29,8 @@ export function describeAssemblyReference(reference: AssemblyGeometryRef | undef
   const sourceGeometry = semantic ? `${kindLabel[reference.kind]} · ${semantic}`
     : reference.geometryId ? `${kindLabel[reference.kind]} · ${reference.geometryId}`
     : reference.axis ? `${kindLabel[reference.kind]} · ${reference.axis}` : kindLabel[reference.kind];
-  const geometry = reference.derivedRole ? `${sourceGeometry} · ${reference.derivedRole}` : sourceGeometry;
+  const derived = reference.derivedRole ? `${sourceGeometry} · ${reference.derivedRole}` : sourceGeometry;
+ const geometry=reference.capturedDirection?`${derived} · 捕获角度基准（以支持轴校验）`:derived;
   return publicationName
     ? { primary: `${occurrence} / ${publicationName}`, secondary: `${geometry} · 稳定发布接口`, publication: publicationName }
     : { primary: occurrence, secondary: geometry };

@@ -149,6 +149,10 @@ func assemblyReferenceKey(reference AssemblyGeometryRef) string {
 	}
 	add(string(persistent))
 	add(string(publication))
+	if reference.CapturedDirection != nil {
+		b, _ := json.Marshal(reference.CapturedDirection)
+		add(string(b))
+	}
 	sum := sha256.Sum256(raw)
 	var encoded [64]byte
 	hex.Encode(encoded[:], sum[:])
@@ -234,6 +238,10 @@ func (resolver *assemblySupportResolver) resolve(reference AssemblyGeometryRef) 
 		// (its occurrence-relative pose is identity). An explicitly nested leaf
 		// Publication must be folded through that leaf path exactly once.
 		value = assemblyGeometryInBody(value, localPose)
+		value, derivedErrCapture := capturedAssemblyDirection(value, reference)
+		if derivedErrCapture != nil {
+			return geometry.AssemblyGeometry{}, derivedErrCapture
+		}
 		resolver.geometry[key] = value
 		return value, nil
 	}
@@ -325,6 +333,10 @@ func (resolver *assemblySupportResolver) resolve(reference AssemblyGeometryRef) 
 		return geometry.AssemblyGeometry{}, derivedErr
 	}
 	value = assemblyGeometryInBody(value, localPose)
+	value, derivedErrCapture := capturedAssemblyDirection(value, reference)
+	if derivedErrCapture != nil {
+		return geometry.AssemblyGeometry{}, derivedErrCapture
+	}
 	resolver.geometry[key] = value
 	return value, nil
 }
