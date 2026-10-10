@@ -2114,8 +2114,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -2658,8 +2668,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -2690,8 +2710,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -2722,8 +2752,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -2754,8 +2794,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -2786,8 +2836,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -2818,8 +2878,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -2850,8 +2920,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -2882,8 +2962,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -4397,8 +4487,24 @@
       "enabledWhen": {
         "all": [
           {
-            "fact": "canEdit",
-            "equals": true
+            "any": [
+              {
+                "fact": "canEdit",
+                "equals": true
+              },
+              {
+                "all": [
+                  {
+                    "fact": "motionActive",
+                    "equals": true
+                  },
+                  {
+                    "fact": "rootCanEdit",
+                    "equals": true
+                  }
+                ]
+              }
+            ]
           },
           {
             "fact": "busy",
@@ -4420,8 +4526,24 @@
       "enabledWhen": {
         "all": [
           {
-            "fact": "canEdit",
-            "equals": true
+            "any": [
+              {
+                "fact": "canEdit",
+                "equals": true
+              },
+              {
+                "all": [
+                  {
+                    "fact": "motionActive",
+                    "equals": true
+                  },
+                  {
+                    "fact": "rootCanEdit",
+                    "equals": true
+                  }
+                ]
+              }
+            ]
           },
           {
             "fact": "busy",
@@ -4565,8 +4687,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -4597,8 +4729,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -4619,8 +4761,18 @@
       "iconKey": "move",
       "repeatable": false,
       "visibleWhen": {
-        "fact": "moveReceiptPending",
-        "equals": true
+        "all": [
+          {
+            "fact": "moveReceiptPending",
+            "equals": true
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
+          }
+        ]
       },
       "enabledWhen": {
         "fact": "moveReceiptPending",
@@ -4638,14 +4790,38 @@
         "all": []
       },
       "enabledWhen": {
-        "all": [
+        "any": [
           {
-            "fact": "canEdit",
-            "equals": true
+            "all": [
+              {
+                "fact": "canEdit",
+                "equals": true
+              },
+              {
+                "fact": "busy",
+                "equals": false
+              }
+            ]
           },
           {
-            "fact": "busy",
-            "equals": false
+            "all": [
+              {
+                "fact": "motionActive",
+                "equals": true
+              },
+              {
+                "fact": "rootCanEdit",
+                "equals": true
+              },
+              {
+                "fact": "selectionKind",
+                "equals": "kinematic-object"
+              },
+              {
+                "fact": "busy",
+                "equals": false
+              }
+            ]
           }
         ]
       },
@@ -4755,14 +4931,38 @@
         "all": []
       },
       "enabledWhen": {
-        "all": [
+        "any": [
           {
-            "fact": "canEdit",
-            "equals": true
+            "all": [
+              {
+                "fact": "canEdit",
+                "equals": true
+              },
+              {
+                "fact": "busy",
+                "equals": false
+              }
+            ]
           },
           {
-            "fact": "busy",
-            "equals": false
+            "all": [
+              {
+                "fact": "motionActive",
+                "equals": true
+              },
+              {
+                "fact": "rootCanEdit",
+                "equals": true
+              },
+              {
+                "fact": "selectionKind",
+                "equals": "kinematic-object"
+              },
+              {
+                "fact": "busy",
+                "equals": false
+              }
+            ]
           }
         ]
       },
@@ -4781,14 +4981,38 @@
         "all": []
       },
       "enabledWhen": {
-        "all": [
+        "any": [
           {
-            "fact": "canEdit",
-            "equals": true
+            "all": [
+              {
+                "fact": "canEdit",
+                "equals": true
+              },
+              {
+                "fact": "busy",
+                "equals": false
+              }
+            ]
           },
           {
-            "fact": "busy",
-            "equals": false
+            "all": [
+              {
+                "fact": "motionActive",
+                "equals": true
+              },
+              {
+                "fact": "rootCanEdit",
+                "equals": true
+              },
+              {
+                "fact": "selectionKind",
+                "equals": "kinematic-object"
+              },
+              {
+                "fact": "busy",
+                "equals": false
+              }
+            ]
           }
         ]
       }
@@ -5040,8 +5264,18 @@
       "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -5077,7 +5311,7 @@
           }
         ]
       },
-      "implementation": "form"
+      "implementation": "handler"
     },
     {
       "id": "dmu.ground",
@@ -5365,7 +5599,7 @@
       "helpText": "机构与 DMU · 运行仿真",
       "iconKey": "revolve",
       "repeatable": false,
-      "implementation": "handler",
+      "implementation": "form",
       "visibleWhen": {
         "all": [
           {
@@ -5386,7 +5620,7 @@
       "helpText": "机构与 DMU · 运行干涉检查",
       "iconKey": "distance",
       "repeatable": false,
-      "implementation": "handler",
+      "implementation": "form",
       "visibleWhen": {
         "all": [
           {
@@ -5589,6 +5823,62 @@
         ]
       },
       "enabledWhen": {}
+    },
+    {
+      "id": "dmu.exit",
+      "name": "退出机构",
+      "helpText": "退出机构",
+      "iconKey": "insert",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "dmu.results",
+      "name": "仿真与回放",
+      "helpText": "仿真与回放",
+      "iconKey": "insert",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
     }
   ],
   "groups": [
@@ -6481,6 +6771,25 @@
           "order": 20
         }
       ]
+    },
+    {
+      "id": "dmu-session",
+      "name": "机构编辑",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "dmu.exit",
+          "groupKey": "primary",
+          "order": 0
+        },
+        {
+          "commandId": "dmu.results",
+          "groupKey": "primary",
+          "order": 1
+        }
+      ]
     }
   ],
   "tabs": [
@@ -6593,13 +6902,40 @@
       "domain": "ASSEMBLY"
     },
     {
-      "id": "ASSEMBLY_DESIGN.kinematics",
+      "id": "KINEMATICS_DMU.model",
       "name": "机构与 DMU",
       "modeLabel": "机构与 DMU",
-      "workbench": "ASSEMBLY_DESIGN",
-      "section": "kinematics",
+      "workbench": "KINEMATICS_DMU",
+      "section": "model",
       "domain": "KINEMATICS_DMU",
-      "order": 1
+      "order": 0
+    },
+    {
+      "id": "KINEMATICS_DMU.view",
+      "name": "视图",
+      "modeLabel": "机构与 DMU",
+      "workbench": "KINEMATICS_DMU",
+      "section": "view",
+      "order": 2,
+      "domain": "KINEMATICS_DMU"
+    },
+    {
+      "id": "KINEMATICS_DMU.document",
+      "name": "文档与协作",
+      "modeLabel": "机构与 DMU",
+      "workbench": "KINEMATICS_DMU",
+      "section": "document",
+      "order": 3,
+      "domain": "KINEMATICS_DMU"
+    },
+    {
+      "id": "KINEMATICS_DMU.debug",
+      "name": "DEBUG",
+      "modeLabel": "机构与 DMU",
+      "workbench": "KINEMATICS_DMU",
+      "section": "debug",
+      "order": 4,
+      "domain": "KINEMATICS_DMU"
     }
   ],
   "contexts": [
@@ -6666,6 +7002,12 @@
               "fact": "rootTarget",
               "equals": true
             }
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -6695,15 +7037,45 @@
           {
             "fact": "rootTarget",
             "equals": true
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
           }
         ]
       },
       "tabs": [
         "ASSEMBLY_DESIGN.model",
-        "ASSEMBLY_DESIGN.kinematics",
         "ASSEMBLY_DESIGN.view",
         "ASSEMBLY_DESIGN.document",
         "ASSEMBLY_DESIGN.debug"
+      ]
+    },
+    {
+      "id": "KINEMATICS_DMU",
+      "when": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "tabs": [
+        "KINEMATICS_DMU.model",
+        "KINEMATICS_DMU.view",
+        "KINEMATICS_DMU.document",
+        "KINEMATICS_DMU.debug"
       ]
     }
   ],
@@ -6859,34 +7231,59 @@
       "order": 10
     },
     {
-      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "tabId": "KINEMATICS_DMU.model",
       "groupId": "dmu-definition",
       "order": 10
     },
     {
-      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "tabId": "KINEMATICS_DMU.model",
       "groupId": "dmu-motion",
       "order": 20
     },
     {
-      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "tabId": "KINEMATICS_DMU.model",
       "groupId": "dmu-analysis",
       "order": 30
     },
     {
-      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "tabId": "KINEMATICS_DMU.model",
       "groupId": "dmu-association",
       "order": 40
     },
     {
-      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "tabId": "KINEMATICS_DMU.model",
       "groupId": "dmu-playback",
       "order": 50
     },
     {
-      "tabId": "ASSEMBLY_DESIGN.kinematics",
+      "tabId": "KINEMATICS_DMU.model",
       "groupId": "dmu-examples",
       "order": 60
+    },
+    {
+      "tabId": "KINEMATICS_DMU.view",
+      "groupId": "view-navigation",
+      "order": 90
+    },
+    {
+      "tabId": "KINEMATICS_DMU.document",
+      "groupId": "history",
+      "order": 70
+    },
+    {
+      "tabId": "KINEMATICS_DMU.document",
+      "groupId": "collaboration",
+      "order": 80
+    },
+    {
+      "tabId": "KINEMATICS_DMU.debug",
+      "groupId": "debug",
+      "order": 10
+    },
+    {
+      "tabId": "KINEMATICS_DMU.model",
+      "groupId": "dmu-session",
+      "order": -1
     }
   ]
 }

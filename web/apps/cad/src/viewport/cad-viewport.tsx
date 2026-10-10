@@ -39,7 +39,7 @@ export type CadViewportHandle = {
   clearCommandPreview: (restore?: boolean) => void;
   editDimension: (selection: Extract<SelectionItem, { kind: "sketch-constraint" }>) => void;
   measureAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => number;
-  previewAssemblyPoses: (poses: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>) => void;
+  previewAssemblyPoses: (poses: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>,mode?:"settle"|"immediate") => void;
   previewInsertPattern: (input?: InstancePatternPreview) => void;
   assemblyAngleReferenceDirection: (references: AssemblyGeometryRef[]) => Vec3 | undefined;
   focusAssemblyReference: (reference: AssemblyGeometryRef,ownerOccurrence?:string) => boolean;
@@ -47,6 +47,8 @@ export type CadViewportHandle = {
 };
 
 type Props = {
+  mechanism?:import("../cad/assembly/motion-study").Mechanism;
+  mechanismSelection?:string;
   motionDisplay?:import("../cad/assembly/motion-study").MotionPlayback;
   documentSessions?: DocumentSessions;
   datumPreview?:DatumPreview;
@@ -181,6 +183,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.preselect(callbacks.current.preselection, false);
   }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts]);
   useEffect(()=>{engine.current?.setMotionDisplay(props.motionDisplay)},[props.motionDisplay]);
+  useEffect(()=>{engine.current?.showMechanism(props.mechanism,props.mechanismSelection)},[props.mechanism,props.mechanismSelection,props.view]);
   useEffect(() => { engine.current?.setDatumPreview(props.datumPreview); }, [props.datumPreview]);
   useEffect(() => { engine.current?.setFeatureSelection(props.featureSelection); }, [props.featureSelection]);
   useEffect(() => { engine.current?.selectMany(props.selections, false); }, [props.selections]);
@@ -214,7 +217,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     clearCommandPreview: (restore) => engine.current?.clearCommandPreview(restore),
     editDimension: (selection) => engine.current?.requestDimensionEdit(selection),
     measureAssemblyConstraint: (kind, references) => engine.current?.measureAssemblyConstraint(kind, references) ?? 0,
-    previewAssemblyPoses: (poses) => engine.current?.previewAssemblyPoses(poses),
+    previewAssemblyPoses: (poses,mode) => engine.current?.previewAssemblyPoses(poses,mode),
     previewInsertPattern: (input) => { patternPreview.current = input; engine.current?.previewInsertPattern(input); },
     assemblyAngleReferenceDirection: (references) => engine.current?.assemblyAngleReferenceDirection(references),
     focusAssemblyReference: (reference,ownerOccurrence) => engine.current?.focusAssemblyReference(reference,ownerOccurrence) ?? false,

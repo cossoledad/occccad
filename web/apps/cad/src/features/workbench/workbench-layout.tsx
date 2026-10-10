@@ -13,12 +13,12 @@ function LastRequestTime() {
 }
 
 type WorkbenchLayoutProps = {
-  commands: ReactNode; activity?:ReactNode; tree: ReactNode; inspector: ReactNode; children: ReactNode; status: ReactNode;
+  commands: ReactNode; tree: ReactNode; inspector: ReactNode; children: ReactNode; status: ReactNode;
   documentName: string; inspectorOpen: boolean; onInspectorChange: (open: boolean) => void;
 };
 
 /** Presentation and panel lifecycle only. Model/command ownership stays in Workbench. */
-export function WorkbenchLayout({ commands, activity, tree, inspector, children, status, documentName,
+export function WorkbenchLayout({ commands, tree, inspector, children, status, documentName,
   inspectorOpen, onInspectorChange }: WorkbenchLayoutProps) {
   const width = useUIPreferences((state) => state.structureTreeWidth);
   const setWidth = useUIPreferences((state) => state.setStructureTreeWidth);
@@ -67,13 +67,13 @@ export function WorkbenchLayout({ commands, activity, tree, inspector, children,
             setWidth(Math.min(limit, resize.current.width + event.clientX - resize.current.x));
           }} onPointerUp={finishResize} onPointerCancel={finishResize} onLostPointerCapture={finishResize} />
       </aside>
-      <main className={`workbench-stage ${activity?"with-activity":""}`}><section className="viewport-frame" aria-label="三维视口" onContextMenu={(event) => event.preventDefault()}>{children}
+      <main className="workbench-stage"><section className="viewport-frame" aria-label="三维视口" onContextMenu={(event) => event.preventDefault()}>{children}
         {!treeOpen && <Button className="workbench-tree-restore" icon={<MenuUnfoldOutlined />}
           aria-label="展开模型结构" onClick={() => setTreeOpen(true)} />}
         <Button className="workbench-inspector-toggle" icon={inspectorOpen ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
           aria-label={inspectorOpen ? "收起属性面板" : "展开属性面板"} aria-expanded={inspectorOpen}
           onClick={() => onInspectorChange(!inspectorOpen)} />
-      </section>{activity}</main>
+      </section></main>
       {inspectorOpen && <aside className="workbench-inspector" aria-label="属性与历史">{inspector}</aside>}
     </div>
     {status}

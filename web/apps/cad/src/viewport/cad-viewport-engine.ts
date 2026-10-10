@@ -1,8 +1,9 @@
+import {makeMechanismMarkers} from '../cad/assembly/mechanism-markers';
 import {isExternalProjectionSource} from "../cad/interaction/external-projection-selection";
 import { featureContribution, topologyFeatureAssociation, sameDisplayContext } from "../cad/interaction/feature-association";
 import { patternEntityStatus } from "../features/workbench/pattern-selection";
 import { makeDatumAxisReference, type DatumPreview } from "../cad/rendering/datum-reference";
-import { featureSelectionHit, type FeatureSelectionSession } from "../cad/interaction/feature-selection";
+import { featureSelectionHit, pickFeatureSelection, type FeatureSelectionSession } from "../cad/interaction/feature-selection";
 import { makeSplineControlFeedback } from "../cad/rendering/spline-control-feedback";
 import { useUIPreferences, sketchLabelPositionKey } from "../state/ui-preferences";
 import { sketchMarqueeContains, type SketchScreenPoint } from "../cad/interaction/sketch-marquee";
@@ -387,6 +388,15 @@ export class CadViewportEngine {
   private visibilityResolver?: VisibilityResolver;
   private readonly resizeObserver: ResizeObserver;
   private animationFrame = 0;
+  private mechanismGuides?:THREE.Group;
+  private mechanismDefinition?:import('../cad/assembly/motion-study').Mechanism;
+  private mechanismSelection?:string;
+  showMechanism(m?:import('../cad/assembly/motion-study').Mechanism,selected?:string):void {
+    if(this.mechanismGuides){this.analysisScene.remove(this.mechanismGuides);this.disposeRenderable(this.mechanismGuides);this.mechanismGuides=undefined;}
+    this.mechanismDefinition=m;this.mechanismSelection=selected;
+    if(m){this.mechanismGuides=makeMechanismMarkers(m,this.instanceGroups,selected);this.analysisScene.add(this.mechanismGuides);}
+    this.invalidate();
+  }
   private disposed = false;
   private motionDisplay?:import("../cad/assembly/motion-study").MotionPlayback;
   private motionRestorePending=false;
@@ -397,7 +407,7 @@ export class CadViewportEngine {
     if(this.view?.document.id!==display.view.document.id||this.view?.document.versionId!==display.revisionId)return;
     this.moveManipulator.detach();this.setActiveTool("select");
     if(!applyMotionFrame(display,this.view,this.instanceGroups,this.transforms))return;
-    this.content.updateMatrixWorld(true);this.refreshInteractionHighlights();this.refreshContentBounds();this.invalidate();
+    this.content.updateMatrixWorld(true);this.refreshInteractionHighlights();this.refreshContentBounds();this.showMechanism(this.mechanismDefinition,this.mechanismSelection);this.invalidate();
   }
   private readonly transforms = new TransformTransitionSystem(() => this.invalidate());
 
@@ -738,6 +748,7 @@ export class CadViewportEngine {
     }
     this.motionRestorePending=false;
     if(this.motionDisplay)this.setMotionDisplay(this.motionDisplay);
+    this.showMechanism(this.mechanismDefinition,this.mechanismSelection);
     this.emitDebugState();
     this.callbacks.documentViewReady?.(view.document.id, restoredCamera);
     this.invalidate();
@@ -1302,6 +1313,7 @@ export class CadViewportEngine {
       if (restore) this.transforms.applyBatch(targets, "rollback");
       this.assemblyPosePreview = undefined;
     }
+    if(restore&&this.motionDisplay)this.setMotionDisplay(this.motionDisplay);
     this.invalidate();
   }
 
@@ -1362,7 +1374,7 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  previewAssemblyPoses(poses: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>): void {
+  previewAssemblyPoses(poses: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>, mode:"settle"|"immediate"="settle"): void {
     if (!this.assemblyPosePreview) {
       this.assemblyPosePreview = new Map([...this.instanceGroups].map(([id, group]) =>
         [id, { position: group.position.clone(), rotation: group.quaternion.clone() }]));
@@ -1374,7 +1386,8 @@ export class CadViewportEngine {
       targets.push({ object: group, target: this.transformPose(pose.translation, pose.rotation),
         frame: () => this.syncAttachedManipulatorPosition(group) });
     }
-    this.transforms.applyBatch(targets, "settle");
+    this.transforms.applyBatch(targets, mode);
+    this.showMechanism(this.mechanismDefinition,this.mechanismSelection);
   }
 
   setStandardView(view: "TOP" | "FRONT" | "RIGHT" | "ISO"): void {
@@ -1719,6 +1732,7 @@ export class CadViewportEngine {
 
   dispose(): void {
     this.captureDocumentView();
+    this.showMechanism();
     disposeMotionMarkers(this.motionMarkers);
     this.cancelMovePreviewGesture("viewport interaction reset");
     this.clearSketchMarquee();this.clearDimensionDefinitionPreview(false);
@@ -2776,7 +2790,12 @@ export class CadViewportEngine {
   private pick(x: number, y: number, additive: boolean): void {
     if (this.moveManipulator.isDragging()) return;
     const hit = this.hitTest(x, y,true);
-    if (this.featureSelection) { if (hit) this.featureSelection.onPick(hit); return; }
+    if (this.featureSelection) {
+      const session=this.featureSelection;
+      const pending=!hit&&session.pendingCandidate?this.selectionIndex.pick(this.raycaster,session.pendingCandidate):null;
+      pickFeatureSelection(hit??(pending&&bindPublicationSelection(pending,this.view?.structureTree)),session);
+      return;
+    }
     if (!hit) { if (!additive) this.selectMany([]); return; }
     if (!additive) { this.selectMany([hit]); return; }
     const key = selectionKey(hit);
@@ -3619,6 +3638,7 @@ export class CadViewportEngine {
         this.renderer.render(this.scene, this.camera);
         if(this.analysisScene.children.length){
           updateAnalysisGuides(this.analysisScene,this.camera,metrics);
+          updateScreenLines(this.analysisScene,this.camera,metrics.cssWidth,metrics.cssHeight);
           this.renderer.clearDepth();
           this.renderer.render(this.analysisScene,this.camera);
         }

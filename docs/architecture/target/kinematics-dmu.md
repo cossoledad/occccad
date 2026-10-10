@@ -2,7 +2,7 @@
 
 > 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-当前已实现[机构与 DMU 应用及仿真转装配](../current/kinematics-dmu.md)：同一 Product 应用 Tab、独立 Mechanism/Joint/Driver/Study/Analysis、真实轴/平面接合、单坐标硬驱动与闭环回放、OCCT 静态/离散分析，以及有效帧的正式关系/姿态/映射一次 CAS 转换和 Undo/Redo。定义与冻结结果分开保存。浏览器实机验收仍待维护者完成。下列更丰富的模型和流程属于长期候选，不是现行 schema 或已交付承诺；当前不要求 Engineering Connections、多驱、动力学、可动嵌套或连续碰撞作为前置。引入第三方库或新服务前仍须验证范围、许可证、corpus 与资源边界。
+当前已实现[机构与 DMU 应用及仿真转装配](../current/kinematics-dmu.md)：同一 Product 互斥应用编辑状态、独立 Mechanism/Joint/Driver/Study/Analysis、真实轴/平面接合、单坐标硬驱动与闭环回放、OCCT 静态/离散分析，以及有效帧的正式关系/姿态/映射一次 CAS 转换和 Undo/Redo。定义与冻结结果分开保存。浏览器实机验收仍待维护者完成。下列更丰富的模型和流程属于长期候选，不是现行 schema 或已交付承诺；当前不要求 Engineering Connections、多驱、动力学、可动嵌套或连续碰撞作为前置。引入第三方库或新服务前仍须验证范围、许可证、corpus 与资源边界。
 
 ### 5.6.20 Mechanism 与 Assembly Constraint 的关系
 
@@ -27,6 +27,8 @@ message Mechanism {
 - 删除或改变 source Connection 使 Joint `OUT_OF_DATE`，不会静默换成其他 joint；
 - 一个 Product 可有多个 Mechanism/Scenario，绑定不同 configuration；
 - 允许保存空或未完成的 Mechanism；运行所选机构时要求接地及适用 DOF，闭环保留完整方程。
+- 进入机构应用是显式编辑状态，装配设计分类与机构分类互斥；新机构无确认操作即退出不产生持久对象，Mechanism 双击进入。视图区大小固定，编辑/回放由命令打开对话框，提示与错误通过统一底栏/反馈出口。
+- 接合几何选择使用统一角色过滤、自动推进和替换流程；两轴选齐即预览同轴、平面选齐预览定位，保持全部机构硬关系而不隐式采用正式装配约束。预览只覆盖临时整帧姿态，确认保存接合定义，正式转换另走完整 Product 方程验证。
 - 应用 Tab/命令组/搜索/运行可执行状态复用现有 workbench catalog 与 CommandRegistry；定义编辑复用 CommandDialog/CommandOperation，运行结果呈现与只读 Inspector 分开。同一 owning Product 的应用会话不依赖命令面板，不生成虚假的 DMU 文档。来源仅为引用，关节语义展开项不可作为第二套可编辑真相；显式采用的补充关系与来源不重复进入方程。
 - 稳定几何引用与捕获角度基准是定义，解析 Frame 是派生值；两定位平面不能单独定义 Revolute 零位。来源变化与几何失效分别报告，失效几何阻止相关运行。
 - 有效帧转正式装配默认发布接合关系并采用整帧姿态，保留运动自由度；角度锁必须显式选择。全目标 Product 方程验证和正式求解通过后，约束、位姿、来源/发布映射经一次版本/CAS 事务提交，可一次撤销。冲突须用户明确处理，不静默停用；重复转换复用映射，无需每帧写 Revision。

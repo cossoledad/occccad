@@ -30,7 +30,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
   };
   switch (node.kind) {
  case "MOTION_RUN":return {...base,kind:"motion-run",id:node.entityId??node.id};
- case "MECHANISM":case "MECHANISM_JOINT":case "MOTION_DRIVER":case "MOTION_STUDY":case "INTERFERENCE_ANALYSIS": return {...base,kind:"kinematic-object",id:node.entityId??node.id};
+ case "JOINT_EXPANSION":case "JOINT_SUPPORT":case "MECHANISM":case "MECHANISM_JOINT":case "MOTION_DRIVER":case "MOTION_STUDY":case "INTERFERENCE_ANALYSIS": return {...base,kind:"kinematic-object",id:node.entityId??node.id};
     case "PART": return { ...base, kind: "part", id: node.documentId ?? node.id,
       visualKey: occurrencePath ? `occurrence:${occurrencePath}` : undefined };
     case "PRODUCT": return { ...base, kind: "product", id: node.documentId ?? node.id };

@@ -22,7 +22,7 @@
 
 条件表达式支持 `fact/equals`、`all`、`any`、`not`。事实来自现有状态：hostType、targetType、sketchActive、canEdit、rootCanEdit、busy、selectionKind、selectionCount、hasWorkingBody、moveReceiptPending、isMock、rootTarget、motionActive。每次状态改变在前端同步计算，不向后端请求选择变化。显示、可执行及活动态分别投影；隐藏入口不会禁止合法快捷键调用，执行仍检查条件、实现 capability 与后端 ACL。
 
-Toolbar Tab 按文档会话及工作台保存当前选择，主工作台与命令区通过同一个 `useWorkbenchTab` 读取配置 Tab。普通分类切换只改变呈现；根 Product 的 `KINEMATICS_DMU` 分类还决定机构应用是否活跃，进入/离开时清理当前交互命令，离开时释放冻结回放覆盖。它不发模型命令，不改变编辑目标、Revision 或正式几何；不存在额外硬编码应用 Tabs 或独立的应用布尔状态。嵌套 Product 编辑使用原装配分类，不提供宿主机构入口。后台读取和刷新保持既有打开标签顺序。
+Toolbar Tab 按文档会话及工作台保存当前分类，唯一 `WorkbenchCommands` 使用 `useWorkbenchTab` 读取选择。普通分类切换只改变呈现。根 Product 的机构入口及 Mechanism 树双击进入显式应用编辑会话，catalog 的互斥 contexts 根据 `motionActive` 显示 KINEMATICS_DMU 分类并隐藏装配分类；切换该应用内部的视图/文档分类不退出机构。进入/退出清理交互命令，退出释放临时姿态并恢复最新正式模型；进入本身不发模型命令、不写 Revision，尚未确认操作的默认机构草稿直接丢弃。嵌套 Product 编辑使用原装配分类，不提供宿主机构入口。后台读取和刷新保持既有打开标签顺序。
 
 ## 实现注册与操作生命周期
 
@@ -32,7 +32,7 @@ Toolbar、搜索、快捷键和结构树菜单经同一个 `execute` 入口；�
 
 每次执行获得 `CommandOperation`，提供 AbortSignal、current 和 `own(dispose)`。交互命令切换、目标上下文改变和模块释放会取消旧操作，释放资源；迟到的异步显示结果必须检查 operation 或原有领域 generation。普通视图 handler 不打断正在运行的建模工具。工具转入装配约束定义时，使用既有 pending/editing 状态保留操作，面板结束后才清理。ToolManager 与领域表单保留自己的 Esc/多步骤/连续执行规则，不新增全局 Esc 监听。
 
-机构定义编辑及转换计划使用同一 `CommandDialog`；定义命令以 form 注册，接收框架 `CommandOperation`；树双击定义转入已有 `tree.edit` form，而不沿用瞬时 activate handler 的操作。运行/回放/取消任务为 handler，复用同一命令声明、Ribbon、搜索与 `ToolButton`，并由应用会话提供选中对象/帧等可执行条件。`WorkbenchLayout.activity` 承载暂态运行与回放区域，不挤占只读 Inspector。命令取消与后台 Job/冻结结果加载分别使用代际门禁，关闭一个表单不会释放已经显示的完整帧或取消后台任务。
+机构定义、运行设置、结果回放及转换计划使用同一 `CommandDialog` / form `CommandOperation`。Mechanism 树双击只进入会话，其他可编辑定义转入已有 `tree.edit` form；播放、定位与明确取消任务为 handler，复用 Registry、Ribbon、搜索及 ToolButton。视口不增加常驻机构活动区域；提示使用底栏 WorkbenchStatus，诊断走统一 OperationFeedback。接合自动选择/替换字段复用 FeatureSelectionSession；待解析候选通过共享异步拾取完成精确校验后绑定，树和视口没有额外鼠标控制器。命令取消与后台 Job/冻结结果加载分别使用代际门禁，关闭一个表单不会释放已经显示的完整帧或取消后台任务。
 
 模型修改仍由现有正式命令提交；Preview 不推进 Head，确认提交当前成功候选，失败、过期、取消继续受服务端 gate 约束。表单 adapters 复用各自既有参数、选择过滤、预览/提交/关闭实现，公共注册层不会强迫拉伸、草图约束和适应视图使用相同步骤。
 

@@ -3,6 +3,12 @@ import { projectSketchFeatureSelection } from "./selection-mode";
 export type FeaturePickRole = "direction" | "geometry" | "point" | "profile" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
 export type FeatureSelectionSession = {
     role: FeaturePickRole;
+    // Shared scene/tree filtering for cross-occurrence command supports.
+    accept?: (selection:SelectionItem)=>boolean;
+    // Exact support inspection may finish after the click. It must not select
+    // an unqualified candidate or require the user to click it again.
+    pendingCandidate?: (selection:SelectionItem)=>boolean;
+    resolvePick?: (selection:SelectionItem)=>void;
     connectionLines?: [number,number,number][][];
     localSketchId?: string;
     documentId: string;
@@ -20,6 +26,7 @@ export type FeatureSelectionSession = {
 // Filter raw scene hits before projection: a rotation axis keeps its individual
 // sketch entity, while a section intentionally projects to the whole sketch.
 export function featureSelectionHit(raw: Selection, session: FeatureSelectionSession): Selection {
+    if(session.accept)return raw&&session.accept(raw)?raw:null;
     if (!raw || (raw.ownerDocumentId ?? raw.documentId) !== session.documentId ||
         (raw.occurrencePath ?? "") !== (session.occurrencePath ?? "") ||
         (raw.versionId && raw.versionId !== session.versionId))
@@ -44,4 +51,10 @@ export function featureSelectionHit(raw: Selection, session: FeatureSelectionSes
         return raw.kind === "visual" && raw.visualType === "CURVE" && session.sketchIds?.includes(raw.featureId) ? raw : null;
     const sketch = projectSketchFeatureSelection(raw);
     return sketch?.kind === "sketch" && (!session.sketchIds || session.sketchIds.includes(sketch.id)) ? sketch : null;
+}
+
+export function pickFeatureSelection(raw:Selection,session:FeatureSelectionSession):void {
+    const hit=featureSelectionHit(raw,session);
+    if(hit)session.onPick(hit);
+    else if(raw&&session.pendingCandidate?.(raw))session.resolvePick?.(raw);
 }

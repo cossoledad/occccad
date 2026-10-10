@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"github.com/google/uuid"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
@@ -147,6 +148,94 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	}
 	mid, jid, did, sid := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	k := workspace.KinematicsDefinitions{Mechanisms: []workspace.Mechanism{{ID: mid, Name: "shaft-propeller", UnitIDs: []string{ends[0].InstanceID, ends[1].InstanceID}, Joints: []workspace.MechanismJoint{{ID: uuid.NewString(), Name: "shaft grounded", Kind: "GROUND", First: workspace.JointEndpoint{InstanceID: ends[0].InstanceID, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}, Direction: 1}, {ID: jid, Name: "geometric revolute", Kind: "REVOLUTE", First: ends[0], Second: &ends[1], Direction: 1, Zero: workspace.MotionQuantity{Unit: "deg"}, AxialOffset: workspace.MotionQuantity{Value: -10, Unit: "mm"}}}}}, Drivers: []workspace.MotionDriver{{ID: did, Name: "angle", MechanismID: mid, JointID: jid}}, Studies: []workspace.MotionStudy{{ID: sid, Name: "0..360", MechanismID: mid, DriverID: did, Start: workspace.MotionQuantity{Unit: "deg"}, End: workspace.MotionQuantity{Value: 360, Unit: "deg"}, DurationSeconds: 4, Frames: 25, BudgetMS: 60000, Clearance: workspace.MotionQuantity{Unit: "mm"}}}}
+	t.Run("mechanism command preview isolates formal constraints", func(t *testing.T) {
+		originalHead := view.Document.VersionID
+		fixRef := workspace.AssemblyGeometryRef{InstanceID: ends[1].InstanceID, Kind: "BODY"}
+		view = command(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX", FirstAssemblyRef: &fixRef, FixMode: "SPACE"})
+		head := view.Document.VersionID
+		raw, _ := json.Marshal(k.Mechanisms[0])
+		var mechanism workspace.Mechanism
+		json.Unmarshal(raw, &mechanism)
+		for i := range mechanism.Joints {
+			for _, end := range []*workspace.JointEndpoint{&mechanism.Joints[i].First, mechanism.Joints[i].Second} {
+				if end == nil {
+					continue
+				}
+				for _, ref := range []*workspace.AssemblyGeometryRef{end.Axis, end.Plane} {
+					if ref != nil && ref.InstancePath != nil {
+						ref.InstancePath.Segments[0].OwnerVersionID = head
+					}
+				}
+			}
+		}
+		complete := mechanism
+		raw, _ = json.Marshal(complete)
+		mechanism = workspace.Mechanism{}
+		json.Unmarshal(raw, &mechanism)
+		mechanism.Joints[1].First.Plane = nil
+		mechanism.Joints[1].Second.Plane = nil
+		req := workspace.MechanismPreviewRequest{BaseRevisionID: head, Mechanism: mechanism, DraftJointID: jid}
+		partial, err := service.PreviewMechanism(t.Context(), view.Document.ID, req)
+		if err != nil || len(partial.InstancePoses) != 2 {
+			t.Fatal("two-axis preview", err, partial)
+		}
+		for _, pose := range partial.InstancePoses {
+			if pose.InstanceID == ends[1].InstanceID && (math.Abs(pose.Translation[0]) > 1e-7 || math.Abs(pose.Translation[1]) > 1e-7) {
+				t.Fatal("axes did not align", pose)
+			}
+		}
+		req.Mechanism = complete
+		full, err := service.PreviewMechanism(t.Context(), view.Document.ID, req)
+		if err != nil || len(full.InstancePoses) != 2 {
+			t.Fatal("complete joint preview", err, full)
+		}
+		for _, pose := range full.InstancePoses {
+			if pose.InstanceID == ends[1].InstanceID && (math.Abs(pose.Translation[0]) > 1e-7 || math.Abs(pose.Translation[1]) > 1e-7 || math.Abs(pose.Translation[2]-10) > 1e-7) {
+				t.Fatal("axial location incorrect", pose)
+			}
+		}
+		unchanged, err := service.GetDocument(t.Context(), view.Document.ID)
+		if err != nil || unchanged.Document.VersionID != head || len(unchanged.Product.Constraints) != 1 || len(unchanged.Product.Kinematics.Mechanisms) != 0 || !reflect.DeepEqual(unchanged.Product.Instances, view.Product.Instances) {
+			t.Fatal("preview modified formal model", err)
+		}
+		req.Mechanism.UnitIDs = append(req.Mechanism.UnitIDs, "missing-preview-unit")
+		if _, err = service.PreviewMechanism(t.Context(), view.Document.ID, req); err == nil {
+			t.Fatal("declared invalid motion unit silently discarded")
+		}
+		req.Mechanism = complete
+		req.Mechanism.SupplementalConstraintIDs = []string{view.Product.Constraints[0].ID}
+		if _, err = service.PreviewMechanism(t.Context(), view.Document.ID, req); err == nil {
+			t.Fatal("explicit conflicting supplemental Fix silently ignored")
+		}
+		req.Mechanism.SupplementalConstraintIDs = nil
+		req.BaseRevisionID = originalHead
+		if _, err = service.PreviewMechanism(t.Context(), view.Document.ID, req); err == nil {
+			t.Fatal("stale preview accepted")
+		}
+		req.BaseRevisionID = head
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if _, err = service.PreviewMechanism(ctx, view.Document.ID, req); err == nil {
+			t.Fatal("canceled preview accepted")
+		}
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+		if len(view.Product.Constraints) != 0 {
+			t.Fatal("fixture Fix undo failed")
+		}
+		for i := range k.Mechanisms[0].Joints {
+			for _, end := range []*workspace.JointEndpoint{&k.Mechanisms[0].Joints[i].First, k.Mechanisms[0].Joints[i].Second} {
+				if end == nil {
+					continue
+				}
+				for _, ref := range []*workspace.AssemblyGeometryRef{end.Axis, end.Plane} {
+					if ref != nil && ref.InstancePath != nil {
+						ref.InstancePath.Segments[0].OwnerVersionID = view.Document.VersionID
+					}
+				}
+			}
+		}
+	})
+
 	// A driver is independently usable before a time study exists.
 	savedStudies := k.Studies
 	k.Studies = nil

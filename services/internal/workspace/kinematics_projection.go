@@ -1,16 +1,34 @@
 package workspace
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+)
 
-func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, constraints []AssemblyConstraint) DocumentStructureNode {
+func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, constraints []AssemblyConstraint, instances ...[]ProductInstance) DocumentStructureNode {
 	root := DocumentStructureNode{ID: path + "/applications", Kind: "APPLICATIONS", Name: "Applications", DocumentID: doc, VersionID: revision, Children: []DocumentStructureNode{}}
 	node := func(kind, id, name string) DocumentStructureNode {
 		return DocumentStructureNode{ID: root.ID + "/" + kind + ":" + id, Kind: kind, EntityID: id, Name: name, DocumentID: doc, OwnerDocumentID: doc, VersionID: revision, Capabilities: []string{"EDIT", "DELETE", "RENAME"}}
 	}
+	nameFor := func(id string) string {
+		for _, list := range instances {
+			for _, v := range list {
+				if v.ID == id {
+					return v.Name
+				}
+			}
+		}
+		return id
+	}
 	for _, m := range k.Mechanisms {
 		mn := node("MECHANISM", m.ID, m.Name)
 		for _, j := range m.Joints {
-			jn := node("MECHANISM_JOINT", j.ID, j.Name)
+			label := j.Name + " (" + nameFor(j.First.InstanceID)
+			if j.Second != nil {
+				label += " ↔ " + nameFor(j.Second.InstanceID)
+			}
+			label += ")"
+			jn := node("MECHANISM_JOINT", j.ID, label)
 			jn.EntityType = j.Kind
 			roles := []string{}
 			if j.Kind != "GROUND" {
@@ -28,6 +46,32 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 					child.Capabilities = nil
 					child.PresentationRole = "INPUT_REFERENCE"
 					jn.Children = append(jn.Children, child)
+				}
+			}
+			for side, end := range []JointEndpoint{j.First, func() JointEndpoint {
+				if j.Second != nil {
+					return *j.Second
+				}
+				return JointEndpoint{}
+			}()} {
+				if end.InstanceID == "" {
+					continue
+				}
+				for _, support := range []struct {
+					role string
+					ref  *AssemblyGeometryRef
+				}{{"axis", end.Axis}, {"plane", end.Plane}} {
+					if support.ref == nil {
+						continue
+					}
+					label := "轴线"
+					if support.role == "plane" {
+						label = "定位平面"
+					}
+					sn := node("JOINT_SUPPORT", fmt.Sprintf("%s/%d/%s", j.ID, side, support.role), label+" ("+nameFor(end.InstanceID)+")")
+					sn.Capabilities = nil
+					sn.PresentationRole = "INPUT_REFERENCE"
+					jn.Children = append(jn.Children, sn)
 				}
 			}
 			for _, src := range j.Sources {

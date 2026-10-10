@@ -594,18 +594,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			"ASSEMBLY_SOLVER_UNAVAILABLE", err.Error(), true)
 	}
 	if result.Status != "CONVERGED" {
-		code, retryable := "ASSEMBLY_SOLVER_UNSATISFIED", false
-		switch result.Status {
-		case "MAX_ITERATIONS":
-			code = "ASSEMBLY_SOLVER_NON_CONVERGENT"
-			retryable = true
-		case "INCONSISTENT":
-			code = "ASSEMBLY_SOLVER_INCONSISTENT"
-		case "INVALID_MODEL":
-			code = "ASSEMBLY_SOLVER_INVALID_MODEL"
-		case "NUMERICAL_FAILURE":
-			code, retryable = "ASSEMBLY_SOLVER_NUMERICAL_FAILURE", true
-		}
+		code, retryable := assemblySolveFailureDetails(result.Status)
 		return workflow.failure(context.Background(), result.Status, code, result.Diagnostic, retryable)
 	}
 	if err := validateAssemblyPreference(result); err != nil {
@@ -671,4 +660,19 @@ func validateAssemblyPreference(result geometry.AssemblySolve) error {
 		}
 	}
 	return nil
+}
+
+func assemblySolveFailureDetails(status string) (string, bool) {
+	switch status {
+	case "MAX_ITERATIONS":
+		return "ASSEMBLY_SOLVER_NON_CONVERGENT", true
+	case "INCONSISTENT":
+		return "ASSEMBLY_SOLVER_INCONSISTENT", false
+	case "INVALID_MODEL":
+		return "ASSEMBLY_SOLVER_INVALID_MODEL", false
+	case "NUMERICAL_FAILURE":
+		return "ASSEMBLY_SOLVER_NUMERICAL_FAILURE", true
+	default:
+		return "ASSEMBLY_SOLVER_UNSATISFIED", false
+	}
 }

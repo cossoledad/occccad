@@ -29,9 +29,10 @@ try {
   }
   const {contextTabs,builtinCatalog,matches}=await server.ssrLoadModule("/src/cad/command/workbench-catalog.ts");
   const facts={targetType:'PRODUCT',hostType:'PRODUCT',rootTarget:true,motionActive:false,sketchActive:false,canEdit:true,rootCanEdit:true,busy:false,isMock:true,moveReceiptPending:false,selectionKind:'',selectionCount:0,hasWorkingBody:false};
-  assert.deepEqual(contextTabs(builtinCatalog,facts).map(t=>t.name),['装配设计','机构与 DMU','视图','文档与协作','DEBUG']);
+  assert.deepEqual(contextTabs(builtinCatalog,facts).map(t=>t.name),['装配设计','视图','文档与协作','DEBUG']);
   assert(!contextTabs(builtinCatalog,{...facts,rootTarget:false}).some(t=>t.domain==='KINEMATICS_DMU'),'nested Product editing cannot create a host mechanism');
-  const motionTab=contextTabs(builtinCatalog,facts).find(t=>t.domain==='KINEMATICS_DMU');
+  assert(!contextTabs(builtinCatalog,{...facts,motionActive:true}).some(t=>t.domain==='ASSEMBLY'));
+  const motionTab=contextTabs(builtinCatalog,{...facts,motionActive:true}).find(t=>t.domain==='KINEMATICS_DMU');
   const motionGroups=toolbars.filter(t=>t.tabIds.includes(motionTab.id));
   const motionCommands=motionGroups.flatMap(g=>g.items).map(v=>v.commandId);
   for(const cmd of builtinCatalog.commands.filter(v=>v.id.startsWith('dmu.'))){
@@ -41,8 +42,8 @@ try {
   }
   assert.equal(new Set(motionCommands).size,motionCommands.length);
   assert.equal(builtinCatalog.commands.find(v=>v.id==='assembly.motion-study').implementation,'handler','application navigation must not own a form invocation');
-  for(const action of ['new','revolute','driver','study','interference','import','apply'])assert.equal(builtinCatalog.commands.find(v=>v.id==='dmu.'+action).implementation,'form');
-  for(const action of ['run','check','play','pause','next','reset','restore','cancel'])assert.equal(builtinCatalog.commands.find(v=>v.id==='dmu.'+action).implementation,'handler');
+  for(const action of ['run','check','results','revolute','driver','study','interference','import','apply'])assert.equal(builtinCatalog.commands.find(v=>v.id==='dmu.'+action).implementation,'form');
+  for(const action of ['new','exit','play','pause','next','reset','restore','cancel'])assert.equal(builtinCatalog.commands.find(v=>v.id==='dmu.'+action).implementation,'handler');
   console.log("Toolbar category and preference-boundary tests passed.");
 } finally {
   await server.close();

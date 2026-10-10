@@ -312,7 +312,7 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 		}
 		root.Children = append(root.Children, group)
 	}
-	root.Children = append(root.Children, kinematicsStructure(documentID, versionID, path, model.Kinematics, model.Constraints))
+	root.Children = append(root.Children, kinematicsStructure(documentID, versionID, path, model.Kinematics, model.Constraints, model.Instances))
 	annotateStructure(&root, documentID, "")
 	applyOccurrenceVisibilityProjection(&root, model.VisibilityOverrides)
 	return root, nil

@@ -72,6 +72,23 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 		server.startMotionRun(w, r)
 		return w
 	}
+	t.Run("mechanism preview access and stale snapshot", func(t *testing.T) {
+		postPreview := func(user string) *httptest.ResponseRecorder {
+			b, _ := json.Marshal(workspace.MechanismPreviewRequest{BaseRevisionID: "stale", Mechanism: m})
+			r := httptest.NewRequest("POST", "/mechanism-preview", bytes.NewReader(b))
+			r.SetPathValue("documentID", view.Document.ID)
+			r = r.WithContext(access.WithPrincipal(r.Context(), access.User{ID: user}))
+			w := httptest.NewRecorder()
+			server.previewMechanism(w, r)
+			return w
+		}
+		if w := postPreview("00000000-0000-7000-8000-000000000099"); w.Code != 403 {
+			t.Fatal("unauthorized preview", w.Code)
+		}
+		if w := postPreview(actor); w.Code != 400 {
+			t.Fatal("stale preview", w.Code, w.Body.String())
+		}
+	})
 	req := workspace.MotionRunRequest{BaseRevisionID: view.Document.VersionID, StudyID: "s", RequestID: "api-idempotency"}
 	response := post(req, actor)
 	if response.Code != http.StatusAccepted {

@@ -148,10 +148,5 @@
 
 .inspector-object-data { margin:0; padding:12px; max-height:60vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; font-size:12px; line-height:1.5; background:var(--wb-surface); border:1px solid var(--wb-border); border-radius:4px; }
 
-/* Application activity stays beside the viewport lifecycle, outside the inspector. */
-.workbench-stage.with-activity { display:flex; flex-direction:column; }
-.workbench-stage.with-activity > .viewport-frame { position:relative; inset:auto; flex:1; min-height:0; height:auto; }
-.motion-study-activity { flex:none; max-height:280px; overflow:auto; padding:10px 16px; border-top:1px solid var(--wb-border); background:var(--wb-surface); }
-.motion-study-activity .ant-typography { margin-bottom:6px; }
-.motion-study-activity .ant-alert { margin:6px 0; }
+/* Fields belong to the standard command dialog; the viewport remains full size. */
 .motion-study-fields { display:flex; flex-direction:column; gap:10px; }

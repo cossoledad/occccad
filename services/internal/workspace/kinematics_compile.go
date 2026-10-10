@@ -19,6 +19,10 @@ type mechanismEquations struct {
 }
 
 func compileMechanism(frozen AssemblySolveManifest, m Mechanism, s MotionStudy) (mechanismEquations, error) {
+	return compileMechanismEquations(frozen, m, s, true)
+}
+
+func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s MotionStudy, requireDriver bool) (mechanismEquations, error) {
 	out := mechanismEquations{Bodies: append([]geometry.AssemblyBody(nil), frozen.Bodies...), Geometry: append([]geometry.AssemblyGeometry(nil), frozen.Geometry...), RetainedConstraintIDs: []string{}}
 	if len(frozen.RelativeFixUpdates) > 0 {
 		return out, fmt.Errorf("%w: mechanism cannot edit relative Fix baselines", ErrValidation)
@@ -95,7 +99,7 @@ func compileMechanism(frozen AssemblySolveManifest, m Mechanism, s MotionStudy) 
 			}
 		}
 	}
-	if out.Driver.ID == "" {
+	if requireDriver && out.Driver.ID == "" {
 		return out, fmt.Errorf("%w: no independent driver", ErrValidation)
 	}
 	for _, c := range equations {

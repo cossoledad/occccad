@@ -1164,6 +1164,7 @@ export const mockApi: CadApi = {
   createMotionDemo:async()=>{throw new Error("演示创建需要实际后端");},
   planMotionApply:async()=>{throw new Error("转换需要实际后端");},
  motionJointProposals:async()=>[],
+ previewMechanism:async()=>{throw new Error("机构预览需要连接实际后端");},
  startMotionRun:async()=>{throw new Error("机构与 DMU 需要连接实际后端");},
   getMotionRun:async()=>{throw new Error("机构与 DMU 需要连接实际后端");},
   getJob: async (jobID) => pause(jobs.get(jobID)!),

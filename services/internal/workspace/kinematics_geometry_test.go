@@ -111,3 +111,29 @@ func TestMotionApplicationProjectionReferencesUnique(t *testing.T) {
 		t.Fatalf("source projection %d %d %d", references, changed, deleted)
 	}
 }
+
+func TestMotionApplicationProjectionNamedSupports(t *testing.T) {
+	first := JointEndpoint{InstanceID: "shaft", Axis: &AssemblyGeometryRef{InstanceID: "shaft", Kind: "AXIS"}, Plane: &AssemblyGeometryRef{InstanceID: "shaft", Kind: "PLANE"}}
+	second := JointEndpoint{InstanceID: "rotor", Axis: &AssemblyGeometryRef{InstanceID: "rotor", Kind: "AXIS"}, Plane: &AssemblyGeometryRef{InstanceID: "rotor", Kind: "PLANE"}}
+	k := KinematicsDefinitions{Mechanisms: []Mechanism{{ID: "m", Name: "机构", Joints: []MechanismJoint{{ID: "ground", Name: "固定件", Kind: "GROUND", First: JointEndpoint{InstanceID: "shaft"}}, {ID: "joint", Name: "旋转接合", Kind: "REVOLUTE", First: first, Second: &second}}}}}
+	tree := kinematicsStructure("product", "revision", "product", k, nil, []ProductInstance{{ID: "shaft", Name: "圆柱.1"}, {ID: "rotor", Name: "螺旋桨.1"}})
+	joints := tree.Children[0].Children
+	if joints[0].Name != "固定件 (圆柱.1)" || joints[1].Name != "旋转接合 (圆柱.1 ↔ 螺旋桨.1)" {
+		t.Fatalf("joint endpoint presentation missing: %+v", joints)
+	}
+	count := 0
+	for _, n := range joints[1].Children {
+		if n.Kind == "JOINT_SUPPORT" {
+			count++
+			if len(n.Capabilities) != 0 || n.PresentationRole != "INPUT_REFERENCE" {
+				t.Fatal("derived support became editable")
+			}
+		}
+	}
+	if count != 4 {
+		t.Fatalf("expected four support references, got %d", count)
+	}
+	if k.Mechanisms[0].Joints[1].Name != "旋转接合" {
+		t.Fatal("presentation changed persistent name")
+	}
+}

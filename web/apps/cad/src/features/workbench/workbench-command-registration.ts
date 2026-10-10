@@ -40,12 +40,12 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
  const deletionNodes=deletableTreeNodesForSelections(treeNodes,store.selections);
  return [
 
-      ({id:"edit.delete",execute:invocation=>deleteTreeNodes((invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes).map(node=>resolveStructureNode(treeNodes,node))),isEnabled:invocation=>Boolean(canEdit&&!command.isPending&&(invocation?.payload?structureInvocation(invocation).nodes?.some(node=>node.capabilities?.includes("DELETE")):store.activeToolID==="select"&&deletionNodes.some(node=>node.capabilities?.includes("DELETE"))))}),
+      ({id:"edit.delete",execute:invocation=>deleteTreeNodes((invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes).map(node=>resolveStructureNode(treeNodes,node))),isEnabled:invocation=>Boolean((canEdit||bindings.motionOpen&&canEditRoot&&(invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes).every(node=>["MECHANISM","MECHANISM_JOINT","MOTION_DRIVER","MOTION_STUDY","INTERFERENCE_ANALYSIS"].includes(node.kind??"")))&&!command.isPending&&(invocation?.payload?structureInvocation(invocation).nodes?.some(node=>node.capabilities?.includes("DELETE")):store.activeToolID==="select"&&deletionNodes.some(node=>node.capabilities?.includes("DELETE"))))}),
       ({ id: "tool.select", execute: () => store.setActiveTool("select", "once"),
         isActive: () => store.activeToolID === "select" }),
       ({ id: "assembly.move", execute: () => store.setActiveTool("assembly.move", "continuous"),
         isEnabled: () => Boolean(canEditRoot), isActive: () => store.activeToolID === "assembly.move" }),
-      ...(["new","ground","revolute","prismatic","rigid","driver","study","trial","interference","import","apply","run","check","play","pause","previous","next","reset","restore","cancel","demo-propeller","demo-fourbar"] as const).map(action=>({id:"dmu."+action,execute:(invocation:CadCommandInvocation|undefined)=>{store.setActiveTool("select","once");bindings.onMotionCommand?.(action,invocation?.operation)},isEnabled:()=>Boolean(bindings.motionOpen&&view?.product&&!command.isPending&&bindings.onMotionCommand&&editingView?.document.id===view.document.id&&!store.activeSketchID&&(bindings.motionCommandEnabled?.(action)??(action==="apply"?["OWNER","EDITOR"].includes(view.document.permission??""):canEditRoot)))})),
+      ...(["new","exit","results","ground","revolute","prismatic","rigid","driver","study","trial","interference","import","apply","run","check","play","pause","previous","next","reset","restore","cancel","demo-propeller","demo-fourbar"] as const).map(action=>({id:"dmu."+action,execute:(invocation:CadCommandInvocation|undefined)=>{store.setActiveTool("select","once");bindings.onMotionCommand?.(action,invocation?.operation)},isEnabled:()=>Boolean(bindings.motionOpen&&view?.product&&!command.isPending&&bindings.onMotionCommand&&editingView?.document.id===view.document.id&&!store.activeSketchID&&(bindings.motionCommandEnabled?.(action)??(action==="apply"?["OWNER","EDITOR"].includes(view.document.permission??""):canEditRoot)))})),
       ({id:"assembly.motion-study",execute:()=>{store.setActiveTool("select","once");bindings.setMotionOpen?.(true);},isEnabled:()=>Boolean(view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&bindings.setMotionOpen),isActive:()=>Boolean(bindings.motionOpen)}),
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),
         isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),
@@ -93,9 +93,9 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "document.share", execute: () => editingView && setShareResource({ type: "documents", id: editingView.document.id, name: editingView.document.name }),
         isEnabled: () => editingView?.document.permission === "OWNER" }),
       ({ id: "edit.undo", execute: () => executeHistory("undo"),
-        isEnabled: () => Boolean(canEdit && editingView?.document.canUndo && !command.isPending) }),
+        isEnabled: () => Boolean((canEdit||bindings.motionOpen&&canEditRoot) && editingView?.document.canUndo && !command.isPending) }),
       ({ id: "edit.redo", execute: () => executeHistory("redo"),
-        isEnabled: () => Boolean(canEdit && editingView?.document.canRedo && !command.isPending) }),
+        isEnabled: () => Boolean((canEdit||bindings.motionOpen&&canEditRoot) && editingView?.document.canRedo && !command.isPending) }),
       ({ id: "view.fit", execute: () => viewport.current?.fit() }),
       ({ id: "view.top", execute: () => viewport.current?.setStandardView("TOP") }),
       ({ id: "view.front", execute: () => viewport.current?.setStandardView("FRONT") }),

@@ -160,21 +160,9 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 		if s.Mechanism, err = service.resolveMechanismGeometry(ctx, *view.Product, s.Mechanism, false); err != nil {
 			return s, err
 		}
-		input := *view.Product
-		input.Constraints = nil
-		for _, id := range s.Mechanism.SupplementalConstraintIDs {
-			i := slices.IndexFunc(view.Product.Constraints, func(c AssemblyConstraint) bool { return c.ID == id })
-			if i < 0 {
-				return s, fmt.Errorf("%w: missing supplemental relationship %s", ErrValidation, id)
-			}
-			for _, j := range s.Mechanism.Joints {
-				for _, src := range j.Sources {
-					if src.ConstraintID == id {
-						return s, fmt.Errorf("%w: duplicate source equation %s", ErrValidation, id)
-					}
-				}
-			}
-			input.Constraints = append(input.Constraints, view.Product.Constraints[i])
+		input, e := mechanismProductInput(*view.Product, s.Mechanism)
+		if e != nil {
+			return s, e
 		}
 		frozen, e := service.FreezeAssemblyInput(ctx, documentID, req.BaseRevisionID, input)
 		if e != nil {

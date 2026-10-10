@@ -142,7 +142,7 @@ func TestDebugCatalogSeparatesDiagnosticCommands(t *testing.T) {
 			debugTabs[tab.ID] = true
 		}
 	}
-	if len(debugTabs) != 3 {
+	if len(debugTabs) != 4 {
 		t.Fatal("missing context-specific DEBUG tabs", debugTabs)
 	}
 	commands := map[string]Command{}

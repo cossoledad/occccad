@@ -24,8 +24,8 @@ export function motionSelectionTargets(view:import('../../types').DocumentView,s
  const defs=view.product?.kinematics;if(!defs)return [...selections];
  return selections.flatMap(selection=>{
   if(selection.kind!=='kinematic-object')return [selection];
-  const m=defs.mechanisms.find(m=>m.id===selection.id||m.joints.some(j=>j.id===selection.id)||defs.drivers?.some(d=>d.id===selection.id&&d.mechanismId===m.id)||defs.studies.some(s=>s.id===selection.id&&s.mechanismId===m.id));
-  const j=m?.joints.find(j=>j.id===selection.id);const unitIds=j?[j.first.instanceId,...(j.second?[j.second.instanceId]:[])]:m?.unitIds??[];
+  const m=defs.mechanisms.find(m=>m.id===selection.id||m.joints.some(j=>j.id===selection.id||selection.id.startsWith(j.id+"/"))||defs.drivers?.some(d=>d.id===selection.id&&d.mechanismId===m.id)||defs.studies.some(s=>s.id===selection.id&&s.mechanismId===m.id));
+  const j=m?.joints.find(j=>j.id===selection.id||selection.id.startsWith(j.id+"/"));const unitIds=j?[j.first.instanceId,...(j.second?[j.second.instanceId]:[])]:m?.unitIds??[];
   const a=defs.analyses?.find(a=>a.id===selection.id);
   return (view.resolvedInstances??[]).filter(v=>a?!(a.scope?.length)||a.scope.some(scope=>scope.bodyId===v.bodyId&&scope.instancePath.canonical===v.instancePath.canonical):unitIds.includes(v.instancePath.segments[0]?.instanceId)).map(v=>({kind:'body' as const,id:`${v.occurrencePath}:body:${v.bodyId}`,bodyId:v.bodyId,documentId:v.instancePath.segments.at(-1)?.referencedDocumentId,versionId:v.instancePath.segments.at(-1)?.resolvedVersionId,instanceId:v.instancePath.segments[0]?.instanceId,instancePath:v.instancePath,occurrencePath:v.occurrencePath,geometryKey:v.geometryKey}));
  });

@@ -5,8 +5,8 @@ import type { SketchCommandState, SketchCommandAction, SketchCommitReceipt } fro
 import { LoadingOutlined } from "@ant-design/icons";
 import { useUIPreferences } from "../../state/ui-preferences";
 
-export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengthUnit, continuous, sketchCommand, onSketchAction, sketchReceipt, onSketchReceiptCheck }: {
-  busy: boolean; canEdit: boolean; selectionCount: number; toolName: string; lengthUnit: string; continuous: boolean;sketchCommand?:SketchCommandState;onSketchAction?:(action:SketchCommandAction)=>void;
+export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengthUnit, continuous, prompt, sketchCommand, onSketchAction, sketchReceipt, onSketchReceiptCheck }: {
+  prompt?:string; busy: boolean; canEdit: boolean; selectionCount: number; toolName: string; lengthUnit: string; continuous: boolean;sketchCommand?:SketchCommandState;onSketchAction?:(action:SketchCommandAction)=>void;
   sketchReceipt?:SketchCommitReceipt;onSketchReceiptCheck?:()=>void;
 }) {
   const preferences = useUIPreferences();
@@ -35,7 +35,8 @@ export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengt
       {sketchCommand.phase==="unknown"&&!sketchReceipt&&<Button size="small" onClick={()=>onSketchAction?.({type:"retry"})}>确认原请求结果</Button>}
     </div>}
     {sketchReceipt?.status==="unknown"&&<Button size="small" onClick={onSketchReceiptCheck}>确认草图结果</Button>}
-    {!sketchCommand&&<span className="workbench-selection-count">{selectionCount ? `已选择 ${selectionCount} 项` : "未选择对象"}</span>}
+    {prompt&&<span role="status" className="workbench-sketch-role" title={prompt}>{prompt}</span>}
+    {!sketchCommand&&!prompt&&<span className="workbench-selection-count">{selectionCount ? `已选择 ${selectionCount} 项` : "未选择对象"}</span>}
     <span className="workbench-status-spacer" />
     <ViewportSettingsButton grids={preferences.gridVisibility} onGrids={preferences.setGridVisibility} references={preferences.referenceVisibility} display={preferences.solidDisplay}
       onReferences={preferences.setReferenceVisibility} onDisplay={preferences.setSolidDisplay}
