@@ -194,6 +194,29 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 				t.Fatal("axial location incorrect", pose)
 			}
 		}
+		// Without Ground, the first pick moves and the second pick retains its
+		// nominal pose. This is the ordinary assembly creation hierarchy.
+		ordered := req
+		ordered.Mechanism.Joints = []workspace.MechanismJoint{complete.Joints[1]}
+		orderedPreview, err := service.PreviewMechanism(t.Context(), view.Document.ID, ordered)
+		if err != nil {
+			t.Fatal("selection motion priority", err)
+		}
+		for _, p := range orderedPreview.InstancePoses {
+			if p.InstanceID != complete.Joints[1].Second.InstanceID {
+				continue
+			}
+			for _, nominal := range view.Product.Instances {
+				if nominal.ID != p.InstanceID {
+					continue
+				}
+				for k := 0; k < 3; k++ {
+					if math.Abs(p.Translation[k]-nominal.Translation[k]) > 1e-7 {
+						t.Fatal("second pick moved", p, nominal)
+					}
+				}
+			}
+		}
 		unchanged, err := service.GetDocument(t.Context(), view.Document.ID)
 		if err != nil || unchanged.Document.VersionID != head || len(unchanged.Product.Constraints) != 1 || len(unchanged.Product.Kinematics.Mechanisms) != 0 || !reflect.DeepEqual(unchanged.Product.Instances, view.Product.Instances) {
 			t.Fatal("preview modified formal model", err)

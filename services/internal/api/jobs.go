@@ -335,3 +335,21 @@ func (server *Server) ownedJob(writer http.ResponseWriter, request *http.Request
 	writeError(writer, http.StatusForbidden, "job action denied")
 	return jobs.Job{}, false
 }
+
+func (server *Server) deleteMotionResult(writer http.ResponseWriter, request *http.Request) {
+	job, ok := server.ownedJob(writer, request)
+	if !ok {
+		return
+	}
+	actor := principal(request)
+	updated, err := server.jobs.DeleteMotionResult(request.Context(), job.ID, actor.ID, actor.PlatformRole == "ADMIN")
+	if errors.Is(err, jobs.ErrNotDismissible) {
+		writeError(writer, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, updated)
+}

@@ -1,4 +1,4 @@
-import {makeMechanismMarkers} from '../cad/assembly/mechanism-markers';
+import {mechanismConstraints} from '../cad/assembly/mechanism-constraints';
 import {isExternalProjectionSource} from "../cad/interaction/external-projection-selection";
 import { featureContribution, topologyFeatureAssociation, sameDisplayContext } from "../cad/interaction/feature-association";
 import { patternEntityStatus } from "../features/workbench/pattern-selection";
@@ -388,13 +388,11 @@ export class CadViewportEngine {
   private visibilityResolver?: VisibilityResolver;
   private readonly resizeObserver: ResizeObserver;
   private animationFrame = 0;
-  private mechanismGuides?:THREE.Group;
   private mechanismDefinition?:import('../cad/assembly/motion-study').Mechanism;
   private mechanismSelection?:string;
   showMechanism(m?:import('../cad/assembly/motion-study').Mechanism,selected?:string):void {
-    if(this.mechanismGuides){this.analysisScene.remove(this.mechanismGuides);this.disposeRenderable(this.mechanismGuides);this.mechanismGuides=undefined;}
     this.mechanismDefinition=m;this.mechanismSelection=selected;
-    if(m){this.mechanismGuides=makeMechanismMarkers(m,this.instanceGroups,selected);this.analysisScene.add(this.mechanismGuides);}
+    if(this.view)this.addAssemblyConstraintMarkers(this.view);
     this.invalidate();
   }
   private disposed = false;
@@ -1700,6 +1698,7 @@ export class CadViewportEngine {
     this.highlightedRoots.clear();
     const withAssemblyReferences = (selections: readonly SelectionItem[]) => selections.filter(s=>!this.featureSelection?.localSketchId||!s.sketchReference).flatMap((selection) =>
       selection.kind === "assembly-constraint" ? [selection, ...(this.assemblyConstraintReferences.get(this.assemblyMarkerKey(selection.documentId ?? "",selection.occurrencePath ?? "",selection.constraintId)) ?? [])]
+        : selection.kind === 'kinematic-object' ? [selection,...[...this.assemblyConstraintMarkers].filter(([,entry])=>entry.selection.kind==='kinematic-object'&&(entry.selection.id===selection.id||entry.selection.id.startsWith(selection.id+'/')||selection.id===this.mechanismDefinition?.id)).flatMap(([key,entry])=>[entry.selection,...(this.assemblyConstraintReferences.get(key)??[])])]
         : selection.kind === "publication" && selection.highlightTarget ? [selection.highlightTarget] : [selection]);
     for (const object of this.selectionIndex.objectsForMany(this.featureSelection?.contextSelections ?? [])) {
       if (!this.objectVisible(object)) continue;
@@ -1903,7 +1902,7 @@ export class CadViewportEngine {
     // A separate projection from geometry: never hydrate GLB or rebuild bodies.
     this.assemblyConstraintMarkers ??= new Map();
     const live=new Set<string>();
-    const scopes:Array<{view:DocumentDescriptor;occurrence:string;treeNodeId:string;instancePath?:import("../types").InstancePath}>=[{view,occurrence:"",treeNodeId:`document:${view.document.id}`},...(view.constraintDisplayScopes??[]).map(scope=>({
+    let scopes:Array<{view:DocumentDescriptor;occurrence:string;treeNodeId:string;instancePath?:import("../types").InstancePath}>=[{view,occurrence:"",treeNodeId:`document:${view.document.id}`},...(view.constraintDisplayScopes??[]).map(scope=>({
       view:{document:{...view.document,id:scope.documentId,versionId:scope.versionId},product:{instances:[],constraints:scope.constraints}},
       occurrence:scope.instancePath.canonical,treeNodeId:scope.treeNodeId,instancePath:scope.instancePath}))];
     // Only the explicitly editable occurrence follows its authoritative draft
@@ -1913,6 +1912,7 @@ export class CadViewportEngine {
       const scope=scopes.find(scope=>scope.occurrence===editing.occurrencePath && scope.view.document.id===editing.view.document.id);
       if(scope)scope.view=editing.view;
     }
+    if(this.mechanismDefinition)scopes=[{view:{...view,product:{...view.product!,constraints:mechanismConstraints(this.mechanismDefinition)}},occurrence:"",treeNodeId:`document:${view.document.id}`}];
     for(const scope of scopes)this.reconcileAssemblyConstraintMarkers(scope.view,scope.occurrence,live,scope.treeNodeId,scope.instancePath);
     for(const [key,entry] of this.assemblyConstraintMarkers)if(!live.has(key))this.removeAssemblyConstraintMarker(key,entry);
     this.refreshInteractionHighlights();
@@ -1960,8 +1960,14 @@ export class CadViewportEngine {
         .multiplyScalar(1 / located.length);
       const span = located.length > 1 ? located[0].anchor.distanceTo(located[1].anchor) : 0;
       markerPosition.z += Math.max(4, span * 0.08);
-      const treeNodeId = `${treePath ?? `document:${view.document.id}`}/assembly-constraints/constraint:${constraint.id}`;
-      const selection: SelectionItem = { kind: "assembly-constraint", id: constraint.id, constraintId: constraint.id,
+      let treeNodeId = `${treePath ?? `document:${view.document.id}`}/assembly-constraints/constraint:${constraint.id}`;
+      const mechanism=this.mechanismDefinition;
+      let selection:SelectionItem;
+      if(mechanism){
+        const find=(node:DocumentStructureNode):DocumentStructureNode|undefined=>(node.kind==='JOINT_EXPANSION'&&node.entityId===constraint.id||node.kind==='MECHANISM_JOINT'&&constraint.id===node.entityId+'/ground')?node:node.children?.map(find).find(Boolean);
+        treeNodeId=view.structureTree?find(view.structureTree)?.id??treeNodeId:treeNodeId;
+        selection={kind:'kinematic-object',id:constraint.id,documentId:view.document.id,versionId:view.document.versionId,treeNodeId};
+      }else selection = { kind: "assembly-constraint", id: constraint.id, constraintId: constraint.id,
         constraintType: constraint.kind, documentId: view.document.id, occurrencePath:occurrence, instancePath, rootDocumentId:occurrence ? this.view?.document.id : undefined, treeNodeId };
       const group = new THREE.Group(); group.position.copy(markerPosition); group.userData = selection;
       const address = this.semanticVisibilityAddress(selection);

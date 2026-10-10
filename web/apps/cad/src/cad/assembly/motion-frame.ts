@@ -1,13 +1,10 @@
 import * as THREE from 'three';
 import type {DocumentView} from '../../types';
 import type {TransformTransitionSystem, TransformTarget} from '../animation/transform-transition';
-import type {MotionPlayback, MotionPose} from './motion-study';
+import type {MotionPlayback} from './motion-study';
 
-export function validMotionPose(pose: MotionPose): boolean {
-  return pose.translation.length === 3 && pose.rotation.length === 4
-    && [...pose.translation, ...pose.rotation].every(Number.isFinite)
-    && Math.abs(pose.rotation.reduce((sum, v) => sum + v * v, 0) - 1) < 1e-8;
-}
+import {validMotionPose} from './motion-study';
+export {validMotionPose} from './motion-study';
 
 // Resolve the entire frozen frame before writing any scene object. Hydration may
 // not have created all owning-unit groups yet; defer instead of showing half a loop.

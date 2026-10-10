@@ -22,7 +22,7 @@
 
 条件表达式支持 `fact/equals`、`all`、`any`、`not`。事实来自现有状态：hostType、targetType、sketchActive、canEdit、rootCanEdit、busy、selectionKind、selectionCount、hasWorkingBody、moveReceiptPending、isMock、rootTarget、motionActive。每次状态改变在前端同步计算，不向后端请求选择变化。显示、可执行及活动态分别投影；隐藏入口不会禁止合法快捷键调用，执行仍检查条件、实现 capability 与后端 ACL。
 
-Toolbar Tab 按文档会话及工作台保存当前分类，唯一 `WorkbenchCommands` 使用 `useWorkbenchTab` 读取选择。普通分类切换只改变呈现。根 Product 的机构入口及 Mechanism 树双击进入显式应用编辑会话，catalog 的互斥 contexts 根据 `motionActive` 显示 KINEMATICS_DMU 分类并隐藏装配分类；切换该应用内部的视图/文档分类不退出机构。进入/退出清理交互命令，退出释放临时姿态并恢复最新正式模型；进入本身不发模型命令、不写 Revision，尚未确认操作的默认机构草稿直接丢弃。嵌套 Product 编辑使用原装配分类，不提供宿主机构入口。后台读取和刷新保持既有打开标签顺序。
+Toolbar Tab 按文档会话及工作台保存当前分类，唯一 `WorkbenchCommands` 使用 `useWorkbenchTab` 读取选择。普通分类切换只改变呈现。根 Product 的机构入口及 Mechanism 树双击进入显式应用编辑会话，catalog 的互斥 contexts 根据 `motionActive` 显示 KINEMATICS_DMU 分类并隐藏装配分类；切换该应用内部的视图/文档分类不退出机构。进入/退出清理交互命令，退出释放临时姿态并恢复最新正式模型；DMU 分类的“机构”入口通过正式 SAVE_KINEMATICS 创建空节点；未编辑的新空机构退出时经同一命令清理，已有或被编辑的机构保留。没有重复新建命令、示例分类或轮询运行结果树节点。嵌套 Product 编辑使用原装配分类，不提供宿主机构入口。后台读取和刷新保持既有打开标签顺序。
 
 ## 实现注册与操作生命周期
 

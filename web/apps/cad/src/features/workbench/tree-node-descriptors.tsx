@@ -11,7 +11,7 @@ type Kind = DocumentStructureNode["kind"];
 type Descriptor = { icon: ReactNode; visibility?: true };
 
 const descriptors: Partial<Record<Kind, Descriptor>> = {
- MOTION_RUN:{icon:<SyncOutlined/>},APPLICATIONS:{icon:<ApartmentOutlined/>},MECHANISM:{icon:<GatewayOutlined/>},MECHANISM_JOINT:{icon:<NodeIndexOutlined/>},MOTION_DRIVER:{icon:<AimOutlined/>},MOTION_STUDY:{icon:<SyncOutlined/>},INTERFERENCE_ANALYSIS:{icon:<ExclamationCircleOutlined/>},JOINT_SUPPORT:{icon:<AimOutlined/>},JOINT_EXPANSION:{icon:<NodeIndexOutlined/>},JOINT_SOURCE:{icon:<GatewayOutlined/>},MOTION_ASSOCIATION:{icon:<GatewayOutlined/>},
+ APPLICATIONS:{icon:<ApartmentOutlined/>},MECHANISM:{icon:<GatewayOutlined/>},MECHANISM_JOINT:{icon:<NodeIndexOutlined/>},MOTION_DRIVER:{icon:<AimOutlined/>},MOTION_STUDY:{icon:<SyncOutlined/>},INTERFERENCE_ANALYSIS:{icon:<ExclamationCircleOutlined/>},JOINT_SUPPORT:{icon:<AimOutlined/>},JOINT_EXPANSION:{icon:<NodeIndexOutlined/>},JOINT_SOURCE:{icon:<GatewayOutlined/>},MOTION_ASSOCIATION:{icon:<GatewayOutlined/>},
   ASSEMBLY_CONSTRAINT:{icon:<GatewayOutlined />,visibility:true},
   ASSEMBLY_CONSTRAINT_SET:{icon:<GatewayOutlined />,visibility:true},
   PRODUCT: { icon: <ApartmentOutlined /> }, PART: { icon: <BuildOutlined /> },
@@ -48,7 +48,7 @@ const descriptors: Partial<Record<Kind, Descriptor>> = {
 };
 
 export function treeNodeIcon(node: Pick<DocumentStructureNode, "kind" | "diagnostic" | "evaluationStatus" | "operation">): ReactNode {
-  if (node.kind === "ASSEMBLY_CONSTRAINT") {
+  if (node.kind === "ASSEMBLY_CONSTRAINT" || node.kind === "JOINT_EXPANSION") {
     const status = assemblyStatusFromDiagnostic(node.evaluationStatus ?? node.diagnostic);
     const detail = ASSEMBLY_CONSTRAINT_STATUS[status];
     const icon = status === "VERIFIED" ? <CheckCircleOutlined /> : status === "BROKEN" ? <CloseCircleOutlined />

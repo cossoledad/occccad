@@ -162,7 +162,7 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 		}
 	}
 	if previewJoint != nil {
-		intent = &geometry.AssemblySolveIntent{MovingBodyIDs: []string{previewJoint.Second.InstanceID}, ReferenceBodyIDs: []string{previewJoint.First.InstanceID}, PreferencePolicy: "MOVE_FIRST_MINIMIZE_REFERENCE"}
+		intent = &geometry.AssemblySolveIntent{MovingBodyIDs: []string{previewJoint.First.InstanceID}, ReferenceBodyIDs: []string{previewJoint.Second.InstanceID}, PreferencePolicy: "MOVE_FIRST_MINIMIZE_REFERENCE"}
 	}
 	var capture func([]byte, error)
 	if diagnostic != nil {

@@ -383,3 +383,17 @@ func (service *Service) FinishMotion(ctx context.Context, jobID, workerID string
 	}
 	return err
 }
+
+var ErrNotDismissible = errors.New("only terminal motion results can be deleted")
+
+// Remove a terminal run from the user's history without destroying artifacts
+// referenced by immutable revisions or the audit/attempt records.
+func (service *Service) DeleteMotionResult(ctx context.Context, id, userID string, admin bool) (Job, error) {
+	result, err := service.change(ctx, `UPDATE occccad.jobs SET user_visible=false
+ WHERE id=$1 AND (requested_by_user_id=$2 OR $3) AND job_type='MOTION_STUDY'
+ AND state IN ('SUCCEEDED','FAILED','CANCELED') RETURNING `+jobColumns, "", "", "", id, userID, admin)
+	if errors.Is(err, database.ErrNoRows) {
+		return Job{}, ErrNotDismissible
+	}
+	return result, err
+}

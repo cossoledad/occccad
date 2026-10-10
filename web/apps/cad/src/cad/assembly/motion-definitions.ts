@@ -26,11 +26,8 @@ export function motionSelectionTargets(view:import('../../types').DocumentView,s
   if(selection.kind!=='kinematic-object')return [selection];
   const m=defs.mechanisms.find(m=>m.id===selection.id||m.joints.some(j=>j.id===selection.id||selection.id.startsWith(j.id+"/"))||defs.drivers?.some(d=>d.id===selection.id&&d.mechanismId===m.id)||defs.studies.some(s=>s.id===selection.id&&s.mechanismId===m.id));
   const j=m?.joints.find(j=>j.id===selection.id||selection.id.startsWith(j.id+"/"));const unitIds=j?[j.first.instanceId,...(j.second?[j.second.instanceId]:[])]:m?.unitIds??[];
+  if(j&&selection.id!==j.id)return [selection]; // exact relation/support highlight belongs to the shared renderer
   const a=defs.analyses?.find(a=>a.id===selection.id);
-  return (view.resolvedInstances??[]).filter(v=>a?!(a.scope?.length)||a.scope.some(scope=>scope.bodyId===v.bodyId&&scope.instancePath.canonical===v.instancePath.canonical):unitIds.includes(v.instancePath.segments[0]?.instanceId)).map(v=>({kind:'body' as const,id:`${v.occurrencePath}:body:${v.bodyId}`,bodyId:v.bodyId,documentId:v.instancePath.segments.at(-1)?.referencedDocumentId,versionId:v.instancePath.segments.at(-1)?.resolvedVersionId,instanceId:v.instancePath.segments[0]?.instanceId,instancePath:v.instancePath,occurrencePath:v.occurrencePath,geometryKey:v.geometryKey}));
+  return [selection,...(view.resolvedInstances??[]).filter(v=>a?!(a.scope?.length)||a.scope.some(scope=>scope.bodyId===v.bodyId&&scope.instancePath.canonical===v.instancePath.canonical):unitIds.includes(v.instancePath.segments[0]?.instanceId)).map(v=>({kind:'body' as const,id:`${v.occurrencePath}:body:${v.bodyId}`,bodyId:v.bodyId,documentId:v.instancePath.segments.at(-1)?.referencedDocumentId,versionId:v.instancePath.segments.at(-1)?.resolvedVersionId,instanceId:v.instancePath.segments[0]?.instanceId,instancePath:v.instancePath,occurrencePath:v.occurrencePath,geometryKey:v.geometryKey}))];
  });
-}
-
-export function motionResultNodes(view:import('../../types').DocumentView,jobs:readonly import('../../types').Job[]):import('../../types').DocumentStructureNode[] {
- return jobs.filter(j=>j.documentId===view.document.id&&j.type==='MOTION_STUDY').map(j=>({id:`${view.document.id}/applications/run:${j.id}`,kind:'MOTION_RUN',entityId:j.id,name:`${String(j.payload.studyName??'研究')} · ${j.state} · ${j.createdAt}`,documentId:view.document.id,versionId:j.versionId,subject:{documentId:view.document.id,entityKind:'MOTION_RUN',entityId:j.id},snapshot:j.versionId?{revisionId:j.versionId}:undefined,capabilities:['ACTIVATE'],children:[],diagnostic:j.errorMessage}));
 }

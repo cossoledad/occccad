@@ -71,7 +71,7 @@ import { SpecificationTree, type SpecificationTreeNode } from "./specification-t
 import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } from "./product-edit-context";
 import { assemblyAutomaticPreviewAllowed, createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
-import {kinematicKinds,motionResultNodes,motionSelectionTargets,deleteMotionObjects,renameMotionObject} from "../../cad/assembly/motion-definitions";
+import {kinematicKinds,motionSelectionTargets,deleteMotionObjects,renameMotionObject} from "../../cad/assembly/motion-definitions";
 import {MotionStudyPanel,type MotionPanelHandle} from "./motion-study-panel";
 import type {MotionPlayback} from "../../cad/assembly/motion-study";
 import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
@@ -439,7 +439,7 @@ export function Workbench() {
   const moveCommand = useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),
     onSuccess:(updated)=>{void refresh(updated);},onError:()=>{void refresh();}});
   const view = document.data;
- const motionJobs=useQuery({queryKey:["motion-jobs",documentID],queryFn:async()=>(await api.listJobs()).filter(j=>j.type==="MOTION_STUDY"&&j.documentId===documentID),enabled:Boolean(view?.product),refetchInterval:5000});
+
   const featureOccurrenceContext = activeInstancePath ? {
     instancePath: editSession?.editTarget.instancePath, rootDocumentId: documentID,
     contextVariantKey: view?.contextVariants?.find(v => v.owningInstancePath.canonical === activeInstancePath)?.variantKey,
@@ -665,7 +665,7 @@ export function Workbench() {
         : undefined;
       const ownVisible = semantic?.effectiveVisible ?? treeVisibilityOverride(visibilityKey, treeVisibilityOverrides) ?? node.localVisible ?? true;
       const actionOwner = node.kind === "INSTANCE" ? node.ownerDocumentId : node.documentId;
-      const ownerEditable = Boolean(!motionDisplay && (!motionOpen||kinematicKinds.includes(node.kind??"")) && editingView && actionOwner === editingView.document.id &&
+      const ownerEditable = Boolean(!motionDisplay && (!motionOpen||kinematicKinds.includes(node.kind??"")||node.kind==="JOINT_EXPANSION") && editingView && actionOwner === editingView.document.id &&
         ["OWNER", "EDITOR"].includes(editingView.document.permission ?? ""));
       return { ...node, hidden: !ownVisible, definitionVisible: semantic?.definitionVisible ?? node.definitionVisible, localVisible: semantic?.localVisible ?? node.localVisible,
         capabilities: ownerEditable ? node.capabilities : node.capabilities?.filter((capability) => capability !== "EDIT" && capability !== "DELETE" && capability !== "SUPPRESS" && capability !== "RENAME"),
@@ -674,8 +674,8 @@ export function Workbench() {
         visibilityBlocker: semantic?.blockedBy ? `${semantic.blockedBy.kind} · ${semantic.blockedBy.entityId}` : undefined,
         children: node.children?.map(decorate) };
     };
-    return displayView ? treeData(displayView,motionDisplay?undefined:editingView,motionDisplay?undefined:motionResultNodes(displayView,motionJobs.data??[])).map((node) => decorate(node)) : [];
-  }, [view, motionJobs.data, motionDisplay, motionOpen, editingView, editSession, store.activeSketchID, activeInstancePath, treeVisibilityOverrides]);
+    return displayView ? treeData(displayView,motionDisplay?undefined:editingView).map((node) => decorate(node)) : [];
+  }, [view, motionDisplay, motionOpen, editingView, editSession, store.activeSketchID, activeInstancePath, treeVisibilityOverrides]);
   useEffect(()=>{
     normalViewRequest.current+=1;
     return ()=>{normalViewRequest.current+=1;};
@@ -703,7 +703,7 @@ export function Workbench() {
   const commandFacts={rootTarget:Boolean(view&&editingView?.document.id===view.document.id),motionActive:Boolean(motionOpen&&view&&editingView?.document.id===view.document.id&&!store.activeSketchID),isMock:isMockMode,moveReceiptPending,hostType:view?.document.type??"PART",targetType:editingView?.document.type??"PART",sketchActive:Boolean(store.sketchPlane),canEdit,rootCanEdit:canEditRoot,busy:command.isPending,selectionKind:store.selection?.kind??"",selectionCount:store.selections.length,hasWorkingBody:Boolean(workingBodyID)};
   const activeTabs=toolbarCatalog.data?contextTabs(toolbarCatalog.data,commandFacts):[];
  const activeWorkbench=activeTabs[0]?.workbench??"";
- const setMotionOpen=(open:boolean)=>{commandRegistry.cancel();closeCommandPanels();store.setActiveTool("select","once");store.setSelections([]);setMotionSession(open?documentID:undefined);if(open)motionPanel.current?.execute("enter");};
+ const setMotionOpen=(open:boolean)=>{commandRegistry.cancel();closeCommandPanels();store.setActiveTool("select","once");store.setSelections([]);setMotionSession(open?documentID:undefined);if(open)void motionPanel.current?.execute("enter");};
  const previousMotionOpen=useRef(motionOpen);
  useEffect(()=>{if(previousMotionOpen.current&&!motionOpen){commandRegistry.cancel();store.setActiveTool("select","once");store.setSelections([])}previousMotionOpen.current=motionOpen;},[motionOpen,commandRegistry]);
 
@@ -1043,7 +1043,6 @@ export function Workbench() {
       node.presentationRole !== "INPUT_REFERENCE").map((node) => [`${node.documentId}:${node.kind}:${node.entityId}`, node])).values()];
     if(candidates.some(node=>kinematicKinds.includes(node.kind??""))){
  if(!view?.product?.kinematics||candidates.some(node=>!kinematicKinds.includes(node.kind??"")))return;
- void message.info("删除机构对象同时清理其驱动/研究依赖；正式装配约束保留。");
  command.mutate(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:deleteMotionObjects(view.product!.kinematics!,candidates.map(n=>n.entityId!))}));return;
  }
  const selectedFeatures = new Set(candidates.filter((node) => !["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!))
@@ -1148,7 +1147,7 @@ onOpenDocumentTab:async(node,operation) => {
                 .catch((error: Error) => {if(!operation||operation.current)message.error(`打开文档失败：${error.message}`);});
             },
 onActivate:async(node,operation) => {
- if(node.kind==="MOTION_RUN"){setMotionSession(documentID);motionPanel.current?.execute("result",node.entityId,operation);return}
+ if(node.kind==="JOINT_EXPANSION"){if(!motionDisplay)await commandRegistry.execute("tree.edit",{payload:{node}});return}
  if(node.kind==="MECHANISM"){setMotionSession(documentID);motionPanel.current?.execute("enter",node.entityId);return}
  if(kinematicKinds.includes(node.kind??"")){if(!motionDisplay)await commandRegistry.execute("tree.edit",{payload:{node}});return}
               if (node.kind === "BODY" && node.documentId === editingView?.document.id && node.bodyId) {
@@ -1173,6 +1172,7 @@ onActivate:async(node,operation) => {
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             },
 onEdit:(node,operation) => {
+ if(node.kind==="JOINT_EXPANSION"){setMotionSession(documentID);void motionPanel.current?.execute("edit-relation",node.entityId,operation);return}
  if(kinematicKinds.includes(node.kind??"")){setMotionSession(documentID);motionPanel.current?.execute("edit",node.entityId,operation);return}
               if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
                 const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
@@ -1531,7 +1531,7 @@ onToggleConstruction:(node)=>{
   return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><section className="cad-workbench">
 
     {historyResult&&<Alert type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/> }
-    {view.product&&<MotionStudyPanel ref={motionPanel} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onMechanism={setMechanismDefinition} onStatus={setMotionStatus} onSelectionSession={setFeatureSelection} onPreview={poses=>{viewport.current?.clearCommandPreview();if(poses)viewport.current?.previewAssemblyPoses(poses,"immediate")}} onSave={async k=>{if(command.isPending)throw new Error("当前命令尚未完成");const updated=await command.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:k}));await refresh(updated)}} onApply={async motionApply=>{const updated=await command.mutateAsync(()=>api.command(view.document.id,{type:"APPLY_MOTION_FRAME",versionId:view.document.versionId,motionApply}));store.setSelections([]);await refresh(updated)}} onDemo={async kind=>{const updated=await command.mutateAsync(()=>api.createMotionDemo(view.document.id,view.document.versionId,kind));await refresh(updated)}} onPlayback={setMotionDisplay} onHighlight={store.setSelections} onClose={()=>{setMotionSession(undefined);setMotionDisplay(undefined);store.setSelections([])}}/>}
+    {view.product&&<MotionStudyPanel ref={motionPanel} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onMechanism={setMechanismDefinition} onStatus={setMotionStatus} onSelectionSession={setFeatureSelection} onPreview={poses=>{viewport.current?.clearCommandPreview();if(poses)viewport.current?.previewAssemblyPoses(poses,"immediate")}} onSave={async k=>{if(command.isPending)throw new Error("当前命令尚未完成");const updated=await command.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:k}));await refresh(updated)}} onApply={async motionApply=>{const updated=await command.mutateAsync(()=>api.command(view.document.id,{type:"APPLY_MOTION_FRAME",versionId:view.document.versionId,motionApply}));store.setSelections([]);await refresh(updated)}} onPlayback={setMotionDisplay} onHighlight={store.setSelections} onClose={()=>{setMotionSession(undefined);setMotionDisplay(undefined);store.setSelections([])}}/>}
     <WorkbenchLayout documentName={editingView?.document.name ?? view.document.name}
       inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
 

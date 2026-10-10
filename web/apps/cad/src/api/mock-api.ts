@@ -1161,7 +1161,6 @@ export const mockApi: CadApi = {
       attemptCount: 1, maxAttempts: 3, createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };
     jobs.set(job.id, job); return pause(job);
   },
-  createMotionDemo:async()=>{throw new Error("演示创建需要实际后端");},
   planMotionApply:async()=>{throw new Error("转换需要实际后端");},
  motionJointProposals:async()=>[],
  previewMechanism:async()=>{throw new Error("机构预览需要连接实际后端");},
@@ -1169,6 +1168,10 @@ export const mockApi: CadApi = {
   getMotionRun:async()=>{throw new Error("机构与 DMU 需要连接实际后端");},
   getJob: async (jobID) => pause(jobs.get(jobID)!),
   listJobs: async () => pause([...jobs.values()].filter((job) => job.userVisible).reverse()),
+  deleteMotionResult:async(jobID)=>{
+    const job=jobs.get(jobID);if(!job||job.type!=='MOTION_STUDY'||!['SUCCEEDED','FAILED','CANCELED'].includes(job.state))throw new Error('only terminal motion results can be deleted');
+    const updated={...job,userVisible:false};jobs.set(jobID,updated);return pause(updated);
+  },
   cancelJob: async (jobID) => {
     const job = jobs.get(jobID)!;
     const updated = { ...job, state: "CANCELED" as const, canCancel: false, canRetry: true,

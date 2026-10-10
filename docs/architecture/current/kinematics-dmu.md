@@ -4,9 +4,9 @@
 
 ## 应用、定义与几何身份
 
-根 Product 的“机构与 DMU”入口命令进入显式编辑会话，Applications 中 Mechanism 双击进入已有定义；它与单次命令/对话框生命周期分开，类似草图编辑态。唯一 `workbenchconfig/catalog.json` 用 `motionActive` 投影互斥的 `ASSEMBLY_DESIGN` / `KINEMATICS_DMU` contexts：进入后装配设计 Tab 消失，视图/文档/诊断分类仍属于当前应用；退出才恢复装配分类。不另建应用 Tabs 或 DMU 文档。进入新机构只建立暂态默认草稿，没有确认操作就退出不会写 Revision；第一次确认定义操作在同一次 `SAVE_KINEMATICS` 中包含默认机构。领域 API 仍允许显式保存空机构。
+根 Product 的 DMU 分类“机构”入口命令进入显式编辑会话，Applications 中 Mechanism 双击进入已有定义；它与单次命令/对话框生命周期分开，类似草图编辑态。唯一 `workbenchconfig/catalog.json` 用 `motionActive` 投影互斥的 `ASSEMBLY_DESIGN` / `KINEMATICS_DMU` contexts：进入后装配设计 Tab 消失，视图/文档/诊断分类仍属于当前应用；退出才恢复装配分类。不另建应用 Tabs 或 DMU 文档。进入新机构即通过 `SAVE_KINEMATICS` 创建空机构和结构树节点，使用既有 CAS/Revision/Undo。与新草图一致，未编辑的本次空机构在显式退出时通过正式命令清理；已有空机构不自动删除，其他 Head 变化时不清理。没有重复的“新建机构”命令或示例工具栏。
 
-定义、运行设置、结果回放及转换都由 CommandRegistry 的 form 命令打开统一 `CommandDialog`，复用 `CommandOperation`；进入/退出、播放/单步和明确取消后台任务是 handler。提示使用 `WorkbenchStatus.prompt`，失败走 `useOperationFeedback` 的统一诊断出口。没有额外顶部提示条或视口下方区域，视口大小不随应用/回放变化。Applications 树投影 Mechanism、Joint、MotionDriver、MotionStudy、InterferenceAnalysis、只读来源/展开项/发布映射与任务运行节点。Ground 显示“固定件 (实例名)”，接合显示双方实例，支撑子节点显示轴线/定位平面；派生名称不反写定义。选择通过稳定对象 ID 映射完整 occurrence + Body 高亮，视口分析层显示 Ground、接合轴及定位平面标记。重命名、编辑、删除走正式命令；通用树命令的 catalog 条件允许可编辑机构对象，冻结回放的 rootCanEdit=false 仍拒绝。
+定义、运行设置、结果回放及转换都由 CommandRegistry 的 form 命令打开统一 `CommandDialog`，复用 `CommandOperation`；进入/退出、播放/单步和明确取消后台任务是 handler。提示使用 `WorkbenchStatus.prompt`，失败走 `useOperationFeedback` 的统一诊断出口。没有额外顶部提示条或视口下方区域，视口大小不随应用/回放变化。Applications 树投影 Mechanism、Joint、MotionDriver、MotionStudy、InterferenceAnalysis、来源/展开项/发布映射。Ground 显示“固定件 (实例名)”，旋转接合只显示定义名称，下面是“同心”和“偏移”两个关系，轴线/平面引用在对应关系下。关系只有 EDIT 能力，编辑委托所属 Joint，并自动进入对应选择字段，不形成独立可删除/重命名的第二套定义。派生名称不反写定义。选择通过稳定对象 ID、完整 occurrence + Body 和关系引用高亮。视口复用装配约束的 glyph、引线、SelectionIndex 和几何引用高亮；机构进入后用所属接合关系投影替换正式装配约束标记，不绘制另一套机构箭头或图标。重命名、编辑、删除走正式命令；通用树命令的 catalog 条件允许可编辑机构对象，冻结回放的 rootCanEdit=false 仍拒绝。
 
 Product 的 `kinematics` 保存独立定义；运行结果是 Job/Artifact。允许保存空机构、暂未接地的机构及逐步添加的接合。MotionDriver 引用 Revolute/Prismatic 运动坐标，MotionStudy 必须引用 Driver，保存线性时间规律；干涉范围、间隙和同刚体内部检查保存于 InterferenceAnalysis，可独立检查当前姿态或关联 Study。单坐标试动可直接引用 Driver，不要求先保存时间研究，生成冻结的临时两帧研究而不增加定义 Revision。研究中的 driverJointId、DMU 设置是冻结运行派生值，不接受作为另一套持久定义编辑。删除机构/接合联动清理依赖驱动、研究和映射；被删除研究的分析解除研究关联而保留分析。删除接合或解除来源/发布关联不删除正式 Product 约束。
 
@@ -16,25 +16,25 @@ Product 的 `kinematics` 保存独立定义；运行结果是 Job/Artifact。允
 
 接合选择复用 `FeatureSelectionSession` 和 SelectionIndex，树与视口采用同一 owning-unit、typed InstancePath/Revision 及角色过滤。轴线角色只接纳精确 AXIS（圆柱/圆/圆锥经既有支持解析派生轴）；平面角色只接纳精确 PLANE，定位平面须属于相应轴的刚体。当前字段自动从第一轴线推进到第二轴线、第一平面、第二平面；点击已绑定字段进入替换，已绑定支撑保留在同一会话中持续高亮。类型未解析的首次点击通过共享会话等待精确解析再绑定，不提供手动“识别轴线/使用当前选择”按钮。解析缓存仅属于当前 Product Revision 和几何引用；计算/连接失败不作为几何不合格判定缓存，后续选择可以重试；命令取消/字段替换后的迟到绑定失效。
 
-`POST /api/documents/{id}/mechanism-preview` 是只读命令预览：Viewer 权限、当前 baseRevisionId、20 s 取消预算及既有规模门禁。两轴选齐先加入同轴硬方程，平面选齐再用同一机构编译器展开完整接合；Ground、其他接合、显式补充关系均保留。正式 Product 约束未显式采用时不进入方程，预览不创建装配 Candidate/约束/Job 或推进 Head。使用生产 profile 与既有移动优先级，要求普通 CONVERGED、完整独立硬见证、运动偏好门禁、有限完整 Pose 及 Joint 验证，再次核对 Head 后返回整帧。失败接入已有装配诊断/可配置 replay。前端复用 assemblyPreviewMachine、请求代际与 AbortController，合格整帧即时显示，未合格候选不覆盖最后接受姿态；确认仅保存接合定义，临时位置在退出时恢复。运动研究仍独立要求 Ground/一个自由坐标/硬驱动，不降低普通装配成功门槛。
+`POST /api/documents/{id}/mechanism-preview` 是只读命令预览：Viewer 权限、当前 baseRevisionId、20 s 取消预算及既有规模门禁。两轴选齐先加入同轴硬方程，平面选齐再用同一机构编译器展开完整接合；Ground、其他接合、显式补充关系均保留。正式 Product 约束未显式采用时不进入方程，预览不创建装配 Candidate/约束/Job 或推进 Head。使用生产 profile 与既有移动优先级（第一选择运动，第二选择先最小运动，再最小总运动；不临时固定参考件），要求普通 CONVERGED、完整独立硬见证、运动偏好门禁、有限完整 Pose 及 Joint 验证，再次核对 Head 后返回整帧。失败接入已有装配诊断/可配置 replay。前端复用 assemblyPreviewMachine、请求代际与 AbortController，合格整帧即时显示，未合格候选不覆盖最后接受姿态；确认仅保存接合定义，临时位置在退出时恢复。运动研究仍独立要求 Ground/一个自由坐标/硬驱动，不降低普通装配成功门槛。
 
 `SAVE_KINEMATICS` 适配版本化 `occccad://product/kinematics/set`，仅修改 `product.kinematics` PropertySlot，必须携带当前 versionId，使用已有幂等事务、Head/sequence CAS、ChangeSet、Outbox、Undo/Redo。不改变正式约束或位姿；保存时解析新增/改变的几何接合，运行时只检查所选机构及其依赖。无关草稿或其他机构的失效引用不阻断所选研究。定义合法不代表研究可运动，DOF 与硬方程门禁在运行时检查。
 
 ## 与正式装配的关系
 
-机构只求解自身 Ground/接合和显式采用的 `supplementalConstraintIds`，不自动继承全部 Product 约束。`GET /api/documents/{id}/motion-joint-proposals` 从 SPACE Fix 和稳定轴相合＋定位平面偏移生成 Ground/Revolute 提案，用户确认后导入并保存来源 ID 与定义基线。来源是引用，接合下的轴相合/轴向定位是只读语义展开项，不是两套可独立修改的真相；已作为接合来源的关系不能又作为补充方程加入。
+机构只求解自身 Ground/接合和显式采用的 `supplementalConstraintIds`，不自动继承全部 Product 约束。`GET /api/documents/{id}/motion-joint-proposals` 从 SPACE Fix 和稳定轴相合＋定位平面偏移生成 Ground/Revolute 提案，用户确认后导入并保存来源 ID 与定义基线。来源是引用，接合下的同心/偏移是所属接合的语义展开项，不是两套可独立修改的真相；已作为接合来源的关系不能又作为补充方程加入。
 
 来源定义变化/删除在树中分别标 SOURCE_CHANGED/SOURCE_DELETED，不静默更新接合或删除原约束；用户可明确重新导入或解除来源关联。它与几何失效分开：来源变化不自动改运动定义，选中机构的几何解析失败则阻止运行。发布映射保存 Joint 与正式 Constraint 的基线；正式关系或接合有变化时转换计划做差异及冲突判断，不使用 solver 私有 ID。
 
 ## 完整硬方程与帧判据
 
-复用生产装配输入冻结/编译器和数值内核；机构编译把派生或显式局部 Frame 转为同一内核的 Point/Axis/Plane descriptor。所有显式采用的活动、未停用、非 Measured 补充装配定义必须有方程，缺失时拒绝运行。已捕获的 Fix Together 展开为硬刚性方程，捕获未完成或试图改变其 Relative Fix 基准时拒绝。
+复用生产装配输入冻结/编译器和数值内核；机构编译把派生或显式局部 Frame 转为同一内核的 Point/Axis/Plane descriptor。同心与偏移复用 Product 约束编译的 `compileAssemblyRelation`（Coincidence 轴适配 CONCENTRIC、SELECTED_PLANE_NORMAL_V1 有向偏移），不再使用点重合＋平行轴的另一组方程。Frame 已包含轴向偏移，数值定位平面间距为零；正式发布仍使用原始持久平面引用及其带符号偏移。所有显式采用的活动、未停用、非 Measured 补充装配定义必须有方程，缺失时拒绝运行。已捕获的 Fix Together 展开为硬刚性方程，捕获未完成或试图改变其 Relative Fix 基准时拒绝。
 
 | 关节 | 硬方程 |
 |---|---|
 | Ground | 基准世界 Pose 的 FIX |
-| Rigid | 原点重合、Z 同向、X 同向 |
-| Revolute | 原点重合、Z 同向；自由坐标为绕 Z 的连续相对角 |
+| Rigid | Z 同轴同向、定位平面偏移、X 同向 |
+| Revolute | Z 同轴同向、定位平面偏移；自由坐标为绕 Z 的连续相对角 |
 | Prismatic | Z 同轴、X 同向；自由坐标为沿 Z 的有向位移 |
 | 单坐标驱动 | 有参考 Z 轴的 ANGLE，或点至平面的 ALONG_SECOND_NORMAL DISTANCE |
 
@@ -72,9 +72,9 @@ KINEMATIC_FAILED 表示本次预算和初值未得到合格帧，不证明无解
 
 运行结果为 MOTION_RUN 制品；Job 的 SUCCEEDED 意味着结果已保存，研究自身 completed/status 和各帧结论决定实际质量。研究停止、数值失败、限位和部分 DMU 都可保存为可查看结果。FinishMotion 原子核对 RUNNING、lease owner、attempt 和未过期 lease；取消请求决定 CANCELED 终态，保存已完成帧，迟到 attempt 不覆盖结果。已有取消监视器取消 RPC，完成制品保存使用有界 WithoutCancel 上下文。排队即取消尚无帧；进程崩溃后未持久化的内存帧不能保证恢复，租约重领重新从冻结基准运行。
 
-`GET /api/jobs/{id}/motion-run` 校验任务访问和 Product viewer 权限，并检查结果制品大小、种类和 SHA；历史版本结果可只读获取。已终止研究不在同一 Job 上手动 Retry，重新运行生成新 Job，保留旧结果；保存之前的基础设施自动重试及租约重领继续沿用现有队列。当前列表沿用用户最近任务列表，最多 100 项，无结果分页索引或独立共享研究库。
+`GET /api/jobs/{id}/motion-run` 校验任务访问和 Product viewer 权限，并检查结果制品大小、种类和 SHA；历史版本结果可只读获取。已终止研究不在同一 Job 上手动 Retry，重新运行生成新 Job，保留旧结果；保存之前的基础设施自动重试及租约重领继续沿用现有队列。当前列表沿用用户最近任务列表，最多 100 项，无结果分页索引或独立共享研究库。结构树只表达设计定义，不再从该轮询列表附加运行结果节点。回放对话框可删除终态结果并刷新统一消息中心列表：`DELETE /api/jobs/{id}/motion-run` 按任务所有者/管理员授权，原子设置既有 user_visible=false，保留 Job/Attempt/Artifact 及历史转换来源，重复删除幂等；活动任务拒绝删除，需先明确取消。
 
-Web 的定义保存走 Domain Command；补充关系选择与解除发布关联先修改本地草稿，确认时一次保存，取消不写 Revision。“运行仿真/运行干涉检查”命令对话框选择保存的定义并确认；“仿真与回放”命令对话框显示冻结运行、整帧定位和 DMU 列表，属性面板保持只读，视口没有常驻活动区域。任务列表由 TanStack Query 获取，草稿、播放、定位为暂态交互。“恢复正式姿态”暂停自动接合预览，直到重新进入或开始定义编辑；之后仍可显式恢复冻结帧回放。关闭命令不退出应用，不清除当前冻结帧；通用命令预览清理后重放该完整帧，防止回滚覆盖。应用退出、上下文/Revision 变化清理播放/高亮及前台任务跟踪，代际门禁忽略迟到响应。后台 Job 不绑定面板生命周期，只有用户明确取消才请求取消任务。旧结果只能显式加载并显示冻结版本标识。历史回放的树、检查器、几何与选择使用同一冻结 view，接合标记使用运行冻结的已解析 Mechanism Frame，禁止编辑冻结树。回放使用整帧所有 owning unit Pose；视口拒绝不完整加载的帧，立即批量设置、不逐零件插值。播放中限制编辑，退出或“恢复正式姿态”恢复当前正式 view，不逐帧写 Revision；选中合格帧可通过下述正式转换命令采用姿态。结果行按完整实例 + Body 高亮，问题帧按钮跳至已保留的干涉/未完成帧。
+Web 的定义保存走 Domain Command；补充关系选择与解除发布关联先修改本地草稿，确认时一次保存，取消不写 Revision。“运行仿真/运行干涉检查”命令对话框选择保存的定义并确认；“仿真与回放”命令对话框显示冻结运行、整帧定位和 DMU 列表，属性面板保持只读，视口没有常驻活动区域。任务列表由 TanStack Query 获取，草稿、播放、定位为暂态交互。切换/启动运行先释放旧结果显示，避免新任务名下保留旧帧；完整姿态和单位 quaternion 验证不通过时拒绝回放，不部分修改场景。“恢复正式姿态”暂停自动接合预览，直到重新进入或开始定义编辑；之后仍可显式恢复冻结帧回放。关闭命令不退出应用，不清除当前冻结帧；通用命令预览清理后重放该完整帧，防止回滚覆盖。应用退出、上下文/Revision 变化清理播放/高亮及前台任务跟踪，代际门禁忽略迟到响应。后台 Job 不绑定面板生命周期，只有用户明确取消才请求取消任务。旧结果只能显式加载并显示冻结版本标识。历史回放的树、检查器、几何与选择使用同一冻结 view，接合约束标记使用冻结几何引用，禁止编辑冻结树。静态 DMU 的空 Mechanism 不进入接合渲染路径，显示“运动学未检查”，不显示不存在的驱动量，仍可加载/关闭/重开结果及查看整帧。回放使用整帧所有 owning unit Pose；视口拒绝不完整加载的帧，立即批量设置、不逐零件插值。播放中限制编辑，退出或“恢复正式姿态”恢复当前正式 view，不逐帧写 Revision；选中合格帧可通过下述正式转换命令采用姿态。结果行按完整实例 + Body 高亮，问题帧按钮跳至已保留的干涉/未完成帧。
 
 ## 应用到装配
 

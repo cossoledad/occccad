@@ -151,6 +151,30 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 	if r := get("00000000-0000-7000-8000-000000000099"); r.Code != 403 {
 		t.Fatal("unauthorized result", r.Code)
 	}
+	remove := func(user string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("DELETE", "/motion-run", nil)
+		r.SetPathValue("jobID", job.ID)
+		r = r.WithContext(access.WithPrincipal(r.Context(), access.User{ID: user}))
+		w := httptest.NewRecorder()
+		server.deleteMotionResult(w, r)
+		return w
+	}
+	if r := remove("00000000-0000-7000-8000-000000000099"); r.Code != 403 {
+		t.Fatal("foreign result deleted", r.Code)
+	}
+	if r := remove(actor); r.Code != 200 {
+		t.Fatal("delete result", r.Code, r.Body.String())
+	}
+	if r := remove(actor); r.Code != 200 {
+		t.Fatal("repeated delete", r.Code)
+	}
+	items, err := queue.ListForUser(t.Context(), actor, 100)
+	if err != nil || len(items) != 0 {
+		t.Fatal("deleted result still listed", items, err)
+	}
+	if r := get(actor); r.Code != 200 {
+		t.Fatal("immutable audit result lost", r.Code)
+	}
 	planRequest := func(user, base string) *httptest.ResponseRecorder {
 		b, _ := json.Marshal(map[string]any{"baseRevisionId": base, "jobId": job.ID, "frameIndex": 0})
 		r := httptest.NewRequest("POST", "/motion-apply-plan", bytes.NewReader(b))

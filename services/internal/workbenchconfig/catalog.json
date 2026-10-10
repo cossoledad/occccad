@@ -5257,8 +5257,8 @@
     },
     {
       "id": "assembly.motion-study",
-      "name": "机构与 DMU",
-      "helpText": "定义关节、运行线性研究、整帧回放和精确干涉/间隙检查",
+      "name": "机构",
+      "helpText": "DMU · 进入机构编辑",
       "iconKey": "distance",
       "repeatable": false,
       "visibleWhen": {
@@ -5280,34 +5280,14 @@
         ]
       },
       "enabledWhen": {
-        "fact": "rootTarget",
-        "equals": true
-      },
-      "implementation": "handler"
-    },
-    {
-      "id": "dmu.new",
-      "name": "新建机构",
-      "helpText": "机构与 DMU · 新建机构",
-      "iconKey": "insert",
-      "repeatable": false,
-      "visibleWhen": {
         "all": [
           {
-            "fact": "targetType",
-            "equals": "PRODUCT"
+            "fact": "rootTarget",
+            "equals": true
           },
           {
-            "fact": "motionActive",
+            "fact": "rootCanEdit",
             "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
           }
         ]
       },
@@ -5783,48 +5763,6 @@
       "enabledWhen": {}
     },
     {
-      "id": "dmu.demo-propeller",
-      "name": "圆柱与螺旋桨示例",
-      "helpText": "机构与 DMU · 圆柱与螺旋桨示例",
-      "iconKey": "debug",
-      "repeatable": false,
-      "implementation": "handler",
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {}
-    },
-    {
-      "id": "dmu.demo-fourbar",
-      "name": "四杆示例",
-      "helpText": "机构与 DMU · 四杆示例",
-      "iconKey": "debug",
-      "repeatable": false,
-      "implementation": "handler",
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {}
-    },
-    {
       "id": "dmu.exit",
       "name": "退出机构",
       "helpText": "退出机构",
@@ -6122,11 +6060,6 @@
           "commandId": "assembly.move-receipt",
           "groupKey": "primary",
           "order": 120
-        },
-        {
-          "commandId": "assembly.motion-study",
-          "groupKey": "primary",
-          "order": 121
         }
       ]
     },
@@ -6613,11 +6546,6 @@
       "orientation": "horizontal",
       "commands": [
         {
-          "commandId": "dmu.new",
-          "groupKey": "primary",
-          "order": 10
-        },
-        {
           "commandId": "dmu.ground",
           "groupKey": "primary",
           "order": 20
@@ -6754,25 +6682,6 @@
       ]
     },
     {
-      "id": "dmu-examples",
-      "name": "机构示例",
-      "styleKey": "debug",
-      "position": "bottom-right",
-      "orientation": "horizontal",
-      "commands": [
-        {
-          "commandId": "dmu.demo-propeller",
-          "groupKey": "primary",
-          "order": 10
-        },
-        {
-          "commandId": "dmu.demo-fourbar",
-          "groupKey": "primary",
-          "order": 20
-        }
-      ]
-    },
-    {
       "id": "dmu-session",
       "name": "机构编辑",
       "styleKey": "assembly",
@@ -6788,6 +6697,20 @@
           "commandId": "dmu.results",
           "groupKey": "primary",
           "order": 1
+        }
+      ]
+    },
+    {
+      "id": "assembly-dmu",
+      "name": "DMU",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "assembly.motion-study",
+          "groupKey": "primary",
+          "order": 10
         }
       ]
     }
@@ -7256,11 +7179,6 @@
       "order": 50
     },
     {
-      "tabId": "KINEMATICS_DMU.model",
-      "groupId": "dmu-examples",
-      "order": 60
-    },
-    {
       "tabId": "KINEMATICS_DMU.view",
       "groupId": "view-navigation",
       "order": 90
@@ -7284,6 +7202,11 @@
       "tabId": "KINEMATICS_DMU.model",
       "groupId": "dmu-session",
       "order": -1
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.model",
+      "groupId": "assembly-dmu",
+      "order": 45
     }
   ]
 }

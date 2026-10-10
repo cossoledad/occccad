@@ -19,10 +19,17 @@ export type MotionFrame={timeSeconds:number;driverValue:number;unitPoses:Record<
 export type MotionRun={schema:1;snapshot:{documentId:string;revisionId:string;digest:string;view:DocumentView;mechanism:Mechanism;study:MotionStudy;currentOnly:boolean;geometryUnits:MotionGeometryUnit[]};status:string;frames:MotionFrame[];failure?:{code:string;detail:string;timeSeconds:number;driverValue:number;replayObjectId?:string};completed:boolean;elapsedMs:number;solveCalls:number;solverBuild:string};
 export type MotionPlayback={view:DocumentView;frame:MotionFrame;revisionId:string};
 export const motionProblemFrames=(run:MotionRun)=>run.frames.flatMap((f,i)=>f.dmuConclusion==='VIOLATION'||f.dmuConclusion==='INCONCLUSIVE'?[i]:[]);
+export function validMotionPose(value:unknown):value is MotionPose {
+ if(!value||typeof value!=='object')return false;
+ const pose=value as Partial<MotionPose>;
+ return Array.isArray(pose.translation)&&pose.translation.length===3&&Array.isArray(pose.rotation)&&pose.rotation.length===4
+  &&[...pose.translation,...pose.rotation].every(Number.isFinite)
+  &&Math.abs(pose.rotation.reduce((sum,v)=>sum+v*v,0)-1)<1e-8;
+}
 export function motionPlayback(run:MotionRun,index:number):MotionPlayback|undefined{
  const frame=run.frames[index];if(!frame||run.snapshot.view.document.id!==run.snapshot.documentId||run.snapshot.view.document.versionId!==run.snapshot.revisionId)return;
  const ids=run.snapshot.view.product?.instances.map(i=>i.id)??[];
- if(ids.some(id=>!frame.unitPoses[id]))return;
+ if(!frame.unitPoses||ids.some(id=>!validMotionPose(frame.unitPoses[id])))return;
  return {view:run.snapshot.view,frame,revisionId:run.snapshot.revisionId};
 }
 // Time selects a complete accepted frame; never interpolate individual units.

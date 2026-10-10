@@ -14,7 +14,9 @@ console.log('motion study: whole accepted frames, frozen identity, problem frame
 
 // The actual scene writer rejects a partially hydrated frame and a stale revision.
 const THREE = await import('three');
-const {applyMotionFrame} = await import('../../../cad/assembly/motion-frame.ts');
+const {createServer}=await import('vite');const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
+try {
+const {applyMotionFrame} = await server.ssrLoadModule('/src/cad/assembly/motion-frame.ts');
 const {TransformTransitionSystem} = await import('../../../cad/animation/transform-transition.ts');
 let invalidations=0, animated=0;
 const transforms=new TransformTransitionSystem(()=>invalidations++,false,()=>{animated++;throw Error('Motion frames must not interpolate')});
@@ -32,3 +34,14 @@ assert.equal(applyMotionFrame(invalid,run.snapshot.view,groups,transforms),false
 // Repeated play, seek and reset always apply complete discrete poses.
 assert.equal(applyMotionFrame(motionPlayback(run,0),run.snapshot.view,groups,transforms),true);assert.equal(link.position.x,10);
 assert.equal(JSON.stringify(run),before);
+
+// Static reports have no mechanism; an invalid wire pose must never crash the
+// viewport or apply a partial frame, including a missing quaternion.
+const stat=structuredClone(run);stat.snapshot.currentOnly=true;stat.snapshot.mechanism={id:'',joints:null,unitIds:null};
+assert.equal(motionPlayback(stat,0).frame,stat.frames[0]);
+const malformed=structuredClone(display);delete malformed.frame.unitPoses.link.rotation;
+assert.equal(motionPlayback({...run,frames:[malformed.frame]},0),undefined);
+assert.equal(applyMotionFrame(malformed,run.snapshot.view,groups,transforms),false);
+assert.equal(ground.position.x,0);assert.equal(link.position.x,10);
+
+} finally {await server.close()}

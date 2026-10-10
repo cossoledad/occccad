@@ -453,7 +453,6 @@ export const restApi = {
   startExport: (documentId: string, format: "STEP" | "BREP", releaseId?: string): Promise<Job> => request<Job>("/api/exchange/exports", {
     method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format, releaseId }),
   }),
-  createMotionDemo:(documentId:string,baseRevisionId:string,kind?:string)=>requestDocumentView(`/api/documents/${documentId}/motion-demo`,{method:"POST",body:JSON.stringify({baseRevisionId,kind})}),
   motionJointProposals:(documentId:string):Promise<import("./cad/assembly/motion-study").MechanismJoint[]>=>request(`/api/documents/${documentId}/motion-joint-proposals`),
   planMotionApply:(documentId:string,baseRevisionId:string,input:import("./cad/assembly/motion-study").MotionApplyRequest):Promise<import("./cad/assembly/motion-study").MotionApplyPlan>=>request(`/api/documents/${documentId}/motion-apply-plan`,{method:"POST",body:JSON.stringify({baseRevisionId,...input})}),
   previewMechanism:(documentId:string,input:{requestId?:string;baseRevisionId:string;mechanism:import("./cad/assembly/motion-study").Mechanism;draftJointId?:string},signal?:AbortSignal):Promise<{baseRevisionId:string;mechanism:import("./cad/assembly/motion-study").Mechanism;instancePoses:Array<import("./cad/assembly/motion-study").MotionPose&{instanceId:string}>}>=>request(`/api/documents/${documentId}/mechanism-preview`,{method:"POST",body:JSON.stringify(input),signal}),
@@ -461,6 +460,7 @@ export const restApi = {
   getMotionRun:(id:string,signal?:AbortSignal):Promise<import("./cad/assembly/motion-study").MotionRun>=>request(`/api/jobs/${id}/motion-run`,{signal}),
   getJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}`),
   listJobs: async (): Promise<Job[]> => (await request<{ jobs: Job[] }>("/api/jobs")).jobs,
+  deleteMotionResult: (id:string):Promise<Job>=>request<Job>(`/api/jobs/${id}/motion-run`,{method:"DELETE"}),
   cancelJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}/cancel`, { method: "POST" }),
   retryJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}/retry`, { method: "POST" }),
   downloadJob: async (id: string): Promise<void> => {

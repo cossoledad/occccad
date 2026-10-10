@@ -80,13 +80,23 @@ func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s Moti
 		eq := func(name, kind, first, second string) geometry.AssemblyConstraint {
 			return geometry.AssemblyConstraint{ID: prefix + "/" + name, Kind: kind, FirstBodyID: a.InstanceID, FirstGeometryID: prefix + "/a/" + first, SecondBodyID: b.InstanceID, SecondGeometryID: prefix + "/b/" + second, DirectionRelation: "SAME"}
 		}
-		if j.Kind == "PRISMATIC" {
-			out.Constraints = append(out.Constraints, eq("axis", "CONCENTRIC", "z", "z"), eq("rotation", "PARALLEL", "x", "x"))
-		} else {
-			out.Constraints = append(out.Constraints, eq("origin", "COINCIDENT", "p", "p"), eq("axis", "PARALLEL", "z", "z"))
-			if j.Kind == "RIGID" {
-				out.Constraints = append(out.Constraints, eq("rotation", "PARALLEL", "x", "x"))
+		// A joint owns the same relations as assembly design. Frames have already
+		// incorporated the signed axial offset; their locating planes coincide.
+		axis := eq("axis", "COINCIDENT", "z", "z")
+		if err := compileAssemblyRelation(AssemblyConstraint{Kind: "COINCIDENT", Family: "Coincidence"}, &axis, geometry.AssemblyGeometry{Kind: "AXIS"}, geometry.AssemblyGeometry{Kind: "AXIS"}); err != nil {
+			return out, err
+		}
+		out.Constraints = append(out.Constraints, axis)
+		if j.Kind != "PRISMATIC" {
+			location := eq("axial-location", "DISTANCE", "plane", "plane")
+			location.DirectionRelation = "UNORIENTED"
+			if err := compileAssemblyRelation(AssemblyConstraint{Kind: "DISTANCE", DistanceRelation: selectedPlaneNormalV1}, &location, geometry.AssemblyGeometry{Kind: "PLANE"}, geometry.AssemblyGeometry{Kind: "PLANE"}); err != nil {
+				return out, err
 			}
+			out.Constraints = append(out.Constraints, location)
+		}
+		if j.Kind == "RIGID" || j.Kind == "PRISMATIC" {
+			out.Constraints = append(out.Constraints, eq("rotation", "PARALLEL", "x", "x"))
 		}
 		if j.ID == s.DriverJointID {
 			if j.Kind == "REVOLUTE" {

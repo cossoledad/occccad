@@ -182,3 +182,14 @@ func nextAssemblyParameterAlias(model ProductModel, base string) string {
 	}
 	return nextParameterAlias(parameters, base)
 }
+
+// Shared semantic adapter for Product constraints and joint-owned relations.
+func compileAssemblyRelation(c AssemblyConstraint, value *geometry.AssemblyConstraint, first, second geometry.AssemblyGeometry) error {
+	if c.Family == "Coincidence" && (first.Kind == "AXIS" || first.Kind == "CYLINDER") && (second.Kind == "AXIS" || second.Kind == "CYLINDER") {
+		value.Kind = "CONCENTRIC" // coincidence of axes never equates radii
+	}
+	if c.Family == "Coincidence" && c.Subtype == "point-surface" && ((first.Kind == "POINT" && second.Kind == "CYLINDER") || (second.Kind == "POINT" && first.Kind == "CYLINDER")) {
+		value.Kind = "SURFACE_INCIDENCE"
+	}
+	return compileAssemblyOffset(c, value, first, second)
+}

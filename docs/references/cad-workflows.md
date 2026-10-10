@@ -39,6 +39,8 @@
 
 2026-10-09 从本机 `control/KinEnglishC2.viewdoc`、`control/SpaEnglishC2.viewdoc` 定位并读取：
 
+- `online/kinug_C2/kinugbt0801.htm`：More About Joints and Constraints，旋转接合的两轴相合与两平面偏移组成关系；本轮从 KinEnglishC2.viewdoc 再次定位核读。
+- `online/kinug_C2/kinugbt0701.htm`：Creating Revolute Joints，两轴/两平面自动更新选择字段，确认更新机构树。
 - `online/kinug_C2/kinugbt0501.htm`：新建机制、关节、固定零件及 command 的定义流程。
 - `online/kinug_C2/kinugbt0201.htm`：law、时间范围/步数、播放/暂停/定位、限位及分析。
 - `online/kinug_C2/kinugbt0300.htm`：保存记录、回放与复位。

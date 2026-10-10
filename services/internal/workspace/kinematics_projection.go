@@ -23,56 +23,41 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 	for _, m := range k.Mechanisms {
 		mn := node("MECHANISM", m.ID, m.Name)
 		for _, j := range m.Joints {
-			label := j.Name + " (" + nameFor(j.First.InstanceID)
-			if j.Second != nil {
-				label += " ↔ " + nameFor(j.Second.InstanceID)
+			label := j.Name
+			if j.Kind == "GROUND" {
+				label += " (" + nameFor(j.First.InstanceID) + ")"
 			}
-			label += ")"
 			jn := node("MECHANISM_JOINT", j.ID, label)
 			jn.EntityType = j.Kind
-			roles := []string{}
-			if j.Kind != "GROUND" {
-				roles = append(roles, "轴线相合")
-			}
-			if j.Kind != "GROUND" && j.Kind != "PRISMATIC" {
-				roles = append(roles, "轴向定位")
-			}
-			if j.Kind == "RIGID" || j.Kind == "PRISMATIC" {
-				roles = append(roles, "方向一致")
-			}
-			for _, role := range roles {
-				if j.Kind != "GROUND" {
-					child := node("JOINT_EXPANSION", j.ID+"/"+role, role)
-					child.Capabilities = nil
-					child.PresentationRole = "INPUT_REFERENCE"
-					jn.Children = append(jn.Children, child)
-				}
-			}
-			for side, end := range []JointEndpoint{j.First, func() JointEndpoint {
-				if j.Second != nil {
-					return *j.Second
-				}
-				return JointEndpoint{}
-			}()} {
-				if end.InstanceID == "" {
+			for _, relation := range []struct{ role, name, kind string }{
+				{"axis", "同心", "COINCIDENT"}, {"axial-location", "偏移", "DISTANCE"}, {"rotation", "方向一致", "ANGLE"},
+			} {
+				if j.Kind == "GROUND" || relation.role == "axial-location" && j.Kind == "PRISMATIC" || relation.role == "rotation" && j.Kind == "REVOLUTE" {
 					continue
 				}
-				for _, support := range []struct {
-					role string
-					ref  *AssemblyGeometryRef
-				}{{"axis", end.Axis}, {"plane", end.Plane}} {
-					if support.ref == nil {
+				child := node("JOINT_EXPANSION", j.ID+"/"+relation.role, relation.name)
+				child.EntityType = relation.kind
+				child.Capabilities = []string{"EDIT"}
+				child.EvaluationStatus = "NOT_UPDATED"
+				child.PresentationRole = "INPUT_REFERENCE"
+				ends := []JointEndpoint{j.First}
+				if j.Second != nil {
+					ends = append(ends, *j.Second)
+				}
+				for side, end := range ends {
+					ref, role := end.Axis, "轴线"
+					if relation.role == "axial-location" {
+						ref, role = end.Plane, "定位平面"
+					}
+					if ref == nil {
 						continue
 					}
-					label := "轴线"
-					if support.role == "plane" {
-						label = "定位平面"
-					}
-					sn := node("JOINT_SUPPORT", fmt.Sprintf("%s/%d/%s", j.ID, side, support.role), label+" ("+nameFor(end.InstanceID)+")")
+					sn := node("JOINT_SUPPORT", fmt.Sprintf("%s/%s/%d", j.ID, relation.role, side), role+" ("+nameFor(end.InstanceID)+")")
 					sn.Capabilities = nil
 					sn.PresentationRole = "INPUT_REFERENCE"
-					jn.Children = append(jn.Children, sn)
+					child.Children = append(child.Children, sn)
 				}
+				jn.Children = append(jn.Children, child)
 			}
 			for _, src := range j.Sources {
 				sn := node("JOINT_SOURCE", src.ConstraintID, "来源约束 "+src.ConstraintID)
@@ -89,7 +74,46 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 				} else {
 					sn.ResolutionStatus = "CURRENT"
 				}
-				jn.Children = append(jn.Children, sn)
+				if len(jn.Children) > 0 {
+					jn.Children[0].Children = append(jn.Children[0].Children, sn)
+				} else {
+					jn.Children = append(jn.Children, sn)
+				}
+			}
+			// Publishing links describe the existing relation, rather than adding
+			// a parallel application-object branch beside the joints.
+			for _, a := range k.Associations {
+				if a.MechanismID != m.ID || a.JointID != j.ID {
+					continue
+				}
+				an := node("MOTION_ASSOCIATION", j.ID+"/"+a.Role, "装配关联")
+				an.ID = jn.ID + "/association:" + a.Role
+				an.Capabilities = nil
+				an.PresentationRole = "INPUT_REFERENCE"
+				name := a.ConstraintID
+				for _, c := range constraints {
+					if c.ID == a.ConstraintID && c.Name != "" {
+						name = c.Name
+					}
+				}
+				ref := node("JOINT_SOURCE", a.ConstraintID, name)
+				ref.ID = an.ID + "/constraint:" + a.ConstraintID
+				ref.Capabilities = nil
+				ref.PresentationRole = "INPUT_REFERENCE"
+				an.Children = []DocumentStructureNode{ref}
+				role := a.Role
+				if role == "orientation" {
+					role = "rotation"
+				}
+				if role == "angle-lock" {
+					role = "axis"
+				}
+				index := slices.IndexFunc(jn.Children, func(n DocumentStructureNode) bool { return n.EntityID == j.ID+"/"+role })
+				if index >= 0 {
+					jn.Children[index].Children = append(jn.Children[index].Children, an)
+				} else if j.Kind == "GROUND" {
+					jn.Children = append(jn.Children, an)
+				}
 			}
 			mn.Children = append(mn.Children, jn)
 		}
@@ -103,18 +127,7 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 				mn.Children = append(mn.Children, node("MOTION_STUDY", s.ID, s.Name))
 			}
 		}
-		for _, a := range k.Associations {
-			if a.MechanismID == m.ID {
-				an := node("MOTION_ASSOCIATION", a.JointID+"/"+a.Role, "装配关联 / "+a.Role)
-				an.Capabilities = nil
-				an.PresentationRole = "INPUT_REFERENCE"
-				an.Children = []DocumentStructureNode{node("JOINT_SOURCE", a.ConstraintID, a.ConstraintID)}
-				an.Children[0].ID = an.ID + "/constraint:" + a.ConstraintID
-				an.Children[0].Capabilities = nil
-				an.Children[0].PresentationRole = "INPUT_REFERENCE"
-				mn.Children = append(mn.Children, an)
-			}
-		}
+
 		root.Children = append(root.Children, mn)
 	}
 	for _, a := range k.Analyses {

@@ -24,6 +24,9 @@ func TestMotionJobLeaseAttemptCancelAndSavedResult(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	if _, err := s.DeleteMotionResult(t.Context(), j.ID, actor, false); !errors.Is(err, ErrNotDismissible) {
+		t.Fatal("running job disappeared", err)
+	}
 	j, e = s.Claim(t.Context(), "worker", time.Minute)
 	if e != nil {
 		t.Fatal(e)
@@ -71,5 +74,41 @@ func TestMotionJobLeaseAttemptCancelAndSavedResult(t *testing.T) {
 	}
 	if _, e = s.Retry(t.Context(), j.ID, actor, false); !errors.Is(e, ErrNotRetryable) {
 		t.Fatal("retry overwrites saved run identity", e)
+	}
+}
+
+func TestMotionResultDeletePreservesHistory(t *testing.T) {
+	db, err := database.Open(t.Context(), "sqlite:"+filepath.Join(t.TempDir(), "results.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = database.Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	s := New(db)
+	actor := "00000000-0000-7000-8000-000000000001"
+	j, err := s.Enqueue(t.Context(), EnqueueRequest{Type: "MOTION_STUDY", RequestedBy: actor, IdempotencyKey: "delete-run", UserVisible: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.RequestCancel(t.Context(), j.ID, actor, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DeleteMotionResult(t.Context(), j.ID, "00000000-0000-7000-8000-000000000002", false); !errors.Is(err, ErrNotDismissible) {
+		t.Fatal("foreign run deleted", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err = s.DeleteMotionResult(t.Context(), j.ID, actor, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list, err := s.ListForUser(t.Context(), actor, 100)
+	if err != nil || len(list) != 0 {
+		t.Fatal(list, err)
+	}
+	retained, err := s.Get(t.Context(), j.ID)
+	if err != nil || retained.State != "CANCELED" || retained.UserVisible {
+		t.Fatal("audit record lost", retained, err)
 	}
 }

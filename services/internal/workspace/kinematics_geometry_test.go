@@ -99,7 +99,7 @@ func TestMotionApplicationProjectionReferencesUnique(t *testing.T) {
 		if n.ResolutionStatus == "SOURCE_DELETED" {
 			deleted++
 		}
-		if n.Kind == "JOINT_EXPANSION" && n.EntityID == "j2/轴向定位" {
+		if n.Kind == "JOINT_EXPANSION" && n.EntityID == "j2/axial-location" {
 			t.Fatal("prismatic projection incorrectly freezes axial coordinate")
 		}
 		for _, child := range n.Children {
@@ -118,15 +118,23 @@ func TestMotionApplicationProjectionNamedSupports(t *testing.T) {
 	k := KinematicsDefinitions{Mechanisms: []Mechanism{{ID: "m", Name: "机构", Joints: []MechanismJoint{{ID: "ground", Name: "固定件", Kind: "GROUND", First: JointEndpoint{InstanceID: "shaft"}}, {ID: "joint", Name: "旋转接合", Kind: "REVOLUTE", First: first, Second: &second}}}}}
 	tree := kinematicsStructure("product", "revision", "product", k, nil, []ProductInstance{{ID: "shaft", Name: "圆柱.1"}, {ID: "rotor", Name: "螺旋桨.1"}})
 	joints := tree.Children[0].Children
-	if joints[0].Name != "固定件 (圆柱.1)" || joints[1].Name != "旋转接合 (圆柱.1 ↔ 螺旋桨.1)" {
+	if joints[0].Name != "固定件 (圆柱.1)" || joints[1].Name != "旋转接合" {
 		t.Fatalf("joint endpoint presentation missing: %+v", joints)
 	}
+	if len(joints[1].Children) != 2 || joints[1].Children[0].Name != "同心" || joints[1].Children[1].Name != "偏移" {
+		t.Fatalf("joint relations: %+v", joints[1].Children)
+	}
 	count := 0
-	for _, n := range joints[1].Children {
-		if n.Kind == "JOINT_SUPPORT" {
-			count++
-			if len(n.Capabilities) != 0 || n.PresentationRole != "INPUT_REFERENCE" {
-				t.Fatal("derived support became editable")
+	for _, relation := range joints[1].Children {
+		if relation.Kind != "JOINT_EXPANSION" || len(relation.Capabilities) != 1 || relation.Capabilities[0] != "EDIT" {
+			t.Fatal("joint relation became an independent definition")
+		}
+		for _, n := range relation.Children {
+			if n.Kind == "JOINT_SUPPORT" {
+				count++
+				if len(n.Capabilities) != 0 || n.PresentationRole != "INPUT_REFERENCE" {
+					t.Fatal("derived support became editable")
+				}
 			}
 		}
 	}

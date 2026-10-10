@@ -421,15 +421,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		if constraint.Kind != "FIX" && constraint.Kind != "RIGID" {
 			firstKind := resolvedGeometry[firstGeometry].Kind
 			secondKind := resolvedGeometry[value.SecondGeometryID].Kind
-			if constraint.Family == "Coincidence" &&
-				(firstKind == "AXIS" || firstKind == "CYLINDER") && (secondKind == "AXIS" || secondKind == "CYLINDER") {
-				value.Kind = "CONCENTRIC" // public coaxial relation never equates radii
-			}
-			if constraint.Family == "Coincidence" && constraint.Subtype == "point-surface" &&
-				((firstKind == "POINT" && secondKind == "CYLINDER") || (secondKind == "POINT" && firstKind == "CYLINDER")) {
-				value.Kind = "SURFACE_INCIDENCE" // not the legacy point-to-cylinder-axis shortcut
-			}
-			if err := compileAssemblyOffset(*constraint, &value, resolvedGeometry[firstGeometry], resolvedGeometry[value.SecondGeometryID]); err != nil {
+			if err := compileAssemblyRelation(*constraint, &value, resolvedGeometry[firstGeometry], resolvedGeometry[value.SecondGeometryID]); err != nil {
 				if reportCompileFailure(constraint.ID, "", "PARAMETERS", err) {
 					continue
 				}

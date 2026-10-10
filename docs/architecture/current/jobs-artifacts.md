@@ -100,3 +100,5 @@ STEP 交换使用 `STEPCAFControl_Reader/Writer` 和 XDE document。Definition i
 - [Jobs](../../../services/internal/jobs)
 - [Artifact](../../../services/internal/artifact)
 - [Geometry 路由](../../../services/internal/control)
+
+机构终态结果的删除复用 `user_visible`：所有者/管理员经 `DELETE /api/jobs/{id}/motion-run` 移除结果列表项，不销毁 Job/Attempt 或被正式转换历史引用的制品；活动任务返回冲突。状态和通知使用同一 Job 事务。设计结构树不投影最近任务列表。
