@@ -108,6 +108,6 @@ Part 求值结果仅携带摘要和 BREP/VISUAL/NAMING 引用，导入 identity 
 
 ## 机构研究消费者
 
-MOTION_STUDY 使用冻结 view、机构完整独立约束、所选 Driver、Law／Study 和 solver profile；当前只接受已保存的规律模拟，不支持实时 Trial 或附加干涉分析。执行检查权限及输入制品 SHA/digest，计算中不读取变化的 Head。结果包含已完成合格帧、运动学质量和分类诊断；Job SUCCEEDED 只表示结果保存，不证明路径完整成功，取消保留部分帧并终结为 CANCELED。
+MOTION_STUDY 使用冻结 view、机构完整独立约束、所选 Driver、Law／Study 和 solver profile；接受已保存关键帧路径或可选规律输入；实时命令会话由 API 执行，不依赖 Job 或附加干涉分析。执行检查权限及输入制品 SHA/digest，计算中不读取变化的 Head。结果包含已完成合格帧、运动学质量和分类诊断；Job SUCCEEDED 只表示结果保存，不证明路径完整成功，取消保留部分帧并终结为 CANCELED。
 
-最后完成必须匹配 RUNNING、lease owner、attempt 和有效租约。手动再次运行生成新 Job，保留旧结果；基础设施重试沿用原队列合同。应用关闭不自动取消后台任务，迟到结果不抢占视口；正式帧采用／转换在 API 领域事务完成，不由 Jobs 逐帧写装配。当前合同见[机构与 DMU](../../../docs/architecture/current/kinematics-dmu.md)。未来 Job 将作为录制路径烘焙／导出的可选设施，实时试动与关键帧录制不以 Job 为基础入口，详见[统一设计](../../../docs/architecture/target/kinematics-dmu.md)；该新流程尚未实现。
+最后完成必须匹配 RUNNING、lease owner、attempt 和有效租约。手动再次运行生成新 Job，保留旧结果；基础设施重试沿用原队列合同。应用关闭不自动取消后台任务，迟到结果不抢占视口；正式帧采用／转换在 API 领域事务完成，不由 Jobs 逐帧写装配。当前合同见[机构与 DMU](../../../docs/architecture/current/kinematics-dmu.md)。Job 已作为录制有限路径的制品设施；payload.motion 区分路径质量和队列完成。实时试动与草稿录制不创建 Job，详见[统一设计](../../../docs/architecture/target/kinematics-dmu.md)。

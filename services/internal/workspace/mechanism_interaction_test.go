@@ -3,9 +3,52 @@ package workspace
 import (
 	"encoding/json"
 	"github.com/occccad/occccad/internal/modelcore"
+	"math"
 	"reflect"
 	"testing"
 )
+
+func TestMechanismInteractionTransportsQualifiedContinuousCoordinates(t *testing.T) {
+	snapshot := motionFixture(t, false, "REVOLUTE")
+	m := snapshot.Mechanism
+	m.Poses = map[string]InstancePose{}
+	original := ProductModel{}
+	for _, body := range snapshot.Equations.Bodies {
+		p := InstancePose(body.Pose)
+		m.Poses[body.ID] = p
+		original.Instances = append(original.Instances, ProductInstance{ID: body.ID, Translation: p.Translation, Rotation: p.Rotation})
+	}
+	m.Coordinates = map[string]float64{"drive": math.Pi / 3}
+	original.Kinematics.Mechanisms = []Mechanism{m}
+	solved, err := cloneAssemblyProduct(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := 2*math.Pi + 70*math.Pi/180
+	solved.Instances[1].Rotation = [4]float64{0, 0, math.Sin(q / 2), math.Cos(q / 2)}
+	checkpoint := map[string]float64{"drive": q}
+	candidate, err := mechanismInteractionCandidate(original, solved, "m", "crank", checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := candidate.Kinematics.Mechanisms[0]
+	if math.Abs(accepted.Coordinates["drive"]-q) > 1e-8 || !reflect.DeepEqual(candidate.Instances, original.Instances) || original.Kinematics.Mechanisms[0].Coordinates["drive"] != math.Pi/3 {
+		t.Fatal("drag lost qualified winding or modified Product/base state", candidate)
+	}
+	witness := accepted
+	witness.Coordinates = map[string]float64{"drive": q}
+	if !mechanismAcceptanceEqual(accepted, witness) {
+		t.Fatal("final acceptance rejected the qualified coordinate checkpoint")
+	}
+	checkpoint["drive"] = 0
+	if math.Abs(accepted.Coordinates["drive"]-q) > 1e-8 {
+		t.Fatal("candidate retained mutable session coordinates")
+	}
+	solved.Instances[1].Translation[2] = 1
+	if _, err = mechanismInteractionCandidate(original, solved, "m", "crank", checkpoint); err == nil {
+		t.Fatal("candidate accepted an unsatisfied joint closure")
+	}
+}
 
 func TestMechanismInteractionPreservesProductAndHistory(t *testing.T) {
 	pose := func(x float64) InstancePose {
@@ -20,7 +63,7 @@ func TestMechanismInteractionPreservesProductAndHistory(t *testing.T) {
 		t.Fatal("Product pose/equations leaked into mechanism drag", input)
 	}
 	input.Instances[1].Translation = pose(20).Translation
-	next, err := mechanismInteractionCandidate(model, input, "m", "b")
+	next, err := mechanismInteractionCandidate(model, input, "m", "b", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -243,6 +243,8 @@ export function Workbench() {
   const receiptPrompt=useRef(false);
   const [moveReceiptPending,setMoveReceiptPending]=useState(false);
  const motionPanel=useRef<MotionPanelHandle>(null);
+ const motionGestures=useRef(new Map<string,{owner:import('../../cad/assembly/mechanism-motion-session').MechanismMotionSession;bodyId:string;initialValue:number;completed?:boolean}>());
+ const [motionDraft,setMotionDraft]=useState<import('../../cad/assembly/motion-study').MotionStudy>();
  const [motionSession,setMotionSession]=useState<string>();
  const motionOpen=motionSession===documentID;
  useEffect(()=>{setMotionSession(undefined)},[documentID]);
@@ -683,8 +685,8 @@ export function Workbench() {
         visibilityBlocker: semantic?.blockedBy ? `${semantic.blockedBy.kind} · ${semantic.blockedBy.entityId}` : undefined,
         children: node.children?.map(decorate) };
     };
-    return displayView ? withMotionResults(treeData(displayView,motionDisplay?undefined:editingView),displayView,motionJobs.data??[]).map((node) => decorate(node)) : [];
-  }, [view, motionJobs.data, motionDisplay, motionOpen, motionCommandActive, editingView, editSession, store.activeSketchID, activeInstancePath, treeVisibilityOverrides]);
+    return displayView ? withMotionResults(treeData(displayView,motionDisplay?undefined:editingView),displayView,motionJobs.data??[],motionDraft).map((node) => decorate(node)) : [];
+  }, [view, motionDraft, motionJobs.data, motionDisplay, motionOpen, motionCommandActive, editingView, editSession, store.activeSketchID, activeInstancePath, treeVisibilityOverrides]);
   useEffect(()=>{
     normalViewRequest.current+=1;
     return ()=>{normalViewRequest.current+=1;};
@@ -1583,7 +1585,7 @@ onToggleConstruction:(node)=>{
   return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><section className="cad-workbench">
 
     {historyResult&&<Alert type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/> }
-    {view.product&&<MotionStudyPanel ref={motionPanel} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onMechanism={m=>{setMechanismDefinition(m);if(m&&motionOpen&&motionSources.current.at(-1)===m.id){const url=new URL(window.location.href);url.searchParams.set("application","mechanism");url.searchParams.set("mechanismId",m.id);url.searchParams.set("applicationRevision",view.document.versionId);url.searchParams.set("mechanismSources",motionSources.current.join(','));window.history.replaceState(null,"",url)}}} onStatus={setMotionStatus} onSelectionSession={setFeatureSelection} onPreview={setMotionPosePreview} onSave={async (k,baseRevisionId)=>{if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:baseRevisionId??view.document.versionId,kinematics:k}));const created=updated.product?.kinematics?.mechanisms.find(m=>!view.product?.kinematics?.mechanisms.some(v=>v.id===m.id));const acceptedId=created?.id??mechanismDefinition?.id;if(acceptedId)motionSources.current=[...motionSources.current.filter(id=>id!==acceptedId&&updated.product?.kinematics?.mechanisms.some(m=>m.id===id)),acceptedId];setMechanismDefinition(m=>updated.product?.kinematics?.mechanisms.find(v=>v.id===m?.id));setMotionPosePreview(undefined);await refresh(updated);return updated}} onSwitch={async input=>{
+    {view.product&&<MotionStudyPanel ref={motionPanel} sourceMechanismIds={motionSources.current} onDraft={setMotionDraft} captureViewpoint={()=>viewport.current?.captureMotionViewpoint()} previewViewpoint={(v,documentId)=>{if(!documentId||documentId===view.document.id)viewport.current?.previewMotionViewpoint(v)}} onCommit={async command=>{const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,command));await refresh(updated);return updated}} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onMechanism={m=>{setMechanismDefinition(m);if(m&&motionOpen&&motionSources.current.at(-1)===m.id){const url=new URL(window.location.href);url.searchParams.set("application","mechanism");url.searchParams.set("mechanismId",m.id);url.searchParams.set("applicationRevision",view.document.versionId);url.searchParams.set("mechanismSources",motionSources.current.join(','));window.history.replaceState(null,"",url)}}} onStatus={setMotionStatus} onSelectionSession={setFeatureSelection} onPreview={setMotionPosePreview} onSave={async (k,baseRevisionId)=>{if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:baseRevisionId??view.document.versionId,kinematics:k}));const created=updated.product?.kinematics?.mechanisms.find(m=>!view.product?.kinematics?.mechanisms.some(v=>v.id===m.id));const acceptedId=created?.id??mechanismDefinition?.id;if(acceptedId)motionSources.current=[...motionSources.current.filter(id=>id!==acceptedId&&updated.product?.kinematics?.mechanisms.some(m=>m.id===id)),acceptedId];setMechanismDefinition(m=>updated.product?.kinematics?.mechanisms.find(v=>v.id===m?.id));setMotionPosePreview(undefined);await refresh(updated);return updated}} onSwitch={async input=>{
       if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");
       input={...input,sourceMechanismIds:input.sourceMechanismIds??motionSources.current.filter(id=>view.product?.kinematics?.mechanisms.some(m=>m.id===id))};
       if(!input.mechanismId&&!["OWNER","EDITOR"].includes(view.document.permission??""))input={...input,sourceMechanismId:undefined,sourceMechanismIds:[]};
@@ -1695,13 +1697,27 @@ onToggleConstruction:(node)=>{
           }}
           onAssemblyInteractionBegin={(ownerDocumentId,input,signal)=>{
             if(!canEditRoot||!editingView)throw new Error("运动所属 Product 不可编辑");
+            const owner=motionPanel.current?.motionSession();
+            if(owner){
+              if(!owner.active)throw new Error('机构会话正在准备或已结束');
+              return owner.settle().then(()=>{const identity=owner.identity!,sessionId='mechanism-gesture-'+randomUUID();motionGestures.current.set(sessionId,{owner,bodyId:input.instanceId,initialValue:owner.checkpoint!.frame.driverValue});
+                return {mode:'COMMAND_TRIAL' as const,sessionId,bodyId:input.instanceId,baseRevisionId:identity.baseRevisionId,inputDigest:identity.inputDigest,nominalPoses:Object.entries(owner.checkpoint!.frame.unitPoses).map(([instanceId,pose])=>({instanceId,...pose}))};});
+            }
             return api.beginAssemblyInteraction(ownerDocumentId,{...input,...(input.mechanismId?{sourceMechanismIds:motionSources.current}:{}),editContext:{
               rootDocumentId:view.document.id,rootRevisionId:view.document.versionId,
               activeDocumentId:editingView.document.id,activeRevisionId:editingView.document.versionId,
               instancePath:editSession?.editTarget.instancePath}},signal);
           }}
-          onAssemblyInteractionUpdate={(ownerDocumentId,input,signal)=>api.updateAssemblyInteraction(ownerDocumentId,input,signal)}
-          onAssemblyInteractionCancel={(ownerDocumentId,sessionId)=>api.cancelAssemblyInteraction(ownerDocumentId,sessionId)}
+          onAssemblyInteractionUpdate={async(ownerDocumentId,input,signal)=>{
+            const gesture=motionGestures.current.get(input.sessionId);if(!gesture)return api.updateAssemblyInteraction(ownerDocumentId,input,signal);
+            if(signal?.aborted)throw new DOMException('Canceled','AbortError');
+            const response=await gesture.owner.request({spatialTarget:{...input.target,bodyId:gesture.bodyId}});
+            if(!response||signal?.aborted)throw new DOMException('Canceled','AbortError');
+            if(input.final)gesture.completed=true;
+            return {sessionOutcome:response.accepted?'ACCEPTED':'RETAINED',previewId:'',requestId:response.sessionId+'/'+response.sequence,sessionId:input.sessionId,inputDigest:response.inputDigest,sequence:input.sequence,goalSequence:input.goalSequence,
+              instancePoses:Object.entries(response.frame.unitPoses).map(([instanceId,pose])=>({instanceId,...pose})),interaction:{...response.interaction,status:response.accepted?(response.interaction?.status??'CONSTRAINED'):'FAILED',hardFeasible:response.frame.kinematicValid,targetConverged:response.accepted&&Boolean(response.interaction?.targetConverged),eligibleForCommit:false,targetError:response.interaction?.targetError??Number.NaN,targetOptimality:response.interaction?.targetOptimality??Number.NaN,targetSequence:input.sequence,diagnostic:response.failure?.message}};
+          }}
+          onAssemblyInteractionCancel={(ownerDocumentId,sessionId)=>{const gesture=motionGestures.current.get(sessionId);if(gesture){motionGestures.current.delete(sessionId);if(!gesture.completed&&gesture.owner.active)return gesture.owner.request({value:{value:gesture.initialValue,unit:'rad'}},false).then(()=>undefined);return Promise.resolve()}return api.cancelAssemblyInteraction(ownerDocumentId,sessionId)}}
           onInspectAssemblySupports={(owner,references,signal)=>api.inspectAssemblySupports(owner,references,signal)}
           onOperationFailed={error=>operationFeedback(error,"装配操纵")}
           onAssemblyInteractionState={(state,reason)=>{

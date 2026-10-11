@@ -25,6 +25,7 @@ type MotionApplyRequest struct {
 	MechanismID string            `json:"mechanismId,omitempty"` // accepted mechanism source; exclusive with JobID
 	JobID       string            `json:"jobId"`
 	FrameIndex  int               `json:"frameIndex"`
+	TimeSeconds *float64          `json:"timeSeconds,omitempty"`
 	LockAngle   bool              `json:"lockAngle"`
 	Resolutions map[string]string `json:"resolutions,omitempty"` // rejected: conversion never mutates existing definitions
 	PlanDigest  string            `json:"planDigest,omitempty"`
@@ -184,7 +185,7 @@ func (service *Service) PlanMotionApply(ctx context.Context, doc, actor, base st
 		return MotionApplyPlan{}, fmt.Errorf("%w: select exactly one conversion source", ErrValidation)
 	}
 	if req.MechanismID != "" {
-		if req.FrameIndex != 0 {
+		if req.FrameIndex != 0 || req.TimeSeconds != nil {
 			return MotionApplyPlan{}, fmt.Errorf("%w: accepted source has no frame index", ErrValidation)
 		}
 		result, err := service.PrepareMechanismApplication(ctx, doc, MechanismApplicationRequest{BaseRevisionID: base, MechanismID: req.MechanismID, Resume: true})
@@ -200,6 +201,16 @@ func (service *Service) PlanMotionApply(ctx context.Context, doc, actor, base st
 		run, e = service.readMotionResult(ctx, doc, actor, req.JobID)
 		if e != nil {
 			return MotionApplyPlan{}, e
+		}
+		if req.TimeSeconds != nil {
+			if req.FrameIndex != 0 {
+				return MotionApplyPlan{}, fmt.Errorf("%w: select time or frame, not both", ErrValidation)
+			}
+			frame, err := service.motionPlayhead(ctx, run, *req.TimeSeconds)
+			if err != nil {
+				return MotionApplyPlan{}, err
+			}
+			run.Frames = []MotionFrame{frame}
 		}
 	}
 	return service.planMotionApply(ctx, doc, base, *view.Product, run, req)
@@ -482,7 +493,7 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		Request MotionApplyRequest
 		Model   ProductModel
 		Items   []MotionApplyItem
-	}{base, MotionApplyRequest{MechanismID: req.MechanismID, JobID: req.JobID, FrameIndex: req.FrameIndex, LockAngle: req.LockAngle, Resolutions: req.Resolutions}, next, p.Items})
+	}{base, MotionApplyRequest{MechanismID: req.MechanismID, JobID: req.JobID, FrameIndex: req.FrameIndex, TimeSeconds: req.TimeSeconds, LockAngle: req.LockAngle, Resolutions: req.Resolutions}, next, p.Items})
 	return p, nil
 }
 func applyMotionFrame(raw, payload json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {

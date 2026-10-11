@@ -104,12 +104,7 @@ func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s Moti
 		}
 
 		if j.ID == s.DriverJointID {
-
-			out.Driver = eq("driver", "ANGLE", "x", "x")
-			out.Driver.AngleReferenceBodyID = a.InstanceID
-			out.Driver.AngleReferenceGeometryID = prefix + "/a/z"
-			out.Driver.DirectionRelation = ""
-
+			out.Driver = mechanismCoordinateEquation(m.ID, j)
 		}
 	}
 	if requireDriver && out.Driver.ID == "" {
@@ -120,6 +115,11 @@ func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s Moti
 		out.RetainedConstraintIDs = append(out.RetainedConstraintIDs, c.ID)
 	}
 	return out, nil
+}
+
+func mechanismCoordinateEquation(mechanismID string, j MechanismJoint) geometry.AssemblyConstraint {
+	prefix := "mechanism/" + mechanismID + "/" + j.ID
+	return geometry.AssemblyConstraint{ID: prefix + "/driver", Kind: "ANGLE", FirstBodyID: j.First.InstanceID, FirstGeometryID: prefix + "/a/x", SecondBodyID: j.Second.InstanceID, SecondGeometryID: prefix + "/b/x", AngleReferenceBodyID: j.First.InstanceID, AngleReferenceGeometryID: prefix + "/a/z"}
 }
 func motionJointCoordinate(j MechanismJoint, poses map[string]InstancePose, previous *float64) (float64, error) {
 	a := composeInstancePose(poses[j.First.InstanceID], j.First.Frame)

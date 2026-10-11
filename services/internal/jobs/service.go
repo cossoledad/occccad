@@ -373,11 +373,33 @@ func notify(ctx context.Context, tx database.Tx, job Job) error {
 
 // Completion belongs to an exact lease attempt; partial frames remain readable
 // after cancellation. Never changes Product Head or its poses.
-func (service *Service) FinishMotion(ctx context.Context, jobID, workerID string, attempt int, resultID string) error {
-	_, err := service.change(ctx, `UPDATE occccad.jobs SET state=CASE WHEN cancel_requested_at IS NULL THEN 'SUCCEEDED' ELSE 'CANCELED' END,
- progress=100,result_object_id=$4,completed_at=now(),lease_owner=NULL,lease_expires_at=NULL
+type MotionCompletion struct {
+	Status      string `json:"status"`
+	Completed   bool   `json:"completed"`
+	ValidFrames int    `json:"validFrames"`
+}
+
+func (service *Service) FinishMotion(ctx context.Context, jobID, workerID string, attempt int, resultID string, summary MotionCompletion) error {
+	job, err := service.Get(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	var payload map[string]any
+	if json.Unmarshal(job.Payload, &payload) != nil || summary.Status == "" || summary.ValidFrames < 0 || summary.Completed != (summary.Status == "COMPLETED") {
+		return errors.New("invalid motion completion summary")
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	payload["motion"] = summary
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = service.change(ctx, `UPDATE occccad.jobs SET state=CASE WHEN cancel_requested_at IS NULL THEN 'SUCCEEDED' ELSE 'CANCELED' END,
+ progress=100,result_object_id=$4,payload=$5,completed_at=now(),lease_owner=NULL,lease_expires_at=NULL
  WHERE id=$1 AND job_type='MOTION_STUDY' AND state='RUNNING' AND lease_owner=$2 AND attempt_count=$3
- AND lease_expires_at>now() RETURNING `+jobColumns, "TERMINAL_STATE", "", "", jobID, workerID, attempt, resultID)
+ AND lease_expires_at>now() RETURNING `+jobColumns, "TERMINAL_STATE", "", "", jobID, workerID, attempt, resultID, data)
 	if errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	}

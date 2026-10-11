@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import {motionPlayback,motionFrameAt,quantityIn} from '../../../cad/assembly/motion-study.ts';
 const pose=x=>({translation:[x,0,0],rotation:[0,0,0,1]});
-const run={snapshot:{documentId:'product',revisionId:'v1',view:{document:{id:'product',versionId:'v1'},product:{instances:[{id:'g'},{id:'link'}]}}},frames:[{timeSeconds:0,unitPoses:{g:pose(0),link:pose(10)}},{timeSeconds:1,unitPoses:{g:pose(0),link:pose(20)}},{timeSeconds:2,unitPoses:{g:pose(0),link:pose(30)}}]};
+const run={snapshot:{documentId:'product',revisionId:'v1',view:{document:{id:'product',versionId:'v1'},product:{instances:[{id:'g'},{id:'link'}]}}},frames:[{timeSeconds:0,kinematicValid:true,unitPoses:{g:pose(0),link:pose(10)}},{timeSeconds:1,kinematicValid:true,unitPoses:{g:pose(0),link:pose(20)}},{timeSeconds:2,kinematicValid:true,unitPoses:{g:pose(0),link:pose(30)}}]};
 const before=JSON.stringify(run);
 assert.equal(motionFrameAt(run,.99),0);assert.equal(motionFrameAt(run,1),1);assert.equal(motionFrameAt(run,1.99),1);assert.equal(motionFrameAt(run,2.1),2);
 assert.equal(motionPlayback(run,1).frame,run.frames[1]);assert.equal(motionPlayback(run,1).view,run.snapshot.view);assert.equal(motionPlayback(run,3),undefined);
+const unqualified=structuredClone(run);unqualified.frames[0].kinematicValid=false;assert.equal(motionPlayback(unqualified,0),undefined,'an unqualified matrix is never a playback sample');
 const incomplete=structuredClone(run);delete incomplete.frames[0].unitPoses.link;assert.equal(motionPlayback(incomplete,0),undefined);
 const wrong=structuredClone(run);wrong.snapshot.view.document.versionId='v2';assert.equal(motionPlayback(wrong,0),undefined);
 assert.equal(JSON.stringify(run),before);assert.equal(quantityIn({value:Math.PI,unit:'rad'},'deg'),180);assert.equal(quantityIn({value:.02,unit:'m'},'mm'),20);
@@ -15,7 +16,7 @@ console.log('motion study: whole accepted frames, frozen identity, units passed'
 const THREE = await import('three');
 const {createServer}=await import('vite');const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
 try {
-const {applyMotionFrame,interpolateMotionPose} = await server.ssrLoadModule('/src/cad/assembly/motion-frame.ts');
+const {applyMotionFrame,interpolateMotionPose,motionViewpointAt} = await server.ssrLoadModule('/src/cad/assembly/motion-frame.ts');
 const {TransformTransitionSystem} = await import('../../../cad/animation/transform-transition.ts');
 let invalidations=0, animated=0;
 const transforms=new TransformTransitionSystem(()=>invalidations++,false,()=>{animated++;throw Error('Motion frames must not interpolate')});
@@ -41,6 +42,10 @@ assert.equal(link.position.x,15);assert.equal(continuous.frame,run.frames[0]);
 const missingNeighbor=structuredClone(continuous);delete missingNeighbor.clock.frames[1].unitPoses.link;
 assert.equal(applyMotionFrame(missingNeighbor,run.snapshot.view,groups,transforms,1500),false);
 assert.equal(link.position.x,15,'invalid neighbor cannot partially move the scene');
+const failedNeighbor=structuredClone(continuous);failedNeighbor.clock.frames[1].kinematicValid=false;assert.equal(applyMotionFrame(failedNeighbor,run.snapshot.view,groups,transforms,1500),false);
+const paused={...motionPlayback(run,0),samples:run.frames,timeSeconds:.3712345};assert.equal(applyMotionFrame(paused,run.snapshot.view,groups,transforms),true);assert(Math.abs(link.position.x-13.712345)<1e-10);
+const camera={position:[0,0,10],rotation:[0,0,0,1],up:[0,1,0],target:[0,0,0],zoom:1,top:10,bottom:-10};
+const cameraStudy={animateViewpoint:true,keyframes:[{timeSeconds:0,viewpoint:camera},{timeSeconds:1,viewpoint:{...camera,position:[10,0,10],zoom:2}}]};assert.equal(motionViewpointAt(cameraStudy,.375).position[0],3.75);assert.equal(motionViewpointAt(cameraStudy,.375).zoom,1.375);
 const aroundPivot=interpolateMotionPose({translation:[12,3,0],rotation:[0,0,0,1]},
  {translation:[2,13,0],rotation:[0,0,Math.SQRT1_2,Math.SQRT1_2]},.5);
 assert(Math.abs(aroundPivot.translation[0]-(2+Math.sqrt(50)))<1e-10);

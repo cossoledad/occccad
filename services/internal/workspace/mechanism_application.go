@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"time"
@@ -191,6 +192,15 @@ func (service *Service) PrepareMechanismApplication(ctx context.Context, documen
 }
 
 func mechanismAcceptanceEqual(a, b Mechanism) bool {
+	if len(a.Coordinates) != len(b.Coordinates) {
+		return false
+	}
+	for id, q := range a.Coordinates {
+		v, ok := b.Coordinates[id]
+		if !ok || math.Abs(q-v) > 1e-8 {
+			return false
+		}
+	}
 	if a.ID != b.ID || a.Name != b.Name || !reflect.DeepEqual(a.UnitIDs, b.UnitIDs) || len(a.Joints) != len(b.Joints) || len(a.Poses) != len(b.Poses) || !reflect.DeepEqual(a.Evaluation, b.Evaluation) {
 		return false
 	}

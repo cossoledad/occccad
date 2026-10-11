@@ -750,7 +750,7 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	}
 	command := CommandRequest{Type: "MOVE_INSTANCE", ActorID: actor, RequestID: requestID, InstanceID: s.bodyID, Translation: target.TargetPose.Translation, Rotation: target.TargetPose.Rotation, SessionID: input.SessionID, InteractionTarget: &target}
 	if s.mechanismID != "" {
-		candidate, e := mechanismInteractionCandidate(s.product, next, s.mechanismID, s.bodyID)
+		candidate, e := mechanismInteractionCandidate(s.product, next, s.mechanismID, s.bodyID, s.coordinates)
 		if e != nil {
 			return frame, e
 		}

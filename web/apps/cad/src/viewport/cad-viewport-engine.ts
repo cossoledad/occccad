@@ -19,7 +19,7 @@ import { assemblyConstraintReferences } from "../cad/assembly/assembly-capabilit
 import type { DocumentSessions } from "../cad/document/document-session";
 import { captureDocumentCamera, documentCameraState, documentCameraPose, restoreDocumentCamera } from "../cad/navigation/document-camera-state";
 import type {MotionPresentation} from "../cad/assembly/motion-presentation";
-import {applyMotionFrame} from "../cad/assembly/motion-frame";
+import {applyMotionFrame,motionViewpointAt} from "../cad/assembly/motion-frame";
 import {makeMotionMarkers,disposeMotionMarkers} from "../cad/assembly/motion-markers";
 import {updateAnalysisGuides} from "../cad/rendering/analysis-guides";
 import { AssemblyInteractionController,assemblyInteractionFailureState, type AssemblyInteractionBegin, type AssemblyInteractionSession, type AssemblyInteractionUpdate, type AssemblyInteractionFrame, type AssemblyInteractionCommit, type AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
@@ -441,6 +441,7 @@ export class CadViewportEngine {
     if(this.view?.document.id!==display.view.document.id||this.view?.document.versionId!==display.revisionId)return;
     this.moveManipulator.detach();this.setActiveTool("select");
     if(!applyMotionFrame(display,this.view,this.instanceGroups,this.transforms))return;
+    if(display.study){const viewpoint=motionViewpointAt(display.study,display.clock?.timeSeconds??display.timeSeconds??display.frame.timeSeconds);if(viewpoint)this.previewMotionViewpoint(viewpoint)}
     this.content.updateMatrixWorld(true);this.refreshInteractionHighlights();this.refreshContentBounds();this.showMechanism(this.mechanismDefinition,this.mechanismSelection);this.invalidate();
   }
   private readonly transforms = new TransformTransitionSystem(() => this.invalidate());
@@ -1667,7 +1668,7 @@ export class CadViewportEngine {
         this.moveInteraction.cancel(`${this.moveInteraction.reason??state}；最终目标没有合格候选，已恢复未提交的权威基线`,state);
         this.restoreMoveNominalScene();return;
       }
-      if(candidate.unchanged){this.moveInteraction.committed();this.moveNominalScene=undefined;return;}
+      if(candidate.unchanged||candidate.sessionOutcome){this.moveInteraction.committed();this.moveNominalScene=undefined;return;}
       this.moveInteraction.committing();
       this.moveCommitPending={documentId,candidate};
       await this.submitMoveCommit();
@@ -3585,6 +3586,16 @@ export class CadViewportEngine {
       captureDocumentCamera(this.camera, this.navigation.target, this.sketchReturnView));
   }
 
+  captureMotionViewpoint():import('../cad/assembly/motion-study').MotionViewpoint {
+    const {sketchReturn:_,...state}=captureDocumentCamera(this.camera,this.navigation.target);
+    return state;
+  }
+  previewMotionViewpoint(state:import('../cad/assembly/motion-study').MotionViewpoint):void {
+    this.viewTransition.cancel();
+    restoreDocumentCamera(this.camera,this.navigation.target,state,this.renderer.domElement.clientWidth/Math.max(1,this.renderer.domElement.clientHeight));
+    this.navigation.syncCamera(false);this.invalidate();
+  }
+
   private updateCameraClipping(box?: THREE.Box3): void {
     const bounds = (box ?? this.contentBounds).clone();
     // A sketch can exist without a solid. Include its geometry and fixed-pixel
@@ -3669,6 +3680,7 @@ export class CadViewportEngine {
       if (!this.disposed) {
         const playback=this.motionDisplay,clock=playback?.clock;
         if(clock&&!this.motionClockFinished&&applyMotionFrame(playback!,this.view,this.instanceGroups,this.transforms,now)){
+          if(playback!.study){const viewpoint=motionViewpointAt(playback!.study,Math.min(clock.frames.at(-1)?.timeSeconds??0,clock.timeSeconds+Math.max(0,now-clock.startedAt)/1000));if(viewpoint)this.previewMotionViewpoint(viewpoint)}
           this.content.updateMatrixWorld(true);this.refreshContentBounds();
           this.motionClockFinished=clock.timeSeconds+Math.max(0,now-clock.startedAt)/1000>=(clock.frames.at(-1)?.timeSeconds??0);
         }

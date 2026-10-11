@@ -23,6 +23,8 @@ import type { DocumentSessions } from "../cad/document/document-session";
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
 export type CadViewportHandle = {
+  captureMotionViewpoint:()=>import('../cad/assembly/motion-study').MotionViewpoint|undefined;
+  previewMotionViewpoint:(viewpoint:import('../cad/assembly/motion-study').MotionViewpoint)=>void;
   sketchCommandAction:(action:SketchCommandAction)=>void;
   retrySketchReceipt:()=>Promise<void>;
   showRemainingMotion: (motion?:import("../cad/assembly/motion-presentation").MotionPresentation)=>void;
@@ -214,6 +216,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => { engine.current?.setTreeVisibilityOverrides(props.treeVisibilityOverrides); }, [props.treeVisibilityOverrides]);
 
   useImperativeHandle(ref, () => ({
+    captureMotionViewpoint:()=>engine.current?.captureMotionViewpoint(),
+    previewMotionViewpoint:viewpoint=>engine.current?.previewMotionViewpoint(viewpoint),
     cancelAssemblyInteraction:()=>engine.current?.cancelAssemblyInteraction(),
     settleAssemblyInteraction:async()=>{await engine.current?.settleAssemblyInteraction();},
     retryAssemblyMoveCommit:()=>engine.current?.retryAssemblyMoveCommit(),

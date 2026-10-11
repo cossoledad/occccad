@@ -6,16 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
 	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type MotionFrame struct {
+	KeyframeID     string                               `json:"keyframeId,omitempty"`
 	TimeSeconds    float64                              `json:"timeSeconds"`
 	DriverValue    float64                              `json:"driverValue"` // canonical rad/mm
 	UnitPoses      map[string]InstancePose              `json:"unitPoses"`
@@ -74,287 +75,175 @@ func motionDof(r geometry.AssemblySolve) (uint64, uint64) {
 	return dof, gauge
 }
 
-// Runs only frozen inputs. Qualified poses are transient; no business-model writes.
+// Frozen paths and interactive trials share mechanismMotionSolver. Private
+// continuation steps never leak into Frames after an ultimately rejected target.
 func (service *Service) RunMotionStudy(parent context.Context, s MotionSnapshot, onFrame func(int) error) (out MotionRun, err error) {
 	started := time.Now()
 	out = MotionRun{Schema: 1, Snapshot: s, Status: "RUNNING", Frames: []MotionFrame{}}
 	defer func() { out.ElapsedMS = float64(time.Since(started).Microseconds()) / 1000 }()
-	if s.Schema != 1 || s.Policy != motionPolicy || s.Digest != motionDigest(s) || s.Study.BudgetMS < 100 || s.Study.BudgetMS > 120000 || s.Study.Frames < 1 || s.Study.Frames > 500 || len(s.Equations.Bodies) > 64 {
+	if s.Schema != 1 || s.Policy != motionPolicy || s.Digest != motionDigest(s) ||
+		s.Study.BudgetMS < 100 || s.Study.BudgetMS > 120000 || s.Study.Frames < 1 || s.Study.Frames > 500 || len(s.Equations.Bodies) > 64 {
 		return out, fmt.Errorf("%w: invalid motion snapshot", ErrValidation)
-	}
-	// A per-run copy keeps the frozen baseline and concurrent jobs independent.
-	b, _ := json.Marshal(s.Equations)
-	var equations mechanismEquations
-	if err = json.Unmarshal(b, &equations); err != nil {
-		return out, err
 	}
 	ctx, cancel := context.WithTimeout(parent, time.Duration(s.Study.BudgetMS)*time.Millisecond)
 	defer cancel()
-	var last *geometry.AssemblySolve
-	var lastTransport codes.Code
-	var replay []byte
+	var engine *mechanismMotionSolver
 	failure := func(code, detail string, t, q float64) {
 		if parent.Err() != nil {
 			code = "CANCELED"
 		} else if ctx.Err() != nil {
 			code = "BUDGET_EXHAUSTED"
 		}
-
-		if code == "KINEMATIC_FAILED" {
-			if lastTransport == codes.InvalidArgument || (last != nil && last.Status == "INVALID_MODEL") {
-				code = "INPUT_ERROR"
-			} else if lastTransport != codes.OK && lastTransport != codes.Unknown {
-				code = "EXECUTION_FAILURE"
-			} else if strings.HasPrefix(detail, "UNSUPPORTED_DOF") {
-				code = "UNSUPPORTED_DOF"
+		if engine != nil {
+			out.SolveCalls = engine.calls
+			out.SolverBuild = engine.solverBuild
+			if code == "KINEMATIC_FAILED" {
+				switch {
+				case engine.transport == codes.InvalidArgument || engine.last != nil && engine.last.Status == "INVALID_MODEL":
+					code = "INPUT_ERROR"
+				case engine.transport != codes.OK && engine.transport != codes.Unknown:
+					code = "EXECUTION_FAILURE"
+				case strings.HasPrefix(detail, "UNSUPPORTED_DOF"):
+					code = "UNSUPPORTED_DOF"
+				case strings.HasPrefix(detail, "INPUT_ERROR"):
+					code = "INPUT_ERROR"
+				case strings.HasPrefix(detail, "BUDGET_EXHAUSTED") || engine.calls >= 2048:
+					code = "BUDGET_EXHAUSTED"
+				}
 			}
-		}
-		if out.SolveCalls >= 2048 {
-			code = "BUDGET_EXHAUSTED"
 		}
 		out.Status = code
-		out.Failure = &MotionFailure{TimeSeconds: t, DriverValue: q, Code: code, Detail: detail, Solve: last}
-		if _, e := json.Marshal(last); e != nil {
-			out.Failure.Solve = nil
-			out.Failure.Detail += "; non-finite solver diagnostics retained only in replay"
+		out.Failure = &MotionFailure{TimeSeconds: t, DriverValue: q, Code: code, Detail: detail}
+		if engine == nil {
+			return
 		}
-		if len(replay) > 0 && service.artifacts != nil {
+		out.Failure.Solve = engine.last
+		if _, e := json.Marshal(engine.last); e != nil {
+			out.Failure.Solve = nil
+			out.Failure.Detail += "; non-finite diagnostics retained in replay"
+		}
+		if len(engine.replay) > 0 && service.artifacts != nil {
 			saveCtx, c := context.WithTimeout(context.WithoutCancel(parent), 3*time.Second)
 			defer c()
-			o, e := service.artifacts.Put(saveCtx, artifactstore.Kind("ASSEMBLY_REPLAY"), "application/json", bytes.NewReader(replay))
+			object, e := service.artifacts.Put(saveCtx, artifactstore.Kind("ASSEMBLY_REPLAY"), "application/json", bytes.NewReader(engine.replay))
 			if e == nil {
-				out.Failure.ReplayObjectID = o.ID
+				out.Failure.ReplayObjectID = object.ID
 			}
 		}
 	}
-	solve := func(constraints []geometry.AssemblyConstraint) (geometry.AssemblySolve, error) {
-		if out.SolveCalls >= 2048 {
-			return geometry.AssemblySolve{}, fmt.Errorf("continuation solve budget exhausted")
-		}
-		out.SolveCalls++
-		r, e := service.worker.SolveAssemblyWithOptions(ctx, fmt.Sprintf("motion/%s/%d", s.Digest, out.SolveCalls), equations.Bodies, equations.Geometry, constraints, geometry.AssemblySolveOptions{SolverProfile: &s.SolverProfile, DisableConflictProbes: true, CaptureReplay: func(b []byte, e error) {
-			if e == nil {
-				replay = b
-			}
-		}})
-		last = &r
-		lastTransport = status.Code(e)
-		if e != nil {
-			return r, e
-		}
-		if r.SolverBuild == "" {
-			lastTransport = codes.Internal
-			return r, status.Error(codes.Internal, "solver build missing")
-		}
-		if out.SolverBuild == "" {
-			out.SolverBuild = r.SolverBuild
-		} else if out.SolverBuild != r.SolverBuild {
-			lastTransport = codes.Internal
-			return r, status.Error(codes.Internal, "solver build changed during study")
-		}
-		if !motionHardQualified(r) {
-			return r, fmt.Errorf("%s: %s", r.Status, r.Diagnostic)
-		}
-
-		manifest := AssemblySolveManifest{Bodies: equations.Bodies, Geometry: equations.Geometry, Constraints: constraints, SolverProfile: s.SolverProfile}
-		if r.Status != "CONVERGED" {
-			if ok, why := conflictIndependentWitness(manifest, r); !ok {
-				return r, fmt.Errorf("hard witness: %s", why)
-			}
-		}
-		for _, c := range constraints {
-			if c.Kind == "FIX" {
-				mp := map[string]geometry.AssemblyPose{}
-				for _, b := range r.Bodies {
-					mp[b.ID] = b.Pose
-				}
-				if c.FixedPose == nil || !conflictPoseClose(mp[c.FirstBodyID], *c.FixedPose, s.SolverProfile.LengthTolerance, s.SolverProfile.AngleTolerance) {
-					return r, fmt.Errorf("fixed unit pose residual")
-				}
-			}
-		}
-		return r, nil
-	}
-	poses := func(r geometry.AssemblySolve) (map[string]InstancePose, error) {
-		for _, branch := range r.AngleBranches {
-			if !finiteMotion(branch.State.WrappedAngle) || !finiteMotion(branch.State.UnwrappedAngle) {
-				return nil, fmt.Errorf("invalid solved angle branch")
-			}
-		}
-		p := map[string]InstancePose{}
-		for _, v := range r.Bodies {
-			pose := InstancePose(v.Pose)
-			if !validMotionPose(pose) {
-				return nil, fmt.Errorf("invalid solved pose")
-			}
-			p[v.ID] = pose
-		}
-		for _, body := range equations.Bodies {
-			if _, ok := p[body.ID]; !ok {
-				return nil, fmt.Errorf("missing solved unit")
-			}
-		}
-		return p, nil
-	}
-	baseline, e := solve(equations.Constraints)
-	if e != nil {
-		failure("KINEMATIC_FAILED", e.Error(), 0, 0)
+	engine, err = newMechanismMotionSolver(ctx, service, s)
+	if err != nil {
+		failure("KINEMATIC_FAILED", err.Error(), 0, 0)
 		return out, nil
 	}
-	dof, gauge := motionDof(baseline)
-	if dof != 1 || gauge != 0 {
-		failure("UNSUPPORTED_DOF", fmt.Sprintf("grounded relative DOF=%d gauge=%d; require 1/0", dof, gauge), 0, 0)
+	reference := 0.0
+	if s.Study.Reference != nil {
+		reference, err = motionValue(*s.Study.Reference, true)
+		if err != nil {
+			return out, err
+		}
+	}
+	targets, err := motionPathTargets(s.Study)
+	if err != nil {
+		return out, err
+	}
+	if len(s.Study.Keyframes) > 0 && math.Abs(engine.state.Frame.DriverValue-targets[0].Value-reference) > 1e-7 {
+		failure("INPUT_ERROR", "initial keyframe does not match captured configuration", 0, targets[0].Value)
 		return out, nil
 	}
-	p, e := poses(baseline)
-	if e != nil {
-		failure("KINEMATIC_FAILED", e.Error(), 0, 0)
-		return out, nil
-	}
-	driver := MechanismJoint{}
-	for _, j := range s.Mechanism.Joints {
-		if j.ID == s.Study.DriverJointID {
-			driver = j
-		}
-	}
-	if driver.Second == nil {
-		return out, fmt.Errorf("invalid driver")
-	}
-	current, e := motionJointCoordinate(driver, p, nil)
-	if e != nil {
-		return out, e
-	}
-	coords, e := verifyMechanismJoints(s.Mechanism, p, nil, driver.ID, current)
-	if e != nil {
-		failure("KINEMATIC_FAILED", e.Error(), 0, current)
-		return out, nil
-	}
-	if e = motionLimits(s.Mechanism, coords); e != nil {
-		failure("LIMIT_REACHED", e.Error(), 0, current)
-		return out, nil
-	}
-	update := func(r geometry.AssemblySolve, p map[string]InstancePose) {
-		for i := range equations.Bodies {
-			guess := geometry.AssemblyPose(p[equations.Bodies[i].ID])
-			equations.Bodies[i].InitialGuess = &guess
-		}
-		for i := range equations.Constraints {
-			c := &equations.Constraints[i]
-			for _, v := range r.AngleBranches {
-				if v.ConstraintID == c.ID {
-					state := v.State
-					c.AngleBranchState = &state
-				}
-			}
-			for _, v := range r.AlignmentBranches {
-				if v.ConstraintID == c.ID {
-					c.DirectionRelation = v.Direction
-				}
-			}
-			for _, v := range r.DistanceBranches {
-				if v.ConstraintID == c.ID {
-					c.DistanceRelation = v.Side
-				}
-			}
-		}
-	}
-	update(baseline, p)
-	zero, _ := motionValue(driver.Zero, driver.Kind == "REVOLUTE")
-	var advance func(float64, int) (MotionFrame, error)
-	advance = func(target float64, depth int) (MotionFrame, error) {
-		if e := ctx.Err(); e != nil {
-			return MotionFrame{}, e
-		}
-		step := target - current
-		if driver.Kind == "REVOLUTE" && math.Abs(step) > math.Pi/12 && depth < 10 {
-			if _, e := advance(current+step/2, depth+1); e != nil {
-				return MotionFrame{}, e
-			}
-			return advance(target, depth+1)
-		}
-		d := equations.Driver
-		d.Value = zero + float64(driver.Direction)*target
-		if driver.Kind == "REVOLUTE" {
-			d.Value = math.Mod(d.Value, 2*math.Pi)
-			if d.Value < 0 {
-				d.Value += 2 * math.Pi
-			}
-		}
-		if driver.Kind == "REVOLUTE" {
-			prior := zero + float64(driver.Direction)*current
-			wrapped := math.Remainder(prior, 2*math.Pi)
-			d.AngleBranchState = &geometry.AssemblyAngleBranchState{WrappedAngle: wrapped, UnwrappedAngle: prior, Winding: int64(math.Round((prior - wrapped) / (2 * math.Pi)))}
-		}
-		cs := append(append([]geometry.AssemblyConstraint(nil), equations.Constraints...), d)
-		r, e := solve(cs)
-		var next map[string]InstancePose
-		var nc map[string]float64
-		if e == nil {
-			rd, g := motionDof(r)
-			if rd != 0 || g != 0 {
-				e = fmt.Errorf("UNSUPPORTED_DOF: driven relative DOF=%d gauge=%d; require 0/0", rd, g)
-			}
-		}
-		if e == nil {
-			next, e = poses(r)
-		}
-		if e == nil {
-			nc, e = verifyMechanismJoints(s.Mechanism, next, coords, driver.ID, target)
-		}
-		if e == nil {
-			if e = motionLimits(s.Mechanism, nc); e != nil {
-				return MotionFrame{}, e
-			}
-		}
-
-		if e != nil {
-			transport := status.Code(e)
-			if r.Status == "INVALID_MODEL" || transport == codes.InvalidArgument || transport == codes.Unavailable || transport == codes.Internal || out.SolveCalls >= 2048 {
-				return MotionFrame{}, e
-			}
-			if depth >= 10 || math.Abs(step) < 1e-8 || ctx.Err() != nil || strings.HasPrefix(e.Error(), "UNSUPPORTED_DOF") {
-				return MotionFrame{}, e
-			}
-			if _, e = advance(current+step/2, depth+1); e != nil {
-				return MotionFrame{}, e
-			}
-			return advance(target, depth+1)
-		}
-		current = target
-		coords = nc
-		p = next
-		update(r, p)
-		return MotionFrame{DriverValue: target, UnitPoses: next, Coordinates: nc, AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations}, nil
-	}
-	start, _ := motionValue(s.Study.Start, driver.Kind == "REVOLUTE")
-	end, _ := motionValue(s.Study.End, driver.Kind == "REVOLUTE")
-	for i := 0; i < s.Study.Frames; i++ {
-		fraction := float64(i) / float64(s.Study.Frames-1)
-		t := fraction * s.Study.DurationSeconds
-		q := start + fraction*(end-start)
-		f, e := advance(q, 0)
+	for _, target := range targets {
+		frame, e := engine.Advance(ctx, reference+target.Value)
 		if e != nil {
 			code := "KINEMATIC_FAILED"
 			if strings.HasPrefix(e.Error(), "LIMIT_REACHED") {
 				code = "LIMIT_REACHED"
 			}
-			failure(code, e.Error(), t, q)
+			failure(code, e.Error(), target.Time, target.Value)
 			return out, nil
 		}
-		f.TimeSeconds = t
-
-		out.Frames = append(out.Frames, f)
-
+		frame.TimeSeconds = target.Time
+		frame.DriverValue = target.Value
+		frame.KeyframeID = target.KeyframeID
+		out.Frames = append(out.Frames, frame)
 		if onFrame != nil {
 			if e = onFrame(len(out.Frames)); e != nil {
-				failure("EXECUTION_FAILURE", e.Error(), t, q)
+				failure("EXECUTION_FAILURE", e.Error(), target.Time, target.Value)
 				return out, nil
 			}
 		}
 	}
 	out.Status = "COMPLETED"
 	out.Completed = true
+	out.SolveCalls = engine.calls
+	out.SolverBuild = engine.solverBuild
 	return out, nil
+}
+
+type motionPathTarget struct {
+	Time, Value float64
+	KeyframeID  string
+}
+
+func motionPathTargets(s MotionStudy) ([]motionPathTarget, error) {
+	if len(s.Keyframes) == 0 {
+		start, err := motionValue(s.Start, true)
+		if err != nil {
+			return nil, err
+		}
+		end, err := motionValue(s.End, true)
+		if err != nil {
+			return nil, err
+		}
+		targets := make([]motionPathTarget, s.Frames)
+		for i := range targets {
+			fraction := 0.0
+			if s.Frames > 1 {
+				fraction = float64(i) / float64(s.Frames-1)
+			}
+			targets[i] = motionPathTarget{Time: fraction * s.DurationSeconds, Value: start + fraction*(end-start)}
+		}
+		return targets, nil
+	}
+	duration := s.Keyframes[len(s.Keyframes)-1].TimeSeconds
+	times := make(map[float64]string, len(s.Keyframes)+s.Frames)
+	for _, key := range s.Keyframes {
+		times[key.TimeSeconds] = key.ID
+	}
+	if duration > 0 {
+		for i := 0; i < s.Frames; i++ {
+			t := duration * float64(i) / float64(max(1, s.Frames-1))
+			if _, ok := times[t]; !ok {
+				times[t] = ""
+			}
+		}
+	}
+	ordered := make([]float64, 0, len(times))
+	for t := range times {
+		ordered = append(ordered, t)
+	}
+	slices.Sort(ordered)
+	targets := make([]motionPathTarget, 0, len(ordered))
+	segment := 0
+	for _, t := range ordered {
+		for segment+1 < len(s.Keyframes) && s.Keyframes[segment+1].TimeSeconds <= t {
+			segment++
+		}
+		key := s.Keyframes[segment]
+		value, err := motionValue(key.Value, true)
+		if err != nil {
+			return nil, err
+		}
+		if segment+1 < len(s.Keyframes) {
+			next := s.Keyframes[segment+1]
+			end, err := motionValue(next.Value, true)
+			if err != nil {
+				return nil, err
+			}
+			value += (end - value) * (t - key.TimeSeconds) / (next.TimeSeconds - key.TimeSeconds)
+		}
+		targets = append(targets, motionPathTarget{Time: t, Value: value, KeyframeID: times[t]})
+	}
+	return targets, nil
 }
 
 // Assembly preference convergence is separate from mechanism hard feasibility.

@@ -226,8 +226,8 @@ Part Design 提供布尔、圆角、倒角、拔模、抽壳和基础放样命�
 
 ApplicationDisplay 提交匹配文档 Revision 的完整姿态，资源清理不恢复位置。进入从当前 accepted 启用机构关系；退出从机构 accepted 启用产品关系，无产品关系时持久保留位置。URL 保存应用，刷新重新验证；机构操纵复用权威交互会话和正式提交。固定件、多实例化支持三维／树选择所属 Instance，旋转接合提供轴线、定位平面、偏移与平面方向。
 
-当前支持 Ground/Revolute、角度 Command、独立线性 MotionLaw 及引用规律的 Simulation。“运行仿真”和结果双击打开“仿真与回放”，计算及播放控制在对话框内；工具栏没有独立播放或已保存结果按钮。结果挂在对应模拟下，终态结果右键隐藏。回放“确定”采用当前合格计算样本，“取消”、标题关闭和 Esc 恢复机构 accepted；两位时间显示及帧间插值只作用于显示。
+当前支持 Ground/Revolute、稳定零位的角度 Command、命令试动和用户关键帧录制。“使用命令进行模拟”打开暂态窗口；“模拟”打开命令与录制两个共享拥有者的窗口，支持自动／手动插入、修改、删除、动画视点及有限路径播放，无需 Law。试动与空间操纵只发布同一合格检查点；主确定一次保存模拟和当前位置，取消、标题关闭与 Esc 恢复入口。录制采用所选命令节点或上次试动命令，段内不切换驱动。
 
-“转换为产品约束”统一从工具栏进入，支持 accepted 或 Run 来源，不依赖仿真；关系独立，只新增或复用一致定义，差异报告冲突，提交检查完整 Product 方程、CAS 及 Undo/Redo。当前加载第零帧、再次运行／退出的隐式位置采用及交互限制见[当前合同](../../../docs/architecture/current/kinematics-dmu.md)。新的实时命令试动、操作零位、双面板关键帧录制尚未实现，唯一方案见[完整设计](../../../docs/architecture/target/kinematics-dmu.md)；Mock fixture 不是数值权威，浏览器验收须覆盖真实 Worker。
+双击模拟编辑记录，双击其结果查看冻结回放，结果右键隐藏。工具栏没有播放／结果选择入口，对话框没有结果删除或约束转换按钮。时间显示两位小数，RAF 及刚体插值只负责显示；暂停／确定和产品转换在精确逻辑时间通过真实求解。转换使用工具栏，独立产品约束仅 ADD/一致 REUSE/CONFLICT。来源改变须显式重新验证，不自动重设零位。范围和限制见[当前合同](../../../docs/architecture/current/kinematics-dmu.md)与[完整设计](../../../docs/architecture/target/kinematics-dmu.md)。
 
 真实浏览器验收：运行最新 API/Worker 并加载项目 .env 后，`pnpm exec playwright test --config playwright.live.config.ts browser/motion-live.spec.ts`；用例通过正式建模命令创建验收文档，记录 Three.js 实际渲染帧，截图输出 build/acceptance。

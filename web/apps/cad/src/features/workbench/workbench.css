@@ -164,3 +164,5 @@
 .motion-support-value { font-size:12px; overflow-wrap:anywhere; opacity:.85; text-align:right; }
 .motion-dialog-status { border-top:1px solid var(--wb-border); padding-top:8px; font-size:12px; }
 .motion-playback-controls { display:flex; flex-wrap:wrap; gap:6px; }
+
+.motion-range-labels { display:flex; justify-content:space-between; gap:12px; }

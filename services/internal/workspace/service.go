@@ -85,6 +85,7 @@ type Service struct {
 	interactionCandidates    interactionCandidateCache
 	assemblyWarmStarts       assemblyWarmStartCache
 	assemblyInteractions     assemblyInteractionCache
+	mechanismSessions        mechanismSessionCache
 	selectionResolutions     sync.Map
 }
 

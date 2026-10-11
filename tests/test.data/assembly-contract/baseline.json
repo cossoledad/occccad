@@ -1519,7 +1519,7 @@
         "m4.interaction.frozen-rank-audit": "f4824af9e66d64623840480154cb3f7e34deb11b284f9385612e6ce3e184757b",
         "m4.session.typed-target": "0bcb62f16a627985515eba3e806cc151234b6dd03fe3f095a9afb94be4c90854",
         "m4.session.router-commit-history": "586e411a20ff36d5bb8407695d9112e07bad34d8d115e11e8c09c336c8305086",
-        "m4.interaction.production-scheduler": "0d1e10f66fd4e6366d6e9aa0ce5d6a8f4feacd73502cf1c26bf35392df8b47bc",
+        "m4.interaction.production-scheduler": "203c4b52b300e9cd5d3fead1233a127ef8fb278d48b8ab1d45739462f674ef7e",
         "m5.conflict.three-valued-budget": "751e59cfa34ab46fb5873a7262ae676a40a005369f04176c99ab3246a3e00ffb",
         "m5.conflict.certificates-provenance": "044eb3b88c8011f48165d1ac9a53729127fb46fd723c11a2104dd7a0be6ace52",
         "m5.conflict.router-readonly-repair": "a71269f7ca7dfb7abbff3b61f2e7d50794a39292e3d6c309f7e68f3368583d38",
@@ -2147,5 +2147,11 @@
         "reviewedAssertionCaseIds": [
             "m4.operation.failure-outlet"
         ]
+    },
+    "mechanismRecordingReview20261011": {
+        "reviewedAssertionCaseIds": [
+            "m4.interaction.production-scheduler"
+        ],
+        "reason": "Added accepted and retained qualified-checkpoint assertions for the shared command/recording owner. Existing ordinary drag qualification, finalization, cancellation and mismatch assertions remain intact. pnpm test -- assembly-interaction passed before updating this one assertion-source digest. No case identity, target expectation, numerical tolerance or coverage floor changed."
     }
 }

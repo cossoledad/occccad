@@ -25,6 +25,7 @@ export type AssemblyInteractionBegin = {
   editContext?: { rootDocumentId: string; rootRevisionId: string;activeDocumentId:string;activeRevisionId:string; instancePath?: InstancePath };
 };
 export type AssemblyInteractionSession = {
+  mode?:'COMMAND_TRIAL';
   sessionId: string;
   bodyId: string;
   baseRevisionId: string;
@@ -44,6 +45,7 @@ export type AssemblyInteractionEvidence = {
 };
 export type AssemblyInteractionUpdate = { sessionId: string; sequence: number; goalSequence?:number; final: boolean; target: AssemblyDragTarget };
 export type AssemblyInteractionFrame = {
+  sessionOutcome?:'ACCEPTED'|'RETAINED';
   evaluationFailure?:{diagnosticId?:string;code:string;phase:string;retryable:boolean};
   previewId: string;
   requestId: string;
@@ -213,6 +215,14 @@ export class AssemblyInteractionController {
       if (frame.interaction.targetSequence !== request.sequence || frame.sequence !== request.sequence || frame.sessionId !== session.sessionId || frame.inputDigest !== session.inputDigest) throw new Error("Assembly target response identity mismatch");
       const evidence = frame.interaction;
       if(frame.goalSequence!==undefined&&frame.goalSequence!==request.goalSequence)throw new Error("Assembly response goal identity mismatch");
+      if(frame.sessionOutcome){
+        if(session.mode!=='COMMAND_TRIAL'||!evidence.hardFeasible||frame.instancePoses.length!==session.nominalPoses.length||new Set(frame.instancePoses.map(p=>p.instanceId)).size!==frame.instancePoses.length||frame.instancePoses.some(p=>p.translation.length!==3||p.rotation.length!==4||![...p.translation,...p.rotation].every(Number.isFinite)||Math.abs(p.rotation.reduce((sum,x)=>sum+x*x,0)-1)>1e-8)||session.nominalPoses.some(p=>!frame.instancePoses.some(q=>q.instanceId===p.instanceId)))throw new Error('Invalid transient mechanism checkpoint');
+        this.port.frame(frame);this.lastFeasible=structuredClone(frame);
+        if(frame.sessionOutcome==='ACCEPTED')this.checkpoint=structuredClone(frame);
+        this.setState(frame.sessionOutcome==='ACCEPTED'?'allowed':'constrained',evidence.diagnostic);
+        if(request.final){this.finishResolve?.({...structuredClone(frame),...structuredClone(request),baseRevisionId:session.baseRevisionId,inputDigest:session.inputDigest});this.finishResolve=undefined}
+        return;
+      }
       if (evidence.hardFeasible && evidence.status!=="CANCELLED" && evidence.status!=="FAILED") {this.lastFeasible=structuredClone(frame);this.port.frame(frame);}
       if(evidence.hardFeasible&&evidence.targetConverged&&evidence.eligibleForCommit)this.checkpoint=structuredClone(frame);
       const eligible = evidence.hardFeasible && evidence.targetConverged && evidence.eligibleForCommit && (Boolean(frame.previewId && frame.requestId && frame.commitCommand) || Boolean(frame.unchanged))

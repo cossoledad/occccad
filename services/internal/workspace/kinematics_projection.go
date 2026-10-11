@@ -32,7 +32,7 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 		}
 		label := m.Name
 		if m.Evaluation != nil {
-			label += fmt.Sprintf("，自由度=%d", m.Evaluation.DrivenDOF)
+			label += fmt.Sprintf("，自由度=%d", m.Evaluation.RelativeDOF)
 		} else {
 			label += "，自由度=待计算"
 		}
@@ -115,7 +115,7 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 	for _, s := range k.Studies {
 		sn := node(simulations.ID, "MOTION_STUDY", s.ID, s.Name)
 		sn.MechanismID = s.MechanismID
-		sn.OwnerEntityID = s.LawID
+		sn.OwnerEntityID = s.MechanismID
 		for _, m := range k.Mechanisms {
 			if m.ID == s.MechanismID {
 				sn.Children = append(sn.Children, project(sn.ID, m, true))

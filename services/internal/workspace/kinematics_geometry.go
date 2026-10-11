@@ -185,6 +185,17 @@ func (service *Service) bindKinematics(ctx context.Context, documentID, revision
 			}
 		}
 		old := slices.IndexFunc(model.Kinematics.Mechanisms, func(prev Mechanism) bool { return prev.ID == m.ID })
+		if old >= 0 {
+			// A removed relationship has no continuous coordinate to carry. Keep
+			// live winding intent; unknown IDs still fail normal validation.
+			for id := range m.Coordinates {
+				previouslyKnown := slices.ContainsFunc(model.Kinematics.Mechanisms[old].Joints, func(j MechanismJoint) bool { return j.ID == id && j.Kind == "REVOLUTE" })
+				stillKnown := slices.ContainsFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == id && j.Kind == "REVOLUTE" })
+				if previouslyKnown && !stillKnown {
+					delete(m.Coordinates, id)
+				}
+			}
+		}
 		driversFor := func(list []MotionDriver) []MotionDriver {
 			out := []MotionDriver{}
 			for _, d := range list {
@@ -249,6 +260,12 @@ func (service *Service) bindKinematics(ctx context.Context, documentID, revision
 		k.Mechanisms[i] = result.Mechanism
 	}
 
+	if err := bindMotionDrivers(&k); err != nil {
+		return k, err
+	}
+	if err := service.validateChangedRecordings(ctx, documentID, revisionID, model, k); err != nil {
+		return k, err
+	}
 	return k, nil
 }
 

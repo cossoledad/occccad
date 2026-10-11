@@ -3,8 +3,20 @@ import type {DocumentView} from '../../types';
 import type {TransformTransitionSystem, TransformTarget} from '../animation/transform-transition';
 import type {MotionPlayback} from './motion-study';
 
-import {motionPlaybackTime,validMotionPose,type MotionPose} from './motion-study';
+import {motionPlaybackTime,validMotionPose,type MotionPose,type MotionStudy,type MotionViewpoint} from './motion-study';
 export {validMotionPose} from './motion-study';
+
+export function motionViewpointAt(study:MotionStudy,time:number):MotionViewpoint|undefined {
+  if(!study.animateViewpoint)return;
+  const keys=study.keyframes?.filter(k=>k.viewpoint)??[];
+  if(!keys.length)return;
+  const index=keys.findIndex(k=>k.timeSeconds>time);
+  const first=keys[index<0?keys.length-1:Math.max(0,index-1)],second=index<0?first:keys[index];
+  const a=first.viewpoint!,b=second.viewpoint!,t=Math.max(0,Math.min(1,second.timeSeconds>first.timeSeconds?(time-first.timeSeconds)/(second.timeSeconds-first.timeSeconds):0));
+  const vector=(from:[number,number,number],to:[number,number,number])=>new THREE.Vector3(...from).lerp(new THREE.Vector3(...to),t).toArray();
+  const up=new THREE.Vector3(...a.up).lerp(new THREE.Vector3(...b.up),t);if(up.lengthSq()<1e-12)up.fromArray(a.up);up.normalize();
+  return {position:vector(a.position,b.position),target:vector(a.target,b.target),up:up.toArray(),rotation:new THREE.Quaternion(...a.rotation).slerp(new THREE.Quaternion(...b.rotation),t).normalize().toArray(),zoom:a.zoom*(1-t)+b.zoom*t,top:a.top*(1-t)+b.top*t,bottom:a.bottom*(1-t)+b.bottom*t};
+}
 
 // Rigid screw interpolation preserves an off-origin revolute pivot. Plain
 // position lerp would cut across the circular path. These poses never leave the viewport.
@@ -37,13 +49,14 @@ export function applyMotionFrame(
   if (view?.document.id !== display.view.document.id || view.document.versionId !== display.revisionId
     || display.view.document.versionId !== display.revisionId || !view.product) return false;
   let first=display.frame,second=first,progress=0;
-  if(display.clock){
-    const frames=display.clock.frames,time=motionPlaybackTime(display.clock,now);
+  if(display.clock||display.timeSeconds!==undefined){
+    const frames=display.clock?.frames??display.samples??[display.frame],time=display.clock?motionPlaybackTime(display.clock,now):display.timeSeconds!;
     const next=frames.findIndex(f=>f.timeSeconds>time);
     first=frames[next<0?frames.length-1:Math.max(0,next-1)];second=next<0?first:frames[next];
-    if(!first||!second)return false;
+    if(!first?.kinematicValid||!second?.kinematicValid)return false;
     progress=second.timeSeconds>first.timeSeconds?(time-first.timeSeconds)/(second.timeSeconds-first.timeSeconds):0;
   }
+  if(!first.kinematicValid||!second.kinematicValid)return false;
   const targets: TransformTarget[] = [];
   for (const unit of view.product.instances) {
     const object = groups.get(unit.id), from = first.unitPoses?.[unit.id],to=second.unitPoses?.[unit.id];

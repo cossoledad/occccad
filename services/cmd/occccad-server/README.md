@@ -52,9 +52,9 @@ Product API 包括 `GET|POST /api/documents/{rootProductId}/product-update-plan[
 
 `CREATE_SKETCH` 除 DatumPlane 外还接受当前 Part Revision 的 `FACE` raw pick（`versionId/geometryKey/topologyId`）。服务端先绑定 PersistentSelection 并验证平面类型，再保存确定性 support frame；后续上游编辑通过 naming resolver 和草图之前的完整 body-prefix 制品更新 frame/dependency snapshot。浏览器和持久模型都不把 local face ID 当成长期支撑身份。
 
-机构 API：`POST /api/documents/{id}/mechanism-application` 只读准备目标应用，`ACTIVATE_MECHANISM` / `EXIT_MECHANISM` 重新验证后 CAS 采用，空变更不写 Revision；无产品约束退出保留并持久保存当前位置。`mechanism-preview` 预览独立机构方程，`SAVE_KINEMATICS` 保存真实约束及成员 accepted。`motion-runs` 冻结引用 MotionLaw 的 Study；`GET|DELETE /api/jobs/{id}/motion-run` 获取或隐藏终态结果。`motion-apply-plan` 支持 accepted mechanismId 或有效 Job 帧，`APPLY_MOTION_FRAME` 一次提交独立 Product 约束、实际位姿及映射，仅 ADD/一致 REUSE/CONFLICT，不隐式更新目标。见[当前合同](../../../docs/architecture/current/kinematics-dmu.md)。
+机构 API：`mechanism-application` 准备目标应用，`ACTIVATE_MECHANISM` / `EXIT_MECHANISM` 重新验证后 CAS 采用；`mechanism-preview` 与 `SAVE_KINEMATICS` 处理独立机构定义。`mechanism-sessions` 提供 actor/Revision/sequence 绑定的命令和空间试动、关键帧 Pin、有限路径预览、候选准备、续租及取消；试动不创建 Revision 或 Job，主确认沿正式 PreviewCommand/Domain Command 一次保存模拟与当前合格位置。
 
-实时命令坐标试动与用户关键帧录制尚未通过这些接口提供；Trial 字段不代表已交付能力。后续接口职责、会话资格及一次提交边界统一见[完整设计](../../../docs/architecture/target/kinematics-dmu.md)。
+`motion-runs` 冻结已保存的录制 Study，可不引用 Law；`GET|DELETE /api/jobs/{id}/motion-run` 获取或隐藏终态结果。`motion-pose` 精确求解回放逻辑时间并准备正式位置采用；`motion-apply-plan` 和 `APPLY_MOTION_FRAME` 经重新验证一次提交独立 Product 约束、实际位姿及映射，仅 ADD/一致 REUSE/CONFLICT。权限、会话边界、质量及限制见[当前合同](../../../docs/architecture/current/kinematics-dmu.md)，完整目标见[设计](../../../docs/architecture/target/kinematics-dmu.md)。
 
 `POST /api/documents/{documentID}/diagnostic-bundles` 为具有文档读取权限的用户生成不可缓存的 `occccad.cad-diagnostic-bundle.v1` JSON 下载。Web 在草图求解命令失败时自动提交失败命令和客户端环境，也允许通过 Debug Toolbar 手动导出当前状态；服务端补充当前文档、草图、Workspace、历史、最近事务/命令错误及 evaluator provenance。该接口不导出 Cookie、密码、其他文档日志或 B-Rep 原始字节。
 

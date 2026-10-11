@@ -16,6 +16,10 @@ import (
 // Operation diagnostics reuse the bounded debug repository, never Revision or
 // commit candidates. Capture the evaluated input, not whatever Head exists later.
 type OperationDiagnostic struct {
+	MotionBegin            *MechanismSessionBegin     `json:"motionBegin,omitempty"`
+	MotionInput            *MechanismSessionUpdate    `json:"motionInput,omitempty"`
+	MotionSnapshot         *MotionSnapshot            `json:"motionSnapshot,omitempty"`
+	MotionCheckpoint       *MotionFrame               `json:"motionCheckpoint,omitempty"`
 	InteractionBegin       *AssemblyInteractionBegin  `json:"interactionBegin,omitempty"`
 	InteractionUpdate      *AssemblyInteractionUpdate `json:"interactionUpdate,omitempty"`
 	AssemblyAttempts       []json.RawMessage          `json:"assemblyAttempts,omitempty"`

@@ -284,11 +284,13 @@ func TestMotionRetainedEquationIsNeverReplaced(t *testing.T) {
 func TestMotionBudgetRetainsCompletedFrame(t *testing.T) {
 	service := New(nil, motionWorker(t))
 	s := motionFixture(t, false, "REVOLUTE")
-	s.Study.BudgetMS = 100
+	// Allow the real Worker to produce the first checkpoint on a busy host;
+	// expire only after that checkpoint, rather than testing launch latency.
+	s.Study.BudgetMS = 3000
 	s.Digest = motionDigest(s)
 	r, e := service.RunMotionStudy(t.Context(), s, func(n int) error {
 		if n == 1 {
-			<-time.After(150 * time.Millisecond)
+			<-time.After(3500 * time.Millisecond)
 		}
 		return nil
 	})
@@ -323,28 +325,34 @@ func TestMotionConcurrentFrozenRunsIndependent(t *testing.T) {
 
 type motionFailureWorker struct {
 	workerv1.UnimplementedGeometryWorkerServer
-	code codes.Code
+	code  codes.Code
+	build string
 }
 
 func (s motionFailureWorker) SolveAssembly(context.Context, *workerv1.SolveAssemblyRequest) (*workerv1.SolveAssemblyResponse, error) {
 	if s.code != codes.OK {
 		return nil, status.Error(s.code, "injected Worker failure")
 	}
-	return &workerv1.SolveAssemblyResponse{SolverBuild: "fixture", Status: "MAX_ITERATIONS", NormalizedResidual: math.Inf(1)}, nil
+	return &workerv1.SolveAssemblyResponse{SolverBuild: s.build, Status: "MAX_ITERATIONS", NormalizedResidual: math.Inf(1)}, nil
 }
 func TestMotionExecutionInputAndNonFiniteFailures(t *testing.T) {
 	for _, c := range []struct {
-		code codes.Code
-		want string
-	}{{codes.Unavailable, "EXECUTION_FAILURE"}, {codes.InvalidArgument, "INPUT_ERROR"}, {codes.OK, "KINEMATIC_FAILED"}} {
-		t.Run(c.want, func(t *testing.T) {
+		name, build, want string
+		code              codes.Code
+	}{
+		{"transport", assemblySolverBuildPolicy, "EXECUTION_FAILURE", codes.Unavailable},
+		{"input", assemblySolverBuildPolicy, "INPUT_ERROR", codes.InvalidArgument},
+		{"non-finite", assemblySolverBuildPolicy, "KINEMATIC_FAILED", codes.OK},
+		{"version-mismatch", "different-worker-policy", "EXECUTION_FAILURE", codes.OK},
+	} {
+		t.Run(c.name, func(t *testing.T) {
 			l, e := net.Listen("tcp", "127.0.0.1:0")
 			if e != nil {
 				t.Fatal(e)
 			}
 			server := grpc.NewServer()
 			defer server.Stop()
-			workerv1.RegisterGeometryWorkerServer(server, motionFailureWorker{code: c.code})
+			workerv1.RegisterGeometryWorkerServer(server, motionFailureWorker{code: c.code, build: c.build})
 			go server.Serve(l)
 			client, e := geometry.Open(l.Addr().String())
 			if e != nil {

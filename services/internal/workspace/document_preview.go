@@ -171,16 +171,21 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 		}
 		var assemblyResult geometry.AssemblySolve
+		kinematicsPreview := prepared.command.TypeURI == typeSetKinematics
 		retainedFailure := false
 		warmStartKey := ""
 		if request.InteractionID != "" {
 			warmStartKey = documentID + "|" + prepared.actorID + "|" + request.InteractionID
 		}
-		if err = service.solveAssembly(ctx, documentID, prepared.headRevision, "preview/"+prepared.requestID, driven, solveIntent, &model, warmStartKey, &assemblyResult); err != nil {
-			if retained := acceptAssemblyEvaluationFailure(&model, err, retainsAssemblyDefinition(prepared.command.TypeURI)); retained == nil {
-				retainedFailure = true
-			} else {
-				return CommandPreview{}, err
+		// The adapter has already qualified the independent mechanism. Product
+		// equations belong to Product application/exit, never this confirmation.
+		if !kinematicsPreview {
+			if err = service.solveAssembly(ctx, documentID, prepared.headRevision, "preview/"+prepared.requestID, driven, solveIntent, &model, warmStartKey, &assemblyResult); err != nil {
+				if retained := acceptAssemblyEvaluationFailure(&model, err, retainsAssemblyDefinition(prepared.command.TypeURI)); retained == nil {
+					retainedFailure = true
+				} else {
+					return CommandPreview{}, err
+				}
 			}
 		}
 		nextJSON, err = json.Marshal(model)
@@ -209,7 +214,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 		}
 		expiresAt := time.Now().Add(interactionCandidateTTL)
 		previewID := newID("preview")
-		if !retainedFailure && assemblyResult.Status != "CONVERGED" {
+		if !kinematicsPreview && !retainedFailure && assemblyResult.Status != "CONVERGED" {
 			previewID = ""
 		}
 		if previewID != "" {

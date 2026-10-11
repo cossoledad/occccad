@@ -11,7 +11,7 @@ import (
 	"github.com/occccad/occccad/internal/geometry"
 )
 
-const motionPolicy = "revolute-owning-constraints-laws-v4"
+const motionPolicy = "revolute-command-recorded-path-v1"
 
 type MotionRunRequest struct {
 	BaseRevisionID  string          `json:"baseRevisionId"`
@@ -40,7 +40,12 @@ type MotionSnapshot struct {
 
 func motionDigest(s MotionSnapshot) string {
 	s.Digest = ""
-	b, _ := json.Marshal(s)
+	// A frozen path cannot keep the same cache identity across solver policy
+	// changes, even when all user parameters and geometry remain identical.
+	b, _ := json.Marshal(struct {
+		Input             MotionSnapshot `json:"input"`
+		SolverBuildPolicy string         `json:"solverBuildPolicy"`
+	}{s, assemblySolverBuildPolicy})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
@@ -105,26 +110,25 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 		if err = validateKinematics(*view.Product, selected); err != nil {
 			return s, err
 		}
-		poseModel, e := mechanismPoseModel(*view.Product, s.Mechanism)
-		if e != nil {
-			return s, e
+		for _, d := range selected.Drivers {
+			if d.Reference == nil {
+				return s, fmt.Errorf("%w: command reference must be saved", ErrValidation)
+			}
+			if len(s.Study.Keyframes) == 0 {
+				s.Study.Reference = d.Reference
+			}
+			if len(s.Study.Keyframes) > 0 && (s.Study.BasisDigest != recordingBasis(s.Mechanism, d) || s.Study.GeometryDigest != recordingGeometry(view, s.Mechanism)) {
+				return s, fmt.Errorf("%w: SIMULATION_REVALIDATION_REQUIRED", ErrValidation)
+			}
 		}
-		if s.Mechanism, err = service.resolveMechanismGeometry(ctx, poseModel, s.Mechanism, false); err != nil {
+		if len(s.Study.Keyframes) > 0 {
+			s.Mechanism.Poses = s.Study.InitialPoses
+			s.Mechanism.Coordinates = s.Study.InitialCoordinates
+		}
+		if err = service.compileMotionSnapshot(ctx, &s); err != nil {
 			return s, err
 		}
-		input, e := mechanismProductInput(*view.Product, s.Mechanism)
-		if e != nil {
-			return s, e
-		}
-		appendMechanismConstraints(&input, s.Mechanism)
-		frozen, e := service.FreezeAssemblyInput(ctx, documentID, req.BaseRevisionID, input)
-		if e != nil {
-			return s, e
-		}
-		s.Equations, err = compileMechanism(frozen, s.Mechanism, s.Study)
-		if err != nil {
-			return s, err
-		}
+
 	}
 	s.Digest = motionDigest(s)
 	b, e := json.Marshal(s)
@@ -140,4 +144,45 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 		return s, fmt.Errorf("%w: Product revision changed during freeze", ErrValidation)
 	}
 	return s, nil
+}
+
+func (service *Service) compileMotionSnapshot(ctx context.Context, s *MotionSnapshot) error {
+	if len(s.Study.Keyframes) > 0 {
+		product, err := cloneAssemblyProduct(*s.View.Product)
+		if err != nil {
+			return err
+		}
+		for id, pose := range s.Study.EnvironmentPoses {
+			if !slices.ContainsFunc(product.Instances, func(i ProductInstance) bool { return i.ID == id }) || slices.Contains(s.Mechanism.UnitIDs, id) || !validMotionPose(pose) {
+				return fmt.Errorf("%w: invalid frozen environment", ErrValidation)
+			}
+		}
+		for i, v := range product.Instances {
+			if pose, ok := s.Study.EnvironmentPoses[v.ID]; ok {
+				if slices.Contains(s.Mechanism.UnitIDs, v.ID) || !validMotionPose(pose) {
+					return fmt.Errorf("%w: invalid frozen environment", ErrValidation)
+				}
+				product.Instances[i].Translation, product.Instances[i].Rotation = pose.Translation, pose.Rotation
+			}
+		}
+		s.View.Product = &product
+	}
+	poseModel, err := mechanismPoseModel(*s.View.Product, s.Mechanism)
+	if err != nil {
+		return err
+	}
+	if s.Mechanism, err = service.resolveMechanismGeometry(ctx, poseModel, s.Mechanism, false); err != nil {
+		return err
+	}
+	input, err := mechanismProductInput(*s.View.Product, s.Mechanism)
+	if err != nil {
+		return err
+	}
+	appendMechanismConstraints(&input, s.Mechanism)
+	frozen, err := service.FreezeAssemblyInput(ctx, s.DocumentID, s.RevisionID, input)
+	if err != nil {
+		return err
+	}
+	s.Equations, err = compileMechanism(frozen, s.Mechanism, s.Study)
+	return err
 }

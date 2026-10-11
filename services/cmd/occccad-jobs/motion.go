@@ -49,7 +49,9 @@ func (h handler) executeMotion(ctx context.Context, job jobs.Job) error {
 	if json.Unmarshal(job.Payload, &p) != nil || p.Digest != s.Digest {
 		return fmt.Errorf("motion input digest mismatch")
 	}
-	result, e := h.workspace.RunMotionStudy(ctx, s, func(n int) error { return h.queue.UpdateProgress(ctx, job.ID, h.workerID, 5+90*n/s.Study.Frames) })
+	result, e := h.workspace.RunMotionStudy(ctx, s, func(n int) error {
+		return h.queue.UpdateProgress(ctx, job.ID, h.workerID, min(95, 5+90*n/max(1, s.Study.Frames)))
+	})
 	if e != nil {
 		return e
 	}
@@ -65,5 +67,5 @@ func (h handler) executeMotion(ctx context.Context, job jobs.Job) error {
 	if e != nil {
 		return e
 	}
-	return h.queue.FinishMotion(finish, job.ID, h.workerID, job.AttemptCount, o.ID)
+	return h.queue.FinishMotion(finish, job.ID, h.workerID, job.AttemptCount, o.ID, jobs.MotionCompletion{Status: result.Status, Completed: result.Completed, ValidFrames: len(result.Frames)})
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"slices"
 	"time"
 
@@ -230,6 +229,25 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 	if _, err = verifyMechanismJoints(m, poses, nil, "", 0); err != nil {
 		return out, fmt.Errorf("%w: %v", ErrValidation, err)
 	}
+	coordinates := map[string]float64{}
+	for _, j := range m.Joints {
+		if j.Kind != "REVOLUTE" {
+			continue
+		}
+		var prior *float64
+		if v, ok := m.Coordinates[j.ID]; ok {
+			prior = &v
+		}
+		q, e := motionJointCoordinate(j, poses, prior)
+		if e != nil {
+			return out, e
+		}
+		coordinates[j.ID] = q
+	}
+	if err = motionLimits(m, coordinates); err != nil {
+		return out, err
+	}
+	m.Coordinates = coordinates
 	current, err := service.GetDocument(ctx, documentID)
 	if err != nil {
 		return out, err
@@ -240,57 +258,22 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 	m.Poses = mechanismMemberPoses(m, poses)
 	if partial == nil {
 		relative, gauge := motionDof(result)
-		m.Evaluation = &MechanismEvaluation{RelativeDOF: relative, GaugeDOF: gauge, DrivenDOF: relative}
+		m.Evaluation = &MechanismEvaluation{RelativeDOF: relative, GaugeDOF: gauge}
 		drivers := req.Drivers
 		if drivers == nil {
 			drivers = view.Product.Kinematics.Drivers
 		}
-		probe := equations
 		for _, d := range drivers {
 			if d.MechanismID == m.ID {
-				j := slices.IndexFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID && j.Kind == "REVOLUTE" })
-				if j < 0 {
+				if !slices.ContainsFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID && j.Kind == "REVOLUTE" }) {
 					return out, fmt.Errorf("%w: command joint missing", ErrValidation)
 				}
-				q, e := motionJointCoordinate(m.Joints[j], poses, nil)
-				if e != nil {
-					return out, e
-				}
-				compiled, e := compileMechanismEquations(frozen, m, MotionStudy{DriverJointID: d.JointID}, true)
-				if e != nil {
-					return out, e
-				}
-				coordinate := compiled.Driver
-				zero, _ := motionValue(m.Joints[j].Zero, true)
-				coordinate.Value = math.Mod(zero+float64(m.Joints[j].Direction)*q, 2*math.Pi)
-				if coordinate.Value < 0 {
-					coordinate.Value += 2 * math.Pi
-				}
-				probe.Constraints = append(probe.Constraints, coordinate)
 				m.Evaluation.DriverCount++
 			}
 		}
-		if m.Evaluation.DriverCount > 0 {
-			for i := range probe.Bodies {
-				probe.Bodies[i].Pose = geometry.AssemblyPose(poses[probe.Bodies[i].ID])
-				probe.Bodies[i].InitialGuess = nil
-			}
-			r, e := service.worker.SolveAssemblyWithOptions(ctx, "mechanism-commands/"+req.RequestID, probe.Bodies, probe.Geometry, probe.Constraints, geometry.AssemblySolveOptions{SolverProfile: &profile})
-			if e != nil {
-				return out, e
-			}
-			witness := AssemblySolveManifest{Bodies: probe.Bodies, Geometry: probe.Geometry, Constraints: probe.Constraints, SolverProfile: profile}
-			if r.Status != "CONVERGED" {
-				return out, fmt.Errorf("%w: command coverage solve: %s", ErrValidation, r.Status)
-			}
-			if e = validateAssemblyPreference(r); e != nil {
-				return out, e
-			}
-			if ok, why := conflictIndependentWitness(witness, r); !ok {
-				return out, fmt.Errorf("%w: command coverage witness: %s", ErrValidation, why)
-			}
-			m.Evaluation.DrivenDOF, _ = motionDof(r)
-		}
+		// Saved commands are candidates. Only an executing Session selects and
+		// evaluates hard coordinate equations; definition evaluation keeps physical DOF.
+
 	} else {
 		m.Evaluation = nil
 	}

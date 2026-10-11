@@ -11,7 +11,7 @@
 | Sketch/Part | [模型与求值](architecture/current/part-sketch.md) | trimmed Arc 投影、Boundary/Section、完整专业 Sketcher、更多 Feature |
 | 命名 | [Naming/Resolver](architecture/current/persistent-naming.md) | Revolve 完整 history 未闭合；导入不是参数化 Feature history，歧义须显式重连 |
 | Product/装配 | [Product](architecture/current/product-assembly.md)、[六类合同](architecture/current/assembly-constraints.md)、[算法](../kernel/assembly/SOLVER_ALGORITHMS.md) | 局部分支最优、瞬时 DOF、非线性 UNKNOWN；不保证任意最小冲突集、工业性能或全局最近点 |
-| 机构/DMU | [定义、规律运行、回放与产品转换](architecture/current/kinematics-dmu.md) | 单根 owning Product、Ground/Revolute、接地后一独立角坐标；已有合格位置采用与独立转换，尚无实时命令试动、关键帧录制或干涉应用；交互问题及浏览器验收仍有缺口 |
+| 机构/DMU | [命令试动、录制模拟、回放与产品转换](architecture/current/kinematics-dmu.md) | 单根 owning Product、Ground/Revolute、接地后一独立角坐标；稳定命令零位、统一试动／空间操纵会话、关键帧及有限路径；精确时间采用与独立转换，尚无多驱、其他关节或干涉应用 |
 | 文档/命令接入 | [公共框架](architecture/current/document-command-framework.md) | 默认 Part/Product；无运行时代码替换或插件运行器 |
 | 显示/交互 | [Web](architecture/current/web.md)、[模型显示](architecture/current/model-display.md)、[编辑上下文](architecture/current/product-edit-context.md) | 整体结构树/单进程打开注册表、贡献索引与子树分页、跨 Workspace 并发引用尚有限制 |
 | 验证/观测 | [验证](architecture/current/validation.md)、[测试](../tests/README.md) | Node/SSR 不替代浏览器；kernel/RPC 不代表输入至权威显示延迟 |

@@ -59,6 +59,27 @@ func (server *Server) startMotionRun(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusAccepted, job)
 }
+func (server *Server) prepareMotionPose(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("documentID")
+	actor := principal(r).ID
+	if _, err := server.access.RequireDocument(r.Context(), id, actor, access.RoleEditor); err != nil {
+		writeAccessError(w, err)
+		return
+	}
+	var req struct {
+		BaseRevisionID string `json:"baseRevisionId"`
+		workspace.MotionApplyRequest
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	command, err := server.workspace.PrepareMotionPose(r.Context(), id, actor, req.BaseRevisionID, req.MotionApplyRequest)
+	if err != nil {
+		writeWorkspaceResult(w, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(w, 200, command)
+}
 func (server *Server) getMotionRun(w http.ResponseWriter, r *http.Request) {
 	job, ok := server.authorizedJob(w, r)
 	if !ok {

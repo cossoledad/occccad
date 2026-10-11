@@ -329,7 +329,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 		}
 		view = command(workspace.CommandRequest{Type: "UNDO"})
 		evaluated := view.Product.Kinematics.Mechanisms[0].Evaluation
-		if evaluated == nil || evaluated.RelativeDOF != 1 || evaluated.GaugeDOF != 0 || evaluated.DrivenDOF != 0 || evaluated.DriverCount != 1 {
+		if evaluated == nil || evaluated.RelativeDOF != 1 || evaluated.GaugeDOF != 0 || evaluated.DriverCount != 1 {
 			t.Fatal("physical and command DOF conflated", evaluated)
 		}
 		if !reflect.DeepEqual(view.Product.Instances, original) {

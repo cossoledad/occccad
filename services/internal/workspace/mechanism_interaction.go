@@ -36,7 +36,7 @@ func mechanismInteractionModel(product ProductModel, id string, sources []string
 	return model, nil
 }
 
-func mechanismInteractionCandidate(original, solved ProductModel, id, bodyID string) (ProductModel, error) {
+func mechanismInteractionCandidate(original, solved ProductModel, id, bodyID string, coordinates map[string]float64) (ProductModel, error) {
 	next, err := cloneAssemblyProduct(original)
 	if err != nil {
 		return next, err
@@ -63,6 +63,16 @@ func mechanismInteractionCandidate(original, solved ProductModel, id, bodyID str
 		if !validMotionPose(p) {
 			return next, fmt.Errorf("%w: invalid mechanism move", ErrValidation)
 		}
+	}
+	// The qualified drag transports both placement and continuous joint state.
+	// Reusing the base coordinates would fail final acceptance after any motion
+	// and would lose winding when a moved joint crosses a principal-angle seam.
+	m.Coordinates, err = verifyMechanismJoints(*m, poses, coordinates, "", 0)
+	if err != nil {
+		return next, fmt.Errorf("%w: %v", ErrValidation, err)
+	}
+	if err = motionLimits(*m, m.Coordinates); err != nil {
+		return next, fmt.Errorf("%w: %v", ErrValidation, err)
 	}
 	return next, nil
 }

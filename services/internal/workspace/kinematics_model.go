@@ -45,13 +45,13 @@ type Mechanism struct {
 	Name                      string                  `json:"name"`
 	UnitIDs                   []string                `json:"unitIds"` // direct owning Product instances; descendants frozen
 	Joints                    []MechanismJoint        `json:"joints"`
-	Poses                     map[string]InstancePose `json:"poses,omitempty"` // accepted editing baseline, independent of Product assembly poses
+	Poses                     map[string]InstancePose `json:"poses,omitempty"`       // accepted editing baseline, independent of Product assembly poses
+	Coordinates               map[string]float64      `json:"coordinates,omitempty"` // canonical continuous joint coordinates, including winding
 	SupplementalConstraintIDs []string                `json:"supplementalConstraintIds,omitempty"`
 }
 type MechanismEvaluation struct {
 	RelativeDOF uint64 `json:"relativeDof"`
 	GaugeDOF    uint64 `json:"gaugeDof"`
-	DrivenDOF   uint64 `json:"drivenDof"`
 	DriverCount int    `json:"driverCount"`
 }
 type DMUAddress struct {
@@ -59,7 +59,7 @@ type DMUAddress struct {
 	BodyID       string       `json:"bodyId"`
 }
 type MotionStudy struct {
-	LawID           string         `json:"lawId"`
+	LawID           string         `json:"lawId,omitempty"`
 	ID              string         `json:"id"`
 	Name            string         `json:"name"`
 	MechanismID     string         `json:"mechanismId"`
@@ -70,18 +70,47 @@ type MotionStudy struct {
 	DurationSeconds float64        `json:"durationSeconds"`
 	Frames          int            `json:"frames"`
 	// Only an exactly matching existing coordinate equation may be replaced.
-	ReplaceDriverConstraintID string         `json:"replaceDriverConstraintId,omitempty"`
-	IncludeSameUnit           bool           `json:"includeSameUnit"`
-	CheckDMU                  bool           `json:"checkDmu"`
-	Scope                     []DMUAddress   `json:"scope,omitempty"` // empty means all exact geometry
-	Clearance                 MotionQuantity `json:"clearance"`
-	BudgetMS                  int            `json:"budgetMs"`
+	ReplaceDriverConstraintID string                  `json:"replaceDriverConstraintId,omitempty"`
+	IncludeSameUnit           bool                    `json:"includeSameUnit"`
+	CheckDMU                  bool                    `json:"checkDmu"`
+	Scope                     []DMUAddress            `json:"scope,omitempty"` // empty means all exact geometry
+	Clearance                 MotionQuantity          `json:"clearance"`
+	BudgetMS                  int                     `json:"budgetMs"`
+	SourceRevisionID          string                  `json:"sourceRevisionId,omitempty"`
+	BasisDigest               string                  `json:"basisDigest,omitempty"`
+	GeometryDigest            string                  `json:"geometryDigest,omitempty"`
+	Reference                 *MotionQuantity         `json:"reference,omitempty"`
+	InitialPoses              map[string]InstancePose `json:"initialPoses,omitempty"`
+	InitialCoordinates        map[string]float64      `json:"initialCoordinates,omitempty"`
+	EnvironmentPoses          map[string]InstancePose `json:"environmentPoses,omitempty"` // frozen display environment, never mechanism ownership
+	Keyframes                 []MotionKeyframe        `json:"keyframes,omitempty"`
+	AnimateViewpoint          bool                    `json:"animateViewpoint,omitempty"`
+}
+type MotionViewpoint struct {
+	Position [3]float64 `json:"position"`
+	Rotation [4]float64 `json:"rotation"`
+	Up       [3]float64 `json:"up"`
+	Target   [3]float64 `json:"target"`
+	Zoom     float64    `json:"zoom"`
+	Top      float64    `json:"top"`
+	Bottom   float64    `json:"bottom"`
+}
+type MotionKeyframe struct {
+	ID          string           `json:"id"`
+	TimeSeconds float64          `json:"timeSeconds"`
+	DriverID    string           `json:"driverId"`
+	Value       MotionQuantity   `json:"value"`
+	Viewpoint   *MotionViewpoint `json:"viewpoint,omitempty"`
 }
 type MotionDriver struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	MechanismID string `json:"mechanismId"`
-	JointID     string `json:"jointId"`
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	MechanismID     string          `json:"mechanismId"`
+	JointID         string          `json:"jointId"`
+	Reference       *MotionQuantity `json:"reference,omitempty"`
+	ReferenceDigest string          `json:"referenceDigest,omitempty"`
+	Minimum         *MotionQuantity `json:"minimum,omitempty"`
+	Maximum         *MotionQuantity `json:"maximum,omitempty"`
 }
 type MotionLaw struct {
 	ID              string         `json:"id"`
@@ -124,6 +153,13 @@ type KinematicsDefinitions struct {
 func resolveMotionLaws(k *KinematicsDefinitions) error {
 	for i := range k.Studies {
 		s := &k.Studies[i]
+		if len(s.Keyframes) > 0 {
+			if s.LawID != "" {
+				return fmt.Errorf("%w: simulation cannot mix recording and law", ErrValidation)
+			}
+			s.DurationSeconds = s.Keyframes[len(s.Keyframes)-1].TimeSeconds
+			continue
+		}
 		law := slices.IndexFunc(k.Laws, func(l MotionLaw) bool { return l.ID == s.LawID && l.MechanismID == s.MechanismID })
 		if law < 0 {
 			return fmt.Errorf("%w: simulation requires a motion law", ErrValidation)
@@ -205,6 +241,11 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 				return fmt.Errorf("%w: invalid mechanism pose", ErrValidation)
 			}
 		}
+		for id, q := range m.Coordinates {
+			if !finiteMotion(q) || math.Abs(q) > 1e9 || !slices.ContainsFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == id && j.Kind == "REVOLUTE" }) {
+				return fmt.Errorf("%w: invalid continuous mechanism coordinate", ErrValidation)
+			}
+		}
 		member := map[string]bool{}
 		for _, id := range m.UnitIDs {
 			if id == "" || member[id] {
@@ -278,6 +319,20 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 		}
 		drivers[d.ID] = d
 		drivenCoordinates[d.MechanismID+"/"+d.JointID] = true
+		for _, q := range []*MotionQuantity{d.Reference, d.Minimum, d.Maximum} {
+			if q != nil {
+				if _, err := motionValue(*q, true); err != nil {
+					return err
+				}
+			}
+		}
+		if d.Minimum != nil && d.Maximum != nil {
+			lo, _ := motionValue(*d.Minimum, true)
+			hi, _ := motionValue(*d.Maximum, true)
+			if lo > hi {
+				return fmt.Errorf("%w: reversed command range", ErrValidation)
+			}
+		}
 	}
 	for _, l := range k.Laws {
 		d, ok := drivers[l.DriverID]
@@ -294,6 +349,17 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 		return err
 	}
 	for _, s := range k.Studies {
+		if len(s.Keyframes) > 0 {
+			if err := validateMotionRecording(s, mechanisms, drivers, claim); err != nil {
+				return err
+			}
+			for id, pose := range s.EnvironmentPoses {
+				if !slices.ContainsFunc(model.Instances, func(i ProductInstance) bool { return i.ID == id }) || slices.Contains(mechanisms[s.MechanismID].UnitIDs, id) || !validMotionPose(pose) {
+					return fmt.Errorf("%w: invalid recorded environment", ErrValidation)
+				}
+			}
+			continue
+		}
 		if s.DriverID == "" {
 			return fmt.Errorf("%w: motion study requires an independent Driver reference", ErrValidation)
 		}

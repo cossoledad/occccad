@@ -103,3 +103,14 @@ unchanged.pending[1].resolve(result);assert.equal((await noChange).unchanged,tru
 const wrong=fixture();wrong.controller.begin(input);await tick();wrong.controller.target(target(2));
 const wrongResult=frame(wrong.pending[0].request);wrongResult.inputDigest="other-input";
 wrong.pending[0].resolve(wrongResult);await tick();assert.equal(wrong.frames.length,0);assert.equal(wrong.controller.state,"failed");
+
+// Shared command/recording owner accepts a qualified checkpoint without creating
+// an independent drag candidate. Rejected targets keep the whole published frame.
+for(const outcome of ['ACCEPTED','RETAINED']){
+ const transient=fixture(async()=>({...structuredClone(session),mode:'COMMAND_TRIAL',nominalPoses:[...session.nominalPoses,{instanceId:'group-peer',translation:[9,2,3],rotation:[0,0,0,1]}]}));
+ transient.controller.begin(input);await tick();transient.controller.target(target(4));
+ const accepted=frame(transient.pending[0].request);accepted.sessionOutcome='ACCEPTED';accepted.previewId='';accepted.commitCommand=undefined;accepted.interaction.eligibleForCommit=false;
+ transient.pending[0].resolve(accepted);await tick();const final=transient.controller.finish();await tick();
+ const retained={...structuredClone(accepted),sessionOutcome:outcome,sequence:transient.pending[1].request.sequence,interaction:{...accepted.interaction,status:outcome==='ACCEPTED'?'CONSTRAINED':'FAILED',targetSequence:transient.pending[1].request.sequence,targetConverged:outcome==='ACCEPTED'}};
+ transient.pending[1].resolve(retained);const result=await final;assert.equal(result.sessionOutcome,outcome);assert.equal(result.commitCommand,undefined);assert.deepEqual(result.instancePoses,accepted.instancePoses);transient.controller.committed();assert.equal(transient.controller.state,'committed');
+}

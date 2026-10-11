@@ -97,9 +97,9 @@ export function ToolbarGroup({ children }: PropsWithChildren) {
 
 export function ToolbarSeparator() { return <span className="cad-toolbar-separator" aria-hidden />; }
 
-export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmLoading = false, confirmDisabled = false, size = "M",footer=true }: PropsWithChildren<{
+export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmLoading = false, confirmDisabled = false, size = "M",footer=true,placement }: PropsWithChildren<{
   id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
-  confirmLoading?: boolean; confirmDisabled?: boolean; size?:CommandPanelSize;footer?:boolean;
+  confirmLoading?: boolean; confirmDisabled?: boolean; size?:CommandPanelSize;footer?:boolean;placement?:'left'|'right';
 }>) {
   const feedback=useOperationFeedback();
   const savedPosition = useUIPreferences((state) => state.commandDialogPositions[id]);
@@ -122,7 +122,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
     const keepInBounds = () => {
       const host=parent.getBoundingClientRect(),panel=element.getBoundingClientRect();
       const viewport=parent.querySelector<HTMLElement>(".viewport-frame")?.getBoundingClientRect()??host;
-      const next=placed.current?clampPanelPosition(positionRef.current,panel,host):initialCommandPanelPosition(panel,host,{left:viewport.left-host.left,top:viewport.top-host.top,width:viewport.width,height:viewport.height},size==="L");
+      const next=placed.current?clampPanelPosition(positionRef.current,panel,host):placement?clampPanelPosition({x:placement==='left'?16:host.width-panel.width-16,y:viewport.top-host.top+16},panel,host):initialCommandPanelPosition(panel,host,{left:viewport.left-host.left,top:viewport.top-host.top,width:viewport.width,height:viewport.height},size==="L");
       placed.current=true;
       if (next.x !== positionRef.current.x || next.y !== positionRef.current.y) {
         positionRef.current = next; setPosition(next);
@@ -180,7 +180,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
     onPointerMove={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onKeyDown={event=>{
       if(event.key!=="Escape")event.stopPropagation();
       const target=event.target instanceof HTMLElement?event.target:undefined;
-      if(event.key==="Enter"&&!event.repeat&&!event.defaultPrevented&&!event.nativeEvent.isComposing&&event.nativeEvent.keyCode!==229
+      if(footer&&event.key==="Enter"&&!event.repeat&&!event.defaultPrevented&&!event.nativeEvent.isComposing&&event.nativeEvent.keyCode!==229
         &&target?.tagName==="INPUT"&&!target.isContentEditable&&!target.closest("[role='combobox'], textarea, [contenteditable='true']")){
         event.preventDefault();void confirm();
       }

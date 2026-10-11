@@ -5439,8 +5439,8 @@
     },
     {
       "id": "dmu.study",
-      "name": "仿真定义",
-      "helpText": "选择运动规律，保存仿真名称、帧数与计算预算",
+      "name": "模拟",
+      "helpText": "记录关键帧并播放机构运动",
       "iconKey": "version",
       "repeatable": false,
       "visibleWhen": {
@@ -5495,8 +5495,8 @@
     },
     {
       "id": "dmu.run",
-      "name": "运行仿真",
-      "helpText": "打开仿真对话框，在其中计算、播放、定位和停止任务",
+      "name": "使用命令进行模拟",
+      "helpText": "调整命令并实时求解机构位置",
       "iconKey": "revolve",
       "repeatable": false,
       "implementation": "form",
@@ -6296,7 +6296,7 @@
     },
     {
       "id": "dmu-motion",
-      "name": "命令与仿真",
+      "name": "命令与模拟",
       "styleKey": "assembly",
       "position": "top-left",
       "orientation": "horizontal",

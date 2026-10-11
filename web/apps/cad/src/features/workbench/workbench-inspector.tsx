@@ -225,7 +225,7 @@ function PropertySummary({ view, selection, feature, workbench, sketchPlane, act
     {key:'name',label:'名称',children:object?.name??'定义不可用'},
     ...(m&&m.id!==id?[{key:'owner',label:'机械装置',children:m.name}]:[]),
     ...(relation?[{key:'joint',label:'所属接合',children:joint?.name},{key:'state',label:'约束状态',children:relation.evaluationStatus}]:[]),
-    ...(m?.id===id&&m.evaluation?[{key:'physical',label:'物理自由度',children:m.evaluation.relativeDof},{key:'gauge',label:'整体自由度',children:m.evaluation.gaugeDof},{key:'driven',label:'命令后自由度',children:m.evaluation.drivenDof},{key:'commands',label:'角度命令数量',children:m.evaluation.driverCount}]:[]),
+    ...(m?.id===id&&m.evaluation?[{key:'physical',label:'物理自由度',children:m.evaluation.relativeDof},{key:'gauge',label:'整体自由度',children:m.evaluation.gaugeDof},{key:'commands',label:'角度命令数量',children:m.evaluation.driverCount}]:[]),
     ...(law?[{key:'law-start',label:'起点',children:`${law.start.value} ${law.start.unit}`},{key:'law-end',label:'终点',children:`${law.end.value} ${law.end.unit}`},{key:'law-time',label:'时长',children:`${law.durationSeconds} s`}]:[]),
    ]}/>;
   }

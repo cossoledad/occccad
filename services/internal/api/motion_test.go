@@ -140,7 +140,7 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 	if e != nil || claimed.ID != job.ID {
 		t.Fatal(claimed, e)
 	}
-	if e = queue.FinishMotion(t.Context(), job.ID, "api-fixture", claimed.AttemptCount, result.ID); e != nil {
+	if e = queue.FinishMotion(t.Context(), job.ID, "api-fixture", claimed.AttemptCount, result.ID, jobs.MotionCompletion{Status: "COMPLETED", Completed: true}); e != nil {
 		t.Fatal(e)
 	}
 	get := func(user string) *httptest.ResponseRecorder {

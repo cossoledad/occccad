@@ -13,6 +13,8 @@ import {memberPoses} from '../../cad/assembly/application-display';
 import {randomUUID} from '../../utils/random-uuid';
 import {changeJointSupport,nextJointSupportRole,mechanismSupportCandidate,type JointSupportRole} from '../../cad/assembly/mechanism-selection';
 import {RevoluteJointFields} from './revolute-joint-fields';
+import {MechanismMotionDialog} from './mechanism-motion-dialog';
+import type {MechanismMotionSession} from '../../cad/assembly/mechanism-motion-session';
 import {assemblyGeometryRef} from '../../cad/assembly/assembly-reference';
 import {useCommandRegistry} from '../../cad/command/command-context';
 import type {CommandOperation} from '../../cad/command/command-registry';
@@ -24,10 +26,10 @@ const relationLabels:Record<string,string>={ground:'固定',axis:'轴线相合',
 const actionLabels:Record<string,string>={ADD:'新增',REUSE:'复用',CONFLICT:'冲突'};
 const done=(job:Job)=>['SUCCEEDED','FAILED','CANCELED'].includes(job.state);
 const empty=():KinematicsDefinitions=>({mechanisms:[],studies:[],drivers:[],laws:[],associations:[]});
-export type MotionPanelHandle={execute:(action:string,objectId?:string,operation?:CommandOperation)=>void|Promise<void>;closeCommand:()=>void;removeResult:(id:string)=>void;enabled:(action:string)=>boolean;adoptDefinition:(view:DocumentView)=>void;commitManipulation:(commit:()=>Promise<DocumentView>)=>Promise<DocumentView>;adoptProduct:(view:DocumentView)=>void};
+export type MotionPanelHandle={motionSession:()=>MechanismMotionSession|undefined;execute:(action:string,objectId?:string,operation?:CommandOperation)=>void|Promise<void>;closeCommand:()=>void;removeResult:(id:string)=>void;enabled:(action:string)=>boolean;adoptDefinition:(view:DocumentView)=>void;commitManipulation:(commit:()=>Promise<DocumentView>)=>Promise<DocumentView>;adoptProduct:(view:DocumentView)=>void};
 type PreviewPose=import("../../cad/assembly/motion-study").MotionPose&{instanceId:string};
-type Props={onMechanism:(m?:import("../../cad/assembly/motion-study").Mechanism)=>void;onStatus:(text:string)=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;onPreview:(poses?:PreviewPose[])=>void;view:DocumentView;active:boolean;selection:SelectionItem|null;canEdit:boolean;onSave:(k:KinematicsDefinitions,baseRevisionId?:string)=>Promise<DocumentView>;onSwitch:(req:import("../../cad/assembly/motion-study").MechanismApplicationRequest)=>Promise<import("../../cad/assembly/motion-study").MechanismApplication&{view:DocumentView}>;onApply:(req:MotionApplyRequest)=>Promise<void>;onPlayback:(p?:MotionPlayback)=>void;onHighlight:(s:SelectionItem[])=>void;onClose:()=>void;onCommandState:(active:boolean)=>void};
-export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function MotionStudyPanel({view,active,selection,canEdit,onSave,onSwitch,onApply,onPlayback,onHighlight,onClose,onCommandState,onStatus,onSelectionSession,onPreview,onMechanism},ref){
+type Props={onDraft:(study?:MotionStudy)=>void;onCommit:(command:Record<string,unknown>)=>Promise<DocumentView>;captureViewpoint:()=>import('../../cad/assembly/motion-study').MotionViewpoint|undefined;previewViewpoint:(v:import('../../cad/assembly/motion-study').MotionViewpoint,documentId?:string)=>void;sourceMechanismIds?:string[];onMechanism:(m?:import("../../cad/assembly/motion-study").Mechanism)=>void;onStatus:(text:string)=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;onPreview:(poses?:PreviewPose[])=>void;view:DocumentView;active:boolean;selection:SelectionItem|null;canEdit:boolean;onSave:(k:KinematicsDefinitions,baseRevisionId?:string)=>Promise<DocumentView>;onSwitch:(req:import("../../cad/assembly/motion-study").MechanismApplicationRequest)=>Promise<import("../../cad/assembly/motion-study").MechanismApplication&{view:DocumentView}>;onApply:(req:MotionApplyRequest)=>Promise<void>;onPlayback:(p?:MotionPlayback)=>void;onHighlight:(s:SelectionItem[])=>void;onClose:()=>void;onCommandState:(active:boolean)=>void};
+export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function MotionStudyPanel({onDraft,onCommit,captureViewpoint,previewViewpoint,sourceMechanismIds,view,active,selection,canEdit,onSave,onSwitch,onApply,onPlayback,onHighlight,onClose,onCommandState,onStatus,onSelectionSession,onPreview,onMechanism},ref){
  const client=useQueryClient(),registry=useCommandRegistry(),feedback=useOperationFeedback();
  const [previewActor]=useState(()=>createActor(assemblyPreviewMachine));
  const [previewReady,setPreviewReady]=useState(false),[previewPending,setPreviewPending]=useState(false),[previewSuspended,setPreviewSuspended]=useState(false);
@@ -41,9 +43,11 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
 
  const [defs,setDefs]=useState<KinematicsDefinitions>(()=>structuredClone(view.product?.kinematics??empty()));
  const untouchedMechanisms=useRef(new Set<string>());
- const [resultOnly,setResultOnly]=useState(false);
+ const lastDriver=useRef<string|undefined>(undefined);
+ const motionSession=useRef<MechanismMotionSession|undefined>(undefined);
+ const [motionDialog,setMotionDialog]=useState<{record:boolean;study?:MotionStudy;view:DocumentView;mechanism:import('../../cad/assembly/motion-study').Mechanism}>();
  const activeMechanismId=useRef<string|undefined>(undefined),acceptedMechanism=useRef<import("../../cad/assembly/motion-study").Mechanism|undefined>(undefined);
- const [mechanismId,setMechanismId]=useState(defs.mechanisms[0]?.id??''),[studyId,setStudyId]=useState(defs.studies[0]?.id??'');
+ const [mechanismId,setMechanismId]=useState(defs.mechanisms[0]?.id??'');
  const [applicationQualified,setApplicationQualified]=useState(true);
  const [commandPending,setCommandPending]=useState(false),[pending,setPending]=useState(false),[error,setError]=useState<unknown>(),[jobId,setJobId]=useState<string>();
  const [run,setRun]=useState<MotionRun>(),[index,setIndex]=useState(0),[clock,setClock]=useState<MotionPlaybackClock>(),[displayTime,setDisplayTime]=useState(0),[showing,setShowing]=useState(false);
@@ -52,14 +56,15 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  const [action,setAction]=useState<string>(),[objectId,setObjectId]=useState<string>(),[name,setName]=useState('');
  const [joint,setJoint]=useState<MechanismJoint>(),[pickRole,setPickRole]=useState<JointSupportRole>();
  const [angleCommand,setAngleCommand]=useState(false),[lawDraft,setLawDraft]=useState<MotionLaw>();
- const [driver,setDriver]=useState<MotionDriver>(),[studyDraft,setStudyDraft]=useState<MotionStudy>();
+ const [driver,setDriver]=useState<MotionDriver>();
  const [plan,setPlan]=useState<MotionApplyPlan>(),[lockAngle,setLockAngle]=useState(false),[applyOpen,setApplyOpen]=useState(false);
+ const preparedResult=useRef<Record<string,unknown>|undefined>(undefined);
  const foreground=useRef<string|undefined>(undefined),loaded=useRef<string|undefined>(undefined);
  const commandEpoch=useRef(0),commandOwner=useRef<CommandOperation|undefined>(undefined),applying=useRef(false);
  const revisionRef=useRef(view.document.versionId);revisionRef.current=view.document.versionId;
  const epoch=useRef(0),alive=useRef(true),activeRef=useRef(active);activeRef.current=active;
  const callbacks=useRef({onPlayback,onHighlight,onStatus,onSelectionSession,onPreview,onMechanism});callbacks.current={onPlayback,onHighlight,onStatus,onSelectionSession,onPreview,onMechanism};
- const selectedMechanism=defs.mechanisms.find(m=>m.id===mechanismId),study=defs.studies.find(s=>s.id===studyId&&s.mechanismId===mechanismId);
+ const selectedMechanism=defs.mechanisms.find(m=>m.id===mechanismId);
  useEffect(()=>{if(savingDefinition.current)return;callbacks.current.onMechanism(active&&activeMechanismId.current?(showing&&run?run.snapshot.mechanism:selectedMechanism):undefined)},[active,showing,run,selectedMechanism]);
  const units=view.product?.instances??[],geometries=view.resolvedInstances??[];
  const editEnabled=canEdit&&applicationQualified&&!pending&&!commandPending&&!showing;
@@ -72,18 +77,18 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   const selectedIndex=playbackIndex();
   if(finishing){
    setIndex(selectedIndex);setClock(undefined);
-   if(canEdit&&run?.snapshot.revisionId===revisionRef.current&&run.frames[selectedIndex]?.kinematicValid&&editing?.id===run.snapshot.mechanism.id){
-    const frameMechanism={...editing,poses:memberPoses(editing,run.frames[selectedIndex].unitPoses)};
-    const next={...defs,mechanisms:defs.mechanisms.map(v=>v.id===editing!.id?frameMechanism:v)};
+   if(canEdit&&run?.snapshot.revisionId===revisionRef.current&&run.frames[selectedIndex]?.kinematicValid&&editing?.id===run.snapshot.mechanism.id&&jobId){
+    const at=clock?motionPlaybackTime(clock,performance.now()):displayTime;
     setCommandPending(true);savingDefinition.current=true;
-    void onSave(next).then(updated=>{adopt(updated,frameMechanism.id);setShowing(false);setPreviewSuspended(false);callbacks.current.onPlayback();closeCommand(false,true)}).catch(e=>{setError(e);setShowing(true)}).finally(()=>{savingDefinition.current=false;setCommandPending(false)});
+    void (async()=>{preparedResult.current??=await api.prepareMotionPose(view.document.id,revisionRef.current,{jobId,frameIndex:0,timeSeconds:at,lockAngle:false});return onCommit(preparedResult.current)})().then(updated=>{adopt(updated,editing.id);setShowing(false);setPreviewSuspended(false);callbacks.current.onPlayback();closeCommand(false,true)}).catch(e=>{setError(e);setShowing(true)}).finally(()=>{savingDefinition.current=false;setCommandPending(false)});
     return;
    }
    setShowing(false);setPreviewSuspended(false);callbacks.current.onMechanism(editing);callbacks.current.onPlayback();
   }
   if(action==='results'){setShowing(false);callbacks.current.onPlayback();forceEditing=true;foreground.current=undefined;epoch.current++;setPending(false);setClock(undefined);setPreviewSuspended(false);}
+  if(motionSession.current){void motionSession.current.cancel().catch(()=>undefined);motionSession.current=undefined}setMotionDialog(undefined);onDraft();
   pickedSupports.current.clear();qualifiedInput.current=undefined;commandEpoch.current++;commandOwner.current=undefined;
-  setCommandPending(false);setAction(undefined);setPickRole(undefined);setError(undefined);previewAbort.current?.abort();previewSequence.current++;setPreviewPending(false);
+  preparedResult.current=undefined;setCommandPending(false);setAction(undefined);setPickRole(undefined);setError(undefined);previewAbort.current?.abort();previewSequence.current++;setPreviewPending(false);
   callbacks.current.onSelectionSession();callbacks.current.onPreview();
   callbacks.current.onMechanism(activeRef.current?(showing&&!finishing&&!forceEditing&&run?run.snapshot.mechanism:editing):undefined);
   setApplyOpen(false);setPlan(undefined);onCommandState(false);
@@ -114,7 +119,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
    }).catch(e=>{if(sequence===previewSequence.current)setError(e)}).finally(()=>{if(sequence===previewSequence.current){savingDefinition.current=false;setCommandPending(false)}});
   }
   if(activeMechanismId.current&&!next.mechanisms.some(m=>m.id===activeMechanismId.current)){activeMechanismId.current=undefined;acceptedMechanism.current=undefined;release(true);closeCommand(false,true);setApplicationQualified(false);setError('当前机械装置已被删除，已返回最新装配设计');onClose()}
-  setMechanismId(id=>next.mechanisms.some(m=>m.id===id)?id:next.mechanisms[0]?.id??'');setStudyId(id=>next.studies.some(s=>s.id===id)?id:next.studies[0]?.id??'');
+  setMechanismId(id=>next.mechanisms.some(m=>m.id===id)?id:next.mechanisms[0]?.id??'');
   // Jobs survive panel/Revision changes. A result enters the viewport only after
   // an explicit load or the exact foreground run's completion in this session.
  },[view.document.id,view.document.versionId]);
@@ -132,7 +137,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
    const number=Math.max(0,...defs.mechanisms.map(m=>Number(/^机械装置\.(\d+)$/.exec(m.name)?.[1]??0)))+1;
    const updated=await onSave({...defs,mechanisms:[...defs.mechanisms,{id,name:'机械装置.'+number,unitIds:[],joints:[]}]});
    if(!alive.current||generation!==previewSequence.current)return;
-   untouchedMechanisms.current.add(id);activeMechanismId.current=id;setMechanismId(id);setStudyId('');adopt(updated,id);setApplicationQualified(true);
+   untouchedMechanisms.current.add(id);activeMechanismId.current=id;setMechanismId(id);adopt(updated,id);setApplicationQualified(true);
   }catch(e){setError(e)}finally{savingDefinition.current=false;setCommandPending(false)}
  };
  const enter=async(id?:string,resume=false)=>{
@@ -144,22 +149,15 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   try{
    const result=await onSwitch({baseRevisionId:revisionRef.current,mechanismId:existing.id,sourceMechanismId:activeMechanismId.current,resume});
    if(!alive.current||sequence!==previewSequence.current)return;
-   activeMechanismId.current=existing.id;setMechanismId(existing.id);setStudyId(result.view.product?.kinematics?.studies.find(s=>s.mechanismId===existing.id)?.id??'');
+   activeMechanismId.current=existing.id;setMechanismId(existing.id);
    adopt(result.view,existing.id);acceptedMechanism.current=result.mechanism;callbacks.current.onMechanism(result.mechanism);callbacks.current.onPlayback();callbacks.current.onPreview();setPreviewSuspended(false);setApplicationQualified(true);
   }catch(e){setApplicationQualified(false);setError(e)}finally{savingDefinition.current=false;setCommandPending(false)}
  };
  const exit=async()=>{
-  if(commandPending||action&&action!=='results')return;
+  if(commandPending||action)return;
   setCommandPending(true);savingDefinition.current=true;setError(undefined);foreground.current=undefined;epoch.current++;
   try{
    let base=revisionRef.current;
-   if(canEdit&&showing&&run?.frames[index]?.kinematicValid){
-    if(run.snapshot.revisionId!==base)throw new Error('历史回放请先关闭，或通过转换计划验证后采用');
-    const m=acceptedMechanism.current;if(m&&m.id===run.snapshot.mechanism.id){
-     const next={...defs,mechanisms:defs.mechanisms.map(v=>v.id===m.id?{...m,poses:memberPoses(m,run.frames[index].unitPoses)}:v)};
-     const updated=await onSave(next);adopt(updated,m.id);base=updated.document.versionId;
-    }
-   }
    const result=await onSwitch({baseRevisionId:base,sourceMechanismId:canEdit?activeMechanismId.current:undefined});
    activeMechanismId.current=undefined;acceptedMechanism.current=undefined;adopt(result.view);
    const next=result.view.product?.kinematics;
@@ -174,15 +172,15 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(nextAction==='mechanism'&&!id)return createMechanism();
   if(nextAction==='apply'&&action==='results'){
    if(!canEdit||!applicationQualified||!run?.frames[index]?.kinematicValid||commandPending||pending)return;
-   commandEpoch.current++;commandOwner.current=operation;setIndex(playbackIndex());setClock(undefined);setError(undefined);setPlan(undefined);setLockAngle(false);setApplyOpen(true);return;
+   commandEpoch.current++;commandOwner.current=operation;setDisplayTime(clock?motionPlaybackTime(clock,performance.now()):displayTime);setIndex(playbackIndex());setClock(undefined);setError(undefined);setPlan(undefined);setLockAngle(false);setApplyOpen(true);return;
   }
   if(nextAction==='result'&&id){const job=jobs.data?.find(j=>j.id===id),owner=defs.studies.find(s=>s.id===job?.payload.studyId)?.mechanismId;if(owner&&owner!==activeMechanismId.current)return enter(owner).then(()=>{if(activeMechanismId.current===owner)execute(nextAction,id,operation)})}
   if((nextAction==='edit'||nextAction==='edit-relation')&&id){const owner=defs.mechanisms.find(m=>m.id===id||m.joints.some(j=>j.id===id||j.constraints?.some(c=>c.id===id))||defs.drivers?.some(d=>d.id===id&&d.mechanismId===m.id)||defs.laws?.some(l=>l.id===id&&l.mechanismId===m.id)||defs.studies.some(s=>s.id===id&&s.mechanismId===m.id));if(owner&&owner.id!==activeMechanismId.current)return enter(owner.id).then(()=>{if(activeMechanismId.current===owner.id)execute(nextAction,id,operation)})}
   if(!['result','results','apply','run'].includes(nextAction))setPreviewSuspended(false);
   commandBaseline.current=structuredClone(acceptedMechanism.current??selectedMechanism);
   commandEpoch.current++;commandOwner.current=operation;setCommandPending(false);setError(undefined);setPlan(undefined);setPickRole(undefined);setObjectId(id);
-  if(nextAction==='result'&&id){foreground.current=undefined;setResultOnly(true);setRun(undefined);setShowing(false);setJobId(id);setAction('results');onCommandState(true);const j=jobs.data?.find(j=>j.id===id);if(j?.resultObjectId){loaded.current=j.resultObjectId;void load(id)}else if(j&&!done(j))foreground.current=id;return}
-  if(nextAction==='run'){setResultOnly(false);setRun(undefined);setShowing(false);setJobId(undefined);}
+  if(nextAction==='result'&&id){preparedResult.current=undefined;foreground.current=undefined;setRun(undefined);setShowing(false);setJobId(id);setAction('results');onCommandState(true);const j=jobs.data?.find(j=>j.id===id);if(j?.resultObjectId){loaded.current=j.resultObjectId;void load(id)}else if(j&&!done(j))foreground.current=id;return}
+  if(nextAction==='run'){if(!selectedMechanism)return;setMotionDialog({record:false,view,mechanism:selectedMechanism});setAction('command-motion');onCommandState(true);return}
   let relationRole:string|undefined;
   if(nextAction==='edit-relation'){
    const owner=defs.mechanisms.flatMap(m=>m.joints).find(j=>j.constraints?.some(c=>c.id===id));
@@ -195,7 +193,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
    else if(owner){setMechanismId(owner.id);setJoint(structuredClone(owner.joints.find(j=>j.id===id)!));nextAction='joint';if(relationRole)setPickRole(relationRole==='axial-location'?'first.plane':relationRole==='axis'?'first.axis':undefined)}
    else if(defs.drivers?.some(d=>d.id===id)){const d=defs.drivers.find(d=>d.id===id)!;setMechanismId(d.mechanismId);setDriver(structuredClone(d));nextAction='driver'}
    else if(defs.laws?.some(l=>l.id===id)){const l=defs.laws.find(l=>l.id===id)!;setMechanismId(l.mechanismId);setLawDraft(structuredClone(l));nextAction='law'}
-   else if(defs.studies.some(s=>s.id===id)){const s=defs.studies.find(s=>s.id===id)!;setMechanismId(s.mechanismId);setStudyDraft(structuredClone(s));setStudyId(id!);nextAction='study'}
+   else if(defs.studies.some(s=>s.id===id)){const s=defs.studies.find(s=>s.id===id)!;setMechanismId(s.mechanismId);nextAction='study'}
   }
   if(['ground','revolute'].includes(nextAction)){
    if(!selectedMechanism){setError('请先创建或选择机构');return}
@@ -205,18 +203,19 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   }
   if(nextAction==='driver'&&!id){const j=selectedMechanism?.joints.find(j=>j.kind==='REVOLUTE'&&!defs.drivers?.some(d=>d.mechanismId===mechanismId&&d.jointId===j.id));if(!j){setError('请先创建可驱动的接合');return}setDriver({id:randomUUID(),name:'命令.'+((defs.drivers??[]).filter(d=>d.mechanismId===mechanismId).length+1),mechanismId:mechanismId,jointId:j.id})}
   if(nextAction==='law'&&!id){const d=defs.drivers?.find(d=>d.mechanismId===mechanismId);if(!d){setError('请先保存角度命令');return}setLawDraft({id:randomUUID(),name:'规律.'+((defs.laws??[]).filter(l=>l.mechanismId===mechanismId).length+1),mechanismId,driverId:d.id,start:{value:0,unit:'deg'},end:{value:360,unit:'deg'},durationSeconds:5})}
-  if(nextAction==='study'&&!id){const l=defs.laws?.find(l=>l.mechanismId===mechanismId);if(!l){setError('请先保存运动规律');return}setStudyDraft({id:randomUUID(),name:'模拟.'+(defs.studies.length+1),mechanismId,lawId:l.id,driverId:l.driverId,start:l.start,end:l.end,durationSeconds:l.durationSeconds,frames:73,budgetMs:60000})}
+  if(nextAction==='study'){if(!selectedMechanism)return;setMotionDialog({record:true,study:id?defs.studies.find(s=>s.id===id):undefined,view,mechanism:selectedMechanism});setAction('record-motion');onCommandState(true);return}
   if(nextAction==='mechanism'&&!id)setName('机械装置.'+(defs.mechanisms.length+1));
   if(nextAction==='apply'){if(!selectedMechanism||showing&&(!run||!jobId||!run.frames[index]?.kinematicValid)){setError('选择机械装置已确认位姿或合格仿真帧');return}setClock(undefined);setApplyOpen(true);setLockAngle(false)}
   setAction(nextAction==='run'?'results':nextAction);onCommandState(true)
  };
  const enabled=(command:string)=>{
   if(!active)return false;
-  if(command==='exit')return !commandPending&&(!action||action==='results');
+  if(command==='exit')return !commandPending&&!action;
   if(command==='results')return !commandPending&&!action;
   if(pending||commandPending)return false;
-  if(command==='apply')return Boolean(!applyOpen&&applicationQualified&&canEdit&&selectedMechanism&&(!action&&!showing||action==='results'&&showing&&run?.frames[playbackIndex()]?.kinematicValid));
-  if(command==='run')return Boolean(!action&&applicationQualified&&activeMechanismId.current&&!showing&&defs.studies.some(s=>s.mechanismId===mechanismId));
+  if(command==='apply')return Boolean(!preparedResult.current&&!applyOpen&&applicationQualified&&canEdit&&selectedMechanism&&(!action&&!showing||action==='results'&&showing&&run?.frames[playbackIndex()]?.kinematicValid));
+  if(command==='run')return Boolean(!action&&applicationQualified&&activeMechanismId.current&&!showing&&defs.drivers?.some(d=>d.mechanismId===mechanismId));
+  if(command==='move'&&motionDialog)return Boolean(motionSession.current?.active);
   if(action)return false;
   if(!editEnabled)return false;
   if(command==='mechanism')return true;
@@ -225,18 +224,18 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(['ground','revolute'].includes(command))return units.length>0;
   if(command==='driver')return selectedMechanism.joints.some(j=>j.kind==='REVOLUTE'&&!defs.drivers?.some(d=>d.mechanismId===mechanismId&&d.jointId===j.id));
   if(command==='law')return Boolean(defs.drivers?.some(d=>d.mechanismId===mechanismId));
-  if(command==='study')return Boolean(defs.laws?.some(l=>l.mechanismId===mechanismId));
+  if(command==='study')return Boolean(defs.drivers?.some(d=>d.mechanismId===mechanismId));
   return true;
  };
  const adoptDefinition=(updated:DocumentView)=>{ownedRevision.current=updated.document.versionId;if(activeMechanismId.current)untouchedMechanisms.current.delete(activeMechanismId.current);adopt(updated)};
- useImperativeHandle(ref,()=>({execute,closeCommand,removeResult:id=>{if(jobId===id){loaded.current=undefined;closeCommand();setJobId(undefined);setRun(undefined);setIndex(0)}},enabled,adoptDefinition,commitManipulation:async commit=>{
+ useImperativeHandle(ref,()=>({motionSession:()=>motionSession.current,execute,closeCommand,removeResult:id=>{if(jobId===id){loaded.current=undefined;closeCommand();setJobId(undefined);setRun(undefined);setIndex(0)}},enabled,adoptDefinition,commitManipulation:async commit=>{
   // A drag owns the existing viewport finalization barrier, not a modal form.
   // Protect its owned Head refresh without changing toolbar/form availability.
   savingDefinition.current=true;
   try{const updated=await commit();adoptDefinition(updated);return updated}finally{savingDefinition.current=false}
  },adoptProduct:updated=>{activeMechanismId.current=undefined;acceptedMechanism.current=undefined;release(true);closeCommand(false,true);adopt(updated)}}));
  useEffect(()=>onCommandState(Boolean(active&&(action||commandPending||pending))),[active,action,commandPending,pending,onCommandState]);
- useEffect(()=>{registry.notifyStateChanged()},[registry,active,pending,commandPending,canEdit,applicationQualified,showing,playing,run,index,study,selectedMechanism,job,defs]);
+ useEffect(()=>{registry.notifyStateChanged()},[registry,active,pending,commandPending,canEdit,applicationQualified,showing,playing,run,index,selectedMechanism,job,defs]);
  // Exact support cache is scoped to this Product Revision. It gates both
  // ray hits and tree candidates through the existing FeatureSelectionSession.
  const supportKey=(item:SelectionItem,axis:boolean)=>JSON.stringify([axis,assemblyGeometryRef(item)]);
@@ -309,13 +308,12 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  useEffect(()=>{callbacks.current.onStatus(!active?'':pickRole?`选择${pickRole.startsWith('first')?'第一':'第二'}${pickRole.endsWith('axis')?'轴线':'定位平面'}`:previewPending?'正在预览接合…':showing?`机构回放 · 帧 ${index+1}${run?.snapshot.revisionId!==view.document.versionId?' · 冻结旧版本':''}`:job&&!done(job)?`机构运行 · ${job.state} ${job.progress}%`:selectedMechanism?`机构编辑 · ${selectedMechanism.name}`:'机构编辑')},[active,pickRole,previewPending,showing,index,run,job,selectedMechanism]);
  const load=useCallback(async(id:string)=>{
   const generation=++epoch.current;setPending(true);setError(undefined);setClock(undefined);setPreviewSuspended(true);callbacks.current.onHighlight([]);
-  try{const result=await api.getMotionRun(id);if(!alive.current||generation!==epoch.current||!activeRef.current)return;setRun(result);setIndex(0);setClock(undefined);setShowing(result.frames.length>0)}catch(e){if(generation===epoch.current)setError(e)}finally{if(generation===epoch.current)setPending(false)}
+  try{const result=await api.getMotionRun(id);if(!alive.current||generation!==epoch.current||!activeRef.current)return;setRun(result);setIndex(0);setDisplayTime(0);setClock(undefined);setShowing(result.frames.length>0)}catch(e){if(generation===epoch.current)setError(e)}finally{if(generation===epoch.current)setPending(false)}
  },[]);
  useEffect(()=>{if(active&&action==='results'&&job?.resultObjectId&&done(job)&&foreground.current===job.id&&loaded.current!==job.resultObjectId){loaded.current=job.resultObjectId;foreground.current=undefined;void load(job.id)}},[active,action,job,load]);
  const displayIndex=clock&&run?motionFrameAt(run,clock.timeSeconds):index;
- const playbackDisplay=useMemo(()=>{if(!active||!showing||!run)return;const p=motionPlayback(run,displayIndex);return p?{...p,clock}:undefined},[active,showing,run,displayIndex,clock]);
+ const playbackDisplay=useMemo(()=>{if(!active||!showing||!run)return;const p=motionPlayback(run,displayIndex);return p?{...p,clock,samples:run.frames,timeSeconds:clock?undefined:displayTime,study:run.snapshot.study}:undefined},[active,showing,run,displayIndex,clock,displayTime]);
  useEffect(()=>{callbacks.current.onPlayback(playbackDisplay);if(active&&showing&&run&&!playbackDisplay){setError('冻结结果缺少完整帧／版本身份');setShowing(false)}},[playbackDisplay,active,showing,run]);
- useEffect(()=>{if(!clock)setDisplayTime(run?.frames[index]?.timeSeconds??0)},[clock,run,index]);
  useEffect(()=>{
   if(!clock||!run||!showing||!active)return;
   let raf=0,lastUpdate=0;
@@ -324,44 +322,29 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
    if(time>=end)setClock(undefined);else raf=requestAnimationFrame(tick);
   };raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);
  },[clock,run,showing,active]);
- const start=async()=>{
-  if(!study||!applicationQualified||pending||commandPending||job&&!done(job))return;
-  const generation=++epoch.current,owner=commandOwner.current;setPending(true);setCommandPending(true);setError(undefined);setClock(undefined);
-  try{
-   let base=view.document.versionId;
-   const editing=acceptedMechanism.current;
-   if(canEdit&&showing&&run?.snapshot.revisionId===base&&run.frames[index]?.kinematicValid&&editing?.id===run.snapshot.mechanism.id){
-    savingDefinition.current=true;
-    const updated=await onSave({...defs,mechanisms:defs.mechanisms.map(m=>m.id===editing.id?{...editing,poses:memberPoses(editing,run.frames[index].unitPoses)}:m)});
-    adopt(updated,editing.id);base=updated.document.versionId;
-   }
-   if(!alive.current||generation!==epoch.current||owner&&!owner.current||!activeRef.current)return;
-   setShowing(false);setRun(undefined);setIndex(0);setJobId(undefined);setPreviewSuspended(true);callbacks.current.onPlayback();
-   const j=await api.startMotionRun(view.document.id,{baseRevisionId:base,requestId:randomUUID(),studyId:study.id});
-   if(!alive.current||generation!==epoch.current||owner&&!owner.current||!activeRef.current)return;
-   setJobId(j.id);foreground.current=j.id;loaded.current=undefined;await client.invalidateQueries({queryKey:['motion-jobs',view.document.id]});
-  }catch(e){if(generation===epoch.current)setError(e)}finally{savingDefinition.current=false;if(generation===epoch.current){setPending(false);setCommandPending(false)}}
- };
  const stopCalculation=async()=>{
   if(!job?.canCancel||pending||commandPending)return;
   const generation=epoch.current;setPending(true);setError(undefined);
   try{await api.cancelJob(job.id);await client.invalidateQueries({queryKey:['motion-jobs',view.document.id]})}catch(e){if(generation===epoch.current)setError(e)}finally{if(generation===epoch.current)setPending(false)}
  };
  const playback=(control:'start'|'end'|'previous'|'next'|'play'|'pause')=>{
-  if(action!=='results'||applyOpen||pending||commandPending||!run?.frames.length)return;
-  const current=playbackIndex();setShowing(true);setClock(undefined);setIndex(current);
-  if(control==='start')setIndex(0);
-  if(control==='end')setIndex(run.frames.length-1);
-  if(control==='previous')setIndex(Math.max(0,current-1));
-  if(control==='next')setIndex(Math.min(run.frames.length-1,current+1));
-  if(control==='play'){const next=current===run.frames.length-1?0:current;setIndex(next);setClock({startedAt:performance.now(),timeSeconds:run.frames[next].timeSeconds,frames:run.frames})}
+  if(action!=='results'||preparedResult.current||applyOpen||pending||commandPending||!run?.frames.length)return;
+  const at=clock?motionPlaybackTime(clock,performance.now()):displayTime;
+  const current=motionFrameAt(run,at);let next=current;setShowing(true);setClock(undefined);
+  if(control==='start')next=0;
+  if(control==='end')next=run.frames.length-1;
+  if(control==='previous')next=Math.max(0,current-1);
+  if(control==='next')next=Math.min(run.frames.length-1,current+1);
+  const time=control==='pause'?at:control==='play'?(at>=run.frames.at(-1)!.timeSeconds?0:at):run.frames[next].timeSeconds;
+  setIndex(motionFrameAt(run,time));setDisplayTime(time);
+  if(control==='play')setClock({startedAt:performance.now(),timeSeconds:time,frames:run.frames});
  };
  const closeApply=()=>{
   if(commandPending)return;
   commandEpoch.current++;setApplyOpen(false);setPlan(undefined);setError(undefined);
   if(action!=='results')closeCommand();
  };
- const applyInput=():MotionApplyRequest=>showing&&run?{jobId:jobId!,frameIndex:index,lockAngle}:{mechanismId,frameIndex:0,lockAngle};
+ const applyInput=():MotionApplyRequest=>showing&&run?{jobId:jobId!,frameIndex:0,timeSeconds:displayTime,lockAngle}:{mechanismId,frameIndex:0,lockAngle};
  const review=async()=>{const generation=++commandEpoch.current;setCommandPending(true);setError(undefined);try{const result=await api.planMotionApply(view.document.id,view.document.versionId,applyInput());if(alive.current&&activeRef.current&&generation===commandEpoch.current)setPlan(result)}catch(e){if(generation===commandEpoch.current)setError(e)}finally{if(generation===commandEpoch.current)setCommandPending(false)}};
  const apply=async()=>{
   if(!plan?.ready)return;setCommandPending(true);applying.current=true;
@@ -377,7 +360,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  const definitionValid=editEnabled&&(
   action==='mechanism'?Boolean(name.trim()):
   action==='joint'?Boolean(previewReady&&!previewPending&&qualifiedInput.current===JSON.stringify(joint)&&joint?.name&&joint.first.instanceId&&(joint.kind==='GROUND'||joint.second?.instanceId&&joint.first.axis&&joint.first.plane&&joint.second.axis&&joint.second.plane)):
-  action==='driver'?Boolean(driver?.name&&driver.jointId):action==='law'?Boolean(lawDraft?.name&&lawDraft.driverId&&lawDraft.durationSeconds>0):action==='study'?Boolean(studyDraft?.name&&studyDraft.lawId):
+  action==='driver'?Boolean(driver?.name&&driver.jointId):action==='law'?Boolean(lawDraft?.name&&lawDraft.driverId&&lawDraft.durationSeconds>0):
   action==='results'?true:false);
  const confirmDefinition=async()=>{
   if(action==='results'){closeCommand(true);return}
@@ -386,28 +369,19 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(action==='joint')await saveJoint();
   if(action==='driver'&&driver)await save({...defs,drivers:[...(defs.drivers??[]).filter(d=>d.id!==driver.id),driver]});
   if(action==='law'&&lawDraft)await save({...defs,laws:[...(defs.laws??[]).filter(l=>l.id!==lawDraft.id),lawDraft]});
-  if(action==='study'&&studyDraft){setStudyId(studyDraft.id);await save({...defs,studies:[...defs.studies.filter(s=>s.id!==studyDraft.id),studyDraft]})}
 
  };
  const failure=error?normalizeOperationFailure(error):undefined;
  const failureNotice=failure?<Alert type="error" showIcon title={failure.message} description={<details><summary>诊断详情</summary><pre style={{whiteSpace:'pre-wrap'}}>{failure.details}</pre></details>}/>:null;
  return <>
+  {active&&motionDialog&&<MechanismMotionDialog {...motionDialog} initialDriverId={selection?.kind==='kinematic-object'&&selection.entityKind==='MOTION_DRIVER'&&defs.drivers?.some(d=>d.id===selection.id&&d.mechanismId===motionDialog.mechanism.id)?selection.id:lastDriver.current} drivers={(motionDialog.view.product?.kinematics?.drivers??[]).filter(d=>d.mechanismId===motionDialog.mechanism.id)} operation={commandOwner.current} sourceMechanismIds={sourceMechanismIds} captureViewpoint={captureViewpoint} previewViewpoint={previewViewpoint} onSession={s=>{if(!s&&motionSession.current?.identity)lastDriver.current=motionSession.current.identity.driver.id;motionSession.current=s;registry.notifyStateChanged()}} onDraft={onDraft} onPreview={onPreview} onPlayback={onPlayback} onCommit={async (command,recordedStudyId)=>{savingDefinition.current=true;try{const updated=await onCommit(command);adopt(updated);if(activeMechanismId.current)untouchedMechanisms.current.delete(activeMechanismId.current);
+     if(motionDialog.record){const study=updated.product?.kinematics?.studies.find(s=>s.id===recordedStudyId);if(study){try{await api.startMotionRun(updated.document.id,{baseRevisionId:updated.document.versionId,studyId:study.id,requestId:randomUUID()});await client.invalidateQueries({queryKey:['motion-jobs',updated.document.id]})}catch(e){feedback(e,'生成模拟结果')}}}
+     return updated}finally{savingDefinition.current=false}}} onClose={updated=>{if(updated)adopt(updated);closeCommand(false,true);registry.cancel()}}/>}
   {active&&!action&&failureNotice}
-  <CommandDialog id={'dmu.'+(action??'definition')} open={active&&Boolean(action)&&action!=='apply'&&!applyOpen} title={action==='results'?'仿真与回放':action==='joint'?joint?.name:action==='mechanism'?'编辑机械装置':registry.declaration('dmu.'+action)?.name??'编辑对象'} onClose={()=>closeCommand()} onConfirm={confirmDefinition} confirmLoading={commandPending||pending} confirmDisabled={action!=='results'&&!definitionValid} size="M"><div className="motion-study-fields">
+  <CommandDialog id={'dmu.'+(action??'definition')} open={active&&Boolean(action)&&action!=='apply'&&!motionDialog&&!applyOpen} title={action==='results'?'仿真与回放':action==='joint'?joint?.name:action==='mechanism'?'编辑机械装置':registry.declaration('dmu.'+action)?.name??'编辑对象'} onClose={()=>closeCommand()} onConfirm={confirmDefinition} confirmLoading={commandPending||pending} confirmDisabled={action!=='results'&&!definitionValid} size="M"><div className="motion-study-fields">
 
    {action==='results'&&<>
-    {!resultOnly&&<section className="motion-dialog-section" aria-label="仿真设置">
-     <h4>按规律仿真</h4>
-     <label className="motion-labeled-field"><span>机械装置</span><Select aria-label="当前机构" style={{flex:1}} value={mechanismId||undefined} disabled={pending||commandPending||showing||Boolean(job&&!done(job))} options={defs.mechanisms.map(m=>({value:m.id,label:m.name}))} onChange={id=>{setRun(undefined);setJobId(undefined);void enter(id)}}/></label>
-     <label className="motion-labeled-field"><span>仿真定义</span><Select aria-label="当前仿真" style={{flex:1}} placeholder="选择已保存仿真" value={studyId||undefined} disabled={pending||commandPending||Boolean(job&&!done(job))} options={defs.studies.filter(s=>s.mechanismId===mechanismId).map(s=>({value:s.id,label:s.name}))} onChange={setStudyId}/></label>
-     {study&&<Typography.Text type="secondary">{defs.laws?.find(l=>l.id===study.lawId)?.name} · {study.durationSeconds} s · {study.frames} 帧</Typography.Text>}
-     {!study&&<Typography.Text type="secondary">请选择模拟。</Typography.Text>}
-     <Space wrap><Button type="primary" loading={pending&&!job} disabled={!applicationQualified||!activeMechanismId.current||!study||pending||commandPending||Boolean(job&&!done(job))} onClick={()=>void start()}>计算仿真</Button>
-      {job&&!done(job)&&<Button disabled={!job.canCancel||pending||commandPending} onClick={()=>void stopCalculation()}>停止计算</Button>}
-     </Space>
-     {job&&!done(job)&&<><Progress percent={job.progress} size="small"/><Typography.Text type="secondary">{job.state}</Typography.Text></>}
-    </section>}
-    {resultOnly&&job&&!done(job)&&<Space><Progress percent={job.progress} size="small"/><Button disabled={!job.canCancel||pending||commandPending} onClick={()=>void stopCalculation()}>停止计算</Button></Space>}
+    {job&&!done(job)&&<Space><Progress percent={job.progress} size="small"/><Button disabled={!job.canCancel||pending||commandPending} onClick={()=>void stopCalculation()}>停止计算</Button></Space>}
     <section className="motion-dialog-section" aria-label="结果与回放">
      <h4>结果与回放</h4>
      {job&&<Typography.Text>{String(job.payload.studyName??'模拟')} · {new Date(job.createdAt).toLocaleString()}</Typography.Text>}
@@ -418,14 +392,14 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
      {run&&run.frames.length===0&&<Typography.Text type="secondary">无可回放帧。</Typography.Text>}
      {run&&run.frames.length>0&&<>
       <div className="motion-playback-controls" role="group" aria-label="播放控制">
-       <Button aria-label="起点" disabled={pending||commandPending||!playing&&index===0} onClick={()=>playback('start')}>起点</Button>
-       <Button disabled={pending||commandPending||!playing&&index===0} onClick={()=>playback('previous')}>上一步</Button>
-       <Button aria-label={playing?'暂停':'播放'} type={playing?'default':'primary'} disabled={pending||commandPending} onClick={()=>playback(playing?'pause':'play')}>{playing?'暂停':'播放'}</Button>
-       <Button disabled={pending||commandPending||!playing&&index===run.frames.length-1} onClick={()=>playback('next')}>下一步</Button>
-       <Button aria-label="终点" disabled={pending||commandPending||!playing&&index===run.frames.length-1} onClick={()=>playback('end')}>终点</Button>
+       <Button aria-label="起点" disabled={Boolean(preparedResult.current)||pending||commandPending||!playing&&index===0} onClick={()=>playback('start')}>起点</Button>
+       <Button disabled={Boolean(preparedResult.current)||pending||commandPending||!playing&&index===0} onClick={()=>playback('previous')}>上一步</Button>
+       <Button aria-label={playing?'暂停':'播放'} type={playing?'default':'primary'} disabled={Boolean(preparedResult.current)||pending||commandPending} onClick={()=>playback(playing?'pause':'play')}>{playing?'暂停':'播放'}</Button>
+       <Button disabled={Boolean(preparedResult.current)||pending||commandPending||!playing&&index===run.frames.length-1} onClick={()=>playback('next')}>下一步</Button>
+       <Button aria-label="终点" disabled={Boolean(preparedResult.current)||pending||commandPending||!playing&&index===run.frames.length-1} onClick={()=>playback('end')}>终点</Button>
       </div>
-      <Slider aria-label="仿真帧" disabled={pending||commandPending} min={0} max={run.frames.length-1} value={index} step={1} onChange={i=>{setClock(undefined);setShowing(true);setIndex(i);commandEpoch.current++;setPlan(undefined)}}/>
-      <label className="motion-labeled-field"><span>定位时间 s</span><InputNumber aria-label="定位时间 s" disabled={pending||commandPending} min={0} max={run.frames.at(-1)?.timeSeconds??0} precision={2} step={.01} value={displayTime} formatter={(value,info)=>info.userTyping?info.input:Number(value??0).toFixed(2)} onChange={v=>{setClock(undefined);setShowing(true);setIndex(motionFrameAt(run,v??0));commandEpoch.current++;setPlan(undefined)}}/></label>
+      <Slider aria-label="模拟时间游标" disabled={Boolean(preparedResult.current)||pending||commandPending} min={0} max={run.frames.at(-1)?.timeSeconds??0} value={displayTime} step={.01} onChange={time=>{setClock(undefined);setShowing(true);setDisplayTime(time);setIndex(motionFrameAt(run,time));commandEpoch.current++;setPlan(undefined)}}/>
+      <label className="motion-labeled-field"><span>定位时间 s</span><InputNumber aria-label="定位时间 s" disabled={Boolean(preparedResult.current)||pending||commandPending} min={0} max={run.frames.at(-1)?.timeSeconds??0} precision={2} changeOnBlur={false} step={.01} value={displayTime} formatter={(value,info)=>info.userTyping?info.input:Number(value??0).toFixed(2)} onChange={v=>{const time=v??0;setClock(undefined);setShowing(true);setDisplayTime(time);setIndex(motionFrameAt(run,time));commandEpoch.current++;setPlan(undefined)}}/></label>
       {frame&&<Typography.Text className="motion-playback-time">{index+1}/{run.frames.length} · {displayTime.toFixed(2)} s · {quantityIn({value:frame.driverValue,unit:'rad'},'deg').toFixed(3)}°</Typography.Text>}
       <Typography.Text type="secondary">{run.snapshot.revisionId===view.document.versionId?'':'历史结果'}</Typography.Text>
      </>}
@@ -436,17 +410,19 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
     <Input aria-label="固定件名称" value={joint.name} onChange={e=>changeJoint({name:e.target.value})}/>
     <label className="motion-labeled-field"><span>固定零件</span><Button aria-label="固定零件" disabled={commandPending}>{units.find(v=>v.id===joint.first.instanceId)?.name??'选择零件'}</Button><Button size="small" disabled={commandPending} onClick={()=>changeJoint({first:{instanceId:'',frame:identity()},constraints:undefined})}>清除</Button></label>
    </>)}
-   {action==='driver'&&driver&&<><Input value={driver.name} onChange={e=>setDriver({...driver,name:e.target.value})}/><Select style={{width:'100%'}} value={driver.jointId} options={selectedMechanism?.joints.filter(j=>j.kind==='REVOLUTE').map(j=>({value:j.id,label:j.name}))} onChange={jointId=>setDriver({...driver,jointId})}/></>}
+   {action==='driver'&&driver&&<>
+    <Input aria-label="命令名称" value={driver.name} onChange={e=>setDriver({...driver,name:e.target.value})}/>
+    <Select aria-label="命令接合" style={{width:'100%'}} value={driver.jointId} options={selectedMechanism?.joints.filter(j=>j.kind==='REVOLUTE').map(j=>({value:j.id,label:j.name}))} onChange={jointId=>setDriver({...driver,jointId,reference:undefined,referenceDigest:undefined})}/>
+    <label className="motion-labeled-field"><span>最小角度 °</span><InputNumber value={quantityIn(driver.minimum??{value:-180,unit:'deg'},'deg')} onChange={v=>setDriver({...driver,minimum:{value:v??-180,unit:'deg'}})}/></label>
+    <label className="motion-labeled-field"><span>最大角度 °</span><InputNumber value={quantityIn(driver.maximum??{value:180,unit:'deg'},'deg')} onChange={v=>setDriver({...driver,maximum:{value:v??180,unit:'deg'}})}/></label>
+    <Button onClick={()=>setDriver({...driver,reference:undefined,referenceDigest:undefined})}>当前位置设为零点</Button>
+   </>}
    {action==='law'&&lawDraft&&<>
     <Input aria-label="运动规律名称" value={lawDraft.name} onChange={e=>setLawDraft({...lawDraft,name:e.target.value})}/>
     <Select aria-label="规律角度命令" style={{width:'100%'}} value={lawDraft.driverId} options={defs.drivers?.filter(d=>d.mechanismId===mechanismId).map(d=>({value:d.id,label:d.name}))} onChange={driverId=>setLawDraft({...lawDraft,driverId})}/>
     <Space wrap><span>起止 {lawDraft.start.unit}</span><InputNumber aria-label="规律起始角度" value={lawDraft.start.value} onChange={v=>setLawDraft({...lawDraft,start:{...lawDraft.start,value:v??0}})}/><InputNumber aria-label="规律结束角度" value={lawDraft.end.value} onChange={v=>setLawDraft({...lawDraft,end:{...lawDraft.end,value:v??0}})}/><span>时长 s</span><InputNumber min={.01} value={lawDraft.durationSeconds} onChange={v=>setLawDraft({...lawDraft,durationSeconds:v??5})}/></Space>
    </>}
-   {action==='study'&&studyDraft&&<>
-    <Input aria-label="模拟名称" value={studyDraft.name} onChange={e=>setStudyDraft({...studyDraft,name:e.target.value})}/>
-    <Select aria-label="模拟运动规律" style={{width:'100%'}} value={studyDraft.lawId} options={defs.laws?.filter(l=>l.mechanismId===mechanismId).map(l=>({value:l.id,label:l.name}))} onChange={lawId=>setStudyDraft({...studyDraft,lawId})}/>
-    <Space wrap><span>帧数</span><InputNumber min={2} max={500} precision={0} value={studyDraft.frames} onChange={v=>setStudyDraft({...studyDraft,frames:v??73})}/><span>预算 ms</span><InputNumber min={100} max={120000} value={studyDraft.budgetMs} onChange={v=>setStudyDraft({...studyDraft,budgetMs:v??60000})}/></Space>
-   </>}
+
 
 
    {failureNotice}
