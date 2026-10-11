@@ -16,7 +16,12 @@ export type MotionApplyPlan={baseRevisionId:string;digest:string;ready:boolean;i
 export type MotionRunRequest={baseRevisionId:string;requestId:string;studyId:string};
 export type MotionFrame={timeSeconds:number;driverValue:number;unitPoses:Record<string,MotionPose>;coordinates:Record<string,number>;kinematicValid:boolean};
 export type MotionRun={schema:1;snapshot:{documentId:string;revisionId:string;digest:string;view:DocumentView;mechanism:Mechanism;study:MotionStudy};status:string;frames:MotionFrame[];failure?:{code:string;detail:string;timeSeconds:number;driverValue:number;replayObjectId?:string};completed:boolean;elapsedMs:number;solveCalls:number;solverBuild:string};
-export type MotionPlayback={view:DocumentView;frame:MotionFrame;revisionId:string};
+// The clock is presentation only. frame always remains an authoritative sample.
+export type MotionPlaybackClock={startedAt:number;timeSeconds:number;frames:readonly MotionFrame[]};
+export type MotionPlayback={view:DocumentView;frame:MotionFrame;revisionId:string;clock?:MotionPlaybackClock};
+export function motionPlaybackTime(clock:MotionPlaybackClock,now:number):number {
+ return Math.min(clock.frames.at(-1)?.timeSeconds??0,clock.timeSeconds+Math.max(0,now-clock.startedAt)/1000);
+}
 export function validMotionPose(value:unknown):value is MotionPose {
  if(!value||typeof value!=='object')return false;
  const pose=value as Partial<MotionPose>;
@@ -30,7 +35,7 @@ export function motionPlayback(run:MotionRun,index:number):MotionPlayback|undefi
  if(!frame.unitPoses||ids.some(id=>!validMotionPose(frame.unitPoses[id])))return;
  return {view:run.snapshot.view,frame,revisionId:run.snapshot.revisionId};
 }
-// Time selects a complete accepted frame; never interpolate individual units.
+// Editing and conversion select a complete accepted sample, independently of display interpolation.
 export function motionFrameAt(run:MotionRun,time:number):number {
  let result=0;for(let i=0;i<run.frames.length;i++)if(run.frames[i].timeSeconds<=time)result=i;return result;
 }

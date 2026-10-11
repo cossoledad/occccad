@@ -10,5 +10,8 @@ try{
  const results=projected[0].children.filter(c=>c.kind==='MOTION_RESULT');
  assert.deepEqual(results.map(r=>r.entityId),['j1','j2']);assert.equal(results[0].selection.mechanismId,'m');assert.equal(results[0].selection.ownerEntityId,'s');
  assert.equal(tree[0].children.length,1,'artifacts must not mutate model projections');
+ assert(results.every(r=>r.capabilities.includes('DELETE')));
+ const running={...job('running'),state:'RUNNING'};
+ assert(!withMotionResults(tree,view,[running])[0].children.at(-1).capabilities.includes('DELETE'),'running jobs must be stopped before deletion');
  const after=withMotionResults(tree,view,[job('j2')])[0].children.find(c=>c.kind==='MOTION_RESULT');assert.equal(after.key,results[1].key,'deletion/reordering cannot change Job identity');
 }finally{await server.close()}

@@ -43,7 +43,7 @@ export function InstancePatternDialog({ view, seed, onSelectionSession, parentOc
     finally { submittingRef.current = false; setSubmitting(false); }
   };
   return <CommandDialog id="product-pattern" open title="多实例化" size="S"
-    onClose={onClose} onConfirm={() => apply(true)} confirmText="确定" confirmLoading={busy || submitting} confirmDisabled={!valid}>
+    onClose={onClose} onConfirm={() => apply(true)} confirmLoading={busy || submitting} confirmDisabled={!valid}>
     <div className="instance-pattern-fields">
       <label>源组件<Button aria-label="源组件">{sourceInstance?.name??"选择组件"}</Button><Button size="small" onClick={()=>setSource(null)}>清除</Button></label>
       <label>新增实例数量<InputNumber min={1} max={127} precision={0} value={newCount} disabled={busy} onChange={setNewCount} /></label>

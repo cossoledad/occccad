@@ -100,4 +100,4 @@ CAD Command 与 Preview 统一通过[realtime 控制面](realtime.md)提交；Pr
 
 ## 机构研究与只读回放
 
-Assembly Design 的 `assembly.motion-study` 使用公共命令目录打开机构与 DMU 面板。定义保存走正式版本化命令，后台运行及结果列表走既有 API/Jobs 和 TanStack Query；播放/定位只持有临时冻结 view 与整帧 Pose。Viewport 先验证 owning 单元组全部加载，再通过 TransformTransitionSystem immediate 批量应用，保持刚体后代和闭环，不做普通位姿插值。关闭、版本/编辑上下文切换清理覆盖与高亮，代际门禁阻止迟到结果覆盖新显示；旧运行需显式加载并提示冻结版本。回放期间编辑命令受 availability 门禁，不提供姿态写回。详细单位、方程、scope、运行和未验收边界见[当前机构合同](kinematics-dmu.md)。
+Assembly Design 的 `assembly.motion-study` 使用公共命令目录打开机构与 DMU 面板。定义保存走正式版本化命令，后台运行及结果列表走既有 API/Jobs 和 TanStack Query；播放/定位只持有临时冻结 view、完整计算帧和显示时钟。Viewport 先验证相邻完整帧及 owning 单元组全部加载，再按统一 RAF 时钟插值并批量应用显示姿态，保留刚体后代；帧间显示是近似，不生成求解见证或逐帧 Revision。位姿更新不重建几何场景，时间字段连续显示两位小数。回放页脚确定通过权威命令采用合格计算帧，取消、关闭和 Esc 恢复机构 accepted。版本/编辑上下文切换清理覆盖与高亮，代际门禁阻止迟到结果覆盖新显示；旧运行需显式加载并提示冻结版本。回放期间定义编辑受 availability 门禁，转换统一使用工具栏入口。终态模拟结果从树右键删除，只隐藏用户结果项。详细单位、方程、scope、运行和未验收边界见[当前机构合同](kinematics-dmu.md)。

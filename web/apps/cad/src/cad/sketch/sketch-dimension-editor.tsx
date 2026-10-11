@@ -163,7 +163,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
    await commit([dimensionDefinitionOperation(constraint,original,source,initialSource,name,readonly,restore,inputUnit)]);onClose();
   }finally{setUnknown(commitSession.current.unknown);setPending(false);}
  };
- return <CommandDialog id="sketch-dimension" open title={logical?`编辑${definition.label}约束`:`编辑${definition.label}尺寸`} onClose={close} onConfirm={submit} confirmDisabled={selecting!==undefined} confirmText={unknown?"重试确认":deleting?(logical?"删除约束":"删除尺寸"):"确定"} size="S">
+ return <CommandDialog id="sketch-dimension" open title={logical?`编辑${definition.label}约束`:`编辑${definition.label}尺寸`} onClose={close} onConfirm={submit} confirmDisabled={selecting!==undefined} size="S">
   <fieldset disabled={pending||unknown} style={{border:0,padding:0,margin:0,minWidth:0}}>
   <Form layout="vertical" component="div" className="sketch-dimension-form">
   {previewError&&<Typography.Text type="secondary" aria-live="polite">预览不可用：{previewError}</Typography.Text>}

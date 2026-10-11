@@ -391,6 +391,7 @@ export class CadViewportEngine {
   private animationFrame = 0;
   private applicationDisplay?:import('../cad/assembly/application-display').ApplicationDisplay;
   setApplicationDisplay(display?:import('../cad/assembly/application-display').ApplicationDisplay,selected?:string):void {
+    if(this.motionDisplay?.clock!==display?.playback?.clock)this.motionClockFinished=false;
     this.applicationDisplay=display;
     this.mechanismDefinition=display?.mechanism;this.mechanismSelection=selected;
     this.motionDisplay=display?.playback;
@@ -402,7 +403,9 @@ export class CadViewportEngine {
     if(this.moveNominalScene&&this.moveNominalBase?.revisionId===display.revisionId)return;
     if([...this.instanceGroups.keys()].some(id=>!validMotionPose(display.poses[id])))return;
     const targets=[...this.instanceGroups].map(([id,object])=>({object,target:this.transformPose(display.poses[id].translation,display.poses[id].rotation)}));
-    this.transforms.applyBatch(targets,"immediate");this.content.updateMatrixWorld(true);
+    if(display.playback){if(!applyMotionFrame(display.playback,this.view,this.instanceGroups,this.transforms))return;}
+    else this.transforms.applyBatch(targets,"immediate");
+    this.content.updateMatrixWorld(true);
     this.addAssemblyConstraintMarkers(this.view);this.refreshInteractionHighlights();this.refreshContentBounds();
     this.host.dataset.applicationMode=display.mode;this.host.dataset.applicationId=display.mechanism?.id??'PRODUCT';this.invalidate();
   }
@@ -428,8 +431,10 @@ export class CadViewportEngine {
   }
   private disposed = false;
   private motionDisplay?:import("../cad/assembly/motion-study").MotionPlayback;
+  private motionClockFinished=false;
   private motionRestorePending=false;
   setMotionDisplay(display?:import("../cad/assembly/motion-study").MotionPlayback):void {
+    if(this.motionDisplay?.clock!==display?.clock)this.motionClockFinished=false;
     if(!display&&this.motionDisplay)this.motionRestorePending=true;
     this.motionDisplay=display;
     if(!display)return;
@@ -3655,6 +3660,11 @@ export class CadViewportEngine {
     this.animationFrame = requestAnimationFrame((now) => {
       this.animationFrame = 0;
       if (!this.disposed) {
+        const playback=this.motionDisplay,clock=playback?.clock;
+        if(clock&&!this.motionClockFinished&&applyMotionFrame(playback!,this.view,this.instanceGroups,this.transforms,now)){
+          this.content.updateMatrixWorld(true);this.refreshContentBounds();
+          this.motionClockFinished=clock.timeSeconds+Math.max(0,now-clock.startedAt)/1000>=(clock.frames.at(-1)?.timeSeconds??0);
+        }
         if (this.viewTransition.update(now)) this.navigation.syncCamera(false);
         this.updateNavigationHUD();
         this.moveManipulator.updateScale(this.camera, viewportMetrics(this.renderer));

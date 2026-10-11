@@ -174,7 +174,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
 
   useEffect(() => {
     const instance = engine.current; if (!instance) return;
-    instance.setApplicationDisplay(props.applicationDisplay,props.mechanismSelection);
+    instance.setApplicationDisplay(callbacks.current.applicationDisplay,callbacks.current.mechanismSelection);
     const inputs = props.featureInputArtifacts;
     const ownerId=(props.editingView??props.view).document.id;
     const replaceInput = (view:DocumentView) => featureInputDisplay(view,inputs,ownerId,view.part?undefined:props.activeInstancePath);
@@ -185,7 +185,14 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
-  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts,props.applicationDisplay,props.mechanismSelection]);
+  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts]);
+
+  // Pose/clock changes update existing occurrences without rebuilding geometry.
+  useEffect(()=>{
+    const instance=engine.current;if(!instance)return;
+    instance.setApplicationDisplay(props.applicationDisplay,props.mechanismSelection);
+    instance.commitApplicationDisplay();
+  },[props.applicationDisplay,props.mechanismSelection]);
 
   useEffect(() => { engine.current?.setDatumPreview(props.datumPreview); }, [props.datumPreview]);
   useEffect(() => { engine.current?.setFeatureSelection(props.featureSelection); }, [props.featureSelection]);

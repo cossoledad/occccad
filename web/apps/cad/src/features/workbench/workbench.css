@@ -149,6 +149,7 @@
 .inspector-object-data { margin:0; padding:12px; max-height:60vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; font-size:12px; line-height:1.5; background:var(--wb-surface); border:1px solid var(--wb-border); border-radius:4px; }
 
 /* Fields belong to the standard command dialog; the viewport remains full size. */
+.motion-study-fields .ant-input-number, .motion-playback-time { font-variant-numeric:tabular-nums; }
 .motion-study-fields { display:flex; flex-direction:column; gap:10px; }
 .motion-joint-editor { display:flex; flex-direction:column; gap:10px; }
 .motion-labeled-field { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }

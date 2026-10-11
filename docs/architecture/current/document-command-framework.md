@@ -20,7 +20,7 @@
 
 图标支持配置内的白名单 SVG 基元或 `/assets/` 本地资源，不执行脚本；前端无需增加按图标名分派的代码。未知图标和资源加载失败使用统一占位。数据库迁移只退役旧 `ui_toolbars`/`ui_toolbar_items` 应用种子表；文档、Revision 和用户状态不参与目录加载，布局/工具变体偏好仍由现有浏览器偏好管理。
 
-条件表达式支持 `fact/equals`、`all`、`any`、`not`。事实来自现有状态：hostType、targetType、sketchActive、canEdit、rootCanEdit、busy、selectionKind、selectionCount、hasWorkingBody、moveReceiptPending、isMock、rootTarget、motionActive。每次状态改变在前端同步计算，不向后端请求选择变化。显示、可执行及活动态分别投影；隐藏入口不会禁止合法快捷键调用，执行仍检查条件、实现 capability 与后端 ACL。
+条件表达式支持 `fact/equals`、`all`、`any`、`not`。事实来自现有状态：hostType、targetType、sketchActive、canEdit、rootCanEdit、busy、selectionKind、selectionCount、hasWorkingBody、moveReceiptPending、isMock、rootTarget、motionActive、canDeleteMotionResult。每次状态改变在前端同步计算，不向后端请求选择变化。显示、可执行及活动态分别投影；隐藏入口不会禁止合法快捷键调用，执行仍检查条件、实现 capability 与后端 ACL。
 
 Toolbar Tab 按文档会话及工作台保存当前分类，唯一 `WorkbenchCommands` 使用 `useWorkbenchTab` 读取选择。普通分类切换只改变呈现。根 Product 的机构入口及 Mechanism 树双击进入显式应用编辑会话，catalog 的互斥 contexts 根据 `motionActive` 显示 KINEMATICS_DMU 分类并隐藏装配分类；切换该应用内部的视图/文档分类不退出机构。“机构”入口编辑明确选中的机构，否则通过 SAVE_KINEMATICS 新建；退出清理本会话没有确认操作的空机构，已有机构保留。进入/退出从当前已确认位置按目标应用的关系权威求解，完整显示帧交接，见[机构合同](kinematics-dmu.md)。嵌套 Product 编辑使用原装配分类，不提供宿主机构入口。后台读取和刷新保持既有打开标签顺序。
 
@@ -34,7 +34,7 @@ Toolbar、搜索、快捷键和结构树菜单经同一个 `execute` 入口；�
 
 机构定义、仿真对话框及转换计划使用同一 `CommandDialog` / form `CommandOperation`。Mechanism 树双击进入应用，其他可编辑定义转入已有 `tree.edit` form。“运行仿真”和模拟下指定结果的树双击打开同一个对话框，计算、停止后台任务、播放/暂停、单步和时间定位是对话框局部控件，不是 Registry 命令或 Ribbon/Search 项。局部操作不能取消持有该对话框的 CommandOperation；普通视图 handler 仍可执行。
 
-视口不增加常驻机构活动区域；提示使用底栏 WorkbenchStatus，诊断走统一 OperationFeedback。旋转接合按轴线重合和轴向定位显示支撑来源、替换/清除、偏移与平面方向；自动选择/替换字段复用 FeatureSelectionSession，精确 inspect 后绑定，树和视口没有额外鼠标控制器。命令取消与后台 Job/冻结结果加载分别使用代际门禁。关闭当前版本的仿真回放先通过 SAVE_KINEMATICS 采用当前合格帧，失败保留对话框及帧；关闭后的后台完成不重开显示。帧转换是子流程，取消计划返回原仿真及原帧，转换成功回装配设计。机构约束与产品约束继续独立，确认不先释放到 Product 初始位置。
+视口不增加常驻机构活动区域；提示使用底栏 WorkbenchStatus，诊断走统一 OperationFeedback。旋转接合按轴线重合和轴向定位显示支撑来源、替换/清除、偏移与平面方向；自动选择/替换字段复用 FeatureSelectionSession，精确 inspect 后绑定，树和视口没有额外鼠标控制器。命令取消与后台 Job/冻结结果加载分别使用代际门禁。个人模拟结果的删除按终态 Job capability 与任务所有者 ACL 执行，canDeleteMotionResult 独立于 Product 编辑权限；当前 Product 只读时仍可删除自己的终态结果。命令对话框统一“确定／取消”页脚。回放确定通过 SAVE_KINEMATICS 采用当前时间对应的合格计算帧，失败保留对话框；取消、标题关闭和 Esc 恢复机构 accepted，后台完成不重开显示。帧转换从工具栏进入，是回放子流程；CadCommand.continues 显式声明 dmu.apply 可续接 dmu.run / dmu.apply，Registry 保留同一 CommandOperation，初始进入不执行取消清理。取消计划返回原仿真及原帧，转换成功回装配设计。机构约束与产品约束继续独立，确认不先释放到 Product 初始位置。
 
 模型修改仍由现有正式命令提交；Preview 不推进 Head，确认提交当前成功候选，失败、过期、取消继续受服务端 gate 约束。表单 adapters 复用各自既有参数、选择过滤、预览/提交/关闭实现，公共注册层不会强迫拉伸、草图约束和适应视图使用相同步骤。
 

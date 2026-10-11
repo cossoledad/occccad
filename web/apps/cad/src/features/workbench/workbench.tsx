@@ -674,7 +674,7 @@ export function Workbench() {
         : undefined;
       const ownVisible = semantic?.effectiveVisible ?? treeVisibilityOverride(visibilityKey, treeVisibilityOverrides) ?? node.localVisible ?? true;
       const actionOwner = node.kind === "INSTANCE" ? node.ownerDocumentId : node.documentId;
-      const ownerEditable = Boolean(!motionDisplay && (!motionOpen||!motionCommandActive) && (!motionOpen||kinematicKinds.includes(node.kind??"")||node.kind==="JOINT_EXPANSION") && editingView && actionOwner === editingView.document.id &&
+      const ownerEditable = node.kind==="MOTION_RESULT"?Boolean(!motionDisplay&&!motionCommandActive&&node.documentId===view?.document.id):Boolean(!motionDisplay && (!motionOpen||!motionCommandActive) && (!motionOpen||kinematicKinds.includes(node.kind??"")||node.kind==="JOINT_EXPANSION") && editingView && actionOwner === editingView.document.id &&
         ["OWNER", "EDITOR"].includes(editingView.document.permission ?? ""));
       return { ...node, hidden: !ownVisible, definitionVisible: semantic?.definitionVisible ?? node.definitionVisible, localVisible: semantic?.localVisible ?? node.localVisible,
         capabilities: ownerEditable ? node.capabilities : node.capabilities?.filter((capability) => capability !== "EDIT" && capability !== "DELETE" && capability !== "SUPPRESS" && capability !== "RENAME"),
@@ -709,7 +709,8 @@ export function Workbench() {
   };
   const canEdit = !motionOpen && !motionDisplay && Boolean(editSession) && (editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR");
   const canEditRoot = !motionDisplay && (view?.document.permission === "OWNER" || view?.document.permission === "EDITOR");
-  const commandFacts={rootTarget:Boolean(view&&editingView?.document.id===view.document.id),motionActive:Boolean(motionOpen&&view&&editingView?.document.id===view.document.id&&!store.activeSketchID),isMock:isMockMode,moveReceiptPending,hostType:view?.document.type??"PART",targetType:editingView?.document.type??"PART",sketchActive:Boolean(store.sketchPlane),canEdit,rootCanEdit:canEditRoot,busy:command.isPending,selectionKind:store.selection?.kind??"",selectionCount:store.selections.length,hasWorkingBody:Boolean(workingBodyID)};
+  const canDeleteMotionResult=!motionDisplay&&!motionCommandActive&&store.selections.length>0&&store.selections.every(s=>s.kind==="kinematic-object"&&s.entityKind==="MOTION_RESULT"&&motionJobs.data?.some(j=>j.id===s.id&&["SUCCEEDED","FAILED","CANCELED"].includes(j.state)));
+  const commandFacts={canDeleteMotionResult,rootTarget:Boolean(view&&editingView?.document.id===view.document.id),motionActive:Boolean(motionOpen&&view&&editingView?.document.id===view.document.id&&!store.activeSketchID),isMock:isMockMode,moveReceiptPending,hostType:view?.document.type??"PART",targetType:editingView?.document.type??"PART",sketchActive:Boolean(store.sketchPlane),canEdit,rootCanEdit:canEditRoot,busy:command.isPending,selectionKind:store.selection?.kind??"",selectionCount:store.selections.length,hasWorkingBody:Boolean(workingBodyID)};
   const activeTabs=toolbarCatalog.data?contextTabs(toolbarCatalog.data,commandFacts):[];
  const activeWorkbench=activeTabs[0]?.workbench??"";
  const setMotionOpen=(open:boolean)=>{const selected=view?.product?.kinematics?.mechanisms.find(m=>store.selection?.kind==='kinematic-object'&&store.selection.id===m.id)?.id;commandRegistry.cancel();closeCommandPanels();store.setActiveTool("select","once");store.setSelections([]);setMotionSession(open?documentID:undefined);if(open)void motionPanel.current?.execute("enter",selected);};
@@ -1058,9 +1059,20 @@ export function Workbench() {
     });
   };
   const deleteTreeNodes = (nodes: SpecificationTreeNode[]) => {
-    if (!editingView || !(canEdit||motionOpen&&canEditRoot&&!motionDisplay&&nodes.length>0&&nodes.every(node=>kinematicKinds.includes(node.kind??""))) || command.isPending) return;
+    if(command.isPending)return;
     const candidates = [...new Map(nodes.filter((node) => node.entityId && node.kind && node.capabilities?.includes("DELETE") &&
       node.presentationRole !== "INPUT_REFERENCE").map((node) => [`${node.documentId}:${node.kind}:${node.entityId}`, node])).values()];
+    if(candidates.some(node=>node.kind==='MOTION_RESULT')){
+      if(candidates.some(node=>node.kind!=='MOTION_RESULT'||node.documentId!==view?.document.id))return;
+      void (async()=>{
+        try{for(const node of candidates){await api.deleteMotionResult(node.entityId!);motionPanel.current?.removeResult(node.entityId!);}
+          const ids=new Set(candidates.map(node=>node.entityId));
+          store.setSelections(useWorkbenchStore.getState().selections.filter(s=>s.kind!=="kinematic-object"||s.entityKind!=="MOTION_RESULT"||!ids.has(s.id)));
+        }catch(error){operationFeedback(error,'删除模拟结果')}
+        finally{await Promise.all([client.invalidateQueries({queryKey:['motion-jobs',documentID]}),client.invalidateQueries({queryKey:queryKeys.jobs})])}
+      })();return;
+    }
+    if (!editingView || !(canEdit||motionOpen&&canEditRoot&&!motionDisplay&&nodes.length>0&&nodes.every(node=>kinematicKinds.includes(node.kind??""))) || command.isPending) return;
     if(candidates.some(node=>kinematicKinds.includes(node.kind??""))){
  if(!view?.product?.kinematics||candidates.some(node=>!kinematicKinds.includes(node.kind??"")))return;
  command.mutate(async()=>{
@@ -1152,9 +1164,9 @@ export function Workbench() {
     viewport.current?.clearCommandPreview();setAssemblyPreviewEvaluation(undefined);setReplacingAssemblyReference(undefined);
     setReconnectError(undefined);setAssemblyDefinitionDirty(false);setEditingAssemblyConstraint(undefined);setPendingAssemblyConstraint(undefined);
   };
-  const closeCommandPanels=()=>{
+  const closeCommandPanels=(nextCommand?:string)=>{
     closeAssemblyCandidate();stopConflictAnalysis();viewport.current?.showRemainingMotion();
-    motionPanel.current?.closeCommand();
+    if(nextCommand!=="dmu.apply"||!motionDisplay)motionPanel.current?.closeCommand();
     setConflictOpen(false);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
     setFeatureSelection(undefined);setRenameTarget(undefined);setNewPartTarget(undefined);
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
@@ -1690,7 +1702,7 @@ onToggleConstruction:(node)=>{
             if(state==="committing"&&reason?.startsWith("提交结果未知")&&!receiptPrompt.current){
               setMoveReceiptPending(true);
               receiptPrompt.current=true;modal.confirm({title:"移动提交结果待确认",content:"连接中断时移动可能已经保存。请查询原请求回执，勿重复创建移动。",
-                okText:"查询 / 重试原提交",cancelText:"稍后",onOk:()=>{receiptPrompt.current=false;viewport.current?.retryAssemblyMoveCommit();},onCancel:()=>{receiptPrompt.current=false;}});
+                okText:"确定",cancelText:"取消",onOk:()=>{receiptPrompt.current=false;viewport.current?.retryAssemblyMoveCommit();},onCancel:()=>{receiptPrompt.current=false;}});
             }
             if(state==="committed"||state==="idle"||state==="failed"||state==="invalidated"){receiptPrompt.current=false;setMoveReceiptPending(false);}
           }}
@@ -1821,7 +1833,7 @@ onToggleConstruction:(node)=>{
     </CommandDialog>
 
 	<CommandDialog id="parameter-manager" open={parameterManagerOpen} title="参数" size="L"
-		onClose={() => setParameterManagerOpen(false)} onConfirm={() => setParameterManagerOpen(false)} confirmText="完成">
+		onClose={() => setParameterManagerOpen(false)} onConfirm={() => setParameterManagerOpen(false)}>
 		<div className="parameter-manager" aria-label="文档参数">
 			<Form form={createUserParameterForm} layout="inline" initialValues={{value:0,unit:"mm"}}>
 				<Form.Item name="name"><Input placeholder="别名（可选）" /></Form.Item>
@@ -1855,7 +1867,7 @@ onToggleConstruction:(node)=>{
 		</div>
 	</CommandDialog>
 	<CommandDialog id="publication-manager" open={publicationManagerOpen} title="Publications" size="L"
-		onClose={() => setPublicationManagerOpen(false)} onConfirm={() => setPublicationManagerOpen(false)} confirmText="完成">
+		onClose={() => setPublicationManagerOpen(false)} onConfirm={() => setPublicationManagerOpen(false)}>
 		<Form form={publicationForm} layout="inline" initialValues={{ name: "", semanticPurpose: "" }}>
 			<Form.Item name="name"><Input placeholder="自动命名（可选）" /></Form.Item>
 			<Form.Item name="semanticPurpose"><Input placeholder="语义用途" /></Form.Item>

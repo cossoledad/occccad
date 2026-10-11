@@ -15,7 +15,7 @@ import {selectionSummaryCommand} from "./commands/selection-summary";
 
 export type WorkbenchCommandBindings={
  setMotionOpen?:(open:boolean)=>void;motionOpen?:boolean;motionCommandEnabled?:(action:string)=>boolean;onMotionCommand?:(action:string,operation?:CommandOperation)=>void;
- treeActions?:StructureActions;closePanels?:()=>void;toolContinuation?:boolean;formActive?:boolean;
+ treeActions?:StructureActions;closePanels?:(nextCommand?:string)=>void;toolContinuation?:boolean;formActive?:boolean;
  store:ReturnType<typeof useWorkbenchStore.getState>;editingView?:DocumentView;view?:DocumentView;
  canEdit:boolean;canEditRoot:boolean;command:{isPending:boolean};selectedNamingIssue:unknown;conflictOpen:boolean;moveReceiptPending:boolean;workingBodyID?:string;
  treeNodes:SpecificationTreeNode[];viewport:{current:CadViewportHandle|null};
@@ -38,14 +38,16 @@ const sketchToolCommands:WorkbenchToolID[]=["sketch.edit.delete","sketch.edit.co
 export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[]{
  const {store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage}=bindings;
  const deletionNodes=deletableTreeNodesForSelections(treeNodes,store.selections);
+ const deletionTargets=(invocation?:CadCommandInvocation)=>invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes;
+ const resultDeletion=(invocation?:CadCommandInvocation)=>{const nodes=deletionTargets(invocation);return nodes.length>0&&nodes.every(node=>node.kind==="MOTION_RESULT"&&node.capabilities?.includes("DELETE"))};
  return [
 
-      ({id:"edit.delete",execute:invocation=>deleteTreeNodes((invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes).map(node=>resolveStructureNode(treeNodes,node))),isEnabled:invocation=>Boolean((canEdit||bindings.motionOpen&&canEditRoot&&(invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes).every(node=>["MECHANISM","MECHANISM_JOINT","MOTION_DRIVER","MOTION_LAW","MOTION_STUDY","INTERFERENCE_ANALYSIS"].includes(node.kind??"")))&&!command.isPending&&(invocation?.payload?structureInvocation(invocation).nodes?.some(node=>node.capabilities?.includes("DELETE")):store.activeToolID==="select"&&deletionNodes.some(node=>node.capabilities?.includes("DELETE"))))}),
+      ({id:"edit.delete",execute:invocation=>deleteTreeNodes((invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes).map(node=>resolveStructureNode(treeNodes,node))),isEnabled:invocation=>Boolean((resultDeletion(invocation)||canEdit||bindings.motionOpen&&canEditRoot&&(invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes).every(node=>["MECHANISM","MECHANISM_JOINT","MOTION_DRIVER","MOTION_LAW","MOTION_STUDY","INTERFERENCE_ANALYSIS","MOTION_RESULT"].includes(node.kind??"")))&&!command.isPending&&(invocation?.payload?structureInvocation(invocation).nodes?.some(node=>node.capabilities?.includes("DELETE")):store.activeToolID==="select"&&deletionNodes.some(node=>node.capabilities?.includes("DELETE"))))}),
       ({ id: "tool.select", execute: () => store.setActiveTool("select", "once"),
         isActive: () => store.activeToolID === "select" }),
       ({ id: "assembly.move", execute: () => store.setActiveTool("assembly.move", "continuous"),
         isEnabled: () => Boolean(canEditRoot&&(!bindings.motionOpen||bindings.motionCommandEnabled?.("move"))), isActive: () => store.activeToolID === "assembly.move" }),
-      ...(["exit","ground","revolute","mechanism","driver","law","study","apply","run"] as const).map(action=>({id:"dmu."+action,execute:(invocation:CadCommandInvocation|undefined)=>{store.setActiveTool("select","once");return bindings.onMotionCommand?.(action,invocation?.operation)},isEnabled:()=>Boolean(bindings.motionOpen&&view?.product&&!command.isPending&&bindings.onMotionCommand&&editingView?.document.id===view.document.id&&!store.activeSketchID&&(bindings.motionCommandEnabled?.(action)??(action==="apply"?["OWNER","EDITOR"].includes(view.document.permission??""):canEditRoot)))})),
+      ...(["exit","ground","revolute","mechanism","driver","law","study","apply","run"] as const).map(action=>({id:"dmu."+action,continues:action==="apply"?["dmu.run","dmu.apply"]:undefined,execute:(invocation:CadCommandInvocation|undefined)=>{store.setActiveTool("select","once");return bindings.onMotionCommand?.(action,invocation?.operation)},isEnabled:()=>Boolean(bindings.motionOpen&&view?.product&&!command.isPending&&bindings.onMotionCommand&&editingView?.document.id===view.document.id&&!store.activeSketchID&&(bindings.motionCommandEnabled?.(action)??(action==="apply"?["OWNER","EDITOR"].includes(view.document.permission??""):canEditRoot)))})),
       ({id:"assembly.motion-study",execute:()=>{store.setActiveTool("select","once");bindings.setMotionOpen?.(true);},isEnabled:()=>Boolean(view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&bindings.setMotionOpen),isActive:()=>Boolean(bindings.motionOpen)}),
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),
         isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),
@@ -116,12 +118,12 @@ export function useWorkbenchCommandRegistration(registry:CommandRegistry,binding
  const definitionsRef=useRef(new Map<string,CadCommand>());definitionsRef.current=new Map(definitions.map(command=>[command.id,command]));
  useLayoutEffect(()=>{
   const current=(id:string)=>definitionsRef.current.get(id)!;
-  const remove=registry.registerMany(definitions.map(command=>({id:command.id,
+  const remove=registry.registerMany(definitions.map(command=>({id:command.id,continues:command.continues,
    execute:invocation=>{
     const operation=invocation?.operation;
     if(operation&&registry.declaration(command.id)?.implementation!=="handler"){
-     const clear=()=>{const binding=bindingsRef.current;if(binding.closePanels)binding.closePanels();else {binding.viewport.current?.clearCommandPreview();binding.setSolidEditor(undefined);binding.setBooleanDialog(undefined);binding.setDatumEditor(undefined);}};
-     clear();operation.own(clear);operation.own(()=>bindingsRef.current.store.setActiveTool("select","once"));
+     const clear=(nextCommand?:string)=>{const binding=bindingsRef.current;if(binding.closePanels)binding.closePanels(nextCommand);else {binding.viewport.current?.clearCommandPreview();binding.setSolidEditor(undefined);binding.setBooleanDialog(undefined);binding.setDatumEditor(undefined);}};
+     if(!invocation?.continuing){clear(command.id);operation.own(()=>clear());operation.own(()=>bindingsRef.current.store.setActiveTool("select","once"));}
     }
     return current(command.id).execute(invocation);
    },isEnabled:invocation=>current(command.id).isEnabled?.(invocation)??true,

@@ -1,4 +1,4 @@
-import {forwardRef,useCallback,useEffect,useImperativeHandle,useRef,useState} from 'react';
+import {forwardRef,useCallback,useEffect,useImperativeHandle,useMemo,useRef,useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {Alert,Button,Checkbox,Input,InputNumber,Progress,Select,Slider,Space,Table,Typography} from 'antd';
 import {normalizeOperationFailure,useOperationFeedback} from '../../cad/command/operation-feedback';
@@ -6,7 +6,6 @@ import type {FeatureSelectionSession} from '../../cad/interaction/feature-select
 import {createActor} from 'xstate';
 import {assemblyPreviewMachine} from './assembly-preview-machine';
 import {api} from '../../api/client';
-import {queryKeys} from '../../app/query-keys';
 import type {DocumentView,Job,SelectionItem,AssemblyGeometryRef} from '../../types';
 import {owningInstanceSelection} from '../../cad/assembly/instance-selection';
 import {deleteMotionObjects} from '../../cad/assembly/motion-definitions';
@@ -18,14 +17,14 @@ import {assemblyGeometryRef} from '../../cad/assembly/assembly-reference';
 import {useCommandRegistry} from '../../cad/command/command-context';
 import type {CommandOperation} from '../../cad/command/command-registry';
 import {CommandDialog} from '../../cad/overlay/floating-panel';
-import {motionFrameAt,motionPlayback,quantityIn,type JointEndpoint,type KinematicsDefinitions,type MechanismJoint,type MotionPlayback,type MotionRun,type MotionStudy,type MotionApplyRequest,type MotionApplyPlan,type MotionDriver,type MotionLaw} from '../../cad/assembly/motion-study';
+import {motionFrameAt,motionPlayback,motionPlaybackTime,quantityIn,type MotionPlaybackClock,type JointEndpoint,type KinematicsDefinitions,type MechanismJoint,type MotionPlayback,type MotionRun,type MotionStudy,type MotionApplyRequest,type MotionApplyPlan,type MotionDriver,type MotionLaw} from '../../cad/assembly/motion-study';
 
 const identity=()=>({translation:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number]});
 const relationLabels:Record<string,string>={ground:'固定',axis:'轴线相合','axial-location':'轴向定位',orientation:'方向一致','angle-lock':'锁定角度',existing:'已有正式约束',solver:'正式装配求解'};
 const actionLabels:Record<string,string>={ADD:'新增',REUSE:'复用',CONFLICT:'冲突'};
 const done=(job:Job)=>['SUCCEEDED','FAILED','CANCELED'].includes(job.state);
 const empty=():KinematicsDefinitions=>({mechanisms:[],studies:[],drivers:[],laws:[],associations:[]});
-export type MotionPanelHandle={execute:(action:string,objectId?:string,operation?:CommandOperation)=>void|Promise<void>;closeCommand:()=>void;enabled:(action:string)=>boolean;adoptDefinition:(view:DocumentView)=>void;commitManipulation:(commit:()=>Promise<DocumentView>)=>Promise<DocumentView>;adoptProduct:(view:DocumentView)=>void};
+export type MotionPanelHandle={execute:(action:string,objectId?:string,operation?:CommandOperation)=>void|Promise<void>;closeCommand:()=>void;removeResult:(id:string)=>void;enabled:(action:string)=>boolean;adoptDefinition:(view:DocumentView)=>void;commitManipulation:(commit:()=>Promise<DocumentView>)=>Promise<DocumentView>;adoptProduct:(view:DocumentView)=>void};
 type PreviewPose=import("../../cad/assembly/motion-study").MotionPose&{instanceId:string};
 type Props={onMechanism:(m?:import("../../cad/assembly/motion-study").Mechanism)=>void;onStatus:(text:string)=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;onPreview:(poses?:PreviewPose[])=>void;view:DocumentView;active:boolean;selection:SelectionItem|null;canEdit:boolean;onSave:(k:KinematicsDefinitions,baseRevisionId?:string)=>Promise<DocumentView>;onSwitch:(req:import("../../cad/assembly/motion-study").MechanismApplicationRequest)=>Promise<import("../../cad/assembly/motion-study").MechanismApplication&{view:DocumentView}>;onApply:(req:MotionApplyRequest)=>Promise<void>;onPlayback:(p?:MotionPlayback)=>void;onHighlight:(s:SelectionItem[])=>void;onClose:()=>void;onCommandState:(active:boolean)=>void};
 export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function MotionStudyPanel({view,active,selection,canEdit,onSave,onSwitch,onApply,onPlayback,onHighlight,onClose,onCommandState,onStatus,onSelectionSession,onPreview,onMechanism},ref){
@@ -47,7 +46,9 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  const [mechanismId,setMechanismId]=useState(defs.mechanisms[0]?.id??''),[studyId,setStudyId]=useState(defs.studies[0]?.id??'');
  const [applicationQualified,setApplicationQualified]=useState(true);
  const [commandPending,setCommandPending]=useState(false),[pending,setPending]=useState(false),[error,setError]=useState<unknown>(),[jobId,setJobId]=useState<string>();
- const [run,setRun]=useState<MotionRun>(),[index,setIndex]=useState(0),[playing,setPlaying]=useState(false),[showing,setShowing]=useState(false);
+ const [run,setRun]=useState<MotionRun>(),[index,setIndex]=useState(0),[clock,setClock]=useState<MotionPlaybackClock>(),[displayTime,setDisplayTime]=useState(0),[showing,setShowing]=useState(false);
+ const playing=Boolean(clock);
+ const playbackIndex=()=>run&&clock?motionFrameAt(run,motionPlaybackTime(clock,performance.now())):index;
  const [action,setAction]=useState<string>(),[objectId,setObjectId]=useState<string>(),[name,setName]=useState('');
  const [joint,setJoint]=useState<MechanismJoint>(),[pickRole,setPickRole]=useState<JointSupportRole>();
  const [angleCommand,setAngleCommand]=useState(false),[lawDraft,setLawDraft]=useState<MotionLaw>();
@@ -65,13 +66,14 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  const jobs=useQuery({queryKey:['motion-jobs',view.document.id],queryFn:async()=> (await api.listJobs()).filter(j=>j.type==='MOTION_STUDY'&&j.documentId===view.document.id),refetchInterval:active&&jobId?1000:5000});
  const job=jobs.data?.find(j=>j.id===jobId);
  const closeCommand=(finishPlayback=false,forceEditing=false)=>{
-  if(finishPlayback&&(commandPending||savingDefinition.current))return;
+  if(!forceEditing&&(commandPending||savingDefinition.current))return;
   const editing=acceptedMechanism.current??selectedMechanism;
   const finishing=finishPlayback&&activeRef.current&&action==='results'&&showing;
+  const selectedIndex=playbackIndex();
   if(finishing){
-   setPlaying(false);
-   if(canEdit&&run?.snapshot.revisionId===revisionRef.current&&run.frames[index]?.kinematicValid&&editing?.id===run.snapshot.mechanism.id){
-    const frameMechanism={...editing,poses:memberPoses(editing,run.frames[index].unitPoses)};
+   setIndex(selectedIndex);setClock(undefined);
+   if(canEdit&&run?.snapshot.revisionId===revisionRef.current&&run.frames[selectedIndex]?.kinematicValid&&editing?.id===run.snapshot.mechanism.id){
+    const frameMechanism={...editing,poses:memberPoses(editing,run.frames[selectedIndex].unitPoses)};
     const next={...defs,mechanisms:defs.mechanisms.map(v=>v.id===editing!.id?frameMechanism:v)};
     setCommandPending(true);savingDefinition.current=true;
     void onSave(next).then(updated=>{adopt(updated,frameMechanism.id);setShowing(false);setPreviewSuspended(false);callbacks.current.onPlayback();closeCommand(false,true)}).catch(e=>{setError(e);setShowing(true)}).finally(()=>{savingDefinition.current=false;setCommandPending(false)});
@@ -79,7 +81,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
    }
    setShowing(false);setPreviewSuspended(false);callbacks.current.onMechanism(editing);callbacks.current.onPlayback();
   }
-  if(action==='results'){foreground.current=undefined;epoch.current++;setPending(false);setPlaying(false);setPreviewSuspended(false);}
+  if(action==='results'){setShowing(false);callbacks.current.onPlayback();forceEditing=true;foreground.current=undefined;epoch.current++;setPending(false);setClock(undefined);setPreviewSuspended(false);}
   pickedSupports.current.clear();qualifiedInput.current=undefined;commandEpoch.current++;commandOwner.current=undefined;
   setCommandPending(false);setAction(undefined);setPickRole(undefined);setError(undefined);previewAbort.current?.abort();previewSequence.current++;setPreviewPending(false);
   callbacks.current.onSelectionSession();callbacks.current.onPreview();
@@ -87,7 +89,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   setApplyOpen(false);setPlan(undefined);onCommandState(false);
  };
  const release=(exit=false)=>{
-  foreground.current=undefined;epoch.current++;setPending(false);setPlaying(false);setShowing(false);previewAbort.current?.abort();previewSequence.current++;
+  foreground.current=undefined;epoch.current++;setPending(false);setClock(undefined);setShowing(false);previewAbort.current?.abort();previewSequence.current++;
   callbacks.current.onMechanism(exit?undefined:acceptedMechanism.current);callbacks.current.onPlayback();callbacks.current.onPreview();
   callbacks.current.onSelectionSession();callbacks.current.onStatus("");callbacks.current.onHighlight([]);
  };
@@ -121,7 +123,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   const m=next.mechanisms.find(m=>m.id===id);acceptedMechanism.current=m;
   callbacks.current.onMechanism(m);callbacks.current.onPreview();
  };
- const save=async(next:KinematicsDefinitions,activateId?:string)=>{const generation=commandEpoch.current;setCommandPending(true);setError(undefined);try{savingDefinition.current=true;const updated=await onSave(next);if(activateId){activeMechanismId.current=activateId;setMechanismId(activateId)}adopt(updated);if(activeMechanismId.current)untouchedMechanisms.current.delete(activeMechanismId.current);if(generation===commandEpoch.current)closeCommand()}catch(e){if(generation===commandEpoch.current)setError(e)}finally{savingDefinition.current=false;if(generation===commandEpoch.current)setCommandPending(false)}};
+ const save=async(next:KinematicsDefinitions,activateId?:string)=>{const generation=commandEpoch.current;setCommandPending(true);setError(undefined);try{savingDefinition.current=true;const updated=await onSave(next);if(activateId){activeMechanismId.current=activateId;setMechanismId(activateId)}adopt(updated);if(activeMechanismId.current)untouchedMechanisms.current.delete(activeMechanismId.current);if(generation===commandEpoch.current)closeCommand(false,true)}catch(e){if(generation===commandEpoch.current)setError(e)}finally{savingDefinition.current=false;if(generation===commandEpoch.current)setCommandPending(false)}};
  const createMechanism=async()=>{
   if(!canEdit||commandPending||pending||action)return;
   const id=randomUUID(),generation=++previewSequence.current;
@@ -172,7 +174,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(nextAction==='mechanism'&&!id)return createMechanism();
   if(nextAction==='apply'&&action==='results'){
    if(!canEdit||!applicationQualified||!run?.frames[index]?.kinematicValid||commandPending||pending)return;
-   commandEpoch.current++;setPlaying(false);setError(undefined);setPlan(undefined);setLockAngle(false);setApplyOpen(true);return;
+   commandEpoch.current++;commandOwner.current=operation;setIndex(playbackIndex());setClock(undefined);setError(undefined);setPlan(undefined);setLockAngle(false);setApplyOpen(true);return;
   }
   if(nextAction==='result'&&id){const job=jobs.data?.find(j=>j.id===id),owner=defs.studies.find(s=>s.id===job?.payload.studyId)?.mechanismId;if(owner&&owner!==activeMechanismId.current)return enter(owner).then(()=>{if(activeMechanismId.current===owner)execute(nextAction,id,operation)})}
   if((nextAction==='edit'||nextAction==='edit-relation')&&id){const owner=defs.mechanisms.find(m=>m.id===id||m.joints.some(j=>j.id===id||j.constraints?.some(c=>c.id===id))||defs.drivers?.some(d=>d.id===id&&d.mechanismId===m.id)||defs.laws?.some(l=>l.id===id&&l.mechanismId===m.id)||defs.studies.some(s=>s.id===id&&s.mechanismId===m.id));if(owner&&owner.id!==activeMechanismId.current)return enter(owner.id).then(()=>{if(activeMechanismId.current===owner.id)execute(nextAction,id,operation)})}
@@ -205,7 +207,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(nextAction==='law'&&!id){const d=defs.drivers?.find(d=>d.mechanismId===mechanismId);if(!d){setError('请先保存角度命令');return}setLawDraft({id:randomUUID(),name:'规律.'+((defs.laws??[]).filter(l=>l.mechanismId===mechanismId).length+1),mechanismId,driverId:d.id,start:{value:0,unit:'deg'},end:{value:360,unit:'deg'},durationSeconds:5})}
   if(nextAction==='study'&&!id){const l=defs.laws?.find(l=>l.mechanismId===mechanismId);if(!l){setError('请先保存运动规律');return}setStudyDraft({id:randomUUID(),name:'模拟.'+(defs.studies.length+1),mechanismId,lawId:l.id,driverId:l.driverId,start:l.start,end:l.end,durationSeconds:l.durationSeconds,frames:73,budgetMs:60000})}
   if(nextAction==='mechanism'&&!id)setName('机械装置.'+(defs.mechanisms.length+1));
-  if(nextAction==='apply'){if(!selectedMechanism||showing&&(!run||!jobId||!run.frames[index]?.kinematicValid)){setError('选择机械装置已确认位姿或合格仿真帧');return}setPlaying(false);setApplyOpen(true);setLockAngle(false)}
+  if(nextAction==='apply'){if(!selectedMechanism||showing&&(!run||!jobId||!run.frames[index]?.kinematicValid)){setError('选择机械装置已确认位姿或合格仿真帧');return}setClock(undefined);setApplyOpen(true);setLockAngle(false)}
   setAction(nextAction==='run'?'results':nextAction);onCommandState(true)
  };
  const enabled=(command:string)=>{
@@ -213,7 +215,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(command==='exit')return !commandPending&&(!action||action==='results');
   if(command==='results')return !commandPending&&!action;
   if(pending||commandPending)return false;
-  if(command==='apply')return Boolean(!action&&applicationQualified&&canEdit&&selectedMechanism&&!showing);
+  if(command==='apply')return Boolean(!applyOpen&&applicationQualified&&canEdit&&selectedMechanism&&(!action&&!showing||action==='results'&&showing&&run?.frames[playbackIndex()]?.kinematicValid));
   if(command==='run')return Boolean(!action&&applicationQualified&&activeMechanismId.current&&!showing&&defs.studies.some(s=>s.mechanismId===mechanismId));
   if(action)return false;
   if(!editEnabled)return false;
@@ -227,7 +229,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   return true;
  };
  const adoptDefinition=(updated:DocumentView)=>{ownedRevision.current=updated.document.versionId;if(activeMechanismId.current)untouchedMechanisms.current.delete(activeMechanismId.current);adopt(updated)};
- useImperativeHandle(ref,()=>({execute,closeCommand,enabled,adoptDefinition,commitManipulation:async commit=>{
+ useImperativeHandle(ref,()=>({execute,closeCommand,removeResult:id=>{if(jobId===id){loaded.current=undefined;closeCommand();setJobId(undefined);setRun(undefined);setIndex(0)}},enabled,adoptDefinition,commitManipulation:async commit=>{
   savingDefinition.current=true;setCommandPending(true);
   try{const updated=await commit();adoptDefinition(updated);return updated}finally{savingDefinition.current=false;setCommandPending(false)}
  },adoptProduct:updated=>{activeMechanismId.current=undefined;acceptedMechanism.current=undefined;release(true);closeCommand(false,true);adopt(updated)}}));
@@ -304,15 +306,25 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  useEffect(()=>{if(active&&job?.errorMessage)feedback(new Error(job.errorMessage),'机构运行')},[active,job?.id,job?.errorMessage,feedback]);
  useEffect(()=>{callbacks.current.onStatus(!active?'':pickRole?`选择${pickRole.startsWith('first')?'第一':'第二'}${pickRole.endsWith('axis')?'轴线':'定位平面'}`:previewPending?'正在预览接合…':showing?`机构回放 · 帧 ${index+1}${run?.snapshot.revisionId!==view.document.versionId?' · 冻结旧版本':''}`:job&&!done(job)?`机构运行 · ${job.state} ${job.progress}%`:selectedMechanism?`机构编辑 · ${selectedMechanism.name}`:'机构编辑')},[active,pickRole,previewPending,showing,index,run,job,selectedMechanism]);
  const load=useCallback(async(id:string)=>{
-  const generation=++epoch.current;setPending(true);setError(undefined);setPlaying(false);setPreviewSuspended(true);callbacks.current.onHighlight([]);
-  try{const result=await api.getMotionRun(id);if(!alive.current||generation!==epoch.current||!activeRef.current)return;setRun(result);setIndex(0);setPlaying(false);setShowing(result.frames.length>0)}catch(e){if(generation===epoch.current)setError(e)}finally{if(generation===epoch.current)setPending(false)}
+  const generation=++epoch.current;setPending(true);setError(undefined);setClock(undefined);setPreviewSuspended(true);callbacks.current.onHighlight([]);
+  try{const result=await api.getMotionRun(id);if(!alive.current||generation!==epoch.current||!activeRef.current)return;setRun(result);setIndex(0);setClock(undefined);setShowing(result.frames.length>0)}catch(e){if(generation===epoch.current)setError(e)}finally{if(generation===epoch.current)setPending(false)}
  },[]);
  useEffect(()=>{if(active&&action==='results'&&job?.resultObjectId&&done(job)&&foreground.current===job.id&&loaded.current!==job.resultObjectId){loaded.current=job.resultObjectId;foreground.current=undefined;void load(job.id)}},[active,action,job,load]);
- useEffect(()=>{if(active&&showing&&run){const p=motionPlayback(run,index);if(p)callbacks.current.onPlayback(p);else{setError('冻结结果缺少完整帧／版本身份');setShowing(false)}}else callbacks.current.onPlayback()},[active,run,index,showing]);
- useEffect(()=>{if(!playing||!run||!showing||!active)return;const start=performance.now(),base=run.frames[index]?.timeSeconds??0,end=run.frames.at(-1)?.timeSeconds??0;const timer=setInterval(()=>{const time=base+(performance.now()-start)/1000;setIndex(motionFrameAt(run,time));if(time>=end)setPlaying(false)},25);return()=>clearInterval(timer)},[playing,run,showing,active]);
+ const displayIndex=clock&&run?motionFrameAt(run,clock.timeSeconds):index;
+ const playbackDisplay=useMemo(()=>{if(!active||!showing||!run)return;const p=motionPlayback(run,displayIndex);return p?{...p,clock}:undefined},[active,showing,run,displayIndex,clock]);
+ useEffect(()=>{callbacks.current.onPlayback(playbackDisplay);if(active&&showing&&run&&!playbackDisplay){setError('冻结结果缺少完整帧／版本身份');setShowing(false)}},[playbackDisplay,active,showing,run]);
+ useEffect(()=>{if(!clock)setDisplayTime(run?.frames[index]?.timeSeconds??0)},[clock,run,index]);
+ useEffect(()=>{
+  if(!clock||!run||!showing||!active)return;
+  let raf=0,lastUpdate=0;
+  const tick=(now:number)=>{const time=motionPlaybackTime(clock,now),end=run.frames.at(-1)?.timeSeconds??0;
+   if(now-lastUpdate>=50||time>=end){setDisplayTime(time);setIndex(motionFrameAt(run,time));lastUpdate=now}
+   if(time>=end)setClock(undefined);else raf=requestAnimationFrame(tick);
+  };raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);
+ },[clock,run,showing,active]);
  const start=async()=>{
   if(!study||!applicationQualified||pending||commandPending||job&&!done(job))return;
-  const generation=++epoch.current,owner=commandOwner.current;setPending(true);setCommandPending(true);setError(undefined);setPlaying(false);
+  const generation=++epoch.current,owner=commandOwner.current;setPending(true);setCommandPending(true);setError(undefined);setClock(undefined);
   try{
    let base=view.document.versionId;
    const editing=acceptedMechanism.current;
@@ -335,22 +347,17 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  };
  const playback=(control:'start'|'end'|'previous'|'next'|'play'|'pause')=>{
   if(action!=='results'||applyOpen||pending||commandPending||!run?.frames.length)return;
-  setShowing(true);setPlaying(control==='play');
+  const current=playbackIndex();setShowing(true);setClock(undefined);setIndex(current);
   if(control==='start')setIndex(0);
   if(control==='end')setIndex(run.frames.length-1);
-  if(control==='previous')setIndex(i=>Math.max(0,i-1));
-  if(control==='next')setIndex(i=>Math.min(run.frames.length-1,i+1));
-  if(control==='play'&&index===run.frames.length-1)setIndex(0);
+  if(control==='previous')setIndex(Math.max(0,current-1));
+  if(control==='next')setIndex(Math.min(run.frames.length-1,current+1));
+  if(control==='play'){const next=current===run.frames.length-1?0:current;setIndex(next);setClock({startedAt:performance.now(),timeSeconds:run.frames[next].timeSeconds,frames:run.frames})}
  };
  const closeApply=()=>{
   if(commandPending)return;
   commandEpoch.current++;setApplyOpen(false);setPlan(undefined);setError(undefined);
   if(action!=='results')closeCommand();
- };
- const deleteResult=async()=>{
-  if(!job||!done(job))return;
-  const id=job.id,generation=epoch.current;setPending(true);
-  try{await api.deleteMotionResult(id);if(generation===epoch.current&&activeRef.current&&jobId===id){loaded.current=undefined;setJobId(undefined);setRun(undefined);setIndex(0);setPreviewSuspended(true);release()}await Promise.all([client.invalidateQueries({queryKey:['motion-jobs',view.document.id]}),client.invalidateQueries({queryKey:queryKeys.jobs})])}catch(e){feedback(e,'机构运行')}finally{if(generation===epoch.current)setPending(false)}
  };
  const applyInput=():MotionApplyRequest=>showing&&run?{jobId:jobId!,frameIndex:index,lockAngle}:{mechanismId,frameIndex:0,lockAngle};
  const review=async()=>{const generation=++commandEpoch.current;setCommandPending(true);setError(undefined);try{const result=await api.planMotionApply(view.document.id,view.document.versionId,applyInput());if(alive.current&&activeRef.current&&generation===commandEpoch.current)setPlan(result)}catch(e){if(generation===commandEpoch.current)setError(e)}finally{if(generation===commandEpoch.current)setCommandPending(false)}};
@@ -358,7 +365,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(!plan?.ready)return;setCommandPending(true);applying.current=true;
   const owner=commandOwner.current,generation=commandEpoch.current,revision=view.document.versionId;
   try{await onApply({...applyInput(),planDigest:plan.digest});if(alive.current&&activeRef.current&&(!owner||owner.current)){activeMechanismId.current=undefined;acceptedMechanism.current=undefined;release(true);closeCommand(false,true);onClose()}}
-  catch(e){if(alive.current&&activeRef.current&&(!owner||owner.current)){if(revisionRef.current!==revision)closeCommand();setError(e);setPlan(undefined)}}
+  catch(e){if(alive.current&&activeRef.current&&(!owner||owner.current)){if(revisionRef.current!==revision)closeCommand(false,true);setError(e);setPlan(undefined)}}
   finally{applying.current=false;if(generation===commandEpoch.current)setCommandPending(false)}
  };
  const frame=run?.frames[index];
@@ -384,7 +391,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  const failureNotice=failure?<Alert type="error" showIcon title={failure.message} description={<details><summary>诊断详情</summary><pre style={{whiteSpace:'pre-wrap'}}>{failure.details}</pre></details>}/>:null;
  return <>
   {active&&!action&&failureNotice}
-  <CommandDialog id={'dmu.'+(action??'definition')} open={active&&Boolean(action)&&action!=='apply'&&!applyOpen} title={action==='results'?'仿真与回放':action==='joint'?joint?.name:action==='mechanism'?'编辑机械装置':registry.declaration('dmu.'+action)?.name??'编辑对象'} onClose={()=>closeCommand(action==='results')} onConfirm={confirmDefinition} confirmText="保存" confirmLoading={commandPending||pending} confirmDisabled={action!=='results'&&!definitionValid} size="M" footer={action!=='results'}><div className="motion-study-fields">
+  <CommandDialog id={'dmu.'+(action??'definition')} open={active&&Boolean(action)&&action!=='apply'&&!applyOpen} title={action==='results'?'仿真与回放':action==='joint'?joint?.name:action==='mechanism'?'编辑机械装置':registry.declaration('dmu.'+action)?.name??'编辑对象'} onClose={()=>closeCommand()} onConfirm={confirmDefinition} confirmLoading={commandPending||pending} confirmDisabled={action!=='results'&&!definitionValid} size="M"><div className="motion-study-fields">
 
    {action==='results'&&<>
     {!resultOnly&&<section className="motion-dialog-section" aria-label="仿真设置">
@@ -409,19 +416,17 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
      {run&&run.frames.length===0&&<Typography.Text type="secondary">无可回放帧。</Typography.Text>}
      {run&&run.frames.length>0&&<>
       <div className="motion-playback-controls" role="group" aria-label="播放控制">
-       <Button aria-label="起点" disabled={pending||commandPending||index===0} onClick={()=>playback('start')}>起点</Button>
-       <Button disabled={pending||commandPending||index===0} onClick={()=>playback('previous')}>上一步</Button>
+       <Button aria-label="起点" disabled={pending||commandPending||!playing&&index===0} onClick={()=>playback('start')}>起点</Button>
+       <Button disabled={pending||commandPending||!playing&&index===0} onClick={()=>playback('previous')}>上一步</Button>
        <Button aria-label={playing?'暂停':'播放'} type={playing?'default':'primary'} disabled={pending||commandPending} onClick={()=>playback(playing?'pause':'play')}>{playing?'暂停':'播放'}</Button>
-       <Button disabled={pending||commandPending||index===run.frames.length-1} onClick={()=>playback('next')}>下一步</Button>
-       <Button aria-label="终点" disabled={pending||commandPending||index===run.frames.length-1} onClick={()=>playback('end')}>终点</Button>
+       <Button disabled={pending||commandPending||!playing&&index===run.frames.length-1} onClick={()=>playback('next')}>下一步</Button>
+       <Button aria-label="终点" disabled={pending||commandPending||!playing&&index===run.frames.length-1} onClick={()=>playback('end')}>终点</Button>
       </div>
-      <Slider aria-label="仿真帧" disabled={pending||commandPending} min={0} max={run.frames.length-1} value={index} step={1} onChange={i=>{setPlaying(false);setShowing(true);setIndex(i);commandEpoch.current++;setPlan(undefined)}}/>
-      <label className="motion-labeled-field"><span>定位时间 s</span><InputNumber aria-label="定位时间 s" disabled={pending||commandPending} min={0} max={run.frames.at(-1)?.timeSeconds??0} value={frame?.timeSeconds??0} onChange={v=>{setPlaying(false);setShowing(true);setIndex(motionFrameAt(run,v??0));commandEpoch.current++;setPlan(undefined)}}/></label>
-      {frame&&<Typography.Text>{index+1}/{run.frames.length} · {frame.timeSeconds.toFixed(3)} s · {quantityIn({value:frame.driverValue,unit:'rad'},'deg').toFixed(3)}°</Typography.Text>}
+      <Slider aria-label="仿真帧" disabled={pending||commandPending} min={0} max={run.frames.length-1} value={index} step={1} onChange={i=>{setClock(undefined);setShowing(true);setIndex(i);commandEpoch.current++;setPlan(undefined)}}/>
+      <label className="motion-labeled-field"><span>定位时间 s</span><InputNumber aria-label="定位时间 s" disabled={pending||commandPending} min={0} max={run.frames.at(-1)?.timeSeconds??0} precision={2} step={.01} value={displayTime} formatter={(value,info)=>info.userTyping?info.input:Number(value??0).toFixed(2)} onChange={v=>{setClock(undefined);setShowing(true);setIndex(motionFrameAt(run,v??0));commandEpoch.current++;setPlan(undefined)}}/></label>
+      {frame&&<Typography.Text className="motion-playback-time">{index+1}/{run.frames.length} · {displayTime.toFixed(2)} s · {quantityIn({value:frame.driverValue,unit:'rad'},'deg').toFixed(3)}°</Typography.Text>}
       <Typography.Text type="secondary">{run.snapshot.revisionId===view.document.versionId?'':'历史结果'}</Typography.Text>
-      <Button disabled={!canEdit||!applicationQualified||!frame?.kinematicValid||pending||commandPending} onClick={()=>execute('apply')}>转换为产品约束</Button>
      </>}
-     {job&&done(job)&&<Button disabled={pending||commandPending} onClick={()=>void deleteResult()}>删除运行结果</Button>}
     </section>
    </>}
    {(action==='mechanism')&&<><Input aria-label="机构名称" value={name} onChange={e=>setName(e.target.value)}/></>}
@@ -443,9 +448,8 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
 
 
    {failureNotice}
-   {action==='results'&&<Button block loading={commandPending} disabled={commandPending} onClick={()=>closeCommand(true)}>关闭并返回机构编辑</Button>}
   </div></CommandDialog>
- <CommandDialog id="dmu.apply" title="转换为产品约束" open={active&&applyOpen} size="L" onClose={closeApply} onConfirm={apply} confirmText="一次提交并返回装配" confirmDisabled={!plan?.ready||commandPending} confirmLoading={commandPending}>
+ <CommandDialog id="dmu.apply" title="转换为产品约束" open={active&&applyOpen} size="M" onClose={closeApply} onConfirm={apply} confirmDisabled={!plan?.ready||commandPending} confirmLoading={commandPending}>
   {failureNotice}
   <Button loading={commandPending} onClick={()=>void review()}>生成／刷新转换计划</Button>
   <Typography.Paragraph>{showing?`仿真帧 ${index+1}`:"机械装置已确认位姿"}</Typography.Paragraph><Checkbox checked={lockAngle} onChange={e=>{setLockAngle(e.target.checked);commandEpoch.current++;setPlan(undefined)}}>锁定当前角度</Checkbox>

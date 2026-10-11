@@ -4795,6 +4795,12 @@
         "any": [
           {
             "all": [
+              { "fact": "canDeleteMotionResult", "equals": true },
+              { "fact": "busy", "equals": false }
+            ]
+          },
+          {
+            "all": [
               {
                 "fact": "canEdit",
                 "equals": true

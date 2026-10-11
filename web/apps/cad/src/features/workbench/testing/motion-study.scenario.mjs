@@ -15,7 +15,7 @@ console.log('motion study: whole accepted frames, frozen identity, units passed'
 const THREE = await import('three');
 const {createServer}=await import('vite');const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
 try {
-const {applyMotionFrame} = await server.ssrLoadModule('/src/cad/assembly/motion-frame.ts');
+const {applyMotionFrame,interpolateMotionPose} = await server.ssrLoadModule('/src/cad/assembly/motion-frame.ts');
 const {TransformTransitionSystem} = await import('../../../cad/animation/transform-transition.ts');
 let invalidations=0, animated=0;
 const transforms=new TransformTransitionSystem(()=>invalidations++,false,()=>{animated++;throw Error('Motion frames must not interpolate')});
@@ -33,6 +33,21 @@ assert.equal(applyMotionFrame(invalid,run.snapshot.view,groups,transforms),false
 // Repeated play, seek and reset always apply complete discrete poses.
 assert.equal(applyMotionFrame(motionPlayback(run,0),run.snapshot.view,groups,transforms),true);assert.equal(link.position.x,10);
 assert.equal(JSON.stringify(run),before);
+
+// Display time is continuous, while source samples and persistence stay discrete.
+const continuous={...motionPlayback(run,0),clock:{startedAt:1000,timeSeconds:0,frames:run.frames}};
+assert.equal(applyMotionFrame(continuous,run.snapshot.view,groups,transforms,1500),true);
+assert.equal(link.position.x,15);assert.equal(continuous.frame,run.frames[0]);
+const missingNeighbor=structuredClone(continuous);delete missingNeighbor.clock.frames[1].unitPoses.link;
+assert.equal(applyMotionFrame(missingNeighbor,run.snapshot.view,groups,transforms,1500),false);
+assert.equal(link.position.x,15,'invalid neighbor cannot partially move the scene');
+const aroundPivot=interpolateMotionPose({translation:[12,3,0],rotation:[0,0,0,1]},
+ {translation:[2,13,0],rotation:[0,0,Math.SQRT1_2,Math.SQRT1_2]},.5);
+assert(Math.abs(aroundPivot.translation[0]-(2+Math.sqrt(50)))<1e-10);
+assert(Math.abs(aroundPivot.translation[1]-(3+Math.sqrt(50)))<1e-10);
+assert(Math.abs(Math.hypot(aroundPivot.translation[0]-2,aroundPivot.translation[1]-3)-10)<1e-10);
+assert.equal(JSON.stringify(run),before,'presentation must not synthesize authoritative frames');
+assert.equal(applyMotionFrame(motionPlayback(run,0),run.snapshot.view,groups,transforms),true);
 
 // Invalid wire poses must never apply a partial frame.
 const malformed=structuredClone(display);delete malformed.frame.unitPoses.link.rotation;

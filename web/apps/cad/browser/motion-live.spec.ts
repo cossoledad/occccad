@@ -98,7 +98,7 @@ CadViewportEngine.prototype.commitApplicationDisplay=function(){
  const collect=async()=>{frameLog.push(...await page.evaluate(()=>{const frames=(window as any).__dmuFrames;(window as any).__dmuFrames=[];return frames}));};
  const visibleZ=async(z:number)=>expect.poll(()=>page.evaluate(id=>{const f=(window as any).__dmuFrames.at(-1);return f?.poses[id]?.translation[2]},seed.rotor)).toBeCloseTo(z,5);
  await phase('cancel');let d=await edit();await d.getByRole('spinbutton').first().fill('15');await visibleZ(15);await page.keyboard.press('Escape');await visibleZ(7);
- await phase('confirm');d=await edit();await d.getByRole('spinbutton').first().fill('11');await visibleZ(11);await d.getByRole('button',{name:/^保\s*存$/}).click();await expect(d).toHaveCount(0);await visibleZ(11);
+ await phase('confirm');d=await edit();await d.getByRole('spinbutton').first().fill('11');await visibleZ(11);await d.getByRole('button',{name:/^确\s*定$/}).click();await expect(d).toHaveCount(0);await visibleZ(11);
  let v=await current(page,seed.id);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation).toEqual([22,15,7]);expect(v.product.kinematics.mechanisms[0].poses[seed.rotor].translation[2]).toBeCloseTo(11,5);
  await filter.fill('');const tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  for(const label of ['Applications','机械装置',/^机械装置\.1，/,'接合',/^旋转\.1 \(/,'固定零件',/^固定零件\.1 \(/]){
@@ -114,7 +114,7 @@ CadViewportEngine.prototype.commitApplicationDisplay=function(){
  await collect();await phase('reopen');await page.reload();await expect(page.locator('canvas')).toBeVisible({timeout:60_000});await visibleZ(11);v=await current(page,seed.id);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation[2]).toBeCloseTo(11,5);
  await phase('conversion');
  await filter.fill('机械装置.1');await tree.getByText(/^机械装置\.1，/).first().click();await command(page,'机构');await filter.fill('');await command(page,'转换为产品约束');const apply=page.getByRole('dialog',{name:'转换为产品约束',exact:true});
- await apply.getByRole('button',{name:'生成／刷新转换计划'}).click();await expect(apply.getByText(/自由度 1/)).toBeVisible();await apply.getByRole('button',{name:'一次提交并返回装配'}).click();await expect(apply).toHaveCount(0);
+ await apply.getByRole('button',{name:'生成／刷新转换计划'}).click();await expect(apply.getByText(/自由度 1/)).toBeVisible();await apply.getByRole('button',{name:/^确\s*定$/}).click();await expect(apply).toHaveCount(0);
  v=await current(page,seed.id);expect(v.product.constraints).toHaveLength(3);expect(v.product.kinematics.drivers??[]).toHaveLength(0);expect(v.product.kinematics.studies??[]).toHaveLength(0);
  const source=v.product.kinematics.mechanisms[0].joints.flatMap((j:any)=>j.constraints.map((c:any)=>c.id));for(const c of v.product.constraints)expect(source).not.toContain(c.id);
  await command(page,'撤销');v=await current(page,seed.id);expect(v.product.constraints??[]).toHaveLength(0);
@@ -136,14 +136,14 @@ test('new mechanisms bind real tree supports through inspection, preview and com
  await page.goto('/documents/'+seed.id);await expect(page.locator('canvas')).toBeVisible({timeout:60_000});
  await command(page,'机构');await expect(page.getByRole('button',{name:'固定件',exact:true})).toBeEnabled();
  await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);const ground=page.getByRole('dialog',{name:'固定零件.1',exact:true});
- await expect(ground.getByRole('button',{name:/^保\s*存$/})).toBeEnabled();await ground.getByRole('button',{name:/^保\s*存$/}).click();await expect(ground).toHaveCount(0);
+ await expect(ground.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await ground.getByRole('button',{name:/^确\s*定$/}).click();await expect(ground).toHaveCount(0);
  await command(page,'旋转接合');const joint=page.getByRole('dialog',{name:'旋转.1',exact:true});
  const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  for(const [label,index,nextRole] of [['Z Axis',0,'第二轴线'],['Z Axis',1,'第一定位平面'],['XY Plane',0,'第二定位平面'],['XY Plane',1,undefined]] as const){
   await filter.fill(label);const support=tree.getByText(label,{exact:true});await expect(support).toHaveCount(2);await support.nth(index).click();
   if(nextRole)await expect(joint.getByRole('button',{name:nextRole,exact:true})).toHaveClass(/ant-btn-primary/);
  }
- await joint.getByRole('spinbutton').first().fill('9');await expect(joint.getByRole('button',{name:/^保\s*存$/})).toBeEnabled();await joint.getByRole('button',{name:/^保\s*存$/}).click();await expect(joint).toHaveCount(0);
+ await joint.getByRole('spinbutton').first().fill('9');await expect(joint.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);
  let v=await current(page,seed.id);const m=v.product.kinematics.mechanisms[0],r=m.joints.find((j:any)=>j.kind==='REVOLUTE');
  expect(v.product.constraints??[]).toHaveLength(0);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation).toEqual([22,15,7]);
  expect(m.poses[seed.rotor].translation[2]).toBeCloseTo(9,5);expect(m.evaluation).toMatchObject({relativeDof:1,gaugeDof:0,drivenDof:1,driverCount:0});
@@ -163,7 +163,7 @@ test('cylindrical supports and native simulation stay within one dialog and clos
  await page.goto('/');const seed=await seedProduct(page,false,true);
  await page.goto('/documents/'+seed.id);await expect(page.locator('canvas')).toBeVisible({timeout:60_000});
  await command(page,'机构');await expect(page.getByRole('button',{name:'固定件',exact:true})).toBeEnabled();
- await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^保\s*存$/}).click();
+ await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^确\s*定$/}).click();
  await command(page,'旋转接合');const joint=page.getByRole('dialog',{name:'旋转.1',exact:true});
  const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  for(const [label,index] of [['旋转圆柱面',0],['旋转圆柱面',1],['旋转定位面',0],['旋转定位面',1]] as const){
@@ -172,18 +172,30 @@ test('cylindrical supports and native simulation stay within one dialog and clos
  await expect(joint.getByRole('button',{name:'第一轴线',exact:true})).toContainText('圆柱面轴线');
  await expect(joint.getByRole('button',{name:'第二轴线',exact:true})).toContainText('圆柱面轴线');
  await joint.getByRole('spinbutton',{name:'轴向偏移 mm',exact:true}).fill('9');await joint.getByRole('combobox',{name:'平面方向',exact:true}).click();await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');await joint.getByRole('checkbox',{name:'角度命令',exact:true}).check();
- await expect(joint.getByRole('button',{name:/^保\s*存$/})).toBeEnabled();await page.screenshot({path:'../../../build/acceptance/dmu-revolute-dialog.png'});
- await joint.getByRole('button',{name:/^保\s*存$/}).click();await expect(joint).toHaveCount(0);
+ await expect(joint.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await page.screenshot({path:'../../../build/acceptance/dmu-revolute-dialog.png'});
+ await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);
  let v=await current(page,seed.id);const m=v.product.kinematics.mechanisms[0],revolute=m.joints.find((j:any)=>j.kind==='REVOLUTE');
  expect(revolute.axialDirection).toBe('OPPOSITE');expect(revolute.constraints.find((c:any)=>c.kind==='DISTANCE').directionRelation).toBe('OPPOSITE');expect(revolute.constraints.find((c:any)=>c.kind==='COINCIDENT').directionRelation).toBe('OPPOSITE');expect(revolute.constraints).toHaveLength(2);for(const end of [revolute.first,revolute.second]){expect(end.axis.derivedRole).toBe('cylinder-axis');expect(end.axis.publicationRef).toBeTruthy();expect(end.plane.publicationRef).toBeTruthy();expect(end.axis.persistentSelection).toBeTruthy();}
  expect(v.product.constraints??[]).toHaveLength(0);
  await filter.fill('');await command(page,'运动规律');const law=page.getByRole('dialog',{name:'运动规律',exact:true});
- await law.getByRole('spinbutton',{name:'规律结束角度',exact:true}).fill('90');await law.getByRole('spinbutton').last().fill('20');await law.getByRole('button',{name:/^保\s*存$/}).click();await expect(law).toHaveCount(0);
- await command(page,'仿真定义');const definition=page.getByRole('dialog',{name:'仿真定义',exact:true});await definition.getByRole('spinbutton').first().fill('5');await definition.getByRole('button',{name:/^保\s*存$/}).click();await expect(definition).toHaveCount(0);
+ await law.getByRole('spinbutton',{name:'规律结束角度',exact:true}).fill('90');await law.getByRole('spinbutton').last().fill('20');await law.getByRole('button',{name:/^确\s*定$/}).click();await expect(law).toHaveCount(0);
+ await command(page,'仿真定义');const definition=page.getByRole('dialog',{name:'仿真定义',exact:true});await definition.getByRole('spinbutton').first().fill('5');await definition.getByRole('button',{name:/^确\s*定$/}).click();await expect(definition).toHaveCount(0);
  await command(page,'运行仿真');const simulation=page.getByRole('dialog',{name:'仿真与回放',exact:true});await expect(page.getByRole('dialog')).toHaveCount(1);await simulation.getByRole('button',{name:'计算仿真',exact:true}).click();
  await expect(simulation.getByText(/1\/5/)).toBeVisible({timeout:120_000});await expect(page.getByRole('dialog')).toHaveCount(1);await expect(page.getByRole('button',{name:'播放',exact:true})).toHaveCount(1);
  await simulation.getByRole('button',{name:'终点',exact:true}).click();await expect(simulation.getByText(/5\/5/)).toBeVisible();await simulation.getByRole('button',{name:'起点',exact:true}).click();
- await simulation.getByRole('button',{name:'播放',exact:true}).click();await simulation.getByRole('button',{name:'暂停',exact:true}).click();await simulation.getByRole('button',{name:'下一步',exact:true}).click();await expect(simulation.getByText(/2\/5/)).toBeVisible();
+ await page.evaluate(()=>{
+  const engine=(window as any).__dmuEngine,render=engine.renderer.render.bind(engine.renderer);(window as any).__nativeMotionFrames=[];
+  engine.renderer.render=(scene:any,camera:any)=>{if(scene===engine.scene&&engine.motionDisplay?.clock)(window as any).__nativeMotionFrames.push(Object.fromEntries([...engine.instanceGroups].map(([id,g]:any)=>[id,{translation:g.position.toArray(),rotation:g.quaternion.toArray()}])));return render(scene,camera)};
+ });
+ await simulation.getByRole('button',{name:'播放',exact:true}).click();
+ await expect.poll(async()=>Number(await simulation.getByRole('spinbutton',{name:'定位时间 s',exact:true}).inputValue())).toBeGreaterThan(.2);
+ const continuous=await page.evaluate(()=>((window as any).__nativeMotionFrames??[]));expect(continuous.length).toBeGreaterThan(2);
+ expect(new Set(continuous.map((f:any)=>JSON.stringify(f[seed.rotor].rotation.map((v:number)=>v.toFixed(5))))).size).toBeGreaterThan(2);
+ await simulation.getByRole('button',{name:'暂停',exact:true}).click();const origin=simulation.getByRole('button',{name:'起点',exact:true});if(await origin.isEnabled())await origin.click();await simulation.getByRole('button',{name:'下一步',exact:true}).click();await expect(simulation.getByText(/2\/5/)).toBeVisible();
+ await command(page,'转换为产品约束');const conversion=page.getByRole('dialog',{name:'转换为产品约束',exact:true});
+ expect((await conversion.boundingBox())!.width).toBeLessThanOrEqual(520);
+ await conversion.getByRole('button',{name:'生成／刷新转换计划'}).click();await expect(conversion.getByText(/自由度 1/)).toBeVisible();await page.screenshot({path:'../../../build/acceptance/dmu-apply-dialog.png'});await conversion.getByRole('button',{name:/^取\s*消$/}).click();await expect(simulation.getByText(/2\/5/)).toBeVisible();
+
  await simulation.getByRole('button',{name:'计算仿真',exact:true}).click();await expect(simulation.getByText(/1\/5/)).toBeVisible({timeout:120_000});
  await simulation.getByRole('button',{name:'下一步',exact:true}).click();await expect(simulation.getByText(/2\/5/)).toBeVisible();
  await page.screenshot({path:'../../../build/acceptance/dmu-simulation-dialog.png'});
@@ -192,11 +204,14 @@ test('cylindrical supports and native simulation stay within one dialog and clos
   const {restApi:api}=await import('/src/api.ts');const jobs=(await api.listJobs()).filter(j=>j.documentId===id&&j.type==='MOTION_STUDY').sort((a,b)=>b.createdAt.localeCompare(a.createdAt));const run=await api.getMotionRun(jobs[0].id);return {pose:run.frames[1].unitPoses,build:run.solverBuild,status:run.status,jobCount:jobs.length};
  },seed.id);
  expect(accepted.build).not.toContain('fixture');expect(accepted.status).toBe('COMPLETED');expect(accepted.jobCount).toBe(2);
- await simulation.getByRole('button',{name:'关闭并返回机构编辑',exact:true}).click();await expect(simulation).toHaveCount(0);
+ await simulation.getByRole('button',{name:/^确\s*定$/,exact:true}).click();await expect(simulation).toHaveCount(0);
  await expect(page.getByRole('button',{name:'旋转接合',exact:true})).toBeEnabled();
  v=await current(page,seed.id);const saved=v.product.kinematics.mechanisms[0];for(const id of saved.unitIds){for(let n=0;n<4;n++)expect(saved.poses[id].rotation[n]).toBeCloseTo(accepted.pose[id].rotation[n],6);}
  await filter.fill('结果.');await expect(tree.getByText(/^结果\.\d · 完成$/)).toHaveCount(2);
- await tree.getByText('结果.1 · 完成',{exact:true}).dblclick();await expect(simulation).toBeVisible();await expect(simulation.getByRole('combobox',{name:'冻结运行结果',exact:true})).toHaveCount(0);await expect(simulation.getByText(/1\/5/)).toBeVisible();await page.keyboard.press('Escape');await filter.fill('');
+ await tree.getByText('结果.1 · 完成',{exact:true}).dblclick();await expect(simulation).toBeVisible();await expect(simulation.getByRole('combobox',{name:'冻结运行结果',exact:true})).toHaveCount(0);await expect(simulation.getByText(/1\/5/)).toBeVisible();await page.keyboard.press('Escape');
+ const beforeDelete=await current(page,seed.id);
+ await tree.getByText('结果.1 · 完成',{exact:true}).click({button:'right'});await page.getByRole('menuitem',{name:'删除',exact:true}).click();await expect(tree.getByText(/^结果\.\d · 完成$/)).toHaveCount(1);
+ const afterDelete=await current(page,seed.id);expect(afterDelete.document.versionId).toBe(beforeDelete.document.versionId);expect(afterDelete.product.kinematics).toEqual(beforeDelete.product.kinematics);await filter.fill('');
  await command(page,'旋转接合');await expect(page.getByRole('dialog',{name:'旋转.2',exact:true})).toBeVisible();await page.keyboard.press('Escape');expect(errors).toEqual([]);
 });
 

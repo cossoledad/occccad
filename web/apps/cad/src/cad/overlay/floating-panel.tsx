@@ -97,10 +97,9 @@ export function ToolbarGroup({ children }: PropsWithChildren) {
 
 export function ToolbarSeparator() { return <span className="cad-toolbar-separator" aria-hidden />; }
 
-export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmText = "确定",
-  cancelText = "取消", confirmLoading = false, confirmDisabled = false, size = "M",footer=true }: PropsWithChildren<{
+export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmLoading = false, confirmDisabled = false, size = "M",footer=true }: PropsWithChildren<{
   id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
-  confirmText?: string; cancelText?: string; confirmLoading?: boolean; confirmDisabled?: boolean; size?:CommandPanelSize;footer?:boolean;
+  confirmLoading?: boolean; confirmDisabled?: boolean; size?:CommandPanelSize;footer?:boolean;
 }>) {
   const feedback=useOperationFeedback();
   const savedPosition = useUIPreferences((state) => state.commandDialogPositions[id]);
@@ -193,9 +192,9 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
         onClick={onClose}><CloseOutlined /></button>
     </header>
     <div className="cad-command-dialog-body" style={{overflowY:"auto",minHeight:0}}>{children}</div>
-    {footer&&<footer className="cad-command-dialog-footer" style={{flexShrink:0}}><Button onClick={onClose}>{cancelText}</Button>
+    {footer&&<footer className="cad-command-dialog-footer" style={{flexShrink:0}}><Button onClick={onClose}>取消</Button>
       <Button type="primary" loading={confirmLoading || submitting} disabled={confirmDisabled}
-        onClick={() => void confirm()}>{confirmText}</Button></footer>}
+        onClick={() => void confirm()}>确定</Button></footer>}
   </section>;
   return overlayHost?createPortal(content,overlayHost):content;
 }

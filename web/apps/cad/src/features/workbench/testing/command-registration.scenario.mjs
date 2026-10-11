@@ -23,7 +23,20 @@ try{
  const hidden=workbenchCommands({...bindings,motionOpen:false}).find(c=>c.id==='dmu.revolute');assert.equal(hidden.isEnabled(),false);
  const nestedDmu=workbenchCommands(bindings).find(c=>c.id==='dmu.revolute');assert.equal(nestedDmu.isEnabled(),false);
  const viewer={...host,document:{...host.document,permission:'VIEWER'}};const viewerApply=workbenchCommands({...bindings,editingView:viewer,view:viewer}).find(c=>c.id==='dmu.apply');assert.equal(viewerApply.isEnabled(),false);
+ const resultNode={key:'result',documentId:host.document.id,kind:'MOTION_RESULT',entityId:'job',capabilities:['ACTIVATE','DELETE']};
+ const artifactRegistry=new CommandRegistry();let dismissed=0;
+ artifactRegistry.registerMany(workbenchCommands({...bindings,editingView:viewer,view:viewer,canEdit:false,canEditRoot:false,treeNodes:[resultNode],deleteTreeNodes:()=>dismissed++}));
+ artifactRegistry.configure(catalog,()=>({targetType:'PRODUCT',canEdit:false,rootCanEdit:false,motionActive:true,busy:false,canDeleteMotionResult:true}));
+ assert(await artifactRegistry.execute('edit.delete',{payload:{nodes:[resultNode]}}));assert.equal(dismissed,1,'deleting an owned artifact does not require Product editing');
+ assert.equal(await artifactRegistry.execute('edit.delete',{payload:{nodes:[{...resultNode,capabilities:['ACTIVATE']}]}}),false,'current capability and terminal state still gate deletion');
  const playbackApply=workbenchCommands({...bindings,editingView:host,canEditRoot:false}).find(c=>c.id==='dmu.apply');assert.equal(playbackApply.isEnabled(),true,'editor can publish a valid frozen frame while ordinary edits are paused');
+ // Converting inside a run keeps its operation and cancellation resources.
+ const continuationRegistry=new CommandRegistry();let runOwner,applyOwner,disposed=0;
+ continuationRegistry.registerMany([{id:'dmu.run',execute:inv=>{runOwner=inv.operation;inv.operation.own(()=>disposed++)}},
+  {id:'dmu.apply',continues:['dmu.run'],execute:inv=>{applyOwner=inv.operation;assert(inv.continuing)}}]);
+ continuationRegistry.configure({...catalog,commands:catalog.commands.filter(c=>['dmu.run','dmu.apply'].includes(c.id)),groups:[],placements:[]},()=>({targetType:'PRODUCT',motionActive:true,busy:false}));
+ await continuationRegistry.execute('dmu.run');await continuationRegistry.execute('dmu.apply');
+ assert.equal(applyOwner,runOwner);assert.equal(disposed,0);continuationRegistry.cancel();assert.equal(disposed,1);
  const historyCommands=workbenchCommands({...bindings,editingView:{...host,document:{...host.document,canUndo:true,canRedo:true}},canEdit:false,motionOpen:true,canEditRoot:true});
  assert(historyCommands.find(c=>c.id==='edit.undo').isEnabled(),'mechanism definitions retain formal undo');
  assert(historyCommands.find(c=>c.id==='edit.redo').isEnabled(),'mechanism definitions retain formal redo');

@@ -152,7 +152,7 @@ export function DocumentCenter() {
   const openFolderEditor = (folder?: FolderSummary) => { setFolderEditor(folder ?? "new"); folderForm.setFieldsValue(folder ?? { name: "", description: "" }); };
   const removeDocument = (document: DocumentSummary) => modal.confirm({
     title: `将“${document.name}”移入回收站？`,
-    content: "历史、几何制品和 Product 引用将继续保留。", okText: "移入回收站", okButtonProps: { danger: true },
+    content: "历史、几何制品和 Product 引用将继续保留。", okText: "确定", okButtonProps: { danger: true },
     onOk: async () => { await api.deleteDocument(document.id); setSelectedDocuments((current) => current.filter((item) => item.id !== document.id));
       await invalidateDocuments(); message.success("文档已移入回收站"); }
   });
@@ -192,7 +192,7 @@ export function DocumentCenter() {
   };
   const removeSelected = () => modal.confirm({
     title: `将选中的 ${selectedDocuments.length} 个文档移入回收站？`,
-    content: "已成功移入回收站的文档会从选择中移除；失败项保留以便重试。", okText: "批量移入回收站", okButtonProps: { danger: true },
+    content: "已成功移入回收站的文档会从选择中移除；失败项保留以便重试。", okText: "确定", okButtonProps: { danger: true },
     onOk: async () => {
       const items = [...selectedDocuments]; let cursor = 0;
       const succeeded = new Set<string>(), failed: string[] = [];
@@ -218,7 +218,7 @@ export function DocumentCenter() {
       if (result.length >= page.total || page.documents.length === 0) return result;
     }
   };
-  const restoreAllTrash = () => modal.confirm({ title: "还原回收站中的全部文档？", okText: "全部还原",
+  const restoreAllTrash = () => modal.confirm({ title: "还原回收站中的全部文档？", okText: "确定",
     onOk: async () => {
       const items = (await listAllTrash()).filter((item) => canEdit(item.permission));
       const results = await Promise.allSettled(items.map((item) => api.restoreDocument(item.id)));
@@ -227,7 +227,7 @@ export function DocumentCenter() {
       failed ? message.warning(`已还原 ${items.length - failed} 个，${failed} 个失败`) : message.success(`已还原 ${items.length} 个文档`);
     } });
   const emptyTrash = () => modal.confirm({ title: "永久删除回收站中的全部文档？",
-    content: "此操作不可撤销；仍被 Product 引用的文档将保留并报告失败。", okText: "清空回收站", okButtonProps: { danger: true },
+    content: "此操作不可撤销；仍被 Product 引用的文档将保留并报告失败。", okText: "确定", okButtonProps: { danger: true },
     onOk: async () => {
       const items = (await listAllTrash()).filter((item) => item.permission === "OWNER");
       const results = await Promise.allSettled(items.map((item) => api.purgeDocument(item.id)));
@@ -356,9 +356,10 @@ export function DocumentCenter() {
         <Form.Item name="folderID" label="目标文件夹"><Select showSearch optionFilterProp="label" options={folderOptions} /></Form.Item>
       </Form>
     </Modal>
-    <Modal title="导入文档" open={importOpen} okText={importDocument.isPending ? `已提交 ${importProgress}/${importFiles.length}` : `开始导入（${importFiles.length}）`} confirmLoading={importDocument.isPending}
+    <Modal title="导入文档" open={importOpen} okText="确定" confirmLoading={importDocument.isPending}
       okButtonProps={{ disabled: importFiles.length === 0 }} onOk={() => importDocument.mutate()}
       onCancel={() => { if (!importDocument.isPending) { setImportOpen(false); setImportFiles([]); } }} destroyOnHidden>
+      {importDocument.isPending&&<Typography.Paragraph>已提交 {importProgress}/{importFiles.length}</Typography.Paragraph>}
       <Typography.Paragraph type="secondary">支持一次选择或拖入多个 STEP/STP、BREP/BRP 文件，单个文件最大 {uploadLimit ? `${(uploadLimit / 1024 ** 3).toFixed(1)} GiB` : "加载中"}。每个文件独立创建导入任务；装配文件可生成 Product 和多个 Part。</Typography.Paragraph>
       <Upload.Dragger accept=".step,.stp,.brep,.brp" multiple disabled={importDocument.isPending}
         fileList={importFiles.map(({ uid, file }) => ({ uid, name: file.name, status: "done" as const, size: file.size }))}
@@ -372,7 +373,7 @@ export function DocumentCenter() {
         <p className="ant-upload-drag-icon"><InboxOutlined /></p><p className="ant-upload-text">拖入多个文件，或点击一次选择多个文件</p>
       </Upload.Dragger>
     </Modal>
-    <Modal title={`导出${exportDocument ? `“${exportDocument.name}”` : "文档"}`} open={Boolean(exportDocument)} okText="导出并下载"
+    <Modal title={`导出${exportDocument ? `“${exportDocument.name}”` : "文档"}`} open={Boolean(exportDocument)} okText="确定"
       confirmLoading={exportExchange.isPending} onOk={() => exportExchange.mutate()}
       onCancel={() => { if (!exportExchange.isPending) setExportDocument(undefined); }} destroyOnHidden>
       <Typography.Paragraph type="secondary">选择用于交换或归档的输出格式。Part 与 Product 均可导出。</Typography.Paragraph>

@@ -17,11 +17,15 @@ CATIA B33 `control/KinEnglishC2.viewdoc` 引用的 `online/kinug_C2/kinugbt0701.
 | 几何来源 | 轴字段接受轴、直边及可解析轴线的圆柱面/圆边/圆锥面；定位字段接受基准平面或平面面 | 同一端面属于对应轴的零件，两端是不同零件；曲面不能冒充定位平面 |
 | 参数与约束 | 偏移默认 0、平面方向默认同向，可设相对；角度命令独立勾选；角零位、旋转方向、限位置于展开项 | 生成轴线重合与平面偏移两条机构约束，不自动创建产品约束；完整且权威预览通过才保存 |
 | 按规律仿真 | 工具栏“运行仿真”打开单个“仿真与回放”对话框，选择已保存仿真、查看规律/时长/帧数，点击计算 | 对话框保持打开，显示任务进度和“停止计算”；后台任务不因关闭自动取消 |
-| 结果回放 | 双击对应模拟下独立结果节点打开指定 Job；起点/终点、前后单步、播放/暂停、时间滑块和时间输入全为局部控件 | 冻结完整帧显示；没有帧的失败运行仍展示诊断，不显示空白播放状态 |
-| 结束回放 | 显式关闭、标题关闭及 Esc 使用同一完成流程 | 当前版本的合格帧权威保存为机构位置，成功后解除冻结并恢复定义按钮；失败保留对话框和帧。历史版本恢复当前已确认机构位置 |
-| 转换 | 工具栏从机构已确认位置转换；回放对话框从选定帧打开转换计划 | 取消计划返回原回放及同一帧；转换成功回装配设计。继续保留显式独立转换与一次 Undo/Redo |
+| 结果回放 | 双击对应模拟下独立结果节点打开指定 Job；起点/终点、前后单步、播放/暂停、时间滑块和时间输入全为局部控件 | 冻结版本下连续显示，定位时间两位小数；确认和转换使用完整计算帧，没有帧的失败运行仍展示诊断 |
+| 结束回放 | 页脚“确定／取消”；标题关闭和 Esc 等同取消 | 确定将当前时间对应的合格计算帧权威保存为机构位置，失败保留对话框。取消不写 Revision，恢复机构已确认位置；历史版本恢复当前已确认机构位置 |
+| 转换 | 工具栏统一入口：编辑时使用已确认机构位姿，回放时暂停并使用实际计算帧；520 px 宽度和“确定／取消”页脚 | 取消计划返回原回放及同一帧；转换成功回装配设计。继续保留显式独立转换与一次 Undo/Redo |
 
 工具栏不提供播放、暂停、单步、复位或取消后台任务，搜索也不保留这些全局命令。“运行仿真”和每个结果节点双击是同一个对话框的两个入口；取消结果选择下拉框和全局“已保存结果”。打开期间禁止同时修改定义，视图导航保持可用；关闭后恢复正常定义操作。停止计算与停止播放分别命名，不混用取消。
+
+终态结果右键删除只隐藏对应 Job 的用户入口，保留定义、Revision 和制品审计；对话框不提供删除按钮。命令对话框使用“确定／取消”，具体行为由标题和字段表达。
+
+播放使用视口时钟，位姿更新不重建几何；相邻帧间使用统一时间的刚体螺旋显示插值，避免偏心旋转走直线。时间字段每 50 ms 更新并显示两位小数。帧间姿态属于显示近似，暂停、单步、确定和转换仍定位到计算样本。
 
 ## 实现边界与验收
 
@@ -37,7 +41,7 @@ Registry 只拥有打开/结束领域命令；播放控件直接操作对话框�
 |---|---|
 | [命令目录](../services/internal/workbenchconfig/catalog.json)、[注册](../web/apps/cad/src/features/workbench/workbench-command-registration.ts) | 保留仿真对话框入口，移除全局播放命令和工具栏分组 |
 | [旋转接合表单](../web/apps/cad/src/features/workbench/revolute-joint-fields.tsx)、[选择模型](../web/apps/cad/src/cad/assembly/mechanism-selection.ts) | 按生成关系组织支撑，按实例显示 Publication 来源，清除及顺序推进 |
-| [机构与仿真面板](../web/apps/cad/src/features/workbench/motion-study-panel.tsx) | 一个对话框负责计算、取消任务、回放、重新计算、关闭保存及转换子流程 |
+| [机构与仿真面板](../web/apps/cad/src/features/workbench/motion-study-panel.tsx) | 一个对话框负责计算、取消任务、回放、重新计算、确定采用／取消恢复及工具栏转换子流程 |
 | [结果树投影](../web/apps/cad/src/features/workbench/motion-result-tree.ts)、[实例选择](../web/apps/cad/src/cad/assembly/instance-selection.ts) | 按 Job ID 打开指定结果；三维与树输入定位到所属 Instance |
 | [机构操纵](../services/internal/workspace/mechanism_interaction.go)、[装配交互](../services/internal/workspace/assembly_interaction.go)、[关系绑定](../services/internal/workspace/mechanism_constraints.go) | 隔离 Product 方程及位姿，保留最终候选提交与历史；平面方向进入正式定位约束 |
 | [交互浏览器](../web/apps/cad/browser/motion-workbench.spec.ts)、[真实浏览器](../web/apps/cad/browser/motion-live.spec.ts) | 分别验证局部交互与正式 API/Worker/持久化调用链 |
