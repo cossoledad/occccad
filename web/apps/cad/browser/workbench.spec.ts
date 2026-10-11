@@ -6,6 +6,24 @@ async function openPart(page: Page) {
   await expect(page.locator("canvas")).toBeVisible();
 }
 
+test("switching from an edited Part sketch to its Product and back keeps the workbench",async({page})=>{
+ test.setTimeout(120_000);
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.goto('/documents/mock-product-frame');await expect(page.locator('canvas')).toBeVisible();
+ await page.getByRole('button',{name:'文档中心',exact:true}).click();
+ await page.locator('.document-card').filter({hasText:'Mounting Bracket'}).locator('.thumbnail-button').dblclick();
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('XY Plane');
+ await page.getByRole('treeitem').filter({hasText:'XY Plane'}).click();
+ await page.getByRole('button',{name:'草图',exact:true}).click();await expect(page.getByRole('button',{name:'退出草图',exact:true})).toBeVisible();
+ for(let round=0;round<2;round++){
+  await page.locator('.document-tab-switch').filter({hasText:'Frame Assembly'}).click();
+  await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();await expect(page.locator('canvas')).toBeVisible();
+  await page.locator('.document-tab-switch').filter({hasText:'Mounting Bracket'}).click();
+  await expect(page.getByRole('button',{name:'退出草图',exact:true})).toBeVisible();
+ }
+ expect(errors).toEqual([]);
+});
+
 // Uses the isolated Mock Adapter. These checks verify UI contracts, not B-Rep correctness.
 test("contextual commands, search, sketch tools and model tree", async ({ page }) => {
   const errors: string[] = [];

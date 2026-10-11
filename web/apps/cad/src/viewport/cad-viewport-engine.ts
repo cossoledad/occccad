@@ -1635,6 +1635,7 @@ export class CadViewportEngine {
     this.moveGestureGeneration++;
     this.moveInteraction.cancel(reason);
     this.restoreMoveNominalScene();
+    if(!this.moveFinalization&&this.activeToolID==="assembly.move"&&!this.moveManipulator.isAttached())this.attachMoveManipulator();
   }
   private restoreMoveNominalScene():void{
     if(this.moveNominalBase&&(this.pendingVisualSnapshot||this.view?.document.id!==this.moveNominalBase.documentId||this.view.document.versionId!==this.moveNominalBase.revisionId)){
@@ -1672,7 +1673,13 @@ export class CadViewportEngine {
       await this.submitMoveCommit();
     });
     this.moveFinalization=operation;
-    void operation.finally(()=>{if(this.moveFinalization===operation)this.moveFinalization=undefined;});
+    void operation.finally(()=>{
+      if(this.moveFinalization!==operation)return;
+      this.moveFinalization=undefined;
+      // A committed snapshot can rebuild Groups before the receipt finishes.
+      // Reattach to the current selection after the end barrier releases.
+      if(!this.disposed&&this.activeToolID==="assembly.move"&&!this.moveManipulator.isAttached())this.attachMoveManipulator();
+    });
   }
   private async submitMoveCommit():Promise<void>{
       const pending=this.moveCommitPending;if(!pending||this.moveCommitInFlight)return;

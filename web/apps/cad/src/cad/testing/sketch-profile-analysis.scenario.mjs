@@ -10,7 +10,7 @@ try {
   const { renderToStaticMarkup } = await import(require.resolve("react-dom/server"));
   const issue = { code: "OPEN_ENDPOINT", message: "轮廓端点尚未通过正式重合关系连接", entityIds: ["line"], position: { x: 10, y: 20 } };
   const feature = { id: "s", type: "SKETCH", name: "Sketch.1", sketch: { entities: [], constraints: [], support: { type: "DATUM_PLANE", status: "CONNECTED" }, solve: { status: "FULLY_CONSTRAINED", degreesOfFreedom: 0 } } };
-  const view = { document: { id: "p", type: "PART" }, part: { features: [feature] } };
+  const view = { document: { id: "p", type: "PART" }, part: { features: [feature], bodies: [] } };
   const markup = sourceView => renderToStaticMarkup(React.createElement(Properties, { view: sourceView, feature, selection: { kind: "feature", id: "s" }, workbench: "SKETCHER", activeTool: "select", navigationProfile: "CATIA" }));
   const unknown = sketchProfileFeedback();
   assert.equal(unknown.locations.length, 0);

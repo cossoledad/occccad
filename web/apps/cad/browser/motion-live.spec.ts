@@ -33,6 +33,25 @@ async function pickVisibleInstance(page:Page,id:string){
  },{id,box,blocked});if(!point)throw new Error('No visible selectable instance '+id);await page.mouse.click(box.x+point.x,box.y+point.y);
 }
 
+async function dragAttachedComponent(page:Page,distance=8){
+ const box=await viewportEngine(page);await expect.poll(()=>page.evaluate(()=>{const e=(window as any).__dmuEngine;return {attached:e.moveManipulator.isAttached(),tool:e.activeToolID}})).toMatchObject({attached:true,tool:'assembly.move'});
+ const drag=await page.evaluate(({width,height,distance})=>{
+  const e=(window as any).__dmuEngine,m=e.moveManipulator;m.object.updateWorldMatrix(true,true);
+  const handle=m.handles.find((h:any)=>h.operation==='translate'&&h.axis==='X');
+  const p=handle.pick.position.clone().multiplyScalar(1.6);m.object.localToWorld(p);const start=p.clone().project(e.camera);
+  const end=p.clone().addScaledVector(handle.pick.position.clone().normalize().applyQuaternion(m.object.quaternion),distance).project(e.camera);
+  const locks=(window as any).__dmuToolLocks=[];
+  (window as any).__dmuToolObserver?.disconnect();
+  (window as any).__dmuToolObserver=new MutationObserver(()=>{for(const name of ['移动组件','旋转接合'])if(document.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)?.disabled)locks.push(name)});
+  (window as any).__dmuToolObserver.observe(document.documentElement,{subtree:true,attributes:true,attributeFilter:['disabled']});
+  return {x:(start.x+1)*width/2,y:(1-start.y)*height/2,toX:(end.x+1)*width/2,toY:(1-end.y)*height/2};
+ },{width:box.width,height:box.height,distance});
+ await page.mouse.move(box.x+drag.x,box.y+drag.y);await page.mouse.down();await page.mouse.move(box.x+drag.toX,box.y+drag.toY,{steps:8});await page.mouse.up();
+ await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.moveInteraction.state),{timeout:60_000}).toBe('committed');
+ await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.moveManipulator.isAttached())).toBeTruthy();
+ const locks=await page.evaluate(()=>{(window as any).__dmuToolObserver.disconnect();return (window as any).__dmuToolLocks});expect(locks).toEqual([]);
+}
+
 async function seedProduct(page:Page,defineMechanism=true,publishSupports=false){
  return page.evaluate(async ({defineMechanism,publishSupports})=>{
   // @ts-ignore production Vite module
@@ -67,6 +86,34 @@ async function seedProduct(page:Page,defineMechanism=true,publishSupports=false)
 
 // Production API, native Worker and real renderer. The trace records poses when
 // Three.js renders the scene, including writes between React effects.
+test('edited Part tab returns to its referencing Product without a sketch context crash',async({page})=>{
+ test.setTimeout(240_000);
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const login=await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}});expect(login.ok()).toBeTruthy();
+ await page.goto('/');
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');const suffix=crypto.randomUUID().slice(0,8);
+  let p=await api.createDocument('PART','Part切换-'+suffix);p=await api.command(p.document.id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=p.part!.features.at(-1)!.id;
+  p=await api.command(p.document.id,{type:'EDIT_SKETCH',sketchId,operations:[{type:'ADD_ENTITY',entity:{id:crypto.randomUUID(),kind:'CIRCLE',role:'PROFILE',center:{x:0,y:0},radius:10}}]});
+  p=await api.command(p.document.id,{type:'PAD_SKETCH',sketchId,length:10,operation:'ADD'});
+  let product=await api.createDocument('PRODUCT','Product切换-'+suffix);product=await api.command(product.document.id,{type:'INSERT_INSTANCE',referencedDocumentId:p.document.id});
+  await api.openDocument(product.document.id);
+  const find=(node:any):any=>node.entityId===sketchId?node:(node.children??[]).map(find).find(Boolean);
+  return {partId:p.document.id,partName:p.document.name,productId:product.document.id,productName:product.document.name,sketchId,sketchName:find(p.structureTree).name};
+ });
+ await page.goto('/documents/'+seed.partId);await expect(page.locator('canvas')).toBeVisible();
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill(seed.sketchName);const sketchRow=page.getByRole('treeitem').filter({hasText:seed.sketchName}).first();await expect(sketchRow).toBeVisible();await sketchRow.dblclick();await expect(page.getByRole('button',{name:'退出草图',exact:true})).toBeVisible();
+ const changed=await page.evaluate(async seed=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');const p=await api.command(seed.partId,{type:'EDIT_SKETCH',sketchId:seed.sketchId,operations:[{type:'ADD_ENTITY',entity:{id:crypto.randomUUID(),kind:'POINT',role:'CONSTRUCTION',point:{x:20,y:20}}}]});return p.document.versionId;
+ },seed);
+ await page.locator('.document-tab-switch').filter({hasText:seed.productName}).click();
+ await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();await expect(page.locator('canvas')).toBeVisible();
+ await expect.poll(async()=>((await current(page,seed.productId)).product.instances[0].resolvedVersionId),{timeout:60_000}).toBe(changed);
+ await page.locator('.document-tab-switch').filter({hasText:seed.partName}).click();await expect(page.getByRole('button',{name:'退出草图',exact:true})).toBeVisible();expect(errors).toEqual([]);
+});
+
 test('mechanism drafts, refresh, exit and independent conversion retain accepted poses',async({page},testInfo)=>{
  test.setTimeout(300_000);
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
@@ -227,17 +274,86 @@ test('viewport instance picks and mechanism manipulation preserve Product constr
   const {restApi:api}=await import('/src/api.ts');await api.command(id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'FIX',fixMode:'SPACE',firstAssemblyRef:{kind:'BODY',instanceId:rotor}});
  },seed);await page.reload();await expect(page.locator('canvas')).toBeVisible();v=await current(page,seed.id);const original=v.product.instances.find((i:any)=>i.id===seed.rotor),constraints=JSON.stringify(v.product.constraints);
  await command(page,'机构');await expect(page.getByRole('button',{name:'移动组件',exact:true})).toBeEnabled();await command(page,'移动组件');await pickVisibleInstance(page,seed.rotor);
- const box=await viewportEngine(page);await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.moveManipulator.isAttached())).toBeTruthy();
- const drag=await page.evaluate(({width,height})=>{
-  const e=(window as any).__dmuEngine,m=e.moveManipulator;m.object.updateWorldMatrix(true,true);
-  const handle=m.handles.find((h:any)=>h.operation==='translate'&&h.axis==='X');
-  const p=handle.pick.position.clone().multiplyScalar(1.6);m.object.localToWorld(p);const start=p.clone().project(e.camera);
-  const end=p.clone().addScaledVector(handle.pick.position.clone().normalize().applyQuaternion(m.object.quaternion),8).project(e.camera);
-  return {x:(start.x+1)*width/2,y:(1-start.y)*height/2,toX:(end.x+1)*width/2,toY:(1-end.y)*height/2};
- },{width:box.width,height:box.height});
- await page.mouse.move(box.x+drag.x,box.y+drag.y);await page.mouse.down();await page.mouse.move(box.x+drag.toX,box.y+drag.toY,{steps:8});await page.mouse.up();
+ await dragAttachedComponent(page);
  await expect.poll(async()=>{const currentView=await current(page,seed.id);const p=currentView.product.kinematics.mechanisms[0]?.poses?.[seed.rotor]?.translation;return p?Math.hypot(...p.map((v:number,i:number)=>v-original.translation[i])):0},{timeout:60_000}).toBeGreaterThan(1);
  v=await current(page,seed.id);const m=v.product.kinematics.mechanisms[0];expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation).toEqual(original.translation);expect(JSON.stringify(v.product.constraints)).toBe(constraints);expect(m.unitIds).toContain(seed.rotor);
  expect(m.evaluation).toBeTruthy();const moved=m.poses[seed.rotor].translation;await page.screenshot({path:'../../../build/acceptance/dmu-mechanism-move.png'});await command(page,'撤销');await expect.poll(async()=>((await current(page,seed.id)).product.kinematics.mechanisms[0].unitIds)).not.toContain(seed.rotor);await expect(page.getByRole('button',{name:'重做',exact:true})).toBeEnabled();await command(page,'重做');await expect.poll(async()=>((await current(page,seed.id)).product.kinematics.mechanisms[0].unitIds)).toContain(seed.rotor);v=await current(page,seed.id);for(let i=0;i<3;i++)expect(v.product.kinematics.mechanisms[0].poses[seed.rotor].translation[i]).toBeCloseTo(moved[i],6);
+ await command(page,'移动组件');await pickVisibleInstance(page,seed.rotor);
+ for(let round=0;round<2;round++){
+  const before=await current(page,seed.id);await dragAttachedComponent(page);
+  v=await current(page,seed.id);expect(v.document.versionId).not.toBe(before.document.versionId);
+  expect(v.product.instances).toEqual(before.product.instances);expect(JSON.stringify(v.product.constraints)).toBe(constraints);
+ }
  await command(page,'退出机构');await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();v=await current(page,seed.id);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation).toEqual(original.translation);expect(v.product.kinematics.mechanisms).toHaveLength(1);expect(errors).toEqual([]);
+});
+
+test('reported closed four-bar saves successive viewport drags and retains diagnostic references',async({page,context})=>{
+ test.setTimeout(360_000);
+ const sourceId=process.env.OCCCCAD_TEST_DMU_REPORTED_DOCUMENT;
+ test.skip(!sourceId,'requires the retained reported mechanism');
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ const login=await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}});expect(login.ok()).toBeTruthy();
+ await page.route('**/src/viewport/cad-viewport-engine.ts*',async route=>{
+  const response=await route.fetch();await route.fulfill({response,body:await response.text()+`
+const dmuInvalidate=CadViewportEngine.prototype.invalidate;
+CadViewportEngine.prototype.invalidate=function(...args){window.__dmuEngine=this;return dmuInvalidate.apply(this,args)};
+`});
+ });
+ await page.goto('/');
+ const seed=await page.evaluate(async sourceId=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');const source=await api.getDocument(sourceId);
+  let clone=await api.createDocument('PRODUCT','闭环拖动回归-'+crypto.randomUUID().slice(0,8));
+  const ids=new Map<string,string>([[sourceId,clone.document.id]]);
+  for(const instance of source.product!.instances){
+   clone=await api.command(clone.document.id,{type:'INSERT_INSTANCE',referencedDocumentId:instance.documentId,translation:instance.translation,rotation:instance.rotation});
+   ids.set(instance.id,clone.product!.instances.at(-1)!.id);
+   clone=await api.command(clone.document.id,{type:'RENAME_INSTANCE',instanceId:ids.get(instance.id),name:instance.name});
+  }
+  const k=source.product!.kinematics!;
+  for(const item of [...k.mechanisms,...k.drivers,...k.laws,...k.studies])ids.set(item.id,crypto.randomUUID());
+  for(const mechanism of k.mechanisms)for(const joint of mechanism.joints){
+   ids.set(joint.id,crypto.randomUUID());for(const constraint of joint.constraints){
+    const id=crypto.randomUUID();ids.set(constraint.id,id);
+    const parameter=constraint.quantityParameter;if(parameter)ids.set(parameter.parameterId,parameter.parameterId.replace(constraint.id,id));
+   }
+  }
+  const remap=(value:any):any=>{
+   if(typeof value==='string')return ids.get(value)??value;
+   if(Array.isArray(value))return value.map(remap);
+   if(!value||typeof value!=='object')return value;
+   const next:any=Object.fromEntries(Object.entries(value).map(([key,item])=>[ids.get(key)??key,remap(item)]));
+   if(next.ownerDocumentId===clone.document.id&&'ownerVersionId' in next)next.ownerVersionId=clone.document.versionId;
+   return next;
+  };
+  clone=await api.command(clone.document.id,{type:'SAVE_KINEMATICS',versionId:clone.document.versionId,kinematics:remap(k)});
+  const mechanismId=ids.get('ef90c89c-6306-4150-a36e-4d09f5dd698f')!;
+  return {id:clone.document.id,mechanismId,crank:ids.get('instance-4e6bf784f7063a53be7a')!,sourceHead:source.document.versionId};
+ },sourceId!);
+ const url='/documents/'+seed.id+'?application=mechanism&mechanismId='+seed.mechanismId;
+ await page.goto(url);await expect(page.getByRole('button',{name:'移动组件',exact:true})).toBeEnabled({timeout:60_000});
+ await command(page,'移动组件');await pickVisibleInstance(page,seed.crank);
+ for(const distance of [-8,8,-8]){
+  const before=await current(page,seed.id);await dragAttachedComponent(page,distance);
+  const saved=await current(page,seed.id);expect(saved.document.versionId).not.toBe(before.document.versionId);expect(saved.product.instances).toEqual(before.product.instances);
+  await page.waitForTimeout(800);
+  const displayed=await page.evaluate(()=>Object.fromEntries([...(window as any).__dmuEngine.instanceGroups].map(([id,g]:any)=>[id,{translation:g.position.toArray(),rotation:g.quaternion.toArray()}])));
+  const mechanism=saved.product.kinematics.mechanisms.find((m:any)=>m.id===seed.mechanismId);
+  for(const id of mechanism.unitIds)for(let i=0;i<3;i++)expect(displayed[id].translation[i]).toBeCloseTo(mechanism.poses[id].translation[i],6);
+  await expect(page.locator('.cad-operation-notification')).toHaveCount(0);
+ }
+ const accepted=await current(page,seed.id);await page.screenshot({path:'../../../build/acceptance/dmu-closed-fourbar-move.png'});
+ await page.reload();await expect(page.getByRole('button',{name:'移动组件',exact:true})).toBeEnabled({timeout:60_000});
+ const restored=await current(page,seed.id);expect(restored.product.kinematics.mechanisms).toEqual(accepted.product.kinematics.mechanisms);
+ await page.evaluate(async id=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');
+  try{await api.beginAssemblyInteraction(id,{baseRevisionId:'stale',instanceId:'missing',localGrabPoint:[0,0,0],frameRotation:[0,0,0,1]})}catch(error){(window as any).__dmuEngine.callbacks.operationFailed(error)}
+ },seed.id);
+ await page.getByRole('button',{name:'查看诊断',exact:true}).click();const diagnostic=page.getByRole('dialog',{name:'技术诊断',exact:true});await expect(diagnostic).toBeVisible();
+ await context.grantPermissions(['clipboard-read','clipboard-write']);await diagnostic.getByRole('button',{name:'复制诊断',exact:true}).click();await expect(diagnostic.getByRole('button',{name:'已复制',exact:true})).toBeVisible();
+ const reference=await page.evaluate(()=>navigator.clipboard.readText());expect(reference).toMatch(/^CAD_DIAGNOSTIC [^ ]+ VALIDATION_FAILED$/);
+ const [,identity]=reference.split(' ');const response=await page.request.get('/api/documents/'+identity.split('/')[0]+'/diagnostics/'+identity.split('/')[1]);expect(response.ok()).toBeTruthy();
+ expect((await response.json()).interactionBegin.instanceId).toBe('missing');
+ expect((await current(page,sourceId!)).document.versionId).toBe(seed.sourceHead);expect(errors).toEqual([]);
 });

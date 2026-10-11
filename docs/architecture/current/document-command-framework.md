@@ -32,6 +32,8 @@ Toolbar、搜索、快捷键和结构树菜单经同一个 `execute` 入口；�
 
 每次执行获得 `CommandOperation`，提供 AbortSignal、current 和 `own(dispose)`。交互命令切换、目标上下文改变和模块释放会取消旧操作，释放资源；迟到的异步显示结果必须检查 operation 或原有领域 generation。普通视图 handler 不打断正在运行的建模工具。工具转入装配约束定义时，使用既有 pending/editing 状态保留操作，面板结束后才清理。ToolManager 与领域表单保留自己的 Esc/多步骤/连续执行规则，不新增全局 Esc 监听。
 
+模型工具／表单执行前通过 `CommandOperation.prepare` 等待视口的 AssemblyInteraction 结束屏障。准备期间，旧工具清理产生的 select 或尚未打开的表单不触发自动完成；显式取消、上下文切换及模块释放仍可立即取消。等待结束后复核 operation 代际再启动当前实现，不将旧手势预览作为下一命令的基线。
+
 机构定义、仿真对话框及转换计划使用同一 `CommandDialog` / form `CommandOperation`。Mechanism 树双击进入应用，其他可编辑定义转入已有 `tree.edit` form。“运行仿真”和模拟下指定结果的树双击打开同一个对话框，计算、停止后台任务、播放/暂停、单步和时间定位是对话框局部控件，不是 Registry 命令或 Ribbon/Search 项。局部操作不能取消持有该对话框的 CommandOperation；普通视图 handler 仍可执行。
 
 视口不增加常驻机构活动区域；提示使用底栏 WorkbenchStatus，诊断走统一 OperationFeedback。旋转接合按轴线重合和轴向定位显示支撑来源、替换/清除、偏移与平面方向；自动选择/替换字段复用 FeatureSelectionSession，精确 inspect 后绑定，树和视口没有额外鼠标控制器。命令取消与后台 Job/冻结结果加载分别使用代际门禁。个人模拟结果的删除按终态 Job capability 与任务所有者 ACL 执行，canDeleteMotionResult 独立于 Product 编辑权限；当前 Product 只读时仍可删除自己的终态结果。命令对话框统一“确定／取消”页脚。回放确定通过 SAVE_KINEMATICS 采用当前时间对应的合格计算帧，失败保留对话框；取消、标题关闭和 Esc 恢复机构 accepted，后台完成不重开显示。帧转换从工具栏进入，是回放子流程；CadCommand.continues 显式声明 dmu.apply 可续接 dmu.run / dmu.apply，Registry 保留同一 CommandOperation，初始进入不执行取消清理。取消计划返回原仿真及原帧，转换成功回装配设计。机构约束与产品约束继续独立，确认不先释放到 Product 初始位置。

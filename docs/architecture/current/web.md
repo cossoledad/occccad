@@ -24,6 +24,8 @@ flowchart TD
 
 Product 始终显示根装配场景，宿主 Product 决定路由与活动标签，唯一 Edit Target 的 Reference Workspace 决定工作台、命令、历史和属性目标。Product 内只有携带完整 occurrence 路径的上下文编辑，不存在脱离 occurrence 的定义编辑切换；独立 Part 标签是另一个宿主工作空间。`ViewportEditContext`/`editingView` 将活动 Part 草图的拾取、约束、尺寸拖拽和编辑从根 Product 投影中分离；切换激活状态不产生空 Revision。创建 Part、Context Catalog、Pin/Follow 和产品版本中心的领域行为见[Product 架构](product-assembly.md)。
 
+工作台目录的 Sketcher 状态必须同时属于当前宿主的 EditSession、活动 Part 和草图。切换标签的首次渲染不能借用上一标签尚未清理的草图状态；返回原 Part 可恢复其编辑会话，引用它的 Product 仍按自己的上下文呈现。
+
 进入 Sketcher 保留权威 Body 作为只读环境，活动 Sketch、约束与预览叠加其上。普通工具只接受活动 Sketch；显式 Projection 才能进入上游 Body Edge/Vertex 选择并绑定 PersistentSelection。ExternalGeometry 独立、只读，使用同一捕捉/约束路径。退出后选择提升为 Sketch Feature；未消费草图保持可见，已消费草图在选择或重新编辑时临时显示。
 
 ## 显示制品与稳定选择
@@ -46,7 +48,7 @@ InputManager、Tool、Selection 和 Overlay 共用完整 pointer down/move/up/ca
 
 工具单击完成一个逻辑操作后回到选择，双击进入连续模式；Polyline/Spline 用 Enter 或双击完成多点采集。尺寸工具按引用选择、真实几何测量初值、放置、内联输入、提交运行；实体点拖动只在 pointerup 形成一个 Domain Command；尺寸标注位置拖动仅更新以 owner Document/Sketch/Constraint 稳定身份索引的浏览器显示偏好，不发送命令、不求解、不改变 Revision 或 Undo/Redo。显示重建与尺寸编辑预览复用此位置。显示/输入单位在 UI 转换，权威数量和表达式由服务端验证。
 
-草图工具通过 `SketchCommandState` 投影选择、定义、放置、提交及未知结果阶段，ToolManager/Input Router 拥有手势和工具生命周期；工作台状态栏显示当前 role、接受数量和完成入口；inline 以引线数值显示工具显式请求的字段，点击或键入时才展开紧凑白色编辑框，advanced 面板保留高级选项。两者只是投影并派发字段、确认和取消动作，不从提示文字判断阶段；数值焦点由 input.id 代际控制，失焦不取消工具。线性尺寸同屏距离重叠候选优先 PROFILE 子边；Construction 仍可单独命中或通过主动预选选择。悬停、选集和尺寸预览使用独立显示层，选集/候选高于透明尺寸文字，避免互相清除或遮挡。尺寸进入 Placement 后冻结引用和尺寸种类，hover 其他几何不会改写定义。尺寸编辑器持有未提交值/表达式草稿，角色槽位使用 typed stable ref，面板只展示对象角色与定位，视图仅高亮引用几何。尺寸面板移除引用更换和折叠的更多设置，直接呈现名称、删除、停用和参考状态；逻辑约束编辑仍复用受控引用更换会话，按角色过滤候选并在排名前排除不兼容命中，定位/高亮不改模型选择。手动引用拾取独立于自动吸附偏好。尺寸面板开启时输入屏障阻止几何拖动，允许中键导航；逻辑约束引用子会话中 Esc/右键先取消更换，IME 不确认或取消。显示/输入采用文档长度单位，数值初始化最多六位小数并去除尾零，极小非零值使用科学计数；原始 Quantity 与表达式不因格式化改写。数值输入节点首次聚焦全选，返回视图后再聚焦保留光标；数量与表达式仍由服务端处理。
+草图工具通过 `SketchCommandState` 投影选择、定义、放置、提交及未知结果阶段，ToolManager/Input Router 拥有手势和工具生命周期；工作台状态栏显示当前 role、接受数量和完成入口；inline 以引线数值显示工具显式请求的字段，点击或键入时才展开紧凑白色编辑框，advanced 面板保留高级选项。两者只是投影并派发字段、确认和取消动作，不从提示文字判断阶段；数值焦点由 input.id 代际控制，失焦不取消工具。线性尺寸同屏距离重叠候选优先 PROFILE 子边；Construction 仍可单独命中或通过主动预选选择。悬停、选集和尺寸预览使用独立显示层，选集/候选高于透明尺寸文字，避免互相清除或遮挡。尺寸进入 Placement 后冻结引用和尺寸种类，hover 其他几何不会改写定义。尺寸编辑器持有未提交值/表达式草稿，角色槽位使用 typed stable ref，面板只展示对象角色与定位，视图仅高亮引用几何。尺寸面板移除引用更换和折叠的更多设置，直接呈现名称、删除、停用和参考状态；逻辑约束编辑仍复用受控引用更换会话，按角色过滤候选并在排名前排除不兼容命中，定位/高亮不改模型选择。手动引用拾取独立于自动吸附偏好。尺寸面板开启时输入屏障阻止几何拖动，允许中键导航；逻辑约束引用子会话中 Esc/右键先取消更换，IME 不确认或取消。显示/输入采用文档长度单位，数值初始化采用统一两位小数显示；原始 Quantity 与表达式不因格式化改写。数值输入节点首次聚焦全选，返回视图后再聚焦保留光标；数量与表达式仍由服务端处理。
 
 草图提交持有原 requestId、baseVersionId 和操作快照；未知响应重试携带 `retryReceipt=true` 查询原请求，不重新生成操作身份。Engine 持有待确认回执；正常等待不增加底部提示框，未知回执通过状态栏查询恢复，关闭面板不撤销已发请求；回执待确认时继续阻止新编辑。请求已成功确认后渲染刷新失败不被当作领域提交失败重发。异步结果必须匹配文档/草图/版本/会话代际。操作交互与人工验证入口见[草图交互补齐](../../sketch-ux-02.md)。
 
@@ -54,7 +56,11 @@ CommandDialog 允许由显式子选择会话继续拾取；尺寸面板默认输
 
 交互以 interactionId 和单调 previewSequence 取消旧请求、丢弃迟到响应。装配前端 actor 管理草拟/预览/确认/取消，服务端 workflow 管理解析/求解/应用/失败；二者不替代 Revision 或 solver 数值状态。nominal pose 来自 Revision，前次权威解只作短期 initial guess。数值输入通常在 blur/Enter 请求权威预览，成功后才能提交。
 
-实体 Feature preview 显示后端完整结果并临时替换当前 occurrence 的旧实体；取消恢复原可见性。Placement 动画只插值 TRS，旋转使用 quaternion slerp，同批 occurrence 共用时钟；新目标从当前显示帧接续，最终精确落到权威姿态。手柄与 Instance 使用同一确认帧。MOVE 的约束能力仍受临时 Fix 路径限制，不能据此宣称最近可行拖拽。
+实体 Feature preview 显示后端完整结果并临时替换当前 occurrence 的旧实体；取消恢复原可见性。Placement 动画只插值 TRS，旋转使用 quaternion slerp，同批 occurrence 共用时钟；新目标从当前显示帧接续，最终精确落到权威姿态。手柄与 Instance 使用同一确认帧。连续移动复用 AssemblyInteraction，精确位姿命令与操纵偏好的边界见[Product 连续操纵](product-assembly.md#连续操纵)。
+
+移动提交由视口结束屏障串行化，不设置机构定义对话框的全局忙碌状态。模型工具执行前等待该屏障并复核命令代际；等待阶段，旧工具清理产生的选择状态或尚未打开的表单不能自动结束新命令，显式取消与上下文失效仍可取消。视图命令保留独立可用性。权威刷新重建 Instance Group 时，屏障结束后将操纵器挂回当前选择，保留移动工具供下一次拖动；用户取消、切换工具或清除选择仍生效。
+
+中间求解帧失败可被后续目标恢复，不提前占用每手势一次的最终失败提示。未合格 Final 保留最后可行显示，展示重试／取消并透传服务端归档 ID，复制仍采用 `CAD_DIAGNOSTIC <document/archive> <code>`。显式取消恢复当前权威基准并重新挂接当前移动选择；未保存预览不成为下一手势基准，外部新 Head 不被旧基准覆盖。
 
 ## 导航、布局与偏好
 

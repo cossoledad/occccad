@@ -123,7 +123,7 @@ func (client *realtimeClient) startAssemblyOperation(server *Server, ctx context
 			}
 		}
 		if err != nil {
-			client.sendError(envelope.ID, "ASSEMBLY_OPERATION_FAILED", err.Error(), false)
+			client.sendDomainError(envelope.ID, err)
 			return
 		}
 		select {

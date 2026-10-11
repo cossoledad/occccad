@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/occccad/occccad/internal/artifact"
@@ -275,11 +274,21 @@ func TestContactAnalyticSupportsAndHistoryThroughRouter(t *testing.T) {
 			apply(request)
 			definition := product.Product.Constraints[len(product.Product.Constraints)-1]
 			targetID := definition.ID
+			instanceName := func(id string) string {
+				for _, instance := range product.Product.Instances {
+					if instance.ID == id {
+						return instance.Name
+					}
+				}
+				t.Fatal("Contact endpoint instance missing", id)
+				return ""
+			}
+			wantName := "接触.1 (" + instanceName(definition.First.InstanceID) + "," + instanceName(definition.Second.InstanceID) + ")"
 			contactNamed := false
 			for _, group := range product.StructureTree.Children {
 				for _, node := range group.Children {
 					if node.Kind == "ASSEMBLY_CONSTRAINT" && node.EntityID == targetID {
-						contactNamed = strings.HasPrefix(node.Name, "#接触.1（")
+						contactNamed = definition.Name == "接触.1" && node.Name == wantName
 					}
 				}
 			}

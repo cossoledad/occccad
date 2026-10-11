@@ -34,6 +34,8 @@ Preview/Commit 共用草稿规范化，包含支持顺序、方向、参数/表�
 
 提交保留 actor/权限、目标、Revision/CAS、定义/意图摘要、支持证据、policy/build、TTL 与交互身份校验。预览返回候选到期时间，确认前临近到期则以同一完整草稿重新预览；到期/缓存淘汰与提交竞争时最多重取一次。传输序号由 RealtimeClient 单调分配，草稿 epoch 继续隔离迟到响应。真实 Revision/意图 stale 保留草稿并要求重新预览；有效候选提升不重新完整求解；成功重试先走 receipt。确认成功关闭编辑器，失败保留草稿。
 
+瞬态候选意图摘要将 JSON 数字的负零规范为零，兼容浏览器对 Quantity 原始数值的 JSON 往返；其余非零十进制仍精确比较，不引入浮点舍入、容差或下溢等价。字符串、类型、字段缺失和显式 null 仍不同；持久模型与历史摘要不受此规范化影响。
+
 合法定义完成支持解析并进入 SOLVING 后，admission 隔离、子请求 deadline、Worker 不可用或数值未完成可产生仅定义候选（DEFINITION_ONLY）。用户显式确认才保存新定义及 NotUpdated 和结构化失败；不采用失败姿态、branch、组捕获或测量。此候选不能用于 Move，也不伪造收敛 Manifest。求解子预算为父请求保留结束时间；父取消、权限/参数错误、CAS 与数据库失败仍拒绝。新增/编辑先使旧评价失效，正常重算才能恢复 Verified。
 
 ## 连续操纵
@@ -49,6 +51,8 @@ Session 拥有 Begin 上下文的值快照，复用只读 nominal/geometry/defin
 一个在途加一个最新待发送目标，合并而不取消饥饿，pointerup flush 最终目标。可行显示帧、合格 checkpoint、warm start、最终候选分开。Budget 不等于网络超时；最多四个 continuation bridge 共用 deadline 和总迭代预算，未合格子步不运输分支或生成 Revision。
 
 Final 同目标有界续算，未确认保留明确未保存预览，可重试/取消，不能提交旧目标。工具/命令切换先终结未提交状态；取消恢复当前权威快照，不能用旧 baseline 覆盖外部更新。SPACE 捕获不改变，显式 Move 授权的 RELATIVE 基准更新仅在最终原子命令中发生。
+
+受限目标的 Gauss–Newton 搜索停滞时，内核在原硬约束零空间使用 driven 目标的 Lagrangian 曲率寻找第二下降方向；硬精度、优先级、预算和候选资格不变。Begin/Update 异常及未合格 Final 使用现有有界操作诊断仓库，保留原始交互输入、冻结基准和实际数值请求序列；中间 Budget 帧不逐帧归档。未确认 Final 在 `evaluationFailure` 中返回实际诊断 ID、阶段和错误码，WebSocket 错误复用领域错误映射，不将其改写为通用 `ASSEMBLY_OPERATION_FAILED`。
 
 pointerup 后冻结最终目标、Session、文档与 generation，最终求解/提交独立于普通 UI 选择。空白点击或选择其他对象不取消、不重定向、不在完成后抢回选择。模型命令通过结束屏障等待；未提交预览或回执未知须先重试/取消，不能从临时显示位置开始下一操作。显式取消与外部失效仍有效。
 

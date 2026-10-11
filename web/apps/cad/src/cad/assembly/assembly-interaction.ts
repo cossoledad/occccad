@@ -44,6 +44,7 @@ export type AssemblyInteractionEvidence = {
 };
 export type AssemblyInteractionUpdate = { sessionId: string; sequence: number; goalSequence?:number; final: boolean; target: AssemblyDragTarget };
 export type AssemblyInteractionFrame = {
+  evaluationFailure?:{diagnosticId?:string;code:string;phase:string;retryable:boolean};
   previewId: string;
   requestId: string;
   sessionId: string;
@@ -219,17 +220,17 @@ export class AssemblyInteractionController {
       const axes=["X","Y","Z"],translation=request.target.translationComponents.flatMap((v,i)=>v?[axes[i]]:[]),rotation=request.target.rotationComponents.flatMap((v,i)=>v?[axes[i]]:[]);
       const reason=`${evidence.diagnostic??evidence.status} · 冻结坐标架平移 [${translation.join(",")}] / 旋转 [${rotation.join(",")}] · 目标残差 ${evidence.targetError.toPrecision(4)} / 最优性 ${evidence.targetOptimality.toPrecision(4)}${evidence.status==="CONSTRAINED"?"（指定目标未到达，已确认约束受限最优；不是冲突证明）":""}`;
       this.setState(evidence.status === "REACHED" && evidence.hardFeasible && evidence.targetConverged ? "allowed" : evidence.status === "CONSTRAINED" && evidence.hardFeasible && evidence.targetConverged ? "constrained" : evidence.status === "FAILED" || evidence.status === "CANCELLED" ? "failed" : "blocked",reason);
-      if(evidence.status==="FAILED"){
-        this.reportFailure(Object.assign(new Error(reason),{code:"ASSEMBLY_INTERACTION_NUMERICAL_FAILED"}));
-        if(request.final)this.setState("blocked",reason);
-      }
+      // A failed intermediate solve can recover at the next pointer target.
+      // Report only a failed final confirmation, with its retained evidence and
+      // recovery actions; an earlier toast must not suppress that final failure.
+      if(evidence.status==="FAILED"&&request.final)this.setState("blocked",reason);
       if (request.final) {
         if(!eligible&&evidence.status==="BUDGET"&&this.finalAttempts++<2){
           const target={...structuredClone(request.target),targetSequence:++this.sequence};
           this.pending={sessionId:session.sessionId,sequence:target.targetSequence,goalSequence:request.goalSequence,final:true,target};return;
         }
         const candidate = eligible ? { ...structuredClone(frame), ...structuredClone(request), baseRevisionId: session.baseRevisionId, inputDigest: session.inputDigest } : undefined;
-        if(!eligible&&evidence.status!=="CANCELLED")this.reportFailure(Object.assign(new Error(reason),{code:"ASSEMBLY_INTERACTION_UNCONFIRMED",requestId:frame.requestId,terminationStage:evidence.terminationStage,terminationReason:evidence.terminationReason}));
+        if(!eligible&&evidence.status!=="CANCELLED")this.reportFailure(Object.assign(new Error(reason),{...frame.evaluationFailure,code:frame.evaluationFailure?.code??"ASSEMBLY_INTERACTION_UNCONFIRMED",requestId:frame.requestId,terminationStage:evidence.terminationStage,terminationReason:evidence.terminationReason}));
         this.finishResolve?.(candidate);
         this.finishResolve = undefined;
       }

@@ -2855,6 +2855,7 @@ private:
     void initialize_singular_direction_branches(State& state) const {
         for (const std::size_t constraint_index : component_.constraint_indices) {
             const Constraint& constraint = assembly_.constraint(constraint_index);
+            if (!constraint.second) continue;
             const bool spatial_angle =
                 constraint.kind == ConstraintKind::Angle && !constraint.angle_reference_direction && !constraint.angle_reference_geometry;
             const auto& selected_first = assembly_.geometry(constraint.first);
@@ -2881,105 +2882,105 @@ private:
                 (constraint.direction_relation == DirectionRelation::Unoriented &&
                  constraint.kind != ConstraintKind::Perpendicular && !spatial_angle && !axis_plane_perpendicular))
                 continue;
-            const bool first_is_free =
-                std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(),
-                          assembly_.cluster_index(selected_first.body_id)) !=
-                free_cluster_indices_.end();
-            // Physical Fix may eliminate the first selection. Seed the remaining
-            // free endpoint instead; a reference role is never a physical lock.
-            const auto& first_element = first_is_free ? selected_first : selected_second;
-            const auto& second_element = first_is_free ? selected_second : selected_first;
-            const std::size_t moving_cluster = assembly_.cluster_index(first_element.body_id);
-            const auto free = std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(),
-                                        moving_cluster);
-            if (free == free_cluster_indices_.end())
-                continue;
-            const std::vector<Pose> bodies = body_poses(state);
-            const WorldGeometry first =
-                world_geometry(first_element, bodies[assembly_.body_index(first_element.body_id)]);
-            const WorldGeometry second = world_geometry(
-                second_element, bodies[assembly_.body_index(second_element.body_id)]);
-            if (!has_direction(first) || !has_direction(second))
-                continue;
-            const Vector3 first_direction = geometry_direction(first);
-            const Vector3 second_direction = geometry_direction(second);
-            const Vector3 target = constraint.direction_relation == DirectionRelation::Same
-                                       ? second_direction
-                                       : -second_direction;
-            const bool perpendicular = constraint.kind == ConstraintKind::Perpendicular || axis_plane_perpendicular;
-            double turn_angle = perpendicular ? (constraint.direction_relation == DirectionRelation::Opposite ? -kPi * 0.5 : kPi * 0.5) : kPi;
-            Vector3 seed_axis = perpendicular_to(first_direction);
-            if (spatial_angle) {
-                const auto original_a = world_geometry(selected_first, bodies[assembly_.body_index(selected_first.body_id)]);
-                const auto original_b = world_geometry(selected_second, bodies[assembly_.body_index(selected_second.body_id)]);
-                Vector3 a = geometry_direction(original_a), b = geometry_direction(original_b);
-                if (constraint.direction_relation == DirectionRelation::Opposite) a = -a;
-                const Vector3 selector = direction(bodies[assembly_.body_index(selected_second.body_id)], *constraint.spatial_angle_branch_direction, "spatial angle branch");
-                const Vector3 product = a.cross(b);
-                const double current = std::atan2(product.norm(), a.dot(b));
-                const double desired = std::min(constraint.value, 2.0*kPi-constraint.value);
-                if (product.norm() > 1e-10) {
-                    if (selector.dot(product) * spatial_angle_sign(constraint) >= -1e-12)
-                        continue;
-                    seed_axis = product.normalized();
-                } else {
-                    seed_axis = selector - selector.dot(b)*b;
-                    if (seed_axis.norm() < 1e-10) seed_axis = perpendicular_to(b);
-                    seed_axis.normalize();
-                }
-                const double sign = selector.dot(seed_axis) < 0 ? -1.0 : 1.0;
-                turn_angle = (current - spatial_angle_sign(constraint)*sign*desired) * (first_is_free ? 1.0 : -1.0);
-                if (std::abs(turn_angle) <= assembly_.options().angle_tolerance) continue;
-            } else if (perpendicular ? std::abs(first_direction.dot(second_direction)) < 1.0 - 1.0e-10
-                                     : first_direction.dot(target) > -1.0 + 1.0e-10) {
-                continue;
-            }
-            // Seed only a singular initial pose. This temporary tangent is not
-            // an equation or a frozen rotation axis; every constraint is then solved.
-            const std::size_t pose_index = static_cast<std::size_t>(std::distance(free_cluster_indices_.begin(), free));
-            const Vector3 pivot = geometry_origin(first);
-            const auto trial = [&](const Vector3& axis) {
-                State candidate = state;
-                const EigenQuaternion turn(Eigen::AngleAxisd(turn_angle, axis));
-                Pose& cluster_pose = candidate.poses[pose_index];
-                cluster_pose.translation = value(pivot + turn * (eigen(cluster_pose.translation) - pivot));
-                cluster_pose.rotation = value(turn * normalized(cluster_pose.rotation));
-                if (constraint.kind == ConstraintKind::Coincident &&
-                    std::holds_alternative<WorldPlane>(first) && std::holds_alternative<WorldPlane>(second)) {
-                    const auto turned_bodies = body_poses(candidate);
-                    const auto turned = std::get<WorldPlane>(world_geometry(first_element, turned_bodies[assembly_.body_index(first_element.body_id)]));
-                    const auto& plane = std::get<WorldPlane>(second);
-                    cluster_pose.translation = value(eigen(cluster_pose.translation) - (turned.origin - plane.origin).dot(plane.normal) * plane.normal);
-                }
-                return candidate;
-            };
-            std::vector<Vector3> axes{seed_axis};
-            if (!perpendicular && !spatial_angle) {
-                // At an antipodal alignment every half-turn tangent satisfies
-                // this row. Choose using the whole hard system, so the chart
-                // does not swap already aligned unoriented holes/axes.
-                axes.push_back(first_direction.cross(seed_axis).normalized());
-                for (const auto other_index : component_.constraint_indices) {
-                    const auto& other = assembly_.constraint(other_index);
-                    for (const auto& reference : {std::optional<GeometryRef>{other.first}, other.second}) {
-                        if (!reference || reference->body_id != first_element.body_id || reference->geometry_id.empty()) continue;
-                        const auto geometry = world_geometry(assembly_.geometry(*reference), bodies[assembly_.body_index(reference->body_id)]);
-                        Vector3 axis = geometry_origin(geometry) - pivot;
-                        axis -= axis.dot(first_direction) * first_direction;
-                        if (axis.norm() > assembly_.options().degeneracy_tolerance) axes.push_back(axis.normalized());
-                    }
-                }
-            }
             std::optional<State> best;
             double best_energy = std::numeric_limits<double>::infinity();
-            for (const auto& axis : axes) {
-                if (assembly_.options().should_cancel && assembly_.options().should_cancel()) break;
-                auto candidate = trial(axis);
-                try {
-                    const double energy = residual(candidate).squaredNorm();
-                    if (std::isfinite(energy) && energy < best_energy) { best_energy = energy; best = std::move(candidate); }
-                } catch (const std::invalid_argument&) {
-                    // A temporary chart may make an exact support singular.
+            // Either endpoint can escape a singular chart. Compare both against
+            // all hard equations: the first may already belong to a closed joint,
+            // while rotating the newly attached second preserves that joint.
+            // This changes guesses only, never nominal, Fix or motion priority.
+            for (const bool first_is_free : {true, false}) {
+                const auto& first_element = first_is_free ? selected_first : selected_second;
+                const auto& second_element = first_is_free ? selected_second : selected_first;
+                const std::size_t moving_cluster = assembly_.cluster_index(first_element.body_id);
+                const auto free = std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(),
+                                            moving_cluster);
+                if (free == free_cluster_indices_.end())
+                    continue;
+                const std::vector<Pose> bodies = body_poses(state);
+                const WorldGeometry first =
+                    world_geometry(first_element, bodies[assembly_.body_index(first_element.body_id)]);
+                const WorldGeometry second = world_geometry(
+                    second_element, bodies[assembly_.body_index(second_element.body_id)]);
+                if (!has_direction(first) || !has_direction(second))
+                    continue;
+                const Vector3 first_direction = geometry_direction(first);
+                const Vector3 second_direction = geometry_direction(second);
+                const Vector3 target = constraint.direction_relation == DirectionRelation::Same
+                                           ? second_direction
+                                           : -second_direction;
+                const bool perpendicular = constraint.kind == ConstraintKind::Perpendicular || axis_plane_perpendicular;
+                double turn_angle = perpendicular ? (constraint.direction_relation == DirectionRelation::Opposite ? -kPi * 0.5 : kPi * 0.5) : kPi;
+                Vector3 seed_axis = perpendicular_to(first_direction);
+                if (spatial_angle) {
+                    const auto original_a = world_geometry(selected_first, bodies[assembly_.body_index(selected_first.body_id)]);
+                    const auto original_b = world_geometry(selected_second, bodies[assembly_.body_index(selected_second.body_id)]);
+                    Vector3 a = geometry_direction(original_a), b = geometry_direction(original_b);
+                    if (constraint.direction_relation == DirectionRelation::Opposite) a = -a;
+                    const Vector3 selector = direction(bodies[assembly_.body_index(selected_second.body_id)], *constraint.spatial_angle_branch_direction, "spatial angle branch");
+                    const Vector3 product = a.cross(b);
+                    const double current = std::atan2(product.norm(), a.dot(b));
+                    const double desired = std::min(constraint.value, 2.0*kPi-constraint.value);
+                    if (product.norm() > 1e-10) {
+                        if (selector.dot(product) * spatial_angle_sign(constraint) >= -1e-12)
+                            continue;
+                        seed_axis = product.normalized();
+                    } else {
+                        seed_axis = selector - selector.dot(b)*b;
+                        if (seed_axis.norm() < 1e-10) seed_axis = perpendicular_to(b);
+                        seed_axis.normalize();
+                    }
+                    const double sign = selector.dot(seed_axis) < 0 ? -1.0 : 1.0;
+                    turn_angle = (current - spatial_angle_sign(constraint)*sign*desired) * (first_is_free ? 1.0 : -1.0);
+                    if (std::abs(turn_angle) <= assembly_.options().angle_tolerance) continue;
+                } else if (perpendicular ? std::abs(first_direction.dot(second_direction)) < 1.0 - 1.0e-10
+                                         : first_direction.dot(target) > -1.0 + 1.0e-10) {
+                    continue;
+                }
+                // Seed only a singular initial pose. This temporary tangent is not
+                // an equation or a frozen rotation axis; every constraint is then solved.
+                const std::size_t pose_index = static_cast<std::size_t>(std::distance(free_cluster_indices_.begin(), free));
+                const Vector3 pivot = geometry_origin(first);
+                const auto trial = [&](const Vector3& axis) {
+                    State candidate = state;
+                    const EigenQuaternion turn(Eigen::AngleAxisd(turn_angle, axis));
+                    Pose& cluster_pose = candidate.poses[pose_index];
+                    cluster_pose.translation = value(pivot + turn * (eigen(cluster_pose.translation) - pivot));
+                    cluster_pose.rotation = value(turn * normalized(cluster_pose.rotation));
+                    if (constraint.kind == ConstraintKind::Coincident &&
+                        std::holds_alternative<WorldPlane>(first) && std::holds_alternative<WorldPlane>(second)) {
+                        const auto turned_bodies = body_poses(candidate);
+                        const auto turned = std::get<WorldPlane>(world_geometry(first_element, turned_bodies[assembly_.body_index(first_element.body_id)]));
+                        const auto& plane = std::get<WorldPlane>(second);
+                        cluster_pose.translation = value(eigen(cluster_pose.translation) - (turned.origin - plane.origin).dot(plane.normal) * plane.normal);
+                    }
+                    return candidate;
+                };
+                std::vector<Vector3> axes{seed_axis};
+                if (!perpendicular && !spatial_angle) {
+                    // At an antipodal alignment every half-turn tangent satisfies
+                    // this row. Choose using the whole hard system, so the chart
+                    // does not swap already aligned unoriented holes/axes.
+                    axes.push_back(first_direction.cross(seed_axis).normalized());
+                    for (const auto other_index : component_.constraint_indices) {
+                        const auto& other = assembly_.constraint(other_index);
+                        for (const auto& reference : {std::optional<GeometryRef>{other.first}, other.second}) {
+                            if (!reference || reference->body_id != first_element.body_id || reference->geometry_id.empty()) continue;
+                            const auto geometry = world_geometry(assembly_.geometry(*reference), bodies[assembly_.body_index(reference->body_id)]);
+                            Vector3 axis = geometry_origin(geometry) - pivot;
+                            axis -= axis.dot(first_direction) * first_direction;
+                            if (axis.norm() > assembly_.options().degeneracy_tolerance) axes.push_back(axis.normalized());
+                        }
+                    }
+                }
+                for (const auto& axis : axes) {
+                    if (assembly_.options().should_cancel && assembly_.options().should_cancel()) break;
+                    auto candidate = trial(axis);
+                    try {
+                        const double energy = residual(candidate).squaredNorm();
+                        if (std::isfinite(energy) && energy < best_energy) { best_energy = energy; best = std::move(candidate); }
+                    } catch (const std::invalid_argument&) {
+                        // A temporary chart may make an exact support singular.
+                    }
                 }
             }
             if (best) state = std::move(*best);
@@ -3326,17 +3327,18 @@ Eigen::MatrixXd preference_tangent(const ComponentProblem& problem, const State&
 // descent; use the Lagrangian Hessian for a safeguarded second search direction.
 Eigen::MatrixXd motion_curvature(const ComponentProblem& problem, const State& state,
                                 const Eigen::MatrixXd& z, bool reference_only,
-                                const SolverOptions& options) {
+                                const SolverOptions& options, bool drag_priority = false) {
     const Vector scales = problem.tangent_scales();
-    const auto objective = problem.objective(state, reference_only, false);
+    const auto value = [&](const State& at) { return drag_priority ? problem.drag_objective(at, false) : problem.objective(at, reference_only, false); };
+    const auto objective = value(state);
     auto equations = [&](const State& at) -> Eigen::MatrixXd {
         Eigen::MatrixXd j = problem.motion_jacobian(at, problem.residual(at));
-        if(options.drag_target) {
+        if(options.drag_target && !drag_priority) {
             const auto drag=problem.drag_objective(at,false);const auto rows=j.rows();
             if(drag.residual.squaredNorm()<=options.preference_tolerance*options.preference_tolerance) {j.conservativeResize(rows+drag.jacobian.rows(),j.cols());j.bottomRows(drag.jacobian.rows())=drag.jacobian;}
             else {j.conservativeResize(rows+1,j.cols());j.bottomRows(1)=drag.residual.transpose()*drag.jacobian;}
         }
-        if (!reference_only) {
+        if (!reference_only && !drag_priority) {
             const auto ref = problem.objective(at, true, false);
             const auto rows = j.rows();
             j.conservativeResize(rows + ref.jacobian.rows(), j.cols());
@@ -3347,8 +3349,8 @@ Eigen::MatrixXd motion_curvature(const ComponentProblem& problem, const State& s
     const Vector gradient = scales.asDiagonal() * objective.jacobian.transpose() * objective.residual;
     const Vector multipliers = minimum_step(equations(state).transpose(), -gradient, options);
     auto lagrangian = [&](const State& at) -> Vector {
-        const auto value = problem.objective(at, reference_only, false);
-        return scales.asDiagonal() * value.jacobian.transpose() * value.residual +
+        const auto objective_at = value(at);
+        return scales.asDiagonal() * objective_at.jacobian.transpose() * objective_at.residual +
             equations(at).transpose() * multipliers;
     };
     Eigen::MatrixXd curvature(z.cols(), z.cols());
@@ -3461,30 +3463,48 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                     break;
                 }
             }
-            double ratio=1;
-            for(Eigen::Index i=0;i<step.size();i+=6) ratio=std::max(ratio,step.segment<3>(i+3).norm()*options.motion_angle_scale/0.25);
-            step/=ratio;
-            bool accepted=false;
             const double before=target.residual.squaredNorm();
-            const double slope=2*(reduced.transpose()*target.residual).dot(z.transpose()*step);
-            for(double alpha=1;alpha>=1.0/65536;alpha*=0.5) {
-                if(options.should_cancel && options.should_cancel()) break;
-                State candidate=problem.incremented(state,scales.asDiagonal()*(alpha*step));
-                ++evidence.restorations;
-                if(!restore_feasibility(problem,candidate,options)) {evidence.termination_reason="FEASIBILITY_RESTORE_FAILED";continue;}
-                const double after=problem.drag_objective(candidate).residual.squaredNorm();
-                bool descent=after<before && after<=before+1e-4*alpha*slope;
-                // Same roundoff certificate as M2.5: energy changes smaller
-                // than floating resolution still require strict projected
-                // derivative improvement and a non-accumulating energy bound.
-                if(!descent && after<=best_drag_energy+32*std::numeric_limits<double>::epsilon()*std::max(1.0,best_drag_energy)) {
-                    const auto next=problem.drag_objective(candidate,false);
-                    const auto next_z=physical_kernel(candidate);
-                    descent=(next_z.transpose()*scales.asDiagonal()*next.jacobian.transpose()*next.residual).norm()<0.8*evidence.target_optimality;
+            const auto search = [&](Vector direction) {
+                if(!direction.allFinite())return false;
+                double ratio=1;
+                for(Eigen::Index i=0;i<direction.size();i+=6) ratio=std::max(ratio,direction.segment<3>(i+3).norm()*options.motion_angle_scale/0.25);
+                direction/=ratio;
+                const double slope=2*(reduced.transpose()*target.residual).dot(z.transpose()*direction);
+                for(double alpha=1;alpha>=1.0/65536;alpha*=0.5) {
+                    if(options.should_cancel && options.should_cancel()) break;
+                    State candidate=problem.incremented(state,scales.asDiagonal()*(alpha*direction));
+                    ++evidence.restorations;
+                    if(!restore_feasibility(problem,candidate,options)) {evidence.termination_reason="FEASIBILITY_RESTORE_FAILED";continue;}
+                    const double after=problem.drag_objective(candidate).residual.squaredNorm();
+                    bool descent=after<before && after<=before+1e-4*alpha*slope;
+                    // Roundoff requires strict projected derivative improvement
+                    // and the same non-accumulating energy bound.
+                    if(!descent && after<=best_drag_energy+32*std::numeric_limits<double>::epsilon()*std::max(1.0,best_drag_energy)) {
+                        const auto next=problem.drag_objective(candidate,false);
+                        const auto next_z=physical_kernel(candidate);
+                        descent=(next_z.transpose()*scales.asDiagonal()*next.jacobian.transpose()*next.residual).norm()<0.8*evidence.target_optimality;
+                    }
+                    if(descent) {
+                        best_drag_energy=std::min(best_drag_energy,after);
+                        state=std::move(candidate); return true;
+                    }
                 }
-                if(descent) {
-                    best_drag_energy=std::min(best_drag_energy,after);
-                    state=std::move(candidate); accepted=true; break;
+                return false;
+            };
+            bool accepted=search(step);
+            if(!accepted && z.cols() && !(options.should_cancel && options.should_cancel())) {
+                // A nonzero constrained minimum can have a vanishing target
+                // Jacobian. Gauss-Newton then proposes an enormous step whose
+                // capped backtracking cannot resolve the remaining gradient.
+                // Use the full restricted Lagrangian curvature for a safeguarded
+                // Newton direction; keep the same hard retraction and certificate.
+                const auto curvature=motion_curvature(problem,state,z,true,options,true);
+                Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigenvalues(curvature);
+                if(eigenvalues.info()==Eigen::Success) {
+                    const double threshold=std::max(options.rank_absolute_tolerance,options.rank_relative_tolerance*std::max(1.0,curvature.norm()));
+                    const Vector gradient=reduced.transpose()*target.residual;
+                    const Vector reduced_step=-eigenvalues.eigenvectors()*eigenvalues.eigenvalues().cwiseMax(threshold).cwiseInverse().asDiagonal()*eigenvalues.eigenvectors().transpose()*gradient;
+                    if(gradient.dot(reduced_step)<0)accepted=search(z*reduced_step);
                 }
             }
             if(!accepted) {if(evidence.termination_reason!="FEASIBILITY_RESTORE_FAILED")evidence.termination_reason="NO_DESCENT";break;}

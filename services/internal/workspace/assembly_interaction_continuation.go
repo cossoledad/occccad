@@ -10,8 +10,8 @@ import (
 // Bounded internal continuation shares one request deadline and a total
 // preference-iteration budget. Subtargets never receive candidate tokens and
 // never change Session nominal, captured groups or the submitted final intent.
-func (service *Service) solveInteractionTrajectory(ctx context.Context, requestID string, frozen AssemblySolveManifest) (result geometry.AssemblySolve, err error) {
-	result, err = service.solveFrozenManifest(ctx, requestID, frozen, nil)
+func (service *Service) solveInteractionTrajectory(ctx context.Context, requestID string, frozen AssemblySolveManifest, capture func([]byte, error)) (result geometry.AssemblySolve, err error) {
+	result, err = service.solveFrozenManifest(ctx, requestID, frozen, capture)
 	if err != nil || result.Interaction == nil || result.Interaction.Status != "BUDGET" {
 		return result, err
 	}
@@ -79,7 +79,7 @@ func (service *Service) solveInteractionTrajectory(ctx context.Context, requestI
 		frozen.SolverProfile.MaxPreferenceIterations = &cap
 		frozen.DragTarget = &target
 		frozen.Digest = assemblyManifestDigest(frozen)
-		next, e := service.solveFrozenManifest(ctx, fmt.Sprintf("%s-continuation-%d", requestID, attempt), frozen, nil)
+		next, e := service.solveFrozenManifest(ctx, fmt.Sprintf("%s-continuation-%d", requestID, attempt), frozen, capture)
 		if e != nil {
 			return result, e
 		}

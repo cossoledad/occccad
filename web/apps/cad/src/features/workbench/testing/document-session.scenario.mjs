@@ -87,7 +87,7 @@ try {
     screenStableReferences: new Map(), selectionIndex: { clear: noop }, selected: [], activeToolID: "select",
     transforms: { stopAll: noop }, moveManipulator: { detach: noop },
     clearInsertPatternPreview: noop, clearCommandPreview: noop, clearInteractionState: noop, disposeGroup: noop,
-    renderPart: noop, renderProduct: noop, updateSketchContextVisibility: noop, applyTreeVisibility: noop,
+    renderPart: noop, renderProduct: noop, showMechanism: noop, updateSketchContextVisibility: noop, applyTreeVisibility: noop,
     setDatumPreview: noop, refreshContentBounds: noop, selectMany: noop, select: noop, buildSketchContext: noop,
     emitDebugState: noop, invalidate: noop,
     frameContent: () => { throw Error("restored camera must not be fitted automatically"); },

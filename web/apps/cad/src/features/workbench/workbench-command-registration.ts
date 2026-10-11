@@ -119,9 +119,11 @@ export function useWorkbenchCommandRegistration(registry:CommandRegistry,binding
  useLayoutEffect(()=>{
   const current=(id:string)=>definitionsRef.current.get(id)!;
   const remove=registry.registerMany(definitions.map(command=>({id:command.id,continues:command.continues,
-   execute:invocation=>{
+   execute:async invocation=>{
     const operation=invocation?.operation;
     if(operation&&registry.declaration(command.id)?.implementation!=="handler"){
+     await operation.prepare(async()=>{await bindingsRef.current.viewport.current?.settleAssemblyInteraction();});
+     if(!operation.current)return;
      const clear=(nextCommand?:string)=>{const binding=bindingsRef.current;if(binding.closePanels)binding.closePanels(nextCommand);else {binding.viewport.current?.clearCommandPreview();binding.setSolidEditor(undefined);binding.setBooleanDialog(undefined);binding.setDatumEditor(undefined);}};
      if(!invocation?.continuing){clear(command.id);operation.own(()=>clear());operation.own(()=>bindingsRef.current.store.setActiveTool("select","once"));}
     }

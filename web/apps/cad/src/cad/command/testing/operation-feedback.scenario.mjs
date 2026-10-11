@@ -4,9 +4,9 @@ const require=createRequire(import.meta.url);
 import {createServer} from "vite";
 import {AssemblyInteractionController} from "../../assembly/assembly-interaction.ts";
 
-// A sustained gesture reports real numerical failure once, never constrained
-// motion; a new gesture owns a new feedback lifetime. This exercises the real
-// controller, not just notification string matching.
+// Intermediate numerical failures may recover with the next pointer target.
+// Only final confirmation reports a retained failure, once per gesture, so the
+// final recovery actions cannot be suppressed by an earlier notification.
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const failures=[],pending=[];
 const controller=new AssemblyInteractionController({
@@ -19,9 +19,17 @@ const respond=async status=>{
  controller.target(target);const {request,resolve}=pending.shift();
  resolve({sessionId:"session",inputDigest:"input",sequence:request.sequence,instancePoses:[],interaction:{status,hardFeasible:status==="CONSTRAINED",targetConverged:status==="CONSTRAINED",eligibleForCommit:false,targetSequence:request.sequence,targetError:1,targetOptimality:0}});await tick();
 };
+const failFinal=async()=>{
+ const finished=controller.finish();const {request,resolve}=pending.shift();
+ resolve({sessionId:"session",inputDigest:"input",sequence:request.sequence,requestId:"final-request",instancePoses:[],
+  evaluationFailure:{code:"ASSEMBLY_INTERACTION_UNCONFIRMED",phase:"DRIVEN_TARGET",retryable:true,diagnosticId:"doc/frozen-final"},
+  interaction:{status:"FAILED",hardFeasible:false,targetConverged:false,eligibleForCommit:false,targetSequence:request.sequence,targetError:1,targetOptimality:1}});
+ assert.equal(await finished,undefined);await tick();
+};
 controller.begin(input);await tick();await respond("CONSTRAINED");assert.equal(failures.length,0);
-await respond("FAILED");await respond("BUDGET");assert.equal(failures.length,1);assert.equal(controller.state,"blocked");
-controller.cancel();controller.begin(input);await tick();await respond("FAILED");assert.equal(failures.length,2);controller.cancel();
+await respond("FAILED");await respond("BUDGET");assert.equal(failures.length,0);assert.equal(controller.state,"blocked");
+await failFinal();assert.equal(failures.length,1);assert.equal(failures[0].diagnosticId,"doc/frozen-final");assert.equal(failures[0].requestId,"final-request");
+controller.cancel();controller.begin(input);await tick();await respond("FAILED");assert.equal(failures.length,1);await failFinal();assert.equal(failures.length,2);controller.cancel();
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try{
  const {normalizeOperationFailure,OperationFailureGate}=await server.ssrLoadModule("/src/cad/command/operation-feedback.tsx");

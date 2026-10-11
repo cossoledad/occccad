@@ -35,7 +35,12 @@ try {
  const nodes=[{key:"body",children:[{key:"blade",selection:feature("blade")},{key:"fillet",selection:feature("fillet")}]}];
  assert.deepEqual(treeKeysForSelections(nodes,[hit]),[],"tree association must not promote primary face selection");assert(ancestorHintKeysForSelections(nodes,[hit]).includes("fillet"));assert(!ancestorHintKeysForSelections(nodes,[{...hit,occurrencePath:"b"}]).includes("fillet"));
  const stages=[{id:"blade",type:"PAD",bodyId:"b"},{id:"array",type:"SOLID_PATTERN",bodyId:"b"},{id:"fillet",type:"FILLET",bodyId:"b"}];
- assert.deepEqual(patternSourceCandidates({...hit,associatedFeatureIds:["blade"],sourceFeatureIds:["blade"]},stages,"GENERATOR_TOOL").map(f=>f.id),["blade"]);assert.deepEqual(patternSourceCandidates(hit,stages,"GENERATOR_TOOL"),[],"transition face cannot silently become the Body tool");assert.deepEqual(patternSourceCandidates(hit,stages,"BODY_STAGE").map(f=>f.id),["fillet"]);
+ const capabilities={blade:{tool:true,bodyStage:true},fillet:{bodyStage:true}};
+ const seedHit={...hit,patternId:undefined,patternMemberSlot:undefined,associatedFeatureIds:["blade"],sourceFeatureIds:["blade"]};
+ assert.deepEqual(patternSourceCandidates(seedHit,stages,"GENERATOR_TOOL",capabilities).map(f=>f.id),["blade"]);
+ assert.deepEqual(patternSourceCandidates({...seedHit,patternId:"array",patternMemberSlot:2},stages,"GENERATOR_TOOL",capabilities),[],"member selection cannot silently become the seed tool");
+ assert.deepEqual(patternSourceCandidates({...hit,patternId:undefined,patternMemberSlot:undefined},stages,"GENERATOR_TOOL",capabilities),[],"transition face cannot silently become the Body tool");
+ assert.deepEqual(patternSourceCandidates(hit,stages,"BODY_STAGE",capabilities).map(f=>f.id),["fillet"]);
  const session={role:"face",documentId:"part",versionId:"v",bodyId:"b",occurrencePath:"a",geometryKey:"input"};assert.equal(featureSelectionHit(hit,session),null,"history editor cannot pick downstream geometry");
  const historical=engine();historical.makeSolid({...artifact,historicalPreview:true},0xffffff,context).updateMatrixWorld(true);assert.equal(historical.selectionIndex.pick(new THREE.Raycaster(new THREE.Vector3(.2,.2,1),new THREE.Vector3(0,0,-1))),null,"historical preview is display only");
  console.log("Feature contribution overlays, topology primary selection, member and occurrence isolation, explicit pattern roles and history picking passed");

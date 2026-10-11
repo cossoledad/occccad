@@ -30,6 +30,8 @@ python tests/assembly-contract/runner.py composition --output build/assembly-con
 
 `baseline` 只执行目录中已纳入既有验证基线的 case；尚未纳入的目标断言显示 NOT_RUN。`gaps` 执行全部选中目标断言，实际失败返回 1；未来未实现项目继续保留为 TARGET_NOT_IMPLEMENTED，缺少目标测试显示 MISSING_TEST，不改成 PASS。两种检查都要求实际执行且成功的断言；空选择、拼错 ID、过时映射或零测试不能返回绿色结果。未执行、skip 或缺环境独立记录；选中的必需基线 case 未运行返回 2。可选集成环境阻塞不使数学/模型基线失效，但报告始终保留阻塞，不能称作集成通过。
 
+`interactionConfirmationReview20261011` 仅记录 `m4.operation.failure-outlet` 的人工断言审查：中间失败允许后续目标恢复，最终确认失败才产生每手势一次的提示，并验证真实归档身份及重试／取消动作。更新该实际执行通过的源摘要，没有改变 case、目标预期或覆盖下限，也没有重新生成整个冻结锁。
+
 `composition` 是更严格的收口门：全部选中 capability 的 `acceptanceStatus` 必须为 ACCEPTED，所有必需实现层和具体证据均齐全且实际通过。缺测、NOT_RUN、ENVIRONMENT_BLOCKED、缺 fixtures 或集成 skip 都不能返回绿色 COMPOSITION。筛选后的成功只证明该选择范围；完整验收必须运行无 capability/family/layer/adapters 缩范围的完整入口。baseline 通过不等于完整六族通过。
 
 定向选择可组合 capability、family、layer 和 case；未知值与交集为空报错：
@@ -97,6 +99,8 @@ python tests/assembly-contract/runner.py gaps --family Offset --adapters go,web,
 
 最后一条刻意不执行原生或数据库映射，报告明确 NOT_RUN，不是完整 Offset 验收。生产只支持当前定义/Quantity/policy/canonical 摘要，旧实验格式测试改为拒绝；旧格式拒绝测试的稳定 case ID 保留，baseline 的 closeoutReview 记录授权原因，未降低数学预期或覆盖下限。
 
+`baseline.assertionReview20261011` 记录当前显示绑定、候选生命周期、两位数值显示、原生测试资源与历史证据更新的逐项审查。仅同步已审查断言源码摘要，案例身份、目标预期、证据映射与实现下限保持原合同；新增移动手柄生命周期断言同样纳入源码锁。本次执行边界见[DMU 计划的验证记录](../../plans/kinematics-dmu.md)。
+
 ## 报告与性能边界
 
 报告派生自目录和实际结果，保存 commit/dirty、schema/version、命令/环境/选择、预期/观察、证据层与未执行/缺测/失败/阻塞。PASS 数量从报告生成，不永久手写多份。测试存在、历史运行、本次执行及维护者反馈分别标记。
@@ -113,4 +117,4 @@ python tests/assembly-contract/runner.py gaps --family Offset --adapters go,web,
 6. 释放拖动后立即点空白或选择另一组件，最终目标仍完成且只提交一次，不抢回选择；切换工具/修改命令等待结束，Esc 仍取消未提交操作。
 7. 剩余运动行鼠标/键盘选择即显示方向；缩放/窗口变化后箭头尺寸稳定，模型遮挡/透明/高亮下可见；小数噪声显示零，单位转换和真实微小值保留。WebGL 外观仍需实机验证。
 
-维护者确认装配主体能力具备，当前使用场景下拖拽与约束较为稳定；交互和显示仍有暂缓细节，集中见[后续工作](../../plans/README.md#装配暂缓问题)。自动检查不代替实机视觉验收，不补造截图、测试版本或工业/性能结论。
+装配主体能力按当前开发合同验证；实际闭环操纵、异常恢复和显示需结合具体输入验收，已运行范围见[机构实施记录](../../plans/kinematics-dmu.md#验证记录)。暂缓细节集中见[后续工作](../../plans/README.md#装配暂缓问题)。自动检查不代替实机视觉验收，不补造截图、测试版本或工业/性能结论。

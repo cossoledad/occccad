@@ -710,19 +710,26 @@ export function Workbench() {
   const canEdit = !motionOpen && !motionDisplay && Boolean(editSession) && (editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR");
   const canEditRoot = !motionDisplay && (view?.document.permission === "OWNER" || view?.document.permission === "EDITOR");
   const canDeleteMotionResult=!motionDisplay&&!motionCommandActive&&store.selections.length>0&&store.selections.every(s=>s.kind==="kinematic-object"&&s.entityKind==="MOTION_RESULT"&&motionJobs.data?.some(j=>j.id===s.id&&["SUCCEEDED","FAILED","CANCELED"].includes(j.state)));
-  const commandFacts={canDeleteMotionResult,rootTarget:Boolean(view&&editingView?.document.id===view.document.id),motionActive:Boolean(motionOpen&&view&&editingView?.document.id===view.document.id&&!store.activeSketchID),isMock:isMockMode,moveReceiptPending,hostType:view?.document.type??"PART",targetType:editingView?.document.type??"PART",sketchActive:Boolean(store.sketchPlane),canEdit,rootCanEdit:canEditRoot,busy:command.isPending,selectionKind:store.selection?.kind??"",selectionCount:store.selections.length,hasWorkingBody:Boolean(workingBodyID)};
+  // Route rendering precedes the layout cleanup of the previous tab. A sketch
+  // belongs to the active edit session; a previous Part's store state must not
+  // select an impossible Product/Sketcher catalog context during that render.
+  const sketchContextActive=Boolean(editSession&&editingView?.part&&store.sketchPlane&&store.activeSketchID);
+  const commandFacts={canDeleteMotionResult,rootTarget:Boolean(view&&editingView?.document.id===view.document.id),motionActive:Boolean(motionOpen&&view&&editingView?.document.id===view.document.id&&!sketchContextActive),isMock:isMockMode,moveReceiptPending,hostType:view?.document.type??"PART",targetType:editingView?.document.type??"PART",sketchActive:sketchContextActive,canEdit,rootCanEdit:canEditRoot,busy:command.isPending,selectionKind:store.selection?.kind??"",selectionCount:store.selections.length,hasWorkingBody:Boolean(workingBodyID)};
   const activeTabs=toolbarCatalog.data?contextTabs(toolbarCatalog.data,commandFacts):[];
  const activeWorkbench=activeTabs[0]?.workbench??"";
  const setMotionOpen=(open:boolean)=>{const selected=view?.product?.kinematics?.mechanisms.find(m=>store.selection?.kind==='kinematic-object'&&store.selection.id===m.id)?.id;commandRegistry.cancel();closeCommandPanels();store.setActiveTool("select","once");store.setSelections([]);setMotionSession(open?documentID:undefined);if(open)void motionPanel.current?.execute("enter",selected);};
  const restoredMotionDocument=useRef<string|undefined>(undefined);
  useEffect(()=>{
-  if(!view?.product||restoredMotionDocument.current===documentID)return;
-  restoredMotionDocument.current=documentID;
+  if(!view?.product||document.isLoading||!editSession||!motionPanel.current||restoredMotionDocument.current===documentID)return;
   const params=new URLSearchParams(window.location.search),id=params.get('mechanismId');
   const m=view.product.kinematics?.mechanisms.find(m=>m.id===id);
-  if(params.get('application')==='mechanism'&&m){motionSources.current=restoredApplicationSources(view,m,params);setMotionSession(documentID);void motionPanel.current?.execute('resume',m.id)}
+  // Activate the panel before restoring its application. Its inactive cleanup
+  // (including React's initial effect replay) must not invalidate that restore.
+  if(params.get('application')==='mechanism'&&m&&!motionOpen){setMotionSession(documentID);return;}
+  restoredMotionDocument.current=documentID;
+  if(params.get('application')==='mechanism'&&m){motionSources.current=restoredApplicationSources(view,m,params);void motionPanel.current.execute('resume',m.id)}
   else if(params.get('application')==='mechanism'){const url=new URL(window.location.href);for(const key of ['application','mechanismId','mechanismSources','applicationRevision'])url.searchParams.delete(key);window.history.replaceState(null,'',url);message.warning('所选机械装置已不存在，已返回装配设计');}
- },[documentID,view?.product]);
+ },[documentID,view?.product,document.isLoading,editSession,motionOpen]);
  const previousMotionOpen=useRef(motionOpen);
  useEffect(()=>{if(previousMotionOpen.current&&!motionOpen){commandRegistry.cancel();store.setActiveTool("select","once");store.setSelections([])}previousMotionOpen.current=motionOpen;},[motionOpen,commandRegistry]);
 

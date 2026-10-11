@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -160,18 +161,27 @@ func interactionFrozenConstraints(input AssemblySolveManifest) ([]geometry.Assem
 	return out, nil
 }
 
-func (service *Service) BeginAssemblyInteraction(ctx context.Context, documentID, actor string, input AssemblyInteractionBegin) (AssemblyInteractionOpened, error) {
+func (service *Service) BeginAssemblyInteraction(ctx context.Context, documentID, actor string, input AssemblyInteractionBegin) (_ AssemblyInteractionOpened, returnErr error) {
+	diagnostic := service.newOperationDiagnostic(ctx, documentID, CommandRequest{Type: "ASSEMBLY_INTERACTION_BEGIN", RequestID: newID("assembly-begin"), ActorID: actor, InstanceID: input.InstanceID}, "ASSEMBLY")
+	defer func() { service.finishOperationDiagnostic(ctx, diagnostic, nil, nil, &returnErr) }()
 	// Retained caller pointers must not mutate the Session snapshot or indices.
 	owned, err := valuecopy.Clone(input)
 	if err != nil {
 		return AssemblyInteractionOpened{}, fmt.Errorf("%w: invalid Begin snapshot: %v", ErrValidation, err)
 	}
 	input = owned
+	if diagnostic != nil {
+		diagnostic.InteractionBegin = &input
+	}
 
 	// Reuse the production command adapter and authoritative Workspace snapshot.
 	prepared, err := service.prepareDomainMutation(ctx, documentID, CommandRequest{Type: "MOVE_INSTANCE", ActorID: actor, InstanceID: input.InstanceID, Rotation: [4]float64{0, 0, 0, 1}})
 	if err != nil {
 		return AssemblyInteractionOpened{}, err
+	}
+	if diagnostic != nil {
+		diagnostic.prepared(prepared)
+		diagnostic.stage("BEGIN_ASSEMBLY_INTERACTION")
 	}
 	if prepared.documentType != "PRODUCT" || input.BaseRevisionID == "" || input.BaseRevisionID != prepared.headRevision {
 		return AssemblyInteractionOpened{}, fmt.Errorf("%w: ASSEMBLY_SESSION_BASE_CHANGED", ErrValidation)
@@ -470,8 +480,28 @@ func (service *Service) checkInteractionBase(ctx context.Context, s *assemblyInt
 	return service.validateInteractionEditContext(ctx, s.documentID, s.baseRevisionID, s.editContext)
 }
 
-func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentID, actor string, input AssemblyInteractionUpdate) (AssemblyInteractionFrame, error) {
+func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentID, actor string, input AssemblyInteractionUpdate) (frame AssemblyInteractionFrame, returnErr error) {
 	defer perf.Start(ctx, "assembly-update")()
+	requestID := newID("assembly-drag")
+	diagnostic := service.newOperationDiagnostic(ctx, documentID, CommandRequest{Type: "ASSEMBLY_INTERACTION_UPDATE", RequestID: requestID, ActorID: actor, SessionID: input.SessionID, InteractionTarget: &input.Target}, "ASSEMBLY")
+	if diagnostic != nil {
+		diagnostic.InteractionUpdate = &input
+	}
+	defer func() {
+		if returnErr != nil {
+			service.finishOperationDiagnostic(ctx, diagnostic, nil, nil, &returnErr)
+			return
+		}
+		if input.Final && frame.Interaction != nil && !frame.Interaction.EligibleForCommit && frame.Interaction.Status != "CANCELLED" {
+			failure := error(&assemblySolveFailure{status: frame.Interaction.Status, code: "ASSEMBLY_INTERACTION_UNCONFIRMED", phase: frame.Interaction.TerminationStage, diagnostic: frame.Interaction.TerminationReason})
+			service.finishOperationDiagnostic(ctx, diagnostic, nil, nil, &failure)
+			frame.EvaluationFailure = &AssemblyEvaluationFailure{Code: "ASSEMBLY_INTERACTION_UNCONFIRMED", Phase: frame.Interaction.TerminationStage, Retryable: true}
+			var retained interface{ DiagnosticID() string }
+			if errors.As(failure, &retained) {
+				frame.EvaluationFailure.DiagnosticID = retained.DiagnosticID()
+			}
+		}
+	}()
 	cache := &service.assemblyInteractions
 	finishLock := perf.Start(ctx, "assembly-session-lock-wait")
 	cache.mu.Lock()
@@ -520,6 +550,11 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	frozen.DragTarget = &target
 	frozen.InteractionGoalSequence = goal
 	cache.mu.Unlock()
+	if diagnostic != nil {
+		diagnostic.BaseRevisionID = s.baseRevisionID
+		diagnostic.BaseModel, _ = json.Marshal(s.product)
+		diagnostic.stage("SOLVE_ASSEMBLY_INTERACTION")
+	}
 	frozen.Digest = assemblyManifestDigest(frozen)
 	finishPrepare()
 	finishPrepare = nil
@@ -536,8 +571,15 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 		return AssemblyInteractionFrame{}, err
 	}
 	started := time.Now()
-	requestID := newID("assembly-drag")
-	result, err := service.solveInteractionTrajectory(work, requestID, frozen)
+	var capture func([]byte, error)
+	if diagnostic != nil {
+		capture = func(data []byte, err error) {
+			if err == nil {
+				diagnostic.recordAssemblyAttempt(data)
+			}
+		}
+	}
+	result, err := service.solveInteractionTrajectory(work, requestID, frozen, capture)
 	if err != nil {
 		return AssemblyInteractionFrame{}, err
 	}
@@ -556,7 +598,7 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	// The global lock protects lifecycle and tokens only; no DB/RPC/JSON work
 	// below holds it. Cancellation can revoke membership at any point.
 	defer perf.Start(ctx, "assembly-update-publish")()
-	frame := AssemblyInteractionFrame{CommandPreview: CommandPreview{BaseVersionID: s.baseRevisionID, BaseSequence: s.baseSequence, AssemblySolverBuild: result.SolverBuild, AssemblyComponents: result.Components}, SessionID: input.SessionID, InputDigest: s.inputDigest, Sequence: input.Sequence, RequestID: requestID, Interaction: result.Interaction, SolveMS: float64(time.Since(started).Microseconds()) / 1000}
+	frame = AssemblyInteractionFrame{CommandPreview: CommandPreview{BaseVersionID: s.baseRevisionID, BaseSequence: s.baseSequence, AssemblySolverBuild: result.SolverBuild, AssemblyComponents: result.Components}, SessionID: input.SessionID, InputDigest: s.inputDigest, Sequence: input.Sequence, RequestID: requestID, Interaction: result.Interaction, SolveMS: float64(time.Since(started).Microseconds()) / 1000}
 	if result.Interaction == nil {
 		frame.GoalSequence = goal
 		return frame, fmt.Errorf("%w: missing interaction evidence", ErrValidation)

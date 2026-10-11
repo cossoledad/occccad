@@ -32,19 +32,28 @@ try {
  registry.registerMany=commands=>{registrations++;return register(commands);};
  const noop=()=>{},store={activeToolID:'select',selections:[],setActiveTool(id){this.activeToolID=id;}};
  const part={document:{id:'part',type:'PART',permission:'OWNER'},part:{features:[],axisSystems:[]}};
- const bindings={store,editingView:part,view:part,canEdit:true,canEditRoot:true,command:{isPending:false},treeNodes:[],viewport:{current:{fit(){fitted++;}}},closePanels(){closed++;},
+ const bindings={store,editingView:part,view:part,canEdit:true,canEditRoot:true,command:{isPending:false},treeNodes:[],viewport:{current:{fit(){fitted++;},async settleAssemblyInteraction(){}}},closePanels(){closed++;},
  startSketch:noop,finishSketch:noop,normalToSelection:noop,openSolidFeature(){opened++;},deleteTreeNodes:noop,executeHistory:noop,setConflictOpen:noop,setParameterManagerOpen:noop,setPublicationManagerOpen:noop,setInsertOpen:noop,setPatternOpen:noop,setReleaseOpen:noop,setVersionOpen:noop,setShareResource:noop,setSolidEditor:noop,setBooleanDialog:noop,setDatumEditor:noop,setEditingDatumId:noop,showMessage:noop};
  let facts={hostType:'PART',targetType:'PART',sketchActive:false,canEdit:true,rootCanEdit:true,busy:false,selectionKind:'',selectionCount:0,hasWorkingBody:true};
  function render(identity){refCursor=effectCursor=0;queue=[];useWorkbenchCommandRegistration(registry,bindings,builtinCatalog,facts,identity);for(const effect of queue)effect();}
  render('A');await registry.execute('part.pad');assert.equal(opened,1);assert.equal(closed,1);
  facts={...facts,selectionCount:1};render('A');assert.equal(closed,1,'selection refresh preserves current command');assert.equal(registrations,1);
  render('B');assert.equal(closed,2,'changed target cancels and cleans previous form');
- await registry.execute('view.fit');bindings.viewport.current={fit(){fitted+=10;}};render('B');await registry.execute('view.fit');assert.equal(fitted,11,'one registration reads current bindings');
+ await registry.execute('view.fit');bindings.viewport.current={fit(){fitted+=10;},async settleAssemblyInteraction(){}};render('B');await registry.execute('view.fit');assert.equal(fitted,11,'one registration reads current bindings');
  await registry.execute('part.pad');bindings.formActive=true;render('B');assert.equal(registry.state('part.pad').active,true);
  const beforeClose=closed;bindings.formActive=false;render('B');assert.equal(closed,beforeClose+1);assert.equal(registry.state('part.pad').active,false,'form close ends the operation');
  facts={...facts,sketchActive:true};store.sketchPlane={};render('B/sketch');await registry.execute('sketch.constraint.coincident');
  const beforeFinish=closed;store.activeToolID='select';bindings.toolContinuation=true;render('B/sketch');assert.equal(closed,beforeFinish,'tool-to-form continuation keeps its owned resources');
  bindings.toolContinuation=false;render('B/sketch');assert.equal(closed,beforeFinish+1,'finished tool releases resources once');render('B/sketch');assert.equal(closed,beforeFinish+1);
+ // Restarting a tool first disposes the old invocation (select), then waits on
+ // the viewport end barrier. That intermediate render cannot finish the new tool.
+ const savedFacts=facts;facts={...facts,hostType:'PRODUCT',targetType:'PRODUCT',sketchActive:false};render('move');
+ await registry.execute('assembly.move');render('move');assert.equal(store.activeToolID,'assembly.move');
+ let finishMove;bindings.viewport.current.settleAssemblyInteraction=()=>new Promise(resolve=>finishMove=resolve);
+ const restarting=registry.execute('assembly.move');render('move');assert.equal(store.activeToolID,'select');
+ finishMove();assert.equal(await restarting,true,'waiting tool survives old select cleanup');assert.equal(store.activeToolID,'assembly.move');render('move');
+ const canceling=registry.execute('assembly.move');render('different-owner');finishMove();assert.equal(await canceling,false,'explicit context cancellation still wins');
+ bindings.viewport.current.settleAssemblyInteraction=async()=>{};facts=savedFacts;render('B/sketch');
  const node={key:'stable',documentId:'part',entityId:'feature',capabilities:['EDIT'],selection:{versionId:'revision-A'},instancePath:{canonical:'host/occurrence-A'}};
  assert.equal(resolveStructureNode([node],node),node);
  assert.throws(()=>resolveStructureNode([node],{...node,instancePath:{canonical:'host/occurrence-B'}}),/context changed/);

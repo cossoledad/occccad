@@ -16,9 +16,11 @@ import (
 // Operation diagnostics reuse the bounded debug repository, never Revision or
 // commit candidates. Capture the evaluated input, not whatever Head exists later.
 type OperationDiagnostic struct {
-	AssemblyAttempts       []json.RawMessage `json:"assemblyAttempts,omitempty"`
-	MetadataMissing        []string          `json:"metadataMissing,omitempty"`
-	AssemblyMissing        []string          `json:"assemblyMissing,omitempty"`
+	InteractionBegin       *AssemblyInteractionBegin  `json:"interactionBegin,omitempty"`
+	InteractionUpdate      *AssemblyInteractionUpdate `json:"interactionUpdate,omitempty"`
+	AssemblyAttempts       []json.RawMessage          `json:"assemblyAttempts,omitempty"`
+	MetadataMissing        []string                   `json:"metadataMissing,omitempty"`
+	AssemblyMissing        []string                   `json:"assemblyMissing,omitempty"`
 	assemblyBytes          int
 	AssemblyManifestDigest string                   `json:"assemblyManifestDigest,omitempty"`
 	ExcludedConstraintIDs  []string                 `json:"excludedConstraintIds,omitempty"`

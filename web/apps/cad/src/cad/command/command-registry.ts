@@ -10,8 +10,14 @@ export class CommandCleanupError extends AggregateError {
 export class CommandOperation {
  private readonly controller=new AbortController();
  private readonly disposers:(()=>void)[]=[];
+ private preparationDepth=0;
  get signal():AbortSignal{return this.controller.signal;}
  get current():boolean{return !this.signal.aborted;}
+ get preparing():boolean{return this.preparationDepth>0;}
+ async prepare(readiness:()=>Promise<void>):Promise<void>{
+  this.preparationDepth++;
+  try{await readiness();}finally{this.preparationDepth--;}
+ }
  own(dispose:()=>void):void {if(this.current)this.disposers.push(dispose);else dispose();}
  cancel():void {
   if(!this.current)return;
@@ -74,9 +80,9 @@ export class CommandRegistry {
   if(errors.length)throw new CommandCleanupError(errors);
  }
  cancel():void {const previous=this.operation;this.operation=undefined;this.operationID=undefined;if(previous){this.invocations.delete(previous);previous.cancel();}}
- completeForm(active:boolean):void {if(!active&&this.operationID&&this.declarations.get(this.operationID)?.implementation==='form')this.cancel();}
+ completeForm(active:boolean):void {if(!active&&!this.operation?.preparing&&this.operationID&&this.declarations.get(this.operationID)?.implementation==='form')this.cancel();}
  completeTool(activeToolID:string):void {
-  if(this.operationID&&this.declarations.get(this.operationID)?.implementation==='tool'&&activeToolID==='select'&&this.operationID!=='tool.select')this.cancel();
+  if(!this.operation?.preparing&&this.operationID&&this.declarations.get(this.operationID)?.implementation==='tool'&&activeToolID==='select'&&this.operationID!=='tool.select')this.cancel();
  }
  declaration(id:string):CommandDeclaration|undefined{return this.declarations.get(id);}
  has(id:string):boolean{return this.commands.has(id);}

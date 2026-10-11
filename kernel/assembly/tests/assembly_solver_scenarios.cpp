@@ -53,6 +53,86 @@ Vec3 rotate(const Quaternion& q, const Vec3& vector) {
                 2.0 * q.w * cross.z};
 }
 
+TEST(AssemblySolver, ClosedFourBarDragAtLimitedTargetPreservesAuthority) {
+    // Immutable Worker input from the reported mechanism, before any repair.
+    Model model;
+    model.bodies = {
+        {"ground",{{0,0,0},{0,0,0,1}}},
+        {"crank",{{82.19380250631,140.97917448619305,1.5167713069756992},{0.12380478582444297,-3.35310548370306e-22,0.9923065932497698,8.097557054373036e-23}}},
+        {"rocker",{{249.99823335120135,48.24297736365988,214.28611446358863},{4.710609321324372e-22,0.2745131839229568,1.0992402594641696e-22,0.9615833358853932}}},
+        {"coupler",{{159.2338917288387,46.56990164237707,142.90666491494943},{-3.4808258132785277e-23,-0.7354300875119669,-3.801238422623448e-22,0.6776006097858389}}},
+    };
+    model.geometry = {
+        {"g000000","ground",PlaneGeometry{{-69.6288092933545,87.67976222246911,0},{0,-1,0}}},
+        {"g000001","ground",AxisGeometry{{530.3711907066455,87.67976222246911,40},{0,1,0}}},
+        {"g000002","ground",PlaneGeometry{{-69.6288092933545,87.67976222246911,0},{0,-1,0}}},
+        {"g000003","ground",AxisGeometry{{-69.6288092933545,164.65351657665772,40},{0,-1,0}}},
+        {"g000004","crank",PlaneGeometry{{156.62395839816824,53.29941226372396,0},{0,1,0}}},
+        {"g000005","crank",AxisGeometry{{-93.37604160183177,53.29941226372396,0},{0,-1,0}}},
+        {"g000006","crank",AxisGeometry{{156.62395839816824,19.59888702074158,0},{0,1,0}}},
+        {"g000007","crank",PlaneGeometry{{156.62395839816824,53.29941226372396,0},{0,1,0}}},
+        {"g000008","rocker",AxisGeometry{{330.1282249536574,16.491746395502076,0},{0,1,0}}},
+        {"g000009","rocker",AxisGeometry{{-119.8717750463426,39.43678485880923,0},{0,-1,0}}},
+        {"g000010","rocker",PlaneGeometry{{330.1282249536574,39.43678485880923,0},{0,1,0}}},
+        {"g000011","rocker",PlaneGeometry{{330.1282249536574,39.43678485880923,0},{0,1,0}}},
+        {"g000012","coupler",AxisGeometry{{-164.88423138218155,41.10986058009204,0},{0,-1,0}}},
+        {"g000013","coupler",AxisGeometry{{135.11576861781842,16.969768030154313,0},{0,1,0}}},
+        {"g000014","coupler",PlaneGeometry{{135.11576861781842,41.10986058009204,0},{0,1,0}}},
+        {"g000015","coupler",PlaneGeometry{{135.11576861781842,41.10986058009204,0},{0,1,0}}},
+    };
+    auto c0 = binary("c0",ConstraintKind::Distance,ref("rocker","g000010"),ref("ground","g000002"));
+    c0.direction_relation = DirectionRelation::Opposite;
+    c0.distance_relation = DistanceRelation::SelectedPlaneNormal;
+    model.constraints.push_back(c0);
+    auto c1 = binary("c1",ConstraintKind::Concentric,ref("rocker","g000009"),ref("coupler","g000013"));
+    c1.direction_relation = DirectionRelation::Opposite;
+    model.constraints.push_back(c1);
+    auto c2 = binary("c2",ConstraintKind::Concentric,ref("coupler","g000012"),ref("crank","g000005"));
+    c2.direction_relation = DirectionRelation::Opposite;
+    model.constraints.push_back(c2);
+    auto c3 = binary("c3",ConstraintKind::Distance,ref("rocker","g000011"),ref("coupler","g000014"));
+    c3.direction_relation = DirectionRelation::Same;
+    c3.distance_relation = DistanceRelation::SelectedPlaneNormal;
+    model.constraints.push_back(c3);
+    auto c4 = binary("c4",ConstraintKind::Distance,ref("coupler","g000015"),ref("crank","g000004"));
+    c4.direction_relation = DirectionRelation::Opposite;
+    c4.distance_relation = DistanceRelation::SelectedPlaneNormal;
+    model.constraints.push_back(c4);
+    model.constraints.push_back(fix("ground"));
+    auto c6 = binary("c6",ConstraintKind::Distance,ref("crank","g000007"),ref("ground","g000000"));
+    c6.direction_relation = DirectionRelation::Same;
+    c6.distance_relation = DistanceRelation::SelectedPlaneNormal;
+    model.constraints.push_back(c6);
+    auto c7 = binary("c7",ConstraintKind::Concentric,ref("crank","g000006"),ref("ground","g000003"));
+    c7.direction_relation = DirectionRelation::Same;
+    model.constraints.push_back(c7);
+    auto c8 = binary("c8",ConstraintKind::Concentric,ref("rocker","g000008"),ref("ground","g000001"));
+    c8.direction_relation = DirectionRelation::Same;
+    model.constraints.push_back(c8);
+    const auto nominal = model.bodies;
+    DragTarget target;
+    target.body_id = "crank";
+    target.target_pose = {{90.19380250631,140.97917448619305,1.5167713069756992},{0.12380478582444297,-3.35310548370306e-22,0.9923065932497698,8.097557054373036e-23}};
+    target.translation_components = {true,false,false};
+    target.rotation_components = {false,false,false};
+    target.hold_translation_components = {false,true,true};
+    target.hold_rotation_components = {true,true,true};
+    target.target_sequence = 2;
+    SolverOptions options; options.drag_target = target;
+    const auto result = Solver{}.solve(model,options);
+    ASSERT_TRUE(result.interaction.has_value());
+    EXPECT_TRUE(result.interaction->hard_feasible);
+    EXPECT_TRUE(result.interaction->target_converged) << result.interaction->termination_reason;
+    EXPECT_TRUE(result.interaction->eligible_for_commit);
+    EXPECT_EQ(result.interaction->status,InteractionStatus::Constrained);
+    EXPECT_LE(result.interaction->target_optimality,options.preference_tolerance);
+    EXPECT_TRUE(result.unsatisfied_constraint_ids.empty());
+    EXPECT_DOUBLE_EQ(pose(result,"ground").translation.x,0);
+    EXPECT_NEAR(result.interaction->target_error,3.1986534017,1e-6);
+    EXPECT_DOUBLE_EQ(model.bodies[1].initial_pose.translation.x,nominal[1].initial_pose.translation.x);
+}
+
+
 TEST(AssemblySolver, CompiledEndpointsDoNotHashLongIdentitiesInNumericalLoops) {
     const std::string id(8192, 'x');
     Model model;
@@ -1541,6 +1621,46 @@ TEST(AssemblyComposition, DirectionRelationsEscapeStationaryInitialAlignment) {
         EXPECT_EQ(result.components[0].jacobian_rank, kind == ConstraintKind::Parallel ? 2U : 1U);
         EXPECT_NEAR(pose(result, "moving").translation.z, 7.0, 1e-7);
     }
+}
+
+// Numerical supports/poses from CAD_DIAGNOSTIC .../20261011T115647:
+// attach the next link at antipodal axes while preserving the preceding joint.
+TEST(AssemblyComposition, MechanismAntipodalAttachmentPreservesExistingJoint) {
+    Model model;
+    model.bodies = {{"ground", {}},
+                    {"link", {{-225.3657198202588,140.97917448619307,23.35430855007381},
+                              {0.9985831083072423,-1.4952777560499189e-24,0.053214432285299464,4.152767648803866e-25}}},
+                    {"next", {{310.4230633722234,0,212.10197887831688}, {}}},
+                    {"environment", {}}};
+    model.geometry = {{"plane","ground",PlaneGeometry{{-69.6288092933545,87.67976222246911,0},{0,-1,0}}},
+                      {"axis","ground",AxisGeometry{{-69.6288092933545,164.65351657665772,40},{0,-1,0}}},
+                      {"axis","link",AxisGeometry{{156.62395839816824,19.59888702074158,0},{0,1,0}}},
+                      {"plane","link",PlaneGeometry{{156.62395839816824,53.29941226372396,0},{0,1,0}}},
+                      {"next-axis","link",AxisGeometry{{-93.37604160183177,53.29941226372396,0},{0,-1,0}}},
+                      {"axis","next",AxisGeometry{{-119.8717750463426,39.43678485880923,0},{0,-1,0}}}};
+    auto offset = binary("offset",ConstraintKind::Distance,ref("link","plane"),ref("ground","plane"));
+    offset.distance_relation = DistanceRelation::SelectedPlaneNormal;
+    offset.direction_relation = DirectionRelation::Same;
+    auto previous = binary("previous",ConstraintKind::Concentric,ref("link","axis"),ref("ground","axis"));
+    previous.direction_relation = DirectionRelation::Same;
+    auto attach = binary("attach",ConstraintKind::Concentric,ref("link","next-axis"),ref("next","axis"));
+    attach.direction_relation = DirectionRelation::Same;
+    model.constraints = {fix("environment"),fix("ground"),offset,previous,attach};
+    const auto nominal = model.bodies;
+    for (const bool reverse : {false,true}) {
+        Model input = model;
+        if (reverse) std::swap(input.constraints.back().first,*input.constraints.back().second);
+        SolverOptions options; options.max_iterations = 100;
+        const auto result = Solver{}.solve(input,options);
+        ASSERT_EQ(result.status,SolveStatus::Converged) << result.diagnostic;
+        EXPECT_LT(result.normalized_residual,1e-6);
+        EXPECT_TRUE(result.unsatisfied_constraint_ids.empty());
+        EXPECT_NEAR(pose(result,"ground").translation.x,0,1e-9);
+        for (const auto& component : result.components)
+            EXPECT_EQ(component.preference.status,PreferenceStatus::Converged);
+    }
+    EXPECT_DOUBLE_EQ(model.bodies[1].initial_pose.translation.x,nominal[1].initial_pose.translation.x);
+    EXPECT_FALSE(model.bodies[1].initial_guess.has_value());
 }
 
 

@@ -66,7 +66,11 @@ MOTION_SNAPSHOT → MOTION_STUDY Job → MOTION_RUN 使用现有 attempt/lease/d
 
 机构与 DMU 提供原有“移动组件”三维操纵器，仅在已确认机构且无定义／回放对话框时启用。AssemblyInteractionBegin 绑定 mechanismId、有序 sourceMechanismIds、Head 和编辑上下文；从各机构 accepted / 当前 Product 非成员位姿构建 nominal，只编译目标机构的正式约束，不继承 Product 方程。Frame 更新使用原 solver Session、合并目标、取消、连续分支、硬见证和最终目标门；检查接合闭合及限位。拖动期间应用 accepted 刷新不覆盖已确认预览。
 
-final 候选经现有机构预览核验成员范围的自由度与驱动资格，保留操纵最终目标的已验证位姿，仅采纳对应求解状态，避免后续刷新补写历史。提交期间复用定义命令的刷新保护，实时更新不触发另一轮应用切换。候选只修改 product.kinematics 的成员 accepted；移动非成员将其纳入当前机构。Product Instances/Constraints 从冻结原模型恢复，其余机构不变。服务端生成受原 actor/Session/final target/token/CAS 保护的 SAVE_KINEMATICS，客户端提交原请求；普通 SAVE 仍执行权威绑定与求解，只有匹配 Session 候选可采用已求解帧。一次 Undo/Redo 恢复成员与位姿；退出再按 Product 关系重新求解，未操作空机构可清理，移动过的机构保留。
+final 候选经现有机构预览核验成员范围的自由度与驱动资格，保留操纵最终目标的已验证位姿，仅采纳对应求解状态，避免后续刷新补写历史。提交期间复用定义命令的刷新保护，实时更新不触发另一轮应用切换；不进入定义对话框的忙碌状态。权威刷新重建对象后，视口结束屏障恢复当前选择的手柄，允许连续拖动；模型工具切换等待屏障。候选只修改 product.kinematics 的成员 accepted；移动非成员将其纳入当前机构。Product Instances/Constraints 从冻结原模型恢复，其余机构不变。服务端生成受原 actor/Session/final target/token/CAS 保护的 SAVE_KINEMATICS，客户端提交原请求；普通 SAVE 仍执行权威绑定与求解，只有匹配 Session 候选可采用已求解帧。一次 Undo/Redo 恢复成员与位姿；退出再按 Product 关系重新求解，未操作空机构可清理，移动过的机构保留。
+
+闭环移动在受限目标附近复用内核的 driven 曲率下降方向，仍须通过完整硬约束和最终候选门禁；不能将中间可行预览直接保存。交互异常与未确认最终帧归档原始 Begin/Update、冻结机构基准及真实数值尝试，前端保留诊断引用。失败后的显式取消恢复最新权威机构位置并挂回当前选择的手柄。
+
+通过链接恢复机构时，先等待文档和编辑上下文完成，再激活机构面板，随后执行权威恢复。面板尚未挂载或仍处于非活动清理阶段时不标记恢复完成，避免初始化清理使恢复结果失效、只显示机构工作台而未建立可操纵会话。
 
 ## 显式转换为产品约束
 

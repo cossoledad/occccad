@@ -67,5 +67,18 @@ try{
  engine.moveNominalBase={documentId:"assembly",revisionId:"old-head"};
  engine.moveNominalScene=new Map([["a",{position:new THREE.Vector3(100,100,100),rotation:new THREE.Quaternion(),scale:new THREE.Vector3(1,1,1)}]]);
  engine.restoreMoveNominalScene();assert.deepEqual(a.position.toArray(),[2,3,0]);assert.equal(engine.moveNominalScene,undefined);
+ // A same-document refresh may detach the old Group during its own receipt.
+ // The end barrier restores a handle on the live selection, without reselecting
+ // or restarting the command; the next gesture binds the new Head.
+ let finish;
+ engine.selected=[{kind:'instance',id:'a',instanceId:'a'}];engine.activeToolID='assembly.move';
+ engine.moveInteraction={finish:()=>new Promise(resolve=>finish=resolve),hasUncommittedFinal:false,
+  committing(){this.state='committing'},committed(){this.state='committed'},begin(input){begun=input}};
+ engine.callbacks={instanceMoved:async()=>{manipulator.detach();engine.moveTarget=undefined;engine.view=fresh;}};
+ engine.finishMovePreviewGesture();finish({previewId:'final',unchanged:false});
+ await engine.moveFinalization;await Promise.resolve();
+ assert.equal(manipulator.isAttached(),true,'receipt keeps the continuous move handle');
+ assert.equal(engine.moveTarget.group,a);assert.equal(engine.activeToolID,'assembly.move');
+ engine.beginMovePreviewGesture();assert.equal(begun.baseRevisionId,'new');
  manipulator.dispose();engine.transforms.stopAll();
 }finally{await server.close();}

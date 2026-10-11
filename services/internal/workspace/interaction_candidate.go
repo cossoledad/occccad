@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -122,6 +123,9 @@ func (cache *interactionCandidateCache) put(value interactionCandidate) {
 	}
 	value.nextJSON = append(json.RawMessage(nil), value.nextJSON...)
 	value.intentPayload = append(json.RawMessage(nil), value.intentPayload...)
+	if len(value.intentPayload) > 0 {
+		value.payloadDigest = candidateIntentDigest(value.intentPayload)
+	}
 	value.changes = cloneCandidateChanges(value.changes)
 	cache.values[value.id] = value
 }
@@ -160,7 +164,7 @@ func (cache *interactionCandidateCache) takeDiagnosed(id, documentID string, pre
 			return interactionCandidate{}, check.reason
 		}
 	}
-	actual := modelcore.ValueDigest(prepared.command.Payload)
+	actual := candidateIntentDigest(prepared.command.Payload)
 	if value.payloadDigest != actual {
 		return interactionCandidate{}, fmt.Sprintf("intent_digest_mismatch expected=%s actual=%s paths=%s", value.payloadDigest, actual,
 			strings.Join(candidateChangedPaths(value.intentPayload, prepared.command.Payload), ","))
@@ -169,6 +173,43 @@ func (cache *interactionCandidateCache) takeDiagnosed(id, documentID string, pre
 	value.nextJSON = append(json.RawMessage(nil), value.nextJSON...)
 	value.changes = cloneCandidateChanges(value.changes)
 	return value, ""
+}
+
+// JSON.stringify changes numeric -0 into 0, including opaque Quantity source
+// literals. They are the same exact value. Normalize only signed zero for this
+// transient token; persistent model/history digests and every nonzero decimal
+// remain unchanged (no float rounding, tolerance or underflow equivalence).
+func candidateIntentDigest(payload json.RawMessage) string {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	var decoded any
+	if decoder.Decode(&decoded) != nil {
+		return modelcore.ValueDigest(payload)
+	}
+	var normalize func(any) any
+	normalize = func(value any) any {
+		switch v := value.(type) {
+		case json.Number:
+			mantissa := strings.FieldsFunc(string(v), func(r rune) bool { return r == 'e' || r == 'E' })[0]
+			if strings.HasPrefix(mantissa, "-") && strings.Trim(mantissa[1:], "0.") == "" {
+				return json.Number("0")
+			}
+		case map[string]any:
+			for key, item := range v {
+				v[key] = normalize(item)
+			}
+		case []any:
+			for i, item := range v {
+				v[i] = normalize(item)
+			}
+		}
+		return value
+	}
+	canonical, err := json.Marshal(normalize(decoded))
+	if err != nil {
+		return modelcore.ValueDigest(payload)
+	}
+	return modelcore.ValueDigest(canonical)
 }
 
 func candidateChangedPaths(expected, actual []byte) []string {

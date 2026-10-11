@@ -230,8 +230,10 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  };
  const adoptDefinition=(updated:DocumentView)=>{ownedRevision.current=updated.document.versionId;if(activeMechanismId.current)untouchedMechanisms.current.delete(activeMechanismId.current);adopt(updated)};
  useImperativeHandle(ref,()=>({execute,closeCommand,removeResult:id=>{if(jobId===id){loaded.current=undefined;closeCommand();setJobId(undefined);setRun(undefined);setIndex(0)}},enabled,adoptDefinition,commitManipulation:async commit=>{
-  savingDefinition.current=true;setCommandPending(true);
-  try{const updated=await commit();adoptDefinition(updated);return updated}finally{savingDefinition.current=false;setCommandPending(false)}
+  // A drag owns the existing viewport finalization barrier, not a modal form.
+  // Protect its owned Head refresh without changing toolbar/form availability.
+  savingDefinition.current=true;
+  try{const updated=await commit();adoptDefinition(updated);return updated}finally{savingDefinition.current=false}
  },adoptProduct:updated=>{activeMechanismId.current=undefined;acceptedMechanism.current=undefined;release(true);closeCommand(false,true);adopt(updated)}}));
  useEffect(()=>onCommandState(Boolean(active&&(action||commandPending||pending))),[active,action,commandPending,pending,onCommandState]);
  useEffect(()=>{registry.notifyStateChanged()},[registry,active,pending,commandPending,canEdit,applicationQualified,showing,playing,run,index,study,selectedMechanism,job,defs]);

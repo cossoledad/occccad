@@ -94,6 +94,25 @@ func TestInteractionCandidateDiagnosticsPreserveStrictIntent(t *testing.T) {
 	}
 }
 
+func TestInteractionCandidateSignedZeroBrowserRoundTrip(t *testing.T) {
+	server := json.RawMessage(`{"mechanisms":[{"constraints":[{"quantityParameter":{"source":{"literal":{"siValue":-0}},"evaluatedValue":{"siValue":-0}}}]}],"tiny":-1e-1000,"identity":"-0"}`)
+	browser := json.RawMessage(`{"mechanisms":[{"constraints":[{"quantityParameter":{"source":{"literal":{"siValue":0}},"evaluatedValue":{"siValue":0}}}]}],"tiny":-1e-1000,"identity":"-0"}`)
+	p := preparedDomainMutation{actorID: "actor", headRevision: "base", headSequence: 3, command: modelcore.DomainCommand{TypeURI: typeSetKinematics, Payload: browser}}
+	var cache interactionCandidateCache
+	cache.put(interactionCandidate{id: "zero", documentID: "doc", actorID: p.actorID, headRevision: p.headRevision, headSequence: p.headSequence, commandType: p.command.TypeURI, payloadDigest: modelcore.ValueDigest(server), intentPayload: server, expiresAt: time.Now().Add(time.Minute)})
+	if _, reason := cache.takeDiagnosed("zero", "doc", p); reason != "" {
+		t.Fatal(reason)
+	}
+	if modelcore.ValueDigest(server) == modelcore.ValueDigest(browser) {
+		t.Fatal("persistent digest unexpectedly changed")
+	}
+	for _, changed := range []string{strings.Replace(string(browser), `"siValue":0`, `"siValue":0.000000001`, 1), strings.Replace(string(browser), `"tiny":-1e-1000`, `"tiny":0`, 1), strings.Replace(string(browser), `"identity":"-0"`, `"identity":"0"`, 1)} {
+		if candidateIntentDigest(server) == candidateIntentDigest(json.RawMessage(changed)) {
+			t.Fatal("changed intent accepted", changed)
+		}
+	}
+}
+
 func TestPreviewAccessAndCancellationAreActorScoped(t *testing.T) {
 	service := &Service{}
 	value := interactionCandidate{id: "preview", documentID: "doc", actorID: "actor", geometryKey: "geometry", expiresAt: time.Now().Add(time.Minute)}

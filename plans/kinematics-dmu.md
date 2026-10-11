@@ -27,6 +27,28 @@
 
 ## 验证记录
 
+2026-10-11 已有闭环机构的最终确认与恢复修复：
+
+- 维护者提供的 Product／机构链接实际包含 Ground、四个 Revolute、physical DOF=1 和两个 Command，Product 约束为空。上一轮的自由成员移动验收没有覆盖这个闭环。保留原文档 Head，通过正式 API/WebSocket 对三个可动成员分别执行 Begin、非最终 Update、同目标 Final 和取消，真实捕获 crank 的 `BUDGET / NO_DESCENT`：硬约束已满足，但最终最优性约 `1.84e-6`，未产生合法候选。
+- 冻结原始数值输入归档 `20261011T130857.279374455Z-fc85af9501572de3`，提取原生回归及原样重放。受限非零最小值附近，Gauss–Newton 的目标 Jacobian 趋零，过大方向在限步回溯后无法完成驻点确认。增加硬约束零空间内的 driven Lagrangian 曲率下降方向，保留原精度、优先级、预算与候选门禁。原样 Worker 重放由 `FEASIBLE_PREFERENCE_NOT_CONVERGED` 转为 `FEASIBLE / CONSTRAINED`，14 次迭代，最优性 `1.25e-12`，硬误差 `1.33e-13`；受限残差仍为约 3.20 mm。相同原文档 API 输入的最终同目标确认生成合法候选。该测量针对保留输入，不推断全部闭环分支或性能容量。
+- Begin/Update 失败和未合格 Final 复用有界诊断归档，记录原输入、冻结基准与真实数值请求序列；`evaluationFailure` 和 WebSocket 透传实际诊断 ID/阶段/错误码。中间失败允许后续目标恢复，不提前消耗每手势一次的最终失败提示；显式取消恢复当前权威位姿并挂回移动手柄。
+- 直接链接恢复先等待 Document/EditSession 和机构面板挂载，再激活面板、执行权威恢复；避免初始非活动清理使异步恢复失效。新的真实浏览器会话验证上述链接流程，使用正式命令创建独立副本、保留原 Part 几何／机构定义和两条 Command，真实视图区拾取 crank，连续三次拖动并松开，不重启工具或重新拾取。每次产生新 Head，Product Instances 保持原值，显示与已保存机构位姿一致，手柄保留且工具栏无瞬时全禁用；刷新后机构定义和位姿保持。实际失败经 WebSocket 传到诊断窗口，剪贴板得到一条 `CAD_DIAGNOSTIC … VALIDATION_FAILED`，对应归档可通过正式接口读取。用例通过（1.3 min），截图 `build/acceptance/dmu-closed-fourbar-move.png` 已查看。原文档 Head 没有变化。
+- 新增 Engine/Controller 恢复场景验证最终失败保留预览且不提交、取消恢复权威基准、重新挂接手柄及下一手势重新 Begin。原生领域 232 项、完整 workspace、正式 Router 交互／取消／历史、新增 WebSocket 诊断测试、合同完整性 22 项和 `m4.operation.failure-outlet` 专项均通过。该合同仅更新经人工审查的一个断言源码摘要，保持全部 case、预期与覆盖下限。日志及冻结输入位于 `build/diagnostics/dmu-move-confirmation/`。
+- 最终 `invoke check --scope web` 完整通过：108 个场景（324.5 s），TypeScript／生产构建（29.1 s）。扩大的 `invoke check --scope assembly` 中 C++ 构建和全域 CTest 通过，完整 workspace 通过；Go 集成门未通过：`TestCppWorkerShellAfterFilletAndMixedLoft/offset-rectangle-larger-circle` 的 Shell Offset 失败，以及 `TestEdgeVertexPersistentSelectionThroughRealRouter` 在 SQLite 使用 `information_schema.columns`／`to_jsonb`。这些检查涉及未改动的 Shell 几何和 PostgreSQL 专用测试 SQL，未扩展本轮修改或将专项通过称为完整集成通过；日志 `build/agent-logs/20261011-064251-481699201-assembly-go-integration.log`。最终 context-audit 和 diff 检查通过，开发 API／Jobs／Worker 使用最新构建，未清空应用数据库或 S3。
+
+2026-10-11 移动、接合与跨标签回归修复：
+
+- 文档 `01a12ac9-faf8-7535-b546-dbd3bbb91b33` 的 `115548.073741562Z-e8f7a14928e23892`、`115726.059827625Z-20472a4b085b0320` 两次失败均为最终候选意图摘要失配。冻结候选与浏览器命令的两个 Quantity `siValue` 从 `-0` 变为 `0`，其他字段一致。只在瞬态候选摘要中规范数字负零；身份、Session、Head/CAS、最终目标及所有非零参数仍精确验证，持久摘要不变。
+- 机构移动提交不再进入定义表单的全局忙碌状态；模型工具通过现有结束屏障等待提交。权威 Revision 重建场景对象时，提交结束后将手柄挂回当前选择；普通选择变化、取消和工具切换仍有效。实际 Engine 回归覆盖在途刷新与后续使用新 Head 开始拖动。
+- 重启工具时，旧命令清理会先产生 select 状态；新命令等待结束屏障时不能因此被 completeTool 提前取消。CommandOperation 的准备阶段屏蔽这类自动完成，显式取消与上下文失效继续生效；实际注册 hook 的可控屏障用例在修复前失败、修复后通过，并保留表单／连续工具清理断言。
+- 工作台上下文只采用当前宿主 EditSession / Part 的活动草图状态，避免标签切换的首帧把旧 Part 草图投影为 Product 的工作台。Mock 浏览器在保留草图编辑状态的情况下往返 Product / Part 两次通过；正式 API/Worker 浏览器也验证已建模 Part 的草图修改、Product 接受新引用版本、往返后恢复草图状态且无 pageerror。维护者暂未提供随机白屏的原始异常堆栈，本轮结论限定在这条已定位并验收的上下文路径。
+- `115647.064327977Z-6ba15b50499d8ae9` 的原始 Worker 输入为新接合轴线的反向对齐预览；原实现只转动首个可动端点，破坏它已有的接合。奇异初始化现在共同比较两端可动 cluster 的试探，对全部硬方程选择初值。原样输入通过最新生产 Router/Worker 回放：修复前 `MAX_ITERATIONS` / 100 次 / normalizedResidual `1.9484183304427463`，修复后 `CONVERGED` / 15 次 / `8.28640006286843e-14`，两个 component 的偏好均收敛。输入、容差及预算不变；此证据针对这次创建失败，不推断所有四连杆分支都能收敛。
+- 合同锁逐项审查显示绑定、候选生命周期、两位显示、原生资源及历史证据的源码变化，保留全部案例、数学预期、实现下限和覆盖要求；审查记录在 `baseline.assertionReview20261011`。`m4.snapshot.current-render-bindings` 实际执行通过；合同完整性 22 项通过，目录校验通过。
+- 原生装配领域 231 项通过，完整 workspace 包通过；相关正式 Router/Worker 的 Motion、Offset、Contact、Fix Together 与历史测试通过。Contact 的旧树名称断言改为完整正式名称与两端实例名的精确检查。
+- 最新源码的真实浏览器两项串行验收通过（2.3 min，现有开发数据库／S3／Release Worker／正式 API／软件 WebGL）：Part 修改、引用版本更新与草图状态恢复；多实例化三维拾取、机构中无关系成员三次拖动（后两次不重启工具或重新拾取）、手柄保留、工具栏无瞬时全禁用、一次 Undo/Redo 与退出后 Product Fix 恢复。实际截图 `build/acceptance/dmu-mechanism-move.png` 已查看。
+- 最终 `invoke check --scope web` 完整通过：107 个场景（241.0 s），TypeScript 与生产构建（20.5 s）。补齐旧轮廓 Inspector fixture 的 bodies 字段、同步统一两位显示的旧断言；相机／会话 fixture 隔离无关机构场景构建，阵列关联 fixture 显式提供权威复制能力并区分 seed/member，原有断言保留且补充禁止 member 跳转 seed 的检查。通过真实草图／拉伸 API/Worker 生成缺失的 box GLB 测试资源，未替换原生制品为 Mock 数据。最终 context-audit、diff 检查通过。
+- 诊断、原样回放及本轮验证日志保存在 `build/diagnostics/dmu-regressions/`。开发 API、Jobs、Worker 已使用最新构建重启；未清空应用数据库、S3 或用户制品。
+
 2026-10-11 回放与对话框优化：
 
 - `invoke check --scope web --match motion`、`command-registration`、`assembly-move` 通过；`go -C services test ./internal/workbenchconfig` 与 `invoke check --scope services --match Catalog` 通过。最终 TypeScript/生产构建、context-audit、diff 检查通过。
@@ -65,7 +87,7 @@
 - `browser/motion-workbench.spec.ts` 的 8 项标准交互用例分批通过：显式创建/保留空机构、树拾取推进、完整帧回放与转换、迟到响应门禁、标准重命名/删除、基础命令目录、子约束所属字段编辑，以及新建失败保留活动机构并正常退出。最终两项回归通过；错误状态持续显示并可展开诊断。首次整组执行的重命名/删除因软件 WebGL 下查询超时失败，扩大该用例的等待范围后复验通过。这些 API fixture 只验证交互，不提供数值求解证据。
 - 最终 `pnpm build`、`invoke context-audit` 及 `git diff --check` 通过。
 
-全量检查边界：
+2026-10-10 全量检查边界（历史记录）：
 
 - `invoke check --scope web` 受现有 assembly-contract 冻结断言摘要失配阻塞，例如 m4.snapshot.current-render-bindings。该 fixture 源码与 HEAD 字节一致，本次未改动，未修改或自动 bless 合同锁。
 - `invoke check --scope services` 全量未通过：Realtime SQLite LOCK 语法、Contact/EdgeVertex router 断言与混合 Loft Shell 等失败，workspace、jobs、catalog 等包通过。详细日志：build/agent-logs/20261010-214230-585177785-go-packages.log。未在本任务修改这些几何算法或 SQLite SQL 路由，也未将专项通过表述为全量通过。
