@@ -78,6 +78,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeConstraintVisibility, "PRODUCT", applyConstraintVisibility},
 		commandHandler{typeSetKinematics, "PRODUCT", applyKinematicsDefinition},
 		commandHandler{typeApplyMotionFrame, "PRODUCT", applyMotionFrame},
+		commandHandler{typeAdoptMechanismPose, "PRODUCT", applyMotionFrame},
 		commandHandler{typeCreatePattern, "PART", applyCreateFeature},
 		commandHandler{typeCreateSketch, "PART", applyCreateFeature},
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
@@ -2056,6 +2057,8 @@ func applyAddAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.Ra
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate assembly constraint identity", ErrValidation)
 		}
 	}
+	beforeCounters, _ := json.Marshal(model.ConstraintNameCounters)
+	assignConstraintName(&payload.Constraint, &model.ConstraintNameCounters, model.Constraints)
 	model.Constraints = append(model.Constraints, payload.Constraint)
 	expression, key, err := assemblyQuantityInputs(payload.Constraint.Kind, payload.QuantityExpression, payload.QuantityKey, payload.OffsetExpression, payload.OffsetKey)
 	if err != nil {
@@ -2069,8 +2072,13 @@ func applyAddAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.Ra
 		return nil, modelcore.ChangeSet{}, err
 	}
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Constraint.ID, SlotID: "assembly-constraint.entity"}, nil, payload.Constraint)
+	counterChange, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: "product", SlotID: "product.constraint-name-counters"}, json.RawMessage(beforeCounters), model.ConstraintNameCounters)
 	next, _ := json.Marshal(model)
-	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.Constraint.ID)}}, nil
+	changes := []modelcore.ModelChange{change}
+	if counterChange.BeforeDigest != counterChange.AfterDigest {
+		changes = append(changes, counterChange)
+	}
+	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.Constraint.ID)}}, nil
 }
 
 func applyMoveInstance(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -2211,7 +2219,7 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	} else if err != nil {
 		return prepared, err
 	}
-	if (request.Type == "SAVE_KINEMATICS" || request.Type == "APPLY_MOTION_FRAME") && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
+	if (request.Type == "SAVE_KINEMATICS" || request.Type == "APPLY_MOTION_FRAME" || request.Type == "ACTIVATE_MECHANISM" || request.Type == "EXIT_MECHANISM") && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
 		return prepared, fmt.Errorf("%w: KINEMATICS_BASE_REVISION_CHANGED", ErrValidation)
 	}
 	if request.ExpectedUpdateRevision != "" && prepared.headRevision != request.ExpectedUpdateRevision {
@@ -2293,6 +2301,19 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	if !errors.Is(err, database.ErrNoRows) {
 		return err
 	}
+	if request.Type == "ACTIVATE_MECHANISM" || request.Type == "EXIT_MECHANISM" {
+		var prior json.RawMessage
+		err = service.database.QueryRow(ctx, `SELECT payload FROM occccad.commands WHERE document_id=$1 AND request_id=$2 AND command_type IN ('ACTIVATE_MECHANISM','EXIT_MECHANISM') AND status='SUCCEEDED'`, documentID, request.RequestID).Scan(&prior)
+		if err == nil {
+			if applicationAuditDigest(prior) != modelcore.ValueDigest(requestJSON) {
+				return fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
+			}
+			return nil
+		}
+		if !errors.Is(err, database.ErrNoRows) {
+			return err
+		}
+	}
 	finishPrepare := perf.Start(ctx, "command-prepare")
 	prepared, err := service.prepareDomainMutation(ctx, documentID, request)
 	diagnostic.prepared(prepared)
@@ -2330,6 +2351,48 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		}
 	}
 	diagnosticJSON = nextJSON
+	if (request.Type == "ACTIVATE_MECHANISM" || request.Type == "EXIT_MECHANISM") && len(changes.Changes) == 0 {
+		// No business mutation means no Revision or undo action. Still audit the
+		// qualified invocation under the same Head lock and retain its request key.
+		tx, err := service.database.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		var head string
+		var sequence uint64
+		if err = tx.QueryRow(ctx, `SELECT head_revision_id::text,head_sequence FROM occccad.workspaces WHERE id=$1 FOR UPDATE`, prepared.workspaceID).Scan(&head, &sequence); err != nil {
+			return err
+		}
+		if head != prepared.headRevision || sequence != prepared.headSequence {
+			return fmt.Errorf("%w: WORKSPACE_HEAD_CONFLICT", ErrValidation)
+		}
+		var prior json.RawMessage
+		lookup := tx.QueryRow(ctx, `SELECT payload FROM occccad.commands WHERE document_id=$1 AND request_id=$2 AND status='SUCCEEDED'`, documentID, prepared.requestID).Scan(&prior)
+		if lookup == nil {
+			if applicationAuditDigest(prior) != modelcore.ValueDigest(requestJSON) {
+				return fmt.Errorf("%w: request key reused with a different application", ErrValidation)
+			}
+			return tx.Commit(ctx)
+		}
+		if !errors.Is(lookup, database.ErrNoRows) {
+			return lookup
+		}
+		var audit map[string]json.RawMessage
+		if err = json.Unmarshal(requestJSON, &audit); err != nil {
+			return err
+		}
+		audit["applicationReceipt"], _ = json.Marshal(ApplicationCommandReceipt{Sequence: sequence, VersionID: head})
+		auditJSON, err := json.Marshal(audit)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO occccad.commands(request_id,command_type,document_id,payload,status,completed_at) VALUES($1,$2,$3,$4,'SUCCEEDED',now())`, prepared.requestID, request.Type, documentID, auditJSON)
+		if err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
 	diagnostic.stage("EVALUATION")
 	revisionUUID, err := uuid.NewV7()
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 	"github.com/occccad/occccad/internal/geometry"
 )
 
-const motionPolicy = "revolute-owning-constraints-v3"
+const motionPolicy = "revolute-owning-constraints-laws-v4"
 
 type MotionRunRequest struct {
 	BaseRevisionID  string          `json:"baseRevisionId"`
@@ -87,6 +87,11 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 			return s, fmt.Errorf("%w: unknown mechanism", ErrValidation)
 		}
 		selected := KinematicsDefinitions{Mechanisms: []Mechanism{s.Mechanism}, Studies: []MotionStudy{s.Study}}
+		for _, l := range view.Product.Kinematics.Laws {
+			if l.ID == s.Study.LawID {
+				selected.Laws = append(selected.Laws, l)
+			}
+		}
 		for _, d := range view.Product.Kinematics.Drivers {
 			if d.ID == s.Study.DriverID {
 				selected.Drivers = append(selected.Drivers, d)

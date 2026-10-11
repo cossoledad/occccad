@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./browser",
-  testIgnore: "solid-feature-live.spec.ts",
+  testIgnore: ["solid-feature-live.spec.ts", "motion-live.spec.ts"],
   fullyParallel: false,
   workers: 1,
   // Software WebGL can stall the renderer while a document scene is rebuilt.

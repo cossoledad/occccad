@@ -38,6 +38,8 @@ type MechanismJoint struct {
 	Constraints []AssemblyConstraint `json:"constraints,omitempty"` // owning mechanism relations, same public definition as Product
 }
 type Mechanism struct {
+	Evaluation                *MechanismEvaluation    `json:"evaluation,omitempty"`
+	ConstraintNameCounters    map[string]int          `json:"constraintNameCounters,omitempty"`
 	ID                        string                  `json:"id"`
 	Name                      string                  `json:"name"`
 	UnitIDs                   []string                `json:"unitIds"` // direct owning Product instances; descendants frozen
@@ -45,11 +47,18 @@ type Mechanism struct {
 	Poses                     map[string]InstancePose `json:"poses,omitempty"` // accepted editing baseline, independent of Product assembly poses
 	SupplementalConstraintIDs []string                `json:"supplementalConstraintIds,omitempty"`
 }
+type MechanismEvaluation struct {
+	RelativeDOF uint64 `json:"relativeDof"`
+	GaugeDOF    uint64 `json:"gaugeDof"`
+	DrivenDOF   uint64 `json:"drivenDof"`
+	DriverCount int    `json:"driverCount"`
+}
 type DMUAddress struct {
 	InstancePath InstancePath `json:"instancePath"`
 	BodyID       string       `json:"bodyId"`
 }
 type MotionStudy struct {
+	LawID           string         `json:"lawId"`
 	ID              string         `json:"id"`
 	Name            string         `json:"name"`
 	MechanismID     string         `json:"mechanismId"`
@@ -73,6 +82,15 @@ type MotionDriver struct {
 	MechanismID string `json:"mechanismId"`
 	JointID     string `json:"jointId"`
 }
+type MotionLaw struct {
+	ID              string         `json:"id"`
+	Name            string         `json:"name"`
+	MechanismID     string         `json:"mechanismId"`
+	DriverID        string         `json:"driverId"`
+	Start           MotionQuantity `json:"start"`
+	End             MotionQuantity `json:"end"`
+	DurationSeconds float64        `json:"durationSeconds"`
+}
 type InterferenceAnalysis struct {
 	ID              string         `json:"id"`
 	Name            string         `json:"name"`
@@ -94,11 +112,25 @@ type MotionAssemblyMapping struct {
 	ConstraintBaseline string `json:"constraintBaseline"`
 }
 type KinematicsDefinitions struct {
+	Laws         []MotionLaw             `json:"laws,omitempty"`
 	Drivers      []MotionDriver          `json:"drivers,omitempty"`
 	Analyses     []InterferenceAnalysis  `json:"analyses,omitempty"`
 	Associations []MotionAssemblyMapping `json:"associations,omitempty"`
 	Mechanisms   []Mechanism             `json:"mechanisms"`
 	Studies      []MotionStudy           `json:"studies"`
+}
+
+func resolveMotionLaws(k *KinematicsDefinitions) error {
+	for i := range k.Studies {
+		s := &k.Studies[i]
+		law := slices.IndexFunc(k.Laws, func(l MotionLaw) bool { return l.ID == s.LawID && l.MechanismID == s.MechanismID })
+		if law < 0 {
+			return fmt.Errorf("%w: simulation requires a motion law", ErrValidation)
+		}
+		l := k.Laws[law]
+		s.DriverID, s.Start, s.End, s.DurationSeconds = l.DriverID, l.Start, l.End, l.DurationSeconds
+	}
+	return nil
 }
 
 func motionValue(q MotionQuantity, angular bool) (float64, error) {
@@ -145,7 +177,7 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 	if len(k.Analyses) > 0 {
 		return fmt.Errorf("%w: interference analysis is outside mechanism editing", ErrValidation)
 	}
-	if len(k.Mechanisms) > 16 || len(k.Studies) > 64 || len(k.Drivers) > 64 || len(k.Analyses) > 64 || len(k.Associations) > 1024 {
+	if len(k.Mechanisms) > 16 || len(k.Studies) > 64 || len(k.Laws) > 64 || len(k.Drivers) > 64 || len(k.Analyses) > 64 || len(k.Associations) > 1024 {
 		return fmt.Errorf("%w: study resource limit", ErrValidation)
 	}
 	mechanisms := map[string]Mechanism{}
@@ -164,11 +196,11 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 		if len(m.SupplementalConstraintIDs) > 0 {
 			return fmt.Errorf("%w: assembly inheritance is not supported", ErrValidation)
 		}
-		if len(m.Poses) > 0 && len(m.Poses) != len(model.Instances) {
+		if len(m.Poses) > 0 && len(m.Poses) != len(m.UnitIDs) {
 			return fmt.Errorf("%w: incomplete mechanism poses", ErrValidation)
 		}
 		for id, p := range m.Poses {
-			if !validMotionPose(p) || !slices.ContainsFunc(model.Instances, func(v ProductInstance) bool { return v.ID == id }) {
+			if !validMotionPose(p) || !slices.Contains(m.UnitIDs, id) || !slices.ContainsFunc(model.Instances, func(v ProductInstance) bool { return v.ID == id }) {
 				return fmt.Errorf("%w: invalid mechanism pose", ErrValidation)
 			}
 		}
@@ -233,13 +265,29 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 		mechanisms[m.ID] = m
 	}
 	drivers := map[string]MotionDriver{}
+	drivenCoordinates := map[string]bool{}
 	for _, d := range k.Drivers {
 		m, ok := mechanisms[d.MechanismID]
 		i := slices.IndexFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID })
-		if !ok || !claim(d.ID) || d.Name == "" || i < 0 || m.Joints[i].Kind != "REVOLUTE" {
+		if !ok || !claim(d.ID) || d.Name == "" || drivenCoordinates[d.MechanismID+"/"+d.JointID] || i < 0 || m.Joints[i].Kind != "REVOLUTE" {
 			return fmt.Errorf("%w: invalid driver", ErrValidation)
 		}
 		drivers[d.ID] = d
+		drivenCoordinates[d.MechanismID+"/"+d.JointID] = true
+	}
+	for _, l := range k.Laws {
+		d, ok := drivers[l.DriverID]
+		if !claim(l.ID) || l.Name == "" || !ok || d.MechanismID != l.MechanismID || !finiteMotion(l.DurationSeconds) || l.DurationSeconds <= 0 || l.DurationSeconds > 3600 {
+			return fmt.Errorf("%w: invalid motion law", ErrValidation)
+		}
+		for _, q := range []MotionQuantity{l.Start, l.End} {
+			if _, err := motionValue(q, true); err != nil {
+				return err
+			}
+		}
+	}
+	if err := resolveMotionLaws(&k); err != nil {
+		return err
 	}
 	for _, s := range k.Studies {
 		if s.DriverID == "" {
@@ -291,6 +339,9 @@ func applyKinematicsDefinition(raw, payload json.RawMessage) (json.RawMessage, m
 	if err := json.Unmarshal(payload, &k); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
+	if err := resolveMotionLaws(&k); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	for i := range k.Studies {
 		s := &k.Studies[i]
 		s.DriverJointID = ""
@@ -303,6 +354,10 @@ func applyKinematicsDefinition(raw, payload json.RawMessage) (json.RawMessage, m
 	}
 	before := model.Kinematics
 	model.Kinematics = k
+	if reflect.DeepEqual(before, k) {
+		next, _ := json.Marshal(model)
+		return next, modelcore.ChangeSet{}, nil
+	}
 	change, err := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: "product", SlotID: "product.kinematics"}, before, k)
 	if err != nil {
 		return nil, modelcore.ChangeSet{}, err

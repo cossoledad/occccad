@@ -15,6 +15,23 @@ import (
 
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
 	switch request.Type {
+	case "ACTIVATE_MECHANISM", "EXIT_MECHANISM":
+		if documentType != "PRODUCT" || request.MechanismApplication == nil {
+			break
+		}
+		req := *request.MechanismApplication
+		req.BaseRevisionID = request.VersionID
+		if (request.Type == "ACTIVATE_MECHANISM") != (req.MechanismID != "") {
+			return "", nil, fmt.Errorf("%w: invalid application target", ErrValidation)
+		}
+		result, err := service.PrepareMechanismApplication(ctx, documentID, req)
+		if err != nil {
+			return "", nil, err
+		}
+		if result.Mechanism != nil {
+			return typeSetKinematics, result.Product.Kinematics, nil
+		}
+		return typeAdoptMechanismPose, motionApplyPayload{Model: result.Product}, nil
 	case "APPLY_MOTION_FRAME":
 		if documentType != "PRODUCT" || request.MotionApply == nil {
 			break

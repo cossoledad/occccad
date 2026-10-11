@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
-import {renameMotionObject,deleteMotionObjects,motionSelectionTargets} from '../../../cad/assembly/motion-definitions.ts';
+import {renameMotionObject,deleteMotionObjects,motionSelectionTargets,qualifyMotionSelections} from '../../../cad/assembly/motion-definitions.ts';
 const end=id=>({instanceId:id,frame:{translation:[0,0,0],rotation:[0,0,0,1]}});
-const defs={mechanisms:[{id:'m',name:'mechanism',unitIds:['shaft','propeller'],joints:[{id:'g',name:'ground',kind:'GROUND',first:end('shaft')},{id:'j',name:'revolute',kind:'REVOLUTE',first:end('shaft'),second:end('propeller'),sources:[{constraintId:'axis',baseline:'source-baseline'}]}]}],drivers:[{id:'d',name:'driver',mechanismId:'m',jointId:'j'}],studies:[{id:'s',name:'study',mechanismId:'m',driverId:'d',driverJointId:''}],associations:[{mechanismId:'m',jointId:'j',role:'axis',constraintId:'formal-axis'}]};
+const defs={mechanisms:[{id:'m',name:'mechanism',unitIds:['shaft','propeller'],joints:[{id:'g',name:'ground',kind:'GROUND',first:end('shaft')},{id:'j',name:'revolute',kind:'REVOLUTE',first:end('shaft'),second:end('propeller'),constraints:[{id:'opaque-axis-id',kind:'COINCIDENT'}]}]}],drivers:[{id:'d',name:'driver',mechanismId:'m',jointId:'j'}],studies:[{id:'s',name:'study',mechanismId:'m',driverId:'d',driverJointId:''}],associations:[{mechanismId:'m',jointId:'j',role:'axis',constraintId:'formal-axis'}]};
 const baseline=JSON.stringify(defs),constraints=[{id:'formal-axis'},{id:'axis'}];
 assert.equal(renameMotionObject(defs,'j','轴接合').mechanisms[0].joints[1].name,'轴接合');assert.throws(()=>renameMotionObject(defs,'missing','name'));
-const afterJoint=deleteMotionObjects(defs,['j']);assert.deepEqual(afterJoint.drivers,[]);assert.deepEqual(afterJoint.studies,[]);assert.deepEqual(afterJoint.associations,[]);assert.deepEqual(afterJoint.mechanisms[0].unitIds,['shaft']);assert.deepEqual(constraints,[{id:'formal-axis'},{id:'axis'}]);
+const afterJoint=deleteMotionObjects(defs,['j']);assert.deepEqual(afterJoint.drivers,[]);assert.deepEqual(afterJoint.studies,[]);assert.deepEqual(afterJoint.associations,[]);assert.deepEqual(afterJoint.mechanisms[0].unitIds,['shaft','propeller'],'removing a joint preserves rigid-unit membership and positions');assert.deepEqual(constraints,[{id:'formal-axis'},{id:'axis'}]);
 const afterStudy=deleteMotionObjects(defs,['s']);assert.equal(afterStudy.drivers.length,1);assert.equal(afterStudy.associations.length,1);
 assert.equal(deleteMotionObjects(defs,['m']).mechanisms.length,0);assert.equal(deleteMotionObjects(defs,['d']).studies.length,0);assert.equal(JSON.stringify(defs),baseline);
+const oldRelation={kind:'kinematic-object',id:'opaque-axis-id',documentId:'product',versionId:'old',snapshotScope:{revisionId:'old'}};
+const geometricSelection={kind:'body',id:'body',documentId:'product',versionId:'old'};
+const advanced=qualifyMotionSelections({document:{id:'product',versionId:'new'},product:{kinematics:defs}},[oldRelation,geometricSelection]);
+assert.equal(advanced[0].versionId,'new');assert.equal(advanced[0].snapshotScope.revisionId,'new');assert.equal(advanced[0].id,oldRelation.id);assert.equal(oldRelation.versionId,'old');assert.equal(advanced[1],geometricSelection);
+assert.deepEqual(qualifyMotionSelections({document:{id:'product',versionId:'new'},product:{kinematics:afterJoint}},[oldRelation]),[],'deleted definitions cannot retain an inspector selection');
 const path=(root,leaf)=>({rootDocumentId:'product',canonical:root+'/'+leaf,segments:[{instanceId:root,ownerDocumentId:'product',ownerVersionId:'frozen'},{instanceId:leaf,referencedDocumentId:'part',resolvedVersionId:'part-v1'}]});
 const view={document:{id:'product',versionId:'frozen'},product:{kinematics:defs},resolvedInstances:[{instancePath:path('shaft','a'),occurrencePath:'shaft/a',bodyId:'b1',geometryKey:'shared'},{instancePath:path('propeller','a'),occurrencePath:'propeller/a',bodyId:'b1',geometryKey:'shared'},{instancePath:path('propeller','b'),occurrencePath:'propeller/b',bodyId:'b2',geometryKey:'other'}]};
 const selected={kind:'kinematic-object',id:'j',documentId:'product',versionId:'frozen'};
@@ -20,7 +25,7 @@ const {createServer}=await import('vite');const server=await createServer({appTy
 try {
 const {mechanismConstraints}=await server.ssrLoadModule('/src/cad/assembly/mechanism-constraints.ts');
 const supported=structuredClone(defs.mechanisms[0]);
-const joint=supported.joints[1];
+const joint=supported.joints[1];joint.constraints=undefined;
 for(const endpoint of [joint.first,joint.second]){
  endpoint.axis={instanceId:endpoint.instanceId,kind:'AXIS',geometryId:'stable-axis'};
  endpoint.plane={instanceId:endpoint.instanceId,kind:'PLANE',geometryId:'stable-plane'};
@@ -33,6 +38,6 @@ assert.equal(relations[2].value,3);assert.equal(relations[2].distanceRelation,'S
 assert.equal(JSON.stringify(supported),supportedBefore);
 joint.constraints=relations.slice(1).map(c=>({...c,evaluationStatus:'VERIFIED'}));
 assert.deepEqual(mechanismConstraints(supported).slice(1),joint.constraints,'persisted ordinary constraints are rendered directly');
-assert.deepEqual(motionSelectionTargets(view,[{...selected,id:'j/axis'}]),[{...selected,id:'j/axis'}],'relation geometry highlight belongs to the shared constraint renderer');
+assert.deepEqual(motionSelectionTargets(view,[{...selected,id:'opaque-axis-id'}]),[{...selected,id:'opaque-axis-id'}],'relation geometry highlight belongs to the shared constraint renderer');
 
 } finally {await server.close()}

@@ -214,6 +214,21 @@ function PropertySummary({ view, selection, feature, workbench, sketchPlane, act
         ...Object.entries(topology.properties).map(([key, value]) => ({ key: `brep-${key}`, label: key, children: format(value) })),
       ]} /></>;
   }
+  if(selection.kind==='kinematic-object'){
+   const k=view.product?.kinematics,id=selection.id;
+   const m=k?.mechanisms.find(m=>m.id===selection.mechanismId||m.id===id||m.joints.some(j=>j.id===id||j.constraints?.some(c=>c.id===id)));
+   const joint=m?.joints.find(j=>j.id===id||j.constraints?.some(c=>c.id===id)),relation=joint?.constraints?.find(c=>c.id===id);
+   const driver=k?.drivers?.find(d=>d.id===id),law=k?.laws?.find(l=>l.id===id),study=k?.studies.find(s=>s.id===id);
+   const object=relation??joint??driver??law??study??m;
+   return <Descriptions column={1} size="small" bordered className="property-list" items={[
+    {key:'type',label:'类型',children:relation?'机构约束':joint?'接合':driver?'角度命令':law?'运动规律':study?'模拟':'机械装置'},
+    {key:'name',label:'名称',children:object?.name??'定义不可用'},
+    ...(m&&m.id!==id?[{key:'owner',label:'机械装置',children:m.name}]:[]),
+    ...(relation?[{key:'joint',label:'所属接合',children:joint?.name},{key:'state',label:'约束状态',children:relation.evaluationStatus}]:[]),
+    ...(m?.id===id&&m.evaluation?[{key:'physical',label:'物理自由度',children:m.evaluation.relativeDof},{key:'gauge',label:'整体自由度',children:m.evaluation.gaugeDof},{key:'driven',label:'命令后自由度',children:m.evaluation.drivenDof},{key:'commands',label:'角度命令数量',children:m.evaluation.driverCount}]:[]),
+    ...(law?[{key:'law-start',label:'起点',children:`${law.start.value} ${law.start.unit}`},{key:'law-end',label:'终点',children:`${law.end.value} ${law.end.unit}`},{key:'law-time',label:'时长',children:`${law.durationSeconds} s`}]:[]),
+   ]}/>;
+  }
   const referenceRows=referencePropertyRows(view,selection,diagnostics);
   if(referenceRows)return <Descriptions column={1} size="small" bordered className="property-list" items={referenceRows}/>;
 

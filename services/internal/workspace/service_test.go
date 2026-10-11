@@ -1257,8 +1257,8 @@ func TestAssemblyConstraintAndSolvedPoseAreOneUndoableChangeSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes.Changes) != 2 {
-		t.Fatalf("constraint and solved pose must be one transaction: %#v", changes.Changes)
+	if len(changes.Changes) != 3 {
+		t.Fatalf("constraint, naming counter and solved pose must be one transaction: %#v", changes.Changes)
 	}
 	values := map[modelcore.PropertyAddress]json.RawMessage{}
 	for _, change := range changes.Changes {

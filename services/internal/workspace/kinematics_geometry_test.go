@@ -83,10 +83,10 @@ func TestMotionApplicationProjectionReferencesUnique(t *testing.T) {
 		}
 	}
 	walk(tree)
-	if len(tree.Children) != 2 || tree.Children[1].Kind != "MOTION_STUDY" || tree.Children[1].Capabilities[0] != "EDIT" {
+	if len(tree.Children) != 2 || tree.Children[1].Children[0].Kind != "MOTION_STUDY" || tree.Children[1].Children[0].Capabilities[0] != "EDIT" {
 		t.Fatal("simulation is not an independently editable application object", tree)
 	}
-	for _, n := range tree.Children[0].Children {
+	for _, n := range tree.Children[0].Children[0].Children {
 		if n.Kind == "MOTION_STUDY" {
 			t.Fatal("simulation is incorrectly owned by a mechanism")
 		}
@@ -96,13 +96,14 @@ func TestMotionApplicationProjectionReferencesUnique(t *testing.T) {
 func TestMotionApplicationProjectionNamedSupports(t *testing.T) {
 	first := JointEndpoint{InstanceID: "shaft", Axis: &AssemblyGeometryRef{InstanceID: "shaft", Kind: "AXIS"}, Plane: &AssemblyGeometryRef{InstanceID: "shaft", Kind: "PLANE"}}
 	second := JointEndpoint{InstanceID: "rotor", Axis: &AssemblyGeometryRef{InstanceID: "rotor", Kind: "AXIS"}, Plane: &AssemblyGeometryRef{InstanceID: "rotor", Kind: "PLANE"}}
-	k := KinematicsDefinitions{Mechanisms: []Mechanism{{ID: "m", Name: "机构", Joints: []MechanismJoint{{ID: "ground", Name: "固定件", Kind: "GROUND", First: JointEndpoint{InstanceID: "shaft"}}, {ID: "joint", Name: "旋转接合", Kind: "REVOLUTE", First: first, Second: &second, Constraints: []AssemblyConstraint{{ID: "joint/axis", EvaluationStatus: "VERIFIED"}, {ID: "joint/axial-location", EvaluationStatus: "VERIFIED"}}}}}}}
+	k := KinematicsDefinitions{Mechanisms: []Mechanism{{ID: "m", Name: "机构", Joints: []MechanismJoint{{ID: "ground", Name: "固定件", Kind: "GROUND", First: JointEndpoint{InstanceID: "shaft"}}, {ID: "joint", Name: "旋转接合", Kind: "REVOLUTE", First: first, Second: &second, Constraints: []AssemblyConstraint{{ID: "axis-id", Name: "重合.1", Kind: "COINCIDENT", First: *first.Axis, Second: second.Axis, EvaluationStatus: "VERIFIED"}, {ID: "offset-id", Name: "偏移.1", Kind: "DISTANCE", First: *first.Plane, Second: second.Plane, EvaluationStatus: "VERIFIED"}}}}}}}
 	tree := kinematicsStructure("product", "revision", "product", k, nil, []ProductInstance{{ID: "shaft", Name: "圆柱.1"}, {ID: "rotor", Name: "螺旋桨.1"}})
-	joints := tree.Children[0].Children
-	if joints[0].Name != "固定件 (圆柱.1)" || joints[1].Name != "旋转接合" {
+	m := tree.Children[0].Children[0]
+	joints := []DocumentStructureNode{m.Children[2].Children[0], m.Children[0].Children[0]}
+	if joints[0].Name != "固定件 (圆柱.1)" || joints[1].Name != "旋转接合 (圆柱.1,螺旋桨.1)" {
 		t.Fatalf("joint endpoint presentation missing: %+v", joints)
 	}
-	if len(joints[1].Children) != 2 || joints[1].Children[0].Name != "同心" || joints[1].Children[1].Name != "偏移" {
+	if len(joints[1].Children) != 2 || joints[1].Children[0].Name != "重合.1 (圆柱.1,螺旋桨.1)" || joints[1].Children[1].Name != "偏移.1 (圆柱.1,螺旋桨.1)" {
 		t.Fatalf("joint relations: %+v", joints[1].Children)
 	}
 	count := 0
@@ -110,7 +111,7 @@ func TestMotionApplicationProjectionNamedSupports(t *testing.T) {
 		if relation.EvaluationStatus != "VERIFIED" {
 			t.Fatal("persistent constraint status was lost", relation)
 		}
-		if relation.Kind != "JOINT_EXPANSION" || len(relation.Capabilities) != 1 || relation.Capabilities[0] != "EDIT" {
+		if relation.MechanismID != "m" || relation.OwnerEntityID != "joint" || relation.Kind != "JOINT_EXPANSION" || len(relation.Capabilities) != 1 || relation.Capabilities[0] != "EDIT" {
 			t.Fatal("joint relation became an independent definition")
 		}
 		for _, n := range relation.Children {
@@ -122,8 +123,8 @@ func TestMotionApplicationProjectionNamedSupports(t *testing.T) {
 			}
 		}
 	}
-	if count != 4 {
-		t.Fatalf("expected four support references, got %d", count)
+	if count != 0 {
+		t.Fatalf("supports must remain in the inspector, got %d", count)
 	}
 	if k.Mechanisms[0].Joints[1].Name != "旋转接合" {
 		t.Fatal("presentation changed persistent name")

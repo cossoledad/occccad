@@ -4,20 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
+	"math"
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/occccad/occccad/internal/geometry"
 )
 
 // A command preview is not a run, publishing plan, or committable assembly
 // candidate. Only the selected mechanism's explicitly adopted equations enter.
 type MechanismPreviewRequest struct {
-	RequestID      string    `json:"requestId,omitempty"`
-	BaseRevisionID string    `json:"baseRevisionId"`
-	Mechanism      Mechanism `json:"mechanism"`
-	DraftJointID   string    `json:"draftJointId,omitempty"`
+	RequestID      string         `json:"requestId,omitempty"`
+	BaseRevisionID string         `json:"baseRevisionId"`
+	Mechanism      Mechanism      `json:"mechanism"`
+	DraftJointID   string         `json:"draftJointId,omitempty"`
+	Drivers        []MotionDriver `json:"-"`
+	NominalProduct *ProductModel  `json:"-"` // trusted application source, includes nonmember environment
 }
 type MechanismPreview struct {
 	BaseRevisionID string                 `json:"baseRevisionId"`
@@ -104,8 +107,19 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 	}
 	slices.Sort(m.UnitIDs)
 	m.UnitIDs = slices.Compact(m.UnitIDs)
+	if len(m.Poses) > 0 {
+		m.Poses = mechanismMemberPoses(m, m.Poses)
+		for _, v := range view.Product.Instances {
+			if slices.Contains(m.UnitIDs, v.ID) {
+				if _, ok := m.Poses[v.ID]; !ok {
+					m.Poses[v.ID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
+				}
+			}
+		}
+	}
 	validation := req.Mechanism
 	validation.UnitIDs = m.UnitIDs
+	validation.Poses = m.Poses
 	for _, id := range m.UnitIDs {
 		if !slices.ContainsFunc(view.Product.Instances, func(v ProductInstance) bool { return v.ID == id }) {
 			return out, fmt.Errorf("%w: missing motion unit", ErrValidation)
@@ -115,7 +129,11 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 		return out, err
 	}
 
-	input, err := mechanismProductInput(*view.Product, req.Mechanism)
+	nominal := *view.Product
+	if req.NominalProduct != nil {
+		nominal = *req.NominalProduct
+	}
+	input, err := mechanismProductInput(nominal, m)
 	if err != nil {
 		return out, err
 	}
@@ -219,7 +237,63 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 	if current.Document.VersionID != req.BaseRevisionID {
 		return out, fmt.Errorf("%w: Product revision changed during preview", ErrValidation)
 	}
-	m.Poses = poses
+	m.Poses = mechanismMemberPoses(m, poses)
+	if partial == nil {
+		relative, gauge := motionDof(result)
+		m.Evaluation = &MechanismEvaluation{RelativeDOF: relative, GaugeDOF: gauge, DrivenDOF: relative}
+		drivers := req.Drivers
+		if drivers == nil {
+			drivers = view.Product.Kinematics.Drivers
+		}
+		probe := equations
+		for _, d := range drivers {
+			if d.MechanismID == m.ID {
+				j := slices.IndexFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID && j.Kind == "REVOLUTE" })
+				if j < 0 {
+					return out, fmt.Errorf("%w: command joint missing", ErrValidation)
+				}
+				q, e := motionJointCoordinate(m.Joints[j], poses, nil)
+				if e != nil {
+					return out, e
+				}
+				compiled, e := compileMechanismEquations(frozen, m, MotionStudy{DriverJointID: d.JointID}, true)
+				if e != nil {
+					return out, e
+				}
+				coordinate := compiled.Driver
+				zero, _ := motionValue(m.Joints[j].Zero, true)
+				coordinate.Value = math.Mod(zero+float64(m.Joints[j].Direction)*q, 2*math.Pi)
+				if coordinate.Value < 0 {
+					coordinate.Value += 2 * math.Pi
+				}
+				probe.Constraints = append(probe.Constraints, coordinate)
+				m.Evaluation.DriverCount++
+			}
+		}
+		if m.Evaluation.DriverCount > 0 {
+			for i := range probe.Bodies {
+				probe.Bodies[i].Pose = geometry.AssemblyPose(poses[probe.Bodies[i].ID])
+				probe.Bodies[i].InitialGuess = nil
+			}
+			r, e := service.worker.SolveAssemblyWithOptions(ctx, "mechanism-commands/"+req.RequestID, probe.Bodies, probe.Geometry, probe.Constraints, geometry.AssemblySolveOptions{SolverProfile: &profile})
+			if e != nil {
+				return out, e
+			}
+			witness := AssemblySolveManifest{Bodies: probe.Bodies, Geometry: probe.Geometry, Constraints: probe.Constraints, SolverProfile: profile}
+			if r.Status != "CONVERGED" {
+				return out, fmt.Errorf("%w: command coverage solve: %s", ErrValidation, r.Status)
+			}
+			if e = validateAssemblyPreference(r); e != nil {
+				return out, e
+			}
+			if ok, why := conflictIndependentWitness(witness, r); !ok {
+				return out, fmt.Errorf("%w: command coverage witness: %s", ErrValidation, why)
+			}
+			m.Evaluation.DrivenDOF, _ = motionDof(r)
+		}
+	} else {
+		m.Evaluation = nil
+	}
 	out.Mechanism = m
 	if partial != nil {
 		out.Mechanism.Joints = append(out.Mechanism.Joints, *partial)

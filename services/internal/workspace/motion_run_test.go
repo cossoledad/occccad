@@ -187,8 +187,9 @@ func TestMotionDefinitionHistoryAndEquationAdmission(t *testing.T) {
 		model.Instances = append(model.Instances, ProductInstance{ID: b.ID, Translation: b.Pose.Translation, Rotation: b.Pose.Rotation})
 	}
 	s.Study.DriverID = "d"
+	s.Study.LawID = "law"
 	s.Study.DriverJointID = ""
-	k := KinematicsDefinitions{Mechanisms: []Mechanism{s.Mechanism}, Drivers: []MotionDriver{{ID: "d", Name: "driver", MechanismID: s.Mechanism.ID, JointID: "drive"}}, Studies: []MotionStudy{s.Study}}
+	k := KinematicsDefinitions{Mechanisms: []Mechanism{s.Mechanism}, Drivers: []MotionDriver{{ID: "d", Name: "driver", MechanismID: s.Mechanism.ID, JointID: "drive"}}, Laws: []MotionLaw{{ID: "law", Name: "law", MechanismID: s.Mechanism.ID, DriverID: "d", Start: s.Study.Start, End: s.Study.End, DurationSeconds: s.Study.DurationSeconds}}, Studies: []MotionStudy{s.Study}}
 	raw, _ := json.Marshal(model)
 	payload, _ := json.Marshal(k)
 	after, changes, e := applyKinematicsDefinition(raw, payload)
@@ -212,7 +213,7 @@ func TestMotionDefinitionHistoryAndEquationAdmission(t *testing.T) {
 	if e == nil {
 		t.Fatal("silently omitted hard equation")
 	}
-	k.Studies[0].Start.Unit = "mm"
+	k.Laws[0].Start.Unit = "mm"
 	if validateKinematics(model, k) == nil {
 		t.Fatal("unit mismatch accepted")
 	}

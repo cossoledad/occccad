@@ -134,3 +134,21 @@ func (server *Server) previewMechanism(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, result)
 }
+
+func (server *Server) prepareMechanismApplication(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("documentID")
+	if _, err := server.access.RequireDocument(r.Context(), id, principal(r).ID, access.RoleViewer); err != nil {
+		writeAccessError(w, err)
+		return
+	}
+	var req workspace.MechanismApplicationRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := server.workspace.PrepareMechanismApplication(r.Context(), id, req)
+	if err != nil {
+		writeWorkspaceResult(w, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(w, 200, result)
+}

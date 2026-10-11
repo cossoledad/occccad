@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"reflect"
 	"slices"
@@ -21,10 +22,11 @@ import (
 const typeApplyMotionFrame = "occccad://product/kinematics/apply-frame"
 
 type MotionApplyRequest struct {
+	MechanismID string            `json:"mechanismId,omitempty"` // accepted mechanism source; exclusive with JobID
 	JobID       string            `json:"jobId"`
 	FrameIndex  int               `json:"frameIndex"`
 	LockAngle   bool              `json:"lockAngle"`
-	Resolutions map[string]string `json:"resolutions,omitempty"` // SUPPRESS | REPLACE, always explicit
+	Resolutions map[string]string `json:"resolutions,omitempty"` // rejected: conversion never mutates existing definitions
 	PlanDigest  string            `json:"planDigest,omitempty"`
 }
 type MotionApplyItem struct {
@@ -109,6 +111,7 @@ func motionSemanticDigest(v any) string {
 	return hex.EncodeToString(h[:])
 }
 func jointDefinitionDigest(j MechanismJoint) string {
+	j.Name = ""
 	endpoint := func(e JointEndpoint) JointEndpoint {
 		if e.Axis != nil {
 			v := semanticMotionReference(*e.Axis)
@@ -169,16 +172,35 @@ func (service *Service) readMotionResult(ctx context.Context, doc, actor, jobID 
 	return out, nil
 }
 func (service *Service) PlanMotionApply(ctx context.Context, doc, actor, base string, req MotionApplyRequest) (MotionApplyPlan, error) {
-	run, e := service.readMotionResult(ctx, doc, actor, req.JobID)
-	if e != nil {
-		return MotionApplyPlan{}, e
-	}
 	view, e := service.GetDocument(ctx, doc)
 	if e != nil {
 		return MotionApplyPlan{}, e
 	}
 	if view.Product == nil || view.Document.VersionID != base {
 		return MotionApplyPlan{}, fmt.Errorf("%w: MOTION_APPLY_BASE_CHANGED", ErrValidation)
+	}
+	var run MotionRun
+	if (req.MechanismID == "") == (req.JobID == "") {
+		return MotionApplyPlan{}, fmt.Errorf("%w: select exactly one conversion source", ErrValidation)
+	}
+	if req.MechanismID != "" {
+		if req.FrameIndex != 0 {
+			return MotionApplyPlan{}, fmt.Errorf("%w: accepted source has no frame index", ErrValidation)
+		}
+		result, err := service.PrepareMechanismApplication(ctx, doc, MechanismApplicationRequest{BaseRevisionID: base, MechanismID: req.MechanismID, Resume: true})
+		if err != nil {
+			return MotionApplyPlan{}, err
+		}
+		poses := map[string]InstancePose{}
+		for _, v := range result.InstancePoses {
+			poses[v.InstanceID] = v.InstancePose
+		}
+		run = MotionRun{Snapshot: MotionSnapshot{DocumentID: doc, RevisionID: base, View: view, Mechanism: *result.Mechanism}, Frames: []MotionFrame{{UnitPoses: poses, KinematicValid: true}}}
+	} else {
+		run, e = service.readMotionResult(ctx, doc, actor, req.JobID)
+		if e != nil {
+			return MotionApplyPlan{}, e
+		}
 	}
 	return service.planMotionApply(ctx, doc, base, *view.Product, run, req)
 }
@@ -191,6 +213,7 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		return p, fmt.Errorf("%w: select a valid mechanism frame", ErrValidation)
 	}
 	frame := run.Frames[req.FrameIndex]
+	frame.UnitPoses = maps.Clone(frame.UnitPoses)
 	mid := run.Snapshot.Mechanism.ID
 	mi := slices.IndexFunc(model.Kinematics.Mechanisms, func(m Mechanism) bool { return m.ID == mid })
 	if mi < 0 {
@@ -203,20 +226,46 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 	if len(mechanism.Joints) != len(run.Snapshot.Mechanism.Joints) || !reflect.DeepEqual(mechanism.UnitIDs, run.Snapshot.Mechanism.UnitIDs) || !reflect.DeepEqual(mechanism.SupplementalConstraintIDs, run.Snapshot.Mechanism.SupplementalConstraintIDs) {
 		return p, fmt.Errorf("%w: frozen mechanism changed; run again", ErrValidation)
 	}
-	for i, j := range mechanism.Joints {
-		if jointDefinitionDigest(j) != jointDefinitionDigest(run.Snapshot.Mechanism.Joints[i]) {
+	for _, j := range mechanism.Joints {
+		i := slices.IndexFunc(run.Snapshot.Mechanism.Joints, func(v MechanismJoint) bool { return v.ID == j.ID })
+		if i < 0 || jointDefinitionDigest(j) != jointDefinitionDigest(run.Snapshot.Mechanism.Joints[i]) {
 			return p, fmt.Errorf("%w: frozen joint changed; run again", ErrValidation)
 		}
 	}
 	old := run.Snapshot.View.Product
-	if old == nil || len(old.Instances) != len(model.Instances) {
+	if old == nil {
 		return p, fmt.Errorf("%w: occurrence snapshot changed", ErrValidation)
+	}
+	current, e := service.GetDocument(ctx, doc)
+	if e != nil {
+		return p, e
+	}
+	if current.Document.VersionID != base {
+		return p, fmt.Errorf("%w: conversion Head changed", ErrValidation)
+	}
+	geometryScope := func(view DocumentView) map[string]string {
+		out := map[string]string{}
+		for _, r := range view.ResolvedInstances {
+			if len(r.InstancePath.Segments) == 0 || !slices.Contains(mechanism.UnitIDs, r.InstancePath.Segments[0].InstanceID) {
+				continue
+			}
+			leaf := r.InstancePath.Segments[len(r.InstancePath.Segments)-1]
+			out[r.OccurrencePath+"/"+r.BodyID] = r.DocumentID + "/" + leaf.ResolvedVersionID + "/" + r.GeometryKey
+		}
+		return out
+	}
+	if !reflect.DeepEqual(geometryScope(current), geometryScope(run.Snapshot.View)) {
+		return p, fmt.Errorf("%w: source geometry snapshot changed; run again", ErrValidation)
 	}
 	next, e := cloneAssemblyProduct(model)
 	if e != nil {
 		return p, e
 	}
 	for i, v := range next.Instances {
+		if !slices.Contains(mechanism.UnitIDs, v.ID) {
+			frame.UnitPoses[v.ID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
+			continue
+		}
 		oi := slices.IndexFunc(old.Instances, func(o ProductInstance) bool { return o.ID == v.ID })
 		pose, ok := frame.UnitPoses[v.ID]
 		if oi < 0 || old.Instances[oi].ReferencedDocumentID != v.ReferencedDocumentID || old.Instances[oi].ReferencedVersionID != v.ReferencedVersionID || !ok || !validMotionPose(pose) {
@@ -228,7 +277,6 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		next.Instances[i].Translation, next.Instances[i].Rotation = pose.Translation, pose.Rotation
 	}
 	newMappings := []MotionAssemblyMapping{}
-	proposed := map[string]bool{}
 	add := func(j MechanismJoint, role string, c AssemblyConstraint) error {
 		b, _ := json.Marshal(c)
 		var detached AssemblyConstraint
@@ -236,8 +284,8 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 			return e
 		}
 		c = detached
-		c.ID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(doc+"/"+mid+"/"+j.ID+"/"+role)).String()
-		c.Name = j.Name + " / " + role
+		c.ID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(doc+"/"+base+"/"+mid+"/"+j.ID+"/"+role)).String()
+		c.Name = ""
 		c.QuantityParameter = nil // new Product identity has its own scoped Quantity
 		c.Mode = "DRIVING"
 		c.DefinitionVersion = 2
@@ -247,13 +295,15 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		if err := service.validatePublicAssemblySupports(ctx, &next, &c); err != nil {
 			return err
 		}
-		c.ConnectionID = j.ID
-		var previous *MotionAssemblyMapping
+		c.ConnectionID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(doc+"/"+mid+"/"+j.ID+"/product-connection")).String()
+		regenerated := false
 		for _, a := range model.Kinematics.Associations {
 			if a.MechanismID == mid && a.JointID == j.ID && a.Role == role {
-				copy := a
-				previous = &copy
-				c.ID = a.ConstraintID
+				if slices.ContainsFunc(next.Constraints, func(v AssemblyConstraint) bool { return v.ID == a.ConstraintID }) {
+					c.ID = a.ConstraintID
+				} else {
+					regenerated = true
+				}
 				break
 			}
 		}
@@ -265,10 +315,7 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 			c.DefinitionVersion = prior.DefinitionVersion
 			action = "REUSE"
 			if semanticConstraint(c) != semanticConstraint(prior) {
-				action = "UPDATE"
-			}
-			if previous != nil && semanticConstraint(prior) != previous.ConstraintBaseline && semanticConstraint(c) != semanticConstraint(prior) {
-				p.Items = append(p.Items, MotionApplyItem{j.ID, role, c.ID, "CONFLICT", "正式约束自上次关联基线后已修改；请在装配设计中处理该关系后重新规划"})
+				p.Items = append(p.Items, MotionApplyItem{j.ID, role, c.ID, "CONFLICT", "目标约束与当前机械装置关系不同；请显式处理产品约束后重新规划"})
 				return nil
 			}
 			if action == "REUSE" {
@@ -276,6 +323,7 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 			}
 			next.Constraints[idx] = c
 		} else {
+			assignConstraintName(&c, &next.ConstraintNameCounters, next.Constraints)
 			next.Constraints = append(next.Constraints, c)
 			idx = len(next.Constraints) - 1
 		}
@@ -297,8 +345,11 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		if e := validateInstanceConstraintReferences(c); e != nil {
 			return e
 		}
-		proposed[c.ID] = true
-		p.Items = append(p.Items, MotionApplyItem{j.ID, role, c.ID, action, ""})
+		detail := ""
+		if regenerated {
+			detail = "原产品目标已删除；将创建新的独立约束身份"
+		}
+		p.Items = append(p.Items, MotionApplyItem{j.ID, role, c.ID, action, detail})
 		newMappings = append(newMappings, MotionAssemblyMapping{mid, j.ID, role, c.ID, jointDefinitionDigest(j), semanticConstraint(c)})
 		return nil
 	}
@@ -356,7 +407,7 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		}
 	}
 	next.Kinematics.Associations = slices.DeleteFunc(next.Kinematics.Associations, func(a MotionAssemblyMapping) bool {
-		return a.MechanismID == mid && (proposed[a.ConstraintID])
+		return a.MechanismID == mid && slices.ContainsFunc(newMappings, func(n MotionAssemblyMapping) bool { return n.JointID == a.JointID && n.Role == a.Role })
 	})
 	next.Kinematics.Associations = append(next.Kinematics.Associations, newMappings...)
 	frozen, e := service.FreezeAssemblyInput(ctx, doc, base, next)
@@ -431,7 +482,7 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		Request MotionApplyRequest
 		Model   ProductModel
 		Items   []MotionApplyItem
-	}{base, MotionApplyRequest{JobID: req.JobID, FrameIndex: req.FrameIndex, LockAngle: req.LockAngle, Resolutions: req.Resolutions}, next, p.Items})
+	}{base, MotionApplyRequest{MechanismID: req.MechanismID, JobID: req.JobID, FrameIndex: req.FrameIndex, LockAngle: req.LockAngle, Resolutions: req.Resolutions}, next, p.Items})
 	return p, nil
 }
 func applyMotionFrame(raw, payload json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -462,9 +513,15 @@ func applyMotionFrame(raw, payload json.RawMessage) (json.RawMessage, modelcore.
 		} else if !reflect.DeepEqual(before.Constraints[i], c) {
 			add(modelcore.ChangeUpdate, c.ID, "assembly-constraint.entity", before.Constraints[i], c)
 		}
-		set.ImpactSeeds = append(set.ImpactSeeds, modelcore.DependencyKey("assembly-constraint:"+c.ID))
+		if i < 0 || !reflect.DeepEqual(before.Constraints[i], c) {
+			set.ImpactSeeds = append(set.ImpactSeeds, modelcore.DependencyKey("assembly-constraint:"+c.ID))
+		}
 	}
-	for i, v := range next.Instances {
+	for _, v := range next.Instances {
+		i := slices.IndexFunc(before.Instances, func(old ProductInstance) bool { return old.ID == v.ID })
+		if i < 0 {
+			return nil, set, fmt.Errorf("%w: application instance changed", ErrValidation)
+		}
 		old := before.Instances[i]
 		a, b := InstancePose{Translation: old.Translation, Rotation: old.Rotation}, InstancePose{Translation: v.Translation, Rotation: v.Rotation}
 		if a != b {
@@ -472,7 +529,12 @@ func applyMotionFrame(raw, payload json.RawMessage) (json.RawMessage, modelcore.
 			set.ImpactSeeds = append(set.ImpactSeeds, modelcore.DependencyKey("instance:"+v.ID))
 		}
 	}
-	add(modelcore.ChangeUpdate, "product", "product.kinematics", before.Kinematics, next.Kinematics)
+	if !reflect.DeepEqual(before.Kinematics, next.Kinematics) {
+		add(modelcore.ChangeUpdate, "product", "product.kinematics", before.Kinematics, next.Kinematics)
+	}
+	if !reflect.DeepEqual(before.ConstraintNameCounters, next.ConstraintNameCounters) {
+		add(modelcore.ChangeUpdate, "product", "product.constraint-name-counters", before.ConstraintNameCounters, next.ConstraintNameCounters)
+	}
 	b, e := json.Marshal(next)
 	return b, set, e
 }

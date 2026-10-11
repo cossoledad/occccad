@@ -3,6 +3,9 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"slices"
+
+	"github.com/google/uuid"
 )
 
 // Editing poses and constraints belong to the mechanism. The Product is only
@@ -13,10 +16,10 @@ func mechanismPoseModel(model ProductModel, m Mechanism) (ProductModel, error) {
 		return input, err
 	}
 	if len(m.Poses) > 0 {
-		if len(m.Poses) != len(input.Instances) {
-			return input, fmt.Errorf("%w: incomplete mechanism editing pose", ErrValidation)
-		}
 		for i, v := range input.Instances {
+			if !slices.Contains(m.UnitIDs, v.ID) {
+				continue
+			}
 			p, ok := m.Poses[v.ID]
 			if !ok || !validMotionPose(p) {
 				return input, fmt.Errorf("%w: invalid mechanism editing pose", ErrValidation)
@@ -26,6 +29,18 @@ func mechanismPoseModel(model ProductModel, m Mechanism) (ProductModel, error) {
 	}
 	input.Constraints = nil
 	return input, nil
+}
+
+// Accepted mechanisms own only their members. Nonmembers always come from the
+// current Product snapshot, including when adopting a historical run frame.
+func mechanismMemberPoses(m Mechanism, poses map[string]InstancePose) map[string]InstancePose {
+	result := make(map[string]InstancePose, len(m.UnitIDs))
+	for _, id := range m.UnitIDs {
+		if p, ok := poses[id]; ok {
+			result[id] = p
+		}
+	}
+	return result
 }
 
 func (service *Service) bindMechanismConstraints(ctx context.Context, model ProductModel, m Mechanism) (Mechanism, error) {
@@ -53,10 +68,10 @@ func (service *Service) bindMechanismConstraints(ctx context.Context, model Prod
 			if !found || !validMotionPose(p) {
 				return m, fmt.Errorf("%w: missing Ground pose", ErrValidation)
 			}
-			relations = []AssemblyConstraint{{ID: j.ID + "/ground", Name: j.Name, Kind: "FIX", FixMode: "SPACE", First: AssemblyGeometryRef{Kind: "BODY", InstanceID: j.First.InstanceID}, FixedPose: &p}}
+			relations = []AssemblyConstraint{{Kind: "FIX", FixMode: "SPACE", First: AssemblyGeometryRef{Kind: "BODY", InstanceID: j.First.InstanceID}, FixedPose: &p}}
 		} else if j.First.Axis != nil && j.Second != nil && j.Second.Axis != nil && j.First.Plane != nil && j.Second.Plane != nil {
 			a, b := *j.First.Axis, *j.Second.Axis
-			axis := AssemblyConstraint{ID: j.ID + "/axis", Name: "同心", Kind: "COINCIDENT", First: a, Second: &b, DirectionRelation: "SAME"}
+			axis := AssemblyConstraint{Kind: "COINCIDENT", First: a, Second: &b, DirectionRelation: "SAME"}
 			planeA, planeB := *j.First.Plane, *j.Second.Plane
 			plane, err := resolver.resolve(planeA)
 			if err != nil {
@@ -70,19 +85,27 @@ func (service *Service) bindMechanismConstraints(ctx context.Context, model Prod
 			if err != nil {
 				return m, err
 			}
-			location := AssemblyConstraint{ID: j.ID + "/axial-location", Name: "偏移", Kind: "DISTANCE", First: planeA, Second: &planeB, DirectionRelation: "UNORIENTED", DistanceRelation: selectedPlaneNormalV1, Value: -offset * conflictDot(z, plane.Direction)}
+			location := AssemblyConstraint{Kind: "DISTANCE", First: planeA, Second: &planeB, DirectionRelation: "UNORIENTED", DistanceRelation: selectedPlaneNormalV1, Value: -offset * conflictDot(z, plane.Direction)}
 			relations = []AssemblyConstraint{axis, location}
 		} else {
 			continue
 		} // pure frame fixtures are used by numerical conformance tests only
 		for n := range relations {
 			c := &relations[n]
+			role := mechanismConstraintRole(*c)
+			c.ID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(m.ID+"/"+j.ID+"/"+role)).String()
+			for _, previous := range j.Constraints {
+				if mechanismConstraintRole(previous) == role {
+					c.ID, c.Name, c.QuantityParameter = previous.ID, previous.Name, previous.QuantityParameter
+				}
+			}
 			c.DefinitionVersion = 2
 			c.Mode = "DRIVING"
 			c.ConnectionID = j.ID
 			if err := canonicalAssemblyDefinition(c, "", ""); err != nil {
 				return m, err
 			}
+			assignConstraintName(c, &m.ConstraintNameCounters, nil)
 			if err := service.validatePublicAssemblySupports(ctx, &model, c); err != nil {
 				return m, err
 			}

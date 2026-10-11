@@ -111,8 +111,8 @@ func TestDocumentViewKeepsMeshOutOfStructureSnapshot(t *testing.T) {
 
 func TestAssemblyConstraintStructureNamesAndSetVisibility(t *testing.T) {
 	model := ProductModel{Constraints: []AssemblyConstraint{
-		{ID: "contact-a", Kind: "CONTACT"}, {ID: "fix", Kind: "FIX"},
-		{ID: "contact-b", Kind: "CONTACT"}, {ID: "group", Kind: "FIX_TOGETHER"},
+		{ID: "contact-a", Name: "接触.1", Kind: "CONTACT"}, {ID: "fix", Name: "固定.1", Kind: "FIX"},
+		{ID: "contact-b", Name: "接触.2", Kind: "CONTACT"}, {ID: "group", Name: "固联组.1", Kind: "FIX_TOGETHER"},
 	}}
 	check := func(model ProductModel, wantVisible bool) {
 		t.Helper()
@@ -130,8 +130,8 @@ func TestAssemblyConstraintStructureNamesAndSetVisibility(t *testing.T) {
 		if group == nil || group.EntityID != "assembly-constraints" || group.Subject == nil || group.Subject.DocumentID != "product" || group.LocalVisible == nil || *group.LocalVisible != wantVisible {
 			t.Fatalf("constraint set lost identity/aggregate visibility: %+v", group)
 		}
-		for i, want := range []string{"#接触.1", "#固定.1", "#接触.2", "#固联组.1"} {
-			if !strings.HasPrefix(group.Children[i].Name, want+"（") {
+		for i, want := range []string{"接触.1", "固定.1", "接触.2", "固联组.1"} {
+			if !strings.HasPrefix(group.Children[i].Name, want+" (") {
 				t.Fatalf("constraint name = %q, want prefix %q", group.Children[i].Name, want)
 			}
 		}

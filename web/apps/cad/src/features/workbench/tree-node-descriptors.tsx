@@ -3,6 +3,7 @@ import {
   CloudUploadOutlined, DatabaseOutlined, ExclamationCircleOutlined, GatewayOutlined,
   InsertRowAboveOutlined, NodeIndexOutlined, ScissorOutlined, SyncOutlined,
 } from "@ant-design/icons";
+import {CadIcon} from "../../cad/overlay/cad-icons";
 import type { ReactNode } from "react";
 import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusFromDiagnostic } from "../../cad/assembly/assembly-constraint-ux";
 import type { DocumentStructureNode } from "../../types";
@@ -11,7 +12,7 @@ type Kind = DocumentStructureNode["kind"];
 type Descriptor = { icon: ReactNode; visibility?: true };
 
 const descriptors: Partial<Record<Kind, Descriptor>> = {
- APPLICATIONS:{icon:<ApartmentOutlined/>},MECHANISM:{icon:<GatewayOutlined/>},MECHANISM_JOINT:{icon:<NodeIndexOutlined/>},MOTION_DRIVER:{icon:<AimOutlined/>},MOTION_STUDY:{icon:<SyncOutlined/>},INTERFERENCE_ANALYSIS:{icon:<ExclamationCircleOutlined/>},JOINT_SUPPORT:{icon:<AimOutlined/>},JOINT_EXPANSION:{icon:<NodeIndexOutlined/>},JOINT_SOURCE:{icon:<GatewayOutlined/>},MOTION_ASSOCIATION:{icon:<GatewayOutlined/>},
+ KINEMATICS_GROUP:{icon:<ApartmentOutlined/>},MECHANISM_REFERENCE:{icon:<GatewayOutlined/>},MOTION_LAW:{icon:<SyncOutlined/>},APPLICATIONS:{icon:<ApartmentOutlined/>},MECHANISM:{icon:<GatewayOutlined/>},MECHANISM_JOINT:{icon:<NodeIndexOutlined/>},MOTION_DRIVER:{icon:<AimOutlined/>},MOTION_STUDY:{icon:<SyncOutlined/>},INTERFERENCE_ANALYSIS:{icon:<ExclamationCircleOutlined/>},JOINT_SUPPORT:{icon:<AimOutlined/>},JOINT_EXPANSION:{icon:<NodeIndexOutlined/>},JOINT_SOURCE:{icon:<GatewayOutlined/>},MOTION_ASSOCIATION:{icon:<GatewayOutlined/>},
   ASSEMBLY_CONSTRAINT:{icon:<GatewayOutlined />,visibility:true},
   ASSEMBLY_CONSTRAINT_SET:{icon:<GatewayOutlined />,visibility:true},
   PRODUCT: { icon: <ApartmentOutlined /> }, PART: { icon: <BuildOutlined /> },
@@ -47,14 +48,14 @@ const descriptors: Partial<Record<Kind, Descriptor>> = {
   CONTEXT_BINDING_SET: { icon: <GatewayOutlined /> }, CONTEXT_BINDING: { icon: <GatewayOutlined /> },
 };
 
-export function treeNodeIcon(node: Pick<DocumentStructureNode, "kind" | "diagnostic" | "evaluationStatus" | "operation">): ReactNode {
+export function treeNodeIcon(node: Pick<DocumentStructureNode, "kind" | "diagnostic" | "evaluationStatus" | "operation" | "entityType">): ReactNode {
   if (node.kind === "ASSEMBLY_CONSTRAINT" || node.kind === "JOINT_EXPANSION") {
     const status = assemblyStatusFromDiagnostic(node.evaluationStatus ?? node.diagnostic);
     const detail = ASSEMBLY_CONSTRAINT_STATUS[status];
     const icon = status === "VERIFIED" ? <CheckCircleOutlined /> : status === "BROKEN" ? <CloseCircleOutlined />
       : status === "IMPOSSIBLE" ? <ExclamationCircleOutlined /> : <SyncOutlined />;
     return <span aria-label={`Constraint status ${detail.label}`} title={`${detail.label}: ${detail.description}`}
-      style={{ color: detail.color }}>{icon}</span>;
+      style={{ color: detail.color,position:"relative",display:"inline-flex" }}><CadIcon name={node.entityType==="FIX"?"fixed":node.entityType==="DISTANCE"?"offset":node.entityType==="ANGLE"?"angle":"coincident"}/><span style={{position:"absolute",right:-2,bottom:-2,fontSize:9}}>{icon}</span></span>;
   }
   if (node.evaluationStatus === "FAILED" || node.evaluationStatus === "BLOCKED") return <span aria-label={node.evaluationStatus === "FAILED" ? "计算失败" : "上游失败"} style={{color: node.evaluationStatus === "FAILED" ? "#b86151" : "#b38a48"}}><ExclamationCircleOutlined /></span>;
   if ((node.kind === "PAD" || node.kind === "REVOLVE") && node.operation === "REMOVE") return <ScissorOutlined />;

@@ -71,8 +71,9 @@ import { SpecificationTree, type SpecificationTreeNode } from "./specification-t
 import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } from "./product-edit-context";
 import { assemblyAutomaticPreviewAllowed, createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
-import {kinematicKinds,motionSelectionTargets,deleteMotionObjects,renameMotionObject} from "../../cad/assembly/motion-definitions";
+import {kinematicKinds,motionSelectionTargets,qualifyMotionSelections,deleteMotionObjects,renameMotionObject} from "../../cad/assembly/motion-definitions";
 import {MotionStudyPanel,type MotionPanelHandle} from "./motion-study-panel";
+import {applicationDisplay,restoredApplicationSources} from "../../cad/assembly/application-display";
 import type {MotionPlayback} from "../../cad/assembly/motion-study";
 import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
 import { associatedTreeKeyForSelection, deletableTreeNodesForSelections, ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
@@ -248,6 +249,9 @@ export function Workbench() {
  const [mechanismDefinition,setMechanismDefinition]=useState<import("../../cad/assembly/motion-study").Mechanism>();
  const [motionCommandActive,setMotionCommandActive]=useState(false);
   const [motionDisplay,setMotionDisplay]=useState<MotionPlayback>();
+ const motionSources=useRef<string[]>([]);
+ const [motionAcceptedFrame,setMotionAcceptedFrame]=useState<Array<import("../../cad/assembly/motion-study").MotionPose&{instanceId:string}>>();
+ const [motionPosePreview,setMotionPosePreview]=useState<Array<import("../../cad/assembly/motion-study").MotionPose&{instanceId:string}>>();
   const [conflictOpen,setConflictOpen]=useState(false);
   const [conflictReport,setConflictReport]=useState<AssemblyConflictReport>();
   const [conflictContextCurrent,setConflictContextCurrent]=useState(false);
@@ -384,6 +388,8 @@ export function Workbench() {
 
   const refresh = useCallback(async (view?: DocumentView) => {
     if (view) {
+      const selectionState=useWorkbenchStore.getState();
+      if(view.product&&selectionState.selections.some(s=>s.kind==='kinematic-object'&&(s.ownerDocumentId??s.documentId)===view.document.id))selectionState.setSelections(qualifyMotionSelections(view,selectionState.selections));
       client.setQueryData(queryKeys.document(view.document.id), view);
       updateOpenDocumentSummary(client, view.document);
       setEditSession((current) => current && current.hostDocumentId === documentID ? {
@@ -436,6 +442,7 @@ export function Workbench() {
     mutationFn: (operation: () => Promise<DocumentView>) => operation(),
     onSuccess: (updated) => { store.setSelection(null); void refresh(updated); }, onError: (error) => operationFeedback(error,"命令")
   });
+  const motionMutation=useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),onError:(error)=>operationFeedback(error,"机械装置")});
   const moveCommand = useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),
     onSuccess:(updated)=>{void refresh(updated);},onError:()=>{void refresh();}});
   const view = document.data;
@@ -665,7 +672,7 @@ export function Workbench() {
         : undefined;
       const ownVisible = semantic?.effectiveVisible ?? treeVisibilityOverride(visibilityKey, treeVisibilityOverrides) ?? node.localVisible ?? true;
       const actionOwner = node.kind === "INSTANCE" ? node.ownerDocumentId : node.documentId;
-      const ownerEditable = Boolean(!motionDisplay && (!motionOpen||kinematicKinds.includes(node.kind??"")||node.kind==="JOINT_EXPANSION") && editingView && actionOwner === editingView.document.id &&
+      const ownerEditable = Boolean(!motionDisplay && (!motionOpen||!motionCommandActive) && (!motionOpen||kinematicKinds.includes(node.kind??"")||node.kind==="JOINT_EXPANSION") && editingView && actionOwner === editingView.document.id &&
         ["OWNER", "EDITOR"].includes(editingView.document.permission ?? ""));
       return { ...node, hidden: !ownVisible, definitionVisible: semantic?.definitionVisible ?? node.definitionVisible, localVisible: semantic?.localVisible ?? node.localVisible,
         capabilities: ownerEditable ? node.capabilities : node.capabilities?.filter((capability) => capability !== "EDIT" && capability !== "DELETE" && capability !== "SUPPRESS" && capability !== "RENAME"),
@@ -675,7 +682,7 @@ export function Workbench() {
         children: node.children?.map(decorate) };
     };
     return displayView ? treeData(displayView,motionDisplay?undefined:editingView).map((node) => decorate(node)) : [];
-  }, [view, motionDisplay, motionOpen, editingView, editSession, store.activeSketchID, activeInstancePath, treeVisibilityOverrides]);
+  }, [view, motionDisplay, motionOpen, motionCommandActive, editingView, editSession, store.activeSketchID, activeInstancePath, treeVisibilityOverrides]);
   useEffect(()=>{
     normalViewRequest.current+=1;
     return ()=>{normalViewRequest.current+=1;};
@@ -704,6 +711,15 @@ export function Workbench() {
   const activeTabs=toolbarCatalog.data?contextTabs(toolbarCatalog.data,commandFacts):[];
  const activeWorkbench=activeTabs[0]?.workbench??"";
  const setMotionOpen=(open:boolean)=>{commandRegistry.cancel();closeCommandPanels();store.setActiveTool("select","once");store.setSelections([]);setMotionSession(open?documentID:undefined);if(open)void motionPanel.current?.execute("enter");};
+ const restoredMotionDocument=useRef<string|undefined>(undefined);
+ useEffect(()=>{
+  if(!view?.product||restoredMotionDocument.current===documentID)return;
+  restoredMotionDocument.current=documentID;
+  const params=new URLSearchParams(window.location.search),id=params.get('mechanismId');
+  const m=view.product.kinematics?.mechanisms.find(m=>m.id===id);
+  if(params.get('application')==='mechanism'&&m){motionSources.current=restoredApplicationSources(view,m,params);setMotionSession(documentID);void motionPanel.current?.execute('resume',m.id)}
+  else if(params.get('application')==='mechanism'){const url=new URL(window.location.href);for(const key of ['application','mechanismId','mechanismSources','applicationRevision'])url.searchParams.delete(key);window.history.replaceState(null,'',url);message.warning('所选机械装置已不存在，已返回装配设计');}
+ },[documentID,view?.product]);
  const previousMotionOpen=useRef(motionOpen);
  useEffect(()=>{if(previousMotionOpen.current&&!motionOpen){commandRegistry.cancel();store.setActiveTool("select","once");store.setSelections([])}previousMotionOpen.current=motionOpen;},[motionOpen,commandRegistry]);
 
@@ -1043,7 +1059,16 @@ export function Workbench() {
       node.presentationRole !== "INPUT_REFERENCE").map((node) => [`${node.documentId}:${node.kind}:${node.entityId}`, node])).values()];
     if(candidates.some(node=>kinematicKinds.includes(node.kind??""))){
  if(!view?.product?.kinematics||candidates.some(node=>!kinematicKinds.includes(node.kind??"")))return;
- command.mutate(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:deleteMotionObjects(view.product!.kinematics!,candidates.map(n=>n.entityId!))}));return;
+ command.mutate(async()=>{
+  let base=view;
+  if(mechanismDefinition&&candidates.some(n=>n.kind==='MECHANISM'&&motionSources.current.includes(n.entityId!))){
+   base=await api.command(view.document.id,{type:'EXIT_MECHANISM',versionId:view.document.versionId,mechanismApplication:{baseRevisionId:view.document.versionId,sourceMechanismId:mechanismDefinition.id,sourceMechanismIds:motionSources.current}});
+   motionPanel.current?.adoptProduct(base);
+   setMotionAcceptedFrame((base.product?.instances??[]).map(v=>({instanceId:v.id,translation:v.translation,rotation:v.rotation??[0,0,0,1]})));setMechanismDefinition(undefined);setMotionPosePreview(undefined);setMotionDisplay(undefined);motionSources.current=[];
+   const url=new URL(window.location.href);for(const key of ['application','mechanismId','mechanismSources','applicationRevision'])url.searchParams.delete(key);window.history.replaceState(null,'',url);await refresh(base);
+  }
+  const updated=await api.command(base.document.id,{type:"SAVE_KINEMATICS",versionId:base.document.versionId,kinematics:deleteMotionObjects(base.product!.kinematics!,candidates.map(n=>n.entityId!))});motionPanel.current?.adoptDefinition(updated);return updated;
+ });return;
  }
  const selectedFeatures = new Set(candidates.filter((node) => !["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!))
       .map((node) => node.entityId));
@@ -1148,7 +1173,7 @@ onOpenDocumentTab:async(node,operation) => {
             },
 onActivate:async(node,operation) => {
  if(node.kind==="JOINT_EXPANSION"){if(!motionDisplay)await commandRegistry.execute("tree.edit",{payload:{node}});return}
- if(node.kind==="MECHANISM"){setMotionSession(documentID);motionPanel.current?.execute("enter",node.entityId);return}
+ if(node.kind==="MECHANISM"||node.kind==="MECHANISM_REFERENCE"){setMotionSession(documentID);motionPanel.current?.execute("enter",node.entityId);return}
  if(kinematicKinds.includes(node.kind??"")){if(!motionDisplay)await commandRegistry.execute("tree.edit",{payload:{node}});return}
               if (node.kind === "BODY" && node.documentId === editingView?.document.id && node.bodyId) {
                 setEditSession((current) => current ? withWorkingBody(current, node.bodyId!) : current);
@@ -1186,7 +1211,7 @@ onEdit:(node,operation) => {
             },
 onRename:(node) => {
               if (!editingView || !(canEdit||motionOpen&&canEditRoot&&!motionDisplay&&kinematicKinds.includes(node.kind??"")) || node.documentId !== editingView.document.id || !node.entityId) return;
-              const kinematic=view?.product?.kinematics;const object=kinematic?[...kinematic.mechanisms,...kinematic.mechanisms.flatMap(m=>m.joints),...(kinematic.drivers??[]),...kinematic.studies].find(v=>v.id===node.entityId):undefined;
+              const kinematic=view?.product?.kinematics;const object=kinematic?[...kinematic.mechanisms,...kinematic.mechanisms.flatMap(m=>m.joints),...(kinematic.drivers??[]),...(kinematic.laws??[]),...kinematic.studies].find(v=>v.id===node.entityId):undefined;
  const name = object?.name ?? (node.kind === "BODY" ? editingView.part?.bodies.find((body) => body.id === node.entityId)?.name
                 : editingView.part?.features.find((feature) => feature.id === node.entityId)?.name);
               renameForm.setFieldsValue({name:name ?? ""}); setRenameTarget(node);
@@ -1528,10 +1553,22 @@ onToggleConstruction:(node)=>{
   const activeToolName = visibleToolbars.flatMap((toolbar) => toolbar.items)
     .find((item) => item.commandId === store.activeToolID)?.name ?? "选择";
 
+  const applicationParams=new URLSearchParams(window.location.search);
+  const restoringMechanism=!mechanismDefinition&&!motionAcceptedFrame&&applicationParams.get('application')==='mechanism'?view.product?.kinematics?.mechanisms.find(m=>m.id===applicationParams.get('mechanismId')):undefined;
+  const restoringPoses=restoringMechanism?Object.entries(Object.assign({},...restoredApplicationSources(view,restoringMechanism,applicationParams).map(id=>view.product?.kinematics?.mechanisms.find(m=>m.id===id)?.poses??{})) as Record<string,import("../../cad/assembly/motion-study").MotionPose>).map(([instanceId,p])=>({instanceId,...p})):undefined;
   return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><section className="cad-workbench">
 
     {historyResult&&<Alert type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/> }
-    {view.product&&<MotionStudyPanel ref={motionPanel} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onMechanism={setMechanismDefinition} onStatus={setMotionStatus} onSelectionSession={setFeatureSelection} onPreview={poses=>{viewport.current?.clearCommandPreview(!poses);if(poses)viewport.current?.previewAssemblyPoses(poses,"immediate")}} onSave={async k=>{if(command.isPending)throw new Error("当前命令尚未完成");const updated=await command.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:k}));await refresh(updated);return updated}} onApply={async motionApply=>{const updated=await command.mutateAsync(()=>api.command(view.document.id,{type:"APPLY_MOTION_FRAME",versionId:view.document.versionId,motionApply}));store.setSelections([]);await refresh(updated)}} onPlayback={setMotionDisplay} onHighlight={store.setSelections} onClose={()=>{setMotionSession(undefined);setMotionDisplay(undefined);store.setSelections([])}}/>}
+    {view.product&&<MotionStudyPanel ref={motionPanel} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onMechanism={m=>{setMechanismDefinition(m);if(m&&motionOpen&&motionSources.current.at(-1)===m.id){const url=new URL(window.location.href);url.searchParams.set("application","mechanism");url.searchParams.set("mechanismId",m.id);url.searchParams.set("applicationRevision",view.document.versionId);url.searchParams.set("mechanismSources",motionSources.current.join(','));window.history.replaceState(null,"",url)}}} onStatus={setMotionStatus} onSelectionSession={setFeatureSelection} onPreview={setMotionPosePreview} onSave={async k=>{if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:k}));const created=updated.product?.kinematics?.mechanisms.find(m=>!view.product?.kinematics?.mechanisms.some(v=>v.id===m.id));const acceptedId=created?.id??mechanismDefinition?.id;if(acceptedId)motionSources.current=[...motionSources.current.filter(id=>id!==acceptedId&&updated.product?.kinematics?.mechanisms.some(m=>m.id===id)),acceptedId];setMechanismDefinition(m=>updated.product?.kinematics?.mechanisms.find(v=>v.id===m?.id));setMotionPosePreview(undefined);await refresh(updated);return updated}} onSwitch={async input=>{
+      if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");
+      input={...input,sourceMechanismIds:input.sourceMechanismIds??motionSources.current.filter(id=>view.product?.kinematics?.mechanisms.some(m=>m.id===id))};
+      if(!input.mechanismId&&!["OWNER","EDITOR"].includes(view.document.permission??""))input={...input,sourceMechanismId:undefined,sourceMechanismIds:[]};
+      const prepared=await api.prepareMechanismApplication(view.document.id,input);
+      if(!["OWNER","EDITOR"].includes(view.document.permission??"")){motionSources.current=input.mechanismId?[...new Set([...(input.sourceMechanismIds??[]),input.mechanismId])]:[];setMotionAcceptedFrame(prepared.instancePoses);return {...prepared,view}}
+      const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,{type:input.mechanismId?"ACTIVATE_MECHANISM":"EXIT_MECHANISM",versionId:input.baseRevisionId,mechanismApplication:input}));
+      const m=updated.product?.kinematics?.mechanisms.find(v=>v.id===input.mechanismId);motionSources.current=m?[...new Set([...(input.sourceMechanismIds??[]),m.id])]:[];const poses=m?prepared.instancePoses.map(v=>({instanceId:v.instanceId,...(m.poses?.[v.instanceId]??{translation:v.translation,rotation:v.rotation})})):(updated.product?.instances??[]).map(v=>({instanceId:v.id,translation:v.translation,rotation:v.rotation??[0,0,0,1] as [number,number,number,number]}));setMotionAcceptedFrame(poses);setMechanismDefinition(m);setMotionPosePreview(undefined);setMotionDisplay(undefined);await refresh(updated);
+      return {view:updated,baseRevisionId:input.baseRevisionId,mechanism:m,instancePoses:poses}
+    }} onApply={async motionApply=>{const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,{type:"APPLY_MOTION_FRAME",versionId:view.document.versionId,motionApply}));setMotionAcceptedFrame((updated.product?.instances??[]).map(v=>({instanceId:v.id,translation:v.translation,rotation:v.rotation??[0,0,0,1]})));setMechanismDefinition(undefined);setMotionPosePreview(undefined);setMotionDisplay(undefined);store.setSelections([]);await refresh(updated)}} onPlayback={setMotionDisplay} onHighlight={store.setSelections} onClose={()=>{const url=new URL(window.location.href);url.searchParams.delete("application");url.searchParams.delete("mechanismId");url.searchParams.delete("mechanismSources");url.searchParams.delete("applicationRevision");motionSources.current=[];setMotionAcceptedFrame(undefined);window.history.replaceState(null,"",url);setMotionSession(undefined);setMechanismDefinition(undefined);setMotionPosePreview(undefined);setMotionDisplay(undefined);store.setSelections([])}}/>}
     <WorkbenchLayout documentName={editingView?.document.name ?? view.document.name}
       inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
 
@@ -1596,7 +1633,7 @@ onToggleConstruction:(node)=>{
           type="warning" showIcon message="当前几何暂不支持持久拓扑引用"
           description={(selectedNamingIssue ?? activeNamingIssue)?.diagnostic}
           action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>建立导入命名</Button> : undefined} />}
-        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
+        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} applicationDisplay={motionOpen||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
           editingView={motionDisplay?undefined:editingView} activeInstancePath={motionDisplay?undefined:activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           liveDefinitionProjection={Boolean(canEdit && editSession?.hostDocumentId===view.document.id && activeInstancePath &&
             !pinnedReferenceInPath(view.structureTree,activeInstancePath))}
@@ -1768,7 +1805,7 @@ onToggleConstruction:(node)=>{
         const values = await renameForm.validateFields();
         if (!renameTarget?.entityId || !editingView || renameTarget.documentId !== editingView.document.id) return;
         const target = renameTarget;
- if(kinematicKinds.includes(target.kind??"")&&view.product?.kinematics){command.mutate(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:renameMotionObject(view.product!.kinematics!,target.entityId!,values.name.trim())}),{onSuccess:()=>setRenameTarget(undefined)});return}
+ if(kinematicKinds.includes(target.kind??"")&&view.product?.kinematics){command.mutate(async()=>{const updated=await api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:renameMotionObject(view.product!.kinematics!,target.entityId!,values.name.trim())});motionPanel.current?.adoptDefinition(updated);return updated},{onSuccess:()=>setRenameTarget(undefined)});return}
         command.mutate(() => api.command(editingView.document.id, target.kind === "BODY"
           ? {type:"RENAME_BODY",bodyId:target.entityId,name:values.name.trim()}
           : {type:"RENAME_FEATURE",targetId:target.entityId,name:values.name.trim()}),

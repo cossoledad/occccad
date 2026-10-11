@@ -41,24 +41,34 @@ assert.equal(applyMotionFrame(malformed,run.snapshot.view,groups,transforms),fal
 assert.equal(ground.position.x,0);assert.equal(link.position.x,10);
 
 
-// Exercise the real viewport pose lifecycle without constructing a renderer.
-// Cancelling a draft restores the owning mechanism baseline, while leaving the
-// application restores Product placement. Neither operation may animate a jump.
+// Exercise the actual atomic application writer and record every submitted batch.
 const {CadViewportEngine}=await server.ssrLoadModule('/src/viewport/cad-viewport-engine.ts');
+const {applicationDisplay,restoredApplicationSources}=await server.ssrLoadModule('/src/cad/assembly/application-display.ts');
 const engine=Object.create(CadViewportEngine.prototype);
-const scene=new THREE.Group(),fixed=new THREE.Group(),moving=new THREE.Group();scene.add(fixed,moving);
-Object.assign(engine,{instanceGroups:new Map([['g',fixed],['link',moving]]),transforms,content:scene,host:{dataset:{}},
- view:{document:{id:'product',versionId:'v1'},product:{instances:[{id:'g',...pose(0)},{id:'link',...pose(100)}]}},
+const scene=new THREE.Group(),fixed=new THREE.Group(),moving=new THREE.Group(),outsider=new THREE.Group();scene.add(fixed,moving,outsider);
+const frames=[];const traced={stop:object=>transforms.stop(object),applyBatch(targets,mode){transforms.applyBatch(targets,mode);frames.push([moving.position.x,outsider.position.x])}};
+const product={document:{id:'product',versionId:'v1'},product:{instances:[{id:'g',...pose(0)},{id:'link',...pose(100)},{id:'other',...pose(77)}]}};
+Object.assign(engine,{instanceGroups:new Map([['g',fixed],['link',moving],['other',outsider]]),transforms:traced,content:scene,host:{dataset:{}},view:product,
  previewInputMaterials:[],previewSketchHidden:[],moveManipulator:{detach(){}},
  addAssemblyConstraintMarkers(){},refreshInteractionHighlights(){},refreshContentBounds(){},invalidate(){},setActiveTool(){},syncAttachedManipulatorPosition(){},
 });
 const mechanism={id:'m',joints:[],unitIds:['g','link'],poses:{g:pose(0),link:pose(10)}};
-engine.showMechanism(mechanism);assert.equal(moving.position.x,10);
-engine.previewAssemblyPoses([{instanceId:'g',...pose(0)},{instanceId:'link',...pose(20)}],'immediate');
-assert.equal(moving.position.x,20);engine.clearCommandPreview();assert.equal(moving.position.x,10,'cancel must restore accepted mechanism pose');
-engine.setMotionDisplay(motionPlayback(run,1));assert.equal(moving.position.x,20);
-engine.showMechanism({...mechanism,poses:{g:pose(0),link:pose(20)}});engine.setMotionDisplay();assert.equal(moving.position.x,20,'closing simulation keeps the adopted mechanism pose');
-engine.showMechanism();assert.equal(moving.position.x,100,'exiting mechanism restores Product placement');
-assert.equal(animated,0);
+const restorationView={...product,product:{...product.product,kinematics:{mechanisms:[mechanism,{id:'other-m'}]}}};
+assert.deepEqual(restoredApplicationSources(restorationView,mechanism,new URLSearchParams('applicationRevision=v1&mechanismSources=other-m,m,other-m,deleted')),['other-m','m']);
+assert.deepEqual(restoredApplicationSources(restorationView,mechanism,new URLSearchParams('applicationRevision=old&mechanismSources=other-m,m')),['m'],'external Head invalidates the old nonmember environment');
+engine.setApplicationDisplay(applicationDisplay(product,mechanism));engine.commitApplicationDisplay();assert.equal(moving.position.x,10);assert.equal(outsider.position.x,77);
+engine.setApplicationDisplay(applicationDisplay(product,mechanism,undefined,[{instanceId:'link',...pose(20)}]));engine.commitApplicationDisplay();assert.equal(moving.position.x,20);
+const count=frames.length;engine.clearCommandPreview(false);assert.equal(frames.length,count,'resource cleanup must not submit a restoring frame');
+// Pending, rejected and superseded requests retain this complete displayed frame.
+assert.equal(moving.position.x,20);
+engine.setApplicationDisplay(applicationDisplay(product,mechanism));engine.commitApplicationDisplay();assert.equal(moving.position.x,10,'explicit cancel adopts the command baseline');
+// A returned accepted pose is installed with its document Revision. Clearing the
+// draft before hydration holds the last frame, then adopts exactly one new frame.
+const updated={...product,document:{...product.document,versionId:'v2'}},accepted={...mechanism,poses:{g:pose(0),link:pose(25)}};
+engine.setApplicationDisplay(applicationDisplay(updated,accepted));engine.commitApplicationDisplay();assert.equal(moving.position.x,10);
+engine.view=updated;engine.commitApplicationDisplay();assert.equal(moving.position.x,25);
+const exiting={...updated,document:{...updated.document,versionId:'v3'},product:{instances:updated.product.instances.map(v=>v.id==='link'?{...v,...pose(25)}:v)}};
+engine.setApplicationDisplay(applicationDisplay(exiting));engine.view=exiting;engine.commitApplicationDisplay();assert.equal(moving.position.x,25,'Product adopts the accepted pose when its equations are empty');
+assert.deepEqual(frames.map(v=>v[0]),[10,20,10,25,25]);assert(frames.every(v=>v[1]===77),'mechanism snapshots never own nonmembers');assert.equal(animated,0);
 
 } finally {await server.close()}

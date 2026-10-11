@@ -222,10 +222,10 @@ Part Design 提供布尔、圆角、倒角、拔模、抽壳和基础放样命�
 
 ## 基础旋转机构应用
 
-根 Product 在 DMU 分类点击“机构”进入独立编辑态，装配设计分类消失；进入立即创建节点，未编辑的新空机构退出时清理，双击既有机构进入。命令/对话框/选择/提示沿用 catalog、Registry、CommandDialog、FeatureSelectionSession、底栏与 OperationFeedback，视口大小固定。
+根 Product 的“机构”进入 DMU 应用，“新建机械装置”确认后才创建持久节点。树按机械装置、接合、命令、固定零件、运动规律、模拟组织，模拟下投影源机构引用；真实接合子约束使用普通约束名称、图标、选择和所属 Joint 编辑。Inspector 只读。
 
-当前只保留固定件、旋转接合、角驱动、线性仿真、整帧回放及增量转装配。旋转接合拥有普通的持久 AssemblyConstraint 同心/偏移和机构已接受编辑姿态，使用普通装配编译器及图标；第一选择运动、第二选择尽量保持静止。确认和取消草稿不会先恢复 Product 无约束姿态。MotionStudy 与 Mechanism 平级，双击编辑；结果在对话框管理，可删除终态列表项而保留审计。关闭仿真结束冻结显示，当前合格帧经一次命令保存为机构编辑姿态并恢复编辑；退出机构应用才恢复最新正式装配姿态。
+ApplicationDisplay 提交匹配文档 Revision 的完整姿态，资源清理不恢复位置。进入从当前 accepted 启用机构关系；退出从机构 accepted 启用产品关系，无产品关系时持久保留位置。预览等待保持上一帧，取消回命令基准，确认采用服务器结果再刷新。URL 保存应用，刷新重新验证；关闭回放先采用合格当前帧。
 
-干涉分析、移动/刚性接合、试动、来源导入、恢复正式姿态、自动示例已移除。增量转换复制持久机构关系，保留旋转自由度；可明确锁角，完整 Product 校验、正式求解和一次 CAS/Undo 提交仍必需，不替换或停用旧关系。Mock/浏览器合同 fixture 不是数值权威。
+当前支持 Ground/Revolute、角度 Command、独立线性 MotionLaw 及引用规律的 Simulation。“转换为产品约束”支持 accepted 或 Run 来源，不依赖仿真；独立身份只新增或复用一致定义，差异报告冲突。完整 Product 求解、CAS、Undo/Redo 必需。其他关节、干涉、试动、来源导入未交付。Mock fixture 不是数值权威。详情见[当前合同](../../../docs/architecture/current/kinematics-dmu.md)。
 
-[操作与实际验证](../../../plans/kinematics-dmu.md)，[当前语义](../../../docs/architecture/current/kinematics-dmu.md)。真实几何测试通过正式建模命令创建 shaft/rotor，并经过 OCCT/Router/Worker/Job/Artifact 和转装配链路；浏览器验证单独覆盖命令、拾取角色与状态生命周期。真实后端浏览器拾取、人工视觉验收仍待维护者完成。
+真实浏览器验收：运行最新 API/Worker 并加载项目 .env 后，`pnpm exec playwright test --config playwright.live.config.ts browser/motion-live.spec.ts`；用例通过正式建模命令创建验收文档，记录 Three.js 实际渲染帧，截图输出 build/acceptance。

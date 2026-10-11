@@ -389,6 +389,22 @@ export class CadViewportEngine {
   private visibilityResolver?: VisibilityResolver;
   private readonly resizeObserver: ResizeObserver;
   private animationFrame = 0;
+  private applicationDisplay?:import('../cad/assembly/application-display').ApplicationDisplay;
+  setApplicationDisplay(display?:import('../cad/assembly/application-display').ApplicationDisplay,selected?:string):void {
+    this.applicationDisplay=display;
+    this.mechanismDefinition=display?.mechanism;this.mechanismSelection=selected;
+    this.motionDisplay=display?.playback;
+    this.clearCommandPreview(false);
+  }
+  commitApplicationDisplay():void {
+    const display=this.applicationDisplay;
+    if(!display||display.documentId!==this.view?.document.id||display.revisionId!==this.view.document.versionId)return;
+    if([...this.instanceGroups.keys()].some(id=>!validMotionPose(display.poses[id])))return;
+    const targets=[...this.instanceGroups].map(([id,object])=>({object,target:this.transformPose(display.poses[id].translation,display.poses[id].rotation)}));
+    this.transforms.applyBatch(targets,"immediate");this.content.updateMatrixWorld(true);
+    this.addAssemblyConstraintMarkers(this.view);this.refreshInteractionHighlights();this.refreshContentBounds();
+    this.host.dataset.applicationMode=display.mode;this.host.dataset.applicationId=display.mechanism?.id??'PRODUCT';this.invalidate();
+  }
   private mechanismDefinition?:import('../cad/assembly/motion-study').Mechanism;
   private mechanismSelection?:string;
   showMechanism(m?:import('../cad/assembly/motion-study').Mechanism,selected?:string):void {
@@ -400,7 +416,8 @@ export class CadViewportEngine {
   }
   private applyMechanismEditingPoses():void {
     const poses=this.mechanismDefinition?.poses;
-    if(poses&&[...this.instanceGroups.keys()].some(id=>!validMotionPose(poses[id])))return;
+    if(poses&&this.mechanismDefinition?.unitIds.some(id=>!validMotionPose(poses[id])))return;
+    if(this.applicationDisplay){this.commitApplicationDisplay();return;}
     const targets=[...this.instanceGroups].flatMap(([id,object])=>{
       const p=poses?.[id]??this.view?.product?.instances.find(v=>v.id===id);
       return p?[{object,target:this.transformPose(p.translation,p.rotation??[0,0,0,1])}]:[];
@@ -412,7 +429,7 @@ export class CadViewportEngine {
   private motionDisplay?:import("../cad/assembly/motion-study").MotionPlayback;
   private motionRestorePending=false;
   setMotionDisplay(display?:import("../cad/assembly/motion-study").MotionPlayback):void {
-    if(!display&&this.motionDisplay){this.motionRestorePending=true;this.applyMechanismEditingPoses();}
+    if(!display&&this.motionDisplay)this.motionRestorePending=true;
     this.motionDisplay=display;
     if(!display)return;
     if(this.view?.document.id!==display.view.document.id||this.view?.document.versionId!==display.revisionId)return;
@@ -761,6 +778,7 @@ export class CadViewportEngine {
     if(this.mechanismDefinition&&!this.motionDisplay)this.applyMechanismEditingPoses();
     if(this.motionDisplay)this.setMotionDisplay(this.motionDisplay);
     this.showMechanism(this.mechanismDefinition,this.mechanismSelection);
+    this.commitApplicationDisplay();
     this.emitDebugState();
     this.callbacks.documentViewReady?.(view.document.id, restoredCamera);
     this.invalidate();
@@ -1712,7 +1730,7 @@ export class CadViewportEngine {
     this.highlightedRoots.clear();
     const withAssemblyReferences = (selections: readonly SelectionItem[]) => selections.filter(s=>!this.featureSelection?.localSketchId||!s.sketchReference).flatMap((selection) =>
       selection.kind === "assembly-constraint" ? [selection, ...(this.assemblyConstraintReferences.get(this.assemblyMarkerKey(selection.documentId ?? "",selection.occurrencePath ?? "",selection.constraintId)) ?? [])]
-        : selection.kind === 'kinematic-object' ? [selection,...[...this.assemblyConstraintMarkers].filter(([,entry])=>entry.selection.kind==='kinematic-object'&&(entry.selection.id===selection.id||entry.selection.id.startsWith(selection.id+'/')||selection.id===this.mechanismDefinition?.id)).flatMap(([key,entry])=>[entry.selection,...(this.assemblyConstraintReferences.get(key)??[])])]
+        : selection.kind === 'kinematic-object' ? [selection,...[...this.assemblyConstraintMarkers].filter(([,entry])=>entry.selection.kind==='kinematic-object'&&(entry.selection.id===selection.id||entry.selection.ownerEntityId===selection.id||selection.id===this.mechanismDefinition?.id)).flatMap(([key,entry])=>[entry.selection,...(this.assemblyConstraintReferences.get(key)??[])])]
         : selection.kind === "publication" && selection.highlightTarget ? [selection.highlightTarget] : [selection]);
     for (const object of this.selectionIndex.objectsForMany(this.featureSelection?.contextSelections ?? [])) {
       if (!this.objectVisible(object)) continue;
@@ -1978,9 +1996,10 @@ export class CadViewportEngine {
       const mechanism=this.mechanismDefinition;
       let selection:SelectionItem;
       if(mechanism){
-        const find=(node:DocumentStructureNode):DocumentStructureNode|undefined=>(node.kind==='JOINT_EXPANSION'&&node.entityId===constraint.id||node.kind==='MECHANISM_JOINT'&&constraint.id===node.entityId+'/ground')?node:node.children?.map(find).find(Boolean);
+        const find=(node:DocumentStructureNode):DocumentStructureNode|undefined=>(node.kind==='JOINT_EXPANSION'&&node.mechanismId===mechanism.id&&node.entityId===constraint.id)?node:node.children?.map(find).find(Boolean);
         treeNodeId=view.structureTree?find(view.structureTree)?.id??treeNodeId:treeNodeId;
-        selection={kind:'kinematic-object',id:constraint.id,documentId:view.document.id,versionId:view.document.versionId,treeNodeId};
+        const owner=mechanism.joints.find(j=>j.constraints?.some(c=>c.id===constraint.id));
+        selection={kind:'kinematic-object',id:constraint.id,mechanismId:mechanism.id,ownerEntityId:owner?.id,role:constraint.kind==='FIX'?'ground':constraint.kind==='DISTANCE'?'axial-location':constraint.kind==='ANGLE'?'angle-lock':'axis',documentId:view.document.id,versionId:view.document.versionId,treeNodeId};
       }else selection = { kind: "assembly-constraint", id: constraint.id, constraintId: constraint.id,
         constraintType: constraint.kind, documentId: view.document.id, occurrencePath:occurrence, instancePath, rootDocumentId:occurrence ? this.view?.document.id : undefined, treeNodeId };
       const group = new THREE.Group(); group.position.copy(markerPosition); group.userData = selection;

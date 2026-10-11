@@ -29,7 +29,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     instanceId: instancePath?.segments[0]?.instanceId, treeNodeId: node.id,
   };
   switch (node.kind) {
- case "JOINT_EXPANSION":case "JOINT_SUPPORT":case "MECHANISM":case "MECHANISM_JOINT":case "MOTION_DRIVER":case "MOTION_STUDY":case "INTERFERENCE_ANALYSIS": return {...base,kind:"kinematic-object",id:node.entityId??node.id};
+ case "MOTION_LAW":case "MECHANISM_REFERENCE":case "JOINT_EXPANSION":case "JOINT_SUPPORT":case "MECHANISM":case "MECHANISM_JOINT":case "MOTION_DRIVER":case "MOTION_STUDY":case "INTERFERENCE_ANALYSIS": return {...base,kind:"kinematic-object",id:node.entityId??node.id,mechanismId:node.mechanismId,ownerEntityId:node.ownerEntityId,role:node.relationRole};
     case "PART": return { ...base, kind: "part", id: node.documentId ?? node.id,
       visualKey: occurrencePath ? `occurrence:${occurrencePath}` : undefined };
     case "PRODUCT": return { ...base, kind: "product", id: node.documentId ?? node.id };
@@ -177,7 +177,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
     ? assemblyStatusFromDiagnostic(node.evaluationStatus ?? node.diagnostic) : undefined;
   const featureStatus = node.evaluationStatus === "FAILED" ? "求值失败" : node.evaluationStatus === "BLOCKED" ? "上游失败" : node.evaluationStatus === "SUPPRESSED" ? "已抑制" : undefined;
   const inputLabel:Record<string,string>={PROFILE:"轮廓",SECTION:"截面",SECTION_POINT:"截面点",AXIS:"轴",SUPPORT:"支撑",TOOL:"工具",RANGE_START:"范围起始",SEED:"种子",TOPOLOGY:"拓扑引用",STAGE:"输入阶段",NEUTRAL_PLANE:"中性面",PATTERN_REFERENCE:"阵列参考"};
-  const displayName=node.inputRole?`${inputLabel[node.inputRole]??node.inputRole}${["SECTION","SECTION_POINT"].includes(node.inputRole)?` ${1+(node.inputOrder??0)}`:""} · ${node.name}`:node.name;
+  const displayName=node.inputRole&&node.kind!=="KINEMATICS_GROUP"?`${inputLabel[node.inputRole]??node.inputRole}${["SECTION","SECTION_POINT"].includes(node.inputRole)?` ${1+(node.inputOrder??0)}`:""} · ${node.name}`:node.name;
   const currentSelection=structureSelection(node,view);
   const contribution=currentSelection?.geometryKey?view.artifacts?.[currentSelection.geometryKey]?.visualization?.featureContributions?.[node.entityId??""]:undefined;
   const contributionStatus=contribution==="NO_CURRENT_CONTRIBUTION"?"无当前几何贡献":contribution==="MAPPING_MISSING"?"拓扑关联缺失":undefined;

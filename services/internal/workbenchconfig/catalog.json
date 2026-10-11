@@ -5284,10 +5284,6 @@
           {
             "fact": "rootTarget",
             "equals": true
-          },
-          {
-            "fact": "rootCanEdit",
-            "equals": true
           }
         ]
       },
@@ -5350,9 +5346,65 @@
       "implementation": "form"
     },
     {
+      "id": "dmu.mechanism",
+      "name": "新建机械装置",
+      "helpText": "机械装置与 DMU · 新建机械装置",
+      "iconKey": "angle",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.law",
+      "name": "运动规律",
+      "helpText": "机械装置与 DMU · 运动规律",
+      "iconKey": "angle",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
       "id": "dmu.driver",
-      "name": "驱动",
-      "helpText": "机构与 DMU · 驱动",
+      "name": "角度命令",
+      "helpText": "为旋转接合建立独立角度命令",
       "iconKey": "angle",
       "repeatable": false,
       "visibleWhen": {
@@ -5407,8 +5459,8 @@
     },
     {
       "id": "dmu.apply",
-      "name": "应用到装配",
-      "helpText": "机构与 DMU · 应用到装配",
+      "name": "转换为产品约束",
+      "helpText": "将已确认机械装置关系和位姿转换为独立产品约束",
       "iconKey": "coincident",
       "repeatable": false,
       "visibleWhen": {
@@ -6358,11 +6410,16 @@
     },
     {
       "id": "dmu-definition",
-      "name": "机构定义",
+      "name": "机械装置定义",
       "styleKey": "assembly",
       "position": "top-left",
       "orientation": "horizontal",
       "commands": [
+        {
+          "commandId": "dmu.mechanism",
+          "groupKey": "primary",
+          "order": 0
+        },
         {
           "commandId": "dmu.ground",
           "groupKey": "primary",
@@ -6380,7 +6437,7 @@
     },
     {
       "id": "dmu-motion",
-      "name": "驱动与仿真",
+      "name": "命令与模拟",
       "styleKey": "assembly",
       "position": "top-left",
       "orientation": "horizontal",
@@ -6389,6 +6446,11 @@
           "commandId": "dmu.driver",
           "groupKey": "primary",
           "order": 10
+        },
+        {
+          "commandId": "dmu.law",
+          "groupKey": "primary",
+          "order": 15
         },
         {
           "commandId": "dmu.study",

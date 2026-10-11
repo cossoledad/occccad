@@ -278,25 +278,14 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 		for _, instance := range model.Instances {
 			names[instance.ID] = instance.Name
 		}
-		counts := map[string]int{}
-		labels := map[string]string{"FIX": "固定", "RIGID": "固连", "COINCIDENT": "重合", "CONCENTRIC": "同心", "ANGLE": "角度", "DISTANCE": "距离", "CONTACT": "接触", "FIX_TOGETHER": "固联组", "OFFSET": "偏移", "PARALLEL": "平行", "PERPENDICULAR": "垂直"}
 		for _, constraint := range model.Constraints {
 			if !constraint.Suppressed {
 				group.Suppressed = false
 			}
-			counts[constraint.Kind]++
-			label := labels[constraint.Kind]
-			if label == "" {
-				label = constraint.Kind
-			}
 			if visibleOrDefault(constraint.Visible) {
 				*group.LocalVisible = true
 			}
-			name := fmt.Sprintf("#%s.%d（#%s", label, counts[constraint.Kind], names[constraint.First.InstanceID])
-			if constraint.Second != nil {
-				name += "，#" + names[constraint.Second.InstanceID]
-			}
-			name += "）"
+			name := constraintDisplayName(constraint, func(id string) string { return names[id] })
 			status, summary := constraint.EvaluationStatus, constraint.EvaluationSummary
 			if constraint.Suppressed {
 				name += " [停用]"

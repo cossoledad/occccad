@@ -140,6 +140,9 @@ func (service *Service) resolveMechanismGeometry(ctx context.Context, model Prod
 	return m, nil
 }
 func (service *Service) bindKinematics(ctx context.Context, documentID, revisionID string, raw json.RawMessage, k KinematicsDefinitions) (KinematicsDefinitions, error) {
+	if err := resolveMotionLaws(&k); err != nil {
+		return k, err
+	}
 	var model ProductModel
 	if e := json.Unmarshal(raw, &model); e != nil {
 		return k, e
@@ -168,16 +171,38 @@ func (service *Service) bindKinematics(ctx context.Context, documentID, revision
 			}
 		}
 		old := slices.IndexFunc(model.Kinematics.Mechanisms, func(prev Mechanism) bool { return prev.ID == m.ID })
-		if old >= 0 && reflect.DeepEqual(model.Kinematics.Mechanisms[old], m) {
-			continue
+		driversFor := func(list []MotionDriver) []MotionDriver {
+			out := []MotionDriver{}
+			for _, d := range list {
+				if d.MechanismID == m.ID {
+					out = append(out, d)
+				}
+			}
+			return out
 		}
 		if old >= 0 {
+			previous := model.Kinematics.Mechanisms[old]
+			metadata := m
+			metadata.Name = previous.Name
+			metadata.Joints = append([]MechanismJoint(nil), m.Joints...)
+			for i, j := range metadata.Joints {
+				if n := slices.IndexFunc(previous.Joints, func(v MechanismJoint) bool { return v.ID == j.ID }); n >= 0 {
+					metadata.Joints[i].Name = previous.Joints[n].Name
+				}
+			}
+			if reflect.DeepEqual(previous, metadata) && reflect.DeepEqual(driversFor(model.Kinematics.Drivers), driversFor(k.Drivers)) {
+				continue
+			}
+		}
+		if old >= 0 {
+			m.ConstraintNameCounters = map[string]int{}
+			for name, n := range model.Kinematics.Mechanisms[old].ConstraintNameCounters {
+				m.ConstraintNameCounters[name] = n
+			}
 			for i, j := range m.Joints {
-				if j.Kind == "GROUND" {
-					for _, prev := range model.Kinematics.Mechanisms[old].Joints {
-						if prev.ID == j.ID && prev.First.InstanceID == j.First.InstanceID {
-							m.Joints[i].Constraints = prev.Constraints
-						}
+				for _, prev := range model.Kinematics.Mechanisms[old].Joints {
+					if prev.ID == j.ID && prev.First.InstanceID == j.First.InstanceID {
+						m.Joints[i].Constraints = prev.Constraints
 					}
 				}
 			}
@@ -185,10 +210,13 @@ func (service *Service) bindKinematics(ctx context.Context, documentID, revision
 		if len(m.Poses) == 0 {
 			m.Poses = map[string]InstancePose{}
 			for _, v := range model.Instances {
-				m.Poses[v.ID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
+				if slices.Contains(m.UnitIDs, v.ID) {
+					m.Poses[v.ID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
+				}
 			}
 		}
-		if len(m.Joints) == 0 {
+		if len(m.Joints) == 0 && len(m.UnitIDs) == 0 {
+			m.Evaluation = &MechanismEvaluation{}
 			k.Mechanisms[i] = m
 			continue
 		}
@@ -200,7 +228,7 @@ func (service *Service) bindKinematics(ctx context.Context, documentID, revision
 				draftID = j.ID
 			}
 		}
-		result, err := service.PreviewMechanism(ctx, documentID, MechanismPreviewRequest{BaseRevisionID: revisionID, Mechanism: m, DraftJointID: draftID})
+		result, err := service.PreviewMechanism(ctx, documentID, MechanismPreviewRequest{BaseRevisionID: revisionID, Mechanism: m, DraftJointID: draftID, Drivers: append([]MotionDriver{}, k.Drivers...)})
 		if err != nil {
 			return k, err
 		}

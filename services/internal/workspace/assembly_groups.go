@@ -269,10 +269,9 @@ func applyAssemblyGroupCreate(raw json.RawMessage, c AssemblyConstraint) (json.R
 	if err := json.Unmarshal(raw, &model); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	if c.Name == "" {
-		c.Name = "FixTogether_" + parameterKeyFragment(c.ID)
-	}
 	c.Kind, c.Family, c.DefinitionVersion = "FIX_TOGETHER", "FixTogether", 2
+	beforeCounters, _ := json.Marshal(model.ConstraintNameCounters)
+	assignConstraintName(&c, &model.ConstraintNameCounters, model.Constraints)
 	c.GroupMembers = canonicalGroupMembers(c.GroupMembers)
 	c.GroupRelations, c.GroupCaptureDigest, c.GroupCapturePending = nil, "", true
 	c.EvaluationStatus, c.EvaluationSummary = modelcore.AssemblyConstraintNotUpdated, "group awaits inner and outer authoritative solve"
@@ -287,7 +286,12 @@ func applyAssemblyGroupCreate(raw json.RawMessage, c AssemblyConstraint) (json.R
 	}
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: c.ID, SlotID: "assembly-constraint.entity"}, nil, c)
 	next, _ := json.Marshal(model)
-	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(c.ID)}}, nil
+	counterChange, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: "product", SlotID: "product.constraint-name-counters"}, json.RawMessage(beforeCounters), model.ConstraintNameCounters)
+	changes := []modelcore.ModelChange{change}
+	if counterChange.BeforeDigest != counterChange.AfterDigest {
+		changes = append(changes, counterChange)
+	}
+	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(c.ID)}}, nil
 }
 
 func applyAssemblyGroupEdit(raw json.RawMessage, payload editAssemblyConstraintPayload) (json.RawMessage, modelcore.ChangeSet, error) {

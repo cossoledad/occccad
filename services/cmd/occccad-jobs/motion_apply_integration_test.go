@@ -147,7 +147,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 		ends[0], ends[1] = ends[1], ends[0]
 	}
 	mid, jid, did, sid := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
-	k := workspace.KinematicsDefinitions{Mechanisms: []workspace.Mechanism{{ID: mid, Name: "shaft-propeller", UnitIDs: []string{ends[0].InstanceID, ends[1].InstanceID}, Joints: []workspace.MechanismJoint{{ID: uuid.NewString(), Name: "shaft grounded", Kind: "GROUND", First: workspace.JointEndpoint{InstanceID: ends[0].InstanceID, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}, Direction: 1}, {ID: jid, Name: "geometric revolute", Kind: "REVOLUTE", First: ends[0], Second: &ends[1], Direction: 1, Zero: workspace.MotionQuantity{Unit: "deg"}, AxialOffset: workspace.MotionQuantity{Value: -10, Unit: "mm"}}}}}, Drivers: []workspace.MotionDriver{{ID: did, Name: "angle", MechanismID: mid, JointID: jid}}, Studies: []workspace.MotionStudy{{ID: sid, Name: "0..360", MechanismID: mid, DriverID: did, Start: workspace.MotionQuantity{Unit: "deg"}, End: workspace.MotionQuantity{Value: 360, Unit: "deg"}, DurationSeconds: 4, Frames: 25, BudgetMS: 60000, Clearance: workspace.MotionQuantity{Unit: "mm"}}}}
+	k := workspace.KinematicsDefinitions{Mechanisms: []workspace.Mechanism{{ID: mid, Name: "shaft-propeller", UnitIDs: []string{ends[0].InstanceID, ends[1].InstanceID}, Joints: []workspace.MechanismJoint{{ID: uuid.NewString(), Name: "shaft grounded", Kind: "GROUND", First: workspace.JointEndpoint{InstanceID: ends[0].InstanceID, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}, Direction: 1}, {ID: jid, Name: "geometric revolute", Kind: "REVOLUTE", First: ends[0], Second: &ends[1], Direction: 1, Zero: workspace.MotionQuantity{Unit: "deg"}, AxialOffset: workspace.MotionQuantity{Value: -10, Unit: "mm"}}}}}, Drivers: []workspace.MotionDriver{{ID: did, Name: "angle", MechanismID: mid, JointID: jid}}, Laws: []workspace.MotionLaw{{ID: "law", Name: "linear", MechanismID: mid, DriverID: did, Start: workspace.MotionQuantity{Value: 0, Unit: "deg"}, End: workspace.MotionQuantity{Value: 360, Unit: "deg"}, DurationSeconds: 4}}, Studies: []workspace.MotionStudy{{ID: sid, Name: "0..360", MechanismID: mid, LawID: "law", DriverID: did, Start: workspace.MotionQuantity{Unit: "deg"}, End: workspace.MotionQuantity{Value: 360, Unit: "deg"}, DurationSeconds: 4, Frames: 25, BudgetMS: 60000, Clearance: workspace.MotionQuantity{Unit: "mm"}}}}
 	t.Run("mechanism command preview isolates formal constraints", func(t *testing.T) {
 		originalHead := view.Document.VersionID
 		fixRef := workspace.AssemblyGeometryRef{InstanceID: ends[1].InstanceID, Kind: "BODY"}
@@ -296,6 +296,131 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 			}
 		}
 	}
+	t.Run("application transitions and conversion without a simulation", func(t *testing.T) {
+		original := view.Product.Instances
+		activate := func() {
+			view = command(workspace.CommandRequest{Type: "ACTIVATE_MECHANISM", VersionID: view.Document.VersionID, MechanismApplication: &workspace.MechanismApplicationRequest{MechanismID: mid}})
+		}
+		activate()
+		acceptedHead := view.Document.VersionID
+		noop := workspace.CommandRequest{Type: "ACTIVATE_MECHANISM", ActorID: actor, RequestID: uuid.NewString(), VersionID: acceptedHead, MechanismApplication: &workspace.MechanismApplicationRequest{MechanismID: mid, Resume: true}}
+		for range 2 {
+			var er error
+			view, er = service.ApplyCommand(t.Context(), view.Document.ID, noop)
+			if er != nil || view.Document.VersionID != acceptedHead {
+				t.Fatal("no-op activation created history or lost retry", er)
+			}
+		}
+		var audits int
+		if er := db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.commands WHERE request_id=$1`, noop.RequestID).Scan(&audits); er != nil || audits != 1 {
+			t.Fatal("no-op audit not idempotent", er, audits)
+		}
+		empty := view.Product.Kinematics
+		empty.Mechanisms = append(append([]workspace.Mechanism(nil), empty.Mechanisms...), workspace.Mechanism{ID: uuid.NewString(), Name: "empty", Joints: []workspace.MechanismJoint{}, UnitIDs: []string{}})
+		view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &empty})
+		switchCandidate, er := service.PrepareMechanismApplication(t.Context(), view.Document.ID, workspace.MechanismApplicationRequest{BaseRevisionID: view.Document.VersionID, MechanismID: empty.Mechanisms[1].ID, SourceMechanismIDs: []string{mid}})
+		if er != nil || switchCandidate.Mechanism == nil || len(switchCandidate.Mechanism.Poses) != 0 {
+			t.Fatal("empty target owns environment", er)
+		}
+		for _, p := range switchCandidate.InstancePoses {
+			if p.InstanceID == ends[1].InstanceID && math.Abs(p.Translation[2]-10) > 1e-7 {
+				t.Fatal("empty application restored Product baseline", p)
+			}
+		}
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+		evaluated := view.Product.Kinematics.Mechanisms[0].Evaluation
+		if evaluated == nil || evaluated.RelativeDOF != 1 || evaluated.GaugeDOF != 0 || evaluated.DrivenDOF != 0 || evaluated.DriverCount != 1 {
+			t.Fatal("physical and command DOF conflated", evaluated)
+		}
+		if !reflect.DeepEqual(view.Product.Instances, original) {
+			t.Fatal("activation wrote Product positions")
+		}
+		view = command(workspace.CommandRequest{Type: "EXIT_MECHANISM", VersionID: view.Document.VersionID, MechanismApplication: &workspace.MechanismApplicationRequest{SourceMechanismID: mid}})
+		for _, v := range view.Product.Instances {
+			p := view.Product.Kinematics.Mechanisms[0].Poses[v.ID]
+			if v.Translation != p.Translation || v.Rotation != p.Rotation {
+				t.Fatal("exit restored old Product pose", v, p)
+			}
+		}
+		reopened, err := service.GetDocument(t.Context(), view.Document.ID)
+		if err != nil || !reflect.DeepEqual(reopened.Product.Instances, view.Product.Instances) {
+			t.Fatal("exit pose did not survive reopen", err)
+		}
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+		if !reflect.DeepEqual(view.Product.Instances, original) {
+			t.Fatal("pose-only exit undo", view.Product.Instances)
+		}
+		view = command(workspace.CommandRequest{Type: "REDO"})
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+		fixRef := workspace.AssemblyGeometryRef{InstanceID: ends[1].InstanceID, Kind: "BODY"}
+		view = command(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX", FirstAssemblyRef: &fixRef, FixMode: "SPACE"})
+		fixed := view.Product.Instances
+		activate()
+		for _, v := range fixed {
+			if v.ID == ends[1].InstanceID && v.Translation == view.Product.Kinematics.Mechanisms[0].Poses[v.ID].Translation {
+				t.Fatal("Product Fix entered mechanism equations")
+			}
+		}
+		view = command(workspace.CommandRequest{Type: "EXIT_MECHANISM", VersionID: view.Document.VersionID, MechanismApplication: &workspace.MechanismApplicationRequest{SourceMechanismID: mid}})
+		if !reflect.DeepEqual(view.Product.Instances, fixed) || len(view.Product.Constraints) != 1 {
+			t.Fatal("exit did not solve destination Product constraints")
+		}
+		// Undo activation (exit retained the already fixed Product position), then Fix.
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+		if len(view.Product.Constraints) > 0 {
+			view = command(workspace.CommandRequest{Type: "UNDO"})
+		}
+		if len(view.Product.Constraints) > 0 {
+			view = command(workspace.CommandRequest{Type: "UNDO"})
+		}
+		if len(view.Product.Constraints) != 0 {
+			t.Fatal("fixture cleanup retained Fix")
+		}
+		independent := view.Product.Kinematics
+		independent.Drivers = nil
+		independent.Laws = nil
+		independent.Studies = nil
+		view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &independent})
+		plan, err := service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, workspace.MotionApplyRequest{MechanismID: mid})
+		if err != nil || !plan.Ready || plan.DegreesOfFreedom != 1 || len(plan.Items) != 3 {
+			t.Fatal("accepted mechanism conversion required a run", err, plan.Items)
+		}
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+		k = view.Product.Kinematics
+		m = k.Mechanisms[0]
+	})
+	t.Run("removing relationships preserves owned free units", func(t *testing.T) {
+		var free workspace.KinematicsDefinitions
+		raw, _ := json.Marshal(view.Product.Kinematics)
+		json.Unmarshal(raw, &free)
+		free.Mechanisms[0].Joints = nil
+		free.Mechanisms[0].Evaluation = nil
+		free.Drivers, free.Laws, free.Studies = nil, nil, nil
+		view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &free})
+		accepted := view.Product.Kinematics.Mechanisms[0]
+		if accepted.Evaluation == nil {
+			t.Fatal("free units have no authoritative DOF")
+		}
+		if accepted.Evaluation.RelativeDOF+accepted.Evaluation.GaugeDOF != 12 || accepted.Evaluation.DriverCount != 0 {
+			t.Fatal("incorrect free-unit DOF", *accepted.Evaluation)
+		}
+		for id, p := range accepted.Poses {
+			old := m.Poses[id]
+			for i, x := range p.Translation {
+				if math.Abs(x-old.Translation[i]) > 1e-7 {
+					t.Fatal("free unit moved when its relationships were removed", id, old, p)
+				}
+			}
+		}
+		view = command(workspace.CommandRequest{Type: "EXIT_MECHANISM", VersionID: view.Document.VersionID, MechanismApplication: &workspace.MechanismApplicationRequest{SourceMechanismID: mid}})
+		for _, v := range view.Product.Instances {
+			if p := accepted.Poses[v.ID]; v.Translation != p.Translation || v.Rotation != p.Rotation {
+				t.Fatal("relationship removal restored an old Product pose", v)
+			}
+		}
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+	})
 	// Saving another definition must keep the accepted mechanism pose and pair.
 	reopened, e := service.GetDocument(t.Context(), view.Document.ID)
 	if e != nil || !reflect.DeepEqual(reopened.Product.Kinematics.Mechanisms[0], m) {
@@ -389,6 +514,32 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	}
 	before := *view.Product
 	request := workspace.MotionApplyRequest{JobID: job.ID, FrameIndex: 6}
+	t.Run("historical conversion preserves newly added nonmembers", func(t *testing.T) {
+		view = command(workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: view.Product.Instances[1].ReferencedDocumentID})
+		other := view.Product.Instances[len(view.Product.Instances)-1].ID
+		position := [3]float64{90, 80, 70}
+		view = command(workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: other, Translation: position, Rotation: [4]float64{0, 0, 0, 1}})
+		p, err := service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, request)
+		if err != nil || !p.Ready {
+			t.Fatal("nonmember structure blocked source", err, p.Items)
+		}
+		for _, i := range p.Candidate.Instances {
+			if i.ID == other && i.Translation != position {
+				t.Fatal("historical pose overwrote nonmember", i)
+			}
+		}
+		for _, id := range p.PoseChanges {
+			if id == other {
+				t.Fatal("nonmember falsely included in impact")
+			}
+		}
+		if len(run.Frames[6].UnitPoses) != 2 {
+			t.Fatal("planning mutated frozen run")
+		}
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+	})
+	before = *view.Product
 	plan, er := service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, request)
 	if er != nil || !plan.Ready || plan.DegreesOfFreedom != 1 {
 		t.Fatalf("plan %+v %v", plan, er)
@@ -465,6 +616,57 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	if len(view.Product.Constraints) != 3 {
 		t.Fatal("duplicate constraints")
 	}
+	t.Run("deleted targets get new identities and changed sources do not update", func(t *testing.T) {
+		oldAxis := ""
+		for _, a := range view.Product.Kinematics.Associations {
+			if a.Role == "axis" {
+				oldAxis = a.ConstraintID
+			}
+		}
+		view = command(workspace.CommandRequest{Type: "DELETE_NODE", TargetKind: "ASSEMBLY_CONSTRAINT", TargetID: oldAxis})
+		p, err := service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, request)
+		if err != nil || !p.Ready {
+			t.Fatal("target regeneration", err, p.Items)
+		}
+		found := false
+		for _, i := range p.Items {
+			if i.Role == "axis" {
+				found = i.Action == "ADD" && i.ConstraintID != oldAxis && i.Detail != ""
+			}
+		}
+		if !found {
+			t.Fatal("deleted identity was revived", p.Items)
+		}
+		r := request
+		r.PlanDigest = p.Digest
+		view = command(workspace.CommandRequest{Type: "APPLY_MOTION_FRAME", VersionID: view.Document.VersionID, MotionApply: &r})
+		changed := view.Product.Kinematics
+		b, _ := json.Marshal(changed)
+		json.Unmarshal(b, &changed)
+		for i, j := range changed.Mechanisms[0].Joints {
+			if j.ID == jid {
+				q := j.AxialOffset
+				q.Value += 2
+				changed.Mechanisms[0].Joints[i].AxialOffset = q
+			}
+		}
+		view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &changed})
+		p, err = service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, workspace.MotionApplyRequest{MechanismID: mid})
+		if err != nil || p.Ready {
+			t.Fatal("source edit automatically updated Product", err, p.Items)
+		}
+		conflict := false
+		for _, i := range p.Items {
+			if i.Action == "UPDATE" {
+				t.Fatal("implicit update", i)
+			}
+			conflict = conflict || i.Action == "CONFLICT"
+		}
+		if !conflict {
+			t.Fatal("definition difference did not report conflict", p.Items)
+		}
+		view = command(workspace.CommandRequest{Type: "UNDO"})
+	})
 	request.LockAngle = true
 	request.PlanDigest = ""
 	plan, er = service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, request)

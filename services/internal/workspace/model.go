@@ -680,12 +680,13 @@ type AssemblyGroupMember struct {
 }
 
 type ProductModel struct {
-	Kinematics          KinematicsDefinitions  `json:"kinematics,omitzero"`
-	Instances           []ProductInstance      `json:"instances"`
-	VisibilityOverrides []OccurrenceVisibility `json:"visibilityOverrides,omitempty"`
-	Constraints         []AssemblyConstraint   `json:"constraints,omitempty"`
-	Publications        []ProductPublication   `json:"publications,omitempty"`
-	ContextBindings     []ContextBinding       `json:"contextBindings,omitempty"`
+	ConstraintNameCounters map[string]int         `json:"constraintNameCounters,omitempty"`
+	Kinematics             KinematicsDefinitions  `json:"kinematics,omitzero"`
+	Instances              []ProductInstance      `json:"instances"`
+	VisibilityOverrides    []OccurrenceVisibility `json:"visibilityOverrides,omitempty"`
+	Constraints            []AssemblyConstraint   `json:"constraints,omitempty"`
+	Publications           []ProductPublication   `json:"publications,omitempty"`
+	ContextBindings        []ContextBinding       `json:"contextBindings,omitempty"`
 }
 
 type OccurrenceVisibility struct {
@@ -976,6 +977,8 @@ type StructureSnapshotScope struct {
 }
 
 type DocumentStructureNode struct {
+	RelationRole       string                  `json:"relationRole,omitempty"`
+	MechanismID        string                  `json:"mechanismId,omitempty"`
 	ParameterAlias     string                  `json:"parameterAlias,omitempty"`
 	InputEntityID      string                  `json:"inputEntityId,omitempty"`
 	InputRole          string                  `json:"inputRole,omitempty"`
@@ -1125,6 +1128,7 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	MechanismApplication      *MechanismApplicationRequest `json:"mechanismApplication,omitempty"`
 	MotionApply               *MotionApplyRequest          `json:"motionApply,omitempty"`
 	Kinematics                *KinematicsDefinitions       `json:"kinematics,omitempty"`
 	DatumDefinition           *DatumTransform              `json:"datumDefinition,omitempty"`

@@ -47,6 +47,7 @@ export type CadViewportHandle = {
 };
 
 type Props = {
+  applicationDisplay?:import("../cad/assembly/application-display").ApplicationDisplay;
   mechanism?:import("../cad/assembly/motion-study").Mechanism;
   mechanismSelection?:string;
   motionDisplay?:import("../cad/assembly/motion-study").MotionPlayback;
@@ -149,13 +150,14 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
     }, callbacks.current.documentSessions);
     engine.current = instance;
+    instance.setApplicationDisplay(callbacks.current.applicationDisplay,callbacks.current.mechanismSelection);
     instance.render(callbacks.current.view, callbacks.current.editingView ? {
       view: callbacks.current.editingView, occurrencePath: callbacks.current.activeInstancePath,
       translation: callbacks.current.activeInstanceTranslation, bodyTreeNodeId: callbacks.current.activeBodyTreeNodeId,
       rotation: callbacks.current.activeInstanceRotation,
       liveDefinitionProjection: callbacks.current.liveDefinitionProjection,
     } : undefined);
-    instance.setMotionDisplay(callbacks.current.motionDisplay);
+    instance.commitApplicationDisplay();
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
@@ -172,18 +174,19 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
 
   useEffect(() => {
     const instance = engine.current; if (!instance) return;
+    instance.setApplicationDisplay(props.applicationDisplay,props.mechanismSelection);
     const inputs = props.featureInputArtifacts;
     const ownerId=(props.editingView??props.view).document.id;
     const replaceInput = (view:DocumentView) => featureInputDisplay(view,inputs,ownerId,view.part?undefined:props.activeInstancePath);
     instance.render(replaceInput(props.view), props.editingView ? { view: replaceInput(props.editingView), occurrencePath: props.activeInstancePath,
       translation: props.activeInstanceTranslation, rotation: props.activeInstanceRotation,
       bodyTreeNodeId: props.activeBodyTreeNodeId, liveDefinitionProjection:props.liveDefinitionProjection } : undefined);
+    instance.commitApplicationDisplay();
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
-  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts]);
-  useEffect(()=>{engine.current?.setMotionDisplay(props.motionDisplay)},[props.motionDisplay]);
-  useEffect(()=>{engine.current?.showMechanism(props.mechanism,props.mechanismSelection)},[props.mechanism,props.mechanismSelection,props.view]);
+  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts,props.applicationDisplay,props.mechanismSelection]);
+
   useEffect(() => { engine.current?.setDatumPreview(props.datumPreview); }, [props.datumPreview]);
   useEffect(() => { engine.current?.setFeatureSelection(props.featureSelection); }, [props.featureSelection]);
   useEffect(() => { engine.current?.selectMany(props.selections, false); }, [props.selections]);

@@ -475,8 +475,20 @@ func (server *Server) handleRealtimeCommand(ctx context.Context, client *realtim
 	var sequence uint64
 	var committedRevision string
 	if err := server.database.QueryRow(ctx, `SELECT t.sequence,t.result_revision_id::text FROM occccad.domain_transactions t JOIN occccad.workspaces w ON w.id=t.workspace_id WHERE w.document_id=$1 AND t.request_id=$2 AND t.status='COMMITTED'`, payload.DocumentID, payload.Command.RequestID).Scan(&sequence, &committedRevision); err != nil {
-		client.sendDomainError(envelope.ID, err)
-		return
+		if !errors.Is(err, database.ErrNoRows) || (payload.Command.Type != "ACTIVATE_MECHANISM" && payload.Command.Type != "EXIT_MECHANISM") {
+			client.sendDomainError(envelope.ID, err)
+			return
+		}
+		var auditRaw json.RawMessage
+		lookup := server.database.QueryRow(ctx, `SELECT payload FROM occccad.commands WHERE document_id=$1 AND request_id=$2 AND command_type=$3 AND status='SUCCEEDED'`, payload.DocumentID, payload.Command.RequestID, payload.Command.Type).Scan(&auditRaw)
+		var audit struct {
+			Receipt *workspace.ApplicationCommandReceipt `json:"applicationReceipt"`
+		}
+		if lookup != nil || json.Unmarshal(auditRaw, &audit) != nil || audit.Receipt == nil || audit.Receipt.VersionID == "" {
+			client.sendDomainError(envelope.ID, err)
+			return
+		}
+		sequence, committedRevision = audit.Receipt.Sequence, audit.Receipt.VersionID
 	}
 	finishSnapshot := perf.Start(ctx, "command-snapshot")
 	completion := map[string]any{

@@ -114,6 +114,14 @@ func productHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (m
 		return nil, err
 	}
 	for _, change := range set.Changes {
+		if change.Target.SlotID == "product.constraint-name-counters" {
+			var model ProductModel
+			if err := json.Unmarshal(modelJSON, &model); err != nil {
+				return nil, err
+			}
+			result[change.Target], _ = json.Marshal(model.ConstraintNameCounters)
+			continue
+		}
 		if change.Target.SlotID == "product.kinematics" {
 			result[change.Target], _ = json.Marshal(model.Kinematics)
 			continue
@@ -435,6 +443,11 @@ func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.P
 		case "product.kinematics":
 			model.Kinematics = KinematicsDefinitions{}
 			if err := json.Unmarshal(value, &model.Kinematics); err != nil {
+				return nil, err
+			}
+		case "product.constraint-name-counters":
+			model.ConstraintNameCounters = nil
+			if err := json.Unmarshal(value, &model.ConstraintNameCounters); err != nil {
 				return nil, err
 			}
 		case "context-binding.entity":

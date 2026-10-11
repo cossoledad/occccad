@@ -52,7 +52,7 @@ Product API 包括 `GET|POST /api/documents/{rootProductId}/product-update-plan[
 
 `CREATE_SKETCH` 除 DatumPlane 外还接受当前 Part Revision 的 `FACE` raw pick（`versionId/geometryKey/topologyId`）。服务端先绑定 PersistentSelection 并验证平面类型，再保存确定性 support frame；后续上游编辑通过 naming resolver 和草图之前的完整 body-prefix 制品更新 frame/dependency snapshot。浏览器和持久模型都不把 local face ID 当成长期支撑身份。
 
-机构 API：`POST /api/documents/{id}/mechanism-preview` 只读预览自身约束；常规 `SAVE_KINEMATICS` 权威求解后持久保存机构约束/编辑姿态。`POST /api/documents/{id}/motion-runs` 只冻结保存的旋转 Study，`GET /api/jobs/{id}/motion-run` 获取冻结结果，`DELETE /api/jobs/{id}/motion-run` 删除终态结果的用户列表项而保留审计/制品。没有干涉/试动/来源提案端点。`POST /api/documents/{id}/motion-apply-plan` 生成增量发布计划；常规 `APPLY_MOTION_FRAME` 核对 digest 与版本，在一次可撤销 CAS 事务中提交新增/映射复用的约束和正式姿态。完整目标方程仍须通过，不支持替换/停用已有关系。见[机构当前合同](../../../docs/architecture/current/kinematics-dmu.md)。
+机构 API：`POST /api/documents/{id}/mechanism-application` 只读准备目标应用，`ACTIVATE_MECHANISM` / `EXIT_MECHANISM` 重新验证后 CAS 采用，空变更不写 Revision；无产品约束退出保留并持久保存当前位置。`mechanism-preview` 预览独立机构方程，`SAVE_KINEMATICS` 保存真实约束及成员 accepted。`motion-runs` 冻结引用 MotionLaw 的 Study；`GET|DELETE /api/jobs/{id}/motion-run` 获取或隐藏终态结果。`motion-apply-plan` 支持 accepted mechanismId 或有效 Job 帧，`APPLY_MOTION_FRAME` 一次提交独立 Product 约束、实际位姿及映射，仅 ADD/一致 REUSE/CONFLICT，不隐式更新目标。见[当前合同](../../../docs/architecture/current/kinematics-dmu.md)。
 
 `POST /api/documents/{documentID}/diagnostic-bundles` 为具有文档读取权限的用户生成不可缓存的 `occccad.cad-diagnostic-bundle.v1` JSON 下载。Web 在草图求解命令失败时自动提交失败命令和客户端环境，也允许通过 Debug Toolbar 手动导出当前状态；服务端补充当前文档、草图、Workspace、历史、最近事务/命令错误及 evaluator provenance。该接口不导出 Cookie、密码、其他文档日志或 B-Rep 原始字节。
 

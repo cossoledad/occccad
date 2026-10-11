@@ -1,14 +1,19 @@
 package workspace
 
-import (
-	"fmt"
-	"slices"
-)
+import "fmt"
 
+// A simulation projects the same mechanism with a distinct tree path and explicit owners.
 func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, constraints []AssemblyConstraint, instances ...[]ProductInstance) DocumentStructureNode {
-	root := DocumentStructureNode{ID: path + "/applications", Kind: "APPLICATIONS", Name: "Applications", DocumentID: doc, VersionID: revision, Children: []DocumentStructureNode{}}
-	node := func(kind, id, name string) DocumentStructureNode {
-		return DocumentStructureNode{ID: root.ID + "/" + kind + ":" + id, Kind: kind, EntityID: id, Name: name, DocumentID: doc, OwnerDocumentID: doc, VersionID: revision, Capabilities: []string{"EDIT", "DELETE", "RENAME"}}
+	root := DocumentStructureNode{ID: path + "/applications", Kind: "APPLICATIONS", Name: "Applications", DocumentID: doc, VersionID: revision}
+	node := func(parent, kind, id, name string) DocumentStructureNode {
+		return DocumentStructureNode{ID: parent + "/" + kind + ":" + id, Kind: kind, EntityID: id, Name: name, DocumentID: doc, OwnerDocumentID: doc, VersionID: revision, Capabilities: []string{"EDIT", "DELETE", "RENAME"}}
+	}
+	group := func(parent, role, name string) DocumentStructureNode {
+		n := node(parent, "KINEMATICS_GROUP", role, name)
+		n.EntityID = ""
+		n.InputRole = role
+		n.Capabilities = nil
+		return n
 	}
 	nameFor := func(id string) string {
 		for _, list := range instances {
@@ -20,100 +25,104 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 		}
 		return id
 	}
-	for _, m := range k.Mechanisms {
-		mn := node("MECHANISM", m.ID, m.Name)
+	project := func(parent string, m Mechanism, reference bool) DocumentStructureNode {
+		kind := "MECHANISM"
+		if reference {
+			kind = "MECHANISM_REFERENCE"
+		}
+		label := m.Name
+		if m.Evaluation != nil {
+			label += fmt.Sprintf("，自由度=%d", m.Evaluation.DrivenDOF)
+		} else {
+			label += "，自由度=待计算"
+		}
+		mn := node(parent, kind, m.ID, label)
+		mn.MechanismID = m.ID
+		if reference {
+			mn.Capabilities = []string{"ACTIVATE"}
+			mn.PresentationRole = "INPUT_REFERENCE"
+		}
+		joints := group(mn.ID, "joints", "接合")
+		drivers := group(mn.ID, "commands", "命令")
+		ground := group(mn.ID, "ground", "固定零件")
+		laws := group(mn.ID, "laws", "运动规律")
 		for _, j := range m.Joints {
-			label := j.Name
+			label := j.Name + " (" + nameFor(j.First.InstanceID)
+			if j.Second != nil {
+				label += "," + nameFor(j.Second.InstanceID)
+			}
+			label += ")"
+			parent := joints.ID
 			if j.Kind == "GROUND" {
-				label += " (" + nameFor(j.First.InstanceID) + ")"
+				parent = ground.ID
 			}
-			jn := node("MECHANISM_JOINT", j.ID, label)
+			jn := node(parent, "MECHANISM_JOINT", j.ID, label)
 			jn.EntityType = j.Kind
-			for _, relation := range []struct{ role, name, kind string }{
-				{"axis", "同心", "COINCIDENT"}, {"axial-location", "偏移", "DISTANCE"},
-			} {
-				if j.Kind == "GROUND" {
-					continue
-				}
-				child := node("JOINT_EXPANSION", j.ID+"/"+relation.role, relation.name)
-				child.EntityType = relation.kind
-				child.Capabilities = []string{"EDIT"}
-				child.EvaluationStatus = "NOT_UPDATED"
-				for _, c := range j.Constraints {
-					if c.ID == child.EntityID {
-						child.EvaluationStatus = string(c.EvaluationStatus)
-					}
-				}
-				child.PresentationRole = "DEFINITION"
-				ends := []JointEndpoint{j.First}
-				if j.Second != nil {
-					ends = append(ends, *j.Second)
-				}
-				for side, end := range ends {
-					ref, role := end.Axis, "轴线"
-					if relation.role == "axial-location" {
-						ref, role = end.Plane, "定位平面"
-					}
-					if ref == nil {
-						continue
-					}
-					sn := node("JOINT_SUPPORT", fmt.Sprintf("%s/%s/%d", j.ID, relation.role, side), role+" ("+nameFor(end.InstanceID)+")")
-					sn.Capabilities = nil
-					sn.PresentationRole = "INPUT_REFERENCE"
-					child.Children = append(child.Children, sn)
-				}
-				jn.Children = append(jn.Children, child)
+			jn.MechanismID = m.ID
+			for _, c := range j.Constraints {
+				cn := node(jn.ID, "JOINT_EXPANSION", c.ID, constraintDisplayName(c, nameFor))
+				cn.EntityType = c.Kind
+				cn.OwnerEntityID = j.ID
+				cn.MechanismID = m.ID
+				cn.RelationRole = mechanismConstraintRole(c)
+				cn.Capabilities = []string{"EDIT"}
+				cn.PresentationRole = "DEFINITION"
+				cn.EvaluationStatus = string(c.EvaluationStatus)
+				jn.Children = append(jn.Children, cn)
 			}
-			// Publishing links describe the existing relation, rather than adding
-			// a parallel application-object branch beside the joints.
-			for _, a := range k.Associations {
-				if a.MechanismID != m.ID || a.JointID != j.ID {
-					continue
-				}
-				an := node("MOTION_ASSOCIATION", j.ID+"/"+a.Role, "装配关联")
-				an.ID = jn.ID + "/association:" + a.Role
-				an.Capabilities = nil
-				an.PresentationRole = "INPUT_REFERENCE"
-				name := a.ConstraintID
-				for _, c := range constraints {
-					if c.ID == a.ConstraintID && c.Name != "" {
-						name = c.Name
-					}
-				}
-				ref := node("JOINT_SOURCE", a.ConstraintID, name)
-				ref.ID = an.ID + "/constraint:" + a.ConstraintID
-				ref.Capabilities = nil
-				ref.PresentationRole = "INPUT_REFERENCE"
-				an.Children = []DocumentStructureNode{ref}
-				role := a.Role
-				if role == "orientation" {
-					role = "rotation"
-				}
-				if role == "angle-lock" {
-					role = "axis"
-				}
-				index := slices.IndexFunc(jn.Children, func(n DocumentStructureNode) bool { return n.EntityID == j.ID+"/"+role })
-				if index >= 0 {
-					jn.Children[index].Children = append(jn.Children[index].Children, an)
-				} else if j.Kind == "GROUND" {
-					jn.Children = append(jn.Children, an)
-				}
+			if j.Kind == "GROUND" {
+				ground.Children = append(ground.Children, jn)
+			} else {
+				joints.Children = append(joints.Children, jn)
 			}
-			mn.Children = append(mn.Children, jn)
 		}
 		for _, d := range k.Drivers {
 			if d.MechanismID == m.ID {
-				mn.Children = append(mn.Children, node("MOTION_DRIVER", d.ID, d.Name))
+				label := d.Name
+				for _, j := range m.Joints {
+					if j.ID == d.JointID {
+						label += " (" + j.Name + ",角度)"
+					}
+				}
+				n := node(drivers.ID, "MOTION_DRIVER", d.ID, label)
+				n.MechanismID = m.ID
+				n.OwnerEntityID = d.JointID
+				drivers.Children = append(drivers.Children, n)
 			}
 		}
-
-		root.Children = append(root.Children, mn)
+		for _, l := range k.Laws {
+			if l.MechanismID == m.ID {
+				label := l.Name
+				for _, d := range k.Drivers {
+					if d.ID == l.DriverID {
+						label += " (" + d.Name + ")"
+					}
+				}
+				n := node(laws.ID, "MOTION_LAW", l.ID, label)
+				n.MechanismID = m.ID
+				n.OwnerEntityID = l.DriverID
+				laws.Children = append(laws.Children, n)
+			}
+		}
+		mn.Children = []DocumentStructureNode{joints, drivers, ground, laws}
+		return mn
 	}
-	// A simulation references a mechanism; it is not owned by that mechanism.
-	// This is the editable design object, not a polled execution-result node.
+	mechanisms := group(root.ID, "mechanisms", "机械装置")
+	simulations := group(root.ID, "simulations", "模拟")
+	for _, m := range k.Mechanisms {
+		mechanisms.Children = append(mechanisms.Children, project(mechanisms.ID, m, false))
+	}
 	for _, s := range k.Studies {
-		root.Children = append(root.Children, node("MOTION_STUDY", s.ID, s.Name))
+		sn := node(simulations.ID, "MOTION_STUDY", s.ID, s.Name)
+		sn.MechanismID = s.MechanismID
+		sn.OwnerEntityID = s.LawID
+		for _, m := range k.Mechanisms {
+			if m.ID == s.MechanismID {
+				sn.Children = append(sn.Children, project(sn.ID, m, true))
+			}
+		}
+		simulations.Children = append(simulations.Children, sn)
 	}
-
+	root.Children = []DocumentStructureNode{mechanisms, simulations}
 	return root
 }

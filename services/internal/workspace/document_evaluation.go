@@ -174,7 +174,7 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				}
 			}
 			finishSolve()
-			if prepared.command.TypeURI == typeApplyMotionFrame {
+			if prepared.command.TypeURI == typeApplyMotionFrame || prepared.command.TypeURI == typeAdoptMechanismPose {
 				var p motionApplyPayload
 				_ = json.Unmarshal(prepared.command.Payload, &p)
 				for _, v := range p.Model.Instances {
