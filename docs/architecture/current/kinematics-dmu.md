@@ -1,6 +1,6 @@
-# 基础旋转机构、仿真与产品约束转换
+# 当前机构、规律运行与产品约束转换
 
-> 当前实现合同。设计依据及验收矩阵见[完整设计](../../../plans/dmu-mechanism-redesign.md)与[对话框操作流程](../../../plans/dmu-ui-workflow.md)，验证记录见[实施记录](../../../plans/kinematics-dmu.md)，扩展候选见[目标](../target/kinematics-dmu.md)。当前仅支持根 owning Product 的固定件、旋转接合及单角度线性仿真。
+> 当前代码事实，不是新方案的完成声明。当前支持根 owning Product 的固定件、旋转接合及基于规律的单角度批量运行。新的命令零位、实时命令试动、关键帧录制与统一会话设计见[完整方案](../target/kinematics-dmu.md)，均尚未实现。下文已有实现仍存在实机反馈的交互与状态问题，不等于全部流程通过浏览器验收。
 
 ## 应用与位姿所有权
 
@@ -44,11 +44,11 @@ Ground 保存 SPACE Fix 的捕获基准。固定件接受预选元素的所属 I
 
 `SAVE_KINEMATICS` 在事务外解析稳定支持、绑定普通约束及权威完整求解。机构、预览、运行共用 FreezeAssemblyInput，不重复从 Joint 生成另一套定位方程。成功要求 CONVERGED、运动偏好门禁、独立硬见证、完整有限单位四元数及接合闭合；客户端输入位姿仍须权威验证，不能作为合格见证。定义及成员 accepted 一次写入 product.kinematics，经 Revision/ChangeSet/CAS/Undo/Redo；失败不推进 Head。
 
-Mechanism.evaluation 分别记录 physical relativeDOF、gaugeDOF、施加 Command 后的 drivenDOF、driverCount。Command 覆盖通过同时加入当前坐标硬方程的真实求解计算，不以简单减法推算，不保存永久角锁。树显示 drivenDOF；未计算时显示待计算。一个接合坐标不能重复创建 Command。
+Mechanism.evaluation 分别记录 physical relativeDOF、gaugeDOF、施加 Command 后的 drivenDOF、driverCount。当前定义评价同时加入全部已保存 Command 在当前坐标的硬方程，再实际求解，不以简单减法推算，不保存永久角锁。树显示 drivenDOF；未计算时显示待计算。一个接合坐标不能重复创建 Command。该评价尚未区分“候选命令”和“本次活动驱动集合”；后台单驱运行只采用所选规律对应的一个驱动，因此树评价不能证明任意命令都有运行资格。
 
 ## 冻结运行、取消与回放
 
-MotionDriver 只绑定 Revolute 的角坐标。MotionLaw 独立保存 start/end/durationSeconds；MotionStudy 引用 mechanismId/lawId，保存 frames/budget。服务端解析 Law 后冻结数值字段供求解器使用，拒绝缺失、跨机构引用。接合对话框可同时创建角度命令。
+MotionDriver 只绑定 Revolute 的角坐标，尚无独立的“创建时当前位置为零”操作基准。MotionLaw 独立保存 start/end/durationSeconds；MotionStudy 引用 mechanismId/lawId，保存 frames/budget。服务端解析 Law 后冻结数值字段供求解器使用，拒绝缺失、跨机构引用。接合对话框可同时创建角度命令。Law 起点使用现有接合坐标，可能与机构 accepted 不同；第零计算帧表示规律起点，不保证等于运行前位置。
 
 `motion-runs` 冻结完整 view、机构定义/accepted、所引用规律、Study、solver profile 及 policy，前后检查 Head。运行要求接地后 physical relativeDOF=1、gaugeDOF=0，加入硬角驱动后局部确定。连续角、限位、上一合格帧初值、分支、有界细分重试和硬见证沿用数值内核。失败/取消保存已完成帧及分类诊断，不把未收敛当无解。
 
@@ -56,7 +56,7 @@ MOTION_SNAPSHOT → MOTION_STUDY Job → MOTION_RUN 使用现有 attempt/lease/d
 
 回放使用冻结树、几何和选择，不逐帧写 Revision。播放使用视口 RAF 与统一显示时钟，在相邻完整计算帧间进行刚体螺旋插值，四元数采用最短路径；偏离零件原点的旋转保持圆弧路径。插值仅供显示，不标为合格求解帧、不参与保存或转换；复杂闭环的帧间显示是近似，精确状态仍以计算样本为准。时间显示连续更新且保留两位小数，状态和帧定位保留实际样本身份。时钟／位姿更新只修改既有 occurrence，不重建几何场景。确定采用当前时间对应的合格计算帧，通过一次权威 SAVE_KINEMATICS 保存成员位置；保存失败保留回放及错误。取消、标题关闭和 Esc 恢复最新机构 accepted，不生成保存 Revision。历史结果确定仅结束查看并恢复最新机构 accepted，不回写旧快照。
 
-工具栏“运行仿真”打开“仿真与回放”对话框。每个用户可见 MOTION_STUDY Job 按 payload.studyId 投影为对应模拟下的独立结果节点；稳定 Job ID 是结果身份，不写回参数模型。树双击指定结果打开同一对话框，不提供结果下拉选择或“已保存结果”工具栏／搜索命令。当前模拟定义删除后不再投影其结果，保留 Job/Artifact 审计。计算进度、停止计算、播放/暂停、起点/终点、前后单步和时间定位均在对话框内操作。播放按钮直接操作当前对话框会话，不进入全局 Registry；工具栏和搜索没有播放类命令。计算前若采用当前版本的回放帧，先权威保存该帧。关闭对话框切断前台完成资格，后台 Job 可继续，迟到结果不能恢复回放。打开期间冻结定义修改，关闭成功后恢复机构编辑；视图导航仍可用。
+工具栏“运行仿真”打开“仿真与回放”对话框。每个用户可见 MOTION_STUDY Job 按 payload.studyId 投影为对应模拟下的独立结果节点；稳定 Job ID 是结果身份，不写回参数模型。树双击指定结果打开同一对话框，不提供结果下拉选择或“已保存结果”工具栏／搜索命令。当前模拟定义删除后不再投影其结果，保留 Job/Artifact 审计。计算进度、停止计算、播放/暂停、起点/终点、前后单步和时间定位均在对话框内操作。播放按钮直接操作当前对话框会话，不进入全局 Registry；工具栏和搜索没有播放类命令。加载结果会立即显示第零计算帧；从回放再次运行或退出机构时，当前代码可能先保存所选合格计算帧，再启动计算或切换应用，这与新设计的“只由明确确定采用位置”不一致。关闭对话框切断前台完成资格，后台 Job 可继续，迟到结果不能恢复回放。打开期间冻结定义修改，关闭成功后恢复机构编辑；视图导航仍可用。
 
 “转换为产品约束”统一使用工具栏／命令搜索入口；回放对话框没有转换或删除按钮。编辑状态从机构 accepted 转换；回放状态先暂停并固定实际计算帧，作为转换子流程。Registry 的显式命令续接保留运行操作及其取消资源，重复打开转换计划也不会丢失原回放。取消转换返回同一回放和同一帧；成功则退出到装配设计。命令对话框共用“确定／取消”页脚，转换计划使用 520 px 的 M 宽度。
 
@@ -80,4 +80,14 @@ final 候选经现有机构预览核验成员范围的自由度与驱动资格�
 
 计划校验机构稳定 ID/语义、成员几何/解析版本、Run 完整性与有效帧；非成员采用当前产品位置，旧回放不覆盖后来新增/移动的非成员。显示重命名不改变 Joint 语义摘要。全部目标 Product 活动方程必须编译并验证，正式求解满足偏好和独立硬见证，且仍认可选择帧。冲突拒绝整个提交。`APPLY_MOTION_FRAME` 核对计划 digest 与 Head，一次事务提交新增约束、实际变动位姿、计数器与映射，支持一次 Undo/Redo；成功返回装配设计。
 
-当前未实现多驱仿真、其他关节、可动嵌套 Product、干涉应用、单坐标试动、来源导入或动力学；没有旧开发数据兼容。没有容量、稳定 P95 或实时频率结论。具体已验证范围及全量检查限制见实施记录。
+## 当前差距与验收边界
+
+当前模型没有录制关键帧、操作零位或活动驱动基；Simulation 仍强制引用 Law。motion-runs 的请求结构虽然保留 Trial 等字段，当前运行入口明确拒绝它们，不能把字段存在当作实时试动已交付。结果树按 Job 状态显示完成／失败，尚未按 Run 的运动学质量区分“制品保存完成”和“路径完整可回放”。
+
+基础约束、驱动硬方程、连续求解及逐帧见证已经使用同一装配内核。非接地端接合不被要求直接连接 Ground；运行仍检查全机构接地后的一自由度及所选驱动。绝对规律起点不可达、全周扫描超过闭环几何边界及第零帧位置变化，不能据此推断求解器完全未参与。它们需要在新设计中通过明确坐标基准、交互失败保持、用户录制有限路径解决。
+
+已有手柄结束屏障、冻结帧、取消和刷新保护是当前实现机制；维护者报告的手柄消失、未确认死锁、位置回退及随机白屏仍需真实输入与浏览器验收，本文不宣称已彻底解决。历史专项执行记录由 Git 和派生测试报告保留，不再把旧计划或旧 PASS 数量作为当前验收证据。
+
+后续实施及验收统一遵循[完整方案](../target/kinematics-dmu.md#验收矩阵)。当前未实现多驱仿真、其他关节、可动嵌套 Product、干涉应用、实时单坐标试动、用户关键帧录制、来源导入或动力学；没有旧开发数据兼容。没有容量、稳定 P95 或实时频率结论。
+
+主要代码入口：[机构模型与规律解析](../../../services/internal/workspace/kinematics_model.go)、[机构评价](../../../services/internal/workspace/mechanism_preview.go)、[冻结运行](../../../services/internal/workspace/motion_snapshot.go)、[连续求解](../../../services/internal/workspace/motion_run.go)、[前端命令与回放](../../../web/apps/cad/src/features/workbench/motion-study-panel.tsx)、[结果树投影](../../../web/apps/cad/src/features/workbench/motion-result-tree.ts)。

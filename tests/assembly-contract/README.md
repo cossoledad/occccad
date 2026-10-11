@@ -99,7 +99,7 @@ python tests/assembly-contract/runner.py gaps --family Offset --adapters go,web,
 
 最后一条刻意不执行原生或数据库映射，报告明确 NOT_RUN，不是完整 Offset 验收。生产只支持当前定义/Quantity/policy/canonical 摘要，旧实验格式测试改为拒绝；旧格式拒绝测试的稳定 case ID 保留，baseline 的 closeoutReview 记录授权原因，未降低数学预期或覆盖下限。
 
-`baseline.assertionReview20261011` 记录当前显示绑定、候选生命周期、两位数值显示、原生测试资源与历史证据更新的逐项审查。仅同步已审查断言源码摘要，案例身份、目标预期、证据映射与实现下限保持原合同；新增移动手柄生命周期断言同样纳入源码锁。本次执行边界见[DMU 计划的验证记录](../../plans/kinematics-dmu.md)。
+`baseline.assertionReview20261011` 记录显示绑定、候选生命周期、两位数值显示、原生测试资源与历史证据的逐项审查。仅同步已审查断言源码摘要，案例身份、目标预期、证据映射与实现下限保持原合同；移动手柄生命周期断言同样纳入源码锁。该审查不是新的执行报告；实际执行范围以当次生成报告为准，证据限制见[验证合同](../../docs/architecture/current/validation.md)。
 
 ## 报告与性能边界
 
@@ -117,4 +117,4 @@ python tests/assembly-contract/runner.py gaps --family Offset --adapters go,web,
 6. 释放拖动后立即点空白或选择另一组件，最终目标仍完成且只提交一次，不抢回选择；切换工具/修改命令等待结束，Esc 仍取消未提交操作。
 7. 剩余运动行鼠标/键盘选择即显示方向；缩放/窗口变化后箭头尺寸稳定，模型遮挡/透明/高亮下可见；小数噪声显示零，单位转换和真实微小值保留。WebGL 外观仍需实机验证。
 
-装配主体能力按当前开发合同验证；实际闭环操纵、异常恢复和显示需结合具体输入验收，已运行范围见[机构实施记录](../../plans/kinematics-dmu.md#验证记录)。暂缓细节集中见[后续工作](../../plans/README.md#装配暂缓问题)。自动检查不代替实机视觉验收，不补造截图、测试版本或工业/性能结论。
+装配主体能力按当前开发合同验证；实际闭环操纵、异常恢复和显示需结合具体输入验收，执行范围读取当次报告。当前机构限制见[代码事实](../../docs/architecture/current/kinematics-dmu.md#当前差距与验收边界)，未来试动／录制的专项要求见[验收矩阵](../../docs/architecture/target/kinematics-dmu.md#验收矩阵)。暂缓细节集中见[后续工作](../../plans/README.md#装配暂缓问题)。自动检查不代替实机视觉验收，不补造截图、测试版本或工业/性能结论。

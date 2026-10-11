@@ -68,7 +68,7 @@ AssemblySolveKey = hash(
 )
 ```
 
-DMU Key 加入 occurrence Pose map、representation manifests、scope/rules、clearance/tolerance 和 exact policy。Simulation Key 加入 Mechanism/Dynamics model、laws、time/integrator、collision proxies 和 solver build。
+DMU Key 加入 occurrence Pose map、representation manifests、scope/rules、clearance/tolerance 和 exact policy。机构 Simulation Key 按[命令试动与录制设计](kinematics-dmu.md)纳入机构／几何快照、坐标基准、初始构型、关键帧及活动驱动、分支／绕转意图、路径策略和 solver build；Law 仅作为可选目标来源，不是模拟的必填定义。未来 Dynamics Key 另含动力学模型、时间积分策略及 collision proxies，不与基础机构缓存混用。
 
 - 改一个 rigid cluster 只重求其 constraint connected component；
 - 改一个 occurrence Pose/GeometryId 只更新其 BVH leaf 和潜在 overlap pairs；
@@ -136,7 +136,7 @@ Diagnostic 包含 Product Revision/config snapshot、InstancePaths、Connection/
 | Fuzz/security | Proto、deep graph、cycles、bad mesh/B-Rep/FMU、resource limits |
 | Benchmark | 1k/10k/100k occurrences、10k constraints、million candidate pairs |
 
-Constraint Jacobian 用 finite-difference/automatic differentiation 对照解析实现；Mechanism 用已知解析机构和第二后端对照；DMU proxy 结果用 exact subset 校验 false-negative rate，发布规则默认不允许未知 false negative。
+Constraint Jacobian 用 finite-difference/automatic differentiation 对照解析实现；Mechanism 使用已知解析机构、独立闭合见证及同一装配内核的真实调用链对照，第二后端仅为后续独立验证候选；DMU proxy 结果用 exact subset 校验 false-negative rate，发布规则默认不允许未知 false negative。
 
 ### 5.6.39 推荐模块边界
 

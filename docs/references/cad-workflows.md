@@ -35,16 +35,28 @@
 
 2026-09-21 按本机 Asm/Cfy viewdoc 索引读取用户给出的 `online/CATIAfr_C2/asmugCATIAfrs.htm` 及其关联菜单/六类约束任务页、几何兼容参考页、Activate/Deactivate 与 Manipulate 页面。逐页路径、语义与文档疑点集中见[六类约束合同](../architecture/current/assembly-constraints.md)，不再在本索引复制参数矩阵。该次核对不刷新上方其他外部产品资料，也不表示新能力已经实现。
 
-## 小机构与基础 DMU 来源
+## 机构与 DMU 工作流来源
 
-2026-10-09 从本机 `control/KinEnglishC2.viewdoc`、`control/SpaEnglishC2.viewdoc` 定位并读取：
+本设计按本机 `control/KinEnglishC2.viewdoc`、`control/FitEnglishC2.viewdoc` 定位任务页。用户给出的 `online/CATIAfr_C2/kinugCATIAfrs.htm` 是入口，下面的具体页面用于核对流程。
 
-- `online/kinug_C2/kinugbt0801.htm`：More About Joints and Constraints，旋转接合的两轴相合与两平面偏移组成关系；本轮从 KinEnglishC2.viewdoc 再次定位核读。
-- `online/kinug_C2/kinugbt0701.htm`：Creating Revolute Joints，两轴/两平面自动更新选择字段，确认更新机构树。
-- `online/kinug_C2/kinugbt0501.htm`：新建机制、关节、固定零件及 command 的定义流程。
-- `online/kinug_C2/kinugbt0201.htm`：law、时间范围/步数、播放/暂停/定位、限位及分析。
-- `online/kinug_C2/kinugbt0300.htm`：保存记录、回放与复位。
-- `online/spaug_C2/spaugbt0302.htm`：选定组的 clash/contact/clearance、结果列表、预览和高亮。CATIA 此页的网格/sag 判定不作为本项目 OCCT 实体精度依据。
-- [Onshape Mate/Animate](https://cad.onshape.com/help/Content/Assembly/mates.htm)、[Slider Mate](https://cad.onshape.com/help/Content/Assembly/slider_mate.htm)：独立运动坐标、动画 start/end 与 mate limits 分开。
+| 页面 | 可确认的用户行为与术语 |
+|---|---|
+| `online/kinug_C2/kinugbt0202.htm`，Simulating with Commands | 独立命令试动对话框支持游标、数值及直接操纵；不能在此独立命令内录制，录制使用 Simulation |
+| `online/kinug_C2/kinugbt0203.htm` | 按请求更新的试动方式，是交互计算而非自动扫描全部位置 |
+| `online/kinug_C2/kinugbt0302.htm`，Recording Positions | Simulation 创建树对象，打开 Kinematics Simulation 与 Edit Simulation 两个窗口；自动记录初始帧，Insert 记录位置，再回放记录 |
+| `online/kinug_C2/kinugbt0501.htm`、`kinugbt0513.htm` | 机构创建固定零件与命令；可模拟资格关联整个机构及驱动后剩余自由度 |
+| `online/kinug_C2/kinugbt0504.htm` | 命令方向可在创建或编辑时设置 |
+| `online/kinug_C2/kinugbt0701.htm`、`kinugbt0801.htm` | 旋转接合的两轴、两定位平面；轴重合与平面偏移组成关系 |
+| `online/kinug_C2/kinugwd1000.htm` | 机构、接合、命令、固定零件、规律与模拟的树分类 |
+| `online/kinug_C2/kinugbt0205.htm`、`kinugbt0206.htm` | 退出与复位不同；修改后位置及再次进入时的命令读数按当前构型处理 |
+| `online/fitug_C2/fitugbt0304.htm`，Animating a Viewpoint | Insert 同时记录位置和当前视点；Animate viewpoint 控制回放，可在录制后切换 |
+| `online/fitug_C2/fitugbt0302.htm`，Recording Automatically | Automatic insert 可按移动过程记录，精度／阈值影响记录密度；被拒绝的碰撞位置不记录 |
+| `online/fitug_C2/fitugbt0300.htm` | Simulation 记录和生成 Replay 制品是不同动作，Replay 可以独立查看 |
 
-这些资料是交互参照，不代表当前交付范围。2026-10-10 核读 `kinugbt0801.htm`、`kinugbt0201.htm`、`kinugbt0302.htm`：旋转接合使用轴重合与平面偏移；Simulation with Laws 默认退出保持新位置；Recording Positions 的独立 Simulation 可记录多个机构。进一步核读 `kinugwd1000.htm`、`kinugbt0205.htm`、`kinugat0800.htm`、`kinugbt0508.htm`，确认分类树、关闭与复位的区别及 CATIA 的装配/接合更新同步流程。本项目保持两套约束独立，后续按维护者要求以当前位置按目标系统求解切换，退出可只提交 Product 位姿，产品关系仍仅经显式转换生成；这部分是[待实施设计](../../plans/dmu-mechanism-redesign.md)。当前跳变、位置恢复和转换更新的实际边界见[机构与 DMU](../architecture/current/kinematics-dmu.md)。
+表中缩写文件名沿用同单元格的目录。Fit 页面属于 DMU Fitting，提供录制／视点操作参考，不能据此推断 Kinematics 求解器的内部实现、关键帧持久模型或闭环插值算法。Recording Positions 的多机构例子也不代表本项目首个切片支持多机构。
+
+维护者 2026-10-11 的 CATIA 实践补充：驱动接合不必直接连接固定件；命令目标不被满足时，模型与游标保持最后正确位置；正式模拟由用户通过命令面板取得位置，再手动或自动插入记录。该失败保持细节属于用户实践，不扩展为 CATIA 在任意数值失败下的内部状态机承诺。
+
+本项目据此选择[命令试动与录制模拟统一设计](../architecture/target/kinematics-dmu.md)：稳定操作零位、同一约束内核、双面板单拥有者、合格检查点、明确确定／取消及独立产品转换。两套关系独立、以当前 confirmed 按目标关系切换、Revision/CAS/Undo 和近似显示边界都是本项目决策，不声称照搬 CATIA 的约束自动更新或内部架构。实现状态见[当前代码事实](../architecture/current/kinematics-dmu.md)。
+
+空间分析扩展参考 `control/SpaEnglishC2.viewdoc` → `online/spaug_C2/spaugbt0302.htm` 的 clash/contact/clearance 流程；其网格／sag 判定不作为本项目 OCCT 实体精度依据，也不代表当前机构应用已有干涉分析入口。

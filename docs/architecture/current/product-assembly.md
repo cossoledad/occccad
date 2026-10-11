@@ -16,7 +16,7 @@ Publication 用稳定目标身份，支持输出及转发；PersistentSelection 
 
 ## 定义与求值
 
-独立机构定义及硬驱动、冻结回放与精确干涉见[小机构与基础 DMU](kinematics-dmu.md)。它复用本域冻结输入及数值内核，保留完整装配方程；运动研究不改变普通装配编辑的偏好、Preview/Commit 或 Revision 语义。
+独立机构定义、硬驱动、冻结回放与产品约束转换见[当前机构合同](kinematics-dmu.md)。它复用本域冻结输入及数值内核，运行保留完整机构方程，不继承 Product 关系；运动研究不改变普通装配编辑的偏好、Preview/Commit 或 Revision 语义。实时试动与用户录制尚待按[完整设计](../target/kinematics-dmu.md)实施，干涉应用未交付。
 
 公共六族为 Coincidence、Contact、Offset、Angle、Fix、Fix Together；Concentric/Distance/Parallel/Perpendicular/Rigid 是内部原语或明确快捷入口。唯一生产目录在 [assemblycontract](../../../services/internal/assemblycontract/README.md)，测试目录仅引用 capabilityId 并映射执行证据；生产按一次加载的只读索引查询，返回脱离缓存的副本。按钮可用性不依赖 PASS 计数，FACE/EDGE/VERTEX 不等于精确类型。
 
