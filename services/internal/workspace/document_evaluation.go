@@ -150,7 +150,7 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				}
 			}
 		}
-		if promoted && !candidate.definitionOnly && (len(model.Constraints) > 0 || request.SessionID != "") {
+		if promoted && !candidate.definitionOnly && prepared.command.TypeURI != typeSetKinematics && (len(model.Constraints) > 0 || request.SessionID != "") {
 			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, candidate.assemblyPreviewRequestID, canonicalModelHash(nextJSON)); err != nil {
 				return err
 			}

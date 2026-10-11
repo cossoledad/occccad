@@ -48,6 +48,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PRODUCT" || request.Kinematics == nil {
 			break
 		}
+		if request.SessionID != "" {
+			// Only a matching final Session token may promote this already
+			// verified pose. executeDomainMutation rejects missing/mismatched tokens.
+			return typeSetKinematics, *request.Kinematics, nil
+		}
 		k, e := service.bindKinematics(ctx, documentID, request.VersionID, modelJSON, *request.Kinematics)
 		return typeSetKinematics, k, e
 	case "SET_DEFINITION_VISIBILITY":

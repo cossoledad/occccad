@@ -1,8 +1,9 @@
 import type { Selection, SelectionItem } from "../../types";
 import { projectSketchFeatureSelection } from "./selection-mode";
-export type FeaturePickRole = "direction" | "geometry" | "point" | "profile" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
+export type FeaturePickRole = "instance" | "direction" | "geometry" | "point" | "profile" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
 export type FeatureSelectionSession = {
     role: FeaturePickRole;
+    project?: (selection:SelectionItem)=>Selection;
     // Shared scene/tree filtering for cross-occurrence command supports.
     accept?: (selection:SelectionItem)=>boolean;
     // Exact support inspection may finish after the click. It must not select
@@ -26,6 +27,7 @@ export type FeatureSelectionSession = {
 // Filter raw scene hits before projection: a rotation axis keeps its individual
 // sketch entity, while a section intentionally projects to the whole sketch.
 export function featureSelectionHit(raw: Selection, session: FeatureSelectionSession): Selection {
+    if(raw&&session.project)raw=session.project(raw);
     if(session.accept)return raw&&session.accept(raw)?raw:null;
     if (!raw || (raw.ownerDocumentId ?? raw.documentId) !== session.documentId ||
         (raw.occurrencePath ?? "") !== (session.occurrencePath ?? "") ||

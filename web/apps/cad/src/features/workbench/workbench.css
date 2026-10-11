@@ -161,6 +161,5 @@
 .motion-support-row > .ant-btn:first-of-type { flex:1; min-width:0; height:auto; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; white-space:normal; text-align:left; }
 .motion-support-title { font-size:12px; flex:none; }
 .motion-support-value { font-size:12px; overflow-wrap:anywhere; opacity:.85; text-align:right; }
-.motion-generated-relations > div { display:flex; justify-content:space-between; gap:8px; font-size:12px; }
 .motion-dialog-status { border-top:1px solid var(--wb-border); padding-top:8px; font-size:12px; }
 .motion-playback-controls { display:flex; flex-wrap:wrap; gap:6px; }

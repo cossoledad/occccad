@@ -2112,22 +2112,8 @@
       "iconKey": "move",
       "repeatable": false,
       "visibleWhen": {
-        "all": [
-          {
-            "all": [
-              {
-                "fact": "targetType",
-                "equals": "PRODUCT"
-              }
-            ]
-          },
-          {
-            "not": {
-              "fact": "motionActive",
-              "equals": true
-            }
-          }
-        ]
+        "fact": "targetType",
+        "equals": "PRODUCT"
       },
       "enabledWhen": {
         "all": [
@@ -2136,8 +2122,24 @@
             "equals": "PRODUCT"
           },
           {
-            "fact": "canEdit",
-            "equals": true
+            "any": [
+              {
+                "fact": "canEdit",
+                "equals": true
+              },
+              {
+                "all": [
+                  {
+                    "fact": "motionActive",
+                    "equals": true
+                  },
+                  {
+                    "fact": "rootCanEdit",
+                    "equals": true
+                  }
+                ]
+              }
+            ]
           },
           {
             "fact": "busy",
@@ -5320,7 +5322,7 @@
     {
       "id": "dmu.revolute",
       "name": "旋转接合",
-      "helpText": "选择两轴和两定位面，预览并创建重合与偏移两条机构约束",
+      "helpText": "创建旋转接合。",
       "iconKey": "rotate",
       "repeatable": false,
       "visibleWhen": {
@@ -5533,34 +5535,6 @@
         ]
       },
       "implementation": "handler"
-    },
-    {
-      "id": "dmu.results",
-      "name": "已保存结果",
-      "helpText": "在同一仿真对话框中查看后台任务和已保存运行",
-      "iconKey": "insert",
-      "repeatable": false,
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          }
-        ]
-      },
-      "implementation": "form"
     }
   ],
   "groups": [
@@ -6303,6 +6277,11 @@
           "commandId": "dmu.revolute",
           "groupKey": "variants:joints",
           "order": 30
+        },
+        {
+          "commandId": "assembly.move",
+          "groupKey": "primary",
+          "order": 40
         }
       ],
       "variants": {
@@ -6363,11 +6342,6 @@
           "commandId": "dmu.exit",
           "groupKey": "primary",
           "order": 0
-        },
-        {
-          "commandId": "dmu.results",
-          "groupKey": "primary",
-          "order": 1
         }
       ]
     },

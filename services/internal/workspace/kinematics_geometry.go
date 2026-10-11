@@ -78,6 +78,13 @@ func (service *Service) resolveMechanismGeometry(ctx context.Context, model Prod
 			return m, fmt.Errorf("%w: joint has no second endpoint", ErrValidation)
 		}
 		var worldX [3]float64
+		firstNormalSign := 1.0
+		if j.AxialDirection == "" {
+			j.AxialDirection = "SAME"
+		}
+		if j.AxialDirection != "SAME" && j.AxialDirection != "OPPOSITE" {
+			return m, fmt.Errorf("%w: invalid axial plane direction", ErrValidation)
+		}
 		for side, end := range []*JointEndpoint{&j.First, j.Second} {
 			if end.Axis == nil && end.Plane == nil {
 				continue
@@ -102,6 +109,13 @@ func (service *Service) resolveMechanismGeometry(ctx context.Context, model Prod
 			plane, e := resolver.resolve(*end.Plane)
 			if e != nil {
 				return m, fmt.Errorf("joint %s geometry: %w", j.ID, e)
+			}
+			if side == 0 {
+				firstNormalSign = conflictDot(axis.Direction, plane.Direction)
+			} else if (firstNormalSign*conflictDot(axis.Direction, plane.Direction) < 0) != (j.AxialDirection == "OPPOSITE") {
+				// Align the angular frames even when selected plane normals face
+				// each other. The selected axis reference itself is unchanged.
+				axis.Direction = conflictScale(axis.Direction, -1)
 			}
 			if end.CapturedX == nil {
 				if !capture {

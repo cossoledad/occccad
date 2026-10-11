@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -20,6 +21,9 @@ const assemblyInteractionCapacity = 128
 
 // Session owns frozen computation, never a persistent model or a DB transaction.
 type assemblyInteraction struct {
+	mechanismID                                                           string
+	product                                                               ProductModel
+	coordinates                                                           map[string]float64
 	actorID, documentID, workspaceID, baseRevisionID, inputDigest, bodyID string
 	sequence, baseSequence                                                uint64
 	manifest                                                              AssemblySolveManifest
@@ -52,12 +56,14 @@ type AssemblyInteractionEditContext struct {
 	InstancePath     *InstancePath `json:"instancePath,omitempty"`
 }
 type AssemblyInteractionBegin struct {
-	BaseRevisionID string                          `json:"baseRevisionId"`
-	InstanceID     string                          `json:"instanceId"`
-	OccurrencePath *InstancePath                   `json:"occurrencePath,omitempty"`
-	LocalGrabPoint [3]float64                      `json:"localGrabPoint"`
-	FrameRotation  [4]float64                      `json:"frameRotation"`
-	EditContext    *AssemblyInteractionEditContext `json:"editContext,omitempty"`
+	MechanismID        string                          `json:"mechanismId,omitempty"`
+	SourceMechanismIDs []string                        `json:"sourceMechanismIds,omitempty"`
+	BaseRevisionID     string                          `json:"baseRevisionId"`
+	InstanceID         string                          `json:"instanceId"`
+	OccurrencePath     *InstancePath                   `json:"occurrencePath,omitempty"`
+	LocalGrabPoint     [3]float64                      `json:"localGrabPoint"`
+	FrameRotation      [4]float64                      `json:"frameRotation"`
+	EditContext        *AssemblyInteractionEditContext `json:"editContext,omitempty"`
 }
 type InstancePoseEntry struct {
 	InstanceID  string     `json:"instanceId"`
@@ -196,6 +202,16 @@ func (service *Service) BeginAssemblyInteraction(ctx context.Context, documentID
 	if err = json.Unmarshal(prepared.modelJSON, &model); err != nil {
 		return AssemblyInteractionOpened{}, err
 	}
+	originalProduct := model
+	if input.MechanismID != "" {
+		if input.EditContext != nil && input.EditContext.InstancePath != nil {
+			return AssemblyInteractionOpened{}, fmt.Errorf("%w: mechanism manipulation requires root Product", ErrValidation)
+		}
+		model, err = mechanismInteractionModel(model, input.MechanismID, input.SourceMechanismIDs)
+		if err != nil {
+			return AssemblyInteractionOpened{}, err
+		}
+	}
 	found := false
 	nominal := make([]InstancePoseEntry, 0, len(model.Instances))
 	for _, i := range model.Instances {
@@ -206,6 +222,12 @@ func (service *Service) BeginAssemblyInteraction(ctx context.Context, documentID
 		return AssemblyInteractionOpened{}, fmt.Errorf("%w: assembly motion unit missing", ErrValidation)
 	}
 	compile := mustInteractionModel(prepared.modelJSON)
+	if input.MechanismID != "" {
+		compile, err = cloneAssemblyProduct(model)
+		if err != nil {
+			return AssemblyInteractionOpened{}, err
+		}
+	}
 	// Admission is frozen once. Isolated definitions remain in the original model
 	// and persisted Definitions; they never become physical equations in a drag.
 	for i := range compile.Constraints {
@@ -266,7 +288,18 @@ func (service *Service) BeginAssemblyInteraction(ctx context.Context, documentID
 	if !validInteractionTarget(probe) {
 		return AssemblyInteractionOpened{}, fmt.Errorf("%w: invalid frozen drag frame", ErrValidation)
 	}
-	session := &assemblyInteraction{actorID: actor, documentID: documentID, workspaceID: prepared.workspaceID, baseRevisionID: prepared.headRevision, baseSequence: prepared.headSequence, inputDigest: frozen.Digest, bodyID: bodyID, manifest: frozen, model: model, localGrabPoint: input.LocalGrabPoint, frameRotation: q, occurrencePath: input.OccurrencePath, editContext: input.EditContext, expires: time.Now().Add(assemblyInteractionTTL)}
+	session := &assemblyInteraction{mechanismID: input.MechanismID, product: originalProduct, actorID: actor, documentID: documentID, workspaceID: prepared.workspaceID, baseRevisionID: prepared.headRevision, baseSequence: prepared.headSequence, inputDigest: frozen.Digest, bodyID: bodyID, manifest: frozen, model: model, localGrabPoint: input.LocalGrabPoint, frameRotation: q, occurrencePath: input.OccurrencePath, editContext: input.EditContext, expires: time.Now().Add(assemblyInteractionTTL)}
+	if input.MechanismID != "" {
+		poses := map[string]InstancePose{}
+		for _, v := range nominal {
+			poses[v.InstanceID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
+		}
+		m := model.Kinematics.Mechanisms[slices.IndexFunc(model.Kinematics.Mechanisms, func(m Mechanism) bool { return m.ID == input.MechanismID })]
+		session.coordinates, err = verifyMechanismJoints(m, poses, nil, "", 0)
+		if err != nil {
+			return AssemblyInteractionOpened{}, fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+	}
 	id := newID("assembly-session")
 	session.nominalByID = make(map[string]InstancePoseEntry, len(nominal))
 	for _, pose := range nominal {
@@ -564,6 +597,21 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 			next.Instances[i].Rotation = p.Rotation
 		}
 	}
+	if s.mechanismID != "" {
+		m := next.Kinematics.Mechanisms[slices.IndexFunc(next.Kinematics.Mechanisms, func(m Mechanism) bool { return m.ID == s.mechanismID })]
+		poses := map[string]InstancePose{}
+		for _, v := range next.Instances {
+			poses[v.ID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
+		}
+		coords, e := verifyMechanismJoints(m, poses, s.coordinates, "", 0)
+		if e == nil {
+			e = motionLimits(m, coords)
+		}
+		if e != nil {
+			return frame, fmt.Errorf("%w: %v", ErrValidation, e)
+		}
+		s.coordinates = coords
+	}
 	for _, id := range frozen.RelativeFixUpdates {
 		for i := range next.Constraints {
 			c := &next.Constraints[i]
@@ -659,6 +707,31 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 		return frame, nil
 	}
 	command := CommandRequest{Type: "MOVE_INSTANCE", ActorID: actor, RequestID: requestID, InstanceID: s.bodyID, Translation: target.TargetPose.Translation, Rotation: target.TargetPose.Rotation, SessionID: input.SessionID, InteractionTarget: &target}
+	if s.mechanismID != "" {
+		candidate, e := mechanismInteractionCandidate(s.product, next, s.mechanismID, s.bodyID)
+		if e != nil {
+			return frame, e
+		}
+		index := slices.IndexFunc(candidate.Kinematics.Mechanisms, func(m Mechanism) bool { return m.ID == s.mechanismID })
+		m := candidate.Kinematics.Mechanisms[index]
+		// The drag includes the Product environment. Derive member-only rank and
+		// driver qualification through the same evaluator as a normal definition.
+		accepted, e := service.PreviewMechanism(work, documentID, MechanismPreviewRequest{BaseRevisionID: s.baseRevisionID, RequestID: requestID + "/final-mechanism", Mechanism: m, NominalProduct: &next})
+		if e != nil {
+			return frame, e
+		}
+		m.Evaluation = accepted.Mechanism.Evaluation
+		if !mechanismAcceptanceEqual(m, accepted.Mechanism) {
+			return frame, fmt.Errorf("%w: mechanism final pose changed during validation", ErrValidation)
+		}
+		candidate.Kinematics.Mechanisms[index] = m
+		command = CommandRequest{Type: "SAVE_KINEMATICS", VersionID: s.baseRevisionID, ActorID: actor, RequestID: requestID, Kinematics: &candidate.Kinematics, SessionID: input.SessionID, InteractionTarget: &target}
+		raw, err = json.Marshal(candidate)
+		if err != nil {
+			return frame, err
+		}
+	}
+	frame.ModelHash = canonicalModelHash(raw)
 	prepared, err := service.prepareDomainMutation(work, documentID, command)
 	if err != nil {
 		return frame, err
@@ -682,13 +755,22 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	if err = service.checkInteractionBase(work, s); err != nil {
 		return frame, err
 	}
+	var changes modelcore.ChangeSet
+	if s.mechanismID != "" {
+		// Validated final result only changes kinematics; Product constraints and
+		// placements are copied from the frozen base, never from the solver input.
+		_, changes, err = applyKinematicsDefinition(prepared.modelJSON, prepared.command.Payload)
+		if err != nil {
+			return frame, err
+		}
+	}
 	previewID := newID("preview")
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	if cache.values[input.SessionID] != s || work.Err() != nil {
 		return frame, fmt.Errorf("%w: ASSEMBLY_SESSION_CANCELLED", ErrValidation)
 	}
-	service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: actor, headRevision: s.baseRevisionID, headSequence: s.baseSequence, commandType: prepared.command.TypeURI, payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: raw, assemblyPreviewRequestID: previewRequestID, expiresAt: time.Now().Add(interactionCandidateTTL)})
+	service.interactionCandidates.put(interactionCandidate{changes: changes, id: previewID, documentID: documentID, actorID: actor, headRevision: s.baseRevisionID, headSequence: s.baseSequence, commandType: prepared.command.TypeURI, payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: raw, assemblyPreviewRequestID: previewRequestID, expiresAt: time.Now().Add(interactionCandidateTTL)})
 	s.previewID = previewID
 	s.finalTarget = &target
 	command.PreviewID = previewID

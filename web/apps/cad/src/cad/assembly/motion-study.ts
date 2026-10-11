@@ -2,7 +2,7 @@ import type {DocumentView,AssemblyGeometryRef,AssemblyConstraint} from '../../ty
 export type MotionQuantity={value:number;unit:'deg'|'rad'|'mm'|'m'};
 export type MotionPose={translation:[number,number,number];rotation:[number,number,number,number]};
 export type JointEndpoint={instanceId:string;frame:MotionPose;axis?:AssemblyGeometryRef;plane?:AssemblyGeometryRef;capturedX?:[number,number,number]};
-export type MechanismJoint={id:string;name:string;kind:'GROUND'|'REVOLUTE';first:JointEndpoint;second?:JointEndpoint;zero:MotionQuantity;direction:number;axialOffset?:MotionQuantity;sources?:{constraintId:string;baseline:string}[];lower?:MotionQuantity;upper?:MotionQuantity;constraints?:AssemblyConstraint[]};
+export type MechanismJoint={id:string;name:string;kind:'GROUND'|'REVOLUTE';first:JointEndpoint;second?:JointEndpoint;zero:MotionQuantity;direction:number;axialOffset?:MotionQuantity;axialDirection?:'SAME'|'OPPOSITE';sources?:{constraintId:string;baseline:string}[];lower?:MotionQuantity;upper?:MotionQuantity;constraints?:AssemblyConstraint[]};
 export type Mechanism={id:string;name:string;unitIds:string[];joints:MechanismJoint[];supplementalConstraintIds?:string[];poses?:Record<string,MotionPose>;evaluation?:{relativeDof:number;gaugeDof:number;drivenDof:number;driverCount:number}};
 export type MotionLaw={id:string;name:string;mechanismId:string;driverId:string;start:MotionQuantity;end:MotionQuantity;durationSeconds:number};
 export type MotionStudy={id:string;name:string;mechanismId:string;lawId:string;driverId?:string;driverJointId?:string;start:MotionQuantity;end:MotionQuantity;durationSeconds:number;frames:number;budgetMs:number};

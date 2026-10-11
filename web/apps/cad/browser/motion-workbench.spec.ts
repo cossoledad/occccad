@@ -79,11 +79,11 @@ async function fixture(page:Page,withDefinitions=false){
    state.requests.push(structuredClone(request));const frozen=await api.getDocument(id),study=defs.studies[0];
    const frames=[0,90,180,270,360].map((angle,index)=>({timeSeconds:index,driverValue:angle*Math.PI/180,coordinates:{j:angle*Math.PI/180},kinematicValid:true,unitPoses:Object.fromEntries(frozen.product!.instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:n?[0,0,Math.sin(angle*Math.PI/360),Math.cos(angle*Math.PI/360)]:[0,0,0,1]}]))}));
    state.run={schema:1,status:'COMPLETED',completed:true,elapsedMs:12,solveCalls:5,solverBuild:'browser-contract-fixture',frames,snapshot:{documentId:id,revisionId:frozen.document.versionId,digest:'fixture',view:frozen,mechanism:defs.mechanisms[0],study}};
-   const job={id:'fixture-run',type:'MOTION_STUDY',documentId:id,versionId:frozen.document.versionId,state:state.holdJob?'RUNNING':'SUCCEEDED',progress:state.holdJob?20:100,canCancel:Boolean(state.holdJob),createdAt:'fixture-time',payload:{studyName:study.name},resultObjectId:state.holdJob?undefined:'fixture-artifact'};state.jobs=[job];return structuredClone(job) as any;
+   const job={id:'fixture-run-'+state.requests.length,type:'MOTION_STUDY',documentId:id,versionId:frozen.document.versionId,state:state.holdJob?'RUNNING':'SUCCEEDED',progress:state.holdJob?20:100,canCancel:Boolean(state.holdJob),createdAt:new Date(1700000000000+state.requests.length*1000).toISOString(),payload:{studyId:study.id,studyName:study.name},resultObjectId:state.holdJob?undefined:'fixture-artifact'};state.jobs.push(job);state.runs??={};state.runs[job.id]=structuredClone(state.run);return structuredClone(job) as any;
   };
   api.cancelJob=async id=>{state.canceled??=[];state.canceled.push(id);const job=state.jobs.find((j:any)=>j.id===id);Object.assign(job,{state:'CANCELED',canCancel:false});return structuredClone(job);};
   api.deleteMotionResult=async id=>{const job=state.jobs.find((j:any)=>j.id===id);state.jobs=state.jobs.filter((j:any)=>j.id!==id);state.deleted=id;return {...job,userVisible:false}};
-  api.getMotionRun=async()=>{if(state.blocked)await new Promise<void>(resolve=>state.release=resolve);return structuredClone(state.run);};
+  api.getMotionRun=async id=>{if(state.blocked)await new Promise<void>(resolve=>state.release=resolve);return structuredClone(state.runs?.[id]??state.run);};
   api.previewMechanism=async(id,req)=>{state.previews.push(structuredClone(req));if(state.previewBlocked)await new Promise<void>(resolve=>state.previewRelease=resolve);return {baseRevisionId:req.baseRevisionId,mechanism:{...req.mechanism,poses:Object.fromEntries(instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:[0,0,0,1]}]))},instancePoses:instances.map((i,n)=>({instanceId:i.id,translation:n?[0,0,7]:[0,0,0],rotation:[0,0,0,1]}))} as any};
   api.inspectAssemblySupports=async(id,refs)=>{state.inspected.push(structuredClone(refs));if(state.failInspection)throw new Error('fixture temporary inspection failure');return {supports:refs.map(reference=>({reference,descriptor:{Kind:reference.derivedRole?'AXIS':reference.kind==='AXIS'?'AXIS':reference.kind==='PLANE'||reference.topologyId===3?'PLANE':reference.topologyId===99?'SPHERE':'CYLINDER'}}))} as any;};
 
@@ -103,22 +103,24 @@ async function command(page:Page,name:string){
 
 async function enter(page:Page,existing=false){
  if(existing){const name=await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms[0]?.name??'测试机构');const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill(name);await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(name+'，自由度=0',{exact:true}).first().dblclick();await filter.fill('');}
- else {await command(page,'机构');await command(page,'新建机械装置');await page.getByRole('dialog',{name:'编辑机械装置',exact:true}).getByRole('button',{name:/^保\s*存$/}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);}
+ else {await command(page,'机构');await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);}
  await expect(page.getByRole('tab',{name:'机构与 DMU',exact:true})).toBeVisible();
  await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toHaveCount(0);
 }
 async function start(page:Page){await command(page,'运行仿真');const dialog=page.getByRole('dialog',{name:'仿真与回放',exact:true});await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:'计算仿真',exact:true}).click();}
 
-test('entering DMU does not create and explicitly confirmed empty mechanisms remain',async({page})=>{
- const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page);
- await command(page,'机构');await expect(page.getByRole('tab',{name:'机构与 DMU',exact:true})).toBeVisible();
- expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);
- await command(page,'新建机械装置');const dialog=page.getByRole('dialog',{name:'编辑机械装置',exact:true});
- await page.keyboard.press('Escape');expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);
- await command(page,'新建机械装置');await dialog.getByRole('button',{name:/^保\s*存$/}).click();
- await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(1);
- await command(page,'退出机构');expect(await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1).kinematics.mechanisms.length)).toBe(1);
- await enter(page,true);await expect(page.getByRole('dialog')).toHaveCount(0);expect(errors).toEqual([]);
+test('mechanism entry creates without selection, edits selected mechanisms and discards untouched empties',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);
+ await command(page,'机构');await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(2);
+ await expect(page.getByRole('dialog')).toHaveCount(0);await command(page,'退出机构');
+ await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ await filter.fill('测试机构');await tree.getByText('测试机构，自由度=0',{exact:true}).first().click();await command(page,'机构');
+ await expect(page.locator('[data-application-id="m"]')).toBeVisible();
+ expect(await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1).kinematics.mechanisms.length)).toBe(1);
+ await filter.fill('');await command(page,'退出机构');
+ await command(page,'机构');await command(page,'旋转接合');await page.keyboard.press('Escape');await command(page,'退出机构');
+ await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);expect(errors).toEqual([]);
 });
 
 test('filtered tree picks advance roles and preview axes before locating planes',async({page})=>{
@@ -126,25 +128,25 @@ test('filtered tree picks advance roles and preview axes before locating planes'
  const dialog=page.getByRole('dialog',{name:/^旋转\./});await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:/^保\s*存$/})).toBeDisabled();
  const filter=page.getByRole('textbox',{name:'筛选模型结构'});
  // A plane is never accepted by the axial role.
- await filter.fill('试验平面 0');await page.getByText('试验平面 0',{exact:true}).click();await expect(dialog.getByRole('status')).toContainText('已选择 0/4');
+ await filter.fill('试验平面 0');await page.getByText('试验平面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:'第一轴线',exact:true})).toContainText('选择几何');
  for(const label of ['试验圆柱面 0','试验圆柱面 1','试验定位面 0','试验定位面 1']){
   await filter.fill(label);const item=page.getByText(label,{exact:true});
   const role=label.includes('圆柱')?'轴线':'定位平面';const before=['试验圆柱面 0','试验圆柱面 1','试验定位面 0','试验定位面 1'].indexOf(label);
   if(label==='试验圆柱面 0'){
    await page.evaluate(()=>(window as any).__motionFixture.failInspection=true);await item.click();
    await expect(page.locator('.cad-operation-notification')).toContainText('几何支持未完成');
-   await expect(dialog.getByRole('status')).toContainText(`已选择 ${before}/4`);
+   await expect(dialog.getByRole('button',{name:'第一轴线',exact:true})).toContainText('选择几何');
    await page.evaluate(()=>(window as any).__motionFixture.failInspection=false);
   }
-  await item.hover();await item.click();await expect(dialog.getByRole('status')).toContainText(`已选择 ${before+1}/4`);
+  await item.hover();await item.click();await expect(page.getByTestId('viewport-feature-selection')).toHaveAttribute('data-count',String(before+1));
   await expect(page.getByTestId('viewport-feature-selection')).toHaveAttribute('data-count',String(before+1));
   if(label==='试验圆柱面 1')await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.previews.some((p:any)=>p.draftJointId&&!p.mechanism.joints.at(-1).first.plane))).toBe(true);
  }
  await expect(dialog.getByRole('button',{name:/^保\s*存$/})).toBeEnabled();
- await dialog.getByRole('button',{name:'清除第一轴线',exact:true}).click();await expect(dialog.getByRole('status')).toContainText('已选择 2/4');
+ await dialog.getByRole('button',{name:'清除第一轴线',exact:true}).click();await expect(dialog.getByRole('button',{name:'第一定位平面',exact:true})).toContainText('先选轴线');
  await expect(dialog.getByRole('button',{name:/^保\s*存$/})).toBeDisabled();
  await filter.fill('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:'第一定位平面',exact:true})).toHaveClass(/ant-btn-primary/);
- await filter.fill('试验定位面 0');await page.getByText('试验定位面 0',{exact:true}).click();await expect(dialog.getByRole('status')).toContainText('已选择 4/4');
+ await filter.fill('试验定位面 0');await page.getByText('试验定位面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:/^保\s*存$/})).toBeEnabled();
  await expect(dialog.getByRole('button',{name:/^保\s*存$/})).toBeEnabled();await dialog.getByRole('button',{name:/^保\s*存$/}).click();
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(1);
  const joint=await page.evaluate(()=>(window as any).__motionFixture.saved[0].kinematics.mechanisms[0].joints.at(-1));expect(joint.first.instanceId).not.toBe(joint.second.instanceId);expect(joint.first.axis.derivedRole).toBe('cylinder-axis');expect(joint.first.plane.topologyId).toBe(3);expect(errors).toEqual([]);
@@ -152,26 +154,26 @@ test('filtered tree picks advance roles and preview axes before locating planes'
 
 test('dialog replay uses whole frames and publishes the selected frame',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);await enter(page,true);await start(page);
- const result=page.getByRole('dialog',{name:'仿真与回放',exact:true});await expect(result.getByText(/帧 1\/5 · t=0.000/)).toBeVisible();
+ const result=page.getByRole('dialog',{name:'仿真与回放',exact:true});await expect(result.getByText(/1\/5 · 0.000/)).toBeVisible();
  await expect(page.locator('.workbench-status').getByText(/机构回放 · 帧 1/)).toBeVisible();await expect(page.locator('.motion-study-activity')).toHaveCount(0);
  await expect(result.getByRole('button',{name:'恢复正式姿态',exact:true})).toHaveCount(0);
- await result.getByRole('button',{name:'下一步',exact:true}).click();await expect(result.getByText(/帧 2\/5/)).toBeVisible();
+ await result.getByRole('button',{name:'下一步',exact:true}).click();await expect(result.getByText(/2\/5/)).toBeVisible();
  await result.getByRole('button',{name:'计算仿真',exact:true}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.requests.length)).toBe(2);
- await expect(result.getByText(/帧 1\/5/)).toBeVisible();expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(1);
+ await expect(result.getByText(/1\/5/)).toBeVisible();expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(1);
  await page.evaluate(()=>(window as any).__motionFixture.rejectNextSave=true);await result.getByRole('button',{name:'关闭并返回机构编辑',exact:true}).click();
- await expect(result.getByText('操作未完成，请查看诊断详情后重试。',{exact:true})).toBeVisible();await expect(result.getByText(/帧 1\/5/)).toBeVisible();
+ await expect(result.getByText('操作未完成，请查看诊断详情后重试。',{exact:true})).toBeVisible();await expect(result.getByText(/1\/5/)).toBeVisible();
  expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(1);
  await page.keyboard.press('Escape');await expect(page.locator('.workbench-status')).not.toContainText('机构回放');
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(2);
  await command(page,'旋转接合');await expect(page.getByRole('dialog',{name:/^旋转\./})).toBeVisible();await page.keyboard.press('Escape');
- await command(page,'已保存结果');await expect(result).toBeVisible();
+ await page.getByRole('textbox',{name:'筛选模型结构'}).fill('结果.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^结果\.1 ·/).dblclick();await expect(result).toBeVisible();
  await expect(page.getByRole('dialog')).toHaveCount(1);await expect(page.getByRole('button',{name:'播放',exact:true})).toHaveCount(1);
- await result.getByRole('button',{name:'终点',exact:true}).click();await expect(result.getByText(/帧 5\/5/)).toBeVisible();
- await result.getByRole('button',{name:'起点',exact:true}).click();await expect(result.getByText(/帧 1\/5/)).toBeVisible();
- await result.getByRole('button',{name:'下一步',exact:true}).click();await expect(result.getByText(/帧 2\/5 · t=1.000/)).toBeVisible();
+ await result.getByRole('button',{name:'终点',exact:true}).click();await expect(result.getByText(/5\/5/)).toBeVisible();
+ await result.getByRole('button',{name:'起点',exact:true}).click();await expect(result.getByText(/1\/5/)).toBeVisible();
+ await result.getByRole('button',{name:'下一步',exact:true}).click();await expect(result.getByText(/2\/5 · 1.000/)).toBeVisible();
  await result.getByRole('button',{name:'转换为产品约束',exact:true}).click();const apply=page.getByRole('dialog',{name:'转换为产品约束',exact:true});await expect(apply).toBeVisible();
- await apply.getByRole('button',{name:'生成／刷新转换计划'}).click();await expect(apply.getByText(/DOF 1/)).toBeVisible();await page.keyboard.press('Escape');
- await expect(result).toBeVisible();await expect(page.getByRole('dialog')).toHaveCount(1);await expect(result.getByText(/帧 2\/5/)).toBeVisible();
+ await apply.getByRole('button',{name:'生成／刷新转换计划'}).click();await expect(apply.getByText(/自由度 1/)).toBeVisible();await page.keyboard.press('Escape');
+ await expect(result).toBeVisible();await expect(page.getByRole('dialog')).toHaveCount(1);await expect(result.getByText(/2\/5/)).toBeVisible();
  await expect(page.locator('.workbench-status').getByText(/机构回放 · 帧 2/)).toBeVisible();
  await result.getByRole('button',{name:'转换为产品约束',exact:true}).click();await apply.getByRole('button',{name:'生成／刷新转换计划'}).click();await apply.getByRole('button',{name:'一次提交并返回装配'}).click();
  await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();expect(await page.evaluate(()=>(window as any).__motionFixture.applied[0].motionApply)).toMatchObject({frameIndex:1,lockAngle:false,planDigest:'fixture-plan'});expect(errors).toEqual([]);
@@ -183,8 +185,8 @@ test('simulation dialog owns calculation cancellation while close preserves the 
  const dialog=page.getByRole('dialog',{name:'仿真与回放',exact:true});await expect(dialog.getByRole('button',{name:'停止计算',exact:true})).toBeEnabled();
  await dialog.getByRole('button',{name:'关闭并返回机构编辑',exact:true}).click();await expect(dialog).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).__motionFixture.jobs[0].state)).toBe('RUNNING');expect(await page.evaluate(()=>(window as any).__motionFixture.canceled??[])).toEqual([]);
- await command(page,'已保存结果');await dialog.getByRole('button',{name:'停止计算',exact:true}).click();await expect(dialog.getByRole('button',{name:'停止计算',exact:true})).toHaveCount(0);
- expect(await page.evaluate(()=>(window as any).__motionFixture.canceled)).toEqual(['fixture-run']);await page.keyboard.press('Escape');expect(errors).toEqual([]);
+ await page.getByRole('textbox',{name:'筛选模型结构'}).fill('结果.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^结果\.1 ·/).dblclick();await dialog.getByRole('button',{name:'停止计算',exact:true}).click();await expect(dialog.getByRole('button',{name:'停止计算',exact:true})).toHaveCount(0);
+ expect(await page.evaluate(()=>(window as any).__motionFixture.canceled)).toEqual(['fixture-run-1']);await page.keyboard.press('Escape');expect(errors).toEqual([]);
 });
 
 test('late results and preview responses cannot reopen an exited session',async({page})=>{
@@ -192,14 +194,14 @@ test('late results and preview responses cannot reopen an exited session',async(
  await page.evaluate(()=>(window as any).__motionFixture.blocked=true);await start(page);
  await expect.poll(()=>page.evaluate(()=>typeof (window as any).__motionFixture.release)).toBe('function');await page.keyboard.press('Escape');await command(page,'退出机构');await page.evaluate(()=>(window as any).__motionFixture.release());
  await enter(page,true);await expect(page.locator('.workbench-status').getByText(/机构回放/)).toHaveCount(0);
- await page.evaluate(()=>(window as any).__motionFixture.previewBlocked=true);await command(page,'固定件');await expect.poll(()=>page.evaluate(()=>typeof (window as any).__motionFixture.previewRelease)).toBe('function');
+ await page.evaluate(()=>(window as any).__motionFixture.previewBlocked=true);await command(page,'固定件');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await expect.poll(()=>page.evaluate(()=>typeof (window as any).__motionFixture.previewRelease)).toBe('function');
  await page.keyboard.press('Escape');await command(page,'退出机构');await page.evaluate(()=>(window as any).__motionFixture.previewRelease());await expect(page.getByRole('dialog')).toHaveCount(0);await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);expect(errors).toEqual([]);
 });
 
 
 test('entered definitions use standard rename and deletion commands',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page);await enter(page);
- await command(page,'固定件');await page.getByRole('dialog',{name:/^固定零件\./}).getByRole('button',{name:/^保\s*存$/}).click();
+ await command(page,'固定件');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await page.getByRole('dialog',{name:/^固定零件\./}).getByRole('button',{name:/^保\s*存$/}).click();
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length),{timeout:30_000}).toBe(2);
  const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('固定零件.1 (');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^固定零件\.1 \(/).click({button:'right'});
  await page.getByRole('menuitem',{name:'重命名',exact:true}).click();const rename=page.getByRole('dialog',{name:'重命名建模对象',exact:true});
@@ -220,7 +222,7 @@ test('basic mechanism command catalog excludes retired functions and simulation 
   await expect(page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp('^'+name+'$')})})).toHaveCount(0);await page.keyboard.press('Escape');
  }
  await command(page,'转换为产品约束');const plan=page.getByRole('dialog',{name:'转换为产品约束',exact:true});await plan.getByRole('button',{name:'生成／刷新转换计划'}).click();
- await expect(plan).toContainText('机构已确认完整位姿');await expect(plan.locator('li').filter({hasText:'→ ()'})).toHaveCount(0);await page.keyboard.press('Escape');
+ await expect(plan).toContainText('机械装置已确认位姿');await expect(plan.locator('li').filter({hasText:'→ ()'})).toHaveCount(0);await page.keyboard.press('Escape');
  await page.getByRole('textbox',{name:'筛选模型结构'}).fill('旋转研究');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText('旋转研究',{exact:true}).dblclick();
  await expect(page.getByRole('dialog',{name:'仿真定义',exact:true})).toBeVisible();await page.keyboard.press('Escape');expect(errors).toEqual([]);
 });
@@ -234,13 +236,11 @@ test('joint relation children edit their owner through the shared tree command',
  expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);expect(errors).toEqual([]);
 });
 
-test('failed new mechanism confirmation preserves the active application',async({page})=>{
+test('failed automatic mechanism creation preserves the active application',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);await enter(page,true);
- await page.evaluate(()=>(window as any).__motionFixture.rejectNextSave=true);
- await command(page,'新建机械装置');const dialog=page.getByRole('dialog',{name:'编辑机械装置',exact:true});
- await dialog.getByRole('button',{name:/^保\s*存$/}).click();await expect(dialog.getByText('操作未完成，请查看诊断详情后重试。',{exact:true})).toBeVisible();
- await dialog.getByText('诊断详情',{exact:true}).click();await expect(dialog.getByText('fixture rejected definition',{exact:true})).toBeVisible();
+ await page.evaluate(()=>(window as any).__motionFixture.rejectNextSave=true);await command(page,'新建机械装置');
+ await expect(page.locator('.cad-operation-notification')).toContainText('机械装置');
  await expect(page.locator('[data-application-id="m"]')).toBeVisible();expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);
- await page.keyboard.press('Escape');await command(page,'退出机构');await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();
+ await command(page,'退出机构');await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();
  expect(await page.evaluate(()=>(window as any).__motionFixture.exits.at(-1).mechanismApplication.sourceMechanismId)).toBe('m');expect(errors).toEqual([]);
 });

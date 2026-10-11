@@ -24,18 +24,19 @@ type JointEndpoint struct {
 	CapturedX  *[3]float64          `json:"capturedX,omitempty"`
 }
 type MechanismJoint struct {
-	ID          string               `json:"id"`
-	Name        string               `json:"name"`
-	Kind        string               `json:"kind"` // GROUND | REVOLUTE
-	First       JointEndpoint        `json:"first"`
-	Second      *JointEndpoint       `json:"second,omitempty"`
-	Zero        MotionQuantity       `json:"zero"`
-	Direction   int                  `json:"direction"` // +1/-1 along first frame Z
-	AxialOffset MotionQuantity       `json:"axialOffset"`
-	Sources     []JointSource        `json:"sources,omitempty"`
-	Lower       *MotionQuantity      `json:"lower,omitempty"`
-	Upper       *MotionQuantity      `json:"upper,omitempty"`
-	Constraints []AssemblyConstraint `json:"constraints,omitempty"` // owning mechanism relations, same public definition as Product
+	ID             string               `json:"id"`
+	Name           string               `json:"name"`
+	Kind           string               `json:"kind"` // GROUND | REVOLUTE
+	First          JointEndpoint        `json:"first"`
+	Second         *JointEndpoint       `json:"second,omitempty"`
+	Zero           MotionQuantity       `json:"zero"`
+	Direction      int                  `json:"direction"`      // +1/-1 along first frame Z
+	AxialDirection string               `json:"axialDirection"` // plane normals SAME | OPPOSITE
+	AxialOffset    MotionQuantity       `json:"axialOffset"`
+	Sources        []JointSource        `json:"sources,omitempty"`
+	Lower          *MotionQuantity      `json:"lower,omitempty"`
+	Upper          *MotionQuantity      `json:"upper,omitempty"`
+	Constraints    []AssemblyConstraint `json:"constraints,omitempty"` // owning mechanism relations, same public definition as Product
 }
 type Mechanism struct {
 	Evaluation                *MechanismEvaluation    `json:"evaluation,omitempty"`
@@ -214,6 +215,9 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 		for _, j := range m.Joints {
 			if !claim(j.ID) || !member[j.First.InstanceID] || !validMotionPose(j.First.Frame) {
 				return fmt.Errorf("%w: invalid joint first frame", ErrValidation)
+			}
+			if j.AxialDirection != "" && j.AxialDirection != "SAME" && j.AxialDirection != "OPPOSITE" {
+				return fmt.Errorf("%w: invalid axial plane direction", ErrValidation)
 			}
 			if j.AxialOffset.Unit != "" {
 				if _, e := motionValue(j.AxialOffset, false); e != nil {

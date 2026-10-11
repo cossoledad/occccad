@@ -170,7 +170,7 @@ func TestDMUSimulationIsOneDialogCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	retired := map[string]bool{}
-	for _, action := range []string{"play", "pause", "previous", "next", "reset", "cancel"} {
+	for _, action := range []string{"play", "pause", "previous", "next", "reset", "cancel", "results"} {
 		retired["dmu."+action] = true
 	}
 	found := map[string]bool{}
@@ -178,15 +178,15 @@ func TestDMUSimulationIsOneDialogCommand(t *testing.T) {
 		if retired[command.ID] {
 			t.Fatalf("dialog control leaked into command search: %s", command.ID)
 		}
-		if command.ID == "dmu.run" || command.ID == "dmu.results" {
+		if command.ID == "dmu.run" {
 			if command.Implementation != "form" {
 				t.Fatalf("simulation entry must open a dialog: %s", command.ID)
 			}
 			found[command.ID] = true
 		}
 	}
-	if len(found) != 2 {
-		t.Fatal("missing simulation or saved results entry")
+	if len(found) != 1 {
+		t.Fatal("missing simulation entry")
 	}
 	for _, group := range c.Groups {
 		if group.ID == "dmu-playback" {

@@ -16,6 +16,8 @@ export type AssemblyDragTarget = {
 };
 export type AssemblyInteractionBegin = {
   baseRevisionId: string;
+  mechanismId?:string;
+  sourceMechanismIds?:string[];
   instanceId: string;
   occurrencePath?: InstancePath;
   localGrabPoint: Vec3;

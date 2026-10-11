@@ -399,6 +399,7 @@ export class CadViewportEngine {
   commitApplicationDisplay():void {
     const display=this.applicationDisplay;
     if(!display||display.documentId!==this.view?.document.id||display.revisionId!==this.view.document.versionId)return;
+    if(this.moveNominalScene&&this.moveNominalBase?.revisionId===display.revisionId)return;
     if([...this.instanceGroups.keys()].some(id=>!validMotionPose(display.poses[id])))return;
     const targets=[...this.instanceGroups].map(([id,object])=>({object,target:this.transformPose(display.poses[id].translation,display.poses[id].rotation)}));
     this.transforms.applyBatch(targets,"immediate");this.content.updateMatrixWorld(true);
@@ -1619,7 +1620,7 @@ export class CadViewportEngine {
       this.acceptedMovePose={translation:target.startPosition.toArray(),rotation:target.startQuaternion.toArray()};
       this.moveFrameRotation=this.moveManipulator.frameQuaternion().toArray();
       this.moveSessionDocumentId=this.view.document.id;
-      this.moveInteraction.begin({baseRevisionId:this.view.document.versionId,instanceId,
+      this.moveInteraction.begin({baseRevisionId:this.view.document.versionId,mechanismId:this.mechanismDefinition?.id,instanceId,
         occurrencePath:path,localGrabPoint:target.localPivot.toArray(),frameRotation:this.moveFrameRotation});
     }
   }

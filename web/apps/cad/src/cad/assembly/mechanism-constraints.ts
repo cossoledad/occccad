@@ -19,7 +19,7 @@ export function mechanismConstraints(m:Mechanism):AssemblyConstraint[] {
   const axis=relation('axis','COINCIDENT','axis');axis.family='Coincidence';
   const result:AssemblyConstraint[]=j.first.axis&&j.second.axis?[axis]:[];
   if(j.first.plane&&j.second.plane){
-   const offset=relation('axial-location','DISTANCE','plane');offset.family='Offset';offset.distanceRelation='SELECTED_PLANE_NORMAL_V1';offset.directionRelation='UNORIENTED';offset.value=j.axialOffset?quantityIn(j.axialOffset,'mm'):0;result.push(offset);
+   const offset=relation('axial-location','DISTANCE','plane');offset.family='Offset';offset.distanceRelation='SELECTED_PLANE_NORMAL_V1';offset.directionRelation=j.axialDirection??'SAME';offset.value=j.axialOffset?quantityIn(j.axialOffset,'mm'):0;result.push(offset);
   }
   return result;
  });

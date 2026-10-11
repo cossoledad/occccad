@@ -71,7 +71,15 @@ func (service *Service) bindMechanismConstraints(ctx context.Context, model Prod
 			relations = []AssemblyConstraint{{Kind: "FIX", FixMode: "SPACE", First: AssemblyGeometryRef{Kind: "BODY", InstanceID: j.First.InstanceID}, FixedPose: &p}}
 		} else if j.First.Axis != nil && j.Second != nil && j.Second.Axis != nil && j.First.Plane != nil && j.Second.Plane != nil {
 			a, b := *j.First.Axis, *j.Second.Axis
-			axis := AssemblyConstraint{Kind: "COINCIDENT", First: a, Second: &b, DirectionRelation: "SAME"}
+			axisB, err := resolver.resolve(b)
+			if err != nil {
+				return m, err
+			}
+			axisDirection := "SAME"
+			if conflictDot(axisB.Direction, rotateByPose(j.Second.Frame, [3]float64{0, 0, 1})) < 0 {
+				axisDirection = "OPPOSITE"
+			}
+			axis := AssemblyConstraint{Kind: "COINCIDENT", First: a, Second: &b, DirectionRelation: axisDirection}
 			planeA, planeB := *j.First.Plane, *j.Second.Plane
 			plane, err := resolver.resolve(planeA)
 			if err != nil {
@@ -85,7 +93,7 @@ func (service *Service) bindMechanismConstraints(ctx context.Context, model Prod
 			if err != nil {
 				return m, err
 			}
-			location := AssemblyConstraint{Kind: "DISTANCE", First: planeA, Second: &planeB, DirectionRelation: "UNORIENTED", DistanceRelation: selectedPlaneNormalV1, Value: -offset * conflictDot(z, plane.Direction)}
+			location := AssemblyConstraint{Kind: "DISTANCE", First: planeA, Second: &planeB, DirectionRelation: j.AxialDirection, DistanceRelation: selectedPlaneNormalV1, Value: -offset * conflictDot(z, plane.Direction)}
 			relations = []AssemblyConstraint{axis, location}
 		} else {
 			continue
