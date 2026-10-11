@@ -30,16 +30,21 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 			jn := node("MECHANISM_JOINT", j.ID, label)
 			jn.EntityType = j.Kind
 			for _, relation := range []struct{ role, name, kind string }{
-				{"axis", "同心", "COINCIDENT"}, {"axial-location", "偏移", "DISTANCE"}, {"rotation", "方向一致", "ANGLE"},
+				{"axis", "同心", "COINCIDENT"}, {"axial-location", "偏移", "DISTANCE"},
 			} {
-				if j.Kind == "GROUND" || relation.role == "axial-location" && j.Kind == "PRISMATIC" || relation.role == "rotation" && j.Kind == "REVOLUTE" {
+				if j.Kind == "GROUND" {
 					continue
 				}
 				child := node("JOINT_EXPANSION", j.ID+"/"+relation.role, relation.name)
 				child.EntityType = relation.kind
 				child.Capabilities = []string{"EDIT"}
 				child.EvaluationStatus = "NOT_UPDATED"
-				child.PresentationRole = "INPUT_REFERENCE"
+				for _, c := range j.Constraints {
+					if c.ID == child.EntityID {
+						child.EvaluationStatus = string(c.EvaluationStatus)
+					}
+				}
+				child.PresentationRole = "DEFINITION"
 				ends := []JointEndpoint{j.First}
 				if j.Second != nil {
 					ends = append(ends, *j.Second)
@@ -58,27 +63,6 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 					child.Children = append(child.Children, sn)
 				}
 				jn.Children = append(jn.Children, child)
-			}
-			for _, src := range j.Sources {
-				sn := node("JOINT_SOURCE", src.ConstraintID, "来源约束 "+src.ConstraintID)
-				sn.ID = jn.ID + "/source:" + src.ConstraintID
-				sn.Capabilities = nil
-				sn.PresentationRole = "INPUT_REFERENCE"
-				i := slices.IndexFunc(constraints, func(c AssemblyConstraint) bool { return c.ID == src.ConstraintID })
-				if i < 0 {
-					sn.ResolutionStatus = "SOURCE_DELETED"
-					sn.Diagnostic = "接合定义保留；可明确解除来源关联"
-				} else if semanticConstraint(constraints[i]) != src.Baseline {
-					sn.ResolutionStatus = "SOURCE_CHANGED"
-					sn.Diagnostic = "来源已修改；接合保持上次确认定义"
-				} else {
-					sn.ResolutionStatus = "CURRENT"
-				}
-				if len(jn.Children) > 0 {
-					jn.Children[0].Children = append(jn.Children[0].Children, sn)
-				} else {
-					jn.Children = append(jn.Children, sn)
-				}
 			}
 			// Publishing links describe the existing relation, rather than adding
 			// a parallel application-object branch beside the joints.
@@ -122,16 +106,14 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 				mn.Children = append(mn.Children, node("MOTION_DRIVER", d.ID, d.Name))
 			}
 		}
-		for _, s := range k.Studies {
-			if s.MechanismID == m.ID {
-				mn.Children = append(mn.Children, node("MOTION_STUDY", s.ID, s.Name))
-			}
-		}
 
 		root.Children = append(root.Children, mn)
 	}
-	for _, a := range k.Analyses {
-		root.Children = append(root.Children, node("INTERFERENCE_ANALYSIS", a.ID, a.Name))
+	// A simulation references a mechanism; it is not owned by that mechanism.
+	// This is the editable design object, not a polled execution-result node.
+	for _, s := range k.Studies {
+		root.Children = append(root.Children, node("MOTION_STUDY", s.ID, s.Name))
 	}
+
 	return root
 }

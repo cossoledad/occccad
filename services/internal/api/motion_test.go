@@ -2,9 +2,13 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -13,6 +17,7 @@ import (
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/workspace"
 )
@@ -31,7 +36,7 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 		t.Fatal(e)
 	}
 	objects := artifact.NewService(db, local)
-	domain := workspace.NewWithArtifacts(db, nil, objects)
+	domain := workspace.NewWithArtifacts(db, motionAPIWorker(t), objects)
 	queue := jobs.New(db)
 	actor := access.DefaultUserID
 	part, e := domain.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: actor, Type: "PART", Name: "empty part"})
@@ -55,12 +60,13 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 	view = command(workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID})
 	view = command(workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID})
 	end := func(id string) workspace.JointEndpoint {
-		return workspace.JointEndpoint{InstanceID: id, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}
+		return workspace.JointEndpoint{InstanceID: id, Axis: &workspace.AssemblyGeometryRef{InstanceID: id, Kind: "AXIS", GeometryID: "axis-system-default", Axis: "Z"}, Plane: &workspace.AssemblyGeometryRef{InstanceID: id, Kind: "PLANE", GeometryID: "datum-xy"}, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}
 	}
 	second := end(view.Product.Instances[1].ID)
 	m := workspace.Mechanism{ID: "m", Name: "M", UnitIDs: []string{view.Product.Instances[0].ID, second.InstanceID}, Joints: []workspace.MechanismJoint{{ID: "g", Name: "g", Kind: "GROUND", First: end(view.Product.Instances[0].ID), Direction: 1}, {ID: "r", Name: "r", Kind: "REVOLUTE", First: end(view.Product.Instances[0].ID), Second: &second, Direction: 1, Zero: workspace.MotionQuantity{Unit: "deg"}}}}
 	k := workspace.KinematicsDefinitions{Drivers: []workspace.MotionDriver{{ID: "d", Name: "driver", MechanismID: "m", JointID: "r"}}, Mechanisms: []workspace.Mechanism{m}, Studies: []workspace.MotionStudy{{ID: "s", Name: "S", MechanismID: "m", DriverID: "d", Start: workspace.MotionQuantity{Unit: "deg"}, End: workspace.MotionQuantity{Value: 45, Unit: "deg"}, DurationSeconds: 1, Frames: 3, BudgetMS: 1000, Clearance: workspace.MotionQuantity{Unit: "mm"}}}}
 	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
+	k = view.Product.Kinematics
 	server := &Server{database: db, workspace: domain, access: access.New(db), artifacts: objects, jobs: queue}
 	post := func(req workspace.MotionRunRequest, user string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -194,4 +200,45 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 		t.Fatal("synthetic result without qualified frames admitted")
 	}
 
+}
+
+// Real numerical validation for definition saves; authorization/result assertions
+// still use a synthetic Artifact rather than claiming a full browser workflow.
+func motionAPIWorker(t *testing.T) *geometry.Client {
+	t.Helper()
+	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	if binary == "" {
+		t.Fatal("matching Worker binary required")
+	}
+	l, e := net.Listen("tcp", "127.0.0.1:0")
+	if e != nil {
+		t.Fatal(e)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	cmd := exec.Command(binary)
+	cmd.Env = append(os.Environ(), "OCCCCAD_GEOMETRY_WORKER_LISTEN="+addr, "OCCCCAD_DATA_DIR="+t.TempDir())
+	if e = cmd.Start(); e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	c, e := geometry.Open(addr)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { c.Close() })
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		ctx, stop := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		_, e = c.Ping(ctx)
+		stop()
+		if e == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(e)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return c
 }

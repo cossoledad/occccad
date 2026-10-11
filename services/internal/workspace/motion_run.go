@@ -23,8 +23,6 @@ type MotionFrame struct {
 	AngleBranches  []geometry.AssemblySolvedAngleBranch `json:"angleBranches,omitempty"`
 	KinematicValid bool                                 `json:"kinematicValid"`
 	HardIterations uint64                               `json:"hardIterations"`
-	DMU            *geometry.InterferenceReport         `json:"dmu,omitempty"`
-	DMUConclusion  string                               `json:"dmuConclusion"`
 }
 type MotionFailure struct {
 	TimeSeconds    float64                 `json:"timeSeconds"`
@@ -74,38 +72,6 @@ func motionDof(r geometry.AssemblySolve) (uint64, uint64) {
 		gauge += c.GaugeDof
 	}
 	return dof, gauge
-}
-func (service *Service) motionDMU(ctx context.Context, s MotionSnapshot, f *MotionFrame) error {
-	f.DMUConclusion = "NOT_CHECKED"
-	if !s.Study.CheckDMU {
-		return nil
-	}
-	inputs := []geometry.AnalysisGeometry{}
-	for _, g := range s.GeometryUnits {
-		p, ok := f.UnitPoses[g.MotionUnitID]
-		if !ok {
-			return fmt.Errorf("missing rigid unit for DMU")
-		}
-		inputs = append(inputs, geometry.AnalysisGeometry{ID: g.ID, GeometryID: g.GeometryID, BRep: g.BRep, Pose: geometry.AssemblyPose(composeInstancePose(p, g.RelativePose))})
-	}
-	gap, _ := motionValue(s.Study.Clearance, false)
-	report, err := service.worker.AnalyzeInterference(ctx, "motion/"+s.Digest, inputs, s.Pairs, gap, 1e-7)
-	if err != nil {
-		f.DMUConclusion = "INCONCLUSIVE"
-		return err
-	}
-	f.DMU = &report
-	f.DMUConclusion = "PASS"
-	for _, p := range report.Pairs {
-		if !p.ClearanceSatisfied || p.Classification == "PENETRATION" || p.Classification == "CONTAINMENT" {
-			f.DMUConclusion = "VIOLATION"
-		}
-	}
-	if !report.Complete {
-		f.DMUConclusion = "INCONCLUSIVE"
-		return fmt.Errorf("DMU has incomplete pairs")
-	}
-	return nil
 }
 
 // Runs only frozen inputs. Qualified poses are transient; no business-model writes.
@@ -229,22 +195,6 @@ func (service *Service) RunMotionStudy(parent context.Context, s MotionSnapshot,
 			}
 		}
 		return p, nil
-	}
-	if s.CurrentOnly {
-		p := map[string]InstancePose{}
-		for _, v := range equations.Bodies {
-			p[v.ID] = InstancePose(v.Pose)
-		}
-		f := MotionFrame{UnitPoses: p, DMUConclusion: "NOT_CHECKED"}
-		e := service.motionDMU(ctx, s, &f)
-		out.Frames = append(out.Frames, f)
-		if e != nil {
-			failure("DMU_UNFINISHED", e.Error(), 0, 0)
-		} else {
-			out.Status = "COMPLETED"
-			out.Completed = true
-		}
-		return out, nil
 	}
 	baseline, e := solve(equations.Constraints)
 	if e != nil {
@@ -374,7 +324,7 @@ func (service *Service) RunMotionStudy(parent context.Context, s MotionSnapshot,
 		coords = nc
 		p = next
 		update(r, p)
-		return MotionFrame{DriverValue: target, UnitPoses: next, Coordinates: nc, AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations, DMUConclusion: "NOT_CHECKED"}, nil
+		return MotionFrame{DriverValue: target, UnitPoses: next, Coordinates: nc, AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations}, nil
 	}
 	start, _ := motionValue(s.Study.Start, driver.Kind == "REVOLUTE")
 	end, _ := motionValue(s.Study.End, driver.Kind == "REVOLUTE")
@@ -392,12 +342,9 @@ func (service *Service) RunMotionStudy(parent context.Context, s MotionSnapshot,
 			return out, nil
 		}
 		f.TimeSeconds = t
-		e = service.motionDMU(ctx, s, &f)
+
 		out.Frames = append(out.Frames, f)
-		if e != nil {
-			failure("DMU_UNFINISHED", e.Error(), t, q)
-			return out, nil
-		}
+
 		if onFrame != nil {
 			if e = onFrame(len(out.Frames)); e != nil {
 				failure("EXECUTION_FAILURE", e.Error(), t, q)

@@ -5,6 +5,7 @@ import {quantityIn,type Mechanism} from './motion-study';
 // identify semantic children of the Joint, never Product constraints or solver IDs.
 export function mechanismConstraints(m:Mechanism):AssemblyConstraint[] {
  return m.joints.flatMap(j=>{
+  if(j.constraints?.length)return j.constraints;
   const reference=(side:'first'|'second',field:'axis'|'plane'):AssemblyGeometryRef=>{
    const end=j[side]!;return end[field]??{kind:'BODY',instanceId:end.instanceId};
   };
@@ -17,13 +18,8 @@ export function mechanismConstraints(m:Mechanism):AssemblyConstraint[] {
   // A draft only exposes a relation once both relevant selections exist.
   const axis=relation('axis','COINCIDENT','axis');axis.family='Coincidence';
   const result:AssemblyConstraint[]=j.first.axis&&j.second.axis?[axis]:[];
-  if(j.kind!=='PRISMATIC'&&j.first.plane&&j.second.plane){
+  if(j.first.plane&&j.second.plane){
    const offset=relation('axial-location','DISTANCE','plane');offset.family='Offset';offset.distanceRelation='SELECTED_PLANE_NORMAL_V1';offset.directionRelation='UNORIENTED';offset.value=j.axialOffset?quantityIn(j.axialOffset,'mm'):0;result.push(offset);
-  }
-  if((j.kind==='RIGID'||j.kind==='PRISMATIC')&&result.length){
-   const orientation=relation('rotation','ANGLE','axis');orientation.angleRelation='DIRECTED';orientation.angleAxis=reference('first','axis');
-   if(j.first.capturedX)orientation.first={...orientation.first,capturedDirection:j.first.capturedX};
-   if(j.second.capturedX)orientation.second={...orientation.second!,capturedDirection:j.second.capturedX};result.push(orientation);
   }
   return result;
  });

@@ -139,7 +139,7 @@ func (service *Service) resolveMechanismGeometry(ctx context.Context, model Prod
 	}
 	return m, nil
 }
-func (service *Service) bindKinematics(ctx context.Context, raw json.RawMessage, k KinematicsDefinitions) (KinematicsDefinitions, error) {
+func (service *Service) bindKinematics(ctx context.Context, documentID, revisionID string, raw json.RawMessage, k KinematicsDefinitions) (KinematicsDefinitions, error) {
 	var model ProductModel
 	if e := json.Unmarshal(raw, &model); e != nil {
 		return k, e
@@ -149,32 +149,62 @@ func (service *Service) bindKinematics(ctx context.Context, raw json.RawMessage,
 			return k, fmt.Errorf("%w: publishing mappings may only be created by Apply Motion Frame", ErrValidation)
 		}
 	}
+	if len(k.Analyses) != 0 {
+		return k, fmt.Errorf("%w: interference analysis is not part of mechanism editing", ErrValidation)
+	}
 	for i, m := range k.Mechanisms {
-		for j, joint := range m.Joints {
-			unchanged := false
-			for _, old := range model.Kinematics.Mechanisms {
-				for _, prev := range old.Joints {
-					if prev.ID == joint.ID && reflect.DeepEqual(prev, joint) {
-						unchanged = true
+		if len(m.SupplementalConstraintIDs) != 0 {
+			return k, fmt.Errorf("%w: mechanism uses only its own constraints", ErrValidation)
+		}
+		for _, j := range m.Joints {
+			if j.Kind != "GROUND" && j.Kind != "REVOLUTE" {
+				return k, fmt.Errorf("%w: only Revolute joints are supported", ErrValidation)
+			}
+			if len(j.Sources) != 0 {
+				return k, fmt.Errorf("%w: importing assembly constraints is not supported", ErrValidation)
+			}
+			if j.Kind == "REVOLUTE" && (j.Second == nil || j.First.Axis == nil || j.First.Plane == nil || j.Second.Axis == nil || j.Second.Plane == nil) {
+				return k, fmt.Errorf("%w: Revolute requires persistent axes and planes", ErrValidation)
+			}
+		}
+		old := slices.IndexFunc(model.Kinematics.Mechanisms, func(prev Mechanism) bool { return prev.ID == m.ID })
+		if old >= 0 && reflect.DeepEqual(model.Kinematics.Mechanisms[old], m) {
+			continue
+		}
+		if old >= 0 {
+			for i, j := range m.Joints {
+				if j.Kind == "GROUND" {
+					for _, prev := range model.Kinematics.Mechanisms[old].Joints {
+						if prev.ID == j.ID && prev.First.InstanceID == j.First.InstanceID {
+							m.Joints[i].Constraints = prev.Constraints
+						}
 					}
 				}
 			}
-			if unchanged {
-				continue
-			}
-			for _, source := range joint.Sources {
-				idx := slices.IndexFunc(model.Constraints, func(c AssemblyConstraint) bool { return c.ID == source.ConstraintID })
-				if idx < 0 || semanticConstraint(model.Constraints[idx]) != source.Baseline {
-					return k, fmt.Errorf("%w: joint source changed before confirmation", ErrValidation)
-				}
-			}
-			single := Mechanism{ID: m.ID, Joints: []MechanismJoint{joint}}
-			resolved, e := service.resolveMechanismGeometry(ctx, model, single, true)
-			if e != nil {
-				return k, e
-			}
-			k.Mechanisms[i].Joints[j] = resolved.Joints[0]
 		}
+		if len(m.Poses) == 0 {
+			m.Poses = map[string]InstancePose{}
+			for _, v := range model.Instances {
+				m.Poses[v.ID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
+			}
+		}
+		if len(m.Joints) == 0 {
+			k.Mechanisms[i] = m
+			continue
+		}
+		// The authoritative solve occurs before CAS. Client poses are initial intent,
+		// never accepted as a numerical witness. Every owning relation is retained.
+		draftID := ""
+		for _, j := range m.Joints {
+			if old < 0 || !slices.ContainsFunc(model.Kinematics.Mechanisms[old].Joints, func(prev MechanismJoint) bool { return reflect.DeepEqual(prev, j) }) {
+				draftID = j.ID
+			}
+		}
+		result, err := service.PreviewMechanism(ctx, documentID, MechanismPreviewRequest{BaseRevisionID: revisionID, Mechanism: m, DraftJointID: draftID})
+		if err != nil {
+			return k, err
+		}
+		k.Mechanisms[i] = result.Mechanism
 	}
 
 	return k, nil

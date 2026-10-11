@@ -79,6 +79,6 @@ Multi-Body 定向入口为 `TestMultiBodyIndependentGeometryAndHistory`（双 Bo
 
 这次是数据职责收敛，不是 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、chunk、按字节预算、跨主机 Worker 数据面尚未实现。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE 基础结构已改造，颜色/PMI 等完整 AP242 扩展尚未交付；WebSocket 控制面见独立分册。未发布 schema/Proto 直接修正，切换前需停止旧进程并通过 `invoke data.reset --yes` 重建数据；不支持旧内联数据回退。
 
-## 基础 DMU 的 exact 输入
+## 独立几何分析的 exact 输入
 
-机构/静态分析从完整 occurrence + Body 解析已接受 Revision 的 GeometryKey，保存带 SHA/size 的 BREP 引用和该 Body 相对 owning 运动单元的 Pose。`AnalyzeInterference` 经现有递归 Artifact staging 和 Router 加载多输入；Worker 请求内去重源 B-Rep，但保留实例身份，并在隔离形体上做距离/布尔。DisplayFallback 和显示 mesh 不参与实体判定，未完成/无效结果为 INCONCLUSIVE。当前包围盒只筛除 Boolean common 工作，最小距离仍逐 pair 精确计算；详细分类与单位/公差见[DMU 合同](kinematics-dmu.md#精确-dmu)。
+底层独立几何分析使用完整 occurrence + Body 的 GeometryKey、带 SHA/size 的 BREP 引用及实例 Pose。当前机构应用已撤回静态/运动干涉入口，运动研究不再加载这些分析输入。`AnalyzeInterference` 经现有递归 Artifact staging 和 Router 加载多输入；Worker 请求内去重源 B-Rep，但保留实例身份，并在隔离形体上做距离/布尔。DisplayFallback 和显示 mesh 不参与实体判定，未完成/无效结果为 INCONCLUSIVE。当前包围盒只筛除 Boolean common 工作，最小距离仍逐 pair 精确计算；这些底层能力不代表 DMU 应用已交付，后续独立分析应用的目标见[DMU 目标](../target/kinematics-dmu.md)。

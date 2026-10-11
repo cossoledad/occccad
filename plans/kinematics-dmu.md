@@ -1,154 +1,53 @@
-# 机构与 DMU 应用及仿真转装配：实施与实机验收
+# 基础旋转机构整改与验证
 
-当前事实见[当前合同](../docs/architecture/current/kinematics-dmu.md)，长期候选见[目标合同](../docs/architecture/target/kinematics-dmu.md)。本次交付同一 Product 应用会话、几何接合、独立驱动/研究/分析、冻结回放和有效帧的正式装配转换。浏览器实机验收由维护者完成；后端与 Node 证据、前端浏览器合同模拟和真实后端实机验收分别记录。没有改动主题、求解器算法、精度、部署拓扑、Proto 或迁移。
+本轮按维护者要求收缩范围。此前移动/刚性接合、试动、干涉应用、来源导入、替换/停用转换、自动示例已撤回，旧验收记录不作为当前功能承诺。当前合同见[架构](../docs/architecture/current/kinematics-dmu.md)。未使用旧数据兼容层，未重置开发数据或重启维护者进程。
 
-## 已实现链路
+## 实施范围
 
-- 定义：空机构可保存，独立 Joint/Driver/Study/Analysis；Applications 树选择/高亮/编辑/重命名/删除，运行结果在回放对话框中管理，不附加任务树节点。正式 SAVE_KINEMATICS 及 Undo/Redo，不修改装配位姿。
-- 几何：真实轴/圆柱面/圆边及定位平面拾取，稳定 InstancePath/PersistentSelection/Publication；Frame 派生，捕获横向角度基准，支持偏移、零位、方向和限位。
-- 方程：所选机构 Ground、全部接合、显式补充关系及硬驱动；来源不重复加入。来源变更与几何失效分别处理。导入是用户确认的 Ground/Revolute 提案。
-- 运行：现有 Worker 求解完整合格帧、单坐标试动、0°～360°连续角、闭环、整帧回放；独立干涉分析范围/间隙/问题帧。应用退出清理覆盖，后台 Job 独立，旧结果显式加载且树/几何/选择统一冻结。
-- 转换：计划列出新增/复用/更新/冲突与姿态变化；默认保留旋转自由度，可明确锁角。完整目标装配方程验证、正式求解、计划 digest、Head CAS，一次事务保存约束/位姿/映射，一次撤销。没有每帧 Revision 或固定全部运动件代替接合。
+1. 查阅本机 CATIA 索引及 More About Joints and Constraints、Simulating with Laws、Recording Positions；旋转接合由普通同心/偏移约束组成，Simulation 为可编辑的独立研究对象，不是机构下轮询结果节点。
+2. Joint 保存普通 AssemblyConstraint 与稳定 geometry refs/Quantity；Mechanism 保存完整合格编辑姿态。普通装配编译、预览、研究共用所选机构持久方程，不继承 Product 的正式约束，不重复生成定位方程。固定件保留持久 SPACE Fix 基准。
+3. 保存前在事务外权威求解，约束/姿态同一次 Revision/CAS 提交及 Undo/Redo。预览确认/取消/重新加载不先跳回 Product 姿态；普通退出应用才恢复正式装配。关闭仿真停止冻结回放，当前合格帧通过一次保存成为机构编辑姿态，恢复编辑，不逐帧提交。
+4. MotionStudy 在 Applications 下与 Mechanism 平级，保留选择/双击编辑/重命名/删除。终态结果只在对话框管理。保留真实轴/平面拾取、角驱动/线性规律、完整合格帧、取消/预算、连续角、限位、失败诊断、迟到结果门禁。
+5. 增量应用复制自身持久同心/偏移并采用选中帧，默认 DOF=1；明确锁角才增加角约束。映射重复应用不增加关系，完整 Product 方程和正式求解仍验证；不替换/删除/停用旧约束，有冲突须返回普通装配处理。一次可撤销提交。
+6. 删除生产示例/导入服务及机构关联干涉的冻结/执行路径，保留底层 OCCT 独立几何分析。测试夹具仅通过正式建模命令创建真实几何，未成为应用按钮或公开服务。
 
-主要实现位于 `services/internal/workspace/kinematics_{model,geometry,projection,import}.go`、`motion_{snapshot,apply}.go`，API 入口 `internal/api/motion.go`，UI `motion-study-panel.tsx`、Workbench/树/CommandRegistry 与 `cad/assembly/motion-definitions.ts`。普通 Product 求值和历史重放仍走原有通道；修复整值 kinematics Undo 时旧 omitempty 字段残留的问题。
+## 实机操作
 
-## 转换交付的后端与逻辑验证（2026-10-10，前轮已执行）
+启动最新构建：`invoke run.app --build-type=Release`、`invoke run.web --mode=api`。命令目录嵌入 API，需重建/重启才生效。已有旧机构开发数据不提供迁移兼容；需要清理时使用仓库授权的统一 `invoke data.reset --yes`，而非手工改表或另建运行数据库。
 
-复用匹配当前未改动 C++ 源码的 CMake Release Worker、OCCT 7.9.1。新测试创建 fresh SQLite 和隔离测试制品 staging，不重置开发应用数据，不访问配置 S3。之前的 S3/OCCT 专项不作为本次新跑证据。
+1. 普通 Part 建模：XY 圆 Ø8，拉伸 30 mm 得圆柱轴；另一 Part 的 XY 同心环外径 Ø24、内径 Ø9，拉伸 4 mm，再添加与环相交的两个矩形叶片并拉伸 4 mm。保存后插入同一 Product。
+2. 使用普通装配移动命令将螺旋桨偏移，例如 `(22,15,7)` mm。首次转换用无旧约束的 Product，不需要自动示例入口。
+3. DMU → 机构，检查节点立即出现、装配设计分类隐藏。固定件选择圆柱轴。旋转接合先选螺旋桨孔的轴，再选圆柱轴；两轴齐全立即预览同心。继续选择双方定位端面并设置偏移，保存。
+4. 检查“旋转接合”下两个“同心 / 偏移”持久子节点、普通约束图标和高亮。双击子节点替换几何/修改偏移，保存或取消都不跳回无约束 Product 位置。退出再双击机构，保持其已接受编辑姿态；装配页仍保持自己的原始姿态。
+5. 创建角驱动，再创建线性仿真 0°→360°、4 s、25 帧。MotionStudy 应与机构平级；双击可修改规律。运行后回放、单步、定位到 90°。
+6. 关闭仿真对话框，等待该次保存完成；确认回到机构编辑、可以新建/编辑旋转接合和研究，姿态保持已接受帧，没有“恢复正式姿态”按钮。重新打开结果可继续定位冻结帧。
+7. 在合格 90° 帧执行“应用到装配”，生成计划后提交，返回装配页检查同轴、定位及选中角度。默认仍保留旋转自由度；重开文档及普通求解认可正式关系。重复应用不增加关系，一次 Undo 恢复转换前约束/位姿。明确锁角才令 DOF=0；旧约束有冲突时不提交部分修改。
+8. 验证空新机构退出清理、已有定义保留、树删除依赖清理、结果删除、任务取消及退出后迟到响应不抢占视口。本轮没有干涉功能；后续作为独立应用任务重新实现。
 
-| 范围 | 实际证据 |
-|---|---|
-| 圆柱—螺旋桨完整集成 | 普通建模命令创建两真实 Part，带通孔及两叶片；普通插入/移动命令产生偏移。真实几何命名绑定到圆柱轴/孔轴和定位面，独立 Driver 在没有 Study 时试动 45°且不改正式模型；真实 Router/Worker/Artifact/Job 产生 25 帧 0°～360°；90°帧转换后 3 条正式约束、3 条映射、DOF=1，独立核验姿态不漂移 |
-| 正式提交与历史 | 错误 digest 无提交、同版本两个并发转换仅一个提交、读回正式姿态、一次 Undo 完整恢复前值、Redo、重复转换 REUSE 无新增约束；明确锁角后 4 条约束且 DOF=0；保留旧角锁时转换另一个帧报告冲突，明确停用后 DOF=1；旧 version/CAS 拒绝，转换专项 Go race 检测通过，多个冲突处理项采用确定排序以固定计划 digest |
-| 关系与选中依赖 | 原 Fix 冲突明确处理，用户 REPLACE 后只替换该关系；导入 Ground/Revolute 的来源不重复进方程；无关空机构不阻止所选研究 |
-| 保留的运动/DMU集成 | 真实四杆 21 帧、OCCT 离散检查与独立结论、冻结后 Head 改变、取消保存部分帧；嵌套刚体、多 Body、共享几何独立 occurrence、scope/后代 Revision 门禁及 staging 清理 |
-| 必要逻辑回归 | 几何 Frame/捕获角基准/语义基线、重复来源树节点唯一及来源修改/删除投影；Revolute/Prismatic/Rigid、闭环、限位、连续角、取消/预算、失败类别和并发冻结研究；API权限/幂等/陈旧计划/不合格结果拒绝；目录命令注册 |
-| Web与构建 | Node 的 motion-application、motion-study、command-registration、publication-selection、assembly-publication：对象删除依赖、正式关系保留、Part/转发 Product Publication 选择、完整 path+Body、高亮身份、冻结整帧/实际 Three.js 刚体变换、只读运行节点与应用命令门禁；TypeScript/Vite生产构建和受影响 Go 可执行单元编译 |
+## 实际验证
 
-复现命令（仓库根，Worker 测试期间不要重链接同一二进制）：
+2026-10-10 实际完成的范围：
 
-```sh
-OCCCCAD_TEST_GEOMETRY_WORKER="$PWD/build/cmake/release/workers/geometry/occccad_geometry_worker" go -C services test ./cmd/occccad-jobs -run '^TestMotion' -count=1
-OCCCCAD_TEST_GEOMETRY_WORKER="$PWD/build/cmake/release/workers/geometry/occccad_geometry_worker" go -C services test ./internal/workspace ./internal/api ./internal/workbenchconfig -run 'TestMotion|TestCatalog|TestAssemblyOffset|TestAssemblyReferenceKey' -count=1
-OCCCCAD_TEST_GEOMETRY_WORKER="$PWD/build/cmake/release/workers/geometry/occccad_geometry_worker" go -C services test -race ./cmd/occccad-jobs -run '^TestMotionApplyGeometryFrameAtomicHistory$' -count=1
-go -C services build ./cmd/occccad-server ./cmd/occccad-jobs ./cmd/occccad-control
-pnpm --dir web/apps/cad test -- motion-application motion-study command-registration publication-selection assembly-publication
-pnpm --dir web/apps/cad build
-invoke context-audit
-git diff --check
-```
+- Go workspace/API/jobs/catalog 专项通过；覆盖普通持久方程、闭环、硬驱动、限位/连续角、取消/预算、访问控制、版本和删除。删除旧的驱动替换实现后，保留方程的回归确认其不能被静默移除。
+- `TestMotionApplyGeometryFrameAtomicHistory` 使用优化构建的真实 Geometry Worker 通过。两个 Part 的几何由正式草图/拉伸/插入/移动命令生成；验证第一选择运动、持久同心/偏移和独立编辑姿态、偏移修改与 Undo、25 帧完整 360°、关闭回放采用帧后的原结果转换、默认 DOF=1/锁角 DOF=0、重复应用、完整目标约束冲突、CAS 和一次 Undo/Redo。测试不是手写动画。
+- Web 逻辑场景选中 8/105 通过，含真实视口方法的姿态生命周期回归；没有运行其余无关场景。
+- Chromium 浏览器专项 7 个不同场景分两批通过：进入/空节点清理、角色过滤与实时接合预览、回放/结束后编辑/转换、迟到结果、标准重命名/删除、已撤回命令与独立可编辑 Study、接合子节点双击编辑。浏览器使用 API 合同 fixture 与 SwiftShader，不作为真实后端几何拾取或数值/OCCT/CAS 证据。
+- Web TypeScript/Vite 和 API/Jobs Go 构建通过；context-audit、git diff --check 通过。Vite 保留现有大 chunk 提示。
 
-前一轮未运行浏览器；此次框架重构新增浏览器模拟，结果见下节。仍未做真实后端浏览器实机/人工视觉验收、无关单元测试、PostgreSQL 或配置 S3 专项。没有新增性能基线、P95、工业容量或 60 Hz 结论。
+不做容量、P95 或实时帧率推断。
 
-## 前一阶段前端框架重构（2026-10-10，进入态与呈现方式已由下节替代）
-
-- 移除硬编码 Product 应用 Tabs、重复命令按钮目录及 DMU Drawer/Modal。`catalog.json` 给根 Product 配置机构分类和定义/驱动/分析/关联/回放组，接合使用现有 variants；名称、说明、图标与搜索投影共用唯一声明。`rootTarget` 防止在嵌套编辑上下文建立宿主机构，`motionActive` 控制入口显示。
-- `useWorkbenchTab` 共用原文档会话/工作台选择；没有新增应用布尔状态。跨机构分类边界取消交互命令，退出释放覆盖，不发模型命令。普通视图/文档分类保持原有行为。
-- 定义与转换使用既有 `CommandDialog` 与 form 的 `CommandOperation`；运行/回放/任务取消是 handler，统一经 Registry 执行。视口下方 `WorkbenchLayout.activity` 保留机构、研究、分析及冻结运行选择、完整帧定位和 DMU 列表；Inspector 仍只读。后端 Job 生命周期独立。
-- 树双击定义使用既有 `tree.edit` form 的完整操作生命周期；分离命令和结果请求代际；关闭转换计划保留当前回放，迟到拾取/提案/计划不改新草稿，退出后迟到运行不抢占视口。补充关系/解除发布关联改为确认后保存，取消不推进 Revision。
-
-验证入口：
+复现命令：
 
 ```sh
-go -C services test ./internal/workbenchconfig ./internal/api -run 'Catalog|Toolbar' -count=1
-pnpm --dir web/apps/cad test -- command
-pnpm --dir web/apps/cad test -- toolbar
-pnpm --dir web/apps/cad test -- motion
-pnpm --dir web/apps/cad build
-pnpm --dir web/apps/cad exec playwright test browser/motion-workbench.spec.ts browser/workbench.spec.ts -g 'one configured|geometry picks|frozen whole-frame|a late|canceling an apply|contextual commands|panel layout' --timeout=120000
-invoke context-audit
-git diff --check
-```
-
-浏览器用例通过测试页局部 API fixture 验证前端，fixtures 不进入应用 Mock adapter，不作为求解/OCCT/正式 CAS 的证据；正式链路仍采用上节实际 Worker 集成结果。模拟覆盖一个配置 Tab 区、搜索门禁、保存与 Esc/分类退出取消、树编辑、选择向接合草稿绑定、整帧回放、计划关闭保留预览、所选帧转换请求/返回装配，以及退出后的迟到结果。最终串行运行 **7/7 通过（5.3 min）**：5 个机构用例及原工作台的命令/草图、布局/文档切换 2 个用例，Chromium + SwiftShader，单 worker；120 s 是软件 WebGL 下的单测试预算，不是请求或求解性能指标。Node `command` 6/6、`toolbar` 3/3、`motion` 3/3；目录/API 的 Catalog/Toolbar Go 测试、服务端构建、TypeScript/Vite 生产构建、context-audit 与 diff-check 通过。本轮未重新运行未改动的数值 Worker 集成。
-
-验证发现并修复：提交转换后 Head 刷新过早结束 form，导致不能自动返回装配；现在保留已发起转换的命令至完成，但显式取消仍阻止迟到完成切换应用。树双击定义转入已有 `tree.edit` form，避免沿用瞬时 activate handler 的操作。原浏览器用例按当前代码修正了“拉伸必须预选草图才可打开”和“窄屏参数始终位于当前 Ribbon 页”的过期假设；没有修改对应建模行为。构建保留既有大 chunk 提示，浏览器保留既有 Ant Design 弃用/软件环境采样提示，没有页面异常。
-
-## 前轮：进入态、统一命令与接合预览（历史记录，本轮替换节点与标记）
-
-简短计划及执行顺序：① 核对 Sketcher/Assembly 的会话、catalog、CommandOperation、状态栏和选择通路；② 把机构改为显式进入态和惰性默认定义，移除常驻视口活动区；③ 补齐树/视口表达、过滤自动选择及只读生产求解预览；④ 运行受影响回归、真实 Worker 集成和浏览器合同模拟，更新当前/目标文档。
-
-- 进入入口与 Mechanism 双击进入，装配设计 Tab 隐藏；应用内部视图/文档 Tab 切换不退出。新机构只持有默认草稿，未确认退出不保存；第一次确认定义（包括独立干涉分析）在同一命令中包含默认机构。
-- 移除常驻活动区和回放顶部 Alert；编辑、运行设置、回放和转换均由命令打开统一 CommandDialog，提示走 WorkbenchStatus.prompt，错误走 OperationFeedback。维持视口区域尺寸，普通装配预览仍使用原有 settle 行为，机构临时整帧立即显示。
-- 树显示 Ground/接合的实例名和四个只读几何支撑；通用 tree.edit/tree.rename/edit.delete 的 catalog 条件允许可编辑机构定义，冻结状态仍拒绝；视口使用现有分析渲染层显示固定件、接合轴和平面，选择按稳定定义 ID 对应 occurrence/Body。重命名取真实定义名称，不把附加实例名写回业务模型。
-- 复用 FeatureSelectionSession：轴/平面角色过滤、完整路径/版本门禁、自动推进、点击替换及已绑定支撑持续高亮。未知类型通过同一会话异步解析后完成首次点击，不需“识别为轴线”或重复点击；缓存仅属于当前 Product Revision/引用，计算/连接失败不缓存成几何类型判定。
-- 新增只读 mechanism-preview API，使用同一机构编译器/生产 Worker。两轴形成同轴硬方程即预览，平面齐全形成完整接合预览；Product 原约束只有显式采用才参与。要求 CONVERGED、运动偏好门禁、独立硬见证及完整 Pose/Joint 验证，20 s 预算、取消/Head 校验；不创建约束、装配 Candidate 或 Revision，退出恢复正式姿态。失败使用现有装配诊断/replay。
-- 关闭其他命令后的通用预览回滚重新保持当前冻结整帧，避免覆盖已定位角度；恢复正式姿态后暂停自动接合预览，重新打开回放面板不抢回临时姿态；退出/版本变化/迟到请求仍释放覆盖，切换文档结束进入态。机构定义沿用 Product 的正式撤销/重做，冻结回放中禁用。默认草稿首次保存后清除暂态副本，删除持久机构不出现旧草稿。后台 Job 与对话框独立。
-
-交互参考核对了本机 CATIA B33 索引 `control/KinEnglishC2.viewdoc` 及其页面 `online/kinug_C2/kinugbt0701.htm`（Creating Revolute Joints：命令对话框中顺序选择两线及两平面，选择字段自动更新）、`kinugbt0301.htm`（Kinematics Simulation 命令对话框）、`kinugbt0801.htm`（关节与约束关系）。本项目的接合试动保持独立硬方程、确认不生成正式装配约束，正式关系只在转换命令中创建。
-
-复现命令（只覆盖实际影响范围，浏览器采用配置的 Chromium/SwiftShader，不下载额外依赖）：
-
-```sh
-go -C services test ./internal/workbenchconfig ./internal/api ./internal/workspace -run 'Catalog|Toolbar|Motion' -count=1
+go -C services test ./internal/workspace ./internal/api ./internal/jobs ./internal/workbenchconfig -run 'Motion|Catalog|Toolbar|^TestOffset' -count=1
 go -C services test ./cmd/occccad-jobs -run '^TestMotionApplyGeometryFrameAtomicHistory$' -count=1
-go -C services build ./cmd/occccad-server ./cmd/occccad-jobs
-pnpm --dir web/apps/cad test -- mechanism-selection command-registration motion feature-selection toolbar operation-feedback
-pnpm --dir web/apps/cad build
-pnpm --dir web/apps/cad exec playwright test browser/motion-workbench.spec.ts browser/workbench.spec.ts -g 'entered mechanism|filtered tree|dialog replay|late results|entered definitions|contextual commands|panel layout' --timeout=120000
-invoke context-audit
-git diff --check
-```
-
-当前已完成：Node 9 个相关场景通过；Go workspace/API/catalog 的 Catalog/Toolbar/Motion 筛选通过，包含闭环硬驱动、限位/连续角、取消/预算、并发冻结运行和树支撑投影；真实 `TestMotionApplyGeometryFrameAtomicHistory` 通过，新增两轴/完整接合预览、显式冲突 Fix、无效声明单元、陈旧/取消拒绝、Head/约束/正式 Pose 不变断言，并保留 25 帧 0°～360°、90°转换、默认 DOF=1、重复应用、锁角与 Undo/Redo/CAS 验证。TypeScript/Vite 与 API/Jobs 构建、context-audit、diff-check 通过。浏览器五个机构用例与两个共享工作台回归分别通过（7 个不同用例；Chromium + SwiftShader、单 worker）。最后修改后重跑选择失败恢复/持续高亮通过（43.0 s），树重命名/双击编辑/取消/右键删除通过（42.7 s）；其余机构用例覆盖互斥进入态、空草稿不保存、完整帧回放/恢复/转换、迟到结果/预览清理。测试页 API fixture 不证明 OCCT 或数值求解，真实 Router/Worker 证据独立记录。中途热更新导致的中断不计入通过结果。浏览器 API fixture 仅替换测试页请求，不进入应用，不证明真实几何求解；真实服务集成另行通过 Router/Worker 验证。树重命名/编辑门禁已修正为机构上下文；删除沿用树右键/快捷键入口，不假设它属于 Ribbon 搜索。标准表单名称标签带必填标记，模拟按真实可访问标签定位。人工视觉及真实后端浏览器验收由维护者继续执行，未进行无关全量测试或新增性能容量结论。
-
-## 实机操作（通用命令，无示例按钮）
-
-1. 用正式建模命令建立圆柱轴 Part：草图圆、拉伸。建立另一 Part：草图同心圆环、拉伸为带通孔的轮毂，再添加两片矩形叶片并拉伸合并。两者均保留真实圆柱面和定位端面。插入同一 Product，用普通移动命令给螺旋桨一个偏移。
-2. 装配设计中 DMU 分类点击“机构”：机构 Tab 替换装配 Tab，Applications 立即出现“机构 1”。没有编辑即退出应清理本次空节点；已有机构双击进入不会重新创建。
-3. “固定件”选择圆柱并保存。树显示“固定件 (圆柱实例名)”。“旋转接合”先选螺旋桨孔轴，再选圆柱轴；第一选择运动、第二选择尽量保持不动。轴齐应立刻同轴预览，再选各自垂直定位端面，设置轴向偏移并保存。
-4. 接合树节点仅显示名称，下级只有“同心”“偏移”，支撑引用在对应关系下面。视口应看到和三维约束相同的图标/引线；选择子关系高亮对应几何，双击子关系进入所属接合的替换字段。确认接合不生成正式 Product 约束。
-5. 保存角度驱动和线性仿真 0°～360°，执行“运行仿真”。“仿真与回放”整帧播放、暂停、定位至约 90°。选中合格帧“应用到装配”，生成计划，默认不锁角，一次提交返回装配页；圆柱固定、同轴且轴向定位、螺旋桨采用选定帧。
-6. 重新打开检查正式位置；普通求解认可新增约束，未锁角 DOF=1，重复转换 REUSE 不新增关系；一次撤销恢复转换前关系和位姿。冲突按计划明确处理，不自动丢弃。
-7. 创建不关联仿真的干涉分析，执行“运行干涉检查”，检查静态结果表、几何高亮和“运动学未检查”。关闭后重新打开“仿真与回放”应正常显示，页面不白屏。终态“删除运行结果”后再次打开不出现该列表项，结构树始终只有定义节点；活动任务先显式取消。删除不销毁正式历史转换引用的制品。
-8. 检查空机构、固定/接合的标准重命名/编辑/删除、退出或版本变化的临时姿态释放、迟到任务不抢占视口。删除按标准树行为执行，无多余机构提示。
-
-以上需真实 API/Router/Worker 环境和人工视口拾取验收；浏览器合同 fixture 与真实 Worker 集成各自提供不同层的证据。
-
-## 已知限制与待验收
-
-- 浏览器模拟仅验证真实 UI 组件与测试页 API 合同交互；真实后端 WebGL 拾取、冻结几何加载、高亮及正式页面视觉效果仍待维护者实机验收。
-- 自动导入提案当前覆盖 SPACE Fix 与轴相合＋有向平面定位的 Revolute；Prismatic/Rigid 可手动创建，不做广义约束反推或 Engineering Connections。
-- 根 Product 应用上下文、直接子 Product 内部刚体冻结；不支持可动嵌套机构。运行要求接地后一个独立自由度，驱动后局部确定；局部 DOF/硬见证不证明全局运动可行，奇异位形可能停止而不等于无解。
-- 正式发布需要稳定轴/平面支持和捕获角度基准；没有支撑的旧数值定义不能发布。旧研究必须具备独立 Driver 定义；未增加开发数据兼容适配。
-- DMU 仅有效实体及离散帧，正常铰接重叠也报告；无连续碰撞、动力学、气动、螺旋副、多驱或自动避碰。本次没有新增跨帧 B-Rep 缓存或通用收敛优化。
-- 结果列表为当前用户最多 100 项 Job，未做共享/分页研究库；进程崩溃前未持久化的帧不能保证恢复。正式计划求解使用有界预算，失败不产生部分正式提交。
-
-## 本轮接合关系与结果生命周期统一（2026-10-10）
-
-参考本机 CATIA `control/KinEnglishC2.viewdoc` 的 `online/kinug_C2/kinugbt0801.htm`（关节组成关系）及 `kinugbt0701.htm`（旋转接合创建与自动字段选择）。用户要求的差异保留：机构关系只由机构使用，正式 Product 关系仍经转换发布。
-
-- 求解：Revolute 改为同心＋有向平面偏移，复用装配 `compileAssemblyRelation`，保留完整 Ground/闭环/驱动/补充关系、原精度和帧门禁。预览修正为第一选择移动、第二选择最小运动；新增真实 Worker 的无 Ground 两端运动优先级回归。
-- 树/视口：接合不附加双方括号，旋转接合只有同心/偏移两个关系子节点，支撑/来源归关系。子关系编辑委托 Joint，无独立第二真相。移除自制机构标记，复用 assembly constraint glyph、引线、SelectionIndex 和精确引用高亮。树只显示设计定义，不再混入最近任务轮询。
-- 命令/生命周期：独立 DMU 分类“机构”入口，进入即持久创建节点；未编辑的新空节点退出经正式命令清理。移除重复新建、示例分类/命令/公开 demo API 及删除提示；正式命令构造的几何夹具仅保留为后端测试工具。
-- 静态白屏：实际后端静态 snapshot 的 Mechanism.joints 为 null；此前仍进入机构标记迭代，导致崩溃。静态结果不进入接合渲染、无驱动显示，冻结整帧与独立 DMU 分类保留。
-- 结果删除：回放命令删除终态列表项，所有者/管理员校验、原子 user_visible=false、Job 通知、重复幂等；活动任务拒绝。审计/Artifact 保留以保证正式历史来源，不是物理清库。
-
-复现（仓库根，实际执行的筛选范围及下面注明的分次浏览器验证）：
-
-```sh
-go -C services test ./internal/workbenchconfig ./internal/api ./internal/workspace ./internal/jobs -run 'Catalog|Toolbar|Motion|Offset' -count=1
-go -C services test ./cmd/occccad-jobs -run '^TestMotionApplyGeometryFrameAtomicHistory$' -count=1
-go -C services test ./cmd/occccad-jobs -run '^TestMotionStudyPersistedRouterArtifactJobLifecycle$' -count=1
-pnpm --dir web/apps/cad test -- mechanism-selection command-registration motion feature-selection toolbar operation-feedback
-pnpm --dir web/apps/cad exec playwright test browser/motion-workbench.spec.ts --timeout=120000
-pnpm --dir web/apps/cad exec playwright test browser/motion-workbench.spec.ts browser/workbench.spec.ts -g 'static interference|joint relation|dialog replay|contextual commands|panel layout' --timeout=120000
-pnpm --dir web/apps/cad exec playwright test browser/workbench.spec.ts -g 'panel layout' --timeout=120000
-pnpm --dir web/apps/cad exec playwright test browser/motion-workbench.spec.ts -g 'static interference|dialog replay' --timeout=120000
+pnpm --dir web/apps/cad test -- motion command-registration mechanism-selection toolbar
+pnpm --dir web/apps/cad exec playwright test browser/motion-workbench.spec.ts -g 'dialog replay|filtered tree picks|basic mechanism command' --timeout=120000
+pnpm --dir web/apps/cad exec playwright test browser/motion-workbench.spec.ts -g 'entered mechanism|late results|entered definitions|joint relation' --timeout=120000
 pnpm --dir web/apps/cad build
 go -C services build ./cmd/occccad-server ./cmd/occccad-jobs
 invoke context-audit
 git diff --check
 ```
 
-浏览器使用 Chromium/SwiftShader、单 worker、测试页 API 合同 fixture，不作为真实 OCCT/数值或人工视觉证据。真实 Worker 集成独立验证方程、运动优先级和转换/CAS/Undo。没有下载依赖、重置开发库或运行无关全量测试。
-
-本轮实际验证：
-
-- Go 的 workspace/API/catalog/Jobs `Catalog|Toolbar|Motion` 通过，Offset 四项与最新树投影另行筛选通过；任务删除覆盖活动状态拒绝、所有者权限、重复删除、列表消失及审计仍可读取。
-- 匹配源码的 Release Worker：`TestMotionApplyGeometryFrameAtomicHistory` 通过（13.093 s），新增无 Ground 的第一选择移动/第二选择保留 nominal；两轴/完整预览不写正式模型，保留 25 帧整周、90°转换、DOF=1、锁角 DOF=0、重复转换及 Undo/Redo/CAS。`TestMotionStudyPersistedRouterArtifactJobLifecycle` 通过（31.993 s），覆盖真实四杆、OCCT 静态/离散 DMU、冻结版本、取消和实例身份。
-- Node 9/105 相关场景通过；新增同心/偏移的稳定引用与单位投影、子关系高亮、静态空机构及缺少 quaternion 时拒绝完整帧且不部分写场景。
-- 浏览器 9 个不同用例分次通过：7 个机构流程及 2 个共享工作台流程。首次 6 项中的静态回放在夹具遗漏 quaternion 时失败，修正为真实后端 pose 合同并添加拒绝不完整姿态的防护，随后静态重开/删除通过；子关系树编辑通过。共享关闭文档一次在软件 WebGL 下超过原 15 s 等待，轨迹显示最终切回 Product；未改源码或等待时间，独立重跑通过（42.1 s）。最后结果生命周期修正后，完整帧回放/转换与静态重开/删除再次 2/2 通过（2.2 min）。不把分次通过称为一次完整批次全绿，也不据此保证运行耗时。
-- TypeScript/Vite 生产构建、API/Jobs 编译、context-audit、diff-check 通过。构建仍有原有大 chunk 提示；模拟环境仍有 Antd deprecated 属性和软件 WebGL 环境贴图采样提示，未做无关依赖/主题修改。
-
-未验证：真实后端浏览器拾取/人工视觉验收、此次新删除 SQL 的 PostgreSQL 实机回归（SQLite 已验证）。没有工业容量或稳定实时频率结论。实机请重建/重启 API 以加载嵌入目录和新端点，启动入口沿用 `invoke run.app --build-type=Release`、`invoke run.web --mode=api`；本轮未重置开发数据、未重启维护者进程。
+未验证：真实后端浏览器几何拾取和人工视觉验收、PostgreSQL 实机回归。本轮测试的命令/Revision/Job/CAS 数据合同使用隔离 SQLite；没有新增数据库迁移或 C++/Proto 改动。未验证旧开发数据，且不承诺兼容。

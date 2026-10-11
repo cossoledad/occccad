@@ -117,20 +117,6 @@ func (server *Server) planMotionApply(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, plan)
 }
-func (server *Server) motionJointProposals(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("documentID")
-	if _, e := server.access.RequireDocument(r.Context(), id, principal(r).ID, access.RoleViewer); e != nil {
-		writeAccessError(w, e)
-		return
-	}
-	proposals, e := server.workspace.MotionJointProposals(r.Context(), id)
-	if e != nil {
-		writeWorkspaceResult(w, workspace.DocumentView{}, e)
-		return
-	}
-	writeJSON(w, 200, proposals)
-}
-
 func (server *Server) previewMechanism(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("documentID")
 	if _, e := server.access.RequireDocument(r.Context(), id, principal(r).ID, access.RoleViewer); e != nil {

@@ -1,91 +1,45 @@
-# 机构与 DMU 应用及仿真转装配
+# 基础旋转机构、仿真与装配转换
 
-> 返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。这里描述代码合同；复现、演示及尚未验收项见[实施与验证记录](../../../plans/kinematics-dmu.md)。更丰富的关节、仿真和碰撞流程仍在[目标合同](../target/kinematics-dmu.md)。
+> 当前实现合同。长期扩展见[目标](../target/kinematics-dmu.md)，验证和操作见[实施记录](../../../plans/kinematics-dmu.md)。本轮收缩此前的应用范围；静态/运动干涉应用、其他接合、试动、装配关系导入均已撤回，不是已交付功能。OCCT 独立相交/距离计算能力保留，不与本轮机构运行绑定。
 
-## 应用、定义与几何身份
+## 应用与对象
 
-根 Product 的 DMU 分类“机构”入口命令进入显式编辑会话，Applications 中 Mechanism 双击进入已有定义；它与单次命令/对话框生命周期分开，类似草图编辑态。唯一 `workbenchconfig/catalog.json` 用 `motionActive` 投影互斥的 `ASSEMBLY_DESIGN` / `KINEMATICS_DMU` contexts：进入后装配设计 Tab 消失，视图/文档/诊断分类仍属于当前应用；退出才恢复装配分类。不另建应用 Tabs 或 DMU 文档。进入新机构即通过 `SAVE_KINEMATICS` 创建空机构和结构树节点，使用既有 CAS/Revision/Undo。与新草图一致，未编辑的本次空机构在显式退出时通过正式命令清理；已有空机构不自动删除，其他 Head 变化时不清理。没有重复的“新建机构”命令或示例工具栏。
+同一 owning Product 的“装配设计 / 机构与 DMU”是互斥的编辑应用状态。装配页 DMU 类别中的“机构”按钮进入并立即通过正式命令创建空 Mechanism 节点；双击既有节点进入其编辑状态。本次新建、未编辑且版本未被外部推进的空机构退出时清理，已有空机构不随退出删除。应用独立于单次命令对话框；定义、仿真、转换均使用 catalog、CommandRegistry、CommandOperation 和 CommandDialog。提示/错误使用底栏和 OperationFeedback，视口没有常驻额外区域。
 
-定义、运行设置、结果回放及转换都由 CommandRegistry 的 form 命令打开统一 `CommandDialog`，复用 `CommandOperation`；进入/退出、播放/单步和明确取消后台任务是 handler。提示使用 `WorkbenchStatus.prompt`，失败走 `useOperationFeedback` 的统一诊断出口。没有额外顶部提示条或视口下方区域，视口大小不随应用/回放变化。Applications 树投影 Mechanism、Joint、MotionDriver、MotionStudy、InterferenceAnalysis、来源/展开项/发布映射。Ground 显示“固定件 (实例名)”，旋转接合只显示定义名称，下面是“同心”和“偏移”两个关系，轴线/平面引用在对应关系下。关系只有 EDIT 能力，编辑委托所属 Joint，并自动进入对应选择字段，不形成独立可删除/重命名的第二套定义。派生名称不反写定义。选择通过稳定对象 ID、完整 occurrence + Body 和关系引用高亮。视口复用装配约束的 glyph、引线、SelectionIndex 和几何引用高亮；机构进入后用所属接合关系投影替换正式装配约束标记，不绘制另一套机构箭头或图标。重命名、编辑、删除走正式命令；通用树命令的 catalog 条件允许可编辑机构对象，冻结回放的 rootCanEdit=false 仍拒绝。
+当前保留固定件、旋转接合、角度 Driver、线性 MotionStudy、运行、播放/暂停/单步/定位/复位、结果删除、增量应用到装配、退出。没有新建第二个机构的冗余命令、自动示例、恢复正式姿态、移动/刚性接合、试动、干涉分析或导入/替换装配关系入口。
 
-Product 的 `kinematics` 保存独立定义；运行结果是 Job/Artifact。允许保存空机构、暂未接地的机构及逐步添加的接合。MotionDriver 引用 Revolute/Prismatic 运动坐标，MotionStudy 必须引用 Driver，保存线性时间规律；干涉范围、间隙和同刚体内部检查保存于 InterferenceAnalysis，可独立检查当前姿态或关联 Study。单坐标试动可直接引用 Driver，不要求先保存时间研究，生成冻结的临时两帧研究而不增加定义 Revision。研究中的 driverJointId、DMU 设置是冻结运行派生值，不接受作为另一套持久定义编辑。删除机构/接合联动清理依赖驱动、研究和映射；被删除研究的分析解除研究关联而保留分析。删除接合或解除来源/发布关联不删除正式 Product 约束。
+Applications 下 Mechanism 拥有固定件、旋转接合及 Driver。MotionStudy 是独立的可编辑应用对象，通过 mechanismId/driverId 引用运动定义，与 Mechanism 平级；双击编辑其规律。它不是轮询 Job 产生的死节点。Mechanism/Joint/Driver/Study 支持已有树命令的选择、高亮、编辑、重命名和删除；删除清理依赖，不修改正式 Product 约束。运行是 Job/Artifact，仅在仿真与回放对话框呈现，不插入设计树。
 
-一个 Mechanism 属于一个 owning Product；直接子 Part（包括多 Body Part）和子 Product 是刚体运动单元。子 Product 内部相对位姿冻结，未加入机构的直接子实例固定在研究基准。当前应用在根 Product 编辑上下文开放，不支持可动嵌套机构。
+此组织参考 CATIA 本机 `kinugbt0801.htm`（旋转接合的约束组合）、`kinugbt0201.htm`（按规律运动及退出保持姿态）、`kinugbt0302.htm`（独立 Simulation 可记录多个机构）。本项目把线性规律和冻结运行关联于 MotionStudy；未实现 CATIA 的多机构录制。具体页面见[交互参考](../../references/cad-workflows.md)。
 
-新接合通过两个真实轴支撑和两个定位平面拾取，复用装配 PersistentSelection、InstancePath 和 Publication 解析。圆柱、圆/圆锥可作为轴，平面必须垂直于对应轴。端点轴与平面交点及正交基生成局部 Frame（毫米、x/y/z/w 四元数）；几何引用是定义，Frame 是派生值，运行前重新解析。两定位平面不定义角度零位：定义显式保存两端体局部 CapturedX，创建时捕获共同世界横向基准；解析时由其构造与支撑轴正交的基准，退化时拒绝。零位、±1 正方向、限位和轴向偏移使用有单位 quantity。`q=(raw-zero)/direction`；Revolute 使用第一端 Z 的连续角，Prismatic 使用沿第一端 Z 的有向位移。Ground 固定研究基准姿态。既有数值 Frame 定义仍可用于闭环研究，但没有持久轴/平面支撑不能发布成正式几何装配约束。
+## 独立且持久的约束系统
 
-接合选择复用 `FeatureSelectionSession` 和 SelectionIndex，树与视口采用同一 owning-unit、typed InstancePath/Revision 及角色过滤。轴线角色只接纳精确 AXIS（圆柱/圆/圆锥经既有支持解析派生轴）；平面角色只接纳精确 PLANE，定位平面须属于相应轴的刚体。当前字段自动从第一轴线推进到第二轴线、第一平面、第二平面；点击已绑定字段进入替换，已绑定支撑保留在同一会话中持续高亮。类型未解析的首次点击通过共享会话等待精确解析再绑定，不提供手动“识别轴线/使用当前选择”按钮。解析缓存仅属于当前 Product Revision 和几何引用；计算/连接失败不作为几何不合格判定缓存，后续选择可以重试；命令取消/字段替换后的迟到绑定失效。
+Mechanism 保存 `poses`（完整 owning Product 实例的已接受编辑姿态）。Joint 的 `constraints` 保存普通 `AssemblyConstraint` DefinitionVersion=2 定义，使用相同稳定引用、Quantity 参数、单位、方向语义和状态枚举。Ground 保存 SPACE Fix；旋转接合恰好保存 Coincidence 轴同心和 SELECTED_PLANE_NORMAL_V1 平面 Offset。树中接合只显示名称，下级“同心 / 偏移”对应实际持久约束 ID 与 VERIFIED 状态，轴/平面引用挂在对应关系下；编辑委托所属接合以保持有效的成对定义。视口直接读取这些约束，复用装配 glyph、引线、SelectionIndex 和几何高亮。
 
-`POST /api/documents/{id}/mechanism-preview` 是只读命令预览：Viewer 权限、当前 baseRevisionId、20 s 取消预算及既有规模门禁。两轴选齐先加入同轴硬方程，平面选齐再用同一机构编译器展开完整接合；Ground、其他接合、显式补充关系均保留。正式 Product 约束未显式采用时不进入方程，预览不创建装配 Candidate/约束/Job 或推进 Head。使用生产 profile 与既有移动优先级（第一选择运动，第二选择先最小运动，再最小总运动；不临时固定参考件），要求普通 CONVERGED、完整独立硬见证、运动偏好门禁、有限完整 Pose 及 Joint 验证，再次核对 Head 后返回整帧。失败接入已有装配诊断/可配置 replay。前端复用 assemblyPreviewMachine、请求代际与 AbortController，合格整帧即时显示，未合格候选不覆盖最后接受姿态；确认仅保存接合定义，临时位置在退出时恢复。运动研究仍独立要求 Ground/一个自由坐标/硬驱动，不降低普通装配成功门槛。
+Joint 的两端局部 Frame、CapturedX、零位、正方向、限位用于运动坐标；Frame 从持久轴/平面引用解析。两定位平面不能独自定义角度零位，首次绑定捕获稳定的两端横向基准。选择复用 FeatureSelectionSession：角色过滤、精确几何解析、自动推进、已绑定字段替换；圆柱/圆/圆锥经已有 derived-role 解析为轴。引用为定义，解析 Frame 为派生值，不保存临时 solver ID。
 
-`SAVE_KINEMATICS` 适配版本化 `occccad://product/kinematics/set`，仅修改 `product.kinematics` PropertySlot，必须携带当前 versionId，使用已有幂等事务、Head/sequence CAS、ChangeSet、Outbox、Undo/Redo。不改变正式约束或位姿；保存时解析新增/改变的几何接合，运行时只检查所选机构及其依赖。无关草稿或其他机构的失效引用不阻断所选研究。定义合法不代表研究可运动，DOF 与硬方程门禁在运行时检查。
+机构的编辑、预览和研究输入从 Product 的实例/几何快照构造，但只放入所选 Mechanism 的约束；正式 Product 约束完全不继承。普通 FreezeAssemblyInput 编译持久同心/偏移/Fix 方程，机构编译器只补冻结非成员和硬驱动所需的坐标。不会又从 Joint 重复添加一套定位方程。纯数值闭环测试仍可使用内部局部 Frame fixtures；新公开定义必须有真实稳定轴/平面引用。
 
-## 与正式装配的关系
+`POST /api/documents/{id}/mechanism-preview` 只读预览，要求当前 baseRevisionId、取消/20 s 预算及资源门禁。两轴齐全可预览未完成接合的同心方程；平面齐全使用普通完整约束编译。Ground 和全部已有接合方程始终保留。第一选择为 MovingBody，第二选择为 ReferenceBody，采用 MOVE_FIRST_MINIMIZE_REFERENCE；不临时固定参考件或放宽精度。
 
-机构只求解自身 Ground/接合和显式采用的 `supplementalConstraintIds`，不自动继承全部 Product 约束。`GET /api/documents/{id}/motion-joint-proposals` 从 SPACE Fix 和稳定轴相合＋定位平面偏移生成 Ground/Revolute 提案，用户确认后导入并保存来源 ID 与定义基线。来源是引用，接合下的同心/偏移是所属接合的语义展开项，不是两套可独立修改的真相；已作为接合来源的关系不能又作为补充方程加入。
+`SAVE_KINEMATICS` 在 CAS 事务外重新解析、绑定约束，并对变更机构执行权威完整求解；客户端姿态只作初值，不能成为合格见证。成功要求 CONVERGED、运动偏好门禁、完整独立硬见证、全实例有限单位四元数姿态及接合闭合验证。最终把约束和合格编辑姿态一起写入 `product.kinematics`，经既有 Revision/ChangeSet/CAS/Undo/Redo；失败不推进 Head。已固定实例的持久 Fix 基准不会因客户端 warm-start 被重新捕获。
 
-来源定义变化/删除在树中分别标 SOURCE_CHANGED/SOURCE_DELETED，不静默更新接合或删除原约束；用户可明确重新导入或解除来源关联。它与几何失效分开：来源变化不自动改运动定义，选中机构的几何解析失败则阻止运行。发布映射保存 Joint 与正式 Constraint 的基线；正式关系或接合有变化时转换计划做差异及冲突判断，不使用 solver 私有 ID。
-
-## 完整硬方程与帧判据
-
-复用生产装配输入冻结/编译器和数值内核；机构编译把派生或显式局部 Frame 转为同一内核的 Point/Axis/Plane descriptor。同心与偏移复用 Product 约束编译的 `compileAssemblyRelation`（Coincidence 轴适配 CONCENTRIC、SELECTED_PLANE_NORMAL_V1 有向偏移），不再使用点重合＋平行轴的另一组方程。Frame 已包含轴向偏移，数值定位平面间距为零；正式发布仍使用原始持久平面引用及其带符号偏移。所有显式采用的活动、未停用、非 Measured 补充装配定义必须有方程，缺失时拒绝运行。已捕获的 Fix Together 展开为硬刚性方程，捕获未完成或试图改变其 Relative Fix 基准时拒绝。
-
-| 关节 | 硬方程 |
-|---|---|
-| Ground | 基准世界 Pose 的 FIX |
-| Rigid | Z 同轴同向、定位平面偏移、X 同向 |
-| Revolute | Z 同轴同向、定位平面偏移；自由坐标为绕 Z 的连续相对角 |
-| Prismatic | Z 同轴、X 同向；自由坐标为沿 Z 的有向位移 |
-| 单坐标驱动 | 有参考 Z 轴的 ANGLE，或点至平面的 ALONG_SECOND_NORMAL DISTANCE |
-
-保留全部接合、闭环和显式补充方程，不树化删除闭环。MotionStudy 可明确指定 `replaceDriverConstraintId`；只有同端点、同有向局部几何坐标的独立 ANGLE/DISTANCE 方程能被本次运行的硬驱动替换。组约束、不对应的坐标和未知 ID 均拒绝；替换只作用于冻结方程，不停用或修改 Product 约束。编译记录 retained/replaced constraint IDs，驱动不是 DragTarget 或软偏好。
-
-首版要求接地后 relative DOF=1、gauge DOF=0；加入每帧驱动后 relative DOF=0、gauge DOF=0，否则报告 UNSUPPORTED_DOF。当前固定完整 nominal，只用上一合格帧更新 initial guess 和已接受的 angle/alignment/distance branch。研究接纳与普通装配编辑的成功语义分开：硬约束合格、FIX 独立检查、全 Joint 闭合和驱动坐标验证后才保存帧。普通 CONVERGED 或硬可行但偏好未完成的 MAX_ITERATIONS 可以进入研究门禁；后者还必须通过现有完整独立硬方程见证。没有硬见证则失败，不修改普通装配偏好优先级或容差。Joint/驱动位置门限 1e-7 mm（角坐标 1e-7 rad），轴方向门限 1e-8；装配方程继续使用冻结 solver profile 的单位和归一化残差标准。
-
-规律为 `q(t)=start+(end-start)*t/duration`，结果存规范 rad/mm 和连续角度，驱动 RPC 的周期角度与保存的连续坐标/分支分开。驱动角大步先细分至最多 π/12，其他失败有界二分重试；最多深度 10、2048 次 solve，全部共享研究 deadline。非驱动角的过大分支跳变会触发细分。每个合格 continuation 子步都检查关节限位；限位与扫描 start/end 独立，遇限停止，保存此前采样帧。DMU 只在指定离散采样帧执行，隐藏 continuation 子步不是检查样本。
-
-KINEMATIC_FAILED 表示本次预算和初值未得到合格帧，不证明无解；INPUT_ERROR、EXECUTION_FAILURE、UNSUPPORTED_DOF、LIMIT_REACHED、BUDGET_EXHAUSTED、CANCELED 与 DMU_UNFINISHED 分开。失败保留上一批合格帧、最后 Solve 诊断，并通过现有 ASSEMBLY_REPLAY 制品保留可用的数值请求。
-
-## 精确 DMU
-
-检查单元与运动单元分开：每个检查单元保存完整 typed InstancePath + BodyId、源 GeometryKey/GeometryId、B-Rep 制品引用及相对 owning 刚体的 Pose。后代几何始终应用所属刚体整帧 Pose；相同 GeometryId 的不同 occurrence 不合并身份。Scope 是明确的 occurrence + Body 集合，空集合表示全部；全部范围中缺少精确几何的运动单元会拒绝检查，DisplayFallback 不用于判定。保存的 Scope 仅 owning root Revision 可重绑定到新定义 Revision，后代 accepted/resolved Revision 必须匹配。默认不检查同一刚体内部 Body 对，可明确开启。
-
-多输入 B-Rep 通过既有 Geometry client 的递归 Artifact staging、Router 和 `AnalyzeInterference` RPC 闭合，S3 输入物化到独立可清理的本机 scratch；Worker 不读取数据库。每次 RPC 使用隔离 OcctKernel，相同制品只加载一次，各实例 Pose 分开。非破坏性布尔和深拷贝变换不修改共享源几何。当前仍串行占用 Worker 的 OCCT 锁，等待锁可取消；OCCT 距离/common 使用进度取消检查，输入读取/有效性检查只在阶段边界响应取消。
-
-保守 AABB 按 max(clearance, contact tolerance) 外扩；它筛掉不可能相交的 **Boolean common**，每一指定 pair 的最小距离仍由 BRepExtrema_DistShapeShape 精确计算，不能将包围盒间距冒充最小距离。实体必须经 BRepCheck 合格、具有正有限体积且不混有游离曲面/边/点。BRepAlgoAPI_Common 的完成、错误、形体有效性和体积均检查。
-
-| 分类 | solid-dmu-v1 判据 |
-|---|---|
-| SEPARATED | 无显著 common volume，最小距离 > 1e-7 mm |
-| CONTACT | 无显著 common volume，最小距离 ≤ 1e-7 mm |
-| PENETRATION | common volume 超过体积门限，且不等于较小实体的整体体积 |
-| CONTAINMENT | common volume 在体积门限内等于较小实体的整体体积（相同实体重合也归此类） |
-| INCONCLUSIVE | 几何无效、输入/计算失败、取消或未完成；complete=false、clearanceSatisfied=false |
-
-体积门限为 `max((1e-7 mm)^3, min(Va,Vb)*1e-12)`；判定受 B-Rep 自身公差及 OCCT 数值精度限制，不声称数学精确或小于该门限的穿透可被稳定分类。间隙以精确 `distance >= clearance` 判定；穿透/包含始终不满足。零间隙 CONTACT 可满足距离要求，但保留 CONTACT 分类。结果含距离 mm、common volume mm³、witness、complete、diagnostic、commonTested 和 kernel build。Worker 个别输入失败可保留其他 pair 的已完成结果，整个报告不通过。Go 检查结果数量、身份、有限度量、witness、分类、间隙及完整性元数据。
-
-帧的 kinematicValid 与 dmuConclusion 独立。完整报告有穿透/包含或间隙不足为 VIOLATION，全部满足为 PASS，任何 pair 未完成为 INCONCLUSIVE；关闭检查为 NOT_CHECKED。干涉帧保存供回放，不让运动学“合格”掩盖干涉。当前姿态静态分析不执行运动学求解，因此明确标为运动学未检查。离散 PASS 仅覆盖指定范围和指定帧，不代表连续无碰撞。
+机构编辑姿态与 Product 正式装配姿态是两个约束系统的状态，使用相同 occurrence Group 和 SE(3) 显示通路。确认接合、清理预览、替换字段、更新同一机构 Revision 时不先恢复无约束的 Product 姿态。取消草稿恢复机构已接受姿态；只有离开机构应用恢复最新 Product 姿态。几何/实例结构变化导致不完整姿态或失效引用时拒绝相关编辑/运行，不补猜测引用或静默丢方程。
 
 ## 冻结运行、取消与回放
 
-`POST /api/documents/{id}/motion-runs` 校验 viewer 权限及 baseRevisionId，冻结 schema=1、policy=grounded-single-coordinate-explicit-relations-v2 的完整 view、关节/规律/方程、solver profile 和 exact geometry refs；冻结前后检查同一个 Product Head。内容 digest 绑定输入，MOTION_SNAPSHOT 制品进入现有 MOTION_STUDY Job；actor/document/requestId 幂等，同 requestId 不同输入返回 409。Job 执行只读冻结输入；中途 Head 变化不混入新版本，也不推进任何 Head。
+MotionDriver 只引用 Revolute 的角坐标；MotionStudy 保存 `start/end/duration/frames/budget` 线性规律。所选机构接地后的 relative DOF=1、gauge DOF=0，加入角度硬驱动后要求局部确定。没有软拖拽驱动。重复约束、闭环、限位、连续角度、上一合格帧 warm-start、分支、有界细分重试和完整硬见证沿用既有数值内核；普通装配编辑门槛不降低。内部数值测试可直接冻结 Frame，公共运行只接受保存的 Study。
 
-运行结果为 MOTION_RUN 制品；Job 的 SUCCEEDED 意味着结果已保存，研究自身 completed/status 和各帧结论决定实际质量。研究停止、数值失败、限位和部分 DMU 都可保存为可查看结果。FinishMotion 原子核对 RUNNING、lease owner、attempt 和未过期 lease；取消请求决定 CANCELED 终态，保存已完成帧，迟到 attempt 不覆盖结果。已有取消监视器取消 RPC，完成制品保存使用有界 WithoutCancel 上下文。排队即取消尚无帧；进程崩溃后未持久化的内存帧不能保证恢复，租约重领重新从冻结基准运行。
+`POST /api/documents/{id}/motion-runs` 冻结完整 view、Mechanism 约束/编辑姿态、Study、solver profile 和 policy `revolute-owning-constraints-v3`，编译前后校验 Head。不接受 currentOnly/Analysis/DMU scope/试动请求，不加载干涉 B-Rep 或调用 AnalyzeInterference。运行结果仍以 MOTION_SNAPSHOT → MOTION_STUDY Job → MOTION_RUN 闭合，绑定 request digest、attempt/lease/deadline/cancel；迟到结果不推进业务 Head。失败/取消保留已完成帧及诊断，未收敛不是无解。
 
-`GET /api/jobs/{id}/motion-run` 校验任务访问和 Product viewer 权限，并检查结果制品大小、种类和 SHA；历史版本结果可只读获取。已终止研究不在同一 Job 上手动 Retry，重新运行生成新 Job，保留旧结果；保存之前的基础设施自动重试及租约重领继续沿用现有队列。当前列表沿用用户最近任务列表，最多 100 项，无结果分页索引或独立共享研究库。结构树只表达设计定义，不再从该轮询列表附加运行结果节点。回放对话框可删除终态结果并刷新统一消息中心列表：`DELETE /api/jobs/{id}/motion-run` 按任务所有者/管理员授权，原子设置既有 user_visible=false，保留 Job/Attempt/Artifact 及历史转换来源，重复删除幂等；活动任务拒绝删除，需先明确取消。
+回放采用冻结 view 的树、几何、选择和整帧姿态，不逐零件插值、不逐帧写 Revision。只有显式加载或本会话前台完成的任务进入视口。关闭仿真对话框停止播放并离开冻结显示；当前版本的合格帧可作为机构编辑姿态，关闭操作通过一次 SAVE_KINEMATICS 权威校验保存，随后恢复编辑。历史结果关闭只恢复最新机构基准，不回写旧快照。继续编辑、重新运行、退出可正常操作，无“恢复正式姿态”中间状态。
 
-Web 的定义保存走 Domain Command；补充关系选择与解除发布关联先修改本地草稿，确认时一次保存，取消不写 Revision。“运行仿真/运行干涉检查”命令对话框选择保存的定义并确认；“仿真与回放”命令对话框显示冻结运行、整帧定位和 DMU 列表，属性面板保持只读，视口没有常驻活动区域。任务列表由 TanStack Query 获取，草稿、播放、定位为暂态交互。切换/启动运行先释放旧结果显示，避免新任务名下保留旧帧；完整姿态和单位 quaternion 验证不通过时拒绝回放，不部分修改场景。“恢复正式姿态”暂停自动接合预览，直到重新进入或开始定义编辑；之后仍可显式恢复冻结帧回放。关闭命令不退出应用，不清除当前冻结帧；通用命令预览清理后重放该完整帧，防止回滚覆盖。应用退出、上下文/Revision 变化清理播放/高亮及前台任务跟踪，代际门禁忽略迟到响应。后台 Job 不绑定面板生命周期，只有用户明确取消才请求取消任务。旧结果只能显式加载并显示冻结版本标识。历史回放的树、检查器、几何与选择使用同一冻结 view，接合约束标记使用冻结几何引用，禁止编辑冻结树。静态 DMU 的空 Mechanism 不进入接合渲染路径，显示“运动学未检查”，不显示不存在的驱动量，仍可加载/关闭/重开结果及查看整帧。回放使用整帧所有 owning unit Pose；视口拒绝不完整加载的帧，立即批量设置、不逐零件插值。播放中限制编辑，退出或“恢复正式姿态”恢复当前正式 view，不逐帧写 Revision；选中合格帧可通过下述正式转换命令采用姿态。结果行按完整实例 + Body 高亮，问题帧按钮跳至已保留的干涉/未完成帧。
+后台 Job 独立于面板，退出不自动取消后台任务；用户明确取消才发送取消。退出、外部版本变化和迟到响应按原有代际/Operation 门禁清理。结果切换释放旧显示；`DELETE /api/jobs/{id}/motion-run` 删除终态结果的 user_visible 列表项，保留 Job/Attempt/Artifact 和转换审计，活动任务拒绝删除。
 
-## 应用到装配
+## 增量应用到装配
 
-`POST /api/documents/{id}/motion-apply-plan` 要求 Editor、当前 baseRevisionId、Job 与帧索引。服务端验证运行归属、结果 SHA/digest、冻结来源快照、当前机构结构和几何定义、有效整帧及完整 owning-unit 姿态。静态 DMU、无效帧、陈旧 Head 或已变更的来源实例快照不能转换。Joint 的派生 Frame 不被误判为定义变化，数值 Frame 定义仍参与比较。
+当前仅增量发布机构连接并采用有效帧。Ground 发布 Fix；旋转接合复制自身持久同心/偏移定义，重新分配稳定 Product 约束/Quantity 身份和记录映射；相同映射重复应用复用关系，避免重复。默认保留旋转自由度，显式“锁定当前角度”才增加静态角约束。规律留在 Study。
 
-默认同时发布连接和采用所选帧姿态。Ground 生成/复用 SPACE Fix；Revolute 发布轴相合与有向平面偏移，保留旋转自由度；Prismatic 发布轴相合和捕获方向一致而保留轴向位移；Rigid 再发布轴向定位。只有明确“锁定当前角度”才给 Revolute 增加静态有向 ANGLE，使用持久轴引用和捕获横向基准。运动时间规律留在研究中。新约束经现有 public DefinitionVersion=2 规范化、几何支持和单位校验；没有固定全部运动零件或前端矩阵写回替代关系。
+转换不导入、替换、停用或删除既有 Product 约束。完整目标 Product 方程仍全部验证，冲突明确报告并拒绝提交；用户在普通装配设计中处理后重新规划。计划核对冻结机构/几何/实例快照、结果 SHA、有效整帧、当前版本与 digest，正式装配求解须 CONVERGED、硬见证通过且仍落在所选帧。Constraint、正式 Instance pose、映射在一次 APPLY_MOTION_FRAME 的 CAS 事务提交；失败不留部分修改，一次 Undo 恢复转换前状态。成功返回装配设计并显示最新正式结果。
 
-计划列出 ADD/REUSE/UPDATE/CONFLICT、位姿变化和求解状态/DOF。确定性约束 ID 与关联基线避免重复发布；等价已有关系复用原 ID、表达式及正式定义。已存在的定位角、Fix、补充关系和来源/发布两边改动可能冲突，必须由用户明确 SUPPRESS 或 REPLACE 后重新生成计划；不静默删方程。解除旧角锁也需要明确停用/替换，不因本次未勾选锁角自动丢弃。
-
-候选必须包含目标 Product 的全部活动正式方程，独立验证它们在所选姿态满足，随后执行普通正式装配求解并要求 CONVERGED 与完整硬见证；求解结果必须仍落在所选帧（位置 1e-7 mm、旋转 1e-8 rad 门限）。这与研究允许硬可行偏好未完成的判据分开，不改变普通编辑语义或精度。默认未锁角也把所选帧作为正式 nominal/initial pose，所以首次落在该姿态。
-
-`APPLY_MOTION_FRAME` 适配版本化 `occccad://product/kinematics/apply-frame`。提交前重新生成权威计划、核对 digest，候选完整求值后再次验证姿态。Constraint 创建/更新/显式删除或停用、Instance pose、发布映射在一次原有 CAS 事务/Revision/ChangeSet 中提交；失败不提交部分修改。Undo/Redo 重放完整前后值（kinematics 整值恢复前清空旧字段，避免遗漏 omitempty 的关联），一次撤销恢复转换前约束、位姿和映射。转换成功退出预览并切回装配设计，显示最新正式模型。
-
-边界：最多 16 个机构、各 64 个驱动/研究/干涉分析、1024 条发布映射；每机构 32 个单元、64 关节；owning Product 64 单元；研究 2..500 帧、100..120000 ms 预算、最长 3600 s；DMU 2..128 检查单元、pair×frame≤8192、每 RPC 不同 B-Rep 总计≤256 MiB；输入/结果 JSON 分别≤8/16 MiB。它们是资源门禁，未证明工业容量或实时频率。没有动力学、多驱、可动嵌套机构、稀疏后端、碰撞连续性、碰撞自动回避、开放曲面穿透、按 pair 配置豁免或复杂规律。
+边界：当前只做根 owning Product 的固定件与旋转机构、单角度驱动和线性离散帧。子 Product 作为冻结内部位姿的刚体。没有移动/刚性等其他接合、干涉应用、单坐标试动、来源导入、多驱、动力学、连续碰撞或旧开发数据兼容。未证明工业容量、稳定 P95 或实时频率；实际验证范围见实施记录。

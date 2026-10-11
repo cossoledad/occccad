@@ -111,7 +111,7 @@ func TestMotionHardDriverClosedLoopAndLimits(t *testing.T) {
 	for _, c := range []struct {
 		name, kind string
 		closed     bool
-	}{{"revolute", "REVOLUTE", false}, {"prismatic", "PRISMATIC", false}, {"fourbar", "REVOLUTE", true}} {
+	}{{"revolute", "REVOLUTE", false}, {"fourbar", "REVOLUTE", true}} {
 		t.Run(c.name, func(t *testing.T) {
 			s := motionFixture(t, c.closed, c.kind)
 			before, _ := json.Marshal(s)
@@ -218,21 +218,15 @@ func TestMotionDefinitionHistoryAndEquationAdmission(t *testing.T) {
 	}
 }
 
-func TestMotionRigidAndDirectedZero(t *testing.T) {
+func TestMotionDirectedZero(t *testing.T) {
 	service := New(nil, motionWorker(t))
 	s := motionFixture(t, false, "REVOLUTE")
 	s.Mechanism.Joints[1].Direction = -1
 	s.Mechanism.Joints[1].Zero = MotionQuantity{Value: 45, Unit: "deg"}
 	s.Study.Start.Value = -15
 	s.Study.End.Value = -375
-	body := s.Equations.Bodies[1]
-	body.ID = "rigid-child"
-	nominal := append(append([]geometry.AssemblyBody(nil), s.Equations.Bodies...), body)
-	s.Mechanism.UnitIDs = append(s.Mechanism.UnitIDs, body.ID)
-	end := jointEnd(body.ID, 0, 0)
-	s.Mechanism.Joints = append(s.Mechanism.Joints, MechanismJoint{ID: "rigid", Name: "rigid member", Kind: "RIGID", First: jointEnd("crank", 0, 0), Second: &end, Direction: 1})
 	var e error
-	s.Equations, e = compileMechanism(AssemblySolveManifest{Bodies: nominal}, s.Mechanism, s.Study)
+	s.Equations, e = compileMechanism(AssemblySolveManifest{Bodies: s.Equations.Bodies}, s.Mechanism, s.Study)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -245,14 +239,11 @@ func TestMotionRigidAndDirectedZero(t *testing.T) {
 		if math.Abs(f.Coordinates["drive"]-f.DriverValue) > 1e-7 {
 			t.Fatal("direction/zero lost")
 		}
-		a, b := f.UnitPoses["crank"], f.UnitPoses[body.ID]
-		if !conflictPoseClose(geometry.AssemblyPose(a), geometry.AssemblyPose(b), 1e-7, 1e-8) {
-			t.Fatal("rigid relative pose changed")
-		}
+
 	}
 }
 
-func TestMotionRetainedEquationAndExplicitDriverReplacement(t *testing.T) {
+func TestMotionRetainedEquationIsNeverReplaced(t *testing.T) {
 	service := New(nil, motionWorker(t))
 	s := motionFixture(t, false, "REVOLUTE")
 	coordinate := s.Equations.Driver
@@ -286,20 +277,7 @@ func TestMotionRetainedEquationAndExplicitDriverReplacement(t *testing.T) {
 	if e != nil || r.Completed || r.Status != "UNSUPPORTED_DOF" || len(r.Frames) != 0 {
 		t.Fatal("fixed design angle was silently disabled", r, e)
 	}
-	s.Study.ReplaceDriverConstraintID = coordinate.ID
-	s.Equations, e = compileMechanism(frozen, s.Mechanism, s.Study)
-	if e != nil || s.Equations.ReplacedConstraintID != coordinate.ID || len(s.Equations.RetainedConstraintIDs) != 0 {
-		t.Fatal(s.Equations, e)
-	}
-	s.Digest = motionDigest(s)
-	r, e = service.RunMotionStudy(t.Context(), s, nil)
-	if e != nil || !r.Completed {
-		t.Fatal("equivalent explicit replacement failed", r.Status, r.Failure, e)
-	}
-	frozen.Geometry[0].Origin[0] = 1
-	if _, e = compileMechanism(frozen, s.Mechanism, s.Study); e == nil {
-		t.Fatal("different coordinate accepted as a replacement")
-	}
+
 }
 
 func TestMotionBudgetRetainsCompletedFrame(t *testing.T) {

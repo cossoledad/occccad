@@ -12,7 +12,7 @@
 | Product 引用、六族、组、参数/激活、历史发布 | [Product](architecture/current/product-assembly.md)、[当前约束合同](architecture/current/assembly-constraints.md) |
 | 装配方程、图编译、QR/SVD、解选择、连续恢复 | [算法](../kernel/assembly/SOLVER_ALGORITHMS.md)、[模块边界](../kernel/assembly/SOLVER_ARCHITECTURE.md) |
 | 局部证据、剩余运动与修复 | [Product 分析](architecture/current/product-assembly.md#局部诊断与剩余运动) |
-| 机构/DMU 应用、几何接合、冻结回放与正式装配转换 | [当前合同](architecture/current/kinematics-dmu.md)、[演示与验证](../plans/kinematics-dmu.md) |
+| 机构/DMU 应用、几何接合、冻结回放与正式装配转换 | [当前合同](architecture/current/kinematics-dmu.md)、[操作与验证](../plans/kinematics-dmu.md) |
 | 选择、显隐、编辑宿主、标签、快照/手柄 | [Web](architecture/current/web.md)、[模型显示](architecture/current/model-display.md)、[编辑上下文](architecture/current/product-edit-context.md)、[树身份](architecture/semantic-tree-interaction.md) |
 | 文档适配器、配置目录、Toolbar 与命令注册 | [公共框架](architecture/current/document-command-framework.md) |
 | 实时链路 | [Realtime](architecture/current/realtime.md) |

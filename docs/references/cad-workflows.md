@@ -47,4 +47,4 @@
 - `online/spaug_C2/spaugbt0302.htm`：选定组的 clash/contact/clearance、结果列表、预览和高亮。CATIA 此页的网格/sag 判定不作为本项目 OCCT 实体精度依据。
 - [Onshape Mate/Animate](https://cad.onshape.com/help/Content/Assembly/mates.htm)、[Slider Mate](https://cad.onshape.com/help/Content/Assembly/slider_mate.htm)：独立运动坐标、动画 start/end 与 mate limits 分开。
 
-这些资料用于定义→规律/运行→回放→干涉定位的交互参照。本项目采用自己的 Domain Command/Revision/Job/Artifact 边界；遵循本轮明确要求，播放姿态始终暂态、不保留或写回仿真位置。当前实现见[机构与 DMU](../architecture/current/kinematics-dmu.md)。
+这些资料是交互参照，不代表当前交付范围。2026-10-10 再次核读 `kinugbt0801.htm`、`kinugbt0201.htm`、`kinugbt0302.htm`：旋转接合使用同心与偏移约束；Simulation with Laws 默认退出保持新位置；Recording Positions 的独立 Simulation 可记录多个机构。由此将本项目 MotionStudy 与 Mechanism 分开组织，而非把运行结果作为机构下死节点。播放不逐帧写 Revision；关闭当前合格回放可通过一次命令保存机构编辑姿态，只有明确转装配才改变正式 Product 位姿/约束。当前应用已撤回干涉、其他接合与导入，只交付基础旋转框架。当前实现见[机构与 DMU](../architecture/current/kinematics-dmu.md)。

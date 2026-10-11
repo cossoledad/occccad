@@ -48,6 +48,27 @@ type motionApplyPayload struct {
 	Model ProductModel `json:"model"`
 }
 
+func semanticMotionReference(v AssemblyGeometryRef) AssemblyGeometryRef {
+	v.Resolution = nil
+	v.PublicationResolution = nil
+	v.GeometryKey = ""
+	v.TopologyID = 0
+	if v.InstancePath != nil {
+		p := *v.InstancePath
+		p.Canonical = ""
+		p.Display = ""
+		p.Segments = append([]InstancePathSegment(nil), p.Segments...)
+		for i := range p.Segments {
+			p.Segments[i].InstanceName = ""
+			if i == 0 {
+				p.Segments[i].OwnerVersionID = ""
+			}
+		}
+		v.InstancePath = &p
+	}
+	return v
+}
+
 func semanticConstraint(c AssemblyConstraint) string {
 	if c.Mode == "" {
 		c.Mode = "DRIVING"
@@ -63,33 +84,13 @@ func semanticConstraint(c AssemblyConstraint) string {
 	c.EvaluationSummary = ""
 	c.EvaluationFailure = nil
 	c.MeasuredValue = nil
-	ref := func(v AssemblyGeometryRef) AssemblyGeometryRef {
-		v.Resolution = nil
-		v.PublicationResolution = nil
-		v.GeometryKey = ""
-		v.TopologyID = 0
-		if v.InstancePath != nil {
-			p := *v.InstancePath
-			p.Canonical = ""
-			p.Display = ""
-			p.Segments = append([]InstancePathSegment(nil), p.Segments...)
-			for i := range p.Segments {
-				p.Segments[i].InstanceName = ""
-				if i == 0 {
-					p.Segments[i].OwnerVersionID = ""
-				}
-			}
-			v.InstancePath = &p
-		}
-		return v
-	}
-	c.First = ref(c.First)
+	c.First = semanticMotionReference(c.First)
 	if c.Second != nil {
-		v := ref(*c.Second)
+		v := semanticMotionReference(*c.Second)
 		c.Second = &v
 	}
 	if c.AngleAxis != nil {
-		v := ref(*c.AngleAxis)
+		v := semanticMotionReference(*c.AngleAxis)
 		c.AngleAxis = &v
 	}
 	source := any(nil)
@@ -108,18 +109,33 @@ func motionSemanticDigest(v any) string {
 	return hex.EncodeToString(h[:])
 }
 func jointDefinitionDigest(j MechanismJoint) string {
-	if j.First.Axis != nil {
-		j.First.Frame = InstancePose{}
-	}
-	if j.Second != nil {
-		s := *j.Second
-		if s.Axis != nil {
-			s.Frame = InstancePose{}
+	endpoint := func(e JointEndpoint) JointEndpoint {
+		if e.Axis != nil {
+			v := semanticMotionReference(*e.Axis)
+			e.Axis = &v
+			e.Frame = InstancePose{}
 		}
-		j.Second = &s
+		if e.Plane != nil {
+			v := semanticMotionReference(*e.Plane)
+			e.Plane = &v
+		}
+		return e
 	}
+	j.First = endpoint(j.First)
+	if j.Second != nil {
+		second := endpoint(*j.Second)
+		j.Second = &second
+	}
+	relations := []struct{ ID, Definition string }{}
+	for _, c := range j.Constraints {
+		relations = append(relations, struct{ ID, Definition string }{c.ID, semanticConstraint(c)})
+	}
+	j.Constraints = nil
 	j.Sources = nil
-	return motionSemanticDigest(j)
+	return motionSemanticDigest(struct {
+		Joint     MechanismJoint
+		Relations any
+	}{j, relations})
 }
 func (service *Service) readMotionResult(ctx context.Context, doc, actor, jobID string) (MotionRun, error) {
 	var out MotionRun
@@ -167,8 +183,11 @@ func (service *Service) PlanMotionApply(ctx context.Context, doc, actor, base st
 	return service.planMotionApply(ctx, doc, base, *view.Product, run, req)
 }
 func (service *Service) planMotionApply(ctx context.Context, doc, base string, model ProductModel, run MotionRun, req MotionApplyRequest) (MotionApplyPlan, error) {
+	if len(req.Resolutions) > 0 {
+		return MotionApplyPlan{}, fmt.Errorf("%w: conversion only adds mechanism relationships; edit existing assembly constraints separately", ErrValidation)
+	}
 	p := MotionApplyPlan{BaseRevisionID: base, Items: []MotionApplyItem{}, PoseChanges: []string{}}
-	if run.Snapshot.CurrentOnly || req.FrameIndex < 0 || req.FrameIndex >= len(run.Frames) || !run.Frames[req.FrameIndex].KinematicValid {
+	if req.FrameIndex < 0 || req.FrameIndex >= len(run.Frames) || !run.Frames[req.FrameIndex].KinematicValid {
 		return p, fmt.Errorf("%w: select a valid mechanism frame", ErrValidation)
 	}
 	frame := run.Frames[req.FrameIndex]
@@ -208,20 +227,6 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		}
 		next.Instances[i].Translation, next.Instances[i].Rotation = pose.Translation, pose.Rotation
 	}
-	resolutionIDs := make([]string, 0, len(req.Resolutions))
-	for id := range req.Resolutions {
-		resolutionIDs = append(resolutionIDs, id)
-	}
-	slices.Sort(resolutionIDs)
-	for _, id := range resolutionIDs {
-		choice := req.Resolutions[id]
-		if choice != "SUPPRESS" && choice != "REPLACE" {
-			return p, fmt.Errorf("%w: unknown resolution", ErrValidation)
-		}
-		if slices.IndexFunc(next.Constraints, func(c AssemblyConstraint) bool { return c.ID == id }) < 0 {
-			return p, fmt.Errorf("%w: resolution constraint missing", ErrValidation)
-		}
-	}
 	newMappings := []MotionAssemblyMapping{}
 	proposed := map[string]bool{}
 	add := func(j MechanismJoint, role string, c AssemblyConstraint) error {
@@ -233,6 +238,7 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		c = detached
 		c.ID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(doc+"/"+mid+"/"+j.ID+"/"+role)).String()
 		c.Name = j.Name + " / " + role
+		c.QuantityParameter = nil // new Product identity has its own scoped Quantity
 		c.Mode = "DRIVING"
 		c.DefinitionVersion = 2
 		if err := canonicalAssemblyDefinition(&c, "", ""); err != nil {
@@ -252,20 +258,6 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 			}
 		}
 		idx := slices.IndexFunc(next.Constraints, func(v AssemblyConstraint) bool { return v.ID == c.ID })
-		if idx < 0 && previous == nil {
-			for i, v := range next.Constraints {
-				cc := c
-				cc.ID = v.ID
-				cc.ConnectionID = v.ConnectionID
-				cc.DefinitionVersion = v.DefinitionVersion
-				cc.QuantityParameter = v.QuantityParameter
-				if semanticConstraint(cc) == semanticConstraint(v) && !v.Suppressed {
-					idx = i
-					c.ID = v.ID
-					break
-				}
-			}
-		}
 		action := "ADD"
 		if idx >= 0 {
 			prior := next.Constraints[idx]
@@ -275,8 +267,8 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 			if semanticConstraint(c) != semanticConstraint(prior) {
 				action = "UPDATE"
 			}
-			if previous != nil && semanticConstraint(prior) != previous.ConstraintBaseline && semanticConstraint(c) != semanticConstraint(prior) && req.Resolutions[prior.ID] != "REPLACE" {
-				p.Items = append(p.Items, MotionApplyItem{j.ID, role, c.ID, "CONFLICT", "正式约束自上次关联基线后已修改；明确替换或解除关联后重新规划"})
+			if previous != nil && semanticConstraint(prior) != previous.ConstraintBaseline && semanticConstraint(c) != semanticConstraint(prior) {
+				p.Items = append(p.Items, MotionApplyItem{j.ID, role, c.ID, "CONFLICT", "正式约束自上次关联基线后已修改；请在装配设计中处理该关系后重新规划"})
 				return nil
 			}
 			if action == "REUSE" {
@@ -321,28 +313,20 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		if j.Second == nil || j.First.Axis == nil || j.First.Plane == nil || j.Second.Axis == nil || j.Second.Plane == nil {
 			return p, fmt.Errorf("%w: publish requires persistent axis/plane supports", ErrValidation)
 		}
-		a, b := *j.First.Axis, *j.Second.Axis
-		if e = add(j, "axis", AssemblyConstraint{Kind: "COINCIDENT", First: a, Second: &b, DirectionRelation: "SAME"}); e != nil {
-			return p, e
+		if len(j.Constraints) != 2 {
+			return p, fmt.Errorf("%w: missing persisted Revolute constraints", ErrValidation)
 		}
-		if j.Kind != "PRISMATIC" {
-			a, b = *j.First.Plane, *j.Second.Plane
-			resolver := newAssemblySupportResolver(ctx, service, &next)
-			ga, er := resolver.resolve(a)
-			if er != nil {
-				return p, er
+		for _, c := range j.Constraints {
+			role := "axis"
+			if c.Kind == "DISTANCE" {
+				role = "axial-location"
 			}
-			gb, er := resolver.resolve(b)
-			if er != nil {
-				return p, er
-			}
-			wa, wb := conflictWorld(ga, geometry.AssemblyPose(frame.UnitPoses[a.InstanceID])), conflictWorld(gb, geometry.AssemblyPose(frame.UnitPoses[b.InstanceID]))
-			offset := conflictDot(conflictSub(wa.Origin, wb.Origin), wa.Direction)
-			if e = add(j, "axial-location", AssemblyConstraint{Kind: "DISTANCE", First: a, Second: &b, Value: offset, DistanceRelation: selectedPlaneNormalV1, DirectionRelation: "UNORIENTED"}); e != nil {
+			if e = add(j, role, c); e != nil {
 				return p, e
 			}
 		}
-		if j.Kind == "PRISMATIC" || j.Kind == "RIGID" || req.LockAngle {
+		a, b := *j.First.Axis, *j.Second.Axis
+		if req.LockAngle {
 			if j.First.CapturedX == nil || j.Second.CapturedX == nil {
 				return p, fmt.Errorf("%w: captured angle baseline missing", ErrValidation)
 			}
@@ -371,25 +355,8 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 			}
 		}
 	}
-	// Turning off a previous angle lock requires an explicit user decision, just
-	// like any other formal angle constraint. Never silently suppress it.
-	for _, id := range resolutionIDs {
-		choice := req.Resolutions[id]
-		if choice == "REPLACE" && !proposed[id] {
-			next.Constraints = slices.DeleteFunc(next.Constraints, func(c AssemblyConstraint) bool { return c.ID == id })
-			p.Items = append(p.Items, MotionApplyItem{Role: "existing", ConstraintID: id, Action: "REPLACE", Detail: "用户明确以发布的接合关系替换此正式约束"})
-		}
-		if choice == "SUPPRESS" {
-			if proposed[id] {
-				return p, fmt.Errorf("%w: cannot suppress a required published connection", ErrValidation)
-			}
-			i := slices.IndexFunc(next.Constraints, func(c AssemblyConstraint) bool { return c.ID == id })
-			next.Constraints[i].Suppressed = true
-			p.Items = append(p.Items, MotionApplyItem{Role: "existing", ConstraintID: id, Action: "SUPPRESS", Detail: "用户明确选择"})
-		}
-	}
 	next.Kinematics.Associations = slices.DeleteFunc(next.Kinematics.Associations, func(a MotionAssemblyMapping) bool {
-		return a.MechanismID == mid && (proposed[a.ConstraintID] || req.Resolutions[a.ConstraintID] == "REPLACE")
+		return a.MechanismID == mid && (proposed[a.ConstraintID])
 	})
 	next.Kinematics.Associations = append(next.Kinematics.Associations, newMappings...)
 	frozen, e := service.FreezeAssemblyInput(ctx, doc, base, next)

@@ -1,3 +1,4 @@
+import {validMotionPose} from "../cad/assembly/motion-study";
 import {mechanismConstraints} from '../cad/assembly/mechanism-constraints';
 import {isExternalProjectionSource} from "../cad/interaction/external-projection-selection";
 import { featureContribution, topologyFeatureAssociation, sameDisplayContext } from "../cad/interaction/feature-association";
@@ -391,15 +392,27 @@ export class CadViewportEngine {
   private mechanismDefinition?:import('../cad/assembly/motion-study').Mechanism;
   private mechanismSelection?:string;
   showMechanism(m?:import('../cad/assembly/motion-study').Mechanism,selected?:string):void {
+    const previous=this.mechanismDefinition;
     this.mechanismDefinition=m;this.mechanismSelection=selected;
+    if(!this.motionDisplay&&!this.assemblyPosePreview&&m!==previous)this.applyMechanismEditingPoses();
     if(this.view)this.addAssemblyConstraintMarkers(this.view);
     this.invalidate();
+  }
+  private applyMechanismEditingPoses():void {
+    const poses=this.mechanismDefinition?.poses;
+    if(poses&&[...this.instanceGroups.keys()].some(id=>!validMotionPose(poses[id])))return;
+    const targets=[...this.instanceGroups].flatMap(([id,object])=>{
+      const p=poses?.[id]??this.view?.product?.instances.find(v=>v.id===id);
+      return p?[{object,target:this.transformPose(p.translation,p.rotation??[0,0,0,1])}]:[];
+    });
+    this.transforms.applyBatch(targets,"immediate");this.content.updateMatrixWorld(true);
+    this.refreshInteractionHighlights();this.refreshContentBounds();
   }
   private disposed = false;
   private motionDisplay?:import("../cad/assembly/motion-study").MotionPlayback;
   private motionRestorePending=false;
   setMotionDisplay(display?:import("../cad/assembly/motion-study").MotionPlayback):void {
-    if(!display&&this.motionDisplay){this.motionRestorePending=true;const targets=[...this.instanceGroups].flatMap(([id,object])=>{const p=this.view?.product?.instances.find(i=>i.id===id);return p?[{object,target:this.transformPose(p.translation,p.rotation??[0,0,0,1])}]:[]});this.transforms.applyBatch(targets,"immediate");}
+    if(!display&&this.motionDisplay){this.motionRestorePending=true;this.applyMechanismEditingPoses();}
     this.motionDisplay=display;
     if(!display)return;
     if(this.view?.document.id!==display.view.document.id||this.view?.document.versionId!==display.revisionId)return;
@@ -715,7 +728,7 @@ export class CadViewportEngine {
     this.applyTreeVisibility();
     this.setDatumPreview(this.datumPreview);
     this.refreshContentBounds();
-    if (previousDocumentID === view.document.id && view.document.type === "PRODUCT" && !this.motionDisplay && !this.motionRestorePending) {
+    if (previousDocumentID === view.document.id && view.document.type === "PRODUCT" && !this.motionDisplay && !this.motionRestorePending && !this.mechanismDefinition) {
       const starts: Array<{ object: THREE.Group; target: TransformPose }> = [];
       const targets: Array<{ object: THREE.Group; target: TransformPose; frame: () => void }> = [];
       for (const [id, group] of this.instanceGroups) {
@@ -745,6 +758,7 @@ export class CadViewportEngine {
       }
     }
     this.motionRestorePending=false;
+    if(this.mechanismDefinition&&!this.motionDisplay)this.applyMechanismEditingPoses();
     if(this.motionDisplay)this.setMotionDisplay(this.motionDisplay);
     this.showMechanism(this.mechanismDefinition,this.mechanismSelection);
     this.emitDebugState();
@@ -1304,11 +1318,11 @@ export class CadViewportEngine {
       for (const [id, pose] of this.assemblyPosePreview) {
         const group = this.instanceGroups.get(id);
         if (!group) continue;
-        if (restore) targets.push({ object: group, target: this.transformPose(pose.position, pose.rotation),
-          frame: () => this.syncAttachedManipulatorPosition(group) });
+        if (restore) {const accepted=this.mechanismDefinition?.poses?.[id];targets.push({ object: group, target: this.transformPose(accepted?.translation??pose.position, accepted?.rotation??pose.rotation),
+          frame: () => this.syncAttachedManipulatorPosition(group) });}
         else this.transforms.stop(group);
       }
-      if (restore) this.transforms.applyBatch(targets, "rollback");
+      if (restore) this.transforms.applyBatch(targets, this.mechanismDefinition?"immediate":"rollback");
       this.assemblyPosePreview = undefined;
     }
     if(restore&&this.motionDisplay)this.setMotionDisplay(this.motionDisplay);

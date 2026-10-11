@@ -30,8 +30,10 @@ type MechanismPreviewPose struct {
 }
 
 func mechanismProductInput(model ProductModel, m Mechanism) (ProductModel, error) {
-	input := model
-	input.Constraints = nil
+	input, err := mechanismPoseModel(model, m)
+	if err != nil {
+		return input, err
+	}
 	for _, id := range m.SupplementalConstraintIDs {
 		i := slices.IndexFunc(model.Constraints, func(c AssemblyConstraint) bool { return c.ID == id })
 		if i < 0 {
@@ -82,7 +84,7 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 	complete := make([]MechanismJoint, 0, len(m.Joints))
 	for _, j := range m.Joints {
 		if j.ID == req.DraftJointID && j.Kind != "GROUND" && j.Second != nil && (j.First.Plane == nil || j.Second.Plane == nil) {
-			if partial != nil || j.First.Axis == nil || j.Second.Axis == nil || j.First.InstanceID == j.Second.InstanceID || !slices.Contains([]string{"REVOLUTE", "PRISMATIC", "RIGID"}, j.Kind) {
+			if partial != nil || j.First.Axis == nil || j.Second.Axis == nil || j.First.InstanceID == j.Second.InstanceID || !slices.Contains([]string{"REVOLUTE"}, j.Kind) {
 				return out, fmt.Errorf("%w: incomplete joint axes", ErrValidation)
 			}
 			copy := j
@@ -113,13 +115,17 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 		return out, err
 	}
 
-	if m, err = service.resolveMechanismGeometry(ctx, *view.Product, m, true); err != nil {
-		return out, err
-	}
 	input, err := mechanismProductInput(*view.Product, req.Mechanism)
 	if err != nil {
 		return out, err
 	}
+	if m, err = service.resolveMechanismGeometry(ctx, input, m, true); err != nil {
+		return out, err
+	}
+	if m, err = service.bindMechanismConstraints(ctx, input, m); err != nil {
+		return out, err
+	}
+	appendMechanismConstraints(&input, m)
 	frozen, err := service.FreezeAssemblyInput(ctx, documentID, req.BaseRevisionID, input)
 	if err != nil {
 		return out, err
@@ -213,6 +219,7 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 	if current.Document.VersionID != req.BaseRevisionID {
 		return out, fmt.Errorf("%w: Product revision changed during preview", ErrValidation)
 	}
+	m.Poses = poses
 	out.Mechanism = m
 	if partial != nil {
 		out.Mechanism.Joints = append(out.Mechanism.Joints, *partial)

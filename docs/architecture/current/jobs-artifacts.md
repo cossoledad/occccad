@@ -40,7 +40,7 @@ Worker 仍保留保护真实 OCCT 共享状态的全局锁。Part 排队可响�
 
 ### 数据库任务队列
 
-`MOTION_STUDY` 保存 `MOTION_SNAPSHOT` → `MOTION_RUN`：完整冻结输入经 Router 的 SolveAssembly/AnalyzeInterference 执行，不查询变化中的业务 Head。结果提交绑定当前 lease/attempt，可在 CANCELED 下保留已完成帧；Job SUCCEEDED 只表示结果制品持久化，运动学和 DMU 质量分别查看。此类型不在同一 Job 手动 Retry，再运行使用新 Job 保留旧结果。详见[运行生命周期](kinematics-dmu.md#冻结运行取消与回放)。
+`MOTION_STUDY` 保存 `MOTION_SNAPSHOT` → `MOTION_RUN`：完整冻结输入经 Router 的 SolveAssembly 执行，不查询变化中的业务 Head。结果提交绑定当前 lease/attempt，可在 CANCELED 下保留已完成帧；Job SUCCEEDED 只表示结果制品持久化，运动学质量按完整帧判据查看；当前机构应用不运行干涉分析。此类型不在同一 Job 手动 Retry，再运行使用新 Job 保留旧结果。详见[运行生命周期](kinematics-dmu.md#冻结运行取消与回放)。
 
 API 使用 `(job_type, idempotency_key)` 去重提交。状态、attempt 与 Outbox 通过显式事务原子写入，两种后端使用同一业务实现。Jobs 进程在 PostgreSQL 中用 `FOR UPDATE SKIP LOCKED`，在 SQLite 中用 BEGIN IMMEDIATE 事务领取任务，使用租约、心跳、尝试记录和延迟重试。
 Document Center 一次可选择或拖入最多 32 个文件，并发提交最多 3 个独立 `EXCHANGE_IMPORT` Job；单文件提交失败保留该文件供重试，不取消已入队的兄弟任务。单个 Jobs 进程默认运行 2 个独立领取循环，可用 `OCCCCAD_JOB_CONCURRENCY` 调整为 1–8；每个循环使用独立 lease owner 和 Workspace 缓存。它们共享所选后端的数据库池、ArtifactStore 和 Geometry Router；Router 按负载启动多个本机 Geometry Worker 进程。此并发是有界任务并发，不构成按内存预算的大文件容量保证。

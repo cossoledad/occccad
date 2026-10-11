@@ -31,7 +31,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PRODUCT" || request.Kinematics == nil {
 			break
 		}
-		k, e := service.bindKinematics(ctx, modelJSON, *request.Kinematics)
+		k, e := service.bindKinematics(ctx, documentID, request.VersionID, modelJSON, *request.Kinematics)
 		return typeSetKinematics, k, e
 	case "SET_DEFINITION_VISIBILITY":
 		if documentType == "PRODUCT" {

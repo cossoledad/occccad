@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import {renameMotionObject,deleteMotionObjects,motionSelectionTargets} from '../../../cad/assembly/motion-definitions.ts';
 const end=id=>({instanceId:id,frame:{translation:[0,0,0],rotation:[0,0,0,1]}});
-const defs={mechanisms:[{id:'m',name:'mechanism',unitIds:['shaft','propeller'],joints:[{id:'g',name:'ground',kind:'GROUND',first:end('shaft')},{id:'j',name:'revolute',kind:'REVOLUTE',first:end('shaft'),second:end('propeller'),sources:[{constraintId:'axis',baseline:'source-baseline'}]}]}],drivers:[{id:'d',name:'driver',mechanismId:'m',jointId:'j'}],studies:[{id:'s',name:'study',mechanismId:'m',driverId:'d',driverJointId:''}],analyses:[{id:'a',name:'analysis',studyId:'s'}],associations:[{mechanismId:'m',jointId:'j',role:'axis',constraintId:'formal-axis'}]};
+const defs={mechanisms:[{id:'m',name:'mechanism',unitIds:['shaft','propeller'],joints:[{id:'g',name:'ground',kind:'GROUND',first:end('shaft')},{id:'j',name:'revolute',kind:'REVOLUTE',first:end('shaft'),second:end('propeller'),sources:[{constraintId:'axis',baseline:'source-baseline'}]}]}],drivers:[{id:'d',name:'driver',mechanismId:'m',jointId:'j'}],studies:[{id:'s',name:'study',mechanismId:'m',driverId:'d',driverJointId:''}],associations:[{mechanismId:'m',jointId:'j',role:'axis',constraintId:'formal-axis'}]};
 const baseline=JSON.stringify(defs),constraints=[{id:'formal-axis'},{id:'axis'}];
 assert.equal(renameMotionObject(defs,'j','轴接合').mechanisms[0].joints[1].name,'轴接合');assert.throws(()=>renameMotionObject(defs,'missing','name'));
-const afterJoint=deleteMotionObjects(defs,['j']);assert.deepEqual(afterJoint.drivers,[]);assert.deepEqual(afterJoint.studies,[]);assert.deepEqual(afterJoint.associations,[]);assert.equal(afterJoint.analyses[0].studyId,undefined);assert.deepEqual(afterJoint.mechanisms[0].unitIds,['shaft']);assert.deepEqual(constraints,[{id:'formal-axis'},{id:'axis'}]);
-const afterStudy=deleteMotionObjects(defs,['s']);assert.equal(afterStudy.drivers.length,1);assert.equal(afterStudy.analyses[0].studyId,undefined);assert.equal(afterStudy.associations.length,1);
+const afterJoint=deleteMotionObjects(defs,['j']);assert.deepEqual(afterJoint.drivers,[]);assert.deepEqual(afterJoint.studies,[]);assert.deepEqual(afterJoint.associations,[]);assert.deepEqual(afterJoint.mechanisms[0].unitIds,['shaft']);assert.deepEqual(constraints,[{id:'formal-axis'},{id:'axis'}]);
+const afterStudy=deleteMotionObjects(defs,['s']);assert.equal(afterStudy.drivers.length,1);assert.equal(afterStudy.associations.length,1);
 assert.equal(deleteMotionObjects(defs,['m']).mechanisms.length,0);assert.equal(deleteMotionObjects(defs,['d']).studies.length,0);assert.equal(JSON.stringify(defs),baseline);
 const path=(root,leaf)=>({rootDocumentId:'product',canonical:root+'/'+leaf,segments:[{instanceId:root,ownerDocumentId:'product',ownerVersionId:'frozen'},{instanceId:leaf,referencedDocumentId:'part',resolvedVersionId:'part-v1'}]});
 const view={document:{id:'product',versionId:'frozen'},product:{kinematics:defs},resolvedInstances:[{instancePath:path('shaft','a'),occurrencePath:'shaft/a',bodyId:'b1',geometryKey:'shared'},{instancePath:path('propeller','a'),occurrencePath:'propeller/a',bodyId:'b1',geometryKey:'shared'},{instancePath:path('propeller','b'),occurrencePath:'propeller/b',bodyId:'b2',geometryKey:'other'}]};
@@ -31,6 +31,8 @@ assert.deepEqual(relations.map(c=>[c.id,c.kind]),[['g/ground','FIX'],['j/axis','
 assert.equal(relations[1].first.instanceId,'shaft');assert.equal(relations[1].second.instanceId,'propeller');
 assert.equal(relations[2].value,3);assert.equal(relations[2].distanceRelation,'SELECTED_PLANE_NORMAL_V1');
 assert.equal(JSON.stringify(supported),supportedBefore);
+joint.constraints=relations.slice(1).map(c=>({...c,evaluationStatus:'VERIFIED'}));
+assert.deepEqual(mechanismConstraints(supported).slice(1),joint.constraints,'persisted ordinary constraints are rendered directly');
 assert.deepEqual(motionSelectionTargets(view,[{...selected,id:'j/axis'}]),[{...selected,id:'j/axis'}],'relation geometry highlight belongs to the shared constraint renderer');
 
 } finally {await server.close()}

@@ -199,11 +199,10 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
     selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view, editingView)) };
 }
 
-export function treeData(view: DocumentView, editingView?: DocumentView,runs?:DocumentStructureNode[]): SpecificationTreeNode[] {
+export function treeData(view: DocumentView, editingView?: DocumentView): SpecificationTreeNode[] {
   const structure=documentRegistry.get(view.document.type).structure(view);
   if(!structure)return [];
- const projected=runs?.length?{...structure,children:structure.children?.map(n=>n.kind==="APPLICATIONS"?{...n,children:[...(n.children??[]),{id:n.id+"/runs",kind:"APPLICATIONS" as const,name:"运行结果",documentId:view.document.id,versionId:view.document.versionId,children:runs}]}:n)}:structure;
- return [mapStructureNode(projected,view,editingView)];
+ return [mapStructureNode(structure,view,editingView)];
 }
 
 export function selectedFeature(view: DocumentView, selection: Selection): Feature | undefined {

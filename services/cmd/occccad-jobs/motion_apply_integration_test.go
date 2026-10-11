@@ -89,12 +89,12 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	view, e = service.CreatePropellerDemo(t.Context(), view.Document.ID, actor, view.Document.VersionID)
+	view, e = buildShaftRotorFixture(t.Context(), service, view.Document.ID, actor, view.Document.VersionID)
 	if e != nil {
-		t.Fatal("demo", e)
+		t.Fatal("geometry fixture", e)
 	}
 	if len(view.Product.Instances) != 2 || len(view.Product.Constraints) != 0 {
-		t.Fatal("demo bypassed generic definitions")
+		t.Fatal("fixture bypassed generic definitions")
 	}
 	command := func(r workspace.CommandRequest) workspace.DocumentView {
 		t.Helper()
@@ -194,6 +194,27 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 				t.Fatal("axial location incorrect", pose)
 			}
 		}
+		// The application workflow picks the moving rotor first and grounded shaft
+		// second; the same two persisted relationships determine the whole pose.
+		rotorFirst := complete
+		rotorBytes, _ := json.Marshal(complete)
+		rotorFirst = workspace.Mechanism{}
+		json.Unmarshal(rotorBytes, &rotorFirst)
+		rotorJoint := &rotorFirst.Joints[1]
+		rotorJoint.First = *rotorJoint.Second
+		// Copy the old first endpoint before assigning so references do not alias.
+		shaftEnd := complete.Joints[1].First
+		rotorJoint.Second = &shaftEnd
+		rotorJoint.AxialOffset.Value = 10
+		rotorPreview, err := service.PreviewMechanism(t.Context(), view.Document.ID, workspace.MechanismPreviewRequest{BaseRevisionID: head, Mechanism: rotorFirst, DraftJointID: jid})
+		if err != nil {
+			t.Fatal("moving-first rotor workflow", err)
+		}
+		for _, p := range rotorPreview.InstancePoses {
+			if p.InstanceID == ends[1].InstanceID && (math.Abs(p.Translation[0]) > 1e-7 || math.Abs(p.Translation[1]) > 1e-7 || math.Abs(p.Translation[2]-10) > 1e-7) {
+				t.Fatal("rotor workflow pose", p)
+			}
+		}
 		// Without Ground, the first pick moves and the second pick retains its
 		// nominal pose. This is the ordinary assembly creation hierarchy.
 		ordered := req
@@ -259,27 +280,58 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 		}
 	})
 
-	// A driver is independently usable before a time study exists.
-	savedStudies := k.Studies
-	k.Studies = nil
-	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
-	trialHead := view.Document.VersionID
-	trialSnapshot, trialErr := service.FreezeMotionStudy(t.Context(), view.Document.ID, workspace.MotionRunRequest{BaseRevisionID: trialHead, DriverID: did, Trial: &workspace.MotionQuantity{Value: 45, Unit: "deg"}})
-	if trialErr != nil {
-		t.Fatal("driver-only trial freeze", trialErr)
-	}
-	trialRun, trialErr := service.RunMotionStudy(t.Context(), trialSnapshot, nil)
-	if trialErr != nil || !trialRun.Completed || len(trialRun.Frames) != 2 || math.Abs(trialRun.Frames[0].Coordinates[jid]-math.Pi/4) > 1e-7 {
-		t.Fatal("driver-only hard trial", trialErr, trialRun.Failure)
-	}
-	trialRead, trialErr := service.GetDocument(t.Context(), view.Document.ID)
-	if trialErr != nil || trialRead.Document.VersionID != trialHead || len(trialRead.Product.Kinematics.Studies) != 0 {
-		t.Fatal("trial altered formal model", trialErr)
-	}
-	k = view.Product.Kinematics
-	k.Studies = savedStudies
 	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
 	k = view.Product.Kinematics
+	m := k.Mechanisms[0]
+	if len(m.Poses) != len(view.Product.Instances) || len(m.Joints[0].Constraints) != 1 || len(m.Joints[1].Constraints) != 2 {
+		t.Fatal("mechanism did not persist its complete constraint system and editing pose", m)
+	}
+	if m.Joints[1].Constraints[0].Family != "Coincidence" || m.Joints[1].Constraints[1].Family != "Offset" {
+		t.Fatal("not ordinary assembly definitions", m.Joints[1].Constraints)
+	}
+	for _, v := range view.Product.Instances {
+		if v.ID == ends[1].InstanceID {
+			if v.Translation != ([3]float64{22, 15, 7}) || math.Abs(m.Poses[v.ID].Translation[2]-10) > 1e-7 {
+				t.Fatal("mechanism/assembly pose ownership", v, m.Poses[v.ID])
+			}
+		}
+	}
+	// Saving another definition must keep the accepted mechanism pose and pair.
+	reopened, e := service.GetDocument(t.Context(), view.Document.ID)
+	if e != nil || !reflect.DeepEqual(reopened.Product.Kinematics.Mechanisms[0], m) {
+		t.Fatal("reopened editing baseline", e)
+	}
+	// Constraint and accepted pose are one undoable mechanism edit; Product
+	// placement and Product constraints remain independent throughout.
+	delta := view.Product.Kinematics
+	// Detach the payload from the current view before changing its offset.
+	rawDelta, _ := json.Marshal(delta)
+	delta = workspace.KinematicsDefinitions{}
+	json.Unmarshal(rawDelta, &delta)
+	delta.Mechanisms[0].Joints[1].AxialOffset.Value = -12
+	changed := command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &delta})
+	if math.Abs(changed.Product.Kinematics.Mechanisms[0].Poses[ends[1].InstanceID].Translation[2]-12) > 1e-7 || len(changed.Product.Constraints) != 0 {
+		t.Fatal("persistent constraints failed to determine editing pose", changed.Product.Kinematics)
+	}
+	view = command(workspace.CommandRequest{Type: "UNDO"})
+	if !reflect.DeepEqual(view.Product.Kinematics.Mechanisms[0], m) {
+		t.Fatal("mechanism undo did not restore constraints and pose together")
+	}
+	k = view.Product.Kinematics
+	for _, bad := range []workspace.MotionRunRequest{{CurrentOnly: true}, {AnalysisID: "analysis"}, {DriverID: did, Trial: &workspace.MotionQuantity{Unit: "deg"}}} {
+		bad.BaseRevisionID = view.Document.VersionID
+		if _, err := service.FreezeMotionStudy(t.Context(), view.Document.ID, bad); err == nil {
+			t.Fatal("retired motion capability accepted", bad)
+		}
+	}
+	badDefinitions := view.Product.Kinematics
+	badBytes, _ := json.Marshal(badDefinitions)
+	badDefinitions = workspace.KinematicsDefinitions{}
+	json.Unmarshal(badBytes, &badDefinitions)
+	badDefinitions.Mechanisms[0].Joints[1].Kind = "PRISMATIC"
+	if _, err := service.ApplyCommand(t.Context(), view.Document.ID, workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, ActorID: actor, RequestID: uuid.NewString(), Kinematics: &badDefinitions}); err == nil {
+		t.Fatal("retired joint accepted")
+	}
 	for _, end := range []workspace.JointEndpoint{k.Mechanisms[0].Joints[1].First, *k.Mechanisms[0].Joints[1].Second} {
 		if end.Axis.PersistentSelection == nil || end.Plane.PersistentSelection == nil || end.Axis.TopologyID != 0 || end.Axis.GeometryKey != "" || end.CapturedX == nil {
 			t.Fatal("transient pick persisted", end)
@@ -322,6 +374,18 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	}
 	if math.Abs(run.Frames[6].DriverValue-math.Pi/2) > 1e-8 || math.Abs(run.Frames[24].Coordinates[jid]-2*math.Pi) > 1e-7 {
 		t.Fatal("continuous angle lost")
+	}
+	// Closing a current simulation may adopt one accepted frame into the
+	// mechanism editing baseline, without writing Product placement. The saved
+	// owning Revision metadata must not invalidate unchanged joint definitions.
+	adopted := view.Product.Kinematics
+	adoptBytes, _ := json.Marshal(adopted)
+	adopted = workspace.KinematicsDefinitions{}
+	json.Unmarshal(adoptBytes, &adopted)
+	adopted.Mechanisms[0].Poses = run.Frames[6].UnitPoses
+	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &adopted})
+	if len(view.Product.Constraints) != 0 {
+		t.Fatal("closing playback wrote assembly constraints")
 	}
 	before := *view.Product
 	request := workspace.MotionApplyRequest{JobID: job.ID, FrameIndex: 6}
@@ -426,10 +490,11 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 			lockID = a.ConstraintID
 		}
 	}
-	request.Resolutions = map[string]string{lockID: "SUPPRESS"}
+	view = command(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{lockID}, Suppressed: func() *bool { v := true; return &v }()})
+	request.Resolutions = nil
 	plan, er = service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, request)
 	if er != nil || !plan.Ready || plan.DegreesOfFreedom != 1 {
-		t.Fatal("explicit conflict suppression", er, plan.Items)
+		t.Fatal("ordinary assembly suppression then incremental apply", er, plan.Items)
 	}
 	request.PlanDigest = plan.Digest
 	view = command(workspace.CommandRequest{Type: "APPLY_MOTION_FRAME", VersionID: view.Document.VersionID, MotionApply: &request})
@@ -444,43 +509,9 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 		t.Fatal("ordinary compiler omitted published relation", er, len(frozen.Constraints))
 	}
 
-	// Import proposals retain stable source links without duplicating the same
-	// relations in the selected mechanism's equation set.
-	proposals, er := service.MotionJointProposals(t.Context(), view.Document.ID)
-	if er != nil || len(proposals) != 2 {
-		t.Fatal("joint proposals", er, len(proposals))
-	}
-	imported := workspace.Mechanism{ID: uuid.NewString(), Name: "imported", UnitIDs: []string{ends[0].InstanceID, ends[1].InstanceID}, Joints: proposals}
-	dk := view.Product.Kinematics
-	dk.Mechanisms = append(dk.Mechanisms, imported)
-	drive := workspace.MotionDriver{ID: uuid.NewString(), Name: "imported driver", MechanismID: imported.ID}
-	for _, j := range proposals {
-		if j.Kind == "REVOLUTE" {
-			drive.JointID = j.ID
-		}
-	}
-	dk.Drivers = append(dk.Drivers, drive)
-	study := workspace.MotionStudy{ID: uuid.NewString(), Name: "imported study", MechanismID: imported.ID, DriverID: drive.ID, Start: workspace.MotionQuantity{Unit: "deg"}, End: workspace.MotionQuantity{Value: 30, Unit: "deg"}, DurationSeconds: 1, Frames: 3, BudgetMS: 30000, Clearance: workspace.MotionQuantity{Unit: "mm"}}
-	dk.Studies = append(dk.Studies, study)
-	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &dk})
-	importedSnapshot, er := service.FreezeMotionStudy(t.Context(), view.Document.ID, workspace.MotionRunRequest{BaseRevisionID: view.Document.VersionID, StudyID: study.ID})
-	if er != nil {
-		t.Fatal("freeze imported", er)
-	}
-	inputBytes, _ := json.Marshal(importedSnapshot)
-	var projected struct {
-		Equations struct {
-			Constraints []any    `json:"constraints"`
-			Retained    []string `json:"retainedConstraintIds"`
-		} `json:"equations"`
-	}
-	json.Unmarshal(inputBytes, &projected)
-	if len(projected.Equations.Constraints) != 3 || len(projected.Equations.Retained) != 0 {
-		t.Fatal("source equation duplicated", string(inputBytes))
-	}
 	// An unrelated incomplete mechanism is saveable and cannot prevent running
 	// the selected mechanism and its dependencies.
-	dk = view.Product.Kinematics
+	dk := view.Product.Kinematics
 	dk.Mechanisms = append(dk.Mechanisms, workspace.Mechanism{ID: uuid.NewString(), Name: "empty draft", UnitIDs: []string{}, Joints: []workspace.MechanismJoint{}})
 	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &dk})
 	if _, er = service.FreezeMotionStudy(t.Context(), view.Document.ID, workspace.MotionRunRequest{BaseRevisionID: view.Document.VersionID, StudyID: sid}); er != nil {
@@ -509,17 +540,9 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	if er != nil || plan.Ready {
 		t.Fatal("conflicting Fix omitted", er, plan.Items)
 	}
-	request.Resolutions = map[string]string{fixID: "REPLACE", lockID: "SUPPRESS"}
-	plan, er = service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, request)
-	if er != nil || !plan.Ready || plan.DegreesOfFreedom != 1 {
-		t.Fatal("explicit replace", er, plan.Items)
-	}
-	request.PlanDigest = plan.Digest
-	view = command(workspace.CommandRequest{Type: "APPLY_MOTION_FRAME", VersionID: view.Document.VersionID, MotionApply: &request})
-	for _, c := range view.Product.Constraints {
-		if c.ID == fixID {
-			t.Fatal("replaced Fix still active")
-		}
+	request.Resolutions = map[string]string{fixID: "REPLACE"}
+	if _, er = service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, request); er == nil {
+		t.Fatal("incremental conversion accepted destructive resolution")
 	}
 	t.Log("real Pad geometry -> Naming picks -> 360-degree Worker Job -> 90-degree apply/reopen/undo/redo/reuse/angle-lock/conflict/CAS passed")
 }

@@ -5350,62 +5350,6 @@
       "implementation": "form"
     },
     {
-      "id": "dmu.prismatic",
-      "name": "移动接合",
-      "helpText": "机构与 DMU · 移动接合",
-      "iconKey": "move",
-      "repeatable": false,
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          }
-        ]
-      },
-      "implementation": "form"
-    },
-    {
-      "id": "dmu.rigid",
-      "name": "刚性接合",
-      "helpText": "机构与 DMU · 刚性接合",
-      "iconKey": "link",
-      "repeatable": false,
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          }
-        ]
-      },
-      "implementation": "form"
-    },
-    {
       "id": "dmu.driver",
       "name": "驱动",
       "helpText": "机构与 DMU · 驱动",
@@ -5462,90 +5406,6 @@
       "implementation": "form"
     },
     {
-      "id": "dmu.trial",
-      "name": "单坐标试动",
-      "helpText": "机构与 DMU · 单坐标试动",
-      "iconKey": "move",
-      "repeatable": false,
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          }
-        ]
-      },
-      "implementation": "form"
-    },
-    {
-      "id": "dmu.interference",
-      "name": "干涉检查",
-      "helpText": "机构与 DMU · 干涉检查",
-      "iconKey": "distance",
-      "repeatable": false,
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          }
-        ]
-      },
-      "implementation": "form"
-    },
-    {
-      "id": "dmu.import",
-      "name": "装配关联",
-      "helpText": "机构与 DMU · 装配关联",
-      "iconKey": "reference",
-      "repeatable": false,
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          }
-        ]
-      },
-      "implementation": "form"
-    },
-    {
       "id": "dmu.apply",
       "name": "应用到装配",
       "helpText": "机构与 DMU · 应用到装配",
@@ -5578,27 +5438,6 @@
       "name": "运行仿真",
       "helpText": "机构与 DMU · 运行仿真",
       "iconKey": "revolve",
-      "repeatable": false,
-      "implementation": "form",
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {}
-    },
-    {
-      "id": "dmu.check",
-      "name": "运行干涉检查",
-      "helpText": "机构与 DMU · 运行干涉检查",
-      "iconKey": "distance",
       "repeatable": false,
       "implementation": "form",
       "visibleWhen": {
@@ -5704,27 +5543,6 @@
       "name": "复位",
       "helpText": "机构与 DMU · 复位",
       "iconKey": "fit",
-      "repeatable": false,
-      "implementation": "handler",
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {}
-    },
-    {
-      "id": "dmu.restore",
-      "name": "恢复正式姿态",
-      "helpText": "机构与 DMU · 恢复正式姿态",
-      "iconKey": "navigation",
       "repeatable": false,
       "implementation": "handler",
       "visibleWhen": {
@@ -6554,16 +6372,6 @@
           "commandId": "dmu.revolute",
           "groupKey": "variants:joints",
           "order": 30
-        },
-        {
-          "commandId": "dmu.prismatic",
-          "groupKey": "variants:joints",
-          "order": 40
-        },
-        {
-          "commandId": "dmu.rigid",
-          "groupKey": "variants:joints",
-          "order": 50
         }
       ],
       "variants": {
@@ -6588,33 +6396,9 @@
           "order": 20
         },
         {
-          "commandId": "dmu.trial",
-          "groupKey": "primary",
-          "order": 30
-        },
-        {
           "commandId": "dmu.run",
           "groupKey": "primary",
           "order": 40
-        }
-      ]
-    },
-    {
-      "id": "dmu-analysis",
-      "name": "干涉分析",
-      "styleKey": "assembly",
-      "position": "top-left",
-      "orientation": "horizontal",
-      "commands": [
-        {
-          "commandId": "dmu.interference",
-          "groupKey": "primary",
-          "order": 10
-        },
-        {
-          "commandId": "dmu.check",
-          "groupKey": "primary",
-          "order": 20
         }
       ]
     },
@@ -6625,11 +6409,6 @@
       "position": "top-left",
       "orientation": "horizontal",
       "commands": [
-        {
-          "commandId": "dmu.import",
-          "groupKey": "primary",
-          "order": 10
-        },
         {
           "commandId": "dmu.apply",
           "groupKey": "primary",
@@ -6668,11 +6447,6 @@
           "commandId": "dmu.reset",
           "groupKey": "primary",
           "order": 50
-        },
-        {
-          "commandId": "dmu.restore",
-          "groupKey": "primary",
-          "order": 60
         },
         {
           "commandId": "dmu.cancel",
@@ -7165,16 +6939,6 @@
     },
     {
       "tabId": "KINEMATICS_DMU.model",
-      "groupId": "dmu-analysis",
-      "order": 30
-    },
-    {
-      "tabId": "KINEMATICS_DMU.model",
-      "groupId": "dmu-association",
-      "order": 40
-    },
-    {
-      "tabId": "KINEMATICS_DMU.model",
       "groupId": "dmu-playback",
       "order": 50
     },
@@ -7207,6 +6971,11 @@
       "tabId": "ASSEMBLY_DESIGN.model",
       "groupId": "assembly-dmu",
       "order": 45
+    },
+    {
+      "tabId": "KINEMATICS_DMU.model",
+      "groupId": "dmu-association",
+      "order": 50
     }
   ]
 }

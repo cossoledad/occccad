@@ -32,7 +32,7 @@ Toolbar、搜索、快捷键和结构树菜单经同一个 `execute` 入口；�
 
 每次执行获得 `CommandOperation`，提供 AbortSignal、current 和 `own(dispose)`。交互命令切换、目标上下文改变和模块释放会取消旧操作，释放资源；迟到的异步显示结果必须检查 operation 或原有领域 generation。普通视图 handler 不打断正在运行的建模工具。工具转入装配约束定义时，使用既有 pending/editing 状态保留操作，面板结束后才清理。ToolManager 与领域表单保留自己的 Esc/多步骤/连续执行规则，不新增全局 Esc 监听。
 
-机构定义、运行设置、结果回放及转换计划使用同一 `CommandDialog` / form `CommandOperation`。Mechanism 树双击只进入会话，其他可编辑定义转入已有 `tree.edit` form；播放、定位与明确取消任务为 handler，复用 Registry、Ribbon、搜索及 ToolButton。视口不增加常驻机构活动区域；提示使用底栏 WorkbenchStatus，诊断走统一 OperationFeedback。接合自动选择/替换字段复用 FeatureSelectionSession；待解析候选通过共享异步拾取完成精确校验后绑定，树和视口没有额外鼠标控制器。命令取消与后台 Job/冻结结果加载分别使用代际门禁，关闭一个表单不会释放已经显示的完整帧或取消后台任务。
+机构定义、运行设置、结果回放及转换计划使用同一 `CommandDialog` / form `CommandOperation`。Mechanism 树双击只进入会话，其他可编辑定义转入已有 `tree.edit` form；播放、定位与明确取消任务为 handler，复用 Registry、Ribbon、搜索及 ToolButton。视口不增加常驻机构活动区域；提示使用底栏 WorkbenchStatus，诊断走统一 OperationFeedback。接合自动选择/替换字段复用 FeatureSelectionSession；待解析候选通过共享异步拾取完成精确校验后绑定，树和视口没有额外鼠标控制器。命令取消与后台 Job/冻结结果加载分别使用代际门禁，普通定义/转换表单关闭不改写冻结帧；仿真回放对话框关闭则停止播放并恢复机构编辑，当前合格帧通过一次 SAVE_KINEMATICS 验证成为机构基准。两者均不自动取消后台任务。仿真定义与机构平级且双击可编辑，机构保存普通约束与自己的合格姿态；确认不先释放到 Product 初始位姿。
 
 模型修改仍由现有正式命令提交；Preview 不推进 Head，确认提交当前成功候选，失败、过期、取消继续受服务端 gate 约束。表单 adapters 复用各自既有参数、选择过滤、预览/提交/关闭实现，公共注册层不会强迫拉伸、草图约束和适应视图使用相同步骤。
 

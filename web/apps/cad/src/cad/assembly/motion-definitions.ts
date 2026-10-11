@@ -1,9 +1,9 @@
 import type {KinematicsDefinitions} from './motion-study';
-export const kinematicKinds=['MECHANISM','MECHANISM_JOINT','MOTION_DRIVER','MOTION_STUDY','INTERFERENCE_ANALYSIS'];
+export const kinematicKinds=['MECHANISM','MECHANISM_JOINT','MOTION_DRIVER','MOTION_STUDY'];
 export function renameMotionObject(defs:KinematicsDefinitions,id:string,name:string):KinematicsDefinitions {
  const k=structuredClone(defs);let found=false;
  for(const m of k.mechanisms){for(const v of [m,...m.joints])if(v.id===id){v.name=name;found=true}}
- for(const v of [...(k.drivers??[]),...k.studies,...(k.analyses??[])])if(v.id===id){v.name=name;found=true}
+ for(const v of [...(k.drivers??[]),...k.studies])if(v.id===id){v.name=name;found=true}
  if(!found||!name.trim())throw new Error('机构对象已变化或名称为空');return k;
 }
 export function deleteMotionObjects(defs:KinematicsDefinitions,ids:readonly string[]):KinematicsDefinitions {
@@ -13,7 +13,6 @@ export function deleteMotionObjects(defs:KinematicsDefinitions,ids:readonly stri
  const live=new Set(k.mechanisms.map(m=>m.id));
  k.drivers=(k.drivers??[]).filter(d=>{if(deleted.has(d.id)||deleted.has(d.jointId)||!live.has(d.mechanismId)){deleted.add(d.id);return false}return true});
  k.studies=k.studies.filter(s=>{if(deleted.has(s.id)||!live.has(s.mechanismId)||deleted.has(s.driverId??s.driverJointId??'')){deleted.add(s.id);return false}return true});
- k.analyses=(k.analyses??[]).filter(a=>!deleted.has(a.id)).map(a=>deleted.has(a.studyId??'')?{...a,studyId:undefined}:a);
  // Removing a joint or its publishing association never removes Product constraints.
  k.associations=(k.associations??[]).filter(a=>live.has(a.mechanismId)&&!deleted.has(a.jointId));return k;
 }
@@ -27,7 +26,7 @@ export function motionSelectionTargets(view:import('../../types').DocumentView,s
   const m=defs.mechanisms.find(m=>m.id===selection.id||m.joints.some(j=>j.id===selection.id||selection.id.startsWith(j.id+"/"))||defs.drivers?.some(d=>d.id===selection.id&&d.mechanismId===m.id)||defs.studies.some(s=>s.id===selection.id&&s.mechanismId===m.id));
   const j=m?.joints.find(j=>j.id===selection.id||selection.id.startsWith(j.id+"/"));const unitIds=j?[j.first.instanceId,...(j.second?[j.second.instanceId]:[])]:m?.unitIds??[];
   if(j&&selection.id!==j.id)return [selection]; // exact relation/support highlight belongs to the shared renderer
-  const a=defs.analyses?.find(a=>a.id===selection.id);
-  return [selection,...(view.resolvedInstances??[]).filter(v=>a?!(a.scope?.length)||a.scope.some(scope=>scope.bodyId===v.bodyId&&scope.instancePath.canonical===v.instancePath.canonical):unitIds.includes(v.instancePath.segments[0]?.instanceId)).map(v=>({kind:'body' as const,id:`${v.occurrencePath}:body:${v.bodyId}`,bodyId:v.bodyId,documentId:v.instancePath.segments.at(-1)?.referencedDocumentId,versionId:v.instancePath.segments.at(-1)?.resolvedVersionId,instanceId:v.instancePath.segments[0]?.instanceId,instancePath:v.instancePath,occurrencePath:v.occurrencePath,geometryKey:v.geometryKey}))];
+
+  return [selection,...(view.resolvedInstances??[]).filter(v=>unitIds.includes(v.instancePath.segments[0]?.instanceId)).map(v=>({kind:'body' as const,id:`${v.occurrencePath}:body:${v.bodyId}`,bodyId:v.bodyId,documentId:v.instancePath.segments.at(-1)?.referencedDocumentId,versionId:v.instancePath.segments.at(-1)?.resolvedVersionId,instanceId:v.instancePath.segments[0]?.instanceId,instancePath:v.instancePath,occurrencePath:v.occurrencePath,geometryKey:v.geometryKey}))];
  });
 }

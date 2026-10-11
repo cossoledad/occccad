@@ -69,53 +69,34 @@ func TestMotionAssociationSemanticBaseline(t *testing.T) {
 }
 
 func TestMotionApplicationProjectionReferencesUnique(t *testing.T) {
-	c := AssemblyConstraint{ID: "formal-axis", Kind: "COINCIDENT", DirectionRelation: "SAME"}
-	baseline := semanticConstraint(c)
-	c.DirectionRelation = "OPPOSITE"
-	joint := func(id, kind string) MechanismJoint {
-		return MechanismJoint{ID: id, Name: id, Kind: kind, Sources: []JointSource{{ConstraintID: c.ID, Baseline: baseline}, {ConstraintID: "deleted-source", Baseline: "old"}}}
-	}
-	k := KinematicsDefinitions{Mechanisms: []Mechanism{{ID: "m1", Name: "original", Joints: []MechanismJoint{joint("j1", "REVOLUTE")}}, {ID: "m2", Name: "imported", Joints: []MechanismJoint{joint("j2", "PRISMATIC")}}}, Associations: []MotionAssemblyMapping{{MechanismID: "m1", JointID: "j1", Role: "axis", ConstraintID: c.ID}}}
-	tree := kinematicsStructure("product", "revision", "product", k, []AssemblyConstraint{c})
+	k := KinematicsDefinitions{Mechanisms: []Mechanism{{ID: "m", Name: "mechanism", Joints: []MechanismJoint{{ID: "j", Name: "rotation", Kind: "REVOLUTE"}}}}, Studies: []MotionStudy{{ID: "s", Name: "simulation", MechanismID: "m"}}, Associations: []MotionAssemblyMapping{{MechanismID: "m", JointID: "j", Role: "axis", ConstraintID: "formal-axis"}}}
+	tree := kinematicsStructure("p", "r", "p", k, []AssemblyConstraint{{ID: "formal-axis", Name: "axis"}})
 	seen := map[string]bool{}
-	changed, deleted, references := 0, 0, 0
 	var walk func(DocumentStructureNode)
 	walk = func(n DocumentStructureNode) {
 		if seen[n.ID] {
-			t.Fatalf("duplicate tree node %s", n.ID)
+			t.Fatal("duplicate", n.ID)
 		}
 		seen[n.ID] = true
-		if n.Kind == "JOINT_SOURCE" {
-			if len(n.Capabilities) > 0 {
-				t.Fatal("reference has mutation capability")
-			}
-			if n.EntityID == c.ID {
-				references++
-			}
-		}
-		if n.ResolutionStatus == "SOURCE_CHANGED" {
-			changed++
-		}
-		if n.ResolutionStatus == "SOURCE_DELETED" {
-			deleted++
-		}
-		if n.Kind == "JOINT_EXPANSION" && n.EntityID == "j2/axial-location" {
-			t.Fatal("prismatic projection incorrectly freezes axial coordinate")
-		}
-		for _, child := range n.Children {
-			walk(child)
+		for _, c := range n.Children {
+			walk(c)
 		}
 	}
 	walk(tree)
-	if references != 3 || changed != 2 || deleted != 2 {
-		t.Fatalf("source projection %d %d %d", references, changed, deleted)
+	if len(tree.Children) != 2 || tree.Children[1].Kind != "MOTION_STUDY" || tree.Children[1].Capabilities[0] != "EDIT" {
+		t.Fatal("simulation is not an independently editable application object", tree)
+	}
+	for _, n := range tree.Children[0].Children {
+		if n.Kind == "MOTION_STUDY" {
+			t.Fatal("simulation is incorrectly owned by a mechanism")
+		}
 	}
 }
 
 func TestMotionApplicationProjectionNamedSupports(t *testing.T) {
 	first := JointEndpoint{InstanceID: "shaft", Axis: &AssemblyGeometryRef{InstanceID: "shaft", Kind: "AXIS"}, Plane: &AssemblyGeometryRef{InstanceID: "shaft", Kind: "PLANE"}}
 	second := JointEndpoint{InstanceID: "rotor", Axis: &AssemblyGeometryRef{InstanceID: "rotor", Kind: "AXIS"}, Plane: &AssemblyGeometryRef{InstanceID: "rotor", Kind: "PLANE"}}
-	k := KinematicsDefinitions{Mechanisms: []Mechanism{{ID: "m", Name: "机构", Joints: []MechanismJoint{{ID: "ground", Name: "固定件", Kind: "GROUND", First: JointEndpoint{InstanceID: "shaft"}}, {ID: "joint", Name: "旋转接合", Kind: "REVOLUTE", First: first, Second: &second}}}}}
+	k := KinematicsDefinitions{Mechanisms: []Mechanism{{ID: "m", Name: "机构", Joints: []MechanismJoint{{ID: "ground", Name: "固定件", Kind: "GROUND", First: JointEndpoint{InstanceID: "shaft"}}, {ID: "joint", Name: "旋转接合", Kind: "REVOLUTE", First: first, Second: &second, Constraints: []AssemblyConstraint{{ID: "joint/axis", EvaluationStatus: "VERIFIED"}, {ID: "joint/axial-location", EvaluationStatus: "VERIFIED"}}}}}}}
 	tree := kinematicsStructure("product", "revision", "product", k, nil, []ProductInstance{{ID: "shaft", Name: "圆柱.1"}, {ID: "rotor", Name: "螺旋桨.1"}})
 	joints := tree.Children[0].Children
 	if joints[0].Name != "固定件 (圆柱.1)" || joints[1].Name != "旋转接合" {
@@ -126,6 +107,9 @@ func TestMotionApplicationProjectionNamedSupports(t *testing.T) {
 	}
 	count := 0
 	for _, relation := range joints[1].Children {
+		if relation.EvaluationStatus != "VERIFIED" {
+			t.Fatal("persistent constraint status was lost", relation)
+		}
 		if relation.Kind != "JOINT_EXPANSION" || len(relation.Capabilities) != 1 || relation.Capabilities[0] != "EDIT" {
 			t.Fatal("joint relation became an independent definition")
 		}
