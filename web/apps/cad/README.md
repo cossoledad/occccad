@@ -228,4 +228,6 @@ ApplicationDisplay 提交匹配文档 Revision 的完整姿态，资源清理不
 
 当前支持 Ground/Revolute、角度 Command、独立线性 MotionLaw 及引用规律的 Simulation。“转换为产品约束”支持 accepted 或 Run 来源，不依赖仿真；独立身份只新增或复用一致定义，差异报告冲突。完整 Product 求解、CAS、Undo/Redo 必需。其他关节、干涉、试动、来源导入未交付。Mock fixture 不是数值权威。详情见[当前合同](../../../docs/architecture/current/kinematics-dmu.md)。
 
+旋转接合对话框按轴线重合与轴向定位显示四个支撑及几何来源，支持圆柱面等精确解析、替换/清除和两个生成约束预览。“运行仿真 / 已保存结果”打开同一个对话框，计算、停止任务、播放、单步和定位均在其中完成；工具栏与搜索不提供独立播放按钮。关闭当前合格回放先保存位置，再恢复定义编辑；取消帧转换返回原对话框和原帧。操作设计见[流程](../../../plans/dmu-ui-workflow.md)。
+
 真实浏览器验收：运行最新 API/Worker 并加载项目 .env 后，`pnpm exec playwright test --config playwright.live.config.ts browser/motion-live.spec.ts`；用例通过正式建模命令创建验收文档，记录 Three.js 实际渲染帧，截图输出 build/acceptance。

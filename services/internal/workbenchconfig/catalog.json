@@ -5320,7 +5320,7 @@
     {
       "id": "dmu.revolute",
       "name": "旋转接合",
-      "helpText": "机构与 DMU · 旋转接合",
+      "helpText": "选择两轴和两定位面，预览并创建重合与偏移两条机构约束",
       "iconKey": "rotate",
       "repeatable": false,
       "visibleWhen": {
@@ -5431,8 +5431,8 @@
     },
     {
       "id": "dmu.study",
-      "name": "仿真",
-      "helpText": "机构与 DMU · 仿真",
+      "name": "仿真定义",
+      "helpText": "选择运动规律，保存仿真名称、帧数与计算预算",
       "iconKey": "version",
       "repeatable": false,
       "visibleWhen": {
@@ -5488,136 +5488,10 @@
     {
       "id": "dmu.run",
       "name": "运行仿真",
-      "helpText": "机构与 DMU · 运行仿真",
+      "helpText": "打开仿真对话框，在其中计算、播放、定位和停止任务",
       "iconKey": "revolve",
       "repeatable": false,
       "implementation": "form",
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {}
-    },
-    {
-      "id": "dmu.play",
-      "name": "播放",
-      "helpText": "机构与 DMU · 播放",
-      "iconKey": "revolve",
-      "repeatable": false,
-      "implementation": "handler",
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {}
-    },
-    {
-      "id": "dmu.pause",
-      "name": "暂停",
-      "helpText": "机构与 DMU · 暂停",
-      "iconKey": "fixed",
-      "repeatable": false,
-      "implementation": "handler",
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {}
-    },
-    {
-      "id": "dmu.previous",
-      "name": "上一步",
-      "helpText": "机构与 DMU · 上一步",
-      "iconKey": "undo",
-      "repeatable": false,
-      "implementation": "handler",
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {}
-    },
-    {
-      "id": "dmu.next",
-      "name": "单步",
-      "helpText": "机构与 DMU · 单步",
-      "iconKey": "redo",
-      "repeatable": false,
-      "implementation": "handler",
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {}
-    },
-    {
-      "id": "dmu.reset",
-      "name": "复位",
-      "helpText": "机构与 DMU · 复位",
-      "iconKey": "fit",
-      "repeatable": false,
-      "implementation": "handler",
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {}
-    },
-    {
-      "id": "dmu.cancel",
-      "name": "取消后台任务",
-      "helpText": "机构与 DMU · 取消后台任务",
-      "iconKey": "delete",
-      "repeatable": false,
-      "implementation": "handler",
       "visibleWhen": {
         "all": [
           {
@@ -5662,8 +5536,8 @@
     },
     {
       "id": "dmu.results",
-      "name": "仿真与回放",
-      "helpText": "仿真与回放",
+      "name": "已保存结果",
+      "helpText": "在同一仿真对话框中查看后台任务和已保存运行",
       "iconKey": "insert",
       "repeatable": false,
       "visibleWhen": {
@@ -6437,7 +6311,7 @@
     },
     {
       "id": "dmu-motion",
-      "name": "命令与模拟",
+      "name": "命令与仿真",
       "styleKey": "assembly",
       "position": "top-left",
       "orientation": "horizontal",
@@ -6466,7 +6340,7 @@
     },
     {
       "id": "dmu-association",
-      "name": "装配关联",
+      "name": "约束转换",
       "styleKey": "assembly",
       "position": "top-left",
       "orientation": "horizontal",
@@ -6475,45 +6349,6 @@
           "commandId": "dmu.apply",
           "groupKey": "primary",
           "order": 20
-        }
-      ]
-    },
-    {
-      "id": "dmu-playback",
-      "name": "回放",
-      "styleKey": "assembly",
-      "position": "top-left",
-      "orientation": "horizontal",
-      "commands": [
-        {
-          "commandId": "dmu.play",
-          "groupKey": "primary",
-          "order": 10
-        },
-        {
-          "commandId": "dmu.pause",
-          "groupKey": "primary",
-          "order": 20
-        },
-        {
-          "commandId": "dmu.previous",
-          "groupKey": "primary",
-          "order": 30
-        },
-        {
-          "commandId": "dmu.next",
-          "groupKey": "primary",
-          "order": 40
-        },
-        {
-          "commandId": "dmu.reset",
-          "groupKey": "primary",
-          "order": 50
-        },
-        {
-          "commandId": "dmu.cancel",
-          "groupKey": "primary",
-          "order": 70
         }
       ]
     },
@@ -6998,11 +6833,6 @@
       "tabId": "KINEMATICS_DMU.model",
       "groupId": "dmu-motion",
       "order": 20
-    },
-    {
-      "tabId": "KINEMATICS_DMU.model",
-      "groupId": "dmu-playback",
-      "order": 50
     },
     {
       "tabId": "KINEMATICS_DMU.view",

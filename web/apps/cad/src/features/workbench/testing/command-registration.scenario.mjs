@@ -38,6 +38,10 @@ try{
  assert.equal(await definitionRegistry.execute('tree.rename',{payload:{node}}),true);assert.equal(renames,1);
  definitionFacts.rootCanEdit=false;assert.equal(await definitionRegistry.execute('tree.rename',{payload:{node}}),false,'frozen tree mutations stay disabled');
  const commands=workbenchCommands(bindings);
+ for(const action of ['play','pause','previous','next','reset','cancel']){
+  assert(!commands.some(c=>c.id==='dmu.'+action),'playback controls belong only to the simulation dialog');
+  assert(!catalog.commands.some(c=>c.id==='dmu.'+action),'retired controls must also disappear from command search');
+ }
  registry.registerMany(commands);
  let facts={hostType:'PRODUCT',targetType:'PART',sketchActive:false,canEdit:true,rootCanEdit:true,busy:false,selectionKind:'',selectionCount:0,hasWorkingBody:true};
  validateCatalog(catalog,id=>registry.has(id));registry.configure(catalog,()=>facts);

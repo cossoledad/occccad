@@ -2,6 +2,8 @@
 
 > 最新设计见[DMU 完整设计](dmu-mechanism-redesign.md)，当前合同见[Current Architecture](../docs/architecture/current/kinematics-dmu.md)。旧实现的“进入自动创建空机构、退出恢复旧产品位置、Study 自带规律、映射关系隐式更新”已被本次整改取代。
 
+后续的接合对话框和单对话框仿真整改见[用户流程设计](dmu-ui-workflow.md)，该设计取代运行设置与回放分离、播放控制放在工具栏的旧呈现。
+
 ## 本次实施
 
 - 服务端增加只读 application 准备与版本化 ACTIVATE/EXIT 命令，按目标方程从当前 accepted 求解；无产品关系退出持久保留位置。机构仅保存成员 accepted，空切换不生成 Revision/Undo，仍记录幂等调用。
@@ -18,12 +20,21 @@
 2. 点击“机构”进入 DMU，点击“新建机械装置”确认。取消未确认对话框不写历史；确认空机构退出后仍保留。
 3. 固定件选择轴；旋转接合选择两轴及两定位平面，设置偏移。查看真实“重合.n (A,B) / 偏移.n (A,B)”子约束与固定件下 Fix；双击关系聚焦对应接合字段。
 4. 连续改偏移，确认、取消及刷新均以机构 accepted 为基准。退出按产品关系重新计算：无关系时当前位置保留、重开仍保持；有关系时可以回到产品关系规定的位置。
-5. 接合勾选角度命令或显式创建 Command，创建运动规律，再创建引用该规律的仿真；运行并整帧回放。关闭当前版本结果先采用合格帧，再回到机构编辑。
-6. 在当前 accepted 或合格 Run 帧“转换为产品约束”，生成计划并一次提交，默认保留旋转 DOF=1；明确锁角才增加角关系。重复一致映射复用，定义改变报告冲突，不自动同步。一次 Undo/Redo 恢复/重放关系、位姿及映射。
+5. 接合勾选角度命令或显式创建 Command，创建运动规律，再创建引用该规律的“仿真定义”；“运行仿真”打开同一个对话框，在其中计算、播放、暂停、定位或停止后台计算。“已保存结果”也打开该对话框。关闭当前版本结果先采用合格帧，再回到机构编辑。
+6. 在当前 accepted 用工具栏“转换为产品约束”，或从仿真对话框的合格 Run 帧转换，生成计划并一次提交，默认保留旋转 DOF=1；明确锁角才增加角关系。取消帧转换返回同一回放和同一帧。重复一致映射复用，定义改变报告冲突，不自动同步。一次 Undo/Redo 恢复/重放关系、位姿及映射。
 
 ## 验证记录
 
-2026-10-10 本次专项：
+2026-10-11 对话框与用户流程整改：
+
+- `go -C services test ./internal/workbenchconfig -count=1`、`go -C services test ./internal/api -run Toolbar -count=1` 通过，覆盖唯一目录、API 投影和播放命令退役；API 已重建并重启加载新目录。
+- `pnpm test -- motion mechanism-selection command-registration toolbar` 通过（8/105 个匹配场景），最终生产构建通过。清除轴解除该端平面、替换后只选择缺失字段、Publication 名称按 occurrence 查找、全局命令与局部播放的边界均有覆盖。
+- 标准浏览器 6 项相关用例分批通过：圆柱面/定位面 Publication 拾取及清除重选；单对话框回放、重新计算、关闭保存失败保留原帧及重试、帧转换取消返回原回放；关闭保留后台 Job、显式停止计算；迟到响应门禁；基础目录无播放/复位等命令，accepted 转换计划显示机构已确认位置而非空目标或旧回放；真实子关系聚焦所属字段。最后三项复验 4.4 min，accepted 计划及目录用例追加复验通过（1.1 min）。Mock 仅作为交互合同，不是几何或数值见证。
+- 新增真实浏览器用例通过（3.6 min，PostgreSQL + S3 + Release Worker + 正式 API + Vite WebSocket + 软件 WebGL）：用正式草图/拉伸创建两零件，发布真实圆柱面及 z=0 定位面；机构、固定件、旋转接合及角度命令通过 UI 创建，形成两条真实机构约束，保留 Publication 和 PersistentSelection；规律/仿真定义也通过 UI 保存。单个对话框中完成 5 帧仿真、播放/暂停、起点/终点及单步，然后重新计算生成第二个独立运行；关闭权威保存所选帧四元数，继续打开旋转接合编辑。此用例验证树中的真实曲面 Publication，不声称已逐项验收所有直接鼠标命中或其他关节。
+- 实际界面截图：`build/acceptance/dmu-revolute-dialog.png`、`build/acceptance/dmu-simulation-dialog.png`，均已查看。最终 context-audit、diff 检查通过。
+- 完整 Web 再次受既有 `m4.snapshot.current-render-bindings` 合同锁阻塞；`tests/assembly-contract` 与 HEAD 无差异。日志：build/agent-logs/20261010-234402-198928306-web-scenarios.log。未修改该基线，本轮未重跑无关服务端全量几何测试，也未清空开发数据。
+
+2026-10-10 基础机构专项（历史验证记录）：
 
 - `go -C services test ./internal/workspace ./internal/workbenchconfig -count=1` 通过；命名计数器/历史、Law 引用、成员与非成员位置所有权、树投影和命令目录覆盖。
 - workspace/API 的 `Motion|Mechanism|ConstraintNames|AssemblyGroup` 专项通过。

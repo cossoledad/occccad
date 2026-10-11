@@ -1,6 +1,6 @@
 # 基础旋转机构、仿真与产品约束转换
 
-> 当前实现合同。设计依据及验收矩阵见[完整设计](../../../plans/dmu-mechanism-redesign.md)，验证记录见[实施记录](../../../plans/kinematics-dmu.md)，扩展候选见[目标](../target/kinematics-dmu.md)。当前仅支持根 owning Product 的固定件、旋转接合及单角度线性仿真。
+> 当前实现合同。设计依据及验收矩阵见[完整设计](../../../plans/dmu-mechanism-redesign.md)与[对话框操作流程](../../../plans/dmu-ui-workflow.md)，验证记录见[实施记录](../../../plans/kinematics-dmu.md)，扩展候选见[目标](../target/kinematics-dmu.md)。当前仅支持根 owning Product 的固定件、旋转接合及单角度线性仿真。
 
 ## 应用与位姿所有权
 
@@ -40,6 +40,8 @@ Ground 保存 SPACE Fix 的捕获基准；旋转接合恰好保存轴 Coincidenc
 
 `mechanism-preview` 是带取消和 20 s 预算的只读预览。两轴齐全可预览不完整接合，平面齐全编译完整约束；全部已有机构方程保留，Product 约束完全不继承。第一选择为 MovingBody，第二选择为 ReferenceBody，采用 MOVE_FIRST_MINIMIZE_REFERENCE。前端冻结命令前 accepted nominal，连续输入只更改草稿，不逐次以预览结果重定义基准。
 
+旋转接合对话框按“轴线重合 / 轴向定位”组织四个支撑字段，显示零件和几何来源，顺序仍是两轴、两面。轴字段通过正式 inspect 从圆柱面、圆边、圆锥面解析轴，也接受基准轴/直边；定位字段仅接受该端零件的平面面或基准平面。支撑允许替换与清除，清除轴同时清除该端定位面；替换后只推进到尚未绑定的字段。偏移、角度命令及两个生成关系直接呈现，零位/方向/限位可展开。完整输入且对应预览合格后才可保存。
+
 `SAVE_KINEMATICS` 在事务外解析稳定支持、绑定普通约束及权威完整求解。机构、预览、运行共用 FreezeAssemblyInput，不重复从 Joint 生成另一套定位方程。成功要求 CONVERGED、运动偏好门禁、独立硬见证、完整有限单位四元数及接合闭合；客户端输入位姿仍须权威验证，不能作为合格见证。定义及成员 accepted 一次写入 product.kinematics，经 Revision/ChangeSet/CAS/Undo/Redo；失败不推进 Head。
 
 Mechanism.evaluation 分别记录 physical relativeDOF、gaugeDOF、施加 Command 后的 drivenDOF、driverCount。Command 覆盖通过同时加入当前坐标硬方程的真实求解计算，不以简单减法推算，不保存永久角锁。树显示 drivenDOF；未计算时显示待计算。一个接合坐标不能重复创建 Command。
@@ -53,6 +55,10 @@ MotionDriver 只绑定 Revolute 的角坐标。MotionLaw 独立保存 start/end/
 MOTION_SNAPSHOT → MOTION_STUDY Job → MOTION_RUN 使用现有 attempt/lease/deadline/cancel 和完整性摘要。后台任务独立于面板，退出不自动取消任务。只有显式加载或当前会话前台完成的结果进入显示；迟到结果不抢占视口。终态结果删除隐藏用户列表项，保留 Job/Artifact/审计。
 
 回放使用冻结树、几何、选择和合格完整帧，不逐零件插值、不逐帧写 Revision。关闭当前版本回放时先保持所显示帧，通过一次权威 SAVE_KINEMATICS 采用成员位置，再结束冻结显示；保存失败保留回放及错误。历史结果关闭恢复最新机构 accepted，不回写旧快照。
+
+工具栏的“运行仿真 / 已保存结果”打开同一个“仿真与回放”对话框。仿真定义、计算进度、停止计算、结果选择、播放/暂停、起点/终点、前后单步和时间定位均在其中操作。播放按钮直接操作当前对话框会话，不进入全局 Registry；工具栏和搜索没有播放类命令。计算前若采用当前版本的回放帧，先权威保存该帧。关闭对话框切断前台完成资格，后台 Job 可继续，迟到结果不能恢复回放。打开期间冻结定义修改，关闭成功后恢复机构编辑；视图导航仍可用。
+
+回放帧转换作为该对话框的子流程，取消转换计划返回同一回放和同一帧；成功则退出到装配设计。普通工具栏转换只从当前机构已确认位置启动。
 
 ## 显式转换为产品约束
 

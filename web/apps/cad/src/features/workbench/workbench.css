@@ -150,3 +150,17 @@
 
 /* Fields belong to the standard command dialog; the viewport remains full size. */
 .motion-study-fields { display:flex; flex-direction:column; gap:10px; }
+.motion-joint-editor { display:flex; flex-direction:column; gap:10px; }
+.motion-labeled-field { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.motion-labeled-field > .ant-input { flex:1; min-width:160px; }
+.motion-dialog-section { border:1px solid var(--wb-border); border-radius:6px; padding:10px; display:flex; flex-direction:column; gap:8px; }
+.motion-dialog-section h4 { margin:0; font-size:13px; }
+.motion-dialog-section p { margin:0; color:var(--wb-muted); font-size:12px; line-height:1.5; }
+.motion-support-row { display:flex; gap:8px; align-items:center; }
+.motion-support-number { font-size:12px; color:var(--wb-muted); }
+.motion-support-row > .ant-btn:first-of-type { flex:1; min-width:0; height:auto; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; white-space:normal; text-align:left; }
+.motion-support-title { font-size:12px; flex:none; }
+.motion-support-value { font-size:12px; overflow-wrap:anywhere; opacity:.85; text-align:right; }
+.motion-generated-relations > div { display:flex; justify-content:space-between; gap:8px; font-size:12px; }
+.motion-dialog-status { border-top:1px solid var(--wb-border); padding-top:8px; font-size:12px; }
+.motion-playback-controls { display:flex; flex-wrap:wrap; gap:6px; }

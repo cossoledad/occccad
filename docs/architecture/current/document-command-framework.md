@@ -22,7 +22,7 @@
 
 条件表达式支持 `fact/equals`、`all`、`any`、`not`。事实来自现有状态：hostType、targetType、sketchActive、canEdit、rootCanEdit、busy、selectionKind、selectionCount、hasWorkingBody、moveReceiptPending、isMock、rootTarget、motionActive。每次状态改变在前端同步计算，不向后端请求选择变化。显示、可执行及活动态分别投影；隐藏入口不会禁止合法快捷键调用，执行仍检查条件、实现 capability 与后端 ACL。
 
-Toolbar Tab 按文档会话及工作台保存当前分类，唯一 `WorkbenchCommands` 使用 `useWorkbenchTab` 读取选择。普通分类切换只改变呈现。根 Product 的机构入口及 Mechanism 树双击进入显式应用编辑会话，catalog 的互斥 contexts 根据 `motionActive` 显示 KINEMATICS_DMU 分类并隐藏装配分类；切换该应用内部的视图/文档分类不退出机构。进入/退出清理交互命令，退出释放临时姿态并恢复最新正式模型；DMU 分类的“机构”入口通过正式 SAVE_KINEMATICS 创建空节点；未编辑的新空机构退出时经同一命令清理，已有或被编辑的机构保留。没有重复新建命令、示例分类或轮询运行结果树节点。嵌套 Product 编辑使用原装配分类，不提供宿主机构入口。后台读取和刷新保持既有打开标签顺序。
+Toolbar Tab 按文档会话及工作台保存当前分类，唯一 `WorkbenchCommands` 使用 `useWorkbenchTab` 读取选择。普通分类切换只改变呈现。根 Product 的机构入口及 Mechanism 树双击进入显式应用编辑会话，catalog 的互斥 contexts 根据 `motionActive` 显示 KINEMATICS_DMU 分类并隐藏装配分类；切换该应用内部的视图/文档分类不退出机构。进入应用不创建对象，“新建机械装置”确认后通过 SAVE_KINEMATICS 保存空机构，退出不删除。进入/退出从当前已确认位置按目标应用的关系权威求解，完整显示帧交接，见[机构合同](kinematics-dmu.md)。嵌套 Product 编辑使用原装配分类，不提供宿主机构入口。后台读取和刷新保持既有打开标签顺序。
 
 ## 实现注册与操作生命周期
 
@@ -32,7 +32,9 @@ Toolbar、搜索、快捷键和结构树菜单经同一个 `execute` 入口；�
 
 每次执行获得 `CommandOperation`，提供 AbortSignal、current 和 `own(dispose)`。交互命令切换、目标上下文改变和模块释放会取消旧操作，释放资源；迟到的异步显示结果必须检查 operation 或原有领域 generation。普通视图 handler 不打断正在运行的建模工具。工具转入装配约束定义时，使用既有 pending/editing 状态保留操作，面板结束后才清理。ToolManager 与领域表单保留自己的 Esc/多步骤/连续执行规则，不新增全局 Esc 监听。
 
-机构定义、运行设置、结果回放及转换计划使用同一 `CommandDialog` / form `CommandOperation`。Mechanism 树双击只进入会话，其他可编辑定义转入已有 `tree.edit` form；播放、定位与明确取消任务为 handler，复用 Registry、Ribbon、搜索及 ToolButton。视口不增加常驻机构活动区域；提示使用底栏 WorkbenchStatus，诊断走统一 OperationFeedback。接合自动选择/替换字段复用 FeatureSelectionSession；待解析候选通过共享异步拾取完成精确校验后绑定，树和视口没有额外鼠标控制器。命令取消与后台 Job/冻结结果加载分别使用代际门禁，普通定义/转换表单关闭不改写冻结帧；仿真回放对话框关闭则停止播放并恢复机构编辑，当前合格帧通过一次 SAVE_KINEMATICS 验证成为机构基准。两者均不自动取消后台任务。仿真定义与机构平级且双击可编辑，机构保存普通约束与自己的合格姿态；确认不先释放到 Product 初始位姿。
+机构定义、仿真对话框及转换计划使用同一 `CommandDialog` / form `CommandOperation`。Mechanism 树双击进入应用，其他可编辑定义转入已有 `tree.edit` form。“运行仿真 / 已保存结果”打开同一个对话框，计算、停止后台任务、播放/暂停、单步和时间定位是对话框局部控件，不是 Registry 命令或 Ribbon/Search 项。局部操作不能取消持有该对话框的 CommandOperation；普通视图 handler 仍可执行。
+
+视口不增加常驻机构活动区域；提示使用底栏 WorkbenchStatus，诊断走统一 OperationFeedback。旋转接合按轴线重合和轴向定位显示支撑来源、替换/清除、偏移和两个生成关系；自动选择/替换字段复用 FeatureSelectionSession，精确 inspect 后绑定，树和视口没有额外鼠标控制器。命令取消与后台 Job/冻结结果加载分别使用代际门禁。关闭当前版本的仿真回放先通过 SAVE_KINEMATICS 采用当前合格帧，失败保留对话框及帧；关闭后的后台完成不重开显示。帧转换是子流程，取消计划返回原仿真及原帧，转换成功回装配设计。机构约束与产品约束继续独立，确认不先释放到 Product 初始位置。
 
 模型修改仍由现有正式命令提交；Preview 不推进 Head，确认提交当前成功候选，失败、过期、取消继续受服务端 gate 约束。表单 adapters 复用各自既有参数、选择过滤、预览/提交/关闭实现，公共注册层不会强迫拉伸、草图约束和适应视图使用相同步骤。
 

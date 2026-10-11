@@ -163,3 +163,39 @@ func TestDebugCatalogSeparatesDiagnosticCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestDMUSimulationIsOneDialogCommand(t *testing.T) {
+	c, err := Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	retired := map[string]bool{}
+	for _, action := range []string{"play", "pause", "previous", "next", "reset", "cancel"} {
+		retired["dmu."+action] = true
+	}
+	found := map[string]bool{}
+	for _, command := range c.Commands {
+		if retired[command.ID] {
+			t.Fatalf("dialog control leaked into command search: %s", command.ID)
+		}
+		if command.ID == "dmu.run" || command.ID == "dmu.results" {
+			if command.Implementation != "form" {
+				t.Fatalf("simulation entry must open a dialog: %s", command.ID)
+			}
+			found[command.ID] = true
+		}
+	}
+	if len(found) != 2 {
+		t.Fatal("missing simulation or saved results entry")
+	}
+	for _, group := range c.Groups {
+		if group.ID == "dmu-playback" {
+			t.Fatal("playback controls must not form a global toolbar")
+		}
+		for _, command := range group.Commands {
+			if retired[command.CommandID] {
+				t.Fatal("retired playback placement")
+			}
+		}
+	}
+}
