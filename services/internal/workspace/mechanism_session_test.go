@@ -53,6 +53,9 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	view = command(CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID})
 	id := view.Product.Instances[1].ID
 	view = command(CommandRequest{Type: "MOVE_INSTANCE", InstanceID: id, Rotation: [4]float64{0, 0, math.Sin(math.Pi / 12), math.Cos(math.Pi / 12)}})
+	view = command(CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID})
+	environmentID := view.Product.Instances[2].ID
+	view = command(CommandRequest{Type: "MOVE_INSTANCE", InstanceID: environmentID, Translation: [3]float64{77, -25, 12}, Rotation: [4]float64{0, 0, 0, 1}})
 	end := func(id string) JointEndpoint {
 		return JointEndpoint{InstanceID: id, Axis: &AssemblyGeometryRef{InstanceID: id, Kind: "AXIS", GeometryID: "axis-system-default", Axis: "Z"}, Plane: &AssemblyGeometryRef{InstanceID: id, Kind: "PLANE", GeometryID: "datum-xy"}, Frame: InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}
 	}
@@ -99,6 +102,32 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	if err != nil || !path.Completed {
 		t.Fatal("recorded finite path", path.Failure, err)
 	}
+	if !reflect.DeepEqual(path.Snapshot.View.Product, baseline.Product) || !reflect.DeepEqual(path.Snapshot.View.ResolvedInstances, baseline.ResolvedInstances) {
+		t.Fatal("recording playback mixed numerical nominal poses into the display document")
+	}
+	t.Run("frozen environment is numerical input, not a display document mutation", func(t *testing.T) {
+		raw, _ := json.Marshal(path.Snapshot)
+		var snapshot MotionSnapshot
+		if err := json.Unmarshal(raw, &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		pose := InstancePose{Translation: [3]float64{90, -35, 15}, Rotation: [4]float64{0, 0, math.Sin(math.Pi / 8), math.Cos(math.Pi / 8)}}
+		snapshot.Study.EnvironmentPoses[environmentID] = pose
+		if err := svc.compileMotionSnapshot(t.Context(), &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(snapshot.View.Product, baseline.Product) || !reflect.DeepEqual(snapshot.View.ResolvedInstances, baseline.ResolvedInstances) {
+			t.Fatal("historical environment changed the source occurrence coordinate system")
+		}
+		snapshot.Digest = motionDigest(snapshot)
+		engine, err := newMechanismMotionSolver(t.Context(), svc, snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !conflictPoseClose(geometry.AssemblyPose(engine.state.Frame.UnitPoses[environmentID]), geometry.AssemblyPose(pose), 1e-7, 1e-8) {
+			t.Fatal("display isolation lost the frozen environment in the solver")
+		}
+	})
 	playhead, err := svc.motionPlayhead(t.Context(), path, .37)
 	if err != nil {
 		t.Fatal(err)

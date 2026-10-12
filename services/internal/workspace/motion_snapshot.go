@@ -139,8 +139,10 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 }
 
 func (service *Service) compileMotionSnapshot(ctx context.Context, s *MotionSnapshot) error {
+	product := *s.View.Product
 	if len(s.Study.Keyframes) > 0 {
-		product, err := cloneAssemblyProduct(*s.View.Product)
+		var err error
+		product, err = cloneAssemblyProduct(product)
 		if err != nil {
 			return err
 		}
@@ -157,16 +159,17 @@ func (service *Service) compileMotionSnapshot(ctx context.Context, s *MotionSnap
 				product.Instances[i].Translation, product.Instances[i].Rotation = pose.Translation, pose.Rotation
 			}
 		}
-		s.View.Product = &product
 	}
-	poseModel, err := mechanismPoseModel(*s.View.Product, s.Mechanism)
+	// A frozen environment changes only the numerical input. Replacing the
+	// display Product would leave its resolved body poses in a different frame.
+	poseModel, err := mechanismPoseModel(product, s.Mechanism)
 	if err != nil {
 		return err
 	}
 	if s.Mechanism, err = service.resolveMechanismGeometry(ctx, poseModel, s.Mechanism, false); err != nil {
 		return err
 	}
-	input, err := mechanismProductInput(*s.View.Product, s.Mechanism)
+	input, err := mechanismProductInput(product, s.Mechanism)
 	if err != nil {
 		return err
 	}

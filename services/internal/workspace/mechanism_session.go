@@ -237,6 +237,9 @@ func (service *Service) BeginMechanismSession(parent context.Context, document, 
 	if err = service.compileMotionSnapshot(ctx, &snapshot); err != nil {
 		return MechanismSessionOpened{}, err
 	}
+	// The numerical nominal has already been frozen in Equations. Rendering
+	// must retain the coherent source Product and its resolved occurrence poses.
+	snapshot.View = view
 	snapshot.Digest = motionDigest(snapshot)
 	if data, err := json.Marshal(snapshot); err != nil || len(data) > 8<<20 {
 		return MechanismSessionOpened{}, fmt.Errorf("%w: mechanism snapshot size limit", ErrValidation)

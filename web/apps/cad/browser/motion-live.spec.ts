@@ -321,6 +321,50 @@ test('viewport instance picks and mechanism manipulation preserve Product constr
  await command(page,'退出机构');await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();v=await current(page,seed.id);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation).toEqual(original.translation);expect(v.product.kinematics.mechanisms).toHaveLength(1);expect(errors).toEqual([]);
 });
 
+test('recording playback preserves body world poses across play and exact seeks',async({page})=>{
+ test.setTimeout(300_000);
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const login=await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}});expect(login.ok()).toBeTruthy();
+ await page.goto('/');const seed=await seedProduct(page);
+ await page.evaluate(async seed=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');const v=await api.getDocument(seed.id),k=structuredClone(v.product!.kinematics!);
+  const joint=k.mechanisms[0].joints.find(j=>j.id===seed.jid)!;joint.lower={value:-180,unit:'deg'};joint.upper={value:180,unit:'deg'};
+  k.drivers=[{id:crypto.randomUUID(),name:'命令.1',mechanismId:seed.mid,jointId:seed.jid}];
+  await api.command(seed.id,{type:'SAVE_KINEMATICS',versionId:v.document.versionId,kinematics:k});
+ },seed);
+ await page.goto('/documents/'+seed.id+'?application=mechanism&mechanismId='+seed.mid);await expect(page.getByRole('button',{name:'模拟',exact:true})).toBeEnabled({timeout:60_000});
+ const baseline=await current(page,seed.id);expect(baseline.product.instances.find((i:any)=>i.id===seed.rotor).translation).not.toEqual(baseline.product.kinematics.mechanisms[0].poses[seed.rotor].translation);
+ await command(page,'模拟');const recorder=page.getByRole('dialog',{name:'模拟',exact:true}),trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true});
+ await expect(trial.getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();await recorder.getByRole('checkbox',{name:'自动插入',exact:true}).uncheck();
+ for(const [time,angle,count] of [[4,20,2],[8,45,3]]){
+  await recorder.getByRole('spinbutton',{name:'关键帧时间'}).fill(String(time));await trial.getByRole('spinbutton',{name:'命令角度'}).fill(String(angle));
+  await expect(recorder.getByRole('button',{name:'插入',exact:true})).toBeEnabled();await recorder.getByRole('button',{name:'插入',exact:true}).click();await expect(recorder.locator('tbody tr[data-row-key]')).toHaveCount(count);
+ }
+ await viewportEngine(page);
+ const scene=()=>page.evaluate(()=>{
+  const e=(window as any).__dmuEngine;e.scene.updateMatrixWorld(true);
+  return [...e.solidBindings.values()].map((b:any)=>({id:b.context.instanceId,root:e.instanceGroups.get(b.context.instanceId).position.toArray(),position:b.mesh.getWorldPosition(b.mesh.position.clone()).toArray(),rotation:b.mesh.getWorldQuaternion(b.mesh.quaternion.clone()).toArray(),rootRotation:e.instanceGroups.get(b.context.instanceId).quaternion.toArray()}));
+ });
+ const qualified=(bodies:any[])=>{
+  expect(bodies).toHaveLength(2);
+  for(const b of bodies){for(let i=0;i<3;i++){expect(b.position[i]).toBeCloseTo(b.root[i],6);expect(b.position[i]).toBeCloseTo(baseline.product.kinematics.mechanisms[0].poses[b.id].translation[i],6)}expect(Math.abs(b.rotation.reduce((sum:number,v:number,i:number)=>sum+v*b.rootRotation[i],0))).toBeCloseTo(1,7)}
+ };
+ for(const name of ['起点','终点']){await recorder.getByRole('button',{name,exact:true}).click();await expect(recorder.getByRole('button',{name:'播放',exact:true})).toBeEnabled();qualified(await scene())}
+ await recorder.getByRole('spinbutton',{name:'模拟定位时间'}).fill('2.37');await expect.poll(async()=>Number(await recorder.getByRole('spinbutton',{name:'模拟定位时间'}).inputValue())).toBeCloseTo(2.37,2);qualified(await scene());
+ await recorder.getByRole('button',{name:'终点',exact:true}).click();await expect(recorder.getByRole('button',{name:'播放',exact:true})).toBeEnabled();
+ await page.evaluate(()=>{
+  const e=(window as any).__dmuEngine,render=e.renderer.render.bind(e.renderer);(window as any).__dmuBodyFrames=[];
+  e.renderer.render=(scene:any,camera:any)=>{if(scene===e.scene&&e.motionDisplay?.clock&&(window as any).__dmuBodyFrames.length<60){e.scene.updateMatrixWorld(true);(window as any).__dmuBodyFrames.push([...e.solidBindings.values()].map((b:any)=>({id:b.context.instanceId,root:e.instanceGroups.get(b.context.instanceId).position.toArray(),position:b.mesh.getWorldPosition(b.mesh.position.clone()).toArray(),rotation:b.mesh.getWorldQuaternion(b.mesh.quaternion.clone()).toArray(),rootRotation:e.instanceGroups.get(b.context.instanceId).quaternion.toArray()})))}return render(scene,camera)};
+ });
+ await recorder.getByRole('button',{name:'播放',exact:true}).click();await expect(recorder.getByRole('button',{name:'暂停',exact:true})).toBeVisible({timeout:60_000});await expect.poll(()=>page.evaluate(()=>(window as any).__dmuBodyFrames.length)).toBeGreaterThan(3);
+ const frames=await page.evaluate(()=>(window as any).__dmuBodyFrames);for(const frame of frames)qualified(frame);
+ expect(new Set(frames.map((f:any)=>JSON.stringify(f.find((b:any)=>b.id===seed.rotor).rotation.map((v:number)=>v.toFixed(5))))).size).toBeGreaterThan(2);
+ await recorder.getByRole('button',{name:'暂停',exact:true}).click();await expect(recorder.getByRole('button',{name:/^取\s*消$/})).toBeEnabled();qualified(await scene());
+ await page.screenshot({path:'../../../build/acceptance/dmu-recording-playback-world-poses.png'});
+ await recorder.getByRole('button',{name:/^取\s*消$/}).click();await expect(recorder).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(baseline.document.versionId);qualified(await scene());expect(errors).toEqual([]);
+});
+
 test('joint limits own command creation and zero preserves recorded positions',async({page})=>{
  test.setTimeout(480_000);
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));

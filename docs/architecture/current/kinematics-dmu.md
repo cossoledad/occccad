@@ -71,6 +71,8 @@ MotionStudy 只接受录制的 Keyframes，不存在规律对象、规律引用�
 
 录制内播放先通过私有 preview 计算有限路径，不创建 Job。结果是合格样本缓存；失败保留之前样本及失败时间。后台 MOTION_STUDY 只负责已保存有限路径的制品生成。任务输入冻结 view、Study、机构、参考零位、环境、方程及版本策略，计算中不读变化的 Head。Job 的 attempt / lease / cancel / SHA 合同保持。
 
+冻结 View 保持 owning Revision 的 Product 与 resolvedInstances 成套一致。机构 nominal 和冻结非成员环境只用于数值输入／方程，不改写显示文档的 Instance 位姿。回放通过完整帧覆盖既有 occurrence 根节点；内部 Body 保留相对于源 Product 的局部变换，避免重建时额外施加旧位姿。浏览器验收同时检查 Instance 根节点与实体世界矩阵，不能只用根节点位置证明显示正确。
+
 Job SUCCEEDED 表示结果保存成功；payload.motion 保存实际运动学 status、completed 和 validFrames。树按路径质量显示完成、部分结果或未通过求解。每份结果按稳定 Job ID 挂在自己的模拟下，双击查看指定结果；没有全局结果选择、播放工具栏或对话框删除按钮。终态结果右键隐藏用户列表项，保留审计与 Artifact，不写文档 Revision；运行中的结果先停止。
 
 播放用统一 RAF 时钟更新既有 occurrence，在相邻合格完整样本之间作刚体螺旋／四元数插值。时间显示两位小数，但逻辑时间保持精度。显示插值不能作为闭环物理正确性的证明，也不具备录制、保存、转换或测量资格。视点插值独立于方程；切换动画视点不重新计算机构路径。
