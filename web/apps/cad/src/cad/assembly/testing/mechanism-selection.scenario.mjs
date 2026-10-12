@@ -9,7 +9,7 @@ const {SelectionIndex}=await server.ssrLoadModule('/src/cad/interaction/selectio
 const path=(unit,rev='part-r')=>({rootDocumentId:'product',canonical:unit,segments:[{instanceId:unit,ownerVersionId:'head',referencedDocumentId:'part',resolvedVersionId:rev}]});
 const view={document:{id:'product',versionId:'head'},product:{instances:['a','b'].map(id=>({id,documentId:'part',versionId:'part-r'}))},resolvedInstances:['a','b'].map(id=>({instancePath:path(id)}))};
 const selection=(id,kind='face',topologyId=1)=>({id:id+kind+topologyId,kind,instanceId:id,documentId:'part',versionId:'part-r',instancePath:path(id),geometryKey:'shared',topologyId,entityId:'datum'});
-const j={first:{instanceId:'a'},second:{instanceId:'b'}};
+const j={kind:'REVOLUTE',first:{instanceId:'a'},second:{instanceId:'b'}};
 const plane={...selection('a','plane'),plane:{}};
 assert(!mechanismSupportCandidate(view,j,'first.axis',plane));
 assert(mechanismSupportCandidate(view,j,'first.axis',selection('a')));
@@ -17,7 +17,7 @@ assert(!mechanismSupportCandidate({...view,document:{id:'product',versionId:'new
 assert(!mechanismSupportCandidate(view,j,'first.axis',{...selection('a'),instancePath:path('a','old-part')}));
 assert(!mechanismSupportCandidate(view,j,'first.plane',{...plane,instanceId:'b',instancePath:path('b')}));
 j.first.axis={};assert(!mechanismSupportCandidate(view,j,'second.axis',selection('a')));
-const defined={first:{instanceId:'a',axis:{instanceId:'a'},plane:{instanceId:'a'},capturedX:[1,0,0]},second:{instanceId:'b',axis:{instanceId:'b'},plane:{instanceId:'b'},capturedX:[1,0,0]}};
+const defined={kind:'REVOLUTE',first:{instanceId:'a',axis:{instanceId:'a'},plane:{instanceId:'a'},capturedX:[1,0,0]},second:{instanceId:'b',axis:{instanceId:'b'},plane:{instanceId:'b'},capturedX:[1,0,0]}};
 const cleared=changeJointSupport(defined,'first.axis');assert.equal(cleared.first.axis,undefined);assert.equal(cleared.first.plane,undefined);assert.equal(cleared.second.plane,defined.second.plane);assert(defined.first.axis,'clearing a draft must not mutate the saved definition');
 const replaced=changeJointSupport(defined,'first.axis',{instanceId:'c'});assert.equal(replaced.first.instanceId,'c');assert.equal(replaced.first.plane,undefined);assert.equal(nextJointSupportRole(replaced,'first.axis'),'first.plane');
 assert.equal(nextJointSupportRole(defined,'first.axis'),undefined,'replacing a complete support does not activate another already bound field');

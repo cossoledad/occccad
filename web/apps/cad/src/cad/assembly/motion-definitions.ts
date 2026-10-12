@@ -9,14 +9,14 @@ export function renameMotionObject(defs:KinematicsDefinitions,id:string,name:str
 export function deleteMotionObjects(defs:KinematicsDefinitions,ids:readonly string[]):KinematicsDefinitions {
  const k=structuredClone(defs),deleted=new Set(ids);
  k.mechanisms=k.mechanisms.filter(m=>{if(deleted.has(m.id)){for(const j of m.joints)deleted.add(j.id);return false}return true});
- for(const m of k.mechanisms){const before=m.joints.length;m.joints=m.joints.filter(j=>!deleted.has(j.id));if(m.joints.length===before)continue;/* Removing a relation releases DOF; it does not remove its rigid units. */m.coordinates=Object.fromEntries(Object.entries(m.coordinates??{}).filter(([id])=>!deleted.has(id)));m.evaluation=undefined}
+ for(const m of k.mechanisms){const before=m.joints.length;m.joints=m.joints.filter(j=>!deleted.has(j.id));if(m.joints.length===before)continue;/* Removing a relation releases DOF; it does not remove its rigid units. */m.coordinates=Object.fromEntries(Object.entries(m.coordinates??{}).filter(([id])=>m.joints.some(j=>j.coordinates?.some(c=>c.id===id))));m.evaluation=undefined}
  const live=new Set(k.mechanisms.map(m=>m.id));
  for(const d of k.drivers??[]){
-  if((deleted.has(d.id)||deleted.has(d.jointId))&&live.has(d.mechanismId)&&k.studies.some(s=>s.driverId===d.id&&!deleted.has(s.id)))throw new Error('命令被模拟引用');
+  if((deleted.has(d.id)||deleted.has(d.jointId))&&live.has(d.mechanismId)&&k.studies.some(s=>s.activeDriverIds.includes(d.id)&&!deleted.has(s.id)))throw new Error('命令被模拟引用');
  }
 
  k.drivers=(k.drivers??[]).filter(d=>{if(deleted.has(d.id)||deleted.has(d.jointId)||!live.has(d.mechanismId)){deleted.add(d.id);return false}return true});
- k.studies=k.studies.filter(s=>{if(deleted.has(s.id)||!live.has(s.mechanismId)||deleted.has(s.driverId??s.driverJointId??'')){deleted.add(s.id);return false}return true});
+ k.studies=k.studies.filter(s=>{if(deleted.has(s.id)||!live.has(s.mechanismId)||s.activeDriverIds.some(id=>deleted.has(id))){deleted.add(s.id);return false}return true});
  // Removing a joint or its publishing association never removes Product constraints.
  k.associations=(k.associations??[]).filter(a=>live.has(a.mechanismId)&&!deleted.has(a.jointId));return k;
 }

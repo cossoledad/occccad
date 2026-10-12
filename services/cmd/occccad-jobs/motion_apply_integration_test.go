@@ -147,7 +147,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 		ends[0], ends[1] = ends[1], ends[0]
 	}
 	mid, jid, did, sid := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
-	k := workspace.KinematicsDefinitions{Mechanisms: []workspace.Mechanism{{ID: mid, Name: "shaft-propeller", UnitIDs: []string{ends[0].InstanceID, ends[1].InstanceID}, Joints: []workspace.MechanismJoint{{ID: uuid.NewString(), Name: "shaft grounded", Kind: "GROUND", First: workspace.JointEndpoint{InstanceID: ends[0].InstanceID, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}, Direction: 1}, {ID: jid, Name: "geometric revolute", Kind: "REVOLUTE", Lower: &workspace.MotionQuantity{Value: -720, Unit: "deg"}, Upper: &workspace.MotionQuantity{Value: 720, Unit: "deg"}, First: ends[0], Second: &ends[1], Direction: 1, Zero: workspace.MotionQuantity{Unit: "deg"}, AxialOffset: workspace.MotionQuantity{Value: -10, Unit: "mm"}}}}}, Drivers: []workspace.MotionDriver{{ID: did, Name: "angle", MechanismID: mid, JointID: jid}}}
+	k := workspace.KinematicsDefinitions{Mechanisms: []workspace.Mechanism{{ID: mid, Name: "shaft-propeller", UnitIDs: []string{ends[0].InstanceID, ends[1].InstanceID}, Joints: []workspace.MechanismJoint{{ID: uuid.NewString(), Name: "shaft grounded", Kind: "GROUND", First: workspace.JointEndpoint{InstanceID: ends[0].InstanceID, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}}, {ID: jid, Name: "geometric revolute", Kind: "REVOLUTE", First: ends[0], Second: &ends[1], AxialOffset: workspace.MotionQuantity{Value: -10, Unit: "mm"}, Coordinates: []workspace.JointCoordinate{{ID: jid + "-coordinate", Role: "AXIAL_ROTATION", Dimension: "ANGLE", Zero: workspace.MotionQuantity{Unit: "deg"}, Direction: 1, Lower: &workspace.MotionQuantity{Value: -720, Unit: "deg"}, Upper: &workspace.MotionQuantity{Value: 720, Unit: "deg"}}}}}}}, Drivers: []workspace.MotionDriver{{ID: did, Name: "angle", MechanismID: mid, JointID: jid, CoordinateID: jid + "-coordinate"}}}
 	t.Run("mechanism command preview isolates formal constraints", func(t *testing.T) {
 		originalHead := view.Document.VersionID
 		fixRef := workspace.AssemblyGeometryRef{InstanceID: ends[1].InstanceID, Kind: "BODY"}
@@ -281,7 +281,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	})
 
 	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
-	opened, err := service.BeginMechanismSession(t.Context(), view.Document.ID, actor, workspace.MechanismSessionBegin{OwnerID: "fixture", Generation: 1, BaseRevisionID: view.Document.VersionID, MechanismID: mid, DriverID: did})
+	opened, err := service.BeginMechanismSession(t.Context(), view.Document.ID, actor, workspace.MechanismSessionBegin{OwnerID: "fixture", Generation: 1, BaseRevisionID: view.Document.VersionID, MechanismID: mid, ActiveDriverIDs: []string{did}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,8 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	qualified, err := service.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 1, Value: &workspace.MotionQuantity{Value: 360, Unit: "deg"}})
+	qualified, err := service.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 1, Values: map[string]workspace.
+		MotionQuantity{did: workspace.MotionQuantity{Value: 360, Unit: "deg"}}})
 	if err != nil || !qualified.Accepted {
 		t.Fatal(qualified, err)
 	}
@@ -297,7 +298,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	study := workspace.MotionStudy{ID: sid, Name: "recorded", MechanismID: mid, DriverID: did, Keyframes: []workspace.MotionKeyframe{first, last}, Frames: 25, BudgetMS: 60000}
+	study := workspace.MotionStudy{ID: sid, Name: "recorded", MechanismID: mid, Keyframes: []workspace.MotionKeyframe{first, last}, Frames: 25, BudgetMS: 60000, ActiveDriverIDs: []string{did}}
 	final, err := service.FinalizeMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, workspace.MechanismSessionFinalize{Sequence: 1, Study: &study})
 	if err != nil {
 		t.Fatal(err)
@@ -523,7 +524,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	if er != nil || !run.Completed || len(run.Frames) != 25 {
 		t.Fatalf("run %s %+v %v", run.Status, run.Failure, er)
 	}
-	if math.Abs(run.Frames[6].DriverValue-math.Pi/2) > 1e-8 || math.Abs(run.Frames[24].Coordinates[jid]-2*math.Pi) > 1e-7 {
+	if math.Abs(run.Frames[6].CommandValues[did]-math.Pi/2) > 1e-8 || math.Abs(run.Frames[24].Coordinates[jid+"-coordinate"]-2*math.Pi) > 1e-7 {
 		t.Fatal("continuous angle lost")
 	}
 	// Closing a current simulation may adopt one accepted frame into the
@@ -693,7 +694,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 		}
 		view = command(workspace.CommandRequest{Type: "UNDO"})
 	})
-	request.LockAngle = true
+	request.LockCoordinateIDs = []string{run.Snapshot.Mechanism.Joints[1].Coordinates[0].ID}
 	request.PlanDigest = ""
 	plan, er = service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, request)
 	if er != nil || !plan.Ready || plan.DegreesOfFreedom != 0 {
@@ -706,7 +707,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	}
 	stale := view.Document.VersionID
 	request.FrameIndex = 12
-	request.LockAngle = false
+	request.LockCoordinateIDs = nil
 	request.PlanDigest = ""
 	plan, er = service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, request)
 	if er != nil || plan.Ready {
@@ -714,7 +715,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	}
 	lockID := ""
 	for _, a := range view.Product.Kinematics.Associations {
-		if a.Role == "angle-lock" {
+		if a.Role == "coordinate-lock/"+jid+"-coordinate" {
 			lockID = a.ConstraintID
 		}
 	}

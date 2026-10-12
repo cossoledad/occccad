@@ -67,6 +67,9 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 				cn.Capabilities = []string{"EDIT"}
 				cn.PresentationRole = "DEFINITION"
 				cn.EvaluationStatus = string(c.EvaluationStatus)
+				if isAssemblyGroup(c) {
+					cn.Children = assemblyGroupReferenceNodes(cn.ID, doc, m.ID, c, nameFor, j.Constraints)
+				}
 				jn.Children = append(jn.Children, cn)
 			}
 			if j.Kind == "GROUND" {
@@ -80,7 +83,13 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 				label := d.Name
 				for _, j := range m.Joints {
 					if j.ID == d.JointID {
-						label += " (" + j.Name + ",角度)"
+						parameter := "长度"
+						for _, coordinate := range j.Coordinates {
+							if coordinate.ID == d.CoordinateID && coordinate.angular() {
+								parameter = "角度"
+							}
+						}
+						label += " (" + j.Name + "," + parameter + ")"
 					}
 				}
 				n := node(drivers.ID, "MOTION_DRIVER", d.ID, label)

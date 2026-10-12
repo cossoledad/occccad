@@ -65,10 +65,7 @@ func (service *Service) resolveMechanismGeometry(ctx context.Context, model Prod
 	raw, _ := json.Marshal(m)
 	_ = json.Unmarshal(raw, &m)
 	resolver := newAssemblySupportResolver(withAssemblyReadCache(ctx), service, &model)
-	poses := map[string]InstancePose{}
-	for _, v := range model.Instances {
-		poses[v.ID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
-	}
+
 	for i := range m.Joints {
 		j := &m.Joints[i]
 		if j.Kind == "GROUND" {
@@ -77,76 +74,125 @@ func (service *Service) resolveMechanismGeometry(ctx context.Context, model Prod
 		if j.Second == nil {
 			return m, fmt.Errorf("%w: joint has no second endpoint", ErrValidation)
 		}
-		var worldX [3]float64
+		if j.Kind == "RIGID" {
+			continue
+		}
 		firstNormalSign := 1.0
+		if (j.Kind == "PRISMATIC" || j.Kind == "CYLINDRICAL") && j.AxisDirection == "" {
+			j.AxisDirection = "SAME"
+		}
 		if j.AxialDirection == "" {
 			j.AxialDirection = "SAME"
 		}
-		if j.AxialDirection != "SAME" && j.AxialDirection != "OPPOSITE" {
-			return m, fmt.Errorf("%w: invalid axial plane direction", ErrValidation)
-		}
 		for side, end := range []*JointEndpoint{&j.First, j.Second} {
-			if end.Axis == nil && end.Plane == nil {
-				continue
-			} // explicit local-frame definitions remain available to API clients.
-			if end.Axis == nil || end.Plane == nil {
-				return m, fmt.Errorf("%w: both geometric supports are required", ErrValidation)
+			refs := []*AssemblyGeometryRef{}
+			switch j.Kind {
+			case "REVOLUTE", "PRISMATIC":
+				refs = []*AssemblyGeometryRef{end.Axis, end.Plane}
+			case "CYLINDRICAL":
+				refs = []*AssemblyGeometryRef{end.Axis}
+			case "PLANAR":
+				refs = []*AssemblyGeometryRef{end.Plane}
+			case "SPHERICAL":
+				refs = []*AssemblyGeometryRef{end.Point}
+			default:
+				return m, fmt.Errorf("%w: unsupported joint", ErrValidation)
 			}
-			for _, ref := range []*AssemblyGeometryRef{end.Axis, end.Plane} {
-				if ref.InstanceID != end.InstanceID {
-					return m, fmt.Errorf("%w: joint support belongs to another motion unit", ErrValidation)
+			// Explicit frames are the numerical conformance API, not UI picks.
+			allEmpty := true
+			for _, ref := range refs {
+				allEmpty = allEmpty && ref == nil
+			}
+			if allEmpty {
+				continue
+			}
+			values := []geometry.AssemblyGeometry{}
+			for _, ref := range refs {
+				if ref == nil || ref.InstanceID != end.InstanceID {
+					return m, fmt.Errorf("%w: incomplete or foreign joint support", ErrValidation)
 				}
 				if capture {
 					if err := service.bindAssemblyPick(ctx, &model, ref); err != nil {
 						return m, err
 					}
 				}
+				v, err := resolver.resolve(*ref)
+				if err != nil {
+					return m, err
+				}
+				values = append(values, v)
 			}
-			axis, e := resolver.resolve(*end.Axis)
-			if e != nil {
-				return m, fmt.Errorf("joint %s geometry: %w", j.ID, e)
+			if j.Kind == "SPHERICAL" {
+				if values[0].Kind != "POINT" {
+					return m, fmt.Errorf("%w: spherical joint requires exact points", ErrValidation)
+				}
+				end.Frame = InstancePose{Translation: values[0].Origin, Rotation: [4]float64{0, 0, 0, 1}}
+				continue
 			}
-			plane, e := resolver.resolve(*end.Plane)
-			if e != nil {
-				return m, fmt.Errorf("joint %s geometry: %w", j.ID, e)
+			var axis, plane geometry.AssemblyGeometry
+			if j.Kind == "PLANAR" {
+				plane = values[0]
+				axis = geometry.AssemblyGeometry{Kind: "AXIS", Origin: plane.Origin, Direction: plane.Direction}
+			} else {
+				axis = values[0]
+				plane = geometry.AssemblyGeometry{Kind: "PLANE", Origin: axis.Origin, Direction: axis.Direction}
+				if j.Kind == "REVOLUTE" {
+					plane = values[1]
+				}
 			}
-			if side == 0 {
-				firstNormalSign = conflictDot(axis.Direction, plane.Direction)
-			} else if (firstNormalSign*conflictDot(axis.Direction, plane.Direction) < 0) != (j.AxialDirection == "OPPOSITE") {
-				// Align the angular frames even when selected plane normals face
-				// each other. The selected axis reference itself is unchanged.
+			if axis.Kind != "AXIS" || plane.Kind != "PLANE" || conflictNorm(axis.Direction) < 1e-12 {
+				return m, fmt.Errorf("%w: invalid joint supports", ErrValidation)
+			}
+			axis.Direction = conflictScale(axis.Direction, 1/conflictNorm(axis.Direction))
+			if side == 1 && (j.Kind == "PRISMATIC" || j.Kind == "CYLINDRICAL") && j.AxisDirection == "OPPOSITE" {
 				axis.Direction = conflictScale(axis.Direction, -1)
 			}
-			if end.CapturedX == nil {
-				if !capture {
-					return m, fmt.Errorf("%w: missing captured angular baseline", ErrValidation)
-				}
-				x := [3]float64{1, 0, 0}
+			if j.Kind == "REVOLUTE" {
 				if side == 0 {
-					if math.Abs(conflictDot(x, axis.Direction)) > .9 {
-						x = [3]float64{0, 1, 0}
-					}
-					x = conflictSub(x, conflictScale(axis.Direction, conflictDot(x, axis.Direction)))
-					x = conflictScale(x, 1/conflictNorm(x))
-					worldX = rotateByPose(poses[end.InstanceID], x)
-				} else {
-					inv := inverseRelativePose(InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, poses[end.InstanceID])
-					x = rotateByPose(inv, worldX)
+					firstNormalSign = conflictDot(axis.Direction, plane.Direction)
+				} else if (firstNormalSign*conflictDot(axis.Direction, plane.Direction) < 0) != (j.AxialDirection == "OPPOSITE") {
+					axis.Direction = conflictScale(axis.Direction, -1)
+				}
+			}
+			if j.Kind == "PRISMATIC" {
+				if values[1].Kind != "PLANE" {
+					return m, fmt.Errorf("%w: orientation needs a plane", ErrValidation)
+				}
+				x := conflictSub(values[1].Direction, conflictScale(axis.Direction, conflictDot(values[1].Direction, axis.Direction)))
+				if conflictNorm(x) < 1e-10 {
+					return m, fmt.Errorf("%w: orientation plane normal is parallel to the axis", ErrValidation)
 				}
 				end.CapturedX = &x
+			} else if end.CapturedX == nil {
+				if !capture {
+					return m, fmt.Errorf("%w: missing captured frame basis", ErrValidation)
+				}
+				// Each endpoint captures its own Part-local basis. The accepted
+				// coordinate origin is captured after physical alignment, so an
+				// initially perpendicular second axis is still a valid input.
+				x := [3]float64{1, 0, 0}
+				if j.Kind == "CYLINDRICAL" && end.Axis != nil && end.Axis.Kind == "FRAME" && conflictNorm(values[0].XDirection) > 1e-10 {
+					x = values[0].XDirection
+					if math.Abs(conflictDot(x, axis.Direction)) > .9 {
+						x = rotateByPose(InstancePose{Rotation: values[0].Rotation}, [3]float64{0, 1, 0})
+					}
+				} else if math.Abs(conflictDot(x, axis.Direction)) > .9 {
+					x = [3]float64{0, 1, 0}
+				}
+				x = conflictSub(x, conflictScale(axis.Direction, conflictDot(x, axis.Direction)))
+				x = conflictScale(x, 1/conflictNorm(x))
+				end.CapturedX = &x
 			}
-			end.Frame, e = motionFrameFromSupports(axis, plane, *end.CapturedX)
-			if e != nil {
-				return m, e
-			}
-			if side == 0 {
-				worldX = rotateByPose(poses[end.InstanceID], rotateByPose(end.Frame, [3]float64{1, 0, 0}))
+			var err error
+			end.Frame, err = motionFrameFromSupports(axis, plane, *end.CapturedX)
+			if err != nil {
+				return m, err
 			}
 		}
-		if j.First.Axis != nil && j.AxialOffset.Unit != "" {
-			offset, e := motionValue(j.AxialOffset, false)
-			if e != nil {
-				return m, e
+		if (j.Kind == "REVOLUTE" && j.First.Axis != nil || j.Kind == "PLANAR" && j.First.Plane != nil) && j.AxialOffset.Unit != "" {
+			offset, err := motionValue(j.AxialOffset, false)
+			if err != nil {
+				return m, err
 			}
 			j.First.Frame.Translation = conflictSub(j.First.Frame.Translation, conflictScale(rotateByPose(j.First.Frame, [3]float64{0, 0, 1}), -offset))
 		}
@@ -177,14 +223,14 @@ func (service *Service) bindKinematics(ctx context.Context, documentID, revision
 			return k, fmt.Errorf("%w: mechanism uses only its own constraints", ErrValidation)
 		}
 		for _, j := range m.Joints {
-			if j.Kind != "GROUND" && j.Kind != "REVOLUTE" {
-				return k, fmt.Errorf("%w: only Revolute joints are supported", ErrValidation)
+			if !slices.Contains([]string{"GROUND", "REVOLUTE", "PRISMATIC", "CYLINDRICAL", "PLANAR", "RIGID", "SPHERICAL"}, j.Kind) {
+				return k, fmt.Errorf("%w: unsupported joint", ErrValidation)
 			}
 			if len(j.Sources) != 0 {
 				return k, fmt.Errorf("%w: importing assembly constraints is not supported", ErrValidation)
 			}
-			if j.Kind == "REVOLUTE" && (j.Second == nil || j.First.Axis == nil || j.First.Plane == nil || j.Second.Axis == nil || j.Second.Plane == nil) {
-				return k, fmt.Errorf("%w: Revolute requires persistent axes and planes", ErrValidation)
+			if err := validateJointSupports(j); err != nil {
+				return k, err
 			}
 		}
 		old := slices.IndexFunc(model.Kinematics.Mechanisms, func(prev Mechanism) bool { return prev.ID == m.ID })
@@ -192,8 +238,8 @@ func (service *Service) bindKinematics(ctx context.Context, documentID, revision
 			// A removed relationship has no continuous coordinate to carry. Keep
 			// live winding intent; unknown IDs still fail normal validation.
 			for id := range m.Coordinates {
-				previouslyKnown := slices.ContainsFunc(model.Kinematics.Mechanisms[old].Joints, func(j MechanismJoint) bool { return j.ID == id && j.Kind == "REVOLUTE" })
-				stillKnown := slices.ContainsFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == id && j.Kind == "REVOLUTE" })
+				previouslyKnown := mechanismHasCoordinate(model.Kinematics.Mechanisms[old], id)
+				stillKnown := mechanismHasCoordinate(m, id)
 				if previouslyKnown && !stillKnown {
 					delete(m.Coordinates, id)
 				}
@@ -229,7 +275,16 @@ func (service *Service) bindKinematics(ctx context.Context, documentID, revision
 			}
 			for i, j := range m.Joints {
 				for _, prev := range model.Kinematics.Mechanisms[old].Joints {
-					if prev.ID == j.ID && prev.First.InstanceID == j.First.InstanceID {
+					if prev.ID == j.ID {
+						if prev.Kind != j.Kind {
+							return k, fmt.Errorf("%w: joint type is immutable", ErrValidation)
+						}
+						if prev.First.InstanceID != j.First.InstanceID {
+							continue
+						}
+						if prev.Second != nil && (j.Second == nil || prev.Second.InstanceID != j.Second.InstanceID) {
+							continue
+						}
 						m.Joints[i].Constraints = prev.Constraints
 					}
 				}

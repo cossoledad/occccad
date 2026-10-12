@@ -8,6 +8,8 @@ import type { CadKeyboardEvent, CadPointerEvent } from "../input/input-types";
 import { InputResult,SelectionInputResult,type SelectionInputSource } from "../input/input-types";
 import type { AssemblyGeometryRef, SelectionItem, SketchGeometryRef, SketchOperation, SketchEntity, SketchConstraint, Vec2 } from "../../types";
 import { assemblyGeometryRef } from "../assembly/assembly-reference";
+import type {AssemblyGroupMember} from '../../types';
+import {groupMemberToken} from '../assembly/group-selection';
 export { assemblyGeometryRef } from "../assembly/assembly-reference";
 import { preselectedSketchReference, type SketchReferencePickKind } from "../interaction/sketch-reference-pick";
 import { constraintDefinition, type ConstraintKind } from "../sketch/sketch-constraint-definition";
@@ -65,7 +67,7 @@ export type ToolViewportPort = {
   currentSketchIdentity?(): {documentId:string;sketchId:string;versionId:string;occurrencePath?:string}|undefined;
   showSketchEntityPreview?(entities:readonly SketchEntity[]):void;
   retainSelections(selections: SelectionItem[]): void;
-  requestAssemblyConstraint(kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]): void;
+  requestAssemblyConstraint(kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[],members?:AssemblyGroupMember[]): void;
   showSketchManipulator?(origin:Vec2,mode:"translate"|"rotate"|"both",changed:(value:{translation:Vec2;angle:number;origin:Vec2;finish?:boolean})=>void):void;
   clearSketchManipulator?():void;
   sketchManipulatorPointerDown?(pointerId:number,x:number,y:number):boolean;
@@ -299,9 +301,19 @@ export class AssemblyConstraintTool implements CadTool {
   private capturedPointerID?: number;
   constructor(kind: AssemblyConstraintToolKind) { this.kind = kind; this.id = `assembly.${kind}`; }
   activate(context: ToolContext): void {
-    context.viewport.setToolPrompt(this.kind === "fix" ? "固定：选择一个实例" : this.kind === "fix_together" || this.kind === "rigid" ? "固联组：选择两个初始组件，随后可添加组件或已有组" : "装配约束：依次选择两个元素；精确类型由服务器解析");
+    context.viewport.setToolPrompt(this.kind === "fix" ? "固定：选择零件" : this.kind === "fix_together" || this.kind === "rigid" ? "固联组：选择成员" : "装配约束：选择两个元素");
   }
-  selectionInput(selections: readonly SelectionItem[], context: ToolContext): SelectionInputResult {
+  selectionInput(selections: readonly SelectionItem[], context: ToolContext,source?:SelectionInputSource): SelectionInputResult {
+    if(source==='activation'&&(this.kind==='fix_together'||this.kind==='rigid')){
+      const members:AssemblyGroupMember[]=[];const seen=new Set<string>();
+      for(const candidate of selections){
+        const selected=candidate.highlightTarget??candidate;
+        const projected=selectionModeForTool(this.id).project(selected),reference=projected&&assemblyGeometryRef(projected);
+        const member=selected.kind==='assembly-constraint'&&selected.constraintType==='FIX_TOGETHER'?{groupId:selected.constraintId}:reference?.kind==='BODY'?{instanceId:reference.instanceId,instancePath:reference.instancePath}:undefined;
+        if(member&&!seen.has(groupMemberToken(member))){seen.add(groupMemberToken(member));members.push(member)}
+      }
+      context.viewport.requestAssemblyConstraint('fix_together',[],members);context.viewport.finishToolUse();return SelectionInputResult.Accepted;
+    }
     let result=SelectionInputResult.Unhandled;
     for (const candidate of selections) {
       const selection = selectionModeForTool(this.id).project(candidate);

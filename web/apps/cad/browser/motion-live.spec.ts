@@ -14,14 +14,26 @@ async function current(page:Page,id:string){const r=await page.request.get('/api
 
 async function viewportEngine(page:Page){
  await page.evaluate(async()=>{
-  // @ts-ignore production Vite module
-  const {CadViewportEngine}=await import('/src/viewport/cad-viewport-engine.ts');
   if((window as any).__dmuEngine)return;
-  const pick=CadViewportEngine.prototype.hitTest;
-  CadViewportEngine.prototype.hitTest=function(...args:any[]){(window as any).__dmuEngine=this;return pick.apply(this,args)};
+  // Vite can retain a timestamped module URL after HMR even in a fresh page.
+  // Observe the prototypes actually loaded by this Workbench, including an
+  // earlier live engine; importing only the plain URL can create another class.
+  const paths=new Set(['/src/viewport/cad-viewport-engine.ts',...performance.getEntriesByType('resource').map(entry=>new URL(entry.name)).filter(url=>url.pathname==='/src/viewport/cad-viewport-engine.ts').map(url=>url.pathname+url.search)]);
+  for(const path of paths){
+   const {CadViewportEngine}=await import(path),prototype=CadViewportEngine.prototype;
+   if(prototype.__dmuObserved)continue;prototype.__dmuObserved=true;
+   const pick=prototype.hitTest;
+   prototype.hitTest=function(...args:any[]){(window as any).__dmuEngine=this;return pick.apply(this,args)};
+  }
  });
- const box=await page.locator('canvas').boundingBox();if(!box)throw new Error('canvas missing');await page.mouse.move(box.x+10,box.y+10);
- await expect.poll(()=>page.evaluate(()=>Boolean((window as any).__dmuEngine))).toBeTruthy();return box;
+ const box=await page.locator('canvas').boundingBox();if(!box)throw new Error('canvas missing');
+ // The recorder can cover either side of the canvas. Find actual exposed DOM
+ // canvas pixels instead of sending pointer events into a floating dialog.
+ await expect.poll(async()=>{
+  const point=await page.evaluate(()=>{const canvas=document.querySelector('canvas');if(!canvas)return;const r=canvas.getBoundingClientRect();for(let y=40;y<r.height-20;y+=40)for(let x=40;x<r.width-20;x+=40)if(document.elementFromPoint(r.x+x,r.y+y)===canvas&&document.elementFromPoint(r.x+x+2,r.y+y+2)===canvas)return {x:r.x+x,y:r.y+y}});
+  if(point){await page.mouse.move(point.x,point.y);await page.mouse.move(point.x+2,point.y+2)}
+  return page.evaluate(()=>Boolean((window as any).__dmuEngine));
+ },{timeout:60_000}).toBeTruthy();return box;
 }
 async function pickVisibleInstance(page:Page,id:string){
  const box=await viewportEngine(page),dialogs=await page.getByRole('dialog').all();const blocked=[];
@@ -49,7 +61,7 @@ async function dragAttachedComponent(page:Page,distance=8){
   return {x:(start.x+1)*width/2,y:(1-start.y)*height/2,toX:(end.x+1)*width/2,toY:(1-end.y)*height/2};
  },{width:box.width,height:box.height,distance});
  await page.mouse.move(box.x+drag.x,box.y+drag.y);await page.mouse.down();await page.mouse.move(box.x+drag.toX,box.y+drag.toY,{steps:8});await page.mouse.up();
- await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.moveInteraction.state),{timeout:60_000}).toBe('committed');
+ await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.moveInteraction.state),{timeout:60_000}).toBe('committed').catch(async error=>{console.log('MOVE_TRACE',await page.evaluate(()=>({events:(window as any).__dmuMoveEvents,state:(window as any).__dmuEngine.moveInteraction.state,reason:(window as any).__dmuEngine.moveInteraction.reason,selected:(window as any).__dmuEngine.selected})));throw error});
  await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.moveManipulator.isAttached())).toBeTruthy();
  const locks=await page.evaluate(()=>{(window as any).__dmuToolObserver.disconnect();return (window as any).__dmuToolLocks});expect(locks).toEqual([]);
 }
@@ -81,7 +93,7 @@ async function seedProduct(page:Page,defineMechanism=true,publishSupports=false)
   v=await api.command(id,{type:'MOVE_INSTANCE',instanceId:rotor,translation:[22,15,7],rotation:[0,0,0,1]});
   const endpoint=(instanceId:string)=>({instanceId,frame:{translation:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number]},axis:{instanceId,kind:'AXIS' as const,geometryId:'axis-system-default',axis:'Z' as const},plane:{instanceId,kind:'PLANE' as const,geometryId:'datum-xy'},capturedX:[1,0,0] as [number,number,number]});
   const mid=crypto.randomUUID(),jid=crypto.randomUUID();
-  if(defineMechanism)v=await api.command(id,{type:'SAVE_KINEMATICS',versionId:v.document.versionId,kinematics:{mechanisms:[{id:mid,name:'机械装置.1',unitIds:[shaft,rotor],joints:[{id:crypto.randomUUID(),name:'固定零件.1',kind:'GROUND',first:endpoint(shaft),zero:{value:0,unit:'deg'},direction:1},{id:jid,name:'旋转.1',kind:'REVOLUTE',first:endpoint(shaft),second:endpoint(rotor),zero:{value:0,unit:'deg'},axialOffset:{value:7,unit:'mm'},direction:1}]}],drivers:[],studies:[],associations:[]}});
+  if(defineMechanism)v=await api.command(id,{type:'SAVE_KINEMATICS',versionId:v.document.versionId,kinematics:{mechanisms:[{id:mid,name:'机械装置.1',unitIds:[shaft,rotor],joints:[{id:crypto.randomUUID(),name:'固定零件.1',kind:'GROUND',first:endpoint(shaft)},{id:jid,name:'旋转.1',kind:'REVOLUTE',first:endpoint(shaft),second:endpoint(rotor),coordinates:[{id:crypto.randomUUID(),role:'AXIAL_ROTATION',dimension:'ANGLE',zero:{value:0,unit:'deg'},direction:1}],axialOffset:{value:7,unit:'mm'}}]}],drivers:[],studies:[],associations:[]}});
   return {id,shaft,rotor,mid,jid,version:v.document.versionId};
  },{defineMechanism,publishSupports});
 }
@@ -329,8 +341,8 @@ test('recording playback preserves body world poses across play and exact seeks'
  await page.evaluate(async seed=>{
   // @ts-ignore production Vite module
   const {restApi:api}=await import('/src/api.ts');const v=await api.getDocument(seed.id),k=structuredClone(v.product!.kinematics!);
-  const joint=k.mechanisms[0].joints.find(j=>j.id===seed.jid)!;joint.lower={value:-180,unit:'deg'};joint.upper={value:180,unit:'deg'};
-  k.drivers=[{id:crypto.randomUUID(),name:'命令.1',mechanismId:seed.mid,jointId:seed.jid}];
+  const joint=k.mechanisms[0].joints.find(j=>j.id===seed.jid)!;joint.coordinates![0].lower={value:-180,unit:'deg'};joint.coordinates![0].upper={value:180,unit:'deg'};
+  k.drivers=[{id:crypto.randomUUID(),name:'命令.1',mechanismId:seed.mid,jointId:seed.jid,coordinateId:joint.coordinates![0].id}];
   await api.command(seed.id,{type:'SAVE_KINEMATICS',versionId:v.document.versionId,kinematics:k});
  },seed);
  await page.goto('/documents/'+seed.id+'?application=mechanism&mechanismId='+seed.mid);await expect(page.getByRole('button',{name:'模拟',exact:true})).toBeEnabled({timeout:60_000});
@@ -382,7 +394,7 @@ test('joint limits own command creation and zero preserves recorded positions',a
  expect(view.product.kinematics.drivers).toHaveLength(1);expect(view.product.kinematics.drivers[0]).not.toHaveProperty('minimum');expect(view.product.kinematics).not.toHaveProperty('laws');
  await openJoint();await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).uncheck();await expect(joint.getByRole('checkbox',{name:'启用角度下限',exact:true})).toBeEnabled();
  await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);view=await current(page,seed.id);expect(view.product.kinematics.drivers??[]).toHaveLength(0);
- const undriven=view.product.kinematics.mechanisms[0].joints.find((j:any)=>j.id===seed.jid);expect(undriven.lower).toEqual(stops.lower);expect(undriven.upper).toEqual(stops.upper);
+ const undriven=view.product.kinematics.mechanisms[0].joints.find((j:any)=>j.id===seed.jid);expect(undriven.coordinates[0].lower).toEqual(stops.coordinates[0].lower);expect(undriven.coordinates[0].upper).toEqual(stops.coordinates[0].upper);
  await openJoint();await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).check();await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);view=await current(page,seed.id);expect(view.product.kinematics.drivers[0].id).not.toBe(oldDriver);
  await filter.fill('');await command(page,'模拟');const recorder=page.getByRole('dialog',{name:'模拟',exact:true}),trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true});
  await expect(trial.getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();await trial.getByRole('spinbutton',{name:'命令角度'}).fill('20');await expect(recorder.locator('tbody tr[data-row-key]')).toHaveCount(2);
@@ -390,16 +402,114 @@ test('joint limits own command creation and zero preserves recorded positions',a
  const saved=await current(page,seed.id),beforePoses=saved.product.kinematics.mechanisms[0].poses;
  await viewportEngine(page);const rendered=()=>page.evaluate(()=>Object.fromEntries([...(window as any).__dmuEngine.instanceGroups].map(([id,g]:any)=>[id,{translation:g.position.toArray(),rotation:g.quaternion.toArray()}])));
  const beforeRender=await rendered();await filter.fill('命令.1');await tree.getByText(/^命令\.1 \(/).first().dblclick();const editor=page.getByRole('dialog',{name:'命令.1',exact:true});
- await expect(editor.getByRole('spinbutton',{name:'命令当前角度',exact:true})).toHaveValue('10.00');await expect(editor.getByRole('combobox')).toHaveCount(0);await editor.getByRole('button',{name:'置零',exact:true}).click();await expect(editor.getByRole('spinbutton',{name:'命令当前角度',exact:true})).toHaveValue('0.00');
+ await expect(editor.getByRole('spinbutton',{name:'命令当前值',exact:true})).toHaveValue('10.00');await expect(editor.getByRole('combobox')).toHaveCount(0);await editor.getByRole('button',{name:'置零',exact:true}).click();await expect(editor.getByRole('spinbutton',{name:'命令当前值',exact:true})).toHaveValue('0.00');
  expect(await rendered()).toEqual(beforeRender);await editor.getByRole('button',{name:/^确\s*定$/}).click();await expect(editor).toHaveCount(0);
  const zeroed=await current(page,seed.id);expect(zeroed.product.kinematics.studies).toEqual(saved.product.kinematics.studies);
  for(const [id,pose] of Object.entries(beforePoses) as any)for(let i=0;i<3;i++)expect(zeroed.product.kinematics.mechanisms[0].poses[id].translation[i]).toBeCloseTo(pose.translation[i],6);
  await filter.fill('模拟.1');await tree.getByText('模拟.1',{exact:true}).dblclick();await expect(trial.getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();await expect.poll(async()=>Number(await trial.getByRole('spinbutton',{name:'命令角度'}).inputValue())).toBeCloseTo(-10,2);
- await expect(trial.getByText('-30.00°',{exact:true})).toBeVisible();await expect(trial.getByText('40.00°',{exact:true})).toBeVisible();
+ await expect(trial.getByText('-30.00 °',{exact:true})).toBeVisible();await expect(trial.getByText('40.00 °',{exact:true})).toBeVisible();
  await trial.getByRole('spinbutton',{name:'命令角度'}).fill('60');await expect(trial.getByText('该位置未通过求解。',{exact:true})).toBeVisible();await expect.poll(async()=>Number(await trial.getByRole('spinbutton',{name:'命令角度'}).inputValue())).toBeCloseTo(-10,2);
  expect((await current(page,seed.id)).document.versionId).toBe(zeroed.document.versionId);await recorder.getByRole('button',{name:/^取\s*消$/}).click();await expect(recorder).toHaveCount(0);
  await openJoint();await expect(joint.getByRole('checkbox',{name:'角度驱动',exact:true})).toBeDisabled();await expect(joint.getByText('命令被模拟引用',{exact:true})).toBeVisible();await expect(joint.getByRole('spinbutton',{name:'角度下限 °',exact:true})).toHaveValue('-30.00');await expect(joint.getByRole('spinbutton',{name:'角度上限 °',exact:true})).toHaveValue('40.00');
  await page.screenshot({path:'../../../build/acceptance/dmu-joint-owned-limits.png'});await joint.getByRole('button',{name:/^取\s*消$/}).click();expect(errors).toEqual([]);
+});
+
+test('cylindrical joint authors one angular and linear recording and pauses exactly for manipulation',async({page})=>{
+ test.setTimeout(360_000);
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();
+ await page.goto('/');const seed=await seedProduct(page,false,true);
+ await page.goto('/documents/'+seed.id);await command(page,'机构');await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);
+ await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^确\s*定$/}).click();
+ await command(page,'圆柱接合');const joint=page.getByRole('dialog',{name:'圆柱.1',exact:true}),filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ await filter.fill('旋转圆柱面');const cylinders=tree.getByText('旋转圆柱面',{exact:true});await expect(cylinders).toHaveCount(2);
+ await cylinders.nth(0).click();await cylinders.nth(1).click();
+ await expect(joint.getByRole('button',{name:'第一定位平面',exact:true})).toHaveCount(0);
+ await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).check();await joint.getByRole('checkbox',{name:'长度驱动',exact:true}).check();
+ await expect(joint.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);await filter.fill('');
+ let v=await current(page,seed.id);const mechanism=v.product.kinematics.mechanisms[0],cylinder=mechanism.joints.find((j:any)=>j.kind==='CYLINDRICAL');
+ expect(cylinder.constraints).toHaveLength(1);expect(cylinder.coordinates).toHaveLength(2);expect(v.product.kinematics.drivers).toHaveLength(2);expect(mechanism.evaluation.relativeDof).toBe(2);expect(v.product.constraints??[]).toHaveLength(0);
+ await command(page,'模拟');const trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true}),recorder=page.getByRole('dialog',{name:'模拟',exact:true});
+ const angle=trial.getByRole('spinbutton',{name:'命令.1 角度',exact:true}),length=trial.getByRole('spinbutton',{name:'命令.2 长度',exact:true});
+ await expect(angle).toBeEnabled();await expect(length).toBeEnabled();await expect(recorder.locator('tbody tr[data-row-key]')).toHaveCount(1);
+ await recorder.getByRole('checkbox',{name:'自动插入',exact:true}).uncheck();
+ for(const [time,angular,linear,count] of [[2,30,15,2],[20,60,5,3]]){
+  await recorder.getByRole('spinbutton',{name:'关键帧时间'}).fill(String(time));await angle.fill(String(angular));await length.fill(String(linear));
+  await expect(recorder.getByRole('button',{name:'插入',exact:true})).toBeEnabled();await recorder.getByRole('button',{name:'插入',exact:true}).click();await expect(recorder.locator('tbody tr[data-row-key]')).toHaveCount(count);
+ }
+ await recorder.getByRole('spinbutton',{name:'模拟定位时间'}).fill('1');await expect.poll(async()=>Number(await angle.inputValue())).toBeCloseTo(15,2);await expect.poll(async()=>Number(await length.inputValue())).toBeCloseTo(7.5,2);
+ await viewportEngine(page);
+ const world=()=>page.evaluate(id=>{const e=(window as any).__dmuEngine;e.scene.updateMatrixWorld(true);const root=e.instanceGroups.get(id),binding=[...e.solidBindings.values()].find((b:any)=>b.context.instanceId===id) as any;return {root:root.position.toArray(),body:binding.mesh.getWorldPosition(binding.mesh.position.clone()).toArray(),rotation:root.quaternion.toArray()}},seed.rotor);
+ const expected=await page.evaluate(({mechanism,cylinder,rotor})=>{const pose=mechanism.poses[rotor],frame=cylinder.first.frame,q=frame.rotation,[x,y,z,w]=q;const direction=[2*(x*z+w*y),2*(y*z-w*x),1-2*(x*x+y*y)];return pose.translation.map((value:number,index:number)=>value+direction[index]*7.5*cylinder.coordinates.find((c:any)=>c.dimension==='LENGTH').direction)},{mechanism,cylinder,rotor:seed.rotor});
+ let pose=await world();for(let i=0;i<3;i++){expect(pose.root[i]).toBeCloseTo(expected[i],5);expect(pose.body[i]).toBeCloseTo(pose.root[i],5)}
+ await recorder.getByRole('button',{name:'播放',exact:true}).click();await expect(recorder.getByRole('button',{name:'暂停',exact:true})).toBeEnabled();
+ await command(page,'移动组件');await expect(recorder.getByRole('button',{name:'播放',exact:true})).toBeEnabled();
+ const at=Number(await recorder.getByRole('spinbutton',{name:'模拟定位时间'}).inputValue());expect(at).toBeGreaterThanOrEqual(1);expect(at).toBeLessThan(20);
+ pose=await world();for(let i=0;i<3;i++)expect(pose.body[i]).toBeCloseTo(pose.root[i],5);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.activeToolID)).toBe('assembly.move');
+ await page.screenshot({path:'../../../build/acceptance/dmu-cylindrical-vector-recording.png'});
+ await recorder.getByRole('button',{name:/^确\s*定$/}).click();await expect(recorder).toHaveCount(0);
+ v=await current(page,seed.id);const study=v.product.kinematics.studies[0];expect(study.activeDriverIds).toHaveLength(2);expect(study.keyframes).toHaveLength(3);
+ for(const key of study.keyframes)expect(Object.keys(key.values).sort()).toEqual([...study.activeDriverIds].sort());
+ expect(errors).toEqual([]);
+});
+
+for(const definition of [
+ {kind:'PRISMATIC',command:'棱形接合',title:'棱形.1',supports:['Z Axis','YZ Plane'],dof:1,count:2},
+ {kind:'PLANAR',command:'平面接合',title:'平面.1',supports:['XY Plane'],dof:3,count:1},
+ {kind:'SPHERICAL',command:'球面接合',title:'球面.1',supports:['Absolute Axis System'],dof:3,count:1},
+ {kind:'RIGID',command:'刚性接合',title:'刚性.1',supports:[],dof:0,count:1},
+])test(`${definition.kind} joint is created from actual supports and retains its physical freedom`,async({page})=>{
+ test.setTimeout(240_000);
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();
+ await page.goto('/');const seed=await seedProduct(page,false);
+ await page.goto('/documents/'+seed.id);await command(page,'机构');await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);
+ await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^确\s*定$/}).click();
+ await command(page,definition.command);const dialog=page.getByRole('dialog',{name:definition.title,exact:true}),filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ if(definition.kind==='RIGID'){await pickVisibleInstance(page,seed.shaft);await pickVisibleInstance(page,seed.rotor)}
+ else for(const label of definition.supports){await filter.fill(label);const supports=tree.getByText(label,{exact:true});await expect(supports).toHaveCount(2);await supports.nth(0).click();await supports.nth(1).click()}
+ if(definition.kind==='PRISMATIC'){await dialog.getByRole('checkbox',{name:'长度驱动',exact:true}).check();await expect(dialog.getByRole('checkbox',{name:'角度驱动',exact:true})).toHaveCount(0)}
+ if(definition.kind==='PLANAR'){await dialog.getByRole('spinbutton',{name:'平面偏移 mm',exact:true}).fill('3');await dialog.getByRole('combobox',{name:'平面方向',exact:true}).click();await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter')}
+ await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await page.screenshot({path:`../../../build/acceptance/dmu-${definition.kind.toLowerCase()}-joint.png`});
+ await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);await filter.fill('');
+ let view=await current(page,seed.id);const mechanism=view.product.kinematics.mechanisms[0],joint=mechanism.joints.find((j:any)=>j.kind===definition.kind);
+ expect(joint.constraints).toHaveLength(definition.count);expect(mechanism.evaluation).toMatchObject({relativeDof:definition.dof,gaugeDof:0});expect(view.product.constraints??[]).toHaveLength(0);
+ if(definition.kind==='RIGID'){
+  expect(joint.constraints[0].groupMembers).toHaveLength(2);expect(mechanism.poses[seed.rotor].translation).toEqual([22,15,7]);
+  const references:any[]=[];const visit=(node:any)=>{if(node.kind==='ASSEMBLY_GROUP_MEMBER_REFERENCE'&&node.mechanismId===mechanism.id)references.push(node);for(const child of node.children??[])visit(child)};visit(view.structureTree);expect(references).toHaveLength(2);
+  await filter.fill(references[0].name);await tree.getByText(references[0].name,{exact:true}).dblclick();await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);await filter.fill('');expect((await current(page,seed.id)).document.versionId).toBe(view.document.versionId);
+ }
+ if(definition.kind==='SPHERICAL'){expect(joint.first.point.derivedRole).toBe('frame-origin');expect(joint.second.point.derivedRole).toBe('frame-origin');expect(mechanism.poses[seed.rotor].translation.every((v:number)=>Math.abs(v)<1e-5)).toBeTruthy()}
+ if(definition.kind==='PRISMATIC'){
+  await command(page,'使用命令进行模拟');const trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true}),input=trial.getByRole('spinbutton',{name:'命令长度',exact:true});await expect(input).toBeEnabled();await input.fill('10');await expect.poll(async()=>Number(await input.inputValue())).toBeCloseTo(10,2);await trial.getByRole('button',{name:/^确\s*定$/}).click();await expect(trial).toHaveCount(0);
+  view=await current(page,seed.id);expect(view.product.kinematics.mechanisms[0].poses[seed.rotor].translation[2]).toBeCloseTo(mechanism.poses[seed.rotor].translation[2]+10,4);
+ }
+ await command(page,'退出机构');view=await current(page,seed.id);expect(view.product.constraints??[]).toHaveLength(0);expect(errors).toEqual([]);
+});
+
+test('Product Fix Together continuously picks viewport members and moves the complete rigid group',async({page})=>{
+ test.setTimeout(300_000);
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();
+ await page.goto('/');const seed=await seedProduct(page,false),initial=await current(page,seed.id);
+ const third=await page.evaluate(async({id,part})=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');
+  const inserted=await api.command(id,{type:'INSERT_INSTANCE',referencedDocumentId:part}),instance=inserted.product!.instances.at(-1)!.id;
+  await api.command(id,{type:'MOVE_INSTANCE',instanceId:instance,translation:[0,-35,0],rotation:[0,0,0,1]});return instance;
+ },{id:seed.id,part:initial.product.instances[0].documentId});await page.goto('/documents/'+seed.id);
+ await command(page,'固联组');const dialog=page.getByRole('dialog').filter({has:page.getByLabel('固联组成员')});await expect(dialog).toBeVisible();
+ await expect(dialog.getByRole('combobox')).toHaveCount(0);await pickVisibleInstance(page,seed.shaft);await pickVisibleInstance(page,seed.rotor);await pickVisibleInstance(page,third);
+ await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除 /})).toHaveCount(3);await dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除 /}).last().click();await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除 /})).toHaveCount(2);await pickVisibleInstance(page,third);await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除 /})).toHaveCount(3);await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
+ await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
+ const before=await current(page,seed.id),group=before.product.constraints.find((c:any)=>c.kind==='FIX_TOGETHER');expect(group.name).toBe('固联组.1');expect(group.groupMembers).toHaveLength(3);expect(group.groupRelations).toHaveLength(3);
+ const references:any[]=[];const visit=(node:any)=>{if(node.kind==='ASSEMBLY_GROUP_MEMBER_REFERENCE')references.push(node);for(const child of node.children??[])visit(child)};visit(before.structureTree);expect(references).toHaveLength(3);expect(references.every(node=>!node.capabilities.includes('DELETE'))).toBeTruthy();
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true}),reference=references.find(node=>node.entityId===seed.rotor);
+ await filter.fill(reference.name);await tree.getByText(reference.name,{exact:true}).dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除 /})).toHaveCount(3);await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);await filter.fill('');expect((await current(page,seed.id)).document.versionId).toBe(before.document.versionId);
+ await command(page,'移动组件');await pickVisibleInstance(page,seed.rotor);await dragAttachedComponent(page,4);
+ const after=await current(page,seed.id);const baseline=before.product.instances.find((i:any)=>i.id===seed.shaft),moved=after.product.instances.find((i:any)=>i.id===seed.shaft);expect(moved.translation).not.toEqual(baseline.translation);
+ expect(after.product.constraints[0].groupRelations).toEqual(group.groupRelations);await page.screenshot({path:'../../../build/acceptance/product-fix-together-viewport.png'});expect(errors).toEqual([]);
 });
 
 test('reported closed four-bar saves successive viewport drags and retains diagnostic references',async({page,context})=>{
@@ -428,7 +538,7 @@ CadViewportEngine.prototype.invalidate=function(...args){window.__dmuEngine=this
   const k=source.product!.kinematics!;
   for(const item of [...k.mechanisms,...k.drivers,...k.studies])ids.set(item.id,crypto.randomUUID());
   for(const mechanism of k.mechanisms)for(const joint of mechanism.joints){
-   ids.set(joint.id,crypto.randomUUID());for(const constraint of joint.constraints){
+   ids.set(joint.id,crypto.randomUUID());for(const coordinate of joint.coordinates??[])ids.set(coordinate.id,crypto.randomUUID());for(const constraint of joint.constraints){
     const id=crypto.randomUUID();ids.set(constraint.id,id);
     const parameter=constraint.quantityParameter;if(parameter)ids.set(parameter.parameterId,parameter.parameterId.replace(constraint.id,id));
    }
@@ -441,7 +551,7 @@ CadViewportEngine.prototype.invalidate=function(...args){window.__dmuEngine=this
    if(next.ownerDocumentId===clone.document.id&&'ownerVersionId' in next)next.ownerVersionId=clone.document.versionId;
    return next;
   };
-  clone=await api.command(clone.document.id,{type:'SAVE_KINEMATICS',versionId:clone.document.versionId,kinematics:(()=>{const copied=remap(k);copied.studies=[];for(const driver of copied.drivers){delete driver.reference;delete driver.referenceDigest;const m=copied.mechanisms.find((m:any)=>m.id===driver.mechanismId),j=m.joints.find((j:any)=>j.id===driver.jointId);j.lower??={value:-720,unit:'deg'};j.upper??={value:720,unit:'deg'};}return copied})()});
+  clone=await api.command(clone.document.id,{type:'SAVE_KINEMATICS',versionId:clone.document.versionId,kinematics:(()=>{const copied=remap(k);copied.studies=[];for(const driver of copied.drivers){delete driver.reference;delete driver.referenceDigest;const m=copied.mechanisms.find((m:any)=>m.id===driver.mechanismId),j=m.joints.find((j:any)=>j.id===driver.jointId);const c=j.coordinates.find((c:any)=>c.id===driver.coordinateId);c.lower??={value:-720,unit:'deg'};c.upper??={value:720,unit:'deg'};}return copied})()});
   const mechanismId=ids.get('ef90c89c-6306-4150-a36e-4d09f5dd698f')!;
   return {id:clone.document.id,mechanismId,crank:ids.get('instance-4e6bf784f7063a53be7a')!,sourceHead:source.document.versionId};
  },sourceId!);

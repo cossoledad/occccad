@@ -21,22 +21,31 @@ type JointEndpoint struct {
 	Frame      InstancePose         `json:"frame"` // derived; rebuilt from supports for geometry-defined joints
 	Axis       *AssemblyGeometryRef `json:"axis,omitempty"`
 	Plane      *AssemblyGeometryRef `json:"plane,omitempty"`
+	Point      *AssemblyGeometryRef `json:"point,omitempty"`
 	CapturedX  *[3]float64          `json:"capturedX,omitempty"`
 }
 type MechanismJoint struct {
-	ID             string               `json:"id"`
-	Name           string               `json:"name"`
-	Kind           string               `json:"kind"` // GROUND | REVOLUTE
-	First          JointEndpoint        `json:"first"`
-	Second         *JointEndpoint       `json:"second,omitempty"`
-	Zero           MotionQuantity       `json:"zero"`
-	Direction      int                  `json:"direction"`      // +1/-1 along first frame Z
-	AxialDirection string               `json:"axialDirection"` // plane normals SAME | OPPOSITE
-	AxialOffset    MotionQuantity       `json:"axialOffset"`
-	Sources        []JointSource        `json:"sources,omitempty"`
-	Lower          *MotionQuantity      `json:"lower,omitempty"`
-	Upper          *MotionQuantity      `json:"upper,omitempty"`
-	Constraints    []AssemblyConstraint `json:"constraints,omitempty"` // owning mechanism relations, same public definition as Product
+	ID               string               `json:"id"`
+	Name             string               `json:"name"`
+	Kind             string               `json:"kind"` // GROUND | REVOLUTE | PRISMATIC | CYLINDRICAL | PLANAR | RIGID | SPHERICAL
+	First            JointEndpoint        `json:"first"`
+	Second           *JointEndpoint       `json:"second,omitempty"`
+	Coordinates      []JointCoordinate    `json:"coordinates,omitempty"`
+	OrientationAngle MotionQuantity       `json:"orientationAngle"`
+	AxisDirection    string               `json:"axisDirection,omitempty"` // axial support relation SAME | OPPOSITE, separate from coordinate direction
+	AxialDirection   string               `json:"axialDirection"`          // plane normals SAME | OPPOSITE
+	AxialOffset      MotionQuantity       `json:"axialOffset"`
+	Sources          []JointSource        `json:"sources,omitempty"`
+	Constraints      []AssemblyConstraint `json:"constraints,omitempty"` // owning mechanism relations, same public definition as Product
+}
+type JointCoordinate struct {
+	ID        string          `json:"id"`
+	Role      string          `json:"role"`      // AXIAL_ROTATION | AXIAL_TRANSLATION
+	Dimension string          `json:"dimension"` // ANGLE | LENGTH
+	Direction int             `json:"direction"`
+	Zero      MotionQuantity  `json:"zero"` // immutable captured physical origin
+	Lower     *MotionQuantity `json:"lower,omitempty"`
+	Upper     *MotionQuantity `json:"upper,omitempty"`
 }
 type Mechanism struct {
 	Evaluation                *MechanismEvaluation    `json:"evaluation,omitempty"`
@@ -59,29 +68,28 @@ type DMUAddress struct {
 	BodyID       string       `json:"bodyId"`
 }
 type MotionStudy struct {
-	ID              string  `json:"id"`
-	Name            string  `json:"name"`
-	MechanismID     string  `json:"mechanismId"`
-	DriverID        string  `json:"driverId,omitempty"`
-	DriverJointID   string  `json:"driverJointId,omitempty"`
-	DurationSeconds float64 `json:"durationSeconds"`
-	Frames          int     `json:"frames"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	MechanismID     string   `json:"mechanismId"`
+	ActiveDriverIDs []string `json:"activeDriverIds"`
+	DurationSeconds float64  `json:"durationSeconds"`
+	Frames          int      `json:"frames"`
 	// Only an exactly matching existing coordinate equation may be replaced.
-	ReplaceDriverConstraintID string                  `json:"replaceDriverConstraintId,omitempty"`
-	IncludeSameUnit           bool                    `json:"includeSameUnit"`
-	CheckDMU                  bool                    `json:"checkDmu"`
-	Scope                     []DMUAddress            `json:"scope,omitempty"` // empty means all exact geometry
-	Clearance                 MotionQuantity          `json:"clearance"`
-	BudgetMS                  int                     `json:"budgetMs"`
-	SourceRevisionID          string                  `json:"sourceRevisionId,omitempty"`
-	BasisDigest               string                  `json:"basisDigest,omitempty"`
-	GeometryDigest            string                  `json:"geometryDigest,omitempty"`
-	Reference                 *MotionQuantity         `json:"reference,omitempty"`
-	InitialPoses              map[string]InstancePose `json:"initialPoses,omitempty"`
-	InitialCoordinates        map[string]float64      `json:"initialCoordinates,omitempty"`
-	EnvironmentPoses          map[string]InstancePose `json:"environmentPoses,omitempty"` // frozen display environment, never mechanism ownership
-	Keyframes                 []MotionKeyframe        `json:"keyframes,omitempty"`
-	AnimateViewpoint          bool                    `json:"animateViewpoint,omitempty"`
+	ReplaceDriverConstraintID string                    `json:"replaceDriverConstraintId,omitempty"`
+	IncludeSameUnit           bool                      `json:"includeSameUnit"`
+	CheckDMU                  bool                      `json:"checkDmu"`
+	Scope                     []DMUAddress              `json:"scope,omitempty"` // empty means all exact geometry
+	Clearance                 MotionQuantity            `json:"clearance"`
+	BudgetMS                  int                       `json:"budgetMs"`
+	SourceRevisionID          string                    `json:"sourceRevisionId,omitempty"`
+	BasisDigest               string                    `json:"basisDigest,omitempty"`
+	GeometryDigest            string                    `json:"geometryDigest,omitempty"`
+	References                map[string]MotionQuantity `json:"references"`
+	InitialPoses              map[string]InstancePose   `json:"initialPoses,omitempty"`
+	InitialCoordinates        map[string]float64        `json:"initialCoordinates,omitempty"`
+	EnvironmentPoses          map[string]InstancePose   `json:"environmentPoses,omitempty"` // frozen display environment, never mechanism ownership
+	Keyframes                 []MotionKeyframe          `json:"keyframes,omitempty"`
+	AnimateViewpoint          bool                      `json:"animateViewpoint,omitempty"`
 }
 type MotionViewpoint struct {
 	Position [3]float64 `json:"position"`
@@ -93,17 +101,17 @@ type MotionViewpoint struct {
 	Bottom   float64    `json:"bottom"`
 }
 type MotionKeyframe struct {
-	ID          string           `json:"id"`
-	TimeSeconds float64          `json:"timeSeconds"`
-	DriverID    string           `json:"driverId"`
-	Value       MotionQuantity   `json:"value"`
-	Viewpoint   *MotionViewpoint `json:"viewpoint,omitempty"`
+	ID          string                    `json:"id"`
+	TimeSeconds float64                   `json:"timeSeconds"`
+	Values      map[string]MotionQuantity `json:"values"`
+	Viewpoint   *MotionViewpoint          `json:"viewpoint,omitempty"`
 }
 type MotionDriver struct {
 	ID              string          `json:"id"`
 	Name            string          `json:"name"`
 	MechanismID     string          `json:"mechanismId"`
 	JointID         string          `json:"jointId"`
+	CoordinateID    string          `json:"coordinateId"`
 	Reference       *MotionQuantity `json:"reference,omitempty"`
 	ReferenceDigest string          `json:"referenceDigest,omitempty"`
 }
@@ -218,7 +226,7 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 			}
 		}
 		for id, q := range m.Coordinates {
-			if !finiteMotion(q) || math.Abs(q) > 1e9 || !slices.ContainsFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == id && j.Kind == "REVOLUTE" }) {
+			if !finiteMotion(q) || math.Abs(q) > 1e9 || !mechanismHasCoordinate(m, id) {
 				return fmt.Errorf("%w: invalid continuous mechanism coordinate", ErrValidation)
 			}
 		}
@@ -236,6 +244,9 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 			if j.AxialDirection != "" && j.AxialDirection != "SAME" && j.AxialDirection != "OPPOSITE" {
 				return fmt.Errorf("%w: invalid axial plane direction", ErrValidation)
 			}
+			if j.AxisDirection != "" && j.AxisDirection != "SAME" && j.AxisDirection != "OPPOSITE" {
+				return fmt.Errorf("%w: invalid joint axis direction", ErrValidation)
+			}
 			if j.AxialOffset.Unit != "" {
 				if _, e := motionValue(j.AxialOffset, false); e != nil {
 					return e
@@ -249,39 +260,22 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 				if j.Second != nil {
 					return fmt.Errorf("%w: Ground has one endpoint", ErrValidation)
 				}
-			case "REVOLUTE":
+			case "REVOLUTE", "PRISMATIC", "CYLINDRICAL", "PLANAR", "RIGID", "SPHERICAL":
 				if j.Second == nil || j.Second.InstanceID == j.First.InstanceID || !member[j.Second.InstanceID] || !validMotionPose(j.Second.Frame) {
 					return fmt.Errorf("%w: invalid joint second frame", ErrValidation)
 				}
 			default:
 				return fmt.Errorf("%w: unsupported joint %s", ErrValidation, j.Kind)
 			}
-			if j.Direction != 1 && j.Direction != -1 {
-				return fmt.Errorf("%w: joint direction must be +1/-1", ErrValidation)
+			if err := validateJointCoordinates(j, claim); err != nil {
+				return err
 			}
-			if j.Kind == "REVOLUTE" {
-				angular := j.Kind == "REVOLUTE"
-				if _, err := motionValue(j.Zero, angular); err != nil {
+			if j.Kind == "PRISMATIC" {
+				if _, err := motionValue(j.OrientationAngle, true); err != nil {
 					return err
 				}
-				if j.Lower != nil {
-					if _, err := motionValue(*j.Lower, angular); err != nil {
-						return err
-					}
-				}
-				if j.Upper != nil {
-					if _, err := motionValue(*j.Upper, angular); err != nil {
-						return err
-					}
-				}
-				if j.Lower != nil && j.Upper != nil {
-					lo, _ := motionValue(*j.Lower, angular)
-					hi, _ := motionValue(*j.Upper, angular)
-					if lo >= hi {
-						return fmt.Errorf("%w: reversed joint limits", ErrValidation)
-					}
-				}
 			}
+
 		}
 		mechanisms[m.ID] = m
 	}
@@ -290,17 +284,20 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 	for _, d := range k.Drivers {
 		m, ok := mechanisms[d.MechanismID]
 		i := slices.IndexFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID })
-		if !ok || !claim(d.ID) || d.Name == "" || drivenCoordinates[d.MechanismID+"/"+d.JointID] || i < 0 || m.Joints[i].Kind != "REVOLUTE" {
+		if !ok || !claim(d.ID) || d.Name == "" || drivenCoordinates[d.CoordinateID] || i < 0 {
 			return fmt.Errorf("%w: invalid driver", ErrValidation)
 		}
 		drivers[d.ID] = d
-		drivenCoordinates[d.MechanismID+"/"+d.JointID] = true
-		joint := m.Joints[i]
-		if joint.Lower == nil || joint.Upper == nil {
+		drivenCoordinates[d.CoordinateID] = true
+		_, coordinate, err := driverCoordinate(m, d)
+		if err != nil {
+			return err
+		}
+		if coordinate.Lower == nil || coordinate.Upper == nil {
 			return fmt.Errorf("%w: driven joint requires lower and upper limits", ErrValidation)
 		}
 		if d.Reference != nil {
-			if _, err := motionValue(*d.Reference, true); err != nil {
+			if _, err := motionValue(*d.Reference, coordinate.angular()); err != nil {
 				return err
 			}
 		}
@@ -338,7 +335,6 @@ func applyKinematicsDefinition(raw, payload json.RawMessage) (json.RawMessage, m
 	}
 	for i := range k.Studies {
 		s := &k.Studies[i]
-		s.DriverJointID = ""
 		if s.CheckDMU || len(s.Scope) > 0 || s.Clearance.Value != 0 || s.IncludeSameUnit {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: interference is outside mechanism definitions", ErrValidation)
 		}

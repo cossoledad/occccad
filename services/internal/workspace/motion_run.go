@@ -18,7 +18,7 @@ import (
 type MotionFrame struct {
 	KeyframeID     string                               `json:"keyframeId,omitempty"`
 	TimeSeconds    float64                              `json:"timeSeconds"`
-	DriverValue    float64                              `json:"driverValue"` // canonical rad/mm
+	CommandValues  map[string]float64                   `json:"commandValues"` // canonical rad/mm, keyed by DriverID
 	UnitPoses      map[string]InstancePose              `json:"unitPoses"`
 	Coordinates    map[string]float64                   `json:"coordinates"`
 	AngleBranches  []geometry.AssemblySolvedAngleBranch `json:"angleBranches,omitempty"`
@@ -27,7 +27,7 @@ type MotionFrame struct {
 }
 type MotionFailure struct {
 	TimeSeconds    float64                 `json:"timeSeconds"`
-	DriverValue    float64                 `json:"driverValue"`
+	CommandValues  map[string]float64      `json:"commandValues"`
 	Code           string                  `json:"code"`
 	Detail         string                  `json:"detail"`
 	Solve          *geometry.AssemblySolve `json:"solve,omitempty"`
@@ -45,27 +45,6 @@ type MotionRun struct {
 	ElapsedMS   float64        `json:"elapsedMs"`
 }
 
-func motionLimits(m Mechanism, coords map[string]float64) error {
-	for _, j := range m.Joints {
-		q, ok := coords[j.ID]
-		if !ok {
-			continue
-		}
-		if j.Lower != nil {
-			v, _ := motionValue(*j.Lower, j.Kind == "REVOLUTE")
-			if q < v-1e-8 {
-				return fmt.Errorf("LIMIT_REACHED: joint %s lower limit", j.ID)
-			}
-		}
-		if j.Upper != nil {
-			v, _ := motionValue(*j.Upper, j.Kind == "REVOLUTE")
-			if q > v+1e-8 {
-				return fmt.Errorf("LIMIT_REACHED: joint %s upper limit", j.ID)
-			}
-		}
-	}
-	return nil
-}
 func motionDof(r geometry.AssemblySolve) (uint64, uint64) {
 	var dof, gauge uint64
 	for _, c := range r.Components {
@@ -79,16 +58,16 @@ func motionDof(r geometry.AssemblySolve) (uint64, uint64) {
 // continuation steps never leak into Frames after an ultimately rejected target.
 func (service *Service) RunMotionStudy(parent context.Context, s MotionSnapshot, onFrame func(int) error) (out MotionRun, err error) {
 	started := time.Now()
-	out = MotionRun{Schema: 1, Snapshot: s, Status: "RUNNING", Frames: []MotionFrame{}}
+	out = MotionRun{Schema: motionSchema, Snapshot: s, Status: "RUNNING", Frames: []MotionFrame{}}
 	defer func() { out.ElapsedMS = float64(time.Since(started).Microseconds()) / 1000 }()
-	if s.Schema != 1 || s.Policy != motionPolicy || s.Digest != motionDigest(s) ||
+	if s.Schema != motionSchema || s.Policy != motionPolicy || s.Digest != motionDigest(s) ||
 		s.Study.BudgetMS < 100 || s.Study.BudgetMS > 120000 || s.Study.Frames < 1 || s.Study.Frames > 500 || len(s.Equations.Bodies) > 64 {
 		return out, fmt.Errorf("%w: invalid motion snapshot", ErrValidation)
 	}
 	ctx, cancel := context.WithTimeout(parent, time.Duration(s.Study.BudgetMS)*time.Millisecond)
 	defer cancel()
 	var engine *mechanismMotionSolver
-	failure := func(code, detail string, t, q float64) {
+	failure := func(code, detail string, t float64, values map[string]float64) {
 		if parent.Err() != nil {
 			code = "CANCELED"
 		} else if ctx.Err() != nil {
@@ -113,7 +92,7 @@ func (service *Service) RunMotionStudy(parent context.Context, s MotionSnapshot,
 			}
 		}
 		out.Status = code
-		out.Failure = &MotionFailure{TimeSeconds: t, DriverValue: q, Code: code, Detail: detail}
+		out.Failure = &MotionFailure{TimeSeconds: t, CommandValues: values, Code: code, Detail: detail}
 		if engine == nil {
 			return
 		}
@@ -133,41 +112,48 @@ func (service *Service) RunMotionStudy(parent context.Context, s MotionSnapshot,
 	}
 	engine, err = newMechanismMotionSolver(ctx, service, s)
 	if err != nil {
-		failure("KINEMATIC_FAILED", err.Error(), 0, 0)
+		failure("KINEMATIC_FAILED", err.Error(), 0, nil)
 		return out, nil
 	}
-	reference := 0.0
-	if s.Study.Reference != nil {
-		reference, err = motionValue(*s.Study.Reference, true)
-		if err != nil {
-			return out, err
-		}
+	if !engine.state.Qualified {
+		failure("UNSUPPORTED_DOF", "recording active set is not qualified", 0, nil)
+		return out, nil
 	}
 	targets, err := motionPathTargets(s.Study)
 	if err != nil {
 		return out, err
 	}
-	if len(s.Study.Keyframes) > 0 && math.Abs(engine.state.Frame.DriverValue-targets[0].Value-reference) > 1e-7 {
-		failure("INPUT_ERROR", "initial keyframe does not match captured configuration", 0, targets[0].Value)
-		return out, nil
-	}
-	for _, target := range targets {
-		frame, e := engine.Advance(ctx, reference+target.Value)
-		if e != nil {
+	for index, target := range targets {
+		physical, er := physicalTargets(s.Mechanism, engine.state.Drivers, pathTargetQuantities(s.Study, target.Values), s.Study.References)
+		if er != nil {
+			return out, er
+		}
+		if index == 0 {
+			for id, q := range physical {
+				if math.Abs(engine.state.Frame.Coordinates[id]-q) > 1e-7 {
+					failure("INPUT_ERROR", "initial vector does not match captured configuration", 0, target.Values)
+					return out, nil
+				}
+			}
+		}
+		frame, er := engine.Advance(ctx, physical)
+		if er != nil {
 			code := "KINEMATIC_FAILED"
-			if strings.HasPrefix(e.Error(), "LIMIT_REACHED") {
+			if strings.HasPrefix(er.Error(), "LIMIT_REACHED") {
 				code = "LIMIT_REACHED"
 			}
-			failure(code, e.Error(), target.Time, target.Value)
+			failure(code, er.Error(), target.Time, target.Values)
 			return out, nil
 		}
 		frame.TimeSeconds = target.Time
-		frame.DriverValue = target.Value
 		frame.KeyframeID = target.KeyframeID
+		for id, q := range target.Values {
+			frame.CommandValues[id] = q
+		}
 		out.Frames = append(out.Frames, frame)
 		if onFrame != nil {
-			if e = onFrame(len(out.Frames)); e != nil {
-				failure("EXECUTION_FAILURE", e.Error(), target.Time, target.Value)
+			if er = onFrame(len(out.Frames)); er != nil {
+				failure("EXECUTION_FAILURE", er.Error(), target.Time, target.Values)
 				return out, nil
 			}
 		}
@@ -180,8 +166,9 @@ func (service *Service) RunMotionStudy(parent context.Context, s MotionSnapshot,
 }
 
 type motionPathTarget struct {
-	Time, Value float64
-	KeyframeID  string
+	Time       float64
+	Values     map[string]float64
+	KeyframeID string
 }
 
 func motionPathTargets(s MotionStudy) ([]motionPathTarget, error) {
@@ -214,19 +201,32 @@ func motionPathTargets(s MotionStudy) ([]motionPathTarget, error) {
 			segment++
 		}
 		key := s.Keyframes[segment]
-		value, err := motionValue(key.Value, true)
-		if err != nil {
-			return nil, err
-		}
-		if segment+1 < len(s.Keyframes) {
-			next := s.Keyframes[segment+1]
-			end, err := motionValue(next.Value, true)
+		values := map[string]float64{}
+		for _, id := range s.ActiveDriverIDs {
+			reference, ok := s.References[id]
+			if !ok {
+				return nil, fmt.Errorf("%w: missing recording reference", ErrValidation)
+			}
+			angular := reference.Unit == "rad" || reference.Unit == "deg"
+			quantity, ok := key.Values[id]
+			if !ok || len(key.Values) != len(s.ActiveDriverIDs) {
+				return nil, fmt.Errorf("%w: incomplete recorded vector", ErrValidation)
+			}
+			value, err := motionValue(quantity, angular)
 			if err != nil {
 				return nil, err
 			}
-			value += (end - value) * (t - key.TimeSeconds) / (next.TimeSeconds - key.TimeSeconds)
+			if segment+1 < len(s.Keyframes) {
+				next := s.Keyframes[segment+1]
+				end, err := motionValue(next.Values[id], angular)
+				if err != nil {
+					return nil, err
+				}
+				value += (end - value) * (t - key.TimeSeconds) / (next.TimeSeconds - key.TimeSeconds)
+			}
+			values[id] = value
 		}
-		targets = append(targets, motionPathTarget{Time: t, Value: value, KeyframeID: times[t]})
+		targets = append(targets, motionPathTarget{Time: t, Values: values, KeyframeID: times[t]})
 	}
 	return targets, nil
 }
@@ -251,4 +251,16 @@ func motionHardQualified(r geometry.AssemblySolve) bool {
 		}
 	}
 	return true
+}
+
+func pathTargetQuantities(study MotionStudy, values map[string]float64) map[string]MotionQuantity {
+	out := map[string]MotionQuantity{}
+	for _, id := range study.ActiveDriverIDs {
+		unit := "mm"
+		if ref := study.References[id]; ref.Unit == "rad" || ref.Unit == "deg" {
+			unit = "rad"
+		}
+		out[id] = MotionQuantity{Value: values[id], Unit: unit}
+	}
+	return out
 }

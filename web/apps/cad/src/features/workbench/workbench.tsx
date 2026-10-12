@@ -6,6 +6,8 @@ import {useFeaturePreview} from "./use-feature-preview";
 import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
 import { DatumEditor } from "./datum-editor";
 import type { DatumPreview } from "../../cad/rendering/datum-reference";
+import {assemblyGroupMember,groupMemberToken,groupMemberSelection} from "../../cad/assembly/group-selection";
+import {AssemblyGroupMemberList} from './assembly-group-member-list';
 import { pickFeatureSelection, type FeatureSelectionSession } from "../../cad/interaction/feature-selection";
 import {formatDisplayNumber} from "../../utils/display-number";
 import {CadNumberInput as InputNumber} from "../../cad/overlay/cad-number-input";
@@ -20,7 +22,7 @@ import { offsetInitialFields } from "../../cad/assembly/assembly-offset";
 import { assemblyQuantityInitialFields } from "../../cad/assembly/assembly-quantity";
 import { assemblyPublicInitialFields, assemblyPublicEditDraft } from "../../cad/assembly/assembly-public";
 import { assemblyEditIntent, assemblyIntentKey, AssemblyCandidateBinding, AssemblyDialogLifecycle } from "../../cad/assembly/assembly-edit-intent";
-import { assemblyTargetSupportsEligible, contactRelationOptions, derivedSupportOptions, matchingAssemblyCapabilities } from "../../cad/assembly/assembly-capability";
+import { assemblyConstraintReferences,assemblyTargetSupportsEligible, contactRelationOptions, derivedSupportOptions, matchingAssemblyCapabilities } from "../../cad/assembly/assembly-capability";
 import { exactNormalViewPlane } from "../../cad/navigation/normal-view";
 import { AssemblyAngleParameters, angleAxisCandidateError } from "./assembly-angle-parameters";
 import { fixedPoseAngles } from "../../cad/assembly/assembly-fixed-pose";
@@ -156,12 +158,8 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
       {!contactCapabilities?.length && <Alert type="warning" message="此精确支持组合不在 Contact 合同内"/>}
     </>}
     {kind === "FIX_TOGETHER" && <>
-      <Form.Item name="groupName" label="固联组名称"><Input onBlur={onValueCommit}/></Form.Item>
-      <Form.Item name="groupMembers" label="成员（组件或已有组）" rules={[{required:true,type:"array",min:2}]}><Select mode="multiple" onChange={onValueCommit} options={[
-        ...(view?.product?.instances??[]).map(i=>({value:`instance:${i.id}`,label:i.name||i.id})),
-        ...(view?.product?.constraints??[]).filter(c=>c.kind==="FIX_TOGETHER"&&c.id!==constraint?.id).map(c=>({value:`group:${c.id}`,label:`组：${c.name||c.id}`})),
-      ]}/></Form.Item>
-      <Typography.Text type="secondary">先求解有效组内约束，再让组整体参与外部约束；停用组不删除组内独立约束。</Typography.Text>
+      <Form.Item name="groupName" label="固联组名称"><Input onChange={onValueCommit}/></Form.Item>
+      <Form.Item name="groupMembers" label="成员" rules={[{required:true,type:"array",min:1}]}><AssemblyGroupMemberList view={view} onChange={()=>onValueCommit()}/></Form.Item>
     </>}
     {kind === "FIX" && constraint && <>
       <Typography.Text type="secondary">所属装配坐标系；依次绕 X、Y、Z 轴旋转。</Typography.Text>
@@ -243,7 +241,7 @@ export function Workbench() {
   const receiptPrompt=useRef(false);
   const [moveReceiptPending,setMoveReceiptPending]=useState(false);
  const motionPanel=useRef<MotionPanelHandle>(null);
- const motionGestures=useRef(new Map<string,{owner:import('../../cad/assembly/mechanism-motion-session').MechanismMotionSession;bodyId:string;initialValue:number;completed?:boolean}>());
+ const motionGestures=useRef(new Map<string,{owner:import('../../cad/assembly/mechanism-motion-session').MechanismMotionSession;bodyId:string;initialValues:Record<string,import("../../cad/assembly/motion-study").MotionQuantity>;completed?:boolean}>());
  const [motionDraft,setMotionDraft]=useState<import('../../cad/assembly/motion-study').MotionStudy>();
  const [motionSession,setMotionSession]=useState<string>();
  const motionOpen=motionSession===documentID;
@@ -537,7 +535,7 @@ export function Workbench() {
   const axisExactType = axisInspection?.supports[1]?.exactType;
   const axisReady = publicKind!=="ANGLE"||angleRelation!=="DIRECTED"||assemblyTargetSupportsEligible(axisInspection?.supports.slice(1))&&
     matchingAssemblyCapabilities(assemblyCapabilityQuery.data?.capabilities,"Angle",[axisExactType??"",axisExactType??""]).length>0;
-  const assemblySupportsReady = editingGroup ? (assemblyGroupMembers?.length??0)>=2&&
+  const assemblySupportsReady = editingGroup ? assemblyConstraintReferences({id:'draft',kind:'FIX_TOGETHER',first:{kind:'BODY',instanceId:''},evaluationStatus:'NOT_UPDATED',groupMembers:(assemblyGroupMembers??[]).map(token=>{const [kind,id]=token.split(':');return kind==='group'?{groupId:id}:{instanceId:id}})},editingView?.product?.constraints??[]).length>=2&&
     matchingAssemblyCapabilities(assemblyCapabilityQuery.data?.capabilities,"FixTogether",["BODY"]).some(capability=>capability.subtype==="multi-member") : !!assemblyExactTypes?.length&&assemblyTargetSupportsEligible(assemblyTargetSupports)&&
     applicableCapabilities.length>0&&(!editingContact||contactRelationOptions(contactCapabilities).includes(assemblyContactKind??""))&&
     (publicKind!=="ANGLE"||applicableCapabilities.some(capability=>capability.subtype===angleRelation))&&axisReady;
@@ -558,6 +556,18 @@ export function Workbench() {
     viewport.current?.clearCommandPreview();setAssemblyPreviewEvaluation(undefined);setAssemblyDefinitionDirty(true);
     assemblyPreviewActor.current?.send({type:"CHANGE"});setAssemblyPreviewCommit(value=>value+1);
   };
+  useEffect(()=>{
+    if(!editingGroup||!editingView)return;
+    const owner=activeInstancePath??'';
+    const members=(assemblyGroupMembers??[]).map(token=>{const [kind,id]=token.split(':');return kind==='group'?{groupId:id}:{instanceId:id}});
+    const session:FeatureSelectionSession={role:'instance',documentId:editingView.document.id,versionId:editingView.document.versionId,
+      project:item=>{const member=assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id);return member?groupMemberSelection(editingView,member,owner):null},
+      accept:item=>Boolean(assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id)),
+      selections:members.flatMap(member=>{const selection=groupMemberSelection(editingView,member,owner);return selection?[selection]:[]}),
+      onPick:item=>{const member=assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id);if(!member)return;const token=groupMemberToken(member),current=assemblyConstraintForm.getFieldValue('groupMembers')??[];assemblyConstraintForm.setFieldValue('groupMembers',current.includes(token)?current.filter((value:string)=>value!==token):[...current,token]);invalidateAssemblyDefinition()}
+    };
+    setFeatureSelection(session);return()=>setFeatureSelection(current=>current===session?undefined:current);
+  },[editingGroup,editingView,editingAssemblyConstraint?.id,activeInstancePath,assemblyGroupMembers,assemblyConstraintForm]);
   const deriveAssemblyReference = (index:0|1,role:string) => {
     const reference=assemblyReferences[index];if(!reference)return;
     const next={...reference,derivedRole:role||undefined};invalidateAssemblyDefinition();
@@ -676,7 +686,7 @@ export function Workbench() {
         : undefined;
       const ownVisible = semantic?.effectiveVisible ?? treeVisibilityOverride(visibilityKey, treeVisibilityOverrides) ?? node.localVisible ?? true;
       const actionOwner = node.kind === "INSTANCE" ? node.ownerDocumentId : node.documentId;
-      const ownerEditable = node.kind==="MOTION_RESULT"?Boolean(!motionDisplay&&!motionCommandActive&&node.documentId===view?.document.id):Boolean(!motionDisplay && (!motionOpen||!motionCommandActive) && (!motionOpen||kinematicKinds.includes(node.kind??"")||node.kind==="JOINT_EXPANSION") && editingView && actionOwner === editingView.document.id &&
+      const ownerEditable = node.kind==="MOTION_RESULT"?Boolean(!motionDisplay&&!motionCommandActive&&node.documentId===view?.document.id):Boolean(!motionDisplay && (!motionOpen||!motionCommandActive) && (!motionOpen||kinematicKinds.includes(node.kind??"")||node.kind==="JOINT_EXPANSION"||node.kind==="ASSEMBLY_GROUP_MEMBER_REFERENCE"&&Boolean(node.selection?.mechanismId)) && editingView && actionOwner === editingView.document.id &&
         ["OWNER", "EDITOR"].includes(editingView.document.permission ?? ""));
       return { ...node, hidden: !ownVisible, definitionVisible: semantic?.definitionVisible ?? node.definitionVisible, localVisible: semantic?.localVisible ?? node.localVisible,
         capabilities: ownerEditable ? node.capabilities : node.capabilities?.filter((capability) => capability !== "EDIT" && capability !== "DELETE" && capability !== "SUPPRESS" && capability !== "RENAME"),
@@ -710,7 +720,9 @@ export function Workbench() {
     }
   };
   const canEdit = !motionOpen && !motionDisplay && Boolean(editSession) && (editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR");
-  const canEditRoot = !motionDisplay && (view?.document.permission === "OWNER" || view?.document.permission === "EDITOR");
+  const liveMotionOwner=motionPanel.current?.motionSession();
+  const liveMotionCanPause=Boolean(liveMotionOwner?.active&&liveMotionOwner.checkpoint?.qualified&&liveMotionOwner.identity?.baseRevisionId===view?.document.versionId);
+  const canEditRoot = (!motionDisplay||liveMotionCanPause) && (view?.document.permission === "OWNER" || view?.document.permission === "EDITOR");
   const canDeleteMotionResult=!motionDisplay&&!motionCommandActive&&store.selections.length>0&&store.selections.every(s=>s.kind==="kinematic-object"&&s.entityKind==="MOTION_RESULT"&&motionJobs.data?.some(j=>j.id===s.id&&["SUCCEEDED","FAILED","CANCELED"].includes(j.state)));
   // Route rendering precedes the layout cleanup of the previous tab. A sketch
   // belongs to the active edit session; a previous Part's store state must not
@@ -1198,7 +1210,7 @@ onOpenDocumentTab:async(node,operation) => {
             },
 onActivate:async(node,operation) => {
  if(node.kind==='MOTION_RESULT'){if(motionCommandActive||motionDisplay)return;setMotionSession(documentID);await motionPanel.current?.execute('result',node.entityId);return}
- if(node.kind==="JOINT_EXPANSION"){if(!motionDisplay)await commandRegistry.execute("tree.edit",{payload:{node}});return}
+ if(node.kind==="JOINT_EXPANSION"||node.kind==="ASSEMBLY_GROUP_MEMBER_REFERENCE"){if(!motionDisplay)await commandRegistry.execute("tree.edit",{payload:{node}});return}
  if(node.kind==="MECHANISM"||node.kind==="MECHANISM_REFERENCE"){setMotionSession(documentID);motionPanel.current?.execute("enter",node.entityId);return}
  if(kinematicKinds.includes(node.kind??"")){if(!motionDisplay)await commandRegistry.execute("tree.edit",{payload:{node}});return}
               if (node.kind === "BODY" && node.documentId === editingView?.document.id && node.bodyId) {
@@ -1223,6 +1235,11 @@ onActivate:async(node,operation) => {
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             },
 onEdit:(node,operation) => {
+ if(node.kind==='ASSEMBLY_GROUP_MEMBER_REFERENCE'){
+  if(node.selection?.mechanismId){setMotionSession(documentID);void motionPanel.current?.execute('edit-relation',node.selection.ownerEntityId,operation)}else{const group=editingView?.product?.constraints?.find(c=>c.id===node.selection?.ownerEntityId);if(group)openAssemblyConstraintEditor(group)}
+  return;
+ }
+
  if(node.kind==="JOINT_EXPANSION"){setMotionSession(documentID);void motionPanel.current?.execute("edit-relation",node.entityId,operation);return}
  if(kinematicKinds.includes(node.kind??"")){setMotionSession(documentID);motionPanel.current?.execute("edit",node.entityId,operation);return}
               if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
@@ -1332,7 +1349,7 @@ onToggleConstruction:(node)=>{
             }
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
-  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
+  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
     formActive:Boolean(motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||renameTarget||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
@@ -1672,7 +1689,7 @@ onToggleConstruction:(node)=>{
           gridVisibility={gridVisibility} referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
           datumPreview={datumPreview} featureSelection={featureSelection} featureInputArtifacts={featureInputs} preferredLengthUnit={lengthUnit} captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={editSketch} onSketchPreview={(featureId,operations,signal)=>{if(!editingView||store.activeSketchID!==featureId)return Promise.reject(new Error("草图预览上下文已结束"));return api.previewCommand(editingView.document.id,{type:"EDIT_SKETCH",sketchId:featureId,operations},signal);}} onSketchReceiptCheck={async receipt=>{const updated=await command.mutateAsync(()=>api.command(receipt.ownerDocumentId,{type:"EDIT_SKETCH",sketchId:receipt.featureId,operations:receipt.operations,requestId:receipt.intent.requestId}));await refresh(updated);return updated;}}
           onSketchReceiptChange={setSketchReceipt} onSketchCommandStateChange={setSketchCommandState} onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
-		  onAssemblyConstraint={(toolKind, references) => {
+		  onAssemblyConstraint={(toolKind, references,groupMembers) => {
             const issue = references.flatMap((reference) => {
               if (!["FACE", "EDGE", "VERTEX"].includes(reference.kind)) return [];
               const issue = topologyNamingIssue(reference.geometryKey, editingView, view);
@@ -1691,7 +1708,7 @@ onToggleConstruction:(node)=>{
             // branch defaults. Wait for exact server inspection for sign rules.
             assemblyConstraintForm.setFieldsValue({ value:0, directionRelation:"UNORIENTED", distanceRelation: "UNSIGNED",
               ...(kind === "distance" ? offsetInitialFields(undefined,references) : {}) });
-            assemblyConstraintForm.setFieldsValue({...assemblyPublicInitialFields(kind.toUpperCase(),references),...(kind==="angle"?assemblyQuantityInitialFields():{})});
+            assemblyConstraintForm.setFieldsValue({...assemblyPublicInitialFields(kind.toUpperCase(),references),...(groupMembers?{groupMembers:groupMembers.map(groupMemberToken)}:{}),...(kind==="angle"?assemblyQuantityInitialFields():{})});
             setPendingAssemblyConstraint({ kind, references,
               angleRelation });
           }}
@@ -1700,7 +1717,7 @@ onToggleConstruction:(node)=>{
             const owner=motionPanel.current?.motionSession();
             if(owner){
               if(!owner.active)throw new Error('机构会话正在准备或已结束');
-              return owner.settle().then(()=>{const identity=owner.identity!,sessionId='mechanism-gesture-'+randomUUID();motionGestures.current.set(sessionId,{owner,bodyId:input.instanceId,initialValue:owner.checkpoint!.frame.driverValue});
+              return owner.prepareSpatial().then(()=>{const identity=owner.identity!,sessionId='mechanism-gesture-'+randomUUID();motionGestures.current.set(sessionId,{owner,bodyId:input.instanceId,initialValues:Object.fromEntries(owner.checkpoint!.activeDriverIds.map(id=>{const driver=identity.drivers.find(d=>d.id===id)!,coordinate=editingView.product?.kinematics?.mechanisms.find(m=>m.id===driver.mechanismId)?.joints.flatMap(j=>j.coordinates??[]).find(c=>c.id===driver.coordinateId);return [id,{value:owner.checkpoint!.frame.commandValues[id],unit:coordinate?.dimension==='ANGLE'?'rad':'mm'}]}))});
                 return {mode:'COMMAND_TRIAL' as const,sessionId,bodyId:input.instanceId,baseRevisionId:identity.baseRevisionId,inputDigest:identity.inputDigest,nominalPoses:Object.entries(owner.checkpoint!.frame.unitPoses).map(([instanceId,pose])=>({instanceId,...pose}))};});
             }
             return api.beginAssemblyInteraction(ownerDocumentId,{...input,...(input.mechanismId?{sourceMechanismIds:motionSources.current}:{}),editContext:{
@@ -1717,7 +1734,7 @@ onToggleConstruction:(node)=>{
             return {sessionOutcome:response.accepted?'ACCEPTED':'RETAINED',previewId:'',requestId:response.sessionId+'/'+response.sequence,sessionId:input.sessionId,inputDigest:response.inputDigest,sequence:input.sequence,goalSequence:input.goalSequence,
               instancePoses:Object.entries(response.frame.unitPoses).map(([instanceId,pose])=>({instanceId,...pose})),interaction:{...response.interaction,status:response.accepted?(response.interaction?.status??'CONSTRAINED'):'FAILED',hardFeasible:response.frame.kinematicValid,targetConverged:response.accepted&&Boolean(response.interaction?.targetConverged),eligibleForCommit:false,targetError:response.interaction?.targetError??Number.NaN,targetOptimality:response.interaction?.targetOptimality??Number.NaN,targetSequence:input.sequence,diagnostic:response.failure?.message}};
           }}
-          onAssemblyInteractionCancel={(ownerDocumentId,sessionId)=>{const gesture=motionGestures.current.get(sessionId);if(gesture){motionGestures.current.delete(sessionId);if(!gesture.completed&&gesture.owner.active)return gesture.owner.request({value:{value:gesture.initialValue,unit:'rad'}},false).then(()=>undefined);return Promise.resolve()}return api.cancelAssemblyInteraction(ownerDocumentId,sessionId)}}
+          onAssemblyInteractionCancel={(ownerDocumentId,sessionId)=>{const gesture=motionGestures.current.get(sessionId);if(gesture){motionGestures.current.delete(sessionId);if(!gesture.completed&&gesture.owner.active)return gesture.owner.request({values:gesture.initialValues},false).then(()=>undefined);return Promise.resolve()}return api.cancelAssemblyInteraction(ownerDocumentId,sessionId)}}
           onInspectAssemblySupports={(owner,references,signal)=>api.inspectAssemblySupports(owner,references,signal)}
           onOperationFailed={error=>operationFeedback(error,"装配操纵")}
           onAssemblyInteractionState={(state,reason)=>{

@@ -19,42 +19,41 @@ func (service *Service) motionPlayhead(parent context.Context, run MotionRun, at
 	if err != nil {
 		return MotionFrame{}, err
 	}
-	ref := 0.0
-	if run.Snapshot.Study.Reference != nil {
-		ref, err = motionValue(*run.Snapshot.Study.Reference, true)
-		if err != nil {
-			return MotionFrame{}, err
-		}
-	}
 	targets, err := motionPathTargets(run.Snapshot.Study)
 	if err != nil {
 		return MotionFrame{}, err
 	}
 	var previous *motionPathTarget
-	for i := range targets {
-		target := targets[i]
+	for i, target := range targets {
+		values := target.Values
+		timeValue := target.Time
 		if target.Time > at {
 			if previous == nil {
-				return MotionFrame{}, fmt.Errorf("%w: missing path initial key", ErrValidation)
+				return MotionFrame{}, fmt.Errorf("%w: missing initial key", ErrValidation)
 			}
 			fraction := (at - previous.Time) / (target.Time - previous.Time)
-			q := previous.Value + (target.Value-previous.Value)*fraction
-			f, err := e.Advance(ctx, ref+q)
-			if err != nil {
-				return f, err
+			values = map[string]float64{}
+			for id, v := range previous.Values {
+				values[id] = v + (target.Values[id]-v)*fraction
 			}
-			f.DriverValue = q
-			f.TimeSeconds = at
-			return f, nil
+			timeValue = at
 		}
-		f, err := e.Advance(ctx, ref+target.Value)
+		physical, err := physicalTargets(run.Snapshot.Mechanism, e.state.Drivers, pathTargetQuantities(run.Snapshot.Study, values), run.Snapshot.Study.References)
+		if err != nil {
+			return MotionFrame{}, err
+		}
+		f, err := e.Advance(ctx, physical)
 		if err != nil {
 			return f, err
 		}
-		if target.Time == at {
-			f.DriverValue = target.Value
-			f.TimeSeconds = at
-			f.KeyframeID = target.KeyframeID
+		for id, v := range values {
+			f.CommandValues[id] = v
+		}
+		f.TimeSeconds = timeValue
+		if timeValue == at {
+			if target.Time == at {
+				f.KeyframeID = target.KeyframeID
+			}
 			return f, nil
 		}
 		previous = &targets[i]

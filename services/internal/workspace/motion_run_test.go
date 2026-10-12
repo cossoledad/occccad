@@ -65,10 +65,14 @@ func motionFixture(t *testing.T, closed bool, kind string) MotionSnapshot {
 	ids := []string{"ground", "crank"}
 	angles := []float64{0, math.Pi / 3}
 	origins := [][3]float64{{}, {}}
-	joints := []MechanismJoint{{ID: "g", Kind: "GROUND", First: jointEnd("ground", 0, 0), Direction: 1}, {ID: "drive", Kind: kind, First: jointEnd("ground", 0, 0), Second: ptrEnd(jointEnd("crank", 0, 0)), Direction: 1, Zero: MotionQuantity{Unit: "rad"}}}
+	joints := []MechanismJoint{{ID: "g", Kind: "GROUND", First: jointEnd("ground", 0, 0)}, {ID: "drive", Kind: kind, First: jointEnd("ground", 0, 0), Second: ptrEnd(jointEnd("crank", 0, 0)), Coordinates: []JointCoordinate{{ID: "drive" + "-coordinate", Role: "AXIAL_ROTATION", Dimension: "ANGLE", Zero: MotionQuantity{Unit: "rad"}, Direction: 1}}}}
 	if kind == "PRISMATIC" {
 		angles[1] = 0
-		joints[1].Zero.Unit = "mm"
+		joints[1].Coordinates[0].Zero.Unit="mm"
+ joints[1].Coordinates[0].Role="AXIAL_TRANSLATION"
+ joints[1].Coordinates[0].Dimension="LENGTH"
+ origins[1][2]=-5
+ joints[1].OrientationAngle=MotionQuantity{Unit:"rad"}
 	}
 	if closed {
 		px, py := 20*math.Cos(angles[1]), 20*math.Sin(angles[1])
@@ -82,22 +86,22 @@ func motionFixture(t *testing.T, closed bool, kind string) MotionSnapshot {
 		angles = append(angles, math.Atan2(cy-py, cx-px), math.Atan2(cy, cx-40))
 		for _, j := range []MechanismJoint{{ID: "j2", First: jointEnd("crank", 20, 0), Second: ptrEnd(jointEnd("coupler", 0, 0))}, {ID: "j3", First: jointEnd("coupler", 40, 0), Second: ptrEnd(jointEnd("rocker", 30, 0))}, {ID: "j4", First: jointEnd("ground", 40, 0), Second: ptrEnd(jointEnd("rocker", 0, 0))}} {
 			j.Kind = "REVOLUTE"
-			j.Zero.Unit = "rad"
-			j.Direction = 1
+			j.Coordinates=[]JointCoordinate{{ID:j.ID+"-coordinate",Role:"AXIAL_ROTATION",Dimension:"ANGLE",Direction:1,Zero:MotionQuantity{Unit:"rad"}}}
 			joints = append(joints, j)
 		}
 	}
 	for i := range joints {
-		if joints[i].Kind == "REVOLUTE" {
-			joints[i].Lower = &MotionQuantity{Value: -1440, Unit: "deg"}
-			joints[i].Upper = &MotionQuantity{Value: 1440, Unit: "deg"}
+		if len(joints[i].Coordinates)>0 {
+			joints[i].Coordinates[0].Lower = &MotionQuantity{Value:-10000,Unit:joints[i].Coordinates[0].unit()}
+			joints[i].Coordinates[0].Upper = &MotionQuantity{Value:10000,Unit:joints[i].Coordinates[0].unit()}
 		}
 	}
 	m := Mechanism{ID: "m", Name: "mechanism", UnitIDs: ids, Joints: joints}
-	s := MotionStudy{ID: "s", Name: "linear", MechanismID: "m", DriverJointID: "drive", Reference: &MotionQuantity{Unit: "rad"}, Keyframes: []MotionKeyframe{{ID: "key0", DriverID: "d", Value: MotionQuantity{Value: 60, Unit: "deg"}}, {ID: "key1", DriverID: "d", TimeSeconds: 2, Value: MotionQuantity{Value: 120, Unit: "deg"}}}, Frames: 9, DurationSeconds: 2, BudgetMS: 30000, Clearance: MotionQuantity{Unit: "mm"}}
+	s := MotionStudy{ID: "s", Name: "linear", MechanismID: "m", Keyframes: []MotionKeyframe{{ID: "key0", Values: map[string]MotionQuantity{"d": MotionQuantity{Value: 60, Unit: "deg"}}}, {ID: "key1", TimeSeconds: 2, Values: map[string]MotionQuantity{"d": MotionQuantity{Value: 120, Unit: "deg"}}}}, Frames: 9, DurationSeconds: 2, BudgetMS: 30000, Clearance: MotionQuantity{Unit: "mm"}, ActiveDriverIDs: []string{"d"}, References: map[string]MotionQuantity{"d": MotionQuantity{Unit: "rad"}}}
 	if kind == "PRISMATIC" {
-		s.Keyframes[0].Value = MotionQuantity{Value: -5, Unit: "mm"}
-		s.Keyframes[1].Value = MotionQuantity{Value: 15, Unit: "mm"}
+		s.References["d"]=MotionQuantity{Unit:"mm"}
+ s.Keyframes[0].Values["d"] = MotionQuantity{Value: -5, Unit: "mm"}
+		s.Keyframes[1].Values["d"] = MotionQuantity{Value: 15, Unit: "mm"}
 	}
 	f := AssemblySolveManifest{}
 	for i, id := range ids {
@@ -107,7 +111,8 @@ func motionFixture(t *testing.T, closed bool, kind string) MotionSnapshot {
 	if e != nil {
 		t.Fatal(e)
 	}
-	snap := MotionSnapshot{Schema: 1, Policy: motionPolicy, Mechanism: m, Study: s, Equations: eq, SolverProfile: defaultAssemblySolverProfile()}
+	driver:=MotionDriver{ID:"d",Name:"driver",MechanismID:m.ID,JointID:"drive",CoordinateID:"drive-coordinate",Reference:&MotionQuantity{Unit:m.Joints[1].Coordinates[0].unit()},ReferenceDigest:commandCoordinateBasis(m.Joints[1],"drive-coordinate")}
+ snap := MotionSnapshot{Schema:motionSchema,Drivers:[]MotionDriver{driver},LinearStepMM:1, Policy: motionPolicy, Mechanism: m, Study: s, Equations: eq, SolverProfile: defaultAssemblySolverProfile()}
 	snap.Digest = motionDigest(snap)
 	return snap
 }
@@ -129,7 +134,7 @@ func TestMotionHardDriverClosedLoopAndLimits(t *testing.T) {
 				if !f.KinematicValid {
 					t.Fatal("unqualified frame")
 				}
-				if _, e = verifyMechanismJoints(s.Mechanism, f.UnitPoses, nil, s.Study.DriverJointID, f.DriverValue); e != nil {
+				if _, e = verifyMechanismJoints(s.Mechanism, f.UnitPoses, nil,map[string]float64{"drive-coordinate":f.CommandValues["d"]}); e != nil {
 					t.Fatal(e)
 				}
 			}
@@ -141,7 +146,7 @@ func TestMotionHardDriverClosedLoopAndLimits(t *testing.T) {
 			if c.kind == "PRISMATIC" {
 				lo = MotionQuantity{Value: 7, Unit: "mm"}
 			}
-			s.Mechanism.Joints[1].Upper = &lo
+			s.Mechanism.Joints[1].Coordinates[0].Upper = &lo
 			s.Digest = motionDigest(s)
 			r, e = service.RunMotionStudy(t.Context(), s, nil)
 			if e != nil || r.Completed || r.Status != "LIMIT_REACHED" || len(r.Frames) == 0 {
@@ -153,15 +158,15 @@ func TestMotionHardDriverClosedLoopAndLimits(t *testing.T) {
 func TestMotionFullTurnsCancelAndUnsupportedDof(t *testing.T) {
 	service := New(nil, motionWorker(t))
 	s := motionFixture(t, false, "REVOLUTE")
-	s.Study.Keyframes[0].Value.Value = 60
-	s.Study.Keyframes[1].Value.Value = 780
+	s.Study.Keyframes[0].Values["d"] = MotionQuantity{Value:60,Unit:"deg"}
+	s.Study.Keyframes[1].Values["d"] = MotionQuantity{Value:780,Unit:"deg"}
 	s.Study.Frames = 13
 	s.Digest = motionDigest(s)
 	r, e := service.RunMotionStudy(t.Context(), s, nil)
 	if e != nil || !r.Completed {
 		t.Fatalf("full turn: %s %+v %v", r.Status, r.Failure, e)
 	}
-	if math.Abs(r.Frames[12].Coordinates["drive"]-780*math.Pi/180) > 1e-7 {
+	if math.Abs(r.Frames[12].Coordinates["drive-coordinate"]-780*math.Pi/180) > 1e-7 {
 		t.Fatal("lost winding")
 	}
 	r, e = service.RunMotionStudy(t.Context(), s, func(n int) error {
@@ -192,19 +197,18 @@ func TestMotionDefinitionHistoryAndEquationAdmission(t *testing.T) {
 	for _, b := range s.Equations.Bodies {
 		model.Instances = append(model.Instances, ProductInstance{ID: b.ID, Translation: b.Pose.Translation, Rotation: b.Pose.Rotation})
 	}
-	s.Study.DriverID = "d"
-	s.Study.DriverJointID = ""
-	s.Mechanism.Joints[1].Lower = &MotionQuantity{Value: -1440, Unit: "deg"}
-	s.Mechanism.Joints[1].Upper = &MotionQuantity{Value: 1440, Unit: "deg"}
+	s.Study.ActiveDriverIDs=[]string{"d"}
+	s.Mechanism.Joints[1].Coordinates[0].Lower = &MotionQuantity{Value: -1440, Unit: "deg"}
+	s.Mechanism.Joints[1].Coordinates[0].Upper = &MotionQuantity{Value: 1440, Unit: "deg"}
 	s.Mechanism.Poses = map[string]InstancePose{}
 	for _, b := range s.Equations.Bodies {
 		s.Mechanism.Poses[b.ID] = InstancePose(b.Pose)
 	}
 	s.Study.InitialPoses = s.Mechanism.Poses
-	s.Study.InitialCoordinates, _ = verifyMechanismJoints(s.Mechanism, s.Mechanism.Poses, nil, "", 0)
+	s.Study.InitialCoordinates, _ = verifyMechanismJoints(s.Mechanism,s.Mechanism.Poses,nil,nil)
 	s.Study.SourceRevisionID, s.Study.GeometryDigest = "fixture-head", "fixture-geometry"
-	d := MotionDriver{ID: "d", Name: "driver", MechanismID: s.Mechanism.ID, JointID: "drive", Reference: s.Study.Reference}
-	s.Study.BasisDigest = recordingBasis(s.Mechanism, d)
+	d := MotionDriver{ID: "d", Name: "driver", MechanismID: s.Mechanism.ID, JointID: "drive", Reference: &MotionQuantity{Unit:"rad"}, CoordinateID: "drive" + "-coordinate"}
+	s.Study.BasisDigest = recordingBasis(s.Mechanism, []MotionDriver{d})
 	k := KinematicsDefinitions{Mechanisms: []Mechanism{s.Mechanism}, Drivers: []MotionDriver{d}, Studies: []MotionStudy{s.Study}}
 	raw, _ := json.Marshal(model)
 	payload, _ := json.Marshal(k)
@@ -229,7 +233,7 @@ func TestMotionDefinitionHistoryAndEquationAdmission(t *testing.T) {
 	if e == nil {
 		t.Fatal("silently omitted hard equation")
 	}
-	k.Studies[0].Keyframes[0].Value.Unit = "mm"
+	k.Studies[0].Keyframes[0].Values["d"] = MotionQuantity{Unit:"mm"}
 	if validateKinematics(model, k) == nil {
 		t.Fatal("unit mismatch accepted")
 	}
@@ -238,22 +242,23 @@ func TestMotionDefinitionHistoryAndEquationAdmission(t *testing.T) {
 func TestMotionDirectedZero(t *testing.T) {
 	service := New(nil, motionWorker(t))
 	s := motionFixture(t, false, "REVOLUTE")
-	s.Mechanism.Joints[1].Direction = -1
-	s.Mechanism.Joints[1].Zero = MotionQuantity{Value: 45, Unit: "deg"}
-	s.Study.Keyframes[0].Value.Value = -15
-	s.Study.Keyframes[1].Value.Value = -375
+	s.Mechanism.Joints[1].Coordinates[0].Direction = -1
+	s.Mechanism.Joints[1].Coordinates[0].Zero = MotionQuantity{Value: 45, Unit: "deg"}
+	s.Study.Keyframes[0].Values["d"] = MotionQuantity{Value:-15,Unit:"deg"}
+	s.Study.Keyframes[1].Values["d"] = MotionQuantity{Value:-375,Unit:"deg"}
 	var e error
 	s.Equations, e = compileMechanism(AssemblySolveManifest{Bodies: s.Equations.Bodies}, s.Mechanism, s.Study)
 	if e != nil {
 		t.Fatal(e)
 	}
-	s.Digest = motionDigest(s)
+	s.Drivers[0].ReferenceDigest=commandCoordinateBasis(s.Mechanism.Joints[1],"drive-coordinate")
+ s.Digest = motionDigest(s)
 	r, e := service.RunMotionStudy(t.Context(), s, nil)
 	if e != nil || !r.Completed {
 		t.Fatalf("rigid/zero %s %+v %v", r.Status, r.Failure, e)
 	}
 	for _, f := range r.Frames {
-		if math.Abs(f.Coordinates["drive"]-f.DriverValue) > 1e-7 {
+		if math.Abs(f.Coordinates["drive-coordinate"]-f.CommandValues["d"]) > 1e-7 {
 			t.Fatal("direction/zero lost")
 		}
 
@@ -263,7 +268,7 @@ func TestMotionDirectedZero(t *testing.T) {
 func TestMotionRetainedEquationIsNeverReplaced(t *testing.T) {
 	service := New(nil, motionWorker(t))
 	s := motionFixture(t, false, "REVOLUTE")
-	coordinate := s.Equations.Driver
+	coordinate:=mechanismCoordinateEquation(s.Mechanism.ID,s.Mechanism.Joints[1],s.Mechanism.Joints[1].Coordinates[0])
 	coordinate.ID = "existing-design-angle"
 	coordinate.Value = math.Pi / 3
 	frozen := AssemblySolveManifest{Bodies: s.Equations.Bodies, Definitions: []AssemblyConstraint{{ID: coordinate.ID, Mode: "DRIVING"}}}

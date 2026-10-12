@@ -226,7 +226,7 @@ export type ProductInstance = {
   headChanged?: boolean;
 };
 
-export type AssemblyGeometryRef = { capturedDirection?:[number,number,number]; derivedRole?:string; instancePath?: InstancePath; instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "CIRCLE" | "SPHERE" | "CONE" | "FRAME" | "FACE" | "EDGE" | "VERTEX";
+export type AssemblyGeometryRef = { capturedFrame?:{id:string;policy:string;lengthUnit:"mm";frame:import("./cad/assembly/motion-study").MotionPose}; capturedDirection?:[number,number,number]; derivedRole?:string; instancePath?: InstancePath; instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "CIRCLE" | "SPHERE" | "CONE" | "FRAME" | "FACE" | "EDGE" | "VERTEX";
   geometryId?: string; axis?: string; geometryKey?: string; topologyId?: number; sourceVersionId?: string;
   persistentSelection?: PersistentSelection; resolution?: { sourceVersionId: string; targetVersionId: string;
     manifestDigest: string; policyDigest: string; result: SelectionResolution };
@@ -234,6 +234,9 @@ export type AssemblyGeometryRef = { capturedDirection?:[number,number,number]; d
   publicationResolution?: Publication["resolution"] };
 export type AssemblyEvaluationFailure = { diagnosticId?:string;code:string;phase:string;retryable:boolean};
 export type AssemblyConstraint = {
+  groupRelations?:Array<{instanceId:string;relativePose:import("./cad/assembly/motion-study").MotionPose}>;
+  groupCapturePending?:boolean;groupCaptureDigest?:string;
+  relationRole?:string;
   visible?: boolean; evaluationFailure?:AssemblyEvaluationFailure; id: string; definitionVersion?:number;family?:"Coincidence"|"Contact"|"Offset"|"Angle"|"Fix"|"FixTogether";subtype?:string;name?:string; contactKind?:"FACE"|"LINE"|"POINT"|"RING";contactSide?:"EXTERNAL"|"INTERNAL";contactBranch?:number;groupMembers?:Array<{instanceId?:string;instancePath?:InstancePath;groupId?:string}>; fixMode?: "SPACE" | "RELATIVE"; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; angleRelation?: "FREE" | "DIRECTED" | "PARALLEL" | "PERPENDICULAR"; measuredValue?: number; suppressed?: boolean; mode?: "DRIVING" | "MEASURED" | "CONTROLLED"; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE" | "CONTACT" | "FIX_TOGETHER";
   first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string;
   quantityParameter?: {parameterId:string;key:string;source:{literal?:{siValue:number};expression?:{sourceText:string}}};
@@ -248,6 +251,7 @@ export type InstancePathSegment = {
   referencedDocumentId: string;
   resolvedVersionId: string;
 };
+export type AssemblyGroupMember={instanceId?:string;instancePath?:InstancePath;groupId?:string};
 
 export type InstancePath = {
   rootDocumentId: string;
@@ -351,7 +355,7 @@ export type DocumentStructureNode = {
   subject?: EntityRef;
   occurrence?: OccurrenceRef;
   snapshot?: SnapshotScope;
-  kind: "KINEMATICS_GROUP" | "MECHANISM_REFERENCE" | "APPLICATIONS" | "MECHANISM" | "MECHANISM_JOINT" | "MOTION_DRIVER" | "MOTION_STUDY" | "INTERFERENCE_ANALYSIS" | "JOINT_EXPANSION" | "JOINT_SUPPORT" | "JOINT_SOURCE" | "MOTION_ASSOCIATION" | "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "DATUM_POINT" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_GROUP" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "KINEMATICS_GROUP" | "MECHANISM_REFERENCE" | "APPLICATIONS" | "MECHANISM" | "MECHANISM_JOINT" | "MOTION_DRIVER" | "MOTION_STUDY" | "INTERFERENCE_ANALYSIS" | "JOINT_EXPANSION" | "JOINT_SUPPORT" | "JOINT_SOURCE" | "MOTION_ASSOCIATION" | "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "DATUM_POINT" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_GROUP" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_GROUP_MEMBER_REFERENCE" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   presentationRole?: "DEFINITION" | "FEATURE_INPUT" | "INPUT_REFERENCE" | "GROUP";
   ownerDocumentId?: string;
   bodyId?: string;

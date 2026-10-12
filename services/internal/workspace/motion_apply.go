@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"math"
 	"reflect"
 	"slices"
 	"sort"
@@ -22,13 +21,13 @@ import (
 const typeApplyMotionFrame = "occccad://product/kinematics/apply-frame"
 
 type MotionApplyRequest struct {
-	MechanismID string            `json:"mechanismId,omitempty"` // accepted mechanism source; exclusive with JobID
-	JobID       string            `json:"jobId"`
-	FrameIndex  int               `json:"frameIndex"`
-	TimeSeconds *float64          `json:"timeSeconds,omitempty"`
-	LockAngle   bool              `json:"lockAngle"`
-	Resolutions map[string]string `json:"resolutions,omitempty"` // rejected: conversion never mutates existing definitions
-	PlanDigest  string            `json:"planDigest,omitempty"`
+	MechanismID       string            `json:"mechanismId,omitempty"` // accepted mechanism source; exclusive with JobID
+	JobID             string            `json:"jobId"`
+	FrameIndex        int               `json:"frameIndex"`
+	TimeSeconds       *float64          `json:"timeSeconds,omitempty"`
+	LockCoordinateIDs []string          `json:"lockCoordinateIds,omitempty"`
+	Resolutions       map[string]string `json:"resolutions,omitempty"` // rejected: conversion never mutates existing definitions
+	PlanDigest        string            `json:"planDigest,omitempty"`
 }
 type MotionApplyItem struct {
 	JointID      string `json:"jointId,omitempty"`
@@ -86,6 +85,8 @@ func semanticConstraint(c AssemblyConstraint) string {
 	c.EvaluationStatus = ""
 	c.EvaluationSummary = ""
 	c.EvaluationFailure = nil
+	c.GroupCaptureDigest = ""
+	c.GroupCapturePending = false
 	c.MeasuredValue = nil
 	c.First = semanticMotionReference(c.First)
 	if c.Second != nil {
@@ -122,6 +123,11 @@ func jointDefinitionDigest(j MechanismJoint) string {
 		if e.Plane != nil {
 			v := semanticMotionReference(*e.Plane)
 			e.Plane = &v
+		}
+		if e.Point != nil {
+			v := semanticMotionReference(*e.Point)
+			e.Point = &v
+			e.Frame = InstancePose{}
 		}
 		return e
 	}
@@ -318,6 +324,15 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 				break
 			}
 		}
+		for _, support := range []struct {
+			ref  *AssemblyGeometryRef
+			role string
+		}{{&c.First, "a"}, {c.Second, "b"}, {c.AngleAxis, "axis"}} {
+			if support.ref != nil && support.ref.CapturedFrame != nil {
+				support.ref.GeometryID = c.ID + "/support/" + support.role
+				support.ref.CapturedFrame.ID = support.ref.GeometryID
+			}
+		}
 		idx := slices.IndexFunc(next.Constraints, func(v AssemblyConstraint) bool { return v.ID == c.ID })
 		action := "ADD"
 		if idx >= 0 {
@@ -364,55 +379,56 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		newMappings = append(newMappings, MotionAssemblyMapping{mid, j.ID, role, c.ID, jointDefinitionDigest(j), semanticConstraint(c)})
 		return nil
 	}
+	seenLocks := map[string]bool{}
+	for _, id := range req.LockCoordinateIDs {
+		if seenLocks[id] || !mechanismHasCoordinate(mechanism, id) {
+			return p, fmt.Errorf("%w: unknown/duplicate coordinate lock", ErrValidation)
+		}
+		seenLocks[id] = true
+	}
 	for _, j := range mechanism.Joints {
-		if j.Kind == "GROUND" {
-			pose := frame.UnitPoses[j.First.InstanceID]
-			if e = add(j, "ground", AssemblyConstraint{Kind: "FIX", FixMode: "SPACE", First: AssemblyGeometryRef{InstanceID: j.First.InstanceID, Kind: "BODY"}, FixedPose: &pose}); e != nil {
-				return p, e
-			}
-			continue
-		}
-		if j.Second == nil || j.First.Axis == nil || j.First.Plane == nil || j.Second.Axis == nil || j.Second.Plane == nil {
-			return p, fmt.Errorf("%w: publish requires persistent axis/plane supports", ErrValidation)
-		}
-		if len(j.Constraints) != 2 {
-			return p, fmt.Errorf("%w: missing persisted Revolute constraints", ErrValidation)
+		if len(j.Constraints) == 0 {
+			return p, fmt.Errorf("%w: missing persistent joint relations", ErrValidation)
 		}
 		for _, c := range j.Constraints {
-			role := "axis"
-			if c.Kind == "DISTANCE" {
-				role = "axial-location"
+			role := mechanismConstraintRole(c)
+			if j.Kind == "GROUND" {
+				pose := frame.UnitPoses[j.First.InstanceID]
+				c.FixedPose = &pose
 			}
 			if e = add(j, role, c); e != nil {
 				return p, e
 			}
 		}
-		a, b := *j.First.Axis, *j.Second.Axis
-		if req.LockAngle {
-			if j.First.CapturedX == nil || j.Second.CapturedX == nil {
-				return p, fmt.Errorf("%w: captured angle baseline missing", ErrValidation)
+		for _, coordinate := range j.Coordinates {
+			if !seenLocks[coordinate.ID] {
+				continue
 			}
-			a, b = *j.First.Axis, *j.Second.Axis
-			a.CapturedDirection = j.First.CapturedX
-			b.CapturedDirection = j.Second.CapturedX
-			axis := *j.First.Axis
-			value := 0.
-			if j.Kind == "REVOLUTE" {
-				q, er := motionJointCoordinate(j, frame.UnitPoses, nil)
-				if er != nil {
-					return p, er
+			q, err := motionJointCoordinate(j, coordinate, frame.UnitPoses, nil)
+			if err != nil {
+				return p, err
+			}
+			zero, _ := motionValue(coordinate.Zero, coordinate.angular())
+			physical := zero + float64(coordinate.Direction)*q
+			prefix := uuid.NewSHA1(uuid.NameSpaceOID, []byte(doc+"/"+mid+"/"+j.ID+"/"+coordinate.ID)).String()
+			a := capturedFrameReference(next, j.First, prefix+"/a", "PLANE", j.First.Frame)
+			b := capturedFrameReference(next, *j.Second, prefix+"/b", "POINT", j.Second.Frame)
+			c := AssemblyConstraint{Kind: "DISTANCE", First: a, Second: &b, DistanceRelation: selectedPlaneNormalV1, Value: -physical, RelationRole: "coordinate-lock/" + coordinate.ID}
+			if coordinate.angular() {
+				first, err := angularCoordinateFrame(j.First.Frame)
+				if err != nil {
+					return p, err
 				}
-				zero, _ := motionValue(j.Zero, true)
-				value = math.Mod(zero+float64(j.Direction)*q, 2*math.Pi)
-				if value < 0 {
-					value += 2 * math.Pi
+				second, err := angularCoordinateFrame(j.Second.Frame)
+				if err != nil {
+					return p, err
 				}
+				a = capturedFrameReference(next, j.First, prefix+"/a", "AXIS", first)
+				b = capturedFrameReference(next, *j.Second, prefix+"/b", "AXIS", second)
+				axis := capturedFrameReference(next, j.First, prefix+"/axis", "AXIS", j.First.Frame)
+				c = AssemblyConstraint{Kind: "ANGLE", First: a, Second: &b, AngleAxis: &axis, AngleRelation: "DIRECTED", Value: wrappedMotionAngle(physical), RelationRole: "coordinate-lock/" + coordinate.ID}
 			}
-			role := "orientation"
-			if j.Kind == "REVOLUTE" {
-				role = "angle-lock"
-			}
-			if e = add(j, role, AssemblyConstraint{Kind: "ANGLE", First: a, Second: &b, AngleAxis: &axis, AngleRelation: "DIRECTED", Value: value}); e != nil {
+			if e = add(j, c.RelationRole, c); e != nil {
 				return p, e
 			}
 		}
@@ -424,6 +440,20 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 	frozen, e := service.FreezeAssemblyInput(ctx, doc, base, next)
 	if e != nil {
 		return p, e
+	}
+	for si := range frozen.GroupStages {
+		for gi, group := range frozen.GroupStages[si].Groups {
+			for ci, c := range next.Constraints {
+				if c.ID == group.GroupID && isAssemblyGroup(c) && slices.ContainsFunc(newMappings, func(mapping MotionAssemblyMapping) bool {
+					return mapping.ConstraintID == c.ID && mapping.Role == "rigid"
+				}) {
+					frozen.GroupStages[si].Groups[gi].CapturePending = false
+					frozen.GroupStages[si].Groups[gi].CapturedRelations = c.GroupRelations
+					next.Constraints[ci].GroupCapturePending = false
+					next.Constraints[ci].GroupCaptureDigest = group.InputDigest
+				}
+			}
+		}
 	}
 	equations, e := interactionFrozenConstraints(frozen)
 	if e != nil {
@@ -493,7 +523,7 @@ func (service *Service) planMotionApply(ctx context.Context, doc, base string, m
 		Request MotionApplyRequest
 		Model   ProductModel
 		Items   []MotionApplyItem
-	}{base, MotionApplyRequest{MechanismID: req.MechanismID, JobID: req.JobID, FrameIndex: req.FrameIndex, TimeSeconds: req.TimeSeconds, LockAngle: req.LockAngle, Resolutions: req.Resolutions}, next, p.Items})
+	}{base, MotionApplyRequest{MechanismID: req.MechanismID, JobID: req.JobID, FrameIndex: req.FrameIndex, TimeSeconds: req.TimeSeconds, LockCoordinateIDs: req.LockCoordinateIDs, Resolutions: req.Resolutions}, next, p.Items})
 	return p, nil
 }
 func applyMotionFrame(raw, payload json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {

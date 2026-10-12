@@ -66,6 +66,9 @@ func constraintDisplayName(c AssemblyConstraint, nameFor func(string) string) st
 	if name == "" {
 		name = constraintTypeLabel(c)
 	}
+	if isAssemblyGroup(c) {
+		return name
+	}
 	label := name + " (" + nameFor(c.First.InstanceID)
 	if c.Second != nil {
 		label += "," + nameFor(c.Second.InstanceID)
@@ -74,6 +77,9 @@ func constraintDisplayName(c AssemblyConstraint, nameFor func(string) string) st
 }
 
 func mechanismConstraintRole(c AssemblyConstraint) string {
+	if c.RelationRole != "" {
+		return c.RelationRole
+	}
 	switch c.Kind {
 	case "FIX":
 		return "ground"

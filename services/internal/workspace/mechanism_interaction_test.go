@@ -18,7 +18,7 @@ func TestMechanismInteractionTransportsQualifiedContinuousCoordinates(t *testing
 		m.Poses[body.ID] = p
 		original.Instances = append(original.Instances, ProductInstance{ID: body.ID, Translation: p.Translation, Rotation: p.Rotation})
 	}
-	m.Coordinates = map[string]float64{"drive": math.Pi / 3}
+	m.Coordinates = map[string]float64{"drive-coordinate": math.Pi / 3}
 	original.Kinematics.Mechanisms = []Mechanism{m}
 	solved, err := cloneAssemblyProduct(original)
 	if err != nil {
@@ -26,22 +26,22 @@ func TestMechanismInteractionTransportsQualifiedContinuousCoordinates(t *testing
 	}
 	q := 2*math.Pi + 70*math.Pi/180
 	solved.Instances[1].Rotation = [4]float64{0, 0, math.Sin(q / 2), math.Cos(q / 2)}
-	checkpoint := map[string]float64{"drive": q}
+	checkpoint := map[string]float64{"drive-coordinate": q}
 	candidate, err := mechanismInteractionCandidate(original, solved, "m", "crank", checkpoint)
 	if err != nil {
 		t.Fatal(err)
 	}
 	accepted := candidate.Kinematics.Mechanisms[0]
-	if math.Abs(accepted.Coordinates["drive"]-q) > 1e-8 || !reflect.DeepEqual(candidate.Instances, original.Instances) || original.Kinematics.Mechanisms[0].Coordinates["drive"] != math.Pi/3 {
+	if math.Abs(accepted.Coordinates["drive-coordinate"]-q) > 1e-8 || !reflect.DeepEqual(candidate.Instances, original.Instances) || original.Kinematics.Mechanisms[0].Coordinates["drive-coordinate"] != math.Pi/3 {
 		t.Fatal("drag lost qualified winding or modified Product/base state", candidate)
 	}
 	witness := accepted
-	witness.Coordinates = map[string]float64{"drive": q}
+	witness.Coordinates = map[string]float64{"drive-coordinate": q}
 	if !mechanismAcceptanceEqual(accepted, witness) {
 		t.Fatal("final acceptance rejected the qualified coordinate checkpoint")
 	}
 	checkpoint["drive"] = 0
-	if math.Abs(accepted.Coordinates["drive"]-q) > 1e-8 {
+	if math.Abs(accepted.Coordinates["drive-coordinate"]-q) > 1e-8 {
 		t.Fatal("candidate retained mutable session coordinates")
 	}
 	solved.Instances[1].Translation[2] = 1
@@ -54,7 +54,7 @@ func TestMechanismInteractionPreservesProductAndHistory(t *testing.T) {
 	pose := func(x float64) InstancePose {
 		return InstancePose{Translation: [3]float64{x, 0, 0}, Rotation: [4]float64{0, 0, 0, 1}}
 	}
-	model := ProductModel{Instances: []ProductInstance{{ID: "a", Translation: pose(100).Translation, Rotation: pose(0).Rotation}, {ID: "b", Translation: pose(80).Translation, Rotation: pose(0).Rotation}}, Constraints: []AssemblyConstraint{{ID: "product-fix", Kind: "FIX", First: AssemblyGeometryRef{Kind: "BODY", InstanceID: "a"}}}, Kinematics: KinematicsDefinitions{Mechanisms: []Mechanism{{ID: "m", Name: "M", UnitIDs: []string{"a"}, Poses: map[string]InstancePose{"a": pose(10)}, Joints: []MechanismJoint{{ID: "g", Name: "Ground", Kind: "GROUND", Direction: 1, First: JointEndpoint{InstanceID: "a", Frame: pose(0)}, Zero: MotionQuantity{Unit: "deg"}, Constraints: []AssemblyConstraint{{ID: "mechanism-fix", Kind: "FIX"}}}}}}}}
+	model := ProductModel{Instances: []ProductInstance{{ID: "a", Translation: pose(100).Translation, Rotation: pose(0).Rotation}, {ID: "b", Translation: pose(80).Translation, Rotation: pose(0).Rotation}}, Constraints: []AssemblyConstraint{{ID: "product-fix", Kind: "FIX", First: AssemblyGeometryRef{Kind: "BODY", InstanceID: "a"}}}, Kinematics: KinematicsDefinitions{Mechanisms: []Mechanism{{ID: "m", Name: "M", UnitIDs: []string{"a"}, Poses: map[string]InstancePose{"a": pose(10)}, Joints: []MechanismJoint{{ID: "g", Name: "Ground", Kind: "GROUND", First: JointEndpoint{InstanceID: "a", Frame: pose(0)}, Constraints: []AssemblyConstraint{{ID: "mechanism-fix", Kind: "FIX"}}}}}}}}
 	input, err := mechanismInteractionModel(model, "m", nil)
 	if err != nil {
 		t.Fatal(err)

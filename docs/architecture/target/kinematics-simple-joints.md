@@ -1,14 +1,14 @@
 # 简单接合、驱动坐标与固联交互扩展设计
 
-> 设计基线：2026-10-12。本文定义下一轮开发的范围与验收合同，本轮仅形成设计，不修改功能代码，也不表示下列能力已经实现。沿用[机构与 DMU 主方案](kinematics-dmu.md)的定义、试动、录制、回放和转换流程；当前交付边界见[当前机构合同](../current/kinematics-dmu.md)。CATIA 页面与对话框核对见[工作流来源](../../references/cad-workflows.md#五类简单接合与固联组)。
+> 设计基线：2026-10-12。本轮已按此合同实现五类简单接合、稳定坐标、向量录制与产品固联交互；代码事实与验证边界见[当前机构合同](../current/kinematics-dmu.md)。本文保留目标语义和完整验收矩阵，矩阵条目不自动表示每个场景均已验收。沿用[机构与 DMU 主方案](kinematics-dmu.md)的定义、试动、录制、回放和转换流程。CATIA 页面与对话框核对见[工作流来源](../../references/cad-workflows.md#五类简单接合与固联组)。
 
 ## 范围与已经确认的事实
 
-下一轮完整覆盖棱形、圆柱、平面、刚性、球面五类接合的创建、编辑、移动、结构树、求解见证、混合机构模拟和产品转换，同时补齐产品固联组以三维选择为核心的操作体验。棱形为 Prismatic，机械语义是移动副，本文及 UI 沿用维护者指定的“棱形接合”名称。
+本轮范围覆盖棱形、圆柱、平面、刚性、球面五类接合的创建、编辑、移动、结构树、求解见证、混合机构模拟和产品转换，同时补齐产品固联组以三维选择为核心的操作体验。棱形为 Prismatic，机械语义是移动副，本文及 UI 沿用维护者指定的“棱形接合”名称。
 
 范围继续为根 owning Product、刚性 Instance 和单机械装置。圆柱接合允许角度与长度两个命令，机械装置内允许选择完整的独立驱动集合。多机械装置同步、可动嵌套、动力学、连续碰撞、齿轮／螺旋等耦合接合不在本轮范围内。已有旋转接合须通过同一新坐标合同，不保留一套特殊录制流程。
 
-| 当前代码事实 | 下一轮需要补齐 |
+| 重构前的代码基线 | 本轮统一合同 |
 |---|---|
 | 持久 MechanismJoint、几何绑定、编译与独立闭合检查只接纳 Ground/Revolute | 按接合类型定义支持角色、物理关系与检查器，不能只扩大枚举 |
 | 每个 Driver 绑定一个 Joint；每个 Joint 只有一组 Lower/Upper | Driver 精确绑定 Joint 内的稳定坐标；限位按坐标归属于 Joint |
@@ -17,7 +17,7 @@
 | 接合子约束复用真实 AssemblyConstraint，产品关系独立，转换只允许 ADD/REUSE/CONFLICT | 五类接合逐角色转换，刚性生成产品固联组，长度锁有正式支持定义 |
 | 产品已有 FIX_TOGETHER 模型、成员／嵌套关系、组内先解与组外求解、历史和测试；工具目录已有“固联组”，视口已有组图标和成员引用解析 | 实际成员管理仍使用多选下拉；补上持续三维／树拾取、整个组的选择与显示、成员引用树和完整浏览器验收 |
 
-代码入口见本文末尾。现有代码和测试证明复用基础存在，本轮没有运行产品固联的浏览器验收；维护者报告的可见性和交互缺失仍须在实现任务中核实，不能由代码入口存在推导为体验已经交付。
+代码入口见本文末尾。实现后的合同以当前架构为准；数值、持久化、界面与实体世界矩阵分别由邻近测试和真实浏览器验收证明，不能由代码入口存在推导体验已经交付。
 
 ## 共同决策
 
@@ -58,11 +58,11 @@
 两端坐标原点 O_A/O_B 均为持久捕获的 body-local 点，z_A 为第一端正轴。长度坐标为：
 
 ~~~text
-q_length(X) = direction_length · z_A(X) · (O_B(X) − O_A(X))
+q_length(X) = direction_length · [z_A(X) · (O_B(X) − O_A(X)) − zero_length]
 u_length = q_length − reference_length
 ~~~
 
-长度有符号，不使用两无限轴之间的最短距离：重合轴的线线距离永远为零，无法表达行程。改变轴向正方向不会倒转几何轴重合关系；这两个方向字段须分开。
+zero_length 在接合首次通过完整定义求解的位置捕获并保持不变，使该定义位置为坐标 0；命令 Reference 是独立的操作读数原点。长度有符号，不使用两无限轴之间的最短距离：重合轴的线线距离永远为零，无法表达行程。改变轴向正方向不会倒转几何轴重合关系；这两个方向字段须分开。
 
 ### 对话框和操作
 
@@ -202,11 +202,11 @@ JointDefinitionSpec 是薄描述表：接合 kind、必需支持角色、可创�
 
 ### 唯一数据模型
 
-字段名是未来契约草案，不是当前 API。下一轮须统一替换生产调用方和 fixture，已有旋转路径也使用该模型。
+下表为统一合同；当前 API 与字段约束见[模型](../../../services/internal/workspace/kinematics_model.go)和[当前机构合同](../current/kinematics-dmu.md)，已有旋转路径也使用该模型。
 
 | 对象 | 拥有的信息 |
 |---|---|
-| JointCoordinate | 稳定 CoordinateID、所属 Joint、语义角色、角度／长度维度、方向、局部捕获引用、Lower/Upper |
+| JointCoordinate | 稳定 CoordinateID、所属 Joint、语义角色、角度／长度维度、方向、不可变物理 Zero、共享端点局部捕获、Lower/Upper |
 | MotionDriver | 稳定 DriverID、MechanismID、JointID、CoordinateID、Reference Quantity、ReferenceDigest |
 | Mechanism 继续状态 | 按 CoordinateID 的规范坐标值，以及角约束的连续分支；不是 JointID 对应一个 float |
 | 活动驱动集合 | 会话选择的 DriverID 集合、资格和摘要，不改变持久物理 Joint 定义 |
@@ -314,7 +314,7 @@ View 的 Product 与 resolvedInstances 必须来自同一冻结文档投影；�
 
 为长度锁定义明确的 captured body-local Frame 支持：绑定稳定 InstancePath／源支持、冻结局部 Frame、单位和策略；作为正式派生支持解析为坐标点／法向平面。可复用既有 Frame 子元素求值，若当前公共引用不能携带该捕获则在正式协议中补齐。生成的产品支持和捕获归新产品约束拥有，不能留下对 Mechanism/Joint 临时 Frame 的运行依赖，也不自动改写被引用 Part 或新增跨文档 Publication。
 
-当前 AssemblyGeometryRef 只有 CapturedDirection，没有完整捕获 Frame 的字段，因此长度锁所需的正式支持表达也是下一轮任务。支持应显式携带 capture policy、源稳定引用和有限的右手 body-local Frame，使用新的产品约束／支持身份，经过与普通引用相同的来源、单位、权限和几何连接检查。不能仅存一个匿名 world 点或把临时 Worker geometry ID 当作持久引用。
+AssemblyGeometryRef 的正式 CapturedFrame 支持携带 capture policy、源稳定引用和有限的右手 body-local Frame，使用新的产品约束／支持身份，经过与普通引用相同的来源、单位、权限和几何连接检查。不能仅存一个匿名 world 点或把临时 Worker geometry ID 当作持久引用。实现合同见[约束拥有的局部捕获支持](../current/assembly-constraints.md#约束拥有的局部捕获支持)。
 
 转换刚性关系时先按现有产品组内部／外部求解规则检查所选构型：若组内产品约束要求不同相对位姿，计划报告冲突，不以重新捕获掩盖差异。复制成功后产品组按产品自己的更新合同运行，后续产品编辑不反馈机构。
 
@@ -350,7 +350,7 @@ flowchart LR
 | Web 会话／显示 | [试动及录制](../../../web/apps/cad/src/features/workbench/mechanism-motion-dialog.tsx)、[会话拥有者](../../../web/apps/cad/src/cad/assembly/mechanism-motion-session.ts)、[视口](../../../web/apps/cad/src/viewport/cad-viewport-engine.ts)；多参数行、完整帧及 group/body 世界矩阵 |
 | 公共配置／协议 | [工具目录](../../../services/internal/workbenchconfig/catalog.json)、[Worker Proto](../../../proto/occccad/worker/v1/geometry_worker.proto)；五类入口、定义版本、必要资格与派生支持字段，不虚报已有 Proto 能力 |
 
-机构与产品定义仍独立；TanStack Query、Zustand、CommandRegistry、ToolManager、EditSession 和 Viewport 的职责不变。未发布开发态更新唯一模型与全部调用方，不增 scalar/vector 双写、旧数据适配器或动态降级。记录／快照格式变动必须显式版本化并改变输入摘要，不能让新模型复用旧格式制品。本轮文档任务不清理开发数据。
+机构与产品定义仍独立；TanStack Query、Zustand、CommandRegistry、ToolManager、EditSession 和 Viewport 的职责不变。未发布开发态更新唯一模型与全部调用方，不增 scalar/vector 双写、旧数据适配器或动态降级。记录／快照格式变动必须显式版本化并改变输入摘要，不能让新模型复用旧格式制品。开发数据更新遵循仓库的统一重置授权与资源边界。
 
 ## 实施依赖与退出条件
 

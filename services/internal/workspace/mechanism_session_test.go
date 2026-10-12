@@ -61,27 +61,27 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	}
 	second := end(id)
 	upper := MotionQuantity{Value: 60, Unit: "deg"}
-	m := Mechanism{ID: "m", Name: "M", UnitIDs: []string{view.Product.Instances[0].ID, id}, Joints: []MechanismJoint{{ID: "g", Name: "ground", Kind: "GROUND", First: end(view.Product.Instances[0].ID), Direction: 1}, {ID: "r", Name: "revolute", Kind: "REVOLUTE", First: end(view.Product.Instances[0].ID), Second: &second, Direction: 1, Zero: MotionQuantity{Unit: "deg"}, Lower: &MotionQuantity{Value: -720, Unit: "deg"}, Upper: &upper}}}
-	k := KinematicsDefinitions{Mechanisms: []Mechanism{m}, Drivers: []MotionDriver{{ID: "d", Name: "command", MechanismID: "m", JointID: "r"}}}
+	m := Mechanism{ID: "m", Name: "M", UnitIDs: []string{view.Product.Instances[0].ID, id}, Joints: []MechanismJoint{{ID: "g", Name: "ground", Kind: "GROUND", First: end(view.Product.Instances[0].ID)}, {ID: "r", Name: "revolute", Kind: "REVOLUTE", First: end(view.Product.Instances[0].ID), Second: &second, Coordinates: []JointCoordinate{{ID: "r" + "-coordinate", Role: "AXIAL_ROTATION", Dimension: "ANGLE", Zero: MotionQuantity{Unit: "deg"}, Direction: 1, Lower: &MotionQuantity{Value: -720, Unit: "deg"}, Upper: &upper}}}}}
+	k := KinematicsDefinitions{Mechanisms: []Mechanism{m}, Drivers: []MotionDriver{{ID: "d", Name: "command", MechanismID: "m", JointID: "r", CoordinateID: "r" + "-coordinate"}}}
 	view = command(CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
 	generation := uint64(0)
 	nextGeneration := func() uint64 { generation++; return generation }
 	baseline := view
-	opened, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", DriverID: "d"})
+	opened, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", ActiveDriverIDs: []string{"d"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if math.Abs(opened.Frame.DriverValue) > 1e-8 {
-		t.Fatal("current configuration is not operation zero", opened.Frame.DriverValue)
+	if math.Abs(opened.Frame.CommandValues["d"]) > 1e-8 {
+		t.Fatal("current configuration is not operation zero", opened.Frame.CommandValues["d"])
 	}
-	if _, err = svc.UpdateMechanismSession(t.Context(), view.Document.ID, "other", opened.SessionID, MechanismSessionUpdate{Sequence: 1, Value: &MotionQuantity{Value: 1, Unit: "deg"}}); err == nil {
+	if _, err = svc.UpdateMechanismSession(t.Context(), view.Document.ID, "other", opened.SessionID, MechanismSessionUpdate{Sequence: 1, Values: map[string]MotionQuantity{"d": MotionQuantity{Value: 1, Unit: "deg"}}}); err == nil {
 		t.Fatal("another actor used transient session")
 	}
 	key0, err := svc.RecordMechanismKey(t.Context(), view.Document.ID, actor, opened.SessionID, 0, MotionKeyframe{ID: "key0", TimeSeconds: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := svc.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, MechanismSessionUpdate{Sequence: 1, Value: &MotionQuantity{Value: 10, Unit: "deg"}})
+	f, err := svc.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, MechanismSessionUpdate{Sequence: 1, Values: map[string]MotionQuantity{"d": MotionQuantity{Value: 10, Unit: "deg"}}})
 	if err != nil || !f.Accepted {
 		t.Fatal(f, err)
 	}
@@ -89,7 +89,7 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rejected, err := svc.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, MechanismSessionUpdate{Sequence: 2, Value: &MotionQuantity{Value: 90, Unit: "deg"}})
+	rejected, err := svc.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, MechanismSessionUpdate{Sequence: 2, Values: map[string]MotionQuantity{"d": MotionQuantity{Value: 90, Unit: "deg"}}})
 	if err != nil || rejected.Accepted || rejected.Failure == nil || rejected.Failure.Code != "LIMIT_REACHED" || !reflect.DeepEqual(f.Frame, rejected.Frame) {
 		t.Fatal("failed target did not retain the entire checkpoint", rejected, err)
 	}
@@ -97,7 +97,7 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	if current.Document.VersionID != baseline.Document.VersionID {
 		t.Fatal("trial or recording created a Revision")
 	}
-	study := MotionStudy{ID: "s", Name: "Simulation", MechanismID: "m", DriverID: "d", Frames: 5, BudgetMS: 10000, Keyframes: []MotionKeyframe{key0, key1}}
+	study := MotionStudy{ID: "s", Name: "Simulation", MechanismID: "m", Frames: 5, BudgetMS: 10000, Keyframes: []MotionKeyframe{key0, key1}, ActiveDriverIDs: []string{"d"}}
 	path, err := svc.PreviewMechanismRecording(t.Context(), view.Document.ID, actor, opened.SessionID, study)
 	if err != nil || !path.Completed {
 		t.Fatal("recorded finite path", path.Failure, err)
@@ -132,7 +132,7 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if math.Abs(playhead.DriverValue-3.7*math.Pi/180) > 1e-8 || playhead.TimeSeconds != .37 {
+	if math.Abs(playhead.CommandValues["d"]-3.7*math.Pi/180) > 1e-8 || playhead.TimeSeconds != .37 {
 		t.Fatal("exact playhead adopted a neighbouring sample", playhead)
 	}
 	if !reflect.DeepEqual(path.Frames[0].UnitPoses, opened.Frame.UnitPoses) {
@@ -163,11 +163,11 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	if err := json.Unmarshal(tampered, &unchecked); err != nil {
 		t.Fatal(err)
 	}
-	unchecked.Studies[0].Keyframes[1].Value = MotionQuantity{Value: 90, Unit: "deg"}
+	unchecked.Studies[0].Keyframes[1].Values["d"] = MotionQuantity{Value: 90, Unit: "deg"}
 	if _, err := svc.ApplyCommand(t.Context(), view.Document.ID, CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, RequestID: uuid.NewString(), ActorID: actor, Kinematics: &unchecked}); err == nil {
 		t.Fatal("direct Domain Command accepted an unqualified recorded key")
 	}
-	unchecked.Studies[0].Keyframes[1].Value = key1.Value
+	unchecked.Studies[0].Keyframes[1].Values["d"] = key1.Values["d"]
 	badInitial := unchecked.Studies[0].InitialPoses[id]
 	badInitial.Translation[2] += 1
 	unchecked.Studies[0].InitialPoses[id] = badInitial
@@ -189,7 +189,7 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 		zero.Drivers[0].Reference, zero.Drivers[0].ReferenceDigest = nil, ""
 		view = command(CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &zero})
 		q, _ := motionValue(*view.Product.Kinematics.Drivers[0].Reference, true)
-		expectedZero := before.Product.Kinematics.Mechanisms[0].Coordinates["r"]
+		expectedZero := before.Product.Kinematics.Mechanisms[0].Coordinates["r-coordinate"]
 		if math.Abs(q-expectedZero) > 1e-8 || !reflect.DeepEqual(view.Product.Kinematics.Studies, before.Product.Kinematics.Studies) {
 			t.Fatalf("zero capture: got %g want %g records equal %v", q, expectedZero, reflect.DeepEqual(view.Product.Kinematics.Studies, before.Product.Kinematics.Studies))
 		}
@@ -216,13 +216,13 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 				}
 			}
 		}
-		opened, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", DriverID: "d", StudyID: "s"})
+		opened, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", StudyID: "s", ActiveDriverIDs: []string{"d"}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		first, _ := motionValue(opened.Study.Keyframes[0].Value, true)
-		last, _ := motionValue(opened.Study.Keyframes[1].Value, true)
-		if math.Abs(first+10*math.Pi/180) > 1e-8 || math.Abs(last) > 1e-8 || math.Abs(opened.Frame.DriverValue-first) > 1e-8 || opened.Study.Keyframes[0].ID != key0.ID {
+		first, _ := motionValue(opened.Study.Keyframes[0].Values["d"], true)
+		last, _ := motionValue(opened.Study.Keyframes[1].Values["d"], true)
+		if math.Abs(first+10*math.Pi/180) > 1e-8 || math.Abs(last) > 1e-8 || math.Abs(opened.Frame.CommandValues["d"]-first) > 1e-8 || opened.Study.Keyframes[0].ID != key0.ID {
 			t.Fatal("editing did not rebase the stable keys to today's zero", opened.Study)
 		}
 		confirmation, err := svc.FinalizeMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, MechanismSessionFinalize{Sequence: 0, Study: opened.Study})
@@ -257,10 +257,10 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 		}{
 			{"referenced deletion", "命令被模拟引用", func(k *KinematicsDefinitions) { k.Drivers = nil }},
 			{"retarget", "命令所属接合不能更改", func(k *KinematicsDefinitions) { k.Drivers[0].JointID = "g" }},
-			{"missing driven limit", "requires lower and upper limits", func(k *KinematicsDefinitions) { k.Mechanisms[0].Joints[1].Lower = nil }},
-			{"equal joint limits", "reversed joint limits", func(k *KinematicsDefinitions) { k.Mechanisms[0].Joints[1].Lower = k.Mechanisms[0].Joints[1].Upper }},
+			{"missing driven limit", "requires lower and upper limits", func(k *KinematicsDefinitions) { k.Mechanisms[0].Joints[1].Coordinates[0].Lower = nil }},
+			{"equal joint limits", "reversed coordinate limits", func(k *KinematicsDefinitions) { k.Mechanisms[0].Joints[1].Coordinates[0].Lower = k.Mechanisms[0].Joints[1].Coordinates[0].Upper }},
 			{"current position outside stop", "LIMIT_REACHED", func(k *KinematicsDefinitions) {
-				k.Mechanisms[0].Joints[1].Upper = &MotionQuantity{Value: expectedZero - 5*math.Pi/180, Unit: "rad"}
+				k.Mechanisms[0].Joints[1].Coordinates[0].Upper = &MotionQuantity{Value: expectedZero - 5*math.Pi/180, Unit: "rad"}
 			}},
 		} {
 			t.Run(test.name, func(t *testing.T) {
@@ -286,7 +286,7 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 		}
 		view = command(CommandRequest{Type: "UNDO"})
 	})
-	if _, err = svc.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, MechanismSessionUpdate{Sequence: 3, Value: &MotionQuantity{Unit: "deg"}}); err == nil {
+	if _, err = svc.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, MechanismSessionUpdate{Sequence: 3, Values: map[string]MotionQuantity{"d": MotionQuantity{Unit: "deg"}}}); err == nil {
 		t.Fatal("old Head session overwrote a new Revision")
 	}
 	view = command(CommandRequest{Type: "UNDO"})
@@ -308,10 +308,10 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restricted.Mechanisms[0].Joints[1].Upper = &MotionQuantity{Value: reference + 5*math.Pi/180, Unit: "rad"}
+	restricted.Mechanisms[0].Joints[1].Coordinates[0].Upper = &MotionQuantity{Value: reference + 5*math.Pi/180, Unit: "rad"}
 	view = command(CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &restricted})
 	beforeValidation := view.Document.VersionID
-	if _, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: beforeValidation, MechanismID: "m", DriverID: "d", StudyID: "s", Revalidate: true}); err == nil {
+	if _, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: beforeValidation, MechanismID: "m", StudyID: "s", Revalidate: true, ActiveDriverIDs: []string{"d"}}); err == nil {
 		t.Fatal("revalidation discarded an authored key outside today's physical limits")
 	}
 	current, _ = svc.GetDocument(t.Context(), view.Document.ID)
@@ -319,24 +319,24 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 		t.Fatal("failed revalidation changed Head or erased the user's recording")
 	}
 	fullTurn := view.Product.Kinematics
-	fullTurn.Mechanisms[0].Joints[1].Upper = &MotionQuantity{Value: 720, Unit: "deg"}
+	fullTurn.Mechanisms[0].Joints[1].Coordinates[0].Upper = &MotionQuantity{Value: 720, Unit: "deg"}
 	view = command(CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &fullTurn})
-	if _, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", DriverID: "d", StudyID: "s"}); err == nil {
+	if _, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", StudyID: "s", ActiveDriverIDs: []string{"d"}}); err == nil {
 		t.Fatal("changed limits silently adopted a recorded basis")
 	}
-	revalidated, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", DriverID: "d", StudyID: "s", Revalidate: true})
-	if err != nil || revalidated.Study == nil || revalidated.Study.Keyframes[0].ID != key0.ID || math.Abs(revalidated.Frame.DriverValue) > 1e-8 {
+	revalidated, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", StudyID: "s", Revalidate: true, ActiveDriverIDs: []string{"d"}})
+	if err != nil || revalidated.Study == nil || revalidated.Study.Keyframes[0].ID != key0.ID || math.Abs(revalidated.Frame.CommandValues["d"]) > 1e-8 {
 		t.Fatal("explicit revalidation lost authored coordinates or initial identity", revalidated, err)
 	}
 	if err := svc.TouchMechanismSession(t.Context(), view.Document.ID, actor, revalidated.SessionID); err != nil {
 		t.Fatal("idle lease cannot renew", err)
 	}
 	svc.CancelMechanismSession(view.Document.ID, actor, revalidated.SessionID)
-	turn, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", DriverID: "d"})
+	turn, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", ActiveDriverIDs: []string{"d"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rotated, err := svc.UpdateMechanismSession(t.Context(), view.Document.ID, actor, turn.SessionID, MechanismSessionUpdate{Sequence: 1, Value: &MotionQuantity{Value: 440, Unit: "deg"}})
+	rotated, err := svc.UpdateMechanismSession(t.Context(), view.Document.ID, actor, turn.SessionID, MechanismSessionUpdate{Sequence: 1, Values: map[string]MotionQuantity{"d": MotionQuantity{Value: 440, Unit: "deg"}}})
 	if err != nil || !rotated.Accepted {
 		t.Fatal("full turn", rotated.Failure, err)
 	}
@@ -349,15 +349,15 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", DriverID: "d"})
+	reopened, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", ActiveDriverIDs: []string{"d"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if math.Abs(reopened.Frame.DriverValue-440*math.Pi/180) > 1e-8 {
-		t.Fatal("reopen discarded winding", reopened.Frame.DriverValue)
+	if math.Abs(reopened.Frame.CommandValues["d"]-440*math.Pi/180) > 1e-8 {
+		t.Fatal("reopen discarded winding", reopened.Frame.CommandValues["d"])
 	}
 	svc.CancelMechanismSession(view.Document.ID, actor, reopened.SessionID)
-	if _, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: generation, BaseRevisionID: view.Document.VersionID, MechanismID: "m", DriverID: "d"}); err == nil {
+	if _, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: generation, BaseRevisionID: view.Document.VersionID, MechanismID: "m", ActiveDriverIDs: []string{"d"}}); err == nil {
 		t.Fatal("late Begin recreated a canceled dialog generation")
 	}
 	svc.CancelMechanismSession(view.Document.ID, actor, turn.SessionID)

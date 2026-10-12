@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -23,22 +22,26 @@ type MechanismSessionBegin struct {
 	Generation         uint64   `json:"generation"`
 	BaseRevisionID     string   `json:"baseRevisionId"`
 	MechanismID        string   `json:"mechanismId"`
-	DriverID           string   `json:"driverId"`
+	ActiveDriverIDs    []string `json:"activeDriverIds,omitempty"`
 	StudyID            string   `json:"studyId,omitempty"`
 	Revalidate         bool     `json:"revalidate,omitempty"`
 	SourceMechanismIDs []string `json:"sourceMechanismIds,omitempty"`
 }
 type MechanismSessionFrame struct {
-	ActiveDriver   *MotionDriver                         `json:"activeDriver,omitempty"`
-	SessionID      string                                `json:"sessionId"`
-	BaseRevisionID string                                `json:"baseRevisionId"`
-	InputDigest    string                                `json:"inputDigest"`
-	Sequence       uint64                                `json:"sequence"`
-	Accepted       bool                                  `json:"accepted"`
-	Frame          MotionFrame                           `json:"frame"`
-	Failure        *MechanismMotionFailure               `json:"failure,omitempty"`
-	SolveMS        float64                               `json:"solveMs"`
-	Interaction    *geometry.AssemblyInteractionEvidence `json:"interaction,omitempty"`
+	BasisDigest     string                                `json:"basisDigest"`
+	GeometryDigest  string                                `json:"geometryDigest"`
+	InitialPoses    map[string]InstancePose               `json:"initialPoses"`
+	ActiveDriverIDs []string                              `json:"activeDriverIds"`
+	Qualified       bool                                  `json:"qualified"`
+	SessionID       string                                `json:"sessionId"`
+	BaseRevisionID  string                                `json:"baseRevisionId"`
+	InputDigest     string                                `json:"inputDigest"`
+	Sequence        uint64                                `json:"sequence"`
+	Accepted        bool                                  `json:"accepted"`
+	Frame           MotionFrame                           `json:"frame"`
+	Failure         *MechanismMotionFailure               `json:"failure,omitempty"`
+	SolveMS         float64                               `json:"solveMs"`
+	Interaction     *geometry.AssemblyInteractionEvidence `json:"interaction,omitempty"`
 }
 type MechanismMotionFailure struct {
 	Code         string `json:"code"`
@@ -47,38 +50,37 @@ type MechanismMotionFailure struct {
 }
 type MechanismSessionOpened struct {
 	MechanismSessionFrame
-	Driver         MotionDriver            `json:"driver"`
-	BasisDigest    string                  `json:"basisDigest"`
-	GeometryDigest string                  `json:"geometryDigest"`
-	InitialPoses   map[string]InstancePose `json:"initialPoses"`
-	Study          *MotionStudy            `json:"study,omitempty"`
+	Drivers              []MotionDriver `json:"drivers"`
+	QualificationMessage string         `json:"qualificationMessage,omitempty"`
+	Study                *MotionStudy   `json:"study,omitempty"`
 }
 type MechanismSessionUpdate struct {
-	DriverID      string                       `json:"driverId,omitempty"`
-	Sequence      uint64                       `json:"sequence"`
-	Value         *MotionQuantity              `json:"value,omitempty"`
-	SpatialTarget *geometry.AssemblyDragTarget `json:"spatialTarget,omitempty"`
+	ActiveDriverIDs []string                     `json:"activeDriverIds,omitempty"`
+	Sequence        uint64                       `json:"sequence"`
+	Values          map[string]MotionQuantity    `json:"values,omitempty"`
+	SpatialTarget   *geometry.AssemblyDragTarget `json:"spatialTarget,omitempty"`
 }
 type MechanismSessionFinalize struct {
 	Sequence uint64       `json:"sequence"`
 	Study    *MotionStudy `json:"study,omitempty"`
 }
 type mechanismSession struct {
-	id, actor, document string
-	owner               string
-	generation          uint64
-	view                DocumentView
-	driver              MotionDriver
-	basis, geometry     string
-	initial             MotionFrame
-	engine              *mechanismMotionSolver
-	sequence            uint64
-	expires             time.Time
-	cancel              context.CancelFunc
-	busy, finalizing    bool
-	previewID           string
-	study               *MotionStudy
-	keys                map[string]MotionKeyframe
+	id, actor, document  string
+	owner                string
+	generation           uint64
+	view                 DocumentView
+	drivers              []MotionDriver
+	qualificationMessage string
+	basis, geometry      string
+	initial              MotionFrame
+	engine               *mechanismMotionSolver
+	sequence             uint64
+	expires              time.Time
+	cancel               context.CancelFunc
+	busy, finalizing     bool
+	previewID            string
+	study                *MotionStudy
+	keys                 map[string]MotionKeyframe
 }
 type mechanismSessionCache struct {
 	mu      sync.Mutex
@@ -116,10 +118,7 @@ func (service *Service) mechanismSessionLocked(document, actor, id string) (*mec
 }
 func (s *mechanismSession) frame(accepted bool) MechanismSessionFrame {
 	f, _ := valuecopy.Clone(s.engine.state.Frame)
-	ref, _ := motionValue(*s.driver.Reference, true)
-	f.DriverValue -= ref
-	d, _ := valuecopy.Clone(s.driver)
-	return MechanismSessionFrame{ActiveDriver: &d, SessionID: s.id, BaseRevisionID: s.view.Document.VersionID, InputDigest: s.engine.snapshot.Digest, Sequence: s.sequence, Accepted: accepted, Frame: f}
+	return MechanismSessionFrame{BasisDigest: s.basis, GeometryDigest: s.geometry, InitialPoses: mechanismMemberPoses(s.engine.snapshot.Mechanism, s.initial.UnitPoses), ActiveDriverIDs: append([]string{}, s.engine.snapshot.Study.ActiveDriverIDs...), Qualified: s.engine.state.Qualified, SessionID: s.id, BaseRevisionID: s.view.Document.VersionID, InputDigest: s.engine.snapshot.Digest, Sequence: s.sequence, Accepted: accepted, Frame: f}
 }
 func (service *Service) BeginMechanismSession(parent context.Context, document, actor string, req MechanismSessionBegin) (_ MechanismSessionOpened, returnErr error) {
 	ctx, cancel := context.WithTimeout(withAssemblyReadCache(parent), 30*time.Second)
@@ -185,29 +184,37 @@ func (service *Service) BeginMechanismSession(parent context.Context, document, 
 		diagnostic.BaseModel, _ = json.Marshal(view.Product)
 	}
 	mi := slices.IndexFunc(view.Product.Kinematics.Mechanisms, func(m Mechanism) bool { return m.ID == req.MechanismID })
-	di := slices.IndexFunc(view.Product.Kinematics.Drivers, func(d MotionDriver) bool { return d.ID == req.DriverID && d.MechanismID == req.MechanismID })
-	if mi < 0 || di < 0 {
-		return MechanismSessionOpened{}, fmt.Errorf("%w: select a mechanism command", ErrValidation)
+	if mi < 0 {
+		return MechanismSessionOpened{}, fmt.Errorf("%w: select a mechanism", ErrValidation)
 	}
-	m, d := view.Product.Kinematics.Mechanisms[mi], view.Product.Kinematics.Drivers[di]
-	ji := slices.IndexFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID })
-	if ji < 0 || d.Reference == nil || d.ReferenceDigest != commandCoordinateBasis(m.Joints[ji]) {
-		return MechanismSessionOpened{}, fmt.Errorf("%w: COMMAND_REFERENCE_REVALIDATION_REQUIRED", ErrValidation)
-	}
-	s := &mechanismSession{id: newID("mechanism-session"), actor: actor, document: document, owner: req.OwnerID, generation: req.Generation, view: view, driver: d, basis: recordingBasis(m, d), geometry: recordingGeometry(view, m), expires: time.Now().Add(mechanismSessionTTL), keys: map[string]MotionKeyframe{}}
-	study := MotionStudy{MechanismID: m.ID, DriverID: d.ID, DriverJointID: d.JointID, Reference: d.Reference, BudgetMS: 30000, Frames: 121}
-	if req.StudyID != "" {
-		si := slices.IndexFunc(view.Product.Kinematics.Studies, func(x MotionStudy) bool {
-			return x.ID == req.StudyID && x.MechanismID == m.ID && x.DriverID == d.ID && len(x.Keyframes) > 0
-		})
-		if si < 0 {
-			return MechanismSessionOpened{}, fmt.Errorf("%w: unknown recorded simulation", ErrValidation)
+	m := view.Product.Kinematics.Mechanisms[mi]
+	candidates := []MotionDriver{}
+	for _, d := range view.Product.Kinematics.Drivers {
+		if d.MechanismID == m.ID {
+			j, c, e := driverCoordinate(m, d)
+			if e != nil || d.Reference == nil || d.ReferenceDigest != commandCoordinateBasis(j, c.ID) {
+				return MechanismSessionOpened{}, fmt.Errorf("%w: COMMAND_REFERENCE_REVALIDATION_REQUIRED", ErrValidation)
+			}
+			candidates = append(candidates, d)
 		}
-		study, err = rebaseMotionRecording(view.Product.Kinematics.Studies[si], *d.Reference)
+	}
+	s := &mechanismSession{id: newID("mechanism-session"), actor: actor, document: document, owner: req.OwnerID, generation: req.Generation, view: view, geometry: recordingGeometry(view, m), expires: time.Now().Add(mechanismSessionTTL), keys: map[string]MotionKeyframe{}}
+	study := MotionStudy{MechanismID: m.ID, BudgetMS: 30000, Frames: 121, ActiveDriverIDs: append([]string(nil), req.ActiveDriverIDs...)}
+	if req.StudyID != "" {
+		si := slices.IndexFunc(view.Product.Kinematics.Studies, func(x MotionStudy) bool { return x.ID == req.StudyID && x.MechanismID == m.ID && len(x.Keyframes) > 0 })
+		if si < 0 {
+			return MechanismSessionOpened{}, fmt.Errorf("%w: unknown recording", ErrValidation)
+		}
+		saved := view.Product.Kinematics.Studies[si]
+		ds, e := snapshotDrivers(MotionSnapshot{Mechanism: m, Drivers: candidates}, saved.ActiveDriverIDs)
+		if e != nil {
+			return MechanismSessionOpened{}, e
+		}
+		study, err = rebaseMotionRecording(saved, commandReferences(ds))
 		if err != nil {
 			return MechanismSessionOpened{}, err
 		}
-		study.DriverJointID = d.JointID
+		s.basis = recordingBasis(m, ds)
 		if !req.Revalidate && (study.BasisDigest != s.basis || study.GeometryDigest != s.geometry) {
 			return MechanismSessionOpened{}, fmt.Errorf("%w: SIMULATION_REVALIDATION_REQUIRED", ErrValidation)
 		}
@@ -216,14 +223,13 @@ func (service *Service) BeginMechanismSession(parent context.Context, document, 
 			s.keys[key.ID] = key
 		}
 		if req.Revalidate {
-			// This is an explicit adoption of today's mechanism and geometry.
-			// Keep the authored operation values; never silently reset a command zero.
 			study.EnvironmentPoses = nil
 		} else {
 			m.Poses = study.InitialPoses
 			m.Coordinates = study.InitialCoordinates
 		}
 	}
+
 	compileView, err := valuecopy.Clone(view)
 	if err != nil {
 		return MechanismSessionOpened{}, err
@@ -233,7 +239,7 @@ func (service *Service) BeginMechanismSession(parent context.Context, document, 
 		return MechanismSessionOpened{}, err
 	}
 	compileView.Product = &nominal
-	snapshot := MotionSnapshot{Schema: 1, Policy: motionPolicy, DocumentID: document, RevisionID: req.BaseRevisionID, View: compileView, Mechanism: m, Study: study, SolverProfile: defaultAssemblySolverProfile()}
+	snapshot := MotionSnapshot{Schema: motionSchema, Drivers: candidates, Policy: motionPolicy, DocumentID: document, RevisionID: req.BaseRevisionID, View: compileView, Mechanism: m, Study: study, SolverProfile: defaultAssemblySolverProfile()}
 	if err = service.compileMotionSnapshot(ctx, &snapshot); err != nil {
 		return MechanismSessionOpened{}, err
 	}
@@ -244,19 +250,46 @@ func (service *Service) BeginMechanismSession(parent context.Context, document, 
 	if data, err := json.Marshal(snapshot); err != nil || len(data) > 8<<20 {
 		return MechanismSessionOpened{}, fmt.Errorf("%w: mechanism snapshot size limit", ErrValidation)
 	}
+	desired := append([]string(nil), snapshot.Study.ActiveDriverIDs...)
+	snapshot.Study.ActiveDriverIDs = nil
 	s.engine, err = newMechanismMotionSolver(ctx, service, snapshot)
 	retainedEngine = s.engine
 	if err != nil {
 		return MechanismSessionOpened{}, err
 	}
-	if req.Revalidate && s.study != nil {
-		reference, _ := motionValue(*d.Reference, true)
-		for index, key := range study.Keyframes {
-			value, valueErr := motionValue(key.Value, true)
-			if valueErr != nil {
-				return MechanismSessionOpened{}, valueErr
+	if len(desired) > 0 {
+		if err = s.engine.SelectDrivers(ctx, desired); err != nil {
+			if s.study != nil {
+				return MechanismSessionOpened{}, err
 			}
-			if _, err = s.engine.Advance(ctx, reference+value); err != nil {
+			s.qualificationMessage = err.Error()
+		}
+	} else {
+		unique, e := s.engine.UniqueDriveSet(ctx)
+		if e != nil {
+			return MechanismSessionOpened{}, e
+		}
+		if len(unique) > 0 {
+			if err = s.engine.SelectDrivers(ctx, unique); err != nil {
+				return MechanismSessionOpened{}, err
+			}
+		} else {
+			s.qualificationMessage = "请选择完整且独立的驱动"
+		}
+	}
+	s.drivers = append([]MotionDriver(nil), s.engine.state.Drivers...)
+	s.basis = recordingBasis(m, s.drivers)
+	study.ActiveDriverIDs = append([]string(nil), s.engine.snapshot.Study.ActiveDriverIDs...)
+	study.References = commandReferences(s.drivers)
+	snapshot = s.engine.snapshot
+
+	if req.Revalidate && s.study != nil {
+		for index, key := range study.Keyframes {
+			targets, e := physicalTargets(m, s.drivers, key.Values, study.References)
+			if e != nil {
+				return MechanismSessionOpened{}, e
+			}
+			if _, err = s.engine.Advance(ctx, targets); err != nil {
 				return MechanismSessionOpened{}, fmt.Errorf("%w: SIMULATION_REVALIDATION_FAILED: key %d: %v", ErrValidation, index+1, err)
 			}
 			if index == 0 {
@@ -267,7 +300,7 @@ func (service *Service) BeginMechanismSession(parent context.Context, document, 
 		study.InitialCoordinates, _ = valuecopy.Clone(s.initial.Coordinates)
 		study.EnvironmentPoses = motionEnvironment(m, s.initial.UnitPoses)
 		study.BasisDigest, study.GeometryDigest = s.basis, s.geometry
-		study.SourceRevisionID, study.Reference = req.BaseRevisionID, d.Reference
+		study.SourceRevisionID = req.BaseRevisionID
 		snapshot.Mechanism.Poses, snapshot.Mechanism.Coordinates = study.InitialPoses, study.InitialCoordinates
 		snapshot.Study = study
 		if err = service.compileMotionSnapshot(ctx, &snapshot); err != nil {
@@ -311,7 +344,7 @@ func (service *Service) BeginMechanismSession(parent context.Context, document, 
 		return MechanismSessionOpened{}, fmt.Errorf("%w: mechanism session capacity", ErrValidation)
 	}
 	c.entries[s.id] = s
-	return MechanismSessionOpened{MechanismSessionFrame: s.frame(true), Driver: d, BasisDigest: s.basis, GeometryDigest: s.geometry, InitialPoses: mechanismMemberPoses(m, s.initial.UnitPoses), Study: s.study}, nil
+	return MechanismSessionOpened{MechanismSessionFrame: s.frame(true), Drivers: candidates, QualificationMessage: s.qualificationMessage, Study: s.study}, nil
 }
 
 // An idle dialog renews its private lease without changing a coordinate or Head.
@@ -332,13 +365,13 @@ func (service *Service) TouchMechanismSession(ctx context.Context, document, act
 
 func (service *Service) UpdateMechanismSession(parent context.Context, document, actor, id string, req MechanismSessionUpdate) (MechanismSessionFrame, error) {
 	inputs := 0
-	if req.Value != nil {
+	if req.Values != nil {
 		inputs++
 	}
 	if req.SpatialTarget != nil {
 		inputs++
 	}
-	if req.DriverID != "" {
+	if req.ActiveDriverIDs != nil {
 		inputs++
 	}
 	if req.Sequence == 0 || inputs != 1 {
@@ -355,14 +388,9 @@ func (service *Service) UpdateMechanismSession(parent context.Context, document,
 		c.mu.Unlock()
 		return MechanismSessionFrame{}, fmt.Errorf("%w: stale or finalizing mechanism input", ErrValidation)
 	}
-	driver := s.driver
-	if req.DriverID != "" {
-		i := slices.IndexFunc(s.view.Product.Kinematics.Drivers, func(d MotionDriver) bool { return d.ID == req.DriverID && d.MechanismID == s.driver.MechanismID })
-		if i < 0 || s.study != nil || len(s.keys) > 0 {
-			c.mu.Unlock()
-			return MechanismSessionFrame{}, fmt.Errorf("%w: command switch outside a trial", ErrValidation)
-		}
-		driver = s.view.Product.Kinematics.Drivers[i]
+	if req.ActiveDriverIDs != nil && (s.study != nil || len(s.keys) > 0) {
+		c.mu.Unlock()
+		return MechanismSessionFrame{}, fmt.Errorf("%w: recording drive set is frozen", ErrValidation)
 	}
 	if req.SpatialTarget != nil && !slices.Contains(s.engine.snapshot.Mechanism.UnitIDs, req.SpatialTarget.BodyID) {
 		c.mu.Unlock()
@@ -380,6 +408,9 @@ func (service *Service) UpdateMechanismSession(parent context.Context, document,
 	s.busy = true
 	e := *s.engine
 	e.state, err = valuecopy.Clone(s.engine.state)
+	if err == nil {
+		e.snapshot, err = valuecopy.Clone(s.engine.snapshot)
+	}
 	e.calls = 0
 	e.last = nil
 	e.replay = nil
@@ -389,14 +420,13 @@ func (service *Service) UpdateMechanismSession(parent context.Context, document,
 		err = service.mechanismHead(ctx, document, s.view.Document.VersionID)
 	}
 	if err == nil {
-		if req.DriverID != "" {
-			err = e.SelectDriver(ctx, driver)
-		} else if req.Value != nil {
-			var q, reference float64
-			q, err = motionValue(*req.Value, true)
-			reference, _ = motionValue(*driver.Reference, true)
+		if req.ActiveDriverIDs != nil {
+			err = e.SelectDrivers(ctx, req.ActiveDriverIDs)
+		} else if req.Values != nil {
+			var targets map[string]float64
+			targets, err = physicalTargets(e.snapshot.Mechanism, e.state.Drivers, req.Values, commandReferences(e.state.Drivers))
 			if err == nil {
-				_, err = e.Advance(ctx, reference+q)
+				_, err = e.Advance(ctx, targets)
 			}
 		} else {
 			_, err = e.Drag(ctx, *req.SpatialTarget)
@@ -425,18 +455,10 @@ func (service *Service) UpdateMechanismSession(parent context.Context, document,
 	}
 	s.busy = false
 	s.cancel = nil
-	if err == nil && req.DriverID != "" {
-		prior := s.initial.Coordinates[e.driver.ID]
-		var q float64
-		q, err = motionJointCoordinate(e.driver, s.initial.UnitPoses, &prior)
-		if err == nil {
-			s.initial.DriverValue = q
-		}
-	}
 	if err == nil {
 		s.engine = &e
-		s.driver = driver
-		s.basis = recordingBasis(e.snapshot.Mechanism, driver)
+		s.drivers = append([]MotionDriver(nil), e.state.Drivers...)
+		s.basis = recordingBasis(e.snapshot.Mechanism, s.drivers)
 	}
 	out := s.frame(err == nil)
 	if req.SpatialTarget != nil && e.last != nil {
@@ -494,7 +516,7 @@ func (service *Service) RecordMechanismKey(ctx context.Context, document, actor,
 	if err != nil {
 		return key, err
 	}
-	if s.busy || s.finalizing || sequence != s.sequence || key.ID == "" || len(key.ID) > 128 || key.TimeSeconds < 0 || key.TimeSeconds > 3600 || !finiteMotion(key.TimeSeconds) || !validMotionViewpoint(key.Viewpoint) {
+	if !s.engine.state.Qualified || s.busy || s.finalizing || sequence != s.sequence || key.ID == "" || len(key.ID) > 128 || key.TimeSeconds < 0 || key.TimeSeconds > 3600 || !finiteMotion(key.TimeSeconds) || !validMotionViewpoint(key.Viewpoint) {
 		return key, fmt.Errorf("%w: recording requires a settled checkpoint", ErrValidation)
 	}
 	if _, exists := s.keys[key.ID]; !exists && len(s.keys) >= 500 {
@@ -503,8 +525,7 @@ func (service *Service) RecordMechanismKey(ctx context.Context, document, actor,
 	if err = service.mechanismHead(ctx, document, s.view.Document.VersionID); err != nil {
 		return key, err
 	}
-	key.DriverID = s.driver.ID
-	key.Value = MotionQuantity{Value: s.frame(true).Frame.DriverValue, Unit: "rad"}
+	key.Values = motionVectorQuantities(s.engine.snapshot.Mechanism, s.drivers, s.frame(true).Frame.CommandValues)
 	s.keys[key.ID] = key
 	return key, nil
 }
@@ -517,7 +538,7 @@ func (service *Service) FinalizeMechanismSession(parent context.Context, documen
 		c.mu.Unlock()
 		return CommandRequest{}, err
 	}
-	if s.busy || s.finalizing || req.Sequence != s.sequence {
+	if !s.engine.state.Qualified || s.busy || s.finalizing || req.Sequence != s.sequence {
 		c.mu.Unlock()
 		return CommandRequest{}, fmt.Errorf("%w: settle the latest motion before confirmation", ErrValidation)
 	}
@@ -535,7 +556,7 @@ func (service *Service) FinalizeMechanismSession(parent context.Context, documen
 			c.mu.Unlock()
 			return CommandRequest{}, cloneErr
 		}
-		if study.ID == "" || len(study.Keyframes) == 0 || study.MechanismID != s.engine.snapshot.Mechanism.ID || study.DriverID != s.driver.ID {
+		if study.ID == "" || len(study.Keyframes) == 0 || study.MechanismID != s.engine.snapshot.Mechanism.ID || !sameDriverSet(study.ActiveDriverIDs, s.engine.snapshot.Study.ActiveDriverIDs) {
 			c.mu.Unlock()
 			return CommandRequest{}, fmt.Errorf("%w: invalid recording owner", ErrValidation)
 		}
@@ -553,28 +574,23 @@ func (service *Service) FinalizeMechanismSession(parent context.Context, documen
 		}
 		for _, key := range study.Keyframes {
 			witness, ok := s.keys[key.ID]
-			q, qe := motionValue(key.Value, true)
-			w, we := motionValue(witness.Value, true)
-			if !ok || qe != nil || we != nil || math.Abs(q-w) > 1e-9 || key.DriverID != s.driver.ID {
+			if !ok || !sameMotionVector(key.Values, witness.Values) {
 				c.mu.Unlock()
 				return CommandRequest{}, fmt.Errorf("%w: keyframe has no qualified checkpoint", ErrValidation)
 			}
 		}
-		ref, _ := motionValue(*s.driver.Reference, true)
-		initial := s.initial.DriverValue - ref
-		first, _ := motionValue(study.Keyframes[0].Value, true)
-		if study.Keyframes[0].TimeSeconds != 0 || math.Abs(first-initial) > 1e-8 {
+		initial := commandValues(s.engine.snapshot.Mechanism, s.drivers, s.initial.Coordinates)
+		if study.Keyframes[0].TimeSeconds != 0 || !sameMotionVector(study.Keyframes[0].Values, motionVectorQuantities(s.engine.snapshot.Mechanism, s.drivers, initial)) {
 			c.mu.Unlock()
-			return CommandRequest{}, fmt.Errorf("%w: initial keyframe changed", ErrValidation)
+			return CommandRequest{}, fmt.Errorf("%w: initial vector changed", ErrValidation)
 		}
 		study.SourceRevisionID = s.view.Document.VersionID
 		study.BasisDigest = s.basis
 		study.GeometryDigest = s.geometry
-		study.Reference = s.driver.Reference
+		study.References = commandReferences(s.drivers)
 		study.InitialPoses = mechanismMemberPoses(s.engine.snapshot.Mechanism, s.initial.UnitPoses)
 		study.InitialCoordinates, _ = valuecopy.Clone(s.initial.Coordinates)
 		study.EnvironmentPoses = motionEnvironment(s.engine.snapshot.Mechanism, s.initial.UnitPoses)
-		study.DriverJointID = s.driver.JointID
 		study.DurationSeconds = study.Keyframes[len(study.Keyframes)-1].TimeSeconds
 		i := slices.IndexFunc(definition.Studies, func(x MotionStudy) bool { return x.ID == study.ID })
 		if i < 0 {
@@ -648,13 +664,15 @@ func (service *Service) PreviewMechanismRecording(parent context.Context, docume
 		c.mu.Unlock()
 		return MotionRun{}, fmt.Errorf("%w: unsettled recording", ErrValidation)
 	}
+	if !s.engine.state.Qualified || !sameDriverSet(study.ActiveDriverIDs, s.engine.snapshot.Study.ActiveDriverIDs) {
+		c.mu.Unlock()
+		return MotionRun{}, fmt.Errorf("%w: unqualified drive set", ErrValidation)
+	}
 	for _, key := range study.Keyframes {
 		w, ok := s.keys[key.ID]
-		q, qe := motionValue(key.Value, true)
-		v, ve := motionValue(w.Value, true)
-		if !ok || qe != nil || ve != nil || math.Abs(q-v) > 1e-9 {
+		if !ok || !sameMotionVector(key.Values, w.Values) {
 			c.mu.Unlock()
-			return MotionRun{}, fmt.Errorf("%w: unqualified recording key", ErrValidation)
+			return MotionRun{}, fmt.Errorf("%w: unqualified keyframe vector", ErrValidation)
 		}
 	}
 	snapshot, err := valuecopy.Clone(s.engine.snapshot)
@@ -663,9 +681,8 @@ func (service *Service) PreviewMechanismRecording(parent context.Context, docume
 		return MotionRun{}, err
 	}
 	study.MechanismID = snapshot.Mechanism.ID
-	study.DriverID = s.driver.ID
-	study.DriverJointID = s.driver.JointID
-	study.Reference = s.driver.Reference
+	study.ActiveDriverIDs = append([]string(nil), s.engine.snapshot.Study.ActiveDriverIDs...)
+	study.References = commandReferences(s.drivers)
 	study.SourceRevisionID = s.view.Document.VersionID
 	study.BasisDigest = s.basis
 	study.GeometryDigest = s.geometry
@@ -676,9 +693,9 @@ func (service *Service) PreviewMechanismRecording(parent context.Context, docume
 	snapshot.Study = study
 	snapshot.Mechanism.Poses = study.InitialPoses
 	snapshot.Mechanism.Coordinates = study.InitialCoordinates
-	driver := s.driver
+	drivers := append([]MotionDriver(nil), s.engine.snapshot.Drivers...)
 	c.mu.Unlock()
-	if err = validateKinematics(*snapshot.View.Product, KinematicsDefinitions{Mechanisms: []Mechanism{snapshot.Mechanism}, Drivers: []MotionDriver{driver}, Studies: []MotionStudy{study}}); err != nil {
+	if err = validateKinematics(*snapshot.View.Product, KinematicsDefinitions{Mechanisms: []Mechanism{snapshot.Mechanism}, Drivers: drivers, Studies: []MotionStudy{study}}); err != nil {
 		return MotionRun{}, err
 	}
 	if err = service.mechanismHead(parent, document, snapshot.RevisionID); err != nil {

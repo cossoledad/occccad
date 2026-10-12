@@ -94,7 +94,7 @@ type Props = {
   onAssemblyInteractionState?:(state:AssemblyInteractionState,reason?:string)=>void;
   onOperationFailed?:(error:unknown)=>void;
   onInspectAssemblySupports?:(documentId:string,references:AssemblyGeometryRef[],signal:AbortSignal)=>Promise<import("../cad/interaction/manipulator-snap").SupportInspection>;
-  onAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
+  onAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[],members?:import("../types").AssemblyGroupMember[]) => void;
 };
 
 export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadViewport(props, ref) {
@@ -141,7 +141,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       assemblyInteractionState:(state,reason)=>callbacks.current.onAssemblyInteractionState?.(state,reason),
       operationFailed:error=>callbacks.current.onOperationFailed?.(error),
       inspectAssemblySupports:(documentId,references,signal)=>callbacks.current.onInspectAssemblySupports!(documentId,references,signal),
-      assemblyConstraintRequested: (kind, references) => callbacks.current.onAssemblyConstraint(kind, references),
+      assemblyConstraintRequested: (kind, references,members) => callbacks.current.onAssemblyConstraint(kind, references,members),
       documentViewReady: (documentId, restoredCamera) => {
         const current = callbacks.current;
         if (current.view.document.id !== documentId) return;

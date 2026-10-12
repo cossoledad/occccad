@@ -42,6 +42,9 @@ func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductMo
 	if reference == nil {
 		return nil
 	}
+	if reference.CapturedFrame != nil {
+		return validateCapturedAssemblyFrame(*reference)
+	}
 	if reference.PublicationRef != nil {
 		if _, err := service.resolveAssemblyPublication(ctx, product, reference); err != nil {
 			return err
@@ -171,6 +174,23 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 	acceptedParts := map[string]PartModel{}
 	resolveEndpoint := func(reference *AssemblyGeometryRef) (modelcore.SelectionResolutionStatus, error) {
 		if reference == nil {
+			return modelcore.SelectionResolved, nil
+		}
+		if reference.CapturedFrame != nil {
+			if err := validateCapturedAssemblyFrame(*reference); err != nil {
+				return modelcore.SelectionMissing, err
+			}
+			instance, _, err := service.assemblyReferenceOccurrence(ctx, *product, *reference)
+			if err != nil {
+				return modelcore.SelectionMissing, err
+			}
+			var sourceDocument string
+			if err = service.database.QueryRow(ctx, `SELECT document_id::text FROM occccad.document_versions WHERE id=$1`, reference.SourceVersionID).Scan(&sourceDocument); err != nil {
+				return modelcore.SelectionMissing, err
+			}
+			if sourceDocument != instance.ReferencedDocumentID {
+				return modelcore.SelectionMissing, fmt.Errorf("%w: captured frame source belongs to another document", ErrValidation)
+			}
 			return modelcore.SelectionResolved, nil
 		}
 		if reference.PublicationRef != nil {

@@ -8,14 +8,14 @@ import { normalizeOperationFailure, useOperationFeedback } from '../../cad/comma
 import { MechanismMotionSession, type MechanismMotionIntent } from '../../cad/assembly/mechanism-motion-session';
 import { MotionRecordingClock, motionTargetAt, replaceMotionKey, sameMotionKeyValue } from '../../cad/assembly/motion-recording';
 import { motionFrameAt, motionPlayback, motionPlaybackTime, quantityIn, type Mechanism, type MechanismSessionFrame, type MechanismSessionOpened, type MotionDriver, type MotionKeyframe, type MotionPlayback, type MotionPlaybackClock, type MotionPose, type MotionRun, type MotionStudy, type MotionViewpoint } from '../../cad/assembly/motion-study';
-import {motionCommandRange} from '../../cad/assembly/motion-coordinates';
+import {motionCommandRange,driverCoordinate,coordinateUnit} from '../../cad/assembly/motion-coordinates';
 import { motionViewpointAt } from '../../cad/assembly/motion-frame';
 import { randomUUID } from '../../utils/random-uuid';
 type Props = {
     view: DocumentView;
     mechanism: Mechanism;
     drivers: MotionDriver[];
-    initialDriverId?: string;
+    initialDriverIds?: string[];
     study?: MotionStudy;
     record: boolean;
     operation?: CommandOperation;
@@ -36,16 +36,18 @@ export function MechanismMotionDialog(props: Props) {
     const ownerId = useRef(randomUUID());
     const callbacks = useRef(props);
     callbacks.current = props;
-    const [driverId, setDriverId] = useState(props.study?.driverId ?? props.drivers.find(d => d.id === props.initialDriverId)?.id ?? props.drivers[0]?.id ?? '');
+    const [selectedDrivers,setSelectedDrivers]=useState<string[]>(props.study?.activeDriverIds??props.initialDriverIds??[]);
     const [opened, setOpened] = useState<MechanismSessionOpened>(), [frame, setFrame] = useState<MechanismSessionFrame>(), [busy, setBusy] = useState(true), [saving, setSaving] = useState(false), [error, setError] = useState<unknown>();
     const [study, setStudy] = useState<MotionStudy>(), [automatic, setAutomatic] = useState(true), [camera, setCamera] = useState(props.study?.animateViewpoint ?? false);
     const [keyId, setKeyId] = useState<string>(), [insertTime, setInsertTime] = useState(.2), [time, setTime] = useState(0);
-    const [inputAngle, setInputAngle] = useState<number>();
+    const [inputValues,setInputValues]=useState<Record<string,number>>({});
+ const goals=useRef<Record<string,number>>({});
     const [switching, setSwitching] = useState(false);
     const [attempt, setAttempt] = useState(0);
     const [revalidate, setRevalidate] = useState(false), [baking, setBaking] = useState(false);
     const [run, setRun] = useState<MotionRun>(), [clock, setClock] = useState<MotionPlaybackClock>();
     const controller = useRef<MechanismMotionSession | undefined>(undefined), baselineCamera = useRef<MotionViewpoint | undefined>(undefined);
+    const pauseRef=useRef<(()=>Promise<void>)|undefined>(undefined);
     const preparedCommit = useRef<Record<string, unknown> | undefined>(undefined), qualifiedTime = useRef(0);
     const automaticClock = useRef(new MotionRecordingClock());
     const draft = useRef<MotionStudy | undefined>(undefined), autoRef = useRef(automatic), cameraRef = useRef(camera), nextTime = useRef(insertTime), recording = useRef(false), closed = useRef(false), epoch = useRef(0), playingClock = useRef(clock);
@@ -55,7 +57,19 @@ export function MechanismMotionDialog(props: Props) {
     nextTime.current = insertTime;
     const publishStudy = (value: MotionStudy, pathChanged = true) => { draft.current = value; setStudy(value); callbacks.current.onDraft(value); if (pathChanged)
         setRun(undefined); };
-    const makeKey = (id = randomUUID(), at = nextTime.current): MotionKeyframe => ({ id, timeSeconds: at, driverId, value: { value: controller.current?.checkpoint?.frame.driverValue ?? 0, unit: 'rad' }, viewpoint: cameraRef.current ? callbacks.current.captureViewpoint() : undefined });
+    const commandQuantities=(values:Record<string,number>,ids=controller.current?.checkpoint?.activeDriverIds??[]):MotionKeyframe['values']=>Object.fromEntries(ids.map(id=>{const d=props.drivers.find(d=>d.id===id),coordinate=d&&driverCoordinate(props.mechanism,d);if(!coordinate)throw new Error('命令参数已变化');return [id,{value:values[id]??0,unit:coordinateUnit(coordinate)}]}));
+    const makeKey=(id=randomUUID(),at=nextTime.current):MotionKeyframe=>({id,timeSeconds:at,values:commandQuantities(controller.current?.checkpoint?.frame.commandValues??{}),viewpoint:cameraRef.current?callbacks.current.captureViewpoint():undefined});
+    const initializeRecording=async(owner:MechanismMotionSession,result:MechanismSessionFrame)=>{
+        if(!props.record||!result.qualified||draft.current||recording.current)return;
+        recording.current=true;
+        try{
+            const initial:MotionStudy=owner.identity?.study?structuredClone(owner.identity.study):{id:randomUUID(),name:'模拟.'+((props.view.product?.kinematics?.studies.length??0)+1),mechanismId:props.mechanism.id,activeDriverIds:[...result.activeDriverIds],durationSeconds:0,frames:121,budgetMs:60000,sourceRevisionId:result.baseRevisionId,basisDigest:result.basisDigest,geometryDigest:result.geometryDigest,references:Object.fromEntries(props.drivers.filter(d=>result.activeDriverIds.includes(d.id)).map(d=>[d.id,d.reference!])),initialPoses:result.initialPoses,initialCoordinates:result.frame.coordinates,keyframes:[],animateViewpoint:cameraRef.current};
+            if(!initial.keyframes?.length){const key=await owner.record({id:randomUUID(),timeSeconds:0,values:commandQuantities(result.frame.commandValues,result.activeDriverIds),viewpoint:cameraRef.current?callbacks.current.captureViewpoint():undefined});initial.keyframes=[key]}
+            if(closed.current||controller.current!==owner)return;
+            publishStudy(initial);automaticClock.current.anchor(initial.keyframes!.at(-1)!.timeSeconds);setKeyId(initial.keyframes![0].id);setInsertTime((initial.keyframes?.at(-1)?.timeSeconds??0)+.2);
+        }finally{recording.current=false}
+    };
+    const initializeRecordingRef=useRef(initializeRecording);initializeRecordingRef.current=initializeRecording;
     const insert = async (modify = false, fromFrame = false, intent?: MechanismMotionIntent) => {
         const owner = controller.current;
         if (!owner || !draft.current || recording.current)
@@ -97,6 +111,7 @@ export function MechanismMotionDialog(props: Props) {
         setFrame(undefined);
         setRun(undefined);
         setClock(undefined);
+        draft.current=undefined;setStudy(undefined);
         automaticClock.current = new MotionRecordingClock();
         baselineCamera.current = callbacks.current.captureViewpoint();
         const leaseAbort = new AbortController();
@@ -108,6 +123,7 @@ export function MechanismMotionDialog(props: Props) {
             finalize: (id, sequence, value, signal) => api.finalizeMechanismSession(props.view.document.id, id, sequence, value, signal),
             preview: (id, value, signal) => api.previewMechanismRecording(props.view.document.id, id, value, signal),
             cancel: id => api.cancelMechanismSession(props.view.document.id, id),
+            prepareSpatial:async()=>{if(playingClock.current)await pauseRef.current?.()},
             onIntent: () => {
                 if (!props.record || !autoRef.current || !draft.current)
                     return;
@@ -126,11 +142,10 @@ export function MechanismMotionDialog(props: Props) {
                 if (generation !== epoch.current || closed.current)
                     return;
                 setFrame(value);
-                setInputAngle(Number(quantityIn({value:value.frame.driverValue,unit:'rad'},'deg').toFixed(2)));
-                if (value.activeDriver) {
-                    setDriverId(value.activeDriver.id);
-                    setOpened(opened => opened ? { ...opened, ...value, driver: value.activeDriver! } : opened);
-                }
+                callbacks.current.onSession(owner);
+                goals.current={...value.frame.commandValues};setInputValues(goals.current);
+                if(value.qualified){setSelectedDrivers(value.activeDriverIds);setOpened(opened=>opened?{...opened,...value}:opened)}
+                await initializeRecordingRef.current(owner,value);
                 callbacks.current.onPlayback();
                 callbacks.current.onPreview(Object.entries(value.frame.unitPoses).map(([instanceId, pose]) => ({ instanceId, ...pose })));
                 if (value.accepted && value.sequence > 0) {
@@ -145,25 +160,13 @@ export function MechanismMotionDialog(props: Props) {
         const unload = (event: PageTransitionEvent) => { if (!event.persisted)
             void owner.cancel().catch(() => undefined); };
         window.addEventListener('pagehide', unload);
-        void owner.begin({ ownerId: ownerId.current, generation, baseRevisionId: props.view.document.versionId, mechanismId: props.mechanism.id, driverId, studyId: props.study?.id, revalidate, sourceMechanismIds: props.sourceMechanismIds }).then(async (result) => {
+        void owner.begin({ ownerId: ownerId.current, generation, baseRevisionId: props.view.document.versionId, mechanismId: props.mechanism.id, activeDriverIds: selectedDrivers.length?selectedDrivers:undefined, studyId: props.study?.id, revalidate, sourceMechanismIds: props.sourceMechanismIds }).then(async (result) => {
             if (!result || generation !== epoch.current || closed.current)
                 return;
             setOpened(result);
             lease = setInterval(() => { void api.touchMechanismSession(props.view.document.id, result.sessionId, leaseAbort.signal).catch(e => { if (generation === epoch.current && !closed.current)
                 setError(e); }); }, 60000);
-            if (props.record) {
-                const initial: MotionStudy = result.study ? structuredClone(result.study) : { id: randomUUID(), name: '模拟.' + ((props.view.product?.kinematics?.studies.length ?? 0) + 1), mechanismId: props.mechanism.id, driverId, driverJointId: result.driver.jointId, durationSeconds: 0, frames: 121, budgetMs: 60000, sourceRevisionId: result.baseRevisionId, basisDigest: result.basisDigest, geometryDigest: result.geometryDigest, reference: result.driver.reference, initialPoses: result.initialPoses, keyframes: [], animateViewpoint: cameraRef.current };
-                if (!initial.keyframes?.length) {
-                    const key = await owner.record({ id: randomUUID(), timeSeconds: 0, driverId, value: { value: result.frame.driverValue, unit: 'rad' }, viewpoint: cameraRef.current ? callbacks.current.captureViewpoint() : undefined });
-                    initial.keyframes = [key];
-                }
-                if (generation !== epoch.current || closed.current)
-                    return;
-                publishStudy(initial);
-                automaticClock.current.anchor(initial.keyframes!.at(-1)!.timeSeconds);
-                setKeyId(initial.keyframes![0].id);
-                setInsertTime((initial.keyframes?.at(-1)?.timeSeconds ?? 0) + .2);
-            }
+            await initializeRecordingRef.current(owner,result);
         }).catch(e => { if (generation === epoch.current && !closed.current)
             setError(e); });
         return () => { window.removeEventListener('pagehide', unload); epoch.current++; clearInterval(lease); leaseAbort.abort(); if (!closed.current && baselineCamera.current)
@@ -189,32 +192,24 @@ export function MechanismMotionDialog(props: Props) {
     };
     useEffect(() => { const signal = props.operation?.signal; if (!signal)
         return; signal.addEventListener('abort', close); return () => signal.removeEventListener('abort', close); }, [props.operation, saving]);
-    const switchDriver = async (id: string) => { if (!controller.current?.identity) {
-        setDriverId(id);
-        setAttempt(a => a + 1);
-        return;
-    } setSwitching(true); try {
-        await controller.current.request({ driverId: id }, false);
-    }
-    catch (e) {
-        setError(e);
-    }
-    finally {
-        setSwitching(false);
-    } };
-    const request = async (value: number) => { setClock(undefined); setRun(undefined); try {
-        await controller.current?.request({ value: { value, unit: 'rad' } });
-    }
-    catch (e) {
-        if (!closed.current)
-            setError(e);
-    } };
+    const selectDriver=async(id:string,checked:boolean)=>{
+        const next=checked?[...selectedDrivers,id]:selectedDrivers.filter(value=>value!==id);
+        setSelectedDrivers(next);if(!controller.current?.identity)return;
+        setSwitching(true);
+        try{await controller.current.request({activeDriverIds:next},false)}catch(e){setError(e)}finally{setSwitching(false)}
+    };
+    const request=async(id:string,value:number)=>{
+        const checkpoint=controller.current?.checkpoint;if(!checkpoint?.qualified)return;
+        goals.current={...goals.current,[id]:value};setInputValues(goals.current);
+        setClock(undefined);setRun(undefined);
+        try{await controller.current?.request({values:commandQuantities(goals.current,checkpoint.activeDriverIds)})}catch(e){if(!closed.current)setError(e)}
+    };
     const seek = async (value: number) => {
         if (!draft.current)
             return false;
         setClock(undefined);
         try {
-            const response = await controller.current?.request({ value: { value: motionTargetAt(draft.current, value), unit: 'rad' } }, false);
+            const response = await controller.current?.request({values:motionTargetAt(draft.current,value)}, false);
             if (response?.accepted) {
                 setTime(value);
                 qualifiedTime.current = value;
@@ -235,7 +230,8 @@ export function MechanismMotionDialog(props: Props) {
     // Playback is display interpolation over a qualified finite cache. Confirmation
     // resolves its exact unrounded playhead through the command solver below.
     const exactTime = () => playingClock.current ? motionPlaybackTime(playingClock.current, performance.now()) : time;
-    const pause = async () => { const at = exactTime(); setClock(undefined); setTime(at); await seek(at); };
+    const pause = async () => { const at = exactTime(); playingClock.current=undefined;setClock(undefined); setTime(at); if(!await seek(at))throw new Error('当前时间未通过求解'); };
+ pauseRef.current=pause;
     const play = async () => {
         if (clock) {
             await pause();
@@ -319,21 +315,30 @@ export function MechanismMotionDialog(props: Props) {
     const raw = String((error as {
         message?: string;
     })?.message ?? error ?? ''), needsRevalidation = raw.includes('SIMULATION_REVALIDATION_REQUIRED');
-    const sessionMessage = raw.includes('COMMAND_REFERENCE_REVALIDATION_REQUIRED') ? '命令基准已变化，请重新设置零点。' : raw.includes('UNSUPPORTED_DOF') ? '试动需要接地且仅有一个独立自由度。' : raw.includes('SIMULATION_REVALIDATION_FAILED') ? '记录未通过当前定义的验证。' : raw.includes('mechanism session capacity') ? '请关闭其他运动窗口后重试。' : undefined;
+    const sessionMessage = raw.includes('COMMAND_REFERENCE_REVALIDATION_REQUIRED') ? '命令基准已变化，请重新设置零点。' : raw.includes('UNSUPPORTED_DOF') ? '请选择完整且独立的驱动。' : raw.includes('SIMULATION_REVALIDATION_FAILED') ? '记录未通过当前定义的验证。' : raw.includes('mechanism session capacity') ? '请关闭其他运动窗口后重试。' : undefined;
     const problem = needsRevalidation ? <Alert type="warning" showIcon title="模拟需要重新验证。" action={<Button size="small" onClick={() => setRevalidate(true)}>采用当前基准并验证</Button>}/> : failure ? <Alert type="error" showIcon title={sessionMessage ?? failure.message} action={<Space>{!opened && <Button size="small" aria-label="重试" onClick={() => setAttempt(a => a + 1)}>重试</Button>}<Button size="small" onClick={() => feedback(error, '机构运动')}>详情</Button></Space>}/> : null;
-    const displayValue = clock && draft.current ? motionTargetAt(draft.current,time) : frame?.frame.driverValue ?? 0;
-    const q = quantityIn({ value: displayValue, unit: 'rad' }, 'deg');
-    const range=opened?motionCommandRange(props.mechanism,opened.driver):undefined;
-    const lower=(range?.lower??0)*180/Math.PI,upper=(range?.upper??0)*180/Math.PI;
-    const pending = busy || saving || baking || Boolean(preparedCommit.current) || !opened;
+    const displayValues=clock&&draft.current?Object.fromEntries(Object.entries(motionTargetAt(draft.current,time)).map(([id,q])=>[id,q.value])):frame?.frame.commandValues??{};
+    const ready=Boolean(frame?.qualified);
+    const pending = busy || saving || baking || Boolean(preparedCommit.current) || !opened || !ready;
     const inputLocked = switching || saving || baking || Boolean(preparedCommit.current);
     return <>
-  <CommandDialog id="dmu.command-motion" open title="使用命令进行模拟" size="S" placement={props.record ? 'left' : undefined} onClose={close} onConfirm={confirm} confirmLoading={saving} confirmDisabled={busy || saving || baking || !opened} footer={!props.record}>
+  <CommandDialog id="dmu.command-motion" open title="使用命令进行模拟" size="S" placement={props.record ? 'left' : undefined} onClose={close} onConfirm={confirm} confirmLoading={saving} confirmDisabled={busy || saving || baking || !opened || !ready} footer={!props.record}>
    <div className="motion-study-fields">
-    <label className="motion-labeled-field"><span>命令</span><Select virtual={false} aria-label="运动命令" style={{ flex: 1 }} value={driverId} disabled={busy || inputLocked || props.record} options={props.drivers.map(d => ({ value: d.id, label: d.name }))} onChange={id => void switchDriver(id)}/></label>
-    <label className="motion-labeled-field"><span>角度 °</span><InputNumber aria-label="命令角度" value={clock?Number(q.toFixed(2)):inputAngle??Number(q.toFixed(2))} precision={2} changeOnBlur={false} disabled={!opened || inputLocked || Boolean(clock)} onChange={v => { if (v !== null) { setInputAngle(v); void request(v * Math.PI / 180); } }}/></label>
-    <Slider aria-label="命令游标" value={q} min={lower} max={upper} step={.1} disabled={!opened || inputLocked || Boolean(clock)} onChange={v => void request(v * Math.PI / 180)}/>
-    <div className="motion-range-labels"><Typography.Text type="secondary">{lower.toFixed(2)}°</Typography.Text><Typography.Text type="secondary">{upper.toFixed(2)}°</Typography.Text></div>
+    <Typography.Text type="secondary">使用的命令</Typography.Text>
+    {props.drivers.map(driver=>{
+        const coordinate=driverCoordinate(props.mechanism,driver);if(!coordinate)return null;
+        const active=frame?.activeDriverIds.includes(driver.id)&&ready,checked=selectedDrivers.includes(driver.id),angular=coordinate.dimension==='ANGLE',unit=angular?'°':'mm';
+        const range=motionCommandRange(props.mechanism,driver),factor=angular?180/Math.PI:1,lower=range.lower*factor,upper=range.upper*factor;
+        const value=(clock?displayValues[driver.id]:inputValues[driver.id]??displayValues[driver.id]??0)*factor;
+        const label=props.drivers.length===1?(angular?'命令角度':'命令长度'):`${driver.name} ${angular?'角度':'长度'}`;
+        return <section className="motion-dialog-section" key={driver.id}>
+            <Checkbox aria-label={`使用 ${driver.name}`} checked={checked} disabled={busy||inputLocked||Boolean(draft.current?.keyframes?.length)||Boolean(clock)} onChange={event=>void selectDriver(driver.id,event.target.checked)}>{props.mechanism.joints.find(j=>j.id===driver.jointId)?.name} · {angular?'角度':'长度'}</Checkbox>
+            <label className="motion-labeled-field"><span>{angular?'角度':'长度'} {unit}</span><InputNumber aria-label={label} value={Number(value.toFixed(2))} precision={2} changeOnBlur={false} readOnly={!active} disabled={inputLocked||Boolean(clock)} onChange={value=>{if(value!==null&&active)void request(driver.id,value/factor)}}/></label>
+            <Slider aria-label={props.drivers.length===1?'命令游标':`${driver.name} 游标`} value={value} min={lower} max={upper} step={.1} disabled={!active||inputLocked||Boolean(clock)} onChange={value=>void request(driver.id,value/factor)}/>
+            <div className="motion-range-labels"><Typography.Text type="secondary">{lower.toFixed(2)} {unit}</Typography.Text><Typography.Text type="secondary">{upper.toFixed(2)} {unit}</Typography.Text></div>
+        </section>;
+    })}
+    {!ready&&opened&&<Typography.Text type="secondary">请选择完整且独立的驱动</Typography.Text>}
     {frame?.failure && <Typography.Text type="warning">该位置未通过求解。</Typography.Text>}
     {frame?.failure?.diagnosticId && <Button size="small" onClick={() => void navigator.clipboard.writeText('CAD_DIAGNOSTIC ' + frame.failure!.diagnosticId)}>复制诊断</Button>}
     {problem}
@@ -350,7 +355,7 @@ export function MechanismMotionDialog(props: Props) {
             publishStudy({ ...draft.current, keyframes: draft.current.keyframes?.filter(k => k.id !== keyId) });
             setKeyId(undefined);
         } }}>删除</Button></Space>
-    <Table<MotionKeyframe> size="small" rowKey="id" pagination={false} scroll={{ y: 180 }} dataSource={study?.keyframes} columns={[{ title: '时间 s', render: (_, key) => key.timeSeconds.toFixed(2) }, { title: '角度 °', render: (_, key) => quantityIn(key.value, 'deg').toFixed(2) }]} rowSelection={{ type: 'radio', selectedRowKeys: keyId ? [keyId] : [], onChange: ids => {const id=String(ids[0]);setKeyId(id);const key=draft.current?.keyframes?.find(k=>k.id===id);if(key)setInsertTime(key.timeSeconds); } }} onRow={key => ({ onDoubleClick: () => { setKeyId(key.id);setInsertTime(key.timeSeconds); void seek(key.timeSeconds); } })}/>
+    <Table<MotionKeyframe> size="small" rowKey="id" pagination={false} scroll={{ y: 180 }} dataSource={study?.keyframes} columns={[{ title: '时间 s', render: (_, key) => key.timeSeconds.toFixed(2) }, ...(study?.activeDriverIds??[]).map(id=>{const driver=props.drivers.find(d=>d.id===id)!,coordinate=driverCoordinate(props.mechanism,driver)!;return {title:`${driver.name} ${coordinate.dimension==='ANGLE'?'°':'mm'}`,render:(_:unknown,key:MotionKeyframe)=>quantityIn(key.values[id],coordinateUnit(coordinate,true)).toFixed(2)}})]} rowSelection={{ type: 'radio', selectedRowKeys: keyId ? [keyId] : [], onChange: ids => {const id=String(ids[0]);setKeyId(id);const key=draft.current?.keyframes?.find(k=>k.id===id);if(key)setInsertTime(key.timeSeconds); } }} onRow={key => ({ onDoubleClick: () => { setKeyId(key.id);setInsertTime(key.timeSeconds); void seek(key.timeSeconds); } })}/>
     <div className="motion-playback-controls"><Button aria-label="起点" disabled={pending || !study?.keyframes?.length} onClick={() => void seek(0)}>起点</Button><Button aria-label={clock ? '暂停' : '播放'} type="primary" disabled={pending || (study?.keyframes?.length ?? 0) < 2} onClick={() => void play()}>{clock ? '暂停' : '播放'}</Button><Button aria-label="终点" disabled={pending || !study?.keyframes?.length} onClick={() => void seek(study?.keyframes?.at(-1)?.timeSeconds ?? 0)}>终点</Button></div>
     <Slider aria-label="模拟时间游标" min={0} max={study?.keyframes?.at(-1)?.timeSeconds || .01} step={.01} value={time} disabled={pending || Boolean(clock)} onChange={v => void seek(v)}/>
     <label className="motion-labeled-field"><span>定位时间 s</span><InputNumber aria-label="模拟定位时间" value={time} min={0} max={study?.keyframes?.at(-1)?.timeSeconds ?? 0} precision={2} changeOnBlur={false} step={.01} disabled={pending || Boolean(clock)} onChange={v => void seek(v ?? 0)}/></label>

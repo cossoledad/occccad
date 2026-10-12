@@ -67,7 +67,7 @@ func mechanismInteractionCandidate(original, solved ProductModel, id, bodyID str
 	// The qualified drag transports both placement and continuous joint state.
 	// Reusing the base coordinates would fail final acceptance after any motion
 	// and would lose winding when a moved joint crosses a principal-angle seam.
-	m.Coordinates, err = verifyMechanismJoints(*m, poses, coordinates, "", 0)
+	m.Coordinates, err = verifyMechanismJoints(*m, poses, coordinates, nil)
 	if err != nil {
 		return next, fmt.Errorf("%w: %v", ErrValidation, err)
 	}

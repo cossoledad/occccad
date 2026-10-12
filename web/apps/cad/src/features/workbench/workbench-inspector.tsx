@@ -214,6 +214,12 @@ function PropertySummary({ view, selection, feature, workbench, sketchPlane, act
         ...Object.entries(topology.properties).map(([key, value]) => ({ key: `brep-${key}`, label: key, children: format(value) })),
       ]} /></>;
   }
+  if(selection.entityKind==='ASSEMBLY_GROUP_MEMBER_REFERENCE'){
+   const group=view.product?.constraints?.find(c=>c.id===selection.ownerEntityId)??view.product?.kinematics?.mechanisms.flatMap(m=>m.joints.flatMap(j=>j.constraints??[])).find(c=>c.id===selection.ownerEntityId);
+   const member=group?.groupMembers?.find(member=>member.instanceId===selection.entityId||member.groupId===selection.entityId);
+   const name=member?.instanceId?view.product?.instances.find(i=>i.id===member.instanceId)?.name:view.product?.constraints?.find(c=>c.id===member?.groupId)?.name;
+   return <Descriptions column={1} size="small" bordered items={[{key:'type',label:'类型',children:'成员引用'},{key:'owner',label:'所属固联组',children:group?.name},{key:'member',label:'成员',children:name??selection.entityId}]}/>;
+  }
   if(selection.kind==='kinematic-object'){
    const k=view.product?.kinematics,id=selection.id;
    const m=k?.mechanisms.find(m=>m.id===selection.mechanismId||m.id===id||m.joints.some(j=>j.id===id||j.constraints?.some(c=>c.id===id)));
@@ -221,11 +227,11 @@ function PropertySummary({ view, selection, feature, workbench, sketchPlane, act
    const driver=k?.drivers?.find(d=>d.id===id),study=k?.studies.find(s=>s.id===id);
    const object=relation??joint??driver??study??m;
    return <Descriptions column={1} size="small" bordered className="property-list" items={[
-    {key:'type',label:'类型',children:relation?'机构约束':joint?'接合':driver?'角度命令':study?'模拟':'机械装置'},
+    {key:'type',label:'类型',children:relation?'机构约束':joint?'接合':driver?'驱动命令':study?'模拟':'机械装置'},
     {key:'name',label:'名称',children:object?.name??'定义不可用'},
     ...(m&&m.id!==id?[{key:'owner',label:'机械装置',children:m.name}]:[]),
     ...(relation?[{key:'joint',label:'所属接合',children:joint?.name},{key:'state',label:'约束状态',children:relation.evaluationStatus}]:[]),
-    ...(m?.id===id&&m.evaluation?[{key:'physical',label:'物理自由度',children:m.evaluation.relativeDof},{key:'gauge',label:'整体自由度',children:m.evaluation.gaugeDof},{key:'commands',label:'角度命令数量',children:m.evaluation.driverCount}]:[]),
+    ...(m?.id===id&&m.evaluation?[{key:'physical',label:'物理自由度',children:m.evaluation.relativeDof},{key:'gauge',label:'整体自由度',children:m.evaluation.gaugeDof},{key:'commands',label:'候选命令数量',children:m.evaluation.driverCount}]:[]),
    ]}/>;
   }
   const referenceRows=referencePropertyRows(view,selection,diagnostics);

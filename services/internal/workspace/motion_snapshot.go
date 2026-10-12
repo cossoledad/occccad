@@ -11,7 +11,8 @@ import (
 	"github.com/occccad/occccad/internal/geometry"
 )
 
-const motionPolicy = "revolute-joint-limits-recorded-path-v2"
+const motionPolicy = "joint-coordinates-vector-recorded-path-v3"
+const motionSchema = 2
 
 type MotionRunRequest struct {
 	BaseRevisionID  string          `json:"baseRevisionId"`
@@ -26,6 +27,8 @@ type MotionRunRequest struct {
 	IncludeSameUnit bool            `json:"includeSameUnit"`
 }
 type MotionSnapshot struct {
+	Drivers       []MotionDriver                 `json:"drivers"`
+	LinearStepMM  float64                        `json:"linearStepMm"` // frozen profile/model-scale continuation policy
 	Schema        int                            `json:"schema"`
 	Policy        string                         `json:"policy"`
 	Digest        string                         `json:"digest"`
@@ -57,7 +60,7 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 	if view.Product == nil || req.BaseRevisionID == "" || view.Document.VersionID != req.BaseRevisionID {
 		return MotionSnapshot{}, fmt.Errorf("%w: Product revision changed", ErrValidation)
 	}
-	s := MotionSnapshot{Schema: 1, Policy: motionPolicy, DocumentID: documentID, RevisionID: req.BaseRevisionID, View: view, SolverProfile: defaultAssemblySolverProfile()}
+	s := MotionSnapshot{Schema: motionSchema, Policy: motionPolicy, DocumentID: documentID, RevisionID: req.BaseRevisionID, View: view, SolverProfile: defaultAssemblySolverProfile()}
 	if (req.DriverID != "" && (req.Trial == nil || req.StudyID != "")) || (req.Trial != nil && (req.CurrentOnly || req.AnalysisID != "")) {
 		return s, fmt.Errorf("%w: ambiguous motion trial request", ErrValidation)
 	}
@@ -76,13 +79,7 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 		if s.Study.CheckDMU {
 			return s, fmt.Errorf("%w: interference is not a simulation dependency", ErrValidation)
 		}
-		if s.Study.DriverID != "" {
-			for _, d := range view.Product.Kinematics.Drivers {
-				if d.ID == s.Study.DriverID && d.MechanismID == s.Study.MechanismID {
-					s.Study.DriverJointID = d.JointID
-				}
-			}
-		}
+
 		for _, m := range view.Product.Kinematics.Mechanisms {
 			if m.ID == s.Study.MechanismID {
 				s.Mechanism = m
@@ -93,7 +90,7 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 		}
 		selected := KinematicsDefinitions{Mechanisms: []Mechanism{s.Mechanism}, Studies: []MotionStudy{s.Study}}
 		for _, d := range view.Product.Kinematics.Drivers {
-			if d.ID == s.Study.DriverID {
+			if slices.Contains(s.Study.ActiveDriverIDs, d.ID) {
 				selected.Drivers = append(selected.Drivers, d)
 			}
 		}
@@ -109,10 +106,11 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 			if d.Reference == nil {
 				return s, fmt.Errorf("%w: command reference must be saved", ErrValidation)
 			}
-			if len(s.Study.Keyframes) > 0 && (s.Study.BasisDigest != recordingBasis(s.Mechanism, d) || s.Study.GeometryDigest != recordingGeometry(view, s.Mechanism)) {
+			if len(s.Study.Keyframes) > 0 && (s.Study.BasisDigest != recordingBasis(s.Mechanism, selected.Drivers) || s.Study.GeometryDigest != recordingGeometry(view, s.Mechanism)) {
 				return s, fmt.Errorf("%w: SIMULATION_REVALIDATION_REQUIRED", ErrValidation)
 			}
 		}
+		s.Drivers = selected.Drivers
 		if len(s.Study.Keyframes) > 0 {
 			s.Mechanism.Poses = s.Study.InitialPoses
 			s.Mechanism.Coordinates = s.Study.InitialCoordinates
@@ -177,6 +175,26 @@ func (service *Service) compileMotionSnapshot(ctx context.Context, s *MotionSnap
 	frozen, err := service.FreezeAssemblyInput(ctx, s.DocumentID, s.RevisionID, input)
 	if err != nil {
 		return err
+	}
+	// Bound the linear continuation scale to the frozen physical input and
+	// solver profile. Rendering meshes never enter this policy.
+	scale := s.SolverProfile.MotionLengthScale
+	for _, j := range s.Mechanism.Joints {
+		if j.Second != nil {
+			a := s.Mechanism.Poses[j.First.InstanceID]
+			b := s.Mechanism.Poses[j.Second.InstanceID]
+			scale = max(scale, conflictNorm(conflictSub(a.Translation, b.Translation)))
+		}
+	}
+	for _, support := range frozen.Geometry {
+		scale = max(scale, conflictNorm(support.Origin), support.Radius)
+	}
+	s.LinearStepMM = max(1, scale*.05)
+	for i, d := range s.Drivers {
+		if reference, ok := s.Study.References[d.ID]; ok {
+			copy := reference
+			s.Drivers[i].Reference = &copy
+		}
 	}
 	s.Equations, err = compileMechanism(frozen, s.Mechanism, s.Study)
 	return err

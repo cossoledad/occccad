@@ -14,44 +14,87 @@ import (
 )
 
 func validateMotionDriverChanges(before, next KinematicsDefinitions) error {
+	for _, m := range next.Mechanisms {
+		for _, old := range before.Mechanisms {
+			if old.ID != m.ID {
+				continue
+			}
+			for _, joint := range m.Joints {
+				for _, prior := range old.Joints {
+					if prior.ID != joint.ID {
+						continue
+					}
+					if prior.Kind != joint.Kind {
+						return fmt.Errorf("%w: joint type is immutable", ErrValidation)
+					}
+					for _, coordinate := range prior.Coordinates {
+						match := slices.IndexFunc(joint.Coordinates, func(c JointCoordinate) bool { return c.Role == coordinate.Role })
+						if match < 0 || joint.Coordinates[match].ID != coordinate.ID || joint.Coordinates[match].Dimension != coordinate.Dimension {
+							return fmt.Errorf("%w: joint coordinate identity is immutable", ErrValidation)
+						}
+						priorZero, err := motionValue(coordinate.Zero, coordinate.angular())
+						nextZero, nextErr := motionValue(joint.Coordinates[match].Zero, coordinate.angular())
+						if err != nil || nextErr != nil || math.Abs(priorZero-nextZero) > 1e-12 {
+							return fmt.Errorf("%w: joint coordinate zero is immutable", ErrValidation)
+						}
+					}
+				}
+			}
+		}
+	}
 	for _, driver := range next.Drivers {
 		old := slices.IndexFunc(before.Drivers, func(d MotionDriver) bool { return d.ID == driver.ID })
-		if old >= 0 && (before.Drivers[old].JointID != driver.JointID || before.Drivers[old].MechanismID != driver.MechanismID) {
+		if old >= 0 && (before.Drivers[old].JointID != driver.JointID || before.Drivers[old].MechanismID != driver.MechanismID || before.Drivers[old].CoordinateID != driver.CoordinateID) {
 			return fmt.Errorf("%w: 命令所属接合不能更改", ErrValidation)
 		}
 	}
 	for _, study := range next.Studies {
-		if !slices.ContainsFunc(next.Drivers, func(d MotionDriver) bool { return d.ID == study.DriverID && d.MechanismID == study.MechanismID }) {
-			return fmt.Errorf("%w: 命令被模拟引用", ErrValidation)
+		for _, id := range study.ActiveDriverIDs {
+			if !slices.ContainsFunc(next.Drivers, func(d MotionDriver) bool { return d.ID == id && d.MechanismID == study.MechanismID }) {
+				return fmt.Errorf("%w: 命令被模拟引用", ErrValidation)
+			}
 		}
 	}
+
 	return nil
 }
 
 // Preserve every physical target while presenting the recording in today's
 // command zero. This is an owned draft; opening it never edits the saved record.
-func rebaseMotionRecording(study MotionStudy, reference MotionQuantity) (MotionStudy, error) {
+func rebaseMotionRecording(study MotionStudy, references map[string]MotionQuantity) (MotionStudy, error) {
 	copy, err := valuecopy.Clone(study)
-	if err != nil || study.Reference == nil {
-		return copy, fmt.Errorf("%w: invalid recording reference", ErrValidation)
+	if err != nil || len(study.References) != len(references) {
+		return copy, fmt.Errorf("%w: invalid recording references", ErrValidation)
 	}
-	old, err := motionValue(*study.Reference, true)
-	if err != nil {
-		return copy, err
-	}
-	current, err := motionValue(reference, true)
-	if err != nil {
-		return copy, err
-	}
-	for i, key := range copy.Keyframes {
-		value, err := motionValue(key.Value, true)
+	for _, id := range study.ActiveDriverIDs {
+		old, ok := study.References[id]
+		current, found := references[id]
+		if !ok || !found {
+			return copy, fmt.Errorf("%w: recording reference identity mismatch", ErrValidation)
+		}
+		angular := old.Unit == "rad" || old.Unit == "deg"
+		a, err := motionValue(old, angular)
 		if err != nil {
 			return copy, err
 		}
-		copy.Keyframes[i].Value = MotionQuantity{Value: old + value - current, Unit: "rad"}
+		b, err := motionValue(current, angular)
+		if err != nil {
+			return copy, err
+		}
+		unit := "mm"
+		if angular {
+			unit = "rad"
+		}
+		for i, key := range copy.Keyframes {
+			q, err := motionValue(key.Values[id], angular)
+			if err != nil {
+				return copy, err
+			}
+			copy.Keyframes[i].Values[id] = MotionQuantity{Value: a + q - b, Unit: unit}
+		}
 	}
-	copy.Reference = &reference
-	return copy, nil
+	copy.References, err = valuecopy.Clone(references)
+	return copy, err
 }
 
 type qualifiedRecordingContext struct{}
@@ -99,21 +142,20 @@ func (service *Service) validateChangedRecordings(ctx context.Context, document,
 			}
 		}
 		mi := slices.IndexFunc(k.Mechanisms, func(m Mechanism) bool { return m.ID == study.MechanismID })
-		di := slices.IndexFunc(k.Drivers, func(d MotionDriver) bool { return d.ID == study.DriverID })
-		if mi < 0 || di < 0 {
+		if mi < 0 {
 			return fmt.Errorf("%w: missing recording owner", ErrValidation)
 		}
-		m, d := k.Mechanisms[mi], k.Drivers[di]
-		if study.BasisDigest != recordingBasis(m, d) || study.GeometryDigest != recordingGeometry(view, m) {
-			return fmt.Errorf("%w: SIMULATION_REVALIDATION_REQUIRED", ErrValidation)
-		}
-		reference, err := motionValue(*study.Reference, true)
+		m := k.Mechanisms[mi]
+		ds, err := snapshotDrivers(MotionSnapshot{Mechanism: m, Drivers: k.Drivers}, study.ActiveDriverIDs)
 		if err != nil {
 			return err
 		}
+		if study.BasisDigest != recordingBasis(m, ds) || study.GeometryDigest != recordingGeometry(view, m) {
+			return fmt.Errorf("%w: SIMULATION_REVALIDATION_REQUIRED", ErrValidation)
+		}
+
 		m.Poses, m.Coordinates = study.InitialPoses, study.InitialCoordinates
-		study.DriverJointID = d.JointID
-		snapshot := MotionSnapshot{Schema: 1, Policy: motionPolicy, DocumentID: document, RevisionID: revision, View: view, Mechanism: m, Study: study, SolverProfile: defaultAssemblySolverProfile()}
+		snapshot := MotionSnapshot{Schema: motionSchema, Drivers: ds, Policy: motionPolicy, DocumentID: document, RevisionID: revision, View: view, Mechanism: m, Study: study, SolverProfile: defaultAssemblySolverProfile()}
 		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 		err = service.compileMotionSnapshot(bounded, &snapshot)
 		if err == nil {
@@ -127,16 +169,25 @@ func (service *Service) validateChangedRecordings(ctx context.Context, document,
 						break
 					}
 				}
-				first, _ := motionValue(study.Keyframes[0].Value, true)
-				if math.Abs(engine.state.Frame.DriverValue-reference-first) > 1e-8 {
-					err = fmt.Errorf("initial key does not match recording configuration")
-				}
-				for _, key := range study.Keyframes {
+				for index, key := range study.Keyframes {
 					if err != nil {
 						break
 					}
-					q, _ := motionValue(key.Value, true)
-					_, err = engine.Advance(bounded, reference+q)
+					var targets map[string]float64
+					targets, err = physicalTargets(m, ds, key.Values, study.References)
+					if err != nil {
+						break
+					}
+					if index == 0 {
+						for id, q := range targets {
+							if math.Abs(engine.state.Frame.Coordinates[id]-q) > 1e-8 {
+								err = fmt.Errorf("initial key does not match recording configuration")
+							}
+						}
+					}
+					if err == nil {
+						_, err = engine.Advance(bounded, targets)
+					}
 				}
 			}
 		}
@@ -165,53 +216,52 @@ func validMotionViewpoint(v *MotionViewpoint) bool {
 
 func validateMotionRecording(s MotionStudy, mechanisms map[string]Mechanism, drivers map[string]MotionDriver, claim func(string) bool) error {
 	m, ok := mechanisms[s.MechanismID]
-	d, driven := drivers[s.DriverID]
-	if !ok || !driven || d.MechanismID != m.ID || !claim(s.ID) || s.Name == "" || len(s.Keyframes) > 500 ||
-		s.SourceRevisionID == "" || s.BasisDigest == "" || s.GeometryDigest == "" || s.Reference == nil ||
-		s.BudgetMS < 100 || s.BudgetMS > 120000 || s.Frames < 2 || s.Frames > 500 ||
-		len(s.InitialPoses) != len(m.UnitIDs) {
+	if !ok || !claim(s.ID) || s.Name == "" || len(s.Keyframes) == 0 || len(s.Keyframes) > 500 || len(s.ActiveDriverIDs) == 0 || len(s.References) != len(s.ActiveDriverIDs) || s.SourceRevisionID == "" || s.BasisDigest == "" || s.GeometryDigest == "" || s.BudgetMS < 100 || s.BudgetMS > 120000 || s.Frames < 2 || s.Frames > 500 || len(s.InitialPoses) != len(m.UnitIDs) {
 		return fmt.Errorf("%w: invalid recorded simulation", ErrValidation)
 	}
-	reference, err := motionValue(*s.Reference, true)
-	if err != nil {
-		return err
+	ds := []MotionDriver{}
+	seen := map[string]bool{}
+	for _, id := range s.ActiveDriverIDs {
+		d, ok := drivers[id]
+		if !ok || d.MechanismID != m.ID || seen[id] {
+			return fmt.Errorf("%w: invalid recording active set", ErrValidation)
+		}
+		seen[id] = true
+		ds = append(ds, d)
 	}
 	for _, id := range m.UnitIDs {
-		p, found := s.InitialPoses[id]
-		if !found || !validMotionPose(p) {
-			return fmt.Errorf("%w: incomplete simulation initial configuration", ErrValidation)
+		p, ok := s.InitialPoses[id]
+		if !ok || !validMotionPose(p) {
+			return fmt.Errorf("%w: incomplete recording configuration", ErrValidation)
 		}
 	}
+	expected := 0
 	for _, j := range m.Joints {
-		if j.Kind == "REVOLUTE" {
-			if _, ok := s.InitialCoordinates[j.ID]; !ok {
-				return fmt.Errorf("%w: incomplete recording branch intent", ErrValidation)
-			}
-		}
+		expected += len(j.Coordinates)
+	}
+	if len(s.InitialCoordinates) != expected {
+		return fmt.Errorf("%w: incomplete recording coordinates", ErrValidation)
 	}
 	for id, q := range s.InitialCoordinates {
-		if !finiteMotion(q) || math.Abs(q) > 1e9 || !slices.ContainsFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == id && j.Kind == "REVOLUTE" }) {
-			return fmt.Errorf("%w: invalid recording branch intent", ErrValidation)
+		if !finiteMotion(q) || math.Abs(q) > 1e9 || !mechanismHasCoordinate(m, id) {
+			return fmt.Errorf("%w: invalid recording coordinate", ErrValidation)
 		}
 	}
 	for i, key := range s.Keyframes {
-		value, err := motionValue(key.Value, true)
-		if err != nil {
+		if _, err := physicalTargets(m, ds, key.Values, s.References); err != nil {
 			return err
 		}
-		if !claim(key.ID) || key.DriverID != d.ID || !finiteMotion(reference+value) || !finiteMotion(key.TimeSeconds) ||
-			key.TimeSeconds < 0 || key.TimeSeconds > 3600 || i == 0 && key.TimeSeconds != 0 ||
-			i > 0 && key.TimeSeconds <= s.Keyframes[i-1].TimeSeconds || !validMotionViewpoint(key.Viewpoint) {
-			return fmt.Errorf("%w: invalid keyframe identity, time or coordinate", ErrValidation)
+		if !claim(key.ID) || !finiteMotion(key.TimeSeconds) || key.TimeSeconds < 0 || key.TimeSeconds > 3600 || i == 0 && key.TimeSeconds != 0 || i > 0 && key.TimeSeconds <= s.Keyframes[i-1].TimeSeconds || !validMotionViewpoint(key.Viewpoint) {
+			return fmt.Errorf("%w: invalid keyframe identity or time", ErrValidation)
 		}
 	}
 	if s.ReplaceDriverConstraintID != "" || s.CheckDMU || len(s.Scope) > 0 || s.Clearance.Value != 0 || s.IncludeSameUnit {
-		return fmt.Errorf("%w: recorded simulation contains unrelated analysis", ErrValidation)
+		return fmt.Errorf("%w: recording contains unrelated analysis", ErrValidation)
 	}
 	return nil
 }
 
-func recordingBasis(m Mechanism, d MotionDriver) string {
+func recordingBasis(m Mechanism, ds []MotionDriver) string {
 	units := append([]string(nil), m.UnitIDs...)
 	slices.Sort(units)
 	joints := make([]struct{ ID, Digest string }, 0, len(m.Joints))
@@ -219,16 +269,29 @@ func recordingBasis(m Mechanism, d MotionDriver) string {
 		joints = append(joints, struct{ ID, Digest string }{j.ID, jointDefinitionDigest(j)})
 	}
 	slices.SortFunc(joints, func(a, b struct{ ID, Digest string }) int { return strings.Compare(a.ID, b.ID) })
+	type binding struct{ ID, JointID, CoordinateID string }
+	bindings := []binding{}
+	for _, d := range ds {
+		bindings = append(bindings, binding{d.ID, d.JointID, d.CoordinateID})
+	}
+	slices.SortFunc(bindings, func(a, b binding) int { return strings.Compare(a.ID, b.ID) })
 	return motionSemanticDigest(struct {
-		MechanismID       string
-		Units             []string
-		Joints            any
-		DriverID, JointID string
-	}{m.ID, units, joints, d.ID, d.JointID})
+		MechanismID string
+		Units       []string
+		Joints      any
+		Bindings    []binding
+	}{m.ID, units, joints, bindings})
 }
-func commandCoordinateBasis(j MechanismJoint) string {
-	j.Lower, j.Upper = nil, nil
-	return jointDefinitionDigest(j)
+func commandCoordinateBasis(j MechanismJoint, id string) string {
+	j.Coordinates = append([]JointCoordinate(nil), j.Coordinates...)
+	for i := range j.Coordinates {
+		j.Coordinates[i].Lower = nil
+		j.Coordinates[i].Upper = nil
+	}
+	return motionSemanticDigest(struct {
+		Joint        string
+		CoordinateID string
+	}{jointDefinitionDigest(j), id})
 }
 func motionEnvironment(m Mechanism, poses map[string]InstancePose) map[string]InstancePose {
 	result := map[string]InstancePose{}
@@ -271,22 +334,21 @@ func bindMotionDrivers(k *KinematicsDefinitions) error {
 			return fmt.Errorf("%w: missing command mechanism", ErrValidation)
 		}
 		m := k.Mechanisms[mi]
-		ji := slices.IndexFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID && j.Kind == "REVOLUTE" })
-		if ji < 0 {
-			return fmt.Errorf("%w: missing command joint", ErrValidation)
+		j, c, err := driverCoordinate(m, *d)
+		if err != nil {
+			return err
 		}
-		j := m.Joints[ji]
 		if d.Reference == nil {
 			var prior *float64
-			if q, ok := m.Coordinates[j.ID]; ok {
+			if q, ok := m.Coordinates[c.ID]; ok {
 				prior = &q
 			}
-			q, err := motionJointCoordinate(j, m.Poses, prior)
+			q, err := motionJointCoordinate(j, c, m.Poses, prior)
 			if err != nil {
 				return err
 			}
-			d.Reference = &MotionQuantity{Value: q, Unit: "rad"}
-			d.ReferenceDigest = commandCoordinateBasis(j)
+			d.Reference = &MotionQuantity{Value: q, Unit: c.unit()}
+			d.ReferenceDigest = commandCoordinateBasis(j, c.ID)
 		}
 	}
 	return nil

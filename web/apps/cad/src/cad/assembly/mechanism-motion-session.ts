@@ -7,6 +7,7 @@ export type MechanismMotionPorts = {
     finalize: (id: string, sequence: number, study: MotionStudy | undefined, signal: AbortSignal) => Promise<Record<string, unknown>>;
     preview: (id: string, study: MotionStudy, signal: AbortSignal) => Promise<MotionRun>;
     cancel: (id: string) => Promise<void>;
+    prepareSpatial?:()=>Promise<void>;
     onIntent?: () => MechanismMotionIntent | undefined;
     onFrame: (frame: MechanismSessionFrame, recordable: boolean, intent?: MechanismMotionIntent) => void | Promise<void>;
     onBusy: (busy: boolean) => void;
@@ -60,7 +61,7 @@ export class MechanismMotionSession {
             return Promise.reject(new Error('机构试动会话已结束'));
         // InputNumber can emit its formatted value again on blur. That is already
         // qualified, and must not disable the button receiving that very click.
-        if (input.value && !this.inFlight && !this.pending && !this.sideEffects.size && !this.failedInput && this.latest?.accepted && Math.abs(quantityIn(input.value, 'rad') - this.latest.frame.driverValue) < 1e-9)
+        if (input.values && !this.inFlight && !this.pending && !this.sideEffects.size && !this.failedInput && this.latest?.accepted && Object.keys(input.values).length===this.latest.activeDriverIds.length && this.latest.activeDriverIds.every(id=>input.values?.[id]&&Math.abs(quantityIn(input.values[id],input.values[id].unit==='rad'||input.values[id].unit==='deg'?'rad':'mm')-(this.latest!.frame.commandValues[id]??NaN))<1e-9))
             return Promise.resolve(this.latest);
         const intent = recordable ? this.ports.onIntent?.() : undefined;
         return new Promise((resolve, reject) => { this.pending?.resolve(undefined); this.pending = { input, recordable, intent, resolve, reject }; this.pump(); });
@@ -76,10 +77,10 @@ export class MechanismMotionSession {
                 const f = await this.ports.update(this.opened!.sessionId, { ...pending.input, sequence: ++this.sequence }, this.abort.signal);
                 if (this.disposed)
                     return pending.resolve(undefined);
-                if (f.sessionId !== this.opened!.sessionId || f.baseRevisionId !== this.opened!.baseRevisionId || (!pending.input.driverId || !f.accepted ? f.inputDigest !== this.opened!.inputDigest : f.activeDriver?.id !== pending.input.driverId) || f.sequence !== this.sequence || !f.frame.kinematicValid)
+                if (f.sessionId !== this.opened!.sessionId || f.baseRevisionId !== this.opened!.baseRevisionId || (!pending.input.activeDriverIds || !f.accepted ? f.inputDigest !== this.opened!.inputDigest : !sameDriverSet(f.activeDriverIds,pending.input.activeDriverIds)) || f.sequence !== this.sequence || !f.frame.kinematicValid)
                     throw new Error('机构试动响应身份不一致');
-                if (pending.input.driverId && f.accepted)
-                    this.opened = { ...this.opened!, inputDigest: f.inputDigest, driver: f.activeDriver! };
+                if (pending.input.activeDriverIds && f.accepted)
+                    this.opened = { ...this.opened!, ...f };
                 this.latest = f;
                 this.failedInput = undefined;
                 await this.ports.onFrame(f, pending.recordable, pending.intent);
@@ -94,6 +95,7 @@ export class MechanismMotionSession {
             this.pump();
         } });
     }
+    async prepareSpatial(){await this.ports.prepareSpatial?.();await this.settle();if(!this.latest?.qualified)throw new Error('请选择完整且独立的驱动')}
     async settle() { while (this.inFlight || this.pending || this.sideEffects.size) {
         if (this.inFlight)
             await this.inFlight;
@@ -156,3 +158,5 @@ export class MechanismMotionSession {
             await this.ports.cancel(this.opened.sessionId);
     }
 }
+
+function sameDriverSet(a:readonly string[],b:readonly string[]):boolean{return a.length===b.length&&new Set(a).size===a.length&&b.every(id=>a.includes(id))}

@@ -13,22 +13,25 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// One numerical path serves command trials and recorded/law segments. The
+// One numerical path serves command trials and recorded vector segments. The
 // checkpoint contains only fully qualified complete states, never private steps.
 type mechanismMotionState struct {
-	Equations mechanismEquations
-	Frame     MotionFrame
+	Equations           mechanismEquations
+	Frame               MotionFrame
+	Drivers             []MotionDriver
+	Qualified           bool
+	PhysicalConstraints []geometry.AssemblyConstraint
 }
 type mechanismMotionSolver struct {
-	service     *Service
-	snapshot    MotionSnapshot
-	state       mechanismMotionState
-	driver      MechanismJoint
-	solverBuild string
-	calls       int
-	last        *geometry.AssemblySolve
-	transport   codes.Code
-	replay      []byte
+	service            *Service
+	snapshot           MotionSnapshot
+	state              mechanismMotionState
+	physicalComponents []geometry.AssemblyComponentDof
+	solverBuild        string
+	calls              int
+	last               *geometry.AssemblySolve
+	transport          codes.Code
+	replay             []byte
 }
 
 func newMechanismMotionSolver(ctx context.Context, service *Service, s MotionSnapshot) (*mechanismMotionSolver, error) {
@@ -37,50 +40,29 @@ func newMechanismMotionSolver(ctx context.Context, service *Service, s MotionSna
 		return nil, err
 	}
 	e := &mechanismMotionSolver{service: service, snapshot: s, state: mechanismMotionState{Equations: eq}}
-	for _, j := range s.Mechanism.Joints {
-		if j.ID == s.Study.DriverJointID {
-			e.driver = j
-		}
-	}
-	if e.driver.Second == nil {
-		return e, fmt.Errorf("INPUT_ERROR: missing active coordinate")
-	}
-	if e.driver.Lower == nil || e.driver.Upper == nil {
-		return e, fmt.Errorf("INPUT_ERROR: driven joint requires lower and upper limits")
-	}
 	r, err := e.solve(ctx, eq.Constraints, nil)
 	if err != nil {
 		return e, err
 	}
-	dof, gauge := motionDof(r)
-	if dof != 1 || gauge != 0 {
-		return e, fmt.Errorf("UNSUPPORTED_DOF: grounded relative DOF=%d gauge=%d; require 1/0", dof, gauge)
-	}
+	e.physicalComponents = r.Components
 	poses, err := e.poses(r)
 	if err != nil {
 		return e, err
 	}
-	var prior *float64
-	if value, ok := s.Mechanism.Coordinates[e.driver.ID]; ok {
-		prior = &value
-	}
-	q, err := motionJointCoordinate(e.driver, poses, prior)
+	coordinates, err := verifyMechanismJoints(s.Mechanism, poses, s.Mechanism.Coordinates, nil)
 	if err != nil {
 		return e, err
 	}
-	coords, err := verifyMechanismJoints(s.Mechanism, poses, s.Mechanism.Coordinates, e.driver.ID, q)
-	if err != nil {
+	if err = motionLimits(s.Mechanism, coordinates); err != nil {
 		return e, err
 	}
-	if err = motionLimits(s.Mechanism, coords); err != nil {
-		return e, err
+	e.publish(r, MotionFrame{UnitPoses: poses, Coordinates: coordinates, CommandValues: commandValues(s.Mechanism, s.Drivers, coordinates), AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations})
+	if len(s.Study.ActiveDriverIDs) > 0 {
+		if err = e.SelectDrivers(ctx, s.Study.ActiveDriverIDs); err != nil {
+			return e, err
+		}
 	}
-	e.publish(r, MotionFrame{DriverValue: q, UnitPoses: poses, Coordinates: coords, AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations})
-	// Probe this selected coordinate at the same configuration. Other saved
-	// commands are measured outputs, not extra hard equations.
-	if _, err = e.Advance(ctx, q); err != nil {
-		return e, err
-	}
+
 	return e, nil
 }
 func (e *mechanismMotionSolver) solve(ctx context.Context, cs []geometry.AssemblyConstraint, target *geometry.AssemblyDragTarget) (geometry.AssemblySolve, error) {
@@ -187,15 +169,25 @@ func (e *mechanismMotionSolver) publish(r geometry.AssemblySolve, f MotionFrame)
 		}
 	}
 }
-func (e *mechanismMotionSolver) Advance(ctx context.Context, target float64) (MotionFrame, error) {
-	if !finiteMotion(target) || !finiteMotion(target-e.state.Frame.DriverValue) {
-		return MotionFrame{}, fmt.Errorf("INPUT_ERROR: coordinate overflow")
+func (e *mechanismMotionSolver) Advance(ctx context.Context, targets map[string]float64) (MotionFrame, error) {
+	if !e.state.Qualified || len(targets) != len(e.state.Drivers) {
+		return MotionFrame{}, fmt.Errorf("QUALIFICATION_REQUIRED: select a complete independent drive set")
+	}
+	for _, d := range e.state.Drivers {
+		q, ok := targets[d.CoordinateID]
+		if !ok || !finiteMotion(q) || !finiteMotion(q-e.state.Frame.Coordinates[d.CoordinateID]) {
+			return MotionFrame{}, fmt.Errorf("INPUT_ERROR: incomplete or non-finite target vector")
+		}
+		_, coordinate, _ := driverCoordinate(e.snapshot.Mechanism, d)
+		if err := motionCoordinateLimit(coordinate, q); err != nil {
+			return MotionFrame{}, err
+		}
 	}
 	before, err := valuecopy.Clone(e.state)
 	if err != nil {
 		return MotionFrame{}, err
 	}
-	f, err := e.advance(ctx, target, 0)
+	f, err := e.advance(ctx, targets, 0)
 	if err != nil {
 		e.state = before
 		return MotionFrame{}, err
@@ -203,95 +195,215 @@ func (e *mechanismMotionSolver) Advance(ctx context.Context, target float64) (Mo
 	return f, nil
 }
 
-// Change the active coordinate at this very checkpoint. Keep the physical
-// equations, nominal poses, warm state and winding; probe the new hard equation
-// at its measured current value before publishing a different input identity.
-func (e *mechanismMotionSolver) SelectDriver(ctx context.Context, d MotionDriver) error {
-	m := e.snapshot.Mechanism
-	i := slices.IndexFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID && j.Kind == "REVOLUTE" })
-	if d.MechanismID != m.ID || i < 0 || d.Reference == nil || d.ReferenceDigest != commandCoordinateBasis(m.Joints[i]) {
-		return fmt.Errorf("INPUT_ERROR: COMMAND_REFERENCE_REVALIDATION_REQUIRED")
-	}
-	if m.Joints[i].Lower == nil || m.Joints[i].Upper == nil {
-		return fmt.Errorf("INPUT_ERROR: driven joint requires lower and upper limits")
-	}
-	before, err := valuecopy.Clone(e.state.Frame)
+// The rank difference of physical and driven tangent spaces proves independent
+// coverage. Inactive physical components are held at their accepted pose only.
+func (e *mechanismMotionSolver) SelectDrivers(ctx context.Context, ids []string) (err error) {
+	before, err := valuecopy.Clone(e.state)
 	if err != nil {
 		return err
 	}
-	e.driver = m.Joints[i]
-	prior := before.Coordinates[e.driver.ID]
-	q, err := motionJointCoordinate(e.driver, before.UnitPoses, &prior)
+	original, err := valuecopy.Clone(e.snapshot)
 	if err != nil {
 		return err
 	}
-	e.state.Equations.Driver = mechanismCoordinateEquation(m.ID, e.driver)
-	e.state.Frame.DriverValue = q
-	e.snapshot.Study.DriverID, e.snapshot.Study.DriverJointID = d.ID, d.JointID
-	e.snapshot.Study.Reference = d.Reference
-	e.snapshot.Equations, err = valuecopy.Clone(e.state.Equations)
+	defer func() {
+		if err != nil {
+			e.state = before
+			e.snapshot = original
+		}
+	}()
+	ds, err := snapshotDrivers(e.snapshot, ids)
 	if err != nil {
 		return err
 	}
-	e.snapshot.Mechanism.Poses = mechanismMemberPoses(m, before.UnitPoses)
-	e.snapshot.Mechanism.Coordinates, _ = valuecopy.Clone(before.Coordinates)
-	e.snapshot.Digest = motionDigest(e.snapshot)
-	if _, err = e.Advance(ctx, q); err != nil {
-		return err
+	if len(ds) == 0 {
+		return fmt.Errorf("QUALIFICATION_REQUIRED: select commands")
 	}
-	for id, p := range before.UnitPoses {
-		if !conflictPoseClose(geometry.AssemblyPose(p), geometry.AssemblyPose(e.state.Frame.UnitPoses[id]), e.snapshot.SolverProfile.LengthTolerance, e.snapshot.SolverProfile.AngleTolerance) {
-			return fmt.Errorf("LOCAL_SOLVE_FAILED: command switch changed its checkpoint")
+	for _, d := range ds {
+		j, c, er := driverCoordinate(e.snapshot.Mechanism, d)
+		if er != nil {
+			return er
+		}
+		if d.Reference == nil || d.ReferenceDigest != commandCoordinateBasis(j, c.ID) {
+			return fmt.Errorf("INPUT_ERROR: COMMAND_REFERENCE_REVALIDATION_REQUIRED")
+		}
+		if c.Lower == nil || c.Upper == nil {
+			return fmt.Errorf("INPUT_ERROR: driven coordinate requires both limits")
 		}
 	}
-	e.snapshot.Equations, err = valuecopy.Clone(e.state.Equations)
+	cs := append([]geometry.AssemblyConstraint(nil), e.state.Equations.Constraints...)
+	for _, component := range e.physicalComponents {
+		active := false
+		for _, d := range ds {
+			j, _, _ := driverCoordinate(e.snapshot.Mechanism, d)
+			active = active || slices.Contains(component.BodyIDs, j.First.InstanceID) || slices.Contains(component.BodyIDs, j.Second.InstanceID)
+		}
+		if !active {
+			for _, id := range component.BodyIDs {
+				p := geometry.AssemblyPose(before.Frame.UnitPoses[id])
+				cs = append(cs, geometry.AssemblyConstraint{ID: "mechanism/inactive/" + id, Kind: "FIX", FirstBodyID: id, FixedPose: &p})
+			}
+		}
+	}
+	physical, err := e.solve(ctx, cs, nil)
 	if err != nil {
 		return err
 	}
-	e.snapshot.Mechanism.Poses = mechanismMemberPoses(m, before.UnitPoses)
-	e.snapshot.Mechanism.Coordinates, _ = valuecopy.Clone(before.Coordinates)
+	dof, gauge := motionDof(physical)
+	if gauge != 0 || dof == 0 {
+		return fmt.Errorf("UNSUPPORTED_DOF: active physical relative DOF=%d gauge=%d", dof, gauge)
+	}
+	e.state.Drivers = ds
+	e.state.PhysicalConstraints = cs
+	e.state.Qualified = true
+	targets := map[string]float64{}
+	for _, d := range ds {
+		targets[d.CoordinateID] = before.Frame.Coordinates[d.CoordinateID]
+	}
+	driven := e.coordinateConstraints(targets)
+	r, err := e.solve(ctx, append(append([]geometry.AssemblyConstraint(nil), cs...), driven...), nil)
+	if err != nil {
+		return err
+	}
+	remaining, gauge := motionDof(r)
+	if remaining != 0 || gauge != 0 || dof-remaining != uint64(len(ds)) {
+		return fmt.Errorf("UNSUPPORTED_DOF: independent physical DOF=%d driven DOF=%d gauge=%d selected=%d", dof, remaining, gauge, len(ds))
+	}
+	p, err := e.poses(r)
+	if err != nil {
+		return err
+	}
+	coordinates, err := verifyMechanismJoints(e.snapshot.Mechanism, p, before.Frame.Coordinates, targets)
+	if err != nil {
+		return err
+	}
+	for id, pose := range before.Frame.UnitPoses {
+		if !conflictPoseClose(geometry.AssemblyPose(p[id]), geometry.AssemblyPose(pose), e.snapshot.SolverProfile.LengthTolerance, e.snapshot.SolverProfile.AngleTolerance) {
+			return fmt.Errorf("LOCAL_SOLVE_FAILED: drive selection moved checkpoint")
+		}
+	}
+	e.snapshot.Study.ActiveDriverIDs = append([]string(nil), ids...)
+	e.snapshot.Study.References = commandReferences(ds)
 	e.snapshot.Digest = motionDigest(e.snapshot)
+	e.publish(r, MotionFrame{UnitPoses: p, Coordinates: coordinates, CommandValues: commandValues(e.snapshot.Mechanism, e.snapshot.Drivers, coordinates), AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations})
 	return nil
 }
-func (e *mechanismMotionSolver) advance(ctx context.Context, target float64, depth int) (MotionFrame, error) {
+func (e *mechanismMotionSolver) coordinateConstraints(targets map[string]float64) []geometry.AssemblyConstraint {
+	cs := []geometry.AssemblyConstraint{}
+	for _, driver := range e.state.Drivers {
+		j, c, _ := driverCoordinate(e.snapshot.Mechanism, driver)
+		d := mechanismCoordinateEquation(e.snapshot.Mechanism.ID, j, c)
+		zero, _ := motionValue(c.Zero, c.angular())
+		physical := zero + float64(c.Direction)*targets[c.ID]
+		if c.angular() {
+			d.Value = wrappedMotionAngle(physical)
+			prior := zero + float64(c.Direction)*e.state.Frame.Coordinates[c.ID]
+			wrapped := math.Remainder(prior, 2*math.Pi)
+			d.AngleBranchState = &geometry.AssemblyAngleBranchState{WrappedAngle: wrapped, UnwrappedAngle: prior, Winding: int64(math.Round((prior - wrapped) / (2 * math.Pi)))}
+		} else {
+			d.Value = -physical
+		}
+		cs = append(cs, d)
+	}
+	return cs
+}
+
+// Auto-select only a unique qualified basis. A bounded ambiguity search leaves
+// selection to the user when the candidate space is too large to prove unique.
+func (e *mechanismMotionSolver) UniqueDriveSet(ctx context.Context) ([]string, error) {
+	ds := e.snapshot.Drivers
+	if len(ds) == 0 || len(ds) > 7 {
+		return nil, nil
+	}
+	before, err := valuecopy.Clone(e.state)
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := valuecopy.Clone(e.snapshot)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { e.state = before; e.snapshot = snapshot }()
+	var unique []string
+	for mask := 1; mask < 1<<len(ds); mask++ {
+		if err = ctx.Err(); err != nil {
+			return nil, err
+		}
+		ids := []string{}
+		for i, d := range ds {
+			if mask&(1<<i) != 0 {
+				ids = append(ids, d.ID)
+			}
+		}
+		e.state, _ = valuecopy.Clone(before)
+		e.snapshot, _ = valuecopy.Clone(snapshot)
+		if er := e.SelectDrivers(ctx, ids); er == nil {
+			if unique != nil {
+				return nil, nil
+			}
+			unique = ids
+		} else if e.transport == codes.Unavailable || e.transport == codes.Internal {
+			return nil, er
+		}
+	}
+	return unique, nil
+}
+func (e *mechanismMotionSolver) advance(ctx context.Context, targets map[string]float64, depth int) (MotionFrame, error) {
 	if err := ctx.Err(); err != nil {
 		return MotionFrame{}, err
 	}
-	current := e.state.Frame.DriverValue
-	step := target - current
-	if math.Abs(step) > math.Pi/36 {
-		if depth >= 10 {
-			return MotionFrame{}, fmt.Errorf("BUDGET_EXHAUSTED: continuation step size")
+	large := false
+	midpoint := map[string]float64{}
+	maxStep := 0.0
+	for _, driver := range e.state.Drivers {
+		_, c, _ := driverCoordinate(e.snapshot.Mechanism, driver)
+		current := e.state.Frame.Coordinates[c.ID]
+		step := targets[c.ID] - current
+		scale := e.snapshot.LinearStepMM
+		if c.angular() {
+			scale = math.Pi / 36
 		}
-		if _, err := e.advance(ctx, current+step/2, depth+1); err != nil {
+		large = large || math.Abs(step) > scale
+		maxStep = math.Max(maxStep, math.Abs(step)/scale)
+		midpoint[c.ID] = current + step/2
+	}
+	if large {
+		if depth >= 12 {
+			return MotionFrame{}, fmt.Errorf("BUDGET_EXHAUSTED: mixed coordinate continuation")
+		}
+		if _, err := e.advance(ctx, midpoint, depth+1); err != nil {
 			return MotionFrame{}, err
 		}
-		return e.advance(ctx, target, depth+1)
+		return e.advance(ctx, targets, depth+1)
 	}
-	d := e.state.Equations.Driver
-	zero, _ := motionValue(e.driver.Zero, true)
-	d.Value = math.Mod(zero+float64(e.driver.Direction)*target, 2*math.Pi)
-	if d.Value < 0 {
-		d.Value += 2 * math.Pi
-	}
-	prior := zero + float64(e.driver.Direction)*current
-	wrapped := math.Remainder(prior, 2*math.Pi)
-	d.AngleBranchState = &geometry.AssemblyAngleBranchState{WrappedAngle: wrapped, UnwrappedAngle: prior, Winding: int64(math.Round((prior - wrapped) / (2 * math.Pi)))}
-	cs := append(append([]geometry.AssemblyConstraint(nil), e.state.Equations.Constraints...), d)
+	cs := append(append([]geometry.AssemblyConstraint(nil), e.state.PhysicalConstraints...), e.coordinateConstraints(targets)...)
 	r, err := e.solve(ctx, cs, nil)
 	var p map[string]InstancePose
 	var coordinates map[string]float64
 	if err == nil {
 		dof, gauge := motionDof(r)
 		if dof != 0 || gauge != 0 {
-			err = fmt.Errorf("UNSUPPORTED_DOF: driven relative DOF=%d gauge=%d", dof, gauge)
+			err = fmt.Errorf("UNSUPPORTED_DOF: driven DOF=%d gauge=%d", dof, gauge)
 		}
 	}
 	if err == nil {
 		p, err = e.poses(r)
 	}
 	if err == nil {
-		coordinates, err = verifyMechanismJoints(e.snapshot.Mechanism, p, e.state.Frame.Coordinates, e.driver.ID, target)
+		coordinates, err = verifyMechanismJoints(e.snapshot.Mechanism, p, e.state.Frame.Coordinates, targets)
+	}
+	if err == nil {
+		// A passive spherical/planar connection has no scalar angle with which
+		// to detect a finite branch jump. Check the full body poses as well and
+		// let the same bounded subdivision resolve legitimate large motion.
+		for id, pose := range p {
+			prior := e.state.Frame.UnitPoses[id]
+			dot := math.Abs(pose.Rotation[0]*prior.Rotation[0] + pose.Rotation[1]*prior.Rotation[1] + pose.Rotation[2]*prior.Rotation[2] + pose.Rotation[3]*prior.Rotation[3])
+			if dot < math.Cos(math.Pi/4) || conflictNorm(conflictSub(pose.Translation, prior.Translation)) > 10*e.snapshot.LinearStepMM {
+				err = fmt.Errorf("LOCAL_SOLVE_FAILED: body %s branch discontinuity", id)
+				break
+			}
+		}
 	}
 	if err == nil {
 		if err = motionLimits(e.snapshot.Mechanism, coordinates); err != nil {
@@ -300,27 +412,29 @@ func (e *mechanismMotionSolver) advance(ctx context.Context, target float64, dep
 	}
 	if err != nil {
 		transport := status.Code(err)
-		if depth >= 10 || math.Abs(step) < 1e-8 || ctx.Err() != nil || e.calls >= 2048 || r.Status == "INVALID_MODEL" ||
-			transport == codes.InvalidArgument || transport == codes.Unavailable || transport == codes.Internal || strings.HasPrefix(err.Error(), "UNSUPPORTED_DOF") {
+		if depth >= 12 || maxStep < 1e-8 || ctx.Err() != nil || e.calls >= 2048 || r.Status == "INVALID_MODEL" || transport == codes.InvalidArgument || transport == codes.Unavailable || transport == codes.Internal || strings.HasPrefix(err.Error(), "UNSUPPORTED_DOF") {
 			return MotionFrame{}, err
 		}
-		if _, err = e.advance(ctx, current+step/2, depth+1); err != nil {
+		if _, err = e.advance(ctx, midpoint, depth+1); err != nil {
 			return MotionFrame{}, err
 		}
-		return e.advance(ctx, target, depth+1)
+		return e.advance(ctx, targets, depth+1)
 	}
-	f := MotionFrame{DriverValue: target, UnitPoses: p, Coordinates: coordinates, AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations}
+	f := MotionFrame{UnitPoses: p, Coordinates: coordinates, CommandValues: commandValues(e.snapshot.Mechanism, e.snapshot.Drivers, coordinates), AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations}
 	e.publish(r, f)
 	return f, nil
 }
 func (e *mechanismMotionSolver) Drag(ctx context.Context, target geometry.AssemblyDragTarget) (MotionFrame, error) {
+	if !e.state.Qualified {
+		return MotionFrame{}, fmt.Errorf("QUALIFICATION_REQUIRED: select commands")
+	}
 	if !validInteractionTarget(target) {
 		return MotionFrame{}, fmt.Errorf("INPUT_ERROR: invalid spatial target")
 	}
 	if _, ok := e.state.Frame.UnitPoses[target.BodyID]; !ok {
 		return MotionFrame{}, fmt.Errorf("INPUT_ERROR: spatial target outside mechanism")
 	}
-	r, err := e.solve(ctx, e.state.Equations.Constraints, &target)
+	r, err := e.solve(ctx, e.state.PhysicalConstraints, &target)
 	if err != nil {
 		return MotionFrame{}, err
 	}
@@ -331,14 +445,22 @@ func (e *mechanismMotionSolver) Drag(ctx context.Context, target geometry.Assemb
 	if err != nil {
 		return MotionFrame{}, err
 	}
-	coordinates, err := verifyMechanismJoints(e.snapshot.Mechanism, p, e.state.Frame.Coordinates, "", 0)
+	coordinates, err := verifyMechanismJoints(e.snapshot.Mechanism, p, e.state.Frame.Coordinates, nil)
 	if err != nil {
 		return MotionFrame{}, err
 	}
 	if err = motionLimits(e.snapshot.Mechanism, coordinates); err != nil {
 		return MotionFrame{}, err
 	}
-	f := MotionFrame{DriverValue: coordinates[e.driver.ID], UnitPoses: p, Coordinates: coordinates, AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations}
+	f := MotionFrame{CommandValues: commandValues(e.snapshot.Mechanism, e.snapshot.Drivers, coordinates), UnitPoses: p, Coordinates: coordinates, AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations}
+	before, _ := valuecopy.Clone(e.state)
 	e.publish(r, f)
-	return f, nil
+	if err = e.SelectDrivers(ctx, e.snapshot.Study.ActiveDriverIDs); err != nil {
+		e.state = before
+		return MotionFrame{}, err
+	}
+	// The probe qualifies coordinates, while the gesture's own target evidence
+	// remains the interaction outcome consumed by viewport finalization.
+	e.last = &r
+	return e.state.Frame, nil
 }

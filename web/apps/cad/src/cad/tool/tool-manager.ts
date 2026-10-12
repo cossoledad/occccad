@@ -34,7 +34,7 @@ export class ToolManager {
     for (const listener of this.listeners) listener(this.active?.id);
     // Publish activation before consuming a seed: completing a seeded tool may
     // synchronously return the workbench to Select.
-    if (this.active === next&&activationSeed.length) this.active?.selectionInput?.(activationSeed, this.context,"activation");
+    if (this.active === next) this.active?.selectionInput?.(activationSeed, this.context,"activation");
   }
 
   get activeToolID(): string | undefined { return this.active?.id; }

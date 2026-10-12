@@ -22,17 +22,17 @@ func TestMechanismCommandZeroAndPrivateRollback(t *testing.T) {
 			t.Fatal("opening the current coordinate moved the initial pose", b.ID)
 		}
 	}
-	upper := MotionQuantity{Value: initial.DriverValue + math.Pi/18, Unit: "rad"}
-	engine.snapshot.Mechanism.Joints[1].Upper = &upper
+	upper := MotionQuantity{Value: initial.CommandValues["d"] + math.Pi/18, Unit: "rad"}
+	engine.snapshot.Mechanism.Joints[1].Coordinates[0].Upper = &upper
 	before, _ := json.Marshal(engine.state)
-	if _, err = engine.Advance(t.Context(), initial.DriverValue+math.Pi/6); err == nil {
+	if _, err = engine.Advance(t.Context(),map[string]float64{"drive-coordinate":initial.CommandValues["d"]+math.Pi/6}); err == nil {
 		t.Fatal("target beyond physical limit accepted")
 	}
 	after, _ := json.Marshal(engine.state)
 	if string(before) != string(after) {
 		t.Fatal("failed target leaked private continuation poses or angle/warm state")
 	}
-	if _, err = engine.Advance(t.Context(), initial.DriverValue-math.Pi/18); err != nil {
+	if _, err = engine.Advance(t.Context(),map[string]float64{"drive-coordinate":initial.CommandValues["d"]-math.Pi/18}); err != nil {
 		t.Fatal("legal reverse motion after rejection failed", err)
 	}
 	if reflect.DeepEqual(initial.UnitPoses, engine.state.Frame.UnitPoses) {
@@ -43,7 +43,9 @@ func TestMechanismCommandZeroAndPrivateRollback(t *testing.T) {
 func TestMechanismCommandWithoutGroundEndpoint(t *testing.T) {
 	service := New(nil, motionWorker(t))
 	s := motionFixture(t, true, "REVOLUTE")
-	s.Study.DriverJointID = "j3"
+	s.Drivers[0].JointID="j3"
+ s.Drivers[0].CoordinateID="j3-coordinate"
+ s.Drivers[0].ReferenceDigest=commandCoordinateBasis(s.Mechanism.Joints[3],"j3-coordinate")
 	frozen := AssemblySolveManifest{Bodies: s.Equations.Bodies}
 	var err error
 	s.Equations, err = compileMechanism(frozen, s.Mechanism, s.Study)
@@ -55,22 +57,23 @@ func TestMechanismCommandWithoutGroundEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal("non-ground active coordinate refused", err)
 	}
-	if engine.driver.First.InstanceID == "ground" || engine.driver.Second.InstanceID == "ground" {
+	if s.Mechanism.Joints[3].First.InstanceID == "ground" || s.Mechanism.Joints[3].Second.InstanceID == "ground" {
 		t.Fatal("fixture accidentally directly grounded")
 	}
-	initial := engine.state.Frame.DriverValue
-	f, err := engine.Advance(t.Context(), initial+0.05)
+	initial := engine.state.Frame.CommandValues["d"]
+	f, err := engine.Advance(t.Context(),map[string]float64{"j3-coordinate":initial+0.05})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = verifyMechanismJoints(s.Mechanism, f.UnitPoses, engine.state.Frame.Coordinates, "j3", initial+.05); err != nil {
+	if _, err = verifyMechanismJoints(s.Mechanism, f.UnitPoses, engine.state.Frame.Coordinates,map[string]float64{"j3-coordinate":initial+.05}); err != nil {
 		t.Fatal(err)
 	}
 	before := engine.state.Frame
 	joint := s.Mechanism.Joints[1]
-	q := before.Coordinates[joint.ID]
-	driver := MotionDriver{ID: "other", MechanismID: s.Mechanism.ID, JointID: joint.ID, Reference: &MotionQuantity{Value: q, Unit: "rad"}, ReferenceDigest: commandCoordinateBasis(joint)}
-	if err := engine.SelectDriver(t.Context(), driver); err != nil {
+	q := before.Coordinates[joint.Coordinates[0].ID]
+	driver := MotionDriver{ID: "other", MechanismID: s.Mechanism.ID, JointID: joint.ID, Reference: &MotionQuantity{Value: q, Unit: "rad"}, ReferenceDigest: commandCoordinateBasis(joint,joint.Coordinates[0].ID), CoordinateID: joint.ID + "-coordinate"}
+	engine.snapshot.Drivers=append(engine.snapshot.Drivers,driver)
+ if err := engine.SelectDrivers(t.Context(),[]string{driver.ID}); err != nil {
 		t.Fatal("coordinate switch", err)
 	}
 	for id, p := range before.UnitPoses {
@@ -78,7 +81,7 @@ func TestMechanismCommandWithoutGroundEndpoint(t *testing.T) {
 			t.Fatal("switch reset a member pose", id)
 		}
 	}
-	if engine.snapshot.Digest != motionDigest(engine.snapshot) || engine.driver.ID != joint.ID {
+	if engine.snapshot.Digest != motionDigest(engine.snapshot) || engine.state.Drivers[0].JointID != joint.ID {
 		t.Fatal("switch did not bind its new frozen coordinate identity")
 	}
 }
@@ -90,7 +93,7 @@ func TestMechanismCommandReferenceCapturedOnce(t *testing.T) {
 	for _, b := range s.Equations.Bodies {
 		m.Poses[b.ID] = InstancePose(b.Pose)
 	}
-	k := KinematicsDefinitions{Mechanisms: []Mechanism{m}, Drivers: []MotionDriver{{ID: "d", MechanismID: m.ID, JointID: "drive"}}}
+	k := KinematicsDefinitions{Mechanisms: []Mechanism{m}, Drivers: []MotionDriver{{ID: "d", MechanismID: m.ID, JointID: "drive", CoordinateID: "drive" + "-coordinate"}}}
 	if err := bindMotionDrivers(&k); err != nil {
 		t.Fatal(err)
 	}
@@ -107,10 +110,10 @@ func TestMechanismCommandReferenceCapturedOnce(t *testing.T) {
 	if *k.Drivers[0].Reference != first {
 		t.Fatal("reopen silently reset operation zero")
 	}
-	digest := recordingBasis(k.Mechanisms[0], k.Drivers[0])
+	digest := recordingBasis(k.Mechanisms[0],k.Drivers)
 	k.Mechanisms[0].Name = "renamed"
 	k.Mechanisms[0].UnitIDs = []string{"crank", "ground"}
-	if recordingBasis(k.Mechanisms[0], k.Drivers[0]) != digest {
+	if recordingBasis(k.Mechanisms[0],k.Drivers) != digest {
 		t.Fatal("display rename or order invalidated recording")
 	}
 }
@@ -123,12 +126,12 @@ func TestMechanismPassiveJointLimitRetainsQualifiedCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	initial := engine.state.Frame
-	target := initial.DriverValue + .05
-	qualified, err := engine.Advance(t.Context(), target)
+	target := initial.CommandValues["d"] + .05
+	qualified, err := engine.Advance(t.Context(),map[string]float64{"drive-coordinate":target})
 	if err != nil {
 		t.Fatal("unlimited target has no feasible witness", err)
 	}
-	start, end := initial.Coordinates["j2"], qualified.Coordinates["j2"]
+	start, end := initial.Coordinates["j2-coordinate"], qualified.Coordinates["j2-coordinate"]
 	if math.Abs(start-end) < 1e-5 {
 		t.Fatal("passive joint fixture did not move")
 	}
@@ -137,11 +140,11 @@ func TestMechanismPassiveJointLimitRetainsQualifiedCheckpoint(t *testing.T) {
 		if j.ID == "j2" {
 			bound := &MotionQuantity{Value: (start + end) / 2, Unit: "rad"}
 			if end > start {
-				j.Lower = nil
-				j.Upper = bound
+				j.Coordinates[0].Lower = nil
+				j.Coordinates[0].Upper = bound
 			} else {
-				j.Lower = bound
-				j.Upper = nil
+				j.Coordinates[0].Lower = bound
+				j.Coordinates[0].Upper = nil
 			}
 		}
 	}
@@ -151,7 +154,7 @@ func TestMechanismPassiveJointLimitRetainsQualifiedCheckpoint(t *testing.T) {
 		t.Fatal("one-sided passive stop rejected its valid entry", err)
 	}
 	before, _ := json.Marshal(limited.state)
-	if _, err = limited.Advance(t.Context(), target); err == nil {
+	if _, err = limited.Advance(t.Context(),map[string]float64{"drive-coordinate":target}); err == nil {
 		t.Fatal("active coordinate ignored a passive joint stop")
 	}
 	after, _ := json.Marshal(limited.state)

@@ -22,22 +22,18 @@ export function replaceMotionKey(keys: readonly MotionKeyframe[], key: MotionKey
     if (keys.some(k => k.id !== key.id && Math.abs(k.timeSeconds - key.timeSeconds) < 1e-9))
         throw new Error('该时间已有关键帧');
     const initial = keys[0];
-    if (initial?.id === key.id && (key.timeSeconds !== 0 || Math.abs(quantityIn(initial.value, 'rad') - quantityIn(key.value, 'rad')) > 1e-9))
+    if (initial?.id === key.id && (key.timeSeconds !== 0 || !sameMotionVector(initial.values,key.values)))
         throw new Error('起点位置不能修改');
     return [...keys.filter(k => k.id !== key.id), key].sort((a, b) => a.timeSeconds - b.timeSeconds);
 }
-export function motionTargetAt(study: MotionStudy, time: number): number {
-    const keys = study.keyframes ?? [];
-    if (!keys.length)
-        throw new Error('模拟没有关键帧');
-    if (time <= keys[0].timeSeconds)
-        return quantityIn(keys[0].value, 'rad');
-    const index = keys.findIndex(k => k.timeSeconds >= time);
-    if (index < 0)
-        return quantityIn(keys.at(-1)!.value, 'rad');
-    const a = keys[index - 1], b = keys[index], u = (time - a.timeSeconds) / (b.timeSeconds - a.timeSeconds);
-    return quantityIn(a.value, 'rad') * (1 - u) + quantityIn(b.value, 'rad') * u;
+export function motionTargetAt(study:MotionStudy,time:number):Record<string,import('./motion-study').MotionQuantity>{
+ const keys=study.keyframes??[];if(!keys.length)throw new Error('模拟没有关键帧');
+ const index=keys.findIndex(key=>key.timeSeconds>=time);
+ const a=time<=keys[0].timeSeconds?keys[0]:index<0?keys.at(-1)!:keys[index-1],b=index<=0?a:keys[index];
+ const fraction=a===b?0:(time-a.timeSeconds)/(b.timeSeconds-a.timeSeconds);
+ return Object.fromEntries(study.activeDriverIds.map(id=>{const value=a.values[id],end=b.values[id];if(!value||!end)throw new Error('模拟参数不完整');const unit=value.unit==='rad'||value.unit==='deg'?'rad':'mm';return [id,{value:quantityIn(value,unit)*(1-fraction)+quantityIn(end,unit)*fraction,unit}]}));
 }
-export function sameMotionKeyValue(a: MotionKeyframe, b: MotionKeyframe): boolean {
-    return Math.abs(quantityIn(a.value, 'rad') - quantityIn(b.value, 'rad')) < 1e-9 && JSON.stringify(a.viewpoint) === JSON.stringify(b.viewpoint);
+export function sameMotionVector(a:Record<string,import('./motion-study').MotionQuantity>,b:Record<string,import('./motion-study').MotionQuantity>):boolean{
+ return Object.keys(a).length===Object.keys(b).length&&Object.entries(a).every(([id,q])=>{const unit=q.unit==='rad'||q.unit==='deg'?'rad':'mm';return b[id]&&Math.abs(quantityIn(q,unit)-quantityIn(b[id],unit))<1e-9});
 }
+export function sameMotionKeyValue(a:MotionKeyframe,b:MotionKeyframe):boolean{return sameMotionVector(a.values,b.values)&&JSON.stringify(a.viewpoint)===JSON.stringify(b.viewpoint)}

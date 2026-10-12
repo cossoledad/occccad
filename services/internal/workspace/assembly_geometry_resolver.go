@@ -153,6 +153,10 @@ func assemblyReferenceKey(reference AssemblyGeometryRef) string {
 		b, _ := json.Marshal(reference.CapturedDirection)
 		add(string(b))
 	}
+	if reference.CapturedFrame != nil {
+		b, _ := json.Marshal(reference.CapturedFrame)
+		add(string(b))
+	}
 	sum := sha256.Sum256(raw)
 	var encoded [64]byte
 	hex.Encode(encoded[:], sum[:])
@@ -223,6 +227,18 @@ func (resolver *assemblySupportResolver) resolve(reference AssemblyGeometryRef) 
 		return cached, nil
 	}
 	value := geometry.AssemblyGeometry{ID: key, BodyID: reference.InstanceID, Kind: reference.Kind, LengthUnit: "mm"}
+	if reference.CapturedFrame != nil {
+		if err := validateCapturedAssemblyFrame(reference); err != nil {
+			return value, err
+		}
+		frame := composeInstancePose(localPose, reference.CapturedFrame.Frame)
+		value.Origin = frame.Translation
+		if reference.Kind != "POINT" {
+			value.Direction = rotateByPose(frame, [3]float64{0, 0, 1})
+		}
+		resolver.geometry[key] = value
+		return value, nil
+	}
 	if reference.PublicationRef != nil && reference.PublicationResolution != nil {
 		resolution := *reference.PublicationResolution
 		var descriptorErr error

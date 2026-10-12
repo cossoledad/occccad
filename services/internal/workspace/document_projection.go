@@ -294,10 +294,14 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 				status, summary = modelcore.AssemblyConstraintNotUpdated, "referenced Part has a newer unaccepted workspace revision"
 			}
 			capabilities := assemblyConstraintStructureCapabilities(constraint, status)
-			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,
+			node := DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,
 				Kind: "ASSEMBLY_CONSTRAINT", LocalVisible: boolPointer(visibleOrDefault(constraint.Visible)), Suppressed: constraint.Suppressed, Name: name, EntityID: constraint.ID, EntityType: constraint.Kind,
 				DocumentID: documentID, EvaluationStatus: string(status),
-				Diagnostic: string(status) + ": " + summary, Capabilities: capabilities})
+				Diagnostic: string(status) + ": " + summary, Capabilities: capabilities}
+			if isAssemblyGroup(constraint) {
+				node.Children = assemblyGroupReferenceNodes(node.ID, documentID, "", constraint, func(id string) string { return names[id] }, model.Constraints)
+			}
+			group.Children = append(group.Children, node)
 		}
 		root.Children = append(root.Children, group)
 	}

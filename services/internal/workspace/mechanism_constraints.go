@@ -68,36 +68,100 @@ func (service *Service) bindMechanismConstraints(ctx context.Context, model Prod
 			if !found || !validMotionPose(p) {
 				return m, fmt.Errorf("%w: missing Ground pose", ErrValidation)
 			}
-			relations = []AssemblyConstraint{{Kind: "FIX", FixMode: "SPACE", First: AssemblyGeometryRef{Kind: "BODY", InstanceID: j.First.InstanceID}, FixedPose: &p}}
-		} else if j.First.Axis != nil && j.Second != nil && j.Second.Axis != nil && j.First.Plane != nil && j.Second.Plane != nil {
-			a, b := *j.First.Axis, *j.Second.Axis
-			axisB, err := resolver.resolve(b)
-			if err != nil {
-				return m, err
+			relations = []AssemblyConstraint{{RelationRole: "ground", Kind: "FIX", FixMode: "SPACE", First: AssemblyGeometryRef{Kind: "BODY", InstanceID: j.First.InstanceID}, FixedPose: &p}}
+		} else if j.Second != nil {
+			switch j.Kind {
+			case "RIGID":
+				for _, c := range j.Constraints {
+					if c.Kind == "FIX_TOGETHER" && len(c.GroupRelations) == 2 {
+						relations = []AssemblyConstraint{c}
+					}
+				}
+				if len(relations) == 0 {
+					poses := map[string]InstancePose{}
+					for _, v := range model.Instances {
+						poses[v.ID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
+					}
+					relative := inverseRelativePose(poses[j.Second.InstanceID], poses[j.First.InstanceID])
+					relations = []AssemblyConstraint{{Kind: "FIX_TOGETHER", GroupMembers: []AssemblyGroupMember{{InstanceID: j.First.InstanceID}, {InstanceID: j.Second.InstanceID}}, GroupRelations: []AssemblyGroupRelation{{InstanceID: j.First.InstanceID, RelativePose: InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}, {InstanceID: j.Second.InstanceID, RelativePose: relative}}, GroupCaptureDigest: motionSemanticDigest(relative)}}
+				}
+				relations[0].RelationRole = "rigid"
+			case "REVOLUTE", "PRISMATIC", "CYLINDRICAL":
+				if j.First.Axis == nil || j.Second.Axis == nil {
+					continue
+				}
+				a, b := *j.First.Axis, *j.Second.Axis
+				axisB, err := resolver.resolve(b)
+				if err != nil {
+					return m, err
+				}
+				direction := "SAME"
+				if conflictDot(axisB.Direction, rotateByPose(j.Second.Frame, [3]float64{0, 0, 1})) < 0 {
+					direction = "OPPOSITE"
+				}
+				relations = []AssemblyConstraint{{RelationRole: "axis", Kind: "COINCIDENT", First: a, Second: &b, DirectionRelation: direction}}
+				if j.Kind == "REVOLUTE" {
+					if j.First.Plane == nil || j.Second.Plane == nil {
+						continue
+					}
+					planeA, planeB := *j.First.Plane, *j.Second.Plane
+					plane, err := resolver.resolve(planeA)
+					if err != nil {
+						return m, err
+					}
+					offset := 0.0
+					if j.AxialOffset.Unit != "" {
+						offset, err = motionValue(j.AxialOffset, false)
+						if err != nil {
+							return m, err
+						}
+					}
+					z := rotateByPose(j.First.Frame, [3]float64{0, 0, 1})
+					relations = append(relations, AssemblyConstraint{RelationRole: "axial-location", Kind: "DISTANCE", First: planeA, Second: &planeB, DirectionRelation: j.AxialDirection, DistanceRelation: selectedPlaneNormalV1, Value: -offset * conflictDot(z, plane.Direction)})
+				}
+				if j.Kind == "PRISMATIC" {
+					if j.First.Plane == nil || j.Second.Plane == nil {
+						continue
+					}
+					angle, err := motionValue(j.OrientationAngle, true)
+					if err != nil {
+						return m, err
+					}
+					planeA, planeB := *j.First.Plane, *j.Second.Plane
+					axis := *j.First.Axis
+					relations = append(relations, AssemblyConstraint{RelationRole: "orientation", Kind: "ANGLE", First: planeA, Second: &planeB, AngleRelation: "DIRECTED", AngleAxis: &axis, Value: wrappedMotionAngle(angle)})
+				}
+			case "PLANAR":
+				if j.First.Plane == nil || j.Second.Plane == nil {
+					continue
+				}
+				a, b := *j.First.Plane, *j.Second.Plane
+				c := AssemblyConstraint{RelationRole: "plane", Kind: "COINCIDENT", First: a, Second: &b, DirectionRelation: j.AxialDirection}
+				if j.AxialOffset.Unit != "" {
+					offset, err := motionValue(j.AxialOffset, false)
+					if err != nil {
+						return m, err
+					}
+					if offset != 0 {
+						c.Kind = "DISTANCE"
+						c.DistanceRelation = selectedPlaneNormalV1
+						c.Value = -offset
+					}
+				}
+				relations = []AssemblyConstraint{c}
+			case "SPHERICAL":
+				if j.First.Point == nil || j.Second.Point == nil {
+					continue
+				}
+				a, b := *j.First.Point, *j.Second.Point
+				relations = []AssemblyConstraint{{RelationRole: "center", Kind: "COINCIDENT", First: a, Second: &b}}
+			default:
+				return m, fmt.Errorf("%w: unsupported joint", ErrValidation)
 			}
-			axisDirection := "SAME"
-			if conflictDot(axisB.Direction, rotateByPose(j.Second.Frame, [3]float64{0, 0, 1})) < 0 {
-				axisDirection = "OPPOSITE"
-			}
-			axis := AssemblyConstraint{Kind: "COINCIDENT", First: a, Second: &b, DirectionRelation: axisDirection}
-			planeA, planeB := *j.First.Plane, *j.Second.Plane
-			plane, err := resolver.resolve(planeA)
-			if err != nil {
-				return m, err
-			}
-			z := rotateByPose(j.First.Frame, [3]float64{0, 0, 1})
-			offset, err := motionValue(j.AxialOffset, false)
-			if j.AxialOffset.Unit == "" {
-				offset, err = 0, nil
-			}
-			if err != nil {
-				return m, err
-			}
-			location := AssemblyConstraint{Kind: "DISTANCE", First: planeA, Second: &planeB, DirectionRelation: j.AxialDirection, DistanceRelation: selectedPlaneNormalV1, Value: -offset * conflictDot(z, plane.Direction)}
-			relations = []AssemblyConstraint{axis, location}
 		} else {
 			continue
-		} // pure frame fixtures are used by numerical conformance tests only
+		}
+
 		for n := range relations {
 			c := &relations[n]
 			role := mechanismConstraintRole(*c)
@@ -127,7 +191,7 @@ func (service *Service) bindMechanismConstraints(ctx context.Context, model Prod
 		quantityModel.Constraints = append(quantityModel.Constraints, j.Constraints...)
 	}
 	for i, c := range quantityModel.Constraints {
-		if c.Kind == "DISTANCE" {
+		if c.Kind == "DISTANCE" || c.Kind == "ANGLE" {
 			literal := ""
 			if err := editAssemblyQuantity(&quantityModel, i, &literal, "", c.Value); err != nil {
 				return m, err
@@ -150,6 +214,8 @@ func (service *Service) bindMechanismConstraints(ctx context.Context, model Prod
 // motion coordinate, not a second implementation of the same hard relations.
 func appendMechanismConstraints(input *ProductModel, m Mechanism) {
 	for _, j := range m.Joints {
-		input.Constraints = append(input.Constraints, j.Constraints...)
+		if j.Kind != "RIGID" {
+			input.Constraints = append(input.Constraints, j.Constraints...)
+		}
 	}
 }

@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/occccad/occccad/internal/geometry"
 )
@@ -13,7 +14,6 @@ type mechanismEquations struct {
 	Geometry              []geometry.AssemblyGeometry   `json:"geometry"`
 	Constraints           []geometry.AssemblyConstraint `json:"constraints"`
 	RetainedConstraintIDs []string                      `json:"retainedConstraintIds"`
-	Driver                geometry.AssemblyConstraint   `json:"driver"`
 }
 
 func compileMechanism(frozen AssemblySolveManifest, m Mechanism, s MotionStudy) (mechanismEquations, error) {
@@ -55,7 +55,7 @@ func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s Moti
 		}
 	}
 	for _, j := range m.Joints {
-		if j.Kind != "GROUND" && j.Kind != "REVOLUTE" {
+		if !slices.Contains([]string{"GROUND", "REVOLUTE", "PRISMATIC", "CYLINDRICAL", "PLANAR", "RIGID", "SPHERICAL"}, j.Kind) {
 			return out, fmt.Errorf("%w: unsupported joint", ErrValidation)
 		}
 		prefix := "mechanism/" + m.ID + "/" + j.ID
@@ -68,6 +68,21 @@ func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s Moti
 				return out, fmt.Errorf("%w: missing Ground body", ErrValidation)
 			}
 			out.Constraints = append(out.Constraints, geometry.AssemblyConstraint{ID: prefix + "/ground", Kind: "FIX", FirstBodyID: j.First.InstanceID, FixedPose: &p})
+			continue
+		}
+		if j.Second == nil {
+			return out, fmt.Errorf("%w: joint endpoint missing", ErrValidation)
+		}
+		if j.Kind == "RIGID" {
+			if len(j.Constraints) != 1 || j.Constraints[0].Kind != "FIX_TOGETHER" {
+				return out, fmt.Errorf("%w: rigid capture missing", ErrValidation)
+			}
+			c := j.Constraints[0]
+			rigid, e := groupRigidConstraints(c.ID, []string{j.First.InstanceID, j.Second.InstanceID}, c.GroupRelations)
+			if e != nil {
+				return out, e
+			}
+			out.Constraints = append(out.Constraints, rigid...)
 			continue
 		}
 		a, b := j.First, *j.Second
@@ -84,32 +99,32 @@ func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s Moti
 		eq := func(name, kind, first, second string) geometry.AssemblyConstraint {
 			return geometry.AssemblyConstraint{ID: prefix + "/" + name, Kind: kind, FirstBodyID: a.InstanceID, FirstGeometryID: prefix + "/a/" + first, SecondBodyID: b.InstanceID, SecondGeometryID: prefix + "/b/" + second, DirectionRelation: "SAME"}
 		}
-		// A joint owns the same relations as assembly design. Frames have already
-		// incorporated the signed axial offset; their locating planes coincide.
-		axis := eq("axis", "COINCIDENT", "z", "z")
-		if err := compileAssemblyRelation(AssemblyConstraint{Kind: "COINCIDENT", Family: "Coincidence"}, &axis, geometry.AssemblyGeometry{Kind: "AXIS"}, geometry.AssemblyGeometry{Kind: "AXIS"}); err != nil {
-			return out, err
-		}
+		// Persisted relations are compiled by the shared Product compiler. Pure
+		// local-frame numerical fixtures use the same primitive definitions.
 		if len(j.Constraints) == 0 {
-			out.Constraints = append(out.Constraints, axis)
-		}
-
-		location := eq("axial-location", "DISTANCE", "plane", "plane")
-		location.DirectionRelation = "UNORIENTED"
-		if err := compileAssemblyRelation(AssemblyConstraint{Kind: "DISTANCE", DistanceRelation: selectedPlaneNormalV1}, &location, geometry.AssemblyGeometry{Kind: "PLANE"}, geometry.AssemblyGeometry{Kind: "PLANE"}); err != nil {
-			return out, err
-		}
-		if len(j.Constraints) == 0 {
-			out.Constraints = append(out.Constraints, location)
-		}
-
-		if j.ID == s.DriverJointID {
-			out.Driver = mechanismCoordinateEquation(m.ID, j)
+			switch j.Kind {
+			case "REVOLUTE", "PRISMATIC", "CYLINDRICAL":
+				out.Constraints = append(out.Constraints, eq("axis", "COINCIDENT", "z", "z"))
+				if j.Kind == "REVOLUTE" {
+					location := eq("axial-location", "DISTANCE", "plane", "plane")
+					location.DistanceRelation = selectedPlaneNormalV1
+					out.Constraints = append(out.Constraints, location)
+				}
+				if j.Kind == "PRISMATIC" {
+					angle := eq("orientation", "ANGLE", "x", "x")
+					angle.AngleReferenceBodyID = a.InstanceID
+					angle.AngleReferenceGeometryID = prefix + "/a/z"
+					angle.Value, _ = motionValue(j.OrientationAngle, true)
+					out.Constraints = append(out.Constraints, angle)
+				}
+			case "PLANAR":
+				out.Constraints = append(out.Constraints, eq("plane", "COINCIDENT", "plane", "plane"))
+			case "SPHERICAL":
+				out.Constraints = append(out.Constraints, eq("center", "COINCIDENT", "p", "p"))
+			}
 		}
 	}
-	if requireDriver && out.Driver.ID == "" {
-		return out, fmt.Errorf("%w: no independent driver", ErrValidation)
-	}
+
 	for _, c := range equations {
 		out.Constraints = append(out.Constraints, c)
 		out.RetainedConstraintIDs = append(out.RetainedConstraintIDs, c.ID)
@@ -117,39 +132,15 @@ func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s Moti
 	return out, nil
 }
 
-func mechanismCoordinateEquation(mechanismID string, j MechanismJoint) geometry.AssemblyConstraint {
-	prefix := "mechanism/" + mechanismID + "/" + j.ID
-	return geometry.AssemblyConstraint{ID: prefix + "/driver", Kind: "ANGLE", FirstBodyID: j.First.InstanceID, FirstGeometryID: prefix + "/a/x", SecondBodyID: j.Second.InstanceID, SecondGeometryID: prefix + "/b/x", AngleReferenceBodyID: j.First.InstanceID, AngleReferenceGeometryID: prefix + "/a/z"}
-}
-func motionJointCoordinate(j MechanismJoint, poses map[string]InstancePose, previous *float64) (float64, error) {
-	a := composeInstancePose(poses[j.First.InstanceID], j.First.Frame)
-	b := composeInstancePose(poses[j.Second.InstanceID], j.Second.Frame)
-	z := rotateByPose(a, [3]float64{0, 0, 1})
-	zero, _ := motionValue(j.Zero, j.Kind == "REVOLUTE")
-	raw := 0.0
-	if j.Kind == "REVOLUTE" {
-		x, y := rotateByPose(a, [3]float64{1, 0, 0}), rotateByPose(b, [3]float64{1, 0, 0})
-		cross := [3]float64{x[1]*y[2] - x[2]*y[1], x[2]*y[0] - x[0]*y[2], x[0]*y[1] - x[1]*y[0]}
-		raw = math.Atan2(z[0]*cross[0]+z[1]*cross[1]+z[2]*cross[2], x[0]*y[0]+x[1]*y[1]+x[2]*y[2])
-	} else {
-		return 0, fmt.Errorf("%w: unsupported motion coordinate", ErrValidation)
-	}
-	q := (raw - zero) * float64(j.Direction)
-	if j.Kind == "REVOLUTE" && previous != nil {
-		q += 2 * math.Pi * math.Round((*previous-q)/(2*math.Pi))
-	}
-	if !finiteMotion(q) {
-		return 0, fmt.Errorf("joint %s coordinate overflow", j.ID)
-	}
-	return q, nil
-}
-func verifyMechanismJoints(m Mechanism, poses map[string]InstancePose, previous map[string]float64, driverID string, target float64) (map[string]float64, error) {
-	result := map[string]float64{}
-	norm := func(v [3]float64) float64 { return math.Sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]) }
-	sub := func(a, b [3]float64) [3]float64 { return [3]float64{a[0] - b[0], a[1] - b[1], a[2] - b[2]} }
+// Check closure independently of the solver's residual report. Each joint
+// checks precisely its physical relation, never the revolute's extra locks.
+func verifyMechanismJoints(m Mechanism, poses map[string]InstancePose, previous, targets map[string]float64) (map[string]float64, error) {
 	for _, j := range m.Joints {
 		if j.Kind == "GROUND" {
 			continue
+		}
+		if j.Second == nil {
+			return nil, fmt.Errorf("joint %s second endpoint missing", j.ID)
 		}
 		a := composeInstancePose(poses[j.First.InstanceID], j.First.Frame)
 		b := composeInstancePose(poses[j.Second.InstanceID], j.Second.Frame)
@@ -157,36 +148,44 @@ func verifyMechanismJoints(m Mechanism, poses map[string]InstancePose, previous 
 			return nil, fmt.Errorf("joint %s invalid world frame", j.ID)
 		}
 		za, zb := rotateByPose(a, [3]float64{0, 0, 1}), rotateByPose(b, [3]float64{0, 0, 1})
-		if norm(sub(za, zb)) > 1e-8 {
-			return nil, fmt.Errorf("joint %s axis residual", j.ID)
+		delta := conflictSub(b.Translation, a.Translation)
+		fail := false
+		switch j.Kind {
+		case "REVOLUTE", "PRISMATIC", "CYLINDRICAL":
+			fail = conflictNorm(conflictSub(za, zb)) > 1e-8 || conflictNorm(conflictSub(delta, conflictScale(za, conflictDot(delta, za)))) > 1e-7
+			if j.Kind == "REVOLUTE" {
+				fail = fail || conflictNorm(delta) > 1e-7
+			}
+			if j.Kind == "PRISMATIC" {
+				x, y := rotateByPose(a, [3]float64{1, 0, 0}), rotateByPose(b, [3]float64{1, 0, 0})
+				angle := math.Atan2(conflictDot(za, conflictCross(x, y)), conflictDot(x, y))
+				goal, _ := motionValue(j.OrientationAngle, true)
+				fail = fail || math.Abs(math.Remainder(angle-goal, 2*math.Pi)) > 1e-8
+			}
+		case "PLANAR":
+			if j.AxialDirection == "OPPOSITE" {
+				zb = conflictScale(zb, -1)
+			}
+			fail = conflictNorm(conflictSub(za, zb)) > 1e-8 || math.Abs(conflictDot(delta, za)) > 1e-7
+		case "SPHERICAL":
+			fail = conflictNorm(delta) > 1e-7
+		case "RIGID":
+			if len(j.Constraints) != 1 {
+				return nil, fmt.Errorf("joint %s capture missing", j.ID)
+			}
+			c := j.Constraints[0]
+			eq, err := groupRigidConstraints(c.ID, []string{j.First.InstanceID, j.Second.InstanceID}, c.GroupRelations)
+			if err != nil {
+				return nil, err
+			}
+			actual := inverseRelativePose(poses[j.Second.InstanceID], poses[j.First.InstanceID])
+			fail = !conflictPoseClose(geometry.AssemblyPose(actual), *eq[0].FixedPose, 1e-7, 1e-8)
+		default:
+			return nil, fmt.Errorf("joint %s unsupported kind", j.ID)
 		}
-		delta := sub(b.Translation, a.Translation)
-
-		if length := norm(delta); !finiteMotion(length) || length > 1e-7 {
+		if fail {
 			return nil, fmt.Errorf("joint %s closure residual", j.ID)
 		}
-
-		if j.Kind != "REVOLUTE" {
-			continue
-		}
-		var prior *float64
-		if p, ok := previous[j.ID]; ok {
-			prior = &p
-		}
-		if j.ID == driverID {
-			prior = &target
-		}
-		q, err := motionJointCoordinate(j, poses, prior)
-		if err != nil {
-			return nil, err
-		}
-		if j.ID == driverID && math.Abs(q-target) > 1e-7 {
-			return nil, fmt.Errorf("hard driver coordinate residual %g", q-target)
-		}
-		if j.Kind == "REVOLUTE" && j.ID != driverID && prior != nil && math.Abs(q-*prior) > math.Pi/2 {
-			return nil, fmt.Errorf("joint %s branch discontinuity", j.ID)
-		}
-		result[j.ID] = q
 	}
-	return result, nil
+	return mechanismCoordinates(m, poses, previous, targets)
 }

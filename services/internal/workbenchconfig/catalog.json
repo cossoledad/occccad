@@ -4795,8 +4795,14 @@
         "any": [
           {
             "all": [
-              { "fact": "canDeleteMotionResult", "equals": true },
-              { "fact": "busy", "equals": false }
+              {
+                "fact": "canDeleteMotionResult",
+                "equals": true
+              },
+              {
+                "fact": "busy",
+                "equals": false
+              }
             ]
           },
           {
@@ -4963,8 +4969,10 @@
                 "equals": true
               },
               {
-                "fact": "selectionKind",
-                "equals": "kinematic-object"
+                "any": [
+                  {"fact": "selectionKind", "equals": "kinematic-object"},
+                  {"fact": "selectionKind", "equals": "tree"}
+                ]
               },
               {
                 "fact": "busy",
@@ -5330,6 +5338,146 @@
       "name": "旋转接合",
       "helpText": "创建旋转接合。",
       "iconKey": "rotate",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.spherical",
+      "name": "球面接合",
+      "helpText": "创建球面接合。",
+      "iconKey": "rotate",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.rigid",
+      "name": "刚性接合",
+      "helpText": "创建刚性接合。",
+      "iconKey": "link",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.planar",
+      "name": "平面接合",
+      "helpText": "创建平面接合。",
+      "iconKey": "datum-plane",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.cylindrical",
+      "name": "圆柱接合",
+      "helpText": "创建圆柱接合。",
+      "iconKey": "rotate",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "dmu.prismatic",
+      "name": "棱形接合",
+      "helpText": "创建棱形接合。",
+      "iconKey": "move",
       "repeatable": false,
       "visibleWhen": {
         "all": [
@@ -6232,6 +6380,31 @@
           "commandId": "assembly.move",
           "groupKey": "primary",
           "order": 40
+        },
+        {
+          "commandId": "dmu.prismatic",
+          "groupKey": "variants:joints",
+          "order": 31
+        },
+        {
+          "commandId": "dmu.cylindrical",
+          "groupKey": "variants:joints",
+          "order": 32
+        },
+        {
+          "commandId": "dmu.planar",
+          "groupKey": "variants:joints",
+          "order": 33
+        },
+        {
+          "commandId": "dmu.rigid",
+          "groupKey": "variants:joints",
+          "order": 34
+        },
+        {
+          "commandId": "dmu.spherical",
+          "groupKey": "variants:joints",
+          "order": 35
         }
       ],
       "variants": {

@@ -131,6 +131,12 @@ func TestAssemblyConstraintStructureNamesAndSetVisibility(t *testing.T) {
 			t.Fatalf("constraint set lost identity/aggregate visibility: %+v", group)
 		}
 		for i, want := range []string{"接触.1", "固定.1", "接触.2", "固联组.1"} {
+			if model.Constraints[i].Kind == "FIX_TOGETHER" {
+				if group.Children[i].Name != want {
+					t.Fatalf("group name = %q, want %q without an empty support pair", group.Children[i].Name, want)
+				}
+				continue
+			}
 			if !strings.HasPrefix(group.Children[i].Name, want+" (") {
 				t.Fatalf("constraint name = %q, want prefix %q", group.Children[i].Name, want)
 			}

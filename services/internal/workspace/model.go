@@ -612,6 +612,7 @@ type InstancePose struct {
 }
 
 type AssemblyGeometryRef struct {
+	CapturedFrame         *AssemblyCapturedFrame         `json:"capturedFrame,omitempty"`
 	CapturedDirection     *[3]float64                    `json:"capturedDirection,omitempty"`
 	DerivedRole           string                         `json:"derivedRole,omitempty"`
 	InstancePath          *InstancePath                  `json:"instancePath,omitempty"`
@@ -628,6 +629,15 @@ type AssemblyGeometryRef struct {
 	PublicationResolution *PublicationResolution         `json:"publicationResolution,omitempty"`
 }
 
+// A constraint-owned, source-scoped body-local datum. This does not create a
+// Part feature or depend on a live mechanism when copied into a Product.
+type AssemblyCapturedFrame struct {
+	ID         string       `json:"id"`
+	Policy     string       `json:"policy"`
+	LengthUnit string       `json:"lengthUnit"`
+	Frame      InstancePose `json:"frame"`
+}
+
 type ResolutionSnapshot struct {
 	SourceVersionID string                        `json:"sourceVersionId"`
 	TargetVersionID string                        `json:"targetVersionId"`
@@ -637,6 +647,7 @@ type ResolutionSnapshot struct {
 }
 
 type AssemblyConstraint struct {
+	RelationRole                string                                       `json:"relationRole,omitempty"`
 	Visible                     *bool                                        `json:"visible,omitempty"`
 	EvaluationFailure           *AssemblyEvaluationFailure                   `json:"evaluationFailure,omitempty"`
 	DefinitionVersion           int                                          `json:"definitionVersion,omitempty"`

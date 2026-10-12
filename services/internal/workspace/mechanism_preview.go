@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/valuecopy"
 )
 
 // A command preview is not a run, publishing plan, or committable assembly
@@ -80,13 +81,34 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 		diagnostic.stage("COMPILE_MECHANISM")
 	}
 	defer func() { service.finishOperationDiagnostic(ctx, diagnostic, nil, nil, &returnErr) }()
-	m := req.Mechanism
+	m, err := valuecopy.Clone(req.Mechanism)
+	if err != nil {
+		return out, err
+	}
+	// The definition service owns capture, even for a direct preview request.
+	// New rigid/fixed baselines cannot be supplied as a fabricated client witness.
+	for i, j := range m.Joints {
+		if j.Kind != "RIGID" && j.Kind != "GROUND" {
+			continue
+		}
+		m.Joints[i].Constraints = nil
+		for _, saved := range view.Product.Kinematics.Mechanisms {
+			if saved.ID != m.ID {
+				continue
+			}
+			for _, prior := range saved.Joints {
+				if prior.ID == j.ID && prior.Kind == j.Kind && prior.First.InstanceID == j.First.InstanceID && (prior.Second == nil && j.Second == nil || prior.Second != nil && j.Second != nil && prior.Second.InstanceID == j.Second.InstanceID) {
+					m.Joints[i].Constraints = prior.Constraints
+				}
+			}
+		}
+	}
 	// The sole unfinished joint may preview axis alignment before planes exist.
 	var partial *MechanismJoint
 	complete := make([]MechanismJoint, 0, len(m.Joints))
 	for _, j := range m.Joints {
-		if j.ID == req.DraftJointID && j.Kind != "GROUND" && j.Second != nil && (j.First.Plane == nil || j.Second.Plane == nil) {
-			if partial != nil || j.First.Axis == nil || j.Second.Axis == nil || j.First.InstanceID == j.Second.InstanceID || !slices.Contains([]string{"REVOLUTE"}, j.Kind) {
+		if j.ID == req.DraftJointID && (j.Kind == "REVOLUTE" || j.Kind == "PRISMATIC") && j.Second != nil && (j.First.Plane == nil || j.Second.Plane == nil) {
+			if partial != nil || j.First.Axis == nil || j.Second.Axis == nil || j.First.InstanceID == j.Second.InstanceID || !slices.Contains([]string{"REVOLUTE", "PRISMATIC"}, j.Kind) {
 				return out, fmt.Errorf("%w: incomplete joint axes", ErrValidation)
 			}
 			copy := j
@@ -132,12 +154,58 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 	if req.NominalProduct != nil {
 		nominal = *req.NominalProduct
 	}
+	// A new prismatic definition can start with perpendicular world axes. Its
+	// projected orientation angle is undefined there. First obtain a qualified
+	// axis-alignment draft using the same retained physical relations; use that
+	// draft as the construction baseline for the complete definition. Neither
+	// stage publishes a Revision or a complete-joint witness on its own.
+	for _, joint := range m.Joints {
+		if joint.ID != req.DraftJointID || joint.Kind != "PRISMATIC" || joint.Second == nil || joint.First.Plane == nil || joint.Second.Plane == nil {
+			continue
+		}
+		alignment, e := valuecopy.Clone(m)
+		if e != nil {
+			return out, e
+		}
+		for i := range alignment.Joints {
+			if alignment.Joints[i].ID == joint.ID {
+				alignment.Joints[i].First.Plane = nil
+				alignment.Joints[i].Second.Plane = nil
+			}
+		}
+		seed, e := service.PreviewMechanism(ctx, documentID, MechanismPreviewRequest{BaseRevisionID: req.BaseRevisionID, Mechanism: alignment, DraftJointID: joint.ID, Drivers: []MotionDriver{}, NominalProduct: req.NominalProduct})
+		if e != nil {
+			return out, e
+		}
+		m.Poses = seed.Mechanism.Poses
+	}
 	input, err := mechanismProductInput(nominal, m)
 	if err != nil {
 		return out, err
 	}
 	if m, err = service.resolveMechanismGeometry(ctx, input, m, true); err != nil {
 		return out, err
+	}
+	pendingRigid := false
+	qualified := m
+	qualified.Joints = nil
+	for _, j := range m.Joints {
+		if j.Kind == "RIGID" && len(j.Constraints) == 0 {
+			pendingRigid = true
+		} else {
+			qualified.Joints = append(qualified.Joints, j)
+		}
+	}
+	if pendingRigid {
+		first, e := service.PreviewMechanism(ctx, documentID, MechanismPreviewRequest{BaseRevisionID: req.BaseRevisionID, Mechanism: qualified, Drivers: []MotionDriver{}, NominalProduct: req.NominalProduct})
+		if e != nil {
+			return out, e
+		}
+		m.Poses = first.Mechanism.Poses
+		input, e = mechanismProductInput(nominal, m)
+		if e != nil {
+			return out, e
+		}
 	}
 	if m, err = service.bindMechanismConstraints(ctx, input, m); err != nil {
 		return out, err
@@ -174,7 +242,11 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 			value.ID = ids[i]
 			equations.Geometry = append(equations.Geometry, value)
 		}
-		equations.Constraints = append(equations.Constraints, geometry.AssemblyConstraint{ID: "preview/axis", Kind: "CONCENTRIC", FirstBodyID: ends[0].InstanceID, FirstGeometryID: ids[0], SecondBodyID: ends[1].InstanceID, SecondGeometryID: ids[1], DirectionRelation: "SAME"})
+		direction := "SAME"
+		if partial.Kind == "PRISMATIC" && partial.AxisDirection == "OPPOSITE" {
+			direction = "OPPOSITE"
+		}
+		equations.Constraints = append(equations.Constraints, geometry.AssemblyConstraint{ID: "preview/axis", Kind: "CONCENTRIC", FirstBodyID: ends[0].InstanceID, FirstGeometryID: ids[0], SecondBodyID: ends[1].InstanceID, SecondGeometryID: ids[1], DirectionRelation: direction})
 	}
 	profile := defaultAssemblySolverProfile()
 	var intent *geometry.AssemblySolveIntent
@@ -226,24 +298,31 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 		}
 		out.InstancePoses = append(out.InstancePoses, MechanismPreviewPose{InstanceID: body.ID, InstancePose: p})
 	}
-	if _, err = verifyMechanismJoints(m, poses, nil, "", 0); err != nil {
+	// Capture each new coordinate's zero at the first physically accepted
+	// configuration; no later read, trial or playback recaptures it.
+	for ji, j := range m.Joints {
+		for ci, c := range j.Coordinates {
+			known := false
+			for _, old := range view.Product.Kinematics.Mechanisms {
+				if old.ID == m.ID && mechanismHasCoordinate(old, c.ID) {
+					known = true
+				}
+			}
+			if !known {
+				raw, err := motionJointCoordinate(j, c, poses, nil)
+				if err != nil {
+					return out, err
+				}
+				zero, _ := motionValue(c.Zero, c.angular())
+				m.Joints[ji].Coordinates[ci].Zero = MotionQuantity{Value: zero + float64(c.Direction)*raw, Unit: c.unit()}
+			}
+		}
+	}
+	coordinates, err := verifyMechanismJoints(m, poses, m.Coordinates, nil)
+	if err != nil {
 		return out, fmt.Errorf("%w: %v", ErrValidation, err)
 	}
-	coordinates := map[string]float64{}
-	for _, j := range m.Joints {
-		if j.Kind != "REVOLUTE" {
-			continue
-		}
-		var prior *float64
-		if v, ok := m.Coordinates[j.ID]; ok {
-			prior = &v
-		}
-		q, e := motionJointCoordinate(j, poses, prior)
-		if e != nil {
-			return out, e
-		}
-		coordinates[j.ID] = q
-	}
+
 	if err = motionLimits(m, coordinates); err != nil {
 		return out, err
 	}
@@ -265,7 +344,7 @@ func (service *Service) PreviewMechanism(ctx context.Context, documentID string,
 		}
 		for _, d := range drivers {
 			if d.MechanismID == m.ID {
-				if !slices.ContainsFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID && j.Kind == "REVOLUTE" }) {
+				if !mechanismHasCoordinate(m, d.CoordinateID) {
 					return out, fmt.Errorf("%w: command joint missing", ErrValidation)
 				}
 				m.Evaluation.DriverCount++

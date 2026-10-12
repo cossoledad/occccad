@@ -29,6 +29,11 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     instanceId: instancePath?.segments[0]?.instanceId, treeNodeId: node.id,
   };
   switch (node.kind) {
+    case "ASSEMBLY_GROUP_MEMBER_REFERENCE": {
+      if(!node.entityId)return null;
+      const target:SelectionItem=node.entityType==='FIX_TOGETHER'?{kind:'assembly-constraint',id:node.entityId,constraintId:node.entityId,constraintType:'FIX_TOGETHER',documentId:node.documentId,occurrencePath}: {kind:'instance',id:[occurrencePath,node.entityId].filter(Boolean).join('/'),instanceId:node.entityId,occurrencePath:[occurrencePath,node.entityId].filter(Boolean).join('/'),visualKey:'occurrence:'+ [occurrencePath,node.entityId].filter(Boolean).join('/')};
+      return {...base,kind:'tree',id:node.id,entityKind:node.kind,ownerEntityId:node.ownerEntityId,mechanismId:node.mechanismId,highlightTarget:target};
+    }
  case "MECHANISM_REFERENCE":case "JOINT_EXPANSION":case "JOINT_SUPPORT":case "MECHANISM":case "MECHANISM_JOINT":case "MOTION_DRIVER":case "MOTION_STUDY":case "INTERFERENCE_ANALYSIS": return {...base,kind:"kinematic-object",id:node.entityId??node.id,mechanismId:node.mechanismId,ownerEntityId:node.ownerEntityId,role:node.relationRole};
     case "PART": return { ...base, kind: "part", id: node.documentId ?? node.id,
       visualKey: occurrencePath ? `occurrence:${occurrencePath}` : undefined };

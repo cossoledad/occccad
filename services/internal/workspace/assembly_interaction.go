@@ -305,7 +305,7 @@ func (service *Service) BeginAssemblyInteraction(ctx context.Context, documentID
 			poses[v.InstanceID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
 		}
 		m := model.Kinematics.Mechanisms[slices.IndexFunc(model.Kinematics.Mechanisms, func(m Mechanism) bool { return m.ID == input.MechanismID })]
-		session.coordinates, err = verifyMechanismJoints(m, poses, nil, "", 0)
+		session.coordinates, err = verifyMechanismJoints(m, poses, nil, nil)
 		if err != nil {
 			return AssemblyInteractionOpened{}, fmt.Errorf("%w: %v", ErrValidation, err)
 		}
@@ -645,7 +645,7 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 		for _, v := range next.Instances {
 			poses[v.ID] = InstancePose{Translation: v.Translation, Rotation: v.Rotation}
 		}
-		coords, e := verifyMechanismJoints(m, poses, s.coordinates, "", 0)
+		coords, e := verifyMechanismJoints(m, poses, s.coordinates, nil)
 		if e == nil {
 			e = motionLimits(m, coords)
 		}

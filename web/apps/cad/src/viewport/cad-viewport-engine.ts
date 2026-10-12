@@ -105,7 +105,7 @@ type Callbacks = {
   assemblyInteractionState?: (state: AssemblyInteractionState, reason?: string) => void;
   operationFailed?:(error:unknown)=>void;
   inspectAssemblySupports?:(documentId:string,references:AssemblyGeometryRef[],signal:AbortSignal)=>Promise<SupportInspection>;
-  assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
+  assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[],members?:import("../types").AssemblyGroupMember[]) => void;
   documentViewReady?: (documentId: string, restoredCamera: boolean) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
@@ -767,7 +767,7 @@ export class CadViewportEngine {
     }
     const validMoveSelection = retainedMoveSelection.filter((selection) => selection.kind === "instance" &&
       this.instanceGroups.has(selection.instanceId ?? selection.id));
-    this.selectMany(this.activeToolID === "assembly.move" ? validMoveSelection : retainedSelections, false);
+    this.selectMany(this.activeToolID === "assembly.move" ? validMoveSelection : retainedSelections, false,"result");
     if (previousDocumentID !== view.document.id) {
       const saved = this.documentSessions?.read(view.document.id, documentCameraState);
       if (saved) {
@@ -1471,7 +1471,9 @@ export class CadViewportEngine {
     if(!sameSelections(this.selected,unique)){
       const motion=this.motionPresentation,path=motion?[motion.ownerOccurrence,motion.bodyId].filter(Boolean).join("/"):undefined;
       if(path&&!unique.some(s=>s.occurrencePath===path||s.occurrencePath?.startsWith(`${path}/`)))this.showRemainingMotion();
-      if(!this.moveFinalization&&!this.moveInteraction.hasUncommittedFinal&&!this.moveCommitPending)this.cancelMovePreviewGesture("操纵选择已变化");
+      // Resource hydration rebinds the same semantic selection after clearing
+      // scene objects. Its temporary empty set is not a user selection change.
+      if(source!=="result"&&!this.moveFinalization&&!this.moveInteraction.hasUncommittedFinal&&!this.moveCommitPending)this.cancelMovePreviewGesture("操纵选择已变化");
     }
     this.selected = unique;
     this.updateSketchContextVisibility();
@@ -1742,7 +1744,7 @@ export class CadViewportEngine {
     }
     for (const object of this.highlightedRoots) this.applyHighlight(object, "default");
     this.highlightedRoots.clear();
-    const withAssemblyReferences = (selections: readonly SelectionItem[]) => selections.filter(s=>!this.featureSelection?.localSketchId||!s.sketchReference).flatMap((selection) =>
+    const withAssemblyReferences = (selections: readonly SelectionItem[]) => selections.filter(s=>!this.featureSelection?.localSketchId||!s.sketchReference).map(selection=>selection.highlightTarget??selection).flatMap((selection) =>
       selection.kind === "assembly-constraint" ? [selection, ...(this.assemblyConstraintReferences.get(this.assemblyMarkerKey(selection.documentId ?? "",selection.occurrencePath ?? "",selection.constraintId)) ?? [])]
         : selection.kind === 'kinematic-object' ? [selection,...[...this.assemblyConstraintMarkers].filter(([,entry])=>entry.selection.kind==='kinematic-object'&&(entry.selection.id===selection.id||entry.selection.ownerEntityId===selection.id||selection.id===this.mechanismDefinition?.id)).flatMap(([key,entry])=>[entry.selection,...(this.assemblyConstraintReferences.get(key)??[])])]
         : selection.kind === "publication" && selection.highlightTarget ? [selection.highlightTarget] : [selection]);
@@ -2013,7 +2015,7 @@ export class CadViewportEngine {
         const find=(node:DocumentStructureNode):DocumentStructureNode|undefined=>(node.kind==='JOINT_EXPANSION'&&node.mechanismId===mechanism.id&&node.entityId===constraint.id)?node:node.children?.map(find).find(Boolean);
         treeNodeId=view.structureTree?find(view.structureTree)?.id??treeNodeId:treeNodeId;
         const owner=mechanism.joints.find(j=>j.constraints?.some(c=>c.id===constraint.id));
-        selection={kind:'kinematic-object',id:constraint.id,mechanismId:mechanism.id,ownerEntityId:owner?.id,role:constraint.kind==='FIX'?'ground':constraint.kind==='DISTANCE'?'axial-location':constraint.kind==='ANGLE'?'angle-lock':'axis',documentId:view.document.id,versionId:view.document.versionId,treeNodeId};
+        selection={kind:'kinematic-object',id:constraint.id,mechanismId:mechanism.id,ownerEntityId:owner?.id,role:constraint.relationRole??(constraint.kind==='FIX'?'ground':'axis'),documentId:view.document.id,versionId:view.document.versionId,treeNodeId};
       }else selection = { kind: "assembly-constraint", id: constraint.id, constraintId: constraint.id,
         constraintType: constraint.kind, documentId: view.document.id, occurrencePath:occurrence, instancePath, rootDocumentId:occurrence ? this.view?.document.id : undefined, treeNodeId };
       const group = new THREE.Group(); group.position.copy(markerPosition); group.userData = selection;
@@ -2176,6 +2178,13 @@ export class CadViewportEngine {
     const instanceSelection: SelectionItem = { kind: "instance", id: reference.instanceId, instanceId: reference.instanceId,
       occurrencePath: reference.instanceId, visualKey: `occurrence:${reference.instanceId}` };
     const instanceCenter = () => new THREE.Box3().setFromObject(instance).getCenter(new THREE.Vector3());
+	if(reference.capturedFrame){
+	  const pose=reference.capturedFrame.frame;
+	  if(!validMotionPose(pose))return undefined;
+	  instance.updateWorldMatrix(true,false);
+	  const anchor=new THREE.Vector3(...pose.translation).applyMatrix4(instance.matrixWorld);
+	  return {selection:instanceSelection,object:instance,anchor};
+	}
     const resolvedTopology = reference.resolution?.result.status === "RESOLVED" ? reference.resolution.result.candidates?.[0] : undefined;
     const geometryKey = resolvedTopology?.geometryKey ?? reference.geometryKey;
     const topologyId = resolvedTopology?.localId ?? reference.topologyId;
@@ -3492,7 +3501,7 @@ export class CadViewportEngine {
         const p=localToWorld(this.sketchPlane,point).project(this.camera);
         return [(p.x+1)*this.renderer.domElement.clientWidth/2,(1-p.y)*this.renderer.domElement.clientHeight/2];
       },
-      requestAssemblyConstraint: (kind, references) => this.callbacks.assemblyConstraintRequested(kind, references),
+      requestAssemblyConstraint: (kind, references,members) => this.callbacks.assemblyConstraintRequested(kind, references,members),
       moveManipulatorPointerDown: (pointerId, x, y) => !this.moveFinalization&&!this.moveCommitPending&&!this.moveInteraction.hasUncommittedFinal&&this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
       moveManipulatorPointerMove: (pointerId, x, y) => this.moveManipulator.pointerMove(pointerId, x, y, this.camera, this.renderer.domElement),
       moveManipulatorPointerUp: (pointerId, commit) => {

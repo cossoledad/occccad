@@ -25,5 +25,5 @@ export function assemblyPublicCommandFields(kind:string,fields:{contactKind?:str
 
 export function assemblyPublicInitialFields(kind:string,references:AssemblyGeometryRef[],constraint?:AssemblyConstraint) {
   return {contactKind:constraint?.contactKind,contactSide:constraint?.contactSide??"EXTERNAL",contactBranch:constraint?.contactBranch??1,
-    groupName:constraint?.name??"固联组",groupMembers:constraint?.groupMembers?.map(m=>m.groupId?`group:${m.groupId}`:`instance:${m.instanceId}`)??references.filter(r=>r.kind==="BODY").map(r=>`instance:${r.instanceId}`)};
+    groupName:constraint?.name??"",groupMembers:constraint?.groupMembers?.map(m=>m.groupId?`group:${m.groupId}`:`instance:${m.instanceId}`)??references.filter(r=>r.kind==="BODY").map(r=>`instance:${r.instanceId}`)};
 }

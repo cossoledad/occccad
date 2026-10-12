@@ -95,16 +95,19 @@ func TestConstraintNamesSurviveDeletionAndHistory(t *testing.T) {
 	if constraintDisplayName(custom, func(id string) string { return id }) != "轴定位 (a,b)" {
 		t.Fatal("custom name discarded")
 	}
+	if constraintDisplayName(AssemblyConstraint{Kind: "FIX_TOGETHER", Name: "固联组.1"}, func(id string) string { return id }) != "固联组.1" {
+		t.Fatal("group label appended an empty binary support pair")
+	}
 }
 
 func TestMotionRecordingReferencesAndStableJointDigest(t *testing.T) {
-	a := MechanismJoint{ID: "j", Name: "旋转.1", Kind: "REVOLUTE", First: jointEnd("a", 0, 0), Second: jointEndPointer("b", 0, 0), Direction: 1, Zero: MotionQuantity{Unit: "deg"}}
+	a := MechanismJoint{ID: "j", Name: "旋转.1", Kind: "REVOLUTE", First: jointEnd("a", 0, 0), Second: jointEndPointer("b", 0, 0), Coordinates: []JointCoordinate{{ID: "j" + "-coordinate", Role: "AXIAL_ROTATION", Dimension: "ANGLE", Zero: MotionQuantity{Unit: "deg"}, Direction: 1}}}
 	b := a
 	b.Name = "renamed"
 	if jointDefinitionDigest(a) != jointDefinitionDigest(b) {
 		t.Fatal("display rename invalidated a frozen definition")
 	}
-	k := KinematicsDefinitions{Studies: []MotionStudy{{ID: "s", MechanismID: "m", DriverID: "d", Keyframes: []MotionKeyframe{{ID: "start"}, {ID: "end", TimeSeconds: 2}}, Frames: 9, BudgetMS: 1000}}}
+	k := KinematicsDefinitions{Studies: []MotionStudy{{ID: "s", MechanismID: "m", Keyframes: []MotionKeyframe{{ID: "start"}, {ID: "end", TimeSeconds: 2}}, Frames: 9, BudgetMS: 1000, ActiveDriverIDs: []string{"d"}}}}
 	if err := normalizeMotionRecordings(&k); err != nil {
 		t.Fatal(err)
 	}
