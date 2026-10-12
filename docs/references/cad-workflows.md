@@ -63,3 +63,21 @@
 本项目据此选择[命令试动与录制模拟统一设计](../architecture/target/kinematics-dmu.md)：稳定操作零位、同一约束内核、双面板单拥有者、合格检查点、明确确定／取消及独立产品转换。两套关系独立、以当前 confirmed 按目标关系切换、Revision/CAS/Undo 和近似显示边界都是本项目决策，不声称照搬 CATIA 的约束自动更新或内部架构。实现状态见[当前代码事实](../architecture/current/kinematics-dmu.md)。
 
 空间分析扩展参考 `control/SpaEnglishC2.viewdoc` → `online/spaug_C2/spaugbt0302.htm` 的 clash/contact/clearance 流程；其网格／sag 判定不作为本项目 OCCT 实体精度依据，也不代表当前机构应用已有干涉分析入口。
+
+## 五类简单接合与固联组
+
+2026-10-12 按本机 `control/KinEnglishC2.viewdoc` 与 `control/CfyEnglishC2.viewdoc` 索引读取下列页面，并查看页面引用的实际对话框图。路径均相对于 `/mnt/s/tools/DS/Catia/B33doc/English/`；页面正文与图片只确认 CATIA 的用户输入和可见操作，不提供其内部求解架构证据。
+
+| 页面与对话框图 | 本轮核实的流程 |
+|---|---|
+| `online/kinug_C2/kinugbt0702.htm`；`images/dbprismatic02NLS.gif` | Prismatic 选择两线、两面；对话框有 Length driven |
+| `online/kinug_C2/kinugbt0703.htm`；`images/dbcylindrical02NLS.gif` | Cylindrical 只选择两线；Angle driven 与 Length driven 可分别勾选，示例同时选中 |
+| `online/kinug_C2/kinugbt0705.htm`；`images/dbplanar02NLS.gif` | Planar 选择两平面；所示基础对话框没有驱动复选框 |
+| `online/kinug_C2/kinugbt0706.htm`；`images/dbrigid02NLS.gif` | Rigid 从三维或树选择两个 Part，所示基础对话框没有驱动参数 |
+| `online/kinug_C2/kinugbt0704.htm`；`images/dbspherical02NLS.gif` | Spherical 选择两个点；所示基础对话框没有驱动参数 |
+| `online/kinug_C2/kinugat0103.htm` | 有命令的坐标必须设置上下限；默认角度 −360/+360°、长度 −100/+100 mm；无命令的 Prismatic 也能启用限位 |
+| `online/cfyugasm_C2/cfyugasmut0306.htm` | Fix Together 可包含多个活动组件所属的成员和已有组；编辑成员及名称、树中激活／停用；已有组内关系先更新，再按整体处理组外关系 |
+
+图片路径沿用所在页面的 `online/kinug_C2/` 目录。普通固联移动页还区分尊重约束与其他移动模式；本项目本轮继续采用尊重约束的正式操纵，不新增隐式自由移动／自动解除组关系模式。
+
+本项目的独立产品／机构定义、按类型真实约束编译、棱形有向转角定位、球面支持自动解析精确球心、刚性接合冻结捕获、向量关键帧和完整驱动资格是[扩展设计](../architecture/target/kinematics-simple-joints.md)的明确决策，不声称其内部模型与 CATIA 一致。平面／球面“无驱动”结论限定为所核对的基础创建对话框，本轮也不据此宣称 CATIA 所有版本和高级模式均无相关能力。

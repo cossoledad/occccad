@@ -59,6 +59,7 @@
 - [六类约束、自由度组合与激活合同](architecture/current/assembly-constraints.md)
 - [装配约束、求解与交互](architecture/target/assembly.md)
 - [机构命令试动、关键帧录制与回放完整设计](architecture/target/kinematics-dmu.md)
+- [简单接合、驱动坐标与固联交互扩展](architecture/target/kinematics-simple-joints.md)
 - [Product 求值、资源与验证](architecture/target/product-evaluation.md)
 - [持久拓扑命名](architecture/current/persistent-naming.md)
 ### 分布式平台与交付治理
