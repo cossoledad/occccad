@@ -45,7 +45,6 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 		joints := group(mn.ID, "joints", "接合")
 		drivers := group(mn.ID, "commands", "命令")
 		ground := group(mn.ID, "ground", "固定零件")
-		laws := group(mn.ID, "laws", "运动规律")
 		for _, j := range m.Joints {
 			label := j.Name + " (" + nameFor(j.First.InstanceID)
 			if j.Second != nil {
@@ -90,21 +89,8 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 				drivers.Children = append(drivers.Children, n)
 			}
 		}
-		for _, l := range k.Laws {
-			if l.MechanismID == m.ID {
-				label := l.Name
-				for _, d := range k.Drivers {
-					if d.ID == l.DriverID {
-						label += " (" + d.Name + ")"
-					}
-				}
-				n := node(laws.ID, "MOTION_LAW", l.ID, label)
-				n.MechanismID = m.ID
-				n.OwnerEntityID = l.DriverID
-				laws.Children = append(laws.Children, n)
-			}
-		}
-		mn.Children = []DocumentStructureNode{joints, drivers, ground, laws}
+
+		mn.Children = []DocumentStructureNode{joints, drivers, ground}
 		return mn
 	}
 	mechanisms := group(root.ID, "mechanisms", "机械装置")

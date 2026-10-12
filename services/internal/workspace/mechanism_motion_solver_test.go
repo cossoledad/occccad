@@ -114,3 +114,48 @@ func TestMechanismCommandReferenceCapturedOnce(t *testing.T) {
 		t.Fatal("display rename or order invalidated recording")
 	}
 }
+
+func TestMechanismPassiveJointLimitRetainsQualifiedCheckpoint(t *testing.T) {
+	service := New(nil, motionWorker(t))
+	snapshot := motionFixture(t, true, "REVOLUTE")
+	engine, err := newMechanismMotionSolver(t.Context(), service, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := engine.state.Frame
+	target := initial.DriverValue + .05
+	qualified, err := engine.Advance(t.Context(), target)
+	if err != nil {
+		t.Fatal("unlimited target has no feasible witness", err)
+	}
+	start, end := initial.Coordinates["j2"], qualified.Coordinates["j2"]
+	if math.Abs(start-end) < 1e-5 {
+		t.Fatal("passive joint fixture did not move")
+	}
+	for i := range snapshot.Mechanism.Joints {
+		j := &snapshot.Mechanism.Joints[i]
+		if j.ID == "j2" {
+			bound := &MotionQuantity{Value: (start + end) / 2, Unit: "rad"}
+			if end > start {
+				j.Lower = nil
+				j.Upper = bound
+			} else {
+				j.Lower = bound
+				j.Upper = nil
+			}
+		}
+	}
+	snapshot.Digest = motionDigest(snapshot)
+	limited, err := newMechanismMotionSolver(t.Context(), service, snapshot)
+	if err != nil {
+		t.Fatal("one-sided passive stop rejected its valid entry", err)
+	}
+	before, _ := json.Marshal(limited.state)
+	if _, err = limited.Advance(t.Context(), target); err == nil {
+		t.Fatal("active coordinate ignored a passive joint stop")
+	}
+	after, _ := json.Marshal(limited.state)
+	if string(before) != string(after) {
+		t.Fatal("passive limit failure leaked continuation or member poses")
+	}
+}

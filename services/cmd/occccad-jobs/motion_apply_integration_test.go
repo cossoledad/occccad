@@ -147,7 +147,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 		ends[0], ends[1] = ends[1], ends[0]
 	}
 	mid, jid, did, sid := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
-	k := workspace.KinematicsDefinitions{Mechanisms: []workspace.Mechanism{{ID: mid, Name: "shaft-propeller", UnitIDs: []string{ends[0].InstanceID, ends[1].InstanceID}, Joints: []workspace.MechanismJoint{{ID: uuid.NewString(), Name: "shaft grounded", Kind: "GROUND", First: workspace.JointEndpoint{InstanceID: ends[0].InstanceID, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}, Direction: 1}, {ID: jid, Name: "geometric revolute", Kind: "REVOLUTE", First: ends[0], Second: &ends[1], Direction: 1, Zero: workspace.MotionQuantity{Unit: "deg"}, AxialOffset: workspace.MotionQuantity{Value: -10, Unit: "mm"}}}}}, Drivers: []workspace.MotionDriver{{ID: did, Name: "angle", MechanismID: mid, JointID: jid}}, Laws: []workspace.MotionLaw{{ID: "law", Name: "linear", MechanismID: mid, DriverID: did, Start: workspace.MotionQuantity{Value: 0, Unit: "deg"}, End: workspace.MotionQuantity{Value: 360, Unit: "deg"}, DurationSeconds: 4}}, Studies: []workspace.MotionStudy{{ID: sid, Name: "0..360", MechanismID: mid, LawID: "law", DriverID: did, Start: workspace.MotionQuantity{Unit: "deg"}, End: workspace.MotionQuantity{Value: 360, Unit: "deg"}, DurationSeconds: 4, Frames: 25, BudgetMS: 60000, Clearance: workspace.MotionQuantity{Unit: "mm"}}}}
+	k := workspace.KinematicsDefinitions{Mechanisms: []workspace.Mechanism{{ID: mid, Name: "shaft-propeller", UnitIDs: []string{ends[0].InstanceID, ends[1].InstanceID}, Joints: []workspace.MechanismJoint{{ID: uuid.NewString(), Name: "shaft grounded", Kind: "GROUND", First: workspace.JointEndpoint{InstanceID: ends[0].InstanceID, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}, Direction: 1}, {ID: jid, Name: "geometric revolute", Kind: "REVOLUTE", Lower: &workspace.MotionQuantity{Value: -720, Unit: "deg"}, Upper: &workspace.MotionQuantity{Value: 720, Unit: "deg"}, First: ends[0], Second: &ends[1], Direction: 1, Zero: workspace.MotionQuantity{Unit: "deg"}, AxialOffset: workspace.MotionQuantity{Value: -10, Unit: "mm"}}}}}, Drivers: []workspace.MotionDriver{{ID: did, Name: "angle", MechanismID: mid, JointID: jid}}}
 	t.Run("mechanism command preview isolates formal constraints", func(t *testing.T) {
 		originalHead := view.Document.VersionID
 		fixRef := workspace.AssemblyGeometryRef{InstanceID: ends[1].InstanceID, Kind: "BODY"}
@@ -281,6 +281,33 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	})
 
 	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
+	opened, err := service.BeginMechanismSession(t.Context(), view.Document.ID, actor, workspace.MechanismSessionBegin{OwnerID: "fixture", Generation: 1, BaseRevisionID: view.Document.VersionID, MechanismID: mid, DriverID: did})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.RecordMechanismKey(t.Context(), view.Document.ID, actor, opened.SessionID, 0, workspace.MotionKeyframe{ID: "key0", TimeSeconds: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualified, err := service.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 1, Value: &workspace.MotionQuantity{Value: 360, Unit: "deg"}})
+	if err != nil || !qualified.Accepted {
+		t.Fatal(qualified, err)
+	}
+	last, err := service.RecordMechanismKey(t.Context(), view.Document.ID, actor, opened.SessionID, 1, workspace.MotionKeyframe{ID: "key1", TimeSeconds: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	study := workspace.MotionStudy{ID: sid, Name: "recorded", MechanismID: mid, DriverID: did, Keyframes: []workspace.MotionKeyframe{first, last}, Frames: 25, BudgetMS: 60000}
+	final, err := service.FinalizeMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, workspace.MechanismSessionFinalize{Sequence: 1, Study: &study})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err = service.ApplyCommand(t.Context(), view.Document.ID, final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.CancelMechanismSession(view.Document.ID, actor, opened.SessionID)
+
 	k = view.Product.Kinematics
 	m := k.Mechanisms[0]
 	if len(m.Poses) != len(view.Product.Instances) || len(m.Joints[0].Constraints) != 1 || len(m.Joints[1].Constraints) != 2 {
@@ -378,7 +405,6 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 		}
 		independent := view.Product.Kinematics
 		independent.Drivers = nil
-		independent.Laws = nil
 		independent.Studies = nil
 		view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &independent})
 		plan, err := service.PlanMotionApply(t.Context(), view.Document.ID, actor, view.Document.VersionID, workspace.MotionApplyRequest{MechanismID: mid})
@@ -395,7 +421,7 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 		json.Unmarshal(raw, &free)
 		free.Mechanisms[0].Joints = nil
 		free.Mechanisms[0].Evaluation = nil
-		free.Drivers, free.Laws, free.Studies = nil, nil, nil
+		free.Drivers, free.Studies = nil, nil
 		view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &free})
 		accepted := view.Product.Kinematics.Mechanisms[0]
 		if accepted.Evaluation == nil {

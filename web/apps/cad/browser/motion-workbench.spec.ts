@@ -14,8 +14,9 @@ async function fixture(page:Page,withDefinitions=false,duration=4){
   const initial=await originalGet(documentId),instances=initial.product!.instances;
   const end=(instanceId:string)=>({instanceId,frame:{translation:[0,0,0],rotation:[0,0,0,1]},axis:{instanceId,kind:'AXIS',geometryId:'axis-system-default',axis:'Z'},plane:{instanceId,kind:'PLANE',geometryId:'datum-xy'},capturedX:[1,0,0]});
   let defs:any={mechanisms:[],drivers:[],studies:[],associations:[]};
-  if(seeded){defs={...defs,mechanisms:[{id:'m',name:'测试机构',unitIds:instances.map(i=>i.id),joints:[{id:'g',name:'圆柱固定',kind:'GROUND',first:end(instances[0].id),zero:{value:0,unit:'deg'},direction:1},{id:'j',name:'轴接合',kind:'REVOLUTE',first:end(instances[0].id),second:end(instances[1].id),zero:{value:0,unit:'deg'},direction:1}]}],drivers:[{id:'d',name:'角度驱动',mechanismId:'m',jointId:'j'}],laws:[{id:'law',name:'线性规律',mechanismId:'m',driverId:'d',start:{value:0,unit:'deg'},end:{value:360,unit:'deg'},durationSeconds:duration}],studies:[{id:'s',name:'旋转研究',mechanismId:'m',lawId:'law',driverId:'d',start:{value:0,unit:'deg'},end:{value:360,unit:'deg'},durationSeconds:duration,frames:5,budgetMs:60000}]}}
-  for(const m of defs.mechanisms){m.poses=Object.fromEntries(instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:[0,0,0,1]}]));}
+  if(seeded){defs={...defs,mechanisms:[{id:'m',name:'测试机构',unitIds:instances.map(i=>i.id),joints:[{id:'g',name:'圆柱固定',kind:'GROUND',first:end(instances[0].id),zero:{value:0,unit:'deg'},direction:1},{id:'j',name:'轴接合',kind:'REVOLUTE',first:end(instances[0].id),second:end(instances[1].id),zero:{value:0,unit:'deg'},direction:1,lower:{value:-360,unit:'deg'},upper:{value:720,unit:'deg'}}]}],drivers:[{id:'d',name:'角度驱动',mechanismId:'m',jointId:'j',reference:{value:0,unit:'deg'},referenceDigest:'fixture-coordinate'}],studies:[{id:'s',name:'旋转研究',mechanismId:'m',driverId:'d',durationSeconds:duration,frames:5,budgetMs:60000,reference:{value:0,unit:'deg'},sourceRevisionId:initial.document.versionId,basisDigest:'fixture-basis',geometryDigest:'fixture-geometry',keyframes:[{id:'key-start',timeSeconds:0,driverId:'d',value:{value:0,unit:'deg'}},{id:'key-end',timeSeconds:duration,driverId:'d',value:{value:360,unit:'deg'}}]}]}}
+  for(const m of defs.mechanisms){m.poses=Object.fromEntries(instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:[0,0,0,1]}]));m.coordinates={j:0};}
+  for(const s of defs.studies){const m=defs.mechanisms.find((m:any)=>m.id===s.mechanismId);s.initialPoses=structuredClone(m.poses);s.initialCoordinates=structuredClone(m.coordinates);}
   const state:any={saved:[],previews:[],requests:[],applied:[],inspected:[],jobs:[],blocked:false,release:undefined};
   (window as any).__motionFixture=state;
   let adopted:any;
@@ -31,7 +32,7 @@ async function fixture(page:Page,withDefinitions=false,duration=4){
    const project=(m:any,parent:string,reference=false)=>{
     const mn={...node(reference?'MECHANISM_REFERENCE':'MECHANISM',m),id:parent+'/mechanism:'+m.id,mechanismId:m.id,name:m.name+'，自由度=0',children:[] as any[]};
     const group=(key:string,name:string)=>({id:mn.id+'/'+key,kind:'KINEMATICS_GROUP',name,children:[] as any[]});
-    const joints=group('joints','接合'),commands=group('commands','命令'),ground=group('ground','固定零件'),laws=group('laws','运动规律');
+    const joints=group('joints','接合'),commands=group('commands','命令'),ground=group('ground','固定零件');
     const nameFor=(id:string)=>instances.find(i=>i.id===id)?.name??id;
     for(const j of m.joints){
      const suffix=' ('+nameFor(j.first.instanceId)+(j.second?','+nameFor(j.second.instanceId):'')+')';
@@ -41,8 +42,7 @@ async function fixture(page:Page,withDefinitions=false,duration=4){
      (j.kind==='GROUND'?ground:joints).children.push(jn);
     }
     commands.children=defs.drivers.filter((d:any)=>d.mechanismId===m.id).map((d:any)=>({...node('MOTION_DRIVER',d),id:mn.id+'/command:'+d.id,mechanismId:m.id}));
-    laws.children=(defs.laws??[]).filter((l:any)=>l.mechanismId===m.id).map((l:any)=>({...node('MOTION_LAW',l),id:mn.id+'/law:'+l.id,mechanismId:m.id}));
-    mn.children=[joints,commands,ground,laws];return mn;
+    mn.children=[joints,commands,ground];return mn;
    };
    view.structureTree.children.push({id:'applications',kind:'APPLICATIONS',name:'Applications',documentId,versionId:view.document.versionId,children:[{id:'mechanisms',kind:'KINEMATICS_GROUP',name:'机械装置',children:defs.mechanisms.map((m:any)=>project(m,'mechanisms'))},{id:'simulations',kind:'KINEMATICS_GROUP',name:'模拟',children:defs.studies.map((s:any)=>({...node('MOTION_STUDY',s),children:[project(defs.mechanisms.find((m:any)=>m.id===s.mechanismId),'simulation:'+s.id,true)]}))}]});
 

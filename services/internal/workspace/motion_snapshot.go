@@ -11,7 +11,7 @@ import (
 	"github.com/occccad/occccad/internal/geometry"
 )
 
-const motionPolicy = "revolute-command-recorded-path-v1"
+const motionPolicy = "revolute-joint-limits-recorded-path-v2"
 
 type MotionRunRequest struct {
 	BaseRevisionID  string          `json:"baseRevisionId"`
@@ -92,11 +92,6 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 			return s, fmt.Errorf("%w: unknown mechanism", ErrValidation)
 		}
 		selected := KinematicsDefinitions{Mechanisms: []Mechanism{s.Mechanism}, Studies: []MotionStudy{s.Study}}
-		for _, l := range view.Product.Kinematics.Laws {
-			if l.ID == s.Study.LawID {
-				selected.Laws = append(selected.Laws, l)
-			}
-		}
 		for _, d := range view.Product.Kinematics.Drivers {
 			if d.ID == s.Study.DriverID {
 				selected.Drivers = append(selected.Drivers, d)
@@ -113,9 +108,6 @@ func (service *Service) FreezeMotionStudy(ctx context.Context, documentID string
 		for _, d := range selected.Drivers {
 			if d.Reference == nil {
 				return s, fmt.Errorf("%w: command reference must be saved", ErrValidation)
-			}
-			if len(s.Study.Keyframes) == 0 {
-				s.Study.Reference = d.Reference
 			}
 			if len(s.Study.Keyframes) > 0 && (s.Study.BasisDigest != recordingBasis(s.Mechanism, d) || s.Study.GeometryDigest != recordingGeometry(view, s.Mechanism)) {
 				return s, fmt.Errorf("%w: SIMULATION_REVALIDATION_REQUIRED", ErrValidation)

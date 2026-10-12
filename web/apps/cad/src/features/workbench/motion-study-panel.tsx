@@ -8,6 +8,7 @@ import {assemblyPreviewMachine} from './assembly-preview-machine';
 import {api} from '../../api/client';
 import type {DocumentView,Job,SelectionItem,AssemblyGeometryRef} from '../../types';
 import {owningInstanceSelection} from '../../cad/assembly/instance-selection';
+import {drivenJointLimits,jointLimitsIssue} from '../../cad/assembly/motion-coordinates';
 import {deleteMotionObjects} from '../../cad/assembly/motion-definitions';
 import {memberPoses} from '../../cad/assembly/application-display';
 import {randomUUID} from '../../utils/random-uuid';
@@ -19,13 +20,13 @@ import {assemblyGeometryRef} from '../../cad/assembly/assembly-reference';
 import {useCommandRegistry} from '../../cad/command/command-context';
 import type {CommandOperation} from '../../cad/command/command-registry';
 import {CommandDialog} from '../../cad/overlay/floating-panel';
-import {motionFrameAt,motionPlayback,motionPlaybackTime,quantityIn,type MotionPlaybackClock,type JointEndpoint,type KinematicsDefinitions,type MechanismJoint,type MotionPlayback,type MotionRun,type MotionStudy,type MotionApplyRequest,type MotionApplyPlan,type MotionDriver,type MotionLaw} from '../../cad/assembly/motion-study';
+import {motionFrameAt,motionPlayback,motionPlaybackTime,quantityIn,type MotionPlaybackClock,type JointEndpoint,type KinematicsDefinitions,type MechanismJoint,type MotionPlayback,type MotionRun,type MotionStudy,type MotionApplyRequest,type MotionApplyPlan,type MotionDriver} from '../../cad/assembly/motion-study';
 
 const identity=()=>({translation:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number]});
 const relationLabels:Record<string,string>={ground:'固定',axis:'轴线相合','axial-location':'轴向定位',orientation:'方向一致','angle-lock':'锁定角度',existing:'已有正式约束',solver:'正式装配求解'};
 const actionLabels:Record<string,string>={ADD:'新增',REUSE:'复用',CONFLICT:'冲突'};
 const done=(job:Job)=>['SUCCEEDED','FAILED','CANCELED'].includes(job.state);
-const empty=():KinematicsDefinitions=>({mechanisms:[],studies:[],drivers:[],laws:[],associations:[]});
+const empty=():KinematicsDefinitions=>({mechanisms:[],studies:[],drivers:[],associations:[]});
 export type MotionPanelHandle={motionSession:()=>MechanismMotionSession|undefined;execute:(action:string,objectId?:string,operation?:CommandOperation)=>void|Promise<void>;closeCommand:()=>void;removeResult:(id:string)=>void;enabled:(action:string)=>boolean;adoptDefinition:(view:DocumentView)=>void;commitManipulation:(commit:()=>Promise<DocumentView>)=>Promise<DocumentView>;adoptProduct:(view:DocumentView)=>void};
 type PreviewPose=import("../../cad/assembly/motion-study").MotionPose&{instanceId:string};
 type Props={onDraft:(study?:MotionStudy)=>void;onCommit:(command:Record<string,unknown>)=>Promise<DocumentView>;captureViewpoint:()=>import('../../cad/assembly/motion-study').MotionViewpoint|undefined;previewViewpoint:(v:import('../../cad/assembly/motion-study').MotionViewpoint,documentId?:string)=>void;sourceMechanismIds?:string[];onMechanism:(m?:import("../../cad/assembly/motion-study").Mechanism)=>void;onStatus:(text:string)=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;onPreview:(poses?:PreviewPose[])=>void;view:DocumentView;active:boolean;selection:SelectionItem|null;canEdit:boolean;onSave:(k:KinematicsDefinitions,baseRevisionId?:string)=>Promise<DocumentView>;onSwitch:(req:import("../../cad/assembly/motion-study").MechanismApplicationRequest)=>Promise<import("../../cad/assembly/motion-study").MechanismApplication&{view:DocumentView}>;onApply:(req:MotionApplyRequest)=>Promise<void>;onPlayback:(p?:MotionPlayback)=>void;onHighlight:(s:SelectionItem[])=>void;onClose:()=>void;onCommandState:(active:boolean)=>void};
@@ -55,7 +56,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  const playbackIndex=()=>run&&clock?motionFrameAt(run,motionPlaybackTime(clock,performance.now())):index;
  const [action,setAction]=useState<string>(),[objectId,setObjectId]=useState<string>(),[name,setName]=useState('');
  const [joint,setJoint]=useState<MechanismJoint>(),[pickRole,setPickRole]=useState<JointSupportRole>();
- const [angleCommand,setAngleCommand]=useState(false),[lawDraft,setLawDraft]=useState<MotionLaw>();
+ const [angleCommand,setAngleCommand]=useState(false),[jointCoordinate,setJointCoordinate]=useState<number>();
  const [driver,setDriver]=useState<MotionDriver>();
  const [plan,setPlan]=useState<MotionApplyPlan>(),[lockAngle,setLockAngle]=useState(false),[applyOpen,setApplyOpen]=useState(false);
  const preparedResult=useRef<Record<string,unknown>|undefined>(undefined);
@@ -65,6 +66,11 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  const epoch=useRef(0),alive=useRef(true),activeRef=useRef(active);activeRef.current=active;
  const callbacks=useRef({onPlayback,onHighlight,onStatus,onSelectionSession,onPreview,onMechanism});callbacks.current={onPlayback,onHighlight,onStatus,onSelectionSession,onPreview,onMechanism};
  const selectedMechanism=defs.mechanisms.find(m=>m.id===mechanismId);
+ const jointDriver=joint?defs.drivers?.find(d=>d.jointId===joint.id):undefined;
+ const commandReference=jointDriver?.reference?quantityIn(jointDriver.reference,'rad'):jointCoordinate??0;
+ const jointReference=angleCommand?commandReference:0;
+ const commandReferenced=Boolean(jointDriver&&defs.studies.some(s=>s.driverId===jointDriver.id));
+ const limitsIssue=joint?.kind==='REVOLUTE'?jointLimitsIssue(joint,angleCommand,jointCoordinate):undefined;
  useEffect(()=>{if(savingDefinition.current)return;callbacks.current.onMechanism(active&&activeMechanismId.current?(showing&&run?run.snapshot.mechanism:selectedMechanism):undefined)},[active,showing,run,selectedMechanism]);
  const units=view.product?.instances??[],geometries=view.resolvedInstances??[];
  const editEnabled=canEdit&&applicationQualified&&!pending&&!commandPending&&!showing;
@@ -175,7 +181,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
    commandEpoch.current++;commandOwner.current=operation;setDisplayTime(clock?motionPlaybackTime(clock,performance.now()):displayTime);setIndex(playbackIndex());setClock(undefined);setError(undefined);setPlan(undefined);setLockAngle(false);setApplyOpen(true);return;
   }
   if(nextAction==='result'&&id){const job=jobs.data?.find(j=>j.id===id),owner=defs.studies.find(s=>s.id===job?.payload.studyId)?.mechanismId;if(owner&&owner!==activeMechanismId.current)return enter(owner).then(()=>{if(activeMechanismId.current===owner)execute(nextAction,id,operation)})}
-  if((nextAction==='edit'||nextAction==='edit-relation')&&id){const owner=defs.mechanisms.find(m=>m.id===id||m.joints.some(j=>j.id===id||j.constraints?.some(c=>c.id===id))||defs.drivers?.some(d=>d.id===id&&d.mechanismId===m.id)||defs.laws?.some(l=>l.id===id&&l.mechanismId===m.id)||defs.studies.some(s=>s.id===id&&s.mechanismId===m.id));if(owner&&owner.id!==activeMechanismId.current)return enter(owner.id).then(()=>{if(activeMechanismId.current===owner.id)execute(nextAction,id,operation)})}
+  if((nextAction==='edit'||nextAction==='edit-relation')&&id){const owner=defs.mechanisms.find(m=>m.id===id||m.joints.some(j=>j.id===id||j.constraints?.some(c=>c.id===id))||defs.drivers?.some(d=>d.id===id&&d.mechanismId===m.id)||defs.studies.some(s=>s.id===id&&s.mechanismId===m.id));if(owner&&owner.id!==activeMechanismId.current)return enter(owner.id).then(()=>{if(activeMechanismId.current===owner.id)execute(nextAction,id,operation)})}
   if(!['result','results','apply','run'].includes(nextAction))setPreviewSuspended(false);
   commandBaseline.current=structuredClone(acceptedMechanism.current??selectedMechanism);
   commandEpoch.current++;commandOwner.current=operation;setCommandPending(false);setError(undefined);setPlan(undefined);setPickRole(undefined);setObjectId(id);
@@ -190,19 +196,16 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(nextAction==='edit'){
    const m=defs.mechanisms.find(m=>m.id===id),owner=defs.mechanisms.find(m=>m.joints.some(j=>j.id===id));
    if(m){setMechanismId(m.id);setName(m.name);nextAction='mechanism'}
-   else if(owner){setMechanismId(owner.id);setJoint(structuredClone(owner.joints.find(j=>j.id===id)!));nextAction='joint';if(relationRole)setPickRole(relationRole==='axial-location'?'first.plane':relationRole==='axis'?'first.axis':undefined)}
+   else if(owner){setMechanismId(owner.id);setJoint(structuredClone(owner.joints.find(j=>j.id===id)!));setAngleCommand(Boolean(defs.drivers?.some(d=>d.jointId===id)));setJointCoordinate(owner.coordinates?.[id!]);nextAction='joint';if(relationRole)setPickRole(relationRole==='axial-location'?'first.plane':relationRole==='axis'?'first.axis':undefined)}
    else if(defs.drivers?.some(d=>d.id===id)){const d=defs.drivers.find(d=>d.id===id)!;setMechanismId(d.mechanismId);setDriver(structuredClone(d));nextAction='driver'}
-   else if(defs.laws?.some(l=>l.id===id)){const l=defs.laws.find(l=>l.id===id)!;setMechanismId(l.mechanismId);setLawDraft(structuredClone(l));nextAction='law'}
    else if(defs.studies.some(s=>s.id===id)){const s=defs.studies.find(s=>s.id===id)!;setMechanismId(s.mechanismId);nextAction='study'}
   }
   if(['ground','revolute'].includes(nextAction)){
    if(!selectedMechanism){setError('请先创建或选择机构');return}
-   setAngleCommand(false);
+   setAngleCommand(false);setJointCoordinate(undefined);
    const kind=nextAction==='ground'?'GROUND':nextAction.toUpperCase() as MechanismJoint['kind'];const selected=selection?owningInstanceSelection(view,selection)?.instanceId??'':'';
    const first:JointEndpoint={instanceId:selected,frame:identity()};setJoint({id:randomUUID(),name:(nextAction==='ground'?'固定零件':'旋转')+'.'+(selectedMechanism.joints.filter(j=>j.kind===kind).length+1),kind,first,second:kind==='GROUND'?undefined:{instanceId:units.find(v=>v.id!==selected)?.id??'',frame:identity()},zero:{value:0,unit:kind==='REVOLUTE'?'deg':'mm'},axialOffset:{value:0,unit:'mm'},axialDirection:'SAME',direction:1});nextAction='joint';setPickRole(kind==='GROUND'?undefined:'first.axis');setObjectId(undefined)
   }
-  if(nextAction==='driver'&&!id){const j=selectedMechanism?.joints.find(j=>j.kind==='REVOLUTE'&&!defs.drivers?.some(d=>d.mechanismId===mechanismId&&d.jointId===j.id));if(!j){setError('请先创建可驱动的接合');return}setDriver({id:randomUUID(),name:'命令.'+((defs.drivers??[]).filter(d=>d.mechanismId===mechanismId).length+1),mechanismId:mechanismId,jointId:j.id})}
-  if(nextAction==='law'&&!id){const d=defs.drivers?.find(d=>d.mechanismId===mechanismId);if(!d){setError('请先保存角度命令');return}setLawDraft({id:randomUUID(),name:'规律.'+((defs.laws??[]).filter(l=>l.mechanismId===mechanismId).length+1),mechanismId,driverId:d.id,start:{value:0,unit:'deg'},end:{value:360,unit:'deg'},durationSeconds:5})}
   if(nextAction==='study'){if(!selectedMechanism)return;setMotionDialog({record:true,study:id?defs.studies.find(s=>s.id===id):undefined,view,mechanism:selectedMechanism});setAction('record-motion');onCommandState(true);return}
   if(nextAction==='mechanism'&&!id)setName('机械装置.'+(defs.mechanisms.length+1));
   if(nextAction==='apply'){if(!selectedMechanism||showing&&(!run||!jobId||!run.frames[index]?.kinematicValid)){setError('选择机械装置已确认位姿或合格仿真帧');return}setClock(undefined);setApplyOpen(true);setLockAngle(false)}
@@ -222,8 +225,6 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(command==='move')return Boolean(selectedMechanism&&activeMechanismId.current);
   if(!selectedMechanism||!activeMechanismId.current)return false;
   if(['ground','revolute'].includes(command))return units.length>0;
-  if(command==='driver')return selectedMechanism.joints.some(j=>j.kind==='REVOLUTE'&&!defs.drivers?.some(d=>d.mechanismId===mechanismId&&d.jointId===j.id));
-  if(command==='law')return Boolean(defs.drivers?.some(d=>d.mechanismId===mechanismId));
   if(command==='study')return Boolean(defs.drivers?.some(d=>d.mechanismId===mechanismId));
   return true;
  };
@@ -291,6 +292,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  useEffect(()=>{
   const m=selectedMechanism;if(!active||showing||previewSuspended||!m||!activeMechanismId.current||savingDefinition.current||commandPending){setPreviewPending(false);return}
   const draft=action==='joint'?joint:undefined;
+  if(draft&&limitsIssue){setPreviewReady(false);setPreviewPending(false);return}
   if(draft&&(draft.kind==='GROUND'?!draft.first.instanceId:!draft.first.axis||!draft.second?.axis)){setPreviewReady(false);return}
   const joints=draft?[...m.joints.filter(j=>j.id!==draft.id),draft]:m.joints;
   if(!joints.length){setPreviewReady(false);return}
@@ -299,10 +301,10 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   setPreviewReady(false);setPreviewPending(true);setError(undefined);qualifiedJoint.current=undefined;previewActor.send({type:'REQUEST',sequence:generation});
   const timer=setTimeout(()=>{void api.previewMechanism(view.document.id,{requestId:randomUUID(),baseRevisionId:view.document.versionId,mechanism:{...m,poses:commandBaseline.current?.poses??m.poses,joints},draftJointId:draft?.id},abort.signal).then(result=>{
    if(abort.signal.aborted||generation!==previewSequence.current||!activeRef.current)return;
-   previewActor.send({type:'RESOLVE',sequence:generation});setPreviewReady(true);setPreviewPending(false);qualifiedInput.current=JSON.stringify(draft);qualifiedJoint.current=result.mechanism.joints.find(j=>j.id===draft?.id);callbacks.current.onPreview(result.instancePoses);callbacks.current.onMechanism(result.mechanism);
+   previewActor.send({type:'RESOLVE',sequence:generation});setPreviewReady(true);setPreviewPending(false);qualifiedInput.current=JSON.stringify(draft);qualifiedJoint.current=result.mechanism.joints.find(j=>j.id===draft?.id);if(draft)setJointCoordinate(result.mechanism.coordinates?.[draft.id]);callbacks.current.onPreview(result.instancePoses);callbacks.current.onMechanism(result.mechanism);
   }).catch(e=>{if(abort.signal.aborted||generation!==previewSequence.current)return;previewActor.send({type:'REJECT',sequence:generation,error:String(e)});setPreviewPending(false);setError(e);})},100);
   return()=>{clearTimeout(timer);abort.abort()};
- },[active,showing,previewSuspended,action,joint,selectedMechanism,view.document.versionId,commandPending]);
+ },[active,showing,previewSuspended,action,joint,limitsIssue,selectedMechanism,view.document.versionId,commandPending]);
  useEffect(()=>{if(error)feedback(error,'机构命令')},[error,feedback]);
  useEffect(()=>{if(active&&job?.errorMessage)feedback(new Error(job.errorMessage),'机构运行')},[active,job?.id,job?.errorMessage,feedback]);
  useEffect(()=>{callbacks.current.onStatus(!active?'':pickRole?`选择${pickRole.startsWith('first')?'第一':'第二'}${pickRole.endsWith('axis')?'轴线':'定位平面'}`:previewPending?'正在预览接合…':showing?`机构回放 · 帧 ${index+1}${run?.snapshot.revisionId!==view.document.versionId?' · 冻结旧版本':''}`:job&&!done(job)?`机构运行 · ${job.state} ${job.progress}%`:selectedMechanism?`机构编辑 · ${selectedMechanism.name}`:'机构编辑')},[active,pickRole,previewPending,showing,index,run,job,selectedMechanism]);
@@ -355,12 +357,24 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  };
  const frame=run?.frames[index];
  useEffect(()=>{commandEpoch.current++;setPlan(undefined)},[index,jobId]);
- const changeJoint=(patch:Partial<MechanismJoint>)=>setJoint(j=>j?{...j,...patch}:j);
- const saveJoint=async()=>{if(!joint||!selectedMechanism)return;const m={...selectedMechanism,poses:commandBaseline.current?.poses??selectedMechanism.poses,joints:[...selectedMechanism.joints.filter(j=>j.id!==joint.id),qualifiedJoint.current??joint]};m.unitIds=[...new Set([...m.unitIds,...m.joints.flatMap(j=>[j.first.instanceId,...(j.second?[j.second.instanceId]:[])])])];const drivers=angleCommand&&!defs.drivers?.some(d=>d.jointId===joint.id)?[...(defs.drivers??[]),{id:randomUUID(),name:'命令.'+((defs.drivers??[]).filter(d=>d.mechanismId===m.id).length+1),mechanismId:m.id,jointId:joint.id}]:defs.drivers;await save({...defs,drivers,mechanisms:[...defs.mechanisms.filter(v=>v.id!==m.id),m]})};
+ const changeJoint=(patch:Partial<MechanismJoint>)=>{if(patch.direction!==undefined)setJointCoordinate(undefined);setJoint(j=>j?{...j,...patch}:j)};
+ const toggleAngleCommand=(enabled:boolean)=>{if(!joint||!enabled&&commandReferenced)return;setAngleCommand(enabled);if(enabled)changeJoint(drivenJointLimits(joint,commandReference));};
+ const saveJoint=async()=>{
+  if(!joint||!selectedMechanism)return;
+  if(!angleCommand&&commandReferenced)throw new Error('命令被模拟引用');
+  const accepted=qualifiedJoint.current??joint;
+  const m={...selectedMechanism,poses:commandBaseline.current?.poses??selectedMechanism.poses,joints:[...selectedMechanism.joints.filter(j=>j.id!==joint.id),accepted]};
+  m.unitIds=[...new Set([...m.unitIds,...m.joints.flatMap(j=>[j.first.instanceId,...(j.second?[j.second.instanceId]:[])])])];
+  let drivers=defs.drivers??[];
+  if(angleCommand&&!jointDriver)drivers=[...drivers,{id:randomUUID(),name:'命令.'+(drivers.filter(d=>d.mechanismId===m.id).length+1),mechanismId:m.id,jointId:joint.id}];
+  if(!angleCommand)drivers=drivers.filter(d=>d.jointId!==joint.id);
+  await save({...defs,drivers,mechanisms:[...defs.mechanisms.filter(v=>v.id!==m.id),m]});
+ };
+
  const definitionValid=editEnabled&&(
   action==='mechanism'?Boolean(name.trim()):
-  action==='joint'?Boolean(previewReady&&!previewPending&&qualifiedInput.current===JSON.stringify(joint)&&joint?.name&&joint.first.instanceId&&(joint.kind==='GROUND'||joint.second?.instanceId&&joint.first.axis&&joint.first.plane&&joint.second.axis&&joint.second.plane)):
-  action==='driver'?Boolean(driver?.name&&driver.jointId):action==='law'?Boolean(lawDraft?.name&&lawDraft.driverId&&lawDraft.durationSeconds>0):
+  action==='joint'?Boolean(!limitsIssue&&previewReady&&!previewPending&&qualifiedInput.current===JSON.stringify(joint)&&joint?.name&&joint.first.instanceId&&(joint.kind==='GROUND'||joint.second?.instanceId&&joint.first.axis&&joint.first.plane&&joint.second.axis&&joint.second.plane&&(!angleCommand||joint.lower&&joint.upper))):
+  action==='driver'?Boolean(driver?.name&&driver.jointId):
   action==='results'?true:false);
  const confirmDefinition=async()=>{
   if(action==='results'){closeCommand(true);return}
@@ -368,7 +382,6 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(action==='mechanism'){const id=objectId??randomUUID();await save({...defs,mechanisms:objectId?defs.mechanisms.map(m=>m.id===objectId?{...m,name}:m):[...defs.mechanisms,{id,name,unitIds:[],joints:[]}]},id)}
   if(action==='joint')await saveJoint();
   if(action==='driver'&&driver)await save({...defs,drivers:[...(defs.drivers??[]).filter(d=>d.id!==driver.id),driver]});
-  if(action==='law'&&lawDraft)await save({...defs,laws:[...(defs.laws??[]).filter(l=>l.id!==lawDraft.id),lawDraft]});
 
  };
  const failure=error?normalizeOperationFailure(error):undefined;
@@ -378,7 +391,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
      if(motionDialog.record){const study=updated.product?.kinematics?.studies.find(s=>s.id===recordedStudyId);if(study){try{await api.startMotionRun(updated.document.id,{baseRevisionId:updated.document.versionId,studyId:study.id,requestId:randomUUID()});await client.invalidateQueries({queryKey:['motion-jobs',updated.document.id]})}catch(e){feedback(e,'生成模拟结果')}}}
      return updated}finally{savingDefinition.current=false}}} onClose={updated=>{if(updated)adopt(updated);closeCommand(false,true);registry.cancel()}}/>}
   {active&&!action&&failureNotice}
-  <CommandDialog id={'dmu.'+(action??'definition')} open={active&&Boolean(action)&&action!=='apply'&&!motionDialog&&!applyOpen} title={action==='results'?'仿真与回放':action==='joint'?joint?.name:action==='mechanism'?'编辑机械装置':registry.declaration('dmu.'+action)?.name??'编辑对象'} onClose={()=>closeCommand()} onConfirm={confirmDefinition} confirmLoading={commandPending||pending} confirmDisabled={action!=='results'&&!definitionValid} size="M"><div className="motion-study-fields">
+  <CommandDialog id={'dmu.'+(action??'definition')} open={active&&Boolean(action)&&action!=='apply'&&!motionDialog&&!applyOpen} title={action==='results'?'仿真与回放':action==='joint'?joint?.name:action==='driver'?driver?.name:action==='mechanism'?'编辑机械装置':registry.declaration('dmu.'+action)?.name??'编辑对象'} onClose={()=>closeCommand()} onConfirm={confirmDefinition} confirmLoading={commandPending||pending} confirmDisabled={action!=='results'&&!definitionValid} size="M"><div className="motion-study-fields">
 
    {action==='results'&&<>
     {job&&!done(job)&&<Space><Progress percent={job.progress} size="small"/><Button disabled={!job.canCancel||pending||commandPending} onClick={()=>void stopCalculation()}>停止计算</Button></Space>}
@@ -406,24 +419,16 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
     </section>
    </>}
    {(action==='mechanism')&&<><Input aria-label="机构名称" value={name} onChange={e=>setName(e.target.value)}/></>}
-   {action==='joint'&&joint&&(joint.kind==='REVOLUTE'?<RevoluteJointFields view={view} joint={joint} mechanismName={selectedMechanism?.name} pickRole={pickRole} onRole={setPickRole} onClear={clearSupport} onChange={changeJoint} angleCommand={angleCommand} hasCommand={Boolean(defs.drivers?.some(d=>d.jointId===joint.id))} onAngleCommand={setAngleCommand} pending={previewPending} disabled={commandPending}/>:<>
+   {action==='joint'&&joint&&(joint.kind==='REVOLUTE'?<RevoluteJointFields view={view} joint={joint} mechanismName={selectedMechanism?.name} pickRole={pickRole} onRole={setPickRole} onClear={clearSupport} onChange={changeJoint} angleCommand={angleCommand} commandReferenced={commandReferenced} reference={jointReference} limitsIssue={limitsIssue} onAngleCommand={toggleAngleCommand} pending={previewPending} disabled={commandPending}/>:<>
     <Input aria-label="固定件名称" value={joint.name} onChange={e=>changeJoint({name:e.target.value})}/>
     <label className="motion-labeled-field"><span>固定零件</span><Button aria-label="固定零件" disabled={commandPending}>{units.find(v=>v.id===joint.first.instanceId)?.name??'选择零件'}</Button><Button size="small" disabled={commandPending} onClick={()=>changeJoint({first:{instanceId:'',frame:identity()},constraints:undefined})}>清除</Button></label>
    </>)}
    {action==='driver'&&driver&&<>
-    <Input aria-label="命令名称" value={driver.name} onChange={e=>setDriver({...driver,name:e.target.value})}/>
-    <Select aria-label="命令接合" style={{width:'100%'}} value={driver.jointId} options={selectedMechanism?.joints.filter(j=>j.kind==='REVOLUTE').map(j=>({value:j.id,label:j.name}))} onChange={jointId=>setDriver({...driver,jointId,reference:undefined,referenceDigest:undefined})}/>
-    <label className="motion-labeled-field"><span>最小角度 °</span><InputNumber value={quantityIn(driver.minimum??{value:-180,unit:'deg'},'deg')} onChange={v=>setDriver({...driver,minimum:{value:v??-180,unit:'deg'}})}/></label>
-    <label className="motion-labeled-field"><span>最大角度 °</span><InputNumber value={quantityIn(driver.maximum??{value:180,unit:'deg'},'deg')} onChange={v=>setDriver({...driver,maximum:{value:v??180,unit:'deg'}})}/></label>
-    <Button onClick={()=>setDriver({...driver,reference:undefined,referenceDigest:undefined})}>当前位置设为零点</Button>
+    <Typography.Text>{driver.name}</Typography.Text>
+    <label className="motion-labeled-field"><span>所属接合</span><Typography.Text>{selectedMechanism?.joints.find(j=>j.id===driver.jointId)?.name}</Typography.Text></label>
+    <label className="motion-labeled-field"><span>当前角度 °</span><InputNumber aria-label="命令当前角度" readOnly precision={2} value={driver.reference?((selectedMechanism?.coordinates?.[driver.jointId]??0)-quantityIn(driver.reference,'rad'))*180/Math.PI:0}/></label>
+    <Button aria-label="置零" disabled={commandPending||!driver.reference} onClick={()=>setDriver({...driver,reference:undefined,referenceDigest:undefined})}>置零</Button>
    </>}
-   {action==='law'&&lawDraft&&<>
-    <Input aria-label="运动规律名称" value={lawDraft.name} onChange={e=>setLawDraft({...lawDraft,name:e.target.value})}/>
-    <Select aria-label="规律角度命令" style={{width:'100%'}} value={lawDraft.driverId} options={defs.drivers?.filter(d=>d.mechanismId===mechanismId).map(d=>({value:d.id,label:d.name}))} onChange={driverId=>setLawDraft({...lawDraft,driverId})}/>
-    <Space wrap><span>起止 {lawDraft.start.unit}</span><InputNumber aria-label="规律起始角度" value={lawDraft.start.value} onChange={v=>setLawDraft({...lawDraft,start:{...lawDraft.start,value:v??0}})}/><InputNumber aria-label="规律结束角度" value={lawDraft.end.value} onChange={v=>setLawDraft({...lawDraft,end:{...lawDraft.end,value:v??0}})}/><span>时长 s</span><InputNumber min={.01} value={lawDraft.durationSeconds} onChange={v=>setLawDraft({...lawDraft,durationSeconds:v??5})}/></Space>
-   </>}
-
-
 
    {failureNotice}
   </div></CommandDialog>

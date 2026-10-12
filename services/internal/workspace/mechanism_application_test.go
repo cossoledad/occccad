@@ -97,24 +97,23 @@ func TestConstraintNamesSurviveDeletionAndHistory(t *testing.T) {
 	}
 }
 
-func TestMotionLawReferencesAndStableJointDigest(t *testing.T) {
+func TestMotionRecordingReferencesAndStableJointDigest(t *testing.T) {
 	a := MechanismJoint{ID: "j", Name: "旋转.1", Kind: "REVOLUTE", First: jointEnd("a", 0, 0), Second: jointEndPointer("b", 0, 0), Direction: 1, Zero: MotionQuantity{Unit: "deg"}}
 	b := a
 	b.Name = "renamed"
 	if jointDefinitionDigest(a) != jointDefinitionDigest(b) {
 		t.Fatal("display rename invalidated a frozen definition")
 	}
-	k := KinematicsDefinitions{Laws: []MotionLaw{{ID: "law", Name: "linear", MechanismID: "m", DriverID: "d", Start: MotionQuantity{Unit: "deg"}, End: MotionQuantity{Value: 90, Unit: "deg"}, DurationSeconds: 2}}, Studies: []MotionStudy{{ID: "s", MechanismID: "m", LawID: "law", Frames: 9, BudgetMS: 1000}}}
-	if err := resolveMotionLaws(&k); err != nil {
+	k := KinematicsDefinitions{Studies: []MotionStudy{{ID: "s", MechanismID: "m", DriverID: "d", Keyframes: []MotionKeyframe{{ID: "start"}, {ID: "end", TimeSeconds: 2}}, Frames: 9, BudgetMS: 1000}}}
+	if err := normalizeMotionRecordings(&k); err != nil {
 		t.Fatal(err)
 	}
-	s := k.Studies[0]
-	if s.DriverID != "d" || s.End.Value != 90 || s.DurationSeconds != 2 {
-		t.Fatal("snapshot ignored the referenced law", s)
+	if k.Studies[0].DurationSeconds != 2 {
+		t.Fatal("record duration does not follow authored times")
 	}
-	k.Studies[0].LawID = "deleted"
-	if resolveMotionLaws(&k) == nil {
-		t.Fatal("deleted law accepted")
+	k.Studies[0].Keyframes = nil
+	if normalizeMotionRecordings(&k) == nil {
+		t.Fatal("empty recording accepted")
 	}
 	if !reflect.DeepEqual(a.First, b.First) {
 		t.Fatal("digest mutated definition")

@@ -81,7 +81,7 @@ async function seedProduct(page:Page,defineMechanism=true,publishSupports=false)
   v=await api.command(id,{type:'MOVE_INSTANCE',instanceId:rotor,translation:[22,15,7],rotation:[0,0,0,1]});
   const endpoint=(instanceId:string)=>({instanceId,frame:{translation:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number]},axis:{instanceId,kind:'AXIS' as const,geometryId:'axis-system-default',axis:'Z' as const},plane:{instanceId,kind:'PLANE' as const,geometryId:'datum-xy'},capturedX:[1,0,0] as [number,number,number]});
   const mid=crypto.randomUUID(),jid=crypto.randomUUID();
-  if(defineMechanism)v=await api.command(id,{type:'SAVE_KINEMATICS',versionId:v.document.versionId,kinematics:{mechanisms:[{id:mid,name:'机械装置.1',unitIds:[shaft,rotor],joints:[{id:crypto.randomUUID(),name:'固定零件.1',kind:'GROUND',first:endpoint(shaft),zero:{value:0,unit:'deg'},direction:1},{id:jid,name:'旋转.1',kind:'REVOLUTE',first:endpoint(shaft),second:endpoint(rotor),zero:{value:0,unit:'deg'},axialOffset:{value:7,unit:'mm'},direction:1}]}],drivers:[],laws:[],studies:[],associations:[]}});
+  if(defineMechanism)v=await api.command(id,{type:'SAVE_KINEMATICS',versionId:v.document.versionId,kinematics:{mechanisms:[{id:mid,name:'机械装置.1',unitIds:[shaft,rotor],joints:[{id:crypto.randomUUID(),name:'固定零件.1',kind:'GROUND',first:endpoint(shaft),zero:{value:0,unit:'deg'},direction:1},{id:jid,name:'旋转.1',kind:'REVOLUTE',first:endpoint(shaft),second:endpoint(rotor),zero:{value:0,unit:'deg'},axialOffset:{value:7,unit:'mm'},direction:1}]}],drivers:[],studies:[],associations:[]}});
   return {id,shaft,rotor,mid,jid,version:v.document.versionId};
  },{defineMechanism,publishSupports});
 }
@@ -220,7 +220,7 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  }
  await expect(joint.getByRole('button',{name:'第一轴线',exact:true})).toContainText('圆柱面轴线');
  await expect(joint.getByRole('button',{name:'第二轴线',exact:true})).toContainText('圆柱面轴线');
- await joint.getByRole('spinbutton',{name:'轴向偏移 mm',exact:true}).fill('9');await joint.getByRole('combobox',{name:'平面方向',exact:true}).click();await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');await joint.getByRole('checkbox',{name:'角度命令',exact:true}).check();
+ await joint.getByRole('spinbutton',{name:'轴向偏移 mm',exact:true}).fill('9');await joint.getByRole('combobox',{name:'平面方向',exact:true}).click();await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).check();
  await expect(joint.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await page.screenshot({path:'../../../build/acceptance/dmu-revolute-dialog.png'});
  await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);
  let v=await current(page,seed.id);const m=v.product.kinematics.mechanisms[0],revolute=m.joints.find((j:any)=>j.kind==='REVOLUTE');
@@ -278,7 +278,7 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  await page.screenshot({path:'../../../build/acceptance/dmu-recorded-simulation.png'});
  await recorder.getByRole('button',{name:/^确\s*定$/}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
  const recorded=await current(page,seed.id);expect(recorded.product.kinematics.studies).toHaveLength(1);expect(recorded.product.kinematics.studies[0].keyframes).toHaveLength(3);
- expect(recorded.product.instances).toEqual(baseline.product.instances);expect(recorded.product.kinematics.laws??[]).toHaveLength(0);
+ expect(recorded.product.instances).toEqual(baseline.product.instances);expect(recorded.product.kinematics).not.toHaveProperty('laws');
  await command(page,'撤销');v=await current(page,seed.id);expect(v.product.kinematics.studies).toHaveLength(0);expect(v.product.kinematics.mechanisms[0].poses).toEqual(baseline.product.kinematics.mechanisms[0].poses);
  await command(page,'重做');v=await current(page,seed.id);expect(v.product.kinematics.studies[0].keyframes).toEqual(recorded.product.kinematics.studies[0].keyframes);
  await filter.fill('模拟.1');await tree.getByText('模拟.1',{exact:true}).dblclick();await expect(page.getByRole('dialog')).toHaveCount(2);
@@ -321,6 +321,43 @@ test('viewport instance picks and mechanism manipulation preserve Product constr
  await command(page,'退出机构');await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();v=await current(page,seed.id);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation).toEqual(original.translation);expect(v.product.kinematics.mechanisms).toHaveLength(1);expect(errors).toEqual([]);
 });
 
+test('joint limits own command creation and zero preserves recorded positions',async({page})=>{
+ test.setTimeout(480_000);
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const login=await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}});expect(login.ok()).toBeTruthy();
+ await page.goto('/');const seed=await seedProduct(page);
+ await page.goto('/documents/'+seed.id+'?application=mechanism&mechanismId='+seed.mid);await expect(page.getByRole('button',{name:'移动组件',exact:true})).toBeEnabled({timeout:60_000});
+ await expect(page.getByRole('button',{name:'角度命令',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'运动规律',exact:true})).toHaveCount(0);
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ const joint=page.getByRole('dialog',{name:'旋转.1',exact:true}),openJoint=async()=>{await filter.fill('旋转.1');await tree.getByText(/^旋转\.1 \(/).first().dblclick();await expect(joint).toBeVisible()};
+ await openJoint();await expect(joint.getByRole('checkbox',{name:'角度驱动',exact:true})).not.toBeChecked();await expect(joint.getByRole('spinbutton',{name:'角度下限 °',exact:true})).toBeDisabled();
+ await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).check();await expect(joint.getByRole('checkbox',{name:'启用角度下限',exact:true})).toBeChecked();await expect(joint.getByRole('checkbox',{name:'启用角度上限',exact:true})).toBeDisabled();
+ await joint.getByRole('spinbutton',{name:'角度下限 °',exact:true}).fill('-20');await joint.getByRole('spinbutton',{name:'角度上限 °',exact:true}).fill('50');
+ await expect(joint.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);
+ let view=await current(page,seed.id);const oldDriver=view.product.kinematics.drivers[0].id,stops=view.product.kinematics.mechanisms[0].joints.find((j:any)=>j.id===seed.jid);
+ expect(view.product.kinematics.drivers).toHaveLength(1);expect(view.product.kinematics.drivers[0]).not.toHaveProperty('minimum');expect(view.product.kinematics).not.toHaveProperty('laws');
+ await openJoint();await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).uncheck();await expect(joint.getByRole('checkbox',{name:'启用角度下限',exact:true})).toBeEnabled();
+ await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);view=await current(page,seed.id);expect(view.product.kinematics.drivers??[]).toHaveLength(0);
+ const undriven=view.product.kinematics.mechanisms[0].joints.find((j:any)=>j.id===seed.jid);expect(undriven.lower).toEqual(stops.lower);expect(undriven.upper).toEqual(stops.upper);
+ await openJoint();await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).check();await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);view=await current(page,seed.id);expect(view.product.kinematics.drivers[0].id).not.toBe(oldDriver);
+ await filter.fill('');await command(page,'模拟');const recorder=page.getByRole('dialog',{name:'模拟',exact:true}),trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true});
+ await expect(trial.getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();await trial.getByRole('spinbutton',{name:'命令角度'}).fill('20');await expect(recorder.locator('tbody tr[data-row-key]')).toHaveCount(2);
+ await trial.getByRole('spinbutton',{name:'命令角度'}).fill('10');await expect(recorder.locator('tbody tr[data-row-key]')).toHaveCount(3);await recorder.getByRole('button',{name:/^确\s*定$/}).click();await expect(recorder).toHaveCount(0);
+ const saved=await current(page,seed.id),beforePoses=saved.product.kinematics.mechanisms[0].poses;
+ await viewportEngine(page);const rendered=()=>page.evaluate(()=>Object.fromEntries([...(window as any).__dmuEngine.instanceGroups].map(([id,g]:any)=>[id,{translation:g.position.toArray(),rotation:g.quaternion.toArray()}])));
+ const beforeRender=await rendered();await filter.fill('命令.1');await tree.getByText(/^命令\.1 \(/).first().dblclick();const editor=page.getByRole('dialog',{name:'命令.1',exact:true});
+ await expect(editor.getByRole('spinbutton',{name:'命令当前角度',exact:true})).toHaveValue('10.00');await expect(editor.getByRole('combobox')).toHaveCount(0);await editor.getByRole('button',{name:'置零',exact:true}).click();await expect(editor.getByRole('spinbutton',{name:'命令当前角度',exact:true})).toHaveValue('0.00');
+ expect(await rendered()).toEqual(beforeRender);await editor.getByRole('button',{name:/^确\s*定$/}).click();await expect(editor).toHaveCount(0);
+ const zeroed=await current(page,seed.id);expect(zeroed.product.kinematics.studies).toEqual(saved.product.kinematics.studies);
+ for(const [id,pose] of Object.entries(beforePoses) as any)for(let i=0;i<3;i++)expect(zeroed.product.kinematics.mechanisms[0].poses[id].translation[i]).toBeCloseTo(pose.translation[i],6);
+ await filter.fill('模拟.1');await tree.getByText('模拟.1',{exact:true}).dblclick();await expect(trial.getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();await expect.poll(async()=>Number(await trial.getByRole('spinbutton',{name:'命令角度'}).inputValue())).toBeCloseTo(-10,2);
+ await expect(trial.getByText('-30.00°',{exact:true})).toBeVisible();await expect(trial.getByText('40.00°',{exact:true})).toBeVisible();
+ await trial.getByRole('spinbutton',{name:'命令角度'}).fill('60');await expect(trial.getByText('该位置未通过求解。',{exact:true})).toBeVisible();await expect.poll(async()=>Number(await trial.getByRole('spinbutton',{name:'命令角度'}).inputValue())).toBeCloseTo(-10,2);
+ expect((await current(page,seed.id)).document.versionId).toBe(zeroed.document.versionId);await recorder.getByRole('button',{name:/^取\s*消$/}).click();await expect(recorder).toHaveCount(0);
+ await openJoint();await expect(joint.getByRole('checkbox',{name:'角度驱动',exact:true})).toBeDisabled();await expect(joint.getByText('命令被模拟引用',{exact:true})).toBeVisible();await expect(joint.getByRole('spinbutton',{name:'角度下限 °',exact:true})).toHaveValue('-30.00');await expect(joint.getByRole('spinbutton',{name:'角度上限 °',exact:true})).toHaveValue('40.00');
+ await page.screenshot({path:'../../../build/acceptance/dmu-joint-owned-limits.png'});await joint.getByRole('button',{name:/^取\s*消$/}).click();expect(errors).toEqual([]);
+});
+
 test('reported closed four-bar saves successive viewport drags and retains diagnostic references',async({page,context})=>{
  test.setTimeout(360_000);
  const sourceId=process.env.OCCCCAD_TEST_DMU_REPORTED_DOCUMENT;
@@ -345,7 +382,7 @@ CadViewportEngine.prototype.invalidate=function(...args){window.__dmuEngine=this
    clone=await api.command(clone.document.id,{type:'RENAME_INSTANCE',instanceId:ids.get(instance.id),name:instance.name});
   }
   const k=source.product!.kinematics!;
-  for(const item of [...k.mechanisms,...k.drivers,...k.laws,...k.studies])ids.set(item.id,crypto.randomUUID());
+  for(const item of [...k.mechanisms,...k.drivers,...k.studies])ids.set(item.id,crypto.randomUUID());
   for(const mechanism of k.mechanisms)for(const joint of mechanism.joints){
    ids.set(joint.id,crypto.randomUUID());for(const constraint of joint.constraints){
     const id=crypto.randomUUID();ids.set(constraint.id,id);
@@ -360,7 +397,7 @@ CadViewportEngine.prototype.invalidate=function(...args){window.__dmuEngine=this
    if(next.ownerDocumentId===clone.document.id&&'ownerVersionId' in next)next.ownerVersionId=clone.document.versionId;
    return next;
   };
-  clone=await api.command(clone.document.id,{type:'SAVE_KINEMATICS',versionId:clone.document.versionId,kinematics:(()=>{const copied=remap(k);copied.studies=[];copied.laws=[];for(const driver of copied.drivers){delete driver.reference;delete driver.referenceDigest;}return copied})()});
+  clone=await api.command(clone.document.id,{type:'SAVE_KINEMATICS',versionId:clone.document.versionId,kinematics:(()=>{const copied=remap(k);copied.studies=[];for(const driver of copied.drivers){delete driver.reference;delete driver.referenceDigest;const m=copied.mechanisms.find((m:any)=>m.id===driver.mechanismId),j=m.joints.find((j:any)=>j.id===driver.jointId);j.lower??={value:-720,unit:'deg'};j.upper??={value:720,unit:'deg'};}return copied})()});
   const mechanismId=ids.get('ef90c89c-6306-4150-a36e-4d09f5dd698f')!;
   return {id:clone.document.id,mechanismId,crank:ids.get('instance-4e6bf784f7063a53be7a')!,sourceHead:source.document.versionId};
  },sourceId!);

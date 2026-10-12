@@ -46,6 +46,9 @@
 | `online/kinug_C2/kinugbt0302.htm`，Recording Positions | Simulation 创建树对象，打开 Kinematics Simulation 与 Edit Simulation 两个窗口；自动记录初始帧，Insert 记录位置，再回放记录 |
 | `online/kinug_C2/kinugbt0501.htm`、`kinugbt0513.htm` | 机构创建固定零件与命令；可模拟资格关联整个机构及驱动后剩余自由度 |
 | `online/kinug_C2/kinugbt0504.htm` | 命令方向可在创建或编辑时设置 |
+| `online/kinug_C2/kinugat0103.htm` | 驱动接合必须设置两端限位；未驱动接合可独立启用限位 |
+| `online/kinug_C2/kinugbt0514.htm` | 命令置零保持机构位置不变；本项目同时保持物理限位及旧记录路径 |
+| `online/kinug_C2/kinugat0104.htm` | CATIA 提供忽略／报告／停止的限位检测策略；本项目已启用限位始终参与合格检查 |
 | `online/kinug_C2/kinugbt0701.htm`、`kinugbt0801.htm` | 旋转接合的两轴、两定位平面；轴重合与平面偏移组成关系 |
 | `online/kinug_C2/kinugwd1000.htm` | 机构、接合、命令、固定零件、规律与模拟的树分类 |
 | `online/kinug_C2/kinugbt0205.htm`、`kinugbt0206.htm` | 退出与复位不同；修改后位置及再次进入时的命令读数按当前构型处理 |

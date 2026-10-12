@@ -5382,62 +5382,6 @@
       "implementation": "form"
     },
     {
-      "id": "dmu.law",
-      "name": "运动规律",
-      "helpText": "机械装置与 DMU · 运动规律",
-      "iconKey": "angle",
-      "repeatable": false,
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          }
-        ]
-      },
-      "implementation": "form"
-    },
-    {
-      "id": "dmu.driver",
-      "name": "角度命令",
-      "helpText": "为旋转接合建立独立角度命令",
-      "iconKey": "angle",
-      "repeatable": false,
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          },
-          {
-            "fact": "motionActive",
-            "equals": true
-          }
-        ]
-      },
-      "enabledWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          }
-        ]
-      },
-      "implementation": "form"
-    },
-    {
       "id": "dmu.study",
       "name": "模拟",
       "helpText": "记录关键帧并播放机构运动",
@@ -6301,16 +6245,6 @@
       "position": "top-left",
       "orientation": "horizontal",
       "commands": [
-        {
-          "commandId": "dmu.driver",
-          "groupKey": "primary",
-          "order": 10
-        },
-        {
-          "commandId": "dmu.law",
-          "groupKey": "primary",
-          "order": 15
-        },
         {
           "commandId": "dmu.study",
           "groupKey": "primary",

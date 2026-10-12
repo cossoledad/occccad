@@ -203,7 +203,10 @@ func (service *Service) BeginMechanismSession(parent context.Context, document, 
 		if si < 0 {
 			return MechanismSessionOpened{}, fmt.Errorf("%w: unknown recorded simulation", ErrValidation)
 		}
-		study = view.Product.Kinematics.Studies[si]
+		study, err = rebaseMotionRecording(view.Product.Kinematics.Studies[si], *d.Reference)
+		if err != nil {
+			return MechanismSessionOpened{}, err
+		}
 		study.DriverJointID = d.JointID
 		if !req.Revalidate && (study.BasisDigest != s.basis || study.GeometryDigest != s.geometry) {
 			return MechanismSessionOpened{}, fmt.Errorf("%w: SIMULATION_REVALIDATION_REQUIRED", ErrValidation)
@@ -568,7 +571,6 @@ func (service *Service) FinalizeMechanismSession(parent context.Context, documen
 		study.InitialPoses = mechanismMemberPoses(s.engine.snapshot.Mechanism, s.initial.UnitPoses)
 		study.InitialCoordinates, _ = valuecopy.Clone(s.initial.Coordinates)
 		study.EnvironmentPoses = motionEnvironment(s.engine.snapshot.Mechanism, s.initial.UnitPoses)
-		study.LawID = ""
 		study.DriverJointID = s.driver.JointID
 		study.DurationSeconds = study.Keyframes[len(study.Keyframes)-1].TimeSeconds
 		i := slices.IndexFunc(definition.Studies, func(x MotionStudy) bool { return x.ID == study.ID })
@@ -667,7 +669,6 @@ func (service *Service) PreviewMechanismRecording(parent context.Context, docume
 	study.InitialPoses = mechanismMemberPoses(snapshot.Mechanism, s.initial.UnitPoses)
 	study.InitialCoordinates, _ = valuecopy.Clone(s.initial.Coordinates)
 	study.EnvironmentPoses = motionEnvironment(snapshot.Mechanism, s.initial.UnitPoses)
-	study.LawID = ""
 	study.DurationSeconds = study.Keyframes[len(study.Keyframes)-1].TimeSeconds
 	snapshot.Study = study
 	snapshot.Mechanism.Poses = study.InitialPoses

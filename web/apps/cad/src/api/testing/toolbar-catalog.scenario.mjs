@@ -42,7 +42,11 @@ try {
   }
   assert.equal(new Set(motionCommands).size,motionCommands.length);
   assert.equal(builtinCatalog.commands.find(v=>v.id==='assembly.motion-study').implementation,'handler','application navigation must not own a form invocation');
-  for(const action of ['run','revolute','driver','study','apply'])assert.equal(builtinCatalog.commands.find(v=>v.id==='dmu.'+action).implementation,'form');
+  for(const action of ['run','revolute','study','apply'])assert.equal(builtinCatalog.commands.find(v=>v.id==='dmu.'+action).implementation,'form');
+  for(const action of ['driver','law']){
+   assert(!builtinCatalog.commands.some(v=>v.id==='dmu.'+action),'commands are created by joint driving only');
+   assert(!motionCommands.includes('dmu.'+action));
+  }
   assert.equal(builtinCatalog.commands.find(v=>v.id==='dmu.exit').implementation,'handler');
   for(const action of ['play','pause','previous','next','reset','cancel','results'])assert(!builtinCatalog.commands.some(v=>v.id==='dmu.'+action));
   assert(!builtinCatalog.commands.some(v=>v.id==='dmu.new'||v.id.startsWith('dmu.demo-')||['dmu.prismatic','dmu.rigid','dmu.interference','dmu.check','dmu.trial','dmu.restore','dmu.import'].includes(v.id)));

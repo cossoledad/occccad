@@ -8,6 +8,7 @@ import { normalizeOperationFailure, useOperationFeedback } from '../../cad/comma
 import { MechanismMotionSession, type MechanismMotionIntent } from '../../cad/assembly/mechanism-motion-session';
 import { MotionRecordingClock, motionTargetAt, replaceMotionKey, sameMotionKeyValue } from '../../cad/assembly/motion-recording';
 import { motionFrameAt, motionPlayback, motionPlaybackTime, quantityIn, type Mechanism, type MechanismSessionFrame, type MechanismSessionOpened, type MotionDriver, type MotionKeyframe, type MotionPlayback, type MotionPlaybackClock, type MotionPose, type MotionRun, type MotionStudy, type MotionViewpoint } from '../../cad/assembly/motion-study';
+import {motionCommandRange} from '../../cad/assembly/motion-coordinates';
 import { motionViewpointAt } from '../../cad/assembly/motion-frame';
 import { randomUUID } from '../../utils/random-uuid';
 type Props = {
@@ -151,7 +152,7 @@ export function MechanismMotionDialog(props: Props) {
             lease = setInterval(() => { void api.touchMechanismSession(props.view.document.id, result.sessionId, leaseAbort.signal).catch(e => { if (generation === epoch.current && !closed.current)
                 setError(e); }); }, 60000);
             if (props.record) {
-                const initial: MotionStudy = result.study ? structuredClone(result.study) : { id: randomUUID(), name: '模拟.' + ((props.view.product?.kinematics?.studies.length ?? 0) + 1), mechanismId: props.mechanism.id, driverId, driverJointId: result.driver.jointId, start: { value: 0, unit: 'deg' }, end: { value: 0, unit: 'deg' }, durationSeconds: 0, frames: 121, budgetMs: 60000, sourceRevisionId: result.baseRevisionId, basisDigest: result.basisDigest, geometryDigest: result.geometryDigest, reference: result.driver.reference, initialPoses: result.initialPoses, keyframes: [], animateViewpoint: cameraRef.current };
+                const initial: MotionStudy = result.study ? structuredClone(result.study) : { id: randomUUID(), name: '模拟.' + ((props.view.product?.kinematics?.studies.length ?? 0) + 1), mechanismId: props.mechanism.id, driverId, driverJointId: result.driver.jointId, durationSeconds: 0, frames: 121, budgetMs: 60000, sourceRevisionId: result.baseRevisionId, basisDigest: result.basisDigest, geometryDigest: result.geometryDigest, reference: result.driver.reference, initialPoses: result.initialPoses, keyframes: [], animateViewpoint: cameraRef.current };
                 if (!initial.keyframes?.length) {
                     const key = await owner.record({ id: randomUUID(), timeSeconds: 0, driverId, value: { value: result.frame.driverValue, unit: 'rad' }, viewpoint: cameraRef.current ? callbacks.current.captureViewpoint() : undefined });
                     initial.keyframes = [key];
@@ -322,7 +323,8 @@ export function MechanismMotionDialog(props: Props) {
     const problem = needsRevalidation ? <Alert type="warning" showIcon title="模拟需要重新验证。" action={<Button size="small" onClick={() => setRevalidate(true)}>采用当前基准并验证</Button>}/> : failure ? <Alert type="error" showIcon title={sessionMessage ?? failure.message} action={<Space>{!opened && <Button size="small" aria-label="重试" onClick={() => setAttempt(a => a + 1)}>重试</Button>}<Button size="small" onClick={() => feedback(error, '机构运动')}>详情</Button></Space>}/> : null;
     const displayValue = clock && draft.current ? motionTargetAt(draft.current,time) : frame?.frame.driverValue ?? 0;
     const q = quantityIn({ value: displayValue, unit: 'rad' }, 'deg');
-    const lower = quantityIn(opened?.driver.minimum ?? { value: -180, unit: 'deg' }, 'deg'), upper = quantityIn(opened?.driver.maximum ?? { value: 180, unit: 'deg' }, 'deg');
+    const range=opened?motionCommandRange(props.mechanism,opened.driver):undefined;
+    const lower=(range?.lower??0)*180/Math.PI,upper=(range?.upper??0)*180/Math.PI;
     const pending = busy || saving || baking || Boolean(preparedCommit.current) || !opened;
     const inputLocked = switching || saving || baking || Boolean(preparedCommit.current);
     return <>
@@ -330,7 +332,7 @@ export function MechanismMotionDialog(props: Props) {
    <div className="motion-study-fields">
     <label className="motion-labeled-field"><span>命令</span><Select virtual={false} aria-label="运动命令" style={{ flex: 1 }} value={driverId} disabled={busy || inputLocked || props.record} options={props.drivers.map(d => ({ value: d.id, label: d.name }))} onChange={id => void switchDriver(id)}/></label>
     <label className="motion-labeled-field"><span>角度 °</span><InputNumber aria-label="命令角度" value={clock?Number(q.toFixed(2)):inputAngle??Number(q.toFixed(2))} precision={2} changeOnBlur={false} disabled={!opened || inputLocked || Boolean(clock)} onChange={v => { if (v !== null) { setInputAngle(v); void request(v * Math.PI / 180); } }}/></label>
-    <Slider aria-label="命令游标" value={q} min={Math.min(lower, q)} max={Math.max(upper, q)} step={.1} disabled={!opened || inputLocked || Boolean(clock)} onChange={v => void request(v * Math.PI / 180)}/>
+    <Slider aria-label="命令游标" value={q} min={lower} max={upper} step={.1} disabled={!opened || inputLocked || Boolean(clock)} onChange={v => void request(v * Math.PI / 180)}/>
     <div className="motion-range-labels"><Typography.Text type="secondary">{lower.toFixed(2)}°</Typography.Text><Typography.Text type="secondary">{upper.toFixed(2)}°</Typography.Text></div>
     {frame?.failure && <Typography.Text type="warning">该位置未通过求解。</Typography.Text>}
     {frame?.failure?.diagnosticId && <Button size="small" onClick={() => void navigator.clipboard.writeText('CAD_DIAGNOSTIC ' + frame.failure!.diagnosticId)}>复制诊断</Button>}

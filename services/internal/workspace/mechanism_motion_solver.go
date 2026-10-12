@@ -45,6 +45,9 @@ func newMechanismMotionSolver(ctx context.Context, service *Service, s MotionSna
 	if e.driver.Second == nil {
 		return e, fmt.Errorf("INPUT_ERROR: missing active coordinate")
 	}
+	if e.driver.Lower == nil || e.driver.Upper == nil {
+		return e, fmt.Errorf("INPUT_ERROR: driven joint requires lower and upper limits")
+	}
 	r, err := e.solve(ctx, eq.Constraints, nil)
 	if err != nil {
 		return e, err
@@ -208,6 +211,9 @@ func (e *mechanismMotionSolver) SelectDriver(ctx context.Context, d MotionDriver
 	i := slices.IndexFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == d.JointID && j.Kind == "REVOLUTE" })
 	if d.MechanismID != m.ID || i < 0 || d.Reference == nil || d.ReferenceDigest != commandCoordinateBasis(m.Joints[i]) {
 		return fmt.Errorf("INPUT_ERROR: COMMAND_REFERENCE_REVALIDATION_REQUIRED")
+	}
+	if m.Joints[i].Lower == nil || m.Joints[i].Upper == nil {
+		return fmt.Errorf("INPUT_ERROR: driven joint requires lower and upper limits")
 	}
 	before, err := valuecopy.Clone(e.state.Frame)
 	if err != nil {

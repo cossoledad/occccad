@@ -63,9 +63,36 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 		return workspace.JointEndpoint{InstanceID: id, Axis: &workspace.AssemblyGeometryRef{InstanceID: id, Kind: "AXIS", GeometryID: "axis-system-default", Axis: "Z"}, Plane: &workspace.AssemblyGeometryRef{InstanceID: id, Kind: "PLANE", GeometryID: "datum-xy"}, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}
 	}
 	second := end(view.Product.Instances[1].ID)
-	m := workspace.Mechanism{ID: "m", Name: "M", UnitIDs: []string{view.Product.Instances[0].ID, second.InstanceID}, Joints: []workspace.MechanismJoint{{ID: "g", Name: "g", Kind: "GROUND", First: end(view.Product.Instances[0].ID), Direction: 1}, {ID: "r", Name: "r", Kind: "REVOLUTE", First: end(view.Product.Instances[0].ID), Second: &second, Direction: 1, Zero: workspace.MotionQuantity{Unit: "deg"}}}}
-	k := workspace.KinematicsDefinitions{Drivers: []workspace.MotionDriver{{ID: "d", Name: "driver", MechanismID: "m", JointID: "r"}}, Mechanisms: []workspace.Mechanism{m}, Laws: []workspace.MotionLaw{{ID: "law", Name: "linear", MechanismID: "m", DriverID: "d", Start: workspace.MotionQuantity{Value: 0, Unit: "deg"}, End: workspace.MotionQuantity{Value: 45, Unit: "deg"}, DurationSeconds: 1}}, Studies: []workspace.MotionStudy{{ID: "s", Name: "S", MechanismID: "m", LawID: "law", DriverID: "d", Start: workspace.MotionQuantity{Unit: "deg"}, End: workspace.MotionQuantity{Value: 45, Unit: "deg"}, DurationSeconds: 1, Frames: 3, BudgetMS: 1000, Clearance: workspace.MotionQuantity{Unit: "mm"}}}}
+	m := workspace.Mechanism{ID: "m", Name: "M", UnitIDs: []string{view.Product.Instances[0].ID, second.InstanceID}, Joints: []workspace.MechanismJoint{{ID: "g", Name: "g", Kind: "GROUND", First: end(view.Product.Instances[0].ID), Direction: 1}, {ID: "r", Name: "r", Kind: "REVOLUTE", Lower: &workspace.MotionQuantity{Value: -720, Unit: "deg"}, Upper: &workspace.MotionQuantity{Value: 720, Unit: "deg"}, First: end(view.Product.Instances[0].ID), Second: &second, Direction: 1, Zero: workspace.MotionQuantity{Unit: "deg"}}}}
+	k := workspace.KinematicsDefinitions{Drivers: []workspace.MotionDriver{{ID: "d", Name: "driver", MechanismID: "m", JointID: "r"}}, Mechanisms: []workspace.Mechanism{m}}
 	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
+	opened, err := domain.BeginMechanismSession(t.Context(), view.Document.ID, actor, workspace.MechanismSessionBegin{OwnerID: "fixture", Generation: 1, BaseRevisionID: view.Document.VersionID, MechanismID: "m", DriverID: "d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := domain.RecordMechanismKey(t.Context(), view.Document.ID, actor, opened.SessionID, 0, workspace.MotionKeyframe{ID: "key0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualified, err := domain.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 1, Value: &workspace.MotionQuantity{Value: 45, Unit: "deg"}})
+	if err != nil || !qualified.Accepted {
+		t.Fatal(qualified, err)
+	}
+	last, err := domain.RecordMechanismKey(t.Context(), view.Document.ID, actor, opened.SessionID, 1, workspace.MotionKeyframe{ID: "key1", TimeSeconds: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	study := workspace.MotionStudy{ID: "s", Name: "S", MechanismID: "m", DriverID: "d", Keyframes: []workspace.MotionKeyframe{first, last}, Frames: 3, BudgetMS: 1000}
+	final, err := domain.FinalizeMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, workspace.MechanismSessionFinalize{Sequence: 1, Study: &study})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err = domain.ApplyCommand(t.Context(), view.Document.ID, final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	domain.CancelMechanismSession(view.Document.ID, actor, opened.SessionID)
+
 	k = view.Product.Kinematics
 	server := &Server{database: db, workspace: domain, access: access.New(db), artifacts: objects, jobs: queue}
 	post := func(req workspace.MotionRunRequest, user string) *httptest.ResponseRecorder {
@@ -111,7 +138,7 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 	if r := post(req, "00000000-0000-7000-8000-000000000099"); r.Code != 403 {
 		t.Fatal("unauthorized freeze", r.Code)
 	}
-	k.Studies[0].End.Value = 60
+	k.Studies[0].Keyframes[1].Value = workspace.MotionQuantity{Value: 60, Unit: "deg"}
 	view = command(workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
 	req.BaseRevisionID = view.Document.VersionID
 	if r := post(req, actor); r.Code != 409 {

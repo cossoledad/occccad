@@ -154,12 +154,15 @@ func (service *Service) resolveMechanismGeometry(ctx context.Context, model Prod
 	return m, nil
 }
 func (service *Service) bindKinematics(ctx context.Context, documentID, revisionID string, raw json.RawMessage, k KinematicsDefinitions) (KinematicsDefinitions, error) {
-	if err := resolveMotionLaws(&k); err != nil {
+	if err := normalizeMotionRecordings(&k); err != nil {
 		return k, err
 	}
 	var model ProductModel
 	if e := json.Unmarshal(raw, &model); e != nil {
 		return k, e
+	}
+	if err := validateMotionDriverChanges(model.Kinematics, k); err != nil {
+		return k, err
 	}
 	for _, mapping := range k.Associations {
 		if !slices.ContainsFunc(model.Kinematics.Associations, func(old MotionAssemblyMapping) bool { return reflect.DeepEqual(old, mapping) }) {

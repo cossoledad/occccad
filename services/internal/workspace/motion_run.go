@@ -186,24 +186,9 @@ type motionPathTarget struct {
 
 func motionPathTargets(s MotionStudy) ([]motionPathTarget, error) {
 	if len(s.Keyframes) == 0 {
-		start, err := motionValue(s.Start, true)
-		if err != nil {
-			return nil, err
-		}
-		end, err := motionValue(s.End, true)
-		if err != nil {
-			return nil, err
-		}
-		targets := make([]motionPathTarget, s.Frames)
-		for i := range targets {
-			fraction := 0.0
-			if s.Frames > 1 {
-				fraction = float64(i) / float64(s.Frames-1)
-			}
-			targets[i] = motionPathTarget{Time: fraction * s.DurationSeconds, Value: start + fraction*(end-start)}
-		}
-		return targets, nil
+		return nil, fmt.Errorf("%w: simulation requires recorded keyframes", ErrValidation)
 	}
+
 	duration := s.Keyframes[len(s.Keyframes)-1].TimeSeconds
 	times := make(map[float64]string, len(s.Keyframes)+s.Frames)
 	for _, key := range s.Keyframes {

@@ -6,12 +6,14 @@ import (
 	"math"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/geometry"
 )
 
 func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
@@ -56,7 +58,7 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	}
 	second := end(id)
 	upper := MotionQuantity{Value: 60, Unit: "deg"}
-	m := Mechanism{ID: "m", Name: "M", UnitIDs: []string{view.Product.Instances[0].ID, id}, Joints: []MechanismJoint{{ID: "g", Name: "ground", Kind: "GROUND", First: end(view.Product.Instances[0].ID), Direction: 1}, {ID: "r", Name: "revolute", Kind: "REVOLUTE", First: end(view.Product.Instances[0].ID), Second: &second, Direction: 1, Zero: MotionQuantity{Unit: "deg"}, Upper: &upper}}}
+	m := Mechanism{ID: "m", Name: "M", UnitIDs: []string{view.Product.Instances[0].ID, id}, Joints: []MechanismJoint{{ID: "g", Name: "ground", Kind: "GROUND", First: end(view.Product.Instances[0].ID), Direction: 1}, {ID: "r", Name: "revolute", Kind: "REVOLUTE", First: end(view.Product.Instances[0].ID), Second: &second, Direction: 1, Zero: MotionQuantity{Unit: "deg"}, Lower: &MotionQuantity{Value: -720, Unit: "deg"}, Upper: &upper}}}
 	k := KinematicsDefinitions{Mechanisms: []Mechanism{m}, Drivers: []MotionDriver{{ID: "d", Name: "command", MechanismID: "m", JointID: "r"}}}
 	view = command(CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &k})
 	generation := uint64(0)
@@ -146,6 +148,115 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 	if !reflect.DeepEqual(view.Product.Kinematics.Mechanisms[0].Poses, mechanismMemberPoses(m, f.Frame.UnitPoses)) {
 		t.Fatal("final confirmation adopted another pose")
 	}
+	t.Run("zero preserves limits and the recorded physical path", func(t *testing.T) {
+		before := view
+		clone := func() KinematicsDefinitions {
+			raw, _ := json.Marshal(view.Product.Kinematics)
+			var k KinematicsDefinitions
+			json.Unmarshal(raw, &k)
+			return k
+		}
+		zero := clone()
+		zero.Drivers[0].Reference, zero.Drivers[0].ReferenceDigest = nil, ""
+		view = command(CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &zero})
+		q, _ := motionValue(*view.Product.Kinematics.Drivers[0].Reference, true)
+		expectedZero := before.Product.Kinematics.Mechanisms[0].Coordinates["r"]
+		if math.Abs(q-expectedZero) > 1e-8 || !reflect.DeepEqual(view.Product.Kinematics.Studies, before.Product.Kinematics.Studies) {
+			t.Fatalf("zero capture: got %g want %g records equal %v", q, expectedZero, reflect.DeepEqual(view.Product.Kinematics.Studies, before.Product.Kinematics.Studies))
+		}
+		for id, p := range before.Product.Kinematics.Mechanisms[0].Poses {
+			if !conflictPoseClose(geometry.AssemblyPose(p), geometry.AssemblyPose(view.Product.Kinematics.Mechanisms[0].Poses[id]), 1e-7, 1e-8) {
+				t.Fatal("zero moved a member", id)
+			}
+		}
+		if !reflect.DeepEqual(view.Product.Kinematics.Mechanisms[0].Joints, before.Product.Kinematics.Mechanisms[0].Joints) {
+			t.Fatal("zero moved a stop or changed the coordinate definition")
+		}
+		frozen, err := svc.FreezeMotionStudy(t.Context(), view.Document.ID, MotionRunRequest{BaseRevisionID: view.Document.VersionID, StudyID: "s"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		afterPath, err := svc.RunMotionStudy(t.Context(), frozen, nil)
+		if err != nil || !afterPath.Completed || len(afterPath.Frames) != len(path.Frames) {
+			t.Fatal(afterPath.Failure, err)
+		}
+		for i, frame := range path.Frames {
+			for id, p := range frame.UnitPoses {
+				if !conflictPoseClose(geometry.AssemblyPose(p), geometry.AssemblyPose(afterPath.Frames[i].UnitPoses[id]), 1e-7, 1e-8) {
+					t.Fatal("zero shifted the physical path", i, id)
+				}
+			}
+		}
+		opened, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", DriverID: "d", StudyID: "s"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		first, _ := motionValue(opened.Study.Keyframes[0].Value, true)
+		last, _ := motionValue(opened.Study.Keyframes[1].Value, true)
+		if math.Abs(first+10*math.Pi/180) > 1e-8 || math.Abs(last) > 1e-8 || math.Abs(opened.Frame.DriverValue-first) > 1e-8 || opened.Study.Keyframes[0].ID != key0.ID {
+			t.Fatal("editing did not rebase the stable keys to today's zero", opened.Study)
+		}
+		confirmation, err := svc.FinalizeMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, MechanismSessionFinalize{Sequence: 0, Study: opened.Study})
+		if err != nil {
+			t.Fatal("rebased recording cannot prepare a qualified confirmation", err)
+		}
+		view = command(confirmation)
+		if !reflect.DeepEqual(view.Product.Kinematics.Studies[0].Keyframes, opened.Study.Keyframes) {
+			t.Fatal("confirmation lost rebased key identities or coordinates")
+		}
+		frozen, err = svc.FreezeMotionStudy(t.Context(), view.Document.ID, MotionRunRequest{BaseRevisionID: view.Document.VersionID, StudyID: "s"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		confirmedPath, err := svc.RunMotionStudy(t.Context(), frozen, nil)
+		if err != nil || !confirmedPath.Completed || len(confirmedPath.Frames) != len(path.Frames) {
+			t.Fatal("confirmed recording lost its qualified path", confirmedPath.Failure, err)
+		}
+		for i, frame := range path.Frames {
+			for id, p := range frame.UnitPoses {
+				if !conflictPoseClose(geometry.AssemblyPose(p), geometry.AssemblyPose(confirmedPath.Frames[i].UnitPoses[id]), 1e-7, 1e-8) {
+					t.Fatal("confirming rebased keys shifted the physical path", i, id)
+				}
+			}
+		}
+		svc.CancelMechanismSession(view.Document.ID, actor, opened.SessionID)
+		view = command(CommandRequest{Type: "UNDO"})
+		head := view.Document.VersionID
+		for _, test := range []struct {
+			name, want string
+			mutate     func(*KinematicsDefinitions)
+		}{
+			{"referenced deletion", "命令被模拟引用", func(k *KinematicsDefinitions) { k.Drivers = nil }},
+			{"retarget", "命令所属接合不能更改", func(k *KinematicsDefinitions) { k.Drivers[0].JointID = "g" }},
+			{"missing driven limit", "requires lower and upper limits", func(k *KinematicsDefinitions) { k.Mechanisms[0].Joints[1].Lower = nil }},
+			{"equal joint limits", "reversed joint limits", func(k *KinematicsDefinitions) { k.Mechanisms[0].Joints[1].Lower = k.Mechanisms[0].Joints[1].Upper }},
+			{"current position outside stop", "LIMIT_REACHED", func(k *KinematicsDefinitions) {
+				k.Mechanisms[0].Joints[1].Upper = &MotionQuantity{Value: expectedZero - 5*math.Pi/180, Unit: "rad"}
+			}},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				k := clone()
+				test.mutate(&k)
+				_, err := svc.ApplyCommand(t.Context(), view.Document.ID, CommandRequest{Type: "SAVE_KINEMATICS", VersionID: head, ActorID: actor, RequestID: uuid.NewString(), Kinematics: &k})
+				if err == nil || !strings.Contains(err.Error(), test.want) {
+					t.Fatal("invalid edit accepted or misclassified", err)
+				}
+				current, _ := svc.GetDocument(t.Context(), view.Document.ID)
+				if current.Document.VersionID != head {
+					t.Fatal("rejected edit wrote a revision")
+				}
+			})
+		}
+		view = command(CommandRequest{Type: "UNDO"})
+		if !reflect.DeepEqual(view.Product.Kinematics, before.Product.Kinematics) {
+			t.Fatal("undo did not restore command zero and recorded state together")
+		}
+		view = command(CommandRequest{Type: "REDO"})
+		if value, _ := motionValue(*view.Product.Kinematics.Drivers[0].Reference, true); math.Abs(value-q) > 1e-8 {
+			t.Fatal("redo lost the new zero")
+		}
+		view = command(CommandRequest{Type: "UNDO"})
+	})
 	if _, err = svc.UpdateMechanismSession(t.Context(), view.Document.ID, actor, opened.SessionID, MechanismSessionUpdate{Sequence: 3, Value: &MotionQuantity{Unit: "deg"}}); err == nil {
 		t.Fatal("old Head session overwrote a new Revision")
 	}
@@ -179,7 +290,7 @@ func TestMechanismSessionRecordingCASAndHistory(t *testing.T) {
 		t.Fatal("failed revalidation changed Head or erased the user's recording")
 	}
 	fullTurn := view.Product.Kinematics
-	fullTurn.Mechanisms[0].Joints[1].Upper = nil
+	fullTurn.Mechanisms[0].Joints[1].Upper = &MotionQuantity{Value: 720, Unit: "deg"}
 	view = command(CommandRequest{Type: "SAVE_KINEMATICS", VersionID: view.Document.VersionID, Kinematics: &fullTurn})
 	if _, err := svc.BeginMechanismSession(t.Context(), view.Document.ID, actor, MechanismSessionBegin{OwnerID: "dialog", Generation: nextGeneration(), BaseRevisionID: view.Document.VersionID, MechanismID: "m", DriverID: "d", StudyID: "s"}); err == nil {
 		t.Fatal("changed limits silently adopted a recorded basis")

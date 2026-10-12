@@ -10,7 +10,49 @@ import (
 	"time"
 
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/valuecopy"
 )
+
+func validateMotionDriverChanges(before, next KinematicsDefinitions) error {
+	for _, driver := range next.Drivers {
+		old := slices.IndexFunc(before.Drivers, func(d MotionDriver) bool { return d.ID == driver.ID })
+		if old >= 0 && (before.Drivers[old].JointID != driver.JointID || before.Drivers[old].MechanismID != driver.MechanismID) {
+			return fmt.Errorf("%w: 命令所属接合不能更改", ErrValidation)
+		}
+	}
+	for _, study := range next.Studies {
+		if !slices.ContainsFunc(next.Drivers, func(d MotionDriver) bool { return d.ID == study.DriverID && d.MechanismID == study.MechanismID }) {
+			return fmt.Errorf("%w: 命令被模拟引用", ErrValidation)
+		}
+	}
+	return nil
+}
+
+// Preserve every physical target while presenting the recording in today's
+// command zero. This is an owned draft; opening it never edits the saved record.
+func rebaseMotionRecording(study MotionStudy, reference MotionQuantity) (MotionStudy, error) {
+	copy, err := valuecopy.Clone(study)
+	if err != nil || study.Reference == nil {
+		return copy, fmt.Errorf("%w: invalid recording reference", ErrValidation)
+	}
+	old, err := motionValue(*study.Reference, true)
+	if err != nil {
+		return copy, err
+	}
+	current, err := motionValue(reference, true)
+	if err != nil {
+		return copy, err
+	}
+	for i, key := range copy.Keyframes {
+		value, err := motionValue(key.Value, true)
+		if err != nil {
+			return copy, err
+		}
+		copy.Keyframes[i].Value = MotionQuantity{Value: old + value - current, Unit: "rad"}
+	}
+	copy.Reference = &reference
+	return copy, nil
+}
 
 type qualifiedRecordingContext struct{}
 
@@ -69,10 +111,6 @@ func (service *Service) validateChangedRecordings(ctx context.Context, document,
 		if err != nil {
 			return err
 		}
-		driverReference, err := motionValue(*d.Reference, true)
-		if err != nil || math.Abs(reference-driverReference) > 1e-9 {
-			return fmt.Errorf("%w: recording command reference changed", ErrValidation)
-		}
 		m.Poses, m.Coordinates = study.InitialPoses, study.InitialCoordinates
 		study.DriverJointID = d.JointID
 		snapshot := MotionSnapshot{Schema: 1, Policy: motionPolicy, DocumentID: document, RevisionID: revision, View: view, Mechanism: m, Study: study, SolverProfile: defaultAssemblySolverProfile()}
@@ -129,7 +167,7 @@ func validateMotionRecording(s MotionStudy, mechanisms map[string]Mechanism, dri
 	m, ok := mechanisms[s.MechanismID]
 	d, driven := drivers[s.DriverID]
 	if !ok || !driven || d.MechanismID != m.ID || !claim(s.ID) || s.Name == "" || len(s.Keyframes) > 500 ||
-		s.LawID != "" || s.SourceRevisionID == "" || s.BasisDigest == "" || s.GeometryDigest == "" || s.Reference == nil ||
+		s.SourceRevisionID == "" || s.BasisDigest == "" || s.GeometryDigest == "" || s.Reference == nil ||
 		s.BudgetMS < 100 || s.BudgetMS > 120000 || s.Frames < 2 || s.Frames > 500 ||
 		len(s.InitialPoses) != len(m.UnitIDs) {
 		return fmt.Errorf("%w: invalid recorded simulation", ErrValidation)
@@ -186,8 +224,7 @@ func recordingBasis(m Mechanism, d MotionDriver) string {
 		Units             []string
 		Joints            any
 		DriverID, JointID string
-		Reference         *MotionQuantity
-	}{m.ID, units, joints, d.ID, d.JointID, d.Reference})
+	}{m.ID, units, joints, d.ID, d.JointID})
 }
 func commandCoordinateBasis(j MechanismJoint) string {
 	j.Lower, j.Upper = nil, nil
@@ -250,12 +287,6 @@ func bindMotionDrivers(k *KinematicsDefinitions) error {
 			}
 			d.Reference = &MotionQuantity{Value: q, Unit: "rad"}
 			d.ReferenceDigest = commandCoordinateBasis(j)
-		}
-		if d.Minimum == nil {
-			d.Minimum = &MotionQuantity{Value: -180, Unit: "deg"}
-		}
-		if d.Maximum == nil {
-			d.Maximum = &MotionQuantity{Value: 180, Unit: "deg"}
 		}
 	}
 	return nil

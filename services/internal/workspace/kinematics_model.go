@@ -59,16 +59,13 @@ type DMUAddress struct {
 	BodyID       string       `json:"bodyId"`
 }
 type MotionStudy struct {
-	LawID           string         `json:"lawId,omitempty"`
-	ID              string         `json:"id"`
-	Name            string         `json:"name"`
-	MechanismID     string         `json:"mechanismId"`
-	DriverID        string         `json:"driverId,omitempty"`
-	DriverJointID   string         `json:"driverJointId,omitempty"`
-	Start           MotionQuantity `json:"start"`
-	End             MotionQuantity `json:"end"`
-	DurationSeconds float64        `json:"durationSeconds"`
-	Frames          int            `json:"frames"`
+	ID              string  `json:"id"`
+	Name            string  `json:"name"`
+	MechanismID     string  `json:"mechanismId"`
+	DriverID        string  `json:"driverId,omitempty"`
+	DriverJointID   string  `json:"driverJointId,omitempty"`
+	DurationSeconds float64 `json:"durationSeconds"`
+	Frames          int     `json:"frames"`
 	// Only an exactly matching existing coordinate equation may be replaced.
 	ReplaceDriverConstraintID string                  `json:"replaceDriverConstraintId,omitempty"`
 	IncludeSameUnit           bool                    `json:"includeSameUnit"`
@@ -109,17 +106,6 @@ type MotionDriver struct {
 	JointID         string          `json:"jointId"`
 	Reference       *MotionQuantity `json:"reference,omitempty"`
 	ReferenceDigest string          `json:"referenceDigest,omitempty"`
-	Minimum         *MotionQuantity `json:"minimum,omitempty"`
-	Maximum         *MotionQuantity `json:"maximum,omitempty"`
-}
-type MotionLaw struct {
-	ID              string         `json:"id"`
-	Name            string         `json:"name"`
-	MechanismID     string         `json:"mechanismId"`
-	DriverID        string         `json:"driverId"`
-	Start           MotionQuantity `json:"start"`
-	End             MotionQuantity `json:"end"`
-	DurationSeconds float64        `json:"durationSeconds"`
 }
 type InterferenceAnalysis struct {
 	ID              string         `json:"id"`
@@ -142,7 +128,6 @@ type MotionAssemblyMapping struct {
 	ConstraintBaseline string `json:"constraintBaseline"`
 }
 type KinematicsDefinitions struct {
-	Laws         []MotionLaw             `json:"laws,omitempty"`
 	Drivers      []MotionDriver          `json:"drivers,omitempty"`
 	Analyses     []InterferenceAnalysis  `json:"analyses,omitempty"`
 	Associations []MotionAssemblyMapping `json:"associations,omitempty"`
@@ -150,22 +135,13 @@ type KinematicsDefinitions struct {
 	Studies      []MotionStudy           `json:"studies"`
 }
 
-func resolveMotionLaws(k *KinematicsDefinitions) error {
+func normalizeMotionRecordings(k *KinematicsDefinitions) error {
 	for i := range k.Studies {
-		s := &k.Studies[i]
-		if len(s.Keyframes) > 0 {
-			if s.LawID != "" {
-				return fmt.Errorf("%w: simulation cannot mix recording and law", ErrValidation)
-			}
-			s.DurationSeconds = s.Keyframes[len(s.Keyframes)-1].TimeSeconds
-			continue
+		study := &k.Studies[i]
+		if len(study.Keyframes) == 0 {
+			return fmt.Errorf("%w: simulation requires recorded keyframes", ErrValidation)
 		}
-		law := slices.IndexFunc(k.Laws, func(l MotionLaw) bool { return l.ID == s.LawID && l.MechanismID == s.MechanismID })
-		if law < 0 {
-			return fmt.Errorf("%w: simulation requires a motion law", ErrValidation)
-		}
-		l := k.Laws[law]
-		s.DriverID, s.Start, s.End, s.DurationSeconds = l.DriverID, l.Start, l.End, l.DurationSeconds
+		study.DurationSeconds = study.Keyframes[len(study.Keyframes)-1].TimeSeconds
 	}
 	return nil
 }
@@ -214,7 +190,7 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 	if len(k.Analyses) > 0 {
 		return fmt.Errorf("%w: interference analysis is outside mechanism editing", ErrValidation)
 	}
-	if len(k.Mechanisms) > 16 || len(k.Studies) > 64 || len(k.Laws) > 64 || len(k.Drivers) > 64 || len(k.Analyses) > 64 || len(k.Associations) > 1024 {
+	if len(k.Mechanisms) > 16 || len(k.Studies) > 64 || len(k.Drivers) > 64 || len(k.Analyses) > 64 || len(k.Associations) > 1024 {
 		return fmt.Errorf("%w: study resource limit", ErrValidation)
 	}
 	mechanisms := map[string]Mechanism{}
@@ -301,7 +277,7 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 				if j.Lower != nil && j.Upper != nil {
 					lo, _ := motionValue(*j.Lower, angular)
 					hi, _ := motionValue(*j.Upper, angular)
-					if lo > hi {
+					if lo >= hi {
 						return fmt.Errorf("%w: reversed joint limits", ErrValidation)
 					}
 				}
@@ -319,82 +295,27 @@ func validateKinematics(model ProductModel, k KinematicsDefinitions) error {
 		}
 		drivers[d.ID] = d
 		drivenCoordinates[d.MechanismID+"/"+d.JointID] = true
-		for _, q := range []*MotionQuantity{d.Reference, d.Minimum, d.Maximum} {
-			if q != nil {
-				if _, err := motionValue(*q, true); err != nil {
-					return err
-				}
-			}
+		joint := m.Joints[i]
+		if joint.Lower == nil || joint.Upper == nil {
+			return fmt.Errorf("%w: driven joint requires lower and upper limits", ErrValidation)
 		}
-		if d.Minimum != nil && d.Maximum != nil {
-			lo, _ := motionValue(*d.Minimum, true)
-			hi, _ := motionValue(*d.Maximum, true)
-			if lo > hi {
-				return fmt.Errorf("%w: reversed command range", ErrValidation)
-			}
-		}
-	}
-	for _, l := range k.Laws {
-		d, ok := drivers[l.DriverID]
-		if !claim(l.ID) || l.Name == "" || !ok || d.MechanismID != l.MechanismID || !finiteMotion(l.DurationSeconds) || l.DurationSeconds <= 0 || l.DurationSeconds > 3600 {
-			return fmt.Errorf("%w: invalid motion law", ErrValidation)
-		}
-		for _, q := range []MotionQuantity{l.Start, l.End} {
-			if _, err := motionValue(q, true); err != nil {
+		if d.Reference != nil {
+			if _, err := motionValue(*d.Reference, true); err != nil {
 				return err
 			}
 		}
 	}
-	if err := resolveMotionLaws(&k); err != nil {
+	if err := normalizeMotionRecordings(&k); err != nil {
 		return err
 	}
-	for _, s := range k.Studies {
-		if len(s.Keyframes) > 0 {
-			if err := validateMotionRecording(s, mechanisms, drivers, claim); err != nil {
-				return err
+	for _, study := range k.Studies {
+		if err := validateMotionRecording(study, mechanisms, drivers, claim); err != nil {
+			return err
+		}
+		for id, pose := range study.EnvironmentPoses {
+			if !slices.ContainsFunc(model.Instances, func(i ProductInstance) bool { return i.ID == id }) || slices.Contains(mechanisms[study.MechanismID].UnitIDs, id) || !validMotionPose(pose) {
+				return fmt.Errorf("%w: invalid recorded environment", ErrValidation)
 			}
-			for id, pose := range s.EnvironmentPoses {
-				if !slices.ContainsFunc(model.Instances, func(i ProductInstance) bool { return i.ID == id }) || slices.Contains(mechanisms[s.MechanismID].UnitIDs, id) || !validMotionPose(pose) {
-					return fmt.Errorf("%w: invalid recorded environment", ErrValidation)
-				}
-			}
-			continue
-		}
-		if s.DriverID == "" {
-			return fmt.Errorf("%w: motion study requires an independent Driver reference", ErrValidation)
-		}
-		if s.DriverID != "" {
-			d, ok := drivers[s.DriverID]
-			if !ok || d.MechanismID != s.MechanismID {
-				return fmt.Errorf("%w: study driver", ErrValidation)
-			}
-			s.DriverJointID = d.JointID
-		}
-		m, ok := mechanisms[s.MechanismID]
-		if !ok || !claim(s.ID) || s.Name == "" || s.Frames < 2 || s.Frames > 500 || !finiteMotion(s.DurationSeconds) || s.DurationSeconds <= 0 || s.DurationSeconds > 3600 || s.BudgetMS < 100 || s.BudgetMS > 120000 {
-			return fmt.Errorf("%w: invalid motion study", ErrValidation)
-		}
-		idx := slices.IndexFunc(m.Joints, func(j MechanismJoint) bool { return j.ID == s.DriverJointID })
-		if idx < 0 {
-			return fmt.Errorf("%w: unknown driver joint", ErrValidation)
-		}
-		j := m.Joints[idx]
-		if j.Kind != "REVOLUTE" {
-			return fmt.Errorf("%w: drive requires one Revolute coordinate", ErrValidation)
-		}
-		for _, v := range []MotionQuantity{s.Start, s.End} {
-			if _, err := motionValue(v, j.Kind == "REVOLUTE"); err != nil {
-				return err
-			}
-		}
-		start, _ := motionValue(s.Start, j.Kind == "REVOLUTE")
-		end, _ := motionValue(s.End, j.Kind == "REVOLUTE")
-		zero, _ := motionValue(j.Zero, j.Kind == "REVOLUTE")
-		if !finiteMotion(end-start) || !finiteMotion(zero+float64(j.Direction)*start) || !finiteMotion(zero+float64(j.Direction)*end) {
-			return fmt.Errorf("%w: motion law coordinate overflow", ErrValidation)
-		}
-		if s.ReplaceDriverConstraintID != "" || s.CheckDMU || len(s.Scope) > 0 || s.Clearance.Value != 0 || s.IncludeSameUnit {
-			return fmt.Errorf("%w: simulation supports only its mechanism coordinate and time law", ErrValidation)
 		}
 	}
 
@@ -409,7 +330,10 @@ func applyKinematicsDefinition(raw, payload json.RawMessage) (json.RawMessage, m
 	if err := json.Unmarshal(payload, &k); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	if err := resolveMotionLaws(&k); err != nil {
+	if err := validateMotionDriverChanges(model.Kinematics, k); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := normalizeMotionRecordings(&k); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	for i := range k.Studies {

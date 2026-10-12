@@ -87,11 +87,17 @@ func motionFixture(t *testing.T, closed bool, kind string) MotionSnapshot {
 			joints = append(joints, j)
 		}
 	}
+	for i := range joints {
+		if joints[i].Kind == "REVOLUTE" {
+			joints[i].Lower = &MotionQuantity{Value: -1440, Unit: "deg"}
+			joints[i].Upper = &MotionQuantity{Value: 1440, Unit: "deg"}
+		}
+	}
 	m := Mechanism{ID: "m", Name: "mechanism", UnitIDs: ids, Joints: joints}
-	s := MotionStudy{ID: "s", Name: "linear", MechanismID: "m", DriverJointID: "drive", Start: MotionQuantity{Value: 20, Unit: "deg"}, End: MotionQuantity{Value: 120, Unit: "deg"}, Frames: 9, DurationSeconds: 2, BudgetMS: 30000, Clearance: MotionQuantity{Unit: "mm"}}
+	s := MotionStudy{ID: "s", Name: "linear", MechanismID: "m", DriverJointID: "drive", Reference: &MotionQuantity{Unit: "rad"}, Keyframes: []MotionKeyframe{{ID: "key0", DriverID: "d", Value: MotionQuantity{Value: 60, Unit: "deg"}}, {ID: "key1", DriverID: "d", TimeSeconds: 2, Value: MotionQuantity{Value: 120, Unit: "deg"}}}, Frames: 9, DurationSeconds: 2, BudgetMS: 30000, Clearance: MotionQuantity{Unit: "mm"}}
 	if kind == "PRISMATIC" {
-		s.Start = MotionQuantity{Value: -5, Unit: "mm"}
-		s.End = MotionQuantity{Value: 15, Unit: "mm"}
+		s.Keyframes[0].Value = MotionQuantity{Value: -5, Unit: "mm"}
+		s.Keyframes[1].Value = MotionQuantity{Value: 15, Unit: "mm"}
 	}
 	f := AssemblySolveManifest{}
 	for i, id := range ids {
@@ -147,8 +153,8 @@ func TestMotionHardDriverClosedLoopAndLimits(t *testing.T) {
 func TestMotionFullTurnsCancelAndUnsupportedDof(t *testing.T) {
 	service := New(nil, motionWorker(t))
 	s := motionFixture(t, false, "REVOLUTE")
-	s.Study.Start.Value = 60
-	s.Study.End.Value = 780
+	s.Study.Keyframes[0].Value.Value = 60
+	s.Study.Keyframes[1].Value.Value = 780
 	s.Study.Frames = 13
 	s.Digest = motionDigest(s)
 	r, e := service.RunMotionStudy(t.Context(), s, nil)
@@ -187,9 +193,19 @@ func TestMotionDefinitionHistoryAndEquationAdmission(t *testing.T) {
 		model.Instances = append(model.Instances, ProductInstance{ID: b.ID, Translation: b.Pose.Translation, Rotation: b.Pose.Rotation})
 	}
 	s.Study.DriverID = "d"
-	s.Study.LawID = "law"
 	s.Study.DriverJointID = ""
-	k := KinematicsDefinitions{Mechanisms: []Mechanism{s.Mechanism}, Drivers: []MotionDriver{{ID: "d", Name: "driver", MechanismID: s.Mechanism.ID, JointID: "drive"}}, Laws: []MotionLaw{{ID: "law", Name: "law", MechanismID: s.Mechanism.ID, DriverID: "d", Start: s.Study.Start, End: s.Study.End, DurationSeconds: s.Study.DurationSeconds}}, Studies: []MotionStudy{s.Study}}
+	s.Mechanism.Joints[1].Lower = &MotionQuantity{Value: -1440, Unit: "deg"}
+	s.Mechanism.Joints[1].Upper = &MotionQuantity{Value: 1440, Unit: "deg"}
+	s.Mechanism.Poses = map[string]InstancePose{}
+	for _, b := range s.Equations.Bodies {
+		s.Mechanism.Poses[b.ID] = InstancePose(b.Pose)
+	}
+	s.Study.InitialPoses = s.Mechanism.Poses
+	s.Study.InitialCoordinates, _ = verifyMechanismJoints(s.Mechanism, s.Mechanism.Poses, nil, "", 0)
+	s.Study.SourceRevisionID, s.Study.GeometryDigest = "fixture-head", "fixture-geometry"
+	d := MotionDriver{ID: "d", Name: "driver", MechanismID: s.Mechanism.ID, JointID: "drive", Reference: s.Study.Reference}
+	s.Study.BasisDigest = recordingBasis(s.Mechanism, d)
+	k := KinematicsDefinitions{Mechanisms: []Mechanism{s.Mechanism}, Drivers: []MotionDriver{d}, Studies: []MotionStudy{s.Study}}
 	raw, _ := json.Marshal(model)
 	payload, _ := json.Marshal(k)
 	after, changes, e := applyKinematicsDefinition(raw, payload)
@@ -213,7 +229,7 @@ func TestMotionDefinitionHistoryAndEquationAdmission(t *testing.T) {
 	if e == nil {
 		t.Fatal("silently omitted hard equation")
 	}
-	k.Laws[0].Start.Unit = "mm"
+	k.Studies[0].Keyframes[0].Value.Unit = "mm"
 	if validateKinematics(model, k) == nil {
 		t.Fatal("unit mismatch accepted")
 	}
@@ -224,8 +240,8 @@ func TestMotionDirectedZero(t *testing.T) {
 	s := motionFixture(t, false, "REVOLUTE")
 	s.Mechanism.Joints[1].Direction = -1
 	s.Mechanism.Joints[1].Zero = MotionQuantity{Value: 45, Unit: "deg"}
-	s.Study.Start.Value = -15
-	s.Study.End.Value = -375
+	s.Study.Keyframes[0].Value.Value = -15
+	s.Study.Keyframes[1].Value.Value = -375
 	var e error
 	s.Equations, e = compileMechanism(AssemblySolveManifest{Bodies: s.Equations.Bodies}, s.Mechanism, s.Study)
 	if e != nil {

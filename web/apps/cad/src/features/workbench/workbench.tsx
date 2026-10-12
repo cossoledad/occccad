@@ -1237,7 +1237,7 @@ onEdit:(node,operation) => {
             },
 onRename:(node) => {
               if (!editingView || !(canEdit||motionOpen&&canEditRoot&&!motionDisplay&&kinematicKinds.includes(node.kind??"")) || node.documentId !== editingView.document.id || !node.entityId) return;
-              const kinematic=view?.product?.kinematics;const object=kinematic?[...kinematic.mechanisms,...kinematic.mechanisms.flatMap(m=>m.joints),...(kinematic.drivers??[]),...(kinematic.laws??[]),...kinematic.studies].find(v=>v.id===node.entityId):undefined;
+              const kinematic=view?.product?.kinematics;const object=kinematic?[...kinematic.mechanisms,...kinematic.mechanisms.flatMap(m=>m.joints),...(kinematic.drivers??[]),...kinematic.studies].find(v=>v.id===node.entityId):undefined;
  const name = object?.name ?? (node.kind === "BODY" ? editingView.part?.bodies.find((body) => body.id === node.entityId)?.name
                 : editingView.part?.features.find((feature) => feature.id === node.entityId)?.name);
               renameForm.setFieldsValue({name:name ?? ""}); setRenameTarget(node);
