@@ -123,7 +123,7 @@ func (service *Service) bindMechanismConstraints(ctx context.Context, model Prod
 					if j.First.Plane == nil || j.Second.Plane == nil {
 						continue
 					}
-					angle, err := motionValue(j.OrientationAngle, true)
+					angle, err := prismaticOrientation(*j)
 					if err != nil {
 						return m, err
 					}

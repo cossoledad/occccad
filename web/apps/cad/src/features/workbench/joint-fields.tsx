@@ -1,4 +1,5 @@
-import {Button,Checkbox,Collapse,Input,InputNumber,Select,Typography} from 'antd';
+import {Button,Checkbox,Collapse,Input,Select,Typography} from 'antd';
+import {CadNumberInput as InputNumber} from '../../cad/overlay/cad-number-input';
 import type {DocumentView} from '../../types';
 import type {MechanismJoint} from '../../cad/assembly/motion-study';
 import {jointDefinitions} from '../../cad/assembly/joint-definitions';
@@ -25,6 +26,7 @@ export function JointFields({view,joint,pickRole,onRole,onClear,onChange,driving
   {jointDefinitions[joint.kind].roles.map(support)}
   {['PRISMATIC','CYLINDRICAL'].includes(joint.kind)&&<label className="motion-labeled-field"><span>轴线方向</span><Select aria-label="轴线方向" value={joint.axisDirection??'SAME'} disabled={disabled} options={[{value:'SAME',label:'同向'},{value:'OPPOSITE',label:'相对'}]} onChange={axisDirection=>onChange({axisDirection})}/></label>}
   {joint.kind==='PRISMATIC'&&<label className="motion-labeled-field"><span>定向角度 °</span><InputNumber aria-label="定向角度 °" value={joint.orientationAngle?.value??0} disabled={disabled} onChange={value=>onChange({orientationAngle:{value:value??0,unit:'deg'}})}/></label>}
+  {joint.kind==='PRISMATIC'&&<label className="motion-labeled-field"><span>平面方向</span><Select aria-label="平面方向" value={joint.axialDirection??'SAME'} disabled={disabled} options={[{value:'SAME',label:'同向'},{value:'OPPOSITE',label:'相对'}]} onChange={axialDirection=>onChange({axialDirection})}/></label>}
   {['REVOLUTE','PLANAR'].includes(joint.kind)&&<>
    <label className="motion-labeled-field"><span>{joint.kind==='REVOLUTE'?'轴向偏移':'平面偏移'} mm</span><InputNumber aria-label={joint.kind==='REVOLUTE'?'轴向偏移 mm':'平面偏移 mm'} value={joint.axialOffset?.value??0} disabled={disabled} onChange={value=>onChange({axialOffset:{value:value??0,unit:'mm'}})}/></label>
    <label className="motion-labeled-field"><span>平面方向</span><Select aria-label="平面方向" value={joint.axialDirection??'SAME'} disabled={disabled} options={[{value:'SAME',label:'同向'},{value:'OPPOSITE',label:'相对'}]} onChange={axialDirection=>onChange({axialDirection})}/></label>

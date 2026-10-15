@@ -16,6 +16,15 @@ type mechanismEquations struct {
 	RetainedConstraintIDs []string                      `json:"retainedConstraintIds"`
 }
 
+// The plane branch is independent of the axis and coordinate directions.
+func prismaticOrientation(j MechanismJoint) (float64, error) {
+	angle, err := motionValue(j.OrientationAngle, true)
+	if j.AxialDirection == "OPPOSITE" {
+		angle += math.Pi
+	}
+	return angle, err
+}
+
 func compileMechanism(frozen AssemblySolveManifest, m Mechanism, s MotionStudy) (mechanismEquations, error) {
 	return compileMechanismEquations(frozen, m, s, true)
 }
@@ -114,7 +123,7 @@ func compileMechanismEquations(frozen AssemblySolveManifest, m Mechanism, s Moti
 					angle := eq("orientation", "ANGLE", "x", "x")
 					angle.AngleReferenceBodyID = a.InstanceID
 					angle.AngleReferenceGeometryID = prefix + "/a/z"
-					angle.Value, _ = motionValue(j.OrientationAngle, true)
+					angle.Value, _ = prismaticOrientation(j)
 					out.Constraints = append(out.Constraints, angle)
 				}
 			case "PLANAR":
@@ -159,7 +168,7 @@ func verifyMechanismJoints(m Mechanism, poses map[string]InstancePose, previous,
 			if j.Kind == "PRISMATIC" {
 				x, y := rotateByPose(a, [3]float64{1, 0, 0}), rotateByPose(b, [3]float64{1, 0, 0})
 				angle := math.Atan2(conflictDot(za, conflictCross(x, y)), conflictDot(x, y))
-				goal, _ := motionValue(j.OrientationAngle, true)
+				goal, _ := prismaticOrientation(j)
 				fail = fail || math.Abs(math.Remainder(angle-goal, 2*math.Pi)) > 1e-8
 			}
 		case "PLANAR":

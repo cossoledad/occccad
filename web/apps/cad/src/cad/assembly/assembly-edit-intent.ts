@@ -8,7 +8,7 @@ import { displayLengthToMillimeters } from "../../state/ui-preferences";
 export type AssemblyDraftFields = Parameters<typeof assemblyPublicCommandFields>[1] &
   Parameters<typeof assemblyQuantityCommandFields>[0] & {
     value?: number; directionRelation?: string; distanceRelation?: string;
-    fixedTranslation?: Vec3; fixedAngles?: Vec3;
+    fixedTranslation?: Vec3; fixedAngles?: Vec3; fixMode?: AssemblyConstraint['fixMode'];
   };
 
 // One user-intent boundary for create, preview and edit commit. Never spread an
@@ -32,8 +32,8 @@ export function assemblyEditIntent(kind: string, fields: AssemblyDraftFields,
     // FREE's frozen reference is explicit branch intent; DIRECTED has a third
     // support instead. Evaluated result/status/poses never become raw input.
     angleReferenceDirection: kind === "ANGLE" && source.angleRelation !== "DIRECTED" ? source.angleReferenceDirection : undefined,
-    fixMode: kind === "FIX" ? source.fixMode ?? "SPACE" : undefined,
-    fixedPose: constraint && kind === "FIX" ? fixedPoseFromParameters(
+    fixMode: kind === "FIX" ? fields.fixMode ?? source.fixMode ?? "SPACE" : undefined,
+    fixedPose: kind === "FIX" && fields.fixedTranslation && fields.fixedAngles ? fixedPoseFromParameters(
       (fields.fixedTranslation ?? [0,0,0]).map(v => displayLengthToMillimeters(v,lengthUnit)) as Vec3,
       fields.fixedAngles ?? [0,0,0]) : undefined,
     ...(kind === "DISTANCE" ? offsetCommandFields(fields) : {}),

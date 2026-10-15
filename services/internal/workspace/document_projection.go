@@ -285,7 +285,7 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 			if visibleOrDefault(constraint.Visible) {
 				*group.LocalVisible = true
 			}
-			name := constraintDisplayName(constraint, func(id string) string { return names[id] })
+			name := constraintDisplayName(constraint, func(id string) string { return names[id] }, model.Constraints...)
 			status, summary := constraint.EvaluationStatus, constraint.EvaluationSummary
 			if constraint.Suppressed {
 				name += " [停用]"

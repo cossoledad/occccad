@@ -27,9 +27,11 @@ Applications
       └─ 结果.1 · 完成 / 部分结果 / 未通过求解
 ```
 
+机械装置定义工具类别将各类接合平铺显示，不再使用接合下拉分组。
+
 接合下的关系是真实独立 AssemblyConstraint，复用普通约束名称、图标、选择、高亮和所属 Joint 编辑。名称及编号不是身份。产品与机构约束不自动同步，转换生成独立身份。树投影包含 ownerEntityId、mechanismId、relationRole；Inspector 只读。录制草稿只增加本地树投影，取消后消失。
 
-固定件、刚性接合和多实例化接受视图区或树选择，按 owning Product 解析所属直接 Instance，并整体高亮。轴允许基准轴、直边及精确可解析的圆柱面、圆边、圆锥面；点允许基准点、精确顶点及显式派生的球心／Frame 原点。轴与面属于对应端实例。棱形／圆柱的 AxisDirection 控制轴关系 SAME/OPPOSITE；偏移与平面方向 AxialDirection 独立设置，两者都不复用坐标 Direction。支撑引用持久化为 InstancePath、Publication / PersistentSelection；派生 Frame、CapturedX 和接合零位用于坐标，不从 mesh 下标猜测。两端横向基准分别从各自 Part 的局部方向捕获，不从另一端当前世界方向或世界 X 临时构造。
+固定件、刚性接合和多实例化接受视图区或树选择，按 owning Product 解析所属直接 Instance，并整体高亮。轴允许基准轴、直边及精确可解析的圆柱面、圆边、圆锥面；点允许基准点、精确顶点及显式派生的球心／Frame 原点。轴与面属于对应端实例。棱形／圆柱的 AxisDirection 控制轴关系 SAME/OPPOSITE；偏移与平面方向 AxialDirection 独立设置，两者都不复用坐标 Direction。棱形的平面方向同向／相对分别以定向角度及定向角度加 180° 编译；预览、持久关系、闭合见证和产品转换使用同一分支。支撑引用持久化为 InstancePath、Publication / PersistentSelection；派生 Frame、CapturedX 和接合零位用于坐标，不从 mesh 下标猜测。两端横向基准分别从各自 Part 的局部方向捕获，不从另一端当前世界方向或世界 X 临时构造。
 
 | 接合 | 真实关系 | 稳定坐标 |
 |---|---|---|

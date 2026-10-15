@@ -6,7 +6,7 @@ try {
   const { AssemblyConstraintTool, SelectTool }=await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
   const {assemblyGeometryRef}=await server.ssrLoadModule("/src/cad/assembly/assembly-reference.ts");
   const {assemblyPublicInitialFields}=await server.ssrLoadModule('/src/cad/assembly/assembly-public.ts');
-  assert.equal(assemblyPublicInitialFields('FIX_TOGETHER',[]).groupName,'','server naming counters own the default group name');
+  assert.equal('groupName' in assemblyPublicInitialFields('FIX_TOGETHER',[]),false,'server naming counters own the default group name');
   assert.equal(assemblyGeometryRef({kind:"axis-system",id:"frame",entityId:"stable-frame",instanceId:"a"}).kind,"FRAME","whole Frame must not silently become its origin point");
   const face=(id)=>({kind:"face",id:"face-"+id,instanceId:id,geometryKey:"mesh-"+id,topologyId:2});
   const axis=(id)=>({kind:"axis",axis:"DATUM",id:"axis-"+id,entityId:"datum-"+id,instanceId:id});
@@ -62,6 +62,16 @@ try {
   const reference={kind:'assembly-group-member-reference',id:'reference',highlightTarget:groupSelection};
   assert.deepEqual(assemblyGroupMember(groupView,reference),{groupId:'group'},'tree references preserve formal group identity');
   assert.equal(groupMemberSelection(groupView,{groupId:'group'}).constraintId,'group');
+  const nestedGroups={document:{id:'product',versionId:'head'},product:{instances:['a','b','c'].map(id=>({id})),constraints:[
+   {id:'g1',kind:'FIX_TOGETHER',groupMembers:[{instanceId:'a'},{instanceId:'b'}]},
+   {id:'g2',kind:'FIX_TOGETHER',groupMembers:[{groupId:'g1'},{instanceId:'c'}]}
+  ]}};
+  assert.deepEqual(assemblyGroupMember(nestedGroups,face('b'),'','g2'),{groupId:'g1'},'picking P2 in the second group edits the complete first group');
+  assert.deepEqual(assemblyGroupMember(nestedGroups,face('b')),{groupId:'g2'},'new groups select the outer existing group');
+  assert.equal(assemblyGroupMember(nestedGroups,{...groupSelection,constraintId:'g2'},'','g1'),undefined,'ancestor references cannot create a cycle');
+  const excludingSelf=assemblyGroupMember(nestedGroups,face('b'),'','g1');assert.equal(excludingSelf.instanceId,'b');
+  nestedGroups.product.constraints[0].suppressed=true;
+  assert.equal(assemblyGroupMember(nestedGroups,face('b'),'','g2').instanceId,'b','suppressed groups do not capture direct selection');
   selected=[face("a"),face("b")];manager.activate("assembly.contact");
   assert.equal(requests.at(-1).kind,"contact");
   assert.deepEqual(requests.at(-1).references.map(r=>r.kind),["FACE","FACE"],"Contact preserves unresolved source picks for authoritative exact inspection");

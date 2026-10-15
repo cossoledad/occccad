@@ -1210,7 +1210,6 @@ type CommandRequest struct {
 	ContactSide               string                `json:"contactSide,omitempty"`
 	ContactBranch             *int32                `json:"contactBranch,omitempty"`
 	GroupMembers              []AssemblyGroupMember `json:"groupMembers,omitempty"`
-	GroupName                 string                `json:"groupName,omitempty"`
 	QuantityExpression        *string               `json:"quantityExpression,omitempty"`
 	QuantityKey               string                `json:"quantityKey,omitempty"`
 	FirstAssemblyRef          *AssemblyGeometryRef  `json:"firstAssemblyRef,omitempty"`

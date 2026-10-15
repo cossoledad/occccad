@@ -61,13 +61,30 @@ func assignConstraintName(c *AssemblyConstraint, counters *map[string]int, exist
 	c.Name = fmt.Sprintf("%s.%d", label, n)
 }
 
-func constraintDisplayName(c AssemblyConstraint, nameFor func(string) string) string {
+func constraintDisplayName(c AssemblyConstraint, nameFor func(string) string, groups ...AssemblyConstraint) string {
 	name := c.Name
 	if name == "" {
 		name = constraintTypeLabel(c)
 	}
 	if isAssemblyGroup(c) {
-		return name
+		members := []string{}
+		for _, member := range c.GroupMembers {
+			label := nameFor(member.InstanceID)
+			if member.GroupID != "" {
+				label = member.GroupID
+				for _, group := range groups {
+					if group.ID == member.GroupID {
+						label = group.Name
+						break
+					}
+				}
+			}
+			members = append(members, label)
+		}
+		if len(members) == 0 {
+			return name
+		}
+		return name + " (" + strings.Join(members, ",") + ")"
 	}
 	label := name + " (" + nameFor(c.First.InstanceID)
 	if c.Second != nil {

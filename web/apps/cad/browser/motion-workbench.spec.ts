@@ -109,6 +109,23 @@ async function enter(page:Page,existing=false){
 }
 async function start(page:Page){await command(page,'运行仿真');const dialog=page.getByRole('dialog',{name:'仿真与回放',exact:true});await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:'计算仿真',exact:true}).click();}
 
+test('joint toolbar is flat and prismatic plane direction is saved independently',async({page})=>{
+ test.setTimeout(60_000);
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page);await enter(page);
+ const definition=page.getByLabel('机械装置定义',{exact:true});
+ for(const name of ['旋转接合','棱形接合','圆柱接合','平面接合','刚性接合','球面接合'])await expect(definition.getByRole('button',{name,exact:true})).toBeVisible();
+ await expect(definition.locator('[aria-haspopup="menu"]')).toHaveCount(0);
+ await command(page,'棱形接合');const dialog=page.getByRole('dialog',{name:/^棱形\./});
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'});
+ for(const label of ['试验轴线 0','试验轴线 1','试验定位面 0','试验定位面 1']){await filter.fill(label);await page.getByText(label,{exact:true}).click();}
+ await dialog.getByRole('combobox',{name:'平面方向',exact:true}).click();await page.locator('.ant-select-item-option-content').getByText('相对',{exact:true}).click();
+ await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
+ await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
+ const joint=await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1).kinematics.mechanisms[0].joints.at(-1));
+ expect(joint.kind).toBe('PRISMATIC');expect(joint.axialDirection).toBe('OPPOSITE');expect(joint.axisDirection??'SAME').toBe('SAME');expect(joint.orientationAngle.value).toBe(0);
+ expect(errors).toEqual([]);
+});
+
 test('mechanism entry creates without selection, edits selected mechanisms and discards untouched empties',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);
  await command(page,'机构');await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(2);

@@ -1,4 +1,5 @@
-import {Alert,Button,Input,InputNumber,Segmented} from "antd";
+import {Alert,Input,Segmented} from "antd";
+import {CadNumberInput as InputNumber} from '../../cad/overlay/cad-number-input';
 import {useEffect,useRef,useState} from "react";
 import {api} from "../../api/client";
 import {CommandDialog} from "../../cad/overlay/floating-panel";
@@ -90,15 +91,14 @@ export function DatumEditor({kind,view,seed,unit,datumId,occurrencePath,placemen
   const datum=view.part?.datumPlanes.find(p=>p.id===id)??view.part?.datumAxes?.find(p=>p.id===id)??view.part?.axisSystems.find(p=>p.id===id)??view.part?.features.find(f=>f.id===id);
   return `${datum?.name??id??"精确参考"}${ref.axis?` · ${ref.axis}`:""}`;
  };
- const vector=(title:string,values:Vec3,set:(value:Vec3)=>void)=><fieldset className="datum-vector-fields"><legend>{title}</legend>{["X","Y","Z"].map((axis,i)=><label key={axis}>{axis}<InputNumber value={Number.isFinite(values[i])?values[i]:null} onChange={v=>set(values.map((x,j)=>i===j?v??NaN:x) as Vec3)}/></label>)}</fieldset>;
+ const vector=(title:string,values:Vec3,set:(value:Vec3)=>void)=><fieldset className="datum-vector-fields"><legend>{title}</legend>{["X","Y","Z"].map((axis,i)=><label key={axis}>{axis}<InputNumber aria-label={`${title} ${axis}`} value={Number.isFinite(values[i])?values[i]:null} onChange={v=>set(values.map((x,j)=>i===j?v??NaN:x) as Vec3)}/></label>)}</fieldset>;
  return <CommandDialog id={`datum-${kind}`} open size="M" title={`${datumId?"编辑":"创建"}基准${kind==="plane"?"面":"轴"}`} onClose={onClose} confirmLoading={busy} confirmDisabled={!input||!preview.previewId||preview.pending||loading} onConfirm={async()=>{if(!input||!preview.previewId||busy)return;setBusy(true);try{await onApply({...input,previewId:preview.previewId});onClose();}catch(cause){setError(String(cause));setBusy(false);}}}>
   <label>名称<Input value={name} onChange={e=>setName(e.target.value)}/></label>
   <Segmented block value={mode} options={[{label:"关联参考",value:"REFERENCE"},{label:"自由坐标",value:"CUSTOM"}]} onChange={v=>{setMode(v);setPicking(undefined);}}/>
   {mode==="CUSTOM"?<>{vector(`原点（${unit}）`,origin,setOrigin)}{vector(kind==="plane"?"法向":"方向",direction,setDirection)}</>:<>
-   {(["source","rotationAxis","translationDirection"] as Slot[]).map(slot=><div key={slot}><FeaturePickField label={slot==="source"?"源基准":slot==="rotationAxis"?"旋转轴（右手方向）":"平移方向（默认随源方向）"} value={label(refs[slot])} active={picking===slot} onActivate={()=>setPicking(slot)}/>{slot!=="source"&&refs[slot]&&<Button size="small" onClick={()=>setRefs(old=>({...old,[slot]:undefined}))}>清除</Button>}</div>)}
+   {(["source","rotationAxis","translationDirection"] as Slot[]).map(slot=><FeaturePickField key={slot} compact selected={Boolean(refs[slot])} label={slot==="source"?"源基准":slot==="rotationAxis"?"旋转轴":"平移方向"} value={refs[slot]?label(refs[slot]):slot==="source"?"未选择":"默认"} active={picking===slot} onActivate={()=>setPicking(slot)} onClear={refs[slot]&&slot!=="source"?()=>setRefs(old=>({...old,[slot]:undefined})):undefined}/>)}
    <label>旋转角度（deg）<ParameterReferenceInput value={angle} onChange={setAngle} parameters={view.part?.parameters??[]} placeholder="倾角 或 30 deg"/></label>
    <label>平移距离（{unit}）<ParameterReferenceInput value={distance} onChange={setDistance} parameters={view.part?.parameters??[]} unit={unit} placeholder="高度 或 20 mm"/></label>
-   <small>先绕参考轴旋转，再沿指定方向平移；确认后保留关联。</small>
   </>}
   {(error??parameterError??preview.error)&&<Alert type="error" message={error??parameterError??preview.error}/>}
   {Boolean(preview.failure)&&<DiagnosticCopy text={diagnosticReference(preview.failure,{documentId:view.document.id,versionId:base.current})}/>}

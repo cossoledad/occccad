@@ -109,6 +109,13 @@ func TestDocumentViewKeepsMeshOutOfStructureSnapshot(t *testing.T) {
 	}
 }
 
+func TestAssemblyGroupDisplayKeepsNestedReferences(t *testing.T) {
+	groups := []AssemblyConstraint{{ID: "g1", Name: "固联组.1", Kind: "FIX_TOGETHER", GroupMembers: []AssemblyGroupMember{{InstanceID: "p1"}, {InstanceID: "p2"}}}, {ID: "g2", Name: "固联组.2", Kind: "FIX_TOGETHER", GroupMembers: []AssemblyGroupMember{{GroupID: "g1"}, {InstanceID: "p3"}}}}
+	if got := constraintDisplayName(groups[1], func(id string) string { return map[string]string{"p1": "P1", "p2": "P2", "p3": "P3"}[id] }, groups...); got != "固联组.2 (固联组.1,P3)" {
+		t.Fatal(got)
+	}
+}
+
 func TestAssemblyConstraintStructureNamesAndSetVisibility(t *testing.T) {
 	model := ProductModel{Constraints: []AssemblyConstraint{
 		{ID: "contact-a", Name: "接触.1", Kind: "CONTACT"}, {ID: "fix", Name: "固定.1", Kind: "FIX"},

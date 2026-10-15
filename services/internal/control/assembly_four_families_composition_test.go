@@ -719,7 +719,7 @@ func TestSixFamiliesCoupledAcceptanceAndFrozenHistoryThroughRouter(t *testing.T)
 	axa.DerivedRole, axb.DerivedRole = "cylinder-axis", "cylinder-axis"
 	apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "COINCIDENT", FirstAssemblyRef: &axa, SecondAssemblyRef: &axb, DirectionRelation: "SAME"})
 	apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "ANGLE", FirstAssemblyRef: &axa, SecondAssemblyRef: &axb, AngleRelation: "FREE", Value: 0})
-	apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX_TOGETHER", GroupName: "Inner solved group", GroupMembers: []workspace.AssemblyGroupMember{{InstanceID: a}, {InstanceID: b}}})
+	apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX_TOGETHER", Name: "Inner solved group", GroupMembers: []workspace.AssemblyGroupMember{{InstanceID: a}, {InstanceID: b}}})
 	groupID := product.Product.Constraints[len(product.Product.Constraints)-1].ID
 	pc := f.support(t, part, "PLANE")
 	pc.InstanceID = c

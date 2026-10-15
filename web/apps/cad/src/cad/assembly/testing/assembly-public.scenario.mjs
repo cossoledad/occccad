@@ -26,7 +26,7 @@ try {
  assert.deepEqual(derivedSupportOptions("FACE"),[]);
  const path={canonical:"a/nested",segments:[{instanceId:"a"},{instanceId:"nested"}]};
  const group={id:"group-a",kind:"FIX_TOGETHER",groupMembers:[{instanceId:"a",instancePath:path},{instanceId:"b"}]};
- const fields=assemblyPublicCommandFields("FIX_TOGETHER",{groupName:"renamed",groupMembers:["instance:b","instance:a","group:sub"]},group);
+ const fields=assemblyPublicCommandFields("FIX_TOGETHER",{groupMembers:["instance:b","instance:a","group:sub"]},group);
  assert.equal(fields.firstAssemblyRef,undefined);assert.equal(fields.secondAssemblyRef,undefined);
  const wire=JSON.parse(JSON.stringify({value:15,directionRelation:"UNORIENTED",distanceRelation:"UNSIGNED",angleAxis:{instanceId:"fake"},...fields}));
  for(const key of ["value","directionRelation","distanceRelation","angleAxis","quantityExpression"])assert.equal(key in wire,false,"group payload cannot retain generic binary/value fields");
@@ -42,6 +42,6 @@ try {
  assert.equal(JSON.stringify(legacy),frozen,"read/open/preview draft must not migrate immutable old definition");
  assert.equal(draft.id,legacy.id);assert.equal(draft.kind,"FIX_TOGETHER");assert.equal(draft.family,"FixTogether");assert.equal(draft.name,legacy.name);
  assert.deepEqual(draft.groupMembers,[{instanceId:"a",instancePath:path},{instanceId:"b"}]);
- const promotion=assemblyPublicCommandFields(draft.kind,{groupName:draft.name,groupMembers:["instance:a","instance:b"]},draft);
+ const promotion=assemblyPublicCommandFields(draft.kind,{groupMembers:["instance:a","instance:b"]},draft);
  assert.equal(promotion.fixedPose,undefined);assert.equal(promotion.constraintFamily,"FixTogether");
 }finally{await server.close();}

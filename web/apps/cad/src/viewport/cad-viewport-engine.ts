@@ -3,7 +3,7 @@ import {mechanismConstraints} from '../cad/assembly/mechanism-constraints';
 import {isExternalProjectionSource} from "../cad/interaction/external-projection-selection";
 import { featureContribution, topologyFeatureAssociation, sameDisplayContext } from "../cad/interaction/feature-association";
 import { patternEntityStatus } from "../features/workbench/pattern-selection";
-import { makeDatumAxisReference, type DatumPreview } from "../cad/rendering/datum-reference";
+import { DATUM_AXIS_PIXELS, makeDatumAxisReference, makeReferenceArrow, type DatumPreview } from "../cad/rendering/datum-reference";
 import { featureSelectionHit, pickFeatureSelection, type FeatureSelectionSession } from "../cad/interaction/feature-selection";
 import { makeSplineControlFeedback } from "../cad/rendering/spline-control-feedback";
 import { useUIPreferences, sketchLabelPositionKey } from "../state/ui-preferences";
@@ -1759,7 +1759,7 @@ export class CadViewportEngine {
     }
     this.replaceTopologyOverlays("preselected", withAssemblyReferences(this.preselected ? [this.preselected] : []));
     if (this.preselected && !(this.featureSelection?.localSketchId&&this.preselected.sketchReference)) {
-      for (const object of this.selectionIndex.objectsFor(this.preselected)) {
+      for (const object of this.selectionIndex.objectsForMany(withAssemblyReferences([this.preselected]))) {
         if (!this.objectVisible(object)) continue;
         this.applyHighlight(object, "hover"); this.highlightedRoots.add(object);
       }
@@ -2271,7 +2271,7 @@ export class CadViewportEngine {
     pickLine.userData = selection;
     reference.add(pickLine);
     parent.add(reference);
-    this.screenStableReferences.set(reference, 54);
+    this.screenStableReferences.set(reference, DATUM_AXIS_PIXELS);
     this.selectionIndex.register(selection, reference); this.selectionIndex.registerPick(pickLine, (hit) =>
       datumAxisHitAccepted(this.raycaster.ray.distanceToPoint(hit.point), this.datumAxisPickToleranceWorld) ? selection : null, 200, 10);
   }
@@ -2280,7 +2280,7 @@ export class CadViewportEngine {
     const origin = new THREE.Vector3().fromArray(axis.origin);
     const system = new THREE.Group();
     system.position.copy(origin);
-    this.screenStableReferences.set(system, 54);
+    this.screenStableReferences.set(system, 64);
     const systemSelection = {
       ...context, kind: "axis-system" as const, id: `${context?.occurrencePath || "root"}:${axis.id}`,
       entityId: axis.id,
@@ -2292,6 +2292,10 @@ export class CadViewportEngine {
       const axisReference = new THREE.Group();
       const points = [new THREE.Vector3(), new THREE.Vector3().fromArray(direction)];
       const visibleLine = makeDatumReferenceLine(points, color);
+      visibleLine.material.linewidth=1.5;
+      const arrowFrame=new THREE.Group();
+      arrowFrame.quaternion.setFromUnitVectors(new THREE.Vector3(1,0,0),new THREE.Vector3().fromArray(direction).normalize());
+      arrowFrame.add(makeReferenceArrow(color));
       updateHighlightLineResolution(visibleLine, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
       const pickLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),
         new THREE.LineBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
@@ -2302,13 +2306,13 @@ export class CadViewportEngine {
       pickLine.raycast = raycastDatumAxis;
       axisReference.userData = selection;
       pickLine.userData = selection;
-      axisReference.add(visibleLine, pickLine);
+      axisReference.add(visibleLine, arrowFrame, pickLine);
       system.add(axisReference);
       this.selectionIndex.register(selection, axisReference);
       this.selectionIndex.registerPick(pickLine, (hit) =>
         datumAxisHitAccepted(this.raycaster.ray.distanceToPoint(hit.point), this.datumAxisPickToleranceWorld) ? selection : null, 200, 10);
     }
-    const originPoint = new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]), this.materials.point(CATIA_VISUAL_THEME.vertex, 8, false));
+    const originPoint = new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]), this.materials.point(CATIA_VISUAL_THEME.vertex, 5, false));
     const pointSelection={...systemSelection,kind:"datum-point" as const,id:`${systemSelection.id}:point`,treeNodeId:systemSelection.treeNodeId?`${systemSelection.treeNodeId}/point`:undefined};
     originPoint.userData=pointSelection;
     originPoint.visible=true;
@@ -2806,7 +2810,7 @@ export class CadViewportEngine {
         reference.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, normal.clone().cross(u), normal));
         reference.renderOrder = 95;
       }
-      if (reference) { placement.add(reference); this.helpers.add(placement); this.screenStableReferences.set(reference, 90); this.datumPreviewGroup = placement; }
+      if (reference) { placement.add(reference); this.helpers.add(placement); this.screenStableReferences.set(reference, preview.axis?DATUM_AXIS_PIXELS:90); this.datumPreviewGroup = placement; }
       updateHighlightLineResolution(placement,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);
     }
     this.emitDebugState(); this.invalidate();

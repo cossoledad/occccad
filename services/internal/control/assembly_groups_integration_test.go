@@ -50,7 +50,7 @@ func TestFixTogetherStagedInternalUpdateAndHistoryThroughRouter(t *testing.T) {
 		t.Fatal("initial inner Offset failed", product.Product.Constraints)
 	}
 	members := []workspace.AssemblyGroupMember{{InstanceID: a}, {InstanceID: b}, {InstanceID: c}}
-	request := workspace.CommandRequest{ActorID: f.actor, RequestID: id + "-group-preview", Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX_TOGETHER", GroupName: "Three members", GroupMembers: members}
+	request := workspace.CommandRequest{ActorID: f.actor, RequestID: id + "-group-preview", Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX_TOGETHER", Name: "Three members", GroupMembers: members}
 	head := product.Document.VersionID
 	preview, err := f.service.PreviewCommand(t.Context(), id, request)
 	if err != nil || preview.PreviewID == "" {
@@ -191,7 +191,7 @@ func TestFixTogetherStagedInternalUpdateAndHistoryThroughRouter(t *testing.T) {
 			t.Fatal("group suppression silently disabled independent inner Offset")
 		}
 	}
-	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: groupID, GroupName: "Two members", GroupMembers: []workspace.AssemblyGroupMember{{InstanceID: a}, {InstanceID: b}}})
+	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: groupID, Name: "Two members", GroupMembers: []workspace.AssemblyGroupMember{{InstanceID: a}, {InstanceID: b}}})
 	check()
 	if len(group().GroupMembers) != 2 {
 		t.Fatal(group())
@@ -206,12 +206,12 @@ func TestFixTogetherStagedInternalUpdateAndHistoryThroughRouter(t *testing.T) {
 	if len(group().GroupMembers) != 2 {
 		t.Fatal("Redo lost member removal", group())
 	}
-	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: groupID, GroupName: "Three members", GroupMembers: members})
+	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: groupID, Name: "Three members", GroupMembers: members})
 	check()
 	// An existing group and an overlapping subgroup share the inner stage.
-	apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX_TOGETHER", GroupName: "Nested", GroupMembers: []workspace.AssemblyGroupMember{{GroupID: groupID}, {InstanceID: d}}})
+	apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX_TOGETHER", Name: "Nested", GroupMembers: []workspace.AssemblyGroupMember{{GroupID: groupID}, {InstanceID: d}}})
 	nestedID := product.Product.Constraints[len(product.Product.Constraints)-1].ID
-	apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX_TOGETHER", GroupName: "Overlap", GroupMembers: []workspace.AssemblyGroupMember{{InstanceID: b}, {InstanceID: c}}})
+	apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX_TOGETHER", Name: "Overlap", GroupMembers: []workspace.AssemblyGroupMember{{InstanceID: b}, {InstanceID: c}}})
 	for _, g := range product.Product.Constraints {
 		if g.Kind == "FIX_TOGETHER" && g.EvaluationStatus != "VERIFIED" {
 			t.Fatal("nested/overlap group did not verify", g)
@@ -304,7 +304,7 @@ func TestFixTogetherFailedInternalTrialIdentityAndDissolutionThroughRouter(t *te
 	for _, member := range []string{a, b} {
 		apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX", FirstAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: member, Kind: "BODY"}})
 	}
-	r := workspace.CommandRequest{ActorID: f.actor, RequestID: id + "-identity", Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX_TOGETHER", GroupName: "Grounded pair", GroupMembers: []workspace.AssemblyGroupMember{{InstanceID: a}, {InstanceID: b}}}
+	r := workspace.CommandRequest{ActorID: f.actor, RequestID: id + "-identity", Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX_TOGETHER", Name: "Grounded pair", GroupMembers: []workspace.AssemblyGroupMember{{InstanceID: a}, {InstanceID: b}}}
 	apply(r)
 	groupID := product.Product.Constraints[len(product.Product.Constraints)-1].ID
 	groupBefore := product.Product.Constraints[len(product.Product.Constraints)-1]
@@ -314,7 +314,7 @@ func TestFixTogetherFailedInternalTrialIdentityAndDissolutionThroughRouter(t *te
 	if e != nil || idempotent.Document.VersionID != head || len(idempotent.Product.Constraints) != len(product.Product.Constraints) {
 		t.Fatal("group create idempotency", e)
 	}
-	stale := workspace.CommandRequest{ActorID: f.actor, RequestID: id + "-stale", Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: groupID, GroupName: "Stale"}
+	stale := workspace.CommandRequest{ActorID: f.actor, RequestID: id + "-stale", Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: groupID, Name: "Stale"}
 	stalePreview, e := f.service.PreviewCommand(t.Context(), id, stale)
 	if e != nil || stalePreview.BaseVersionID != head {
 		t.Fatal("group stale candidate setup", e)

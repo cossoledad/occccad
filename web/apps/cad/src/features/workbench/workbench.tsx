@@ -6,7 +6,7 @@ import {useFeaturePreview} from "./use-feature-preview";
 import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
 import { DatumEditor } from "./datum-editor";
 import type { DatumPreview } from "../../cad/rendering/datum-reference";
-import {assemblyGroupMember,groupMemberToken,groupMemberSelection} from "../../cad/assembly/group-selection";
+import {assemblyGroupMember,groupMemberForInstance,groupMemberToken,groupMemberSelection} from "../../cad/assembly/group-selection";
 import {AssemblyGroupMemberList} from './assembly-group-member-list';
 import { pickFeatureSelection, type FeatureSelectionSession } from "../../cad/interaction/feature-selection";
 import {formatDisplayNumber} from "../../utils/display-number";
@@ -64,7 +64,7 @@ import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-s
 import { displayLengthToMillimeters, effectiveLengthUnit, millimetersToDisplayLength,
   useUIPreferences } from "../../state/ui-preferences";
 import { useApplicationContext } from "../../state/application-context";
-import type { AssemblyConstraint, AssemblyGeometryRef, Artifact, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, ProductRelease, Selection, SketchOperation, SketchPlane, Vec3 } from "../../types";
+import type { AssemblyConstraint, AssemblyGeometryRef, AssemblyGroupMember, Artifact, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, ProductRelease, Selection, SketchOperation, SketchPlane, Vec3 } from "../../types";
 import { WorkbenchLayout } from "./workbench-layout";
 import { WorkbenchCommands, WorkbenchViewControls } from "./workbench-commands";
 import { WorkbenchStatus } from "./workbench-status";
@@ -125,7 +125,7 @@ const assemblyConstraintUI: Record<AssemblyConstraint["kind"], AssemblyConstrain
   DISTANCE: { supports: 2, direction: true, distanceDirection: true, value: "distance" },
 };
 
-function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, contactCapabilities, view, lengthUnit, constraint, previewEvaluation, dirty, replacing, onReplace, onDerive, onLocate, onRefresh, onValueCommit, angleRelation }: {
+function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, contactCapabilities, view, lengthUnit, constraint, previewEvaluation, dirty, replacing, onReplace, onDerive, onLocate, onRefresh, onValueCommit, angleRelation, replacingMember, onReplaceMember, onLocateMember }: {
   kind: keyof typeof assemblyConstraintUI; references: Array<AssemblyGeometryRef | undefined>;
   exactTypes?:string[];sourceTypes?:string[];contactCapabilities?:Array<{subtype:string}>;
   view?: DocumentView;
@@ -136,6 +136,7 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
   onDerive: (index:0|1,role:string)=>void;
   onRefresh?: () => void;
   onValueCommit: () => void; angleRelation?:AssemblyConstraint["angleRelation"];
+  replacingMember?:string; onReplaceMember:(token:string)=>void; onLocateMember:(member:AssemblyGroupMember)=>void;
 }) {
   const definition = assemblyConstraintUI[kind];
   const evaluationStatus = previewEvaluation?.status ?? (dirty ? "NOT_UPDATED" : constraint?.evaluationStatus ?? "NOT_UPDATED");
@@ -158,15 +159,7 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
       {!contactCapabilities?.length && <Alert type="warning" message="此精确支持组合不在 Contact 合同内"/>}
     </>}
     {kind === "FIX_TOGETHER" && <>
-      <Form.Item name="groupName" label="固联组名称"><Input onChange={onValueCommit}/></Form.Item>
-      <Form.Item name="groupMembers" label="成员" rules={[{required:true,type:"array",min:1}]}><AssemblyGroupMemberList view={view} onChange={()=>onValueCommit()}/></Form.Item>
-    </>}
-    {kind === "FIX" && constraint && <>
-      <Typography.Text type="secondary">所属装配坐标系；依次绕 X、Y、Z 轴旋转。</Typography.Text>
-      {["X","Y","Z"].map((axis,index)=><Form.Item key={axis} name={["fixedTranslation",index]} label={`${axis}（${lengthUnit}）`} rules={[{required:true,type:"number"}]}>
-        <InputNumber style={{width:"100%"}} onBlur={onValueCommit} onPressEnter={event=>event.currentTarget.blur()} /></Form.Item>)}
-      {["X","Y","Z"].map((axis,index)=><Form.Item key={axis} name={["fixedAngles",index]} label={`绕 ${axis} 旋转（deg）`} rules={[{required:true,type:"number"}]}>
-        <InputNumber style={{width:"100%"}} onBlur={onValueCommit} onPressEnter={event=>event.currentTarget.blur()} /></Form.Item>)}
+      <Form.Item name="groupMembers" label="成员" rules={[{required:true,type:"array",min:1}]}><AssemblyGroupMemberList view={view} replacing={replacingMember} onReplace={onReplaceMember} onLocate={onLocateMember}/></Form.Item>
     </>}
     <div className={`assembly-constraint-status status-${evaluationStatus.toLowerCase()}`} role="status"
       aria-label={`Constraint status ${status.label}`}>
@@ -197,6 +190,13 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
           value={reference.derivedRole??""} options={derivedSupportOptions(sourceTypes?.[index])} onChange={role=>onDerive(index as 0|1,role)}/>
         </div>}
       </>; })()}</div>)}</div>}
+    {kind === "FIX" && <div className="assembly-fixed-parameters">
+      <div className="assembly-fixed-space"><span>在空间中固定</span><Form.Item name="fixMode" noStyle getValueProps={value=>({checked:value!=="RELATIVE"})} getValueFromEvent={checked=>checked?"SPACE":"RELATIVE"}><Switch aria-label="在空间中固定" /></Form.Item></div>
+      {([['fixedTranslation',`位置（${lengthUnit}）`],['fixedAngles','旋转（deg）']] as const).map(([field,label])=><fieldset key={field} className="assembly-pose-fields"><legend>{label}</legend>
+        {["X","Y","Z"].map((axis,index)=><Form.Item key={axis} name={[field,index]} label={axis} rules={[{required:true,type:"number"}]}>
+          <InputNumber aria-label={field==='fixedTranslation'?`${axis}（${lengthUnit}）`:`绕 ${axis} 旋转（deg）`} onPressEnter={event=>event.currentTarget.blur()} /></Form.Item>)}
+      </fieldset>)}
+    </div>}
     {directionApplicable && <Form.Item name="directionRelation" label="方向"><Select onChange={onValueCommit} options={relation === "PERPENDICULAR" ? [{value:"SAME",label:"正向（90°）"},{value:"OPPOSITE",label:"反向（270°）"}] : [
       {value:"UNORIENTED",label:"未定义"},{value:"SAME",label:"同向"},{value:"OPPOSITE",label:"反向"}]} /></Form.Item>}
     {distanceDirectionApplicable && <Form.Item name="distanceRelation" label="距离方向"><Select onChange={onValueCommit} options={[
@@ -295,7 +295,7 @@ export function Workbench() {
   const [externalParameterID, setExternalParameterID] = useState<string>();
   const [editingParameterID, setEditingParameterID] = useState<string>();
   const [editingPublication, setEditingPublication] = useState<{id:string;kind:"PART"|"PRODUCT"}>();
-  const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: AssemblyConstraintToolKind; references: AssemblyGeometryRef[]; fixMode?:AssemblyConstraint["fixMode"]; angleRelation?:AssemblyConstraint["angleRelation"]; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; angleReferenceDirection?: Vec3 }>();
+  const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: AssemblyConstraintToolKind; references: AssemblyGeometryRef[]; angleRelation?:AssemblyConstraint["angleRelation"]; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; angleReferenceDirection?: Vec3 }>();
   const [editingAssemblyConstraint, setEditingAssemblyConstraint] = useState<AssemblyConstraint>();
   const [replacingAssemblyReference, setReplacingAssemblyReference] = useState<0 | 1 | 2>();
   const [assemblyDefinitionDirty, setAssemblyDefinitionDirty] = useState(false);
@@ -337,7 +337,7 @@ export function Workbench() {
   const [contextReferenceForm] = Form.useForm<{ name:string;catalogKey:string;publicationType:string;targetId:string }>();
   const [replacementForm] = Form.useForm<{referencedDocumentId:string}>();
   const [externalParameterForm] = Form.useForm<{ catalogKey: string }>();
-  const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string; quantityExpression?:string;quantityKey?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupName?:string;groupMembers?:string[];constraintMode?:string; fixedTranslation:Vec3; fixedAngles:Vec3 }>();
+  const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string; quantityExpression?:string;quantityKey?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupMembers?:string[];fixMode?:AssemblyConstraint["fixMode"];constraintMode?:string; fixedTranslation:Vec3; fixedAngles:Vec3 }>();
   const contextPublicationType = Form.useWatch("publicationType", contextReferenceForm) ?? "PLANE";
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
@@ -507,7 +507,9 @@ export function Workbench() {
       viewport.current?.clearCommandPreview();setEditingAssemblyConstraint(undefined);
     }
   },[editingView,editingAssemblyConstraint]);
+  const [replacingGroupMember,setReplacingGroupMember] = useState<string>();
   const assemblyGroupMembers = Form.useWatch("groupMembers",assemblyConstraintForm) as string[]|undefined;
+  useEffect(()=>{if(replacingGroupMember&&!assemblyGroupMembers?.includes(replacingGroupMember))setReplacingGroupMember(undefined);},[assemblyGroupMembers,replacingGroupMember]);
   const assemblyContactKind = Form.useWatch("contactKind",assemblyConstraintForm) as string|undefined;
   const editingGroup = editingAssemblyConstraint?.kind==="FIX_TOGETHER" || pendingAssemblyConstraint?.kind==="fix_together";
   const assemblyReferences = editingAssemblyConstraint ? [editingAssemblyConstraint.first,editingAssemblyConstraint.second].filter((r):r is AssemblyGeometryRef=>!!r&&!!r.instanceId) : pendingAssemblyConstraint?.references ?? [];
@@ -564,10 +566,18 @@ export function Workbench() {
       project:item=>{const member=assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id);return member?groupMemberSelection(editingView,member,owner):null},
       accept:item=>Boolean(assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id)),
       selections:members.flatMap(member=>{const selection=groupMemberSelection(editingView,member,owner);return selection?[selection]:[]}),
-      onPick:item=>{const member=assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id);if(!member)return;const token=groupMemberToken(member),current=assemblyConstraintForm.getFieldValue('groupMembers')??[];assemblyConstraintForm.setFieldValue('groupMembers',current.includes(token)?current.filter((value:string)=>value!==token):[...current,token]);invalidateAssemblyDefinition()}
+      onPick:item=>{const member=assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id);if(!member)return;const token=groupMemberToken(member),current:string[]=assemblyConstraintForm.getFieldValue('groupMembers')??[];assemblyConstraintForm.setFieldValue('groupMembers',replacingGroupMember?[...new Set(current.map(value=>value===replacingGroupMember?token:value))]:current.includes(token)?current.filter(value=>value!==token):[...current,token]);setReplacingGroupMember(undefined);invalidateAssemblyDefinition()}
     };
     setFeatureSelection(session);return()=>setFeatureSelection(current=>current===session?undefined:current);
-  },[editingGroup,editingView,editingAssemblyConstraint?.id,activeInstancePath,assemblyGroupMembers,assemblyConstraintForm]);
+  },[editingGroup,editingView,editingAssemblyConstraint?.id,activeInstancePath,assemblyGroupMembers,assemblyConstraintForm,replacingGroupMember]);
+  const locateAssemblyMember=(member:AssemblyGroupMember)=>{
+    if(!editingView)return;
+    const selection=groupMemberSelection(editingView,member,activeInstancePath??'');
+    if(selection)store.setSelection(selection);
+    const group=editingView.product?.constraints?.find(c=>c.id===member.groupId);
+    const reference=member.instanceId?{kind:'BODY' as const,instanceId:member.instanceId}:group?assemblyConstraintReferences(group,editingView.product?.constraints??[])[0]:undefined;
+    if(reference)viewport.current?.focusAssemblyReference(reference,activeInstancePath??'');
+  };
   const deriveAssemblyReference = (index:0|1,role:string) => {
     const reference=assemblyReferences[index];if(!reference)return;
     const next={...reference,derivedRole:role||undefined};invalidateAssemblyDefinition();
@@ -852,7 +862,7 @@ export function Workbench() {
     const timer = window.setTimeout(() => {
       const commandInput = assemblyEditIntent(kind.toUpperCase(),assemblyConstraintForm.getFieldsValue(true),references,lengthUnit,
         constraint && {...constraint,angleAxis:resolvedAngleAxis}, {angleRelation:pending?.angleRelation,angleAxis:resolvedAngleAxis,
-          reverseAngleAxis:pending?.reverseAngleAxis,angleReferenceDirection:pending?.angleReferenceDirection,fixMode:pending?.fixMode});
+          reverseAngleAxis:pending?.reverseAngleAxis,angleReferenceDirection:pending?.angleReferenceDirection});
       const key=assemblyIntentKey(commandInput,editingView.document.id,editingView.document.versionId,activeInstancePath);
 	  void api.previewCommand(editingView.document.id, {...commandInput,
         interactionId:assemblyInteractionID.current},controller.signal).then((preview) => {
@@ -926,7 +936,10 @@ export function Workbench() {
     assemblyDialogLifecycle.current.invalidate();
     assemblyCandidate.current.invalidate();assemblyPreviewSequence.current++;assemblyPreviewAbort.current?.abort();assemblyPreviewID.current=undefined;
     assemblyDraftBase.current=editingView ? {documentId:editingView.document.id,revision:editingView.document.versionId} : undefined;
+    setPendingAssemblyConstraint(undefined);setReplacingGroupMember(undefined);
+    store.setActiveTool("select","once");
     constraint = assemblyPublicEditDraft(constraint);
+    if(editingView&&constraint.kind==="FIX_TOGETHER")constraint={...constraint,groupMembers:[...new Map((constraint.groupMembers??[]).map(member=>{const resolved=groupMemberForInstance(editingView,member,constraint.id);return [groupMemberToken(resolved),resolved]})).values()]};
     assemblyInteractionID.current = randomUUID();
     assemblyPreviewActor.current?.send({ type: "START" });
     setEditingAssemblyConstraint({ ...constraint, angleRelation:constraint.kind === "ANGLE" ? constraint.angleRelation ?? "FREE" : undefined });
@@ -939,6 +952,7 @@ export function Workbench() {
     const fixedPose = constraint.fixedPose ?? {translation:instance?.translation ?? [0,0,0],rotation:instance?.rotation ?? [0,0,0,1]};
     assemblyConstraintForm.setFieldsValue({
       ...assemblyPublicInitialFields(constraint.kind,[constraint.first,...(constraint.second?[constraint.second]:[])],constraint),
+      fixMode:constraint.fixMode??"SPACE",
       fixedTranslation: fixedPose.translation.map(v=>millimetersToDisplayLength(v,lengthUnit)),
       fixedAngles: fixedPoseAngles(fixedPose),
       value: constraint.kind === "ANGLE" ? (constraint.value ?? 0) * 180 / Math.PI
@@ -1179,7 +1193,8 @@ export function Workbench() {
   };
 
   const closeAssemblyCandidate=()=>{
-    assemblyDialogLifecycle.current.invalidate();
+    assemblyDialogLifecycle.current.invalidate();assemblyCandidate.current.invalidate();
+    setReplacingGroupMember(undefined);setFeatureSelection(undefined);store.setActiveTool("select","once");
     assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});
     assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;assemblyPreviewID.current=undefined;
     viewport.current?.clearCommandPreview();setAssemblyPreviewEvaluation(undefined);setReplacingAssemblyReference(undefined);
@@ -1703,12 +1718,16 @@ onToggleConstruction:(node)=>{
 			assemblyDraftBase.current={documentId:editingView.document.id,revision:editingView.document.versionId};
 			assemblyInteractionID.current=randomUUID();
 			assemblyPreviewActor.current?.send({type:"START"});
+            setEditingAssemblyConstraint(undefined);setReplacingGroupMember(undefined);
             setAssemblyDefinitionDirty(true); setReconnectError(undefined); setReplacingAssemblyReference(undefined);
             // Mesh/display measurements are not authoritative parameter or
             // branch defaults. Wait for exact server inspection for sign rules.
             assemblyConstraintForm.setFieldsValue({ value:0, directionRelation:"UNORIENTED", distanceRelation: "UNSIGNED",
               ...(kind === "distance" ? offsetInitialFields(undefined,references) : {}) });
-            assemblyConstraintForm.setFieldsValue({...assemblyPublicInitialFields(kind.toUpperCase(),references),...(groupMembers?{groupMembers:groupMembers.map(groupMemberToken)}:{}),...(kind==="angle"?assemblyQuantityInitialFields():{})});
+            assemblyConstraintForm.setFieldsValue({...assemblyPublicInitialFields(kind.toUpperCase(),references),...(groupMembers?{groupMembers:[...new Set(groupMembers.map(member=>groupMemberToken(groupMemberForInstance(editingView,member))))]}:{}),...(kind==="angle"?assemblyQuantityInitialFields():{})});
+            const instance=editingView.product?.instances.find(instance=>instance.id===references[0]?.instanceId);
+            const pose={translation:instance?.translation??[0,0,0] as Vec3,rotation:instance?.rotation??[0,0,0,1] as [number,number,number,number]};
+            assemblyConstraintForm.setFieldsValue({fixMode:"SPACE",fixedTranslation:pose.translation.map(v=>millimetersToDisplayLength(v,lengthUnit)) as Vec3,fixedAngles:fixedPoseAngles(pose)});
             setPendingAssemblyConstraint({ kind, references,
               angleRelation });
           }}
@@ -1751,7 +1770,7 @@ onToggleConstruction:(node)=>{
     </WorkbenchLayout>
     <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" size="M"
       onClose={closeAssemblyCandidate}
-      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined ||
+      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined || !!replacingGroupMember ||
         Boolean(editingAssemblyConstraint?.kind === "ANGLE" && editingAssemblyConstraint.angleRelation === "DIRECTED" && !editingAssemblyConstraint.angleAxis)} onConfirm={async()=>{
         if(!editingView||!editingAssemblyConstraint)return;
         const constraint=editingAssemblyConstraint, target=editingView.document;
@@ -1770,9 +1789,6 @@ onToggleConstruction:(node)=>{
 		  onError:(cause)=>{if(assemblyDialogLifecycle.current.isCurrent(dialogGeneration))assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)});}});
       }}>
       <Form form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>
-        {editingAssemblyConstraint?.kind === "FIX" && <Select aria-label="固定基准" value={editingAssemblyConstraint.fixMode ?? "SPACE"}
-          options={[{value:"SPACE",label:"空间固定"},{value:"RELATIVE",label:"相对固定"}]}
-          onChange={(fixMode)=>{invalidateAssemblyDefinition();setEditingAssemblyConstraint({...editingAssemblyConstraint,fixMode});}} />}
         {editingAssemblyConstraint?.kind === "ANGLE" && <AssemblyAngleParameters value={editingAssemblyConstraint} view={editingView}
           axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis}
           onChange={value=>{invalidateAssemblyDefinition();if(!angleRelationSupportsMeasured(value.angleRelation))assemblyConstraintForm.setFieldValue("constraintMode","DRIVING");if(value.angleRelation === "PERPENDICULAR") assemblyConstraintForm.setFieldValue("directionRelation", assemblyConstraintForm.getFieldValue("directionRelation") === "OPPOSITE" ? "OPPOSITE" : "SAME");setEditingAssemblyConstraint({...editingAssemblyConstraint,...value});}}
@@ -1780,6 +1796,8 @@ onToggleConstruction:(node)=>{
 
 
         {editingAssemblyConstraint && <AssemblyConstraintFields kind={editingAssemblyConstraint.kind} view={editingView} lengthUnit={lengthUnit}
+          replacingMember={replacingGroupMember} onReplaceMember={token=>{setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
+          onLocateMember={locateAssemblyMember}
           exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
           references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second]} replacing={replacingAssemblyReference}
           constraint={editingAssemblyConstraint} previewEvaluation={assemblyPreviewEvaluation} dirty={assemblyDefinitionDirty}
@@ -1815,14 +1833,14 @@ onToggleConstruction:(node)=>{
     </CommandDialog>
     <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" size="M"
       onClose={closeAssemblyCandidate}
-      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined ||
+      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined || !!replacingGroupMember ||
         Boolean(pendingAssemblyConstraint?.kind === "angle" && pendingAssemblyConstraint.angleRelation === "DIRECTED" && !pendingAssemblyConstraint.angleAxis)}
       onConfirm={async () => {
         if (!editingView || !pendingAssemblyConstraint) return;
         const pending = pendingAssemblyConstraint;
         const target=editingView.document;
         const intent=assemblyEditIntent(pending.kind.toUpperCase(),assemblyConstraintForm.getFieldsValue(true),resolvedAssemblyReferences,lengthUnit,undefined,
-          {angleRelation:pending.angleRelation,angleAxis:resolvedAngleAxis,reverseAngleAxis:pending.reverseAngleAxis,angleReferenceDirection:pending.angleReferenceDirection,fixMode:pending.fixMode});
+          {angleRelation:pending.angleRelation,angleAxis:resolvedAngleAxis,reverseAngleAxis:pending.reverseAngleAxis,angleReferenceDirection:pending.angleReferenceDirection});
         const key=assemblyIntentKey(intent,target.id,target.versionId,activeInstancePath);
         const sequence=assemblyPreviewSequence.current;
         const dialogGeneration=assemblyDialogLifecycle.current.capture();
@@ -1835,14 +1853,13 @@ onToggleConstruction:(node)=>{
 		  onError:(cause)=>{if(assemblyDialogLifecycle.current.isCurrent(dialogGeneration))assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)});} });
       }}>
       <Form form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>
-        {pendingAssemblyConstraint?.kind === "fix" && <Select aria-label="创建固定基准" value={pendingAssemblyConstraint.fixMode ?? "SPACE"}
-          options={[{value:"SPACE",label:"空间固定（所属 Product 坐标系）"},{value:"RELATIVE",label:"相对固定（显式移动后更新基准）"}]}
-          onChange={fixMode=>{invalidateAssemblyDefinition();setPendingAssemblyConstraint({...pendingAssemblyConstraint,fixMode});}} />}
         {pendingAssemblyConstraint?.kind === "angle" && <AssemblyAngleParameters value={pendingAssemblyConstraint} view={editingView}
           axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis}
           onChange={value=>{invalidateAssemblyDefinition();if(!angleRelationSupportsMeasured(value.angleRelation))assemblyConstraintForm.setFieldValue("constraintMode","DRIVING");if(value.angleRelation === "PERPENDICULAR") assemblyConstraintForm.setFieldValue("directionRelation", assemblyConstraintForm.getFieldValue("directionRelation") === "OPPOSITE" ? "OPPOSITE" : "SAME");setPendingAssemblyConstraint({...pendingAssemblyConstraint,...value});}}
           onPick={()=>{store.setSelection(null);setReplacingAssemblyReference(2);store.setActiveTool("select","once");}} />}
         {pendingAssemblyConstraint && <AssemblyConstraintFields kind={pendingAssemblyConstraint.kind.toUpperCase() as keyof typeof assemblyConstraintUI} view={editingView} lengthUnit={lengthUnit}
+          replacingMember={replacingGroupMember} onReplaceMember={token=>{setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
+          onLocateMember={locateAssemblyMember}
           exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
           references={pendingAssemblyConstraint.references} replacing={replacingAssemblyReference}
           previewEvaluation={assemblyPreviewEvaluation} dirty

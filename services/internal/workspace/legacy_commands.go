@@ -1297,9 +1297,6 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if (request.ConstraintFamily != "" && request.ConstraintFamily != "FixTogether") || request.Value != 0 || request.DirectionRelation != "" || request.DistanceRelation != "" || request.QuantityExpression != nil || request.OffsetExpression != nil || request.QuantityKey != "" || request.OffsetKey != "" || request.ContactKind != "" || request.ContactSide != "" || request.ContactBranch != nil || request.AngleAxis != nil || request.AngleRelation != "" || request.FixMode != "" || request.FixedPose != nil || (!rigidShortcut && (request.FirstAssemblyRef != nil || request.SecondAssemblyRef != nil)) {
 				return "", nil, fmt.Errorf("%w: Fix Together accepts stable members, name and Driving activation only", ErrValidation)
 			}
-			if request.GroupName != "" {
-				request.Name = request.GroupName
-			}
 			c := AssemblyConstraint{ID: commandEntityID("assembly-constraint", request.RequestID), ConnectionID: commandEntityID("assembly-connection", request.RequestID), Kind: "FIX_TOGETHER", Family: "FixTogether", DefinitionVersion: 2, Name: request.Name, GroupMembers: request.GroupMembers, Mode: "DRIVING"}
 			if request.ConstraintMode != nil {
 				c.Mode = *request.ConstraintMode
@@ -1387,6 +1384,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			firstPose := InstancePose{Translation: first.Translation, Rotation: normalizedInstanceRotation(first.Rotation)}
 			if kind == "FIX" {
 				constraint.FixedPose = &firstPose
+				if request.FixedPose != nil {
+					constraint.FixedPose = request.FixedPose
+				}
 			} else {
 				secondPose := InstancePose{Translation: second.Translation, Rotation: normalizedInstanceRotation(second.Rotation)}
 				relative := inverseRelativePose(firstPose, secondPose)
@@ -1470,18 +1470,15 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if request.FixedPose != nil {
 			editedFixedPose = request.FixedPose
 		}
-		var groupName *string
+		var constraintName *string
 		var groupMembers *[]AssemblyGroupMember
-		if request.GroupName != "" {
-			request.Name = request.GroupName
-		}
 		if request.Name != "" {
-			groupName = &request.Name
+			constraintName = &request.Name
 		}
 		if request.GroupMembers != nil {
 			groupMembers = &request.GroupMembers
 		}
-		payload := editAssemblyConstraintPayload{GroupName: groupName, GroupMembers: groupMembers, FixMode: request.FixMode, AngleRelation: request.AngleRelation, ConstraintID: id, Value: request.Value,
+		payload := editAssemblyConstraintPayload{Name: constraintName, GroupMembers: groupMembers, FixMode: request.FixMode, AngleRelation: request.AngleRelation, ConstraintID: id, Value: request.Value,
 			Family: request.ConstraintFamily, Subtype: request.ConstraintSubtype, ContactKind: strings.ToUpper(request.ContactKind), ContactSide: strings.ToUpper(request.ContactSide), ContactBranch: request.ContactBranch,
 			Mode:             request.ConstraintMode,
 			OffsetExpression: request.OffsetExpression, OffsetKey: request.OffsetKey,

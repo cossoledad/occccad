@@ -10,6 +10,7 @@ build_type=Debug
 [conf]
 tools.cmake.cmaketoolchain:generator=Ninja
 tools.gnu:pkg_config=/usr/bin/pkg-config
+tools.build:jobs=4
 
 [buildenv]
 CC=gcc-15

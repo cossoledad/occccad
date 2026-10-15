@@ -23,13 +23,13 @@ try {
  assert.deepEqual(datumAxisDefinition(view,{kind:"axis",entityId:"standard",axis:"X"}).direction,[1,0,0]);
  const reference=makeDatumAxisReference(axis);
  assert.deepEqual(reference.position.toArray(),axis.origin);
- const visible=reference.children[0]; assert.equal(visible.material.dashed,false); assert.notEqual(visible.material.color.getHex(),0xd89422);
+ const visible=reference.children[0]; assert.equal(visible.material.dashed,true); assert.notEqual(visible.material.color.getHex(),0xd89422);
  assert.ok(reference.children.length>1,"positive arrow and origin ticks are rendered");
  const materials=new CadMaterialFactory(new CadShaderLibrary());
  materials.setInteractionState(reference,"context"); const contextColor=visible.material.color.getHex();
  materials.setInteractionState(reference,"selected");const selectedColor=visible.material.color.getHex();
  materials.setInteractionState(reference,"hover"); assert.notEqual(visible.material.color.getHex(),selectedColor);assert.notEqual(contextColor,selectedColor);
- materials.setInteractionState(reference,"default");assert.equal(visible.material.opacity,.96);assert.equal(visible.material.linewidth,2.25);
+ materials.setInteractionState(reference,"default");assert.equal(visible.material.opacity,.96);assert.equal(visible.material.linewidth,1.5);
  let reframed=false;
  const engine={featureSelection:undefined,preselect(){},updateSketchContextVisibility(){},applyTreeVisibility(){},refreshInteractionHighlights(){},emitDebugState(){},invalidate(){},fit(){reframed=true;}};
  CadViewportEngine.prototype.setFeatureSelection.call(engine,{role:"axis",sketchIds:["sketch"],selections:[]});

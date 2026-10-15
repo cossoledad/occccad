@@ -6373,7 +6373,7 @@
         },
         {
           "commandId": "dmu.revolute",
-          "groupKey": "variants:joints",
+          "groupKey": "primary",
           "order": 30
         },
         {
@@ -6383,33 +6383,30 @@
         },
         {
           "commandId": "dmu.prismatic",
-          "groupKey": "variants:joints",
+          "groupKey": "primary",
           "order": 31
         },
         {
           "commandId": "dmu.cylindrical",
-          "groupKey": "variants:joints",
+          "groupKey": "primary",
           "order": 32
         },
         {
           "commandId": "dmu.planar",
-          "groupKey": "variants:joints",
+          "groupKey": "primary",
           "order": 33
         },
         {
           "commandId": "dmu.rigid",
-          "groupKey": "variants:joints",
+          "groupKey": "primary",
           "order": 34
         },
         {
           "commandId": "dmu.spherical",
-          "groupKey": "variants:joints",
+          "groupKey": "primary",
           "order": 35
         }
-      ],
-      "variants": {
-        "variants:joints": "接合"
-      }
+      ]
     },
     {
       "id": "dmu-motion",

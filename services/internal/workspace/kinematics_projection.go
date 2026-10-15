@@ -59,7 +59,7 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 			jn.EntityType = j.Kind
 			jn.MechanismID = m.ID
 			for _, c := range j.Constraints {
-				cn := node(jn.ID, "JOINT_EXPANSION", c.ID, constraintDisplayName(c, nameFor))
+				cn := node(jn.ID, "JOINT_EXPANSION", c.ID, constraintDisplayName(c, nameFor, j.Constraints...))
 				cn.EntityType = c.Kind
 				cn.OwnerEntityID = j.ID
 				cn.MechanismID = m.ID

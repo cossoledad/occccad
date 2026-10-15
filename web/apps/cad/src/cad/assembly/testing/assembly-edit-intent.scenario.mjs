@@ -32,6 +32,13 @@ try {
  // survive Preview but validateFields' mounted-only result omits them.
  assert.notEqual(JSON.stringify({directionRelation:store.directionRelation,distanceRelation:store.distanceRelation}),JSON.stringify({directionRelation:visible.directionRelation,distanceRelation:visible.distanceRelation}));
  const build=(fields=store,refs=[first,second],constraint=c)=>assemblyEditIntent(constraint.kind,fields,refs,"mm",constraint);
+ for(const mode of ['SPACE','RELATIVE']){
+  const created=assemblyEditIntent('FIX',{fixedTranslation:[1.25,2,3],fixedAngles:[0,0,90],fixMode:mode},[{instanceId:'a',kind:'BODY'}],'cm');
+  assert.equal(created.fixMode,mode);assert.deepEqual(created.fixedPose.translation,[12.5,20,30]);
+  assert.ok(Math.abs(created.fixedPose.rotation[2]-Math.SQRT1_2)<1e-12);
+  const edited=assemblyEditIntent('FIX',{fixedTranslation:[1.25,2,3],fixedAngles:[0,0,90],fixMode:mode},[{instanceId:'a',kind:'BODY'}],'cm',{...c,kind:'FIX',fixMode:'SPACE'});
+  assert.deepEqual(created.fixedPose,edited.fixedPose,'create and edit use the same pose and unit contract');assert.equal(edited.fixMode,mode);
+ }
  const intent=build();assert.equal(intent.directionRelation,"SAME");assert.equal(intent.distanceRelation,"UNSIGNED");
  for(const field of ["previewId","evaluationStatus","angleAxis","angleReferenceDirection"])assert.equal(field in intent,false);
  const slot=new AssemblyCandidateBinding();
@@ -71,7 +78,7 @@ try {
  freshSlot.invalidate();finish({previewId:"late",expiresAt:new Date(Date.now()+45000).toISOString()});
  assert.equal(await waiting,undefined);assert.equal(freshSlot.freeze(key(build())),undefined);
  for(const kind of ["DISTANCE","ANGLE","CONTACT","FIX_TOGETHER","FIX"]) {
-  const fields={...store,contactKind:"FACE",contactSide:"EXTERNAL",contactBranch:-1,groupName:"g",groupMembers:["instance:a","instance:b"],quantityExpression:"angle + 10 deg",offsetExpression:"length + 2 mm"};
+  const fields={...store,contactKind:"FACE",contactSide:"EXTERNAL",contactBranch:-1,groupMembers:["instance:a","instance:b"],quantityExpression:"angle + 10 deg",offsetExpression:"length + 2 mm"};
   const original={...c,kind,angleRelation:"DIRECTED",angleAxis:{instanceId:"axis",kind:"AXIS"},reverseAngleAxis:true,fixMode:"SPACE"};
   const preview=assemblyEditIntent(kind,fields,[first,second],"mm",original);
   const commit=assemblyEditIntent(kind,{...fields},structuredClone([first,second]),"mm",structuredClone(original));

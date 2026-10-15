@@ -305,8 +305,8 @@ func applyAssemblyGroupEdit(raw json.RawMessage, payload editAssemblyConstraintP
 			continue
 		}
 		before := *c
-		if payload.GroupName != nil {
-			c.Name = *payload.GroupName
+		if payload.Name != nil {
+			c.Name = *payload.Name
 		}
 		if payload.GroupMembers != nil && !reflect.DeepEqual(canonicalGroupMembers(c.GroupMembers), canonicalGroupMembers(*payload.GroupMembers)) {
 			c.GroupMembers = canonicalGroupMembers(*payload.GroupMembers)

@@ -188,11 +188,12 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
     style={{ left: position.x, top: position.y, width }}>
     <header className="cad-command-dialog-header" style={{flexShrink:0}} onPointerDown={pointerDown} onPointerMove={pointerMove}
       onPointerUp={pointerUp} onPointerCancel={pointerUp} onLostPointerCapture={pointerUp}>
-      <strong>{title}</strong><button aria-label="关闭" onPointerDown={(event) => event.stopPropagation()}
+      <strong>{title}</strong><button aria-label="关闭" onPointerDown={(event) => {event.preventDefault();event.stopPropagation();}}
         onClick={onClose}><CloseOutlined /></button>
     </header>
     <div className="cad-command-dialog-body" style={{overflowY:"auto",minHeight:0}}>{children}</div>
-    {footer&&<footer className="cad-command-dialog-footer" style={{flexShrink:0}}><Button onClick={onClose}>取消</Button>
+    {/* Cancel must not blur/commit the focused draft input before its click. */}
+    {footer&&<footer className="cad-command-dialog-footer" style={{flexShrink:0}}><Button onPointerDown={event=>event.preventDefault()} onClick={onClose}>取消</Button>
       <Button type="primary" loading={confirmLoading || submitting} disabled={confirmDisabled}
         onClick={() => void confirm()}>确定</Button></footer>}
   </section>;

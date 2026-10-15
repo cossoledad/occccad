@@ -33,9 +33,9 @@ func TestSimpleJointPersistentDefinitionsAndIndependentConversion(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"PRISMATIC", "CYLINDRICAL", "PLANAR", "RIGID", "SPHERICAL", "PRISMATIC_OPPOSITE", "CYLINDRICAL_OPPOSITE"} {
+	for _, name := range []string{"PRISMATIC", "CYLINDRICAL", "PLANAR", "RIGID", "SPHERICAL", "PRISMATIC_OPPOSITE", "CYLINDRICAL_OPPOSITE", "PRISMATIC_PLANE_OPPOSITE"} {
 		t.Run(name, func(t *testing.T) {
-			kind := strings.TrimSuffix(name, "_OPPOSITE")
+			kind := strings.TrimSuffix(strings.TrimSuffix(name, "_PLANE_OPPOSITE"), "_OPPOSITE")
 			view, err := svc.CreateDocument(t.Context(), CreateDocumentRequest{Type: "PRODUCT", Name: kind, ActorID: actor})
 			if err != nil {
 				t.Fatal(err)
@@ -73,8 +73,11 @@ func TestSimpleJointPersistentDefinitionsAndIndependentConversion(t *testing.T) 
 			}
 			first, second := endpoint(a), endpoint(b)
 			joint := MechanismJoint{ID: "joint", Name: kind + ".1", Kind: kind, First: first, Second: &second, OrientationAngle: MotionQuantity{Unit: "deg"}, AxialDirection: "SAME", AxialOffset: MotionQuantity{Value: 3, Unit: "mm"}}
-			if strings.HasSuffix(name, "_OPPOSITE") {
+			if strings.HasSuffix(name, "_OPPOSITE") && !strings.HasSuffix(name, "_PLANE_OPPOSITE") {
 				joint.AxisDirection = "OPPOSITE"
+			}
+			if strings.HasSuffix(name, "_PLANE_OPPOSITE") {
+				joint.AxialDirection = "OPPOSITE"
 			}
 			for _, role := range jointCoordinateRoles(kind) {
 				dimension, unit := "LENGTH", "mm"
@@ -96,6 +99,11 @@ func TestSimpleJointPersistentDefinitionsAndIndependentConversion(t *testing.T) 
 			bound := saved.Joints[1]
 			if joint.AxisDirection == "OPPOSITE" && bound.Constraints[0].DirectionRelation != "OPPOSITE" {
 				t.Fatal("coordinate direction replaced the opposite axis relation")
+			}
+			if joint.AxialDirection == "OPPOSITE" {
+				if bound.AxialDirection != "OPPOSITE" || math.Abs(bound.Constraints[1].Value-math.Pi) > 1e-10 {
+					t.Fatal("opposite plane branch was not compiled", bound)
+				}
 			}
 			expectedRelations := 1
 			if kind == "PRISMATIC" {

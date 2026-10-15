@@ -1775,7 +1775,7 @@ type addAssemblyConstraintPayload struct {
 }
 
 type editAssemblyConstraintPayload struct {
-	GroupName               *string                `json:"groupName,omitempty"`
+	Name                    *string                `json:"name,omitempty"`
 	GroupMembers            *[]AssemblyGroupMember `json:"groupMembers,omitempty"`
 	Family                  string                 `json:"family,omitempty"`
 	Subtype                 string                 `json:"subtype,omitempty"`
@@ -1908,8 +1908,8 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 			return applyAssemblyGroupEdit(modelJSON, payload)
 		}
 		before := model.Constraints[index]
-		if payload.GroupName != nil {
-			name := strings.TrimSpace(*payload.GroupName)
+		if payload.Name != nil {
+			name := strings.TrimSpace(*payload.Name)
 			if name == "" {
 				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: constraint name must not be empty", ErrValidation)
 			}
@@ -2006,21 +2006,8 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		if p := assemblyQuantityParameter(model.Constraints[index]); p != nil {
 			changes.ImpactSeeds = append(changes.ImpactSeeds, modelcore.DependencyKey("parameter:"+p.ParameterID))
 		}
-		// Explicit relative-Fix pose editing is a placement edit. Otherwise the
-		// next solve would recapture the old nominal placement and discard it.
-		c := model.Constraints[index]
-		if c.Kind == "FIX" && c.FixMode == "RELATIVE" && payload.FixedPose != nil && !c.Suppressed {
-			for i := range model.Instances {
-				instance := &model.Instances[i]
-				if instance.ID != c.First.InstanceID {
-					continue
-				}
-				old := InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)}
-				instance.Translation, instance.Rotation = c.FixedPose.Translation, c.FixedPose.Rotation
-				poseChange, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: instance.ID, SlotID: "instance.pose"}, old, *c.FixedPose)
-				changes.Changes = append(changes.Changes, poseChange)
-				changes.ImpactSeeds = append(changes.ImpactSeeds, modelcore.DependencyKey("placement:"+instance.ID))
-			}
+		if payload.FixedPose != nil {
+			changes = appendRelativeFixPlacement(&model, model.Constraints[index], changes)
 		}
 		var priorProduct ProductModel
 		if err := json.Unmarshal(modelJSON, &priorProduct); err != nil {
@@ -2035,6 +2022,29 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		return next, changes, nil
 	}
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: assembly constraint does not exist", ErrValidation)
+}
+
+// Relative Fix keeps the nominal placement during evaluation. An explicit pose
+// in either create or edit must therefore update placement in the same command.
+func appendRelativeFixPlacement(model *ProductModel, c AssemblyConstraint, set modelcore.ChangeSet) modelcore.ChangeSet {
+	if c.Kind != "FIX" || c.FixMode != "RELATIVE" || c.FixedPose == nil || c.Suppressed {
+		return set
+	}
+	for i := range model.Instances {
+		instance := &model.Instances[i]
+		if instance.ID != c.First.InstanceID {
+			continue
+		}
+		before := InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)}
+		if reflect.DeepEqual(before, *c.FixedPose) {
+			continue
+		}
+		instance.Translation, instance.Rotation = c.FixedPose.Translation, c.FixedPose.Rotation
+		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: instance.ID, SlotID: "instance.pose"}, before, *c.FixedPose)
+		set.Changes = append(set.Changes, change)
+		set.ImpactSeeds = append(set.ImpactSeeds, modelcore.DependencyKey("placement:"+instance.ID))
+	}
+	return set
 }
 
 func applyAddAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -2073,12 +2083,13 @@ func applyAddAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.Ra
 	}
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Constraint.ID, SlotID: "assembly-constraint.entity"}, nil, payload.Constraint)
 	counterChange, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: "product", SlotID: "product.constraint-name-counters"}, json.RawMessage(beforeCounters), model.ConstraintNameCounters)
-	next, _ := json.Marshal(model)
 	changes := []modelcore.ModelChange{change}
 	if counterChange.BeforeDigest != counterChange.AfterDigest {
 		changes = append(changes, counterChange)
 	}
-	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.Constraint.ID)}}, nil
+	set := appendRelativeFixPlacement(&model, payload.Constraint, modelcore.ChangeSet{Changes: changes, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.Constraint.ID)}})
+	next, _ := json.Marshal(model)
+	return next, set, nil
 }
 
 func applyMoveInstance(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
