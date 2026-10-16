@@ -1,14 +1,14 @@
 # CAD 工作流参考索引
 
-本页记录 CATIA B33、产品资料与 OCCT 页面定位，不保存完成日志或独立设计方案。页面内容使用前按具体问题核验；这些引用是用户流程/术语参照，不证明 occccad 已实现能力，也不约束内部架构。重新用于设计时先查 `/mnt/s/tools/DS/Catia/B33doc/English/control/*.viewdoc`，再读对应 `online/` 页面。相对 `online/` 路径均以该英文文档根为基准。
+本页记录 CATIA B33、产品资料与 OCCT 页面定位，不保存完成日志或独立设计方案。页面内容使用前按具体问题核验；这些引用是用户流程/术语参照，不证明 occccad 已实现能力，也不约束内部架构。重新用于设计时先查 `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/control/*.viewdoc`，再读对应 `online/` 页面。相对 `online/` 路径均以该英文文档根为基准。
 
-- `/mnt/s/tools/DS/Catia/B33doc/English/online/cfyugasm_C2/cfyugasmut0311.htm`：Editing Constraints、四种 traffic-light 状态、Object in Work。
-- `/mnt/s/tools/DS/Catia/B33doc/English/online/cfyugasm_C2/cfyugasmrf0501.htm`：Constraint 属性、Supporting Elements 的 connected/disconnected 与 Reconnect。
-- `/mnt/s/tools/DS/Catia/B33doc/English/online/cfyugasm_C2/cfyugasmut0319.htm`：Refreshing Constraints，Broken → NotUpdated 的显式刷新语义。
-- `/mnt/s/tools/DS/Catia/B33doc/English/online/cfyugasm_C2/cfyugasmrf0101.htm`：孔类型变化删除支撑轴后约束 disconnected。
-- `/mnt/s/tools/DS/Catia/B33doc/English/online/asmug_C2/asmugat0102.htm`：Reconnecting Constraints。
-- `/mnt/s/tools/DS/Catia/B33doc/English/online/CAAScdAsmUseCases/CAAAsmCstOnPublish.htm`：约束基于 Publication，替换 component 后自动重连。
-- `/mnt/s/tools/DS/Catia/B33doc/English/online/CATIA_P3_default.htm`：CATIA 文档总入口。
+- `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/online/cfyugasm_C2/cfyugasmut0311.htm`：Editing Constraints、四种 traffic-light 状态、Object in Work。
+- `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/online/cfyugasm_C2/cfyugasmrf0501.htm`：Constraint 属性、Supporting Elements 的 connected/disconnected 与 Reconnect。
+- `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/online/cfyugasm_C2/cfyugasmut0319.htm`：Refreshing Constraints，Broken → NotUpdated 的显式刷新语义。
+- `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/online/cfyugasm_C2/cfyugasmrf0101.htm`：孔类型变化删除支撑轴后约束 disconnected。
+- `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/online/asmug_C2/asmugat0102.htm`：Reconnecting Constraints。
+- `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/online/CAAScdAsmUseCases/CAAAsmCstOnPublish.htm`：约束基于 Publication，替换 component 后自动重连。
+- `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/online/CATIA_P3_default.htm`：CATIA 文档总入口。
 - [OCAF User Guide: Topological naming](https://dev.opencascade.org/doc/occt-7.2.0/overview/html/occt_user_guides__ocaf.html)
 - [BRepTools_History](https://dev.opencascade.org/doc/refman/html/class_b_rep_tools___history.html)
 - [BRepPrimAPI_MakePrism](https://dev.opencascade.org/doc/refman/html/class_b_rep_prim_a_p_i___make_prism.html)
@@ -66,7 +66,7 @@
 
 ## 五类简单接合与固联组
 
-2026-10-12 按本机 `control/KinEnglishC2.viewdoc` 与 `control/CfyEnglishC2.viewdoc` 索引读取下列页面，并查看页面引用的实际对话框图。路径均相对于 `/mnt/s/tools/DS/Catia/B33doc/English/`；页面正文与图片只确认 CATIA 的用户输入和可见操作，不提供其内部求解架构证据。
+2026-10-12 按本机 `control/KinEnglishC2.viewdoc` 与 `control/CfyEnglishC2.viewdoc` 索引读取下列页面，并查看页面引用的实际对话框图。路径均相对于 `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/`；页面正文与图片只确认 CATIA 的用户输入和可见操作，不提供其内部求解架构证据。
 
 | 页面与对话框图 | 本轮核实的流程 |
 |---|---|

@@ -4,7 +4,7 @@
 
 ## 参照范围与证据
 
-2026-09-21 从 `control/AsmEnglishC2.viewdoc`、`control/CfyEnglishC2.viewdoc` 定位，并读取用户指定的 `online/CATIAfr_C2/asmugCATIAfrs.htm` frameset、Assembly 菜单及下列任务/参考页。绝对根目录为 `/mnt/s/tools/DS/Catia/B33doc/English/`；本页编号仅为来源定位，不是开发批次。
+2026-09-21 从 `control/AsmEnglishC2.viewdoc`、`control/CfyEnglishC2.viewdoc` 定位，并读取用户指定的 `online/CATIAfr_C2/asmugCATIAfrs.htm` frameset、Assembly 菜单及下列任务/参考页。绝对根目录为 `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/`；本页编号仅为来源定位，不是开发批次。
 
 | 来源 | 内容 |
 |---|---|

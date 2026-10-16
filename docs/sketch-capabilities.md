@@ -94,7 +94,7 @@ Sketch 模型使用椭圆、canonical 样条、稳定端点/点身份、Referenc
 
 ## 本机 CATIA 用户语义依据
 
-索引：`/mnt/s/tools/DS/Catia/B33doc/English/control/CfyEnglishC2.viewdoc`；以下均在其 `online/cfyugdys_C2/` 条目下：
+索引：`/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/control/CfyEnglishC2.viewdoc`；以下均在其 `online/cfyugdys_C2/` 条目下：
 
 - `cfyugdys0501.htm`（Trimming Elements）：一条或两条修剪、点击位置选分支、端部关系影响。
 - `cfyugdys0502.htm`（Breaking and Trimming）：Quick Trim 的删除命中、保留命中、分割保留三种语义，生成明确 Coincident。
