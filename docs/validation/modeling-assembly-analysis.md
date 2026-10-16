@@ -30,13 +30,13 @@
 
 | 文件 | 包围尺寸 X × Y × Z（mm） | 读入后 Face 数 | 主要几何构成 |
 |---|---:|---:|---|
-| [R300C](<R300C - R300C.step>) | 25.20 × 24.40 × 19.20 | 28 | 平面、圆柱面、圆环面 |
-| [Main Fan](<Main Fan - Main Fan.step>) | 106.00 × 157.04 × 20.00 | 54 | 39 个平面、15 个圆柱面 |
-| [Solar Panel](<Solar Panel - Solar Panel.step>) | 59.78 × 29.78 × 2.20 | 10 | 2 个平面、4 个圆柱面、4 个 B-Spline 角部过渡面 |
-| [Bottom Support](<Bottom Support - Bottom Support.step>) | 99.92 × 95.03 × 61.50 | 17 | 5 张外侧曲面、5 张内侧曲面及端部平面/圆柱面 |
-| [Windmill Head Cover](<Windmill Head Cover - Windmill Head Cover.step>) | 53.12 × 46.00 × 10.00 | 19 | 6 张汇聚到顶点的曲面、底面和6个插柱 |
+| [R300C](<../../tests/test.data/R300C - R300C.step>) | 25.20 × 24.40 × 19.20 | 28 | 平面、圆柱面、圆环面 |
+| [Main Fan](<../../tests/test.data/Main Fan - Main Fan.step>) | 106.00 × 157.04 × 20.00 | 54 | 39 个平面、15 个圆柱面 |
+| [Solar Panel](<../../tests/test.data/Solar Panel - Solar Panel.step>) | 59.78 × 29.78 × 2.20 | 10 | 2 个平面、4 个圆柱面、4 个 B-Spline 角部过渡面 |
+| [Bottom Support](<../../tests/test.data/Bottom Support - Bottom Support.step>) | 99.92 × 95.03 × 61.50 | 17 | 5 张外侧曲面、5 张内侧曲面及端部平面/圆柱面 |
+| [Windmill Head Cover](<../../tests/test.data/Windmill Head Cover - Windmill Head Cover.step>) | 53.12 × 46.00 × 10.00 | 19 | 6 张汇聚到顶点的曲面、底面和6个插柱 |
 
-![输入零件几何概览](analysis-assets/parts-overview.png)
+![输入零件几何概览](../../tests/test.data/analysis-assets/parts-overview.png)
 
 这些模型的几何复杂度主要来自局部构造与退化情形，而不是零件数量或面数。圆柱侧面的 R3、R15 表示倒圆角或等价圆弧构造；等距切斜面的倒角需要作为另一类特征处理。
 
@@ -123,7 +123,7 @@ OCCT 官方列出了圆角与限制面求交超出面域等构造限制，参见
 
 ### 4.2 放样：形状控制、点截面与参数依赖
 
-当前 [实体 Feature 合同](../../docs/architecture/current/solid-features.md) 和 [OCCT 实现](../../kernel/occt/src/occt_kernel.cpp) 主要提供有序闭合截面、方向和闭合起点；点截面、导轨及端部切向条件不是当前完整产品能力。`LoftSectionSpec` 和 `make_loft_tool` 应作为后续核对入口。
+当前 [实体 Feature 合同](../architecture/current/solid-features.md) 和 [OCCT 实现](../../kernel/occt/src/occt_kernel.cpp) 主要提供有序闭合截面、方向和闭合起点；点截面、导轨及端部切向条件不是当前完整产品能力。`LoftSectionSpec` 和 `make_loft_tool` 应作为后续核对入口。
 
 下一步优先评估：
 
@@ -162,7 +162,7 @@ OCCT 提供首端或末端 `AddVertex`，可作为点截面的候选入口，但
 - 精确几何、Naming 和可视化快照一起切换；曲面边界、点端退化边、法线与拾取身份保持一致。
 - 失败时明确区分当前失败模型和上次成功显示，不让旧显示实体成为新计算或装配支持的权威输入。
 
-相关事实入口：[持久命名](../../docs/architecture/current/persistent-naming.md)、[几何制品](../../docs/architecture/current/geometry-representations.md)、[实体 Feature 失败语义](../../docs/architecture/current/solid-features.md)。
+相关事实入口：[持久命名](../architecture/current/persistent-naming.md)、[几何制品](../architecture/current/geometry-representations.md)、[实体 Feature 失败语义](../architecture/current/solid-features.md)。
 
 ## 5. 候选装配与产品边界
 
@@ -173,7 +173,7 @@ OCCT 提供首端或末端 `AddVertex`，可作为点截面的候选入口，但
 - Windmill Head Cover 的六个插柱与 Main Fan 的六个盲孔对应。
 - Solar Panel 的同一 Part 定义创建两个 occurrence，分别安装在两片叶片上。
 
-![依据接口推定的候选装配；不是原始装配数据](analysis-assets/candidate-assembly.png)
+![依据接口推定的候选装配；不是原始装配数据](../../tests/test.data/analysis-assets/candidate-assembly.png)
 
 在该候选姿态下，15 组零件两两布尔交集的重叠体积均测得为 0。布尔运算和距离查询检查了算法完成状态。关键接口证据如下：
 
@@ -190,7 +190,7 @@ OCCT 提供首端或末端 `AddVertex`，可作为点截面的候选入口，但
 
 ### 5.1 约束组织建议
 
-当前 [Product 合同](../../docs/architecture/current/product-assembly.md) 和 [装配约束合同](../../docs/architecture/current/assembly-constraints.md) 已有轴、平面、角度、偏移和固定关系的基础。该目标优先检验这些关系与参数化零件更新的衔接：
+当前 [Product 合同](../architecture/current/product-assembly.md) 和 [装配约束合同](../architecture/current/assembly-constraints.md) 已有轴、平面、角度、偏移和固定关系的基础。该目标优先检验这些关系与参数化零件更新的衔接：
 
 - 用中心轴、安装面和一个定位方向建立充分关系，避免将六组孔全部重复设为驱动约束。
 - 六孔组存在多个等效角度分支，需要保存明确相位，重算和拖拽不应跳到另一分支。

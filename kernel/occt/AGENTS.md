@@ -13,7 +13,7 @@
 
 先查 `kernel/api/include/occccad/kernel/` 的 OCCT-free 契约，再在 `src/occt_kernel.cpp` 和 `tests/geometry_exchange_scenarios.cpp` 搜操作/测试名。两者都是大文件，禁止默认整读；按 Import/Export、Profile/Feature、Boolean、Topology/Naming 或 Tessellation 责任展开。
 
-协议/RPC 问题转到 `workers/geometry/AGENTS.md`；Product 选择解析转到 `services/AGENTS.md`。只有改变持久拓扑语义时读目标架构 5.7。
+协议/RPC 问题转到 `workers/geometry/AGENTS.md`；Product 选择解析转到 `services/AGENTS.md`。改变持久拓扑语义时读[持久命名](../../docs/architecture/current/persistent-naming.md)和[Feature 求值契约](../../docs/architecture/target/part-evaluation.md)。
 
 ## Validation
 

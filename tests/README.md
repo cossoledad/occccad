@@ -7,13 +7,13 @@
 - C++ 装配 solver 场景位于 `kernel/assembly/tests`，Sketch solver 场景位于 `workers/geometry/sketch/tests`，OCCT 几何场景位于 `kernel/occt/tests`，由所属模块的 CMake 注册；
 - Web 场景位于对应 `src/**/testing/*.scenario.mjs`，每个文件在独立 Node 进程运行并由 `pnpm test` 自动发现；
 - Go 遵循工具链要求，以邻近 `_test.go` 构建 package-private 白盒测试；本目录的 `go/` 只保留通过公开边界运行的多包/进程测试；
-- `test.data/` 是文件型测试数据的唯一入口，保存 STEP/BREP、最小数值重放、草图输入、测试合同数据与验收记录；目录说明见 [test.data/README.md](test.data/README.md)。测试代码及生产合同仍由原模块拥有。
+- `test.data/` 是文件型测试数据的唯一入口，保存 STEP/BREP、最小数值重放、草图输入、测试合同数据与截图；验收报告归[验证记录](../docs/validation/README.md)；目录说明见 [test.data/README.md](test.data/README.md)。测试代码及生产合同仍由原模块拥有。
 
 `invoke test` 是全量入口，依次执行全部 `tests/python` 开发工具单测、模块注册的 CTest、`services/` Go package tests、`tests/go` conformance 和自动发现的 Front 场景。Agent/局部开发使用 `invoke check --scope <domain>`，或直接运行 `invoke check` 让 Git changed-file mapping 保守选择 `assembly / geometry / sketch / workspace / services / web / all`。公共 Proto、数据库迁移、共享构建/Worker 边界和未知路径自动升级到 `all`。成功输出被压缩为每步 PASS 与耗时；失败保留完整 stdout/stderr 和独立复现命令，`--verbose` 可流式显示。
 
 `invoke check --scope <domain> --match <pattern>` 提供 Level 1 精确验证：Assembly/Geometry/Sketch 将 pattern 限制在所属 CTest 前缀，Workspace/Services 传给 Go `-run`，Web 作为场景路径 substring。`--match` 只接受一个非 `all` scope，并有意跳过跨层集成与 production build；行为完成后按风险升级到无 `--match` 的 domain scope。
 
-`--plan` 输出 changed paths、scope、升级原因、工作目录和底层命令但不执行。失败输出超过上下文上限时保留首尾与 error/fail/expected 等高信号行，完整 stdout/stderr 写入忽略提交的 `build/agent-logs/`；这不是删除诊断。`invoke context-audit` 验证指南尺寸、docs 断链、focused TEAA、旧提示词残留、validation tooling 大小，并只在 `--verbose` 时列出全部已跟踪及未忽略的大文本。
+`--plan` 输出 changed paths、scope、升级原因、工作目录和底层命令但不执行。失败输出超过上下文上限时保留首尾与 error/fail/expected 等高信号行，完整 stdout/stderr 写入忽略提交的 `build/agent-logs/`；这不是删除诊断。`invoke context-audit` 验证指南/项目地图尺寸、链接/锚点、文档可达性及目录归属、旧提示词残留、validation tooling 大小，并只在 `--verbose` 时列出全部已跟踪及未忽略的大文本。
 
 Front runner 支持路径/文件名片段筛选，例如在 `web/apps/cad` 运行 `pnpm test -- sketch`；`--list` 只列命中场景，`--verbose` 显示成功场景的原始输出。筛选为 OR 语义，无匹配会失败而不是假装通过。
 

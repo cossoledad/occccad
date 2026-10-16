@@ -1,8 +1,8 @@
 # Product 结构、Publication 与上下文
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-### 5.6.1 能力分层与明确边界
+## 能力分层与明确边界
 
 | 层级 | 负责内容 | 不负责内容 |
 |---|---|---|
@@ -20,7 +20,7 @@
 - `DynamicsRun` 是由质量、力和积分器产生的状态时序，也只是 Simulation Artifact；
 - 仿真帧不能直接覆盖 Instance 的设计 Placement。用户若要采用某一帧，必须执行显式 `CAPTURE_POSITION`，重新验证约束后生成新的 Workspace 命令。
 
-### 5.6.3 Reference、Instance、Occurrence 与 Representation
+## Reference、Instance、Occurrence 与 Representation
 
 这是装配模型最重要的身份边界：
 
@@ -65,7 +65,7 @@ classDiagram
 
 文档和 API 不混用 component/instance/occurrence。UI 可以显示“组件”，但 selection、constraint 和 DMU report 必须携带准确身份。
 
-### 5.6.4 InstancePath 的权威定义
+## InstancePath 的权威定义
 
 ```proto
 message InstancePath {
@@ -100,7 +100,7 @@ rootRevision/instanceId@resolvedRevision/instanceId@resolvedRevision/...
 7. 一个叶 occurrence 的稳定审查身份为 `(root revision, configuration snapshot, instance path)`，不以 world transform 或显示名称识别；
 8. 权限检查沿路径验证每个被引用 Revision；无权访问的分支可显示受保护占位符，但不能泄露几何或属性。
 
-### 5.6.5 ReferenceSelector 与确定性依赖解析
+## ReferenceSelector 与确定性依赖解析
 
 ```proto
 message ReferenceSelector {
@@ -123,7 +123,7 @@ message ReferenceSelector {
 
 当前 `FOLLOW_HEAD | PINNED` 可以平滑映射到此模型；旧 Revision 的具体 resolved version 仍保留。
 
-### 5.6.6 完整 Placement 与坐标系约定
+## 完整 Placement 与坐标系约定
 
 ```proto
 message RigidTransform {
@@ -146,7 +146,7 @@ message InstancePlacement {
 - 浮点近等不直接决定是否改变 Revision，使用 canonical pose 与 pose tolerance；
 - 任何使用 Euler angle 的 UI 必须在 API 边界转换，持久层不以 Euler angle 保存旋转。
 
-### 5.6.7 产品结构、配置与 BOM
+## 产品结构、配置与 BOM
 
 ```proto
 message InstanceDefinition {
@@ -175,7 +175,7 @@ BOM 区分：
 
 装配阵列和镜像不应退化为一批无关系的复制 Instance。`AssemblyPattern` 以源 Instance、方向/轴、数量、间距或引用的 Part Pattern 为输入，为每个成员分配持久 `member_key`；成员 InstancePath 使用稳定 member key，而不是当前数组下标。阵列参数变化时保留仍可匹配成员的 identity、Publication 绑定和约束；删除成员形成 tombstone，不能让后续成员“顶替”旧路径。镜像必须显式记录左右件策略：复用同一 Reference 仅改变 Placement，或创建派生 mirrored Part Revision；系统不得用负 scale 伪造镜像刚体。
 
-### 5.6.8 Publication：装配接口而非显示别名
+## Publication：装配接口而非显示别名
 
 Publication 是 Part/Product 对外承诺的稳定几何或功能接口：
 
@@ -212,7 +212,7 @@ Publication 类型至少包括 `POINT | AXIS | PLANE | FRAME | CURVE | SURFACE |
 - Publication 可以隐藏内部拓扑和敏感参数，支持供应商黑盒模型；
 - 外部上下文设计只能引用已发布接口或经策略批准的 deep link；发布 Revision 默认禁止新增未治理 deep link。
 
-### 5.6.9 Product 中心的装配上下文设计
+## Product 中心的装配上下文设计
 
 普通 in-context design 采用显式 input/output/wiring 三层，而不是让共享 Part 保存某个任意 Product occurrence 的来源：
 

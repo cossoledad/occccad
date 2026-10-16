@@ -1,6 +1,6 @@
 # 草图、对象显隐与参数输入验收
 
-本轮复用 SelectionIndex、VisibilityResolver、参数 AST 和版本化显示命令；未修改几何算法。当前实现见[显示模型](../../docs/architecture/current/model-display.md)、[参数与历史](../../docs/architecture/current/model-history.md)及[草图](../../docs/architecture/current/part-sketch.md)。
+本轮复用 SelectionIndex、VisibilityResolver、参数 AST 和版本化显示命令；未修改几何算法。当前实现见[显示模型](../architecture/current/model-display.md)、[参数与历史](../architecture/current/model-history.md)及[草图](../architecture/current/part-sketch.md)。
 
 ## 统一规则
 

@@ -122,7 +122,7 @@ go test ./...
 invoke performance-baseline
 ```
 
-扩展业务能力优先增加 `services/internal` 模块，只有出现独立扩缩容、故障隔离、安全边界或发布节奏需求时才拆分网络服务。长期演进见项目[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。
+扩展业务能力优先增加 `services/internal` 模块，只有出现独立扩缩容、故障隔离、安全边界或发布节奏需求时才拆分网络服务。长期演进见项目[目标架构](../../../docs/architecture/target/README.md)。
 
 装配静态解选择：ADD/EDIT 的预览与提交共用第一 moving、第二 reference 的 SolveIntent。
 服务端只接受几何满足且 preference 收敛的结果；`ASSEMBLY_PREFERENCE_NOT_CONVERGED` 与几何冲突分开报告。

@@ -1,6 +1,6 @@
 # Web 工作台与交互边界
 
-> 返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
+> 返回[当前架构目录](README.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
 
 ## 状态与模块职责
 
@@ -36,7 +36,7 @@ InputManager、Tool、Selection 和 Overlay 共用完整 pointer down/move/up/ca
 
 各 Body 的 GLB 独立下载/缓存，视口以 occurrence + Body 绑定显示与拾取；Body 选择、显隐与目标 Body Preview 不影响兄弟 Body。属性面板只读展示 Body 名称、活动/显隐状态与按 Revision 索引分组的 Part Files 下载，Product occurrence 中的 Body 属性也按其 resolved Revision 查询；编辑通过正式业务命令执行。最终 Body 制品绑定该 Body；历史 Feature 的阶段结果通过既有只读 feature-input 按需重建，不为每个 Feature 常驻完整网格。`BodyId + Revision + geometryKey + local topology ID` 只用于当前制品拾取证据，持久引用仍由服务端绑定。Publication 树入口选择保持 Publication 业务身份，只有同 Body、Revision、Geometry 范围内可唯一解析的目标才关联几何高亮；无法解析约束显示锚点时回退 occurrence 中心，保持 Broken 可选、可修复。
 
-结构树消费服务端 `DocumentStructureNode`：Product 的 Instance 下保留独立 Part/Product 定义根，Part 与 Product 内 Part 共用 Body/Feature/Sketch 投影；被多个 Feature 使用的 Sketch 保留一个定义入口和多个只读输入引用。节点显式携带 `EntityRef`、`OccurrenceRef`、`SnapshotScope`、owner、Body、能力，以及可分别读取的连接、时效、求值、子节点加载状态；树路径只标识当前投影入口。选择键包含文档、完整 occurrence、Revision/variant、Body 与几何范围；折叠祖先只显示后代提示，不变更精确命令目标。行虚拟化保留，Product/Part 历史分支默认按需展开；目前服务端仍构造完整结构快照，尚未实现分页获取子树。更多设计与 CATIA 对照见[语义结构树与交互上下文](../semantic-tree-interaction.md)。
+结构树消费服务端 `DocumentStructureNode`：Product 的 Instance 下保留独立 Part/Product 定义根，Part 与 Product 内 Part 共用 Body/Feature/Sketch 投影；被多个 Feature 使用的 Sketch 保留一个定义入口和多个只读输入引用。节点显式携带 `EntityRef`、`OccurrenceRef`、`SnapshotScope`、owner、Body、能力，以及可分别读取的连接、时效、求值、子节点加载状态；树路径只标识当前投影入口。选择键包含文档、完整 occurrence、Revision/variant、Body 与几何范围；折叠祖先只显示后代提示，不变更精确命令目标。行虚拟化保留，Product/Part 历史分支默认按需展开；目前服务端仍构造完整结构快照，尚未实现分页获取子树。更多设计与 CATIA 对照见[语义结构树与交互上下文](semantic-tree.md)。
 
 单击树节点只选择，不改变编辑目标。双击 Instance 是激活其下 Part/Product 根的快捷方式；双击定义根得到同一目标，双击根 Product 返回装配编辑。只有类型、DocumentId 与完整 InstancePath 均匹配的 Part/Product 根显示文档编辑态，Instance 行不共用该标记。激活 Body 只改变会话工作 Body，覆盖持久 `activeBodyId` 默认值；选择、展开和临时显隐不写入 Revision。Feature 选择保持设计定义身份，使用 Naming 派生的当前面/边贡献集合高亮；无当前贡献与关联缺失分别提示。视图的真实面/边保持主选择，关联树节点只作定位提示，不再触发 Feature/Body 选择。“查看此步骤结果”显式加载历史制品，禁用其建模拾取并提供恢复当前结果；历史编辑使用上游阶段，结束恢复正常显示。Product 自动更新订阅来自服务端的非 PINNED 领域引用投影，并继续通过 UpdatePlan 按叶到根接受；过滤和展开状态不参与更新决策。
 
@@ -50,7 +50,7 @@ InputManager、Tool、Selection 和 Overlay 共用完整 pointer down/move/up/ca
 
 草图工具通过 `SketchCommandState` 投影选择、定义、放置、提交及未知结果阶段，ToolManager/Input Router 拥有手势和工具生命周期；工作台状态栏显示当前 role、接受数量和完成入口；inline 以引线数值显示工具显式请求的字段，点击或键入时才展开紧凑白色编辑框，advanced 面板保留高级选项。两者只是投影并派发字段、确认和取消动作，不从提示文字判断阶段；数值焦点由 input.id 代际控制，失焦不取消工具。线性尺寸同屏距离重叠候选优先 PROFILE 子边；Construction 仍可单独命中或通过主动预选选择。悬停、选集和尺寸预览使用独立显示层，选集/候选高于透明尺寸文字，避免互相清除或遮挡。尺寸进入 Placement 后冻结引用和尺寸种类，hover 其他几何不会改写定义。尺寸编辑器持有未提交值/表达式草稿，角色槽位使用 typed stable ref，面板只展示对象角色与定位，视图仅高亮引用几何。尺寸面板移除引用更换和折叠的更多设置，直接呈现名称、删除、停用和参考状态；逻辑约束编辑仍复用受控引用更换会话，按角色过滤候选并在排名前排除不兼容命中，定位/高亮不改模型选择。手动引用拾取独立于自动吸附偏好。尺寸面板开启时输入屏障阻止几何拖动，允许中键导航；逻辑约束引用子会话中 Esc/右键先取消更换，IME 不确认或取消。显示/输入采用文档长度单位，数值初始化采用统一两位小数显示；原始 Quantity 与表达式不因格式化改写。数值输入节点首次聚焦全选，返回视图后再聚焦保留光标；数量与表达式仍由服务端处理。
 
-草图提交持有原 requestId、baseVersionId 和操作快照；未知响应重试携带 `retryReceipt=true` 查询原请求，不重新生成操作身份。Engine 持有待确认回执；正常等待不增加底部提示框，未知回执通过状态栏查询恢复，关闭面板不撤销已发请求；回执待确认时继续阻止新编辑。请求已成功确认后渲染刷新失败不被当作领域提交失败重发。异步结果必须匹配文档/草图/版本/会话代际。操作交互与人工验证入口见[草图交互补齐](../../sketch-ux-02.md)。
+草图提交持有原 requestId、baseVersionId 和操作快照；未知响应重试携带 `retryReceipt=true` 查询原请求，不重新生成操作身份。Engine 持有待确认回执；正常等待不增加底部提示框，未知回执通过状态栏查询恢复，关闭面板不撤销已发请求；回执待确认时继续阻止新编辑。请求已成功确认后渲染刷新失败不被当作领域提交失败重发。异步结果必须匹配文档/草图/版本/会话代际。操作交互与人工验证入口见[草图交互补齐](../../guides/sketch-interaction.md)。
 
 CommandDialog 允许由显式子选择会话继续拾取；尺寸面板默认输入屏障不允许任意修改其它几何。Part preview 复用正式 adapter、handler、参数/Sketch/Feature evaluator，返回带 base Revision/provenance 的精确结果；它不产生 Revision/历史/Outbox。提交可携带 verified candidate token，仅当 actor、document、base head/sequence、命令类型与 payload digest 全部匹配时提升候选，否则重新求值。当前候选和 warm-start cache 有 45 秒 TTL、256 项进程上限；丢失只影响性能。
 
@@ -94,11 +94,11 @@ CAD Command 与 Preview 统一通过[realtime 控制面](realtime.md)提交；Pr
 
 草图普通选择和工具角色共用屏幕距离及几何角色优先级；构造几何低于普通几何，尺寸引线、文字、hover、选中与修剪反馈分层。尺寸文本附着支持平面、按缩放维持显示尺度；圆角/倒角候选复用尺寸定义和渲染器。Select 框选及 Delete 经原有选择与正式命令路径执行。尺寸编辑保留相机和导航，草稿通过只读 Preview 显示，取消/版本变化/迟到结果不写回模型。
 
-状态栏/inline 输入的动作合同、单击单次/双击连续策略及人工步骤见[草图当前动作与 inline 输入](../../sketch-inline-input.md)。
+状态栏/inline 输入的动作合同、单击单次/双击连续策略及人工步骤见[草图当前动作与 inline 输入](../../guides/sketch-input.md)。
 
 草图编辑共用状态栏/内联输入，相关创建与样条编辑命令通过服务端 `variants:*` 目录标记合并为分体按钮；主按钮显示并执行当前激活变体，没有激活变体时使用本页会话中记住的合法变体，下拉切换立即执行，隐藏或已移除的默认项回退到当前目录第一项。尺寸呈现线性/轴/角度三组，搜索仍保留每个具体命令。草图中底部 `view.normal` 无预选也正对活动草图，独立 `sketch.normal` 入口已删除。修剪只有一个用户入口，构造转换直接执行。圆角和倒角选取完成后进入既有尺寸标注的内联数值编辑；拖动标注只改 placement。Engine 所有草图临时显示使用单一非拾取 preview layer，几何/尺寸/hover/snap/只读编辑候选保持各自生命周期；工具与模态会话继续负责草稿、Revision/occurrence、代际和回执，显示层不成为第二套状态中心。直接延伸支持点选目标或拖动释放，边界捕获的精确预览合并指针更新并丢弃过期结果。
 
-工作台公共视觉 tokens、分体按钮、非模态面板和视口文本适配见 [UI 规格与组件入口](../../workbench-ui.md)。呈现层不改变 Command/Preview、选择来源或历史语义。
+工作台公共视觉 tokens、分体按钮、非模态面板和视口文本适配见 [UI 规格与组件入口](../../guides/workbench.md)。呈现层不改变 Command/Preview、选择来源或历史语义。
 
 工作台 Ribbon 按容器宽度与目录优先级分页，整组优先、超宽组按双行列拆分；切页仅改变呈现，不执行或取消命令。前端数量、坐标、测量及数值控件的非编辑显示统一最多两位小数；表达式和技术诊断原文保留，模型与 Quantity 不舍入，未修改的格式化字段不覆盖原值。
 
@@ -106,4 +106,6 @@ CAD Command 与 Preview 统一通过[realtime 控制面](realtime.md)提交；Pr
 
 ## 机构研究与冻结回放
 
-Assembly Design 的 `assembly.motion-study` 使用公共命令目录打开机构与 DMU 面板。定义保存走正式版本化命令，当前批量规律运行及结果列表走既有 API/Jobs 和 TanStack Query；播放/定位持有临时冻结 view、完整计算帧和显示时钟，不产生逐帧 Revision。Viewport 按统一 RAF 时钟批量更新已有 occurrence，帧间插值只是显示近似，时间显示两位小数。回放确定通过权威命令采用合格计算帧，取消、标题关闭和 Esc 恢复机构 accepted；转换统一使用工具栏入口，终态结果从树右键隐藏。版本／编辑上下文与代际门禁负责清理旧覆盖；实机交互仍有未验证边界。加载第零帧、再次运行／退出的当前位置保存以及当前状态限制见[当前机构合同](kinematics-dmu.md)。新的命令试动、录制双面板及共享显示拥有者尚待按[完整设计](../target/kinematics-dmu.md)实施。
+Assembly Design 的 `assembly.motion-study` 使用公共命令目录进入机构与 DMU。命令试动与录制双窗口共享暂态会话及显示拥有者；定义保存仍走版本化命令，试动/录制通过正式 PreviewID 与 CAS 确认，后台 Jobs 计算已保存有限路径的结果制品。
+
+Viewport 按统一 RAF 时钟批量更新既有 occurrence；帧间插值只作显示，暂停、采用位置及产品转换在精确逻辑时间重新求解。取消、标题关闭和 Esc 恢复入口 accepted，版本/编辑上下文及代际门禁清理旧覆盖。结果从树进入，终态结果可隐藏；没有全局播放或结果选择工具栏。机构、坐标、零位、活动命令资格、录制与回放的完整当前合同归[机构主题](kinematics-dmu.md)，未执行验收与扩展归[完整设计](../target/kinematics-dmu.md)。

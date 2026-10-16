@@ -1,8 +1,8 @@
 # Feature 求值、命名与质量门
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-### 5.4.14 Feature Graph 重算与编辑
+## Feature Graph 重算与编辑
 
 命令面至少包含：
 
@@ -42,7 +42,7 @@ sequenceDiagram
     end
 ```
 
-### 5.4.15 缓存键与确定性
+## 缓存键与确定性
 
 ```text
 FeatureEvaluationKey = hash(
@@ -60,7 +60,7 @@ FeatureEvaluationKey = hash(
 
 缓存命中仍验证 artifact manifest 和 policy compatibility。预览可以使用较低 tessellation 精度，但 B-Rep 求值不得因相机或前端质量设置改变。若不同 CPU/OCCT 构建不能保证字节级相同，应标记 `GEOMETRIC_EQUIVALENCE` determinism class，并在发布 worker pool 中固定平台；不能假装 hash 可跨任意内核构建复用。
 
-### 5.4.16 拓扑血缘与持久选择
+## 拓扑血缘与持久选择
 
 每个 evaluator 建立三层证据：
 
@@ -85,7 +85,7 @@ message TopologyLineage {
 
 一个源面分裂为多个面时保留一对多；多个源面融合为一个面时保留多对一。下游选择若要求单 Face 而候选仍有多个，返回歧义并让用户重选，不能依靠容差最近匹配。布尔简化、Shell/Draft 的修改历史和 Loft 的显式 section matching 都必须进入同一图。
 
-### 5.4.17 Shape 验证与结果门禁
+## Shape 验证与结果门禁
 
 每个成功 Feature 至少通过：
 
@@ -100,7 +100,7 @@ message TopologyLineage {
 
 自动 healing 只允许执行 evaluator policy 中列出的确定性步骤，并在 provenance 中记录。不能把任意 `ShapeFix` 当成最后兜底，因为它可能改变设计意图和拓扑身份。
 
-### 5.4.18 诊断模型
+## 诊断模型
 
 | Code | 典型 Feature | 含义 |
 |---|---|---|
@@ -122,7 +122,7 @@ message TopologyLineage {
 
 Diagnostic 包含 `feature_id`、stage、parameter path、selection IDs、problematic topology evidence、kernel status、warning list 和可本地化 message key。内部异常栈只进受控日志，不能作为 API 的唯一错误信息。
 
-### 5.4.19 Worker 边界、资源与安全
+## Worker 边界、资源与安全
 
 Part Feature 初期与现有 Geometry Worker 同部署，但模块边界按 `PartEvaluationWorker` 设计：
 
@@ -136,7 +136,7 @@ Part Feature 初期与现有 Geometry Worker 同部署，但模块边界按 `Par
 
 无需为 Extrude、Revolve、Shell、Draft、Loft 各部署一个微服务。它们共享 OCCT 运行时、Shape cache 和 feature protocol，先作为同一 Worker 内的独立 evaluator/capability；只有资源画像或发布节奏明显分化时再拆池。例如 Loft/复杂 Shell 可路由到 high-memory 队列，但不改变领域 API。
 
-### 5.4.20 可观测性
+## 可观测性
 
 每次求值记录：
 
@@ -149,7 +149,7 @@ Part Feature 初期与现有 Geometry Worker 同部署，但模块边界按 `Par
 
 指标 label 不使用原始 FeatureId/GeometryId 造成高基数；这些 ID 放 trace attributes 并按租户权限控制。日志不得包含完整私有模型数据。
 
-### 5.4.21 测试矩阵
+## 测试矩阵
 
 | 层级 | 拉伸/切除 | 旋转 | Shell/Draft | Loft | 共用 |
 |---|---|---|---|---|---|
@@ -166,7 +166,7 @@ Part Feature 初期与现有 Geometry Worker 同部署，但模块边界按 `Par
 
 每次升级 OCCT 必须在固定 corpus 上比较：成功/失败分类、Shape validity、质量属性、拓扑血缘可解析率和性能。仅比较 BREP 字节不够；仅看截图也不够。
 
-### 5.4.22 推荐模块边界
+## 推荐模块边界
 
 ```text
 kernel/feature/api/

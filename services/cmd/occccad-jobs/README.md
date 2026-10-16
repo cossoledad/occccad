@@ -80,7 +80,7 @@ cd services
 go test ./...
 ```
 
-当任务出现多阶段补偿、跨天计时、人工审批或复杂扇出时，再按[目标架构](../../../docs/TARGET_ARCHITECTURE.md)引入工作流引擎；不要因任务数量增加就立即替换当前简单队列。
+当任务出现多阶段补偿、跨天计时、人工审批或复杂扇出时，再按[目标架构](../../../docs/architecture/target/README.md)引入工作流引擎；不要因任务数量增加就立即替换当前简单队列。
 
 交换导入提交保留原始输入对象、摘要、格式和源 Definition ID，由 Workspace 冻结 ImportDefinition/拓扑身份并完成根命名求值，再提交普通 Part Revision。重试复用已采用的精确几何快照与身份分配，避免再次读取已移走的暂存制品。当前根命名范围为有效 Solid/Compound Definition；大文件传输与分块显示仍以独立计划为准。
 

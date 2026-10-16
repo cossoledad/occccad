@@ -1,8 +1,8 @@
 # 参数、依赖与求值
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-### 4.3.17 全局参数化的准确含义
+## 全局参数化的准确含义
 
 “全局”不是一个所有文档都能隐式读写的变量字典，而是统一类型、身份、作用域、引用和求值规则：草图尺寸、Pad 长度、曲面 law、材料属性、装配 offset、机构 driver、仿真载荷和配置选项都可以绑定同一种 `ParameterRef/Expression`，同时保持各自聚合边界。
 
@@ -14,7 +14,7 @@
 
 跨文档消费者只能读取已发布参数和冻结的 Revision/ResolutionSnapshot。不存在“按名称搜索整个租户后取第一个 Width”，也不允许下游直接修改上游参数形成隐藏的双向绑定。
 
-### 4.3.18 ParameterDefinition
+## ParameterDefinition
 
 ```proto
 message ParameterDefinition {
@@ -47,7 +47,7 @@ message ValueSource {
 
 ParameterId 永久稳定且不复用；`key` 可显式重命名，`label` 不参与解析。直接驱动某个 Feature property 时，Parameter 可以是该 property 的稳定 facade，不能复制两份互相同步的数值。
 
-### 4.3.19 Property Slot：统一绑定点
+## Property Slot：统一绑定点
 
 每个可参数化字段在 schema 中声明一个稳定 `PropertySlot`：
 
@@ -68,7 +68,7 @@ PropertySlotDescriptor {
 
 这样草图 radius、Pad length、Shell thickness、Assembly offset 和 Load magnitude 共享绑定协议，同时仍由各自领域 schema 校验语义。
 
-### 4.3.20 作用域与名称解析
+## 作用域与名称解析
 
 参数解析使用词法作用域并在提交时绑定 ID：
 
@@ -87,7 +87,7 @@ feature/local parameters
 - 不允许通过父 Product occurrence 隐式反向读取任意 sibling 参数；必须通过 Product Parameter/Publication 建立 wiring；
 - Instance override 只允许 Parameter 声明 `configurable=true` 且 Product policy 允许的输入。
 
-### 4.3.21 量纲与单位系统
+## 量纲与单位系统
 
 内部 `Quantity` 使用 SI canonical value 加量纲向量，显示单位不参与相等性或 GeometryId。CAD 语义上 Angle 与无量纲 Real 分开，即使物理量纲分析常把 rad 视为 1；Temperature 与 TemperatureDelta、Point 与 Vector 也不能混算。
 
@@ -105,7 +105,7 @@ Quantity  = finite decimal/binary value + Dimension
 
 FreeCAD 的表达式系统证明单位感知、对象属性引用和依赖检查对参数 CAD 很重要；occcad 进一步用 ID-bound AST、property 级依赖和显式 Published Parameter 避免名称引用与粗粒度对象环的限制。[FreeCAD Expressions](https://github.com/FreeCAD/FreeCAD-documentation/blob/main/wiki/Expressions.md)
 
-### 4.3.22 表达式语言与 Typed AST
+## 表达式语言与 Typed AST
 
 首期表达式只包含：字面量、Parameter/Property read、算术/比较/布尔运算、条件表达式、受白名单约束的纯函数、向量构造和受限 lookup。无赋值、循环、递归、I/O、网络、反射、随机数或当前时间。
 
@@ -125,7 +125,7 @@ Parse → name bind → static type/dimension check → constant fold → depend
 
 [CEL](https://github.com/cel-expr/cel-spec)提供非图灵完备、无副作用、类型检查和可序列化 checked AST，可作为通用语法/运行时的重要候选；但 CAD Quantity、几何类型、单位字面量、跨 Go/C++ 数值一致性和长期 AST 兼容仍需项目自己的 profile 与 conformance suite，不能直接把任意 CEL 环境暴露给模型。
 
-### 4.3.23 Design Dependency Graph
+## Design Dependency Graph
 
 统一依赖图的节点不是只有 Feature：
 
@@ -155,7 +155,7 @@ flowchart LR
 
 图存储逻辑边；Feature 内部的几何执行细节留在 evaluator。反向依赖索引是可重建 projection，但每个 Revision 必须能确定性重新提取并校验其 digest。
 
-### 4.3.24 环检测与反馈边界
+## 环检测与反馈边界
 
 提交前对 driving subgraph 做强连通分量检测；除专门 Solver Domain 外，任何环都是 hard error，并返回最短可解释 cycle path。
 
@@ -163,7 +163,7 @@ flowchart LR
 
 Measured Parameter 默认只能驱动 Check、Report、UI 和下游 analysis，不能反向驱动产生它的几何。例如 `volume -> pad.length -> volume` 被拒绝。要实现“求长度使体积达到目标”，必须创建显式 `DesignStudy/GoalSolve`：声明 design variables、objectives、constraints、bounds 和 solver profile，输出 proposal；用户接受 proposal 后再提交普通参数 Transaction。
 
-### 4.3.25 参数求值阶段
+## 参数求值阶段
 
 ```mermaid
 flowchart TD
@@ -180,7 +180,7 @@ flowchart TD
 
 早期阶段只能读更早的 authoritative output；禁止一个表达式在求值时动态发现新依赖。相同 phase 内按拓扑序求值；可并行节点必须声明无共享可变状态。阶段和 evaluator version 写入 manifest，避免不同 Worker 自行决定顺序。
 
-### 4.3.26 增量重生成与影响分析
+## 增量重生成与影响分析
 
 Command Handler 输出 `ImpactSeeds`，Dependency Engine 计算 transitive dirty closure。每个节点以以下 digest 查缓存：
 
@@ -195,7 +195,7 @@ NodeInputDigest = hash(
 
 增量粒度遵循成本：表达式/property 在 Model Service；Sketch/Feature DAG 在单个 Part Worker 内增量执行；不同 Part/配置可跨 Worker 并行；不能为每个 Feature 发远程 RPC。Worker 可以接收 prior EvaluationManifest 和可用 object digests 作为 hint，但正确性不能依赖 warm cache。
 
-### 4.3.27 Topology、Geometry 与 Display 三类影响
+## Topology、Geometry 与 Display 三类影响
 
 Property descriptor 的 `affects` 决定最小 invalidation：
 
@@ -208,7 +208,7 @@ Property descriptor 的 `affects` 决定最小 invalidation：
 
 该声明只是 invalidation 下界，evaluator 可返回更强实际影响；绝不能把 topology-changing 误报为 display-only。通过 mutation testing 验证 descriptor。
 
-### 4.3.28 EvaluationPolicy 与手动更新
+## EvaluationPolicy 与手动更新
 
 ```text
 EvaluationPolicy =
@@ -220,7 +220,7 @@ EvaluationPolicy =
 
 默认建模使用 `IMMEDIATE_ALLOW_FEATURE_FAILURE`：结构与参数必须有效，核心 Part 求值完成后提交，网格/缩略图等可延后。`PAUSED_DRAFT` 允许批量编辑参数而暂不生成几何，但 Workspace 明确显示 dirty，选择型命令、发布、导出和仿真受限；执行 Regenerate 后形成新的 Evaluation 状态。暂停不能让旧几何无标识地代表新参数。
 
-### 4.3.29 Configuration、Design Table 与变体
+## Configuration、Design Table 与变体
 
 Configuration 不复制 Feature Graph，而提供一个受 schema 约束的输入层：
 
@@ -237,7 +237,7 @@ Design Table 是 ConfigurationDefinition 的一种表格视图/导入格式，�
 
 CATIA Knowledgeware 把 Parameter、Formula、Rule、Check 和 Design Table 贯穿建模/仿真字段；occcad 对标其设计知识表达能力，但把表格、规则和参数全部纳入不可变 Revision 与开放 schema。[CATIA Knowledgeware Parameters and Relations](https://help-3dexperience.aesvietnam.com/English/PreferencesMap/kwbasicspref-c-KnowledgeBasics.htm) [CATIA Design Tables](https://help-3dexperience.aesvietnam.com/English/KwBasicsUserMap/kwbasics-c-DesitnTableAbout.htm)
 
-### 4.3.30 Rule、Check 与自动化边界
+## Rule、Check 与自动化边界
 
 - **Formula**：一个纯表达式驱动一个 Property/Parameter；
 - **Rule**：声明式产生有限组 typed proposals，例如条件 suppression 或参数建议；
@@ -247,7 +247,7 @@ CATIA Knowledgeware 把 Parameter、Formula、Rule、Check 和 Design Table 贯�
 
 Rule 必须终止、无副作用并可静态提取 read/write set；同一 slot 多 writer 拒绝。Check 失败一般不阻止 Workspace Revision，但可以阻止 Release。Webhook、Python、WASM 插件和 AI proposal 只能生成待授权命令，不能嵌入公式阶段。
 
-### 4.3.31 External Parameter 与 Publication
+## External Parameter 与 Publication
 
 ```proto
 message ExternalParameterRef {
@@ -261,11 +261,11 @@ message ExternalParameterRef {
 
 Published Parameter contract 包含 PublicationId、类型/量纲、单位策略、semantic purpose、bounds、compatibility version 和 source ParameterId。下游 Revision 保存实际 resolved RevisionId/value digest。上游 Head 改变只产生 `UPDATE_AVAILABLE`，不会静默让已提交下游 Revision 几何漂移；用户/流水线执行 Update References Transaction 后统一重算。
 
-独立 Part 对明确外部库或受控发布通道的依赖仍可使用 `ExternalParameterRef`。Product 内普通关联设计不直接把 source Document 写进共享 Part，而由 Part 的 typed `ContextInput` 与 root Product 拥有的 `ContextBinding` 表达，见 5.6.9。
+独立 Part 对明确外部库或受控发布通道的依赖仍可使用 `ExternalParameterRef`。Product 内普通关联设计不直接把 source Document 写进共享 Part，而由 Part 的 typed `ContextInput` 与 root Product 拥有的 `ContextBinding` 表达，见[产品上下文](product-context.md#product-中心的装配上下文设计)。
 
 同一 Model Service/PostgreSQL 边界内，由一个根 Product 协调的多 Workspace 建模动作使用 `ProductDesignTransaction`：先在事务外验证候选、权限、求值和制品，再在一个短数据库事务中对所有 Workspace Head/sequence 做 CAS，并原子追加 Revision、ChangeSet 和 Outbox。任一 Head 不匹配则整体拒绝，不产生半条关联。跨 Model Service、外部 PLM 或其他无法共享原子提交边界的写入才使用 Saga/Change Proposal，并记录 partial outcome 和补偿建议。
 
-### 4.3.32 并发合并矩阵
+## 并发合并矩阵
 
 | A 与 B 的变化 | 自动 rebase | 说明 |
 |---|---:|---|
@@ -280,7 +280,7 @@ Published Parameter contract 包含 PublicationId、类型/量纲、单位策略
 
 自动 rebase 的证明来自 ChangeSet read/write set、Dependency Graph 和 handler commutativity policy，不是简单比较 JSON path。最多重试有限次数；持续竞争返回当前 Head 与 minimal conflict set。
 
-### 4.3.33 EvaluationManifest 与可重现性
+## EvaluationManifest 与可重现性
 
 每次权威求值产生：
 

@@ -1,8 +1,8 @@
 # Sketch 实体编辑、血缘与查询
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-#### 5.3.4.8 复合图元不是底层实体
+## 复合图元不是底层实体
 
 以下工具是原子命令宏，不新增 `RECTANGLE`、`POLYGON` 等底层 Entity kind：
 
@@ -15,7 +15,7 @@
 
 宏在一个 `EDIT_SKETCH` operations 批次中提交，Entity/Constraint ID 由 request ID 和 slot 确定性生成。任一生成对象或约束无效则整个宏失败。宏完成后，用户可以像普通实体一样独立删除/修改各条边；系统不维持隐藏的 Rectangle 对象。
 
-#### 5.3.4.9 实体生命周期与状态机
+## 实体生命周期与状态机
 
 ```mermaid
 stateDiagram-v2
@@ -28,7 +28,7 @@ stateDiagram-v2
     TOMBSTONED --> [*]
 ```
 
-`TOMBSTONED` 不保存在当前 `entities[]` 中，而记录在 Workspace/Revision lineage metadata，防止 ID 复用并支持并发冲突解释。历史查看可以直接读取旧 Revision；持久 Undo/Restore 不修改旧 Revision，而是按 4.3.13 的补偿语义从 tombstone 恢复同一 identity、重新验证并形成新 Revision。
+`TOMBSTONED` 不保存在当前 `entities[]` 中，而记录在 Workspace/Revision lineage metadata，防止 ID 复用并支持并发冲突解释。历史查看可以直接读取旧 Revision；持久 Undo/Restore 不修改旧 Revision，而是按[Undo 的补偿语义](commands-history.md#undo-的权威语义)从 tombstone 恢复同一 identity、重新验证并形成新 Revision。
 
 状态转换规则：
 
@@ -39,7 +39,7 @@ stateDiagram-v2
 - Role 从 PROFILE 改为 CONSTRUCTION 会触发 Profile dirty，但几何求解可能无需重算；
 - label/纯展示扩展变化不触发求解或 Profile dirty。
 
-#### 5.3.4.10 命令与编辑操作
+## 命令与编辑操作
 
 低层 operation 必须表达用户意图并能验证引用：
 
@@ -83,7 +83,7 @@ EntityOperation = oneof {
 
 所有几何编辑先产生候选实体和 Lineage，再统一执行 Constraint rewrite、Schema validation、Solve、Profile validation 与 CAS commit；不能让每个 operation 自行写数据库。
 
-#### 5.3.4.11 EntityLineage 与引用迁移
+## EntityLineage 与引用迁移
 
 ```text
 EntityLineage
@@ -111,7 +111,7 @@ Lineage 是一次 Sketch 编辑事务的结果，不等同于 Part 的 Persisten
 
 Constraint rewrite 必须产生审计结果：preserved、rewritten、deleted、unresolved。默认不静默删除尺寸；若命令选择级联删除，响应列出所有被删除 ConstraintId。
 
-#### 5.3.4.12 OCCT-free 曲线查询接口
+## OCCT-free 曲线查询接口
 
 Solver、Profile、Trim 和预览需要相同几何语义，因此 `kernel/sketch/api` 提供只读接口：
 
@@ -135,7 +135,7 @@ EntityGeometry
 
 BoundingBox 必须保守包含曲线，不可只包围控制点或采样点后当成精确结果。预览折线由单独的 `Tessellate2D(chordTolerance, angularTolerance)` 生成并缓存，不进入 canonical model/hash。
 
-#### 5.3.4.13 Solver 变量映射
+## Solver 变量映射
 
 实体模块产生稳定的 `VariableDescriptor`，而不是让 Solver Adapter自行遍历 Proto：
 
@@ -159,7 +159,7 @@ VariableDescriptor
 - BSpline control point ID 决定变量身份，knot/degree 不作为求解变量；
 - 求解结果写回前按 Entity kind 重新验证和 canonicalize，失败返回 `SKETCH_DEGENERATE_ENTITY`。
 
-#### 5.3.4.14 Profile、渲染与 OCCT 转换边界
+## Profile、渲染与 OCCT 转换边界
 
 **Profile Builder** 读取 Active + PROFILE 实体的权威求解结果；Construction/Centerline/Point 不形成边。连接优先依据 Coincident 等价类；纯坐标接近只用于诊断 `NEAR_MISS_ENDPOINTS`，不自动连接。
 
@@ -180,7 +180,7 @@ OCCT 支持由二维曲线或点构建 Edge，但 EntityId/SubElement identity �
 
 转换后执行 OCCT 完成状态、Edge 长度/退化、Wire 和 Face 检查。OCCT tolerance 是下游构造容差，不能反向改变原始 Sketch 参数或偷偷合并端点。
 
-#### 5.3.4.15 Proto 草案
+## Proto 草案
 
 ```proto
 message SketchEntity {
@@ -224,7 +224,7 @@ message CircularArc2 {
 - Map 不用于需要规范顺序的核心几何；canonical serializer 按 EntityId 和明确字段序处理；
 - 服务端限制 repeated 数量、消息深度和字符串长度。
 
-#### 5.3.4.16 规范化、摘要与 Dirty 分类
+## 规范化、摘要与 Dirty 分类
 
 `CanonicalEntity` 规则：验证 schema → 单位归一 → 角度/周期规范 → 清除 `-0` → 固定 IEEE-754 编码 → 按稳定 ID 排序子结构 → 序列化。禁止把数值四舍五入到建模容差后再哈希；这会让两个不同设计意图碰撞。缓存可额外使用 tolerance-aware spatial key，但业务 digest 必须精确对应规范输入。
 
@@ -251,7 +251,7 @@ EntityDigest = Hash(
 
 Dirty propagation 按 Feature/Constraint dependency graph 计算，不能仅以 JSON 是否变化决定完整重生成。
 
-#### 5.3.4.17 验证、错误与修复原则
+## 验证、错误与修复原则
 
 验证分层：
 
@@ -281,7 +281,7 @@ Dirty propagation 按 Feature/Constraint dependency graph 计算，不能仅以 
 
 实体模块不做静默 healing。可逆、语义唯一的规范化（清除 `-0`、角度加减 `2π`）自动执行；会改变设计的修复（合并近点、删除短边、圆转弧、重建 spline knot）只能作为显式命令并预览影响。
 
-#### 5.3.4.18 并发与幂等
+## 并发与幂等
 
 一个 `EDIT_SKETCH` 仍以 Workspace sequence 做最终 CAS；实体级 `expected_entity_digest` 用于生成精确冲突说明和安全 rebase：
 
@@ -294,7 +294,7 @@ Dirty propagation 按 Feature/Constraint dependency graph 计算，不能仅以 
 
 每个 operation 有 OperationId；Add 使用请求中确定的 EntityId；重试相同 request/operation 得到相同结果。相同 OperationId 携带不同 payload 返回 `IDEMPOTENCY_KEY_REUSED`。
 
-#### 5.3.4.19 性能与资源边界
+## 性能与资源边界
 
 - Entity 以紧凑值对象连续存储，ID→index 使用只在内存构建的索引；持久引用仍是 ID；
 - 基本实体 Evaluate/Derivative/BoundingBox 不分配堆内存；批量 API 写入调用方缓冲；
@@ -306,7 +306,7 @@ Dirty propagation 按 Feature/Constraint dependency graph 计算，不能仅以 
 - 任何 O(n²) 全相交扫描必须在候选过滤后执行，并服从 deadline/cancellation；
 - Canonical serialization 和 digest 支持增量 Merkle 组合，但最终根必须与全量规范序列化定义一致。
 
-#### 5.3.4.20 实体模块测试矩阵
+## 实体模块测试矩阵
 
 | 测试层 | 覆盖内容 |
 |---|---|

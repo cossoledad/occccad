@@ -24,7 +24,7 @@ RPC **726,855 → 4,246 B**；数值重放 JSON **17,224 → 11,151 B**。冻结
 
 Workspace benchmark 进程峰值 RSS **32,552 → 28,160 KiB**；Geometry benchmark **33,764 → 25,736 KiB**。这是固定测试进程，未测常驻 API/Worker 的生产峰值或完整大 Product 导出内存。
 
-同一 CAD 构型的真实 PostgreSQL Product（两 occurrence、Fix、已接受 Offset、冲突的 NotUpdated Offset），完整导出 **27,628 → 12,106 B**，减少约 56%。两次生成使用新文档/Revision ID，构型相同而非 UUID/时间戳逐字节相同；新版还包含一个实际失败请求。默认文件无完整 Part 历史、无重复 manifest/request 数值来源。当前样本为 [assembly-notupdated-product.3dreplay](assembly-notupdated-product.3dreplay)。
+同一 CAD 构型的真实 PostgreSQL Product（两 occurrence、Fix、已接受 Offset、冲突的 NotUpdated Offset），完整导出 **27,628 → 12,106 B**，减少约 56%。两次生成使用新文档/Revision ID，构型相同而非 UUID/时间戳逐字节相同；新版还包含一个实际失败请求。默认文件无完整 Part 历史、无重复 manifest/request 数值来源。当前样本为 [assembly-notupdated-product.3dreplay](../../tests/test.data/assembly-notupdated-product.3dreplay)。
 
 ## C++ 结果
 

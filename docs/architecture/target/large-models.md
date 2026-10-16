@@ -1,8 +1,8 @@
 # 大文件导入与大模型工作集设计
 
-> 2026-09-25 更新；IMPORT-DIAGNOSTICS、IMPORT-NAMING、parse-once 导入与 Artifact 表示已实现，工作集和容量目标待实施与实测，不构成大模型能力或性能承诺。返回[目标架构](../../TARGET_ARCHITECTURE.md)，执行依赖见[导入与大模型计划](../../../plans/README.md)。适用于外部 STEP/BREP 导入和原生 Part/Product；存储与交换基础合同仍见[分布式平台](distributed-platform.md)。
+> 2026-09-25 更新；IMPORT-DIAGNOSTICS、IMPORT-NAMING、parse-once 导入与 Artifact 表示已实现，工作集和容量目标待实施与实测，不构成大模型能力或性能承诺。返回[目标架构](README.md)，执行依赖见[导入与大模型计划](../../../plans/README.md)。适用于外部 STEP/BREP 导入和原生 Part/Product；存储与交换基础合同仍见[分布式平台](distributed-platform.md)。
 
-## 1. 结论与边界
+## 结论与边界
 
 S3 兼容 ArtifactStore 已实现；按当前实施范围暂不做续传，后续可按需要引入可续传上传协议，但它只解决大对象存取、传输恢复和跨主机共享。1 GiB 文件能够上传，不等于它能够解析、编辑或在浏览器完整驻留。交付能力应分别声明：上传完成、精确几何可用、可显示、可持久选择、可编辑、可发布。
 
@@ -10,7 +10,7 @@ S3 兼容 ArtifactStore 已实现；按当前实施范围暂不做续传，后�
 
 文件大小只是准入维度之一。相同 1 GiB 文件可能是大量共享 occurrence、巨量独立零件、单一复杂 B-Rep、长文本属性或高密度样条，实际成本不同。不能用固定“文件大小 × 倍数”宣称内存足够；先建立 corpus 和阶段测量，再标定估算器与拒绝策略。
 
-## 2. 当前事实与根因
+## 当前事实与根因
 
 以下来自代码阅读，不是容量/性能验收。
 
@@ -26,7 +26,7 @@ S3 兼容 ArtifactStore 已实现；按当前实施范围暂不做续传，后�
 | `web/apps/cad/src/cad/visual` | 唯一实体显示源为 GLB，有下载并发限制与同对象去重 | 解码、BVH、GPU 上传仍处理完整实体，没有 LOD 或分块预算 |
 | Geometry client / Router | 分阶段超时与进程容量由配置和路由管理；长运算不再用短探活推断死亡 | 超时上限不是大文件性能承诺，仍需真实 corpus 测量 |
 
-### 2.1 NULL 报错不是导入命名的完整修复
+### NULL 报错不是导入命名的完整修复
 
 原始缺陷是 `topologyManifestForVersion` 查询 `topology_manifest_digest` 并扫描到 Go `string`；迁移 `0008` 允许该列 NULL。旧导入流程在 ImportExchange 后直接提交没有 feature topology manifest 的制品，缺失 digest 写为 NULL，因此并非只能归因于历史数据。当前提交已加入冻结命名定义和带 seed 的 EvaluatePart。该读取缺陷已通过 IMPORT-DIAGNOSTICS 修复。
 
@@ -34,9 +34,9 @@ S3 兼容 ArtifactStore 已实现；按当前实施范围暂不做续传，后�
 
 原链路更深一层的问题是：即使为初始导入补一份 manifest，后续 evaluator 只拿到 `base_brep`、没有导入拓扑 seed 时仍会产生 `TOPOLOGY_HISTORY_UNNAMED_BASE`。必须把 ImportBody 的完整 Face/Edge/Vertex 身份种子传入后续布尔求值，否则“能选面、不能可靠编辑”问题仍在；当前 IMPORT-NAMING 已按此补齐 seed 初始化和后续 history。
 
-## 3. 数据面：上传、S3 与制品生命周期
+## 数据面：上传、S3 与制品生命周期
 
-### 3.1 统一上传会话
+### 统一上传会话
 
 建议 API 以版本化 UploadSession 表达以下流程，具体路由在实现阶段冻结：
 
@@ -64,7 +64,7 @@ sequenceDiagram
 
 S3 multipart 支持分片重试和独立上传；完整对象 ETag 不一定是对象内容 MD5，更不能充当项目 SHA-256。不同 checksum 的 FULL_OBJECT/COMPOSITE 支持有区别：保留独立的可信全内容 SHA-256，必要时由验证任务流式读取计算；不能把 multipart SHA-256 composite 当成内容摘要。[AWS multipart](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html)、[AWS checksum](https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity-upload.html)。
 
-### 3.2 Store 边界与安全
+### Store 边界与安全
 
 - LOCAL 保留用于开发/受限单机；已实现基于 MinIO Go SDK 的 S3 兼容后端，支持配置 HTTP/HTTPS endpoint。1 GiB 本身不强制某家云，也不强制 Ceph 等集群。
 - Put/Open/Delete 继续作为基础接口；上传 session、对象 Stat/Range、签名访问、Complete/Abort 作为明确能力扩展，不把 AWS SDK 类型泄漏到领域模型。
@@ -73,9 +73,9 @@ S3 multipart 支持分片重试和独立上传；完整对象 ETag 不一定是�
 - 以 UploadSession/Job attempt 限定写入路径、大小、租户/目录权限、并发和有效期；私有读取支持 Range、缓存与短期签名，发布/历史引用保护对象免于 GC。ETag 与内容摘要分工明确。
 - 规范 GC roots：已提交 Revision/ImportDefinition/Release、活动上传、活动 attempt 和显式保留。失败 staging/废弃分片延时清理；数据库提交与对象上传之间通过候选 manifest、提交 gate 和清扫补偿衔接，不假设分布式原子提交。
 
-## 4. 导入模型必须成为可编辑的普通模型
+## 导入模型必须成为可编辑的普通模型
 
-### 4.1 ImportBody 的输入真相和身份
+### ImportBody 的输入真相和身份
 
 本节单 Solid 冻结快照方案已落地，具体持久化形式和验证边界见[当前导入根命名](../current/persistent-naming.md#导入根命名)。源文件替换和内核升级的身份迁移仍属后续扩展。
 
@@ -87,7 +87,7 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 
 源文件、规范化种子形体与身份分配记录是 ImportDefinition 的必要重放输入；不能把唯一 identity map 当临时缓存回收。Mesh/LOD/BVH 等显示派生物可以删除重建。只有源 bytes 不足以保证任意新版导入器重新分配相同 ID。
 
-### 4.2 初始命名与后续 lineage
+### 初始命名与后续 lineage
 
 导入完成生成与普通 Feature 同合同的 topology manifest：import owner、Body、完整 Face/Edge/Vertex outputs、邻接、几何类型、最终实体有向法向、digest/policy。没有上游 Feature 不等于没有命名；这是有稳定根身份的初始输出，而不是普通 Extrude 的虚假 history。
 
@@ -95,16 +95,16 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 
 初批可编辑验收聚焦有效闭合单 Solid Part 与其装配 occurrence。一个 transferable root 不一定只有一个 Solid，也不等于一个业务 Part；多 Solid、开放壳、混合线框分别标明结构和可用操作，采用已有 Body 能力内的明确拆分策略。完整多 Body 编辑、特征识别和直接编辑不是当前设计范围。
 
-### 4.3 已有无 manifest 的导入文档
+### 已有无 manifest 的导入文档
 
 1. 已完成 IMPORT-DIAGNOSTICS：可空读取和明确诊断；打开文档不因缺失可选 naming 制品崩溃。
 2. 已实现显式修复命令，对当前导入 Head 以冻结源/精确 BREP 建立 ImportIdentityMap 与 manifest；已有有效 stable ID 不能重分配。把新的导入定义输入纳入正常命令和 Revision/ChangeSet，并覆盖 Undo/Redo。
 3. 旧快照只读时诚实显示 naming 不可用，不伪造可编辑状态；新 Head 的后续引用使用新身份。历史是否能以原输入重建需有实测，不覆盖旧 Revision。
 4. 项目未发布，采用唯一导入模型/协议演进，不增加永久双写或两套 naming resolver。开发数据重置仅遵循仓库既有授权边界，不作为设计或实施的默认前提。
 
-## 5. 计算与持久任务：消除重复工作，限制峰值
+## 计算与持久任务：消除重复工作，限制峰值
 
-### 5.1 一份源文件只建立一次解析会话
+### 一份源文件只建立一次解析会话
 
 建议导入 Job 分阶段：SOURCE_VERIFIED → INSPECTING → TRANSFERRING → NAMING → EXACT_READY → DISPLAY_BUILDING → COMMITTING → SUCCEEDED。恢复依据持久 stage/component manifest，不仅依据进度百分数。
 
@@ -112,7 +112,7 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 
 装配已采用 XDE/STEPCAF 恢复 definition/occurrence、共享引用、层级、placement 和名称；后续扩展颜色/材质/层/PMI；嵌套装配不按 transferable root 数量猜测。OCCT 官方说明 XDE 支持扩展结构与属性，STEPCAF 可转入文档；是否降低本项目内存必须实测，XDE 并非 out-of-core 保证。[OCCT XDE](https://github.com/Open-Cascade-SAS/OCCT/wiki/xde)。基础 XDE round-trip 已有定向 conformance；完整 AP242 与大模型容量仍须独立验收。
 
-### 5.2 资源与失败隔离
+### 资源与失败隔离
 
 - Admission 输入包含源 bytes、候选实体/样条规模、unique Body 数、预计三角形、历史长度；解析前未知的项在阶段间修正预算。按预留 RSS/临时盘/CPU/GPU 显示预算准入，不再固定“8 路就是合理”。
 - 大解析/精确求值占专用 Worker 进程和租约，避免占满交互池；单个 Body 仍可能需要完整 OCCT Shape 常驻，不能许诺任意 1 GiB 文件都可低内存计算。
@@ -122,15 +122,15 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 - 提交前检查 lease/attempt/deadline、源摘要、权限、目标 Workspace Head/CAS；迟到结果不得推进 Head。组件清单在导入事务边界原子可见或以可恢复的隐藏候选导入集发布，不能把逐个创建文档称为原子导入。
 - exact、naming、display 是不同完成状态。精确失败不能显示为成功导入；已有 exact snapshot 的高 LOD 失败可以保留粗显示并重试，不回滚有效业务 Revision。业务编辑至少要求 exact+naming，轻量浏览可在表示就绪后开放。
 
-### 5.3 原生大模型共用同一条链路
+### 原生大模型共用同一条链路
 
 原生 Part 的长 Feature 链、Boolean/Pattern 和大型 Product 同样使用 immutable evaluation input、durable Job、ArtifactReference 和分级显示。交互预览有独立短预算；提交长计算以 pending candidate 表达，成功后再通过 CAS 形成/推进权威结果，不让 HTTP 持有完整大模型求值生命周期。小模型保留快速路径，但输出 manifest 和最终验证合同相同。
 
 先按 Feature/Body 复用规范化输入和中间结果，再按测量决定稀疏/增量算法。单个大 Body 的布尔运算不能因显示分块而随意拆分为独立精确运算；出现不可分割的内存上限时应明确报告支持边界。
 
-## 6. 显示与选择：按工作集加载，而非下载一份更大的 GLB
+## 显示与选择：按工作集加载，而非下载一份更大的 GLB
 
-### 6.1 元数据与表示分离
+### 元数据与表示分离
 
 DocumentView 只携带必要模型/结构信息、分页或按子树查询入口、bbox、表示状态和 manifest 引用；不内联全部 mesh/边/顶点数组。草图编辑按活动文档/草图请求，巨量 Feature/Product 树也不应默认完整展开返回。
 
@@ -138,13 +138,13 @@ DocumentView 只携带必要模型/结构信息、分页或按子树查询入口
 
 小模型可只有一个 chunk；大单体需要空间块，大装配先按定义/occurrence，再对过大 Body 分块。压缩、量化、meshopt/Draco 等仅为待基准选型，不能靠添加解码依赖替代分块设计。HTTP Range 也不会让当前单一 GLB 自动成为渐进场景，客户端必须懂 manifest 和独立资源。
 
-### 6.2 预算与层级
+### 预算与层级
 
 加载顺序：结构摘要/包围盒 → 可见粗 LOD → 按屏幕误差细化 → 交互区域的边与拓扑点。滚动/移动视角取消过时请求，限制在途 bytes、解码队列、GPU 上传时间片和总驻留预算；超额时退回低 LOD/代理，不让主线程一次性处理全模型。
 
 解码和 BVH 构建进入 Web Worker，typed buffer Transfer 交接，避免 JSON number[][]、flat 和多次复制。未压缩基本缓冲的下界估算可用 `24V + 16T bytes`（float32 position+normal、uint32 三角形索引+每三角形 face index），还未含边、BVH、解码缓存、JS 对象、GPU 复制或双缓冲。因此文件压缩大小不能充当浏览器内存预算。
 
-### 6.3 边线、顶点、交点和精确选择
+### 边线、顶点、交点和精确选择
 
 - BREP Edge/Vertex 是拓扑；三角形边、显示轮廓、屏幕交点、捕捉点不是同一种对象。视觉简化不能改变 PersistentSelection。
 - 边按空间块和屏幕弦差独立离散/缓存，缩远时减少边和顶点加载；光标邻域或活动草图再加载精确候选。线宽、遮挡和选取优先级沿用统一交互系统。
@@ -153,7 +153,7 @@ DocumentView 只携带必要模型/结构信息、分页或按子树查询入口
 - chunk/LOD 的拾取结果必须经过带 GeometryKey、Revision、representation digest 的映射绑定精确拓扑。不能唯一对应 BREP Face 的粗代理仅支持 Body/occurrence 选择；进入面/边工具时细化或请求精确拾取。
 - 正式提交始终核对 source Revision/精确 PersistentSelection；切换 LOD、隐藏部件、缓冲淘汰不改变选择身份，迟到拾取不能命中新 Head。
 
-## 7. 验证与是否承诺 1 GiB
+## 验证与是否承诺 1 GiB
 
 现有真实 STEP 定向测试不能证明当前硬件可处理某个 1 GiB 模型。下面是待实施验收矩阵。
 
@@ -173,6 +173,6 @@ DocumentView 只携带必要模型/结构信息、分页或按子树查询入口
 
 1 GiB 能力退出门应写成“哪些 corpus / 硬件 / 预算 / 操作通过”，而不是“所有 ≥1 GiB 文件均支持”。真实大文件、编辑正确性、WebGL 工作集和故障恢复均通过后才能对外声明。测试数据生成器、输入 digest、重放命令和观测报告归入版本化测试资产；大原始文件只放授权对象存储，不直接提交 Git。
 
-## 8. 实施前需冻结的选择
+## 实施前需冻结的选择
 
 实现首批时确定 S3 endpoint/部署方与权限、参考硬件/资源预算、实际 STEP/BREP 样本授权及期望首屏/导入时间。当前设计不因这些参数未提供而停止；也不据此安装对象存储、升级 OCCT、修改公开 Proto 或承诺跨导入自动匹配。具体稳定身份、ImportDefinition schema 和大结果 RPC 变更必须在实施前按仓库边界审查并冻结合同。

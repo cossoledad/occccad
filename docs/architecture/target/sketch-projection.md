@@ -4,7 +4,7 @@
 
 trimmed Arc、边界、Section 是不同能力；单 Edge 投影不代表 Face 边界组已经实现。unsupported 不用近似替代。
 
-## 1. 为什么选择 Face 不能直接复用当前 Project
+## 为什么选择 Face 不能直接复用当前 Project
 
 Face 不是二维 Sketch Geometry。一次 Face 选择至少可能表达三种不同意图：
 
@@ -14,7 +14,7 @@ Face 不是二维 Sketch Geometry。一次 Face 选择至少可能表达三种�
 
 三者的输出数量、分支、更新规则和失败条件不同，不能用一个 `PROJECT_FACE` 后由 Worker 猜测。浏览器当前相机方向也不能成为持久建模输入。命令必须保存明确 mode、稳定来源、方向/支撑、成员策略和 branch evidence。
 
-## 2. 统一领域合同
+## 统一领域合同
 
 在现有单项 `ExternalGeometry` 之上增加投影结果组，而不是把 Face 伪装为一条曲线：
 
@@ -43,7 +43,7 @@ ExternalGeometry
 - 多曲线结果保留全部稳定 solution，用户选择的 branch 进入定义。禁止“每次取最长曲线”；
 - 更新顺序继续固定为 naming resolve → projection/section → Sketch solve → downstream Feature；失败时清除过期 snapshot，不消费旧几何。
 
-## 3. Face Boundary Projection
+## Face Boundary Projection
 
 目标：在活动草图中选择平面或曲面 Face，一次创建其外环/孔环的关联二维边界集合。
 
@@ -62,7 +62,7 @@ ExternalGeometry
 
 圆弧、椭圆及椭圆弧复用现有 ExternalGeometry、命名证据、fixed sketch geometry、Reconnect/Detach 与 CENTER 引用。未来 Face Boundary 成员应复用同一曲线合同；一般 BSpline、边界组和 Section 仍需独立验证稳定成员身份及资源限制。当前验证入口和能力见[Part Sketch](../current/part-sketch.md)。
 
-## 4. Section 与 Silhouette
+## Section 与 Silhouette
 
 目标：提供显式的“与草图平面求交”和“沿指定方向投影轮廓”命令。
 
@@ -76,15 +76,15 @@ ExternalGeometry
 
 Section 依赖 Face Boundary 的 projection group、成员身份和 UI，不阻塞 Publication 或 Revolve 完整命名。
 
-## 5. 与 Surface/3D Wire 的边界
+## 与 Surface/3D Wire 的边界
 
 Face Boundary/Section 的输出属于某个 Sketch 的二维 ExternalGeometry，只服务于草图约束与 Profile。Surface/3D Wire 的 `ProjectCurve`、`IntersectionCurve`、Boundary 和 CurveOnSurface 是独立的三维 WireFeature/SurfaceFeature，必须保存 3D curve、pcurve/UV、支撑面和多解 branch。不能把二维 Sketch snapshot 提升为权威三维曲线，也不能让 Surface/3D Wire 反向复用浏览器显示折线。
 
-## 6. 执行依赖
+## 执行依赖
 
 trimmed Arc → Face Boundary → Section。它们复用现有 Part/naming 基线，可独立于装配主线推进；不依赖三维曲面模块。先统一单 Edge ARC snapshot，再复用到 Face group，避免为一个布尔案例添加旁路。三维曲线与曲面能力见[候选方向](../../../plans/README.md)。
 
-## 7. 能力边界与缺陷处理规则
+## 能力边界与缺陷处理规则
 
 投影问题先按领域合同分类，再决定实现：
 

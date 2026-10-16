@@ -1,16 +1,16 @@
 # occccad 目标架构
 
-> 2026-09-21 整理。本文及其分册定义长期语义，不代表全部已实现。当前行为见[当前架构](CURRENT_ARCHITECTURE.md)，下一步工作见[统一路线](../plans/README.md)。
+本文及分册定义长期语义、未实现范围与候选，不代表全部已交付。当前行为见[当前架构](../current/README.md)，下一步工作见[后续工作](../../../plans/README.md)。按命中主题读取，无需通读。
 
 ## 阅读规则
 
-### 0.2 信息权威顺序
+### 信息权威顺序
 
 发生冲突时按问题类型判断，而不是机械规定单一文件永远优先：
 
 | 问题 | 权威来源 | 处理方式 |
 |---|---|---|
-| 当前系统实际做什么 | 代码、迁移、测试、`CURRENT_ARCHITECTURE.md` | 文档与代码不符时先验证运行事实，再修正文档或缺陷 |
+| 当前系统实际做什么 | 代码、迁移、测试、[current](../current/README.md) | 文档与代码不符时先验证运行事实，再修正文档或缺陷 |
 | 长期模型和边界应该是什么 | 本文档的平台不变量与目标契约 | 实现偏离前必须形成明确架构判断并更新本文档 |
 | 某个可执行单元如何运行 | 对应服务 README、构建配置 | 接口、环境变量或故障语义变化时同步更新 README |
 | 某个外部库当前版本/能力 | 锁文件、官方文档、验证报告 | 本文中的候选与版本可能过期，引入前必须重新核实 |
@@ -18,7 +18,7 @@
 
 若现有实现证明目标设计不可行、过度复杂或已有更优方案，应以证据推动修订，而不是为了“符合文档”继续堆叠错误抽象。修订必须说明被替代假设、影响范围、迁移方式和验证证据。
 
-### 0.3 规范强度
+### 规范强度
 
 本文使用以下强度理解设计表述：
 
@@ -33,41 +33,42 @@
 
 ### 平台与模型核心
 
-- [愿景、平台原则与逻辑边界](architecture/target/system.md)
-- [命令、事务与历史](architecture/target/commands-history.md)
-- [参数、依赖与求值](architecture/target/parameters-evaluation.md)
-- [模型接口、存储与验证](architecture/target/model-governance.md)
-- [计算模块与进程边界](architecture/target/compute-boundaries.md)
+- [愿景、平台原则与逻辑边界](system.md)
+- [命令、事务与历史](commands-history.md)
+- [参数、依赖与求值](parameters-evaluation.md)
+- [模型接口、存储与验证](model-governance.md)
+- [计算模块与进程边界](compute-boundaries.md)
 ### Sketch 与 Part
 
-- [Sketch 模型与实体表示](architecture/target/sketch-model.md)
-- [Sketch 实体编辑、血缘与查询](architecture/target/sketch-editing.md)
-- [Sketch 约束、求解与 Profile](architecture/target/sketch-solver.md)
-- [Sketch 持久化、交互与验证](architecture/target/sketch-integration.md)
-- [Part、Body 与实体生成](architecture/target/part-model.md)
-- [实体特征扩展契约](architecture/target/part-extensions.md)
-- [Feature 求值、命名与质量门](architecture/target/part-evaluation.md)
+- [Sketch 模型与实体表示](sketch-model.md)
+- [Sketch 实体编辑、血缘与查询](sketch-editing.md)
+- [Sketch 约束、求解与 Profile](sketch-solver.md)
+- [Sketch 持久化、交互与验证](sketch-integration.md)
+- [关联投影扩展](sketch-projection.md)
+- [Part、Body 与实体生成](part-model.md)
+- [实体特征扩展契约](part-extensions.md)
+- [Feature 求值、命名与质量门](part-evaluation.md)
 ### Surface / 3D Wire（候选）
 
-- [曲面与三维线框模型](architecture/target/surface-model.md)
-- [曲面 Feature 与实体桥接](architecture/target/surface-features.md)
-- [曲面质量、连续性与命名](architecture/target/surface-quality.md)
-- [曲面计算、交互与验证](architecture/target/surface-integration.md)
+- [曲面与三维线框模型](surface-model.md)
+- [曲面 Feature 与实体桥接](surface-features.md)
+- [曲面质量、连续性与命名](surface-quality.md)
+- [曲面计算、交互与验证](surface-integration.md)
 ### Product、Assembly 与工程扩展
 
-- [Product 结构、Publication 与上下文](architecture/target/product-context.md)
-- [六类约束、自由度组合与激活合同](architecture/current/assembly-constraints.md)
-- [装配约束、求解与交互](architecture/target/assembly.md)
-- [机构命令试动、关键帧录制与回放完整设计](architecture/target/kinematics-dmu.md)
-- [简单接合、驱动坐标与固联交互扩展](architecture/target/kinematics-simple-joints.md)
-- [Product 求值、资源与验证](architecture/target/product-evaluation.md)
-- [持久拓扑命名](architecture/current/persistent-naming.md)
+- [Product 结构、Publication 与上下文](product-context.md)
+- [六类约束、自由度组合与激活合同](../current/assembly-constraints.md)
+- [装配约束、求解与交互](assembly.md)
+- [机构命令试动、关键帧录制与回放完整设计](kinematics-dmu.md)
+- [简单接合、驱动坐标与固联交互扩展](kinematics-simple-joints.md)
+- [Product 求值、资源与验证](product-evaluation.md)
+- [持久拓扑命名](../current/persistent-naming.md)
 ### 分布式平台与交付治理
 
-- [调度、通信、存储与制品](architecture/target/distributed-platform.md)
-- [大文件导入、根拓扑身份与大模型工作集（设计提案）](architecture/target/large-models.md)
-- [安全、可观测性与扩展边界](architecture/target/quality-extensions.md)
-- [决策触发、验证与交付](architecture/target/delivery-governance.md)
+- [调度、通信、存储与制品](distributed-platform.md)
+- [大文件导入、根拓扑身份与大模型工作集（设计提案）](large-models.md)
+- [安全、可观测性与扩展边界](quality-extensions.md)
+- [决策触发、验证与交付](delivery-governance.md)
 
 ## 设计收敛
 

@@ -1,30 +1,44 @@
-# 知识目录
+# 项目地图
 
-普通任务从根 [AGENTS](../AGENTS.md) 到最近局部指南，再按符号读取实现和邻近测试。只有跨身份、历史、单位或 Worker 边界才展开主题；无需阅读旧路线或两份完整架构书。
+occccad 是开放、可替换计算后端的云原生参数化 CAD，以 CATIA 机械设计工作流为长期参照。当前是早期可运行垂直切片。先贯通最短用户链路，再扩展能力；完成度看真实调用链、权威求值与历史恢复。
 
-| 问题 | 权威入口 |
+## 一屏理解系统
+
+```text
+React/Three.js → Go API / Command → Workspace CAS → 不可变 Revision
+                       ↓ 权威求值（数据库事务外）
+                本机 Router → C++ Geometry Worker → OCCT / PlaneGCS / Assembly
+                       ↓
+                LOCAL/S3 制品 + provenance → 浏览器显示
+```
+
+- Document 是身份，Workspace 拥有可变 Head，Revision 冻结模型；业务写入经过幂等 Command/Transaction/ChangeSet，Preview 不持久化。
+- Part → Body → Feature 保存参数化历史；Sketch 求解后识别 Profile。Product 的 InstancePath 标识 occurrence，引用文档与编辑宿主分离。
+- PersistentSelection 跨 Revision 引用拓扑，Publication 提供稳定接口；显示名、mesh/local ID 只作当前显示证据。
+- 产品约束与机构关系分别拥有定义及位姿，复用数值引擎。数据库支持 PostgreSQL/SQLite，测试默认隔离 SQLite；逻辑模块不自动成为微服务。
+
+## 按问题进入
+
+局部任务先读最近 [AGENTS](../AGENTS.md)，搜符号和邻近测试；需要领域语义时，每行先读一个命中主题。
+
+| 问题 | 当前事实 | 源码归属 |
+|---|---|---|
+| 进程、Router、Job、交换 | [运行](architecture/current/runtime.md)、[Jobs](architecture/current/jobs-artifacts.md)、[Worker](architecture/current/worker-contracts.md) | `services/`、`workers/geometry/` |
+| Command、参数、CAS、Undo/Redo | [模型历史](architecture/current/model-history.md) | `services/internal/workspace/`、`modelcore/` |
+| Sketch、Profile、Body、特征 | [Part/Sketch](architecture/current/part-sketch.md)、[实体 Feature](architecture/current/solid-features.md) | `kernel/occt/`、`workers/geometry/sketch/` |
+| 持久身份、几何与显示 | [Naming](architecture/current/persistent-naming.md)、[制品](architecture/current/geometry-representations.md) | `kernel/api/`、`kernel/occt/`、Workspace |
+| Product、约束、机构 | [Product](architecture/current/product-assembly.md)、[约束](architecture/current/assembly-constraints.md)、[DMU](architecture/current/kinematics-dmu.md) | Workspace、`kernel/assembly/` |
+| 选择、工具、标签、命令目录 | [Web](architecture/current/web.md)、[编辑上下文](architecture/current/product-edit-context.md)、[公共框架](architecture/current/document-command-framework.md) | `web/apps/cad/src/`、`services/internal/workbenchconfig/` |
+
+## 意图、运行与证据
+
+| 入口 | 回答什么 |
 |---|---|
-| 进程、控制/数据面、Worker、Artifact | [运行](architecture/current/runtime.md)、[Jobs/交换](architecture/current/jobs-artifacts.md)、[几何制品](architecture/current/geometry-representations.md) |
-| Workspace、Revision、Command、CAS、幂等、Undo/Redo、参数 | [模型历史](architecture/current/model-history.md) |
-| Sketch、Profile、Multi-Body、Feature 求值 | [Part/Sketch](architecture/current/part-sketch.md)、[求值链](architecture/part-feature-evaluation.md)、[实体 Feature](architecture/current/solid-features.md) |
-| Naming、Evidence/Lineage、Resolver、Reconnect | [持久命名](architecture/current/persistent-naming.md) |
-| STEP/XDE Definition/Occurrence | [交换](architecture/current/jobs-artifacts.md) |
-| Product 引用、六族、组、参数/激活、历史发布 | [Product](architecture/current/product-assembly.md)、[当前约束合同](architecture/current/assembly-constraints.md) |
-| 装配方程、图编译、QR/SVD、解选择、连续恢复 | [算法](../kernel/assembly/SOLVER_ALGORITHMS.md)、[模块边界](../kernel/assembly/SOLVER_ARCHITECTURE.md) |
-| 局部证据、剩余运动与修复 | [Product 分析](architecture/current/product-assembly.md#局部诊断与剩余运动) |
-| 机构/DMU、命令试动、关键帧录制与产品约束转换 | [当前代码事实](architecture/current/kinematics-dmu.md)、[完整设计与验收](architecture/target/kinematics-dmu.md)、[简单接合与固联扩展](architecture/target/kinematics-simple-joints.md) |
-| 选择、显隐、编辑宿主、标签、快照/手柄 | [Web](architecture/current/web.md)、[模型显示](architecture/current/model-display.md)、[编辑上下文](architecture/current/product-edit-context.md)、[树身份](architecture/semantic-tree-interaction.md) |
-| 文档适配器、配置目录、Toolbar 与命令注册 | [公共框架](architecture/current/document-command-framework.md) |
-| 实时链路 | [Realtime](architecture/current/realtime.md) |
-| 验证、观测、证据限制 | [验证](architecture/current/validation.md)、[测试路由](../tests/README.md)、[装配执行器](../tests/assembly-contract/README.md) |
-| 运行与环境 | [根 README](../README.md)、[开发环境](development-environment.md)、各可执行单元 README |
-| 当前能力和边界总览 | [当前架构](CURRENT_ARCHITECTURE.md) |
-| 尚有价值的未实现设计/平台合同 | [设计索引](TARGET_ARCHITECTURE.md) |
-| 真实未完成方向 | [后续工作](../plans/README.md) |
-| Agent 路由与上下文检查 | [focused TEAA](architecture/agent-efficiency.md) |
+| [当前架构](architecture/current/README.md) | 已实现行为、源码/测试入口、明确限制 |
+| [目标设计](architecture/target/README.md) | 长期契约、缺口与候选；不是已交付清单 |
+| [后续工作](../plans/README.md) | 未完成工作与退出条件；不自行给候选排优先级 |
+| [开发环境](development/README.md)、[Agent 工作流](development/agent-workflow.md) | 配置、资源、构建与渐进验证 |
+| [操作指南](guides/README.md)、[参考资料](references/README.md) | 交互步骤 / 外部行为依据 |
+| [测试入口](../tests/README.md)、[验证记录](validation/README.md) | 可执行检查 / 历史实测及证据限制 |
 
-每个主题拥有一份合同/算法，不复制完成记录、PASS 数量或旧计划历史。实现语义归 current，未实现设计明确范围；README 负责运行，AGENTS 负责稳定规则。测试存在不等于实际执行，维护者反馈不代替性能/工业验收。
-
-修改导航运行 invoke context-audit：覆盖全仓自有 Markdown 的本地路径与锚点，同时报告默认入口字节规模与大文本热点。稳定机器 ID、schema/policy、命令和 fixture 可以保留旧字面值，不用粗暴零命中规则改写合同。
-
-商业 CAD 参考只在[工作流来源](references/cad-workflows.md)，不是当前能力证据。
+启动见[根 README](../README.md)。文档修改读[局部指南](AGENTS.md)和[维护规则](development/documentation.md)。代码、迁移和实际执行决定当前事实；测试存在不等于通过，定向通过不等于工业验收。

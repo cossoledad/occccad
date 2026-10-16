@@ -1,6 +1,68 @@
 # 持久拓扑命名与引用恢复
 
-> 返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
+本文拥有当前拓扑历史、PersistentSelection、Product 支持元素与 Reconnect 合同。先读身份链和源码路由，再按需求展开后面的具体实现。
+
+## 身份链
+
+```text
+Feature / Body / profile entity stable IDs
+  -> evaluator naming policy + digest
+  -> OCCT Generated/Modified/Deleted evidence
+  -> semantic topology outputs + TopologyHistory
+  -> immutable topology manifest artifact + digest
+  -> revision-local raw pick as creation evidence
+  -> server-side PersistentSelection binding
+  -> target Revision resolution
+  -> Connected / NotConnected + ambiguity/tombstone evidence
+```
+
+- Persistent identity never uses OCCT pointer, traversal index, mesh primitive, coordinates alone or display name.
+- A raw Face/Edge/Vertex local ID identifies only one geometry artifact and is accepted only as verified creation/reconnect evidence.
+- Semantic outputs derive from stable Feature/Profile identities and actual OCCT history. Boolean/unify first preserves Generated/Modified/Unchanged/Split/Merged/Deleted evidence; a policy-versioned closure may name only otherwise-uncovered final intersection topology from already named semantic adjacency, without rewriting primary ancestry.
+- Naming policy contains explicit length/angle tolerance and version digest. It participates in request, manifest and cache identity.
+- Complete history covers every live final topology element exactly once and rejects conflicting live/tombstone or duplicate semantic/local identities.
+- Ambiguity is a result, not permission to select the first candidate. Deleted topology remains a tombstone; repair is explicit Reconnect.
+
+## 当前边界
+
+Linear Extrude/Boolean、旋转、导入根及局部修改已有命名路径；各自依据真实历史或冻结身份提供完整性证据，详细范围见下文与[实体 Feature](solid-features.md)。`topology_history_complete=false` 的结果不可作为完整持久拓扑输入，不能仅按特征类别推断安全性。
+
+## 源码路由
+
+| Concern | Start here |
+|---|---|
+| OCCT-free topology contract | `kernel/api/include/occccad/kernel/topology_naming.hpp` |
+| OCCT history generation/gates | search operation or semantic output in `kernel/occt/src/occt_kernel.cpp` |
+| worker Proto manifest | `proto/occccad/worker/v1/geometry_worker.proto` |
+| artifact adoption/digest checks | `services/internal/workspace/service.go` and geometry adapter symbols |
+| binding and cross-Revision resolution | `services/internal/workspace/topology_selection.go` |
+| Product supporting-element state | workspace assembly solve/structure projection and Web constraint UX |
+| conformance | `kernel/occt/tests/geometry_exchange_scenarios.cpp`, workspace topology tests, control integration tests |
+
+Do not start from generated protobuf or STEP corpus bytes. Begin with the stable semantic output or failing selection and expand to the exact OCCT/test range.
+
+## 失败门禁
+
+- Geometry may be numerically identical while Feature identity differs; cache/naming digest must keep them distinct.
+- Adopting an external manifest requires agreement between inline response, referenced immutable object and adopted digest.
+- Resolver input freezes source/target Revision and policy evidence; resolving against “latest” silently is invalid.
+- Reconnect stores a new stable binding through one Domain Command; it does not persist the raw local ID as long-term identity.
+- Product/UI presents supporting-element connectivity separately from constraint solve status.
+
+## 验证入口
+
+Use an exact geometry/workspace test first, then:
+
+```bash
+invoke check --scope geometry
+invoke check --scope workspace
+```
+
+Changes spanning Proto/Worker/Router/Product require `invoke check --scope all` and a test through the formal Router. Only read `tests/test.data/` when the regression explicitly requires real STEP/BREP input.
+
+## 当前实现
+
+> 返回[当前架构目录](README.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
 
 服务端已实现 PersistentSelection bind/resolver。bind 只接受 source Revision 指定 sourceBodyId 的 Body Tip 的 local pick，并固化 semantic anchor 与 creation evidence；resolver 固定校验 source/target Revision、document/body、expected type、creation evidence、manifest digest 和 policy digest，沿 lineage 返回唯一解析、缺失、歧义、类型不符或当前 tip 外等状态，绝不以相同 local ID 或最近几何自动选面。解析缓存以 selection、target Revision、manifest/evidence/policy digest 为身份，并可从不可变 topology artifact 冷重建。右侧属性面板现在展示 semantic anchor、selection recipe、supporting-element 状态和 evidence digest。
 
@@ -10,7 +72,7 @@
 
 测试用现有 `REMOVE` Linear Extrude 建立 Cut/Hole 代表场景，而未提前增加第二套 Hole DSL。XZ 矩形贯穿 Cut 的 OCCT corpus 固定验证六个基础面语义引用继续存在并新增四个孔壁引用；同一 corpus 还覆盖保留面、删除面与侧开口 split 歧义。Go 端可执行 fixture 经真实 Workspace、PostgreSQL、ArtifactStore、GeometryPool、正式 Router 和 C++ Worker 创建 Part/Product 面约束，覆盖通孔更新、Part Undo/Redo、真实删除、Broken 隔离、Reconnect 后继续编辑以及 ambiguous 不自动选择，并重新执行保存的 `.3dreplay`。编辑任何 Broken 约束会先把 evaluation 重置为 NotUpdated，使当前命令的权威解析与求解能够恢复到 Verified；最终 Revision 才保存求值结果。fixture 可通过 `OCCCCAD_P6_EVIDENCE_DIR` 输出逐阶段 ResolutionSnapshot 摘要和 solver replay。
 
-当前 Boolean semantic adjacency closure 已将 evaluator 升为 `occccad.topology.contract.v4` 并更换 policy digest，旧制品不会冒充新 manifest。Linear Extrude 除 cap/side Face 外，还从 profile curve entity 与共享 endpoint identity 生成 start/end cap boundary Edge、vertical Edge 和 start/end Vertex；Boolean 与 same-domain history 优先按原拓扑类型传播，并只为 OCCT 未提供同类型 history 的最终交线/端点执行可审计 closure。Edge evidence 包含解析曲线类型、SI 长度、质心、原点/方向、参数区间与端点角色，Vertex evidence 包含稳定点坐标与端点角色，三类 output 均带跨类型邻接语义引用。声明完整的 Shape gate 要求最终 Face、Edge、Vertex 各自被唯一 semantic output 和 lineage 覆盖；矩形拉伸基线为 6/12/8，长度编辑、面上 boss/pocket、ADD/REMOVE、贯穿孔、多区域/圆环/Arc/Spline profile、edge merge/split、vertex delete、圆环 seam 和容差以下短边均有确定性 corpus。Worker Proto 保留真实 topology type。服务端把 Vertex 解析为精确 Point、线性 Edge 解析为 Axis，并经正式 Router 验证 Vertex-Vertex、Vertex-Plane、Edge-Edge、Edge-Plane 的创建、更新、Broken 隔离和 Reconnect；缺少 manifest 与不完整 history 使用稳定诊断，并在没有可求解 component 时不产生 replay。
+Boolean semantic adjacency closure 受版本化 evaluator 与 policy digest 约束，旧制品不能冒充新 manifest；准确版本由[命名策略源码](../../../services/internal/modelcore/topology_naming.go)拥有。Linear Extrude 除 cap/side Face 外，还从 profile curve entity 与共享 endpoint identity 生成 start/end cap boundary Edge、vertical Edge 和 start/end Vertex；Boolean 与 same-domain history 优先按原拓扑类型传播，并只为 OCCT 未提供同类型 history 的最终交线/端点执行可审计 closure。Edge evidence 包含解析曲线类型、SI 长度、质心、原点/方向、参数区间与端点角色，Vertex evidence 包含稳定点坐标与端点角色，三类 output 均带跨类型邻接语义引用。声明完整的 Shape gate 要求最终 Face、Edge、Vertex 各自被唯一 semantic output 和 lineage 覆盖；矩形拉伸基线为 6/12/8，长度编辑、面上 boss/pocket、ADD/REMOVE、贯穿孔、多区域/圆环/Arc/Spline profile、edge merge/split、vertex delete、圆环 seam 和容差以下短边均有确定性 corpus。Worker Proto 保留真实 topology type。服务端把 Vertex 解析为精确 Point、线性 Edge 解析为 Axis，并经正式 Router 验证 Vertex-Vertex、Vertex-Plane、Edge-Edge、Edge-Plane 的创建、更新、Broken 隔离和 Reconnect；缺少 manifest 与不完整 history 使用稳定诊断，并在没有可求解 component 时不产生 replay。
 
 ## History 生成与制品门
 
@@ -18,7 +80,7 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 
 ## 实现与验证入口
 
-- [命名 policy v5](../../../services/internal/modelcore/topology_naming.go)
+- [命名 policy](../../../services/internal/modelcore/topology_naming.go)
 - [bind/resolver](../../../services/internal/workspace/topology_selection.go)
 - [resolver corpus](../../../services/internal/workspace/topology_selection_test.go)
 - [正式 Router Edge/Vertex 集成](../../../services/internal/control/edge_vertex_naming_integration_test.go)
@@ -37,11 +99,11 @@ EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named 
 
 完整 Naming 的唯一持久载荷为 `naming.pb`；RPC 和数据库不重复保存 FeatureResults。导入 identity 也通过 ArtifactReference 重放。数据边界见[几何制品](geometry-representations.md)。
 
-当前持久格式见 [Visual/Naming Artifact v2](../visual-naming-artifact-v2.md)。SemanticRef 与 typed Evidence 通过共享表引用，Body 显式拥有 transition 链和 tip locator 索引。resolver 的历史存在性来自 transition 生成/删除记录，不依赖每个 Feature 的完整快照；领域 FeatureResult 仅作为消费者内存对象，绝不重复持久保存 v1。
+当前持久格式见 [Visual/Naming Artifact v2](visual-naming-artifacts.md)。SemanticRef 与 typed Evidence 通过共享表引用，Body 显式拥有 transition 链和 tip locator 索引。resolver 的历史存在性来自 transition 生成/删除记录，不依赖每个 Feature 的完整快照；领域 FeatureResult 仅作为消费者内存对象，绝不重复持久保存 v1。
 
 每个 Body 独立 Naming Artifact；bind 先验证 GeometryKey 属于指定 Revision/Body，再解释 localId。resolver 在 source/target Revision 中分别寻找同一个稳定 Body，不会扫描兄弟 Body 的 Naming 作为回退。Loader 同时验证 GeometryId、BREP SHA-256 及单 Body transition 归属；Body 删除后引用返回不可用，不按同名 Body 或相同 FACE 1 自动重连。
 
-实体 evaluator v5 补齐旋转扫掠历史、跨 Body 工具快照和局部修改/放样历史。工具的 Naming 与 BREP 摘要、Body 和 Feature 阶段必须一致。抽壳保留原外表面且生成内表面时，两者都进入真实历史；同一来源集产生多个结果时显式区分分裂，无法消歧仍失败。参见[实体 Feature](solid-features.md)。
+实体 evaluator 支持旋转扫掠历史、跨 Body 工具快照和局部修改/放样历史。工具的 Naming 与 BREP 摘要、Body 和 Feature 阶段必须一致。抽壳保留原外表面且生成内表面时，两者都进入真实历史；同一来源集产生多个结果时显式区分分裂，无法消歧仍失败。参见[实体 Feature](solid-features.md)。
 
 ## 阵列复制与选择延续
 

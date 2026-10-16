@@ -1,6 +1,6 @@
-# Worker contracts focused reference
+# Worker、Router 与 Job 合同
 
-本文是 Proto、Geometry Worker、Router、Artifact 与 Job 路径的短投影，用于避免为一次 RPC 或任务修改整读两份架构总览。领域边界以[计算部署](target/compute-boundaries.md)和[分布式平台](target/distributed-platform.md)为准；已交付能力以[运行边界](current/runtime.md)、[Part RPC](current/part-sketch.md)、[Jobs/Artifact](current/jobs-artifacts.md)和代码为准。
+本文集中说明 Proto、Geometry Worker、Router、Artifact 与 Job 之间的调用链和提交门禁。领域边界以[计算部署](../target/compute-boundaries.md)和[分布式平台](../target/distributed-platform.md)为准；已交付能力以[运行边界](runtime.md)、[Part RPC](part-sketch.md)、[Jobs/Artifact](jobs-artifacts.md)和代码为准。
 
 ## 权威边界
 

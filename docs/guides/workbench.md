@@ -2,6 +2,14 @@
 
 保留浅色操作区、深色顶栏与视口。呈现层不改变命令步骤、单次/连续、选择来源、参数原文或事务语义。几何选中仍使用橙黄色，工具激活使用蓝色。
 
+## 操作与源码入口
+
+全局快捷键由 [command-shortcuts.ts](../../web/apps/cad/src/cad/command/command-shortcuts.ts)拥有，经 CommandRegistry 检查可用性：Ctrl/Meta+Z 撤销，Ctrl/Meta+Y 或 Shift+Z 重做，Ctrl/Meta+K 搜索，V 选择，F 适合窗口，1/2/3/4 等轴/前/顶/右视图，L/C/R 直线/圆/矩形，Shift+/ 帮助。输入框和 IME 不触发全局命令；工具内部按键归各工具状态机，导航按键见[导航说明](../../web/apps/cad/src/cad/navigation/README.md)。
+
+命令目录投影从 `workbench-command-model.ts` 进入，命令注册从 `workbench-command-registration.ts` 进入；标签、临时会话、树/Inspector 的边界见[编辑上下文](../architecture/current/product-edit-context.md)，不需要整读主 orchestrator。
+
+## 公共视觉合同
+
 | 公共来源/组件 | 当前合同 |
 | --- | --- |
 | `web/apps/cad/src/design/visual-tokens.ts` | 唯一 palette 与尺寸/字体/阴影/层级 tokens；CSS、Antd ConfigProvider、Canvas 各自适配 |

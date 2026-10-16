@@ -1,8 +1,8 @@
 # 调度、通信、存储与制品
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-## 6. Scheduler、Registry 与数据局部性
+## Scheduler、Registry 与数据局部性
 
 Kubernetes 负责容器放置与副本生命周期；CAD Compute Scheduler 负责领域级任务选择、缓存亲和、配额和结果提交，两者不能混为一层。
 
@@ -35,9 +35,9 @@ stateDiagram-v2
 
 Kubernetes 使用 node pool/taint 区分普通 Go、内存型 OCCT、GPU/CAE 节点，并用 topology spread 跨故障域部署控制面。官方文档支持通过节点标签、taint 和 topology spread 控制放置。[Kubernetes 调度文档](https://kubernetes.io/docs/concepts/scheduling-eviction/)
 
-## 7. 通信协议
+## 通信协议
 
-## 7.1 结论：双平面而不是 WebSocket 全面替代 REST
+## 结论：双平面而不是 WebSocket 全面替代 REST
 
 WebSocket 对服务端主动推送、低延迟双向消息、同文档订阅、在线状态、交互预览和任务进度有明显优势；单靠 REST 若不轮询、长轮询或 SSE，无法及时把另一用户已经提交的操作送到当前浏览器。但 WebSocket 不是更好的通用文件/资源协议：登录和管理 CRUD 需要清晰的 HTTP 状态与审计边界，GET 需要缓存和条件请求，STEP/GLB/B-Rep 需要流式上传下载、Range/CDN/signed URL，健康检查还需要负载均衡器直接理解。
 
@@ -50,7 +50,7 @@ WebSocket 对服务端主动推送、低延迟双向消息、同文档订阅、�
 
 浏览器标准 `WebSocket` 没有应用级 backpressure，接收方过慢可能造成缓冲和内存压力；`WebSocketStream` 虽提供 backpressure，但仍是非标准实验能力。因此服务端必须使用有界发送队列，并在队列满时断开慢消费者，让其重连并恢复权威快照，而不是无限缓冲。[MDN WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) [MDN WebSocketStream](https://developer.mozilla.org/en-US/docs/Web/API/WebSocketStream)
 
-## 7.2 统一消息 Envelope
+## 统一消息 Envelope
 
 当前 JSON 子协议固定为 `occccad.realtime.v1`，握手通过 `Sec-WebSocket-Protocol` 协商。每条应用消息都是完整 Envelope，不依赖 WebSocket frame 边界之外的隐式上下文：
 
@@ -79,7 +79,7 @@ RealtimeEnvelope
 | `stream.ack.v1` | C→S | 单调确认已处理 sequence |
 | `request.failed.v1` | S→C | 稳定错误 code、可重试提示与 correlation |
 
-## 7.3 连接、顺序与恢复
+## 连接、顺序与恢复
 
 ```mermaid
 sequenceDiagram
@@ -110,7 +110,7 @@ sequenceDiagram
 - 服务端每 25 秒发送 Ping，60 秒未收到 Pong 判定失联；单连接一条 reader loop 和一条 writer loop，遵守 Gorilla WebSocket 的并发约束。[Gorilla WebSocket concurrency](https://pkg.go.dev/github.com/gorilla/websocket#hdr-Concurrency)
 - 当前每连接发送队列上限 128 条、单消息上限 1 MiB。事件只携带小型变更事实；几何和大列表通过 REST/Artifact 协议读取。
 
-## 7.4 安全、权限与协作语义
+## 安全、权限与协作语义
 
 - Upgrade 使用现有 HttpOnly session cookie；连接后必须以可读 CSRF cookie 完成 `connection.initialize.v1`，服务端同时校验 Origin/允许列表；
 - 每次 subscribe 和 command 都重新检查资源 ACL，不能因为连接建立时有权限就永久信任；
@@ -118,7 +118,7 @@ sequenceDiagram
 - `workspace.transaction.committed` 是持久事实。Presence、光标、预选和拖拽 preview 是带 TTL、限频、可丢失且不得进入 Revision/Undo 的 ephemeral message；提交后必须由权威 evaluator 替换 preview；
 - 当前实现让另一浏览器实时看到“已提交操作”的结果，不宣称已经实现逐像素鼠标轨迹共享、OT/CRDT 或多人草图求解。
 
-## 7.5 单机实现与横向扩展边界
+## 单机实现与横向扩展边界
 
 当前模块化单体使用 PostgreSQL Outbox 轮询并向进程内 subscription hub 扇出，适合一个 API 实例。断线客户端通过 snapshot 恢复，不要求服务端为每个浏览器永久保存消费游标。
 
@@ -139,15 +139,15 @@ NATS JetStream 适合作为轻量开源事件和工作队列基线，支持 work
 
 Temporal 只在出现多日工作流、补偿、人工步骤、跨服务扇出等复杂度后引入；它提供可恢复工作流执行，但对当前三个任务类型过重。[Temporal 文档](https://docs.temporal.io/)
 
-## 8. 存储架构
+## 存储架构
 
-## 8.1 PostgreSQL
+## PostgreSQL
 
 保存租户、IAM 映射、Document、Workspace、Revision metadata、Command/Transaction、引用图、ACL、Job 状态、Artifact metadata、Outbox 和审计。生产采用 HA、PITR、连接池和分区；租户隔离在应用策略与 PostgreSQL RLS 双层验证。
 
 大型 JSON Feature Graph 初期可用 JSONB + schema version，成熟后把高查询价值的引用/参数索引关系化。不能把所有 B-Rep 放入 bytea，也不能让 Worker 直接更新领域表。
 
-## 8.2 S3 兼容对象存储
+## S3 兼容对象存储
 
 1 GiB 级上传、导入命名、parse-once 和原生/导入模型的渐进显示见[大模型设计提案](large-models.md)。该提案进入设计支线，尚未代表 S3 或相关性能已交付。
 
@@ -155,17 +155,17 @@ Temporal 只在出现多日工作流、补偿、人工步骤、跨服务扇出�
 
 开源自托管基线可评估 SeaweedFS 或 Ceph RGW；SeaweedFS 提供 Apache 许可的 S3/文件存储与水平扩展能力。[SeaweedFS 项目](https://github.com/seaweedfs/seaweedfs) 选择必须经过故障注入、纠删码、小对象、备份恢复和 S3 兼容测试，而不是写死供应商。
 
-## 8.3 Redis
+## Redis
 
 Redis/Valkey 只用于可丢失数据：presence、短期 rate limit、热点路由提示、分布式锁的辅助 lease。Document、Job、Geometry location 不能只存在其中。只有实际测量表明 PostgreSQL/进程缓存不足时才引入。
 
-## 8.4 搜索与分析
+## 搜索与分析
 
 早期使用 PostgreSQL FTS/GIN；BOM、属性、全文与大规模聚合成为瓶颈后，通过 Outbox 事件构建 OpenSearch 索引。搜索索引永远可从 PostgreSQL 与 Revision 重建。
 
-## 9. 制品协议与大装配
+## 制品协议与大装配
 
-## 9.1 文档交换管线
+## 文档交换管线
 
 导入导出是 Document Center 的文档级能力，不属于 Part Workbench toolbar，也不是对某个已有 Part 的二进制覆盖命令。控制面保持模块化单体中的独立 `Exchange` 模块；只有持续出现独立安全沙箱、格式依赖发布节奏或资源池证据后，才把 transport/orchestrator 拆成网络服务。无论部署形态如何，大文件数据面与任务控制面分离：
 
@@ -227,7 +227,7 @@ sequenceDiagram
 
 Mesh 生成可用 OCCT triangulation；传输优化候选包括 glTF、[meshoptimizer](https://github.com/zeux/meshoptimizer)、Draco/KTX2。权威拾取映射必须能从 `(GeometryId, primitive range)` 解析到稳定选择语义，而不只是三角形序号。
 
-## 10. 协作与一致性
+## 协作与一致性
 
 参数化 CAD 不能把所有命令无条件 CRDT 合并。目标分层：
 

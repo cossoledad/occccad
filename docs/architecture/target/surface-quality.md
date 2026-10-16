@@ -1,10 +1,10 @@
 # 曲面质量、连续性与命名
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
 本页为长期候选设计；尚无完整产品实现。引入新模型、第三方库或服务前必须完成范围、许可证、corpus 与资源边界验证。
 
-### 5.5.20 开源技术选型分析
+## 开源技术选型分析
 
 | 技术 | 适合职责 | 不适合职责 | 采用结论 |
 |---|---|---|---|
@@ -22,7 +22,7 @@ OCCT 是 [LGPL-2.1 with additional exception](https://dev.opencascade.org/doc/ov
 
 OpenSubdiv 面向静态拓扑控制笼的高性能 limit-surface evaluation，适合概念层；OpenVDB 面向稀疏离散体。二者都不是 trimmed NURBS kernel。[OpenSubdiv 官方仓库](https://github.com/PixarAnimationStudios/OpenSubdiv) [OpenVDB 官方仓库](https://github.com/AcademySoftwareFoundation/openvdb)
 
-### 5.5.21 连续性和质量的权威定义
+## 连续性和质量的权威定义
 
 对两条待连接边界，以公共弧长参数 `s∈[0,1]` 比较：
 
@@ -52,7 +52,7 @@ message SurfaceQualityProfile {
 
 验证使用“拓扑事件点 + knot/span 边界 + 自适应区间采样 + 局部极值细化”，而不是固定 10 个点。报告注明这是 tolerance-bounded 数值验证，不声称数学证明。Surface 构造成功但未满足所请求 continuity 时状态为失败；只请求 G0 而 G1 很差可以成功并附 quality summary。
 
-### 5.5.22 曲面质量分析服务
+## 曲面质量分析服务
 
 `AnalyzeSurface` 是只读派生 Job，不修改 Feature Graph，输出内容寻址 `SurfaceQualityReport`：
 
@@ -79,7 +79,7 @@ flowchart LR
 
 [ShapeAnalysis_Surface](https://dev.opencascade.org/doc/refman/html/class_shape_analysis___surface.html)、[ShapeAnalysis_Shell](https://dev.opencascade.org/doc/refman/html/class_shape_analysis___shell.html)和 OCCT local continuity 可以提供底层查询，但统一指标、采样、阈值和报告由 `kernel/surface/quality` 定义。浏览器 shader 只负责可视化，不负责最终 pass/fail。
 
-### 5.5.23 Class-A 候选质量门
+## Class-A 候选质量门
 
 “Class-A”没有仅靠一个 G2 开关就能证明的通用标准。occccad 使用 `CLASS_A_CANDIDATE` 作为可审计质量等级，至少要求：
 
@@ -94,9 +94,9 @@ flowchart LR
 
 系统可以自动证明“通过了某版本质量规则”，不能自动宣称满足所有行业和客户对 Class-A 的主观/专有要求。
 
-### 5.5.24 拓扑命名与参数域身份
+## 拓扑命名与参数域身份
 
-Surface lineage 除 5.7 的拓扑历史外，还必须记录：
+Surface lineage 除[持久命名](../current/persistent-naming.md)的拓扑历史外，还必须记录：
 
 - underlying support identity 与 trimmed Face identity 分开；
 - U/V orientation、parameter interval、periodicity 和 seam；
@@ -109,7 +109,7 @@ Surface lineage 除 5.7 的拓扑历史外，还必须记录：
 
 下游引用边界时保存语义如 `FILL_BOUNDARY/constraint-id`、`SWEEP_SIDE/profile-edge-id`、`LOFT_PATCH/interval-id`，不保存 Face/Edge 遍历号。周期 seam 若移动但曲面等价，引用应依靠来源与参数域规范化迁移；多个候选仍需 rebind。
 
-### 5.5.25 发布、替换与可复用曲面方法
+## 发布、替换与可复用曲面方法
 
 对标 GSD 的 specification reuse，曲面模块需要三种复用层次：
 

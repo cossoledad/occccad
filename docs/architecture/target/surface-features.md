@@ -1,14 +1,14 @@
 # 曲面 Feature 与实体桥接
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
 本页为长期候选设计；尚无完整产品实现。引入新模型、第三方库或服务前必须完成范围、许可证、corpus 与资源边界验证。
 
-### 5.5.9 拉伸面与旋转面
+## 拉伸面与旋转面
 
 `SurfaceExtrudeFeature` 输入一条或多条 Wire、Direction 和 Extent；开放曲线扫出 Face，闭合 Wire 默认产生 Open Shell，不自动封盖或造 Solid。`SurfaceRevolveFeature` 输入 Wire、Axis 和角度；同样不隐式封闭。
 
-- 复用 5.4 的 DirectionRef、AxisRef、Length/Angle 和 extent 语义；
+- 复用 [Part 模型](part-model.md)的 DirectionRef、AxisRef、Length/Angle 和 extent 语义；
 - OCCT 路径可使用 `BRepPrimAPI_MakePrism/MakeRevol`，但提取 surface result 而非强制 Solid；
 - 输出 `START_BOUNDARY`、`END_BOUNDARY`、`SURFACE_FROM_SOURCE_EDGE`；
 - 全周旋转明确记录 periodic seam 与 pole/singularity；
@@ -17,7 +17,7 @@
 
 这两个 Feature 是基本曲面能力，用于建立后续 Trim/Join/Thicken 的最小闭环。
 
-### 5.5.10 扫掠曲面 Sweep
+## 扫掠曲面 Sweep
 
 ```proto
 message SurfaceSweepFeature {
@@ -57,9 +57,9 @@ message SurfaceSweepFeature {
 
 CATIA Sweep 提供 law、guide、reference surface、canonical detection、扭曲区域诊断与多解管理；这些是能力目标，但“自动删除扭曲部分”不能作为默认修复。occcad 应返回 fold interval，让用户显式增加 relimiter 或修改输入。[CATIA Sweep 行为说明](https://help-3dexperience.aesvietnam.com/English/GsdUserMap/gsd-c-SweptSurface.htm)
 
-### 5.5.11 多截面曲面
+## 多截面曲面
 
-`MultiSectionSurfaceFeature` 复用 5.4.12 的 ordered section、seam anchor、marker 和 `ResolvedSectionMatching`，但有以下差异：
+`MultiSectionSurfaceFeature` 复用[实体 Loft](part-extensions.md#多截面实体-loft) 的 ordered section、seam anchor、marker 和 `ResolvedSectionMatching`，但有以下差异：
 
 - section 可以是开放 Wire；所有 section 开闭属性必须一致；
 - 使用 [BRepOffsetAPI_ThruSections](https://dev.opencascade.org/doc/refman/html/class_b_rep_offset_a_p_i___thru_sections.html) 的 surface/shell 模式，不造 Solid、不自动端盖；
@@ -71,7 +71,7 @@ CATIA Sweep 提供 law、guide、reference surface、canonical detection、扭�
 
 截面数增加通常会提高约束而非必然提高质量。UI 应显示 section coupling 和异常扭曲位置，不提供“加更多截面总会更准”的误导。
 
-### 5.5.12 Fill / N-side Patch
+## Fill / N-side Patch
 
 ```proto
 message FillSurfaceFeature {
@@ -98,7 +98,7 @@ message FillSurfaceFeature {
 
 [CATIA Fill](https://help-3dexperience.aesvietnam.com/English/CcvUserMap/gsd-t-Surfaces-Fill.htm)把边界支撑、Point/Tangent/Curvature、内边界、passing elements 和 deviation 都作为显式输入；occcad 保持同等级别的设计可见性，但首期对自动延长/重裁剪采取更保守策略。
 
-### 5.5.13 Offset Surface
+## Offset Surface
 
 ```proto
 message OffsetSurfaceFeature {
@@ -121,7 +121,7 @@ message OffsetSurfaceFeature {
 - variable offset 不是常量算法循环，需独立拟合与连续性设计，保留为独立研究；
 - trim boundary 的映射、seam 和被删除区域进入 TopologyHistory。
 
-### 5.5.14 Trim、Split 与交线
+## Trim、Split 与交线
 
 曲面修剪分为三个显式阶段：计算交线、选择分支、构造修剪 Face。一次命令可以在 evaluator 内原子完成，但结果必须保存中间语义。
 
@@ -145,7 +145,7 @@ message TrimSurfaceFeature {
 
 OCCT Boolean/Splitter/Section 只能作为适配器候选；公共契约不暴露具体算法类，因为曲面-曲线、曲面-曲面和 Face/Shell 的最佳路径不同。
 
-### 5.5.15 Join、Sew 与 Healing
+## Join、Sew 与 Healing
 
 Join 不是 Fuse。它把相邻 Face/Curve 组装为更高层 Shape，并验证连接；不会生成材料交集。
 
@@ -170,7 +170,7 @@ message JoinSurfaceFeature {
 
 `HealingFeature` 只用于导入数据或用户明确修复，封装 [ShapeFix](https://dev.opencascade.org/doc/refman/html/class_shape_fix___shape.html) 的白名单动作。自动 healing 不得隐藏在每个 Surface Feature 末尾；否则模型会随内核版本改变而不可解释。
 
-### 5.5.16 Extract、Boundary 与 Extrapolate
+## Extract、Boundary 与 Extrapolate
 
 - `ExtractSurfaceFeature` 从 Solid/Shell 发布一个或多个关联 Face，可按 tangent/curvature propagation 扩展；实际传播集合固化到结果；
 - `BoundaryFeature` 产生 free boundary、完整 outer/inner loop 或指定 edge chain，输出 Curve lineage；
@@ -180,7 +180,7 @@ message JoinSurfaceFeature {
 - “Untrim” 恢复 underlying surface 的自然/指定参数域，是独立 Feature，不能把原始面无限域全部暴露；
 - Extrapolate 后用原 boundary 及新 outer boundary 建立 lineage，并验证法向翻转和自交。
 
-### 5.5.17 Blend、Surface Fillet 与 Match
+## Blend、Surface Fillet 与 Match
 
 这三类在 UI 上相似，但语义不同：
 
@@ -198,7 +198,7 @@ message JoinSurfaceFeature {
 
 G3 构造、全局多 patch Match 与 styling fillet 是研究级。CATIA 质量工具能分析到 G3，但分析能力不等于当前开源内核可靠构造能力。[CATIA Connect Checker](https://help-3dexperience.aesvietnam.com/English/CatHfmUserMap/gsd-c-ConnectCheckerAnalysis.htm)
 
-### 5.5.18 Explicit NURBS 与控制点编辑
+## Explicit NURBS 与控制点编辑
 
 ```proto
 message NurbsSurfaceDefinition {
@@ -225,7 +225,7 @@ message NurbsSurfaceDefinition {
 
 Class-A 质量不是无限增加 poles。默认优化目标应惩罚弯曲能、曲率振荡、过多 knots/spans 和边界误差，并把 pole 数/degree 作为预算。高阶连续性若靠极端 weights 或密集 knots 获得，应触发质量 warning。
 
-### 5.5.19 曲面到实体的桥接
+## 曲面到实体的桥接
 
 ```mermaid
 flowchart LR
@@ -247,4 +247,4 @@ flowchart LR
 
 **SurfaceCutSolidFeature**：输入 Solid Body 和定向 Surface/Shell，保存保留 side/keep point；工具必须能把 Solid 唯一分区。无限支持面扩展策略必须明确，no split/多个歧义 region 时失败。
 
-桥接输出进入 Solid Body 后，继续使用 5.4 的 Body/Tip、布尔、拓扑历史和正体积门禁。
+桥接输出进入 Solid Body 后，继续使用 [Part 模型](part-model.md)的 Body/Tip、布尔、拓扑历史和正体积门禁。

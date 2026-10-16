@@ -1,69 +1,34 @@
 # Geometry Worker
 
-Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 gRPC 封装 OCCT，不向 Go 或浏览器暴露 OCCT 类型。
+当前唯一的 C++ 网络计算服务，通过粗粒度 gRPC 承载 OCCT、PlaneGCS 与独立 Assembly 算法库。Worker 消费冻结纯值和制品，不拥有 Document、Revision、ACL 或业务数据库。先读 [AGENTS](AGENTS.md)，再按 RPC 名搜 `src/main.cpp`。
 
-## 当前能力
+## 接口与模块入口
 
-- `Ping`：返回 Worker ID、OCCT 版本和 resident geometry 数；
-- `SolveSketch`：求解版本化 Point/Line/Circle/Arc/Spline/Constraint SketchModel，返回坐标、状态、DoF 和冲突/冗余约束 ID；可接收仅本次计算有效的 `drag_targets`，在正式约束可行域内最小化坐标目标，不持久化或扣减正式 DoF；
-- `ProjectExternalGeometry`：以已解析的 Edge/Vertex evidence 或纯数值 Datum Point/Axis 与草图 support frame 权威生成二维只读 Point/Line/完整 Circle 投影；Axis 投影为规范单位方向线，垂直时为 Point；退化、类型不符、斜圆投影和缺少定向 evidence 的部分圆弧返回稳定诊断，不回退到浏览器近似；Arc evidence/snapshot 属于 P11J-0；
-- `ResolveLoftCorrespondence`：纯计算有序截面的循环对应，返回闭合边、反向、圆相位与可选显示连接的边界点；Go 持久化已接受的语义选择，`EvaluatePart` 使用同一内核算法和点端输入，不重新猜测保存的闭合点；
-- `ProjectExternalGeometry`：基于 Naming 的精确点、轴、线段、圆/圆弧及椭圆/椭圆弧证据做正交投影；返回草图的解析快照，包含修剪角度和圆心。斜圆投影为椭圆，侧向退化计算真实投影区间；不使用显示折线拟合。不支持 Face 边界组、一般 BSpline、Section/Silhouette。
-- `EvaluatePart`：每次求值一个 Body 的冻结实体 Feature 链或在基础 B-Rep 上续算；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，仅回传逐 Feature identity、摘要与 ArtifactReference，完整 semantic topology outputs 和 TopologyHistory 写入 `naming.pb`；
-- `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
-- `GetTopology`：返回面、边、点及诊断属性；操纵手柄的只读提示包括实际面中心 `snapCenter`、平面的确定性真实直边方向 `snapBoundaryDirection`、圆柱真实边界圆的端部中心 `snapEndFirst/Last`。只输出可确认的 B-Rep 数据，不以三角剖分/PCA 猜边界，不改变装配方程；Go 将小型提示折入运动单元坐标，Web 再应用一次场景变换；
-- 生成 SHA-256 GeometryId、B-Rep、包围盒、体积及完整可视化快照：隔离深拷贝上的整 Body 剖分、同剖分边界节点、法线和拓扑映射统一生成 GLB。邻接 EdgeUse、周期接缝和缺失数据验证见[几何制品](../../docs/architecture/current/geometry-representations.md#拓扑感知的离散快照)。`GetTopology` 不再生成显示折线。
-- 内置项目自有 `SketchSolver`/PlaneGCS 适配层；`GCS::*` 不进入公共头或 Proto。当前约束覆盖重合、平行、固定、水平/竖直、垂直、相切、相等、距离/长度/半径/直径/角度、同心、点在对象上、中点，以及点-线-点/点-点-点对称；基于内置草图轴的复合对称会保留与同一线段 H/V/轴平行关系重叠的设计意图，但仍报告冲突和无关冗余。Spline 的采集点按插值拟合点解释，暂只覆盖参数自由度、固定和端点引用。
-- `EvaluatePart.profile_pads` 消费控制面 Profile Builder 输出的有向外环/孔环，在 OCCT 内构造 Edge/Wire/Face、执行 BRepCheck 并 Prism；旧矩形字段只保留为当前开发期过渡入口。
+协议权威是 [geometry_worker.proto](../../proto/occccad/worker/v1/geometry_worker.proto)，包名 `occcad.worker.v1`。下表指当前 server 实现，不把 Proto 声明当作能力证明。
 
-Proto 中已经声明但当前服务类没有覆盖的 `LoadGeometry`、`UnloadGeometry`、`Tessellate`、`CreateChamfer` 和 `CreateFillet` 会得到 gRPC `UNIMPLEMENTED`；协议声明不等于已交付能力。
+| RPC | 职责与详细合同 |
+|---|---|
+| Ping | Worker 身份、OCCT 版本、驻留数量 |
+| SolveSketch / ComputeSketchCurves | 约束求解 / 精确曲线计算；[Sketch adapter](sketch/README.md) |
+| ProjectExternalGeometry | 已解析支持到草图平面的权威投影；[Part/Sketch](../../docs/architecture/current/part-sketch.md) |
+| EvaluatePart / ResolveLoftCorrespondence | 每 Body 的冻结链/阶段续算、截面对应；[实体 Feature](../../docs/architecture/current/solid-features.md) |
+| SolveAssembly | body-local 几何与纯值方程；[算法](../../kernel/assembly/SOLVER_ALGORITHMS.md)，Product/Session 仍由 Go 管理 |
+| AnalyzeInterference | 不可变 BREP/Pose 分析；[当前 DMU](../../docs/architecture/current/kinematics-dmu.md) |
+| InspectExchange / ImportExchange / ExportExchange | ArtifactReference 上的 STEP/BREP/XDE；[交换](../../docs/architecture/current/jobs-artifacts.md) |
+| GetTopology | 冷恢复/缓存精确面边点及提示；[几何制品](../../docs/architecture/current/geometry-representations.md) |
 
-## 增量 Part 求值
+Proto 中的 LoadGeometry、UnloadGeometry、Tessellate、CreateChamfer、CreateFillet 当前没有 server override，调用返回 UNIMPLEMENTED。局部圆角/倒角由 EvaluatePart 承载。
 
-`EvaluatePart` 以完整冻结 Body 链和已有 Shape 仓库的易失阶段检查点续算；阶段保存 Naming、工具和范围起点。`exact_only` 用于内部支撑/工具解析，省略 GLB；`force_cold` 强制绕过热缓存并清除驻留形体后重建；`runtime_affinity` 仅是 Router 提示。`runtime_stats` 回传实际逐阶段执行/复用和耗时。阶段缓存预算通过 `OCCCCAD_STAGE_CACHE_BYTES` 配置，默认 134217728 字节，0 关闭，最大 2147483648；超预算项不缓存。原生全局锁继续保护共享状态，取消在安全阶段检查。完整键、预算和恢复语义见[当前运行时](../../docs/architecture/current/jobs-artifacts.md#part-增量运行时)。
+`kernel/api` 定义 OCCT-free 值类型，`kernel/occt` 实现精确几何，`kernel/assembly` 只求纯数值刚体约束，`sketch/` 隔离 PlaneGCS 类型。源码、RPC 代理、结果采用与 CAS 的完整检查归[Worker/Router 合同](../../docs/architecture/current/worker-contracts.md)。
 
-## 内部结构
+## 配置、制品与缓存
 
-```mermaid
-flowchart LR
-    Client["Go gRPC client / Router"] --> Worker["Geometry Worker"]
-    Worker --> API["kernel/api<br/>OCCT-free public types"]
-    API --> Adapter["kernel/occt"]
-    Adapter --> OCCT["Open CASCADE 7.9.1"]
-    Worker --> SketchAPI["SolveSketch RPC / SketchSolver"]
-    Worker --> AssemblyAPI["SolveAssembly RPC / SE(3) solver"]
-    SketchAPI --> PlaneGCS["PlaneGCS shared library"]
-    Worker --> Cache["GeometryId resident B-Rep<br/>memoized TopologyInfo"]
-```
-
-`kernel/api` 定义稳定值类型和操作接口，`kernel/occt` 是唯一允许暴露 OCCT 头文件的适配层。Worker 是易失计算容器，不是文档真相来源。
-
-## 协议与数据
-
-- 契约：`proto/occccad/worker/v1/geometry_worker.proto`
-- 包名：`occcad.worker.v1`
-- 传输：gRPC/Protobuf
-- 默认监听：`127.0.0.1:51001`
-
-装配交互当前 build policy 为 `assembly-m4m5-reference-retraction-v13`。`SolveAssembly` 的纯值 DragTarget 分别传输 driven/hold 分量（互斥，保持不是硬约束），回传硬可行、驱动/保持收敛、提交资格、阶段/终止原因及迭代/恢复计数。取消与墙钟 deadline 在 Worker 边界区分；Session、continuation 和历史提升仍由 Go 编排，Worker 不持有业务 Session 或数据库真相。公式及静态旧策略兼容见 [solver 算法](../../kernel/assembly/SOLVER_ALGORITHMS.md#操纵目标与意图保持)。
-- 配置：`OCCCCAD_GEOMETRY_WORKER_LISTEN`
-
-调用应是“求值一个 Body 的完整 Feature chain”“导入一个交换根”“合成一次导出”一类粗粒度操作，不能把每个 OCCT 函数映射为远程 RPC。请求携带 `request_id` 与 `geometry_key`；Trace Context 通过 gRPC metadata 传播。B-Rep、GLB、STEP 和 BREP 交换文件通过 ArtifactReference 读写，不进入 unary gRPC bytes；持久存储支持 LOCAL/S3；Go client 将远端输入校验并暂存为 LOCAL scratch，Worker 输出由 Adopt 上传；计算暂存仍要求 Worker 与 API/Jobs 共享 `OCCCCAD_DATA_DIR`，object key 必须是根目录内的 opaque 相对键。
-
-Worker 只生成 Body 的基础实体 GLB。Part 模型拥有的 Datum、Sketch 以及未来非实体曲线/曲面由控制面的版本化 `VisualizationManifest` 表达；Artifact 管线把它注入最终 GLB 的 `OCCCCAD_visualization` 扩展。不要把完整 PartModel 或装配 occurrence 传入 OCCT Worker 来生成第二套场景：同一最终 GLB/manifest 必须同时供 Part、缩略图和 Product occurrence 使用。
-
-`EvaluatePart.profile_pads` 的 `SOLID_PATTERN` 接收明确源阶段、工具/实体源类型、结果组合规则及带稳定槽位的刚体矩阵。Worker 检查成员/矩阵预算并传给 OCCT；阵列定义、Quantity、表达式、跨 Part 更新仍由控制面负责。输出沿同一 per-Body BREP/GLB/Naming 制品链，正式结果包含真实拓扑；空间草图由控制面编译为正常生成/放样 Profile，不添加新的几何服务。
-
-Persistent topology naming 支持 Linear Extrude/Boolean 到 Product 面约束闭环。公共值类型与 Proto 包含 `PersistentSelection`、`TopologyHistory`、resolution、tombstone/ambiguity，以及 Supporting Element 和 Assembly Constraint 两个独立状态域。选择证据中的 measure 使用可选 SI 值并显式携带量纲；policy 的线性与角度容差分别使用米和弧度，并以固定 digest 进入请求、manifest 和缓存身份。Linear Extrude 使用 region/entity ID 生成 `START_CAP`、`END_CAP` 和 `SIDE_FROM_PROFILE_EDGE`；Boolean 与 same-domain unify 的 Generated/Modified/Unchanged/Split/Merged/Deleted 证据被折叠到逐 FeatureResult。声明完整的 history 必须覆盖最终 Shape 的每个 Face 一次，local ID、semantic ref 和 lineage result 必须唯一；摘要还覆盖 adjacency、歧义、删除与 policy。`PartEvaluationManifest` 同时携带摘要与不可变 protobuf topology manifest 的 digest/ArtifactReference。OCCT corpus 固定验证 XZ 矩形贯穿 Cut 后六个基础面引用仍可识别并新增四个孔壁引用，也覆盖真实删除和侧开口 split 歧义。Product resolver 由控制面消费这些历史；未命名基础 B-Rep 仍返回 `topology_history_complete=false` 及诊断，不能进入相同闭环。
-
-evaluator `occccad.topology.contract.v2` 为 Linear Extrude 输出 `START/END_BOUNDARY_FROM_PROFILE_EDGE`、`VERTICAL_FROM_PROFILE_ENDPOINTS` 和 `START/END_VERTEX_FROM_PROFILE_ENDPOINTS`；当前 evaluator 为 `occccad.topology.contract.v5`。共享角点的身份来自排序后的 Sketch endpoint ID 集，不来自坐标或 OCCT 遍历号；数值曲线和点特征只作为 evidence。Boolean 和 `ShapeUpgrade_UnifySameDomain` 首先保留 source topology type；若合法最终 Shape 的交线 Edge/Vertex 没有同类型 OCCT history，再从已命名 incident Face/Edge 生成当前 Feature 所有的 adjacency-derived lineage。无法找到稳定来源或 evidence 无法消歧仍会失败。Shape gate 同时覆盖最终 Face、Edge、Vertex，Worker 序列化每个 output 的实际枚举类型，并以 `TOPOLOGY_HISTORY_DERIVED_CLOSURE:<count>` 暴露 closure provenance。policy digest 已随 evaluator 变化，旧制品和缓存不能被 v5 请求采用。C++ corpus覆盖长度编辑、面上 boss/pocket、Boolean merge/split/delete、贯穿孔、多区域及 Circle/Arc/Spline profile、圆环 seam 和容差以下短边；控制面再从 artifact 精确读取 Vertex Point 与 linear Edge Axis，不由 Worker 承担 Product 身份或约束状态。
-
-`SolveAssembly` 接收已经由控制面解析好的刚体初始 Pose、body-local Point/Axis/Plane/Cylinder/Circle/Sphere/Cone/Frame 描述符和几何约束，不接收 Product 文档、InstancePath 或 B-Rep。Worker 调用独立的 `kernel/assembly`，返回 Pose、逐约束/方程残差、connected component 的 rank/relative DOF/gauge DOF、冗余/冲突身份和结构化诊断；请求可用 affected body IDs 限定需要更新的连通分量，也可携带 request-scoped `solve_intent`，表达“第一选择运动、第二选择尽量保持”的交互偏好而不改变约束本身的对称语义。静态求解使用硬约束优先、reference 最小变化、总名义变化的层级解选择，物理接地时 reference 仍可承担必要运动；可行但偏好未收敛会返回独立状态。Product Constraint、Revision 和 Undo/Redo 仍由 Go 控制面负责。Router 必须显式代理完整 RPC，不能以直连 Worker 的测试代替正式路径验证。
-
-版本化 `AssemblySolverProfile` 已由 Go Client 经 `SolveAssemblyRequest` 传到 Worker，除 convergence/classification、step、degeneracy 和 damping 外，还包含解析 Jacobian differential-check 开关与阈值、独立 translation/rotation central-difference oracle step、SVD absolute/relative rank threshold、gradient stationary threshold、motion length/angle scales、preference/objective tolerance、独立 preference iteration budget 与 bounded conflict-probe budget。旧 `finite_difference_step`/`rank_tolerance` 字段保留为兼容 override；`schema_version` 当前必须为 2，零值沿用 kernel 默认值。响应额外返回 `assembly-m2.5-hierarchy-v1` build、typed preference 状态、每体位移和瞬时允许/阻塞自由度；`initial_pose` 冻结 nominal/branch，`initial_guess` 仅作数值 seed。响应会返回 semantic equation provenance、declared/effective/incremental rank、numeric null-space basis/cluster ordering/singular values/threshold、directed-angle wrapped/unwrapped/winding 以及 suspected conflict IDs。
-Classification tolerance 不得严于对应 convergence tolerance；违反该不变量的请求返回 `INVALID_MODEL`。
-
-当前单 Body Part 以不可变 GeometryId 作为驻留原子。首次拓扑请求可以从 B-Rep Artifact 冷恢复，但 Router 会在 RPC 前预留同一 owner，Worker 随后缓存完整 `TopologyInfo`；选择其他面、边或点只过滤缓存，不重新读取 B-Rep 或遍历整个 Shape。Part 已为每个 Body 生成独立 GeometryId，装配中的相同 Part occurrence 复用 GeometryId，仅区分 InstancePath/Transform。
+- `OCCCCAD_GEOMETRY_WORKER_LISTEN`：默认 `127.0.0.1:51001`。托管启动使用控制面分配的 `OCCCCAD_GEOMETRY_WORKER_ID`，Ping 就绪检查核对本次身份；禁用 SO_REUSEPORT，不接管已有进程。
+- unary gRPC 发送/接收均为 128 MiB，与 Go `internal/geometryrpc` 一致；文件大小上限独立。大 BREP/GLB/STEP 经 ArtifactReference，不进入 unary bytes。
+- 持久存储支持 LOCAL/S3；Go 将远端输入验证并 materialize 到 LOCAL scratch，Worker 输出由 Adopt 上传。API/Jobs/Worker 仍需共享 `OCCCCAD_DATA_DIR`，object key 是根目录内 opaque 相对键。
+- 请求携带 request_id、geometry_key，Trace Context 用 gRPC metadata。每个 Body 有独立 GeometryId 与 BREP/Visual/Naming；相同 Part occurrence 复用几何，仅施加 InstancePath/Transform。
+- 首次 GetTopology 可从不可变 BREP 冷恢复，Router 先保留 owner；后续精确拓扑查询过滤同一缓存。完整显示载荷唯一来源为 GLB，格式归 [Visual/Naming](../../docs/architecture/current/visual-naming-artifacts.md)，schema 与 Naming policy 版本独立。
+- EvaluatePart 的 `exact_only` 省略 GLB，`force_cold` 绕过热缓存并冷重建，`runtime_affinity` 只是路由提示；`runtime_stats` 记录实际执行/复用。`OCCCCAD_STAGE_CACHE_BYTES` 默认 134217728，0 关闭，最大 2147483648，超预算项不缓存。完整键与恢复语义归[增量运行时](../../docs/architecture/current/jobs-artifacts.md#part-增量运行时)。
 
 ## 日志
 
@@ -103,44 +68,12 @@ Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用�
 - 输入 STEP/BREP 是不可信复杂文件；当前 Worker 拒绝空对象、越界 object key 和超过 `OCCCCAD_EXCHANGE_MAX_BYTES`（默认 16 GiB）的制品，生产环境仍需要更严格的时间、内存、实体数量和进程级隔离；
 - 计算请求必须可重试，调用方不能把 Worker 局部状态当成唯一副本。
 
-## 目标边界
+## 设计与验证边界
 
-二维草图约束推荐作为 Part Evaluation 内的独立模块与本 Worker 同进程部署，以避免草图求解和特征重生成之间的高频网络往返；三维装配由独立的 `kernel/assembly` 算法库实现，当前通过本 Worker 的 `SolveAssembly` RPC 承载。只有负载或隔离证据满足时才拆成独立 Worker，见[计算边界](../../docs/architecture/target/compute-boundaries.md)。
+二维草图与 Part 求值同进程，三维装配由本 Worker 调用独立算法库；负载或隔离证据才触发独立 Worker，见[计算边界](../../docs/architecture/target/compute-boundaries.md)。
 
-`SolveAssemblyResponse.effective_solver_profile` 返回本次采用的完整数值配置，供 3dreplay 冻结隐式默认值。
-当前 solver build 为 `assembly-m2.5-hierarchy-v9`，包含长力臂尺度阻尼、模型下降比、独立平移/旋转步长控制，无向对齐双分支的有界初值恢复，以及偏好优化停滞时的曲率方向恢复。新增孤立平行直线非零 Distance 的径向初值与偏好局部平行 chart；后者不新增物理方程，不改变物理 rank/DOF、容差或运动角色。
-3dreplay 重放复用 `SolveAssembly`，无需另设 RPC 或在 Worker 内读取业务数据库。
+数值 profile、build policy、Naming evaluator 的准确版本看 Proto、源码常量与锁定依赖，不在 README 重复历史版本。`SolveAssemblyResponse.effective_solver_profile` 冻结实际数值默认值供 [3dreplay](../../services/cmd/occccad-3dreplay/README.md)重放；classification tolerance 不得严于 convergence tolerance，nominal 与 warm start 各有职责。
 
-`SolveAssembly` 同时适配内部 `PARALLEL`/`PERPENDICULAR` 方程，并支持空约束集合求解。产品激活状态保存在 Go 模型和 Manifest definitions，停用定义不作为 Worker 活动方程发送。新增点线/线面距离与方向关系由真实 Router conformance 测试覆盖。
+AnalyzeInterference 在隔离内核/深拷贝上分析，不修改源形体；最多 128 实例、8192 pair、256 MiB 不同 BREP，保留取消及部分失败诊断。它是精确分析 RPC，不代表已交付完整干涉应用或连续碰撞。
 
-Offset 的 `distance_relation="SELECTED_PLANE_NORMAL_V1"` 通过已有 string 字段映射到 native `SelectedPlaneNormal`，不交换组件角色；双平面使用第一法向。旧第二法向值仍按旧规则解释。单位保持 Worker 装配请求的 mm/rad 与明确 profile；Quantity 的 SI 转换在 Workspace 边界完成。纵向定向入口见[合同测试](../../tests/assembly-contract/README.md)，正式 Router/Worker 和可丢弃数据库缺失时不得声明集成通过。
-
-平面 Face 属性和命名 evidence 使用最终 Solid 中包含 Face Orientation 的法向，闭合实体朝材料外（内腔朝空腔）。History 返回的工具面可能方向相反，输出命名前会按最终 face map 取回朝向；平面 X/Y/normal 保持右手系，供面上草图、装配 descriptor 和法线视图共享。
-
-EvaluatePart 支持 `ImportTopologySeed`：控制面传入冻结 BREP 摘要、Feature/Body 及 identity Artifact 引用，完整 OCCT 版本、导入策略和独立稳定 ID 映射由 Worker 读取并校验。Worker 验证合同，OCCT 校验快照摘要及完整 Solid/Compound 拓扑覆盖；允许仅 seed 的根求值，也允许 seed 加 profile 布尔链。`naming.pb` 内的根 FeatureResult/manifest 与原生命名共用合同，Worker 不分配业务身份、不读取业务数据库。
-
-Geometry RPC 发送和接收均限制为 128 MiB，与 Go `internal/geometryrpc` 保持一致。文件上限独立；持久 EvaluatePartResponse 只含结果摘要及 BREP、VISUAL、NAMING 引用；只有显式 `TRANSIENT_PREVIEW` 可携带 `preview_mesh`。GLB 的 `OCCCCAD_cad` 扩展包含面索引、边折线、顶点和稳定锚点映射，详见[几何表示合同](../../docs/architecture/current/geometry-representations.md)。
-
-`InspectExchange.component_output_prefix` 启用 XDE parse-once：返回 Definition/Occurrence graph，为每个唯一 Part Definition 物化 definition-local BREP；无 prefix 只返回图元数据。`ImportExchange.definition_id` 可选择源 STEP 的 Part Definition，Jobs 通常直接并行求值已准备 BREP。Solid Compound 保持同一 Part；有效性修复不能减少 Solid，Naming 覆盖所有 Face/Edge/Vertex。Worker 不创建业务文档。STEP 外部文件引用在 Transfer 前拒绝。
-
-`ExportExchange.graph` 经 XDE document / STEPCAFControl_Writer 保留共享定义、嵌套引用、名称和局部 placement；BREP 输出仍是几何 Compound。图为短期交换合同，持久大数据继续通过 ArtifactReference。当前合同及限制见[交换架构](../../docs/architecture/current/jobs-artifacts.md)。
-
-Visual/Naming 制品使用 [v2 schema](../../docs/architecture/visual-naming-artifact-v2.md)：GLB 通过标准 primitive/accessor 表达面边点与统一 1-based locator；`naming.pb` 由 `src/naming_artifact.hpp` 将 evaluator 工作对象 intern 为共享表、transitions 和显式 Body Tips，不写入逐 Feature 完整快照。文件 schemaVersion 与 Naming policy 版本独立。定向 serializer 测试：`worker/NamingArtifact.InternsEvidenceAndKeepsExplicitBodyTips`。
-
-Multi-Body 由 Workspace 协调独立调用；一个 `naming.pb` 只允许一个 Body 的 transitions/tip，并关联 GeometryId 与 BREP digest。STEP 导出的 `ExchangeDefinition.body_breps` 允许同一 Part Definition 接收多个 Part-local Body BREP，只在交换输出内组合；业务 Definition/Occurrence 图保持不变。
-
-### 实体 Feature
-
-`EvaluatePart` 沿用有序 Feature 输入协议，分别执行生成、跨 Body Boolean 和局部修改。`BodyToolInput` 只接收明确阶段的不可变 BREP/Naming ArtifactReference，校验摘要和阶段后才能组合。当前范围、参数与限制见[实体 Feature 合同](../../docs/architecture/current/solid-features.md)。真实服务回归入口为 `TestSolidBooleanLifecycleThroughRouter`；它使用独立新建文档并经过 GeometryPool/Router，不清空数据库。
-
-基础 Loft 支持同边数闭合截面及矩形/圆截面组合。不同边数使用 OCCT 的 CompatibleWires 与 Generated 历史保留拆分来源，Naming evaluator 为 v6；无孔和无导轨的范围不变。
-
-托管 Worker 使用控制面传入的 `OCCCCAD_GEOMETRY_WORKER_ID` 返回 Ping 身份，启动就绪检查必须与本次启动身份一致。监听禁用 `SO_REUSEPORT`，防止残留旧进程与新 Worker 共享端口；控制面在配置起始端口之后寻找空闲端口，不接管已存在的进程。
-
-实体阵列的 `ProfilePadSpec` 区分 `GENERATOR_TOOL`、`BODY_STAGE` 与 `FEATURE_DELTA`。新增材料范围以 `pattern_start_feature_id` 为包含的起点、`pattern_source_feature_id` 为包含的终点；Worker 在不可变阶段上以现有布尔求差，拒绝删除基线材料或不支持的中间特征，再复用 Naming 与等距成员变换。此合同限添加型拉伸/旋转/放样及随后圆角/倒角，不支持任意特征组重新执行。
-
-实体复制保留操作应用之前的真实工具体，有限放样添加/切除与拉伸、旋转共用工具留存和拓扑完整性检查。镜像使用已有 `PatternPlacement` 的正交反射矩阵（行列式 −1），仍经 `BRepBuilderAPI_Transform` 历史与 Boolean 合成 Naming，不增加 RPC 或复制整个目标 Body 代替切削工具。非等距矩阵继续拒绝。
-
-## 小机构与精确 DMU
-
-`SolveAssembly` 被机构运行复用来求完整硬关节/闭环及单 ANGLE/DISTANCE 驱动；机制和版本仍由 Go 管理。新增 `AnalyzeInterference` 接收多个带 BREP ArtifactReference 和 Pose 的独立分析实例及指定 pair，不依赖驻留 owner 或数据库。请求内按制品去重加载，isolated OcctKernel/深拷贝/非破坏性 common 保持源形体不变；等待 OCCT 锁及距/common 进度可响应取消。最多 128 个实例、8192 pair、256 MiB 不同 B-Rep。返回精确距离、实体接触/穿透/包含分类、间隙、witness、完整性和内核版本，几何失败不冒充通过。S3 输入通过既有 Go materialization → Router → Worker 路径；细节见[合同](../../docs/architecture/current/kinematics-dmu.md)。
+正式 Router/Worker 集成必须实际执行，直连、Proto 声明、Mock 或测试入口存在均不能代替通过证据。

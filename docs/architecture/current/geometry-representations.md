@@ -1,6 +1,6 @@
 # Part 几何结果与显示制品
 
-返回[当前架构](../../CURRENT_ARCHITECTURE.md)。本文描述当前唯一持久数据链，不提供旧数据库内联载荷兼容层。
+返回[当前架构](README.md)。本文描述当前唯一持久数据链，不提供旧数据库内联载荷兼容层。
 
 Part Revision 通过 `bodies[].geometryKey` 引用独立 Body 结果，DocumentView 的 `artifacts` 按 GeometryKey 提供轻量描述；没有 Part 级合并 GLB 或唯一 geometryKey。属性面板按 Body 展示当前 Revision 的 BREP / mesh.glb / naming.pb 索引、字节大小、schema 与 digest，并通过受权限保护的 HTTP 文件接口逐项下载。请求的 `bodyId`（若提供）也必须匹配该 Revision 的真实归属；历史 Revision 与冻结 Product 子树同样可验证。
 
@@ -33,7 +33,7 @@ Worker 输出通过摘要/长度验证后登记 READY 对象；GLB 业务显示�
 
 ## 唯一显示载荷
 
-持久实体显示只读取 `mesh.glb`，没有 protobuf Mesh → 数据库 JSON → DocumentView Mesh 的第二条路径。当前为 [Visual/Naming v2 契约](../visual-naming-artifact-v2.md)：
+持久实体显示只读取 `mesh.glb`，没有 protobuf Mesh → 数据库 JSON → DocumentView Mesh 的第二条路径。当前为 [Visual/Naming v2 契约](visual-naming-artifacts.md)：
 
 - 标准 glTF POSITION/NORMAL/indices，加上多个 mesh/primitive；
 - FACE 三角形、EDGE 折线、VERTEX 点统一使用 1-based topology localId，mapping 与数值均为 binary accessor；

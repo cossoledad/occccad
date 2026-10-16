@@ -4,8 +4,8 @@
 
 | 方向 | 剩余工作与退出条件 |
 |---|---|
-| Revolve | 已能生成几何；先补 Face/Edge/Vertex history、cap/seam、轴退化、full/partial、Boolean 后续命名与解析 corpus，再闭合编辑、表达式、预览、面上草图和 Product 引用。 |
-| Feature | Hole → Fillet → Chamfer，随后 Pattern/Mirror/Shell/Draft；每项含 schema、参数、精确求值、topology history、引用、UI、Undo/Redo、冷重建与失败。Loft/Sweep 须明确 section/guide/seam 身份。 |
+| 实体 Feature 范围与验收 | 当前旋转 Naming、布尔、圆角/倒角、拔模、抽壳、阵列/镜像和基础放样已实现，事实归[实体 Feature](../docs/architecture/current/solid-features.md)。剩余多工具交集、可变半径、非等距倒角、复杂拔模、带导轨/孔/任意不同边数放样按需求进入；完整鼠标建模链、复杂实体和参数组合仍需独立浏览器证据。 |
+| 新特征候选 | 独立 Hole、Sweep 等先明确用户切片与稳定 section/guide/seam 身份，再贯通参数、权威求值、Naming、预览、历史及冷重建；不把现有切除孔当作独立 Hole DSL，不在本表预设实施顺序。 |
 | 关联投影 | trimmed Arc → Face Boundary → Section；[设计](../docs/architecture/target/sketch-projection.md)。当前 unsupported 不用临时近似替代。 |
 | 大模型 | 真实容量/瓶颈基线，再补 checkpoint、资源预算、分阶段计算、LOD/chunk、共享 buffers、解码/BVH 与故障验收；[设计](../docs/architecture/target/large-models.md)。续传暂缓，不是前置；基础数据面/XDE 不重做，不宣称完整 AP242 或 1 GiB+/单超大 Body/低复用装配已验收。 |
 | 树与依赖 | Feature 贡献的复杂组合与人工验收、子树按需/大树基准、Publication 引用查看/跨 Workspace 并发、更多参数生命周期；按真实场景进入，不默认阻塞装配。 |

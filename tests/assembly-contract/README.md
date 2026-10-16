@@ -56,7 +56,7 @@ build/cmake/release/kernel/occt/tests/occcad_geometry_scenarios \
 python tests/assembly-contract/runner.py baseline --case integration.router-worker
 ```
 
-装配与诊断数据库入口为 `internal/testsupport.OpenTestDatabase`，支持 SQLite 或专用 `occccad_*_test` PostgreSQL，检查目标隔离和当前迁移，不自动指向应用库、不清库、不改用 Mock。SQLite 上通过的证据不证明 PostgreSQL 专用行为。不能在集成运行期间重新链接同一 Worker；具体配置见[开发环境](../../docs/development-environment.md)。
+装配与诊断数据库入口为 `internal/testsupport.OpenTestDatabase`，支持 SQLite 或专用 `occccad_*_test` PostgreSQL，检查目标隔离和当前迁移，不自动指向应用库、不清库、不改用 Mock。SQLite 上通过的证据不证明 PostgreSQL 专用行为。不能在集成运行期间重新链接同一 Worker；具体配置见[开发环境](../../docs/development/README.md)。
 
 
 ## 按能力与风险定位

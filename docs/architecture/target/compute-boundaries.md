@@ -1,8 +1,8 @@
 # 计算模块与进程边界
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-## 5.1 推荐边界
+## 推荐边界
 
 | Worker | 是否独立进程 | 核心输入/输出 | 原因 |
 |---|---|---|---|
@@ -15,7 +15,7 @@
 | Drawing | 后期独立 | revision + view spec → vector drawing | HLR/投影负载和发布节奏不同 |
 | CAM/CAE | 插件式独立 Worker | immutable revision + setup → toolpath/result | 安全、许可证、GPU/HPC 与领域依赖隔离 |
 
-## 5.2 为什么二维草图不做远程独立 Worker
+## 为什么二维草图不做远程独立 Worker
 
 草图求解器在代码结构上必须独立于 OCCT：拥有自己的实体、约束、自由度诊断、Jacobian 和序列化接口。但默认与 Part Evaluation Worker 同进程。
 

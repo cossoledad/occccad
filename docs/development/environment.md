@@ -1,6 +1,28 @@
 # 开发环境准备
 
-构建工具与应用启动见[根 README](../README.md)，各进程的接口与运行配置见所属 README。本页集中说明开发资源的使用约定和验证环境。
+应用启动见[根 README](../../README.md)，各进程的接口与运行配置见所属 README。本页集中说明开发资源的使用约定和验证环境。
+
+## 构建准备
+
+推荐在 Linux 或 WSL2 中开发。需要 CMake 3.30+、C++17 编译器、Ninja、Conan 2、Python 3、Go、Node.js/pnpm；默认数据库为 PostgreSQL，也可使用不需要数据库服务器的 SQLite Local Mode。仓库当前固定 OCCT 7.9.1；精确版本以 `conanfile.py`、`services/go.mod` 和 `web/package.json` 为准。
+
+开发资源授权、`.env` 加载规则、PostgreSQL 与浏览器依赖见下文；已有 `.env` 时直接复用，不要用示例覆盖。
+
+C++ 构建和启动默认使用 `Release`，制品位于 `build/cmake/release`。Invoke 优先使用显式 `--build-type`，其次读取 `OCCCCAD_BUILD_TYPE`，未配置时使用 `Release`。原生调试可显式选择 `--build-type=Debug`；Go 与 Web 继续使用各自的构建入口。
+
+```bash
+sudo apt install cmake clang ninja-build build-essential
+# WSLg
+sudo apt install libgl1-mesa-dev libgl-dev libx11-xcb-dev libfontenc-dev libice-dev libsm-dev libxaw7-dev libxcomposite-dev libxcursor-dev libxdamage-dev libxext-dev libxfixes-dev libxi-dev libxinerama-dev libxkbfile-dev libxmu-dev libxmuu-dev libxpm-dev libxrandr-dev libxrender-dev libxres-dev libxss-dev libxt-dev libxtst-dev libxv-dev libxxf86vm-dev libxcb-glx0-dev libxcb-render0-dev libxcb-render-util0-dev libxcb-xkb-dev libxcb-icccm4-dev libxcb-image0-dev libxcb-keysyms1-dev libxcb-randr0-dev libxcb-shape0-dev libxcb-sync-dev libxcb-xfixes0-dev libxcb-xinerama0-dev libxcb-dri3-dev uuid-dev libxcb-cursor-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev libxcb-composite0-dev libxcb-ewmh-dev libxcb-res0-dev libxcb-util-dev pkg-config
+
+curl https://mise.run | sh
+mise use --global python@3.14 node@lts go@1.26
+
+python -m pip install -r requirements-build.txt
+invoke configure --build-type=Release
+invoke build --build-type=Release
+invoke test --build-type=Release
+```
 
 ## 现有开发资源与配置
 
@@ -13,9 +35,9 @@
 - `CMakeUserPresets.json` 是 Conan 自动生成并忽略提交的文件，不维护对旧 Debug 制品的固定引用；`invoke configure` 会重新生成它。`OCCCCAD_ENABLE_ASAN` / `OCCCCAD_ENABLE_UBSAN` 在 Invoke 配置时传给 CMake，默认均为 `OFF`。
 - `invoke configure` 使用 Conan `cmake_layout` 的 `build/cmake/<type>/build/<Type>/generators/conan_toolchain.cmake`；文件缺失时直接失败。CMake 配置使用 `--fresh` 重建配置缓存，避免先前未加载 toolchain 的失败配置继续影响依赖查找；不会清理 Conan 依赖缓存，也不会执行项目编译。
 - 默认 Conan profile 为仓库内的 `linux-gcc15-release` / `linux-gcc15-debug`；`--profile` 可显式传入 Conan profile 名称或路径。`invoke bootstrap` 仅安装 `requirements-build.txt` 中的 Python 工具，不生成或覆盖 profile。`invoke build --jobs=N` 限制并行数，默认使用全部核心；启动入口复用同一 C++ 构建命令。`invoke clean` 删除 `build/`、根编译数据库链接及 Conan 生成的 User Presets，不清理业务数据或 Conan 依赖缓存。
-- 服务端优先使用 `OCCCCAD_DATABASE_URL`；未设置时使用 `OCCCCAD_POSTGRES_HOST`、`PORT`、`USER`、`PASSWORD`、`DB`（均带 `OCCCCAD_POSTGRES_` 前缀）。PostgreSQL 正常业务使用数据库中的 `occccad` schema。也可设置 `OCCCCAD_DATABASE_URL=sqlite:/absolute/path/local.db` 使用 SQLite Local Mode；API 与 Jobs 必须指向同一个绝对本机路径，数据库并发设为 1 或保持未配置。SQLite 运行与限制见[数据库层](../services/internal/database/README.md)。
+- 服务端优先使用 `OCCCCAD_DATABASE_URL`；未设置时使用 `OCCCCAD_POSTGRES_HOST`、`PORT`、`USER`、`PASSWORD`、`DB`（均带 `OCCCCAD_POSTGRES_` 前缀）。PostgreSQL 正常业务使用数据库中的 `occccad` schema。也可设置 `OCCCCAD_DATABASE_URL=sqlite:/absolute/path/local.db` 使用 SQLite Local Mode；API 与 Jobs 必须指向同一个绝对本机路径，数据库并发设为 1 或保持未配置。SQLite 运行与限制见[数据库层](../../services/internal/database/README.md)。
 - 直接执行 `psql`、`go test` 等命令时，不要假定它们会自动读取项目 `.env`；显式加载所需配置或使用已有项目入口。诊断输出只需连接是否成功和错误原因，不必回显完整连接串。
-- ArtifactStore 支持 LOCAL/S3，使用根 `.env` 的 `OCCCCAD_ARTIFACT_BACKEND`、`OCCCCAD_S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY/SECURE`。HTTP MinIO 设置 `SECURE=false`，endpoint 不含协议前缀。`OCCCCAD_DATA_DIR` 在 S3 模式保留为计算暂存目录，API/Jobs/本机 Worker 共享；配置和迁移见[存储运维](../services/cmd/occccad-artifacts/README.md)。原始密码只保留在未跟踪的 `.env`。
+- ArtifactStore 支持 LOCAL/S3，使用根 `.env` 的 `OCCCCAD_ARTIFACT_BACKEND`、`OCCCCAD_S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY/SECURE`。HTTP MinIO 设置 `SECURE=false`，endpoint 不含协议前缀。`OCCCCAD_DATA_DIR` 在 S3 模式保留为计算暂存目录，API/Jobs/本机 Worker 共享；配置和迁移见[存储运维](../../services/cmd/occccad-artifacts/README.md)。原始密码只保留在未跟踪的 `.env`。
 
 ## PostgreSQL
 
@@ -31,7 +53,7 @@ sudo apt install postgresql
 
 装配候选、历史、诊断下载及精确 BREP/Router 验证共用 `services/internal/testsupport.OpenTestDatabase`，按 `OCCCCAD_TEST_DATABASE_URL` 显式选择 SQLite 或 PostgreSQL。默认使用独立的 `build/test-resources/occccad_test.db`；SQLite 目标必须是绝对路径的 `*_test.db`（相对配置先按仓库根目录解析），并拒绝应用数据库及其符号链接别名。PostgreSQL 仍要求专用 `occccad_*_test` 库，并检查 `current_database()` 身份。入口仅迁移、创建各测试自己的文档与临时制品，不重置或修补旧迁移记录。SQLite 通过不代表 PostgreSQL 专用行为或双后端一致性验收。
 
-数据重置仍遵循[根 AGENTS 的开发数据边界](../AGENTS.md#当前开发数据边界)：先停止占用进程，仅通过 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令报告的 PostgreSQL `occccad` schema 或当前配置的专用 SQLite 数据库全部表（含迁移记录），以及本地 ArtifactStore/暂存目录，以及 S3 模式下当前配置的专用桶全部对象（含版本和未完成分片，保留桶），并在交付中说明。资源使用授权不包括清空其他数据库、schema 或 S3 bucket。S3、数据库与本地制品不构成跨存储事务：清理失败直接报错，可能已部分删除，停止写入后可重新执行。
+数据重置仍遵循[根 AGENTS 的开发数据边界](../../AGENTS.md#当前开发数据边界)：先停止占用进程，仅通过 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令报告的 PostgreSQL `occccad` schema 或当前配置的专用 SQLite 数据库全部表（含迁移记录），以及本地 ArtifactStore/暂存目录，以及 S3 模式下当前配置的专用桶全部对象（含版本和未完成分片，保留桶），并在交付中说明。资源使用授权不包括清空其他数据库、schema 或 S3 bucket。S3、数据库与本地制品不构成跨存储事务：清理失败直接报错，可能已部分删除，停止写入后可重新执行。
 
 ## 测试资源与默认目录
 
@@ -63,7 +85,7 @@ sudo apt install libnspr4 libnss3 libasound2t64
 
 这些是本环境曾缺少的依赖，不是 Chromium 在所有系统上的完整依赖清单。安装到系统后，正常使用系统库，不再默认设置 `/tmp/occccad-browser/libs/usr/lib/x86_64-linux-gnu` 的 `LD_LIBRARY_PATH`。若仍无法启动，对实际浏览器可执行文件执行 `ldd`，根据 `not found` 项补齐依赖；不要反复下载相同的临时库。
 
-先按 [CAD Web README](../web/apps/cad/README.md) 安装前端依赖。尚未安装项目 Playwright 对应的 Chromium 时执行：
+先按 [CAD Web README](../../web/apps/cad/README.md) 安装前端依赖。尚未安装项目 Playwright 对应的 Chromium 时执行：
 
 ```bash
 pnpm --dir web/apps/cad exec playwright install chromium

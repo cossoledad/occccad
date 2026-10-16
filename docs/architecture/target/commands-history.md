@@ -1,10 +1,10 @@
 # 命令、事务与历史
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
 前述草图、实体、特征、曲面、装配和 DMU 设计只有建立在同一套编辑语义与参数依赖骨架上，才能成为一个 CAD 系统，而不是若干互不兼容的功能模块。本节定义 Model Service 与所有工作台共同遵守的核心协议。
 
-### 4.3.1 设计目标与非目标
+## 设计目标与非目标
 
 核心骨架必须同时满足：
 
@@ -19,7 +19,7 @@
 
 本节不把所有模型状态改造成 Event Sourcing，也不承诺任意跨文档修改都自动分布式强事务。几何 B-Rep、Mesh、求解器 warm start、UI selection、hover 和 camera 仍不是权威参数模型。
 
-### 4.3.3 四种“命令”必须分层
+## 四种“命令”必须分层
 
 | 层 | 示例 | 是否持久化 | 是否创建 Revision |
 |---|---|---:|---:|
@@ -45,7 +45,7 @@ flowchart LR
     Revision --> Event["Post-commit events"]
 ```
 
-### 4.3.4 权威对象之间的关系
+## 权威对象之间的关系
 
 ```mermaid
 classDiagram
@@ -96,7 +96,7 @@ classDiagram
 
 Revision 快照解决长期读取、恢复和快速打开；Command/ChangeSet 解决审计、语义合并与精确 Undo。两者并存，不选择“只存快照”或“只存事件”的极端。
 
-### 4.3.5 Domain Transaction 协议
+## Domain Transaction 协议
 
 ```proto
 message DomainTransactionRequest {
@@ -126,7 +126,7 @@ message DomainCommand {
 
 `request_id` 对租户/调用者全局幂等，重复 payload 返回原结果；相同 key 不同 payload 返回 `IDEMPOTENCY_KEY_REUSED`。`transaction_id` 是业务历史身份，不因网络重试变化。时间、actor、tenant、trace、客户端版本由服务端上下文补充，客户端不能伪造。
 
-### 4.3.6 Command Handler Registry
+## Command Handler Registry
 
 ```text
 CommandHandler {
@@ -146,7 +146,7 @@ Handler 的 `Apply` 必须是确定性、无 I/O 的模型变换：不能访问�
 
 核心 handler 由进程内 registry 注册。插件命令使用 `type_uri + schema_version + plugin digest`，只能通过受控 Model Extension API 产生已登记 node/property；不能提交任意 JSON patch 修改未知字段。旧命令读取时 upcast 到当前内存模型，原始 payload 永久保留以供审计。
 
-### 4.3.7 ChangeSet 是语义差异，不是数据库补丁
+## ChangeSet 是语义差异，不是数据库补丁
 
 ```proto
 message ModelChange {
@@ -173,7 +173,7 @@ PropertyPath 使用 schema 登记的 field ID/semantic slot，不使用 JSON poi
 
 ChangeSet 的 before 值用于审计、冲突解释和补偿式 Undo，但不意味着任意机械反转都合法；Undo 仍要经过当前 schema、引用和求值验证。
 
-### 4.3.8 命令执行状态机
+## 命令执行状态机
 
 ```mermaid
 stateDiagram-v2
@@ -196,7 +196,7 @@ stateDiagram-v2
 
 简单 metadata 命令可在一个同步请求中走完相同状态机；重 Feature 可返回 operation handle。客户端断线不会取消已进入 Commit 的事务，按 `request_id` 查询最终结果。
 
-### 4.3.9 可提交的失败模型
+## 可提交的失败模型
 
 CAD 必须允许用户修复模型，不能规定只有全绿几何才能形成历史。验证分三类：
 
@@ -208,7 +208,7 @@ CAD 必须允许用户修复模型，不能规定只有全绿几何才能形成�
 
 失败 Feature 之后的依赖节点标记 `BLOCKED_BY_UPSTREAM`。允许显示上一成功 Revision 的几何作为 ghost/last-known-good，但必须带旧 `GeometryId` 和醒目的 stale 状态，不能冒充当前模型。Release/导出/仿真默认要求相应 Evaluation Gate 通过。
 
-### 4.3.10 Event 与 Outbox 边界
+## Event 与 Outbox 边界
 
 Commit 同一数据库事务写入 Outbox，例如：
 
@@ -220,7 +220,7 @@ Commit 同一数据库事务写入 Outbox，例如：
 
 事件携带 tenant、document/workspace、sequence、revision、transaction、actor、model/change digest 和 schema version，不内嵌大模型。消费者至少一次处理并以 event ID 幂等；Search/BOM/thumbnail/realtime projection 可以重建。核心 Head 变更不得依赖“稍后消费事件”才能成立。
 
-### 4.3.11 Preview 与最终提交
+## Preview 与最终提交
 
 拖拽、尺寸输入和操纵器使用 `InteractionSession`：
 
@@ -239,7 +239,7 @@ Interaction 编排状态使用 `IDLE → DRAFTING → PREVIEWING → READY → C
 
 连续键盘输入、spinner 和拖拽通过显式 `undo_group_id` 合并为一个 Undo 项；服务端不以“500ms 内发生”之类时间猜测用户意图。进入另一工具、改变选择或显式结束后 group 关闭。同组 Transaction 仍逐条保留审计和 sequence；Undo 时按反向顺序组合成一个 Revert 候选，只有同 actor、同 Workspace、连续祖先链且所有补偿都安全时才原子提交，不能通过分组改写既有历史。
 
-### 4.3.12 Workspace 历史模型
+## Workspace 历史模型
 
 每个 Workspace 是一条追加式 Transaction log 和一个 Head；Revision 形成有向无环历史图，普通提交一个 parent，Merge 两个 parent。历史条目永不因 Undo 后的新编辑而删除。
 
@@ -259,7 +259,7 @@ gitGraph
 
 “查看历史点”只改变客户端 `view_revision_id`，不移动 Workspace Head。“创建 Version/Release”是在某 Revision 上建立不可变命名标记。“从此处创建 Branch”产生新 Workspace。三者都不能与 Undo 混为同一 cursor。
 
-### 4.3.13 Undo 的权威语义
+## Undo 的权威语义
 
 Undo 默认指：在当前 Workspace/编辑上下文中，撤销当前 actor 最近一个仍可撤销的 Domain Transaction。服务端创建新的 `RevertTransaction(original_transaction_id)`，把原 ChangeSet 的 before intent 应用于当前 Head，然后形成新 Revision；旧 Revision 和其他人的后续提交不消失。
 
@@ -278,7 +278,7 @@ Revert 算法：
 
 可选 `LOCAL_SINGLE_USER_FAST_UNDO` 只是在确认 Workspace 没有其他写者、没有外部 observer 依赖且尚未发布时优化 UI；持久语义仍等价于 Revert，不建立第二套历史模型。
 
-### 4.3.14 Redo、Restore 与 Reset 的区别
+## Redo、Restore 与 Reset 的区别
 
 - **Redo**：只对最近由当前 actor Undo 且此后未发生破坏性冲突的 Transaction，重新应用原始意图/after ChangeSet，形成 `ReapplyTransaction` 新 Revision；不是把 Head 指针移动到旧节点。
 - **Restore**：选择任意历史 Revision，把其完整模型作为 source，与当前 Head 做 scope-aware replace，提交 `RestoreTransaction`；用于跨多个命令恢复，并保留 Restore 之前历史。
@@ -287,12 +287,12 @@ Revert 算法：
 
 多人环境下 Undo 列表按 actor、document tab/working scope 和 transaction kind 过滤，但用户可以在 History 面板显式选择任意有权限 Transaction 执行 Revert。Onshape 同样区分个人 Undo 与把 Workspace 恢复到历史点；其追加历史/不可变 Version 思路与本设计一致。[Onshape Document Management](https://cad.onshape.com/help/Content/Document/document_management.htm) [Onshape Restore](https://cad.onshape.com/help/Content/Document/restoring.htm)
 
-### 4.3.15 为什么不以反向命令或 OCAF Undo 栈作为云端真相
+## 为什么不以反向命令或 OCAF Undo 栈作为云端真相
 
 “Pad 的反向命令是 DeletePad”只在没有后续引用时成立；删除/替换/重排、拓扑 lineage、装配 Publication 和跨文档引用都会使手写 inverse command 失真。ChangeSet before image + 当前状态 precondition 更适合生成可靠补偿。
 
 OCCT OCAF 提供 Open/Commit/Abort transaction、依赖机制和多级 Undo/Redo，证明事务边界必须从应用设计早期建立；但标准 OCAF Undo 信息主要是进程内文档机制，默认不会随文档跨会话持久化。因此 occccad 借鉴其“所有数据修改位于命令事务”和稳定 attribute identity 思想，不把 TDocStd undo stack 当作分布式 Workspace 历史。[OCCT OCAF User Guide](https://dev.opencascade.org/doc/overview/html/occt_user_guides__ocaf.html) [TDocStd_Document](https://dev.opencascade.org/doc/refman/html/class_t_doc_std___document.html)
 
-### 4.3.16 Feature Rollback Bar 不是 Undo
+## Feature Rollback Bar 不是 Undo
 
 Part 的 Feature Rollback/Insert Here 是模型内 `EvaluationTip`：它控制哪些 Feature 参与当前求值，以及新 Feature 插入位置。移动 tip 是可持久 Domain Command，可 Undo；它不改变 Workspace 历史 Head，也不删除 tip 之后 Feature。暂停重生成同样是编辑策略，不是历史回退。

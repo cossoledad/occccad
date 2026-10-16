@@ -1,6 +1,6 @@
 # CAD realtime 控制面
 
-返回[当前架构](../../CURRENT_ARCHITECTURE.md)。沿用 `occccad.realtime.v1` envelope、Workspace sequence、事务 Outbox 和现有 session/CSRF 鉴权，没有另建消息总线或增量同步模型。
+返回[当前架构](README.md)。沿用 `occccad.realtime.v1` envelope、Workspace sequence、事务 Outbox 和现有 session/CSRF 鉴权，没有另建消息总线或增量同步模型。
 
 ## 接口边界
 

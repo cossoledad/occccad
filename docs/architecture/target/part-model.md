@@ -1,8 +1,8 @@
 # Part、Body 与实体生成
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-### 5.4.1 核心决策：生成几何与材料操作正交
+### 核心决策：生成几何与材料操作正交
 
 “切除”不是另一套拉伸几何算法，“旋转切除”也不是另一套旋转算法。生成类特征先构造 `ToolShape`，再以统一的 `BodyOperation` 将它应用到目标 Body：
 
@@ -31,7 +31,7 @@ flowchart LR
     BodyB --> Replicate["Replication Feature<br/>Pattern / Mirror"]
 ```
 
-### 5.4.2 Part、Body、Feature 与 Tip
+### Part、Body、Feature 与 Tip
 
 - `PartRevision` 可包含多个 Body、Datum、Sketch 和发布接口；
 - `Body` 是有序 Feature Graph 的建模容器，具有一个显式 `tip_feature_id`；
@@ -50,9 +50,9 @@ PartRevision
   datums[] / sketches[] / published_interfaces[]
 ```
 
-Feature 状态使用 `ACTIVE | SUPPRESSED | FAILED | OUT_OF_DATE | BLOCKED_BY_UPSTREAM`。`SUPPRESSED` 输出其主输入的 pass-through，并保留 FeatureId；`FAILED` 绝不能返回上一次成功 Shape 冒充新结果。按 4.3.9，结构和参数有效的候选图可以形成带 `PARTIAL/FAILED` Evaluation 状态的新 Revision，便于保存并修复设计；Failed/Blocked Tip 不能通过 READY/Release Gate，上一成功 Shape 只能作为明确标记的 stale ghost 显示。
+Feature 状态使用 `ACTIVE | SUPPRESSED | FAILED | OUT_OF_DATE | BLOCKED_BY_UPSTREAM`。`SUPPRESSED` 输出其主输入的 pass-through，并保留 FeatureId；`FAILED` 绝不能返回上一次成功 Shape 冒充新结果。按[可提交的失败模型](commands-history.md#可提交的失败模型)，结构和参数有效的候选图可以形成带 `PARTIAL/FAILED` Evaluation 状态的新 Revision，便于保存并修复设计；Failed/Blocked Tip 不能通过 READY/Release Gate，上一成功 Shape 只能作为明确标记的 stale ghost 显示。
 
-### 5.4.3 类型化 Feature 契约
+### 类型化 Feature 契约
 
 公共 envelope 与具体参数分离，Proto 使用 `oneof definition`，禁止 `Any`、字符串类型名和未约束 JSON 成为权威格式：
 
@@ -88,7 +88,7 @@ message FeatureResult {
 
 `FeatureOutputRef` 至少包含 `part_revision_id/body_id/feature_id/output_slot`；同一候选 Workspace 内可使用临时 revision scope，但提交后解析为不可变 Revision。`output_slot` 使用稳定枚举或版本化 URI，例如 `RESULT_BODY`、`TOOL_SHAPE`、`START_CAP`、`END_CAP`、`SIDE_FROM_PROFILE_EDGE/<region-edge-id>`，不暴露 OCCT 的瞬时 `TopoDS_Shape` 地址或遍历序号。
 
-### 5.4.4 共用选择、方向与长度类型
+### 共用选择、方向与长度类型
 
 所有特征复用相同的量纲和引用类型：
 
@@ -135,10 +135,10 @@ message AxisRef {
 - `explicit_vector` 必须有限且归一化前长度大于 tolerance；
 - 引用方向解析后保存选择证据和归一化结果摘要，重算仍从引用恢复，不能只固化世界坐标；
 - `reversed` 表示用户意图，不通过偷偷给长度/角度传负数表达；
-- 面选择、边选择、Sketch Region 都使用 5.7 节的 `PersistentSelection`，并明确期望拓扑类型和歧义策略；
+- 面选择、边选择、Sketch Region 都使用[持久命名](../current/persistent-naming.md)中的 `PersistentSelection`，并明确期望拓扑类型和歧义策略；
 - 所有输入列表以 ID 或显式序号规范排序后 hash；有几何含义的有序列表（Loft section、Draft group）保持用户顺序。
 
-### 5.4.5 Profile 与 Region 契约
+### Profile 与 Region 契约
 
 实体生成器不直接消费“整张草图”。它消费 Profile Builder 产生的 `ProfileSelection`：
 
@@ -155,7 +155,7 @@ message ProfileSelection {
 
 开放轮廓用于曲面或薄壁特征，是独立能力；基础实体合同不为开放 Wire 自动补线或自动生成零厚度实体。
 
-### 5.4.6 共用求值流水线
+### 共用求值流水线
 
 ```mermaid
 flowchart TD
@@ -178,7 +178,7 @@ flowchart TD
 
 每一步检查 cancellation/deadline。失败返回结构化诊断并丢弃候选 Shape；不得继续到对象存储，也不得改变 Workspace Head。Worker 的 OCCT 对象只在单次求值作用域存在，跨 RPC 只传内容寻址 GeometryId。
 
-### 5.4.7 BodyOperation 与布尔后处理
+### BodyOperation 与布尔后处理
 
 `ADD/REMOVE/INTERSECT` 分别映射到 `BRepAlgoAPI_Fuse/Cut/Common`。实现遵循 [OCCT Boolean Operations](https://dev.opencascade.org/doc/overview/html/specification__boolean_operations.html) 的错误、警告和历史接口，但领域层增加以下约束：
 
@@ -193,7 +193,7 @@ flowchart TD
 
 布尔后的质量属性使用独立算法计算体积、面积、包围盒和质心摘要，用于 no-op 判断、缓存审计和回归测试；这些摘要不是 Shape 身份。
 
-### 5.4.8 线性拉伸与切除
+### 线性拉伸与切除
 
 统一模型：
 
@@ -252,7 +252,7 @@ message ExtrudeExtent {
 - 经布尔修改的 Body face 同时记录 upstream face 与 Tool face 的来源集合；
 - 被删除的面进入 tombstone，不能映射到任意“最相似”面。
 
-### 5.4.9 旋转体与旋转切除
+### 旋转体与旋转切除
 
 ```proto
 message RevolveFeature {

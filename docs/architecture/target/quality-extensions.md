@@ -1,8 +1,8 @@
 # 安全、可观测性与扩展边界
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-## 11. 开源技术基线
+## 开源技术基线
 
 | 层 | 推荐基线 | 决策说明 |
 |---|---|---|
@@ -22,7 +22,7 @@
 
 候选不等于依赖。所有第三方组件登记 SPDX、版本、链接方式、许可证、CVE 和替代方案，生成 SBOM；强 copyleft 工具可通过独立插件进程使用，但必须由法律与项目许可证策略明确批准。
 
-## 12. 安全与多租户
+## 安全与多租户
 
 - Gateway 终止 TLS，使用 OIDC/OAuth2；短生命周期访问令牌，浏览器优先安全 HttpOnly 会话；
 - 每个请求携带 tenant/principal，服务端执行 RBAC + resource ACL，PostgreSQL RLS 作纵深防御；
@@ -33,7 +33,7 @@
 - 配额包括并发计算、CPU 秒、内存、对象容量、导出频率；
 - 供应链使用锁文件、签名镜像、SBOM、依赖扫描和可复现构建。
 
-## 13. 可观测性与 SLO
+## 可观测性与 SLO
 
 统一 OpenTelemetry resource：tenant、service、worker type、build digest；传播 W3C Trace Context。禁止把模型内容、密码或 signed URL 写入日志。
 
@@ -49,7 +49,7 @@
 
 初始 SLO 建议先测量再承诺；交互拖拽预览目标 < 50 ms，本地小 Part 增量重生成目标 p95 < 2 s，长任务必须异步显示进度和可取消。
 
-## 14. 插件与高阶工作台
+## 插件与高阶工作台
 
 对标 CATIA 的能力广度必须依赖扩展平台，而不是把所有领域编进核心 Worker。
 

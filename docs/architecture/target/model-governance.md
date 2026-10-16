@@ -1,8 +1,8 @@
 # 模型接口、存储与验证
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-### 4.3.34 服务与模块边界
+## 服务与模块边界
 
 ```mermaid
 flowchart TB
@@ -21,7 +21,7 @@ flowchart TB
 
 初期以上模块都可位于 Go Model Service 模块化单体，CAD Worker 独立部署；Realtime 和 Scheduler 仅在负载或隔离需求触发时独立。Expression/Quantity/Dependency Core 应做 OCCT-free library；C++ Worker 消费已求值参数和明确 typed inputs，不自行解析用户 source text。未来若 C++ 需要 law evaluation，使用同一版本化 AST/profile 与跨语言 conformance corpus。
 
-### 4.3.35 推荐存储投影
+## 推荐存储投影
 
 业务真相优先保存在规范 Revision manifest/JSONB 和追加事务表；关系表只索引需要查询/并发的边界。所谓“完整 Revision 快照”是逻辑完整，不要求为每次提交复制一个巨大 JSON：模型按 ParameterSet、Feature graph、Body、Product subtree、Relation graph 等稳定分块内容寻址，Revision manifest 指向不可变 chunk；未变化 chunk 结构共享，小模型仍可内联以降低复杂度。canonical model hash 由有序 manifest 和 chunk digests 计算，读取层向 handler 提供不可变 copy-on-write view。
 
@@ -38,7 +38,7 @@ flowchart TB
 
 命令原 payload、ChangeSet、模型快照和 manifest 可压缩后放对象存储，但 PostgreSQL 保存 digest、大小、schema 和引用完整性。GC 不得删除仍被 Revision、Transaction、Release、审计或 legal hold 引用的对象。
 
-### 4.3.36 API 返回与错误模型
+## API 返回与错误模型
 
 成功返回 `TransactionReceipt`：transaction/workspace/sequence/revision IDs、ChangeSummary、EvaluationSummary、diagnostics、artifact links、undo capability 和 correlation IDs。失败至少区分：
 
@@ -57,7 +57,7 @@ flowchart TB
 
 HTTP/gRPC status 只表示传输级类别，客户端行为依据稳定领域 error code。
 
-### 4.3.37 安全、配额与防滥用
+## 安全、配额与防滥用
 
 - 命令 payload、数量、Transaction commands、AST nodes/depth、字符串、table rows、dependency edges 有硬上限；
 - Expression cost 静态估算与运行预算双重限制，函数白名单无 I/O；
@@ -67,7 +67,7 @@ HTTP/gRPC status 只表示传输级类别，客户端行为依据稳定领域 er
 - Undo/Restore 不能恢复当前无权读取的外部数据，权限变化产生明确失败；
 - 恶意 dependency fan-out、超大配置矩阵和重算风暴由租户预算、去重和 backpressure 控制。
 
-### 4.3.38 可观测性与性能指标
+## 可观测性与性能指标
 
 至少记录：command validation/apply、dependency extraction、expression compile/eval、dirty closure、cache hit、Worker queue/eval、CAS/rebase、outbox publish 的分段 trace。核心指标：
 
@@ -81,7 +81,7 @@ HTTP/gRPC status 只表示传输级类别，客户端行为依据稳定领域 er
 
 性能面板必须能回答“哪个参数导致哪些节点重算、为何没有命中缓存”，而不只显示总耗时。
 
-### 4.3.39 验证体系
+## 验证体系
 
 | 测试层 | 必须覆盖 |
 |---|---|
@@ -98,7 +98,7 @@ HTTP/gRPC status 只表示传输级类别，客户端行为依据稳定领域 er
 
 最关键的 oracle 是：任意 Revision 清空所有缓存后，可从模型、依赖快照和 evaluator manifests 重建语义等价结果；任意 Transaction 的 ChangeSet 应与前后快照 diff 一致；增量求值必须与全量求值一致。
 
-### 4.3.40 新项目 Schema 策略
+## 新项目 Schema 策略
 
 项目当前没有需要承诺兼容的生产数据。核心骨架只维护一套 Workspace/Transaction/ChangeSet/Revision 语义，不回填 cursor 历史、不保留平行 Undo 状态机，也不为实验数据增加读取 adapter。开发 schema 变化时重建开发数据库，以 conformance corpus 和端到端场景验证新基线。
 

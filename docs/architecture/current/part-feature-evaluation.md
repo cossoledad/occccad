@@ -2,8 +2,8 @@
 
 This page is the focused contract for Sketch-in-context display and the exact
 Part Feature evaluation path. Current delivery status remains in
-[current Part/Sketch](current/part-sketch.md); long-term Feature semantics remain in
-[Feature evaluation](target/part-evaluation.md).
+[current Part/Sketch](part-sketch.md); long-term Feature semantics remain in
+[Feature evaluation](../target/part-evaluation.md).
 
 ## Sketch editing is an in-context view
 
@@ -17,7 +17,7 @@ viewport composes three independent layers:
 
 Visibility and selectability are separate. The Body remains rendered and may
 participate in navigation/occlusion, while normal Sketch tools only select the
-active Sketch entities and constraints. A later ExternalGeometry tool may
+active Sketch entities and constraints. The explicit ExternalGeometry tool may
 explicitly opt into upstream Face/Edge/Vertex capture; ordinary drawing tools
 must not accidentally edit or persist a raw topology pick.
 
@@ -106,7 +106,7 @@ camera behavior.
 
 ## Solid feature families
 
-The current [solid feature contract](current/solid-features.md) separates profile
+The current [solid feature contract](solid-features.md) separates profile
 generation (extrude/revolve/loft), explicit cross-Body combinations, and local
 modifiers. They share command, history, selection resolution and artifact
 lifecycle; local modifiers do not run the generator/Boolean algorithm.

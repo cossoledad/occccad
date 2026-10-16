@@ -1,8 +1,8 @@
 # Sketch 模型与实体表示
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-### 5.3.2 后端组件边界
+## 后端组件边界
 
 ```mermaid
 flowchart TB
@@ -51,7 +51,7 @@ flowchart LR
 
 数值后端允许在适配器内部按固定顺序执行有限次算法回退，但必须记录尝试顺序并通过相同 corpus 验证；禁止随机初值或无界重试掩盖退化模型。最终不可分类失败应生成可授权下载的版本化诊断包，至少包含不可变 base Revision、失败 Domain Command、规范化 solver input、adapter/evaluator 版本、求解状态与日志 correlation。诊断包是调试制品，不是业务真相，也不得包含凭据或无关租户数据。
 
-### 5.3.3 SketchFeature 领域模型
+## SketchFeature 领域模型
 
 一个 Sketch 是 Feature Graph 中的 typed node，而不是独立 Document。推荐的规范模型如下；字段名表达语义，最终以版本化 Protobuf/JSON Schema 为准。
 
@@ -118,11 +118,11 @@ classDiagram
 
 面支撑解析失败时，已有 Revision 仍可打开，Sketch/下游 Feature 标记 `OUT_OF_DATE` 或 `FAILED_SUPPORT`，不得把草图静默移动到 XY 平面。范围不包括在任意曲面上直接绘制；圆柱/曲面的参数域草图需要新的 Support 类型和周期边界语义。
 
-### 5.3.4 实体模型
+## 实体模型
 
 本节定义 Sketch Entity 后端模块的可实施规格。实体模块负责“草图中有什么几何、如何稳定引用、如何编辑和验证”，不负责约束求解、Profile 拓扑构造或 OCCT Shape 持久化。
 
-#### 5.3.4.1 职责与非职责
+### 职责与非职责
 
 ```mermaid
 flowchart LR
@@ -156,7 +156,7 @@ flowchart LR
 - 不直接访问 PostgreSQL、ArtifactStore、网络或用户权限；
 - 不保存视口颜色、像素线宽、选中状态等纯 UI 数据。
 
-#### 5.3.4.2 核心不变量
+### 核心不变量
 
 1. 每个持久实体属于且只属于一个 Sketch，以 `(SketchId, EntityId)` 唯一标识。
 2. EntityId 创建后不变、不复用；改变实体类型默认是 Delete + Add，而不是原 ID 原地变型。
@@ -169,7 +169,7 @@ flowchart LR
 9. 同一 schema、同一规范输入必须得到相同的 canonical bytes 和 Entity digest。
 10. 未知 Entity kind 不得被忽略后继续求值；旧客户端可以只读展示占位诊断，但不能提交有损编辑。
 
-#### 5.3.4.3 通用实体封装
+### 通用实体封装
 
 ```text
 SketchEntity
@@ -196,7 +196,7 @@ SketchEntity
 
 `label` 仅用于人类识别，不唯一、不参与引用。`extensions` 只允许已登记的命名空间和大小上限，不允许用它绕过 schema 增加 Solver 关键参数。创建者、时间、权限属于 Command/Revision metadata，不逐实体重复保存。
 
-#### 5.3.4.4 身份、内建几何与统一引用
+### 身份、内建几何与统一引用
 
 EntityId 推荐使用 UUIDv7。为支持离线批量命令，客户端可以预分配 ID；服务端验证格式、当前 Sketch 内唯一性和 tombstone，不接受覆盖已有 ID。服务端生成的宏实体使用 `UUIDv5(namespace=request_id, name=operation_index/entity_slot)`，使幂等重放得到相同 ID。
 
@@ -234,7 +234,7 @@ GeometryRef
 
 `parameter_hint` 是相交/相切分支提示，不构成身份。引用解析返回 typed `ResolvedGeometryRef`，包含目标 kind、允许能力和当前值；非法组合在 Schema Validation 阶段失败。
 
-#### 5.3.4.5 为什么端点不共享 Point 实体
+### 为什么端点不共享 Point 实体
 
 LineSegment 持有自己的 start/end 参数；Coincident Constraint 表达两个端点相同。这比“多条线共享一个 Point 对象”更适合参数 CAD：
 
@@ -247,7 +247,7 @@ LineSegment 持有自己的 start/end 参数；Coincident Constraint 表达两�
 
 独立 `POINT` Entity 只用于用户显式创建的构造点、定位点或下游需要独立身份的点；它不是所有曲线端点的公共存储。
 
-#### 5.3.4.6 基础实体详细参数化
+### 基础实体详细参数化
 
 | Entity | 持久参数 | Solver 自由变量 | 参数域 | 默认 DoF |
 |---|---|---|---|---:|
@@ -301,7 +301,7 @@ P(t) = center + radius * (cos(start + t*sweep), sin(start + t*sweep))
 - Solver 必须保存 sweep sign 和象限/切向 branch，除非用户执行显式 Reverse/Complement 操作；
 - 当约束使 Arc 穿越 `0/2π` 时只改变规范角度，不改变几何方向或 EntityId。
 
-#### 5.3.4.7 扩展曲线实体
+### 扩展曲线实体
 
 **Ellipse2**
 

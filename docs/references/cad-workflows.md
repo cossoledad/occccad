@@ -21,6 +21,14 @@
 - `online/basug_C2/basugcu0102.htm`：Toolbar 的独立命名、显示、内容和位置恢复；本项目据此把类别提升为稳定 ToolbarId，同时保持服务端目录与用户布局分层。
 - `online/bascukwr_C2/bascuparameasure0400.htm`：全局 Units 选项；本项目进一步区分用户默认显示单位、用户侧文档覆盖与未来版本化团队文档属性。
 
+## Web 工作台来源
+
+- [Onshape 工具搜索](https://cad.onshape.com/help/Content/Home/search_tools.htm)、[界面分区](https://cad.onshape.com/help/Content/Home/user_interface_basics.htm)：原 Web README 保留的命令发现与界面参照，本次仅迁移来源，未重新核对外部页面。
+- [3DEXPERIENCE Action Bar](https://3dswym.3dexperience.3ds.com/post/makers-made-in-3d/simplifying-cad-the-xdesign-action-bar_aibePcuuQvetpsYllKSjkA)：上下文命令分组参照。
+- `control/BasEnglishC2.viewdoc` → `online/basug_C2/basugbt0501.htm`（Specification Tree and Geometry Area）、`online/basug_C2/basugbt0510.htm`（Finding an Object in the Tree）：树与几何区、树中定位的概念参照。
+
+这些来源不决定 occccad 的持久身份、状态所有权或工具生命周期；当前呈现由[UI 指南](../guides/workbench.md)拥有。
+
 ## Product 方法参考
 
 - [CATIA Assembly Design：支持 in-context part and assembly design](https://www.3ds.com/fileadmin/Products/catia/solution-builder/content/cross_industries/pdf/CATIA%20TEAM%20PLM.pdf)
@@ -29,7 +37,7 @@
 - [3DEXPERIENCE IRPC：Reference、Instance 与 Occurrence](https://3dswym.3dexperience.3ds.com/wiki/solidworks-news-info/getting-started-with-mbom-management_HOJ-oxIVRRqJF1KiTpPDHg)
 - [CATIA 设计访谈：assembly context 与 skeleton methodology](https://www.3ds.com/cloud/resources/designing-impactful-innovation-podcast/ep13-designing-beyond-limits-industrial-design)
 
-当前实现见[当前架构](../CURRENT_ARCHITECTURE.md)，后续工作只在[统一路线](../../plans/README.md)维护。
+当前实现见[当前架构](../architecture/current/README.md)，后续工作只在[统一路线](../../plans/README.md)维护。
 
 ## Assembly Design 来源
 

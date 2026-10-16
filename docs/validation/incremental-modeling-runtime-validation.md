@@ -1,6 +1,6 @@
 # 增量建模运行时定向验证
 
-2026-10-06；Debug OCCT 7.9.1，真实本机 Router/Worker，临时 SQLite 与临时 ArtifactStore。未连接、清理或修改用户文档；未进行浏览器自动测试或全量单测。实现职责、预算及冷恢复合同见[当前架构](../../docs/architecture/current/jobs-artifacts.md#part-增量运行时)。
+2026-10-06；Debug OCCT 7.9.1，真实本机 Router/Worker，临时 SQLite 与临时 ArtifactStore。未连接、清理或修改用户文档；未进行浏览器自动测试或全量单测。实现职责、预算及冷恢复合同见[当前架构](../architecture/current/jobs-artifacts.md#part-增量运行时)。
 
 ## 实现边界
 

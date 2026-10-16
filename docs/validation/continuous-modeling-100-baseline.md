@@ -1,6 +1,6 @@
 # 100 次连续复杂参数化建模时间基线
 
-测试：[TestContinuousComplexModeling100BaselineThroughRouter](../../services/internal/control/continuous_modeling_baseline_test.go)。逐步计时、实际执行次数与环境记录：[JSON 基线](continuous-modeling-100-baseline.json)。
+测试：[TestContinuousComplexModeling100BaselineThroughRouter](../../services/internal/control/continuous_modeling_baseline_test.go)。逐步计时、实际执行次数与环境记录：[JSON 基线](../../tests/test.data/continuous-modeling-100-baseline.json)。
 
 真实 Router/Worker + 独立临时 SQLite/ArtifactStore，持续修改同一个“板体拉伸→圆截面放样切除→圆周阵列→成员倒角”零件。20 轮，每轮依次修改板厚、放样截面半径、关联基准高度、阵列数量、成员倒角距离，共 100 次正式参数化建模修改。保持模型定义与历史连续演进，计时包含 Domain Command、求值、制品、Revision 提交和 DocumentView 返回。
 

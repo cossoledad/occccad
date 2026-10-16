@@ -1,8 +1,8 @@
 # Sketch 持久化、交互与验证
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-### 5.3.11 持久化、缓存与哈希
+## 持久化、缓存与哈希
 
 当前把 SketchFeature 放在不可变 `document_versions.model_json` 中，避免为每条线建立高写放大的关系表。PostgreSQL 只额外索引有业务查询价值的 Sketch/Parameter/External reference；未来协作量证明需要时再投影成专用表。
 
@@ -23,7 +23,7 @@ SketchSolveKey = Hash(
 
 规范化必须按稳定 ID 排序、统一单位/角度、拒绝 NaN/Infinity、规范 `-0`，并使用明确的浮点编码，不能依赖语言默认 JSON 格式。缓存命中仍需验证 build/schema/capability；结果可以存入 ArtifactStore 小对象或 Worker LRU，丢失后可重算。
 
-### 5.3.12 命令、API 与 Proto
+## 命令、API 与 Proto
 
 持久编辑继续通过 Document Command/Transaction 边界，不为每条线建立任意 CRUD API。一个用户动作提交一个 `EDIT_SKETCH`：
 
@@ -69,7 +69,7 @@ SolveSketchRequest
 
 大对象不放入 Proto；External curve snapshot 过大时以内容摘要和 signed artifact reference 传递。协议使用 `oneof` 表达 Entity/Constraint 变体，删除字段号必须保留。服务端根据 Worker capabilities 路由，不认识的 schema 返回 `UNSUPPORTED`，不能丢弃未知约束后继续计算。
 
-### 5.3.13 提交事务与并发控制
+## 提交事务与并发控制
 
 求值必须在数据库事务外完成，最终短事务只校验 Head/sequence 并提交；当前路径已采用该边界，见[模型与历史](../current/model-history.md)。合同如下：
 
@@ -102,7 +102,7 @@ sequenceDiagram
 
 同一 Sketch 的并发编辑按 EntityId/ConstraintId 生成冲突集；不同 Sketch 或不相交 Feature 可在依赖允许时自动 rebase 后重新求解。软编辑 presence/lease 只改善体验，不替代乐观并发。`request_id`/幂等键保证客户端重试不会生成两个 Revision。
 
-### 5.3.14 拖拽与交互求解
+## 拖拽与交互求解
 
 拖拽不写 Command、不创建 Version、不在每个 pointer move 后重生成完整 Part。
 
@@ -136,7 +136,7 @@ DragTarget 是临时目标，不成为持久硬约束。求解器在满足所有
 
 默认使用无状态 unary preview：每次携带完整 Snapshot，易于重试和扩缩容。只有测量证明网络/序列化成为瓶颈后，才增加双向流式 Sketch Session；Session 可固定 Worker 并缓存 warm state，但断线后客户端必须能用完整 Snapshot 在另一 Worker 恢复。
 
-### 5.3.15 外部几何
+## 外部几何
 
 ExternalGeometry 不复制一条“看起来相同”的普通线，而是保存：
 
@@ -149,7 +149,7 @@ ExternalGeometry 不复制一条“看起来相同”的普通线，而是保存
 
 ExternalGeometry 的首次 ADD/RECONNECT 必须在提交前完成 bind、resolve、projection 与 snapshot 验证；失败是候选命令的硬前置条件错误，不能创建一个从未成功连接过的 FAILED Head。`UNRESOLVED_EXTERNAL` Revision 只表达先前有效依赖在上游更新后的失效，并可保存诊断模型，但其 visualization/geometry artifact 必须具有该 Revision 自身的 model/manifest provenance，不能借用 dependency prefix 或 parent Revision 的 key 冒充最终制品。
 
-### 5.3.16 性能、资源限制与安全
+## 性能、资源限制与安全
 
 性能优化顺序：约束图分解 → dirty component → warm start → 缓存符号稀疏结构 → 避免拖拽期间 Part 重生成 → 最后才考虑并行/GPU。一个 Sketch 的耦合组件通常必须在一个 Solver 实例中求解，不跨 Worker 分割；不同 Sketch/配置可以跨 Worker 并行。
 
@@ -165,7 +165,7 @@ ExternalGeometry 的首次 ADD/RECONNECT 必须在提交前完成 bind、resolve
 
 求解器不得访问网络、文件或数据库。Expression 不执行用户代码。恶意 Sketch 导致超时只终止本次计算，不能拖垮共享 API 进程，因此最终求解位于受限 C++ Worker 而不是 Go HTTP 进程。
 
-### 5.3.17 可观测性
+## 可观测性
 
 每次权威求解记录 Trace Span，但不记录完整专有几何内容。指标至少包括：
 
@@ -180,7 +180,7 @@ ExternalGeometry 的首次 ADD/RECONNECT 必须在提交前完成 bind、resolve
 
 诊断响应携带 request/trace ID，便于从用户看到的冲突约束追踪到 Worker；日志只写 ID、计数和错误码，不写表达式秘密或整个模型。
 
-### 5.3.18 测试体系
+## 测试体系
 
 测试代码与其领域实现共同归属：模块内白盒测试验证最小不变量，跨模块 conformance 只依赖公开契约，仓库级 E2E 才允许编排多个进程。文件名和目录遵循各语言工具链，不建立第二套测试发现协议；每个场景必须自行创建 fixture、执行用户意图并断言领域结果，不得依赖上一测试留下的数组位置、全局 Store、数据库记录或执行顺序。CAD 交互场景以 `pointerdown -> pointerup -> move -> pointerdown -> pointerup` 等真实手势驱动 Tool 边界，同时断言持久 operation，而不是直接篡改 UI state。
 

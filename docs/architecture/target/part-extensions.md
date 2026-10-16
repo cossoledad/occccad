@@ -1,8 +1,8 @@
 # 实体特征扩展契约
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-### 5.4.10 抽壳 Shell
+## 抽壳 Shell
 
 Shell 是对已有 Solid 的原子修改：删除指定开口面，并对其余边界做等距偏移和连接。
 
@@ -32,7 +32,7 @@ message ShellFeature {
 
 扩展设计可增加 `MultiThicknessShellFeature`，但它不是简单给 face 列表附不同厚度：必须定义厚度分区边界、过渡规则和连接连续性，未设计前不放进当前 schema。
 
-### 5.4.11 拔模 Draft
+## 拔模 Draft
 
 Draft 以明确的中性元素、拉模方向和面组修改 Body：
 
@@ -63,7 +63,7 @@ message DraftGroup {
 
 拉伸自带斜度可以在内部复用 Draft evaluator，但它仍是一个 `LinearExtrudeFeature`，不在用户 Feature Graph 中偷偷插入第二个 FeatureId。
 
-### 5.4.12 多截面实体 Loft
+## 多截面实体 Loft
 
 多截面实体是按用户给定顺序穿过多个截面构造 Solid，不按世界坐标自动排序：
 
@@ -112,7 +112,7 @@ ResolvedSectionMatching
 
 若为了兼容而需要拆分 Wire，这些 split 只存在于 Feature 的求值副本，并把 `inserted_split_vertices` 记录为派生拓扑；绝不能反向修改 Sketch 或上游 Face。输出血缘使用 `GeneratedFace(interval_id)`、`StartCap`、`EndCap` 和 terminal point fan，不用结果面序号。
 
-### 5.4.13 后续特征如何扩展
+## 后续特征如何扩展
 
 | Feature | 分类 | 复用能力 | 需要新增的关键语义 |
 |---|---|---|---|

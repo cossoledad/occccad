@@ -1,8 +1,8 @@
 # Sketch 约束、求解与 Profile
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-### 5.3.5 约束模型与交付顺序
+## 约束模型与交付顺序
 
 约束分为几何约束、尺寸约束和求解控制约束。
 
@@ -69,7 +69,7 @@
 
 冗余表示新增方程没有提高 Jacobian rank；冲突表示约束系统在容差内不存在共同可行解。欠约束不是冲突。求解器必须先区分这三者，再决定是否执行较昂贵的冲突候选搜索。
 
-### 5.3.6 参数、单位与表达式
+## 参数、单位与表达式
 
 SketchModel 保存表达式文本和 ParameterId，不把表达式解析塞进数值求解器。Model/Part Evaluation 层负责：
 
@@ -81,7 +81,7 @@ SketchModel 保存表达式文本和 ParameterId，不把表达式解析塞进�
 
 求解器只接收有限数值与 Dimension 类型。禁止 `eval`、文件/网络访问、随机数、当前时间或不确定函数。表达式结果、表达式引擎版本和依赖值进入 SketchSolveKey。
 
-### 5.3.7 求解器抽象与技术选择
+## 求解器抽象与技术选择
 
 公共 C++ 接口必须先于具体库稳定：
 
@@ -108,7 +108,7 @@ SketchSolver
 
 [SolveSpace](https://github.com/solvespace/solvespace)/libslvs 当前采用 GPL-3.0，不作为 MIT 核心进程的默认链接依赖；如未来使用，应经过许可证评审并采用明确隔离的可选插件。不要把 Ceres 直接当成完整 CAD 草图求解器：Ceres 擅长非线性最小二乘，但 CAD 仍需约束分解、冗余诊断、分支选择和退化处理。它可作为特定后端构件。[Ceres 文档](https://ceres-solver.readthedocs.io/latest/)
 
-### 5.3.8 求解流水线
+## 求解流水线
 
 ```mermaid
 flowchart LR
@@ -139,7 +139,7 @@ flowchart LR
 
 Tolerance 不散落为魔法常量。版本化 `ToleranceProfile` 至少包含 length/angular residual、rank threshold、degeneracy、coincidence、max iterations 和 profile closure tolerance。默认值由单位跨度语料和 OCCT 下游容差共同标定；`tolerance_profile_id` 与 solver build digest 必须进入缓存键和诊断。
 
-### 5.3.9 求解状态与诊断契约
+## 求解状态与诊断契约
 
 `SolveResult` 至少返回：
 
@@ -176,7 +176,7 @@ SolveResult
 
 统一机器错误码示例：`SKETCH_INVALID_SCHEMA`、`SKETCH_STALE_BASE`、`SKETCH_UNRESOLVED_SUPPORT`、`SKETCH_UNSUPPORTED_ENTITY`、`SKETCH_REDUNDANT_CONSTRAINT`、`SKETCH_CONFLICTING_CONSTRAINT`、`SKETCH_NON_CONVERGENT`、`SKETCH_DEGENERATE_ENTITY`、`SKETCH_OPEN_PROFILE`、`SKETCH_SELF_INTERSECTION`、`SKETCH_SOLVER_TIMEOUT`。人类文本由客户端按 `message_key` 本地化，服务端不要让调用方解析英文错误字符串。
 
-### 5.3.10 Profile Builder 与 OCCT 集成
+## Profile Builder 与 OCCT 集成
 
 求解成功不代表草图能生成实体。Profile Builder 是独立阶段：
 

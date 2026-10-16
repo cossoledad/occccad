@@ -1,8 +1,8 @@
 # Product 求值、资源与验证
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-### 5.6.33 Worker 与服务边界
+## Worker 与服务边界
 
 ```mermaid
 flowchart TB
@@ -28,7 +28,7 @@ flowchart TB
 - 每个 Worker 只写 Job 授权对象前缀，Model Service 最终 CAS manifest；
 - 一次 connected constraint component 或 closed-loop mechanism 不跨网络拆成逐方程 RPC。
 
-### 5.6.34 装配求值调用流程
+## 装配求值调用流程
 
 ```mermaid
 sequenceDiagram
@@ -54,7 +54,7 @@ sequenceDiagram
     M-->>C: committed poses/connections or diagnostics
 ```
 
-### 5.6.35 缓存、增量与确定性
+## 缓存、增量与确定性
 
 ```text
 AssemblySolveKey = hash(
@@ -78,7 +78,7 @@ DMU Key 加入 occurrence Pose map、representation manifests、scope/rules、cl
 - 数值解跨架构不能保证字节一致时标 `GEOMETRIC_EQUIVALENCE` 并固定发布 Worker platform；
 - Simulation 浮点轨迹默认不作为跨平台内容等同，manifest 仍可内容寻址并记录环境。
 
-### 5.6.36 可观测性、资源与安全
+## 可观测性、资源与安全
 
 Assembly 指标：occurrence/reference/leaf 数、展开深度、rigid clusters、constraints、connected components、remaining DOF、iterations、residual、conflict set、cache hit。
 
@@ -88,7 +88,7 @@ Simulation 指标：bodies/joints/loops、steps/rejected steps/events、constrai
 
 资源边界：最大层深/occurrences/constraints、路径长度、Publication 数、pair candidates、exact pair 数、time steps、output series、FMU wall time。Product 展开和 recursive reference 有 cycle/depth/size 防护；恶意或退化 geometry/mesh/FMU 隔离处理。Metrics 不用 InstancePath 作为高基数 label，ID 放受权限控制的 trace。
 
-### 5.6.37 统一错误模型
+## 统一错误模型
 
 | Code | 含义 |
 |---|---|
@@ -112,7 +112,7 @@ Simulation 指标：bodies/joints/loops、steps/rejected steps/events、constrai
 
 Diagnostic 包含 Product Revision/config snapshot、InstancePaths、Connection/Constraint/Joint IDs、geometry evidence、residual/threshold、solver stage、suggestion key 和 highlight artifact。用户文本本地化，服务端不让客户端解析英文错误。
 
-### 5.6.38 测试与验证矩阵
+## 测试与验证矩阵
 
 | 层级 | 覆盖内容 |
 |---|---|
@@ -138,7 +138,7 @@ Diagnostic 包含 Product Revision/config snapshot、InstancePaths、Connection/
 
 Constraint Jacobian 用 finite-difference/automatic differentiation 对照解析实现；Mechanism 使用已知解析机构、独立闭合见证及同一装配内核的真实调用链对照，第二后端仅为后续独立验证候选；DMU proxy 结果用 exact subset 校验 false-negative rate，发布规则默认不允许未知 false negative。
 
-### 5.6.39 推荐模块边界
+## 推荐模块边界
 
 ```text
 model/product/api/              reference, instance, path, configuration, BOM

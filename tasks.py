@@ -572,6 +572,7 @@ def _context_audit() -> tuple[list[str], list[tuple[int, str]]]:
         PROJECT_ROOT / "workers" / "geometry" / "AGENTS.md",
         PROJECT_ROOT / "services" / "AGENTS.md",
         PROJECT_ROOT / "web" / "apps" / "cad" / "AGENTS.md",
+        PROJECT_ROOT / "docs" / "AGENTS.md",
     ]
     for guide in local_guides:
         if not guide.exists():
@@ -579,23 +580,18 @@ def _context_audit() -> tuple[list[str], list[tuple[int, str]]]:
         elif len(guide.read_text(encoding="utf-8").splitlines()) > 100 or guide.stat().st_size > 7000:
             errors.append(f"oversized local guide: {guide.relative_to(PROJECT_ROOT)}")
 
-    required = (
-        PROJECT_ROOT / "docs" / "README.md",
-        PROJECT_ROOT / "docs" / "architecture" / "agent-efficiency.md",
-        PROJECT_ROOT / "docs" / "architecture" / "model-history.md",
-        PROJECT_ROOT / "docs" / "architecture" / "persistent-naming.md",
-        PROJECT_ROOT / "docs" / "architecture" / "worker-contracts.md",
-    )
-    for path in required:
-        if not path.exists():
-            errors.append(f"missing knowledge entry: {path.relative_to(PROJECT_ROOT)}")
+    project_map = PROJECT_ROOT / "docs" / "README.md"
+    if project_map.exists() and project_map.stat().st_size > 5000:
+        errors.append("docs/README.md exceeded the 5 KB project-map budget")
     if (PROJECT_ROOT / "save-token.md").exists() or (PROJECT_ROOT / "save-token-plan.md").exists():
         errors.append("superseded root token prompt is present; maintain focused docs instead")
     if Path(__file__).stat().st_size > 40000:
         errors.append("tasks.py exceeded the 40 KB agent-large threshold; split validation tooling")
 
-    from tools.documentation_audit import audit
+    from tools.documentation_audit import audit, navigation_errors, structure_errors
     errors.extend(audit(PROJECT_ROOT))
+    errors.extend(navigation_errors(PROJECT_ROOT))
+    errors.extend(structure_errors(PROJECT_ROOT))
 
     listed = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
@@ -632,10 +628,11 @@ def context_audit(c, verbose=False):
             print(f"  - {error}")
         raise Exit(code=1)
     strong = sum(size >= 120000 for size, _ in hotspots)
-    print(f"[context-audit] PASS guides/links; large text: {len(hotspots)}, strong candidates: {strong}")
-    entry_bytes = sum((PROJECT_ROOT / p).stat().st_size for p in ("AGENTS.md", "docs/README.md"))
-    local_sizes = [(PROJECT_ROOT / p / "AGENTS.md").stat().st_size for p in ("kernel/assembly", "kernel/occt", "workers/geometry", "services", "web/apps/cad")]
-    print(f"[context-audit] default entry bytes (root + docs + one local guide): {entry_bytes + min(local_sizes)}..{entry_bytes + max(local_sizes)}")
+    print(f"[context-audit] PASS guides/links/navigation/layout; large text: {len(hotspots)}, strong candidates: {strong}")
+    from tools.documentation_audit import entry_sizes, sizes
+    entries = entry_sizes(sizes(PROJECT_ROOT))
+    local = list(entries["localTask"].values())
+    print(f"[context-audit] entry bytes: local task {min(local)}..{max(local)} (root + one code guide); project map +{entries['projectMap']}")
     if verbose:
         for size, path in hotspots:
             print(f"  {size:>8}  {path}")

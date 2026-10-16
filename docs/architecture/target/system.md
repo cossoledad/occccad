@@ -1,8 +1,8 @@
 # 愿景、平台原则与逻辑边界
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
-## 1. 愿景与范围
+## 愿景与范围
 
 occccad 的长期目标是一个开源、云原生、真正分布式的产品研发平台：在浏览器中完成参数化零件、复杂装配、工程表达与跨团队协作，并把精确 CAD 计算调度到可横向扩展的计算集群。CATIA 是能力广度和工程严谨性的参照，不是 UI 或内部实现的复制对象。
 
@@ -17,7 +17,7 @@ occccad 的长期目标是一个开源、云原生、真正分布式的产品研
 
 它不意味着把每个领域类都做成微服务，也不意味着一次几何操作跨多台机器并行。B-Rep 内核通常更适合单任务单进程；分布式收益主要来自文档/零件/配置/仿真任务之间的并行、缓存复用和数据局部性。
 
-## 1.1 目标产品工作流
+## 目标产品工作流
 
 平台最终应支持一条连续、可追溯的工程链：
 
@@ -38,7 +38,7 @@ flowchart LR
 - 下游通过开放协议、制品和插件读取发布数据，不直接依赖 Worker 内存或私有数据库结构；
 - 任一阶段的失败都提供可定位诊断、可恢复历史和可重现输入，不以静默修复掩盖设计问题。
 
-## 1.2 产品级质量属性
+## 产品级质量属性
 
 | 属性 | 目标含义 |
 |---|---|
@@ -51,7 +51,7 @@ flowchart LR
 | 安全性 | 多租户隔离、不可信输入沙箱、最小权限、审计和供应链可追踪 |
 | 可演进 | 旧 Revision 可读，schema/evaluator 升级可并存、比较和迁移 |
 
-## 2. 设计原则
+## 设计原则
 
 1. **参数模型是源，几何是缓存**：Document Revision + Typed Model Snapshot + Parameters/Relations 可重放；B-Rep、Mesh、缩略图均可淘汰重建。
 2. **粗粒度远程，细粒度本地**：RPC 表达“求值 Part Revision”而不是 `MakeEdge`；草图求解与 Part 重生成之间的高频循环留在同一 Worker。
@@ -63,7 +63,7 @@ flowchart LR
 8. **安全默认**：所有导入文件和插件代码视为不可信；计算容器无特权、有限额、无默认外网。
 9. **演进式开源**：候选库先过许可证、维护活跃度、格式兼容性、正确性与基准测试，不因“流行”直接引入。
 
-## 3. 目标总体架构
+## 目标总体架构
 
 ```mermaid
 flowchart TB
@@ -139,9 +139,9 @@ flowchart TB
 
 这是逻辑边界，不要求第一天部署为十几个进程。Model、IAM、Job、Artifact Metadata 与 Realtime 先保持模块化控制面；Realtime、Scheduler 和计算子模块只在连接规模、资源或隔离证据满足时拆进程。图中的 NATS、Redis、Kubernetes 与独立 Worker 是条件性候选，不是引入依赖的授权或产品功能的前置条件。
 
-## 4. 权威数据模型
+## 权威数据模型
 
-## 4.1 聚合层级
+## 聚合层级
 
 ```mermaid
 classDiagram
@@ -193,7 +193,7 @@ classDiagram
 
 ID 使用 UUIDv7/ULID 一类可排序业务 ID；内容使用 SHA-256/BLAKE3 等内容摘要。两者不能混用：RevisionId 代表业务身份，GeometryId 代表计算内容。
 
-## 4.2 Feature Graph
+## Feature Graph
 
 Feature 不应继续编码为 `repeated RectangularPadSpec`。目标模型需要版本化的 typed node：
 

@@ -1,10 +1,10 @@
 # 曲面与三维线框模型
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
 本页为长期候选设计；尚无完整产品实现。引入新模型、第三方库或服务前必须完成范围、许可证、corpus 与资源边界验证。
 
-### 5.5.1 对标范围和边界
+## 对标范围和边界
 
 | 能力层 | 对标目标 | occccad 设计结论 |
 |---|---|---|
@@ -21,7 +21,7 @@
 
 本设计范围不包括 CATIA ICEM 级汽车外覆盖件能力。G3 构造、多补片全局 Class-A 优化、非均匀偏置、全局 Morph、扫描点云自动曲面重建都需要长期算法投入；文档将其明确列为研究阶段，避免路线图把功能名称等同于工程完成。
 
-### 5.5.3 三种几何表示严格分层
+## 三种几何表示严格分层
 
 ```mermaid
 flowchart LR
@@ -43,11 +43,11 @@ flowchart LR
 
 不能设计一个字段叫 `surface_blob`，让它有时存 NURBS、有时存三角网格。不同表示的参数、拓扑身份、可交换性和确定性完全不同。
 
-### 5.5.4 Part 内的混合容器
+## Part 内的混合容器
 
 ```text
 PartRevision
-  solid_bodies[]           // 5.4 SOLID_BODY，Tip 必须为有效 Solid
+  solid_bodies[]           // SOLID_BODY，Tip 必须为有效 Solid
   geometrical_sets[]       // 组织 wire/surface/datum Feature，可为 DAG
   ordered_sets[]           // 有显式顺序与 current result 的几何集合
   features[]               // 同一 typed Feature Graph
@@ -62,7 +62,7 @@ PartRevision
 - 隐藏/显示、工作对象和树文件夹不进入 GeometryId；Suppress、Isolate、Replace 等建模语义进入 Revision；
 - 下游跨 Part 只引用 `PublishedElement`，不直接钻取另一个 Part 的任意内部 Feature。
 
-### 5.5.5 3D 线框是曲面的前置领域
+## 3D 线框是曲面的前置领域
 
 Surface 不直接消费客户端折线。3D 线框模块至少提供：
 
@@ -79,7 +79,7 @@ Surface 不直接消费客户端折线。3D 线框模块至少提供：
 
 `CurveOnSurface` 必须同时保存 3D curve 与支撑面的 pcurve/UV 关系；两者偏差超限即失败。投影和相交可能得到多条 Curve，FeatureResult 返回稳定 `solution_id` 集合；需要单曲线的下游必须保存用户选择的 branch evidence，不能每次取最长曲线。
 
-### 5.5.6 曲面基础值类型
+## 曲面基础值类型
 
 ```proto
 enum GeometricContinuity { G0 = 0; G1 = 1; G2 = 2; G3 = 3; }
@@ -115,9 +115,9 @@ message SurfaceBranchSelection {
 
 `LawRef` 引用 Parameter Graph 中的一维标量函数：constant、linear、S-curve、piecewise spline 或 expression。权威 domain 规范为 `[0,1]`，同时记录它映射到 spine arc length、curve parameter 还是 section index；禁止不同 Feature 各自猜测 law 自变量。
 
-### 5.5.7 Surface Feature 类型契约
+## Surface Feature 类型契约
 
-在 5.4 的 `FeatureNode.oneof definition` 中增加明确分支：
+在 [Part 模型](part-model.md)的 `FeatureNode.oneof definition` 中增加明确分支：
 
 ```proto
 oneof definition {
@@ -141,9 +141,9 @@ oneof definition {
 }
 ```
 
-Surface Feature 不使用 `BodyOperation`；它产生或修改 Surface outputs。只有 Thicken/Close/Surface-cut-Solid 这类桥接 Feature 输出 Solid Body，并服从 5.4 的 Body policy。实体 `LoftFeature` 与 `MultiSectionSurfaceFeature` 共享 section matching 库，但 schema 和结果门禁不同：前者要求闭合截面和 Solid，后者允许开放截面并产生 Face/Open Shell。
+Surface Feature 不使用 `BodyOperation`；它产生或修改 Surface outputs。只有 Thicken/Close/Surface-cut-Solid 这类桥接 Feature 输出 Solid Body，并服从 [Part 模型](part-model.md)的 Body policy。实体 `LoftFeature` 与 `MultiSectionSurfaceFeature` 共享 section matching 库，但 schema 和结果门禁不同：前者要求闭合截面和 Solid，后者允许开放截面并产生 Face/Open Shell。
 
-### 5.5.8 共用求值流水线
+## 共用求值流水线
 
 ```mermaid
 flowchart TD

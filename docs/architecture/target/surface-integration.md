@@ -1,10 +1,10 @@
 # 曲面计算、交互与验证
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
 本页为长期候选设计；尚无完整产品实现。引入新模型、第三方库或服务前必须完成范围、许可证、corpus 与资源边界验证。
 
-### 5.5.26 分布式 Worker 设计
+## 分布式 Worker 设计
 
 无需为每个曲面命令建微服务。初期在 `PartEvaluationWorker` 内提供独立 capability：
 
@@ -39,7 +39,7 @@ flowchart TB
 - Web 端做低延迟 tessellated/limit-surface preview；最终 B-Rep 和质量门只在权威 Worker；
 - capability 包含 OCCT/algorithm build、quality profile、maximum limits 和 determinism class。
 
-### 5.5.27 交互预览与提交
+## 交互预览与提交
 
 控制点拖动、law 曲线和 Sweep placement 需要 30–60 FPS 反馈，但不能每帧创建 Revision：
 
@@ -53,9 +53,9 @@ flowchart TB
 
 Preview artifact 有短 TTL、不可被下游 Revision 引用。Branch 选择使用 solution ID/evidence，不能依赖预览列表序号。
 
-### 5.5.28 缓存与确定性
+## 缓存与确定性
 
-SurfaceEvaluationKey 在 5.4 基础上增加：
+SurfaceEvaluationKey 在 [Part 缓存身份](part-evaluation.md#缓存键与确定性)基础上增加：
 
 ```text
 ordered curve/surface input GeometryIds
@@ -68,7 +68,7 @@ canonical detection + healing policy
 
 质量报告 Key 还包含 selection scope、analysis types、sampling policy 和 report schema。Zebra 的观察方向/环境纹理是 View state，不进入 B-Rep GeometryId；若生成可复现审查截图，则进入该截图 artifact key。
 
-### 5.5.29 诊断模型
+## 诊断模型
 
 | Code | 场景 |
 |---|---|
@@ -92,7 +92,7 @@ canonical detection + healing policy
 
 每个错误给出 Feature stage、输入 IDs、problem boundary/UV interval、3D bbox、max measured value、required threshold、kernel status 和 repair suggestion key。对 fold/continuity/deviation 生成小型 highlight artifact，帮助浏览器定位，而不是只显示一句“Update failed”。
 
-### 5.5.30 资源、安全和数值边界
+## 资源、安全和数值边界
 
 - 限制每 Feature 的 input faces/curves、sections/guides、NURBS degree/poles/knots/spans、intersection branches 和 output topology；
 - 限制 UV/世界坐标、weight dynamic range、law samples 和 tolerance ratio；
@@ -103,7 +103,7 @@ canonical detection + healing policy
 - 自动 tolerance growth 有绝对上限和局部 feature-size 比率上限；
 - quality sampling 对退化/恶意参数化有最大递归深度，达到上限返回 inconclusive/失败，不能错误通过。
 
-### 5.5.31 测试与验证矩阵
+## 测试与验证矩阵
 
 | 层级 | 覆盖内容 |
 |---|---|
@@ -128,7 +128,7 @@ canonical detection + healing policy
 
 Corpus 必须包含公开可再分发模型和项目自建参数化案例，不依赖无法进入 CI 的商业 CATIA 文件。可使用 STEP 作为几何交换对照，但 Feature history 不做无依据的跨 CAD 反推。
 
-### 5.5.32 推荐模块边界
+## 推荐模块边界
 
 ```text
 kernel/wire3d/api/              typed 3D curve/domain/reference contracts

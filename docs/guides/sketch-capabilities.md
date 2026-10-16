@@ -76,7 +76,7 @@ PlaneGCS 使用仓库锁定的 FreeCAD 1.0.2 commit `256fc7eff3379911ab5daf88e10
 
 ## 数据格式与目录迁移
 
-Sketch 模型使用椭圆、canonical 样条、稳定端点/点身份、Reference 与关联镜像 selfMirrorMode，保持稳定 ParameterId、历史与严格引用校验。创建、编辑、约束和尺寸入口由 `internal/workbenchconfig/catalog.json` 定义，Mock 与真实 API 消费同一配置，并通过 Web CommandRegistry 执行。数据库只建立当前领域结构和必要管理员种子；两种后端的基线及显式重建规则见[数据库层说明](../services/internal/database/README.md#迁移)。
+Sketch 模型使用椭圆、canonical 样条、稳定端点/点身份、Reference 与关联镜像 selfMirrorMode，保持稳定 ParameterId、历史与严格引用校验。创建、编辑、约束和尺寸入口由 `internal/workbenchconfig/catalog.json` 定义，Mock 与真实 API 消费同一配置，并通过 Web CommandRegistry 执行。数据库只建立当前领域结构和必要管理员种子；两种后端的基线及显式重建规则见[数据库层说明](../../services/internal/database/README.md#迁移)。
 
 ## 可操作的人工验收
 

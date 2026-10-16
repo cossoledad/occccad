@@ -61,7 +61,7 @@ A grounded inconsistent component with no movable parameters emits explicit
 The offline [replay tool](../../services/cmd/occccad-3dreplay/README.md) uses this
 same solver and production input adapter. Its tables preserve all saved constraint
 states separately from participation and original failure attempts. The
-[performance report](../../tests/test.data/assembly-input-performance.md) records
+[performance report](../../docs/validation/assembly-input-performance.md) records
 measured payload, allocation, phase and RSS tradeoffs.
 
 ## Native primitives and public compilation
@@ -199,6 +199,8 @@ Product/Worker boundary, not queried by this module. Continuous dragging uses a 
 pure-value objective (below); a general minimum-cardinality conflict prover and
 large-scale sparse backend are not implemented by this mathematical module.
 
+## Build and validation
+
 Build and run the focused scenarios with:
 
 ```sh
@@ -217,6 +219,8 @@ and cold/warm-start equivalence. Run it independently with:
 cmake --build build/cmake/release --target occcad_assembly_solver_corpus
 ctest --test-dir build/cmake/release -R '^assembly-corpus/' --output-on-failure
 ```
+
+## Performance
 
 Run the deterministic dense-backend baseline with
 `invoke performance-baseline`; the assembly result is written to
@@ -250,7 +254,7 @@ analytic fixtures; an environment-blocked test fails the command instead of
 reporting performance success. No stage resets data. The underlying runner is
 `python kernel/assembly/tests/run_performance.py`; `--label` accepts a unique
 run name and never overwrites an existing run. See the
-[performance report](../../tests/test.data/assembly-solver-performance.md) for
+[performance report](../../docs/validation/assembly-solver-performance.md) for
 historical comparisons and measurement boundaries.
 
 `occcad_assembly_interaction_benchmark [samples] [scene]` measures kernel-only

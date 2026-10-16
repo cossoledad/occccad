@@ -1,128 +1,66 @@
 # occccad
 
-> 基于开源技术构建的分布式云端 CAD 平台。
+开放的云原生参数化 CAD，以 CATIA 机械设计工作流为长期参照，采用可替换计算后端和开放格式。当前是早期可运行垂直切片：React/Three.js 工作台、Go 控制面、PostgreSQL/SQLite、C++ Geometry Worker、LOCAL/S3 制品存储已贯通。
 
-occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产品装配、版本协作、精确几何计算和工程数据管理设计为可水平扩展的云端系统。项目以 CATIA 覆盖的机械设计能力为长期参照，但坚持开放格式、可替换计算后端和开源部署。
+项目支持 Part/Product、Sketch/Profile、Multi-Body 参数化实体特征、持久命名、装配约束、机构试动与录制、版本历史、STEP/BREP 文档交换、账号与 ACL。能力范围与限制由[当前架构](docs/architecture/current/README.md)拥有；长期语义见[目标设计](docs/architecture/target/README.md)，未完成工作见[plans](plans/README.md)。定向实现不等于工业规模或完整浏览器验收。
 
-## 项目状态
+## 从这里进入
 
-仓库当前是可运行的早期垂直切片，而不是完整 CAD 产品。已经贯通浏览器工作台、Go API、PostgreSQL/SQLite Local Mode、持久任务、C++/OCCT Geometry Worker 和 LOCAL/S3 制品存储；当前支持通用草图、参数化特征与关联产品设计、Part/Product 文档、版本历史、Document Center 中的 STEP/BREP 文档交换、账号与 ACL 等基础能力。
-
-当前支持 Sketch/Profile、Extrude/Revolve 几何与显式 Multi-Body、持久命名、Product 引用/上下文、六类装配、连续约束操纵、局部诊断及冻结发布。具体能力、算法、验证与限制从[知识目录](docs/README.md)进入。完整 Revolve history、更多 Feature、关联 trimmed Arc/边界/Section、大模型工作集、工程连接与跨主机协作仍有明确边界；[后续工作](plans/README.md)只保留未完成方向。
-
-## 文档
-
-- [架构知识路由](docs/README.md)：按任务定位最小必要的当前/目标架构章节。
-- [Agent Token 效率架构](docs/architecture/agent-efficiency.md)：上下文分层、验证路由、输出契约、指标和后续计划。
-- [现有架构](docs/CURRENT_ARCHITECTURE.md)：只描述当前仓库中可以从代码、配置和数据库迁移验证的事实。
-- [目标架构](docs/TARGET_ARCHITECTURE.md)：面向开源分布式 CAD 的长期设计、Worker 划分、调用关系、技术选型和演进路线。
-- [统一开发路线](plans/README.md)：装配主线、Feature/Sketch 支线、待验收与候选进入条件。
-- [AI Agent 路由](AGENTS.md)：精简的全局不变量、模块导航和渐进验证规则；高频领域另有邻近指南。
-
-`docs/README.md` 只作入口，两份架构入口分别路由到 `docs/architecture/current/` 和 `docs/architecture/target/` 分册。历史 Demo 和版本说明已经合并，不再作为有效架构依据。
-
-## 可运行单元
-
-| 单元 | 类型 | 说明 |
-|---|---|---|
-| [occccad-server](services/cmd/occccad-server/README.md) | Go HTTP 服务 | 账号、文档、版本、ACL、任务与几何编排 |
-| [occccad-jobs](services/cmd/occccad-jobs/README.md) | Go 后台 Worker | STEP/BREP 文档交换和缩略图持久任务 |
-| [occccad-control](services/cmd/occccad-control/README.md) | Go 本地控制进程 | 启动、代理、调试切流和本机 Geometry Worker 池 |
-| [occccad-monitor](services/cmd/occccad-monitor/README.md) | Go TUI | 独立显示本地进程资源、Geometry 池和业务快照 |
-| [occccad-migrate](services/cmd/occccad-migrate/README.md) | Go 一次性任务 | 执行带校验的 PostgreSQL/SQLite 迁移 |
-| [occccad-3dreplay](services/cmd/occccad-3dreplay/README.md) | Go CLI | 从最小数学文件通过 Worker/Router 重放三维约束求解 |
-| [Geometry Worker](workers/geometry/README.md) | C++ gRPC Worker | OCCT 精确几何、拓扑、网格与 STEP/BREP 交换 |
-| [CAD Web](web/apps/cad/README.md) | React Web 应用 | 文档中心、CAD 工作台、交互和 Three.js 视口 |
-
-`kernel/api` 与 `kernel/occt` 是 Geometry Worker 内部链接的 C++ 库，并非网络服务；`services/internal/*` 是 Go 进程共享的内部包，也不是微服务。
+- [项目地图](docs/README.md)：系统调用链、核心领域、源码归属、事实与意图入口。
+- [Agent 路由](AGENTS.md)：全局规则与各领域指南；局部任务从这里搜符号及测试。
+- [开发指南](docs/development/README.md)：环境、资源、Agent 工作流与文档维护。
+- [操作指南](docs/guides/README.md)、[测试路由](tests/README.md)、[验证记录](docs/validation/README.md)：操作、可执行检查和历史证据分开。
 
 ## 快速开始
 
-推荐在 Linux 或 WSL2 中开发。需要 CMake 3.30+、C++17 编译器、Ninja、Conan 2、Python 3、Go、Node.js/pnpm；默认数据库为 PostgreSQL，也可使用不需要数据库服务器的 SQLite Local Mode。仓库当前固定 OCCT 7.9.1；精确版本以 `conanfile.py`、`services/go.mod` 和 `web/package.json` 为准。
-
-开发资源授权、`.env` 加载规则、PostgreSQL 与浏览器依赖见[环境准备](docs/development-environment.md)。已有 `.env` 时直接复用，不要用示例覆盖。
-
-C++ 构建和启动默认使用 `Release`，制品位于 `build/cmake/release`。Invoke 优先使用显式 `--build-type`，其次读取 `OCCCCAD_BUILD_TYPE`，未配置时使用 `Release`。原生调试可显式选择 `--build-type=Debug`；Go 与 Web 继续使用各自的构建入口。
+Linux/WSL2 构建依赖与数据库配置见[环境准备](docs/development/environment.md)。准确版本看 Conan、Go、Web 的清单与锁文件。已有根 `.env` 时保留；首次才从 `.env.example` 复制并配置数据库与 `OCCCCAD_ADMIN_PASSWORD`。
 
 ```bash
-sudo apt install cmake clang ninja-build build-essential
-# WSLg
-sudo apt install libgl1-mesa-dev libgl-dev libx11-xcb-dev libfontenc-dev libice-dev libsm-dev libxaw7-dev libxcomposite-dev libxcursor-dev libxdamage-dev libxext-dev libxfixes-dev libxi-dev libxinerama-dev libxkbfile-dev libxmu-dev libxmuu-dev libxpm-dev libxrandr-dev libxrender-dev libxres-dev libxss-dev libxt-dev libxtst-dev libxv-dev libxxf86vm-dev libxcb-glx0-dev libxcb-render0-dev libxcb-render-util0-dev libxcb-xkb-dev libxcb-icccm4-dev libxcb-image0-dev libxcb-keysyms1-dev libxcb-randr0-dev libxcb-shape0-dev libxcb-sync-dev libxcb-xfixes0-dev libxcb-xinerama0-dev libxcb-dri3-dev uuid-dev libxcb-cursor-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev libxcb-composite0-dev libxcb-ewmh-dev libxcb-res0-dev libxcb-util-dev pkg-config
-
-curl https://mise.run | sh
-mise use --global python@3.14 node@lts go@1.26
-
 python -m pip install -r requirements-build.txt
 invoke configure --build-type=Release
 invoke build --build-type=Release
-invoke test --build-type=Release
-```
-
-首次配置且尚无 `.env` 时，复制 `.env.example` 为 `.env`，配置 PostgreSQL，或设置 `OCCCCAD_DATABASE_URL=sqlite:/absolute/path/local.db`（详见[数据库模式](services/internal/database/README.md)），并设置首次启动所需的 `OCCCCAD_ADMIN_PASSWORD`：
-
-```bash
 invoke run.app --build-type=Release
 ```
 
-当前未发布开发阶段允许直接丢弃本地业务数据。需要从完全干净的服务端状态启动时，先停止已有 occccad 进程，再执行：
-
-```bash
-invoke run.app --reset-data --build-type=Release
-```
-
-该选项按环境配置删除 PostgreSQL `occccad` schema 或 SQLite 专用数据库全部用户表、视图及迁移记录，以及`OCCCCAD_DATA_DIR` 指向的本地 ArtifactStore/暂存目录；S3 模式还清空 `OCCCCAD_S3_BUCKET` 全部对象、历史版本、删除标记和未完成分片（保留桶），随后从当前迁移重建 schema；进程内 Router/Worker 状态随新进程自然清空。若只清理和迁移而不启动，使用 `invoke data.reset --yes`。命令不可用于已经承诺保留数据的发布环境。
-
-另开终端启动连接真实 API 的前端：
+另开终端启动真实 API 前端；纯 UI 开发可用 Mock：
 
 ```bash
 invoke run.web --mode=api
-```
-
-第三个终端可启动只读监控面板：
-
-```bash
-invoke run.monitor
-```
-
-只开发界面时可以使用浏览器内 Mock Adapter，不需要数据库或后端：
-
-```bash
+# 仅前端 Mock
 invoke run.web
 ```
 
-常用命令及每个进程的配置、端口和故障语义请查看对应 README。
+只读监控用 `invoke run.monitor`。原生构建默认 Release，显式 `--build-type` 优先于 `OCCCCAD_BUILD_TYPE`；调试可选 Debug。
 
-## 仓库结构
+开发数据重置用 `invoke data.reset --yes` 或 `invoke run.app --reset-data`，先停止占用进程。清理配置所指数据库业务域、本地制品/暂存和专用 S3 桶，完整授权与范围见[开发数据边界](AGENTS.md#当前开发数据边界)。
 
-```text
-occccad/
-├── kernel/                  不暴露 OCCT 类型的内核 API 与 OCCT 适配
-├── proto/                   Go/C++ 共用的 gRPC 契约
-├── workers/geometry/        C++ Geometry Worker
-├── services/cmd/            Go 可执行进程
-├── services/internal/       Go 领域、存储和控制实现
-├── services/internal/database/postgres_migrations/
-├── services/internal/database/sqlite_migrations/
-├── web/apps/cad/            React CAD Web 应用
-├── tests/                   仅跨模块/跨进程 conformance；单元与场景测试邻近实现
-│   └── test.data/           统一测试输入、回归语料与验收记录
-├── deploy/                  部署辅助配置
-└── docs/                    现有架构与目标架构
+## 模块与运行单元
+
+| 目录/单元 | 职责与运行说明 |
+|---|---|
+| `kernel/api/`、`kernel/occt/`、`kernel/assembly/` | 无第三方类型的领域 API、精确几何适配、[装配算法库](kernel/assembly/README.md) |
+| `proto/`、[Geometry Worker](workers/geometry/README.md) | Go/C++ 契约、粗粒度计算；[Sketch solver](workers/geometry/sketch/README.md) 同进程承载 |
+| [server](services/cmd/occccad-server/README.md) | HTTP/Realtime、账号/ACL、文档/命令、求值编排 |
+| [jobs](services/cmd/occccad-jobs/README.md) | 持久交换、缩略图、机构结果任务 |
+| [control](services/cmd/occccad-control/README.md)、[monitor](services/cmd/occccad-monitor/README.md) | 本机进程、代理与 Worker 池 / 只读 TUI |
+| [migrate](services/cmd/occccad-migrate/README.md)、[artifacts](services/cmd/occccad-artifacts/README.md) | 数据库迁移 / 制品存储管理 |
+| [3dreplay](services/cmd/occccad-3dreplay/README.md) | 不可变输入经生产 Worker/Router 的离线装配重放 |
+| `services/internal/` | 同一部署族的领域、存储与控制包；[数据库](services/internal/database/README.md)、[装配合同](services/internal/assemblycontract/README.md) |
+| [CAD Web](web/apps/cad/README.md) | 独立 React 应用，交互/近似预览/显示 |
+| `tests/`、`deploy/`、`docs/`、`plans/` | 跨模块验证 / 部署配置 / 项目知识 / 未完成工作 |
+
+逻辑模块不自动对应微服务。Worker 不拥有业务数据库真相，浏览器不执行权威 B-Rep 求值。
+
+## 验证与维护
+
+```bash
+invoke check --plan
+invoke check --scope <assembly|geometry|sketch|workspace|services|web>
+invoke context-audit
 ```
 
-`invoke test` 是 C++、Go 和 Front 单元/场景/conformance 的全量入口。日常局部开发优先使用 `invoke check --scope <assembly|geometry|sketch|workspace|services|web>`；可用 `--match` 先运行一个域内的精确回归，不指定 scope 时 `invoke check` 根据 Git 工作区保守选择受影响域。`--plan` 只解释将运行的步骤。成功时只打印步骤摘要；失败时输出高信号诊断、完整日志路径与复现命令，`--verbose` 可恢复流式输出。`invoke context-audit` 检查 Agent 指南、知识路由和大文本热点。测试所有权和目录规则见 [tests/README.md](tests/README.md)。
-`invoke performance.assembly` 使用已有 Release 制品串行测量三维装配求解器，每场景默认 5 次；统计和原始输出写入 `build/performance/assembly/<timestamp>/`，运行边界见 [Assembly README](kernel/assembly/README.md)。
-
-`invoke performance-baseline` 运行当前 CAD 热路径的可重复、多样本 benchmark，并将结果写入 `build/performance/`；性能改动应在同一机器和构建类型下比较前后结果。
-
-## 文档维护规则
-
-1. 已实现能力只写入现有架构；计划能力只写入目标架构。
-2. 服务接口、环境变量或运行方式变化时，同一变更必须更新所属服务 README。
-3. 架构图统一使用 Mermaid，避免提交难以审阅的二进制图源。
-4. 目标技术栈不是永久承诺；升级必须经过许可证、兼容性、确定性和基准测试评审。
-5. 不再新增按版本号或 Demo 编号命名的架构文档；重大决策应在目标架构中更新，并在提交历史中追踪。
+精确回归用 `--match`；`invoke test` 为全量入口。性能入口为 `invoke performance.assembly` 与 `invoke performance-baseline`，计时和证据边界见所属 README。文档归属、命名与链接检查见[文档维护](docs/development/documentation.md)。
 
 ## License
 
-项目采用 [MIT License](LICENSE)。引入第三方库时仍需分别遵守其许可证；目标架构列出的候选库不代表已经成为项目依赖。
+[MIT License](LICENSE)。第三方库遵循各自许可证；目标设计中的候选不代表已引入依赖。

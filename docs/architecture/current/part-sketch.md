@@ -1,6 +1,6 @@
 # Part、Sketch 与权威求值
 
-> 返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
+> 返回[当前架构目录](README.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
 
 Part 中的 `SKETCH` Feature 保存版本化 `SketchFeature v2`：Datum/PLANAR_FACE support、具有稳定 ID 的 Point/Line/Circle/Arc/Ellipse/EllipticalArc/Spline、独立 ExternalGeometry、显式 GeometryRef、Constraint 和最近一次权威 solve 状态。线段、圆弧和开放曲线持有可稳定引用的端点；端点相接必须由 Coincident 明确表达，不能以浮点坐标接近替代模型关系。
 
@@ -127,7 +127,7 @@ Part 交互在退出 Sketcher 后把选择提升为整个 Sketch Feature，并�
 
 这里特意区分“契约占位”和“已实现”，避免客户端基于 Proto 误判能力。
 
-DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投影。开放端、分支、重复、退化和失效连接携带实体/引用/模型位置；Web 只展示后端分析，不另建闭合判定；仅 `geometryVerified=true` 的闭合结果显示检查通过，未精确验证的连通闭环明确显示等待验证。合法开放草图可以保存；封闭实体拉伸在消费 Profile 时拒绝开放边界。闭合状态与求解约束程度独立。功能支持组合及定向验证入口见[二维草图能力](../../sketch-capabilities.md)。
+DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投影。开放端、分支、重复、退化和失效连接携带实体/引用/模型位置；Web 只展示后端分析，不另建闭合判定；仅 `geometryVerified=true` 的闭合结果显示检查通过，未精确验证的连通闭环明确显示等待验证。合法开放草图可以保存；封闭实体拉伸在消费 Profile 时拒绝开放边界。闭合状态与求解约束程度独立。功能支持组合及定向验证入口见[二维草图能力](../../guides/sketch-capabilities.md)。
 
 草图创建、编辑、约束和尺寸命令由 `internal/workbenchconfig/catalog.json` 配置注册；后端校验并提供目录，Mock 与真实前端消费同一配置和 Web CommandRegistry。数据库基线不包含界面种子，当前不提供旧 Slot 兼容命令。配置与实现职责见[公共框架](document-command-framework.md)。
 
@@ -140,7 +140,7 @@ DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投�
 
 平面 Face 的 `normal` 与 SelectionEvidence.direction 均包含 OCCT Face Orientation：有效闭合 Solid 指向材料外部，凹腔壁指向空腔；`xDirection × yDirection = normal`。拓扑 history 的 Face 身份匹配忽略 Orientation，因此生成证据前必须取最终 Solid 中的 Face occurrence，不能沿用 Prism/Boolean 工具面的朝向。面上新建草图从精确 B-Rep 读取有向法向，持久引用仍使用原 manifest evidence，已存在的源制品也能正确建立草图框架。Part evaluator 已更新为 `part-solid-generators-v12-oriented-face-normal`，重新求值不复用旧几何求值缓存；不重写历史 Revision 或源拓扑证据。
 
-草图编辑工具可调用只读生产 Preview 路径：`EDIT_SKETCH` 候选通过同一领域验证和权威求解，响应中的 `sketchCandidates` 仅复制已求解实体和 Solve 状态，不能从操作输入或旧显示快照推导。预览不修改文档 Head、Revision、Undo/Redo 或应用数据；取消、过期版本和迟到结果只丢弃候选。Web 近似预览明确标识，精确求解候选与正式模型分开；操作选项、引用释放和最终采用仍通过正式命令。状态所有权和尺寸引用更换见[Web 架构](web.md)，定向验证见[草图交互补齐](../../sketch-ux-02.md)。
+草图编辑工具可调用只读生产 Preview 路径：`EDIT_SKETCH` 候选通过同一领域验证和权威求解，响应中的 `sketchCandidates` 仅复制已求解实体和 Solve 状态，不能从操作输入或旧显示快照推导。预览不修改文档 Head、Revision、Undo/Redo 或应用数据；取消、过期版本和迟到结果只丢弃候选。Web 近似预览明确标识，精确求解候选与正式模型分开；操作选项、引用释放和最终采用仍通过正式命令。状态所有权和尺寸引用更换见[Web 架构](web.md)，定向验证见[草图交互补齐](../../guides/sketch-interaction.md)。
 
 圆角/倒角裁剪子段由 SAME_SUPPORT 保持支撑，生成关系不重复添加 cut-point PointOnObject；相切引用实际连接的裁剪子段。线支撑已有端点 Coincident 时省略重复定位方程，保留模型关系。两侧内部相切圆角的局部/补弧分支翻转触发现有数值尺寸 continuation，禁止以补弧替代原圆角。自由延伸投影到 Line/Arc/EllipticalArc 的解析支撑，边界延伸继续使用 ComputeSketchCurves 精确交点并生成稳定连接。统一缩放停止支持，带 scale 的变换请求明确拒绝；已持久 Revision 的几何和历史不重写。
 
