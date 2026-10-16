@@ -8,6 +8,6 @@
 
 人工验收：刷新装配，对上述两个圆柱重新计算/编辑同轴约束；确认 Verified、reference 不额外漂移，再 Undo/Redo、重开。NotUpdated 的其他诊断只需复制 `CAD_DIAGNOSTIC 文档/记录编号 错误码`；预览与属性面板均提供入口。失败时 DOF 描述的是已接纳集合，原失败试算被隔离，不应读取其位姿为正式结果。
 
-上轮已做：原始 C++ 回归、装配内核 205 场景及 21 corpus、Go 诊断/隔离/最小重放单测、真实 Router/Worker 重放、装配历史及失败诊断回归、性能基线；未运行浏览器自动化或无差别全量单测。原文档同一支持通过真实服务的只读预览：Verified、两侧 Connected；reference optimality≈7.52×10⁻¹¹、total optimality≈1.26×10⁻¹⁴，Head 不变且预览已丢弃。实机交互仍由人工验收。
+上轮已做：原始 C++ 回归、装配内核 205 场景及 21 corpus、Go 诊断/隔离/最小重放单测、真实 Router/Worker 重放、装配历史及失败诊断回归；未运行浏览器自动化或无差别全量单测。原文档同一支持通过真实服务的只读预览：Verified、两侧 Connected；reference optimality≈7.52×10⁻¹¹、total optimality≈1.26×10⁻¹⁴，Head 不变且预览已丢弃。实机交互仍由人工验收。
 
 诊断记录包含失败试算数值重放及 SolveManifest digest；缓存命中时可用 digest 查询冻结输入，不依赖最新 Head。已知限制：额外历史回归的 Space Fix/刚性簇冲突在修改前代码和原 Worker 同样失败，留作独立问题；两个依赖专用 PostgreSQL/corpus 的编辑意图测试被跳过，未计为通过。

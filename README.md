@@ -59,7 +59,7 @@ invoke check --scope <assembly|geometry|sketch|workspace|services|web>
 invoke context-audit
 ```
 
-精确回归用 `--match`；`invoke test` 为全量入口。性能入口为 `invoke performance.assembly` 与 `invoke performance-baseline`，计时和证据边界见所属 README。文档归属、命名与链接检查见[文档维护](docs/development/documentation.md)。
+精确回归用 `--match`；`invoke test` 为全量入口。性能入口为 `invoke performance.assembly` 与 `invoke performance-baseline`，最新本机数据与复现见[性能基线](docs/validation/performance-baseline.md)，计时和证据边界见所属 README。文档归属、命名与链接检查见[文档维护](docs/development/documentation.md)。
 
 ## License
 

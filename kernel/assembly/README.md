@@ -61,7 +61,7 @@ A grounded inconsistent component with no movable parameters emits explicit
 The offline [replay tool](../../services/cmd/occccad-3dreplay/README.md) uses this
 same solver and production input adapter. Its tables preserve all saved constraint
 states separately from participation and original failure attempts. The
-[performance report](../../docs/validation/assembly-input-performance.md) records
+[performance report](../../docs/validation/performance-baseline.md) records
 measured payload, allocation, phase and RSS tradeoffs.
 
 ## Native primitives and public compilation
@@ -222,6 +222,8 @@ ctest --test-dir build/cmake/release -R '^assembly-corpus/' --output-on-failure
 
 ## Performance
 
+Current workstation measurements and raw-sample snapshot: [performance baseline](../../docs/validation/performance-baseline.md).
+
 Run the deterministic dense-backend baseline with
 `invoke performance-baseline`; the assembly result is written to
 `build/performance/assembly-solver.txt`.
@@ -254,8 +256,8 @@ analytic fixtures; an environment-blocked test fails the command instead of
 reporting performance success. No stage resets data. The underlying runner is
 `python kernel/assembly/tests/run_performance.py`; `--label` accepts a unique
 run name and never overwrites an existing run. See the
-[performance report](../../docs/validation/assembly-solver-performance.md) for
-historical comparisons and measurement boundaries.
+[performance report](../../docs/validation/performance-baseline.md) for
+current measurements and their evidence boundaries.
 
 `occcad_assembly_interaction_benchmark [samples] [scene]` measures kernel-only
 latency for `single`, `connected50-200`, `independent50`, and `group-contact`,

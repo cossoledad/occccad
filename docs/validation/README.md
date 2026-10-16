@@ -4,7 +4,8 @@
 
 | 领域 | 报告 |
 |---|---|
-| 装配数值/性能 | [求解性能](assembly-solver-performance.md)、[输入与失败快照](assembly-input-performance.md)、[风车同轴诊断](windmill-assembly-reference-diagnostic.md) |
+| 最新本机基线 | [全仓性能入口与样本](performance-baseline.md)、[机器可读数据](performance-baseline.json) |
+| 装配诊断 | [风车同轴诊断](windmill-assembly-reference-diagnostic.md) |
 | 建模性能 | [连续 100 次建模](continuous-modeling-100-baseline.md)、[增量运行时](incremental-modeling-runtime-validation.md) |
 | 模型分析与现场反馈 | [目标模型分析](modeling-assembly-analysis.md)、[实机反馈](modeling-assembly-field-review.md) |
 | Feature 与几何 | [特征选择](feature-selection-validation.md)、[有限面域圆角](fillet-boundary-validation.md)、[底座建模体验](bottom-support-parametric-validation.md) |

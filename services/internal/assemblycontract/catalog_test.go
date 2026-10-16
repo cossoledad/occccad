@@ -2,7 +2,6 @@ package assemblycontract
 
 import (
 	"encoding/json"
-	"os/exec"
 	"sync"
 	"testing"
 )
@@ -81,22 +80,6 @@ func BenchmarkCatalogParse(b *testing.B) {
 	for b.Loop() {
 		var c Catalog
 		if err := json.Unmarshal(catalogJSON, &c); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// Comparison input comes from Git, not another maintained capability matrix.
-// Parsing historical bytes here is only a benchmark, never a product adapter.
-func BenchmarkCatalogBaselineMixedParse(b *testing.B) {
-	raw, err := exec.Command("git", "show", "fb456981:services/internal/assemblycontract/catalog.json").Output()
-	if err != nil {
-		b.Skip("review baseline unavailable")
-	}
-	b.ReportAllocs()
-	for b.Loop() {
-		var c Catalog
-		if err := json.Unmarshal(raw, &c); err != nil {
 			b.Fatal(err)
 		}
 	}
