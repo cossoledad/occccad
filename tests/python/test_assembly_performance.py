@@ -15,6 +15,16 @@ spec.loader.exec_module(runner)
 
 
 class AssemblyPerformanceTests(unittest.TestCase):
+    def test_service_requires_execution_and_complete_measured_samples(self):
+        skipped = '\n'.join(json.dumps(e) for e in [
+            dict(Action='run',Test='TestAssemblyPerformance'),
+            dict(Action='skip',Test='TestAssemblyPerformance')])
+        with self.assertRaisesRegex(ValueError, 'Service execution evidence'):
+            runner.service_samples(skipped, 2)
+        passed = skipped.replace('"skip"','"pass"')
+        with self.assertRaisesRegex(ValueError, 'Missing/incomplete'):
+            runner.service_samples(passed, 2)
+
     def test_command_forwards_samples_and_build_without_building(self):
         context = Mock()
         tasks.performance_assembly.body(context, samples=7, build_type="Release")

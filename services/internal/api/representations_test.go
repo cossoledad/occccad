@@ -13,13 +13,14 @@ import (
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 func TestRepresentationDownloadAuthorizationAndSnapshot(t *testing.T) {
-	url := os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	url := os.Getenv("OCCCCAD_DATABASE_URL")
 	if url == "" {
-		t.Skip("requires isolated test database")
+		t.Skip("requires configured development database")
 	}
 	db, err := database.Open(t.Context(), url)
 	if err != nil {
@@ -29,11 +30,9 @@ func TestRepresentationDownloadAuthorizationAndSnapshot(t *testing.T) {
 	if err := database.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
-	local, err := artifact.NewLocalStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	objects := artifact.NewService(db, local)
+	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	objects := artifact.NewService(db, local, developmentStaging)
 	domain := workspace.NewWithArtifacts(db, nil, objects)
 	actor := "00000000-0000-7000-8000-000000000001"
 	view, err := domain.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: actor, Type: "PART", Name: fmt.Sprintf("artifact HTTP %d", time.Now().UnixNano())})

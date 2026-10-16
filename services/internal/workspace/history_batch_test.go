@@ -21,9 +21,9 @@ func TestHistoryCapabilityBatchEmptyDoesNotQuery(t *testing.T) {
 
 // Compare batched and individual queries using an isolated test document.
 func TestHistoryCapabilityBatchMatchesSingleDatabase(t *testing.T) {
-	url := os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	url := os.Getenv("OCCCCAD_DATABASE_URL")
 	if url == "" {
-		t.Skip("OCCCCAD_TEST_DATABASE_URL is not set")
+		t.Skip("OCCCCAD_DATABASE_URL is not set")
 	}
 	t.Setenv("OCCCCAD_DB_CONCURRENCY", "1")
 	t.Setenv("OCCCCAD_DB_BACKGROUND_CONCURRENCY", "1")

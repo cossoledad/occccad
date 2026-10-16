@@ -1,6 +1,6 @@
 """Build, run and validate occccad with Invoke."""
 
-import json
+import json as jsonlib
 import os
 import platform
 import re
@@ -12,72 +12,145 @@ import time
 from pathlib import Path
 
 from invoke import Collection, Exit, task
+from tools.validation_run import run_steps, compact_output as _compact_failure_output
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 BUILD_DIR = PROJECT_ROOT / "build" / "cmake"
 PROFILES_DIR = PROJECT_ROOT / "build-support" / "conan" / "profiles"
 
 
-def _load_project_env() -> None:
-    """Load simple KEY=VALUE entries from .env; exported variables take precedence."""
-    explicit = os.environ.get("OCCCCAD_ENV_FILE", "").strip()
-    env_file = Path(explicit).resolve() if explicit else PROJECT_ROOT / ".env"
-    if explicit:
-        # Child commands change cwd; pass the same absolute file to Go.
-        os.environ["OCCCCAD_ENV_FILE"] = str(env_file)
-    if not explicit and not env_file.exists():
-        return
-    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line.removeprefix("export ").strip()
-        key, separator, value = line.partition("=")
-        key = key.strip()
-        value = value.strip()
-        if not separator or not key.replace("_", "").isalnum():
-            continue
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1]
-        os.environ.setdefault(key, value)
+from tools.development_environment import load as _load_environment, command_environment, build_type as _selected_build_type
+
+_load_environment(PROJECT_ROOT)
 
 
-_load_project_env()
+def _development_environment(build_type=None):
+    return command_environment(PROJECT_ROOT, build_type)
 
 
-def _load_test_environment() -> None:
-    def resolve(value: str) -> str:
-        return str((PROJECT_ROOT / value).resolve())
+@task(help={"scope": "Comma-separated domains, default all", "build_type": "Debug or Release",
+            "browser": "Launch the existing Chromium", "live": "Check configured application listeners",
+            "json": "Emit structured readiness evidence"})
+def doctor(c, scope="all", build_type=None, browser=False, live=False, json=False):
+    """Check the existing shared development environment without resetting data."""
+    from tools.doctor import run
+    scopes = set(scope.split(","))
+    if not scopes or scopes - {"assembly", "geometry", "sketch", "workspace", "services", "web", "all"}:
+        raise Exit("Unknown doctor scope")
+    result = run(PROJECT_ROOT, _development_environment(build_type), scopes, browser, live)
+    if json:
+        print(jsonlib.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        for item in result["checks"]:
+            print(f"[doctor] {item['status']} {item['name']}: {item['detail']}")
+            if item["status"] != "PASS" and item.get("prepare"):
+                print(f"[doctor] Prepare: {item['prepare']}")
+        print(f"[doctor] {result['status']}; environment: {result['environment']['digest'][:12]}")
+    if result["status"] != "PASS":
+        raise Exit(code=2)
+    return result
 
-    resource = resolve(os.environ.get("OCCCCAD_TEST_RESOURCES_DIR") or "build/test-resources")
-    paths = {
-        "OCCCCAD_TEST_RESOURCES_DIR": resource,
-        "OCCCCAD_ASSEMBLY_FIXTURE_DIR": str(Path(resource) / "analytic-fixtures"),
-        "OCCCCAD_TEST_IMPORT_BREP": str(Path(resource) / "import-repair.brep"),
-        "OCCCCAD_TEST_CURVED_GLB": str(Path(resource) / "curved.glb"),
-        "OCCCCAD_TEST_GLB_FIXTURE": str(Path(resource) / "geometry.glb"),
-        "OCCCCAD_TEST_ASSEMBLY_REPLAY_OUTPUT": str(Path(resource) / "assembly-replay.3dreplay"),
-        "OCCCCAD_TEST_GEOMETRY_WORKER": str(BUILD_DIR / (os.environ.get("OCCCCAD_BUILD_TYPE") or "Release").lower() / "workers/geometry/occccad_geometry_worker"),
-    }
-    for key, fallback in paths.items():
-        os.environ[key] = resolve(os.environ.get(key) or fallback)
-    dsn = os.environ.get("OCCCCAD_TEST_DATABASE_URL") or "sqlite:" + str(Path(resource) / "occccad_test.db")
-    if dsn.startswith("sqlite:"):
-        dsn = "sqlite:" + resolve(dsn.removeprefix("sqlite:"))
-    os.environ["OCCCCAD_TEST_DATABASE_URL"] = dsn
+
+@task(help={"recipe": "property, rpc, selection, feature or diagnostic", "symbol": "Literal symbol to locate",
+            "read": "Include at most two bounded source excerpts", "json": "Emit a machine-readable task packet"})
+def task_context(c, recipe, symbol=None, read=False, json=False):
+    """Locate a task's code, contracts, completion obligations and verification."""
+    from tools.task_context import packet
+    try:
+        result = packet(PROJECT_ROOT, recipe, symbol, read)
+    except ValueError as error:
+        raise Exit(str(error)) from error
+    if json:
+        print(jsonlib.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(f"[task] {result['recipe']}: {result['goal']}")
+        for source in result["sources"]:
+            print(f"[task] {source['path']}:{','.join(map(str, source['lines'])) or '?'} ({source['query']})")
+        for obligation in result["obligations"]:
+            print(f"[task] Required: {obligation}")
+        for name, command in result["validation"].items():
+            print(f"[task] {name}: {command}")
+        for excerpt in result["snippets"]:
+            print(f"\n{excerpt['path']}\n{excerpt['text']}")
+        print(f"[task] Evidence: {result['artifact']}")
+    return result
 
 
-_load_test_environment()
+@task(help={"build_type": "Debug or Release"})
+def workflow_baseline(c, build_type=None):
+    """Measure the five task packets and their real focused validations serially."""
+    from tools.task_context import packet
+    from tools.task_recipes import RECIPES
+    from tools.build_identity import source_identity
+    from tools.development_environment import environment_identity
+    from uuid import uuid4
+
+    directory = PROJECT_ROOT / "build/agent-workflow" / (time.strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:8])
+    directory.mkdir(parents=True)
+    source = source_identity(PROJECT_ROOT)
+    result = {"schema": "occccad.workflow-baseline.v1", "source": source,
+              "environment": environment_identity(_development_environment(build_type)),
+              "platform": platform.platform(), "tasks": [], "modelTokens": None,
+              "boundary": "one serial sample per recipe; packet discovery and focused validation only; excludes implementation, reasoning and subsequent reads; no before/after speedup"}
+    for name in RECIPES:
+        context = packet(PROJECT_ROOT, name, read=True, output=directory / f"{name}.json")
+        tokens = shlex.split(context["validation"]["focused"])
+        if tokens[:2] != ["invoke", "check"]:
+            raise Exit(f"Unsupported focused validation for {name}")
+        scope = tokens[tokens.index("--scope") + 1]
+        match = tokens[tokens.index("--match") + 1]
+        print(f"[workflow] {name}: {context['validation']['focused']}")
+        validation = check.body(c, scope=scope, match=match, build_type=build_type)
+        if validation["source"] != source:
+            raise Exit("Workflow sources changed; rerun the baseline")
+        result["tasks"].append({"recipe": name, "packet": str((directory / f"{name}.json").relative_to(PROJECT_ROOT)),
+                                "discovery": context["metrics"], "validation": validation["artifact"],
+                                "status": validation["status"], "durationSeconds": validation["durationSeconds"],
+                                "outputBytes": validation["outputBytes"],
+                                "counts": [step.get("counts") for step in validation["steps"] if step.get("counts")]})
+    destination = directory / "baseline.json"
+    destination.write_text(jsonlib.dumps(result, indent=2, ensure_ascii=False) + "\n")
+    print(f"[workflow] Baseline: {destination.relative_to(PROJECT_ROOT)}")
+    return result
+
+
+@task(help={"reference": "CAD_DIAGNOSTIC document/id or document/id", "file": "Retained diagnostic/replay file",
+            "document": "List the latest five retained diagnostics for a document", "job": "List retained job failures",
+            "attempt": "Recorded numerical attempt index", "replay": "Execute that immutable attempt offline",
+            "build_type": "Debug or Release", "json": "Emit structured inspection"})
+def diagnose(c, reference=None, file=None, attempt=0, replay=False, build_type=None, json=False, document=None, job=None):
+    """Inspect a retained failure and reproduce available production numerical input."""
+    from tools.diagnostic import inspect, recent
+    try:
+        environment = _development_environment(build_type)
+        if document or job:
+            if reference or file or replay or (document and job):
+                raise ValueError("choose a document/job list or a single diagnostic")
+            result = recent(Path(environment["OCCCCAD_LOG_DIR"]), document or job, bool(job))
+        else:
+            result = inspect(PROJECT_ROOT, environment, reference, file, int(attempt), replay)
+    except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+        raise Exit(str(error)) from error
+    if json:
+        print(jsonlib.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        for item in result.get("entries", []):
+            print(f"[diagnose] {item['reference']} {item['mode'] or 'JOB'}/{item['stage']} {item['failure']}")
+        for key in ("source", "sha256", "documentId", "baseRevisionId", "mode", "stage", "failure", "replayStatus", "command", "observedOutcome", "boundary"):
+            if result.get(key) is not None:
+                print(f"[diagnose] {key}: {result[key]}")
+    if result.get("replayStatus") == "EXECUTION_FAILED":
+        raise Exit(code=1)
+    return result
 
 
 def _get_build_type() -> str:
     """Return Debug or Release from env, defaulting to Release."""
-    return os.environ.get("OCCCCAD_BUILD_TYPE", "").strip() or "Release"
+    return _selected_build_type()
 
 
 def _get_profile(build_type: str | None = None) -> str:
-    bt = build_type or _get_build_type()
+    bt = _selected_build_type(build_type)
     return f"linux-gcc15-{bt.lower()}"
 
 
@@ -87,7 +160,7 @@ def _get_build_dir(build_type: str | None = None) -> Path:
 
 
 def _get_conan_toolchain(build_type: str | None = None) -> Path:
-    bt = build_type or _get_build_type()
+    bt = _selected_build_type(build_type)
     # cmake_layout with Ninja nests generators under the case-sensitive type.
     return _get_build_dir(bt) / "build" / bt / "generators" / "conan_toolchain.cmake"
 
@@ -142,7 +215,7 @@ def bootstrap(c):
 })
 def configure(c, build_type=None, profile=None):
     """Install Conan dependencies and configure CMake with a fresh cache."""
-    bt = build_type or _get_build_type()
+    bt = _selected_build_type(build_type)
     prof = profile or str(PROFILES_DIR / _get_profile(bt))
     build_dir = _get_build_dir(bt)
 
@@ -189,7 +262,7 @@ def configure(c, build_type=None, profile=None):
 })
 def build(c, build_type=None, target=None, jobs=0):
     """Build all C++ targets (or a specific target)."""
-    bt = build_type or _get_build_type()
+    bt = _selected_build_type(build_type)
     build_dir = _get_build_dir(bt)
 
     if not build_dir.exists():
@@ -211,48 +284,42 @@ def build(c, build_type=None, target=None, jobs=0):
 @task(help={
     "build_type": "Debug or Release",
     "filter": "CTest filter regex",
+    "verbose": "Stream complete command output",
 })
-def test(c, build_type=None, filter=None):
+def test(c, build_type=None, filter=None, verbose=False):
     """Run the repository C++, Go, and Front test suites."""
-    bt = build_type or _get_build_type()
+    bt = _selected_build_type(build_type)
     build_dir = _get_build_dir(bt)
 
     if not build_dir.exists():
         raise Exit(f"Build dir {build_dir} not found. Run 'invoke configure build' first.")
 
-    print("[test] Running development tooling tests...")
-    c.run(shlex.join([sys.executable, "-m", "unittest", "discover", "-s", "tests/python", "-p", "test_*.py"]), pty=True)
-
-    print("[test] Building C++ tests...")
-    build.body(c, build_type=bt)
-
-    print("[test] Running CTest...")
-    ctest_cmd = f"ctest --test-dir {build_dir} --output-on-failure"
+    steps = _check_steps({"all"}, bt)
     if filter:
-        ctest_cmd += f" -R {shlex.quote(filter)}"
-
-    c.run(ctest_cmd, pty=True)
-
-    print("[test] Running Go package tests...")
-    with c.cd(str(PROJECT_ROOT / "services")):
-        c.run("go test ./...", pty=True)
-
-    print("[test] Running standalone Go tests...")
-    with c.cd(str(PROJECT_ROOT / "tests" / "go")):
-        c.run("go test ./...", pty=True)
-
-    print("[test] Running colocated Front scenarios...")
-    with c.cd(str(PROJECT_ROOT / "web" / "apps" / "cad")):
-        c.run("pnpm test", pty=True)
-    print("[test] Done.")
+        steps = [(name, command + (f" -R {shlex.quote(filter)}" if name == "CTest" else ""), cwd)
+                 for name, command, cwd in steps]
+    run_steps(c, steps, PROJECT_ROOT, _development_environment(bt), verbose=verbose,
+              metadata={"scopes": ["all"], "ctestFilter": filter})
 
 
-def _changed_files() -> list[str]:
+
+def _changed_files(base=None, head=None, staged=False) -> list[str]:
     """Return tracked and untracked workspace paths without reading their contents."""
-    commands = (
-        ["git", "diff", "--name-only", "--relative", "HEAD"],
-        ["git", "ls-files", "--others", "--exclude-standard"],
-    )
+    if head and not base:
+        raise Exit("--head requires --base")
+    if staged and head:
+        raise Exit("--staged and --head cannot be combined")
+    reference = base or "HEAD"
+    for revision in (reference, head):
+        if revision:
+            result = subprocess.run(["git", "rev-parse", "--verify", revision + "^{commit}"],
+                                    cwd=PROJECT_ROOT, capture_output=True, text=True)
+            if result.returncode:
+                raise Exit(f"Unknown commit reference: {revision}")
+    comparison = [f"{reference}...{head}"] if head else (["--cached", reference] if staged else [reference])
+    commands = [["git", "diff", "--name-only", "--no-renames", "-z", "--relative", *comparison, "--"]]
+    if not head and not staged:
+        commands.append(["git", "ls-files", "--others", "--exclude-standard", "-z"])
     paths: set[str] = set()
     for command in commands:
         result = subprocess.run(
@@ -262,7 +329,7 @@ def _changed_files() -> list[str]:
             capture_output=True,
             text=True,
         )
-        paths.update(line for line in result.stdout.splitlines() if line)
+        paths.update(path for path in result.stdout.split("\0") if path)
     return sorted(paths)
 
 
@@ -325,11 +392,15 @@ def _check_steps(scopes: set[str], build_type: str, match: str | None = None) ->
         )
         add("C++ build", f"cmake --build {build_dir} --parallel")
         add("CTest", f"ctest --test-dir {build_dir} --output-on-failure --no-tests=error")
-        add("Go packages", "go test ./...", PROJECT_ROOT / "services")
-        add("Go conformance", "go test ./...", PROJECT_ROOT / "tests" / "go")
+        add("Go packages", "go test -json -count=1 -p 1 ./...", PROJECT_ROOT / "services")
+        add("Go conformance", "go test -json -count=1 -p 1 ./...", PROJECT_ROOT / "tests" / "go")
         add("Web scenarios", "pnpm test", PROJECT_ROOT / "web" / "apps" / "cad")
         add("Web production build", "pnpm build", PROJECT_ROOT / "web")
         return steps
+
+    if not match and scopes & {"assembly", "geometry", "sketch", "workspace", "services"}:
+        add("Integration native build", f"cmake --build {build_dir} --target occccad_geometry_worker "
+            "occcad_geometry_scenarios occccad_naming_artifact_tests --parallel")
 
     if "assembly" in scopes:
         add(
@@ -345,7 +416,7 @@ def _check_steps(scopes: set[str], build_type: str, match: str | None = None) ->
         if not match:
             add(
                 "Assembly Go integration",
-                "go test ./internal/geometry ./internal/workspace ./internal/control",
+                "go test -json -count=1 -p 1 ./internal/geometry ./internal/workspace ./internal/control",
                 PROJECT_ROOT / "services",
             )
             add("Assembly Web scenarios", "pnpm test -- assembly", PROJECT_ROOT / "web" / "apps" / "cad")
@@ -362,7 +433,7 @@ def _check_steps(scopes: set[str], build_type: str, match: str | None = None) ->
         if not match:
             add(
                 "Geometry Go integration",
-                "go test ./internal/geometry ./internal/control",
+                "go test -json -count=1 -p 1 ./internal/geometry ./internal/control",
                 PROJECT_ROOT / "services",
             )
     if "sketch" in scopes:
@@ -376,21 +447,20 @@ def _check_steps(scopes: set[str], build_type: str, match: str | None = None) ->
             f"{shlex.quote(f'^sketch/.*{match}' if match else '^sketch/')}",
         )
         if not match:
-            add("Sketch workspace", "go test ./internal/workspace", PROJECT_ROOT / "services")
+            add("Sketch workspace", "go test -json -count=1 -p 1 ./internal/workspace", PROJECT_ROOT / "services")
             add("Sketch Web scenarios", "pnpm test -- sketch", PROJECT_ROOT / "web" / "apps" / "cad")
     if "workspace" in scopes:
         add(
             "Workspace and model core",
-            ("go test -json ./internal/workspace ./internal/modelcore"
-             if match else "go test ./internal/workspace ./internal/modelcore")
+            "go test -json -count=1 -p 1 ./internal/workspace ./internal/modelcore"
             + (f" -run {shlex.quote(match)}" if match else ""),
             PROJECT_ROOT / "services",
         )
     if "services" in scopes:
-        command = "go test -json ./..." if match else "go test ./..."
+        command = "go test -json -count=1 -p 1 ./..."
         add("Go packages", command + (f" -run {shlex.quote(match)}" if match else ""), PROJECT_ROOT / "services")
         if not match:
-            add("Go conformance", "go test ./...", PROJECT_ROOT / "tests" / "go")
+            add("Go conformance", "go test -json -count=1 -p 1 ./...", PROJECT_ROOT / "tests" / "go")
     if "web" in scopes:
         add(
             "Web scenarios",
@@ -402,165 +472,72 @@ def _check_steps(scopes: set[str], build_type: str, match: str | None = None) ->
     return steps
 
 
-def _go_test_events(output: str) -> tuple[int, str]:
-    """Return the number of executed Go tests and readable output from go test -json."""
-    runs = 0
-    readable: list[str] = []
-    for line in output.splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            readable.append(line)
-            continue
-        if event.get("Action") == "run" and event.get("Test"):
-            runs += 1
-        if event.get("Action") == "output" and event.get("Output"):
-            readable.append(str(event["Output"]).rstrip("\n"))
-    return runs, "\n".join(line for line in readable if line)
-
-
-def _compact_failure_output(output: str, limit: int = 200) -> str:
-    """Keep bounded high-signal diagnostics while the complete output stays on disk."""
-    lines = output.splitlines()
-    if len(lines) <= limit:
-        return output.rstrip()
-    signal = re.compile(r"error|fail|fatal|panic|expected|actual|warning|undefined|unimplemented", re.IGNORECASE)
-    selected = list(range(min(20, len(lines))))
-    selected.extend(index for index, line in enumerate(lines) if signal.search(line))
-    selected.extend(range(max(0, len(lines) - 80), len(lines)))
-    unique = sorted(set(selected))
-    if len(unique) > limit:
-        unique = unique[: limit // 2] + unique[-(limit - limit // 2):]
-    rendered: list[str] = []
-    previous = -1
-    for index in unique:
-        if previous >= 0 and index > previous + 1:
-            rendered.append(f"... {index - previous - 1} lines omitted; see full log ...")
-        rendered.append(lines[index])
-        previous = index
-    return "\n".join(rendered)
-
-
-def _write_failure_log(name: str, command: str, cwd: Path, stdout: str, stderr: str) -> Path:
-    log_dir = PROJECT_ROOT / "build" / "agent-logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "step"
-    suffix = time.time_ns() % 1_000_000_000
-    path = log_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-{suffix:09d}-{slug}.log"
-    path.write_text(
-        f"step: {name}\ncwd: {cwd}\ncommand: {command}\n\n--- stdout ---\n{stdout}"
-        f"\n\n--- stderr ---\n{stderr}\n",
-        encoding="utf-8",
-    )
-    return path
-
-
-def _run_quiet_step(c, name: str, command: str, cwd: Path, verbose: bool) -> None:
-    started = time.monotonic()
-    with c.cd(str(cwd)):
-        result = c.run(command, hide=not verbose, warn=True, pty=verbose)
-    elapsed = time.monotonic() - started
-    go_match = command.startswith("go test -json ")
-    go_runs, go_output = _go_test_events(result.stdout) if go_match else (0, "")
-    if result.ok and (not go_match or go_runs > 0):
-        print(f"[check] PASS {name} ({elapsed:.1f}s)")
-        return
-
-    if result.ok and go_match:
-        log_path = _write_failure_log(name, command, cwd, result.stdout.rstrip(), result.stderr.rstrip())
-        print(f"\n[check] FAIL {name}: --match selected zero Go tests")
-        print(f"[check] Full log: {log_path.relative_to(PROJECT_ROOT)}")
-        print(f"[check] Reproduce: cd {cwd} && {command}")
-        raise Exit(code=1)
-
-    raw_stdout = result.stdout.rstrip()
-    raw_stderr = result.stderr.rstrip()
-    log_path = _write_failure_log(name, command, cwd, raw_stdout, raw_stderr)
-    if not verbose:
-        stdout = go_output if go_match else raw_stdout
-        stderr = raw_stderr
-        if stdout:
-            print(f"\n--- {name} stdout ---\n{_compact_failure_output(stdout)}")
-        if stderr:
-            print(f"\n--- {name} stderr ---\n{_compact_failure_output(stderr)}")
-    print(f"\n[check] FAIL {name} ({elapsed:.1f}s)")
-    print(f"[check] Full log: {log_path.relative_to(PROJECT_ROOT)}")
-    print(f"[check] Reproduce: cd {cwd} && {command}")
-    raise Exit(code=result.exited or 1)
-
-
 @task(help={
     "scope": "Comma-separated: assembly, geometry, sketch, workspace, services, web, all",
-    "changed": "Select scopes conservatively from git changes (default when scope is omitted)",
-    "verbose": "Stream normal subprocess output instead of success summaries",
-    "match": "Run one test/scenario name regex or substring within one explicit scope",
-    "plan": "Print selected scopes and commands without executing them",
+    "changed": "Select scopes conservatively from Git changes",
+    "base": "Compare this commit against the worktree (includes untracked files)",
+    "head": "Compare committed branch changes from --base to this commit",
+    "staged": "Check only staged changes against --base or HEAD",
+    "verbose": "Stream subprocess output",
+    "match": "Required test regex/substring within one explicit non-all scope",
+    "plan": "Show the selection and commands without executing",
+    "json": "Emit a machine-readable --plan",
     "build_type": "Debug or Release",
 })
-def check(c, scope=None, changed=False, verbose=False, match=None, plan=False, build_type=None):
-    """Run quiet, domain-scoped validation; expand diagnostics only on failure."""
+def check(c, scope=None, changed=False, verbose=False, match=None, plan=False, build_type=None,
+          base=None, head=None, staged=False, json=False):
+    """Run scoped validation against the shared development environment."""
     valid_scopes = {"assembly", "geometry", "sketch", "workspace", "services", "web", "all"}
-    if scope and changed:
-        raise Exit("Use either --scope or --changed, not both.")
+    if scope and (changed or base or head or staged):
+        raise Exit("Use an explicit --scope or Git change selection, not both.")
+    if json and not plan:
+        raise Exit("--json requires --plan")
     if match and not scope:
         raise Exit("--match requires one explicit --scope.")
-
-    reasons: list[str] = []
-    paths: list[str] = []
+    reasons, paths = [], []
     if scope:
         scopes = {item.strip() for item in scope.split(",") if item.strip()}
-        unknown = scopes - valid_scopes
-        if unknown:
-            raise Exit(f"Unknown validation scope(s): {', '.join(sorted(unknown))}")
+        if not scopes or scopes - valid_scopes:
+            raise Exit(f"Unknown or empty validation scope: {scope}")
         if match and (len(scopes) != 1 or "all" in scopes):
             raise Exit("--match requires exactly one non-all scope.")
     else:
-        paths = _changed_files()
+        paths = _changed_files(base, head, staged)
         scopes, reasons = _validation_scopes_for_paths(paths)
-        if not paths:
-            if plan:
-                print("[check] PLAN scopes: clean workspace")
-                print("[check] No executable validation selected")
-                return
-            print("[check] PASS clean workspace; no affected validation scope")
-            return
-        if not plan:
-            print(f"[check] Changed paths: {len(paths)}; scopes: {', '.join(sorted(scopes)) or 'docs-only'}")
+    bt = _selected_build_type(build_type)
+    steps = _check_steps(scopes, bt, match)
+    selection = {"schema": "occccad.validation-plan.v1", "scopes": sorted(scopes), "paths": paths,
+                 "base": base or "HEAD", "head": head, "staged": staged, "match": match,
+                 "buildType": bt, "reasons": reasons,
+                 "steps": [{"name": name, "command": command, "cwd": str(cwd)} for name, command, cwd in steps]}
+    if plan:
+        if json:
+            print(jsonlib.dumps(selection, indent=2, ensure_ascii=False))
+        else:
+            print(f"[check] PLAN scopes: {', '.join(sorted(scopes)) or ('docs-only' if paths else 'clean workspace')}")
             for reason in reasons:
                 print(f"[check] Escalation: {reason}")
-        if not scopes and not plan:
-            print("[check] PASS documentation-only changes; no executable validation selected")
-            return
-
-    bt = build_type or _get_build_type()
-    steps = _check_steps(scopes, bt, match)
-    if plan:
-        print(f"[check] PLAN scopes: {', '.join(sorted(scopes)) or 'docs-only'}")
-        if paths:
-            print(f"[check] Changed paths: {len(paths)}")
-        for reason in reasons:
-            print(f"[check] Escalation: {reason}")
-        for index, (name, command, cwd) in enumerate(steps, start=1):
-            print(f"[check] {index}. {name}: cd {cwd} && {command}")
-        if not steps:
-            print("[check] No executable validation selected")
-        return
+            for index, (name, command, cwd) in enumerate(steps, 1):
+                print(f"[check] {index}. {name}: cd {cwd} && {command}")
+            if not steps:
+                print("[check] No executable validation selected")
+        return selection
+    if not steps:
+        print("[check] NOT_RUN: no executable validation selected; knowledge changes require invoke context-audit")
+        return selection
     if any("cmake" in command or "ctest" in command for _, command, _ in steps):
-        build_dir = _get_build_dir(bt)
-        if not build_dir.exists():
-            raise Exit(f"Build dir {build_dir} not found. Run 'invoke configure' first.")
+        if not _get_build_dir(bt).exists():
+            raise Exit(f"Build dir {_get_build_dir(bt)} not found. Run 'invoke configure' first.")
+    print(f"[check] Running scopes: {', '.join(sorted(scopes))}" + (f"; match: {match}" if match else ""))
+    return run_steps(c, steps, PROJECT_ROOT, _development_environment(bt), verbose, bool(match), selection)
 
-    selection = f"; match: {match}" if match else ""
-    print(f"[check] Running scopes: {', '.join(sorted(scopes))}{selection}")
-    started = time.monotonic()
-    for name, command, cwd in steps:
-        _run_quiet_step(c, name, command, cwd, verbose)
-    print(f"[check] PASS {len(steps)} steps ({time.monotonic() - started:.1f}s)")
 
 
 def _context_audit() -> tuple[list[str], list[tuple[int, str]]]:
     """Audit durable Agent entrypoints without indexing generated/runtime content."""
     errors: list[str] = []
+    from tools.task_context import audit as task_routes_audit
+    errors.extend(task_routes_audit(PROJECT_ROOT))
     root_guide = PROJECT_ROOT / "AGENTS.md"
     root_text = root_guide.read_text(encoding="utf-8")
     if len(root_text.splitlines()) > 100 or root_guide.stat().st_size > 7000:
@@ -644,19 +621,45 @@ def performance_baseline(c, count=5):
     output = PROJECT_ROOT / "build" / "performance"
     output.mkdir(parents=True, exist_ok=True)
     target = output / "go-workspace.txt"
-    with c.cd(str(PROJECT_ROOT / "services")):
-        c.run(
-            f"go test ./internal/workspace -run '^$' -bench 'Benchmark(ProfileBuilder|VisualizationManifest)' "
-            f"-benchmem -count={int(count)} | tee {target}",
-            pty=True,
-        )
+    if int(count) < 1:
+        raise Exit("--count must be positive")
+    environment = _development_environment()
+
+    def capture(command, cwd, path):
+        with c.cd(str(cwd)):
+            result = c.run(command, hide=True, warn=True, env=environment)
+        path.write_text(result.stdout + result.stderr)
+        if not result.ok:
+            print(_compact_failure_output(result.stdout + result.stderr))
+            print(f"[performance] FAIL; full log: {path.relative_to(PROJECT_ROOT)}")
+            raise Exit(code=result.exited or 1)
+
+    capture(f"go test ./internal/workspace -run '^$' -bench 'Benchmark(ProfileBuilder|VisualizationManifest)' "
+            f"-benchmem -count={int(count)}", PROJECT_ROOT / "services", target)
+    measurements = target.read_text()
+    for family in ("ProfileBuilder", "VisualizationManifest"):
+        samples = re.findall(r"^Benchmark" + family + r"\S*\s+\d+\s+[0-9.eE+-]+\s+ns/op", measurements, re.M)
+        if len(samples) < int(count):
+            raise Exit(f"Benchmark{family}: expected {count} measured runs; got {len(samples)}. See {target}")
     assembly_target = "occcad_assembly_solver_benchmark"
     build.body(c, target=assembly_target)
     assembly_output = output / "assembly-solver.txt"
     executable = _get_build_dir() / "kernel" / "assembly" / "tests" / assembly_target
-    c.run(f"{executable} | tee {assembly_output}", pty=True)
+    capture(shlex.quote(str(executable)), PROJECT_ROOT, assembly_output)
+    native = assembly_output.read_text()
+    if "ns/op" not in native or "valid=false" in native:
+        raise Exit(f"Native benchmark produced missing/invalid measurements. See {assembly_output}")
+    from tools.development_environment import environment_identity
+    from tools.build_identity import source_identity, file_digest
+    (output / "hot-path-environment.json").write_text(jsonlib.dumps({
+        "schema": "occccad.hot-path-measurement.v1", "environment": environment_identity(environment),
+        "source": source_identity(PROJECT_ROOT), "goCount": int(count),
+        "outputs": {path.name: file_digest(path) for path in (target, assembly_output)},
+        "boundary": "ProfileBuilder/VisualizationManifest and native static/warm scenes; not the full performance catalog",
+    }, indent=2) + "\n")
     print(f"[performance] Baseline written to {target}")
     print(f"[performance] Assembly baseline written to {assembly_output}")
+
 
 
 @task(help={
@@ -676,7 +679,7 @@ def performance_assembly(c, samples=5, build_type=None, stages="static,interacti
 @task(help={"build_type": "Debug or Release"})
 def run_geometry(c, build_type=None):
     """Build and run the C++ geometry tests."""
-    bt = build_type or _get_build_type()
+    bt = _selected_build_type(build_type)
     build_dir = _get_build_dir(bt)
 
     build.body(c, build_type=bt, target="occcad_geometry_scenarios")
@@ -686,28 +689,27 @@ def run_geometry(c, build_type=None):
 @task(help={"build_type": "Debug or Release"})
 def run_worker(c, build_type=None):
     """Build and start the Geometry Worker gRPC server."""
-    bt = build_type or _get_build_type()
+    bt = _selected_build_type(build_type)
     build_dir = _get_build_dir(bt)
     worker_bin = build_dir / "workers" / "geometry" / "occccad_geometry_worker"
     build.body(c, build_type=bt, target="occccad_geometry_worker")
-    data_directory = Path(os.environ.get("OCCCCAD_DATA_DIR", PROJECT_ROOT / "services" / "data"))
-    if not data_directory.is_absolute():
-        data_directory = PROJECT_ROOT / "services" / data_directory
-    c.run(str(worker_bin), env={"OCCCCAD_DATA_DIR": str(data_directory.resolve())}, pty=True)
+    environment = _development_environment(bt)
+    c.run(shlex.quote(environment["OCCCCAD_GEOMETRY_WORKER_BIN"]), env=environment, pty=True)
+
 
 
 @task
 def run_server(c):
     """Start the standalone Go API server (does not build or serve the frontend)."""
     with c.cd(str(PROJECT_ROOT / "services")):
-        c.run("go run ./cmd/occccad-server", pty=True)
+        c.run("go run ./cmd/occccad-server", env=_development_environment(), pty=True)
 
 
 @task
 def run_jobs(c):
     """Start the artifact and STEP job worker."""
     with c.cd(str(PROJECT_ROOT / "services")):
-        c.run("go run ./cmd/occccad-jobs", pty=True)
+        c.run("go run ./cmd/occccad-jobs", env=_development_environment(), pty=True)
 
 
 def _reset_development_data(c):
@@ -737,7 +739,7 @@ def reset_data(c, yes=False):
 )
 def run_app(c, build_type=None, reset_data=False):
     """Build and start the backend control plane, API, jobs, and geometry workers."""
-    bt = build_type or _get_build_type()
+    bt = _selected_build_type(build_type)
     if reset_data:
         _reset_development_data(c)
     build.body(c, build_type=bt, target="occccad_geometry_worker")
@@ -748,15 +750,20 @@ def run_app(c, build_type=None, reset_data=False):
             "go", "build", "-o", str(service_build),
             "./cmd/occccad-server", "./cmd/occccad-jobs", "./cmd/occccad-control",
         ]))
+    from tools.build_identity import record_runtime
+    from uuid import uuid4
+    environment = _development_environment(bt)
+    environment["OCCCCAD_RUNTIME_ID"] = uuid4().hex
+    record_runtime(PROJECT_ROOT, environment)
     c.run(
         str(service_build / "occccad-control"),
-        env={"OCCCCAD_BUILD_TYPE": bt},
+        env=environment,
         pty=True,
     )
 
 
 @task(help={"mode": "mock (no backend) or api (proxy /api to the backend)"})
-def run_web(c, mode="mock"):
+def run_web(c, mode="api"):
     """Start the independent Vite frontend development server."""
     if mode not in {"mock", "api"}:
         raise Exit("--mode must be 'mock' or 'api'")
@@ -802,7 +809,7 @@ run_collection.add_task(run_geometry, "geometry")
 run_collection.add_task(run_worker, "worker")
 run_collection.add_task(run_server, "server")
 run_collection.add_task(run_jobs, "jobs")
-run_collection.add_task(run_app, "app")
+run_collection.add_task(run_app, "app", default=True)
 run_collection.add_task(run_web, "web")
 run_collection.add_task(run_monitor, "monitor")
 
@@ -817,6 +824,10 @@ performance_collection.add_task(performance_assembly, "assembly")
 
 ns = Collection()
 ns.add_task(info)
+ns.add_task(doctor)
+ns.add_task(task_context, "task")
+ns.add_task(workflow_baseline, "workflow-baseline")
+ns.add_task(diagnose)
 ns.add_task(bootstrap)
 ns.add_task(configure)
 ns.add_task(build)

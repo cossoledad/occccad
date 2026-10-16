@@ -15,7 +15,7 @@ import (
 )
 
 func TestAssemblyOfflineReplayProductionSolver(t *testing.T) {
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
 		t.Skip("requires current production Geometry Worker binary")
 	}
@@ -233,7 +233,7 @@ func TestAssemblyOfflineReplayProductionSolver(t *testing.T) {
 }
 
 func TestAssemblyOfflineReplayProductFixture(t *testing.T) {
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
 		t.Skip("requires production Geometry Worker")
 	}

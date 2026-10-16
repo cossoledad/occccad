@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"math"
 	"net"
-	"os"
-	"os/exec"
 	"reflect"
 	"testing"
 	"time"
@@ -21,42 +19,12 @@ import (
 
 func motionWorker(t *testing.T) *geometry.Client {
 	t.Helper()
-	bin := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
-	if bin == "" {
-		t.Fatal("matching-source Worker binary is required")
-	}
-	l, e := net.Listen("tcp", "127.0.0.1:0")
-	if e != nil {
-		t.Fatal(e)
-	}
-	addr := l.Addr().String()
-	l.Close()
-	cmd := exec.Command(bin)
-	cmd.Env = append(os.Environ(), "OCCCCAD_GEOMETRY_WORKER_LISTEN="+addr, "OCCCCAD_DATA_DIR="+t.TempDir())
-	if e = cmd.Start(); e != nil {
-		t.Fatal(e)
-	}
-	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
-	c, e := geometry.Open(addr)
-	if e != nil {
-		t.Fatal(e)
-	}
-	t.Cleanup(func() { c.Close() })
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		ctx, stop := context.WithTimeout(t.Context(), 100*time.Millisecond)
-		_, e = c.Ping(ctx)
-		stop()
-		if e == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal(e)
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	return c
+	client, close, err := geometry.OpenDevelopmentWorker(t.Context())
+	if err != nil { t.Fatal(err) }
+	t.Cleanup(close)
+	return client
 }
+
 func jointEnd(id string, x, y float64) JointEndpoint {
 	return JointEndpoint{InstanceID: id, Frame: InstancePose{Translation: [3]float64{x, y, 0}, Rotation: [4]float64{0, 0, 0, 1}}}
 }

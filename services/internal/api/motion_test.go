@@ -2,16 +2,10 @@ package api
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/occccad/occccad/internal/access"
@@ -19,11 +13,12 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
-	db, e := database.Open(t.Context(), "sqlite:"+filepath.Join(t.TempDir(), "motion.db"))
+	db, e := database.Open(t.Context(), testsupport.Environment(t).DatabaseURL)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -31,11 +26,11 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 	if e = database.Migrate(t.Context(), db); e != nil {
 		t.Fatal(e)
 	}
-	local, e := artifact.NewLocalStore(t.TempDir())
-	if e != nil {
-		t.Fatal(e)
+	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil {
+		t.Fatal(err)
 	}
-	objects := artifact.NewService(db, local)
+	objects := artifact.NewService(db, local, developmentStaging)
 	domain := workspace.NewWithArtifacts(db, motionAPIWorker(t), objects)
 	queue := jobs.New(db)
 	actor := access.DefaultUserID
@@ -165,11 +160,12 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	claimed, e := queue.Claim(t.Context(), "api-fixture", time.Minute)
-	if e != nil || claimed.ID != job.ID {
-		t.Fatal(claimed, e)
+	// This API authorization fixture owns only this job. Queue claiming and
+	// lease attempts are covered by jobs tests and real Jobs integration.
+	if _, e = db.Exec(t.Context(), `UPDATE occccad.jobs SET state='RUNNING',lease_owner='api-fixture',lease_expires_at=now()+interval '1 minute',attempt_count=1 WHERE id=$1`, job.ID); e != nil {
+		t.Fatal(e)
 	}
-	if e = queue.FinishMotion(t.Context(), job.ID, "api-fixture", claimed.AttemptCount, result.ID, jobs.MotionCompletion{Status: "COMPLETED", Completed: true}); e != nil {
+	if e = queue.FinishMotion(t.Context(), job.ID, "api-fixture", 1, result.ID, jobs.MotionCompletion{Status: "COMPLETED", Completed: true}); e != nil {
 		t.Fatal(e)
 	}
 	get := func(user string) *httptest.ResponseRecorder {
@@ -204,8 +200,13 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 		t.Fatal("repeated delete", r.Code)
 	}
 	items, err := queue.ListForUser(t.Context(), actor, 100)
-	if err != nil || len(items) != 0 {
-		t.Fatal("deleted result still listed", items, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.ID == job.ID {
+			t.Fatal("deleted result still listed", job.ID)
+		}
 	}
 	if r := get(actor); r.Code != 200 {
 		t.Fatal("immutable audit result lost", r.Code)
@@ -235,39 +236,10 @@ func TestMotionAPIIdempotencyAuthorizationFrozenResults(t *testing.T) {
 // still use a synthetic Artifact rather than claiming a full browser workflow.
 func motionAPIWorker(t *testing.T) *geometry.Client {
 	t.Helper()
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
-	if binary == "" {
-		t.Fatal("matching Worker binary required")
+	client, close, err := geometry.OpenDevelopmentWorker(t.Context())
+	if err != nil {
+		t.Fatal(err)
 	}
-	l, e := net.Listen("tcp", "127.0.0.1:0")
-	if e != nil {
-		t.Fatal(e)
-	}
-	addr := l.Addr().String()
-	l.Close()
-	cmd := exec.Command(binary)
-	cmd.Env = append(os.Environ(), "OCCCCAD_GEOMETRY_WORKER_LISTEN="+addr, "OCCCCAD_DATA_DIR="+t.TempDir())
-	if e = cmd.Start(); e != nil {
-		t.Fatal(e)
-	}
-	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
-	c, e := geometry.Open(addr)
-	if e != nil {
-		t.Fatal(e)
-	}
-	t.Cleanup(func() { c.Close() })
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		ctx, stop := context.WithTimeout(t.Context(), 100*time.Millisecond)
-		_, e = c.Ping(ctx)
-		stop()
-		if e == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal(e)
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	return c
+	t.Cleanup(close)
+	return client
 }

@@ -1,0 +1,190 @@
+{
+  "schema": "occccad.workflow-baseline.v1",
+  "source": {
+    "sha256": "178c1ecbcf7326abf2c49e3e1ecea9a3a2383532f8a9cca9b68eb9c043ba3bc3",
+    "files": 884,
+    "boundary": "owned code/build inputs; excludes data, corpus and secret configuration"
+  },
+  "environment": {
+    "database": {
+      "backend": "sqlite",
+      "path": "/home/ganjb/project/occccad/services/data/occccad-local.db"
+    },
+    "buildType": "Release",
+    "worker": {
+      "path": "/home/ganjb/project/occccad/build/cmake/release/workers/geometry/occccad_geometry_worker",
+      "sha256": "b3d1f54d534de2fc534310415ff2f776048c23a80d7ed1a88f22a3b47ad25c42"
+    },
+    "artifactBackend": "LOCAL",
+    "dataDirectory": "/home/ganjb/project/occccad/services/data",
+    "logDirectory": "/home/ganjb/project/occccad/services/logs",
+    "listeners": {
+      "app": "0.0.0.0:8080",
+      "router": "127.0.0.1:51001"
+    },
+    "digest": "04dea2b18bc217e05c86f4c11a18a393e81991d1673951ce55795c582bdfbdd6"
+  },
+  "platform": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+  "tasks": [
+    {
+      "recipe": "property",
+      "packet": "build/agent-workflow/20261016T095354-d86f8f1d/property.json",
+      "discovery": {
+        "searchCalls": 3,
+        "returnedSourceBytes": 2776,
+        "discoverySeconds": 0.005521,
+        "modelTokens": null,
+        "boundary": "this packet only; excludes agent reasoning, subsequent reads and implementation"
+      },
+      "validation": "build/agent-check/20261016T095355-0ffe08ab/report.json",
+      "status": "PASS",
+      "durationSeconds": 23.199141,
+      "outputBytes": 66258,
+      "counts": [
+        {
+          "started": 68,
+          "passed": 68,
+          "failed": 0,
+          "skipped": 0
+        }
+      ]
+    },
+    {
+      "recipe": "rpc",
+      "packet": "build/agent-workflow/20261016T095354-d86f8f1d/rpc.json",
+      "discovery": {
+        "searchCalls": 5,
+        "returnedSourceBytes": 3073,
+        "discoverySeconds": 0.008542,
+        "modelTokens": null,
+        "boundary": "this packet only; excludes agent reasoning, subsequent reads and implementation"
+      },
+      "validation": "build/agent-check/20261016T095418-7db3e3e6/report.json",
+      "status": "PASS",
+      "durationSeconds": 6.472026,
+      "outputBytes": 27152,
+      "counts": [
+        {
+          "started": 5,
+          "passed": 5,
+          "failed": 0,
+          "skipped": 0
+        }
+      ]
+    },
+    {
+      "recipe": "selection",
+      "packet": "build/agent-workflow/20261016T095354-d86f8f1d/selection.json",
+      "discovery": {
+        "searchCalls": 3,
+        "returnedSourceBytes": 4142,
+        "discoverySeconds": 0.005538,
+        "modelTokens": null,
+        "boundary": "this packet only; excludes agent reasoning, subsequent reads and implementation"
+      },
+      "validation": "build/agent-check/20261016T095424-8f3d7a42/report.json",
+      "status": "PASS",
+      "durationSeconds": 1.013198,
+      "outputBytes": 106,
+      "counts": []
+    },
+    {
+      "recipe": "feature",
+      "packet": "build/agent-workflow/20261016T095354-d86f8f1d/feature.json",
+      "discovery": {
+        "searchCalls": 3,
+        "returnedSourceBytes": 2620,
+        "discoverySeconds": 0.005761,
+        "modelTokens": null,
+        "boundary": "this packet only; excludes agent reasoning, subsequent reads and implementation"
+      },
+      "validation": "build/agent-check/20261016T095425-33718d84/report.json",
+      "status": "PASS",
+      "durationSeconds": 15.442597,
+      "outputBytes": 92857,
+      "counts": [
+        {
+          "started": 1,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0
+        }
+      ]
+    },
+    {
+      "recipe": "diagnostic",
+      "packet": "build/agent-workflow/20261016T095354-d86f8f1d/diagnostic.json",
+      "discovery": {
+        "searchCalls": 4,
+        "returnedSourceBytes": 1992,
+        "discoverySeconds": 0.006117,
+        "modelTokens": null,
+        "boundary": "this packet only; excludes agent reasoning, subsequent reads and implementation"
+      },
+      "validation": "build/agent-check/20261016T095441-6eeaf20c/report.json",
+      "status": "PASS",
+      "durationSeconds": 0.720705,
+      "outputBytes": 2271,
+      "counts": [
+        {
+          "started": 1,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0
+        }
+      ]
+    }
+  ],
+  "modelTokens": null,
+  "boundary": "one serial sample per recipe; packet discovery and focused validation only; excludes implementation, reasoning and subsequent reads; no before/after speedup",
+  "verification": {
+    "toolingTests": 53,
+    "contractToolingTests": 22,
+    "contractCatalog": {
+      "capabilities": 58,
+      "cases": 677,
+      "result": "LOCK_VALIDATED"
+    },
+    "webScenarios": 110,
+    "webReport": "build/agent-check/20261016T101927-53954493/report.json",
+    "conformanceReport": "build/agent-check/20261016T101104-9d1f210e/report.json",
+    "repeatedFixtureReport": "build/agent-check/20261016T100557-f0f8bae5/report.json",
+    "jobReferenceRegression": "build/agent-check/20261016T101031-007e3b27/report.json",
+    "nativeReport": "build/agent-check/20261016T100607-51203805/report.json",
+    "nativeStatus": "FAIL: 391 passed, 2 existing Shell cases failed",
+    "logs": {
+      "build/acceptance/final-live.log": {
+        "sha256": "b292f94223ab2416ad494e0698d9add3d30449b7ef18d6118528f578c076fe3d",
+        "bytes": 6797
+      },
+      "build/acceptance/final-mock.log": {
+        "sha256": "ee3af4fde76c96c04252308c71414dfeaf1b63b6ca262dbbeb91a63a290ff138",
+        "bytes": 3661
+      },
+      "build/acceptance/number-input.log": {
+        "sha256": "d4b9f72ebf0ef9a55429450b7eaeaeceb60feaa34326a1a00044f53947180ee7",
+        "bytes": 1422
+      },
+      "build/acceptance/final-number-live.log": {
+        "sha256": "1273db9bc7fe91f6538361d5734df02c6f4d36e8b93ea6a9bee1de582d2f2e2d",
+        "bytes": 2276
+      }
+    },
+    "frozenJobFailure": {
+      "jobId": "01a145b4-ae27-7e7c-a515-d190226b06e9",
+      "state": "FAILED",
+      "attempt": 1,
+      "reference": "CAD_JOB_DIAGNOSTIC 01a145b4-ae27-7e7c-a515-d190226b06e9/20261016T171351.601223179Z-b382a05016597017",
+      "inputObjectId": "01a145b4-ae23-7291-9546-915cd1ca98b2",
+      "inputDigest": "0538a9a1eeae069b63a64d5df99b5c99d239e5ea59e585e2915866b02af27c6a",
+      "replayStatus": "NO_RECORDED_NUMERICAL_ATTEMPT"
+    },
+    "finalWorkspaceSource": {
+      "sha256": "9075a2a10277ffbb593846099375c77e29196f5455b5a6216d0831cd1b478c64",
+      "files": 887,
+      "boundary": "owned code/build inputs; excludes data, corpus and secret configuration"
+    },
+    "mockBrowserCases": 5,
+    "liveBrowserCases": 3
+  }
+}

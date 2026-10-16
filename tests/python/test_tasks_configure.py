@@ -102,7 +102,7 @@ class ConfigureTests(unittest.TestCase):
             (root / "build/cmake/release").mkdir(parents=True)
             context = Mock()
             context.cd.return_value = contextlib.nullcontext()
-            with patch.multiple(tasks, PROJECT_ROOT=root, BUILD_DIR=root / "build/cmake"), contextlib.redirect_stdout(io.StringIO()):
+            with patch.multiple(tasks, PROJECT_ROOT=root, BUILD_DIR=root / "build/cmake"), patch('tools.build_identity.record_runtime'), contextlib.redirect_stdout(io.StringIO()):
                 tasks.run_app.body(context, build_type="Release")
             self.assertEqual(context.run.call_count, 3)
             go = shlex.split(context.run.call_args_list[1].args[0])

@@ -18,12 +18,12 @@ go run ./cmd/occccad-artifacts --verify-target
 
 对象存储成功后才发布数据库引用；失败不声明成功。每次分片上传独立，不续传、不自动重试。取消时对本次 upload ID 尝试清理，异常断电或服务持续不可达可能留下孤儿分片/对象；自动 GC 未交付。`invoke data.reset --yes` 在 S3 模式清空当前配置专用桶中的全部对象、历史版本、删除标记和未完成分片，保留桶；先停止写入进程，命令会报告清理目标。清理按每批最多 1000 个对象版本执行；列表、删除或分片撤销失败会报错，不能保证跨存储原子性，修复后可重新执行。
 
-定向验证（真实 S3 测试只删除本次随机生成的测试对象）：
+定向验证（复用当前后端；配置 S3 时运行真实 S3 测试，只删除本次随机生成的对象；配置 LOCAL 时明确标记不适用）：
 
 ```sh
 go test ./internal/artifact ./internal/geometry -run 'TestLocalStore|TestS3Spool|TestS3Multipart|TestArtifactStaging'
-OCCCCAD_TEST_S3=1 OCCCCAD_TEST_S3_BYTES=1073741824 go test ./internal/artifact -run TestS3IntegrationStreaming -count=1 -v
-OCCCCAD_TEST_S3=1 OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occccad_geometry_worker go test ./internal/geometry -run TestS3WorkerExchangeRoundTrip -count=1 -v
+OCCCCAD_TEST_S3_BYTES=1073741824 go test ./internal/artifact -run TestS3IntegrationStreaming -count=1 -v
+go test ./internal/geometry -run TestS3WorkerExchangeRoundTrip -count=1 -v
 ```
 
 字节传输验收不等于 1 GiB STEP/BREP 已完成几何求值或浏览器显示验收。

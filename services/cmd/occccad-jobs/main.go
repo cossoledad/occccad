@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/thumbnail"
@@ -28,6 +30,7 @@ import (
 )
 
 type handler struct {
+	diagnostics            *debugartifact.Store
 	importBudget           *importBudget
 	workerID               string
 	thumbnailRenderTimeout time.Duration
@@ -47,7 +50,7 @@ func main() {
 }
 
 func run() error {
-	if _, err := config.LoadProjectEnv(); err != nil {
+	if _, err := config.LoadEnvironment(); err != nil {
 		return err
 	}
 	configuration := config.Load()
@@ -66,6 +69,14 @@ func run() error {
 		return err
 	}
 	artifactService := artifact.NewService(pool, store, localArtifactStore)
+	operationDiagnostics, err := debugartifact.NewStore(filepath.Join(configuration.LogDirectory, "debug", "cad-diagnostics"), 50, 7*24*time.Hour)
+	if err != nil {
+		return err
+	}
+	jobDiagnostics, err := debugartifact.NewStore(filepath.Join(configuration.LogDirectory, "debug", "job-diagnostics"), 50, 7*24*time.Hour)
+	if err != nil {
+		return err
+	}
 	geometryClient, err := geometry.Open(configuration.WorkerAddress, geometry.ArtifactStaging(store, localArtifactStore))
 	if err != nil {
 		return err
@@ -80,6 +91,8 @@ func run() error {
 		workerID := fmt.Sprintf("%s-%d-%d", hostname, os.Getpid(), index)
 		group.Go(func() error {
 			h := handler{importBudget: budget, workerID: workerID, thumbnailRenderTimeout: configuration.ThumbnailRenderTimeout, database: pool, queue: jobs.New(pool), artifacts: artifactService, access: access.New(pool), geometry: geometryClient, workspace: workspace.NewWithArtifacts(pool, geometryClient, artifactService)}
+			h.diagnostics = jobDiagnostics
+			h.workspace.SetDiagnosticArtifactStore(operationDiagnostics)
 			return h.runJobLoop(groupContext)
 		})
 	}
@@ -129,7 +142,18 @@ func (h handler) runJobLoop(ctx context.Context) error {
 				if job.Type == "EXCHANGE_IMPORT" && !retryableImportError(err) {
 					job.MaxAttempts = job.AttemptCount
 				}
-				_ = h.queue.Fail(finishContext, job, workerID, "PROCESSING_FAILED", err.Error())
+				message := config.Redact(err.Error())
+				if reference := h.retainJobFailure(finishContext, job, err); reference != "" {
+					message += " [CAD_JOB_DIAGNOSTIC " + reference + "]"
+				}
+				// Archival must not consume the failure transition's DB budget.
+				failureContext, failureCancel := context.WithTimeout(context.Background(), 3*time.Second)
+				if canceled, e := h.queue.CancellationRequested(failureContext, job.ID, workerID); e == nil && canceled {
+					_ = h.queue.AcknowledgeCanceled(failureContext, job.ID, workerID)
+				} else {
+					_ = h.queue.Fail(failureContext, job, workerID, "PROCESSING_FAILED", message)
+				}
+				failureCancel()
 			}
 			finishCancel()
 		}

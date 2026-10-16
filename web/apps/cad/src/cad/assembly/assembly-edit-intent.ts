@@ -83,4 +83,10 @@ export class AssemblyDialogLifecycle {
   invalidate() { this.generation++; }
   capture() { return this.generation; }
   isCurrent(generation:number) { return generation===this.generation; }
+  bindCallbacks<T>(generation:number, callbacks:{onSuccess:(value:T)=>void;onError:(cause:unknown)=>void}) {
+    return {
+      onSuccess:(value:T)=>{if(this.isCurrent(generation))callbacks.onSuccess(value);},
+      onError:(cause:unknown)=>{if(this.isCurrent(generation))callbacks.onError(cause);},
+    };
+  }
 }

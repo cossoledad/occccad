@@ -62,7 +62,7 @@ WebSocket 首条消息必须是携带 CSRF token 的 `connection.initialize.v1`�
 
 后台 Exchange 到达最终状态时发布用户级 `job.state.changed.v1`。事件只发送到 `requested_by_user_id` 对应的连接；没有在线连接时保持在 Outbox，不能因一次空广播丢失完成通知。前端提交后立即返回 Document Center，导出结果只在用户点击通知中的下载动作时走流式 HTTP。
 
-可在整套应用运行时设置 `OCCCCAD_REALTIME_TEST_URL`、`OCCCCAD_ADMIN_PASSWORD` 与 `OCCCCAD_EXCHANGE_TEST_STEP`，运行 `go test ./internal/api -run TestRealtimeExchangeImportNotification -count=1 -v`，验证“HTTP 提交立即返回、后台导入、用户级 WebSocket 终态通知”这一真实入口；测试本身不查询 Job 状态。
+先用根 `invoke run` 启动整套应用，再从 `tests/go/` 执行 `go test ./realtime -count=1 -v`，验证双客户端提交和“HTTP 立即返回、后台导入、用户级 WebSocket 终态通知”。入口读取同一 `.env` 的 `OCCCCAD_APP_LISTEN` 和管理员配置；未指定 `OCCCCAD_TEST_EXCHANGE_STEP` 时使用当前 Native 生成的解析 STEP。测试不轮询 Job 状态。
 
 RFC 6455 Upgrade、frame、Ping/Pong 由 `github.com/gorilla/websocket` v1.5.3 提供；该依赖使用两条款 BSD 许可。它只位于 HTTP transport adapter，领域 Envelope、Command、Outbox 和恢复语义不依赖其类型，未来可以替换实现而不改变持久模型。
 
@@ -136,7 +136,7 @@ invoke performance-baseline
 `.3dreplay` 在响应关键路径外原子写入 `OCCCCAD_LOG_DIR/debug/assembly-replays/<documentID>/`，不进入数据库；每个文档最多 50 条、最长 7 天。成功、失败和预览留档不改模型历史。
 格式与独立重放命令见 [occccad-3dreplay](../occccad-3dreplay/README.md)。
 
-Cut/Hole 集成验证位于 `internal/control/TestCutHolePersistentSelectionThroughRealRouter`。它通过正式 GeometryPool/Router 和 C++ Worker 执行 Part `REMOVE`、Product `UPDATE_REFERENCES`、Undo/Redo、Broken 隔离与 Reconnect，而不是绕过 transport 直接伪造 topology result。测试需要可丢弃 PostgreSQL 和 Worker 路径；设置 `OCCCCAD_P6_EVIDENCE_DIR` 时会额外保存逐场景 resolution JSON 与可下载、可由 `ReplayAssembly` 重放的 `.3dreplay`。
+Cut/Hole 集成验证位于 `internal/control/TestCutHolePersistentSelectionThroughRealRouter`。它通过正式 GeometryPool/Router 和 C++ Worker 执行 Part `REMOVE`、Product `UPDATE_REFERENCES`、Undo/Redo、Broken 隔离与 Reconnect，而不是绕过 transport 直接伪造 topology result。测试复用当前 `.env` 的 SQLite 或 PostgreSQL、制品存储和匹配源码的 Worker；设置 `OCCCCAD_P6_EVIDENCE_DIR` 时会额外保存逐场景 resolution JSON 与可下载、可由 `ReplayAssembly` 重放的 `.3dreplay`。
 
 数据库连接由统一的进程内访问层调度，支持有界等待和后台轮询预算；参数与一致性说明见 [database README](../../internal/database/README.md)。队列满时命令/预览返回可重试的 DATABASE_BUSY，客户端重试须保持 request ID。HTTP 耗时阶段新增 db-queue-wait / db-pool-wait / db-query / db-batch / db-transaction；阶段存在包含关系。
 

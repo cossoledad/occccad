@@ -2,23 +2,27 @@
 
 ## 2026-10-16 本机 Release 复测
 
-同一真实 Router/Worker 测试的正常缓存与 1 字节预算淘汰各串行重复 5 次，全部通过。本机环境、构建和完整样本见[统一性能基线](performance-baseline.md)；下表为正常预算每行 5 次中位数，冷请求真实绕过共享准备和原生缓存，仍比较同一定义的精确/Naming 结果。
+同一 `.env`、数据库与制品存储，正常缓存及 1 字节淘汰预算各串行重复 5 次，全部通过。阶段详情及完整样本见[统一基线](performance-baseline.md)与[数据](performance-baseline.json)。下表每格为同一场景 5 次中位数；冷请求真正绕过缓存，仍比较同定义精确/Naming 结果。
 
-| 场景 | 执行/复用（热→冷） | 服务 ms（热→冷） | exact ms（热→冷） | Naming ms（热→冷） |
+| 请求/出现次数 | 执行/复用（热→冷） | 服务 ms（热→冷） | exact ms（热→冷） | Naming ms（热→冷） |
 |---|---|---|---|---|
-| 追加第三个拉伸 | 1/2 → 3/0 | 38.82 → 54.50 | 7.94 → 15.21 | 7.57 → 9.79 |
-| 编辑中间拉伸 | 2/1 → 3/0 | 42.57 → 48.61 | 12.90 → 13.47 | 8.78 → 8.79 |
-| 连续放样第二次预览 | 1/3 → 4/0 | 40.61 → 72.12 | 9.63 → 23.28 | 6.76 → 12.82 |
-| Worker 真实重启后 | 4/0 → 4/0 | 77.35 → 77.76 | 27.06 → 24.69 | 17.80 → 13.36 |
+| runtime-append-tail / 1 | 1/2 → 3/0 | 76.44 → 85.09 | 7.83 → 15.51 | 7.61 → 9.91 |
+| runtime-edit-middle / 1 | 2/1 → 3/0 | 79.10 → 80.06 | 12.81 → 13.65 | 8.96 → 8.94 |
+| runtime-loft-session / 1 | 1/3 → 4/0 | 80.51 → 103.44 | 9.59 → 22.98 | 6.14 → 12.70 |
+| runtime-after-worker-restart / 1 | 4/0 → 4/0 | 114.57 → 110.11 | 26.95 → 25.70 | 17.74 → 13.93 |
 
-改名/显隐预览中位数 9.93/10.14 ms，几何执行为 0；无 Worker 调用时 RSS=0 表示未采集，不是零内存。连续放样第二次的 Profile/对应准备及 mesh/encoding 为 0，冷请求恢复 5 次 Profile、1 次对应准备。1 字节预算各阶段不复用；真实 Worker 重启后完整重建，均保持冷等价和原 Head。
+名称/显隐预览的实际阶段计数也保存在 JSON；无 Worker 调用时 RSS=0 表示未采集。1 字节预算不复用阶段，真实 Worker 重启后重建，均保留冷等价与原 Head。
 
-本次三条整例 fixture 各重复 3 次：Bottom Support / Fan / Loft 投影中位数为 1.39 / 2.01 / 1.25 s。这是包含准备/生命周期/断言的测试整例耗时，不是算子耗时。阶段包含关系、RSS 和缓存预算定义不变。
+测试整例（含准备/生命周期/断言）与算子时间分开；三条建模 fixture 各重复 3 次，结果见统一基线。
 
-复现使用 `go -C services test ./internal/control -run '^TestIncrementalRuntime(Production|Eviction)ThroughRouter$' -count=5 -v -timeout=20m`，读取根 `.env` 的当前 Worker。
+复现：
 
-## 当前验证与限制
+```sh
+go -C services test ./internal/control -run '^TestIncrementalRuntime(Production|Eviction)ThroughRouter$' -count=5 -v -timeout=20m
+```
 
-实现职责、预算与冷恢复合同见[增量运行时](../architecture/current/jobs-artifacts.md#part-增量运行时)。本机测量通过真实精确 GeometryID、体积、包围盒及 BREP/NAMING 等价检查；同时覆盖上游不重复执行、名称/显隐不重建几何、取消、1 字节预算淘汰与 Worker 重启。
+## 合同与限制
 
-原生共享状态串行，取消不能打断正在运行的 OCCT 算子；阶段检查点易失，缺失后由冻结输入冷恢复。阶段缓存预算不是进程 RSS 上限。浏览器交互、长会话内存和高负载排队没有本轮测量证据。
+实现、预算及恢复语义归[Part 增量运行时](../architecture/current/jobs-artifacts.md#part-增量运行时)。验证覆盖精确 GeometryID、体积、包围盒及 BREP/NAMING 冷等价、上游不重复执行、取消、淘汰和重启。
+
+原生共享状态串行，取消不能打断正在运行的 OCCT 算子；阶段检查点易失，缺失后由冻结输入恢复。缓存预算不是 RSS 上限；浏览器交互、长会话和高负载排队未在本轮测量。

@@ -19,7 +19,7 @@ import (
 // timing. Do not run alongside builds, benchmarks or parallel tests.
 func TestAssemblyPerformance(t *testing.T) {
 	if os.Getenv("OCCCCAD_RUN_ASSEMBLY_PERFORMANCE") != "1" {
-		t.Skip("opt-in performance measurement")
+		t.Skip("NOT_APPLICABLE: measured separately by invoke performance.assembly")
 	}
 	n := 5
 	if raw := os.Getenv("OCCCCAD_PERFORMANCE_SAMPLES"); raw != "" {

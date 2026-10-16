@@ -45,7 +45,7 @@ func TestLoftLinearBoundaryProjectionThroughRouter(t *testing.T) {
 		sections = append(sections, workspace.LoftSection{SketchID: id})
 	}
 	before := view.Document.VersionID
-	r := workspace.CommandRequest{ActorID: p6Actor, RequestID: "linear-loft-preview", Type: "CREATE_SOLID_FEATURE", Feature: &workspace.Feature{Type: "LOFT", Operation: "NEW_BODY", Sections: sections}}
+	r := workspace.CommandRequest{ActorID: p6Actor, RequestID: view.Document.ID + "-linear-loft-preview", Type: "CREATE_SOLID_FEATURE", Feature: &workspace.Feature{Type: "LOFT", Operation: "NEW_BODY", Sections: sections}}
 	preview, err := service.PreviewCommand(t.Context(), view.Document.ID, r)
 	if err != nil {
 		t.Fatal(err)

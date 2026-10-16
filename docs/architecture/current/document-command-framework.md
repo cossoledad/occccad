@@ -68,3 +68,5 @@ registry.register({
 Go 配置/注册测试验证失败封闭、已有命令保留及无需数据库/Worker 的目录读取；迁移测试验证两种数据库的历史保留。Node 场景覆盖 Part/Product/Sketch 事实、fit/coincident/pad、完整默认注册、扩展、取消和迟到结果，以及原有菜单、标签、Preview 与装配路径。真实链路验证仍使用现有 Router/C++ Worker、数据库和制品接口。
 
 这些测试不替代浏览器/WebGL 操作验收，不表示所有装配组合或工业规模验收。实际执行结果、既有失败与未运行项由当次交付报告列出。
+
+装配创建/编辑表单由 `workbench/assembly-constraint-fields.tsx` 拥有呈现和表单字段；工作台保留查询与命令编排。`AssemblyDialogLifecycle.bindCallbacks` 同时绑定两条实际提交路径，按对话框寿命处理成功/失败；自身提交触发的权威缓存刷新不会关闭回调资格，关闭或切换上下文后的迟到回调不影响新会话。相邻场景通过实际 MutationObserver 时序验证。

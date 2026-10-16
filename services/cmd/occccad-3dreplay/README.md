@@ -69,10 +69,10 @@ Unit tests can load a file and call `workspace.ReplayAssemblyDiagnosticWithOptio
 
 ```sh
 # services/, matching built Worker; offline tests do not use PostgreSQL
-OCCCCAD_TEST_GEOMETRY_WORKER="$PWD/../build/cmake/release/workers/geometry/occccad_geometry_worker" \
+OCCCCAD_GEOMETRY_WORKER_BIN="$PWD/../build/cmake/release/workers/geometry/occccad_geometry_worker" \
   go test ./internal/workspace -run 'TestAssemblyOfflineReplay|TestAssemblyDiagnostic|TestAssemblyOriginal' -count=1
 
 go test ./internal/geometry ./internal/valuecopy -run 'TestAssembly|TestClone' -count=1
 ```
 
-Router integration uses `internal/testsupport.OpenTestDatabase` and the dedicated `OCCCCAD_TEST_DATABASE_URL` loaded from `.env` (SQLite by default, or an explicit `occccad_*_test` PostgreSQL database), the matching Worker and exact analytic fixtures. It validates the test target and migrations, allocates fresh documents and its own ArtifactStore, and never resets data. Missing analytic fixtures are generated under `build/test-resources` using the existing geometry test executable. See [development environment](../../../docs/development/README.md). Performance measurements and their limits are in [the focused report](../../../docs/validation/performance-baseline.md).
+Router integration uses `internal/testsupport.OpenDevelopmentDatabase` and the dedicated `OCCCCAD_DATABASE_URL` loaded from `.env` (SQLite by default, or an explicit `occccad_*_test` PostgreSQL database), the matching Worker and exact analytic fixtures. It validates the test target and migrations, allocates fresh documents and its own ArtifactStore, and never resets data. Missing analytic fixtures are generated under `build/test-resources` using the existing geometry test executable. See [development environment](../../../docs/development/README.md). Performance measurements and their limits are in [the focused report](../../../docs/validation/performance-baseline.md).

@@ -601,3 +601,35 @@ CadViewportEngine.prototype.invalidate=function(...args){window.__dmuEngine=this
  expect((await response.json()).interactionBegin.instanceId).toBe('missing');
  expect((await current(page,sourceId!)).document.versionId).toBe(seed.sourceHead);expect(errors).toEqual([]);
 });
+
+
+test('fixed constraint create and edit close after authoritative commits',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();
+ await page.goto('/');const seed=await seedProduct(page,false);await page.goto('/documents/'+seed.id);
+ await expect(page.locator('canvas')).toBeVisible();
+ await page.locator(`[role=treeitem][data-tree-key*="instance:${seed.shaft}"]`).first().click();
+ await command(page,'固定');const dialog=page.getByRole('dialog',{name:'约束定义',exact:true});
+ await expect(dialog).toBeVisible();
+ await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).fill('7.654');
+ await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).press('Tab');
+ await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
+ await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
+ const saved=await current(page,seed.id),fixed=saved.product.constraints.find((c:any)=>c.kind==='FIX');
+ expect(fixed).toBeTruthy();expect(fixed.fixedPose.translation[0]).toBeCloseTo(7.654,8);
+ await page.getByRole('textbox',{name:'筛选模型结构'}).fill(fixed.name);
+ const row=page.getByRole('treeitem').filter({hasText:fixed.name}).last();
+ await row.dblclick();await expect(dialog).toBeVisible();
+ await expect(dialog.getByRole('spinbutton',{name:'X（mm）',exact:true})).toHaveValue('7.65');
+ await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).press('Enter');
+ await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
+ await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
+ expect((await current(page,seed.id)).product.constraints.find((c:any)=>c.id===fixed.id).fixedPose.translation[0]).toBeCloseTo(7.654,8);
+ await row.dblclick();await expect(dialog).toBeVisible();
+ await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).fill('9.876');
+ await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).press('Tab');
+ await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
+ await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
+ const edited=await current(page,seed.id);expect(edited.product.constraints.find((c:any)=>c.id===fixed.id).fixedPose.translation[0]).toBeCloseTo(9.876,8);
+ expect(edited.document.versionId).not.toBe(saved.document.versionId);expect(errors).toEqual([]);
+});

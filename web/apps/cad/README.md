@@ -1,6 +1,6 @@
 # CAD Web
 
-独立 React 应用，提供文档中心、Part/Product 工作台与 Three.js 视口，可连接真实 API 或用 Mock 单独开发。浏览器拥有交互与显示；参数模型、权限、Revision 和最终 B-Rep 求值属于服务端。
+独立 React 应用，提供文档中心、Part/Product 工作台与 Three.js 视口，默认连接统一开发 API，隔离前端场景可显式使用 Mock。浏览器拥有交互与显示；参数模型、权限、Revision 和最终 B-Rep 求值属于服务端。
 
 ## 职责与入口
 
@@ -24,10 +24,12 @@
 
 ```bash
 invoke run.web
-invoke run.web --mode=api
+# 隔离前端场景
+invoke run.web --mode=mock
 ```
 
-第一条使用浏览器 Mock；第二条通过 `/api` 代理真实应用。也可在 `web/` 运行 `pnpm install --frozen-lockfile`，再用 `pnpm dev:mock` 或 `pnpm dev:api`。默认开发地址 `http://localhost:5173`，代理配置以 `vite.config.ts` 为准。前端 `.env.development` / `.env.mock` 由 Vite 读取，与根服务端 `.env` 分开。
+默认前端通过 `/api` 代理根 `.env` 的 `OCCCCAD_APP_LISTEN`，与正常应用和 Agent 验证共用数据。也可在 `web/` 安装依赖后执行 `pnpm dev`；`dev:mock` 是显式隔离入口。默认地址为 `http://localhost:5173`。前端 `.env.development` / `.env.mock` 只保存 Vite 参数；后端连接由根配置决定，凭据不进入浏览器变量。
+
 
 ## 验证
 
@@ -43,13 +45,14 @@ invoke web.build
 浏览器环境依赖按[环境准备](../../../docs/development/environment.md#chromium-与浏览器验证)复用系统配置。在本目录：
 
 ```bash
+# 仅在缺少 Chromium 时安装
 pnpm exec playwright install chromium
 pnpm test:browser
 ```
 
-Mock Playwright 自动在 5174 启动独立 Vite，使用 Chromium/软件 WebGL，结束关闭进程；失败截图和 trace 在已忽略的 `test-results/`。`browser/workbench.spec.ts` 覆盖布局/命令/树，`browser/navigation.spec.ts` 覆盖组合手势；Mock/Node/build 不证明真实几何、权限、后端装配或原生 GPU 通过。
+Mock Playwright 自动在 5174 启动独立 Vite，使用 Chromium/软件 WebGL，结束关闭进程；失败截图和 trace 在配置的构建输出目录。`browser/workbench.spec.ts` 覆盖布局/命令/树，`browser/navigation.spec.ts` 覆盖组合手势；Mock/Node/build 不证明真实几何、权限、后端装配或原生 GPU 通过。
 
-真实服务验收先启动最新 API/Worker（`invoke run.app --build-type=Release`），按已有项目配置加载测试所需登录环境，再在本目录运行：
+真实服务验收先启动最新 API/Worker（`invoke run --build-type=Release`），Live 配置自动读取根 `.env` 或 `OCCCCAD_ENV_FILE` 的同一登录环境，再在本目录运行：
 
 ```bash
 pnpm exec playwright test --config playwright.live.config.ts

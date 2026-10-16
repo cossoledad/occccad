@@ -2,24 +2,24 @@ package control
 
 import (
 	"fmt"
-	"github.com/occccad/occccad/internal/artifact"
-	"github.com/occccad/occccad/internal/database"
-	"github.com/occccad/occccad/internal/geometry"
-	"github.com/occccad/occccad/internal/workspace"
 	"math"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/testsupport"
+	"github.com/occccad/occccad/internal/workspace"
 )
 
 func TestBoundaryFilletLifecycleThroughRouter(t *testing.T) {
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
 		t.Skip("requires built Geometry Worker")
 	}
-	url := "sqlite:" + filepath.Join(t.TempDir(), "fillet.db")
+	url := testsupport.Environment(t).DatabaseURL
 	db, err := database.Open(t.Context(), url)
 	if err != nil {
 		t.Fatal(err)
@@ -34,22 +34,20 @@ func TestBoundaryFilletLifecycleThroughRouter(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	directory := t.TempDir()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: t.TempDir()})
+	directory := testsupport.Environment(t).DataDirectory
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	store, err := artifact.NewLocalStore(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	artifacts := artifact.NewService(db, store)
+	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	artifacts := artifact.NewService(db, store, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 
 	view, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Boundary fillet lifecycle"})

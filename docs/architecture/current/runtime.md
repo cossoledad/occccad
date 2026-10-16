@@ -2,14 +2,14 @@
 
 > 返回[当前架构目录](README.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
 
-当前 occccad 是一个“模块化业务单体 + 持久任务进程 + C++ 几何计算 Worker + 独立 Web 应用”的早期分布式垂直切片。HTTP/WebSocket、数据库、后台任务与几何计算已经跨进程，但调度仅限本机，制品仅限共享本地目录，因此还不是真正的跨主机云平台。
+当前 occccad 是一个“模块化业务单体 + 持久任务进程 + C++ 几何计算 Worker + 独立 Web 应用”的早期分布式垂直切片。HTTP/WebSocket、数据库、后台任务与几何计算已经跨进程，但调度和计算暂存仍限本机；制品可使用 LOCAL 或 S3，尚未交付跨主机 Worker 调度。
 
 ```mermaid
 flowchart LR
     Browser["CAD Web<br/>React + Three.js"] -->|"HTTP /api"| Control["occccad-control<br/>HTTP reverse proxy"]
     Control --> API["occccad-server<br/>Go modular monolith"]
-    API --> DB[(PostgreSQL)]
-    API --> Files["Local ArtifactStore<br/>data/"]
+    API --> DB[(PostgreSQL / SQLite)]
+    API --> Files["ArtifactStore<br/>LOCAL / S3"]
     API -->|"gRPC"| Router["In-process Geometry Router"]
     Jobs["occccad-jobs"] --> DB
     Jobs --> Files
@@ -26,7 +26,7 @@ flowchart LR
 |---|---|---|
 | `web/apps/cad` | React/TypeScript/Three.js | 独立浏览器应用，可使用 Mock，或真实 REST + WebSocket API |
 | `occccad-server` | Go/net/http | 身份、文档、ACL、版本、实时消息、任务提交和几何编排 |
-| `occccad-jobs` | Go | PostgreSQL 任务消费者，无监听端口 |
+| `occccad-jobs` | Go | 持久任务消费者，无监听端口 |
 | `occccad-migrate` | Go | 一次性数据库迁移任务 |
 | `occccad-control` | Go HTTP/gRPC | 本地子进程管理、反向代理、Geometry Router、调试切流 |
 | `occccad-monitor` | Go/Bubble Tea v2 | 只读 TUI；消费 Control 的版本化监控快照，不拥有采集或业务状态 |
@@ -50,7 +50,7 @@ flowchart LR
 
 原生制品默认使用 `Release`（`build/cmake/release`）：Invoke 允许 `--build-type` 或 `OCCCCAD_BUILD_TYPE` 覆盖，控制进程独立启动时同样默认选择 Release Worker。Go API、Jobs 与 Control 制品仍位于 `build/services`；前端由独立 Vite 入口启动。
 
-`invoke run.app` 构建后启动 `occccad-control`。控制进程：
+`invoke run`（同 `invoke run.app`）构建后启动 `occccad-control`。控制进程：
 
 1. 在 `127.0.0.1:18080` 启动 API；
 2. 启动一个 Jobs 进程；
@@ -78,13 +78,15 @@ sequenceDiagram
     C-->>Dev: expose :8080 and :19090
 ```
 
+人工运行与真实集成使用同一 `.env` 的数据库、制品存储、暂存和日志，不另选测试环境。Go 启动与测试共用 `config.LoadEnvironment`；生成输入位于 `build/test-resources`，不是另一套业务存储。`invoke run` 写入源码/制品/资源身份与本次进程标识，`invoke doctor --live` 可发现未重启的旧构建或配置。详细路径规则见[开发环境](../../development/environment.md)。
+
 ### 独立模式
 
 - `invoke run.worker`：单独启动 Geometry Worker；
 - `invoke run.server`：单独启动 API；
 - `invoke run.jobs`：单独启动任务消费者；
-- `invoke run.web`：Mock 前端；
-- `invoke run.web --mode=api`：前端代理真实 API。
+- `invoke run.web`：前端代理同一根配置的真实 API；
+- `invoke run.web --mode=mock`：前端隔离场景。
 
 当前没有容器编排清单、服务发现、跨主机 Worker 注册、分布式租户配额或生产网关。
 

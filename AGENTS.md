@@ -32,9 +32,9 @@ occccad 是早期可运行的云原生参数化 CAD。参数模型与不可变 R
 
 ## 当前开发数据边界
 
-已长期授权使用当前 `.env` 配置的开发数据库、S3 等资源，无需重复确认；优先复用配置，不默认新建数据库或下载临时浏览器库。加载规则见[开发环境](docs/development/README.md)，文档不复制密码。
+人工运行、Agent 验证与真实集成共用当前 `.env` 的数据库、ArtifactStore、暂存、日志和 Worker 构建；不另设测试连接或测试桶。已长期授权使用这些资源，无需重复确认，不默认下载临时浏览器库。单元测试的短期对象与故障注入仍由测试拥有。加载规则见[开发环境](docs/development/README.md)，文档不复制密码。
 
-项目未发布，开发数据可丢弃。按需直接运行 `invoke data.reset --yes` 或 `invoke run.app --reset-data`，无需确认；不为开发历史数据增加兼容分支、adapter、双写或过渡迁移，直接修正唯一实现及调用方，未发布迁移可重写并从空库验证。
+项目未发布，人工与 Agent 生成的开发数据均可由任何开发者或 Agent 丢弃。按需直接运行 `invoke data.reset --yes` 或 `invoke run --reset-data`，无需确认；不为开发历史数据增加兼容分支、adapter、双写或过渡迁移，直接修正唯一实现及调用方，未发布迁移可重写并从空库验证。
 
 重置前停止占用进程；仅清理命令报告的当前 PostgreSQL `occccad` schema 或专用 SQLite 的全部表、视图及迁移记录、本地 ArtifactStore/暂存目录、专用 `OCCCCAD_S3_BUCKET` 全部对象（含历史版本、删除标记、未完成分片，保留桶）。交付说明清理范围，不扩大到无关资源。维护者宣布发布基线或须保留外部数据后，此授权终止；迁移只追加，旧 Revision 必须可读。
 
@@ -43,6 +43,8 @@ occccad 是早期可运行的云原生参数化 CAD。参数模型与不可变 R
 完成任务内调用链、根因、测试和文档闭环，不顺手重写模块、升级全仓依赖或改部署。新增外部服务、重大依赖/许可证、公开兼容承诺，或改变稳定身份、历史、单位、拓扑引用、跨文档一致性时先澄清。明确要求分析/设计时，只交付分析/设计。
 
 按风险渐进验证：`invoke check --scope <domain> --match <test>` → 领域 scope → 受影响集成 → `--scope all`；不确定先 `--plan`。公共 Proto、迁移、共享构建、未知所有权必须升级。`invoke test` 是全量入口；知识入口修改运行 `invoke context-audit`。复杂 Web 交互需浏览器验收，未运行必须说明。
+
+高频任务用 `invoke task --recipe <property|rpc|selection|feature|diagnostic>` 定位；环境用 `invoke doctor`，提交差异用 `check --base ... --head ... --plan --json`，失败引用用 `invoke diagnose`。跳过、未执行或源码变化不能冒充通过；原始日志与报告在 `build/agent-check/`。
 
 ## 知识维护与交付
 

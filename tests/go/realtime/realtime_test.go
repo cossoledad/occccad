@@ -4,26 +4,46 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/occccad/occccad/internal/config"
+	"github.com/occccad/occccad/internal/testsupport"
 )
 
-// TestRealtimeTwoClientCommit is an opt-in end-to-end probe against a running
-// occccad-server. It creates and removes its own document.
+func TestMain(m *testing.M) { os.Exit(testsupport.Run(m)) }
+
+func developmentEndpoint(t *testing.T) string {
+	t.Helper()
+	listen := value("OCCCCAD_APP_LISTEN", "127.0.0.1:8080")
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host == "" || host == "0.0.0.0" {
+		host = "127.0.0.1"
+	}
+	if host == "::" {
+		host = "::1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+// TestRealtimeTwoClientCommit probes the normal configured running application.
+// It creates and removes its own document.
 func TestRealtimeTwoClientCommit(t *testing.T) {
-	base := strings.TrimRight(os.Getenv("OCCCCAD_REALTIME_TEST_URL"), "/")
+	base := developmentEndpoint(t)
 	password := os.Getenv("OCCCCAD_ADMIN_PASSWORD")
-	if base == "" || password == "" {
-		t.Skip("set OCCCCAD_REALTIME_TEST_URL and OCCCCAD_ADMIN_PASSWORD")
+	if password == "" {
+		t.Skip("configured development login missing; prepare .env and invoke run")
 	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -31,7 +51,7 @@ func TestRealtimeTwoClientCommit(t *testing.T) {
 	}
 	client := &http.Client{Jar: jar, Timeout: 20 * time.Second}
 	loginBody, _ := json.Marshal(map[string]string{
-		"email": value("OCCCCAD_ADMIN_EMAIL", "admin@occcad.local"), "password": password,
+		"email": config.Load().AdminEmail, "password": password,
 	})
 	response, err := client.Post(base+"/api/auth/login", "application/json", bytes.NewReader(loginBody))
 	if err != nil {
@@ -79,11 +99,15 @@ func TestRealtimeTwoClientCommit(t *testing.T) {
 // contract: uploading returns a Job immediately and terminal state arrives on
 // the authenticated user channel without polling the Job endpoint.
 func TestRealtimeExchangeImportNotification(t *testing.T) {
-	base := strings.TrimRight(os.Getenv("OCCCCAD_REALTIME_TEST_URL"), "/")
+	base := developmentEndpoint(t)
 	password := os.Getenv("OCCCCAD_ADMIN_PASSWORD")
-	stepPath := os.Getenv("OCCCCAD_EXCHANGE_TEST_STEP")
-	if base == "" || password == "" || stepPath == "" {
-		t.Skip("set OCCCCAD_REALTIME_TEST_URL, OCCCCAD_ADMIN_PASSWORD, and OCCCCAD_EXCHANGE_TEST_STEP")
+	stepPath := os.Getenv("OCCCCAD_TEST_EXCHANGE_STEP")
+	if password == "" {
+		t.Skip("configured development login missing; prepare .env and invoke run")
+	}
+	if stepPath == "" {
+		testsupport.PrepareAssemblyFixtures(t)
+		stepPath = filepath.Join(os.Getenv("OCCCCAD_ASSEMBLY_FIXTURE_DIR"), "cylinder-r6-h12.step")
 	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -91,7 +115,7 @@ func TestRealtimeExchangeImportNotification(t *testing.T) {
 	}
 	client := &http.Client{Jar: jar, Timeout: 20 * time.Second}
 	loginBody, _ := json.Marshal(map[string]string{
-		"email": value("OCCCCAD_ADMIN_EMAIL", "admin@occcad.local"), "password": password,
+		"email": config.Load().AdminEmail, "password": password,
 	})
 	response, err := client.Post(base+"/api/auth/login", "application/json", bytes.NewReader(loginBody))
 	if err != nil {
@@ -223,7 +247,10 @@ func readRealtimeJob(t *testing.T, connection *websocket.Conn, jobID string) rea
 			t.Fatalf("read terminal job %s: %v", jobID, err)
 		}
 		if envelope.Type == "job.state.changed.v1" && envelope.Payload.Job.ID == jobID {
-			return envelope.Payload.Job
+			switch envelope.Payload.Job.State {
+			case "SUCCEEDED", "FAILED", "CANCELED":
+				return envelope.Payload.Job
+			}
 		}
 	}
 }

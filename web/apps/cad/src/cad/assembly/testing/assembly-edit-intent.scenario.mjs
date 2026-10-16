@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import {createServer} from "vite";
 import {spawnSync} from "node:child_process";
-import {readFileSync} from "node:fs";
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try {
  const {assemblyEditIntent,assemblyIntentKey,AssemblyCandidateBinding,AssemblyDialogLifecycle}=await server.ssrLoadModule("/src/cad/assembly/assembly-edit-intent.ts");
@@ -101,19 +100,21 @@ try {
  // observer/per-call success. Preview sequence changes must not suppress close.
  const {QueryClient,MutationObserver}=await server.ssrLoadModule("@tanstack/react-query");
  const client=new QueryClient({defaultOptions:{mutations:{retry:false,gcTime:0}}});
- for(const abandon of [false,true]) {
-  const lifecycle=new AssemblyDialogLifecycle(),generation=lifecycle.capture();let open=true,previewSequence=1,oldGuardWouldClose=false;
-  const observer=new MutationObserver(client,{mutationFn:async()=>({revision:"new-head"}),onSuccess:updated=>{
-   client.setQueryData(["document"],updated);previewSequence++;
-   if(abandon)lifecycle.invalidate(); // close/cancel/change target during flight
-  }});
+ for(const dialog of ["create","edit"])for(const abandon of [false,true])for(const outcome of ["success","failure"]) {
+  const lifecycle=new AssemblyDialogLifecycle(),generation=lifecycle.capture();let open=true,previewSequence=1,failures=0;
+  const failure=new Error("commit failed");
+  const observer=new MutationObserver(client,{mutationFn:async()=>{if(outcome==="failure")throw failure;return {revision:"new-head"};},
+   onSuccess:updated=>{client.setQueryData(["document"],updated);previewSequence++;if(abandon)lifecycle.invalidate();},
+   onError:()=>{if(abandon)lifecycle.invalidate();}});
   const stop=observer.subscribe(()=>{});
-  await observer.mutate(undefined,{onSuccess:()=>{oldGuardWouldClose=previewSequence===1;if(lifecycle.isCurrent(generation))open=false;}});
-  assert.equal(oldGuardWouldClose,false,"original Preview-sequence success guard drops own authoritative commit");
-  assert.equal(open,abandon,"successful current dialog closes; abandoned/new dialog is untouched");stop();
+  const callbacks=lifecycle.bindCallbacks(generation,{onSuccess:()=>{open=false;},onError:()=>{failures++;}});
+  if(outcome==="success")await observer.mutate(undefined,callbacks);
+  else await assert.rejects(observer.mutate(undefined,callbacks),failure);
+  assert.equal(open,outcome==="failure"||abandon,`${dialog}: only the current successful dialog closes`);
+  assert.equal(failures,outcome==="failure"&&!abandon?1:0,`${dialog}: stale failures cannot affect a new dialog`);
+  if(outcome==="success")assert.equal(previewSequence,2,"authoritative cache refresh precedes the bound close callback");
+  stop();
  }
  client.clear();
- const source=readFileSync(new URL("../../../features/workbench/workbench.tsx",import.meta.url),"utf8");
- assert.equal((source.match(/const dialogGeneration=assemblyDialogLifecycle.current.capture\(\)/g)??[]).length,2,"create and edit both bind dialog lifecycle");
- assert.equal((source.match(/onSuccess:[^\n]*isCurrent\(dialogGeneration\)/g)??[]).length,2,"both actual close callbacks use dialog lifetime, not Preview sequence");
+
 } finally {await server.close();}

@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+
 	"github.com/google/uuid"
-	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
@@ -119,7 +119,3 @@ func buildShaftRotorFixture(ctx context.Context, service *workspace.Service, doc
 	}
 	return view, nil
 }
-
-type motionRemoteStore struct{ *artifact.LocalStore }
-
-func (motionRemoteStore) Backend() string { return "TEST" }

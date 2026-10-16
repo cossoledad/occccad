@@ -34,6 +34,8 @@ func runIncrementalRuntimeProduction(t *testing.T, cacheDisabled bool) {
 		r.ActorID = p6Actor
 		if r.RequestID == "" {
 			r.RequestID = fmt.Sprintf("%s-runtime-%d", view.Document.ID, seq)
+		} else {
+			r.RequestID = view.Document.ID + "-" + r.RequestID
 		}
 		v, e := service.ApplyCommand(t.Context(), view.Document.ID, r)
 		if e != nil {
@@ -58,6 +60,8 @@ func runIncrementalRuntimeProduction(t *testing.T, cacheDisabled bool) {
 	preview := func(ctx context.Context, r workspace.CommandRequest) workspace.CommandPreview {
 		t.Helper()
 		r.ActorID = p6Actor
+		label := r.RequestID
+		r.RequestID = view.Document.ID + "-" + r.RequestID
 		start := time.Now()
 		p, e := service.PreviewCommand(ctx, view.Document.ID, r)
 		if e != nil {
@@ -90,7 +94,7 @@ func runIncrementalRuntimeProduction(t *testing.T, cacheDisabled bool) {
 			}
 		}
 		t.Logf("preparation profiles=%d correspondence=%d", profiles, correspondence)
-		t.Logf("runtime request=%s cold=%t elapsed_ms=%.2f executed=%d reused=%d exact_ms=%.2f naming_ms=%.2f mesh_ms=%.2f encoding_ms=%.2f queue_ms=%.2f io_ms=%.2f peak_rss=%d", r.RequestID, ctx != t.Context(), float64(time.Since(start))/float64(time.Millisecond), executed, reused, exact, naming, mesh, encoding, queue, ioMS, peak)
+		t.Logf("runtime request=%s cold=%t elapsed_ms=%.2f executed=%d reused=%d exact_ms=%.2f naming_ms=%.2f mesh_ms=%.2f encoding_ms=%.2f queue_ms=%.2f io_ms=%.2f peak_rss=%d", label, ctx != t.Context(), float64(time.Since(start))/float64(time.Millisecond), executed, reused, exact, naming, mesh, encoding, queue, ioMS, peak)
 		if cacheDisabled && reused != 0 {
 			t.Fatal("evicted stage was reported reused")
 		}

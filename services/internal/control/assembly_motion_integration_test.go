@@ -6,6 +6,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,9 +23,9 @@ import (
 
 // Exercises the actual Router -> C++ Worker path, including every M2.5 field.
 func TestAssemblyMotionThroughRealRouter(t *testing.T) {
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
-		t.Skip("OCCCCAD_TEST_GEOMETRY_WORKER is not set")
+		t.Skip("OCCCCAD_GEOMETRY_WORKER_BIN is not set")
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -32,12 +33,12 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, LogDirectory: t.TempDir(), DataDirectory: t.TempDir()})
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, LogDirectory: testsupport.Environment(t).LogDirectory, DataDirectory: testsupport.Environment(t).DataDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,11 +133,11 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 }
 
 func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
-		t.Skip("requires OCCCCAD_TEST_GEOMETRY_WORKER")
+		t.Skip("requires OCCCCAD_GEOMETRY_WORKER_BIN")
 	}
-	db := testsupport.OpenTestDatabase(t)
+	db := testsupport.OpenDevelopmentDatabase(t)
 	// The fixture also verifies repeated migration against the same PostgreSQL.
 	if err := database.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
@@ -147,28 +148,26 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	directory := t.TempDir()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: t.TempDir()})
+	directory := testsupport.Environment(t).DataDirectory
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	store, err := artifact.NewLocalStore(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store))
-	debugStore, err := debugartifact.NewStore(t.TempDir(), 50, time.Hour)
+	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	service := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store, developmentStaging))
+	debugStore, err := debugartifact.NewStore(filepath.Join(testsupport.Environment(t).LogDirectory, "debug", "assembly-replays"), 50, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	service.SetDebugArtifactStore(debugStore)
-	service.SetDiagnosticArtifactStore(debugStore)
+	service.SetDiagnosticArtifactStore(openDevelopmentDiagnostics(t))
 	part, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: "00000000-0000-7000-8000-000000000001", Type: "PART", Name: "M25 Part"})
 	if err != nil {
 		t.Fatal(err)
@@ -245,9 +244,9 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		t.Fatal("redo capability not exhausted")
 	}
 	// Dependency snapshots and pose compensation must also survive a fresh service instance.
-	service = workspace.NewWithArtifacts(db, client, artifact.NewService(db, store))
+	service = workspace.NewWithArtifacts(db, client, artifact.NewService(db, store, developmentStaging))
 	service.SetDebugArtifactStore(debugStore)
-	service.SetDiagnosticArtifactStore(debugStore)
+	service.SetDiagnosticArtifactStore(openDevelopmentDiagnostics(t))
 	refreshed, err = service.GetDocument(t.Context(), id, "00000000-0000-7000-8000-000000000001")
 	if err != nil {
 		t.Fatal(err)

@@ -11,6 +11,8 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestMigrationCatalogValidation(t *testing.T) {
@@ -42,37 +44,17 @@ func TestMigrationCatalogValidation(t *testing.T) {
 	}
 }
 
-// The PostgreSQL slice only consumes an explicitly supplied fresh test database.
-// No schema is dropped and the resulting evidence is left intact.
+// PostgreSQL uses the configured development database. SQLite corruption cases
+// use a unit-test file so deliberate migration damage has a local lifetime.
 func TestMigrationBaselinePreservesDocuments(t *testing.T) {
 	t.Run("SQLite", func(t *testing.T) {
 		url := "sqlite:" + filepath.Join(t.TempDir(), "baseline.db")
 		testMigrationBaseline(t, url, "sqlite_migrations")
 	})
 	t.Run("PostgreSQL", func(t *testing.T) {
-		url := os.Getenv("OCCCCAD_TEST_MIGRATION_DATABASE_URL")
-		if url == "" {
-			t.Skip("requires an isolated fresh OCCCCAD_TEST_MIGRATION_DATABASE_URL")
-		}
+		url := os.Getenv("OCCCCAD_DATABASE_URL")
 		if strings.HasPrefix(url, "sqlite:") {
-			t.Fatal("PostgreSQL migration test requires a PostgreSQL URL")
-		}
-		pool, err := Open(t.Context(), url)
-		if err != nil {
-			t.Fatal("cannot open explicitly configured migration test database")
-		}
-		var existingSchema bool
-		var relations int
-		err = pool.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='occccad')`).Scan(&existingSchema)
-		if err == nil {
-			err = pool.QueryRow(t.Context(), `SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r','p','v','m','S','f')`).Scan(&relations)
-		}
-		pool.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if existingSchema || relations != 0 {
-			t.Fatal("migration test refuses a non-fresh database; no data was deleted")
+			t.Skip("NOT_APPLICABLE: configured backend is SQLite")
 		}
 		testMigrationBaseline(t, url, "postgres_migrations")
 	})
@@ -103,8 +85,8 @@ func testMigrationBaseline(t *testing.T, url, directory string) {
 	if version != baseline.name || checksum != baseline.checksum {
 		t.Fatalf("incorrect migration metadata: %s %s", version, checksum)
 	}
-	const documentID = "00000000-0000-7000-8000-00000000a031"
-	const versionID = "00000000-0000-7000-8000-00000000b031"
+	documentID := uuid.NewString()
+	versionID := uuid.NewString()
 	if _, err = pool.Exec(ctx, `INSERT INTO occccad.documents(id,document_type,name,description,owner_user_id) VALUES($1,'PART','Migration sentinel','Preserve this document','00000000-0000-7000-8000-000000000001')`, documentID); err != nil {
 		t.Fatal(err)
 	}
@@ -157,6 +139,17 @@ func testMigrationBaseline(t *testing.T, url, directory string) {
 	if _, err = pool.Exec(ctx, `UPDATE occccad.schema_migrations SET checksum='tampered' WHERE version=$1`, baseline.name); err != nil {
 		t.Fatal(err)
 	}
+	// Restore deliberately damaged shared metadata even if an assertion fails.
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := pool.Exec(cleanup, `UPDATE occccad.schema_migrations SET checksum=$1 WHERE version=$2`, baseline.checksum, baseline.name); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(cleanup, `DELETE FROM occccad.schema_migrations WHERE version='0001_demo01.sql'`); err != nil {
+			t.Error(err)
+		}
+	})
 	if err = Migrate(ctx, pool); err == nil || !strings.Contains(err.Error(), "checksum changed") {
 		t.Fatalf("checksum corruption accepted: %v", err)
 	}

@@ -2290,13 +2290,13 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 }
 
 func (service *Service) applyDomainMutation(ctx context.Context, documentID string, request CommandRequest) (failure error) {
+	request.RequestID = requestID(request.RequestID)
 	diagnostic := service.newOperationDiagnostic(ctx, documentID, request, "APPLY")
 	var diagnosticJSON json.RawMessage
 	var diagnosticModel *PartModel
 	defer func() { service.finishOperationDiagnostic(ctx, diagnostic, &diagnosticJSON, diagnosticModel, &failure) }()
 	// Check committed intent before adapting against the new Head: import/repair
 	// preconditions intentionally cease to hold after their first successful commit.
-	request.RequestID = requestID(request.RequestID)
 	requestJSON, err := json.Marshal(request)
 	if err != nil {
 		return err
@@ -2515,7 +2515,11 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		return err
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil { return err }
+	if revisionState == "FAILED" {
+		service.retainFailedRevision(ctx, diagnostic, nextJSON, revisionID)
+	}
+	return nil
 }
 
 func firstUnresolvedExternal(model PartModel) (SketchExternalGeometry, bool) {

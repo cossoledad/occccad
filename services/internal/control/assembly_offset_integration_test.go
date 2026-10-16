@@ -11,39 +11,36 @@ import (
 	"testing"
 
 	"github.com/occccad/occccad/internal/artifact"
-	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
 		t.Skip("requires matching real Geometry Worker")
 	}
-	db := testsupport.OpenTestDatabase(t)
+	db := testsupport.OpenDevelopmentDatabase(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	dir := t.TempDir()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: dir, LogDirectory: t.TempDir()})
+	dir := testsupport.Environment(t).DataDirectory
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: dir, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	local, err := artifact.NewLocalStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := artifact.NewService(db, local)
+	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	store := artifact.NewService(db, local, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, store)
 	actor := "00000000-0000-7000-8000-000000000001"
 	part, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: actor, Type: "PART", Name: "Offset shared Part"})
@@ -160,7 +157,7 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	if p := product.Product.Constraints[len(product.Product.Constraints)-1]; p.Visible == nil || *p.Visible {
 		t.Fatal("constraint visibility Redo")
 	}
-	cold := workspace.NewWithArtifacts(db, client, artifact.NewService(db, local))
+	cold := workspace.NewWithArtifacts(db, client, artifact.NewService(db, local, developmentStaging))
 	reopened, err := cold.GetDocument(t.Context(), id, actor)
 	if err != nil {
 		t.Fatal(err)

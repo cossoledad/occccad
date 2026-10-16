@@ -19,7 +19,7 @@
 - 真实 Router/Worker：Signed Offset 装配约束隐藏保留已接受状态和位姿，Undo/Redo、冷重开、参数表达式与多个 occurrence 通过。
 - 独立临时 SQLite/ArtifactStore；未清理或修改用户文档。未进行浏览器自动测试或无差别全量单测。
 
-复现：Go 在 `services/` 下使用上述两条 `TestBottomSupportParametricDatumLifecycleThroughRouter`、`TestOffsetSignedProductHistoryThroughRouter`；设置 `OCCCCAD_TEST_GEOMETRY_WORKER` 为当前构建的 Worker，后者另指定独立的 `OCCCCAD_TEST_DATABASE_URL=sqlite:/绝对路径/assembly.db`。Web 在 `web/apps/cad/` 运行 `pnpm build` 和 `pnpm test -- sketch-interaction assembly-occurrence-snapshot visibility-resolver ui-preferences parameter-editor workbench-inspector semantic-tree selection-index projection viewport visual-repository clipboard`。
+复现：Go 在 `services/` 下使用上述两条 `TestBottomSupportParametricDatumLifecycleThroughRouter`、`TestOffsetSignedProductHistoryThroughRouter`；设置 `OCCCCAD_GEOMETRY_WORKER_BIN` 为当前构建的 Worker，后者另指定独立的 `OCCCCAD_DATABASE_URL=sqlite:/绝对路径/assembly.db`。Web 在 `web/apps/cad/` 运行 `pnpm build` 和 `pnpm test -- sketch-interaction assembly-occurrence-snapshot visibility-resolver ui-preferences parameter-editor workbench-inspector semantic-tree selection-index projection viewport visual-repository clipboard`。
 
 ## 人工验收
 

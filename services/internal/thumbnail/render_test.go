@@ -256,7 +256,7 @@ func TestFramingTranslationAndScaleInvariant(t *testing.T) {
 func TestThumbnailGallery(t *testing.T) {
 	directory := os.Getenv("OCCCCAD_THUMBNAIL_GALLERY")
 	if directory == "" {
-		t.Skip("set OCCCCAD_THUMBNAIL_GALLERY to export visual acceptance fixtures")
+		t.Skip("NOT_APPLICABLE: optional thumbnail gallery export")
 	}
 	if err := os.MkdirAll(directory, 0755); err != nil {
 		t.Fatal(err)

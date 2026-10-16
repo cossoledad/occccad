@@ -83,7 +83,7 @@ Geometry Router 的服务端、受管理 Worker 连接和 debug override 连接�
 
 ```sh
 go test ./internal/control -run '^TestGeometryRouterLargeRequestAndMeshResponse$' -count=1
-OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/large-model.step' go test ./internal/control -run '^TestLargeSTEPImportThroughManagedRouter$' -count=1 -v -timeout 15m
+OCCCCAD_GEOMETRY_WORKER_BIN=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/large-model.step' go test ./internal/control -run '^TestLargeSTEPImportThroughManagedRouter$' -count=1 -v -timeout 15m
 ```
 
 第二项读取 `.env` 选择实际存储后端，要求样本产生超过 4 MiB 的响应，逐组件记录响应字节数及网格/实体数量；输入为内容寻址对象，可能与业务导入共享，测试不删除源对象。Worker 和计算暂存目录独立，不创建业务文档。
@@ -91,7 +91,7 @@ OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occccad_geometry_worker OCCCCAD_TEST
 忙碌存活与真实崩溃恢复回归（只需 Worker 和大型 STEP，无数据库）：
 
 ```sh
-OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP=/absolute/path/large-model.step go test ./internal/control -run '^TestGeometryWorkerRemainsHealthyDuringSTEPTransfer$' -count=1 -v -timeout 7m
+OCCCCAD_GEOMETRY_WORKER_BIN=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP=/absolute/path/large-model.step go test ./internal/control -run '^TestGeometryWorkerRemainsHealthyDuringSTEPTransfer$' -count=1 -v -timeout 7m
 ```
 
 此测试强制单 Worker、驻留容量 100，在 STEP 解析期间交错 Ping 与短 RPC，随后终止测试自己的 Worker 验证恢复。

@@ -26,7 +26,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = shutdown(context.Background()) }()
-	if _, err := config.LoadProjectEnv(); err != nil {
+	if _, err := config.LoadEnvironment(); err != nil {
 		slog.Error("load environment", "error", err)
 		os.Exit(1)
 	}

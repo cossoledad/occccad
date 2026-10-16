@@ -32,7 +32,7 @@ func main() {
 }
 
 func run() error {
-	if _, err := config.LoadProjectEnv(); err != nil {
+	if _, err := config.LoadEnvironment(); err != nil {
 		return err
 	}
 	configuration := config.Load()

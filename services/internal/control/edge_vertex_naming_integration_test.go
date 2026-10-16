@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
-	"google.golang.org/protobuf/encoding/protojson"
 	"math"
 	"net"
 	"os"
@@ -13,21 +11,24 @@ import (
 	"testing"
 	"time"
 
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // TestEdgeVertexPersistentSelectionThroughRealRouter is the P7 executable
 // acceptance fixture. It uses the application Router and exact OCCT topology
 // lookup for Vertex-Vertex, Vertex-Plane, Edge-Edge and Edge-Plane constraints.
 func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
-	binary, databaseURL := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	binary, databaseURL := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN"), os.Getenv("OCCCCAD_DATABASE_URL")
 	if binary == "" || databaseURL == "" {
-		t.Skip("requires disposable OCCCCAD_TEST_DATABASE_URL and OCCCCAD_TEST_GEOMETRY_WORKER")
+		t.Skip("requires disposable OCCCCAD_DATABASE_URL and OCCCCAD_GEOMETRY_WORKER_BIN")
 	}
 	db, err := database.Open(t.Context(), databaseURL)
 	if err != nil {
@@ -44,23 +45,21 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	directory := t.TempDir()
+	directory := testsupport.Environment(t).DataDirectory
 	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1",
-		FirstWorkerPort: port, DataDirectory: directory, LogDirectory: t.TempDir()})
+		FirstWorkerPort: port, DataDirectory: directory, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	store, err := artifact.NewLocalStore(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	artifactService := artifact.NewService(db, store)
+	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	artifactService := artifact.NewService(db, store, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, artifactService)
 	debugStore, err := debugartifact.NewStore(t.TempDir(), 50, time.Hour)
 	if err != nil {

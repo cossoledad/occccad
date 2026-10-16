@@ -4,6 +4,7 @@ import unittest
 from unittest import mock
 
 import tasks
+from tools.validation import go_events
 
 
 class ValidationRoutingTest(unittest.TestCase):
@@ -67,7 +68,9 @@ class ValidationRoutingTest(unittest.TestCase):
             '{"Action":"output","Package":"example","Test":"TestUndo","Output":"failure detail\\n"}',
             '{"Action":"fail","Package":"example","Test":"TestUndo"}',
         ))
-        self.assertEqual(tasks._go_test_events(output), (1, "failure detail"))
+        events, readable = go_events(output)
+        self.assertEqual(sum(e.get('Action') == 'run' for e in events), 1)
+        self.assertEqual(readable, "failure detail")
 
     def test_failure_output_is_bounded_but_keeps_signal(self):
         output = "\n".join(["header", *[f"noise {index}" for index in range(300)], "fatal: useful", "tail"])

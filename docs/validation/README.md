@@ -4,6 +4,7 @@
 
 | 领域 | 报告 |
 |---|---|
+| Agent 开发流程 | [五类任务实测](agent-workflow-baseline.md)、[机器可读数据](agent-workflow-baseline.json) |
 | 最新本机基线 | [全仓性能入口与样本](performance-baseline.md)、[机器可读数据](performance-baseline.json) |
 | 装配诊断 | [风车同轴诊断](windmill-assembly-reference-diagnostic.md) |
 | 建模性能 | [连续 100 次建模](continuous-modeling-100-baseline.md)、[增量运行时](incremental-modeling-runtime-validation.md) |

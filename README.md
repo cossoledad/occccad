@@ -19,20 +19,19 @@ Linux/WSL2 构建依赖与数据库配置见[环境准备](docs/development/envi
 python -m pip install -r requirements-build.txt
 invoke configure --build-type=Release
 invoke build --build-type=Release
-invoke run.app --build-type=Release
+invoke run --build-type=Release
 ```
 
-另开终端启动真实 API 前端；纯 UI 开发可用 Mock：
+另开终端启动前端，默认连接同一套真实 API：
 
 ```bash
-invoke run.web --mode=api
-# 仅前端 Mock
 invoke run.web
+invoke doctor --live --browser
 ```
 
 只读监控用 `invoke run.monitor`。原生构建默认 Release，显式 `--build-type` 优先于 `OCCCCAD_BUILD_TYPE`；调试可选 Debug。
 
-开发数据重置用 `invoke data.reset --yes` 或 `invoke run.app --reset-data`，先停止占用进程。清理配置所指数据库业务域、本地制品/暂存和专用 S3 桶，完整授权与范围见[开发数据边界](AGENTS.md#当前开发数据边界)。
+开发数据重置用 `invoke data.reset --yes` 或 `invoke run --reset-data`，先停止占用进程。清理配置所指数据库业务域、本地制品/暂存和专用 S3 桶，完整授权与范围见[开发数据边界](AGENTS.md#当前开发数据边界)。
 
 ## 模块与运行单元
 
@@ -50,6 +49,8 @@ invoke run.web
 | `tests/`、`deploy/`、`docs/`、`plans/` | 跨模块验证 / 部署配置 / 项目知识 / 未完成工作 |
 
 逻辑模块不自动对应微服务。Worker 不拥有业务数据库真相，浏览器不执行权威 B-Rep 求值。
+
+人工运行和真实集成共用根 `.env` 的数据库、制品、暂存与日志。所有开发数据可丢弃；不另设测试连接。一次性资源检查见 [occccad-dev](services/cmd/occccad-dev/README.md)。
 
 ## 验证与维护
 

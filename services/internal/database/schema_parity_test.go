@@ -4,15 +4,16 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
 // Read-only against an explicitly supplied migrated PostgreSQL database; never
 // migrates or clears it. The SQLite side is always a fresh temporary file.
 func TestSQLitePostgresSchemaParity(t *testing.T) {
-	url := os.Getenv("OCCCCAD_TEST_SCHEMA_PARITY_URL")
-	if url == "" {
-		t.Skip("requires explicitly migrated PostgreSQL database")
+	url := os.Getenv("OCCCCAD_DATABASE_URL")
+	if strings.HasPrefix(url, "sqlite:") {
+		t.Skip("NOT_APPLICABLE: schema parity requires the configured PostgreSQL backend")
 	}
 	pg, err := Open(t.Context(), url)
 	if err != nil {

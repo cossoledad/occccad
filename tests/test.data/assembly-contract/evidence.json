@@ -4467,8 +4467,8 @@
       "selector": "TestAssemblyDeferredDefinitionPreviewCommit",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -4537,8 +4537,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:2e9d7505818b2a71"
@@ -6748,7 +6748,7 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_GEOMETRY_WORKER"
+        "OCCCCAD_GEOMETRY_WORKER_BIN"
       ],
       "evidenceScope": "representative-shared-foundation",
       "evidenceKind": "real-router-worker",
@@ -6803,8 +6803,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
-        "OCCCCAD_TEST_DATABASE_URL"
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
+        "OCCCCAD_DATABASE_URL"
       ],
       "evidenceScope": "representative-shared-foundation",
       "evidenceKind": "real-router-worker-database",
@@ -6940,7 +6940,7 @@
       "expectation": "target dual-plane positive sign is expressed in FIRST selected plane normal, not SECOND; UI source witness only, no numeric or browser claim",
       "baseline": true,
       "input": {
-        "source": "src/features/workbench/workbench.tsx"
+        "source": "src/features/workbench/assembly-constraint-fields.tsx"
       },
       "expected": {
         "positiveNormalLabel": "第一元素法向"
@@ -7050,8 +7050,8 @@
       "evidenceKind": "real-router-worker-database",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER"
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN"
       ],
       "bindingId": "binding:79528df0329e90a4"
     },
@@ -7067,8 +7067,8 @@
       "evidenceKind": "real-router-worker-database",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER"
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN"
       ],
       "bindingId": "binding:79528df0329e90a4"
     },
@@ -7084,8 +7084,8 @@
       "evidenceKind": "real-router-worker-database",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER"
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN"
       ],
       "bindingId": "binding:79528df0329e90a4"
     },
@@ -7126,8 +7126,8 @@
       "evidenceKind": "real-router-worker-database",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
-        "OCCCCAD_TEST_DATABASE_URL"
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
+        "OCCCCAD_DATABASE_URL"
       ],
       "bindingId": "binding:a230d7fedfe3548b"
     },
@@ -9667,8 +9667,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9685,8 +9685,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9703,8 +9703,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9721,8 +9721,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9739,8 +9739,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9757,8 +9757,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9775,8 +9775,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9793,8 +9793,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9811,8 +9811,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9829,8 +9829,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9847,8 +9847,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9865,8 +9865,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9883,8 +9883,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9901,8 +9901,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9919,8 +9919,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9937,8 +9937,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9955,8 +9955,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9973,8 +9973,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -9991,8 +9991,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10009,8 +10009,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10027,8 +10027,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10045,8 +10045,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10063,8 +10063,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10081,8 +10081,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10099,8 +10099,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10117,8 +10117,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10135,8 +10135,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10153,8 +10153,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10171,8 +10171,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10189,8 +10189,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10207,8 +10207,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10225,8 +10225,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10243,8 +10243,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10261,8 +10261,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10279,8 +10279,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10297,8 +10297,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10315,8 +10315,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10333,8 +10333,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10351,8 +10351,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10369,8 +10369,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10387,8 +10387,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10405,8 +10405,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10423,8 +10423,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10441,8 +10441,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10459,8 +10459,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10477,8 +10477,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10495,8 +10495,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10513,8 +10513,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10531,8 +10531,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10549,8 +10549,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10567,8 +10567,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10585,8 +10585,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10603,8 +10603,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10621,8 +10621,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10639,8 +10639,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10657,8 +10657,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10675,8 +10675,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10693,8 +10693,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10711,8 +10711,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10729,8 +10729,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10747,8 +10747,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10765,8 +10765,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10783,8 +10783,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10801,8 +10801,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10819,8 +10819,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10837,8 +10837,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10855,8 +10855,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10873,8 +10873,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10891,8 +10891,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10909,8 +10909,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10927,8 +10927,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10945,8 +10945,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10963,8 +10963,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10981,8 +10981,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -10999,8 +10999,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11017,8 +11017,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11035,8 +11035,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11053,8 +11053,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11071,8 +11071,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11089,8 +11089,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11107,8 +11107,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11125,8 +11125,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11143,8 +11143,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11161,8 +11161,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11179,8 +11179,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11197,8 +11197,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11215,8 +11215,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11233,8 +11233,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11251,8 +11251,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11269,8 +11269,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11287,8 +11287,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11305,8 +11305,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11323,8 +11323,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11341,8 +11341,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11359,8 +11359,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11377,8 +11377,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11395,8 +11395,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11413,8 +11413,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11431,8 +11431,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11449,8 +11449,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11467,8 +11467,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11485,8 +11485,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11503,8 +11503,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11521,8 +11521,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11539,8 +11539,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11557,8 +11557,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11575,8 +11575,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11593,8 +11593,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11611,8 +11611,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11629,8 +11629,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11647,8 +11647,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11665,8 +11665,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11683,8 +11683,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11701,8 +11701,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11719,8 +11719,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11737,8 +11737,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11755,8 +11755,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11773,8 +11773,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11791,8 +11791,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11809,8 +11809,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11827,8 +11827,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11845,8 +11845,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11863,8 +11863,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11881,8 +11881,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11899,8 +11899,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11917,8 +11917,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11935,8 +11935,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11953,8 +11953,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11971,8 +11971,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -11989,8 +11989,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12007,8 +12007,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12025,8 +12025,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12043,8 +12043,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12061,8 +12061,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12079,8 +12079,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12097,8 +12097,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12115,8 +12115,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12133,8 +12133,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12151,8 +12151,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12169,8 +12169,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12187,8 +12187,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12205,8 +12205,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12223,8 +12223,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12241,8 +12241,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12259,8 +12259,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12277,8 +12277,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12295,8 +12295,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12313,8 +12313,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12331,8 +12331,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12349,8 +12349,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12367,8 +12367,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12385,8 +12385,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12403,8 +12403,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12421,8 +12421,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12439,8 +12439,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12457,8 +12457,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12475,8 +12475,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12493,8 +12493,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12511,8 +12511,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12529,8 +12529,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12547,8 +12547,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12565,8 +12565,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12583,8 +12583,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12601,8 +12601,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12619,8 +12619,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12637,8 +12637,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12655,8 +12655,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12673,8 +12673,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12691,8 +12691,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12709,8 +12709,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12727,8 +12727,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12745,8 +12745,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12763,8 +12763,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12781,8 +12781,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12799,8 +12799,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12817,8 +12817,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12835,8 +12835,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12853,8 +12853,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12871,8 +12871,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12889,8 +12889,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12907,8 +12907,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12925,8 +12925,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12943,8 +12943,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12961,8 +12961,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12979,8 +12979,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -12997,8 +12997,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13015,8 +13015,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13033,8 +13033,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13051,8 +13051,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13069,8 +13069,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13087,8 +13087,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13105,8 +13105,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13123,8 +13123,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13141,8 +13141,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13159,8 +13159,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13177,8 +13177,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13195,8 +13195,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13213,8 +13213,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13231,8 +13231,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13249,8 +13249,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13267,8 +13267,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13285,8 +13285,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13303,8 +13303,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13321,8 +13321,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13339,8 +13339,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13357,8 +13357,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13375,8 +13375,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13393,8 +13393,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13411,8 +13411,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13429,8 +13429,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13447,8 +13447,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13465,8 +13465,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13483,8 +13483,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13501,8 +13501,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13519,8 +13519,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13537,8 +13537,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13555,8 +13555,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13573,8 +13573,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13591,8 +13591,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13609,8 +13609,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13627,8 +13627,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13645,8 +13645,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13663,8 +13663,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13681,8 +13681,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13699,8 +13699,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13717,8 +13717,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13735,8 +13735,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13753,8 +13753,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13771,8 +13771,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13789,8 +13789,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13807,8 +13807,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13825,8 +13825,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13843,8 +13843,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13861,8 +13861,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13879,8 +13879,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13897,8 +13897,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13915,8 +13915,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13933,8 +13933,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13951,8 +13951,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13969,8 +13969,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -13987,8 +13987,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14005,8 +14005,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14023,8 +14023,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14041,8 +14041,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14059,8 +14059,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14077,8 +14077,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14095,8 +14095,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14113,8 +14113,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14131,8 +14131,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14149,8 +14149,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14167,8 +14167,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14185,8 +14185,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14203,8 +14203,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14221,8 +14221,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14239,8 +14239,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14257,8 +14257,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14275,8 +14275,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14293,8 +14293,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14311,8 +14311,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14329,8 +14329,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14347,8 +14347,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14365,8 +14365,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14383,8 +14383,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14401,8 +14401,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -14421,8 +14421,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:0ca8f40e8bf505b7"
@@ -14439,8 +14439,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:0ca8f40e8bf505b7"
@@ -14457,8 +14457,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:0ca8f40e8bf505b7"
@@ -14475,8 +14475,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:0ca8f40e8bf505b7"
@@ -14493,8 +14493,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:b4590ec252cd805c"
@@ -14511,8 +14511,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:b4590ec252cd805c"
@@ -14529,8 +14529,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:b4590ec252cd805c"
@@ -14547,8 +14547,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:b4590ec252cd805c"
@@ -14983,8 +14983,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:2b4f20183e10a552"
@@ -15001,8 +15001,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:2b4f20183e10a552"
@@ -15019,8 +15019,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:2b4f20183e10a552"
@@ -15037,8 +15037,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:2b4f20183e10a552"
@@ -15055,8 +15055,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6e3209a6e8aa7f10"
@@ -15073,8 +15073,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6e3209a6e8aa7f10"
@@ -15091,8 +15091,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6e3209a6e8aa7f10"
@@ -15109,8 +15109,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6e3209a6e8aa7f10"
@@ -15127,8 +15127,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:fc5fe9bde9bfadf9"
@@ -15145,8 +15145,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:fc5fe9bde9bfadf9"
@@ -15163,8 +15163,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:fc5fe9bde9bfadf9"
@@ -15181,8 +15181,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:fc5fe9bde9bfadf9"
@@ -15199,8 +15199,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:a8515efcf7293986"
@@ -15217,8 +15217,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:a8515efcf7293986"
@@ -15235,8 +15235,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:a8515efcf7293986"
@@ -15253,8 +15253,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:a8515efcf7293986"
@@ -15271,8 +15271,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:be99277b64ff8bcc"
@@ -15289,8 +15289,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:be99277b64ff8bcc"
@@ -15307,8 +15307,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:be99277b64ff8bcc"
@@ -15325,8 +15325,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:be99277b64ff8bcc"
@@ -15343,8 +15343,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:aceaa4f565ff44ea"
@@ -15361,8 +15361,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:aceaa4f565ff44ea"
@@ -15379,8 +15379,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:aceaa4f565ff44ea"
@@ -15397,8 +15397,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:aceaa4f565ff44ea"
@@ -15415,8 +15415,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:31f9448a11b021b9"
@@ -15433,8 +15433,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:31f9448a11b021b9"
@@ -15451,8 +15451,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:31f9448a11b021b9"
@@ -15469,8 +15469,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:31f9448a11b021b9"
@@ -15487,8 +15487,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:d158ec1937eba82d"
@@ -15505,8 +15505,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:d158ec1937eba82d"
@@ -15523,8 +15523,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:d158ec1937eba82d"
@@ -15541,8 +15541,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:d158ec1937eba82d"
@@ -15559,8 +15559,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:08965a4065d1cd5a"
@@ -15577,8 +15577,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:08965a4065d1cd5a"
@@ -15595,8 +15595,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:08965a4065d1cd5a"
@@ -15613,8 +15613,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:08965a4065d1cd5a"
@@ -15631,8 +15631,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6fa66f87f0075ba8"
@@ -15649,8 +15649,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6fa66f87f0075ba8"
@@ -15667,8 +15667,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6fa66f87f0075ba8"
@@ -15685,8 +15685,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6fa66f87f0075ba8"
@@ -15703,8 +15703,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:e86e759861bcc9af"
@@ -15721,8 +15721,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:e86e759861bcc9af"
@@ -15739,8 +15739,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:e86e759861bcc9af"
@@ -15757,8 +15757,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:e86e759861bcc9af"
@@ -15775,8 +15775,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:b2cbc49e81a0f81c"
@@ -15793,8 +15793,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:b2cbc49e81a0f81c"
@@ -15811,8 +15811,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:b2cbc49e81a0f81c"
@@ -15829,8 +15829,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:c771717d32a6e518"
@@ -15847,8 +15847,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:c771717d32a6e518"
@@ -15865,8 +15865,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:c771717d32a6e518"
@@ -15883,8 +15883,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:dc2d46c0fb30e6c0"
@@ -15901,8 +15901,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:dc2d46c0fb30e6c0"
@@ -15919,8 +15919,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:dc2d46c0fb30e6c0"
@@ -15937,8 +15937,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:4476fdb4d55e0a47"
@@ -15955,8 +15955,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:4476fdb4d55e0a47"
@@ -15973,8 +15973,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:4476fdb4d55e0a47"
@@ -15991,8 +15991,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6c168e0f1c60e9ef"
@@ -16009,8 +16009,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6c168e0f1c60e9ef"
@@ -16027,8 +16027,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6c168e0f1c60e9ef"
@@ -16045,8 +16045,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:d8be65e5669a2116"
@@ -16063,8 +16063,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:d8be65e5669a2116"
@@ -16081,8 +16081,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:d8be65e5669a2116"
@@ -16099,8 +16099,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:f30817f9b9bb56ef"
@@ -16117,8 +16117,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:f30817f9b9bb56ef"
@@ -16135,8 +16135,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:f30817f9b9bb56ef"
@@ -16159,8 +16159,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:63364839b7a1e599"
@@ -16183,8 +16183,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:63364839b7a1e599"
@@ -16207,8 +16207,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:63364839b7a1e599"
@@ -16231,8 +16231,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:63364839b7a1e599"
@@ -16249,8 +16249,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:0b6f7a5f3e9756a6"
@@ -16267,8 +16267,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:0b6f7a5f3e9756a6"
@@ -16285,8 +16285,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:777258b5029157f0"
@@ -16303,8 +16303,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:777258b5029157f0"
@@ -16321,8 +16321,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:62eb05f9ef65be79"
@@ -16339,8 +16339,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:62eb05f9ef65be79"
@@ -16357,8 +16357,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:4f6f74a80991a3e4"
@@ -16375,8 +16375,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:4f6f74a80991a3e4"
@@ -16393,8 +16393,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:4f6f74a80991a3e4"
@@ -16411,8 +16411,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:4f6f74a80991a3e4"
@@ -16459,8 +16459,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:0b6f7a5f3e9756a6"
@@ -16479,8 +16479,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:0b6f7a5f3e9756a6"
@@ -16497,8 +16497,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER"
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN"
       ],
       "bindingId": "binding:e47f6b548761a47d"
     },
@@ -16514,8 +16514,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER"
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN"
       ],
       "bindingId": "binding:e47f6b548761a47d"
     },
@@ -16533,8 +16533,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER"
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN"
       ],
       "bindingId": "binding:5e9c22948e2b4d9b"
     },
@@ -16552,8 +16552,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER"
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN"
       ],
       "bindingId": "binding:5e9c22948e2b4d9b"
     },
@@ -16567,8 +16567,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -16585,8 +16585,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -16603,8 +16603,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -16621,8 +16621,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -16639,8 +16639,8 @@
       "baseline": true,
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "evidenceScope": "specific-combination",
@@ -16740,8 +16740,8 @@
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6e28a4a96a123404"
@@ -16758,8 +16758,8 @@
       "evidenceScope": "representative-shared-foundation",
       "evidenceKind": "real-router-worker-postgresql",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6e28a4a96a123404"
@@ -16776,8 +16776,8 @@
       "evidenceScope": "representative-shared-foundation",
       "evidenceKind": "real-router-worker-postgresql",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:6e28a4a96a123404"
@@ -16795,8 +16795,8 @@
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:f8500690440ef8fa"
@@ -17008,8 +17008,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:8c1fa110fe15698b"
@@ -17068,8 +17068,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:f48410fb4145a30d"
@@ -17126,8 +17126,8 @@
       "evidenceKind": "real-router-worker-postgresql",
       "package": "./internal/control",
       "requires": [
-        "OCCCCAD_TEST_DATABASE_URL",
-        "OCCCCAD_TEST_GEOMETRY_WORKER",
+        "OCCCCAD_DATABASE_URL",
+        "OCCCCAD_GEOMETRY_WORKER_BIN",
         "OCCCCAD_ASSEMBLY_FIXTURE_DIR"
       ],
       "bindingId": "binding:38eaa6bb15938e27"

@@ -64,7 +64,7 @@ Preview Artifact 标记 `TRANSIENT_PREVIEW`，不含 `previewMesh`；完整显�
 
 定向入口：
 
-- `go test ./internal/api ./internal/workspace -run 'TestRealtime|TestInteractionCandidate|TestPreviewAccess' -race`；设置隔离测试 `OCCCCAD_TEST_DATABASE_URL` 后覆盖真实 session/CSRF WebSocket、候选与 GLB 授权、丢失回执重试、覆盖/取消、Job 进度；`OCCCCAD_TEST_VITE_REALTIME=1` 额外启动临时 Vite 验证代理 Upgrade，无浏览器。
+- `go test ./internal/api ./internal/workspace -run 'TestRealtime|TestInteractionCandidate|TestPreviewAccess' -race`；设置隔离测试 `OCCCCAD_DATABASE_URL` 后覆盖真实 session/CSRF WebSocket、候选与 GLB 授权、丢失回执重试、覆盖/取消、Job 进度；`OCCCCAD_TEST_VITE_REALTIME=1` 额外启动临时 Vite 验证代理 Upgrade，无浏览器。
 - `go test ./internal/jobs -run TestJobLifecycleRealtimeOutboxDatabase`：隔离数据库验证排队、领取、进度、重试、取消和完成的状态/Outbox 原子写入。
 - `pnpm test -- realtime-control`：客户端 requestId 重试、correlation、gap/快照、Preview 覆盖/取消/超时、结构化错误、消息上限。
 - `mesh-glb`、`assembly-preview-machine`、`command-preview-identity` 场景及 TypeScript 检查，分别覆盖显示、交互状态和候选身份。

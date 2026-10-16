@@ -22,13 +22,14 @@ import (
 	"github.com/occccad/occccad/internal/authn"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/jobs"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 func TestRealtimeEditingRecoveryAndPreviewDatabase(t *testing.T) {
-	databaseURL := os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("OCCCCAD_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("requires isolated test database")
+		t.Skip("requires configured development database")
 	}
 	db, err := database.Open(t.Context(), databaseURL)
 	if err != nil {
@@ -38,19 +39,20 @@ func TestRealtimeEditingRecoveryAndPreviewDatabase(t *testing.T) {
 	if err = database.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
+	configuration := testsupport.Environment(t)
 	authentication := authn.New(db, time.Hour)
-	if err = authentication.BootstrapAdmin(t.Context(), "realtime@test.invalid", "Realtime test", "realtime-test-password"); err != nil {
+	if err = authentication.BootstrapAdmin(t.Context(), configuration.AdminEmail, configuration.AdminName, configuration.AdminPassword); err != nil {
 		t.Fatal(err)
 	}
-	session, err := authentication.Login(t.Context(), "realtime@test.invalid", "realtime-test-password", "test", "local")
+	session, err := authentication.Login(t.Context(), configuration.AdminEmail, configuration.AdminPassword, "test", "local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	local, err := artifact.NewLocalStore(t.TempDir())
+	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	objects := artifact.NewService(db, local)
+	objects := artifact.NewService(db, local, developmentStaging)
 	domain := workspace.NewWithArtifacts(db, nil, objects)
 	part, err := domain.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: session.User.ID, Type: "PART", Name: "Realtime " + uuid.NewString()})
 	if err != nil {
@@ -173,8 +175,12 @@ func TestRealtimeEditingRecoveryAndPreviewDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lock.Rollback(context.Background())
-	if _, err = lock.Exec(t.Context(), `LOCK TABLE occccad.workspaces IN ACCESS EXCLUSIVE MODE`); err != nil {
-		t.Fatal(err)
+	// SQLite's single scheduled transaction already holds subsequent queries.
+	// PostgreSQL permits concurrent transactions, so hold the table explicitly.
+	if !strings.HasPrefix(configuration.DatabaseURL, "sqlite:") {
+		if _, err = lock.Exec(t.Context(), `LOCK TABLE occccad.workspaces IN ACCESS EXCLUSIVE MODE`); err != nil {
+			t.Fatal(err)
+		}
 	}
 	previewPayload.Sequence = 2
 	previewPayload.Command.RequestID = uuid.NewString()

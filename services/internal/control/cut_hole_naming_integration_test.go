@@ -17,6 +17,7 @@ import (
 	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -27,9 +28,9 @@ const p6Actor = "00000000-0000-7000-8000-000000000001"
 // acceptance fixture. It exercises the same Workspace, OCCT Worker, Router,
 // artifact and database boundaries used by the application.
 func TestCutHolePersistentSelectionThroughRealRouter(t *testing.T) {
-	binary, url := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	binary, url := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN"), os.Getenv("OCCCCAD_DATABASE_URL")
 	if binary == "" || url == "" {
-		t.Skip("requires disposable OCCCCAD_TEST_DATABASE_URL and OCCCCAD_TEST_GEOMETRY_WORKER")
+		t.Skip("requires disposable OCCCCAD_DATABASE_URL and OCCCCAD_GEOMETRY_WORKER_BIN")
 	}
 	db, err := database.Open(t.Context(), url)
 	if err != nil {
@@ -46,25 +47,23 @@ func TestCutHolePersistentSelectionThroughRealRouter(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	directory := t.TempDir()
+	directory := testsupport.Environment(t).DataDirectory
 	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port,
-		DataDirectory: directory, LogDirectory: t.TempDir()})
+		DataDirectory: directory, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	store, err := artifact.NewLocalStore(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store))
+	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	service := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store, developmentStaging))
 	evidenceDirectory := strings.TrimSpace(os.Getenv("OCCCCAD_P6_EVIDENCE_DIR"))
-	debugDirectory := t.TempDir()
+	debugDirectory := filepath.Join(testsupport.Environment(t).LogDirectory, "debug", "assembly-replays")
 	if evidenceDirectory != "" {
 		if err = os.MkdirAll(evidenceDirectory, 0o750); err != nil {
 			t.Fatal(err)

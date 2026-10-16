@@ -13,9 +13,9 @@ import (
 // This test uses an explicitly supplied disposable database. It validates the
 // SQL state fold behind both API capabilities and Undo/Redo target selection.
 func TestHistoryCapabilitiesAcrossTwoUndoAndRedoSteps(t *testing.T) {
-	url := os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	url := os.Getenv("OCCCCAD_DATABASE_URL")
 	if url == "" {
-		t.Skip("OCCCCAD_TEST_DATABASE_URL is not set")
+		t.Skip("OCCCCAD_DATABASE_URL is not set")
 	}
 	ctx := context.Background()
 	pool, err := database.Open(ctx, url)

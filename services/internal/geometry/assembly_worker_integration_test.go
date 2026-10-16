@@ -11,9 +11,9 @@ import (
 )
 
 func TestCppWorkerSolvesSimpleProductAssembly(t *testing.T) {
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
-		t.Skip("set OCCCCAD_TEST_GEOMETRY_WORKER to run the C++ assembly RPC integration")
+		t.Skip("set OCCCCAD_GEOMETRY_WORKER_BIN to run the C++ assembly RPC integration")
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -3,20 +3,21 @@ package control
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/occccad/occccad/internal/artifact"
-	"github.com/occccad/occccad/internal/database"
-	"github.com/occccad/occccad/internal/geometry"
-	"github.com/occccad/occccad/internal/modelcore"
-	"github.com/occccad/occccad/internal/workspace"
 	"net"
 	"os"
 	"testing"
+
+	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/modelcore"
+	"github.com/occccad/occccad/internal/testsupport"
+	"github.com/occccad/occccad/internal/workspace"
 )
 
 func TestMultiBodyIndependentGeometryAndHistory(t *testing.T) {
-	binary, url := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	binary, url := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN"), os.Getenv("OCCCCAD_DATABASE_URL")
 	if binary == "" || url == "" {
-		t.Skip("requires isolated DB and real worker")
+		t.Skip("requires configured development database and real Worker")
 	}
 	db, err := database.Open(t.Context(), url)
 	if err != nil {
@@ -32,22 +33,20 @@ func TestMultiBodyIndependentGeometryAndHistory(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
-	dir := t.TempDir()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: dir, LogDirectory: t.TempDir()})
+	dir := testsupport.Environment(t).DataDirectory
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: dir, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { client.Close() })
-	local, err := artifact.NewLocalStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := artifact.NewService(db, local)
+	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	store := artifact.NewService(db, local, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, store)
 	part, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Multi Body"})
 	if err != nil {

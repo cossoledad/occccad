@@ -1,11 +1,13 @@
 package workspace
 
 import (
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
-	"github.com/occccad/occccad/internal/modelcore"
-	"google.golang.org/protobuf/proto"
 	"os"
 	"testing"
+
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/modelcore"
+	"github.com/occccad/occccad/internal/testsupport"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
@@ -85,10 +87,7 @@ func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
 	}
 }
 func TestNamingV2NativeRoundTrip(t *testing.T) {
-	path := os.Getenv("OCCCCAD_TEST_NAMING_FIXTURE")
-	if path == "" {
-		t.Skip("requires native v2 naming fixture")
-	}
+	path := testsupport.PrepareNamingFixture(t)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

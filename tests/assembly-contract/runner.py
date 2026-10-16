@@ -19,6 +19,9 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+from tools.validation import go_selector_verdict as go_verdict
+from tools.development_environment import load as load_environment, command_environment, build_type as selected_build_type
 LAYERS = {"ui", "domain", "resolution", "workerSolver", "lifecycle", "historyReplay"}
 ADAPTERS = {"cpp", "go", "go-flags", "web", "web-catalog", "integration"}
 STATES = {"implemented", "partial", "missing", "unknown"}
@@ -40,15 +43,15 @@ def digest(value):
 
 
 def integration_environment():
-    worker = os.getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+    worker = os.getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
     worker_digest = None
     if worker and Path(worker).is_file():
         with Path(worker).open("rb") as stream:
             worker_digest = hashlib.file_digest(stream, "sha256").hexdigest()
-    database = unquote(urlsplit(os.getenv("OCCCCAD_TEST_DATABASE_URL", "")).path).lstrip("/") or None
+    database = unquote(urlsplit(os.getenv("OCCCCAD_DATABASE_URL", "")).path).lstrip("/") or None
     # Record reproducible build/database identity, never URL credentials.
     return {"workerExecutable": worker, "workerExecutableDigest": worker_digest, "databaseName": database,
-            "integrationVariablesPresent": {k: bool(os.getenv(k)) for k in ("OCCCCAD_TEST_DATABASE_URL", "OCCCCAD_TEST_GEOMETRY_WORKER")}}
+            "integrationVariablesPresent": {k: bool(os.getenv(k)) for k in ("OCCCCAD_DATABASE_URL", "OCCCCAD_GEOMETRY_WORKER_BIN")}}
 
 
 def frozen_contract(catalog):
@@ -255,33 +258,10 @@ def command(argv, cwd, env, log):
     return code, output
 
 
-def go_verdict(events, selector, code):
-    matching = [e for e in events if e.get("Test") == selector]
-    ancestor_names = {selector.rsplit("/", depth)[0] for depth in range(1, selector.count("/") + 1)}
-    ancestors = [e for e in events if e.get("Test") in ancestor_names]
-    # A child PASS is not complete fixture evidence if its containing test fails
-    # or skips final validation. Preserve the child event in the raw log, but
-    # conservatively reject acceptance of that fixture scope.
-    if any(e["Action"] == "fail" for e in ancestors):
-        return "FAIL", "mapped Go fixture ancestor failed; child PASS cannot certify the complete fixture"
-    if any(e["Action"] == "skip" for e in ancestors):
-        return "ENVIRONMENT_BLOCKED", "mapped Go fixture ancestor skipped; child PASS is not complete evidence"
-    # Parent PASS cannot hide a skipped descendant (including integration subtests).
-    descendants = [e for e in events if e.get("Test", "").startswith(selector + "/")]
-    if any(e["Action"] == "fail" for e in matching + descendants):
-        return "FAIL", "Go assertion/build/process failed"
-    if any(e["Action"] == "skip" for e in matching + descendants):
-        return "ENVIRONMENT_BLOCKED", "Go test or descendant skipped; not PASS"
-    if not any(e["Action"] == "run" for e in matching) or not any(e["Action"] == "pass" for e in matching):
-        return "FAIL", "mapped Go test did not execute (zero tests or stale mapping)"
-    if code and not (code == 1 and any(e.get("Test") and e["Action"] == "fail" and e not in matching + descendants + ancestors for e in events)):
-        return "FAIL", "Go process failed without an independently identified failing test"
-    return "PASS", "actual Go assertions passed"
-
-
 def run_cases(cases, output, build_type, adapters):
     results = {}
-    env = os.environ.copy()
+    load_environment(ROOT)
+    env = dict(os.environ, **command_environment(ROOT, build_type))
     env["OCCCCAD_ASSEMBLY_CONTRACT_CASES"] = json.dumps([t["caseId"] for t in cases])
     commands = []
     def record(t, status, reason, argv=None, log=None):
@@ -425,9 +405,12 @@ def main(argv=None):
     parser.add_argument("--layer")
     parser.add_argument("--case")
     parser.add_argument("--adapters", default="cpp,go,go-flags,web,web-catalog,integration")
-    parser.add_argument("--build-type", choices=["Debug", "Release"], default="Release")
+    parser.add_argument("--build-type", choices=["Debug", "Release"], default=None)
     parser.add_argument("--output", type=Path, default=ROOT / "build/assembly-contract")
     args = parser.parse_args(argv)
+    load_environment(ROOT)
+    args.build_type = selected_build_type(args.build_type)
+    os.environ.update(command_environment(ROOT, args.build_type))
     catalog = load_catalog()
     validate(catalog, lock=json.loads((DATA / "baseline.json").read_text()))
     caps, cases = select(catalog, args.capability, args.family, args.layer, args.case)

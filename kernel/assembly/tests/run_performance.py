@@ -14,6 +14,24 @@ import sys
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 import tasks  # noqa: E402; reuse the repository's non-shell env-file loader
+from tools.validation import go_summary, go_events
+
+
+def service_samples(output: str, count: int) -> list[dict]:
+    verdict = go_summary(output, 0, required_selection=True)
+    if verdict["status"] != "PASS":
+        raise ValueError("Service execution evidence: " + verdict["reason"])
+    rows = [json.loads(event["Output"].split("ASSEMBLY_PERFORMANCE ", 1)[1])
+            for event in go_events(output)[0] if "ASSEMBLY_PERFORMANCE " in event.get("Output", "")]
+    expected = {( "router", scene): count for scene in ("plane5", "plane15", "plane30", "single", "connected50-200",
+                                                        "independent50", "group-contact", "grounded-failure", "budget")}
+    expected.update({(kind, nested): 1 if kind == "session-begin" else count
+                     for kind in ("session-begin", "session-update") for nested in (False, True)})
+    from collections import Counter
+    actual = Counter((row.get("kind"), row.get("scene", row.get("nested"))) for row in rows)
+    if actual != expected or any(row.get("valid") is False for row in rows):
+        raise ValueError("Missing/incomplete service measurements")
+    return rows
 
 
 def native_summary(static: str, interaction: str) -> list[dict]:
@@ -80,7 +98,7 @@ def main():
     native = build / "kernel/assembly/tests"
     binaries = {"static": native / "occcad_assembly_solver_benchmark",
                 "interaction": native / "occcad_assembly_interaction_benchmark",
-                "service": build / "workers/geometry/occccad_geometry_worker"}
+                "service": Path(tasks._development_environment(config)["OCCCCAD_GEOMETRY_WORKER_BIN"])}
     for stage in args.stages:
         if stage in binaries and not os.access(binaries[stage], os.X_OK):
             parser.error(f"missing executable {binaries[stage]}; build the selected targets first")
@@ -115,11 +133,15 @@ def main():
 
     run("static", [str(native / "occcad_assembly_solver_benchmark"), str(args.samples)])
     run("interaction", [str(native / "occcad_assembly_interaction_benchmark"), str(args.samples)])
-    env = dict(os.environ, OCCCCAD_RUN_ASSEMBLY_PERFORMANCE="1", OCCCCAD_PERFORMANCE_SAMPLES=str(args.samples),
-               OCCCCAD_TEST_GEOMETRY_WORKER=str(build / "workers/geometry/occccad_geometry_worker"))
-    run("service", ["go", "test", "./internal/control", "-run", "^TestAssemblyPerformance$", "-count=1", "-v", "-timeout=15m"], ROOT / "services", env)
-    if "service" in args.stages and "ENVIRONMENT_BLOCKED" in (out / "service.txt").read_text():
-        raise SystemExit("Service measurements blocked: inspect service.txt")
+    env = dict(os.environ, **tasks._development_environment(config))
+    env.update(OCCCCAD_RUN_ASSEMBLY_PERFORMANCE="1", OCCCCAD_PERFORMANCE_SAMPLES=str(args.samples))
+    run("service", ["go", "test", "-json", "./internal/control", "-run", "^TestAssemblyPerformance$", "-count=1", "-timeout=15m"], ROOT / "services", env)
+    if "service" in args.stages:
+        try:
+            measured = service_samples((out / "service.txt").read_text(), args.samples)
+        except ValueError as error:
+            raise SystemExit(f"{error}; inspect {out / 'service.txt'}") from error
+        (out / "service-samples.json").write_text(json.dumps(measured, indent=2) + "\n")
     run("allocations", ["go", "test", "./internal/workspace", "./internal/geometry", "-run", "^$", "-bench", "BenchmarkAssembly", "-benchmem", "-benchtime=200ms", "-count=3"], ROOT / "services", env)
     rows = native_summary((out / "static.txt").read_text() if "static" in args.stages else "",
                           (out / "interaction.txt").read_text() if "interaction" in args.stages else "")

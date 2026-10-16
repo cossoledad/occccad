@@ -12,15 +12,9 @@ import (
 )
 
 func TestSketchCornerParallelRetainsFiniteCut(t *testing.T) {
-	address := os.Getenv("OCCCCAD_TEST_WORKER_ADDRESS")
-	if address == "" {
-		t.Skip("matching-source Worker required")
-	}
-	worker, err := geometry.Open(address)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer worker.Close()
+	worker, closeWorker, err := geometry.OpenDevelopmentWorker(t.Context())
+	if err != nil { t.Fatal(err) }
+	defer closeWorker()
 	data, err := os.ReadFile("../../../tests/test.data/sketch/corner_parallel.json")
 	if err != nil {
 		t.Fatal(err)

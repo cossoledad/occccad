@@ -2,13 +2,14 @@ package database
 
 import (
 	"fmt"
-	"github.com/occccad/occccad/internal/config"
 	"os"
 	"testing"
+
+	"github.com/occccad/occccad/internal/config"
 )
 
 func TestMain(m *testing.M) {
-	if err := config.LoadTestEnvironment(); err != nil {
+	if _, err := config.LoadEnvironment(); err != nil {
 		fmt.Fprintln(os.Stderr, "test environment:", err)
 		os.Exit(1)
 	}

@@ -1,10 +1,12 @@
 package control
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"net"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -12,13 +14,14 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
-	binary, url := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	binary, url := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN"), os.Getenv("OCCCCAD_DATABASE_URL")
 	if binary == "" || url == "" {
-		t.Skip("requires geometry worker and test database")
+		t.Skip("requires configured development database and Worker")
 	}
 	db, err := database.Open(t.Context(), url)
 	if err != nil {
@@ -34,23 +37,23 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	directory := t.TempDir()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: t.TempDir()})
+	directory := testsupport.Environment(t).DataDirectory
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	store, err := artifact.NewLocalStore(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	artifacts := artifact.NewService(db, store)
+	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	artifacts := artifact.NewService(db, store, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, artifacts)
+	diagnostics := openDevelopmentDiagnostics(t)
+	service.SetDiagnosticArtifactStore(diagnostics)
 	view, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Solid Boolean lifecycle"})
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +158,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	view = apply(workspace.CommandRequest{Type: "UNDO"})
 	check(view, 3750, false)
 	service = workspace.NewWithArtifacts(db, client, artifacts)
+	service.SetDiagnosticArtifactStore(diagnostics)
 	reopened, err = service.GetDocument(t.Context(), doc, p6Actor)
 	if err != nil {
 		t.Fatal(err)
@@ -250,6 +254,30 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	if revisionState != "FAILED" {
 		t.Fatalf("failed feature accepted as %s", revisionState)
 	}
+	assertArchivedRevision := func(v workspace.DocumentView, mode string) {
+		t.Helper()
+		items, e := diagnostics.List(t.Context(), doc, 50)
+		if e != nil { t.Fatal(e) }
+		for _, item := range items {
+			_, raw, e := diagnostics.Read(t.Context(), doc, item.ID, "")
+			if e != nil { t.Fatal(e) }
+			var record workspace.OperationDiagnostic
+			if e = json.Unmarshal(raw, &record); e != nil { t.Fatal(e) }
+			if record.ResultRevisionID != v.Document.VersionID { continue }
+			if record.Outcome != "ACCEPTED_FAILED_REVISION" || record.Mode != mode || record.Stage != "COMMITTED" || record.BaseRevisionID == "" || len(record.Candidate) == 0 {
+				t.Fatal("accepted failure lost its committed snapshot")
+			}
+			var persistedRaw []byte
+			if e = db.QueryRow(t.Context(), `SELECT model_json FROM occccad.document_versions WHERE id=$1`, record.ResultRevisionID).Scan(&persistedRaw); e != nil { t.Fatal(e) }
+			var persisted, candidate any
+			if json.Unmarshal(persistedRaw, &persisted) != nil || json.Unmarshal(record.Candidate, &candidate) != nil || !reflect.DeepEqual(persisted, candidate) {
+				t.Fatal("archive candidate differs from the committed failed Revision")
+			}
+			return
+		}
+		t.Fatal("accepted failed Revision has no retained diagnostic")
+	}
+	assertArchivedRevision(view, "APPLY")
 	assertFallback := func(v workspace.DocumentView) {
 		t.Helper()
 		for _, b := range v.Part.Bodies {
@@ -280,9 +308,11 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 		t.Fatal("metadata edit cleared failed Revision state")
 	}
 	view = apply(workspace.CommandRequest{Type: "UNDO"}) // Undo metadata while geometry is still failed.
+	assertArchivedRevision(view, "HISTORY")
 	assertFallback(view)
 	view = apply(workspace.CommandRequest{Type: "UNDO"}) // Undo the invalid dimension.
 	view = apply(workspace.CommandRequest{Type: "REDO"}) // Failed definitions are still replayable history.
+	assertArchivedRevision(view, "HISTORY")
 	if e := db.QueryRow(t.Context(), `SELECT state FROM occccad.document_versions WHERE id=$1`, view.Document.VersionID).Scan(&revisionState); e != nil || revisionState != "FAILED" {
 		t.Fatal("redo lost failed definition")
 	}
@@ -499,7 +529,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 		}
 	}
 	pool.Close()
-	coldPool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: t.TempDir()})
+	coldPool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(coldPool.Close)
 	if err = coldPool.Start(); err != nil {
 		t.Fatal(err)

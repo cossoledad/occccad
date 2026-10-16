@@ -70,7 +70,7 @@ PlaneGCS 使用仓库锁定的 FreeCAD 1.0.2 commit `256fc7eff3379911ab5daf88e10
 
 上述 15 个入口已使用匹配源码的真实 Worker、隔离数据库和独立几何断言运行通过（28.773 s）。C++ 74 个定向测试、Go workspace/control/geometry/database 定向测试及构建、Web sketch 11/71 与 workbench/Product/session 3/71 场景及构建通过；数据库基线及重复迁移验证入口见上表。详细结果保留在 `build/sketch-audit/verification.md` 及派生日志，不推断全部曲线组合已验收。
 
-集成复现需设置 `OCCCCAD_TEST_DATABASE_URL`（专用隔离数据库）、`OCCCCAD_TEST_WORKER_ADDRESS`（匹配本次源码的真实 Worker）和 `OCCCCAD_TEST_ARTIFACT_ROOT`（隔离本地制品目录），然后从 `services/` 运行 `go test ./internal/workspace -run '^TestSketchWorkflow' -count=1`。任一配置缺失会明确 Skip；Skip 不计通过，也不指向应用数据库或 S3 进行清理。
+集成复现需设置 `OCCCCAD_DATABASE_URL`（专用隔离数据库）、`OCCCCAD_GEOMETRY_WORKER_ADDRESS`（匹配本次源码的真实 Worker）和 `OCCCCAD_DATA_DIR`（隔离本地制品目录），然后从 `services/` 运行 `go test ./internal/workspace -run '^TestSketchWorkflow' -count=1`。任一配置缺失会明确 Skip；Skip 不计通过，也不指向应用数据库或 S3 进行清理。
 
 执行结果另存 `build/sketch-audit/` 派生输出；不把环境日志加入能力表。本轮不运行浏览器自动测试或无差别全量单测；WebGL 和人工操作由维护者实机验收。
 

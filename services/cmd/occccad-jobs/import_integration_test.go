@@ -16,12 +16,12 @@ import (
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
-	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/control"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/geometryrpc"
 	"github.com/occccad/occccad/internal/jobs"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 	"google.golang.org/grpc"
 )
@@ -29,19 +29,10 @@ import (
 // Opt-in integration writes only its own user's test folder, then trashes it.
 // It uses the real import handler, PostgreSQL, storage, Router and C++ workers.
 func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
-	sourcePath, binary := os.Getenv("OCCCCAD_TEST_EXCHANGE_STEP"), os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
-	testURL := os.Getenv("OCCCCAD_TEST_DATABASE_URL")
-	if binary == "" || (testURL == "" && os.Getenv("OCCCCAD_TEST_IMPORT_DATABASE") != "1") {
-		t.Skip("requires Worker and test database or explicit development opt-in")
-	}
-	if testURL == "" {
-		if _, err := config.LoadProjectEnv(); err != nil {
-			t.Fatal(err)
-		}
-		testURL = config.Load().DatabaseURL
-	}
-	if sourcePath == "" {
-		t.Setenv("OCCCCAD_ARTIFACT_BACKEND", "LOCAL")
+	sourcePath, binary := os.Getenv("OCCCCAD_TEST_EXCHANGE_STEP"), os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
+	testURL := testsupport.Environment(t).DatabaseURL
+	if binary == "" {
+		t.Fatal("configured Geometry Worker is required")
 	}
 	db, err := database.Open(t.Context(), testURL)
 	if err != nil {
@@ -63,10 +54,10 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
-	root := t.TempDir()
+	root := testsupport.Environment(t).DataDirectory
 	// Large resident capacity must still scale busy native workers; capacity=1
 	// masks the historical single-process pileup and health-probe failure.
-	pool := control.NewGeometryPool(t.Context(), control.GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: root, LogDirectory: t.TempDir(), MinimumWorkers: 1, MaximumWorkers: 4, GeometryCapacity: 100})
+	pool := control.NewGeometryPool(t.Context(), control.GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: root, LogDirectory: testsupport.Environment(t).LogDirectory, MinimumWorkers: 1, MaximumWorkers: 4, GeometryCapacity: 100})
 	defer pool.Close()
 	if err := pool.Start(); err != nil {
 		t.Fatal(err)

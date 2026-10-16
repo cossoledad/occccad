@@ -28,7 +28,7 @@ func run() error {
 	migrate := flag.Bool("migrate-local", false, "copy LOCAL objects to configured backend; keep originals")
 	verify := flag.Bool("verify-target", false, "verify all READY objects exist in configured backend with matching size and SHA-256")
 	flag.Parse()
-	if _, err := config.LoadProjectEnv(); err != nil {
+	if _, err := config.LoadEnvironment(); err != nil {
 		return err
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

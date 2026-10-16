@@ -11,9 +11,9 @@ import (
 )
 
 func TestJobLifecycleRealtimeOutboxDatabase(t *testing.T) {
-	url := os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	url := os.Getenv("OCCCCAD_DATABASE_URL")
 	if url == "" {
-		t.Skip("requires isolated test database")
+		t.Skip("requires configured development database")
 	}
 	db, err := database.Open(t.Context(), url)
 	if err != nil {

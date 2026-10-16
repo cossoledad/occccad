@@ -4,47 +4,40 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
+	"net"
+	"os"
+	"reflect"
+	"testing"
+	"time"
+
 	"github.com/google/uuid"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/control"
-	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/geometryrpc"
 	"github.com/occccad/occccad/internal/jobs"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 	"google.golang.org/grpc"
-	"math"
-	"net"
-	"os"
-	"path/filepath"
-	"reflect"
-	"testing"
-	"time"
 )
 
 func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
 		t.Fatal("matching-source C++ Worker required")
 	}
-	db, e := database.Open(t.Context(), "sqlite:"+filepath.Join(t.TempDir(), "motion.db"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer db.Close()
-	if e = database.Migrate(t.Context(), db); e != nil {
-		t.Fatal(e)
-	}
-	root := t.TempDir()
+	db := testsupport.OpenDevelopmentDatabase(t)
+	root := testsupport.Environment(t).DataDirectory
 	l, e := net.Listen("tcp", "127.0.0.1:0")
 	if e != nil {
 		t.Fatal(e)
 	}
 	port := l.Addr().(*net.TCPAddr).Port
 	l.Close()
-	pool := control.NewGeometryPool(t.Context(), control.GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: root, LogDirectory: t.TempDir(), MinimumWorkers: 1, MaximumWorkers: 1, GeometryCapacity: 100})
+	pool := control.NewGeometryPool(t.Context(), control.GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: root, LogDirectory: testsupport.Environment(t).LogDirectory, MinimumWorkers: 1, MaximumWorkers: 1, GeometryCapacity: 100})
 	defer pool.Close()
 	if e = pool.Start(); e != nil {
 		t.Fatal(e)
@@ -57,23 +50,9 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	defer router.Stop()
 	workerv1.RegisterGeometryWorkerServer(router, pool)
 	go router.Serve(listener)
-	local, e := artifact.NewLocalStore(root)
+	store, local, e := artifact.OpenConfigured(t.Context(), root)
 	if e != nil {
 		t.Fatal(e)
-	}
-	remote, e := artifact.NewLocalStore(t.TempDir())
-	if e != nil {
-		t.Fatal(e)
-	}
-	var store artifact.Store = motionRemoteStore{remote}
-	if os.Getenv("OCCCCAD_TEST_MOTION_S3") == "1" {
-		store, local, e = artifact.OpenConfigured(t.Context(), root)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if store.Backend() != "S3" {
-			t.Fatal("S3 verification requires configured S3 backend")
-		}
 	}
 	client, e := geometry.Open(listener.Addr().String(), geometry.ArtifactStaging(store, local))
 	if e != nil {
@@ -500,6 +479,11 @@ func TestMotionApplyGeometryFrameAtomicHistory(t *testing.T) {
 	}
 	job, er := queue.Enqueue(t.Context(), jobs.EnqueueRequest{Type: "MOTION_STUDY", DocumentID: view.Document.ID, VersionID: &snapshot.RevisionID, RequestedBy: actor, InputObjectID: o.ID, IdempotencyKey: uuid.NewString(), Payload: map[string]any{"inputDigest": snapshot.Digest}, UserVisible: true})
 	if er != nil {
+		t.Fatal(er)
+	}
+	// Exercise the real claim path while selecting this fixture ahead of
+	// unrelated temporary development jobs.
+	if _, er = db.Exec(t.Context(), `UPDATE occccad.jobs SET priority=30000 WHERE id=$1`, job.ID); er != nil {
 		t.Fatal(er)
 	}
 	claimed, er := queue.Claim(t.Context(), "conversion-test", time.Minute)

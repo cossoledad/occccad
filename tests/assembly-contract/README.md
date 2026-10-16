@@ -48,7 +48,7 @@ python tests/assembly-contract/runner.py gaps --family Offset --output build/off
 
 `--adapters` 可限定实际执行设施；排除必需 case 仍报告 NOT_RUN，不获得完整基线通过。`--build-type Release` 使用既有对应构建目录，执行器不会下载依赖或启动新平台。C++ 每次先构建 scenario target；Go 使用 `-count=1` 及结构化事件，子测试跳过不能被父 PASS 隐藏；Web 复用 `pnpm test` 的场景发现与零匹配失败规则。新增 Web 场景同时调用目录/锁校验，因此 `pnpm test -- assembly` 会发现目录映射退化；Go/C++ 新断言也进入原模块的测试入口，没有修改共享构建系统或 `invoke check` 路由。
 
-运行真实 Router 前完成 Worker 与 `occcad_geometry_scenarios` 构建。环境从根 `.env` 读取，默认资源目录为 `build/test-resources/`、测试库为其中独立 SQLite 文件；解析 fixture 缺失时，Go fixture 自动调用 `AssemblyExactSupport.ExportAnalyticRouterFixtures`，不需要手动 export 或另外编译。也可显式预生成：
+运行真实 Router 前完成 Worker 与 `occcad_geometry_scenarios` 构建。环境从根 `.env` 读取，默认资源目录为 `build/test-resources/`，数据库和制品存储与 `invoke run` 相同；解析 fixture 缺失时，Go fixture 自动调用 `AssemblyExactSupport.ExportAnalyticRouterFixtures`，不需要手动 export 或另外编译。也可显式预生成：
 
 ```sh
 build/cmake/release/kernel/occt/tests/occcad_geometry_scenarios \
@@ -56,7 +56,7 @@ build/cmake/release/kernel/occt/tests/occcad_geometry_scenarios \
 python tests/assembly-contract/runner.py baseline --case integration.router-worker
 ```
 
-装配与诊断数据库入口为 `internal/testsupport.OpenTestDatabase`，支持 SQLite 或专用 `occccad_*_test` PostgreSQL，检查目标隔离和当前迁移，不自动指向应用库、不清库、不改用 Mock。SQLite 上通过的证据不证明 PostgreSQL 专用行为。不能在集成运行期间重新链接同一 Worker；具体配置见[开发环境](../../docs/development/README.md)。
+装配与诊断数据库入口为 `internal/testsupport.OpenDevelopmentDatabase`，使用当前 `.env` 的 SQLite 或 PostgreSQL，并执行当前迁移，不另建测试环境、不自动清库、不改用 Mock。SQLite 上通过的证据不证明 PostgreSQL 专用行为。不能在集成运行期间重新链接同一 Worker；具体配置见[开发环境](../../docs/development/README.md)。
 
 
 ## 按能力与风险定位
@@ -66,7 +66,7 @@ python tests/assembly-contract/runner.py baseline --case integration.router-work
 | 原生数学 | kernel/assembly/tests：composition/contact/offset/motion 场景，独立最终几何、Jacobian oracle、一般/特殊秩、子空间、冗余、不可行及有限运动。 |
 | 连续轨迹 | interaction_scenarios.cpp：偏心抓取、自由纯平移、倾斜平面、必要旋转、组绕心、累计目标、往返/采样/尺度、预算恢复；日志是派生输出。 |
 | Go 领域/历史 | services/internal/workspace：Quantity/稳定 AST、模式/激活、支持/组、候选/CAS/幂等、Manifest 输入隔离和版本 digest。 |
-| 真实链路 | services/internal/control 的 composition、drag_trace、snapshot、edge_offset integration_test：正式 Router/Worker、真实几何与专用数据库、Preview→Commit、冷读、历史/Replay/Release；缺环境报告阻塞。 |
+| 真实链路 | services/internal/control 的 composition、drag_trace、snapshot、edge_offset integration_test：正式 Router/Worker、真实几何与当前开发数据库、Preview→Commit、冷读、历史/Replay/Release；缺环境报告阻塞。 |
 | Web/Three.js | assembly-engineering、motion-presentation、assembly-interaction、assembly-drag-trace、assembly-occurrence-snapshot、manipulator-snap、constraint-display/编辑候选：生产共享函数、确定时序、对象集合与帧，不冒充浏览器验收。 |
 
 定向执行：
@@ -81,7 +81,7 @@ pnpm test -- assembly-engineering motion-presentation assembly-interaction assem
 pnpm typecheck
 ```
 
-集成显式配置匹配源码 Worker、可丢弃专用数据库及解析 fixture。构建后再运行，不能并发重链接在用 Worker；不 reset/清理应用资源，缺环境不静默改 Mock。
+集成复用当前配置的 Worker、可丢弃开发数据库及解析 fixture。构建后再运行，不能并发重链接在用 Worker；需要清空时统一使用 `invoke data.reset --yes`，缺环境不静默改 Mock。
 
 ## 剩余运动
 
@@ -89,7 +89,7 @@ engineering 读取指定 Revision 命令结果，不是完整网络刷新或局�
 
 motion-presentation 场景检查固联整体可动、方向子空间等价、偏置轴、显示副本/浮点噪声与完整行；标记是临时只读对象，不进入拾取/持久模型。0/1/100/500/1000 行 fixture 验证投影/分页，不认证同规模求解。
 
-`TestAssemblyDeferredDefinitionPreviewCommit` 使用真实 Router、Worker、所配置的专用测试数据库，并只在数值 RPC 边界注入 deadline/Unavailable/数值失败。检查显式候选确认、编辑/新增、不重复求解、保持姿态、NotUpdated、幂等/历史/冷读取、Release gate 与正常恢复；权限和取消不得变成定义候选。`motion-presentation` 同时执行真实 viewport 方法的可控 Promise 结束/选择/屏障/取消回归及 Three.js 覆盖标记的 CSS 尺寸、相机、资源生命周期检查。面板场景执行实际 hook/row/键盘/定位回调，不只检索源码。
+`TestAssemblyDeferredDefinitionPreviewCommit` 使用真实 Router、Worker、当前配置的开发数据库，并只在数值 RPC 边界注入 deadline/Unavailable/数值失败。检查显式候选确认、编辑/新增、不重复求解、保持姿态、NotUpdated、幂等/历史/冷读取、Release gate 与正常恢复；权限和取消不得变成定义候选。`motion-presentation` 同时执行真实 viewport 方法的可控 Promise 结束/选择/屏障/取消回归及 Three.js 覆盖标记的 CSS 尺寸、相机、资源生命周期检查。面板场景执行实际 hook/row/键盘/定位回调，不只检索源码。
 
 ```sh
 python tests/assembly-contract/runner.py baseline --case lifecycle.deferred-definition.router-worker

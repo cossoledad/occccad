@@ -10,15 +10,16 @@ import (
 	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/geometryrpc"
+	"github.com/occccad/occccad/internal/testsupport"
 	"google.golang.org/protobuf/proto"
 )
 
 func TestLargeSTEPImportThroughManagedRouter(t *testing.T) {
-	binary, sourcePath := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_EXCHANGE_STEP")
+	binary, sourcePath := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN"), os.Getenv("OCCCCAD_TEST_EXCHANGE_STEP")
 	if binary == "" || sourcePath == "" {
-		t.Skip("requires Worker binary and STEP corpus path")
+		t.Skip("NOT_APPLICABLE: optional large STEP corpus is not selected")
 	}
-	if _, err := config.LoadProjectEnv(); err != nil {
+	if _, err := config.LoadEnvironment(); err != nil {
 		t.Fatal(err)
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -27,8 +28,8 @@ func TestLargeSTEPImportThroughManagedRouter(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
-	root := t.TempDir()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: root, LogDirectory: t.TempDir(), MinimumWorkers: 1, MaximumWorkers: 1})
+	root := testsupport.Environment(t).DataDirectory
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: root, LogDirectory: testsupport.Environment(t).LogDirectory, MinimumWorkers: 1, MaximumWorkers: 1})
 	t.Cleanup(pool.Close)
 	if err := pool.Start(); err != nil {
 		t.Fatal(err)

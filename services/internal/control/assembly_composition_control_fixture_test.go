@@ -29,35 +29,33 @@ type compositionControlFixture struct {
 
 func newCompositionControlFixture(t *testing.T, options ...grpc.DialOption) *compositionControlFixture {
 	t.Helper()
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
 		t.Skip("ENVIRONMENT_BLOCKED: requires matching real Geometry Worker")
 	}
 	testsupport.PrepareAssemblyFixtures(t)
 	directory := os.Getenv("OCCCCAD_ASSEMBLY_FIXTURE_DIR")
-	db := testsupport.OpenTestDatabase(t)
+	db := testsupport.OpenDevelopmentDatabase(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	dir := t.TempDir()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: dir, LogDirectory: t.TempDir()})
+	dir := testsupport.Environment(t).DataDirectory
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: dir, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool), options...)
+	client, err := openDevelopmentGeometry(t, pool, options...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	local, err := artifact.NewLocalStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := artifact.NewService(db, local)
+	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	store := artifact.NewService(db, local, developmentStaging)
 	return &compositionControlFixture{db: db, client: client, store: store, service: workspace.NewWithArtifacts(db, client, store), actor: "00000000-0000-7000-8000-000000000001", fixtureDir: directory}
 }
 func (f *compositionControlFixture) importPart(t *testing.T, name string) workspace.DocumentView {

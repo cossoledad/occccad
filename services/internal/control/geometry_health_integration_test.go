@@ -9,7 +9,9 @@ import (
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/geometryrpc"
+	"github.com/occccad/occccad/internal/testsupport"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -19,16 +21,14 @@ import (
 // Force concurrent RPCs onto one real process: a short RPC completing during
 // STEP transfer must not cause its release probe to kill the busy Worker.
 func TestGeometryWorkerRemainsHealthyDuringSTEPTransfer(t *testing.T) {
-	binary, sourcePath := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_EXCHANGE_STEP")
+	binary, sourcePath := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN"), os.Getenv("OCCCCAD_TEST_EXCHANGE_STEP")
 	if binary == "" || sourcePath == "" {
-		t.Skip("requires real Worker and large STEP fixture")
+		t.Skip("NOT_APPLICABLE: optional large STEP corpus is not selected")
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	store, err := artifact.NewLocalStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
 	file, err := os.Open(sourcePath)
 	if err != nil {
 		t.Fatal(err)
@@ -44,13 +44,13 @@ func TestGeometryWorkerRemainsHealthyDuringSTEPTransfer(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
-	pool := NewGeometryPool(ctx, GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: store.Root(), LogDirectory: t.TempDir(), MinimumWorkers: 1, MaximumWorkers: 1, GeometryCapacity: 100})
+	pool := NewGeometryPool(ctx, GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: testsupport.Environment(t).DataDirectory, LogDirectory: testsupport.Environment(t).LogDirectory, MinimumWorkers: 1, MaximumWorkers: 1, GeometryCapacity: 100})
 	defer pool.Close()
 	if err := pool.Start(); err != nil {
 		t.Fatal(err)
 	}
 	worker := pool.workers[0]
-	connection, err := grpc.NewClient(serveGeometry(t, pool), grpc.WithTransportCredentials(insecure.NewCredentials()), geometryrpc.ClientOptions())
+	connection, err := grpc.NewClient(serveGeometry(t, pool), grpc.WithTransportCredentials(insecure.NewCredentials()), geometryrpc.ClientOptions(), geometry.ArtifactStaging(store, developmentStaging))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestGeometryWorkerRemainsHealthyDuringSTEPTransfer(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		response, err := client.InspectExchange(ctx, &workerv1.InspectExchangeRequest{RequestId: "busy-health", Format: "STEP", Source: &workerv1.ArtifactReference{Backend: "LOCAL", ObjectKey: source.Key, Sha256: source.SHA256, SizeBytes: uint64(source.Size), ContentType: source.ContentType}, ComponentOutputPrefix: "exchange/health/components"})
+		response, err := client.InspectExchange(ctx, &workerv1.InspectExchangeRequest{RequestId: "busy-health", Format: "STEP", Source: &workerv1.ArtifactReference{Backend: store.Backend(), ObjectKey: source.Key, Sha256: source.SHA256, SizeBytes: uint64(source.Size), ContentType: source.ContentType}, ComponentOutputPrefix: "exchange/health/components"})
 		done <- result{response, err}
 	}()
 	probes := 0

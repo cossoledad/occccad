@@ -160,7 +160,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_environment_identity_never_records_credentials(self):
         from unittest.mock import patch
-        with patch.dict("os.environ", {"OCCCCAD_TEST_DATABASE_URL": "postgresql://actor:secret@localhost/dedicated_contract_test?sslmode=disable", "OCCCCAD_TEST_GEOMETRY_WORKER": "/missing-worker"}, clear=True):
+        with patch.dict("os.environ", {"OCCCCAD_DATABASE_URL": "postgresql://actor:secret@localhost/dedicated_contract_test?sslmode=disable", "OCCCCAD_GEOMETRY_WORKER_BIN": "/missing-worker"}, clear=True):
             environment = runner.integration_environment()
         self.assertEqual(environment["databaseName"], "dedicated_contract_test")
         self.assertIsNone(environment["workerExecutableDigest"])

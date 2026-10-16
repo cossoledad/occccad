@@ -52,11 +52,11 @@ func main() {
 }
 
 func run() error {
-	envFile, err := config.LoadProjectEnv()
+	_, err := config.LoadEnvironment()
 	if err != nil {
 		return err
 	}
-	root, err := projectRoot(envFile)
+	root, err := config.ProjectRoot()
 	if err != nil {
 		return err
 	}
@@ -476,20 +476,6 @@ func waitTCP(ctx context.Context, address string, timeout time.Duration) error {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-}
-
-func projectRoot(envFile string) (string, error) {
-	if envFile != "" {
-		return filepath.Dir(envFile), nil
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	if filepath.Base(cwd) == "services" {
-		return filepath.Dir(cwd), nil
-	}
-	return cwd, nil
 }
 
 func value(name, fallback string) string {

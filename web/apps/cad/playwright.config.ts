@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./browser",
+  outputDir: "../../../build/acceptance/playwright-mock",
   testIgnore: ["solid-feature-live.spec.ts", "motion-live.spec.ts"],
   fullyParallel: false,
   workers: 1,

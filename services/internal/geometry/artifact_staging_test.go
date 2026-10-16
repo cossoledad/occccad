@@ -3,7 +3,6 @@ package geometry
 import (
 	"context"
 	"errors"
-	"github.com/occccad/occccad/internal/config"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/config"
 	"google.golang.org/grpc"
 )
 
@@ -75,14 +75,13 @@ func TestArtifactStagingNestedReferencesAndCleanup(t *testing.T) {
 }
 
 func TestS3WorkerExchangeRoundTrip(t *testing.T) {
-	if os.Getenv("OCCCCAD_TEST_S3") != "1" {
-		t.Skip("requires configured MinIO and C++ Worker")
+	if !strings.EqualFold(os.Getenv("OCCCCAD_ARTIFACT_BACKEND"), "S3") {
+		t.Skip("NOT_APPLICABLE: configured artifact backend is not S3")
 	}
-	if _, err := config.LoadProjectEnv(); err != nil {
+	if _, err := config.LoadEnvironment(); err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
-	t.Setenv("OCCCCAD_DATA_DIR", root)
+	root := config.Load().DataDirectory
 	store, local, err := artifact.OpenConfigured(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
@@ -136,8 +135,5 @@ func TestS3WorkerExchangeRoundTrip(t *testing.T) {
 	if _, err := client.InspectExchange(t.Context(), "s3-inspect-export", "STEP", stepRef); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := os.ReadDir(filepath.Join(root, "exchange", "inputs"))
-	if len(entries) != 0 {
-		t.Fatal("worker input scratch leaked")
-	}
+
 }

@@ -1,102 +1,89 @@
 # 开发环境准备
 
-应用启动见[根 README](../../README.md)，各进程的接口与运行配置见所属 README。本页集中说明开发资源的使用约定和验证环境。
+人工运行、Agent 验证与真实集成测试使用根 `.env` 的同一套数据库、ArtifactStore、计算暂存目录、日志和 Worker 构建。开发数据均可丢弃；资源使用与重置授权见[根指南](../../AGENTS.md#当前开发数据边界)。不要复制一份测试连接、另建测试库或测试桶。
 
 ## 构建准备
 
-推荐在 Linux 或 WSL2 中开发。需要 CMake 3.30+、C++17 编译器、Ninja、Conan 2、Python 3、Go、Node.js/pnpm；默认数据库为 PostgreSQL，也可使用不需要数据库服务器的 SQLite Local Mode。仓库当前固定 OCCT 7.9.1；精确版本以 `conanfile.py`、`services/go.mod` 和 `web/package.json` 为准。
-
-开发资源授权、`.env` 加载规则、PostgreSQL 与浏览器依赖见下文；已有 `.env` 时直接复用，不要用示例覆盖。
-
-C++ 构建和启动默认使用 `Release`，制品位于 `build/cmake/release`。Invoke 优先使用显式 `--build-type`，其次读取 `OCCCCAD_BUILD_TYPE`，未配置时使用 `Release`。原生调试可显式选择 `--build-type=Debug`；Go 与 Web 继续使用各自的构建入口。
+复用本机已有 Linux/WSL、CMake、Ninja、Conan、Python、Go、Node.js、pnpm 和 Chromium。准确版本以依赖文件、CMake cache 和 `invoke info` 为准。配置使用 Conan 生成的 toolchain，不能用缺少 toolchain 的裸 CMake 配置替代：
 
 ```bash
-sudo apt install cmake clang ninja-build build-essential
-# WSLg
-sudo apt install libgl1-mesa-dev libgl-dev libx11-xcb-dev libfontenc-dev libice-dev libsm-dev libxaw7-dev libxcomposite-dev libxcursor-dev libxdamage-dev libxext-dev libxfixes-dev libxi-dev libxinerama-dev libxkbfile-dev libxmu-dev libxmuu-dev libxpm-dev libxrandr-dev libxrender-dev libxres-dev libxss-dev libxt-dev libxtst-dev libxv-dev libxxf86vm-dev libxcb-glx0-dev libxcb-render0-dev libxcb-render-util0-dev libxcb-xkb-dev libxcb-icccm4-dev libxcb-image0-dev libxcb-keysyms1-dev libxcb-randr0-dev libxcb-shape0-dev libxcb-sync-dev libxcb-xfixes0-dev libxcb-xinerama0-dev libxcb-dri3-dev uuid-dev libxcb-cursor-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev libxcb-composite0-dev libxcb-ewmh-dev libxcb-res0-dev libxcb-util-dev pkg-config
-
-curl https://mise.run | sh
-mise use --global python@3.14 node@lts go@1.26
-
 python -m pip install -r requirements-build.txt
 invoke configure --build-type=Release
 invoke build --build-type=Release
-invoke test --build-type=Release
+invoke doctor
 ```
+
+默认 Release；显式 `--build-type` 优先于 `OCCCCAD_BUILD_TYPE`，并同时选择构建目录和测试 Worker。原生调试选择 Debug；不自动把旧 Release Worker 用于 Debug 验证。显式 `OCCCCAD_GEOMETRY_WORKER_BIN` 是应用与验证共用的覆盖项。
+
+`invoke configure` 沿用仓库 Conan profile，使用生成的 `build/cmake/<type>/build/<Type>/generators/conan_toolchain.cmake` 和 CMake `--fresh`；不清理 Conan 缓存。`invoke build --jobs=N` 限制并行数。ASAN/UBSAN 由现有 `OCCCCAD_ENABLE_ASAN` / `OCCCCAD_ENABLE_UBSAN` 控制。`CMakeUserPresets.json` 与编译数据库是生成输出。
 
 ## 现有开发资源与配置
 
-维护者已授权使用仓库根目录 `.env` 中实际配置的开发环境，包括任务所需的数据库连接、开发验证，以及后续配置的 S3 等资源。Agent 可直接读取并使用这些配置，无需重复请求连接或凭据使用许可。优先复用现有资源；只有实际故障或测试隔离要求需要时才准备替代环境。
+- 维护者已授权使用当前 `.env` 的数据库、S3 和开发账号，无需重复确认。已有文件保留连接与凭据；首次配置才从 `.env.example` 复制。
+- 优先级为已导出变量 > `OCCCCAD_ENV_FILE` 指定文件 > 默认根 `.env`。显式文件缺失直接失败，不回退。加载器接受简单 `KEY=VALUE`、可选 `export` 和成对引号，不执行 shell 表达式。
+- 配置文件的位置不改变仓库根目录。SQLite 相对路径、Worker 覆盖路径和生成测试输入按仓库根目录解析；`./data`、`./logs` 保持相对 `services/` 的含义，并在启动前转成绝对路径。
+- Invoke、Go 与 Node 开发/Live 测试分别由 [Python 加载器](../../tools/development_environment.py)、[Go 加载器](../../services/internal/config/environment.go) 和 [Node 加载器](../../tools/development_environment.mjs)读取同一份字面值配置。应用进程、直接 Go 测试和 Invoke 使用同一组运行变量；不再设置测试专用数据库、Worker 地址或制品目录。
+- `OCCCCAD_DATABASE_URL` 优先于 `OCCCCAD_POSTGRES_*`。本机选择 SQLite 时，API、Jobs 与真实集成读取同一文件；选择 PostgreSQL 时共同读取同一数据库的 `occccad` schema。不要在验证时自动切换后端。
+- `OCCCCAD_ARTIFACT_BACKEND=LOCAL|S3`、`OCCCCAD_DATA_DIR` 和 `OCCCCAD_S3_*` 共同决定制品与暂存。S3 不消除本机计算暂存；API、Jobs、Worker 使用同一目录。文档、报告和诊断不复制密码。
 
-- 已有 `.env` 时保留原配置；首次配置才从 `.env.example` 复制。文档与脚本引用变量名，不另存一份实际密码。
-- `invoke` 在加载根目录 `tasks.py` 时读取根 `.env`，已导出的环境变量优先。加载器接受简单的 `KEY=VALUE`、可选 `export` 前缀及成对引号，不执行 shell 表达式。排障时先检查是否有旧的导出变量覆盖配置。
-- 根 `.env.example` 按数据库、账号、制品存储、独立进程、控制进程、原生构建、日志和测试资源分组；实际 `.env` 使用同一分组并保留本机连接与凭据。Web 的 `.env.development` / `.env.mock` 由 Vite 加载，只包含前端变量，与根配置分开维护。
-- 原生构建默认 `Release`：Invoke 的 `--build-type` 优先于 `OCCCCAD_BUILD_TYPE`，未配置或为空时回退到 `Release`；控制进程直接启动也默认寻找 `build/cmake/release` 中的 Worker。直接 CMake 单配置构建未指定类型时也使用 `Release`；Preset 使用 `dev-release`，原生调试显式使用 `dev-debug` 或 `--build-type=Debug`。装配合同 runner 未指定 `--build-type` 时使用 `Release`。
-- `CMakeUserPresets.json` 是 Conan 自动生成并忽略提交的文件，不维护对旧 Debug 制品的固定引用；`invoke configure` 会重新生成它。`OCCCCAD_ENABLE_ASAN` / `OCCCCAD_ENABLE_UBSAN` 在 Invoke 配置时传给 CMake，默认均为 `OFF`。
-- `invoke configure` 使用 Conan `cmake_layout` 的 `build/cmake/<type>/build/<Type>/generators/conan_toolchain.cmake`；文件缺失时直接失败。CMake 配置使用 `--fresh` 重建配置缓存，避免先前未加载 toolchain 的失败配置继续影响依赖查找；不会清理 Conan 依赖缓存，也不会执行项目编译。
-- 默认 Conan profile 为仓库内的 `linux-gcc15-release` / `linux-gcc15-debug`；`--profile` 可显式传入 Conan profile 名称或路径。`invoke bootstrap` 仅安装 `requirements-build.txt` 中的 Python 工具，不生成或覆盖 profile。`invoke build --jobs=N` 限制并行数，默认使用全部核心；启动入口复用同一 C++ 构建命令。`invoke clean` 删除 `build/`、根编译数据库链接及 Conan 生成的 User Presets，不清理业务数据或 Conan 依赖缓存。
-- 服务端优先使用 `OCCCCAD_DATABASE_URL`；未设置时使用 `OCCCCAD_POSTGRES_HOST`、`PORT`、`USER`、`PASSWORD`、`DB`（均带 `OCCCCAD_POSTGRES_` 前缀）。PostgreSQL 正常业务使用数据库中的 `occccad` schema。也可设置 `OCCCCAD_DATABASE_URL=sqlite:/absolute/path/local.db` 使用 SQLite Local Mode；API 与 Jobs 必须指向同一个绝对本机路径，数据库并发设为 1 或保持未配置。SQLite 运行与限制见[数据库层](../../services/internal/database/README.md)。
-- 直接执行 `psql`、`go test` 等命令时，不要假定它们会自动读取项目 `.env`；显式加载所需配置或使用已有项目入口。诊断输出只需连接是否成功和错误原因，不必回显完整连接串。
-- ArtifactStore 支持 LOCAL/S3，使用根 `.env` 的 `OCCCCAD_ARTIFACT_BACKEND`、`OCCCCAD_S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY/SECURE`。HTTP MinIO 设置 `SECURE=false`，endpoint 不含协议前缀。`OCCCCAD_DATA_DIR` 在 S3 模式保留为计算暂存目录，API/Jobs/本机 Worker 共享；配置和迁移见[存储运维](../../services/cmd/occccad-artifacts/README.md)。原始密码只保留在未跟踪的 `.env`。
+真实集成测试可以为 RPC 断言启动有独立端口的临时 Worker/Router，但使用同一构建、数据库和制品存储，生成的文档可由正常应用读取。单元测试的纯模型、SQLite 方言、事务回滚、故障注入及上传缓冲可以拥有短期测试对象；这些对象不构成另一套开发配置。
 
 ## PostgreSQL
 
-使用已有 `.env` 指向的数据库，不因本机缺少服务进程就另起一个临时数据库。需要本地 PostgreSQL 时，在 Ubuntu 上安装：
+使用当前配置的资源，不因本机没有 PostgreSQL 进程就另起临时数据库。需要排障时先检查配置覆盖、目标地址、端口、认证和 `SELECT 1`，不要回显完整连接串。
+
+正常真实集成通过 `internal/testsupport.OpenDevelopmentDatabase` 打开、迁移同一开发数据库，不自动清库。PostgreSQL pool、迁移与 schema parity 测试在当前配置选择 PostgreSQL 时执行；SQLite 下明确记录不适用。SQLite 通过不能宣称 PostgreSQL 已验证。数据库合同见[数据库 README](../../services/internal/database/README.md)。
+
+## 启动与数据重置
 
 ```bash
-sudo apt install postgresql
+invoke run
+# 另一个终端；默认连接真实 API
+invoke run.web
+invoke doctor --live --browser
 ```
 
-安装软件包不会自动创建项目所需的角色、密码和数据库；这些必须与 `.env` 一致。连接排障先检查配置覆盖、目标地址与端口、服务可达性及认证；只读 `SELECT 1` 可以确认连接，不需要重置数据。
+`invoke run` 等同 `invoke run.app`：构建后启动 Control、API、Jobs 和本机 Router/Worker；前端保持独立进程。`pnpm dev` 也默认连接真实 API，代理目标跟随根 `OCCCCAD_APP_LISTEN`。`dev:mock` / `invoke run.web --mode=mock` 用于前端隔离场景。
 
-部分集成测试使用显式的 `OCCCCAD_TEST_DATABASE_URL`，不会自动使用应用的数据库配置。运行前读对应测试对迁移、空库和清理的要求：可兼容现有数据的测试可复用已授权开发数据库；要求可丢弃数据库的测试使用隔离测试库，并按测试入口准备迁移。不要为使测试执行而把所有测试无差别指向开发库。
+每次 `invoke run` 记录源码、制品、资源身份和本次进程标识到 `build/runtime/identity.json`。`doctor --live` 在 Linux/WSL 核对实际进程，发现源码、配置、构建类型或加载的二进制变化时要求重启。监听可达与业务/RPC 行为验收分别报告。
 
-装配候选、历史、诊断下载及精确 BREP/Router 验证共用 `services/internal/testsupport.OpenTestDatabase`，按 `OCCCCAD_TEST_DATABASE_URL` 显式选择 SQLite 或 PostgreSQL。默认使用独立的 `build/test-resources/occccad_test.db`；SQLite 目标必须是绝对路径的 `*_test.db`（相对配置先按仓库根目录解析），并拒绝应用数据库及其符号链接别名。PostgreSQL 仍要求专用 `occccad_*_test` 库，并检查 `current_database()` 身份。入口仅迁移、创建各测试自己的文档与临时制品，不重置或修补旧迁移记录。SQLite 通过不代表 PostgreSQL 专用行为或双后端一致性验收。
+所有人工和 Agent 产生的开发数据都可删除，无需再次确认。先停止占用进程，再统一执行：
 
-数据重置仍遵循[根 AGENTS 的开发数据边界](../../AGENTS.md#当前开发数据边界)：先停止占用进程，仅通过 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令报告的 PostgreSQL `occccad` schema 或当前配置的专用 SQLite 数据库全部表（含迁移记录），以及本地 ArtifactStore/暂存目录，以及 S3 模式下当前配置的专用桶全部对象（含版本和未完成分片，保留桶），并在交付中说明。资源使用授权不包括清空其他数据库、schema 或 S3 bucket。S3、数据库与本地制品不构成跨存储事务：清理失败直接报错，可能已部分删除，停止写入后可重新执行。
+```bash
+invoke data.reset --yes
+# 或重置后启动同一套应用
+invoke run --reset-data
+```
+
+仅清理命令报告的当前 PostgreSQL `occccad` schema 或专用应用 SQLite 的全部用户表、视图与迁移记录、本地 ArtifactStore/暂存目录，以及配置 S3 桶的对象、历史版本、删除标记和未完成分片；保留桶。不扩大到其他数据库、schema、目录或桶。跨存储删除不具备原子回滚，失败后停止写入、修复并重跑。
 
 ## 测试资源与默认目录
 
-Invoke、几何 scenario 的测试 main，以及 API/Control/Geometry/Workspace/Jobs/数据库的 Go TestMain 都读取根 `.env`；已导出变量优先，`OCCCCAD_ENV_FILE` 显式文件缺失直接失败。测试路径按仓库根目录解析，不受 `go test` 包目录或 CTest 工作目录影响。Python/Go 会把相对 SQLite 测试 URL 转成绝对路径；应用数据库 URL 的既有规则不变。
+测试输入与导出统一位于 `build/test-resources/`；它不是第二套数据库或 ArtifactStore。路径可按具体 corpus 需求覆盖，应用连接仍来自同一 `.env`。
 
-| 变量 | 默认值（相对于仓库根目录） | 用途 |
-| --- | --- | --- |
-| `OCCCCAD_TEST_RESOURCES_DIR` | `build/test-resources` | 生成资源的默认根目录 |
-| `OCCCCAD_ASSEMBLY_FIXTURE_DIR` | 根目录下 `analytic-fixtures` | 七种球/圆柱/圆锥的 BREP 与 STEP |
-| `OCCCCAD_TEST_IMPORT_BREP` | 根目录下 `import-repair.brep` | 闭合盒体中反向一张面的修复样本；缺失时自动生成 |
-| `OCCCCAD_TEST_GEOMETRY_WORKER` | `build/cmake/<type>/workers/geometry/occccad_geometry_worker` | 使用已有构建，不在测试中编译 |
-| `OCCCCAD_TEST_DATABASE_URL` | `sqlite:build/test-resources/occccad_test.db` | 与应用数据隔离的测试库 |
-| `OCCCCAD_TEST_CURVED_GLB` / `OCCCCAD_TEST_GLB_FIXTURE` | 根目录下 `curved.glb` / `geometry.glb` | 对应测试的诊断导出 |
-| `OCCCCAD_TEST_ASSEMBLY_REPLAY_OUTPUT` | 根目录下 `assembly-replay.3dreplay` | 对应诊断测试的重放导出 |
+| 变量 | 默认文件/目录 | 用途 |
+|---|---|---|
+| `OCCCCAD_TEST_RESOURCES_DIR` | `build/test-resources` | 生成输入与诊断导出 |
+| `OCCCCAD_ASSEMBLY_FIXTURE_DIR` | 根目录下 `analytic-fixtures` | 解析球、圆柱、圆锥 BREP/STEP |
+| `OCCCCAD_TEST_IMPORT_BREP` | 根目录下 `import-repair.brep` | 反向面修复输入 |
+| `OCCCCAD_TEST_NAMING_FIXTURE` | 根目录下 `naming-v2.pb` | 真实 C++ Naming → Go round trip |
+| `OCCCCAD_TEST_CURVED_GLB` / `OCCCCAD_TEST_GLB_FIXTURE` | 根目录下 `curved.glb` / `geometry.glb` | 显示场景制品 |
+| `OCCCCAD_TEST_ASSEMBLY_REPLAY_OUTPUT` | 根目录下 `assembly-replay.3dreplay` | 数值重放导出 |
 
-各具体路径可独立覆盖；修改根目录后，显式配置的子路径仍按其配置解析。大文件输入 `OCCCCAD_TEST_EXCHANGE_STEP` 不自动替换为小型合成样本，需要按测试要求提供真实 corpus。
+解析 fixture 缺失或生产者更新时，Go 调用当前构建的 `AssemblyExactSupport.ExportAnalyticRouterFixtures`；Naming fixture 由 `occccad_naming_artifact_tests` 生成，生产者更新后重新生成。几何测试入口生成缺失的修复输入。缺少生产者或 Worker 不改用 Mock。
 
-几何测试 main 在测试运行前生成缺失的修复样本，已有文件保持不变；仅列出测试时不生成。`AssemblyExactSupport.ExportAnalyticRouterFixtures` 使用默认输出目录，不再仅验证而不落盘。Go 装配 fixture 若发现任何一项 BREP/STEP 缺失，会调用当前构建中的该生成测试，成功后再执行真实导入。缺少 Worker 或生成器仍属于环境缺失，不会改用 Mock。生成修复文件后，`ImportedSolidRepairCorpus` 的导入、输入不可变、修复和幂等断言照常执行。
+大 STEP corpus 由 `OCCCCAD_TEST_EXCHANGE_STEP` 显式选择，不自动用小合成样本冒充。S3 流式与 Worker round trip 随配置的 S3 后端执行；LOCAL 下报告不适用，不另建桶。重置合同使用 HTTP/SDK 故障场景验证，真实资源清理统一通过上述重置命令。
 
-`invoke clean` 删除 `build/`，也会删除这些测试制品和默认 SQLite 测试库；下一次测试按需生成资源并从当前 SQLite 迁移建立测试库。应用数据库、S3 与业务制品不在该测试准备流程的清理范围内。PostgreSQL 专用 pool 测试在 SQLite 配置下明确跳过；切换到专用 PostgreSQL 测试 URL 才验证该后端。
+`invoke clean` 删除 `build/`、生成的 User Presets 和编译数据库链接，包含生成输入、验证报告及运行制品身份；不等同业务数据重置。数据库、制品或暂存若显式配置在 `build/`，也受该目录删除范围影响。
 
 ## Chromium 与浏览器验证
 
-Ubuntu 使用以下软件包提供曾缺失的 Chromium 动态库；采用其他发行版时按实际包名对应处理：
+先复用已经安装的 Playwright Chromium 和系统库：
 
 ```bash
-sudo apt install libnspr4 libnss3 libasound2t64
+invoke doctor --scope web --browser
 ```
 
-这些是本环境曾缺少的依赖，不是 Chromium 在所有系统上的完整依赖清单。安装到系统后，正常使用系统库，不再默认设置 `/tmp/occccad-browser/libs/usr/lib/x86_64-linux-gnu` 的 `LD_LIBRARY_PATH`。若仍无法启动，对实际浏览器可执行文件执行 `ldd`，根据 `not found` 项补齐依赖；不要反复下载相同的临时库。
+缺少浏览器才在 `web/apps/cad` 执行 `pnpm exec playwright install chromium`。缺动态库时对实际浏览器运行 `ldd`，按 `not found` 补齐系统依赖；不要默认下载临时库或重设 `LD_LIBRARY_PATH`。本机 Ubuntu 曾需要 `libnspr4`、`libnss3`、`libasound2t64`，这不是所有系统的完整清单。
 
-先按 [CAD Web README](../../web/apps/cad/README.md) 安装前端依赖。尚未安装项目 Playwright 对应的 Chromium 时执行：
-
-```bash
-pnpm --dir web/apps/cad exec playwright install chromium
-```
-
-例如验证法线视图，并确认不再依赖临时动态库：
-
-```bash
-env -u LD_LIBRARY_PATH pnpm --dir web/apps/cad exec playwright test browser/normal-view.spec.ts
-```
-
-当前 Playwright 配置自动启动端口 5174 的 Mock 前端，使用 Chromium 与软件 WebGL，测试后关闭进程。此入口验证真实浏览器中的前端交互；数据库、真实 API 和 Geometry Worker 的完整链路需另行连接真实后端验证。真实环境启动使用 `invoke run.app --build-type=Release` 与 `invoke run.web --mode=api`。
-
-Invoke 与 Go 使用相同环境优先级：已导出变量 > `OCCCCAD_ENV_FILE` 指定文件（未指定时读取根 `.env`）。显式文件不存在时直接失败，不回退到默认资源。Invoke 将指定文件路径转为绝对路径，确保切换工作目录后仍读取同一文件。
+Mock Playwright 在 5174 自动启动隔离前端，覆盖前端交互。Live 配置在 5175 连接真实 API，使用同一开发账号、数据库和制品；后端先用 `invoke run` 启动。具体入口见[Web README](../../web/apps/cad/README.md)。Mock、SSR、真实 Router 和 Live 浏览器各自证明对应范围，不能互相代替。

@@ -2,7 +2,6 @@ package control
 
 import (
 	"fmt"
-	"github.com/occccad/occccad/internal/modelcore"
 	"math"
 	"net"
 	"os"
@@ -12,14 +11,15 @@ import (
 
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
-	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/modelcore"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
-	binary, url := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	binary, url := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN"), os.Getenv("OCCCCAD_DATABASE_URL")
 	if binary == "" || url == "" {
-		t.Skip("requires isolated database and built Worker")
+		t.Skip("requires configured development database and built Worker")
 	}
 	db, err := database.Open(t.Context(), url)
 	if err != nil {
@@ -35,22 +35,20 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	t.Cleanup(func() { _ = listener.Close() }) // Occupied port must never be reused by the pool.
-	directory := t.TempDir()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: t.TempDir()})
+	directory := testsupport.Environment(t).DataDirectory
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	store, err := artifact.NewLocalStore(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store))
+	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	service := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store, developmentStaging))
 	sequence := 0
 	create := func(kind, name string) workspace.DocumentView {
 		t.Helper()
@@ -205,7 +203,7 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 		t.Fatal("invalid shared count accepted")
 	}
 	// Reopen using a fresh service, without any loaded page or in-memory model.
-	cold := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store))
+	cold := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store, developmentStaging))
 	for id, revision := range map[string]string{product.Document.ID: acceptedProduct, fan.Document.ID: acceptedFan, cover.Document.ID: acceptedCover} {
 		read, e := cold.GetDocument(t.Context(), id, p6Actor)
 		if e != nil || read.Document.VersionID != revision {

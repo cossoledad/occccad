@@ -1,8 +1,14 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
+import {fileURLToPath} from "node:url";
+import {readDevelopmentEnvironment} from "../../../tools/development_environment.mjs";
 
 export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, process.cwd(), "VITE_");
+  const root = fileURLToPath(new URL("../../../", import.meta.url));
+  const runtime = readDevelopmentEnvironment(root);
+  const listen = process.env.OCCCCAD_APP_LISTEN || runtime.OCCCCAD_APP_LISTEN || "127.0.0.1:8080";
+  const target = listen.replace(/^0\.0\.0\.0:/, "127.0.0.1:").replace(/^\[::\]:/, "[::1]:");
   const hmrPort = Number(environment.VITE_HMR_CLIENT_PORT || 0) || undefined;
   return {
     plugins: [react()],
@@ -22,7 +28,7 @@ export default defineConfig(({ mode }) => {
       },
       proxy: mode === "mock" ? undefined : {
         "/api": {
-          target: environment.VITE_API_PROXY_TARGET || "http://127.0.0.1:8080",
+          target: environment.VITE_API_PROXY_TARGET || `http://${target}`,
           changeOrigin: false,
           ws: true,
         },

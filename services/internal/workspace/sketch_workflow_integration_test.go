@@ -13,6 +13,7 @@ import (
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/testsupport"
 )
 
 type sketchWorkflowFixture struct {
@@ -24,10 +25,7 @@ type sketchWorkflowFixture struct {
 
 func newSketchWorkflowFixture(t *testing.T) *sketchWorkflowFixture {
 	t.Helper()
-	url, address, root := os.Getenv("OCCCCAD_TEST_DATABASE_URL"), os.Getenv("OCCCCAD_TEST_WORKER_ADDRESS"), os.Getenv("OCCCCAD_TEST_ARTIFACT_ROOT")
-	if url == "" || address == "" || root == "" {
-		t.Skip("isolated database, matching-source Worker and artifact root are required")
-	}
+	url := testsupport.Environment(t).DatabaseURL
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
 	pool, err := database.Open(ctx, url)
@@ -38,19 +36,17 @@ func newSketchWorkflowFixture(t *testing.T) *sketchWorkflowFixture {
 	if err = database.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	worker, err := geometry.Open(address)
+	worker, closeWorker, err := geometry.OpenDevelopmentWorker(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = worker.Close() })
+	t.Cleanup(closeWorker)
 	if _, err = worker.Ping(ctx); err != nil {
 		t.Fatal(err)
 	}
-	store, err := artifact.NewLocalStore(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service := NewWithArtifacts(pool, worker, artifact.NewService(pool, store))
+	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	service := NewWithArtifacts(pool, worker, artifact.NewService(pool, store, developmentStaging))
 	actor := "00000000-0000-7000-8000-000000000001"
 	view, err := service.CreateDocument(ctx, CreateDocumentRequest{RequestID: uuid.NewString(), Name: "sketch-workflow-" + uuid.NewString(), Type: "PART", ActorID: actor})
 	if err != nil {
@@ -652,7 +648,7 @@ func TestSketchWorkflowLineArcAndArcArcFilletsExtrudeUpdate(t *testing.T) {
 			for _, feature := range candidate.Features {
 				if feature.Sketch != nil && feature.Sketch.Solve.Status == "CONFLICTING" {
 					raw, _ := json.MarshalIndent(candidate, "", "  ")
-					path := filepath.Join(filepath.Dir(os.Getenv("OCCCCAD_TEST_ARTIFACT_ROOT")), pair+"-corner-candidate.json")
+					path := filepath.Join(filepath.Dir(os.Getenv("OCCCCAD_DATA_DIR")), pair+"-corner-candidate.json")
 					_ = os.WriteFile(path, raw, 0600)
 					t.Fatalf("radius candidate solve %+v; reproduction %s", feature.Sketch.Solve, path)
 				}

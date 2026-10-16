@@ -3,7 +3,7 @@
 | 任务 | 入口 |
 |---|---|
 | 配置、构建、数据库/S3、测试资源、Chromium | [环境准备](environment.md) |
-| Agent 上下文、精确测试、scope 升级与诊断 | [Agent 工作流](agent-workflow.md) |
+| task 配方、doctor、提交差异验证与 diagnose | [Agent 工作流](agent-workflow.md) |
 | 文档归属、命名、迁移、事实/意图边界 | [文档维护](documentation.md) |
 | 应用启动与进程列表 | [根 README](../../README.md) |
 | 验证分层与跨模块测试 | [测试路由](../../tests/README.md) |

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/modelcore"
 )
@@ -16,6 +17,8 @@ import (
 // Operation diagnostics reuse the bounded debug repository, never Revision or
 // commit candidates. Capture the evaluated input, not whatever Head exists later.
 type OperationDiagnostic struct {
+	Outcome                string                     `json:"outcome,omitempty"`
+	ResultRevisionID       string                     `json:"resultRevisionId,omitempty"`
 	MotionBegin            *MechanismSessionBegin     `json:"motionBegin,omitempty"`
 	MotionInput            *MechanismSessionUpdate    `json:"motionInput,omitempty"`
 	MotionSnapshot         *MotionSnapshot            `json:"motionSnapshot,omitempty"`
@@ -98,7 +101,7 @@ func (service *Service) finishOperationDiagnostic(ctx context.Context, d *Operat
 	if model != nil {
 		d.Candidate, _ = json.Marshal(model)
 	}
-	d.Failure = (*failure).Error()
+	d.Failure = config.Redact((*failure).Error())
 	archive, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 	// Pair immutable baseline geometry keys with their existing BREP/Naming/GLB refs.
@@ -139,6 +142,22 @@ func (service *Service) finishOperationDiagnostic(ctx context.Context, d *Operat
 		}
 	}
 	slog.WarnContext(ctx, "cannot retain operation diagnostic", "document_id", d.DocumentID, "request_id", d.Request.RequestID, "error", err)
+}
+
+// A committed FAILED Revision is an accepted domain outcome. Retain its frozen
+// evidence without turning the successful transaction into a transport error.
+func (service *Service) retainFailedRevision(ctx context.Context, d *OperationDiagnostic, candidate json.RawMessage, revision string) {
+	if d == nil {
+		return
+	}
+	d.Outcome, d.ResultRevisionID, d.Stage = "ACCEPTED_FAILED_REVISION", revision, "COMMITTED"
+	failure := errors.New("accepted Revision contains a failed evaluation")
+	service.finishOperationDiagnostic(ctx, d, &candidate, nil, &failure)
+	var reference interface{ DiagnosticID() string }
+	if errors.As(failure, &reference) {
+		slog.WarnContext(ctx, "accepted failed Revision retained", "document_id", d.DocumentID,
+			"revision_id", revision, "diagnostic_id", reference.DiagnosticID())
+	}
 }
 func (service *Service) ReadOperationDiagnostic(ctx context.Context, documentID, id string) ([]byte, error) {
 	if service.diagnosticArtifacts == nil {

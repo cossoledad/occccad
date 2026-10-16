@@ -1,13 +1,9 @@
 package geometry
 
 import (
-	"context"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -19,48 +15,14 @@ import (
 
 func openCppWorkerForNamingContract(t *testing.T, options ...grpc.DialOption) *Client {
 	t.Helper()
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
-	if binary == "" {
-		t.Skip("set OCCCCAD_TEST_GEOMETRY_WORKER to run the C++ naming contract integration")
-	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	address := listener.Addr().String()
-	_ = listener.Close()
-	command := exec.Command(binary)
-	command.Env = append(os.Environ(), "OCCCCAD_GEOMETRY_WORKER_LISTEN="+address)
-	if err := command.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = command.Process.Kill(); _, _ = command.Process.Wait() })
-
-	var client *Client
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		client, err = Open(address, options...)
-		if err == nil {
-			pingContext, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-			_, err = client.Ping(pingContext)
-			cancel()
-			if err == nil {
-				break
-			}
-			_ = client.Close()
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	if err != nil {
-		t.Fatalf("worker did not become ready: %v", err)
-	}
-	t.Cleanup(func() { _ = client.Close() })
+	client, closeWorker, err := OpenDevelopmentWorker(t.Context(), options...)
+	if err != nil { t.Fatal(err) }
+	t.Cleanup(closeWorker)
 	return client
 }
 
 func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
-	artifactRoot := t.TempDir()
-	t.Setenv("OCCCCAD_DATA_DIR", artifactRoot)
+	artifactRoot := os.Getenv("OCCCCAD_DATA_DIR")
 	client := openCppWorkerForNamingContract(t)
 	pad := ProfilePad{
 		FeatureID: "pad-1", BodyID: "body-main", ProfileFeatureID: "sketch-1",

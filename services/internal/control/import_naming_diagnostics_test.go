@@ -1,6 +1,7 @@
 package control
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -71,10 +72,26 @@ func verifyImportNamingDiagnostics(t *testing.T, db database.DB, client *geometr
 	}
 	// Isolated pre-naming fixture: simulate the historical serialized model and raw
 	// artifact. Only this newly created test document is changed, never user data.
-	if _, err = db.Exec(t.Context(), `UPDATE occccad.document_versions SET model_json=jsonb_set(jsonb_set(model_json,'{features,0}',jsonb_set((model_json->'features'->0)-'importDefinitionId','{id}',to_jsonb($3::text))),'{bodies,0,geometryKey}',to_jsonb($2::text)) WHERE id=$1`, imported.Document.VersionID, key, "legacy-"+imported.Part.Features[0].ID); err != nil {
+	var frozen json.RawMessage
+	if err = db.QueryRow(t.Context(), `SELECT model_json FROM occccad.document_versions WHERE id=$1`, imported.Document.VersionID).Scan(&frozen); err != nil {
 		t.Fatal(err)
 	}
-	// A fresh service must read the nullable digest from PostgreSQL, not a cached
+	var legacy map[string]any
+	if err = json.Unmarshal(frozen, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	feature := legacy["features"].([]any)[0].(map[string]any)
+	delete(feature, "importDefinitionId")
+	feature["id"] = "legacy-" + imported.Part.Features[0].ID
+	legacy["bodies"].([]any)[0].(map[string]any)["geometryKey"] = key
+	frozen, err = json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(t.Context(), `UPDATE occccad.document_versions SET model_json=$2::jsonb WHERE id=$1`, imported.Document.VersionID, frozen); err != nil {
+		t.Fatal(err)
+	}
+	// A fresh service must read the nullable digest from the database, not a cached
 	// projection retained from the import transaction.
 	cold := workspace.NewWithArtifacts(db, client, artifacts)
 	opened, err := cold.GetDocument(t.Context(), imported.Document.ID)

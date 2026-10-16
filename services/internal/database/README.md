@@ -58,11 +58,9 @@ SQLite 迁移不读取 PostgreSQL，也不需要联网。`invoke data.reset --ye
 
 ## 验证
 
-装配、候选/历史、诊断 API 的真实集成复用 `internal/testsupport.OpenTestDatabase`，读取 `.env` 的专用测试 URL，默认使用 `build/test-resources/occccad_test.db`；也支持显式专用 `occccad_*_test` PostgreSQL 库。SQLite 拒绝应用库与非专用文件名，PostgreSQL 检查实际库身份；两者都不自动重置或修补迁移记录。直接 Go 测试的 TestMain 只加载、解析配置并验证测试目标，数据库连接与迁移由实际集成 fixture 执行。运行配置见[开发环境](../../../docs/development/README.md)。
+真实集成复用 `internal/testsupport.OpenDevelopmentDatabase`，读取正常启动的同一 `.env` / `OCCCCAD_DATABASE_URL`。API、Jobs、人工操作和 Agent 数据均在同一配置资源中；入口迁移但不自动重置。已授权开发数据可丢弃，统一重置入口与范围见[开发环境](../../../docs/development/environment.md)。
 
-- `go test ./internal/database -count=1`：目录与迁移记录检查、SQLite 查询与事务合同；`TestMigrationBaselinePreservesDocuments` 的 PostgreSQL 子场景需通过 `OCCCCAD_TEST_MIGRATION_DATABASE_URL` 显式提供隔离空库，拒绝非空数据库。
-- SQLite 测试使用临时文件：空库迁移/重开、外键、唯一性、批量失败回滚、取消、savepoint、独立连接池与实际子进程竞争、Jobs/登录故障注入，以及真实文档命令、Undo/Redo、ACL 和冷读。
-- `TestSQLiteApplicationQueriesCompile` 在实际 schema 上编译静态业务查询；动态拼接与运行语义由业务测试补充，不能以查询编译代替功能验收。
-- 设置 `OCCCCAD_TEST_SCHEMA_PARITY_URL` 指向已迁移的 PostgreSQL 后运行 `go test ./internal/database -run TestSQLitePostgresSchemaParity`：只读比较领域表列、主键/唯一约束、外键删除与更新策略、显式索引及管理员种子，SQLite 侧使用临时空文件。
-- 设置 `OCCCCAD_TEST_DATABASE_URL` 后运行 `go test ./internal/database -run TestPoolPostgres -count=1`：只使用连接临时表，不迁移业务数据。
-- 配置独立 SQLite 文件与 `OCCCCAD_TEST_GEOMETRY_WORKER` 后，可运行 `go test ./internal/control -run TestSolidBooleanLifecycleThroughRouter -count=1`，验证真实 Router/Worker/ArtifactStore 与持久化链。
+- `go test ./internal/database -count=1` 验证迁移目录、SQLite 查询/事务、批处理与调度。
+- SQLite 方言、锁、回滚和故障注入使用单元测试临时对象；这些断言不替代真实应用链路。
+- 当前配置为 PostgreSQL 时，pool 与 PostgreSQL 迁移/只读 schema parity 测试使用同一开发数据库；SQLite 配置下明确报告不适用，不另建测试库。迁移损坏注入的恢复属于对应测试，不改变正常 Migrate 的拒绝策略。
+- `invoke check --scope services --match '^TestSolidBooleanLifecycleThroughRouter$'` 验证当前 Router、Worker、ArtifactStore 与数据库中的真实 Preview/提交/失败/历史/冷读链路。

@@ -14,9 +14,9 @@ import (
 // Uses only connection-local temporary tables. No migrations or persistent
 // application data changes; safe against the explicitly configured dev database.
 func TestPoolPostgresBatchAtomicityAndCancellation(t *testing.T) {
-	url := os.Getenv("OCCCCAD_TEST_DATABASE_URL")
+	url := os.Getenv("OCCCCAD_DATABASE_URL")
 	if !strings.HasPrefix(url, "postgres:") && !strings.HasPrefix(url, "postgresql:") {
-		t.Skip("PostgreSQL-specific pool test requires a PostgreSQL OCCCCAD_TEST_DATABASE_URL")
+		t.Skip("NOT_APPLICABLE: configured backend is not PostgreSQL")
 	}
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {

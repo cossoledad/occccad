@@ -3,7 +3,6 @@ package jobs
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/google/uuid"
@@ -12,10 +11,7 @@ import (
 )
 
 func TestProgressHighWaterAndRetryPhasesDatabase(t *testing.T) {
-	if os.Getenv("OCCCCAD_TEST_IMPORT_DATABASE") != "1" {
-		t.Skip("explicit development database opt-in required")
-	}
-	if _, err := config.LoadProjectEnv(); err != nil {
+	if _, err := config.LoadEnvironment(); err != nil {
 		t.Fatal(err)
 	}
 	db, err := database.Open(t.Context(), config.Load().DatabaseURL)
@@ -23,6 +19,7 @@ func TestProgressHighWaterAndRetryPhasesDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if err := database.Migrate(t.Context(), db); err != nil { t.Fatal(err) }
 	actor, id := uuid.NewString(), uuid.NewString()
 	if _, err := db.Exec(t.Context(), `INSERT INTO occccad.users(id,email,display_name) VALUES($1,$2,'Progress regression')`, actor, actor+"@progress-test.invalid"); err != nil {
 		t.Fatal(err)

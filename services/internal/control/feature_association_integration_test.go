@@ -4,16 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/occccad/occccad/internal/debugartifact"
 	"io"
 	"math"
 	"net"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
@@ -35,10 +32,7 @@ func TestPostgresFeatureAssociationFanLifecycleThroughRouter(t *testing.T) {
 
 func verifyFeatureAssociationFanLifecycle(t *testing.T, service *workspace.Service, artifacts *artifact.Service, db database.DB, client *geometry.Client) {
 	t.Helper()
-	diagnostics, err := debugartifact.NewStore(t.TempDir(), 50, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	diagnostics := openDevelopmentDiagnostics(t)
 	service.SetDiagnosticArtifactStore(diagnostics)
 	view, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Fan associations"})
 	if err != nil {
@@ -310,55 +304,46 @@ func featureAssociationTestService(t *testing.T) (*workspace.Service, *artifact.
 }
 func featureAssociationRuntimeService(t *testing.T) (*workspace.Service, *artifact.Service, database.DB, *geometry.Client, *GeometryPool) {
 	t.Helper()
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
 		t.Skip("requires built Geometry Worker")
 	}
-	db, err := database.Open(t.Context(), "sqlite:"+filepath.Join(t.TempDir(), "fan.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(db.Close)
-	if err = database.Migrate(t.Context(), db); err != nil {
-		t.Fatal(err)
-	}
+	db := testsupport.OpenDevelopmentDatabase(t)
 	return geometryRuntimeTestService(t, db)
 }
 
 func postgresGeometryTestService(t *testing.T) (*workspace.Service, *artifact.Service, database.DB, *geometry.Client) {
 	t.Helper()
-	if os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER") == "" {
+	if os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN") == "" {
 		t.Skip("requires built Geometry Worker")
 	}
-	service, artifacts, db, client, _ := geometryRuntimeTestService(t, testsupport.OpenTestDatabase(t))
+	service, artifacts, db, client, _ := geometryRuntimeTestService(t, testsupport.OpenDevelopmentDatabase(t))
 	return service, artifacts, db, client
 }
 
 func geometryRuntimeTestService(t *testing.T, db *database.Pool) (*workspace.Service, *artifact.Service, database.DB, *geometry.Client, *GeometryPool) {
 	t.Helper()
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
-	directory := t.TempDir()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: t.TempDir()})
+	directory := testsupport.Environment(t).DataDirectory
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { client.Close() })
-	local, err := artifact.NewLocalStore(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	artifacts := artifact.NewService(db, local)
+	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	artifacts := artifact.NewService(db, local, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 	return service, artifacts, db, client, pool
 

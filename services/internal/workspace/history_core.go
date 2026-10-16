@@ -73,8 +73,10 @@ func (service *Service) populateHistoryCapabilities(ctx context.Context, documen
 	return nil
 }
 
-func (service *Service) applyCompensatingHistory(ctx context.Context, documentID string, request CommandRequest) error {
+func (service *Service) applyCompensatingHistory(ctx context.Context, documentID string, request CommandRequest) (failure error) {
 	request.RequestID = requestID(request.RequestID)
+	diagnostic := service.newOperationDiagnostic(ctx, documentID, request, "HISTORY")
+	defer func() { service.finishOperationDiagnostic(ctx, diagnostic, nil, nil, &failure) }()
 	var workspaceID, headRevision, documentType string
 	var headSequence uint64
 	var modelJSON json.RawMessage
@@ -88,6 +90,8 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 	} else if err != nil {
 		return err
 	}
+
+	if diagnostic != nil { diagnostic.BaseRevisionID, diagnostic.BaseModel = headRevision, modelJSON }
 
 	actor := actorID(request.ActorID)
 	historyPayload, _ := json.Marshal(map[string]string{"type": request.Type, "versionId": request.VersionID})
@@ -228,7 +232,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 		kind = "REAPPLY"
 		typeURI = "occccad://history/reapply"
 	}
-	return service.commitHistoryRevision(ctx, historyCommit{documentID: documentID, workspaceID: workspaceID,
+	return service.commitHistoryRevision(ctx, historyCommit{diagnostic: diagnostic, documentID: documentID, workspaceID: workspaceID,
 		headRevision: headRevision, documentType: documentType, actorID: actor, requestID: request.RequestID,
 		headSequence: headSequence, modelJSON: nextJSON, changes: reverse, kind: kind, typeURI: typeURI,
 		rootTransaction: rootTransaction, consumedRevert: consumedRevert, requestDigest: historyDigest})
@@ -256,8 +260,10 @@ func validatePersistedChangeSetStructure(set modelcore.ChangeSet, persistedWrite
 	return nil
 }
 
-func (service *Service) applyRestoreRevision(ctx context.Context, documentID string, request CommandRequest) error {
+func (service *Service) applyRestoreRevision(ctx context.Context, documentID string, request CommandRequest) (failure error) {
 	request.RequestID = requestID(request.RequestID)
+	diagnostic := service.newOperationDiagnostic(ctx, documentID, request, "HISTORY")
+	defer func() { service.finishOperationDiagnostic(ctx, diagnostic, nil, nil, &failure) }()
 	var workspaceID, headRevision, documentType string
 	var headSequence uint64
 	var current, target json.RawMessage
@@ -266,6 +272,8 @@ func (service *Service) applyRestoreRevision(ctx context.Context, documentID str
 	} else if err != nil {
 		return err
 	}
+	if diagnostic != nil { diagnostic.BaseRevisionID, diagnostic.BaseModel = headRevision, current }
+
 	historyPayload, _ := json.Marshal(map[string]string{"type": "RESTORE", "versionId": request.VersionID})
 	historyDigest := modelcore.ValueDigest(historyPayload)
 	var storedDigest, storedActor string
@@ -282,7 +290,7 @@ func (service *Service) applyRestoreRevision(ctx context.Context, documentID str
 	if err := set.Finalize(); err != nil {
 		return err
 	}
-	return service.commitHistoryRevision(ctx, historyCommit{documentID: documentID, workspaceID: workspaceID, headRevision: headRevision, documentType: documentType, actorID: actorID(request.ActorID), requestID: request.RequestID, headSequence: headSequence, modelJSON: target, changes: set, kind: "RESTORE", typeURI: "occccad://history/restore", requestDigest: historyDigest})
+	return service.commitHistoryRevision(ctx, historyCommit{diagnostic: diagnostic, documentID: documentID, workspaceID: workspaceID, headRevision: headRevision, documentType: documentType, actorID: actorID(request.ActorID), requestID: request.RequestID, headSequence: headSequence, modelJSON: target, changes: set, kind: "RESTORE", typeURI: "occccad://history/restore", requestDigest: historyDigest})
 }
 
 func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.ChangeSet) (map[modelcore.PropertyAddress]json.RawMessage, error) {
@@ -353,6 +361,7 @@ func changesBetweenValues(before, after map[modelcore.PropertyAddress]json.RawMe
 }
 
 type historyCommit struct {
+	diagnostic *OperationDiagnostic
 	documentID, workspaceID, headRevision, documentType, actorID, requestID, kind, typeURI string
 	rootTransaction, consumedRevert                                                        string
 	requestDigest                                                                          string
@@ -362,6 +371,8 @@ type historyCommit struct {
 }
 
 func (service *Service) commitHistoryRevision(ctx context.Context, input historyCommit) error {
+	input.diagnostic.stage("EVALUATE")
+	if input.diagnostic != nil { input.diagnostic.Candidate = input.modelJSON }
 	revisionUUID, _ := uuid.NewV7()
 	transactionUUID, _ := uuid.NewV7()
 	revisionID := revisionUUID.String()
@@ -372,6 +383,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	}
 	evaluated, err := adapter.EvaluateHistory(ctx, service, input, revisionID)
 	input.modelJSON, input.changes = evaluated.nextJSON, evaluated.changes
+	if input.diagnostic != nil { input.diagnostic.Candidate = input.modelJSON }
 	modelHash, graph, manifest := evaluated.modelHash, evaluated.graph, evaluated.manifest
 	revisionState, evaluationStatus := evaluated.revisionState, evaluated.evaluationStatus
 	if err != nil {
@@ -386,6 +398,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	if requestDigest == "" {
 		requestDigest = modelcore.ValueDigest(payload)
 	}
+	input.diagnostic.stage("COMMIT")
 	tx, err := service.database.Begin(ctx)
 	if err != nil {
 		return err
@@ -466,5 +479,9 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	if err := adapter.Persist(ctx, tx, revisionID, input.modelJSON); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil { return err }
+	if revisionState == "FAILED" {
+		service.retainFailedRevision(ctx, input.diagnostic, input.modelJSON, revisionID)
+	}
+	return nil
 }

@@ -94,17 +94,17 @@ Jobs 同样使用 [统一数据库访问层](../../internal/database/README.md)�
 
 进度显示解析拆分、组件求值、零件命名/创建、装配创建；已完成数量来自真实完成回调。70% 起进入文档提交区，保持原取消边界。重试/租约重领不清零总进度，新 attempt 显示实际阶段及尝试次数；每个阶段结束只记录一条包含耗时和组件数的日志。确定性校验失败不自动反复重跑。
 
-完整导入的定向验证（独立测试账号和文件夹，结束移入回收站，不重置开发库）：
+完整导入的定向验证（使用当前开发数据库和制品存储；创建测试账号和文件夹，结束移入回收站）：
 
 ```sh
-OCCCCAD_TEST_IMPORT_DATABASE=1 OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/LD200 torsen v7.step' go test ./cmd/occccad-jobs -run '^TestXdeImportSharedDefinitionsAndRoundTrip$' -count=1 -v -timeout 20m
+ OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/LD200 torsen v7.step' go test ./cmd/occccad-jobs -run '^TestXdeImportSharedDefinitionsAndRoundTrip$' -count=1 -v -timeout 20m
 ```
 
 测试检查源 Definition 数量、共享/嵌套引用、冻结命名、全部 Part 面绑定和进度单调性；保留命中去重的源对象，不删除业务共享制品。
 
 Part 求值结果仅携带摘要和 BREP/VISUAL/NAMING 引用，导入 identity seed 另存 Artifact。缩略图通过 `HydrateDisplay` 读取与前端相同的 GLB，不读取数据库 Mesh；仅在渲染调用范围内解码，DocumentView 不包含完整网格。详见[几何表示](../../../docs/architecture/current/geometry-representations.md)。
 
-不提供 STEP 样本、配置 `OCCCCAD_TEST_DATABASE_URL` 与 Worker 时，上述集成测试生成共享 100 次 Part、共享子装配及同形不同定义的 fixture，并验证导出重新导入；使用独立测试库。协议细节见[交换架构](../../../docs/architecture/current/jobs-artifacts.md)。
+不提供 STEP 样本时，上述集成测试生成共享 100 次 Part、共享子装配及同形不同定义的 fixture，并验证导出重新导入；与 `invoke run` 使用同一开发数据库和存储。协议细节见[交换架构](../../../docs/architecture/current/jobs-artifacts.md)。
 
 ## 机构研究消费者
 

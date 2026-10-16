@@ -56,21 +56,27 @@ func TestS3SpoolFailureDoesNotPublish(t *testing.T) {
 	}
 }
 
-// Explicit opt-in: uses configured real MinIO and only removes this test's random object.
+// Uses the selected S3 backend and only removes this test's random object.
 func TestS3IntegrationStreaming(t *testing.T) {
-	if os.Getenv("OCCCCAD_TEST_S3") != "1" {
-		t.Skip("set OCCCCAD_TEST_S3=1 for real storage verification")
+	if !strings.EqualFold(os.Getenv("OCCCCAD_ARTIFACT_BACKEND"), "S3") {
+		t.Skip("NOT_APPLICABLE: configured artifact backend is not S3")
 	}
-	if _, err := config.LoadProjectEnv(); err != nil {
+	if _, err := config.LoadEnvironment(); err != nil {
 		t.Fatal(err)
 	}
-	store, _, err := OpenConfigured(context.Background(), t.TempDir())
+	store, _, err := OpenConfigured(context.Background(), config.Load().DataDirectory)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if store.Backend() != "S3" {
 		t.Fatal("S3 backend required")
 	}
+	// The upload buffer belongs to this call; persistent objects still use the
+	// one configured bucket. Concurrent application uploads are not test failures.
+	privateSpool, err := os.MkdirTemp(store.(*S3Store).temporaryDirectory, "probe-")
+	if err != nil { t.Fatal(err) }
+	defer os.RemoveAll(privateSpool)
+	store.(*S3Store).temporaryDirectory = privateSpool
 	size := int64(17 << 20)
 	if raw := os.Getenv("OCCCCAD_TEST_S3_BYTES"); raw != "" {
 		size, err = strconv.ParseInt(raw, 10, 64)

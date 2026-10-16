@@ -5,13 +5,12 @@ import (
 	"math"
 	"net"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
-	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/testsupport"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
@@ -21,11 +20,11 @@ func TestLoftCorrespondenceAndPointLifecycleThroughRouter(t *testing.T) {
 }
 
 func testLoftPointLifecycle(t *testing.T, wholeSketch bool) {
-	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+	binary := os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")
 	if binary == "" {
 		t.Skip("requires built Geometry Worker")
 	}
-	url := "sqlite:" + filepath.Join(t.TempDir(), "loft.db")
+	url := testsupport.Environment(t).DatabaseURL
 	db, err := database.Open(t.Context(), url)
 	if err != nil {
 		t.Fatal(err)
@@ -40,22 +39,20 @@ func testLoftPointLifecycle(t *testing.T, wholeSketch bool) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	directory := t.TempDir()
-	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: t.TempDir()})
+	directory := testsupport.Environment(t).DataDirectory
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: testsupport.Environment(t).LogDirectory})
 	t.Cleanup(pool.Close)
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := openDevelopmentGeometry(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	store, err := artifact.NewLocalStore(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	artifacts := artifact.NewService(db, store)
+	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
+	if err != nil { t.Fatal(err) }
+	artifacts := artifact.NewService(db, store, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 
 	view, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Loft lifecycle"})
@@ -140,7 +137,7 @@ func testLoftPointLifecycle(t *testing.T, wholeSketch bool) {
 	if math.Abs(activeBodyArtifact(t, view).Volume-480) > 1e-4 {
 		t.Fatal("redo")
 	}
-	cold := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store))
+	cold := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store, developmentStaging))
 	reopened, e := cold.GetDocument(t.Context(), view.Document.ID, p6Actor)
 	if e != nil || !reflect.DeepEqual(reopened.Part.Features[len(reopened.Part.Features)-1].Sections, accepted) {
 		t.Fatal("cold correspondence", e)

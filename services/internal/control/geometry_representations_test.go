@@ -4,15 +4,16 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/thumbnail"
 	"github.com/occccad/occccad/internal/visual"
 	"github.com/occccad/occccad/internal/workspace"
 	"google.golang.org/protobuf/proto"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
 func verifyGeometryRepresentations(t *testing.T, db database.DB, service *workspace.Service, store *artifact.Service, view workspace.DocumentView) {
@@ -32,7 +33,11 @@ func verifyGeometryRepresentations(t *testing.T, db database.DB, service *worksp
 		t.Fatal("DocumentView serialized full mesh")
 	}
 	var forbidden int
-	if err := db.QueryRow(t.Context(), `SELECT count(*) FROM information_schema.columns WHERE table_schema='occccad' AND table_name='geometry_artifacts' AND column_name IN ('mesh_json','brep_data','glb_data','topology_manifest_data')`).Scan(&forbidden); err != nil || forbidden != 0 {
+	columns := `SELECT count(*) FROM information_schema.columns WHERE table_schema='occccad' AND table_name='geometry_artifacts' AND column_name IN ('mesh_json','brep_data','glb_data','topology_manifest_data')`
+	if strings.HasPrefix(os.Getenv("OCCCCAD_DATABASE_URL"), "sqlite:") {
+		columns = `SELECT count(*) FROM pragma_table_info('geometry_artifacts') WHERE name IN ('mesh_json','brep_data','glb_data','topology_manifest_data')`
+	}
+	if err := db.QueryRow(t.Context(), columns).Scan(&forbidden); err != nil || forbidden != 0 {
 		t.Fatalf("large database columns remain: %d %v", forbidden, err)
 	}
 	ref := activeBodyArtifact(t, view).Representations["VISUAL"]

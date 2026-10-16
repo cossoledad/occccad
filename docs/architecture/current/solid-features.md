@@ -76,7 +76,7 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp` 的抽壳回归：大倒角、全棱圆角、倒角后底棱圆角及矩形到圆放样，检查开口、壁厚两侧材料分类、逐面网格覆盖、上游不可变与冷重算历史。
 - `services/internal/geometry/shell_worker_integration_test.go`：真实 Worker 的全棱圆角与矩形到圆放样后抽壳，检查阶段面引用、完整 Naming 与 BREP/GLB 制品。
 - `services/internal/geometry/corner_fillet_worker_integration_test.go`：真实 Worker RPC 的倒角 1 → 双边圆角 1/1.5/2，按阶段 Naming 绑定原边，检查完整历史及 BREP/GLB 制品。
-- 阵列定向入口：`kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `PatternCutReusesToolAndPreservesMemberNames`；`services/internal/workspace/pattern_test.go`、`parameter_update_plan_test.go`；真实 Worker 的 `services/internal/geometry/pattern_worker_integration_test.go`；真实 Router 的 `services/internal/control/parametric_pattern_integration_test.go`。后者需要独立测试数据库，覆盖共享参数、显式接受、成员面引用、失败恢复、历史和 occurrence 位姿。
+- 阵列定向入口：`kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `PatternCutReusesToolAndPreservesMemberNames`；`services/internal/workspace/pattern_test.go`、`parameter_update_plan_test.go`；真实 Worker 的 `services/internal/geometry/pattern_worker_integration_test.go`；真实 Router 的 `services/internal/control/parametric_pattern_integration_test.go`。后者使用当前开发数据库与制品存储，覆盖共享参数、显式接受、成员面引用、失败恢复、历史和 occurrence 位姿。
 - `services/internal/workspace/solid_feature_test.go`：阶段合法性、参数生命周期、定义编辑和补偿。
 - `services/internal/control/propeller_feature_range_integration_test.go`：真实 Router/Worker 重建 120×100×90 底座、倾斜叶片拉伸 120、叶根圆角 80，验证原面来源、含圆角新增材料的 180° 阵列及非对称底座不重复。
 - `services/internal/control/feature_association_integration_test.go`：真实 Router/Worker 的圆柱、偏心孔、叶片工具阵列、成员叶根圆角；验证贡献、成员槽位、种子/数量重算、历史阶段只读、Undo/Redo 与冷读取。人工步骤见[选择验收](../../validation/feature-selection-validation.md)。
