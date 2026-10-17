@@ -58,7 +58,7 @@ export class NavigationController {
     fit: () => void = () => {},
     editingSketch: () => boolean = () => false,
   ) {
-    this.rig = new ThreeCameraRig(camera);
+    this.rig = new ThreeCameraRig(camera, {zoomBarrier: (origin, direction) => picker.pickZoomBarrier(origin, direction)});
     this.target = this.rig.pivot;
     this.profile = createNavigationProfile(profileID);
     this.rig.lookAtPivot();

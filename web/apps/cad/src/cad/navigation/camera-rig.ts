@@ -3,6 +3,9 @@ import { worldUnitsPerCssPixel } from "../rendering/viewport-metrics";
 
 export type CadCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera;
 
+/** Transient display geometry along the eye's zoom-in path. */
+export type ZoomBarrier = { distance: number; clearance: number };
+
 export interface CameraRig {
   readonly camera: CadCamera;
   readonly pivot: THREE.Vector3;
@@ -22,6 +25,7 @@ export type CameraRigOptions = {
   zoomSensitivity?: number;
   minDistance?: number;
   maxDistance?: number;
+  zoomBarrier?: (origin: THREE.Vector3, direction: THREE.Vector3) => ZoomBarrier | undefined;
 };
 
 const DEFAULT_OPTIONS: Required<CameraRigOptions> = {
@@ -29,6 +33,7 @@ const DEFAULT_OPTIONS: Required<CameraRigOptions> = {
   zoomSensitivity: 0.003,
   minDistance: 1.0e-3,
   maxDistance: 1.0e9,
+  zoomBarrier: () => undefined,
 };
 
 /** Camera mathematics shared by all navigation profiles. It never owns DOM/input state. */
@@ -104,18 +109,34 @@ export class ThreeCameraRig implements CameraRig {
   }
 
   dollyPixels(deltaY: number, center: THREE.Vector3 = this.pivot): void {
-    if (deltaY === 0) return;
+    if (deltaY === 0 || !Number.isFinite(deltaY)) return;
     const factor = Math.exp(deltaY * this.options.zoomSensitivity);
     if (this.camera instanceof THREE.PerspectiveCamera) {
-      const offset = this.camera.position.clone().sub(center);
+      // The default center aliases pivot; snapshot it before transforming pivot.
+      const anchor = center.clone();
+      const offset = this.camera.position.clone().sub(anchor);
       const distance = offset.length();
       if (distance < 1.0e-12) return;
-      const nextDistance = THREE.MathUtils.clamp(
-        distance * factor, this.options.minDistance, this.options.maxDistance,
-      );
+      const barrier = this.options.zoomBarrier(this.camera.position, offset.clone().multiplyScalar(-1 / distance));
+      const limit = Math.min(distance, barrier
+        ? Math.max(barrier.clearance, distance - barrier.distance + barrier.clearance)
+        : this.options.minDistance);
+      let nextDistance: number;
+      if (deltaY < 0) {
+        // Ease the remaining travel to the first surface, not the distance to
+        // an orbit pivot that may lie inside (or behind) the solid. The same
+        // exponential composes across input events and never crosses its limit.
+        nextDistance = limit + (distance - limit) * factor;
+      } else {
+        // Reverse along the same surface reference. At the asymptote retain a
+        // model-sized exit step, without jumping back towards an interior pivot.
+        const remaining = barrier ? Math.max(distance - limit, barrier.clearance) : distance;
+        nextDistance = Math.min(distance + remaining * Math.expm1(deltaY * this.options.zoomSensitivity),
+          Math.max(distance, this.options.maxDistance));
+      }
       const scale = nextDistance / distance;
-      this.camera.position.copy(center).addScaledVector(offset, scale);
-      this.pivot.sub(center).multiplyScalar(scale).add(center);
+      this.camera.position.copy(anchor).addScaledVector(offset, scale);
+      this.pivot.sub(anchor).multiplyScalar(scale).add(anchor);
       this.camera.updateMatrixWorld(true);
       return;
     }

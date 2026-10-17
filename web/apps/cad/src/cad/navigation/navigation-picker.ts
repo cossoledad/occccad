@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { circularRotationAxis, cylindricalRotationAxis } from "./display-rotation-axis";
-import type { CadCamera } from "./camera-rig";
+import type { CadCamera, ZoomBarrier } from "./camera-rig";
 import { worldUnitsPerCssPixel } from "../rendering/viewport-metrics";
 
 export const CAD_GEOMETRY_LAYER = 1;
@@ -45,6 +45,25 @@ export class NavigationPicker {
   /** Zoom follows the cursor ray, never a nearby/occluded vertex promoted for rotation. */
   pickSurface(x: number, y: number): NavigationPick | undefined {
     return this.pick(x, y, false, true);
+  }
+
+  /** Surface reference along the zoom-in path, independent of cursor/pivot depth and clip planes. */
+  pickZoomBarrier(origin: THREE.Vector3, direction: THREE.Vector3): ZoomBarrier | undefined {
+    this.raycaster.set(origin, direction);
+    const meshes: THREE.Mesh[] = [];
+    for (const root of this.roots()) root.traverseVisible(object => {
+      if (object instanceof THREE.Mesh && this.isValidGeometry(object)) meshes.push(object);
+    });
+    const hit = this.raycaster.intersectObjects(meshes, false)[0];
+    if (!hit) return undefined;
+    const mesh = hit.object as THREE.Mesh;
+    if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+    const diameter = (mesh.geometry.boundingSphere?.radius ?? 0) * 2 * mesh.matrixWorld.getMaxScaleOnAxis();
+    // Model-relative clearance, with a numerical floor for very small geometry
+    // or large world coordinates. It is not a fixed CAD length or stored state.
+    const clearance = Math.max(diameter * .001, 1e-9,
+      Math.max(origin.length(), hit.point.length()) * Number.EPSILON * 64);
+    return {distance: hit.distance, clearance};
   }
 
   private pick(x: number, y: number, withReference: boolean, surfaceOnly: boolean): NavigationPick | undefined {
