@@ -165,7 +165,8 @@ export class NavigationController {
 
   wheel(event: CadWheelEvent): InputResult {
     if (!this.enabled || this.profile.wheelAction(event.state) !== "zoom") return InputResult.Ignored;
-    const wheelCenter = this.picker.pickNearest(event.x, event.y)?.point
+    const wheelCenter = (this.profile.id === "default" ? this.picker.pickSurface(event.x, event.y)
+      : this.picker.pickNearest(event.x, event.y))?.point
       ?? this.picker.pickViewPlane(event.x, event.y, this.target)?.point;
     const unit = event.originalEvent.deltaMode === 1 ? 16 : event.originalEvent.deltaMode === 2 ? this.viewportSize().height : 1;
     // SOLIDWORKS default: wheel towards the user zooms IN (opposite the default profile).

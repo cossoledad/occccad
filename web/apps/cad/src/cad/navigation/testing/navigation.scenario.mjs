@@ -30,7 +30,7 @@ try {
   const camera = new THREE.PerspectiveCamera(45, 800 / 600, .1, 10000); camera.position.set(0, 0, 100); camera.updateProjectionMatrix();
   let hit = { point: new THREE.Vector3(10, 5, 0), axis: new THREE.Vector3(0, 0, 1), source: "raycast" };
   let fits = 0,picks=0;
-  const picker = { pickNearest: () => {picks++;return hit;}, pickViewPlane: () => ({ point: new THREE.Vector3(15, 10, 0), source: "view-plane" }) };
+  const picker = { pickNearest: () => {picks++;return hit;}, pickSurface: () => hit, pickViewPlane: () => ({ point: new THREE.Vector3(15, 10, 0), source: "view-plane" }) };
   const nav = new NavigationController(camera, () => ({ width: 800, height: 600 }), () => {}, picker, () => new THREE.Vector3(), "catia", false,
     () => new THREE.Box3(new THREE.Vector3(-10,-10,-10),new THREE.Vector3(10,10,10)), () => fits++);
   const q = camera.quaternion.clone();

@@ -2,6 +2,7 @@ import {expect,type Page} from "@playwright/test";
 
 export async function worldScreen(page:Page,point:number[]){
  await expect(page.getByTestId("navigation-camera")).toBeVisible();
+ await expect(page.getByTestId("navigation-camera")).toHaveAttribute("data-transition-active","false");
  return page.evaluate(async point=>{
   // @ts-ignore Vite serves the real viewport dependency.
   const T=await import("/node_modules/.vite/deps/three.js");

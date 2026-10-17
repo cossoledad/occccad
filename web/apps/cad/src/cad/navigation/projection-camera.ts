@@ -40,12 +40,22 @@ export function fitPerspectiveView(camera: THREE.PerspectiveCamera,target:THREE.
   camera.updateMatrixWorld(true);
 }
 /** Perspective clipping changes planes only: moving the eye would change the image. */
-export function updatePerspectiveClipping(camera:THREE.PerspectiveCamera,target:THREE.Vector3,bounds:THREE.Box3):void {
+export function updatePerspectiveClipping(camera:THREE.PerspectiveCamera,target:THREE.Vector3,bounds:THREE.Box3,
+  visibleSurfaceDepth?:()=>number|undefined):void {
   const direction=camera.getWorldDirection(new THREE.Vector3());
   const focus=Math.max(1e-6,target.clone().sub(camera.position).dot(direction));
-  let maxDepth=focus;
-  if(!bounds.isEmpty())for(let i=0;i<8;i++)maxDepth=Math.max(maxDepth,new THREE.Vector3(i&1?bounds.max.x:bounds.min.x,i&2?bounds.max.y:bounds.min.y,i&4?bounds.max.z:bounds.min.z).sub(camera.position).dot(direction));
-  camera.near=Math.max(1e-7,Math.min(focus*1e-4,1));
+  let minDepth=focus,maxDepth=focus;
+  if(!bounds.isEmpty())for(let i=0;i<8;i++){
+    const depth=new THREE.Vector3(i&1?bounds.max.x:bounds.min.x,i&2?bounds.max.y:bounds.min.y,i&4?bounds.max.z:bounds.min.z).sub(camera.position).dot(direction);
+    minDepth=Math.min(minDepth,depth);maxDepth=Math.max(maxDepth,depth);
+  }
+  // A bounding box crossing the eye does not mean a visible surface is at the eye.
+  // Collapsing near in that case destroys depth precision and exposes back edges.
+  // Query a real display surface only when the envelope is close/straddling.
+  const surfaceDepth=minDepth<focus*.01?visibleSurfaceDepth?.():undefined;
+  const reference=surfaceDepth!==undefined&&Number.isFinite(surfaceDepth)&&surfaceDepth>0?Math.min(focus,surfaceDepth):focus;
+  const envelopeNear=surfaceDepth===undefined&&minDepth>0?minDepth*.1:Infinity;
+  camera.near=Math.max(1e-7,Math.min(reference*1e-4,envelopeNear,1));
   camera.far=Math.max(camera.near*100,maxDepth*2,focus*20);
   camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
 }

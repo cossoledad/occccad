@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { circularRotationAxis, cylindricalRotationAxis } from "./display-rotation-axis";
 import type { CadCamera } from "./camera-rig";
+import { worldUnitsPerCssPixel } from "../rendering/viewport-metrics";
 
 export const CAD_GEOMETRY_LAYER = 1;
 
@@ -38,24 +39,37 @@ export class NavigationPicker {
   setCamera(camera:CadCamera):void {this.camera=camera;}
 
   pickNearest(x: number, y: number, withReference = false): NavigationPick | undefined {
+    return this.pick(x, y, withReference, false);
+  }
+
+  /** Zoom follows the cursor ray, never a nearby/occluded vertex promoted for rotation. */
+  pickSurface(x: number, y: number): NavigationPick | undefined {
+    return this.pick(x, y, false, true);
+  }
+
+  private pick(x: number, y: number, withReference: boolean, surfaceOnly: boolean): NavigationPick | undefined {
     const width = Math.max(this.surface.clientWidth, 1);
     const height = Math.max(this.surface.clientHeight, 1);
     this.ndc.set((x / width) * 2 - 1, -(y / height) * 2 + 1);
     this.raycaster.setFromCamera(this.ndc, this.camera);
     const roots = [...this.roots()];
+    const surfaces: THREE.Object3D[] = [], features: THREE.Object3D[] = [];
+    for (const root of roots) root.traverseVisible(object => {
+      if (this.isValidGeometry(object)) (object instanceof THREE.Mesh ? surfaces : features).push(object);
+    });
+    const surfaceHits = this.raycaster.intersectObjects(surfaces, false);
+    const surface = surfaceHits[0];
+    if (surfaceOnly) return surface ? this.toPick(surface, false) : undefined;
     const bounds = new THREE.Box3();
-    for (const root of roots) if (root.visible) bounds.expandByObject(root);
-    const distance = Math.max(this.camera.position.distanceTo(
-      bounds.isEmpty() ? new THREE.Vector3() : bounds.getCenter(new THREE.Vector3()),
-    ), 1);
-    const worldPerPixel = this.camera instanceof THREE.PerspectiveCamera
-      ? 2 * distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) / height
-      : (this.camera.top - this.camera.bottom) / Math.max(this.camera.zoom, 1.0e-9) / height;
+    if (!surface) for (const root of roots) if (root.visible) bounds.expandByObject(root);
+    const focus = surface?.point ?? (bounds.isEmpty() ? new THREE.Vector3() : bounds.getCenter(new THREE.Vector3()));
+    const worldPerPixel = worldUnitsPerCssPixel(this.camera, focus,
+      {cssWidth: width, cssHeight: height, devicePixelRatio: 1});
     this.raycaster.params.Points = { threshold: worldPerPixel * 6 };
     this.raycaster.params.Line = { threshold: worldPerPixel * 4 };
 
-    const hits = this.raycaster.intersectObjects(roots, true).filter((intersection) => this.isValidGeometry(intersection.object));
-    const closestSurface = hits.find((hit) => hit.object instanceof THREE.Mesh)?.distance ?? Infinity;
+    const hits = [...surfaceHits, ...this.raycaster.intersectObjects(features, false)];
+    const closestSurface = surface?.distance ?? Infinity;
     const hovered=this.hoveredPoint?.();
     if(hovered){
       const projected=hovered.clone().project(this.camera),depth=hovered.clone().sub(this.raycaster.ray.origin).dot(this.raycaster.ray.direction);
@@ -66,6 +80,10 @@ export class NavigationPicker {
     const hit = hits.filter((hit) => hit.distance <= closestSurface + worldPerPixel * 2)
       .sort((a, b) => rank(a.object) - rank(b.object) || a.distance - b.distance)[0];
     if (!hit) return undefined;
+    return this.toPick(hit, withReference);
+  }
+
+  private toPick(hit: THREE.Intersection, withReference: boolean): NavigationPick {
     return {
       point: hit.object instanceof THREE.Points
         ? new THREE.Vector3().fromBufferAttribute(hit.object.geometry.getAttribute("position"), hit.index ?? 0).applyMatrix4(hit.object.matrixWorld)

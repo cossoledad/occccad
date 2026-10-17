@@ -4,21 +4,40 @@ import { CATIA_NAVIGATION_COLOR } from "../navigation-visuals";
 export const SPHERE_CURSOR_SPAN = 52;
 export const SPHERE_CURSOR_SEGMENTS = 24;
 
-/** Screen-space spherical cue: fixed arc length, with curvature increasing towards the rim.
- * A bounded curvature avoids the foreshortening/singularity of a projected 3D arc.
+/** Invert the screen arc length of a projected great circle (an ellipse). */
+function greatCircleHalfAngle(radius: number, radial: number, halfSpan: number): number {
+  if (radial === radius) return halfSpan / radius;
+  if (radial === 0) return Math.asin(Math.min(1, halfSpan / radius));
+  let low = 0, high = Math.asin(Math.min(1, halfSpan / radius));
+  const speed = (angle: number) => Math.hypot(radial * Math.sin(angle), radius * Math.cos(angle));
+  for (let i = 0; i < 22; i++) {
+    const angle = (low + high) / 2, step = angle / 8;
+    let length = speed(0) + speed(angle);
+    for (let j = 1; j < 8; j++) length += (j % 2 ? 4 : 2) * speed(j * step);
+    if (length * step / 3 < halfSpan) low = angle; else high = angle;
+  }
+  return (low + high) / 2;
+}
+
+/** The anchor follows the same hemisphere/rim mapping as the trackball.
+ * The circumferential arm is a projected great circle: at the rim it is the
+ * outer circle itself. The radial arm shifts inwards to stay inside the disk.
  */
 export function sphereCursorVertices(x: number, y: number, radius: number): number[] {
-  const r = Math.max(1, radius), distance = Math.hypot(x, y);
-  const scale = 1 / Math.max(r, distance), u = x * scale, v = y * scale;
-  const denominator = Math.max(r * (1 - u * u - v * v), SPHERE_CURSOR_SPAN * .85);
+  const r = Math.max(1, radius), distance = Math.hypot(x, y), radial = Math.min(distance, r);
+  const nx = distance > 1e-9 ? x / distance : 1, ny = distance > 1e-9 ? y / distance : 0;
+  const span = Math.min(SPHERE_CURSOR_SPAN, 2 * r);
+  const halfAngle = greatCircleHalfAngle(r, radial, span / 2);
   const positions: number[] = [];
-  for (const [tx, ty, curvature] of [[1, 0, -v / denominator], [0, 1, u / denominator]]) {
-    for (let i = 0; i < SPHERE_CURSOR_SEGMENTS; i++) for (const end of [i, i + 1]) {
-      const s = (end / SPHERE_CURSOR_SEGMENTS - .5) * SPHERE_CURSOR_SPAN;
-      const along = Math.abs(curvature) < 1e-8 ? s : Math.sin(curvature * s) / curvature;
-      const bend = Math.abs(curvature) < 1e-8 ? curvature * s * s / 2 : (1 - Math.cos(curvature * s)) / curvature;
-      positions.push(x + tx * along - ty * bend, y + ty * along + tx * bend, 0);
-    }
+  for (let i = 0; i < SPHERE_CURSOR_SEGMENTS; i++) for (const end of [i, i + 1]) {
+    const angle = (end / SPHERE_CURSOR_SEGMENTS * 2 - 1) * halfAngle;
+    const along = radial * Math.cos(angle), across = r * Math.sin(angle);
+    positions.push(nx * along - ny * across, ny * along + nx * across, 0);
+  }
+  const radialEnd = Math.min(r, radial + span / 2), radialStart = radialEnd - span;
+  for (let i = 0; i < SPHERE_CURSOR_SEGMENTS; i++) for (const end of [i, i + 1]) {
+    const along = radialStart + span * end / SPHERE_CURSOR_SEGMENTS;
+    positions.push(nx * along, ny * along, 0);
   }
   return positions;
 }
@@ -29,13 +48,11 @@ export function pivotMarkerGeometry(): THREE.BufferGeometry {
     0,-17,0, 0,-5,0, 0,5,0, 0,17,0,
     0,0,-8, 0,0,8,
   ];
-  // Four arrow wings keep positive directions legible from either side of an axis.
-  for (const wing of [[18,2,0],[18,-2,0],[18,0,2],[18,0,-2]]) positions.push(...wing,22,0,0);
-  for (const wing of [[2,13,0],[-2,13,0],[0,13,2],[0,13,-2]]) positions.push(...wing,0,17,0);
-  const positive = new THREE.Color(CATIA_NAVIGATION_COLOR), negative = positive.clone().multiplyScalar(.55);
+  const xColor = new THREE.Color(CATIA_NAVIGATION_COLOR), yColor = new THREE.Color(0x70d6e3);
   const yellow = new THREE.Color(0xffdf55);
   const colors = Array.from({length: positions.length / 3}, (_, i) =>
-    (i === 8 || i === 9 ? yellow : i < 2 || i === 4 || i === 5 ? negative : positive).toArray()).flat();
+    (i >= 8 ? yellow : (i < 4 ? xColor : yColor).clone()
+      .multiplyScalar(i < 2 || i === 4 || i === 5 ? .55 : 1)).toArray()).flat();
   return new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(positions,3))
     .setAttribute("color", new THREE.Float32BufferAttribute(colors,3));
 }

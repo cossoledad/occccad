@@ -14,6 +14,7 @@ export type InputDebugSnapshot = {
   navigationAction: NavigationAction;
   navigation?: NavigationSnapshot;
   hudScreen?: { x: number; y: number };
+  viewTransitionActive?: boolean;
 };
 
 export function InputDebugOverlay({ snapshot }: { snapshot: InputDebugSnapshot }) {
@@ -26,7 +27,7 @@ export function InputDebugOverlay({ snapshot }: { snapshot: InputDebugSnapshot }
     <code data-testid="viewport-selection" data-count={snapshot.selectionKeys?.length ?? 0} data-highlighted={snapshot.highlightedVisible ?? 0}>Selection: {snapshot.selectionKeys?.join(", ") || "none"}</code>
     {snapshot.featureSelection&&<code data-testid="viewport-feature-selection" data-role={snapshot.featureSelection.role} data-count={snapshot.featureSelection.count} data-overlays={snapshot.featureSelection.overlays}>Feature selection: {snapshot.featureSelection.role} / {snapshot.featureSelection.count}</code>}
     {snapshot.datumPreview && <code data-testid="viewport-datum-preview" data-kind={snapshot.datumPreview.kind}>Datum: {JSON.stringify(snapshot.datumPreview)}</code>}
-    <code data-testid="navigation-camera" data-camera-state={snapshot.navigation?JSON.stringify({position:snapshot.navigation.cameraPosition,quaternion:snapshot.navigation.cameraQuaternion,zoom:snapshot.navigation.cameraZoom,projection:snapshot.navigation.projection,fov:snapshot.navigation.cameraFov,aspect:snapshot.navigation.cameraAspect,span:snapshot.navigation.cameraSpan}):undefined}>Camera: {snapshot.navigation?.cameraPosition.map((v) => v.toFixed(4)).join(",")} / {snapshot.navigation?.cameraQuaternion.map((v) => v.toFixed(4)).join(",")} / zoom {snapshot.navigation?.cameraZoom.toPrecision(10)}</code>
+    <code data-testid="navigation-camera" data-transition-active={String(Boolean(snapshot.viewTransitionActive))} data-camera-state={snapshot.navigation?JSON.stringify({position:snapshot.navigation.cameraPosition,quaternion:snapshot.navigation.cameraQuaternion,zoom:snapshot.navigation.cameraZoom,projection:snapshot.navigation.projection,fov:snapshot.navigation.cameraFov,aspect:snapshot.navigation.cameraAspect,span:snapshot.navigation.cameraSpan}):undefined}>Camera: {snapshot.navigation?.cameraPosition.map((v) => v.toFixed(4)).join(",")} / {snapshot.navigation?.cameraQuaternion.map((v) => v.toFixed(4)).join(",")} / zoom {snapshot.navigation?.cameraZoom.toPrecision(10)}</code>
       <code data-testid="navigation-projection">{snapshot.navigation?.projection} zoom: {snapshot.navigation?.cameraZoom.toPrecision(10)}</code>
     {snapshot.navigation?.solidworks && <code>Reference: {snapshot.navigation.solidworks.reference?.highlight?.kind ?? "none"}</code>}
     {catia && <>

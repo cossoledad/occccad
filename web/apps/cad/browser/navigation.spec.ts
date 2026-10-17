@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 // Orthographic clipping may move the eye along its viewing axis. Compare the
 // displayed projection, rather than treating that invisible shift as a view change.
 async function projectedView(page:Page){
+ await expect(page.getByTestId("navigation-camera")).toHaveAttribute("data-transition-active","false");
  const value=(await page.getByTestId("navigation-camera").getAttribute("data-camera-state"))!;
  return page.evaluate(async value=>{
   // @ts-ignore Vite dependency
@@ -113,6 +114,7 @@ test("orthographic detail navigation, isometric shortcut and sketch view round t
   const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
   // Establish the ISO Fit baseline in the selected projection after conversion.
   await canvas.focus();await page.keyboard.press("1");
+  await expect(camera).toHaveAttribute("data-transition-active","false");
   const initialScale = await projection.textContent();
   await page.mouse.move(x, y); await page.mouse.wheel(0, -1800);
   await expect(projection).not.toHaveText(initialScale!);

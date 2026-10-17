@@ -31,7 +31,7 @@ try {
  input.dispose();
  const THREE=await server.ssrLoadModule('three');const {NavigationController}=await load('cad/navigation/navigation-controller.ts');
  const camera=new THREE.OrthographicCamera(-50,50,50,-50,.1,1000);camera.position.set(100,-100,100);camera.up.set(0,0,1);camera.lookAt(0,0,0);
- const navigation=new NavigationController(camera,()=>({width:800,height:600}),()=>{}, {pickNearest:()=>undefined,pickViewPlane:()=>undefined},()=>new THREE.Vector3(),'default',false,()=>new THREE.Box3(new THREE.Vector3(-10,-10,-10),new THREE.Vector3(10,10,10)));
+ const navigation=new NavigationController(camera,()=>({width:800,height:600}),()=>{}, {pickNearest:()=>undefined,pickSurface:()=>undefined,pickViewPlane:()=>undefined},()=>new THREE.Vector3(),'default',false,()=>new THREE.Box3(new THREE.Vector3(-10,-10,-10),new THREE.Vector3(10,10,10)));
  const navigationModal=new SketchModalInputController(router,navigation,{pick:()=>undefined});navigationModal.setOpen(true);const navigationSurface=new Surface(),cameraInput=new InputManager(navigationSurface,navigationModal);
  const navPointer=(type,x,y,buttons,button)=>{const e=new Event(type,{cancelable:true});Object.assign(e,{clientX:x,clientY:y,pointerId:1,pointerType:'mouse',buttons,button,ctrlKey:false,metaKey:false,shiftKey:false,altKey:false});navigationSurface.dispatchEvent(e);};
  const beforeOrbit=camera.quaternion.clone(),beforeWrites=commits.length;navPointer('pointerdown',100,100,2,2);navPointer('pointermove',130,120,2,2);navPointer('pointerup',130,120,0,2);assert(!camera.quaternion.equals(beforeOrbit),'a real right-button orbit remains available behind the dimension panel');

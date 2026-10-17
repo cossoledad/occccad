@@ -11,8 +11,12 @@ try {
   assert.equal(vertices.length,segments*12);assert.ok(vertices.every(Number.isFinite));
   for(const arc of [vertices.slice(0,segments*6),vertices.slice(segments*6)]){
    assert.ok(Math.abs(length(arc)-span)<.01,"screen arc length stays constant, including the rim and outside");
-   const middle=(segments/2)*6;assert.ok(Math.abs(arc[middle]-u*radius)<1e-9&&Math.abs(arc[middle+1]-v*radius)<1e-9,"cross stays under pointer");
+   for(let i=0;i<arc.length;i+=3)assert.ok(Math.hypot(arc[i],arc[i+1])<=radius+1e-9,"the whole cross stays inside the sphere disk");
   }
+  const factor=1/Math.max(1,Math.hypot(u,v)),middle=(segments/2)*6;
+  assert.ok(Math.abs(vertices[middle]-u*radius*factor)<1e-9&&Math.abs(vertices[middle+1]-v*radius*factor)<1e-9,"anchor clamps to the trackball rim");
+  if(Math.hypot(u,v)>=1)for(let i=0;i<segments*6;i+=3)
+   assert.ok(Math.abs(Math.hypot(vertices[i],vertices[i+1])-radius)<1e-9,"one arm coincides with the outer circle at every rim angle");
  }
  const top=sphereCursorVertices(0,250,288),right=sphereCursorVertices(250,0,288);
  assert.ok(top[1]<250-1,"latitude bends towards sphere centre");
@@ -22,8 +26,8 @@ try {
  const geometry=pivotMarkerGeometry(),p=geometry.attributes.position,c=geometry.attributes.color;
  assert.ok(p.getY(7)-p.getY(4)<p.getX(3)-p.getX(0),"Y is shorter than X");
  assert.ok(c.getX(0)<c.getX(2)&&c.getX(4)<c.getX(6),"negative X/Y halves are darker");
- for(let i=10;i<18;i+=2){assert.equal(p.getX(i+1),22);assert.ok(p.getX(i)<22,"arrow wings point to positive X")}
- for(let i=18;i<26;i+=2){assert.equal(p.getY(i+1),17);assert.ok(p.getY(i)<17,"arrow wings point to positive Y")}
+ assert.equal(p.count,10,"only the gapped axes remain, without arrowheads");
+ assert.notDeepEqual([c.getX(2),c.getY(2),c.getZ(2)],[c.getX(6),c.getY(6),c.getZ(6)],"positive X and Y have distinct colours");
  geometry.dispose();
  const {navigationCursor}=await server.ssrLoadModule("/src/cad/navigation/navigation-cursor.ts");
  assert.equal(navigationCursor({action:"none"}),"");

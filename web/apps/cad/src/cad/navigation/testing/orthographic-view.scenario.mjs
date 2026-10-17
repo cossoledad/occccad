@@ -87,7 +87,7 @@ try {
   detailCamera.position.set(0, 0, 100); detailCamera.zoom = 100; detailCamera.updateProjectionMatrix();
   const surface = new THREE.Vector3(0, 0, 10);
   const detailNav = new NavigationController(detailCamera, () => ({width:800,height:600}), () => {},
-    { pickNearest: () => ({ point: surface.clone(), source:"raycast" }), pickViewPlane: () => undefined },
+    { pickNearest: () => ({ point: surface.clone(), source:"raycast" }), pickSurface: () => ({ point: surface.clone(), source:"raycast" }), pickViewPlane: () => undefined },
     () => new THREE.Vector3(), "catia", false,
     () => new THREE.Box3(new THREE.Vector3(-10,-10,-10), new THREE.Vector3(10,10,10)));
   const input = (button, left, x=400, y=300) => ({pointerId:1,button,x,y,deltaX:x-400,deltaY:y-300,

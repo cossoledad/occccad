@@ -51,7 +51,8 @@ test("production HUD curves retain length in WebGL and SVG cursors have transpar
   const {navigationCursor}=await import("/src/cad/navigation/navigation-cursor.ts");
   const host=document.createElement("div");host.style.cssText="position:fixed;inset:0;z-index:9000;background:#172f46;display:grid;grid-template-columns:repeat(3,400px);gap:12px;align-content:start;padding:12px;color:#edf4fa";document.body.append(host);
   const samples=[];
-  for(const [name,x,y,below] of [["Centre / above",200,200,false],["Near rim / above",335,325,false],["Near rim / below",335,325,true]] as const){
+  for(const [name,x,y,below] of [["Centre / above",200,200,false],["Near rim / above",335,325,false],["Near rim / below",335,325,true],
+   ["Rim / above",392,200,false],["Outside / above",800,800,false]] as const){
    const column=document.createElement("div");column.textContent=name;host.append(column);
    const renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.setSize(400,400);renderer.setClearColor(0x172f46);renderer.autoClear=false;column.append(renderer.domElement);
    const camera=new T.PerspectiveCamera(35,1,.1,1000);camera.position.set(300,-300,below?-300:300);camera.up.set(0,0,1);camera.lookAt(0,0,0);camera.updateMatrixWorld(true);
@@ -61,9 +62,11 @@ test("production HUD curves retain length in WebGL and SVG cursors have transpar
    let coloured=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i]>130&&pixels[i+1]>70&&pixels[i+2]<150)coloured++;
    const p=hud.marker.geometry.attributes.position.array,half=hud.marker.geometry.drawRange.count*3/2;
    const lengths=[0,half].map(offset=>{let length=0;for(let i=offset;i<offset+half;i+=6)length+=Math.hypot(p[i+3]-p[i],p[i+4]-p[i+1]);return length});
-   samples.push({name,coloured,lengths});hud.dispose();renderer.dispose();
+   const radii=Array.from({length:half/3},(_,i)=>Math.hypot(p[i*3],p[i*3+1]));
+   const maxRadius=Math.max(...Array.from({length:half*2/3},(_,i)=>Math.hypot(p[i*3],p[i*3+1])));
+   samples.push({name,coloured,lengths,maxRadius,tangentialRadiusSpread:Math.max(...radii)-Math.min(...radii)});hud.dispose();renderer.dispose();
   }
-  const cursors=[],cursorStrip=document.createElement("div");cursorStrip.style.cssText="grid-column:1/4;display:flex;gap:16px";host.append(cursorStrip);
+  const cursors=[],cursorStrip=document.createElement("div");cursorStrip.style.cssText="display:flex;flex-wrap:wrap;gap:8px;align-content:start;width:208px";host.append(cursorStrip);
   for(const light of [false,true])for(const action of ["orbit","zoom"]){
    const cursor=navigationCursor({action},light),url=/url\("([^"]+)"\)/.exec(cursor)![1];
    const img=new Image();img.src=url;await img.decode();
@@ -77,7 +80,11 @@ test("production HUD curves retain length in WebGL and SVG cursors have transpar
   }
   return {samples,cursors};
  });
- for(const sample of result.samples){expect(sample.coloured).toBeGreaterThan(500);for(const length of sample.lengths)expect(Math.abs(length-52)).toBeLessThan(.01)}
+ for(const sample of result.samples){
+  expect(sample.coloured).toBeGreaterThan(500);for(const length of sample.lengths)expect(Math.abs(length-52)).toBeLessThan(.01);
+  expect(sample.maxRadius).toBeLessThan(192.0001);
+  if(sample.name.startsWith("Rim")||sample.name.startsWith("Outside")){expect(sample.maxRadius).toBeGreaterThan(191.9999);expect(sample.tangentialRadiusSpread).toBeLessThan(.0001)}
+ }
  for(const cursor of result.cursors){expect(cursor.size).toEqual([32,32]);expect(cursor.white).toBe(0);expect(cursor.border).toBe(0);expect(cursor.opaque).toBeGreaterThan(100)}
  await testInfo.attach("hud-cursor-measurements",{body:JSON.stringify(result,null,2),contentType:"application/json"});
  await page.screenshot({path:testInfo.outputPath("hud-and-cursors.png")});expect(errors).toEqual([]);

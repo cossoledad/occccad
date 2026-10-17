@@ -40,7 +40,7 @@ import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-
 import { makeFeatureEdges } from "../cad/rendering/feature-edges";
 import { makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { adaptiveGridSpacing, InfiniteGroundGrid } from "../cad/rendering/infinite-ground-grid";
-import { fitOrthographicView, updateOrthographicClipping, orientPlaneView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
+import { fitOrthographicView, updateOrthographicClipping, orientPlaneView, restoreView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
 import * as THREE from "three";
 import {occurrenceSnapshot,refreshOccurrenceSelection} from "../cad/assembly/assembly-occurrence-snapshot";
 import {exactSnapCandidates,ManipulatorSnapCache,type SupportInspection} from "../cad/interaction/manipulator-snap";
@@ -185,6 +185,7 @@ export function bindPublicationSelection(selection: SelectionItem, root?: Docume
 }
 
 export type ViewportDebugState = {
+  viewTransitionActive?: boolean;
   input: InputState;
   activeTool: string;
   selectionKeys?: string[];
@@ -330,7 +331,11 @@ export class CadViewportEngine {
   private readonly environment = new THREE.Group();
   private readonly studioEnvironment: THREE.WebGLRenderTarget;
   private viewTransition!: ViewTransition;
-  private readonly interruptViewTransition = () => this.viewTransition?.cancel();
+  private readonly interruptViewTransition = () => {
+    if(!this.viewTransition?.active)return;
+    this.viewTransition.cancel();this.emitDebugState();this.invalidate();
+  };
+  private navigationPicker!: NavigationPicker;
   private readonly lighting = new THREE.Group();
   private readonly contentBounds = new THREE.Box3();
   private readonly selectable = new Map<string, THREE.Object3D>();
@@ -528,7 +533,7 @@ export class CadViewportEngine {
     this.scene.add(this.environment, this.lighting, this.content, this.helpers, this.sketchContext, this.sketchGrid.object,this.groundGrid.object,this.worldGrid.object);
     this.sketchGrid.object.visible = false;
 
-    const navigationPicker = new NavigationPicker(
+    const navigationPicker = this.navigationPicker = new NavigationPicker(
       this.camera,
       this.renderer.domElement,
       () => this.content.children,
@@ -549,7 +554,6 @@ export class CadViewportEngine {
       width: this.renderer.domElement.clientWidth,
       height: this.renderer.domElement.clientHeight,
     }), () => {
-      this.updateCameraClipping();
       this.invalidate();
     }, navigationPicker, () => this.visibleContentCenter(), "default",
     import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true",
@@ -1016,7 +1020,14 @@ export class CadViewportEngine {
     const destination = this.camera.clone();
     const target = this.navigation.target.clone();
     orientPlaneView(destination, target, focus, normal, up);
-    this.viewTransition.start(saveView(destination, target), performance.now());
+    this.animateView(saveView(destination, target));
+  }
+
+  private animateView(view: SavedView): void {
+    this.navigation.cancel();
+    const reduced=typeof window!=="undefined"&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.viewTransition.start(view, performance.now(),reduced?0:280);
+    this.emitDebugState();
     this.invalidate();
   }
 
@@ -1102,7 +1113,7 @@ export class CadViewportEngine {
     this.refreshInteractionHighlights();
     this.callbacks.toolPromptChanged("");
     if (this.sketchReturnView) {
-      this.viewTransition.start(this.sketchReturnView, performance.now());
+      this.animateView(this.sketchReturnView);
       this.sketchReturnView = undefined;
       this.navigation.syncCamera(false);
     }
@@ -1344,7 +1355,7 @@ export class CadViewportEngine {
   }
 
   fit(): void {
-    this.frameContent();
+    this.frameContent(true);
   }
 
   private previewInputMaterials:Array<{object:THREE.Mesh;original:THREE.Material|THREE.Material[];temporary:THREE.Material[]}>=[];
@@ -1523,11 +1534,9 @@ export class CadViewportEngine {
   }
 
   setStandardView(view: "TOP" | "FRONT" | "RIGHT" | "ISO"): void {
-    this.viewTransition.cancel();
-    this.navigation.cancel();
-    standardView(this.camera, this.navigation.target, view);
-    if (view === "ISO") this.frameContent();
-    else this.navigation.syncCamera(false);
+    const destination=this.camera.clone(),target=this.navigation.target.clone();
+    standardView(destination,target,view);
+    this.animateView(view==="ISO"?this.fittedView(destination,target):saveView(destination,target));
   }
 
   select(selection: Selection, notify = true): void {
@@ -3661,7 +3670,8 @@ export class CadViewportEngine {
         for (let object: THREE.Object3D | null = root; object; object = object.parent) if (!object.visible) return false;
         return true;
       }).length,
-      navigation: this.navigation.snapshot, hudScreen: this.navigationHUD.screenPosition
+      navigation: this.navigation.snapshot, hudScreen: this.navigationHUD.screenPosition,
+      viewTransitionActive: this.viewTransition.active,
     });
   }
 
@@ -3691,13 +3701,19 @@ export class CadViewportEngine {
     });
   }
 
-  private frameContent(): void {
-    this.viewTransition.cancel();
-    this.navigation.cancel();
+  private fittedView(camera=this.camera.clone(),target=this.navigation.target.clone()):SavedView {
     const box = this.visibleContentBounds();
     if (box.isEmpty()||box.getSize(new THREE.Vector3()).length()<1e-9) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
-    if(this.camera instanceof THREE.PerspectiveCamera)fitPerspectiveView(this.camera,this.navigation.target,box);
-    else fitOrthographicView(this.camera, this.navigation.target, box);
+    if(camera instanceof THREE.PerspectiveCamera)fitPerspectiveView(camera,target,box);
+    else fitOrthographicView(camera,target,box);
+    return saveView(camera,target);
+  }
+
+  private frameContent(animate=false): void {
+    const destination=this.fittedView();
+    if(animate){this.animateView(destination);return;}
+    this.viewTransition.cancel();this.navigation.cancel();
+    restoreView(this.camera,this.navigation.target,destination);
     this.navigation.syncCamera(false);
   }
 
@@ -3734,7 +3750,11 @@ export class CadViewportEngine {
     if (this.sketchPlane) bounds.expandByPoint(localToWorld(this.sketchPlane, [0, 0]));
     if (bounds.isEmpty()) bounds.expandByPoint(this.navigation.target);
     if (this.commandPreview) bounds.union(new THREE.Box3().setFromObject(this.commandPreview));
-    if(this.camera instanceof THREE.PerspectiveCamera)updatePerspectiveClipping(this.camera,this.navigation.target,bounds);
+    if(this.camera instanceof THREE.PerspectiveCamera)updatePerspectiveClipping(this.camera,this.navigation.target,bounds,()=>{
+      const canvas=this.renderer.domElement;
+      const hit=this.navigationPicker.pickSurface(canvas.clientWidth/2,canvas.clientHeight/2);
+      return hit?.point.clone().sub(this.camera.position).dot(this.camera.getWorldDirection(new THREE.Vector3()));
+    });
     else updateOrthographicClipping(this.camera, bounds);
   }
 
