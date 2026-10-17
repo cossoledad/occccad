@@ -1,4 +1,5 @@
 import {useGlobalOptions} from "../preferences/global-options-center";
+import {sceneBackgroundIsLight} from "../../cad/rendering/scene-settings";
 import {AssemblyConstraintFields} from "./assembly-constraint-fields";
 import {ObjectPropertiesDialog} from "./object-properties-dialog";
 import {propertyEditorTarget,refreshPropertyTargets,type PropertyEditorTarget} from "./property-target";
@@ -1540,7 +1541,7 @@ onToggleConstruction:(node)=>{
       return {view:updated,baseRevisionId:input.baseRevisionId,mechanism:m,instancePoses:poses}
     }} onApply={async motionApply=>{const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,{type:"APPLY_MOTION_FRAME",versionId:view.document.versionId,motionApply}));setMotionAcceptedFrame((updated.product?.instances??[]).map(v=>({instanceId:v.id,translation:v.translation,rotation:v.rotation??[0,0,0,1]})));setMechanismDefinition(undefined);setMotionPosePreview(undefined);setMotionDisplay(undefined);store.setSelections([]);await refresh(updated)}} onPlayback={setMotionDisplay} onHighlight={store.setSelections} onClose={()=>{const url=new URL(window.location.href);url.searchParams.delete("application");url.searchParams.delete("mechanismId");url.searchParams.delete("mechanismSources");url.searchParams.delete("applicationRevision");motionSources.current=[];setMotionAcceptedFrame(undefined);window.history.replaceState(null,"",url);setMotionSession(undefined);setMechanismDefinition(undefined);setMotionPosePreview(undefined);setMotionDisplay(undefined);store.setSelections([])}}/>}
     <WorkbenchLayout documentName={editingView?.document.name ?? view.document.name}
-      inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
+      inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen} lightScene={sceneBackgroundIsLight(sceneSettings)}
 
       commands={<WorkbenchCommands documentSessions={documentSessions} hostDocumentId={documentID} toolbars={visibleToolbars} workbench={activeWorkbench} catalog={toolbarCatalog.data} tabs={activeTabs} />}
       status={<WorkbenchStatus busy={command.isPending} canEdit={motionOpen&&!motionDisplay?canEditRoot:canEdit} selectionCount={store.selections.length}

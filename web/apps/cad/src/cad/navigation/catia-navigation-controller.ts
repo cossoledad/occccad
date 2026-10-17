@@ -6,11 +6,11 @@ import type { NavigationPick, NavigationPicker } from "./navigation-picker";
 import type { NavigationAction } from "./navigation-profile";
 import { VirtualTrackball } from "./virtual-trackball";
 
-export type CatiaNavigationOptions = { dragThreshold?: number; debugTransitions?: boolean; detailPivot?: () => NavigationPick | undefined };
+export type CatiaNavigationOptions = { dragThreshold?: number; debugTransitions?: boolean };
 export type CatiaNavigationSnapshot = {
   state: CatiaNavigationState; action: NavigationAction; pivot: THREE.Vector3;
   pivotSource: NavigationPivotSource; hitObject?: string; cameraDistance: number;
-  hudVisible: boolean; showRotationCircle: boolean; pointer: { x: number; y: number };
+  hudVisible: boolean; showRotationCircle: boolean; showPivot: boolean; pointer: { x: number; y: number };
 };
 
 /** 3DEXPERIENCE CATIA native navigation: middle-led chord; releasing the side button latches zoom until the leader is released. */
@@ -37,6 +37,7 @@ export class CatiaNavigationController {
     private readonly updated: (cameraChanged: boolean) => void, private readonly options: CatiaNavigationOptions = {}) {}
   get currentState(): CatiaNavigationState { return this.state; }
   get active(): boolean { return this.pointerId !== undefined; }
+  retainsCapture(pointerId:number,buttons:number):boolean {return this.pointerId===pointerId&&Boolean(buttons&(this.leader==="middle"?4:2))}
   get activeAction(): NavigationAction {
     return this.state === CatiaNavigationState.Pan ? "pan" : this.state === CatiaNavigationState.Rotate ? "orbit"
       : this.state === CatiaNavigationState.Zoom || this.state === CatiaNavigationState.ZoomArmed ? "zoom" : "none";
@@ -44,7 +45,7 @@ export class CatiaNavigationController {
   get snapshot(): CatiaNavigationSnapshot {
     return { state: this.state, action: this.activeAction, pivot: this.rig.pivot.clone(), pivotSource: this.pivotSource,
       hitObject: this.hitObject, cameraDistance: this.rig.distance, hudVisible: this.rotationSphereVisible && this.state === CatiaNavigationState.Rotate,
-      showRotationCircle: this.rotationSphereVisible && this.state === CatiaNavigationState.Rotate, pointer: { x: this.pointer.x, y: this.pointer.y } };
+      showRotationCircle: this.rotationSphereVisible && this.state === CatiaNavigationState.Rotate, showPivot:this.active, pointer: { x: this.pointer.x, y: this.pointer.y } };
   }
   wantsPriority(event: CadPointerEvent): boolean {
     return this.active || event.button === 1 || event.state.buttons.middle || (event.state.modifiers.alt && event.state.buttons.right);
@@ -54,7 +55,11 @@ export class CatiaNavigationController {
       if (event.button !== 1 && !(event.button === 2 && event.state.modifiers.alt)) return InputResult.Ignored;
       this.leader = event.button === 1 ? "middle" : "right";
       this.pointerId = event.pointerId; this.down.set(event.x, event.y); this.pointer.copy(this.down);
-      this.pendingPick = this.picker.pickNearest(event.x, event.y) ?? this.picker.pickViewPlane(event.x, event.y, this.rig.pivot);
+      // Freeze the press location once: visible points first, otherwise the exact
+      // surface intersection. Empty space preserves the previous rotation centre.
+      this.pendingPick = this.picker.pickNearest(event.x, event.y);
+      if(this.pendingPick){this.rig.setPivot(this.pendingPick.point);this.pivotSource=this.pendingPick.source;this.hitObject=this.pendingPick.objectLabel}
+      else {this.pivotSource="existing";this.hitObject=undefined}
       this.directCtrl = event.state.modifiers.ctrl;
       this.zoomLatched = this.leader === "right" && this.directCtrl; this.sideDown = false; this.clickCandidate = !event.state.modifiers.ctrl && this.leader === "middle";
       this.transition(event.state.modifiers.ctrl ? CatiaNavigationState.Zoom : CatiaNavigationState.MiddlePending);
@@ -75,7 +80,11 @@ export class CatiaNavigationController {
       this.clickCandidate = false; this.transition(CatiaNavigationState.Pan);
     }
     const size = this.viewportSize();
-    if (this.state === CatiaNavigationState.Pan) this.rig.panPixels(event.deltaX * 1.15, event.deltaY * 1.15, size.width, size.height);
+    if (this.state === CatiaNavigationState.Pan) {
+      const pivot=this.rig.pivot.clone();
+      this.rig.panPixels(event.deltaX * 1.15, event.deltaY * 1.15, size.width, size.height);
+      this.rig.setPivot(pivot); // The picked model point follows the model, not the moving eye.
+    }
     else if (this.state === CatiaNavigationState.Rotate) {
       const rotation = this.trackball.drag(event.x, event.y, size.width, size.height, this.rig.camera);
       if (rotation) this.rig.orbitQuaternion(rotation);
@@ -107,12 +116,7 @@ export class CatiaNavigationController {
     const directZoom = this.leader === "middle" && modifiers.ctrl;
     if (side && !this.sideDown) {
       this.clickCandidate = false;
-      const detail = this.options.detailPivot?.();
-      if (detail) {
-        this.rig.setPivot(detail.point);
-        this.pivotSource = detail.source; this.hitObject = detail.objectLabel;
-      }
-      const size = this.viewportSize(); this.trackball.begin(event.x, event.y, size.width, size.height);
+      this.beginRotation(event);
       this.transition(CatiaNavigationState.Rotate);
     } else if (!side && this.sideDown) {
       this.zoomLatched = true; this.transition(CatiaNavigationState.Zoom);
@@ -120,9 +124,13 @@ export class CatiaNavigationController {
     this.sideDown = side;
     if (directZoom) { this.clickCandidate = false; this.transition(CatiaNavigationState.Zoom); }
     else if (side && this.state !== CatiaNavigationState.Rotate) {
-      const size = this.viewportSize(); this.trackball.begin(event.x, event.y, size.width, size.height); this.transition(CatiaNavigationState.Rotate);
+      this.beginRotation(event); this.transition(CatiaNavigationState.Rotate);
     } else if (!side && this.zoomLatched) this.transition(CatiaNavigationState.Zoom);
     else if (!side && this.state === CatiaNavigationState.Zoom) this.transition(CatiaNavigationState.Pan);
+  }
+  private beginRotation(event:CadPointerEvent):void {
+    const size=this.viewportSize(),p=this.rig.pivot.clone().project(this.rig.camera);
+    this.trackball.begin(event.x,event.y,size.width,size.height,{x:(p.x+1)*size.width/2,y:(1-p.y)*size.height/2});
   }
   private transition(next: CatiaNavigationState): void {
     if (next === this.state) return;

@@ -30,7 +30,8 @@ test("real properties history, face preview, conflict recovery and adaptive scen
   const {useUIPreferences}=await import("/src/state/ui-preferences.ts");
   useUIPreferences.getState().setReferenceVisibility({planes:false,axes:false,coordinateSystems:false});
   useUIPreferences.getState().setSolidDisplay({mode:"shaded",edges:true,vertices:false});
-  return {id,bodyId:body.id,bodyName:body.name,key:body.geometryKey!,version:v.document.versionId,minZ:v.artifacts[body.geometryKey!].bbox.min[2]};
+  const bbox=v.artifacts[body.geometryKey!].bbox,diagonal=Math.hypot(...bbox.max.map((value,index)=>value-bbox.min[index]));
+  return {id,bodyId:body.id,bodyName:body.name,key:body.geometryKey!,version:v.document.versionId,minZ:bbox.min[2],ground:Number((bbox.min[2]-.05*diagonal).toFixed(2))};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
  const dialog=page.getByRole("dialog",{name:/^属性 ·/});
@@ -68,12 +69,12 @@ test("real properties history, face preview, conflict recovery and adaptive scen
  const revision=final.document.versionId;
  const openScene=async()=>{await page.getByRole("button",{name:"选项",exact:true}).click();await page.getByRole("dialog",{name:"选项",exact:true}).getByRole("tab",{name:"地面与网格",exact:true}).click()};
  await openScene();const scene=page.getByRole("dialog",{name:"选项",exact:true});expect(seed.minZ).toBeLessThan(0);
- await expect.poll(async()=>Number(/当前高度 ([^\s]+)/.exec(await scene.getByLabel("当前场景地面").innerText())?.[1])).toBeCloseTo(seed.minZ,5);
+ await expect.poll(async()=>Number(/当前高度 ([^\s]+)/.exec(await scene.getByLabel("当前场景地面").innerText())?.[1])).toBe(seed.ground);
  await scene.getByRole("combobox",{name:"地面位置",exact:true}).click();await page.getByTitle("世界 XY 平面（Z=0）",{exact:true}).click();await expect(scene.getByLabel("当前场景地面")).toContainText("当前高度 0 mm");
  await scene.getByRole("tab",{name:"光照",exact:true}).click();await scene.getByRole("combobox",{name:"光照预设",exact:true}).click();await page.getByTitle("柔和",{exact:true}).click();
  await page.screenshot({path:"../../../build/acceptance/properties-real-scene.png"});await scene.getByRole("button",{name:/取\s*消/}).click();
  expect((await current(page,seed.id)).document.versionId).toBe(revision);
- await openScene();await expect.poll(async()=>Number(/当前高度 ([^\s]+)/.exec(await scene.getByLabel("当前场景地面").innerText())?.[1])).toBeCloseTo(seed.minZ,5);await scene.getByRole("button",{name:/取\s*消/}).click();
+ await openScene();await expect.poll(async()=>Number(/当前高度 ([^\s]+)/.exec(await scene.getByLabel("当前场景地面").innerText())?.[1])).toBe(seed.ground);await scene.getByRole("button",{name:/取\s*消/}).click();
  expect(errors).toEqual([]);
 });
 

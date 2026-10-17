@@ -12,7 +12,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   return target.isContentEditable || Boolean(target.closest("input, textarea, select, button, [role='button'], [role='tree'], [role='menu'], [role='menuitem'], [role='tab'], [role='listbox'], [role='combobox'], [role='dialog'], [contenteditable='true']"));
 }
 
-export type ModalInputHandlers={keyDown?:(event:KeyboardEvent)=>InputResult;keyUp?:(event:KeyboardEvent)=>InputResult};
+export type ModalInputHandlers={keyDown?:(event:KeyboardEvent)=>InputResult;keyUp?:(event:KeyboardEvent)=>InputResult;retainNavigationCapture?:(event:PointerEvent)=>boolean};
 
 export class InputManager {
   private readonly state = new InputStateTracker();
@@ -140,6 +140,12 @@ export class InputManager {
   private onLostPointerCapture = (event: PointerEvent): void => {
     this.capturedPointers.delete(event.pointerId);
     if (this.expectedCaptureLoss.delete(event.pointerId)) return;
+    // Browsers can drop native capture when a secondary mouse button is released
+    // although CATIA's leader is still down. Only that navigation owner may
+    // retain its gesture; tools and pointercancel/blur still cancel normally.
+    if(event.pointerType==="mouse"&&this.modalInput.retainNavigationCapture?.(event)){
+      try {this.surface.setPointerCapture(event.pointerId);this.capturedPointers.add(event.pointerId);return}catch{/* Pointer already cancelled: use the normal cancellation path. */}
+    }
     this.sink.pointerCancel?.(this.pointerEvent(event, "cancel"));
     this.resetInput();
   };

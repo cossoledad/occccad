@@ -69,13 +69,7 @@ export class NavigationController {
       this.picker,
       viewportSize,
       (cameraChanged) => this.onCatiaUpdated(cameraChanged),
-      // Right alone remains a context-menu button; while Middle is held both
-      // side buttons are valid CATIA chord leaders.
-      { debugTransitions, detailPivot: () => {
-        if (this.contentFullyVisible()) return undefined;
-        const { width, height } = this.viewportSize();
-        return this.picker.pickNearest(width / 2, height / 2);
-      } },
+      { debugTransitions },
     );
   }
 
@@ -94,6 +88,7 @@ export class NavigationController {
 
   get profileID(): NavigationProfileID { return this.profile.id; }
   get activeAction(): NavigationAction { return this.action; }
+  retainsMouseCapture(pointerId:number,buttons:number):boolean {return this.profile.id==="catia"&&this.catia.retainsCapture(pointerId,buttons)}
   get snapshot(): NavigationSnapshot {
     return { profile: this.profile.id, action: this.action, cameraPosition: this.rig.camera.position.toArray(),
       cameraQuaternion: this.rig.camera.quaternion.toArray(), cameraZoom: this.rig.camera.zoom,

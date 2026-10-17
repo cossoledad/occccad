@@ -241,16 +241,16 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
       for (const index of [0, 2]) {
         const reference = constraint.references[index], entity = reference ? entityFor(reference, entities) : undefined;
         const point = entity?.center ? [entity.center.x, entity.center.y] as Vec2 : reference ? sketchReferencePoint(reference, entities) : undefined;
-        if (point) anchors.push(add(point, [4, 4]));
+        if (point) anchors.push(point);
       }
     }
     else if (constraint.kind === "FIXED_POINT" && constraint.fixedPoint) anchors.push([constraint.fixedPoint.x, constraint.fixedPoint.y]);
-    else if (constraint.kind === "PARALLEL" || constraint.kind === "COLLINEAR" || constraint.kind === "EQUAL") anchors.push(...points.map((point) => add(point, [4, 4])));
+    else if (constraint.kind === "PARALLEL" || constraint.kind === "COLLINEAR" || constraint.kind === "EQUAL") anchors.push(...points);
     else if (constraint.kind === "CONCENTRIC") {
       const entity = entityFor(constraint.references[0], entities);
       if (entity?.center) anchors.push([entity.center.x, entity.center.y]);
-    } else if ((constraint.kind === "TANGENT" || constraint.kind === "PERPENDICULAR") && points.length >= 2) anchors.push(add(midpoint(points[0], points[1]), [4, 4]));
-    else if (points[0]) anchors.push(add(points[0], constraint.kind === "COINCIDENT" ? [0, 0] : [4, 4]));
+    } else if ((constraint.kind === "TANGENT" || constraint.kind === "PERPENDICULAR") && points.length >= 2) anchors.push(midpoint(points[0], points[1]));
+    else if (points[0]) anchors.push(points[0]);
     else anchors.push([0, 0]);
   }
   return { symbol: definition.symbol, anchors, segments, label };

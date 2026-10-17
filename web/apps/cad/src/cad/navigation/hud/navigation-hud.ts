@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { CadCamera } from "../camera-rig";
 import type { NavigationSnapshot } from "../navigation-controller";
 import type { NavigationPick } from "../navigation-picker";
+import {worldUnitsPerCssPixel} from "../../rendering/viewport-metrics";
 
 export type HudScreenPosition = { x: number; y: number };
 import { CATIA_TRACKBALL_RADIUS_RATIO, CATIA_NAVIGATION_COLOR as CATIA_COLOR, SOLIDWORKS_REFERENCE_COLOR } from "../navigation-visuals";
@@ -10,6 +11,10 @@ import { CATIA_TRACKBALL_RADIUS_RATIO, CATIA_NAVIGATION_COLOR as CATIA_COLOR, SO
 export class NavigationHUD {
   private readonly screenScene = new THREE.Scene();
   private readonly worldScene = new THREE.Scene();
+  private readonly referenceGroup = new THREE.Group();
+  private readonly pivotMarker = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-1,0,0),new THREE.Vector3(1,0,0),new THREE.Vector3(0,-1,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,-1),new THREE.Vector3(0,0,1),
+  ]),new THREE.LineBasicMaterial({color:CATIA_COLOR,depthTest:false,depthWrite:false,toneMapped:false}));
   private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
   private readonly circle: THREE.LineLoop<THREE.BufferGeometry, THREE.LineDashedMaterial>;
   private readonly marker: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
@@ -23,6 +28,7 @@ export class NavigationHUD {
     this.marker = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: CATIA_COLOR, depthTest: false }));
     this.marker.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(144), 3).setUsage(THREE.DynamicDrawUsage));
     this.screenScene.add(this.circle, this.marker); this.screenScene.visible = false;
+    this.pivotMarker.visible=false;this.worldScene.add(this.referenceGroup,this.pivotMarker);
   }
   get screenPosition(): HudScreenPosition | undefined { return this.screen; }
   update(snapshot: NavigationSnapshot, camera: CadCamera, width: number, height: number): void {
@@ -30,6 +36,10 @@ export class NavigationHUD {
     this.camera.left = -width / 2; this.camera.right = width / 2;
     this.camera.top = height / 2; this.camera.bottom = -height / 2; this.camera.updateProjectionMatrix();
     const catia = snapshot.catia;
+    this.pivotMarker.visible=Boolean(catia?.showPivot);
+    if(catia){this.pivotMarker.position.copy(catia.pivot);this.pivotMarker.scale.setScalar(9*worldUnitsPerCssPixel(camera,catia.pivot,{cssWidth:width,cssHeight:height,devicePixelRatio:1}))}
+    const pivot=catia?.pivot.clone().project(camera),cx=pivot?(pivot.x+1)*width/2:width/2,cy=pivot?(1-pivot.y)*height/2:height/2;
+    this.circle.position.set(cx-width/2,height/2-cy,0);this.marker.position.copy(this.circle.position);
     this.screenScene.visible = Boolean(catia?.hudVisible && width > 0 && height > 0);
     this.circle.visible = Boolean(catia?.showRotationCircle);
     const radius = Math.min(width, height) * CATIA_TRACKBALL_RADIUS_RATIO;
@@ -37,7 +47,7 @@ export class NavigationHUD {
     const attr = this.circle.geometry.getAttribute("position");
     for (let i = 0; i < attr.count; i++) attr.setXYZ(i, radius * Math.cos(i / (attr.count - 1) * Math.PI * 2), radius * Math.sin(i / (attr.count - 1) * Math.PI * 2), 0);
     attr.needsUpdate = true; this.circle.computeLineDistances();
-    const x = (catia?.pointer.x ?? width / 2) - width / 2, y = height / 2 - (catia?.pointer.y ?? height / 2);
+    const x = (catia?.pointer.x ?? cx) - cx, y = cy - (catia?.pointer.y ?? cy);
     const positions: number[] = [];
     if (catia?.showRotationCircle) {
       // Tangent arcs show the grabbed point on the virtual sphere; no decorative world-axis globe.
@@ -54,7 +64,7 @@ export class NavigationHUD {
     markerAttribute.array.set(positions); markerAttribute.needsUpdate = true;
     this.marker.geometry.setDrawRange(0, positions.length / 3);
     this.marker.frustumCulled = false;
-    this.screen = this.screenScene.visible ? { x: width / 2, y: height / 2 } : undefined;
+    this.screen = catia?.showPivot ? { x:cx,y:cy } : undefined;
     this.setReference(snapshot.solidworks?.reference);
   }
   private setReference(reference?: NavigationPick): void {
@@ -69,11 +79,11 @@ export class NavigationHUD {
         ? new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: SOLIDWORKS_REFERENCE_COLOR, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthTest: false, depthWrite: false }))
         : highlight.kind === "edge" ? new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: SOLIDWORKS_REFERENCE_COLOR, depthTest: false }))
         : new THREE.Points(geometry, new THREE.PointsMaterial({ color: SOLIDWORKS_REFERENCE_COLOR, size: 8, sizeAttenuation: false, depthTest: false }));
-      this.worldScene.add(object);
+      this.referenceGroup.add(object);
     }
     const marker = new THREE.Points(new THREE.BufferGeometry().setFromPoints([reference.point]),
       new THREE.PointsMaterial({ color: SOLIDWORKS_REFERENCE_COLOR, size: 5, sizeAttenuation: false, depthTest: false }));
-    this.worldScene.add(marker);
+    this.referenceGroup.add(marker);
   }
   render(renderer: THREE.WebGLRenderer): void {
     if (this.worldCamera && this.worldScene.children.length) { renderer.clearDepth(); renderer.render(this.worldScene, this.worldCamera); }
@@ -82,12 +92,13 @@ export class NavigationHUD {
   dispose(): void {
     this.clearReference(); this.circle.geometry.dispose(); this.circle.material.dispose();
     this.marker.geometry.dispose(); this.marker.material.dispose();
+    this.pivotMarker.geometry.dispose();this.pivotMarker.material.dispose();
   }
   private clearReference(): void {
-    for (const child of [...this.worldScene.children]) {
+    for (const child of [...this.referenceGroup.children]) {
       const object = child as THREE.Mesh; object.geometry.dispose();
       (Array.isArray(object.material) ? object.material : [object.material]).forEach((material) => material.dispose());
-      this.worldScene.remove(child);
+      this.referenceGroup.remove(child);
     }
     this.reference = undefined;
   }

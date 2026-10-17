@@ -19,13 +19,15 @@ const DEFAULTS: Required<TrackballOptions> = {
 /** Shoemake-style virtual sphere centered in the CAD viewport. */
 export class VirtualTrackball {
   private previous?: THREE.Vector3;
+  private center?: {x:number;y:number};
   private readonly options: Required<TrackballOptions>;
 
   constructor(options: TrackballOptions = {}) {
     this.options = { ...DEFAULTS, ...options };
   }
 
-  begin(x: number, y: number, width: number, height: number): void {
+  begin(x: number, y: number, width: number, height: number, center?:{x:number;y:number}): void {
+    this.center=center;
     this.previous = this.mapToSphere(x, y, width, height);
   }
 
@@ -54,12 +56,12 @@ export class VirtualTrackball {
     return cameraRotation.clone().multiply(viewRotation).multiply(cameraRotation.invert()).normalize();
   }
 
-  reset(): void { this.previous = undefined; }
+  reset(): void { this.previous = undefined;this.center=undefined; }
 
   private mapToSphere(x: number, y: number, width: number, height: number): THREE.Vector3 {
     const radius = Math.max(Math.min(width, height) * this.options.radiusRatio, this.options.minRadius);
-    const px = (x - width / 2) / radius;
-    const py = (height / 2 - y) / radius;
+    const px = (x - (this.center?.x??width/2)) / radius;
+    const py = ((this.center?.y??height/2) - y) / radius;
     const distanceSquared = px * px + py * py;
     // Outside the visible sphere the vectors lie in the screen plane: roll.
     // HUD and interaction use the same radius.

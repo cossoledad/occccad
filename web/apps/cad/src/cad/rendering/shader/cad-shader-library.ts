@@ -1,5 +1,6 @@
 import { CATIA_VISUAL_THEME } from "../cad-visual-theme";
 import * as THREE from "three";
+import {EDGE_OCCLUSION_GLSL} from "../surface-depth-pass";
 
 export type CadShaderProgramID =
   | "cad.background"
@@ -241,13 +242,15 @@ export class CadShaderLibrary {
         uniform float uOpacity;
         varying vec3 vWorldPosition;
         ${sectionFragment}
+        ${EDGE_OCCLUSION_GLSL}
         void main() {
           applyCadSection();
-          gl_FragColor = vec4(mix(uColor, uSelectedColor, uSelected), uOpacity);
+          gl_FragColor = vec4(mix(uColor, uSelectedColor, uSelected), uOpacity * cadEdgeVisibility());
           #include <colorspace_fragment>
         }
       `,
       transparent: true,
+      depthWrite: false,
     });
 
     this.register("cad.point", {

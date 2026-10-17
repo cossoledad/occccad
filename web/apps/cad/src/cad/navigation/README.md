@@ -32,7 +32,7 @@ SOLIDWORKS 基线为桌面 Design 的 Part/Assembly 三键鼠标默认导航，�
 | 自由旋转 | 先中键，再按住左/右侧键拖动 | 中键拖动 |
 | 连续缩放 | 保持中键，按下再释放侧键后拖动；Ctrl+中键 | Shift+中键拖动 |
 | 缩放方向 | 上移放大，下移缩小 | 上移放大，下移缩小 |
-| 居中/选旋转参考 | 中键单击将该位置居中 | 中键单击几何只选临时参考，不跳动视图；随后中键拖动 |
+| 居中/选旋转参考 | 中键按下冻结旋转中心，单击几何后将该位置居中 | 中键单击几何只选临时参考，不跳动视图；随后中键拖动 |
 | 滚轮 | 当前禁用，采用原生文档列出的组合键缩放 | 指针锚定，向后放大；支持浏览器 deltaMode 单位 |
 | 滚转 | 从轨迹球范围外拖动（提示可隐藏） | Alt+中键水平拖动 |
 | 适合窗口 | 现有视图命令 | 中键双击，或现有视图命令 |
@@ -49,27 +49,27 @@ SOLIDWORKS 旋转参考与正式 Selection 分离。平面/直边按显示几何
 - `ThreeCameraRig` 处理相机数学，`NavigationPicker` 提供显示几何引用。
 - `NavigationHUD` 与光标仅展示状态；轨迹球与虚线圆共享半径定义，不成为模型节点。
 
-3DEXPERIENCE CATIA 旋转球默认隐藏，只在用户开启且正在旋转时显示；平移和缩放不绘制球面提示。偏好通过现有 UI preferences 持久化，沿用 `catia` 模式 ID。
+3DEXPERIENCE CATIA 旋转球默认隐藏，只在用户开启且正在旋转时显示；平移和缩放不绘制球面提示。主键按住期间，独立的屏幕恒定大小三维十字线显示当前世界旋转中心；释放/取消后隐藏，不受旋转球开关影响。偏好通过现有 UI preferences 持久化，沿用 `catia` 模式 ID。
 
 公开文档没有给出鼠标增益、自动旋转中心排名、虚拟球投影算法和精确像素规格。本实现的球半径、速度曲线与自动选心是明确的应用实现；未通过原版软件同轨迹录制对照，不能称为逐像素/逐数值完全一致。任意曲面/曲线的通用参数轴、CATIA Robot、Shift 视点控制及文档中的键盘旋转/平移、SOLIDWORKS 自定义右键手势菜单、命名 Camera 的 Ctrl+Alt 转头、Scene Floor、工程图和三维鼠标驱动不属于本次基础原生三键/Part/Assembly 导航实现。
 
-`testing/navigation.scenario.mjs` 验证状态转换、旋转/平移/缩放、居中、临时引用、取消、轨迹球与实际显示拾取。`browser/navigation.spec.ts` 通过 Chromium 的真实组合按键验证输入边沿、修饰键切换、失焦和 UI 偏好；输出两套模式的截图。浏览器测试启用已有 `VITE_INPUT_DEBUG`，生产构建不显示调试面板。
+`testing/navigation.scenario.mjs` 验证状态转换、旋转/平移/缩放、居中、临时引用、取消、轨迹球与实际显示拾取。`navigation-capture.scenario.mjs` 另外验证浏览器释放侧键时丢失原生捕获的恢复：只有仍持有主键的 CATIA 导航可以续接，工具丢失捕获、pointercancel、blur、Esc 仍取消。`browser/navigation.spec.ts` 通过 Chromium 的真实组合按键验证输入边沿、修饰键切换、失焦和 UI 偏好；输出两套模式的截图。浏览器测试启用已有 `VITE_INPUT_DEBUG`，生产构建不显示调试面板。
 
 ## 投影、显示比例与草图会话
 
-视口使用正交相机，初始方向为 (1, -1, 1) 的等轴测。旋转后的任意方向仍使用正交投影；等轴测是特定朝向，不是对自由旋转的限制。`orthographic-view.ts` 统一标准方向、屏幕关注点、相机空间 Fit 与草图前视图快照。等轴测命令（1）在更新 quaternion 后执行可见内容 Fit；其他标准方向只调整朝向。Fit 只计算可见内容，按宽高比容纳相机空间的八个包围盒角点。
+视口使用正交相机，初始方向为 (1, -1, 1) 的等轴测。旋转后的任意方向仍使用正交投影；等轴测是特定朝向，不是对自由旋转的限制。`orthographic-view.ts` 统一标准方向、屏幕关注点、相机空间 Fit 与草图前视图快照。等轴测命令（1）在更新 quaternion 后执行可见内容 Fit；其他标准方向只调整朝向。Fit 只计算可见内容，按宽高比容纳相机空间的八个包围盒角点。恒定像素基准只贡献其世界原点，不把上一次 zoom 下的装饰长度纳入 Fit，避免重复适合窗口依赖导航历史。
 
-平移和拾取共用 `worldUnitsPerCssPixel`，正交相机按可见高度/zoom/视口高度计算，避免世界原点距离影响操作精度。锚定缩放同时更新相机与 pivot 的平面位移。局部放大时 Default 优先绕命中的局部几何旋转；CATIA 在开始旋转时使用屏幕中心可见几何的深度，避免位于实体内部的旧旋转中心甩动表面细节。旋转角度按屏幕输入计算，不按模型坐标距离任意放大速度。
+平移和拾取共用 `worldUnitsPerCssPixel`，正交相机按可见高度/zoom/视口高度计算，避免世界原点距离影响操作精度。锚定缩放同时更新相机与 pivot 的平面位移。局部放大时 Default 优先绕命中的局部几何旋转；CATIA 在主键按下时优先采用当前可见悬停点（屏幕容差及表面遮挡检查），其次取指针射线的显示几何交点；不再等侧键进入旋转时改用屏幕中心。空白按下保留原中心，单击空白不跳动视图。平移只移动视点，冻结的模型中心保持原世界坐标；旋转/缩放锁存及再次按侧键沿用同一中心。轨迹球与可选球面导引以该中心的屏幕投影为圆心。显示射线与点拾取不成为新的持久拓扑身份。旋转角度按屏幕输入计算，不按模型坐标距离任意放大速度。
 
 进入草图保存一次相机位置、四元数、up、pivot、zoom，将当前关注区域投到支撑平面后正对该面，保留比例；同一草图的重复激活/刷新不覆盖快照或重置视角。退出恢复快照；切换文档清除旧会话快照。模型改变后的自动刷新不执行 Fit。
 
 `testing/orthographic-view.scenario.mjs` 验证多数量级缩放时的屏幕平移精度、缩放锚点、重复标准视图、不同宽高比/远离原点的 Fit 和草图视图往返。浏览器另外覆盖快捷键 1、局部放大及基准面/实体面支撑的草图进出（Mock 的面支撑不代表真实后端几何精度）。
 
-正交裁剪按当前几何的相机空间深度和视图尺寸自适应扩展，near 为 0；若几何在旧相机位置之后，只沿视线后移相机，保持屏幕位置/比例。far 使用覆盖实际深度的有限值，避免 Infinity 破坏投影矩阵或过大的常数降低深度精度。`InfiniteGroundGrid` 在背景通道投影无限 XY 平面，不参与模型包围盒、拾取或深度裁剪；随显示比例调整网格密度，几何正常覆盖网格。完全侧视地面时其投影面积为零，网格隐藏；草图编辑使用相同无限网格实现，基于活动支撑平面的 origin/u/v/normal 投影；世界网格持续保留。
+正交裁剪按当前几何的相机空间深度和视图尺寸自适应扩展，near 为 0；若几何在旧相机位置之后，只沿视线后移相机，保持屏幕位置/比例。far 使用覆盖实际深度的有限值，避免 Infinity 破坏投影矩阵或过大的常数降低深度精度。`InfiniteGroundGrid` 将无限 XY 平面投影到屏幕并计算真实场景深度，不参与模型包围盒或拾取；地面使用固定世界间距，在零件前后按深度关系显示，缩放不会重选密度。完全侧视地面时其投影面积为零，网格隐藏；草图编辑使用相同无限网格实现，基于活动支撑平面的 origin/u/v/normal 投影；世界网格按全局场景设置显示；草图网格仍自适应，并与捕获共用间距。
 
 裁剪更新同时支持沿视线前移/后移相机；大幅缩小后重新放大时收回多余深度范围，避免裁剪范围随操作历史不断扩大。该沿视线位移不改变正交屏幕投影。
 
-草图工具栏的“正对草图平面”通过 CommandRegistry 调用 `normalToSketch`，仅重新对齐当前视图，不修改草图几何、显示比例或退出时恢复的快照。背景方向参考达索 [Overloading Predefined Ambiences and Cameras](https://help-3dexperience.aesvietnam.com/English/ComUserMap/com-t-View-AmbienceOverload.htm) 的环境上方向与 Zenith/Horizon，以及 [About the Ambience Panel](https://help-3dexperience.aesvietnam.com/English/AstUserMap/ast-c-Ambience.htm) 的穹顶和 Horizon 语义（公开原文镜像）。实现用世界 Z 方向的环境采样区分天空、地平线和地面；正交视图背景使用固定角域，避免缩放改变环境方向。色值、角域和插值是应用参数，不是 CATIA 专有 shader 的复刻。
+草图工具栏的“正对草图平面”通过 CommandRegistry 调用 `normalToSketch`，仅重新对齐当前视图，不修改草图几何、显示比例或退出时恢复的快照。背景方向参考达索 [Overloading Predefined Ambiences and Cameras](https://help-3dexperience.aesvietnam.com/English/ComUserMap/com-t-View-AmbienceOverload.htm) 的环境上方向与 Zenith/Horizon，以及 [About the Ambience Panel](https://help-3dexperience.aesvietnam.com/English/AstUserMap/ast-c-Ambience.htm) 的穹顶和 Horizon 语义（公开原文镜像）。这些参考用于理解环境概念；当前背景按全局选项使用固定屏幕上下渐变，不随旋转混入地平线/地面色。色值与插值是应用参数，不是 CATIA 专有 shader 的复刻。
 
 3DE Profile 的平移、虚拟球角度和组合键缩放采用 1.15 输入增益，相对原实现小幅提速；平移仍按当前正交 zoom 换算，不改变其他 Profile。
 
@@ -78,3 +78,5 @@ SOLIDWORKS 旋转参考与正式 Selection 分离。平面/直边按显示几何
 平面相关命令使用 `orientPlaneView`：在 ±法向中选择当前视线最近的一侧，再从支撑面的 ±U/±V 向上方向中选择相机总旋转最少的朝向，使坐标轴横平竖直；缺少平面方向时回退到投影世界轴。不修改模型平面方向。标准 Top/Front 等固定视图仍用 `orientView`。
 
 `ViewTransition` 由视口现有 RAF 时钟驱动，280 ms smoothstep 插值关注点、相机局部偏移和 zoom，朝向使用 quaternion slerp，末帧精确恢复目标快照。进入/正对平面与退出草图共用动画；重复命令从当前帧接续，pointerdown/wheel/keydown、其他定位命令、换文档和 dispose 取消旧动画。`normal-view.scenario.mjs` 覆盖轴对齐、背面侧保持、中间帧、接续、取消及精确终态。
+
+本轮另核对本机 B33 `control/BasEnglishC2.viewdoc` 中的 `online/basug_C2/basugbt1201.htm`（中键居中/平移、双键旋转与释放侧键缩放）、`basugbt1208.htm`（旋转视点）、`basugbt1305.htm`（初始地面在模型底部）。文档未规定点/面中心优先级、间隙比例和十字线像素数；这些是结合用户要求明确实现的本软件规则。

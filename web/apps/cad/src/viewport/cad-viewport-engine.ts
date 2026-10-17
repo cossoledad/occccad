@@ -523,13 +523,25 @@ export class CadViewportEngine {
     this.lighting.add(hemisphere, keyLight, fillLight, rimLight);
     this.scenePresentation=new ScenePresentation(this.scene,this.lighting,this.environment,this.renderer);
     this.sketchContext.renderOrder = 0; // Child semantic orders own sketch layering.
-    this.scene.add(this.environment, this.lighting, this.content, this.helpers, this.sketchContext, this.sketchGrid.object);
+    this.scene.add(this.environment, this.lighting, this.content, this.helpers, this.sketchContext, this.sketchGrid.object,this.groundGrid.object,this.worldGrid.object);
     this.sketchGrid.object.visible = false;
 
     const navigationPicker = new NavigationPicker(
       this.camera,
       this.renderer.domElement,
       () => this.content.children,
+      () => {
+        const selected=this.preselected;
+        if(this.sketchPlane&&selected?.sketchReference&&["POINT","START","END","CENTER","CONTROL"].includes(selected.sketchReference.subElement)){
+          const point=this.sketchReferenceAnchor(selected.sketchReference);return point?localToWorld(this.sketchPlane,point):undefined;
+        }
+        if(selected?.kind==="vertex"){
+          const binding=[...this.solidBindings.values()].find(b=>b.artifact.geometryKey===selected.geometryKey&&(b.context.occurrencePath??"")===(selected.occurrencePath??""));
+          const point=binding?.artifact.mesh.topologyVertices?.find(v=>v.localId===selected.topologyId)?.point;
+          return binding&&point?binding.mesh.localToWorld(new THREE.Vector3().fromArray(point)):undefined;
+        }
+        return undefined;
+      },
     );
     this.navigation = new NavigationController(this.camera, () => ({
       width: this.renderer.domElement.clientWidth,
@@ -584,7 +596,7 @@ export class CadViewportEngine {
       pick:(request,event)=>request.featureId!==this.activeSketchID?undefined:this.sketchReferenceAt(event.x,event.y,request.pick,request.retained?{target:"ENTITY",entityId:request.retained.id,subElement:"WHOLE"}:undefined,request.allowed)??undefined,
       highlight:(request,reference)=>{if(reference)this.showReferencePreview(reference,request.references,request.slot,request.hoverOverridesRetained);else this.clearReferencePreview();},
     });
-    this.input = new InputManager(this.renderer.domElement, this.sketchModal,{keyDown:this.sketchModal.modalKeyDown,keyUp:this.sketchModal.modalKeyUp});
+    this.input = new InputManager(this.renderer.domElement, this.sketchModal,{keyDown:this.sketchModal.modalKeyDown,keyUp:this.sketchModal.modalKeyUp,retainNavigationCapture:event=>this.navigation.retainsMouseCapture(event.pointerId,event.buttons)});
     this.input.subscribe(() => this.emitDebugState());
     this.tools.subscribe((toolID) => {
       this.activeToolID = toolID ?? "select";
@@ -866,7 +878,7 @@ export class CadViewportEngine {
         this.groundBounds.union(box.applyMatrix4(mesh.matrixWorld));
       }
     }
-    this.groundHeight=groundLevel(this.sceneSettings,this.groundBounds.isEmpty()?undefined:this.groundBounds.min.z);
+    this.groundHeight=groundLevel(this.sceneSettings,this.groundBounds.isEmpty()?undefined:this.groundBounds.min.z,this.groundBounds.getSize(new THREE.Vector3()).length());
     this.groundFrame.origin.z=this.groundHeight;
     this.scenePresentation?.update(this.sceneSettings,this.groundBounds,this.groundHeight);
   }
@@ -1875,6 +1887,7 @@ export class CadViewportEngine {
     this.worldGrid.dispose();
     this.scenePresentation.dispose();
     this.sketchGrid.dispose();
+    this.materials.surfaceDepth.dispose();
     this.disposeGroup(this.environment);
     this.disposeGroup(this.lighting);
     this.disposeGroup(this.content);
@@ -2828,6 +2841,7 @@ export class CadViewportEngine {
       edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
       edgeGeometry.userData.navigationEdgeIds = edgeIDs;
       const edges = new THREE.LineSegments(edgeGeometry, this.materials.edge());
+      edges.renderOrder=1;
       markNavigationPickable(edges);
       if(!artifact.historicalPreview)this.selectionIndex.registerPick(edges, (hit) => {
         if(!materialAllowsPick(edges.material))return null;
@@ -2840,7 +2854,7 @@ export class CadViewportEngine {
       }, 40);
       group.add(edges);
     } else {
-      group.add(new THREE.LineSegments(makeFeatureEdges(geometry), this.materials.edge()));
+      const edges=new THREE.LineSegments(makeFeatureEdges(geometry),this.materials.edge());edges.renderOrder=1;group.add(edges);
     }
     const topologyVertices = artifact.mesh.topologyVertices ?? [];
     if (topologyVertices.length > 0) {
@@ -3665,7 +3679,7 @@ export class CadViewportEngine {
     this.viewTransition.cancel();
     this.navigation.cancel();
     const box = this.visibleContentBounds();
-    if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
+    if (box.isEmpty()||box.getSize(new THREE.Vector3()).length()<1e-9) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
     fitOrthographicView(this.camera, this.navigation.target, box);
     this.navigation.syncCamera(false);
   }
@@ -3730,6 +3744,13 @@ export class CadViewportEngine {
     this.content.updateMatrixWorld(true);
     this.content.traverseVisible((object) => {
       if (!(object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points)) return;
+      for(let reference:THREE.Object3D|null=object;reference&&reference!==this.content;reference=reference.parent){
+        if(this.screenStableReferences.has(reference)){
+          // Fixed-pixel helpers retain a meaningful origin, but their current
+          // zoom-dependent drawn length must not change the next Fit result.
+          bounds.expandByPoint(reference.getWorldPosition(new THREE.Vector3()));return;
+        }
+      }
       const geometry = object.geometry;
       if (!geometry.boundingBox) geometry.computeBoundingBox();
       if (geometry.boundingBox) bounds.union(geometry.boundingBox.clone().applyMatrix4(object.matrixWorld));
@@ -3782,6 +3803,7 @@ export class CadViewportEngine {
         updateScreenLines(this.scene, this.camera, metrics.cssWidth, metrics.cssHeight);
         this.updateSketchParameterAnchor();
         this.updateCameraClipping();
+        this.materials.surfaceDepth.render(this.renderer,this.scene,this.camera);
         this.scene.traverse((object)=>{
           const material=(object as THREE.Points).material;
           if(material instanceof THREE.ShaderMaterial&&material.uniforms.uPointSize&&typeof material.userData.cssPointSize==="number")
@@ -3791,11 +3813,11 @@ export class CadViewportEngine {
         if (this.sketchPlane && this.gridVisibility.sketch) this.sketchGrid.update(this.camera, this.renderer.domElement.clientHeight, planeFrame(this.sketchPlane));
         this.renderer.clear(true, true, true);
         this.background.render(this.renderer);
-        if (this.environment.visible && this.gridVisibility.scene) {
-          if(this.sceneSettings.grid&&this.sceneSettings.groundMode!=="OFF")this.groundGrid.render(this.renderer,this.camera,this.groundFrame);
-          if(this.sceneSettings.worldGrid&&(this.sceneSettings.groundMode==="OFF"||this.groundHeight!==0||!this.sceneSettings.grid))this.worldGrid.render(this.renderer,this.camera);
-        }
-        const sceneMetrics={groundHeight:this.groundHeight,gridSpacing:this.sceneSettings.gridSpacing||adaptiveGridSpacing(this.camera,this.renderer.domElement.clientHeight)};
+        const sceneGrid=this.environment.visible&&this.gridVisibility.scene;
+        this.groundGrid.object.visible=false;this.worldGrid.object.visible=false;
+        if(sceneGrid&&this.sceneSettings.grid&&this.sceneSettings.groundMode!=="OFF")this.groundGrid.update(this.camera,this.renderer.domElement.clientHeight,this.groundFrame);
+        if(sceneGrid&&this.sceneSettings.worldGrid&&(this.sceneSettings.groundMode==="OFF"||this.groundHeight!==0||!this.sceneSettings.grid))this.worldGrid.update(this.camera,this.renderer.domElement.clientHeight);
+        const sceneMetrics={groundHeight:this.groundHeight,gridSpacing:this.sceneSettings.gridSpacing};
         const signature=JSON.stringify(sceneMetrics);if(signature!==this.sceneMetricsSignature){this.sceneMetricsSignature=signature;this.callbacks.sceneMetricsChanged?.(sceneMetrics)}
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);

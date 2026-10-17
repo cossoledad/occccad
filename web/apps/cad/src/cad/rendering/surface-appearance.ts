@@ -54,6 +54,7 @@ export function applyEdgeAppearance(group:THREE.Group,appearance:SurfaceStyle|un
       const material=new LineMaterial({color:defaultColor,linewidth:width,transparent:true,depthTest:true,depthWrite:false});
       material.userData.cadEdgeAppearance=true;configureLine?.(material);
       wide=new LineSegments2(new LineSegmentsGeometry().setPositions(Array.from(positions.array)),material);
+      wide.renderOrder=1;
       wide.userData.cadWideEdges=true;wide.raycast=()=>{};group.add(wide);
       registerScreenLineUpdate(wide,(_camera,w,h)=>material.resolution.set(w,h));
     }

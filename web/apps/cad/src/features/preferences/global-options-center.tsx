@@ -67,4 +67,4 @@ export function GlobalOptionsProvider({children,activeDocumentID}:PropsWithChild
   <div className="global-options-layout"><Menu selectedKeys={[page]} onClick={({key})=>setPage(key as Page)} items={[{key:"scene",label:"场景"},{key:"display",label:"显示"},{key:"creation",label:"新建对象"},{key:"navigation",label:"导航与捕获"},{key:"units",label:"单位"}]}/><div className="global-options-content">{contents}</div></div>
  </Modal></Context.Provider>;
 }
-export function GlobalOptionsButton(){const options=useGlobalOptions();return <Button ghost aria-label="选项" title="全局选项" icon={<SettingOutlined/>} onClick={()=>{void options?.registry.execute(APP_OPTIONS_COMMAND)}}>选项</Button>}
+export function GlobalOptionsButton(){const options=useGlobalOptions();return <Button ghost aria-label="选项" title="全局选项" icon={<SettingOutlined/>} onClick={()=>{void options?.registry.execute(APP_OPTIONS_COMMAND)}}/>}

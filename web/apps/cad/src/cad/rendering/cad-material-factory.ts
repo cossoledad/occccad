@@ -3,8 +3,10 @@ import * as THREE from "three";
 import { CATIA_VISUAL_THEME } from "./cad-visual-theme";
 import { CadShaderLibrary } from "./shader/cad-shader-library";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import {SurfaceDepthPass} from "./surface-depth-pass";
 
 export class CadMaterialFactory {
+  readonly surfaceDepth=new SurfaceDepthPass();
   private readonly sectionLines=new Set<LineMaterial>();
   private readonly lineClippingPlane=new THREE.Plane();
   private readonly sectionEnabled: THREE.IUniform<boolean> = { value: false };
@@ -27,10 +29,11 @@ export class CadMaterialFactory {
   }
 
   edge(color: number = this.theme.edge): THREE.ShaderMaterial {
-    return this.withSharedCadUniforms(this.shaders.createMaterial("cad.edge", {
+    const material=this.withSharedCadUniforms(this.shaders.createMaterial("cad.edge", {
       uColor: new THREE.Color(color),
       uSelectedColor: new THREE.Color(this.theme.selected),
     }));
+    Object.assign(material.uniforms,this.surfaceDepth.uniforms);return material;
   }
 
   point(color: number = this.theme.edge, size = 5, depthTest = true): THREE.ShaderMaterial {
@@ -65,6 +68,7 @@ export class CadMaterialFactory {
   }
 
   sectionLine(material:LineMaterial):void {
+    this.surfaceDepth.configureLine(material);
     this.sectionLines.add(material);
     material.clippingPlanes=this.sectionEnabled.value?[this.lineClippingPlane]:null;
     material.addEventListener("dispose",()=>this.sectionLines.delete(material));
@@ -73,6 +77,7 @@ export class CadMaterialFactory {
   setSectionPlane(enabled: boolean, plane?: THREE.Plane): void {
     this.sectionEnabled.value = enabled;
     if(plane)this.lineClippingPlane.copy(plane);
+    this.surfaceDepth.setSectionPlane(enabled,this.lineClippingPlane);
     for(const material of this.sectionLines){material.clippingPlanes=enabled?[this.lineClippingPlane]:null;material.needsUpdate=true}
     if (plane) this.sectionPlane.value.set(plane.normal.x, plane.normal.y, plane.normal.z, plane.constant);
   }

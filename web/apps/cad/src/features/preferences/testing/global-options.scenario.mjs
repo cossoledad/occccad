@@ -4,7 +4,7 @@ const server=await createServer({appType:"custom",logLevel:"silent",server:{midd
 try {
  const {useUIPreferences}=await server.ssrLoadModule("/src/state/ui-preferences.ts");
  const {globalOptionsSnapshot}=await server.ssrLoadModule("/src/features/preferences/global-options-model.ts");
- const {sceneGridColor,DEFAULT_SCENE_SETTINGS}=await server.ssrLoadModule("/src/cad/rendering/scene-settings.ts");
+ const {sceneGridColor,sceneBackgroundIsLight,DEFAULT_SCENE_SETTINGS}=await server.ssrLoadModule("/src/cad/rendering/scene-settings.ts");
  const before=globalOptionsSnapshot(useUIPreferences.getState()),draft=globalOptionsSnapshot(before);
  draft.sceneSettings.backgroundTop="#001122";draft.creationDefaults.solid.color="#ff7700";
  assert.deepEqual(globalOptionsSnapshot(useUIPreferences.getState()),before,"preview draft must not persist");
@@ -16,6 +16,7 @@ try {
  if(migrate){const migrated=await migrate({documentSceneSettings:{a:{backgroundTop:"#ff0000"}},displayLengthUnit:"cm"},9);assert.deepEqual(migrated.sceneSettings,DEFAULT_SCENE_SETTINGS);assert.equal(migrated.displayLengthUnit,"cm")}
  assert.notEqual(sceneGridColor(DEFAULT_SCENE_SETTINGS),sceneGridColor({...DEFAULT_SCENE_SETTINGS,background:"SOLID",backgroundTop:"#ffffff"}),"light and dark backgrounds need distinct grid colors");
  assert.equal(sceneGridColor({...DEFAULT_SCENE_SETTINGS,gridAutoColor:false,gridColor:"#112233"}),"#112233");
+ assert.equal(sceneBackgroundIsLight({...DEFAULT_SCENE_SETTINGS,background:"SOLID",backgroundTop:"#ffffff",gridAutoColor:false,gridColor:"#ffffff"}),true,"tree contrast follows the background even with a custom grid colour");
  const {structureMenu}=await server.ssrLoadModule("/src/features/workbench/tree-context-menu.ts");
  const menu=structureMenu([{key:"edit"},{key:"visibility"},{key:"delete",disabled:true},{key:"properties"}],"Body.1");
  assert.deepEqual(menu.map(i=>i.key??i.type),["visibility","divider","object-actions","divider","properties"]);

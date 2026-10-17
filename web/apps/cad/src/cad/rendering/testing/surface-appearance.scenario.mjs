@@ -29,6 +29,8 @@ try {
  assert.equal(materialAllowsPick(translucent,0),true);assert.equal(materialAllowsPick(translucent,1),false);
  const {groundLevel,normalizeSceneSettings}=await server.ssrLoadModule("/src/cad/rendering/scene-settings.ts");
  assert.equal(groundLevel(normalizeSceneSettings({}),-15),-15);
+ assert.equal(groundLevel(normalizeSceneSettings({}),-15,100),-20,"automatic ground leaves a model-relative clearance");
+ assert.equal(normalizeSceneSettings({gridSpacing:0}).gridSpacing,10,"old adaptive ground becomes a fixed world interval");
  assert.equal(groundLevel(normalizeSceneSettings({groundMode:"WORLD"}),-15),0);
  assert.equal(groundLevel(normalizeSceneSettings({groundMode:"AUTO",groundLocked:true,groundHeight:8}),-15),8);
  assert.equal(groundLevel(normalizeSceneSettings({groundMode:"AUTO",groundOffset:2}),undefined),2);

@@ -180,3 +180,24 @@
 .motion-playback-controls { display:flex; flex-wrap:wrap; gap:6px; }
 
 .motion-range-labels { display:flex; justify-content:space-between; gap:12px; }
+
+/* The tree is a transparent overlay on the same viewport, rather than a
+   painted panel. Only controls and rows capture pointers; empty space navigates. */
+.workbench-content { position: relative; grid-template-rows: minmax(0,1fr); --tree-foreground:#edf4fa; --tree-muted:#ccdbe8; --tree-guide:#dce9f655; --tree-shadow:0 1px 3px #0d1b2bee; --tree-control:#1a2b3d45; }
+.workbench-content.light-scene { --tree-foreground:#20384b; --tree-muted:#486174; --tree-guide:#38526755; --tree-shadow:0 1px 2px #ffffffb0; --tree-control:#ffffff55; }
+.workbench-stage { grid-column:1 / 3; grid-row:1; }
+.workbench-inspector { grid-column:3; grid-row:1; z-index:1; }
+.workbench-structure { grid-column:1; grid-row:1; z-index:2; pointer-events:none; background:transparent; border:0; color:var(--tree-foreground); text-shadow:var(--tree-shadow); }
+.workbench-structure .workbench-panel-heading { border-bottom:0; }
+.workbench-structure .workbench-panel-heading .ant-btn { color:var(--tree-foreground); pointer-events:auto; }
+.workbench-structure .workbench-document-name,.workbench-structure .workbench-request-time { color:var(--tree-muted); background:transparent; border:0; }
+.workbench-structure .specification-tree,.workbench-structure .specification-tree-virtual-row { pointer-events:none; }
+.workbench-structure .specification-tree-row,.workbench-structure .workbench-tree-filter,.workbench-structure .workbench-panel-resizer { pointer-events:auto; }
+.workbench-structure .specification-tree-row { color:var(--tree-foreground); text-shadow:var(--tree-shadow); }
+.workbench-structure .specification-tree-row:hover { color:var(--tree-foreground); background:#8bbde435; }
+.workbench-structure .specification-tree-row.selected { color:#183c59; background:#d7eaffd9; text-shadow:none; }
+.workbench-structure .specification-tree-row.highlighted:not(.selected) { color:var(--tree-foreground); background:#7fcaef40; }
+.workbench-structure .specification-tree-icon,.workbench-structure .specification-tree-junction.branch { color:inherit; }
+.workbench-structure .specification-tree-depth-guide,.workbench-structure .specification-tree-virtual-row.nested::after,.workbench-structure .specification-tree-junction.leaf::before { background:var(--tree-guide); }
+.workbench-structure .ant-input-affix-wrapper { color:var(--tree-foreground); background:var(--tree-control); border-color:var(--tree-guide); }
+.workbench-structure .ant-input,.workbench-structure .ant-input::placeholder,.workbench-structure .ant-input-clear-icon { color:var(--tree-muted); }

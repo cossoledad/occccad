@@ -30,6 +30,7 @@ export class NavigationPicker {
     private readonly camera: CadCamera,
     private readonly surface: HTMLElement,
     private readonly roots: () => readonly THREE.Object3D[],
+    private readonly hoveredPoint?: () => THREE.Vector3 | undefined,
   ) {
     this.raycaster.layers.set(CAD_GEOMETRY_LAYER);
   }
@@ -53,6 +54,12 @@ export class NavigationPicker {
 
     const hits = this.raycaster.intersectObjects(roots, true).filter((intersection) => this.isValidGeometry(intersection.object));
     const closestSurface = hits.find((hit) => hit.object instanceof THREE.Mesh)?.distance ?? Infinity;
+    const hovered=this.hoveredPoint?.();
+    if(hovered){
+      const projected=hovered.clone().project(this.camera),depth=hovered.clone().sub(this.raycaster.ray.origin).dot(this.raycaster.ray.direction);
+      if(Math.hypot((projected.x+1)*width/2-x,(1-projected.y)*height/2-y)<=8&&depth>=0&&depth<=closestSurface+worldPerPixel*2)
+        return {point:hovered.clone(),distance:depth,source:"raycast",objectLabel:"preselected-point"};
+    }
     const rank = (object: THREE.Object3D) => object instanceof THREE.Points ? 0 : object instanceof THREE.Line ? 1 : 2;
     const hit = hits.filter((hit) => hit.distance <= closestSurface + worldPerPixel * 2)
       .sort((a, b) => rank(a.object) - rank(b.object) || a.distance - b.distance)[0];

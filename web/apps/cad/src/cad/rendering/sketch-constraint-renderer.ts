@@ -83,6 +83,19 @@ export function makeSketchConstraintRenderable(
   if (layout.anchors.length&&!layout.label) {
     const glyphs = new THREE.Points(new THREE.BufferGeometry().setFromPoints(layout.anchors.map(toWorld)),
       materials.constraintGlyph(symbolCodes[layout.symbol], diagnosticColor ?? CATIA_VISUAL_THEME.constraint, 17));
+    // Symbol clearance is in CSS pixels, not sketch millimetres. In particular a
+    // tiny sketch on an oblique face must not send its symbols several mm away.
+    if(!["COINCIDENT","CONCENTRIC","FIXED_POINT"].includes(constraint.kind)){
+      const anchors=layout.anchors.map(toWorld);
+      registerScreenLineUpdate(glyphs,(camera,width,height)=>{
+        glyphs.updateWorldMatrix(true,false);
+        const positions=glyphs.geometry.getAttribute("position"),right=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0),up=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);
+        anchors.forEach((anchor,index)=>{
+          const world=anchor.clone().applyMatrix4(glyphs.matrixWorld),scale=worldUnitsPerCssPixel(camera,world,{cssWidth:width,cssHeight:height,devicePixelRatio:1});
+          glyphs.worldToLocal(world.addScaledVector(right,12*scale).addScaledVector(up,12*scale));positions.setXYZ(index,world.x,world.y,world.z);
+        });positions.needsUpdate=true;glyphs.geometry.computeBoundingSphere();
+      });
+    }
     glyphs.renderOrder = SKETCH_FEEDBACK_ORDER.glyph; group.add(glyphs);
   }
   if (layout.segments.length) {

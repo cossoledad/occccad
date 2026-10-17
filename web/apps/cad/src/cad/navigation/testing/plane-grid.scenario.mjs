@@ -6,7 +6,7 @@ const server = await createServer({ appType: "custom", logLevel: "silent", serve
 try {
   const T = await server.ssrLoadModule("three");
   const { InfiniteGroundGrid } = await server.ssrLoadModule("/src/cad/rendering/infinite-ground-grid.ts");
-  const grid = new InfiniteGroundGrid(0xffffff);
+  const grid = new InfiniteGroundGrid(0xffffff,"sketch");
   const frame = {origin:new T.Vector3(10,20,30),normal:new T.Vector3(1,0,0),u:new T.Vector3(0,1,0),v:new T.Vector3(0,0,1)};
   const camera = new T.OrthographicCamera(-200,200,150,-150,.1,1000);
   camera.position.set(120,30,80);camera.up.set(0,0,1);camera.lookAt(frame.origin);
@@ -36,5 +36,15 @@ try {
   }
   camera.position.set(10,20,130);camera.up.set(0,1,0);camera.lookAt(frame.origin);grid.update(camera,600,frame);
   assert.equal(grid.object.visible,false,"edge-on planes have no area and must not produce NaNs");
+  const ground=new InfiniteGroundGrid(0xffffff);
+  camera.position.set(0,0,100);camera.up.set(0,1,0);camera.lookAt(0,0,0);
+  for(const zoom of [.01,1,100]){
+    camera.zoom=zoom;camera.updateProjectionMatrix();ground.update(camera,600);
+    assert.equal(ground.object.material.uniforms.uSpacing.value,10,"ground world spacing stays fixed while zoom changes");
+    assert.equal(ground.object.material.depthTest,true,"ground participates in model depth");
+    const z=ground.object.material.uniforms.uDepth.value;
+    assert.ok(Math.abs(z.x-new T.Vector3(0,0,-.02).project(camera).z)<1e-8);
+  }
+  ground.dispose();
   grid.dispose();
 } finally { await server.close(); }

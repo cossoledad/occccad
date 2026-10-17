@@ -34,12 +34,16 @@ try {
   const nav = new NavigationController(camera, () => ({ width: 800, height: 600 }), () => {}, picker, () => new THREE.Vector3(), "catia", false,
     () => new THREE.Box3(new THREE.Vector3(-10,-10,-10),new THREE.Vector3(10,10,10)), () => fits++);
   const q = camera.quaternion.clone();
-  nav.pointerDown(event("down",1,4)); nav.pointerUp(event("up",1,0));
+  nav.pointerDown(event("down",1,4));
+  assert.ok(nav.target.distanceTo(hit.point)<1e-8,"middle press, before a chord or drag, freezes the picked pivot");
+  assert.equal(nav.snapshot.catia.showPivot,true,"the 3D centre is independent of the optional sphere");
+  nav.pointerUp(event("up",1,0));assert.equal(nav.snapshot.catia.showPivot,false);
   assert.ok(nav.target.distanceTo(hit.point) < 1e-8, "CATIA click centers chosen geometry");
   assert.ok(Math.abs(hit.point.clone().project(camera).x) < 1e-8);
   assert.ok(q.angleTo(camera.quaternion) < 1e-8, "centering preserves orientation");
   nav.pointerDown(event("down",1,4));nav.pointerMove(event("move",-1,4,420,310));
   assert.equal(nav.activeAction,"pan"); assert.ok(q.angleTo(camera.quaternion)<1e-8);
+  assert.ok(nav.target.distanceTo(hit.point)<1e-8,"panning must not move the picked model pivot into empty space");
   nav.pointerDown(event("down",2,6)); nav.pointerMove(event("move",-1,6,460,335));
   assert.equal(nav.activeAction,"orbit");assert.ok(q.angleTo(camera.quaternion)>.01);
   assert.equal(nav.snapshot.catia.hudVisible,false,"3DEXPERIENCE native defaults to hidden rotation sphere");

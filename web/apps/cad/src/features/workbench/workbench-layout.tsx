@@ -14,12 +14,12 @@ function LastRequestTime() {
 
 type WorkbenchLayoutProps = {
   commands: ReactNode; tree: ReactNode; inspector: ReactNode; children: ReactNode; status: ReactNode;
-  documentName: string; inspectorOpen: boolean; onInspectorChange: (open: boolean) => void;
+  documentName: string; inspectorOpen: boolean; onInspectorChange: (open: boolean) => void;lightScene?:boolean;
 };
 
 /** Presentation and panel lifecycle only. Model/command ownership stays in Workbench. */
 export function WorkbenchLayout({ commands, tree, inspector, children, status, documentName,
-  inspectorOpen, onInspectorChange }: WorkbenchLayoutProps) {
+  inspectorOpen, onInspectorChange,lightScene=false }: WorkbenchLayoutProps) {
   const width = useUIPreferences((state) => state.structureTreeWidth);
   const setWidth = useUIPreferences((state) => state.setStructureTreeWidth);
   const [treeOpen, setTreeOpen] = useState(true);
@@ -42,7 +42,7 @@ export function WorkbenchLayout({ commands, tree, inspector, children, status, d
   };
   return <div className="workbench-layout" ref={root} data-command-overlay-host style={{position:"relative"}}>
     {commands}
-    <div className={`workbench-content ${treeOpen ? "" : "tree-collapsed"} ${inspectorOpen ? "with-inspector" : ""}`}
+    <div className={`workbench-content ${treeOpen ? "" : "tree-collapsed"} ${inspectorOpen ? "with-inspector" : ""} ${lightScene?"light-scene":"dark-scene"}`}
       style={{ "--structure-width": `${panelWidth}px` } as CSSProperties}>
       <aside className="workbench-structure" aria-label="模型结构">
         <div className="workbench-panel-heading"><strong>模型结构</strong><Button type="text" size="small"

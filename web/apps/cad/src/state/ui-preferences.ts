@@ -150,7 +150,7 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   }),
 }), {
   name: "occccad.ui-preferences.v1",
-  version: 10,
+  version: 11,
   migrate: (persisted) => {
     const value = (persisted && typeof persisted === "object" ? persisted : {}) as Partial<UIPreferences> & { hiddenTreeKeys?: string[]; renderMode?: string };
     const documentLengthUnits = Object.fromEntries(Object.entries(value.documentLengthUnits ?? {})

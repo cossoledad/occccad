@@ -1,5 +1,22 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// Orthographic clipping may move the eye along its viewing axis. Compare the
+// displayed projection, rather than treating that invisible shift as a view change.
+async function projectedView(page:Page){
+ const value=(await page.getByTestId("navigation-camera").getAttribute("data-camera-state"))!;
+ return page.evaluate(async value=>{
+  // @ts-ignore Vite dependency
+  const T=await import("/node_modules/.vite/deps/three.js");
+  const state=JSON.parse(value),box=document.querySelector("canvas")!.getBoundingClientRect(),aspect=box.width/box.height;
+  const camera=new T.OrthographicCamera(-150*aspect,150*aspect,150,-150,.1,10000);
+  camera.position.fromArray(state.position);camera.quaternion.fromArray(state.quaternion);camera.zoom=state.zoom;camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+  return {rotation:state.quaternion as number[],zoom:camera.zoom,points:[[0,0,0],[1,0,0],[0,1,0],[0,0,1]].flatMap(p=>{const v=new T.Vector3(...p).project(camera);return [v.x*box.width/2,v.y*box.height/2]})};
+ },value);
+}
+async function expectView(page:Page,view:Awaited<ReturnType<typeof projectedView>>){
+ await expect.poll(async()=>{const current=await projectedView(page),dot=Math.abs(current.rotation.reduce((sum,v,i)=>sum+v*view.rotation[i],0));if(1-dot>1e-12||Math.abs(current.zoom-view.zoom)>view.zoom*1e-12)return Infinity;return Math.max(...current.points.map((v,i)=>Math.abs(v-view.points[i])))}).toBeLessThan(.02);
+}
+
 async function openNavigation(page: Page, mode: string) {
   await page.goto("/documents/mock-part-bracket");
   await expect(page.locator("canvas")).toBeVisible();
@@ -105,16 +122,16 @@ test("orthographic detail navigation, isometric shortcut and sketch view round t
   await expect(projection).toHaveText(initialScale!);
   scale = await projection.textContent();
   await page.screenshot({ path: testInfo.outputPath("isometric-fit-grid.png") });
-  const iso = await camera.textContent();
-  await page.keyboard.press("1"); await expect(camera).toHaveText(iso!);
+  const iso = await projectedView(page);
+  await page.keyboard.press("1"); await expectView(page,iso);
   // Beyond the old 1200-unit grid: the background plane still fills the viewport.
   await page.mouse.wheel(0, 3000); await expect(projection).not.toHaveText(scale!);
   await page.mouse.down({ button: "middle" }); await page.mouse.move(x + 200, y + 80, { steps: 3 }); await page.mouse.up({ button: "middle" });
   await page.screenshot({ path: testInfo.outputPath("unbounded-grid-zoomed-out.png") });
-  await page.keyboard.press("1"); await expect(camera).toHaveText(iso!);
+  await page.keyboard.press("1"); await expectView(page,iso);
   await page.mouse.down({ button: "middle" }); await page.mouse.move(x + 40, y + 25, { steps: 3 }); await page.mouse.up({ button: "middle" });
   await expect(projection).toHaveText(scale!);
-  const beforeSketch = await camera.textContent();
+  const beforeSketch = await projectedView(page);
   const filter = page.getByRole("textbox", { name: "筛选模型结构" });
   await filter.fill("XY Plane");
   await page.getByRole("treeitem").filter({ hasText: "XY Plane" }).click();
@@ -124,7 +141,7 @@ test("orthographic detail navigation, isometric shortcut and sketch view round t
   await page.mouse.move(x, y); await page.mouse.wheel(0, 250);
   await expect(projection).not.toHaveText(scale!);
   await page.getByRole("button", { name: "退出草图", exact: true }).click();
-  await expect(camera).toHaveText(beforeSketch!);
+  await expectView(page,beforeSketch);
   await page.screenshot({ path: testInfo.outputPath("orthographic-detail-restored.png") });
   expect(errors).toEqual([]);
 });
@@ -174,10 +191,16 @@ test("sketch normal view, persistent world context and exit selection synchroniz
   const filter = page.getByRole("textbox", { name: "筛选模型结构" });
   await filter.fill("Sketch 1");
   const sketch = page.getByRole("treeitem").filter({ hasText: "Sketch 1" });
+  // This consumed sketch is hidden in the fixture. Explicitly show it so the
+  // exit-selection assertion can require a visible highlight without bypassing
+  // the model's definition visibility contract.
+  await sketch.click({button:"right"});await page.getByRole("menuitem",{name:"显示",exact:true}).click();
   await sketch.dblclick();
   const normal = page.getByRole("button", { name: "正对草图平面", exact: true });
   await expect(normal).toBeVisible();
   const camera = page.getByTestId("navigation-camera"), projection = page.getByTestId("navigation-projection");
+  // The toolbar appears before the transition finishes; sample the final XY view.
+  await expect.poll(async()=>(await camera.innerText()).split(" / ")[1]).toBe("0.0000,0.0000,0.0000,1.0000");
   const initial = await camera.textContent(), scale = await projection.textContent();
   const box = (await page.locator("canvas").boundingBox())!;
   const x = box.x + box.width/2, y = box.y + box.height/2;
@@ -199,6 +222,10 @@ test("sketch normal view, persistent world context and exit selection synchroniz
   await page.mouse.click(box.x+box.width-12,box.y+12);
   await expect(selection).toHaveAttribute("data-count","0");
   await expect(sketch).toHaveAttribute("aria-selected","false");
-  await expect(page.getByRole("button",{name:"拉伸",exact:true})).toBeDisabled();
+  // The current feature command may start without a preselection. It must ask
+  // for a profile instead of silently reusing the cleared sketch selection.
+  await page.getByRole("button",{name:"拉伸",exact:true}).click();
+  const extrude=page.getByRole("dialog",{name:/拉伸/});await expect(extrude).toContainText("请在视图区选择草图");
+  await extrude.getByRole("button",{name:/取\s*消/}).click();
   expect(errors).toEqual([]);
 });
