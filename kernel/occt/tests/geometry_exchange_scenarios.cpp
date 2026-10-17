@@ -1396,6 +1396,75 @@ TEST(GeometryExchange, XdeMultipleRootsPreserveSharedReferences) {
     }
 }
 
+TEST(GeometryExchange, XdeColorsPreserveBodyAndFaceAcrossRepeatedRoundTrip) {
+    OcctKernel kernel;
+    ExchangeGraph graph;
+    ExchangeDefinition part{"part", "Colored Part", "PART", kernel.createBox(1, 2, 3), {}};
+    part.appearance = {"#d64a3a", {{1, "#3978bd"}, {3, "#000000"}}};
+    graph.definitions.push_back(part);
+    graph.roots = {{"root", "part", "Colored", {}}};
+    for (int iteration = 0; iteration < 3; ++iteration) {
+        TemporaryStepFile file(kernel.writeStepGraph(graph));
+        graph = kernel.readStepGraph(file.path().string());
+        ASSERT_EQ(graph.definitions.size(), 1U);
+        const auto& appearance = graph.definitions.front().appearance;
+        EXPECT_EQ(appearance.color, "#d64a3a");
+        std::map<std::string, int> colors;
+        for (const auto& face : appearance.faces) ++colors[face.color];
+        EXPECT_EQ(colors["#3978bd"], 1);
+        EXPECT_EQ(colors["#000000"], 1);
+        EXPECT_NEAR(kernel.getVolume(graph.definitions.front().geometry_id), 6, 1e-8);
+    }
+}
+
+TEST(GeometryExchange, XdeColorsPreserveMultipleBodySubshapes) {
+    OcctKernel kernel;
+    const auto a = kernel.createBox(1, 2, 3);
+    const auto b = kernel.createBox(4, 5, 6);
+    ExchangeDefinition part{"part", "Multicolor", "PART", kernel.combine({{a, {}, {}}, {b, {}, {}}}), {}};
+    part.bodies = {{a, {"#d64a3a", {{1, "#000000"}}}}, {b, {"#3978bd", {}}}};
+    ExchangeGraph graph{{part}, {{"root", "part", "Multicolor", {}}}};
+    TemporaryStepFile file(kernel.writeStepGraph(graph));
+    const auto read = kernel.readStepGraph(file.path().string());
+    ASSERT_EQ(read.definitions.size(), 1U);
+    std::map<std::string, int> colors;
+    for (const auto& face : read.definitions.front().appearance.faces) ++colors[face.color];
+    EXPECT_EQ(colors["#d64a3a"], 5);
+    EXPECT_EQ(colors["#3978bd"], 6);
+    EXPECT_EQ(colors["#000000"], 1);
+    EXPECT_NEAR(kernel.getVolume(read.definitions.front().geometry_id), 126, 1e-8);
+}
+
+TEST(GeometryExchange, XdeColorsRejectInvalidColorAndSnapshotLocator) {
+    OcctKernel kernel;
+    ExchangeDefinition part{"part", "Invalid color", "PART", kernel.createBox(1, 2, 3), {}};
+    part.appearance.color = "#xyzxyz";
+    ExchangeGraph graph{{part}, {{"root", "part", "", {}}}};
+    EXPECT_THROW(kernel.writeStepGraph(graph), std::invalid_argument);
+    graph.definitions.front().appearance = {"", {{7, "#000000"}}};
+    EXPECT_THROW(kernel.writeStepGraph(graph), std::invalid_argument);
+}
+
+TEST(GeometryExchange, XdeColorsPreserveSharedOccurrenceOverrides) {
+    OcctKernel kernel;
+    ExchangeDefinition part{"part", "Shared", "PART", kernel.createBox(1, 2, 3), {}};
+    part.appearance.color = "#d64a3a";
+    ExchangeDefinition product{"product", "Assembly", "PRODUCT", "", {
+        {"a", "part", "First", {}, "#3978bd"},
+        {"b", "part", "Second", {"", {5, 0, 0}, {0, 0, 0, 1}}, "#3b9863"}
+    }};
+    ExchangeGraph graph{{part, product}, {{"root", "product", "Assembly", {}}}};
+    TemporaryStepFile file(kernel.writeStepGraph(graph));
+    const auto read = kernel.readStepGraph(file.path().string());
+    ASSERT_EQ(read.definitions.size(), 2U);
+    for (const auto& def : read.definitions) if (def.kind == "PRODUCT") {
+        ASSERT_EQ(def.children.size(), 2U);
+        EXPECT_EQ(def.children[0].definition_id, def.children[1].definition_id);
+        EXPECT_EQ(def.children[0].color, "#3978bd");
+        EXPECT_EQ(def.children[1].color, "#3b9863");
+    }
+}
+
 TEST(GeometryExchange, XdeRejectsCyclicAndInvalidPlacementGraphs) {
     OcctKernel kernel;
     occccad::kernel::ExchangeGraph graph;

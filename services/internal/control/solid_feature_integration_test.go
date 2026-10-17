@@ -482,7 +482,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	}
 	exportedBodies := 0
 	for _, d := range graph.Definitions {
-		exportedBodies += len(d.BodyBreps)
+		exportedBodies += len(d.Bodies)
 	}
 	if exportedBodies != expectedSolids {
 		t.Fatalf("export includes consumed body: %d want %d", exportedBodies, expectedSolids)

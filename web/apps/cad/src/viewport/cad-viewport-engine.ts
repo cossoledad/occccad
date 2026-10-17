@@ -62,6 +62,7 @@ import { CAD_GEOMETRY_LAYER, markNavigationPickable, NavigationPicker } from "..
 import type { NavigationAction, NavigationProfileID } from "../cad/navigation/navigation-profile";
 import { CadBackground } from "../cad/rendering/cad-background";
 import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
+import { surfaceAppearanceMaterials } from "../cad/rendering/surface-appearance";
 import { visualSelection, visualType } from "../cad/rendering/visualization-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
 import { SKETCH_FEEDBACK_ORDER, sketchGeometryPickPriority } from "../cad/rendering/sketch-feedback-style";
@@ -628,12 +629,12 @@ export class CadViewportEngine {
       value.part.axisSystems.map(axis=>[axis.id,axis.origin,axis.xDirection,axis.yDirection,axis.zDirection]),
       value.part.datumAxes?.map(axis=>[axis.id,axis.origin,axis.direction]),
     ];
-    return JSON.stringify([view.document.id, view.document.type, part(view),
+    return JSON.stringify([view.document.id, view.document.type, part(view),view.bodyAppearances,
       view.resolvedInstances?.map((resolved) => [resolved.occurrencePath,resolved.bodyId, resolved.geometryKey, resolved.displayFallback, resolved.translation, resolved.rotation,
-        resolved.ownedSketchIds]),
+        resolved.ownedSketchIds,resolved.appearance]),
       view.product?.instances.map((instance) => [instance.id, instance.translation, instance.rotation]),
       view.contextVariants?.map((variant) => [variant.owningInstancePath.canonical, variant.variantKey]),
-      editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
+      editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view),editContext?.view.bodyAppearances]);
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
     const motionView=editContext?.view??view;
@@ -1869,7 +1870,7 @@ export class CadViewportEngine {
       if (body.geometryKey) this.addVisualPrimitives(artifact.visualization, this.helpers, context, true,
         new Set((view.part?.features??[]).filter(feature=>feature.type==="SKETCH_PATTERN"&&feature.bodyId===body.id&&!feature.suppressed).map(feature=>feature.id)));
       if (artifact.mesh.triangles.length) {
-        const solid=body.geometryKey ? this.makeSolid(artifact,CATIA_VISUAL_THEME.surface,context) : this.makeFailedBody(artifact,body.visible,context);
+        const solid=body.geometryKey ? this.makeSolid(artifact,CATIA_VISUAL_THEME.surface,context,view.bodyAppearances?.[body.id]) : this.makeFailedBody(artifact,body.visible,context);
         this.content.add(solid);
       }
     }
@@ -1919,7 +1920,7 @@ export class CadViewportEngine {
             contextVariantKey: view.contextVariants?.find((variant) => variant.owningInstancePath.canonical === resolved.occurrencePath)?.variantKey,
             instancePath: resolved.instancePath, occurrencePath: resolved.occurrencePath, treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id
           };
-          const solid = resolved.geometryKey ? this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface, context) : this.makeFailedBody(artifact,resolved.bodyVisible,context);
+          const solid = resolved.geometryKey ? this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface, context,resolved.appearance) : this.makeFailedBody(artifact,resolved.bodyVisible,context);
           resolvedGroup.add(solid);
         }
         const visualContext = {
@@ -2717,12 +2718,13 @@ export class CadViewportEngine {
       patternId:member?.patternId,patternMemberSlot:member?.slot};
   }
 
-  private makeSolid(artifact: Artifact, color: number, context: SolidContext): THREE.Group {
+  private makeSolid(artifact: Artifact, color: number, context: SolidContext, appearance?: import("../types").ResolvedAppearance): THREE.Group {
     context={...context,displayStageFeatureId:artifact.displayStageFeatureId};
     const geometry = makeGeometry(artifact);
     geometry.userData.navigationFaceIds = artifact.mesh.faceIds;
     const group = new THREE.Group();
-    const mesh = new THREE.Mesh(geometry, this.materials.surface(color));
+    const scopedAppearance = appearance && appearance.geometryKey !== artifact.geometryKey ? {color:appearance.color} : appearance;
+    const mesh = new THREE.Mesh(geometry, surfaceAppearanceMaterials(geometry,artifact.mesh.faceIds,scopedAppearance,color,value=>this.materials.surface(value)));
     mesh.raycast = acceleratedRaycast;
     markNavigationPickable(mesh);
     mesh.castShadow = true;

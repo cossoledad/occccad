@@ -434,6 +434,13 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       if(commandType==="RENAME_FEATURE") { const feature=part.features.find((item)=>item.id===input.targetId);if(feature)feature.name=String(input.name); }
       if(body && commandType==="SET_ACTIVE_BODY")part.activeBodyId=body.id;
       if(body && commandType==="SET_BODY_VISIBILITY")body.visible=Boolean(input.visible);
+      if(commandType==="SET_BODY_COLOR") {
+        if(!body)throw new Error("Body 不存在");
+        const color=String(input.color??"").toLowerCase();
+        if(color&&!/^#[0-9a-f]{6}$/.test(color))throw new Error("颜色格式无效");
+        body.appearance=color?{color}:undefined;
+        (view.bodyAppearances??={})[body.id]={geometryKey:body.geometryKey,color:color||undefined};
+      }
       if(commandType==="CREATE_PARAMETER") {
         const unit=String(input.unit??"mm"),number=Number(input.value??0),alias=String(input.name||`Parameter${(part.parameters?.length??0)+1}`);
         const dimension={Length:unit==="mm"?1:0,Mass:0,Time:0,Current:0,Temperature:0,Amount:0,Luminous:0,Semantic:unit==="deg"?"ANGLE":""};

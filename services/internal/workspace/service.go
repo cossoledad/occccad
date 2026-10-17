@@ -2833,7 +2833,12 @@ func assemblyConstraintStructureCapabilities(constraint AssemblyConstraint, stat
 func (service *Service) resolveProduct(
 	ctx context.Context, versionID string, parent InstancePose, path string, instancePath InstancePath, treePath string, visiting map[string]bool,
 	artifacts map[string]Artifact, output *[]ResolvedInstance, constraintScopes *[]ConstraintDisplayScope,
+	occurrenceColors ...string,
 ) error {
+	color := ""
+	if len(occurrenceColors) > 0 {
+		color = occurrenceColors[0]
+	}
 	var documentID, documentType, name string
 	var modelJSON []byte
 	if err := service.database.QueryRow(ctx, `
@@ -2870,8 +2875,17 @@ func (service *Service) resolveProduct(
 				}
 				artifacts[key] = artifact
 			}
+			appearance, err := service.bodyAppearance(ctx, body)
+			if err != nil {
+				return err
+			}
+			if color != "" {
+				appearance.Color, appearance.Faces = color, nil
+			}
 			*output = append(*output, ResolvedInstance{
-				ID: path + "/body:" + body.ID, Name: name, DocumentID: documentID,
+				OccurrenceColor: color,
+				Appearance:      appearance,
+				ID:              path + "/body:" + body.ID, Name: name, DocumentID: documentID,
 				BodyID: body.ID, BodyVisible: body.Visible, OwnedSketchIDs: ownedSketchIDs(model, body.ID), GeometryKey: body.GeometryKey, DisplayFallback: body.DisplayFallback,
 				Translation: parent.Translation, Rotation: parent.Rotation,
 				OccurrencePath: instancePath.Canonical, InstancePath: instancePath, BodyTreeNodeID: treePath + "/body:" + body.ID,
@@ -2890,6 +2904,10 @@ func (service *Service) resolveProduct(
 	}
 	for _, instance := range model.Instances {
 		childPose := composeInstancePose(parent, InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)})
+		childColor := color
+		if instance.Color != "" {
+			childColor = instance.Color
+		}
 		resolvedVersionID := instance.ReferencedVersionID
 		childPath := appendInstancePath(instancePath, InstancePathSegment{
 			OwnerDocumentID: documentID, OwnerVersionID: versionID, InstanceID: instance.ID,
@@ -2899,7 +2917,7 @@ func (service *Service) resolveProduct(
 		if err := service.resolveProduct(ctx, resolvedVersionID, childPose,
 			path+"/"+instance.ID,
 			childPath,
-			treePath+"/instance:"+instance.ID+"/reference", visiting, artifacts, output, constraintScopes); err != nil {
+			treePath+"/instance:"+instance.ID+"/reference", visiting, artifacts, output, constraintScopes, childColor); err != nil {
 			return err
 		}
 	}

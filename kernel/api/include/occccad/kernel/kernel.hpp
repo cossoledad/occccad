@@ -293,11 +293,26 @@ struct PlacedGeometry {
 struct ExchangeOccurrence {
     std::string id, definition_id, name;
     PlacedGeometry placement;
+    std::string color{};
+};
+struct ExchangeFaceColor {
+    uint64_t local_id;
+    std::string color; // opaque sRGB #rrggbb, scoped to this frozen BREP
+};
+struct ExchangeAppearance {
+    std::string color;
+    std::vector<ExchangeFaceColor> faces;
+};
+struct ExchangeBody {
+    GeometryId geometry_id;
+    ExchangeAppearance appearance;
 };
 struct ExchangeDefinition {
     std::string id, name, kind; // PART | PRODUCT
     GeometryId geometry_id; // definition-local, PART only
     std::vector<ExchangeOccurrence> children;
+    ExchangeAppearance appearance{};
+    std::vector<ExchangeBody> bodies{};
 };
 struct ExchangeGraph {
     std::vector<ExchangeDefinition> definitions;

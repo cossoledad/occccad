@@ -11,6 +11,11 @@
 #include <TopoDS_Compound.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <XCAFDoc_ColorTool.hxx>
+#include <Quantity_Color.hxx>
+#include <TopoDS_Iterator.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <gp_Quaternion.hxx>
 
 #include "internal/occt_kernel.hpp"
@@ -20,6 +25,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <iomanip>
 
 namespace occccad::kernel {
 namespace {
@@ -59,12 +65,74 @@ TopLoc_Location location(const PlacedGeometry& p) {
 void name(const TDF_Label& label, const std::string& value) {
     TDataStd_Name::Set(label, TCollection_ExtendedString(value.c_str(), true));
 }
+std::string color_hex(const Quantity_Color& color) {
+    double r, g, b;
+    color.Values(r, g, b, Quantity_TOC_sRGB);
+    std::ostringstream out;
+    out << '#' << std::hex << std::setfill('0');
+    for (auto channel : {r, g, b}) out << std::setw(2) << int(std::lround(channel * 255));
+    return out.str();
+}
+Quantity_Color color_value(const std::string& value) {
+    if (value.size() != 7 || value[0] != '#' || value.find_first_not_of("0123456789abcdefABCDEF", 1) != std::string::npos)
+        throw std::invalid_argument("EXCHANGE_INVALID_COLOR");
+    const auto rgb = std::stoul(value.substr(1), nullptr, 16);
+    return Quantity_Color(double((rgb >> 16) & 255) / 255, double((rgb >> 8) & 255) / 255,
+                          double(rgb & 255) / 255, Quantity_TOC_sRGB);
+}
+ExchangeAppearance read_colors(const TopoDS_Shape& shape, const TDF_Label& label,
+                              const Handle(XCAFDoc_ColorTool)& colors) {
+    ExchangeAppearance out;
+    Quantity_Color color;
+    if (colors->GetColor(label, XCAFDoc_ColorSurf, color) || colors->GetColor(label, XCAFDoc_ColorGen, color))
+        out.color = color_hex(color);
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(shape, TopAbs_FACE, faces);
+    std::map<uint64_t, std::string> values;
+    std::function<void(const TopoDS_Shape&, std::string, unsigned)> visit;
+    visit = [&](const TopoDS_Shape& current, std::string inherited, unsigned depth) {
+        if (depth > 128) throw std::invalid_argument("EXCHANGE_SHAPE_DEPTH_LIMIT");
+        Quantity_Color own;
+        if (colors->GetColor(current, XCAFDoc_ColorSurf, own) || colors->GetColor(current, XCAFDoc_ColorGen, own))
+            inherited = color_hex(own);
+        if (current.ShapeType() == TopAbs_FACE) {
+            const auto id = static_cast<uint64_t>(faces.FindIndex(current));
+            if (!inherited.empty() && inherited != out.color) values[id] = inherited;
+            return;
+        }
+        for (TopoDS_Iterator it(current); it.More(); it.Next()) visit(it.Value(), inherited, depth + 1);
+    };
+    visit(shape, out.color, 0);
+    for (const auto& [id, value] : values) out.faces.push_back({id, value});
+    return out;
+}
+std::string label_color(const TDF_Label& label, const Handle(XCAFDoc_ColorTool)& colors) {
+    Quantity_Color color;
+    return colors->GetColor(label, XCAFDoc_ColorSurf, color) || colors->GetColor(label, XCAFDoc_ColorGen, color)
+        ? color_hex(color) : "";
+}
+void write_colors(const TopoDS_Shape& shape, const TDF_Label& label, const ExchangeAppearance& appearance,
+                  const Handle(XCAFDoc_ShapeTool)& shapes, const Handle(XCAFDoc_ColorTool)& colors,
+                  const TDF_Label& owner = {}) {
+    if (!appearance.color.empty()) colors->SetColor(label, color_value(appearance.color), XCAFDoc_ColorSurf);
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(shape, TopAbs_FACE, faces);
+    std::set<uint64_t> seen;
+    for (const auto& face : appearance.faces) {
+        if (face.local_id == 0 || face.local_id > static_cast<uint64_t>(faces.Extent()) || !seen.insert(face.local_id).second)
+            throw std::invalid_argument("EXCHANGE_INVALID_COLOR_LOCATOR");
+        const auto target = shapes->AddSubShape(owner.IsNull() ? label : owner, faces(static_cast<int>(face.local_id)));
+        if (target.IsNull()) throw std::invalid_argument("EXCHANGE_COLOR_SUBSHAPE_FAILED");
+        colors->SetColor(target, color_value(face.color), XCAFDoc_ColorSurf);
+    }
+}
 }  // namespace
 ExchangeGraph OcctKernel::readStepGraph(const std::string& path) {
     Handle(TDocStd_Document) doc = new TDocStd_Document("BinXCAF");
     XCAFDoc_DocumentTool::SetLengthUnit(doc, 1.0, UnitsMethods_LengthUnit_Millimeter);
     STEPCAFControl_Reader reader;
     reader.SetNameMode(true);
+    reader.SetColorMode(true);
     if (reader.ReadFile(path.c_str()) != IFSelect_RetDone)
         throw std::invalid_argument("STEP_XDE_READ_FAILED");
     STEPConstruct_ExternRefs refs(reader.Reader().WS());
@@ -74,6 +142,7 @@ ExchangeGraph OcctKernel::readStepGraph(const std::string& path) {
     if (!reader.Transfer(doc))
         throw std::invalid_argument("STEP_XDE_TRANSFER_FAILED");
     const auto tool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
+    const auto colors = XCAFDoc_DocumentTool::ColorTool(doc->Main());
     ExchangeGraph graph;
     std::map<std::string, int> state;
     std::function<std::string(TDF_Label, unsigned)> visit;
@@ -101,13 +170,14 @@ ExchangeGraph OcctKernel::readStepGraph(const std::string& path) {
                 const auto target = visit(child, depth + 1);
                 def.children.push_back({label_id(child), target,
                                         label_name(child, "Instance " + std::to_string(i)),
-                                        pose(tool->GetLocation(child))});
+                                        pose(tool->GetLocation(child)), label_color(child, colors)});
             }
         } else {
             def.kind = "PART";
             auto shape = tool->GetShape(label);
             if (shape.IsNull())
                 throw std::invalid_argument("EXCHANGE_EMPTY_DEFINITION");
+            def.appearance = read_colors(shape, label, colors);
             // Reference locations live on occurrences, never in definition geometry.
             shape.Location(TopLoc_Location());
             std::ostringstream stream;
@@ -137,6 +207,7 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
     Handle(TDocStd_Document) doc = new TDocStd_Document("BinXCAF");
     XCAFDoc_DocumentTool::SetLengthUnit(doc, 1.0, UnitsMethods_LengthUnit_Millimeter);
     const auto tool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
+    const auto colors = XCAFDoc_DocumentTool::ColorTool(doc->Main());
     std::map<std::string, const ExchangeDefinition*> definitions;
     std::map<std::string, TDF_Label> labels;
     std::set<std::string> visiting;
@@ -163,6 +234,18 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
             if (shape.IsNull() || !def.children.empty())
                 throw std::invalid_argument("EXCHANGE_INVALID_PART");
             tool->SetShape(label, shape);
+            write_colors(shape, label, def.appearance, tool, colors);
+            // Use actual subshape relationships in the combined export shape.
+            // Body/face locators never become persistent identity.
+            TopoDS_Iterator children(shape);
+            for (const auto& body : def.bodies) {
+                if (!children.More()) throw std::invalid_argument("EXCHANGE_BODY_SHAPE_MISMATCH");
+                const auto subshape = children.Value();
+                const auto sublabel = tool->AddSubShape(label, subshape);
+                if (sublabel.IsNull()) throw std::invalid_argument("EXCHANGE_BODY_SUBSHAPE_FAILED");
+                write_colors(subshape, sublabel, body.appearance, tool, colors, label);
+                children.Next();
+            }
         } else if (def.kind == "PRODUCT") {
             TopoDS_Compound compound;
             BRep_Builder builder;
@@ -175,6 +258,7 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
                 auto instance = tool->AddComponent(label, build(child.definition_id, depth + 1),
                                                    location(child.placement));
                 name(instance, child.name);
+                if (!child.color.empty()) colors->SetColor(instance, color_value(child.color), XCAFDoc_ColorSurf);
             }
         } else
             throw std::invalid_argument("EXCHANGE_INVALID_KIND");
@@ -197,18 +281,22 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
         auto label = build(root.definition_id, 0);
         const auto rootLocation = location(root.placement);
         if (!container.IsNull()) {
-            name(tool->AddComponent(container, label, rootLocation), root.name);
+            const auto component = tool->AddComponent(container, label, rootLocation);
+            name(component, root.name);
+            if (!root.color.empty()) colors->SetColor(component, color_value(root.color), XCAFDoc_ColorSurf);
             continue;
         }
         const auto& p = root.placement;
         if (p.translation.x != 0 || p.translation.y != 0 || p.translation.z != 0 ||
-            p.rotation.x != 0 || p.rotation.y != 0 || p.rotation.z != 0) {
+            p.rotation.x != 0 || p.rotation.y != 0 || p.rotation.z != 0 || !root.color.empty()) {
             auto wrapper = tool->NewShape();
             TopoDS_Compound compound;
             BRep_Builder builder;
             builder.MakeCompound(compound);
             tool->SetShape(wrapper, compound);
-            name(tool->AddComponent(wrapper, label, rootLocation), root.name);
+            const auto component = tool->AddComponent(wrapper, label, rootLocation);
+            name(component, root.name);
+            if (!root.color.empty()) colors->SetColor(component, color_value(root.color), XCAFDoc_ColorSurf);
             name(wrapper, root.name);
             label = wrapper;
         }
@@ -219,6 +307,7 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
     tool->UpdateAssemblies();
     STEPCAFControl_Writer writer;
     writer.SetNameMode(true);
+    writer.SetColorMode(true);
     if (!writer.Transfer(roots, STEPControl_AsIs))
         throw std::runtime_error("STEP_XDE_EXPORT_TRANSFER_FAILED");
     std::ostringstream stream;

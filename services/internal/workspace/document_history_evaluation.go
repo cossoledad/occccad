@@ -25,7 +25,7 @@ func evaluatePartHistory(ctx context.Context, service *Service, input historyCom
 		// No parameter/publication preparation or solid evaluation is necessary.
 		displayOnly := len(input.changes.Changes) > 0
 		for _, change := range input.changes.Changes {
-			if !strings.HasPrefix(change.Target.SlotID, "display.") {
+			if !strings.HasPrefix(change.Target.SlotID, "display.") && change.Target.SlotID != "body.appearance" {
 				displayOnly = false
 				break
 			}

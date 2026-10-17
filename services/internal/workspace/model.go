@@ -594,6 +594,7 @@ type ImportedOccurrenceName struct {
 }
 
 type ProductInstance struct {
+	Color                string                  `json:"color,omitempty"`
 	ImportedName         *ImportedOccurrenceName `json:"importedName,omitempty"`
 	ID                   string                  `json:"id"`
 	Name                 string                  `json:"name"`
@@ -952,6 +953,8 @@ type CopyDocumentRequest struct {
 }
 
 type ResolvedInstance struct {
+	OccurrenceColor string               `json:"-"`
+	Appearance      ResolvedAppearance   `json:"appearance,omitempty"`
 	DisplayFallback *BodyDisplayFallback `json:"displayFallback,omitempty"`
 	BodyID          string               `json:"bodyId"`
 	BodyVisible     bool                 `json:"bodyVisible"`
@@ -1045,6 +1048,7 @@ type DocumentStructureNode struct {
 }
 
 type DocumentView struct {
+	BodyAppearances         map[string]ResolvedAppearance    `json:"bodyAppearances,omitempty"`
 	ReplicationSources      map[string]ReplicationSource     `json:"replicationSources,omitempty"`
 	SketchPatternMembers    map[string][]SketchEntity        `json:"sketchPatternMembers,omitempty"`
 	Document                DocumentSummary                  `json:"document"`
@@ -1139,6 +1143,7 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	Color                     string                       `json:"color,omitempty"`
 	MechanismApplication      *MechanismApplicationRequest `json:"mechanismApplication,omitempty"`
 	MotionApply               *MotionApplyRequest          `json:"motionApply,omitempty"`
 	Kinematics                *KinematicsDefinitions       `json:"kinematics,omitempty"`

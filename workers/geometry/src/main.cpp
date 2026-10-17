@@ -1862,6 +1862,7 @@ public:
                 to->set_id(from.id);
                 to->set_definition_id(from.definition_id);
                 to->set_name(from.name);
+                to->set_color(from.color);
                 to->mutable_translation()->set_x(from.placement.translation.x);
                 to->mutable_translation()->set_y(from.placement.translation.y);
                 to->mutable_translation()->set_z(from.placement.translation.z);
@@ -1878,13 +1879,25 @@ public:
                 item->set_id(def.id);
                 item->set_name(def.name);
                 item->set_kind(def.kind);
+                item->mutable_appearance()->set_color(def.appearance.color);
+                for (const auto& color : def.appearance.faces) {
+                    auto* face = item->mutable_appearance()->add_faces();
+                    face->set_local_id(color.local_id);
+                    face->set_color(color.color);
+                }
                 for (const auto& child : def.children)
                     occurrence(child, item->add_children());
-                if (def.kind == "PART" && !request->component_output_prefix().empty())
+                if (def.kind == "PART" && !request->component_output_prefix().empty()) {
+                    const auto repaired = preparation.repairImportedSolid(def.geometry_id);
+                    // A repair can change topology before persistent IDs are allocated.
+                    // Do not attach source face colors by ordinal to repaired topology.
+                    if (repaired != def.geometry_id && !def.appearance.faces.empty())
+                        throw std::invalid_argument("EXCHANGE_COLORED_FACE_REPAIR_UNSUPPORTED");
                     write_artifact(request->component_output_prefix() + "/" +
                                        std::to_string(++ordinal) + ".brep",
-                                   preparation.serializeBrepr(def.geometry_id),
+                                   preparation.serializeBrepr(repaired),
                                    "application/vnd.opencascade.brep", item->mutable_brep());
+                }
             }
             for (const auto& root : graph.roots)
                 occurrence(root, output->add_roots());
@@ -2049,6 +2062,7 @@ public:
                 to.id = from.id();
                 to.definition_id = from.definition_id();
                 to.name = from.name();
+                to.color = from.color();
                 to.placement.translation = {from.translation().x(), from.translation().y(),
                                             from.translation().z()};
                 to.placement.rotation = {from.rotation().x(), from.rotation().y(),
@@ -2070,15 +2084,27 @@ public:
                 item.id = def.id();
                 item.name = def.name();
                 item.kind = def.kind();
+                auto appearance = [](const auto& from) {
+                    occccad::kernel::ExchangeAppearance to;
+                    to.color = from.color();
+                    for (const auto& face : from.faces()) to.faces.push_back({face.local_id(), face.color()});
+                    return to;
+                };
+                item.appearance = appearance(def.appearance());
                 if (item.kind == "PART") {
-                    if (def.body_breps_size() > 0) {
+                    if (def.bodies_size() > 0) {
                         std::vector<occccad::kernel::PlacedGeometry> bodies;
-                        for (const auto& ref : def.body_breps()) {
+                        for (const auto& source : def.bodies()) {
                             occccad::kernel::PlacedGeometry body;
-                            body.geometry_id = preparation.loadBrepr(read_artifact(ref));
+                            body.geometry_id = preparation.loadBrepr(read_artifact(source.brep()));
                             bodies.push_back(body);
+                            item.bodies.push_back({body.geometry_id, appearance(source.appearance())});
                         }
-                        item.geometry_id = bodies.size()==1 ? bodies.front().geometry_id : preparation.combine(bodies);
+                        if (bodies.size() == 1) {
+                            item.geometry_id = bodies.front().geometry_id;
+                            item.appearance = item.bodies.front().appearance;
+                            item.bodies.clear();
+                        } else item.geometry_id = preparation.combine(bodies);
                     } else item.geometry_id = preparation.loadBrepr(read_artifact(def.brep()));
                 }
                 for (const auto& child : def.children())

@@ -11,6 +11,7 @@ import (
 )
 
 func projectPartDocument(ctx context.Context, service *Service, summary DocumentSummary, modelJSON []byte) (DocumentView, error) {
+	ctx = withAssemblyReadCache(ctx)
 	view := DocumentView{Document: summary}
 	var err error
 	var model PartModel
@@ -20,6 +21,16 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 	normalizePartModel(&model)
 	presentParameters(&model)
 	view.Part = &model
+	view.BodyAppearances = map[string]ResolvedAppearance{}
+	for _, body := range model.Bodies {
+		appearance, err := service.bodyAppearance(ctx, body)
+		if err != nil {
+			return view, err
+		}
+		if body.Appearance != nil {
+			view.BodyAppearances[body.ID] = appearance
+		}
+	}
 	view.ReplicationSources = replicationSources(model)
 	view.SketchPatternMembers = map[string][]SketchEntity{}
 	for _, feature := range model.Features {
@@ -61,6 +72,7 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 	return view, nil
 }
 func projectProductDocument(ctx context.Context, service *Service, summary DocumentSummary, modelJSON []byte) (DocumentView, error) {
+	ctx = withAssemblyReadCache(ctx)
 	view := DocumentView{Document: summary}
 	var err error
 
@@ -135,6 +147,16 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 			for i := range view.ResolvedInstances {
 				if view.ResolvedInstances[i].OccurrencePath == variant.OwningInstancePath.Canonical && view.ResolvedInstances[i].BodyID == body.ID {
 					view.ResolvedInstances[i].GeometryKey = body.GeometryKey
+					resolved := &view.ResolvedInstances[i]
+					version := resolved.InstancePath.Segments[len(resolved.InstancePath.Segments)-1].ResolvedVersionID
+					appearance, err := service.appearanceAtGeometry(ctx, resolved.DocumentID, version, body.ID, body.GeometryKey)
+					if err != nil {
+						return view, err
+					}
+					resolved.Appearance = appearance
+					if resolved.OccurrenceColor != "" {
+						resolved.Appearance.Color, resolved.Appearance.Faces = resolved.OccurrenceColor, nil
+					}
 				}
 			}
 		}

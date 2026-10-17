@@ -93,7 +93,7 @@ STEP 交换使用 `STEPCAFControl_Reader/Writer` 和 XDE document。Definition i
 
 导出从根 Revision 递归读取已接受的 Part/Product 引用，保留局部 placement；按 document + revision + 实际上下文几何/子定义结果复用 Definition。同一业务 Definition 的上下文变体必要时分开表达，避免互相覆盖。Release 导出使用冻结根 Revision 和冻结几何，不查询子文档最新 Head。XDE writer 使用显式独立 label 创建业务定义，不用 AddShape 的几何匹配替代身份；BREP 导出仍将图合成为几何 Compound。
 
-图验证拒绝缺失/重复身份、悬空引用、环、非法 pose、不可达定义及超限；深度最多 128、定义最多 100000、定义内总引用最多 1000000，业务上下文现有展开上限仍独立生效。STEP 外部文件引用在 Transfer 前拒绝，避免访问未授权路径。共享定义不表示 OCCT/XDE 已实现 out-of-core；颜色、材质、层、PMI 和完整 AP242 尚未交付。
+图验证拒绝缺失/重复身份、悬空引用、环、非法 pose、不可达定义及超限；深度最多 128、定义最多 100000、定义内总引用最多 1000000，业务上下文现有展开上限仍独立生效。STEP 外部文件引用在 Transfer 前拒绝，避免访问未授权路径。共享定义不表示 OCCT/XDE 已实现 out-of-core；基础 RGB 颜色交换见[颜色材质](surface-appearance.md)，图片材质、层、PMI 和完整 AP242 尚未交付。
 
 ## 实现与验证入口
 

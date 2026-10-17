@@ -19,6 +19,7 @@ type BodyDisplayFallback struct {
 }
 
 type PartBody struct {
+	Appearance         *SurfaceAppearance   `json:"appearance,omitempty"`
 	DisplayFallback    *BodyDisplayFallback `json:"displayFallback,omitempty"`
 	Consumed           bool                 `json:"consumed,omitempty"`
 	CreatedByFeatureID string               `json:"createdByFeatureId,omitempty"`

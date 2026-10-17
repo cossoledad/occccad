@@ -115,6 +115,9 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 			sub.Children = append(sub.Children, child)
 		}
 		graph := &geometry.ExchangeGraph{Definitions: []*workerv1.ExchangeDefinition{{Id: "pin", Name: "Shared Pin", Kind: "PART", Brep: ref}, {Id: "other", Name: "Identical But Distinct", Kind: "PART", Brep: ref}, sub, {Id: "root", Name: "Root Product", Kind: "PRODUCT", Children: []*workerv1.ExchangeOccurrence{occurrence("Sub.1", "sub", 0), occurrence("Sub.2", "sub", 100), occurrence("Other.1", "other", 200)}}}, Roots: []*workerv1.ExchangeOccurrence{occurrence("root", "root", 0)}}
+		graph.Definitions[0].Appearance = &workerv1.ExchangeAppearance{Color: "#d64a3a", Faces: []*workerv1.ExchangeFaceColor{{LocalId: 1, Color: "#000000"}}}
+		graph.Definitions[1].Appearance = &workerv1.ExchangeAppearance{Color: "#3978bd"}
+		graph.Definitions[3].Children[1].Color = "#e8b541"
 		exported, err := client.ExportExchange(t.Context(), runID+"/fixture-export", "STEP", artifact.StagingKey(runID, "fixture.step"), graph)
 		if err != nil {
 			t.Fatal(err)
@@ -205,6 +208,14 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 		if expected != 4 || len(product.Product.Instances) != 3 || len(product.ResolvedInstances) != 201 {
 			t.Fatalf("graph lost sharing: defs=%d root=%d leaves=%d", expected, len(product.Product.Instances), len(product.ResolvedInstances))
 		}
+		for _, instance := range product.ResolvedInstances {
+			if instance.Appearance.UnresolvedFaces != 0 || (instance.Appearance.Color != "#d64a3a" && instance.Appearance.Color != "#3978bd" && instance.Appearance.Color != "#e8b541") {
+				t.Fatalf("import lost occurrence color: %+v", instance.Appearance)
+			}
+			if instance.Appearance.Color == "#d64a3a" && len(instance.Appearance.Faces) != 1 {
+				t.Fatal("import lost black face override")
+			}
+		}
 		if product.Product.Instances[0].ReferencedDocumentID != product.Product.Instances[1].ReferencedDocumentID {
 			t.Fatal("Sub Product duplicated")
 		}
@@ -239,6 +250,26 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 		}
 		if _, err := service.BindPersistentSelection(t.Context(), id, workspace.BindPersistentSelectionRequest{SourceVersionID: part.Document.VersionID, GeometryKey: part.Part.Bodies[0].GeometryKey, Kind: "FACE", LocalID: 1}); err != nil {
 			t.Fatal(err)
+		}
+		if generated {
+			body := part.Part.Bodies[0]
+			before, _ := json.Marshal(body.Appearance)
+			for index, request := range []workspace.CommandRequest{{Type: "SET_BODY_COLOR", BodyID: body.ID, Color: "#3b9863"}, {Type: "SET_BODY_COLOR", BodyID: body.ID, Color: "#e8b541"}, {Type: "UNDO"}, {Type: "UNDO"}, {Type: "REDO"}, {Type: "REDO"}, {Type: "UNDO"}, {Type: "UNDO"}} {
+				request.ActorID, request.RequestID = actor, fmt.Sprintf("%s/colors/%d", id, index)
+				updated, err := service.ApplyCommand(t.Context(), id, request)
+				if err != nil {
+					t.Fatal(request.Type, err)
+				}
+				if updated.Part.Bodies[0].GeometryKey != body.GeometryKey {
+					t.Fatal("color history recomputed geometry")
+				}
+				if index == 3 || index == 7 {
+					actual, _ := json.Marshal(updated.Part.Bodies[0].Appearance)
+					if string(actual) != string(before) {
+						t.Fatalf("Undo failed to restore imported semantic colors: %s != %s", actual, before)
+					}
+				}
+			}
 		}
 	}
 	exported, err := client.ExportExchange(t.Context(), runID+"/roundtrip", "STEP", artifact.StagingKey(runID, "roundtrip.step"), graph)
@@ -342,6 +373,14 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 		}
 		for i, original := range product.ResolvedInstances {
 			actual := restored.ResolvedInstances[i]
+			if actual.Appearance.Color != original.Appearance.Color || len(actual.Appearance.Faces) != len(original.Appearance.Faces) || actual.Appearance.UnresolvedFaces != 0 {
+				counts := map[string]int{}
+				for _, item := range restored.ResolvedInstances {
+					counts[item.Appearance.Color]++
+				}
+				t.Logf("restored color counts=%v; root=%+v; exported occurrences=%+v", counts, restored.Product.Instances, graph.Definitions[len(graph.Definitions)-1].Children)
+				t.Fatalf("roundtrip lost colors: %+v != %+v", actual.Appearance, original.Appearance)
+			}
 			for j := 0; j < 3; j++ {
 				if math.Abs(actual.Translation[j]-original.Translation[j]) > 1e-6 {
 					t.Fatal("roundtrip changed occurrence placement")

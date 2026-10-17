@@ -346,6 +346,8 @@ export function PartBodies({view}:{view:DocumentView}) {
       <Typography.Text strong>{body.name}</Typography.Text>
       <Space wrap>{body.id===view.part!.activeBodyId && <Tag>活动实体</Tag>}
         <Tag>{body.visible ? "可见" : "隐藏"}</Tag>{body.displayFallback && <Tag color="error">计算失败 · 显示上次成功结果</Tag>}{body.consumed && <Tag>已用于布尔</Tag>}</Space>
+      <div>颜色：{body.appearance?.color ?? "默认"}{body.appearance?.faces?.length ? ` · ${body.appearance.faces.length} 个分面颜色` : ""}</div>
+      {Boolean(view.bodyAppearances?.[body.id]?.unresolvedFaces) && <Typography.Text type="warning">部分颜色的拓扑对应关系未解析，导出前需处理。</Typography.Text>}
       {body.displayFallback && <div>显示来源版本：{body.displayFallback.sourceVersionId.slice(0,12)}；修复失败特征后恢复。</div>}
       {Object.entries(view.artifacts?.[body.geometryKey??""]?.representations??{}).map(([role,ref])=><div key={role}>
         <Space wrap><span>{role==="VISUAL"?"mesh.glb":role==="NAMING"?"naming.pb":role}</span>

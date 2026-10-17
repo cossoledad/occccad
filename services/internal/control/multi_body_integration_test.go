@@ -176,7 +176,7 @@ func TestMultiBodyIndependentGeometryAndHistory(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(graph.Definitions) != 1 || len(graph.Definitions[0].BodyBreps) != 2 {
+	if len(graph.Definitions) != 1 || len(graph.Definitions[0].Bodies) != 2 {
 		t.Fatal("export split business Part definition")
 	}
 	exported, e := client.ExportExchange(t.Context(), part.Document.ID+"-export", "STEP", artifact.StagingKey(part.Document.ID, "multi.step"), graph)

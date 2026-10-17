@@ -81,7 +81,7 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onRename, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onRename, onColor, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   documentSessions?: DocumentSessions; hostDocumentId?: string;
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string; editSession?: EditSession;
@@ -92,6 +92,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   onViewResult?: (node:SpecificationTreeNode)=>void;
   onEdit?: (node: SpecificationTreeNode) => void;
   onRename?: (node: SpecificationTreeNode) => void;
+  onColor?: (node: SpecificationTreeNode) => void;
   onCreatePart?: (node: SpecificationTreeNode) => void;
   onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD") => void;
   onDetach?: (node: SpecificationTreeNode) => void;
@@ -268,6 +269,8 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               ? { key: "rename", icon: menuIcon('tree.rename'), label: menuLabel('tree.rename'), onClick: () => { setContextMenu(undefined); onRename(node); } } : null,
             node.capabilities?.includes("CREATE_PART") ? { key: "create-part", icon: menuIcon('tree.create-part'), label: menuLabel('tree.create-part'),
               onClick: () => { setContextMenu(undefined); onCreatePart?.(node); } } : null,
+            onColor && node.kind === "BODY" && node.documentId === activeDocumentId && (node.instancePath?.canonical ?? "") === (activeInstancePath ?? "")
+              ? { key:"color",icon:menuIcon('tree.color'),label:menuLabel('tree.color'),onClick:()=>{setContextMenu(undefined);onColor(node);} } : null,
             node.capabilities?.includes("PIN_VERSION") ? { key: "pin-version", icon: menuIcon('tree.reference-mode'), label: menuLabel('tree.reference-mode','pinned'),
               onClick: () => { setContextMenu(undefined); onReferenceMode?.(node, "PINNED"); } } : null,
             node.capabilities?.includes("FOLLOW_HEAD") ? { key: "follow-head", icon: menuIcon('tree.reference-mode'), label: menuLabel('tree.reference-mode','follow'),

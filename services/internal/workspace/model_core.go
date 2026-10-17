@@ -93,6 +93,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeCreateDatumAxis, "PART", applyCreateDatumAxis},
 		commandHandler{typeEditDatum, "PART", applyEditDatum},
 		commandHandler{typeImportExchange, "PART", applyCreateFeature},
+		commandHandler{typeSetBodyColor, "PART", applyBodyColor},
 		commandHandler{typeRepairImportNaming, "PART", applyRepairImportNaming},
 		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
 		commandHandler{typeSetParameterExpression, "PART", applyParameterSource},
@@ -1224,6 +1225,7 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 }
 
 type createFeaturePayload struct {
+	BodyAppearance   *SurfaceAppearance               `json:"bodyAppearance,omitempty"`
 	Feature          Feature                          `json:"feature"`
 	ParameterSources map[string]modelcore.ValueSource `json:"parameterSources,omitempty"`
 }
@@ -1270,6 +1272,19 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: target Body does not exist", ErrValidation)
 	}
 	model.Features = append(model.Features, payload.Feature)
+	if payload.BodyAppearance != nil {
+		if payload.Feature.Type != "IMPORT_BODY" {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: appearance requires import", ErrValidation)
+		}
+		index := bodyIndex(model, payload.Feature.BodyID)
+		before := model.Bodies[index].Appearance
+		model.Bodies[index].Appearance = payload.BodyAppearance
+		change, err := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.Feature.BodyID, SlotID: "body.appearance"}, before, payload.BodyAppearance)
+		if err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		bodyChanges = append(bodyChanges, change)
+	}
 	normalizePartModel(&model)
 	for slot, source := range payload.ParameterSources {
 		parameterID := "parameter:" + payload.Feature.ID + ":" + slot
@@ -2209,7 +2224,7 @@ type preparedDomainMutation struct {
 }
 
 func isPartMetadataCommand(command modelcore.DomainCommand) bool {
-	if command.TypeURI == typeDefinitionVisibility || command.TypeURI == typeRenameFeature {
+	if command.TypeURI == typeDefinitionVisibility || command.TypeURI == typeRenameFeature || command.TypeURI == typeSetBodyColor {
 		return true
 	}
 	if command.TypeURI != typeBodyCommand {
@@ -2235,6 +2250,9 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	}
 	if request.ExpectedUpdateRevision != "" && prepared.headRevision != request.ExpectedUpdateRevision {
 		return prepared, fmt.Errorf("%w: PARAMETER_UPDATE_CONSUMER_CHANGED", ErrValidation)
+	}
+	if request.Type == "SET_BODY_COLOR" && request.VersionID != "" && request.VersionID != prepared.headRevision {
+		return prepared, fmt.Errorf("%w: APPEARANCE_BASE_REVISION_CHANGED", ErrValidation)
 	}
 	if len(priorManifestJSON) > 0 {
 		var manifest modelcore.EvaluationManifest
@@ -2262,6 +2280,10 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 			input.Feature.BodyID = m.ActiveBodyID
 		}
 		input.Feature.ImportDefinitionID, err = service.allocateImportDefinition(ctx, documentID, input.Feature, request.ImportSource)
+		if err != nil {
+			return prepared, err
+		}
+		input.BodyAppearance, err = service.importedAppearance(ctx, input.Feature, request.ImportSource)
 		if err != nil {
 			return prepared, err
 		}
@@ -2515,7 +2537,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		return err
 	}
 
-	if err := tx.Commit(ctx); err != nil { return err }
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
 	if revisionState == "FAILED" {
 		service.retainFailedRevision(ctx, diagnostic, nextJSON, revisionID)
 	}

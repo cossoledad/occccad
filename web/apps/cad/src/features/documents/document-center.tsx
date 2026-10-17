@@ -379,6 +379,7 @@ export function DocumentCenter() {
       <Typography.Paragraph type="secondary">选择用于交换或归档的输出格式。Part 与 Product 均可导出。</Typography.Paragraph>
       <Segmented block value={exportFormat} onChange={(value) => setExportFormat(value as "STEP" | "BREP")}
         options={[{ label: "STEP (.step)", value: "STEP" }, { label: "OpenCascade BREP (.brep)", value: "BREP" }]} />
+      <Typography.Paragraph type="secondary">{exportFormat==="STEP"?"保留装配结构、Body 颜色和分面颜色。":"BREP 仅保存几何，不携带颜色；需要保留颜色请选择 STEP。"}</Typography.Paragraph>
     </Modal>
     <ShareDialog resource={shareResource} onClose={() => setShareResource(undefined)} />
   </Layout>;

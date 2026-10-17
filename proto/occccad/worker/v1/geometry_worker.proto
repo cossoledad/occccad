@@ -898,6 +898,7 @@ message ExchangeOccurrence {
     string name = 3;
     Vec3 translation = 4;
     Quaternion rotation = 5;
+    string color = 6; // optional opaque sRGB override on this occurrence
 }
 message ExchangeDefinition {
     string id = 1;
@@ -905,7 +906,8 @@ message ExchangeDefinition {
     string kind = 3; // PART | PRODUCT
     ArtifactReference brep = 4; // PART only, definition-local
     repeated ExchangeOccurrence children = 5;
-    repeated ArtifactReference body_breps = 6; // Export-only Part-local bodies; combined only in exchange output.
+    repeated ExchangeBody bodies = 6; // Export-only Part-local bodies.
+    ExchangeAppearance appearance = 7; // Import snapshot, scoped to brep SHA-256.
 }
 message ExchangeGraph {
     repeated ExchangeDefinition definitions = 1;
@@ -1350,4 +1352,19 @@ message AnalyzeInterferenceResponse {
     repeated InterferencePairResult pairs = 1;
     bool complete = 2;
     string kernel_build = 3;
+}
+
+// Exchange locators are temporary and valid only for the accompanying frozen
+// BREP. The control plane binds them to allocated persistent topology identities.
+message ExchangeFaceColor {
+    uint64 local_id = 1;
+    string color = 2; // opaque sRGB #rrggbb
+}
+message ExchangeAppearance {
+    string color = 1; // empty means application default
+    repeated ExchangeFaceColor faces = 2;
+}
+message ExchangeBody {
+    ArtifactReference brep = 1;
+    ExchangeAppearance appearance = 2;
 }

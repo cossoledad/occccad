@@ -7,11 +7,11 @@ import (
 	"errors"
 	"fmt"
 
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 	"google.golang.org/protobuf/proto"
-	artifactstore "github.com/occccad/occccad/internal/artifact"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
 const importPolicy = "occccad.import.frozen-brep.v1"
@@ -19,10 +19,12 @@ const typeRepairImportNaming = "occccad://part/exchange/repair-naming"
 
 // Source describes the original exchange object, not a display artifact.
 type ImportSource struct {
-	ObjectID     string `json:"objectId"`
-	SHA256       string `json:"sha256"`
-	Format       string `json:"format"`
-	DefinitionID string `json:"definitionId,omitempty"`
+	AppearanceBRepSHA256 string                       `json:"-"`
+	Appearance           *workerv1.ExchangeAppearance `json:"-"`
+	ObjectID             string                       `json:"objectId"`
+	SHA256               string                       `json:"sha256"`
+	Format               string                       `json:"format"`
+	DefinitionID         string                       `json:"definitionId,omitempty"`
 }
 type importedIdentity struct {
 	ID      string `json:"id"`

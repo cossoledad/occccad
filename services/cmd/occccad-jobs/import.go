@@ -180,7 +180,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 				if strings.TrimSpace(name) == "" {
 					name = baseName
 				}
-				view, err := h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName, format, result.key, result.evaluation, &workspace.ImportSource{ObjectID: source.ID, SHA256: source.SHA256, Format: format, DefinitionID: components[index].Id})
+				view, err := h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName, format, result.key, result.evaluation, &workspace.ImportSource{ObjectID: source.ID, SHA256: source.SHA256, Format: format, DefinitionID: components[index].Id, Appearance: components[index].Appearance, AppearanceBRepSHA256: components[index].GetBrep().GetSha256()})
 				if err != nil {
 					return err
 				}

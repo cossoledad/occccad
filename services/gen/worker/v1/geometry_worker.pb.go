@@ -7933,6 +7933,7 @@ type ExchangeOccurrence struct {
 	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Translation   *Vec3                  `protobuf:"bytes,4,opt,name=translation,proto3" json:"translation,omitempty"`
 	Rotation      *Quaternion            `protobuf:"bytes,5,opt,name=rotation,proto3" json:"rotation,omitempty"`
+	Color         string                 `protobuf:"bytes,6,opt,name=color,proto3" json:"color,omitempty"` // optional opaque sRGB override on this occurrence
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8002,6 +8003,13 @@ func (x *ExchangeOccurrence) GetRotation() *Quaternion {
 	return nil
 }
 
+func (x *ExchangeOccurrence) GetColor() string {
+	if x != nil {
+		return x.Color
+	}
+	return ""
+}
+
 type ExchangeDefinition struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -8009,7 +8017,8 @@ type ExchangeDefinition struct {
 	Kind          string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"` // PART | PRODUCT
 	Brep          *ArtifactReference     `protobuf:"bytes,4,opt,name=brep,proto3" json:"brep,omitempty"` // PART only, definition-local
 	Children      []*ExchangeOccurrence  `protobuf:"bytes,5,rep,name=children,proto3" json:"children,omitempty"`
-	BodyBreps     []*ArtifactReference   `protobuf:"bytes,6,rep,name=body_breps,json=bodyBreps,proto3" json:"body_breps,omitempty"` // Export-only Part-local bodies; combined only in exchange output.
+	Bodies        []*ExchangeBody        `protobuf:"bytes,6,rep,name=bodies,proto3" json:"bodies,omitempty"`         // Export-only Part-local bodies.
+	Appearance    *ExchangeAppearance    `protobuf:"bytes,7,opt,name=appearance,proto3" json:"appearance,omitempty"` // Import snapshot, scoped to brep SHA-256.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8079,9 +8088,16 @@ func (x *ExchangeDefinition) GetChildren() []*ExchangeOccurrence {
 	return nil
 }
 
-func (x *ExchangeDefinition) GetBodyBreps() []*ArtifactReference {
+func (x *ExchangeDefinition) GetBodies() []*ExchangeBody {
 	if x != nil {
-		return x.BodyBreps
+		return x.Bodies
+	}
+	return nil
+}
+
+func (x *ExchangeDefinition) GetAppearance() *ExchangeAppearance {
+	if x != nil {
+		return x.Appearance
 	}
 	return nil
 }
@@ -12129,6 +12145,164 @@ func (x *AnalyzeInterferenceResponse) GetKernelBuild() string {
 	return ""
 }
 
+// Exchange locators are temporary and valid only for the accompanying frozen
+// BREP. The control plane binds them to allocated persistent topology identities.
+type ExchangeFaceColor struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LocalId       uint64                 `protobuf:"varint,1,opt,name=local_id,json=localId,proto3" json:"local_id,omitempty"`
+	Color         string                 `protobuf:"bytes,2,opt,name=color,proto3" json:"color,omitempty"` // opaque sRGB #rrggbb
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExchangeFaceColor) Reset() {
+	*x = ExchangeFaceColor{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[135]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExchangeFaceColor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExchangeFaceColor) ProtoMessage() {}
+
+func (x *ExchangeFaceColor) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[135]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExchangeFaceColor.ProtoReflect.Descriptor instead.
+func (*ExchangeFaceColor) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{135}
+}
+
+func (x *ExchangeFaceColor) GetLocalId() uint64 {
+	if x != nil {
+		return x.LocalId
+	}
+	return 0
+}
+
+func (x *ExchangeFaceColor) GetColor() string {
+	if x != nil {
+		return x.Color
+	}
+	return ""
+}
+
+type ExchangeAppearance struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Color         string                 `protobuf:"bytes,1,opt,name=color,proto3" json:"color,omitempty"` // empty means application default
+	Faces         []*ExchangeFaceColor   `protobuf:"bytes,2,rep,name=faces,proto3" json:"faces,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExchangeAppearance) Reset() {
+	*x = ExchangeAppearance{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[136]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExchangeAppearance) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExchangeAppearance) ProtoMessage() {}
+
+func (x *ExchangeAppearance) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[136]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExchangeAppearance.ProtoReflect.Descriptor instead.
+func (*ExchangeAppearance) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{136}
+}
+
+func (x *ExchangeAppearance) GetColor() string {
+	if x != nil {
+		return x.Color
+	}
+	return ""
+}
+
+func (x *ExchangeAppearance) GetFaces() []*ExchangeFaceColor {
+	if x != nil {
+		return x.Faces
+	}
+	return nil
+}
+
+type ExchangeBody struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Brep          *ArtifactReference     `protobuf:"bytes,1,opt,name=brep,proto3" json:"brep,omitempty"`
+	Appearance    *ExchangeAppearance    `protobuf:"bytes,2,opt,name=appearance,proto3" json:"appearance,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExchangeBody) Reset() {
+	*x = ExchangeBody{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[137]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExchangeBody) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExchangeBody) ProtoMessage() {}
+
+func (x *ExchangeBody) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[137]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExchangeBody.ProtoReflect.Descriptor instead.
+func (*ExchangeBody) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{137}
+}
+
+func (x *ExchangeBody) GetBrep() *ArtifactReference {
+	if x != nil {
+		return x.Brep
+	}
+	return nil
+}
+
+func (x *ExchangeBody) GetAppearance() *ExchangeAppearance {
+	if x != nil {
+		return x.Appearance
+	}
+	return nil
+}
+
 var File_occccad_worker_v1_geometry_worker_proto protoreflect.FileDescriptor
 
 const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
@@ -12884,21 +13058,24 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12<\n" +
 	"\x06source\x18\x03 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\x06source\x126\n" +
-	"\x17component_output_prefix\x18\x04 \x01(\tR\x15componentOutputPrefix\"\xd3\x01\n" +
+	"\x17component_output_prefix\x18\x04 \x01(\tR\x15componentOutputPrefix\"\xe9\x01\n" +
 	"\x12ExchangeOccurrence\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12#\n" +
 	"\rdefinition_id\x18\x02 \x01(\tR\fdefinitionId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x129\n" +
 	"\vtranslation\x18\x04 \x01(\v2\x17.occccad.worker.v1.Vec3R\vtranslation\x129\n" +
-	"\brotation\x18\x05 \x01(\v2\x1d.occccad.worker.v1.QuaternionR\brotation\"\x8e\x02\n" +
+	"\brotation\x18\x05 \x01(\v2\x1d.occccad.worker.v1.QuaternionR\brotation\x12\x14\n" +
+	"\x05color\x18\x06 \x01(\tR\x05color\"\xc9\x02\n" +
 	"\x12ExchangeDefinition\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
 	"\x04kind\x18\x03 \x01(\tR\x04kind\x128\n" +
 	"\x04brep\x18\x04 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\x04brep\x12A\n" +
-	"\bchildren\x18\x05 \x03(\v2%.occccad.worker.v1.ExchangeOccurrenceR\bchildren\x12C\n" +
+	"\bchildren\x18\x05 \x03(\v2%.occccad.worker.v1.ExchangeOccurrenceR\bchildren\x127\n" +
+	"\x06bodies\x18\x06 \x03(\v2\x1f.occccad.worker.v1.ExchangeBodyR\x06bodies\x12E\n" +
 	"\n" +
-	"body_breps\x18\x06 \x03(\v2$.occccad.worker.v1.ArtifactReferenceR\tbodyBreps\"\x95\x01\n" +
+	"appearance\x18\a \x01(\v2%.occccad.worker.v1.ExchangeAppearanceR\n" +
+	"appearance\"\x95\x01\n" +
 	"\rExchangeGraph\x12G\n" +
 	"\vdefinitions\x18\x01 \x03(\v2%.occccad.worker.v1.ExchangeDefinitionR\vdefinitions\x12;\n" +
 	"\x05roots\x18\x02 \x03(\v2%.occccad.worker.v1.ExchangeOccurrenceR\x05roots\"Q\n" +
@@ -13265,7 +13442,18 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x1bAnalyzeInterferenceResponse\x12?\n" +
 	"\x05pairs\x18\x01 \x03(\v2).occccad.worker.v1.InterferencePairResultR\x05pairs\x12\x1a\n" +
 	"\bcomplete\x18\x02 \x01(\bR\bcomplete\x12!\n" +
-	"\fkernel_build\x18\x03 \x01(\tR\vkernelBuild*\xeb\x01\n" +
+	"\fkernel_build\x18\x03 \x01(\tR\vkernelBuild\"D\n" +
+	"\x11ExchangeFaceColor\x12\x19\n" +
+	"\blocal_id\x18\x01 \x01(\x04R\alocalId\x12\x14\n" +
+	"\x05color\x18\x02 \x01(\tR\x05color\"f\n" +
+	"\x12ExchangeAppearance\x12\x14\n" +
+	"\x05color\x18\x01 \x01(\tR\x05color\x12:\n" +
+	"\x05faces\x18\x02 \x03(\v2$.occccad.worker.v1.ExchangeFaceColorR\x05faces\"\x8f\x01\n" +
+	"\fExchangeBody\x128\n" +
+	"\x04brep\x18\x01 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\x04brep\x12E\n" +
+	"\n" +
+	"appearance\x18\x02 \x01(\v2%.occccad.worker.v1.ExchangeAppearanceR\n" +
+	"appearance*\xeb\x01\n" +
 	"\x19AssemblyInteractionStatus\x12 \n" +
 	"\x1cASSEMBLY_INTERACTION_UNKNOWN\x10\x00\x12 \n" +
 	"\x1cASSEMBLY_INTERACTION_REACHED\x10\x01\x12$\n" +
@@ -13370,7 +13558,7 @@ func file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP() []byte {
 }
 
 var file_occccad_worker_v1_geometry_worker_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
-var file_occccad_worker_v1_geometry_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 135)
+var file_occccad_worker_v1_geometry_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 138)
 var file_occccad_worker_v1_geometry_worker_proto_goTypes = []any{
 	(AssemblyInteractionStatus)(0),            // 0: occccad.worker.v1.AssemblyInteractionStatus
 	(AssemblyAlignmentDirection)(0),           // 1: occccad.worker.v1.AssemblyAlignmentDirection
@@ -13519,6 +13707,9 @@ var file_occccad_worker_v1_geometry_worker_proto_goTypes = []any{
 	(*AnalyzeInterferenceRequest)(nil),        // 144: occccad.worker.v1.AnalyzeInterferenceRequest
 	(*InterferencePairResult)(nil),            // 145: occccad.worker.v1.InterferencePairResult
 	(*AnalyzeInterferenceResponse)(nil),       // 146: occccad.worker.v1.AnalyzeInterferenceResponse
+	(*ExchangeFaceColor)(nil),                 // 147: occccad.worker.v1.ExchangeFaceColor
+	(*ExchangeAppearance)(nil),                // 148: occccad.worker.v1.ExchangeAppearance
+	(*ExchangeBody)(nil),                      // 149: occccad.worker.v1.ExchangeBody
 }
 var file_occccad_worker_v1_geometry_worker_proto_depIdxs = []int32{
 	124, // 0: occccad.worker.v1.RigidPose.translation:type_name -> occccad.worker.v1.Vec3
@@ -13707,107 +13898,111 @@ var file_occccad_worker_v1_geometry_worker_proto_depIdxs = []int32{
 	13,  // 183: occccad.worker.v1.ExchangeOccurrence.rotation:type_name -> occccad.worker.v1.Quaternion
 	89,  // 184: occccad.worker.v1.ExchangeDefinition.brep:type_name -> occccad.worker.v1.ArtifactReference
 	91,  // 185: occccad.worker.v1.ExchangeDefinition.children:type_name -> occccad.worker.v1.ExchangeOccurrence
-	89,  // 186: occccad.worker.v1.ExchangeDefinition.body_breps:type_name -> occccad.worker.v1.ArtifactReference
-	92,  // 187: occccad.worker.v1.ExchangeGraph.definitions:type_name -> occccad.worker.v1.ExchangeDefinition
-	91,  // 188: occccad.worker.v1.ExchangeGraph.roots:type_name -> occccad.worker.v1.ExchangeOccurrence
-	93,  // 189: occccad.worker.v1.InspectExchangeResponse.graph:type_name -> occccad.worker.v1.ExchangeGraph
-	89,  // 190: occccad.worker.v1.ImportExchangeRequest.source:type_name -> occccad.worker.v1.ArtifactReference
-	93,  // 191: occccad.worker.v1.ExportExchangeRequest.graph:type_name -> occccad.worker.v1.ExchangeGraph
-	89,  // 192: occccad.worker.v1.ExportExchangeResponse.result:type_name -> occccad.worker.v1.ArtifactReference
-	100, // 193: occccad.worker.v1.EvaluatePartResponse.preview_mesh:type_name -> occccad.worker.v1.Mesh
-	123, // 194: occccad.worker.v1.EvaluatePartResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
-	104, // 195: occccad.worker.v1.EvaluatePartResponse.topology:type_name -> occccad.worker.v1.TopologySummary
-	89,  // 196: occccad.worker.v1.EvaluatePartResponse.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	89,  // 197: occccad.worker.v1.EvaluatePartResponse.glb_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	73,  // 198: occccad.worker.v1.EvaluatePartResponse.evaluation_manifest:type_name -> occccad.worker.v1.PartEvaluationManifest
-	46,  // 199: occccad.worker.v1.EvaluatePartResponse.runtime_stats:type_name -> occccad.worker.v1.PartRuntimeStats
-	124, // 200: occccad.worker.v1.Mesh.vertices:type_name -> occccad.worker.v1.Vec3
-	103, // 201: occccad.worker.v1.Mesh.triangles:type_name -> occccad.worker.v1.Triangle
-	101, // 202: occccad.worker.v1.Mesh.edges:type_name -> occccad.worker.v1.EdgePolyline
-	102, // 203: occccad.worker.v1.Mesh.topology_vertices:type_name -> occccad.worker.v1.TopologyPoint
-	124, // 204: occccad.worker.v1.EdgePolyline.points:type_name -> occccad.worker.v1.Vec3
-	124, // 205: occccad.worker.v1.TopologyPoint.point:type_name -> occccad.worker.v1.Vec3
-	123, // 206: occccad.worker.v1.LoadGeometryResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
-	89,  // 207: occccad.worker.v1.GetTopologyRequest.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	114, // 208: occccad.worker.v1.GetTopologyResponse.faces:type_name -> occccad.worker.v1.FaceInfo
-	115, // 209: occccad.worker.v1.GetTopologyResponse.edges:type_name -> occccad.worker.v1.EdgeInfo
-	116, // 210: occccad.worker.v1.GetTopologyResponse.vertices:type_name -> occccad.worker.v1.VertexInfo
-	124, // 211: occccad.worker.v1.TopologyProperty.vector_value:type_name -> occccad.worker.v1.Vec3
-	123, // 212: occccad.worker.v1.FaceInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
-	113, // 213: occccad.worker.v1.FaceInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
-	123, // 214: occccad.worker.v1.EdgeInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
-	113, // 215: occccad.worker.v1.EdgeInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
-	124, // 216: occccad.worker.v1.EdgeInfo.render_points:type_name -> occccad.worker.v1.Vec3
-	124, // 217: occccad.worker.v1.VertexInfo.point:type_name -> occccad.worker.v1.Vec3
-	113, // 218: occccad.worker.v1.VertexInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
-	89,  // 219: occccad.worker.v1.TessellateResponse.visual_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	123, // 220: occccad.worker.v1.TessellateResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
-	104, // 221: occccad.worker.v1.TessellateResponse.topology:type_name -> occccad.worker.v1.TopologySummary
-	127, // 222: occccad.worker.v1.AssemblyComponentDof.null_space_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
-	135, // 223: occccad.worker.v1.AssemblyComponentDof.preference:type_name -> occccad.worker.v1.AssemblyMotionPreference
-	137, // 224: occccad.worker.v1.AssemblyComponentDof.freedoms:type_name -> occccad.worker.v1.AssemblyBodyFreedom
-	130, // 225: occccad.worker.v1.AssemblySolvedAngleBranch.state:type_name -> occccad.worker.v1.AssemblyAngleBranchState
-	10,  // 226: occccad.worker.v1.AssemblyBodyMotion.role:type_name -> occccad.worker.v1.AssemblyMotionRole
-	9,   // 227: occccad.worker.v1.AssemblyMotionPreference.status:type_name -> occccad.worker.v1.AssemblyPreferenceStatus
-	134, // 228: occccad.worker.v1.AssemblyMotionPreference.bodies:type_name -> occccad.worker.v1.AssemblyBodyMotion
-	124, // 229: occccad.worker.v1.AssemblyScrewFreedom.direction:type_name -> occccad.worker.v1.Vec3
-	124, // 230: occccad.worker.v1.AssemblyScrewFreedom.axis_point:type_name -> occccad.worker.v1.Vec3
-	14,  // 231: occccad.worker.v1.AssemblyBodyFreedom.linearization_pose:type_name -> occccad.worker.v1.RigidPose
-	11,  // 232: occccad.worker.v1.AssemblyBodyFreedom.kind:type_name -> occccad.worker.v1.AssemblyFreedomKind
-	127, // 233: occccad.worker.v1.AssemblyBodyFreedom.allowed_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
-	127, // 234: occccad.worker.v1.AssemblyBodyFreedom.blocked_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
-	124, // 235: occccad.worker.v1.AssemblyBodyFreedom.translation_directions:type_name -> occccad.worker.v1.Vec3
-	136, // 236: occccad.worker.v1.AssemblyBodyFreedom.rotations:type_name -> occccad.worker.v1.AssemblyScrewFreedom
-	139, // 237: occccad.worker.v1.ImportTopologySeed.identities:type_name -> occccad.worker.v1.ImportedTopologyIdentity
-	89,  // 238: occccad.worker.v1.ImportTopologySeed.identity_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	3,   // 239: occccad.worker.v1.ImportedTopologyIdentity.topology_type:type_name -> occccad.worker.v1.PersistentTopologyType
-	14,  // 240: occccad.worker.v1.AssemblyEvaluationTrace.body_poses:type_name -> occccad.worker.v1.RigidPose
-	89,  // 241: occccad.worker.v1.AnalysisGeometry.brep:type_name -> occccad.worker.v1.ArtifactReference
-	14,  // 242: occccad.worker.v1.AnalysisGeometry.pose:type_name -> occccad.worker.v1.RigidPose
-	142, // 243: occccad.worker.v1.AnalyzeInterferenceRequest.geometry:type_name -> occccad.worker.v1.AnalysisGeometry
-	143, // 244: occccad.worker.v1.AnalyzeInterferenceRequest.pairs:type_name -> occccad.worker.v1.AnalysisPair
-	124, // 245: occccad.worker.v1.InterferencePairResult.first_witness:type_name -> occccad.worker.v1.Vec3
-	124, // 246: occccad.worker.v1.InterferencePairResult.second_witness:type_name -> occccad.worker.v1.Vec3
-	145, // 247: occccad.worker.v1.AnalyzeInterferenceResponse.pairs:type_name -> occccad.worker.v1.InterferencePairResult
-	105, // 248: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
-	44,  // 249: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
-	55,  // 250: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:input_type -> occccad.worker.v1.ResolveLoftCorrespondenceRequest
-	39,  // 251: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
-	48,  // 252: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:input_type -> occccad.worker.v1.ComputeSketchCurvesRequest
-	42,  // 253: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:input_type -> occccad.worker.v1.ProjectExternalGeometryRequest
-	19,  // 254: occccad.worker.v1.GeometryWorker.SolveAssembly:input_type -> occccad.worker.v1.SolveAssemblyRequest
-	144, // 255: occccad.worker.v1.GeometryWorker.AnalyzeInterference:input_type -> occccad.worker.v1.AnalyzeInterferenceRequest
-	90,  // 256: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
-	95,  // 257: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
-	96,  // 258: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
-	107, // 259: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
-	109, // 260: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
-	111, // 261: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
-	117, // 262: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
-	119, // 263: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
-	121, // 264: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
-	106, // 265: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
-	99,  // 266: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
-	57,  // 267: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:output_type -> occccad.worker.v1.ResolveLoftCorrespondenceResponse
-	40,  // 268: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
-	51,  // 269: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:output_type -> occccad.worker.v1.ComputeSketchCurvesResponse
-	43,  // 270: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:output_type -> occccad.worker.v1.ProjectExternalGeometryResponse
-	24,  // 271: occccad.worker.v1.GeometryWorker.SolveAssembly:output_type -> occccad.worker.v1.SolveAssemblyResponse
-	146, // 272: occccad.worker.v1.GeometryWorker.AnalyzeInterference:output_type -> occccad.worker.v1.AnalyzeInterferenceResponse
-	94,  // 273: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
-	99,  // 274: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
-	97,  // 275: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
-	108, // 276: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
-	110, // 277: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
-	112, // 278: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
-	118, // 279: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
-	120, // 280: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
-	122, // 281: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
-	265, // [265:282] is the sub-list for method output_type
-	248, // [248:265] is the sub-list for method input_type
-	248, // [248:248] is the sub-list for extension type_name
-	248, // [248:248] is the sub-list for extension extendee
-	0,   // [0:248] is the sub-list for field type_name
+	149, // 186: occccad.worker.v1.ExchangeDefinition.bodies:type_name -> occccad.worker.v1.ExchangeBody
+	148, // 187: occccad.worker.v1.ExchangeDefinition.appearance:type_name -> occccad.worker.v1.ExchangeAppearance
+	92,  // 188: occccad.worker.v1.ExchangeGraph.definitions:type_name -> occccad.worker.v1.ExchangeDefinition
+	91,  // 189: occccad.worker.v1.ExchangeGraph.roots:type_name -> occccad.worker.v1.ExchangeOccurrence
+	93,  // 190: occccad.worker.v1.InspectExchangeResponse.graph:type_name -> occccad.worker.v1.ExchangeGraph
+	89,  // 191: occccad.worker.v1.ImportExchangeRequest.source:type_name -> occccad.worker.v1.ArtifactReference
+	93,  // 192: occccad.worker.v1.ExportExchangeRequest.graph:type_name -> occccad.worker.v1.ExchangeGraph
+	89,  // 193: occccad.worker.v1.ExportExchangeResponse.result:type_name -> occccad.worker.v1.ArtifactReference
+	100, // 194: occccad.worker.v1.EvaluatePartResponse.preview_mesh:type_name -> occccad.worker.v1.Mesh
+	123, // 195: occccad.worker.v1.EvaluatePartResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
+	104, // 196: occccad.worker.v1.EvaluatePartResponse.topology:type_name -> occccad.worker.v1.TopologySummary
+	89,  // 197: occccad.worker.v1.EvaluatePartResponse.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	89,  // 198: occccad.worker.v1.EvaluatePartResponse.glb_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	73,  // 199: occccad.worker.v1.EvaluatePartResponse.evaluation_manifest:type_name -> occccad.worker.v1.PartEvaluationManifest
+	46,  // 200: occccad.worker.v1.EvaluatePartResponse.runtime_stats:type_name -> occccad.worker.v1.PartRuntimeStats
+	124, // 201: occccad.worker.v1.Mesh.vertices:type_name -> occccad.worker.v1.Vec3
+	103, // 202: occccad.worker.v1.Mesh.triangles:type_name -> occccad.worker.v1.Triangle
+	101, // 203: occccad.worker.v1.Mesh.edges:type_name -> occccad.worker.v1.EdgePolyline
+	102, // 204: occccad.worker.v1.Mesh.topology_vertices:type_name -> occccad.worker.v1.TopologyPoint
+	124, // 205: occccad.worker.v1.EdgePolyline.points:type_name -> occccad.worker.v1.Vec3
+	124, // 206: occccad.worker.v1.TopologyPoint.point:type_name -> occccad.worker.v1.Vec3
+	123, // 207: occccad.worker.v1.LoadGeometryResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
+	89,  // 208: occccad.worker.v1.GetTopologyRequest.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	114, // 209: occccad.worker.v1.GetTopologyResponse.faces:type_name -> occccad.worker.v1.FaceInfo
+	115, // 210: occccad.worker.v1.GetTopologyResponse.edges:type_name -> occccad.worker.v1.EdgeInfo
+	116, // 211: occccad.worker.v1.GetTopologyResponse.vertices:type_name -> occccad.worker.v1.VertexInfo
+	124, // 212: occccad.worker.v1.TopologyProperty.vector_value:type_name -> occccad.worker.v1.Vec3
+	123, // 213: occccad.worker.v1.FaceInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
+	113, // 214: occccad.worker.v1.FaceInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
+	123, // 215: occccad.worker.v1.EdgeInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
+	113, // 216: occccad.worker.v1.EdgeInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
+	124, // 217: occccad.worker.v1.EdgeInfo.render_points:type_name -> occccad.worker.v1.Vec3
+	124, // 218: occccad.worker.v1.VertexInfo.point:type_name -> occccad.worker.v1.Vec3
+	113, // 219: occccad.worker.v1.VertexInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
+	89,  // 220: occccad.worker.v1.TessellateResponse.visual_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	123, // 221: occccad.worker.v1.TessellateResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
+	104, // 222: occccad.worker.v1.TessellateResponse.topology:type_name -> occccad.worker.v1.TopologySummary
+	127, // 223: occccad.worker.v1.AssemblyComponentDof.null_space_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
+	135, // 224: occccad.worker.v1.AssemblyComponentDof.preference:type_name -> occccad.worker.v1.AssemblyMotionPreference
+	137, // 225: occccad.worker.v1.AssemblyComponentDof.freedoms:type_name -> occccad.worker.v1.AssemblyBodyFreedom
+	130, // 226: occccad.worker.v1.AssemblySolvedAngleBranch.state:type_name -> occccad.worker.v1.AssemblyAngleBranchState
+	10,  // 227: occccad.worker.v1.AssemblyBodyMotion.role:type_name -> occccad.worker.v1.AssemblyMotionRole
+	9,   // 228: occccad.worker.v1.AssemblyMotionPreference.status:type_name -> occccad.worker.v1.AssemblyPreferenceStatus
+	134, // 229: occccad.worker.v1.AssemblyMotionPreference.bodies:type_name -> occccad.worker.v1.AssemblyBodyMotion
+	124, // 230: occccad.worker.v1.AssemblyScrewFreedom.direction:type_name -> occccad.worker.v1.Vec3
+	124, // 231: occccad.worker.v1.AssemblyScrewFreedom.axis_point:type_name -> occccad.worker.v1.Vec3
+	14,  // 232: occccad.worker.v1.AssemblyBodyFreedom.linearization_pose:type_name -> occccad.worker.v1.RigidPose
+	11,  // 233: occccad.worker.v1.AssemblyBodyFreedom.kind:type_name -> occccad.worker.v1.AssemblyFreedomKind
+	127, // 234: occccad.worker.v1.AssemblyBodyFreedom.allowed_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
+	127, // 235: occccad.worker.v1.AssemblyBodyFreedom.blocked_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
+	124, // 236: occccad.worker.v1.AssemblyBodyFreedom.translation_directions:type_name -> occccad.worker.v1.Vec3
+	136, // 237: occccad.worker.v1.AssemblyBodyFreedom.rotations:type_name -> occccad.worker.v1.AssemblyScrewFreedom
+	139, // 238: occccad.worker.v1.ImportTopologySeed.identities:type_name -> occccad.worker.v1.ImportedTopologyIdentity
+	89,  // 239: occccad.worker.v1.ImportTopologySeed.identity_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	3,   // 240: occccad.worker.v1.ImportedTopologyIdentity.topology_type:type_name -> occccad.worker.v1.PersistentTopologyType
+	14,  // 241: occccad.worker.v1.AssemblyEvaluationTrace.body_poses:type_name -> occccad.worker.v1.RigidPose
+	89,  // 242: occccad.worker.v1.AnalysisGeometry.brep:type_name -> occccad.worker.v1.ArtifactReference
+	14,  // 243: occccad.worker.v1.AnalysisGeometry.pose:type_name -> occccad.worker.v1.RigidPose
+	142, // 244: occccad.worker.v1.AnalyzeInterferenceRequest.geometry:type_name -> occccad.worker.v1.AnalysisGeometry
+	143, // 245: occccad.worker.v1.AnalyzeInterferenceRequest.pairs:type_name -> occccad.worker.v1.AnalysisPair
+	124, // 246: occccad.worker.v1.InterferencePairResult.first_witness:type_name -> occccad.worker.v1.Vec3
+	124, // 247: occccad.worker.v1.InterferencePairResult.second_witness:type_name -> occccad.worker.v1.Vec3
+	145, // 248: occccad.worker.v1.AnalyzeInterferenceResponse.pairs:type_name -> occccad.worker.v1.InterferencePairResult
+	147, // 249: occccad.worker.v1.ExchangeAppearance.faces:type_name -> occccad.worker.v1.ExchangeFaceColor
+	89,  // 250: occccad.worker.v1.ExchangeBody.brep:type_name -> occccad.worker.v1.ArtifactReference
+	148, // 251: occccad.worker.v1.ExchangeBody.appearance:type_name -> occccad.worker.v1.ExchangeAppearance
+	105, // 252: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
+	44,  // 253: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
+	55,  // 254: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:input_type -> occccad.worker.v1.ResolveLoftCorrespondenceRequest
+	39,  // 255: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
+	48,  // 256: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:input_type -> occccad.worker.v1.ComputeSketchCurvesRequest
+	42,  // 257: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:input_type -> occccad.worker.v1.ProjectExternalGeometryRequest
+	19,  // 258: occccad.worker.v1.GeometryWorker.SolveAssembly:input_type -> occccad.worker.v1.SolveAssemblyRequest
+	144, // 259: occccad.worker.v1.GeometryWorker.AnalyzeInterference:input_type -> occccad.worker.v1.AnalyzeInterferenceRequest
+	90,  // 260: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
+	95,  // 261: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
+	96,  // 262: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
+	107, // 263: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
+	109, // 264: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
+	111, // 265: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
+	117, // 266: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
+	119, // 267: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
+	121, // 268: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
+	106, // 269: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
+	99,  // 270: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
+	57,  // 271: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:output_type -> occccad.worker.v1.ResolveLoftCorrespondenceResponse
+	40,  // 272: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
+	51,  // 273: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:output_type -> occccad.worker.v1.ComputeSketchCurvesResponse
+	43,  // 274: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:output_type -> occccad.worker.v1.ProjectExternalGeometryResponse
+	24,  // 275: occccad.worker.v1.GeometryWorker.SolveAssembly:output_type -> occccad.worker.v1.SolveAssemblyResponse
+	146, // 276: occccad.worker.v1.GeometryWorker.AnalyzeInterference:output_type -> occccad.worker.v1.AnalyzeInterferenceResponse
+	94,  // 277: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
+	99,  // 278: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
+	97,  // 279: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
+	108, // 280: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
+	110, // 281: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
+	112, // 282: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
+	118, // 283: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
+	120, // 284: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
+	122, // 285: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
+	269, // [269:286] is the sub-list for method output_type
+	252, // [252:269] is the sub-list for method input_type
+	252, // [252:252] is the sub-list for extension type_name
+	252, // [252:252] is the sub-list for extension extendee
+	0,   // [0:252] is the sub-list for field type_name
 }
 
 func init() { file_occccad_worker_v1_geometry_worker_proto_init() }
@@ -13842,7 +14037,7 @@ func file_occccad_worker_v1_geometry_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_occccad_worker_v1_geometry_worker_proto_rawDesc), len(file_occccad_worker_v1_geometry_worker_proto_rawDesc)),
 			NumEnums:      12,
-			NumMessages:   135,
+			NumMessages:   138,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

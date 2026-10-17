@@ -3,9 +3,12 @@ package geometry
 import (
 	"fmt"
 	"math"
+	"regexp"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
+
+var exchangeOpaqueColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 // ValidateExchangeGraph rejects malformed or unbounded exchange references
 // before the coordinator creates any documents. Source identity is opaque.
@@ -23,6 +26,17 @@ func ValidateExchangeGraph(graph *ExchangeGraph) error {
 		}
 		if def.Kind != "PART" && def.Kind != "PRODUCT" || def.Kind == "PART" && len(def.Children) > 0 {
 			return fmt.Errorf("invalid exchange definition kind")
+		}
+		if err := validateExchangeAppearance(def.Appearance); err != nil {
+			return err
+		}
+		for _, body := range def.Bodies {
+			if body == nil || body.Brep == nil {
+				return fmt.Errorf("missing exchange Body BREP")
+			}
+			if err := validateExchangeAppearance(body.Appearance); err != nil {
+				return err
+			}
 		}
 		definitions[def.Id] = i
 	}
@@ -47,6 +61,9 @@ func ValidateExchangeGraph(graph *ExchangeGraph) error {
 				return fmt.Errorf("duplicate or missing exchange occurrence")
 			}
 			seen[child.Id] = true
+			if child.Color != "" && !exchangeOpaqueColor.MatchString(child.Color) {
+				return fmt.Errorf("invalid exchange occurrence color")
+			}
 			edges++
 			if edges > 1000000 {
 				return fmt.Errorf("exchange occurrence limit exceeded")
@@ -67,6 +84,9 @@ func ValidateExchangeGraph(graph *ExchangeGraph) error {
 			return fmt.Errorf("invalid exchange root")
 		}
 		seen[root.Id] = true
+		if root.Color != "" && !exchangeOpaqueColor.MatchString(root.Color) {
+			return fmt.Errorf("invalid exchange root color")
+		}
 		if err := validateExchangePose(root.GetTranslation().GetX(), root.GetTranslation().GetY(), root.GetTranslation().GetZ(), root.GetRotation().GetX(), root.GetRotation().GetY(), root.GetRotation().GetZ(), root.GetRotation().GetW()); err != nil {
 			return err
 		}
@@ -76,6 +96,25 @@ func ValidateExchangeGraph(graph *ExchangeGraph) error {
 	}
 	if len(state) != len(definitions) {
 		return fmt.Errorf("unreachable exchange definitions")
+	}
+	return nil
+}
+func validateExchangeAppearance(appearance *workerv1.ExchangeAppearance) error {
+	if appearance == nil {
+		return nil
+	}
+	if appearance.Color != "" && !exchangeOpaqueColor.MatchString(appearance.Color) {
+		return fmt.Errorf("invalid exchange color")
+	}
+	if len(appearance.Faces) > 1_000_000 {
+		return fmt.Errorf("exchange face color limit exceeded")
+	}
+	seen := map[uint64]bool{}
+	for _, face := range appearance.Faces {
+		if face == nil || face.LocalId == 0 || seen[face.LocalId] || !exchangeOpaqueColor.MatchString(face.Color) {
+			return fmt.Errorf("invalid exchange face color")
+		}
+		seen[face.LocalId] = true
 	}
 	return nil
 }

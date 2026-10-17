@@ -1,4 +1,5 @@
 import {AssemblyConstraintFields} from "./assembly-constraint-fields";
+import {BodyColorDialog} from "./body-color-dialog";
 import {withMotionResults} from './motion-result-tree';
 import {structureCommandIDs,type StructureActions,type StructureInvocation} from "./commands/structure-commands";
 import {useWorkbenchCommandRegistration} from "./workbench-command-registration";
@@ -148,6 +149,7 @@ export function Workbench() {
   const conflictGate=useRef(new AssemblyConflictResponseGate());
   const conflictAbort=useRef<AbortController|undefined>(undefined);
   const [renameTarget, setRenameTarget] = useState<SpecificationTreeNode>();
+  const [colorTarget, setColorTarget] = useState<{bodyId:string;documentId:string;versionId:string}>();
   const latestDocumentVersion = useRef<string | undefined>(undefined);
   const latestHostVersion=useRef<string|undefined>(undefined);
   const automaticUpdateSignature = useRef("");
@@ -617,6 +619,9 @@ export function Workbench() {
     }
   };
   const canEdit = !motionOpen && !motionDisplay && Boolean(editSession) && (editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR");
+  useEffect(()=>{
+    if(colorTarget && (!canEdit || editingView?.document.id!==colorTarget.documentId || editingView.document.versionId!==colorTarget.versionId))setColorTarget(undefined);
+  },[canEdit,editingView?.document.id,editingView?.document.versionId,colorTarget]);
   const liveMotionOwner=motionPanel.current?.motionSession();
   const liveMotionCanPause=Boolean(liveMotionOwner?.active&&liveMotionOwner.checkpoint?.qualified&&liveMotionOwner.identity?.baseRevisionId===view?.document.versionId);
   const canEditRoot = (!motionDisplay||liveMotionCanPause) && (view?.document.permission === "OWNER" || view?.document.permission === "EDITOR");
@@ -1092,11 +1097,16 @@ export function Workbench() {
     if(nextCommand!=="dmu.apply"||!motionDisplay)motionPanel.current?.closeCommand();
     setConflictOpen(false);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
     setFeatureSelection(undefined);setRenameTarget(undefined);setNewPartTarget(undefined);
+    setColorTarget(undefined);
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
     setParameterManagerOpen(false);setPublicationManagerOpen(false);setExternalParameterID(undefined);
     setEditingParameterID(undefined);setEditingPublication(undefined);
   };
   const treeActions:StructureActions={
+onColor:node=>{
+  if(!canEdit||!editingView?.part||node.documentId!==editingView.document.id||!node.entityId||(node.instancePath?.canonical??"")!==(activeInstancePath??""))return;
+  setColorTarget({bodyId:node.entityId,documentId:editingView.document.id,versionId:editingView.document.versionId});
+},
 onViewResult:async(node,operation)=>{
               if(!editingView?.part||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.entityId||solidEditor||booleanDialog||datumEditor||store.activeSketchID||command.isPending)return;
               const generation=++historyGeneration.current;
@@ -1252,7 +1262,7 @@ onToggleConstruction:(node)=>{
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
   const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    formActive:Boolean(motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||renameTarget||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+    formActive:Boolean(motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||renameTarget||colorTarget||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1539,6 +1549,7 @@ onToggleConstruction:(node)=>{
             onActivate={node=>executeTree("onActivate",{node})}
 			onEdit={node=>executeTree("onEdit",{node})}
             onRename={node=>executeTree("onRename",{node})}
+            onColor={canEdit?node=>executeTree("onColor",{node}):undefined}
 			onCreatePart={node=>executeTree("onCreatePart",{node})}
 			onReferenceMode={(node,mode)=>executeTree("onReferenceMode",{node,referenceMode:mode})}
 			onReconnect={node=>executeTree("onReconnect",{node})}
@@ -1760,6 +1771,12 @@ onToggleConstruction:(node)=>{
         {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
+    {colorTarget && editingView?.document.id===colorTarget.documentId && editingView.document.versionId===colorTarget.versionId && <BodyColorDialog
+      key={`${colorTarget.documentId}:${colorTarget.versionId}:${colorTarget.bodyId}`}
+      initialColor={editingView.part?.bodies.find(body=>body.id===colorTarget.bodyId)?.appearance?.color}
+      hasFaceColors={Boolean(editingView.part?.bodies.find(body=>body.id===colorTarget.bodyId)?.appearance?.faces?.length)}
+      pending={command.isPending} onClose={()=>setColorTarget(undefined)}
+      onApply={color=>command.mutate(()=>api.command(colorTarget.documentId,{type:"SET_BODY_COLOR",bodyId:colorTarget.bodyId,color,versionId:colorTarget.versionId}),{onSuccess:()=>setColorTarget(undefined)})} />}
     <CommandDialog size="S" id="rename-model-object" open={Boolean(renameTarget)} title="重命名建模对象"
       onClose={() => setRenameTarget(undefined)} confirmLoading={command.isPending}
       onConfirm={async () => {

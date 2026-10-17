@@ -48,7 +48,7 @@ func (service *Service) CommitImportedGraph(ctx context.Context, actor, folderID
 			if name != sourceName {
 				importedName = &ImportedOccurrenceName{Source: sourceName, Assigned: name}
 			}
-			result = append(result, ProductInstance{ImportedName: importedName, ID: commandEntityID("instance", requestID+"/"+owner+"/"+child.Id), Name: name, ReferencedDocumentID: target.Document.ID, ReferencedVersionID: target.Document.VersionID, ReferenceMode: "PINNED", Translation: [3]float64{child.Translation.GetX(), child.Translation.GetY(), child.Translation.GetZ()}, Rotation: [4]float64{child.Rotation.GetX(), child.Rotation.GetY(), child.Rotation.GetZ(), child.Rotation.GetW()}})
+			result = append(result, ProductInstance{Color: child.Color, ImportedName: importedName, ID: commandEntityID("instance", requestID+"/"+owner+"/"+child.Id), Name: name, ReferencedDocumentID: target.Document.ID, ReferencedVersionID: target.Document.VersionID, ReferenceMode: "PINNED", Translation: [3]float64{child.Translation.GetX(), child.Translation.GetY(), child.Translation.GetZ()}, Rotation: [4]float64{child.Rotation.GetX(), child.Rotation.GetY(), child.Rotation.GetZ(), child.Rotation.GetW()}})
 		}
 		return result, nil
 	}
@@ -76,7 +76,7 @@ func (service *Service) CommitImportedGraph(ctx context.Context, actor, folderID
 	}
 	if len(graph.Roots) == 1 {
 		root := graph.Roots[0]
-		if root.Translation.GetX() == 0 && root.Translation.GetY() == 0 && root.Translation.GetZ() == 0 && root.Rotation.GetX() == 0 && root.Rotation.GetY() == 0 && root.Rotation.GetZ() == 0 && (root.Rotation.GetW() == 1 || root.Rotation.GetW() == -1) {
+		if root.Color == "" && root.Translation.GetX() == 0 && root.Translation.GetY() == 0 && root.Translation.GetZ() == 0 && root.Rotation.GetX() == 0 && root.Rotation.GetY() == 0 && root.Rotation.GetZ() == 0 && (root.Rotation.GetW() == 1 || root.Rotation.GetW() == -1) {
 			return build(root.DefinitionId)
 		}
 	}
@@ -90,6 +90,7 @@ func (service *Service) CommitImportedGraph(ctx context.Context, actor, folderID
 // ExchangeExportGraph walks accepted immutable revisions, not the flattened
 // render list. Geometry overrides carry existing context/release evaluation.
 func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, releaseID string, expectedRevision ...string) (*geometry.ExchangeGraph, error) {
+	ctx = withAssemblyReadCache(ctx)
 	var revision string
 	overrides := map[string][]PartBody{}
 	if releaseID != "" {
@@ -174,9 +175,24 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, rel
 					if err != nil {
 						return "", err
 					}
-					def.BodyBreps = append(def.BodyBreps, &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType})
+					// Context overrides replace geometry, while the immutable Part
+					// definition remains the owner of appearance.
+					for _, sourceBody := range part.Bodies {
+						if sourceBody.ID == body.ID {
+							body.Appearance = sourceBody.Appearance
+							break
+						}
+					}
+					appearance, err := service.bodyAppearance(ctx, body)
+					if err != nil {
+						return "", err
+					}
+					if appearance.UnresolvedFaces > 0 {
+						return "", fmt.Errorf("%w: APPEARANCE_TOPOLOGY_UNRESOLVED", ErrValidation)
+					}
+					def.Bodies = append(def.Bodies, &workerv1.ExchangeBody{Brep: &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType}, Appearance: exchangeAppearance(appearance)})
 				}
-				if len(def.BodyBreps) == 0 {
+				if len(def.Bodies) == 0 {
 					return "", fmt.Errorf("%w: Part has no exportable Body", ErrValidation)
 				}
 			}
@@ -196,7 +212,7 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, rel
 				}
 				q := normalizedInstanceRotation(instance.Rotation)
 				instanceName := exchangeInstanceName(instance)
-				def.Children = append(def.Children, &workerv1.ExchangeOccurrence{Id: instance.ID, Name: instanceName, DefinitionId: target, Translation: &workerv1.Vec3{X: instance.Translation[0], Y: instance.Translation[1], Z: instance.Translation[2]}, Rotation: &workerv1.Quaternion{X: q[0], Y: q[1], Z: q[2], W: q[3]}})
+				def.Children = append(def.Children, &workerv1.ExchangeOccurrence{Id: instance.ID, Color: instance.Color, Name: instanceName, DefinitionId: target, Translation: &workerv1.Vec3{X: instance.Translation[0], Y: instance.Translation[1], Z: instance.Translation[2]}, Rotation: &workerv1.Quaternion{X: q[0], Y: q[1], Z: q[2], W: q[3]}})
 			}
 			// Equal business definition + equal accepted child evaluation shares XDE
 			// identity. Context variants never silently overwrite another occurrence.

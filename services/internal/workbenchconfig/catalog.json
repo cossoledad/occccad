@@ -4987,6 +4987,16 @@
       }
     },
     {
+      "id": "tree.color",
+      "name": "颜色材质",
+      "helpText": "设置整个 Body 的纯色材质。",
+      "iconKey": "parameters",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": { "all": [] },
+      "enabledWhen": { "all": [{ "fact": "canEdit", "equals": true }, { "fact": "busy", "equals": false }] }
+    },
+    {
       "id": "tree.rename",
       "name": "重命名",
       "helpText": "重命名所选结构对象。",

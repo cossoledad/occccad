@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strconv"
 )
 
 type screenPoint struct{ x, y, z float64 }
@@ -80,7 +81,13 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 				}
 				shades[corner] = illumination(instance.pose.rotate(normal))
 			}
-			if err := r.triangle(ctx, [3]screenPoint{points[t[0]], points[t[1]], points[t[2]]}, shades); err != nil {
+			base := instance.appearance.Color
+			if i < len(m.FaceIDs) {
+				if face := instance.appearance.Faces[uint64(m.FaceIDs[i])]; face != "" {
+					base = face
+				}
+			}
+			if err := r.triangle(ctx, [3]screenPoint{points[t[0]], points[t[1]], points[t[2]]}, shades, surfaceColor(base)); err != nil {
 				return err
 			}
 		}
@@ -143,7 +150,19 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 func edgeFunction(a, b screenPoint, x, y float64) float64 {
 	return (b.x-a.x)*(y-a.y) - (b.y-a.y)*(x-a.x)
 }
-func (r *raster) triangle(ctx context.Context, p [3]screenPoint, shade [3]float64) error {
+func surfaceColor(value string) color.RGBA {
+	if len(value) == 7 && value[0] == '#' {
+		if rgb, err := strconv.ParseUint(value[1:], 16, 24); err == nil {
+			return color.RGBA{uint8(rgb >> 16), uint8(rgb >> 8), uint8(rgb), 255}
+		}
+	}
+	return color.RGBA{193, 203, 213, 255}
+}
+func (r *raster) triangle(ctx context.Context, p [3]screenPoint, shade [3]float64, colors ...color.RGBA) error {
+	base := surfaceColor("")
+	if len(colors) > 0 {
+		base = colors[0]
+	}
 	area := edgeFunction(p[0], p[1], p[2].x, p[2].y)
 	if !finite(area) || math.Abs(area) < 1e-12 {
 		return nil
@@ -198,7 +217,7 @@ func (r *raster) triangle(ctx context.Context, p [3]screenPoint, shade [3]float6
 			index := y*r.width + x
 			if z > r.depth[index] {
 				r.depth[index] = z
-				r.pixels.SetRGBA(x, y, color.RGBA{uint8(min(255, 193*light)), uint8(min(255, 203*light)), uint8(min(255, 213*light)), 255})
+				r.pixels.SetRGBA(x, y, color.RGBA{uint8(min(255, float64(base.R)*light)), uint8(min(255, float64(base.G)*light)), uint8(min(255, float64(base.B)*light)), 255})
 			}
 			z += dz
 			light += dl

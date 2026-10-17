@@ -24,6 +24,10 @@ func partHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (map[
 			continue
 		}
 		switch change.Target.SlotID {
+		case "body.appearance":
+			if index := bodyIndex(model, change.Target.EntityID); index >= 0 {
+				result[change.Target], _ = json.Marshal(model.Bodies[index].Appearance)
+			}
 		case "body.entity":
 			for _, b := range model.Bodies {
 				if b.ID == change.Target.EntityID {
@@ -193,6 +197,16 @@ func applyPartHistoryValues(modelJSON json.RawMessage, values map[modelcore.Prop
 			continue
 		}
 		switch address.SlotID {
+		case "body.appearance":
+			index := bodyIndex(model, address.EntityID)
+			if index < 0 {
+				return nil, fmt.Errorf("%w: Body deleted", ErrValidation)
+			}
+			var appearance *SurfaceAppearance
+			if err := json.Unmarshal(value, &appearance); err != nil {
+				return nil, err
+			}
+			model.Bodies[index].Appearance = appearance
 		case "active-body":
 			if err := json.Unmarshal(value, &model.ActiveBodyID); err != nil {
 				return nil, err

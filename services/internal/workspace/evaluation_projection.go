@@ -631,8 +631,11 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		definition := bodyDefinition(body)
 		definition.Visible = true // display metadata never changes geometry evaluation identity
 		definition.Name = ""
+		definition.Appearance = nil
 		data, _ := json.Marshal(definition)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("body:" + body.ID), Phase: 0, Type: "BODY", CanonicalInput: data})
+		appearance, _ := json.Marshal(body.Appearance)
+		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("appearance:" + body.ID), Phase: 0, Type: "APPEARANCE", CanonicalInput: appearance})
 	}
 	featureIDs := map[string]bool{}
 	for _, feature := range model.Features {

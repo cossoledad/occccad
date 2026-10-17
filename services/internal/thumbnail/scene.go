@@ -66,8 +66,9 @@ type preparedMesh struct {
 	normals map[normalKey]vec
 }
 type meshInstance struct {
-	mesh *preparedMesh
-	pose pose
+	mesh       *preparedMesh
+	pose       pose
+	appearance workspace.ResolvedAppearance
 }
 type sceneLine struct {
 	points       []vec
@@ -103,7 +104,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 	s := &renderScene{}
 	triangles, vertices := 0, 0
 	cache := map[string]*preparedMesh{}
-	appendArtifact := func(a workspace.Artifact, p pose) error {
+	appendArtifact := func(a workspace.Artifact, p pose, appearance workspace.ResolvedAppearance) error {
 		triangles += len(a.Mesh.Triangles)
 		vertices += len(a.Mesh.Vertices)
 		for _, edge := range a.Mesh.Edges {
@@ -129,7 +130,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				}
 				cache[a.GeometryKey] = prepared
 			}
-			s.meshes = append(s.meshes, meshInstance{prepared, p})
+			s.meshes = append(s.meshes, meshInstance{prepared, p, appearance})
 			// Only referenced finite vertices influence framing; unused mesh vertices do not.
 			for i, t := range a.Mesh.Triangles {
 				if i%1024 == 0 {
@@ -162,7 +163,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				if err != nil {
 					return err
 				}
-				s.meshes = append(s.meshes, meshInstance{prepared, p})
+				s.meshes = append(s.meshes, meshInstance{mesh: prepared, pose: p})
 				for _, t := range mesh.Triangles {
 					if validTriangle(mesh, t) {
 						for _, index := range t {
@@ -209,7 +210,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 		sort.SliceStable(instances, func(i, j int) bool { return instances[i].ID < instances[j].ID })
 		for _, instance := range instances {
 			if a, ok := view.Artifacts[instance.GeometryKey]; ok && (instance.BodyID == "" || instance.BodyVisible) {
-				if err := appendArtifact(a, newPose(instance.Translation, instance.Rotation)); err != nil {
+				if err := appendArtifact(a, newPose(instance.Translation, instance.Rotation), instance.Appearance); err != nil {
 					return nil, err
 				}
 			}
@@ -220,7 +221,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				continue
 			}
 			if a, ok := view.Artifacts[body.GeometryKey]; ok {
-				if err := appendArtifact(a, newPose(vec{}, [4]float64{})); err != nil {
+				if err := appendArtifact(a, newPose(vec{}, [4]float64{}), view.BodyAppearances[body.ID]); err != nil {
 					return nil, err
 				}
 			}

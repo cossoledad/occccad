@@ -15,6 +15,11 @@ import (
 
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
 	switch request.Type {
+	case "SET_BODY_COLOR":
+		if documentType != "PART" {
+			break
+		}
+		return typeSetBodyColor, bodyColorPayload{BodyID: request.BodyID, Color: request.Color}, nil
 	case "ACTIVATE_MECHANISM", "EXIT_MECHANISM":
 		if documentType != "PRODUCT" || request.MechanismApplication == nil {
 			break

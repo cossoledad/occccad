@@ -77,7 +77,7 @@ Multi-Body 定向入口为 `TestMultiBodyIndependentGeometryAndHistory`（双 Bo
 其他定向入口包括真实 Router 的 Cut/Hole 和 Face/Edge/Vertex/导入命名历史回归、`TestRepresentationDownloadAuthorizationAndSnapshot`、`TestCppWorkerAcceptsPartNamingContract`、`TestS3WorkerExchangeRoundTrip`，以及前端 `mesh-glb` 场景。真实 C++ GLB 可通过 `OCCCCAD_TEST_GLB_FIXTURE` 同时交给 Go 缩略图与 TypeScript 解码器核对拾取映射。
 
 
-这次是数据职责收敛，不是 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、chunk、按字节预算、跨主机 Worker 数据面尚未实现。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE 基础结构已改造，颜色/PMI 等完整 AP242 扩展尚未交付；WebSocket 控制面见独立分册。未发布 schema/Proto 直接修正，切换前需停止旧进程并通过 `invoke data.reset --yes` 重建数据；不支持旧内联数据回退。
+这次是数据职责收敛，不是 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、chunk、按字节预算、跨主机 Worker 数据面尚未实现。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE 支持基础 RGB [颜色材质](surface-appearance.md)，PMI 等完整 AP242 扩展尚未交付；WebSocket 控制面见独立分册。未发布 schema/Proto 直接修正，切换前需停止旧进程并通过 `invoke data.reset --yes` 重建数据；不支持旧内联数据回退。
 
 ## 独立几何分析的 exact 输入
 

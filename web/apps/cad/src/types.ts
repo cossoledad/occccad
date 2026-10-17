@@ -20,7 +20,9 @@ export type MeshData = {
 export type NamingAvailability = { status: "READY" | "UNAVAILABLE" | "FAILED" | "CORRUPT" | "INCOMPATIBLE"; canBind: boolean; diagnosticCode?: string; diagnostic?: string };
 
 export type BodyDisplayFallback = { geometryKey: string; sourceVersionId: string };
-export type PartBody = { displayFallback?: BodyDisplayFallback; consumed?: boolean; id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
+export type SurfaceAppearance = { color?: string; faces?: Array<{ anchor: SemanticTopologyRef; color: string }> };
+export type ResolvedAppearance = { geometryKey?: string; color?: string; faces?: Record<number, string>; unresolvedFaces?: number };
+export type PartBody = { appearance?: SurfaceAppearance; displayFallback?: BodyDisplayFallback; consumed?: boolean; id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
 
 export type Artifact = {
  displayStageFeatureId?:string;historicalPreview?:boolean;
@@ -329,6 +331,7 @@ export type Job = {
 };
 
 export type ResolvedInstance = {
+  appearance?: ResolvedAppearance;
   displayFallback?: BodyDisplayFallback;
   bodyId: string; bodyVisible: boolean;
   ownedSketchIds?: string[];
@@ -411,6 +414,7 @@ export type SketchProfileAnalysis = {
 };
 
 export type DocumentView = {
+  bodyAppearances?: Record<string, ResolvedAppearance>;
  replicationSources?:Record<string,{tool:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
   sketchPatternMembers?:Record<string,SketchEntity[]>;
   document: DocumentSummary;
