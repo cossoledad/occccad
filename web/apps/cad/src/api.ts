@@ -1,3 +1,4 @@
+import {useUIPreferences} from "./state/ui-preferences";
 import {documentRegistry} from "./cad/document/document-registry";
 import type { Artifact, Feature, AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductRelease, ProductReleaseReplay, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
@@ -236,7 +237,7 @@ export const restApi = {
     requestDocumentView(`/api/documents/${id}/context-bindings`, {method:"POST", body:JSON.stringify({requestId:requestId(),...input})}),
   createPartComponent: (id:string, input:{name?:string;description?:string;targetProductInstancePath?:InstancePath}) =>
     requestDocumentView(`/api/documents/${id}/part-components`, {method:"POST",
-      body:JSON.stringify({requestId:requestId(),placementMode:"PRODUCT_ORIGIN",...input})}),
+      body:JSON.stringify({requestId:requestId(),placementMode:"PRODUCT_ORIGIN",defaultAppearance:{...useUIPreferences.getState().creationDefaults.solid},...input})}),
   getProductUpdatePlan: (id:string) => request<ProductUpdatePlan>(`/api/documents/${id}/product-update-plan`),
   acceptProductUpdatePlan: (id:string,digest:string) => requestDocumentView(`/api/documents/${id}/product-update-plan/accept`,
     {method:"POST",body:JSON.stringify({requestId:requestId(),digest})}),
@@ -276,7 +277,7 @@ export const restApi = {
   createDocument: (type: "PART" | "PRODUCT", name: string, description = "", folderId?: string) =>
     requestDocumentView("/api/documents", {
       method: "POST", headers: workspaceHeaders(),
-      body: JSON.stringify({ requestId: requestId(), type, name, description, folderId: folderId || null }),
+      body: JSON.stringify({ requestId: requestId(), type, name, description, folderId: folderId || null,...(type==="PART"?{defaultAppearance:{...useUIPreferences.getState().creationDefaults.solid}}:{}) }),
     }),
   updateDocument: (id: string, name: string, description: string, versionId: string) =>
     requestDocumentView(`/api/documents/${id}`, {

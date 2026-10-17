@@ -978,6 +978,10 @@ func (service *Service) CreateDocument(
 		return DocumentView{}, err
 	}
 	versionID := versionUUID.String()
+	modelJSON, err = seedCreationAppearance(modelJSON, documentType, request.DefaultAppearance)
+	if err != nil {
+		return DocumentView{}, err
+	}
 	modelJSON, err = seedDocumentMetadata(modelJSON, name, description)
 	if err != nil {
 		return DocumentView{}, err

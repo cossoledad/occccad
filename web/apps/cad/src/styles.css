@@ -751,13 +751,6 @@ select {
 .cad-capture-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; }
 .cad-capture-grid .ant-checkbox-wrapper { margin-inline-start: 0; font-size: 11px; }
 .cad-capture-panel>small { display: block; margin-top: 10px; color: #758993; }
-.user-preferences-drawer .ant-drawer-body { padding-top: 16px; }
-.preference-section > .ant-typography { margin-top: 0; margin-bottom: 8px; }
-.preference-section > .ant-typography-secondary { font-size: 11px; }
-.preference-field { display: grid; grid-template-columns: minmax(0, 1fr) 160px; align-items: center; gap: 12px; margin-top: 10px;
-  color: #334952; font-size: 12px; }
-.preference-note.ant-typography { margin-top: 12px; margin-bottom: 0; line-height: 1.55; }
-.user-preferences-drawer .cad-capture-panel { width: auto; }
 .assembly-support-list { display: grid; gap: 7px; margin-bottom: 14px; }
 .assembly-support-list > strong { color: var(--color-text-secondary); font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .45px; }
 .assembly-constraint-status { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: start; gap: 9px;
@@ -1009,3 +1002,18 @@ select {
 .cad-property-row > .ant-select, .cad-property-row > .ant-input-number { width:100%; }
 .cad-property-row .ant-space { flex-wrap:wrap; }
 .cad-property-row .ant-slider { min-width:130px; }
+
+.global-options-layout { display: grid; grid-template-columns: 148px minmax(0,1fr); min-height: 450px; }
+.global-options-layout > .ant-menu { border-inline-end: 1px solid var(--cad-border, #e1e7ed); }
+.global-options-content { min-width: 0; padding: 0 22px 12px; max-height: min(65vh,620px); overflow-y: auto; }
+.global-options-fields { width: 100%; }
+.global-options-fields > .ant-space-item { width: 100%; }
+.global-options-fields .ant-select { min-width: 176px; }
+.global-options-fields > .ant-space-item > .ant-select { width: 100%; }
+.global-options-fields .ant-typography { margin-bottom: 0; }
+.global-options-footer { display: flex; align-items: center; justify-content: space-between; }
+.scene-color-preview { height: 74px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; text-shadow: 0 1px 3px #172a3e; overflow: hidden; }
+.scene-color-preview > span { width: 24px; height: 24px; border-radius: 3px; margin-right: 10px; border: 1px solid #fff6; }
+@media (max-width:700px) { .global-options-layout { grid-template-columns: 108px minmax(0,1fr); } .global-options-content { padding-inline: 12px; } }
+
+.global-options-content .cad-capture-panel { width: auto; }

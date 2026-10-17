@@ -1,3 +1,4 @@
+import {structureMenu} from "./tree-context-menu";
 import {useOptionalCommandRegistry} from "../../cad/command/command-context";
 import {builtinCatalog} from "../../cad/command/workbench-catalog";
 import {CadIcon} from "../../cad/overlay/cad-icons";
@@ -81,7 +82,7 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onRename, onColor, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   documentSessions?: DocumentSessions; hostDocumentId?: string;
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string; editSession?: EditSession;
@@ -91,8 +92,6 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   onOpenDocumentTab?: (node: SpecificationTreeNode) => void;
   onViewResult?: (node:SpecificationTreeNode)=>void;
   onEdit?: (node: SpecificationTreeNode) => void;
-  onRename?: (node: SpecificationTreeNode) => void;
-  onColor?: (node: SpecificationTreeNode) => void;
   onProperties?: (node: SpecificationTreeNode) => void;
   onCreatePart?: (node: SpecificationTreeNode) => void;
   onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD") => void;
@@ -251,7 +250,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
           <Dropdown trigger={[]} placement="bottomLeft" classNames={{ root: "specification-tree-context-menu" }}
             open={contextMenu?.nodeKey === node.key}
             onOpenChange={(open) => { if (!open) setContextMenu(undefined); }}
-            menu={{ items: [node.kind === "INSTANCE" && node.documentId && onOpenDocumentTab ? {
+            menu={{ items: structureMenu([node.kind === "INSTANCE" && node.documentId && onOpenDocumentTab ? {
               key: "open-document-tab", icon: menuIcon('tree.open-document'), label: menuLabel('tree.open-document'),
               onClick: () => { setContextMenu(undefined); onOpenDocumentTab(node); } } : null,
             node.sourceDocumentId && onOpenDocumentTab ? {
@@ -266,12 +265,8 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
             ["PAD","REVOLVE","FEATURE","IMPORT"].includes(node.kind??"") && node.presentationRole!=="INPUT_REFERENCE" && onViewResult ? {key:"view-result",icon:menuIcon('tree.view-result'),label:menuLabel('tree.view-result'),onClick:()=>{setContextMenu(undefined);onViewResult(node);}}:null,
             node.capabilities?.includes("EDIT") ? { key: "edit", icon: menuIcon('tree.edit'), label: menuLabel('tree.edit',['PAD','REVOLVE','FEATURE'].includes(node.kind??'')?'definition':'default'),
               onClick: () => { setContextMenu(undefined); onEdit?.(node); } } : null,
-            onRename && ["BODY", "SKETCH", "PAD", "REVOLVE", "IMPORT", "MECHANISM","MECHANISM_JOINT","MOTION_DRIVER","MOTION_STUDY","INTERFERENCE_ANALYSIS"].includes(node.kind ?? "") && node.documentId === activeDocumentId && (!["MECHANISM","MECHANISM_JOINT","MOTION_DRIVER","MOTION_STUDY","INTERFERENCE_ANALYSIS"].includes(node.kind ?? "") || node.capabilities?.includes("RENAME"))
-              ? { key: "rename", icon: menuIcon('tree.rename'), label: menuLabel('tree.rename'), onClick: () => { setContextMenu(undefined); onRename(node); } } : null,
             node.capabilities?.includes("CREATE_PART") ? { key: "create-part", icon: menuIcon('tree.create-part'), label: menuLabel('tree.create-part'),
               onClick: () => { setContextMenu(undefined); onCreatePart?.(node); } } : null,
-            onColor && node.kind === "BODY" && node.documentId === activeDocumentId && (node.instancePath?.canonical ?? "") === (activeInstancePath ?? "")
-              ? { key:"color",icon:menuIcon('tree.color'),label:menuLabel('tree.color'),onClick:()=>{setContextMenu(undefined);onColor(node);} } : null,
             node.capabilities?.includes("PIN_VERSION") ? { key: "pin-version", icon: menuIcon('tree.reference-mode'), label: menuLabel('tree.reference-mode','pinned'),
               onClick: () => { setContextMenu(undefined); onReferenceMode?.(node, "PINNED"); } } : null,
             node.capabilities?.includes("FOLLOW_HEAD") ? { key: "follow-head", icon: menuIcon('tree.reference-mode'), label: menuLabel('tree.reference-mode','follow'),
@@ -293,7 +288,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
             { key: "delete", icon: menuIcon('edit.delete'), danger: true,
             label: menuLabel('edit.delete',deletable.length>1?'many':'default',deletable.length), disabled: deletable.length === 0,
             onClick: () => { setContextMenu(undefined); onDelete?.(deletable); } },
-            ...(onProperties?[{type:"divider" as const},{key:"properties",icon:menuIcon("tree.properties"),label:menuLabel("tree.properties"),onClick:()=>{setContextMenu(undefined);onProperties(node)}}]:[])] }}>{row}</Dropdown>
+            ...(onProperties?[{type:"divider" as const},{key:"properties",icon:menuIcon("tree.properties"),label:menuLabel("tree.properties"),onClick:()=>{setContextMenu(undefined);onProperties(node)}}]:[])],titleText(node.title),selectedKeys.length>1) }}>{row}</Dropdown>
         </div>;
       })}
     </div>

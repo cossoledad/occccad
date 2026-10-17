@@ -4970,8 +4970,14 @@
               },
               {
                 "any": [
-                  {"fact": "selectionKind", "equals": "kinematic-object"},
-                  {"fact": "selectionKind", "equals": "tree"}
+                  {
+                    "fact": "selectionKind",
+                    "equals": "kinematic-object"
+                  },
+                  {
+                    "fact": "selectionKind",
+                    "equals": "tree"
+                  }
                 ]
               },
               {
@@ -5025,79 +5031,17 @@
       }
     },
     {
-      "id": "view.scene-properties",
-      "name": "场景属性…",
-      "helpText": "设置个人视图的地面、网格、光照和背景。",
+      "id": "app.options",
+      "name": "选项…",
+      "helpText": "管理全局场景、显示、导航、单位与新建对象默认值。",
       "iconKey": "parameters",
       "repeatable": false,
-      "implementation": "form",
+      "implementation": "handler",
       "visibleWhen": {
         "all": []
       },
       "enabledWhen": {
-        "all": [
-          {
-            "fact": "busy",
-            "equals": false
-          }
-        ]
-      }
-    },
-    {
-      "id": "tree.color",
-      "name": "颜色材质",
-      "helpText": "打开 Body 的图形属性，修改外观并保留其他字段。",
-      "iconKey": "parameters",
-      "repeatable": false,
-      "implementation": "form",
-      "visibleWhen": { "all": [] },
-      "enabledWhen": { "all": [{ "fact": "canEdit", "equals": true }, { "fact": "busy", "equals": false }] }
-    },
-    {
-      "id": "tree.rename",
-      "name": "重命名",
-      "helpText": "重命名所选结构对象。",
-      "iconKey": "parameters",
-      "repeatable": false,
-      "implementation": "form",
-      "visibleWhen": {
         "all": []
-      },
-      "enabledWhen": {
-        "any": [
-          {
-            "all": [
-              {
-                "fact": "canEdit",
-                "equals": true
-              },
-              {
-                "fact": "busy",
-                "equals": false
-              }
-            ]
-          },
-          {
-            "all": [
-              {
-                "fact": "motionActive",
-                "equals": true
-              },
-              {
-                "fact": "rootCanEdit",
-                "equals": true
-              },
-              {
-                "fact": "selectionKind",
-                "equals": "kinematic-object"
-              },
-              {
-                "fact": "busy",
-                "equals": false
-              }
-            ]
-          }
-        ]
       }
     },
     {

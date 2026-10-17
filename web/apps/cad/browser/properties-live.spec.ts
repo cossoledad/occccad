@@ -49,8 +49,7 @@ test("real properties history, face preview, conflict recovery and adaptive scen
  await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(beforeCancel);expect((await appearance()).color).toBe("#2176ff");
  // A top face is selected using the production raycaster, then bound to Naming.
  await page.getByRole("textbox",{name:"筛选模型结构"}).fill("");
- const screen=await worldScreen(page,[10,-5,-5]);await page.mouse.click(screen.x,screen.y,{button:"right"});
- await page.getByRole("menuitem",{name:"属性…",exact:true}).click();await expect(dialog).toBeVisible();
+ const screen=await worldScreen(page,[10,-5,-5]);await page.mouse.click(screen.x,screen.y);await page.keyboard.press("Alt+Enter");await expect(dialog).toBeVisible();
  await expect(dialog).toContainText("所选面");await dialog.getByRole("textbox",{name:"颜色 HEX",exact:true}).fill("#000000");await dialog.getByRole("spinbutton",{name:"表面透明度",exact:true}).fill("75");await save();
  await expect.poll(async()=>(await appearance()).faces?.length??0).toBe(1);
  const faceStyle=(await appearance()).faces[0];expect(faceStyle.opacity).toBe(.25);expect(faceStyle.anchor.sourceIds.length).toBeGreaterThan(0);expect(faceStyle.localId).toBeUndefined();
@@ -67,8 +66,8 @@ test("real properties history, face preview, conflict recovery and adaptive scen
  const final=await current(page,seed.id);expect(final.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).name).toBe("Concurrent body name");
  expect(final.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).geometryKey).toBe(seed.key);
  const revision=final.document.versionId;
- const openScene=async()=>{await page.getByRole("button",{name:"视区设置",exact:true}).click();await page.getByRole("button",{name:"场景属性…",exact:true}).click()};
- await openScene();const scene=page.getByRole("dialog",{name:/^场景属性 ·/});expect(seed.minZ).toBeLessThan(0);
+ const openScene=async()=>{await page.getByRole("button",{name:"选项",exact:true}).click();await page.getByRole("dialog",{name:"选项",exact:true}).getByRole("tab",{name:"地面与网格",exact:true}).click()};
+ await openScene();const scene=page.getByRole("dialog",{name:"选项",exact:true});expect(seed.minZ).toBeLessThan(0);
  await expect.poll(async()=>Number(/当前高度 ([^\s]+)/.exec(await scene.getByLabel("当前场景地面").innerText())?.[1])).toBeCloseTo(seed.minZ,5);
  await scene.getByRole("combobox",{name:"地面位置",exact:true}).click();await page.getByTitle("世界 XY 平面（Z=0）",{exact:true}).click();await expect(scene.getByLabel("当前场景地面")).toContainText("当前高度 0 mm");
  await scene.getByRole("tab",{name:"光照",exact:true}).click();await scene.getByRole("combobox",{name:"光照预设",exact:true}).click();await page.getByTitle("柔和",{exact:true}).click();
@@ -76,4 +75,36 @@ test("real properties history, face preview, conflict recovery and adaptive scen
  expect((await current(page,seed.id)).document.versionId).toBe(revision);
  await openScene();await expect.poll(async()=>Number(/当前高度 ([^\s]+)/.exec(await scene.getByLabel("当前场景地面").innerText())?.[1])).toBeCloseTo(seed.minZ,5);await scene.getByRole("button",{name:/取\s*消/}).click();
  expect(errors).toEqual([]);
+});
+
+test("global creation defaults are frozen for ordinary and assembly-created Parts",async({page})=>{
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
+ const login=await page.request.post("/api/auth/login",{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??"admin@occccad.local",password:process.env.OCCCCAD_ADMIN_PASSWORD}});expect(login.ok()).toBeTruthy();await page.goto("/");
+ const old=await page.evaluate(async()=>{
+  // @ts-ignore production API
+  const {restApi:api}=await import("/src/api.ts");return api.createDocument("PART","Existing Part before options");
+ });
+ const options=page.getByRole("dialog",{name:"选项",exact:true});
+ const changeDefault=async(color:string)=>{
+  await page.getByRole("button",{name:"选项",exact:true}).click();await options.getByRole("menuitem",{name:"新建对象",exact:true}).click();
+  await options.getByRole("textbox",{name:"默认实体颜色 HEX",exact:true}).fill("#bad");await expect(options.getByRole("button",{name:/确\s*定/})).toBeDisabled();
+  await options.getByRole("textbox",{name:"默认实体颜色 HEX",exact:true}).fill(color);await page.screenshot({path:"../../../build/acceptance/global-options-defaults.png"});
+  await options.getByRole("button",{name:/确\s*定/}).click();await expect(options).not.toBeVisible();
+ };
+ await changeDefault("#bb7733");
+ const created=await page.evaluate(async()=>{
+  // @ts-ignore production API
+  const {restApi:api}=await import("/src/api.ts");const part=await api.createDocument("PART","Global default Part");
+  const product=await api.createDocument("PRODUCT","Global default Product");const inserted=await api.createPartComponent(product.document.id,{name:`Default child ${crypto.randomUUID().slice(0,8)}`});
+  const child=await api.getDocument(inserted.product!.instances.at(-1)!.documentId);
+  return {part,product,child};
+ });
+ expect(created.part.part.defaultAppearance.color).toBe("#bb7733");expect(created.child.part.defaultAppearance.color).toBe("#bb7733");expect(created.product.product.defaultAppearance).toBeUndefined();
+ await changeDefault("#336699");
+ const existing=await current(page,created.part.document.id),previous=await current(page,old.document.id);
+ expect(existing.document.versionId).toBe(created.part.document.versionId);expect(existing.part.defaultAppearance.color).toBe("#bb7733");expect(previous.document.versionId).toBe(old.document.versionId);expect(previous.part.defaultAppearance).toEqual(old.part.defaultAppearance);
+ const newer=await page.evaluate(async()=>{
+  // @ts-ignore production API
+  const {restApi:api}=await import("/src/api.ts");return api.createDocument("PART","Newer global default Part");
+ });expect(newer.part.defaultAppearance.color).toBe("#336699");expect(errors).toEqual([]);
 });

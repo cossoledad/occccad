@@ -31,23 +31,24 @@ export class InfiniteGroundGrid {
         uniform vec2 uCenter, uHorizontal, uVertical;
         uniform float uSpacing, uSketch, uOpacity;
         uniform vec3 uColor;
-        float grid(vec2 point, float spacing) {
+        float grid(vec2 point, float spacing, float width) {
           vec2 p = point / spacing;
           vec2 footprint = max(fwidth(p), vec2(0.000001));
-          vec2 line = 1.0 - smoothstep(vec2(0.35), vec2(1.35), abs(fract(p + 0.5) - 0.5) / footprint);
+          vec2 line = 1.0 - smoothstep(vec2(max(0.0, width - 0.35)), vec2(width + 0.35), abs(fract(p + 0.5) - 0.5) / footprint);
           line *= 1.0 - smoothstep(vec2(0.08), vec2(0.25), footprint);
           return max(line.x, line.y);
         }
         void main() {
           vec2 point = uCenter + uHorizontal * vScreen.x + uVertical * vScreen.y;
-          float minor = grid(point, uSpacing);
+          float minor = grid(point, uSpacing, mix(0.35, 1.0, uSketch));
+          float major = grid(point, uSpacing * 10.0, mix(0.7, 1.0, uSketch));
           // Sketch subdivisions are dotted; world context remains continuous lines.
           vec2 p = point / uSpacing;
           vec2 distanceToNode = abs(fract(p + 0.5) - 0.5) / max(fwidth(p), vec2(0.000001));
           float dots = 1.0 - smoothstep(0.8, 1.8, length(distanceToNode));
-          float alpha = mix(max(minor * 0.13, grid(point, uSpacing * 10.0) * 0.22),
-            max(dots * 0.65, grid(point, uSpacing * 10.0) * 0.30), uSketch);
-          gl_FragColor = vec4(uColor, alpha*uOpacity);
+          float alpha = mix(max(minor * 0.16, major * 0.38),
+            max(dots * 0.65, major * 0.30), uSketch);
+          gl_FragColor = vec4(uColor, clamp(alpha*uOpacity, 0.0, 0.85));
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,

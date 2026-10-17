@@ -16,7 +16,7 @@
 
 先读 [AGENTS](AGENTS.md)，按命中区间展开，不默认整读 `workbench.tsx`、Viewport Engine 或 Mock API。依赖版本以本目录 `package.json` 和 workspace 锁文件为准。
 
-属性、外观与个人场景见[统一属性](../../../docs/architecture/current/object-scene-properties.md)。领域行为只维护于[Web 架构](../../../docs/architecture/current/web.md)、[编辑上下文](../../../docs/architecture/current/product-edit-context.md)、[公共命令框架](../../../docs/architecture/current/document-command-framework.md)。UI 与人工步骤见[操作指南](../../../docs/guides/README.md)，导航表见[导航 README](src/cad/navigation/README.md)，机构范围见[当前 DMU](../../../docs/architecture/current/kinematics-dmu.md)。
+属性、外观与全局选项见[统一属性](../../../docs/architecture/current/object-scene-properties.md)。领域行为只维护于[Web 架构](../../../docs/architecture/current/web.md)、[编辑上下文](../../../docs/architecture/current/product-edit-context.md)、[公共命令框架](../../../docs/architecture/current/document-command-framework.md)。UI 与人工步骤见[操作指南](../../../docs/guides/README.md)，导航表见[导航 README](src/cad/navigation/README.md)，机构范围见[当前 DMU](../../../docs/architecture/current/kinematics-dmu.md)。
 
 ## 运行
 

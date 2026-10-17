@@ -10,7 +10,7 @@ import { AuthScreen } from "../features/auth/auth-screen";
 import { ActivityCenter } from "../features/activity/activity-center";
 import { DocumentCenter } from "../features/documents/document-center";
 import { DocumentTabsController } from "../features/workbench/document-tabs-controller";
-import { UserPreferencesCenter } from "../features/preferences/user-preferences-center";
+import {GlobalOptionsProvider,GlobalOptionsButton} from "../features/preferences/global-options-center";
 import { queryKeys } from "./query-keys";
 import { UIHelpProvider, useUIHelp } from "../cad/help/ui-help-context";
 import { useApplicationContext } from "../state/application-context";
@@ -63,7 +63,7 @@ function ApplicationShell() {
   const activeDocumentID = location.pathname.match(/^\/documents\/([^/]+)/)?.[1];
   const logout = async () => { realtime.stop(); await api.logout(); client.clear(); navigate("/"); };
 
-  return <DocumentSessionProvider key={user.id}><Layout className="application-shell">
+  return <DocumentSessionProvider key={user.id}><GlobalOptionsProvider activeDocumentID={inWorkbench?activeWorkbenchDocumentID ?? activeDocumentID:undefined}><Layout className="application-shell">
     <Layout.Header className="global-header">
       <button className="brand-button" aria-label="文档中心" onClick={() => navigate("/")}><Brand /></button>
       {inWorkbench && <DocumentTabsController />}
@@ -72,7 +72,7 @@ function ApplicationShell() {
         <i role="status" aria-label={isMockMode ? "Mock" : health.isSuccess ? `OCCT ${health.data.occtVersion}` : "离线"}
           className={`service-state ${isMockMode ? "mock" : health.isSuccess ? "online" : "offline"}`} />
         <ActivityCenter />
-        <UserPreferencesCenter activeDocumentID={activeWorkbenchDocumentID ?? activeDocumentID} />
+        <GlobalOptionsButton/>
         {user.platformRole === "ADMIN" && <Button ghost aria-label="管理" icon={<ToolOutlined />} onClick={() => setAdminOpen(true)} />}
         {inWorkbench && <Button ghost className={`context-help-button ${uiHelp.active ? "active" : ""}`}
           aria-label="这是什么？" aria-pressed={uiHelp.active} icon={<QuestionCircleOutlined />} onClick={uiHelp.toggle} />}
@@ -87,7 +87,7 @@ function ApplicationShell() {
     </Layout.Header>
     <Layout.Content className="application-content"><Outlet /></Layout.Content>
     {adminOpen && <Suspense fallback={null}><AdminDrawer open onClose={() => setAdminOpen(false)} /></Suspense>}
-  </Layout></DocumentSessionProvider>;
+  </Layout></GlobalOptionsProvider></DocumentSessionProvider>;
 }
 
 export function App() {

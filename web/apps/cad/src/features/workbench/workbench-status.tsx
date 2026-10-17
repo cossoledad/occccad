@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
-import { ViewportSettingsButton } from "../../cad/overlay/viewport-settings-button";
 import { Button, Popover, Select, Space, Tooltip, Typography } from "antd";
 import type { SketchCommandState, SketchCommandAction, SketchCommitReceipt } from "../../cad/tool/sketch-command-session";
 import { LoadingOutlined } from "@ant-design/icons";
 import { useUIPreferences } from "../../state/ui-preferences";
 
-export function WorkbenchStatus({ onSceneProperties,sceneGrid,onSceneGrid,busy, canEdit, selectionCount, toolName, lengthUnit, continuous, prompt, sketchCommand, onSketchAction, sketchReceipt, onSketchReceiptCheck }: {
-  onSceneProperties?:()=>void;sceneGrid?:boolean;onSceneGrid?:(grid:boolean)=>void;
+export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengthUnit, continuous, prompt, sketchCommand, onSketchAction, sketchReceipt, onSketchReceiptCheck }: {
   prompt?:string; busy: boolean; canEdit: boolean; selectionCount: number; toolName: string; lengthUnit: string; continuous: boolean;sketchCommand?:SketchCommandState;onSketchAction?:(action:SketchCommandAction)=>void;
   sketchReceipt?:SketchCommitReceipt;onSketchReceiptCheck?:()=>void;
 }) {
@@ -29,7 +27,7 @@ export function WorkbenchStatus({ onSceneProperties,sceneGrid,onSceneGrid,busy, 
               onChange={value=>onSketchAction?.({type:"option",name:option.name,value})}/>
           </label>)}
         </Space>
-      }><Button size="small" disabled={pending}>选项</Button></Popover>}
+      }><Button size="small" disabled={pending}>工具选项</Button></Popover>}
       {sketchCommand.completion&&<Button size="small" type="default" className="cad-status-complete" disabled={pending||!sketchCommand.canConfirm} onClick={()=>onSketchAction?.({type:"confirm"})}>{sketchCommand.completion.label}</Button>}
       {sketchCommand.error&&!sketchCommand.input&&<Typography.Text role="alert" type="danger" ellipsis={{tooltip:sketchCommand.error}} style={{maxWidth:280}}>{sketchCommand.error}</Typography.Text>}
       {sketchCommand.recovery&&<Button size="small" disabled={pending} onClick={()=>onSketchAction?.({type:sketchCommand.recovery!.action})}>{sketchCommand.recovery.label}</Button>}
@@ -39,11 +37,6 @@ export function WorkbenchStatus({ onSceneProperties,sceneGrid,onSceneGrid,busy, 
     {prompt&&<span role="status" className="workbench-sketch-role" title={prompt}>{prompt}</span>}
     {!sketchCommand&&!prompt&&<span className="workbench-selection-count">{selectionCount ? `已选择 ${selectionCount} 项` : "未选择对象"}</span>}
     <span className="workbench-status-spacer" />
-    <ViewportSettingsButton onSceneProperties={onSceneProperties} grids={{...preferences.gridVisibility,scene:sceneGrid??preferences.gridVisibility.scene}} onGrids={value=>{preferences.setGridVisibility({...preferences.gridVisibility,sketch:value.sketch});onSceneGrid?.(value.scene)}} references={preferences.referenceVisibility} display={preferences.solidDisplay}
-      onReferences={preferences.setReferenceVisibility} onDisplay={preferences.setSolidDisplay}
-      capture={{ settings: preferences.captureSettings, onEnabledChange: preferences.setCaptureEnabled,
-        onSelectionToggle: preferences.toggleSelectionCapture, onSketchToggle: preferences.toggleSketchSnap,
-        onAll: preferences.captureAll, onPointsOnly: preferences.capturePointsOnly }} />
     <span>长度 · {lengthUnit}</span>
     <span className="workbench-navigation-label">{preferences.navigationProfile === "catia" ? "3DEXPERIENCE CATIA" : preferences.navigationProfile === "solidworks" ? "SOLIDWORKS" : "默认"} 导航</span>
   </footer>;

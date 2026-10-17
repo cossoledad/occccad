@@ -5,7 +5,7 @@ test("Body color command persists, restores with undo and resets",async({page})=
  const body=await page.evaluate(async()=>{const {api}=await import("/src/api/client.ts");return (await api.getDocument("mock-part-bracket")).part!.bodies[0];});
  await page.getByRole("textbox",{name:"筛选模型结构"}).fill(body.name);
  const row=page.getByRole("treeitem").filter({hasText:body.name}).last();
- await row.click({button:"right"});await page.getByRole("menuitem",{name:"颜色材质",exact:true}).click();
+ await row.click({button:"right"});await page.getByRole("menuitem",{name:"属性…",exact:true}).click();
  const dialog=page.getByRole("dialog",{name:/^属性 ·/});await expect(dialog).toBeVisible();
  await dialog.getByRole("textbox",{name:"颜色 HEX"}).fill("#d64a3a");
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
@@ -15,7 +15,7 @@ test("Body color command persists, restores with undo and resets",async({page})=
  await page.screenshot({path:"../../../build/acceptance/body-color.png"});
  await page.keyboard.press("Control+z");await expect.poll(color).toBeUndefined();
  await page.keyboard.press("Control+Shift+z");await expect.poll(color).toBe("#d64a3a");
- await row.click({button:"right"});await page.getByRole("menuitem",{name:"颜色材质",exact:true}).click();
+ await row.click({button:"right"});await page.getByRole("menuitem",{name:"属性…",exact:true}).click();
  await dialog.getByRole("button",{name:"恢复各项继承",exact:true}).click();await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);await expect.poll(color).toBeUndefined();
  await page.screenshot({path:"../../../build/acceptance/body-color-reset.png"});
  expect(errors).toEqual([]);

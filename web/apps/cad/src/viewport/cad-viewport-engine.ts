@@ -1,6 +1,6 @@
 import {faceOutlineSegments} from "../cad/rendering/face-outline";
 import { ScenePresentation } from "../cad/rendering/scene-presentation";
-import { DEFAULT_SCENE_SETTINGS, groundLevel, normalizeSceneSettings, type SceneSettings } from "../cad/rendering/scene-settings";
+import { DEFAULT_SCENE_SETTINGS, groundLevel, normalizeSceneSettings,sceneGridColor, type SceneSettings } from "../cad/rendering/scene-settings";
 import {validMotionPose} from "../cad/assembly/motion-study";
 import {mechanismConstraints} from '../cad/assembly/mechanism-constraints';
 import {isExternalProjectionSource} from "../cad/interaction/external-projection-selection";
@@ -90,7 +90,6 @@ import type {
 
 type Callbacks = {
   sceneMetricsChanged?:(metrics:import("../cad/rendering/scene-settings").SceneMetrics)=>void;
-  contextMenu?:(x:number,y:number,candidates:SelectionItem[])=>void;
   selectionsChanged: (selections: SelectionItem[]) => void;
   preselectionChanged: (selection: Selection) => void;
   sketchOperations: (featureID: string, operations: SketchOperation[], intent?:SketchCommitIntent) => Promise<SketchCommitResult>;
@@ -585,7 +584,7 @@ export class CadViewportEngine {
       pick:(request,event)=>request.featureId!==this.activeSketchID?undefined:this.sketchReferenceAt(event.x,event.y,request.pick,request.retained?{target:"ENTITY",entityId:request.retained.id,subElement:"WHOLE"}:undefined,request.allowed)??undefined,
       highlight:(request,reference)=>{if(reference)this.showReferencePreview(reference,request.references,request.slot,request.hoverOverridesRetained);else this.clearReferencePreview();},
     });
-    this.input = new InputManager(this.renderer.domElement, this.sketchModal,{keyDown:this.sketchModal.modalKeyDown,keyUp:this.sketchModal.modalKeyUp,contextMenu:event=>this.openContextMenu(event)});
+    this.input = new InputManager(this.renderer.domElement, this.sketchModal,{keyDown:this.sketchModal.modalKeyDown,keyUp:this.sketchModal.modalKeyUp});
     this.input.subscribe(() => this.emitDebugState());
     this.tools.subscribe((toolID) => {
       this.activeToolID = toolID ?? "select";
@@ -853,15 +852,13 @@ export class CadViewportEngine {
   setSceneSettings(settings:SceneSettings):void {
     this.sceneSettings=normalizeSceneSettings(settings);
     const s=this.sceneSettings;
-    this.groundGrid.setStyle(s.gridColor,s.gridOpacity,s.gridSpacing);
-    this.worldGrid.setStyle(s.gridColor,s.gridOpacity*.55,s.gridSpacing);
+    this.groundGrid.setStyle(sceneGridColor(s),s.gridOpacity,s.gridSpacing);
+    this.worldGrid.setStyle(sceneGridColor(s),s.gridOpacity*.55,s.gridSpacing);
     this.background.setColors(s.background==="THEME"?undefined:s.backgroundTop,s.background==="SOLID"?s.backgroundTop:s.background==="GRADIENT"?s.backgroundBottom:undefined);
     this.refreshSceneGround();this.invalidate();
   }
-  sceneGroundHeight():number{return this.groundHeight;}
-  realignSceneGround():void {this.refreshSceneGround(true);this.invalidate();}
-  private refreshSceneGround(force=false):void {
-    if(force||(!this.motionDisplay&&!this.moveInteraction?.sessionId&&!this.moveCommitPending)){
+  private refreshSceneGround():void {
+    if(!this.motionDisplay&&!this.moveInteraction?.sessionId&&!this.moveCommitPending){
       this.groundBounds.makeEmpty();this.content.updateMatrixWorld(true);
       for(const {group,mesh,artifact} of this.solidBindings.values()){
         if(!this.objectVisible(group)||artifact.topology.solids<1||artifact.historicalPreview||artifact.representationKind==="TRANSIENT_PREVIEW")continue;
@@ -2930,14 +2927,6 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  private openContextMenu(event:PointerEvent):void {
-    if(this.pendingVisualSnapshot||this.activeSketchID||this.activeToolID!=="select"||this.featureSelection||this.moveInteraction.sessionId)return;
-    const rect=this.renderer.domElement.getBoundingClientRect();
-    this.hitTest(event.clientX-rect.left,event.clientY-rect.top);
-    const candidates=this.selectionIndex.pickAll(this.raycaster).flatMap(hit=>hit.selection?[hit.selection]:[]);
-    this.callbacks.contextMenu?.(event.clientX,event.clientY,candidates);
-  }
-
   private pick(x: number, y: number, additive: boolean): void {
     if (this.moveManipulator.isDragging()) return;
     const hit = this.hitTest(x, y,true);
@@ -3801,7 +3790,7 @@ export class CadViewportEngine {
         this.sketchGrid.object.visible = false;
         if (this.sketchPlane && this.gridVisibility.sketch) this.sketchGrid.update(this.camera, this.renderer.domElement.clientHeight, planeFrame(this.sketchPlane));
         this.renderer.clear(true, true, true);
-        this.background.render(this.renderer, this.camera);
+        this.background.render(this.renderer);
         if (this.environment.visible && this.gridVisibility.scene) {
           if(this.sceneSettings.grid&&this.sceneSettings.groundMode!=="OFF")this.groundGrid.render(this.renderer,this.camera,this.groundFrame);
           if(this.sceneSettings.worldGrid&&(this.sceneSettings.groundMode==="OFF"||this.groundHeight!==0||!this.sceneSettings.grid))this.worldGrid.render(this.renderer,this.camera);

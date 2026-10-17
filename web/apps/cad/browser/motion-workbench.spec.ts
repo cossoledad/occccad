@@ -221,7 +221,7 @@ test('entered definitions use standard rename and deletion commands',async({page
  await command(page,'固定件');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await page.getByRole('dialog',{name:/^固定零件\./}).getByRole('button',{name:/^确\s*定$/}).click();
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length),{timeout:30_000}).toBe(2);
  const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('固定零件.1 (');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^固定零件\.1 \(/).click({button:'right'});
- await page.getByRole('menuitem',{name:'重命名',exact:true}).click();const rename=page.getByRole('dialog',{name:'重命名建模对象',exact:true});
+ await page.getByRole('menuitem',{name:'属性…',exact:true}).click();const rename=page.getByRole('dialog',{name:/^属性 ·/});
  await expect(rename.getByRole('textbox',{name:/名称$/})).toHaveValue('固定零件.1');await rename.getByRole('textbox',{name:/名称$/}).fill('圆柱固定');
  await rename.getByRole('button',{name:/^确\s*定$/}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(3);
  await filter.fill('圆柱固定');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^圆柱固定 \(/).dblclick();

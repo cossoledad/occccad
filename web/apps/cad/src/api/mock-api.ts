@@ -1,3 +1,4 @@
+import {useUIPreferences} from "../state/ui-preferences";
 import { encodeMeshGLB } from "../cad/visual/mesh-glb";
 import type { CadApi } from "../api";
 import type {
@@ -993,7 +994,7 @@ export const mockApi: CadApi = {
       versionId: id("mock-version"), canUndo: false, canRedo: false, createdAt: now(), lastUpdated: now(),
       workspaceName: "Main", permission: "OWNER" };
     const partView: DocumentView = { document: partDocument, datumPlanes, axisSystems,
-      part: { bodies:[{id:"body-main",name:"Body.1",visible:true}],activeBodyId:"body-main",units: "mm", datumPlanes, axisSystems, features: [] } };
+      part: { defaultAppearance:{...useUIPreferences.getState().creationDefaults.solid}, bodies:[{id:"body-main",name:"Body.1",visible:true}],activeBodyId:"body-main",units: "mm", datumPlanes, axisSystems, features: [] } };
     summaries.unshift(partDocument); views.set(partDocument.id, partView); histories.set(partDocument.id, []);
     undoSnapshots.set(partDocument.id, []); redoSnapshots.set(partDocument.id, []);
 
@@ -1076,7 +1077,7 @@ export const mockApi: CadApi = {
       canUndo: false, canRedo: false, createdAt: now(), lastUpdated: now(), folderId: folderID,
       workspaceName: "Main", permission: "OWNER" };
     const view: DocumentView = type === "PART" ? { document, datumPlanes, axisSystems,
-      part: { bodies:[{id:"body-main",name:"Body.1",visible:true}],activeBodyId:"body-main",units: "mm", datumPlanes, axisSystems, features: [] } }
+      part: { defaultAppearance:{...useUIPreferences.getState().creationDefaults.solid}, bodies:[{id:"body-main",name:"Body.1",visible:true}],activeBodyId:"body-main",units: "mm", datumPlanes, axisSystems, features: [] } }
       : { document, product: { instances: [] }, artifacts: {}, resolvedInstances: [] };
     summaries.unshift(document); views.set(document.id, view); histories.set(document.id, []); undoSnapshots.set(document.id, []); redoSnapshots.set(document.id, []); markDocumentOpen(document.id); return pause(view);
   },

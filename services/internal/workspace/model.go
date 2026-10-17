@@ -1116,18 +1116,20 @@ type ContextCatalog struct {
 }
 
 type CreateDocumentRequest struct {
-	RequestID   string  `json:"requestId"`
-	Name        string  `json:"name"`
-	Type        string  `json:"type"`
-	Description string  `json:"description,omitempty"`
-	FolderID    *string `json:"folderId,omitempty"`
-	ActorID     string  `json:"-"`
+	DefaultAppearance *SurfaceStyle `json:"defaultAppearance,omitempty"`
+	RequestID         string        `json:"requestId"`
+	Name              string        `json:"name"`
+	Type              string        `json:"type"`
+	Description       string        `json:"description,omitempty"`
+	FolderID          *string       `json:"folderId,omitempty"`
+	ActorID           string        `json:"-"`
 }
 
 // CreatePartComponentRequest models the Product-scoped "new Part" action.
 // A nil TargetProductInstancePath addresses the root Product. A non-empty path
 // addresses a nested Product occurrence inside that immutable root snapshot.
 type CreatePartComponentRequest struct {
+	DefaultAppearance         *SurfaceStyle `json:"defaultAppearance,omitempty"`
 	RequestID                 string        `json:"requestId"`
 	Name                      string        `json:"name,omitempty"`
 	Description               string        `json:"description,omitempty"`

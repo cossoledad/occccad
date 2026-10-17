@@ -43,13 +43,14 @@ try{
  const frozenHistory=workbenchCommands({...bindings,editingView:{...host,document:{...host.document,canUndo:true}},canEdit:false,motionOpen:true,canEditRoot:false});
  assert.equal(frozenHistory.find(c=>c.id==='edit.undo').isEnabled(),false,'frozen replay remains read-only');
  const {structureCommands}=await server.ssrLoadModule('/src/features/workbench/commands/structure-commands.ts');
- const node={key:'mechanism-node',documentId:host.document.id,kind:'MECHANISM',entityId:'mechanism',capabilities:['EDIT','RENAME']};let edits=0,renames=0;
- const definitionRegistry=new CommandRegistry();definitionRegistry.registerMany(structureCommands({onEdit:()=>edits++,onRename:()=>renames++},[node]));
- const definitionCatalog={...catalog,commands:catalog.commands.filter(c=>['tree.edit','tree.rename'].includes(c.id)),groups:[],placements:[]};
+ const node={key:'mechanism-node',documentId:host.document.id,kind:'MECHANISM',entityId:'mechanism',capabilities:['EDIT','RENAME']};let edits=0,properties=0;
+ const definitionRegistry=new CommandRegistry();definitionRegistry.registerMany(structureCommands({onEdit:()=>edits++,onProperties:()=>properties++},[node]));
+ const definitionCatalog={...catalog,commands:catalog.commands.filter(c=>['tree.edit','tree.properties'].includes(c.id)),groups:[],placements:[]};
  const definitionFacts={canEdit:false,rootCanEdit:true,motionActive:true,selectionKind:'kinematic-object',busy:false};definitionRegistry.configure(definitionCatalog,()=>definitionFacts);
  assert.equal(await definitionRegistry.execute('tree.edit',{payload:{node}}),true);assert.equal(edits,1);
- assert.equal(await definitionRegistry.execute('tree.rename',{payload:{node}}),true);assert.equal(renames,1);
- definitionFacts.rootCanEdit=false;assert.equal(await definitionRegistry.execute('tree.rename',{payload:{node}}),false,'frozen tree mutations stay disabled');
+ assert.equal(await definitionRegistry.execute('tree.properties',{payload:{node}}),true);assert.equal(properties,1);
+ definitionFacts.rootCanEdit=false;assert.equal(await definitionRegistry.execute('tree.edit',{payload:{node}}),false,'frozen tree mutations stay disabled');
+ assert.equal(await definitionRegistry.execute('tree.properties',{payload:{node}}),true,'read-only properties remain inspectable');
  const commands=workbenchCommands(bindings);
  for(const action of ['play','pause','previous','next','reset','cancel']){
   assert(!commands.some(c=>c.id==='dmu.'+action),'playback controls belong only to the simulation dialog');

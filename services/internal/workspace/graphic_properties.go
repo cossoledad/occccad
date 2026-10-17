@@ -180,3 +180,37 @@ func withoutGraphicFields(p GraphicProperties, fields []string) GraphicPropertie
 	}
 	return p
 }
+
+// Creation defaults are an explicit snapshot, never a read-time user preference.
+func creationAppearance(style *SurfaceStyle) (*SurfaceAppearance, error) {
+	if style == nil {
+		return nil, nil
+	}
+	if err := validateSurfaceStyle(*style); err != nil {
+		return nil, err
+	}
+	raw, _ := json.Marshal(style)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	return patchAppearance(nil, fields, false)
+}
+func seedCreationAppearance(raw []byte, kind string, style *SurfaceStyle) ([]byte, error) {
+	if style == nil {
+		return raw, nil
+	}
+	if kind != "PART" {
+		return nil, fmt.Errorf("%w: creation surface defaults belong to a Part", ErrValidation)
+	}
+	appearance, err := creationAppearance(style)
+	if err != nil {
+		return nil, err
+	}
+	var model PartModel
+	if err := json.Unmarshal(raw, &model); err != nil {
+		return nil, err
+	}
+	model.DefaultAppearance = appearance
+	return json.Marshal(model)
+}

@@ -44,9 +44,11 @@ const node = { key: "product/assembly-constraints", kind: "ASSEMBLY_CONSTRAINT_S
 const calls = [];
 function menu(target, activeDocumentId = "product", editSession) {
   return dropdown(SpecificationTree({ nodes: [target], selectedKeys: [], selectionToken: "", activeDocumentId, editSession,
-    onSelect() {}, onActivate() {}, onOpenDocumentTab() {}, onViewResult() {}, onEdit() {}, onRename() {}, onCreatePart() {},
+    onSelect() {}, onActivate() {}, onOpenDocumentTab() {}, onViewResult() {}, onEdit() {}, onProperties() {}, onCreatePart() {},
     onReferenceMode() {}, onDetach() {}, onReconnect() {}, onRefresh() {}, onDelete() {}, onToggleSuppression() {},
-    onToggleVisibility: (...args) => calls.push(args) })).props.menu.items.filter(Boolean);
+    onToggleVisibility: (...args) => calls.push(args) })).props.menu.items.flatMap(function leaves(item) {
+      return !item || item.type === "divider" ? [] : item.children ? item.children.flatMap(leaves) : [item];
+    });
 }
 const hide = menu(node).find(item => item.key === "visibility");
 assert.equal(hide.label, "隐藏");
@@ -96,7 +98,7 @@ for (const target of [node,
     assert.equal(item.icon.type, ContextMenuIcon, `menu ${item.key} bypassed the common icon slot`);
   }
 }
-for (const key of ["open-document-tab", "open-source", "activate-body", "construction", "view-result", "edit", "rename", "create-part",
+for (const key of ["open-document-tab", "open-source", "activate-body", "construction", "view-result", "edit", "properties", "create-part",
   "pin-version", "follow-head", "detach", "reconnect", "refresh", "copy-alias", "suppress", "delete",
   "visibility"]) {
   assert(keys.has(key), `menu coverage omitted ${key}`);

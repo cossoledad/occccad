@@ -1,4 +1,5 @@
-import { normalizeSceneSettings, type SceneSettings } from "../cad/rendering/scene-settings";
+import { DEFAULT_CREATION_DEFAULTS, normalizeCreationDefaults, type CreationDefaults, type GlobalOptionsSnapshot } from "../features/preferences/global-options-model";
+import { DEFAULT_SCENE_SETTINGS, normalizeSceneSettings, type SceneSettings } from "../cad/rendering/scene-settings";
 import { DEFAULT_GRID_VISIBILITY, normalizeGridVisibility, type GridVisibility, DEFAULT_SOLID_DISPLAY, DEFAULT_REFERENCE_VISIBILITY, normalizeReferenceVisibility, normalizeSolidDisplaySettings, type ReferenceVisibility, type SolidDisplaySettings } from "../cad/rendering/display-settings";
 import { normalizePanelPosition, type PanelPosition } from "../utils/panel-position";
 import { create } from "zustand";
@@ -17,8 +18,9 @@ export const MIN_STRUCTURE_TREE_WIDTH = 220;
 export const MAX_STRUCTURE_TREE_WIDTH = 640;
 
 type UIPreferences = {
-  documentSceneSettings:Record<string,SceneSettings>;
-  setDocumentSceneSettings:(documentID:string,settings:SceneSettings)=>void;
+  sceneSettings:SceneSettings;
+  creationDefaults:CreationDefaults;
+  applyGlobalOptions:(options:GlobalOptionsSnapshot)=>void;
   sketchLabelPositions: Record<string, {x:number;y:number}>;
   setSketchLabelPosition: (documentId:string, sketchId:string, constraintId:string, position:{x:number;y:number}) => void;
   gridVisibility: GridVisibility;
@@ -90,8 +92,11 @@ export function sketchLabelPositionKey(documentId:string, sketchId:string, const
 }
 
 export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
-  documentSceneSettings:{},
-  setDocumentSceneSettings:(documentID,settings)=>set(state=>({documentSceneSettings:{...state.documentSceneSettings,[documentID]:normalizeSceneSettings(settings)}})),
+  sceneSettings:{...DEFAULT_SCENE_SETTINGS},
+  creationDefaults:structuredClone(DEFAULT_CREATION_DEFAULTS),
+  applyGlobalOptions:value=>set({...value,sceneSettings:normalizeSceneSettings(value.sceneSettings),creationDefaults:normalizeCreationDefaults(value.creationDefaults),
+    solidDisplay:normalizeSolidDisplaySettings(value.solidDisplay),referenceVisibility:normalizeReferenceVisibility(value.referenceVisibility),
+    gridVisibility:normalizeGridVisibility(value.gridVisibility),captureSettings:normalizeCaptureSettings(value.captureSettings),displayLengthUnit:normalizeDisplayLengthUnit(value.displayLengthUnit)}),
   sketchLabelPositions: {},
   setSketchLabelPosition: (documentId,sketchId,constraintId,position) => {
     if(!documentId||!sketchId||!constraintId||!Number.isFinite(position.x)||!Number.isFinite(position.y))return;
@@ -145,21 +150,21 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   }),
 }), {
   name: "occccad.ui-preferences.v1",
-  version: 9,
+  version: 10,
   migrate: (persisted) => {
     const value = (persisted && typeof persisted === "object" ? persisted : {}) as Partial<UIPreferences> & { hiddenTreeKeys?: string[]; renderMode?: string };
     const documentLengthUnits = Object.fromEntries(Object.entries(value.documentLengthUnits ?? {})
       .map(([id, unit]) => [id, normalizeDisplayLengthUnit(unit)]));
     const commandDialogPositions = Object.fromEntries(Object.entries(value.commandDialogPositions ?? {})
       .flatMap(([id, position]) => { const normalized = normalizePanelPosition(position); return normalized ? [[id, normalized]] : []; }));
-    return { ...value, documentSceneSettings:Object.fromEntries(Object.entries((value.documentSceneSettings??{}) as Record<string,unknown>).map(([id,value])=>[id,normalizeSceneSettings(value)])), sketchLabelPositions: {}, gridVisibility:normalizeGridVisibility(value.gridVisibility), referenceVisibility: normalizeReferenceVisibility(value.referenceVisibility), solidDisplay: normalizeSolidDisplaySettings(value.solidDisplay ?? value.renderMode), commandDialogPositions, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
+    return { ...value, sceneSettings:normalizeSceneSettings(value.sceneSettings),creationDefaults:normalizeCreationDefaults(value.creationDefaults), sketchLabelPositions: {}, gridVisibility:normalizeGridVisibility(value.gridVisibility), referenceVisibility: normalizeReferenceVisibility(value.referenceVisibility), solidDisplay: normalizeSolidDisplaySettings(value.solidDisplay ?? value.renderMode), commandDialogPositions, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
       structureTreeWidth: clampStructureTreeWidth(value.structureTreeWidth),
       navigationProfile: value.navigationProfile === "catia" || value.navigationProfile === "solidworks" ? value.navigationProfile : "default",
       catiaRotationSphereVisible: value.catiaRotationSphereVisible === true,
       captureSettings: normalizeCaptureSettings(value.captureSettings),
       displayLengthUnit: normalizeDisplayLengthUnit(value.displayLengthUnit), documentLengthUnits } as UIPreferences;
   },
-  partialize: (state) => ({ documentSceneSettings:state.documentSceneSettings, sketchLabelPositions:state.sketchLabelPositions, gridVisibility:state.gridVisibility, referenceVisibility: state.referenceVisibility, solidDisplay: state.solidDisplay, commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
+  partialize: (state) => ({ sceneSettings:state.sceneSettings,creationDefaults:state.creationDefaults, sketchLabelPositions:state.sketchLabelPositions, gridVisibility:state.gridVisibility, referenceVisibility: state.referenceVisibility, solidDisplay: state.solidDisplay, commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
     treeVisibilityOverrides: state.treeVisibilityOverrides, structureTreeWidth: state.structureTreeWidth,
     navigationProfile: state.navigationProfile, catiaRotationSphereVisible: state.catiaRotationSphereVisible, captureSettings: state.captureSettings,
     displayLengthUnit: state.displayLengthUnit, documentLengthUnits: state.documentLengthUnits }),

@@ -17,6 +17,12 @@ export function propertyEditorTarget(view:DocumentView,editingView:DocumentView|
   const root=!selection||((selection.kind==="part"||selection.kind==="product")&&!occurrence&&selection.documentId===view.document.id);
   const base:PropertyEditorTarget={target:{kind:"DOCUMENT",id:source.document.id},documentId:source.document.id,versionId:source.document.versionId,
     title:source.document.name,systemColor:view.product?palette.productSolid:palette.solid,scope:"文档内容",canEdit:own?canEdit:canEditRoot,canRename:true,canGraphics:true};
+  if(selection?.kind==="kinematic-object"&&view.product?.kinematics){
+    const k=view.product.kinematics,id=selection.entityId??selection.id;
+    const object=[...k.mechanisms,...k.mechanisms.flatMap(m=>m.joints),...(k.drivers??[]),...k.studies].find(o=>o.id===id);
+    if(object)return {...base,selection,target:{kind:"KINEMATIC_OBJECT",id},documentId:view.document.id,versionId:view.document.versionId,
+      title:object.name,name:object.name,scope:"当前装配中的机构定义",canEdit:canEditRoot,canRename:true,canGraphics:false};
+  }
   if(root)return {...base,target:{kind:"DOCUMENT",id:view.document.id},documentId:view.document.id,versionId:view.document.versionId,title:view.document.name,name:view.document.name,description:view.document.description,appearance:view.part?.defaultAppearance??view.product?.defaultAppearance,effective:view.part?.defaultAppearance??view.product?.defaultAppearance,sources:{color:{kind:(view.part?.defaultAppearance??view.product?.defaultAppearance)?.color?"DOCUMENT_DEFAULT":"SYSTEM"}},scope:"文档默认外观",canEdit:canEditRoot};
   if(!selection)return base;
   const bodyID=selection.bodyId??(selection.kind==="body"?selection.entityId:undefined);

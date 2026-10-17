@@ -1,9 +1,7 @@
-import {ViewportContextMenu,type ViewportContext} from "./viewport-context-menu";
+import {useGlobalOptions} from "../preferences/global-options-center";
 import {AssemblyConstraintFields} from "./assembly-constraint-fields";
 import {ObjectPropertiesDialog} from "./object-properties-dialog";
 import {propertyEditorTarget,refreshPropertyTargets,type PropertyEditorTarget} from "./property-target";
-import {ScenePropertiesDialog} from "./scene-properties-dialog";
-import {DEFAULT_SCENE_SETTINGS,type SceneSettings} from "../../cad/rendering/scene-settings";
 import {withMotionResults} from './motion-result-tree';
 import {structureCommandIDs,type StructureActions,type StructureInvocation} from "./commands/structure-commands";
 import {useWorkbenchCommandRegistration} from "./workbench-command-registration";
@@ -152,15 +150,12 @@ export function Workbench() {
   const [conflictError,setConflictError]=useState<string>();
   const conflictGate=useRef(new AssemblyConflictResponseGate());
   const conflictAbort=useRef<AbortController|undefined>(undefined);
-  const [renameTarget, setRenameTarget] = useState<SpecificationTreeNode>();
-  const [viewportContext,setViewportContext]=useState<ViewportContext>();
   const [propertyTargets,setPropertyTargets]=useState<PropertyEditorTarget[]>();
-  const [scenePropertiesOpen,setScenePropertiesOpen]=useState(false);
-  const [sceneDraft,setSceneDraft]=useState<SceneSettings>();
-  const [sceneMetrics,setSceneMetrics]=useState<import("../../cad/rendering/scene-settings").SceneMetrics>({groundHeight:0,gridSpacing:10});
-  const documentScenes=useUIPreferences(s=>s.documentSceneSettings);
-  const saveSceneSettings=useUIPreferences(s=>s.setDocumentSceneSettings);
-  const sceneSettings=sceneDraft??documentScenes[documentID!]??DEFAULT_SCENE_SETTINGS;
+  const globalOptions=useGlobalOptions();
+  const optionsDraft=globalOptions?.draft;
+  const persistedScene=useUIPreferences(s=>s.sceneSettings);
+  const sceneSettings=optionsDraft?.sceneSettings??persistedScene;
+  useEffect(()=>()=>globalOptions?.setMetrics(undefined),[globalOptions?.setMetrics]);
   const [objectPreview,previewObjectProperties]=useState<import("../../types").PropertyPreview>();
   const requestObjectPreview=useCallback((properties:import("../../types").PropertyUpdateRequest,signal:AbortSignal)=>{
     if(!propertyTargets)throw new Error("属性编辑上下文已关闭");
@@ -221,18 +216,25 @@ export function Workbench() {
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const treeVisibilityOverrides = useUIPreferences((state) => state.treeVisibilityOverrides);
-  const catiaRotationSphereVisible = useUIPreferences((state) => state.catiaRotationSphereVisible);
-  const navigationProfile = useUIPreferences((state) => state.navigationProfile);
-  const gridVisibility = useUIPreferences(state=>state.gridVisibility);
-  const referenceVisibility = useUIPreferences((state) => state.referenceVisibility);
-  const solidDisplay = useUIPreferences((state) => state.solidDisplay);
-  const captureSettings = useUIPreferences((state) => state.captureSettings);
-  const displayLengthUnit = useUIPreferences((state) => state.displayLengthUnit);
-  const documentLengthUnits = useUIPreferences((state) => state.documentLengthUnits);
+  const saved_catiaRotationSphereVisible = useUIPreferences((state) => state.catiaRotationSphereVisible);
+  const catiaRotationSphereVisible=optionsDraft?.catiaRotationSphereVisible??saved_catiaRotationSphereVisible;
+  const saved_navigationProfile = useUIPreferences((state) => state.navigationProfile);
+  const navigationProfile=optionsDraft?.navigationProfile??saved_navigationProfile;
+  const saved_gridVisibility = useUIPreferences(state=>state.gridVisibility);
+  const gridVisibility=optionsDraft?.gridVisibility??saved_gridVisibility;
+  const saved_referenceVisibility = useUIPreferences((state) => state.referenceVisibility);
+  const referenceVisibility=optionsDraft?.referenceVisibility??saved_referenceVisibility;
+  const saved_solidDisplay = useUIPreferences((state) => state.solidDisplay);
+  const solidDisplay=optionsDraft?.solidDisplay??saved_solidDisplay;
+  const saved_captureSettings = useUIPreferences((state) => state.captureSettings);
+  const captureSettings=optionsDraft?.captureSettings??saved_captureSettings;
+  const saved_displayLengthUnit = useUIPreferences((state) => state.displayLengthUnit);
+  const displayLengthUnit=optionsDraft?.displayLengthUnit??saved_displayLengthUnit;
+  const saved_documentLengthUnits = useUIPreferences((state) => state.documentLengthUnits);
+  const documentLengthUnits=optionsDraft?.documentLengthUnits??saved_documentLengthUnits;
   const setShellActiveDocumentID = useApplicationContext((state) => state.setActiveDocumentID);
   const [shareResource, setShareResource] = useState<ShareResource>();
 
-  const [renameForm] = Form.useForm<{ name: string }>();
   const [newPartForm] = Form.useForm<{ name?: string; description?: string }>();
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const [parameterForm] = Form.useForm<{ key: string; source: string }>();
@@ -1110,8 +1112,8 @@ export function Workbench() {
     closeAssemblyCandidate();stopConflictAnalysis();viewport.current?.showRemainingMotion();
     if(nextCommand!=="dmu.apply"||!motionDisplay)motionPanel.current?.closeCommand();
     setConflictOpen(false);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
-    setFeatureSelection(undefined);setRenameTarget(undefined);setNewPartTarget(undefined);
-    setPropertyTargets(undefined);setScenePropertiesOpen(false);setSceneDraft(undefined);setViewportContext(undefined);
+    setFeatureSelection(undefined);setNewPartTarget(undefined);
+    setPropertyTargets(undefined);
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
     setParameterManagerOpen(false);setPublicationManagerOpen(false);setExternalParameterID(undefined);
     setEditingParameterID(undefined);setEditingPublication(undefined);
@@ -1122,7 +1124,6 @@ export function Workbench() {
     setPropertyTargets((selected.length?selected:[undefined]).map(selection=>propertyEditorTarget(view,editingView,selection,activeInstancePath,canEdit,canEditRoot)));
   };
   const treeActions:StructureActions={
-onColor:node=>openObjectProperties(node.selection?[node.selection]:undefined),
 onProperties:node=>{
   const selected=useWorkbenchStore.getState().selections;
   const selections=node.selection&&selected.some(s=>selectionKey(s)===selectionKey(node.selection!))?selected:node.selection?[node.selection]:undefined;
@@ -1184,13 +1185,6 @@ onEdit:(node,operation) => {
               else if (node.kind === "PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PART");
               else if (node.kind === "PRODUCT_PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PRODUCT");
               else openFeatureEditor(node);
-            },
-onRename:(node) => {
-              if (!editingView || !(canEdit||motionOpen&&canEditRoot&&!motionDisplay&&kinematicKinds.includes(node.kind??"")) || node.documentId !== editingView.document.id || !node.entityId) return;
-              const kinematic=view?.product?.kinematics;const object=kinematic?[...kinematic.mechanisms,...kinematic.mechanisms.flatMap(m=>m.joints),...(kinematic.drivers??[]),...kinematic.studies].find(v=>v.id===node.entityId):undefined;
- const name = object?.name ?? (node.kind === "BODY" ? editingView.part?.bodies.find((body) => body.id === node.entityId)?.name
-                : editingView.part?.features.find((feature) => feature.id === node.entityId)?.name);
-              renameForm.setFieldsValue({name:name ?? ""}); setRenameTarget(node);
             },
 onCreatePart:(node) => {
 			  if (node.documentType !== "PRODUCT") return;
@@ -1282,8 +1276,8 @@ onToggleConstruction:(node)=>{
             }
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
-  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openProperties:()=>openObjectProperties(),openSceneProperties:()=>setScenePropertiesOpen(true),prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    formActive:Boolean(motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||renameTarget||propertyTargets||scenePropertiesOpen||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
+    formActive:Boolean(motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1549,7 +1543,7 @@ onToggleConstruction:(node)=>{
       inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
 
       commands={<WorkbenchCommands documentSessions={documentSessions} hostDocumentId={documentID} toolbars={visibleToolbars} workbench={activeWorkbench} catalog={toolbarCatalog.data} tabs={activeTabs} />}
-      status={<WorkbenchStatus onSceneProperties={()=>{void commandRegistry.execute("view.scene-properties")}} sceneGrid={sceneSettings.grid} onSceneGrid={grid=>saveSceneSettings(documentID,{...sceneSettings,grid})} busy={command.isPending} canEdit={motionOpen&&!motionDisplay?canEditRoot:canEdit} selectionCount={store.selections.length}
+      status={<WorkbenchStatus busy={command.isPending} canEdit={motionOpen&&!motionDisplay?canEditRoot:canEdit} selectionCount={store.selections.length}
         sketchReceipt={sketchReceipt} onSketchReceiptCheck={()=>void viewport.current?.retrySketchReceipt()} sketchCommand={store.activeSketchID?sketchCommandState:undefined} onSketchAction={action=>viewport.current?.sketchCommandAction(action)}
         toolName={activeToolName} prompt={motionOpen?motionStatus:undefined} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
       tree={<SpecificationTree key={documentID} documentSessions={documentSessions} hostDocumentId={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
@@ -1569,8 +1563,6 @@ onToggleConstruction:(node)=>{
             onOpenDocumentTab={node=>executeTree("onOpenDocumentTab",{node})}
             onActivate={node=>executeTree("onActivate",{node})}
 			onEdit={node=>executeTree("onEdit",{node})}
-            onRename={node=>executeTree("onRename",{node})}
-            onColor={canEdit?node=>executeTree("onColor",{node}):undefined}
             onProperties={node=>executeTree("onProperties",{node})}
 			onCreatePart={node=>executeTree("onCreatePart",{node})}
 			onReferenceMode={(node,mode)=>executeTree("onReferenceMode",{node,referenceMode:mode})}
@@ -1611,13 +1603,7 @@ onToggleConstruction:(node)=>{
           type="warning" showIcon message="当前几何暂不支持持久拓扑引用"
           description={(selectedNamingIssue ?? activeNamingIssue)?.diagnostic}
           action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>建立导入命名</Button> : undefined} />}
-        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} onSceneMetrics={setSceneMetrics} onContextMenu={(x,y,candidates)=>{
-            if(propertyTargets||scenePropertiesOpen||command.isPending)return;
-            const selection=candidates[0];const state=useWorkbenchStore.getState();
-            if(selection&&!state.selections.some(s=>selectionKey(s)===selectionKey(selection)))state.setSelections([selection]);
-            if(!selection)state.setSelections([]);
-            setViewportContext({x,y,candidates});
-          }} applicationDisplay={motionOpen||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
+        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} onSceneMetrics={globalOptions?.setMetrics} applicationDisplay={motionOpen||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
           editingView={motionDisplay?undefined:editingView} activeInstancePath={motionDisplay?undefined:activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           liveDefinitionProjection={Boolean(canEdit && editSession?.hostDocumentId===view.document.id && activeInstancePath &&
             !pinnedReferenceInPath(view.structureTree,activeInstancePath))}
@@ -1799,39 +1785,17 @@ onToggleConstruction:(node)=>{
         {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
-    <ViewportContextMenu context={viewportContext} onClose={()=>setViewportContext(undefined)}
-      onProperties={()=>{void commandRegistry.execute("edit.properties")}} onScene={()=>{void commandRegistry.execute("view.scene-properties")}}
-      onSelect={selection=>store.setSelections([selection])} label={selection=>{
-        const target=propertyEditorTarget(view,editingView,selection,activeInstancePath,canEdit,canEditRoot);
-        return `${target.title} · ${selection.kind==="face"?"面":selection.kind==="edge"?"边":selection.kind==="vertex"?"顶点":selection.kind}${selection.instancePath?.display?` · ${selection.instancePath.display}`:""}`;
-      }}/>
     {propertyTargets&&<ObjectPropertiesDialog targets={propertyTargets} pending={command.isPending}
       onRefresh={async()=>{const latest=await api.getDocument(view.document.id);const editing=editingView&&editingView.document.id!==view.document.id?await api.getDocument(editingView.document.id):latest;const targets=refreshPropertyTargets(propertyTargets,latest,editing,activeInstancePath,canEdit,canEditRoot);await refresh(latest);setPropertyTargets(targets)}}
       onClose={()=>{if(!command.isPending)setPropertyTargets(undefined)}} onPreview={previewObjectProperties} onPreviewRequest={requestObjectPreview}
-      onApply={async properties=>{await command.mutateAsync(()=>api.command(propertyTargets[0].documentId,{type:"SET_PROPERTIES",versionId:propertyTargets[0].versionId,properties}));setPropertyTargets(undefined)}}
-      onScene={()=>{void commandRegistry.execute("view.scene-properties")}}
+      onApply={async properties=>{const target=propertyTargets[0];await command.mutateAsync(async()=>{
+        if(target.target.kind==="KINEMATIC_OBJECT"){
+          if(!view.product?.kinematics||!properties.name)throw new Error("机构对象或名称已变化");
+          const updated=await api.command(target.documentId,{type:"SAVE_KINEMATICS",versionId:target.versionId,kinematics:renameMotionObject(view.product.kinematics,target.target.id,properties.name)});motionPanel.current?.adoptDefinition(updated);return updated;
+        }
+        return api.command(target.documentId,{type:"SET_PROPERTIES",versionId:target.versionId,properties});
+      });setPropertyTargets(undefined)}}
       onOpenOriginal={id=>{setPropertyTargets(undefined);void openDocumentTab(id,client,api.openDocument,navigate)}}/>}
-    {scenePropertiesOpen&&<ScenePropertiesDialog documentName={view.document.name} initialSettings={sceneSettings}
-      metrics={sceneMetrics} groundHeight={()=>viewport.current?.sceneGroundHeight()??0} onPreview={setSceneDraft}
-      onClose={()=>{setScenePropertiesOpen(false);setSceneDraft(undefined)}}
-      onApply={settings=>{saveSceneSettings(documentID,settings);setScenePropertiesOpen(false);setSceneDraft(undefined)}}/>}
-
-    <CommandDialog size="S" id="rename-model-object" open={Boolean(renameTarget)} title="重命名建模对象"
-      onClose={() => setRenameTarget(undefined)} confirmLoading={command.isPending}
-      onConfirm={async () => {
-        const values = await renameForm.validateFields();
-        if (!renameTarget?.entityId || !editingView || renameTarget.documentId !== editingView.document.id) return;
-        const target = renameTarget;
- if(kinematicKinds.includes(target.kind??"")&&view.product?.kinematics){command.mutate(async()=>{const updated=await api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:view.document.versionId,kinematics:renameMotionObject(view.product!.kinematics!,target.entityId!,values.name.trim())});motionPanel.current?.adoptDefinition(updated);return updated},{onSuccess:()=>setRenameTarget(undefined)});return}
-        command.mutate(() => api.command(editingView.document.id, target.kind === "BODY"
-          ? {type:"RENAME_BODY",bodyId:target.entityId,name:values.name.trim()}
-          : {type:"RENAME_FEATURE",targetId:target.entityId,name:values.name.trim()}),
-          {onSuccess:() => setRenameTarget(undefined)});
-      }}>
-      <Form form={renameForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{required:true,whitespace:true}]}>
-        <Input maxLength={160} /></Form.Item></Form>
-    </CommandDialog>
-
 	<CommandDialog id="parameter-manager" open={parameterManagerOpen} title="参数" size="L"
 		onClose={() => setParameterManagerOpen(false)} onConfirm={() => setParameterManagerOpen(false)}>
 		<div className="parameter-manager" aria-label="文档参数">

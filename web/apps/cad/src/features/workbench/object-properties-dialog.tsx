@@ -5,12 +5,12 @@ import type { CommandPreview, PropertyPreview, PropertyUpdateRequest, SurfaceSty
 import { commonStyle, type PropertyEditorTarget } from "./property-target";
 import { palette } from "../../design/visual-tokens";
 
-export function ObjectPropertiesDialog({targets,pending,onPreviewRequest,onPreview,onApply,onRefresh,onClose,onScene,onOpenOriginal}: {
+export function ObjectPropertiesDialog({targets,pending,onPreviewRequest,onPreview,onApply,onRefresh,onClose,onOpenOriginal}: {
   targets:PropertyEditorTarget[];pending:boolean;
   onPreviewRequest:(request:PropertyUpdateRequest,signal:AbortSignal)=>Promise<CommandPreview>;
   onPreview:(preview:PropertyPreview|undefined)=>void;onApply:(request:PropertyUpdateRequest)=>Promise<unknown>;
   onRefresh:()=>Promise<void>;
-  onClose:()=>void;onScene:()=>void;onOpenOriginal?:(documentID:string)=>void;
+  onClose:()=>void;onOpenOriginal?:(documentID:string)=>void;
 }) {
   const first=targets[0];const single=targets.length===1;
   const [name,setName]=useState(first.name??"");const [description,setDescription]=useState(first.description??"");
@@ -96,6 +96,5 @@ export function ObjectPropertiesDialog({targets,pending,onPreviewRequest,onPrevi
     {commitError&&<Alert type="error" title="属性尚未保存，修改已保留" description={commitError}/>}
     <Button type="link" disabled={pending} loading={refreshing} onClick={async()=>{setRefreshing(true);try{await onRefresh();setCommitError(undefined);setPreviewError(undefined);setRetry(v=>v+1)}catch(error){setCommitError(error instanceof Error?error.message:String(error))}finally{setRefreshing(false)}}}>加载最新版本并保留修改</Button>
     <Tabs defaultActiveKey={graphics&&first.target.kind!=="DOCUMENT"?"graphic":"basic"} items={[{key:"basic",label:"基本",children:basic},...(graphics?[{key:"graphic",label:"图形",children:graphic}]:[]),{key:"info",label:"信息",children:info}]}/>
-    <Button type="link" disabled={changedName||changedDescription||changedGraphics||pending} onClick={onScene}>场景属性…</Button>
   </CommandDialog>;
 }
