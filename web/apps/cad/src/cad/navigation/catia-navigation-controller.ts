@@ -2,8 +2,9 @@ import * as THREE from "three";
 import { InputResult, type CadPointerEvent } from "../input/input-types";
 import type { CameraRig } from "./camera-rig";
 import { CatiaNavigationState, type NavigationPivotSource } from "./catia-navigation-state";
-import type { NavigationPick, NavigationPicker } from "./navigation-picker";
+import type { NavigationPicker } from "./navigation-picker";
 import type { NavigationAction } from "./navigation-profile";
+import { viewFocus } from "./orthographic-view";
 import { VirtualTrackball } from "./virtual-trackball";
 
 export type CatiaNavigationOptions = { dragThreshold?: number; debugTransitions?: boolean };
@@ -24,7 +25,6 @@ export class CatiaNavigationController {
   private leader: "middle" | "right" = "middle";
   private down = new THREE.Vector2();
   private pointer = new THREE.Vector2();
-  private pendingPick?: NavigationPick;
   private pivotSource: NavigationPivotSource = "existing";
   private hitObject?: string;
   private zoomLatched = false;
@@ -55,11 +55,8 @@ export class CatiaNavigationController {
       if (event.button !== 1 && !(event.button === 2 && event.state.modifiers.alt)) return InputResult.Ignored;
       this.leader = event.button === 1 ? "middle" : "right";
       this.pointerId = event.pointerId; this.down.set(event.x, event.y); this.pointer.copy(this.down);
-      // Freeze the press location once: visible points first, otherwise the exact
-      // surface intersection. Empty space preserves the previous rotation centre.
-      this.pendingPick = this.picker.pickNearest(event.x, event.y);
-      if(this.pendingPick){this.rig.setPivot(this.pendingPick.point);this.pivotSource=this.pendingPick.source;this.hitObject=this.pendingPick.objectLabel}
-      else {this.pivotSource="existing";this.hitObject=undefined}
+      // A press only starts the gesture; geometry is picked on click release.
+      this.pivotSource="existing";this.hitObject=undefined;
       this.directCtrl = event.state.modifiers.ctrl;
       this.zoomLatched = this.leader === "right" && this.directCtrl; this.sideDown = false; this.clickCandidate = !event.state.modifiers.ctrl && this.leader === "middle";
       this.transition(event.state.modifiers.ctrl ? CatiaNavigationState.Zoom : CatiaNavigationState.MiddlePending);
@@ -81,23 +78,24 @@ export class CatiaNavigationController {
     }
     const size = this.viewportSize();
     if (this.state === CatiaNavigationState.Pan) {
-      const pivot=this.rig.pivot.clone();
+      this.rig.setPivot(viewFocus(this.rig.camera,this.rig.pivot));
       this.rig.panPixels(event.deltaX * 1.15, event.deltaY * 1.15, size.width, size.height);
-      this.rig.setPivot(pivot); // The picked model point follows the model, not the moving eye.
+      this.updateCenter();
     }
     else if (this.state === CatiaNavigationState.Rotate) {
       const rotation = this.trackball.drag(event.x, event.y, size.width, size.height, this.rig.camera);
       if (rotation) this.rig.orbitQuaternion(rotation);
-    } else this.rig.dollyPixels(event.deltaY * 1.15);
+    } else {this.rig.setPivot(viewFocus(this.rig.camera,this.rig.pivot));this.rig.dollyPixels(event.deltaY * 1.15);}
     this.updated(true);
     return InputResult.Consumed;
   }
   pointerUp(event: CadPointerEvent): InputResult {
     if (!this.active || event.pointerId !== this.pointerId) return InputResult.Ignored;
     if (!event.state.buttons[this.leader]) {
-      if (this.clickCandidate && this.pendingPick) {
-        this.rig.centerViewpointAt(this.pendingPick.point);
-        this.pivotSource = this.pendingPick.source; this.hitObject = this.pendingPick.objectLabel;
+      const pick=this.clickCandidate?this.picker.pickNearest(event.x,event.y):undefined;
+      if (pick) {
+        this.rig.centerViewpointAt(pick.point);
+        this.pivotSource = pick.source; this.hitObject = pick.objectLabel;
         this.updated(true);
       }
       this.forceCancel(); return InputResult.ReleaseCapture;
@@ -105,7 +103,7 @@ export class CatiaNavigationController {
     this.updateMode(event); return InputResult.Consumed;
   }
   forceCancel(): void {
-    this.pointerId = undefined; this.pendingPick = undefined; this.clickCandidate = false;
+    this.pointerId = undefined; this.clickCandidate = false;
     this.sideDown = false; this.zoomLatched = false; this.trackball.reset(); this.transition(CatiaNavigationState.Idle);
   }
   private updateMode(event: CadPointerEvent): void {
@@ -129,8 +127,15 @@ export class CatiaNavigationController {
     else if (!side && this.state === CatiaNavigationState.Zoom) this.transition(CatiaNavigationState.Pan);
   }
   private beginRotation(event:CadPointerEvent):void {
-    const size=this.viewportSize(),p=this.rig.pivot.clone().project(this.rig.camera);
-    this.trackball.begin(event.x,event.y,size.width,size.height,{x:(p.x+1)*size.width/2,y:(1-p.y)*size.height/2});
+    this.updateCenter();
+    const size=this.viewportSize();
+    this.trackball.begin(event.x,event.y,size.width,size.height,{x:size.width/2,y:size.height/2});
+  }
+  private updateCenter():void {
+    const size=this.viewportSize(),pick=this.picker.pickNearest(size.width/2,size.height/2);
+    // A nearby vertex supplies depth only: the pivot itself stays on the central ray.
+    this.rig.setPivot(viewFocus(this.rig.camera,pick?.point??this.rig.pivot));
+    this.pivotSource=pick?.source??"existing";this.hitObject=pick?.objectLabel;
   }
   private transition(next: CatiaNavigationState): void {
     if (next === this.state) return;

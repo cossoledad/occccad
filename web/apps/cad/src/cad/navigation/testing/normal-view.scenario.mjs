@@ -79,6 +79,14 @@ try {
  assert.equal(transition.active,false);
  assert.ok(camera.position.equals(end.position));
  assert.ok(camera.quaternion.angleTo(end.rotation)<1e-7);
+ const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
+ const {SelectionIndex}=await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
+ const index=new SelectionIndex(),mesh=new THREE.Mesh(new THREE.PlaneGeometry(),new THREE.MeshBasicMaterial()),parentGroup=new THREE.Group();parentGroup.add(mesh);
+ const displayed={kind:"plane",id:"plane",entityId:"plane",documentId:"owner",versionId:"revision",treeNodeId:"display-plane",occurrencePath:"instance",instancePath:{rootDocumentId:"root",canonical:"instance",segments:[{referencedDocumentId:"owner",resolvedVersionId:"revision"}]},datumPlane:plane};mesh.userData=displayed;index.register(displayed,mesh);
+ let oriented=0;const engine={view:{document:{id:"owner",versionId:"revision"},resolvedInstances:[{occurrencePath:"instance",instancePath:{rootDocumentId:"root",canonical:"instance",segments:[{referencedDocumentId:"owner",resolvedVersionId:"revision"}]}}]},selectionIndex:index,camera,navigation:{target,cancel(){}},animatePlaneView(){oriented++},invalidate(){}};
+ const tree={...displayed,versionId:undefined};assert.equal(CadViewportEngine.prototype.normalToPlane.call(engine,tree),true,"tree selection resolves the current displayed snapshot");assert.equal(oriented,1);
+ for(const mismatch of [{documentId:"other"},{entityId:"other"},{occurrencePath:"other",instancePath:undefined},{versionId:"stale"}])assert.equal(CadViewportEngine.prototype.normalToPlane.call(engine,{...tree,...mismatch}),false,"mismatched identity must not use the current snapshot");
+ mesh.geometry.dispose();mesh.material.dispose();
  const properties={geometryType:"PLANE",properties:{origin:plane.origin,normal:plane.normal,xDirection:plane.uDirection}};
  assert.deepEqual(exactNormalViewPlane(properties),plane);
  assert.equal(exactNormalViewPlane({...properties,geometryType:"CYLINDER"}),undefined);

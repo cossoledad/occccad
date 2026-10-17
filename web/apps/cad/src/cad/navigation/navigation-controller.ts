@@ -17,6 +17,7 @@ export type NavigationSnapshot = {
   cameraPosition: number[];
   cameraQuaternion: number[];
   cameraZoom: number;
+  cameraFov?:number; cameraAspect?:number; cameraSpan?:number;
   projection: "orthographic" | "perspective";
   catia?: CatiaNavigationSnapshot;
   solidworks?: SolidWorksNavigationSnapshot;
@@ -73,6 +74,8 @@ export class NavigationController {
     );
   }
 
+  setCamera(camera:CadCamera):void {this.cancel();this.rig.camera=camera;this.picker.setCamera(camera);this.emit();}
+
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) this.cancel();
@@ -91,7 +94,7 @@ export class NavigationController {
   retainsMouseCapture(pointerId:number,buttons:number):boolean {return this.profile.id==="catia"&&this.catia.retainsCapture(pointerId,buttons)}
   get snapshot(): NavigationSnapshot {
     return { profile: this.profile.id, action: this.action, cameraPosition: this.rig.camera.position.toArray(),
-      cameraQuaternion: this.rig.camera.quaternion.toArray(), cameraZoom: this.rig.camera.zoom,
+      cameraQuaternion: this.rig.camera.quaternion.toArray(), cameraZoom: this.rig.camera.zoom, cameraFov:this.rig.camera instanceof THREE.PerspectiveCamera?this.rig.camera.fov:undefined, cameraAspect:this.rig.camera instanceof THREE.PerspectiveCamera?this.rig.camera.aspect:undefined, cameraSpan:this.rig.camera instanceof THREE.OrthographicCamera?this.rig.camera.top-this.rig.camera.bottom:undefined,
       projection: this.rig.camera instanceof THREE.OrthographicCamera ? "orthographic" : "perspective", catia: this.profile.id === "catia" ? this.catia.snapshot : undefined,
       solidworks: this.profile.id === "solidworks" ? this.solidworks.snapshot : undefined };
   }

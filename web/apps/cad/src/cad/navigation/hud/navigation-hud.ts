@@ -2,7 +2,6 @@ import * as THREE from "three";
 import type { CadCamera } from "../camera-rig";
 import type { NavigationSnapshot } from "../navigation-controller";
 import type { NavigationPick } from "../navigation-picker";
-import {worldUnitsPerCssPixel} from "../../rendering/viewport-metrics";
 
 export type HudScreenPosition = { x: number; y: number };
 import { CATIA_TRACKBALL_RADIUS_RATIO, CATIA_NAVIGATION_COLOR as CATIA_COLOR, SOLIDWORKS_REFERENCE_COLOR } from "../navigation-visuals";
@@ -13,8 +12,10 @@ export class NavigationHUD {
   private readonly worldScene = new THREE.Scene();
   private readonly referenceGroup = new THREE.Group();
   private readonly pivotMarker = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(-1,0,0),new THREE.Vector3(1,0,0),new THREE.Vector3(0,-1,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,-1),new THREE.Vector3(0,0,1),
-  ]),new THREE.LineBasicMaterial({color:CATIA_COLOR,depthTest:false,depthWrite:false,toneMapped:false}));
+    new THREE.Vector3(-22,0,0),new THREE.Vector3(-5,0,0),new THREE.Vector3(5,0,0),new THREE.Vector3(22,0,0),
+    new THREE.Vector3(0,-22,0),new THREE.Vector3(0,-5,0),new THREE.Vector3(0,5,0),new THREE.Vector3(0,22,0),
+    new THREE.Vector3(0,0,-8),new THREE.Vector3(0,0,8),
+  ]),new THREE.LineBasicMaterial({vertexColors:true,depthTest:false,depthWrite:false,toneMapped:false}));
   private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
   private readonly circle: THREE.LineLoop<THREE.BufferGeometry, THREE.LineDashedMaterial>;
   private readonly marker: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
@@ -28,7 +29,9 @@ export class NavigationHUD {
     this.marker = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: CATIA_COLOR, depthTest: false }));
     this.marker.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(144), 3).setUsage(THREE.DynamicDrawUsage));
     this.screenScene.add(this.circle, this.marker); this.screenScene.visible = false;
-    this.pivotMarker.visible=false;this.worldScene.add(this.referenceGroup,this.pivotMarker);
+    const colors=Array.from({length:10},(_,i)=>new THREE.Color(i<8?CATIA_COLOR:0xffdf55).toArray()).flat();
+    this.pivotMarker.geometry.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
+    this.pivotMarker.visible=false;this.screenScene.add(this.pivotMarker);this.worldScene.add(this.referenceGroup);
   }
   get screenPosition(): HudScreenPosition | undefined { return this.screen; }
   update(snapshot: NavigationSnapshot, camera: CadCamera, width: number, height: number): void {
@@ -37,10 +40,12 @@ export class NavigationHUD {
     this.camera.top = height / 2; this.camera.bottom = -height / 2; this.camera.updateProjectionMatrix();
     const catia = snapshot.catia;
     this.pivotMarker.visible=Boolean(catia?.showPivot);
-    if(catia){this.pivotMarker.position.copy(catia.pivot);this.pivotMarker.scale.setScalar(9*worldUnitsPerCssPixel(camera,catia.pivot,{cssWidth:width,cssHeight:height,devicePixelRatio:1}))}
-    const pivot=catia?.pivot.clone().project(camera),cx=pivot?(pivot.x+1)*width/2:width/2,cy=pivot?(1-pivot.y)*height/2:height/2;
+    // Screen-space size and anchor, with world-axis orientation. No perspective or zoom drift.
+    this.pivotMarker.quaternion.copy(camera.quaternion).invert();
+    const cx=width/2,cy=height/2;
     this.circle.position.set(cx-width/2,height/2-cy,0);this.marker.position.copy(this.circle.position);
-    this.screenScene.visible = Boolean(catia?.hudVisible && width > 0 && height > 0);
+    this.screenScene.visible = Boolean(catia?.showPivot && width > 0 && height > 0);
+    this.marker.visible=Boolean(catia?.hudVisible);
     this.circle.visible = Boolean(catia?.showRotationCircle);
     const radius = Math.min(width, height) * CATIA_TRACKBALL_RADIUS_RATIO;
     // Bake radius into geometry so dash lengths remain CSS pixels.

@@ -36,7 +36,7 @@ export class ThreeCameraRig implements CameraRig {
   readonly pivot = new THREE.Vector3();
   private readonly options: Required<CameraRigOptions>;
 
-  constructor(readonly camera: CadCamera, options: CameraRigOptions = {}) {
+  constructor(public camera: CadCamera, options: CameraRigOptions = {}) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
   }
 

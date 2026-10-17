@@ -1,3 +1,4 @@
+import {setProjection} from "./camera-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
 // Orthographic clipping may move the eye along its viewing axis. Compare the
@@ -8,7 +9,7 @@ async function projectedView(page:Page){
   // @ts-ignore Vite dependency
   const T=await import("/node_modules/.vite/deps/three.js");
   const state=JSON.parse(value),box=document.querySelector("canvas")!.getBoundingClientRect(),aspect=box.width/box.height;
-  const camera=new T.OrthographicCamera(-150*aspect,150*aspect,150,-150,.1,10000);
+  const span=state.span??300;const camera=state.projection==="perspective"?new T.PerspectiveCamera(state.fov,aspect,.000001,1e12):new T.OrthographicCamera(-span*aspect/2,span*aspect/2,span/2,-span/2,0,1e12);
   camera.position.fromArray(state.position);camera.quaternion.fromArray(state.quaternion);camera.zoom=state.zoom;camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
   return {rotation:state.quaternion as number[],zoom:camera.zoom,points:[[0,0,0],[1,0,0],[0,1,0],[0,0,1]].flatMap(p=>{const v=new T.Vector3(...p).project(camera);return [v.x*box.width/2,v.y*box.height/2]})};
  },value);
@@ -104,6 +105,7 @@ test("orthographic detail navigation, isometric shortcut and sketch view round t
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (/THREE.WebGLProgram|VALIDATE_STATUS|Shader Error/.test(message.text())) errors.push(message.text()); });
   await page.goto("/documents/mock-part-bracket");
+  await setProjection(page,"平行（无透视）");
   const canvas = page.locator("canvas"), camera = page.getByTestId("navigation-camera");
   const projection = page.getByTestId("navigation-projection");
   await expect(projection).toContainText("orthographic");
@@ -149,7 +151,7 @@ test("orthographic detail navigation, isometric shortcut and sketch view round t
 test("selected face sketch keeps scale and restores the modelling view", async ({ page }) => {
   await page.goto("/documents/mock-part-bracket");
   const camera = page.getByTestId("navigation-camera"), projection = page.getByTestId("navigation-projection");
-  await expect(projection).toContainText("orthographic");
+  await expect(projection).toContainText("perspective");
   const box = (await page.locator("canvas").boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   const before = await camera.textContent(), scale = await projection.textContent();
@@ -164,7 +166,7 @@ test("selected face sketch keeps scale and restores the modelling view", async (
 test("switching documents clears the previous sketch camera session", async ({ page }) => {
   test.setTimeout(90_000);
   await page.goto("/documents/mock-part-bracket");
-  await expect(page.getByTestId("navigation-projection")).toContainText("orthographic");
+  await expect(page.getByTestId("navigation-projection")).toContainText("perspective");
   await page.getByRole("button", { name: "文档中心", exact: true }).click();
   await page.locator(".document-card").filter({ hasText: "Frame Assembly" }).locator(".thumbnail-button").dblclick();
   await expect(page.getByRole("button", { name: "插入", exact: true })).toBeVisible();
@@ -210,7 +212,8 @@ test("sketch normal view, persistent world context and exit selection synchroniz
   await page.screenshot({path:testInfo.outputPath("sketch-oblique-world-and-plane-grids.png")});
   await normal.click(); await expect(projection).toHaveText(scale!);
   await expect.poll(async () => (await camera.textContent())?.split(" / ")[1]).toBe(initial!.split(" / ")[1]);
-  await page.mouse.move(x,y); await page.mouse.wheel(0,2300); await expect(projection).not.toHaveText(scale!);
+  const beforeWheel=await camera.getAttribute("data-camera-state");
+  await page.mouse.move(x,y); await page.mouse.wheel(0,2300); await expect(camera).not.toHaveAttribute("data-camera-state",beforeWheel!);
   await page.screenshot({path:testInfo.outputPath("sketch-infinite-plane-grid.png")});
   await page.getByRole("button",{name:"退出草图",exact:true}).click();
   const selection = page.getByTestId("viewport-selection");

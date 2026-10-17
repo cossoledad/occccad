@@ -172,6 +172,12 @@ func (server *Server) enqueueDocumentPreviews(ctx context.Context, changed works
 	}
 	for _, item := range affected {
 		documentID, versionID := item[0], item[1]
+		if documentID == changed.Document.ID {
+			if err := server.enqueuePreview(ctx, documentID, versionID, requestedBy); err != nil {
+				return err
+			}
+			continue
+		}
 		digest := sha256.Sum256([]byte(documentID + ":" + versionID + ":" +
 			changed.Document.ID + ":" + changed.Document.VersionID + ":" + thumbnail.RendererVersion))
 		identity := hex.EncodeToString(digest[:])

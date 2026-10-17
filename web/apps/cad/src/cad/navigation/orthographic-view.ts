@@ -1,16 +1,25 @@
 import * as THREE from "three";
+import type { CadCamera } from "./camera-rig";
+import { convertProjection, projectionOf, type CameraProjection } from "./projection-camera";
 
 export type StandardView = "TOP" | "FRONT" | "RIGHT" | "ISO";
 export type SavedView = {
   position: THREE.Vector3; rotation: THREE.Quaternion; up: THREE.Vector3;
-  target: THREE.Vector3; zoom: number;
+  target: THREE.Vector3; zoom: number; projection?:CameraProjection; verticalSpan?:number; fov?:number;
 };
 
-export function saveView(camera: THREE.OrthographicCamera, target: THREE.Vector3): SavedView {
-  return { position: camera.position.clone(), rotation: camera.quaternion.clone(), up: camera.up.clone(), target: target.clone(), zoom: camera.zoom };
+export function saveView(camera: CadCamera, target: THREE.Vector3): SavedView {
+  return { position: camera.position.clone(), rotation: camera.quaternion.clone(), up: camera.up.clone(), target: target.clone(), zoom: camera.zoom, projection:projectionOf(camera),verticalSpan:camera instanceof THREE.OrthographicCamera?camera.top-camera.bottom:undefined,fov:camera instanceof THREE.PerspectiveCamera?camera.fov:undefined };
 }
 
-export function restoreView(camera: THREE.OrthographicCamera, target: THREE.Vector3, saved: SavedView): void {
+export function restoreView(camera: CadCamera, target: THREE.Vector3, saved: SavedView): void {
+  if(saved.projection && saved.projection!==projectionOf(camera)){
+    const aspect=camera instanceof THREE.PerspectiveCamera?camera.aspect:(camera.right-camera.left)/(camera.top-camera.bottom);
+    const source:CadCamera=saved.projection==="PERSPECTIVE"?new THREE.PerspectiveCamera(saved.fov??35,aspect):new THREE.OrthographicCamera(-150*aspect,150*aspect,(saved.verticalSpan??300)/2,-(saved.verticalSpan??300)/2);
+    restoreView(source,new THREE.Vector3(),saved);
+    const converted=convertProjection(source,saved.target,projectionOf(camera),aspect);
+    saved={...saved,position:converted.position,zoom:converted.zoom};
+  }
   camera.position.copy(saved.position); camera.quaternion.copy(saved.rotation); camera.up.copy(saved.up);
   target.copy(saved.target); camera.zoom = saved.zoom;
   camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
@@ -22,9 +31,9 @@ export function viewFocus(camera: THREE.Camera, target: THREE.Vector3): THREE.Ve
   return camera.position.clone().addScaledVector(direction, target.clone().sub(camera.position).dot(direction));
 }
 
-export function orientView(camera: THREE.OrthographicCamera, target: THREE.Vector3,
+export function orientView(camera: CadCamera, target: THREE.Vector3,
   focus: THREE.Vector3, normal: THREE.Vector3, up: THREE.Vector3): void {
-  const distance = Math.max(Math.abs(target.clone().sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3()))), 1);
+  const distance = Math.max(Math.abs(target.clone().sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3()))), camera instanceof THREE.PerspectiveCamera?1e-6:1);
   target.copy(focus);
   camera.position.copy(focus).addScaledVector(normal, distance);
   camera.up.copy(up); camera.lookAt(focus); camera.updateMatrixWorld(true);
@@ -33,7 +42,7 @@ export function orientView(camera: THREE.OrthographicCamera, target: THREE.Vecto
 /** Keep the nearest viewing side, then choose the least-turn quarter-turn
  * orientation aligned to the support's axes (world axes when no frame is given).
  */
-export function orientPlaneView(camera: THREE.OrthographicCamera, target: THREE.Vector3,
+export function orientPlaneView(camera: CadCamera, target: THREE.Vector3,
   focus: THREE.Vector3, normal: THREE.Vector3, planeUp?: THREE.Vector3): void {
   const back = camera.getWorldDirection(new THREE.Vector3()).negate().normalize();
   const nearest = normal.clone().normalize();
@@ -57,7 +66,7 @@ export function orientPlaneView(camera: THREE.OrthographicCamera, target: THREE.
 }
 
 /** Orientation primitive preserves scale and screen centre; ISO commands then explicitly fit. */
-export function standardView(camera: THREE.OrthographicCamera, target: THREE.Vector3, view: StandardView): void {
+export function standardView(camera: CadCamera, target: THREE.Vector3, view: StandardView): void {
   const directions = { TOP: new THREE.Vector3(0, 0, 1), FRONT: new THREE.Vector3(0, -1, 0),
     RIGHT: new THREE.Vector3(1, 0, 0), ISO: new THREE.Vector3(1, -1, 1).normalize() };
   orientView(camera, target, viewFocus(camera, target), directions[view],

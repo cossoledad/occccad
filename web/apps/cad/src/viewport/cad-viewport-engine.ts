@@ -33,6 +33,8 @@ import { applySolidDisplaySettings } from "../cad/rendering/solid-render-mode";
 import { updateScreenLines } from "../cad/rendering/screen-space-lines";
 import { DEFAULT_SOLID_DISPLAY, DEFAULT_REFERENCE_VISIBILITY, referenceCategory, type ReferenceVisibility, type SolidDisplaySettings } from "../cad/rendering/display-settings";
 import { instancePatternOffsets, type InstancePatternPreview } from "../features/workbench/instance-pattern";
+import type { CadCamera } from "../cad/navigation/camera-rig";
+import { convertProjection, resizeCamera, fitPerspectiveView, updatePerspectiveClipping, DEFAULT_PERSPECTIVE_FOV } from "../cad/navigation/projection-camera";
 import { ViewTransition } from "../cad/navigation/view-transition";
 import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-view";
 import { makeFeatureEdges } from "../cad/rendering/feature-edges";
@@ -286,7 +288,7 @@ export class CadViewportEngine {
     }
     this.invalidate();
   }
-  private readonly camera = new THREE.OrthographicCamera(-150, 150, 150, -150, 0.1, 5000);
+  private camera: CadCamera = new THREE.PerspectiveCamera(DEFAULT_PERSPECTIVE_FOV, 1, 0.1, 5000);
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   private readonly shaders = new CadShaderLibrary();
   private readonly materials = new CadMaterialFactory(this.shaders);
@@ -864,10 +866,17 @@ export class CadViewportEngine {
   setSceneSettings(settings:SceneSettings):void {
     this.sceneSettings=normalizeSceneSettings(settings);
     const s=this.sceneSettings;
+    this.switchProjection(s.projection);
     this.groundGrid.setStyle(sceneGridColor(s),s.gridOpacity,s.gridSpacing);
     this.worldGrid.setStyle(sceneGridColor(s),s.gridOpacity*.55,s.gridSpacing);
     this.background.setColors(s.background==="THEME"?undefined:s.backgroundTop,s.background==="SOLID"?s.backgroundTop:s.background==="GRADIENT"?s.backgroundBottom:undefined);
     this.refreshSceneGround();this.invalidate();
+  }
+  private switchProjection(projection:SceneSettings["projection"]):void {
+    const next=convertProjection(this.camera,this.navigation.target,projection,this.renderer.domElement.clientWidth/Math.max(1,this.renderer.domElement.clientHeight));
+    if(next===this.camera)return;
+    this.viewTransition.cancel();this.camera=next;this.navigation.setCamera(next);this.viewTransition.setCamera(next);
+    this.navigation.syncCamera(false);this.invalidate();
   }
   private refreshSceneGround():void {
     if(!this.motionDisplay&&!this.moveInteraction?.sessionId&&!this.moveCommitPending){
@@ -1038,8 +1047,14 @@ export class CadViewportEngine {
     // belongs here. Topology descriptors are in the solid's local coordinates.
     let placement: THREE.Matrix4 | undefined;
     if (selection.kind === "plane") {
-      const object = this.selectionIndex.objectsFor(selection).find(value=>value.userData.kind === "plane");
-      plane ??= object?.userData.datumPlane as NormalViewPlane | undefined;
+      // Fill only an omitted snapshot from this authoritative render projection.
+      // An explicit stale Revision is never promoted into the current one.
+      const resolved=!selection.versionId&&this.view?refreshOccurrenceSelection(this.view,selection):selection;
+      if(resolved.documentId!==selection.documentId)return false;
+      const capturedVersion=selection.instancePath?.segments.at(-1)?.resolvedVersionId;
+      if(capturedVersion&&capturedVersion!==resolved.versionId)return false;
+      const object = this.selectionIndex.objectsFor(resolved).find(value=>value.userData.kind === "plane");
+      plane = object?.userData.datumPlane as NormalViewPlane | undefined;
       object?.updateWorldMatrix(true,false);
       placement = object?.parent?.matrixWorld;
     } else if (selection.kind === "face") {
@@ -3248,7 +3263,7 @@ export class CadViewportEngine {
     const first = screen(raw), second = screen([raw[0] + 1, raw[1]]);
     const pixelsPerUnit = Math.max(Math.hypot(second[0] - first[0], second[1] - first[1]), 1.0e-6);
     const snap = this.captureSettings.enabled
-      ? resolveSketchSnap(raw, snapEntities, pixelsPerUnit, geometryOnly?1:adaptiveGridSpacing(this.camera, this.renderer.domElement.clientHeight),
+      ? resolveSketchSnap(raw, snapEntities, pixelsPerUnit, geometryOnly?1:adaptiveGridSpacing(this.camera, this.renderer.domElement.clientHeight,localToWorld(this.sketchPlane!,[0,0])),
         SKETCH_INPUT_POLICY.snapThresholdPixels, geometryOnly?this.captureSettings.sketch.filter(kind=>kind!=="GRID"&&kind!=="ORIGIN"):this.captureSettings.sketch, screen, geometryOnly?[]:this.sketchDraftPoints) : undefined;
     if(!geometryOnly)this.lastSketchSnap = snap;
     if (snap) this.showSnapPreview(snap, 8 / pixelsPerUnit); else this.clearSnapPreview();
@@ -3680,7 +3695,8 @@ export class CadViewportEngine {
     this.navigation.cancel();
     const box = this.visibleContentBounds();
     if (box.isEmpty()||box.getSize(new THREE.Vector3()).length()<1e-9) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
-    fitOrthographicView(this.camera, this.navigation.target, box);
+    if(this.camera instanceof THREE.PerspectiveCamera)fitPerspectiveView(this.camera,this.navigation.target,box);
+    else fitOrthographicView(this.camera, this.navigation.target, box);
     this.navigation.syncCamera(false);
   }
 
@@ -3690,7 +3706,8 @@ export class CadViewportEngine {
   }
 
   captureMotionViewpoint():import('../cad/assembly/motion-study').MotionViewpoint {
-    const {sketchReturn:_,...state}=captureDocumentCamera(this.camera,this.navigation.target);
+    const canonical=convertProjection(this.camera,this.navigation.target,"ORTHOGRAPHIC",this.renderer.domElement.clientWidth/Math.max(1,this.renderer.domElement.clientHeight));
+    const {sketchReturn:_,projection:__,fov:___,...state}=captureDocumentCamera(canonical,this.navigation.target);
     return state;
   }
   previewMotionViewpoint(state:import('../cad/assembly/motion-study').MotionViewpoint):void {
@@ -3716,17 +3733,15 @@ export class CadViewportEngine {
     if (this.sketchPlane) bounds.expandByPoint(localToWorld(this.sketchPlane, [0, 0]));
     if (bounds.isEmpty()) bounds.expandByPoint(this.navigation.target);
     if (this.commandPreview) bounds.union(new THREE.Box3().setFromObject(this.commandPreview));
-    updateOrthographicClipping(this.camera, bounds);
+    if(this.camera instanceof THREE.PerspectiveCamera)updatePerspectiveClipping(this.camera,this.navigation.target,bounds);
+    else updateOrthographicClipping(this.camera, bounds);
   }
 
   private resize(): void {
     const width = Math.max(this.host.clientWidth, 1);
     const height = Math.max(this.host.clientHeight, 1);
     this.renderer.setSize(width, height, false);
-    const halfHeight = (this.camera.top - this.camera.bottom) / 2;
-    this.camera.left = -halfHeight * width / height;
-    this.camera.right = halfHeight * width / height;
-    this.camera.updateProjectionMatrix();
+    resizeCamera(this.camera,width/height);
     for (const overlay of [...this.preselectedOverlays, ...this.selectedOverlays]) {
       updateHighlightLineResolution(overlay, width, height);
     }

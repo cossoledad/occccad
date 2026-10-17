@@ -29,13 +29,15 @@ try {
   };
   const camera = new THREE.PerspectiveCamera(45, 800 / 600, .1, 10000); camera.position.set(0, 0, 100); camera.updateProjectionMatrix();
   let hit = { point: new THREE.Vector3(10, 5, 0), axis: new THREE.Vector3(0, 0, 1), source: "raycast" };
-  let fits = 0;
-  const picker = { pickNearest: () => hit, pickViewPlane: () => ({ point: new THREE.Vector3(15, 10, 0), source: "view-plane" }) };
+  let fits = 0,picks=0;
+  const picker = { pickNearest: () => {picks++;return hit;}, pickViewPlane: () => ({ point: new THREE.Vector3(15, 10, 0), source: "view-plane" }) };
   const nav = new NavigationController(camera, () => ({ width: 800, height: 600 }), () => {}, picker, () => new THREE.Vector3(), "catia", false,
     () => new THREE.Box3(new THREE.Vector3(-10,-10,-10),new THREE.Vector3(10,10,10)), () => fits++);
   const q = camera.quaternion.clone();
+  const initialPivot=nav.target.clone();
   nav.pointerDown(event("down",1,4));
-  assert.ok(nav.target.distanceTo(hit.point)<1e-8,"middle press, before a chord or drag, freezes the picked pivot");
+  assert.equal(picks,0,"middle press must not raycast");
+  assert.ok(nav.target.distanceTo(initialPivot)<1e-8,"press does not change the rotation centre");
   assert.equal(nav.snapshot.catia.showPivot,true,"the 3D centre is independent of the optional sphere");
   nav.pointerUp(event("up",1,0));assert.equal(nav.snapshot.catia.showPivot,false);
   assert.ok(nav.target.distanceTo(hit.point) < 1e-8, "CATIA click centers chosen geometry");
@@ -43,7 +45,8 @@ try {
   assert.ok(q.angleTo(camera.quaternion) < 1e-8, "centering preserves orientation");
   nav.pointerDown(event("down",1,4));nav.pointerMove(event("move",-1,4,420,310));
   assert.equal(nav.activeAction,"pan"); assert.ok(q.angleTo(camera.quaternion)<1e-8);
-  assert.ok(nav.target.distanceTo(hit.point)<1e-8,"panning must not move the picked model pivot into empty space");
+  assert.ok(picks>=2,"pan continuously samples the screen centre");
+  assert.ok(Math.hypot(nav.target.clone().project(camera).x,nav.target.clone().project(camera).y)<1e-8,"pan pivot stays on the central ray");
   nav.pointerDown(event("down",2,6)); nav.pointerMove(event("move",-1,6,460,335));
   assert.equal(nav.activeAction,"orbit");assert.ok(q.angleTo(camera.quaternion)>.01);
   assert.equal(nav.snapshot.catia.hudVisible,false,"3DEXPERIENCE native defaults to hidden rotation sphere");
@@ -53,8 +56,9 @@ try {
   assert.equal(nav.snapshot.catia.showRotationCircle,false,"display preference must not end rotation");
   assert.equal(nav.activeAction,"orbit");
   const pivot = nav.target.clone();
+  const screenBeforeZoom=pivot.clone().project(camera);
   nav.pointerUp(event("up",2,4));const distance = camera.position.distanceTo(pivot);
-  nav.pointerMove(event("move",-1,4,460,300));assert.equal(nav.activeAction,"zoom");assert.ok(camera.position.distanceTo(pivot)<distance);
+  nav.pointerMove(event("move",-1,4,460,300));assert.equal(nav.activeAction,"zoom");assert.ok(camera.position.distanceTo(pivot)<distance);assert.ok(pivot.clone().project(camera).distanceTo(new THREE.Vector3(screenBeforeZoom.x,screenBeforeZoom.y,pivot.clone().project(camera).z))<1e-8,"zoom centre does not drift");
   nav.pointerDown(event("down",0,5));assert.equal(nav.activeAction,"orbit");
   nav.pointerUp(event("up",1,1));assert.equal(nav.activeAction,"none");
   nav.pointerUp(event("up",0,0));

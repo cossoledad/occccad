@@ -1,10 +1,14 @@
 package api
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"os"
@@ -14,6 +18,7 @@ import (
 
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/exchange"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/thumbnail"
@@ -249,9 +254,9 @@ func (server *Server) documentPreview(writer http.ResponseWriter, request *http.
 	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
 		return
 	}
-	documentType := "PART"
-	if err := server.database.QueryRow(request.Context(), `SELECT document_type
-		FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, request.PathValue("documentID")).Scan(&documentType); err != nil {
+	documentType, versionID := "PART", ""
+	if err := server.database.QueryRow(request.Context(), `SELECT document_type,head_version_id::text
+		FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, request.PathValue("documentID")).Scan(&documentType, &versionID); err != nil {
 		writeThumbnail(writer, thumbnail.DefaultForType(documentType), "default")
 		return
 	}
@@ -262,7 +267,11 @@ func (server *Server) documentPreview(writer http.ResponseWriter, request *http.
 		WHERE p.document_id=$1 AND p.state='READY' AND p.renderer_version=$2
 		ORDER BY p.updated_at DESC LIMIT 1`, request.PathValue("documentID"), thumbnail.RendererVersion).Scan(&objectID)
 	if err != nil {
-		writeThumbnail(writer, thumbnail.DefaultForType(documentType), "default")
+		if !errors.Is(err, database.ErrNoRows) {
+			writeError(writer, http.StatusInternalServerError, "thumbnail lookup failed")
+			return
+		}
+		server.writePendingThumbnail(writer, request, documentType, versionID)
 		return
 	}
 	object, reader, err := server.artifacts.Open(request.Context(), objectID)
@@ -283,6 +292,25 @@ func (server *Server) documentPreview(writer http.ResponseWriter, request *http.
 		return
 	}
 	_, _ = io.Copy(writer, reader)
+}
+
+// Reading a missing derived preview repairs only the artifact queue, never the document Revision.
+func (server *Server) writePendingThumbnail(writer http.ResponseWriter, request *http.Request, documentType, versionID string) {
+	state := "default"
+	if err := server.enqueuePreview(request.Context(), request.PathValue("documentID"), versionID, principal(request).ID); err != nil {
+		slog.ErrorContext(request.Context(), "schedule missing document preview", "error", err)
+	} else {
+		state = "pending"
+		writer.Header().Set("Retry-After", "1")
+	}
+	writeThumbnail(writer, thumbnail.DefaultForType(documentType), state)
+}
+func (server *Server) enqueuePreview(ctx context.Context, documentID, versionID, actorID string) error {
+	digest := sha256.Sum256([]byte(documentID + ":" + versionID + ":" + thumbnail.RendererVersion))
+	identity := hex.EncodeToString(digest[:])
+	_, err := server.jobs.Enqueue(ctx, jobs.EnqueueRequest{Type: "THUMBNAIL_RENDER", DocumentID: documentID, VersionID: &versionID, RequestedBy: actorID, IdempotencyKey: identity,
+		Payload: map[string]any{"previewIdentity": identity, "rendererVersion": thumbnail.RendererVersion}})
+	return err
 }
 
 func writeThumbnail(writer http.ResponseWriter, payload []byte, state string) {

@@ -27,13 +27,15 @@ export class NavigationPicker {
   private readonly ndc = new THREE.Vector2();
 
   constructor(
-    private readonly camera: CadCamera,
+    private camera: CadCamera,
     private readonly surface: HTMLElement,
     private readonly roots: () => readonly THREE.Object3D[],
     private readonly hoveredPoint?: () => THREE.Vector3 | undefined,
   ) {
     this.raycaster.layers.set(CAD_GEOMETRY_LAYER);
   }
+
+  setCamera(camera:CadCamera):void {this.camera=camera;}
 
   pickNearest(x: number, y: number, withReference = false): NavigationPick | undefined {
     const width = Math.max(this.surface.clientWidth, 1);

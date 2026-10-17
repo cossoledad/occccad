@@ -1,18 +1,8 @@
+import {worldScreen} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
 
 async function current(page:Page,id:string){return (await page.request.get(`/api/documents/${id}`)).json()}
-async function worldScreen(page:Page,point:number[]){
- await expect(page.getByTestId("navigation-camera")).toBeVisible();
- return page.evaluate(async point=>{
-  // @ts-ignore native Vite dependency
-  const THREE=await import("/node_modules/.vite/deps/three.js");
-  const [position,rotation,zoom]=document.querySelector('[data-testid="navigation-camera"]')!.textContent!.split(" / ");
-  const p=position.replace("Camera: ","").split(",").map(Number),q=rotation.split(",").map(Number);
-  const local=new THREE.Vector3(...point).sub(new THREE.Vector3(...p)).applyQuaternion(new THREE.Quaternion(...q).invert());
-  const box=document.querySelector(".cad-viewport-canvas canvas")!.getBoundingClientRect(),scale=box.height*Number(zoom.replace("zoom ",""))/300;
-  return {x:box.x+box.width/2+local.x*scale,y:box.y+box.height/2-local.y*scale};
- },point);
-}
+
 
 test("real properties history, face preview, conflict recovery and adaptive scene",async({page})=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
@@ -42,7 +32,7 @@ test("real properties history, face preview, conflict recovery and adaptive scen
  await openBody();await dialog.getByRole("textbox",{name:"颜色 HEX",exact:true}).fill("#2176ff");await dialog.getByRole("spinbutton",{name:"表面透明度",exact:true}).fill("40");await save();
  await expect.poll(async()=>(await appearance())?.opacity).toBeCloseTo(.6,8);
  const styled=await current(page,seed.id);expect(styled.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).geometryKey).toBe(seed.key);
- await page.locator("canvas").click({position:{x:20,y:20}});await page.keyboard.press("Control+z");await expect.poll(appearance).toBeUndefined();
+ await page.locator("canvas").click({position:{x:(await page.locator("canvas").boundingBox())!.width/2,y:20}});await page.keyboard.press("Control+z");await expect.poll(appearance).toBeUndefined();
  await expect(page.getByRole("button",{name:"重做",exact:true})).toBeEnabled();await page.getByRole("button",{name:"重做",exact:true}).click();await expect.poll(async()=>(await appearance())?.color).toBe("#2176ff");
  // A cancelled preview is a server-validated candidate with no Head mutation.
  await openBody();const beforeCancel=(await current(page,seed.id)).document.versionId;
@@ -108,4 +98,28 @@ test("global creation defaults are frozen for ordinary and assembly-created Part
   // @ts-ignore production API
   const {restApi:api}=await import("/src/api.ts");return api.createDocument("PART","Newer global default Part");
  });expect(newer.part.defaultAppearance.color).toBe("#336699");expect(errors).toEqual([]);
+});
+
+test("new API documents acquire previews in the list without entering the editor",async({page})=>{
+ const login=await page.request.post("/api/auth/login",{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??"admin@occccad.local",password:process.env.OCCCCAD_ADMIN_PASSWORD}});expect(login.ok()).toBeTruthy();
+ const name=`Thumbnail live ${Date.now()}`;
+ await page.goto("/");
+ const view=await page.evaluate(async name=>{
+  // @ts-ignore production API includes the normal CSRF and creation defaults.
+  const {restApi}=await import("/src/api.ts");return restApi.createDocument("PART",name);
+ },name);
+ let loads=0;
+ await page.route(`**/api/documents/${view.document.id}/preview**`,async route=>{
+  const response=await route.fetch();loads++;
+  // Hold the first response in pending to exercise the list/job completion race.
+  await route.fulfill({response,headers:{...response.headers(),"x-occccad-thumbnail-state":loads===1?"pending":response.headers()["x-occccad-thumbnail-state"]}});
+ });
+ await page.reload();await page.getByRole("textbox",{name:"搜索文档",exact:true}).fill(name);
+ const card=page.locator(".document-card").filter({hasText:name});await expect(card).toBeVisible();
+ await expect.poll(async()=>{const r=await page.request.get(`/api/documents/${view.document.id}/preview`);return r.headers()["x-occccad-thumbnail-state"]},{timeout:30000}).toBe("ready");
+ await expect.poll(()=>loads).toBeGreaterThan(1);
+ await expect(card.locator(".document-thumbnail img")).toHaveAttribute("src",/^blob:/);
+ await expect.poll(()=>card.locator(".document-thumbnail img").evaluate((img:HTMLImageElement)=>img.complete&&img.naturalWidth===640)).toBe(true);
+ expect(page.url()).not.toContain(`/documents/${view.document.id}`);
+ const current=await page.request.get(`/api/documents/${view.document.id}`);expect((await current.json()).document.versionId).toBe(view.document.versionId);
 });

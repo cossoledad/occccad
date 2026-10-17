@@ -14,11 +14,11 @@ function LastRequestTime() {
 
 type WorkbenchLayoutProps = {
   commands: ReactNode; tree: ReactNode; inspector: ReactNode; children: ReactNode; status: ReactNode;
-  documentName: string; inspectorOpen: boolean; onInspectorChange: (open: boolean) => void;lightScene?:boolean;
+  inspectorOpen: boolean; onInspectorChange: (open: boolean) => void;lightScene?:boolean;
 };
 
 /** Presentation and panel lifecycle only. Model/command ownership stays in Workbench. */
-export function WorkbenchLayout({ commands, tree, inspector, children, status, documentName,
+export function WorkbenchLayout({ commands, tree, inspector, children, status,
   inspectorOpen, onInspectorChange,lightScene=false }: WorkbenchLayoutProps) {
   const width = useUIPreferences((state) => state.structureTreeWidth);
   const setWidth = useUIPreferences((state) => state.setStructureTreeWidth);
@@ -45,9 +45,8 @@ export function WorkbenchLayout({ commands, tree, inspector, children, status, d
     <div className={`workbench-content ${treeOpen ? "" : "tree-collapsed"} ${inspectorOpen ? "with-inspector" : ""} ${lightScene?"light-scene":"dark-scene"}`}
       style={{ "--structure-width": `${panelWidth}px` } as CSSProperties}>
       <aside className="workbench-structure" aria-label="模型结构">
-        <div className="workbench-panel-heading"><strong>模型结构</strong><Button type="text" size="small"
-          icon={<MenuFoldOutlined />} aria-label="收起模型结构" onClick={() => setTreeOpen(false)} /></div>
-        <div className="workbench-document-name" title={documentName}>{documentName}</div>
+        <Button className="workbench-tree-collapse" type="text" size="small" icon={<MenuFoldOutlined />}
+          aria-label="收起模型结构" onClick={() => setTreeOpen(false)} />
         <div className="workbench-tree-content">{tree}</div>
         <LastRequestTime />
         <div className="workbench-panel-resizer" role="separator" aria-label="调整结构树宽度" aria-orientation="vertical"

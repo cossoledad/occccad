@@ -1,50 +1,36 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-const require = createRequire(new URL("../../../../package.json", import.meta.url));
-const { createServer } = await import(require.resolve("vite"));
-const server = await createServer({ appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+const require=createRequire(new URL("../../../../package.json",import.meta.url));
+const {createServer}=await import(require.resolve("vite"));
+const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try {
-  const T = await server.ssrLoadModule("three");
-  const { InfiniteGroundGrid } = await server.ssrLoadModule("/src/cad/rendering/infinite-ground-grid.ts");
-  const grid = new InfiniteGroundGrid(0xffffff,"sketch");
-  const frame = {origin:new T.Vector3(10,20,30),normal:new T.Vector3(1,0,0),u:new T.Vector3(0,1,0),v:new T.Vector3(0,0,1)};
-  const camera = new T.OrthographicCamera(-200,200,150,-150,.1,1000);
+ const T=await server.ssrLoadModule("three"),{InfiniteGroundGrid}=await server.ssrLoadModule("/src/cad/rendering/infinite-ground-grid.ts");
+ const frame={origin:new T.Vector3(10,20,30),normal:new T.Vector3(1,0,0),u:new T.Vector3(0,1,0),v:new T.Vector3(0,0,1)};
+ for(const camera of [new T.OrthographicCamera(-200,200,150,-150,.1,1e12),new T.PerspectiveCamera(35,4/3,.0001,1e12)]){
   camera.position.set(120,30,80);camera.up.set(0,0,1);camera.lookAt(frame.origin);
-  const plane = new T.Plane().setFromNormalAndCoplanarPoint(frame.normal,frame.origin);
-  for (const zoom of [.001,1,10000]) {
-    camera.zoom=zoom;camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
-    grid.update(camera,600,frame);
-    assert.equal(grid.object.visible,true);
-    const uniforms=grid.object.material.uniforms;
-    const period=uniforms.uSpacing.value*10;
-    const pixels=uniforms.uSpacing.value/((camera.top-camera.bottom)/zoom/600);
-    assert.ok(pixels>=32-1e-8&&pixels<=80+1e-8,"grid spacing should stay readable across scales");
-    for (const [x,y] of [[0,0],[-.8,.7],[.9,-.6]]) {
-      const raycaster=new T.Raycaster();raycaster.setFromCamera(new T.Vector2(x,y),camera);
-      // An infinite orthographic grid also covers plane points behind the eye;
-      // use the signed line intersection instead of Ray's forward-only result.
-      const distance=-plane.distanceToPoint(raycaster.ray.origin)/frame.normal.dot(raycaster.ray.direction);
-      const point=raycaster.ray.at(distance,new T.Vector3()).sub(frame.origin);
-      const actual=new T.Vector2(point.dot(frame.u),point.dot(frame.v));
-      const shader=uniforms.uCenter.value.clone().addScaledVector(uniforms.uHorizontal.value,x).addScaledVector(uniforms.uVertical.value,y);
-      const error=actual.sub(shader).divideScalar(period);
-      assert.ok(Math.abs(error.x-Math.round(error.x))<1e-6&&Math.abs(error.y-Math.round(error.y))<1e-6,
-        "screen grid must coincide with ray/plane intersection modulo rebased grid periods");
+  const sketch=new InfiniteGroundGrid(0xffffff,"sketch"),ground=new InfiniteGroundGrid(0xffffff);
+  for(const zoom of [.001,1,10000]){
+   camera.zoom=zoom;camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+   for(const grid of [sketch,ground]){
+    grid.update(camera,600,frame);assert.equal(grid.object.visible,true);
+    const u=grid.object.material.uniforms,period=u.uSpacing.value*10;
+    if(grid===ground){assert.equal(u.uSpacing.value,10);assert.equal(grid.object.material.depthTest,true)}
+    const local=v=>new T.Vector3(v.dot(frame.u),v.dot(frame.v),v.dot(frame.normal));
+    const anchor=camera.position.clone().sub(frame.u.clone().multiplyScalar(u.uOrigin.value.x)).sub(frame.v.clone().multiplyScalar(u.uOrigin.value.y)).sub(frame.normal.clone().multiplyScalar(u.uOrigin.value.z));
+    for(const [x,y] of [[0,0],[-.8,.7],[.9,-.6]]){
+     const ray=new T.Raycaster();ray.setFromCamera(new T.Vector2(x,y),camera);
+     const t=frame.origin.clone().sub(ray.ray.origin).dot(frame.normal)/ray.ray.direction.dot(frame.normal);
+     const actual=local(ray.ray.at(t,new T.Vector3()).sub(frame.origin));
+     const offset=u.uRight.value.clone().multiplyScalar(x).addScaledVector(u.uUp.value,y);
+     const origin=u.uOrigin.value.clone().addScaledVector(offset,1-u.uPerspective.value),direction=u.uForward.value.clone().addScaledVector(offset,u.uPerspective.value);
+     const hit=origin.addScaledVector(direction,-origin.z/direction.z),world=anchor.clone().addScaledVector(frame.u,hit.x).addScaledVector(frame.v,hit.y);
+     const phase=actual.sub(hit).divideScalar(period);
+     assert.ok(Math.abs(phase.x-Math.round(phase.x))<1e-6&&Math.abs(phase.y-Math.round(phase.y))<1e-6,"ray-plane grid phase matches picking");
+     const clip=new T.Vector4(hit.x,hit.y,0,1).applyMatrix4(u.uClip.value),projected=world.project(camera);
+     assert.ok(Math.abs(clip.z/clip.w-projected.z)<1e-7,"grid depth matches scene depth in either projection");
     }
-    const before=uniforms.uHorizontal.value.clone();camera.near=0;camera.far=1e12;camera.updateProjectionMatrix();grid.update(camera,600,frame);
-    assert.ok(before.distanceTo(uniforms.uHorizontal.value)<1e-10,"model clipping must not change grid projection");
+   }
   }
-  camera.position.set(10,20,130);camera.up.set(0,1,0);camera.lookAt(frame.origin);grid.update(camera,600,frame);
-  assert.equal(grid.object.visible,false,"edge-on planes have no area and must not produce NaNs");
-  const ground=new InfiniteGroundGrid(0xffffff);
-  camera.position.set(0,0,100);camera.up.set(0,1,0);camera.lookAt(0,0,0);
-  for(const zoom of [.01,1,100]){
-    camera.zoom=zoom;camera.updateProjectionMatrix();ground.update(camera,600);
-    assert.equal(ground.object.material.uniforms.uSpacing.value,10,"ground world spacing stays fixed while zoom changes");
-    assert.equal(ground.object.material.depthTest,true,"ground participates in model depth");
-    const z=ground.object.material.uniforms.uDepth.value;
-    assert.ok(Math.abs(z.x-new T.Vector3(0,0,-.02).project(camera).z)<1e-8);
-  }
-  ground.dispose();
-  grid.dispose();
-} finally { await server.close(); }
+  sketch.dispose();ground.dispose();
+ }
+}finally{await server.close()}

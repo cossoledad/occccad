@@ -1,17 +1,21 @@
 import * as THREE from "three";
+import type { CadCamera } from "./camera-rig";
 import { restoreView, saveView, type SavedView } from "./orthographic-view";
 
 /** Camera-only animation, driven by the viewport's existing render clock. */
 export class ViewTransition {
   private pending?: { from: SavedView; to: SavedView; started: number; duration: number };
-  constructor(private camera: THREE.OrthographicCamera, private target: THREE.Vector3) {}
+  constructor(private camera: CadCamera, private target: THREE.Vector3) {}
+  setCamera(camera:CadCamera):void {this.cancel();this.camera=camera;}
   get active(): boolean { return Boolean(this.pending); }
   cancel(): void { this.pending = undefined; }
 
   start(to: SavedView, now: number, duration = 280): void {
     // Retarget from the currently displayed frame, including an interrupted transition.
-    const copy = { position: to.position.clone(), rotation: to.rotation.clone(),
-      up: to.up.clone(), target: to.target.clone(), zoom: to.zoom };
+    const destination=this.camera.clone();restoreView(destination,new THREE.Vector3(),to);
+    const normalized=saveView(destination,to.target);
+    const copy = { ...normalized, position: normalized.position.clone(), rotation: normalized.rotation.clone(),
+      up: normalized.up.clone(), target: normalized.target.clone(), zoom: normalized.zoom };
     this.pending = { from: saveView(this.camera, this.target), to: copy, started: now, duration };
     if (duration <= 0) this.update(now);
   }

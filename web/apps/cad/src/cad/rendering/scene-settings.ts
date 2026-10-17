@@ -1,5 +1,6 @@
 export type SceneMetrics={groundHeight:number;gridSpacing:number};
 export type SceneSettings = {
+  projection:"PERSPECTIVE"|"ORTHOGRAPHIC";
   groundMode: "AUTO" | "WORLD" | "MANUAL" | "OFF";
   groundHeight: number; groundOffset: number; groundLocked: boolean;
   grid: boolean; worldGrid: boolean; gridSpacing: number; gridOpacity: number; gridColor: string; gridAutoColor:boolean;
@@ -11,7 +12,7 @@ export type SceneSettings = {
 };
 
 export const DEFAULT_SCENE_SETTINGS: Readonly<SceneSettings> = {
-  groundMode:"AUTO",groundHeight:0,groundOffset:0,groundLocked:false,
+  projection:"PERSPECTIVE",groundMode:"AUTO",groundHeight:0,groundOffset:0,groundLocked:false,
   grid:true,worldGrid:false,gridSpacing:10,gridOpacity:1,gridColor:"#cbdced",gridAutoColor:true,
   shadows:false,shadowOpacity:0.18,lighting:"ENGINEERING",brightness:1,ambient:1,fill:1,reflection:1,
   azimuth:-126.87,elevation:54.46,background:"GRADIENT",backgroundTop:"#233346",backgroundBottom:"#70869b",
@@ -22,6 +23,7 @@ const color=(v:unknown,fallback:string)=>typeof v==="string"&&/^#[0-9a-fA-F]{6}$
 export function normalizeSceneSettings(value:unknown):SceneSettings {
   const v=value&&typeof value==="object"?value as Partial<SceneSettings>:{};const d=DEFAULT_SCENE_SETTINGS;
   return {
+    projection:v.projection==="ORTHOGRAPHIC"?"ORTHOGRAPHIC":"PERSPECTIVE",
     groundMode:["AUTO","WORLD","MANUAL","OFF"].includes(v.groundMode??"")?v.groundMode!:d.groundMode,
     groundHeight:number(v.groundHeight,0,-1e12,1e12),groundOffset:number(v.groundOffset,0,-1e12,1e12),groundLocked:v.groundLocked===true,
     grid:v.grid!==false,worldGrid:v.worldGrid===true,gridSpacing:typeof v.gridSpacing==="number"&&v.gridSpacing>0?number(v.gridSpacing,d.gridSpacing,.001,1e12):d.gridSpacing,gridOpacity:number(v.gridOpacity,1,0,2),gridColor:color(v.gridColor,d.gridColor),gridAutoColor:v.gridAutoColor!==false,

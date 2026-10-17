@@ -564,15 +564,11 @@ select {
   object-fit: contain;
 }
 
-.document-thumbnail.fallback {
-  color: #277da4;
-  font-size: 38px;
-  background: radial-gradient(circle at 50% 40%, #f9fcfd, #dbe7ed);
-}
-
-.document-thumbnail.fallback.product {
-  color: #5a739b;
-}
+ .document-thumbnail.fallback { background:linear-gradient(#233346,#70869b); }
+.empty-scene-preview { position:absolute;inset:0;overflow:hidden; }
+.empty-scene-preview::after { content:"";position:absolute;left:-50%;right:-50%;top:35%;bottom:-65%;
+  background-image:linear-gradient(rgba(203,220,237,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(203,220,237,.10) 1px,transparent 1px);
+  background-size:28px 28px;transform:perspective(120px) rotateX(48deg) rotateZ(-12deg);mask-image:linear-gradient(transparent,#000 40%); }
 
 .document-title {
   display: flex;

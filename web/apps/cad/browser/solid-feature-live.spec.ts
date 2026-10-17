@@ -1,3 +1,4 @@
+import {worldScreen} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
 
 async function login(page:Page){
@@ -10,20 +11,7 @@ async function openCommand(page:Page,name:string){
  await page.getByRole("textbox",{name:"搜索工具名称或用途"}).fill(name);
  await page.locator(".workbench-command-result").filter({has:page.locator("strong",{hasText:new RegExp(`^${name}$`)})}).click();
 }
-async function worldScreen(page:Page,point:number[]){
- await expect(page.getByTestId("navigation-camera")).toBeVisible();
- return page.evaluate(async(point)=>{
-  // @ts-ignore Vite serves the native project dependency.
-  const THREE=await import("/node_modules/.vite/deps/three.js");
-  const text=document.querySelector('[data-testid="navigation-camera"]')!.textContent!;
-  const [position,rotation,zoom]=text.split(" / ");
-  const p=position.replace("Camera: ","").split(",").map(Number),q=rotation.split(",").map(Number);
-  const local=new THREE.Vector3(...point).sub(new THREE.Vector3(...p)).applyQuaternion(new THREE.Quaternion(...q).invert());
-  const box=document.querySelector(".cad-viewport-canvas canvas")!.getBoundingClientRect();
-  const scale=box.height*Number(zoom.replace("zoom ",""))/300;
-  return {x:box.x+box.width/2+local.x*scale,y:box.y+box.height/2-local.y*scale};
- },point);
-}
+
 async function clickWorld(page:Page,point:number[]){
  const position=await worldScreen(page,point);
  await page.mouse.click(position.x,position.y);

@@ -3,7 +3,7 @@ import {expect,test} from "@playwright/test";
 test("tree-only properties, consolidated object menu and no viewport context menu",async({page})=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
  await page.goto("/documents/mock-part-bracket");const canvas=page.locator("canvas");await expect(canvas).toBeVisible();
- await canvas.click({button:"right",position:{x:25,y:25}});await expect(page.getByRole("menu")).toHaveCount(0);
+ await canvas.click({button:"right",position:{x:(await canvas.boundingBox())!.width/2,y:25}});await expect(page.getByRole("menu")).toHaveCount(0);
  await page.keyboard.press("Alt+Enter");const dialog=page.getByRole("dialog",{name:/^属性 ·/});await expect(dialog).toBeVisible();
  await dialog.getByRole("textbox",{name:"属性名称"}).fill("属性测试文档");
  await expect(dialog.getByRole("button",{name:"场景属性…",exact:true})).toHaveCount(0);
