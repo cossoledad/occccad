@@ -23,7 +23,7 @@ export function SceneOptionsFields({value,onChange,metrics}:{value:SceneSettings
   {metrics&&<Typography.Text type="secondary" aria-label="当前场景地面">当前高度 {formatDisplayNumber(metrics.groundHeight)} mm · 网格间距 {formatDisplayNumber(metrics.gridSpacing)} mm</Typography.Text>}
   <Checkbox checked={value.grid} onChange={e=>patch({grid:e.target.checked})}>显示地面网格</Checkbox>
   {number("gridSpacing","网格间距（mm）",.001,1e9)}
-  <Typography.Text type="secondary">网格间距固定，缩放只改变屏幕上的大小。自动地面默认低于模型底部，间隙为模型包围盒对角线的 5%，可用地面偏移调整。</Typography.Text>
+  <Typography.Text type="secondary">基准网格间距固定，缩放只改变屏幕上的大小；极远或极近时渐显固定坐标的粗级线或细分线。自动地面默认低于模型底部，间隙综合模型三向尺寸计算，适应小件、大件和薄长件；可用地面偏移调整。</Typography.Text>
   <Checkbox checked={value.gridAutoColor} onChange={e=>patch({gridAutoColor:e.target.checked})}>网格颜色自动适应背景</Checkbox>
   {!value.gridAutoColor&&color("gridColor","网格颜色")}{slider("gridOpacity","网格强度",0,2)}
   <Collapse size="small" items={[{key:"advanced",label:"更多地面设置",children:<Space orientation="vertical"><Checkbox checked={value.worldGrid} onChange={e=>patch({worldGrid:e.target.checked})}>同时显示世界基准网格（Z=0）</Checkbox><Checkbox checked={value.shadows} onChange={e=>patch({shadows:e.target.checked})}>地面柔和阴影</Checkbox>{value.shadows&&slider("shadowOpacity","阴影强度",0,1)}</Space>}]}/>

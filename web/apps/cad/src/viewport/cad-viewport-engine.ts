@@ -887,7 +887,7 @@ export class CadViewportEngine {
         this.groundBounds.union(box.applyMatrix4(mesh.matrixWorld));
       }
     }
-    this.groundHeight=groundLevel(this.sceneSettings,this.groundBounds.isEmpty()?undefined:this.groundBounds.min.z,this.groundBounds.getSize(new THREE.Vector3()).length());
+    this.groundHeight=groundLevel(this.sceneSettings,this.groundBounds.isEmpty()?undefined:this.groundBounds.min.z,this.groundBounds.getSize(new THREE.Vector3()));
     this.groundFrame.origin.z=this.groundHeight;
     this.scenePresentation?.update(this.sceneSettings,this.groundBounds,this.groundHeight);
   }

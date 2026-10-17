@@ -20,8 +20,9 @@ test("real properties history, face preview, conflict recovery and adaptive scen
   const {useUIPreferences}=await import("/src/state/ui-preferences.ts");
   useUIPreferences.getState().setReferenceVisibility({planes:false,axes:false,coordinateSystems:false});
   useUIPreferences.getState().setSolidDisplay({mode:"shaded",edges:true,vertices:false});
-  const bbox=v.artifacts[body.geometryKey!].bbox,diagonal=Math.hypot(...bbox.max.map((value,index)=>value-bbox.min[index]));
-  return {id,bodyId:body.id,bodyName:body.name,key:body.geometryKey!,version:v.document.versionId,minZ:bbox.min[2],ground:Number((bbox.min[2]-.05*diagonal).toFixed(2))};
+  const bbox=v.artifacts[body.geometryKey!].bbox,dimensions=bbox.max.map((value,index)=>value-bbox.min[index]).sort((a,b)=>a-b);
+  const gap=Math.max(dimensions[1]*.005,Math.min(dimensions[1]*.08,Math.cbrt(dimensions[0]*dimensions[1]*dimensions[2])*.08));
+  return {id,bodyId:body.id,bodyName:body.name,key:body.geometryKey!,version:v.document.versionId,minZ:bbox.min[2],ground:Number((bbox.min[2]-gap).toFixed(2))};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
  const dialog=page.getByRole("dialog",{name:/^属性 ·/});

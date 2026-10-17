@@ -111,6 +111,8 @@ test("orthographic detail navigation, isometric shortcut and sketch view round t
   await expect(projection).toContainText("orthographic");
   const bounds = (await canvas.boundingBox())!;
   const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
+  // Establish the ISO Fit baseline in the selected projection after conversion.
+  await canvas.focus();await page.keyboard.press("1");
   const initialScale = await projection.textContent();
   await page.mouse.move(x, y); await page.mouse.wheel(0, -1800);
   await expect(projection).not.toHaveText(initialScale!);

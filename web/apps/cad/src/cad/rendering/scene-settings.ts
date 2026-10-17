@@ -36,11 +36,21 @@ export function normalizeSceneSettings(value:unknown):SceneSettings {
   };
 }
 
-export function groundLevel(settings:SceneSettings,minimumZ:number|undefined,modelSize=0):number {
+export type ModelExtent={x:number;y:number;z:number};
+/** Similar models get similar clearances; thin/long parts do not inherit the longest edge's gap. */
+export function automaticGroundClearance(extent?:ModelExtent):number {
+  if(!extent)return 0;
+  const dimensions=[extent.x,extent.y,extent.z].map(v=>Number.isFinite(v)?Math.max(0,v):0).sort((a,b)=>a-b);
+  const largest=dimensions[2],middle=dimensions[1]||largest;
+  if(largest===0)return 0;
+  // Normalize before multiplication to avoid overflow for distant/large scenes.
+  const mean=largest*Math.cbrt((dimensions[0]/largest)*(dimensions[1]/largest));
+  return Math.max(middle*.005,Math.min(middle*.08,mean*.08));
+}
+export function groundLevel(settings:SceneSettings,minimumZ:number|undefined,extent?:ModelExtent):number {
   if(settings.groundMode==="WORLD")return 0;
   if(settings.groundMode==="MANUAL"||settings.groundLocked)return settings.groundHeight;
-  // A scale-relative clearance remains useful for both millimetre and large models.
-  return (minimumZ!==undefined&&Number.isFinite(minimumZ)?minimumZ-Math.max(0,modelSize)*.05:0)+settings.groundOffset;
+  return (minimumZ!==undefined&&Number.isFinite(minimumZ)?minimumZ-automaticGroundClearance(extent):0)+settings.groundOffset;
 }
 
 export function lightingPreset(preset:SceneSettings["lighting"]):Partial<SceneSettings>{

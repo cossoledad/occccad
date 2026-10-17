@@ -4,7 +4,7 @@ import type { NavigationSnapshot } from "../navigation-controller";
 import type { NavigationPick } from "../navigation-picker";
 
 export type HudScreenPosition = { x: number; y: number };
-import { CATIA_TRACKBALL_RADIUS_RATIO, CATIA_NAVIGATION_COLOR as CATIA_COLOR, SOLIDWORKS_REFERENCE_COLOR } from "../navigation-visuals";
+import { CATIA_PIVOT_TO_TRACKBALL_RATIO, CATIA_TRACKBALL_RADIUS_RATIO, CATIA_NAVIGATION_COLOR as CATIA_COLOR, SOLIDWORKS_REFERENCE_COLOR } from "../navigation-visuals";
 
 /** View-only overlays: optional CATIA rotation sphere vs SOLIDWORKS transient rotation reference. */
 export class NavigationHUD {
@@ -48,6 +48,9 @@ export class NavigationHUD {
     this.marker.visible=Boolean(catia?.hudVisible);
     this.circle.visible = Boolean(catia?.showRotationCircle);
     const radius = Math.min(width, height) * CATIA_TRACKBALL_RADIUS_RATIO;
+    this.pivotMarker.scale.setScalar(radius*CATIA_PIVOT_TO_TRACKBALL_RATIO/22);
+    // The enlarged world-oriented marker also extends in screen-camera Z.
+    this.camera.position.z=radius*2+100;this.camera.far=this.camera.position.z*2;this.camera.updateProjectionMatrix();
     // Bake radius into geometry so dash lengths remain CSS pixels.
     const attr = this.circle.geometry.getAttribute("position");
     for (let i = 0; i < attr.count; i++) attr.setXYZ(i, radius * Math.cos(i / (attr.count - 1) * Math.PI * 2), radius * Math.sin(i / (attr.count - 1) * Math.PI * 2), 0);
