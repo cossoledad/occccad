@@ -83,12 +83,13 @@ test("panel layout, viewport resizing, document switching and assembly", async (
   await expect.poll(canvasWidth).toBe(1440);
   await page.getByRole("button", { name: "展开模型结构" }).click();
   await page.getByRole("button", { name: "展开属性面板" }).click();
-  const separator = page.getByRole("separator", { name: "调整结构树宽度" });
-  await separator.focus(); await page.keyboard.press("ArrowRight");
-  await expect(separator).toHaveAttribute("aria-valuenow", "346");
+  const treeHandle = page.getByRole("button", { name: "收起模型结构" });
+  const structure = page.getByRole("complementary", { name: "模型结构", exact: true });
+  await treeHandle.focus(); await page.keyboard.press("ArrowRight");
+  await expect(structure).toHaveAttribute("data-tree-width", "346");
   await page.setViewportSize({ width: 1024, height: 768 });
   await expect.poll(canvasWidth).toBeGreaterThan(400);
-  await expect(separator).toHaveAttribute("aria-valuenow", "250");
+  await expect(structure).toHaveAttribute("data-tree-width", "250");
   await page.setViewportSize({ width: 768, height: 700 });
   await page.getByRole("button", { name: "收起属性面板" }).click();
   await expect.poll(canvasWidth).toBeGreaterThan(500);

@@ -1,6 +1,6 @@
 import {faceOutlineSegments} from "../cad/rendering/face-outline";
 import { ScenePresentation } from "../cad/rendering/scene-presentation";
-import { DEFAULT_SCENE_SETTINGS, groundLevel, normalizeSceneSettings,sceneGridColor, type SceneSettings } from "../cad/rendering/scene-settings";
+import { DEFAULT_SCENE_SETTINGS, groundLevel, normalizeSceneSettings,sceneGridColor, sceneBackgroundIsLight, type SceneSettings } from "../cad/rendering/scene-settings";
 import {validMotionPose} from "../cad/assembly/motion-study";
 import {mechanismConstraints} from '../cad/assembly/mechanism-constraints';
 import {isExternalProjectionSource} from "../cad/interaction/external-projection-selection";
@@ -628,7 +628,7 @@ export class CadViewportEngine {
     });
     this.navigation.subscribe((action, profile, snapshot) => {
       this.navigationProfile = profile;
-      this.renderer.domElement.style.cursor = navigationCursor(snapshot);
+      this.renderer.domElement.style.cursor = navigationCursor(snapshot, sceneBackgroundIsLight(this.sceneSettings));
       this.host.classList.toggle("navigating", action !== "none" || Boolean(snapshot.catia?.hudVisible));
       if (action !== "none") this.clearSnapPreview();
       this.updateNavigationHUD(snapshot);
@@ -865,6 +865,7 @@ export class CadViewportEngine {
 
   setSceneSettings(settings:SceneSettings):void {
     this.sceneSettings=normalizeSceneSettings(settings);
+    this.renderer.domElement.style.cursor = navigationCursor(this.navigation.snapshot, sceneBackgroundIsLight(this.sceneSettings));
     const s=this.sceneSettings;
     this.switchProjection(s.projection);
     this.groundGrid.setStyle(sceneGridColor(s),s.gridOpacity,s.gridSpacing);

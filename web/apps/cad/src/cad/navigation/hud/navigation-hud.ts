@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { CadCamera } from "../camera-rig";
 import type { NavigationSnapshot } from "../navigation-controller";
 import type { NavigationPick } from "../navigation-picker";
+import { pivotMarkerGeometry, sphereCursorVertices, SPHERE_CURSOR_SEGMENTS } from "./navigation-hud-geometry";
 
 export type HudScreenPosition = { x: number; y: number };
 import { CATIA_PIVOT_TO_TRACKBALL_RATIO, CATIA_TRACKBALL_RADIUS_RATIO, CATIA_NAVIGATION_COLOR as CATIA_COLOR, SOLIDWORKS_REFERENCE_COLOR } from "../navigation-visuals";
@@ -11,11 +12,8 @@ export class NavigationHUD {
   private readonly screenScene = new THREE.Scene();
   private readonly worldScene = new THREE.Scene();
   private readonly referenceGroup = new THREE.Group();
-  private readonly pivotMarker = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(-22,0,0),new THREE.Vector3(-5,0,0),new THREE.Vector3(5,0,0),new THREE.Vector3(22,0,0),
-    new THREE.Vector3(0,-22,0),new THREE.Vector3(0,-5,0),new THREE.Vector3(0,5,0),new THREE.Vector3(0,22,0),
-    new THREE.Vector3(0,0,-8),new THREE.Vector3(0,0,8),
-  ]),new THREE.LineBasicMaterial({vertexColors:true,depthTest:false,depthWrite:false,toneMapped:false}));
+  private readonly pivotMarker = new THREE.LineSegments(pivotMarkerGeometry(),
+    new THREE.LineBasicMaterial({vertexColors:true,depthTest:false,depthWrite:false,toneMapped:false}));
   private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
   private readonly circle: THREE.LineLoop<THREE.BufferGeometry, THREE.LineDashedMaterial>;
   private readonly marker: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
@@ -27,10 +25,8 @@ export class NavigationHUD {
     const vertices = Array.from({ length: 193 }, (_, i) => new THREE.Vector3(Math.cos(i / 192 * Math.PI * 2), Math.sin(i / 192 * Math.PI * 2), 0));
     this.circle = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(vertices), new THREE.LineDashedMaterial({ color: CATIA_COLOR, dashSize: 4, gapSize: 3, depthTest: false }));
     this.marker = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: CATIA_COLOR, depthTest: false }));
-    this.marker.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(144), 3).setUsage(THREE.DynamicDrawUsage));
+    this.marker.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(SPHERE_CURSOR_SEGMENTS * 12), 3).setUsage(THREE.DynamicDrawUsage));
     this.screenScene.add(this.circle, this.marker); this.screenScene.visible = false;
-    const colors=Array.from({length:10},(_,i)=>new THREE.Color(i<8?CATIA_COLOR:0xffdf55).toArray()).flat();
-    this.pivotMarker.geometry.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
     this.pivotMarker.visible=false;this.screenScene.add(this.pivotMarker);this.worldScene.add(this.referenceGroup);
   }
   get screenPosition(): HudScreenPosition | undefined { return this.screen; }
@@ -56,18 +52,8 @@ export class NavigationHUD {
     for (let i = 0; i < attr.count; i++) attr.setXYZ(i, radius * Math.cos(i / (attr.count - 1) * Math.PI * 2), radius * Math.sin(i / (attr.count - 1) * Math.PI * 2), 0);
     attr.needsUpdate = true; this.circle.computeLineDistances();
     const x = (catia?.pointer.x ?? cx) - cx, y = cy - (catia?.pointer.y ?? cy);
-    const positions: number[] = [];
-    if (catia?.showRotationCircle) {
-      // Tangent arcs show the grabbed point on the virtual sphere; no decorative world-axis globe.
-      const r = Math.max(radius, 1), length = Math.hypot(x, y), scale = length > r ? r / length : 1;
-      const point = new THREE.Vector3(x * scale, y * scale, Math.sqrt(Math.max(0, r * r - (x * scale) ** 2 - (y * scale) ** 2))).divideScalar(r);
-      for (const axis of [new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0)]) {
-        for (let i = 0; i < 12; i++) for (const t of [i, i + 1]) {
-          const p = point.clone().applyAxisAngle(axis, (t / 12 - 0.5) * 0.16).multiplyScalar(r);
-          positions.push(p.x, p.y, 0);
-        }
-      }
-    } else positions.push(x - 6, y, 0, x + 6, y, 0, x, y - 6, 0, x, y + 6, 0);
+    const positions = catia?.showRotationCircle ? sphereCursorVertices(x, y, radius)
+      : [x - 6, y, 0, x + 6, y, 0, x, y - 6, 0, x, y + 6, 0];
     const markerAttribute = this.marker.geometry.getAttribute("position") as THREE.BufferAttribute;
     markerAttribute.array.set(positions); markerAttribute.needsUpdate = true;
     this.marker.geometry.setDrawRange(0, positions.length / 3);

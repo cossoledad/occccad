@@ -37,8 +37,8 @@ test("document tab drag, keyboard order and responsive tree labels", async ({pag
   await page.goto("/documents/mock-part-bracket");
   const label = page.getByRole("treeitem").first().locator(".specification-tree-label");
   const before = (await label.boundingBox())!.width;
-  const separator = page.getByRole("separator",{name:"调整结构树宽度"});
-  await separator.focus();
+  const treeHandle = page.getByRole("button",{name:"收起模型结构"});
+  await treeHandle.focus();
   for(let i=0;i<10;i++) await page.keyboard.press("ArrowRight");
   await expect.poll(async () => (await label.boundingBox())!.width).toBeGreaterThan(before + 90);
   expect(await label.evaluate(node => getComputedStyle(node).maxWidth)).toBe("none");
@@ -46,6 +46,10 @@ test("document tab drag, keyboard order and responsive tree labels", async ({pag
   await page.locator(".document-card").filter({hasText:"Frame Assembly"}).locator(".thumbnail-button").dblclick();
   const tabs = page.locator(".document-tab-switch");
   await expect(tabs).toHaveCount(2);
+  // The active Product is pinned at the front. Activate the Part before
+  // testing unrestricted document ordering.
+  await tabs.filter({hasText:"Mounting Bracket"}).click();
+  await expect(page.locator('.document-tab-switch[aria-current="page"]')).toHaveText("Mounting Bracket");
   const active = await page.locator('.document-tab-switch[aria-current="page"]').innerText();
   const first = (await tabs.nth(0).boundingBox())!, second = (await tabs.nth(1).boundingBox())!;
   const oldOrder = await tabs.allTextContents();
