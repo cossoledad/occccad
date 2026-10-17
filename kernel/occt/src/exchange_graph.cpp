@@ -13,6 +13,7 @@
 #include <XCAFDoc_ShapeTool.hxx>
 #include <XCAFDoc_ColorTool.hxx>
 #include <Quantity_Color.hxx>
+#include <Quantity_ColorRGBA.hxx>
 #include <TopoDS_Iterator.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -80,41 +81,64 @@ Quantity_Color color_value(const std::string& value) {
     return Quantity_Color(double((rgb >> 16) & 255) / 255, double((rgb >> 8) & 255) / 255,
                           double(rgb & 255) / 255, Quantity_TOC_sRGB);
 }
+double opacity_value(const std::optional<double>& value) {
+    const auto alpha = value.value_or(1.0);
+    if (!std::isfinite(alpha) || alpha < 0.0 || alpha > 1.0)
+        throw std::invalid_argument("EXCHANGE_INVALID_OPACITY");
+    return alpha;
+}
+Quantity_ColorRGBA color_rgba(const std::string& color, const std::optional<double>& opacity) {
+    return Quantity_ColorRGBA(color_value(color.empty() ? "#98a8b8" : color), static_cast<float>(opacity_value(opacity)));
+}
 ExchangeAppearance read_colors(const TopoDS_Shape& shape, const TDF_Label& label,
                               const Handle(XCAFDoc_ColorTool)& colors) {
     ExchangeAppearance out;
-    Quantity_Color color;
-    if (colors->GetColor(label, XCAFDoc_ColorSurf, color) || colors->GetColor(label, XCAFDoc_ColorGen, color))
-        out.color = color_hex(color);
+    Quantity_ColorRGBA color;
+    if (colors->GetColor(label, XCAFDoc_ColorSurf, color) || colors->GetColor(label, XCAFDoc_ColorGen, color)) {
+        out.color = color_hex(color.GetRGB());
+        if (color.Alpha() < 1.0f) out.opacity = color.Alpha();
+    }
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(shape, TopAbs_FACE, faces);
-    std::map<uint64_t, std::string> values;
-    std::function<void(const TopoDS_Shape&, std::string, unsigned)> visit;
-    visit = [&](const TopoDS_Shape& current, std::string inherited, unsigned depth) {
+    struct Style { std::string color; double opacity = 1; };
+    std::map<uint64_t, Style> values;
+    std::function<void(const TopoDS_Shape&, Style, unsigned)> visit;
+    visit = [&](const TopoDS_Shape& current, Style inherited, unsigned depth) {
         if (depth > 128) throw std::invalid_argument("EXCHANGE_SHAPE_DEPTH_LIMIT");
-        Quantity_Color own;
+        Quantity_ColorRGBA own;
         if (colors->GetColor(current, XCAFDoc_ColorSurf, own) || colors->GetColor(current, XCAFDoc_ColorGen, own))
-            inherited = color_hex(own);
+            inherited = {color_hex(own.GetRGB()), own.Alpha()};
         if (current.ShapeType() == TopAbs_FACE) {
             const auto id = static_cast<uint64_t>(faces.FindIndex(current));
-            if (!inherited.empty() && inherited != out.color) values[id] = inherited;
+            if (!inherited.color.empty() && (inherited.color != out.color || inherited.opacity != out.opacity.value_or(1.0)))
+                values[id] = inherited;
             return;
         }
         for (TopoDS_Iterator it(current); it.More(); it.Next()) visit(it.Value(), inherited, depth + 1);
     };
-    visit(shape, out.color, 0);
-    for (const auto& [id, value] : values) out.faces.push_back({id, value});
+    visit(shape, {out.color, out.opacity.value_or(1.0)}, 0);
+    for (const auto& [id, value] : values) {
+        std::optional<double> opacity;
+        if (value.opacity != out.opacity.value_or(1.0)) opacity = value.opacity;
+        out.faces.push_back({id, value.color, opacity});
+    }
     return out;
 }
 std::string label_color(const TDF_Label& label, const Handle(XCAFDoc_ColorTool)& colors) {
-    Quantity_Color color;
+    Quantity_ColorRGBA color;
     return colors->GetColor(label, XCAFDoc_ColorSurf, color) || colors->GetColor(label, XCAFDoc_ColorGen, color)
-        ? color_hex(color) : "";
+        ? color_hex(color.GetRGB()) : "";
+}
+std::optional<double> label_opacity(const TDF_Label& label, const Handle(XCAFDoc_ColorTool)& colors) {
+    Quantity_ColorRGBA color;
+    if (colors->GetColor(label, XCAFDoc_ColorSurf, color) || colors->GetColor(label, XCAFDoc_ColorGen, color))
+        return color.Alpha();
+    return {};
 }
 void write_colors(const TopoDS_Shape& shape, const TDF_Label& label, const ExchangeAppearance& appearance,
                   const Handle(XCAFDoc_ShapeTool)& shapes, const Handle(XCAFDoc_ColorTool)& colors,
                   const TDF_Label& owner = {}) {
-    if (!appearance.color.empty()) colors->SetColor(label, color_value(appearance.color), XCAFDoc_ColorSurf);
+    if (!appearance.color.empty() || appearance.opacity) colors->SetColor(label, color_rgba(appearance.color, appearance.opacity), XCAFDoc_ColorSurf);
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(shape, TopAbs_FACE, faces);
     std::set<uint64_t> seen;
@@ -123,7 +147,7 @@ void write_colors(const TopoDS_Shape& shape, const TDF_Label& label, const Excha
             throw std::invalid_argument("EXCHANGE_INVALID_COLOR_LOCATOR");
         const auto target = shapes->AddSubShape(owner.IsNull() ? label : owner, faces(static_cast<int>(face.local_id)));
         if (target.IsNull()) throw std::invalid_argument("EXCHANGE_COLOR_SUBSHAPE_FAILED");
-        colors->SetColor(target, color_value(face.color), XCAFDoc_ColorSurf);
+        colors->SetColor(target, color_rgba(face.color.empty() ? appearance.color : face.color, face.opacity.has_value() ? face.opacity : appearance.opacity), XCAFDoc_ColorSurf);
     }
 }
 }  // namespace
@@ -170,7 +194,7 @@ ExchangeGraph OcctKernel::readStepGraph(const std::string& path) {
                 const auto target = visit(child, depth + 1);
                 def.children.push_back({label_id(child), target,
                                         label_name(child, "Instance " + std::to_string(i)),
-                                        pose(tool->GetLocation(child)), label_color(child, colors)});
+                                        pose(tool->GetLocation(child)), label_color(child, colors), label_opacity(child, colors)});
             }
         } else {
             def.kind = "PART";
@@ -258,7 +282,7 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
                 auto instance = tool->AddComponent(label, build(child.definition_id, depth + 1),
                                                    location(child.placement));
                 name(instance, child.name);
-                if (!child.color.empty()) colors->SetColor(instance, color_value(child.color), XCAFDoc_ColorSurf);
+                if (!child.color.empty() || child.opacity) colors->SetColor(instance, color_rgba(child.color, child.opacity), XCAFDoc_ColorSurf);
             }
         } else
             throw std::invalid_argument("EXCHANGE_INVALID_KIND");
@@ -283,12 +307,12 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
         if (!container.IsNull()) {
             const auto component = tool->AddComponent(container, label, rootLocation);
             name(component, root.name);
-            if (!root.color.empty()) colors->SetColor(component, color_value(root.color), XCAFDoc_ColorSurf);
+            if (!root.color.empty() || root.opacity) colors->SetColor(component, color_rgba(root.color, root.opacity), XCAFDoc_ColorSurf);
             continue;
         }
         const auto& p = root.placement;
         if (p.translation.x != 0 || p.translation.y != 0 || p.translation.z != 0 ||
-            p.rotation.x != 0 || p.rotation.y != 0 || p.rotation.z != 0 || !root.color.empty()) {
+            p.rotation.x != 0 || p.rotation.y != 0 || p.rotation.z != 0 || !root.color.empty() || root.opacity) {
             auto wrapper = tool->NewShape();
             TopoDS_Compound compound;
             BRep_Builder builder;
@@ -296,7 +320,7 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
             tool->SetShape(wrapper, compound);
             const auto component = tool->AddComponent(wrapper, label, rootLocation);
             name(component, root.name);
-            if (!root.color.empty()) colors->SetColor(component, color_value(root.color), XCAFDoc_ColorSurf);
+            if (!root.color.empty() || root.opacity) colors->SetColor(component, color_rgba(root.color, root.opacity), XCAFDoc_ColorSurf);
             name(wrapper, root.name);
             label = wrapper;
         }

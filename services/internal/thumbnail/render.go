@@ -17,7 +17,7 @@ import (
 const (
 	Width           = 640
 	Height          = 400
-	RendererVersion = "png-v6-appearance"
+	RendererVersion = "png-v7-properties-opacity"
 	ContentType     = "image/png"
 	samples         = 2
 	// Bound scene preparation independently of pixel count and the job deadline.

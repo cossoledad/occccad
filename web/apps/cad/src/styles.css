@@ -1004,3 +1004,8 @@ select {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
+
+.cad-property-row { display:grid; grid-template-columns:minmax(90px,.8fr) minmax(0,1.8fr); gap:12px; align-items:center; width:100%; min-height:32px; }
+.cad-property-row > .ant-select, .cad-property-row > .ant-input-number { width:100%; }
+.cad-property-row .ant-space { flex-wrap:wrap; }
+.cad-property-row .ant-slider { min-width:130px; }

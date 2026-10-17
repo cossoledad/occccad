@@ -23,11 +23,11 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 	view.Part = &model
 	view.BodyAppearances = map[string]ResolvedAppearance{}
 	for _, body := range model.Bodies {
-		appearance, err := service.bodyAppearance(ctx, body)
+		appearance, err := service.bodyAppearanceWithDefaults(ctx, body, model.DefaultAppearance)
 		if err != nil {
 			return view, err
 		}
-		if body.Appearance != nil {
+		if body.Appearance != nil || model.DefaultAppearance != nil {
 			view.BodyAppearances[body.ID] = appearance
 		}
 	}
@@ -115,6 +115,7 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	}
 	view.Artifacts = map[string]Artifact{}
 	view.ResolvedInstances = []ResolvedInstance{}
+	ctx, occurrenceRules := withOccurrenceRules(ctx)
 	if err := service.resolveProduct(ctx, summary.VersionID, InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, summary.Name,
 		InstancePath{RootDocumentID: summary.ID}, "document:"+summary.ID,
 		map[string]bool{}, view.Artifacts, &view.ResolvedInstances, &view.ConstraintDisplayScopes); err != nil {
@@ -154,8 +155,9 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 						return view, err
 					}
 					resolved.Appearance = appearance
-					if resolved.OccurrenceColor != "" {
-						resolved.Appearance.Color, resolved.Appearance.Faces = resolved.OccurrenceColor, nil
+					resolved.Appearance, err = service.applyOccurrenceAppearance(ctx, resolved.DocumentID, body, appearance, resolved.OccurrencePath, occurrenceRules[resolved.OccurrencePath])
+					if err != nil {
+						return view, err
 					}
 				}
 			}
@@ -168,6 +170,7 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	}
 	bindStructureVariants(&structure, view.ContextVariants)
 	view.StructureTree = &structure
+	projectResolvedOccurrenceNames(view.ResolvedInstances, occurrenceRules)
 	return view, nil
 }
 
@@ -330,5 +333,6 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 	root.Children = append(root.Children, kinematicsStructure(documentID, versionID, path, model.Kinematics, model.Constraints, model.Instances))
 	annotateStructure(&root, documentID, "")
 	applyOccurrenceVisibilityProjection(&root, model.VisibilityOverrides)
+	projectOccurrenceNames(&root, model, occurrenceIdentity.Canonical)
 	return root, nil
 }

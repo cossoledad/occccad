@@ -14,7 +14,7 @@ try {
   solidBindings:new Map(),selectionIndex:index,assemblyConstraintReferences:new Map(),assemblyConstraintMarkers:new Map(),selected:[],preselected:null,
   highlightedRoots:new Set(),selectedOverlays:[],preselectedOverlays:[],
   materials:{constraintGlyph:(_glyph,color)=>new THREE.PointsMaterial({color}),setInteractionState(){}},
-  invalidate:()=>frames++,updateSketchContextVisibility(){},treeVisibilityOverrides:{},referenceVisibility:{},
+  invalidate:()=>frames++,refreshSceneGround(){},updateSketchContextVisibility(){},treeVisibilityOverrides:{},referenceVisibility:{},
   moveInteraction:new AssemblyInteractionController({begin:async()=>{throw Error("display-only fixture has no gesture");},update:async()=>{throw Error("display-only fixture must not solve");},cancel:async()=>{},frame(){},state(){}}),
   visualGeneration:0,visuals:{hydrate(){hydrates++;throw Error("constraint update downloaded mesh");}},renderReady(){rebuilds++;},pendingVisualSnapshot:false});
  const c={id:"same-id",kind:"COINCIDENT",first:{instanceId:"a",kind:"BODY"},second:{instanceId:"b",kind:"BODY"},evaluationStatus:"VERIFIED",suppressed:false};

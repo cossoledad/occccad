@@ -16,6 +16,13 @@ func partHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (map[
 		return nil, err
 	}
 	for _, change := range set.Changes {
+		if value, handled, err := partPropertyHistory(&model, change.Target, nil, false); handled {
+			if err != nil {
+				return nil, err
+			}
+			result[change.Target] = value
+			continue
+		}
 		if strings.HasPrefix(change.Target.SlotID, "display.") {
 			value, exists := partReferenceVisibility(&model, change.Target, nil, false)
 			if exists {
@@ -118,6 +125,13 @@ func productHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (m
 		return nil, err
 	}
 	for _, change := range set.Changes {
+		if value, handled, err := productPropertyHistory(&model, change.Target, nil, false); handled {
+			if err != nil {
+				return nil, err
+			}
+			result[change.Target] = value
+			continue
+		}
 		if change.Target.SlotID == "product.constraint-name-counters" {
 			var model ProductModel
 			if err := json.Unmarshal(modelJSON, &model); err != nil {
@@ -186,6 +200,12 @@ func applyPartHistoryValues(modelJSON json.RawMessage, values map[modelcore.Prop
 		return nil, err
 	}
 	for address, value := range values {
+		if _, handled, err := partPropertyHistory(&model, address, value, true); handled {
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
 		if strings.HasPrefix(address.SlotID, "display.") {
 			var visible *bool
 			if err := json.Unmarshal(value, &visible); err != nil {
@@ -444,6 +464,12 @@ func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.P
 		return nil, err
 	}
 	for address, value := range values {
+		if _, handled, err := productPropertyHistory(&model, address, value, true); handled {
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
 		if address.SlotID == "document.model" {
 			return append(json.RawMessage(nil), value...), nil
 		}

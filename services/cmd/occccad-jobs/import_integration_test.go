@@ -115,9 +115,11 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 			sub.Children = append(sub.Children, child)
 		}
 		graph := &geometry.ExchangeGraph{Definitions: []*workerv1.ExchangeDefinition{{Id: "pin", Name: "Shared Pin", Kind: "PART", Brep: ref}, {Id: "other", Name: "Identical But Distinct", Kind: "PART", Brep: ref}, sub, {Id: "root", Name: "Root Product", Kind: "PRODUCT", Children: []*workerv1.ExchangeOccurrence{occurrence("Sub.1", "sub", 0), occurrence("Sub.2", "sub", 100), occurrence("Other.1", "other", 200)}}}, Roots: []*workerv1.ExchangeOccurrence{occurrence("root", "root", 0)}}
-		graph.Definitions[0].Appearance = &workerv1.ExchangeAppearance{Color: "#d64a3a", Faces: []*workerv1.ExchangeFaceColor{{LocalId: 1, Color: "#000000"}}}
+		alpha, faceAlpha, instanceAlpha := .6, .25, .4
+		graph.Definitions[0].Appearance = &workerv1.ExchangeAppearance{Color: "#d64a3a", Opacity: &alpha, Faces: []*workerv1.ExchangeFaceColor{{LocalId: 1, Color: "#000000", Opacity: &faceAlpha}}}
 		graph.Definitions[1].Appearance = &workerv1.ExchangeAppearance{Color: "#3978bd"}
 		graph.Definitions[3].Children[1].Color = "#e8b541"
+		graph.Definitions[3].Children[1].Opacity = &instanceAlpha
 		exported, err := client.ExportExchange(t.Context(), runID+"/fixture-export", "STEP", artifact.StagingKey(runID, "fixture.step"), graph)
 		if err != nil {
 			t.Fatal(err)
@@ -212,6 +214,12 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 			if instance.Appearance.UnresolvedFaces != 0 || (instance.Appearance.Color != "#d64a3a" && instance.Appearance.Color != "#3978bd" && instance.Appearance.Color != "#e8b541") {
 				t.Fatalf("import lost occurrence color: %+v", instance.Appearance)
 			}
+			if instance.Appearance.Color == "#d64a3a" && (instance.Appearance.Opacity == nil || math.Abs(*instance.Appearance.Opacity-.6) > 1e-6) {
+				t.Fatal("import lost Body opacity")
+			}
+			if instance.Appearance.Color == "#e8b541" && (instance.Appearance.Opacity == nil || math.Abs(*instance.Appearance.Opacity-.4) > 1e-6) {
+				t.Fatal("import lost occurrence opacity")
+			}
 			if instance.Appearance.Color == "#d64a3a" && len(instance.Appearance.Faces) != 1 {
 				t.Fatal("import lost black face override")
 			}
@@ -222,6 +230,79 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 		var count int
 		if err := db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.documents WHERE folder_id=$1 AND deleted_at IS NULL`, folder.ID).Scan(&count); err != nil || count != 4 {
 			t.Fatalf("unique documents=%d err=%v", count, err)
+		}
+	}
+	if generated {
+		// Exercise host-owned nested style/face overrides through the real Command,
+		// Router, STEP writer and reader, preserving the shared source definition.
+		leaf := product.ResolvedInstances[0]
+		last := leaf.InstancePath.Segments[len(leaf.InstancePath.Segments)-1]
+		alias := "Host Pin Alias"
+		styled, err := service.ApplyCommand(t.Context(), product.Document.ID, workspace.CommandRequest{Type: "SET_PROPERTIES", ActorID: actor, RequestID: runID + "/host-style", VersionID: product.Document.VersionID, Properties: &workspace.PropertyUpdateRequest{Targets: []workspace.PropertyTarget{{Kind: "INSTANCE", ID: last.InstanceID, InstancePath: &leaf.InstancePath}}, Name: &alias, Appearance: map[string]json.RawMessage{"color": json.RawMessage(`"#2176ff"`), "opacity": json.RawMessage("0.35")}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var target workspace.ResolvedInstance
+		for _, item := range styled.ResolvedInstances {
+			if item.OccurrencePath == leaf.OccurrencePath && item.BodyID == leaf.BodyID {
+				target = item
+			}
+		}
+		var faceID uint64
+		for id := range leaf.Appearance.Faces {
+			faceID = id
+			break
+		}
+		if faceID == 0 {
+			t.Fatal("fixture requires stable colored face")
+		}
+		styled, err = service.ApplyCommand(t.Context(), product.Document.ID, workspace.CommandRequest{Type: "SET_PROPERTIES", ActorID: actor, RequestID: runID + "/host-face", VersionID: styled.Document.VersionID, Properties: &workspace.PropertyUpdateRequest{Targets: []workspace.PropertyTarget{{Kind: "FACE", ID: leaf.BodyID, BodyID: leaf.BodyID, GeometryKey: leaf.GeometryKey, LocalID: faceID, InstancePath: &target.InstancePath}}, Appearance: map[string]json.RawMessage{"color": json.RawMessage(`"#000000"`), "opacity": json.RawMessage("0")}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range styled.ResolvedInstances {
+			if item.OccurrencePath == leaf.OccurrencePath && item.BodyID == leaf.BodyID {
+				if item.Name != alias || item.Appearance.Color != "#2176ff" || item.Appearance.FaceProperties[faceID].Opacity == nil || *item.Appearance.FaceProperties[faceID].Opacity != 0 {
+					t.Fatalf("host scope projection: %+v", item)
+				}
+			} else if item.DocumentID == leaf.DocumentID && item.Appearance.Color == "#2176ff" {
+				t.Fatal("host override escaped into shared sibling")
+			}
+		}
+		styledGraph, err := service.ExchangeExportGraph(t.Context(), product.Document.ID, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		styledFile, err := client.ExportExchange(t.Context(), runID+"/host-export", "STEP", artifact.StagingKey(runID, "host.step"), styledGraph)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inspected, err := client.InspectExchange(t.Context(), runID+"/host-inspect", "STEP", styledFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		foundStyle, foundAlias := false, false
+		for _, def := range inspected.Definitions {
+			for _, child := range def.Children {
+				if child.Name == alias {
+					foundAlias = true
+				}
+			}
+			if def.Appearance != nil && def.Appearance.Color == "#2176ff" && def.Appearance.Opacity != nil && math.Abs(*def.Appearance.Opacity-.35) < 1e-6 {
+				for _, face := range def.Appearance.Faces {
+					if face.Color == "#000000" && face.Opacity != nil && *face.Opacity == 0 {
+						foundStyle = true
+					}
+				}
+			}
+		}
+		if !foundStyle || !foundAlias {
+			t.Fatalf("host STEP lost appearance/alias: %v/%v", foundStyle, foundAlias)
+		}
+		for i := 0; i < 2; i++ {
+			if _, err = service.ApplyCommand(t.Context(), product.Document.ID, workspace.CommandRequest{Type: "UNDO", ActorID: actor, RequestID: fmt.Sprintf("%s/host-undo-%d", runID, i)}); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	var docs []string
@@ -373,6 +454,21 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 		}
 		for i, original := range product.ResolvedInstances {
 			actual := restored.ResolvedInstances[i]
+			alpha := func(value *float64) float64 {
+				if value == nil {
+					return 1
+				}
+				return *value
+			}
+			if math.Abs(alpha(actual.Appearance.Opacity)-alpha(original.Appearance.Opacity)) > 1e-6 {
+				t.Fatalf("roundtrip lost opacity: %v != %v", actual.Appearance.Opacity, original.Appearance.Opacity)
+			}
+			for id, color := range actual.Appearance.Faces {
+				if color == "#000000" && math.Abs(alpha(actual.Appearance.FaceProperties[id].Opacity)-.25) > 1e-6 {
+					t.Fatal("roundtrip lost face opacity")
+				}
+			}
+
 			if actual.Appearance.Color != original.Appearance.Color || len(actual.Appearance.Faces) != len(original.Appearance.Faces) || actual.Appearance.UnresolvedFaces != 0 {
 				counts := map[string]int{}
 				for _, item := range restored.ResolvedInstances {

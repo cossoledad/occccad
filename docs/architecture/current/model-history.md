@@ -21,6 +21,8 @@ UI Command
 - Expensive geometry/network work is outside the database transaction. Final commit verifies the expected Head so late results cannot overwrite a newer Revision.
 - Undo/Redo append compensating/replay actions and preserve history. Restore, Branch and Feature Rollback are different operations.
 
+文档名称/描述、外观与实例别名也走正式命令；元数据冻结于 Revision，并在同一 CAS 事务更新 live 摘要。属性作用域、预览及冲突规则见[统一属性](object-scene-properties.md)。
+
 ## 属性与依赖的完成条件
 
 A new writable property is complete only when the same stable PropertySlot participates in:

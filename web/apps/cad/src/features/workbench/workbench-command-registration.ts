@@ -14,6 +14,7 @@ import type {SpecificationTreeNode} from "./specification-tree";
 import {selectionSummaryCommand} from "./commands/selection-summary";
 
 export type WorkbenchCommandBindings={
+ openProperties?:()=>void;openSceneProperties?:()=>void;
 	prepareAssemblyMove?:()=>Promise<void>;
  setMotionOpen?:(open:boolean)=>void;motionOpen?:boolean;motionCommandEnabled?:(action:string)=>boolean;onMotionCommand?:(action:string,operation?:CommandOperation)=>void;
  treeActions?:StructureActions;closePanels?:(nextCommand?:string)=>void;toolContinuation?:boolean;formActive?:boolean;
@@ -42,6 +43,8 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
  const deletionTargets=(invocation?:CadCommandInvocation)=>invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes;
  const resultDeletion=(invocation?:CadCommandInvocation)=>{const nodes=deletionTargets(invocation);return nodes.length>0&&nodes.every(node=>node.kind==="MOTION_RESULT"&&node.capabilities?.includes("DELETE"))};
  return [
+  {id:"edit.properties",execute:()=>bindings.openProperties?.(),isEnabled:()=>Boolean(view&&bindings.openProperties&&!command.isPending&&!store.activeSketchID)},
+  {id:"view.scene-properties",execute:()=>bindings.openSceneProperties?.(),isEnabled:()=>Boolean(view&&bindings.openSceneProperties&&!command.isPending)},
 
       ({id:"edit.delete",execute:invocation=>deleteTreeNodes((invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes).map(node=>resolveStructureNode(treeNodes,node))),isEnabled:invocation=>Boolean((resultDeletion(invocation)||canEdit||bindings.motionOpen&&canEditRoot&&(invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes).every(node=>["MECHANISM","MECHANISM_JOINT","MOTION_DRIVER","MOTION_STUDY","INTERFERENCE_ANALYSIS","MOTION_RESULT"].includes(node.kind??"")))&&!command.isPending&&(invocation?.payload?structureInvocation(invocation).nodes?.some(node=>node.capabilities?.includes("DELETE")):store.activeToolID==="select"&&deletionNodes.some(node=>node.capabilities?.includes("DELETE"))))}),
       ({ id: "tool.select", continues:bindings.motionOpen?["dmu.run","dmu.study","tree.edit","assembly.move"]:undefined,execute: () => store.setActiveTool("select", "once"),

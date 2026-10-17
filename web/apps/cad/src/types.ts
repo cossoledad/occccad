@@ -20,8 +20,16 @@ export type MeshData = {
 export type NamingAvailability = { status: "READY" | "UNAVAILABLE" | "FAILED" | "CORRUPT" | "INCOMPATIBLE"; canBind: boolean; diagnosticCode?: string; diagnostic?: string };
 
 export type BodyDisplayFallback = { geometryKey: string; sourceVersionId: string };
-export type SurfaceAppearance = { color?: string; faces?: Array<{ anchor: SemanticTopologyRef; color: string }> };
-export type ResolvedAppearance = { geometryKey?: string; color?: string; faces?: Record<number, string>; unresolvedFaces?: number };
+export type GraphicProperties={opacity?:number;roughness?:number;metalness?:number;edgeColor?:string;edgeWidth?:number;edges?:boolean;pickable?:boolean;edgeOpacityMode?:"FOLLOW"|"CLEAR"};
+export type SurfaceStyle=GraphicProperties&{color?:string};
+export type SurfaceAppearance = SurfaceStyle&{ faces?: Array<SurfaceStyle&{anchor:SemanticTopologyRef;inheritedFields?:string[]}> };
+export type AppearanceSource={kind:string;bodyId?:string;occurrencePath?:string};
+export type ResolvedAppearance = SurfaceStyle&{sources?:Record<string,AppearanceSource>;faceSources?:Record<number,Record<string,AppearanceSource>>; geometryKey?: string; faces?: Record<number, string>; faceProperties?:Record<number,GraphicProperties>;faceInherit?:Record<number,string[]>; unresolvedFaces?: number;issues?:Array<{code:string;occurrencePath?:string;bodyId?:string}> };
+export type PropertyTarget={kind:string;id:string;bodyId?:string;instancePath?:InstancePath;geometryKey?:string;localId?:number};
+export type PropertyUpdateRequest={targets:PropertyTarget[];name?:string;description?:string;appearance?:Partial<Record<keyof SurfaceStyle,string|number|boolean|null>>;clearFaceOverrides?:boolean};
+export type OccurrenceAppearance={instancePath:InstancePath;bodyId?:string;name?:string;appearance?:SurfaceAppearance};
+export type PropertyAppearanceProjection={documentId:string;occurrencePath:string;bodyId:string;appearance:ResolvedAppearance};
+export type PropertyPreview={documentId:string;versionId:string;occurrencePath?:string;appearances:PropertyAppearanceProjection[]};
 export type PartBody = { appearance?: SurfaceAppearance; displayFallback?: BodyDisplayFallback; consumed?: boolean; id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
 
 export type Artifact = {
@@ -67,6 +75,7 @@ export type AssemblyComponentDof = {
   freedoms: AssemblyBodyFreedom[];
 };
 export type CommandPreview = {
+  propertyAppearances?:PropertyAppearanceProjection[];
   expiresAt?: string;
  referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
   sketchCandidates?: Array<{featureId:string;entities:SketchEntity[];solve:SketchFeature["solve"]}>;
@@ -422,8 +431,8 @@ export type DocumentView = {
   datumPlanes?: DatumPlane[];
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];
-  part?: { originVisible?:boolean; bodies: PartBody[]; activeBodyId: string; units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
-  product?: { kinematics?:import("./cad/assembly/motion-study").KinematicsDefinitions; instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[]; contextBindings?:ContextBinding[];
+  part?: { metadata?:{name:string;description:string}; defaultAppearance?:SurfaceAppearance; originVisible?:boolean; bodies: PartBody[]; activeBodyId: string; units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
+  product?: { metadata?:{name:string;description:string}; defaultAppearance?:SurfaceAppearance;appearanceOverrides?:OccurrenceAppearance[]; kinematics?:import("./cad/assembly/motion-study").KinematicsDefinitions; instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[]; contextBindings?:ContextBinding[];
     visibilityOverrides?: Array<{instancePath:InstancePath;entityKind:string;entityId:string;mode:"SHOW"|"HIDE"}> };
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;

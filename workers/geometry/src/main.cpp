@@ -1863,6 +1863,7 @@ public:
                 to->set_definition_id(from.definition_id);
                 to->set_name(from.name);
                 to->set_color(from.color);
+                if (from.opacity) to->set_opacity(*from.opacity);
                 to->mutable_translation()->set_x(from.placement.translation.x);
                 to->mutable_translation()->set_y(from.placement.translation.y);
                 to->mutable_translation()->set_z(from.placement.translation.z);
@@ -1880,10 +1881,12 @@ public:
                 item->set_name(def.name);
                 item->set_kind(def.kind);
                 item->mutable_appearance()->set_color(def.appearance.color);
+                if (def.appearance.opacity) item->mutable_appearance()->set_opacity(*def.appearance.opacity);
                 for (const auto& color : def.appearance.faces) {
                     auto* face = item->mutable_appearance()->add_faces();
                     face->set_local_id(color.local_id);
                     face->set_color(color.color);
+                    if (color.opacity) face->set_opacity(*color.opacity);
                 }
                 for (const auto& child : def.children)
                     occurrence(child, item->add_children());
@@ -2063,6 +2066,7 @@ public:
                 to.definition_id = from.definition_id();
                 to.name = from.name();
                 to.color = from.color();
+                if (from.has_opacity()) to.opacity = from.opacity();
                 to.placement.translation = {from.translation().x(), from.translation().y(),
                                             from.translation().z()};
                 to.placement.rotation = {from.rotation().x(), from.rotation().y(),
@@ -2087,7 +2091,12 @@ public:
                 auto appearance = [](const auto& from) {
                     occccad::kernel::ExchangeAppearance to;
                     to.color = from.color();
-                    for (const auto& face : from.faces()) to.faces.push_back({face.local_id(), face.color()});
+                    if (from.has_opacity()) to.opacity = from.opacity();
+                    for (const auto& face : from.faces()) {
+                        std::optional<double> opacity;
+                        if (face.has_opacity()) opacity = face.opacity();
+                        to.faces.push_back({face.local_id(), face.color(), opacity});
+                    }
                     return to;
                 };
                 item.appearance = appearance(def.appearance());

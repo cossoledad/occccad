@@ -1,5 +1,9 @@
+import {ViewportContextMenu,type ViewportContext} from "./viewport-context-menu";
 import {AssemblyConstraintFields} from "./assembly-constraint-fields";
-import {BodyColorDialog} from "./body-color-dialog";
+import {ObjectPropertiesDialog} from "./object-properties-dialog";
+import {propertyEditorTarget,refreshPropertyTargets,type PropertyEditorTarget} from "./property-target";
+import {ScenePropertiesDialog} from "./scene-properties-dialog";
+import {DEFAULT_SCENE_SETTINGS,type SceneSettings} from "../../cad/rendering/scene-settings";
 import {withMotionResults} from './motion-result-tree';
 import {structureCommandIDs,type StructureActions,type StructureInvocation} from "./commands/structure-commands";
 import {useWorkbenchCommandRegistration} from "./workbench-command-registration";
@@ -149,7 +153,19 @@ export function Workbench() {
   const conflictGate=useRef(new AssemblyConflictResponseGate());
   const conflictAbort=useRef<AbortController|undefined>(undefined);
   const [renameTarget, setRenameTarget] = useState<SpecificationTreeNode>();
-  const [colorTarget, setColorTarget] = useState<{bodyId:string;documentId:string;versionId:string}>();
+  const [viewportContext,setViewportContext]=useState<ViewportContext>();
+  const [propertyTargets,setPropertyTargets]=useState<PropertyEditorTarget[]>();
+  const [scenePropertiesOpen,setScenePropertiesOpen]=useState(false);
+  const [sceneDraft,setSceneDraft]=useState<SceneSettings>();
+  const [sceneMetrics,setSceneMetrics]=useState<import("../../cad/rendering/scene-settings").SceneMetrics>({groundHeight:0,gridSpacing:10});
+  const documentScenes=useUIPreferences(s=>s.documentSceneSettings);
+  const saveSceneSettings=useUIPreferences(s=>s.setDocumentSceneSettings);
+  const sceneSettings=sceneDraft??documentScenes[documentID!]??DEFAULT_SCENE_SETTINGS;
+  const [objectPreview,previewObjectProperties]=useState<import("../../types").PropertyPreview>();
+  const requestObjectPreview=useCallback((properties:import("../../types").PropertyUpdateRequest,signal:AbortSignal)=>{
+    if(!propertyTargets)throw new Error("属性编辑上下文已关闭");
+    return api.previewCommand(propertyTargets[0].documentId,{type:"SET_PROPERTIES",versionId:propertyTargets[0].versionId,properties},signal);
+  },[propertyTargets]);
   const latestDocumentVersion = useRef<string | undefined>(undefined);
   const latestHostVersion=useRef<string|undefined>(undefined);
   const automaticUpdateSignature = useRef("");
@@ -619,9 +635,7 @@ export function Workbench() {
     }
   };
   const canEdit = !motionOpen && !motionDisplay && Boolean(editSession) && (editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR");
-  useEffect(()=>{
-    if(colorTarget && (!canEdit || editingView?.document.id!==colorTarget.documentId || editingView.document.versionId!==colorTarget.versionId))setColorTarget(undefined);
-  },[canEdit,editingView?.document.id,editingView?.document.versionId,colorTarget]);
+
   const liveMotionOwner=motionPanel.current?.motionSession();
   const liveMotionCanPause=Boolean(liveMotionOwner?.active&&liveMotionOwner.checkpoint?.qualified&&liveMotionOwner.identity?.baseRevisionId===view?.document.versionId);
   const canEditRoot = (!motionDisplay||liveMotionCanPause) && (view?.document.permission === "OWNER" || view?.document.permission === "EDITOR");
@@ -1097,15 +1111,22 @@ export function Workbench() {
     if(nextCommand!=="dmu.apply"||!motionDisplay)motionPanel.current?.closeCommand();
     setConflictOpen(false);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
     setFeatureSelection(undefined);setRenameTarget(undefined);setNewPartTarget(undefined);
-    setColorTarget(undefined);
+    setPropertyTargets(undefined);setScenePropertiesOpen(false);setSceneDraft(undefined);setViewportContext(undefined);
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
     setParameterManagerOpen(false);setPublicationManagerOpen(false);setExternalParameterID(undefined);
     setEditingParameterID(undefined);setEditingPublication(undefined);
   };
+  const openObjectProperties=(selections?:import("../../types").SelectionItem[])=>{
+    if(!view)return;
+    const selected=selections??useWorkbenchStore.getState().selections;
+    setPropertyTargets((selected.length?selected:[undefined]).map(selection=>propertyEditorTarget(view,editingView,selection,activeInstancePath,canEdit,canEditRoot)));
+  };
   const treeActions:StructureActions={
-onColor:node=>{
-  if(!canEdit||!editingView?.part||node.documentId!==editingView.document.id||!node.entityId||(node.instancePath?.canonical??"")!==(activeInstancePath??""))return;
-  setColorTarget({bodyId:node.entityId,documentId:editingView.document.id,versionId:editingView.document.versionId});
+onColor:node=>openObjectProperties(node.selection?[node.selection]:undefined),
+onProperties:node=>{
+  const selected=useWorkbenchStore.getState().selections;
+  const selections=node.selection&&selected.some(s=>selectionKey(s)===selectionKey(node.selection!))?selected:node.selection?[node.selection]:undefined;
+  openObjectProperties(selections);
 },
 onViewResult:async(node,operation)=>{
               if(!editingView?.part||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.entityId||solidEditor||booleanDialog||datumEditor||store.activeSketchID||command.isPending)return;
@@ -1261,8 +1282,8 @@ onToggleConstruction:(node)=>{
             }
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
-  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    formActive:Boolean(motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||renameTarget||colorTarget||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openProperties:()=>openObjectProperties(),openSceneProperties:()=>setScenePropertiesOpen(true),prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
+    formActive:Boolean(motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||renameTarget||propertyTargets||scenePropertiesOpen||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1528,7 +1549,7 @@ onToggleConstruction:(node)=>{
       inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
 
       commands={<WorkbenchCommands documentSessions={documentSessions} hostDocumentId={documentID} toolbars={visibleToolbars} workbench={activeWorkbench} catalog={toolbarCatalog.data} tabs={activeTabs} />}
-      status={<WorkbenchStatus busy={command.isPending} canEdit={motionOpen&&!motionDisplay?canEditRoot:canEdit} selectionCount={store.selections.length}
+      status={<WorkbenchStatus onSceneProperties={()=>{void commandRegistry.execute("view.scene-properties")}} sceneGrid={sceneSettings.grid} onSceneGrid={grid=>saveSceneSettings(documentID,{...sceneSettings,grid})} busy={command.isPending} canEdit={motionOpen&&!motionDisplay?canEditRoot:canEdit} selectionCount={store.selections.length}
         sketchReceipt={sketchReceipt} onSketchReceiptCheck={()=>void viewport.current?.retrySketchReceipt()} sketchCommand={store.activeSketchID?sketchCommandState:undefined} onSketchAction={action=>viewport.current?.sketchCommandAction(action)}
         toolName={activeToolName} prompt={motionOpen?motionStatus:undefined} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
       tree={<SpecificationTree key={documentID} documentSessions={documentSessions} hostDocumentId={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
@@ -1550,6 +1571,7 @@ onToggleConstruction:(node)=>{
 			onEdit={node=>executeTree("onEdit",{node})}
             onRename={node=>executeTree("onRename",{node})}
             onColor={canEdit?node=>executeTree("onColor",{node}):undefined}
+            onProperties={node=>executeTree("onProperties",{node})}
 			onCreatePart={node=>executeTree("onCreatePart",{node})}
 			onReferenceMode={(node,mode)=>executeTree("onReferenceMode",{node,referenceMode:mode})}
 			onReconnect={node=>executeTree("onReconnect",{node})}
@@ -1589,7 +1611,13 @@ onToggleConstruction:(node)=>{
           type="warning" showIcon message="当前几何暂不支持持久拓扑引用"
           description={(selectedNamingIssue ?? activeNamingIssue)?.diagnostic}
           action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>建立导入命名</Button> : undefined} />}
-        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} applicationDisplay={motionOpen||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
+        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} onSceneMetrics={setSceneMetrics} onContextMenu={(x,y,candidates)=>{
+            if(propertyTargets||scenePropertiesOpen||command.isPending)return;
+            const selection=candidates[0];const state=useWorkbenchStore.getState();
+            if(selection&&!state.selections.some(s=>selectionKey(s)===selectionKey(selection)))state.setSelections([selection]);
+            if(!selection)state.setSelections([]);
+            setViewportContext({x,y,candidates});
+          }} applicationDisplay={motionOpen||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
           editingView={motionDisplay?undefined:editingView} activeInstancePath={motionDisplay?undefined:activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           liveDefinitionProjection={Boolean(canEdit && editSession?.hostDocumentId===view.document.id && activeInstancePath &&
             !pinnedReferenceInPath(view.structureTree,activeInstancePath))}
@@ -1599,7 +1627,7 @@ onToggleConstruction:(node)=>{
           preselection={store.preselection}
           treeVisibilityOverrides={treeVisibilityOverrides}
           sketchPlane={motionDisplay?undefined:store.sketchPlane} activeSketchID={motionDisplay?undefined:store.activeSketchID} activeToolID={motionDisplay?"select":store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
-          gridVisibility={gridVisibility} referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
+          propertyPreview={objectPreview} sceneSettings={sceneSettings} gridVisibility={{...gridVisibility,scene:true}} referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
           datumPreview={datumPreview} featureSelection={featureSelection} featureInputArtifacts={featureInputs} preferredLengthUnit={lengthUnit} captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={editSketch} onSketchPreview={(featureId,operations,signal)=>{if(!editingView||store.activeSketchID!==featureId)return Promise.reject(new Error("草图预览上下文已结束"));return api.previewCommand(editingView.document.id,{type:"EDIT_SKETCH",sketchId:featureId,operations},signal);}} onSketchReceiptCheck={async receipt=>{const updated=await command.mutateAsync(()=>api.command(receipt.ownerDocumentId,{type:"EDIT_SKETCH",sketchId:receipt.featureId,operations:receipt.operations,requestId:receipt.intent.requestId}));await refresh(updated);return updated;}}
           onSketchReceiptChange={setSketchReceipt} onSketchCommandStateChange={setSketchCommandState} onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(toolKind, references,groupMembers) => {
@@ -1771,12 +1799,23 @@ onToggleConstruction:(node)=>{
         {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
-    {colorTarget && editingView?.document.id===colorTarget.documentId && editingView.document.versionId===colorTarget.versionId && <BodyColorDialog
-      key={`${colorTarget.documentId}:${colorTarget.versionId}:${colorTarget.bodyId}`}
-      initialColor={editingView.part?.bodies.find(body=>body.id===colorTarget.bodyId)?.appearance?.color}
-      hasFaceColors={Boolean(editingView.part?.bodies.find(body=>body.id===colorTarget.bodyId)?.appearance?.faces?.length)}
-      pending={command.isPending} onClose={()=>setColorTarget(undefined)}
-      onApply={color=>command.mutate(()=>api.command(colorTarget.documentId,{type:"SET_BODY_COLOR",bodyId:colorTarget.bodyId,color,versionId:colorTarget.versionId}),{onSuccess:()=>setColorTarget(undefined)})} />}
+    <ViewportContextMenu context={viewportContext} onClose={()=>setViewportContext(undefined)}
+      onProperties={()=>{void commandRegistry.execute("edit.properties")}} onScene={()=>{void commandRegistry.execute("view.scene-properties")}}
+      onSelect={selection=>store.setSelections([selection])} label={selection=>{
+        const target=propertyEditorTarget(view,editingView,selection,activeInstancePath,canEdit,canEditRoot);
+        return `${target.title} · ${selection.kind==="face"?"面":selection.kind==="edge"?"边":selection.kind==="vertex"?"顶点":selection.kind}${selection.instancePath?.display?` · ${selection.instancePath.display}`:""}`;
+      }}/>
+    {propertyTargets&&<ObjectPropertiesDialog targets={propertyTargets} pending={command.isPending}
+      onRefresh={async()=>{const latest=await api.getDocument(view.document.id);const editing=editingView&&editingView.document.id!==view.document.id?await api.getDocument(editingView.document.id):latest;const targets=refreshPropertyTargets(propertyTargets,latest,editing,activeInstancePath,canEdit,canEditRoot);await refresh(latest);setPropertyTargets(targets)}}
+      onClose={()=>{if(!command.isPending)setPropertyTargets(undefined)}} onPreview={previewObjectProperties} onPreviewRequest={requestObjectPreview}
+      onApply={async properties=>{await command.mutateAsync(()=>api.command(propertyTargets[0].documentId,{type:"SET_PROPERTIES",versionId:propertyTargets[0].versionId,properties}));setPropertyTargets(undefined)}}
+      onScene={()=>{void commandRegistry.execute("view.scene-properties")}}
+      onOpenOriginal={id=>{setPropertyTargets(undefined);void openDocumentTab(id,client,api.openDocument,navigate)}}/>}
+    {scenePropertiesOpen&&<ScenePropertiesDialog documentName={view.document.name} initialSettings={sceneSettings}
+      metrics={sceneMetrics} groundHeight={()=>viewport.current?.sceneGroundHeight()??0} onPreview={setSceneDraft}
+      onClose={()=>{setScenePropertiesOpen(false);setSceneDraft(undefined)}}
+      onApply={settings=>{saveSceneSettings(documentID,settings);setScenePropertiesOpen(false);setSceneDraft(undefined)}}/>}
+
     <CommandDialog size="S" id="rename-model-object" open={Boolean(renameTarget)} title="重命名建模对象"
       onClose={() => setRenameTarget(undefined)} confirmLoading={command.isPending}
       onConfirm={async () => {

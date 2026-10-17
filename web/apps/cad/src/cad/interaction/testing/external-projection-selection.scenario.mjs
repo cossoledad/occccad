@@ -28,7 +28,7 @@ try {
  const {CadViewportEngine}=await server.ssrLoadModule('/src/viewport/cad-viewport-engine.ts');
  const engine=Object.create(CadViewportEngine.prototype),helpers=new THREE.Group(),content=new THREE.Group();
  for(const source of [axis,origin,{...axis,kind:'plane',id:'plane'}]){const child=new THREE.Group();child.userData=source;helpers.add(child);}
- Object.assign(engine,{helpers,content,activeSketchID:'sketch',sketchPlane:{},tools:{activeToolID:'sketch.project'},editContext:{occurrencePath:'instance/a'},referenceVisibility:{planes:false,axes:false,axisSystems:false,points:false},treeVisibilityOverrides:{},sketchView:()=>({document:{id:'part',versionId:'head'}}),semanticVisibilityAddress:()=>undefined,refreshInteractionHighlights(){}});
+ Object.assign(engine,{helpers,content,activeSketchID:'sketch',sketchPlane:{},tools:{activeToolID:'sketch.project'},editContext:{occurrencePath:'instance/a'},referenceVisibility:{planes:false,axes:false,axisSystems:false,points:false},treeVisibilityOverrides:{},sketchView:()=>({document:{id:'part',versionId:'head'}}),semanticVisibilityAddress:()=>undefined,refreshInteractionHighlights(){},refreshSceneGround(){}});
  engine.applyTreeVisibility();assert(helpers.children.every(child=>child.visible));
  engine.tools.activeToolID='select';engine.applyTreeVisibility();assert(helpers.children.every(child=>!child.visible));
  const camera=new THREE.OrthographicCamera(-100,100,75,-75,1,1000);camera.position.z=200;camera.updateMatrixWorld();

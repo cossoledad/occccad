@@ -406,6 +406,47 @@ function rebuildProduct(view: DocumentView): void {
   }));
 }
 
+function applyMockProperties(view:DocumentView,input:import("../types").PropertyUpdateRequest):void {
+ const patch=(before:import("../types").SurfaceAppearance|undefined)=>{
+  const after={...before} as Record<string,unknown>;
+  for(const [key,value] of Object.entries(input.appearance??{})){if(value===null)delete after[key];else after[key]=value}
+  if(input.clearFaceOverrides)delete after.faces;
+  return Object.keys(after).length?after as import("../types").SurfaceAppearance:undefined;
+ };
+ for(const target of input.targets){
+  if(target.kind==="DOCUMENT"){
+   if(input.name!==undefined)view.document.name=input.name;if(input.description!==undefined)view.document.description=input.description;
+   const model=view.part??view.product;if(model)model.defaultAppearance=patch(model.defaultAppearance);
+  }else if(view.part&&target.kind==="BODY"){
+   const body=view.part.bodies.find(b=>b.id===target.id);if(!body)throw new Error("Body does not exist");
+   if(input.name!==undefined)body.name=input.name;body.appearance=patch(body.appearance);
+  }else if(view.product&&target.instancePath){
+   const overrides=view.product.appearanceOverrides??=[];
+   const bodyId=target.kind==="BODY"?target.id:target.bodyId;
+   const index=overrides.findIndex(o=>o.instancePath.canonical===target.instancePath!.canonical&&(o.bodyId??"")===(bodyId??""));
+   const value={...(index>=0?overrides[index]:{}),instancePath:target.instancePath,bodyId,appearance:patch(index>=0?overrides[index].appearance:undefined)};
+   if(input.name!==undefined){const instance=view.product.instances.find(i=>i.id===target.id);if(instance)instance.name=input.name;else Object.assign(value,{name:input.name})}
+   if(index>=0)overrides[index]=value;else overrides.push(value);view.product.appearanceOverrides=overrides;
+  }else if(view.part&&target.kind==="FEATURE"){
+   const feature=view.part.features.find(f=>f.id===target.id);if(feature&&input.name!==undefined)feature.name=input.name;
+  }else throw new Error("Mock 不支持该对象的正式属性编辑，请连接计算服务");
+ }
+ if(view.part){
+  view.bodyAppearances??={};
+  for(const body of view.part.bodies){const {faces:_defaultFaces,...defaults}=view.part.defaultAppearance??{};const {faces:_bodyFaces,...style}=body.appearance??{};
+   const previous=view.bodyAppearances[body.id];view.bodyAppearances[body.id]={...defaults,...style,geometryKey:body.geometryKey,...(!input.clearFaceOverrides&&previous?.faces?{faces:previous.faces}:{})};
+  }
+ }
+ if(view.product)for(const resolved of view.resolvedInstances??[]){
+  const definition=getView(resolved.documentId).bodyAppearances?.[resolved.bodyId];
+  let appearance:import("../types").ResolvedAppearance={...definition,...view.product.defaultAppearance,faces:definition?.faces,geometryKey:resolved.geometryKey};
+  for(const override of view.product.appearanceOverrides??[]){if((override.bodyId&&override.bodyId!==resolved.bodyId)||!(resolved.occurrencePath===override.instancePath.canonical||resolved.occurrencePath.startsWith(override.instancePath.canonical+"/")))continue;
+   const {faces:_faces,...style}=override.appearance??{};appearance={...appearance,...style};if(style.color!==undefined)delete appearance.faces;
+  }
+  resolved.appearance=appearance;
+ }
+}
+
 async function command(documentID: string, input: Record<string, unknown>): Promise<DocumentView> {
 	const commandType = String(input.type ?? "COMMAND");
 	if (commandType === "UNDO" || commandType === "REDO") {
@@ -425,7 +466,9 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 		if (summary) Object.assign(summary, target.document);
 		return pause(getView(documentID));
 	}
+	if(commandType==="SET_PROPERTIES"&&input.versionId!==getView(documentID).document.versionId)throw new Error("APPEARANCE_BASE_REVISION_CHANGED");
 	return pause(commit(documentID, commandType, (view) => {
+    if(commandType==="SET_PROPERTIES"){applyMockProperties(view,input.properties as import("../types").PropertyUpdateRequest);return}
     if(view.part) {
       const part=view.part,body=part.bodies.find(b=>b.id===input.bodyId);
       if(commandType==="CREATE_BODY"){const body={id:id("body"),name:String(input.name??`Body.${part.bodies.length+1}`),visible:true};part.bodies.push(body);part.activeBodyId=body.id;}
@@ -1057,6 +1100,10 @@ export const mockApi: CadApi = {
   previewCommand: async (documentID, input, signal) => {
     if (signal?.aborted) throw new DOMException("Preview cancelled", "AbortError");
     const view = getView(documentID);
+    if(input.type==="SET_PROPERTIES"){
+      const draft=structuredClone(view);applyMockProperties(draft,input.properties as import("../types").PropertyUpdateRequest);
+      return pause({previewId:id("mock-properties-preview"),baseVersionId:view.document.versionId,baseSequence:0,modelHash:"mock-properties",propertyAppearances:[...Object.entries(draft.bodyAppearances??{}).map(([bodyId,appearance])=>({documentId:documentID,occurrencePath:"",bodyId,appearance})),...(draft.resolvedInstances??[]).map(r=>({documentId:r.documentId,occurrencePath:r.occurrencePath,bodyId:r.bodyId,appearance:r.appearance??{geometryKey:r.geometryKey}}))]});
+    }
     if (input.type === "EDIT_SKETCH") {
       const sketch = view.part?.features.find((feature) => feature.id === input.sketchId)?.sketch;
       if (!sketch) throw new Error("Sketch does not exist");

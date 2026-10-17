@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
@@ -238,10 +239,10 @@ func normalizeOptionalUUID(value *string, field string) (*string, error) {
 func validateNameAndDescription(name, description, object string) (string, string, error) {
 	name = strings.TrimSpace(name)
 	description = strings.TrimSpace(description)
-	if name == "" || len(name) > 120 {
+	if name == "" || utf8.RuneCountInString(name) > 120 {
 		return "", "", fmt.Errorf("%w: %s name is required and must not exceed 120 characters", ErrValidation, object)
 	}
-	if len(description) > 500 {
+	if utf8.RuneCountInString(description) > 500 {
 		return "", "", fmt.Errorf("%w: %s description must not exceed 500 characters", ErrValidation, object)
 	}
 	return name, description, nil
@@ -460,22 +461,30 @@ func isUniqueViolation(err error) bool {
 	return database.IsUniqueViolation(err)
 }
 
-func (service *Service) UpdateDocument(
-	ctx context.Context, documentID string, request UpdateDocumentRequest,
-) (DocumentView, error) {
-	name := strings.TrimSpace(request.Name)
-	description := strings.TrimSpace(request.Description)
-	if name == "" || len(name) > 120 {
-		return DocumentView{}, fmt.Errorf("%w: name is required and must not exceed 120 characters", ErrValidation)
-	}
-	if len(description) > 500 {
-		return DocumentView{}, fmt.Errorf("%w: description must not exceed 500 characters", ErrValidation)
-	}
-	if err := service.changeDocumentMetadata(ctx, documentID, request.RequestID,
-		"UPDATE_DOCUMENT", request, name, description); err != nil {
+func (service *Service) UpdateDocument(ctx context.Context, documentID string, request UpdateDocumentRequest) (DocumentView, error) {
+	name, description, err := validateNameAndDescription(request.Name, request.Description, "document")
+	if err != nil {
 		return DocumentView{}, err
 	}
-	return service.GetDocument(ctx, documentID)
+	request.RequestID = requestID(request.RequestID)
+	head := request.VersionID
+	if head == "" {
+		return DocumentView{}, fmt.Errorf("%w: document properties require a base Revision", ErrValidation)
+	}
+	properties := &PropertyUpdateRequest{Targets: []PropertyTarget{{Kind: "DOCUMENT", ID: documentID}}, Name: &name, Description: &description}
+	// Retry the original frozen request, rather than changing its base Revision.
+	var previousJSON []byte
+	err = service.database.QueryRow(ctx, `SELECT payload FROM occccad.commands WHERE document_id=$1 AND request_id=$2 AND command_type='SET_PROPERTIES' AND status='SUCCEEDED'`, documentID, request.RequestID).Scan(&previousJSON)
+	if err == nil {
+		var previous CommandRequest
+		if json.Unmarshal(previousJSON, &previous) != nil || previous.VersionID != request.VersionID || !reflect.DeepEqual(previous.Properties, properties) {
+			return DocumentView{}, fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
+		}
+		head = previous.VersionID
+	} else if !errors.Is(err, database.ErrNoRows) {
+		return DocumentView{}, err
+	}
+	return service.ApplyCommand(ctx, documentID, CommandRequest{RequestID: request.RequestID, ActorID: request.ActorID, Type: "SET_PROPERTIES", VersionID: head, Properties: properties})
 }
 
 func (service *Service) DeleteDocument(ctx context.Context, documentID, requestID string) error {
@@ -606,6 +615,21 @@ func (service *Service) CopyDocument(
 		return DocumentView{}, err
 	}
 	versionID := versionUUID.String()
+	documentUUID, err := uuid.NewV7()
+	if err != nil {
+		return DocumentView{}, err
+	}
+	documentID := documentUUID.String()
+	if documentType == "PRODUCT" {
+		modelJSON, err = rebaseCopiedPropertyPaths(modelJSON, sourceDocumentID, documentID, versionID)
+		if err != nil {
+			return DocumentView{}, err
+		}
+	}
+	modelJSON, err = seedDocumentMetadata(modelJSON, name, description)
+	if err != nil {
+		return DocumentView{}, err
+	}
 	modelJSON, modelHash, initialGraph, initialManifest, dependencyDigest, err := prepareInitialEvaluation(documentType, versionID, modelJSON)
 	if err != nil {
 		return DocumentView{}, err
@@ -625,10 +649,10 @@ func (service *Service) CopyDocument(
 			return DocumentView{}, ErrNotFound
 		}
 	}
-	var documentID, commandID string
+	var commandID string
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO occccad.documents(document_type,name,description,folder_id,copied_from_document_id,owner_user_id)
-		VALUES($1,$2,$3,$4,$5,$6) RETURNING id::text`, documentType, name, description,
+		INSERT INTO occccad.documents(id,document_type,name,description,folder_id,copied_from_document_id,owner_user_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id::text`, documentID, documentType, name, description,
 		targetFolderID, sourceDocumentID, actorID(request.ActorID)).Scan(&documentID); err != nil {
 		return DocumentView{}, err
 	}
@@ -727,10 +751,6 @@ func (service *Service) changeDocumentMetadata(
 	}
 	var updateResult database.Result
 	switch changeType {
-	case "UPDATE_DOCUMENT":
-		updateResult, err = tx.Exec(ctx, `
-			UPDATE occccad.documents SET name=$1,description=$2,updated_at=now() WHERE id=$3`,
-			name, description, documentID)
 	case "DELETE_DOCUMENT":
 		updateResult, err = tx.Exec(ctx, `
 			UPDATE occccad.documents SET deleted_at=now(),updated_at=now() WHERE id=$1`, documentID)
@@ -793,7 +813,7 @@ func (service *Service) CreateVersion(
 		return nil, err
 	}
 	name := strings.TrimSpace(request.Name)
-	if name == "" || len(name) > 120 {
+	if name == "" || utf8.RuneCountInString(name) > 120 {
 		return nil, fmt.Errorf("%w: version name is required and must not exceed 120 characters", ErrValidation)
 	}
 	tx, err := service.database.Begin(ctx)
@@ -958,6 +978,10 @@ func (service *Service) CreateDocument(
 		return DocumentView{}, err
 	}
 	versionID := versionUUID.String()
+	modelJSON, err = seedDocumentMetadata(modelJSON, name, description)
+	if err != nil {
+		return DocumentView{}, err
+	}
 	modelJSON, modelHash, initialGraph, initialManifest, dependencyDigest, err := prepareInitialEvaluation(documentType, versionID, modelJSON)
 	if err != nil {
 		return DocumentView{}, err
@@ -2833,12 +2857,8 @@ func assemblyConstraintStructureCapabilities(constraint AssemblyConstraint, stat
 func (service *Service) resolveProduct(
 	ctx context.Context, versionID string, parent InstancePose, path string, instancePath InstancePath, treePath string, visiting map[string]bool,
 	artifacts map[string]Artifact, output *[]ResolvedInstance, constraintScopes *[]ConstraintDisplayScope,
-	occurrenceColors ...string,
+	rules ...occurrenceAppearanceRule,
 ) error {
-	color := ""
-	if len(occurrenceColors) > 0 {
-		color = occurrenceColors[0]
-	}
 	var documentID, documentType, name string
 	var modelJSON []byte
 	if err := service.database.QueryRow(ctx, `
@@ -2846,6 +2866,9 @@ func (service *Service) resolveProduct(
 		FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id
 		WHERE v.id=$1`, versionID).Scan(&documentID, &documentType, &name, &modelJSON); err != nil {
 		return err
+	}
+	if draft, ok := ctx.Value(propertyPreviewSnapshotKey{}).(propertyPreviewSnapshot); ok && draft.Revision == versionID {
+		modelJSON = draft.Model
 	}
 	if visiting[documentID] {
 		return fmt.Errorf("product reference cycle detected at %s", name)
@@ -2875,17 +2898,20 @@ func (service *Service) resolveProduct(
 				}
 				artifacts[key] = artifact
 			}
-			appearance, err := service.bodyAppearance(ctx, body)
+			appearance, err := service.bodyAppearanceWithDefaults(ctx, body, model.DefaultAppearance)
 			if err != nil {
 				return err
 			}
-			if color != "" {
-				appearance.Color, appearance.Faces = color, nil
+			appearance, err = service.applyOccurrenceAppearance(ctx, documentID, body, appearance, instancePath.Canonical, rules)
+			if err != nil {
+				return err
+			}
+			if capture, ok := ctx.Value(occurrenceRulesKey{}).(map[string][]occurrenceAppearanceRule); ok {
+				capture[instancePath.Canonical] = append([]occurrenceAppearanceRule(nil), rules...)
 			}
 			*output = append(*output, ResolvedInstance{
-				OccurrenceColor: color,
-				Appearance:      appearance,
-				ID:              path + "/body:" + body.ID, Name: name, DocumentID: documentID,
+				Appearance: appearance,
+				ID:         path + "/body:" + body.ID, Name: name, DocumentID: documentID,
 				BodyID: body.ID, BodyVisible: body.Visible, OwnedSketchIDs: ownedSketchIDs(model, body.ID), GeometryKey: body.GeometryKey, DisplayFallback: body.DisplayFallback,
 				Translation: parent.Translation, Rotation: parent.Rotation,
 				OccurrencePath: instancePath.Canonical, InstancePath: instancePath, BodyTreeNodeID: treePath + "/body:" + body.ID,
@@ -2902,22 +2928,23 @@ func (service *Service) resolveProduct(
 	if instancePath.Canonical != "" {
 		*constraintScopes = append(*constraintScopes, ConstraintDisplayScope{DocumentID: documentID, VersionID: versionID, InstancePath: instancePath, TreeNodeID: treePath, Constraints: model.Constraints})
 	}
+	rules = occurrenceAppearanceRules(model, instancePath.Canonical, rules)
 	for _, instance := range model.Instances {
 		childPose := composeInstancePose(parent, InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)})
-		childColor := color
-		if instance.Color != "" {
-			childColor = instance.Color
-		}
 		resolvedVersionID := instance.ReferencedVersionID
 		childPath := appendInstancePath(instancePath, InstancePathSegment{
 			OwnerDocumentID: documentID, OwnerVersionID: versionID, InstanceID: instance.ID,
 			InstanceName: instance.Name, ReferencedDocumentID: instance.ReferencedDocumentID,
 			ResolvedVersionID: resolvedVersionID,
 		})
+		childRules := append([]occurrenceAppearanceRule(nil), rules...)
+		if instance.Color != "" || instance.Opacity != nil {
+			childRules = append(childRules, occurrenceAppearanceRule{Path: childPath.Canonical, Imported: true, OwnerDepth: len(instancePath.Segments) + 1, Appearance: &SurfaceAppearance{GraphicProperties: instance.GraphicProperties, Color: instance.Color}})
+		}
 		if err := service.resolveProduct(ctx, resolvedVersionID, childPose,
 			path+"/"+instance.ID,
 			childPath,
-			treePath+"/instance:"+instance.ID+"/reference", visiting, artifacts, output, constraintScopes, childColor); err != nil {
+			treePath+"/instance:"+instance.ID+"/reference", visiting, artifacts, output, constraintScopes, childRules...); err != nil {
 			return err
 		}
 	}

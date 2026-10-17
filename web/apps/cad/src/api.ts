@@ -278,9 +278,9 @@ export const restApi = {
       method: "POST", headers: workspaceHeaders(),
       body: JSON.stringify({ requestId: requestId(), type, name, description, folderId: folderId || null }),
     }),
-  updateDocument: (id: string, name: string, description: string) =>
+  updateDocument: (id: string, name: string, description: string, versionId: string) =>
     requestDocumentView(`/api/documents/${id}`, {
-      method: "PATCH", body: JSON.stringify({ requestId: requestId(), name, description }),
+      method: "PATCH", body: JSON.stringify({ requestId: requestId(), name, description, versionId }),
     }),
   deleteDocument: async (id: string): Promise<void> => {
     return measureClientRequest("HTTP deleteDocument", async () => {

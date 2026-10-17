@@ -95,15 +95,19 @@ export class SelectionIndex {
     return this.pickWithIntersection(raycaster, accepts).selection;
   }
 
-  pickWithIntersection(raycaster: THREE.Raycaster,
-    accepts: (selection: Exclude<Selection, null>) => boolean = () => true): SelectionHit {
+  pickWithIntersection(raycaster:THREE.Raycaster,accepts:(selection:Exclude<Selection,null>)=>boolean=()=>true):SelectionHit {
+    return this.pickAll(raycaster,accepts,1)[0]??{selection:null};
+  }
+
+  pickAll(raycaster: THREE.Raycaster,
+    accepts: (selection: Exclude<Selection, null>) => boolean = () => true, limit=256): SelectionHit[] {
     const visible = (root: THREE.Object3D) => {
       for (let object: THREE.Object3D | null = root; object; object = object.parent) if (!object.visible) return false;
       return true;
     };
     const activePicks = this.picks.filter((binding) => visible(binding.root));
     const roots = activePicks.map((binding) => binding.root);
-    if (roots.length === 0) return {selection:null};
+    if (roots.length === 0) return [];
     const bindings = new Map(activePicks.map((binding) => [binding.root.uuid, binding]));
     const candidates = raycaster.intersectObjects(roots, false).map((intersection) => {
       const binding = bindings.get(intersection.object.uuid);
@@ -113,11 +117,12 @@ export class SelectionIndex {
       ? right.binding.interactionLayer - left.binding.interactionLayer
       : Math.abs(left.intersection.distance - right.intersection.distance) < 0.75
         ? right.binding.priority - left.binding.priority : left.intersection.distance - right.intersection.distance);
+    const results:SelectionHit[]=[];const seen=new Set<string>();
     for (const candidate of candidates) {
       const raw=candidate.binding.resolve(candidate.intersection);
       const selection=raw?this.projection(raw):null;
-      if (selection && accepts(selection)) return {selection,intersection:candidate.intersection};
+      if(selection&&accepts(selection)&&!seen.has(selectionKey(selection))){seen.add(selectionKey(selection));results.push({selection,intersection:candidate.intersection});if(results.length>=limit)break}
     }
-    return {selection:null};
+    return results;
   }
 }

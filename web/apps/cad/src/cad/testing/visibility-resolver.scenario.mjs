@@ -22,7 +22,7 @@ try {
   const helpers=new THREE.Group(),axisObject=new THREE.Object3D();
   axisObject.userData={kind:"axis",id:"system:X",entityId:"system",axis:"X",documentId:"part"};helpers.add(axisObject);
   const engine=Object.assign(Object.create(CadViewportEngine.prototype),{helpers,content:new THREE.Group(),referenceVisibility:{planes:true,axes:true,coordinateSystems:true},treeVisibilityOverrides:{},visibilityResolver:references,
-    tools:{activeToolID:"sketch.project"},sketchPlane:{},sketchView:()=>({document:{id:"part"}}),editingSketchScope:()=>undefined,refreshInteractionHighlights:()=>{}});
+    tools:{activeToolID:"sketch.project"},sketchPlane:{},sketchView:()=>({document:{id:"part"}}),editingSketchScope:()=>undefined,refreshSceneGround:()=>{},refreshInteractionHighlights:()=>{}});
   engine.applyTreeVisibility();assert.equal(axisObject.visible,false,"projection honors persistent hidden Origin");
   referenceTree.children[0].localVisible=true;referenceTree.children[0].children[0].children[0].localVisible=true;engine.visibilityResolver=new VisibilityResolver(referenceTree);
   engine.referenceVisibility.coordinateSystems=false;engine.applyTreeVisibility();assert.equal(axisObject.visible,true,"projection exposes available standard axes without changing preferences");

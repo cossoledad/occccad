@@ -267,6 +267,7 @@ export class CadShaderLibrary {
         uColor: { value: new THREE.Color() },
         uSelectedColor: { value: new THREE.Color() },
         uSelected: { value: 0 },
+        uOpacity:{value:1},
         uPointSize: { value: 5 },
         ...sectionUniforms(),
       },
@@ -284,6 +285,7 @@ export class CadShaderLibrary {
         uniform vec3 uColor;
         uniform vec3 uSelectedColor;
         uniform float uSelected;
+        uniform float uOpacity;
         varying vec3 vWorldPosition;
         ${sectionFragment}
         void main() {
@@ -294,7 +296,7 @@ export class CadShaderLibrary {
           float alpha = (1.0 - smoothstep(0.085-aa, 0.085+aa, diagonal))
             * (1.0 - smoothstep(0.42, 0.5, max(abs(p.x), abs(p.y))));
           if (alpha < 0.01) discard;
-          gl_FragColor = vec4(mix(uColor, uSelectedColor, uSelected), alpha);
+          gl_FragColor = vec4(mix(uColor, uSelectedColor, uSelected), alpha*uOpacity);
           #include <colorspace_fragment>
         }
       `,

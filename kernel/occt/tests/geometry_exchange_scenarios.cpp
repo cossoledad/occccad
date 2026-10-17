@@ -1465,6 +1465,58 @@ TEST(GeometryExchange, XdeColorsPreserveSharedOccurrenceOverrides) {
     }
 }
 
+TEST(GeometryExchange, XdeOpacityPreservesBodyFacesAndZeroAcrossRoundTrip) {
+    OcctKernel kernel;
+    ExchangeDefinition part{"part", "Transparent", "PART", kernel.createBox(1, 2, 3), {}};
+    part.appearance = {"#d64a3a", {{1, "#3978bd", .25}, {2, "#000000", 1.0}, {3, "#d64a3a", 0.0}}, .6};
+    ExchangeGraph graph{{part}, {{"root", "part", "Transparent", {}}}};
+    for (int iteration = 0; iteration < 3; ++iteration) {
+        TemporaryStepFile file(kernel.writeStepGraph(graph));
+        graph = kernel.readStepGraph(file.path().string());
+        ASSERT_EQ(graph.definitions.size(), 1U);
+        const auto& appearance = graph.definitions.front().appearance;
+        ASSERT_TRUE(appearance.opacity.has_value());
+        EXPECT_NEAR(*appearance.opacity, .6, 1e-6);
+        std::map<std::string, double> opacity;
+        for (const auto& face : appearance.faces) opacity[face.color] = face.opacity.value_or(*appearance.opacity);
+        EXPECT_NEAR(opacity.at("#3978bd"), .25, 1e-6);
+        EXPECT_NEAR(opacity.at("#000000"), 1.0, 1e-6);
+        EXPECT_NEAR(opacity.at("#d64a3a"), 0.0, 1e-6);
+        EXPECT_NEAR(kernel.getVolume(graph.definitions.front().geometry_id), 6, 1e-8);
+    }
+}
+
+TEST(GeometryExchange, XdeOpacityPreservesSharedOccurrenceOverrides) {
+    OcctKernel kernel;
+    ExchangeDefinition part{"part", "Shared", "PART", kernel.createBox(1, 2, 3), {}};
+    part.appearance.color = "#d64a3a";
+    ExchangeDefinition product{"product", "Assembly", "PRODUCT", "", {
+        {"a", "part", "First", {}, "#3978bd", .25},
+        {"b", "part", "Second", {"", {5, 0, 0}, {0, 0, 0, 1}}, "#3b9863", 0.0}
+    }};
+    TemporaryStepFile file(kernel.writeStepGraph({{part, product}, {{"root", "product", "Assembly", {}}}}));
+    const auto read = kernel.readStepGraph(file.path().string());
+    ASSERT_EQ(read.definitions.size(), 2U);
+    for (const auto& def : read.definitions) if (def.kind == "PRODUCT") {
+        ASSERT_EQ(def.children.size(), 2U);
+        EXPECT_EQ(def.children[0].definition_id, def.children[1].definition_id);
+        ASSERT_TRUE(def.children[0].opacity.has_value());
+        ASSERT_TRUE(def.children[1].opacity.has_value());
+        EXPECT_NEAR(*def.children[0].opacity, .25, 1e-6);
+        EXPECT_NEAR(*def.children[1].opacity, 0.0, 1e-6);
+    }
+}
+
+TEST(GeometryExchange, XdeOpacityRejectsOutOfRangeValues) {
+    OcctKernel kernel;
+    ExchangeDefinition part{"part", "Invalid", "PART", kernel.createBox(1, 2, 3), {}};
+    part.appearance.opacity = 1.01;
+    EXPECT_THROW(kernel.writeStepGraph({{part}, {{"root", "part", "", {}}}}), std::invalid_argument);
+    part.appearance.opacity = 0.5;
+    part.appearance.faces = {{1, "#000000", -.01}};
+    EXPECT_THROW(kernel.writeStepGraph({{part}, {{"root", "part", "", {}}}}), std::invalid_argument);
+}
+
 TEST(GeometryExchange, XdeRejectsCyclicAndInvalidPlacementGraphs) {
     OcctKernel kernel;
     occccad::kernel::ExchangeGraph graph;

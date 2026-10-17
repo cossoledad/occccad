@@ -61,6 +61,9 @@ func ValidateExchangeGraph(graph *ExchangeGraph) error {
 				return fmt.Errorf("duplicate or missing exchange occurrence")
 			}
 			seen[child.Id] = true
+			if err := validateExchangeOpacity(child.Opacity); err != nil {
+				return err
+			}
 			if child.Color != "" && !exchangeOpaqueColor.MatchString(child.Color) {
 				return fmt.Errorf("invalid exchange occurrence color")
 			}
@@ -80,6 +83,9 @@ func ValidateExchangeGraph(graph *ExchangeGraph) error {
 	}
 	seen := map[string]bool{}
 	for _, root := range graph.Roots {
+		if err := validateExchangeOpacity(root.Opacity); err != nil {
+			return err
+		}
 		if root == nil || root.Id == "" || seen[root.Id] {
 			return fmt.Errorf("invalid exchange root")
 		}
@@ -106,15 +112,27 @@ func validateExchangeAppearance(appearance *workerv1.ExchangeAppearance) error {
 	if appearance.Color != "" && !exchangeOpaqueColor.MatchString(appearance.Color) {
 		return fmt.Errorf("invalid exchange color")
 	}
+	if err := validateExchangeOpacity(appearance.Opacity); err != nil {
+		return err
+	}
 	if len(appearance.Faces) > 1_000_000 {
 		return fmt.Errorf("exchange face color limit exceeded")
 	}
 	seen := map[uint64]bool{}
 	for _, face := range appearance.Faces {
-		if face == nil || face.LocalId == 0 || seen[face.LocalId] || !exchangeOpaqueColor.MatchString(face.Color) {
+		if face == nil || face.LocalId == 0 || seen[face.LocalId] || (face.Color != "" && !exchangeOpaqueColor.MatchString(face.Color)) || (face.Color == "" && face.Opacity == nil) {
 			return fmt.Errorf("invalid exchange face color")
 		}
+		if err := validateExchangeOpacity(face.Opacity); err != nil {
+			return err
+		}
 		seen[face.LocalId] = true
+	}
+	return nil
+}
+func validateExchangeOpacity(value *float64) error {
+	if value != nil && (math.IsNaN(*value) || math.IsInf(*value, 0) || *value < 0 || *value > 1) {
+		return fmt.Errorf("exchange opacity must be between 0 and 1")
 	}
 	return nil
 }

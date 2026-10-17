@@ -1,3 +1,4 @@
+import type { SceneSettings } from "../cad/rendering/scene-settings";
 import { featureInputDisplay } from "./feature-input-display";
 import type { DatumPreview } from "../cad/rendering/datum-reference";
 import type { FeatureSelectionSession } from "../cad/interaction/feature-selection";
@@ -33,6 +34,8 @@ export type CadViewportHandle = {
   retryAssemblyMoveCommit:()=>void;
   setAssemblyMoveDirection:(instanceId:string,direction:Vec3,kind:"line"|"plane")=>boolean;
   captureToolSelections: (selections: readonly SelectionItem[]) => boolean;
+  sceneGroundHeight:()=>number;
+  realignSceneGround:()=>void;
   fit: () => void;
   normalToSketch: () => void;
   normalToPlane: (selection:SelectionItem,plane?:NormalViewPlane) => boolean;
@@ -49,6 +52,10 @@ export type CadViewportHandle = {
 };
 
 type Props = {
+  onSceneMetrics?:(metrics:import("../cad/rendering/scene-settings").SceneMetrics)=>void;
+  onContextMenu?:(x:number,y:number,candidates:SelectionItem[])=>void;
+  sceneSettings?:SceneSettings;
+  propertyPreview?:import("../types").PropertyPreview;
   applicationDisplay?:import("../cad/assembly/application-display").ApplicationDisplay;
   mechanism?:import("../cad/assembly/motion-study").Mechanism;
   mechanismSelection?:string;
@@ -139,6 +146,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       assemblyInteractionUpdate:(documentId,input,signal)=>callbacks.current.onAssemblyInteractionUpdate(documentId,input,signal),
       assemblyInteractionCancel:(documentId,sessionId)=>callbacks.current.onAssemblyInteractionCancel(documentId,sessionId),
       assemblyInteractionState:(state,reason)=>callbacks.current.onAssemblyInteractionState?.(state,reason),
+      sceneMetricsChanged:metrics=>callbacks.current.onSceneMetrics?.(metrics),
+      contextMenu:(x,y,candidates)=>callbacks.current.onContextMenu?.(x,y,candidates),
       operationFailed:error=>callbacks.current.onOperationFailed?.(error),
       inspectAssemblySupports:(documentId,references,signal)=>callbacks.current.onInspectAssemblySupports!(documentId,references,signal),
       assemblyConstraintRequested: (kind, references,members) => callbacks.current.onAssemblyConstraint(kind, references,members),
@@ -168,6 +177,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.setNavigationProfile(callbacks.current.navigationProfile);
     instance.setCatiaRotationSphereVisible(callbacks.current.catiaRotationSphereVisible);
     instance.setGridVisibility(callbacks.current.gridVisibility);
+    if(callbacks.current.sceneSettings)instance.setSceneSettings(callbacks.current.sceneSettings);
     instance.setDisplaySettings(callbacks.current.referenceVisibility, callbacks.current.solidDisplay);
     instance.setCaptureSettings(callbacks.current.captureSettings);
     instance.setTreeVisibilityOverrides(callbacks.current.treeVisibilityOverrides);
@@ -211,6 +221,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);
   useEffect(() => { engine.current?.setCatiaRotationSphereVisible(props.catiaRotationSphereVisible); }, [props.catiaRotationSphereVisible]);
   useEffect(() => { engine.current?.setGridVisibility(props.gridVisibility); }, [props.gridVisibility]);
+  useEffect(()=>{if(props.sceneSettings)engine.current?.setSceneSettings(props.sceneSettings)},[props.sceneSettings]);
+  useEffect(()=>{engine.current?.setPropertyPreview(props.propertyPreview)},[props.propertyPreview]);
   useEffect(() => { engine.current?.setDisplaySettings(props.referenceVisibility, props.solidDisplay); }, [props.referenceVisibility, props.solidDisplay]);
   useEffect(() => { engine.current?.setCaptureSettings(props.captureSettings); }, [props.captureSettings]);
   useEffect(() => { engine.current?.setTreeVisibilityOverrides(props.treeVisibilityOverrides); }, [props.treeVisibilityOverrides]);
@@ -223,6 +235,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     retryAssemblyMoveCommit:()=>engine.current?.retryAssemblyMoveCommit(),
     setAssemblyMoveDirection:(id,direction,kind)=>engine.current?.setAssemblyMoveDirection(id,direction,kind)??false,
     captureToolSelections: selections => engine.current?.captureToolSelections(selections) ?? false,
+    sceneGroundHeight:()=>engine.current?.sceneGroundHeight()??0,
+    realignSceneGround:()=>engine.current?.realignSceneGround(),
     fit: () => engine.current?.fit(),
     normalToSketch: () => engine.current?.normalToSketch(),
     normalToPlane: (selection,plane) => engine.current?.normalToPlane(selection,plane) ?? false,
@@ -242,7 +256,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   }), []);
 
   const failedDisplay = props.view.part?.bodies.some(b => b.displayFallback) || props.view.resolvedInstances?.some(r => r.displayFallback);
-  return <><div ref={host} className="cad-viewport-canvas" />
+  return <><div ref={host} className="cad-viewport-canvas" data-property-preview={props.propertyPreview?.versionId} />
     {failedDisplay && <div className="cad-failed-body-notice" role="status">部分特征计算失败：红色半透明实体为上次成功结果，请修复结构树中标记的特征。</div>}
     {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="advanced"&&<SketchCommandPanel state={sketchCommand} prompt={toolPrompt} onAction={action=>engine.current?.commandAction(action)} />}
     {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="inline"&&<SketchInlineParameterInput state={sketchCommand} lengthUnit={props.preferredLengthUnit} onEditing={editing=>engine.current?.setSketchParameterEditing(editing)} onAction={action=>engine.current?.commandAction(action)} />}

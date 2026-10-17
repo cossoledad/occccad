@@ -86,7 +86,7 @@ export function DocumentCenter() {
   };
   const saveDocument = useMutation({
     mutationFn: async (values: DocumentForm) => editing
-      ? api.updateDocument(editing.id, values.name, values.description ?? "")
+      ? api.updateDocument(editing.id, values.name, values.description ?? "", editing.versionId)
       : api.createDocument(values.type, values.name, values.description ?? "", currentFolderID || undefined),
     onSuccess: async (view) => {
       const created = !editing; setCreateOpen(false); setEditing(undefined); documentForm.resetFields(); await invalidateDocuments();
@@ -379,7 +379,7 @@ export function DocumentCenter() {
       <Typography.Paragraph type="secondary">选择用于交换或归档的输出格式。Part 与 Product 均可导出。</Typography.Paragraph>
       <Segmented block value={exportFormat} onChange={(value) => setExportFormat(value as "STEP" | "BREP")}
         options={[{ label: "STEP (.step)", value: "STEP" }, { label: "OpenCascade BREP (.brep)", value: "BREP" }]} />
-      <Typography.Paragraph type="secondary">{exportFormat==="STEP"?"保留装配结构、Body 颜色和分面颜色。":"BREP 仅保存几何，不携带颜色；需要保留颜色请选择 STEP。"}</Typography.Paragraph>
+      <Typography.Paragraph type="secondary">{exportFormat==="STEP"?"保留装配结构、实体及分面颜色和透明度。粗糙度、金属度和场景光照不会写入 STEP。":"BREP 仅保存几何，不携带颜色和透明度；保留外观请选择 STEP。"}</Typography.Paragraph>
     </Modal>
     <ShareDialog resource={shareResource} onClose={() => setShareResource(undefined)} />
   </Layout>;

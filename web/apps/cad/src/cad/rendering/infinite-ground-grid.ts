@@ -19,16 +19,17 @@ export class InfiniteGroundGrid {
   private readonly geometry = new THREE.PlaneGeometry(2, 2);
   readonly object: THREE.Mesh;
   private readonly material: THREE.ShaderMaterial;
+  private spacing=0;
   constructor(color: number, style: "ground" | "sketch" = "ground") {
     this.material = new THREE.ShaderMaterial({
       depthTest: false, depthWrite: false, transparent: true,
       uniforms: { uCenter: { value: new THREE.Vector2() }, uHorizontal: { value: new THREE.Vector2() },
-        uVertical: { value: new THREE.Vector2() }, uSpacing: { value: 10 }, uSketch: { value: style === "sketch" ? 1 : 0 }, uColor: { value: new THREE.Color(color) } },
+        uVertical: { value: new THREE.Vector2() }, uSpacing: { value: 10 }, uOpacity:{value:1}, uSketch: { value: style === "sketch" ? 1 : 0 }, uColor: { value: new THREE.Color(color) } },
       vertexShader: `varying vec2 vScreen;
         void main() { vScreen = position.xy; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
       fragmentShader: `varying vec2 vScreen;
         uniform vec2 uCenter, uHorizontal, uVertical;
-        uniform float uSpacing, uSketch;
+        uniform float uSpacing, uSketch, uOpacity;
         uniform vec3 uColor;
         float grid(vec2 point, float spacing) {
           vec2 p = point / spacing;
@@ -46,7 +47,7 @@ export class InfiniteGroundGrid {
           float dots = 1.0 - smoothstep(0.8, 1.8, length(distanceToNode));
           float alpha = mix(max(minor * 0.13, grid(point, uSpacing * 10.0) * 0.22),
             max(dots * 0.65, grid(point, uSpacing * 10.0) * 0.30), uSketch);
-          gl_FragColor = vec4(uColor, alpha);
+          gl_FragColor = vec4(uColor, alpha*uOpacity);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,
@@ -54,8 +55,9 @@ export class InfiniteGroundGrid {
     this.object = new THREE.Mesh(this.geometry, this.material);
     this.object.frustumCulled = false; this.object.renderOrder = 14; this.scene.add(this.object);
   }
-  render(renderer: THREE.WebGLRenderer, camera: THREE.OrthographicCamera): void {
-    this.update(camera, renderer.domElement.clientHeight);
+  setStyle(color:string,opacity:number,spacing=0):void {this.material.uniforms.uColor.value.set(color);this.material.uniforms.uOpacity.value=opacity;this.spacing=spacing;}
+  render(renderer: THREE.WebGLRenderer, camera: THREE.OrthographicCamera, frame = WORLD_FRAME): void {
+    this.update(camera, renderer.domElement.clientHeight, frame);
     renderer.render(this.scene, this.camera);
   }
   update(camera: THREE.OrthographicCamera, height: number, frame = WORLD_FRAME): void {
@@ -67,7 +69,7 @@ export class InfiniteGroundGrid {
     if (!this.object.visible) return;
     const halfHeight = (camera.top - camera.bottom) / (2 * camera.zoom);
     const halfWidth = (camera.right - camera.left) / (2 * camera.zoom);
-    const spacing = adaptiveGridSpacing(camera, height);
+    const spacing = this.spacing>0?this.spacing:adaptiveGridSpacing(camera, height);
     const center = camera.position.clone().addScaledVector(direction, frame.origin.clone().sub(camera.position).dot(frame.normal) / denominator).sub(frame.origin);
     const projectAxis = (column: number, extent: number) => {
       const axis = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, column);

@@ -6,7 +6,8 @@ import { CaptureSettingsPanel } from "./capture-settings-panel";
 import type { ComponentProps } from "react";
 import { useUIHelp } from "../help/ui-help-context";
 
-export function ViewportSettingsButton({ references, display, grids, onGrids, onReferences, onDisplay, capture }: {
+export function ViewportSettingsButton({ references, display, grids, onGrids, onReferences, onDisplay, capture, onSceneProperties }: {
+  onSceneProperties?:()=>void;
   grids: GridVisibility; onGrids: (value: GridVisibility) => void;
   references: ReferenceVisibility; display: SolidDisplaySettings;
   onReferences: (value: ReferenceVisibility) => void;
@@ -51,6 +52,7 @@ export function ViewportSettingsButton({ references, display, grids, onGrids, on
       </div>
       <small>边线开关控制正常显示时的轮廓；线框显示始终保留边线。</small>
     </section>
+    {onSceneProperties&&<Button type="link" onClick={()=>{setOpen(false);onSceneProperties()}}>场景属性…</Button>}
   </div>;
   return <Popover open={open} trigger="click" placement="topRight" onOpenChange={next => {
     if (next && help.active) {

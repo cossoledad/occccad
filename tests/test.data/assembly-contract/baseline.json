@@ -1496,7 +1496,7 @@
         "composition.trimmed-arc.support-domain-eligibility": "c643884ba09a6f54fbd74fbaf5431c1bd5c53cdd45ea036fcea0422d4e5db34b",
         "composition.trimmed-arc.production-ui-eligibility": "618cf467711640e28cb54b1af0043db5f147604aaa65df4b3cf23077feb0117a",
         "composition.edit-intent.production-ui": "1d1d237685bd4eabc15e8292c5785da0031d69a8dc59ec2b0d0f47f5b3519196",
-        "composition.constraint-display.incremental-ui": "c8a0432ea401a11c5fbb61721b029d4495346ad4c93e63a590f84e9cf55de4db",
+        "composition.constraint-display.incremental-ui": "8a70d9cc3235456342077848ddd010e650853ad6b16141955e706ad85dcba564",
         "composition.preview-candidate.strict-diagnostics": "9120e5088fc7ba88f5cee1c5339cee3b432c984a1a6f6e543cf0264cae6b3f5e",
         "coincidence.plane-plane.edit-preview-commit": "ad67a19d9ada7081bfbd65590846a120e860979eb969dc66980d57892000798d",
         "composition.constraint-display.accepted-occurrences": "ad67a19d9ada7081bfbd65590846a120e860979eb969dc66980d57892000798d",

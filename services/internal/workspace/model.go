@@ -491,6 +491,8 @@ type Feature struct {
 }
 
 type PartModel struct {
+	Metadata          *DocumentMetadata               `json:"metadata,omitempty"`
+	DefaultAppearance *SurfaceAppearance              `json:"defaultAppearance,omitempty"`
 	OriginVisible     *bool                           `json:"originVisible,omitempty"`
 	Bodies            []PartBody                      `json:"bodies"`
 	ActiveBodyID      string                          `json:"activeBodyId"`
@@ -594,6 +596,7 @@ type ImportedOccurrenceName struct {
 }
 
 type ProductInstance struct {
+	GraphicProperties
 	Color                string                  `json:"color,omitempty"`
 	ImportedName         *ImportedOccurrenceName `json:"importedName,omitempty"`
 	ID                   string                  `json:"id"`
@@ -692,6 +695,9 @@ type AssemblyGroupMember struct {
 }
 
 type ProductModel struct {
+	Metadata               *DocumentMetadata      `json:"metadata,omitempty"`
+	DefaultAppearance      *SurfaceAppearance     `json:"defaultAppearance,omitempty"`
+	AppearanceOverrides    []OccurrenceAppearance `json:"appearanceOverrides,omitempty"`
 	ConstraintNameCounters map[string]int         `json:"constraintNameCounters,omitempty"`
 	Kinematics             KinematicsDefinitions  `json:"kinematics,omitzero"`
 	Instances              []ProductInstance      `json:"instances"`
@@ -1131,6 +1137,8 @@ type CreatePartComponentRequest struct {
 }
 
 type UpdateDocumentRequest struct {
+	ActorID     string `json:"-"`
+	VersionID   string `json:"versionId"`
 	RequestID   string `json:"requestId"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
@@ -1143,6 +1151,7 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	Properties                *PropertyUpdateRequest       `json:"properties,omitempty"`
 	Color                     string                       `json:"color,omitempty"`
 	MechanismApplication      *MechanismApplicationRequest `json:"mechanismApplication,omitempty"`
 	MotionApply               *MotionApplyRequest          `json:"motionApply,omitempty"`
@@ -1260,6 +1269,7 @@ type CommandRequest struct {
 // used by ApplyCommand. The base revision lets clients reject a response that
 // arrived after the workspace head changed.
 type CommandPreview struct {
+	PropertyAppearances  []PropertyAppearanceProjection       `json:"propertyAppearances,omitempty"`
 	ExpiresAt            string                               `json:"expiresAt,omitempty"`
 	Runtime              *EvaluationRuntime                   `json:"runtime,omitempty"`
 	ReferenceGeometry    *ReferenceGeometry                   `json:"referenceGeometry,omitempty"`

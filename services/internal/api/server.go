@@ -837,6 +837,7 @@ func (server *Server) updateDocument(writer http.ResponseWriter, request *http.R
 	if !decodeJSON(writer, request, &input) {
 		return
 	}
+	input.ActorID = principal(request).ID
 	result, err := server.workspace.UpdateDocument(
 		request.Context(), request.PathValue("documentID"), input)
 	server.writeDocumentResult(writer, request, result, err)

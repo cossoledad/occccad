@@ -7933,7 +7933,8 @@ type ExchangeOccurrence struct {
 	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Translation   *Vec3                  `protobuf:"bytes,4,opt,name=translation,proto3" json:"translation,omitempty"`
 	Rotation      *Quaternion            `protobuf:"bytes,5,opt,name=rotation,proto3" json:"rotation,omitempty"`
-	Color         string                 `protobuf:"bytes,6,opt,name=color,proto3" json:"color,omitempty"` // optional opaque sRGB override on this occurrence
+	Color         string                 `protobuf:"bytes,6,opt,name=color,proto3" json:"color,omitempty"`             // optional sRGB override on this occurrence
+	Opacity       *float64               `protobuf:"fixed64,7,opt,name=opacity,proto3,oneof" json:"opacity,omitempty"` // 0 transparent, 1 opaque; absent inherits
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8008,6 +8009,13 @@ func (x *ExchangeOccurrence) GetColor() string {
 		return x.Color
 	}
 	return ""
+}
+
+func (x *ExchangeOccurrence) GetOpacity() float64 {
+	if x != nil && x.Opacity != nil {
+		return *x.Opacity
+	}
+	return 0
 }
 
 type ExchangeDefinition struct {
@@ -12150,7 +12158,8 @@ func (x *AnalyzeInterferenceResponse) GetKernelBuild() string {
 type ExchangeFaceColor struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	LocalId       uint64                 `protobuf:"varint,1,opt,name=local_id,json=localId,proto3" json:"local_id,omitempty"`
-	Color         string                 `protobuf:"bytes,2,opt,name=color,proto3" json:"color,omitempty"` // opaque sRGB #rrggbb
+	Color         string                 `protobuf:"bytes,2,opt,name=color,proto3" json:"color,omitempty"` // sRGB #rrggbb
+	Opacity       *float64               `protobuf:"fixed64,3,opt,name=opacity,proto3,oneof" json:"opacity,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -12199,10 +12208,18 @@ func (x *ExchangeFaceColor) GetColor() string {
 	return ""
 }
 
+func (x *ExchangeFaceColor) GetOpacity() float64 {
+	if x != nil && x.Opacity != nil {
+		return *x.Opacity
+	}
+	return 0
+}
+
 type ExchangeAppearance struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Color         string                 `protobuf:"bytes,1,opt,name=color,proto3" json:"color,omitempty"` // empty means application default
 	Faces         []*ExchangeFaceColor   `protobuf:"bytes,2,rep,name=faces,proto3" json:"faces,omitempty"`
+	Opacity       *float64               `protobuf:"fixed64,3,opt,name=opacity,proto3,oneof" json:"opacity,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -12249,6 +12266,13 @@ func (x *ExchangeAppearance) GetFaces() []*ExchangeFaceColor {
 		return x.Faces
 	}
 	return nil
+}
+
+func (x *ExchangeAppearance) GetOpacity() float64 {
+	if x != nil && x.Opacity != nil {
+		return *x.Opacity
+	}
+	return 0
 }
 
 type ExchangeBody struct {
@@ -13058,14 +13082,17 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12<\n" +
 	"\x06source\x18\x03 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\x06source\x126\n" +
-	"\x17component_output_prefix\x18\x04 \x01(\tR\x15componentOutputPrefix\"\xe9\x01\n" +
+	"\x17component_output_prefix\x18\x04 \x01(\tR\x15componentOutputPrefix\"\x94\x02\n" +
 	"\x12ExchangeOccurrence\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12#\n" +
 	"\rdefinition_id\x18\x02 \x01(\tR\fdefinitionId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x129\n" +
 	"\vtranslation\x18\x04 \x01(\v2\x17.occccad.worker.v1.Vec3R\vtranslation\x129\n" +
 	"\brotation\x18\x05 \x01(\v2\x1d.occccad.worker.v1.QuaternionR\brotation\x12\x14\n" +
-	"\x05color\x18\x06 \x01(\tR\x05color\"\xc9\x02\n" +
+	"\x05color\x18\x06 \x01(\tR\x05color\x12\x1d\n" +
+	"\aopacity\x18\a \x01(\x01H\x00R\aopacity\x88\x01\x01B\n" +
+	"\n" +
+	"\b_opacity\"\xc9\x02\n" +
 	"\x12ExchangeDefinition\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -13442,13 +13469,19 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x1bAnalyzeInterferenceResponse\x12?\n" +
 	"\x05pairs\x18\x01 \x03(\v2).occccad.worker.v1.InterferencePairResultR\x05pairs\x12\x1a\n" +
 	"\bcomplete\x18\x02 \x01(\bR\bcomplete\x12!\n" +
-	"\fkernel_build\x18\x03 \x01(\tR\vkernelBuild\"D\n" +
+	"\fkernel_build\x18\x03 \x01(\tR\vkernelBuild\"o\n" +
 	"\x11ExchangeFaceColor\x12\x19\n" +
 	"\blocal_id\x18\x01 \x01(\x04R\alocalId\x12\x14\n" +
-	"\x05color\x18\x02 \x01(\tR\x05color\"f\n" +
+	"\x05color\x18\x02 \x01(\tR\x05color\x12\x1d\n" +
+	"\aopacity\x18\x03 \x01(\x01H\x00R\aopacity\x88\x01\x01B\n" +
+	"\n" +
+	"\b_opacity\"\x91\x01\n" +
 	"\x12ExchangeAppearance\x12\x14\n" +
 	"\x05color\x18\x01 \x01(\tR\x05color\x12:\n" +
-	"\x05faces\x18\x02 \x03(\v2$.occccad.worker.v1.ExchangeFaceColorR\x05faces\"\x8f\x01\n" +
+	"\x05faces\x18\x02 \x03(\v2$.occccad.worker.v1.ExchangeFaceColorR\x05faces\x12\x1d\n" +
+	"\aopacity\x18\x03 \x01(\x01H\x00R\aopacity\x88\x01\x01B\n" +
+	"\n" +
+	"\b_opacity\"\x8f\x01\n" +
 	"\fExchangeBody\x128\n" +
 	"\x04brep\x18\x01 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\x04brep\x12E\n" +
 	"\n" +
@@ -14023,6 +14056,7 @@ func file_occccad_worker_v1_geometry_worker_proto_init() {
 		(*NamingEvidence_Spline)(nil),
 		(*NamingEvidence_Other)(nil),
 	}
+	file_occccad_worker_v1_geometry_worker_proto_msgTypes[79].OneofWrappers = []any{}
 	file_occccad_worker_v1_geometry_worker_proto_msgTypes[101].OneofWrappers = []any{
 		(*TopologyProperty_NumberValue)(nil),
 		(*TopologyProperty_IntegerValue)(nil),
@@ -14031,6 +14065,8 @@ func file_occccad_worker_v1_geometry_worker_proto_init() {
 		(*TopologyProperty_VectorValue)(nil),
 	}
 	file_occccad_worker_v1_geometry_worker_proto_msgTypes[121].OneofWrappers = []any{}
+	file_occccad_worker_v1_geometry_worker_proto_msgTypes[135].OneofWrappers = []any{}
+	file_occccad_worker_v1_geometry_worker_proto_msgTypes[136].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

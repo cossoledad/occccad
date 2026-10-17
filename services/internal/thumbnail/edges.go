@@ -2,7 +2,6 @@ package thumbnail
 
 import (
 	"context"
-	"image/color"
 )
 
 type edgeKey struct{ a, b vec }
@@ -24,6 +23,10 @@ func less(a, b vec) bool {
 // duplicate face vertices don't expose every tessellation seam.
 func (r *raster) meshEdges(ctx context.Context, instance meshInstance) error {
 	m := instance.mesh.mesh
+	edgeColor, edgeWidth, edgeOpacity := thumbnailEdgeStyle(instance.appearance)
+	if edgeOpacity <= 0 {
+		return nil
+	}
 	edges := make(map[edgeKey]edgeNormals)
 	for i, t := range m.Triangles {
 		if i%512 == 0 {
@@ -62,7 +65,7 @@ func (r *raster) meshEdges(ctx context.Context, instance meshInstance) error {
 		if n.count > 1 && dot(n.first, n.second) > .82 && dot(n.first, eye)*dot(n.second, eye) > 0 {
 			continue
 		}
-		r.line(r.screen(instance.pose.point(key.a)), r.screen(instance.pose.point(key.b)), color.RGBA{30, 48, 65, 255}, 1.15*samples, .82)
+		r.line(r.screen(instance.pose.point(key.a)), r.screen(instance.pose.point(key.b)), edgeColor, edgeWidth*samples, edgeOpacity)
 	}
 	return nil
 }

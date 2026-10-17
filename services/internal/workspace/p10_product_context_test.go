@@ -97,7 +97,7 @@ func TestP10ProductEvaluationAcceptsTypedNestedEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(graph.Nodes) != 4 || !strings.Contains(ownerPath.Canonical, "/") {
+	if len(graph.Nodes) != 6 || !strings.Contains(ownerPath.Canonical, "/") {
 		t.Fatalf("nested Product graph/path not retained: nodes=%d path=%q", len(graph.Nodes), ownerPath.Canonical)
 	}
 }

@@ -15,6 +15,8 @@ import (
 
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
 	switch request.Type {
+	case "SET_PROPERTIES":
+		return service.adaptProperties(ctx, documentID, documentType, modelJSON, request)
 	case "SET_BODY_COLOR":
 		if documentType != "PART" {
 			break

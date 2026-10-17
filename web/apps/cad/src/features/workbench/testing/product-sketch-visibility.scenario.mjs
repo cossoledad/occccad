@@ -45,7 +45,7 @@ try {
   Object.assign(engine,{view,content:new THREE.Group(),helpers:new THREE.Group(),selectable:new Map(),
     instanceGroups:new Map(),solidBindings:new Map(),selectionIndex:new SelectionIndex(),treeVisibilityOverrides:{},
     referenceVisibility:{},materials:{point:()=>new THREE.PointsMaterial({size:1})},
-    addAssemblyConstraintMarkers(){},refreshInteractionHighlights(){}});
+    refreshSceneGround(){},addAssemblyConstraintMarkers(){},refreshInteractionHighlights(){}});
   engine.visibilityResolver=visibilityResolverForView(view);
   engine.renderProduct(view);
   engine.applyTreeVisibility();

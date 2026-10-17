@@ -94,6 +94,8 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeEditDatum, "PART", applyEditDatum},
 		commandHandler{typeImportExchange, "PART", applyCreateFeature},
 		commandHandler{typeSetBodyColor, "PART", applyBodyColor},
+		commandHandler{typeSetProperties, "PART", applyPartProperties},
+		commandHandler{typeSetProductProperties, "PRODUCT", applyProductProperties},
 		commandHandler{typeRepairImportNaming, "PART", applyRepairImportNaming},
 		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
 		commandHandler{typeSetParameterExpression, "PART", applyParameterSource},
@@ -2224,7 +2226,7 @@ type preparedDomainMutation struct {
 }
 
 func isPartMetadataCommand(command modelcore.DomainCommand) bool {
-	if command.TypeURI == typeDefinitionVisibility || command.TypeURI == typeRenameFeature || command.TypeURI == typeSetBodyColor {
+	if command.TypeURI == typeDefinitionVisibility || command.TypeURI == typeRenameFeature || command.TypeURI == typeSetBodyColor || command.TypeURI == typeSetProperties {
 		return true
 	}
 	if command.TypeURI != typeBodyCommand {
@@ -2251,7 +2253,7 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if request.ExpectedUpdateRevision != "" && prepared.headRevision != request.ExpectedUpdateRevision {
 		return prepared, fmt.Errorf("%w: PARAMETER_UPDATE_CONSUMER_CHANGED", ErrValidation)
 	}
-	if request.Type == "SET_BODY_COLOR" && request.VersionID != "" && request.VersionID != prepared.headRevision {
+	if (request.Type == "SET_BODY_COLOR" || request.Type == "SET_PROPERTIES") && request.VersionID != "" && request.VersionID != prepared.headRevision {
 		return prepared, fmt.Errorf("%w: APPEARANCE_BASE_REVISION_CHANGED", ErrValidation)
 	}
 	if len(priorManifestJSON) > 0 {
@@ -2533,6 +2535,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		return err
 	}
 
+	if err := persistMetadataChanges(ctx, tx, documentID, changes); err != nil {
+		return err
+	}
 	if err := adapter.Persist(ctx, tx, revisionID, nextJSON); err != nil {
 		return err
 	}
@@ -2627,6 +2632,9 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	adapter, err := documentAdapters.Lookup(prepared.documentType)
 	if err != nil {
 		return CommandPreview{}, err
+	}
+	if request.Type == "SET_PROPERTIES" {
+		return service.previewProperties(ctx, documentID, prepared, nextJSON, previewChanges)
 	}
 	preview, model, err := adapter.Preview(ctx, service, documentPreviewInput{documentID, prepared, request, nextJSON, previewChanges, diagnostic})
 	diagnosticModel = model
@@ -3048,6 +3056,12 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		instanceIDs[instance.ID], instanceNames[name] = true, true
 	}
 	nodes := make([]modelcore.DependencyNode, 0, len(model.Instances)+len(model.Constraints)+len(model.Publications)+len(model.ContextBindings))
+	appearance, _ := json.Marshal(struct {
+		Default   *SurfaceAppearance
+		Overrides []OccurrenceAppearance
+	}{model.DefaultAppearance, model.AppearanceOverrides})
+	metadata, _ := json.Marshal(model.Metadata)
+	nodes = append(nodes, modelcore.DependencyNode{Key: "appearance:document", Phase: 0, Type: "APPEARANCE", CanonicalInput: appearance}, modelcore.DependencyNode{Key: "metadata:document", Phase: 0, Type: "METADATA", CanonicalInput: metadata})
 	edges := make([]modelcore.DependencyEdge, 0, len(model.Constraints)*2)
 	for _, instance := range model.Instances {
 		data, _ := json.Marshal(instance)

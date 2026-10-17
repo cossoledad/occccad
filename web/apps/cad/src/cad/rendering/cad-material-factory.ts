@@ -1,23 +1,28 @@
+import type { GraphicProperties } from "../../types";
 import * as THREE from "three";
 import { CATIA_VISUAL_THEME } from "./cad-visual-theme";
 import { CadShaderLibrary } from "./shader/cad-shader-library";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 
 export class CadMaterialFactory {
+  private readonly sectionLines=new Set<LineMaterial>();
+  private readonly lineClippingPlane=new THREE.Plane();
   private readonly sectionEnabled: THREE.IUniform<boolean> = { value: false };
   private readonly sectionPlane: THREE.IUniform<THREE.Vector4> = { value: new THREE.Vector4(0, 0, 1, 0) };
 
   constructor(readonly shaders: CadShaderLibrary, readonly theme = CATIA_VISUAL_THEME) {}
 
-  surface(color: number = this.theme.surface): THREE.MeshStandardMaterial {
+  surface(color: number = this.theme.surface, properties:GraphicProperties={}): THREE.MeshStandardMaterial {
     const material = new THREE.MeshStandardMaterial({
-      color, roughness: this.theme.surfaceRoughness, metalness: this.theme.surfaceMetalness, side: THREE.DoubleSide,
+      color, roughness: properties.roughness??this.theme.surfaceRoughness, metalness: properties.metalness??this.theme.surfaceMetalness, side: THREE.DoubleSide,
       envMapIntensity: this.theme.surfaceEnvironmentIntensity,
-      wireframe: false, depthTest: true, depthWrite: true,
+      wireframe: false, depthTest: true, depthWrite: (properties.opacity??1)>=1,
+      opacity:properties.opacity??1,transparent:(properties.opacity??1)<1,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
     });
     material.userData.cadMaterial = "surface";
     material.userData.baseColor = color;
+    material.userData.cadPickable=properties.pickable!==false;
     return material;
   }
 
@@ -59,8 +64,16 @@ export class CadMaterialFactory {
     return material;
   }
 
+  sectionLine(material:LineMaterial):void {
+    this.sectionLines.add(material);
+    material.clippingPlanes=this.sectionEnabled.value?[this.lineClippingPlane]:null;
+    material.addEventListener("dispose",()=>this.sectionLines.delete(material));
+  }
+
   setSectionPlane(enabled: boolean, plane?: THREE.Plane): void {
     this.sectionEnabled.value = enabled;
+    if(plane)this.lineClippingPlane.copy(plane);
+    for(const material of this.sectionLines){material.clippingPlanes=enabled?[this.lineClippingPlane]:null;material.needsUpdate=true}
     if (plane) this.sectionPlane.value.set(plane.normal.x, plane.normal.y, plane.normal.z, plane.constant);
   }
 
@@ -77,17 +90,17 @@ export class CadMaterialFactory {
         if(material.userData.dimensionDiagnosticColor!==undefined){(material as THREE.MeshBasicMaterial).color.setHex(material.userData.dimensionDiagnosticColor);continue;}
         if (material instanceof THREE.MeshStandardMaterial && material.userData.cadMaterial === "surface") {
           const baseColor = Number(material.userData.baseColor ?? this.theme.surface);
-          material.color.setHex(state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : baseColor);
+          material.color.setHex(material.userData.propertyPreview ? baseColor : state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : baseColor);
           material.emissive.setHex(state === "selected" ? this.theme.selectedEmissive : 0x000000);
-          material.emissiveIntensity = state === "selected" ? 0.32 : state === "hover" ? 0.12 : 0;
+          material.emissiveIntensity = material.userData.propertyPreview?0:state === "selected" ? 0.32 : state === "hover" ? 0.12 : 0;
         } else if (material instanceof LineMaterial) {
           const baseColor = Number(material.userData.baseColor ?? material.color.getHex());
           material.userData.baseColor = baseColor;
-          material.color.setHex(state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : state === "context" ? 0x6b929b : baseColor);
+          material.color.setHex(material.userData.propertyPreview?baseColor:state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : state === "context" ? 0x6b929b : baseColor);
           material.userData.baseOpacity ??= material.opacity;
           material.userData.baseLinewidth ??= material.linewidth;
           material.opacity = state === "context" ? .5 : Number(material.userData.baseOpacity);
-          material.linewidth = state === "hover" ? 4 : state === "selected" ? 3.5 : Number(material.userData.baseLinewidth);
+          material.linewidth = material.userData.propertyPreview?Number(material.userData.baseLinewidth):Math.max(Number(material.userData.baseLinewidth),state === "hover" ? 4 : state === "selected" ? 3.5 : 0);
         } else if (material instanceof THREE.ShaderMaterial) {
           const selectedUniform = material.uniforms.uSelected;
           const selectedColor = material.uniforms.uSelectedColor;

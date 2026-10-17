@@ -1,3 +1,6 @@
+import {faceOutlineSegments} from "../cad/rendering/face-outline";
+import { ScenePresentation } from "../cad/rendering/scene-presentation";
+import { DEFAULT_SCENE_SETTINGS, groundLevel, normalizeSceneSettings, type SceneSettings } from "../cad/rendering/scene-settings";
 import {validMotionPose} from "../cad/assembly/motion-study";
 import {mechanismConstraints} from '../cad/assembly/mechanism-constraints';
 import {isExternalProjectionSource} from "../cad/interaction/external-projection-selection";
@@ -62,7 +65,7 @@ import { CAD_GEOMETRY_LAYER, markNavigationPickable, NavigationPicker } from "..
 import type { NavigationAction, NavigationProfileID } from "../cad/navigation/navigation-profile";
 import { CadBackground } from "../cad/rendering/cad-background";
 import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
-import { surfaceAppearanceMaterials } from "../cad/rendering/surface-appearance";
+import { surfaceAppearanceMaterials, scopedSurfaceAppearance, materialAllowsPick, applyEdgeAppearance } from "../cad/rendering/surface-appearance";
 import { visualSelection, visualType } from "../cad/rendering/visualization-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
 import { SKETCH_FEEDBACK_ORDER, sketchGeometryPickPriority } from "../cad/rendering/sketch-feedback-style";
@@ -86,6 +89,8 @@ import type {
 } from "../types";
 
 type Callbacks = {
+  sceneMetricsChanged?:(metrics:import("../cad/rendering/scene-settings").SceneMetrics)=>void;
+  contextMenu?:(x:number,y:number,candidates:SelectionItem[])=>void;
   selectionsChanged: (selections: SelectionItem[]) => void;
   preselectionChanged: (selection: Selection) => void;
   sketchOperations: (featureID: string, operations: SketchOperation[], intent?:SketchCommitIntent) => Promise<SketchCommitResult>;
@@ -119,7 +124,7 @@ type SolidContext = {
   documentId: string; versionId?: string; geometryKey: string; occurrencePath: string; treeNodeId: string; instanceId?: string;
 };
 
-type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext };
+type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext; appearance?:import("../types").ResolvedAppearance; defaultColor:number; renderedAppearanceDigest?:string };
 export type ViewportEditContext = { view: DocumentDescriptor; occurrencePath?: string; translation?: Vec3;
   rotation?: [number, number, number, number]; bodyTreeNodeId?: string; liveDefinitionProjection?: boolean };
 
@@ -288,6 +293,14 @@ export class CadViewportEngine {
   private readonly materials = new CadMaterialFactory(this.shaders);
   private readonly sketchGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.sketchGrid, "sketch");
   private readonly groundGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.gridMinor);
+  private readonly worldGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.gridMinor);
+  private readonly scenePresentation:ScenePresentation;
+  private sceneSettings:SceneSettings={...DEFAULT_SCENE_SETTINGS};
+  private readonly groundBounds=new THREE.Box3();
+  private groundHeight=0;
+  private sceneMetricsSignature="";
+  private readonly groundFrame={origin:new THREE.Vector3(),normal:new THREE.Vector3(0,0,1),u:new THREE.Vector3(1,0,0),v:new THREE.Vector3(0,1,0)};
+
   private readonly background = new CadBackground(this.shaders);
   private readonly moveManipulator: AssemblyManipulator;
   private moveTarget?: { group: THREE.Group; startPosition: THREE.Vector3; startQuaternion: THREE.Quaternion;
@@ -454,6 +467,7 @@ export class CadViewportEngine {
     this.camera.layers.enable(CAD_GEOMETRY_LAYER);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = false;
+    this.renderer.localClippingEnabled=true;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.autoClear = false;
     this.studioEnvironment = createStudioEnvironment(this.renderer);
@@ -508,6 +522,7 @@ export class CadViewportEngine {
     const rimLight = new THREE.DirectionalLight(CATIA_VISUAL_THEME.lightRim, CATIA_VISUAL_THEME.rimIntensity);
     rimLight.position.set(-4, 6, 3);
     this.lighting.add(hemisphere, keyLight, fillLight, rimLight);
+    this.scenePresentation=new ScenePresentation(this.scene,this.lighting,this.environment,this.renderer);
     this.sketchContext.renderOrder = 0; // Child semantic orders own sketch layering.
     this.scene.add(this.environment, this.lighting, this.content, this.helpers, this.sketchContext, this.sketchGrid.object);
     this.sketchGrid.object.visible = false;
@@ -570,7 +585,7 @@ export class CadViewportEngine {
       pick:(request,event)=>request.featureId!==this.activeSketchID?undefined:this.sketchReferenceAt(event.x,event.y,request.pick,request.retained?{target:"ENTITY",entityId:request.retained.id,subElement:"WHOLE"}:undefined,request.allowed)??undefined,
       highlight:(request,reference)=>{if(reference)this.showReferencePreview(reference,request.references,request.slot,request.hoverOverridesRetained);else this.clearReferencePreview();},
     });
-    this.input = new InputManager(this.renderer.domElement, this.sketchModal,{keyDown:this.sketchModal.modalKeyDown,keyUp:this.sketchModal.modalKeyUp});
+    this.input = new InputManager(this.renderer.domElement, this.sketchModal,{keyDown:this.sketchModal.modalKeyDown,keyUp:this.sketchModal.modalKeyUp,contextMenu:event=>this.openContextMenu(event)});
     this.input.subscribe(() => this.emitDebugState());
     this.tools.subscribe((toolID) => {
       this.activeToolID = toolID ?? "select";
@@ -629,12 +644,12 @@ export class CadViewportEngine {
       value.part.axisSystems.map(axis=>[axis.id,axis.origin,axis.xDirection,axis.yDirection,axis.zDirection]),
       value.part.datumAxes?.map(axis=>[axis.id,axis.origin,axis.direction]),
     ];
-    return JSON.stringify([view.document.id, view.document.type, part(view),view.bodyAppearances,
+    return JSON.stringify([view.document.id, view.document.type, part(view),
       view.resolvedInstances?.map((resolved) => [resolved.occurrencePath,resolved.bodyId, resolved.geometryKey, resolved.displayFallback, resolved.translation, resolved.rotation,
-        resolved.ownedSketchIds,resolved.appearance]),
+        resolved.ownedSketchIds]),
       view.product?.instances.map((instance) => [instance.id, instance.translation, instance.rotation]),
       view.contextVariants?.map((variant) => [variant.owningInstancePath.canonical, variant.variantKey]),
-      editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view),editContext?.view.bodyAppearances]);
+      editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
     const motionView=editContext?.view??view;
@@ -812,6 +827,53 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
+  private propertyPreview?:import("../types").PropertyPreview;
+  setPropertyPreview(preview?:import("../types").PropertyPreview):void {
+    this.propertyPreview=preview;
+    for(const binding of this.solidBindings.values()){
+      const {context,mesh,artifact}=binding;
+      const valid=preview&&(preview.documentId===this.view?.document.id?preview.versionId===this.view.document.versionId:preview.documentId===this.editContext?.view.document.id&&preview.versionId===this.editContext.view.document.versionId);
+      const candidate=valid?preview.appearances.find(p=>p.documentId===context.documentId&&p.bodyId===context.bodyId&&
+        (p.occurrencePath||preview.occurrencePath||"")===context.occurrencePath):undefined;
+      const appearance=scopedSurfaceAppearance(candidate?.appearance??binding.appearance,artifact.geometryKey);
+      const digest=JSON.stringify([appearance,Boolean(candidate)]);
+      if(binding.renderedAppearanceDigest===digest)continue;
+      binding.renderedAppearanceDigest=digest;
+      for(const m of Array.isArray(mesh.material)?mesh.material:[mesh.material])m.dispose();
+      mesh.material=surfaceAppearanceMaterials(mesh.geometry,artifact.mesh.faceIds,appearance,binding.defaultColor,(color,properties)=>this.materials.surface(color,properties));
+      for(const m of Array.isArray(mesh.material)?mesh.material:[mesh.material])m.userData.propertyPreview=Boolean(candidate);
+      mesh.castShadow=(Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
+      applyEdgeAppearance(binding.group,appearance,CATIA_VISUAL_THEME.edge,m=>this.materials.sectionLine(m));
+      for(const child of binding.group.children){const materials=(child as THREE.Mesh).material;for(const m of Array.isArray(materials)?materials:materials?[materials]:[])m.userData.propertyPreview=Boolean(candidate)}
+      applySolidDisplaySettings(binding.group,this.solidDisplay);
+    }
+    this.refreshInteractionHighlights();this.invalidate();
+  }
+
+  setSceneSettings(settings:SceneSettings):void {
+    this.sceneSettings=normalizeSceneSettings(settings);
+    const s=this.sceneSettings;
+    this.groundGrid.setStyle(s.gridColor,s.gridOpacity,s.gridSpacing);
+    this.worldGrid.setStyle(s.gridColor,s.gridOpacity*.55,s.gridSpacing);
+    this.background.setColors(s.background==="THEME"?undefined:s.backgroundTop,s.background==="SOLID"?s.backgroundTop:s.background==="GRADIENT"?s.backgroundBottom:undefined);
+    this.refreshSceneGround();this.invalidate();
+  }
+  sceneGroundHeight():number{return this.groundHeight;}
+  realignSceneGround():void {this.refreshSceneGround(true);this.invalidate();}
+  private refreshSceneGround(force=false):void {
+    if(force||(!this.motionDisplay&&!this.moveInteraction?.sessionId&&!this.moveCommitPending)){
+      this.groundBounds.makeEmpty();this.content.updateMatrixWorld(true);
+      for(const {group,mesh,artifact} of this.solidBindings.values()){
+        if(!this.objectVisible(group)||artifact.topology.solids<1||artifact.historicalPreview||artifact.representationKind==="TRANSIENT_PREVIEW")continue;
+        const box=new THREE.Box3(new THREE.Vector3().fromArray(artifact.bbox.min),new THREE.Vector3().fromArray(artifact.bbox.max));
+        this.groundBounds.union(box.applyMatrix4(mesh.matrixWorld));
+      }
+    }
+    this.groundHeight=groundLevel(this.sceneSettings,this.groundBounds.isEmpty()?undefined:this.groundBounds.min.z);
+    this.groundFrame.origin.z=this.groundHeight;
+    this.scenePresentation?.update(this.sceneSettings,this.groundBounds,this.groundHeight);
+  }
+
   private gridVisibility = {scene:true,sketch:true};
   setGridVisibility(value: {scene:boolean;sketch:boolean}): void {this.gridVisibility={...value};this.invalidate();}
 
@@ -833,7 +895,7 @@ export class CadViewportEngine {
 
   updateDisplayProjection(view: DocumentDescriptor): void {
     if (!this.view || this.view.document.id !== view.document.id) return;
-    this.view = {...this.view,document:view.document,structureTree:view.structureTree,part:view.part,product:view.product,
+    this.view = {...this.view,document:view.document,structureTree:view.structureTree,part:view.part,product:view.product,bodyAppearances:view.bodyAppearances,
       contextVariants:view.contextVariants,constraintDisplayScopes:view.constraintDisplayScopes,resolvedInstances:view.resolvedInstances};
     this.selectionIndex.setSemanticProjection(selection=>this.view?refreshOccurrenceSelection(this.view,selection):selection);
     // Geometry reuse must not reuse the old semantic snapshot. Pick closures
@@ -845,6 +907,11 @@ export class CadViewportEngine {
         binding.context.contextVariantKey=view.contextVariants?.find(variant=>variant.owningInstancePath.canonical===binding.context.occurrencePath)?.variantKey;}
       if(!binding.context.occurrencePath)binding.context.versionId=view.document.versionId;
       binding.group.userData=refreshOccurrenceSelection(view,binding.group.userData as SelectionItem);
+      const source=binding.context.occurrencePath?view.resolvedInstances?.find(r=>r.occurrencePath===binding.context.occurrencePath&&r.bodyId===binding.context.bodyId)?.appearance:view.bodyAppearances?.[binding.context.bodyId??""];
+      const editing=this.editContext;
+      const local=editing?.view.document.id===binding.context.documentId&&editing?.occurrencePath===binding.context.occurrencePath?editing.view.bodyAppearances?.[binding.context.bodyId??""]:undefined;
+      binding.appearance=scopedSurfaceAppearance(local??source,binding.artifact.geometryKey);
+
     }
     for(const group of this.instanceGroups.values()){
       const selection=group.userData as SelectionItem;
@@ -856,6 +923,7 @@ export class CadViewportEngine {
     }
     this.selected=this.selected.map(selection=>refreshOccurrenceSelection(view,selection));
     if(this.preselected)this.preselected=refreshOccurrenceSelection(view,this.preselected);
+    this.setPropertyPreview(this.propertyPreview);
     this.visibilityResolver = visibilityResolverForView(view, this.editContext);
     this.addAssemblyConstraintMarkers(this.view);
     this.updateSketchContextVisibility();
@@ -917,6 +985,7 @@ export class CadViewportEngine {
       else if (hidden === false) object.visible = false;
     });
     this.refreshInteractionHighlights();
+    this.refreshSceneGround();
   }
 
   private objectVisible(object: THREE.Object3D): boolean {
@@ -1806,6 +1875,8 @@ export class CadViewportEngine {
     this.navigationHUD.dispose();
     this.background.dispose();
     this.groundGrid.dispose();
+    this.worldGrid.dispose();
+    this.scenePresentation.dispose();
     this.sketchGrid.dispose();
     this.disposeGroup(this.environment);
     this.disposeGroup(this.lighting);
@@ -2723,12 +2794,12 @@ export class CadViewportEngine {
     const geometry = makeGeometry(artifact);
     geometry.userData.navigationFaceIds = artifact.mesh.faceIds;
     const group = new THREE.Group();
-    const scopedAppearance = appearance && appearance.geometryKey !== artifact.geometryKey ? {color:appearance.color} : appearance;
-    const mesh = new THREE.Mesh(geometry, surfaceAppearanceMaterials(geometry,artifact.mesh.faceIds,scopedAppearance,color,value=>this.materials.surface(value)));
+    const scopedAppearance = scopedSurfaceAppearance(appearance,artifact.geometryKey);
+    const mesh = new THREE.Mesh(geometry, surfaceAppearanceMaterials(geometry,artifact.mesh.faceIds,scopedAppearance,color,(value,properties)=>this.materials.surface(value,properties)));
     mesh.raycast = acceleratedRaycast;
     markNavigationPickable(mesh);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    mesh.castShadow = (Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
+    mesh.receiveShadow = false;
     const bodySelection = { kind: "body" as const, id: context.occurrencePath ? `${context.occurrencePath}:body:${context.bodyId}` : context.bodyId ?? "body", ...context };
     group.userData = bodySelection;
     this.selectionIndex.register(bodySelection, group);
@@ -2739,6 +2810,7 @@ export class CadViewportEngine {
     }
     this.selectable.set(`body:${bodySelection.id}`, group);
     if(!artifact.historicalPreview)this.selectionIndex.registerPick(mesh, (hit) => {
+      if(!materialAllowsPick(mesh.material,hit.face?.materialIndex??0))return null;
       const triangle = hit.faceIndex ?? -1;
       const localID = triangle >= 0 ? (artifact.mesh.faceIds[triangle] ?? 0) : 0;
       return localID > 0 ? {
@@ -2761,6 +2833,7 @@ export class CadViewportEngine {
       const edges = new THREE.LineSegments(edgeGeometry, this.materials.edge());
       markNavigationPickable(edges);
       if(!artifact.historicalPreview)this.selectionIndex.registerPick(edges, (hit) => {
+        if(!materialAllowsPick(edges.material))return null;
         const segmentIndex = ((hit.index ?? 0) / 2) | 0;
         const localID = edgeIDs[segmentIndex] ?? 0;
         return {
@@ -2779,6 +2852,7 @@ export class CadViewportEngine {
       const points = new THREE.Points(pointGeometry, this.materials.point(CATIA_VISUAL_THEME.vertex, 7));
       markNavigationPickable(points);
       if(!artifact.historicalPreview)this.selectionIndex.registerPick(points, (hit) => {
+        if(!materialAllowsPick(points.material))return null;
         const localID = topologyVertices[hit.index ?? 0]?.localId ?? 0;
         return {
           kind: "vertex", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:vertex:${localID}`,
@@ -2787,8 +2861,9 @@ export class CadViewportEngine {
       }, 50);
       group.add(points);
     }
+    applyEdgeAppearance(group,scopedAppearance,CATIA_VISUAL_THEME.edge,m=>this.materials.sectionLine(m));
     applySolidDisplaySettings(group, this.solidDisplay);
-    this.solidBindings.set(`${context.occurrencePath || "root"}/body:${context.bodyId}`, { group, mesh, artifact, context });
+    this.solidBindings.set(`${context.occurrencePath || "root"}/body:${context.bodyId}`, { group, mesh, artifact, context, appearance:scopedAppearance,defaultColor:color,renderedAppearanceDigest:JSON.stringify([scopedAppearance,false]) });
     return group;
   }
 
@@ -2853,6 +2928,14 @@ export class CadViewportEngine {
     this.refreshInteractionHighlights();
     this.emitDebugState();
     this.invalidate();
+  }
+
+  private openContextMenu(event:PointerEvent):void {
+    if(this.pendingVisualSnapshot||this.activeSketchID||this.activeToolID!=="select"||this.featureSelection||this.moveInteraction.sessionId)return;
+    const rect=this.renderer.domElement.getBoundingClientRect();
+    this.hitTest(event.clientX-rect.left,event.clientY-rect.top);
+    const candidates=this.selectionIndex.pickAll(this.raycaster).flatMap(hit=>hit.selection?[hit.selection]:[]);
+    this.callbacks.contextMenu?.(event.clientX,event.clientY,candidates);
   }
 
   private pick(x: number, y: number, additive: boolean): void {
@@ -3110,7 +3193,9 @@ export class CadViewportEngine {
         if (!selectedIDs.has(binding.artifact.mesh.faceIds[index] ?? -1)) return;
         for (const vertex of triangle) positions.push(...binding.artifact.mesh.vertices[vertex]);
       });
-      if (positions.length > 0) {
+      if (positions.length > 0 && (Array.isArray(binding.mesh.material)?binding.mesh.material:[binding.mesh.material]).some(m=>m.userData.propertyPreview)) {
+        overlay=makeOcclusionVisibleSegments(faceOutlineSegments(positions),color,layer==="selected"?3:2);
+      } else if (positions.length > 0) {
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)); geometry.computeVertexNormals();
         overlay = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
@@ -3717,7 +3802,12 @@ export class CadViewportEngine {
         if (this.sketchPlane && this.gridVisibility.sketch) this.sketchGrid.update(this.camera, this.renderer.domElement.clientHeight, planeFrame(this.sketchPlane));
         this.renderer.clear(true, true, true);
         this.background.render(this.renderer, this.camera);
-        if (this.environment.visible && this.gridVisibility.scene) this.groundGrid.render(this.renderer, this.camera);
+        if (this.environment.visible && this.gridVisibility.scene) {
+          if(this.sceneSettings.grid&&this.sceneSettings.groundMode!=="OFF")this.groundGrid.render(this.renderer,this.camera,this.groundFrame);
+          if(this.sceneSettings.worldGrid&&(this.sceneSettings.groundMode==="OFF"||this.groundHeight!==0||!this.sceneSettings.grid))this.worldGrid.render(this.renderer,this.camera);
+        }
+        const sceneMetrics={groundHeight:this.groundHeight,gridSpacing:this.sceneSettings.gridSpacing||adaptiveGridSpacing(this.camera,this.renderer.domElement.clientHeight)};
+        const signature=JSON.stringify(sceneMetrics);if(signature!==this.sceneMetricsSignature){this.sceneMetricsSignature=signature;this.callbacks.sceneMetricsChanged?.(sceneMetrics)}
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);
         if(this.analysisScene.children.length){

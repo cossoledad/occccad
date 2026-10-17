@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -19,20 +20,35 @@ import (
 // SurfaceAppearance is Revision-owned display data. Face assignments use the
 // same semantic identities as Naming; exchange local IDs never enter the model.
 type SurfaceAppearance struct {
+	GraphicProperties
 	Color string           `json:"color,omitempty"`
 	Faces []FaceAppearance `json:"faces,omitempty"`
 }
 type FaceAppearance struct {
-	Anchor modelcore.SemanticTopologyRef `json:"anchor"`
-	Color  string                        `json:"color"`
+	GraphicProperties
+	Anchor          modelcore.SemanticTopologyRef `json:"anchor"`
+	Color           string                        `json:"color"`
+	InheritedFields []string                      `json:"inheritedFields,omitempty"`
 }
 
 // ResolvedAppearance is an ephemeral projection scoped to GeometryKey.
 type ResolvedAppearance struct {
-	GeometryKey     string            `json:"geometryKey,omitempty"`
-	Color           string            `json:"color,omitempty"`
-	Faces           map[uint64]string `json:"faces,omitempty"`
-	UnresolvedFaces int               `json:"unresolvedFaces,omitempty"`
+	Issues []AppearanceIssue `json:"issues,omitempty"`
+	GraphicProperties
+	Sources         map[string]AppearanceSource            `json:"sources,omitempty"`
+	FaceSources     map[uint64]map[string]AppearanceSource `json:"faceSources,omitempty"`
+	GeometryKey     string                                 `json:"geometryKey,omitempty"`
+	Color           string                                 `json:"color,omitempty"`
+	Faces           map[uint64]string                      `json:"faces,omitempty"`
+	FaceProperties  map[uint64]GraphicProperties           `json:"faceProperties,omitempty"`
+	FaceInherit     map[uint64][]string                    `json:"faceInherit,omitempty"`
+	UnresolvedFaces int                                    `json:"unresolvedFaces,omitempty"`
+}
+
+type AppearanceIssue struct {
+	Code           string `json:"code"`
+	OccurrencePath string `json:"occurrencePath,omitempty"`
+	BodyID         string `json:"bodyId,omitempty"`
 }
 
 const typeSetBodyColor = "occccad://part/body/set-color"
@@ -41,7 +57,7 @@ var opaqueColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 type bodyColorPayload struct {
 	BodyID string `json:"bodyId"`
-	Color  string `json:"color"` // empty resets the complete Body appearance
+	Color  string `json:"color"` // empty restores inherited Body color
 }
 
 func applyBodyColor(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -61,10 +77,16 @@ func applyBodyColor(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, mo
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: Body does not exist", ErrValidation)
 	}
 	before := model.Bodies[index].Appearance
-	model.Bodies[index].Appearance = nil
+	value := json.RawMessage("null")
 	if input.Color != "" {
-		model.Bodies[index].Appearance = &SurfaceAppearance{Color: strings.ToLower(input.Color)}
+		value, _ = json.Marshal(strings.ToLower(input.Color))
 	}
+	after, err := patchAppearance(before, map[string]json.RawMessage{"color": value}, false)
+	if err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	model.Bodies[index].Appearance = after
+
 	change, err := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: input.BodyID, SlotID: "body.appearance"}, before, model.Bodies[index].Appearance)
 	if err != nil {
 		return nil, modelcore.ChangeSet{}, err
@@ -81,9 +103,12 @@ func (s *Service) importedAppearance(ctx context.Context, feature Feature, sourc
 	if input.Color != "" && !opaqueColor.MatchString(input.Color) {
 		return nil, fmt.Errorf("%w: invalid imported color", ErrValidation)
 	}
-	out := &SurfaceAppearance{Color: strings.ToLower(input.Color)}
+	out := &SurfaceAppearance{GraphicProperties: GraphicProperties{Opacity: input.Opacity}, Color: strings.ToLower(input.Color)}
+	if err := validateSurfaceStyle(appearanceStyle(out)); err != nil {
+		return nil, err
+	}
 	if len(input.Faces) == 0 {
-		if out.Color == "" {
+		if out.Color == "" && out.Opacity == nil {
 			return nil, nil
 		}
 		return out, nil
@@ -121,11 +146,14 @@ func (s *Service) importedAppearance(ctx context.Context, feature Feature, sourc
 	seen := map[uint64]bool{}
 	for _, face := range input.Faces {
 		id := identities[face.LocalId]
-		if id == "" || seen[face.LocalId] || !opaqueColor.MatchString(face.Color) {
+		if id == "" || seen[face.LocalId] || (face.Color != "" && !opaqueColor.MatchString(face.Color)) || (face.Color == "" && face.Opacity == nil) {
 			return nil, fmt.Errorf("%w: invalid imported face color binding", ErrValidation)
 		}
+		if err := validateSurfaceStyle(SurfaceStyle{GraphicProperties: GraphicProperties{Opacity: face.Opacity}, Color: face.Color}); err != nil {
+			return nil, err
+		}
 		seen[face.LocalId] = true
-		out.Faces = append(out.Faces, FaceAppearance{Anchor: modelcore.SemanticTopologyRef{FeatureID: feature.ID, OutputSlot: "import.topology", SourceIDs: []string{id}}, Color: strings.ToLower(face.Color)})
+		out.Faces = append(out.Faces, FaceAppearance{GraphicProperties: GraphicProperties{Opacity: face.Opacity}, Anchor: modelcore.SemanticTopologyRef{FeatureID: feature.ID, OutputSlot: "import.topology", SourceIDs: []string{id}}, Color: strings.ToLower(face.Color)})
 	}
 	return out, nil
 }
@@ -136,70 +164,105 @@ func resolveAppearance(body PartBody, manifest *topologyManifest) ResolvedAppear
 		return out
 	}
 	out.Color = body.Appearance.Color
+	out.GraphicProperties = body.Appearance.GraphicProperties
 	if len(body.Appearance.Faces) == 0 {
 		return out
-	}
-	// Propagate through actual lineage. A merge of different colors is left
-	// unresolved, never assigned by geometric proximity or traversal position.
-	colors := map[string]string{}
-	for _, face := range body.Appearance.Faces {
-		colors[refKey(face.Anchor)] = face.Color
 	}
 	if manifest == nil || !topologyHistoryComplete(manifest) {
 		out.UnresolvedFaces = len(body.Appearance.Faces)
 		return out
+	}
+	type fields = map[string]json.RawMessage
+	assignments := map[string]fields{}
+	styles := map[string]fields{}
+	conflicts := map[string]map[string]bool{}
+	for _, face := range body.Appearance.Faces {
+		key := refKey(face.Anchor)
+		raw, _ := json.Marshal(SurfaceStyle{GraphicProperties: face.GraphicProperties, Color: face.Color})
+		var values fields
+		_ = json.Unmarshal(raw, &values)
+		for _, field := range face.InheritedFields {
+			values[field] = json.RawMessage("null")
+		}
+		assignments[key] = values
+		styles[key] = values
 	}
 	for _, stage := range manifest.GetFeatureResults() {
 		if stage.BodyId != body.ID {
 			continue
 		}
 		for _, edge := range stage.GetTopologyHistory().GetLineage() {
-			color, conflict := "", false
-			for _, source := range edge.Sources {
-				candidate := colors[refKey(semanticRef(source))]
-				if candidate == "" {
-					continue
-				}
-				if color != "" && color != candidate {
-					conflict = true
-				}
-				color = candidate
-			}
 			key := refKey(semanticRef(edge.Result))
-			if existing := colors[key]; existing != "" && color != "" && existing != color {
-				conflict = true
+			merged := fields{}
+			failed := map[string]bool{}
+			merge := func(source string) {
+				for field, value := range styles[source] {
+					if previous, ok := merged[field]; ok && string(previous) != string(value) {
+						failed[field] = true
+					}
+					merged[field] = value
+				}
+				for field := range conflicts[source] {
+					failed[field] = true
+				}
 			}
-			if conflict {
-				colors[key] = "!conflict"
-			} else if color != "" {
-				colors[key] = color
+			for _, source := range edge.Sources {
+				merge(refKey(semanticRef(source)))
 			}
+			if assignments[key] == nil {
+				merge(key)
+			}
+			// An explicit assignment on this stable result overrides inherited values
+			// for its fields. Unrelated ambiguous lineage remains unresolved.
+			for field, value := range assignments[key] {
+				merged[field] = value
+				delete(failed, field)
+			}
+			styles[key] = merged
+			conflicts[key] = failed
 		}
 		for _, ambiguous := range stage.GetTopologyHistory().GetAmbiguous() {
 			for _, source := range ambiguous.Sources {
-				if colors[refKey(semanticRef(source))] != "" {
+				key := refKey(semanticRef(source))
+				if len(styles[key]) > 0 || len(conflicts[key]) > 0 {
 					out.UnresolvedFaces++
 					break
 				}
 			}
 		}
 		for _, deleted := range stage.GetTopologyHistory().GetDeleted() {
-			delete(colors, refKey(semanticRef(deleted.Source)))
+			key := refKey(semanticRef(deleted.Source))
+			delete(styles, key)
+			delete(conflicts, key)
 		}
 	}
 	out.Faces = map[uint64]string{}
+	out.FaceProperties = map[uint64]GraphicProperties{}
+	out.FaceInherit = map[uint64][]string{}
 	if tip := manifest.bodyTips()[body.ID]; tip != nil {
 		for _, face := range tip.SemanticOutputs {
 			if face.TopologyType != workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_FACE {
 				continue
 			}
-			color := colors[refKey(semanticRef(face.SemanticRef))]
-			if color == "!conflict" {
+			key := refKey(semanticRef(face.SemanticRef))
+			if len(conflicts[key]) > 0 {
 				out.UnresolvedFaces++
 				continue
 			}
-			if color != "" {
-				out.Faces[face.LocalId] = color
+			for field, value := range styles[key] {
+				if string(value) == "null" {
+					out.FaceInherit[face.LocalId] = append(out.FaceInherit[face.LocalId], field)
+				}
+			}
+			sort.Strings(out.FaceInherit[face.LocalId])
+			raw, _ := json.Marshal(styles[key])
+			var style SurfaceStyle
+			_ = json.Unmarshal(raw, &style)
+			if style.Color != "" {
+				out.Faces[face.LocalId] = style.Color
+			}
+			if !reflect.DeepEqual(style.GraphicProperties, GraphicProperties{}) {
+				out.FaceProperties[face.LocalId] = style.GraphicProperties
 			}
 		}
 	}
@@ -237,17 +300,33 @@ func (s *Service) appearanceAtGeometry(ctx context.Context, documentID, revision
 	}
 	body := part.Bodies[index]
 	body.GeometryKey = geometryKey
-	return s.bodyAppearance(ctx, body)
+	return s.bodyAppearanceWithDefaults(ctx, body, part.DefaultAppearance)
 }
 func exchangeAppearance(input ResolvedAppearance) *workerv1.ExchangeAppearance {
-	out := &workerv1.ExchangeAppearance{Color: input.Color}
-	ids := make([]uint64, 0, len(input.Faces))
+	out := &workerv1.ExchangeAppearance{Color: input.Color, Opacity: input.Opacity}
+	ids := map[uint64]bool{}
 	for id := range input.Faces {
-		ids = append(ids, id)
+		ids[id] = true
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	for _, id := range ids {
-		out.Faces = append(out.Faces, &workerv1.ExchangeFaceColor{LocalId: id, Color: input.Faces[id]})
+	for id, p := range input.FaceProperties {
+		if p.Opacity != nil {
+			ids[id] = true
+		}
+	}
+	ordered := make([]uint64, 0, len(ids))
+	for id := range ids {
+		ordered = append(ordered, id)
+	}
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
+	for _, id := range ordered {
+		color := input.Faces[id]
+		if color == "" {
+			color = input.Color
+		}
+		if color == "" {
+			color = "#98a8b8"
+		}
+		out.Faces = append(out.Faces, &workerv1.ExchangeFaceColor{LocalId: id, Color: color, Opacity: input.FaceProperties[id].Opacity})
 	}
 	return out
 }

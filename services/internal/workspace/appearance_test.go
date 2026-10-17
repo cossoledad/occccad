@@ -85,6 +85,35 @@ func TestBodyColorHistoryAndGeometryIndependence(t *testing.T) {
 	}
 }
 
+func TestFaceInheritOverridesOnlyTheSelectedStableLineage(t *testing.T) {
+	a := modelcore.SemanticTopologyRef{FeatureID: "import", OutputSlot: "original", SourceIDs: []string{"stable"}}
+	b := modelcore.SemanticTopologyRef{FeatureID: "split", OutputSlot: "first", SourceIDs: []string{"stable-b"}}
+	c := modelcore.SemanticTopologyRef{FeatureID: "split", OutputSlot: "second", SourceIDs: []string{"stable-c"}}
+	protoRef := func(ref modelcore.SemanticTopologyRef) *workerv1.SemanticTopologyRef {
+		return &workerv1.SemanticTopologyRef{FeatureId: ref.FeatureID, OutputSlot: ref.OutputSlot, SourceIds: ref.SourceIDs}
+	}
+	body := PartBody{ID: "body", Appearance: &SurfaceAppearance{Color: "#d64a3a", Faces: []FaceAppearance{{Anchor: a, Color: "#3978bd"}}}}
+	manifest := &topologyManifest{Tips: map[string]*workerv1.FeatureResult{"body": {BodyId: "body", SemanticOutputs: []*workerv1.SemanticTopologyOutput{{TopologyType: 1, LocalId: 19, SemanticRef: protoRef(b)}, {TopologyType: 1, LocalId: 4, SemanticRef: protoRef(c)}}}}, FeatureResults: []*workerv1.FeatureResult{{BodyId: "body", TopologyHistoryComplete: true, TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Sources: []*workerv1.SemanticTopologyRef{protoRef(a)}, Result: protoRef(b)}, {Sources: []*workerv1.SemanticTopologyRef{protoRef(a)}, Result: protoRef(c)}}}}}}
+	style, err := patchTargetAppearance(body.Appearance, PropertyTarget{Kind: "FACE", Anchor: &b}, PropertyUpdateRequest{Appearance: map[string]json.RawMessage{"color": json.RawMessage("null")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body.Appearance = style
+	resolved := resolveAppearance(body, manifest)
+	if resolved.UnresolvedFaces != 0 || resolved.Faces[19] != "" || resolved.Faces[4] != "#3978bd" || len(resolved.FaceInherit[19]) != 1 {
+		t.Fatalf("inherit changed a sibling or retained ancestor color: %+v", resolved)
+	}
+	style, err = patchTargetAppearance(body.Appearance, PropertyTarget{Kind: "FACE", Anchor: &b}, PropertyUpdateRequest{Appearance: map[string]json.RawMessage{"color": json.RawMessage(`"#000000"`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body.Appearance = style
+	resolved = resolveAppearance(body, manifest)
+	if resolved.UnresolvedFaces != 0 || resolved.Faces[19] != "#000000" || resolved.Faces[4] != "#3978bd" {
+		t.Fatalf("explicit result color failed to override inheritance: %+v", resolved)
+	}
+}
+
 func TestImportedAppearanceFollowsLineageWithoutLocatorIdentity(t *testing.T) {
 	ref := func(slot string) *workerv1.SemanticTopologyRef {
 		return &workerv1.SemanticTopologyRef{FeatureId: "import", OutputSlot: slot, SourceIds: []string{"persistent-id"}}

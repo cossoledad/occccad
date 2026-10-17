@@ -91,7 +91,9 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 		return err
 	}
 
-	if diagnostic != nil { diagnostic.BaseRevisionID, diagnostic.BaseModel = headRevision, modelJSON }
+	if diagnostic != nil {
+		diagnostic.BaseRevisionID, diagnostic.BaseModel = headRevision, modelJSON
+	}
 
 	actor := actorID(request.ActorID)
 	historyPayload, _ := json.Marshal(map[string]string{"type": request.Type, "versionId": request.VersionID})
@@ -272,7 +274,9 @@ func (service *Service) applyRestoreRevision(ctx context.Context, documentID str
 	} else if err != nil {
 		return err
 	}
-	if diagnostic != nil { diagnostic.BaseRevisionID, diagnostic.BaseModel = headRevision, current }
+	if diagnostic != nil {
+		diagnostic.BaseRevisionID, diagnostic.BaseModel = headRevision, current
+	}
 
 	historyPayload, _ := json.Marshal(map[string]string{"type": "RESTORE", "versionId": request.VersionID})
 	historyDigest := modelcore.ValueDigest(historyPayload)
@@ -283,6 +287,10 @@ func (service *Service) applyRestoreRevision(ctx context.Context, documentID str
 		}
 		return nil
 	} else if !errors.Is(err, database.ErrNoRows) {
+		return err
+	}
+	target, err := preserveDocumentMetadata(target, current)
+	if err != nil {
 		return err
 	}
 	change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: documentID, SlotID: "document.model"}, json.RawMessage(current), json.RawMessage(target))
@@ -361,7 +369,7 @@ func changesBetweenValues(before, after map[modelcore.PropertyAddress]json.RawMe
 }
 
 type historyCommit struct {
-	diagnostic *OperationDiagnostic
+	diagnostic                                                                             *OperationDiagnostic
 	documentID, workspaceID, headRevision, documentType, actorID, requestID, kind, typeURI string
 	rootTransaction, consumedRevert                                                        string
 	requestDigest                                                                          string
@@ -372,7 +380,9 @@ type historyCommit struct {
 
 func (service *Service) commitHistoryRevision(ctx context.Context, input historyCommit) error {
 	input.diagnostic.stage("EVALUATE")
-	if input.diagnostic != nil { input.diagnostic.Candidate = input.modelJSON }
+	if input.diagnostic != nil {
+		input.diagnostic.Candidate = input.modelJSON
+	}
 	revisionUUID, _ := uuid.NewV7()
 	transactionUUID, _ := uuid.NewV7()
 	revisionID := revisionUUID.String()
@@ -383,7 +393,9 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	}
 	evaluated, err := adapter.EvaluateHistory(ctx, service, input, revisionID)
 	input.modelJSON, input.changes = evaluated.nextJSON, evaluated.changes
-	if input.diagnostic != nil { input.diagnostic.Candidate = input.modelJSON }
+	if input.diagnostic != nil {
+		input.diagnostic.Candidate = input.modelJSON
+	}
 	modelHash, graph, manifest := evaluated.modelHash, evaluated.graph, evaluated.manifest
 	revisionState, evaluationStatus := evaluated.revisionState, evaluated.evaluationStatus
 	if err != nil {
@@ -476,10 +488,15 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 		return err
 	}
 
+	if err := persistMetadataChanges(ctx, tx, input.documentID, input.changes); err != nil {
+		return err
+	}
 	if err := adapter.Persist(ctx, tx, revisionID, input.modelJSON); err != nil {
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil { return err }
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
 	if revisionState == "FAILED" {
 		service.retainFailedRevision(ctx, input.diagnostic, input.modelJSON, revisionID)
 	}

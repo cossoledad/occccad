@@ -2,6 +2,7 @@ package thumbnail
 
 import (
 	"context"
+	"github.com/occccad/occccad/internal/workspace"
 	"image"
 	"image/color"
 	"math"
@@ -10,11 +11,14 @@ import (
 
 type screenPoint struct{ x, y, z float64 }
 type raster struct {
-	pixels        *image.RGBA
-	depth         []float64
-	width, height int
-	center        vec
-	scale         float64
+	pixels            *image.RGBA
+	depth             []float64
+	transparentColor  [3][]float64
+	transparentWeight []float64
+	transparentReveal []float64
+	width, height     int
+	center            vec
+	scale             float64
 }
 
 func newRaster(s *renderScene) *raster {
@@ -50,52 +54,87 @@ func illumination(n vec) float64 {
 	return .48 + .43*max(0, dot(n, keyLight)) + .15*max(0, dot(n, fillLight)) + .08*math.Pow(max(0, dot(n, halfLight)), 24)
 }
 func (r *raster) draw(ctx context.Context, s *renderScene) error {
+	hasTransparency := false
 	for _, instance := range s.meshes {
-		m := instance.mesh.mesh
-		points := make([]screenPoint, len(m.Vertices))
-		for i, v := range m.Vertices {
-			if i%1024 == 0 {
-				if err := ctx.Err(); err != nil {
-					return err
-				}
-			}
-			points[i] = r.screen(instance.pose.point(v))
+		if instance.appearance.Opacity != nil && *instance.appearance.Opacity < 1 {
+			hasTransparency = true
 		}
-		for i, t := range m.Triangles {
-			if i%128 == 0 {
-				if err := ctx.Err(); err != nil {
-					return err
-				}
+		for _, face := range instance.appearance.FaceProperties {
+			if face.Opacity != nil && *face.Opacity < 1 {
+				hasTransparency = true
 			}
-			if !validTriangle(m, t) {
-				continue
-			}
-			n := unit(cross(sub(m.Vertices[t[1]], m.Vertices[t[0]]), sub(m.Vertices[t[2]], m.Vertices[t[0]])))
-			shades := [3]float64{}
-			for corner, index := range t {
-				normal := n
-				if len(m.FaceIDs) == len(m.Triangles) {
-					if smooth := instance.mesh.normals[normalKey{m.Vertices[index], m.FaceIDs[i]}]; smooth != (vec{}) {
-						normal = smooth
+		}
+	}
+	for pass := 0; pass < 2; pass++ {
+		if pass == 1 && !hasTransparency {
+			break
+		}
+		for _, instance := range s.meshes {
+			m := instance.mesh.mesh
+			points := make([]screenPoint, len(m.Vertices))
+			for i, v := range m.Vertices {
+				if i%1024 == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
 					}
 				}
-				shades[corner] = illumination(instance.pose.rotate(normal))
+				points[i] = r.screen(instance.pose.point(v))
 			}
-			base := instance.appearance.Color
-			if i < len(m.FaceIDs) {
-				if face := instance.appearance.Faces[uint64(m.FaceIDs[i])]; face != "" {
-					base = face
+			for i, t := range m.Triangles {
+				if i%128 == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+				}
+				if !validTriangle(m, t) {
+					continue
+				}
+				opacity := 1.0
+				if instance.appearance.Opacity != nil {
+					opacity = *instance.appearance.Opacity
+				}
+				if i < len(m.FaceIDs) {
+					if face := instance.appearance.FaceProperties[uint64(m.FaceIDs[i])]; face.Opacity != nil {
+						opacity = *face.Opacity
+					}
+				}
+				if opacity <= 0 || (pass == 0 && opacity < 1) || (pass == 1 && opacity >= 1) {
+					continue
+				}
+				n := unit(cross(sub(m.Vertices[t[1]], m.Vertices[t[0]]), sub(m.Vertices[t[2]], m.Vertices[t[0]])))
+				shades := [3]float64{}
+				for corner, index := range t {
+					normal := n
+					if len(m.FaceIDs) == len(m.Triangles) {
+						if smooth := instance.mesh.normals[normalKey{m.Vertices[index], m.FaceIDs[i]}]; smooth != (vec{}) {
+							normal = smooth
+						}
+					}
+					shades[corner] = illumination(instance.pose.rotate(normal))
+				}
+				base := instance.appearance.Color
+				if i < len(m.FaceIDs) {
+					if face := instance.appearance.Faces[uint64(m.FaceIDs[i])]; face != "" {
+						base = face
+					}
+				}
+				if err := r.triangleAlpha(ctx, [3]screenPoint{points[t[0]], points[t[1]], points[t[2]]}, shades, surfaceColor(base), opacity); err != nil {
+					return err
 				}
 			}
-			if err := r.triangle(ctx, [3]screenPoint{points[t[0]], points[t[1]], points[t[2]]}, shades, surfaceColor(base)); err != nil {
-				return err
-			}
 		}
+	}
+	if err := r.compositeTransparency(ctx); err != nil {
+		return err
 	}
 	// All solid depth is complete before any edge/curve pass: hidden lines cannot
 	// shine through another instance or a nearer part of the same concave body.
 	for _, instance := range s.meshes {
 		m := instance.mesh.mesh
+		edgeColor, edgeWidth, edgeOpacity := thumbnailEdgeStyle(instance.appearance)
+		if edgeOpacity <= 0 {
+			continue
+		}
 		if len(m.Edges) > 0 {
 			for i, edge := range m.Edges {
 				if i%128 == 0 {
@@ -110,7 +149,7 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 						}
 					}
 					if valid(edge.Points[j-1]) && valid(edge.Points[j]) {
-						r.line(r.screen(instance.pose.point(edge.Points[j-1])), r.screen(instance.pose.point(edge.Points[j])), color.RGBA{30, 48, 65, 255}, 1.15*samples, .82)
+						r.line(r.screen(instance.pose.point(edge.Points[j-1])), r.screen(instance.pose.point(edge.Points[j])), edgeColor, edgeWidth*samples, edgeOpacity)
 					}
 				}
 			}
@@ -162,6 +201,12 @@ func (r *raster) triangle(ctx context.Context, p [3]screenPoint, shade [3]float6
 	base := surfaceColor("")
 	if len(colors) > 0 {
 		base = colors[0]
+	}
+	return r.triangleAlpha(ctx, p, shade, base, float64(base.A)/255)
+}
+func (r *raster) triangleAlpha(ctx context.Context, p [3]screenPoint, shade [3]float64, base color.RGBA, opacity float64) error {
+	if opacity <= 0 {
+		return nil
 	}
 	area := edgeFunction(p[0], p[1], p[2].x, p[2].y)
 	if !finite(area) || math.Abs(area) < 1e-12 {
@@ -216,8 +261,13 @@ func (r *raster) triangle(ctx context.Context, p [3]screenPoint, shade [3]float6
 		for x := start; x <= end; x++ {
 			index := y*r.width + x
 			if z > r.depth[index] {
-				r.depth[index] = z
-				r.pixels.SetRGBA(x, y, color.RGBA{uint8(min(255, float64(base.R)*light)), uint8(min(255, float64(base.G)*light)), uint8(min(255, float64(base.B)*light)), 255})
+				shaded := color.RGBA{uint8(min(255, float64(base.R)*light)), uint8(min(255, float64(base.G)*light)), uint8(min(255, float64(base.B)*light)), 255}
+				if opacity >= 1 {
+					r.depth[index] = z
+					r.pixels.SetRGBA(x, y, shaded)
+				} else {
+					r.transparent(index, z, shaded, opacity)
+				}
 			}
 			z += dz
 			light += dl
@@ -293,4 +343,73 @@ func (r *raster) image() *image.RGBA {
 		}
 	}
 	return result
+}
+
+// Weighted blending keeps thumbnail memory bounded by its fixed pixel count,
+// independent of triangle order and transparent surface count.
+func (r *raster) transparent(index int, z float64, c color.RGBA, alpha float64) {
+	if r.transparentWeight == nil {
+		size := r.width * r.height
+		r.transparentWeight = make([]float64, size)
+		r.transparentReveal = make([]float64, size)
+		for i := range r.transparentColor {
+			r.transparentColor[i] = make([]float64, size)
+		}
+	}
+	if r.transparentWeight[index] == 0 {
+		r.transparentReveal[index] = 1
+	}
+	weight := alpha * math.Pow(max(.1, min(1, .5+z/float64(max(1, r.height)*2))), 3)
+	r.transparentColor[0][index] += float64(c.R) * weight
+	r.transparentColor[1][index] += float64(c.G) * weight
+	r.transparentColor[2][index] += float64(c.B) * weight
+	r.transparentWeight[index] += weight
+	r.transparentReveal[index] *= 1 - alpha
+}
+func (r *raster) compositeTransparency(ctx context.Context) error {
+	if r.transparentWeight == nil {
+		return nil
+	}
+	for y := 0; y < r.height; y++ {
+		if y%32 == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		for x := 0; x < r.width; x++ {
+			i := y*r.width + x
+			weight := r.transparentWeight[i]
+			if weight == 0 {
+				continue
+			}
+			reveal := r.transparentReveal[i]
+			old := r.pixels.RGBAAt(x, y)
+			blend := func(channel int, background uint8) uint8 {
+				return uint8(max(0, min(255, float64(background)*reveal+r.transparentColor[channel][i]/weight*(1-reveal))))
+			}
+			r.pixels.SetRGBA(x, y, color.RGBA{blend(0, old.R), blend(1, old.G), blend(2, old.B), 255})
+		}
+	}
+	return nil
+}
+func thumbnailEdgeStyle(a workspace.ResolvedAppearance) (color.RGBA, float64, float64) {
+	c := color.RGBA{30, 48, 65, 255}
+	if a.EdgeColor != "" {
+		c = surfaceColor(a.EdgeColor)
+	}
+	width := 1.15
+	if a.EdgeWidth != nil {
+		width = *a.EdgeWidth
+	}
+	opacity := 1.0
+	if a.Opacity != nil {
+		opacity = *a.Opacity
+	}
+	if a.EdgeOpacityMode == "CLEAR" {
+		opacity = 1
+	}
+	if a.Edges != nil && !*a.Edges {
+		opacity = 0
+	}
+	return c, width, .82 * opacity
 }

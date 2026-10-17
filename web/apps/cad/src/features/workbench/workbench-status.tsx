@@ -5,7 +5,8 @@ import type { SketchCommandState, SketchCommandAction, SketchCommitReceipt } fro
 import { LoadingOutlined } from "@ant-design/icons";
 import { useUIPreferences } from "../../state/ui-preferences";
 
-export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengthUnit, continuous, prompt, sketchCommand, onSketchAction, sketchReceipt, onSketchReceiptCheck }: {
+export function WorkbenchStatus({ onSceneProperties,sceneGrid,onSceneGrid,busy, canEdit, selectionCount, toolName, lengthUnit, continuous, prompt, sketchCommand, onSketchAction, sketchReceipt, onSketchReceiptCheck }: {
+  onSceneProperties?:()=>void;sceneGrid?:boolean;onSceneGrid?:(grid:boolean)=>void;
   prompt?:string; busy: boolean; canEdit: boolean; selectionCount: number; toolName: string; lengthUnit: string; continuous: boolean;sketchCommand?:SketchCommandState;onSketchAction?:(action:SketchCommandAction)=>void;
   sketchReceipt?:SketchCommitReceipt;onSketchReceiptCheck?:()=>void;
 }) {
@@ -38,7 +39,7 @@ export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengt
     {prompt&&<span role="status" className="workbench-sketch-role" title={prompt}>{prompt}</span>}
     {!sketchCommand&&!prompt&&<span className="workbench-selection-count">{selectionCount ? `已选择 ${selectionCount} 项` : "未选择对象"}</span>}
     <span className="workbench-status-spacer" />
-    <ViewportSettingsButton grids={preferences.gridVisibility} onGrids={preferences.setGridVisibility} references={preferences.referenceVisibility} display={preferences.solidDisplay}
+    <ViewportSettingsButton onSceneProperties={onSceneProperties} grids={{...preferences.gridVisibility,scene:sceneGrid??preferences.gridVisibility.scene}} onGrids={value=>{preferences.setGridVisibility({...preferences.gridVisibility,sketch:value.sketch});onSceneGrid?.(value.scene)}} references={preferences.referenceVisibility} display={preferences.solidDisplay}
       onReferences={preferences.setReferenceVisibility} onDisplay={preferences.setSolidDisplay}
       capture={{ settings: preferences.captureSettings, onEnabledChange: preferences.setCaptureEnabled,
         onSelectionToggle: preferences.toggleSelectionCapture, onSketchToggle: preferences.toggleSketchSnap,

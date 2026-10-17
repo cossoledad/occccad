@@ -3,9 +3,9 @@ import type {ComponentProps} from 'react';
 import type {CadCommand,CadCommandInvocation,CommandOperation} from '../../../cad/command/command-registry';
 import type {SpecificationTree,SpecificationTreeNode} from '../specification-tree';
 type TreeActions=Pick<ComponentProps<typeof SpecificationTree>,
- 'onActivate'|'onOpenDocumentTab'|'onViewResult'|'onEdit'|'onRename'|'onColor'|'onCreatePart'|'onReferenceMode'|'onDetach'|'onReconnect'|'onRefresh'|'onDelete'|'onToggleConstruction'|'onToggleVisibility'|'onToggleSuppression'>;
+ 'onActivate'|'onOpenDocumentTab'|'onViewResult'|'onEdit'|'onRename'|'onColor'|'onProperties'|'onCreatePart'|'onReferenceMode'|'onDetach'|'onReconnect'|'onRefresh'|'onDelete'|'onToggleConstruction'|'onToggleVisibility'|'onToggleSuppression'>;
 export type StructureActions={[Action in keyof TreeActions]?: (...args:[...Parameters<NonNullable<TreeActions[Action]>>,operation?:CommandOperation])=>void|Promise<void>};
-export const structureCommandIDs={onActivate:'tree.activate',onOpenDocumentTab:'tree.open-document',onViewResult:'tree.view-result',onEdit:'tree.edit',onRename:'tree.rename',onColor:'tree.color',onCreatePart:'tree.create-part',onReferenceMode:'tree.reference-mode',onDetach:'tree.detach',onReconnect:'tree.reconnect',onRefresh:'tree.refresh',onDelete:'edit.delete',onToggleConstruction:'tree.construction',onToggleVisibility:'tree.visibility',onToggleSuppression:'tree.suppression'} as const;
+export const structureCommandIDs={onActivate:'tree.activate',onOpenDocumentTab:'tree.open-document',onViewResult:'tree.view-result',onEdit:'tree.edit',onRename:'tree.rename',onColor:'tree.color',onProperties:'tree.properties',onCreatePart:'tree.create-part',onReferenceMode:'tree.reference-mode',onDetach:'tree.detach',onReconnect:'tree.reconnect',onRefresh:'tree.refresh',onDelete:'edit.delete',onToggleConstruction:'tree.construction',onToggleVisibility:'tree.visibility',onToggleSuppression:'tree.suppression'} as const;
 export type StructureInvocation={node?:SpecificationTreeNode;nodes?:SpecificationTreeNode[];referenceMode?:'PINNED'|'FOLLOW_HEAD';scope?:'DEFINITION'|'OCCURRENCE';visibilityMode?:'SHOW'|'HIDE'|'INHERIT'};
 export function structureInvocation(invocation?:CadCommandInvocation):StructureInvocation {
  if(!invocation?.payload||typeof invocation.payload!=='object')throw new Error('Missing structure command target');
@@ -44,6 +44,7 @@ export function structureCommands(actions:StructureActions={},currentNodes:reado
   command('onEdit',({node},operation)=>actions.onEdit?.(node,operation)),
   command('onRename',({node})=>actions.onRename?.(node)),
   command('onColor',({node})=>actions.onColor?.(node)),
+  command('onProperties',({node})=>actions.onProperties?.(node)),
   command('onCreatePart',({node})=>actions.onCreatePart?.(node)),
   command('onReferenceMode',({node,referenceMode})=>{if(!referenceMode)throw new Error('Missing reference mode');actions.onReferenceMode?.(node,referenceMode);}),
   command('onDetach',({node})=>actions.onDetach?.(node)),

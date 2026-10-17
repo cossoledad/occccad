@@ -4987,9 +4987,66 @@
       }
     },
     {
+      "id": "tree.properties",
+      "name": "属性…",
+      "helpText": "查看和编辑所选对象的名称、图形及外观属性。",
+      "iconKey": "parameters",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "edit.properties",
+      "name": "属性…",
+      "helpText": "打开当前选中对象的属性；未选择对象时查看文档属性。",
+      "iconKey": "parameters",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "view.scene-properties",
+      "name": "场景属性…",
+      "helpText": "设置个人视图的地面、网格、光照和背景。",
+      "iconKey": "parameters",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      }
+    },
+    {
       "id": "tree.color",
       "name": "颜色材质",
-      "helpText": "设置整个 Body 的纯色材质。",
+      "helpText": "打开 Body 的图形属性，修改外观并保留其他字段。",
       "iconKey": "parameters",
       "repeatable": false,
       "implementation": "form",

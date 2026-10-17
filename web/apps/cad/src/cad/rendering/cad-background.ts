@@ -27,6 +27,12 @@ export class CadBackground {
     renderer.render(this.scene, this.camera);
   }
 
+  setColors(top?:string,bottom?:string):void {
+    this.material.uniforms.uTop.value.set(top??CATIA_VISUAL_THEME.backgroundTop);
+    this.material.uniforms.uBottom.value.set(bottom??CATIA_VISUAL_THEME.backgroundBottom);
+    this.material.uniforms.uVignette.value=top?0:CATIA_VISUAL_THEME.backgroundVignette;
+  }
+
   dispose(): void {
     this.geometry.dispose();
     this.material.dispose();

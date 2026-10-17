@@ -20,6 +20,17 @@ try {
  const view={document:{id:"part",type:"PART"},part:{bodies:[],datumPlanes:[],axisSystems:[]}};
  const initial=engine.geometrySignature(view);
  view.bodyAppearances={body:{geometryKey:"g",color:"#d64a3a"}};
- assert.notEqual(engine.geometrySignature(view),initial,"color-only Revision must refresh render materials");
+ assert.equal(engine.geometrySignature(view),initial,"appearance must reuse geometry and picking buffers");
+ const translucent=surfaceAppearanceMaterials(geometry,[7,7,2],{color:"#d64a3a",opacity:.4,faceProperties:{2:{opacity:0,roughness:.9}}},0x98a8b8,(c,p)=>factory.surface(c,p));
+ assert.equal(translucent.length,2);assert.equal(translucent[0].opacity,.4);assert.equal(translucent[1].opacity,0);assert.equal(translucent[1].roughness,.9);
+ assert.ok(translucent.every(m=>m.transparent&&!m.depthWrite));
+ assert.deepEqual(Array.from(geometry.index.array),indices);
+ const {materialAllowsPick}=await server.ssrLoadModule("/src/cad/rendering/surface-appearance.ts");
+ assert.equal(materialAllowsPick(translucent,0),true);assert.equal(materialAllowsPick(translucent,1),false);
+ const {groundLevel,normalizeSceneSettings}=await server.ssrLoadModule("/src/cad/rendering/scene-settings.ts");
+ assert.equal(groundLevel(normalizeSceneSettings({}),-15),-15);
+ assert.equal(groundLevel(normalizeSceneSettings({groundMode:"WORLD"}),-15),0);
+ assert.equal(groundLevel(normalizeSceneSettings({groundMode:"AUTO",groundLocked:true,groundHeight:8}),-15),8);
+ assert.equal(groundLevel(normalizeSceneSettings({groundMode:"AUTO",groundOffset:2}),undefined),2);
  console.log("Surface appearance palette, black, selection restore, triangle mapping and render invalidation passed");
 } finally {await server.close()}

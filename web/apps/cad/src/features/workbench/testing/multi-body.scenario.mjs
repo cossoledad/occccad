@@ -15,7 +15,7 @@ try {
  function engine() {
   const e=Object.create(CadViewportEngine.prototype);
   Object.assign(e,{view,content:new THREE.Group(),helpers:new THREE.Group(),scene:new THREE.Scene(),host:{dataset:{}},solidBindings:new Map(),selectable:new Map(),instanceGroups:new Map(),selectionIndex:new SelectionIndex(),solidDisplay:DEFAULT_SOLID_DISPLAY,
-  materials:{surface:()=>new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),edge:()=>new THREE.LineBasicMaterial(),point:()=>new THREE.PointsMaterial()},addVisualPrimitives(){},addAssemblyConstraintMarkers(){},updateCameraClipping(){},invalidate(){}});
+  materials:{surface:()=>new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),edge:()=>new THREE.LineBasicMaterial(),point:()=>new THREE.PointsMaterial()},refreshSceneGround(){},addVisualPrimitives(){},addAssemblyConstraintMarkers(){},updateCameraClipping(){},invalidate(){}});
   return e;
  }
  const e=engine();e.renderPart(view);assert.equal(e.solidBindings.size,2);e.content.updateMatrixWorld(true);

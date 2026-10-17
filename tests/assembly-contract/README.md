@@ -32,6 +32,8 @@ python tests/assembly-contract/runner.py composition --output build/assembly-con
 
 `interactionConfirmationReview20261011` 仅记录 `m4.operation.failure-outlet` 的人工断言审查：中间失败允许后续目标恢复，最终确认失败才产生每手势一次的提示，并验证真实归档身份及重试／取消动作。更新该实际执行通过的源摘要，没有改变 case、目标预期或覆盖下限，也没有重新生成整个冻结锁。
 
+2026-10-17 属性/场景改动为增量显示测试的部分 Engine fixture 增加空 `refreshSceneGround`：该 fixture 只验证约束图标和 GPU 复用，不拥有地面环境。定向用例通过后只更新 `composition.constraint-display.incremental-ui` 的断言源摘要；所有既有断言、目标、容差和覆盖下限保留。地面由真实浏览器属性用例独立验收。
+
 `composition` 是更严格的收口门：全部选中 capability 的 `acceptanceStatus` 必须为 ACCEPTED，所有必需实现层和具体证据均齐全且实际通过。缺测、NOT_RUN、ENVIRONMENT_BLOCKED、缺 fixtures 或集成 skip 都不能返回绿色 COMPOSITION。筛选后的成功只证明该选择范围；完整验收必须运行无 capability/family/layer/adapters 缩范围的完整入口。baseline 通过不等于完整六族通过。
 
 定向选择可组合 capability、family、layer 和 case；未知值与交集为空报错：

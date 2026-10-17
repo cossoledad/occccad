@@ -12,7 +12,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   return target.isContentEditable || Boolean(target.closest("input, textarea, select, button, [role='button'], [role='tree'], [role='menu'], [role='menuitem'], [role='tab'], [role='listbox'], [role='combobox'], [role='dialog'], [contenteditable='true']"));
 }
 
-export type ModalInputHandlers={keyDown?:(event:KeyboardEvent)=>InputResult;keyUp?:(event:KeyboardEvent)=>InputResult};
+export type ModalInputHandlers={keyDown?:(event:KeyboardEvent)=>InputResult;keyUp?:(event:KeyboardEvent)=>InputResult;contextMenu?:(event:PointerEvent)=>void};
 
 export class InputManager {
   private readonly state = new InputStateTracker();
@@ -20,6 +20,7 @@ export class InputManager {
   private readonly expectedCaptureLoss = new Set<number>();
   private readonly subscribers = new Set<(state: InputState) => void>();
   private lastControlSignature = "";
+  private contextClick?:{pointerId:number;x:number;y:number};
 
   constructor(private readonly surface: HTMLElement, private readonly sink: CadInputSink,private readonly modalInput:ModalInputHandlers={}) {
     surface.style.touchAction = "none";
@@ -84,6 +85,7 @@ export class InputManager {
   }
 
   private onPointerDown = (event: PointerEvent): void => {
+    this.contextClick=event.button===2&&event.buttons===2?{pointerId:event.pointerId,x:event.clientX,y:event.clientY}:undefined;
     const normalized = this.pointerEvent(event, "down");
     const result = this.sink.pointerDown?.(normalized) ?? InputResult.Ignored;
     this.applyCaptureResult(event.pointerId, result);
@@ -92,6 +94,7 @@ export class InputManager {
   };
 
   private onPointerMove = (event: PointerEvent): void => {
+    if(this.contextClick&&((event.buttons!==2&&event.buttons!==0)||Math.hypot(event.clientX-this.contextClick.x,event.clientY-this.contextClick.y)>4))this.contextClick=undefined;
     const previous = this.state.snapshot();
     const normalized = this.pointerEvent(event, "move");
     let handled = false;
@@ -124,9 +127,11 @@ export class InputManager {
   };
 
   private onPointerUp = (event: PointerEvent): void => {
+    const contextClick=this.contextClick;this.contextClick=undefined;
     const result = this.sink.pointerUp?.(this.pointerEvent(event, "up")) ?? InputResult.Ignored;
     if (result === InputResult.ReleaseCapture || event.buttons === 0) this.releasePointer(event.pointerId);
     if (isHandled(result)) event.preventDefault();
+    if(event.button===2&&event.buttons===0&&contextClick?.pointerId===event.pointerId&&Math.hypot(event.clientX-contextClick.x,event.clientY-contextClick.y)<=4)this.modalInput.contextMenu?.(event);
     if (event.button === 1) event.stopImmediatePropagation();
   };
 
@@ -209,6 +214,7 @@ export class InputManager {
   }
 
   private resetInput(): void {
+    this.contextClick=undefined;
     for (const pointerId of [...this.capturedPointers]) this.releasePointer(pointerId);
     this.sink.cancel?.();
     this.publishControlState(this.state.reset());

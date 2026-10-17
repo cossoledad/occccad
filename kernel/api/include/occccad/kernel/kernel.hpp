@@ -7,6 +7,7 @@
 #define OCCCCAD_KERNEL_HPP
 
 #include <cstdint>
+#include <optional>
 #include <array>
 #include <string>
 #include <string_view>
@@ -294,14 +295,17 @@ struct ExchangeOccurrence {
     std::string id, definition_id, name;
     PlacedGeometry placement;
     std::string color{};
+    std::optional<double> opacity{};
 };
 struct ExchangeFaceColor {
     uint64_t local_id;
-    std::string color; // opaque sRGB #rrggbb, scoped to this frozen BREP
+    std::string color; // sRGB #rrggbb, scoped to this frozen BREP
+    std::optional<double> opacity{};
 };
 struct ExchangeAppearance {
     std::string color;
     std::vector<ExchangeFaceColor> faces;
+    std::optional<double> opacity{};
 };
 struct ExchangeBody {
     GeometryId geometry_id;

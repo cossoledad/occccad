@@ -110,7 +110,7 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 
 当前业务导入已在同一 attempt 对 STEP 只 ReadFile/Transfer 一次，并按唯一 Part Definition 准备本地坐标 BREP，再并行求值与建立命名；阶段/组件数量和跨重试进度高水位已持久化。持久求值的小摘要/制品引用已实施，其余 checkpoint 目标仍待实施。目标进一步要求：完成的规范化组件 BREP/identity seed 立即写不可变 checkpoint，再由独立任务生成显示制品。初期可在专用进程内保留解析器，重启时允许重读源文件，但不能每个 root 都重新解析整份文件。结果数组只持有组件摘要和对象引用，不能累计完整 Mesh/GLB；当前结果已经是轻量 protobuf 摘要响应。
 
-装配已采用 XDE/STEPCAF 恢复 definition/occurrence、共享引用、层级、placement 和名称；后续扩展颜色/材质/层/PMI；嵌套装配不按 transferable root 数量猜测。OCCT 官方说明 XDE 支持扩展结构与属性，STEPCAF 可转入文档；是否降低本项目内存必须实测，XDE 并非 out-of-core 保证。[OCCT XDE](https://github.com/Open-Cascade-SAS/OCCT/wiki/xde)。基础 XDE round-trip 已有定向 conformance；完整 AP242 与大模型容量仍须独立验收。
+装配已采用 XDE/STEPCAF 恢复 definition/occurrence、共享引用、层级、placement 和名称；纯色/透明度的当前边界见[外观](../current/surface-appearance.md)，后续扩展材质库/层/PMI；嵌套装配不按 transferable root 数量猜测。OCCT 官方说明 XDE 支持扩展结构与属性，STEPCAF 可转入文档；是否降低本项目内存必须实测，XDE 并非 out-of-core 保证。[OCCT XDE](https://github.com/Open-Cascade-SAS/OCCT/wiki/xde)。基础 XDE round-trip 已有定向 conformance；完整 AP242 与大模型容量仍须独立验收。
 
 ### 资源与失败隔离
 

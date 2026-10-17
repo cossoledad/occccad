@@ -550,14 +550,19 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		return nil, modelcore.EvaluationManifest{}, err
 	}
 	nodes := []modelcore.DependencyNode{}
+	defaultAppearance, _ := json.Marshal(model.DefaultAppearance)
+	metadata, _ := json.Marshal(model.Metadata)
+	nodes = append(nodes, modelcore.DependencyNode{Key: "appearance:document", Phase: 0, Type: "APPEARANCE", CanonicalInput: defaultAppearance}, modelcore.DependencyNode{Key: "metadata:document", Phase: 0, Type: "METADATA", CanonicalInput: metadata})
 	edges := []modelcore.DependencyEdge{}
 	for _, datum := range model.DatumPlanes {
 		datum.Visible = nil
+		datum.Name = ""
 		data, _ := json.Marshal(datum)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 2, Type: "DATUM_PLANE", CanonicalInput: data})
 	}
 	for _, datum := range model.AxisSystems {
 		datum.Visible = nil
+		datum.Name = ""
 		datum.PointVisible = nil
 		datum.AxisVisibility = nil
 		data, _ := json.Marshal(datum)
@@ -565,6 +570,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	}
 	for _, datum := range model.DatumAxes {
 		datum.Visible = nil
+		datum.Name = ""
 		data, _ := json.Marshal(datum)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 2, Type: "DATUM_AXIS", CanonicalInput: data})
 	}

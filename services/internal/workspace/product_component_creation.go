@@ -99,6 +99,7 @@ func (service *Service) CreatePartComponent(ctx context.Context, rootProductDocu
 	partRevisionUUID, _ := uuid.NewV7()
 	partDocumentID, partRevisionID := partDocumentUUID.String(), partRevisionUUID.String()
 	partModel := newPartModelFor(partDocumentID)
+	partModel.Metadata = &DocumentMetadata{Name: partName, Description: description}
 	geometryKey, err := service.ensureVisualizationArtifact(ctx, partModel)
 	if err != nil {
 		return DocumentView{}, err

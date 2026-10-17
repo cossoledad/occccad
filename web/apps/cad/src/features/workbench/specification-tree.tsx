@@ -81,7 +81,7 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onRename, onColor, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onRename, onColor, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   documentSessions?: DocumentSessions; hostDocumentId?: string;
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string; editSession?: EditSession;
@@ -93,6 +93,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   onEdit?: (node: SpecificationTreeNode) => void;
   onRename?: (node: SpecificationTreeNode) => void;
   onColor?: (node: SpecificationTreeNode) => void;
+  onProperties?: (node: SpecificationTreeNode) => void;
   onCreatePart?: (node: SpecificationTreeNode) => void;
   onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD") => void;
   onDetach?: (node: SpecificationTreeNode) => void;
@@ -232,7 +233,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
           onDoubleClick={(event) => { event.stopPropagation(); onActivate?.(node); }}
           onContextMenu={(event) => contextSelection(event, node)}
           onMouseEnter={() => onHover?.(node)} onMouseLeave={() => onHover?.()}
-          onKeyDown={(event) => keyboardSelect(event, entry)}>
+          onKeyDown={(event) => {if(event.altKey&&event.key==="Enter"&&onProperties){event.preventDefault();event.stopPropagation();onProperties(node)}else keyboardSelect(event, entry)}}>
           {depth === 0 ? <span className="specification-tree-root-anchor" /> : hasChildren
             ? <button className={`specification-tree-junction branch ${isExpanded ? "expanded" : "collapsed"}`}
               tabIndex={-1} aria-label={isExpanded ? "折叠" : "展开"}
@@ -291,7 +292,8 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               onClick: () => { setContextMenu(undefined); onToggleSuppression?.(node); } } : null,
             { key: "delete", icon: menuIcon('edit.delete'), danger: true,
             label: menuLabel('edit.delete',deletable.length>1?'many':'default',deletable.length), disabled: deletable.length === 0,
-            onClick: () => { setContextMenu(undefined); onDelete?.(deletable); } }] }}>{row}</Dropdown>
+            onClick: () => { setContextMenu(undefined); onDelete?.(deletable); } },
+            ...(onProperties?[{type:"divider" as const},{key:"properties",icon:menuIcon("tree.properties"),label:menuLabel("tree.properties"),onClick:()=>{setContextMenu(undefined);onProperties(node)}}]:[])] }}>{row}</Dropdown>
         </div>;
       })}
     </div>

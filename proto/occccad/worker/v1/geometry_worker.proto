@@ -898,7 +898,8 @@ message ExchangeOccurrence {
     string name = 3;
     Vec3 translation = 4;
     Quaternion rotation = 5;
-    string color = 6; // optional opaque sRGB override on this occurrence
+    string color = 6; // optional sRGB override on this occurrence
+    optional double opacity = 7; // 0 transparent, 1 opaque; absent inherits
 }
 message ExchangeDefinition {
     string id = 1;
@@ -1358,11 +1359,13 @@ message AnalyzeInterferenceResponse {
 // BREP. The control plane binds them to allocated persistent topology identities.
 message ExchangeFaceColor {
     uint64 local_id = 1;
-    string color = 2; // opaque sRGB #rrggbb
+    string color = 2; // sRGB #rrggbb
+    optional double opacity = 3;
 }
 message ExchangeAppearance {
     string color = 1; // empty means application default
     repeated ExchangeFaceColor faces = 2;
+    optional double opacity = 3;
 }
 message ExchangeBody {
     ArtifactReference brep = 1;
