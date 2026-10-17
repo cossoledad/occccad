@@ -18,6 +18,8 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepLib_CheckCurveOnSurface.hxx>
+#include <BRepClass_FaceClassifier.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
@@ -2209,7 +2211,46 @@ TEST(GeometryExchange, LoftTaperedSectionsRespectStoredSeams) {
     EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({loft}), std::invalid_argument);
 }
 
-void check_shell_chain(OcctKernel& kernel, std::vector<ProfilePadSpec> chain, const std::string& cap, std::vector<double> thicknesses = {0.5,1.0,2.0}, double height = 40) {
+TEST(GeometryExchange, ShellOpeningDirectionAndInvalidThickness) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id="base"; base.body_id="body"; base.profile_feature_id="rectangle";
+    base.pad_length=40; base.regions={rectangular_region("region",-15,-15,15,15)};
+    const auto upstream=kernel.evaluateProfilePadsWithHistory({base});
+    const auto unchanged=kernel.serializeBrepr(upstream.geometry_id);
+    for (const bool outward : {false,true}) for (const bool both : {false,true}) {
+        SCOPED_TRACE(outward);
+        SCOPED_TRACE(both);
+        ProfilePadSpec shell;
+        shell.feature_id="shell"; shell.body_id="body"; shell.input_feature_id="base";
+        shell.generator="SHELL"; shell.pad_length=1; shell.reversed=outward;
+        for (const auto& output : upstream.feature_results.back().semantic_outputs) {
+            const auto& r=output.semantic_ref;
+            if (r.output_slot.rfind("END_CAP/",0)==0 || (both&&r.output_slot.rfind("START_CAP/",0)==0))
+                shell.selections.push_back({r.feature_id,r.output_slot,r.source_ids});
+        }
+        ASSERT_EQ(shell.selections.size(),both?2U:1U);
+        const auto result=kernel.evaluateProfilePadsWithHistory({base,shell});
+        const double expected=outward?(both?4960:5984):(both?4640:5424);
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id),expected,1e-5);
+        EXPECT_EQ(kernel.getTopology(result.geometry_id).solid_count,1);
+        EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+        EXPECT_EQ(unchanged,kernel.serializeBrepr(upstream.geometry_id));
+        std::reverse(shell.selections.begin(),shell.selections.end());
+        OcctKernel cold;
+        const auto repeated=cold.evaluateProfilePadsWithHistory({base,shell});
+        EXPECT_EQ(result.feature_results.back().topology_history.evidence_digest,
+                  repeated.feature_results.back().topology_history.evidence_digest);
+        shell.pad_length=0;
+        EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base,shell}),std::invalid_argument);
+        shell.pad_length=-1;
+        EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base,shell}),std::invalid_argument);
+        shell.pad_length=1; shell.selections.clear();
+        EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base,shell}),std::invalid_argument);
+    }
+}
+
+void check_shell_chain(OcctKernel& kernel, std::vector<ProfilePadSpec> chain, const std::string& cap, std::vector<double> thicknesses = {0.5,1.0,2.0}, double height = 40, const gp_Trsf& frame = gp_Trsf()) {
     const auto solid = kernel.evaluateProfilePadsWithHistory(chain);
     ProfilePadSpec shell;
     shell.feature_id = "shell"; shell.body_id = "body"; shell.generator = "SHELL";
@@ -2230,6 +2271,9 @@ void check_shell_chain(OcctKernel& kernel, std::vector<ProfilePadSpec> chain, co
     double inputTolerance = 0;
     for (TopExp_Explorer vertices(original,TopAbs_VERTEX); vertices.More(); vertices.Next())
         inputTolerance = std::max(inputTolerance,BRep_Tool::Tolerance(TopoDS::Vertex(vertices.Current())));
+    for (TopExp_Explorer edges(original,TopAbs_EDGE); edges.More(); edges.Next())
+        inputTolerance=std::max(inputTolerance,BRep_Tool::Tolerance(TopoDS::Edge(edges.Current())));
+    const double toleranceLimit=std::max(1e-5,inputTolerance*1.01);
     SCOPED_TRACE("upstream vertex tolerance " + std::to_string(inputTolerance));
     for (double thickness : thicknesses) {
         SCOPED_TRACE(thickness);
@@ -2243,25 +2287,46 @@ void check_shell_chain(OcctKernel& kernel, std::vector<ProfilePadSpec> chain, co
         EXPECT_TRUE(result.feature_results.back().topology_history_complete);
         const auto shape = readShape(kernel.serializeBrepr(result.geometry_id));
         EXPECT_TRUE(BRepCheck_Analyzer(shape).IsValid());
-        for (TopExp_Explorer vertices(shape,TopAbs_VERTEX); vertices.More(); vertices.Next())
+        for (TopExp_Explorer vertices(shape,TopAbs_VERTEX); vertices.More(); vertices.Next()) {
             EXPECT_LT(BRep_Tool::Tolerance(TopoDS::Vertex(vertices.Current())),thickness*1e-3);
+            EXPECT_LE(BRep_Tool::Tolerance(TopoDS::Vertex(vertices.Current())),toleranceLimit);
+        }
+        for (TopExp_Explorer faces(shape,TopAbs_FACE); faces.More(); faces.Next())
+            for (TopExp_Explorer edges(faces.Current(),TopAbs_EDGE); edges.More(); edges.Next()) {
+                const auto edge=TopoDS::Edge(edges.Current());
+                EXPECT_LE(BRep_Tool::Tolerance(edge),toleranceLimit);
+                if (BRep_Tool::Degenerated(edge)) continue;
+                BRepLib_CheckCurveOnSurface check(edge,TopoDS::Face(faces.Current())); check.Perform();
+                ASSERT_TRUE(check.IsDone());
+                EXPECT_LE(check.MaxDistance(),toleranceLimit);
+                TopoDS_Vertex first,last;TopExp::Vertices(TopoDS::Edge(edge.Oriented(TopAbs_FORWARD)),first,last);
+                BRepAdaptor_Curve curve(edge);
+                for(const auto& end:{std::make_pair(first,curve.FirstParameter()),std::make_pair(last,curve.LastParameter())}) {
+                    ASSERT_FALSE(end.first.IsNull());
+                    const auto distance=BRep_Tool::Pnt(end.first).Distance(curve.Value(end.second));
+                    EXPECT_LE(distance,toleranceLimit);
+                    EXPECT_LE(distance,BRep_Tool::Tolerance(end.first)*1.001+1e-12);
+                }
+            }
         EXPECT_EQ(kernel.getTopology(result.geometry_id).solid_count, 1);
         // The opening stays open, the base has the requested thickness,
         // and material immediately beyond the inner wall is absent.
         const auto state = [&](const gp_Pnt& p) { return BRepClass3d_SolidClassifier(shape, p, 1e-6).State(); };
-        EXPECT_EQ(state(gp_Pnt(0,0,height-thickness*0.1)), TopAbs_OUT);
-        EXPECT_EQ(state(gp_Pnt(0,0,thickness*0.5)), TopAbs_IN);
-        EXPECT_EQ(state(gp_Pnt(0,0,thickness*1.5)), TopAbs_OUT);
+        EXPECT_EQ(state(gp_Pnt(0,0,height-thickness*0.1).Transformed(frame)), TopAbs_OUT);
+        EXPECT_EQ(state(gp_Pnt(0,0,thickness*0.5).Transformed(frame)), TopAbs_IN);
+        EXPECT_EQ(state(gp_Pnt(0,0,thickness*1.5).Transformed(frame)), TopAbs_OUT);
         int checked = 0;
         for (TopExp_Explorer faces(original, TopAbs_FACE); faces.More(); faces.Next()) {
             const auto face = TopoDS::Face(faces.Current());
             double u0,v0,u1,v1;
             BRepTools::UVBounds(face,u0,u1,v0,v1);
-            const double u=(u0+u1)*0.5, v=(v0+v1)*0.5;
             BRepAdaptor_Surface surface(face);
+            for (const double fu : {.25,.5,.75}) for (const double fv : {.25,.5,.75}) {
+            const double u=u0+(u1-u0)*fu,v=v0+(v1-v0)*fv;
+            if (BRepClass_FaceClassifier(face,gp_Pnt2d(u,v),1e-7).State()!=TopAbs_IN) continue;
             gp_Pnt point; gp_Vec du,dv;
             surface.D1(u,v,point,du,dv);
-            if (point.Z() > height-1e-6 || du.Crossed(dv).Magnitude() < 1e-9) continue;
+            if (point.Transformed(frame.Inverted()).Z() > height-1e-6 || du.Crossed(dv).Magnitude() < 1e-9) continue;
             bool nearEdge = false;
             const auto vertex = BRepBuilderAPI_MakeVertex(point).Vertex();
             for (TopExp_Explorer edges(face,TopAbs_EDGE); edges.More(); edges.Next()) {
@@ -2274,6 +2339,7 @@ void check_shell_chain(OcctKernel& kernel, std::vector<ProfilePadSpec> chain, co
             EXPECT_EQ(state(point.Translated(normal*(-0.5*thickness))),TopAbs_IN);
             EXPECT_EQ(state(point.Translated(normal*(-1.5*thickness))),TopAbs_OUT);
             ++checked;
+            }
         }
         EXPECT_GE(checked, 2);
         const auto mesh = kernel.tessellate(result.geometry_id);
@@ -2283,7 +2349,7 @@ void check_shell_chain(OcctKernel& kernel, std::vector<ProfilePadSpec> chain, co
         EXPECT_FALSE(make_glb(mesh).empty());
         for (const auto& p : mesh.vertices) EXPECT_TRUE(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z));
         EXPECT_EQ(originalBytes,kernel.serializeBrepr(solid.geometry_id));
-        if (thickness == 1 && !chain.front().ruled && chain.size() < 3) {
+        if (thickness <= 1 && !chain.front().ruled && chain.size() < 3) {
             OcctKernel cold;
             const auto repeated=cold.evaluateProfilePadsWithHistory(input);
             EXPECT_EQ(result.feature_results.back().topology_history.evidence_digest,repeated.feature_results.back().topology_history.evidence_digest);
@@ -2378,7 +2444,18 @@ TEST(GeometryExchange, ShellOffsetRectangleToLargerCircle) {
     ProfileCurveSpec circle; circle.entity_id="circle-edge"; circle.kind="CIRCLE"; circle.radius=90;
     top.region.id="circle"; top.region.outer={"circle-loop",{circle}}; top.seam_entity_id=circle.entity_id;
     loft.sections={bottom,top};
-    check_shell_chain(kernel, {loft}, "LOFT_END_CAP", {1.0}, 100);
+    check_shell_chain(kernel, {loft}, "LOFT_END_CAP", {.5,1.0,2.0}, 100);
+    gp_Trsf frame;
+    frame.SetRotation(gp_Ax1(gp_Pnt(0,0,0),gp_Dir(1,2,3)),.41);
+    frame.SetTranslationPart(gp_Vec(17,-23,11));
+    for(auto& section:loft.sections) {
+        const auto p=gp_Pnt(section.origin.x,section.origin.y,section.origin.z).Transformed(frame);
+        const auto n=gp_Vec(section.normal.x,section.normal.y,section.normal.z).Transformed(frame);
+        const auto u=gp_Vec(section.u_direction.x,section.u_direction.y,section.u_direction.z).Transformed(frame);
+        section.origin={p.X(),p.Y(),p.Z()};section.normal={n.X(),n.Y(),n.Z()};section.u_direction={u.X(),u.Y(),u.Z()};
+    }
+    SCOPED_TRACE("rotated and translated expanding loft");
+    check_shell_chain(kernel,{loft},"LOFT_END_CAP",{1.0},100,frame);
 }
 
 TEST(GeometryExchange, LoftRectangleToCircleUsesActualSplitHistory) {

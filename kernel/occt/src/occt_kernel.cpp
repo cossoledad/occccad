@@ -14,9 +14,12 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepLib_CheckCurveOnSurface.hxx>
 #include <BRepCheck_ListIteratorOfListOfStatus.hxx>
 #include <BRepCheck_Result.hxx>
 #include <BRepCheck_Wire.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepClass_FaceClassifier.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepGProp.hxx>
@@ -60,6 +63,7 @@
 #include <ShapeBuild_ReShape.hxx>
 #include <ShapeFix_Face.hxx>
 #include <ShapeFix_Shape.hxx>
+#include <ShapeFix_ShapeTolerance.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
@@ -92,10 +96,13 @@
 
 #include <internal/occt_kernel.hpp>
 #include <internal/fillet_boundary.hpp>
+#include <internal/mesh_boundary.hpp>
+#include <internal/shell_junction.hpp>
 #include <occccad/kernel/geometry_id.hpp>
 #include <occccad/kernel/topology_naming.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -2137,6 +2144,69 @@ void validate_shell_offset(const TopoDS_Shape& shape, double toleranceLimit) {
         throw std::runtime_error("SHELL_OFFSET_TOLERANCE_EXCEEDED");
 }
 
+void verify_shell_offset(ComposedModifier& candidate, double toleranceLimit, bool refineVertices = true) {
+    validate_body_solid_set(candidate.shape);
+    const double recorded = shell_input_tolerance(candidate.shape);
+    double deviation=0,vertexDeviation=0;
+    bool degenerate=false;
+    for(TopExp_Explorer faces(candidate.shape,TopAbs_FACE);faces.More();faces.Next()) {
+        const auto face=TopoDS::Face(faces.Current());
+        for(TopExp_Explorer edges(face,TopAbs_EDGE);edges.More();edges.Next()) {
+            const auto edge=TopoDS::Edge(edges.Current().Oriented(TopAbs_FORWARD));
+            if(BRep_Tool::Degenerated(edge)){degenerate=true;continue;}
+            if(!BRep_Tool::SameParameter(edge)||!BRep_Tool::SameRange(edge))
+                throw std::runtime_error("SHELL_OFFSET_PCURVE_PARAMETER_MISMATCH");
+            BRepLib_CheckCurveOnSurface check(edge,face);check.Perform();
+            if(!check.IsDone()||!std::isfinite(check.MaxDistance()))throw std::runtime_error("SHELL_OFFSET_PCURVE_CHECK_FAILED");
+            deviation=std::max(deviation,check.MaxDistance());
+            TopoDS_Vertex first,last;TopExp::Vertices(edge,first,last);
+            BRepAdaptor_Curve curve(edge);
+            double f,l;const auto pc=BRep_Tool::CurveOnSurface(edge,face,f,l);
+            const auto surface=BRep_Tool::Surface(face);
+            for(const auto& end:{std::make_pair(first,curve.FirstParameter()),std::make_pair(last,curve.LastParameter())}) {
+                if(end.first.IsNull())continue;
+                const auto point=BRep_Tool::Pnt(end.first);
+                const auto uv=pc->Value(end.second);
+                const auto curveError=point.Distance(curve.Value(end.second));
+                const auto surfaceError=point.Distance(surface->Value(uv.X(),uv.Y()));
+                if(!std::isfinite(curveError)||!std::isfinite(surfaceError))throw std::runtime_error("SHELL_OFFSET_PCURVE_CHECK_FAILED");
+                vertexDeviation=std::max({vertexDeviation,curveError,surfaceError});
+            }
+        }
+    }
+    if(!std::isfinite(deviation)||deviation>toleranceLimit) {
+        std::clog << "shell stage=curve_precision deviation=" << deviation << " limit=" << toleranceLimit << '\n';
+        throw std::runtime_error("SHELL_OFFSET_TOLERANCE_EXCEEDED");
+    }
+    if(vertexDeviation>toleranceLimit && refineVertices) {
+        auto refined=refine_shell_junctions(candidate.shape,toleranceLimit);
+        if(refined.changed) {
+            candidate.history->Merge(refined.history);
+            candidate.shape=refined.shape;
+            verify_shell_offset(candidate,toleranceLimit,false);
+            return;
+        }
+    }
+    if(!std::isfinite(vertexDeviation)||vertexDeviation>toleranceLimit) {
+        std::clog << "shell stage=vertex_precision deviation=" << vertexDeviation << " limit=" << toleranceLimit << '\n';
+        throw std::runtime_error("SHELL_VERTEX_PRECISION_EXCEEDED");
+    }
+    deviation=std::max(deviation,vertexDeviation);
+    if(recorded<=toleranceLimit)return;
+    if(degenerate)throw std::runtime_error("SHELL_OFFSET_TOLERANCE_EXCEEDED:DEGENERATE_EDGE");
+    // Only a proven conservative record can be capped, on an independent copy.
+    // Preserve already valid records: they also guide OCCT's tolerant wire ordering.
+    // Neither geometric supports nor the accepted error budget change.
+    BRepBuilderAPI_Copy copy(candidate.shape,Standard_True,Standard_False);
+    ShapeFix_ShapeTolerance().LimitTolerance(copy.Shape(),0,toleranceLimit,TopAbs_WIRE);
+    validate_shell_offset(copy.Shape(),toleranceLimit);
+    std::clog << "shell stage=tolerance recorded=" << recorded << " deviation=" << deviation
+              << " limit=" << toleranceLimit << '\n';
+    TopTools_ListOfShape source;source.Append(candidate.shape);
+    candidate.history->Merge(source,copy);
+    candidate.shape=copy.Shape();
+}
+
 template <typename Algorithm>
 Handle(BRepTools_History) shell_offset_history(const TopoDS_Shape& input, Algorithm& algorithm) {
     TopTools_ListOfShape arguments; arguments.Append(input);
@@ -2152,6 +2222,20 @@ Handle(BRepTools_History) shell_offset_history(const TopoDS_Shape& input, Algori
             history->AddModified(source, source);
     }
     return history;
+}
+
+void accumulate_shell_history(const Handle(BRepTools_History)& history,
+                              const Handle(BRepTools_History)& branch, const TopoDS_Shape& input) {
+    TopTools_IndexedMapOfShape sources;
+    TopExp::MapShapes(input, sources);
+    for (int i = 1; i <= sources.Extent(); ++i) {
+        const auto& source = sources(i);
+        if (source.ShapeType() != TopAbs_FACE && source.ShapeType() != TopAbs_EDGE && source.ShapeType() != TopAbs_VERTEX) continue;
+        for (TopTools_ListIteratorOfListOfShape images(branch->Modified(source)); images.More(); images.Next())
+            if (!history->Modified(source).Contains(images.Value())) history->AddModified(source, images.Value());
+        for (TopTools_ListIteratorOfListOfShape images(branch->Generated(source)); images.More(); images.Next())
+            if (!history->Generated(source).Contains(images.Value())) history->AddGenerated(source, images.Value());
+    }
 }
 
 ComposedModifier simple_open_shell(const TopoDS_Shape& input,
@@ -2198,18 +2282,8 @@ ComposedModifier inward_face_shell(const TopoDS_Shape& input,
         TopTools_ListOfShape faceSource; faceSource.Append(face);
         Handle(BRepTools_History) branch = new BRepTools_History(faceSource, faceCopy);
         branch->Merge(shell_offset_history(faceCopy.Shape(), wall));
-        TopTools_IndexedMapOfShape sources;
-        TopExp::MapShapes(face, sources);
-        for (int i = 1; i <= sources.Extent(); ++i) {
-            const auto& item = sources(i);
-            if (item.ShapeType() != TopAbs_FACE && item.ShapeType() != TopAbs_EDGE && item.ShapeType() != TopAbs_VERTEX) continue;
-            // These are parallel branches, not sequential modifications of
-            // a shared edge. Accumulate all real images before Boolean merging.
-            for (TopTools_ListIteratorOfListOfShape images(branch->Modified(item)); images.More(); images.Next())
-                if (!history->Modified(item).Contains(images.Value())) history->AddModified(item, images.Value());
-            for (TopTools_ListIteratorOfListOfShape images(branch->Generated(item)); images.More(); images.Next())
-                if (!history->Generated(item).Contains(images.Value())) history->AddGenerated(item, images.Value());
-        }
+        // Accumulate parallel branches before composing their Boolean history.
+        accumulate_shell_history(history, branch, face);
         walls.Append(wall.Shape());
     }
     if (walls.IsEmpty()) throw std::invalid_argument("SHELL_NO_RETAINED_FACES");
@@ -2239,6 +2313,200 @@ ComposedModifier inward_face_shell(const TopoDS_Shape& input,
     history->Merge(simplify.History());
     measured("wall_assembly");
     return {simplify.Shape(), history};
+}
+
+// A wire containing only INTERNAL edge uses is a Boolean section trace, not
+// a material boundary. Canonicalize operands before further intersections so
+// these auxiliary constraints do not create additional coincident fragments.
+void prune_shell_internal_traces(ComposedModifier& candidate, double toleranceLimit) {
+    const auto original = candidate.shape;
+    Handle(ShapeBuild_ReShape) prune = new ShapeBuild_ReShape();
+    std::vector<TopoDS_Shape> boundaries;
+    for (TopExp_Explorer wires(original, TopAbs_WIRE); wires.More(); wires.Next()) {
+        const auto wire=TopoDS::Wire(wires.Current());
+        BRep_Builder builder;TopoDS_Wire boundary;builder.MakeWire(boundary);
+        int kept=0,internal=0;
+        for(TopoDS_Iterator edges(wire.Oriented(TopAbs_FORWARD));edges.More();edges.Next()) {
+            if(edges.Value().Orientation()==TopAbs_INTERNAL)++internal;
+            else {builder.Add(boundary,edges.Value());++kept;}
+        }
+        if(!internal){boundaries.push_back(wire);continue;}
+        if(!kept){prune->Remove(wire);continue;}
+        boundary.Closed(BRep_Tool::IsClosed(boundary));
+        boundary.Orientation(wire.Orientation());
+        prune->Replace(wire,boundary);
+        boundaries.push_back(boundary);
+    }
+    const auto canonical = prune->Apply(original);
+    auto changes = prune->History();
+    TopTools_IndexedMapOfShape before, after;
+    TopExp::MapShapes(original, before); TopExp::MapShapes(canonical, after);
+    // Preserve real boundary containers exactly, rather than estimating their
+    // unchanged domain through a volume integral containing internal traces.
+    for (const auto& boundary : boundaries)
+        if (!after.Contains(boundary)) throw std::runtime_error("SHELL_INTERNAL_TRACE_BOUNDARY_CHANGED");
+    for (int i=1; i<=before.Extent(); ++i) {
+        const auto& shape=before(i);
+        if ((shape.ShapeType()==TopAbs_EDGE || shape.ShapeType()==TopAbs_VERTEX) && !after.Contains(shape))
+            changes->Remove(shape);
+    }
+    candidate.history->Merge(changes);
+    candidate.shape = canonical;
+    verify_shell_offset(candidate, toleranceLimit);
+}
+
+// A multi-argument partition can lose coincident wall cells on expanding lofts.
+// Keep the binary intersections separate and assemble them in source order.
+// An opening-local, oblique, uniformly conditioned workspace avoids Boolean
+// classification degeneracies. Thickness and precision scale together; the
+// inverse restores model units and composes actual native transformation history.
+ComposedModifier sequential_inward_face_shell(const TopoDS_Shape& input,
+                                             const std::vector<TopoDS_Shape>& removed,
+                                             double thickness, double toleranceLimit, double angle, double workspaceScale) {
+    gp_Ax3 axes;
+    bool foundFrame=false;
+    for(const auto& selected:removed) {
+        const auto face=TopoDS::Face(selected);
+        BRepAdaptor_Surface surface(face);
+        if(!foundFrame && surface.GetType()==GeomAbs_Plane){axes=surface.Plane().Position();foundFrame=true;}
+        for(TopExp_Explorer edges(face,TopAbs_EDGE);edges.More();edges.Next()) {
+            BRepAdaptor_Curve curve(TopoDS::Edge(edges.Current()));
+            if(curve.GetType()==GeomAbs_Circle){axes=gp_Ax3(curve.Circle().Position());foundFrame=true;break;}
+        }
+        if(foundFrame)break;
+    }
+    gp_Trsf local;
+    if(foundFrame)local.SetTransformation(axes);
+    double bottom=std::numeric_limits<double>::infinity();
+    for(TopExp_Explorer vertices(input,TopAbs_VERTEX);vertices.More();vertices.Next())
+        bottom=std::min(bottom,BRep_Tool::Pnt(TopoDS::Vertex(vertices.Current())).Transformed(local).Z());
+    if(!std::isfinite(bottom))throw std::runtime_error("SHELL_WORKSPACE_INVALID");
+    gp_Trsf shift;shift.SetTranslation(gp_Vec(0,0,-bottom));
+    gp_Trsf frame;
+    frame.SetRotation(gp_Ax1(gp_Pnt(0,0,0), gp_Dir(1,1,1)), angle);
+    // Condition the private workspace against OCCT's absolute Boolean floor.
+    // Model units and the accepted model-space error budget remain unchanged.
+    gp_Trsf scale;scale.SetScale(gp_Pnt(0,0,0),workspaceScale);
+    frame=scale*frame*shift*local;
+    const double workspaceThickness=thickness*workspaceScale;
+    const double workspaceTolerance=toleranceLimit*workspaceScale;
+    std::clog << "shell stage=workspace scale=" << workspaceScale << " angle_rad=" << angle << '\n';
+    BRepBuilderAPI_Transform transform(input, frame, Standard_True);
+    const auto working = transform.Shape();
+    TopTools_ListOfShape source; source.Append(input);
+    Handle(BRepTools_History) history = new BRepTools_History(source, transform);
+    std::vector<TopoDS_Shape> closing;
+    for (const auto& face : removed) closing.push_back(transform.ModifiedShape(face));
+    Handle(BRepTools_History) branches = new BRepTools_History();
+    std::vector<TopoDS_Shape> walls;
+    for (TopExp_Explorer faces(working, TopAbs_FACE); faces.More(); faces.Next()) {
+        const auto face = TopoDS::Face(faces.Current());
+        if (std::any_of(closing.begin(), closing.end(), [&](const auto& r) { return r.IsSame(face); })) continue;
+        BRepBuilderAPI_Copy copy(face, Standard_True, Standard_False);
+        BRepOffsetAPI_MakeThickSolid offset;
+        offset.MakeThickSolidBySimple(copy.Shape(), -workspaceThickness);
+        if (!offset.IsDone()) throw std::runtime_error("SHELL_FACE_OFFSET_FAILED");
+        validate_shell_offset(offset.Shape(), workspaceTolerance);
+        TopTools_ListOfShape faceSource; faceSource.Append(face);
+        Handle(BRepTools_History) branch = new BRepTools_History(faceSource, copy);
+        branch->Merge(shell_offset_history(copy.Shape(), offset));
+        TopTools_ListOfShape objects, tools;
+        objects.Append(working); tools.Append(offset.Shape());
+        BRepAlgoAPI_Common clip;
+        clip.SetArguments(objects); clip.SetTools(tools);
+        clip.SetNonDestructive(Standard_True);
+        clip.Build();
+        if (!clip.IsDone() || clip.HasWarnings()) throw std::runtime_error("SHELL_FACE_CLIP_FAILED");
+        TopTools_ListOfShape args = objects; args.Append(tools);
+        branch->Merge(args, clip);
+        ComposedModifier wall{clip.Shape(), branch};
+        prune_shell_internal_traces(wall, workspaceTolerance);
+        std::clog << "shell stage=face_clip index=" << walls.size() << " model_volume="
+                  << shape_volume(wall.shape)/(workspaceScale*workspaceScale*workspaceScale) << '\n';
+        accumulate_shell_history(branches, branch, working);
+        walls.push_back(wall.shape);
+    }
+    if (walls.empty()) throw std::invalid_argument("SHELL_NO_RETAINED_FACES");
+    history->Merge(branches);
+    auto result = walls.front();
+    const double materialTolerance = std::max(1e-7, shape_volume(working) * 1e-9);
+    for (std::size_t i = 1; i < walls.size(); ++i) {
+        const auto previous = result;
+        TopTools_ListOfShape objects, tools;
+        objects.Append(previous); tools.Append(walls[i]);
+        BRepAlgoAPI_Fuse fuse;
+        fuse.SetArguments(objects); fuse.SetTools(tools);
+        fuse.SetNonDestructive(Standard_True); fuse.Build();
+        if (!fuse.IsDone() || fuse.HasWarnings()) throw std::runtime_error("SHELL_WALL_UNION_FAILED");
+        TopTools_ListOfShape args = objects; args.Append(tools);
+        history->Merge(args, fuse);
+        ComposedModifier candidate{fuse.Shape(), history};
+        prune_shell_internal_traces(candidate, workspaceTolerance);
+        std::clog << "shell stage=wall_union index=" << i << " model_volume="
+                  << shape_volume(candidate.shape)/(workspaceScale*workspaceScale*workspaceScale) << '\n';
+        const auto volume = shape_volume(candidate.shape);
+        const auto before = shape_volume(previous), added = shape_volume(walls[i]);
+        if (volume < std::max(before, added) - materialTolerance || volume > before + added + materialTolerance)
+            throw std::runtime_error("SHELL_WALL_MATERIAL_LOST");
+        result = candidate.shape; history = candidate.history;
+    }
+    ShapeUpgrade_UnifySameDomain simplify(result, Standard_True, Standard_True, Standard_False);
+    simplify.SetSafeInputMode(Standard_True); simplify.Build();
+    history->Merge(simplify.History());
+    ComposedModifier finished{simplify.Shape(), history};
+    prune_shell_internal_traces(finished, workspaceTolerance);
+    BRepBuilderAPI_Transform restore(finished.shape,frame.Inverted(),Standard_True);
+    TopTools_ListOfShape beforeRestore;beforeRestore.Append(finished.shape);
+    history->Merge(beforeRestore,restore);
+    finished.shape=restore.Shape();
+    // Repair native wire/edge representations on a private copy. The upstream
+    // supports used for containment and material checks stay immutable.
+    BRepBuilderAPI_Copy healingCopy(finished.shape,Standard_True,Standard_False);
+    TopTools_ListOfShape beforeHealing;beforeHealing.Append(finished.shape);
+    history->Merge(beforeHealing,healingCopy);
+    ShapeFix_Shape healing(healingCopy.Shape());
+    healing.SetPrecision(Precision::Confusion());
+    healing.SetMinTolerance(Precision::Confusion());
+    healing.SetMaxTolerance(toleranceLimit);
+    healing.Perform();
+    history->Merge(healing.Context()->History());
+    finished.shape=healing.Shape();
+    prune_shell_internal_traces(finished,toleranceLimit);
+    const auto canonical = finished.shape;
+    std::ostringstream encoded;BRepTools::Write(canonical,encoded);
+    std::istringstream encodedInput(encoded.str());TopoDS_Shape decoded;BRep_Builder decoder;
+    BRepTools::Read(decoded,encodedInput,decoder);
+    validate_shell_offset(decoded,toleranceLimit);
+    if(!has_ordered_surface_boundaries(canonical))throw std::runtime_error("SHELL_WIRE_ORDER_AMBIGUOUS");
+    if (solid_count(canonical) != 1 || !BRepAlgoAPI_Check(canonical, Standard_False, Standard_True).IsValid())
+        throw std::runtime_error("SHELL_WALL_SELF_INTERSECTION");
+    TopExp_Explorer sourceSolid(input, TopAbs_SOLID), resultSolid(canonical, TopAbs_SOLID);
+    BRepClass3d_SolidClassifier original(sourceSolid.Current()), material(resultSolid.Current());
+    // Check actual material behind every retained source face, independently of
+    // Boolean membership labels. Re-cutting nearly coincident operands can itself
+    // produce self-intersection warnings and cannot serve as an independent proof.
+    for (TopExp_Explorer faces(input, TopAbs_FACE); faces.More(); faces.Next()) {
+        const auto face = TopoDS::Face(faces.Current());
+        if (std::any_of(removed.begin(), removed.end(), [&](const auto& r) { return r.IsSame(face); })) continue;
+        BRepAdaptor_Surface surface(face);
+        double u0,u1,v0,v1; BRepTools::UVBounds(face,u0,u1,v0,v1);
+        int checked = 0;
+        for (double u : {.25,.5,.75}) for (double v : {.25,.5,.75}) {
+            const double pu=u0+(u1-u0)*u, pv=v0+(v1-v0)*v;
+            if (BRepClass_FaceClassifier(face,gp_Pnt2d(pu,pv),1e-7).State()!=TopAbs_IN) continue;
+            gp_Pnt point; gp_Vec du,dv; surface.D1(pu,pv,point,du,dv);
+            auto normal=du.Crossed(dv);
+            if (normal.Magnitude()<=Precision::Confusion()) continue;
+            normal.Normalize(); if(face.Orientation()==TopAbs_REVERSED)normal.Reverse();
+            point.Translate(normal*(-.5*thickness));
+            original.Perform(point,1e-7); if(original.State()!=TopAbs_IN)continue;
+            material.Perform(point,1e-7);
+            if(material.State()!=TopAbs_IN)throw std::runtime_error("SHELL_WALL_MATERIAL_LOST");
+            ++checked;
+        }
+        if(!checked)throw std::runtime_error("SHELL_WALL_MATERIAL_UNVERIFIED");
+    }
+    return {canonical,history};
 }
 
 // Exact inward cavity for convex, all-planar solids. Small bevel faces may
@@ -2538,7 +2806,10 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                 std::vector<TopoDS_Shape> closing;
                 for (const auto& face : selected) closing.push_back(attemptCopy.ModifiedShape(face));
                 auto candidate = build(attemptCopy.Shape(), closing);
-                validate_shell_offset(candidate.shape, toleranceLimit);
+                // A partition's constructive containment proof is reusable only
+                // while its exact boundary has not been repositioned. Candidates
+                // needing junction refinement must use the independently checked path.
+                verify_shell_offset(candidate, toleranceLimit, !clippedToInput);
                 if (solid_count(candidate.shape) != solid_count(input)) throw std::runtime_error("SHELL_DISCONNECTED_WALLS");
                 if (!spec.reversed && (shape_volume(candidate.shape) >= shape_volume(input) - tolerance ||
                     (!clippedToInput && !inward_valid(candidate.shape)))) throw std::runtime_error("SHELL_INVALID_INTERIOR");
@@ -2548,7 +2819,7 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                 candidate.history = history;
                 return finish(candidate);
             } catch (const Standard_Failure& error) {
-                failure = error.GetMessageString() ? error.GetMessageString() : "SHELL_OFFSET_FAILED";
+                failure += std::string("[") + (error.GetMessageString() ? error.GetMessageString() : "SHELL_OFFSET_FAILED") + "]";
             } catch (const std::exception& error) {
                 failure += std::string("[") + error.what() + "]";
             }
@@ -2570,6 +2841,12 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
             if (result) return *result;
             result = attempt([&](const auto& shape, const auto& closing) { return inward_face_shell(shape, closing, spec.pad_length, toleranceLimit); }, true);
             if (result) return *result;
+            for(const double scale:{10.,1.}) for(const double angle:{1.2,-1.2,.7,1.5}) {
+                result = attempt([&](const auto& shape, const auto& closing) {
+                    return sequential_inward_face_shell(shape,closing,spec.pad_length,toleranceLimit,angle,scale);
+                });
+                if(result)return *result;
+            }
         }
         throw std::runtime_error("MODIFIER_ALGORITHM_FAILED:SHELL:" + failure);
     }
@@ -3745,117 +4022,130 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
     validate_positive(linear_deflection, "linear_deflection");
     validate_positive(angular_deflection, "angular_deflection");
     try {
-        const auto start = std::chrono::steady_clock::now();
-        auto elapsed = [](auto from) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-from).count(); };
-        // A TopoDS value copy aliases the same TShapes. Copy geometry as well, omit
-        // old triangulations: meshing must never mutate resident exact geometry.
-        const auto& source = impl_->find(geometry_id);
-        BRepBuilderAPI_Copy copy(source, Standard_True, Standard_False);
-        const auto shape = copy.Shape();
-        IMeshTools_Parameters parameters;
-        parameters.Deflection = linear_deflection;
-        parameters.Angle = angular_deflection;
-        parameters.AngleInterior = angular_deflection;
-        parameters.InParallel = parallel;
-        parameters.EnableControlSurfaceDeflectionAllSurfaces = Standard_True;
-        BRepMesh_IncrementalMesh mesher(shape, parameters);
-        constexpr int invalid_mesh = IMeshData_OpenWire | IMeshData_SelfIntersectingWire | IMeshData_Failure
-            | IMeshData_UnorientedWire | IMeshData_TooFewPoints | IMeshData_UserBreak;
-        if (!mesher.IsDone() || (mesher.GetStatusFlags() & invalid_mesh))
-            throw std::runtime_error("VISUAL_MESH_FAILED:status="+std::to_string(mesher.GetStatusFlags()));
-        TessellationResult result;
-        result.timings.meshing_ms = elapsed(start);
-        result.bbox = getBoundingBox(geometry_id);
-        TopTools_IndexedMapOfShape face_map, edge_map, vertex_map;
-        // IDs are taken from the exact source snapshot, never from copy traversal.
-        TopExp::MapShapes(source, TopAbs_FACE, face_map);
-        TopExp::MapShapes(source, TopAbs_EDGE, edge_map);
-        TopExp::MapShapes(source, TopAbs_VERTEX, vertex_map);
-        std::vector<std::vector<std::vector<Vec3>>> boundaries(edge_map.Extent());
-        const auto extraction = std::chrono::steady_clock::now();
-        for (int face_id = 1; face_id <= face_map.Extent(); ++face_id) {
-            const auto face = TopoDS::Face(copy.ModifiedShape(face_map(face_id)).Oriented(face_map(face_id).Orientation()));
-            TopLoc_Location location;
-            const auto triangulation = BRep_Tool::Triangulation(face, location);
-            if (triangulation.IsNull() || triangulation->NbTriangles() == 0)
-                throw std::runtime_error("VISUAL_MISSING_FACE:" + std::to_string(face_id));
-            const uint32_t base = static_cast<uint32_t>(result.vertices.size());
-            for (int n = 1; n <= triangulation->NbNodes(); ++n)
-                result.vertices.push_back(to_vec3(triangulation->Node(n).Transformed(location.Transformation())));
-            for (int t = 1; t <= triangulation->NbTriangles(); ++t) {
-                int a, b, c;
-                triangulation->Triangle(t).Get(a,b,c);
-                if (face.Orientation() == TopAbs_REVERSED) std::swap(b,c);
-                result.triangles.push_back({base+uint32_t(a-1),base+uint32_t(b-1),base+uint32_t(c-1)});
-                result.face_ids.push_back(face_id);
+        const auto produce = [&](bool preserveBoundary) {
+            const auto start = std::chrono::steady_clock::now();
+            auto elapsed = [](auto from) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-from).count(); };
+            // A TopoDS value copy aliases the same TShapes. Copy geometry as well, omit
+            // old triangulations: meshing must never mutate resident exact geometry.
+            const auto& source = impl_->find(geometry_id);
+            BRepBuilderAPI_Copy copy(source, Standard_True, Standard_False);
+            const auto shape = copy.Shape();
+            IMeshTools_Parameters parameters;
+            parameters.Deflection = linear_deflection;
+            parameters.Angle = angular_deflection;
+            parameters.AngleInterior = angular_deflection;
+            parameters.InParallel = preserveBoundary ? Standard_False : parallel;
+            parameters.EnableControlSurfaceDeflectionAllSurfaces = Standard_True;
+            BRepMesh_IncrementalMesh mesher;
+            mesher.SetShape(shape); mesher.ChangeParameters()=parameters;
+            if(preserveBoundary)mesher.Perform(boundary_preserving_mesh_context());
+            else mesher.Perform();
+            constexpr int invalid_mesh = IMeshData_OpenWire | IMeshData_SelfIntersectingWire | IMeshData_Failure
+                | IMeshData_UnorientedWire | IMeshData_TooFewPoints | IMeshData_UserBreak;
+            if (!mesher.IsDone() || (mesher.GetStatusFlags() & invalid_mesh)) {
+                throw std::runtime_error("VISUAL_MESH_FAILED:status="+std::to_string(mesher.GetStatusFlags()));
             }
-            const auto edge_start = std::chrono::steady_clock::now();
-            // Traverse every oriented EdgeUse, including both sides of a periodic
-            // seam. Looking up only one polygon per topological edge loses seams.
-            for (TopExp_Explorer uses(face_map(face_id).Oriented(TopAbs_FORWARD), TopAbs_EDGE); uses.More(); uses.Next()) {
-                const auto original = TopoDS::Edge(uses.Current());
-                const auto edge = TopoDS::Edge(copy.ModifiedShape(original).Oriented(original.Orientation()));
-                const auto polygon = BRep_Tool::PolygonOnTriangulation(edge, triangulation, location);
-                const auto edge_id = edge_map.FindIndex(original);
-                if (polygon.IsNull() || polygon->NbNodes() < 2)
-                    throw std::runtime_error("VISUAL_MISSING_BOUNDARY:face="+std::to_string(face_id)+":edge="+std::to_string(edge_id));
-                std::vector<Vec3> points;
-                for (int i = 1; i <= polygon->NbNodes(); ++i) {
-                    const auto node = polygon->Node(i);
-                    if (node < 1 || node > triangulation->NbNodes()) throw std::runtime_error("VISUAL_BOUNDARY_INDEX");
-                    points.push_back(result.vertices[base+node-1]);
+            TessellationResult result;
+            result.timings.meshing_ms = elapsed(start);
+            result.bbox = getBoundingBox(geometry_id);
+            TopTools_IndexedMapOfShape face_map, edge_map, vertex_map;
+            // IDs are taken from the exact source snapshot, never from copy traversal.
+            TopExp::MapShapes(source, TopAbs_FACE, face_map);
+            TopExp::MapShapes(source, TopAbs_EDGE, edge_map);
+            TopExp::MapShapes(source, TopAbs_VERTEX, vertex_map);
+            std::vector<std::vector<std::vector<Vec3>>> boundaries(edge_map.Extent());
+            const auto extraction = std::chrono::steady_clock::now();
+            for (int face_id = 1; face_id <= face_map.Extent(); ++face_id) {
+                const auto face = TopoDS::Face(copy.ModifiedShape(face_map(face_id)).Oriented(face_map(face_id).Orientation()));
+                TopLoc_Location location;
+                const auto triangulation = BRep_Tool::Triangulation(face, location);
+                if (triangulation.IsNull() || triangulation->NbTriangles() == 0)
+                    throw std::runtime_error("VISUAL_MISSING_FACE:" + std::to_string(face_id));
+                const uint32_t base = static_cast<uint32_t>(result.vertices.size());
+                for (int n = 1; n <= triangulation->NbNodes(); ++n)
+                    result.vertices.push_back(to_vec3(triangulation->Node(n).Transformed(location.Transformation())));
+                for (int t = 1; t <= triangulation->NbTriangles(); ++t) {
+                    int a, b, c;
+                    triangulation->Triangle(t).Get(a,b,c);
+                    if (face.Orientation() == TopAbs_REVERSED) std::swap(b,c);
+                    result.triangles.push_back({base+uint32_t(a-1),base+uint32_t(b-1),base+uint32_t(c-1)});
+                    result.face_ids.push_back(face_id);
                 }
-                boundaries[edge_id-1].push_back(std::move(points));
-            }
-            result.timings.edges_ms += elapsed(edge_start);
-        }
-        result.timings.faces_ms = elapsed(extraction) - result.timings.edges_ms;
-        const auto edge_validation = std::chrono::steady_clock::now();
-        auto distance = [](const Vec3& a, const Vec3& b) { return std::hypot(a.x-b.x, a.y-b.y, a.z-b.z); };
-        for (int id = 1; id <= edge_map.Extent(); ++id) {
-            const auto edge = TopoDS::Edge(edge_map(id));
-            const auto& uses = boundaries[id-1];
-            if (uses.empty()) {
-                // Only truly unattached curves have an independent discretization.
-                if (BRep_Tool::Degenerated(edge)) continue;
-                BRepAdaptor_Curve curve(edge);
-                if (!std::isfinite(curve.FirstParameter()) || !std::isfinite(curve.LastParameter()))
-                    throw std::runtime_error("VISUAL_UNBOUNDED_CURVE");
-                GCPnts_TangentialDeflection sample(curve, angular_deflection, linear_deflection);
-                EdgePolyline line{static_cast<uint64_t>(id), {}};
-                for (int i = 1; i <= sample.NbPoints(); ++i) line.points.push_back(to_vec3(sample.Value(i)));
-                if (line.points.size()<2) throw std::runtime_error("VISUAL_EMPTY_CURVE");
-                result.edges.push_back(std::move(line));
-                continue;
-            }
-            const auto& canonical = uses.front();
-            // Compare every neighbor using the exact model's own uncertainty, not
-            // display deflection. No coordinate welding or independent resampling.
-            double tolerance = std::max(Precision::Confusion(), BRep_Tool::Tolerance(edge));
-            for (TopExp_Explorer v(edge, TopAbs_VERTEX); v.More(); v.Next())
-                tolerance = std::max(tolerance, BRep_Tool::Tolerance(TopoDS::Vertex(v.Current())));
-            for (const auto& use : uses) {
-                bool forward = use.size() == canonical.size(), reverse = forward;
-                for (size_t i = 0; i < use.size() && (forward || reverse); ++i) {
-                    forward = forward && distance(use[i],canonical[i]) <= tolerance;
-                    reverse = reverse && distance(use[i],canonical[canonical.size()-1-i]) <= tolerance;
+                const auto edge_start = std::chrono::steady_clock::now();
+                // Traverse every oriented EdgeUse, including both sides of a periodic
+                // seam. Looking up only one polygon per topological edge loses seams.
+                for (TopExp_Explorer uses(face_map(face_id).Oriented(TopAbs_FORWARD), TopAbs_EDGE); uses.More(); uses.Next()) {
+                    const auto original = TopoDS::Edge(uses.Current());
+                    const auto edge = TopoDS::Edge(copy.ModifiedShape(original).Oriented(original.Orientation()));
+                    const auto polygon = BRep_Tool::PolygonOnTriangulation(edge, triangulation, location);
+                    const auto edge_id = edge_map.FindIndex(original);
+                    if (polygon.IsNull() || polygon->NbNodes() < 2)
+                        throw std::runtime_error("VISUAL_MISSING_BOUNDARY:face="+std::to_string(face_id)+":edge="+std::to_string(edge_id));
+                    std::vector<Vec3> points;
+                    for (int i = 1; i <= polygon->NbNodes(); ++i) {
+                        const auto node = polygon->Node(i);
+                        if (node < 1 || node > triangulation->NbNodes()) throw std::runtime_error("VISUAL_BOUNDARY_INDEX");
+                        points.push_back(result.vertices[base+node-1]);
+                    }
+                    boundaries[edge_id-1].push_back(std::move(points));
                 }
-                if (!forward && !reverse) throw std::runtime_error("VISUAL_ADJACENT_BOUNDARY_MISMATCH:edge="+std::to_string(id));
+                result.timings.edges_ms += elapsed(edge_start);
             }
-            if (BRep_Tool::Degenerated(edge)) {
-                for (const auto& p : canonical) if (distance(p,canonical.front()) > tolerance)
-                    throw std::runtime_error("VISUAL_INVALID_DEGENERATE_EDGE");
-                continue; // poles have topology vertices, no drawable line
+            result.timings.faces_ms = elapsed(extraction) - result.timings.edges_ms;
+            const auto edge_validation = std::chrono::steady_clock::now();
+            auto distance = [](const Vec3& a, const Vec3& b) { return std::hypot(a.x-b.x, a.y-b.y, a.z-b.z); };
+            for (int id = 1; id <= edge_map.Extent(); ++id) {
+                const auto edge = TopoDS::Edge(edge_map(id));
+                const auto& uses = boundaries[id-1];
+                if (uses.empty()) {
+                    // Only truly unattached curves have an independent discretization.
+                    if (BRep_Tool::Degenerated(edge)) continue;
+                    BRepAdaptor_Curve curve(edge);
+                    if (!std::isfinite(curve.FirstParameter()) || !std::isfinite(curve.LastParameter()))
+                        throw std::runtime_error("VISUAL_UNBOUNDED_CURVE");
+                    GCPnts_TangentialDeflection sample(curve, angular_deflection, linear_deflection);
+                    EdgePolyline line{static_cast<uint64_t>(id), {}};
+                    for (int i = 1; i <= sample.NbPoints(); ++i) line.points.push_back(to_vec3(sample.Value(i)));
+                    if (line.points.size()<2) throw std::runtime_error("VISUAL_EMPTY_CURVE");
+                    result.edges.push_back(std::move(line));
+                    continue;
+                }
+                const auto& canonical = uses.front();
+                // Compare every neighbor using the exact model's own uncertainty, not
+                // display deflection. No coordinate welding or independent resampling.
+                double tolerance = std::max(Precision::Confusion(), BRep_Tool::Tolerance(edge));
+                for (TopExp_Explorer v(edge, TopAbs_VERTEX); v.More(); v.Next())
+                    tolerance = std::max(tolerance, BRep_Tool::Tolerance(TopoDS::Vertex(v.Current())));
+                for (const auto& use : uses) {
+                    bool forward = use.size() == canonical.size(), reverse = forward;
+                    for (size_t i = 0; i < use.size() && (forward || reverse); ++i) {
+                        forward = forward && distance(use[i],canonical[i]) <= tolerance;
+                        reverse = reverse && distance(use[i],canonical[canonical.size()-1-i]) <= tolerance;
+                    }
+                    if (!forward && !reverse) throw std::runtime_error("VISUAL_ADJACENT_BOUNDARY_MISMATCH:edge="+std::to_string(id));
+                }
+                if (BRep_Tool::Degenerated(edge)) {
+                    for (const auto& p : canonical) if (distance(p,canonical.front()) > tolerance)
+                        throw std::runtime_error("VISUAL_INVALID_DEGENERATE_EDGE");
+                    continue; // poles have topology vertices, no drawable line
+                }
+                result.edges.push_back({static_cast<uint64_t>(id), canonical});
             }
-            result.edges.push_back({static_cast<uint64_t>(id), canonical});
+            for (int id = 1; id <= vertex_map.Extent(); ++id)
+                result.topology_vertices.push_back({static_cast<uint64_t>(id), to_vec3(BRep_Tool::Pnt(TopoDS::Vertex(vertex_map(id))))});
+            result.timings.edges_ms += elapsed(edge_validation);
+            const auto normals = std::chrono::steady_clock::now();
+            compute_mesh_normals(result);
+            result.timings.normals_ms = elapsed(normals);
+            return result;
+        };
+        try {return produce(false);}
+        catch(const std::runtime_error& error) {
+            const std::string cause=error.what();
+            if(cause.rfind("VISUAL_ADJACENT_BOUNDARY_MISMATCH:",0)!=0 && cause!="VISUAL_MESH_FAILED:status=16")throw;
+            std::clog << "mesh stage=boundary_preserving_retry cause=" << error.what() << '\n';
+            return produce(true);
         }
-        for (int id = 1; id <= vertex_map.Extent(); ++id)
-            result.topology_vertices.push_back({static_cast<uint64_t>(id), to_vec3(BRep_Tool::Pnt(TopoDS::Vertex(vertex_map(id))))});
-        result.timings.edges_ms += elapsed(edge_validation);
-        const auto normals = std::chrono::steady_clock::now();
-        compute_mesh_normals(result);
-        result.timings.normals_ms = elapsed(normals);
-        return result;
     } catch (const Standard_Failure& error) {
         throw std::runtime_error(std::string("VISUAL_OCCT_FAILURE:") + (error.GetMessageString() ? error.GetMessageString() : "unknown"));
     }

@@ -9,7 +9,7 @@
 | 装配诊断 | [风车同轴诊断](windmill-assembly-reference-diagnostic.md) |
 | 建模性能 | [连续 100 次建模](continuous-modeling-100-baseline.md)、[增量运行时](incremental-modeling-runtime-validation.md) |
 | 模型分析与现场反馈 | [目标模型分析](modeling-assembly-analysis.md)、[实机反馈](modeling-assembly-field-review.md) |
-| Feature 与几何 | [特征选择](feature-selection-validation.md)、[有限面域圆角](fillet-boundary-validation.md)、[底座建模体验](bottom-support-parametric-validation.md) |
+| Feature 与几何 | [特征选择](feature-selection-validation.md)、[有限面域圆角](fillet-boundary-validation.md)、[抽壳](shell-validation.md)、[底座建模体验](bottom-support-parametric-validation.md) |
 | 属性/外观/场景 | [表面距离渐近缩放](surface-zoom-easing-validation.md)、[视图动画与斜视深度精度](view-animation-depth-validation.md)、[球边导引与近距离缩放](sphere-guide-zoom-validation.md)、[导航十字、光标与结构树手柄](navigation-affordances-validation.md)、[地面网格连续性](ground-grid-continuity-validation.md)、[透视导航与列表缩略图](viewport-projection-thumbnail-validation.md)、[视口、导航与透明边线](viewport-navigation-validation.md)、[全局选项与菜单整理](global-options-validation.md)、[正式历史、RGBA 交换与真实视口](properties-scene-validation.md) |
 | Sketch/显示/参数 | [草图与输入](sketch-display-parameter-experience-validation.md) |
 

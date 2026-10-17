@@ -142,6 +142,12 @@ func TestFailedBodyDisplayProvenanceAndRecovery(t *testing.T) {
 	if len(a.Representations) != 1 || a.VisualNamingDigest != "naming" {
 		t.Fatal("fallback exposed authoritative representations or lost visual association")
 	}
+	for range 3 {
+		a = fallbackVisualArtifact(a)
+		if len(a.Representations) != 1 || a.Representations["VISUAL"].ObjectID != "visual" || a.VisualNamingDigest != "naming" {
+			t.Fatal("repeated read-model projection lost the fallback visual association")
+		}
+	}
 }
 
 func TestDraftNeutralFaceContractAndDependencies(t *testing.T) {

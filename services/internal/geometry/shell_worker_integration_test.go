@@ -11,18 +11,19 @@ import (
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/modelcore"
+	"github.com/occccad/occccad/internal/testsupport"
 	"google.golang.org/protobuf/proto"
 )
 
 func TestCppWorkerShellAfterFilletAndMixedLoft(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("OCCCCAD_DATA_DIR", root)
+	root := testsupport.Environment(t).DataDirectory
+	namespace := fmt.Sprintf("tests/shell/%d", time.Now().UnixNano())
 	client := openCppWorkerForNamingContract(t)
 	sequence := 0
 	evaluate := func(t *testing.T, pads []ProfilePad) (*workerv1.EvaluatePartResponse, *workerv1.PartTopologyManifest) {
 		t.Helper()
 		sequence++
-		key := fmt.Sprintf("shell-%d", sequence)
+		key := fmt.Sprintf("%s/%d", namespace, sequence)
 		started := time.Now()
 		response, err := client.EvaluateProfilePartFromArtifact(t.Context(), key, key, pads, ArtifactReference{}, key+".brep", key+".glb")
 		if err != nil {
@@ -90,18 +91,22 @@ func TestCppWorkerShellAfterFilletAndMixedLoft(t *testing.T) {
 	}{{"large-fillet", "END_CAP/", []ProfilePad{base, fillet}}, {"rectangle-circle-loft", "LOFT_END_CAP", []ProfilePad{loft}}, {"offset-rectangle-larger-circle", "LOFT_END_CAP", []ProfilePad{offsetLoft}}} {
 		t.Run(fixture.name, func(t *testing.T) {
 			original, naming := evaluate(t, fixture.chain)
-			shell := ProfilePad{FeatureID: "shell", BodyID: "body", InputFeatureID: fixture.chain[len(fixture.chain)-1].FeatureID, Generator: "SHELL", Length: 1,
-				Selections: refs(naming, workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_FACE, fixture.cap)}
-			if len(shell.Selections) != 1 {
-				t.Fatal("expected one opening face")
-			}
-			result, _ := evaluate(t, append(fixture.chain, shell))
-			if result.GetVolume() <= 0 || result.GetVolume() >= original.GetVolume() {
-				t.Fatal("incorrect inward shell volume")
-			}
-			repeated, repeatedNaming := evaluate(t, append(fixture.chain, shell))
-			if !repeated.GetCacheHit() || repeated.GetGlbArtifact().GetSha256() != result.GetGlbArtifact().GetSha256() || repeated.GetBrepArtifact().GetSha256() != result.GetBrepArtifact().GetSha256() || repeatedNaming.GetGeometryId() != result.GetGeometryId() {
-				t.Fatal("repeated shell did not reuse the complete immutable result")
+			for _, thickness := range []float64{0.5, 1, 2} {
+				t.Run(fmt.Sprintf("thickness-%g", thickness), func(t *testing.T) {
+					shell := ProfilePad{FeatureID: "shell", BodyID: "body", InputFeatureID: fixture.chain[len(fixture.chain)-1].FeatureID, Generator: "SHELL", Length: thickness,
+						Selections: refs(naming, workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_FACE, fixture.cap)}
+					if len(shell.Selections) != 1 {
+						t.Fatal("expected one opening face")
+					}
+					result, _ := evaluate(t, append(fixture.chain, shell))
+					if result.GetVolume() <= 0 || result.GetVolume() >= original.GetVolume() {
+						t.Fatal("incorrect inward shell volume")
+					}
+					repeated, repeatedNaming := evaluate(t, append(fixture.chain, shell))
+					if !repeated.GetCacheHit() || repeated.GetGlbArtifact().GetSha256() != result.GetGlbArtifact().GetSha256() || repeated.GetBrepArtifact().GetSha256() != result.GetBrepArtifact().GetSha256() || repeatedNaming.GetGeometryId() != result.GetGeometryId() {
+						t.Fatal("repeated shell did not reuse the complete immutable result")
+					}
+				})
 			}
 		})
 	}

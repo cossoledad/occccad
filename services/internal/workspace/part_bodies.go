@@ -421,7 +421,11 @@ func retainFailedBodyDisplay(model *PartModel, before PartModel, sourceVersion s
 	}
 }
 func fallbackVisualArtifact(a Artifact) Artifact {
-	a.VisualNamingDigest = a.Representations["NAMING"].Digest
+	// A fallback can pass through several read-model projections after its
+	// authoritative representations have already been removed.
+	if naming, exists := a.Representations["NAMING"]; exists {
+		a.VisualNamingDigest = naming.Digest
+	}
 	visual, exists := a.Representations["VISUAL"]
 	a.Representations = map[string]Representation{}
 	if exists {

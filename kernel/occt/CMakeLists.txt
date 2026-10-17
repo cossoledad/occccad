@@ -3,6 +3,8 @@ find_package(OpenCASCADE REQUIRED)
 add_library(occccad_occt_kernel STATIC
     src/occt_kernel.cpp
     src/fillet_boundary.cpp
+    src/mesh_boundary.cpp
+    src/shell_junction.cpp
     src/exchange_graph.cpp
     src/sketch_curve.cpp
     src/dmu.cpp
