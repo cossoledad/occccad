@@ -112,7 +112,7 @@ test("preselected chamfer edge, automatic preview, input-stage edit and toggle",
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
 
-test("rectangle to circle loft previews directly from viewport sections",async({page})=>{
+test("rectangle to circle loft previews directly from viewport sections",async({page},testInfo)=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
  await login(page);
  const seed=await page.evaluate(async()=>{
@@ -125,18 +125,19 @@ test("rectangle to circle loft previews directly from viewport sections",async({
   const plane=v.part!.datumPlanes.at(-1)!.id;
   v=await api.command(id,{type:"CREATE_SKETCH",datumPlaneId:plane,plane:"CUSTOM"});const top=v.part!.features.at(-1)!.id;
   v=await api.command(id,{type:"EDIT_SKETCH",sketchId:top,operations:[{type:"ADD_ENTITY",entity:{id:crypto.randomUUID(),kind:"CIRCLE",role:"PROFILE",center:{x:0,y:0},radius:10}}]});
-  return {id,version:v.document.versionId,bottom,top};
+  return {id,version:v.document.versionId,bottom,top,bodyId:v.part!.activeBodyId,bodyCount:v.part!.bodies.length};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
  await openCommand(page,"放样");const dialog=page.getByRole("dialog",{name:"创建 放样",exact:true});
  await expect(dialog.getByRole("combobox")).toHaveCount(0);
- await clickWorld(page,[10,-5,0]);await expect(dialog.getByRole("button",{name:"截面：已选择 1 个草图"})).toBeVisible();
- await clickWorld(page,[-10,0,30]);await expect(dialog.getByRole("button",{name:"截面：已选择 2 个草图"})).toBeVisible();await ready(page,dialog);
- await page.screenshot({path:"/tmp/feature-ux-modeling.png"});
+ await clickWorld(page,[10,-5,0]);await expect(dialog.getByRole("button",{name:"截面：已选择 1 个截面"})).toBeVisible();
+ await clickWorld(page,[-10,0,30]);await expect(dialog.getByRole("button",{name:"截面：已选择 2 个截面"})).toBeVisible();await ready(page,dialog);
+ await page.screenshot({path:testInfo.outputPath("loft-current-body.png")});
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const committed=await current(page,seed.id);const f=committed.part.features.at(-1);
  expect(f.type).toBe("LOFT");expect(f.sections.map((s:{sketchId:string})=>s.sketchId)).toEqual([seed.bottom,seed.top]);
+ expect(f.operation).toBe("ADD");expect(f.bodyId).toBe(seed.bodyId);expect(committed.part.bodies).toHaveLength(seed.bodyCount);
  const a=committed.artifacts[committed.part.bodies.find((b:{id:string})=>b.id===f.bodyId).geometryKey];
  expect(a.topology.solids).toBe(1);expect(a.volume).toBeGreaterThan(30*Math.PI*100);expect(a.volume).toBeLessThan(12000);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);

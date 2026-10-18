@@ -20,6 +20,17 @@ try {
  Object.assign(engine,{content:new T.Group(),helpers:content,groundBounds:new T.Box3(),solidBindings:new Map(),sceneSettings:{...DEFAULT_SCENE_SETTINGS},groundFrame:{origin:new T.Vector3(),normal:new T.Vector3(0,0,1),u:new T.Vector3(1,0,0),v:new T.Vector3(0,1,0)},groundGrid:new PlaneGrid(0xffffff),worldGrid:new PlaneGrid(0xffffff),scenePresentation:{update(...args){engine.presentation=args}}});
  engine.refreshSceneGround();assert(engine.groundHeight<-60,"a sketch-only scene positions its floor below the sketch");
  const footprint=groundFootprint(engine.groundBounds,10);assert.deepEqual(footprint.center.toArray(),[100,200]);assert(footprint.halfSize>=80);
+ for(const [origin,size,spacing] of [[[45,-5,0],[100,10,80],10],[[-73,-128,0],[17,32,5],3],[[1e9+23,-2e9+17,0],[15,3,6],.2],[[0,0,0],[100,100,100],10]]){
+  const box=new T.Box3().setFromCenterAndSize(new T.Vector3(...origin),new T.Vector3(...size));
+  const square=groundFootprint(box,spacing),major=spacing*10;
+  const originalHalf=Math.ceil(Math.max(...size,spacing*5)*2/spacing)*spacing;
+  const limits=[square.center.x-square.halfSize,square.center.x+square.halfSize,square.center.y-square.halfSize,square.center.y+square.halfSize];
+  for(const edge of limits)assert(Math.abs(edge/major-Math.round(edge/major))<1e-6,'every edge ends on a document-origin major grid line');
+  assert(limits[0]<=origin[0]-originalHalf&&limits[1]>=origin[0]+originalHalf&&limits[2]<=origin[1]-originalHalf&&limits[3]>=origin[1]+originalHalf,'alignment only expands the original footprint');
+  const cells=Math.max(Math.ceil((origin[0]+originalHalf)/major)-Math.floor((origin[0]-originalHalf)/major),Math.ceil((origin[1]+originalHalf)/major)-Math.floor((origin[1]-originalHalf)/major));
+  assert.equal(square.halfSize*2,cells*major,'the aligned square is no larger than needed');
+ }
+ const empty=groundFootprint(new T.Box3(),10);assert.deepEqual(empty.center.toArray(),[0,0]);assert.equal(empty.halfSize,100);
  const camera=new T.PerspectiveCamera(35,1,.001,1e6);camera.up.set(0,0,1);
  for(const distance of [1,100,1e4]){
   camera.position.set(100,200-distance,200);camera.lookAt(100,200,-50);camera.updateProjectionMatrix();

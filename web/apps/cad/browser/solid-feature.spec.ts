@@ -12,6 +12,10 @@ test("solid feature dialogs expose definitions and cancel cleanly", async ({ pag
         await page.locator(".workbench-command-result").filter({ hasText: command }).first().click();
         const dialog = page.getByRole("dialog", { name: title, exact: true });
         await expect(dialog).toBeVisible();
+        if(command === "放样"){
+            await expect(dialog.getByRole("radio",{name:"添加",exact:true})).toBeChecked();
+            await expect(dialog.getByRole("button",{name:/^目标实体：/})).not.toContainText("请在视图区选择实体");
+        }
         await expect(page.getByTestId("navigation-camera")).toHaveText(camera!);
         await expect(dialog.getByRole("button", { name: /确\s*定/ })).toBeDisabled();
         await dialog.getByRole("button", { name: "关闭", exact: true }).click();

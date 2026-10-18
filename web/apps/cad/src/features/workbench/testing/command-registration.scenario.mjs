@@ -52,6 +52,9 @@ try{
  definitionFacts.rootCanEdit=false;assert.equal(await definitionRegistry.execute('tree.edit',{payload:{node}}),false,'frozen tree mutations stay disabled');
  assert.equal(await definitionRegistry.execute('tree.properties',{payload:{node}}),true,'read-only properties remain inspectable');
  const commands=workbenchCommands(bindings);
+ let loftDraft;
+ const loft=workbenchCommands({...bindings,store:{...store,selection:{kind:'face',bodyId:'other-body'}},setSolidEditor:value=>loftDraft=value.feature}).find(command=>command.id==='part.loft');
+ loft.execute();assert.equal(loftDraft.operation,'ADD');assert.equal(loftDraft.bodyId,'body-A','loft targets the current working Body rather than another selected Body');
  for(const action of ['play','pause','previous','next','reset','cancel']){
   assert(!commands.some(c=>c.id==='dmu.'+action),'playback controls belong only to the simulation dialog');
   assert(!catalog.commands.some(c=>c.id==='dmu.'+action),'retired controls must also disappear from command search');

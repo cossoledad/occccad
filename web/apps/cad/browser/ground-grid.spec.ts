@@ -8,6 +8,8 @@ test("bounded ground stays fixed in world space, respects depth and ends at its 
   const T=await import("/node_modules/.vite/deps/three.js");
   // @ts-ignore Vite production source.
   const {PlaneGrid}=await import("/src/cad/rendering/plane-grid.ts");
+  // @ts-ignore Vite production source.
+  const {groundFootprint}=await import("/src/cad/rendering/scene-ground.ts");
   const renderer=new T.WebGLRenderer({antialias:false,preserveDrawingBuffer:true});renderer.setSize(400,400);document.body.append(renderer.domElement);
   renderer.domElement.style.cssText="position:fixed;left:0;top:0;z-index:9000";
   const scene=new T.Scene();scene.background=new T.Color(0);
@@ -23,6 +25,13 @@ test("bounded ground stays fixed in world space, respects depth and ends at its 
    scales.push({distance,lit:lit(data),base:grid.object.material.uniforms.uSpacing.value});
   }
   const distant=[];grid.setFootprint({center:new T.Vector2(1e9,-2e9),halfSize:100});for(const distance of [1,100]){camera.position.set(1e9+.17,-2e9+.23,distance);camera.lookAt(1e9+.17,-2e9+.23,0);distant.push(lit(draw()))}
+  const aligned=groundFootprint(new T.Box3(new T.Vector3(5,15,-5),new T.Vector3(25,35,5)),10);grid.setFootprint(aligned);
+  const edgeCamera=new T.OrthographicCamera(-200,200,200,-200,.1,1000);edgeCamera.position.set(50,50,200);edgeCamera.lookAt(50,50,0);edgeCamera.updateProjectionMatrix();
+  grid.update(edgeCamera,400,frame);renderer.render(scene,edgeCamera);const edgePixels=pixels();
+  const alignedEdges={visible:0,outside:0};for(let i=52;i<348;i++){
+   for(const [x,y] of [[50,i],[349,i],[i,50],[i,349]])if(edgePixels[(y*400+x)*4]>10)alignedEdges.visible++;
+   for(const [x,y] of [[49,i],[350,i],[i,49],[i,350]])if(edgePixels[(y*400+x)*4]>5)alignedEdges.outside++;
+  }
   grid.setFootprint({center:new T.Vector2(),halfSize:40});camera.position.set(0,0,200);camera.lookAt(0,0,0);
   const bounded=draw();const corners=[bounded[(12*400+12)*4],bounded[(388*400+388)*4]];
   camera.position.set(400,0,200);camera.lookAt(400,0,0);const pannedAway=lit(draw());
@@ -35,11 +44,12 @@ test("bounded ground stays fixed in world space, respects depth and ends at its 
   camera.position.set(0,0,-100);camera.lookAt(0,0,0);const below=draw();grid.object.visible=false;renderer.render(scene,camera);occlusion.front=value(below,200,200)-value(pixels(),200,200);
   mesh.visible=false;camera.position.set(0,-100,0);camera.up.set(0,0,1);camera.lookAt(0,0,0);const horizon=draw();
   const horizonCounts={below:lit(horizon,0,190),above:lit(horizon,210,400)};
-  return {scales,distant,occlusion,horizonCounts,corners,pannedAway};
+  return {scales,distant,occlusion,horizonCounts,corners,pannedAway,alignedEdges};
  });
  for(const sample of result.scales){expect(sample.base).toBe(10);if(sample.distance<=1000)expect(sample.lit,`distance=${sample.distance}`).toBeGreaterThan(300)}
  expect(result.scales.at(-1)!.lit).toBeLessThan(50);expect(result.corners).toEqual([0,0]);expect(result.pannedAway).toBe(0);
  for(const count of result.distant)expect(count).toBeGreaterThan(300);
+ expect(result.alignedEdges.visible).toBe((348-52)*4);expect(result.alignedEdges.outside).toBe(0);
  expect(result.occlusion.model).toBeLessThan(1);expect(result.occlusion.farGrid).toBeGreaterThan(10);expect(result.occlusion.front).toBeGreaterThan(10);
  expect(result.horizonCounts.below).toBeGreaterThan(300);expect(result.horizonCounts.above).toBe(0);
  expect(errors).toEqual([]);await page.screenshot({path:testInfo.outputPath("bounded-ground-horizon.png")});
