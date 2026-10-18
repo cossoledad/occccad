@@ -15,9 +15,13 @@ export function useCommandShortcuts(registry: CommandRegistry): void {
       // Nonmodal command panels also own their input session; do not change history underneath them.
       if ([...document.querySelectorAll<HTMLElement>('[role="dialog"]')].some((dialog) => dialog.getClientRects().length > 0)) return;
       const shortcut = resolveCommandShortcut(event);
-      if (!shortcut || !registry.state(shortcut.command).enabled) return;
+      if(!shortcut)return;
+      const row=target?.closest<HTMLElement>('[role="treeitem"][data-tree-key]');
+      if(shortcut.scope==="tree"&&(!row||target?.closest("button")))return;
+      const invocation={continuous:false,...(shortcut.scope==="tree"?{payload:{nodeKey:row!.dataset.treeKey}}:{})};
+      if (!registry.state(shortcut.command,invocation).enabled) return;
       event.preventDefault(); event.stopImmediatePropagation();
-      void registry.execute(shortcut.command, { continuous: false }).catch((error) => message.error(String(error)));
+      void registry.execute(shortcut.command, invocation).catch((error) => message.error(String(error)));
     };
     window.addEventListener("keydown", keyDown, true);
     return () => window.removeEventListener("keydown", keyDown, true);

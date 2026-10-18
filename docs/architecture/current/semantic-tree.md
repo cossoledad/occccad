@@ -1,6 +1,6 @@
 # 语义结构树与交互上下文
 
-## 当前调用链与问题
+## 当前调用链
 
 `PartModel` 保存 Body、Feature、Sketch 输入、Publication 与 ContextReference；`ProductModel` 保存 occurrence、版本策略、Publication、Binding 和约束。`workspace.Service.buildDocumentStructure` 从已解析 Revision 生成 `DocumentStructureNode`；`DocumentView` 同时提供模型摘要、per-Body Artifact 索引、resolved occurrence 和引用更新。前端 `treeData` 适配为虚拟行，`structureSelection` 转换树入口；视口从 Body 几何和 GLB 拾取，`Workbench` 将树/视口选择交给工具、属性和命令。实时事件更新 Query 缓存，Product 的接受更新仍使用服务端 `UpdatePlan`。
 
@@ -20,13 +20,17 @@ Part 独立打开与 Product 内 Part 使用同一个投影函数。Product 追�
 
 精确选择是命令目标；祖先只提示存在选中后代。折叠、过滤、滚动定位、自动展开不改选择集合。树入口选择返回语义对象，Publication 选择仍是 Publication；其解析目标可作关联高亮和定位。选择 Body 高亮 Body；选择 Feature 优先查询当前结果中的命名/provenance 贡献，无可靠定位时仅突出树入口并提示贡献不可定位，不能伪装整个 Body 为精确 Feature 高亮。历史结果和设为历史工作位置须显式命令。
 
-单击选择，双击/菜单编辑或激活。Selection/Hover、宿主文档、唯一 Edit Target、完整 occurrence、会话工作 Body、In Work Object、临时显隐、持久 suppression 是不同状态。Instance 双击只是激活其下文档根的快捷入口；真正编辑态只属于一个精确 Part/Product 根。`ActiveBodyID` 继续作为旧 Revision 可读的建模默认值，会话工作 Body 不改写它；定义级 Body/Sketch/SketchEntity 显隐与 Product occurrence 覆盖是可保存的显示元数据，临时隔离仍留在前端。普通选择和树展开不写 Revision；正式定义/occurrence 显隐命令会写入元数据 Revision，但不重算几何。删除、抑制、重排由服务端领域命令验证；未实现的 Feature 顺序编辑和 occurrence 顺序编辑禁用。
+单击选择，Space 选择当前焦点行；双击和树内 Enter 使用 `defaultTreeCommand`：有 `EDIT` 能力时统一执行 `tree.edit`，否则执行节点的激活语义。右键编辑和命令快捷键复用同一 CommandRegistry、准备屏障、编辑上下文、取消及资源归属。Enter 以焦点行在当前投影中的入口定位对象；没有明确节点时只接受唯一的精确语义选择，关联高亮不能成为隐式编辑目标。菜单、双击和快捷键均检查最新节点、definition digest、Revision/occurrence 与权限，不能绕过只读引用的写入限制、忙碌状态或冻结上下文；具有显式 `ACTIVATE` 能力的只读机构引用仍可进入其所属应用。展开按钮的点击/双击/键盘只控制分支，不进入对象编辑。参数、草图、特征、基准、Publication、上下文输入及装配对象沿用各自编辑器；机构定义的编辑入口进入对应机构应用，子关系进入所属接合编辑器，不创建无对应表单的编辑状态。
+
+新增可编辑节点需提供正式领域身份、当前 `EDIT` capability 和 `StructureActions.onEdit` 编辑器路由；双击与 Enter 不增加按节点类型的分支。非编辑激活语义在 `tree-node-interaction.ts` 集中定义，快捷键在 `command-shortcuts.ts` 声明作用域，不在树行或表单散布全局键盘监听。输入框、对话框、IME 和重复按键保留原归属，Alt+Enter 仍打开对象属性。
+
+Selection/Hover、宿主文档、唯一 Edit Target、完整 occurrence、会话工作 Body、In Work Object、临时显隐、持久 suppression 是不同状态。Instance 双击只是激活其下文档根的快捷入口；真正编辑态只属于一个精确 Part/Product 根。`ActiveBodyID` 继续作为旧 Revision 可读的建模默认值，会话工作 Body 不改写它；定义级 Body/Sketch/SketchEntity 显隐与 Product occurrence 覆盖是可保存的显示元数据，临时隔离仍留在前端。普通选择和树展开不写 Revision；正式定义/occurrence 显隐命令会写入元数据 Revision，但不重算几何。删除、抑制、重排由服务端领域命令验证；未实现的 Feature 顺序编辑和 occurrence 顺序编辑禁用。
 
 Product 更新依赖必须由 `ProductModel.instances` 和服务端 UpdatePlan 提供，不得由树是否加载或诊断文字决定。普通模型刷新不传播 selection；“定位 occurrence”或“新标签打开”才传选择意图。ContextReference、ContextInput、ContextBinding 和 Publication 是明确的可检查入口，断裂后仍保留；连接、时效、求值和加载状态分别表达。
 
 ## 当前限制
 
-当前支持现有 Part/Product 类型的投影、身份、选择、更新和可用命令闭环；不声称任意历史插入、完整 Feature 贡献查询、任意拖拽重排、断裂外部引用原位重连、机制仿真或装配体特征已交付。当前结构快照仍由服务端整体构造，前端按需展开和虚拟渲染；服务端子树分页/复用 Definition 缓存待大树基准后实施。未来 Feature 类型只扩展描述器与领域命令；Mechanism/Joint/Driver 引用 occurrence，位姿是临时覆盖；跨 Body Boolean 记录消耗关系，不以树节点搬家代替。Product 内普通 Part 建模修改共享定义，但会话始终携带 occurrence 上下文；独立 Part 标签是另一个宿主工作空间。
+当前支持现有 Part/Product 类型的投影、身份、选择、更新和可用命令闭环；不声称任意历史插入、完整 Feature 贡献查询、任意拖拽重排、断裂外部引用原位重连或装配体特征已交付。机构的创建、试动与模拟范围见[机构合同](kinematics-dmu.md)。当前结构快照仍由服务端整体构造，前端按需展开和虚拟渲染；服务端子树分页/复用 Definition 缓存待大树基准后实施。未来 Feature 类型只扩展描述器与领域命令；Mechanism/Joint/Driver 引用 occurrence，位姿是临时覆盖；跨 Body Boolean 记录消耗关系，不以树节点搬家代替。Product 内普通 Part 建模修改共享定义，但会话始终携带 occurrence 上下文；独立 Part 标签是另一个宿主工作空间。
 
 ## 参照与有意差异
 

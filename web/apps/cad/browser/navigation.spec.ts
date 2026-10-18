@@ -130,10 +130,10 @@ test("orthographic detail navigation, isometric shortcut and sketch view round t
   await page.screenshot({ path: testInfo.outputPath("isometric-fit-grid.png") });
   const iso = await projectedView(page);
   await page.keyboard.press("1"); await expectView(page,iso);
-  // Beyond the old 1200-unit grid: the background plane still fills the viewport.
+  // Leaving the finite floor is allowed; navigation and Fit still return to the model.
   await page.mouse.wheel(0, 3000); await expect(projection).not.toHaveText(scale!);
   await page.mouse.down({ button: "middle" }); await page.mouse.move(x + 200, y + 80, { steps: 3 }); await page.mouse.up({ button: "middle" });
-  await page.screenshot({ path: testInfo.outputPath("unbounded-grid-zoomed-out.png") });
+  await page.screenshot({ path: testInfo.outputPath("bounded-grid-zoomed-out.png") });
   await page.keyboard.press("1"); await expectView(page,iso);
   await page.mouse.down({ button: "middle" }); await page.mouse.move(x + 40, y + 25, { steps: 3 }); await page.mouse.up({ button: "middle" });
   await expect(projection).toHaveText(scale!);
@@ -201,7 +201,7 @@ test("sketch normal view, persistent world context and exit selection synchroniz
   // exit-selection assertion can require a visible highlight without bypassing
   // the model's definition visibility contract.
   await sketch.click({button:"right"});await page.getByRole("menuitem",{name:"显示",exact:true}).click();
-  await sketch.dblclick();
+  await expect(sketch).toHaveAttribute("data-action-enabled","true");await sketch.dblclick();
   const normal = page.getByRole("button", { name: "正对草图平面", exact: true });
   await expect(normal).toBeVisible();
   const camera = page.getByTestId("navigation-camera"), projection = page.getByTestId("navigation-projection");
@@ -213,7 +213,7 @@ test("sketch normal view, persistent world context and exit selection synchroniz
   await page.mouse.move(x,y); await page.mouse.down({button:"right"});
   await page.mouse.move(x+110,y+80,{steps:5}); await page.mouse.up({button:"right"});
   await expect(camera).not.toHaveText(initial!);
-  await page.screenshot({path:testInfo.outputPath("sketch-oblique-world-and-plane-grids.png")});
+  await page.screenshot({path:testInfo.outputPath("sketch-oblique-plane-grid.png")});
   await normal.click(); await expect(projection).toHaveText(scale!);
   await expect.poll(async () => (await camera.textContent())?.split(" / ")[1]).toBe(initial!.split(" / ")[1]);
   const beforeWheel=await camera.getAttribute("data-camera-state");

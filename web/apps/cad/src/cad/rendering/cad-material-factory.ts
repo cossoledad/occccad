@@ -1,6 +1,6 @@
 import type { GraphicProperties } from "../../types";
 import * as THREE from "three";
-import { CATIA_VISUAL_THEME } from "./cad-visual-theme";
+import { CATIA_VISUAL_THEME, type CadVisualTheme } from "./cad-visual-theme";
 import { CadShaderLibrary } from "./shader/cad-shader-library";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import {SurfaceDepthPass} from "./surface-depth-pass";
@@ -12,7 +12,7 @@ export class CadMaterialFactory {
   private readonly sectionEnabled: THREE.IUniform<boolean> = { value: false };
   private readonly sectionPlane: THREE.IUniform<THREE.Vector4> = { value: new THREE.Vector4(0, 0, 1, 0) };
 
-  constructor(readonly shaders: CadShaderLibrary, readonly theme = CATIA_VISUAL_THEME) {}
+  constructor(readonly shaders: CadShaderLibrary, readonly theme:CadVisualTheme = CATIA_VISUAL_THEME) {}
 
   surface(color: number = this.theme.surface, properties:GraphicProperties={}): THREE.MeshStandardMaterial {
     const material = new THREE.MeshStandardMaterial({

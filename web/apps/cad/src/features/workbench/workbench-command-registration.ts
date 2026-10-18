@@ -13,6 +13,7 @@ import type {CadViewportHandle} from "../../viewport/cad-viewport";
 import {deletableTreeNodesForSelections,isSolidFeature} from "./workbench-tree-model";
 import type {SpecificationTreeNode} from "./specification-tree";
 import {selectionSummaryCommand} from "./commands/selection-summary";
+import {treeNodesForSelections} from "./tree-projection-index";
 
 export type WorkbenchCommandBindings={
  openProperties?:()=>void;openOptions?:()=>void;
@@ -110,7 +111,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "view.iso", execute: () => viewport.current?.setStandardView("ISO") }),
 	  ({ id: "debug.part", execute: () => editingView && api.downloadDiagnosticBundle(editingView.document.id), isEnabled: () => Boolean(editingView?.part) }),
       ({ id: "debug.assembly", execute: () => editingView && api.downloadAssemblyDiagnostic(editingView.document.id), isEnabled: () => Boolean(editingView?.product) }),
- ...structureCommands(bindings.treeActions,treeNodes,showMessage),
+ ...structureCommands(bindings.treeActions,treeNodes,showMessage,treeNodesForSelections(treeNodes,store.selections)),
  selectionSummaryCommand({getContext:()=>({documentId:editingView?.document.id??"",selectionCount:store.selections.length}),show:showMessage}),
  ];
 }

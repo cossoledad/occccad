@@ -4,11 +4,11 @@ const require=createRequire(new URL("../../../../package.json",import.meta.url))
 const {createServer}=await import(require.resolve("vite"));
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try {
- const T=await server.ssrLoadModule("three"),{InfiniteGroundGrid}=await server.ssrLoadModule("/src/cad/rendering/infinite-ground-grid.ts");
+ const T=await server.ssrLoadModule("three"),{PlaneGrid}=await server.ssrLoadModule("/src/cad/rendering/plane-grid.ts");
  const frame={origin:new T.Vector3(10,20,30),normal:new T.Vector3(1,0,0),u:new T.Vector3(0,1,0),v:new T.Vector3(0,0,1)};
  for(const camera of [new T.OrthographicCamera(-200,200,150,-150,.1,1e12),new T.PerspectiveCamera(35,4/3,.0001,1e12)]){
   camera.position.set(120,30,80);camera.up.set(0,0,1);camera.lookAt(frame.origin);
-  const sketch=new InfiniteGroundGrid(0xffffff,"sketch"),ground=new InfiniteGroundGrid(0xffffff);
+  const sketch=new PlaneGrid(0xffffff,"sketch"),ground=new PlaneGrid(0xffffff);
   for(const zoom of [.001,1,10000]){
    camera.zoom=zoom;camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
    for(const grid of [sketch,ground]){

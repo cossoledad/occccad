@@ -14,7 +14,7 @@ async function fixture(page:Page,withDefinitions=false,duration=4){
   const initial=await originalGet(documentId),instances=initial.product!.instances;
   const end=(instanceId:string)=>({instanceId,frame:{translation:[0,0,0],rotation:[0,0,0,1]},axis:{instanceId,kind:'AXIS',geometryId:'axis-system-default',axis:'Z'},plane:{instanceId,kind:'PLANE',geometryId:'datum-xy'},capturedX:[1,0,0]});
   let defs:any={mechanisms:[],drivers:[],studies:[],associations:[]};
-  if(seeded){defs={...defs,mechanisms:[{id:'m',name:'测试机构',unitIds:instances.map(i=>i.id),joints:[{id:'g',name:'圆柱固定',kind:'GROUND',first:end(instances[0].id),zero:{value:0,unit:'deg'},direction:1},{id:'j',name:'轴接合',kind:'REVOLUTE',first:end(instances[0].id),second:end(instances[1].id),zero:{value:0,unit:'deg'},direction:1,lower:{value:-360,unit:'deg'},upper:{value:720,unit:'deg'}}]}],drivers:[{id:'d',name:'角度驱动',mechanismId:'m',jointId:'j',reference:{value:0,unit:'deg'},referenceDigest:'fixture-coordinate'}],studies:[{id:'s',name:'旋转研究',mechanismId:'m',driverId:'d',durationSeconds:duration,frames:5,budgetMs:60000,reference:{value:0,unit:'deg'},sourceRevisionId:initial.document.versionId,basisDigest:'fixture-basis',geometryDigest:'fixture-geometry',keyframes:[{id:'key-start',timeSeconds:0,driverId:'d',value:{value:0,unit:'deg'}},{id:'key-end',timeSeconds:duration,driverId:'d',value:{value:360,unit:'deg'}}]}]}}
+  if(seeded){defs={...defs,mechanisms:[{id:'m',name:'测试机构',unitIds:instances.map(i=>i.id),joints:[{id:'g',name:'圆柱固定',kind:'GROUND',first:end(instances[0].id),zero:{value:0,unit:'deg'},direction:1},{id:'j',name:'轴接合',kind:'REVOLUTE',first:end(instances[0].id),second:end(instances[1].id),zero:{value:0,unit:'deg'},direction:1,lower:{value:-360,unit:'deg'},upper:{value:720,unit:'deg'}}]}],drivers:[{id:'d',name:'角度驱动',mechanismId:'m',jointId:'j',reference:{value:0,unit:'deg'},referenceDigest:'fixture-coordinate'}],studies:[{id:'s',name:'旋转研究',mechanismId:'m',activeDriverIds:['d'],driverId:'d',durationSeconds:duration,frames:5,budgetMs:60000,reference:{value:0,unit:'deg'},sourceRevisionId:initial.document.versionId,basisDigest:'fixture-basis',geometryDigest:'fixture-geometry',keyframes:[{id:'key-start',timeSeconds:0,driverId:'d',value:{value:0,unit:'deg'}},{id:'key-end',timeSeconds:duration,driverId:'d',value:{value:360,unit:'deg'}}]}]}}
   for(const m of defs.mechanisms){m.poses=Object.fromEntries(instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:[0,0,0,1]}]));m.coordinates={j:0};}
   for(const s of defs.studies){const m=defs.mechanisms.find((m:any)=>m.id===s.mechanismId);s.initialPoses=structuredClone(m.poses);s.initialCoordinates=structuredClone(m.coordinates);}
   const state:any={saved:[],previews:[],requests:[],applied:[],inspected:[],jobs:[],blocked:false,release:undefined};
@@ -22,7 +22,7 @@ async function fixture(page:Page,withDefinitions=false,duration=4){
   let adopted:any;
   const decorate=(source:any)=>{
    for(const m of defs.mechanisms)for(const j of m.joints)if(!j.constraints){
-    const c=(id:string,name:string,kind:string,first:any,second?:any)=>({id,name,kind,first,second,evaluationStatus:'VERIFIED'});
+    const c=(id:string,name:string,kind:string,first:any,second?:any)=>({id,name,kind,first,second,relationRole:kind==='DISTANCE'?'axial-location':kind==='FIX'?'ground':'axis',evaluationStatus:'VERIFIED'});
     j.constraints=j.kind==='GROUND'?[c('relation-'+j.id+'-fixed','固定.1','FIX',{kind:'BODY',instanceId:j.first.instanceId})]:[c('relation-'+j.id+'-coincidence','重合.1','COINCIDENT',j.first.axis,j.second.axis),c('relation-'+j.id+'-offset','偏移.1','DISTANCE',j.first.plane,j.second.plane)];
    }
    const view=structuredClone(source);view.product.kinematics=structuredClone(defs);if(state.permission)view.document.permission=state.permission;
@@ -37,7 +37,7 @@ async function fixture(page:Page,withDefinitions=false,duration=4){
     for(const j of m.joints){
      const suffix=' ('+nameFor(j.first.instanceId)+(j.second?','+nameFor(j.second.instanceId):'')+')';
      const jn={...node('MECHANISM_JOINT',j),id:mn.id+'/joint:'+j.id,mechanismId:m.id,name:j.name+suffix,children:[] as any[]};
-     if(!j.constraints){const c=(id:string,name:string,kind:string,first:any,second?:any)=>({id,name,kind,first,second,evaluationStatus:'VERIFIED'});j.constraints=j.kind==='GROUND'?[c('relation-'+j.id+'-fixed','固定.1','FIX',{kind:'BODY',instanceId:j.first.instanceId})]:[c('relation-'+j.id+'-coincidence','重合.1','COINCIDENT',j.first.axis,j.second.axis),c('relation-'+j.id+'-offset','偏移.1','DISTANCE',j.first.plane,j.second.plane)];}
+     if(!j.constraints){const c=(id:string,name:string,kind:string,first:any,second?:any)=>({id,name,kind,first,second,relationRole:kind==='DISTANCE'?'axial-location':kind==='FIX'?'ground':'axis',evaluationStatus:'VERIFIED'});j.constraints=j.kind==='GROUND'?[c('relation-'+j.id+'-fixed','固定.1','FIX',{kind:'BODY',instanceId:j.first.instanceId})]:[c('relation-'+j.id+'-coincidence','重合.1','COINCIDENT',j.first.axis,j.second.axis),c('relation-'+j.id+'-offset','偏移.1','DISTANCE',j.first.plane,j.second.plane)];}
      jn.children=j.constraints.map((c:any)=>({...node('JOINT_EXPANSION',c),id:jn.id+'/relation:'+c.id,name:c.name+suffix,mechanismId:m.id,ownerEntityId:j.id,relationRole:c.kind==='DISTANCE'?'axial-location':c.kind==='FIX'?'ground':'axis',entityType:c.kind,evaluationStatus:c.evaluationStatus,presentationRole:'DEFINITION',capabilities:['EDIT']}));
      (j.kind==='GROUND'?ground:joints).children.push(jn);
     }
@@ -108,6 +108,17 @@ async function enter(page:Page,existing=false){
  await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toHaveCount(0);
 }
 async function start(page:Page){await command(page,'运行仿真');const dialog=page.getByRole('dialog',{name:'仿真与回放',exact:true});await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:'计算仿真',exact:true}).click();}
+
+test('tree edit enters an existing mechanism application without leaving a phantom form',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await fixture(page,true);await enter(page,true);
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ await command(page,'旋转接合');await expect(page.getByRole('dialog',{name:/旋转/})).toBeVisible();await page.keyboard.press('Escape');
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('测试机构');
+ const row=page.getByRole('treeitem').filter({hasText:'测试机构，自由度=0'}).last();await row.focus();await page.keyboard.press('Enter');
+ await expect(page.getByRole('dialog')).toHaveCount(0);await filter.fill('');
+ await command(page,'旋转接合');await expect(page.getByRole('dialog',{name:/旋转/})).toBeVisible();await page.keyboard.press('Escape');
+ expect(errors).toEqual([]);
+});
 
 test('joint toolbar is flat and prismatic plane direction is saved independently',async({page})=>{
  test.setTimeout(60_000);
@@ -247,9 +258,9 @@ test('basic mechanism command catalog excludes retired functions and simulation 
 
 test('joint relation children edit their owner through the shared tree command',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);await enter(page,true);
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('重合.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^重合\.1 \(/).first().dblclick();
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('重合.1');const coincidence=page.getByRole('treeitem').filter({hasText:/重合\.1 \(/}).first();await expect(coincidence).toHaveAttribute('data-action-enabled','true');await coincidence.dblclick();
  const dialog=page.getByRole('dialog',{name:'轴接合',exact:true});await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'第一轴线',exact:true})).toHaveClass(/ant-btn-primary/);await page.keyboard.press('Escape');
- await filter.fill('偏移.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^偏移\.1 \(/).first().dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'第一定位平面',exact:true})).toHaveClass(/ant-btn-primary/);await page.keyboard.press('Escape');
+ await filter.fill('偏移.1');const offset=page.getByRole('treeitem').filter({hasText:/偏移\.1 \(/}).first();await expect(offset).toHaveAttribute('data-action-enabled','true');await offset.dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'第一定位平面',exact:true})).toHaveClass(/ant-btn-primary/);await page.keyboard.press('Escape');
  expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);expect(errors).toEqual([]);
 });
 

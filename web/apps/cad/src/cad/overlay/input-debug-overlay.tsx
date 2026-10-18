@@ -2,8 +2,10 @@ import type { InputState } from "../input/input-types";
 import type { NavigationAction, NavigationProfileID } from "../navigation/navigation-profile";
 import type { NavigationSnapshot } from "../navigation/navigation-controller";
 import { FloatingPanel } from "./floating-panel";
+import type { SceneGridDisplay } from "../rendering/scene-ground";
 
 export type InputDebugSnapshot = {
+  sceneGrid?:SceneGridDisplay;
   input: InputState;
   activeTool: string;
   selectionKeys?: string[];
@@ -25,6 +27,7 @@ export function InputDebugOverlay({ snapshot }: { snapshot: InputDebugSnapshot }
     <code>Ctrl: {String(modifiers.ctrl)} · Shift: {String(modifiers.shift)} · Alt: {String(modifiers.alt)}</code>
     <code>Tool: {snapshot.activeTool} · Nav: {snapshot.navigationProfile}/{snapshot.navigationAction}</code>
     <code data-testid="viewport-selection" data-count={snapshot.selectionKeys?.length ?? 0} data-highlighted={snapshot.highlightedVisible ?? 0}>Selection: {snapshot.selectionKeys?.join(", ") || "none"}</code>
+    {snapshot.sceneGrid&&<code data-testid="scene-grid" data-state={JSON.stringify(snapshot.sceneGrid)}>Grid: {snapshot.sceneGrid.sketch?"sketch":snapshot.sceneGrid.ground?"ground":"hidden"}</code>}
     {snapshot.featureSelection&&<code data-testid="viewport-feature-selection" data-role={snapshot.featureSelection.role} data-count={snapshot.featureSelection.count} data-overlays={snapshot.featureSelection.overlays}>Feature selection: {snapshot.featureSelection.role} / {snapshot.featureSelection.count}</code>}
     {snapshot.datumPreview && <code data-testid="viewport-datum-preview" data-kind={snapshot.datumPreview.kind}>Datum: {JSON.stringify(snapshot.datumPreview)}</code>}
     <code data-testid="navigation-camera" data-transition-active={String(Boolean(snapshot.viewTransitionActive))} data-camera-state={snapshot.navigation?JSON.stringify({position:snapshot.navigation.cameraPosition,quaternion:snapshot.navigation.cameraQuaternion,zoom:snapshot.navigation.cameraZoom,projection:snapshot.navigation.projection,fov:snapshot.navigation.cameraFov,aspect:snapshot.navigation.cameraAspect,span:snapshot.navigation.cameraSpan}):undefined}>Camera: {snapshot.navigation?.cameraPosition.map((v) => v.toFixed(4)).join(",")} / {snapshot.navigation?.cameraQuaternion.map((v) => v.toFixed(4)).join(",")} / zoom {snapshot.navigation?.cameraZoom.toPrecision(10)}</code>

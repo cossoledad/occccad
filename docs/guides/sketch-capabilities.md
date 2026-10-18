@@ -31,7 +31,7 @@ PlaneGCS 使用仓库锁定的 FreeCAD 1.0.2 commit `256fc7eff3379911ab5daf88e10
 - Equal 在圆/圆弧间表示半径相等，在椭圆/椭圆弧间表示两个半轴相等。Concentric 使用这些类型的中心。相切按支持类型及明确端点角色过滤；CONTROL 样条开放 clamped 端点可与直线建立真实 D1 切向。
 - 线线尺寸表示非负平行支撑线间距；水平/垂直点点尺寸是有符号坐标差。参考尺寸不驱动几何，表达式读取参考参数目前明确拒绝，避免同草图测量/驱动循环。公式与只读来源不能被普通数值编辑覆盖。
 - 关联镜像只保留正式派生关系，不复制源驱动尺寸。后续编辑触及关联引用时必须显式处理影响。轴上连接来自正式关系；自映射元素不生成重复轮廓。
-- 偏移当前为独立副本，支持 Line/Circle/Arc 及其适用连续链；Ellipse/Spline 的精确等距、一般自由曲线间任意圆角、高阶 G2/G3、完整三维投影和 Engineering Connections 不在本轮范围。
+- 偏移当前为独立副本，支持 Line/Circle/Arc 及其适用连续链；Ellipse/Spline 的精确等距、一般自由曲线间任意圆角、高阶 G2/G3、完整三维投影和 Engineering Connections 不在当前范围。
 - ExternalGeometry 保持只读，只能通过显式 Detach 独立编辑。开放草图可保存；闭合实体拉伸仍需正式拓扑和精确曲线验证。完全约束与闭合是独立状态。
 - Slot 创建入口和专用工具已移除；构成它的通用线段、圆弧、相切和闭合能力继续保留。
 
@@ -70,9 +70,9 @@ PlaneGCS 使用仓库锁定的 FreeCAD 1.0.2 commit `256fc7eff3379911ab5daf88e10
 
 上述 15 个入口已使用匹配源码的真实 Worker、隔离数据库和独立几何断言运行通过（28.773 s）。C++ 74 个定向测试、Go workspace/control/geometry/database 定向测试及构建、Web sketch 11/71 与 workbench/Product/session 3/71 场景及构建通过；数据库基线及重复迁移验证入口见上表。详细结果保留在 `build/sketch-audit/verification.md` 及派生日志，不推断全部曲线组合已验收。
 
-集成复现需设置 `OCCCCAD_DATABASE_URL`（专用隔离数据库）、`OCCCCAD_GEOMETRY_WORKER_ADDRESS`（匹配本次源码的真实 Worker）和 `OCCCCAD_DATA_DIR`（隔离本地制品目录），然后从 `services/` 运行 `go test ./internal/workspace -run '^TestSketchWorkflow' -count=1`。任一配置缺失会明确 Skip；Skip 不计通过，也不指向应用数据库或 S3 进行清理。
+集成复现通过根 `.env` 加载开发数据库、匹配源码的真实 Worker 与制品目录，从 `services/` 运行 `go test ./internal/workspace -run '^TestSketchWorkflow' -count=1`。任一配置缺失会明确 Skip；Skip 不计通过；资源与清理边界遵循[开发环境](../development/environment.md)。
 
-执行结果另存 `build/sketch-audit/` 派生输出；不把环境日志加入能力表。本轮不运行浏览器自动测试或无差别全量单测；WebGL 和人工操作由维护者实机验收。
+执行结果另存 `build/sketch-audit/` 派生输出；不把环境日志加入能力表。浏览器/WebGL 与完整链路需独立验收。
 
 ## 数据格式与目录迁移
 

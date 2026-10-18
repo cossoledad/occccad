@@ -23,7 +23,7 @@
 
 ## Web 工作台来源
 
-- [Onshape 工具搜索](https://cad.onshape.com/help/Content/Home/search_tools.htm)、[界面分区](https://cad.onshape.com/help/Content/Home/user_interface_basics.htm)：原 Web README 保留的命令发现与界面参照，本次仅迁移来源，未重新核对外部页面。
+- [Onshape 工具搜索](https://cad.onshape.com/help/Content/Home/search_tools.htm)、[界面分区](https://cad.onshape.com/help/Content/Home/user_interface_basics.htm)：命令发现与界面参照；外部文档不是当前实现证明。
 - [3DEXPERIENCE Action Bar](https://3dswym.3dexperience.3ds.com/post/makers-made-in-3d/simplifying-cad-the-xdesign-action-bar_aibePcuuQvetpsYllKSjkA)：上下文命令分组参照。
 - `control/BasEnglishC2.viewdoc` → `online/basug_C2/basugbt0501.htm`（Specification Tree and Geometry Area）、`online/basug_C2/basugbt0510.htm`（Finding an Object in the Tree）：树与几何区、树中定位的概念参照。
 
@@ -76,7 +76,7 @@
 
 2026-10-12 按本机 `control/KinEnglishC2.viewdoc` 与 `control/CfyEnglishC2.viewdoc` 索引读取下列页面，并查看页面引用的实际对话框图。路径均相对于 `/mnt/c/UserApp/3D/DS/Dassault\ Systemes/B33doc/English/`；页面正文与图片只确认 CATIA 的用户输入和可见操作，不提供其内部求解架构证据。
 
-| 页面与对话框图 | 本轮核实的流程 |
+| 页面与对话框图 | 参考流程 |
 |---|---|
 | `online/kinug_C2/kinugbt0702.htm`；`images/dbprismatic02NLS.gif` | Prismatic 选择两线、两面；对话框有 Length driven |
 | `online/kinug_C2/kinugbt0703.htm`；`images/dbcylindrical02NLS.gif` | Cylindrical 只选择两线；Angle driven 与 Length driven 可分别勾选，示例同时选中 |
@@ -86,6 +86,12 @@
 | `online/kinug_C2/kinugat0103.htm` | 有命令的坐标必须设置上下限；默认角度 −360/+360°、长度 −100/+100 mm；无命令的 Prismatic 也能启用限位 |
 | `online/cfyugasm_C2/cfyugasmut0306.htm` | Fix Together 可包含多个活动组件所属的成员和已有组；编辑成员及名称、树中激活／停用；已有组内关系先更新，再按整体处理组外关系 |
 
-图片路径沿用所在页面的 `online/kinug_C2/` 目录。普通固联移动页还区分尊重约束与其他移动模式；本项目本轮继续采用尊重约束的正式操纵，不新增隐式自由移动／自动解除组关系模式。
+图片路径沿用所在页面的 `online/kinug_C2/` 目录。普通固联移动页还区分尊重约束与其他移动模式；本项目采用尊重约束的正式操纵，不新增隐式自由移动／自动解除组关系模式。
 
-本项目的独立产品／机构定义、按类型真实约束编译、棱形有向转角定位、球面支持自动解析精确球心、刚性接合冻结捕获、向量关键帧和完整驱动资格是[扩展设计](../architecture/target/kinematics-simple-joints.md)的明确决策，不声称其内部模型与 CATIA 一致。平面／球面“无驱动”结论限定为所核对的基础创建对话框，本轮也不据此宣称 CATIA 所有版本和高级模式均无相关能力。
+本项目的独立产品／机构定义、按类型真实约束编译、棱形有向转角定位、球面支持自动解析精确球心、刚性接合冻结捕获、向量关键帧和完整驱动资格是[扩展设计](../architecture/target/kinematics-simple-joints.md)的明确决策，不声称其内部模型与 CATIA 一致。平面／球面“无驱动”结论限定为所核对的基础创建对话框，不据此宣称 CATIA 所有版本和高级模式均无相关能力。
+
+## 地面与草图视觉
+
+本机 B33 `control/BasEnglishC2.viewdoc` → `online/basug_C2/basugbt1305.htm`（Viewing Objects against the Ground）定义地面用于识别上下方向，初始位置平行/相切于文档底部，可显示/隐藏及重定位。该页没有给出数值间隙或尺寸公式。
+
+本软件采用有限正方地面，按可见实体与草图范围计算尺寸及底部间隙；草图编辑时隐藏三维地面并使用背景适配的草图配色。这些是本软件的交互与数值策略，参考 CATIA 的空间定位目的，不宣称尺寸公式或草图自动隐藏行为直接来自该页。当前实现见[全局场景](../architecture/current/object-scene-properties.md)。

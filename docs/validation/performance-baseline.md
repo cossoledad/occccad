@@ -1,12 +1,12 @@
 # 本机性能基线
 
-测量日期：2026-10-16 UTC；源码 HEAD：`a8dd5345a35c5f547466ef3ba45455d9cd61b6d6`，含本次统一环境改动；准确源码摘要、二进制、命令、资源身份和完整样本见[机器可读数据](performance-baseline.json)。本页替换此前测试环境的数值，不保留旧机器比较。
+测量日期：2026-10-16 UTC；源码 HEAD：`a8dd5345a35c5f547466ef3ba45455d9cd61b6d6`，含工作区改动；准确源码摘要、二进制、命令、资源身份和完整样本见[机器可读数据](performance-baseline.json)。这些样本仅描述指定源码与环境。
 
 ## 环境与计时范围
 
 - AMD Ryzen 9 9950X 16-Core Processor；32 逻辑 CPU；`Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.43`。
 - `go version go1.26.5 linux/amd64`；`c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0`；OCCT 7.9.1。Release/优化参数与 sanitizer 状态见 JSON 中 assembly 构建记录。
-- 人工应用、Agent 真实集成和本轮 Router/建模均使用同一 `.env` 的数据库、LOCAL/S3 后端、暂存目录和 Worker。测量期间没有重置数据库，使用已有可丢弃开发数据；终态规模见 JSON 的 databaseStateAtFinish。
+- 人工应用、Agent 真实集成和Router/建模样本均使用同一 `.env` 的数据库、LOCAL/S3 后端、暂存目录和 Worker。测量期间没有重置数据库，使用已有可丢弃开发数据；终态规模见 JSON 的 databaseStateAtFinish。
 - 各入口串行测量，测量时应用未启动；没有并行构建或测试。未绑核、锁频或控制其他后台负载。
 - kernel、RPC、Session、命令提交、序列和整例测试耗时边界不同。阶段有包含关系，不能相加；Native/Router 工作负载不完全相同，不能相减推断网络成本。
 

@@ -35,7 +35,7 @@ Select 支持草图框选：从左往右为完整包含，从右往左为交叉�
 - Go `TestSketchWorkflowSplitExtendedArcContact`：匹配源码 Worker 的延伸接触 → 精确分割 → 正式连接 → Undo/Redo/冷读取。
 - `sketch-dimension-lifecycle.scenario.mjs`：数量/表达式/稳定 ParameterID、参考草稿、原请求重试及编辑对话框。
 
-从 `web/apps/cad/` 执行 `pnpm test -- sketch`、`pnpm typecheck` 和 `pnpm build`。本轮未运行浏览器自动测试；SSR 和 Node 场景不证明真实焦点轨迹、布局或 WebGL 已通过验收。
+从 `web/apps/cad/` 执行 `pnpm test -- sketch`、`pnpm typecheck` 和 `pnpm build`。SSR 和 Node 场景不证明真实焦点轨迹、布局或 WebGL 已通过验收。
 
 ## 人工步骤
 

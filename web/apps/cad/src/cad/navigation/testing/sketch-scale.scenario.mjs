@@ -3,7 +3,7 @@ import { createServer } from "vite";
 const server = await createServer({ appType:"custom", logLevel:"silent", server:{middlewareMode:true} });
 try {
   const T = await server.ssrLoadModule("three");
-  const { InfiniteGroundGrid, adaptiveGridSpacing } = await server.ssrLoadModule("/src/cad/rendering/infinite-ground-grid.ts");
+  const { PlaneGrid, adaptiveGridSpacing } = await server.ssrLoadModule("/src/cad/rendering/plane-grid.ts");
   const { sketchAxisEndpoints, makeSketchReferenceAxis } = await server.ssrLoadModule("/src/cad/rendering/sketch-reference-axis.ts");
   const { updateScreenLines } = await server.ssrLoadModule("/src/cad/rendering/screen-space-lines.ts");
   const { resolveSketchSnap } = await server.ssrLoadModule("/src/cad/interaction/sketch-snap.ts");
@@ -16,7 +16,7 @@ try {
   const helpers = new T.Group();
   helpers.add(new T.Line(new T.BufferGeometry().setFromPoints([origin,new T.Vector3(.0001,.0001,0)]),new T.LineBasicMaterial()));
   const engine = { camera, contentBounds:new T.Box3(), helpers, sketchContext:axes, navigation:{target:origin} };
-  const grid = new InfiniteGroundGrid(0xffffff,"sketch");
+  const grid = new PlaneGrid(0xffffff,"sketch");
   const frame = { origin, normal:new T.Vector3(0,0,1), u:direction, v:new T.Vector3(0,1,0) };
   const screen = point => {
     const p = new T.Vector3(point[0],point[1],0).project(camera);

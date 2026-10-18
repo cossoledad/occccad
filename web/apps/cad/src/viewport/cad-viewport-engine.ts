@@ -39,7 +39,9 @@ import { ViewTransition } from "../cad/navigation/view-transition";
 import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-view";
 import { makeFeatureEdges } from "../cad/rendering/feature-edges";
 import { makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
-import { adaptiveGridSpacing, InfiniteGroundGrid } from "../cad/rendering/infinite-ground-grid";
+import { adaptiveGridSpacing, PlaneGrid } from "../cad/rendering/plane-grid";
+import { groundFootprint, includeVisibleSketchBounds, sceneGroundVisible, type SceneGridDisplay } from "../cad/rendering/scene-ground";
+import { sceneSketchColors, SketchColorAdapter } from "../cad/rendering/sketch-colors";
 import { fitOrthographicView, updateOrthographicClipping, orientPlaneView, restoreView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
 import * as THREE from "three";
 import {occurrenceSnapshot,refreshOccurrenceSelection} from "../cad/assembly/assembly-occurrence-snapshot";
@@ -185,6 +187,7 @@ export function bindPublicationSelection(selection: SelectionItem, root?: Docume
 }
 
 export type ViewportDebugState = {
+  sceneGrid?:SceneGridDisplay;
   viewTransitionActive?: boolean;
   input: InputState;
   activeTool: string;
@@ -292,15 +295,19 @@ export class CadViewportEngine {
   private camera: CadCamera = new THREE.PerspectiveCamera(DEFAULT_PERSPECTIVE_FOV, 1, 0.1, 5000);
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   private readonly shaders = new CadShaderLibrary();
-  private readonly materials = new CadMaterialFactory(this.shaders);
-  private readonly sketchGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.sketchGrid, "sketch");
-  private readonly groundGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.gridMinor);
-  private readonly worldGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.gridMinor);
+  private readonly visualTheme:{[K in keyof typeof CATIA_VISUAL_THEME]:number}={...CATIA_VISUAL_THEME};
+  private readonly materials = new CadMaterialFactory(this.shaders,this.visualTheme);
+  private sketchColors=sceneSketchColors(DEFAULT_SCENE_SETTINGS);
+  private readonly sketchColorAdapter=new SketchColorAdapter();
+  private readonly sketchGrid = new PlaneGrid(CATIA_VISUAL_THEME.sketchGrid, "sketch");
+  private readonly groundGrid = new PlaneGrid(CATIA_VISUAL_THEME.gridMinor);
+  private readonly worldGrid = new PlaneGrid(CATIA_VISUAL_THEME.gridMinor);
   private readonly scenePresentation:ScenePresentation;
   private sceneSettings:SceneSettings={...DEFAULT_SCENE_SETTINGS};
   private readonly groundBounds=new THREE.Box3();
   private groundHeight=0;
   private sceneMetricsSignature="";
+  private sceneGridDisplay?:SceneGridDisplay;
   private readonly groundFrame={origin:new THREE.Vector3(),normal:new THREE.Vector3(0,0,1),u:new THREE.Vector3(1,0,0),v:new THREE.Vector3(0,1,0)};
 
   private readonly background = new CadBackground(this.shaders);
@@ -874,6 +881,9 @@ export class CadViewportEngine {
     this.switchProjection(s.projection);
     this.groundGrid.setStyle(sceneGridColor(s),s.gridOpacity,s.gridSpacing);
     this.worldGrid.setStyle(sceneGridColor(s),s.gridOpacity*.55,s.gridSpacing);
+    this.sketchColors=sceneSketchColors(s);
+    this.sketchGrid.setStyle(new THREE.Color(this.sketchColors.grid).getStyle(),1);
+    Object.assign(this.visualTheme,{selected:this.sketchColors.selected,hover:this.sketchColors.hover,constraint:this.sketchColors.solved});
     this.background.setColors(s.background==="THEME"?undefined:s.backgroundTop,s.background==="SOLID"?s.backgroundTop:s.background==="GRADIENT"?s.backgroundBottom:undefined);
     this.refreshSceneGround();this.invalidate();
   }
@@ -891,10 +901,14 @@ export class CadViewportEngine {
         const box=new THREE.Box3(new THREE.Vector3().fromArray(artifact.bbox.min),new THREE.Vector3().fromArray(artifact.bbox.max));
         this.groundBounds.union(box.applyMatrix4(mesh.matrixWorld));
       }
+      includeVisibleSketchBounds(this.groundBounds,this.content);
+      includeVisibleSketchBounds(this.groundBounds,this.helpers);
     }
     this.groundHeight=groundLevel(this.sceneSettings,this.groundBounds.isEmpty()?undefined:this.groundBounds.min.z,this.groundBounds.getSize(new THREE.Vector3()));
     this.groundFrame.origin.z=this.groundHeight;
-    this.scenePresentation?.update(this.sceneSettings,this.groundBounds,this.groundHeight);
+    const footprint=groundFootprint(this.groundBounds,this.sceneSettings.gridSpacing);
+    this.groundGrid.setFootprint(footprint);this.worldGrid.setFootprint(footprint);
+    this.scenePresentation?.update(this.sceneSettings,this.groundBounds,this.groundHeight,Boolean(this.sketchPlane));
   }
 
   private gridVisibility = {scene:true,sketch:true};
@@ -3672,6 +3686,7 @@ export class CadViewportEngine {
       }).length,
       navigation: this.navigation.snapshot, hudScreen: this.navigationHUD.screenPosition,
       viewTransitionActive: this.viewTransition.active,
+      sceneGrid:this.sceneGridDisplay,
     });
   }
 
@@ -3840,6 +3855,11 @@ export class CadViewportEngine {
         this.updateSketchParameterAnchor();
         this.updateCameraClipping();
         this.materials.surfaceDepth.render(this.renderer,this.scene,this.camera);
+        this.sketchColorAdapter.applyOwned(this.content,this.sketchColors);
+        this.sketchColorAdapter.applyOwned(this.helpers,this.sketchColors);
+        this.sketchColorAdapter.apply(this.sketchContext,this.sketchColors);
+        if(this.sketchPreviewLayer)this.sketchColorAdapter.apply(this.sketchPreviewLayer,this.sketchColors);
+        if(this.sketchPlane)for(const root of [this.preview,this.referencePreview,this.referenceHover,this.snapPreview,this.dimensionDefinitionPreview])if(root)this.sketchColorAdapter.apply(root,this.sketchColors);
         this.scene.traverse((object)=>{
           const material=(object as THREE.Points).material;
           if(material instanceof THREE.ShaderMaterial&&material.uniforms.uPointSize&&typeof material.userData.cssPointSize==="number")
@@ -3849,12 +3869,14 @@ export class CadViewportEngine {
         if (this.sketchPlane && this.gridVisibility.sketch) this.sketchGrid.update(this.camera, this.renderer.domElement.clientHeight, planeFrame(this.sketchPlane));
         this.renderer.clear(true, true, true);
         this.background.render(this.renderer);
-        const sceneGrid=this.environment.visible&&this.gridVisibility.scene;
+        const sceneGrid=sceneGroundVisible(this.environment.visible,this.gridVisibility.scene,Boolean(this.sketchPlane));
         this.groundGrid.object.visible=false;this.worldGrid.object.visible=false;
         if(sceneGrid&&this.sceneSettings.grid&&this.sceneSettings.groundMode!=="OFF")this.groundGrid.update(this.camera,this.renderer.domElement.clientHeight,this.groundFrame);
         if(sceneGrid&&this.sceneSettings.worldGrid&&(this.sceneSettings.groundMode==="OFF"||this.groundHeight!==0||!this.sceneSettings.grid))this.worldGrid.update(this.camera,this.renderer.domElement.clientHeight);
+        const footprint=groundFootprint(this.groundBounds,this.sceneSettings.gridSpacing);
+        this.sceneGridDisplay={ground:this.groundGrid.object.visible,world:this.worldGrid.object.visible,sketch:this.sketchGrid.object.visible,height:this.groundHeight,center:footprint.center.toArray(),halfSize:footprint.halfSize,sketchGridColor:this.sketchColors.grid};
         const sceneMetrics={groundHeight:this.groundHeight,gridSpacing:this.sceneSettings.gridSpacing};
-        const signature=JSON.stringify(sceneMetrics);if(signature!==this.sceneMetricsSignature){this.sceneMetricsSignature=signature;this.callbacks.sceneMetricsChanged?.(sceneMetrics)}
+        const signature=JSON.stringify([sceneMetrics,this.sceneGridDisplay]);if(signature!==this.sceneMetricsSignature){this.sceneMetricsSignature=signature;this.callbacks.sceneMetricsChanged?.(sceneMetrics);this.emitDebugState();}
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);
         if(this.analysisScene.children.length){

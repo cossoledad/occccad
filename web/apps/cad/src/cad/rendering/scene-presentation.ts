@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { SceneSettings } from "./scene-settings";
 import { CATIA_VISUAL_THEME } from "./cad-visual-theme";
+import { groundFootprint } from "./scene-ground";
 
 /** Owns viewing illumination and a shadow receiver, never modeling geometry. */
 export class ScenePresentation {
@@ -18,7 +19,7 @@ export class ScenePresentation {
     this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
     this.scene.add(this.key.target);
   }
-  update(settings:SceneSettings,bounds:THREE.Box3,height:number):void {
+  update(settings:SceneSettings,bounds:THREE.Box3,height:number,sketchEditing=false):void {
     const theme=CATIA_VISUAL_THEME;
     this.hemisphere.intensity=theme.hemisphereIntensity*settings.ambient*settings.brightness;
     this.key.intensity=theme.keyIntensity*settings.brightness;
@@ -30,8 +31,9 @@ export class ScenePresentation {
     const a=THREE.MathUtils.degToRad(settings.azimuth),e=THREE.MathUtils.degToRad(settings.elevation);
     const direction=new THREE.Vector3(Math.cos(a)*Math.cos(e),Math.sin(a)*Math.cos(e),Math.sin(e));
     this.key.target.position.copy(center);this.key.position.copy(center).addScaledVector(direction,extent*2);
-    this.floor.position.set(center.x,center.y,height-Math.max(extent*1e-6,1e-5));this.floor.scale.setScalar(extent*3);
-    this.floor.visible=settings.groundMode!=="OFF"&&settings.shadows&&!bounds.isEmpty();
+    const footprint=groundFootprint(bounds,settings.gridSpacing);
+    this.floor.position.set(footprint.center.x,footprint.center.y,height-Math.max(extent*1e-6,1e-5));this.floor.scale.setScalar(footprint.halfSize*2);
+    this.floor.visible=!sketchEditing&&settings.groundMode!=="OFF"&&settings.shadows&&!bounds.isEmpty();
     this.floor.material.opacity=settings.shadowOpacity;
     this.renderer.shadowMap.enabled=this.floor.visible;this.key.castShadow=this.floor.visible;
     const camera=this.key.shadow.camera;

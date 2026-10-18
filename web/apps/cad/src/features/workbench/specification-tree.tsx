@@ -1,4 +1,5 @@
 import {structureMenu} from "./tree-context-menu";
+import {defaultTreeCommand} from "./tree-node-interaction";
 import {useOptionalCommandRegistry} from "../../cad/command/command-context";
 import {builtinCatalog} from "../../cad/command/workbench-catalog";
 import {CadIcon} from "../../cad/overlay/cad-icons";
@@ -145,6 +146,12 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   const toggle = (key: string) => setExpanded((current) => {
     const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next;
   });
+  const invokeDefault=(node:SpecificationTreeNode)=>{
+    const command=defaultTreeCommand(node);
+    if(!command||registry&&!registry.state(command,{payload:{node}}).enabled)return;
+    setContextMenu(undefined);
+    if(command==="tree.edit")onEdit?.(node);else onActivate?.(node);
+  };
   const selectNode = (node: SpecificationTreeNode, modifiers: TreeSelectionModifiers) => {
     setContextMenu(undefined);
     const keys = resolveTreeSelection(visibleKeys, selectedKeys, node.key, anchorKey.current, modifiers);
@@ -166,7 +173,8 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   const keyboardSelect = (event: KeyboardEvent, entry: VisibleNode) => {
     if (["Enter", " ", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) event.stopPropagation();
     const index = visible.findIndex((item) => item.node.key === entry.node.key);
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectNode(entry.node, eventModifiers(event)); }
+    if (event.key === "Enter") {event.preventDefault();if(!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.repeat&&!event.nativeEvent.isComposing)invokeDefault(entry.node);}
+    if (event.key === " ") { event.preventDefault(); selectNode(entry.node, eventModifiers(event)); }
     if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
       event.preventDefault();
       focusNode(event.key === "Home" ? 0 : event.key === "End" ? visible.length - 1
@@ -212,6 +220,8 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
         const visibility = treeVisibilityAction(node, editSession);
         const isExpanded = hasChildren && (depth === 0 || expanded.has(node.key) || Boolean(query.trim()));
         const isSelected = selected.has(node.key);
+        const defaultCommand=defaultTreeCommand(node);
+        const actionEnabled=Boolean(defaultCommand)&&(!registry||registry.state(defaultCommand!,{payload:{node}}).enabled);
         const selectedNodes = isSelected && node.presentationRole !== "INPUT_REFERENCE"
           ? selectedKeys.map((key) => nodeIndex.get(key)).filter((candidate): candidate is SpecificationTreeNode => Boolean(candidate)) : [node];
         const deletable = selectedNodes.filter((candidate) => candidate.presentationRole !== "INPUT_REFERENCE" && candidate.capabilities?.includes("DELETE"));
@@ -225,17 +235,20 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
           node.documentId === activeDocumentId && (node.instancePath?.canonical ?? "") === (activeInstancePath ?? "");
         const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${descendantHints.has(node.key) && !isSelected ? "selected-descendant" : ""} ${isActiveDocument ? "active-document" : ""} ${isWorkingBody ? "working-body" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.hidden ? "display-hidden" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
           role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
+          data-default-command={defaultCommand} data-action-enabled={actionEnabled} aria-keyshortcuts={defaultCommand==="tree.edit"?"Enter":undefined}
           aria-selected={isSelected} data-tree-key={node.key}
           title={node.hiddenByAncestor ? `被上级隐藏：${node.visibilityBlocker}` : node.hidden ? "本地隐藏" : undefined}
           tabIndex={node.key === (visibleKeys.includes(focusedKey ?? "") ? focusedKey : visibleKeys[0]) ? 0 : -1}
           onFocus={() => setFocusedKey(node.key)} onClick={(event) => { event.stopPropagation(); selectNode(node, eventModifiers(event)); }}
-          onDoubleClick={(event) => { event.stopPropagation(); onActivate?.(node); }}
+          onDoubleClick={(event) => { event.stopPropagation(); invokeDefault(node); }}
           onContextMenu={(event) => contextSelection(event, node)}
           onMouseEnter={() => onHover?.(node)} onMouseLeave={() => onHover?.()}
           onKeyDown={(event) => {if(event.altKey&&event.key==="Enter"&&onProperties){event.preventDefault();event.stopPropagation();onProperties(node)}else keyboardSelect(event, entry)}}>
           {depth === 0 ? <span className="specification-tree-root-anchor" /> : hasChildren
             ? <button className={`specification-tree-junction branch ${isExpanded ? "expanded" : "collapsed"}`}
               tabIndex={-1} aria-label={isExpanded ? "折叠" : "展开"}
+              onDoubleClick={event=>event.stopPropagation()}
+              onKeyDown={event=>event.stopPropagation()}
               onClick={(event) => { event.stopPropagation(); toggle(node.key); }}>
               <svg className="specification-tree-chevron" viewBox="0 0 16 16" aria-hidden="true">
                 <path d="m6 3 5 5-5 5" />
@@ -264,6 +277,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,
             ["PAD","REVOLVE","FEATURE","IMPORT"].includes(node.kind??"") && node.presentationRole!=="INPUT_REFERENCE" && onViewResult ? {key:"view-result",icon:menuIcon('tree.view-result'),label:menuLabel('tree.view-result'),onClick:()=>{setContextMenu(undefined);onViewResult(node);}}:null,
             node.capabilities?.includes("EDIT") ? { key: "edit", icon: menuIcon('tree.edit'), label: menuLabel('tree.edit',['PAD','REVOLVE','FEATURE'].includes(node.kind??'')?'definition':'default'),
+              disabled:Boolean(registry&&!registry.state("tree.edit",{payload:{node}}).enabled),
               onClick: () => { setContextMenu(undefined); onEdit?.(node); } } : null,
             node.capabilities?.includes("CREATE_PART") ? { key: "create-part", icon: menuIcon('tree.create-part'), label: menuLabel('tree.create-part'),
               onClick: () => { setContextMenu(undefined); onCreatePart?.(node); } } : null,

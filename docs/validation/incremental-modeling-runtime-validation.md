@@ -25,4 +25,4 @@ go -C services test ./internal/control -run '^TestIncrementalRuntime(Production|
 
 实现、预算及恢复语义归[Part 增量运行时](../architecture/current/jobs-artifacts.md#part-增量运行时)。验证覆盖精确 GeometryID、体积、包围盒及 BREP/NAMING 冷等价、上游不重复执行、取消、淘汰和重启。
 
-原生共享状态串行，取消不能打断正在运行的 OCCT 算子；阶段检查点易失，缺失后由冻结输入恢复。缓存预算不是 RSS 上限；浏览器交互、长会话和高负载排队未在本轮测量。
+原生共享状态串行，取消不能打断正在运行的 OCCT 算子；阶段检查点易失，缺失后由冻结输入恢复。缓存预算不是 RSS 上限；浏览器交互、长会话和高负载排队未由该基线测量。

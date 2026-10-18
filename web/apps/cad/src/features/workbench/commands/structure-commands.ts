@@ -6,7 +6,7 @@ type TreeActions=Pick<ComponentProps<typeof SpecificationTree>,
  'onActivate'|'onOpenDocumentTab'|'onViewResult'|'onEdit'|'onProperties'|'onCreatePart'|'onReferenceMode'|'onDetach'|'onReconnect'|'onRefresh'|'onDelete'|'onToggleConstruction'|'onToggleVisibility'|'onToggleSuppression'>;
 export type StructureActions={[Action in keyof TreeActions]?: (...args:[...Parameters<NonNullable<TreeActions[Action]>>,operation?:CommandOperation])=>void|Promise<void>};
 export const structureCommandIDs={onActivate:'tree.activate',onOpenDocumentTab:'tree.open-document',onViewResult:'tree.view-result',onEdit:'tree.edit',onProperties:'tree.properties',onCreatePart:'tree.create-part',onReferenceMode:'tree.reference-mode',onDetach:'tree.detach',onReconnect:'tree.reconnect',onRefresh:'tree.refresh',onDelete:'edit.delete',onToggleConstruction:'tree.construction',onToggleVisibility:'tree.visibility',onToggleSuppression:'tree.suppression'} as const;
-export type StructureInvocation={node?:SpecificationTreeNode;nodes?:SpecificationTreeNode[];referenceMode?:'PINNED'|'FOLLOW_HEAD';scope?:'DEFINITION'|'OCCURRENCE';visibilityMode?:'SHOW'|'HIDE'|'INHERIT'};
+export type StructureInvocation={node?:SpecificationTreeNode;nodeKey?:string;nodes?:SpecificationTreeNode[];referenceMode?:'PINNED'|'FOLLOW_HEAD';scope?:'DEFINITION'|'OCCURRENCE';visibilityMode?:'SHOW'|'HIDE'|'INHERIT'};
 export function structureInvocation(invocation?:CadCommandInvocation):StructureInvocation {
  if(!invocation?.payload||typeof invocation.payload!=='object')throw new Error('Missing structure command target');
  return invocation.payload as StructureInvocation;
@@ -19,13 +19,21 @@ export function resolveStructureNode(nodes:readonly SpecificationTreeNode[],targ
  if(!node||node.documentId!==target.documentId||node.entityId!==target.entityId||node.ownerDocumentId!==target.ownerDocumentId||node.ownerEntityId!==target.ownerEntityId||node.bodyId!==target.bodyId||node.definitionDigest!==target.definitionDigest||node.sourceRevisionId!==target.sourceRevisionId||node.instancePath?.canonical!==target.instancePath?.canonical||node.selection?.versionId!==target.selection?.versionId)throw new Error('Structure command context changed');
  return node;
 }
-export function structureCommands(actions:StructureActions={},currentNodes:readonly SpecificationTreeNode[]=[],show:(text:string)=>void=()=>{}):CadCommand[]{
+export function structureCommands(actions:StructureActions={},currentNodes:readonly SpecificationTreeNode[]=[],show:(text:string)=>void=()=>{},selectedNodes:readonly SpecificationTreeNode[]=[]):CadCommand[]{
  const current=(invocation?:CadCommandInvocation)=>{
-  const target=structureInvocation(invocation);
+  const target=invocation?.payload?structureInvocation(invocation):{node:selectedNodes.length===1?selectedNodes[0]:undefined};
+  if(target.nodeKey){
+   const find=(nodes:readonly SpecificationTreeNode[]):SpecificationTreeNode|undefined=>{for(const node of nodes){if(node.key===target.nodeKey)return node;const found=node.children&&find(node.children);if(found)return found;}};
+   target.node=find(currentNodes);
+  }
   if(!target.node)throw new Error('Missing structure node');
   return {...target,node:resolveStructureNode(currentNodes,target.node)};
  };
- const command=(action:keyof StructureActions,execute:(target:StructureInvocation&{node:SpecificationTreeNode},operation?:CommandOperation)=>void|Promise<void>):CadCommand=>({id:structureCommandIDs[action],isEnabled:()=>Boolean(actions[action]),execute:invocation=>{
+ const command=(action:keyof StructureActions,execute:(target:StructureInvocation&{node:SpecificationTreeNode},operation?:CommandOperation)=>void|Promise<void>):CadCommand=>({id:structureCommandIDs[action],isEnabled:invocation=>{
+   if(!actions[action])return false;
+   if(action!=="onEdit")return true;
+   try{const {node}=current(invocation);return node.presentationRole!=="INPUT_REFERENCE"&&Boolean(node.capabilities?.includes("EDIT"));}catch{return false;}
+  },execute:invocation=>{
    const target=current(invocation);
    const capability:Partial<Record<keyof StructureActions,string>>={onEdit:'EDIT',onCreatePart:'CREATE_PART',onDetach:'DETACH',onReconnect:'RECONNECT',onRefresh:'REFRESH',onToggleConstruction:'DELETE',onToggleSuppression:'SUPPRESS'};
    const required=action==='onReferenceMode'?(target.referenceMode==='PINNED'?'PIN_VERSION':'FOLLOW_HEAD'):capability[action];if(required&&!target.node.capabilities?.some(capability=>capability===required))throw new Error('Structure operation unavailable');

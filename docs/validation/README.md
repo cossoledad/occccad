@@ -1,16 +1,13 @@
-# 验证记录
+# 验证与测量
 
-这里归档定向实测、失败调查与人工验收记录，绑定各报告中的版本、输入、环境及执行日期，不是当前版本的全量通过声明。复现入口归[测试路由](../../tests/README.md)，当前合同归[current](../architecture/current/README.md)，未完成工作归[plans](../../plans/README.md)。
+验证说明保留执行范围、环境、结果和遗留限制；可重建测试入口由[测试路由](../../tests/README.md)维护，当前算法归[current](../architecture/current/README.md)，未完成工作归[plans](../../plans/README.md)。不依赖临时开发文档、Revision 或诊断编号，不把旧结果当作当前全量通过声明。原始日志和排错步骤放 `build/`，历史由 Git 追溯。
 
-| 领域 | 报告 |
+| 类型 | 入口 |
 |---|---|
-| Agent 开发流程 | [五类任务实测](agent-workflow-baseline.md)、[机器可读数据](agent-workflow-baseline.json) |
-| 最新本机基线 | [全仓性能入口与样本](performance-baseline.md)、[机器可读数据](performance-baseline.json) |
-| 装配诊断 | [风车同轴诊断](windmill-assembly-reference-diagnostic.md) |
-| 建模性能 | [连续 100 次建模](continuous-modeling-100-baseline.md)、[增量运行时](incremental-modeling-runtime-validation.md) |
-| 模型分析与现场反馈 | [目标模型分析](modeling-assembly-analysis.md)、[实机反馈](modeling-assembly-field-review.md) |
-| Feature 与几何 | [特征选择](feature-selection-validation.md)、[有限面域圆角](fillet-boundary-validation.md)、[抽壳](shell-validation.md)、[底座建模体验](bottom-support-parametric-validation.md) |
-| 属性/外观/场景 | [表面距离渐近缩放](surface-zoom-easing-validation.md)、[视图动画与斜视深度精度](view-animation-depth-validation.md)、[球边导引与近距离缩放](sphere-guide-zoom-validation.md)、[导航十字、光标与结构树手柄](navigation-affordances-validation.md)、[地面网格连续性](ground-grid-continuity-validation.md)、[透视导航与列表缩略图](viewport-projection-thumbnail-validation.md)、[视口、导航与透明边线](viewport-navigation-validation.md)、[全局选项与菜单整理](global-options-validation.md)、[正式历史、RGBA 交换与真实视口](properties-scene-validation.md) |
-| Sketch/显示/参数 | [草图与输入](sketch-display-parameter-experience-validation.md) |
+| 当前场景/结构树与整体检查 | [交互与显示验收](workspace-experience-validation.md) |
+| 全仓性能测量 | [范围与结果](performance-baseline.md)、[机器样本](performance-baseline.json) |
+| 连续建模 | [固定建模序列](continuous-modeling-100-baseline.md) |
+| 增量运行时 | [冷/热与淘汰范围](incremental-modeling-runtime-validation.md) |
+| Agent 工作流 | [定位/验证测量](agent-workflow-baseline.md)、[机器样本](agent-workflow-baseline.json) |
 
-静态输入和截图仍由 [test.data](../../tests/test.data/README.md)拥有；临时报告、截图和诊断输出放 `build/`。本次整理的尺寸比较也是派生报告，不写入长期能力保证。
+抽壳的最终构造及验收入口统一见[抽壳算法](../architecture/current/shell-algorithm.md)；圆角、配色、导航、选择和实体特征分别进入当前架构的所属主题，不维护重复的实现过程说明。静态几何输入与合同由 [test.data](../../tests/test.data/README.md)拥有。

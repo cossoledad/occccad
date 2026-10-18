@@ -62,6 +62,12 @@ export function treeKeysForSelections(nodes: SpecificationTreeNode[], selections
   return [...keys];
 }
 
+/** Exact semantic targets only; associations never become an implicit edit target. */
+export function treeNodesForSelections(nodes:SpecificationTreeNode[],selections:readonly SelectionItem[]):SpecificationTreeNode[] {
+  const index=indexTree(nodes);
+  return [...new Set(selections.map(selection=>treeKeyForSelection(nodes,selection)).filter((key):key is string=>Boolean(key)))].map(key=>index.byNode.get(key)!);
+}
+
 export function ancestorHintKeysForSelections(nodes: SpecificationTreeNode[], selections: readonly SelectionItem[]): string[] {
   const index = indexTree(nodes);
   const result = new Set<string>();

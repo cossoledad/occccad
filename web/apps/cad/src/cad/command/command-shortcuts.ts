@@ -1,5 +1,6 @@
-export type CommandShortcut = { command: string; key: string; modifier?: boolean; alt?: boolean; shift?: boolean; display: string; aria: string };
+export type CommandShortcut = { command: string; key: string; modifier?: boolean; alt?: boolean; shift?: boolean; scope?:"tree"; display: string; aria: string };
 export const COMMAND_SHORTCUTS: readonly CommandShortcut[] = [
+  {command:"tree.edit",key:"enter",scope:"tree",display:"Enter（结构树）",aria:"Enter"},
   {command:"edit.properties",key:"enter",alt:true,display:"Alt + Enter",aria:"Alt+Enter"},
   { command: "edit.delete", key: "delete", display: "Delete", aria: "Delete" },
   { command: "edit.undo", key: "z", modifier: true, display: "Ctrl / ⌘ + Z", aria: "Control+z Meta+z" },

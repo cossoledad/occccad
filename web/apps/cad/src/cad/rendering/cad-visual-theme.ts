@@ -18,3 +18,4 @@ export const CATIA_VISUAL_THEME = {
   lightSky: 0xf1f5fc, lightGround: 0x667381, lightKey: 0xffffff, lightFill: 0xdae5f2, lightRim: 0xe4edff,
   hemisphereIntensity: 0.5, keyIntensity: 1.0, fillIntensity: 0.25, rimIntensity: 0.26,
 } as const;
+export type CadVisualTheme = {[K in keyof typeof CATIA_VISUAL_THEME]:number};

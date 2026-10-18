@@ -59,12 +59,20 @@ export function lightingPreset(preset:SceneSettings["lighting"]):Partial<SceneSe
     {lighting:preset,brightness:1,ambient:1,fill:1,reflection:1,azimuth:-126.87,elevation:54.46};
 }
 
-/** Background contrast is shared by the grid and the transparent tree overlay. */
-export function sceneBackgroundIsLight(settings:SceneSettings):boolean {
-  const luminance=(hex:string)=>{const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return c[0]*.2126+c[1]*.7152+c[2]*.0722};
+export function colorLuminance(hex:string):number {
+  const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+  return c[0]*.2126+c[1]*.7152+c[2]*.0722;
+}
+/** One background contract for grids, sketch feedback and the transparent tree. */
+export function sceneBackgroundColors(settings:SceneSettings):[string,string] {
   const top=settings.background==="THEME"?DEFAULT_SCENE_SETTINGS.backgroundTop:settings.backgroundTop;
   const bottom=settings.background==="SOLID"?top:settings.background==="THEME"?DEFAULT_SCENE_SETTINGS.backgroundBottom:settings.backgroundBottom;
-  return (luminance(top)+luminance(bottom))/2>.42;
+  return [top,bottom];
+}
+export function sceneBackgroundIsLight(settings:SceneSettings):boolean {
+  const backgrounds=sceneBackgroundColors(settings).map(colorLuminance);
+  const contrast=(foreground:number)=>Math.min(...backgrounds.map(background=>(Math.max(foreground,background)+.05)/(Math.min(foreground,background)+.05)));
+  return contrast(colorLuminance("#20384f"))>contrast(colorLuminance("#f0f5fc"));
 }
 export function sceneGridColor(settings:SceneSettings):string {
   return settings.gridAutoColor?(sceneBackgroundIsLight(settings)?"#354d65":"#cbdced"):settings.gridColor;

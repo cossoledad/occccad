@@ -34,7 +34,7 @@ test("world grid occludes from below and glass distinguishes front/back thin and
   // @ts-ignore Vite source
   const {CadShaderLibrary}=await import("/src/cad/rendering/shader/cad-shader-library.ts");
   // @ts-ignore Vite source
-  const {InfiniteGroundGrid}=await import("/src/cad/rendering/infinite-ground-grid.ts");
+  const {PlaneGrid}=await import("/src/cad/rendering/plane-grid.ts");
   // @ts-ignore Vite source
   const {LineSegments2}=await import("/node_modules/.vite/deps/three_addons_lines_LineSegments2__js.js");
   // @ts-ignore Vite source
@@ -46,7 +46,7 @@ test("world grid occludes from below and glass distinguishes front/back thin and
   const factory=new CadMaterialFactory(new CadShaderLibrary()),scene=new T.Scene();let camera=new T.OrthographicCamera(-25,25,25,-25,.1,300);
   scene.background=new T.Color("#eeeeee");scene.add(new T.AmbientLight(0xffffff,2));
   const material=factory.surface(0x899baa),mesh=new T.Mesh(new T.BoxGeometry(20,20,20),material);scene.add(mesh);
-  const grid=new InfiniteGroundGrid(0xffffff);grid.setStyle("#ffffff",1,10);scene.add(grid.object);
+  const grid=new PlaneGrid(0xffffff);grid.setStyle("#ffffff",1,10);scene.add(grid.object);
   const frame={origin:new T.Vector3(0,0,-15),normal:new T.Vector3(0,0,1),u:new T.Vector3(1,0,0),v:new T.Vector3(0,1,0)};
   const pixels=()=>{const gl=renderer.getContext(),data=new Uint8Array(400*400*4);gl.readPixels(0,0,400,400,gl.RGBA,gl.UNSIGNED_BYTE,data);return data};
   const lum=(data:Uint8Array,x:number,y:number)=>(data[(y*400+x)*4]+data[(y*400+x)*4+1]+data[(y*400+x)*4+2])/3;

@@ -75,7 +75,7 @@ SOLIDWORKS 旋转参考与正式 Selection 分离。平面/直边按显示几何
 
 正交裁剪按当前几何深度和视图尺寸自适应，near=0，可沿视线移动眼点而不改变图像；透视裁剪只调整有限 near/far，禁止借移动眼点改变画面。包围盒接近或跨过眼点时，视口通过中心射线的最近显示表面提供真实视深度参考，再按关注深度和表面深度设置 near；没有命中时使用关注深度，正向包围盒仅作保守约束。包围盒跨过眼点不再直接将 near 压到最小值，否则普通斜视下也会丢失深度精度，背面边线可能穿过不透明实体显示。普通 Fit 视图不需要额外表面查询；裁剪统一在现有渲染帧更新，导航事件仅使帧失效。
 
-`InfiniteGroundGrid` 在重定位后的平面坐标中逐像素计算射线交点与 clip 深度，支持透视地平线和上下两侧观察。地面保留固定世界基准间距，以锚定同一原点的十进制细分/粗级线渐变补充近远参考；地面深度可饱和到实体裁剪边界，保持无限观看环境，不扩大实体相机裁剪。水平视角从可见边界射线选择重定位参考，避免中心交点在无穷远。草图网格按当前平面关注深度自适应，捕捉共用间距。网格不参与包围盒、Fit 或拾取。
+`PlaneGrid` 在重定位后的平面坐标中逐像素计算射线交点与 clip 深度。地面是由可见实体和草图世界范围计算的有限正方形：中心为范围的 XY 中心，半边长为 `ceil(2·max(dx,dy,dz,5·spacing)/spacing)·spacing`，与相机缩放、平移和旋转无关。固定世界基准间距及同原点十进制细分/粗级线保持近远参照，CPU 相位重定位保留大坐标精度。范围外不绘制；深度在实体 clip 范围外饱和，仍保留上下观察时的遮挡顺序，不扩大实体裁剪或参与 Fit/拾取。草图编辑期间隐藏地面、世界基准网格与地面阴影，仅保留随平面关注深度自适应、与捕捉共用间距的草图网格。网格、草图状态色、尺寸与临时反馈由同一背景对比规则选择明暗配色，实体用户外观保持原值。
 
 裁剪更新同时支持沿视线前移/后移相机；大幅缩小后重新放大时收回多余深度范围，避免裁剪范围随操作历史不断扩大。该沿视线位移不改变正交屏幕投影。
 
@@ -89,8 +89,8 @@ SOLIDWORKS 旋转参考与正式 Selection 分离。平面/直边按显示几何
 
 `ViewTransition` 由视口现有 RAF 时钟驱动，280 ms smoothstep 进度，朝向使用 quaternion slerp，相机局部偏移距离与 zoom 使用几何插值；重定位随当前可见跨度推进，避免从细节 Fit 时先将细节移出画面。末帧精确恢复目标快照。Fit、标准视图、进入/正对平面与退出草图共用动画，系统要求 reduced motion 时立即完成；重复命令从当前显示帧接续，pointerdown/wheel/keydown、其他定位命令、换文档和 dispose 取消旧动画。`normal-view.scenario.mjs` 与 `view-command-transition.scenario.mjs` 覆盖轴对齐、两种投影下的全部视图命令、中间帧、接续、取消、细节 Fit 与精确终态。MotionViewpoint 播放仍由其自身时钟逐帧驱动。
 
-本轮另核对本机 B33 `control/BasEnglishC2.viewdoc` 中的 `online/basug_C2/basugbt1201.htm`（中键居中/平移、双键旋转与释放侧键缩放）、`basugbt1208.htm`（旋转视点）、`basugbt1305.htm`（初始地面在模型底部）。文档未规定点/面中心优先级、间隙比例和十字线像素数；这些是结合用户要求明确实现的本软件规则。
+当前另核对本机 B33 `control/BasEnglishC2.viewdoc` 中的 `online/basug_C2/basugbt1201.htm`（中键居中/平移、双键旋转与释放侧键缩放）、`basugbt1208.htm`（旋转视点）、`basugbt1305.htm`（初始地面在模型底部）。文档未规定点/面中心优先级、间隙比例和十字线像素数；这些是结合用户要求明确实现的本软件规则。
 
-投影参考：本机 B33 `control/BasEnglishC2.viewdoc` → `online/basug_C2/basugbt1507.htm`（Perspective/Parallel）；文档确认两种投影的独立选择，默认透视、35° 参数、十字像素形状与取点时机是本次用户要求下明确的项目规则。`projection-camera` 场景覆盖比例、Fit、裁剪、相机往返与 HUD；真实 WebGL 验收覆盖两种投影的网格遮挡。
+投影参考：本机 B33 `control/BasEnglishC2.viewdoc` → `online/basug_C2/basugbt1507.htm`（Perspective/Parallel）；文档确认两种投影的独立选择，默认透视、35° 参数、十字像素形状与取点时机是项目的交互规则。`projection-camera` 场景覆盖比例、Fit、裁剪、相机往返与 HUD；真实 WebGL 验收覆盖两种投影的网格遮挡。
 
 缩放裁剪参考：同一索引的 `online/basug_C2/basugbt1702.htm`（Setting Depth Effects）说明默认关闭深度效果，缩放时几何不被主动裁剪，Near/Far Limit 随全局包围盒调整；`basugbt1205.htm` 说明增量与连续缩放。文档未公布相机内部公式，本实现的表面锚点、像素容差及 near 约束是项目规则。`perspective-zoom` 场景与浏览器用例覆盖遮挡点、极近表面和大步长缩放。

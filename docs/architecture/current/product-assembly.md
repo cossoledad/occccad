@@ -79,7 +79,7 @@ SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence
 - services/internal/workspace：product_context、product_design_transaction、product_update_release、assembly_solve、assembly_interaction、assembly_interaction_continuation、assembly_conflict、assembly_engineering、assembly_solve_manifest。
 - kernel/assembly：solver.hpp、solver.cpp 与算法文档。
 - Web：assembly-interaction、motion-presentation、assembly-conflict-panel、cad-viewport-engine。
-- 定向测试、报告和人工步骤见装配验证，不把测试存在或历史通过当作本次执行。
+- 定向测试、报告和人工步骤见装配验证，不把测试存在或历史通过当作当前执行。
 
 装配主体能力形成当前开发基线；已知细节暂缓，后续按实际需求修复。[暂缓问题](../../../plans/README.md#装配暂缓问题)集中记录现象、已有复现信息与边界。
 

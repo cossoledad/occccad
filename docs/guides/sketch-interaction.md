@@ -1,6 +1,6 @@
 # 草图交互补齐与验收
 
-本页记录当前交互合同及定向验证入口，几何支持组合见[二维草图能力](sketch-capabilities.md)。Node 场景、类型检查和构建不代替浏览器/WebGL 人工验收；本轮未进行浏览器自动测试。
+本页记录当前交互合同及定向验证入口，几何支持组合见[二维草图能力](sketch-capabilities.md)。Node 场景、类型检查和构建不代替浏览器/WebGL 人工验收。
 
 ## 当前合同
 
@@ -26,7 +26,7 @@
 | 直接建模主闭环 | `sketch-direct-workflow.scenario.mjs`、Go `TestSketchDirectProductionToolReplay` | 实际 InputManager/Router/ToolManager 手势产生操作，生产 Go/匹配 Worker 回传权威快照；矩形、四角圆角、长度/间距、圆分割/修剪、构造弦、关联镜像、Profile/Pad 及独立体积断言；新增回放运行结果须独立确认 |
 | 只读生产候选 | Go `TestSolvedSketchPreviewCandidatesProjection`、`TestSketchProductionPreviewQuickTrimReadOnly`、`TestSketchProductionPreviewRejectsInvalidExtrusionWithoutWrite` | 成功候选来自权威解；Head、模型与历史不变；失败无写入 |
 
-从 `web/apps/cad/` 运行 `pnpm test -- sketch` 和 `pnpm typecheck`；生产构建使用 `pnpm build`。Go 从 `services/` 定向运行 `go test ./internal/workspace -run 'Test(SolvedSketchPreviewCandidatesProjection|SketchProductionPreview)' -count=1`。生产 Preview 场景需要匹配源码的 Worker 和当前配置的开发数据库，配置缺失的 Skip 不计通过。真实工具回放使用 `go test ./internal/workspace -run '^TestSketchDirectProductionToolReplay$' -count=1`，同样需要匹配 Worker 和同一开发数据库。实际结果保留在本轮派生验证记录；新增入口不代表回放已通过，也不代表高阶曲线组合已扩展。
+从 `web/apps/cad/` 运行 `pnpm test -- sketch` 和 `pnpm typecheck`；生产构建使用 `pnpm build`。Go 从 `services/` 定向运行 `go test ./internal/workspace -run 'Test(SolvedSketchPreviewCandidatesProjection|SketchProductionPreview)' -count=1`。生产 Preview 场景需要匹配源码的 Worker 和当前配置的开发数据库，配置缺失的 Skip 不计通过。真实工具回放使用 `go test ./internal/workspace -run '^TestSketchDirectProductionToolReplay$' -count=1`，同样需要匹配 Worker 和同一开发数据库。实际结果保留在派生验证记录；新增入口不代表回放已通过，也不代表高阶曲线组合已扩展。
 
 ## 人工验收
 

@@ -200,7 +200,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
     sourceDisplayPath: node.sourceDisplayPath,
     plane: node.plane, ownerEntityId: node.ownerEntityId,
 	role: node.role, definitionDigest: node.definitionDigest, suppressed: node.suppressed, diagnostic: node.diagnostic??(node.kind==="SKETCH_ENTITY"&&node.entityId&&conflictEntities.has(node.entityId)?"CONFLICTING":component?.definitionStatus==="FULLY_CONSTRAINED"||component?.status==="SOLVED"?"FULLY_CONSTRAINED":undefined),
-    capabilities: canEdit ? [...new Set([...(node.capabilities??[]), ...(["SKETCH","SKETCH_GEOMETRY_SET","SKETCH_CONSTRAINT_SET","SKETCH_LOGICAL_CONSTRAINT_SET","SKETCH_DIMENSION_SET"].includes(node.kind)?["SUPPRESS" as const]:[])])] : undefined,
+    capabilities: canEdit ? [...new Set([...(node.capabilities??[]), ...(node.kind==="SKETCH"&&node.presentationRole!=="INPUT_REFERENCE"?["EDIT" as const]:[]), ...(["SKETCH","SKETCH_GEOMETRY_SET","SKETCH_CONSTRAINT_SET","SKETCH_LOGICAL_CONSTRAINT_SET","SKETCH_DIMENSION_SET"].includes(node.kind)?["SUPPRESS" as const]:[])])] : undefined,
     selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view, editingView)) };
 }
 

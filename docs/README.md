@@ -15,7 +15,7 @@ React/Three.js → Go API / Command → Workspace CAS → 不可变 Revision
 - Document 是身份，Workspace 拥有可变 Head，Revision 冻结模型；业务写入经过幂等 Command/Transaction/ChangeSet，Preview 不持久化。
 - Part → Body → Feature 保存参数化历史；Sketch 求解后识别 Profile。Product 的 InstancePath 标识 occurrence，引用文档与编辑宿主分离。
 - PersistentSelection 跨 Revision 引用拓扑，Publication 提供稳定接口；显示名、mesh/local ID 只作当前显示证据。
-- 产品约束与机构关系分别拥有定义及位姿，复用数值引擎。数据库支持 PostgreSQL/SQLite，测试默认隔离 SQLite；逻辑模块不自动成为微服务。
+- 产品约束与机构关系分别拥有定义及位姿，复用数值引擎。数据库支持 PostgreSQL/SQLite；人工运行、Agent 与真实集成共用 `.env` 的资源，短期单元对象由测试拥有；逻辑模块不自动成为微服务。
 
 ## 按问题进入
 
@@ -39,6 +39,6 @@ React/Three.js → Go API / Command → Workspace CAS → 不可变 Revision
 | [后续工作](../plans/README.md) | 未完成工作与退出条件；不自行给候选排优先级 |
 | [开发环境](development/README.md)、[Agent 工作流](development/agent-workflow.md) | 配置、资源、构建与渐进验证 |
 | [操作指南](guides/README.md)、[参考资料](references/README.md) | 交互步骤 / 外部行为依据 |
-| [测试入口](../tests/README.md)、[验证记录](validation/README.md) | 可执行检查 / 历史实测及证据限制 |
+| [测试入口](../tests/README.md)、[验证记录](validation/README.md) | 可执行检查 / 实测范围及证据限制 |
 
 启动见[根 README](../README.md)。文档修改读[局部指南](AGENTS.md)和[维护规则](development/documentation.md)。代码、迁移和实际执行决定当前事实；测试存在不等于通过，定向通过不等于工业验收。

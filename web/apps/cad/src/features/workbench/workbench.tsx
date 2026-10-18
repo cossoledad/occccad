@@ -42,7 +42,7 @@ import type { InstancePatternPreview } from "./instance-pattern";
 import "./workbench.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Alert, App, Button, Divider, Empty, Form, Input,
+  Alert, App, Button, Checkbox, Divider, Empty, Form, Input,
   Select, Space, Spin, Switch, Tag, Typography,
 } from "antd";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -196,6 +196,7 @@ export function Workbench() {
   const [externalParameterID, setExternalParameterID] = useState<string>();
   const [editingParameterID, setEditingParameterID] = useState<string>();
   const [editingPublication, setEditingPublication] = useState<{id:string;kind:"PART"|"PRODUCT"}>();
+  const [editingContextInput,setEditingContextInput]=useState<{id:string;name:string;required:boolean}>();
   const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: AssemblyConstraintToolKind; references: AssemblyGeometryRef[]; angleRelation?:AssemblyConstraint["angleRelation"]; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; angleReferenceDirection?: Vec3 }>();
   const [editingAssemblyConstraint, setEditingAssemblyConstraint] = useState<AssemblyConstraint>();
   const [replacingAssemblyReference, setReplacingAssemblyReference] = useState<0 | 1 | 2>();
@@ -1118,6 +1119,7 @@ export function Workbench() {
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
     setParameterManagerOpen(false);setPublicationManagerOpen(false);setExternalParameterID(undefined);
     setEditingParameterID(undefined);setEditingPublication(undefined);
+    setEditingContextInput(undefined);
   };
   const openObjectProperties=(selections?:import("../../types").SelectionItem[])=>{
     if(!view)return;
@@ -1157,7 +1159,7 @@ onActivate:async(node,operation) => {
                 if (constraint) openAssemblyConstraintEditor(constraint);
                 return;
               }
-              if (node.capabilities?.includes("EDIT")) { openFeatureEditor(node); return; }
+              if (node.capabilities?.includes("EDIT")) { await commandRegistry.execute("tree.edit",{payload:{node}}); return; }
               if (node.documentId && ["PART", "PRODUCT", "INSTANCE"].includes(node.kind ?? "")) {
                 await activateDocumentNode(node,operation); return;
               }
@@ -1170,6 +1172,20 @@ onActivate:async(node,operation) => {
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             },
 onEdit:(node,operation) => {
+ if((node.kind==="MECHANISM"||node.kind==="MECHANISM_REFERENCE")&&node.entityId){
+  setMotionSession(documentID);return motionPanel.current?.execute("enter",node.entityId,operation);
+ }
+ if(node.kind==="SKETCH"&&node.entityId){
+  const feature=editingView?.part?.features.find(candidate=>candidate.id===node.entityId);
+  const localPlane=feature&&editingView?featureSketchPlane(editingView,feature):undefined;
+  if(localPlane)store.beginSketch(node.entityId,occurrenceSketchPlane(localPlane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation));
+  return;
+ }
+ if(node.kind==="CONTEXT_INPUT"&&node.entityId){
+  const input=editingView?.part?.contextInputs?.find(input=>input.id===node.entityId);
+  if(input)setEditingContextInput({id:input.id,name:input.name,required:Boolean(input.required)});
+  return;
+ }
  if(node.kind==='ASSEMBLY_GROUP_MEMBER_REFERENCE'){
   if(node.selection?.mechanismId){setMotionSession(documentID);void motionPanel.current?.execute('edit-relation',node.selection.ownerEntityId,operation)}else{const group=editingView?.product?.constraints?.find(c=>c.id===node.selection?.ownerEntityId);if(group)openAssemblyConstraintEditor(group)}
   return;
@@ -1278,7 +1294,7 @@ onToggleConstruction:(node)=>{
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
   const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    formActive:Boolean(motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+    formActive:Boolean(motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1905,6 +1921,13 @@ onToggleConstruction:(node)=>{
 				<span>{instance.documentId}</span><Tag>{instance.referenceMode??"FOLLOW_HEAD"}</Tag><span />
 			</div>)}</>}
 	</CommandDialog>
+	<CommandDialog id="context-input-edit" open={Boolean(editingContextInput)} title="编辑上下文输入" size="S"
+    onClose={()=>setEditingContextInput(undefined)} confirmLoading={command.isPending}
+    confirmDisabled={!canEdit||!editingContextInput?.name.trim()}
+    onConfirm={()=>{if(editingView&&editingContextInput)command.mutate(()=>api.editContextInput(editingView.document.id,editingContextInput.id,editingContextInput.name.trim(),editingContextInput.required),{onSuccess:()=>setEditingContextInput(undefined)});}}>
+    <label className="cad-property-row"><span>名称</span><Input aria-label="上下文输入名称" value={editingContextInput?.name??""} onChange={event=>setEditingContextInput(current=>current?{...current,name:event.target.value}:current)}/></label>
+    <Checkbox checked={editingContextInput?.required??false} onChange={event=>setEditingContextInput(current=>current?{...current,required:event.target.checked}:current)}>必需输入</Checkbox>
+  </CommandDialog>
 	<CommandDialog id="external-parameter" open={Boolean(externalParameterID)} title="引用外部参数 Publication"
 		onClose={() => setExternalParameterID(undefined)} confirmLoading={command.isPending} onConfirm={async () => {
 			await bindExternalParameter();

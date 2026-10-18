@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import type { CadCamera } from "../navigation/camera-rig";
 import { worldUnitsPerCssPixel } from "./viewport-metrics";
+import type { GroundFootprint } from "./scene-ground";
 
-export type InfiniteGridFrame = { origin: THREE.Vector3; normal: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3 };
-const WORLD_FRAME: InfiniteGridFrame = { origin: new THREE.Vector3(0,0,-0.02), normal: new THREE.Vector3(0,0,1),
+export type GridFrame = { origin: THREE.Vector3; normal: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3 };
+const WORLD_FRAME: GridFrame = { origin: new THREE.Vector3(0,0,-0.02), normal: new THREE.Vector3(0,0,1),
   u: new THREE.Vector3(1,0,0), v: new THREE.Vector3(0,1,0) };
 
 /** Shared by the drawn grid and sketch snapping, in document units. */
@@ -24,19 +25,20 @@ export function groundGridLevels(spacing:number,worldPerPixel:number):{lower:num
   return {lower:spacing*10**lower,upper:spacing*10**(lower+1),blend:level-lower,opacity:Math.max(fine,coarse)};
 }
 
-/** An unbounded plane with real scene depth; sketch grids remain view overlays. */
-export class InfiniteGroundGrid {
+/** Ray-plane grid with a finite square ground; sketch grids remain plane overlays. */
+export class PlaneGrid {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.Camera();
   private readonly geometry = new THREE.PlaneGeometry(2, 2);
   readonly object: THREE.Mesh;
   private readonly material: THREE.ShaderMaterial;
   private spacing:number;
+  private footprint:GroundFootprint={center:new THREE.Vector2(),halfSize:100};
   constructor(color: number, style: "ground" | "sketch" = "ground") {
     this.spacing=style==="ground"?10:0;
     this.material = new THREE.ShaderMaterial({
       depthTest: style==="ground", depthWrite: false, transparent: true,
-      uniforms: { uOrigin:{value:new THREE.Vector3()},uRight:{value:new THREE.Vector3()},uUp:{value:new THREE.Vector3()},uForward:{value:new THREE.Vector3()},uPerspective:{value:0},uBasePhase:{value:new THREE.Vector2()},uLevelPhaseA:{value:new THREE.Vector2()},uLevelPhaseB:{value:new THREE.Vector2()},uLevels:{value:new THREE.Vector2()},uLevelBlend:{value:0},uLevelOpacity:{value:0},uClip:{value:new THREE.Matrix4()},uSpacing: { value: 10 }, uOpacity:{value:1}, uSketch: { value: style === "sketch" ? 1 : 0 }, uColor: { value: new THREE.Color(color) } },
+      uniforms: { uBounds:{value:new THREE.Vector4()},uOrigin:{value:new THREE.Vector3()},uRight:{value:new THREE.Vector3()},uUp:{value:new THREE.Vector3()},uForward:{value:new THREE.Vector3()},uPerspective:{value:0},uBasePhase:{value:new THREE.Vector2()},uLevelPhaseA:{value:new THREE.Vector2()},uLevelPhaseB:{value:new THREE.Vector2()},uLevels:{value:new THREE.Vector2()},uLevelBlend:{value:0},uLevelOpacity:{value:0},uClip:{value:new THREE.Matrix4()},uSpacing: { value: 10 }, uOpacity:{value:1}, uSketch: { value: style === "sketch" ? 1 : 0 }, uColor: { value: new THREE.Color(color) } },
       vertexShader: `varying vec2 vScreen;
         void main() { vScreen = position.xy; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
       fragmentShader: `varying vec2 vScreen;
@@ -45,6 +47,7 @@ export class InfiniteGroundGrid {
         uniform mat4 uClip;
         uniform float uSpacing, uSketch, uOpacity;
         uniform vec3 uColor;
+        uniform vec4 uBounds;
         uniform vec2 uBasePhase,uLevelPhaseA,uLevelPhaseB,uLevels;
         uniform float uLevelBlend,uLevelOpacity;
         float grid(vec2 point, float spacing, float width) {
@@ -62,11 +65,12 @@ export class InfiniteGroundGrid {
           float distance=-origin.z/ray.z;
           if(distance<0.0)discard;
           vec2 point=(origin+ray*distance).xy;
+          if(uSketch<0.5&&(any(lessThan(point,uBounds.xy))||any(greaterThan(point,uBounds.zw))))discard;
           vec4 clip=uClip*vec4(point,0.0,1.0);
           float depth=clip.z/clip.w;
           if(clip.w<=0.0)discard;
-          // An unbounded viewing aid has no model far plane. Keep its true depth
-          // inside the frustum and saturate outside; forward ray tests still apply.
+          // The finite viewing aid keeps real depth inside the frustum and
+          // saturates outside the model clip range; its square still limits it.
           if(uSketch>0.5&&(depth< -1.0||depth>1.0))discard;
           vec2 base=point+uBasePhase;
           float minor = grid(base, uSpacing, mix(0.35, 1.0, uSketch));
@@ -90,6 +94,7 @@ export class InfiniteGroundGrid {
     this.object.frustumCulled = false; this.object.renderOrder = style==="sketch"?14:0; this.scene.add(this.object);
   }
   setStyle(color:string,opacity:number,spacing=0):void {this.material.uniforms.uColor.value.set(color);this.material.uniforms.uOpacity.value=opacity;this.spacing=spacing;}
+  setFootprint(footprint:GroundFootprint):void {this.footprint={center:footprint.center.clone(),halfSize:footprint.halfSize};}
   render(renderer: THREE.WebGLRenderer, camera: CadCamera, frame = WORLD_FRAME): void {
     this.update(camera, renderer.domElement.clientHeight, frame);
     renderer.render(this.scene, this.camera);
@@ -126,6 +131,8 @@ export class InfiniteGroundGrid {
     const phase=anchor.clone().sub(frame.origin);
     const local=(p:THREE.Vector3)=>new THREE.Vector3(p.dot(frame.u),p.dot(frame.v),p.dot(frame.normal));
     const uniforms=this.material.uniforms;
+    const cx=this.footprint.center.x-phase.dot(frame.u),cy=this.footprint.center.y-phase.dot(frame.v),half=this.footprint.halfSize;
+    uniforms.uBounds.value.set(cx-half,cy-half,cx+half,cy+half);
     const setPhase=(key:string,period:number)=>uniforms[key].value.set(phase.dot(frame.u)%period,phase.dot(frame.v)%period);
     setPhase("uBasePhase",spacing*10);setPhase("uLevelPhaseA",levels.lower);setPhase("uLevelPhaseB",levels.upper);
     uniforms.uLevels.value.set(levels.lower,levels.upper);uniforms.uLevelBlend.value=levels.blend;uniforms.uLevelOpacity.value=ground?levels.opacity:0;
