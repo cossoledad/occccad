@@ -54,7 +54,7 @@ export function DatumEditor({kind,view,seed,unit,datumId,occurrencePath,placemen
     if(entity?.kind!=="LINE")throw new Error("方向引用只接受草图直线");ref={kind:"SKETCH_LINE",featureId:selection.featureId,entityId:selection.entityId};
    }else throw new Error(slot==="source"&&kind==="plane"?"请选择标准面、基准面或实体平面":"请选择标准轴、基准轴、草图直线或实体直线边");
    if(!alive.current||token!==generation.current)return;
-   if(ref.entityId===datumId)throw new Error("基准不能引用自身");
+   if(datumId&&ref.entityId===datumId)throw new Error("基准不能引用自身");
    setRefs(old=>({...old,[slot]:ref}));setPicking(undefined);
   }catch(cause){if(alive.current&&token===generation.current)setError(String(cause));}
   finally{if(alive.current&&token===generation.current)setLoading(false);}

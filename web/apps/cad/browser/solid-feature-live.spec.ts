@@ -22,6 +22,35 @@ async function ready(page:Page,dialog:ReturnType<Page["getByRole"]>){
  await expect(page.locator("[data-feature-preview]")).toHaveCount(1);
 }
 
+test("new datum plane binds a body face, previews, commits and reopens",async({page})=>{
+ const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");
+  let view=await api.createDocument("PART","Associated datum acceptance");const id=view.document.id;
+  view=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const sketchId=view.part!.features.at(-1)!.id;
+  view=await api.command(id,{type:"EDIT_SKETCH",sketchId,operations:[{type:"ADD_RECTANGLE",first:{x:0,y:0},second:{x:20,y:20}}]});
+  view=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId,generator:"LINEAR_EXTRUDE",operation:"ADD",length:10});
+  return {id,version:view.document.versionId,bodyId:view.part!.activeBodyId,featureId:view.part!.features.at(-1)!.id};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+ await expect(async()=>{
+  await clickWorld(page,[10,10,10]);
+  await expect(page.getByTestId("viewport-selection")).toContainText('"face"',{timeout:1000});
+ }).toPass({timeout:20_000});
+ await openCommand(page,"基准面");const dialog=page.getByRole("dialog",{name:"创建基准面",exact:true});
+ await expect(dialog.getByRole("radio",{name:"关联参考",exact:true})).toBeChecked();
+ await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeEnabled();
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const committed=await current(page,seed.id),plane=committed.part.datumPlanes.at(-1);
+ expect(committed.document.versionId).not.toBe(seed.version);
+ expect(plane.definition.source).toMatchObject({kind:"TOPOLOGY",featureId:seed.featureId,selection:{sourceBodyId:seed.bodyId,expectedType:"FACE"}});
+ expect(plane.origin[2]).toBeCloseTo(10,6);expect(plane.normal).toEqual([0,0,1]);
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();
+ expect((await current(page,seed.id)).part.datumPlanes.find((candidate:{id:string})=>candidate.id===plane.id)).toEqual(plane);expect(errors).toEqual([]);
+});
+
 test("viewport Boolean tools toggle, auto preview, commit and reopen",async({page})=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
  await login(page);

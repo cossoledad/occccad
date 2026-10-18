@@ -14,8 +14,14 @@ async function fixture(page:Page,withDefinitions=false,duration=4){
   const initial=await originalGet(documentId),instances=initial.product!.instances;
   const end=(instanceId:string)=>({instanceId,frame:{translation:[0,0,0],rotation:[0,0,0,1]},axis:{instanceId,kind:'AXIS',geometryId:'axis-system-default',axis:'Z'},plane:{instanceId,kind:'PLANE',geometryId:'datum-xy'},capturedX:[1,0,0]});
   let defs:any={mechanisms:[],drivers:[],studies:[],associations:[]};
-  if(seeded){defs={...defs,mechanisms:[{id:'m',name:'测试机构',unitIds:instances.map(i=>i.id),joints:[{id:'g',name:'圆柱固定',kind:'GROUND',first:end(instances[0].id),zero:{value:0,unit:'deg'},direction:1},{id:'j',name:'轴接合',kind:'REVOLUTE',first:end(instances[0].id),second:end(instances[1].id),zero:{value:0,unit:'deg'},direction:1,lower:{value:-360,unit:'deg'},upper:{value:720,unit:'deg'}}]}],drivers:[{id:'d',name:'角度驱动',mechanismId:'m',jointId:'j',reference:{value:0,unit:'deg'},referenceDigest:'fixture-coordinate'}],studies:[{id:'s',name:'旋转研究',mechanismId:'m',activeDriverIds:['d'],driverId:'d',durationSeconds:duration,frames:5,budgetMs:60000,reference:{value:0,unit:'deg'},sourceRevisionId:initial.document.versionId,basisDigest:'fixture-basis',geometryDigest:'fixture-geometry',keyframes:[{id:'key-start',timeSeconds:0,driverId:'d',value:{value:0,unit:'deg'}},{id:'key-end',timeSeconds:duration,driverId:'d',value:{value:360,unit:'deg'}}]}]}}
-  for(const m of defs.mechanisms){m.poses=Object.fromEntries(instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:[0,0,0,1]}]));m.coordinates={j:0};}
+  if(seeded){defs={...defs,
+   mechanisms:[{id:'m',name:'测试机构',unitIds:instances.map(i=>i.id),joints:[
+    {id:'g',name:'圆柱固定',kind:'GROUND',first:end(instances[0].id)},
+    {id:'j',name:'轴接合',kind:'REVOLUTE',first:end(instances[0].id),second:end(instances[1].id),coordinates:[{id:'q',role:'AXIAL_ROTATION',dimension:'ANGLE',zero:{value:0,unit:'deg'},direction:1,lower:{value:-360,unit:'deg'},upper:{value:720,unit:'deg'}}]}]}],
+   drivers:[{id:'d',name:'角度驱动',mechanismId:'m',jointId:'j',coordinateId:'q',reference:{value:0,unit:'deg'},referenceDigest:'fixture-coordinate'}],
+   studies:[{id:'s',name:'旋转研究',mechanismId:'m',activeDriverIds:['d'],durationSeconds:duration,frames:5,budgetMs:60000,sourceRevisionId:initial.document.versionId,basisDigest:'fixture-basis',geometryDigest:'fixture-geometry',references:{d:{value:0,unit:'deg'}},keyframes:[{id:'key-start',timeSeconds:0,values:{d:{value:0,unit:'deg'}}},{id:'key-end',timeSeconds:duration,values:{d:{value:360,unit:'deg'}}}]}]}}
+
+  for(const m of defs.mechanisms){m.poses=Object.fromEntries(instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:[0,0,0,1]}]));m.coordinates={q:0};}
   for(const s of defs.studies){const m=defs.mechanisms.find((m:any)=>m.id===s.mechanismId);s.initialPoses=structuredClone(m.poses);s.initialCoordinates=structuredClone(m.coordinates);}
   const state:any={saved:[],previews:[],requests:[],applied:[],inspected:[],jobs:[],blocked:false,release:undefined};
   (window as any).__motionFixture=state;
@@ -66,7 +72,7 @@ async function fixture(page:Page,withDefinitions=false,duration=4){
    if(input.type==='SAVE_KINEMATICS'){defs=structuredClone(input.kinematics);for(const m of defs.mechanisms){m.poses??=Object.fromEntries(instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:[0,0,0,1]}]));}state.saved.push(structuredClone(input));}
    else if(input.type==='ACTIVATE_MECHANISM'){state.activations??=[];state.activations.push(structuredClone(input));}
    else if(input.type==='EXIT_MECHANISM'){state.exits??=[];state.exits.push(structuredClone(input));adopted=defs.mechanisms.find((m:any)=>m.id===input.mechanismApplication?.sourceMechanismId)?.poses??adopted;}
-   else {state.applied.push(structuredClone(input));adopted=input.motionApply?.mechanismId?defs.mechanisms.find((m:any)=>m.id===input.motionApply.mechanismId).poses:state.run.frames[input.motionApply!.frameIndex].unitPoses;}
+   else {state.applied.push(structuredClone(input));adopted=input.motionApply?.mechanismId?defs.mechanisms.find((m:any)=>m.id===input.motionApply.mechanismId).poses:state.run.frames.find((f:any)=>f.timeSeconds===input.motionApply!.timeSeconds)!.unitPoses;}
    return decorate(await originalCommand(id,input));
   };
   api.prepareMechanismApplication=async(_id,input)=>{
@@ -77,13 +83,24 @@ async function fixture(page:Page,withDefinitions=false,duration=4){
   api.listJobs=async()=>structuredClone(state.jobs);
   api.startMotionRun=async(id,request)=>{
    state.requests.push(structuredClone(request));const frozen=await api.getDocument(id),study=defs.studies[0];
-   const frames=[0,90,180,270,360].map((angle,index)=>({timeSeconds:index*study.durationSeconds/4,driverValue:angle*Math.PI/180,coordinates:{j:angle*Math.PI/180},kinematicValid:true,unitPoses:Object.fromEntries(frozen.product!.instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:n?[0,0,Math.sin(angle*Math.PI/360),Math.cos(angle*Math.PI/360)]:[0,0,0,1]}]))}));
-   state.run={schema:1,status:'COMPLETED',completed:true,elapsedMs:12,solveCalls:5,solverBuild:'browser-contract-fixture',frames,snapshot:{documentId:id,revisionId:frozen.document.versionId,digest:'fixture',view:frozen,mechanism:defs.mechanisms[0],study}};
+   const frames=[0,90,180,270,360].map((angle,index)=>({timeSeconds:index*study.durationSeconds/4,commandValues:{d:angle*Math.PI/180},coordinates:{q:angle*Math.PI/180},kinematicValid:true,unitPoses:Object.fromEntries(frozen.product!.instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:n?[0,0,Math.sin(angle*Math.PI/360),Math.cos(angle*Math.PI/360)]:[0,0,0,1]}]))}));
+   state.run={schema:2,status:'COMPLETED',completed:true,elapsedMs:12,solveCalls:5,solverBuild:'browser-contract-fixture',frames,snapshot:{documentId:id,revisionId:frozen.document.versionId,digest:'fixture',view:frozen,mechanism:defs.mechanisms[0],study}};
    const job={id:'fixture-run-'+state.requests.length,type:'MOTION_STUDY',documentId:id,versionId:frozen.document.versionId,state:state.holdJob?'RUNNING':'SUCCEEDED',progress:state.holdJob?20:100,canCancel:Boolean(state.holdJob),createdAt:new Date(1700000000000+state.requests.length*1000).toISOString(),payload:{studyId:study.id,studyName:study.name},resultObjectId:state.holdJob?undefined:'fixture-artifact'};state.jobs.push(job);state.runs??={};state.runs[job.id]=structuredClone(state.run);return structuredClone(job) as any;
   };
   api.cancelJob=async id=>{state.canceled??=[];state.canceled.push(id);const job=state.jobs.find((j:any)=>j.id===id);Object.assign(job,{state:'CANCELED',canCancel:false});return structuredClone(job);};
   api.deleteMotionResult=async id=>{const job=state.jobs.find((j:any)=>j.id===id);state.jobs=state.jobs.filter((j:any)=>j.id!==id);state.deleted=id;return {...job,userVisible:false}};
   api.getMotionRun=async id=>{if(state.blocked)await new Promise<void>(resolve=>state.release=resolve);return structuredClone(state.runs?.[id]??state.run);};
+  api.prepareMotionPose=async(id,baseRevisionId,request)=>{
+   state.poseRequest=structuredClone(request);const run=state.runs[request.jobId!],frame=run.frames.find((f:any)=>f.timeSeconds===request.timeSeconds);
+   if(!frame)throw new Error('fixture requires a sampled frame');
+   const kinematics=structuredClone(defs),m=kinematics.mechanisms.find((m:any)=>m.id===run.snapshot.mechanism.id);m.poses=frame.unitPoses;m.coordinates=frame.coordinates;
+   return {type:'SAVE_KINEMATICS',versionId:baseRevisionId,requestId:'fixture-adopt',kinematics};
+  };
+  api.beginMechanismSession=async(_id,input)=>{
+   const m=defs.mechanisms.find((m:any)=>m.id===input.mechanismId);
+   return {sessionId:'fixture-session',baseRevisionId:input.baseRevisionId,inputDigest:'fixture-input',sequence:0,accepted:true,qualified:true,solveMs:0,basisDigest:'fixture-basis',geometryDigest:'fixture-geometry',initialPoses:structuredClone(m.poses),activeDriverIds:['d'],drivers:structuredClone(defs.drivers),study:structuredClone(defs.studies.find((s:any)=>s.id===input.studyId)),frame:{timeSeconds:0,commandValues:{d:0},coordinates:{q:0},unitPoses:structuredClone(m.poses),kinematicValid:true}};
+  };
+  api.cancelMechanismSession=async(_id,sessionId)=>{(state.closedSessions??=[]).push(sessionId);};
   api.previewMechanism=async(id,req)=>{state.previews.push(structuredClone(req));if(state.previewBlocked)await new Promise<void>(resolve=>state.previewRelease=resolve);return {baseRevisionId:req.baseRevisionId,mechanism:{...req.mechanism,poses:Object.fromEntries(instances.map((i,n)=>[i.id,{translation:n?[0,0,7]:[0,0,0],rotation:[0,0,0,1]}]))},instancePoses:instances.map((i,n)=>({instanceId:i.id,translation:n?[0,0,7]:[0,0,0],rotation:[0,0,0,1]}))} as any};
   api.inspectAssemblySupports=async(id,refs)=>{state.inspected.push(structuredClone(refs));if(state.failInspection)throw new Error('fixture temporary inspection failure');return {supports:refs.map(reference=>({reference,descriptor:{Kind:reference.derivedRole?'AXIS':reference.kind==='AXIS'?'AXIS':reference.kind==='PLANE'||reference.topologyId===3?'PLANE':reference.topologyId===99?'SPHERE':'CYLINDER'}}))} as any;};
 
@@ -102,12 +119,21 @@ async function command(page:Page,name:string){
 
 
 async function enter(page:Page,existing=false){
- if(existing){const name=await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms[0]?.name??'测试机构');const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill(name);await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(name+'，自由度=0',{exact:true}).first().dblclick();await filter.fill('');}
+ if(existing){const name=await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms[0]?.name??'测试机构');const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill(name);const row=page.getByRole('treeitem').filter({has:page.getByText(name+'，自由度=0',{exact:true})}).first();await expect(row).toHaveAttribute('data-action-enabled','true');await row.dblclick();await filter.fill('');}
  else {await command(page,'机构');await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);}
  await expect(page.getByRole('tab',{name:'机构与 DMU',exact:true})).toBeVisible();
  await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toHaveCount(0);
 }
-async function start(page:Page){await command(page,'运行仿真');const dialog=page.getByRole('dialog',{name:'仿真与回放',exact:true});await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:'计算仿真',exact:true}).click();}
+async function openResult(page:Page){
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('结果.1');
+ const row=page.getByRole('treeitem').filter({hasText:/^结果\.1 ·/});await expect(row).toHaveAttribute('data-action-enabled','true');await row.dblclick();await filter.fill('');
+ await expect(page.getByRole('dialog',{name:'仿真与回放',exact:true})).toBeVisible();
+}
+async function start(page:Page){
+ // Seed an immutable background result at the API boundary; playback starts from its tree entry.
+ await page.evaluate(async()=>{const {api}=await import('/src/api/client.ts');const {queryClient}=await import('/src/app/providers.tsx');const id='mock-product-frame',view=await api.getDocument(id);await api.startMotionRun(id,{baseRevisionId:view.document.versionId,studyId:'s',requestId:crypto.randomUUID()});await queryClient.invalidateQueries({queryKey:['motion-jobs',id]});});
+ await openResult(page);
+}
 
 test('tree edit enters an existing mechanism application without leaving a phantom form',async({page})=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await fixture(page,true);await enter(page,true);
@@ -186,13 +212,15 @@ test('dialog replay uses whole frames and publishes the selected frame',async({p
  await expect(page.locator('.workbench-status').getByText(/机构回放 · 帧 1/)).toBeVisible();await expect(page.locator('.motion-study-activity')).toHaveCount(0);
  await expect(result.getByRole('button',{name:'恢复正式姿态',exact:true})).toHaveCount(0);
  await result.getByRole('button',{name:'下一步',exact:true}).click();await expect(result.getByText(/2\/5/)).toBeVisible();
- await result.getByRole('button',{name:'计算仿真',exact:true}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.requests.length)).toBe(2);
- await expect(result.getByText(/1\/5/)).toBeVisible();expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(1);
+ await expect(result.getByRole('button',{name:'计算仿真',exact:true})).toHaveCount(0);
+ expect(await page.evaluate(()=>(window as any).__motionFixture.requests.length)).toBe(1);
+ expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);
  await page.evaluate(()=>(window as any).__motionFixture.rejectNextSave=true);await result.getByRole('button',{name:/^确\s*定$/,exact:true}).click();
- await expect(result.getByText('操作未完成，请查看诊断详情后重试。',{exact:true})).toBeVisible();await expect(result.getByText(/1\/5/)).toBeVisible();
- expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(1);
+ await expect(result.getByText('操作未完成，请查看诊断详情后重试。',{exact:true})).toBeVisible();await expect(result.getByText(/2\/5/)).toBeVisible();
+ expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);
+ expect(await page.evaluate(()=>(window as any).__motionFixture.poseRequest)).toMatchObject({jobId:'fixture-run-1',timeSeconds:1});
  await page.keyboard.press('Escape');await expect(page.locator('.workbench-status')).not.toContainText('机构回放');
- await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(1);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);
  await command(page,'旋转接合');await expect(page.getByRole('dialog',{name:/^旋转\./})).toBeVisible();await page.keyboard.press('Escape');
  await page.getByRole('textbox',{name:'筛选模型结构'}).fill('结果.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^结果\.1 ·/).dblclick();await expect(result).toBeVisible();
  await expect(page.getByRole('dialog')).toHaveCount(1);await expect(page.getByRole('button',{name:'播放',exact:true})).toHaveCount(1);
@@ -204,7 +232,7 @@ test('dialog replay uses whole frames and publishes the selected frame',async({p
  await expect(result).toBeVisible();await expect(page.getByRole('dialog')).toHaveCount(1);await expect(result.getByText(/2\/5/)).toBeVisible();
  await expect(page.locator('.workbench-status').getByText(/机构回放 · 帧 2/)).toBeVisible();
  await command(page,'转换为产品约束');await apply.getByRole('button',{name:'生成／刷新转换计划'}).click();await apply.getByRole('button',{name:/^确\s*定$/}).click();
- await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();expect(await page.evaluate(()=>(window as any).__motionFixture.applied[0].motionApply)).toMatchObject({frameIndex:1,lockAngle:false,planDigest:'fixture-plan'});expect(errors).toEqual([]);
+ await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();expect(await page.evaluate(()=>(window as any).__motionFixture.applied[0].motionApply)).toMatchObject({frameIndex:0,timeSeconds:1,lockCoordinateIds:[],planDigest:'fixture-plan'});expect(errors).toEqual([]);
 });
 
 test('simulation dialog owns calculation cancellation while close preserves the background job',async({page})=>{
@@ -220,7 +248,7 @@ test('simulation dialog owns calculation cancellation while close preserves the 
 test('late results and preview responses cannot reopen an exited session',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);await enter(page,true);
  await page.evaluate(()=>(window as any).__motionFixture.blocked=true);await start(page);
- await expect.poll(()=>page.evaluate(()=>typeof (window as any).__motionFixture.release)).toBe('function');await page.keyboard.press('Escape');await command(page,'退出机构');await page.evaluate(()=>(window as any).__motionFixture.release());
+ await expect.poll(()=>page.evaluate(()=>typeof (window as any).__motionFixture.release)).toBe('function');await page.keyboard.press('Escape');await command(page,'退出机构');await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();await page.evaluate(()=>(window as any).__motionFixture.release());
  await enter(page,true);await expect(page.locator('.workbench-status').getByText(/机构回放/)).toHaveCount(0);
  await page.evaluate(()=>(window as any).__motionFixture.previewBlocked=true);await command(page,'固定件');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await expect.poll(()=>page.evaluate(()=>typeof (window as any).__motionFixture.previewRelease)).toBe('function');
  await page.keyboard.press('Escape');await command(page,'退出机构');await page.evaluate(()=>(window as any).__motionFixture.previewRelease());await expect(page.getByRole('dialog')).toHaveCount(0);await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);expect(errors).toEqual([]);
@@ -245,14 +273,15 @@ test('entered definitions use standard rename and deletion commands',async({page
 
 test('basic mechanism command catalog excludes retired functions and simulation remains editable',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);await enter(page,true);
- for(const name of ['移动接合','刚性接合','干涉检查','恢复正式姿态','机构示例','单坐标试动','装配关联','播放','暂停','上一步','单步','复位','取消后台任务']){
+ for(const name of ['旋转接合','棱形接合','圆柱接合','平面接合','刚性接合','球面接合','使用命令进行模拟','模拟'])await expect(page.getByRole('button',{name,exact:true})).toBeEnabled();
+ for(const name of ['移动接合','干涉检查','恢复正式姿态','机构示例','单坐标试动','装配关联','播放','暂停','上一步','单步','复位','取消后台任务']){
   await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill(name);
   await expect(page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp('^'+name+'$')})})).toHaveCount(0);await page.keyboard.press('Escape');
  }
  await command(page,'转换为产品约束');const plan=page.getByRole('dialog',{name:'转换为产品约束',exact:true});await plan.getByRole('button',{name:'生成／刷新转换计划'}).click();
  await expect(plan).toContainText('机械装置已确认位姿');await expect(plan.locator('li').filter({hasText:'→ ()'})).toHaveCount(0);await page.keyboard.press('Escape');
  await page.getByRole('textbox',{name:'筛选模型结构'}).fill('旋转研究');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText('旋转研究',{exact:true}).dblclick();
- await expect(page.getByRole('dialog',{name:'仿真定义',exact:true})).toBeVisible();await page.keyboard.press('Escape');expect(errors).toEqual([]);
+ await expect(page.getByRole('dialog',{name:'模拟',exact:true})).toBeVisible();await expect(page.getByRole('dialog',{name:'使用命令进行模拟',exact:true}).getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();await expect(page.getByRole('dialog')).toHaveCount(2);await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);expect(errors).toEqual([]);
 });
 
 

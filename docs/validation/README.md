@@ -4,7 +4,6 @@
 
 | 类型 | 入口 |
 |---|---|
-| 当前场景/结构树与整体检查 | [交互与显示验收](workspace-experience-validation.md) |
 | 全仓性能测量 | [范围与结果](performance-baseline.md)、[机器样本](performance-baseline.json) |
 | 连续建模 | [固定建模序列](continuous-modeling-100-baseline.md) |
 | 增量运行时 | [冷/热与淘汰范围](incremental-modeling-runtime-validation.md) |

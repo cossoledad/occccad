@@ -1,7 +1,7 @@
 package jobs
 
 import (
-	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,11 +11,9 @@ import (
 )
 
 func TestJobLifecycleRealtimeOutboxDatabase(t *testing.T) {
-	url := os.Getenv("OCCCCAD_DATABASE_URL")
-	if url == "" {
-		t.Skip("requires configured development database")
-	}
-	db, err := database.Open(t.Context(), url)
+	// This transaction/state-machine test owns its queue. The running Jobs process
+	// must not consume fixtures between assertions; live delivery is tested in tests/go/realtime.
+	db, err := database.Open(t.Context(), "sqlite:"+filepath.Join(t.TempDir(), "outbox.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,10 +24,6 @@ func TestJobLifecycleRealtimeOutboxDatabase(t *testing.T) {
 	service := New(db)
 	job, err := service.Enqueue(t.Context(), EnqueueRequest{Type: "EXCHANGE_EXPORT", RequestedBy: access.DefaultUserID, IdempotencyKey: uuid.NewString(), Payload: map[string]string{}, UserVisible: true})
 	if err != nil {
-		t.Fatal(err)
-	}
-	// Isolate the claimed fixture from unrelated test jobs without deleting data.
-	if _, err = db.Exec(t.Context(), `UPDATE occccad.jobs SET priority=30000 WHERE id=$1`, job.ID); err != nil {
 		t.Fatal(err)
 	}
 	events := 0
