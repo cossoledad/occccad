@@ -14,7 +14,8 @@
   结果检查包含精确 pcurve/3D 曲线一致性、自干涉、材料与过渡面保留；解析棱柱的 B-spline 角区与相邻过渡面须通过边界法向检查，否则返回 `FILLET_BOUNDARY_CORNER_TANGENCY_FAILED`；圆角全部被限制面消耗不能作为成功。数值容差上限为 `max(1e-6 mm, 上游实测最大边/点容差 × 1.01)`，不提高构造公差。OCCT 角区仅记录偏保守容差时，先逐面检查 3D 曲线/pcurve 与端点实际偏差；只有偏差在门限内，才在独立副本中收紧容差并重新进行精确有效性检查，副本关系合成进 History；不移动几何或强行合并边。最多 128 面、64 条选边；全平面支撑延伸距离设几何预算。日志区分通用构造、支撑延伸、相切/角区、限制面裁剪、材料组装与验证耗时。该能力不等于任意大半径或任意角区光顺；目标模型差异和定向验收见[圆角边界验证](../../validation/fillet-boundary-validation.md)。
 - 拔模：持久面选择，中性平面可为标准/基准面或同一 Part 上游 Body 的任意平面，后者保存 PersistentSelection 和 source Revision/stage，重算以精确平面来源解析；恒角及反向。
 - 抽壳：移除所选面、恒定厚度、向内或向外。凸全平面实体的向内内腔使用保留面的精确偏置半空间交集，允许小倒角面在偏置后消失；其他实体先尝试通用 OCCT 面求交/圆弧连接。向内失败时，依次尝试开口光滑壳偏置、独立保留面厚度层的一次 General Fuse 分区，以及逐层与输入求交后按源顺序二元并集。最后一条路径在开口局部框架内进行有界的斜向旋转和统一尺度调节，厚度和容差同比缩放，逆变换恢复模型单位；不使用缩放截面模拟恒定壁厚。每次尝试采用独立副本，偏置外面/内面、复制、裁剪、组装、修复和逆变换的真实 History 进入同一命名链。独立面的历史先按并行分支累积。
-  布尔产生的 INTERNAL 边用途从辅助线框中清除，保留全部真实轮廓和孔洞边界。结果检查精确实体有效性、连通性、曲线/pcurve/端点偏差；精度上限保持 `max(1e-5 mm, 上游最大边/点容差 × 1.01)`。仅保守记录超限而实际偏差合格时，在副本中收紧记录。局部端点闭合使用原曲线上的有界参数投影及最小包围球代表点，随后重新检查全部实际误差，不修改支撑曲线/曲面或放宽预算。二元组装还检查保留面后的材料采样覆盖、自干涉、BREP 序列化重读和消费端线框排序。向内结果必须减少材料且包含在原实体内；已由与输入求交构造且未重定位端点的分区结果可复用包含证明。过大厚度、偏置失败和精度失败保留不同诊断。
+  对单 Solid 的完整凹圆形平面/圆柱交界，独立法向壁层在尖锐盲孔底只沿边接触。`kernel/occt/src/shell_corner.cpp` 通过真实边面邻接、解析轴线和材料侧分类识别该交界，排除开口及凸边；把半径等于厚度的四分之一圆扇区绕源圆轴旋转，补齐缺失的边距材料，并与所有壁层、输入实体共用一次分区。只构造圆柱外侧材料象限，厚度达到或超过源圆半径时也不生成自交环面。构造面以源边的真实 Generated 历史加入命名，不按坐标猜测身份。该补充限完整圆形平面/圆柱凹交界，不涵盖任意凹边或多角交会。
+  一次分区与二元组装产生的 INTERNAL 边用途从辅助线框中清除，保留全部真实轮廓和孔洞边界。结果检查精确实体有效性、连通性、曲线/pcurve/端点偏差；精度上限保持 `max(1e-5 mm, 上游最大边/点容差 × 1.01)`。仅保守记录超限而实际偏差合格时，在副本中收紧记录。局部端点闭合使用原曲线上的有界参数投影及最小包围球代表点，随后重新检查全部实际误差，不修改支撑曲线/曲面或放宽预算。二元组装还检查保留面后的材料采样覆盖、自干涉、BREP 序列化重读和消费端线框排序。向内结果必须减少材料且包含在原实体内；已由与输入求交构造且未重定位端点的分区结果可复用包含证明。过大厚度、偏置失败和精度失败保留不同诊断。
   显示网格默认使用 OCCT。遇到共享边界不一致或原生状态 16 时，以公开网格扩展点重试：对 Offset/Other 曲面保留源边界的不同三维采样，避免 UV 邻近查找错误合并。重试仍执行全部原生警告、逐面覆盖和共享边界门禁；精确 BREP 不参与显示离散化修改。执行记录与限制见[抽壳验证](../../validation/shell-validation.md)。
 - 放样：2–32 个有序截面，至少一个单区域、无孔闭合轮廓；首尾可使用稳定草图点/端点/圆心/原点或基准轴系原点引用，经 OCCT `AddVertex` 构造真实点端，中间点截面拒绝。支持直纹/平滑、同边数轮廓及圆与多边形组合。内核按循环顺序生成起点/绕行方向/圆相位候选，以相邻框架间的归一化轮廓距离计算整组截面的最小代价对应；比较用的框架传递不移动输入截面。支撑法向没有放样前进方向；自动比较按实际轮廓中心之间的位移统一法向符号，避免垂直支撑选中翻折连接。位移在支撑面内而不能确定符号时，保留法向之间的最小旋转规则。圆按匹配边界数构造精确圆弧，关闭 OCCT 的隐式重新对应。自动结果的 stable seam EntityId、反向、相位与 `correspondenceResolved` 经纯 `ResolveLoftCorrespondence` RPC 写入 Feature 定义；后续重算保持已接受关系，丢失闭合边/点明确失败，手动设置优先。生成面来自实际输入边（含圆的解析分段）到 OCCT Generated 面的历史，点端独立命名为 `LOFT_START_VERTEX`/`LOFT_END_VERTEX`，不虚构封口面；退化边通过邻接闭包命名。所有构造几何为私有新建对象，结果在 Boolean 前通过实体检查和自干涉检查；交叉或无法构造时提示检查对应/补中间截面，不放宽容差。资源限制为最多 64 条轮廓边及一亿次候选采样比较。
 
@@ -43,7 +44,7 @@
 
 依赖连接上游 Feature 输出，而不连接 Body 的未来最终结果。局部修改先重建自身之前的 Body 前缀，再以保存的 source Revision、Body 和 PersistentSelection 解析当前输入。缺失、歧义或类型变化必须失败，不能用最近几何或持久化 local ID 恢复。显示层的 local pick 只用于创建正式持久选择。
 
-生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 为 `part-solid-generators-v35-shell-precision`，Naming policy 继续为 v6；缓存包含版本和完整来源历史。
+生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 为 `part-solid-generators-v37-shell-circular-corners`，Naming policy 继续为 v6；缓存包含版本和完整来源历史。
 
 精确边的直线识别由同一个内核判定供类型查询、方向属性与 Naming evidence 使用。非周期 B-spline 在实际裁剪参数区间内，正权控制点全部落在端点直线的 `Precision::Confusion()`（1e-7 mm）容差内，且沿直线单调排列时，识别为 `LINE`；不依据显示折线或有限采样。原 BREP 和真实 History 保留，属性同时报告 `underlyingCurveType=BSPLINE_CURVE` 与原生参数。选择 evidence 使用解析直线原点、单位方向和端点距离参数，现有轴/方向解析及外部几何投影消费同一证据，不能把 0–1 的样条参数当作毫米。弯曲、回折或周期样条保守保留曲线类型。evaluator 版本进入缓存键；旧制品须经正常特征编辑/重新求值生成新的成套 Naming/Visual，再选择其边。
 
@@ -76,7 +77,7 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `Loft*`：循环起点/方向、圆相位、垂直及中间截面、真实尖端/退化边、命名与切除。
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp`：Boolean 精确体积与冷重算、拉伸范围、旋转 Naming、局部修改、放样后切除/倒角，检查完整拓扑覆盖。
 - 同一内核 corpus 覆盖轴与轮廓边界重合的半周/整周旋转、长方体一条棱倒角 1 后相邻两棱半径 0.5/1/1.01/1.5/2/5 的圆角（含旋转平移、独立参考形体差集、精确半径、逐面网格覆盖和反向选择冷重算）、四条竖边倒角后的 1–8 条底边圆角、消失小倒角面的向内抽壳与冷重复历史。
-- `kernel/occt/tests/geometry_exchange_scenarios.cpp` 的抽壳回归：大倒角、全棱圆角、倒角后底棱圆角及矩形到圆放样，检查开口、壁厚两侧材料分类、逐面网格覆盖、上游不可变与冷重算历史。
+- `kernel/occt/tests/geometry_exchange_scenarios.cpp` 的抽壳回归：大倒角、全棱圆角、倒角后底棱圆角及矩形到圆放样，检查开口、壁厚两侧材料分类、逐面网格覆盖、上游不可变与冷重算历史。三截面倾斜放样与盲孔用例同时覆盖孔底保留 0.1 mm 圆角的 2 mm 抽壳及移除圆角后的 0.5/1/2 mm 抽壳，额外检查凹圆角连接材料与自干涉。
 - `services/internal/geometry/shell_worker_integration_test.go`：真实 Worker 的全棱圆角、小型及偏置大截面矩形到圆放样，在 0.5/1/2 mm 下抽壳，检查阶段面引用、完整 Naming、BREP/GLB 与缓存复用。
 - `services/internal/geometry/corner_fillet_worker_integration_test.go`：真实 Worker RPC 的倒角 1 → 双边圆角 1/1.5/2，按阶段 Naming 绑定原边，检查完整历史及 BREP/GLB 制品。
 - 阵列定向入口：`kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `PatternCutReusesToolAndPreservesMemberNames`；`services/internal/workspace/pattern_test.go`、`parameter_update_plan_test.go`；真实 Worker 的 `services/internal/geometry/pattern_worker_integration_test.go`；真实 Router 的 `services/internal/control/parametric_pattern_integration_test.go`。后者使用当前开发数据库与制品存储，覆盖共享参数、显式接受、成员面引用、失败恢复、历史和 occurrence 位姿。
@@ -88,7 +89,7 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 - `web/apps/cad/browser/solid-feature.spec.ts`：真实浏览器中的面板入口、未完成定义禁用提交、取消。Mock 浏览器用例不证明精确几何或真实后端拾取。
 - `web/apps/cad/browser/datum-feature.spec.ts`：自由框架和参考复制预览、取消不写 Head、实体面中心、标准轴复制、属性与自定义基准树删除；精确绑定/求值仍由服务端与 Worker 测试证明。
 
-曲面抽壳的逐面偏置回退使用一次 CellsBuilder 求交，避免先合并再裁剪时重复计算偏置曲面交线；启用 OBB 筛选和 Worker 内受控并行，记录 wall_offsets/wall_partition/wall_assembly 耗时。该路径仍可能需要数十秒；上述新增回退针对向内抽壳，复杂向外曲面仍使用通用 OCCT 路径。
+曲面抽壳的逐面偏置回退使用一次 CellsBuilder 求交，避免先合并再裁剪时重复计算偏置曲面交线；启用 OBB 筛选和 Worker 内受控并行，记录 wall_offsets/wall_partition/wall_assembly 耗时。凹圆形交界在同一分区中补齐，避免原本因壁层断开而进入多次无效的二元回退。具体输入的冷求值/服务耗时见抽壳验证记录；其他复杂输入仍可能需要数十秒。上述新增回退针对向内抽壳，复杂向外曲面仍使用通用 OCCT 路径。
 
 未包含多工具交集、跨文档 Boolean、可变半径、非等距倒角、复杂拔模、带导轨/带孔/任意不同边数放样。关联基准面的旋转/平移定义与参数编辑见 [Part/Sketch](part-sketch.md)。三条完整建模链的逐步鼠标拾取、全部参数组合和复杂实体的 WebGL 人工验收仍需独立证据。
 

@@ -5,6 +5,7 @@ add_library(occccad_occt_kernel STATIC
     src/fillet_boundary.cpp
     src/mesh_boundary.cpp
     src/shell_junction.cpp
+    src/shell_corner.cpp
     src/exchange_graph.cpp
     src/sketch_curve.cpp
     src/dmu.cpp

@@ -97,6 +97,7 @@
 #include <internal/occt_kernel.hpp>
 #include <internal/fillet_boundary.hpp>
 #include <internal/mesh_boundary.hpp>
+#include <internal/shell_corner.hpp>
 #include <internal/shell_junction.hpp>
 #include <occccad/kernel/geometry_id.hpp>
 #include <occccad/kernel/topology_naming.hpp>
@@ -2287,6 +2288,14 @@ ComposedModifier inward_face_shell(const TopoDS_Shape& input,
         walls.Append(wall.Shape());
     }
     if (walls.IsEmpty()) throw std::invalid_argument("SHELL_NO_RETAINED_FACES");
+    // Face-normal layers only touch along a sharp concave circular edge.
+    // Include the exact edge-distance join in the same partition, preserving
+    // its native source edge and the constructive containment proof.
+    for (auto& join : circular_shell_corner_walls(input, removed, thickness, toleranceLimit)) {
+        validate_shell_offset(join.shape, toleranceLimit);
+        accumulate_shell_history(history, join.history, input);
+        walls.Append(join.shape);
+    }
     measured("wall_offsets");
     // One intersection data set for input and all walls. The previous union
     // followed by Common recomputed expensive offset/BSpline intersections.
@@ -2318,7 +2327,7 @@ ComposedModifier inward_face_shell(const TopoDS_Shape& input,
 // A wire containing only INTERNAL edge uses is a Boolean section trace, not
 // a material boundary. Canonicalize operands before further intersections so
 // these auxiliary constraints do not create additional coincident fragments.
-void prune_shell_internal_traces(ComposedModifier& candidate, double toleranceLimit) {
+void prune_shell_internal_traces(ComposedModifier& candidate, double toleranceLimit, bool refineVertices = true) {
     const auto original = candidate.shape;
     Handle(ShapeBuild_ReShape) prune = new ShapeBuild_ReShape();
     std::vector<TopoDS_Shape> boundaries;
@@ -2352,7 +2361,7 @@ void prune_shell_internal_traces(ComposedModifier& candidate, double toleranceLi
     }
     candidate.history->Merge(changes);
     candidate.shape = canonical;
-    verify_shell_offset(candidate, toleranceLimit);
+    verify_shell_offset(candidate, toleranceLimit, refineVertices);
 }
 
 // A multi-argument partition can lose coincident wall cells on expanding lofts.
@@ -2809,7 +2818,8 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                 // A partition's constructive containment proof is reusable only
                 // while its exact boundary has not been repositioned. Candidates
                 // needing junction refinement must use the independently checked path.
-                verify_shell_offset(candidate, toleranceLimit, !clippedToInput);
+                if (clippedToInput) prune_shell_internal_traces(candidate, toleranceLimit, false);
+                else verify_shell_offset(candidate, toleranceLimit);
                 if (solid_count(candidate.shape) != solid_count(input)) throw std::runtime_error("SHELL_DISCONNECTED_WALLS");
                 if (!spec.reversed && (shape_volume(candidate.shape) >= shape_volume(input) - tolerance ||
                     (!clippedToInput && !inward_valid(candidate.shape)))) throw std::runtime_error("SHELL_INVALID_INTERIOR");

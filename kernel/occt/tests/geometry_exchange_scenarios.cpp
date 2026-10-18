@@ -2458,6 +2458,263 @@ TEST(GeometryExchange, ShellOffsetRectangleToLargerCircle) {
     check_shell_chain(kernel,{loft},"LOFT_END_CAP",{1.0},100,frame);
 }
 
+TEST(GeometryExchange, ShellBottomOfThreeSectionLoftWithFilletedBlindHole) {
+    // Retained acceptance geometry: Part2, revision 01a14ad0-8ca9-7190-a9bf-33c8c2e04ec5.
+    // Three sections, tilted circular tip, blind cut and a 0.1 mm floor fillet.
+    OcctKernel kernel;
+    ProfilePadSpec loft;
+    loft.feature_id = "loft";
+    loft.body_id = "body";
+    loft.generator = "LOFT";
+    LoftSectionSpec s0;
+    s0.sketch_id = "section-0";
+    s0.origin = {0, 0, -52.000000000000007};
+    s0.normal = {0, 0, 1};
+    s0.u_direction = {1, 0, 0};
+    s0.region.id = "region-0";
+    s0.region.outer.id = "loop-0";
+    s0.correspondence_resolved = true;
+    ProfileCurveSpec e00;
+    e00.entity_id = "edge-0-0";
+    e00.kind = "LINE";
+    e00.start = {49.961746444860218, 6.2335554781294729};
+    e00.end = {-1.7726789224060814e-26, 42.532889043741058};
+    s0.region.outer.curves.push_back(e00);
+    ProfileCurveSpec e01;
+    e01.entity_id = "edge-0-1";
+    e01.kind = "LINE";
+    e01.start = {-1.7726789224060814e-26, 42.532889043741058};
+    e01.end = {-49.961746444860225, 6.2335554781294746};
+    s0.region.outer.curves.push_back(e01);
+    ProfileCurveSpec e02;
+    e02.entity_id = "edge-0-2";
+    e02.kind = "LINE";
+    e02.start = {-49.961746444860225, 6.2335554781294746};
+    e02.end = {-30.878057440227845, -52.499999999999986};
+    s0.region.outer.curves.push_back(e02);
+    ProfileCurveSpec e03;
+    e03.entity_id = "edge-0-3";
+    e03.kind = "LINE";
+    e03.start = {-30.878057440227845, -52.499999999999986};
+    e03.end = {30.878057440227831, -52.499999999999993};
+    s0.region.outer.curves.push_back(e03);
+    ProfileCurveSpec e04;
+    e04.entity_id = "edge-0-4";
+    e04.kind = "LINE";
+    e04.start = {30.878057440227831, -52.499999999999993};
+    e04.end = {49.961746444860218, 6.2335554781294729};
+    s0.region.outer.curves.push_back(e04);
+    s0.seam_entity_id = "edge-0-4";
+    s0.seam_angle = 0;
+    LoftSectionSpec s1;
+    s1.sketch_id = "section-1";
+    s1.origin = {0, 0, -10};
+    s1.normal = {0, 0, 1};
+    s1.u_direction = {1, 0, 0};
+    s1.region.id = "region-1";
+    s1.region.outer.id = "loop-1";
+    s1.correspondence_resolved = true;
+    ProfileCurveSpec e10;
+    e10.entity_id = "edge-1-0";
+    e10.kind = "LINE";
+    e10.start = {14.106846055019357, 4.5835921350012621};
+    e10.end = {-1.851754311137969e-25, 14.832815729997476};
+    s1.region.outer.curves.push_back(e10);
+    ProfileCurveSpec e11;
+    e11.entity_id = "edge-1-1";
+    e11.kind = "LINE";
+    e11.start = {-1.851754311137969e-25, 14.832815729997476};
+    e11.end = {-14.106846055019357, 4.5835921350012594};
+    s1.region.outer.curves.push_back(e11);
+    ProfileCurveSpec e12;
+    e12.entity_id = "edge-1-2";
+    e12.kind = "LINE";
+    e12.start = {-14.106846055019357, 4.5835921350012594};
+    e12.end = {-8.7185103360643286, -12.000000000000002};
+    s1.region.outer.curves.push_back(e12);
+    ProfileCurveSpec e13;
+    e13.entity_id = "edge-1-3";
+    e13.kind = "LINE";
+    e13.start = {-8.7185103360643286, -12.000000000000002};
+    e13.end = {8.7185103360643339, -11.999999999999996};
+    s1.region.outer.curves.push_back(e13);
+    ProfileCurveSpec e14;
+    e14.entity_id = "edge-1-4";
+    e14.kind = "LINE";
+    e14.start = {8.7185103360643339, -11.999999999999996};
+    e14.end = {14.106846055019357, 4.5835921350012621};
+    s1.region.outer.curves.push_back(e14);
+    s1.seam_entity_id = "edge-1-4";
+    s1.seam_angle = 0;
+    LoftSectionSpec s2;
+    s2.sketch_id = "section-2";
+    s2.origin = {0, 0, 10};
+    s2.normal = {0, -0.49999999999999994, 0.86602540378443871};
+    s2.u_direction = {1, 0, 0};
+    s2.region.id = "region-2";
+    s2.region.outer.id = "loop-2";
+    s2.correspondence_resolved = true;
+    ProfileCurveSpec e20;
+    e20.entity_id = "edge-2-0";
+    e20.kind = "CIRCLE";
+    e20.center = {0, -4.9999999999999991};
+    e20.radius = 4;
+    s2.region.outer.curves.push_back(e20);
+    s2.seam_entity_id = "edge-2-0";
+    s2.seam_angle = -0.94247779607693805;
+    loft.sections = {s0, s1, s2};
+    ProfilePadSpec hole;
+    hole.feature_id = "hole";
+    hole.body_id = "body";
+    hole.profile_feature_id = "hole-sketch";
+    hole.generator = "LINEAR_EXTRUDE";
+    hole.body_operation = "REMOVE";
+    hole.pad_length = 3.5;
+    hole.reversed = true;
+    hole.plane = "CUSTOM";
+    hole.plane_origin = {2.3511410091698912, -7.1326440958103383, 5.8819660112501042};
+    hole.plane_normal = {4.8000437120266786e-16, -0.50000000000000089, 0.86602540378443826};
+    hole.plane_u_direction = {1, 2.4000218560133433e-16, -4.1569597938908572e-16};
+    ProfileCurveSpec circle;
+    circle.entity_id = "hole-edge";
+    circle.kind = "CIRCLE";
+    circle.center = {-2.3511410091698925, 3.2360679774997898};
+    circle.radius = 1;
+    ProfileRegionSpec region;
+    region.id = "hole-region";
+    region.outer = {"hole-loop", {circle}};
+    hole.regions = {region};
+    const auto cut = kernel.evaluateProfilePadsWithHistory({loft, hole});
+    ProfilePadSpec fillet;
+    fillet.feature_id = "fillet";
+    fillet.body_id = "body";
+    fillet.input_feature_id = "hole";
+    fillet.generator = "FILLET";
+    fillet.pad_length = .1;
+    for (const auto& output : cut.feature_results.back().semantic_outputs) {
+        const auto& r = output.semantic_ref;
+        if (output.topology_type == PersistentTopologyType::edge && r.feature_id == "hole" &&
+            r.output_slot == "END_BOUNDARY_FROM_PROFILE_EDGE/hole-edge")
+            fillet.selections.push_back({r.feature_id, r.output_slot, r.source_ids});
+    }
+    ASSERT_EQ(fillet.selections.size(), 1U);
+    for (bool rounded : {true, false}) {
+        SCOPED_TRACE(rounded ? "filleted blind floor" : "sharp blind floor from diagnostic");
+        std::vector<ProfilePadSpec> chain{loft, hole};
+        if (rounded)
+            chain.push_back(fillet);
+        const auto upstream = kernel.evaluateProfilePadsWithHistory(chain);
+        const auto original = kernel.serializeBrepr(upstream.geometry_id);
+        EXPECT_NEAR(kernel.getVolume(upstream.geometry_id),
+                    rounded ? 118683.70424869303 : 118683.6910660475, 1e-5);
+        for (const double thickness :
+             rounded ? std::vector<double>{2.} : std::vector<double>{.5, 1., 2.}) {
+            SCOPED_TRACE(thickness);
+            auto shellChain = chain;
+            ProfilePadSpec shell;
+            shell.feature_id = "shell";
+            shell.body_id = "body";
+            shell.input_feature_id = chain.back().feature_id;
+            shell.generator = "SHELL";
+            shell.pad_length = thickness;
+            for (const auto& output : upstream.feature_results.back().semantic_outputs) {
+                const auto& r = output.semantic_ref;
+                if (output.topology_type == PersistentTopologyType::face &&
+                    r.feature_id == "loft" && r.output_slot == "LOFT_START_CAP")
+                    shell.selections.push_back({r.feature_id, r.output_slot, r.source_ids});
+            }
+            ASSERT_EQ(shell.selections.size(), 1U);
+            shellChain.push_back(shell);
+            const auto result = kernel.evaluateProfilePadsWithHistory(shellChain);
+            EXPECT_EQ(kernel.getTopology(result.geometry_id).solid_count, 1U);
+            EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+            EXPECT_GT(kernel.getVolume(result.geometry_id), 0);
+            EXPECT_LT(kernel.getVolume(result.geometry_id), kernel.getVolume(upstream.geometry_id));
+            const auto bytes = kernel.serializeBrepr(result.geometry_id);
+            BRep_Builder builder;
+            TopoDS_Shape shape;
+            std::istringstream stream(std::string(bytes.begin(), bytes.end()));
+            BRepTools::Read(shape, stream, builder);
+            ASSERT_TRUE(BRepCheck_Analyzer(shape).IsValid());
+            EXPECT_TRUE(BRepAlgoAPI_Check(shape, Standard_False, Standard_True).IsValid());
+            // Open bottom, a retained top and blind floor: material is present within
+            // the requested wall depth and absent beyond the inner wall.
+            const auto state = [&](const gp_Pnt& p) {
+                return BRepClass3d_SolidClassifier(shape, p, 1e-6).State();
+            };
+            EXPECT_EQ(state(gp_Pnt(0, -10, -51)), TopAbs_OUT);
+            // A sharp blind-hole floor needs material around the source circular
+            // edge, beyond either face's trimmed normal extrusion. Both sides of
+            // the requested circular corner distance are checked independently.
+            gp_Vec normal(hole.plane_normal.x, hole.plane_normal.y, hole.plane_normal.z);
+            normal.Normalize();
+            gp_Vec radial(hole.plane_u_direction.x, hole.plane_u_direction.y,
+                          hole.plane_u_direction.z);
+            radial.Normalize();
+            const auto tangent = normal.Crossed(radial);
+            gp_Pnt floor(hole.plane_origin.x, hole.plane_origin.y, hole.plane_origin.z);
+            floor.Translate(radial * circle.center.x + tangent * circle.center.y - normal * 3.5);
+            EXPECT_EQ(
+                state(floor.Translated(radial * (1. + thickness * .5) - normal * (thickness * .5))),
+                TopAbs_IN);
+            EXPECT_EQ(
+                state(floor.Translated(radial * (1. + thickness * .8) - normal * (thickness * .8))),
+                TopAbs_OUT);
+
+            int sampled = 0;
+            TopoDS_Shape source;
+            std::istringstream src(std::string(original.begin(), original.end()));
+            BRepTools::Read(source, src, builder);
+            for (TopExp_Explorer faces(source, TopAbs_FACE); faces.More(); faces.Next()) {
+                const auto face = TopoDS::Face(faces.Current());
+                BRepAdaptor_Surface surface(face);
+
+                double u0, u1, v0, v1;
+                BRepTools::UVBounds(face, u0, u1, v0, v1);
+                for (double fu : {.25, .5, .75})
+                    for (double fv : {.25, .5, .75}) {
+                        const double u = u0 + (u1 - u0) * fu, v = v0 + (v1 - v0) * fv;
+                        if (BRepClass_FaceClassifier(face, gp_Pnt2d(u, v), 1e-7).State() !=
+                            TopAbs_IN)
+                            continue;
+                        gp_Pnt p;
+                        gp_Vec du, dv;
+                        surface.D1(u, v, p, du, dv);
+                        if (p.Z() < -51)
+                            continue;
+                        auto n = du.Crossed(dv);
+                        if (n.SquareMagnitude() < 1e-18)
+                            continue;
+                        n.Normalize();
+                        if (face.Orientation() == TopAbs_REVERSED)
+                            n.Reverse();
+                        bool nearEdge = false;
+                        const auto point = BRepBuilderAPI_MakeVertex(p).Vertex();
+                        for (TopExp_Explorer edges(face, TopAbs_EDGE); edges.More(); edges.Next()) {
+                            BRepExtrema_DistShapeShape distance(point, edges.Current());
+                            if (!distance.IsDone() || distance.Value() < 6)
+                                nearEdge = true;
+                        }
+                        if (nearEdge || BRepClass3d_SolidClassifier(
+                                            source, p.Translated(n * (-1.5 * thickness)), 1e-6)
+                                                .State() != TopAbs_IN)
+                            continue;
+                        EXPECT_EQ(state(p.Translated(n * (-.5 * thickness))), TopAbs_IN);
+                        EXPECT_EQ(state(p.Translated(n * (-1.5 * thickness))), TopAbs_OUT);
+                        ++sampled;
+                    }
+            }
+            EXPECT_GE(sampled, 5);
+            const auto mesh = kernel.tessellate(result.geometry_id);
+            ASSERT_FALSE(mesh.triangles.empty());
+            const std::set<uint32_t> rendered(mesh.face_ids.begin(), mesh.face_ids.end());
+            EXPECT_EQ(rendered.size(), kernel.getTopology(result.geometry_id).face_count);
+            EXPECT_FALSE(make_glb(mesh).empty());
+            EXPECT_EQ(original, kernel.serializeBrepr(upstream.geometry_id));
+        }
+    }
+}
+
 TEST(GeometryExchange, LoftRectangleToCircleUsesActualSplitHistory) {
     OcctKernel kernel;
     ProfilePadSpec loft;
