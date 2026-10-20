@@ -93,6 +93,7 @@ import type {
 } from "../types";
 
 type Callbacks = {
+  documentDisplayed?:(documentId:string,revisionId:string)=>void;
   sceneMetricsChanged?:(metrics:import("../cad/rendering/scene-settings").SceneMetrics)=>void;
   selectionsChanged: (selections: SelectionItem[]) => void;
   preselectionChanged: (selection: Selection) => void;
@@ -660,6 +661,7 @@ export class CadViewportEngine {
   private visuals = new VisualRepository();
   private visualGeneration = 0;
   private pendingVisualSnapshot = false;
+  private lastDisplayedSnapshot = "";
   private visualError?: HTMLDivElement;
   private geometrySignature(view: DocumentDescriptor, editContext?: ViewportEditContext): string {
     const part = (value?: DocumentDescriptor) => value?.part && [
@@ -3879,6 +3881,10 @@ export class CadViewportEngine {
         const signature=JSON.stringify([sceneMetrics,this.sceneGridDisplay]);if(signature!==this.sceneMetricsSignature){this.sceneMetricsSignature=signature;this.callbacks.sceneMetricsChanged?.(sceneMetrics);this.emitDebugState();}
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);
+        if(this.view && !this.pendingVisualSnapshot && !this.visualError){
+          const snapshot=`${this.view.document.id}:${this.view.document.versionId}`;
+          if(snapshot!==this.lastDisplayedSnapshot){this.lastDisplayedSnapshot=snapshot;this.callbacks.documentDisplayed?.(this.view.document.id,this.view.document.versionId);}
+        }
         if(this.analysisScene.children.length){
           updateAnalysisGuides(this.analysisScene,this.camera,metrics);
           updateScreenLines(this.analysisScene,this.camera,metrics.cssWidth,metrics.cssHeight);

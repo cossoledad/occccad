@@ -414,6 +414,8 @@ func (client *realtimeClient) handleRequest(server *Server, ctx context.Context,
 		client.sendResponse(envelope.ID, "document.unsubscribed.v1", map[string]string{"documentId": payload.DocumentID})
 	case "workspace.command.execute.v1":
 		server.handleRealtimeCommand(ctx, client, envelope)
+	case "automation.request.v1":
+		server.handleAutomationRequest(ctx, client, envelope)
 	default:
 		client.sendError(envelope.ID, "UNSUPPORTED_MESSAGE", "unsupported realtime message type", false)
 	}

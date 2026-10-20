@@ -2247,6 +2247,9 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	} else if err != nil {
 		return prepared, err
 	}
+	if request.ExpectedHead != nil && (request.ExpectedHead.WorkspaceID != prepared.workspaceID || request.ExpectedHead.RevisionID != prepared.headRevision || request.ExpectedHead.Sequence != prepared.headSequence) {
+		return prepared, fmt.Errorf("%w: WORKSPACE_HEAD_CONFLICT", ErrValidation)
+	}
 	if (request.Type == "SAVE_KINEMATICS" || request.Type == "APPLY_MOTION_FRAME" || request.Type == "ACTIVATE_MECHANISM" || request.Type == "EXIT_MECHANISM") && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
 		return prepared, fmt.Errorf("%w: KINEMATICS_BASE_REVISION_CHANGED", ErrValidation)
 	}

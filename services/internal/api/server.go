@@ -19,6 +19,7 @@ import (
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/authn"
+	"github.com/occccad/occccad/internal/automation"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
@@ -32,6 +33,7 @@ type Server struct {
 	database       database.DB
 	worker         *geometry.Client
 	workspace      *workspace.Service
+	automation     *automation.Service
 	access         *access.Service
 	authn          *authn.Service
 	artifacts      *artifact.Service
@@ -68,6 +70,7 @@ func New(
 		secureCookies: secureCookies, allowedOrigins: origins, realtime: newRealtimeHub(),
 	}
 	server.realtime.cancelAssemblySession = workspaceService.CancelAssemblyInteraction
+	server.automation = automation.New(database, workspaceService, accessService)
 	if database != nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		server.realtimeCancel = cancel
@@ -202,6 +205,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/session", server.session)
 	mux.HandleFunc("GET /api/ui/toolbars", server.toolbarCatalog)
 	mux.HandleFunc("GET /api/realtime", server.realtimeConnection)
+	server.registerAutomationRoutes(mux)
 	mux.HandleFunc("GET /api/admin/users", server.adminListUsers)
 	mux.HandleFunc("POST /api/admin/users", server.adminCreateUser)
 	mux.HandleFunc("PATCH /api/admin/users/{userID}", server.adminUpdateUser)

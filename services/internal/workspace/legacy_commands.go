@@ -229,7 +229,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			support := SketchSupport{Type: "PLANAR_FACE", Plane: "CUSTOM", PersistentSelection: &selection,
 				SourceVersionID: sourceVersionID, Origin: selection.CreationEvidence.Origin, XDirection: xDirection,
 				Normal: normal, OrientationRule: sketchSupportOrientationRule, Status: "CONNECTED"}
-			return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: newID("sketch"), Type: "SKETCH",
+			return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH",
 				Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: "CUSTOM",
 				Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: support, Entities: []SketchEntity{},
 					Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
@@ -253,7 +253,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, fmt.Errorf("%w: selected datum plane does not exist", ErrValidation)
 			}
 		}
-		return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: newID("sketch"), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
+		return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
 	case "EDIT_SKETCH":
 		if documentType != "PART" {
 			break

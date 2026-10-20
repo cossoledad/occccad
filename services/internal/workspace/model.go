@@ -1153,6 +1153,7 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	ExpectedHead              *CommandBaseline             `json:"expectedHead,omitempty"`
 	Properties                *PropertyUpdateRequest       `json:"properties,omitempty"`
 	Color                     string                       `json:"color,omitempty"`
 	MechanismApplication      *MechanismApplicationRequest `json:"mechanismApplication,omitempty"`

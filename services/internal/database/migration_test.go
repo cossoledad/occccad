@@ -21,7 +21,7 @@ func TestMigrationCatalogValidation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(migrations) != 1 || migrations[0].name != "0001_baseline.sql" {
+		if len(migrations) != 2 || migrations[0].name != "0001_baseline.sql" || migrations[1].name != "0002_automation_tasks.sql" {
 			t.Fatalf("unexpected baseline: %v", migrations)
 		}
 	}
@@ -79,7 +79,7 @@ func testMigrationBaseline(t *testing.T, url, directory string) {
 	baseline := migrations[0]
 	var version, checksum string
 	var migrationCount int
-	if err = pool.QueryRow(ctx, `SELECT version,checksum FROM occccad.schema_migrations`).Scan(&version, &checksum); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT version,checksum FROM occccad.schema_migrations WHERE version=$1`, baseline.name).Scan(&version, &checksum); err != nil {
 		t.Fatal(err)
 	}
 	if version != baseline.name || checksum != baseline.checksum {
@@ -133,7 +133,7 @@ func testMigrationBaseline(t *testing.T, url, directory string) {
 	if snapshot() != before {
 		t.Fatal("reopen changed persistent document state")
 	}
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM occccad.schema_migrations`).Scan(&migrationCount); err != nil || migrationCount != 1 {
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM occccad.schema_migrations`).Scan(&migrationCount); err != nil || migrationCount != len(migrations) {
 		t.Fatalf("migration count=%d err=%v", migrationCount, err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE occccad.schema_migrations SET checksum='tampered' WHERE version=$1`, baseline.name); err != nil {

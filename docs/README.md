@@ -29,6 +29,7 @@ React/Three.js → Go API / Command → Workspace CAS → 不可变 Revision
 | 持久身份、几何与显示 | [Naming](architecture/current/persistent-naming.md)、[制品](architecture/current/geometry-representations.md) | `kernel/api/`、`kernel/occt/`、Workspace |
 | Product、约束、机构 | [Product](architecture/current/product-assembly.md)、[约束](architecture/current/assembly-constraints.md)、[DMU](architecture/current/kinematics-dmu.md) | Workspace、`kernel/assembly/` |
 | 选择、工具、标签、命令目录 | [Web](architecture/current/web.md)、[对象属性/全局选项](architecture/current/object-scene-properties.md)、[编辑上下文](architecture/current/product-edit-context.md)、[公共框架](architecture/current/document-command-framework.md) | `web/apps/cad/src/`、`services/internal/workbenchconfig/` |
+| CAD 自动化与 AI 接入准备 | [操作、查询、任务与显示](architecture/current/automation.md) | `services/internal/automation/`、`assistant/`、Web Assistant |
 
 ## 意图、运行与证据
 

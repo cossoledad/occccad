@@ -23,6 +23,8 @@ UI Command
 
 文档名称/描述、外观与实例别名也走正式命令；元数据冻结于 Revision，并在同一 CAS 事务更新 live 摘要。属性作用域、预览及冲突规则见[统一属性](object-scene-properties.md)。
 
+普通领域修改可携带 `expectedHead={workspaceId,revisionId,sequence}`，在命令准备阶段核对调用方已读取的基线；自动化入口要求必填，求值后继续执行原 CAS。创建草图使用 requestId 派生身份，保证同一预览/提交意图一致；已提交请求仍先按幂等记录恢复。
+
 ## 属性与依赖的完成条件
 
 A new writable property is complete only when the same stable PropertySlot participates in:

@@ -51,6 +51,7 @@ export type CadViewportHandle = {
 
 type Props = {
   onSceneMetrics?:(metrics:import("../cad/rendering/scene-settings").SceneMetrics)=>void;
+  onDocumentDisplayed?:(documentId:string,revisionId:string)=>void;
   sceneSettings?:SceneSettings;
   propertyPreview?:import("../types").PropertyPreview;
   applicationDisplay?:import("../cad/assembly/application-display").ApplicationDisplay;
@@ -144,6 +145,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       assemblyInteractionCancel:(documentId,sessionId)=>callbacks.current.onAssemblyInteractionCancel(documentId,sessionId),
       assemblyInteractionState:(state,reason)=>callbacks.current.onAssemblyInteractionState?.(state,reason),
       sceneMetricsChanged:metrics=>callbacks.current.onSceneMetrics?.(metrics),
+      documentDisplayed:(documentId,revisionId)=>callbacks.current.onDocumentDisplayed?.(documentId,revisionId),
       operationFailed:error=>callbacks.current.onOperationFailed?.(error),
       inspectAssemblySupports:(documentId,references,signal)=>callbacks.current.onInspectAssemblySupports!(documentId,references,signal),
       assemblyConstraintRequested: (kind, references,members) => callbacks.current.onAssemblyConstraint(kind, references,members),

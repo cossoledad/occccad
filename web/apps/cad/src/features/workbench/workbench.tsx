@@ -1,3 +1,4 @@
+import {AssistantPanel} from "../assistant/assistant-panel";
 import {useGlobalOptions} from "../preferences/global-options-center";
 import {sceneBackgroundIsLight} from "../../cad/rendering/scene-settings";
 import {AssemblyConstraintFields} from "./assembly-constraint-fields";
@@ -126,6 +127,7 @@ export function Workbench() {
   const operationFeedback=useOperationFeedback();
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
   const viewport = useRef<CadViewportHandle>(null);
+  const [assistantDisplayed,setAssistantDisplayed]=useState<{documentId:string;revisionId:string}>();
   const [sketchCommandState,setSketchCommandState]=useState<SketchCommandState>();
   const [sketchReceipt,setSketchReceipt]=useState<SketchCommitReceipt>();
   const normalViewRequest = useRef(0);
@@ -1620,7 +1622,7 @@ onToggleConstruction:(node)=>{
           type="warning" showIcon message="当前几何暂不支持持久拓扑引用"
           description={(selectedNamingIssue ?? activeNamingIssue)?.diagnostic}
           action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>建立导入命名</Button> : undefined} />}
-        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} onSceneMetrics={globalOptions?.setMetrics} applicationDisplay={motionOpen||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
+        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} onDocumentDisplayed={(documentId,revisionId)=>setAssistantDisplayed({documentId,revisionId})} onSceneMetrics={globalOptions?.setMetrics} applicationDisplay={motionOpen||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
           editingView={motionDisplay?undefined:editingView} activeInstancePath={motionDisplay?undefined:activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           liveDefinitionProjection={Boolean(canEdit && editSession?.hostDocumentId===view.document.id && activeInstancePath &&
             !pinnedReferenceInPath(view.structureTree,activeInstancePath))}
@@ -1696,6 +1698,12 @@ onToggleConstruction:(node)=>{
           }}
           onInstanceMoved={moveInstance} /></Suspense>
       <WorkbenchViewControls toolbars={visibleToolbars} />
+      {!isMockMode&&view.document.type==="PART"&&<AssistantPanel key={view.document.id} documentId={view.document.id} documentName={view.document.name} workingBodyId={workingBodyID}
+        enabled={canEdit&&!command.isPending&&!store.activeSketchID&&editingView?.document.id===view.document.id} displayed={assistantDisplayed}
+        prepare={async()=>{commandRegistry.cancel();await viewport.current?.settleAssemblyInteraction();useWorkbenchStore.getState().setActiveTool("select")}}
+        refresh={async()=>{await refresh(await api.getDocument(view.document.id))}}
+        preview={value=>{if(value?.artifact)viewport.current?.previewArtifact(value.artifact);else viewport.current?.clearCommandPreview()}}
+        locate={reference=>{const node=treeNodes.find(item=>item.entityId===reference.id&&(item.ownerDocumentId??view.document.id)===reference.documentId);if(node?.selection)store.setSelections([node.selection]);else message.info("当前结果中暂时无法定位该对象")}}/>}
     </WorkbenchLayout>
     <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" size="M"
       onClose={closeAssemblyCandidate}

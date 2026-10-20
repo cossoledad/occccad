@@ -8,7 +8,7 @@
 | 新特征候选 | 独立 Hole、Sweep 等先明确用户切片与稳定 section/guide/seam 身份，再贯通参数、权威求值、Naming、预览、历史及冷重建；不把现有切除孔当作独立 Hole DSL，不在本表预设实施顺序。 |
 | 关联投影 | trimmed Arc → Face Boundary → Section；[设计](../docs/architecture/target/sketch-projection.md)。当前 unsupported 不用临时近似替代。 |
 | 大模型 | 真实容量/瓶颈基线，再补 checkpoint、资源预算、分阶段计算、LOD/chunk、共享 buffers、解码/BVH 与故障验收；[设计](../docs/architecture/target/large-models.md)。续传暂缓，不是前置；基础数据面/XDE 不重做，不宣称完整 AP242 或 1 GiB+/单超大 Body/低复用装配已验收。 |
-| AI 原生建模 | 按[实施计划](ai-native-modeling.md)贯通语义操作、按需快照查询、可恢复任务和右下角步骤回显；先验收真实 Part 最短闭环，再验证大树/长任务并扩展 MCP、CLI 与装配。当前仅为设计框架。 |
+| AI 原生建模 | 前置框架见[当前合同](../docs/architecture/current/automation.md)；按[后续计划](ai-native-modeling.md)接入模型适配与受控规划循环，再扩展索引/集合、MCP/CLI 与装配。DeepSeek 为后续测试候选，当前未接入 LLM。 |
 | 树与依赖 | Feature 贡献的复杂组合与人工验收、子树按需/大树基准、Publication 引用查看/跨 Workspace 并发、更多参数生命周期；按真实场景进入，不默认阻塞装配。 |
 | 装配证据与规模 | 缺 Revision 运动证据保持未知，可按需补快照绑定只读刷新。连通性能、浏览器端到端与工业语料专门验收；千行 UI fixture 不替代求解。 |
 | 机构路径质量与扩展 | 基础试动／录制实现见[当前合同](../docs/architecture/current/kinematics-dmu.md)。后续按[统一设计](../docs/architecture/target/kinematics-dmu.md#记录路径的求解回放与结果)扩展独立段质量、局部制品重算和适应显示误差的采样；补充目标验收矩阵中尚未执行的场景。继续复用同一约束会话、稳定零位与合格检查点；动力学、多机构同步、可动嵌套和连续碰撞按明确需求另定范围。 |

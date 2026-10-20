@@ -260,6 +260,10 @@ export class RealtimeClient {
     return () => this.recoveryListeners.delete(listener);
   }
 
+  automation<T>(payload: unknown): Promise<T> {
+    return this.request<T>("automation.request.v1", payload);
+  }
+
   private request<T>(type: string, payload: unknown, signal?: AbortSignal, timeout = 120_000): Promise<T> {
     return measureClientRequest(`WS ${type}`, () => this.sendRequest<T>(type, payload, signal, timeout));
   }
