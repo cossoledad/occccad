@@ -4,7 +4,7 @@ import type {CommandPreview} from "../../types";
 import {automationApi,type AutomationTask,type EntityRef} from "./automation-api";
 import {displayAcknowledgment,newerTask,pendingStep} from "./task-model";
 
-export type ModelingProps={documentId:string;documentName:string;workingBodyId?:string;enabled:boolean;displayed?:{documentId:string;revisionId:string};prepare:()=>Promise<void>;refresh:()=>Promise<void>;preview:(value:CommandPreview|undefined)=>void;locate:(ref:EntityRef)=>void};
+export type ModelingProps={documentId:string;documentName:string;documentType?:string;workingBodyId?:string;enabled:boolean;displayed?:{documentId:string;revisionId:string};prepare:()=>Promise<void>;refresh:()=>Promise<void>;preview:(value:CommandPreview|undefined)=>void;executeCommand?:(id:string,targetId?:string)=>Promise<void>;locate:(ref:EntityRef)=>void};
 export const messageOf=(cause:unknown)=>cause instanceof Error?cause.message:String(cause);
 
 export function useModelingTask(props:ModelingProps,open:boolean){
@@ -37,6 +37,18 @@ export function useModelingTask(props:ModelingProps,open:boolean){
   },[open,step?.id,step?.phase,step?.preview?.previewId]);
   const advance=()=>work(async()=>{
     const value=taskRef.current;if(!value)return;
+    const step=pendingStep(value);
+    if(step?.operationId.startsWith("ui.")){
+      setRunning(false);
+      if(!current.current.executeCommand)throw new Error("当前界面不能打开这个工具");
+      // Journal the handoff before dispatch. Lost acknowledgments never replay
+      // a potentially mutating UI command; a reload only restores its record.
+      const handed=await automationApi.control(value.documentId,value,"handoff",step.id);apply(handed);
+      try {await current.current.executeCommand(step.operationId.slice(3),typeof step.arguments.targetId==="string"?step.arguments.targetId:undefined)}
+      catch(cause){apply(await automationApi.control(value.documentId,handed,"ui_failed",step.id));throw cause}
+      apply(await automationApi.control(value.documentId,handed,"ui_opened",step.id));
+      return;
+    }
     await current.current.prepare();const next=await automationApi.advance(value.documentId,value);apply(next);
     if(alive.current&&pendingStep(next)?.phase==="COMMITTED"){current.current.preview(undefined);await current.current.refresh()}
   });

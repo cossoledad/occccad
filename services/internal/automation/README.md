@@ -2,8 +2,8 @@
 
 本包提供供应商无关的操作目录、快照查询和持久任务，复用 Workspace、ACL、预览、求值与 CAS。当前范围见[当前合同](../../../docs/architecture/current/automation.md)。
 
-- `catalog.go`：操作字段、schema、发现与命令编译。
-- `query.go`：本级不可变定义的过滤、投影与分页。
+- `catalog.go/commands.go`：公开领域命令与工作台命令目录、渐进类型 schema、发现和编译；覆盖测试防止遗漏。
+- `query.go/topology.go`：不可变定义分页与 Revision/Body 范围的精确拓扑集合；不把第一页当全集。
 - `service.go`：授权、资源额度、预览/提交与回执恢复。
 - `tasks.go`：版本化账本、步骤绑定、短锁/租约和人工控制。
 

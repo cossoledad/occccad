@@ -22,6 +22,7 @@ type EntityRef struct {
 type Query struct {
 	RevisionID string   `json:"revisionId,omitempty"`
 	Kind       string   `json:"kind,omitempty"`
+	OwnerID    string   `json:"ownerId,omitempty"`
 	BodyID     string   `json:"bodyId,omitempty"`
 	ID         string   `json:"id,omitempty"`
 	Name       string   `json:"name,omitempty"`
@@ -49,7 +50,7 @@ type queryCursor struct {
 	After      string `json:"after"`
 }
 
-var queryFields = map[string]bool{"name": true, "type": true, "bodyId": true, "ownerId": true, "length": true, "plane": true, "status": true, "parameterAlias": true, "value": true, "displayValue": true, "unit": true, "referencedDocumentId": true, "referencedRevisionId": true, "referenceMode": true, "geometryKey": true, "profileId": true}
+var queryFields = map[string]bool{"definition": true, "name": true, "type": true, "bodyId": true, "ownerId": true, "length": true, "plane": true, "status": true, "parameterAlias": true, "value": true, "displayValue": true, "unit": true, "referencedDocumentId": true, "referencedRevisionId": true, "referenceMode": true, "geometryKey": true, "profileId": true}
 
 func (s *Service) Query(ctx context.Context, actor, document string, q Query) (QueryResult, error) {
 	if err := s.authorize(ctx, actor, document, access.RoleViewer); err != nil {
@@ -98,7 +99,7 @@ func (s *Service) Query(ctx context.Context, actor, document string, q Query) (Q
 	if err != nil {
 		return QueryResult{}, err
 	}
-	rows, err := definitionEntities(snapshot)
+	rows, err := definitionEntities(snapshot, q.Kind)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -106,7 +107,7 @@ func (s *Service) Query(ctx context.Context, actor, document string, q Query) (Q
 	encodedBytes := 0
 	last := ""
 	for _, row := range rows {
-		if q.Kind != "" && row.Ref.Kind != q.Kind || q.ID != "" && row.Ref.ID != q.ID || q.BodyID != "" && row.Properties["bodyId"] != q.BodyID {
+		if q.OwnerID != "" && row.Properties["ownerId"] != q.OwnerID || q.Kind != "" && row.Ref.Kind != q.Kind || q.ID != "" && row.Ref.ID != q.ID || q.BodyID != "" && row.Properties["bodyId"] != q.BodyID {
 			continue
 		}
 		name, _ := row.Properties["name"].(string)
@@ -147,9 +148,12 @@ func (s *Service) Query(ctx context.Context, actor, document string, q Query) (Q
 	return result, nil
 }
 
-func definitionEntities(snapshot workspace.ModelSnapshot) ([]Entity, error) {
+func definitionEntities(snapshot workspace.ModelSnapshot, requestedKind string) ([]Entity, error) {
 	rows := []Entity{}
 	add := func(kind, id string, p map[string]any) {
+		if len(rows) > 100000 {
+			return
+		}
 		rows = append(rows, Entity{EntityRef{snapshot.DocumentID, snapshot.RevisionID, kind, id}, p})
 	}
 	if snapshot.DocumentType == "PART" {
@@ -158,7 +162,7 @@ func definitionEntities(snapshot workspace.ModelSnapshot) ([]Entity, error) {
 			return nil, err
 		}
 		for _, b := range part.Bodies {
-			add("BODY", b.ID, map[string]any{"name": b.Name, "type": "BODY", "bodyId": b.ID, "geometryKey": b.GeometryKey})
+			add("BODY", b.ID, map[string]any{"name": b.Name, "type": "BODY", "bodyId": b.ID, "geometryKey": b.GeometryKey, "definition": b})
 		}
 		ownerBodies := map[string]string{}
 		for _, f := range part.Features {
@@ -171,12 +175,24 @@ func definitionEntities(snapshot workspace.ModelSnapshot) ([]Entity, error) {
 			if f.Sketch != nil {
 				status = f.Sketch.Solve.Status
 			}
-			properties := map[string]any{"name": f.Name, "type": f.Type, "bodyId": f.BodyID, "plane": f.Plane, "status": status, "profileId": f.Profile}
+			properties := map[string]any{"name": f.Name, "type": f.Type, "bodyId": f.BodyID, "plane": f.Plane, "status": status, "profileId": f.Profile, "definition": f}
 			if f.Sketch == nil {
 				properties["length"] = f.Length
 				properties["unit"] = "mm"
 			}
 			add(kind, f.ID, properties)
+			if f.Sketch != nil {
+				if requestedKind == "SKETCH_ENTITY" {
+					for _, entity := range f.Sketch.Entities {
+						add("SKETCH_ENTITY", entity.ID, map[string]any{"name": entity.ID, "type": entity.Kind, "bodyId": f.BodyID, "ownerId": f.ID, "definition": entity})
+					}
+				}
+				if requestedKind == "SKETCH_CONSTRAINT" {
+					for _, constraint := range f.Sketch.Constraints {
+						add("SKETCH_CONSTRAINT", constraint.ID, map[string]any{"name": constraint.ID, "type": constraint.Kind, "bodyId": f.BodyID, "ownerId": f.ID, "definition": constraint})
+					}
+				}
+			}
 		}
 		for _, p := range part.Parameters {
 			name := p.DisplayName
@@ -186,7 +202,7 @@ func definitionEntities(snapshot workspace.ModelSnapshot) ([]Entity, error) {
 			if name == "" {
 				name = p.Key
 			}
-			properties := map[string]any{"name": name, "type": p.ValueType, "parameterAlias": p.Key, "ownerId": p.OwnerFeatureID, "bodyId": ownerBodies[p.OwnerFeatureID], "value": p.EvaluatedValue, "unit": p.DisplayUnit}
+			properties := map[string]any{"name": name, "type": p.ValueType, "parameterAlias": p.Key, "ownerId": p.OwnerFeatureID, "bodyId": ownerBodies[p.OwnerFeatureID], "value": p.EvaluatedValue, "unit": p.DisplayUnit, "definition": p}
 			if p.EvaluatedValue != nil {
 				if scale, err := modelcore.NewQuantity(1, p.DisplayUnit); err == nil && scale.Dimension.Equal(p.EvaluatedValue.Dimension) {
 					properties["displayValue"] = p.EvaluatedValue.SIValue / scale.SIValue
@@ -195,7 +211,19 @@ func definitionEntities(snapshot workspace.ModelSnapshot) ([]Entity, error) {
 			add("PARAMETER", p.ParameterID, properties)
 		}
 		for _, p := range part.DatumPlanes {
-			add("DATUM_PLANE", p.ID, map[string]any{"name": p.Name, "plane": p.Plane, "type": "DATUM_PLANE"})
+			add("DATUM_PLANE", p.ID, map[string]any{"name": p.Name, "plane": p.Plane, "type": "DATUM_PLANE", "definition": p})
+		}
+		for _, item := range part.DatumAxes {
+			add("DATUM_AXIS", item.ID, map[string]any{"name": item.Name, "type": "DATUM_AXIS", "definition": item})
+		}
+		for _, item := range part.Publications {
+			add("PUBLICATION", item.ID, map[string]any{"name": item.Name, "type": item.Type, "definition": item})
+		}
+		for _, item := range part.ContextInputs {
+			add("CONTEXT_INPUT", item.ID, map[string]any{"name": item.Name, "type": item.Type, "definition": item})
+		}
+		for _, item := range part.ContextReferences {
+			add("CONTEXT_REFERENCE", item.ID, map[string]any{"name": item.Name, "type": "CONTEXT_REFERENCE", "definition": item})
 		}
 	} else if snapshot.DocumentType == "PRODUCT" {
 		var product workspace.ProductModel
@@ -203,7 +231,19 @@ func definitionEntities(snapshot workspace.ModelSnapshot) ([]Entity, error) {
 			return nil, err
 		}
 		for _, i := range product.Instances {
-			add("INSTANCE", i.ID, map[string]any{"name": i.Name, "type": "INSTANCE", "referencedDocumentId": i.ReferencedDocumentID, "referencedRevisionId": i.ReferencedVersionID, "referenceMode": i.ReferenceMode})
+			add("INSTANCE", i.ID, map[string]any{"name": i.Name, "type": "INSTANCE", "referencedDocumentId": i.ReferencedDocumentID, "referencedRevisionId": i.ReferencedVersionID, "referenceMode": i.ReferenceMode, "definition": i})
+		}
+		for _, item := range product.Constraints {
+			add("ASSEMBLY_CONSTRAINT", item.ID, map[string]any{"name": item.Name, "type": item.Kind, "definition": item})
+		}
+		for _, item := range product.Publications {
+			add("PUBLICATION", item.ID, map[string]any{"name": item.Name, "type": item.Type, "definition": item})
+		}
+		for _, item := range product.ContextBindings {
+			add("CONTEXT_BINDING", item.ID, map[string]any{"name": item.Name, "type": "CONTEXT_BINDING", "definition": item})
+		}
+		for _, item := range product.Kinematics.Mechanisms {
+			add("MECHANISM", item.ID, map[string]any{"name": item.Name, "type": "MECHANISM", "definition": item})
 		}
 	} else {
 		return nil, fault("DOCUMENT_TYPE_UNSUPPORTED", "definition query supports Part and Product")

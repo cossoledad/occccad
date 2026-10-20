@@ -2420,7 +2420,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err = json.Unmarshal(requestJSON, &audit); err != nil {
 			return err
 		}
-		audit["applicationReceipt"], _ = json.Marshal(ApplicationCommandReceipt{Sequence: sequence, VersionID: head})
+		audit["applicationReceipt"], _ = json.Marshal(ApplicationCommandReceipt{Sequence: sequence, VersionID: head, ActorID: prepared.actorID})
 		auditJSON, err := json.Marshal(audit)
 		if err != nil {
 			return err

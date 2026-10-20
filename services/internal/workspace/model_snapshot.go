@@ -56,6 +56,8 @@ func (service *Service) ReadModelSnapshot(ctx context.Context, documentID, revis
 type CommandReceipt struct {
 	CommandBaseline
 	TransactionID string             `json:"transactionId"`
+	AuditID       string             `json:"auditId,omitempty"`
+	NoChange      bool               `json:"noChange,omitempty"`
 	RequestID     string             `json:"requestId"`
 	Changes       []CommandChangeRef `json:"changes"`
 }
@@ -78,7 +80,25 @@ func (service *Service) FindCommandReceipt(ctx context.Context, documentID, acto
 		WHERE w.document_id=$1 AND w.name='main' AND t.actor_id=$2 AND t.request_id=$3 AND t.status='COMMITTED'`, documentID, actor, requestID).Scan(
 		&result.TransactionID, &result.WorkspaceID, &result.RevisionID, &result.Sequence, &raw)
 	if errors.Is(err, database.ErrNoRows) {
-		return result, ErrNotFound
+		// Mechanism application can be a successful audited no-op. Recover that
+		// exact actor-scoped receipt without inventing a transaction or Revision.
+		err = service.database.QueryRow(ctx, `SELECT c.id::text,w.id::text,c.payload FROM occccad.commands c JOIN occccad.workspaces w ON w.document_id=c.document_id AND w.name='main' WHERE c.document_id=$1 AND c.request_id=$2 AND c.status='SUCCEEDED' AND c.command_type IN ('ACTIVATE_MECHANISM','EXIT_MECHANISM')`, documentID, requestID).Scan(&result.AuditID, &result.WorkspaceID, &raw)
+		if errors.Is(err, database.ErrNoRows) {
+			return CommandReceipt{}, ErrNotFound
+		}
+		if err != nil {
+			return CommandReceipt{}, err
+		}
+		var audit struct {
+			Receipt *ApplicationCommandReceipt `json:"applicationReceipt"`
+		}
+		if json.Unmarshal(raw, &audit) != nil || audit.Receipt == nil || audit.Receipt.ActorID != actor || audit.Receipt.VersionID == "" || audit.Receipt.Sequence == 0 {
+			return CommandReceipt{}, ErrNotFound
+		}
+		result.RevisionID = audit.Receipt.VersionID
+		result.Sequence = audit.Receipt.Sequence
+		result.NoChange = true
+		return result, nil
 	}
 	if err != nil {
 		return result, err

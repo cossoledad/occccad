@@ -1,3 +1,4 @@
+import {assistantTarget,dispatchAssistantCommand} from "../assistant/workbench-handoff";
 import {AssistantPanel} from "../assistant/assistant-panel";
 import {useGlobalOptions} from "../preferences/global-options-center";
 import {sceneBackgroundIsLight} from "../../cad/rendering/scene-settings";
@@ -127,6 +128,8 @@ export function Workbench() {
   const operationFeedback=useOperationFeedback();
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
   const viewport = useRef<CadViewportHandle>(null);
+  const [assistantOpen,setAssistantOpen]=useState(false);
+  useEffect(()=>setAssistantOpen(false),[documentID]);
   const [assistantDisplayed,setAssistantDisplayed]=useState<{documentId:string;revisionId:string}>();
   const [sketchCommandState,setSketchCommandState]=useState<SketchCommandState>();
   const [sketchReceipt,setSketchReceipt]=useState<SketchCommitReceipt>();
@@ -1562,7 +1565,7 @@ onToggleConstruction:(node)=>{
       inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen} lightScene={sceneBackgroundIsLight(sceneSettings)}
 
       commands={<WorkbenchCommands documentSessions={documentSessions} hostDocumentId={documentID} toolbars={visibleToolbars} workbench={activeWorkbench} catalog={toolbarCatalog.data} tabs={activeTabs} />}
-      status={<WorkbenchStatus busy={command.isPending} canEdit={motionOpen&&!motionDisplay?canEditRoot:canEdit} selectionCount={store.selections.length}
+      status={<WorkbenchStatus assistantOpen={assistantOpen} onAssistantToggle={!isMockMode?()=>setAssistantOpen(value=>!value):undefined} busy={command.isPending} canEdit={motionOpen&&!motionDisplay?canEditRoot:canEdit} selectionCount={store.selections.length}
         sketchReceipt={sketchReceipt} onSketchReceiptCheck={()=>void viewport.current?.retrySketchReceipt()} sketchCommand={store.activeSketchID?sketchCommandState:undefined} onSketchAction={action=>viewport.current?.sketchCommandAction(action)}
         toolName={activeToolName} prompt={motionOpen?motionStatus:undefined} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
       tree={<SpecificationTree key={documentID} documentSessions={documentSessions} hostDocumentId={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
@@ -1698,12 +1701,18 @@ onToggleConstruction:(node)=>{
           }}
           onInstanceMoved={moveInstance} /></Suspense>
       <WorkbenchViewControls toolbars={visibleToolbars} />
-      {!isMockMode&&view.document.type==="PART"&&<AssistantPanel key={view.document.id} documentId={view.document.id} documentName={view.document.name} workingBodyId={workingBodyID}
-        enabled={canEdit&&!command.isPending&&!store.activeSketchID&&editingView?.document.id===view.document.id} displayed={assistantDisplayed}
+      {!isMockMode&&<AssistantPanel open={assistantOpen} onClose={()=>setAssistantOpen(false)} documentType={view.document.type} key={view.document.id} documentId={view.document.id} documentName={view.document.name} workingBodyId={workingBodyID}
+        enabled={canEdit&&!command.isPending&&editingView?.document.id===view.document.id} displayed={assistantDisplayed}
         prepare={async()=>{commandRegistry.cancel();await viewport.current?.settleAssemblyInteraction();useWorkbenchStore.getState().setActiveTool("select")}}
         refresh={async()=>{await refresh(await api.getDocument(view.document.id))}}
         preview={value=>{if(value?.artifact)viewport.current?.previewArtifact(value.artifact);else viewport.current?.clearCommandPreview()}}
-        locate={reference=>{const node=treeNodes.find(item=>item.entityId===reference.id&&(item.ownerDocumentId??view.document.id)===reference.documentId);if(node?.selection)store.setSelections([node.selection]);else message.info("当前结果中暂时无法定位该对象")}}/>}
+        executeCommand={async(id,targetId)=>{
+          const node=targetId?assistantTarget(treeNodes,view.document.id,targetId):undefined;
+          if(targetId&&!node)throw new Error("对象已变化，请重新选择后打开工具");
+          if(node?.selection){store.setSelections([node.selection]);await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))}
+          await dispatchAssistantCommand(commandRegistry,id,node?{payload:{node,nodes:[node]}}:undefined);
+        }}
+        locate={reference=>{const node=assistantTarget(treeNodes,reference.documentId,reference.id);if(node?.selection)store.setSelections([node.selection]);else message.info("当前结果中暂时无法定位该对象")}}/>}
     </WorkbenchLayout>
     <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" size="M"
       onClose={closeAssemblyCandidate}

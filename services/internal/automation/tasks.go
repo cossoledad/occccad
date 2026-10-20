@@ -66,7 +66,7 @@ func (task *Task) event(stepID, kind string) {
 }
 func (task *Task) pending() *Step {
 	for i := range task.Steps {
-		if task.Steps[i].Phase != "DISPLAYED" && task.Steps[i].Phase != "SUPERSEDED" {
+		if task.Steps[i].Phase != "DISPLAYED" && task.Steps[i].Phase != "SUPERSEDED" && task.Steps[i].Phase != "HANDED_OFF" && task.Steps[i].Phase != "UI_OPENED" && task.Steps[i].Phase != "UI_FAILED" {
 			return &task.Steps[i]
 		}
 	}
@@ -96,8 +96,8 @@ func (s *Service) CreateTask(ctx context.Context, actor, document string, input 
 	if err != nil {
 		return Task{}, err
 	}
-	if snapshot.DocumentType != "PART" {
-		return Task{}, fault("DOCUMENT_TYPE_UNSUPPORTED", "tasks currently target standalone Part definitions")
+	if snapshot.DocumentType != "PART" && snapshot.DocumentType != "PRODUCT" {
+		return Task{}, fault("DOCUMENT_TYPE_UNSUPPORTED", "unsupported document definition")
 	}
 	if snapshot.CommandBaseline != input.ExpectedHead {
 		return Task{}, fault("WORKSPACE_HEAD_CONFLICT", "task baseline changed")
@@ -111,6 +111,15 @@ func (s *Service) CreateTask(ctx context.Context, actor, document string, input 
 		op, err := s.Catalog.Describe(spec.OperationID)
 		if err != nil {
 			return Task{}, err
+		}
+		if op.DocumentType != "ANY" && op.DocumentType != snapshot.DocumentType {
+			return Task{}, fault("DOCUMENT_TYPE_UNSUPPORTED", "operation does not match this document")
+		}
+		if op.Handoff != "" {
+			return Task{}, fault("UI_HANDOFF_REQUIRED", op.Handoff)
+		}
+		if op.Effect == "UI_COMMAND" && len(input.Steps) != 1 {
+			return Task{}, fault("UI_HANDOFF_REQUIRED", "Interactive workbench commands require a separate single-step handoff")
 		}
 		if op.Version != spec.Version {
 			return Task{}, fault("OPERATION_VERSION_UNSUPPORTED", "step operation version changed")
@@ -131,7 +140,7 @@ func (s *Service) CreateTask(ctx context.Context, actor, document string, input 
 			}
 			valid := false
 			for _, f := range op.Fields {
-				valid = valid || f.Name == key && (key == "sketchId" || key == "parameterId")
+				valid = valid || f.Name == key && bindingKind(key) != ""
 			}
 			if !valid {
 				return Task{}, fault("INVALID_BINDING", "only declared entity inputs can bind an output")
@@ -289,6 +298,9 @@ func (s *Service) claim(ctx context.Context, actor, document, id string, expecte
 	if step.Phase == "COMMITTED" {
 		return task, "", fault("DISPLAY_REQUIRED", "display the committed result before advancing")
 	}
+	if op, _ := s.Catalog.Describe(step.OperationID); op.Effect == "UI_COMMAND" {
+		return task, "", fault("UI_HANDOFF_REQUIRED", "Execute this step through the workbench handoff")
+	}
 	if step.Action == nil {
 		args, err := DecodeObject(step.Arguments)
 		if err != nil {
@@ -297,11 +309,8 @@ func (s *Service) claim(ctx context.Context, actor, document, id string, expecte
 		for field, source := range step.Bindings {
 			for _, prior := range task.Steps {
 				if prior.ID == source && prior.Result != nil && prior.Result.Output != nil {
-					requiredKind := "SKETCH"
-					if field == "parameterId" {
-						requiredKind = "PARAMETER"
-					}
-					if prior.Result.Output.Kind != requiredKind {
+					requiredKind := bindingKind(field)
+					if requiredKind != "ENTITY" && prior.Result.Output.Kind != requiredKind {
 						return task, "", fault("INVALID_BINDING", "step output has incompatible entity kind")
 					}
 					args[field] = prior.Result.Output.ID
@@ -465,6 +474,36 @@ func (s *Service) Control(ctx context.Context, actor, document, id string, input
 		return task, fault("TASK_VERSION_CONFLICT", "task changed; reload before controlling it")
 	}
 	switch input.Action {
+	case "ui_opened", "ui_failed":
+		if len(task.Steps) != 1 || task.Steps[0].ID != input.StepID || task.Steps[0].Phase != "HANDED_OFF" || task.Status != "COMPLETED" {
+			return task, fault("UI_HANDOFF_INVALID", "only an issued handoff can receive a UI result")
+		}
+		step := &task.Steps[0]
+		step.Phase = "UI_OPENED"
+		if input.Action == "ui_failed" {
+			step.Phase = "UI_FAILED"
+			step.Failure = &Fault{Code: "UI_COMMAND_UNAVAILABLE", Message: "工具未打开，请检查当前选择或从工具栏继续操作"}
+		}
+		task.event(step.ID, step.Phase)
+	case "handoff":
+		step := task.pending()
+		if step == nil || step.ID != input.StepID || step.Phase != "PLANNED" || task.Status != "ACTIVE" || task.CatalogDigest != s.Catalog.Digest {
+			return task, fault("UI_HANDOFF_INVALID", "handoff requires the active planned step")
+		}
+		op, e := s.Catalog.Describe(step.OperationID)
+		if e != nil || op.Effect != "UI_COMMAND" {
+			return task, fault("UI_HANDOFF_INVALID", "step is not a workbench command")
+		}
+		var head workspace.CommandBaseline
+		if err = tx.QueryRow(ctx, `SELECT id::text,head_revision_id::text,head_sequence FROM occccad.workspaces WHERE id=$1 AND document_id=$2`, task.Baseline.WorkspaceID, document).Scan(&head.WorkspaceID, &head.RevisionID, &head.Sequence); err != nil {
+			return task, err
+		}
+		if head != task.Baseline {
+			return task, fault("WORKSPACE_HEAD_CONFLICT", "handoff scope changed")
+		}
+		step.Phase = "HANDED_OFF"
+		task.Status = "COMPLETED"
+		task.event(step.ID, "HANDED_OFF")
 	case "pause":
 		if task.Status != "ACTIVE" {
 			return task, fault("TASK_NOT_ACTIVE", "task cannot be paused")

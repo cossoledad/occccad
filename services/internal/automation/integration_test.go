@@ -362,3 +362,181 @@ func TestAutomationPauseExplicitRebaseAndStoppedDisplay(t *testing.T) {
 		t.Fatal("stopped preview remained committable")
 	}
 }
+
+func TestAutomationAllEdgesFilletAndWorkbenchHandoff(t *testing.T) {
+	db, domain, view := automationFixture(t)
+	actor := access.DefaultUserID
+	document := view.Document.ID
+	service := automation.New(db, domain, access.New(db))
+	run := func(id string, args any) automation.ActionResult {
+		t.Helper()
+		snapshot, err := domain.ReadModelSnapshot(t.Context(), document, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(args)
+		action := automation.ActionRequest{OperationID: id, Version: 1, Arguments: raw, RequestID: uuid.NewString(), ExpectedHead: snapshot.CommandBaseline}
+		preview, err := service.Prepare(t.Context(), actor, document, action)
+		if err != nil {
+			t.Fatal(err)
+		}
+		head, err := domain.ReadModelSnapshot(t.Context(), document, "")
+		if err != nil || head.RevisionID != snapshot.RevisionID {
+			t.Fatal("preview changed Head", err)
+		}
+		action.PreviewID = preview.PreviewID
+		result, err := service.Commit(t.Context(), actor, document, action)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	sketch := run("sketch.create", map[string]any{"bodyId": view.Part.ActiveBodyID, "plane": "XY"})
+	run("sketch.rectangle", map[string]any{"sketchId": sketch.Output.ID, "width": 80, "height": 50, "unit": "mm"})
+	extrude := run("part.extrude", map[string]any{"bodyId": view.Part.ActiveBodyID, "sketchId": sketch.Output.ID, "length": 12, "unit": "mm"})
+	run("command.rename_feature", map[string]any{"targetId": extrude.Output.ID, "name": "Rounded base"})
+	run("command.set_body_color", map[string]any{"bodyId": view.Part.ActiveBodyID, "color": "#6699aa"})
+	snapshot, err := domain.ReadModelSnapshot(t.Context(), document, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := automation.TopologyQuery{RevisionID: snapshot.RevisionID, BodyID: view.Part.ActiveBodyID, Kind: "EDGE", Limit: 2}
+	page, err := service.QueryTopology(t.Context(), actor, document, input)
+	if err != nil || page["matchedCount"] != 12 || page["hasMore"] != true || page["pageComplete"] != false || page["selectionSetComplete"] != true {
+		t.Fatal(page, err)
+	}
+	token := page["selectionSet"].(string)
+	if len(token) > 1024 {
+		t.Fatal("topology set not compact", len(token))
+	}
+	input.Cursor = page["nextCursor"].(string)
+	next, err := service.QueryTopology(t.Context(), actor, document, input)
+	if err != nil || next["selectionSet"] != token {
+		t.Fatal(next, err)
+	}
+	input.BodyID = "wrong-body"
+	if _, err = service.QueryTopology(t.Context(), actor, document, input); err == nil {
+		t.Fatal("topology Body scope not checked")
+	}
+	// One bounded set selects every edge; only formal selections enter the feature.
+	result := run("part.fillet", map[string]any{"bodyId": view.Part.ActiveBodyID, "selectionSet": token, "size": 2, "unit": "mm"})
+	final, err := domain.GetDocument(t.Context(), document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feature := final.Part.Features[len(final.Part.Features)-1]
+	if feature.Type != "FILLET" || feature.Length != 2 || len(feature.Selections) != 12 || result.Output == nil || result.Output.ID != feature.ID {
+		t.Fatal("fillet not committed", feature, result)
+	}
+	for _, pick := range feature.Selections {
+		if pick.SourceVersionID != snapshot.RevisionID || pick.Selection.SourceBodyID != view.Part.ActiveBodyID || pick.Selection.SourceDocumentID != document {
+			t.Fatal("persistent reference scope changed", pick)
+		}
+	}
+	volume := 0.
+	for _, artifact := range final.Artifacts {
+		volume += artifact.Volume
+	}
+	if volume <= 0 || volume >= 48000 {
+		t.Fatal("fillet did not change the real solid volume", volume)
+	}
+	fresh, err := domain.ReadModelSnapshot(t.Context(), document, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	badRaw, _ := json.Marshal(map[string]any{"bodyId": view.Part.ActiveBodyID, "selectionSet": token, "size": 2, "unit": "mm"})
+	if _, err = service.Prepare(t.Context(), actor, document, automation.ActionRequest{OperationID: "part.fillet", Version: 1, Arguments: badRaw, RequestID: uuid.NewString(), ExpectedHead: fresh.CommandBaseline}); err == nil {
+		t.Fatal("stale all-edge selection accepted on a new revision")
+	}
+	// UI dispatch is a journaled handoff, never an authoritative model completion.
+	task, err := service.CreateTask(t.Context(), actor, document, automation.CreateTask{RequestID: uuid.NewString(), Goal: "Open the fillet tool", ExpectedHead: fresh.CommandBaseline, Steps: []automation.StepSpec{{ID: uuid.NewString(), OperationID: "ui.part.fillet", Version: 1, Arguments: json.RawMessage(`{}`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.Advance(t.Context(), actor, document, task.ID, task.Version); err == nil {
+		t.Fatal("UI command bypassed the browser")
+	}
+	task, err = service.Control(t.Context(), actor, document, task.ID, automation.Control{Action: "handoff", ExpectedVersion: task.Version, StepID: task.Steps[0].ID})
+	if err != nil || task.Status != "COMPLETED" || task.Steps[0].Phase != "HANDED_OFF" || task.Steps[0].Result != nil {
+		t.Fatal(task, err)
+	}
+	if _, err = service.Control(t.Context(), actor, document, task.ID, automation.Control{Action: "handoff", ExpectedVersion: task.Version, StepID: task.Steps[0].ID}); err == nil {
+		t.Fatal("completed handoff was replayed")
+	}
+	unchanged, _ := domain.ReadModelSnapshot(t.Context(), document, "")
+	if unchanged.CommandBaseline != fresh.CommandBaseline {
+		t.Fatal("handoff mutated the model")
+	}
+	t.Logf("Native 80x50x12 box: all 12 edges received R2; resulting solid volume %.6f mm3; selectionSet %d bytes", volume, len(token))
+}
+
+func TestAutomationGenericSketchSolidAndProductCommands(t *testing.T) {
+	db, domain, view := automationFixture(t)
+	service := automation.New(db, domain, access.New(db))
+	actor := access.DefaultUserID
+	run := func(document, id string, args any) automation.ActionResult {
+		t.Helper()
+		snapshot, err := domain.ReadModelSnapshot(t.Context(), document, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(args)
+		action := automation.ActionRequest{OperationID: id, Version: 1, Arguments: raw, RequestID: uuid.NewString(), ExpectedHead: snapshot.CommandBaseline}
+		preview, err := service.Prepare(t.Context(), actor, document, action)
+		if err != nil {
+			t.Fatal(id, err)
+		}
+		action.PreviewID = preview.PreviewID
+		result, err := service.Commit(t.Context(), actor, document, action)
+		if err != nil {
+			t.Fatal(id, err)
+		}
+		return result
+	}
+	sketch := run(view.Document.ID, "command.create_sketch", map[string]any{"bodyId": view.Part.ActiveBodyID, "plane": "XY"})
+	run(view.Document.ID, "command.edit_sketch", map[string]any{"sketchId": sketch.Output.ID, "operations": []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "circle-" + uuid.NewString(), Kind: "CIRCLE", Role: "PROFILE", Center: &workspace.SketchPoint2{}, Radius: 5}}}})
+	run(view.Document.ID, "command.create_solid_feature", map[string]any{"bodyId": view.Part.ActiveBodyID, "sketchId": sketch.Output.ID, "generator": "LINEAR_EXTRUDE", "operation": "ADD", "length": 10})
+	part, err := domain.GetDocument(t.Context(), view.Document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volume := 0.
+	for _, artifact := range part.Artifacts {
+		volume += artifact.Volume
+	}
+	if math.Abs(volume-250*math.Pi) > 1e-6 {
+		t.Fatal("generic circle extrusion did not reach native Worker", volume)
+	}
+	product, err := domain.CreateDocument(t.Context(), workspace.CreateDocumentRequest{RequestID: uuid.NewString(), ActorID: actor, Type: "PRODUCT", Name: "AI product command fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := run(product.Document.ID, "command.insert_instance", map[string]any{"referencedDocumentId": view.Document.ID})
+	if instance.Output == nil || instance.Output.Kind != "INSTANCE" {
+		t.Fatal(instance)
+	}
+	run(product.Document.ID, "command.rename_instance", map[string]any{"instanceId": instance.Output.ID, "name": "AI cylinder"})
+	result, err := domain.GetDocument(t.Context(), product.Document.ID)
+	if err != nil || len(result.Product.Instances) != 1 || result.Product.Instances[0].Name != "AI cylinder" {
+		t.Fatal(result, err)
+	}
+	copies := run(product.Document.ID, "command.insert_instances", map[string]any{"instanceId": instance.Output.ID, "patternAxis": "X", "patternCount": 3, "patternSpacing": 20})
+	if len(copies.Outputs) != 2 {
+		t.Fatal("batch instance receipts lost created identities", copies)
+	}
+	beforeNoop, err := domain.ReadModelSnapshot(t.Context(), product.Document.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	noop := run(product.Document.ID, "command.exit_mechanism", map[string]any{"mechanismApplication": map[string]any{"baseRevisionId": beforeNoop.RevisionID}})
+	if !noop.Receipt.NoChange || noop.Receipt.AuditID == "" || noop.Receipt.TransactionID != "" || noop.Receipt.CommandBaseline != beforeNoop.CommandBaseline {
+		t.Fatal("audited no-op lost its exact unchanged receipt", noop)
+	}
+	if _, err = domain.FindCommandReceipt(t.Context(), product.Document.ID, uuid.NewString(), noop.Receipt.RequestID); err == nil {
+		t.Fatal("no-op receipt leaked across actors")
+	}
+	page, err := service.Query(t.Context(), actor, product.Document.ID, automation.Query{Kind: "INSTANCE", Fields: []string{"definition"}, Limit: 1})
+	if err != nil || page.Items[0].Properties["definition"] == nil {
+		t.Fatal(page, err)
+	}
+}

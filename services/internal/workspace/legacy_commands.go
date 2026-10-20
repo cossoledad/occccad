@@ -301,7 +301,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 					}
 					id := operation.ExternalID
 					if id == "" {
-						id = newID("external")
+						id = commandEntityID("external", request.RequestID+fmt.Sprintf("/%d", index))
 					}
 					operation.ExternalID = id
 					operation.ExternalGeometry = &SketchExternalGeometry{ID: id, ProjectionKind: "ORTHOGONAL", DatumReference: operation.DatumReference, SourceVersionID: operation.SourceVersionID, Status: "PENDING"}
@@ -329,7 +329,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				}
 				externalID := strings.TrimSpace(operation.ExternalID)
 				if externalID == "" {
-					externalID = newID("external")
+					externalID = commandEntityID("external", request.RequestID+fmt.Sprintf("/%d", index))
 				}
 				operation.ExternalID = externalID
 				operation.ExternalGeometry = &SketchExternalGeometry{ID: externalID, ProjectionKind: "ORTHOGONAL",
@@ -931,7 +931,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if mode == "" {
 			mode = "FOLLOW_HEAD"
 		}
-		reference := ContextReference{ID: newID("context-reference"), Name: strings.TrimSpace(request.Name),
+		reference := ContextReference{ID: commandEntityID("context-reference", request.RequestID), Name: strings.TrimSpace(request.Name),
 			OwningWorkspace: "main", SourceDocumentID: request.SourceDocumentID, ReferenceMode: mode,
 			RootProductDocumentID: request.RootProductDocumentID, SourceInstancePath: request.InstancePath,
 			OwningInstancePath: request.OwningInstancePath,
@@ -1048,7 +1048,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 			for i := 1; i < request.PatternCount; i++ {
 				clone := *source
-				clone.ID = newID("instance")
+				clone.ID = commandEntityID("instance", request.RequestID+"/copy/"+source.ID+fmt.Sprintf("/%d", i))
 				clone.Name = nextInstanceName(product, baseName)
 				clone.Translation[coordinate] += sign * float64(i) * request.PatternSpacing
 				clone.ResolvedVersionID = ""
@@ -1092,7 +1092,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				if cycle {
 					return "", nil, fmt.Errorf("%w: Product reference would create a cycle", ErrValidation)
 				}
-				instance := ProductInstance{ID: newID("instance"), Name: nextInstanceName(product, name), ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: mode}
+				instance := ProductInstance{ID: commandEntityID("instance", request.RequestID+"/reference/"+referenceID), Name: nextInstanceName(product, name), ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: mode}
 				product.Instances = append(product.Instances, instance)
 				result.Instances = append(result.Instances, instance)
 			}
@@ -1123,7 +1123,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, err
 		}
 		instanceName := nextInstanceName(product, name)
-		return typeInsertInstance, insertInstancePayload{Instance: ProductInstance{ID: newID("instance"), Name: instanceName, ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Translation: request.Translation, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: "FOLLOW_HEAD"}}, nil
+		return typeInsertInstance, insertInstancePayload{Instance: ProductInstance{ID: commandEntityID("instance", request.RequestID), Name: instanceName, ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Translation: request.Translation, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: "FOLLOW_HEAD"}}, nil
 	case "RENAME_INSTANCE":
 		if documentType != "PRODUCT" {
 			break

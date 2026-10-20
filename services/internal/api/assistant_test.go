@@ -23,12 +23,17 @@ import (
 
 func TestAssistantHTTPKeyAndConversationAuthorization(t *testing.T) {
 	var providerCalls atomic.Int32
+	var unavailableModels atomic.Bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer synthetic-http-key" {
 			t.Error("wrong provider credential")
 		}
 		if r.URL.Path == "/models" {
-			_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-flash"}]}`))
+			if unavailableModels.Load() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-flash"},{"id":"deepseek-v4-pro"}]}`))
 			return
 		}
 		providerCalls.Add(1)
@@ -90,12 +95,44 @@ func TestAssistantHTTPKeyAndConversationAuthorization(t *testing.T) {
 	if status, raw := call("GET", "/api/assistant/settings", "", false); status != 200 || !strings.Contains(string(raw), `"configured":true`) || strings.Contains(string(raw), "synthetic") {
 		t.Fatal("key echo/settings", status, string(raw))
 	}
+	if status, raw := call("GET", "/api/assistant/settings", "", false); status != 200 || !strings.Contains(string(raw), `"budget":"medium"`) || !strings.Contains(string(raw), `"totalTokens":200000`) || !strings.Contains(string(raw), `"budgetPresets":[`) {
+		t.Fatal("default budget/presets missing", status, string(raw))
+	}
+	if status, raw := call("GET", "/api/assistant/models", "", false); status != 200 || !strings.Contains(string(raw), "deepseek-v4-pro") || strings.Contains(string(raw), "synthetic") {
+		t.Fatal("models discovery", status, string(raw))
+	}
+	if status, _ := call("PUT", "/api/assistant/settings", `{"model":"deepseek-v4-pro","thinking":"high"}`, false); status != 403 {
+		t.Fatal("preferences missing CSRF gate", status)
+	}
+	if status, raw := call("PUT", "/api/assistant/settings", `{"model":"deepseek-v4-pro","thinking":"high"}`, true); status != 200 || !strings.Contains(string(raw), `"thinking":"high"`) {
+		t.Fatal("save preferences", status, string(raw))
+	}
+	if status, _ := call("PUT", "/api/assistant/settings", `{"model":"invented","thinking":"high"}`, true); status != 400 {
+		t.Fatal("unavailable model accepted", status)
+	}
+	if status, _ := call("PUT", "/api/assistant/settings", `{"model":"deepseek-v4-pro","thinking":"medium"}`, true); status != 400 {
+		t.Fatal("unsupported thinking degree accepted", status)
+	}
+	if status, _ := call("PUT", "/api/assistant/settings", `{"budget":"unlimited"}`, true); status != 400 {
+		t.Fatal("unknown budget accepted", status)
+	}
+	if status, _ := call("PUT", "/api/assistant/settings", `{"budget":"high"}`, false); status != 403 {
+		t.Fatal("budget write missing CSRF gate", status)
+	}
+	unavailableModels.Store(true)
+	if status, raw := call("PUT", "/api/assistant/settings", `{"budget":"high"}`, true); status != 200 || !strings.Contains(string(raw), `"budget":"high"`) || !strings.Contains(string(raw), `"model":"deepseek-v4-pro"`) || !strings.Contains(string(raw), `"thinking":"high"`) {
+		t.Fatal("local budget update depended on provider or reset model/thinking", status, string(raw))
+	}
+	unavailableModels.Store(false)
+	if status, raw := call("PUT", "/api/assistant/settings", `{"thinking":"off"}`, true); status != 200 || !strings.Contains(string(raw), `"budget":"high"`) {
+		t.Fatal("thinking change reset budget", status, string(raw))
+	}
 	path := "/api/documents/" + view.Document.ID + "/assistant/turns"
 	input := assistant.TurnInput{RequestID: uuid.NewString(), Text: "帮我建一个矩形零件"}
 	raw, _ := json.Marshal(input)
 	status, reply := call("POST", path, string(raw), true)
 	var turn assistant.Turn
-	if status != 200 || json.Unmarshal(reply, &turn) != nil || turn.Status != "COMPLETED" || turn.TaskID != "" {
+	if status != 200 || json.Unmarshal(reply, &turn) != nil || turn.Status != "COMPLETED" || turn.TaskID != "" || turn.Generation.Budget != "high" || turn.Budget.TotalTokens != 500000 || turn.ModelCalls != 1 {
 		t.Fatal("clarification", status, string(reply))
 	}
 	if status, _ = call("POST", path, string(raw), true); status != 200 || providerCalls.Load() != 1 {

@@ -270,8 +270,11 @@ func TestAssistantPlannerCannotExecuteAndMustReadContracts(t *testing.T) {
 	}
 }
 
+func (p functionProvider) Models(context.Context, string) ([]Model, error) {
+	return []Model{{ID: "deepseek-flash"}}, nil
+}
 func (p functionProvider) Validate(context.Context, string) error { return nil }
-func (p functionProvider) Complete(ctx context.Context, _ string, m []Message, _ []Tool) (Completion, error) {
+func (p functionProvider) Complete(ctx context.Context, _ string, m []Message, _ []Tool, _ ...Generation) (Completion, error) {
 	return p.complete(ctx, m)
 }
 
@@ -318,7 +321,7 @@ func TestAssistantCancellationBudgetAndExpiredRecovery(t *testing.T) {
 		t.Fatal("cancel did not stop provider")
 	}
 	s.provider = functionProvider{complete: func(ctx context.Context, m []Message) (Completion, error) {
-		return Completion{Message: toolMessage("cad_context", map[string]any{}), Usage: &Usage{TotalTokens: 40001}}, nil
+		return Completion{Message: toolMessage("cad_context", map[string]any{}), Usage: &Usage{TotalTokens: 200001}}, nil
 	}}
 	turn, err := s.Run(t.Context(), actor, view.Document.ID, TurnInput{RequestID: uuid.NewString(), Text: "预算测试"})
 	if err != nil || turn.Status != "FAILED" || turn.Failure.Code != "AI_TOKEN_BUDGET" {
@@ -385,5 +388,177 @@ func TestAssistantRecoversPlanCreatedBeforeConversationCheckpoint(t *testing.T) 
 	after, err := domain.ReadModelSnapshot(t.Context(), view.Document.ID, "")
 	if err != nil || after.RevisionID != snapshot.RevisionID {
 		t.Fatal("recovery wrote geometry", err)
+	}
+}
+
+func TestAssistantModelPreferencesFreezeAndReasoningPrivacy(t *testing.T) {
+	var service *Service
+	var actor string
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-flash","name":"Flash","effort":{"supported_levels":["low","high","max"]}},{"id":"deepseek-v4-pro","name":"Pro","effort":{"supported_levels":["high","max"]}}]}`))
+			return
+		}
+		var input struct {
+			Model     string    `json:"model"`
+			Effort    string    `json:"reasoning_effort"`
+			MaxTokens int       `json:"max_tokens"`
+			Messages  []Message `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+		}
+		count := calls.Add(1)
+		if count <= 2 {
+			if input.Model != "deepseek-v4-pro" || input.Effort != "high" || input.MaxTokens != 65536 {
+				t.Error("in-flight generation changed", input.Model, input.Effort)
+			}
+		} else if input.Model != "deepseek-flash" || input.Effort != "low" || input.MaxTokens != 16384 {
+			t.Error("new turn ignored saved generation")
+		}
+		if count == 1 {
+			if _, err := service.SavePreferences(t.Context(), actor, Generation{Model: "deepseek-flash", Thinking: "low", Budget: "low"}); err != nil {
+				t.Error(err)
+			}
+			message := toolMessage("cad_context", map[string]any{})
+			message.ReasoningContent = "PRIVATE_REASONING_TOOL_SENTINEL"
+			writeCompletion(w, message)
+			return
+		}
+		if count == 2 {
+			found := false
+			for _, message := range input.Messages {
+				found = found || message.ReasoningContent == "PRIVATE_REASONING_TOOL_SENTINEL"
+			}
+			if !found {
+				t.Error("tool transcript lost private reasoning")
+			}
+		} else {
+			for _, message := range input.Messages {
+				if message.Role == "assistant" || strings.Contains(message.Content, "PRIVATE_REASONING") {
+					t.Error("private reasoning leaked into a new turn's language history")
+				}
+			}
+		}
+		writeCompletion(w, Message{Role: "assistant", Content: "可以继续描述建模需求。", ReasoningContent: "PRIVATE_REASONING_FINAL_SENTINEL"})
+	}))
+	defer server.Close()
+	var domain *workspace.Service
+	var view workspace.DocumentView
+	service, domain, view, actor = assistantFixture(t, server.URL)
+	_ = domain
+	if _, err := service.SaveKey(t.Context(), actor, "synthetic-thinking-key"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SavePreferences(t.Context(), actor, Generation{Model: "deepseek-v4-pro", Thinking: "low"}); err == nil {
+		t.Fatal("model-specific unsupported thinking level accepted")
+	}
+	if _, err := service.SavePreferences(t.Context(), actor, Generation{Model: "invented", Thinking: "high"}); err == nil {
+		t.Fatal("unavailable model accepted")
+	}
+	if _, err := service.SavePreferences(t.Context(), actor, Generation{Model: "deepseek-v4-pro", Thinking: "high", Budget: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.Run(t.Context(), actor, view.Document.ID, TurnInput{RequestID: uuid.NewString(), Text: "先看一下零件"})
+	if err != nil || first.Status != "COMPLETED" || first.Generation.Model != "deepseek-v4-pro" || first.Generation.Thinking != "high" || first.Generation.Budget != "high" || first.Budget.TotalTokens != 500000 || first.ModelCalls != 2 {
+		t.Fatal(first, err)
+	}
+	second, err := service.Run(t.Context(), actor, view.Document.ID, TurnInput{RequestID: uuid.NewString(), Text: "继续讨论"})
+	if err != nil || second.Generation.Model != "deepseek-flash" || second.Generation.Thinking != "low" || second.Generation.Budget != "low" || second.Budget.TotalTokens != 80000 || second.ModelCalls != 1 {
+		t.Fatal(second, err)
+	}
+	history, err := service.Conversation(t.Context(), actor, view.Document.ID)
+	if err != nil || strings.Contains(string(marshalJSON(history)), "PRIVATE_REASONING") {
+		t.Fatal("reasoning persisted in public conversation", err)
+	}
+	reopened := New(service.db, service.automation, service.options)
+	defer reopened.Close()
+	settings, err := reopened.Settings(t.Context(), actor)
+	if err != nil || settings.Model != "deepseek-flash" || settings.Thinking != "low" || settings.Budget != "low" {
+		t.Fatal("preferences did not survive restart", settings, err)
+	}
+	if _, err := reopened.Models(t.Context(), uuid.NewString()); err == nil {
+		t.Fatal("model discovery accepted another actor's credential")
+	}
+	if saved, err := reopened.SaveKey(t.Context(), actor, "synthetic-replacement-key"); err != nil || saved.Budget != "low" {
+		t.Fatal("replacing a key reset the selected budget", saved, err)
+	}
+}
+
+func TestAssistantBudgetPresetsApplyPerRequestAndIdempotentReplay(t *testing.T) {
+	s, domain, view, actor := assistantFixture(t, "http://127.0.0.1")
+	calls := 0
+	s.provider = functionProvider{complete: func(ctx context.Context, messages []Message) (Completion, error) {
+		calls++
+		// Two tool rounds with repeated prompt input exceed the old 40k limit.
+		message := toolMessage("cad_context", map[string]any{})
+		if messages[len(messages)-1].Role == "tool" {
+			message = Message{Role: "assistant", Content: "已读取上下文"}
+		}
+		return Completion{Message: message, Usage: &Usage{PromptTokens: 40000, CompletionTokens: 10000, TotalTokens: 50000}}, nil
+	}}
+	if _, err := s.SaveKey(t.Context(), actor, "synthetic-budget-key"); err != nil {
+		t.Fatal(err)
+	}
+	for _, level := range []string{"low", "medium", "high"} {
+		if _, err := s.SavePreferences(t.Context(), actor, Generation{Model: "deepseek-flash", Thinking: "off", Budget: level}); err != nil {
+			t.Fatal(err)
+		}
+		for request := 0; request < 2; request++ {
+			input := TurnInput{RequestID: uuid.NewString(), Text: "读取当前零件"}
+			before := calls
+			turn, err := s.Run(t.Context(), actor, view.Document.ID, input)
+			if err != nil || turn.Generation.Budget != level || turn.ModelCalls != 2 || turn.Usage == nil || turn.Usage.TotalTokens != 100000 || calls-before != 2 {
+				t.Fatal("budget accounting", turn, err)
+			}
+			if level == "low" {
+				if turn.Status != "FAILED" || turn.Failure == nil || turn.Failure.Code != "AI_TOKEN_BUDGET" {
+					t.Fatal(turn)
+				}
+			} else if turn.Status != "COMPLETED" {
+				t.Fatal(turn)
+			}
+			if replay, err := s.Run(t.Context(), actor, view.Document.ID, input); err != nil || replay.ID != turn.ID || calls-before != 2 || replay.Generation.Budget != level {
+				t.Fatal("replaying a completed/failed turn charged again", replay, err)
+			}
+		}
+	}
+	snapshot, err := domain.ReadModelSnapshot(t.Context(), view.Document.ID, "")
+	if err != nil || snapshot.RevisionID != view.Document.VersionID {
+		t.Fatal("budget failure changed geometry", err)
+	}
+}
+
+func TestAssistantMissingUsageStillRespectsCallsDeadlineAndLease(t *testing.T) {
+	s, _, view, actor := assistantFixture(t, "http://127.0.0.1")
+	s.provider = functionProvider{complete: func(context.Context, []Message) (Completion, error) { return Completion{}, nil }}
+	if _, err := s.SaveKey(t.Context(), actor, "synthetic-no-usage-key"); err != nil {
+		t.Fatal(err)
+	}
+	for _, level := range []string{"low", "medium", "high"} {
+		budget, _ := budgetFor(level)
+		if _, err := s.SavePreferences(t.Context(), actor, Generation{Model: "deepseek-flash", Thinking: "off", Budget: level}); err != nil {
+			t.Fatal(err)
+		}
+		calls := 0
+		s.provider = functionProvider{complete: func(ctx context.Context, _ []Message) (Completion, error) {
+			calls++
+			if calls == 1 {
+				deadline, ok := ctx.Deadline()
+				if remaining := time.Until(deadline); !ok || remaining > budget.timeout() || remaining < budget.timeout()-5*time.Second {
+					t.Error("deadline ignored budget", remaining)
+				}
+				var lease int64
+				if err := s.db.QueryRow(ctx, `SELECT lease_until FROM occccad.assistant_turns WHERE actor_id=$1 AND document_id=$2 AND status='THINKING'`, actor, view.Document.ID).Scan(&lease); err != nil || time.Until(time.Unix(lease, 0)) < budget.timeout()+10*time.Second {
+					t.Error("lease can expire before budget deadline", lease, err)
+				}
+			}
+			return Completion{Message: toolMessage("cad_context", map[string]any{})}, nil
+		}}
+		turn, err := s.Run(t.Context(), actor, view.Document.ID, TurnInput{RequestID: uuid.NewString(), Text: "循环读取上下文"})
+		if err != nil || turn.Failure == nil || turn.Failure.Code != "AI_ROUND_BUDGET" || turn.ModelCalls != budget.MaxModelCalls || calls != budget.MaxModelCalls || turn.Usage != nil {
+			t.Fatal("missing usage bypassed call limits", turn, err)
+		}
 	}
 }

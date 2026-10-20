@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Button, Popover, Select, Space, Tooltip, Typography } from "antd";
 import type { SketchCommandState, SketchCommandAction, SketchCommitReceipt } from "../../cad/tool/sketch-command-session";
-import { LoadingOutlined } from "@ant-design/icons";
+import { CommentOutlined,LoadingOutlined } from "@ant-design/icons";
 import { useUIPreferences } from "../../state/ui-preferences";
 
-export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengthUnit, continuous, prompt, sketchCommand, onSketchAction, sketchReceipt, onSketchReceiptCheck }: {
+export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengthUnit, continuous, prompt, sketchCommand, onSketchAction, sketchReceipt, onSketchReceiptCheck,assistantOpen,onAssistantToggle }: {
   prompt?:string; busy: boolean; canEdit: boolean; selectionCount: number; toolName: string; lengthUnit: string; continuous: boolean;sketchCommand?:SketchCommandState;onSketchAction?:(action:SketchCommandAction)=>void;
+  assistantOpen?:boolean;onAssistantToggle?:()=>void;
   sketchReceipt?:SketchCommitReceipt;onSketchReceiptCheck?:()=>void;
 }) {
   const preferences = useUIPreferences();
@@ -37,6 +38,7 @@ export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengt
     {prompt&&<span role="status" className="workbench-sketch-role" title={prompt}>{prompt}</span>}
     {!sketchCommand&&!prompt&&<span className="workbench-selection-count">{selectionCount ? `已选择 ${selectionCount} 项` : "未选择对象"}</span>}
     <span className="workbench-status-spacer" />
+    {onAssistantToggle&&<Button type="text" size="small" className="workbench-assistant-toggle" aria-label="建模助手" aria-pressed={assistantOpen} icon={<CommentOutlined/>} onClick={onAssistantToggle}>建模助手</Button>}
     <span>长度 · {lengthUnit}</span>
     <span className="workbench-navigation-label">{preferences.navigationProfile === "catia" ? "3DEXPERIENCE CATIA" : preferences.navigationProfile === "solidworks" ? "SOLIDWORKS" : "默认"} 导航</span>
   </footer>;

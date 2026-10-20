@@ -214,7 +214,10 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 		}
 		expiresAt := time.Now().Add(interactionCandidateTTL)
 		previewID := newID("preview")
-		if !kinematicsPreview && !retainedFailure && assemblyResult.Status != "CONVERGED" {
+		// solveAssembly deliberately returns without invoking the solver when
+		// there are no assembly equations. Such definition previews still have
+		// qualified candidates; an absent solver result is not nonconvergence.
+		if !kinematicsPreview && len(model.Constraints) > 0 && !retainedFailure && assemblyResult.Status != "CONVERGED" {
 			previewID = ""
 		}
 		if previewID != "" {

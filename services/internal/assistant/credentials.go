@@ -53,15 +53,88 @@ func New(db database.DB, operations *automation.Service, options Options) *Servi
 }
 
 type Settings struct {
-	Configured bool   `json:"configured"`
-	Provider   string `json:"provider"`
-	Model      string `json:"model"`
+	Configured    bool           `json:"configured"`
+	Provider      string         `json:"provider"`
+	Model         string         `json:"model"`
+	Thinking      string         `json:"thinking"`
+	Budget        string         `json:"budget"`
+	BudgetPresets []BudgetPreset `json:"budgetPresets"`
 }
 
 func (s *Service) Settings(ctx context.Context, actor string) (Settings, error) {
-	var count int
-	err := s.db.QueryRow(ctx, `SELECT count(*) FROM occccad.assistant_credentials WHERE actor_id=$1`, actor).Scan(&count)
-	return Settings{Configured: count > 0, Provider: "DeepSeek", Model: s.options.Model}, err
+	value := Settings{Provider: "DeepSeek", Model: s.options.Model, Thinking: "off", Budget: defaultBudget, BudgetPresets: budgetPresets()}
+	var model, thinking, budget string
+	err := s.db.QueryRow(ctx, `SELECT model,thinking,budget FROM occccad.assistant_credentials WHERE actor_id=$1`, actor).Scan(&model, &thinking, &budget)
+	if errors.Is(err, database.ErrNoRows) {
+		return value, nil
+	}
+	if err != nil {
+		return value, err
+	}
+	value.Configured = true
+	if model != "" {
+		value.Model = model
+	}
+	value.Thinking = thinking
+	value.Budget = budget
+	return value, nil
+}
+
+func (s *Service) Models(ctx context.Context, actor string) ([]Model, error) {
+	key, err := s.credential(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	return s.provider.Models(ctx, key)
+}
+
+func (s *Service) SavePreferences(ctx context.Context, actor string, generation Generation) (Settings, error) {
+	previous, err := s.Settings(ctx, actor)
+	if err != nil {
+		return Settings{}, err
+	}
+	if !previous.Configured {
+		return Settings{}, aiFault("AI_KEY_REQUIRED", "请先连接 DeepSeek", false)
+	}
+	if generation.Budget == "" {
+		generation.Budget = previous.Budget
+	}
+	if _, err = budgetFor(generation.Budget); err != nil {
+		return Settings{}, err
+	}
+	if !validThinking(generation.Thinking) {
+		return Settings{}, aiFault("AI_CONFIGURATION", "请选择有效的思考度", false)
+	}
+	// A local budget change must work even when model discovery is unavailable.
+	if generation.Model != previous.Model || generation.Thinking != previous.Thinking {
+		models, err := s.Models(ctx, actor)
+		if err != nil {
+			return Settings{}, err
+		}
+		found := false
+		for _, model := range models {
+			if model.ID == generation.Model {
+				found = true
+				if model.Effort != nil && generation.Thinking != "off" {
+					supported := false
+					for _, level := range model.Effort.SupportedLevels {
+						supported = supported || level == generation.Thinking
+					}
+					if !supported {
+						return Settings{}, aiFault("AI_CONFIGURATION", "所选模型不支持这个思考度", false)
+					}
+				}
+			}
+		}
+		if !found {
+			return Settings{}, aiFault("AI_MODEL_UNAVAILABLE", "当前 API Key 无法访问所选模型", false)
+		}
+	}
+	_, err = s.db.Exec(ctx, `UPDATE occccad.assistant_credentials SET model=$1,thinking=$2,budget=$3,updated_at=now() WHERE actor_id=$4`, generation.Model, generation.Thinking, generation.Budget, actor)
+	if err != nil {
+		return Settings{}, err
+	}
+	return s.Settings(ctx, actor)
 }
 
 func (s *Service) cipher() (cipher.AEAD, error) {
@@ -118,8 +191,37 @@ func (s *Service) SaveKey(ctx context.Context, actor, key string) (Settings, err
 	if len(key) < 8 || len(key) > 4096 || strings.ContainsAny(key, "\r\n\t ") {
 		return Settings{}, aiFault("AI_INVALID_KEY", "请输入有效的 API Key", false)
 	}
-	if err := s.provider.Validate(ctx, key); err != nil {
+	models, err := s.provider.Models(ctx, key)
+	if err != nil {
 		return Settings{}, err
+	}
+	model := models[0].ID
+	for _, candidate := range models {
+		if candidate.ID == s.options.Model {
+			model = candidate.ID
+		}
+	}
+	previous, err := s.Settings(ctx, actor)
+	if err != nil {
+		return Settings{}, err
+	}
+	thinking := "off"
+	for _, candidate := range models {
+		if candidate.ID != previous.Model {
+			continue
+		}
+		model = candidate.ID
+		thinking = previous.Thinking
+		if candidate.Effort != nil && thinking != "off" {
+			supported := false
+			for _, level := range candidate.Effort.SupportedLevels {
+				supported = supported || level == thinking
+			}
+			if !supported {
+				thinking = "off"
+			}
+		}
+		break
 	}
 	box, err := s.cipher()
 	if err != nil {
@@ -130,7 +232,7 @@ func (s *Service) SaveKey(ctx context.Context, actor, key string) (Settings, err
 		return Settings{}, err
 	}
 	encrypted := base64.RawStdEncoding.EncodeToString(box.Seal(nonce, nonce, []byte(key), []byte(actor)))
-	_, err = s.db.Exec(ctx, `INSERT INTO occccad.assistant_credentials(actor_id,ciphertext) VALUES($1,$2) ON CONFLICT(actor_id) DO UPDATE SET ciphertext=excluded.ciphertext,updated_at=now()`, actor, encrypted)
+	_, err = s.db.Exec(ctx, `INSERT INTO occccad.assistant_credentials(actor_id,ciphertext,model,thinking) VALUES($1,$2,$3,$4) ON CONFLICT(actor_id) DO UPDATE SET ciphertext=excluded.ciphertext,model=excluded.model,thinking=excluded.thinking,updated_at=now()`, actor, encrypted, model, thinking)
 	if err != nil {
 		return Settings{}, err
 	}

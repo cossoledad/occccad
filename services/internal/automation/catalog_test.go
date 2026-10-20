@@ -150,3 +150,39 @@ func TestAutomationBoundedQueryAndContextWithFiftyThousandNodes(t *testing.T) {
 		t.Fatal("mutation did not check authorization before model access", err)
 	}
 }
+
+type sourceACL struct{ target string }
+
+func (a sourceACL) RequireDocument(_ context.Context, document, _ string, role access.Role) (access.Role, error) {
+	if document == a.target {
+		return access.RoleOwner, nil
+	}
+	return "", access.ErrForbidden
+}
+func TestAutomationSourcePermissionsBeforeEvaluation(t *testing.T) {
+	actor, target, source := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	reader := &snapshotReader{}
+	service := automation.New(nil, reader, sourceACL{target: target})
+	for _, operation := range []string{"command.insert_instance", "command.replace_instance", "command.set_parameter_external", "command.create_context_reference"} {
+		args := map[string]any{}
+		switch operation {
+		case "command.insert_instance":
+			args["referencedDocumentId"] = source
+		case "command.replace_instance":
+			args["instanceId"] = "instance"
+			args["referencedDocumentId"] = source
+		case "command.set_parameter_external":
+			args = map[string]any{"parameterId": "parameter", "sourceDocumentId": source, "publicationId": "publication", "referenceMode": "FOLLOW_HEAD"}
+		case "command.create_context_reference":
+			args["sourceDocumentId"] = source
+		}
+		raw, _ := json.Marshal(args)
+		_, err := service.Prepare(t.Context(), actor, target, automation.ActionRequest{OperationID: operation, Version: 1, Arguments: raw, RequestID: uuid.NewString(), ExpectedHead: workspace.CommandBaseline{WorkspaceID: uuid.NewString(), RevisionID: uuid.NewString(), Sequence: 1}})
+		if !errors.Is(err, access.ErrForbidden) {
+			t.Fatal("source permission was bypassed", operation, err)
+		}
+	}
+	if reader.calls != 0 {
+		t.Fatal("source authorization evaluated or read the target model")
+	}
+}

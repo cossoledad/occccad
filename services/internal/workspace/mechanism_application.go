@@ -223,6 +223,7 @@ func mechanismAcceptanceEqual(a, b Mechanism) bool {
 type ApplicationCommandReceipt struct {
 	Sequence  uint64 `json:"sequence"`
 	VersionID string `json:"versionId"`
+	ActorID   string `json:"actorId"`
 }
 
 func applicationAuditDigest(raw json.RawMessage) string {

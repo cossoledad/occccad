@@ -102,15 +102,29 @@ type ActionRequest struct {
 }
 type ActionResult struct {
 	Receipt workspace.CommandReceipt `json:"receipt"`
+	Outputs []EntityRef              `json:"outputs,omitempty"`
 	Output  *EntityRef               `json:"output,omitempty"`
 }
 
-func (s *Service) command(actor string, a ActionRequest) (workspace.CommandRequest, error) {
+func (s *Service) command(ctx context.Context, actor, document string, a ActionRequest) (workspace.CommandRequest, error) {
 	if len(a.RequestID) < 1 || len(a.RequestID) > 160 || a.ExpectedHead.WorkspaceID == "" || a.ExpectedHead.RevisionID == "" || a.ExpectedHead.Sequence == 0 {
 		return workspace.CommandRequest{}, fault("INVALID_ACTION", "requestId and a complete expectedHead are required")
 	}
 	command, err := s.Catalog.Compile(a.OperationID, a.Version, a.Arguments)
 	if err != nil {
+		return command, err
+	}
+	if err = s.resolveSelections(ctx, document, a, &command); err != nil {
+		return command, err
+	}
+	switch command.Type {
+	case "SET_PROPERTIES", "ACTIVATE_MECHANISM", "EXIT_MECHANISM", "SAVE_KINEMATICS", "APPLY_MOTION_FRAME", "CREATE_SKETCH", "CREATE_PUBLICATION", "REDIRECT_PUBLICATION":
+		if command.VersionID != "" && command.VersionID != a.ExpectedHead.RevisionID {
+			return command, fault("WORKSPACE_HEAD_CONFLICT", "command source revision differs from task baseline")
+		}
+		command.VersionID = a.ExpectedHead.RevisionID
+	}
+	if err = workspace.RequireCommandReferences(ctx, s.access, s.workspace, actor, document, command); err != nil {
 		return command, err
 	}
 	command.ActorID = actor
@@ -144,7 +158,7 @@ func (s *Service) Prepare(ctx context.Context, actor, document string, a ActionR
 		return workspace.CommandPreview{}, err
 	}
 	a.PreviewID = ""
-	command, err := s.command(actor, a)
+	command, err := s.command(ctx, actor, document, a)
 	if err != nil {
 		return workspace.CommandPreview{}, err
 	}
@@ -159,6 +173,17 @@ func (s *Service) Prepare(ctx context.Context, actor, document string, a ActionR
 	if err != nil {
 		return preview, err
 	}
+	if preview.EvaluationOutcome == "DEFINITION_ONLY" {
+		s.workspace.DiscardPreview(document, actor, preview.PreviewID)
+		failure := &Fault{Code: "PREVIEW_DEFINITION_ONLY", Message: "约束定义尚未通过权威求解，请打开装配工具检查诊断后继续"}
+		if preview.EvaluationFailure != nil {
+			failure.Code = preview.EvaluationFailure.Code
+			failure.Phase = preview.EvaluationFailure.Phase
+			failure.DiagnosticID = preview.EvaluationFailure.DiagnosticID
+			failure.Retryable = preview.EvaluationFailure.Retryable
+		}
+		return workspace.CommandPreview{}, failure
+	}
 	if preview.PreviewID == "" || preview.BaseVersionID != a.ExpectedHead.RevisionID || preview.BaseSequence != a.ExpectedHead.Sequence {
 		s.workspace.DiscardPreview(document, actor, preview.PreviewID)
 		return workspace.CommandPreview{}, fault("PREVIEW_UNQUALIFIED", "preview has no committable candidate for the expected head")
@@ -172,7 +197,7 @@ func (s *Service) Commit(ctx context.Context, actor, document string, a ActionRe
 	if a.PreviewID == "" {
 		return ActionResult{}, fault("PREVIEW_REQUIRED", "prepare the exact action before committing")
 	}
-	command, err := s.command(actor, a)
+	command, err := s.command(ctx, actor, document, a)
 	if err != nil {
 		return ActionResult{}, err
 	}
@@ -198,28 +223,74 @@ func (s *Service) recoverAction(ctx context.Context, actor, document string, a A
 	if err != nil {
 		return result, err
 	}
-	kind, id := "", ""
-	switch a.OperationID {
-	case "sketch.create", "part.extrude":
+	op, _ := s.Catalog.Describe(a.OperationID)
+	kind, slot := "", ""
+	command := op.CommandType
+	if a.OperationID == "sketch.create" {
+		command = "CREATE_SKETCH"
+	}
+	if a.OperationID == "part.extrude" {
+		command = "PAD_SKETCH"
+	}
+	switch command {
+	case "CREATE_SKETCH":
+		kind, slot = "SKETCH", "entity"
+	case "PAD_SKETCH", "CREATE_MODIFY_FEATURE", "CREATE_SOLID_FEATURE", "CREATE_PATTERN", "CREATE_BOOLEAN_FEATURE", "IMPORT_EXCHANGE":
+		kind, slot = "FEATURE", "entity"
+	case "CREATE_BODY":
+		kind, slot = "BODY", "body.entity"
+	case "CREATE_PARAMETER":
+		kind, slot = "PARAMETER", "parameter.entity"
+	case "CREATE_DATUM_PLANE":
+		kind, slot = "DATUM_PLANE", "datum.plane"
+	case "CREATE_DATUM_AXIS":
+		kind, slot = "DATUM_AXIS", "datum.axis"
+	case "CREATE_PUBLICATION":
+		kind, slot = "PUBLICATION", "publication.entity"
+	case "CREATE_PRODUCT_PUBLICATION":
+		kind, slot = "PUBLICATION", "product-publication.entity"
+	case "CREATE_CONTEXT_INPUT":
+		kind, slot = "CONTEXT_INPUT", "context-input.entity"
+	case "CREATE_CONTEXT_REFERENCE":
+		kind, slot = "CONTEXT_REFERENCE", "context-reference.entity"
+	case "CREATE_CONTEXT_BINDING":
+		kind, slot = "CONTEXT_BINDING", "context-binding.entity"
+	case "INSERT_INSTANCE", "INSERT_INSTANCES":
+		kind, slot = "INSTANCE", "entity"
+	case "ADD_ASSEMBLY_CONSTRAINT":
+		kind, slot = "ASSEMBLY_CONSTRAINT", "assembly-constraint.entity"
+	}
+	if slot != "" {
 		for _, change := range receipt.Changes {
-			if change.Kind == "CREATE" && change.SlotID == "entity" {
-				if id != "" {
-					return result, fault("OUTPUT_AMBIGUOUS", "multiple created features")
-				}
-				id = change.EntityID
+			if change.Kind == "CREATE" && change.SlotID == slot {
+				result.Outputs = append(result.Outputs, EntityRef{DocumentID: document, RevisionID: receipt.RevisionID, Kind: kind, ID: change.EntityID})
 			}
 		}
-		kind = "FEATURE"
-		if a.OperationID == "sketch.create" {
-			kind = "SKETCH"
+		if len(result.Outputs) == 1 {
+			result.Output = &result.Outputs[0]
 		}
-	case "sketch.rectangle":
-		kind, id = "SKETCH", textArg(args, "sketchId")
-	default:
-		kind, id = "PARAMETER", textArg(args, "parameterId")
-	}
-	if id != "" {
-		result.Output = &EntityRef{DocumentID: document, RevisionID: receipt.RevisionID, Kind: kind, ID: id}
+	} else {
+		key := ""
+		switch a.OperationID {
+		case "sketch.rectangle":
+			key = "sketchId"
+			kind = "SKETCH"
+		case "parameter.set_literal", "parameter.set_expression":
+			key = "parameterId"
+			kind = "PARAMETER"
+		}
+		if key == "" {
+			for _, field := range []string{"sketchId", "parameterId", "bodyId", "instanceId", "publicationId"} {
+				if textArg(args, field) != "" {
+					key = field
+					kind = bindingKind(field)
+					break
+				}
+			}
+		}
+		if id := textArg(args, key); id != "" {
+			result.Output = &EntityRef{DocumentID: document, RevisionID: receipt.RevisionID, Kind: kind, ID: id}
+		}
 	}
 	return result, nil
 }

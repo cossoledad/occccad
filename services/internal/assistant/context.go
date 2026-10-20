@@ -66,7 +66,7 @@ func (h *Host) Context(ctx context.Context, taskID string, operationIDs []string
 				state.Output = step.Result.Output
 			}
 			checkpoint.Steps = append(checkpoint.Steps, state)
-			if checkpoint.NextStepID == "" && step.Phase != "DISPLAYED" && step.Phase != "SUPERSEDED" {
+			if checkpoint.NextStepID == "" && step.Phase != "DISPLAYED" && step.Phase != "SUPERSEDED" && step.Phase != "HANDED_OFF" && step.Phase != "UI_OPENED" && step.Phase != "UI_FAILED" {
 				checkpoint.NextStepID = step.ID
 			}
 		}

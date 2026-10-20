@@ -50,11 +50,13 @@ func stringSchema() map[string]any {
 }
 func Tools() []Tool {
 	return []Tool{
+		{"cad_describe_type", "Load one nested command input type referenced as cad://types/<name>. Progressive disclosure avoids sending all command schemas.", object(map[string]any{"name": stringSchema()}, "name")},
+		{"cad_query_topology", "Query exact Naming topology in one Body/revision. selectionSet includes ALL matches even when items is paginated; use it directly for all-edge fillets/chamfers. Optional ids select queried stable topology identities; includeSelections supplies formal references for detailed commands. Never invent IDs.", object(map[string]any{"revisionId": stringSchema(), "bodyId": stringSchema(), "kind": map[string]any{"type": "string", "enum": []string{"EDGE", "FACE", "VERTEX"}}, "ids": map[string]any{"type": "array", "items": stringSchema(), "maxItems": 100}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20}, "cursor": map[string]any{"type": "string", "maxLength": 2048}, "includeSelections": map[string]any{"type": "boolean"}}, "revisionId", "bodyId", "kind")},
 		{"cad_context", "Read the authorized current document definition context; no full tree or geometry.", object(map[string]any{})},
-		{"cad_search_operations", "Discover relevant CAD operations; full schemas are loaded only by describe.", object(map[string]any{"query": map[string]any{"type": "string", "maxLength": 256}})},
+		{"cad_search_operations", "Discover relevant CAD operations; full schemas are loaded only by describe.", object(map[string]any{"query": map[string]any{"type": "string", "maxLength": 256}, "cursor": map[string]any{"type": "string", "maxLength": 256}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20}})},
 		{"cad_describe_operation", "Read one exact versioned operation input/output contract.", object(map[string]any{"operationId": stringSchema()}, "operationId")},
-		{"cad_query_model", "Read a bounded immutable definition page. Preserve cursor/snapshot; pages are not all matches. Kinds: BODY, SKETCH, FEATURE, PARAMETER, DATUM_PLANE, INSTANCE. Fields: name,type,bodyId,ownerId,length,plane,status,parameterAlias,value,displayValue,unit. For parameters value is a canonical SI quantity; displayValue is an unrounded number in unit.", object(map[string]any{"revisionId": stringSchema(), "kind": stringSchema(), "bodyId": stringSchema(), "id": stringSchema(), "name": map[string]any{"type": "string", "maxLength": 256}, "fields": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 16}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 100}, "cursor": map[string]any{"type": "string", "maxLength": 2048}})},
-		{"cad_create_task", "Persist a checked Part plan. Each step uses a discovered operation, exact inputs, stable UUID and optional explicit preceding-output bindings.", object(map[string]any{"requestId": stringSchema(), "goal": map[string]any{"type": "string", "minLength": 1, "maxLength": 2048}, "expectedHead": object(map[string]any{"workspaceId": stringSchema(), "revisionId": stringSchema(), "sequence": map[string]any{"type": "integer", "minimum": 1}}, "workspaceId", "revisionId", "sequence"), "steps": map[string]any{"type": "array", "minItems": 1, "maxItems": 32, "items": object(map[string]any{"id": stringSchema(), "operationId": stringSchema(), "version": map[string]any{"type": "integer", "minimum": 1}, "arguments": map[string]any{"type": "object"}, "bindings": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}}, "id", "operationId", "version", "arguments")}}, "requestId", "goal", "expectedHead", "steps")},
+		{"cad_query_model", "Read a bounded immutable definition page. Preserve cursor/snapshot; pages are not all matches. Kinds: BODY, SKETCH, FEATURE, PARAMETER, DATUM_PLANE, DATUM_AXIS, INSTANCE, PUBLICATION, CONTEXT_INPUT, CONTEXT_REFERENCE, CONTEXT_BINDING, ASSEMBLY_CONSTRAINT, MECHANISM, SKETCH_ENTITY, SKETCH_CONSTRAINT. Query sketch children with ownerId. Field definition loads one exact DTO; prefer small fields for discovery. Fields: name,type,bodyId,ownerId,length,plane,status,parameterAlias,value,displayValue,unit. For parameters value is a canonical SI quantity; displayValue is an unrounded number in unit.", object(map[string]any{"revisionId": stringSchema(), "kind": stringSchema(), "bodyId": stringSchema(), "ownerId": stringSchema(), "id": stringSchema(), "name": map[string]any{"type": "string", "maxLength": 256}, "fields": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 16}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 100}, "cursor": map[string]any{"type": "string", "maxLength": 2048}})},
+		{"cad_create_task", "Persist a checked document plan. Each step uses a discovered operation, exact inputs, stable UUID and optional explicit preceding-output bindings.", object(map[string]any{"requestId": stringSchema(), "goal": map[string]any{"type": "string", "minLength": 1, "maxLength": 2048}, "expectedHead": object(map[string]any{"workspaceId": stringSchema(), "revisionId": stringSchema(), "sequence": map[string]any{"type": "integer", "minimum": 1}}, "workspaceId", "revisionId", "sequence"), "steps": map[string]any{"type": "array", "minItems": 1, "maxItems": 32, "items": object(map[string]any{"id": stringSchema(), "operationId": stringSchema(), "version": map[string]any{"type": "integer", "minimum": 1}, "arguments": map[string]any{"type": "object"}, "bindings": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}}, "id", "operationId", "version", "arguments")}}, "requestId", "goal", "expectedHead", "steps")},
 		{"cad_get_task", "Recover persisted step phases and exact commit receipts before retrying any unknown result.", object(map[string]any{"taskId": stringSchema()}, "taskId")},
 		{"cad_advance_task", "Advance one bounded phase: prepare a preview or commit the qualified current preview. Display acknowledgment is owned by the application UI.", object(map[string]any{"taskId": stringSchema(), "expectedVersion": map[string]any{"type": "integer", "minimum": 1}}, "taskId", "expectedVersion")},
 	}
@@ -77,6 +79,18 @@ func (h *Host) Call(ctx context.Context, call Call) Result {
 	var value any
 	var err error
 	switch call.Name {
+	case "cad_describe_type":
+		var input struct {
+			Name string `json:"name"`
+		}
+		if err = decode(call.Arguments, &input); err == nil {
+			value, err = automation.DescribeType(input.Name)
+		}
+	case "cad_query_topology":
+		var input automation.TopologyQuery
+		if err = decode(call.Arguments, &input); err == nil {
+			value, err = h.service.QueryTopology(ctx, h.actor, h.document, input)
+		}
 	case "cad_context":
 		var input struct{}
 		if err = decode(call.Arguments, &input); err == nil {
@@ -84,13 +98,15 @@ func (h *Host) Call(ctx context.Context, call Call) Result {
 		}
 	case "cad_search_operations":
 		var input struct {
-			Query string `json:"query"`
+			Query  string `json:"query"`
+			Cursor string `json:"cursor"`
+			Limit  int    `json:"limit"`
 		}
 		if err = decode(call.Arguments, &input); err == nil {
 			var current automation.Context
 			current, err = h.service.Context(ctx, h.actor, h.document)
 			if err == nil {
-				value, err = h.service.Catalog.Search(input.Query, current.Snapshot.DocumentType, 10)
+				value, err = h.service.Catalog.SearchPage(input.Query, current.Snapshot.DocumentType, input.Limit, input.Cursor)
 			}
 		}
 	case "cad_describe_operation":

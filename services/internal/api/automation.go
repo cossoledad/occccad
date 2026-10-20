@@ -16,6 +16,10 @@ import (
 
 func (server *Server) registerAutomationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/automation/operations", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("all") == "true" {
+			writeJSON(w, http.StatusOK, map[string]any{"operations": server.automation.Catalog.Summaries(), "catalogDigest": server.automation.Catalog.Digest})
+			return
+		}
 		items, err := server.automation.Catalog.Search(r.URL.Query().Get("q"), r.URL.Query().Get("documentType"), 20)
 		if err != nil {
 			writeAutomationResult(w, nil, err)
