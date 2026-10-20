@@ -21,7 +21,7 @@ func TestMigrationCatalogValidation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(migrations) != 2 || migrations[0].name != "0001_baseline.sql" || migrations[1].name != "0002_automation_tasks.sql" {
+		if len(migrations) != 3 || migrations[0].name != "0001_baseline.sql" || migrations[1].name != "0002_automation_tasks.sql" || migrations[2].name != "0003_assistant.sql" {
 			t.Fatalf("unexpected baseline: %v", migrations)
 		}
 	}

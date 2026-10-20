@@ -12,6 +12,6 @@
 | 机构与 DMU | [机构、试动、录制、回放](kinematics-dmu.md) | Ground/旋转/棱形/圆柱/平面/刚性/球面接合、独立坐标命令；动力学与连续碰撞未交付 |
 | 工作台 | [Web](web.md)、[对象属性/全局选项](object-scene-properties.md)、[编辑会话](product-edit-context.md)、[语义树](semantic-tree.md)、[模型显示](model-display.md)、[文档/命令框架](document-command-framework.md) | 全局观看设置与对象编辑分离；大树分页、复杂贡献与跨 Workspace 并发仍有限制 |
 | 实时与验证 | [Realtime](realtime.md)、[可观测性](validation.md)、[测试路由](../../../tests/README.md) | Node/Mock 不替代真实浏览器；kernel/RPC 计时不等于端到端延迟 |
-| 自动化与 AI 准备 | [操作、查询、任务与显示](automation.md) | 独立 Part 流程与有界定义查询；LLM、MCP/CLI、大树索引与跨文档自动化待实施 |
+| 自动化与 AI 建模 | [操作、查询、任务与显示](automation.md) | DeepSeek 对话、独立 Part 流程与有界查询；MCP/CLI、大树索引与跨文档自动化待实施 |
 
 更多实体特征、trimmed Arc/Boundary/Section、规模与验收缺口见[后续工作](../../../plans/README.md)；未实现合同和候选见[目标设计](../target/README.md)。实测结论归[验证记录](../../validation/README.md)，不能复制成当前全量通过声明。

@@ -38,7 +38,7 @@ SQLite Local Mode 保留 API/Jobs 进程拓扑，所有进程共享同一个本�
 - 实时入口：`GET /api/realtime`，子协议 `occccad.realtime.v1`
 - 根路径返回服务说明，不提供 Web 静态文件。
 
-CAD 自动化提供操作目录、快照查询和持久任务，模型控制沿现有 realtime；入口与限制见[自动化合同](../../../docs/architecture/current/automation.md)。当前未连接模型 API。
+CAD 自动化提供操作目录、快照查询和持久任务，模型控制沿现有 realtime。DeepSeek 对话通过 `/api/assistant/settings` 配置当前账号的 Key，通过 `/api/documents/{documentID}/assistant/turns` 规划并恢复对话；入口、配置和限制见[自动化与对话合同](../../../docs/architecture/current/automation.md)。
 
 主要资源包括 `/api/auth/*`、`/api/session`、`/api/documents`、`/api/folders`、`/api/jobs`、`/api/teams`、`/api/users`、`/api/admin/*` 与 `/api/audit`。具体契约当前以 `services/internal/api/server.go` 为准；仓库尚未发布稳定的外部 OpenAPI。
 

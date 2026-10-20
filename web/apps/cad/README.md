@@ -8,7 +8,7 @@
 |---|---|
 | 页面与工作台布局 | `src/features/`；`workbench-layout.tsx`、`workbench.css` |
 | 文档接入与命令 | `src/cad/document/`、`src/cad/command/`、`workbench-command-registration.ts` |
-| 自动化建模流程 | `src/features/assistant/`；[操作与任务合同](../../../docs/architecture/current/automation.md) |
+| AI 对话与建模步骤 | `src/features/assistant/`；[操作与任务合同](../../../docs/architecture/current/automation.md) |
 | 选择、工具与手势 | `src/cad/interaction/`、`src/cad/tool/`、`src/cad/input/` 及邻近 `testing/` |
 | 编辑宿主、树、Inspector | `product-edit-context.ts`、`workbench-tree-model.tsx`、`workbench-inspector.tsx` |
 | 显示与资源 | `src/viewport/`、`src/cad/visual/`、`src/cad/rendering/` |

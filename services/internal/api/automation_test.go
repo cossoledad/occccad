@@ -73,7 +73,7 @@ func TestAutomationHTTPQueriesAndRealtimeCommitBoundary(t *testing.T) {
 	var current automation.Context
 	err = json.NewDecoder(response.Body).Decode(&current)
 	response.Body.Close()
-	if err != nil || response.StatusCode != 200 || current.Snapshot.RevisionID != view.Document.VersionID || current.ProviderConnected {
+	if err != nil || response.StatusCode != 200 || current.Snapshot.RevisionID != view.Document.VersionID {
 		t.Fatal("context", response.StatusCode, err)
 	}
 	dialer := websocket.Dialer{Subprotocols: []string{realtimeProtocol}}

@@ -4,7 +4,7 @@ import type {CommandPreview} from "../../types";
 
 export type Baseline={workspaceId:string;revisionId:string;sequence:number};
 export type EntityRef={documentId:string;revisionId:string;kind:string;id:string};
-export type AutomationContext={snapshot:Baseline&{documentId:string;documentType:string;modelHash:string};permission:string;units:string;workingBodyId?:string;counts:Record<string,number>;catalogDigest:string;scope:string;providerConnected:boolean};
+export type AutomationContext={snapshot:Baseline&{documentId:string;documentType:string;modelHash:string};permission:string;units:string;workingBodyId?:string;counts:Record<string,number>;catalogDigest:string;scope:string};
 export type StepSpec={id:string;operationId:string;version:number;arguments:Record<string,unknown>;bindings?:Record<string,string>};
 export type TaskInput={requestId:string;goal:string;expectedHead:Baseline;steps:StepSpec[]};
 export type TaskStep=StepSpec&{phase:"PLANNED"|"PREPARING"|"PREVIEW_READY"|"COMMITTING"|"COMMITTED"|"DISPLAYED"|"SUPERSEDED"|"FAILED";action?:{arguments:Record<string,unknown>;requestId:string};preview?:CommandPreview;result?:{receipt:Baseline&{transactionId:string;requestId:string};output?:EntityRef};failure?:{code:string;message:string;retryable:boolean}};

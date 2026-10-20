@@ -49,14 +49,13 @@ func (s *Service) authorize(ctx context.Context, actor, document string, role ac
 }
 
 type Context struct {
-	Snapshot          workspace.ModelSnapshot `json:"snapshot"`
-	Permission        access.Role             `json:"permission"`
-	Units             string                  `json:"units"`
-	WorkingBodyID     string                  `json:"workingBodyId,omitempty"`
-	Counts            map[string]int          `json:"counts"`
-	CatalogDigest     string                  `json:"catalogDigest"`
-	Scope             string                  `json:"scope"`
-	ProviderConnected bool                    `json:"providerConnected"`
+	Snapshot      workspace.ModelSnapshot `json:"snapshot"`
+	Permission    access.Role             `json:"permission"`
+	Units         string                  `json:"units"`
+	WorkingBodyID string                  `json:"workingBodyId,omitempty"`
+	Counts        map[string]int          `json:"counts"`
+	CatalogDigest string                  `json:"catalogDigest"`
+	Scope         string                  `json:"scope"`
 }
 
 func (s *Service) Context(ctx context.Context, actor, document string) (Context, error) {

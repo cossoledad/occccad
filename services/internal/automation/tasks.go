@@ -160,6 +160,19 @@ func (s *Service) GetTask(ctx context.Context, actor, document, id string) (Task
 	}
 	return loadTask(ctx, s.db, actor, document, id)
 }
+
+// FindTaskByRequest recovers an unknown task-definition outcome by its original
+// idempotency key, including a crash before the caller saved the task ID.
+func (s *Service) FindTaskByRequest(ctx context.Context, actor, document, requestID string) (Task, error) {
+	if err := s.authorize(ctx, actor, document, access.RoleViewer); err != nil {
+		return Task{}, err
+	}
+	var id string
+	if err := s.db.QueryRow(ctx, `SELECT id::text FROM occccad.automation_tasks WHERE actor_id=$1 AND document_id=$2 AND request_id=$3`, actor, document, requestID).Scan(&id); err != nil {
+		return Task{}, err
+	}
+	return loadTask(ctx, s.db, actor, document, id)
+}
 func loadTask(ctx context.Context, db database.Executor, actor, document, id string) (Task, error) {
 	if _, err := uuid.Parse(id); err != nil {
 		return Task{}, fault("TASK_NOT_FOUND", "task is unavailable")
@@ -192,6 +205,18 @@ func saveTask(ctx context.Context, db database.Executor, task *Task, actor strin
 	}
 	return nil
 }
+
+// HasPendingTask checks the whole journal, rather than treating the most recent
+// page as a complete set of unfinished work.
+func (s *Service) HasPendingTask(ctx context.Context, actor, document string) (bool, error) {
+	if err := s.authorize(ctx, actor, document, access.RoleViewer); err != nil {
+		return false, err
+	}
+	var count int
+	err := s.db.QueryRow(ctx, `SELECT count(*) FROM occccad.automation_tasks WHERE actor_id=$1 AND document_id=$2 AND payload->>'status' IN ('ACTIVE','PAUSED')`, actor, document).Scan(&count)
+	return count > 0, err
+}
+
 func (s *Service) ListTasks(ctx context.Context, actor, document string) ([]Task, error) {
 	if err := s.authorize(ctx, actor, document, access.RoleViewer); err != nil {
 		return nil, err

@@ -49,7 +49,7 @@ type queryCursor struct {
 	After      string `json:"after"`
 }
 
-var queryFields = map[string]bool{"name": true, "type": true, "bodyId": true, "ownerId": true, "length": true, "plane": true, "status": true, "parameterAlias": true, "value": true, "unit": true, "referencedDocumentId": true, "referencedRevisionId": true, "referenceMode": true, "geometryKey": true, "profileId": true}
+var queryFields = map[string]bool{"name": true, "type": true, "bodyId": true, "ownerId": true, "length": true, "plane": true, "status": true, "parameterAlias": true, "value": true, "displayValue": true, "unit": true, "referencedDocumentId": true, "referencedRevisionId": true, "referenceMode": true, "geometryKey": true, "profileId": true}
 
 func (s *Service) Query(ctx context.Context, actor, document string, q Query) (QueryResult, error) {
 	if err := s.authorize(ctx, actor, document, access.RoleViewer); err != nil {
@@ -186,7 +186,13 @@ func definitionEntities(snapshot workspace.ModelSnapshot) ([]Entity, error) {
 			if name == "" {
 				name = p.Key
 			}
-			add("PARAMETER", p.ParameterID, map[string]any{"name": name, "type": p.ValueType, "parameterAlias": p.Key, "ownerId": p.OwnerFeatureID, "bodyId": ownerBodies[p.OwnerFeatureID], "value": p.EvaluatedValue, "unit": p.DisplayUnit})
+			properties := map[string]any{"name": name, "type": p.ValueType, "parameterAlias": p.Key, "ownerId": p.OwnerFeatureID, "bodyId": ownerBodies[p.OwnerFeatureID], "value": p.EvaluatedValue, "unit": p.DisplayUnit}
+			if p.EvaluatedValue != nil {
+				if scale, err := modelcore.NewQuantity(1, p.DisplayUnit); err == nil && scale.Dimension.Equal(p.EvaluatedValue.Dimension) {
+					properties["displayValue"] = p.EvaluatedValue.SIValue / scale.SIValue
+				}
+			}
+			add("PARAMETER", p.ParameterID, properties)
 		}
 		for _, p := range part.DatumPlanes {
 			add("DATUM_PLANE", p.ID, map[string]any{"name": p.Name, "plane": p.Plane, "type": "DATUM_PLANE"})

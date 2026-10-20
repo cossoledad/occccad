@@ -1,5 +1,5 @@
-// Package assistant adapts CAD automation into a small tool surface and bounded
-// context packets. It has no model SDK, credentials, or network model calls.
+// Package assistant connects a bounded conversational planner to scoped CAD
+// tools. Geometry writes remain in the application-owned automation pipeline.
 package assistant
 
 import (
@@ -40,6 +40,9 @@ func NewHost(service *automation.Service, actor, document string, writable bool)
 	return &Host{service, actor, document, writable}
 }
 func object(properties map[string]any, required ...string) map[string]any {
+	if required == nil {
+		required = []string{}
+	}
 	return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
 }
 func stringSchema() map[string]any {
@@ -50,7 +53,7 @@ func Tools() []Tool {
 		{"cad_context", "Read the authorized current document definition context; no full tree or geometry.", object(map[string]any{})},
 		{"cad_search_operations", "Discover relevant CAD operations; full schemas are loaded only by describe.", object(map[string]any{"query": map[string]any{"type": "string", "maxLength": 256}})},
 		{"cad_describe_operation", "Read one exact versioned operation input/output contract.", object(map[string]any{"operationId": stringSchema()}, "operationId")},
-		{"cad_query_model", "Read a bounded immutable definition page. Preserve the cursor query and snapshot; samples never imply all matches.", object(map[string]any{"revisionId": stringSchema(), "kind": stringSchema(), "bodyId": stringSchema(), "id": stringSchema(), "name": map[string]any{"type": "string", "maxLength": 256}, "fields": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 16}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 100}, "cursor": map[string]any{"type": "string", "maxLength": 2048}})},
+		{"cad_query_model", "Read a bounded immutable definition page. Preserve cursor/snapshot; pages are not all matches. Kinds: BODY, SKETCH, FEATURE, PARAMETER, DATUM_PLANE, INSTANCE. Fields: name,type,bodyId,ownerId,length,plane,status,parameterAlias,value,displayValue,unit. For parameters value is a canonical SI quantity; displayValue is an unrounded number in unit.", object(map[string]any{"revisionId": stringSchema(), "kind": stringSchema(), "bodyId": stringSchema(), "id": stringSchema(), "name": map[string]any{"type": "string", "maxLength": 256}, "fields": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 16}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 100}, "cursor": map[string]any{"type": "string", "maxLength": 2048}})},
 		{"cad_create_task", "Persist a checked Part plan. Each step uses a discovered operation, exact inputs, stable UUID and optional explicit preceding-output bindings.", object(map[string]any{"requestId": stringSchema(), "goal": map[string]any{"type": "string", "minLength": 1, "maxLength": 2048}, "expectedHead": object(map[string]any{"workspaceId": stringSchema(), "revisionId": stringSchema(), "sequence": map[string]any{"type": "integer", "minimum": 1}}, "workspaceId", "revisionId", "sequence"), "steps": map[string]any{"type": "array", "minItems": 1, "maxItems": 32, "items": object(map[string]any{"id": stringSchema(), "operationId": stringSchema(), "version": map[string]any{"type": "integer", "minimum": 1}, "arguments": map[string]any{"type": "object"}, "bindings": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}}, "id", "operationId", "version", "arguments")}}, "requestId", "goal", "expectedHead", "steps")},
 		{"cad_get_task", "Recover persisted step phases and exact commit receipts before retrying any unknown result.", object(map[string]any{"taskId": stringSchema()}, "taskId")},
 		{"cad_advance_task", "Advance one bounded phase: prepare a preview or commit the qualified current preview. Display acknowledgment is owned by the application UI.", object(map[string]any{"taskId": stringSchema(), "expectedVersion": map[string]any{"type": "integer", "minimum": 1}}, "taskId", "expectedVersion")},
