@@ -59,3 +59,5 @@ db/*.sqlite
 # Runtime artifacts (local object-store backend)
 data/
 services/data/
+
+*.task.txt
