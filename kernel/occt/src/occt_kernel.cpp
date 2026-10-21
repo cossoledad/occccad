@@ -272,13 +272,24 @@ gp_Dir oriented_plane_normal(const TopoDS_Face& face, const gp_Pln& plane) {
     return normal;
 }
 
+// A cylindrical adaptor can retain an indirect Ax3 after a profile is swept
+// opposite its circle normal. Face orientation alone then reverses the meaning
+// of shaft versus cavity. Material side is relative to the canonical outward
+// radial cylinder normal, independent of that parameterization.
+int analytic_material_side(const TopoDS_Face& face, const BRepAdaptor_Surface& surface) {
+    int side = face.Orientation() == TopAbs_REVERSED ? -1 : 1;
+    if (surface.GetType() == GeomAbs_Cylinder && !surface.Cylinder().Direct())
+        side = -side;
+    return side;
+}
+
 void append_surface_properties(const TopoDS_Face& face, FaceInfo& output) {
     BRepAdaptor_Surface surface(face, Standard_True);
     output.properties.push_back(text_property("lengthUnit", "mm"));
     output.properties.push_back(text_property("angleUnit", "rad"));
     // +1: outward analytic normal; -1: the material lies on the other side
     // (e.g. a cavity wall). This is not a Same/Opposite constraint intent.
-    output.properties.push_back(integer_property("materialSide", face.Orientation() == TopAbs_REVERSED ? -1 : 1));
+    output.properties.push_back(integer_property("materialSide", analytic_material_side(face, surface)));
     output.properties.push_back(number_property("uFirst", surface.FirstUParameter()));
     output.properties.push_back(number_property("uLast", surface.LastUParameter()));
     output.properties.push_back(number_property("vFirst", surface.FirstVParameter()));
@@ -1159,7 +1170,7 @@ SelectionEvidence face_evidence(const TopoDS_Face& face) {
     }
     if (surface.GetType() == GeomAbs_Plane || surface.GetType() == GeomAbs_Cylinder ||
         surface.GetType() == GeomAbs_Sphere || surface.GetType() == GeomAbs_Cone)
-        evidence.material_side = face.Orientation() == TopAbs_REVERSED ? -1 : 1;
+        evidence.material_side = analytic_material_side(face, surface);
     std::ostringstream canonical;
     canonical.precision(17);
     canonical << evidence.geometry_type << '|' << *evidence.measure_si << '|' << evidence.centroid.x

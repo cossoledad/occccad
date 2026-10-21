@@ -21,7 +21,7 @@ type BoundPick = {
 export function SolidFeatureEditor(props: Parameters<typeof SolidFeatureDefinitionEditor>[0]) {
     return props.feature.pattern ? <PatternFeatureEditor {...props}/> : <SolidFeatureDefinitionEditor {...props}/>;
 }
-function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occurrencePath, occurrenceContext, onClose, onApply, onPreview, onSelectionSession, onInputArtifact }: {
+function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occurrencePath, occurrenceContext, intentRequestId, onClose, onApply, onPreview, onSelectionSession, onInputArtifact }: {
     view: DocumentView;
     feature: Feature;
     digest?: string;
@@ -29,6 +29,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     seed: SelectionItem[];
     occurrencePath?: string;
     occurrenceContext?: Pick<SelectionItem, "instancePath" | "contextVariantKey" | "rootDocumentId">;
+    intentRequestId?:string;
     onClose: () => void;
     onApply: (input: Record<string, unknown>) => Promise<unknown>;
     onPreview: (artifact?: Artifact, operation?: Feature["operation"], sketchFeatureId?:string) => void;
@@ -53,7 +54,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     };
     const original = useRef({ length: feature.id ? initial("length", feature.length ?? 10) : "", length2: feature.id && feature.extent === "TWO_SIDED" ? initial("length2", feature.length2 ?? 10) : "", angle: feature.id ? initial("angle", feature.angle ?? 360) : "" });
     const [length, setLength] = useState(initial("length", feature.length ?? 10)), [second, setSecond] = useState(initial("length2", feature.length2 ?? 10)), [angle, setAngle] = useState(initial("angle", feature.angle ?? 360));
-    const intent = useRef(randomUUID()), version = useRef(view.document.versionId), alive = useRef(true), queue = useRef(Promise.resolve());
+    const intent = useRef(intentRequestId??randomUUID()), version = useRef(view.document.versionId), alive = useRef(true), queue = useRef(Promise.resolve());
     const callbacks = useRef({ onSelectionSession, onInputArtifact });
     callbacks.current = { onSelectionSession, onInputArtifact };
     const index = feature.id ? view.part!.features.findIndex(f => f.id === feature.id) : view.part!.features.length;

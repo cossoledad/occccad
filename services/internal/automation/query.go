@@ -50,7 +50,7 @@ type queryCursor struct {
 	After      string `json:"after"`
 }
 
-var queryFields = map[string]bool{"definition": true, "name": true, "type": true, "bodyId": true, "ownerId": true, "length": true, "plane": true, "status": true, "parameterAlias": true, "value": true, "displayValue": true, "unit": true, "referencedDocumentId": true, "referencedRevisionId": true, "referenceMode": true, "geometryKey": true, "profileId": true}
+var queryFields = map[string]bool{"definition": true, "definitionDigest": true, "name": true, "type": true, "bodyId": true, "ownerId": true, "length": true, "plane": true, "status": true, "parameterAlias": true, "value": true, "displayValue": true, "unit": true, "referencedDocumentId": true, "referencedRevisionId": true, "referenceMode": true, "geometryKey": true, "profileId": true}
 
 func (s *Service) Query(ctx context.Context, actor, document string, q Query) (QueryResult, error) {
 	if err := s.authorize(ctx, actor, document, access.RoleViewer); err != nil {
@@ -68,6 +68,9 @@ func (s *Service) Query(ctx context.Context, actor, document string, q Query) (Q
 	for _, f := range q.Fields {
 		if !queryFields[f] {
 			return QueryResult{}, fault("INVALID_QUERY", "unknown field: "+f)
+		}
+		if f == "definitionDigest" && q.ID == "" {
+			return QueryResult{}, fault("INVALID_QUERY", "definitionDigest requires one exact feature id")
 		}
 	}
 	sort.Strings(q.Fields)
@@ -102,6 +105,27 @@ func (s *Service) Query(ctx context.Context, actor, document string, q Query) (Q
 	rows, err := definitionEntities(snapshot, q.Kind)
 	if err != nil {
 		return QueryResult{}, err
+	}
+	for _, field := range q.Fields {
+		if field != "definitionDigest" {
+			continue
+		}
+		if snapshot.DocumentType != "PART" {
+			return QueryResult{}, fault("INVALID_QUERY", "definitionDigest is a Part feature edit baseline")
+		}
+		var part workspace.PartModel
+		if err = json.Unmarshal(snapshot.Model, &part); err != nil {
+			return QueryResult{}, err
+		}
+		digest, e := workspace.FeatureDefinitionDigest(part, q.ID)
+		if e != nil {
+			return QueryResult{}, e
+		}
+		for i := range rows {
+			if rows[i].Ref.ID == q.ID && (rows[i].Ref.Kind == "FEATURE" || rows[i].Ref.Kind == "SKETCH") {
+				rows[i].Properties[field] = digest
+			}
+		}
 	}
 	result := QueryResult{Snapshot: snapshot, Items: []Entity{}, Scope: "DOCUMENT_DEFINITION"}
 	encodedBytes := 0

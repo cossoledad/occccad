@@ -24,6 +24,7 @@ import type { DocumentSessions } from "../cad/document/document-session";
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
 export type CadViewportHandle = {
+  retryDocumentDisplay:()=>void;
   captureMotionViewpoint:()=>import('../cad/assembly/motion-study').MotionViewpoint|undefined;
   previewMotionViewpoint:(viewpoint:import('../cad/assembly/motion-study').MotionViewpoint)=>void;
   sketchCommandAction:(action:SketchCommandAction)=>void;
@@ -226,6 +227,13 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => { engine.current?.setTreeVisibilityOverrides(props.treeVisibilityOverrides); }, [props.treeVisibilityOverrides]);
 
   useImperativeHandle(ref, () => ({
+    retryDocumentDisplay:()=>{
+      const instance=engine.current,current=callbacks.current;if(!instance)return;
+      const inputs=current.featureInputArtifacts,ownerId=(current.editingView??current.view).document.id;
+      const replaceInput=(view:DocumentView)=>featureInputDisplay(view,inputs,ownerId,view.part?undefined:current.activeInstancePath);
+      instance.render(replaceInput(current.view),current.editingView?{view:replaceInput(current.editingView),occurrencePath:current.activeInstancePath,
+        translation:current.activeInstanceTranslation,rotation:current.activeInstanceRotation,bodyTreeNodeId:current.activeBodyTreeNodeId,liveDefinitionProjection:current.liveDefinitionProjection}:undefined);
+    },
     captureMotionViewpoint:()=>engine.current?.captureMotionViewpoint(),
     previewMotionViewpoint:viewpoint=>engine.current?.previewMotionViewpoint(viewpoint),
     cancelAssemblyInteraction:()=>engine.current?.cancelAssemblyInteraction(),

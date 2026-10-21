@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "source": "LIVE_PROVIDER",
+  "cases": [
+    {
+      "id": "box",
+      "setup": "EMPTY_PART",
+      "prompt": "在 XY 平面创建一个 80 × 50 mm 的矩形，并拉伸 12 mm。请完成建模，并验证实际尺寸和实体有效性。",
+      "checks": [
+        { "id": "rectangle", "kind": "RECTANGLE_DIMENSIONS", "width": 80, "height": 50, "unit": "mm" },
+        { "id": "extrusion", "kind": "EXTRUSION_LENGTH", "length": 12, "unit": "mm" },
+        { "id": "solid", "kind": "BODY_GEOMETRY_VALID" }
+      ]
+    },
+    {
+      "id": "box-fillet",
+      "setup": "EMPTY_PART",
+      "prompt": "在 XY 平面创建一个 80 × 50 mm 的矩形，拉伸 12 mm，然后将生成实体的全部边倒圆角 2 mm。这是同一个完整目标，只有尺寸、实体有效性和全部边的 R2 圆角均已验证后才能完成。",
+      "checks": [
+        { "id": "rectangle", "kind": "RECTANGLE_DIMENSIONS", "width": 80, "height": 50, "unit": "mm" },
+        { "id": "extrusion", "kind": "EXTRUSION_LENGTH", "length": 12, "unit": "mm" },
+        { "id": "all-edges", "kind": "ALL_EDGES_FILLET", "radius": 2, "expectedCount": 12, "unit": "mm" },
+        { "id": "solid", "kind": "BODY_GEOMETRY_VALID" }
+      ]
+    },
+    {
+      "id": "shaft-hole",
+      "setup": "SHAFT_HOLE_PRODUCT",
+      "prompt": "固定套筒实例 {{referenceInstanceId}}，将当前偏移且倾斜的圆轴实例 {{movingInstanceId}} 装入套筒孔。请基于精确几何选择轴孔同轴配合，让两个零件的底端面齐平：轴线方向 SAME，底端面有向法线 SAME，沿所选第一端面法线偏置 0 mm。最终仅保留绕同轴轴线的一个旋转自由度（targetDOF=1），并用真实求解器及实际几何验证。若有多个端面候选，用定义坐标中的底端面位置 0 mm 明确辨认，不能按数组顺序选择。",
+      "checks": []
+    }
+  ]
+}

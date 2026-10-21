@@ -38,7 +38,7 @@ export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengt
     {prompt&&<span role="status" className="workbench-sketch-role" title={prompt}>{prompt}</span>}
     {!sketchCommand&&!prompt&&<span className="workbench-selection-count">{selectionCount ? `已选择 ${selectionCount} 项` : "未选择对象"}</span>}
     <span className="workbench-status-spacer" />
-    {onAssistantToggle&&<Button type="text" size="small" className="workbench-assistant-toggle" aria-label="建模助手" aria-pressed={assistantOpen} icon={<CommentOutlined/>} onClick={onAssistantToggle}>建模助手</Button>}
+    {onAssistantToggle&&<Tooltip title="建模助手"><Button type="text" size="small" className="workbench-assistant-toggle" aria-label="建模助手" aria-pressed={assistantOpen} icon={<CommentOutlined/>} onClick={onAssistantToggle}/></Tooltip>}
     <span>长度 · {lengthUnit}</span>
     <span className="workbench-navigation-label">{preferences.navigationProfile === "catia" ? "3DEXPERIENCE CATIA" : preferences.navigationProfile === "solidworks" ? "SOLIDWORKS" : "默认"} 导航</span>
   </footer>;

@@ -43,6 +43,22 @@ func (server *Server) registerAutomationRoutes(mux *http.ServeMux) {
 		value, err := server.automation.Query(r.Context(), principal(r).ID, r.PathValue("documentID"), input)
 		writeAutomationResult(w, value, err)
 	})
+	mux.HandleFunc("POST /api/documents/{documentID}/automation/verify-assembly", func(w http.ResponseWriter, r *http.Request) {
+		var input automation.AssemblyVerificationInput
+		if !decodeAutomationJSON(w, r, &input) {
+			return
+		}
+		v, e := server.automation.VerifyAssembly(r.Context(), principal(r).ID, r.PathValue("documentID"), input)
+		writeAutomationResult(w, v, e)
+	})
+	mux.HandleFunc("POST /api/documents/{documentID}/automation/verify-part", func(w http.ResponseWriter, r *http.Request) {
+		var input automation.PartVerificationRequest
+		if !decodeAutomationJSON(w, r, &input) {
+			return
+		}
+		value, err := server.automation.VerifyPart(r.Context(), principal(r).ID, r.PathValue("documentID"), input)
+		writeAutomationResult(w, value, err)
+	})
 	mux.HandleFunc("POST /api/documents/{documentID}/automation/tasks", func(w http.ResponseWriter, r *http.Request) {
 		var input automation.CreateTask
 		if !decodeAutomationJSON(w, r, &input) {

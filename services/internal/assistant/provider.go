@@ -30,13 +30,15 @@ type ModelEffort struct {
 	SupportedLevels []string `json:"supported_levels"`
 }
 
-// Generation is frozen once per turn. It contains no credential or reasoning.
+// Generation freezes the actual configuration of one outbound attempt.
 type Generation struct {
-	Model    string `json:"model"`
-	Thinking string `json:"thinking"`
-	Budget   string `json:"budget"`
-	// Per-call remaining output allowance; never serialized or persisted.
-	maxTokens int
+	Provider       string        `json:"provider"`
+	ProviderOrigin string        `json:"providerOrigin,omitempty"`
+	Model          string        `json:"model"`
+	Thinking       string        `json:"thinking"`
+	Version        uint64        `json:"version"`
+	Limits         RequestLimits `json:"limits"`
+	MaxTokens      int           `json:"maxTokens"`
 }
 
 func validThinking(value string) bool {
@@ -73,13 +75,87 @@ type ToolCall struct {
 	} `json:"function"`
 }
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	Raw              json.RawMessage `json:"raw,omitempty"`
+	CacheHitTokens   *int64          `json:"cacheHitTokens,omitempty"`
+	ReasoningTokens  *int64          `json:"reasoningTokens,omitempty"`
+	PromptTokens     int             `json:"prompt_tokens"`
+	CompletionTokens int             `json:"completion_tokens"`
+	TotalTokens      int             `json:"total_tokens"`
 }
+
+func (u *Usage) UnmarshalJSON(raw []byte) error {
+	type wire struct {
+		PromptTokens        int             `json:"prompt_tokens"`
+		CompletionTokens    int             `json:"completion_tokens"`
+		TotalTokens         int             `json:"total_tokens"`
+		CacheHit            *int64          `json:"prompt_cache_hit_tokens"`
+		CacheHitNormalized  *int64          `json:"cacheHitTokens"`
+		ReasoningNormalized *int64          `json:"reasoningTokens"`
+		Raw                 json.RawMessage `json:"raw"`
+		Details             *struct {
+			Reasoning *int64 `json:"reasoning_tokens"`
+		} `json:"completion_tokens_details"`
+		PromptDetails *struct {
+			Cached *int64 `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+	}
+	var v wire
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	u.PromptTokens = v.PromptTokens
+	u.CompletionTokens = v.CompletionTokens
+	u.TotalTokens = v.TotalTokens
+	u.CacheHitTokens = v.CacheHit
+	if u.CacheHitTokens == nil && v.PromptDetails != nil {
+		u.CacheHitTokens = v.PromptDetails.Cached
+	}
+	if u.CacheHitTokens == nil {
+		u.CacheHitTokens = v.CacheHitNormalized
+	}
+	if v.Details != nil {
+		u.ReasoningTokens = v.Details.Reasoning
+	} else {
+		u.ReasoningTokens = v.ReasoningNormalized
+	}
+	// Keep numeric provider usage evidence, never arbitrary response text/keys.
+	evidence := raw
+	if len(v.Raw) > 0 {
+		evidence = v.Raw
+	}
+	var object map[string]json.RawMessage
+	_ = json.Unmarshal(evidence, &object)
+	clean := map[string]any{}
+	for _, key := range []string{"prompt_tokens", "completion_tokens", "total_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens"} {
+		var n int64
+		if value, ok := object[key]; ok && json.Unmarshal(value, &n) == nil && n >= 0 {
+			clean[key] = n
+		}
+	}
+	for _, key := range []string{"completion_tokens_details", "prompt_tokens_details"} {
+		var details map[string]json.RawMessage
+		if json.Unmarshal(object[key], &details) == nil {
+			safe := map[string]int64{}
+			for _, name := range []string{"reasoning_tokens", "cached_tokens", "accepted_prediction_tokens", "rejected_prediction_tokens"} {
+				var n int64
+				if data, ok := details[name]; ok && json.Unmarshal(data, &n) == nil && n >= 0 {
+					safe[name] = n
+				}
+			}
+			if len(safe) > 0 {
+				clean[key] = safe
+			}
+		}
+	}
+	u.Raw, _ = json.Marshal(clean)
+	return nil
+}
+
 type Completion struct {
-	Message Message
-	Usage   *Usage
+	Message           Message
+	Usage             *Usage
+	ProviderRequestID string
+	ResponseID        string
 }
 type OpenAIProvider struct {
 	BaseURL string
@@ -96,13 +172,16 @@ func newProvider(baseURL, model string) *OpenAIProvider {
 func aiFault(code, message string, retryable bool) error {
 	return &automation.Fault{Code: code, Message: message, Retryable: retryable}
 }
-func (p *OpenAIProvider) request(ctx context.Context, key, method, path string, body any, budgets ...BudgetPreset) ([]byte, error) {
+
+type providerRequestIDKey struct{}
+
+func (p *OpenAIProvider) request(ctx context.Context, key, method, path string, body any, limits ...RequestLimits) ([]byte, error) {
 	maxInput, maxResponse, timeout := 96<<10, 256<<10, 75*time.Second
-	if len(budgets) > 0 {
-		budget := budgets[0]
+	if len(limits) > 0 {
+		budget := limits[0]
 		maxInput = budget.MaxContextBytes + 64<<10          // function schemas and envelope
 		maxResponse = 256<<10 + budget.MaxThinkingTokens*12 // bounded UTF-8/JSON overhead
-		timeout = time.Duration(budget.RequestTimeoutSeconds) * time.Second
+		timeout = time.Duration(budget.TimeoutSeconds) * time.Second
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -133,6 +212,12 @@ func (p *OpenAIProvider) request(ctx context.Context, key, method, path string, 
 		return nil, aiFault("AI_UNAVAILABLE", "暂时无法连接 DeepSeek，请稍后重试", true)
 	}
 	defer response.Body.Close()
+	if value, ok := ctx.Value(providerRequestIDKey{}).(*string); ok {
+		*value = response.Header.Get("X-Request-ID")
+		if *value == "" {
+			*value = response.Header.Get("Request-ID")
+		}
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		switch response.StatusCode {
 		case 401, 403:
@@ -180,16 +265,19 @@ func (p *OpenAIProvider) Models(ctx context.Context, key string) ([]Model, error
 	return models.Data, nil
 }
 func (p *OpenAIProvider) Complete(ctx context.Context, key string, messages []Message, tools []Tool, choices ...Generation) (Completion, error) {
-	generation := Generation{Model: p.Model, Thinking: "off", Budget: defaultBudget}
+	generation := Generation{Provider: "DeepSeek", Model: p.Model, Thinking: "off", Limits: defaultRequestLimits()}
 	if len(choices) > 0 {
 		generation = choices[0]
 	}
 	if generation.Model == "" || len(generation.Model) > 160 || !validThinking(generation.Thinking) {
 		return Completion{}, aiFault("AI_CONFIGURATION", "模型或思考度设置无效", false)
 	}
-	budget, err := budgetFor(generation.Budget)
-	if err != nil {
-		return Completion{}, err
+	budget := generation.Limits
+	if budget.MaxContextBytes == 0 {
+		budget = defaultRequestLimits()
+	}
+	if budget.MaxContextBytes < 2048 || budget.MaxContextBytes > 4<<20 || budget.MaxOutputTokens < 1 || budget.MaxThinkingTokens < 1 || budget.TimeoutSeconds < 1 {
+		return Completion{}, aiFault("AI_CONFIGURATION", "单次请求资源设置无效", false)
 	}
 	if raw, err := json.Marshal(messages); err != nil || len(raw) > budget.MaxContextBytes {
 		return Completion{}, budgetFault("AI_CONTEXT_BUDGET")
@@ -198,8 +286,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, key string, messages []Me
 	if generation.Thinking != "off" {
 		maxTokens = budget.MaxThinkingTokens
 	}
-	if generation.maxTokens > 0 && generation.maxTokens < maxTokens {
-		maxTokens = generation.maxTokens
+	if generation.MaxTokens > 0 && generation.MaxTokens < maxTokens {
+		maxTokens = generation.MaxTokens
 	}
 	functions := make([]any, 0, len(tools))
 	for _, tool := range tools {
@@ -213,11 +301,14 @@ func (p *OpenAIProvider) Complete(ctx context.Context, key string, messages []Me
 		body["thinking"] = map[string]string{"type": "enabled"}
 		body["reasoning_effort"] = generation.Thinking
 	}
+	var providerRequestID string
+	ctx = context.WithValue(ctx, providerRequestIDKey{}, &providerRequestID)
 	raw, err := p.request(ctx, key, http.MethodPost, "/chat/completions", body, budget)
 	if err != nil {
-		return Completion{}, err
+		return Completion{ProviderRequestID: providerRequestID}, err
 	}
 	var output struct {
+		ID      string `json:"id"`
 		Choices []struct {
 			Message      Message `json:"message"`
 			FinishReason string  `json:"finish_reason"`
@@ -228,7 +319,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, key string, messages []Me
 		return Completion{}, aiFault("AI_RESPONSE_INVALID", "AI 未返回有效回复", false)
 	}
 	// Preserve reported cost even when the response cannot produce a plan.
-	result := Completion{Usage: output.Usage}
+	result := Completion{Usage: output.Usage, ProviderRequestID: providerRequestID, ResponseID: output.ID}
 	if u := output.Usage; u != nil && (u.PromptTokens < 0 || u.CompletionTokens < 0 || u.TotalTokens < 0 || u.TotalTokens > 1<<30 || u.PromptTokens > u.TotalTokens || u.CompletionTokens > u.TotalTokens-u.PromptTokens) {
 		return Completion{}, aiFault("AI_RESPONSE_INVALID", "AI 返回的用量格式无效", false)
 	}
@@ -239,7 +330,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, key string, messages []Me
 	if choice.FinishReason == "length" {
 		return result, budgetFault("AI_OUTPUT_BUDGET")
 	}
-	if choice.Message.Role != "assistant" || len(choice.Message.Content) > 16<<10 || len(choice.Message.ReasoningContent) > budget.MaxThinkingTokens*4 || len(choice.Message.ToolCalls) > 8 ||
+	if choice.Message.Role != "assistant" || len(choice.Message.Content) > budget.MaxOutputTokens*4 || len(choice.Message.ReasoningContent) > budget.MaxThinkingTokens*4 || len(choice.Message.ToolCalls) > 8 ||
 		(choice.FinishReason != "stop" && choice.FinishReason != "tool_calls") || (choice.Message.Content == "" && len(choice.Message.ToolCalls) == 0) {
 		return result, aiFault("AI_RESPONSE_INVALID", "AI 回复格式不完整，本轮未执行新计划", false)
 	}
@@ -250,5 +341,6 @@ func (p *OpenAIProvider) Complete(ctx context.Context, key string, messages []Me
 		}
 		ids[call.ID] = true
 	}
-	return Completion{Message: choice.Message, Usage: output.Usage}, nil
+	result.Message = choice.Message
+	return result, nil
 }

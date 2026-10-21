@@ -101,9 +101,11 @@ type ActionRequest struct {
 	PreviewID    string                    `json:"previewId,omitempty"`
 }
 type ActionResult struct {
-	Receipt workspace.CommandReceipt `json:"receipt"`
-	Outputs []EntityRef              `json:"outputs,omitempty"`
-	Output  *EntityRef               `json:"output,omitempty"`
+	Receipt          workspace.CommandReceipt `json:"receipt"`
+	Outputs          []EntityRef              `json:"outputs,omitempty"`
+	Output           *EntityRef               `json:"output,omitempty"`
+	TypedOutputs     []TypedOutput            `json:"typedOutputs,omitempty"`
+	ReferenceFailure *Fault                   `json:"referenceFailure,omitempty"`
 }
 
 func (s *Service) command(ctx context.Context, actor, document string, a ActionRequest) (workspace.CommandRequest, error) {
@@ -113,6 +115,9 @@ func (s *Service) command(ctx context.Context, actor, document string, a ActionR
 	command, err := s.Catalog.Compile(a.OperationID, a.Version, a.Arguments)
 	if err != nil {
 		return command, err
+	}
+	if a.OperationID == "sketch.circle" {
+		command.Operations[0].Entity.ID = "circle-" + uuid.NewSHA1(uuid.NameSpaceOID, []byte(document+":"+a.RequestID+":circle")).String()
 	}
 	if err = s.resolveSelections(ctx, document, a, &command); err != nil {
 		return command, err
@@ -232,6 +237,9 @@ func (s *Service) recoverAction(ctx context.Context, actor, document string, a A
 	if a.OperationID == "part.extrude" {
 		command = "PAD_SKETCH"
 	}
+	if a.OperationID == "part.cut" {
+		command = "CREATE_SOLID_FEATURE"
+	}
 	switch command {
 	case "CREATE_SKETCH":
 		kind, slot = "SKETCH", "entity"
@@ -291,6 +299,11 @@ func (s *Service) recoverAction(ctx context.Context, actor, document string, a A
 		if id := textArg(args, key); id != "" {
 			result.Output = &EntityRef{DocumentID: document, RevisionID: receipt.RevisionID, Kind: kind, ID: id}
 		}
+	}
+	if err := s.decorateOutputs(ctx, actor, document, &result); err != nil {
+		// A failure to expand an optional output reference cannot erase an
+		// authoritative commit. The planner can re-query it under current ACLs.
+		result.ReferenceFailure = classify(err)
 	}
 	return result, nil
 }

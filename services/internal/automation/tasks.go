@@ -20,15 +20,34 @@ type StepSpec struct {
 	Arguments   json.RawMessage `json:"arguments"`
 	// A binding is an explicit reference to a preceding step's output, never
 	// a tree position, display name or an arbitrary expression.
-	Bindings map[string]string `json:"bindings,omitempty"`
+	Bindings      map[string]string `json:"bindings,omitempty"`
+	TypedBindings []InputBinding    `json:"typedBindings,omitempty"`
+}
+type Presentation struct {
+	Status     string `json:"status"` // NOT_PRESENTED | PRESENTED | FAILED
+	RevisionID string `json:"revisionId,omitempty"`
+	At         string `json:"at,omitempty"`
+}
+type Confirmation struct {
+	RunID        string                    `json:"runId,omitempty"`
+	PlanEpoch    uint64                    `json:"planEpoch"`
+	TaskVersion  uint64                    `json:"taskVersion"`
+	StepID       string                    `json:"stepId"`
+	PreviewID    string                    `json:"previewId"`
+	ExpectedHead workspace.CommandBaseline `json:"expectedHead"`
+	IntentDigest string                    `json:"intentDigest"`
 }
 type Step struct {
 	StepSpec
-	Phase   string                    `json:"phase"`
-	Action  *ActionRequest            `json:"action,omitempty"`
-	Preview *workspace.CommandPreview `json:"preview,omitempty"`
-	Result  *ActionResult             `json:"result,omitempty"`
-	Failure *Fault                    `json:"failure,omitempty"`
+	Phase           string                    `json:"phase"`
+	Action          *ActionRequest            `json:"action,omitempty"`
+	Preview         *workspace.CommandPreview `json:"preview,omitempty"`
+	Result          *ActionResult             `json:"result,omitempty"`
+	Failure         *Fault                    `json:"failure,omitempty"`
+	Presentation    Presentation              `json:"presentation"`
+	Confirmation    *Confirmation             `json:"confirmation,omitempty"`
+	Handoff         *HandoffExpectation       `json:"handoff,omitempty"`
+	ReceiptRecorded bool                      `json:"receiptRecorded,omitempty"`
 }
 type Event struct {
 	Sequence uint64 `json:"sequence"`
@@ -48,12 +67,18 @@ type Task struct {
 	Events          []Event                   `json:"events"`
 	EventSequence   uint64                    `json:"eventSequence"`
 	EventsTruncated bool                      `json:"eventsTruncated"`
+	ExecutionMode   string                    `json:"executionMode"`
+	RunID           string                    `json:"runId,omitempty"`
+	PlanEpoch       uint64                    `json:"planEpoch,omitempty"`
 }
 type CreateTask struct {
-	RequestID    string                    `json:"requestId"`
-	Goal         string                    `json:"goal"`
-	ExpectedHead workspace.CommandBaseline `json:"expectedHead"`
-	Steps        []StepSpec                `json:"steps"`
+	RequestID     string                    `json:"requestId"`
+	Goal          string                    `json:"goal"`
+	ExpectedHead  workspace.CommandBaseline `json:"expectedHead"`
+	Steps         []StepSpec                `json:"steps"`
+	ExecutionMode string                    `json:"executionMode,omitempty"`
+	RunID         string                    `json:"runId,omitempty"`
+	PlanEpoch     uint64                    `json:"planEpoch,omitempty"`
 }
 
 func (task *Task) event(stepID, kind string) {
@@ -66,11 +91,14 @@ func (task *Task) event(stepID, kind string) {
 }
 func (task *Task) pending() *Step {
 	for i := range task.Steps {
-		if task.Steps[i].Phase != "DISPLAYED" && task.Steps[i].Phase != "SUPERSEDED" && task.Steps[i].Phase != "HANDED_OFF" && task.Steps[i].Phase != "UI_OPENED" && task.Steps[i].Phase != "UI_FAILED" {
+		if !stepApplied(task.Steps[i]) {
 			return &task.Steps[i]
 		}
 	}
 	return nil
+}
+func stepApplied(step Step) bool {
+	return step.Phase == "APPLIED" || step.Phase == "DISPLAYED" || step.Phase == "SUPERSEDED" || step.Phase == "UI_COMPLETED"
 }
 
 func (s *Service) CreateTask(ctx context.Context, actor, document string, input CreateTask) (Task, error) {
@@ -79,6 +107,17 @@ func (s *Service) CreateTask(ctx context.Context, actor, document string, input 
 	}
 	if len(input.RequestID) < 1 || len(input.RequestID) > 160 || len(input.Goal) < 1 || len(input.Goal) > 2048 || len(input.Steps) < 1 || len(input.Steps) > 32 || len(marshal(input)) > 64<<10 {
 		return Task{}, fault("INVALID_TASK", "task requires a requestId, goal and 1..32 bounded steps")
+	}
+	if input.ExecutionMode == "" {
+		input.ExecutionMode = "CONFIRM"
+	}
+	if input.ExecutionMode != "AUTOMATIC" && input.ExecutionMode != "CONFIRM" {
+		return Task{}, fault("INVALID_EXECUTION_MODE", "executionMode must be AUTOMATIC or CONFIRM")
+	}
+	if input.RunID != "" {
+		if _, err := uuid.Parse(input.RunID); err != nil || input.PlanEpoch == 0 {
+			return Task{}, fault("INVALID_TASK", "Run tasks require a stable Run ID and a positive plan epoch")
+		}
 	}
 	digest := modelcore.ValueDigest(marshal(input))
 	var priorID, priorDigest string
@@ -103,7 +142,7 @@ func (s *Service) CreateTask(ctx context.Context, actor, document string, input 
 		return Task{}, fault("WORKSPACE_HEAD_CONFLICT", "task baseline changed")
 	}
 	known := map[string]bool{}
-	task := Task{ID: uuid.NewString(), DocumentID: document, Version: 1, Goal: input.Goal, Status: "ACTIVE", Baseline: input.ExpectedHead, CatalogDigest: s.Catalog.Digest, Steps: []Step{}, Events: []Event{}}
+	task := Task{ID: uuid.NewString(), DocumentID: document, Version: 1, Goal: input.Goal, Status: "ACTIVE", Baseline: input.ExpectedHead, CatalogDigest: s.Catalog.Digest, Steps: []Step{}, Events: []Event{}, ExecutionMode: input.ExecutionMode, RunID: input.RunID, PlanEpoch: input.PlanEpoch}
 	for _, spec := range input.Steps {
 		if _, err := uuid.Parse(spec.ID); err != nil || known[spec.ID] {
 			return Task{}, fault("INVALID_TASK", "steps require unique stable UUIDs")
@@ -146,15 +185,39 @@ func (s *Service) CreateTask(ctx context.Context, actor, document string, input 
 				return Task{}, fault("INVALID_BINDING", "only declared entity inputs can bind an output")
 			}
 		}
+		boundFields := map[string]bool{}
+		for key := range spec.Bindings {
+			boundFields[key] = true
+		}
+		for _, binding := range spec.TypedBindings {
+			if boundFields[binding.Target] {
+				return Task{}, fault("INVALID_BINDING", "duplicate typed input binding")
+			}
+			container, _, _ := bindingSlot(binding.Target)
+			for existing := range boundFields {
+				priorContainer, _, _ := bindingSlot(existing)
+				if container != "" && existing == container || priorContainer != "" && binding.Target == priorContainer {
+					return Task{}, fault("INVALID_BINDING", "whole-object and nested bindings cannot overlap")
+				}
+			}
+			if err := validateInputBinding(op, args, binding, known); err != nil {
+				return Task{}, err
+			}
+			boundFields[binding.Target] = true
+		}
 		for _, field := range op.Fields {
 			_, literal := args[field.Name]
-			_, bound := spec.Bindings[field.Name]
+			bound := boundFields[field.Name]
+			for _, binding := range spec.TypedBindings {
+				container, _, _ := bindingSlot(binding.Target)
+				bound = bound || container == field.Name
+			}
 			if field.Required && !literal && !bound {
 				return Task{}, fault("INVALID_ARGUMENTS", "missing task argument: "+field.Name)
 			}
 		}
 		known[spec.ID] = true
-		task.Steps = append(task.Steps, Step{StepSpec: spec, Phase: "PLANNED"})
+		task.Steps = append(task.Steps, Step{StepSpec: spec, Phase: "PLANNED", Presentation: Presentation{Status: "NOT_PRESENTED"}})
 	}
 	task.event("", "TASK_CREATED")
 	_, err = s.db.Exec(ctx, `INSERT INTO occccad.automation_tasks(id,document_id,workspace_id,actor_id,request_id,request_digest,version,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, task.ID, document, task.Baseline.WorkspaceID, actor, input.RequestID, digest, task.Version, marshal(task))
@@ -200,6 +263,9 @@ func loadTask(ctx context.Context, db database.Executor, actor, document, id str
 		return task, err
 	}
 	task.Version = version
+	if task.ExecutionMode == "" {
+		task.ExecutionMode = "CONFIRM"
+	}
 	return task, nil
 }
 func saveTask(ctx context.Context, db database.Executor, task *Task, actor string) error {
@@ -222,7 +288,7 @@ func (s *Service) HasPendingTask(ctx context.Context, actor, document string) (b
 		return false, err
 	}
 	var count int
-	err := s.db.QueryRow(ctx, `SELECT count(*) FROM occccad.automation_tasks WHERE actor_id=$1 AND document_id=$2 AND payload->>'status' IN ('ACTIVE','PAUSED')`, actor, document).Scan(&count)
+	err := s.db.QueryRow(ctx, `SELECT count(*) FROM occccad.automation_tasks WHERE actor_id=$1 AND document_id=$2 AND payload->>'status' IN ('ACTIVE','PAUSED','WAIT_CONFIRM','WAIT_UI','REPLAN_REQUIRED')`, actor, document).Scan(&count)
 	return count > 0, err
 }
 
@@ -278,9 +344,6 @@ func (s *Service) claim(ctx context.Context, actor, document, id string, expecte
 	if expected != task.Version {
 		return task, "", fault("TASK_VERSION_CONFLICT", "task changed; reload before proceeding")
 	}
-	if task.CatalogDigest != s.Catalog.Digest {
-		return task, "", fault("OPERATION_CATALOG_CHANGED", "reload operation contracts before creating a new plan")
-	}
 	if task.Status != "ACTIVE" {
 		return task, "", fault("TASK_NOT_ACTIVE", "resume the task before proceeding")
 	}
@@ -293,10 +356,29 @@ func (s *Service) claim(ctx context.Context, actor, document, id string, expecte
 	}
 	step := task.pending()
 	if step == nil {
-		return task, "", fault("TASK_FINISHED", "all steps have been displayed")
+		return task, "", fault("TASK_FINISHED", "all steps have authoritative results")
 	}
-	if step.Phase == "COMMITTED" {
-		return task, "", fault("DISPLAY_REQUIRED", "display the committed result before advancing")
+	if step.Phase == "COMMITTING" || step.Phase == "RESULT_UNKNOWN" {
+		return task, "", &Fault{Code: "COMMIT_RESULT_UNKNOWN", Message: "recover the original command receipt before issuing another action", Retryable: true}
+	}
+	// Binding/contract rejection happens before an execution lease exists. Keep
+	// its diagnosis durable too, so a restart cannot leave an active plan that
+	// repeats the same rejected claim without exposing it to the coordinator.
+	rejectPlan := func(planErr error) (Task, string, error) {
+		invalidateCandidate(s, document, actor, &task)
+		step.Phase, step.Failure = "FAILED", classify(planErr)
+		task.Status = "PAUSED"
+		task.event(step.ID, "PLAN_REJECTED")
+		if err := saveTask(ctx, tx, &task, actor); err != nil {
+			return task, "", err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return task, "", err
+		}
+		return task, "", planErr
+	}
+	if task.CatalogDigest != s.Catalog.Digest {
+		return rejectPlan(fault("OPERATION_CATALOG_CHANGED", "reload operation contracts before creating a new plan"))
 	}
 	if op, _ := s.Catalog.Describe(step.OperationID); op.Effect == "UI_COMMAND" {
 		return task, "", fault("UI_HANDOFF_REQUIRED", "Execute this step through the workbench handoff")
@@ -304,26 +386,22 @@ func (s *Service) claim(ctx context.Context, actor, document, id string, expecte
 	if step.Action == nil {
 		args, err := DecodeObject(step.Arguments)
 		if err != nil {
-			return task, "", err
+			return rejectPlan(err)
 		}
-		for field, source := range step.Bindings {
-			for _, prior := range task.Steps {
-				if prior.ID == source && prior.Result != nil && prior.Result.Output != nil {
-					requiredKind := bindingKind(field)
-					if requiredKind != "ENTITY" && prior.Result.Output.Kind != requiredKind {
-						return task, "", fault("INVALID_BINDING", "step output has incompatible entity kind")
-					}
-					args[field] = prior.Result.Output.ID
-				}
-			}
+		if err := bindInputs(&task, step, args); err != nil {
+			return rejectPlan(err)
 		}
 		step.Action = &ActionRequest{OperationID: step.OperationID, Version: step.Version, Arguments: marshal(args), ExpectedHead: task.Baseline, RequestID: "automation:" + task.ID + ":" + step.ID}
 	}
 	if step.Phase == "PREVIEW_READY" {
+		if task.ExecutionMode == "CONFIRM" && !confirmationMatches(task, *step) {
+			return task, "", fault("CONFIRMATION_REQUIRED", "confirm this exact preview before committing")
+		}
 		step.Phase = "COMMITTING"
 	} else {
 		step.Phase = "PREPARING"
 		step.Preview = nil
+		step.Confirmation = nil
 	}
 	step.Failure = nil
 	task.event(step.ID, step.Phase)
@@ -341,6 +419,16 @@ func (s *Service) claim(ctx context.Context, actor, document, id string, expecte
 func (s *Service) Advance(ctx context.Context, actor, document, id string, expected uint64) (Task, error) {
 	ctx, cancelOperation := context.WithTimeout(ctx, 110*time.Second)
 	defer cancelOperation()
+	observed, err := s.GetTask(ctx, actor, document, id)
+	if err != nil {
+		return observed, err
+	}
+	if observed.Version != expected {
+		return observed, fault("TASK_VERSION_CONFLICT", "task changed; reload before advancing")
+	}
+	if step := observed.pending(); step != nil && (step.Phase == "COMMITTING" || step.Phase == "RESULT_UNKNOWN") {
+		return s.ReconcileTaskReceipts(ctx, actor, document, id)
+	}
 	task, token, err := s.claim(ctx, actor, document, id, expected)
 	if err != nil {
 		return task, err
@@ -348,12 +436,14 @@ func (s *Service) Advance(ctx context.Context, actor, document, id string, expec
 	step := task.pending()
 	stepID := step.ID
 	action := *step.Action
+	commitIssued := step.Phase == "COMMITTING"
 	// The request may have committed immediately before a previous process died.
 	result, recoveryErr := s.recoverAction(ctx, actor, document, action)
 	var preview workspace.CommandPreview
 	if recoveryErr == nil {
 		step.Result = &result
-		step.Phase = "COMMITTED"
+		step.Phase = "APPLIED"
+		step.Preview, step.Confirmation = nil, nil
 		task.Baseline = result.Receipt.CommandBaseline
 	} else if !errors.Is(recoveryErr, workspace.ErrNotFound) {
 		err = recoveryErr
@@ -362,7 +452,8 @@ func (s *Service) Advance(ctx context.Context, actor, document, id string, expec
 		if err == nil {
 			step.Result = &result
 			step.Preview = nil
-			step.Phase = "COMMITTED"
+			step.Confirmation = nil
+			step.Phase = "APPLIED"
 			task.Baseline = result.Receipt.CommandBaseline
 		}
 	} else {
@@ -375,9 +466,33 @@ func (s *Service) Advance(ctx context.Context, actor, document, id string, expec
 		}
 	}
 	if err != nil {
+		// A lost response is not proof of non-commit. Preserve the original
+		// request identity and reconcile its exact receipt before classifying it.
+		recovery, cancelRecovery := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		if recovered, recoverErr := s.recoverAction(recovery, actor, document, action); recoverErr == nil {
+			step.Result = &recovered
+			step.Phase = "APPLIED"
+			step.Preview, step.Confirmation = nil, nil
+			task.Baseline = recovered.Receipt.CommandBaseline
+			err = nil
+		}
+		cancelRecovery()
+	}
+	if err != nil {
 		step.Failure = classify(err)
 		step.Phase = "FAILED"
+		if commitIssued && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			step.Phase = "RESULT_UNKNOWN"
+			step.Failure = &Fault{Code: "COMMIT_RESULT_UNKNOWN", Message: "提交结果尚未确定，必须按原请求恢复领域回执后继续。", Retryable: true}
+		}
 		step.Preview = nil
+		step.Confirmation = nil
+		if step.Failure.Code == "PREVIEW_EXPIRED_OR_MISMATCHED" {
+			// Candidates are process-local and expire. Recreate the candidate,
+			// then require fresh confirmation of that new candidate in CONFIRM.
+			step.Phase = "PLANNED"
+			step.Action.PreviewID = ""
+		}
 	}
 	// Finishing survives the initiating connection closing. CAS/receipt recovery
 	// decides model truth; task bookkeeping is bounded and may be retried.
@@ -404,11 +519,14 @@ func (s *Service) Advance(ctx context.Context, actor, document, id string, expec
 			current.Steps[i] = *step
 		}
 	}
-	if current.Status == "STOPPED" && step.Preview != nil {
+	if current.Status != "ACTIVE" && step.Preview != nil {
 		s.workspace.DiscardPreview(document, actor, step.Preview.PreviewID)
 		for i := range current.Steps {
 			if current.Steps[i].ID == stepID {
 				current.Steps[i].Preview = nil
+				current.Steps[i].Confirmation = nil
+				current.Steps[i].Phase = "PLANNED"
+				current.Steps[i].Action.PreviewID = ""
 			}
 		}
 	}
@@ -423,8 +541,15 @@ func (s *Service) Advance(ctx context.Context, actor, document, id string, expec
 			current.Baseline = task.Baseline
 		}
 	}
-	if err != nil && current.Status == "ACTIVE" {
+	if err != nil && (step.Phase == "FAILED" || step.Phase == "RESULT_UNKNOWN") && current.Status == "ACTIVE" {
 		current.Status = "PAUSED"
+	}
+	if current.Status == "ACTIVE" {
+		if current.pending() == nil {
+			current.Status = "COMPLETED"
+		} else if current.ExecutionMode == "CONFIRM" && current.pending().Phase == "PREVIEW_READY" {
+			current.Status = "WAIT_CONFIRM"
+		}
 	}
 	for _, stored := range current.Steps {
 		if stored.ID == stepID {
@@ -447,6 +572,11 @@ type Control struct {
 	ExpectedVersion uint64                     `json:"expectedVersion"`
 	StepID          string                     `json:"stepId,omitempty"`
 	RevisionID      string                     `json:"revisionId,omitempty"`
+	PreviewID       string                     `json:"previewId,omitempty"`
+	RunID           string                     `json:"runId,omitempty"`
+	PlanEpoch       uint64                     `json:"planEpoch,omitempty"`
+	DomainRequestID string                     `json:"domainRequestId,omitempty"`
+	HandoffID       string                     `json:"handoffId,omitempty"`
 }
 
 func (s *Service) Control(ctx context.Context, actor, document, id string, input Control) (Task, error) {
@@ -455,6 +585,21 @@ func (s *Service) Control(ctx context.Context, actor, document, id string, input
 	}
 	if err := s.authorize(ctx, actor, document, access.RoleEditor); err != nil {
 		return Task{}, err
+	}
+	var handoffResult *ActionResult
+	if input.Action == "ui_complete" {
+		observed, err := loadTask(ctx, s.db, actor, document, id)
+		if err != nil {
+			return observed, err
+		}
+		if observed.Version != input.ExpectedVersion {
+			return observed, fault("TASK_VERSION_CONFLICT", "task changed before receipt verification")
+		}
+		result, err := s.validateHandoffReceipt(ctx, actor, document, observed, input)
+		if err != nil {
+			return observed, err
+		}
+		handoffResult = &result
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -473,18 +618,29 @@ func (s *Service) Control(ctx context.Context, actor, document, id string, input
 	if input.ExpectedVersion != task.Version {
 		return task, fault("TASK_VERSION_CONFLICT", "task changed; reload before controlling it")
 	}
+	if input.RunID != task.RunID || input.PlanEpoch != task.PlanEpoch {
+		return task, fault("PLAN_EPOCH_CONFLICT", "control belongs to another Run or superseded plan epoch")
+	}
 	switch input.Action {
-	case "ui_opened", "ui_failed":
-		if len(task.Steps) != 1 || task.Steps[0].ID != input.StepID || task.Steps[0].Phase != "HANDED_OFF" || task.Status != "COMPLETED" {
-			return task, fault("UI_HANDOFF_INVALID", "only an issued handoff can receive a UI result")
+	case "confirm":
+		step := task.pending()
+		if task.Status != "WAIT_CONFIRM" || task.ExecutionMode != "CONFIRM" || step == nil || step.ID != input.StepID || step.Phase != "PREVIEW_READY" || step.Action == nil || step.Preview == nil || input.PreviewID == "" || input.PreviewID != step.Preview.PreviewID || input.ExpectedHead == nil || *input.ExpectedHead != step.Action.ExpectedHead {
+			return task, fault("CONFIRMATION_MISMATCH", "confirmation must identify this exact task, epoch, step, baseline and preview")
 		}
-		step := &task.Steps[0]
-		step.Phase = "UI_OPENED"
-		if input.Action == "ui_failed" {
-			step.Phase = "UI_FAILED"
-			step.Failure = &Fault{Code: "UI_COMMAND_UNAVAILABLE", Message: "工具未打开，请检查当前选择或从工具栏继续操作"}
+		head, err := currentTaskHead(ctx, tx, task)
+		if err != nil {
+			return task, err
 		}
-		task.event(step.ID, step.Phase)
+		if head != *input.ExpectedHead {
+			return task, fault("WORKSPACE_HEAD_CONFLICT", "preview input changed; replan before confirming")
+		}
+		step.Confirmation = &Confirmation{RunID: task.RunID, PlanEpoch: task.PlanEpoch, TaskVersion: task.Version, StepID: step.ID, PreviewID: input.PreviewID, ExpectedHead: *input.ExpectedHead, IntentDigest: actionIntent(*step.Action)}
+		task.Status = "ACTIVE"
+		task.event(step.ID, "PREVIEW_CONFIRMED")
+	case "ui_opened", "ui_failed", "ui_complete", "ui_cancelled", "ui_unknown":
+		if err := s.controlHandoff(&task, input, handoffResult); err != nil {
+			return task, err
+		}
 	case "handoff":
 		step := task.pending()
 		if step == nil || step.ID != input.StepID || step.Phase != "PLANNED" || task.Status != "ACTIVE" || task.CatalogDigest != s.Catalog.Digest {
@@ -501,26 +657,22 @@ func (s *Service) Control(ctx context.Context, actor, document, id string, input
 		if head != task.Baseline {
 			return task, fault("WORKSPACE_HEAD_CONFLICT", "handoff scope changed")
 		}
+		step.Handoff = &HandoffExpectation{ID: uuid.NewString(), RunID: task.RunID, PlanEpoch: task.PlanEpoch, UICommand: op.UICommand, Baseline: task.Baseline, DomainRequestID: "automation-handoff:" + task.ID + ":" + step.ID}
 		step.Phase = "HANDED_OFF"
-		task.Status = "COMPLETED"
+		task.Status = "WAIT_UI"
 		task.event(step.ID, "HANDED_OFF")
 	case "pause":
-		if task.Status != "ACTIVE" {
+		if task.Status != "ACTIVE" && task.Status != "WAIT_CONFIRM" && task.Status != "WAIT_UI" {
 			return task, fault("TASK_NOT_ACTIVE", "task cannot be paused")
 		}
 		task.Status = "PAUSED"
+		invalidateCandidate(s, document, actor, &task)
 	case "stop":
 		if task.Status == "COMPLETED" || task.Status == "STOPPED" {
 			return task, nil
 		}
 		task.Status = "STOPPED"
-		if step := task.pending(); step != nil && step.Preview != nil {
-			s.workspace.DiscardPreview(document, actor, step.Preview.PreviewID)
-			step.Preview = nil
-			if step.Action != nil {
-				step.Action.PreviewID = ""
-			}
-		}
+		invalidateCandidate(s, document, actor, &task)
 	case "resume":
 		if task.Status != "PAUSED" {
 			return task, fault("TASK_NOT_PAUSED", "task cannot be resumed")
@@ -528,50 +680,51 @@ func (s *Service) Control(ctx context.Context, actor, document, id string, input
 		if leaseUntil > time.Now().UnixMilli() {
 			return task, &Fault{Code: "AUTOMATION_BUSY", Message: "current operation must finish before resuming", Retryable: true}
 		}
-		if input.ExpectedHead != nil {
-			var head workspace.CommandBaseline
-			if err = tx.QueryRow(ctx, `SELECT id::text,head_revision_id::text,head_sequence FROM occccad.workspaces WHERE id=$1 AND document_id=$2`, task.Baseline.WorkspaceID, document).Scan(&head.WorkspaceID, &head.RevisionID, &head.Sequence); err != nil {
-				return task, err
-			}
-			if head != *input.ExpectedHead {
-				return task, fault("WORKSPACE_HEAD_CONFLICT", "requested resume baseline is no longer current")
-			}
-			if step := task.pending(); step != nil {
-				if step.Phase == "COMMITTED" && step.Result != nil && step.Result.Receipt.RevisionID != head.RevisionID {
-					step.Phase = "SUPERSEDED"
-					task.event(step.ID, "COMMITTED_REVISION_SUPERSEDED")
-				}
-				if step.Action != nil && step.Result == nil {
-					step.Action.ExpectedHead = head
-				}
-			}
-			task.Baseline = head
-			task.event("", "BASELINE_ACCEPTED")
+		if step := task.pending(); step != nil && (step.Phase == "COMMITTING" || step.Phase == "RESULT_UNKNOWN") {
+			return task, &Fault{Code: "COMMIT_RESULT_UNKNOWN", Message: "recover the original in-flight command receipt before resuming", Retryable: true}
 		}
-		task.Status = "ACTIVE"
-		if step := task.pending(); step != nil && step.Phase == "PREVIEW_READY" {
-			if step.Preview != nil {
-				s.workspace.DiscardPreview(document, actor, step.Preview.PreviewID)
+		head, headErr := currentTaskHead(ctx, tx, task)
+		if headErr != nil {
+			return task, headErr
+		}
+		if input.ExpectedHead != nil && *input.ExpectedHead != head {
+			return task, fault("WORKSPACE_HEAD_CONFLICT", "requested baseline is no longer current")
+		}
+		if head != task.Baseline {
+			// Changing only ExpectedHead would silently approve stale arguments or
+			// topology. The Run must read facts and create a new bounded stage.
+			invalidateCandidate(s, document, actor, &task)
+			task.Status = "REPLAN_REQUIRED"
+			task.event("", "WORKSPACE_CHANGED_REPLAN_REQUIRED")
+		} else {
+			task.Status = "ACTIVE"
+			invalidateCandidate(s, document, actor, &task)
+			if step := task.pending(); step != nil && step.Handoff != nil {
+				task.Status = "WAIT_UI"
 			}
-			step.Preview = nil
-			step.Action.PreviewID = ""
-			step.Phase = "PLANNED"
 		}
 		if task.pending() == nil {
 			task.Status = "COMPLETED"
 		}
-	case "displayed":
-		step := task.pending()
-		if step == nil || step.ID != input.StepID || step.Phase != "COMMITTED" || step.Result == nil || step.Result.Receipt.RevisionID != input.RevisionID {
-			return task, fault("DISPLAY_MISMATCH", "display acknowledgment must identify the current committed step and revision")
+	case "displayed", "presentation_failed":
+		var step *Step
+		for i := range task.Steps {
+			if task.Steps[i].ID == input.StepID {
+				step = &task.Steps[i]
+				break
+			}
 		}
-		step.Phase = "DISPLAYED"
-		task.event(step.ID, "DISPLAYED")
-		if task.pending() == nil && task.Status != "STOPPED" {
-			task.Status = "COMPLETED"
+		if step == nil || step.Result == nil || step.Result.Receipt.RevisionID != input.RevisionID {
+			return task, fault("DISPLAY_MISMATCH", "presentation acknowledgment must identify an applied step and its exact revision")
 		}
+		status := "PRESENTED"
+		if input.Action == "presentation_failed" {
+			status = "FAILED"
+		}
+		step.Presentation = Presentation{Status: status, RevisionID: input.RevisionID, At: time.Now().UTC().Format(time.RFC3339Nano)}
+		task.event(step.ID, "RESULT_"+status)
 	default:
-		return task, fault("INVALID_CONTROL", "supported actions: pause, resume, stop, displayed")
+		return task, fault("INVALID_CONTROL", "supported actions: pause, resume, stop, confirm, displayed, presentation_failed, handoff, ui_opened, ui_failed, ui_complete, ui_cancelled, ui_unknown")
 	}
 	task.event(input.StepID, "TASK_"+task.Status)
 	if err = saveTask(ctx, tx, &task, actor); err != nil {

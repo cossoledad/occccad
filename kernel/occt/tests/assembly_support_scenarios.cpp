@@ -71,6 +71,37 @@ TEST(AssemblyExactSupport, ManipulatorHintsComeFromActualBoundaries) {
     EXPECT_NEAR(first.x,13,1e-12);EXPECT_NEAR(first.y,17,1e-12);EXPECT_NEAR(first.z,19,1e-12);
     EXPECT_NEAR(last.x,13,1e-12);EXPECT_NEAR(last.y,29,1e-12);EXPECT_NEAR(last.z,19,1e-12);
 }
+TEST(AssemblyExactSupport, SweptCircularProfileDistinguishesShaftAndHoleMaterialSides) {
+    OcctKernel kernel;
+    for (const bool reversed : {false, true}) {
+        ProfileCurveSpec outer;
+        outer.entity_id="outer";outer.kind="CIRCLE";outer.radius=12;
+        ProfileCurveSpec hole=outer;
+        hole.entity_id="hole";hole.radius=5.1;hole.reversed=true;
+        ProfileRegionSpec region;
+        region.id="sleeve";region.outer={"outer-loop",{outer}};
+        region.holes={{"hole-loop",{hole}}};
+        ProfilePadSpec pad;
+        pad.feature_id=reversed?"reverse-profile":"forward-profile";
+        pad.regions={region};pad.pad_length=20;pad.plane="XY";
+        pad.reversed=reversed;
+        const auto evaluation=kernel.evaluateProfilePadsWithHistory({pad});
+        const auto& topology=kernel.getTopology(evaluation.geometry_id);
+        int cylindrical=0;
+        for(const auto& face:topology.faces) {
+            if(face.surface_type!=1)continue;
+            ++cylindrical;
+            const auto radius=property(face.properties,"radius").number_value;
+            EXPECT_EQ(property(face.properties,"materialSide").integer_value,radius>10?1:-1);
+        }
+        EXPECT_EQ(cylindrical,2);
+        for(const auto& output:evaluation.feature_results.front().semantic_outputs) {
+            if(output.evidence.geometry_type!="CYLINDER")continue;
+            ASSERT_TRUE(output.evidence.radius_mm);ASSERT_TRUE(output.evidence.material_side);
+            EXPECT_EQ(*output.evidence.material_side,*output.evidence.radius_mm>10?1:-1);
+        }
+    }
+}
 TEST(AssemblyExactSupport, ConeApexAxisLeafAndHalfAngleAreIndependentOfFaceOrigin) {
     OcctKernel kernel;
     const gp_Ax2 frame(gp_Pnt(11, -8, 3), gp_Dir(0, 1, 0), gp_Dir(1, 0, 0));

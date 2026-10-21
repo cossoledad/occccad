@@ -1,90 +1,82 @@
-# CAD 自动化与 AI 对话建模
+# CAD 自动化与持续 AI 建模
 
-DeepSeek/OpenAI 格式对话已接入既有 CAD 命令体系。用户在工作台下边栏打开“建模助手”，填写自己的 API Key，选择模型、思考度和低/中/高调用预算。Part/Product 定义使用相同的权限、Preview、领域命令与 CAS；需要拾取或表单输入的操作交给原工作台工具。MCP Server、CAD CLI、任意长动态计划和跨文档原子任务尚未提供。
+下边栏“建模助手”通过账号 Key、模型及思考度设置发起持久 Run。服务端持续读取事实、规划有界片段、执行原命令、观察新 Revision 并验证目标；关闭页面不暂停自动模式。累计预算默认 `null`，用户可主动设置并调整，默认无总调用数、工具数、步骤数、阶段数或整轮 deadline。
 
-入口：[Automation](../../../services/internal/automation/README.md)、[Assistant](../../../services/internal/assistant/README.md)、[Web 面板](../../../web/apps/cad/src/features/assistant/assistant-panel.tsx)、[后续计划](../../../plans/ai-native-modeling.md)。
+入口：[Assistant](../../../services/internal/assistant/README.md)、[Automation](../../../services/internal/automation/README.md)、[Web](../../../web/apps/cad/src/features/assistant/assistant-panel.tsx)、[线上评测](../../../services/cmd/occccad-ai-eval/README.md)、[剩余计划](../../../plans/ai-native-modeling.md)。本文说明当前实现合同，实际验收结果另见[验证目录](../../validation/README.md)。
 
-## 调用与命令覆盖
-
-```text
-对话 → DeepSeek Chat Completions → 有界 Tool Host → 持久计划
-  模型操作 → PreviewCommand → 同一意图 ExecuteCommand → evaluator/Worker
-           → CAS / Revision / 精确回执 → 浏览器实际渲染确认
-  界面操作 → 记录接管 → CommandRegistry 可见性/可用性 → 原工具/表单
-           → 界面打开结果；不生成虚假的模型提交回执
-```
-
-操作目录包含三类入口：
-
-| 入口 | 当前行为 |
-|---|---|
-| `command.*` | 覆盖 Workspace 公开适配器的 65 个领域命令合同：草图几何/尺寸/约束、实体、特征、参数、基准、发布、装配与机构等。真实执行仍交原 handler；文件导入、产品导入的验证图、引用更新计划必须由原应用流程产生，合同明确要求界面接管。 |
-| `ui.*` | 从同一 Workbench Catalog 投影全部 134 个工作台命令。通过原 CommandRegistry 再检查运行时可见性和可用性；输入依赖保持原工具行为。撤销、视图、表单等也可发现，不走强制几何预览。 |
-| 简短操作 | 保留矩形、草图、拉伸、参数操作，增加 `part.fillet` / `part.chamfer`。尺寸明确为 mm；复杂参数通过 `command.*` 按需读取合同。 |
-
-[覆盖测试](../../../services/internal/automation/commands_test.go) 对照实际适配器 switch 和工作台目录，新增/遗漏命令会失败。该检查证明接入合同覆盖，不代表每个 CAD 参数组合都已通过原生或浏览器验收。
-
-搜索分页返回匹配数与完整性，游标绑定目录 digest、文档类型和查询。describe 才读取一个操作合同；嵌套 DTO 通过 `cad_describe_type` 逐层加载，直接投影现有 Go 类型与实际 JSON 嵌入字段。校验拒绝未知/重复字段、错误类型、固定数组维度与预算超额；领域 handler 继续检查 CAD 语义、量纲、引用和几何。用户、文档、requestId、Head 和 Preview 由 Host 绑定，不接受模型覆盖。普通命令与 Automation 共用 `RequireCommandReferences`，新引用文档在求值前检查读取权限。
-
-每个计划最多 32 步；使用的操作须先读取合同。局部步骤标签由应用转换为确定 UUID，前序输出只能绑定声明的稳定实体输入。无业务改动的机构调用恢复账号隔离的审计回执，明确 noChange，不虚构事务或新 Revision。创建结果取自精确 ChangeSet 回执；多创建结果明确列出，不猜测“最后一个特征”。创建草图、特征、实例及外部引用等沿请求生成确定身份，保证预览、提交与重试意图一致。
-
-昂贵求值在数据库事务外，有用户/全局并发额度和 110 秒操作 deadline。数值错误保留 code、phase、retryable、diagnosticId。装配 `DEFINITION_ONLY` 预览不进入自动提交，须在原工具中检查；无装配方程时不把未调用求解器误判为未收敛。
-
-## 定义查询与精确拓扑集合
-
-`ReadModelSnapshot` 读取不可变定义，不建立完整引用树、几何和标签。`cad_query_model` 投影 Body、Feature/Sketch、Parameter、Datum、Publication、Context、Instance、装配约束及机构；草图子元素用 kind 和 ownerId 分页。字段 `definition` 按需读取 DTO，其余时候只取名称、类型、参数或状态等小字段。参数 `value` 为 SI quantity，`displayValue` 是 `unit` 中未舍入的值。
-
-定义查询默认 20 项、最多 100 项，单页对象预算 32 KiB；游标固定 Revision 与过滤条件，complete 仅表示一次返回整个匹配集。定义文本、实体数和投影均有预算。当前仍解析并排序受限定义，尚无持久查询索引、全树懒加载或 occurrence 展开；5 万节点合成测试不是大型装配容量保证。工作台内对其他定义的在位编辑仍需显式切换目标，不隐式跨定义写入。
-
-`cad_query_topology` 通过 Workspace 的 Naming manifest 读取指定文档/Revision/Body 的 EDGE、FACE 或 VERTEX。模型得到小页稳定 ID、匹配数与紧凑 `selectionSet`，可按已查询 ID 筛选；需要详细引用时才读取正式 selection。集合绑定文档、Revision、Body、拓扑种类、manifest digest 和完整匹配数量；执行前重新验证，编译成原 `PersistentSelection`。不把 OCCT local ID、mesh 序号或显示名暴露为持久身份。
-
-“全部边线”使用整个 selectionSet，不能拿第一页当作全集。拓扑页最多 20 项；一次修改最多 4096 项，超额明确失败。几何修改后必须重新查询新 Revision 的拓扑，旧集合不会静默套用。当前句柄是不可变快照中的确定性选择，不是跨 Revision 自动重定位的通用集合服务。
-
-## DeepSeek、模型与凭证
-
-默认地址 `https://api.deepseek.com`，默认模型 `deepseek-flash`，Bearer Key、非流式原生 function tools。模型列表通过当前账号的 `/models` 获取，展示供应商名称和支持的思考等级；选择保存到账号。思考度为关闭、低、高、最高，对应显式关闭 thinking 或启用并传 `reasoning_effort=low/high/max`。每轮保存并冻结实际 model/thinking，设置变化只影响新请求。
-
-实现依据官方[模型发现](https://api-docs.deepseek.com/api/list-models/)、[思考与工具调用](https://api-docs.deepseek.com/guides/thinking_mode/)及[Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)合同，2026-10-20 核对。当前规划循环完整回传供应商 `reasoning_content`，包括空字段；它只在该轮内存工作集存在，不进入公开对话、任务、下一轮历史或日志。新轮将近期语言历史作为引用数据重新构造，避免回放缺失私有思考的旧 assistant/tool 消息。
-
-保存 Key 时验证可用模型，再用 AES-256-GCM、账号 AAD 加密入库。HTTP 返回 configured/provider/model/thinking/budget 和服务端预算预设，不回显 Key。主密钥自动生成于 `<OCCCCAD_DATA_DIR>/assistant/credentials.key`，权限 0600；数据库与文件共同恢复，多 API 进程共用。服务端可选 `OCCCCAD_AI_BASE_URL/MODEL/KEY_FILE`。错误映射不泄露上游原文或凭证，重定向不转发 Bearer。`0003_assistant.sql` 保存凭证/对话；双数据库 `0004_assistant_preferences.sql` 增加模型和思考度，`0005_assistant_budget.sql` 增加预算并默认中档，保留已有加密凭证。只修改预算不依赖供应商在线，修改模型/思考度及更换 Key 保留所选预算。
-
-## 规划预算与恢复
-
-模型只查询、发现、读取合同/检查点并 `cad_create_task`，没有 advance 或显示确认权限。计划成功即结束模型循环；执行每个预览/提交不额外调用模型。请求幂等，记录需求、回复、实际 generation、预算快照、模型请求次数、taskId 和供应商 usage；同用户/文档最多一轮规划。deadline 按预算，租约比 deadline 多 15 秒，取消 CAS 防止迟到结果复活；过期为 INTERRUPTED。计划已生成而关联未保存时，按原请求恢复并停止取消/过期的孤立计划。
-
-预算由 [budget.go](../../../services/internal/assistant/budget.go) 唯一维护，设置按账号保存，默认中档；每次发送独立计算，思考度与预算独立。请求开始时冻结全部实际边界，进行中的请求不受设置变化影响。
-
-| 预算 | 累计 Token | 模型/工具调用 | 单次输出：关闭/开启思考 | 消息上下文 | 整轮/单次等待 |
-|---|---:|---:|---:|---:|---:|
-| 低 | 80,000 | 10 / 24 | 4,096 / 16,384 | 128 KiB | 180 / 90 秒 |
-| 中（默认） | 200,000 | 20 / 48 | 8,192 / 32,768 | 256 KiB | 360 / 180 秒 |
-| 高 | 500,000 | 32 / 96 | 16,384 / 65,536 | 512 KiB | 720 / 240 秒 |
-
-累计 Token 包含该次需求每次工具往返的重复输入、输出和思考，以供应商 usage 为准，不是整段对话共享额度。后续请求的 `max_tokens` 不超过剩余累计额度；输入 Token 不能提前精确计算，检查发生于供应商返回后，最后一次调用可能超额且仍计费。输出截断或无效响应也保留可解析的已报告 usage。usage 缺失不伪造估计，字节/次数/时间限制继续生效；这些不是金额硬限额。
-
-语言历史最多 8 轮/16 KiB，完整检查点至多 3 项/16 KiB，额外历史保留引用；工具结果最多 16 KiB，仍按需分页。完整供应商请求比消息上下文多 64 KiB envelope 额度；私有思考上限分别为 64/128/256 KiB，完整响应按预设限制 JSON/UTF-8 开销。不为迁就预算裁剪工具回执或当前轮私有思考；超限明确结束。用户可提高预算后重新发送，生成新的 requestId；旧请求重试仍只恢复原记录，不重复付费调用。未提供金额预算或长任务动态追加。
-
-## 步骤、接管与界面
-
-任务账本按版本 CAS 更新，保存有界事件和精确回执；Workspace 短锁/租约协调推进，普通人工编辑保留原 CAS 保护。
+## 所有权与执行链
 
 ```text
-建模：PLANNED → PREPARING → PREVIEW_READY → COMMITTING → COMMITTED → DISPLAYED
-                         失败 → FAILED / PAUSED
-界面：PLANNED → HANDED_OFF → UI_OPENED / UI_FAILED
+用户输入/冻结目标 → Run + 输入日志 → 服务端租约调度
+  → 有界事实工作集 → Provider 调用意图 → 已发送 attempt → 响应/usage 落账
+  → 查询或下一片段 Task → 原 Preview → evaluator/Worker → Command/CAS
+  → 精确 CommandReceipt → 新 Revision / 实际几何 → 继续观察或目标验收
+真实 Viewport frame → 对应文档/Revision 的呈现回报（独立于执行）
 ```
 
-每次 advance 只预览或提交一个阶段。对应 Revision 真正渲染后才能显示确认并推进；恢复先查原领域回执，候选丢失则重新预览。暂停/停止在边界生效，继续可显式接受当前 Head；被人工新版本取代的提交保留回执并标 SUPERSEDED。停止保留已提交步骤，整任务撤销与跨文档原子操作尚未提供。
+Run 是同一持续目标；多条 GOAL/STEER/QUERY 输入具有稳定序号和来源。STEER 增加 goalVersion/epoch，保留已提交事实，退休旧片段并等待在途边界；旧响应只记账，不能激活旧步骤。只读问题独立租约与冻结快照，不等待整个 writer 结束，不能创建/推进 Task。服务器重新检查 actor/document/source ACL，历史或 VIEWER 上下文只读。自动问答分类采用应用启发式，仍有语言覆盖边界；授权与写入校验不依赖分类结果。
 
-界面命令使用单步任务：先持久记录接管，再检查并调用当前注册工具，最后记录打开成功/失败。丢失打开结果时显示待确认，刷新不重发界面命令；接管不是几何完成证明。
+单文档只有一个未结束 writer。Run 使用短事务 CAS、45 秒可续租，调度并发有界并为交互读预留位置；等待 Provider/Worker 不持数据库事务。租约到期允许另一进程接续，不是任务时限。轮询查询仅取待执行片段；浏览器不拥有推进职责。显式暂停/停止在边界生效，不撤销已提交历史。未知 CAD 提交必须先查原 actor/document/requestId 的回执，不能换身份重做；人工 Head 变化使旧候选失效，重读事实并重规划，不能仅替换 ExpectedHead。确定的绑定/参数错误先持久FAILED步骤、退休旧片段并精确归档已提交前缀，再带诊断重规划剩余目标；不会重放已应用前缀。相同语义失败的摘要独立于新Task/step/request身份，改名不能绕过无进展检测。权限、未知提交及UI取消保留各自等待边界。
 
-助手入口位于下边栏，模型、思考度和预算位于对话输入框上方；预算选项展示 Token 和调用次数，每轮回复显示供应商已报告用量与冻结的预算。预算失败提供“按当前预算重新发送”。宽视口下与实际画布并排，窄视口悬浮；沿用 ResizeObserver 更新渲染与拾取范围。对话展示澄清、回复、参数及实际步骤，支持逐步确认、暂停接管、停止、定位与恢复。只有成功发送获得计划才默认开始；重载不重发模型调用、不自动建模。关闭/隐藏页面暂停后续推进，没有脱离 UI 的后台执行。
+## 日志、检查点与上下文
 
-## 验证入口与边界
+双数据库 `0006_assistant_runs.sql` 保存 Run、输入、阶段、事件、逐调用及工具结果、已读合同和设置来源。旧预算列删除，旧 low/medium/high 不映射为累计封顶；已有加密凭证保留。旧对话表仅遗留历史数据，无旧同步运行时或路由。
 
-- `invoke check --scope services --match '^TestAssistant|^TestAutomation'`：目录完整性、嵌套合同、模型/思考协议、凭证隔离、预算、恢复，以及原生 Worker 的矩形、全部边圆角、通用圆草图/拉伸和 Product 实例命令。
-- `invoke check --scope web --match assistant`：绑定、精确显示确认、对话恢复、运行时命令可用性与接管分层。
-- 以 `OCCCCAD_AI_BASE_URL=http://127.0.0.1:19091 invoke run` 启动 API/Worker，在 Web 目录执行 `pnpm exec playwright test --config playwright.live.config.ts automation-live.spec.ts`。受控模型服务搭配真实 Vite/API/Worker 验证连接、模型/思考度/预算保存、预算耗尽后提高预算重发、矩形→全部边 R2、显示、界面命令、取消与重载。使用独立账号，不覆盖个人 Key；结束后恢复默认 DeepSeek 配置。
-- 迁移/共享命令边界变化运行 `invoke check --scope all`，知识入口修改运行 `invoke context-audit`。
+Run JSON 只保留有限角色目标、当前要求、摘要及计数；无限增长的输入/事件/阶段/调用独立分页。调用先保存意图，再标记发送，响应及 usage 先落账后才安排副作用。响应已收到但工具尚未处理时从原公开响应和工具游标恢复；工具结果按 call/tool ID 幂等。预算或恢复边界消费已落盘响应时丢弃旧在线会话的未回答工具尾部，下一请求从事实重建，避免发送不完整的思考工具 transcript。CAD 片段的精确回执与 Run applied 计数通过同一事务检查点归档。停止或旧 epoch 的不明 Provider 请求在失效租约后补记 UNKNOWN。
 
-以上为验证入口，当次结果以报告为准。用户已反馈线上矩形建模成功；受控模型测试证明应用调用链，不能替代复杂命令的线上推理质量、真实 token 成本或工业容量评测。
+活动请求只加载目标及来源要求、冻结 scope 摘要、当前不可变上下文、有限稳定目标角色、最近少量片段/公开工具事实和语言。超出单次工作集时淘汰可重查内容并重建，不随完整历史线性膨胀。冻结选择的完整集合按 `cad_get_selection` 分页，预览子集明确不完整。必要信息本身超过配置时准确等待调整，不能丢弃尺寸、单位、保护对象或装配要求来缩短提示。
+
+应用对矩形尺寸/平面、基体拉伸长度、全部/选定边圆角、取消圆角、圆形贯穿孔、受保护几何和最小轴孔目标提取带 sourceTurn/quote 的必需检查。验收从版本化用户输入分页重建要求；`GOAL:<requirementId>` 绑定该要求对应的正式操作输出，矩形/基体拉伸与圆形草图/REMOVE 切除分开。求值引起的其他草图 UPDATE 不能替换目标。缺少绑定时只按本 Run 的精确回执分页重建，不从名称、树位置或“最近创建的同类型特征”猜测。阶段结束先更新应用检查，已通过要求的同尺寸矩形重复计划在创建空草图前被拒绝；完成仍需当前目标、实际 Revision 与 Head 再验。
+
+圆形贯穿孔检查绑定 REMOVE/THROUGH_ALL、轮廓直径、基准平面法向及当前实体中该特征的正式圆柱孔壁；矩形基体的中心孔通过权威草图支撑坐标系检查孔轴与原始矩形中心。孔后若有可能封堵孔口的实体操作，保留 NOT_VERIFIED，不能只凭原切除定义通过。通用复杂面中心、多孔和任意下游贯穿性不在此小合同保证内。模型不能移除失败项；混合自然语言要求仍有覆盖边界，不把这些局部检查当作完备规格编译器，也不因检查子集通过自动结束尚未明确完成的用户意图。
+
+## 资源与 Provider 用量
+
+单片段 1..32 步，Run 可继续追加任意多个片段。模型无执行器和呈现工具。搜索/查询/工具结果、单次输入与并发仍有边界；分页或重建之后可继续，不能把局部边界当整个目标的上限。不可分割的大操作须说明真实限制，例如全边一次圆角不能偷偷拆成语义不同的多次圆角。
+
+默认单请求消息工作集 256 KiB、输出 8192 Token（思考开启时 max_tokens 32768）、网络 180 秒；工具执行复用既有操作 deadline。它们是当前配置保护，并非通用供应商能力或 Run deadline。每次调用保存 Provider origin、model、thinking、设置版本、实际 max_tokens、单次限制、逻辑调用/attempt、时间、Provider request ID（提供时）、请求摘要、状态及 usage。
+
+用户可设置账号默认累计预算和活动 Run 的可空预算；达到后保留已收响应并等待，提高或清空后续接同一 Run，不重发已收响应。预算调整有版本及 USER 来源。输入 Token 不能提前精确获得，检查基于已报告 usage 和可知输出边界，最后一次可能超额。未知用量不记作确定零，不承诺金额硬限额。
+
+输入/输出/总量按 Provider 字段记录；缓存是输入子集、reasoning 是输出子集，不再加入 total。原始数值细项经白名单保留。相同响应重复归档不重复累计；不同已发请求分别记账。超时/取消/进程丢失且没有 usage 时记 UNKNOWN，重试可能再次收费，不能承诺供应商无重复计费。相同事实、目标、操作参数和诊断没有新信息时 BLOCKED；限流按时间退避，无累计失败次数封顶。
+
+默认 DeepSeek `https://api.deepseek.com` / `deepseek-flash`，模型通过当前账号 `/models` 获取；思考度 off/low/high/max。模型设置只影响后续调用，当前 attempt 不变。协议依据官方[Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)和[思考/工具调用](https://api-docs.deepseek.com/guides/thinking_mode/)（2026-10-21 核对）。私有 reasoning_content 仅在在线内存 transcript 往返，不能进入持久响应、公开事件、日志或重建的历史。
+
+AES-256-GCM、账号 AAD 和本地主密钥延续原凭证方案；主密钥与数据库共同恢复。API 只返回 configured 和无秘密设置。模型修改通过供应商能力校验；仅改预算不依赖 Provider 在线。HTTP 重定向不转发 Bearer，错误不透出上游原文。
+
+## 命令、选择与动态绑定
+
+目录复用所有公开 `command.*` 适配器与 Workbench `ui.*` 投影，覆盖测试对照真实 switch/catalog；合同覆盖不代表所有参数组合都通过原生验收。`part.fillet/chamfer` 等小操作减小 DTO 成本。先搜索再 describe，嵌套类型按需读取；未知字段、类型、数组维度、权限、几何和量纲仍由原校验负责。Host 固定 actor/document、requestId、baseline、preview 和 epoch，模型不能覆盖。
+
+发送前完整复制选择，再读取正式 PersistentSelection；实例使用稳定 InstancePath，定义/根/源文档 Revision 分别保存；服务端逐路径核对接受的源文档与版本，不能冒用同源新Head或可读的无关定义。当前单输入最多 256 项及 512 KiB，超额拒绝整个输入，不静默截断。发送后换选不影响原指令。过期拓扑只经正式 Naming/selection resolver 的唯一 RESOLVED 结果重定位；失败或歧义要求重新选择，不依靠名称、mesh 序号、local ID 或改写 Revision。
+
+`cad_query_model` 按不可变定义投影稳定实体、参数、草图子元素等，默认20/最多100项、32KiB单页，游标绑定 Revision/过滤条件。参数 value 是 SI quantity，displayValue 是未舍入的显示单位值。当前仍在受限定义上解析/排序，未提供持久查询索引或任意大树容量保证。
+
+`cad_query_topology` 读取 Naming manifest，返回小页与完整集合 selectionSet；绑定 document/revision/body/kind/manifest/count。全部边使用完整集，新几何必须读新 Revision。输入已有完整选择不等于第一页内容完整；集合执行前再次校验。
+
+`typedBindings` 仅声明允许的目标字段，绑定前序明确 outputId/role，可投影 ENTITY_ID、INSTANCE_PATH、ASSEMBLY_REF；复杂输出不猜“最后一个特征”或数组位置。实例输出使用提交模型已接受的 source Revision，不能另读 source 最新 Head。UUID 由原请求/步骤生成，恢复沿同一意图与精确回执。
+
+## Product occurrence 与最小装配
+
+`cad_query_occurrence` 按根 Revision + 稳定实例路径解析嵌套、重复和 PINNED 引用，逐层检查源 ACL，复用定义几何而分别返回 source snapshot、world pose、Body/Instance摘要或精确 FACE/EDGE/DATUM/PUBLICATION 小页。游标绑定根/路径/过滤条件，定义坐标与世界坐标明确区分；转发 Publication 按 accepted snapshot 和正式刚体变换派生。
+
+`cad_mate_candidates` 使用精确圆柱/平面支持语义，区分材料内外侧、轴线/半径、长度、平面方向与偏置。默认紧凑候选，只在按 candidateId 选取时读取完整 recipe；多候选不静默选第一项。recipe 沿原 FIX/CONCENTRIC/端面关系命令与 solver，无第二套装配实体或几何脚本。
+
+轴线/端面方向、偏置和目标DOF由用户来源合同逐字段保存，后续修改保留各自sourceTurn；缺失时澄清，不能默认猜测。正式验收检查真实持久位姿、同轴距离/角度、明确端面方向与 `SELECTED_PLANE_NORMAL_V1` 偏置、实际 solver 状态以及相对平移/旋转 DOF。求解出的假设修正姿态不能代替真实提交。支持普通轴/孔及端面定位、保留一个旋转自由度；不代表任意零件识别/复杂接触。带 ContextBinding 的 occurrence 目前明确返回 CONTEXT_VARIANT_NOT_AVAILABLE，不能替用普通定义 BRep 验收。跨文档原子写与整任务撤销仍未提供。
+
+## 执行、接管与真实呈现
+
+AUTOMATIC 持续在服务端推进；CONFIRM 每次等待精确 previewId、taskVersion、baseline 和 planEpoch 的批准，过期候选重新预览，旧批准不能用于新代际。
+
+领域提交产生 APPLIED/精确 receipt；目标检查针对当前 goalVersion + 实际 Revision，全部必需检查成功后 VERIFIED/COMPLETED；真实 Viewport frame 才产生对应文档/Revision 的 PRESENTED。三者独立，无浏览器不会凭空显示。GLB加载失败只重试显示，不重做 CAD 或模型调用；重连不补造旧中间版本的显示。
+
+`ui.*` 单步先持久 handoff/baseline/预期命令/DomainRequestID，再经原 CommandRegistry 检查可用性。打开结果丢失不自动重放。UI_OPENED 仅打开；取消明确记录并暂停；完成必须恢复同一预期请求、类型及基线的领域回执，无关提交不算完成。当前 SolidFeatureEditor 提供原 preview/commit request 身份桥，其他未提供安全完成桥的交互继续等待人工处理，不能伪造成功。
+
+Web 继续由 TanStack Query 保存服务状态，原工作台选择/CommandRegistry/Viewport 各自拥有交互、命令与帧证据。下边栏使用单图标入口；面板以对话、15px 正文/输入及简短进展为主，用量、检查和原始事件折叠到详情。模型带工具调用的公开 content 按调用幂等保存为 ASSISTANT_MESSAGE；工具观察、实际 CAD 回执、阶段诊断及目标检查给出可读进度。公开简述在模型响应落账后显示，不承诺逐 Token 流式输出；私有 reasoning_content 不进入事件、账本响应或 UI。单独公开短答未执行操作时继续规划，同一事实下重复缺少下一步才等待补充；必要澄清使用 cad_wait_for_input。消息/步骤/事件按页增量读取，进展仅保留有界近期窗口，旧代际事件不能覆盖新状态。暂停/停止、精确确认、接管及显示重试保留原边界。
+
+## 验证入口
+
+- 服务：`go test -p 1 ./internal/assistant ./internal/automation ./internal/api -run '^TestAssistant|^TestAutomation'`（services目录）；容量/故障注入使用受控 Provider，不付费压测。
+- Web：`invoke check --scope web --match assistant`；真实工作台先用本地19091 Provider启动服务，再运行 `pnpm exec playwright test --config playwright.live.config.ts automation-live.spec.ts`。独立测试账号不改个人Key，结束恢复默认 DeepSeek 配置。
+- 原生几何、迁移与共享链：按 `invoke check --scope all`，数据库当前配置之外的 Provider 验证必须单独标明未执行。
+- 线上小样：`services/cmd/occccad-ai-eval` 使用已有合法 Key 和显式小预算。模型表现、原生几何、浏览器、合成百万 usage 必须分别报告。

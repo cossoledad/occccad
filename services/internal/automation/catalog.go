@@ -82,6 +82,24 @@ func builtinOperations() []Operation {
 		{ID: "part.extrude", Name: "拉伸", Description: "Extrude a closed sketch profile into the specified Body (ADD / Pad). Length in mm; exact profile and solid validation remain authoritative.", Fields: []Field{body, sketch, numberField("length", "长度"), unit}, compile: func(a map[string]any) workspace.CommandRequest {
 			return workspace.CommandRequest{Type: "PAD_SKETCH", BodyID: textArg(a, "bodyId"), SketchID: textArg(a, "sketchId"), Length: numericArg(a, "length")}
 		}},
+		{ID: "sketch.circle", Name: "绘制圆", Description: "Add one profile circle to the existing sketch. centerX/centerY and diameter are in sketch-local mm; the host assigns its stable entity identity from the command request.", Fields: []Field{sketch, {Name: "centerX", Title: "圆心 X", Type: "number", Required: true}, {Name: "centerY", Title: "圆心 Y", Type: "number", Required: true}, numberField("diameter", "直径"), unit}, compile: func(a map[string]any) workspace.CommandRequest {
+			return workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: textArg(a, "sketchId"), Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{Kind: "CIRCLE", Role: "PROFILE", Center: &workspace.SketchPoint2{X: numericArg(a, "centerX"), Y: numericArg(a, "centerY")}, Radius: numericArg(a, "diameter") / 2}}}}
+		}},
+		{ID: "part.cut", Name: "切除", Description: "拉伸切除、贯穿孔或盲孔。Remove material using a closed sketch profile. extent THROUGH_ALL makes a true through cut and needs no length; FINITE requires positive length in mm. Use this for a circular through hole after sketch.circle. Direction and authoritative Boolean evaluation remain domain-owned.", Fields: []Field{body, sketch, stringField("extent", "切除范围", "FINITE", "THROUGH_ALL"), {Name: "length", Title: "有限切深", Type: "number", Positive: true}, {Name: "reversed", Title: "反向", Type: "boolean"}, unit}, validate: func(a map[string]any) error {
+			if textArg(a, "extent") == "FINITE" && numericArg(a, "length") <= 0 {
+				return fault("INVALID_ARGUMENTS", "FINITE cut requires a positive length in mm")
+			}
+			return nil
+		}, compile: func(a map[string]any) workspace.CommandRequest {
+			length := numericArg(a, "length")
+			// The existing domain DTO carries a positive length parameter even
+			// when the evaluator derives THROUGH_ALL from upstream Body bounds.
+			if textArg(a, "extent") == "THROUGH_ALL" && length == 0 {
+				length = 1
+			}
+			reversed, _ := a["reversed"].(bool)
+			return workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", BodyID: textArg(a, "bodyId"), SketchID: textArg(a, "sketchId"), Generator: "LINEAR_EXTRUDE", Operation: "REMOVE", Extent: textArg(a, "extent"), Length: length, Reversed: reversed}
+		}},
 		{ID: "parameter.set_literal", Name: "修改参数值", Description: "Set a literal quantity with an explicit unit; preserve dimensional validation and dependent feature evaluation.", Fields: []Field{parameter, {Name: "value", Title: "数值", Type: "number", Required: true}, stringField("unit", "单位", "mm", "cm", "m", "in", "deg", "rad")}, compile: func(a map[string]any) workspace.CommandRequest {
 			return workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: textArg(a, "parameterId"), Value: numericArg(a, "value"), Unit: textArg(a, "unit")}
 		}},

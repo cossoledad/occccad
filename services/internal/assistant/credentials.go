@@ -5,12 +5,16 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/occccad/occccad/internal/automation"
 	"github.com/occccad/occccad/internal/config"
@@ -21,6 +25,8 @@ type Options struct {
 	BaseURL string
 	Model   string
 	KeyFile string
+	Now     func() time.Time
+	Limits  RequestLimits
 }
 
 func DefaultOptions() Options {
@@ -46,25 +52,38 @@ type Service struct {
 	aead       cipher.AEAD
 	runMu      sync.Mutex
 	runs       map[string]context.CancelFunc
+	runActors  map[string]string
+	wake       chan struct{}
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	sessions   map[string]*planningSession
 }
 
 func New(db database.DB, operations *automation.Service, options Options) *Service {
-	return &Service{db: db, automation: operations, options: options, provider: newProvider(options.BaseURL, options.Model), runs: map[string]context.CancelFunc{}}
+	return &Service{db: db, automation: operations, options: options, provider: newProvider(options.BaseURL, options.Model), runs: map[string]context.CancelFunc{}, runActors: map[string]string{}, wake: make(chan struct{}, 1), sessions: map[string]*planningSession{}}
 }
 
 type Settings struct {
-	Configured    bool           `json:"configured"`
-	Provider      string         `json:"provider"`
-	Model         string         `json:"model"`
-	Thinking      string         `json:"thinking"`
-	Budget        string         `json:"budget"`
-	BudgetPresets []BudgetPreset `json:"budgetPresets"`
+	Configured     bool          `json:"configured"`
+	Provider       string        `json:"provider"`
+	ProviderOrigin string        `json:"providerOrigin"`
+	Model          string        `json:"model"`
+	Thinking       string        `json:"thinking"`
+	TokenBudget    *int64        `json:"tokenBudget"`
+	Version        uint64        `json:"version"`
+	RequestLimits  RequestLimits `json:"requestLimits"`
 }
 
+func (s *Service) requestLimits() RequestLimits {
+	if s.options.Limits.MaxContextBytes > 0 {
+		return s.options.Limits
+	}
+	return defaultRequestLimits()
+}
 func (s *Service) Settings(ctx context.Context, actor string) (Settings, error) {
-	value := Settings{Provider: "DeepSeek", Model: s.options.Model, Thinking: "off", Budget: defaultBudget, BudgetPresets: budgetPresets()}
-	var model, thinking, budget string
-	err := s.db.QueryRow(ctx, `SELECT model,thinking,budget FROM occccad.assistant_credentials WHERE actor_id=$1`, actor).Scan(&model, &thinking, &budget)
+	value := Settings{Provider: "DeepSeek", ProviderOrigin: s.providerOrigin(), Model: s.options.Model, Thinking: "off", RequestLimits: s.requestLimits()}
+	var model string
+	err := s.db.QueryRow(ctx, `SELECT model,thinking,token_budget,settings_version FROM occccad.assistant_credentials WHERE actor_id=$1`, actor).Scan(&model, &value.Thinking, &value.TokenBudget, &value.Version)
 	if errors.Is(err, database.ErrNoRows) {
 		return value, nil
 	}
@@ -75,11 +94,8 @@ func (s *Service) Settings(ctx context.Context, actor string) (Settings, error) 
 	if model != "" {
 		value.Model = model
 	}
-	value.Thinking = thinking
-	value.Budget = budget
 	return value, nil
 }
-
 func (s *Service) Models(ctx context.Context, actor string) ([]Model, error) {
 	key, err := s.credential(ctx, actor)
 	if err != nil {
@@ -88,7 +104,7 @@ func (s *Service) Models(ctx context.Context, actor string) ([]Model, error) {
 	return s.provider.Models(ctx, key)
 }
 
-func (s *Service) SavePreferences(ctx context.Context, actor string, generation Generation) (Settings, error) {
+func (s *Service) SavePreferences(ctx context.Context, actor string, generation Generation, budgets ...*int64) (Settings, error) {
 	previous, err := s.Settings(ctx, actor)
 	if err != nil {
 		return Settings{}, err
@@ -96,11 +112,12 @@ func (s *Service) SavePreferences(ctx context.Context, actor string, generation 
 	if !previous.Configured {
 		return Settings{}, aiFault("AI_KEY_REQUIRED", "请先连接 DeepSeek", false)
 	}
-	if generation.Budget == "" {
-		generation.Budget = previous.Budget
+	tokenBudget := previous.TokenBudget
+	if len(budgets) > 0 {
+		tokenBudget = budgets[0]
 	}
-	if _, err = budgetFor(generation.Budget); err != nil {
-		return Settings{}, err
+	if !validTokenBudget(tokenBudget) {
+		return Settings{}, aiFault("AI_CONFIGURATION", "累计 Token 预算须为正整数，留空表示无累计上限", false)
 	}
 	if !validThinking(generation.Thinking) {
 		return Settings{}, aiFault("AI_CONFIGURATION", "请选择有效的思考度", false)
@@ -130,11 +147,30 @@ func (s *Service) SavePreferences(ctx context.Context, actor string, generation 
 			return Settings{}, aiFault("AI_MODEL_UNAVAILABLE", "当前 API Key 无法访问所选模型", false)
 		}
 	}
-	_, err = s.db.Exec(ctx, `UPDATE occccad.assistant_credentials SET model=$1,thinking=$2,budget=$3,updated_at=now() WHERE actor_id=$4`, generation.Model, generation.Thinking, generation.Budget, actor)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return Settings{}, err
 	}
-	return s.Settings(ctx, actor)
+	defer tx.Rollback(ctx)
+	result, err := tx.Exec(ctx, `UPDATE occccad.assistant_credentials SET model=$1,thinking=$2,token_budget=$3,settings_version=settings_version+1,updated_at=now() WHERE actor_id=$4 AND settings_version=$5`, generation.Model, generation.Thinking, tokenBudget, actor, previous.Version)
+	if err != nil {
+		return Settings{}, err
+	}
+	if result.RowsAffected() != 1 {
+		return Settings{}, aiFault("AI_SETTINGS_CONFLICT", "模型设置已变化，请重新读取后再保存", true)
+	}
+	next := previous
+	next.Model = generation.Model
+	next.Thinking = generation.Thinking
+	next.TokenBudget = tokenBudget
+	next.Version++
+	if _, err = tx.Exec(ctx, `INSERT INTO occccad.assistant_settings_events(actor_id,version,payload) VALUES($1,$2,$3)`, actor, next.Version, marshalJSON(next)); err != nil {
+		return Settings{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Settings{}, err
+	}
+	return next, nil
 }
 
 func (s *Service) cipher() (cipher.AEAD, error) {
@@ -232,11 +268,20 @@ func (s *Service) SaveKey(ctx context.Context, actor, key string) (Settings, err
 		return Settings{}, err
 	}
 	encrypted := base64.RawStdEncoding.EncodeToString(box.Seal(nonce, nonce, []byte(key), []byte(actor)))
-	_, err = s.db.Exec(ctx, `INSERT INTO occccad.assistant_credentials(actor_id,ciphertext,model,thinking) VALUES($1,$2,$3,$4) ON CONFLICT(actor_id) DO UPDATE SET ciphertext=excluded.ciphertext,model=excluded.model,thinking=excluded.thinking,updated_at=now()`, actor, encrypted, model, thinking)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return Settings{}, err
 	}
-	return s.Settings(ctx, actor)
+	defer tx.Rollback(ctx)
+	value := Settings{Configured: true, Provider: "DeepSeek", ProviderOrigin: s.providerOrigin(), Model: model, Thinking: thinking, RequestLimits: s.requestLimits()}
+	err = tx.QueryRow(ctx, `INSERT INTO occccad.assistant_credentials(actor_id,ciphertext,model,thinking) VALUES($1,$2,$3,$4) ON CONFLICT(actor_id) DO UPDATE SET ciphertext=excluded.ciphertext,model=excluded.model,thinking=excluded.thinking,settings_version=assistant_credentials.settings_version+1,updated_at=now() RETURNING settings_version,token_budget`, actor, encrypted, model, thinking).Scan(&value.Version, &value.TokenBudget)
+	if err != nil {
+		return Settings{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO occccad.assistant_settings_events(actor_id,version,payload) VALUES($1,$2,$3)`, actor, value.Version, marshalJSON(map[string]any{"source": "USER_CONNECTION", "settings": value, "at": timestamp(s.now())})); err != nil {
+		return Settings{}, err
+	}
+	return value, tx.Commit(ctx)
 }
 func (s *Service) DeleteKey(ctx context.Context, actor string) error {
 	_, err := s.db.Exec(ctx, `DELETE FROM occccad.assistant_credentials WHERE actor_id=$1`, actor)
@@ -264,4 +309,26 @@ func (s *Service) credential(ctx context.Context, actor string) (string, error) 
 		}
 	}
 	return "", aiFault("AI_CREDENTIAL_STORE", "连接密钥不可读取，请重新设置 API Key", false)
+}
+
+// Deployment encryption-store identity fences schedulers sharing the same development DB.
+// It is not a CAD identity; no path or credential enters the public model.
+func (s *Service) vaultScope() (string, error) {
+	if _, err := s.cipher(); err != nil {
+		return "", err
+	}
+	raw, err := os.ReadFile(s.options.KeyFile)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(append([]byte("occccad/assistant-vault/v2:"+s.providerOrigin()+":"), raw...))
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func (s *Service) providerOrigin() string {
+	u, e := url.Parse(s.options.BaseURL)
+	if e != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }

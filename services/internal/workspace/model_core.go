@@ -1433,6 +1433,12 @@ func (failure featureEditFailure) Code() string  { return failure.code }
 func (featureEditFailure) Phase() string         { return "FEATURE_EDIT" }
 func (featureEditFailure) Retryable() bool       { return false }
 
+// FeatureDefinitionDigest exposes the same immutable edit baseline used by
+// Domain Commands; automation must read this value rather than recreate it.
+func FeatureDefinitionDigest(model PartModel, featureID string) (string, error) {
+	return featureDefinitionDigest(model, featureID)
+}
+
 func featureDefinitionDigest(model PartModel, featureID string) (string, error) {
 	normalizePartModel(&model)
 	for _, feature := range model.Features {

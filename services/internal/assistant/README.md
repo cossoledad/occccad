@@ -1,9 +1,11 @@
-# Conversational Modeling Assistant
+# 持续对话建模 Assistant
 
-本包拥有 DeepSeek/OpenAI 格式客户端、按账号加密的 API Key、有界对话规划循环和模型无关的 Tool/Call/Result。几何写入仍由 [Automation](../automation/README.md) 与原有 Workspace 执行。
+本包负责账号凭证、DeepSeek/OpenAI 格式 Provider、持久 Run、用户输入、调用账本及后台规划调度。几何写入只经 [Automation](../automation/README.md) 与既有 Workspace Preview/Command/CAS；模型不能执行步骤或伪造显示。
 
-`provider.go` 用标准库调用 Chat Completions；`credentials.go` 用 AES-256-GCM 保存账号凭证；`conversation.go` 保存请求、回复、usage 和任务引用；`budget.go` 统一低/中/高的 Token、调用次数、上下文、输出与时间边界；`tools.go/context.go` 绑定用户/文档、查询与合同。规划器只读取事实、生成计划，不能调用 advance 或伪造显示确认。应用将局部步骤标签转换为稳定 UUID，绑定 requestId 和冻结 Head。
+入口：`run_store.go`（身份/分页）、`run_scheduler.go`（租约/后台/公平并发）、`run_planner.go`（有界工作集/下一片段）、`run_stages.go`（执行观察/精确回执）、`run_scope.go`（冻结选择/目标来源）、`run_goal_targets.go/run_verification.go`（要求与正式输出绑定/当前目标验收）、`run_progress.go`（公开简述/精简检查点）、`run_questions.go`（独立只读问答）、`call_ledger.go`（逐尝试用量）、`provider.go`、`credentials.go`、`budget.go`（单次请求资源）。`conversation.go` 仅定义公共数据合同，无旧同步规划运行时。
 
-用户在下边栏打开建模助手，在连接设置中填写 Key；验证成功后不会回显。默认地址 `https://api.deepseek.com`、模型 `deepseek-flash`，使用原生工具调用；模型列表由当前账号 `/models` 提供，支持账号保存模型及关闭/低/高/最高思考度。调用预算为低 8 万、中 20 万、高 50 万 Token，默认中档；每次需求独立计算并冻结实际设置，公开对话显示已报告用量和模型调用次数。工具循环保留私有思考上下文，公开对话不保存思考原文。服务端可覆盖 `OCCCCAD_AI_BASE_URL/MODEL/KEY_FILE`，无需模型 SDK。默认加密主密钥自动建立于 `<OCCCCAD_DATA_DIR>/assistant/credentials.key`；数据库与此文件共同恢复，多 API 进程共用同一文件。丢失后需重新填写 Key，不回退明文存储。
+默认地址 `https://api.deepseek.com`，模型 `deepseek-flash`，支持账号 `/models` 发现、关闭/低/高/最高思考度；实际配置逐调用冻结。默认累计 Token 预算为 `null`，没有 Run 总调用/步骤/阶段/整轮时限；用户主动设置预算后可提高或清空并继续同一 Run。账号默认预算与活动 Run 预算分别保存。单次上下文、输出、网络与工具执行仍有资源保护。
 
-在 `services/` 运行 `go test -p 1 ./internal/assistant ./internal/automation ./internal/api -run '^TestAssistant|^TestAutomation'`。协议测试使用本地受控服务，CAD 集成复用 `.env` 的数据库、制品与原生 Worker；这不证明线上模型质量。详细预算、恢复、UI 与验收入口见[当前合同](../../../docs/architecture/current/automation.md)。
+Key 用 AES-256-GCM、账号 AAD 加密；主密钥默认 `<OCCCCAD_DATA_DIR>/assistant/credentials.key`（0600），与数据库共同备份。可覆盖 `OCCCCAD_AI_BASE_URL/MODEL/KEY_FILE`。多 API 进程须使用相同主密钥及 Provider 配置；调度认领由主密钥与 Provider origin 的非秘密 digest 隔离。设置、事件、账本不回显 Key 或私有思考。在线工具回合私有思考仅在内存，重启/压缩后从公开事实重新构造新请求，不回放缺少思考的旧 transcript。
+
+在 `services/` 运行 `go test -p 1 ./internal/assistant ./internal/automation ./internal/api -run '^TestAssistant|^TestAutomation'`；共享开发 SQLite 验证串行运行。百万用量测试使用合成 usage，不调用付费 Provider。小规模线上入口见 [ai-eval](../../cmd/occccad-ai-eval/README.md)。完整运行、恢复、选择及显示合同见[当前架构](../../../docs/architecture/current/automation.md)。

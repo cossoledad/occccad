@@ -2,75 +2,146 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/occccad/occccad/internal/assistant"
 )
 
+func assistantJSON(w http.ResponseWriter, r *http.Request, value any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(value) != nil || decoder.Decode(new(any)) != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid assistant request")
+		return false
+	}
+	return true
+}
+func assistantPage(r *http.Request) (uint64, uint64, int) {
+	after, _ := strconv.ParseUint(r.URL.Query().Get("after"), 10, 64)
+	before, _ := strconv.ParseUint(r.URL.Query().Get("before"), 10, 64)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	return after, before, limit
+}
 func (server *Server) registerAssistantRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/assistant/settings", func(w http.ResponseWriter, r *http.Request) {
-		value, err := server.assistant.Settings(r.Context(), principal(r).ID)
-		writeAutomationResult(w, value, err)
+		v, e := server.assistant.Settings(r.Context(), principal(r).ID)
+		writeAutomationResult(w, v, e)
 	})
 	mux.HandleFunc("PUT /api/assistant/settings", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
-			APIKey   string  `json:"apiKey"`
-			Model    *string `json:"model"`
-			Thinking *string `json:"thinking"`
-			Budget   *string `json:"budget"`
+			APIKey      string          `json:"apiKey"`
+			Model       *string         `json:"model"`
+			Thinking    *string         `json:"thinking"`
+			TokenBudget json.RawMessage `json:"tokenBudget"`
 		}
-		if !decodeAutomationJSON(w, r, &input) {
+		if !assistantJSON(w, r, &input) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		var value assistant.Settings
-		var err error
+		actor := principal(r).ID
 		if input.APIKey != "" {
-			value, err = server.assistant.SaveKey(ctx, principal(r).ID, input.APIKey)
-		} else {
-			value, err = server.assistant.Settings(ctx, principal(r).ID)
-			if err == nil {
-				generation := assistant.Generation{Model: value.Model, Thinking: value.Thinking, Budget: value.Budget}
-				if input.Model != nil {
-					generation.Model = *input.Model
-				}
-				if input.Thinking != nil {
-					generation.Thinking = *input.Thinking
-				}
-				if input.Budget != nil {
-					generation.Budget = *input.Budget
-				}
-				value, err = server.assistant.SavePreferences(ctx, principal(r).ID, generation)
+			v, e := server.assistant.SaveKey(ctx, actor, input.APIKey)
+			writeAutomationResult(w, v, e)
+			return
+		}
+		settings, e := server.assistant.Settings(ctx, actor)
+		if e != nil {
+			writeAutomationResult(w, nil, e)
+			return
+		}
+		generation := assistant.Generation{Model: settings.Model, Thinking: settings.Thinking}
+		if input.Model != nil {
+			generation.Model = *input.Model
+		}
+		if input.Thinking != nil {
+			generation.Thinking = *input.Thinking
+		}
+		budget := settings.TokenBudget
+		if len(input.TokenBudget) > 0 {
+			if json.Unmarshal(input.TokenBudget, &budget) != nil {
+				writeError(w, 400, "tokenBudget must be a positive integer or null")
+				return
 			}
 		}
-		writeAutomationResult(w, value, err)
+		v, e := server.assistant.SavePreferences(ctx, actor, generation, budget)
+		writeAutomationResult(w, v, e)
 	})
 	mux.HandleFunc("GET /api/assistant/models", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		value, err := server.assistant.Models(ctx, principal(r).ID)
-		writeAutomationResult(w, map[string]any{"models": value}, err)
+		v, e := server.assistant.Models(ctx, principal(r).ID)
+		writeAutomationResult(w, map[string]any{"models": v}, e)
 	})
 	mux.HandleFunc("DELETE /api/assistant/settings", func(w http.ResponseWriter, r *http.Request) {
-		err := server.assistant.DeleteKey(r.Context(), principal(r).ID)
-		writeAutomationResult(w, map[string]bool{"configured": false}, err)
+		e := server.assistant.DeleteKey(r.Context(), principal(r).ID)
+		writeAutomationResult(w, map[string]bool{"configured": false}, e)
 	})
-	mux.HandleFunc("GET /api/documents/{documentID}/assistant/turns", func(w http.ResponseWriter, r *http.Request) {
-		value, err := server.assistant.Conversation(r.Context(), principal(r).ID, r.PathValue("documentID"))
-		writeAutomationResult(w, value, err)
-	})
-	mux.HandleFunc("POST /api/documents/{documentID}/assistant/turns", func(w http.ResponseWriter, r *http.Request) {
-		var input assistant.TurnInput
-		if !decodeAutomationJSON(w, r, &input) {
+	const root = "/api/documents/{documentID}/assistant/runs"
+	mux.HandleFunc("POST "+root, func(w http.ResponseWriter, r *http.Request) {
+		var input assistant.RunInput
+		if !assistantJSON(w, r, &input) {
 			return
 		}
-		value, err := server.assistant.Run(r.Context(), principal(r).ID, r.PathValue("documentID"), input)
-		writeAutomationResult(w, value, err)
+		v, e := server.assistant.CreateRun(r.Context(), principal(r).ID, r.PathValue("documentID"), input)
+		if e != nil {
+			writeAutomationResult(w, nil, e)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, v)
 	})
-	mux.HandleFunc("POST /api/documents/{documentID}/assistant/turns/{turnID}/cancel", func(w http.ResponseWriter, r *http.Request) {
-		value, err := server.assistant.Cancel(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("turnID"))
-		writeAutomationResult(w, value, err)
+	mux.HandleFunc("GET "+root, func(w http.ResponseWriter, r *http.Request) {
+		_, _, limit := assistantPage(r)
+		v, e := server.assistant.ListRuns(r.Context(), principal(r).ID, r.PathValue("documentID"), r.URL.Query().Get("cursor"), limit)
+		writeAutomationResult(w, v, e)
+	})
+	mux.HandleFunc("GET "+root+"/{runID}", func(w http.ResponseWriter, r *http.Request) {
+		v, e := server.assistant.GetRun(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"))
+		writeAutomationResult(w, v, e)
+	})
+	mux.HandleFunc("POST "+root+"/{runID}/messages", func(w http.ResponseWriter, r *http.Request) {
+		var input assistant.MessageInput
+		if !assistantJSON(w, r, &input) {
+			return
+		}
+		v, t, e := server.assistant.AddMessage(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), input)
+		if e != nil {
+			writeAutomationResult(w, nil, e)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"run": v, "turn": t})
+	})
+	mux.HandleFunc("GET "+root+"/{runID}/messages", func(w http.ResponseWriter, r *http.Request) {
+		a, b, l := assistantPage(r)
+		v, e := server.assistant.Messages(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), a, b, l)
+		writeAutomationResult(w, v, e)
+	})
+	mux.HandleFunc("GET "+root+"/{runID}/events", func(w http.ResponseWriter, r *http.Request) {
+		a, b, l := assistantPage(r)
+		v, e := server.assistant.Events(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), a, b, l)
+		writeAutomationResult(w, v, e)
+	})
+	mux.HandleFunc("GET "+root+"/{runID}/stages", func(w http.ResponseWriter, r *http.Request) {
+		a, b, l := assistantPage(r)
+		v, e := server.assistant.Stages(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), a, b, l)
+		writeAutomationResult(w, v, e)
+	})
+	mux.HandleFunc("GET "+root+"/{runID}/calls", func(w http.ResponseWriter, r *http.Request) {
+		_, _, l := assistantPage(r)
+		v, e := server.assistant.Calls(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), r.URL.Query().Get("cursor"), l)
+		writeAutomationResult(w, v, e)
+	})
+	mux.HandleFunc("POST "+root+"/{runID}/control", func(w http.ResponseWriter, r *http.Request) {
+		var input assistant.RunControl
+		if !assistantJSON(w, r, &input) {
+			return
+		}
+		v, e := server.assistant.ControlRun(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), input)
+		writeAutomationResult(w, v, e)
 	})
 }

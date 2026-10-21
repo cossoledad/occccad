@@ -149,52 +149,39 @@ func TestAssistantThinkingProtocolPreservesPrivateReasoning(t *testing.T) {
 	}
 }
 
-func TestAssistantProviderBudgetEnvelopesAndTruncatedUsage(t *testing.T) {
-	var calls int
-	var expectedTokens int
-	truncated := false
+func TestAssistantProviderRequestLimitsAndUsageRoundTrip(t *testing.T) {
+	var received int
+	expected := 2048
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		received++
 		var input struct {
 			MaxTokens int `json:"max_tokens"`
 		}
-		if json.NewDecoder(r.Body).Decode(&input) != nil || input.MaxTokens != expectedTokens {
-			t.Errorf("wrong output allowance %d, want %d", input.MaxTokens, expectedTokens)
+		_ = json.NewDecoder(r.Body).Decode(&input)
+		if input.MaxTokens != expected {
+			t.Error(input.MaxTokens)
 		}
-		if truncated {
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"partial"},"finish_reason":"length"}],"usage":{"prompt_tokens":30000,"completion_tokens":32768,"total_tokens":62768}}`))
-			return
-		}
-		writeCompletion(w, Message{Role: "assistant", Content: "已读取", ReasoningContent: strings.Repeat("x", 100<<10)})
+		w.Header().Set("X-Request-ID", "provider-request-1")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"partial"},"finish_reason":"length"}],"usage":{"prompt_tokens":30000,"completion_tokens":2048,"total_tokens":32048,"prompt_cache_hit_tokens":20000,"completion_tokens_details":{"reasoning_tokens":2000},"unexpected_secret":"MUST_NOT_PERSIST"}}`))
 	}))
 	defer server.Close()
-	provider := newProvider(server.URL, "deepseek-flash")
-	// The same large private tool transcript used to hit the fixed 96 KiB
-	// transport/64 KiB reasoning limits even after increasing token allowance.
-	messages := []Message{{Role: "user", Content: strings.Repeat("x", 180<<10)}}
-	for _, tc := range []struct {
-		budget, thinking string
-		tokens           int
-		accepted         bool
-	}{
-		{"low", "off", 4096, false},
-		{"medium", "off", 8192, true},
-		{"medium", "high", 32768, true},
-		{"high", "off", 16384, true},
-		{"high", "max", 65536, true},
-	} {
-		t.Run(tc.budget+"-"+tc.thinking, func(t *testing.T) {
-			expectedTokens = tc.tokens
-			before := calls
-			_, err := provider.Complete(t.Context(), "synthetic", messages, planningTools(), Generation{Model: "deepseek-flash", Thinking: tc.thinking, Budget: tc.budget})
-			if (err == nil) != tc.accepted || (!tc.accepted && calls != before) {
-				t.Fatalf("budget %s: calls=%d error=%v", tc.budget, calls-before, err)
-			}
-		})
+	p := newProvider(server.URL, "deepseek-flash")
+	limits := defaultRequestLimits()
+	result, err := p.Complete(t.Context(), "synthetic", nil, nil, Generation{Model: "deepseek-flash", Thinking: "high", Limits: limits, MaxTokens: 2048})
+	if err == nil || result.Usage == nil || result.Usage.TotalTokens != 32048 || result.ProviderRequestID != "provider-request-1" {
+		t.Fatal(result, err)
 	}
-	expectedTokens, truncated = 2048, true
-	result, err := provider.Complete(t.Context(), "synthetic", nil, nil, Generation{Model: "deepseek-flash", Thinking: "high", Budget: "medium", maxTokens: 2048})
-	if err == nil || result.Usage == nil || result.Usage.TotalTokens != 62768 {
-		t.Fatal("length-limited output lost its reported usage", result, err)
+	raw, _ := json.Marshal(result)
+	if strings.Contains(string(raw), "MUST_NOT_PERSIST") {
+		t.Fatal("usage persisted arbitrary provider text")
+	}
+	var roundtrip Completion
+	if json.Unmarshal(raw, &roundtrip) != nil || roundtrip.Usage.CacheHitTokens == nil || *roundtrip.Usage.CacheHitTokens != 20000 || roundtrip.Usage.ReasoningTokens == nil || *roundtrip.Usage.ReasoningTokens != 2000 {
+		t.Fatal("usage normalization lost fields", string(raw))
+	}
+	limits.MaxContextBytes = 4096
+	_, err = p.Complete(t.Context(), "synthetic", []Message{{Role: "user", Content: strings.Repeat("x", 8192)}}, nil, Generation{Model: "deepseek-flash", Thinking: "off", Limits: limits})
+	if err == nil || received != 1 {
+		t.Fatal("oversized single request reached provider", received, err)
 	}
 }

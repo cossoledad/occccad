@@ -1,4 +1,5 @@
 import {faceOutlineSegments} from "../cad/rendering/face-outline";
+import {frameDocuments} from "./display-receipt";
 import { ScenePresentation } from "../cad/rendering/scene-presentation";
 import { DEFAULT_SCENE_SETTINGS, groundLevel, normalizeSceneSettings,sceneGridColor, sceneBackgroundIsLight, type SceneSettings } from "../cad/rendering/scene-settings";
 import {validMotionPose} from "../cad/assembly/motion-study";
@@ -3882,8 +3883,8 @@ export class CadViewportEngine {
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);
         if(this.view && !this.pendingVisualSnapshot && !this.visualError){
-          const snapshot=`${this.view.document.id}:${this.view.document.versionId}`;
-          if(snapshot!==this.lastDisplayedSnapshot){this.lastDisplayedSnapshot=snapshot;this.callbacks.documentDisplayed?.(this.view.document.id,this.view.document.versionId);}
+          const documents=frameDocuments(this.view,this.editContext),snapshot=JSON.stringify(documents);
+          if(snapshot!==this.lastDisplayedSnapshot){this.lastDisplayedSnapshot=snapshot;for(const value of documents)this.callbacks.documentDisplayed?.(value.documentId,value.revisionId);}
         }
         if(this.analysisScene.children.length){
           updateAnalysisGuides(this.analysisScene,this.camera,metrics);

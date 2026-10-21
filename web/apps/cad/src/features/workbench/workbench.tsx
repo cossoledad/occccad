@@ -1,5 +1,9 @@
-import {assistantTarget,dispatchAssistantCommand} from "../assistant/workbench-handoff";
+import {assistantTarget,dispatchAssistantCommand,handoffEditorIntent,handoffMatchesCommit,type AssistantHandoffSession} from "../assistant/workbench-handoff";
 import {AssistantPanel} from "../assistant/assistant-panel";
+import {freezeScope} from "../assistant/frozen-scope";
+import {assistantApi,type AssistantRun} from "../assistant/assistant-api";
+import {automationApi} from "../assistant/automation-api";
+import {newerRun} from "../assistant/conversation-model";
 import {useGlobalOptions} from "../preferences/global-options-center";
 import {sceneBackgroundIsLight} from "../../cad/rendering/scene-settings";
 import {AssemblyConstraintFields} from "./assembly-constraint-fields";
@@ -131,6 +135,17 @@ export function Workbench() {
   const [assistantOpen,setAssistantOpen]=useState(false);
   useEffect(()=>setAssistantOpen(false),[documentID]);
   const [assistantDisplayed,setAssistantDisplayed]=useState<{documentId:string;revisionId:string}>();
+  const assistantHandoff=useRef<AssistantHandoffSession|undefined>(undefined);
+  useEffect(()=>{assistantHandoff.current=undefined},[documentID]);
+  const finishAssistantHandoff=async(handoff:AssistantHandoffSession,outcome:"COMPLETED"|"CANCELLED"|"UNKNOWN")=>{
+    try{
+      const current=await assistantApi.run(handoff.documentId,handoff.runId);
+      const task=await automationApi.task(handoff.documentId,handoff.taskId);
+      const next=await assistantApi.control(handoff.documentId,handoff.runId,{action:"handoff_finish",expectedVersion:current.version,epoch:handoff.epoch,taskId:handoff.taskId,taskVersion:task.version,stepId:handoff.stepId,handoffId:handoff.handoffId,requestId:handoff.domainRequestId,outcome});
+      client.setQueryData<AssistantRun>(["assistant-run",next.documentId,next.id],previous=>newerRun(previous,next));
+      void client.invalidateQueries({queryKey:["automation-task",handoff.documentId,handoff.taskId]});
+    }catch{message.info("界面操作的原请求结果待核对，请在建模助手中核对操作结果；请勿重复建模。");}
+  };
   const [sketchCommandState,setSketchCommandState]=useState<SketchCommandState>();
   const [sketchReceipt,setSketchReceipt]=useState<SketchCommitReceipt>();
   const normalViewRequest = useRef(0);
@@ -1701,16 +1716,19 @@ onToggleConstruction:(node)=>{
           }}
           onInstanceMoved={moveInstance} /></Suspense>
       <WorkbenchViewControls toolbars={visibleToolbars} />
-      {!isMockMode&&<AssistantPanel open={assistantOpen} onClose={()=>setAssistantOpen(false)} documentType={view.document.type} key={view.document.id} documentId={view.document.id} documentName={view.document.name} workingBodyId={workingBodyID}
-        enabled={canEdit&&!command.isPending&&editingView?.document.id===view.document.id} displayed={assistantDisplayed}
+      {!isMockMode&&<AssistantPanel open={assistantOpen} onClose={()=>setAssistantOpen(false)} documentType={(editingView??view).document.type} key={(editingView??view).document.id} documentId={(editingView??view).document.id} documentName={(editingView??view).document.name} workingBodyId={workingBodyID}
+        enabled={canEdit&&!command.isPending} readOnly={!canEdit} selectionCount={store.selections.length} inOccurrence={Boolean(activeInstancePath)} displayed={assistantDisplayed}
+        captureScope={()=>freezeScope({rootDocumentId:view.document.id,rootRevisionId:view.document.versionId,documentId:(editingView??view).document.id,revisionId:(editingView??view).document.versionId,workingBodyId:workingBodyID,
+          instancePath:editSession?.editTarget.instancePath,selections:useWorkbenchStore.getState().selections},api.getTopologyProperties)}
         prepare={async()=>{commandRegistry.cancel();await viewport.current?.settleAssemblyInteraction();useWorkbenchStore.getState().setActiveTool("select")}}
-        refresh={async()=>{await refresh(await api.getDocument(view.document.id))}}
+        refresh={async()=>{await refresh(await api.getDocument(view.document.id));viewport.current?.retryDocumentDisplay();}}
         preview={value=>{if(value?.artifact)viewport.current?.previewArtifact(value.artifact);else viewport.current?.clearCommandPreview()}}
-        executeCommand={async(id,targetId)=>{
-          const node=targetId?assistantTarget(treeNodes,view.document.id,targetId):undefined;
+        executeCommand={async(id,targetId,handoff)=>{
+          const node=targetId?assistantTarget(treeNodes,(editingView??view).document.id,targetId):undefined;
           if(targetId&&!node)throw new Error("对象已变化，请重新选择后打开工具");
           if(node?.selection){store.setSelections([node.selection]);await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))}
-          await dispatchAssistantCommand(commandRegistry,id,node?{payload:{node,nodes:[node]}}:undefined);
+          assistantHandoff.current=handoff&&["part.fillet","part.chamfer"].includes(id)?{...handoff,state:"OPENED"}:undefined;
+          try{await dispatchAssistantCommand(commandRegistry,id,node?{payload:{node,nodes:[node]}}:undefined)}catch(cause){assistantHandoff.current=undefined;throw cause;}
         }}
         locate={reference=>{const node=assistantTarget(treeNodes,reference.documentId,reference.id);if(node?.selection)store.setSelections([node.selection]);else message.info("当前结果中暂时无法定位该对象")}}/>}
     </WorkbenchLayout>
@@ -1980,9 +1998,17 @@ onToggleConstruction:(node)=>{
       onClose={() => setInsertOpen(false)}
       onInsertDocuments={(ids) => command.mutateAsync(() => api.insertMany(activeID, ids))} />}
     {solidEditor && editingView?.part && <SolidFeatureEditor key={editingView.document.id+solidEditor.feature.id+solidEditor.feature.type} view={editingView} feature={solidEditor.feature} digest={solidEditor.digest} unit={lengthUnit} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifact={featureInputChanged}
-      onClose={()=>{viewport.current?.clearCommandPreview();setSolidEditor(undefined);}}
+      intentRequestId={handoffEditorIntent(assistantHandoff.current,editingView.document.id,editingView.document.versionId,solidEditor.feature.type)}
+      onClose={()=>{const handoff=assistantHandoff.current;assistantHandoff.current=undefined;if(handoff&&handoff.state!=="COMMITTED")void finishAssistantHandoff(handoff,handoff.state==="UNKNOWN"?"UNKNOWN":"CANCELLED");viewport.current?.clearCommandPreview();setSolidEditor(undefined);}}
       onPreview={(artifact,operation,sketchFeatureId)=>{if(artifact)viewport.current?.previewArtifact(artifact,operation,sketchFeatureId);else viewport.current?.clearCommandPreview();}}
-      onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))} />}
+      onApply={async input=>{
+        const handoff=assistantHandoff.current,matched=handoffMatchesCommit(handoff,editingView.document.id,editingView.document.versionId,input);
+        if(handoff&&input.requestId===handoff.domainRequestId&&!matched)throw new Error(handoff.state==="UNKNOWN"?"原请求提交结果未知，请先在建模助手核对操作结果，勿再次提交":"接管目标、版本或操作已变化，请取消工具并重新规划");
+        let updated:DocumentView;
+        try{updated=await command.mutateAsync(()=>api.command(editingView.document.id,input));}catch(cause){if(matched&&handoff)handoff.state="UNKNOWN";throw cause;}
+        if(matched&&handoff){handoff.state="COMMITTED";void finishAssistantHandoff(handoff,"COMPLETED");}
+        return updated;
+      }} />}
     {booleanDialog && editingView?.part && <BooleanFeatureDialog key={editingView.document.id+":"+(booleanDialog.feature?.id??"new")} view={editingView} initial={booleanDialog.feature} digest={booleanDialog.digest} bodyId={workingBodyID} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifacts={setFeatureInputs}
       onClose={()=>{viewport.current?.clearCommandPreview();setBooleanDialog(undefined);}}
       onPreview={(artifact,operation)=>{if(artifact)viewport.current?.previewArtifact(artifact,operation);else viewport.current?.clearCommandPreview();}}

@@ -5,6 +5,7 @@
 | 类型 | 入口 |
 |---|---|
 | 全仓性能测量 | [范围与结果](performance-baseline.md)、[机器样本](performance-baseline.json) |
+| 持续 AI Run | [容量、恢复、选择与装配验收](ai-native-runs.md) |
 | 连续建模 | [固定建模序列](continuous-modeling-100-baseline.md) |
 | 增量运行时 | [冷/热与淘汰范围](incremental-modeling-runtime-validation.md) |
 | Agent 工作流 | [定位/验证测量](agent-workflow-baseline.md)、[机器样本](agent-workflow-baseline.json) |

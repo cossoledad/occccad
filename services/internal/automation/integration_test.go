@@ -136,7 +136,7 @@ func TestAutomationProductionTaskPreviewCommitRecoveryAndHistory(t *testing.T) {
 	}
 	ids := []string{uuid.NewString(), uuid.NewString(), uuid.NewString()}
 	args := func(v any) json.RawMessage { raw, _ := json.Marshal(v); return raw }
-	input := automation.CreateTask{RequestID: uuid.NewString(), Goal: "80 by 50 rectangle extruded 12 mm", ExpectedHead: current.Snapshot.CommandBaseline, Steps: []automation.StepSpec{
+	input := automation.CreateTask{RequestID: uuid.NewString(), Goal: "80 by 50 rectangle extruded 12 mm", ExecutionMode: "AUTOMATIC", ExpectedHead: current.Snapshot.CommandBaseline, Steps: []automation.StepSpec{
 		{ID: ids[0], OperationID: "sketch.create", Version: 1, Arguments: args(map[string]any{"bodyId": view.Part.ActiveBodyID, "plane": "XY"})},
 		{ID: ids[1], OperationID: "sketch.rectangle", Version: 1, Arguments: json.RawMessage(`{"width":80,"height":50,"unit":"mm"}`), Bindings: map[string]string{"sketchId": ids[0]}},
 		{ID: ids[2], OperationID: "part.extrude", Version: 1, Arguments: args(map[string]any{"bodyId": view.Part.ActiveBodyID, "length": 12, "unit": "mm"}), Bindings: map[string]string{"sketchId": ids[0]}},
@@ -163,7 +163,7 @@ func TestAutomationProductionTaskPreviewCommitRecoveryAndHistory(t *testing.T) {
 			t.Fatal("preview changed Head", err)
 		}
 		task, err = service.Advance(t.Context(), actor, view.Document.ID, task.ID, task.Version)
-		if err != nil || task.Steps[i].Phase != "COMMITTED" {
+		if err != nil || task.Steps[i].Phase != "APPLIED" {
 			t.Fatalf("commit: %+v %v", task.Steps[i], err)
 		}
 		if i == 0 {
@@ -178,16 +178,13 @@ func TestAutomationProductionTaskPreviewCommitRecoveryAndHistory(t *testing.T) {
 			}
 			service = automation.New(db, domain, access.New(db))
 			task, err = service.Advance(t.Context(), actor, view.Document.ID, task.ID, task.Version)
-			if err != nil || task.Steps[i].Phase != "COMMITTED" {
+			if err != nil || task.Steps[i].Phase != "APPLIED" {
 				t.Fatalf("receipt recovery: %+v %v", task, err)
 			}
 			var count int
 			if err = db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.domain_transactions WHERE request_id=$1`, task.Steps[i].Action.RequestID).Scan(&count); err != nil || count != 1 {
 				t.Fatal("request committed more than once", count, err)
 			}
-		}
-		if _, err = service.Advance(t.Context(), actor, view.Document.ID, task.ID, task.Version); err == nil {
-			t.Fatal("advanced without displaying the current result")
 		}
 		task, err = service.Control(t.Context(), actor, view.Document.ID, task.ID, automation.Control{Action: "displayed", ExpectedVersion: task.Version, StepID: ids[i], RevisionID: task.Steps[i].Result.Receipt.RevisionID})
 		if err != nil {
@@ -280,7 +277,7 @@ func TestAutomationPauseExplicitRebaseAndStoppedDisplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := automation.CreateTask{RequestID: uuid.NewString(), Goal: "Create one sketch", ExpectedHead: snapshot.CommandBaseline, Steps: []automation.StepSpec{{ID: uuid.NewString(), OperationID: "sketch.create", Version: 1, Arguments: json.RawMessage(`{"bodyId":"` + view.Part.ActiveBodyID + `","plane":"XY"}`)}}}
+	input := automation.CreateTask{RequestID: uuid.NewString(), Goal: "Create one sketch", ExecutionMode: "AUTOMATIC", ExpectedHead: snapshot.CommandBaseline, Steps: []automation.StepSpec{{ID: uuid.NewString(), OperationID: "sketch.create", Version: 1, Arguments: json.RawMessage(`{"bodyId":"` + view.Part.ActiveBodyID + `","plane":"XY"}`)}}}
 	task, err := service.CreateTask(t.Context(), actor, view.Document.ID, input)
 	if err != nil {
 		t.Fatal(err)
@@ -324,10 +321,24 @@ func TestAutomationPauseExplicitRebaseAndStoppedDisplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	control("resume", &snapshot.CommandBaseline)
+	if task.Status != "REPLAN_REQUIRED" || task.Baseline == snapshot.CommandBaseline || task.Steps[0].Action.ExpectedHead == snapshot.CommandBaseline {
+		t.Fatal("resuming silently rebased old action arguments", task)
+	}
+	if _, err = service.Advance(t.Context(), actor, view.Document.ID, task.ID, task.Version); err == nil {
+		t.Fatal("stale stage executed without replanning")
+	}
+	input.RequestID = uuid.NewString()
+	input.ExpectedHead = snapshot.CommandBaseline
+	input.Steps[0].ID = uuid.NewString()
+	input.Steps = append(input.Steps, automation.StepSpec{ID: uuid.NewString(), OperationID: "sketch.create", Version: 1, Arguments: json.RawMessage(`{"bodyId":"` + view.Part.ActiveBodyID + `","plane":"YZ"}`)})
+	task, err = service.CreateTask(t.Context(), actor, view.Document.ID, input)
+	if err != nil {
+		t.Fatal(err)
+	}
 	advance()
 	advance()
-	if task.Steps[0].Phase != "COMMITTED" {
-		t.Fatalf("explicit rebase did not produce a qualified commit: %+v", task.Steps[0])
+	if task.Steps[0].Phase != "APPLIED" {
+		t.Fatalf("freshly planned stage did not produce a qualified commit: %+v", task.Steps[0])
 	}
 	if _, err = service.Control(t.Context(), actor, view.Document.ID, task.ID, automation.Control{Action: "displayed", ExpectedVersion: task.Version, StepID: task.Steps[0].ID, RevisionID: uuid.NewString()}); err == nil {
 		t.Fatal("wrong revision acknowledged as displayed")
@@ -348,6 +359,7 @@ func TestAutomationPauseExplicitRebaseAndStoppedDisplay(t *testing.T) {
 	input.RequestID = uuid.NewString()
 	input.ExpectedHead = snapshot.CommandBaseline
 	input.Steps[0].ID = uuid.NewString()
+	input.Steps = input.Steps[:1]
 	task, err = service.CreateTask(t.Context(), actor, view.Document.ID, input)
 	if err != nil {
 		t.Fatal(err)
@@ -457,11 +469,42 @@ func TestAutomationAllEdgesFilletAndWorkbenchHandoff(t *testing.T) {
 		t.Fatal("UI command bypassed the browser")
 	}
 	task, err = service.Control(t.Context(), actor, document, task.ID, automation.Control{Action: "handoff", ExpectedVersion: task.Version, StepID: task.Steps[0].ID})
-	if err != nil || task.Status != "COMPLETED" || task.Steps[0].Phase != "HANDED_OFF" || task.Steps[0].Result != nil {
+	if err != nil || task.Status != "WAIT_UI" || task.Steps[0].Phase != "HANDED_OFF" || task.Steps[0].Result != nil {
 		t.Fatal(task, err)
 	}
 	if _, err = service.Control(t.Context(), actor, document, task.ID, automation.Control{Action: "handoff", ExpectedVersion: task.Version, StepID: task.Steps[0].ID}); err == nil {
 		t.Fatal("completed handoff was replayed")
+	}
+	handoff := task.Steps[0].Handoff
+	if handoff == nil || handoff.DomainRequestID == "" {
+		t.Fatal("handoff intent was not persisted")
+	}
+	inputControl := automation.Control{Action: "ui_opened", ExpectedVersion: task.Version, StepID: task.Steps[0].ID, HandoffID: handoff.ID}
+	task, err = service.Control(t.Context(), actor, document, task.ID, inputControl)
+	if err != nil || task.Status != "WAIT_UI" || task.Steps[0].Phase != "UI_OPENED" || task.Steps[0].Result != nil {
+		t.Fatal("opening a UI tool was fabricated as a modeling completion", task, err)
+	}
+	inputControl.Action = "ui_complete"
+	inputControl.ExpectedVersion = task.Version
+	inputControl.DomainRequestID = uuid.NewString()
+	if _, err = service.Control(t.Context(), actor, document, task.ID, inputControl); err == nil {
+		t.Fatal("unrelated commit identity completed an interactive handoff")
+	}
+	inputControl.Action = "ui_unknown"
+	inputControl.DomainRequestID = ""
+	task, err = service.Control(t.Context(), actor, document, task.ID, inputControl)
+	if err != nil || task.Status != "WAIT_UI" || task.Steps[0].Phase != "UI_UNKNOWN" {
+		t.Fatal(task, err)
+	}
+	inputControl.Action = "ui_opened"
+	inputControl.ExpectedVersion = task.Version
+	if _, err = service.Control(t.Context(), actor, document, task.ID, inputControl); err == nil {
+		t.Fatal("unknown handoff was automatically replayed")
+	}
+	inputControl.Action = "ui_cancelled"
+	task, err = service.Control(t.Context(), actor, document, task.ID, inputControl)
+	if err != nil || task.Status != "PAUSED" || task.Steps[0].Phase != "UI_CANCELLED" || task.Steps[0].Result != nil {
+		t.Fatal("user cancellation was treated as success", task, err)
 	}
 	unchanged, _ := domain.ReadModelSnapshot(t.Context(), document, "")
 	if unchanged.CommandBaseline != fresh.CommandBaseline {
@@ -539,4 +582,26 @@ func TestAutomationGenericSketchSolidAndProductCommands(t *testing.T) {
 	if err != nil || page.Items[0].Properties["definition"] == nil {
 		t.Fatal(page, err)
 	}
+	// The reference for an instance that does not yet exist is constructed by
+	// the application from its exact output, then bound as one AssemblyRef.
+	baseline, err := domain.ReadModelSnapshot(t.Context(), product.Document.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertStep := uuid.NewString()
+	task, err := service.CreateTask(t.Context(), actor, product.Document.ID, automation.CreateTask{RequestID: uuid.NewString(), Goal: "Insert an existing cylinder and fix its new occurrence", ExecutionMode: "AUTOMATIC", RunID: uuid.NewString(), PlanEpoch: 1, ExpectedHead: baseline.CommandBaseline, Steps: []automation.StepSpec{{ID: insertStep, OperationID: "command.insert_instance", Version: 1, Arguments: marshalOccurrenceArguments(map[string]any{"referencedDocumentId": view.Document.ID})}, {ID: uuid.NewString(), OperationID: "command.add_assembly_constraint", Version: 1, Arguments: json.RawMessage(`{"constraintKind":"FIX","fixMode":"SPACE"}`), TypedBindings: []automation.InputBinding{{Target: "firstAssemblyRef", SourceStepID: insertStep, OutputRole: "PRIMARY", Representation: "ASSEMBLY_REF"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for task.Status == "ACTIVE" {
+		task, err = service.Advance(t.Context(), actor, product.Document.ID, task.ID, task.Version)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if task.Status != "COMPLETED" || task.Steps[1].Result == nil || len(task.Steps[0].Result.TypedOutputs) != 1 || task.Steps[0].Result.TypedOutputs[0].InstancePath == nil {
+		t.Fatal("new occurrence typed reference did not reach native constraint commit", task)
+	}
 }
+
+func marshalOccurrenceArguments(value any) json.RawMessage { raw, _ := json.Marshal(value); return raw }
