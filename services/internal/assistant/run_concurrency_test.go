@@ -233,7 +233,7 @@ func TestAssistantRunQuestionAnswersWhileWriterWaitsAndRejectsWrites(t *testing.
 	}
 }
 
-func TestAssistantRunIdenticalFailedIntentBlocksOnFactsNotElapsedCalls(t *testing.T) {
+func TestAssistantRunIdenticalFailedIntentRemainsAvailableToPlanner(t *testing.T) {
 	p := &concurrencyProvider{complete: func(context.Context, int, []Message, []Tool) (Completion, error) {
 		return concurrencyCompletion(concurrencyMessage("cad_create_task", map[string]any{"steps": []any{}})), nil
 	}}
@@ -247,8 +247,12 @@ func TestAssistantRunIdenticalFailedIntentBlocksOnFactsNotElapsedCalls(t *testin
 		t.Fatal(r, err)
 	}
 	r, err = s.Step(t.Context(), actor, view.Document.ID, r.ID)
-	if err != nil || r.Status != "BLOCKED" || r.StageCount != 0 || r.AppliedCount != 0 || r.LastFailureDigest == "" || !strings.Contains(r.WaitingReason, "同一事实") {
-		t.Fatal("same invalid intent repeated without factual progress", r, err)
+	if err != nil || r.Status != "PLANNING" || r.StageCount != 0 || r.AppliedCount != 0 || r.LastFailureDigest == "" {
+		t.Fatal("repeated invalid intent blocked planning or invented progress", r, err)
+	}
+	var repeated int
+	if err = s.db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.assistant_run_events WHERE run_id=$1 AND payload->>'type'='REPEATED_DIAGNOSTIC'`, r.ID).Scan(&repeated); err != nil || repeated != 1 {
+		t.Fatal("repeated tool diagnostic was not preserved", repeated, err)
 	}
 }
 

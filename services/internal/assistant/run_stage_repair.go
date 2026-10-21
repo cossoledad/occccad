@@ -127,9 +127,7 @@ func (s *Service) failStage(ctx context.Context, r Run, task automation.Task, fa
 				current.Status = "PLANNING"
 				current.WaitingReason = "旧阶段已结束，正在依据真实结果和诊断修订后续操作"
 				if current.LastStageFailureDigest == digest {
-					current.Status = "BLOCKED"
-					current.WaitingReason = "同一模型事实、操作意图和诊断重复出现，未得到新信息；需要调整方案或补充条件"
-					if err := s.event(ctx, tx, current, "NO_PROGRESS", map[string]string{"source": "CAD_STAGE", "digest": digest, "taskId": task.ID}); err != nil {
+					if err := s.event(ctx, tx, current, "REPEATED_DIAGNOSTIC", map[string]string{"source": "CAD_STAGE", "digest": digest, "taskId": task.ID}); err != nil {
 						return err
 					}
 				}

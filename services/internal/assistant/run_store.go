@@ -293,7 +293,7 @@ func pagePayload[T any](ctx context.Context, db database.Executor, table, run st
 	case "assistant_inputs":
 		query = `SELECT sequence,payload FROM occccad.assistant_inputs WHERE run_id=$1`
 	case "assistant_run_events":
-		query = `SELECT sequence,payload FROM occccad.assistant_run_events WHERE run_id=$1`
+		query = `SELECT sequence,payload FROM occccad.assistant_run_events WHERE run_id=$1 AND COALESCE(payload->>'type','')<>'MODEL_REQUEST_CAPTURED'`
 	default:
 		return p, aiFault("AI_PAGE_INVALID", "未知的分页集合", false)
 	}

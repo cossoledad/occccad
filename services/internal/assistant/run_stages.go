@@ -17,6 +17,7 @@ type appliedStepFact struct {
 	receipt    workspace.CommandReceipt
 	targets    map[string]string
 	selections map[string]string
+	removed    []string
 }
 
 func (s *Service) taskFacts(ctx context.Context, r Run, task automation.Task) ([]appliedStepFact, error) {
@@ -38,6 +39,9 @@ func (s *Service) taskReceiptFacts(ctx context.Context, r Run, task automation.T
 		outputs := map[string]bool{}
 		for _, change := range step.Result.Receipt.Changes {
 			ids[change.EntityID] = true
+			if change.Kind == "DELETE" && (change.SlotID == "entity" || change.SlotID == "body.entity") {
+				fact.removed = append(fact.removed, change.EntityID)
+			}
 		}
 		for _, output := range step.Result.Outputs {
 			ids[output.ID] = true
@@ -205,6 +209,7 @@ func (s *Service) checkpointTaskUpdate(ctx context.Context, r Run, task automati
 				current.LatestAppliedRevisionID = fact.receipt.RevisionID
 			}
 			current.LatestRevisionID = fact.receipt.RevisionID
+			forgetRemovedTargets(current.Targets, current.TargetSelections, fact.removed)
 			for role, id := range fact.targets {
 				// Bind once to the formal output, not the last feature of that type.
 				// A later circle/cut must not replace the rectangle/base pad.

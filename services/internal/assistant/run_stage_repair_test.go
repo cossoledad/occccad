@@ -147,7 +147,7 @@ func (w *rejectedStageWorkspace) PreviewCommand(_ context.Context, _ string, _ w
 	return workspace.CommandPreview{}, &automation.Fault{Code: w.code, Message: "controlled deterministic input rejection"}
 }
 
-func TestAssistantRunRepeatedStageFailureUsesSemanticIntentNotFreshIDs(t *testing.T) {
+func TestAssistantRunRepeatedStageFailureRecordsSemanticIntentWithoutBlocking(t *testing.T) {
 	s, domain, view, r := stageFixture(t)
 	initial, err := domain.ReadModelSnapshot(t.Context(), r.DocumentID, "")
 	if err != nil {
@@ -183,14 +183,17 @@ func TestAssistantRunRepeatedStageFailureUsesSemanticIntentNotFreshIDs(t *testin
 				t.Fatal("first deterministic failure did not permit a new plan", r)
 			}
 			firstDigest = r.LastStageFailureDigest
-		} else if r.Status != "BLOCKED" || r.LastStageFailureDigest != firstDigest {
-			t.Fatal("fresh local/task/request IDs bypassed the no-progress boundary", r)
+		} else if r.Status != "PLANNING" || r.LastStageFailureDigest != firstDigest {
+			t.Fatal("repeated diagnostic blocked the model from revising its plan", r)
 		}
 	}
 	if controlled.previews != 2 || controlled.commits != 0 {
-		t.Fatal("controlled rejection was repeated beyond its semantic boundary", controlled.previews, controlled.commits)
+		t.Fatal("controlled rejection invented a CAD commit", controlled.previews, controlled.commits)
 	}
-	t.Log("controlled execution evidence: two different task/step/request identities, same immutable Head + operation + parameters + diagnostic, BLOCKED with zero CAD commits")
+	var repeated int
+	if err = s.db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.assistant_run_events WHERE run_id=$1 AND payload->>'type'='REPEATED_DIAGNOSTIC'`, r.ID).Scan(&repeated); err != nil || repeated != 1 {
+		t.Fatal("semantic repetition was not retained as diagnostic evidence", repeated, err)
+	}
 }
 
 func TestAssistantStageFailureIntentPreservesBindingStrategy(t *testing.T) {

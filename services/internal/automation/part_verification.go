@@ -153,6 +153,23 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 		}
 		return !feature.Suppressed && feature.Diagnostic == "" && (feature.EvaluationStatus == "" || feature.EvaluationStatus == "VALID" || feature.EvaluationStatus == "SUCCEEDED")
 	}
+	result.Observed["revisionId"], result.Observed["bodyId"] = snapshot.RevisionID, check.BodyID
+	if len(features) == 1 {
+		f := features[0]
+		result.Observed["featureId"], result.Observed["type"], result.Observed["operation"] = f.ID, f.Type, f.Operation
+		if f.Profile != "" {
+			result.Observed["profileId"] = f.Profile
+		}
+		if f.Type == "PAD" || f.Type == "LINEAR_EXTRUDE" {
+			result.Observed["extent"], result.Observed["length"] = f.Extent, f.Length
+		}
+		switch check.Kind {
+		case "RECTANGLE_DIMENSIONS", "EXTRUSION_LENGTH", "CENTERED_THROUGH_HOLE", "THROUGH_HOLE":
+			if !PartGoalTarget(part, f, check.Kind) {
+				return notVerified("GOAL_TARGET_ROLE_MISMATCH", "当前检查绑定的对象不符合目标角色；先核对对象和建模路径，不能据此判断最终几何错误")
+			}
+		}
+	}
 	switch check.Kind {
 	case "ENTITY_EXISTS":
 		if check.BodyID != "" && check.FeatureID == "" && check.SketchID == "" {
@@ -213,33 +230,36 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 		return fail("extrusion length or extent does not match the required one-sided length")
 	case "CENTERED_THROUGH_HOLE", "THROUGH_HOLE":
 		for _, feature := range features {
-			if !PartGoalTarget(part, feature, check.Kind) || !validFeature(feature) || feature.Extent != "THROUGH_ALL" || check.Radius <= 0 {
+			if !PartGoalTarget(part, feature, check.Kind) || !validFeature(feature) || check.Radius <= 0 {
 				continue
 			}
-			var sketch, reference *workspace.Feature
+			generator, sketch, circle := circularCutProfile(part, feature)
+			var reference *workspace.Feature
 			for i := range part.Features {
 				f := &part.Features[i]
-				if f.ID == feature.Profile {
-					sketch = f
-				}
 				if f.ID == check.ReferenceSketchID {
 					reference = f
 				}
 			}
-			if sketch == nil || !validFeature(*sketch) {
+			if generator == nil || sketch == nil || circle == nil || !validFeature(*generator) || !validFeature(*sketch) {
 				continue
 			}
-			circle := profileCircle(*sketch.Sketch)
-			if circle == nil || !closeNumber(circle.Radius, check.Radius, tolerance) {
-				continue
+			result.Observed["generatorFeatureId"], result.Observed["sketchId"], result.Observed["diameter"], result.Observed["strategy"] = generator.ID, sketch.ID, 2*circle.Radius, feature.Type
+			result.Observed["extent"], result.Observed["length"] = generator.Extent, generator.Length
+			if !closeNumber(circle.Radius, check.Radius, tolerance) {
+				return fail("圆孔直径与要求不一致")
 			}
 			normal := sketch.Sketch.Support.Normal
 			center := sketchPointWorld(sketch.Sketch.Support, *circle.Center)
+			result.Observed["holeAxisOrigin"], result.Observed["holeAxisDirection"] = center, normal
 			if check.Plane != "" {
 				planes := map[string][3]float64{"XY": {0, 0, 1}, "YZ": {1, 0, 0}, "XZ": {0, 1, 0}}
 				expected, ok := planes[check.Plane]
-				if !ok || !parallelVectors(normal, expected, tolerance) {
-					continue
+				if !ok {
+					return notVerified("HOLE_PLANE_UNSUPPORTED", "该基准平面的孔轴检查暂不支持")
+				}
+				if !parallelVectors(normal, expected, tolerance) {
+					return fail("圆孔轴线与要求的基准平面法向不一致")
 				}
 			}
 			if check.Kind == "CENTERED_THROUGH_HOLE" {
@@ -264,6 +284,7 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 					}
 				}
 				referenceCenter := sketchPointWorld(reference.Sketch.Support, workspace.SketchPoint2{X: (minX + maxX) / 2, Y: (minY + maxY) / 2})
+				result.Observed["referenceSketchId"], result.Observed["referenceCenter"] = reference.ID, referenceCenter
 				if !parallelVectors(normal, reference.Sketch.Support.Normal, tolerance) || !onAxis(center, referenceCenter, normal, tolerance) {
 					return fail("贯穿孔中心与原始矩形面的中心不一致")
 				}
@@ -271,6 +292,16 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 			for _, later := range part.Features {
 				if later.BodyID == feature.BodyID && later.Order > feature.Order && !later.Suppressed && (PartGoalTarget(part, later, "EXTRUSION_LENGTH") || later.Type == "BOOLEAN" || later.Type == "SHELL" || later.Type == "SOLID_PATTERN") {
 					return notVerified("HOLE_DOWNSTREAM_UNVERIFIED", "孔之后存在可能封堵孔口的实体操作，需要进一步检查最终贯穿性")
+				}
+			}
+			if generator.Extent != "THROUGH_ALL" {
+				spans, evidence, err := s.cutSpansBody(ctx, part, feature.BodyID, *generator, center, normal, tolerance)
+				result.Observed["throughEvidence"] = evidence
+				if err != nil {
+					return notVerified("HOLE_EXTENT_EVIDENCE_UNAVAILABLE", err.Error())
+				}
+				if !spans {
+					return notVerified("HOLE_EXTENT_UNVERIFIED", "已有圆形切除，但当前证据不能证明切割范围贯穿整个实体；请核对范围与最终孔口，不要把证据不足当作需要删除结果")
 				}
 			}
 			// A cut definition alone is insufficient: require its named cylindrical
@@ -285,14 +316,21 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 			}
 			for _, face := range topology.Items {
 				evidence := face.Selection.Selection.CreationEvidence
-				if face.Selection.Selection.Anchor.FeatureID == feature.ID && strings.EqualFold(face.GeometryType, "CYLINDER") && evidence.RadiusMM != nil && closeNumber(*evidence.RadiusMM, check.Radius, tolerance) && parallelVectors(evidence.Direction, normal, tolerance) && onAxis(evidence.Origin, center, normal, tolerance) {
-					result.Observed["featureId"], result.Observed["sketchId"], result.Observed["diameter"], result.Observed["extent"] = feature.ID, sketch.ID, 2*circle.Radius, feature.Extent
+				if strings.EqualFold(face.GeometryType, "CYLINDER") && evidence.RadiusMM != nil && closeNumber(*evidence.RadiusMM, check.Radius, tolerance) && parallelVectors(evidence.Direction, normal, tolerance) && onAxis(evidence.Origin, center, normal, tolerance) {
+					if evidence.MaterialSide == nil {
+						return notVerified("HOLE_MATERIAL_SIDE_UNAVAILABLE", "圆柱面匹配，但缺少区分孔壁与外圆柱面的材料侧证据")
+					}
+					if *evidence.MaterialSide != -1 {
+						continue
+					}
+					result.Observed["wallTopologyId"], result.Observed["wallAnchor"], result.Observed["materialSide"] = face.ID, face.Selection.Selection.Anchor, *evidence.MaterialSide
+					result.Observed["featureId"] = feature.ID
 					return pass()
 				}
 			}
-			return fail("当前实体没有该切除特征产生的有效圆柱孔壁")
+			return fail("当前目标实体中未找到符合直径、轴线和材料侧的圆柱孔壁")
 		}
-		return fail("未找到符合直径、位置及贯穿范围的圆孔切除特征")
+		return notVerified("HOLE_STRATEGY_UNRESOLVED", "当前检查尚未解析出可验证的圆孔路径；这不等于最终实体没有孔，需要核对对象与实际几何")
 	case "NO_FEATURE_TYPE":
 		if check.ExpectedType == "" {
 			return notVerified("CHECK_INPUT_REQUIRED", "forbidden feature type is required")
@@ -472,16 +510,115 @@ func PartGoalTarget(part workspace.PartModel, feature workspace.Feature, kind st
 	case "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET":
 		return feature.Type == "FILLET"
 	case "THROUGH_HOLE", "CENTERED_THROUGH_HOLE":
-		if (feature.Type != "PAD" && feature.Type != "LINEAR_EXTRUDE") || feature.Operation != "REMOVE" {
-			return false
+		generator, _, circle := circularCutProfile(part, feature)
+		return generator != nil && circle != nil
+	}
+	return false
+}
+
+// Equivalent circular cuts may be a linear REMOVE or a Boolean REMOVE using
+// a formally referenced cylinder. Resolve the dependency graph, not a name or
+// a specific preferred modeling recipe.
+func circularCutProfile(part workspace.PartModel, feature workspace.Feature) (*workspace.Feature, *workspace.Feature, *workspace.SketchEntity) {
+	generator := feature
+	if feature.Operation != "REMOVE" {
+		return nil, nil, nil
+	}
+	if feature.Type == "BOOLEAN" {
+		if len(feature.Tools) != 1 {
+			return nil, nil, nil
 		}
-		for _, sketch := range part.Features {
-			if sketch.ID == feature.Profile && sketch.Sketch != nil {
-				return profileCircle(*sketch.Sketch) != nil
+		ref := feature.Tools[0]
+		found := false
+		for _, candidate := range part.Features {
+			if candidate.ID == ref.FeatureID && candidate.BodyID == ref.BodyID && candidate.Order < feature.Order && !candidate.Suppressed {
+				generator = candidate
+				found = true
+				break
+			}
+		}
+		if !found || generator.Operation != "ADD" && generator.Operation != "NEW_BODY" && generator.Operation != "" {
+			return nil, nil, nil
+		}
+		// A tool with an earlier solid history is not necessarily a complete
+		// cylinder. Its other operations need their own geometric proof.
+		for _, earlier := range part.Features {
+			if earlier.BodyID == generator.BodyID && earlier.Order < generator.Order && earlier.Sketch == nil && !earlier.Suppressed {
+				return nil, nil, nil
 			}
 		}
 	}
-	return false
+	if generator.Type != "PAD" && generator.Type != "LINEAR_EXTRUDE" {
+		return nil, nil, nil
+	}
+	for i := range part.Features {
+		sketch := &part.Features[i]
+		if sketch.ID == generator.Profile && sketch.BodyID == generator.BodyID && sketch.Sketch != nil {
+			if circle := profileCircle(*sketch.Sketch); circle != nil {
+				return &generator, sketch, circle
+			}
+		}
+	}
+	return nil, nil, nil
+}
+
+func (s *Service) cutSpansBody(ctx context.Context, part workspace.PartModel, bodyID string, generator workspace.Feature, center, normal [3]float64, tolerance float64) (bool, map[string]any, error) {
+	evidence := map[string]any{"extent": generator.Extent, "length": generator.Length, "length2": generator.Length2, "unit": "mm"}
+	key := ""
+	for _, body := range part.Bodies {
+		if body.ID == bodyID {
+			key = body.GeometryKey
+		}
+	}
+	if key == "" || s.db == nil {
+		return false, evidence, errors.New("缺少目标实体的权威几何范围")
+	}
+	var raw []byte
+	var unit string
+	if err := s.db.QueryRow(ctx, `SELECT bbox_json,units FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).Scan(&raw, &unit); err != nil {
+		return false, evidence, err
+	}
+	var box struct{ Min, Max []float64 }
+	if json.Unmarshal(raw, &box) != nil || len(box.Min) != 3 || len(box.Max) != 3 || unit != "mm" {
+		return false, evidence, errors.New("目标实体的几何范围或单位不可用")
+	}
+	axis := normal
+	if generator.Reversed {
+		for i := range axis {
+			axis[i] = -axis[i]
+		}
+	}
+	if !closeNumber(vectorNorm(axis), 1, tolerance) {
+		return false, evidence, errors.New("孔轴方向证据不可用")
+	}
+	low, high := math.Inf(1), math.Inf(-1)
+	for mask := 0; mask < 8; mask++ {
+		projection := 0.0
+		for i := 0; i < 3; i++ {
+			value := box.Min[i]
+			if mask&(1<<i) != 0 {
+				value = box.Max[i]
+			}
+			if math.IsNaN(value) || math.IsInf(value, 0) || box.Min[i] > box.Max[i] {
+				return false, evidence, errors.New("目标实体的几何范围无效")
+			}
+			projection += (value - center[i]) * axis[i]
+		}
+		low = math.Min(low, projection)
+		high = math.Max(high, projection)
+	}
+	start, end := 0.0, generator.Length
+	switch generator.Extent {
+	case "SYMMETRIC":
+		start, end = -generator.Length/2, generator.Length/2
+	case "TWO_SIDED":
+		start = -generator.Length2
+	case "", "FINITE", "LENGTH", "ONE_SIDED":
+	default:
+		return false, evidence, errors.New("该切割范围暂不能进行贯穿性检查")
+	}
+	evidence["geometryKey"], evidence["bodyAxisRange"], evidence["cutterAxisRange"] = key, [2]float64{low, high}, [2]float64{start, end}
+	return start <= low+tolerance && end >= high-tolerance && end > start, evidence, nil
 }
 
 func profileCircle(sketch workspace.SketchFeature) *workspace.SketchEntity {

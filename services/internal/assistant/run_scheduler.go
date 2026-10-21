@@ -352,10 +352,6 @@ func (s *Service) deferRun(ctx context.Context, r Run, f *automation.Fault) erro
 			current.Status = "WAITING_INPUT"
 			current.WaitingReason = f.Message
 		}
-		if !f.Retryable && current.LastFailureDigest == digest {
-			current.Status = "BLOCKED"
-			current.WaitingReason = "相同事实与诊断没有产生新策略，需要补充条件或调整目标：" + f.Message
-		}
 		current.LastFailureDigest = digest
 		return s.event(ctx, tx, current, "RUN_WAIT", map[string]any{"status": current.Status, "reason": current.WaitingReason})
 	})

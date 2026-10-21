@@ -132,7 +132,7 @@ func (s *Service) verifyGoal(ctx context.Context, r Run) (*GoalVerification, err
 			switch requirement.Kind {
 			case "RECTANGLE_DIMENSIONS", "EXTRUSION_LENGTH", "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET", "CENTERED_THROUGH_HOLE", "THROUGH_HOLE":
 				verification.Status = "NOT_VERIFIED"
-				verification.Checks = append(verification.Checks, VerificationCheck{ID: requirement.ID, Name: requirement.Kind, Status: "NOT_VERIFIED", Code: "GOAL_TARGET_PENDING", Message: "尚无对应要求的正式操作输出；不要重建已通过检查的其他特征"})
+				verification.Checks = append(verification.Checks, VerificationCheck{ID: requirement.ID, Name: requirement.Kind, Status: "NOT_VERIFIED", Code: "GOAL_TARGET_PENDING", Message: "尚未从本轮回执定位到可验证对象；这不等于最终几何未完成，请先核对建模路径与当前实体。", Expected: requirementExpectation(requirement, body)})
 				continue
 			}
 		}
@@ -143,15 +143,37 @@ func (s *Service) verifyGoal(ctx context.Context, r Run) (*GoalVerification, err
 		return verification, err
 	}
 	for _, check := range result.Checks {
-		verification.Checks = append(verification.Checks, VerificationCheck{ID: check.ID, Name: check.Kind, Status: check.Status, Code: check.Code, Message: check.Message, TargetID: targets[goalTargetKey(check.ID)]})
+		item := VerificationCheck{ID: check.ID, Name: check.Kind, Status: check.Status, Code: check.Code, Message: check.Message, TargetID: targets[goalTargetKey(check.ID)], Observed: check.Observed}
+		for _, requirement := range r.Requirements {
+			if requirement.ID == check.ID {
+				item.Expected = requirementExpectation(requirement, body)
+				break
+			}
+		}
+		verification.Checks = append(verification.Checks, item)
 		if !check.Passed {
 			verification.Status = "NOT_VERIFIED"
 		}
 	}
 	if verification.Status != "VERIFIED" {
-		verification.Message = "尚有用户要求未通过当前模型快照的应用检查"
+		verification.Message = checkEvidenceMessage(verification.Checks)
 	}
 	return verification, nil
+}
+
+func requirementExpectation(r GoalRequirement, body string) map[string]any {
+	out := map[string]any{"kind": r.Kind, "bodyId": body, "unit": r.Unit}
+	switch r.Kind {
+	case "RECTANGLE_DIMENSIONS":
+		out["width"], out["height"] = r.Width, r.Height
+	case "EXTRUSION_LENGTH":
+		out["length"], out["role"] = r.Length, "ADDITIVE_BASE_EXTRUSION"
+	case "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET":
+		out["radius"] = r.Radius
+	case "CENTERED_THROUGH_HOLE", "THROUGH_HOLE":
+		out["diameter"], out["through"], out["plane"] = 2*r.Radius, true, r.Plane
+	}
+	return out
 }
 
 // Rebuild the user's original complete subset at the actual fillet input

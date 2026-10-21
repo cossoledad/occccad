@@ -98,12 +98,14 @@ type GoalVerification struct {
 	requirements []GoalRequirement
 }
 type VerificationCheck struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Code     string `json:"code,omitempty"`
-	Message  string `json:"message,omitempty"`
-	TargetID string `json:"targetId,omitempty"`
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	Status   string         `json:"status"`
+	Code     string         `json:"code,omitempty"`
+	Message  string         `json:"message,omitempty"`
+	TargetID string         `json:"targetId,omitempty"`
+	Expected map[string]any `json:"expected,omitempty"`
+	Observed map[string]any `json:"observed,omitempty"`
 }
 type Run struct {
 	ID                      string            `json:"id"`
@@ -168,25 +170,28 @@ type Page[T any] struct {
 	HasEarlier bool   `json:"hasEarlier"`
 }
 type CallRecord struct {
-	ID                string                    `json:"id"`
-	RunID             string                    `json:"runId"`
-	InputID           string                    `json:"inputId,omitempty"`
-	LogicalID         string                    `json:"logicalId"`
-	Attempt           uint64                    `json:"attempt"`
-	Epoch             uint64                    `json:"epoch"`
-	Status            string                    `json:"status"`
-	Provider          string                    `json:"provider"`
-	Generation        Generation                `json:"generation"`
-	Baseline          workspace.CommandBaseline `json:"baseline"`
-	RequestDigest     string                    `json:"requestDigest"`
-	ProviderRequestID string                    `json:"providerRequestId,omitempty"`
-	Usage             *Usage                    `json:"usage,omitempty"`
-	UsageState        string                    `json:"usageState"`
-	Response          *Message                  `json:"response,omitempty"`
-	Failure           *automation.Fault         `json:"failure,omitempty"`
-	StartedAt         string                    `json:"startedAt"`
-	FinishedAt        string                    `json:"finishedAt,omitempty"`
-	ToolCursor        int                       `json:"toolCursor"`
+	ID                   string                    `json:"id"`
+	RunID                string                    `json:"runId"`
+	InputID              string                    `json:"inputId,omitempty"`
+	LogicalID            string                    `json:"logicalId"`
+	Attempt              uint64                    `json:"attempt"`
+	Epoch                uint64                    `json:"epoch"`
+	Status               string                    `json:"status"`
+	Provider             string                    `json:"provider"`
+	Generation           Generation                `json:"generation"`
+	Baseline             workspace.CommandBaseline `json:"baseline"`
+	RequestDigest        string                    `json:"requestDigest"`
+	ProviderRequestID    string                    `json:"providerRequestId,omitempty"`
+	Usage                *Usage                    `json:"usage,omitempty"`
+	UsageState           string                    `json:"usageState"`
+	Response             *Message                  `json:"response,omitempty"`
+	Failure              *automation.Fault         `json:"failure,omitempty"`
+	StartedAt            string                    `json:"startedAt"`
+	FinishedAt           string                    `json:"finishedAt,omitempty"`
+	ToolCursor           int                       `json:"toolCursor"`
+	Sequence             uint64                    `json:"sequence,omitempty"`
+	RequestEventSequence uint64                    `json:"requestEventSequence,omitempty"`
+	Runtime              *RuntimeStamp             `json:"runtime,omitempty"`
 }
 
 func marshalJSON(v any) []byte { raw, _ := json.Marshal(v); return raw }

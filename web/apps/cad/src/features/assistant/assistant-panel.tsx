@@ -9,6 +9,7 @@ import {phaseText} from "./task-model";
 import {assistantFailure,conversationProgress,goalCheckLabel,mergeMessagePage,mergeProgressPage,runActive,runStatusText,turnStatusText,verificationPassed} from "./conversation-model";
 import {scopeSummary} from "./frozen-scope";
 import {messageOf,useModelingTask,type ModelingProps} from "./use-modeling-task";
+import {AssistantTrace} from "./assistant-trace";
 import "./assistant-panel.css";
 
 const tokenText=(value:number)=>value>=10000?`${Number((value/10000).toFixed(2))}万`:value.toLocaleString("zh-CN");
@@ -30,7 +31,7 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
  const [settingsOpen,setSettingsOpen]=useState(false),[apiKey,setApiKey]=useState(""),[keyBusy,setKeyBusy]=useState(false),[preferenceBusy,setPreferenceBusy]=useState(false);
  const [draft,setDraft]=useState(""),[sending,setSending]=useState(false),[error,setError]=useState<string>(),[optimistic,setOptimistic]=useState<Pending>(),[retry,setRetry]=useState<Pending>();
  const [newGoal,setNewGoal]=useState(false),[mode,setMode]=useState<RunMode>("AUTOMATIC"),[runCursor,setRunCursor]=useState<string>(),[historyBefore,setHistoryBefore]=useState<number>(),[stageBefore,setStageBefore]=useState<number>();
- const [eventsOpen,setEventsOpen]=useState(false),[eventBefore,setEventBefore]=useState<number>();
+ const [eventsOpen,setEventsOpen]=useState(false);
  const model=useModelingTask(props,open),{run,task,step,busy}=model;
  const alive=useRef(true),end=useRef<HTMLDivElement>(null),followProgress=useRef(true);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false}},[]);
@@ -44,7 +45,6 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
   return historyBefore===undefined?mergeMessagePage(client.getQueryData(messageKey),next):next;
  },enabled:open&&Boolean(model.runId),refetchInterval:query=>historyBefore===undefined&&(run&&runActive(run)||query.state.data?.items.some(turn=>["RECEIVED","WAITING_BOUNDARY"].includes(turn.status)))?1000:false});
  const stages=useQuery({queryKey:["assistant-stages",props.documentId,model.runId,stageBefore],queryFn:()=>assistantApi.stages(props.documentId,model.runId!,{before:stageBefore,limit:20}),enabled:open&&Boolean(model.runId),refetchInterval:stageBefore===undefined&&run&&runActive(run)?1500:false});
- const events=useQuery({queryKey:["assistant-events",props.documentId,model.runId,eventBefore],queryFn:()=>assistantApi.events(props.documentId,model.runId!,{before:eventBefore,limit:20}),enabled:open&&eventsOpen&&Boolean(model.runId),refetchInterval:eventsOpen&&eventBefore===undefined&&run&&runActive(run)?1500:false});
  const progressKey=["assistant-progress",props.documentId,model.runId];
  const progress=useQuery({queryKey:progressKey,queryFn:async()=>{
   const previous=client.getQueryData<Awaited<ReturnType<typeof assistantApi.events>>>(progressKey);
@@ -53,7 +53,7 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
  },enabled:open&&Boolean(model.runId),refetchInterval:run&&["QUEUED","PLANNING","EXECUTING","VERIFYING","WAITING_RETRY"].includes(run.status)?1000:false});
  useEffect(()=>{if(open&&model.runId)void client.invalidateQueries({queryKey:progressKey})},[open,model.runId,run?.eventSequence]);
  const operations=useQuery({queryKey:["automation-operations"],queryFn:automationApi.operations,enabled:open,staleTime:60_000});
- useEffect(()=>{setHistoryBefore(undefined);setStageBefore(undefined);setEventBefore(undefined)},[model.runId]);
+ useEffect(()=>{setHistoryBefore(undefined);setStageBefore(undefined)},[model.runId]);
  useEffect(()=>{void client.invalidateQueries({queryKey:["assistant-messages",props.documentId,model.runId]})},[run?.version]);
  useEffect(()=>{if(historyBefore===undefined&&followProgress.current)end.current?.scrollIntoView({block:"nearest"})},[conversation.data?.nextAfter,progress.data?.nextAfter,run?.reply,optimistic,settingsOpen]);
  useEffect(()=>{if(!open)setApiKey("")},[open]);
@@ -126,11 +126,11 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
      {task&&<details className="assistant-task" open><summary>建模步骤</summary>{taskList()}</details>}
      {model.displayError&&<Alert type="warning" title={model.displayError}/>} {run.latestRevisionId&&run.latestRevisionId!==run.presentedRevisionId&&<Button type="link" size="small" onClick={()=>void model.retryDisplay()}>重新显示结果</Button>}
      {run.stageCount>0&&<details className="assistant-stage-history"><summary>步骤记录 · {run.stepCount}</summary>{stages.data?.hasEarlier&&<Button size="small" type="link" onClick={()=>setStageBefore(stages.data!.items[0]?.sequence)}>更早步骤</Button>}{stageBefore!==undefined&&<Button type="link" size="small" onClick={()=>setStageBefore(undefined)}>最近步骤</Button>}{stages.data?.items.filter(stage=>stage.taskId!==task?.id).map(stage=><PastTask key={stage.sequence} documentId={props.documentId} taskId={stage.taskId} sequence={stage.sequence} goalVersion={stage.goalVersion} names={operations.data?.operations??[]}/>)}{stages.isError&&<p>{stages.error.message}</p>}</details>}
-     <details className="assistant-events" onToggle={event=>setEventsOpen(event.currentTarget.open)}><summary>详情 · {tokenText(run.usage?.total_tokens??0)} Token</summary>
+     <details className="assistant-events" onToggle={event=>{if(event.target===event.currentTarget)setEventsOpen(event.currentTarget.open)}}><summary>调用详情 · {tokenText(run.usage?.total_tokens??0)} Token</summary>
       <div className="assistant-run-metrics">{run.modelCalls} 次模型调用 · {run.toolCalls} 次工具调用{run.tokenBudget!=null&&` · 预算 ${tokenText(run.tokenBudget)}`}{Boolean(run.usage?.unknownAttempts)&&` · ${run.usage.unknownAttempts} 次用量未知`}</div>
       {run.verification?.checks&&<details className="assistant-verification"><summary>目标检查</summary>{run.verification.checks.map((check,index)=><p key={check.id??index}>{check.status==="PASSED"?"✓":"○"} {goalCheckLabel(check.name??check.id??"目标检查")}{check.status!=="PASSED"&&check.message&&`：${check.message}`}</p>)}</details>}
       {run.failure&&<p className="assistant-diagnostic">{run.failure.code} · {run.failure.message}</p>}
-      {eventsOpen&&<>{events.data?.hasEarlier&&<Button size="small" type="link" onClick={()=>setEventBefore(events.data!.items[0]?.sequence)}>更早记录</Button>}{eventBefore!==undefined&&<Button size="small" type="link" onClick={()=>setEventBefore(undefined)}>最近记录</Button>}<ol>{events.data?.items.map(event=><li key={event.sequence}><span>{event.data?.message??event.data?.summary??event.type}</span><small> {new Date(event.at).toLocaleTimeString()} · {event.type} · {event.sequence}</small></li>)}</ol>{events.isError&&<p>{events.error.message}</p>}</>}
+      <AssistantTrace documentId={props.documentId} runId={run.id} eventSequence={run.eventSequence} open={eventsOpen} active={["QUEUED","PLANNING","EXECUTING","VERIFYING","WAITING_RETRY"].includes(run.status)}/>
      </details>
     </section>}<div ref={end}/>
    </div>

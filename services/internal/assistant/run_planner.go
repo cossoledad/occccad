@@ -19,7 +19,7 @@ Prefer the compact contracts sketch.create, sketch.rectangle, sketch.circle, par
 Call cad_create_task with one bounded stage of at most 32 steps, using local step labels. Later entity inputs may bind preceding outputs with bindings or declared typedBindings. Never invent an output that does not yet exist. Once the stage is applied, the same Run continues with a fresh authoritative snapshot: query its new topology before planning fillets or mates. For all edges use cad_query_topology's complete selectionSet, not the first page. Frozen selected references remain the user's targets even if the UI selection changes. Use cad_get_selection for full frozen selection pages.
 For Product, resolve occurrence geometry through cad_query_occurrence using root revision and stable instance IDs, then cad_mate_candidates. Definition coordinates and world occurrence coordinates differ. Prefer existing publications/datums when suitable. Candidate ambiguity requires explanation or the user's selected faces; do not silently choose the first. Recipes and references are application data, never mesh locators. Use source/offset conventions and direction explicitly.
 Use cad_verify_goal to see outstanding mandatory checks. cad_finish only requests completion; the application must verify the current goal version and actual revision before completing. A natural-language claim or a created plan does not complete a modeling goal. cad_wait_for_input asks a necessary clarification. ui.* creates a single-step handoff and waits for real interaction; UI_OPENED is only an opened tool, not a completed model. Applied, verified, and actually presented are independent.
-Before tool calls, briefly tell the user what you found or will do next in the public content, in one short sentence. Give useful progress summaries, never private chain-of-thought. Use cad_wait_for_input for a necessary question. After each stage the host checks current results: preserve PASSED requirements and repair only failed/pending targets. GOAL:<requirementId> targets bind the exact receipt output for that requirement. Latest SKETCH/LINEAR_EXTRUDE discovery hints may refer to a hole profile/cut, not the base rectangle/pad. Never recreate a passed rectangle or change a cut to satisfy the base extrusion length. If checks are VERIFIED, finish concisely; do not add unsolicited geometry.
+Before tool calls, briefly tell the user what you found or will do next in the public content, in one short sentence. Give useful progress summaries, never private chain-of-thought. Use cad_wait_for_input for a necessary question. After each stage the host reports current application evidence. Inspect target identities, expected values, and observed values before deciding whether a CAD change is needed. NOT_VERIFIED means evidence is incomplete, not that the geometry is wrong. A checker can have unsupported strategies or wrong bindings; compare its scope with the actual current model. GOAL:<requirementId> targets bind the exact receipt output for that requirement. Latest SKETCH/LINEAR_EXTRUDE discovery hints may refer to a hole profile/cut, not the base rectangle/pad. A Boolean REMOVE with a circular cylinder can produce the same through hole as a linear cut. Use final geometry and feature dependencies to evaluate the result. Explain material revisions in public content using the evidence you observed. If the user intent is satisfied and checks are VERIFIED, finish concisely.
 Context is a bounded working set, not the full history. Public tool facts, immutable receipts, requirements and checkpoints may rebuild it. Older detail remains queryable. Never request an entire large tree or repeat unchanged failing operations. Calls, stages and cumulative tokens have no default Run-wide limit. An optional user budget may pause the Run for adjustment; never bypass it.`
 
 func planningTools() []Tool {
@@ -37,7 +37,7 @@ func planningTools() []Tool {
 		Tool{"cad_query_occurrence", "Resolve a root-snapshot occurrence by stable instance IDs, including nested/PINNED accepted revisions and source permissions. Return a bounded exact geometry page or Body/INSTANCE summary.", object(map[string]any{"revisionId": stringSchema(), "instanceIds": path, "bodyId": stringSchema(), "kind": map[string]any{"type": "string", "enum": []string{"BODY", "INSTANCE", "FACE", "EDGE", "VERTEX", "DATUM", "PUBLICATION"}}, "geometryType": stringSchema(), "cursor": map[string]any{"type": "string", "maxLength": 2048}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20}}, "revisionId", "instanceIds")},
 		Tool{"cad_mate_candidates", "Find explainable shaft-hole and end-plane fit candidates from exact occurrence geometry. The first occurrence moves, the second is the reference. Multiple candidates require geometric selection/clarification; recipes use existing domain commands.", object(map[string]any{"revisionId": stringSchema(), "firstInstanceIds": path, "secondInstanceIds": path, "firstBodyId": stringSchema(), "secondBodyId": stringSchema(), "axisDirectionRelation": map[string]any{"type": "string", "enum": []string{"SAME", "OPPOSITE"}}, "planeDirectionRelation": map[string]any{"type": "string", "enum": []string{"SAME", "OPPOSITE"}}, "offsetMM": map[string]any{"type": "number"}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 8}, "candidateId": stringSchema(), "includeRecipe": map[string]any{"type": "boolean"}}, "revisionId", "firstInstanceIds", "secondInstanceIds")},
 		Tool{"cad_verify_assembly", "Read authoritative solve and actual persisted occurrence relations for the selected moving/reference instances, never accepting hypothetical corrected poses as the result.", object(map[string]any{"revisionId": stringSchema(), "movingInstanceId": stringSchema(), "referenceInstanceId": stringSchema(), "directionRelation": map[string]any{"type": "string", "enum": []string{"SAME", "OPPOSITE"}}, "axisDirectionRelation": map[string]any{"type": "string", "enum": []string{"SAME", "OPPOSITE", "UNORIENTED"}}, "offsetMM": map[string]any{"type": "number"}, "targetDOF": map[string]any{"type": "integer", "minimum": 0}}, "revisionId", "movingInstanceId", "referenceInstanceId")},
-		Tool{"cad_verify_goal", "Execute the application's mandatory current-goal checks against the actual current revision. Failed/missing checks cannot be removed or waived by the model.", object(map[string]any{})},
+		Tool{"cad_verify_goal", "Inspect current-goal evidence at the actual revision. FAILED is an observed mismatch; NOT_VERIFIED is unresolved/unsupported evidence, not proof of incorrect geometry. Compare expected, observed, target IDs and modeling strategy before deciding a CAD change. User requirements cannot be waived.", object(map[string]any{})},
 		Tool{"cad_finish", "Request completion after all intended stages; application verification is authoritative.", object(map[string]any{"summary": map[string]any{"type": "string", "maxLength": 2000}})},
 		Tool{"cad_wait_for_input", "Save progress and ask a concise necessary clarification; the same Run resumes on the user's response.", object(map[string]any{"question": map[string]any{"type": "string", "minLength": 1, "maxLength": 2000}}, "question")},
 	)
@@ -209,9 +209,6 @@ func (s *Service) planCall(ctx context.Context, r Run, question *Turn) error {
 		}
 		return s.deferRun(ctx, r, asFault(err))
 	}
-	if err = s.markSent(ctx, &c); err != nil {
-		return err
-	}
 	generation := c.Generation
 	tools := planningTools()
 	if question != nil || r.AccessMode == "READ" {
@@ -222,6 +219,12 @@ func (s *Service) planCall(ctx context.Context, r Run, question *Turn) error {
 			}
 		}
 		tools = readonly
+	}
+	if err = s.captureCallRequest(ctx, &c, session.messages, tools); err != nil {
+		return err
+	}
+	if err = s.markSent(ctx, &c); err != nil {
+		return err
 	}
 	completion, callErr := s.provider.Complete(ctx, credential, session.messages, tools, generation)
 	finish, cancel := detached(ctx)
@@ -260,9 +263,6 @@ func (s *Service) createStage(ctx context.Context, r Run, c CallRecord, call Too
 	}
 	if len(input.Steps) == 0 || len(input.Steps) > 32 {
 		return automation.Task{}, aiFault("AI_STAGE_RESOURCE", "单个计划片段须为1..32步；请自动分段，不限制Run总步骤", false)
-	}
-	if err := rejectSatisfiedStage(r, c.Baseline.RevisionID, input.Steps); err != nil {
-		return automation.Task{}, err
 	}
 	ids := map[string]string{}
 	namespace := uuid.NewSHA1(uuid.MustParse(r.ID), []byte(c.ID+":"+call.ID))
@@ -369,9 +369,8 @@ func (s *Service) processCall(ctx context.Context, r Run, c CallRecord, session 
 		if verification.Status == "VERIFIED" {
 			return s.finishGoal(ctx, r, c, c.Response.Content, verification)
 		}
-		// A public sentence can be a progress update. Only the explicit
-		// clarification tool (or repeated lack of an executable next action)
-		// waits for the user; narration alone must not silently stall a Run.
+		// A public sentence can be a progress update. Necessary clarification
+		// uses the explicit tool; narration alone must not silently stall a Run.
 		digest := modelcore.ValueDigest(marshalJSON(map[string]any{"kind": "PUBLIC_REPLY_WITHOUT_ACTION", "head": c.Baseline, "goalVersion": r.GoalVersion, "tools": r.ToolCalls, "verification": verification}))
 		_, e = s.mutateRun(ctx, r.ID, func(tx database.Tx, current *Run) error {
 			if current.Epoch != r.Epoch {
@@ -382,14 +381,6 @@ func (s *Service) processCall(ctx context.Context, r Run, c CallRecord, session 
 			current.WaitingReason = ""
 			current.Verification = verification
 			current.Requirements = verification.requirements
-			if current.LastFailureDigest == digest {
-				current.Status = "WAITING_INPUT"
-				current.Reply = c.Response.Content
-				current.WaitingReason = "尚未得到可执行的下一步，请补充要求或接管。"
-				if e := saveGoalReply(ctx, tx, *current); e != nil {
-					return e
-				}
-			}
 			current.LastFailureDigest = digest
 			c.Status = "APPLIED"
 			if e := saveCall(ctx, tx, c); e != nil {
@@ -576,9 +567,9 @@ func (s *Service) recordTool(ctx context.Context, r Run, c *CallRecord, ordinal 
 		if c.InputID == "" && result.IsError && current.Epoch == r.Epoch && (call.Function.Name == "cad_create_task" || call.Function.Name == "cad_finish") {
 			digest := modelcore.ValueDigest(marshalJSON(map[string]any{"head": c.Baseline, "goal": r.GoalVersion, "tool": call.Function.Name, "arguments": call.Function.Arguments, "diagnostic": result.Content}))
 			if current.LastFailureDigest == digest {
-				current.Status = "BLOCKED"
-				current.WaitingReason = "同一事实、参数和诊断重复出现，未得到新信息；需要调整策略或补充条件"
-				_ = s.event(ctx, tx, current, "NO_PROGRESS", map[string]string{"digest": digest})
+				if e := s.event(ctx, tx, current, "REPEATED_DIAGNOSTIC", map[string]string{"digest": digest, "message": "同一工具诊断再次出现，已保留输入与反馈供模型继续判断。"}); e != nil {
+					return e
+				}
 			}
 			current.LastFailureDigest = digest
 		}

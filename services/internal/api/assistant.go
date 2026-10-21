@@ -136,6 +136,15 @@ func (server *Server) registerAssistantRoutes(mux *http.ServeMux) {
 		v, e := server.assistant.Calls(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), r.URL.Query().Get("cursor"), l)
 		writeAutomationResult(w, v, e)
 	})
+	mux.HandleFunc("GET "+root+"/{runID}/trace", func(w http.ResponseWriter, r *http.Request) {
+		_, _, limit := assistantPage(r)
+		v, e := server.assistant.Trace(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), r.URL.Query().Get("cursor"), limit)
+		writeAutomationResult(w, v, e)
+	})
+	mux.HandleFunc("GET "+root+"/{runID}/calls/{callID}", func(w http.ResponseWriter, r *http.Request) {
+		v, e := server.assistant.CallTrace(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), r.PathValue("callID"))
+		writeAutomationResult(w, v, e)
+	})
 	mux.HandleFunc("POST "+root+"/{runID}/control", func(w http.ResponseWriter, r *http.Request) {
 		var input assistant.RunControl
 		if !assistantJSON(w, r, &input) {

@@ -129,10 +129,11 @@ func (s *Service) markSent(ctx context.Context, c *CallRecord) error {
 		}
 		c.Status = "SENT"
 		c.UsageState = "PENDING"
+		r.ModelCalls++
+		c.Sequence = uint64(r.ModelCalls)
 		if e = saveCall(ctx, tx, *c); e != nil {
 			return e
 		}
-		r.ModelCalls++
 		return s.event(ctx, tx, r, "MODEL_CALL_SENT", map[string]any{"id": c.ID, "logicalId": c.LogicalID, "attempt": c.Attempt, "generation": c.Generation})
 	})
 	return err
