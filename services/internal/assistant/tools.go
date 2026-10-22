@@ -77,6 +77,12 @@ func decode(raw json.RawMessage, value any) error {
 	return nil
 }
 func (h *Host) Call(ctx context.Context, call Call) Result {
+	return NormalizeToolResult(h.call(ctx, call))
+}
+
+// call returns the service page before the shared model-output boundary.
+// Only the explicit read-only debug adapter exposes this value to humans.
+func (h *Host) call(ctx context.Context, call Call) Result {
 	var value any
 	var err error
 	switch call.Name {
@@ -198,9 +204,5 @@ func (h *Host) Call(ctx context.Context, call Call) Result {
 		}
 	}
 	result.Content, _ = json.Marshal(value)
-	if len(result.Content) > 64<<10 {
-		result.IsError = true
-		result.Content = json.RawMessage(`{"code":"TOOL_OUTPUT_BUDGET_EXCEEDED","message":"Narrow the query or read a task checkpoint instead of full history."}`)
-	}
 	return result
 }

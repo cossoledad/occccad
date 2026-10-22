@@ -10,6 +10,7 @@ import (
 	"net/url"
 
 	"github.com/occccad/occccad/internal/access"
+	"github.com/occccad/occccad/internal/assistant"
 	"github.com/occccad/occccad/internal/automation"
 	"github.com/occccad/occccad/internal/workspace"
 )
@@ -41,6 +42,14 @@ func (server *Server) registerAutomationRoutes(mux *http.ServeMux) {
 			return
 		}
 		value, err := server.automation.Query(r.Context(), principal(r).ID, r.PathValue("documentID"), input)
+		writeAutomationResult(w, value, err)
+	})
+	mux.HandleFunc("POST /api/documents/{documentID}/automation/debug-query", func(w http.ResponseWriter, r *http.Request) {
+		var input assistant.QueryDebugInput
+		if !decodeAutomationJSON(w, r, &input) {
+			return
+		}
+		value, err := assistant.DebugQuery(r.Context(), server.automation, principal(r).ID, r.PathValue("documentID"), input)
 		writeAutomationResult(w, value, err)
 	})
 	mux.HandleFunc("POST /api/documents/{documentID}/automation/verify-assembly", func(w http.ResponseWriter, r *http.Request) {

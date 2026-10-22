@@ -1,5 +1,6 @@
 import {request} from "../../api";
 import type {CommandPreview} from "../../types";
+import type {DebugQueryInput,DebugQueryResult} from "./automation-debug-model";
 
 export type Baseline={workspaceId:string;revisionId:string;sequence:number};
 export type EntityRef={documentId:string;revisionId:string;kind:string;id:string};
@@ -11,6 +12,7 @@ export type AutomationTask={id:string;documentId:string;version:number;goal:stri
 export type OperationSummary={id:string;version:number;name:string;description:string;documentType:string;effect:string};
 const path=(documentId:string)=>`/api/documents/${encodeURIComponent(documentId)}/automation`;
 export const automationApi={
+  debugQuery:(input:DebugQueryInput)=>request<DebugQueryResult>(`${path(input.scope.documentId)}/debug-query`,{method:"POST",body:JSON.stringify(input)}),
   operations:()=>request<{operations:OperationSummary[];catalogDigest:string}>("/api/automation/operations?all=true"),
   task:(id:string,taskId:string)=>request<AutomationTask>(`${path(id)}/tasks/${encodeURIComponent(taskId)}`),
 };

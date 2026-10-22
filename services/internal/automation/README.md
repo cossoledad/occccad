@@ -18,4 +18,6 @@
 
 HTTP 提供查询、任务定义和 Part 验证；独立工具可用既有鉴权 realtime，持久 Run 在服务器调用同一执行器。应用构造 Service 并传入真实 Workspace/Authorizer。没有独立服务、模型 SDK 或新增启动配置。
 
+属性检查器的[只读查询调试](../../../docs/development/cad-query-debugging.md)经同一查询和工具处理链展示服务原页/模型可见结果，固定文档、Revision、Body/选区，沿用 Viewer 权限；无需模型或 Run。人工属性补充不等于模型已知事实。
+
 在 `services/` 执行 `go test -p 1 ./internal/automation ./internal/api -run '^TestAutomation' -count=1`。真实链路复用 `.env` 的数据库、制品和原生 Worker；合成查询使用测试拥有的短期对象。迁移或共享边界改变还需全量路由检查。

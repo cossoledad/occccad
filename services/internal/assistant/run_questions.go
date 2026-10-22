@@ -345,7 +345,7 @@ func (s *Service) processQuestionCall(ctx context.Context, r Run, t Turn, c Call
 		if err = s.requireQuestionLease(ctx, s.db, t.ID); err != nil {
 			return err
 		}
-		if err = s.recordTool(ctx, r, &c, i, call, result); err != nil {
+		if result, err = s.recordTool(ctx, r, &c, i, call, result); err != nil {
 			return err
 		}
 		if session != nil {

@@ -8,6 +8,7 @@ import type { HistoryEntry, Selection } from "../../types";
 import { inspectorOwnerDocumentId } from "./inspector-object-data";
 import { topologyPropertyContext } from "./topology-property-context";
 import { History, Properties } from "./workbench-inspector";
+import {AutomationDebugPanel} from "../assistant/automation-debug-panel";
 
 type InspectorPanelProps = Omit<ComponentProps<typeof Properties>, "diagnostics" | "topology" | "topologyLoading"> & {
   documentID: string;
@@ -36,13 +37,13 @@ export function WorkbenchInspectorPanel({ documentID, canRestore, onRestore, ...
       selection!.kind.toUpperCase() as "FACE" | "EDGE" | "VERTEX", selection!.topologyId, context.versionId),
     enabled: tab === "properties" && Boolean(selection?.geometryKey), staleTime: 5 * 60_000,
   });
-  const error = tab === "history" ? history.error : topology.error ?? owner.error ?? properties.error;
+  const error = tab === "query" ? undefined : tab === "history" ? history.error : topology.error ?? owner.error ?? properties.error;
   return <>
-    <Segmented block aria-label="检查器内容" value={tab} onChange={(value) => setTab(value as "properties" | "history")}
-      options={[{ label: "属性", value: "properties" }, { label: "历史", value: "history" }]} />
+    <Segmented block aria-label="检查器内容" value={tab} onChange={(value) => setTab(value as "properties" | "history" | "query")}
+      options={[{ label: "属性", value: "properties" }, { label: "历史", value: "history" },{label:"查询调试",value:"query"}]} />
     <div className="inspector-overlay-content">
       {error && <Alert type="error" showIcon title="无法读取信息" description={error.message} />}
-      {tab === "history" ? history.isPending ? <Spin size="small" />
+      {tab === "query" ? <AutomationDebugPanel view={props.view}/> : tab === "history" ? history.isPending ? <Spin size="small" />
         : <History entries={history.data ?? []} onRestore={onRestore} canRestore={canRestore} />
         : <Properties {...props} ownerView={owner.data} diagnostics={properties.data} topology={topology.data} topologyLoading={topology.isFetching}
           readErrors={{owner:owner.error?.message,diagnostics:properties.error?.message,

@@ -418,7 +418,7 @@ func (s *Service) processCall(ctx context.Context, r Run, c CallRecord, session 
 		} else {
 			return e
 		}
-		if err = s.recordTool(ctx, r, &c, i, call, result); err != nil {
+		if result, err = s.recordTool(ctx, r, &c, i, call, result); err != nil {
 			return err
 		}
 		if session != nil {
@@ -538,10 +538,8 @@ func (s *Service) executeTool(ctx context.Context, r Run, c CallRecord, call Too
 	return result
 }
 
-func (s *Service) recordTool(ctx context.Context, r Run, c *CallRecord, ordinal int, call ToolCall, result Result) error {
-	if len(result.Content) > 32<<10 {
-		result = Result{CallID: call.ID, IsError: true, Content: json.RawMessage(`{"code":"TOOL_PAGE_RESOURCE","message":"Read smaller fields/page; result not included. The Run can continue."}`)}
-	}
+func (s *Service) recordTool(ctx context.Context, r Run, c *CallRecord, ordinal int, call ToolCall, result Result) (Result, error) {
+	result = NormalizeToolResult(result)
 	_, err := s.mutateRun(ctx, r.ID, func(tx database.Tx, current *Run) error {
 		if c.InputID != "" {
 			if e := s.requireQuestionLease(ctx, tx, c.InputID); e != nil {
@@ -554,6 +552,16 @@ func (s *Service) recordTool(ctx context.Context, r Run, c *CallRecord, ordinal 
 		}
 		if inserted.RowsAffected() > 0 {
 			current.ToolCalls++
+		} else {
+			// An idempotent replay uses the originally recorded feedback, even
+			// if a caller supplies a different candidate after recovery.
+			var stored []byte
+			if e = tx.QueryRow(ctx, `SELECT payload FROM occccad.assistant_tool_results WHERE call_id=$1 AND tool_id=$2`, c.ID, call.ID).Scan(&stored); e != nil {
+				return e
+			}
+			if e = json.Unmarshal(stored, &result); e != nil {
+				return e
+			}
 		}
 		if call.Function.Name == "cad_describe_operation" && !result.IsError {
 			var input struct {
@@ -585,7 +593,7 @@ func (s *Service) recordTool(ctx context.Context, r Run, c *CallRecord, ordinal 
 		}
 		return s.event(ctx, tx, current, "TOOL_RESULT", map[string]any{"callId": c.ID, "toolId": call.ID, "inputId": c.InputID, "name": call.Function.Name, "isError": result.IsError, "message": toolProgress(call.Function.Name, result), "goalVersion": r.GoalVersion, "sourceEpoch": c.Epoch, "stale": current.Epoch != c.Epoch})
 	})
-	return err
+	return result, err
 }
 func (s *Service) finishGoal(ctx context.Context, r Run, c CallRecord, reply string, v *GoalVerification) error {
 	_, err := s.mutateRun(ctx, r.ID, func(tx database.Tx, current *Run) error {

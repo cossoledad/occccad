@@ -4,19 +4,12 @@ import {Button,Spin} from "antd";
 import {ApiError} from "../../api";
 import {assistantApi,type ModelCallSummary,type ModelCallTrace,type RuntimeStamp} from "./assistant-api";
 import {goalCheckLabel} from "./conversation-model";
+import {ToolPayload as Payload} from "./tool-payload";
 
 const toolNames:Record<string,string>={cad_context:"读取当前模型",cad_query_model:"查询模型对象",cad_query_topology:"查询实体边面",cad_search_operations:"查找建模工具",cad_describe_operation:"读取工具参数",cad_describe_type:"读取参数类型",cad_create_task:"提交建模步骤",cad_verify_goal:"核对目标",cad_finish:"请求完成",cad_wait_for_input:"请求补充信息",cad_query_occurrence:"查询实例几何",cad_mate_candidates:"查找装配候选",cad_verify_assembly:"检查装配",cad_get_selection:"读取选中对象",cad_get_task:"查询步骤结果"};
 const toolLabel=(name:string)=>toolNames[name]??name;
 const phaseNames:Record<string,string>={PLANNED:"等待执行",PREPARING:"正在预览",PREVIEW_READY:"预览就绪",COMMITTING:"正在应用",APPLIED:"已应用",COMMITTED:"已应用",DISPLAYED:"已显示",FAILED:"执行失败",CANCELLED:"已取消",SUPERSEDED:"已应用"};
 const record=(value:unknown):Record<string,unknown>|undefined=>value!==null&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:undefined;
-
-function pretty(value:unknown):string {
- if(typeof value==="string"){
-  try{return JSON.stringify(JSON.parse(value),null,2)}catch{return value}
- }
- return JSON.stringify(value,null,2)??"无";
-}
-function Payload({value}:{value:unknown}){return <pre className="assistant-trace-payload">{pretty(value)}</pre>}
 
 function feedbackSummary(name:string,value:unknown,isError:boolean):string {
  const data=record(value);

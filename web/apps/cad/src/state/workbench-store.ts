@@ -17,7 +17,7 @@ type WorkbenchState = {
   activeSketchID?: string;
   activeToolID: WorkbenchToolID;
   activeToolMode: WorkbenchToolMode;
-  inspectorTab: "properties" | "history";
+  inspectorTab: "properties" | "history" | "query";
   setSelection: (selection: Selection) => void;
   setSelections: (selections: SelectionItem[]) => void;
   setPreselection: (selection: Selection) => void;
@@ -25,7 +25,7 @@ type WorkbenchState = {
   endSketch: () => void;
   setActiveTool: (tool: WorkbenchToolID, mode?: WorkbenchToolMode) => void;
   completeToolUse: () => void;
-  setInspectorTab: (tab: "properties" | "history") => void;
+  setInspectorTab: (tab: "properties" | "history" | "query") => void;
 };
 
 export const useWorkbenchStore = create<WorkbenchState>()(persist((set) => ({

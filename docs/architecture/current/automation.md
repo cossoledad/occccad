@@ -26,6 +26,21 @@ Run JSON 只保留有限角色目标、当前要求、摘要及计数；无限�
 
 发送前在既有事件日志中独立保存一次公开请求快照（MODEL_REQUEST_CAPTURED）：实际 messages、可用 tools/schema、冻结 generation，以及执行引擎标记、构建 VCS 版本、catalog/prompt digest。调用账本只保存快照序号；常规事件页排除大快照，工具游标更新不会重写完整提示。`GET /api/documents/{documentID}/assistant/runs/{runID}/trace` 返回有界近期摘要和向前游标；同一 Run 下的 `calls/{callID}` 按需读取原请求、完整公开回复、原工具参数和实际工具反馈。Task 的后续执行结果另列，不能冒充工具当时返回的内容。旧调用没有保存的请求原文明确不可还原，不用当前提示词补写历史。快照不包含 Key、HTTP 鉴权或私有 reasoning_content，也不作为额外上下文回灌模型。
 
+### 查询数据与模型输出
+
+| 层 | 职责与来源 |
+|---|---|
+| CAD 真相 | Workspace `ReadModelSnapshot` 读取不可变定义；`ReadBodyTopology` 投影指定 Revision/Body 的 Naming；属性查询读取指定制品的精确 B-Rep 属性。Mesh/local ID 不能代替稳定引用。 |
+| Automation 查询 | `query.go` 按字段、对象、Body 和游标投影定义；`topology.go` 返回稳定拓扑小页及覆盖全部匹配的 selectionSet。服务页不等于整份模型。 |
+| 工具处理 | `tools.go` 调用上述服务；`tool_result.go` 对完整 UTF-8 JSON 内容执行统一 32 KiB 边界，超限以完整资源错误替换，不切断 JSON。 |
+| 持久与恢复 | `recordTool` 返回实际落账的规范结果；普通规划和独立问答均用返回值追加在线消息。幂等冲突返回原记录，恢复读取同一反馈，不能重新附上原始大结果。 |
+| 上下文 | `buildContext` 从精确快照、有限近期工具事实/阶段及冻结目标组装；单次上下文仍有界，不保证所有服务页同时在模型工作集中。 |
+| trace / 属性 | trace 读取实际公开请求和规范化反馈；属性面板的精确 B-Rep 数据仅供人工查看，不能冒充已经发给模型的信息。 |
+
+已修正的偏差：原 `recordTool` 按值替换超限结果，在线消息仍使用原值，而数据库和恢复只看到错误；原 Host 的 64 KiB 与账本的 32 KiB 也不一致。现在出口统一，原始服务页只在明确的人工调试适配器中保留。定义查询的项预算不含整个响应封套，大 Feature 定义又包含完整选择引用；因此服务成功仍可能被工具边界替换，不能声称模型已看到该定义。
+
+属性检查器的“查询调试”经 `POST /api/documents/{documentID}/automation/debug-query` 调用同一 Host 与规范化函数，无需 Key、Assistant Run 或 Provider。仅开放模型、拓扑及固定版本的文档上下文查询，沿用 Viewer 权限；明确 Revision 不存在即失败，不回退 Head。Body/选区在显式捕获时冻结，分页沿用该查询，查看历史结果只改变本地展开内容。服务原页、实际模型可见内容和人工补充分开显示；集合引用完整与单页是否包含匹配全集分别展示。请求沿用 64 KiB JSON 边界，调试选区最多 20 项，人工原页超过 1 MiB 明确省略；这些都不是持续任务的总轮数/Token 上限。操作和限制见[只读查询调试](../../development/cad-query-debugging.md)，本轮实测及语义缺口见[基础回归](../../validation/cad-query-debug-baseline.md)。
+
 活动请求只加载目标及来源要求、冻结 scope 摘要、当前不可变上下文、有限稳定目标角色、最近少量片段/公开工具事实和语言。超出单次工作集时淘汰可重查内容并重建，不随完整历史线性膨胀。冻结选择的完整集合按 `cad_get_selection` 分页，预览子集明确不完整。必要信息本身超过配置时准确等待调整，不能丢弃尺寸、单位、保护对象或装配要求来缩短提示。
 
 应用对矩形尺寸/平面、基体拉伸长度、全部/选定边圆角、取消圆角、圆形贯穿孔、受保护几何和最小轴孔目标提取带 sourceTurn/quote 的必需检查。验收从版本化用户输入分页重建要求；`GOAL:<requirementId>` 绑定该要求对应的正式操作输出，矩形/基体拉伸与圆形草图/REMOVE 切除分开。求值引起的其他草图 UPDATE 不能替换目标。缺少绑定时只按本 Run 的精确回执分页重建，删除回执清除对应目标，不从名称、树位置或“最近创建的同类型特征”猜测。阶段结束先更新应用检查，不按同尺寸或已通过检查阻止新的建模计划；完成仍需当前目标、实际 Revision 与 Head 再验。
