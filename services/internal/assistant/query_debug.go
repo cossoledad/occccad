@@ -173,7 +173,7 @@ func DebugQuery(ctx context.Context, service *automation.Service, actor, documen
 	var page map[string]any
 	if json.Unmarshal(raw.Content, &page) == nil {
 		out.Supplement.Page = map[string]any{}
-		for _, key := range []string{"scope", "matchedCount", "returnedCount", "hasMore", "nextCursor", "complete", "selectionSetCount", "selectionSetComplete", "pageComplete"} {
+		for _, key := range []string{"scope", "filter", "scopeCount", "candidateCount", "unknownCount", "matchComplete", "matchedCount", "returnedCount", "hasMore", "nextCursor", "complete", "selectionSetCount", "selectionSetComplete", "pageComplete"} {
 			if value, ok := page[key]; ok {
 				out.Supplement.Page[key] = value
 			}

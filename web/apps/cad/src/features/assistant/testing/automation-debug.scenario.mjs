@@ -4,7 +4,7 @@ const require=createRequire(import.meta.url);
 const {createServer}=await import(require.resolve("vite"));
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try{
- const {debugSelectionSource,freezeDebugQuery,nextDebugQuery}=await server.ssrLoadModule("/src/features/assistant/automation-debug-model.ts");
+ const {debugSelectionSource,freezeDebugQuery,nextDebugQuery,debugEvidenceQuery,debugTopologyArguments}=await server.ssrLoadModule("/src/features/assistant/automation-debug-model.ts");
  const view={document:{id:"part",versionId:"head-new"},part:{activeBodyId:"body"}};
  const selections=[{kind:"edge",id:"display-only",documentId:"part",versionId:"old-exact",bodyId:"body",topologyId:9,geometryKey:"old-key"}];
  const source=debugSelectionSource(view,selections);
@@ -17,6 +17,16 @@ try{
  const next=nextDebugQuery(executed,"snapshot-bound-cursor");
  assert.equal(next.scope.revisionId,"old-exact");assert.equal(next.arguments.kind,"EDGE");assert.equal(next.arguments.cursor,"snapshot-bound-cursor");
  assert.equal(executed.arguments.cursor,undefined,"pagination must not mutate the prior trace entry");
+ const filtered=freezeDebugQuery({...executed,arguments:{kind:"EDGE",filter:{geometryType:"CIRCLE",radius:{equalMM:3,toleranceMM:0.000001},adjacentFaceId:"exact-wall"},cursor:"original-cursor"},selectedOnly:true});
+ const evidence=debugEvidenceQuery(filtered,"exact-edge");
+ assert.equal(evidence.scope.revisionId,"old-exact");assert.deepEqual(evidence.arguments.ids,["exact-edge"]);
+ assert.equal(evidence.arguments.cursor,undefined);assert.equal(evidence.arguments.includeSelections,true);assert.equal(evidence.selectedOnly,false);
+ assert.deepEqual(evidence.arguments.filter,filtered.arguments.filter,"detail must retain the query predicates and snapshot");
+ evidence.arguments.filter.radius.equalMM=9;
+ assert.equal(filtered.arguments.filter.radius.equalMM,3,"evidence expansion mutated the original filter");
+ const changedFilter=debugTopologyArguments(filtered.arguments,{geometryType:"LINE",radius:undefined});
+ assert.equal(changedFilter.cursor,undefined,"edited filter retained an incompatible cursor");assert.equal(changedFilter.filter.radius,undefined);
+ assert.equal(filtered.arguments.cursor,"original-cursor");assert.equal(filtered.arguments.filter.geometryType,"CIRCLE");
  assert.throws(()=>freezeDebugQuery({...executed,scope:{...executed.scope,revisionId:""}}),/Revision/);
  assert.throws(()=>debugSelectionSource(view,[{kind:"edge",id:"a",documentId:"foreign",bodyId:"body",topologyId:1}]),/Revision/);
  assert.throws(()=>debugSelectionSource(view,[{...source.selections[0],bodyId:"body"},{...source.selections[0],bodyId:"other-body"}]),/Body/);

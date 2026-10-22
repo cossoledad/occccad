@@ -39,4 +39,24 @@ export function nextDebugQuery(input:DebugQueryInput,cursor:string):DebugQueryIn
  return next;
 }
 
+/** Evidence is a new explicit read of one current stable identity. It retains
+ * the recorded snapshot/filter and never mutates the draft or scene selection. */
+export function debugEvidenceQuery(input:DebugQueryInput,id:string):DebugQueryInput {
+ if(input.tool!=="cad_query_topology"||!id)throw new Error("只有拓扑结果支持正式证据读取。");
+ const next=freezeDebugQuery(input);
+ next.selectedOnly=false;
+ next.arguments={...next.arguments,ids:[id],limit:1,includeSelections:true};
+ delete next.arguments.cursor;
+ return next;
+}
+
+export function debugTopologyArguments(args:Record<string,unknown>,patch:Record<string,unknown>):Record<string,unknown> {
+ const next=structuredClone(args);
+ const filter={...debugRecord(next.filter),...patch};
+ for(const key of Object.keys(filter))if(filter[key]===undefined||filter[key]==="")delete filter[key];
+ if(Object.keys(filter).length)next.filter=filter;else delete next.filter;
+ delete next.cursor;
+ return next;
+}
+
 export const debugRecord=(value:unknown):Record<string,unknown>|undefined=>value!==null&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:undefined;

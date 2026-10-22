@@ -7,15 +7,20 @@ import (
 	"sort"
 	"strings"
 
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
 // BodyTopology is an immutable Naming projection. No OCCT local locator escapes
 // this boundary. Each result carries the same formal selection as a native pick.
 type BodyTopologyItem struct {
-	ID           string           `json:"id"`
-	GeometryType string           `json:"geometryType"`
-	Selection    FeatureSelection `json:"selection"`
+	ID                  string           `json:"id"`
+	GeometryType        string           `json:"geometryType"`
+	Selection           FeatureSelection `json:"selection"`
+	Geometry            TopologyGeometry `json:"geometry"`
+	FaceIDs             []string         `json:"faceIds"`
+	RelationsComplete   bool             `json:"relationsComplete"`
+	UnresolvedRelations int              `json:"unresolvedRelations"`
 }
 type BodyTopology struct {
 	GeometryKey    string             `json:"geometryKey"`
@@ -45,26 +50,84 @@ func (service *Service) ReadBodyTopology(ctx context.Context, document, revision
 	}
 	result.GeometryKey = key
 	result.ManifestDigest = digest
+	result.Items, err = projectBodyTopology(ctx, document, revision, body, topologyKind, tip.SemanticOutputs)
+	return result, err
+}
+
+// Index exact current semantic references, including cross-type adjacency. No
+// lineage, output-slot spelling or caller-provided creation evidence is used as
+// a current geometric measurement. Formal selection hashing stays unchanged.
+func projectBodyTopology(ctx context.Context, document, revision, body string, kind modelcore.PersistentTopologyType, outputs []*workerv1.SemanticTopologyOutput) ([]BodyTopologyItem, error) {
+	type currentRef struct {
+		kind modelcore.PersistentTopologyType
+		id   string
+	}
+	index := map[string]currentRef{}
+	items := []BodyTopologyItem{}
+	evidence := []*workerv1.SelectionEvidence{}
 	seen := map[string]bool{}
-	for _, output := range tip.SemanticOutputs {
-		if topologyType(output.GetTopologyType()) != topologyKind {
+	refKey := func(ref *workerv1.SemanticTopologyRef) string {
+		raw, _ := json.Marshal(semanticRef(ref))
+		return string(raw)
+	}
+	for _, output := range outputs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		outputKind := topologyType(output.GetTopologyType())
+		key := refKey(output.GetSemanticRef())
+		if _, exists := index[key]; exists {
+			return nil, fmt.Errorf("%w: AMBIGUOUS_TOPOLOGY_IDENTITY", ErrValidation)
+		}
+		current := currentRef{kind: outputKind}
+		if outputKind != kind && outputKind != "FACE" {
+			index[key] = current
 			continue
 		}
-		if err := ctx.Err(); err != nil {
-			return BodyTopology{}, err
-		}
-		selection := modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: document, SourceBodyID: body, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: topologyKind, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: selectionEvidence(output.GetEvidence())}
+		selection := modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: document, SourceBodyID: body, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: outputKind, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: selectionEvidence(output.GetEvidence())}
 		if err := selection.Validate(); err != nil {
-			return BodyTopology{}, err
+			return nil, err
 		}
-		raw, _ := json.Marshal(selection)
+		raw, err := json.Marshal(selection)
+		if err != nil {
+			return nil, fmt.Errorf("%w: INVALID_NAMING_EVIDENCE", ErrValidation)
+		}
 		id := modelcore.ValueDigest(raw)
 		if seen[id] {
-			return BodyTopology{}, fmt.Errorf("%w: AMBIGUOUS_TOPOLOGY_IDENTITY", ErrValidation)
+			return nil, fmt.Errorf("%w: AMBIGUOUS_TOPOLOGY_IDENTITY", ErrValidation)
 		}
 		seen[id] = true
-		result.Items = append(result.Items, BodyTopologyItem{ID: id, GeometryType: output.GetEvidence().GetGeometryType(), Selection: FeatureSelection{Selection: selection, SourceVersionID: revision}})
+		current.id = id
+		index[key] = current
+		if outputKind == kind {
+			items = append(items, BodyTopologyItem{ID: id, GeometryType: observedGeometryType(output.GetEvidence().GetGeometryType()), Geometry: observeTopologyGeometry(output.GetEvidence()), Selection: FeatureSelection{Selection: selection, SourceVersionID: revision}, FaceIDs: []string{}, RelationsComplete: true})
+			evidence = append(evidence, output.GetEvidence())
+		}
 	}
-	sort.Slice(result.Items, func(i, j int) bool { return result.Items[i].ID < result.Items[j].ID })
-	return result, nil
+	for i, e := range evidence {
+		faces := map[string]bool{}
+		// Repeated protobuf fields cannot distinguish absent evidence from an
+		// asserted empty adjacency list. Keep that case conservative rather than
+		// declaring that no face can be associated with this element.
+		if len(e.GetAdjacent()) == 0 {
+			items[i].RelationsComplete = false
+		}
+		for _, adjacent := range e.GetAdjacent() {
+			ref, exists := index[refKey(adjacent)]
+			if !exists {
+				items[i].UnresolvedRelations++
+				items[i].RelationsComplete = false
+				continue
+			}
+			if ref.kind == "FACE" {
+				faces[ref.id] = true
+			}
+		}
+		for id := range faces {
+			items[i].FaceIDs = append(items[i].FaceIDs, id)
+		}
+		sort.Strings(items[i].FaceIDs)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	return items, nil
 }

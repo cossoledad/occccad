@@ -30,8 +30,8 @@ Run JSON 只保留有限角色目标、当前要求、摘要及计数；无限�
 
 | 层 | 职责与来源 |
 |---|---|
-| CAD 真相 | Workspace `ReadModelSnapshot` 读取不可变定义；`ReadBodyTopology` 投影指定 Revision/Body 的 Naming；属性查询读取指定制品的精确 B-Rep 属性。Mesh/local ID 不能代替稳定引用。 |
-| Automation 查询 | `query.go` 按字段、对象、Body 和游标投影定义；`topology.go` 返回稳定拓扑小页及覆盖全部匹配的 selectionSet。服务页不等于整份模型。 |
+| CAD 真相 | Workspace `ReadModelSnapshot` 读取不可变定义；`ReadBodyTopology` 从指定 Revision/Body 的当前 Naming tip 投影测量与有类型的面邻接，正式选择的哈希算法不变；属性查询读取指定制品的精确 B-Rep 属性。Mesh/local ID 不能代替稳定引用。 |
+| Automation 查询 | `query.go` 按字段、对象、Body 和游标投影定义；`topology.go` 默认返回 typed 紧凑观察，完整固定范围先筛选、再生成 selectionSet、最后按项数及完整响应字节分页。服务页不等于整份模型。 |
 | 工具处理 | `tools.go` 调用上述服务；`tool_result.go` 对完整 UTF-8 JSON 内容执行统一 32 KiB 边界，超限以完整资源错误替换，不切断 JSON。 |
 | 持久与恢复 | `recordTool` 返回实际落账的规范结果；普通规划和独立问答均用返回值追加在线消息。幂等冲突返回原记录，恢复读取同一反馈，不能重新附上原始大结果。 |
 | 上下文 | `buildContext` 从精确快照、有限近期工具事实/阶段及冻结目标组装；单次上下文仍有界，不保证所有服务页同时在模型工作集中。 |
@@ -71,7 +71,15 @@ AES-256-GCM、账号 AAD 和本地主密钥延续原凭证方案；主密钥与�
 
 `cad_query_model` 按不可变定义投影稳定实体、参数、草图子元素等，默认20/最多100项、32KiB单页，游标绑定 Revision/过滤条件。参数 value 是 SI quantity，displayValue 是未舍入的显示单位值。当前仍在受限定义上解析/排序，未提供持久查询索引或任意大树容量保证。
 
-`cad_query_topology` 读取 Naming manifest，返回小页与完整集合 selectionSet；绑定 document/revision/body/kind/manifest/count。全部边使用完整集，新几何必须读新 Revision。输入已有完整选择不等于第一页内容完整；集合执行前再次校验。
+`cad_query_topology` 默认返回稳定 ID、geometryType、`geometry` 和 `adjacentFaces`。scope 在外层，明确 document/revision/body/kind、geometryKey、manifestDigest、PART_LOCAL/mm/rad 与 CURRENT_NAMING_BODY_TIP 来源。几何值直接来自该快照当前 tip，不把调用方旧 creationEvidence 当成测量。完整 PersistentSelection、sourceIds、creationEvidence 只在 `includeSelections:true` 时读取；按一个稳定 `ids` 展开即可，debug 与真实工具走同一查询。
+
+`filter.geometryType`、`filter.radius`（equalMM 或 minMM/maxMM，必须显式给正的 toleranceMM）及 `filter.adjacentFaceId` 做合取。指定面必须属于同一固定快照；关联使用完整当前语义引用的精确映射，不按命名字符串或旧 lineage 猜孔口。`ids` 先固定候选范围。未知属性或未解析的关系采用三值判断：已知不匹配排除，无法判断计入 unknownCount；不冒充完整匹配。
+
+selectionSet 仍是自包含集合，无新注册表；绑定 document/revision/body/kind/manifest、候选 IDs、筛选条件、匹配数、完整性和匹配 ID 摘要。查询、集合解析和既有 fillet 验证复用相同匹配函数，预览/提交重验相同集合。`selectionSetComplete:false` 或零匹配不能执行；零匹配不会退化成全选。游标绑定集合和投影（limit/includeSelections），新几何必须读新 Revision。`scopeCount/candidateCount/matchedCount/unknownCount`、`returnedCount` 与 `selectionSetCount` 分别描述范围、候选、匹配、未知、本页和集合；`pageComplete` 仅指本页是否包含全部已知匹配，不能代替 matchComplete/selectionSetComplete。
+
+紧凑关系最多列 16 个关联面 ID，knownCount 计完整内部关系数，complete 要求 Naming 邻接证据存在、当前引用解析完整且本行未裁剪；没有邻接证据时保守标记未知，不声称不存在关联面。筛选使用未裁剪关系。几何字段带单位，缺失/不支持的适用字段列在 unavailable，不能当零值。圆/圆柱 direction 是轴向，平面是有向法线；圆柱 materialSide -1/+1 区分内壁/外壁，不构成通用孔角色。radiusMM 在椭圆表示长半径，minorRadiusMM 为短半径；缺少可靠解析框架的曲线不输出占位原点/方向。
+
+拓扑每页最多 20 项，同时核算含 scope、集合令牌、游标和证据的完整 UTF-8 JSON 内容，边界与 Host 统一为 32 KiB。必要时返回更少整项并给出下一游标；单项连封套仍超限则返回 TOPOLOGY_PAGE_RESOURCE，不切片嵌套引用。这没有增加任务总调用数或总 Token 限制；大 Feature definition 的边界仍由既有工具规范化负责。
 
 `typedBindings` 仅声明允许的目标字段，绑定前序明确 outputId/role，可投影 ENTITY_ID、INSTANCE_PATH、ASSEMBLY_REF；复杂输出不猜“最后一个特征”或数组位置。实例输出使用提交模型已接受的 source Revision，不能另读 source 最新 Head。UUID 由原请求/步骤生成，恢复沿同一意图与精确回执。
 

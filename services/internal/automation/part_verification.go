@@ -421,26 +421,10 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 				if decodeErr != nil || json.Unmarshal(raw, &set) != nil || set.Document != document || set.Revision != sourceRevision || set.Body != feature.BodyID || set.Kind != "EDGE" || set.Digest != data.ManifestDigest || set.Count < 1 {
 					return fail("selectionSet does not match the exact source manifest")
 				}
-				selected := map[string]bool{}
-				for _, id := range set.IDs {
-					if selected[id] {
-						return fail("selectionSet has duplicate stable IDs")
-					}
-					selected[id] = true
-				}
-				if len(selected) > 0 {
-					required = []workspace.BodyTopologyItem{}
-					for _, item := range data.Items {
-						if selected[item.ID] {
-							required = append(required, item)
-						}
-					}
-					if len(required) != len(selected) {
-						return fail("selectionSet includes unavailable edges")
-					}
-				}
-				if len(required) != set.Count {
-					return fail("selectionSet is incomplete")
+				var resolveErr error
+				required, resolveErr = s.resolveTopologySet(ctx, document, set, data)
+				if resolveErr != nil {
+					return fail(resolveErr.Error())
 				}
 				if check.Kind == "ALL_EDGES_FILLET" && len(required) != len(data.Items) {
 					return fail("selectionSet is a subset of the required all-edge set")

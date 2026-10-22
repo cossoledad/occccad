@@ -1,9 +1,13 @@
 package assistant
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/occccad/occccad/internal/automation"
+)
 
 // This is a per-result byte boundary, not a Run-wide token or call limit.
-const MaxToolResultBytes = 32 << 10
+const MaxToolResultBytes = automation.MaxToolResponseBytes
 
 // NormalizeToolResult never slices JSON. The same value must be persisted,
 // appended to an online session, and replayed after recovery.
