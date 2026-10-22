@@ -30,11 +30,11 @@ func stageContext(task automation.Task) map[string]any {
 		if step.Action != nil {
 			arguments = step.Action.Arguments
 		}
-		if len(arguments) <= 2048 {
-			item["arguments"] = arguments
-		} else {
-			item["argumentsOmitted"] = true
+		item["argumentsDigest"] = compactArguments(arguments)["digest"]
+		if step.Failure != nil {
+			item["input"] = compactArguments(arguments)
 		}
+
 		if len(step.Bindings) > 0 {
 			item["bindings"] = step.Bindings
 		}

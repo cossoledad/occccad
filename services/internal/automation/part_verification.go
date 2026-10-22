@@ -18,25 +18,27 @@ import (
 // These small, explicit checks are application evidence. A planner can request
 // additional checks; the Run owns mandatory checks and their user goal version.
 type PartCheck struct {
-	ID                string                      `json:"id"`
-	Kind              string                      `json:"kind"`
-	BodyID            string                      `json:"bodyId,omitempty"`
-	FeatureID         string                      `json:"featureId,omitempty"`
-	SketchID          string                      `json:"sketchId,omitempty"`
-	ReferenceSketchID string                      `json:"referenceSketchId,omitempty"`
-	ParameterID       string                      `json:"parameterId,omitempty"`
-	ExpectedType      string                      `json:"expectedType,omitempty"`
-	Plane             string                      `json:"plane,omitempty"`
-	Width             float64                     `json:"width,omitempty"`
-	Height            float64                     `json:"height,omitempty"`
-	Length            float64                     `json:"length,omitempty"`
-	Radius            float64                     `json:"radius,omitempty"`
-	Value             float64                     `json:"value,omitempty"`
-	Unit              string                      `json:"unit,omitempty"`
-	Tolerance         float64                     `json:"tolerance,omitempty"`
-	SelectionSet      string                      `json:"selectionSet,omitempty"`
-	ExpectedCount     int                         `json:"expectedCount,omitempty"`
-	Selection         *workspace.FeatureSelection `json:"selection,omitempty"`
+	ID                 string                      `json:"id"`
+	Kind               string                      `json:"kind"`
+	BodyID             string                      `json:"bodyId,omitempty"`
+	FeatureID          string                      `json:"featureId,omitempty"`
+	SketchID           string                      `json:"sketchId,omitempty"`
+	ReferenceFeatureID string                      `json:"referenceFeatureId,omitempty"`
+	RadiusPolicy       string                      `json:"radiusPolicy,omitempty"`
+	ReferenceSketchID  string                      `json:"referenceSketchId,omitempty"`
+	ParameterID        string                      `json:"parameterId,omitempty"`
+	ExpectedType       string                      `json:"expectedType,omitempty"`
+	Plane              string                      `json:"plane,omitempty"`
+	Width              float64                     `json:"width,omitempty"`
+	Height             float64                     `json:"height,omitempty"`
+	Length             float64                     `json:"length,omitempty"`
+	Radius             float64                     `json:"radius,omitempty"`
+	Value              float64                     `json:"value,omitempty"`
+	Unit               string                      `json:"unit,omitempty"`
+	Tolerance          float64                     `json:"tolerance,omitempty"`
+	SelectionSet       string                      `json:"selectionSet,omitempty"`
+	ExpectedCount      int                         `json:"expectedCount,omitempty"`
+	Selection          *workspace.FeatureSelection `json:"selection,omitempty"`
 }
 
 type PartVerificationRequest struct {
@@ -63,11 +65,14 @@ type PartVerificationResult struct {
 	Checks      []PartCheckResult       `json:"checks"`
 }
 
+const MaxPartVerificationChecks = 64
+const MaxPartVerificationBytes = 96 << 10
+
 func (s *Service) VerifyPart(ctx context.Context, actor, document string, input PartVerificationRequest) (PartVerificationResult, error) {
 	if err := s.authorize(ctx, actor, document, access.RoleViewer); err != nil {
 		return PartVerificationResult{}, err
 	}
-	if input.GoalVersion == 0 || len(input.Checks) == 0 || len(input.Checks) > 64 || len(input.CreatedEntityIDs) > 4096 || len(marshal(input)) > 96<<10 {
+	if input.GoalVersion == 0 || len(input.Checks) == 0 || len(input.Checks) > MaxPartVerificationChecks || len(input.CreatedEntityIDs) > 4096 || len(marshal(input)) > MaxPartVerificationBytes {
 		return PartVerificationResult{}, fault("INVALID_VERIFICATION", "verification requires a goal version and 1..64 bounded checks")
 	}
 	snapshot, err := s.workspace.ReadModelSnapshot(ctx, document, input.RevisionID)
@@ -123,7 +128,7 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 	if tolerance == 0 {
 		tolerance = 1e-6
 	}
-	lengthCheck := check.Kind == "RECTANGLE_DIMENSIONS" || check.Kind == "EXTRUSION_LENGTH" || check.Kind == "CENTERED_THROUGH_HOLE" || check.Kind == "THROUGH_HOLE" || (check.Kind == "ALL_EDGES_FILLET" || check.Kind == "SELECTED_EDGES_FILLET")
+	lengthCheck := check.Kind == "RECTANGLE_DIMENSIONS" || check.Kind == "EXTRUSION_LENGTH" || check.Kind == "CENTERED_THROUGH_HOLE" || check.Kind == "THROUGH_HOLE" || (check.Kind == "ALL_EDGES_FILLET" || check.Kind == "SELECTED_EDGES_FILLET" || check.Kind == "HOLE_RIM_FILLET")
 	if lengthCheck && check.Unit != "mm" {
 		return notVerified("UNIT_UNSUPPORTED", "dimension checks require explicit mm units")
 	}
@@ -396,13 +401,13 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 			}
 		}
 		return fail("target Body does not exist")
-	case "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET":
+	case "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET", "HOLE_RIM_FILLET":
 		reader, ok := s.workspace.(topologyReader)
 		if !ok {
 			return notVerified("TOPOLOGY_UNAVAILABLE", "authoritative topology reader is unavailable")
 		}
 		for _, feature := range features {
-			if feature.Type != "FILLET" || !validFeature(feature) || !closeNumber(feature.Length, check.Radius, tolerance) || check.Radius <= 0 || len(feature.Selections) == 0 {
+			if feature.Type != "FILLET" || !validFeature(feature) || feature.Length <= 0 || math.IsNaN(feature.Length) || math.IsInf(feature.Length, 0) || (check.RadiusPolicy != "DELEGATED" && (!closeNumber(feature.Length, check.Radius, tolerance) || check.Radius <= 0)) || len(feature.Selections) == 0 {
 				continue
 			}
 			sourceRevision := feature.Selections[0].SourceVersionID
@@ -411,7 +416,20 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 				return notVerified("TOPOLOGY_EVIDENCE_UNAVAILABLE", err.Error())
 			}
 			result.Observed["featureId"], result.Observed["sourceRevisionId"], result.Observed["sourceEdgeCount"], result.Observed["selectedEdgeCount"], result.Observed["radius"] = feature.ID, sourceRevision, len(data.Items), len(feature.Selections), feature.Length
+			if check.RadiusPolicy == "DELEGATED" {
+				result.Observed["designChoice"] = map[string]any{"radius": feature.Length, "unit": "mm", "policy": "DELEGATED"}
+			}
 			required := data.Items
+			if check.Kind == "HOLE_RIM_FILLET" {
+				var code string
+				required, code, err = s.requiredHoleRims(ctx, document, part, feature, check.ReferenceFeatureID, sourceRevision, data, tolerance)
+				if err != nil {
+					return notVerified("TOPOLOGY_EVIDENCE_UNAVAILABLE", err.Error())
+				}
+				if code != "" {
+					return notVerified(code, "局部圆角需要已绑定通孔在实际输入快照中的两条圆边证据")
+				}
+			}
 			if check.Kind == "SELECTED_EDGES_FILLET" && check.SelectionSet == "" {
 				return notVerified("CHECK_INPUT_REQUIRED", "selected-edge verification requires the complete frozen selectionSet")
 			}
@@ -421,11 +439,14 @@ func (s *Service) verifyPartCheck(ctx context.Context, document string, snapshot
 				if decodeErr != nil || json.Unmarshal(raw, &set) != nil || set.Document != document || set.Revision != sourceRevision || set.Body != feature.BodyID || set.Kind != "EDGE" || set.Digest != data.ManifestDigest || set.Count < 1 {
 					return fail("selectionSet does not match the exact source manifest")
 				}
-				var resolveErr error
-				required, resolveErr = s.resolveTopologySet(ctx, document, set, data)
+				resolved, resolveErr := s.resolveTopologySet(ctx, document, set, data)
 				if resolveErr != nil {
 					return fail(resolveErr.Error())
 				}
+				if check.Kind == "HOLE_RIM_FILLET" && topologyMatchDigest(required) != topologyMatchDigest(resolved) {
+					return fail("selectionSet differs from the bound hole's complete rim collection")
+				}
+				required = resolved
 				if check.Kind == "ALL_EDGES_FILLET" && len(required) != len(data.Items) {
 					return fail("selectionSet is a subset of the required all-edge set")
 				}
@@ -491,7 +512,7 @@ func PartGoalTarget(part workspace.PartModel, feature workspace.Feature, kind st
 		return ok
 	case "EXTRUSION_LENGTH":
 		return (feature.Type == "PAD" || feature.Type == "LINEAR_EXTRUDE") && (feature.Operation == "" || feature.Operation == "ADD" || feature.Operation == "NEW_BODY")
-	case "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET":
+	case "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET", "HOLE_RIM_FILLET":
 		return feature.Type == "FILLET"
 	case "THROUGH_HOLE", "CENTERED_THROUGH_HOLE":
 		generator, _, circle := circularCutProfile(part, feature)

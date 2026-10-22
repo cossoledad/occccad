@@ -76,6 +76,14 @@ type GoalRequirement struct {
 	Kind                   string             `json:"kind"`
 	SourceTurnID           string             `json:"sourceTurnId"`
 	Quote                  string             `json:"quote"`
+	SourceGoalVersion      uint64             `json:"sourceGoalVersion,omitempty"`
+	IntroducedGoalVersion  uint64             `json:"introducedGoalVersion,omitempty"`
+	TargetRole             string             `json:"targetRole,omitempty"`
+	BodyID                 string             `json:"bodyId,omitempty"`
+	ReferenceRequirementID string             `json:"referenceRequirementId,omitempty"`
+	Coverage               string             `json:"coverage,omitempty"` // SUPPORTED | UNRESOLVED
+	Unresolved             []string           `json:"unresolved,omitempty"`
+	RadiusPolicy           string             `json:"radiusPolicy,omitempty"` // DELEGATED, never a user numeric expectation
 	Width                  float64            `json:"width,omitempty"`
 	Height                 float64            `json:"height,omitempty"`
 	Length                 float64            `json:"length,omitempty"`
@@ -90,12 +98,13 @@ type GoalRequirement struct {
 	Selection              *SelectedReference `json:"selection,omitempty"`
 }
 type GoalVerification struct {
-	Status       string              `json:"status"`
-	GoalVersion  uint64              `json:"goalVersion"`
-	RevisionID   string              `json:"revisionId"`
-	Checks       []VerificationCheck `json:"checks"`
-	Message      string              `json:"message,omitempty"`
-	requirements []GoalRequirement
+	Status           string              `json:"status"`
+	GoalVersion      uint64              `json:"goalVersion"`
+	RevisionID       string              `json:"revisionId"`
+	Checks           []VerificationCheck `json:"checks"`
+	Message          string              `json:"message,omitempty"`
+	CoverageComplete bool                `json:"coverageComplete"`
+	requirements     []GoalRequirement
 }
 type VerificationCheck struct {
 	ID       string         `json:"id"`

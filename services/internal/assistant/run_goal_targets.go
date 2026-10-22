@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/occccad/occccad/internal/automation"
 	"github.com/occccad/occccad/internal/database"
 )
@@ -28,6 +30,7 @@ func forgetRemovedTargets(targets, selections map[string]string, removed []strin
 func (s *Service) goalRequirements(ctx context.Context, r Run) ([]GoalRequirement, error) {
 	result := []GoalRequirement{}
 	var after uint64
+	var latestSourceVersion uint64
 	for {
 		rows, err := s.db.Query(ctx, `SELECT sequence,payload FROM occccad.assistant_inputs WHERE run_id=$1 AND kind<>'QUERY' AND sequence>$2 ORDER BY sequence LIMIT 32`, r.ID, after)
 		if err != nil {
@@ -44,6 +47,9 @@ func (s *Service) goalRequirements(ctx context.Context, r Run) ([]GoalRequiremen
 				break
 			}
 			if turn.GoalVersion <= r.GoalVersion {
+				if turn.GoalVersion > latestSourceVersion {
+					latestSourceVersion = turn.GoalVersion
+				}
 				result = reviseRequirements(result, turn)
 			}
 			count++
@@ -56,6 +62,9 @@ func (s *Service) goalRequirements(ctx context.Context, r Run) ([]GoalRequiremen
 			return nil, err
 		}
 		if count < 32 {
+			if latestSourceVersion != r.GoalVersion {
+				result = append(result, GoalRequirement{ID: uuid.NewSHA1(uuid.MustParse(r.ID), []byte("missing-goal-source")).String(), Kind: "UNRESOLVED_INTENT", SourceGoalVersion: r.GoalVersion, Coverage: "UNRESOLVED", Unresolved: []string{"GOAL_VERSION_SOURCE_MISSING"}})
+			}
 			return result, nil
 		}
 	}
@@ -72,7 +81,7 @@ func (s *Service) goalTargets(ctx context.Context, r Run) (map[string]string, er
 	missing := func() bool {
 		for _, requirement := range r.Requirements {
 			switch requirement.Kind {
-			case "RECTANGLE_DIMENSIONS", "EXTRUSION_LENGTH", "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET", "CENTERED_THROUGH_HOLE", "THROUGH_HOLE":
+			case "RECTANGLE_DIMENSIONS", "EXTRUSION_LENGTH", "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET", "HOLE_RIM_FILLET", "CENTERED_THROUGH_HOLE", "THROUGH_HOLE":
 				if targets[goalTargetKey(requirement.ID)] == "" {
 					return true
 				}
@@ -112,11 +121,20 @@ func (s *Service) goalTargets(ctx context.Context, r Run) (map[string]string, er
 			break
 		}
 		for _, task := range tasks {
+			r.Targets = targets
 			facts, err := s.taskReceiptFacts(ctx, r, task, true)
 			if err != nil {
 				return nil, err
 			}
+			if r.TargetSelections == nil {
+				r.TargetSelections = map[string]string{}
+			}
 			for _, fact := range facts {
+				for key, token := range fact.selections {
+					if strings.HasPrefix(key, "GOAL:") {
+						r.TargetSelections[key] = token
+					}
+				}
 				forgetRemovedTargets(targets, nil, fact.removed)
 				for key, id := range fact.targets {
 					if strings.HasPrefix(key, "GOAL:") && targets[key] == "" {
@@ -196,7 +214,7 @@ func checkEvidenceMessage(checks []VerificationCheck) string {
 }
 
 func goalCheckName(kind string) string {
-	names := map[string]string{"RECTANGLE_DIMENSIONS": "矩形尺寸", "EXTRUSION_LENGTH": "基体拉伸", "ALL_EDGES_FILLET": "全部边圆角", "SELECTED_EDGES_FILLET": "选中边圆角", "CENTERED_THROUGH_HOLE": "中心贯穿孔", "THROUGH_HOLE": "贯穿孔", "NO_FEATURE_TYPE": "取消圆角"}
+	names := map[string]string{"RECTANGLE_DIMENSIONS": "矩形尺寸", "EXTRUSION_LENGTH": "基体拉伸", "ALL_EDGES_FILLET": "全部边圆角", "SELECTED_EDGES_FILLET": "选中边圆角", "HOLE_RIM_FILLET": "孔口圆边圆角", "UNSCOPED_FILLET": "未明确目标的圆角", "UNRESOLVED_INTENT": "待明确的建模要求", "CENTERED_THROUGH_HOLE": "中心贯穿孔", "THROUGH_HOLE": "贯穿孔", "NO_FEATURE_TYPE": "取消圆角"}
 	if name := names[kind]; name != "" {
 		return name
 	}

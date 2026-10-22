@@ -4,7 +4,7 @@
 
 入口：`run_store.go`（身份/分页）、`run_scheduler.go`（租约/后台/公平并发）、`run_planner.go`（有界工作集/下一片段）、`run_stages.go`（执行观察/精确回执）、`run_scope.go`（冻结选择/目标来源）、`run_goal_targets.go/run_verification.go`（要求与正式输出绑定/当前目标证据）、`run_progress.go`（公开简述/精简检查点）、`run_questions.go`（独立只读问答）、`call_ledger.go`（逐尝试用量）、`call_trace.go`（实际公开请求/回复/工具反馈及执行版本）、`provider.go`、`credentials.go`、`budget.go`（单次请求资源）。`conversation.go` 仅定义公共数据合同，无旧同步规划运行时。
 
-`tool_result.go` 统一工具内容的 32 KiB 边界，规范结果同时用于在线消息、账本、恢复与 trace。`query_debug.go` 提供无凭证/Run/Provider 的只读对照适配，复用 Host 与 Automation，原始服务页和人工补充不回灌模型。操作见[查询调试](../../../docs/development/cad-query-debugging.md)。
+`tool_result.go` 统一工具内容的 32 KiB 边界；在线工具回复、账本、待处理工具重放及实际 trace 使用同一规范结果。`run_goal_coverage.go/run_goal_binding.go` 维护来源/目标覆盖，`run_query_bindings.go` 仅将已记录拓扑查询的 selectionSet 绑定到声明槽位；`run_context_projection.go/run_stage_context.go` 为重建上下文提供确定性摘要与原查询引用，完整数据仍在账本。合同见[目标覆盖与查询绑定](../../../docs/architecture/current/automation.md#目标覆盖与查询结果绑定)，无 LLM 验证见[回归记录](../../../docs/validation/assistant-goal-coverage.md)。`query_debug.go` 继续提供无凭证/Run/Provider 的只读对照适配；操作见[查询调试](../../../docs/development/cad-query-debugging.md)。
 
 默认地址 `https://api.deepseek.com`，模型 `deepseek-flash`，支持账号 `/models` 发现、关闭/低/高/最高思考度；实际配置逐调用冻结。默认累计 Token 预算为 `null`，没有 Run 总调用/步骤/阶段/整轮时限；用户主动设置预算后可提高或清空并继续同一 Run。账号默认预算与活动 Run 预算分别保存。单次上下文、输出、网络与工具执行仍有资源保护。
 

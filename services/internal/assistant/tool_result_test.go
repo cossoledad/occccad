@@ -128,8 +128,14 @@ func TestAssistantToolResultOnlineLedgerRecoveryAndTraceAgree(t *testing.T) {
 					Result json.RawMessage `json:"result"`
 				} `json:"recentFacts"`
 			}
-			if json.Unmarshal([]byte(messages[1].Content), &contextPacket) != nil || len(contextPacket.RecentFacts) != 1 || !bytes.Equal(contextPacket.RecentFacts[0].Result, canonical.Content) {
-				t.Fatal("recovery facts differ from the normalized tool feedback")
+			if json.Unmarshal([]byte(messages[1].Content), &contextPacket) != nil || len(contextPacket.RecentFacts) != 1 {
+				t.Fatal("recovery facts missing")
+			}
+			var summary struct {
+				Digest string `json:"digest"`
+			}
+			if json.Unmarshal(contextPacket.RecentFacts[0].Result, &summary) != nil || summary.Digest != modelcore.ValueDigest(canonical.Content) {
+				t.Fatal("recovery summary does not identify canonical normalized feedback")
 			}
 			trace, err := s.CallTrace(ctx, r.ActorID, r.DocumentID, r.ID, c.ID)
 			if err != nil || len(trace.Tools) != 1 || !bytes.Equal(trace.Tools[0].Feedback, canonical.Content) {

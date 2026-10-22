@@ -26,6 +26,15 @@ func (s *Service) taskFacts(ctx context.Context, r Run, task automation.Task) ([
 
 func (s *Service) taskReceiptFacts(ctx context.Context, r Run, task automation.Task, includeRecorded bool) ([]appliedStepFact, error) {
 	facts := []appliedStepFact{}
+	targets := map[string]string{}
+	for key, id := range r.Targets {
+		targets[key] = id
+	}
+	r.Targets = targets
+	var stageVersion uint64
+	if err := s.db.QueryRow(ctx, `SELECT goal_version FROM occccad.assistant_stages WHERE run_id=$1 AND task_id=$2`, r.ID, task.ID).Scan(&stageVersion); err != nil && !errors.Is(err, database.ErrNoRows) {
+		return nil, err
+	}
 	for _, step := range task.Steps {
 		if step.Result == nil || step.ReceiptRecorded && !includeRecorded {
 			continue
@@ -73,11 +82,17 @@ func (s *Service) taskReceiptFacts(ctx context.Context, r Run, task automation.T
 					continue
 				}
 				for _, requirement := range r.Requirements {
-					if r.Scope.WorkingBodyID != "" && feature.BodyID != r.Scope.WorkingBodyID {
+					if requirement.BodyID != "" && feature.BodyID != requirement.BodyID {
 						continue
 					}
-					if automation.PartGoalTarget(part, feature, requirement.Kind) {
-						fact.targets[goalTargetKey(requirement.ID)] = feature.ID
+					if s.goalReceiptCandidate(ctx, r, requirement, part, feature, snapshot.RevisionID, stageVersion) {
+						key := goalTargetKey(requirement.ID)
+						fact.targets[key] = feature.ID
+						if feature.Type == "FILLET" {
+							if token, e := s.selectionSetForFeature(ctx, r, feature); e == nil {
+								fact.selections[key] = token
+							}
+						}
 					}
 				}
 				role := feature.Type
@@ -135,6 +150,11 @@ func (s *Service) taskReceiptFacts(ctx context.Context, r Run, task automation.T
 						fact.selections["CHAMFER"] = token
 					}
 				}
+			}
+		}
+		for key, id := range fact.targets {
+			if strings.HasPrefix(key, "GOAL:") {
+				r.Targets[key] = id
 			}
 		}
 		facts = append(facts, fact)

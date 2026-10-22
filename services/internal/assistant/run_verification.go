@@ -27,6 +27,14 @@ func (s *Service) verifyGoal(ctx context.Context, r Run) (*GoalVerification, err
 		return nil, err
 	}
 	verification.requirements = r.Requirements
+	verification.CoverageComplete = len(r.Requirements) > 0
+	for _, req := range r.Requirements {
+		if req.Coverage == "UNRESOLVED" {
+			verification.CoverageComplete = false
+			verification.Status = "NOT_VERIFIED"
+			verification.Checks = append(verification.Checks, VerificationCheck{ID: req.ID, Name: req.Kind, Status: "NOT_VERIFIED", Code: "GOAL_COVERAGE_UNRESOLVED", Message: coverageMessage(req), Expected: requirementExpectation(req, r.Scope.WorkingBodyID)})
+		}
+	}
 	if snapshot.DocumentType == "PRODUCT" {
 		return s.verifyProductGoal(ctx, r, snapshot, verification)
 	}
@@ -34,6 +42,9 @@ func (s *Service) verifyGoal(ctx context.Context, r Run) (*GoalVerification, err
 		verification.Status = "NOT_VERIFIED"
 		verification.Message = "当前文档类型尚无目标验收合同"
 		return verification, nil
+	}
+	if r.TargetSelections == nil {
+		r.TargetSelections = map[string]string{}
 	}
 	targets, err := s.goalTargets(ctx, r)
 	if err != nil {
@@ -58,7 +69,13 @@ func (s *Service) verifyGoal(ctx context.Context, r Run) (*GoalVerification, err
 		verification.Checks = append(verification.Checks, VerificationCheck{ID: "goal-contract", Name: "用户目标", Status: "NOT_VERIFIED", Code: "GOAL_CHECK_UNSUPPORTED", Message: "本轮目标尚未映射到应用可执行的必需检查，不能仅凭模型回复宣告完成"})
 	}
 	for _, requirement := range r.Requirements {
-		check := automation.PartCheck{ID: requirement.ID, Kind: requirement.Kind, BodyID: body, Width: requirement.Width, Height: requirement.Height, Length: requirement.Length, Radius: requirement.Radius, Unit: requirement.Unit}
+		if requirement.Coverage == "UNRESOLVED" {
+			continue
+		}
+		check := automation.PartCheck{ID: requirement.ID, Kind: requirement.Kind, BodyID: body, Width: requirement.Width, Height: requirement.Height, Length: requirement.Length, Radius: requirement.Radius, Unit: requirement.Unit, RadiusPolicy: requirement.RadiusPolicy}
+		if requirement.BodyID != "" {
+			check.BodyID = requirement.BodyID
+		}
 		target := targets[goalTargetKey(requirement.ID)]
 		switch requirement.Kind {
 		case "RECTANGLE_DIMENSIONS":
@@ -79,7 +96,7 @@ func (s *Service) verifyGoal(ctx context.Context, r Run) (*GoalVerification, err
 		case "EXTRUSION_LENGTH":
 			check.FeatureID = target
 			for _, profile := range r.Requirements {
-				if profile.Kind == "RECTANGLE_DIMENSIONS" {
+				if profile.Kind == "RECTANGLE_DIMENSIONS" && profile.BodyID == requirement.BodyID {
 					check.SketchID = targets[goalTargetKey(profile.ID)]
 				}
 			}
@@ -87,18 +104,21 @@ func (s *Service) verifyGoal(ctx context.Context, r Run) (*GoalVerification, err
 			check.FeatureID = target
 		case "SELECTED_EDGES_FILLET":
 			check.FeatureID = target
-			token, count, e := s.requiredSelectedEdges(ctx, r, requirement, r.TargetSelections["FILLET"])
+			token, count, e := s.requiredSelectedEdges(ctx, r, requirement, r.TargetSelections[goalTargetKey(requirement.ID)])
 			if e != nil {
 				verification.Status = "NOT_VERIFIED"
 				verification.Checks = append(verification.Checks, VerificationCheck{ID: requirement.ID, Name: requirement.Kind, Status: "NOT_VERIFIED", Code: asFault(e).Code, Message: e.Error()})
 				continue
 			}
 			check.SelectionSet, check.ExpectedCount = token, count
+		case "HOLE_RIM_FILLET":
+			check.FeatureID = target
+			check.ReferenceFeatureID = targets[goalTargetKey(requirement.ReferenceRequirementID)]
 		case "CENTERED_THROUGH_HOLE", "THROUGH_HOLE":
 			check.FeatureID = target
 			check.Plane = requirement.Plane
 			for _, reference := range r.Requirements {
-				if reference.Kind == "RECTANGLE_DIMENSIONS" {
+				if reference.Kind == "RECTANGLE_DIMENSIONS" && reference.BodyID == requirement.BodyID {
 					check.ReferenceSketchID = targets[goalTargetKey(reference.ID)]
 				}
 			}
@@ -130,7 +150,7 @@ func (s *Service) verifyGoal(ctx context.Context, r Run) (*GoalVerification, err
 		}
 		if target == "" {
 			switch requirement.Kind {
-			case "RECTANGLE_DIMENSIONS", "EXTRUSION_LENGTH", "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET", "CENTERED_THROUGH_HOLE", "THROUGH_HOLE":
+			case "RECTANGLE_DIMENSIONS", "EXTRUSION_LENGTH", "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET", "HOLE_RIM_FILLET", "CENTERED_THROUGH_HOLE", "THROUGH_HOLE":
 				verification.Status = "NOT_VERIFIED"
 				verification.Checks = append(verification.Checks, VerificationCheck{ID: requirement.ID, Name: requirement.Kind, Status: "NOT_VERIFIED", Code: "GOAL_TARGET_PENDING", Message: "尚未从本轮回执定位到可验证对象；这不等于最终几何未完成，请先核对建模路径与当前实体。", Expected: requirementExpectation(requirement, body)})
 				continue
@@ -138,11 +158,11 @@ func (s *Service) verifyGoal(ctx context.Context, r Run) (*GoalVerification, err
 		}
 		checks = append(checks, check)
 	}
-	result, err := s.automation.VerifyPart(ctx, r.ActorID, r.DocumentID, automation.PartVerificationRequest{RevisionID: snapshot.RevisionID, GoalVersion: r.GoalVersion, CreatedEntityIDs: created, Checks: checks})
+	results, err := s.verifyPartGoalChecks(ctx, r, automation.PartVerificationRequest{RevisionID: snapshot.RevisionID, GoalVersion: r.GoalVersion, CreatedEntityIDs: created, Checks: checks})
 	if err != nil {
 		return verification, err
 	}
-	for _, check := range result.Checks {
+	for _, check := range results {
 		item := VerificationCheck{ID: check.ID, Name: check.Kind, Status: check.Status, Code: check.Code, Message: check.Message, TargetID: targets[goalTargetKey(check.ID)], Observed: check.Observed}
 		for _, requirement := range r.Requirements {
 			if requirement.ID == check.ID {
@@ -162,14 +182,26 @@ func (s *Service) verifyGoal(ctx context.Context, r Run) (*GoalVerification, err
 }
 
 func requirementExpectation(r GoalRequirement, body string) map[string]any {
-	out := map[string]any{"kind": r.Kind, "bodyId": body, "unit": r.Unit}
+	if r.BodyID != "" {
+		body = r.BodyID
+	}
+	out := map[string]any{"kind": r.Kind, "bodyId": body, "unit": r.Unit, "sourceTurnId": r.SourceTurnID, "targetRole": r.TargetRole}
 	switch r.Kind {
 	case "RECTANGLE_DIMENSIONS":
 		out["width"], out["height"] = r.Width, r.Height
 	case "EXTRUSION_LENGTH":
 		out["length"], out["role"] = r.Length, "ADDITIVE_BASE_EXTRUSION"
-	case "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET":
-		out["radius"] = r.Radius
+	case "ALL_EDGES_FILLET", "SELECTED_EDGES_FILLET", "HOLE_RIM_FILLET", "UNSCOPED_FILLET":
+		if r.RadiusPolicy == "DELEGATED" {
+			out["radiusPolicy"] = "DELEGATED"
+		} else if r.Radius > 0 {
+			out["radius"] = r.Radius
+		} else {
+			out["radiusPolicy"] = "UNRESOLVED"
+		}
+		if r.ReferenceRequirementID != "" {
+			out["referenceRequirementId"] = r.ReferenceRequirementID
+		}
 	case "CENTERED_THROUGH_HOLE", "THROUGH_HOLE":
 		out["diameter"], out["through"], out["plane"] = 2*r.Radius, true, r.Plane
 	}

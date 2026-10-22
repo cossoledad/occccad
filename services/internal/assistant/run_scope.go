@@ -166,22 +166,39 @@ func toMM(value float64, unit string) float64 {
 
 // This is deliberately a small, source-preserving contract for the supported
 // Part/shaft scenarios, not a general goal DSL. The model cannot edit these.
-func reviseRequirements(previous []GoalRequirement, turn Turn) []GoalRequirement {
+func reviseRequirementClause(previous []GoalRequirement, turn Turn) []GoalRequirement {
 	byKind := map[string]GoalRequirement{}
 	order := []string{}
 	for _, p := range previous {
-		byKind[p.Kind] = p
-		order = append(order, p.Kind)
+		key := requirementKey(p.Kind, p)
+		byKind[key] = p
+		order = append(order, key)
+	}
+	get := func(kind string) GoalRequirement {
+		return byKind[requirementKey(kind, GoalRequirement{BodyID: turn.Scope.WorkingBodyID})]
+	}
+	remove := func(kind string) {
+		for key, r := range byKind {
+			if r.Kind == kind && r.BodyID == turn.Scope.WorkingBodyID {
+				delete(byKind, key)
+			}
+		}
 	}
 	set := func(kind string, r GoalRequirement) {
-		if _, ok := byKind[kind]; !ok {
-			order = append(order, kind)
+		r.BodyID = turn.Scope.WorkingBodyID
+		key := requirementKey(kind, r)
+		r.IntroducedGoalVersion = turn.GoalVersion
+		if old, ok := byKind[key]; ok {
+			r.IntroducedGoalVersion = old.IntroducedGoalVersion
 		}
-		r.ID = uuid.NewSHA1(uuid.MustParse(turn.RunID), []byte(kind)).String()
-		r.Kind = kind
-		r.SourceTurnID = turn.ID
+		if _, ok := byKind[key]; !ok {
+			order = append(order, key)
+		}
+		r.ID = uuid.NewSHA1(uuid.MustParse(turn.RunID), []byte(key)).String()
+		r.Kind, r.SourceTurnID, r.SourceGoalVersion = kind, turn.ID, turn.GoalVersion
 		r.Unit = "mm"
-		byKind[kind] = r
+		r.Coverage = "SUPPORTED"
+		byKind[key] = r
 	}
 	text := strings.ToLower(turn.Text)
 	if match := rectanglePattern.FindStringSubmatch(text); len(match) > 0 {
@@ -193,14 +210,19 @@ func reviseRequirements(previous []GoalRequirement, turn Turn) []GoalRequirement
 	if match := extrusionPattern.FindStringSubmatch(text); len(match) > 0 {
 		set("EXTRUSION_LENGTH", GoalRequirement{Quote: match[0], Length: toMM(numberAt(match, 1), match[2])})
 	}
+	if match := cubePattern.FindStringSubmatch(text); len(match) > 0 {
+		size := toMM(numberAt(match, 1), match[2])
+		set("RECTANGLE_DIMENSIONS", GoalRequirement{Quote: match[0], Width: size, Height: size, TargetRole: "BASE_PROFILE"})
+		set("EXTRUSION_LENGTH", GoalRequirement{Quote: match[0], Length: size, TargetRole: "BASE_SOLID"})
+	}
 	// Keep the hole as a mandatory, source-owned requirement. Otherwise the
 	// base rectangle/pad/fillet could pass while the final sentence is ignored.
-	hole := byKind["CENTERED_THROUGH_HOLE"]
+	hole := get("CENTERED_THROUGH_HOLE")
 	if hole.Kind == "" {
-		hole = byKind["THROUGH_HOLE"]
+		hole = get("THROUGH_HOLE")
 	}
-	explicitHole := strings.Contains(text, "贯穿孔") || strings.Contains(text, "through hole") || strings.Contains(text, "through-hole")
-	if explicitHole || hole.Kind != "" && (strings.Contains(text, "孔") || strings.Contains(text, "hole")) {
+	explicitHole := strings.Contains(text, "通孔") || strings.Contains(text, "贯穿孔") || strings.Contains(text, "through hole") || strings.Contains(text, "through-hole")
+	if explicitHole || hole.Kind != "" && !strings.Contains(text, "孔口") && !strings.Contains(text, "rim") && (strings.Contains(text, "孔") || strings.Contains(text, "hole")) {
 		requirement := hole
 		requirement.Quote = turn.Text
 		sources := map[string]string{}
@@ -211,7 +233,7 @@ func reviseRequirements(previous []GoalRequirement, turn Turn) []GoalRequirement
 		updated := hole.Kind == ""
 		clause := text
 		for _, part := range regexp.MustCompile(`[。；;\n]`).Split(text, -1) {
-			if strings.Contains(part, "贯穿孔") || strings.Contains(part, "through hole") || strings.Contains(part, "through-hole") {
+			if strings.Contains(part, "通孔") || strings.Contains(part, "贯穿孔") || strings.Contains(part, "through hole") || strings.Contains(part, "through-hole") {
 				clause = part
 			}
 		}
@@ -236,7 +258,7 @@ func reviseRequirements(previous []GoalRequirement, turn Turn) []GoalRequirement
 			}
 		}
 		if requirement.Kind == "CENTERED_THROUGH_HOLE" {
-			delete(byKind, "THROUGH_HOLE")
+			remove("THROUGH_HOLE")
 		}
 		if updated {
 			set(requirement.Kind, requirement)
@@ -247,9 +269,15 @@ func reviseRequirements(previous []GoalRequirement, turn Turn) []GoalRequirement
 		for _, w := range []string{"不做圆角", "不用圆角", "不要圆角", "不做倒圆角", "取消圆角", "without fillet", "no fillet"} {
 			cancelled = cancelled || strings.Contains(text, w)
 		}
+		// A local cancellation must not erase the base's independent all-edge
+		// requirement. Until its exact edit target is covered it stays unresolved.
+		if strings.Contains(text, "孔口") || strings.Contains(text, "hole rim") {
+			cancelled = false
+		}
 		if cancelled {
-			delete(byKind, "ALL_EDGES_FILLET")
-			delete(byKind, "SELECTED_EDGES_FILLET")
+			remove("ALL_EDGES_FILLET")
+			remove("SELECTED_EDGES_FILLET")
+			remove("HOLE_RIM_FILLET")
 			set("NO_FILLET", GoalRequirement{Quote: turn.Text})
 		} else {
 			radius := 0.0
@@ -265,30 +293,47 @@ func reviseRequirements(previous []GoalRequirement, turn Turn) []GoalRequirement
 				radius = toMM(numberAt(m, 1), m[2])
 				quote = m[0]
 			}
-			if radius > 0 {
-				delete(byKind, "NO_FILLET")
-				kind := "ALL_EDGES_FILLET"
-				explicitAll := strings.Contains(text, "全部") || strings.Contains(text, "所有") || strings.Contains(text, "all ")
-				if !explicitAll {
-					for _, ref := range turn.Scope.Selections {
-						if ref.Selection != nil && ref.Selection.ExpectedType == modelcore.PersistentTopologyType("EDGE") {
-							kind = "SELECTED_EDGES_FILLET"
-							break
-						}
+			delegated := strings.Contains(text, "适当") || strings.Contains(text, "合适") || strings.Contains(text, "自行选择") || strings.Contains(text, "appropriate")
+			r := GoalRequirement{Quote: turn.Text, Radius: radius}
+			if quote != "" {
+				r.Quote = turn.Text
+			}
+			if delegated && radius == 0 {
+				r.RadiusPolicy = "DELEGATED"
+			}
+			kind := "UNSCOPED_FILLET"
+			explicitAll := strings.Contains(text, "全部") || strings.Contains(text, "所有") || strings.Contains(text, "全边") || strings.Contains(text, "all edges")
+			rims := strings.Contains(text, "孔口") || strings.Contains(text, "hole rim")
+			if rims {
+				kind = "HOLE_RIM_FILLET"
+				r.TargetRole = "HOLE_RIMS"
+				for _, key := range []string{"CENTERED_THROUGH_HOLE", "THROUGH_HOLE"} {
+					if h := get(key); h.ID != "" {
+						r.ReferenceRequirementID = h.ID
+						break
 					}
 				}
-				set(kind, GoalRequirement{Quote: quote, Radius: radius})
-				if kind == "ALL_EDGES_FILLET" {
-					delete(byKind, "SELECTED_EDGES_FILLET")
-				} else {
-					delete(byKind, "ALL_EDGES_FILLET")
+			} else if explicitAll {
+				kind = "ALL_EDGES_FILLET"
+				r.TargetRole = "BODY_ALL_EDGES"
+			} else {
+				for _, ref := range turn.Scope.Selections {
+					if ref.Selection != nil && ref.Selection.ExpectedType == "EDGE" {
+						kind = "SELECTED_EDGES_FILLET"
+						r.TargetRole = "FROZEN_EDGES"
+						r.Sources = map[string]string{"selectionScope": modelcore.ValueDigest(marshalJSON(turn.Scope.Selections))}
+						break
+					}
 				}
 			}
+			remove("NO_FILLET")
+			set(kind, r)
+
 		}
 	}
 	axis, plane, offset, dof := assemblyAxisDirection.FindStringSubmatch(text), assemblyPlaneDirection.FindStringSubmatch(text), assemblyOffset.FindStringSubmatch(text), assemblyDOF.FindStringSubmatch(text)
-	if strings.Contains(text, "同轴") || strings.Contains(text, "轴孔") || strings.Contains(text, "coaxial") || strings.Contains(text, "装配") || len(axis) > 0 || len(plane) > 0 || (byKind["ASSEMBLY_FIT"].Kind != "" && (len(offset) > 0 || len(dof) > 0)) {
-		requirement := byKind["ASSEMBLY_FIT"]
+	if strings.Contains(text, "同轴") || strings.Contains(text, "轴孔") || strings.Contains(text, "coaxial") || strings.Contains(text, "装配") || len(axis) > 0 || len(plane) > 0 || (get("ASSEMBLY_FIT").Kind != "" && (len(offset) > 0 || len(dof) > 0 || strings.Contains(text, "自由度"))) {
+		requirement := get("ASSEMBLY_FIT")
 		sources := map[string]string{}
 		for field, source := range requirement.Sources {
 			sources[field] = source
@@ -344,7 +389,7 @@ func (s *Service) applyFrozenSelections(ctx context.Context, r Run, baseline wor
 	}
 	if spec.OperationID == "part.fillet" {
 		for _, requirement := range r.Requirements {
-			if requirement.Kind == "ALL_EDGES_FILLET" {
+			if requirement.Kind == "ALL_EDGES_FILLET" && requirement.SourceGoalVersion == r.GoalVersion {
 				return nil
 			}
 		}
