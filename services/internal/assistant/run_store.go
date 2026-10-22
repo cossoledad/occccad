@@ -147,10 +147,9 @@ func (s *Service) CreateRun(ctx context.Context, actor, document string, input R
 	if err != nil {
 		return Run{}, err
 	}
-	r := Run{ID: id, CredentialScope: vault, ActorID: actor, AccessMode: accessMode, DocumentID: document, Version: 1, Epoch: 1, GoalVersion: 1, Goal: input.Text, Status: "QUEUED", Mode: mode, Scope: scope, TokenBudget: budget, BudgetVersion: 1, Requirements: []GoalRequirement{}, CreatedAt: timestamp(s.now()), UpdatedAt: timestamp(s.now()), LatestRevisionID: scope.RevisionID}
+	r := Run{ID: id, CredentialScope: vault, ActorID: actor, AccessMode: accessMode, DocumentID: document, Version: 1, Epoch: 1, GoalVersion: 1, Goal: input.Text, Status: "QUEUED", Mode: mode, Scope: scope, TokenBudget: budget, BudgetVersion: 1, CreatedAt: timestamp(s.now()), UpdatedAt: timestamp(s.now()), LatestRevisionID: scope.RevisionID}
 	turn := Turn{ID: uuid.NewSHA1(uuid.MustParse(id), []byte(input.RequestID)).String(), RunID: id, Sequence: 1, RequestID: input.RequestID, Text: input.Text, Kind: kind, Status: "APPLIED", Scope: scope, GoalVersion: 1, CreatedAt: r.CreatedAt}
 	r.MessageSequence = 1
-	r.Requirements = reviseRequirements(nil, turn)
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return r, err
@@ -234,17 +233,21 @@ func (s *Service) AddMessage(ctx context.Context, actor, document, id string, in
 			turn.Kind = "STEER"
 			turn.Status = "WAITING_BOUNDARY"
 			r.AccessMode = "WRITE"
-			r.Requirements = reviseRequirements(r.Requirements, turn)
+			r.RequestAppliedCount = 0
+			r.LatestRevisionID = scope.RevisionID
 			r.Goal = input.Text
 			r.Reply = ""
 			r.Scope = scope
-			r.Verification = nil
 			r.Failure = nil
-			r.WaitingReason = "已收到修改，正在等待当前操作边界并调整后续计划"
-			r.RetiringTaskID = r.ActiveTaskID
+			r.WaitingReason = "已收到消息，正在等待当前操作边界"
+			if r.ActiveTaskID != "" {
+				r.RetiringTaskID = r.ActiveTaskID
+			}
 			r.ActiveTaskID = ""
 			r.PendingCallID = ""
 			r.LastFailureDigest = ""
+			r.LastStageFailureDigest = ""
+			r.ConsecutiveTransient = 0
 			r.Status = "QUEUED"
 			if _, e := tx.Exec(ctx, `UPDATE occccad.assistant_runs SET next_wake=0 WHERE id=$1`, r.ID); e != nil {
 				return e

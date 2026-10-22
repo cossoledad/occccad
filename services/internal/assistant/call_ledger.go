@@ -66,9 +66,6 @@ func (s *Service) prepareCall(ctx context.Context, r Run, inputID string, baseli
 			}
 		}
 		if inputID == "" {
-			if current.LatestRevisionID != baseline.RevisionID {
-				current.Verification = nil
-			}
 			current.LatestRevisionID = baseline.RevisionID
 			current.PendingCallID = c.ID
 		} else {

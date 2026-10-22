@@ -15,8 +15,8 @@ import (
 	"github.com/occccad/occccad/internal/workspace"
 )
 
-// These small, explicit checks are application evidence. A planner can request
-// additional checks; the Run owns mandatory checks and their user goal version.
+// These small, explicit checks are application evidence for a supplied snapshot
+// and expectations. They do not compile or gate a conversational request.
 type PartCheck struct {
 	ID                 string                      `json:"id"`
 	Kind               string                      `json:"kind"`

@@ -3,10 +3,10 @@ import {useQuery,useQueryClient} from "@tanstack/react-query";
 import {Button,Spin} from "antd";
 import {ApiError} from "../../api";
 import {assistantApi,type ModelCallSummary,type ModelCallTrace,type RuntimeStamp} from "./assistant-api";
-import {goalCheckLabel} from "./conversation-model";
+import {cadCheckLabel} from "./conversation-model";
 import {ToolPayload as Payload} from "./tool-payload";
 
-const toolNames:Record<string,string>={cad_context:"读取当前模型",cad_query_model:"查询模型对象",cad_query_topology:"查询实体边面",cad_search_operations:"查找建模工具",cad_describe_operation:"读取工具参数",cad_describe_type:"读取参数类型",cad_create_task:"提交建模步骤",cad_verify_goal:"核对目标",cad_finish:"请求完成",cad_wait_for_input:"请求补充信息",cad_query_occurrence:"查询实例几何",cad_mate_candidates:"查找装配候选",cad_verify_assembly:"检查装配",cad_get_selection:"读取选中对象",cad_get_task:"查询步骤结果"};
+const toolNames:Record<string,string>={cad_context:"读取当前模型",cad_query_model:"查询模型对象",cad_query_topology:"查询实体边面",cad_search_operations:"查找建模工具",cad_describe_operation:"读取工具参数",cad_describe_type:"读取参数类型",cad_create_task:"提交建模步骤",cad_verify_part:"检查指定几何",cad_finish:"结束本次请求",cad_wait_for_input:"请求补充信息",cad_query_occurrence:"查询实例几何",cad_mate_candidates:"查找装配候选",cad_verify_assembly:"检查装配",cad_get_selection:"读取选中对象",cad_get_task:"查询步骤结果"};
 const toolLabel=(name:string)=>toolNames[name]??name;
 const phaseNames:Record<string,string>={PLANNED:"等待执行",PREPARING:"正在预览",PREVIEW_READY:"预览就绪",COMMITTING:"正在应用",APPLIED:"已应用",COMMITTED:"已应用",DISPLAYED:"已显示",FAILED:"执行失败",CANCELLED:"已取消",SUPERSEDED:"已应用"};
 const record=(value:unknown):Record<string,unknown>|undefined=>value!==null&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:undefined;
@@ -17,7 +17,7 @@ function feedbackSummary(name:string,value:unknown,isError:boolean):string {
  if(name==="cad_create_task")return `工具当时返回：已创建 ${Array.isArray(data?.steps)?data.steps.length:""} 步计划`;
  if(Array.isArray(data?.checks)){
   const checks=data.checks.map(record),failed=checks.filter(check=>check?.status==="FAILED").length,unknown=checks.filter(check=>check?.status==="NOT_VERIFIED").length;
-  return failed||unknown?[failed&&`${failed} 项检查不一致`,unknown&&`${unknown} 项证据待核对`].filter(Boolean).join("，"):"目标检查通过";
+  return failed||unknown?[failed&&`${failed} 项检查不一致`,unknown&&`${unknown} 项证据待核对`].filter(Boolean).join("，"):"指定检查通过";
  }
  if(Array.isArray(data?.items))return `本页返回 ${data.items.length} 个对象${typeof data.matchedCount==="number"?`，共匹配 ${data.matchedCount} 个`:""}${data.hasMore?"，还有下一页":""}`;
  if(data?.inputSchema)return "已返回工具说明和参数格式";
@@ -83,7 +83,7 @@ function ToolEntry({tool,index}:{tool:ModelCallTrace["tools"][number];index:numb
   <strong>③ 工具 {index+1} · {toolLabel(tool.name)}</strong><code className="assistant-trace-tool-name">{tool.name}</code>
   <details><summary>调用参数</summary><Payload value={tool.arguments}/></details>
   <div className={tool.isError?"assistant-trace-failure":"assistant-trace-feedback"}><strong>④ 工具反馈</strong><p>{tool.executed?feedbackSummary(tool.name,tool.feedback,tool.isError):"这条工具调用尚无执行反馈。"}</p>
-   {checks.map((check,index)=>check&&<details key={index}><summary>{check.status==="PASSED"?"✓":check.status==="FAILED"?"!":"○"} {goalCheckLabel(String(check.name??check.kind??check.id??"目标检查"))}{check.status==="NOT_VERIFIED"&&" · 证据待核对"}</summary>{typeof check.message==="string"&&<p>{check.message}</p>}{check.expected!==undefined&&<><span>期望</span><Payload value={check.expected}/></>}{check.observed!==undefined&&<><span>实测与对象来源</span><Payload value={check.observed}/></>}</details>)}
+   {checks.map((check,index)=>check&&<details key={index}><summary>{check.status==="PASSED"?"✓":check.status==="FAILED"?"!":"○"} {cadCheckLabel(String(check.name??check.kind??check.id??"指定检查"))}{check.status==="NOT_VERIFIED"&&" · 证据待核对"}</summary>{typeof check.message==="string"&&<p>{check.message}</p>}{check.expected!==undefined&&<><span>期望</span><Payload value={check.expected}/></>}{check.observed!==undefined&&<><span>实测与对象来源</span><Payload value={check.observed}/></>}</details>)}
    {tool.executed&&<details><summary>工具返回原文</summary><Payload value={tool.feedback}/></details>}
   </div>
   {tool.execution&&<details className="assistant-trace-execution" open={tool.execution.steps.some(step=>step.failure)}><summary>CAD 后续执行结果</summary><p className="assistant-trace-note">这是应用执行计划后的记录，模型在后续调用中通过阶段上下文观察它。</p>{tool.execution.steps.map(step=><div key={step.id}><strong>{step.operationId} · {phaseNames[step.phase]??step.phase}</strong>{step.failure&&<p className="assistant-trace-failure">{step.failure.message}</p>}<details><summary>实际参数与结果版本</summary><Payload value={{arguments:step.arguments,revisionId:step.revisionId,failure:step.failure}}/></details></div>)}</details>}

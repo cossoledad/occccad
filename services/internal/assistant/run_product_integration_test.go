@@ -13,7 +13,7 @@ import (
 )
 
 // The provider is an explicit deterministic fixture. Geometry, transactions,
-// run recovery, tool execution and mandatory verification use production code;
+// run recovery, tool execution and optional verification use production code;
 // this test makes no claim about a live model's ability to plan the assembly.
 type productRunProvider struct {
 	calls                     int
@@ -37,7 +37,14 @@ type productRunPacket struct {
 	Run     struct {
 		ID string `json:"id"`
 	} `json:"run"`
-	RecentStages []automation.Task `json:"recentStages"`
+	RecentStages []struct {
+		Baseline workspace.CommandBaseline `json:"baseline"`
+		Steps    []struct {
+			OperationID string                 `json:"operationId"`
+			Output      *automation.EntityRef  `json:"output"`
+			Outputs     []automation.EntityRef `json:"outputs"`
+		} `json:"steps"`
+	} `json:"recentStages"`
 }
 
 func productToolResult(messages []Message, id string, result any) error {
@@ -92,15 +99,25 @@ func (p *productRunProvider) Complete(_ context.Context, _ string, messages []Me
 		// The inserted occurrence is taken from the prior stage's actual receipt,
 		// after rebuilding the Service, rather than from a fabricated future ID.
 		for _, task := range packet.RecentStages {
-			if task.RunID != p.rootRun {
-				return Completion{}, fmt.Errorf("stage belongs to another durable Run")
+			if task.Baseline.WorkspaceID != packet.Current.Snapshot.WorkspaceID {
+				return Completion{}, fmt.Errorf("stage belongs to another workspace")
 			}
 			for _, step := range task.Steps {
-				if step.OperationID == "command.insert_instance" && step.Result != nil && step.Result.Output != nil && step.Result.Output.Kind == "INSTANCE" {
-					if p.moving != "" && p.moving != step.Result.Output.ID {
+				if step.OperationID != "command.insert_instance" {
+					continue
+				}
+				outputs := step.Outputs
+				if step.Output != nil {
+					outputs = append(outputs, *step.Output)
+				}
+				for _, output := range outputs {
+					if output.Kind != "INSTANCE" {
+						continue
+					}
+					if p.moving != "" && p.moving != output.ID {
 						return Completion{}, fmt.Errorf("insert output is ambiguous")
 					}
-					p.moving = step.Result.Output.ID
+					p.moving = output.ID
 				}
 			}
 		}
@@ -164,13 +181,14 @@ func (p *productRunProvider) Complete(_ context.Context, _ string, messages []Me
 		if packet.Current.Snapshot.RevisionID == p.revision {
 			return Completion{}, fmt.Errorf("mate stage did not advance authoritative Product revision")
 		}
-		return respond("cad_verify_goal", map[string]any{}, &p.verificationCall)
+		p.verification.RevisionID = packet.Current.Snapshot.RevisionID
+		return respond("cad_verify_assembly", p.verification, &p.verificationCall)
 	case 8:
-		var verified GoalVerification
+		var verified automation.AssemblyVerification
 		if err := productToolResult(messages, p.verificationCall, &verified); err != nil {
 			return Completion{}, err
 		}
-		if verified.Status != "VERIFIED" || len(verified.Checks) == 0 || verified.RevisionID != packet.Current.Snapshot.RevisionID {
+		if !verified.Passed || verified.RevisionID != packet.Current.Snapshot.RevisionID {
 			return Completion{}, fmt.Errorf("application goal verification rejected actual assembly: %+v", verified)
 		}
 		return respond("cad_finish", map[string]any{"summary": "已按双方0 mm端面的明确选择完成同轴与同向端面定位，保留绕轴一个旋转自由度。"}, nil)
@@ -232,8 +250,8 @@ func TestAssistantProductSameDurableRunInsertObserveMateAndVerify(t *testing.T) 
 		t.Fatal(err)
 	}
 	rootRun := r.ID
-	if r.AccessMode != "WRITE" || len(r.Requirements) != 1 || r.Requirements[0].Kind != "ASSEMBLY_FIT" || r.Requirements[0].TargetDOF == nil || *r.Requirements[0].TargetDOF != 1 || r.Requirements[0].AxisDirectionRelation != "SAME" || r.Requirements[0].PlaneDirectionRelation != "SAME" || r.Requirements[0].OffsetMM == nil || *r.Requirements[0].OffsetMM != 0 {
-		t.Fatal("original GOAL did not create mandatory assembly checks", r)
+	if r.AccessMode != "WRITE" || r.Goal != input.Text {
+		t.Fatal("original request was not retained", r)
 	}
 	restarted := false
 	for ticks := 0; ticks < 80 && !terminal(r.Status); ticks++ {
@@ -258,7 +276,7 @@ func TestAssistantProductSameDurableRunInsertObserveMateAndVerify(t *testing.T) 
 			r, restarted = recovered, true
 		}
 	}
-	if !restarted || p.rootRun != rootRun || p.calls != 8 || r.Status != "COMPLETED" || r.StageCount != 2 || r.StepCount != 5 || r.AppliedCount != 5 || r.Verification == nil || r.Verification.Status != "VERIFIED" || r.Verification.GoalVersion != r.GoalVersion || r.Verification.RevisionID != r.LatestRevisionID || r.PresentedRevisionID != "" {
+	if !restarted || p.rootRun != rootRun || p.calls != 8 || r.Status != "COMPLETED" || r.StageCount != 2 || r.StepCount != 5 || r.AppliedCount != 5 || r.PresentedRevisionID != "" {
 		t.Fatal("durable assembly Run did not finish with exact receipts and authoritative goal verification", r, "fixture calls", p.calls)
 	}
 	stages, err := s.Stages(t.Context(), actor, product.Document.ID, rootRun, 0, 0, 10)
@@ -289,5 +307,5 @@ func TestAssistantProductSameDurableRunInsertObserveMateAndVerify(t *testing.T) 
 	if err != nil || !verified.Passed || !verified.CurrentHead || verified.SolverStatus != "CONVERGED" || verified.RelativeDOF != 1 || verified.TranslationDOF != 0 || verified.RotationDOF != 1 || verified.RotationAxis == nil {
 		t.Fatal("independent real geometry/solver verification failed", verified, err)
 	}
-	t.Logf("DETERMINISTIC_PROVIDER_FIXTURE with native Worker: durable Assistant Run=%s, recovered once, stages=%d, applied=%d, inserts=%d, instances=%d; initial axis distance=%g mm angle=%g rad; candidate=%s chosen by both zero-coordinate ends; solver=%s axis distance=%g mm angle=%g rad plane offset=%g mm, relativeDOF=%d translationDOF=%d rotationDOF=%d; goal=%s revision=%s; presentation not claimed", rootRun, r.StageCount, r.AppliedCount, insertCount, len(actual.Product.Instances), p.selected.InitialAxisDistanceMM, p.selected.InitialAxisAngleRad, p.selected.ID, verified.SolverStatus, verified.AxisDistanceMM, verified.AxisAngleRad, verified.PlaneOffsetMM, verified.RelativeDOF, verified.TranslationDOF, verified.RotationDOF, r.Verification.Status, r.Verification.RevisionID)
+	t.Logf("DETERMINISTIC_PROVIDER_FIXTURE with native Worker: durable Assistant Run=%s, recovered once, stages=%d, applied=%d, inserts=%d, instances=%d; initial axis distance=%g mm angle=%g rad; candidate=%s chosen by both zero-coordinate ends; solver=%s axis distance=%g mm angle=%g rad plane offset=%g mm, relativeDOF=%d translationDOF=%d rotationDOF=%d; goal=%s revision=%s; presentation not claimed", rootRun, r.StageCount, r.AppliedCount, insertCount, len(actual.Product.Instances), p.selected.InitialAxisDistanceMM, p.selected.InitialAxisAngleRad, p.selected.ID, verified.SolverStatus, verified.AxisDistanceMM, verified.AxisAngleRad, verified.PlaneOffsetMM, verified.RelativeDOF, verified.TranslationDOF, verified.RotationDOF, "on-demand", r.LatestRevisionID)
 }

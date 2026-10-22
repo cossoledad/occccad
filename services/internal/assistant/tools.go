@@ -51,6 +51,7 @@ func stringSchema() map[string]any {
 }
 func Tools() []Tool {
 	return []Tool{
+		partCheckTool(),
 		{"cad_describe_type", "Load one nested command input type referenced as cad://types/<name>. Progressive disclosure avoids sending all command schemas.", object(map[string]any{"name": stringSchema()}, "name")},
 		{"cad_query_topology", "Read compact current Naming geometry (PART_LOCAL mm/rad) and typed face adjacency in an exact Body/revision. Filter the full fixed scope by geometryType, radius with explicit toleranceMM, and adjacentFaceId before paging. selectionSet covers all known matches; execute only when selectionSetComplete and count > 0. unknownCount means membership could not be determined. Full PersistentSelection/creationEvidence is opt-in via includeSelections, preferably with exact ids. No hole-mouth classification; never infer identity from names.", object(map[string]any{"revisionId": stringSchema(), "bodyId": stringSchema(), "kind": map[string]any{"type": "string", "enum": []string{"EDGE", "FACE", "VERTEX"}}, "ids": map[string]any{"type": "array", "items": stringSchema(), "maxItems": 100}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20}, "cursor": map[string]any{"type": "string", "maxLength": 2048}, "includeSelections": map[string]any{"type": "boolean"}, "filter": object(map[string]any{"geometryType": map[string]any{"type": "string", "enum": []string{"POINT", "LINE", "CIRCLE", "ELLIPSE", "BSPLINE", "BEZIER", "HYPERBOLA", "PARABOLA", "OFFSET", "OTHER_CURVE", "PLANE", "CYLINDER", "SPHERE", "CONE", "TORUS"}}, "adjacentFaceId": stringSchema(), "radius": object(map[string]any{"equalMM": map[string]any{"type": "number", "minimum": 0}, "minMM": map[string]any{"type": "number", "minimum": 0}, "maxMM": map[string]any{"type": "number", "minimum": 0}, "toleranceMM": map[string]any{"type": "number", "exclusiveMinimum": 0}}, "toleranceMM")})}, "revisionId", "bodyId", "kind")},
 		{"cad_context", "Read the authorized current document definition context; no full tree or geometry.", object(map[string]any{})},
@@ -107,9 +108,28 @@ func (h *Host) call(ctx context.Context, call Call) Result {
 	case "cad_verify_assembly":
 		var input automation.AssemblyVerificationInput
 		if err = decode(call.Arguments, &input); err == nil {
-			value, err = h.service.VerifyAssembly(ctx, h.actor, h.document, input)
+			if h.revision != "" && input.RevisionID != h.revision {
+				err = errors.New("assembly check is outside the frozen historical context")
+			} else {
+				value, err = h.service.VerifyAssembly(ctx, h.actor, h.document, input)
+			}
 		}
-
+	case "cad_verify_part":
+		var input struct {
+			RevisionID       string                 `json:"revisionId"`
+			CreatedEntityIDs []string               `json:"createdEntityIds,omitempty"`
+			Checks           []automation.PartCheck `json:"checks"`
+		}
+		if err = decode(call.Arguments, &input); err == nil {
+			if input.RevisionID == "" || h.revision != "" && input.RevisionID != h.revision {
+				err = errors.New("Part checks require an explicit revision inside the frozen context")
+			} else {
+				// The service's check batch version is not a natural-language goal.
+				var checked automation.PartVerificationResult
+				checked, err = h.service.VerifyPart(ctx, h.actor, h.document, automation.PartVerificationRequest{RevisionID: input.RevisionID, GoalVersion: 1, CreatedEntityIDs: input.CreatedEntityIDs, Checks: input.Checks})
+				value = map[string]any{"revisionId": checked.Snapshot.RevisionID, "passed": checked.Passed, "checks": checked.Checks}
+			}
+		}
 	case "cad_describe_type":
 		var input struct {
 			Name string `json:"name"`

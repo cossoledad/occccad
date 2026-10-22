@@ -113,20 +113,8 @@ func TestAssistantRunLateProviderResponseCannotReviveSupersededGoal(t *testing.T
 	if current.Epoch != revised.Epoch || current.GoalVersion != 2 || current.ActiveTaskID != "" || current.StageCount != 0 || current.Reply != "" || current.Usage.ReportedCalls != 2 || current.Usage.TotalTokens != 300 {
 		t.Fatal("late response changed current goal or its real synthetic usage disappeared", current)
 	}
-	has20, noFillet := false, false
-	for _, requirement := range current.Requirements {
-		if requirement.Kind == "EXTRUSION_LENGTH" && requirement.Length == 20 {
-			has20 = true
-		}
-		if requirement.Kind == "NO_FILLET" {
-			noFillet = true
-		}
-		if requirement.Kind == "ALL_EDGES_FILLET" || requirement.Kind == "SELECTED_EDGES_FILLET" {
-			t.Fatal("old fillet requirement survived explicit cancellation")
-		}
-	}
-	if !has20 || !noFillet {
-		t.Fatal("revised user requirements were not preserved", current.Requirements)
+	if current.Goal != "厚度改成20mm，后面不做圆角" {
+		t.Fatal("latest request text was not preserved", current.Goal)
 	}
 	actual, err := domain.ReadModelSnapshot(t.Context(), view.Document.ID, "")
 	if err != nil || actual.RevisionID != initial.RevisionID {

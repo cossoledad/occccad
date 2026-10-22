@@ -71,51 +71,6 @@ type RunUsage struct {
 	CacheHitTokens   int64 `json:"cacheHitTokens"`
 	ReasoningTokens  int64 `json:"reasoningTokens"`
 }
-type GoalRequirement struct {
-	ID                     string             `json:"id"`
-	Kind                   string             `json:"kind"`
-	SourceTurnID           string             `json:"sourceTurnId"`
-	Quote                  string             `json:"quote"`
-	SourceGoalVersion      uint64             `json:"sourceGoalVersion,omitempty"`
-	IntroducedGoalVersion  uint64             `json:"introducedGoalVersion,omitempty"`
-	TargetRole             string             `json:"targetRole,omitempty"`
-	BodyID                 string             `json:"bodyId,omitempty"`
-	ReferenceRequirementID string             `json:"referenceRequirementId,omitempty"`
-	Coverage               string             `json:"coverage,omitempty"` // SUPPORTED | UNRESOLVED
-	Unresolved             []string           `json:"unresolved,omitempty"`
-	RadiusPolicy           string             `json:"radiusPolicy,omitempty"` // DELEGATED, never a user numeric expectation
-	Width                  float64            `json:"width,omitempty"`
-	Height                 float64            `json:"height,omitempty"`
-	Length                 float64            `json:"length,omitempty"`
-	Radius                 float64            `json:"radius,omitempty"`
-	Plane                  string             `json:"plane,omitempty"`
-	Unit                   string             `json:"unit,omitempty"`
-	TargetDOF              *int               `json:"targetDOF,omitempty"`
-	AxisDirectionRelation  string             `json:"axisDirectionRelation,omitempty"`
-	PlaneDirectionRelation string             `json:"planeDirectionRelation,omitempty"`
-	OffsetMM               *float64           `json:"offsetMM,omitempty"`
-	Sources                map[string]string  `json:"sources,omitempty"`
-	Selection              *SelectedReference `json:"selection,omitempty"`
-}
-type GoalVerification struct {
-	Status           string              `json:"status"`
-	GoalVersion      uint64              `json:"goalVersion"`
-	RevisionID       string              `json:"revisionId"`
-	Checks           []VerificationCheck `json:"checks"`
-	Message          string              `json:"message,omitempty"`
-	CoverageComplete bool                `json:"coverageComplete"`
-	requirements     []GoalRequirement
-}
-type VerificationCheck struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Status   string         `json:"status"`
-	Code     string         `json:"code,omitempty"`
-	Message  string         `json:"message,omitempty"`
-	TargetID string         `json:"targetId,omitempty"`
-	Expected map[string]any `json:"expected,omitempty"`
-	Observed map[string]any `json:"observed,omitempty"`
-}
 type Run struct {
 	ID                      string            `json:"id"`
 	DocumentID              string            `json:"documentId"`
@@ -139,14 +94,13 @@ type Run struct {
 	LatestRevisionID        string            `json:"latestRevisionId,omitempty"`
 	LatestAppliedRevisionID string            `json:"latestAppliedRevisionId,omitempty"`
 	AppliedCount            uint64            `json:"appliedCount"`
+	RequestAppliedCount     uint64            `json:"requestAppliedCount"`
 	Targets                 map[string]string `json:"targets,omitempty"`
 	TargetSelections        map[string]string `json:"targetSelections,omitempty"`
 	PresentedRevisionID     string            `json:"presentedRevisionId,omitempty"`
 	Reply                   string            `json:"reply,omitempty"`
 	Failure                 *automation.Fault `json:"failure,omitempty"`
 	WaitingReason           string            `json:"waitingReason,omitempty"`
-	Verification            *GoalVerification `json:"verification,omitempty"`
-	Requirements            []GoalRequirement `json:"requirements"`
 	CreatedAt               string            `json:"createdAt"`
 	UpdatedAt               string            `json:"updatedAt"`
 	CredentialScope         string            `json:"credentialScope"`

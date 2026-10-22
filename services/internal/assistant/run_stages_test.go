@@ -44,7 +44,7 @@ func stageFixture(t *testing.T) (*Service, *workspace.Service, workspace.Documen
 	}
 	r := Run{ID: uuid.NewString(), ActorID: access.DefaultUserID, DocumentID: view.Document.ID, AccessMode: "WRITE", Version: 1, Epoch: 1, GoalVersion: 1, Goal: "在 XY 平面建立 80×50 mm 矩形，拉伸 12 mm，再对全部边做 R2 圆角", Status: "PLANNING", Mode: "AUTOMATIC", Scope: FrozenScope{RootDocumentID: view.Document.ID, DocumentID: view.Document.ID, RevisionID: snapshot.RevisionID, WorkingBodyID: view.Part.ActiveBodyID, Complete: true, Selections: []SelectedReference{}}, LatestRevisionID: snapshot.RevisionID, CreatedAt: timestamp(s.now()), UpdatedAt: timestamp(s.now())}
 	turn := Turn{ID: uuid.NewString(), RunID: r.ID, Sequence: 1, RequestID: uuid.NewString(), Text: r.Goal, Kind: "GOAL", Status: "APPLIED", Scope: r.Scope, GoalVersion: 1, CreatedAt: r.CreatedAt}
-	r.Requirements = []GoalRequirement{{ID: "rectangle", Kind: "RECTANGLE_DIMENSIONS", Width: 80, Height: 50, Unit: "mm", SourceTurnID: turn.ID}, {ID: "length", Kind: "EXTRUSION_LENGTH", Length: 12, Unit: "mm", SourceTurnID: turn.ID}, {ID: "fillet", Kind: "ALL_EDGES_FILLET", Radius: 2, Unit: "mm", SourceTurnID: turn.ID}}
+
 	if _, err = db.Exec(t.Context(), `INSERT INTO occccad.assistant_runs(id,actor_id,document_id,request_id,request_digest,access_mode,version,epoch,status,payload,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'WRITE',$6,$7,$8,$9,$10,$10)`, r.ID, r.ActorID, r.DocumentID, uuid.NewString(), "controlled-stage-fixture", r.Version, r.Epoch, r.Status, marshalJSON(r), r.CreatedAt); err != nil {
 		t.Fatal(err)
 	}
@@ -220,10 +220,6 @@ func TestAssistantRunStagesNativeObservationVerificationAndReceiptReplay(t *test
 	if r.Status != "PLANNING" || r.AppliedCount != 3 || r.StepCount != 3 || r.Targets["SKETCH"] == "" || r.Targets["LINEAR_EXTRUDE"] == "" || r.PresentedRevisionID != "" {
 		t.Fatal("applied stage prematurely completed the Run or fabricated presentation", r)
 	}
-	incomplete, err := s.verifyGoal(t.Context(), r)
-	if err != nil || incomplete.Status == "VERIFIED" {
-		t.Fatal("missing required fillet was not checked", incomplete, err)
-	}
 	task, err := s.automation.GetTask(t.Context(), r.ActorID, r.DocumentID, firstTask)
 	if err != nil {
 		t.Fatal(err)
@@ -241,21 +237,9 @@ func TestAssistantRunStagesNativeObservationVerificationAndReceiptReplay(t *test
 	}
 	r = stageForTest(t, s, r, []automation.StepSpec{{ID: uuid.NewString(), OperationID: "part.fillet", Version: 1, Arguments: marshalJSON(map[string]any{"bodyId": view.Part.ActiveBodyID, "selectionSet": page["selectionSet"], "size": 2, "unit": "mm"})}})
 	r = finishStageForTest(t, s, r)
-	verified, err := s.verifyGoal(t.Context(), r)
-	if err != nil || verified.Status != "VERIFIED" || verified.GoalVersion != 1 || verified.RevisionID != r.LatestAppliedRevisionID || r.AppliedCount != 4 || r.StepCount != 4 || r.StageCount != 2 || r.PresentedRevisionID != "" {
-		t.Fatal("native stage verification failed", verified, r, err)
-	}
-	r, err = s.mutateRun(t.Context(), r.ID, func(tx database.Tx, current *Run) error {
-		current.GoalVersion = 2
-		current.Requirements = []GoalRequirement{{ID: "rectangle", Kind: "RECTANGLE_DIMENSIONS", Width: 80, Height: 50, Unit: "mm"}, {ID: "length", Kind: "EXTRUSION_LENGTH", Length: 20, Unit: "mm"}, {ID: "no-fillet", Kind: "NO_FILLET", Unit: "mm"}}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	revised, err := s.verifyGoal(t.Context(), r)
-	if err != nil || revised.Status == "VERIFIED" || revised.GoalVersion != 2 {
-		t.Fatal("old checks proved a revised goal", revised, err)
+	checked, err := s.automation.VerifyPart(t.Context(), r.ActorID, r.DocumentID, automation.PartVerificationRequest{RevisionID: r.LatestRevisionID, GoalVersion: 1, Checks: []automation.PartCheck{{ID: "fillet", Kind: "ALL_EDGES_FILLET", BodyID: view.Part.ActiveBodyID, FeatureID: r.Targets["FILLET"], Radius: 2, Unit: "mm"}}})
+	if err != nil || !checked.Passed || r.AppliedCount != 4 || r.RequestAppliedCount != 4 || r.StepCount != 4 || r.StageCount != 2 || r.PresentedRevisionID != "" {
+		t.Fatal("native stage evidence failed", checked, r, err)
 	}
 }
 

@@ -158,18 +158,4 @@ func TestAssistantQueryResultReferencesRecoveryScopeAndDamage(t *testing.T) {
 	if provider.calls.Load() != 0 {
 		t.Fatal("query references invoked a model")
 	}
-	// More mandatory checks than fit one service request remain a single goal.
-	checks := []automation.PartCheck{}
-	for range 130 {
-		checks = append(checks, automation.PartCheck{ID: uuid.NewString(), Kind: "ENTITY_EXISTS", BodyID: "body"})
-	}
-	results, e := s.verifyPartGoalChecks(t.Context(), r, automation.PartVerificationRequest{RevisionID: snapshot.RevisionID, GoalVersion: r.GoalVersion, Checks: checks})
-	if e != nil || len(results) != 130 {
-		t.Fatal("per-request boundary became a total goal limit", len(results), e)
-	}
-	for i, result := range results {
-		if !result.Passed || result.ID != checks[i].ID {
-			t.Fatal("verification pages lost requirements", result)
-		}
-	}
 }

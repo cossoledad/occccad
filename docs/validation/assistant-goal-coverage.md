@@ -1,6 +1,8 @@
-# 目标覆盖与查询结果绑定回归
+# 目标覆盖与查询结果绑定回归（历史）
 
-2026-10-22，基于紧凑拓扑观察与筛选基线扩展，未修改 Naming 身份、拓扑筛选/集合解析/分页预算、Worker/Proto 或数据库迁移。当前合同见[自动化架构](../architecture/current/automation.md#目标覆盖与查询结果绑定)，前置数据能力见[查询调试基线](cad-query-debug-baseline.md)。原生 fixture 使用当前 `.env` 的开发 SQLite、配置制品与 Geometry Worker；单元故障注入使用测试拥有的临时对象。未重置数据或配置模型，原生生成独立开发文档。
+> 本页保留上一轮执行证据。自然语言目标编译、覆盖门禁及其测试已在后续职责调整中移除，不代表当前完成合同；现行行为与测试见[当前请求边界回归](assistant-request-boundaries.md)。查询引用与紧凑拓扑能力继续保留。
+
+2026-10-22，基于紧凑拓扑观察与筛选基线扩展，未修改 Naming 身份、拓扑筛选/集合解析/分页预算、Worker/Proto 或数据库迁移。现行合同见[自动化架构](../architecture/current/automation.md#当前请求与查询结果绑定)，前置数据能力见[查询调试基线](cad-query-debug-baseline.md)。原生 fixture 使用当前 `.env` 的开发 SQLite、配置制品与 Geometry Worker；单元故障注入使用测试拥有的临时对象。未重置数据或配置模型，原生生成独立开发文档。
 
 ## 场景与证据
 

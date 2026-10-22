@@ -6,7 +6,7 @@ import {randomUUID} from "../../utils/random-uuid";
 import {automationApi,type AutomationTask,type TaskStep} from "./automation-api";
 import {assistantApi,type AssistantRun,type AssistantSettings,type MessageInput,type RunEvent,type RunInput,type RunMode,type Thinking} from "./assistant-api";
 import {phaseText} from "./task-model";
-import {assistantFailure,conversationProgress,goalCheckLabel,mergeMessagePage,mergeProgressPage,runActive,runStatusText,turnStatusText,verificationPassed} from "./conversation-model";
+import {assistantFailure,conversationProgress,mergeMessagePage,mergeProgressPage,runActive,runStatusText,turnStatusText} from "./conversation-model";
 import {scopeSummary} from "./frozen-scope";
 import {messageOf,useModelingTask,type ModelingProps} from "./use-modeling-task";
 import {AssistantTrace} from "./assistant-trace";
@@ -50,7 +50,7 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
   const previous=client.getQueryData<Awaited<ReturnType<typeof assistantApi.events>>>(progressKey);
   const next=await assistantApi.events(props.documentId,model.runId!,{after:previous?.nextAfter||undefined,limit:100});
   return mergeProgressPage(previous,next);
- },enabled:open&&Boolean(model.runId),refetchInterval:run&&["QUEUED","PLANNING","EXECUTING","VERIFYING","WAITING_RETRY"].includes(run.status)?1000:false});
+ },enabled:open&&Boolean(model.runId),refetchInterval:run&&["QUEUED","PLANNING","EXECUTING","WAITING_RETRY"].includes(run.status)?1000:false});
  useEffect(()=>{if(open&&model.runId)void client.invalidateQueries({queryKey:progressKey})},[open,model.runId,run?.eventSequence]);
  const operations=useQuery({queryKey:["automation-operations"],queryFn:automationApi.operations,enabled:open,staleTime:60_000});
  useEffect(()=>{setHistoryBefore(undefined);setStageBefore(undefined)},[model.runId]);
@@ -105,13 +105,13 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
     {!model.runId&&!optimisticVisible&&<div className="assistant-welcome"><h3>想完成什么样的模型？</h3><p>描述目标和尺寸，也可以选中对象后提出要求。运行过程中可继续提问或修改。</p><button onClick={()=>setDraft("在 XY 平面建立 80×50 mm 矩形，拉伸 12 mm，再对全部边做 R2 圆角。")}>创建长方体并对全部边做 R2 圆角 <span>↗</span></button><button onClick={()=>setDraft("当前零件有哪些可以修改的参数？")}>查看当前零件的参数 <span>↗</span></button></div>}
     {conversation.data?.hasEarlier&&<Button className="assistant-history-page" size="small" type="link" onClick={()=>setHistoryBefore(turns[0]?.sequence)}>较早消息</Button>}{historyBefore!==undefined&&<Button size="small" type="link" onClick={()=>setHistoryBefore(undefined)}>返回最新消息</Button>}
     {turns.map(turn=><div className="assistant-exchange" key={turn.id}>
-     <div className="assistant-message is-user"><span className="assistant-speaker" title={turnStatusText[turn.status]}>你{turn.kind==="STEER"&&" · 调整要求"}</span><p>{turn.text}</p>{Boolean(turn.scope.selectionCount)&&<small className="assistant-scope-sent">{scopeSummary(turn.scope)}</small>}</div>
+     <div className="assistant-message is-user"><span className="assistant-speaker" title={turnStatusText[turn.status]}>你</span><p>{turn.text}</p>{Boolean(turn.scope.selectionCount)&&<small className="assistant-scope-sent">{scopeSummary(turn.scope)}</small>}</div>
      {(turn.kind==="QUERY"||turn.goalVersion!==run?.goalVersion)&&(turn.reply||turn.failure||["RECEIVED","WAITING_BOUNDARY"].includes(turn.status))&&<div className="assistant-message is-assistant"><span className="assistant-speaker"><CommentOutlined/> 建模助手</span>{turn.kind==="QUERY"&&!turn.reply&&<ProgressTimeline events={(progress.data?.items??[]).filter(event=>event.data?.inputId===turn.id&&Boolean(event.data?.message))}/>} {turn.reply&&<p>{turn.reply}</p>}{turn.failure&&<Alert type="error" title={assistantFailure(turn.failure)}/>} {turn.kind==="QUERY"&&["RECEIVED","WAITING_BOUNDARY"].includes(turn.status)&&<div className="assistant-thinking"><Spin size="small"/>正在查看…</div>}</div>}
     </div>)}
     {optimisticVisible&&<div className="assistant-message is-user"><span className="assistant-speaker">你 · 正在发送</span><p>{optimistic.input.text}</p><small>{scopeSummary(optimistic.input.scope)}</small></div>}
-    {run&&<section className="assistant-run" aria-label="当前建模目标">
+    {run&&<section className="assistant-run" aria-label="本次请求">
      <div className="assistant-speaker"><CommentOutlined/> 建模助手</div>
-     <div className="assistant-run-title"><span data-run-status={run.status}>{["QUEUED","PLANNING","EXECUTING","VERIFYING","WAITING_RETRY"].includes(run.status)&&<Spin size="small"/>} {runStatusText[run.status]}</span><div className="assistant-outcomes">{run.appliedCount>0&&<Tooltip title={`已应用 ${run.appliedCount} 个步骤；应用、验收和界面显示分别记录`}><span data-outcome="applied">已应用</span></Tooltip>}{verificationPassed(run)&&<Tooltip title="当前目标和版本已通过应用检查"><span data-outcome="verified"><CheckOutlined/> 已验证</span></Tooltip>}{run.latestRevisionId&&run.latestRevisionId===run.presentedRevisionId&&<Tooltip title="视口已确认显示当前版本"><span data-outcome="presented">已显示</span></Tooltip>}</div></div>
+     <div className="assistant-run-title"><span data-run-status={run.status}>{["QUEUED","PLANNING","EXECUTING","WAITING_RETRY"].includes(run.status)&&<Spin size="small"/>} {runStatusText[run.status]}</span><div className="assistant-outcomes">{run.requestAppliedCount>0&&<Tooltip title={`本次请求已应用 ${run.requestAppliedCount} 个步骤；以真实提交回执为准`}><span data-outcome="applied">已应用</span></Tooltip>}{run.latestRevisionId&&run.latestRevisionId===run.presentedRevisionId&&<Tooltip title="视口已确认显示当前版本"><span data-outcome="presented">已显示</span></Tooltip>}</div></div>
      <ProgressTimeline events={run?conversationProgress(progress.data?.items??[],run):[]}/>
      {run.reply&&<p className="assistant-run-reply">{run.reply}</p>}
      {run.failure?<Alert type="warning" title={assistantFailure(run.failure)}/>:run.waitingReason&&run.waitingReason!==run.reply&&<p className="assistant-input-hint">{run.waitingReason}</p>}
@@ -127,10 +127,10 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
      {model.displayError&&<Alert type="warning" title={model.displayError}/>} {run.latestRevisionId&&run.latestRevisionId!==run.presentedRevisionId&&<Button type="link" size="small" onClick={()=>void model.retryDisplay()}>重新显示结果</Button>}
      {run.stageCount>0&&<details className="assistant-stage-history"><summary>步骤记录 · {run.stepCount}</summary>{stages.data?.hasEarlier&&<Button size="small" type="link" onClick={()=>setStageBefore(stages.data!.items[0]?.sequence)}>更早步骤</Button>}{stageBefore!==undefined&&<Button type="link" size="small" onClick={()=>setStageBefore(undefined)}>最近步骤</Button>}{stages.data?.items.filter(stage=>stage.taskId!==task?.id).map(stage=><PastTask key={stage.sequence} documentId={props.documentId} taskId={stage.taskId} sequence={stage.sequence} goalVersion={stage.goalVersion} names={operations.data?.operations??[]}/>)}{stages.isError&&<p>{stages.error.message}</p>}</details>}
      <details className="assistant-events" onToggle={event=>{if(event.target===event.currentTarget)setEventsOpen(event.currentTarget.open)}}><summary>调用详情 · {tokenText(run.usage?.total_tokens??0)} Token</summary>
-      <div className="assistant-run-metrics">{run.modelCalls} 次模型调用 · {run.toolCalls} 次工具调用{run.tokenBudget!=null&&` · 预算 ${tokenText(run.tokenBudget)}`}{Boolean(run.usage?.unknownAttempts)&&` · ${run.usage.unknownAttempts} 次用量未知`}</div>
-      {run.verification?.checks&&<details className="assistant-verification"><summary>目标检查</summary>{run.verification.checks.map((check,index)=><p key={check.id??index}>{check.status==="PASSED"?"✓":"○"} {goalCheckLabel(check.name??check.id??"目标检查")}{check.status!=="PASSED"&&check.message&&`：${check.message}`}</p>)}</details>}
+      <div className="assistant-run-metrics">{run.modelCalls} 次模型调用 · {run.toolCalls} 次工具调用 · 累计已应用 {run.appliedCount} 步{run.tokenBudget!=null&&` · 预算 ${tokenText(run.tokenBudget)}`}{Boolean(run.usage?.unknownAttempts)&&` · ${run.usage.unknownAttempts} 次用量未知`}</div>
+
       {run.failure&&<p className="assistant-diagnostic">{run.failure.code} · {run.failure.message}</p>}
-      <AssistantTrace documentId={props.documentId} runId={run.id} eventSequence={run.eventSequence} open={eventsOpen} active={["QUEUED","PLANNING","EXECUTING","VERIFYING","WAITING_RETRY"].includes(run.status)}/>
+      <AssistantTrace documentId={props.documentId} runId={run.id} eventSequence={run.eventSequence} open={eventsOpen} active={["QUEUED","PLANNING","EXECUTING","WAITING_RETRY"].includes(run.status)}/>
      </details>
     </section>}<div ref={end}/>
    </div>
@@ -162,7 +162,7 @@ function TaskSteps({steps,status,names,locate}:{steps:TaskStep[];status?:Automat
 function PastTask({documentId,taskId,sequence,goalVersion,names}:{documentId:string;taskId:string;sequence:number;goalVersion:number;names:{id:string;name:string}[]}){
  const [expanded,setExpanded]=useState(false);
  const query=useQuery({queryKey:["automation-task",documentId,taskId],queryFn:()=>automationApi.task(documentId,taskId),enabled:expanded,staleTime:30_000});
- return <details className="assistant-task" onToggle={event=>setExpanded(event.currentTarget.open)}><summary title={`目标版本 ${goalVersion}`}>步骤组 {sequence}{query.data?.status==="STOPPED"?" · 已停止":""}</summary>{expanded&&(query.isPending?<p>正在读取…</p>:query.data&&<TaskSteps steps={query.data.steps} status={query.data.status} names={names}/>)}{query.error&&<Alert type="error" title={query.error.message}/>}</details>;
+ return <details className="assistant-task" onToggle={event=>setExpanded(event.currentTarget.open)}><summary title={`请求版本 ${goalVersion}`}>步骤组 {sequence}{query.data?.status==="STOPPED"?" · 已停止":""}</summary>{expanded&&(query.isPending?<p>正在读取…</p>:query.data&&<TaskSteps steps={query.data.steps} status={query.data.status} names={names}/>)}{query.error&&<Alert type="error" title={query.error.message}/>}</details>;
 }
 function BudgetControl({settings,run,busy,saveDefault,saveRun}:{settings:AssistantSettings;run?:AssistantRun;busy:boolean;saveDefault:(value:{tokenBudget:number|null})=>Promise<void>;saveRun:(value:number|null)=>Promise<void>}){
  const [open,setOpen]=useState(false),[value,setValue]=useState<number|null>(null);

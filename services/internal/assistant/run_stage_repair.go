@@ -123,21 +123,24 @@ func (s *Service) failStage(ctx context.Context, r Run, task automation.Task, fa
 		digest := modelcore.ValueDigest(marshalJSON(map[string]any{"head": head, "goalVersion": current.GoalVersion, "catalog": s.automation.Catalog.Digest, "intent": stageFailureIntent(task), "diagnostic": map[string]any{"code": failure.Code, "message": failure.Message, "phase": failure.Phase}}))
 		if !terminal(current.Status) && current.Status != "PAUSED" {
 			current.Failure = failure
+			// Known rejected geometry is settled evidence, not an uncertain
+			// commit. Let the agent either repair it or end with an honest reply.
+			current.Status = "PLANNING"
+			current.WaitingReason = "操作未应用，正在根据诊断处理本次请求"
+			if failure.Code == "FORBIDDEN" {
+				current.Status = "WAITING_INPUT"
+				current.WaitingReason = failure.Message
+			}
 			if canRepair {
-				current.Status = "PLANNING"
-				current.WaitingReason = "旧阶段已结束，正在依据真实结果和诊断修订后续操作"
 				if current.LastStageFailureDigest == digest {
 					if err := s.event(ctx, tx, current, "REPEATED_DIAGNOSTIC", map[string]string{"source": "CAD_STAGE", "digest": digest, "taskId": task.ID}); err != nil {
 						return err
 					}
 				}
 				current.LastStageFailureDigest = digest
-			} else {
-				current.Status = "WAITING_INPUT"
-				current.WaitingReason = failure.Message
 			}
 		}
-		message := "操作未完成，需要调整要求或接管。"
+		message := "操作未应用，已保留诊断。"
 		if canRepair {
 			message = "上一步未应用，正在读取最新结果并调整操作。"
 		}

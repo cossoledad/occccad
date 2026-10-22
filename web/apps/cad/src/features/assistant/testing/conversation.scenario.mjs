@@ -4,7 +4,7 @@ const require=createRequire(new URL("../../../../package.json",import.meta.url))
 const {createServer}=await import(require.resolve("vite"));
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try{
- const {mergeMessagePage,newerRun,presentedAcknowledgment,verificationPassed,runActive}=await server.ssrLoadModule("/src/features/assistant/conversation-model.ts");
+ const {mergeMessagePage,newerRun,presentedAcknowledgment,runActive,runStatusText,conversationProgress}=await server.ssrLoadModule("/src/features/assistant/conversation-model.ts");
  const first={id:"a",sequence:1,requestId:"request",status:"RECEIVED"};
  const complete={...first,status:"APPLIED"};
  let state=mergeMessagePage(undefined,{items:[complete],nextAfter:1,hasMore:false});
@@ -22,9 +22,10 @@ try{
  assert.equal(presentedAcknowledgment(run,{documentId:"other",revisionId:"head"}),undefined);
  assert.equal(presentedAcknowledgment(run,{documentId:"part",revisionId:"head"}),"head");
  assert.equal(presentedAcknowledgment({...run,presentedRevisionId:"head"},{documentId:"part",revisionId:"head"}),undefined);
- assert.equal(verificationPassed({...run,verification:{status:"VERIFIED",revisionId:"head",goalVersion:2}}),false,"old goal checks cannot verify a modified goal");
- assert.equal(verificationPassed({...run,verification:{status:"VERIFIED",revisionId:"older",goalVersion:3}}),false);
- assert.equal(verificationPassed({...run,verification:{status:"VERIFIED",revisionId:"head",goalVersion:3}}),true);
+ assert.equal(runActive({...run,status:"COMPLETED",requestAppliedCount:0,appliedCount:8}),false,"a no-change reply ends current work independently of historical edits");
+ assert.equal(runStatusText.COMPLETED,"本次已结束","ending work must not claim historical CAD verification");
+ const progress=[{sequence:1,epoch:run.epoch,type:"CAD_APPLIED",data:{goalVersion:2,sourceEpoch:1,stale:true,message:"old receipt"}},{sequence:2,epoch:run.epoch,type:"GOAL_CHECKED",data:{goalVersion:run.goalVersion,message:"old completion gate"}},{sequence:3,epoch:run.epoch,type:"ASSISTANT_MESSAGE",data:{goalVersion:run.goalVersion,sourceEpoch:run.epoch,message:"current response"}}];
+ assert.deepEqual(conversationProgress(progress,run).map(event=>event.sequence),[3],"retired receipts and historical goal gates must not appear as current progress");
  assert.equal(runActive(run),true,"million-token cumulative usage has no client-side termination condition");
- console.log("Durable Run ordering, bounded history pages, goal verification and exact presentation acknowledgment passed.");
+ console.log("Durable Run ordering, bounded history pages, request boundaries and exact presentation acknowledgment passed.");
 }finally{await server.close()}

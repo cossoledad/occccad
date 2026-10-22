@@ -1,6 +1,6 @@
 # CAD 自动化与持续 AI 建模
 
-下边栏“建模助手”通过账号 Key、模型及思考度设置发起持久 Run。服务端持续读取事实、规划有界片段、执行原命令、观察新 Revision 并验证目标；关闭页面不暂停自动模式。累计预算默认 `null`，用户可主动设置并调整，默认无总调用数、工具数、步骤数、阶段数或整轮 deadline。
+下边栏“建模助手”通过账号 Key、模型及思考度设置发起持久 Run。Agent 理解当前请求、读取事实并规划有界片段；应用执行原命令、核对回执与新 Revision；关闭页面不暂停自动模式。累计预算默认 `null`，用户可主动设置并调整，默认无总调用数、工具数、步骤数、阶段数或整轮 deadline。
 
 入口：[Assistant](../../../services/internal/assistant/README.md)、[Automation](../../../services/internal/automation/README.md)、[Web](../../../web/apps/cad/src/features/assistant/assistant-panel.tsx)、[线上评测](../../../services/cmd/occccad-ai-eval/README.md)、[剩余计划](../../../plans/ai-native-modeling.md)。本文说明当前实现合同，实际验收结果另见[验证目录](../../validation/README.md)。
 
@@ -10,19 +10,19 @@
 用户输入/冻结目标 → Run + 输入日志 → 服务端租约调度
   → 有界事实工作集 → Provider 调用意图 → 已发送 attempt → 响应/usage 落账
   → 查询或下一片段 Task → 原 Preview → evaluator/Worker → Command/CAS
-  → 精确 CommandReceipt → 新 Revision / 实际几何 → 继续观察或目标验收
+  → 精确 CommandReceipt → 新 Revision / 实际几何 → Agent 决定继续、按需检查或结束当前请求
 真实 Viewport frame → 对应文档/Revision 的呈现回报（独立于执行）
 ```
 
-Run 是同一持续目标；多条 GOAL/STEER/QUERY 输入具有稳定序号和来源。STEER 增加 goalVersion/epoch，保留已提交事实，退休旧片段并等待在途边界；旧响应只记账，不能激活旧步骤。只读问题独立租约与冻结快照，不等待整个 writer 结束，不能创建/推进 Task。服务器重新检查 actor/document/source ACL，历史或 VIEWER 上下文只读。自动问答分类采用应用启发式，仍有语言覆盖边界；授权与写入校验不依赖分类结果。
+Run 是保留当前模型和对话指代的持续会话；每条新的建模输入有独立执行边界。多条 GOAL/STEER/QUERY 输入具有稳定序号和来源。STEER 增加 goalVersion/epoch，保留已提交事实，退休旧片段并等待在途边界；旧响应只记账，不能激活旧步骤。只读问题独立租约与冻结快照，不等待整个 writer 结束，不能创建/推进 Task。服务器重新检查 actor/document/source ACL，历史或 VIEWER 上下文只读。自动问答分类采用应用启发式，仍有语言覆盖边界；授权与写入校验不依赖分类结果。
 
-单文档只有一个未结束 writer。Run 使用短事务 CAS、45 秒可续租，调度并发有界并为交互读预留位置；等待 Provider/Worker 不持数据库事务。租约到期允许另一进程接续，不是任务时限。轮询查询仅取待执行片段；浏览器不拥有推进职责。显式暂停/停止在边界生效，不撤销已提交历史。未知 CAD 提交必须先查原 actor/document/requestId 的回执，不能换身份重做；人工 Head 变化使旧候选失效，重读事实并重规划，不能仅替换 ExpectedHead。确定的绑定/参数错误先持久FAILED步骤、退休旧片段并精确归档已提交前缀，再带诊断重规划剩余目标；不会重放已应用前缀。相同语义失败的摘要独立于新Task/step/request身份，重复仅记为 REPEATED_DIAGNOSTIC，供模型和用户核对，不因重复自动拦截或 BLOCKED。权限、未知提交及UI取消保留各自等待边界。
+单文档只有一个未结束 writer。Run 使用短事务 CAS、45 秒可续租，调度并发有界并为交互读预留位置；等待 Provider/Worker 不持数据库事务。租约到期允许另一进程接续，不是任务时限。轮询查询仅取待执行片段；浏览器不拥有推进职责。显式暂停/停止在边界生效，不撤销已提交历史。未知 CAD 提交必须先查原 actor/document/requestId 的回执，不能换身份重做；人工 Head 变化使旧候选失效，重读事实并重规划，不能仅替换 ExpectedHead。已知的绑定/参数/几何失败先持久 FAILED 步骤、退休旧片段并精确归档已提交前缀，再把诊断交回 Agent，由其决定修复或如实结束；不会重放已应用前缀。相同语义失败的摘要独立于新Task/step/request身份，重复仅记为 REPEATED_DIAGNOSTIC，供模型和用户核对，不因重复自动拦截或 BLOCKED。权限与未知提交仍保留正式校验及等待边界。
 
 ## 日志、检查点与上下文
 
 双数据库 `0006_assistant_runs.sql` 保存 Run、输入、阶段、事件、逐调用及工具结果、已读合同和设置来源。旧预算列删除，旧 low/medium/high 不映射为累计封顶；已有加密凭证保留。旧对话表仅遗留历史数据，无旧同步运行时或路由。
 
-Run JSON 只保留有限角色目标、当前要求、摘要及计数；无限增长的输入/事件/阶段/调用独立分页。调用先保存意图，再标记发送，响应及 usage 先落账后才安排副作用。响应已收到但工具尚未处理时从原公开响应和工具游标恢复；工具结果按 call/tool ID 幂等。预算或恢复边界消费已落盘响应时丢弃旧在线会话的未回答工具尾部，下一请求从事实重建，避免发送不完整的思考工具 transcript。CAD 片段的精确回执与 Run applied 计数通过同一事务检查点归档。停止或旧 epoch 的不明 Provider 请求在失效租约后补记 UNKNOWN。
+Run JSON 只保留当前请求原文、有限回执角色提示、摘要及计数；无限增长的输入/事件/阶段/调用独立分页。调用先保存意图，再标记发送，响应及 usage 先落账后才安排副作用。响应已收到但工具尚未处理时从原公开响应和工具游标恢复；工具结果按 call/tool ID 幂等。预算或恢复边界消费已落盘响应时丢弃旧在线会话的未回答工具尾部，下一请求从事实重建，避免发送不完整的思考工具 transcript。CAD 片段的精确回执与 Run applied 计数通过同一事务检查点归档；requestAppliedCount 只计属于本次请求的非 NoChange 回执，新消息清零，退休阶段的迟到提交仅进入累计计数和历史来源。停止或旧 epoch 的不明 Provider 请求在失效租约后补记 UNKNOWN。
 
 发送前在既有事件日志中独立保存一次公开请求快照（MODEL_REQUEST_CAPTURED）：实际 messages、可用 tools/schema、冻结 generation，以及执行引擎标记、构建 VCS 版本、catalog/prompt digest。调用账本只保存快照序号；常规事件页排除大快照，工具游标更新不会重写完整提示。`GET /api/documents/{documentID}/assistant/runs/{runID}/trace` 返回有界近期摘要和向前游标；同一 Run 下的 `calls/{callID}` 按需读取原请求、完整公开回复、原工具参数和实际工具反馈。Task 的后续执行结果另列，不能冒充工具当时返回的内容。旧调用没有保存的请求原文明确不可还原，不用当前提示词补写历史。快照不包含 Key、HTTP 鉴权或私有 reasoning_content，也不作为额外上下文回灌模型。
 
@@ -41,27 +41,27 @@ Run JSON 只保留有限角色目标、当前要求、摘要及计数；无限�
 
 属性检查器的“查询调试”经 `POST /api/documents/{documentID}/automation/debug-query` 调用同一 Host 与规范化函数，无需 Key、Assistant Run 或 Provider。仅开放模型、拓扑及固定版本的文档上下文查询，沿用 Viewer 权限；明确 Revision 不存在即失败，不回退 Head。Body/选区在显式捕获时冻结，分页沿用该查询，查看历史结果只改变本地展开内容。服务原页、实际模型可见内容和人工补充分开显示；集合引用完整与单页是否包含匹配全集分别展示。请求沿用 64 KiB JSON 边界，调试选区最多 20 项，人工原页超过 1 MiB 明确省略；这些都不是持续任务的总轮数/Token 上限。操作和限制见[只读查询调试](../../development/cad-query-debugging.md)，本轮实测及语义缺口见[基础回归](../../validation/cad-query-debug-baseline.md)。
 
-活动请求只加载目标及来源要求、冻结 scope 摘要、当前不可变上下文、有限稳定目标角色、最近少量片段/公开工具事实和语言。超出单次工作集时淘汰可重查内容并重建，不随完整历史线性膨胀。冻结选择的完整集合按 `cad_get_selection` 分页，预览子集明确不完整。必要信息本身超过配置时准确等待调整，不能丢弃尺寸、单位、保护对象或装配要求来缩短提示。
+活动请求只加载当前请求原文、冻结 scope 摘要、当前不可变上下文、有限稳定目标角色、最近少量片段/公开工具事实和语言。超出单次工作集时淘汰可重查内容并重建，不随完整历史线性膨胀。冻结选择的完整集合按 `cad_get_selection` 分页，预览子集明确不完整。必要信息本身超过配置时准确等待调整，不能丢弃尺寸、单位、保护对象或装配要求来缩短提示。
 
-应用对矩形尺寸/平面、基体拉伸长度、全部/选定边圆角、取消圆角、圆形贯穿孔、受保护几何和最小轴孔目标提取带 sourceTurn/quote 的必需检查。验收从版本化用户输入分页重建要求；`GOAL:<requirementId>` 绑定该要求对应的正式操作输出，矩形/基体拉伸与圆形草图/REMOVE 切除分开。求值引起的其他草图 UPDATE 不能替换目标。缺少绑定时只按本 Run 的精确回执分页重建，删除回执清除对应目标，不从名称、树位置或“最近创建的同类型特征”猜测。阶段结束先更新应用检查，不按同尺寸或已通过检查阻止新的建模计划；完成仍需当前目标、实际 Revision 与 Head 再验。
+### 当前请求与查询结果绑定
 
-### 目标覆盖与查询结果绑定
+Agent 负责理解并处理当前请求，应用不再从历史自然语言编译 GoalRequirement，不维护未解决语句覆盖、必需检查或按来源合并的目标合同。新增消息仅更新当前请求文本及执行代际，保留模型、最近回执角色、必要历史和正式选择。“适当”是委托设计选择，提示词要求 Agent 自主选择合理值并报告实际采用值；“可以，保留”可直接回复；“不喜欢，改成3mm”优先查询最近圆角所属参数并使用 parameter.set_literal，能力不足时发现正式删除/重建命令并保留其他内容和依赖。应用不新增意图分类模型或通用澄清流程。
 
-`run_goal_coverage.go` 在既有小合同上按来源子句维护覆盖，不是通用自然语言规格编译器。支持立方体尺寸、“通孔”别名及孔口圆边圆角。不能映射的子句、缺失的参数或目标形成显式 UNRESOLVED 要求；只有继续/确认短语可不新增建模意图。GoalVersion 没有对应来源输入时同样不能用旧检查通过。要求保留 sourceTurnId/quote、首次引入版本、最新来源版本、Body、targetRole；不同 Body、冻结选区和指定孔口不按 Kind 合并为一个圆角要求。局部圆角不能覆盖原基体全边圆角；没有冻结选边且未明确全部边/指定孔口的圆角保持未解决。
+自然文字回复与 cad_finish 通过同一执行边界结束当前工作。检查当前 epoch/requestVersion、活动/退休 Task、pending call 以及写入会话响应对应的锁定 Head；有未收敛操作返回 AI_EXECUTION_PENDING，版本已变返回 AI_COMPLETION_STALE。COMPLETED 仅表示本次请求已结束，允许无修改、部分完成或明确失败，不是应用对全部历史目标的验收声明。历史失败或未解析文字不能触发后台验收、强制继续或反复澄清。已知几何失败可交回 Agent 决定修复或结束；未知提交仍先恢复原请求回执。
 
-回执归属受要求首次引入版本、Body、已有目标身份及实际检查约束。旧全边 FILLET 不能凭类型给新孔口要求提供目标。每项圆角使用 `GOAL:<requirementId>` 独立输入集合，最新 FILLET 角色只供发现；清空缓存后仍能从该 Run 的来源与正式回执重建。自然回复与 `cad_finish` 共用 completeGoalCoverage：覆盖完整、每项必需检查通过、目标版本和锁定 Head 一致才结束；失败保持未验收，`cad_finish` 同样保存最新检查。必需检查按既有每请求 64 项/96 KiB 边界分页，始终固定同一 Revision；这不是目标要求总数上限，不可分单项仍须遵守单请求资源边界。
+cad_finish 的规范工具结果、调用游标、最终回复与结束状态在同一事务保存，重放沿原 call/tool ID 返回原结果。普通回复同样原子保存公开回复、调用状态和 REQUEST_FINISHED；两条路径均不写 CAD、不虚构 applied 或呈现，也不会因结束而清除真实几何诊断。新请求仍复用现有 Run/Stage；goalVersion 字段作为请求版本继续使用，不再对应自然语言规格。
 
-“适当/合适/自行选择”且没有硬数值的圆角记录 `radiusPolicy:DELEGATED`。命令选择的正有限半径只进入 observed/designChoice，不反填用户 expected.radius。当前检查证明命令和目标几何有效，不证明半径在强度、美观等方面最优。
+几何、尺寸与正式选边验证继续保留为只读按需工具 cad_verify_part / cad_verify_assembly。Part 检查显式指定 Revision、对象、期望与单位，每次 1..64 项并遵守原请求/输出边界；可分批继续，没有会话检查总数限制。结果及 observed 来源保存在工具账本和 trace，不存为 Run 的强制完成门禁。委托半径可使用 radiusPolicy:DELEGATED，只检查实际正有限值而不反填用户硬期望；应用不证明设计优选。
 
-孔口验收仅针对已绑定的单圆 THROUGH_ALL 切除：在圆角的实际输入 Revision 验证该切除已存在，根据其正式圆形轮廓与当前 Naming 测量查出唯一同轴、同半径内壁，再复用紧凑筛选匹配关联的两条圆边，最后逐一核对持久选择。它是有明确目标的验收证据，不提供通用孔识别工具；相交/分段/多壁歧义及其他未支持路径保持 NOT_VERIFIED。
+孔口检查仍仅针对显式指定的单圆 THROUGH_ALL 切除和圆角：在圆角的输入 Revision 检查切除与唯一同轴同半径内壁，复用紧凑筛选匹配两条完整圆边并核对持久选择。它是指定对象的检查证据，不是自然语言或通用孔识别系统；相交、分段、多壁歧义及其他未支持路径保持 NOT_VERIFIED。
 
 模型可在 `cad_create_task.steps[].resultBindings` 中引用 `{target:"selectionSet",source:{callId,toolId,slot:"selectionSet"}}`。callId 是调用账本 UUID，toolId 是其中的工具调用 ID；二者唯一定位已记录结果，不是 CAD 短 ID。仅开放 `cad_query_topology.selectionSet → part.fillet/part.chamfer.selectionSet`，禁止任意 JSON 路径及同槽位传值/重复绑定。应用从原工具账本取值，检查当前 Run、来源权限、文档/Body/类型、查询封套与集合元数据、命令基线 Revision；不重写令牌或追随最新 Head，再经原集合解析、预览与提交。损坏/不可用为 QUERY_RESULT_REF_INVALID，范围错误为 QUERY_RESULT_REF_SCOPE，版本过期为 QUERY_RESULT_REF_STALE；实际几何失败沿用原领域诊断。
 
-工具回复仍是原规范化内容；完整工具组回复后另外给出确定性的账本引用说明。重建上下文的 recentFacts 默认保留来源 epoch、固定范围/历史标记、计数、少量紧凑观察、摘要 digest 和 selectionSetRef，省略长集合及重复定义。阶段默认保留参数 digest、状态/输出和原创建调用中的 resultBindings，失败步骤另保留紧凑输入；绑定来源沿已有 Task 幂等 requestId 和唯一创建调用恢复，不按相同集合值猜来源。Run 的集合缓存仅投影范围/计数/digest。原始模型参数、规范工具结果、待处理工具重放和实际请求 trace 均不被这些摘要替换；没有 LLM 摘要或新注册表。验证见[目标覆盖与结果绑定回归](../../validation/assistant-goal-coverage.md)。
+工具回复仍是原规范化内容；完整工具组回复后另外给出确定性的账本引用说明。重建上下文的 recentFacts 默认保留来源 epoch、固定范围/历史标记、计数、少量紧凑观察、摘要 digest 和 selectionSetRef，省略长集合及重复定义。阶段默认保留参数 digest、状态/输出和原创建调用中的 resultBindings，失败步骤另保留紧凑输入；绑定来源沿已有 Task 幂等 requestId 和唯一创建调用恢复，不按相同集合值猜来源。Run 的集合缓存仅投影范围/计数/digest。原始模型参数、规范工具结果、待处理工具重放和实际请求 trace 均不被这些摘要替换；没有 LLM 摘要或新注册表。查询引用的前轮证据见[历史回归](../../validation/assistant-goal-coverage.md)，当前请求行为见[职责边界回归](../../validation/assistant-request-boundaries.md)。
 
-每项检查返回目标稳定身份、expected 和 observed。FAILED 表示检查所见不一致；对象角色不符、未解析的建模路径或证据不足返回 NOT_VERIFIED，不能据此声称几何错误或要求删除结果。系统提示要求模型先核对检查范围、当前对象和实测值，并用公开简述说明修改依据。模型不能删除用户要求或将未知证据当作通过。
+按需检查返回稳定身份和 observed；期望保留在原工具输入，trace 同时展示输入与实测。FAILED 表示检查所见不一致；对象角色不符、未解析的建模路径或证据不足返回 NOT_VERIFIED，不能据此声称几何错误或要求删除结果。系统提示要求模型先核对检查范围、当前对象和实测值，并用公开简述说明修改依据。检查不会强制完成请求，也不能把未知证据声称为通过。
 
-圆形贯穿孔识别线性 REMOVE，或 BOOLEAN REMOVE 正式引用的单个圆柱切割特征；后者不强迫改成特定配方。检查轮廓直径、基准平面法向和目标实体当前权威拓扑中的圆柱孔壁（直径、轴线及孔内材料侧），保留实际稳定拓扑身份。有限长度切割通过权威 Body 几何范围沿孔轴的投影证明覆盖；THROUGH_ALL 使用正式范围定义。矩形中心孔通过权威草图支撑坐标系检查孔轴与原始矩形中心。孔后若有可能封堵孔口的实体操作，保留 NOT_VERIFIED。通用复杂面中心、多孔、复杂切割工具体及任意下游贯穿性不在此小合同保证内。混合自然语言要求仍有覆盖边界，不把这些局部检查当作完备规格编译器，也不因检查子集通过自动结束尚未明确完成的用户意图。
+圆形贯穿孔识别线性 REMOVE，或 BOOLEAN REMOVE 正式引用的单个圆柱切割特征；后者不强迫改成特定配方。检查轮廓直径、基准平面法向和目标实体当前权威拓扑中的圆柱孔壁（直径、轴线及孔内材料侧），保留实际稳定拓扑身份。有限长度切割通过权威 Body 几何范围沿孔轴的投影证明覆盖；THROUGH_ALL 使用正式范围定义。矩形中心孔通过权威草图支撑坐标系检查孔轴与原始矩形中心。孔后若有可能封堵孔口的实体操作，保留 NOT_VERIFIED。通用复杂面中心、多孔、复杂切割工具体及任意下游贯穿性不在此小合同保证内。这些局部检查不提供自然语言要求覆盖；Agent 根据当前请求与实际事实决定是否继续。
 
 ## 资源与 Provider 用量
 
@@ -103,17 +103,17 @@ selectionSet 仍是自包含集合，无新注册表；绑定 document/revision/
 
 `cad_mate_candidates` 使用精确圆柱/平面支持语义，区分材料内外侧、轴线/半径、长度、平面方向与偏置。默认紧凑候选，只在按 candidateId 选取时读取完整 recipe；多候选不静默选第一项。recipe 沿原 FIX/CONCENTRIC/端面关系命令与 solver，无第二套装配实体或几何脚本。
 
-轴线/端面方向、偏置和目标DOF由用户来源合同逐字段保存，后续修改保留各自sourceTurn；缺失时澄清，不能默认猜测。正式验收检查真实持久位姿、同轴距离/角度、明确端面方向与 `SELECTED_PLANE_NORMAL_V1` 偏置、实际 solver 状态以及相对平移/旋转 DOF。求解出的假设修正姿态不能代替真实提交。支持普通轴/孔及端面定位、保留一个旋转自由度；不代表任意零件识别/复杂接触。带 ContextBinding 的 occurrence 目前明确返回 CONTEXT_VARIANT_NOT_AVAILABLE，不能替用普通定义 BRep 验收。跨文档原子写与整任务撤销仍未提供。
+轴线/端面方向、偏置和目标 DOF 由 Agent 依据用户请求与当前事实填写到正式命令及显式检查；按需检查真实持久位姿、同轴距离/角度、明确端面方向与 `SELECTED_PLANE_NORMAL_V1` 偏置、实际 solver 状态以及相对平移/旋转 DOF。求解出的假设修正姿态不能代替真实提交。支持普通轴/孔及端面定位、保留一个旋转自由度；不代表任意零件识别/复杂接触。带 ContextBinding 的 occurrence 目前明确返回 CONTEXT_VARIANT_NOT_AVAILABLE，不能替用普通定义 BRep 验收。跨文档原子写与整任务撤销仍未提供。
 
 ## 执行、接管与真实呈现
 
 AUTOMATIC 持续在服务端推进；CONFIRM 每次等待精确 previewId、taskVersion、baseline 和 planEpoch 的批准，过期候选重新预览，旧批准不能用于新代际。
 
-领域提交产生 APPLIED/精确 receipt；目标检查针对当前 goalVersion + 实际 Revision，全部必需检查成功后 VERIFIED/COMPLETED；真实 Viewport frame 才产生对应文档/Revision 的 PRESENTED。三者独立，无浏览器不会凭空显示。GLB加载失败只重试显示，不重做 CAD 或模型调用；重连不补造旧中间版本的显示。
+领域提交产生 APPLIED/精确 receipt；Agent 结束本次请求产生 COMPLETED，按需检查返回自身结果；真实 Viewport frame 才产生对应文档/Revision 的 PRESENTED。这些状态独立，无浏览器不会凭空显示。GLB加载失败只重试显示，不重做 CAD 或模型调用；重连不补造旧中间版本的显示。
 
 `ui.*` 单步先持久 handoff/baseline/预期命令/DomainRequestID，再经原 CommandRegistry 检查可用性。打开结果丢失不自动重放。UI_OPENED 仅打开；取消明确记录并暂停；完成必须恢复同一预期请求、类型及基线的领域回执，无关提交不算完成。当前 SolidFeatureEditor 提供原 preview/commit request 身份桥，其他未提供安全完成桥的交互继续等待人工处理，不能伪造成功。
 
-Web 继续由 TanStack Query 保存服务状态，原工作台选择/CommandRegistry/Viewport 各自拥有交互、命令与帧证据。下边栏使用单图标入口；面板以对话、15px 正文/输入及简短进展为主。“调用详情”以实际调用为序，展开查看公开请求 → 模型原文 → 工具/参数 → 原反馈及 CAD 后续执行；默认展开最近一条，较早记录分页读取。检查同时展示期望值和实测对象，代替原始事件代码列表。模型带工具调用的公开 content 按调用幂等保存为 ASSISTANT_MESSAGE；工具观察、实际 CAD 回执、阶段诊断及目标检查给出可读进度。公开简述在模型响应落账后显示，不承诺逐 Token 流式输出；私有 reasoning_content 不进入事件、账本响应或 UI。单独公开短答继续规划，必要澄清使用 cad_wait_for_input。消息/步骤/事件按页增量读取，进展仅保留有界近期窗口，旧代际事件不能覆盖新状态。暂停/停止、精确确认、接管及显示重试保留原边界。
+Web 继续由 TanStack Query 保存服务状态，原工作台选择/CommandRegistry/Viewport 各自拥有交互、命令与帧证据。下边栏使用单图标入口；面板以对话、15px 正文/输入及简短进展为主。“调用详情”以实际调用为序，展开查看公开请求 → 模型原文 → 工具/参数 → 原反馈及 CAD 后续执行；默认展开最近一条，较早记录分页读取。检查同时展示期望值和实测对象，代替原始事件代码列表。模型带工具调用的公开 content 按调用幂等保存为 ASSISTANT_MESSAGE；工具观察、实际 CAD 回执、阶段诊断及按需检查给出可读进度。公开简述在模型响应落账后显示，不承诺逐 Token 流式输出；私有 reasoning_content 不进入事件、账本响应或 UI。无工具的文字回复结束本次请求，必要澄清使用 cad_wait_for_input；带工具的公开 content 是进展。界面以“本次已结束”表达完成状态，仅按本次真实回执显示“已应用”，不显示强制目标验收标签。消息/步骤/事件按页增量读取，进展仅保留有界近期窗口，旧代际事件不能覆盖新状态。暂停/停止、精确确认、接管及显示重试保留原边界。
 
 ## 验证入口
 

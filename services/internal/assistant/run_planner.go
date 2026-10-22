@@ -13,14 +13,16 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
-const systemPrompt = `You are occccad's native CAD assistant. Use the user's language. This is one durable Run, not a single fixed plan: inspect facts, plan one bounded executable stage, observe authoritative receipts/new geometry, repair or continue, then verify the user goal. The application executes all previews/commits through its existing CAD commands. Never call an executor or invent a receipt, geometry identity, selection, successful check, or displayed frame.
-Use your CAD knowledge but discover operations with cad_search_operations and read exact contracts with cad_describe_operation before using them. Read nested cad://types schemas only as needed. All writes are scoped to the application's actor and target definition. Preserve units, user-confirmed hard requirements, selected occurrence, permissions, and solver diagnostics. Mandatory requirements belong to the application and cannot be removed or relaxed by you. Ask a necessary clarification when intent is ambiguous.
-Prefer the compact contracts sketch.create, sketch.rectangle, sketch.circle, part.extrude, part.cut, part.fillet and part.chamfer when they fit the goal. Search using one concept or an operation ID, not a sentence combining several operations. Inspect the general command.* DTO/type graph only when a compact operation cannot express the required CAD action.
-Call cad_create_task with one bounded stage of at most 32 steps, using local step labels. Later entity inputs may bind preceding outputs with bindings or declared typedBindings. Never invent an output that does not yet exist. Once the stage is applied, the same Run continues with a fresh authoritative snapshot: query its new topology before planning fillets or mates. For all edges use cad_query_topology's complete selectionSet, not the first page. Prefer steps[].resultBindings [{target: selectionSet, source: {callId, toolId, slot: selectionSet}}] using application-recorded query references instead of copying Base64 tokens. Only declared slots are supported; stale references require a fresh query. Unresolved intent coverage blocks completion; delegated design choices are not user numeric requirements. Frozen selected references remain the user's targets even if the UI selection changes. Use cad_get_selection for full frozen selection pages.
-For Product, resolve occurrence geometry through cad_query_occurrence using root revision and stable instance IDs, then cad_mate_candidates. Definition coordinates and world occurrence coordinates differ. Prefer existing publications/datums when suitable. Candidate ambiguity requires explanation or the user's selected faces; do not silently choose the first. Recipes and references are application data, never mesh locators. Use source/offset conventions and direction explicitly.
-Use cad_verify_goal to see outstanding mandatory checks. cad_finish only requests completion; the application must verify the current goal version and actual revision before completing. A natural-language claim or a created plan does not complete a modeling goal. cad_wait_for_input asks a necessary clarification. ui.* creates a single-step handoff and waits for real interaction; UI_OPENED is only an opened tool, not a completed model. Applied, verified, and actually presented are independent.
-Before tool calls, briefly tell the user what you found or will do next in the public content, in one short sentence. Give useful progress summaries, never private chain-of-thought. Use cad_wait_for_input for a necessary question. After each stage the host reports current application evidence. Inspect target identities, expected values, and observed values before deciding whether a CAD change is needed. NOT_VERIFIED means evidence is incomplete, not that the geometry is wrong. A checker can have unsupported strategies or wrong bindings; compare its scope with the actual current model. GOAL:<requirementId> targets bind the exact receipt output for that requirement. Latest SKETCH/LINEAR_EXTRUDE discovery hints may refer to a hole profile/cut, not the base rectangle/pad. A Boolean REMOVE with a circular cylinder can produce the same through hole as a linear cut. Use final geometry and feature dependencies to evaluate the result. Explain material revisions in public content using the evidence you observed. If the user intent is satisfied and checks are VERIFIED, finish concisely.
-Context is a bounded working set, not the full history. Public tool facts, immutable receipts, requirements and checkpoints may rebuild it. Older detail remains queryable. Never request an entire large tree or repeat unchanged failing operations. Calls, stages and cumulative tokens have no default Run-wide limit. An optional user budget may pause the Run for adjustment; never bypass it.`
+const systemPrompt = `You are occccad's native CAD assistant. Use the user's language. You interpret and handle the CURRENT user request. The application owns CAD commands, geometry evaluation, previews/commits, permissions, revision/CAS, idempotency and authoritative receipts. A durable Run retains model context and useful history across requests; past conversation is reference material, not a mandatory checklist to re-execute or re-verify.
+Use your CAD knowledge. Discover operations with cad_search_operations and read exact contracts with cad_describe_operation before using them. Read nested cad://types schemas only as needed. Preserve units, explicit user constraints, selected occurrence, dependencies and solver diagnostics. Choose reasonable design values when the user delegates them (e.g. an appropriate fillet radius), execute and report the actual adopted value. Delegation alone is not a reason to ask for confirmation. Ask only when necessary information is genuinely unavailable.
+An acknowledgment such as "可以，保留" needs an ordinary reply, without CAD operations. An already-satisfied request may also end without changes. For "不喜欢，改成3mm", inspect the current model and recent fillet receipt, then edit that feature's radius parameter if supported. Discover parameter.set_literal and query parameters by the owning feature. If an edit is unavailable, use official delete/rebuild commands after inspecting dependencies; preserve other features. Do not recreate the base solid or earlier work merely to satisfy a historical checker.
+Prefer compact contracts sketch.create, sketch.rectangle, sketch.circle, part.extrude, part.cut, part.fillet and part.chamfer when suitable. Search using one concept or an operation ID, not a sentence combining several operations. Inspect command.* DTO/type graphs when a compact operation cannot express the action.
+Call cad_create_task with one bounded stage of at most 32 steps using local labels. Bind later inputs to preceding outputs with bindings or declared typedBindings. Never invent future output IDs. The host executes the stage; observe exact receipts before planning more. Query fresh topology before modifiers or mates. For all edges use the complete cad_query_topology selectionSet, not a page. Prefer steps[].resultBindings [{target: selectionSet, source: {callId, toolId, slot: selectionSet}}] over copying Base64. Only declared slots are supported; stale references require a fresh query. Frozen selected references are stable user context, never live mouse selection. cad_get_selection reads their full pages.
+For Product, resolve occurrence geometry through cad_query_occurrence using root revision and stable instance IDs, then cad_mate_candidates. Definition and world coordinates differ. Prefer suitable existing publications/datums. Explain candidate ambiguity; never silently choose the first. Use explicit source/offset/direction conventions and formal selections, never mesh locators or names as geometry identities.
+Geometry, dimension and selection checks are OPTIONAL evidence tools: cad_verify_part and cad_verify_assembly check exactly the supplied scope and expectations. A failed or unsupported check does not prove the whole user request failed; inspect its target, expected/observed values and modeling strategy. Latest SKETCH/LINEAR_EXTRUDE targets are receipt discovery hints and may refer to a hole profile/cut rather than the base. A Boolean REMOVE of a circular cylinder can be a valid through hole. Read actual final geometry and dependencies.
+A final text-only reply or cad_finish ends CURRENT work once no active/retiring operation or uncertain commit remains and the response snapshot is current. Neither is a promise that all historical language has been geometrically verified. You may end with no change, partial completion or an explicit failure: report actual applied work and any limitation honestly. After a geometry failure you may repair using new stages or end with an explanation. Never invent an applied result, receipt, identity, successful check or displayed frame. ui.* is a single-step handoff; UI_OPENED is not a committed model. Applied state and viewport presentation are independent.
+Before tools, give one short public sentence about what you found or will do. Give public progress, never private chain-of-thought. cad_wait_for_input is only for a necessary question. When no further action is needed, reply concisely without tools or use cad_finish; do not continue solely because an old failure or old check is in history.
+Context is a bounded working set rebuilt from the current snapshot, recent language, exact receipts, deterministic summaries and recorded query references. Source epochs/revisions mark history. Older details remain queryable. Avoid fetching a whole large tree or repeating unchanged failing operations. Calls, stages and cumulative tokens have no default Run-wide limit. An optional user budget can pause work for adjustment; respect it. Single-response and context limits still apply.`
 
 func planningTools() []Tool {
 	out := []Tool{}
@@ -37,8 +39,7 @@ func planningTools() []Tool {
 		Tool{"cad_query_occurrence", "Resolve a root-snapshot occurrence by stable instance IDs, including nested/PINNED accepted revisions and source permissions. Return a bounded exact geometry page or Body/INSTANCE summary.", object(map[string]any{"revisionId": stringSchema(), "instanceIds": path, "bodyId": stringSchema(), "kind": map[string]any{"type": "string", "enum": []string{"BODY", "INSTANCE", "FACE", "EDGE", "VERTEX", "DATUM", "PUBLICATION"}}, "geometryType": stringSchema(), "cursor": map[string]any{"type": "string", "maxLength": 2048}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20}}, "revisionId", "instanceIds")},
 		Tool{"cad_mate_candidates", "Find explainable shaft-hole and end-plane fit candidates from exact occurrence geometry. The first occurrence moves, the second is the reference. Multiple candidates require geometric selection/clarification; recipes use existing domain commands.", object(map[string]any{"revisionId": stringSchema(), "firstInstanceIds": path, "secondInstanceIds": path, "firstBodyId": stringSchema(), "secondBodyId": stringSchema(), "axisDirectionRelation": map[string]any{"type": "string", "enum": []string{"SAME", "OPPOSITE"}}, "planeDirectionRelation": map[string]any{"type": "string", "enum": []string{"SAME", "OPPOSITE"}}, "offsetMM": map[string]any{"type": "number"}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 8}, "candidateId": stringSchema(), "includeRecipe": map[string]any{"type": "boolean"}}, "revisionId", "firstInstanceIds", "secondInstanceIds")},
 		Tool{"cad_verify_assembly", "Read authoritative solve and actual persisted occurrence relations for the selected moving/reference instances, never accepting hypothetical corrected poses as the result.", object(map[string]any{"revisionId": stringSchema(), "movingInstanceId": stringSchema(), "referenceInstanceId": stringSchema(), "directionRelation": map[string]any{"type": "string", "enum": []string{"SAME", "OPPOSITE"}}, "axisDirectionRelation": map[string]any{"type": "string", "enum": []string{"SAME", "OPPOSITE", "UNORIENTED"}}, "offsetMM": map[string]any{"type": "number"}, "targetDOF": map[string]any{"type": "integer", "minimum": 0}}, "revisionId", "movingInstanceId", "referenceInstanceId")},
-		Tool{"cad_verify_goal", "Inspect current-goal evidence at the actual revision. FAILED is an observed mismatch; NOT_VERIFIED is unresolved/unsupported evidence, not proof of incorrect geometry. Compare expected, observed, target IDs and modeling strategy before deciding a CAD change. User requirements cannot be waived.", object(map[string]any{})},
-		Tool{"cad_finish", "Request completion after all intended stages; application verification is authoritative.", object(map[string]any{"summary": map[string]any{"type": "string", "maxLength": 2000}})},
+		Tool{"cad_finish", "End the current request with a concise account of actual results, including no change, partial completion or failure. Active operations and stale responses cannot complete. Does not verify historical goals.", object(map[string]any{"summary": map[string]any{"type": "string", "maxLength": 2000}})},
 		Tool{"cad_wait_for_input", "Save progress and ask a concise necessary clarification; the same Run resumes on the user's response.", object(map[string]any{"question": map[string]any{"type": "string", "minLength": 1, "maxLength": 2000}}, "question")},
 	)
 	return out
@@ -113,6 +114,8 @@ func (s *Service) buildContext(ctx context.Context, r Run, question *Turn) ([]Me
 		task, e := s.automation.GetTask(ctx, r.ActorID, r.DocumentID, st.TaskID)
 		if e == nil { // only a bounded current-stage checkpoint, not all history
 			checkpoint := stageContext(task)
+			checkpoint["requestVersion"] = st.GoalVersion
+			checkpoint["historicalRequest"] = st.GoalVersion != r.GoalVersion
 			checkpoint["historical"] = task.Baseline.RevisionID != current.Snapshot.RevisionID
 			bindings, e := s.stageResultBindings(ctx, r, task)
 			if e != nil {
@@ -154,7 +157,7 @@ func (s *Service) buildContext(ctx context.Context, r Run, question *Turn) ([]Me
 	if question != nil {
 		text = question.Text
 	}
-	packet := map[string]any{"current": current, "operations": operations, "goal": map[string]any{"version": r.GoalVersion, "text": r.Goal, "requirements": r.Requirements}, "run": map[string]any{"id": r.ID, "epoch": r.Epoch, "status": r.Status, "mode": r.Mode, "stageCount": r.StageCount, "stepCount": r.StepCount, "usage": r.Usage, "tokenBudget": r.TokenBudget}, "frozenScope": scope, "selectionPreview": selected[:min(len(selected), 6)], "selectionPreviewComplete": len(selected) <= 6, "selectionSummary": scopeSummary(r.Scope), "recentStages": checkpoints, "recentFacts": facts, "recentLanguage": language, "verification": r.Verification, "diagnostic": r.Failure}
+	packet := map[string]any{"current": current, "operations": operations, "request": map[string]any{"version": r.GoalVersion, "text": r.Goal}, "run": map[string]any{"id": r.ID, "epoch": r.Epoch, "status": r.Status, "mode": r.Mode, "requestAppliedCount": r.RequestAppliedCount, "stageCount": r.StageCount, "stepCount": r.StepCount, "usage": r.Usage, "tokenBudget": r.TokenBudget}, "frozenScope": scope, "selectionPreview": selected[:min(len(selected), 6)], "selectionPreviewComplete": len(selected) <= 6, "selectionSummary": scopeSummary(r.Scope), "recentStages": checkpoints, "recentFacts": facts, "recentLanguage": language, "diagnostic": r.Failure}
 	packet["targets"] = r.Targets
 	packet["targetSelections"] = selectionTargetsContext(r.TargetSelections, current.Snapshot.RevisionID)
 	messages := []Message{{Role: "system", Content: systemPrompt}, {Role: "system", Content: ""}, {Role: "user", Content: text}}
@@ -382,39 +385,7 @@ func (s *Service) processCall(ctx context.Context, r Run, c CallRecord, session 
 		return s.deferRun(ctx, r, asFault(aiFault("AI_RESPONSE_INVALID", "模型响应没有可恢复的公开内容", true)))
 	}
 	if len(c.Response.ToolCalls) == 0 {
-		if r.AccessMode == "READ" {
-			return s.finishRead(ctx, r, c, c.Response.Content)
-		}
-		verification, e := s.verifyGoal(ctx, r)
-		if e != nil {
-			return s.deferRun(ctx, r, asFault(e))
-		}
-		if completeGoalCoverage(verification) {
-			return s.finishGoal(ctx, r, c, c.Response.Content, verification)
-		}
-		// A public sentence can be a progress update. Necessary clarification
-		// uses the explicit tool; narration alone must not silently stall a Run.
-		digest := modelcore.ValueDigest(marshalJSON(map[string]any{"kind": "PUBLIC_REPLY_WITHOUT_ACTION", "head": c.Baseline, "goalVersion": r.GoalVersion, "tools": r.ToolCalls, "verification": verification}))
-		_, e = s.mutateRun(ctx, r.ID, func(tx database.Tx, current *Run) error {
-			if current.Epoch != r.Epoch {
-				return context.Canceled
-			}
-			current.PendingCallID = ""
-			current.Status = "PLANNING"
-			current.WaitingReason = ""
-			current.Verification = verification
-			current.Requirements = verification.requirements
-			current.LastFailureDigest = digest
-			c.Status = "APPLIED"
-			if e := saveCall(ctx, tx, c); e != nil {
-				return e
-			}
-			return s.event(ctx, tx, current, "ASSISTANT_MESSAGE", map[string]any{"callId": c.ID, "goalVersion": current.GoalVersion, "message": publicProgress(c.Response.Content)})
-		})
-		if e == nil && session != nil {
-			session.messages = append(session.messages, Message{Role: "system", Content: "The public progress update did not execute an action. Continue with tools for outstanding checks, or cad_wait_for_input for a necessary clarification. Current application checks: " + string(marshalJSON(verification))})
-		}
-		return e
+		return s.finishRequest(ctx, r, c, c.Response.Content)
 	}
 	queryRefs := []QueryResultReference{}
 	for i := c.ToolCursor; i < len(c.Response.ToolCalls); i++ {
@@ -485,31 +456,14 @@ func (s *Service) executeTool(ctx context.Context, r Run, c CallRecord, call Too
 	switch call.Function.Name {
 	case "cad_create_task":
 		value, err = s.createStage(ctx, r, c, call)
-	case "cad_verify_goal":
-		var verified *GoalVerification
-		verified, err = s.verifyGoal(ctx, r)
-		value = verified
-		if err == nil {
-			err = s.recordGoalVerification(ctx, r, verified)
-		}
 	case "cad_finish":
 		var input struct {
 			Summary string `json:"summary"`
 		}
 		err = decode([]byte(call.Function.Arguments), &input)
-		if err == nil {
-			var verified *GoalVerification
-			verified, err = s.verifyGoal(ctx, r)
-			value = verified
-			if err == nil {
-				err = s.recordGoalVerification(ctx, r, verified)
-			}
-			if err == nil && completeGoalCoverage(verified) {
-				err = s.finishGoal(ctx, r, c, input.Summary, verified)
-			} else if err == nil {
-				err = aiFault("AI_GOAL_UNVERIFIED", "必需目标检查尚未通过，请读取当前事实继续或修复", false)
-			}
-		}
+		// Recording this tool and ending the request share one transaction in
+		// recordTool. A restart cannot lose the finish reply or replay its intent.
+		value = completionResult(r, c)
 	case "cad_wait_for_input":
 		var input struct {
 			Question string `json:"question"`
@@ -523,7 +477,7 @@ func (s *Service) executeTool(ctx context.Context, r Run, c CallRecord, call Too
 				current.Status = "WAITING_INPUT"
 				current.WaitingReason = input.Question
 				current.Reply = input.Question
-				if e := saveGoalReply(ctx, tx, *current); e != nil {
+				if e := saveRequestReply(ctx, tx, *current); e != nil {
 					return e
 				}
 				return s.event(ctx, tx, current, "INPUT_REQUIRED", input)
@@ -579,6 +533,31 @@ func (s *Service) recordTool(ctx context.Context, r Run, c *CallRecord, ordinal 
 				return e
 			}
 		}
+		if call.Function.Name == "cad_finish" && !result.IsError && c.InputID == "" {
+			var existing []byte
+			e := tx.QueryRow(ctx, `SELECT payload FROM occccad.assistant_tool_results WHERE call_id=$1 AND tool_id=$2`, c.ID, call.ID).Scan(&existing)
+			if errors.Is(e, database.ErrNoRows) {
+				var input struct {
+					Summary string `json:"summary"`
+				}
+				if e = decode([]byte(call.Function.Arguments), &input); e == nil {
+					e = s.completeRequestTx(ctx, tx, current, r, c, input.Summary)
+				}
+				if e != nil {
+					var boundary *automation.Fault
+					if !errors.As(e, &boundary) {
+						return e
+					}
+					result.IsError = true
+					result.Content = marshalJSON(asFault(e))
+				} else {
+					result.Content = marshalJSON(completionResult(*current, *c))
+				}
+			} else if e != nil {
+				return e
+			}
+		}
+		result = NormalizeToolResult(result)
 		inserted, e := tx.Exec(ctx, `INSERT INTO occccad.assistant_tool_results(call_id,tool_id,ordinal,name,arguments,payload) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(call_id,tool_id) DO NOTHING`, c.ID, call.ID, ordinal, call.Function.Name, json.RawMessage(call.Function.Arguments), marshalJSON(result))
 		if e != nil {
 			return e
@@ -626,79 +605,12 @@ func (s *Service) recordTool(ctx context.Context, r Run, c *CallRecord, ordinal 
 		}
 		return s.event(ctx, tx, current, "TOOL_RESULT", map[string]any{"callId": c.ID, "toolId": call.ID, "inputId": c.InputID, "name": call.Function.Name, "isError": result.IsError, "message": toolProgress(call.Function.Name, result), "goalVersion": r.GoalVersion, "sourceEpoch": c.Epoch, "stale": current.Epoch != c.Epoch})
 	})
+	if err == nil && call.Function.Name == "cad_finish" && !result.IsError {
+		s.clearSession(r.ID)
+	}
 	return result, err
 }
-func (s *Service) finishGoal(ctx context.Context, r Run, c CallRecord, reply string, v *GoalVerification) error {
-	if !completeGoalCoverage(v) {
-		return aiFault("AI_GOAL_UNVERIFIED", "目标意图覆盖或必需检查尚未完整通过", false)
-	}
-	_, err := s.mutateRun(ctx, r.ID, func(tx database.Tx, current *Run) error {
-		var head string
-		if e := tx.QueryRow(ctx, `SELECT head_revision_id::text FROM occccad.workspaces WHERE document_id=$1 AND name='main' FOR UPDATE`, current.DocumentID).Scan(&head); e != nil {
-			return e
-		}
-		if head != v.RevisionID {
-			current.Verification = nil
-			current.Status = "PLANNING"
-			current.PendingCallID = ""
-			current.LatestRevisionID = head
-			return s.event(ctx, tx, current, "VERIFICATION_INVALIDATED", map[string]string{"reason": "workspace head changed", "revisionId": head})
-		}
-		if current.Epoch != r.Epoch || v.GoalVersion != current.GoalVersion || v.RevisionID != current.LatestRevisionID {
-			return context.Canceled
-		}
-		current.Status = "COMPLETED"
-		current.PendingCallID = ""
-		current.Verification = v
-		current.Requirements = v.requirements
-		current.Reply = reply
-		if reply == "" {
-			current.Reply = "建模目标已应用并通过检查。"
-		}
-		current.WaitingReason = ""
-		current.Failure = nil
-		c.Status = "APPLIED"
-		if e := saveCall(ctx, tx, c); e != nil {
-			return e
-		}
-		if e := saveGoalReply(ctx, tx, *current); e != nil {
-			return e
-		}
-		return s.event(ctx, tx, current, "GOAL_VERIFIED", v)
-	})
-	if err == nil {
-		s.runMu.Lock()
-		delete(s.sessions, r.ID)
-		s.runMu.Unlock()
-	}
-	return err
-}
-func (s *Service) finishRead(ctx context.Context, r Run, c CallRecord, reply string) error {
-	_, err := s.mutateRun(ctx, r.ID, func(tx database.Tx, current *Run) error {
-		if current.Epoch != r.Epoch {
-			return context.Canceled
-		}
-		current.Status = "COMPLETED"
-		current.Reply = reply
-		current.PendingCallID = ""
-		c.Status = "APPLIED"
-		if e := saveCall(ctx, tx, c); e != nil {
-			return e
-		}
-		if e := saveGoalReply(ctx, tx, *current); e != nil {
-			return e
-		}
-		return s.event(ctx, tx, current, "ANSWERED", map[string]string{"reply": reply})
-	})
-	if err == nil {
-		s.runMu.Lock()
-		delete(s.sessions, r.ID)
-		s.runMu.Unlock()
-	}
-	return err
-}
-
-func saveGoalReply(ctx context.Context, tx database.Tx, r Run) error {
+func saveRequestReply(ctx context.Context, tx database.Tx, r Run) error {
 	var id string
 	if e := tx.QueryRow(ctx, `SELECT id::text FROM occccad.assistant_inputs WHERE run_id=$1 AND (kind<>'QUERY' OR sequence=1) ORDER BY sequence DESC LIMIT 1`, r.ID).Scan(&id); e != nil {
 		return e
@@ -708,6 +620,9 @@ func saveGoalReply(ctx context.Context, tx database.Tx, r Run) error {
 		return e
 	}
 	t.Status = r.Status
+	if r.Status == "COMPLETED" {
+		t.Status = "ANSWERED"
+	}
 	t.Reply = r.Reply
 	return saveInput(ctx, tx, t)
 }

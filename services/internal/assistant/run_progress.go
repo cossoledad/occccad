@@ -73,9 +73,9 @@ func toolProgress(name string, result Result) string {
 	if result.IsError {
 		var failure automation.Fault
 		if json.Unmarshal(result.Content, &failure) == nil && failure.Message != "" {
-			return "正在处理：" + publicProgress(failure.Message)
+			return "工具反馈：" + publicProgress(failure.Message)
 		}
-		return "正在调整操作方案"
+		return "工具执行失败"
 	}
 	names := map[string]string{
 		"cad_context":            "已读取当前模型",
@@ -88,14 +88,9 @@ func toolProgress(name string, result Result) string {
 		"cad_query_occurrence":   "已读取实例几何",
 		"cad_mate_candidates":    "已检查装配候选",
 		"cad_verify_assembly":    "已检查装配结果",
+		"cad_verify_part":        "已读取指定几何检查结果",
 		"cad_create_task":        "开始执行建模步骤",
 		"cad_get_task":           "已核对步骤结果",
-	}
-	if name == "cad_verify_goal" {
-		var v GoalVerification
-		if json.Unmarshal(result.Content, &v) == nil {
-			return verificationProgress(&v)
-		}
 	}
 	return names[name]
 }

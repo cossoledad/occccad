@@ -26,7 +26,6 @@ func TestAssistantRunInvalidBindingRepairsOnlyUnappliedNativeSuffix(t *testing.T
 			s, domain, view, r := stageFixture(t)
 			var err error
 			r, err = s.mutateRun(t.Context(), r.ID, func(_ database.Tx, current *Run) error {
-				current.Requirements = current.Requirements[:2]
 				current.Goal = "在 XY 平面建立 80×50 mm 矩形，拉伸 12 mm"
 				return nil
 			})
@@ -100,9 +99,8 @@ func TestAssistantRunInvalidBindingRepairsOnlyUnappliedNativeSuffix(t *testing.T
 			// rectangle step and receives a new request only for the new extrusion.
 			r = stageForTest(t, s, r, []automation.StepSpec{{ID: uuid.NewString(), OperationID: "part.extrude", Version: 1, Arguments: marshalJSON(map[string]any{"bodyId": view.Part.ActiveBodyID, "sketchId": sketch, "length": 12, "unit": "mm"})}})
 			r = finishStageForTest(t, s, r)
-			verified, err := s.verifyGoal(t.Context(), r)
-			if err != nil || verified.Status != "VERIFIED" || r.AppliedCount != 3 || r.StepCount != 3 || r.StageCount != 3 || r.PresentedRevisionID != "" {
-				t.Fatal("same Run did not finish the remaining native modeling operation", r, verified, err)
+			if r.AppliedCount != 3 || r.StepCount != 3 || r.StageCount != 3 || r.PresentedRevisionID != "" {
+				t.Fatal("same Run did not apply the remaining native modeling operation", r)
 			}
 			snapshot, err := domain.ReadModelSnapshot(t.Context(), r.DocumentID, "")
 			if err != nil {

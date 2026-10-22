@@ -144,7 +144,9 @@ func (s *Service) ControlRun(ctx context.Context, actor, document, id string, in
 			}
 			current.Epoch++
 			stopTask = current.ActiveTaskID
-			current.RetiringTaskID = stopTask
+			if stopTask != "" {
+				current.RetiringTaskID = stopTask
+			}
 			current.ActiveTaskID = ""
 			current.PendingCallID = ""
 			if input.Action == "pause" {

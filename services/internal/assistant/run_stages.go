@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/occccad/occccad/internal/automation"
@@ -13,11 +12,12 @@ import (
 )
 
 type appliedStepFact struct {
-	stepID     string
-	receipt    workspace.CommandReceipt
-	targets    map[string]string
-	selections map[string]string
-	removed    []string
+	stepID      string
+	receipt     workspace.CommandReceipt
+	targets     map[string]string
+	selections  map[string]string
+	removed     []string
+	goalVersion uint64
 }
 
 func (s *Service) taskFacts(ctx context.Context, r Run, task automation.Task) ([]appliedStepFact, error) {
@@ -26,11 +26,6 @@ func (s *Service) taskFacts(ctx context.Context, r Run, task automation.Task) ([
 
 func (s *Service) taskReceiptFacts(ctx context.Context, r Run, task automation.Task, includeRecorded bool) ([]appliedStepFact, error) {
 	facts := []appliedStepFact{}
-	targets := map[string]string{}
-	for key, id := range r.Targets {
-		targets[key] = id
-	}
-	r.Targets = targets
 	var stageVersion uint64
 	if err := s.db.QueryRow(ctx, `SELECT goal_version FROM occccad.assistant_stages WHERE run_id=$1 AND task_id=$2`, r.ID, task.ID).Scan(&stageVersion); err != nil && !errors.Is(err, database.ErrNoRows) {
 		return nil, err
@@ -39,7 +34,7 @@ func (s *Service) taskReceiptFacts(ctx context.Context, r Run, task automation.T
 		if step.Result == nil || step.ReceiptRecorded && !includeRecorded {
 			continue
 		}
-		fact := appliedStepFact{stepID: step.ID, receipt: step.Result.Receipt, targets: map[string]string{}, selections: map[string]string{}}
+		fact := appliedStepFact{stepID: step.ID, receipt: step.Result.Receipt, targets: map[string]string{}, selections: map[string]string{}, goalVersion: stageVersion}
 		snapshot, err := s.automation.ReadSnapshot(ctx, r.ActorID, r.DocumentID, step.Result.Receipt.RevisionID)
 		if err != nil {
 			return nil, err
@@ -80,20 +75,6 @@ func (s *Service) taskReceiptFacts(ctx context.Context, r Run, task automation.T
 			for _, feature := range part.Features {
 				if !outputs[feature.ID] {
 					continue
-				}
-				for _, requirement := range r.Requirements {
-					if requirement.BodyID != "" && feature.BodyID != requirement.BodyID {
-						continue
-					}
-					if s.goalReceiptCandidate(ctx, r, requirement, part, feature, snapshot.RevisionID, stageVersion) {
-						key := goalTargetKey(requirement.ID)
-						fact.targets[key] = feature.ID
-						if feature.Type == "FILLET" {
-							if token, e := s.selectionSetForFeature(ctx, r, feature); e == nil {
-								fact.selections[key] = token
-							}
-						}
-					}
 				}
 				role := feature.Type
 				if feature.Sketch != nil {
@@ -150,11 +131,6 @@ func (s *Service) taskReceiptFacts(ctx context.Context, r Run, task automation.T
 						fact.selections["CHAMFER"] = token
 					}
 				}
-			}
-		}
-		for key, id := range fact.targets {
-			if strings.HasPrefix(key, "GOAL:") {
-				r.Targets[key] = id
 			}
 		}
 		facts = append(facts, fact)
@@ -226,22 +202,20 @@ func (s *Service) checkpointTaskUpdate(ctx context.Context, r Run, task automati
 			current.StepCount++
 			if !fact.receipt.NoChange {
 				current.AppliedCount++
+				if fact.goalVersion == current.GoalVersion {
+					current.RequestAppliedCount++
+				}
 				current.LatestAppliedRevisionID = fact.receipt.RevisionID
 			}
 			current.LatestRevisionID = fact.receipt.RevisionID
 			forgetRemovedTargets(current.Targets, current.TargetSelections, fact.removed)
 			for role, id := range fact.targets {
-				// Bind once to the formal output, not the last feature of that type.
-				// A later circle/cut must not replace the rectangle/base pad.
-				if strings.HasPrefix(role, "GOAL:") && current.Targets[role] != "" && current.Targets[role] != id {
-					continue
-				}
 				current.Targets[role] = id
 			}
 			for role, token := range fact.selections {
 				current.TargetSelections[role] = token
 			}
-			if err := s.event(ctx, tx, current, "CAD_APPLIED", map[string]any{"taskId": task.ID, "stepId": fact.stepID, "receipt": fact.receipt, "presented": false, "message": s.appliedStepMessage(task, fact.stepID), "goalVersion": current.GoalVersion, "sourceEpoch": task.PlanEpoch}); err != nil {
+			if err := s.event(ctx, tx, current, "CAD_APPLIED", map[string]any{"taskId": task.ID, "stepId": fact.stepID, "receipt": fact.receipt, "presented": false, "message": s.appliedStepMessage(task, fact.stepID), "goalVersion": fact.goalVersion, "sourceEpoch": task.PlanEpoch, "stale": fact.goalVersion != current.GoalVersion}); err != nil {
 				return err
 			}
 		}
@@ -407,14 +381,7 @@ func (s *Service) advanceStage(ctx context.Context, r Run) error {
 	case "WAIT_UI":
 		return s.checkpointTask(ctx, r, task, "WAITING_UI", "WAIT_UI", false, false, "等待原工具完成、取消或回报结果")
 	case "COMPLETED":
-		if err = s.checkpointTask(ctx, r, task, "VERIFYING", "COMPLETED", true, false, ""); err != nil {
-			return err
-		}
-		current, e := loadRun(ctx, s.db, r.ID, false)
-		if e != nil {
-			return e
-		}
-		return s.refreshGoalVerification(ctx, current)
+		return s.checkpointTask(ctx, r, task, "PLANNING", "COMPLETED", true, false, "")
 	case "PAUSED", "REPLAN_REQUIRED", "STOPPED":
 		failure := taskFailure(task)
 		if failure != nil {

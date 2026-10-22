@@ -82,7 +82,7 @@ func (s *Service) Close() {
 }
 func runnable(status string) bool {
 	switch status {
-	case "QUEUED", "PLANNING", "EXECUTING", "VERIFYING", "WAITING_RETRY":
+	case "QUEUED", "PLANNING", "EXECUTING", "WAITING_RETRY":
 		return true
 	}
 	return false
@@ -101,7 +101,7 @@ func (s *Service) dispatch(ctx context.Context) {
 		question bool
 	}{
 		{`SELECT id,actor_id FROM (SELECT i.id::text AS id,r.actor_id::text AS actor_id,r.updated_at,i.sequence,ROW_NUMBER() OVER (PARTITION BY r.actor_id ORDER BY r.updated_at,i.sequence) AS actor_rank FROM occccad.assistant_inputs i JOIN occccad.assistant_runs r ON r.id=i.run_id WHERE r.payload->>'credentialScope'=$2 AND i.kind='QUERY' AND i.status='RECEIVED' AND i.lease_until<=$1) candidates WHERE actor_rank<=2 ORDER BY updated_at,sequence,id LIMIT 32`, true},
-		{`SELECT id,actor_id FROM (SELECT id::text AS id,actor_id::text AS actor_id,updated_at,ROW_NUMBER() OVER (PARTITION BY actor_id ORDER BY updated_at,id) AS actor_rank FROM occccad.assistant_runs WHERE payload->>'credentialScope'=$2 AND (status IN ('QUEUED','PLANNING','EXECUTING','VERIFYING','WAITING_RETRY') OR COALESCE(payload->>'retiringTaskId','')<>'') AND next_wake<=$1 AND lease_until<=$1) candidates WHERE actor_rank<=2 ORDER BY updated_at,id LIMIT 32`, false},
+		{`SELECT id,actor_id FROM (SELECT id::text AS id,actor_id::text AS actor_id,updated_at,ROW_NUMBER() OVER (PARTITION BY actor_id ORDER BY updated_at,id) AS actor_rank FROM occccad.assistant_runs WHERE payload->>'credentialScope'=$2 AND (status IN ('QUEUED','PLANNING','EXECUTING','WAITING_RETRY') OR COALESCE(payload->>'retiringTaskId','')<>'') AND next_wake<=$1 AND lease_until<=$1) candidates WHERE actor_rank<=2 ORDER BY updated_at,id LIMIT 32`, false},
 	}
 	for _, lane := range queries {
 		rows, err := s.db.Query(ctx, lane.query, s.now().UnixMilli(), vault)
@@ -290,9 +290,6 @@ func (s *Service) stepRun(parent context.Context, id string) (resultErr error) {
 	if r.ActiveTaskID != "" {
 		return s.advanceStage(ctx, r)
 	}
-	if r.Status == "VERIFYING" {
-		return s.refreshGoalVerification(ctx, r)
-	}
 	if r.PendingCallID != "" {
 		c, e := loadCall(ctx, s.db, r.PendingCallID)
 		if e != nil {
@@ -326,9 +323,6 @@ func (s *Service) stepRun(parent context.Context, id string) (resultErr error) {
 			return nil
 		})
 		return e
-	}
-	if r.AppliedCount > 0 && (r.Verification == nil || r.Verification.GoalVersion != r.GoalVersion || r.Verification.RevisionID != r.LatestRevisionID) {
-		return s.refreshGoalVerification(ctx, r)
 	}
 	return s.planCall(ctx, r, nil)
 }
