@@ -32,6 +32,14 @@ export type PropertyAppearanceProjection={documentId:string;occurrencePath:strin
 export type PropertyPreview={documentId:string;versionId:string;occurrencePath?:string;appearances:PropertyAppearanceProjection[]};
 export type PartBody = { appearance?: SurfaceAppearance; displayFallback?: BodyDisplayFallback; consumed?: boolean; id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
 
+export type FeatureInputResolution = { status: "RESOLVED" | "MISSING" | "AMBIGUOUS" | "TYPE_MISMATCH" | "SOURCE_UNAVAILABLE" | "CONTRACT_MISMATCH" | "OUTSIDE_CURRENT_TIP"; diagnosticCode?: string; diagnostic?: string };
+export type FeatureInput = {
+  versionId: string; sourceFeatureId: string; artifact: Artifact; artifacts?: Artifact[];
+  picks: Array<FeatureInputResolution & {index: number; kind: string; localId?: number}>;
+  neutralPick?: FeatureInputResolution & {kind: string; localId?: number; bodyId: string; geometryKey: string; displayStageFeatureId?: string};
+  selection?: NonNullable<Feature["selections"]>[number];
+};
+
 export type Artifact = {
  displayStageFeatureId?:string;historicalPreview?:boolean;
   visualNamingDigest?: string;

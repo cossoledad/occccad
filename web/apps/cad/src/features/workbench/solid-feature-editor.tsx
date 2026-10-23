@@ -5,7 +5,7 @@ import { Alert, Button, Input, Segmented, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
 import { api } from "../../api/client";
-import type { Artifact, DocumentView, Feature, SelectionItem } from "../../types";
+import type { Artifact, DocumentView, Feature, FeatureInputResolution, SelectionItem } from "../../types";
 import type { FeaturePickRole, FeatureSelectionSession } from "../../cad/interaction/feature-selection";
 import { selectionKey } from "../../cad/interaction/selection-identity";
 import { parameterSourceText } from "./parameter-editor";
@@ -15,9 +15,12 @@ import { FeaturePickField } from "./feature-pick-field";
 import { useFeaturePreview } from "./use-feature-preview";
 import { randomUUID } from "../../utils/random-uuid";
 type BoundPick = {
+    id: string;
+    resolution: FeatureInputResolution;
     definition: NonNullable<Feature["selections"]>[number];
-    visual: SelectionItem;
+    visual?: SelectionItem;
 };
+const inputStatusText = (state: FeatureInputResolution) => ({RESOLVED:"有效",MISSING:"原对象已缺失",AMBIGUOUS:"引用存在歧义",TYPE_MISMATCH:"对象类型不匹配",OUTSIDE_CURRENT_TIP:"原对象已不在上游结果中",SOURCE_UNAVAILABLE:"引用来源不可用",CONTRACT_MISMATCH:"引用与来源不一致"})[state.status];
 export function SolidFeatureEditor(props: Parameters<typeof SolidFeatureDefinitionEditor>[0]) {
     return props.feature.pattern ? <PatternFeatureEditor {...props}/> : <SolidFeatureDefinitionEditor {...props}/>;
 }
@@ -44,6 +47,9 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const [draft, setDraft] = useState({ ...feature });
     const [role, setRole] = useState<FeaturePickRole>(pickRole), [seamIndex, setSeamIndex] = useState<number>();
     const [neutralVisual, setNeutralVisual] = useState<SelectionItem>();
+    const [neutralResolution, setNeutralResolution] = useState<FeatureInputResolution>();
+    const [replacement, setReplacement] = useState<string>();
+    const [inputError, setInputError] = useState<string>();
     const [picks, setPicks] = useState<BoundPick[]>([]), [axisVisual, setAxisVisual] = useState<SelectionItem>();
     const [error, setError] = useState<string>(), [committing, setCommitting] = useState(false), [binding, setBinding] = useState(0);
     const [inputContext, setInputContext] = useState<Awaited<ReturnType<typeof api.getFeatureInput>>>();
@@ -73,16 +79,20 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
                 return;
             setInputContext(context);
             callbacks.current.onInputArtifact(context.artifacts ?? context.artifact);
-            if (context.neutralPick) { const p = context.neutralPick; setNeutralVisual({ ...occurrenceContext, kind:"face", id:`input:neutral:${p.localId}`, documentId:view.document.id, bodyId:p.bodyId, versionId:context.versionId, geometryKey:p.geometryKey, displayStageFeatureId:p.displayStageFeatureId, topologyId:p.localId, occurrencePath }); }
-            setPicks(context.picks.map(p => ({ definition: feature.selections![p.index], visual: { ...occurrenceContext, kind: p.kind.toLowerCase() as "edge" | "face", id: `input:${p.kind}:${p.localId}`, documentId: view.document.id, bodyId: feature.bodyId, displayStageFeatureId:context.sourceFeatureId, versionId: context.versionId, geometryKey: context.artifact.geometryKey, topologyId: p.localId, occurrencePath } })));
+            if (context.neutralPick) {
+                const p = context.neutralPick;
+                setNeutralResolution(p);
+                if (p.status === "RESOLVED" && p.localId) setNeutralVisual({ ...occurrenceContext, kind:"face", id:`input:neutral:${p.localId}`, documentId:view.document.id, bodyId:p.bodyId, versionId:context.versionId, geometryKey:p.geometryKey, displayStageFeatureId:p.displayStageFeatureId, topologyId:p.localId, occurrencePath });
+            }
+            setPicks(context.picks.map(p => ({ id:`original/${p.index}`, definition: feature.selections![p.index], resolution:p, visual: p.status === "RESOLVED" && p.localId ? { ...occurrenceContext, kind: p.kind.toLowerCase() as "edge" | "face", id: `input:${p.kind}:${p.localId}`, documentId: view.document.id, bodyId: feature.bodyId, displayStageFeatureId:context.sourceFeatureId, versionId: context.versionId, geometryKey: context.artifact.geometryKey, topologyId: p.localId, occurrencePath } : undefined })));
         }).catch(cause => { if (current && !controller.signal.aborted)
-            setError(String(cause)); }).finally(() => { if (current)
+            setInputError(String(cause)); }).finally(() => { if (current)
             setLoadingInput(false); });
         return () => { current = false; controller.abort(); };
     }, []);
-    const current = useRef({ draft, role, inputContext, upstream, committing, validRevision });
-    current.current = { draft, role, inputContext, upstream, committing, validRevision };
-    const bindPick = (selection: SelectionItem) => {
+    const current = useRef({ draft, role, inputContext, upstream, committing, validRevision, picks });
+    current.current = { draft, role, inputContext, upstream, committing, validRevision, picks };
+    const bindPick = (selection: SelectionItem, replaceID?: string) => {
         setBinding(n => n + 1);
         queue.current = queue.current.then(async () => {
             if (!alive.current || !current.current.validRevision || current.current.committing)
@@ -108,7 +118,16 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             if (!alive.current || !current.current.validRevision)
                 return;
             const key = selectionKey(selection);
-            setPicks(previous => previous.some(p => selectionKey(p.visual) === key) ? previous.filter(p => selectionKey(p.visual) !== key) : [...previous, { definition, visual: selection }]);
+            if (replaceID && current.current.picks.some(p=>p.id!==replaceID && p.visual && selectionKey(p.visual)===key)) {
+                setError("该对象已在输入中，请选择其他对象或明确移除失效项");
+                return;
+            }
+            setPicks(previous => {
+                const bound: BoundPick = {id:replaceID??randomUUID(),definition,visual:selection,resolution:{status:"RESOLVED"}};
+                if (replaceID) return previous.map(p=>p.id===replaceID?bound:p);
+                return previous.some(p=>p.visual && selectionKey(p.visual)===key) ? previous.filter(p=>!p.visual || selectionKey(p.visual)!==key) : [...previous,bound];
+            });
+            setReplacement(previous=>previous===replaceID?undefined:previous);
             setError(undefined);
         }).catch(cause => { if (alive.current)
             setError(String(cause)); }).finally(() => { if (alive.current)
@@ -130,14 +149,14 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
                 definition = { selection:result.persistentSelection, sourceVersionId:version.current };
             }
             if (!alive.current || !current.current.validRevision) return;
-            edit({neutralPlaneId:undefined, neutralPlane:definition}); setNeutralVisual(selection); setRole(pickRole);
+            edit({neutralPlaneId:undefined, neutralPlane:definition}); setNeutralResolution({status:"RESOLVED"}); setNeutralVisual(selection); setRole(pickRole);
         }).catch(cause => { if (alive.current) setError(String(cause)); }).finally(()=>{if(alive.current)setBinding(n=>n-1);});
     };
     const pick = (selection: SelectionItem, chosenRole: FeaturePickRole = current.current.role) => {
         if ((selection.ownerDocumentId ?? selection.documentId) !== view.document.id || (selection.occurrencePath ?? "") !== (occurrencePath ?? "") || selection.versionId && selection.versionId !== version.current || committing || !validRevision)
             return;
         if (chosenRole === "edge" || chosenRole === "face") {
-            bindPick(selection);
+            bindPick(selection, replacement);
             return;
         }
         if (chosenRole === "point" && loft) {
@@ -173,6 +192,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             const plane = view.part?.datumPlanes.find(p => p.id === selection.datumPlane?.id || p.id === selection.entityId || p.id === selection.id);
             if (plane) {
                 edit({ neutralPlaneId: plane.id, neutralPlane: undefined });
+                setNeutralResolution({status:"RESOLVED"});
                 setNeutralVisual(selection);
                 setRole(pickRole);
             }
@@ -213,7 +233,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const restoredAxis: SelectionItem | undefined = axisParts?.[0] === "SKETCH_LINE" ? {
         kind: "visual", visualType: "CURVE", id: `${occurrencePath || "root"}:${axisParts[1]}:${axisParts[2]}`, featureId: axisParts[1], entityId: axisParts[2], bodyId: upstream.find(f => f.id === axisParts[1])?.bodyId, documentId: view.document.id, versionId: version.current, occurrencePath
     } : undefined;
-    const highlights: SelectionItem[] = modifier ? picks.map(p => p.visual) : loft ? (draft.sections ?? []).map(s => s.point?.sketchId ? ({kind:"visual",visualType:"POINT",id:`loft-point:${s.sketchId}:${JSON.stringify(s.point.reference)}`,featureId:s.sketchId,entityId:s.point.reference.entityId??s.point.reference.target,sketchReference:s.point.reference,documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : s.point?.axisEntityId ? ({kind:"axis-system",id:s.point.axisEntityId.split(":")[1],entityId:s.point.axisEntityId.split(":")[1],documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : sketchPick(view, s.sketchId, occurrencePath, s.memberSlot)) : draft.profile ? [sketchPick(view, draft.profile, occurrencePath, draft.profileMemberSlot)] : [];
+    const highlights: SelectionItem[] = modifier ? picks.flatMap(p => p.visual ? [p.visual] : []) : loft ? (draft.sections ?? []).map(s => s.point?.sketchId ? ({kind:"visual",visualType:"POINT",id:`loft-point:${s.sketchId}:${JSON.stringify(s.point.reference)}`,featureId:s.sketchId,entityId:s.point.reference.entityId??s.point.reference.target,sketchReference:s.point.reference,documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : s.point?.axisEntityId ? ({kind:"axis-system",id:s.point.axisEntityId.split(":")[1],entityId:s.point.axisEntityId.split(":")[1],documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : sketchPick(view, s.sketchId, occurrencePath, s.memberSlot)) : draft.profile ? [sketchPick(view, draft.profile, occurrencePath, draft.profileMemberSlot)] : [];
     if (axisVisual ?? restoredAxis)
         highlights.push((axisVisual ?? restoredAxis)!);
     if (neutralVisual) highlights.push(neutralVisual);
@@ -225,7 +245,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const sketchIdsToken = JSON.stringify(sketchIds);
 
     let input: Record<string, unknown> | undefined, parameterError: string | undefined;
-    const ready = validRevision && !loadingInput && !binding && (loft ? (draft.sections?.length ?? 0) >= 2 && !!draft.sections?.some(s=>!s.point) && !draft.sections?.some((s,i)=>s.point&&i!==0&&i!==draft.sections!.length-1) : modifier ? picks.length > 0 && !!draft.bodyId && (feature.type !== "DRAFT" || !!draft.neutralPlaneId || !!draft.neutralPlane) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId));
+    const unresolved = picks.filter(p=>p.resolution.status!=="RESOLVED");
+    const ready = validRevision && !loadingInput && !binding && !inputError && (!modifier || !feature.id || !!inputContext) && !unresolved.length && (!neutralResolution || neutralResolution.status==="RESOLVED") && (loft ? (draft.sections?.length ?? 0) >= 2 && !!draft.sections?.some(s=>!s.point) && !draft.sections?.some((s,i)=>s.point&&i!==0&&i!==draft.sections!.length-1) : modifier ? picks.length > 0 && !!draft.bodyId && (feature.type !== "DRAFT" || !!draft.neutralPlaneId || !!draft.neutralPlane) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId));
     try {
         const value = { ...draft, selections: modifier ? picks.map(p => p.definition) : draft.selections }, expressions: Record<string, string> = {};
         const read = (slot: "length" | "length2" | "angle", text: string) => { const parsed = solidParameterEdit(slot, text, original.current[slot], unit); if (parsed.value !== undefined)
@@ -267,8 +288,21 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
    {!modifier && !loft && <FeaturePickField label="轮廓" value={draft.profile ? name(draft.profile) : "请在视图区选择草图"} active={role === "profile"} onActivate={() => setRole("profile")} onClear={draft.profile ? () => edit({ profile: undefined }) : undefined}/>}
    {draft.profile && upstream.find(f=>f.id===draft.profile)?.type==="SKETCH_PATTERN" && <label>草图成员槽位<Input type="number" min={0} step={1} value={draft.profileMemberSlot} onChange={e=>edit({profileMemberSlot:e.target.value===""?undefined:Number(e.target.value)})}/></label>}
    {feature.type === "REVOLVE" && <FeaturePickField label="旋转轴" value={draft.axisEntityId ? "已选择 1 条轴线" : "请在视图区选择直线或轴"} active={role === "axis"} onActivate={() => setRole("axis")} onClear={draft.axisEntityId ? () => { edit({ axisEntityId: undefined }); setAxisVisual(undefined); } : undefined}/>}
-   {modifier && <FeaturePickField label={pickRole === "edge" ? "边集" : "面集"} value={loadingInput ? "正在恢复选择…" : `已选择 ${picks.length} ${pickRole === "edge" ? "条边" : "个面"}`} active={role === pickRole} onActivate={() => setRole(pickRole)} onClear={picks.length ? () => setPicks([]) : undefined}/>}
-   {feature.type === "DRAFT" && <FeaturePickField label="中性平面" value={draft.neutralPlane ? "已选择实体平面" : view.part?.datumPlanes.find(p => p.id === draft.neutralPlaneId)?.name ?? "选择基准面或实体平面"} active={role === "plane"} onActivate={() => setRole("plane")}/>}
+   {modifier && <FeaturePickField label={pickRole === "edge" ? "边集" : "面集"} value={loadingInput ? "正在恢复选择…" : unresolved.length ? `有效 ${picks.length-unresolved.length} 项，待修复 ${unresolved.length} 项` : `已选择 ${picks.length} ${pickRole === "edge" ? "条边" : "个面"}`} active={role === pickRole && !replacement} disabled={loadingInput || !!inputError || !!binding} onActivate={() => {setReplacement(undefined);setRole(pickRole);}} onClear={picks.length && !binding ? () => {setPicks([]);setReplacement(undefined);} : undefined}/>}
+   {modifier && feature.id && picks.length>0 && <details open={unresolved.length>0 || !!replacement}>
+    <summary>输入明细（{picks.length} 项）</summary>
+    {picks.map((p,i)=><div className="feature-reference-row" key={p.id} data-input-status={p.resolution.status}>
+     <span className="feature-reference-detail" title={p.resolution.diagnostic}><strong>{pickRole==="edge"?"边":"面"} {i+1}</strong><span>{replacement===p.id?"请在上游几何中选择替代对象":inputStatusText(p.resolution)}</span></span>
+     <Button size="small" aria-label={`替换输入 ${i+1}`} aria-pressed={replacement===p.id} disabled={!!binding} onClick={()=>{setReplacement(p.id);setRole(pickRole);}}>替换</Button>
+     <Button size="small" aria-label={`移除输入 ${i+1}`} disabled={!!binding} onClick={()=>{setPicks(previous=>previous.filter(item=>item.id!==p.id));setReplacement(undefined);}}>移除</Button>
+    </div>)}
+   </details>}
+   {unresolved.length>0 && <Alert type="warning" title="输入需要修复" description="请明确替换或移除每个失效输入。有效输入会保留；未处理前不能预览或确认。"/>}
+   {feature.type === "DRAFT" && <>
+    <FeaturePickField label="中性平面" value={neutralResolution && neutralResolution.status!=="RESOLVED" ? inputStatusText(neutralResolution) : draft.neutralPlane ? "已选择实体平面" : view.part?.datumPlanes.find(p => p.id === draft.neutralPlaneId)?.name ?? "选择基准面或实体平面"} active={role === "plane"} disabled={loadingInput || !!inputError || !!binding} onActivate={() => {setReplacement(undefined);setRole("plane");}} onClear={(draft.neutralPlane || draft.neutralPlaneId) && !binding ? ()=>{edit({neutralPlane:undefined,neutralPlaneId:undefined});setNeutralVisual(undefined);setNeutralResolution(undefined);} : undefined}/>
+    {neutralResolution && neutralResolution.status!=="RESOLVED" && <Alert type="warning" title="中性平面需要修复" description="请选择当前特征之前的基准面或实体平面。"/>}
+   </>}
+
    {loft && <>
     <FeaturePickField label="截面" value={`已选择 ${draft.sections?.length ?? 0} 个截面`} active={role === "profile"} onActivate={() => setRole("profile")} onClear={draft.sections?.length ? () => edit({ sections: [] }) : undefined}/>
     <FeaturePickField label="点端" value="选择草图点或基准原点" active={role === "point"} onActivate={()=>setRole("point")}/>
@@ -298,6 +332,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
    {!loft && <label>反向<Switch checked={draft.reversed} disabled={committing} onChange={reversed => edit({ reversed })}/></label>}
    {feature.id && <label>抑制<Switch checked={draft.suppressed} disabled={committing} onChange={suppressed => edit({ suppressed })}/></label>}
    <small role="status">{!validRevision ? "模型已改变，请关闭并重新打开此命令" : binding || loadingInput ? "正在恢复精确选择…" : preview.pending ? "正在预览…" : "在视图区点击添加选择，再次点击取消；参数修改后自动预览。"}</small>
+   {inputError && <Alert type="error" title="无法取得上游输入" description={inputError}/>}
    {(error ?? parameterError ?? preview.error) && <Alert type="error" title="特征求值失败" description={error ?? parameterError ?? preview.error}/>}
    {preview.error && <Button onClick={preview.retry}>重新预览</Button>}
 {!!preview.failure && <DiagnosticCopy text={diagnosticReference(preview.failure,{documentId:view.document.id,versionId:view.document.versionId})}/>}

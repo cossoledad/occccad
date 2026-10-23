@@ -69,9 +69,17 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 
 ## 输入修复边界
 
-`services/internal/workspace/feature_input.go:GetFeatureInput` 先重建上游阶段，再解析旧边/面及中性面；任一旧引用失败会返回整体错误，不能同时返回可用几何与逐项失效状态。`solid-feature-editor.tsx` 仅在请求成功后设置输入制品和拾取上下文。这是静态调用链确认的风险；尚无本轮真实操作证明倒圆角/倒角在该路径下的具体编辑阻塞，不能称为已复现缺陷或已修复闭环。
+`feature_input.go:GetFeatureInput` 重建目标特征之前的精确上游阶段，再逐项解析原边/面及中性面。`picks` 保留原索引和每项状态：RESOLVED、MISSING、AMBIGUOUS、TYPE_MISMATCH、OUTSIDE_CURRENT_TIP、SOURCE_UNAVAILABLE 或 CONTRACT_MISMATCH；只有唯一解析的项带 localId。实体中性面还要求精确 PLANE。跨 Body 来源被抑制为空时保留目标几何并报告中性面缺失；上游自身求值失败则返回实际失败 Feature ID/名称及原错误，不转换为引用状态。权限、服务和制品读取错误仍沿原错误链返回。
 
-原引用仍有效的编辑、普通失败预览恢复及已有 FAILED 定义修复，不能证明旧拓扑引用失效后的重选恢复。下一步按 [CAD 主线阶段 1](../../../plans/cad-core-roadmap.md#第一轮开发任务)先复现，再核对预览、保留 Feature ID 的提交、下游、历史及重开；抽壳开口面和拔模中性面同样受此入口限制。
+输入阶段的制品下载通过 `GetFeatureInputGeometry` 独立重建合法几何，再核对文档、Revision、Feature、Body 与对象范围，不依赖旧引用是否解析成功。Boolean 工具仍限定保存的上游工具阶段，历史结果仍只读；不能用下游结果或 displayFallback 绑定输入。
+
+`solid-feature-editor.tsx` 保留全部原定义，仅对有效项高亮。失效项必须明确替换或移除；未处理项、空的必需边/面集、未指定有效中性面都禁止预览和确认。新选择从同一只读阶段绑定正式 `sourceVersionId + sourceFeatureId + PersistentSelection`，不自动采用歧义候选或最近几何。保留的有效输入不重新绑定。
+
+沿用权威 Preview 和 EDIT_FEATURE；显式局部特征编辑在接纳前校验全部必需输入，不能把未处理引用保存为“修复成功”的 FAILED Revision。原 Feature ID、名称、顺序及 Body 保持不变；上游/参数变化导致的 FAILED/BLOCKED 与合法引用下的几何算法失败仍沿用原合同。预览、取消不写 Head；输入变化使旧候选失效。
+
+定向回归见 `services/internal/control/feature_input_repair_integration_test.go`：真实 Router/Worker 覆盖部分/全部引用失效、有效项保留、替换/移除、未处理输入拒绝、真实上游失败定位、原身份、下游恢复、Undo/Redo、重开，以及强制冷重建的 BREP/Naming 摘要一致。解析状态及平面类型门由 `workspace/feature_input_test.go` 与既有 Resolver corpus 覆盖。浏览器 `solid-feature-live.spec.ts` 的 `repairs lost topology` 使用真实 API 和实际视口拾取，覆盖四类特征及跨 Body 中性面来源消失；相关既有倒角和 Boolean 编辑也有定向回归。
+
+上述定向证据使用当前 SQLite、Release Worker 和 Chromium/SwiftShader；不是全部曲面、任意拓扑变化或 PostgreSQL 验收。歧义与类型不匹配有解析层回归，尚无对应复杂几何的浏览器实机案例。主体建模流程继续由后续实机验收确认；下一步见 [CAD 核心主线](../../../plans/cad-core-roadmap.md)。
 
 ## 验证入口与限制
 

@@ -161,4 +161,4 @@ DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投�
 - 特征仍选择整张草图 Profile；协议存在 ProfileRegion 不代表已交付稳定的用户区域选择。新增无关区域后的选择保持、失效定位与修复须按 [CAD 主线阶段 2](../../../plans/cad-core-roadmap.md#主线顺序)形成用户闭环。
 - 支撑解析失败当前按 FAILED_SUPPORT 原子拒绝并保留旧 Head；这不等于已具备失效支撑的重新指定工具。外部几何的 Reconnect/Detach 是独立能力，不能替代草图 support 重连。
 - 当前草图的精确修剪圆/椭圆弧投影已有实现；面边界组、Section、Silhouette、一般 B-spline 投影未交付。关联偏移、完整样条曲率/G2/G3、通用三维线框/曲面建模也不属于当前支持范围。
-- 独立 Hole、Sweep、到面/到下一面等关联终止条件，以及受依赖约束的历史插入/移动尚无完整用户闭环；现有切除孔、工具协议或历史阶段显示不能替代这些能力。实体特征的具体范围与失效引用入口问题见[实体 Feature](solid-features.md)。
+- 独立 Hole、Sweep、到面/到下一面等关联终止条件，以及受依赖约束的历史插入/移动尚无完整用户闭环；现有切除孔、工具协议或历史阶段显示不能替代这些能力。实体特征的具体范围与已实现的输入修复合同见[实体 Feature](solid-features.md)。

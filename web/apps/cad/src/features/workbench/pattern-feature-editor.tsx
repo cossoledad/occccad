@@ -95,7 +95,7 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
   useEffect(()=>{
     if(!feature.id||feature.type!=="SOLID_PATTERN")return;
     const controller=new AbortController();let current=true;
-    void api.getFeatureInput(view.document.id,{versionId:base.current,featureId:feature.id},controller.signal).then(result=>{if(current){onInputArtifact(result.artifacts??result.artifact);if(result.neutralPick){const p=result.neutralPick;setPlaneVisual({...occurrenceContext,kind:"face",id:`input:mirror:${p.localId}`,documentId:view.document.id,bodyId:p.bodyId,versionId:result.versionId,geometryKey:p.geometryKey,displayStageFeatureId:p.displayStageFeatureId,topologyId:p.localId,occurrencePath});}}}).catch(cause=>{if(current&&!controller.signal.aborted)setError(String(cause));});
+    void api.getFeatureInput(view.document.id,{versionId:base.current,featureId:feature.id},controller.signal).then(result=>{if(current){onInputArtifact(result.artifacts??result.artifact);if(result.neutralPick?.status==="RESOLVED"&&result.neutralPick.localId){const p=result.neutralPick;setPlaneVisual({...occurrenceContext,kind:"face",id:`input:mirror:${p.localId}`,documentId:view.document.id,bodyId:p.bodyId,versionId:result.versionId,geometryKey:p.geometryKey,displayStageFeatureId:p.displayStageFeatureId,topologyId:p.localId!,occurrencePath});}}}).catch(cause=>{if(current&&!controller.signal.aborted)setError(String(cause));});
     return ()=>{current=false;controller.abort();onInputArtifact();};
   },[]);
   const pickRef=useRef(pick);pickRef.current=pick;

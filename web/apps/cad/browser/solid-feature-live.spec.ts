@@ -334,3 +334,87 @@ test("chamfered box fillet and shell retain exact history, failed display and tr
  expect(readyBody.displayFallback).toBeUndefined();expect(recovered.artifacts[readyBody.geometryKey].volume).toBeCloseTo(24000,5);
  expect(errors).toEqual([]);
 });
+
+for (const featureType of ["FILLET","CHAMFER","SHELL","DRAFT"] as const) {
+ test(`repairs lost topology inputs for ${featureType} through actual viewport picks`,async({page},testInfo)=>{
+  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+  const seed=await page.evaluate(async featureType=>{
+   // @ts-ignore production Vite module, real API/Router/Worker
+   const {restApi:api}=await import("/src/api.ts");
+   let v=await api.createDocument("PART",`Lost input ${featureType}`);const id=v.document.id;
+   const apply=async(r:Record<string,unknown>)=>{v=await api.command(id,r);};
+   const pad=async(x:number,y:number,w:number,h:number,length:number)=>{
+    await apply({type:"CREATE_SKETCH",plane:"XY"});const sketchId=v.part!.features.at(-1)!.id;
+    await apply({type:"EDIT_SKETCH",sketchId,operations:[{type:"ADD_RECTANGLE",first:{x,y},second:{x:x+w,y:y+h}}]});
+    await apply({type:"CREATE_SOLID_FEATURE",sketchId,generator:"LINEAR_EXTRUDE",operation:"ADD",length});return v.part!.features.at(-1)!;
+   };
+   const base=await pad(-20,-20,40,40,10),stem=await pad(-5,-5,10,10,20);
+   const pick=async(featureId:string,kind:"EDGE"|"FACE",slot:string,front=false,excludeSlot?:string,bodyId=base.bodyId)=>{
+    const a=v.artifacts![v.part!.bodies.find(b=>b.id===bodyId)!.geometryKey!];
+    for(let localId=1;localId<=Number(a.topology[kind==="EDGE"?"edges":"faces"]);localId++){
+     const p=await api.getTopologyProperties(id,a.geometryKey,kind,localId,v.document.versionId),s=p.persistentSelection;
+     if(s?.anchor.featureId===featureId&&s.anchor.outputSlot.startsWith(slot)&&s.anchor.outputSlot!==excludeSlot&&(!front||(s.creationEvidence.centroid?.[1]??0)<-19))return{selection:s,sourceVersionId:v.document.versionId};
+    }
+    throw new Error("required stable topology not found");
+   };
+   const kind=featureType==="FILLET"||featureType==="CHAMFER"?"EDGE":"FACE";
+   const slot=kind==="EDGE"?"END_BOUNDARY_FROM_PROFILE_EDGE/":featureType==="DRAFT"?"SIDE_FROM_PROFILE_EDGE/":"END_CAP/";
+   const lost=await pick(stem.id,kind,slot),kept=await pick(base.id,kind,slot,featureType==="FILLET");
+   const selections=featureType==="FILLET"?[kept,lost]:featureType==="DRAFT"?[kept]:featureType==="CHAMFER"?[lost,await pick(stem.id,kind,slot,false,lost.selection.anchor.outputSlot)]:[lost];
+   let neutralPlane,neutralSource:typeof stem|undefined;
+   if(featureType==="DRAFT"){
+    await apply({type:"CREATE_BODY"});neutralSource=await pad(-5,-5,10,10,20);
+    neutralPlane=await pick(neutralSource.id,"FACE","END_CAP/",false,undefined,neutralSource.bodyId);
+    await apply({type:"SET_ACTIVE_BODY",bodyId:base.bodyId});
+   }
+   await apply({type:"CREATE_MODIFY_FEATURE",feature:{type:featureType,bodyId:base.bodyId,length:.5,angle:2,selections,neutralPlane}});
+   const feature=v.part!.features.at(-1)!;const downstream=await pad(-2,-2,4,4,25);
+   const digest=(target:string)=>{const find=(node:any):any=>node.entityId===target&&node.presentationRole!=="INPUT_REFERENCE"?node.definitionDigest:node.children?.map(find).find(Boolean);return find(v.structureTree);};
+   await apply({type:"SET_FEATURE_SUPPRESSION",targetId:stem.id,expectedFeatureDigest:digest(stem.id),suppressed:true});
+   if(neutralSource)await apply({type:"SET_FEATURE_SUPPRESSION",targetId:neutralSource.id,expectedFeatureDigest:digest(neutralSource.id),suppressed:true});
+   if(v.part!.features.find(f=>f.id===feature.id)!.evaluationStatus!=="FAILED")throw new Error("fixture did not invalidate saved topology");
+   return{id,feature,downstream:downstream.id,failedHead:v.document.versionId};
+  },featureType);
+  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+  const name={FILLET:"圆角",CHAMFER:"倒角",SHELL:"抽壳",DRAFT:"拔模"}[featureType];
+  const open=async()=>{await page.getByRole("textbox",{name:"筛选模型结构"}).fill(seed.feature.name);await page.getByRole("treeitem").filter({hasText:seed.feature.name}).first().dblclick();};
+  await open();let dialog=page.getByRole("dialog",{name:`编辑 ${name}`,exact:true});
+  await expect(dialog.getByText(featureType==="DRAFT"?"中性平面需要修复":"输入需要修复",{exact:true})).toBeVisible();
+  await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
+  await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
+  expect((await current(page,seed.id)).document.versionId).toBe(seed.failedHead);
+  if(featureType==="FILLET"){
+   await expect(dialog.locator('[data-input-status="RESOLVED"]')).toHaveCount(1);
+   await expect(dialog.locator('[data-input-status="OUTSIDE_CURRENT_TIP"]')).toHaveCount(1);
+  }
+  if(featureType==="DRAFT")await dialog.getByRole("button",{name:/^中性平面：/}).click();
+  else await dialog.getByRole("button",{name:`替换输入 ${featureType==="FILLET"?2:1}`,exact:true}).click();
+  await clickWorld(page,featureType==="FILLET"||featureType==="CHAMFER"?[20,0,10]:[10,-10,10]);
+  if(featureType==="CHAMFER"){
+   await expect(dialog.locator('[data-input-status="RESOLVED"]')).toHaveCount(1);
+   await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
+   await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
+   await dialog.getByRole("button",{name:"移除输入 2",exact:true}).click();
+  }
+  await ready(page,dialog);
+  expect((await current(page,seed.id)).document.versionId).toBe(seed.failedHead);
+  if(featureType==="FILLET"){
+   // Cancel an actual successful repair preview, then restore the saved broken inputs.
+   await dialog.getByRole("button",{name:/取\s*消/}).click();await expect(dialog).toHaveCount(0);
+   await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
+   expect((await current(page,seed.id)).document.versionId).toBe(seed.failedHead);
+   await open();dialog=page.getByRole("dialog",{name:`编辑 ${name}`,exact:true});
+   await expect(dialog.locator('[data-input-status="OUTSIDE_CURRENT_TIP"]')).toHaveCount(1);
+   await dialog.getByRole("button",{name:"替换输入 2",exact:true}).click();
+   await clickWorld(page,[20,0,10]);await ready(page,dialog);
+  }
+  await page.screenshot({path:testInfo.outputPath(`repaired-${featureType}.png`)});
+  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+  const repaired=await current(page,seed.id),feature=repaired.part.features.find((f:any)=>f.id===seed.feature.id);
+  expect(feature).toMatchObject({id:seed.feature.id,name:seed.feature.name,order:seed.feature.order,bodyId:seed.feature.bodyId});
+  expect(feature.evaluationStatus).not.toBe("FAILED");expect(repaired.part.features.find((f:any)=>f.id===seed.downstream).evaluationStatus).not.toBe("BLOCKED");
+  if(featureType==="FILLET")expect(feature.selections[0]).toEqual(seed.feature.selections[0]);
+  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===seed.feature.id)).toEqual(feature);
+  expect(errors).toEqual([]);
+ });
+}

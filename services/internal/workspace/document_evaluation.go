@@ -104,6 +104,23 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 			}
 		} else {
 			diagnostic.stage("GEOMETRY")
+			// An explicit modifier edit must resolve all of its required inputs.
+			// Upstream/parameter changes may still create inspectable FAILED
+			// revisions; accepting such a revision is not a repair confirmation.
+			if !promoted && prepared.command.TypeURI == typeEditFeature {
+				var edit editFeaturePayload
+				if err := json.Unmarshal(prepared.command.Payload, &edit); err != nil {
+					return err
+				}
+				for _, feature := range model.Features {
+					if feature.ID == edit.FeatureID && isLocalModifier(feature.Type) && !feature.Suppressed {
+						if _, err := service.modifierInput(ctx, prepared.requestID+"/validate-input", model, feature); err != nil {
+							return featureInputStageError(model, feature.ID, err)
+						}
+						break
+					}
+				}
+			}
 			finishGeometry := perf.Start(ctx, "geometry-evaluate")
 			err = service.evaluatePartBodies(ctx, prepared.requestID, &model)
 			finishGeometry()
