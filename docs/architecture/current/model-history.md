@@ -1,6 +1,6 @@
 # 模型、命令、历史与参数
 
-本文拥有当前 Domain Command、Workspace、Revision、ChangeSet、依赖投影与 Undo/Redo 合同。修改时先读下面的调用链与源码路由；长期语义见[命令历史](../target/commands-history.md)与[参数求值](../target/parameters-evaluation.md)。
+本文拥有当前 Domain Command、Workspace、Revision、ChangeSet、依赖投影与 Undo/Redo 合同。修改时先读下面的调用链与源码路由；跨领域约定见[平台与领域约定](../target/system.md)。
 
 ## 权威调用链
 
@@ -72,10 +72,6 @@ invoke check --scope workspace
 
 Escalate to services/web when a public view or API changes, and to `all` for migrations, shared protocol, cross-language evaluator contracts or broad history semantics. Development data reset does not replace state-transition, retry and Undo/Redo tests.
 
-## 当前实现
-
-> 返回[当前架构目录](README.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
-
 ## 业务与数据模型
 
 PostgreSQL schema 名为 `occccad`；SQLite Local Mode 在独立本机文件中建立相同领域关系，使用显式外键、唯一与类型检查。应用通过供应商无关的数据库接口持久化；两种模式共享 Revision/CAS、幂等、补偿历史与 Outbox 合同。当前两种后端各通过一个 `0001_baseline.sql` 建立完整结构，目录分别为 `postgres_migrations/` 与 `sqlite_migrations/`；后续迁移保持同名、同编号。旧开发迁移链需要显式重建，普通迁移不会自动删除或改写旧数据。主要关系如下。
@@ -108,7 +104,7 @@ erDiagram
 
 ### Document 与 Version
 
-Product 的机构／研究定义通过 `occccad://product/kinematics/set` 命令及 `product.kinematics` PropertySlot 保存，要求当前 base Revision 并遵循 CAS、ChangeSet 和补偿历史。定义保存绑定并权威求解机构关系，保存成员 accepted，不直接改 Product instance.pose；应用切换或显式转换再按目标关系提交产品位置。Undo/Redo 恢复正式定义及位置。后台运行／播放是冻结版本的派生计算和临时显示，不创建逐帧 Revision；当前回放采用位置的具体行为见[机构合同](kinematics-dmu.md)。未来关键帧与当前机构位置的一次提交合同见[录制设计](../target/kinematics-dmu.md)。
+Product 的机构／研究定义通过 `occccad://product/kinematics/set` 命令及 `product.kinematics` PropertySlot 保存，要求当前 base Revision 并遵循 CAS、ChangeSet 和补偿历史。定义保存绑定并权威求解机构关系，保存成员 accepted，不直接改 Product instance.pose；应用切换或显式转换再按目标关系提交产品位置。Undo/Redo 恢复正式定义及位置。后台运行／播放是冻结版本的派生计算和临时显示，不创建逐帧 Revision；当前回放采用位置的具体行为见[机构合同](kinematics-dmu.md)。未来关键帧与当前机构位置的一次提交合同见[录制设计](kinematics-dmu.md)。
 
 - Document 类型当前为 Part 或 Product；
 - Document 以 UUID `id` 为唯一身份，`name` 是允许重复的显示属性；创建界面按已有名称提供首个可用的 `PartN`/`ProductN` 默认值，但默认值和名称都不参与身份或引用解析；

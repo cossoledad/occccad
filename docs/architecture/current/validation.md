@@ -1,6 +1,6 @@
 # 可观测性与验证
 
-> 返回[当前架构目录](README.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
+> 返回[当前架构目录](README.md)。日志与诊断在本文维护；检查执行和状态判定见[Agent 工作流](../../development/agent-workflow.md)。
 
 ## 可观测性、构建与测试
 
@@ -14,7 +14,7 @@ Web 另有独立 `pnpm test:browser` 入口，Playwright 自动启动端口 5174
 
 - C++ Geometry Worker 使用 Conan 固定的 spdlog 1.15.3，同时写彩色控制台和按 Worker 地址隔离的滚动文件；默认文件位于 `services/logs/`，单文件 10 MiB、保留 5 个，级别复用 `OCCCCAD_LOG_LEVEL`。
 
-测试资产现在由被测模块拥有，而不是按语言堆在仓库根目录：C++ 场景位于对应 library 的 `tests/` 并由局部 CMake 注册；Web 场景位于 `src/**/testing/*.scenario.mjs`，统一 runner 自动发现后为每个场景启动独立进程；Go 遵循工具链，将 package 白盒测试保留为邻近 `_test.go`，只有跨 package、跨进程的公共契约测试进入 `tests/go`。`tests/test.data/` 统一保存 STEP/BREP、数值重放、草图输入、测试合同基线与验收记录；测试代码和执行入口仍邻近实现，根 `tests/` 不再作为语言分类目录。`invoke test` 保持构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Web 场景的全量入口。
+测试资产现在由被测模块拥有，而不是按语言堆在仓库根目录：C++ 场景位于对应 library 的 `tests/` 并由局部 CMake 注册；Web 场景位于 `src/**/testing/*.scenario.mjs`，统一 runner 自动发现后为每个场景启动独立进程；Go 遵循工具链，将 package 白盒测试保留为邻近 `_test.go`，只有跨 package、跨进程的公共契约测试进入 `tests/go`。`tests/test.data/` 统一保存 STEP/BREP、数值重放、草图输入、测试合同基线及静态测量数据；测试代码和执行入口仍邻近实现，根 `tests/` 不再作为语言分类目录。`invoke test` 保持构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Web 场景的全量入口。
 
 `invoke check` / `invoke test` 使用同一验证执行器、开发环境和终态规则。check 支持领域、精确测试、工作区/暂存区/提交区间选择及 JSON 计划；真实跨层验证重建匹配的 Worker，Go 强制实际执行，CTest 使用新 JUnit。父 PASS 不隐藏子 skip，未选择验证不报告通过；可选/其他后端跳过与必需环境阻塞分开。完整日志、每项执行结果、耗时、输出字节及源码/资源身份写入 `build/agent-check/<run>/`；源码在执行期间变化时结果标记 SOURCE_CHANGED。命令和升级规则归[Agent 工作流](../../development/agent-workflow.md)。
 
@@ -22,7 +22,7 @@ Web 另有独立 `pnpm test:browser` 入口，Playwright 自动启动端口 5174
 
 Web scenario runner 支持一个或多个路径/文件名片段的 OR 筛选、`--list` 和 `--verbose`。默认每个子进程输出被缓冲，全部成功时只输出场景计数，失败时仅展开失败场景的 stdout/stderr。Web 当前使用 Vite SSR 加载真实 Tool/状态模块，覆盖完整 pointer 手势、操作批次、约束选择、尺寸输入和实时生命周期；浏览器布局、WebGL 拾取及真实后端组合 E2E 仍待补充。
 
-Agent 上下文按根 repository router、五个高频 local `AGENTS.md` 和 `docs/README.md` 架构知识路由渐进加载。生成代码、corpus、锁文件、制品与超过阈值的大型源文件仍可按需访问，但不再是默认探索对象；当前与目标架构目录分别路由到事实分册和长期契约分册。
+Agent 上下文按根 repository router、五个高频 local `AGENTS.md` 和 `docs/README.md` 架构知识路由渐进加载。生成代码、corpus、锁文件、制品与超过阈值的大型源文件仍可按需访问，但不再是默认探索对象；current 路由到当前事实，target 仅保留仍成立的架构约定。
 
 ## 实现与验证入口
 
@@ -31,9 +31,9 @@ Agent 上下文按根 repository router、五个高频 local `AGENTS.md` 和 `do
 - [跨模块验证路由](../../../tests/README.md)
 - [文档审计及规模测量](../../../tools/documentation_audit.py)、[审计负例](../../../tests/python/test_documentation_audit.py)
 
-## 最新性能基线
+## 性能测量入口
 
-当前本机 Release 的全仓性能入口、样本与计时边界统一归[性能基线](../../validation/performance-baseline.md)。Native/Router 每场景 20 次，Go 全部 10 项各 5 组，连续建模 3×100 步；性能与浏览器/工业验收仍分别记录。
+带日期与环境的本机 Release 样本及计时边界统一归[性能基线](../../validation/performance-baseline.md)。Native/Router 每场景 20 次，Go 全部 10 项各 5 组，连续建模 3×100 步；性能与浏览器/工业验收仍分别记录。
 
 ## 操作失败诊断快照
 

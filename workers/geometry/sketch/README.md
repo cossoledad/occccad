@@ -140,7 +140,7 @@ Line × Arc/EllipticalArc 指定 START/END 时使用真实端点接触和原生�
 完整约束与精确目标。点点距离不作为平行间距初值，既不新增 Fix 也不删除关系；任一步失败
 返回原始诊断与原始几何。自由四圆角矩形的往返长度/间距回归包含独立长度、端点连接和
 圆弧半径/范围断言，入口 `FreeRoundedRectangleLargeVisibleDimensionEditsPreserveResiduals`。
-该回归六次大步合计约 19 秒；仅 Go SolveSketch 的 RPC 截止时间为 15 秒，仍服从调用者
+Go SolveSketch 的 RPC 截止时间为 15 秒，仍服从调用者
 总体截止/取消，曲线预览截止时间不变。周期角度输出按输入有向 sweep 规范整周表达，
 不会将持久长弧统一缩为短弧。
 

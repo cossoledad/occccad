@@ -1,17 +1,7 @@
 # 验证与测量
 
-验证说明保留执行范围、环境、结果和遗留限制；可重建测试入口由[测试路由](../../tests/README.md)维护，当前算法归[current](../architecture/current/README.md)，未完成工作归[plans](../../plans/README.md)。不依赖临时开发文档、Revision 或诊断编号，不把旧结果当作当前全量通过声明。原始日志和排错步骤放 `build/`，历史由 Git 追溯。
+可执行检查由[测试路由](../../tests/README.md)维护；当前功能及限制归[当前架构](../architecture/current/README.md)，下一步归 [CAD 核心主线](../../plans/cad-core-roadmap.md)。
 
-| 类型 | 入口 |
-|---|---|
-| 全仓性能测量 | [范围与结果](performance-baseline.md)、[机器样本](performance-baseline.json) |
-| 持续 AI Run | [容量、恢复、选择与装配验收](ai-native-runs.md) |
-| 无模型查询调试 | [工具结果一致性、倒角立方体与孔口边基线](cad-query-debug-baseline.md) |
-| 用量、导出与选择读取 | [稳定轮次归属、完整快照及紧凑选择](assistant-usage-export.md) |
-| 当前请求职责边界 | [自然回复、按需检查、半径修改与恢复](assistant-request-boundaries.md) |
-| 目标验收与查询绑定（历史） | [来源覆盖、账本引用及 100 mm 立方体连续回归](assistant-goal-coverage.md) |
-| 连续建模 | [固定建模序列](continuous-modeling-100-baseline.md) |
-| 增量运行时 | [冷/热与淘汰范围](incremental-modeling-runtime-validation.md) |
-| Agent 工作流 | [定位/验证测量](agent-workflow-baseline.md)、[机器样本](agent-workflow-baseline.json) |
+长期保留的测量只有[性能基线](performance-baseline.md)及其[机器样本](performance-baseline.json)，明确日期、环境、输入和计时范围，不能当作当前全量通过声明。自动化的定向证据边界与重建入口并入[所属主题](../architecture/current/automation.md#验证入口)。
 
-抽壳的最终构造及验收入口统一见[抽壳算法](../architecture/current/shell-algorithm.md)；圆角、配色、导航、选择和实体特征分别进入当前架构的所属主题，不维护重复的实现过程说明。静态几何输入与合同由 [test.data](../../tests/test.data/README.md)拥有。
+交付过程、重复分析、旧任务提示和临时业务 ID 不另存文档；历史由 Git 保留，运行日志与派生报告放 build/。活跃测试、夹具和静态数据仍由 [test.data](../../tests/test.data/README.md)拥有。

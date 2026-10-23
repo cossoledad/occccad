@@ -53,7 +53,7 @@ scope 明确 PART_LOCAL 与 mm/rad；lengthMM、areaMM2 已从 Naming SI 测量�
 
 使用“20 mm 立方体 → 所有 12 条边倒角 1 mm → XY 中心 Ø6 mm 贯穿孔 → 检查两个孔口边”。用紧凑圆柱面信息人工确定指定面，再按 CIRCLE、R3 与关联面筛选；limit=1 时本页只有一条，集合仍须有两条。查看另页或展开一条正式证据，原范围应不变。原生回归还覆盖同半径第二孔/凸台干扰与筛选集合的真实倒角。人工确定圆柱面不是自动理解“孔口”；不根据命名字符串识别，不按显示名、local ID 或第一页位置保存身份。
 
-本轮真实 Worker 数据和已确认缺口见[基础回归](../validation/cad-query-debug-baseline.md)。轻量重建入口：
+当前查询范围、真实 Worker 证据边界和缺口见[自动化合同](../architecture/current/automation.md#当前限制)。轻量重建入口：
 
 ```sh
 # services/

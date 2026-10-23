@@ -51,3 +51,5 @@
 - `services/internal/geometry/shell_worker_integration_test.go`：真实 Worker 与制品；`web/apps/cad/browser/solid-feature-live.spec.ts`：真实预览、提交、编辑、失败恢复和重开。
 
 执行入口为 `invoke check --scope geometry --match Shell`；测试范围与实际结果另行记录，不将测试存在视为验收通过。
+
+已有执行边界：2026-10-16 的 `ShellAfterLargeModifiersAndMixedLoft`、`ShellOffsetRectangleToLargerCircle` 曾失败；2026-10-21 同名用例在 Release CTest 中分别通过（当日 403/403）。因此不继续将旧失败列为确认未修复缺陷，也不由后来通过推断任意厚度/曲面的能力。本次文档整理只核对两次原始 CTest 日志，未重跑抽壳或其浏览器链路。

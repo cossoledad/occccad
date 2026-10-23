@@ -48,7 +48,7 @@ occccad 是早期可运行的云原生参数化 CAD。参数模型与不可变 R
 
 ## 知识维护与交付
 
-当前事实归 [current](docs/architecture/current/README.md)，长期契约归 [target](docs/architecture/target/README.md)，未完成工作归 [plans](plans/README.md)。AGENTS 放稳定规则/路由，模块 README 放职责/接口/运行，验证记录不冒充当前保证。
+当前事实归 [current](docs/architecture/current/README.md)，仍成立的架构约定归 [target](docs/architecture/target/README.md)；[CAD 核心主线](plans/cad-core-roadmap.md)是唯一 CAD 主线任务入口，未解决问题归所属 current 主题的限制。AGENTS 放稳定规则/路由，模块 README 放职责/接口/运行，验证记录不冒充当前保证。
 
 CATIA 对照用本机 `/mnt/c/UserApp/3D/DS/Dassault Systemes/B33doc/English/`：先搜 `control/*.viewdoc`，再读引用的 `online/*`；记录具体页面，并区分参考行为、当前实现和目标语义。
 

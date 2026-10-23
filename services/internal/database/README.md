@@ -4,7 +4,7 @@
 
 ## 选择模式
 
-PostgreSQL 是主要业务数据库与核心集成验收后端；SQLite 保留为 Local Mode 和兼容性验证。默认沿用 `OCCCCAD_POSTGRES_*`；显式 `OCCCCAD_DATABASE_URL` 优先：
+PostgreSQL 与 SQLite 由同一配置入口选择；真实集成沿用正常启动的当前配置，不另设测试连接。`OCCCCAD_DATABASE_URL` 优先，空值时由 `OCCCCAD_POSTGRES_*` 生成 PostgreSQL URL；`.env.example` 保留这一默认：
 
 ```dotenv
 # PostgreSQL（继续支持原有 pgx 连接参数）

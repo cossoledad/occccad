@@ -7,7 +7,7 @@
 - C++ 装配 solver 场景位于 `kernel/assembly/tests`，Sketch solver 场景位于 `workers/geometry/sketch/tests`，OCCT 几何场景位于 `kernel/occt/tests`，由所属模块的 CMake 注册；
 - Web 场景位于对应 `src/**/testing/*.scenario.mjs`，每个文件在独立 Node 进程运行并由 `pnpm test` 自动发现；
 - Go 遵循工具链要求，以邻近 `_test.go` 构建 package-private 白盒测试；本目录的 `go/` 只保留通过公开边界运行的多包/进程测试；
-- `test.data/` 是文件型测试数据的唯一入口，保存 STEP/BREP、最小数值重放、草图输入、测试合同数据与截图；验收报告归[验证记录](../docs/validation/README.md)；目录说明见 [test.data/README.md](test.data/README.md)。测试代码及生产合同仍由原模块拥有。
+- `test.data/` 是文件型测试数据的唯一入口，保存 STEP/BREP、最小数值重放、草图输入、测试合同数据与截图；必要测量归[验证记录](../docs/validation/README.md)，功能限制与证据边界归所属当前主题；目录说明见 [test.data/README.md](test.data/README.md)。测试代码及生产合同仍由原模块拥有。
 
 `invoke test` 是全量入口，依次执行全部 `tests/python` 开发工具单测、模块注册的 CTest、`services/` Go package tests、`tests/go` conformance 和自动发现的 Front 场景。Agent/局部开发使用 `invoke check --scope <domain>`，或直接运行 `invoke check` 让 Git changed-file mapping 保守选择 `assembly / geometry / sketch / workspace / services / web / all`。公共 Proto、数据库迁移、共享构建/Worker 边界和未知路径自动升级到 `all`。终态区分通过、明确不适用的跳过、环境阻塞、失败、未执行和验证期间源码变化；报告绑定当前制品与资源。失败保留完整 stdout/stderr 和复现命令，`--verbose` 可流式显示。
 

@@ -1,6 +1,6 @@
 # Worker、Router 与 Job 合同
 
-本文集中说明 Proto、Geometry Worker、Router、Artifact 与 Job 之间的调用链和提交门禁。领域边界以[计算部署](../target/compute-boundaries.md)和[分布式平台](../target/distributed-platform.md)为准；已交付能力以[运行边界](runtime.md)、[Part RPC](part-sketch.md)、[Jobs/Artifact](jobs-artifacts.md)和代码为准。
+本文集中说明 Proto、Geometry Worker、Router、Artifact 与 Job 之间的调用链和提交门禁。领域约定见[平台与领域约定](../target/system.md)；已交付能力以[运行边界](runtime.md)、[Part RPC](part-sketch.md)、[Jobs/Artifact](jobs-artifacts.md)和代码为准。
 
 ## 权威边界
 
@@ -52,7 +52,7 @@ Job key 应覆盖规范输入、依赖 Revision、evaluator/kernel/solver 版本
 
 | 类别 | 示例 | 处理原则 |
 |---|---|---|
-| 用户模型 | 开轮廓、量纲错误、无解约束 | 稳定领域 code、可定位诊断，可形成失败 Revision |
+| 用户模型 | 开轮廓、量纲错误、无解约束 | 稳定领域 code、可定位诊断；是否允许失败 Revision 以具体命令合同为准 |
 | 数值/拓扑 | OCCT 失败、歧义、多解、容差退化 | 保留算法上下文与 provenance，不以旧几何冒充成功 |
 | 冲突 | expected head 不匹配、lease 失效 | 拒绝迟到提交，由调用方重基或重算 |
 | 基础设施 | timeout、Worker crash、对象存储不可用 | 在幂等边界内重试，区分 cancel 与 retryable failure |

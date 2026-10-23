@@ -13,7 +13,7 @@
 | ProjectExternalGeometry | 已解析支持到草图平面的权威投影；[Part/Sketch](../../docs/architecture/current/part-sketch.md) |
 | EvaluatePart / ResolveLoftCorrespondence | 每 Body 的冻结链/阶段续算、截面对应；[实体 Feature](../../docs/architecture/current/solid-features.md) |
 | SolveAssembly | body-local 几何与纯值方程；[算法](../../kernel/assembly/SOLVER_ALGORITHMS.md)，Product/Session 仍由 Go 管理 |
-| AnalyzeInterference | 不可变 BREP/Pose 分析；[当前 DMU](../../docs/architecture/current/kinematics-dmu.md) |
+| AnalyzeInterference | 不可变 BREP/Pose 的底层分析；[exact 输入与限制](../../docs/architecture/current/geometry-representations.md#独立几何分析的-exact-输入)，不代表已交付干涉应用 |
 | InspectExchange / ImportExchange / ExportExchange | ArtifactReference 上的 STEP/BREP/XDE；[交换](../../docs/architecture/current/jobs-artifacts.md) |
 | GetTopology | 冷恢复/缓存精确面边点及提示；[几何制品](../../docs/architecture/current/geometry-representations.md) |
 
@@ -70,7 +70,7 @@ Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用�
 
 ## 设计与验证边界
 
-二维草图与 Part 求值同进程，三维装配由本 Worker 调用独立算法库；负载或隔离证据才触发独立 Worker，见[计算边界](../../docs/architecture/target/compute-boundaries.md)。
+二维草图与 Part 求值同进程，三维装配由本 Worker 调用独立算法库；负载或隔离证据才触发独立 Worker，见[计算边界约定](../../docs/architecture/target/system.md#计算制品与安全)。
 
 数值 profile、build policy、Naming evaluator 的准确版本看 Proto、源码常量与锁定依赖，不在 README 重复历史版本。`SolveAssemblyResponse.effective_solver_profile` 冻结实际数值默认值供 [3dreplay](../../services/cmd/occccad-3dreplay/README.md)重放；classification tolerance 不得严于 convergence tolerance，nominal 与 warm start 各有职责。
 

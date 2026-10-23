@@ -67,4 +67,4 @@ Live 用例创建独立验收文档，不重置数据库；其具体覆盖由测
 
 API 请求诊断在内存保留最近 200 项，携带浏览器总耗时和 Server-Timing；侧栏显示最后完成请求的毫秒耗时，不是命令总时长或后端 CPU 时间。复杂失败使用现有诊断包和原请求回执恢复，不能重新生成未知提交的操作身份。
 
-GLB 按对象摘要去重，解码数据归视口，不回填 Query 模型。可丢弃 render pose 不回写权威快照。大树分页、渐进工作集与工业规模性能仍须独立验证；长期方向见[大模型设计](../../../docs/architecture/target/large-models.md)。
+GLB 按对象摘要去重，解码数据归视口，不回填 Query 模型。可丢弃 render pose 不回写权威快照。大树分页和渐进工作集未交付；完整工作集、解码/BVH 与工业容量边界见[显示制品](../../../docs/architecture/current/geometry-representations.md#验证与边界)。

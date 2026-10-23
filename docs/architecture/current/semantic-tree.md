@@ -4,7 +4,7 @@
 
 `PartModel` 保存 Body、Feature、Sketch 输入、Publication 与 ContextReference；`ProductModel` 保存 occurrence、版本策略、Publication、Binding 和约束。`workspace.Service.buildDocumentStructure` 从已解析 Revision 生成 `DocumentStructureNode`；`DocumentView` 同时提供模型摘要、per-Body Artifact 索引、resolved occurrence 和引用更新。前端 `treeData` 适配为虚拟行，`structureSelection` 转换树入口；视口从 Body 几何和 GLB 拾取，`Workbench` 将树/视口选择交给工具、属性和命令。实时事件更新 Query 缓存，Product 的接受更新仍使用服务端 `UpdatePlan`。
 
-当前身份/显隐见[建模与显示](model-display.md)，宿主/编辑目标和导航见[编辑上下文](product-edit-context.md)。当前 Feature 贡献索引由 Naming 派生；尚缺按需子树及跨 Workspace 依赖保证，见[后续工作](../../../plans/README.md)。
+当前身份/显隐见[建模与显示](model-display.md)，宿主/编辑目标和导航见[编辑上下文](product-edit-context.md)。当前 Feature 贡献索引由 Naming 派生；尚缺按需子树及跨 Workspace 依赖保证，具体边界见下节“当前限制”。
 
 ## 领域与投影合同
 
@@ -30,7 +30,7 @@ Product 更新依赖必须由 `ProductModel.instances` 和服务端 UpdatePlan �
 
 ## 当前限制
 
-当前支持现有 Part/Product 类型的投影、身份、选择、更新和可用命令闭环；不声称任意历史插入、完整 Feature 贡献查询、任意拖拽重排、断裂外部引用原位重连或装配体特征已交付。机构的创建、试动与模拟范围见[机构合同](kinematics-dmu.md)。当前结构快照仍由服务端整体构造，前端按需展开和虚拟渲染；服务端子树分页/复用 Definition 缓存待大树基准后实施。未来 Feature 类型只扩展描述器与领域命令；Mechanism/Joint/Driver 引用 occurrence，位姿是临时覆盖；跨 Body Boolean 记录消耗关系，不以树节点搬家代替。Product 内普通 Part 建模修改共享定义，但会话始终携带 occurrence 上下文；独立 Part 标签是另一个宿主工作空间。
+当前支持现有 Part/Product 类型的投影、身份、选择、更新和可用命令闭环；不声称任意历史插入、完整 Feature 贡献查询、任意拖拽重排、断裂外部引用原位重连或装配体特征已交付。机构的创建、试动与模拟范围见[机构合同](kinematics-dmu.md)。当前结构快照仍由服务端整体构造，前端按需展开和虚拟渲染；服务端子树分页和复用 Definition 缓存未交付。Feature 类型由描述器与领域命令扩展；Mechanism/Joint/Driver 的持久位姿与临时显示边界见机构合同；跨 Body Boolean 记录消耗关系，不以树节点搬家代替。Product 内普通 Part 建模修改共享定义，但会话始终携带 occurrence 上下文；独立 Part 标签是另一个宿主工作空间。
 
 ## 参照与有意差异
 

@@ -76,128 +76,15 @@ shortcuts. Product availability comes from that semantic contract and exact serv
 validation, never a test-report PASS count. The native module receives compiled
 values rather than interpreting the public JSON catalog or persistent commands.
 
-| Constraint | Supported geometry |
-|---|---|
-| Fix | Body pose |
-| Coincident | Point-Point, Point-Axis/Cylinder, Point-Plane, Axis/Cylinder pairs, Plane-Plane |
-| Exact Coincident | Point-Circle, Point-Sphere, Point-selected-leaf Cone; full Frame-Frame pose |
-| SurfaceIncidence | Explicit Point-Cylinder surface, rank 1; legacy Coincident Point-Cylinder still means axis incidence, rank 2 |
-| Concentric | Any Axis/Cylinder pair |
-| Angle | Any pair of Plane, Axis or Cylinder directions |
-| Distance | Point-Point, Point-Axis/Cylinder, Point-Plane, Axis/Cylinder pairs, Axis/Cylinder-Plane, Plane-Plane |
-| Parallel | Plane/Axis/Cylinder direction pairs; generic rank 2 |
-| Perpendicular | Plane/Axis/Cylinder direction pairs; generic rank 1 |
-| Contact | Plane-Plane face; Plane-Cylinder line; Plane-Sphere point; Cylinder-Cylinder line/face; Sphere-Sphere face; Sphere-Cone/Sphere-Circle ring; Cone-Cone line/face; Cone-Circle ring |
-
-Zero driving Point-Point/Point-Axis distances compile to coincidence equations with rank 3/2; a scalar norm at zero cannot represent that manifold with a regular Jacobian. The composition corpus checks ranks zero through six, the position/direction/clocking construction and suppression.
-
-`DistanceRelation::SelectedPlaneNormal` evaluates `n·(p_first-p_second)`, choosing the first plane normal for two planes or the unique plane otherwise. Direction relation is independent of the signed target. Legacy second-normal modes retain their equations. `AssemblyOffset.*` scenarios assert final rotated geometry, exchange/normal transformations, actual movement, rank and analytic Jacobians; see the shared [contract runner](../../tests/assembly-contract/README.md) for layered evidence.
-
-Cylinder-Cylinder `Coincident` includes equal radius; `Concentric` deliberately does
-not. Plane distance also imposes parallelism, which makes it a stable assembly mate
-rather than a closest-point measurement between arbitrary planes.
-
-Curve support here means an exact infinite Line or explicit underlying Circle;
-surface incidence is Plane/Cylinder/Sphere/selected-leaf Cone, not arbitrary NURBS
-or browser polylines. Frame relationships outside full Frame-Frame use explicit
-origin/axis/plane roles. Contact uses its analytic support/material equations, not
-zero Distance, finite-face overlap or mesh collision. Its 11 branches, ranks,
-degeneracies and side semantics are documented in
-[Solver Algorithms](SOLVER_ALGORITHMS.md#解析-contact).
-
-Fix Together retains Domain group identity and membership. Frozen manifest
-`groupStages` solves member-internal constraints first, captures successful
-relative relationships, then supplies compiled Rigid links to the outer solve.
-Native Rigid alone is not a multi-member group implementation. Failed internal or
-outer results cannot promote captured relationships or candidate poses.
+Exact native primitives and their supported geometry, ranks, branches and degeneracies are owned by [Solver Algorithms](SOLVER_ALGORITHMS.md). Public composition, support types and lifecycle are owned by the [six-family contract](../../docs/architecture/current/assembly-constraints.md). Analytic contact is not finite-face overlap or mesh collision; native Rigid alone is not the Product multi-member group implementation.
 
 ## Graph compilation and numerical implementation
 
-Active `Rigid` constraints are collapsed into rigid clusters. Consistent `Fix`
-targets ground a whole cluster and remove it from the tangent variable vector. The
-cluster/constraint incidence graph is split into deterministic connected
-components; `SolverOptions.affected_body_ids` can restrict numeric updates to the
-components touched by an interaction or edit.
+The solver collapses rigid clusters, resolves physical grounding, and separates connected components before local dense augmented-QR feasibility and hierarchical motion-preference solves. Static reference/nominal and interaction driven/held objectives are distinct. `initial_pose` freezes nominal/branch intent; `initial_guess` is only a numerical seed.
 
-`SolverOptions.solve_intent` is request-scoped placement policy. Binary constraint
-creation and editing mark the first occurrence moving and the second reference.
-Static solving first restores all physical constraints, minimizes reference motion on that
-feasible manifold, then minimizes total occurrence motion in the reference-optimal
-subspace. Physical Fix/Rigid constraints remain authoritative: a fixed first body
-can require the unfixed reference to move. There is no weak role weighting and no
-"fix reference, fail, release and retry" path. A single consistent reference cluster
-can still eliminate the six global gauge coordinates of an ungrounded component.
+Geometric feasibility, preference convergence, physical rank/gauge/DOF and contradiction evidence are reported separately. A raw feasible result need not qualify for Product adoption; the caller's current command contract controls acceptance. Stable equation IDs retain provenance through analytic Jacobians and diagnostics. The actual equations, seed/retraction rules, singular-angle branches, rank thresholds and numerical failure classification are maintained once in [Solver Algorithms](SOLVER_ALGORITHMS.md).
 
-`Body.initial_pose` freezes nominal motion and branch intent; optional
-`initial_guess` is only a numerical seed. Motion uses occurrence origins and
-rotation Log with independent length/angle scales, including every rigid member.
-Geometric convergence and `MotionPreference.status` are separate. Product rejects
-feasible results whose preference has not converged; raw RPC callers receive both
-states and may inspect the evidence. Local stationarity is not a global nonconvex
-optimality guarantee. The algorithm and acceptance corpus are in
-`SOLVER_ALGORITHMS.md` and `tests/motion_scenarios.cpp`.
-
-For an isolated positive unsigned distance between parallel infinite lines,
-initial recovery uses a radial translation. With one free cluster, preference
-optimization stays in the local parallel chart instead of differentiating
-through the nonsmooth skew-line limit. Chart rows do not affect physical
-equations, rank or DOF; this is not an added Parallel constraint or a global
-minimum-motion guarantee. Zero-distance intersection keeps its physical crossing
-manifold; the parallel local chart and explicit Parallel coupling have dedicated
-rank, finite-motion and physical-Fix-conflict regressions. The chart never adds a
-hidden persistent Parallel/Fix. Regression:
-`AssemblyOffset.ParallelOffOriginEdgesMoveToRequestedDistance`.
-
-The feasibility LM translation damping floor scales as `1/length_scale^2`, avoiding
-over-penalized translation of off-origin supports. Preference energy bounds are
-frozen after the same strict feasibility retraction used for candidates. Legal
-stationary initial directions use trial-only seeds: 90 degrees for Plane-Cylinder
-Contact and Axis-Plane Coincidence/Offset, 180 degrees for antipodal Plane-Plane
-Contact. These preserve nominal/Fix/captured-group data, physical equations, rank,
-motion priorities and tolerances.
-
-Each selected component uses deterministic damped least squares whose linearized
-step is solved as an augmented QR problem without forming normal equations. Typed
-compiled equations provide forward analytic derivatives in the stable cluster
-tangent ordering; optional central differences are a conformance oracle. Column-
-normalized SVD reports relative and six-dimensional gauge freedom separately and
-returns the numeric null-space basis, singular values and applied threshold.
-Incremental block-rank
-analysis reports equation count, effective rank and chosen-basis incremental rank;
-failed components may run bounded single-constraint removal probes. Stable equation
-IDs map every residual row back to its Connection and Constraint. Every component
-uses bounded deterministic backtracking: rotating a body also moves an off-origin
-support point, so even plane coincidence can require a smaller step than the raw LM
-candidate.
-
-Directed Angle projects Directed Angle endpoints onto the reference-axis normal
-plane, uses periodic scalar angle errors at every target including zero/pi, and
-exposes wrapped/unwrapped/winding branch state. Spatial angles without an axis
-use true separation in [0, 2pi] with a transported sector selector, distinguishing
-90 from 270 without projecting onto a fixed rotation axis.
-Spatial endpoints 0/pi/2pi use rank-two alignment; regular angles have rank one.
-Explicit direction, distance-side and directed-angle branches preserve intent.
-Unoriented alignment admits both directions; differential checks stay in the
-local branch selected at the base point. The versioned SolverProfile and
-rank/branch/suspected-conflict diagnostics cross the Proto, Worker and Go boundary.
-
-Modern DIRECTED Angle resolves `angle_reference_geometry` in its own body, which
-may be an independent third occurrence and participates in the component/Jacobian.
-`reverse_angle_reference` is explicit; selection exchange does not change that
-owner. Legacy `angle_reference_direction` retains its second-body-local frozen
-interpretation. New inputs use `assembly-six-families-composition-v10`; the
-control-plane manifest schema remains 1 and SolverProfile schema remains 2.
-
-The solver returns per-body instantaneous translation, rotation/screw and allowed/blocked
-subspaces with linearization poses, metric scales, reference frame and rank
-threshold. Canonical revolute, prismatic, cylindrical, planar and spherical families
-are inferred from subspaces; ambiguous combinations remain `Coupled`. These are
-local differential freedoms, not persisted Engineering Connections or guarantees of
-finite travel. Product previews expose this evidence in the constraint dialog.
-Persistent topology and durable solve manifests are provided by the current
-Product/Worker boundary, not queried by this module. Continuous dragging uses a distinct
-pure-value objective (below); a general minimum-cardinality conflict prover and
-large-scale sparse backend are not implemented by this mathematical module.
+Solves are local, with no global closest-solution or finite-travel guarantee. Instantaneous freedoms are not persistent joints. Dense factorization cannot be interrupted mid-operation; sparse solving and a general minimum-cardinality conflict prover are not implemented. Product sessions, group orchestration, candidate qualification, immutable manifests and CAS remain outside this library.
 
 ## Build and validation
 
@@ -222,7 +109,7 @@ ctest --test-dir build/cmake/release -R '^assembly-corpus/' --output-on-failure
 
 ## Performance
 
-Current workstation measurements and raw-sample snapshot: [performance baseline](../../docs/validation/performance-baseline.md).
+Dated workstation measurements and raw-sample snapshot: [performance baseline](../../docs/validation/performance-baseline.md).
 
 Run the deterministic dense-backend baseline with
 `invoke performance-baseline`; the assembly result is written to
@@ -251,13 +138,13 @@ with five samples per scene, run serially. Sanitized/unoptimized builds are
 rejected. Each run creates a new timestamped directory under
 `build/performance/assembly/`, containing `environment.json`, raw stage logs
 and `summary.json` (native means/medians and full interaction samples).
-Explicit `service` stages require the dedicated configured SQLite/PostgreSQL test database and
-analytic fixtures; an environment-blocked test fails the command instead of
+Explicit `service` stages use the same configured SQLite/PostgreSQL development database, ArtifactStore and
+analytic fixtures as normal application startup; an environment-blocked test fails the command instead of
 reporting performance success. No stage resets data. The underlying runner is
 `python kernel/assembly/tests/run_performance.py`; `--label` accepts a unique
 run name and never overwrites an existing run. See the
 [performance report](../../docs/validation/performance-baseline.md) for
-current measurements and their evidence boundaries.
+measured inputs, environment and evidence boundaries.
 
 `occcad_assembly_interaction_benchmark [samples] [scene]` measures kernel-only
 latency for `single`, `connected50-200`, `independent50`, and `group-contact`,
@@ -272,8 +159,3 @@ and therefore cannot certify input-to-display P95 or 60 Hz.
 The translated/rotated FACE 4 to fixed FACE 6 regression is also available as a
 [minimal 3dreplay fixture](../../tests/test.data/face4-face6.3dreplay), replayable
 through the [standalone CLI](../../services/cmd/occccad-3dreplay/README.md).
-
-When the BFGS preference direction stalls, a positive Lagrangian-curvature
-fallback retries the line search without relaxing geometry, motion priorities or
-convergence tolerances. The total-motion fallback applies at a zero reference
-minimum; nonzero reference minima keep their existing hierarchical manifold.

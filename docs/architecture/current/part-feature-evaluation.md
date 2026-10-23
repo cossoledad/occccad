@@ -1,112 +1,40 @@
-# Part Feature evaluation and Sketch context
+# Part Feature 求值与草图上下文
 
-This page is the focused contract for Sketch-in-context display and the exact
-Part Feature evaluation path. Current delivery status remains in
-[current Part/Sketch](part-sketch.md); long-term Feature semantics remain in
-[Feature evaluation](../target/part-evaluation.md).
+本文拥有实体求值阶段顺序及 Sketcher 的显示边界。Part/Body/Sketch 模型见[Part/Sketch](part-sketch.md)，各特征范围及失败 Revision 合同见[实体 Feature](solid-features.md)，命名历史与解析规则见[Naming](persistent-naming.md)。
 
-## Sketch editing is an in-context view
-
-Entering Sketcher changes interaction, not the authoritative Part state. The
-viewport composes three independent layers:
-
-1. the latest evaluated Body artifact, visible as read-only design context;
-2. the active Sketch overlay, grid, constraints and transient previews;
-3. reference/environment helpers, including the world ground grid retained
-   alongside the active support plane grid.
-
-Visibility and selectability are separate. The Body remains rendered and may
-participate in navigation/occlusion, while normal Sketch tools only select the
-active Sketch entities and constraints. The explicit ExternalGeometry tool may
-explicitly opt into upstream Face/Edge/Vertex capture; ordinary drawing tools
-must not accidentally edit or persist a raw topology pick.
-
-The context Body reuses the immutable artifact already attached to the opened
-Revision. Sketcher does not create a second B-Rep, and display state never
-becomes modeling truth. Sketch curves, points, dimensions and previews render
-above coincident support faces so the visible Body does not hide editable
-geometry.
-
-## Feature evaluation pipeline
-
-Every generator or modifying Feature follows one pipeline:
+## 权威求值链
 
 ```text
 typed Feature definition
-  -> resolve parameters and stable references
-  -> build Profile/ToolShape
-  -> apply BodyOperation and collect generator/Boolean history
-  -> same-domain normalization and compose its history
-  -> B-Rep/body-policy validation
-  -> semantic adjacency closure
-  -> complete-shape naming gate
-  -> immutable B-Rep/mesh/topology manifest
+  → 解析参数、上游阶段与稳定引用
+  → 精确 Profile / Tool Shape
+  → BodyOperation + generator / Boolean history
+  → same-domain normalization + history
+  → BREP / Body policy validation
+  → semantic adjacency closure
+  → complete-shape Naming gate
+  → 不可变 BREP / Visual / Naming 制品
+  → evaluator 最终模型的 ChangeSet / CAS
 ```
 
-The Boolean result is not accepted merely because `IsDone()` is true. It must
-be valid, non-empty, satisfy the valid multi-Solid Body policy, and provide exactly
-one semantic output and lineage result for every live Face, Edge and Vertex.
+OCCT IsDone 不是接纳条件。结果须非空、有效、满足多 Solid Body 规则，并让每个最终 Face/Edge/Vertex 都有唯一语义输出及 lineage。生成、Boolean 和同域合并先保留同类型真实历史；仅未覆盖的最终交线/点等可进入有版本的语义邻接闭包。完整规则统一归 [History 生成与制品门](persistent-naming.md#history-生成与制品门)。
 
-## Two-stage topology history
+成功闭包可以报告 `TOPOLOGY_HISTORY_DERIVED_CLOSURE:<count>`；缺失、重复、悬空、类型不明及 live/tombstone 冲突仍拒绝。Worker 保留 Feature、求值阶段与稳定错误码，不能通过丢弃历史或接纳无名实体恢复。
 
-Primary history preserves the strongest evidence: same-type
-`Modified/Generated/Deleted` mappings from the generator, Boolean builder and
-`ShapeUpgrade_UnifySameDomain`. These mappings retain existing semantic refs
-and produce explicit split, merge and tombstone records.
+创建与编辑的失败接纳规则、FAILED/BLOCKED、displayFallback 及预览资格统一见[失败和预览](solid-features.md#失败和预览)。只读上游阶段接口不代表已完成失效引用修复，见[输入修复边界](solid-features.md#输入修复边界)。
 
-OCCT may legally create a final intersection Edge or Vertex only as the
-boundary of modified higher-dimensional shapes, without returning a usable
-same-type history entry. Rejecting every such result makes valid pockets and
-future Features unusable. The second stage therefore closes only uncovered
-final topology using already named semantic adjacency:
+## Sketcher 的显示上下文
 
-- an uncovered Face prefers its named boundary Edges;
-- an uncovered Edge derives from its named incident Faces;
-- an uncovered Vertex derives from its named incident Edges;
-- a deterministic evidence order is used only to distinguish multiple results
-  with the same stable source set; equal evidence remains an error.
+进入草图改变交互，不创建第二份 BREP 或改写 Part 真相。视口叠加三个层次：当前 Revision 的只读 Body 制品、活动草图/约束/暂态预览、世界及支撑平面网格等参考元素。
 
-Derived refs are owned by the current Feature and record the complete sorted
-source-ref set in lineage. They never use an OCCT pointer, traversal/local ID,
-mesh index, or coordinate alone as identity. The closure is versioned by the
-topology evaluator/policy digest. If no stable adjacent sources exist, or two
-candidates cannot be distinguished, evaluation still fails before artifact
-adoption and Workspace CAS.
+显示与可选择性分离。Body 参与导航与遮挡，普通草图工具只选活动实体和约束；只有显式 ExternalGeometry 工具可捕获上游 Face/Edge/Vertex，并将原始命中转为正式持久引用。草图曲线、点和尺寸应在重合支撑面上方可见；显示状态不进入求值输入。
 
-## Diagnostics and provenance
+## 源码、验证与限制
 
-Successful closure adds `TOPOLOGY_HISTORY_DERIVED_CLOSURE:<count>` to the
-Feature diagnostics. The complete-shape gate continues to reject missing,
-duplicate, dangling, type-less and live/tombstone-conflicting outputs. Worker
-errors must retain the Feature evaluation phase and stable code; callers must
-not retry by dropping history or adopting unnamed geometry.
+- `services/internal/workspace/solid_feature.go`、`evaluation_projection.go`：正式定义、参数及求值编排。
+- `kernel/occt/src/occt_kernel.cpp`：精确构造、历史与门禁；先按操作符号搜索。
+- `kernel/occt/tests/geometry_exchange_scenarios.cpp`：多区域/孔岛、ADD/REMOVE、boss/pocket、merge/split/delete、完整拓扑覆盖与冷重建。
+- `services/internal/control/solid_feature_integration_test.go`：真实 Router/Worker、预览、提交、历史及重开。
+- Web 的 `product-sketch-visibility`、`multi-body` 场景验证上下文过滤；真实深度、遮挡与相机行为仍须浏览器/WebGL 验收。
 
-An accepted failed definition clears the affected Body's authoritative geometry
-key and marks its dependent Features BLOCKED. The derived displayFallback keeps
-the previous successful Visual and its source Revision for Part and Product
-display. It is excluded from compensable definitions, modeling picks, BREP/Naming
-download authority and export. Repeated failures preserve its successful source;
-successful reevaluation removes it. The viewport renders this display with a
-distinct translucent red-brown material and an explicit failure notice.
-
-## Required corpus
-
-The baseline covers rectangle, circle, arc, spline and multi-region profiles;
-NEW_BODY, ADD and REMOVE; face-based boss, pocket, side-opening, through cut
-and annular cut; same-domain merge/split/delete; Undo/Redo and cold evaluator
-rebuild. Every kernel case compares semantic outputs with the final
-Face/Edge/Vertex counts; representative chains repeat evaluation to verify
-stable refs and history digest.
-
-Viewport scenarios separately verify that direct-Part and occurrence-context
-Sketcher keep the Body visible, keep non-active Sketch geometry filtered, and
-keep Body topology non-selectable until an explicit reference-capture tool is
-active. Browser/WebGL acceptance remains required for depth, occlusion and
-camera behavior.
-
-## Solid feature families
-
-The current [solid feature contract](solid-features.md) separates profile
-generation (extrude/revolve/loft), explicit cross-Body combinations, and local
-modifiers. They share command, history, selection resolution and artifact
-lifecycle; local modifiers do not run the generator/Boolean algorithm.
+测试入口存在不是当次执行通过；几何、持久身份、历史和浏览器操作分别举证。执行方法见[测试路由](../../../tests/README.md)。

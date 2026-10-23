@@ -1,6 +1,6 @@
 # 六类装配约束可执行合同
 
-这里是六类约束的跨实现执行入口，不是第二套持久 Constraint 模型。唯一[生产合同](../../services/internal/assemblycontract/README.md)拥有数学语义；`../test.data/assembly-contract/catalog.json` 是组合索引。`catalog.py` 读取生产合同与测试专用 `../test.data/assembly-contract/evidence.json`，不允许测试元数据覆盖生产声明。数学/产品预期见[当前合同](../../docs/architecture/current/assembly-constraints.md)，当前行为见[Product](../../docs/architecture/current/product-assembly.md)，未完成方向见[后续工作](../../plans/README.md)。
+这里是六类约束的跨实现执行入口，不是第二套持久 Constraint 模型。唯一[生产合同](../../services/internal/assemblycontract/README.md)拥有数学语义；`../test.data/assembly-contract/catalog.json` 是组合索引。`catalog.py` 读取生产合同与测试专用 `../test.data/assembly-contract/evidence.json`，不允许测试元数据覆盖生产声明。数学/产品预期见[当前合同](../../docs/architecture/current/assembly-constraints.md)，当前行为见[Product](../../docs/architecture/current/product-assembly.md)，后续任务只见 [CAD 核心主线](../../plans/cad-core-roadmap.md)。
 
 ## 文件与证据职责
 
@@ -32,7 +32,6 @@ python tests/assembly-contract/runner.py composition --output build/assembly-con
 
 `interactionConfirmationReview20261011` 仅记录 `m4.operation.failure-outlet` 的人工断言审查：中间失败允许后续目标恢复，最终确认失败才产生每手势一次的提示，并验证真实归档身份及重试／取消动作。更新该实际执行通过的源摘要，没有改变 case、目标预期或覆盖下限，也没有重新生成整个冻结锁。
 
-2026-10-17 属性/场景改动为增量显示测试的部分 Engine fixture 增加空 `refreshSceneGround`：该 fixture 只验证约束图标和 GPU 复用，不拥有地面环境。定向用例通过后只更新 `composition.constraint-display.incremental-ui` 的断言源摘要；所有既有断言、目标、容差和覆盖下限保留。地面由真实浏览器属性用例独立验收。
 
 `composition` 是更严格的收口门：全部选中 capability 的 `acceptanceStatus` 必须为 ACCEPTED，所有必需实现层和具体证据均齐全且实际通过。缺测、NOT_RUN、ENVIRONMENT_BLOCKED、缺 fixtures 或集成 skip 都不能返回绿色 COMPOSITION。筛选后的成功只证明该选择范围；完整验收必须运行无 capability/family/layer/adapters 缩范围的完整入口。baseline 通过不等于完整六族通过。
 
@@ -119,4 +118,4 @@ python tests/assembly-contract/runner.py gaps --family Offset --adapters go,web,
 6. 释放拖动后立即点空白或选择另一组件，最终目标仍完成且只提交一次，不抢回选择；切换工具/修改命令等待结束，Esc 仍取消未提交操作。
 7. 剩余运动行鼠标/键盘选择即显示方向；缩放/窗口变化后箭头尺寸稳定，模型遮挡/透明/高亮下可见；小数噪声显示零，单位转换和真实微小值保留。WebGL 外观仍需实机验证。
 
-装配主体能力按当前开发合同验证；实际闭环操纵、异常恢复和显示需结合具体输入验收，执行范围读取当次报告。当前机构限制见[代码事实](../../docs/architecture/current/kinematics-dmu.md#范围及继续扩展的边界)，试动／录制的专项目标见[验收矩阵](../../docs/architecture/target/kinematics-dmu.md#验收矩阵)。暂缓细节集中见[后续工作](../../plans/README.md#装配暂缓问题)。自动检查不代替实机视觉验收，不补造截图、测试版本或工业/性能结论。
+装配主体能力按当前开发合同验证；实际闭环操纵、异常恢复和显示需结合具体输入验收，执行范围读取当次报告。机构范围和验证入口见[当前机构合同](../../docs/architecture/current/kinematics-dmu.md#范围及继续扩展的边界)，装配未解决问题见[模块限制](../../docs/architecture/current/product-assembly.md#入口与限制)。自动检查不代替实机视觉验收，不补造截图、测试版本或工业/性能结论。

@@ -36,8 +36,8 @@ React/Three.js → Go API / Command → Workspace CAS → 不可变 Revision
 | 入口 | 回答什么 |
 |---|---|
 | [当前架构](architecture/current/README.md) | 已实现行为、源码/测试入口、明确限制 |
-| [目标设计](architecture/target/README.md) | 长期契约、缺口与候选；不是已交付清单 |
-| [后续工作](../plans/README.md) | 未完成工作与退出条件；不自行给候选排优先级 |
+| [架构约定](architecture/target/README.md) | 仍成立的语义边界；不是功能清单 |
+| [CAD 核心主线](../plans/cad-core-roadmap.md) | 唯一 CAD 主线任务入口：当前重点、未完成阶段与验收条件 |
 | [开发环境](development/README.md)、[Agent 工作流](development/agent-workflow.md) | 配置、资源、构建与渐进验证 |
 | [操作指南](guides/README.md)、[参考资料](references/README.md) | 交互步骤 / 外部行为依据 |
 | [测试入口](../tests/README.md)、[验证记录](validation/README.md) | 可执行检查 / 实测范围及证据限制 |

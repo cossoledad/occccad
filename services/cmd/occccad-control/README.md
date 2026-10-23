@@ -75,7 +75,7 @@ invoke run.app --reset-data --build-type=Release
 
 重置会删除数据库中固定的 `occcad` schema 与 `OCCCCAD_DATA_DIR` 本地制品/暂存目录；S3 模式还清空当前配置的专用桶全部对象、版本和未完成分片（保留桶），再执行当前迁移。它要求旧的 occccad 进程已经停止，且不能用于已发布或需要保留外部数据的环境。
 
-Router 的 owner 映射不持久化；重启后的第一个 GeometryId 请求会从 Artifact 冷恢复并重新绑定。首次请求在发往 Worker 前完成 owner 预留，所以同一 Body 的并发面查询不会因容量为 1 而分裂；后续请求优先命中 owner，不受普通容量筛选影响。它只管理本机子进程，没有跨主机注册、认证、配额、租户隔离或 Kubernetes 集成。生产目标中的 Scheduler/Registry 不能把本进程原样搬进集群，演进方案见[目标架构](../../../docs/architecture/target/README.md)。
+Router 的 owner 映射不持久化；重启后的第一个 GeometryId 请求会从 Artifact 冷恢复并重新绑定。首次请求在发往 Worker 前完成 owner 预留，所以同一 Body 的并发面查询不会因容量为 1 而分裂；后续请求优先命中 owner，不受普通容量筛选影响。它只管理本机子进程，没有跨主机注册、认证、配额、租户隔离或 Kubernetes 集成。后续部署变更须保持[计算边界约定](../../../docs/architecture/target/system.md#计算制品与安全)。
 
 Geometry Router 的服务端、受管理 Worker 连接和 debug override 连接统一使用 `internal/geometryrpc` 的 128 MiB 发送/接收预算；API/Jobs 使用相同客户端预算。文件经 ArtifactReference 传输，不与 RPC 消息大小上限混用。
 

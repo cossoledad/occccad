@@ -4,7 +4,7 @@
 
 `services/` 是 Go 模块化控制面：API/Auth、Workspace/Model Core、Geometry client/router、Jobs、Artifact 和数据库迁移。`internal/*` 是同一部署族内的包，不因领域名词自动变成微服务。
 
-运行与真实集成使用同一 `.env` 的数据库、存储、暂存、日志和 Worker；入口为 `config.LoadEnvironment`。真实 fixture 复用 `testsupport.OpenDevelopmentDatabase` 与配置制品存储，不另设测试连接。临时单元对象不作为真实链路验收。
+环境入口为 `config.LoadEnvironment`，真实 fixture 复用 `testsupport.OpenDevelopmentDatabase` 与配置制品存储；资源授权与隔离规则统一见[根指南](../AGENTS.md#当前开发数据边界)。
 
 ## Invariants
 

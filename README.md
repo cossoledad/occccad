@@ -2,14 +2,14 @@
 
 开放的云原生参数化 CAD，以 CATIA 机械设计工作流为长期参照，采用可替换计算后端和开放格式。当前是早期可运行垂直切片：React/Three.js 工作台、Go 控制面、PostgreSQL/SQLite、C++ Geometry Worker、LOCAL/S3 制品存储已贯通。
 
-项目支持 Part/Product、Sketch/Profile、Multi-Body 参数化实体特征、持久命名、装配约束、机构试动与录制、版本历史、STEP/BREP 文档交换、账号与 ACL。能力范围与限制由[当前架构](docs/architecture/current/README.md)拥有；长期语义见[目标设计](docs/architecture/target/README.md)，未完成工作见[plans](plans/README.md)。定向实现不等于工业规模或完整浏览器验收。
+项目支持 Part/Product、Sketch/Profile、Multi-Body 参数化实体特征、持久命名、装配约束、机构试动与录制、版本历史、STEP/BREP 文档交换、账号与 ACL。能力范围与限制由[当前架构](docs/architecture/current/README.md)拥有；长期约定见[架构约定](docs/architecture/target/README.md)，下一步只见 [CAD 核心主线](plans/cad-core-roadmap.md)。定向实现不等于工业规模或完整浏览器验收。
 
 ## 从这里进入
 
 - [项目地图](docs/README.md)：系统调用链、核心领域、源码归属、事实与意图入口。
 - [Agent 路由](AGENTS.md)：全局规则与各领域指南；局部任务从这里搜符号及测试。
 - [开发指南](docs/development/README.md)：环境、资源、Agent 工作流与文档维护。
-- [操作指南](docs/guides/README.md)、[测试路由](tests/README.md)、[验证记录](docs/validation/README.md)：操作、可执行检查和历史证据分开。
+- [操作指南](docs/guides/README.md)、[测试路由](tests/README.md)、[验证记录](docs/validation/README.md)：操作、可执行检查和测量证据分开。
 
 ## 快速开始
 

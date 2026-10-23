@@ -16,7 +16,7 @@ Publication 用稳定目标身份，支持输出及转发；PersistentSelection 
 
 ## 定义与求值
 
-独立机构定义、硬驱动、冻结回放与产品约束转换见[当前机构合同](kinematics-dmu.md)。它复用本域冻结输入及数值内核，运行保留完整机构方程，不继承 Product 关系；运动研究不改变普通装配编辑的偏好、Preview/Commit 或 Revision 语义。实时试动与用户录制尚待按[完整设计](../target/kinematics-dmu.md)实施，干涉应用未交付。
+独立机构定义、硬驱动、冻结回放与产品约束转换见[当前机构合同](kinematics-dmu.md)。它复用本域冻结输入及数值内核，运行保留完整机构方程，不继承 Product 关系；运动研究不改变普通装配编辑的偏好、Preview/Commit 或 Revision 语义。实时试动与关键帧录制已有实现；具体范围及验证边界由该主题拥有，独立静态干涉应用未交付。
 
 公共六族为 Coincidence、Contact、Offset、Angle、Fix、Fix Together；Concentric/Distance/Parallel/Perpendicular/Rigid 是内部原语或明确快捷入口。唯一生产目录在 [assemblycontract](../../../services/internal/assemblycontract/README.md)，测试目录仅引用 capabilityId 并映射执行证据；生产按一次加载的只读索引查询，返回脱离缓存的副本。按钮可用性不依赖 PASS 计数，FACE/EDGE/VERTEX 不等于精确类型。
 
@@ -81,9 +81,15 @@ SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence
 - Web：assembly-interaction、motion-presentation、assembly-conflict-panel、cad-viewport-engine。
 - 定向测试、报告和人工步骤见装配验证，不把测试存在或历史通过当作当前执行。
 
-装配主体能力形成当前开发基线；已知细节暂缓，后续按实际需求修复。[暂缓问题](../../../plans/README.md#装配暂缓问题)集中记录现象、已有复现信息与边界。
+尚未解决的问题见下表；开发优先级统一由 [CAD 核心主线](../../../plans/cad-core-roadmap.md)维护。
 
-维护者确认主体功能具备，当前使用场景下拖拽与约束较为稳定，仍有交互、显示细节问题；不代表工业、并发、平台或性能全部通过。dense 后端、局部分支、单次分解不可中断和非线性 UNKNOWN 仍有效；浏览器视觉与端到端/60 Hz、工业容量未完整验收。Engineering Connections 继续暂停；flexible assembly、通用最小冲突证明、稀疏后端与跨主机协作未交付。
+| 当前限制 | 证据与处理边界 |
+|---|---|
+| 硬可行但运动偏好未收敛 | 已保留真实失败输入，可用生产 Worker 离线重放；增加预算或改善初始猜测有成功记录，未交付通用收敛改进或有界恢复算法。保持硬约束、运动优先级、容差、分支和候选资格；不能将失败姿态提交，或把偏好未收敛称为无解。重建入口为下节 CLI 和 `tests/test.data/assembly-notupdated-product.3dreplay`。 |
+| 剩余运动待计算 | 缺少该 Revision 的完整求解证据时保持未知；没有独立只读刷新入口，不能用旧 Revision 或关系数量填补。 |
+| 交互与显示细节 | 维护者反馈仍有问题，但尚缺具体操作、对象和可复现输入；不推断根因，也不称为已解决。复杂闭环、视觉和故障恢复须按具体场景补浏览器证据。 |
+| 数值与规模 | dense 后端、局部分支、单次分解不可中断和非线性 UNKNOWN 仍有效。端到端/60 Hz、并发和工业容量未完整验收；现有小样或千行 UI fixture 不证明求解容量。 |
+| 未交付范围 | Engineering Connections、flexible assembly、通用最小冲突证明、稀疏后端和跨主机协作。 |
 
 ### 装配失败诊断与最小重放
 

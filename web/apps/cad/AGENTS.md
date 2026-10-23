@@ -17,7 +17,7 @@
 
 先从 `src/**/testing/*.scenario.mjs`、具体 tool/store/adapter 的符号搜索进入。属性/历史面板从 `workbench-inspector.tsx` 进入，结构树 mapping 从 `workbench-tree-model.tsx`、装配表单从 `assembly-constraint-fields.tsx`、提交回调生命周期从 `assembly-edit-intent.ts` 进入。以下大文件禁止默认整读：`viewport/cad-viewport-engine.ts`、`features/workbench/workbench.tsx`、`cad/tool/cad-tool.ts`、`api/mock-api.ts`、`styles.css`。按 selection、tool gesture、rendering、state/query 或 API 生命周期分别展开。
 
-`README.md` 是当前能力和运行入口。公共领域/历史语义转到 `services/AGENTS.md`；复杂架构问题按 [项目地图](../../../docs/README.md) 定位。锁文件仅用于依赖版本/解析问题。
+[README](README.md)是运行和验证入口，领域事实由其链接的 current 主题拥有。公共领域/历史语义转到 `services/AGENTS.md`；复杂架构问题按 [项目地图](../../../docs/README.md) 定位。锁文件仅用于依赖版本/解析问题。
 
 `invoke run.web` / `pnpm dev` 默认连接根配置的真实 API，与人工/Agent 共用数据。Mock 仅由显式隔离场景选择；它不证明真实后台链路。
 

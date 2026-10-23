@@ -85,7 +85,9 @@ Begin（各 n=1）：nested=False 1.058 ms；nested=True 2.184 ms。
 
 ## 建模与几何
 
-100 步命令累计时间（3 个独立序列）：11.286 s / 11.171 s / 12.027 s。全部末态 BREP/NAMING 与强制冷重建逐字节等价。详情见[连续建模](continuous-modeling-100-baseline.md)与[增量运行时](incremental-modeling-runtime-validation.md)。
+100 步命令累计时间（3 个独立序列）：11.286 s / 11.171 s / 12.027 s。全部末态 BREP/NAMING 与强制冷重建逐字节等价。固定链为板体拉伸→圆截面放样切除→圆周阵列→成员倒角，命令计时包含求值、制品、Revision 和 DocumentView，不含准备与末态冷检查。第三轮完整步骤见[测试数据](../../tests/test.data/continuous-modeling-100-baseline.json)。
+
+增量运行时的正常缓存与 1 字节淘汰预算各串行 5 次：热→冷执行/复用数为 append-tail 1/2→3/0、edit-middle 2/1→3/0、loft-session 1/3→4/0、重启后 4/0→4/0。均核对冻结定义的精确结果及 BREP/NAMING 冷等价与原 Head；完整计时和样本归机器数据。阶段预算不是 RSS 上限，当前算法不可在 OCCT 算子内部强制取消。实现合同归 [Part 增量运行时](../architecture/current/jobs-artifacts.md#part-增量运行时)。
 
 | 整例 fixture | n | 中位数 s |
 |---|---|---|
@@ -131,4 +133,4 @@ ctest --test-dir build/cmake/release -R '^geometry/FilletBoundary\.' --repeat un
 
 RSS 先 `go test -c` 编译，再对生成的 `.test` 执行 `/usr/bin/time -v ... -test.run=^$ -test.bench=BenchmarkAssembly -test.benchmem -test.benchtime=500ms -test.count=1`；各包重复 3 次。准确命令与原始日志路径在 JSON，不把编译器算进 RSS。
 
-本次没有浏览器输入至权威显示、并发吞吐、长会话或工业大模型测量，不承诺稳定 P95/P99、60 Hz 或容量。性能入口通过也不代表全仓回归通过：未修改的 Shell 偏移场景在全量 CTest/Worker 检查中失败，另见[工作流验收](agent-workflow-baseline.md)。
+本次没有浏览器输入至权威显示、并发吞吐、长会话或工业大模型测量，不承诺稳定 P95/P99、60 Hz 或容量。性能入口通过也不代表全仓回归通过。同期 Shell 失败与后续同名用例通过的证据边界归[抽壳验证说明](../architecture/current/shell-algorithm.md#实现与验证入口)，不能把旧测量当作当前全量测试结果。

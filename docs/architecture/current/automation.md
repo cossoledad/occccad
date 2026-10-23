@@ -2,7 +2,7 @@
 
 下边栏“建模助手”通过账号 Key、模型及思考度设置发起持久 Run。Agent 理解当前请求、读取事实并规划有界片段；应用执行原命令、核对回执与新 Revision；关闭页面不暂停自动模式。累计预算默认 `null`，用户可主动设置并调整，默认无总调用数、工具数、步骤数、阶段数或整轮 deadline。
 
-入口：[Assistant](../../../services/internal/assistant/README.md)、[Automation](../../../services/internal/automation/README.md)、[Web](../../../web/apps/cad/src/features/assistant/assistant-panel.tsx)、[线上评测](../../../services/cmd/occccad-ai-eval/README.md)、[剩余计划](../../../plans/ai-native-modeling.md)。本文说明当前实现合同，实际验收结果另见[验证目录](../../validation/README.md)。
+入口：[Assistant](../../../services/internal/assistant/README.md)、[Automation](../../../services/internal/automation/README.md)、[Web](../../../web/apps/cad/src/features/assistant/assistant-panel.tsx)、[线上评测](../../../services/cmd/occccad-ai-eval/README.md)。本文说明当前实现合同；当前限制和定向证据边界见文末，任务优先级只见 [CAD 核心主线](../../../plans/cad-core-roadmap.md)。
 
 ## 所有权与执行链
 
@@ -39,7 +39,7 @@ Run JSON 只保留当前请求原文、有限回执角色提示、摘要及计�
 
 已修正的偏差：原 `recordTool` 按值替换超限结果，在线消息仍使用原值，而数据库和恢复只看到错误；原 Host 的 64 KiB 与账本的 32 KiB 也不一致。现在出口统一，原始服务页只在明确的人工调试适配器中保留。定义查询的项预算不含整个响应封套，大 Feature 定义又包含完整选择引用；因此服务成功仍可能被工具边界替换，不能声称模型已看到该定义。
 
-属性检查器的“查询调试”经 `POST /api/documents/{documentID}/automation/debug-query` 调用同一 Host 与规范化函数，无需 Key、Assistant Run 或 Provider。仅开放模型、拓扑及固定版本的文档上下文查询，沿用 Viewer 权限；明确 Revision 不存在即失败，不回退 Head。Body/选区在显式捕获时冻结，分页沿用该查询，查看历史结果只改变本地展开内容。服务原页、实际模型可见内容和人工补充分开显示；集合引用完整与单页是否包含匹配全集分别展示。请求沿用 64 KiB JSON 边界，调试选区最多 20 项，人工原页超过 1 MiB 明确省略；这些都不是持续任务的总轮数/Token 上限。操作和限制见[只读查询调试](../../development/cad-query-debugging.md)，本轮实测及语义缺口见[基础回归](../../validation/cad-query-debug-baseline.md)。
+属性检查器的“查询调试”经 `POST /api/documents/{documentID}/automation/debug-query` 调用同一 Host 与规范化函数，无需 Key、Assistant Run 或 Provider。仅开放模型、拓扑及固定版本的文档上下文查询，沿用 Viewer 权限；明确 Revision 不存在即失败，不回退 Head。Body/选区在显式捕获时冻结，分页沿用该查询，查看历史结果只改变本地展开内容。服务原页、实际模型可见内容和人工补充分开显示；集合引用完整与单页是否包含匹配全集分别展示。请求沿用 64 KiB JSON 边界，调试选区最多 20 项，人工原页超过 1 MiB 明确省略；这些都不是持续任务的总轮数/Token 上限。操作和限制见[只读查询调试](../../development/cad-query-debugging.md)，本轮实测及语义缺口见[基础回归](automation.md)。
 
 活动请求只加载当前请求原文、冻结 scope 摘要、当前不可变上下文、有限稳定目标角色、最近少量片段/公开工具事实和语言。超出单次工作集时淘汰可重查内容并重建，不随完整历史线性膨胀。冻结选择按 `cad_get_selection` 分页，默认只投影类型、归属、正式标识和来源；显式 `includeEvidence:true` 才读取完整正式引用，预览子集明确不完整。必要信息本身超过配置时准确等待调整，不能丢弃尺寸、单位、保护对象或装配要求来缩短提示。
 
@@ -57,7 +57,7 @@ cad_finish 的规范工具结果、调用游标、最终回复与结束状态在
 
 模型可在 `cad_create_task.steps[].resultBindings` 中引用 `{target:"selectionSet",source:{callId,toolId,slot:"selectionSet"}}`。callId 是调用账本 UUID，toolId 是其中的工具调用 ID；二者唯一定位已记录结果，不是 CAD 短 ID。仅开放 `cad_query_topology.selectionSet → part.fillet/part.chamfer.selectionSet`，禁止任意 JSON 路径及同槽位传值/重复绑定。应用从原工具账本取值，检查当前 Run、来源权限、文档/Body/类型、查询封套与集合元数据、命令基线 Revision；不重写令牌或追随最新 Head，再经原集合解析、预览与提交。损坏/不可用为 QUERY_RESULT_REF_INVALID，范围错误为 QUERY_RESULT_REF_SCOPE，版本过期为 QUERY_RESULT_REF_STALE；实际几何失败沿用原领域诊断。
 
-工具回复仍是原规范化内容；完整工具组回复后另外给出确定性的账本引用说明。重建上下文的 recentFacts 默认保留来源 epoch、固定范围/历史标记、计数、少量紧凑观察、摘要 digest 和 selectionSetRef，省略长集合及重复定义。阶段默认保留参数 digest、状态/输出和原创建调用中的 resultBindings，失败步骤另保留紧凑输入；绑定来源沿已有 Task 幂等 requestId 和唯一创建调用恢复，不按相同集合值猜来源。Run 的集合缓存仅投影范围/计数/digest。原始模型参数、规范工具结果、待处理工具重放和实际请求 trace 均不被这些摘要替换；没有 LLM 摘要或新注册表。查询引用的前轮证据见[历史回归](../../validation/assistant-goal-coverage.md)，当前请求行为见[职责边界回归](../../validation/assistant-request-boundaries.md)。
+工具回复仍是原规范化内容；完整工具组回复后另外给出确定性的账本引用说明。重建上下文的 recentFacts 默认保留来源 epoch、固定范围/历史标记、计数、少量紧凑观察、摘要 digest 和 selectionSetRef，省略长集合及重复定义。阶段默认保留参数 digest、状态/输出和原创建调用中的 resultBindings，失败步骤另保留紧凑输入；绑定来源沿已有 Task 幂等 requestId 和唯一创建调用恢复，不按相同集合值猜来源。Run 的集合缓存仅投影范围/计数/digest。原始模型参数、规范工具结果、待处理工具重放和实际请求 trace 均不被这些摘要替换；没有 LLM 摘要或新注册表。查询绑定与当前请求的重建测试见文末“验证入口”。
 
 按需检查返回稳定身份和 observed；期望保留在原工具输入，trace 同时展示输入与实测。FAILED 表示检查所见不一致；对象角色不符、未解析的建模路径或证据不足返回 NOT_VERIFIED，不能据此声称几何错误或要求删除结果。系统提示要求模型先核对检查范围、当前对象和实测值，并用公开简述说明修改依据。检查不会强制完成请求，也不能把未知证据声称为通过。
 
@@ -125,9 +125,29 @@ AUTOMATIC 持续在服务端推进；CONFIRM 每次等待精确 previewId、task
 
 Web 继续由 TanStack Query 保存服务状态，原工作台选择/CommandRegistry/Viewport 各自拥有交互、命令与帧证据。下边栏使用单图标入口；面板以对话、15px 正文/输入及简短进展为主。“调用详情”以实际调用为序，展开查看公开请求 → 模型原文 → 工具/参数 → 原反馈及 CAD 后续执行；默认展开最近一条，较早记录分页读取。检查同时展示期望值和实测对象，代替原始事件代码列表。模型带工具调用的公开 content 按调用幂等保存为 ASSISTANT_MESSAGE；工具观察、实际 CAD 回执、阶段诊断及按需检查给出可读进度。公开简述在模型响应落账后显示，不承诺逐 Token 流式输出；私有 reasoning_content 不进入事件、账本响应或 UI。无工具的文字回复结束本次请求，必要澄清使用 cad_wait_for_input；带工具的公开 content 是进展。界面以“本次已结束”表达完成状态，仅按本次真实回执显示“已应用”，不显示强制目标验收标签。消息/步骤/事件按页增量读取，进展仅保留有界近期窗口，旧代际事件不能覆盖新状态。暂停/停止、精确确认、接管及显示重试保留原边界。
 
+## 当前限制
+
+- 查询仍在受限定义上解析/排序，无持久大树索引、按需子树或任意超大集合容量保证。单个大 Feature definition 或正式引用连同封套超限时仍会失败，limit=1 不保证可读取。
+- 紧凑几何与邻接不提供通用孔、入口/出口、面环或边用途语义；斜孔、盲孔、相交孔、多壁、分段边界及任意下游贯穿性没有通用定位保证。不能将人工/测试给定目标当作 LLM 自主识别。
+- ContextVariant occurrence 不可替用普通 Part BREP；复杂 Publication/接触、跨文档原子写和带人工冲突的整任务撤销未交付。只有提供精确完成桥的 UI 工具可自动核对接管结果。
+- 多 API 的主密钥轮换、集中凭证管理、外部 MCP/CLI、受约束脚本运行时未交付；现有持久 Run 不代表这些运维和执行扩展已具备。
+- 导出依赖可写暂存磁盘，进程崩溃可能残留文件；历史来源缺口明确保留，不补猜轮次或缺失请求。超大生产会话的容量/吞吐与运行中人工编辑的完整恢复仍缺独立验收。
+- 受控 Provider、合成 usage 与静态字节对比不证明线上模型质量、Token 节省、费用或生产吞吐。更复杂几何、交互体验及 PostgreSQL 的实际结果须按运行环境单独确认。
+
 ## 验证入口
 
 - 服务：`go test -p 1 ./internal/assistant ./internal/automation ./internal/api -run '^TestAssistant|^TestAutomation'`（services目录）；容量/故障注入使用受控 Provider，不付费压测。
 - Web：`invoke check --scope web --match assistant`；真实工作台先用本地19091 Provider启动服务，再运行 `pnpm exec playwright test --config playwright.live.config.ts automation-live.spec.ts`。独立测试账号不改个人Key，结束恢复默认 DeepSeek 配置。
 - 原生几何、迁移与共享链：按 `invoke check --scope all`，数据库当前配置之外的 Provider 验证必须单独标明未执行。
 - 线上小样：`services/cmd/occccad-ai-eval` 使用已有合法 Key 和显式小预算。模型表现、原生几何、浏览器、合成百万 usage 必须分别报告。
+
+保留的历史证据范围（本次文档整理未重跑业务验收）：
+
+| 范围 | 已有证据与可重建入口 | 不能外推的结论 |
+|---|---|---|
+| Run/选择/恢复/装配 | 2026-10-21：SQLite、Release Worker、受控 Provider 与 Chromium/SwiftShader 定向通过；`run_capacity_test.go`、`run_product_integration_test.go` 和 `browser/automation-live.spec.ts`。当日全范围为 PASS_WITH_SKIPS，非 PostgreSQL 验收。 | 合成 2,050,000 usage 不是实际付费消耗；原生 solver 与浏览器呈现分别举证。 |
+| 当前请求与查询绑定 | 2026-10-22：`run_request_native_test.go`、`run_query_bindings_test.go` 及 `automation/query_debug_integration_test.go` 定向通过，使用正式 Preview/Commit/CAS 与原生 Worker，无 LLM。 | 测试指定孔壁、目标边和半径，不证明语言理解或通用孔识别；未执行对应新行为的浏览器验收。 |
+| 用量/导出/冻结选择 | 2026-10-23：`turn_usage_test.go`、`session_export_test.go`、`selection_context_test.go`、`run_scope_test.go`、受影响 API/Web 场景定向通过，Provider 受控。 | 未执行完整浏览器、真实 LLM、PostgreSQL、生产超大会话或完整进程故障接管验收。 |
+| 线上模型 | 2026-10-21 有 1 个无干预的新矩形→拉伸→全边圆角样例通过；复现入口为 ai-eval 的 box-fillet。 | 单样例不构成稳定成功率；曾干预恢复的调试样例不计为无干预成功，线上装配质量未验收。 |
+
+测试文件相对 `services/internal/assistant/`，另列 Automation 与 Web 时按其模块路径；旧自然语言目标覆盖门禁已移除，其历史测试结论不能充当当前保证。原始过程由 Git 与 build/ 保留，不在主线累计日志。

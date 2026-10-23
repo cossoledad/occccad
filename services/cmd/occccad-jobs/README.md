@@ -42,7 +42,7 @@ flowchart LR
 - `png-v4` 与视口共用 `(1,-1,1)` / Z-up 的正交 ISO 约定，按实际投影几何统一 Fit，应用 occurrence 完整 quaternion/translation。
 - CPU 扫描线光栅化使用逐像素深度、面内平滑法线、固定中性材质和 2× 超采样；优先绘制 B-Rep 边并做深度测试，缺少边时提取轮廓/折线。实体缩略图不绘制草图编辑覆盖层；无实体时保留 Visualization 曲线/点/面。
 - 不依赖浏览器、GPU 或新外部服务。每次渲染预算为 100 万展开三角形、300 万顶点/曲线点、1 万 occurrence；同场景相同 GeometryKey 复用法线准备结果。该边界只影响预览，不删除/简化权威模型。
-- RendererVersion 是缓存身份的一部分；迁移 `0025` 将旧图标记 STALE 并为当前 Head 排队重建，不修改文档 Revision。旧版本渲染任务会被跳过。
+- RendererVersion 是缓存身份的一部分；不修改文档 Revision。旧版本渲染任务会被跳过；当前数据库由统一 baseline 迁移建立。
 - 就绪图像通过 `ETag` 和 `private, no-cache` 复用响应字节，每次重验证仍校验权限与当前 Head，包含 FOLLOW_HEAD 引用变化。
 - 渲染器、数值/遮挡测试与基准位于 `internal/thumbnail`；设置 `OCCCCAD_THUMBNAIL_GALLERY=<repo>/build/agent-check/thumbnail-gallery` 后运行 `go test ./internal/thumbnail -run TestThumbnailGallery` 可导出视觉样例。
 
@@ -108,6 +108,6 @@ Part 求值结果仅携带摘要和 BREP/VISUAL/NAMING 引用，导入 identity 
 
 ## 机构研究消费者
 
-MOTION_STUDY 使用冻结 view、机构完整独立约束、所选 Driver、Law／Study 和 solver profile；接受已保存关键帧路径或可选规律输入；实时命令会话由 API 执行，不依赖 Job 或附加干涉分析。执行检查权限及输入制品 SHA/digest，计算中不读取变化的 Head。结果包含已完成合格帧、运动学质量和分类诊断；Job SUCCEEDED 只表示结果保存，不证明路径完整成功，取消保留部分帧并终结为 CANCELED。
+MOTION_STUDY 使用冻结 view、机构完整独立约束、所选 Driver、录制 Study 和 solver profile；只接受已保存的关键帧路径；实时命令会话由 API 执行，不依赖 Job 或附加干涉分析。执行检查权限及输入制品 SHA/digest，计算中不读取变化的 Head。结果包含已完成合格帧、运动学质量和分类诊断；Job SUCCEEDED 只表示结果保存，不证明路径完整成功，取消保留部分帧并终结为 CANCELED。
 
-最后完成必须匹配 RUNNING、lease owner、attempt 和有效租约。手动再次运行生成新 Job，保留旧结果；基础设施重试沿用原队列合同。应用关闭不自动取消后台任务，迟到结果不抢占视口；正式帧采用／转换在 API 领域事务完成，不由 Jobs 逐帧写装配。当前合同见[机构与 DMU](../../../docs/architecture/current/kinematics-dmu.md)。Job 已作为录制有限路径的制品设施；payload.motion 区分路径质量和队列完成。实时试动与草稿录制不创建 Job，详见[统一设计](../../../docs/architecture/target/kinematics-dmu.md)。
+最后完成必须匹配 RUNNING、lease owner、attempt 和有效租约。手动再次运行生成新 Job，保留旧结果；基础设施重试沿用原队列合同。应用关闭不自动取消后台任务，迟到结果不抢占视口；正式帧采用／转换在 API 领域事务完成，不由 Jobs 逐帧写装配。实时试动与草稿录制不创建 Job；来源冻结、路径质量、位置采用及产品转换统一见[机构与 DMU](../../../docs/architecture/current/kinematics-dmu.md)。

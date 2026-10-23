@@ -6,7 +6,7 @@ Replay an immutable numerical snapshot using the production Go adapter and C++ s
 go run ./cmd/occccad-3dreplay \
   -worker-binary ../build/cmake/release/workers/geometry/occccad_geometry_worker \
   -mode original -target <NotUpdated-constraint-id> \
-  -out /tmp/original-result.3dreplay ../tests/test.data/assembly-notupdated-product.3dreplay
+  -out ../build/diagnostics/original-result.3dreplay ../tests/test.data/assembly-notupdated-product.3dreplay
 ```
 
 `-worker address` uses an existing Worker or Router instead. A local Worker uses its own temporary directory and is closed on success and errors. `-out` requires a new path and never overwrites the source or an existing result. Numerical failure is structured output; malformed input, invalid table references and digests fail explicitly.
@@ -75,4 +75,4 @@ OCCCCAD_GEOMETRY_WORKER_BIN="$PWD/../build/cmake/release/workers/geometry/occcca
 go test ./internal/geometry ./internal/valuecopy -run 'TestAssembly|TestClone' -count=1
 ```
 
-Router integration uses `internal/testsupport.OpenDevelopmentDatabase` and the dedicated `OCCCCAD_DATABASE_URL` loaded from `.env` (SQLite by default, or an explicit `occccad_*_test` PostgreSQL database), the matching Worker and exact analytic fixtures. It validates the test target and migrations, allocates fresh documents and its own ArtifactStore, and never resets data. Missing analytic fixtures are generated under `build/test-resources` using the existing geometry test executable. See [development environment](../../../docs/development/README.md). Performance measurements and their limits are in [the focused report](../../../docs/validation/performance-baseline.md).
+Router integration uses `internal/testsupport.OpenDevelopmentDatabase`, the database and ArtifactStore configured by the normal `.env`, the matching Worker and exact analytic fixtures. It migrates the configured development database and creates its own test documents without resetting shared resources. Missing analytic fixtures are generated under `build/test-resources` using the existing geometry test executable. See [development environment](../../../docs/development/README.md). Performance measurements and their limits are in [the focused report](../../../docs/validation/performance-baseline.md).

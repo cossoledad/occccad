@@ -1,207 +1,41 @@
-# 愿景、平台原则与逻辑边界
+# 平台与领域约定
 
-> 目标契约，不等于已交付能力。返回[目标架构目录](README.md)；当前事实见[当前架构](../current/README.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
+这些是后续开发须保持的语义边界，不是当前功能或部署能力清单。当前实现由[主题目录](../current/README.md)路由；任务顺序只见 [CAD 核心主线](../../../plans/cad-core-roadmap.md)。
 
-## 愿景与范围
+## 模型、命令与历史
 
-occccad 的长期目标是一个开源、云原生、真正分布式的产品研发平台：在浏览器中完成参数化零件、复杂装配、工程表达与跨团队协作，并把精确 CAD 计算调度到可横向扩展的计算集群。CATIA 是能力广度和工程严谨性的参照，不是 UI 或内部实现的复制对象。
+- Document 是业务身份，Workspace 显式可变，Revision 不可变。显示名允许重复；业务 ID 与内容摘要不能混用。
+- 参数定义、正式关系和模型快照是业务真相。导入模型的冻结 BREP 与身份种子是重建输入；派生 BREP、Naming、Visual、缩略图和分析结果带来源，可重建，不能反过来替代参数模型。
+- UI Command、暂态 Interaction/Preview、Domain Command、Compute Job 分层。候选求值在事务外；最终以幂等请求、Transaction/ChangeSet 和 CAS 原子接纳。预览及鼠标轨迹不形成 Revision。
+- Undo/Redo 通过正式补偿或重放追加历史，不抹除已有事务；失败回执未知时先恢复原请求，不另造写入意图。
+- PropertySlot、参数源、依赖、摘要和补偿须贯通。表达式用受限、量纲检查的 ID-bound AST；禁止隐藏读取可变 Head、求值环或执行任意脚本。
+- 当前未发布，不为实验数据维持 adapter、双写或过渡迁移；发布或外部数据保留边界后的旧 Revision 可读性及追加迁移规则见[根指南](../../../AGENTS.md#当前开发数据边界)。
 
-“真正分布式”在本项目中有可验证含义：
+## CAD 身份与求值
 
-- 业务真相不依赖任一应用或 Worker 进程；
-- 计算任务可在不同主机失败重试、迁移和重建；
-- 大制品内容寻址、共享存储、就近缓存并通过 CDN/区域节点分发；
-- 不同计算类型可以独立扩缩容、限流、升级和隔离；
-- 文档版本、引用和命令在并发下具有明确一致性；
-- 单机开发与集群生产使用相同领域契约，而不是两套产品。
+- 持久引用使用 typed stable ID、InstancePath、Publication、PersistentSelection。名称、数组位置、OCCT 指针/local ID、三角形与 mesh 序号均不能成为跨 Revision 身份。
+- Body 是建模历史和求值单元，Solid 是几何结果；不能因材料连通性变化重新分配 Body 身份。依赖指向明确的上游阶段，不能读取自身或下游最终结果。
+- Profile 来自正式连接与精确曲线；显示采样和相近坐标不能代替拓扑关系。轮廓或支撑丢失时必须显式诊断，不能静默换区、换面或退回默认平面。
+- Naming 只采用真实生成/修改/删除历史与有版本的语义邻接闭包；缺失、歧义和类型变化明确失败，不按最近几何或第一个候选修补身份。
+- Quantity、坐标系、长度/角度单位、容差与分支意图显式。协议边界转换 SI 与 mm/rad；显示舍入不进入几何、摘要或正式选择。
+- 缓存身份覆盖规范输入、依赖快照、完整来源及 evaluator/kernel/solver/policy 版本。缓存缺失后从冻结输入恢复，不保证不同实现逐位相同。
+- 几何有效性、拓扑覆盖、材料、Naming 和显示门分别检查；内核 IsDone 不等于可接纳。失败显示可引用成功 Visual，但不能作为当前成功几何参与拾取、导出或验收。
 
-它不意味着把每个领域类都做成微服务，也不意味着一次几何操作跨多台机器并行。B-Rep 内核通常更适合单任务单进程；分布式收益主要来自文档/零件/配置/仿真任务之间的并行、缓存复用和数据局部性。
+## 产品、装配与证据
 
-## 目标产品工作流
+- 定义与 occurrence 分离；共享 Part 定义不共享位姿与端点身份。完整 InstancePath、来源 Revision、坐标变换和逐层权限都须保留。
+- FOLLOW_HEAD 的接受与 PINNED 的冻结显式。跨文档写入沿正式设计事务/更新计划检查权限与各自 CAS；不从界面开关推导原子性。
+- Product 中的关联设计沿 Part ContextInput、Product ContextBinding 和派生 ContextVariant；普通共享定义编辑不新增并行模式。
+- 装配硬可行、运动偏好收敛、rank/DOF、分支连续性与冲突证明分别报告。预算/取消、局部非收敛、输入和执行失败不能被解释为全局无解。
+- 机构定义及位姿独立于 Product 约束；转换显式验证并提交。瞬时 DOF 不等于有限关节或行程；插值显示帧不能成为求解或提交见证。
+- 分析结果绑定输入 Revision、依赖几何和算法策略；过期或证据不足须明确显示。接口、测试和截图存在均不能证明完整用户闭环。
 
-平台最终应支持一条连续、可追溯的工程链：
+## 计算、制品与安全
 
-```mermaid
-flowchart LR
-    Intent["设计意图<br/>参数、需求、配置"] --> Model["Sketch / Part / Surface"]
-    Model --> Product["Product structure<br/>Assembly constraints"]
-    Product --> Validate["DMU / Measure / Check<br/>Simulation"]
-    Validate --> Release["Version / Review / Release"]
-    Release --> Exchange["Drawing / PMI / STEP<br/>CAM / CAE / Integration"]
-    Validate --> Intent
-```
+- 粗粒度远程、细粒度本地；逻辑领域不自动成为网络服务。Sketch solver 保持独立接口并与 Part Worker 同进程；进程拆分需有负载、隔离或许可证依据。
+- Worker 消费冻结纯值与 ArtifactReference，不持有业务数据库真相，不向领域 Proto 泄漏第三方类型或操作系统路径。正式调用须贯通 client、Router、Worker、制品和最终 CAS。
+- Job 至少一次投递，按效果幂等；attempt、lease、deadline、cancel 和迟到结果门禁显式。对象校验及发布先后清楚，上传成功不代表业务提交成功；孤儿对象不反向改历史。
+- 文件、表达式、插件和 Worker 输入不可信，需约束大小、深度、时间、内存、网络、权限及副作用。引入服务、重大依赖或许可证变化先澄清；不从旧设计候选推断已选型。
+- 服务指标、kernel、RPC、命令和浏览器耗时分别测量；包含子阶段不能相加。定向/Mock、真实 Worker、浏览器、数据库后端及容量证据各自说明范围。
 
-- 设计者在个人或共享 Workspace 中以参数和约束表达意图，通过即时预览和权威求值获得诊断；
-- 团队复用不可变 Part/Product Revision，通过 Publication、InstancePath 和配置构建产品，而不是复制几何；
-- 工程人员执行碰撞、间隙、测量、运动学、基础动力学和后续 CAE/CAM，所有结果绑定明确输入快照；
-- 评审者比较 Revision、批注、检查规则并形成不可变 Version/Release；
-- 下游通过开放协议、制品和插件读取发布数据，不直接依赖 Worker 内存或私有数据库结构；
-- 任一阶段的失败都提供可定位诊断、可恢复历史和可重现输入，不以静默修复掩盖设计问题。
-
-## 产品级质量属性
-
-| 属性 | 目标含义 |
-|---|---|
-| 正确性 | 参数意图、单位、拓扑引用和装配身份不因重算或调度位置静默改变 |
-| 可重现 | 清空缓存后可由 Revision、依赖快照和 evaluator 版本重建语义等价结果 |
-| 可解释 | 失败指出领域对象、原因、残差/证据和修复方向，而非只返回内核异常 |
-| 可扩展 | 新 Feature/Worker/插件复用稳定契约，负载可按文档、零件、配置和任务横向扩展 |
-| 可协作 | 历史追加、并发有明确冲突、Undo 不抹除他人工作、发布版本不可变 |
-| 开放性 | 数据与协议不被单一云、对象存储、求解器或几何库类型锁定 |
-| 安全性 | 多租户隔离、不可信输入沙箱、最小权限、审计和供应链可追踪 |
-| 可演进 | 旧 Revision 可读，schema/evaluator 升级可并存、比较和迁移 |
-
-## 设计原则
-
-1. **参数模型是源，几何是缓存**：Document Revision + Typed Model Snapshot + Parameters/Relations 可重放；B-Rep、Mesh、缩略图均可淘汰重建。
-2. **粗粒度远程，细粒度本地**：RPC 表达“求值 Part Revision”而不是 `MakeEdge`；草图求解与 Part 重生成之间的高频循环留在同一 Worker。
-3. **确定性优先**：GeometryId 包含规范化输入、内核/算法版本、单位和容差策略；同一输入应产生语义等价结果。
-4. **不可变版本，显式 Workspace**：已发布 Revision 不修改；编辑发生在 Workspace/Branch，通过乐观并发提交。
-5. **开放契约与可替换后端**：业务层不泄漏 OCCT、求解器或对象存储类型。
-6. **按负载隔离，不按名词拆分**：CPU/内存/安全/延迟模型不同才拆 Worker；早期业务控制面保持模块化单体。
-7. **至少一次 + 幂等**：跨服务消息不承诺魔法般的 exactly-once；命令、任务和制品写入用幂等键、事务 Outbox 与状态机保证效果唯一。
-8. **安全默认**：所有导入文件和插件代码视为不可信；计算容器无特权、有限额、无默认外网。
-9. **演进式开源**：候选库先过许可证、维护活跃度、格式兼容性、正确性与基准测试，不因“流行”直接引入。
-
-## 目标总体架构
-
-```mermaid
-flowchart TB
-    subgraph Client["Client plane"]
-        Web["CAD Web<br/>PWA / Three.js"]
-        Desktop["Optional desktop shell / CLI"]
-    end
-
-    subgraph Edge["Edge plane"]
-        CDN["CDN / signed artifact delivery"]
-        Gateway["API Gateway<br/>TLS, auth, rate limit"]
-        Realtime["Realtime Gateway<br/>WebSocket"]
-    end
-
-    subgraph Control["Business control plane"]
-        Model["Model Service<br/>Document, Workspace, Revision"]
-        Identity["IAM / Policy"]
-        Collab["Collaboration Service"]
-        Job["Job / Workflow Service"]
-        Artifact["Artifact Metadata Service"]
-        Compute["Compute Scheduler / Registry"]
-        Search["Search / BOM indexer"]
-    end
-
-    subgraph Data["Durable data plane"]
-        PG[(PostgreSQL HA)]
-        Obj[(S3-compatible object storage)]
-        Bus["NATS JetStream<br/>events and work queues"]
-        Cache[("Redis optional<br/>ephemeral only")]
-    end
-
-    subgraph Workers["CAD compute plane"]
-        Eval["Part Evaluation Workers<br/>OCCT + Sketch module"]
-        Tess["Tessellation Workers"]
-        Exchange["Exchange Workers<br/>STEP/IGES/glTF"]
-        Assembly["Assembly Solver Workers"]
-        Mechanism["Kinematics / Dynamics Workers"]
-        Analysis["DMU / Interference / Mass Workers"]
-        Extensions["Drawing / CAM / CAE Workers"]
-    end
-
-    Web --> CDN
-    Web --> Gateway
-    Web <--> Realtime
-    Desktop --> Gateway
-    Gateway --> Model
-    Gateway --> Identity
-    Gateway --> Job
-    Realtime --> Collab
-    Model --> PG
-    Model --> Bus
-    Job --> PG
-    Job --> Bus
-    Artifact --> PG
-    Artifact --> Obj
-    Artifact --> CDN
-    Compute --> Bus
-    Compute --> Cache
-    Bus --> Eval
-    Bus --> Tess
-    Bus --> Exchange
-    Bus --> Assembly
-    Bus --> Mechanism
-    Bus --> Analysis
-    Bus --> Extensions
-    Eval <--> Obj
-    Tess <--> Obj
-    Exchange <--> Obj
-    Assembly <--> Obj
-    Mechanism <--> Obj
-    Analysis <--> Obj
-```
-
-这是逻辑边界，不要求第一天部署为十几个进程。Model、IAM、Job、Artifact Metadata 与 Realtime 先保持模块化控制面；Realtime、Scheduler 和计算子模块只在连接规模、资源或隔离证据满足时拆进程。图中的 NATS、Redis、Kubernetes 与独立 Worker 是条件性候选，不是引入依赖的授权或产品功能的前置条件。
-
-## 权威数据模型
-
-## 聚合层级
-
-```mermaid
-classDiagram
-    class Document {
-      +DocumentId
-      +Type
-      +Policy
-    }
-    class Workspace {
-      +WorkspaceId
-      +BaseRevisionId
-      +HeadSequence
-    }
-    class Revision {
-      +RevisionId
-      +ModelHash
-      +CreatedAt
-    }
-    class Transaction {
-      +TransactionId
-      +BaseSequence
-      +Commands
-    }
-    class TypedModelSnapshot {
-      +SchemaVersion
-      +DomainGraphs
-      +Relations
-    }
-    class ArtifactManifest {
-      +GeometryId
-      +KernelBuild
-      +Objects
-    }
-    Document "1" --> "many" Workspace
-    Document "1" --> "many" Revision
-    Workspace "1" --> "many" Transaction
-    Revision "1" --> "1" TypedModelSnapshot
-    Revision "1" --> "zero or many" ArtifactManifest
-```
-
-- **Document**：稳定业务身份、所有权、生命周期和策略；
-- **Document display name**：允许在同一作用域重复，只用于展示和搜索；持久引用、权限、版本和协作必须使用 `DocumentId`，创建端可以生成 `PartN`/`ProductN` 等可编辑默认名称但不得把它升级为唯一键；
-- **Workspace/Branch**：可变编辑线，指向一个不可变基础 Revision；
-- **Transaction**：用户认为原子的命令集合；
-- **Revision**：不可变、可引用、可签名的模型快照；
-- **Typed Model Snapshot**：按 Document 类型包含 Part Feature Graph、Product Structure、Drawing/Simulation setup 及其 Relation；
-- **Product Structure**：实例图，引用确定的 Document/Revision 或显式 Follow-Head 策略；
-- **Artifact Manifest**：计算产物清单，不能成为模型唯一来源。
-
-ID 使用 UUIDv7/ULID 一类可排序业务 ID；内容使用 SHA-256/BLAKE3 等内容摘要。两者不能混用：RevisionId 代表业务身份，GeometryId 代表计算内容。
-
-## Feature Graph
-
-Feature 不应继续编码为 `repeated RectangularPadSpec`。目标模型需要版本化的 typed node：
-
-- 输入：参数、表达式、Sketch/Datum、上游 Feature 输出和外部 Revision 引用；
-- 输出：Body/Shape/Datum/SelectionSet；
-- 状态：Active、Suppressed、Failed、OutOfDate；
-- 插件标识：`type_uri + schema_version + evaluator_version`；
-- 依赖：显式 DAG，禁止隐藏读取当前 Worker 状态；
-- 局部重生成：从变更节点计算 dirty subgraph，缓存未变输出。
-
-表达式引擎应使用受限 AST、量纲类型和循环检测，不能远程执行任意脚本。内部统一 SI 或明确固定 mm/rad，并在每个协议字段携带/继承 units policy。
+具体开发、验证与文档维护规则见[Agent 工作流](../../development/agent-workflow.md)和[文档维护](../../development/documentation.md)。
