@@ -1,6 +1,6 @@
 import {assistantTarget,dispatchAssistantCommand,handoffEditorIntent,handoffMatchesCommit,type AssistantHandoffSession} from "../assistant/workbench-handoff";
 import {AssistantPanel} from "../assistant/assistant-panel";
-import {freezeScope} from "../assistant/frozen-scope";
+import {freezeScope,liveSelectionSummary} from "../assistant/frozen-scope";
 import {assistantApi,type AssistantRun} from "../assistant/assistant-api";
 import {automationApi} from "../assistant/automation-api";
 import {newerRun} from "../assistant/conversation-model";
@@ -1717,8 +1717,8 @@ onToggleConstruction:(node)=>{
           onInstanceMoved={moveInstance} /></Suspense>
       <WorkbenchViewControls toolbars={visibleToolbars} />
       {!isMockMode&&<AssistantPanel open={assistantOpen} onClose={()=>setAssistantOpen(false)} documentType={(editingView??view).document.type} key={(editingView??view).document.id} documentId={(editingView??view).document.id} documentName={(editingView??view).document.name} workingBodyId={workingBodyID}
-        enabled={canEdit&&!command.isPending} readOnly={!canEdit} selectionCount={store.selections.length} inOccurrence={Boolean(activeInstancePath)} displayed={assistantDisplayed}
-        captureScope={()=>freezeScope({rootDocumentId:view.document.id,rootRevisionId:view.document.versionId,documentId:(editingView??view).document.id,revisionId:(editingView??view).document.versionId,workingBodyId:workingBodyID,
+        enabled={canEdit&&!command.isPending} readOnly={!canEdit} selectionCount={store.selections.length} selectionSummary={liveSelectionSummary(store.selections,editingView??view)} inOccurrence={Boolean(activeInstancePath)} displayed={assistantDisplayed}
+        captureScope={()=>freezeScope({view:editingView??view,rootDocumentId:view.document.id,rootRevisionId:view.document.versionId,documentId:(editingView??view).document.id,revisionId:(editingView??view).document.versionId,workingBodyId:workingBodyID,
           instancePath:editSession?.editTarget.instancePath,selections:useWorkbenchStore.getState().selections},api.getTopologyProperties)}
         prepare={async()=>{commandRegistry.cancel();await viewport.current?.settleAssemblyInteraction();useWorkbenchStore.getState().setActiveTool("select")}}
         refresh={async()=>{await refresh(await api.getDocument(view.document.id));viewport.current?.retryDocumentDisplay();}}

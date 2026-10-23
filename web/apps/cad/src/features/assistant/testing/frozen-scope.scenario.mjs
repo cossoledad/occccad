@@ -4,7 +4,7 @@ const require=createRequire(new URL("../../../../package.json",import.meta.url))
 const {createServer}=await import(require.resolve("vite"));
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try{
- const {freezeScope,maxFrozenSelections}=await server.ssrLoadModule("/src/features/assistant/frozen-scope.ts");
+ const {freezeScope,maxFrozenSelections,scopeSummary}=await server.ssrLoadModule("/src/features/assistant/frozen-scope.ts");
  let release,started;const waiting=new Promise(resolve=>release=resolve),entered=new Promise(resolve=>started=resolve);
  const persistent={schemaVersion:2,sourceDocumentId:"part",sourceBodyId:"body",anchor:{featureId:"feature",outputSlot:"edge:line"},expectedType:"EDGE",selector:{kind:"SELF"},creationEvidence:{}};
  const edge={kind:"edge",id:"display:mesh-index",topologyId:17,geometryKey:"geometry",documentId:"part",versionId:"historical",bodyId:"body"};
@@ -24,5 +24,22 @@ try{
  const body=await freezeScope({...source,selections:[{kind:"body",id:"occurrence:display:body",bodyId:"stable-body",documentId:"part"}]},async()=>{});assert.equal(body.selections[0].id,"stable-body","display prefixes never replace a formal Body identity");
  await assert.rejects(()=>freezeScope({...source,selections:[{...edge,versionId:"historical"}]},async()=>({persistentSelection:{...persistent,sourceDocumentId:"wrong"}})),/稳定引用/);
  calls=[];await assert.rejects(()=>freezeScope({...source,selections:Array.from({length:maxFrozenSelections+1},()=>edge)},async()=>{calls.push(true)}),/尚未发送/);assert.equal(calls.length,0,"an oversized complete selection is rejected explicitly before network binding, never truncated");
+ const view={document:{id:"part",versionId:"rev"},part:{features:[{id:"fillet",type:"FILLET",name:"Fillet 2",bodyId:"body"},{id:"sketch",type:"SKETCH",bodyId:"body",sketch:{entities:[{id:"circle",kind:"CIRCLE"}]}}]}};
+ const typed=await freezeScope({rootDocumentId:"part",documentId:"part",revisionId:"rev",view,selections:[{kind:"pad",id:"fillet",documentId:"part",versionId:"rev"},{kind:"visual",id:"display-circle",entityId:"circle",featureId:"sketch",visualType:"CURVE",documentId:"part",versionId:"rev"}]},async()=>{throw Error("sketch entities must not use BRep lookup")});
+ assert.equal(typed.selections[0].kind,"FEATURE");assert.equal(typed.selections[0].entityType,"FILLET");assert.equal(typed.selections[1].kind,"SKETCH_ENTITY");assert.equal(typed.selections[1].entityType,"CIRCLE");assert.equal(typed.selections[1].ownerId,"sketch");assert.equal(typed.selections[1].id,"circle");assert.match(scopeSummary(typed),/圆角特征/);assert.match(scopeSummary(typed),/草图元素/);
+ const {useWorkbenchStore}=await server.ssrLoadModule("/src/state/workbench-store.ts");
+ const selected=[{kind:"instance",id:"same-definition",entityId:"part",documentId:"part",occurrenceRef:{instancePath:occurrence("first","r1")}},{kind:"instance",id:"same-definition",entityId:"part",documentId:"part",occurrenceRef:{instancePath:occurrence("second","r1")}}];
+ useWorkbenchStore.getState().setSelections([...selected,selected[0]]);
+ assert.equal(useWorkbenchStore.getState().selections.length,2,"the store must not collapse repeated instances before capture");
+ const instances=await freezeScope({...source,selections:useWorkbenchStore.getState().selections},async()=>{});
+ assert.deepEqual(instances.selections.map(item=>item.instancePath).sort(),[["first"],["second"]]);
+ assert.deepEqual(instances.selections.map(item=>item.ownerDocumentId),["product","product"]);
+ const ownerSnapshot=await freezeScope({...source,documentId:"product",revisionId:"root-head",selections:[{kind:"instance",id:"first",documentId:"product",entityRef:{documentId:"product",entityId:"first",kind:"INSTANCE"},snapshotScope:{revisionId:"root-head"},instancePath:occurrence("first","pinned-source")}]},async()=>{});
+ assert.equal(ownerSnapshot.selections[0].sourceDocumentId,"part");assert.equal(ownerSnapshot.selections[0].sourceVersionId,"pinned-source","an Instance's accepted source must not be replaced by its parent Product snapshot");
+ const endpoints=[{kind:"visual",id:"same-display",entityId:"line",featureId:"sketch",visualType:"POINT",documentId:"part",sketchReference:{target:"ENTITY",entityId:"line",subElement:"START",pointId:"start-point"}},{kind:"visual",id:"same-display",entityId:"line",featureId:"sketch",visualType:"POINT",documentId:"part",sketchReference:{target:"ENTITY",entityId:"line",subElement:"END",pointId:"end-point"}}];
+ useWorkbenchStore.getState().setSelections(endpoints);assert.equal(useWorkbenchStore.getState().selections.length,2,"formal sketch endpoints must remain distinct");
+ const pointRefs=await freezeScope({rootDocumentId:"part",documentId:"part",revisionId:"rev",view:{...view,part:{features:[{id:"sketch",type:"SKETCH",sketch:{entities:[{id:"line",kind:"LINE"}]}}]}},selections:endpoints},async()=>{});
+ assert.equal(pointRefs.selectionCount,2);assert.deepEqual(pointRefs.selections.map(item=>item.sketchReference.pointId),["start-point","end-point"]);
+ useWorkbenchStore.getState().setSelections([]);
  console.log("Frozen selection binding, historical revision, occurrence identity and complete-set limits passed.");
 }finally{await server.close()}

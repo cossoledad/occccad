@@ -326,6 +326,20 @@ func TestAssistantHTTPDurableRunsAndAccountSettings(t *testing.T) {
 	if status, raw = call(&owner, "GET", path+"/"+run.ID+"/calls", nil, false); status != 200 || !strings.Contains(string(raw), "deepseek-v4-pro") || !strings.Contains(string(raw), `"total_tokens":130`) {
 		t.Fatal("durable model-call ledger", status, string(raw))
 	}
+	for _, format := range []string{"json", "markdown"} {
+		for _, suffix := range []string{"", "&turnId=" + complete.CurrentTurnID} {
+			status, raw = call(&owner, "GET", path+"/"+run.ID+"/export?format="+format+suffix, nil, false)
+			if status != 200 || !strings.Contains(string(raw), "occccad.assistant-export.v1") || !strings.Contains(string(raw), "MODEL_REQUEST_CAPTURED") || !strings.Contains(string(raw), "当前参数有哪些") || !strings.Contains(string(raw), "recordCount") {
+				t.Fatal("complete HTTP export", status, string(raw))
+			}
+		}
+	}
+	if status, _ = call(&viewer, "GET", path+"/"+run.ID+"/export?format=json", nil, false); status < 400 {
+		t.Fatal("export shared a private Run")
+	}
+	if status, _ = call(&owner, "GET", path+"/"+run.ID+"/export?format=csv", nil, false); status != 400 {
+		t.Fatal("invalid export format")
+	}
 	message := assistant.MessageInput{RequestID: uuid.NewString(), Text: "当前任务状态是什么？"}
 	if status, _ = call(&owner, "POST", path+"/"+run.ID+"/messages", message, false); status != 403 {
 		t.Fatal("message missing CSRF", status)
@@ -398,7 +412,7 @@ func TestAssistantHTTPDurableRunsAndAccountSettings(t *testing.T) {
 		t.Fatal("read-only query changed the model revision")
 	}
 
-	// Operation nouns in a question must not retire an active writer's plan.
+	// Ordinary messages, including questions, are interpreted by the model.
 	writerBlock.Store(true)
 	status, raw = call(&owner, "POST", path, assistant.RunInput{RequestID: uuid.NewString(), Text: "厚度改成20mm"}, true)
 	writer := mustRun(status, raw, 202)
@@ -412,11 +426,11 @@ func TestAssistantHTTPDurableRunsAndAccountSettings(t *testing.T) {
 		Turn assistant.Turn `json:"turn"`
 	}
 	status, raw = call(&owner, "POST", path+"/"+writer.ID+"/messages", assistant.MessageInput{RequestID: uuid.NewString(), Text: "当前圆角半径是多少？"}, true)
-	if status != 202 || json.Unmarshal(raw, &accepted) != nil || accepted.Turn.Kind != "QUERY" || accepted.Run.GoalVersion != writer.GoalVersion || accepted.Run.Epoch != writer.Epoch {
-		t.Fatal("a model question revised the active goal", status, string(raw))
+	if status != 202 || json.Unmarshal(raw, &accepted) != nil || accepted.Turn.Kind != "STEER" || accepted.Run.GoalVersion != writer.GoalVersion+1 || accepted.Run.Epoch <= writer.Epoch {
+		t.Fatal("keywords still classified a writable message", status, string(raw))
 	}
 	status, raw = call(&owner, "POST", path+"/"+writer.ID+"/messages", assistant.MessageInput{RequestID: uuid.NewString(), Text: "可以把厚度改成20mm吗"}, true)
-	if status != 202 || json.Unmarshal(raw, &accepted) != nil || accepted.Turn.Kind != "STEER" || accepted.Run.GoalVersion != writer.GoalVersion+1 || accepted.Run.Epoch <= writer.Epoch {
+	if status != 202 || json.Unmarshal(raw, &accepted) != nil || accepted.Turn.Kind != "STEER" || accepted.Run.GoalVersion != writer.GoalVersion+2 || accepted.Run.Epoch <= writer.Epoch {
 		t.Fatal("a polite change request was treated as read-only", status, string(raw))
 	}
 	if status, raw = call(&owner, "POST", path+"/"+writer.ID+"/control", map[string]any{"action": "confirm", "expectedVersion": accepted.Run.Version, "epoch": writer.Epoch, "taskId": uuid.NewString(), "stepId": uuid.NewString(), "previewId": uuid.NewString()}, true); status < 400 || !strings.Contains(string(raw), "AI_EPOCH_CONFLICT") {

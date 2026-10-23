@@ -111,6 +111,10 @@ func (s *Service) failStage(ctx context.Context, r Run, task automation.Task, fa
 		}
 	}
 	canRepair := repairableStageFault(failure)
+	turnID, err := taskTurnID(ctx, s.db, r, task.ID)
+	if err != nil {
+		return err
+	}
 	err = s.checkpointTaskUpdate(ctx, r, task, "", "FAILED", true, false, "", func(tx database.Tx, current *Run, wasActive bool) error {
 		if !wasActive {
 			return nil // A replay of this same stage is not a second failed repair.
@@ -144,7 +148,7 @@ func (s *Service) failStage(ctx context.Context, r Run, task automation.Task, fa
 		if canRepair {
 			message = "上一步未应用，正在读取最新结果并调整操作。"
 		}
-		return s.event(ctx, tx, current, "STAGE_DIAGNOSTIC", map[string]any{"taskId": task.ID, "failure": failure, "inputSnapshot": task.Baseline, "steps": task.Steps, "repairable": canRepair, "semanticDigest": digest, "message": message, "goalVersion": current.GoalVersion})
+		return s.event(ctx, tx, current, "STAGE_DIAGNOSTIC", map[string]any{"taskId": task.ID, "failure": failure, "inputSnapshot": task.Baseline, "steps": task.Steps, "repairable": canRepair, "semanticDigest": digest, "message": message, "goalVersion": current.GoalVersion}, turnID)
 	})
 	if err == nil {
 		// A rejected preview/binding may leave the Head unchanged. Invalidate

@@ -99,7 +99,7 @@ func TestAssistantRunUnboundedCallsSyntheticMillionsAndRecovery(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if r.AccessMode != "READ" || r.TokenBudget != nil {
+	if r.AccessMode != "WRITE" || r.TokenBudget != nil {
 		t.Fatal("default budget or read scope incorrect")
 	}
 	step := func() {

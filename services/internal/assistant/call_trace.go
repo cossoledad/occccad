@@ -86,7 +86,7 @@ func (s *Service) captureCallRequest(ctx context.Context, c *CallRecord, message
 		if stored.Status != "PREPARED" {
 			return aiFault("AI_CALL_STATE", "请求记录只能在发送之前创建", false)
 		}
-		if e = s.event(ctx, tx, r, "MODEL_REQUEST_CAPTURED", snapshot); e != nil {
+		if e = s.event(ctx, tx, r, "MODEL_REQUEST_CAPTURED", snapshot, c.TurnID); e != nil {
 			return e
 		}
 		stored.RequestEventSequence = r.EventSequence
@@ -101,6 +101,9 @@ func (s *Service) captureCallRequest(ctx context.Context, c *CallRecord, message
 }
 
 type CallSummary struct {
+	TurnID           string            `json:"turnId,omitempty"`
+	Usage            *Usage            `json:"usage,omitempty"`
+	UsageState       string            `json:"usageState"`
 	ID               string            `json:"id"`
 	Sequence         uint64            `json:"sequence,omitempty"`
 	Epoch            uint64            `json:"epoch"`
@@ -161,7 +164,7 @@ func (s *Service) Trace(ctx context.Context, actor, document, run, cursor string
 			page.HasEarlier = true
 			break
 		}
-		item := CallSummary{ID: c.ID, Sequence: c.Sequence, Epoch: c.Epoch, InputID: c.InputID, Status: status, StartedAt: c.StartedAt, FinishedAt: c.FinishedAt, Model: c.Generation.Model, ToolNames: []string{}, RequestAvailable: c.RequestEventSequence != 0, Failure: c.Failure}
+		item := CallSummary{TurnID: c.TurnID, Usage: c.Usage, UsageState: c.UsageState, ID: c.ID, Sequence: c.Sequence, Epoch: c.Epoch, InputID: c.InputID, Status: status, StartedAt: c.StartedAt, FinishedAt: c.FinishedAt, Model: c.Generation.Model, ToolNames: []string{}, RequestAvailable: c.RequestEventSequence != 0, Failure: c.Failure}
 		if c.Response != nil {
 			item.Reply = publicProgress(c.Response.Content)
 			for _, tool := range c.Response.ToolCalls {

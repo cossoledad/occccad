@@ -51,6 +51,20 @@ func (s *Service) prepareCall(ctx context.Context, r Run, inputID string, baseli
 				return e
 			}
 		}
+		c.TurnID = current.CurrentTurnID
+		if inputID != "" {
+			c.TurnID = inputID
+		}
+		if c.TurnID == "" {
+			return aiFault("AI_TURN_SOURCE_UNAVAILABLE", "本次调用缺少明确的用户轮次，请发送新消息后继续", false)
+		}
+		source, _, e := loadInput(ctx, tx, c.TurnID)
+		if e != nil && !errors.Is(e, database.ErrNoRows) {
+			return e
+		}
+		if e != nil || source.RunID != current.ID {
+			return aiFault("AI_TURN_SOURCE_UNAVAILABLE", "本次调用缺少明确的用户轮次，请发送新消息后继续", false)
+		}
 		if current.TokenBudget != nil && current.Usage.TotalTokens >= *current.TokenBudget {
 			if inputID != "" {
 				return s.waitQuestionBudget(ctx, tx, current, inputID)
@@ -77,7 +91,7 @@ func (s *Service) prepareCall(ctx context.Context, r Run, inputID string, baseli
 				return context.Canceled
 			}
 		}
-		_, e := tx.Exec(ctx, `INSERT INTO occccad.assistant_model_calls(id,run_id,input_id,logical_id,attempt,epoch,status,payload,started_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, c.ID, c.RunID, c.InputID, c.LogicalID, c.Attempt, c.Epoch, c.Status, marshalJSON(c), c.StartedAt)
+		_, e = tx.Exec(ctx, `INSERT INTO occccad.assistant_model_calls(id,run_id,input_id,logical_id,attempt,epoch,status,payload,started_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, c.ID, c.RunID, c.InputID, c.LogicalID, c.Attempt, c.Epoch, c.Status, marshalJSON(c), c.StartedAt)
 		return e
 	})
 	if err != nil {
@@ -126,12 +140,16 @@ func (s *Service) markSent(ctx context.Context, c *CallRecord) error {
 		}
 		c.Status = "SENT"
 		c.UsageState = "PENDING"
+		if e = updateTurnUsage(ctx, tx, *c, func(u *TurnUsage) { u.Calls++; u.PendingCalls++ }); e != nil {
+			return e
+		}
+		r.Usage.PendingCalls++
 		r.ModelCalls++
 		c.Sequence = uint64(r.ModelCalls)
 		if e = saveCall(ctx, tx, *c); e != nil {
 			return e
 		}
-		return s.event(ctx, tx, r, "MODEL_CALL_SENT", map[string]any{"id": c.ID, "logicalId": c.LogicalID, "attempt": c.Attempt, "generation": c.Generation})
+		return s.event(ctx, tx, r, "MODEL_CALL_SENT", map[string]any{"id": c.ID, "logicalId": c.LogicalID, "attempt": c.Attempt, "generation": c.Generation}, c.TurnID)
 	})
 	return err
 }
@@ -148,10 +166,14 @@ func (s *Service) receiveCall(ctx context.Context, c *CallRecord, completion Com
 			*c = stored
 			return nil
 		}
-		wasUnknown := usageUnknown(stored)
+		wasUnknown := stored.UsageState == "UNKNOWN"
+		wasPending := stored.Status == "SENT"
+		hadReported := stored.Usage != nil
 		stored.FinishedAt = timestamp(s.now())
 		stored.ProviderRequestID = completion.ProviderRequestID
-		stored.Usage = completion.Usage
+		if !hadReported {
+			stored.Usage = completion.Usage
+		}
 		stored.Status = "RECEIVED"
 		message := completion.Message
 		message.ReasoningContent = ""
@@ -161,26 +183,32 @@ func (s *Service) receiveCall(ctx context.Context, c *CallRecord, completion Com
 			stored.Status = "UNKNOWN"
 			stored.Failure = asFault(callErr)
 		}
+		apply := func(u *RunUsage) {
+			if wasPending {
+				u.PendingCalls--
+			}
+			if stored.Usage == nil {
+				if !wasUnknown {
+					u.UnknownAttempts++
+				}
+			} else {
+				if wasUnknown {
+					u.UnknownAttempts--
+				}
+				if !hadReported {
+					addReportedUsage(u, stored.Usage)
+				}
+			}
+		}
+		apply(&r.Usage)
+		if e = updateTurnUsage(ctx, tx, stored, func(u *TurnUsage) {
+			apply(&u.RunUsage)
+		}); e != nil {
+			return e
+		}
+		stored.UsageState = "REPORTED"
 		if stored.Usage == nil {
 			stored.UsageState = "UNKNOWN"
-			if !wasUnknown {
-				r.Usage.UnknownAttempts++
-			}
-		} else {
-			stored.UsageState = "REPORTED"
-			if wasUnknown {
-				r.Usage.UnknownAttempts--
-			}
-			r.Usage.ReportedCalls++
-			r.Usage.PromptTokens += int64(stored.Usage.PromptTokens)
-			r.Usage.CompletionTokens += int64(stored.Usage.CompletionTokens)
-			r.Usage.TotalTokens += int64(stored.Usage.TotalTokens)
-			if stored.Usage.CacheHitTokens != nil {
-				r.Usage.CacheHitTokens += *stored.Usage.CacheHitTokens
-			}
-			if stored.Usage.ReasoningTokens != nil {
-				r.Usage.ReasoningTokens += *stored.Usage.ReasoningTokens
-			}
 		}
 		if e = saveCall(ctx, tx, stored); e != nil {
 			return e
@@ -189,11 +217,11 @@ func (s *Service) receiveCall(ctx context.Context, c *CallRecord, completion Com
 		// Only the provider's public answer is conversation material. Private
 		// reasoning_content stays out of the journal and UI, including recovery.
 		if callErr == nil && r.Epoch == stored.Epoch && len(message.ToolCalls) > 0 && strings.TrimSpace(message.Content) != "" {
-			if e = s.event(ctx, tx, r, "ASSISTANT_MESSAGE", map[string]any{"callId": stored.ID, "inputId": stored.InputID, "goalVersion": r.GoalVersion, "message": publicProgress(message.Content)}); e != nil {
+			if e = s.event(ctx, tx, r, "ASSISTANT_MESSAGE", map[string]any{"callId": stored.ID, "inputId": stored.InputID, "goalVersion": r.GoalVersion, "message": publicProgress(message.Content)}, stored.TurnID); e != nil {
 				return e
 			}
 		}
-		return s.event(ctx, tx, r, "MODEL_CALL_RECORDED", map[string]any{"id": stored.ID, "status": stored.Status, "usageState": stored.UsageState, "usage": stored.Usage, "epoch": stored.Epoch, "stale": r.Epoch != stored.Epoch})
+		return s.event(ctx, tx, r, "MODEL_CALL_RECORDED", map[string]any{"id": stored.ID, "status": stored.Status, "usageState": stored.UsageState, "usage": stored.Usage, "epoch": stored.Epoch, "stale": r.Epoch != stored.Epoch}, stored.TurnID)
 	})
 	_ = next
 	return err

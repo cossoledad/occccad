@@ -6,7 +6,7 @@ import {assistantApi,type AssistantRun,type FrozenScope,type RunControl} from ".
 import {newerRun,presentedAcknowledgment,runActive} from "./conversation-model";
 import {handoffDispatchAllowed,type AssistantToolHandoff} from "./workbench-handoff";
 
-export type ModelingProps={documentId:string;documentName:string;documentType?:string;workingBodyId?:string;enabled:boolean;readOnly?:boolean;selectionCount:number;inOccurrence?:boolean;captureScope:()=>Promise<FrozenScope>;displayed?:{documentId:string;revisionId:string};prepare:()=>Promise<void>;refresh:()=>Promise<void>;preview:(value:CommandPreview|undefined)=>void;executeCommand?:(id:string,targetId?:string,handoff?:AssistantToolHandoff)=>Promise<void>;locate:(ref:EntityRef)=>void};
+export type ModelingProps={documentId:string;documentName:string;documentType?:string;workingBodyId?:string;enabled:boolean;readOnly?:boolean;selectionCount:number;selectionSummary?:string;inOccurrence?:boolean;captureScope:()=>Promise<FrozenScope>;displayed?:{documentId:string;revisionId:string};prepare:()=>Promise<void>;refresh:()=>Promise<void>;preview:(value:CommandPreview|undefined)=>void;executeCommand?:(id:string,targetId?:string,handoff?:AssistantToolHandoff)=>Promise<void>;locate:(ref:EntityRef)=>void};
 export const messageOf=(cause:unknown)=>cause instanceof Error?cause.message:String(cause);
 
 // This bridge observes the durable server runner. Closing or unmounting it

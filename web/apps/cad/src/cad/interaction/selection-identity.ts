@@ -1,16 +1,19 @@
 import type { Selection, SelectionItem } from "../../types";
 
-export const selectionKey = (selection: SelectionItem): string => JSON.stringify([
-  selection.kind, selection.documentId ?? "",
+export const selectionKey = (selection: SelectionItem): string => {
+ const path=selection.instancePath??selection.occurrenceRef?.instancePath;
+ const occurrence=path?.canonical||(path?.segments.length?JSON.stringify(path.segments.map(segment=>segment.instanceId)):undefined)||selection.occurrencePath||"";
+ return JSON.stringify([
+  selection.kind, selection.entityRef?.documentId ?? selection.ownerDocumentId ?? selection.documentId ?? "",
   selection.kind === "body" ? selection.bodyId ?? selection.entityId ?? selection.id
     : selection.kind === "part" || selection.kind === "product" ? selection.documentId ?? selection.id
-      : selection.kind === "instance" ? selection.instancePath?.canonical ?? selection.occurrencePath ?? selection.id
+      : selection.kind === "instance" ? occurrence || selection.id
         : selection.kind === "sketch-constraint" || selection.kind === "assembly-constraint" ? selection.constraintId
         : "topologyId" in selection ? selection.topologyId
           : selection.kind === "tree" ? selection.id : selection.entityId ?? selection.id,
-  selection.instancePath?.rootDocumentId ?? selection.rootDocumentId ?? "",
-  selection.instancePath?.canonical ?? selection.occurrencePath ?? "",
-  selection.versionId ?? "", selection.contextVariantKey ?? "",
+  path?.rootDocumentId ?? selection.rootDocumentId ?? "",
+  occurrence,
+  selection.snapshotScope?.revisionId ?? selection.versionId ?? "", selection.snapshotScope?.contextVariantKey ?? selection.contextVariantKey ?? "",
   ["body", "sketch", "pad", "import", "feature", "visual", "face", "edge", "vertex"].includes(selection.kind)
     ? selection.bodyId ?? "" : "",
   selection.kind === "face" || selection.kind === "edge" || selection.kind === "vertex"
@@ -19,7 +22,9 @@ export const selectionKey = (selection: SelectionItem): string => JSON.stringify
   selection.displayStageFeatureId??"",
   selection.kind === "axis" ? selection.axis : "",
   selection.kind === "visual" ? selection.featureId : "",
+  selection.sketchReference ? [selection.sketchReference.target,selection.sketchReference.entityId,selection.sketchReference.subElement,selection.sketchReference.controlPointId??selection.sketchReference.controlPointIndex,selection.sketchReference.pointId] : null,
 ]);
+};
 
 export const selectionSetToken = (selections: readonly SelectionItem[]): string => selections.map(selectionKey).join("\u0000");
 

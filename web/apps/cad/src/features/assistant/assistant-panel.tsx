@@ -9,6 +9,7 @@ import {phaseText} from "./task-model";
 import {assistantFailure,conversationProgress,mergeMessagePage,mergeProgressPage,runActive,runStatusText,turnStatusText} from "./conversation-model";
 import {scopeSummary} from "./frozen-scope";
 import {messageOf,useModelingTask,type ModelingProps} from "./use-modeling-task";
+import {ExportMenu,UsageDetails} from "./assistant-usage";
 import {AssistantTrace} from "./assistant-trace";
 import "./assistant-panel.css";
 
@@ -100,12 +101,13 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
    {connection.data?.configured&&<div className="assistant-connection-actions"><Button size="small" onClick={()=>{setSettingsOpen(false);setApiKey("")}}>返回对话</Button><Button type="text" size="small" disabled={keyBusy} onClick={()=>void(async()=>{setKeyBusy(true);try{await assistantApi.deleteKey();await client.invalidateQueries({queryKey:["assistant-settings"]})}catch(cause){setError(messageOf(cause))}finally{setKeyBusy(false)}})()}>断开连接</Button></div>}
   </div>:<>
    <div className="assistant-run-navigation"><Select aria-label="建模目标" size="small" variant="borderless" value={model.runId} placeholder="新的建模目标" options={navigationRuns.map(item=>({value:item.id,label:`${runStatusText[item.status]} · ${item.goal}`}))} onChange={value=>{setNewGoal(false);model.select(value)}}/><Button size="small" type="text" onClick={()=>{setNewGoal(true);model.select(undefined)}}>新建目标</Button>{runs.data?.hasMore&&<Button type="text" size="small" onClick={()=>setRunCursor(runs.data!.nextCursor)}>更早目标</Button>}{runCursor&&<Button size="small" type="text" onClick={()=>setRunCursor(undefined)}>最近</Button>}</div>
+   {run&&<div className="assistant-usage-header"><UsageDetails usage={run.usage} label="累计"/><ExportMenu documentId={props.documentId} runId={run.id}/></div>}
    <div className="assistant-thread" role="log" aria-label="建模对话" aria-live="polite" onScroll={event=>{const el=event.currentTarget;followProgress.current=el.scrollHeight-el.scrollTop-el.clientHeight<80}}>
     {(model.loading||conversation.isPending&&Boolean(model.runId))&&<div className="assistant-loading"><Spin size="small"/> 正在恢复任务</div>}
     {!model.runId&&!optimisticVisible&&<div className="assistant-welcome"><h3>想完成什么样的模型？</h3><p>描述目标和尺寸，也可以选中对象后提出要求。运行过程中可继续提问或修改。</p><button onClick={()=>setDraft("在 XY 平面建立 80×50 mm 矩形，拉伸 12 mm，再对全部边做 R2 圆角。")}>创建长方体并对全部边做 R2 圆角 <span>↗</span></button><button onClick={()=>setDraft("当前零件有哪些可以修改的参数？")}>查看当前零件的参数 <span>↗</span></button></div>}
     {conversation.data?.hasEarlier&&<Button className="assistant-history-page" size="small" type="link" onClick={()=>setHistoryBefore(turns[0]?.sequence)}>较早消息</Button>}{historyBefore!==undefined&&<Button size="small" type="link" onClick={()=>setHistoryBefore(undefined)}>返回最新消息</Button>}
     {turns.map(turn=><div className="assistant-exchange" key={turn.id}>
-     <div className="assistant-message is-user"><span className="assistant-speaker" title={turnStatusText[turn.status]}>你</span><p>{turn.text}</p>{Boolean(turn.scope.selectionCount)&&<small className="assistant-scope-sent">{scopeSummary(turn.scope)}</small>}</div>
+     <div className="assistant-message is-user"><span className="assistant-speaker" title={turnStatusText[turn.status]}>你</span><p>{turn.text}</p>{Boolean(turn.scope.selectionCount)&&<small className="assistant-scope-sent">{scopeSummary(turn.scope)}</small>}<div className="assistant-turn-accounting"><UsageDetails usage={turn.usage} label="本轮"/>{run&&<ExportMenu documentId={props.documentId} runId={run.id} turnId={turn.id}/>}</div></div>
      {(turn.kind==="QUERY"||turn.goalVersion!==run?.goalVersion)&&(turn.reply||turn.failure||["RECEIVED","WAITING_BOUNDARY"].includes(turn.status))&&<div className="assistant-message is-assistant"><span className="assistant-speaker"><CommentOutlined/> 建模助手</span>{turn.kind==="QUERY"&&!turn.reply&&<ProgressTimeline events={(progress.data?.items??[]).filter(event=>event.data?.inputId===turn.id&&Boolean(event.data?.message))}/>} {turn.reply&&<p>{turn.reply}</p>}{turn.failure&&<Alert type="error" title={assistantFailure(turn.failure)}/>} {turn.kind==="QUERY"&&["RECEIVED","WAITING_BOUNDARY"].includes(turn.status)&&<div className="assistant-thinking"><Spin size="small"/>正在查看…</div>}</div>}
     </div>)}
     {optimisticVisible&&<div className="assistant-message is-user"><span className="assistant-speaker">你 · 正在发送</span><p>{optimistic.input.text}</p><small>{scopeSummary(optimistic.input.scope)}</small></div>}
@@ -142,7 +144,7 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
     </div>}
     {props.inOccurrence&&<div className="assistant-input-hint">正在操作共享零件定义，修改会影响引用它的其他实例。</div>}
     {run?.status==="STOPPED"&&<div className="assistant-input-hint">此目标已停止，仍可查询；继续建模请新建目标。</div>}
-    {(props.selectionCount>0||props.readOnly)&&<div className="assistant-scope" aria-label="发送目标摘要">{props.selectionCount?`已选 ${props.selectionCount} 个对象`:"只读问答"}</div>}
+    {(props.selectionCount>0||props.readOnly)&&<div className="assistant-scope" aria-label="发送目标摘要">{props.selectionCount?`已选 ${props.selectionSummary||`${props.selectionCount} 个对象`}`:"只读问答"}</div>}
     <Input.TextArea aria-label="建模需求" value={draft} onChange={event=>setDraft(event.target.value)} autoSize={{minRows:2,maxRows:5}} maxLength={2000} placeholder={run?"提问，或修改当前目标…":"描述目标、尺寸，或提出问题…"} onKeyDown={event=>{if(event.key==="Enter"&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();void send()}}}/>
     <div className="assistant-composer-actions"><Tooltip title="每一步先预览，确认后再应用"><Checkbox checked={(run?.mode??mode)==="CONFIRM"} disabled={busy||props.readOnly} onChange={event=>{const value:RunMode=event.target.checked?"CONFIRM":"AUTOMATIC";if(run)void model.control({action:"mode",mode:value});else setMode(value)}}>逐步确认</Checkbox></Tooltip><Button type="primary" size="small" aria-label="发送建模需求" icon={<SendOutlined/>} loading={sending} disabled={sending||!draft.trim()||!connection.data?.configured} onClick={()=>void send()}/></div>
    </div>

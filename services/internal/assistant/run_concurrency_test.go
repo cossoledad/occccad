@@ -169,6 +169,13 @@ func TestAssistantRunQuestionAnswersWhileWriterWaitsAndRejectsWrites(t *testing.
 		return concurrencyCompletion(Message{Role: "assistant", Content: "请补充后续建模要求。"}), nil
 	}
 	s, domain, view, actor := concurrencyFixture(t, p)
+	historical, err := domain.ReadModelSnapshot(t.Context(), view.Document.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = domain.ExecuteCommand(t.Context(), view.Document.ID, workspace.CommandRequest{Type: "RENAME_BODY", BodyID: view.Part.ActiveBodyID, Name: "Current definition", ActorID: actor, RequestID: uuid.NewString()}); err != nil {
+		t.Fatal(err)
+	}
 	r, err := s.CreateRun(t.Context(), actor, view.Document.ID, RunInput{RequestID: uuid.NewString(), Text: "创建80×50mm矩形并拉伸12mm"})
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +191,7 @@ func TestAssistantRunQuestionAnswersWhileWriterWaitsAndRejectsWrites(t *testing.
 	case <-time.After(10 * time.Second):
 		t.Fatal("writer did not enter provider request")
 	}
-	current, question, err := s.AddMessage(t.Context(), actor, view.Document.ID, r.ID, MessageInput{RequestID: uuid.NewString(), Text: "当前参数有哪些？"})
+	current, question, err := s.AddMessage(t.Context(), actor, view.Document.ID, r.ID, MessageInput{RequestID: uuid.NewString(), Text: "当前参数有哪些？", Scope: &FrozenScope{RootDocumentID: view.Document.ID, DocumentID: view.Document.ID, RevisionID: historical.RevisionID, WorkingBodyID: view.Part.ActiveBodyID, Complete: true, Selections: []SelectedReference{}}})
 	if err != nil || question.Kind != "QUERY" || current.Epoch != r.Epoch {
 		t.Fatal("read-only question revised the active writer", current, question, err)
 	}

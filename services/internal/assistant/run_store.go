@@ -62,9 +62,21 @@ func (s *Service) saveRun(ctx context.Context, db database.Executor, r *Run) err
 	}
 	return nil
 }
-func (s *Service) event(ctx context.Context, db database.Executor, r *Run, kind string, data any) error {
+func (s *Service) event(ctx context.Context, db database.Executor, r *Run, kind string, data any, sourceTurn ...string) error {
 	r.EventSequence++
-	e := RunEvent{Sequence: r.EventSequence, Epoch: r.Epoch, Type: kind, At: timestamp(s.now())}
+	turnID := r.CurrentTurnID
+	switch v := data.(type) {
+	case Turn:
+		turnID = v.ID
+	case map[string]any:
+		if id, ok := v["inputId"].(string); ok && id != "" {
+			turnID = id
+		}
+	}
+	if len(sourceTurn) > 0 {
+		turnID = sourceTurn[0]
+	}
+	e := RunEvent{TurnID: turnID, Sequence: r.EventSequence, Epoch: r.Epoch, Type: kind, At: timestamp(s.now())}
 	if data != nil {
 		e.Data = marshalJSON(data)
 	}
@@ -139,7 +151,7 @@ func (s *Service) CreateRun(ctx context.Context, actor, document string, input R
 	}
 	accessMode := "WRITE"
 	kind := "GOAL"
-	if !writable || isQuestion(input.Text) {
+	if !writable {
 		accessMode = "READ"
 		kind = "QUERY"
 	}
@@ -148,7 +160,8 @@ func (s *Service) CreateRun(ctx context.Context, actor, document string, input R
 		return Run{}, err
 	}
 	r := Run{ID: id, CredentialScope: vault, ActorID: actor, AccessMode: accessMode, DocumentID: document, Version: 1, Epoch: 1, GoalVersion: 1, Goal: input.Text, Status: "QUEUED", Mode: mode, Scope: scope, TokenBudget: budget, BudgetVersion: 1, CreatedAt: timestamp(s.now()), UpdatedAt: timestamp(s.now()), LatestRevisionID: scope.RevisionID}
-	turn := Turn{ID: uuid.NewSHA1(uuid.MustParse(id), []byte(input.RequestID)).String(), RunID: id, Sequence: 1, RequestID: input.RequestID, Text: input.Text, Kind: kind, Status: "APPLIED", Scope: scope, GoalVersion: 1, CreatedAt: r.CreatedAt}
+	turn := Turn{ID: uuid.NewSHA1(uuid.MustParse(id), []byte(input.RequestID)).String(), RunID: id, Sequence: 1, RequestID: input.RequestID, Text: input.Text, Kind: kind, Status: "APPLIED", Scope: scope, GoalVersion: 1, CreatedAt: r.CreatedAt, Usage: &TurnUsage{}}
+	r.CurrentTurnID = turn.ID
 	r.MessageSequence = 1
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -215,7 +228,7 @@ func (s *Service) AddMessage(ctx context.Context, actor, document, id string, in
 			return current, Turn{}, err
 		}
 	}
-	question := isQuestion(input.Text) || !writable
+	question := !writable
 	var turn Turn
 	next, err := s.mutateRun(ctx, id, func(tx database.Tx, r *Run) error {
 		if r.ActorID != actor || r.DocumentID != document {
@@ -225,8 +238,9 @@ func (s *Service) AddMessage(ctx context.Context, actor, document, id string, in
 			return aiFault("AI_RUN_FINISHED", "任务已结束，请发起新的目标", false)
 		}
 		r.MessageSequence++
-		turn = Turn{ID: uuid.NewSHA1(uuid.MustParse(id), []byte(input.RequestID)).String(), RunID: id, Sequence: r.MessageSequence, RequestID: input.RequestID, Text: input.Text, Kind: "QUERY", Status: "RECEIVED", Scope: scope, GoalVersion: r.GoalVersion, CreatedAt: timestamp(s.now())}
+		turn = Turn{ID: uuid.NewSHA1(uuid.MustParse(id), []byte(input.RequestID)).String(), RunID: id, Sequence: r.MessageSequence, RequestID: input.RequestID, Text: input.Text, Kind: "QUERY", Status: "RECEIVED", Scope: scope, GoalVersion: r.GoalVersion, CreatedAt: timestamp(s.now()), Usage: &TurnUsage{}}
 		if !question {
+			r.CurrentTurnID = turn.ID
 			r.Epoch++
 			r.GoalVersion++
 			turn.GoalVersion = r.GoalVersion

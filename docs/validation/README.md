@@ -7,6 +7,7 @@
 | 全仓性能测量 | [范围与结果](performance-baseline.md)、[机器样本](performance-baseline.json) |
 | 持续 AI Run | [容量、恢复、选择与装配验收](ai-native-runs.md) |
 | 无模型查询调试 | [工具结果一致性、倒角立方体与孔口边基线](cad-query-debug-baseline.md) |
+| 用量、导出与选择读取 | [稳定轮次归属、完整快照及紧凑选择](assistant-usage-export.md) |
 | 当前请求职责边界 | [自然回复、按需检查、半径修改与恢复](assistant-request-boundaries.md) |
 | 目标验收与查询绑定（历史） | [来源覆盖、账本引用及 100 mm 立方体连续回归](assistant-goal-coverage.md) |
 | 连续建模 | [固定建模序列](continuous-modeling-100-baseline.md) |

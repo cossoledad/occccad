@@ -1,3 +1,4 @@
+import {selectionKey} from "../cad/interaction/selection-identity";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Selection, SelectionItem, SketchPlane } from "../types";
@@ -32,7 +33,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(persist((set) => ({
   selection: null, selections: [], preselection: null, activeToolID: "select", activeToolMode: "once", inspectorTab: "properties",
   setSelection: (selection) => set({ selection, selections: selection ? [selection] : [], preselection: null }),
   setSelections: (selections) => {
-    const unique = [...new Map(selections.map((selection) => [`${selection.kind}:${selection.id}`, selection])).values()];
+    const unique = [...new Map(selections.map((selection) => [selectionKey(selection), selection])).values()];
     set({ selections: unique, selection: unique.at(-1) ?? null, preselection: null });
   },
   setPreselection: (preselection) => set({ preselection }),

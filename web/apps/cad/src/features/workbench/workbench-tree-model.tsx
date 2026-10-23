@@ -20,7 +20,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     id: node.subject?.entityId ?? node.entityId ?? node.id,
     entityId: node.subject?.entityId ?? node.entityId,
     patternId:node.patternId,patternMemberSlot:node.patternMemberSlot,
-    entityKind: node.subject?.entityKind ?? node.kind,
+    entityKind: node.subject?.entityKind ?? node.kind, entityType: node.entityType,
     entityRef: node.subject, occurrenceRef: node.occurrence, snapshotScope: node.snapshot,
     documentId: node.documentId, ownerDocumentId: node.ownerDocumentId ?? node.documentId,
     bodyId, versionId: node.snapshot?.revisionId ?? node.versionId,

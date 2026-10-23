@@ -512,6 +512,7 @@ export type AssemblySolveManifestResult = {manifestDigest:string;requestId:strin
 export type ProductReleaseReplay = {releaseId:string;manifestDigest:string;status:string;assembly?:AssemblySolveManifestResult};
 
 export type SelectionIdentity = {
+  entityType?:string;
   mechanismId?:string;ownerEntityId?:string;role?:string;
  patternId?:string;patternMemberSlot?:number;associatedSourceEntityId?:string;sketchReference?:SketchGeometryRef;
   entityRef?: EntityRef;

@@ -4,6 +4,7 @@ import {Button,Spin} from "antd";
 import {ApiError} from "../../api";
 import {assistantApi,type ModelCallSummary,type ModelCallTrace,type RuntimeStamp} from "./assistant-api";
 import {cadCheckLabel} from "./conversation-model";
+import {UsageDetails} from "./assistant-usage";
 import {ToolPayload as Payload} from "./tool-payload";
 
 const toolNames:Record<string,string>={cad_context:"读取当前模型",cad_query_model:"查询模型对象",cad_query_topology:"查询实体边面",cad_search_operations:"查找建模工具",cad_describe_operation:"读取工具参数",cad_describe_type:"读取参数类型",cad_create_task:"提交建模步骤",cad_verify_part:"检查指定几何",cad_finish:"结束本次请求",cad_wait_for_input:"请求补充信息",cad_query_occurrence:"查询实例几何",cad_mate_candidates:"查找装配候选",cad_verify_assembly:"检查装配",cad_get_selection:"读取选中对象",cad_get_task:"查询步骤结果"};
@@ -60,6 +61,8 @@ function CallEntry({documentId,runId,item,open,enabled,active,onToggle}:{documen
   {open&&<div className="assistant-call-body">
    {query.isPending&&<p><Spin size="small"/> 正在读取…</p>}{query.error&&<p role="alert">{query.error.message}</p>}
    {query.data&&<>
+    <UsageDetails usage={query.data.call.usage?{...query.data.call.usage,reportedCalls:1,unknownAttempts:0}:{prompt_tokens:0,completion_tokens:0,total_tokens:0,reportedCalls:0,unknownAttempts:query.data.call.usageState==="UNKNOWN"?1:0,pendingCalls:query.data.call.usageState==="PENDING"?1:0}} label="本次调用"/>
+    <p className="assistant-trace-note">用量状态：{query.data.call.usageState} · 轮次：{query.data.call.turnId??"历史归属缺失"}</p>
     <details className="assistant-trace-request"><summary>① 发送给模型的内容</summary>
      {query.data.request?<>
       <p className="assistant-trace-note">{query.data.call.generation.model} · 思考度 {query.data.call.generation.thinking} · {query.data.request.messages.length} 条公开消息</p>

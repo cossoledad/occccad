@@ -94,6 +94,8 @@ func questionFixture(t *testing.T) (*Service, *questionObservedDB, *questionProv
 	now := timestamp(s.now())
 	r := Run{ID: uuid.NewString(), ActorID: actor, DocumentID: document, AccessMode: "WRITE", Version: 1, Epoch: 1, GoalVersion: 1, Goal: "Keep building the original model", Status: "EXECUTING", ActiveTaskID: "writer-task", PendingCallID: "writer-call", LatestRevisionID: revision, Mode: "AUTOMATIC", Scope: FrozenScope{RootDocumentID: document, DocumentID: document, RevisionID: revision, WorkingBodyID: body, Selections: []SelectedReference{}, Complete: true}, CreatedAt: now, UpdatedAt: now}
 	input := Turn{ID: uuid.NewString(), RunID: r.ID, Sequence: 1, RequestID: uuid.NewString(), Text: "当前模型是什么尺寸？", Kind: "QUERY", Status: "RECEIVED", Scope: r.Scope, GoalVersion: 1, CreatedAt: now}
+	r.CurrentTurnID = input.ID
+	input.Usage = &TurnUsage{}
 	if _, e = db.Exec(t.Context(), `INSERT INTO occccad.assistant_runs(id,actor_id,document_id,request_id,request_digest,access_mode,version,epoch,status,payload,created_at,updated_at) VALUES($1,$2,$3,$4,'question-fixture','WRITE',1,1,$5,$6,$7,$7)`, r.ID, actor, document, uuid.NewString(), r.Status, marshalJSON(r), now); e != nil {
 		t.Fatal(e)
 	}
@@ -104,7 +106,7 @@ func questionFixture(t *testing.T) (*Service, *questionObservedDB, *questionProv
 }
 func saveQuestionFixtureCall(t *testing.T, s *Service, r Run, input Turn, c CallRecord) {
 	t.Helper()
-	c.RunID, c.InputID = r.ID, input.ID
+	c.RunID, c.InputID, c.TurnID = r.ID, input.ID, input.ID
 	if c.ID == "" {
 		c.ID = uuid.NewString()
 	}

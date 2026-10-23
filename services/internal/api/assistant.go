@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -144,6 +145,34 @@ func (server *Server) registerAssistantRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+root+"/{runID}/calls/{callID}", func(w http.ResponseWriter, r *http.Request) {
 		v, e := server.assistant.CallTrace(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), r.PathValue("callID"))
 		writeAutomationResult(w, v, e)
+	})
+	mux.HandleFunc("GET "+root+"/{runID}/export", func(w http.ResponseWriter, r *http.Request) {
+		format := r.URL.Query().Get("format")
+		if format != "json" && format != "markdown" {
+			writeError(w, 400, "format must be json or markdown")
+			return
+		}
+		archive, err := server.assistant.OpenExport(r.Context(), principal(r).ID, r.PathValue("documentID"), r.PathValue("runID"), r.URL.Query().Get("turnId"))
+		if err != nil {
+			writeAutomationResult(w, nil, err)
+			return
+		}
+		defer archive.Close()
+		ext, content := "json", "application/json; charset=utf-8"
+		if format == "markdown" {
+			ext, content = "md", "text/markdown; charset=utf-8"
+		}
+		filename := "assistant-" + archive.Metadata.RunID
+		if archive.Metadata.TurnID != "" {
+			filename += "-" + archive.Metadata.TurnID
+		}
+		w.Header().Set("Content-Type", content)
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.%s"`, filename, ext))
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// A cursor/write failure deliberately leaves off the complete marker.
+		// Never append an HTTP error object to a partially streamed archive.
+		_ = archive.WriteTo(w, format)
 	})
 	mux.HandleFunc("POST "+root+"/{runID}/control", func(w http.ResponseWriter, r *http.Request) {
 		var input assistant.RunControl

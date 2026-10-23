@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/occccad/occccad/internal/automation"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -64,7 +63,9 @@ func (s *Service) freezeScope(ctx context.Context, actor, document string, input
 			return scope, false, aiFault("AI_SCOPE_INVALID", "工作实体不属于发送时模型", false)
 		}
 	}
-	for _, ref := range scope.Selections {
+	parts := map[string]*workspace.PartModel{}
+	for index := range scope.Selections {
+		ref := &scope.Selections[index]
 		source := ref.SourceDocumentID
 		if source == "" {
 			source = document
@@ -86,8 +87,29 @@ func (s *Service) freezeScope(ctx context.Context, actor, document string, input
 				return scope, false, aiFault("AI_SCOPE_INVALID", "选区来源与根快照接受的正式实例路径不一致", false)
 			}
 		}
-		if _, e := s.automation.ReadSnapshot(ctx, actor, source, revision); e != nil {
-			return scope, false, e
+		key := source + ":" + revision
+		part, loaded := parts[key]
+		if !loaded {
+			observed, e := s.automation.ReadSnapshot(ctx, actor, source, revision)
+			if e != nil {
+				return scope, false, e
+			}
+			if observed.DocumentType == "PART" {
+				part = &workspace.PartModel{}
+				if e = json.Unmarshal(observed.Model, part); e != nil {
+					return scope, false, e
+				}
+			}
+			parts[key] = part
+		}
+		ref.SourceDocumentID, ref.SourceVersionID = source, revision
+		if ref.Kind == "INSTANCE" {
+			if len(ref.InstancePath) == 0 || ref.ID != ref.InstancePath[len(ref.InstancePath)-1] {
+				return scope, false, aiFault("AI_SCOPE_INVALID", "实例选择缺少一致的正式路径", false)
+			}
+			ref.EntityType = "INSTANCE"
+		} else {
+			selectionMetadata(ref, part)
 		}
 		if ref.Selection != nil {
 			if e := ref.Selection.Validate(); e != nil {
@@ -96,29 +118,11 @@ func (s *Service) freezeScope(ctx context.Context, actor, document string, input
 			if ref.Selection.SourceDocumentID != source || ref.BodyID != "" && ref.Selection.SourceBodyID != ref.BodyID {
 				return scope, false, aiFault("AI_SCOPE_INVALID", "选择来源与正式持久引用不一致", false)
 			}
-		} else if ref.ID == "" && ref.PublicationID == "" && ref.DatumID == "" && ref.AxisID == "" && len(ref.InstancePath) == 0 {
+		} else if ref.ID == "" && ref.PublicationID == "" && ref.DatumID == "" && ref.AxisID == "" && len(ref.InstancePath) == 0 && !(ref.FeatureID != "" && ref.SketchReference != nil) {
 			return scope, false, aiFault("AI_SCOPE_INVALID", "选择缺少正式稳定身份", false)
 		}
 	}
 	return scope, current.Permission != "VIEWER" && scope.RevisionID == current.Snapshot.RevisionID, nil
-}
-
-func isQuestion(text string) bool {
-	lower := strings.ToLower(strings.TrimSpace(text))
-	if strings.Contains(lower, "哪些") || strings.Contains(lower, "为什么") || strings.Contains(lower, "哪一步") || strings.HasPrefix(lower, "查看") || strings.HasPrefix(lower, "解释") || strings.HasPrefix(lower, "如何") || strings.HasPrefix(lower, "怎样") || strings.HasPrefix(lower, "how ") || strings.HasPrefix(lower, "what ") || strings.HasPrefix(lower, "why ") {
-		return true
-	}
-	for _, word := range []string{"修改", "改成", "改为", "改到", "创建", "插入", "不要", "不用", "取消后", "delete ", "create ", "change ", "set ", "make ", "add ", "insert ", "remove "} {
-		if strings.Contains(lower, word) {
-			return false
-		}
-	}
-	for _, word := range []string{"?", "？", "哪些", "多少", "为什么", "参数", "状态", "进展", "解释", "查看", "查询", "how ", "what ", "why ", "show ", "list "} {
-		if strings.Contains(lower, word) {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Service) applyFrozenSelections(ctx context.Context, r Run, baseline workspace.CommandBaseline, spec *automation.StepSpec) error {

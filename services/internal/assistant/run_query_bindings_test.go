@@ -24,7 +24,7 @@ func controlledToolCall(t *testing.T, s *Service, r Run, message Message) CallRe
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := CallRecord{ID: uuid.NewString(), RunID: r.ID, LogicalID: uuid.NewString(), Attempt: 1, Epoch: r.Epoch, Status: "RECEIVED", Provider: "TEST_NO_LLM", Baseline: snapshot.CommandBaseline, Response: &message, StartedAt: timestamp(s.now())}
+	c := CallRecord{TurnID: r.CurrentTurnID, ID: uuid.NewString(), RunID: r.ID, LogicalID: uuid.NewString(), Attempt: 1, Epoch: r.Epoch, Status: "RECEIVED", Provider: "TEST_NO_LLM", Baseline: snapshot.CommandBaseline, Response: &message, StartedAt: timestamp(s.now())}
 	_, err = s.db.Exec(t.Context(), `INSERT INTO occccad.assistant_model_calls(id,run_id,logical_id,attempt,epoch,status,payload,started_at) VALUES($1,$2,$3,1,$4,'RECEIVED',$5,$6)`, c.ID, r.ID, c.LogicalID, r.Epoch, marshalJSON(c), c.StartedAt)
 	if err != nil {
 		t.Fatal(err)

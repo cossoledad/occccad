@@ -11,6 +11,13 @@ import (
 )
 
 type SelectedReference struct {
+	Role             string                         `json:"role,omitempty"`
+	SketchReference  *workspace.SketchGeometryRef   `json:"sketchReference,omitempty"`
+	EntityType       string                         `json:"entityType,omitempty"`
+	OwnerID          string                         `json:"ownerId,omitempty"`
+	OwnerDocumentID  string                         `json:"ownerDocumentId,omitempty"`
+	Name             string                         `json:"name,omitempty"`
+	GeometryType     string                         `json:"geometryType,omitempty"`
 	Kind             string                         `json:"kind"`
 	ID               string                         `json:"id,omitempty"`
 	BodyID           string                         `json:"bodyId,omitempty"`
@@ -60,9 +67,11 @@ type Turn struct {
 	Reply       string      `json:"reply,omitempty"`
 	Scope       FrozenScope `json:"scope"`
 	GoalVersion uint64      `json:"goalVersion"`
+	Usage       *TurnUsage  `json:"usage,omitempty"`
 	CreatedAt   string      `json:"createdAt"`
 }
 type RunUsage struct {
+	PendingCalls     int64 `json:"pendingCalls"`
 	PromptTokens     int64 `json:"prompt_tokens"`
 	CompletionTokens int64 `json:"completion_tokens"`
 	TotalTokens      int64 `json:"total_tokens"`
@@ -71,7 +80,13 @@ type RunUsage struct {
 	CacheHitTokens   int64 `json:"cacheHitTokens"`
 	ReasoningTokens  int64 `json:"reasoningTokens"`
 }
+type TurnUsage struct {
+	RunUsage
+	Calls int64 `json:"calls"`
+}
+
 type Run struct {
+	CurrentTurnID           string            `json:"currentTurnId,omitempty"`
 	ID                      string            `json:"id"`
 	DocumentID              string            `json:"documentId"`
 	Version                 uint64            `json:"version"`
@@ -113,6 +128,7 @@ type Run struct {
 	ConsecutiveTransient    uint64            `json:"consecutiveTransient,omitempty"`
 }
 type RunEvent struct {
+	TurnID   string          `json:"turnId,omitempty"`
 	Sequence uint64          `json:"sequence"`
 	Epoch    uint64          `json:"epoch"`
 	Type     string          `json:"type"`
@@ -135,6 +151,7 @@ type Page[T any] struct {
 type CallRecord struct {
 	ID                   string                    `json:"id"`
 	RunID                string                    `json:"runId"`
+	TurnID               string                    `json:"turnId,omitempty"`
 	InputID              string                    `json:"inputId,omitempty"`
 	LogicalID            string                    `json:"logicalId"`
 	Attempt              uint64                    `json:"attempt"`

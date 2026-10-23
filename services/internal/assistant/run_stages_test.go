@@ -45,6 +45,8 @@ func stageFixture(t *testing.T) (*Service, *workspace.Service, workspace.Documen
 	r := Run{ID: uuid.NewString(), ActorID: access.DefaultUserID, DocumentID: view.Document.ID, AccessMode: "WRITE", Version: 1, Epoch: 1, GoalVersion: 1, Goal: "在 XY 平面建立 80×50 mm 矩形，拉伸 12 mm，再对全部边做 R2 圆角", Status: "PLANNING", Mode: "AUTOMATIC", Scope: FrozenScope{RootDocumentID: view.Document.ID, DocumentID: view.Document.ID, RevisionID: snapshot.RevisionID, WorkingBodyID: view.Part.ActiveBodyID, Complete: true, Selections: []SelectedReference{}}, LatestRevisionID: snapshot.RevisionID, CreatedAt: timestamp(s.now()), UpdatedAt: timestamp(s.now())}
 	turn := Turn{ID: uuid.NewString(), RunID: r.ID, Sequence: 1, RequestID: uuid.NewString(), Text: r.Goal, Kind: "GOAL", Status: "APPLIED", Scope: r.Scope, GoalVersion: 1, CreatedAt: r.CreatedAt}
 
+	r.CurrentTurnID = turn.ID
+	turn.Usage = &TurnUsage{}
 	if _, err = db.Exec(t.Context(), `INSERT INTO occccad.assistant_runs(id,actor_id,document_id,request_id,request_digest,access_mode,version,epoch,status,payload,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'WRITE',$6,$7,$8,$9,$10,$10)`, r.ID, r.ActorID, r.DocumentID, uuid.NewString(), "controlled-stage-fixture", r.Version, r.Epoch, r.Status, marshalJSON(r), r.CreatedAt); err != nil {
 		t.Fatal(err)
 	}

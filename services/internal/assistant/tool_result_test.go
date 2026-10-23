@@ -73,7 +73,7 @@ func TestAssistantToolResultOnlineLedgerRecoveryAndTraceAgree(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			message := toolMessage("cad_get_selection", map[string]any{"limit": 20})
+			message := toolMessage("cad_get_selection", map[string]any{"limit": 20, "includeEvidence": true})
 			c.Status, c.Response = "RECEIVED", &message
 			if err = saveCall(ctx, s.db, c); err != nil {
 				t.Fatal(err)

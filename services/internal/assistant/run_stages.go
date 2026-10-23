@@ -184,6 +184,10 @@ func (s *Service) checkpointTaskUpdate(ctx context.Context, r Run, task automati
 	if err != nil {
 		return err
 	}
+	turnID, err := taskTurnID(ctx, s.db, r, task.ID)
+	if err != nil {
+		return err
+	}
 	_, err = s.mutateRun(ctx, r.ID, func(tx database.Tx, current *Run) error {
 		if current.Epoch != r.Epoch {
 			return context.Canceled
@@ -215,7 +219,7 @@ func (s *Service) checkpointTaskUpdate(ctx context.Context, r Run, task automati
 			for role, token := range fact.selections {
 				current.TargetSelections[role] = token
 			}
-			if err := s.event(ctx, tx, current, "CAD_APPLIED", map[string]any{"taskId": task.ID, "stepId": fact.stepID, "receipt": fact.receipt, "presented": false, "message": s.appliedStepMessage(task, fact.stepID), "goalVersion": fact.goalVersion, "sourceEpoch": task.PlanEpoch, "stale": fact.goalVersion != current.GoalVersion}); err != nil {
+			if err := s.event(ctx, tx, current, "CAD_APPLIED", map[string]any{"taskId": task.ID, "stepId": fact.stepID, "receipt": fact.receipt, "presented": false, "message": s.appliedStepMessage(task, fact.stepID), "goalVersion": fact.goalVersion, "sourceEpoch": task.PlanEpoch, "stale": fact.goalVersion != current.GoalVersion}, turnID); err != nil {
 				return err
 			}
 		}
@@ -240,7 +244,7 @@ func (s *Service) checkpointTaskUpdate(ctx context.Context, r Run, task automati
 			current.WaitingReason = reason
 		}
 		if clearActive && wasActive || clearRetiring && wasRetiring {
-			if err := s.event(ctx, tx, current, "STAGE_BOUNDARY", map[string]any{"taskId": task.ID, "status": stageStatus, "goalVersion": current.GoalVersion, "planEpoch": task.PlanEpoch}); err != nil {
+			if err := s.event(ctx, tx, current, "STAGE_BOUNDARY", map[string]any{"taskId": task.ID, "status": stageStatus, "goalVersion": current.GoalVersion, "planEpoch": task.PlanEpoch}, turnID); err != nil {
 				return err
 			}
 		}
