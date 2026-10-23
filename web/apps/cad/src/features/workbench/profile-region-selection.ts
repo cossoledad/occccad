@@ -7,7 +7,7 @@ export function profileRegionCandidates(view:DocumentView,upstream:Feature[],pro
  return upstream.flatMap(feature=>{
   if(profile&&feature.id!==profile)return [];
   const analysis=view.sketchAnalyses?.[feature.id], support=feature.sketch?.support;
-  if(!analysis?.geometryVerified||analysis.status!=="CLOSED"||!analysis.regionViews||!support||support.status==="FAILED_SUPPORT"||feature.suppressed)return [];
+  if(!analysis?.geometryVerified||analysis.status!=="CLOSED"||!analysis.regionViews||!support||(support.status==="FAILED_SUPPORT"||support.status==="BLOCKED")||feature.suppressed)return [];
   const datum=(view.datumPlanes??view.part?.datumPlanes)?.find(d=>d.id===support.datumPlaneId);
   const plane=support.type==="PLANAR_FACE"&&support.origin&&support.normal&&support.xDirection
    ? {datumPlaneId:`face:${feature.id}`,plane:"CUSTOM" as const,origin:support.origin,normal:support.normal,uDirection:support.xDirection}
@@ -17,4 +17,14 @@ export function profileRegionCandidates(view:DocumentView,upstream:Feature[],pro
 }
 export function profileRegionPick(view:DocumentView,profile:string,regionId:string,occurrencePath?:string):SelectionItem {
  return {kind:"profile-region",id:`${profile}/${regionId}`,featureId:profile,regionId,documentId:view.document.id,versionId:view.document.versionId,bodyId:view.part?.features.find(f=>f.id===profile)?.bodyId,occurrencePath};
+}
+
+// A closed sketch and a missing saved region are separate facts. Only offer
+// region repair after authoritative classification has established candidates.
+export function profileRegionRepairFeature(view?:DocumentView):Feature|undefined {
+ return view?.part?.features.find(feature=>{
+  if(feature.evaluationStatus!=="FAILED"||feature.profileSelection?.mode!=="REGIONS"||!feature.diagnostic?.includes("PROFILE_REGION_MISSING")||!feature.profile)return false;
+  const analysis=view.sketchAnalyses?.[feature.profile];
+  return analysis?.geometryVerified&&analysis.status==="CLOSED"&&feature.profileSelection.regionIds?.some(id=>!analysis.regionIds?.includes(id));
+ });
 }

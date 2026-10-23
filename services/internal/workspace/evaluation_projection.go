@@ -471,6 +471,12 @@ func validatePartStructure(model PartModel) error {
 					support.PersistentSelection.CreationEvidence.GeometryType != "PLANE" {
 					return fmt.Errorf("%w: SUPPORT_TYPE_MISMATCH", ErrValidation)
 				}
+				if support.SourceFeatureID != "" {
+					stage, exists := features[support.SourceFeatureID]
+					if !exists || stage.BodyID != support.PersistentSelection.SourceBodyID || !isBodyFeature(stage.Type) {
+						return fmt.Errorf("%w: support stage must precede sketch %s", ErrValidation, feature.ID)
+					}
+				}
 				if _, exists := features[support.PersistentSelection.Anchor.FeatureID]; !exists {
 					return fmt.Errorf("%w: FAILED_SUPPORT: support feature must precede sketch %s", ErrValidation, feature.ID)
 				}

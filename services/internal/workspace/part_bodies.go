@@ -140,7 +140,49 @@ func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *P
 		m.Features[i].Diagnostic = ""
 	}
 	var failure error
+	for _, f := range m.Features {
+		if f.Sketch == nil || f.Suppressed {
+			continue
+		}
+		if f.Sketch.Support.Status == "BLOCKED" && f.Sketch.Support.DiagnosticCode == "SUPPORT_UPSTREAM_FAILED" {
+			cause := f.Sketch.Support.Diagnostic
+			matches := featureFailurePattern.FindAllStringSubmatch(cause, -1)
+			if len(matches) > 0 {
+				markSolidFailure(m, matches[len(matches)-1][1], cause)
+				if failure == nil {
+					failure = fmt.Errorf("%s", cause)
+				}
+			}
+			continue
+		}
+		diagnostic := ""
+		if f.Sketch.Support.Status == "FAILED_SUPPORT" {
+			diagnostic = "FAILED_SUPPORT: " + f.Sketch.Support.DiagnosticCode + ": " + f.Sketch.Support.Diagnostic
+		}
+		for _, e := range f.Sketch.ExternalGeometry {
+			if diagnostic == "" && e.Status == "UNRESOLVED_EXTERNAL" && f.Sketch.Support.Status != "BLOCKED" {
+				diagnostic = "UNRESOLVED_EXTERNAL: " + e.DiagnosticCode + ": " + e.Diagnostic
+			}
+		}
+		if diagnostic != "" {
+			markSolidFailure(m, f.ID, diagnostic)
+			if failure == nil {
+				failure = fmt.Errorf("%s", diagnostic)
+			}
+		}
+	}
 	for i := range m.Bodies {
+		blockedBody := false
+		for _, f := range m.Features {
+			if f.BodyID == m.Bodies[i].ID && isBodyFeature(f.Type) && (f.EvaluationStatus == "FAILED" || f.EvaluationStatus == "BLOCKED") {
+				blockedBody = true
+			}
+		}
+		if blockedBody {
+			m.Bodies[i].GeometryKey = ""
+			m.Bodies[i].DisplayFallback = nil
+			continue
+		}
 		key, err := s.evaluateBody(ctx, requestID+"/body/"+m.Bodies[i].ID, bodyModel(*m, m.Bodies[i].ID), *m)
 		m.Bodies[i].GeometryKey = ""
 		m.Bodies[i].DisplayFallback = nil

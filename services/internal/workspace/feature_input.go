@@ -161,6 +161,9 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		return FeatureInput{}, fmt.Errorf("%w: feature missing", ErrValidation)
 	}
 	feature := view.Part.Features[index]
+	if feature.Sketch != nil && !request.ResultStage {
+		return s.sketchSupportInput(ctx, view, request, index)
+	}
 	// Non-plane inputs authorize their complete declared context (including
 	// Boolean tools). The download gate separately checks the requested Body.
 	if !resolve && feature.Type != "DRAFT" && !(feature.Type == "SOLID_PATTERN" && feature.Pattern != nil && feature.Pattern.Kind == "MIRROR") {

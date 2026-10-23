@@ -511,3 +511,141 @@ for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
   await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
  });
 }
+
+test("sketch support changes and repairs a lost face through upstream viewport picks",async({page},testInfo)=>{
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.createDocument("PART","Sketch support viewport acceptance");const id=v.document.id;
+  const pad=async(x:number,y:number,w:number,h:number,length:number)=>{v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const sketchId=v.part!.features.at(-1)!.id;v=await api.command(id,{type:"EDIT_SKETCH",sketchId,operations:[{type:"ADD_RECTANGLE",first:{x,y},second:{x:x+w,y:y+h}}]});v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId,generator:"LINEAR_EXTRUDE",operation:"ADD",length});return v.part!.features.at(-1)!};
+  const base=await pad(-20,-20,40,40,10),tip=await pad(-5,-5,10,10,20);
+  const body=v.part!.bodies.find(b=>b.id===base.bodyId)!,a=v.artifacts![body.geometryKey!]!;let face:number|undefined;
+  for(let local=1;local<=Number(a.topology!.faces);local++){const p=await api.getTopologyProperties(id,body.geometryKey!,"FACE",local,v.document.versionId);if(p.persistentSelection?.anchor.featureId===base.id&&p.persistentSelection.anchor.outputSlot.startsWith("END_CAP/")){face=local;break}}
+  if(!face)throw new Error("fixture plane missing");
+  v=await api.command(id,{type:"CREATE_SKETCH",targetKind:"FACE",geometryKey:body.geometryKey,topologyId:face,versionId:v.document.versionId});const sketch=v.part!.features.at(-1)!;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch.id,operations:[{type:"ADD_RECTANGLE",first:{x:-15,y:-15},second:{x:-10,y:-10}}]});
+  const regionIds=v.sketchAnalyses![sketch.id].regionIds!;
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:sketch.id,generator:"LINEAR_EXTRUDE",operation:"ADD",length:3,profileSelection:{mode:"REGIONS",regionIds}});const child=v.part!.features.at(-1)!;
+  v=await api.command(id,{type:"CREATE_DATUM_PLANE",origin:[0,0,30],normal:[0,-1,0],uDirection:[1,0,0]});const datum=v.part!.datumPlanes.at(-1)!;
+  return {id,base,tip,sketch:v.part!.features.find(f=>f.id===sketch.id)!,child,datum,version:v.document.versionId};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+ const open=async()=>{
+  await page.getByRole("textbox",{name:"筛选模型结构"}).fill(seed.sketch.name!);
+  const node=page.getByRole("treeitem").filter({hasText:seed.sketch.name!}).last();await node.click({button:"right"});
+  await page.getByRole("menuitem",{name:/ 对象/}).hover();
+  await page.getByRole("menuitem",{name:"更换草图支撑…",exact:true}).click({timeout:10_000});
+  await expect(page.getByRole("dialog",{name:"更换草图支撑",exact:true})).toBeVisible();
+ };
+ await open();let dialog=page.getByRole("dialog",{name:"更换草图支撑",exact:true});
+ // Pick a custom datum through the ordinary tree, then cancel a real preview.
+ await page.getByRole("textbox",{name:"筛选模型结构"}).fill(seed.datum.name);
+ await page.getByRole("treeitem").filter({hasText:seed.datum.name}).last().click();
+ await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeEnabled();
+ await expect(dialog.getByText(/法向 \[0, -1, 0\]/)).toBeVisible();
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ await page.screenshot({path:testInfo.outputPath("support-datum-preview.png")});
+ await dialog.getByRole("button",{name:/取\s*消/}).click();await expect(dialog).toHaveCount(0);
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ // Invalidate the saved support by a legal upstream change, keeping the stem valid.
+ const failed=await page.evaluate(async seed=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");const v=await api.getDocument(seed.id);
+  const find=(n:any):any=>n.entityId===seed.base.id&&n.definitionDigest?n:n.children?.map(find).find(Boolean);
+  return api.command(seed.id,{type:"SET_FEATURE_SUPPRESSION",targetId:seed.base.id,expectedFeatureDigest:find(v.structureTree).definitionDigest,suppressed:true});
+ },seed);
+ expect(failed.part!.features.find((f:any)=>f.id===seed.sketch.id).sketch.support.status).toBe("FAILED_SUPPORT");
+ expect(failed.part!.features.find((f:any)=>f.id===seed.child.id).evaluationStatus).toBe("BLOCKED");
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();await open();dialog=page.getByRole("dialog",{name:"更换草图支撑",exact:true});
+ await expect(dialog.getByText("原草图支撑已失效",{exact:true})).toBeVisible();
+ await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
+ // This hit must be the reconstructed prefix, even though the Body's final result is failed.
+ await expect(async()=>{await clickWorld(page,[0,0,20]);await expect(dialog.getByRole("button",{name:"新支撑：已选上游实体平面",exact:true})).toBeVisible({timeout:1000})}).toPass({timeout:20_000});
+ await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeEnabled();expect((await current(page,seed.id)).document.versionId).toBe(failed.document.versionId);
+ await page.screenshot({path:testInfo.outputPath("support-face-repair.png")});
+ await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const repaired=await current(page,seed.id),sketch=repaired.part.features.find((f:any)=>f.id===seed.sketch.id),child=repaired.part.features.find((f:any)=>f.id===seed.child.id);
+ expect(sketch).toMatchObject({id:seed.sketch.id,name:seed.sketch.name,bodyId:seed.sketch.bodyId,order:seed.sketch.order});
+ expect(sketch.sketch.entities).toEqual(seed.sketch.sketch!.entities);expect(sketch.sketch.constraints).toEqual(seed.sketch.sketch!.constraints);
+ expect(sketch.sketch.support).toMatchObject({type:"PLANAR_FACE",sourceVersionId:failed.document.versionId,sourceFeatureId:seed.tip.id,status:"CONNECTED"});
+ expect(child.profileSelection).toEqual(seed.child.profileSelection);expect(child.evaluationStatus).toBeFalsy();
+ const head=repaired.document.versionId;
+ await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===seed.sketch.id).sketch.support.status).toBe("FAILED_SUPPORT")).toPass();
+ await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===seed.sketch.id).sketch.support.status).toBe("CONNECTED")).toPass();
+ expect((await current(page,seed.id)).document.versionId).not.toBe(head);
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
+});
+
+test("sketch support without upstream solids offers datum planes without an unavailable warning",async({page})=>{
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");
+  let v=await api.createDocument("PART","Sketch support empty upstream regression");
+  v=await api.command(v.document.id,{type:"CREATE_SKETCH",plane:"XY"});
+  const sketch=v.part!.features[0];
+  const input=await api.getFeatureInput(v.document.id,{versionId:v.document.versionId,featureId:sketch.id,bodyId:sketch.bodyId});
+  if(input.artifact?.geometryKey||input.artifacts?.length)throw new Error("fixture unexpectedly has upstream geometry");
+  return {id:v.document.id,version:v.document.versionId,name:sketch.name!};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+ await page.getByRole("textbox",{name:"筛选模型结构"}).fill(seed.name);
+ const response=page.waitForResponse(r=>r.url().includes(`/api/documents/${seed.id}/feature-input`)&&r.request().method()==="POST");
+ await page.getByRole("treeitem").filter({hasText:seed.name}).last().click({button:"right"});
+ await page.getByRole("menuitem",{name:/ 对象/}).hover();
+ await page.getByRole("menuitem",{name:"更换草图支撑…",exact:true}).click();
+ expect((await response).ok()).toBeTruthy();
+ const dialog=page.getByRole("dialog",{name:"更换草图支撑",exact:true});await expect(dialog).toBeVisible();
+ await expect(dialog.getByRole("alert")).toHaveCount(0);
+ await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
+ await page.getByRole("textbox",{name:"筛选模型结构"}).fill("XZ Plane");
+ await page.getByRole("treeitem").filter({hasText:"XZ Plane"}).last().click();
+ await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeEnabled();
+ await expect(dialog.getByRole("alert")).toHaveCount(0);
+ await dialog.getByRole("button",{name:/取\s*消/}).click();await expect(dialog).toHaveCount(0);
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ expect(errors).toEqual([]);
+});
+
+test("closed sketch after boundary replacement offers explicit region repair and restores the original extrusion",async({page},testInfo)=>{
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");
+  let v=await api.createDocument("PART","Reclosed profile repair acceptance");const id=v.document.id;
+  v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const sketchId=v.part!.features[0].id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId,operations:[{type:"ADD_RECTANGLE",first:{x:-20,y:-20},second:{x:20,y:20}}]});
+  const before=v.part!.features[0].sketch!,edge=before.entities[0],regionIds=v.sketchAnalyses![sketchId].regionIds!;
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId,generator:"LINEAR_EXTRUDE",operation:"ADD",length:5,profileSelection:{mode:"REGIONS",regionIds}});const feature=v.part!.features.at(-1)!;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId,operations:[{type:"DELETE_ENTITIES",entityIds:[edge.id]}]});
+  if(v.sketchAnalyses![sketchId].status!=="OPEN"||v.part!.features.at(-1)!.evaluationStatus!=="FAILED")throw new Error("fixture did not fail after deletion");
+  const replacement={...edge,id:"reclosed-edge",startPointId:undefined,endPointId:undefined};
+  const operations:any[]=[{type:"ADD_ENTITY",entity:replacement}];
+  for(const old of before.constraints){if(old.kind!=="COINCIDENT"||!old.references.some(r=>r.entityId===edge.id))continue;
+   operations.push({type:"ADD_CONSTRAINT",constraint:{...old,id:`reclose-coincident-${operations.length}`,references:old.references.map(r=>r.entityId===edge.id?{...r,entityId:replacement.id,pointId:undefined}:r)}});
+  }
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId,operations});
+  if(v.sketchAnalyses![sketchId].status!=="CLOSED"||!v.part!.features.at(-1)!.diagnostic?.includes("PROFILE_REGION_MISSING"))throw new Error("fixture did not separate closed geometry from saved region identity");
+  return {id,sketchId,sketchName:v.part!.features[0].name!,feature,head:v.document.versionId,regionIds:v.sketchAnalyses![sketchId].regionIds};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+ await expect(page.getByText(/草图已闭合，但 .* 的原轮廓区域已失效/)).toBeVisible();
+ // Enter the actual sketch editor, then follow the repair action back into the
+ // existing Feature editor; leaving sketch mode must not write a Revision.
+ await page.getByRole("textbox",{name:"筛选模型结构"}).fill(seed.sketchName);
+ await page.getByRole("treeitem").filter({hasText:seed.sketchName}).first().dblclick();
+ await page.getByRole("button",{name:"结束草图并修复区域",exact:true}).click();
+ const dialog=page.getByRole("dialog",{name:"编辑 拉伸",exact:true});await expect(dialog).toBeVisible();
+ await expect(dialog.getByText("区域输入需要修复",{exact:true})).toBeVisible();
+ await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
+ await dialog.getByRole("button",{name:"替换区域 1",exact:true}).click();await clickWorld(page,[0,0,0]);
+ await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);
+ await page.screenshot({path:testInfo.outputPath("reclosed-region-repair.png")});
+ await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const repaired=await current(page,seed.id),feature=repaired.part.features.find((f:any)=>f.id===seed.feature.id);
+ expect(feature).toMatchObject({id:seed.feature.id,bodyId:seed.feature.bodyId,name:seed.feature.name,order:seed.feature.order});
+ expect(feature.evaluationStatus).toBeFalsy();expect(feature.profileSelection.regionIds).toEqual(seed.regionIds);
+ expect(repaired.artifacts[repaired.part.bodies.find((b:any)=>b.id===feature.bodyId).geometryKey].volume).toBeCloseTo(8000,5);
+ await expect(page.getByRole("button",{name:"修复轮廓区域",exact:true})).toHaveCount(0);
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
+});

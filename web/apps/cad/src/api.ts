@@ -258,9 +258,14 @@ export const restApi = {
   inspectAssemblySupports: (id:string,references:AssemblyGeometryRef[],signal?:AbortSignal) => request<import("./cad/interaction/manipulator-snap").SupportInspection>(`/api/documents/${id}/assembly-supports/inspect`,{method:"POST",body:JSON.stringify({references}),signal}),
   getFeatureInput: async (id: string, input: {versionId:string;featureId:string;resultStage?:boolean;bodyId?:string;geometryKey?:string;kind?:string;localId?:number}, signal?:AbortSignal) => {
     const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(input),signal});
-    for(const artifact of [result.artifact,...(result.artifacts??[])])for(const representation of Object.values(artifact.representations))
-      representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId,bodyId:artifact.bodyId??"",resultStage:String(!!input.resultStage)})}`);
-    for(const artifact of [result.artifact,...(result.artifacts??[])])artifact.historicalPreview=!!input.resultStage;
+    // A sketch before the first solid has no upstream artifact. This is a
+    // valid empty pick context, so only decorate artifacts with actual geometry.
+    const artifacts=[result.artifact,...(result.artifacts??[])].filter(artifact=>artifact?.geometryKey);
+    for(const artifact of artifacts){
+      for(const representation of Object.values(artifact.representations))
+        representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId,bodyId:artifact.bodyId??"",resultStage:String(!!input.resultStage)})}`);
+      artifact.historicalPreview=!!input.resultStage;
+    }
     return result;
   },
   getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string) => {

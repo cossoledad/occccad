@@ -69,6 +69,9 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 				return err
 			}
 		}
+		if err := rejectExplicitBrokenSupport(prepared.command, model); err != nil {
+			return err
+		}
 		if err := rejectExplicitUnresolvedExternal(prepared.command, model); err != nil {
 			return err
 		}
@@ -83,12 +86,7 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 		if !metadataOnly {
 			changes = appendEvaluatedDatumChanges(appendEvaluatedSketchChanges(changes, beforeModel, model), beforeModel, model)
 		}
-		if _, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
-			revisionState, evaluationStatus = failedRevision, failedEvaluation
-			for i := range model.Bodies {
-				model.Bodies[i].GeometryKey = ""
-			}
-		} else if metadataOnly {
+		if metadataOnly {
 			if partHasFailedFeature(model) {
 				revisionState, evaluationStatus = "FAILED", "FAILED"
 			}

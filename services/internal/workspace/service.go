@@ -1249,6 +1249,9 @@ func normalizePartModel(model *PartModel) {
 	}
 	for featureIndex := range model.Features {
 		feature := &model.Features[featureIndex]
+		if feature.Sketch != nil && feature.Sketch.Support.Plane != "" {
+			feature.Plane = feature.Sketch.Support.Plane
+		}
 		if feature.ProfileSelection != nil {
 			selection := *feature.ProfileSelection
 			selection.RegionIDs = append([]string(nil), selection.RegionIDs...)
@@ -1282,7 +1285,7 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 		Primitives:        []VisualPrimitive{},
 	}
 	for _, feature := range visualizationSketchFeatures(model) {
-		if feature.Sketch == nil {
+		if feature.Sketch == nil || feature.Sketch.Support.Status == "FAILED_SUPPORT" || feature.Sketch.Support.Status == "BLOCKED" {
 			continue
 		}
 		plane := strings.ToUpper(feature.Sketch.Support.Plane)

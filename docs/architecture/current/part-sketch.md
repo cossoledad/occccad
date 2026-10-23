@@ -73,9 +73,11 @@ Profile Builder 排除 Construction/Point，以正式连接等价类构建 Line/
 
 区域 ID 复用精确 Profile Builder 的外环稳定身份，普通尺寸修改不改变它。孔归属随权威分类保留，岛是独立候选；不从显示三角形、坐标邻近或候选序号推导持久身份。求值逐项精确匹配，缺失或歧义报 `PROFILE_REGION_MISSING / PROFILE_REGION_AMBIGUOUS`，不会丢弃失败项或退回整草图。上游修改可形成可检查的 FAILED/BLOCKED Revision；显式修复编辑必须处理全部必需区域。原 Feature ID、名称、顺序与 Body 保持不变。
 
+删除并重画外环边会生成新的区域身份：草图重新闭合后，原显式选择仍须重选。视口区分“草图未闭合”和“草图已闭合但区域引用失效”，后者提供“修复轮廓区域”入口；草图编辑中可“结束草图并修复区域”，进入原 Feature 编辑器明确替换失效项。修复内孔边而外环身份未变时沿原区域自动恢复。`profile_reclosure_integration_test.go` 和浏览器 `closed sketch after boundary replacement` 分别覆盖这两种边界及原特征恢复。
+
 新建默认收集显式区域；预选普通草图会把当前全部区域冻结为集合，面板明确显示“固定集合”。视图区按后端 `SketchProfileAnalysis.regionViews` 提供的外环／孔显示采样面拾取、高亮和增减，采样只用于显示，提交重新经过精确 Builder。编辑恢复有效项并保留失效行，支持明确替换或移除；“全选当前区域”是用户主动替换集合。整草图与显式集合由用户切换，不自动转义。候选限定目标特征之前的同文档、Revision 和 occurrence；预览及取消不推进 Head，变更集合不能采用旧候选。
 
-源码入口：`profile_selection.go`、`sketch_exact_profile.go`、`solid-feature-editor.tsx`、`profile-region-selection.ts`。定向真实 Router/Worker 回归 `profile_region_selection_integration_test.go` 覆盖独立／多区域、孔及岛、增加第三区域时 BREP/Naming 保持、尺寸更新、失效替换／移除、下游恢复、取消、Undo/Redo、重开和冷重建；浏览器 `solid-feature-live.spec.ts` 的 `explicit profile regions` 覆盖实际区域拾取、孔内过滤、编辑、修复及拉伸／切除／旋转体积。边界为当前合法闭合 Profile；不支持任意相交曲线自动分区、开放实体轮廓。空间草图阵列成员继续使用已有整草图输入，尚未提供成员的区域拾取投影；放样与草图支撑重指定未扩展。当前定向证据使用共享 SQLite、Release Worker 和 Chromium/SwiftShader，未代表任意拓扑拆并、复杂曲线及目标设备实机验收。
+源码入口：`profile_selection.go`、`sketch_exact_profile.go`、`solid-feature-editor.tsx`、`profile-region-selection.ts`。定向真实 Router/Worker 回归 `profile_region_selection_integration_test.go` 覆盖独立／多区域、孔及岛、增加第三区域时 BREP/Naming 保持、尺寸更新、失效替换／移除、下游恢复、取消、Undo/Redo、重开和冷重建；浏览器 `solid-feature-live.spec.ts` 的 `explicit profile regions` 覆盖实际区域拾取、孔内过滤、编辑、修复及拉伸／切除／旋转体积。边界为当前合法闭合 Profile；不支持任意相交曲线自动分区、开放实体轮廓。空间草图阵列成员继续使用已有整草图输入，尚未提供成员的区域拾取投影；放样未扩展。当前定向证据使用共享 SQLite、Release Worker 和 Chromium/SwiftShader，未代表任意拓扑拆并、复杂曲线及目标设备实机验收。
 
 ## 支撑与外部几何
 
@@ -83,7 +85,13 @@ Profile Builder 排除 Construction/Point，以正式连接等价类构建 Line/
 
 Origin 的轴系增加显式原点入口，标准 X/Y/Z 与原点的树/视图选择共用文档、Revision 和 occurrence 身份。Part 原点随实例位姿变换，不是装配世界原点。
 
-Sketch support 不再由 `XY/XZ/YZ` 字符串隐式决定坐标。默认平面和用户创建的基准面保存 `origin + normal + uDirection` 右手坐标框架；`PLANAR_FACE` support 保存上游 Face 的 PersistentSelection、source Revision、origin/X direction/normal、定向规则和 dependency snapshot。提交前控制面先对草图之前的完整 body prefix 求值，再以 semantic topology history 解析当前平面，采用最终实体面的有向法向并把保存的 X direction 投影到新平面（不再为了保持旧符号而翻转新法向）；缺失、歧义、类型变化和非法顺序以顶层 `FAILED_SUPPORT` 及具体 diagnostic 拒绝候选 Revision、保留旧 Head，且不会静默退回默认平面。Visualization、拾取、Sketch 编辑和 Worker Profile 构造共享同一支撑框架，依赖图显式串联顺序 body tip，并以 `READ_GEOMETRY` 连接 DatumPlane、以 `READ_TOPOLOGY` 连接面支撑与其直接上游 body tip。`CREATE_DATUM_PLANE` 与 `CREATE_DATUM_AXIS` 继续具有稳定 identity、结构树投影、显示/选择和 Undo/Redo PropertySlot。
+Sketch support 使用明确的右手框架。默认／自定义基准面保存 `origin + normal + uDirection`；实体面支撑保存 PersistentSelection、来源 Revision、Body、明确的 `sourceFeatureId` 阶段、origin/X/normal、定向规则和依赖快照。来源阶段取自实际上游 Body tip，不用语义 Anchor.FeatureID 替代；解析读取目标草图之前的完整 Body 前缀，并以保存的来源阶段重建历史 Naming。采用实际实体面的有向法向，将保存的 X 方向投影到新平面，退化时沿用确定的稳定方向规则，不翻转法向或退回默认平面。Visualization、拾取、草图编辑与 Profile 共用该框架；依赖保留基准、拓扑来源、来源阶段及当前前缀的真实关系。
+
+结构树的 Sketch 对象菜单“更换草图支撑…”对正常和失效草图均开放。正式 `REASSIGN_SKETCH_SUPPORT` 经权威阶段绑定，转换为现有 `EDIT_SKETCH` 的 `REASSIGN_SUPPORT` 操作，沿用 `sketch.model` ChangeSet、Preview/Commit、CAS 和补偿历史。唯一定位语义为“保留局部二维设计，随新支撑移动”：Sketch、Entity、Constraint、Parameter ID、Body、名称和历史位置保持；局部拓扑不变时原显式区域选择继续有效。标准／自定义基准面及同 Part 的合法上游实体平面均可重选，包含跨 Body；新选择不要求旧支撑解析成功。预览显示重投影后的草图和新框架的法向／X 方向，输入或 Revision 变化使旧候选失效，取消不写 Head。
+
+已有面支撑因上游合法修改而缺失、歧义或变为非平面时，保留原定义并提交可检查的 `FAILED_SUPPORT`，依赖后代为 BLOCKED，独立 Body 继续求值。上游实体本身失败时标记实际失败 Feature，相关草图为 BLOCKED，保留实际阻塞位置；权限、制品读取和服务错误仍原子拒绝。非法新支撑、下游／循环依赖和显式重指定后的投影或求解冲突也原子拒绝。失效支撑不消费旧投影快照；外部关联保留身份，按新框架重新投影和求解，不自动 Detach。关联基准自身求值失败仍沿既有基准合同原子拒绝，不把其旧数值框架当作新支撑。原有被引用对象删除保护保持。
+
+源码入口为 `sketch_support_edit.go`、`sketch_support.go`、`document_evaluation.go` 和 `sketch-support-editor.tsx`。`sketch_support_reassignment_integration_test.go` 通过真实 Router/Worker 验证支撑更换、源面真实消失、来源阶段与 Anchor 不同、跨 Body、外部重投影／约束冲突、非平面与循环拒绝、失败传播、删除保护、原身份、区域保留、取消、Undo/Redo、重开、冷重建，以及客户端断连不写 Head。浏览器 `solid-feature-live.spec.ts` 的 `sketch support changes` 实际使用对象菜单、基准树选择和失败 Body 的上游平面拾取，验证预览取消、修复、历史与重开。当前证据为共享 SQLite、Release Worker、Chromium/SwiftShader；复杂曲面变化、装配 occurrence 及目标设备实机未覆盖。未扩展保持世界位置模式、跨文档支撑或通用基准失效修复。
 
 ExternalGeometry 与普通 Sketch Entity 分开持久化。每项保存稳定 ExternalId、Edge/Vertex PersistentSelection、source Revision、`ORTHOGONAL` projection kind、resolved source digest、dependency snapshot 和 Worker 生成的二维 Point/Line/Circle/Arc/Ellipse/EllipticalArc snapshot；Constraint 通过 `EXTERNAL + ExternalId + stable sub-element` 引用它。控制面固定按 naming resolver → Worker projection → Sketch solve → downstream Feature 顺序处理，求解边界把外部几何作为内部 fixed geometry 输入 PlaneGCS，但不会把求解结果写回它。`DETACH_EXTERNAL_GEOMETRY` 将当前已连接 snapshot 原子冻结为同 ID 的普通 Construction Entity 并改写引用；Reconnect 只替换 PersistentSelection，保留 ExternalId。显式 ADD/RECONNECT 若无法完成权威投影，会以 `EXTERNAL_GEOMETRY_PROJECTION` 阶段和 Worker 稳定诊断原子拒绝，旧 Head 不变；只有先前已连接的来源因上游更新而缺失、歧义、类型变化或投影退化时，才清除旧 snapshot、列出受影响 constraint/profile/downstream Feature 并提交可检查、可 Reconnect 的 FAILED Revision。FAILED Revision 不得把 dependency snapshot 的上游 prefix geometry key 冒充自己的最终制品；读取时只生成与当前模型 Manifest 匹配的诊断可视化，因此失败状态仍可继续检查和编辑。圆与椭圆 Edge 使用 Naming 中的精确半径、轴、X 方向和参数区间做正交投影：修剪区间保留为 Arc/EllipticalArc，斜投影圆得到精确椭圆，反向框架保留同一修剪轨迹；侧向退化的圆锥曲线用包含内部极值的线段表示。圆心是同 ExternalId 的 CENTER 子元素，支持显示、捕获和约束，不另建持久 Point。面边界组、Section、Silhouette 和一般 BSpline 投影未交付；当前精确修剪圆/椭圆弧投影不能被列为待实现。
 
@@ -168,7 +176,7 @@ DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投�
 
 ## 当前限制与修复边界
 
-- 特征仍选择整张草图 Profile；协议存在 ProfileRegion 不代表已交付稳定的用户区域选择。新增无关区域后的选择保持、失效定位与修复须按 [CAD 主线阶段 2](../../../plans/cad-core-roadmap.md#主线顺序)形成用户闭环。
-- 支撑解析失败当前按 FAILED_SUPPORT 原子拒绝并保留旧 Head；这不等于已具备失效支撑的重新指定工具。外部几何的 Reconnect/Detach 是独立能力，不能替代草图 support 重连。
+- 拉伸／切除和旋转支持[显式区域集合](#显式轮廓区域)；空间草图阵列成员尚无区域拾取投影。
+- 草图支撑主动更换与失效重指定见[支撑与外部几何](#支撑与外部几何)；关联基准自身失效仍沿原子拒绝合同，未引入通用基准修复工具。
 - 当前草图的精确修剪圆/椭圆弧投影已有实现；面边界组、Section、Silhouette、一般 B-spline 投影未交付。关联偏移、完整样条曲率/G2/G3、通用三维线框/曲面建模也不属于当前支持范围。
 - 独立 Hole、Sweep、到面/到下一面等关联终止条件，以及受依赖约束的历史插入/移动尚无完整用户闭环；现有切除孔、工具协议或历史阶段显示不能替代这些能力。实体特征的具体范围与已实现的输入修复合同见[实体 Feature](solid-features.md)。

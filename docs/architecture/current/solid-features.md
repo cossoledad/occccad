@@ -66,7 +66,7 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 
 失败 Body 可携带派生 `displayFallback{geometryKey,sourceVersionId}`，指向该 Body 最近成功修订的显示结果；连续失败或显示元数据编辑保持同一成功来源，恢复成功立即清除。Part/Product 视口以半透明红褐色显示旧 Mesh，树和视口提示 FAILED/BLOCKED；显示遵循 Body/occurrence 可见性。旧实体可用于相机导航，不能参与建模拾取。快照仅开放其 Visual 制品，BREP/Naming 下载、持久绑定和导出仍要求当前成功结果；fallback 不进入可补偿 Body 定义。重复投影为只含 Visual 的读模型时，继续保留原 `visualNamingDigest`，保证重开和缩略图仍可验证 GLB 的来源关联。
 
-结构或参数验证错误仍拒绝候选；草图支撑和外部几何保留其既有失败合同。这里没有把所有数据库/网络错误归为可持久化的模型失败。
+结构或参数验证错误仍拒绝候选；草图支撑及外部几何按[各自的失败与重指定合同](part-sketch.md#支撑与外部几何)处理。这里没有把所有数据库/网络错误归为可持久化的模型失败。
 
 ## 输入修复边界
 

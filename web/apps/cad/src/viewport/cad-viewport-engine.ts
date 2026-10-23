@@ -2947,8 +2947,17 @@ export class CadViewportEngine {
         reference.position.fromArray(p.origin);
         reference.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, normal.clone().cross(u), normal));
         reference.renderOrder = 95;
+        if(preview.showFrame){
+          this.screenStableReferences.set(reference,90);
+          const frame=new THREE.Group();frame.add(reference);
+          for(const [id,direction,color] of [["normal",p.normal,0x399cdb],["x",p.uDirection,0xe06b50]] as const){
+            const arrow=makeDatumAxisReference({id:`support-${id}`,name:id,origin:p.origin,direction},color);
+            frame.add(arrow);this.screenStableReferences.set(arrow,DATUM_AXIS_PIXELS);
+          }
+          reference=frame;
+        }
       }
-      if (reference) { placement.add(reference); this.helpers.add(placement); this.screenStableReferences.set(reference, preview.axis?DATUM_AXIS_PIXELS:90); this.datumPreviewGroup = placement; }
+      if (reference) { placement.add(reference); this.helpers.add(placement); if(!preview.showFrame)this.screenStableReferences.set(reference, preview.axis?DATUM_AXIS_PIXELS:90); this.datumPreviewGroup = placement; }
       updateHighlightLineResolution(placement,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);
     }
     this.emitDebugState(); this.invalidate();

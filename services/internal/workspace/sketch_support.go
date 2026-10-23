@@ -3,7 +3,10 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"math"
 	"reflect"
 	"strings"
@@ -161,9 +164,12 @@ func datumSupportFrame(model PartModel, support SketchSupport) ([3]float64, [3]f
 }
 
 func supportFrame(model PartModel, support SketchSupport) ([3]float64, [3]float64, [3]float64, bool) {
+	if support.Status == "FAILED_SUPPORT" || support.Status == "BLOCKED" {
+		return [3]float64{}, [3]float64{}, [3]float64{}, false
+	}
 	if support.Type == "PLANAR_FACE" || support.Type == "PATTERN_FRAME" {
 		origin, xDirection, normal, err := validatedSupportFrame(support.Origin, support.XDirection, support.Normal)
-		return origin, xDirection, normal, err == nil && support.Status != "FAILED_SUPPORT"
+		return origin, xDirection, normal, err == nil && support.Status != "FAILED_SUPPORT" && support.Status != "BLOCKED"
 	}
 	return datumSupportFrame(model, support)
 }
@@ -220,6 +226,27 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 	for index, feature := range model.Features {
 		featureIndex[feature.ID] = index
 	}
+	blocked := map[string]bool{}
+	blockDownstream := func(id string) {
+		for _, key := range graph.DirtyClosure([]modelcore.DependencyKey{modelcore.DependencyKey("feature:" + id)}) {
+			target := strings.TrimPrefix(string(key), "feature:")
+			if target != id {
+				blocked[target] = true
+			}
+		}
+	}
+	failSupport := func(feature *Feature, code, diagnostic string) {
+		support := &feature.Sketch.Support
+		support.Status, support.DiagnosticCode, support.Diagnostic = "FAILED_SUPPORT", code, diagnostic
+		for i := range feature.Sketch.ExternalGeometry {
+			e := &feature.Sketch.ExternalGeometry[i]
+			e.Status, e.DiagnosticCode, e.Diagnostic = "UNRESOLVED_EXTERNAL", "UPSTREAM_SUPPORT_FAILED", diagnostic
+			e.Snapshot = nil
+			e.DependencySnapshot = nil
+			e.ResolvedSourceDigest = ""
+		}
+		blockDownstream(feature.ID)
+	}
 	// The existing graph orders real datum/projection/sketch preparation.
 	// Solid execution stays a coarse Body RPC, invoked only by stage readers.
 	for _, node := range graph.TopologicalOrder() {
@@ -241,10 +268,24 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 			continue
 		}
 		support := &feature.Sketch.Support
+		if blocked[feature.ID] {
+			support.Status = "BLOCKED"
+			support.DiagnosticCode, support.Diagnostic = "UPSTREAM_INPUT_FAILED", "an upstream sketch input failed"
+			for i := range feature.Sketch.ExternalGeometry {
+				feature.Sketch.ExternalGeometry[i].Status = "UNRESOLVED_EXTERNAL"
+				feature.Sketch.ExternalGeometry[i].DiagnosticCode = "UPSTREAM_BLOCKED"
+				feature.Sketch.ExternalGeometry[i].Snapshot = nil
+			}
+			continue
+		}
+		if feature.Suppressed {
+			continue
+		}
 		if support.Type == "" || support.Type == "DATUM_PLANE" {
 			origin, xDirection, normal, ok := datumSupportFrame(*model, *support)
 			if !ok {
-				return &sketchSupportFailure{diagnosticCode: "SUPPORT_MISSING", diagnostic: "datum plane is missing"}
+				failSupport(feature, "SUPPORT_MISSING", "datum plane is missing")
+				continue
 			}
 			support.Type, support.Origin, support.XDirection, support.Normal = "DATUM_PLANE", origin, xDirection, normal
 			support.OrientationRule, support.Status = sketchSupportOrientationRule, "CONNECTED"
@@ -256,12 +297,15 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 				return err
 			}
 			if feature.Sketch.Solve.Status == "UNRESOLVED_EXTERNAL" {
-				return nil
+				blockDownstream(feature.ID)
 			}
 			continue
 		}
 		if support.Type != "PLANAR_FACE" || support.PersistentSelection == nil || support.SourceVersionID == "" {
 			return &sketchSupportFailure{diagnosticCode: "SUPPORT_CONTRACT_INCOMPLETE", diagnostic: "planar face support contract is incomplete"}
+		}
+		if support.PersistentSelection.SourceDocumentID != documentID {
+			return fmt.Errorf("%w: cross-document sketch support is unsupported", ErrValidation)
 		}
 		anchorIndex, exists := featureIndex[support.PersistentSelection.Anchor.FeatureID]
 		if !exists || anchorIndex >= index {
@@ -274,11 +318,39 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 		// since been modified by intervening Boolean operations.
 		prefix := *model
 		prefix.Features = append([]Feature(nil), model.Features[:index]...)
+		stage := ""
+		for _, f := range prefix.Features {
+			if f.BodyID == support.PersistentSelection.SourceBodyID && isBodyFeature(f.Type) && !f.Suppressed {
+				stage = f.ID
+			}
+		}
+		if stage == "" {
+			failSupport(feature, "SUPPORT_SOURCE_BODY_EMPTY", "source Body has no solid before sketch")
+			continue
+		}
 		geometryKey, err := service.evaluateBodyPrefix(ctx, requestID+"/support/"+feature.ID, prefix, support.PersistentSelection.SourceBodyID)
 		if err != nil {
+			matches := featureFailurePattern.FindAllStringSubmatch(err.Error(), -1)
+			modelFailure := status.Code(err) == codes.InvalidArgument || errors.Is(err, ErrValidation) && (strings.Contains(err.Error(), "PROFILE_REGION_MISSING") || strings.Contains(err.Error(), "PROFILE_REGION_AMBIGUOUS"))
+			if len(matches) > 0 && modelFailure {
+				support.Status, support.DiagnosticCode, support.Diagnostic = "BLOCKED", "SUPPORT_UPSTREAM_FAILED", err.Error()
+				blockDownstream(matches[len(matches)-1][1])
+				for i := range feature.Sketch.ExternalGeometry {
+					e := &feature.Sketch.ExternalGeometry[i]
+					e.Status, e.DiagnosticCode = "UNRESOLVED_EXTERNAL", "UPSTREAM_BLOCKED"
+					e.Snapshot = nil
+					e.DependencySnapshot = nil
+					e.ResolvedSourceDigest = ""
+				}
+				continue
+			}
 			return err
 		}
-		resolution, digest, err := service.resolveSelectionAgainstGeometry(ctx, documentID, support.SourceVersionID, geometryKey, *support.PersistentSelection)
+		resolution, err := service.resolveFeaturePick(ctx, FeatureSelection{Selection: *support.PersistentSelection, SourceVersionID: support.SourceVersionID, SourceFeatureID: support.SourceFeatureID}, geometryKey)
+		_, digest, manifestErr := service.topologyManifestForGeometryKey(ctx, geometryKey)
+		if manifestErr != nil {
+			return manifestErr
+		}
 		if err != nil {
 			return err
 		}
@@ -287,17 +359,20 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 			if support.DiagnosticCode == "" {
 				support.DiagnosticCode = "FAILED_SUPPORT"
 			}
-			return &sketchSupportFailure{diagnosticCode: support.DiagnosticCode, diagnostic: support.Diagnostic}
+			failSupport(feature, support.DiagnosticCode, support.Diagnostic)
+			continue
 		}
 		evidence := resolution.Candidates[0].Evidence
 		if evidence.GeometryType != "PLANE" {
 			support.Status, support.DiagnosticCode, support.Diagnostic = "FAILED_SUPPORT", "SUPPORT_TYPE_MISMATCH", "resolved support is not planar"
-			return &sketchSupportFailure{diagnosticCode: support.DiagnosticCode, diagnostic: support.Diagnostic}
+			failSupport(feature, support.DiagnosticCode, support.Diagnostic)
+			continue
 		}
 		normal := evidence.Direction
 		origin, xDirection, normal, frameErr := validatedSupportFrame(evidence.Origin, support.XDirection, normal)
 		if frameErr != nil {
-			return &sketchSupportFailure{diagnosticCode: "SUPPORT_FRAME_INVALID", diagnostic: frameErr.Error()}
+			failSupport(feature, "SUPPORT_FRAME_INVALID", frameErr.Error())
+			continue
 		}
 		support.Origin, support.XDirection, support.Normal = origin, xDirection, normal
 		support.OrientationRule, support.Status = sketchSupportOrientationRule, "CONNECTED"
@@ -311,7 +386,7 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 			return err
 		}
 		if feature.Sketch.Solve.Status == "UNRESOLVED_EXTERNAL" {
-			return nil
+			blockDownstream(feature.ID)
 		}
 	}
 	return nil
@@ -348,8 +423,16 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 			}
 		}
 		external.DownstreamFeatureIDs = external.DownstreamFeatureIDs[:0]
-		for _, downstream := range model.Features[featureIndex+1:] {
-			external.DownstreamFeatureIDs = append(external.DownstreamFeatureIDs, downstream.ID)
+		if graph, _, err := buildPartEvaluation(*model, "", "", nil, nil); err == nil {
+			affected := map[modelcore.DependencyKey]bool{}
+			for _, key := range graph.DirtyClosure([]modelcore.DependencyKey{modelcore.DependencyKey("feature:" + model.Features[featureIndex].ID)}) {
+				affected[key] = true
+			}
+			for _, f := range model.Features[featureIndex+1:] {
+				if affected[modelcore.DependencyKey("feature:"+f.ID)] {
+					external.DownstreamFeatureIDs = append(external.DownstreamFeatureIDs, f.ID)
+				}
+			}
 		}
 	}
 	for index := range sketch.ExternalGeometry {

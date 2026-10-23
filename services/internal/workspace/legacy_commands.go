@@ -226,7 +226,15 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if !ok {
 				return "", nil, fmt.Errorf("%w: SUPPORT_FRAME_INVALID", ErrValidation)
 			}
-			support := SketchSupport{Type: "PLANAR_FACE", Plane: "CUSTOM", PersistentSelection: &selection,
+			manifest, _, err := service.topologyManifestForGeometryKey(ctx, request.GeometryKey)
+			if err != nil {
+				return "", nil, err
+			}
+			tip := manifest.Tips[selection.SourceBodyID]
+			if tip == nil {
+				return "", nil, fmt.Errorf("%w: source stage missing", ErrValidation)
+			}
+			support := SketchSupport{SourceFeatureID: tip.FeatureId, Type: "PLANAR_FACE", Plane: "CUSTOM", PersistentSelection: &selection,
 				SourceVersionID: sourceVersionID, Origin: selection.CreationEvidence.Origin, XDirection: xDirection,
 				Normal: normal, OrientationRule: sketchSupportOrientationRule, Status: "CONNECTED"}
 			return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH",
@@ -254,12 +262,24 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 		}
 		return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
+	case "REASSIGN_SKETCH_SUPPORT":
+		if documentType != "PART" {
+			break
+		}
+		support, err := service.bindSketchReplacementSupport(ctx, documentID, request)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeEditSketch, editSketchPayload{SketchID: request.SketchID, Operations: []SketchOperation{{Type: "REASSIGN_SUPPORT", Support: &support}}}, nil
 	case "EDIT_SKETCH":
 		if documentType != "PART" {
 			break
 		}
 		operations := make([]SketchOperation, 0, len(request.Operations)+12)
 		for index, operation := range request.Operations {
+			if operation.Type == "REASSIGN_SUPPORT" {
+				return "", nil, fmt.Errorf("%w: use REASSIGN_SKETCH_SUPPORT for authoritative binding", ErrValidation)
+			}
 			if operation.Pattern != nil && len(operation.PatternParameterExpressions) > 0 {
 				var model PartModel
 				if err := json.Unmarshal(modelJSON, &model); err != nil {

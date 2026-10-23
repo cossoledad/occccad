@@ -118,6 +118,8 @@
 .workbench-structure .specification-tree-junction.leaf::before { background: #adbdc9; box-shadow: none; border: 0; }
 
 .cad-failed-body-notice { position: absolute; left: 12px; bottom: 48px; max-width: calc(100% - 24px); padding: 8px 12px; border-radius: 6px; color: #8e4034; background: #f9e9e4; pointer-events: none; }
+.cad-failed-body-notice button { margin-left: 8px; padding: 2px 6px; border: 1px solid currentColor; border-radius: 4px; color: inherit; background: transparent; font: inherit; cursor: pointer; pointer-events: auto; }
+.cad-failed-body-notice button:disabled { opacity: .5; cursor: default; }
 .datum-vector-fields { border: 0; padding: 0; margin: 12px 0; display: flex; gap: 8px; }
 .datum-vector-fields legend { margin-bottom: 6px; font-size: 12px; }
 .datum-vector-fields label { flex: 1; min-width: 0; display: grid; gap: 4px; }

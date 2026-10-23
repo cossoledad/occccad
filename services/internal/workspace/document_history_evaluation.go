@@ -35,16 +35,14 @@ func evaluatePartHistory(ctx context.Context, service *Service, input historyCom
 			if err = resolveRuntimeParameters(ctx, &model); err != nil {
 				return err
 			}
+			if err = service.resolveAndSolveSketches(ctx, input.documentID, input.requestID, &model); err != nil {
+				return err
+			}
 			if err = service.resolvePartPublications(ctx, input.documentID, input.requestID, revisionID, &model); err != nil {
 				return err
 			}
 		}
-		if _, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
-			revisionState, evaluationStatus = failedRevision, failedEvaluation
-			for i := range model.Bodies {
-				model.Bodies[i].GeometryKey = ""
-			}
-		} else if displayOnly || propertiesOnly {
+		if displayOnly || propertiesOnly {
 			if partHasFailedFeature(model) {
 				revisionState, evaluationStatus = "FAILED", "FAILED"
 			}

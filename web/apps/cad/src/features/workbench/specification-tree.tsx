@@ -287,7 +287,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               onClick: () => { setContextMenu(undefined); onReferenceMode?.(node, "FOLLOW_HEAD"); } } : null,
             node.capabilities?.includes("DETACH") ? { key: "detach", icon: menuIcon('tree.detach'), label: menuLabel('tree.detach'),
               onClick: () => { setContextMenu(undefined); onDetach?.(node); } } : null,
-            node.capabilities?.includes("RECONNECT") ? { key: "reconnect", icon: menuIcon('tree.reconnect'), label: menuLabel('tree.reconnect'),
+            node.capabilities?.includes("RECONNECT") ? { key: "reconnect", icon: menuIcon('tree.reconnect'), label: node.kind==="SKETCH"?"更换草图支撑…":menuLabel('tree.reconnect'),
               onClick: () => { setContextMenu(undefined); onReconnect?.(node); } } : null,
             node.capabilities?.includes("REFRESH") ? { key: "refresh", icon: menuIcon('tree.refresh'), label: menuLabel('tree.refresh'),
               onClick: () => { setContextMenu(undefined); onRefresh?.(node); } } : null,

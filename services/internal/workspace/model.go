@@ -222,6 +222,7 @@ type SketchPoint2 struct {
 	Y float64 `json:"y"`
 }
 type SketchSupport struct {
+	SourceFeatureID     string                           `json:"sourceFeatureId,omitempty"`
 	Type                string                           `json:"type"`
 	DatumPlaneID        string                           `json:"datumPlaneId,omitempty"`
 	Plane               string                           `json:"plane"`
@@ -364,6 +365,7 @@ type SketchFeature struct {
 	Solve            SketchSolveState         `json:"solve"`
 }
 type SketchOperation struct {
+	Support                     *SketchSupport                   `json:"support,omitempty"`
 	DatumReference              *DatumReference                  `json:"datumReference,omitempty"`
 	PatternParameterExpressions map[string]string                `json:"patternParameterExpressions,omitempty"`
 	PatternParameterSources     map[string]modelcore.ValueSource `json:"patternParameterSources,omitempty"`

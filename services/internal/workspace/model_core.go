@@ -663,6 +663,11 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 					}
 				}
 			}
+		case "REASSIGN_SUPPORT":
+			if operation.Support == nil {
+				return fmt.Errorf("%w: support definition is required", ErrValidation)
+			}
+			sketch.Support = *operation.Support
 		case "ADD_ENTITY":
 			if operation.Entity == nil {
 				return fmt.Errorf("%w: ADD_ENTITY requires an entity", ErrValidation)
