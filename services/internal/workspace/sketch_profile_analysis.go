@@ -11,14 +11,23 @@ import (
 
 // SketchProfileAnalysis is a read projection of an accepted Sketch revision.
 // It never drives solver geometry, creates Coincident relations, or prevents
-// an open sketch from being saved. Solid features still use buildProfileRegions.
+// an open sketch from being saved. Solid features use the exact Profile Builder and validate saved region IDs.
+// SketchProfileRegionView contains display samples of an exact classified region.
+// Coordinates are never used to identify or resolve a persisted selection.
+type SketchProfileRegionView struct {
+	ID    string           `json:"id"`
+	Outer []SketchPoint2   `json:"outer"`
+	Holes [][]SketchPoint2 `json:"holes,omitempty"`
+}
+
 type SketchProfileAnalysis struct {
-	GeometryVerified bool                 `json:"geometryVerified"`
-	Status           string               `json:"status"` // EMPTY | OPEN | INVALID | CLOSED
-	RegionCount      int                  `json:"regionCount"`
-	LoopCount        int                  `json:"loopCount"`
-	RegionIDs        []string             `json:"regionIds,omitempty"`
-	Issues           []SketchProfileIssue `json:"issues"`
+	RegionViews      []SketchProfileRegionView `json:"regionViews,omitempty"`
+	GeometryVerified bool                      `json:"geometryVerified"`
+	Status           string                    `json:"status"` // EMPTY | OPEN | INVALID | CLOSED
+	RegionCount      int                       `json:"regionCount"`
+	LoopCount        int                       `json:"loopCount"`
+	RegionIDs        []string                  `json:"regionIds,omitempty"`
+	Issues           []SketchProfileIssue      `json:"issues"`
 	// Regions come directly from the production Profile Builder, not from a
 	// second display-only connectivity implementation. CLOSED is its gate, not
 	// a claim that a downstream OCCT Shape operation has already succeeded.

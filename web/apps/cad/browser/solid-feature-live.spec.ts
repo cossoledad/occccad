@@ -259,7 +259,7 @@ test("revolve picks an individual sketch line and previews parameter changes",as
  expect(currentCamera!.split(" / ").slice(1)).toEqual(camera!.split(" / ").slice(1));
  expect(Math.abs(currentOrigin.x-originScreen.x)).toBeLessThan(.1);expect(Math.abs(currentOrigin.y-originScreen.y)).toBeLessThan(.1);
  await expect(dialog.getByRole("combobox")).toHaveCount(0);
- await clickWorld(page,[7.5,2,0]);await expect(page.getByTestId("viewport-feature-selection")).toHaveAttribute("data-role","axis");
+ await clickWorld(page,[7.5,4,0]);await dialog.getByRole("button",{name:/旋转轴：/}).click();await expect(page.getByTestId("viewport-feature-selection")).toHaveAttribute("data-role","axis");
  await clickWorld(page,[5,6,0]);await expect(dialog.getByRole("button",{name:"旋转轴：已选择 1 条轴线"})).toBeVisible();await ready(page,dialog);
  await page.screenshot({path:"/tmp/occccad-revolve-profile-axis.png"});
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
@@ -416,5 +416,98 @@ for (const featureType of ["FILLET","CHAMFER","SHELL","DRAFT"] as const) {
   if(featureType==="FILLET")expect(feature.selections[0]).toEqual(seed.feature.selections[0]);
   await page.reload();await expect(page.locator("canvas")).toBeVisible();expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===seed.feature.id)).toEqual(feature);
   expect(errors).toEqual([]);
+ });
+}
+
+for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
+ test(`explicit profile regions ${generator}: viewport toggles, frozen sets and repair`,async({page},testInfo)=>{
+  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+  const seed=await page.evaluate(async()=>{
+   // @ts-ignore production Vite module
+   const {restApi:api}=await import("/src/api.ts");
+   let v=await api.createDocument("PART","Explicit region viewport acceptance");const id=v.document.id;
+   v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const sketchId=v.part!.features.at(-1)!.id;
+   const circle=(id:string,x:number,r:number)=>({type:"ADD_ENTITY",entity:{id,kind:"CIRCLE",role:"PROFILE",center:{x,y:15},radius:r}});
+   v=await api.command(id,{type:"EDIT_SKETCH",sketchId,operations:[circle("outer",-15,5),circle("hole",-15,2),circle("other",15,4),{type:"ADD_ENTITY",entity:{id:"axis",kind:"LINE",role:"CONSTRUCTION",start:{x:-30,y:0},end:{x:30,y:0}}}]});
+   return {id,sketchId,version:v.document.versionId};
+  });
+  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+  const tool=generator==="REVOLVE"?"旋转":"拉伸";
+  await openCommand(page,tool);let dialog=page.getByRole("dialog",{name:`创建 ${tool}`,exact:true});
+  await expect(dialog.getByRole("radio",{name:/选定区域/})).toBeChecked();
+  const count=(n:number)=>dialog.getByRole("button",{name:`区域集：已选择 ${n} 个区域`,exact:true});
+  await clickWorld(page,[-11.5,15,0]);await expect(count(1)).toBeVisible();
+  // A hole has no region pick surface.
+  await clickWorld(page,[-15,15,0]);await expect(count(1)).toBeVisible();
+  await clickWorld(page,[15,15,0]);await expect(count(2)).toBeVisible();
+  await clickWorld(page,[15,15,0]);await expect(count(1)).toBeVisible();
+  if(generator==="REVOLVE"){
+   await dialog.getByRole("button",{name:/旋转轴：/}).click();await clickWorld(page,[8,0,0]);
+   await expect(dialog.getByRole("button",{name:"旋转轴：已选择 1 条轴线",exact:true})).toBeVisible();
+  }else await dialog.getByRole("textbox",{name:"长度（mm）",exact:true}).fill("5");
+  await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+  await page.screenshot({path:testInfo.outputPath("selected-region.png")});
+  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+  const created=await current(page,seed.id),feature=created.part.features.at(-1),selection=feature.profileSelection;
+  expect(selection.mode).toBe("REGIONS");expect(selection.regionIds).toHaveLength(1);
+  const volume=(v:any,body:string)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===body).geometryKey].volume;
+  const factor=generator==="REVOLVE"?30*Math.PI:5;
+  expect(volume(created,feature.bodyId)).toBeCloseTo(21*Math.PI*factor,5);
+  const expanded=await page.evaluate(async({seed,generator,firstRegion})=>{
+   // @ts-ignore production Vite module
+   const {restApi:api}=await import("/src/api.ts");
+   let v=await api.getDocument(seed.id);
+   const other=v.sketchAnalyses![seed.sketchId].regionIds!.find((r:string)=>r!==firstRegion)!;
+   v=await api.command(seed.id,{type:"CREATE_SOLID_FEATURE",sketchId:seed.sketchId,generator,operation:"NEW_BODY",length:5,angle:360,axisEntityId:`SKETCH_LINE:${seed.sketchId}:axis`,profileSelection:{mode:"REGIONS",regionIds:[other]}});
+   const second=v.part!.features.at(-1)!;
+   v=await api.command(seed.id,{type:"EDIT_SKETCH",sketchId:seed.sketchId,operations:[{type:"ADD_ENTITY",entity:{id:"third",kind:"CIRCLE",role:"PROFILE",center:{x:40,y:15},radius:3}}]});
+   return {v,second};
+  },{seed,generator,firstRegion:selection.regionIds[0]});
+  expect(expanded.v.part.features.find((f:any)=>f.id===feature.id).profileSelection).toEqual(selection);
+  expect(volume(expanded.v,feature.bodyId)).toBeCloseTo(volume(created,feature.bodyId),5);
+  expect(volume(expanded.v,expanded.second.bodyId!)).toBeCloseTo(16*Math.PI*factor,5);
+  await page.reload();await expect(page.locator("canvas")).toBeVisible();
+  const editFeature=async()=>{
+   await openCommand(page,"适合窗口");
+   const canvas=await page.locator("canvas").boundingBox();await page.mouse.move(canvas!.x+canvas!.width/2,canvas!.y+canvas!.height/2);await page.mouse.wheel(0,700);
+   await expect(page.getByTestId("navigation-camera")).toHaveAttribute("data-transition-active","false");
+   await page.getByRole("textbox",{name:"筛选模型结构"}).fill(feature.name);
+   await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
+   dialog=page.getByRole("dialog",{name:`编辑 ${tool}`,exact:true});await expect(dialog).toBeVisible();
+  };
+  await editFeature();await expect(count(1)).toBeVisible();await ready(page,dialog);
+  await count(1).click();await clickWorld(page,[15,15,0]);await expect(count(2)).toBeVisible();await ready(page,dialog);
+  await dialog.getByRole("button",{name:/取\s*消/}).click();await expect(dialog).toHaveCount(0);
+  expect((await current(page,seed.id)).document.versionId).toBe(expanded.v.document.versionId);
+  await page.evaluate(async seed=>{
+   // @ts-ignore production Vite module
+   const {restApi:api}=await import("/src/api.ts");
+   await api.command(seed.id,{type:"EDIT_SKETCH",sketchId:seed.sketchId,operations:[{type:"DELETE_ENTITIES",entityIds:["outer","hole"]}]});
+  },seed);
+  await page.reload();await expect(page.locator("canvas")).toBeVisible();await editFeature();
+  await expect(dialog.getByText("区域输入需要修复",{exact:true})).toBeVisible();await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
+  await dialog.getByRole("button",{name:"替换区域 1",exact:true}).click();await clickWorld(page,[40,15,0]);
+  await expect(dialog.getByText("区域输入需要修复",{exact:true})).toHaveCount(0);await ready(page,dialog);
+  await page.screenshot({path:testInfo.outputPath("repaired-region.png")});
+  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+  const repaired=await current(page,seed.id),result=repaired.part.features.find((f:any)=>f.id===feature.id);
+  expect(result.id).toBe(feature.id);expect(result.bodyId).toBe(feature.bodyId);expect(result.name).toBe(feature.name);expect(result.order).toBe(feature.order);
+  expect(result.evaluationStatus).toBeFalsy();expect(volume(repaired,feature.bodyId)).toBeCloseTo(9*Math.PI*factor,5);
+  if(generator==="LINEAR_EXTRUDE"){
+   await page.evaluate(async({id,bodyId})=>{
+    // @ts-ignore production Vite module
+    const {restApi:api}=await import("/src/api.ts");await api.command(id,{type:"SET_ACTIVE_BODY",bodyId});
+   },{id:seed.id,bodyId:feature.bodyId});
+   await page.reload();await expect(page.locator("canvas")).toBeVisible();await openCommand(page,"适合窗口");
+   const canvas=await page.locator("canvas").boundingBox();await page.mouse.move(canvas!.x+canvas!.width/2,canvas!.y+canvas!.height/2);await page.mouse.wheel(0,700);
+   await openCommand(page,"切除");const cut=page.getByRole("dialog",{name:"创建 拉伸",exact:true});
+   await clickWorld(page,[40,15,0]);await expect(cut.getByRole("button",{name:"区域集：已选择 1 个区域",exact:true})).toBeVisible();
+   await cut.getByRole("textbox",{name:"长度（mm）",exact:true}).fill("2");
+   const reversed=cut.getByRole("switch",{name:"反向",exact:true});if(await reversed.isChecked())await reversed.click();
+   await ready(page,cut);await cut.getByRole("button",{name:/确\s*定/}).click();await expect(cut).toHaveCount(0);
+   const cutView=await current(page,seed.id);expect(cutView.part.features.at(-1).profileSelection).toEqual(result.profileSelection);
+   expect(cutView.part.features.at(-1).operation).toBe("REMOVE");expect(volume(cutView,feature.bodyId)).toBeCloseTo(27*Math.PI,5);
+  }
+  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
  });
 }

@@ -146,6 +146,7 @@ export type PatternDefinition = { directionReference?:SketchGeometryRef; reverse
 export type SketchPattern = PatternDefinition & {entityIds:string[]};
 export type Feature = {
   pattern?:PatternDefinition & {startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
+  profileSelection?: {mode:"WHOLE_SKETCH"|"REGIONS";regionIds?:string[]};
   profileMemberSlot?:number;
   evaluationStatus?: "FAILED" | "BLOCKED" | "SUPPRESSED";
   diagnostic?: string;
@@ -427,6 +428,7 @@ export type SketchProfileAnalysis = {
   regionCount: number;
   loopCount: number;
   regionIds?: string[];
+  regionViews?: {id:string;outer:SketchPoint2[];holes?:SketchPoint2[][]}[];
   issues: Array<{ code: string; message: string; entityIds: string[]; references?: SketchGeometryRef[]; position?: SketchPoint2 }>;
 };
 
@@ -552,6 +554,7 @@ export type SelectionIdentity = {
 };
 
 export type SelectionItem =
+  | (SelectionIdentity & {kind:"profile-region";featureId:string;regionId:string})
   | (SelectionIdentity & { kind: "kinematic-object" | "part" | "product" | "feature" | "publication" | "external-reference" | "context-input" | "context-binding" | "parameter" })
   | (SelectionIdentity & { kind: "plane"; plane: PlaneName | "CUSTOM"; datumPlane?: DatumPlane })
   | (SelectionIdentity & {kind:"datum-point"})

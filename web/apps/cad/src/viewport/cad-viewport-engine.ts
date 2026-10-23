@@ -409,6 +409,8 @@ export class CadViewportEngine {
   private reconnectExternalID?: string;
   private featureSelection?: FeatureSelectionSession;
   private loftConnections?: THREE.Group;
+  private profileRegionOverlay?: THREE.Group;
+  private profileRegionBindings: {selection:SelectionItem;mesh:THREE.Mesh}[]=[];
   private releaseFeatureSketchPick?:()=>void;
   private selectionMode: SelectionMode = selectionModeForTool("select");
   private sketchReturnView?: SavedView;
@@ -713,6 +715,7 @@ export class CadViewportEngine {
       this.clearCommandPreview();
       this.clearInteractionState();
       this.disposeGroup(this.content);
+      this.clearProfileRegions();
       this.disposeGroup(this.helpers);
       this.disposeGroup(this.sketchContext);
       this.solidBindings.clear();
@@ -772,6 +775,7 @@ export class CadViewportEngine {
     this.moveManipulator.detach();
     this.moveTarget = undefined;
     this.disposeGroup(this.content);
+    this.clearProfileRegions();
     this.disposeGroup(this.helpers);
     this.selectable.clear();
     this.selectionIndex.clear();
@@ -829,6 +833,8 @@ export class CadViewportEngine {
     if(this.motionDisplay)this.setMotionDisplay(this.motionDisplay);
     this.showMechanism(this.mechanismDefinition,this.mechanismSelection);
     this.commitApplicationDisplay();
+    this.showProfileRegions(this.featureSelection);
+    this.refreshInteractionHighlights();
     this.emitDebugState();
     this.callbacks.documentViewReady?.(view.document.id, restoredCamera);
     this.invalidate();
@@ -847,6 +853,7 @@ export class CadViewportEngine {
     this.moveManipulator.detach();
     this.moveTarget = undefined;
     this.disposeGroup(this.content);
+    this.clearProfileRegions();
     this.disposeGroup(this.helpers);
     this.selectable.clear();
     this.instanceGroups.clear();
@@ -1933,6 +1940,7 @@ export class CadViewportEngine {
     this.disposeGroup(this.environment);
     this.disposeGroup(this.lighting);
     this.disposeGroup(this.content);
+    this.clearProfileRegions();
     this.disposeGroup(this.helpers);
     this.disposeGroup(this.sketchContext);
     this.scene.environment = null;
@@ -2946,11 +2954,41 @@ export class CadViewportEngine {
     this.emitDebugState(); this.invalidate();
   }
 
+  private clearProfileRegions():void {
+    for(const {selection,mesh} of this.profileRegionBindings){this.selectionIndex.unregister(selection,mesh);this.highlightedRoots.delete(mesh);}
+    this.profileRegionBindings=[];
+    if(this.profileRegionOverlay){this.profileRegionOverlay.removeFromParent();this.disposeGroup(this.profileRegionOverlay);this.profileRegionOverlay=undefined;}
+  }
+
+  private showProfileRegions(session?:FeatureSelectionSession):void {
+    this.clearProfileRegions();
+    if(!session?.profileRegions?.length)return;
+    const group=new THREE.Group();
+    if(session.occurrencePath&&session.occurrencePath===this.editContext?.occurrencePath){
+      group.position.fromArray(this.editContext.translation??[0,0,0]);group.quaternion.fromArray(this.editContext.rotation??[0,0,0,1]);
+    }
+    for(const candidate of session.profileRegions)for(const region of candidate.regions){
+      const shape=new THREE.Shape(region.outer.map(p=>new THREE.Vector2(p.x,p.y)));
+      for(const hole of region.holes??[])shape.holes.push(new THREE.Path(hole.map(p=>new THREE.Vector2(p.x,p.y))));
+      const geometry=new THREE.ShapeGeometry(shape);
+      const position=geometry.getAttribute("position");
+      for(let i=0;i<position.count;i++){const p=localToWorld(candidate.plane,[position.getX(i),position.getY(i)]);position.setXYZ(i,p.x,p.y,p.z);}
+      geometry.computeVertexNormals();
+      const mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color:0x418de8,side:THREE.DoubleSide,transparent:true,opacity:0.075,depthTest:false,depthWrite:false}));
+      mesh.renderOrder=94;
+      const selection:SelectionItem={kind:"profile-region",id:`${candidate.sketchId}/${region.id}`,featureId:candidate.sketchId,regionId:region.id,instancePath:session.instancePath,bodyId:candidate.bodyId,documentId:session.documentId,versionId:session.versionId,occurrencePath:session.occurrencePath,contextVariantKey:session.contextVariantKey,rootDocumentId:session.rootDocumentId};
+      this.selectionIndex.register(selection,mesh);this.selectionIndex.registerPick(mesh,()=>selection,0,20);
+      this.profileRegionBindings.push({selection,mesh});group.add(mesh);
+    }
+    this.helpers.add(group);this.profileRegionOverlay=group;group.updateMatrixWorld(true);
+  }
+
   setFeatureSelection(session?: FeatureSelectionSession): void {
     if(this.releaseFeatureSketchPick){this.releaseFeatureSketchPick();this.releaseFeatureSketchPick=undefined;this.sketchModal.setOpen(false);}
 
     if(this.featureSelection?.localSketchId&&!session?.localSketchId)this.clearReferenceHover();
     this.featureSelection = session;
+    this.showProfileRegions(session);
     if(this.loftConnections){this.loftConnections.removeFromParent();this.disposeGroup(this.loftConnections);this.loftConnections=undefined;}
     if(session?.connectionLines?.length){
       const group=new THREE.Group();

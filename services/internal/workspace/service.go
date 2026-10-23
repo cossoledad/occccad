@@ -1249,6 +1249,12 @@ func normalizePartModel(model *PartModel) {
 	}
 	for featureIndex := range model.Features {
 		feature := &model.Features[featureIndex]
+		if feature.ProfileSelection != nil {
+			selection := *feature.ProfileSelection
+			selection.RegionIDs = append([]string(nil), selection.RegionIDs...)
+			slices.Sort(selection.RegionIDs)
+			feature.ProfileSelection = &selection
+		}
 		if feature.Sketch == nil || feature.Sketch.Support.Type != "DATUM_PLANE" {
 			continue
 		}
@@ -1843,11 +1849,7 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 		case "SKETCH", "SKETCH_PATTERN":
 			sketches[feature.ID] = feature
 		case "PAD", "LINEAR_EXTRUDE", "REVOLVE":
-			sketch, memberErr := resolvePatternSketch(fullModel, sketches, feature.Profile, feature.ProfileMemberSlot)
-			if memberErr != nil {
-				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, memberErr)
-			}
-			regions, err := service.buildExactProfileRegions(ctx, sketch, reqID+"/profile/"+sketch.ID)
+			sketch, regions, err := service.featureProfileRegions(ctx, fullModel, feature, reqID+"/profile/"+feature.ID)
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}

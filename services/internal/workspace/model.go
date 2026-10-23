@@ -455,39 +455,45 @@ type LoftSection struct {
 	SeamEntityID           string                 `json:"seamEntityId,omitempty"`
 	SeamAngle              float64                `json:"seamAngle,omitempty"`
 }
+type ProfileRegionSelection struct {
+	Mode      string   `json:"mode"` // WHOLE_SKETCH or REGIONS; nil selection preserves legacy whole-sketch input.
+	RegionIDs []string `json:"regionIds,omitempty"`
+}
+
 type Feature struct {
-	Pattern            *FeaturePattern    `json:"pattern,omitempty"`
-	ProfileMemberSlot  *int               `json:"profileMemberSlot,omitempty"`
-	EvaluationStatus   string             `json:"evaluationStatus,omitempty"`
-	Diagnostic         string             `json:"diagnostic,omitempty"`
-	Sections           []LoftSection      `json:"sections,omitempty"`
-	Ruled              bool               `json:"ruled,omitempty"`
-	Selections         []FeatureSelection `json:"selections,omitempty"`
-	NeutralPlane       *FeatureSelection  `json:"neutralPlane,omitempty"`
-	NeutralPlaneID     string             `json:"neutralPlaneId,omitempty"`
-	Extent             string             `json:"extent,omitempty"`
-	Length2            float64            `json:"length2,omitempty"`
-	Tools              []FeatureStageRef  `json:"tools,omitempty"`
-	KeepTools          bool               `json:"keepTools,omitempty"`
-	Suppressed         bool               `json:"suppressed,omitempty"`
-	Order              int                `json:"order"`
-	Visible            *bool              `json:"visible,omitempty"`
-	BodyID             string             `json:"bodyId"`
-	ImportDefinitionID string             `json:"importDefinitionId,omitempty"`
-	ID                 string             `json:"id"`
-	Type               string             `json:"type"`
-	Name               string             `json:"name"`
-	Plane              string             `json:"plane,omitempty"`
-	Sketch             *SketchFeature     `json:"sketch,omitempty"`
-	Profile            string             `json:"profile,omitempty"`
-	Length             float64            `json:"length,omitempty"`
-	Angle              float64            `json:"angle,omitempty"`
-	Operation          string             `json:"operation,omitempty"`
-	AxisEntityID       string             `json:"axisEntityId,omitempty"`
-	Reversed           bool               `json:"reversed,omitempty"`
-	GeometryKey        string             `json:"geometryKey,omitempty"`
-	FileName           string             `json:"fileName,omitempty"`
-	SourceFormat       string             `json:"sourceFormat,omitempty"`
+	ProfileSelection   *ProfileRegionSelection `json:"profileSelection,omitempty"`
+	Pattern            *FeaturePattern         `json:"pattern,omitempty"`
+	ProfileMemberSlot  *int                    `json:"profileMemberSlot,omitempty"`
+	EvaluationStatus   string                  `json:"evaluationStatus,omitempty"`
+	Diagnostic         string                  `json:"diagnostic,omitempty"`
+	Sections           []LoftSection           `json:"sections,omitempty"`
+	Ruled              bool                    `json:"ruled,omitempty"`
+	Selections         []FeatureSelection      `json:"selections,omitempty"`
+	NeutralPlane       *FeatureSelection       `json:"neutralPlane,omitempty"`
+	NeutralPlaneID     string                  `json:"neutralPlaneId,omitempty"`
+	Extent             string                  `json:"extent,omitempty"`
+	Length2            float64                 `json:"length2,omitempty"`
+	Tools              []FeatureStageRef       `json:"tools,omitempty"`
+	KeepTools          bool                    `json:"keepTools,omitempty"`
+	Suppressed         bool                    `json:"suppressed,omitempty"`
+	Order              int                     `json:"order"`
+	Visible            *bool                   `json:"visible,omitempty"`
+	BodyID             string                  `json:"bodyId"`
+	ImportDefinitionID string                  `json:"importDefinitionId,omitempty"`
+	ID                 string                  `json:"id"`
+	Type               string                  `json:"type"`
+	Name               string                  `json:"name"`
+	Plane              string                  `json:"plane,omitempty"`
+	Sketch             *SketchFeature          `json:"sketch,omitempty"`
+	Profile            string                  `json:"profile,omitempty"`
+	Length             float64                 `json:"length,omitempty"`
+	Angle              float64                 `json:"angle,omitempty"`
+	Operation          string                  `json:"operation,omitempty"`
+	AxisEntityID       string                  `json:"axisEntityId,omitempty"`
+	Reversed           bool                    `json:"reversed,omitempty"`
+	GeometryKey        string                  `json:"geometryKey,omitempty"`
+	FileName           string                  `json:"fileName,omitempty"`
+	SourceFormat       string                  `json:"sourceFormat,omitempty"`
 }
 
 type PartModel struct {
@@ -1165,6 +1171,7 @@ type CommandRequest struct {
 	ValidatedUpdatePlanDigest string                       `json:"-"`
 	AcceptedSourceRevisions   map[string]string            `json:"-"`
 	ExpectedUpdateRevision    string                       `json:"-"`
+	ProfileSelection          *ProfileRegionSelection      `json:"profileSelection,omitempty"`
 	ProfileMemberSlot         *int                         `json:"profileMemberSlot,omitempty"`
 	Extent                    string                       `json:"extent,omitempty"`
 	Length2                   float64                      `json:"length2,omitempty"`

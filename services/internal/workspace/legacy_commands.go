@@ -507,7 +507,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			prefix, label = "revolve", "Revolve"
 		}
 		feature := Feature{BodyID: request.BodyID, ID: commandEntityID(prefix, request.RequestID), Type: generator,
-			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID, ProfileMemberSlot: request.ProfileMemberSlot,
+			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID, ProfileMemberSlot: request.ProfileMemberSlot, ProfileSelection: request.ProfileSelection,
 			Length: request.Length, Angle: request.Angle, Extent: request.Extent, Length2: request.Length2, Operation: operation,
 			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed}
 		parameterSources := map[string]modelcore.ValueSource{}

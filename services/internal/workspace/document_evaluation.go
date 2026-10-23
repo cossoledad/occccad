@@ -104,7 +104,7 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 			}
 		} else {
 			diagnostic.stage("GEOMETRY")
-			// An explicit modifier edit must resolve all of its required inputs.
+			// An explicit region or modifier edit must resolve all required inputs.
 			// Upstream/parameter changes may still create inspectable FAILED
 			// revisions; accepting such a revision is not a repair confirmation.
 			if !promoted && prepared.command.TypeURI == typeEditFeature {
@@ -113,6 +113,11 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 					return err
 				}
 				for _, feature := range model.Features {
+					if feature.ID == edit.FeatureID && isSolidGenerator(feature.Type) && feature.ProfileSelection != nil && feature.ProfileSelection.Mode == "REGIONS" && !feature.Suppressed {
+						if _, _, err := service.featureProfileRegions(ctx, model, feature, prepared.requestID+"/validate-profile"); err != nil {
+							return err
+						}
+					}
 					if feature.ID == edit.FeatureID && isLocalModifier(feature.Type) && !feature.Suppressed {
 						if _, err := service.modifierInput(ctx, prepared.requestID+"/validate-input", model, feature); err != nil {
 							return featureInputStageError(model, feature.ID, err)

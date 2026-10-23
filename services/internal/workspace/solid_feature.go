@@ -22,6 +22,9 @@ func isBodyFeature(kind string) bool {
 }
 
 func validateSolidStage(f Feature, earlier map[string]Feature) error {
+	if err := validateProfileRegionSelection(f); err != nil {
+		return err
+	}
 	if f.Type == "LOFT" {
 		if len(f.Sections) < 2 || len(f.Sections) > 32 {
 			return fmt.Errorf("%w: loft requires 2..32 sections", ErrValidation)

@@ -67,6 +67,7 @@ func (service *Service) projectExactSketchAnalyses(ctx context.Context, model Pa
 		analysis.GeometryVerified = service.worker != nil
 		analysis.RegionCount = 0
 		analysis.LoopCount = 0
+		analysis.RegionViews = nil
 		analysis.RegionIDs = nil
 		analysis.Regions = nil
 		if err != nil {
@@ -78,6 +79,11 @@ func (service *Service) projectExactSketchAnalyses(ctx context.Context, model Pa
 			analysis.Regions = regions
 			analysis.RegionCount = len(regions)
 			for _, r := range regions {
+				display := SketchProfileRegionView{ID: r.ID, Outer: sampleProfileLoop(r.Outer)}
+				for _, hole := range r.Holes {
+					display.Holes = append(display.Holes, sampleProfileLoop(hole))
+				}
+				analysis.RegionViews = append(analysis.RegionViews, display)
 				analysis.RegionIDs = append(analysis.RegionIDs, r.ID)
 				analysis.LoopCount += 1 + len(r.Holes)
 			}

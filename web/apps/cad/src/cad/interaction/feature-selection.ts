@@ -1,8 +1,9 @@
-import type { Selection, SelectionItem } from "../../types";
+import type { Selection, SelectionItem, SketchPlane, SketchProfileAnalysis } from "../../types";
 import { projectSketchFeatureSelection } from "./selection-mode";
-export type FeaturePickRole = "instance" | "direction" | "geometry" | "point" | "profile" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
+export type FeaturePickRole = "instance" | "direction" | "geometry" | "point" | "profile" | "profile-region" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
 export type FeatureSelectionSession = {
     role: FeaturePickRole;
+    profileRegions?: {sketchId:string;bodyId?:string;plane:SketchPlane;regions:NonNullable<SketchProfileAnalysis["regionViews"]>}[];
     project?: (selection:SelectionItem)=>Selection;
     // Shared scene/tree filtering for cross-occurrence command supports.
     accept?: (selection:SelectionItem)=>boolean;
@@ -15,6 +16,7 @@ export type FeatureSelectionSession = {
     documentId: string;
     versionId: string;
     occurrencePath?: string;
+    instancePath?: SelectionItem["instancePath"];
     bodyId?: string;
     geometryKey?:string;
     contextVariantKey?:string;
@@ -48,6 +50,7 @@ export function featureSelectionHit(raw: Selection, session: FeatureSelectionSes
     if(session.role==="direction")return raw.kind==="axis"||raw.kind==="edge"||raw.kind==="visual"&&raw.visualType==="CURVE"?raw:null;
     if (session.role === "axis")
         return raw.kind === "axis" || raw.kind === "visual" && raw.visualType === "CURVE" ? raw : null;
+    if(session.role === "profile-region") return raw.kind === "profile-region" && !!session.sketchIds?.includes(raw.featureId) ? raw : null;
     if (session.role === "geometry") return raw.kind === "visual" && !!session.sketchIds?.includes(raw.featureId) ? raw : null;
     if (session.role === "seam")
         return raw.kind === "visual" && raw.visualType === "CURVE" && session.sketchIds?.includes(raw.featureId) ? raw : null;
