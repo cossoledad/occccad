@@ -3314,3 +3314,38 @@ TEST(GeometryExchange, ToPlaneRejectsInvalidDirectionAndNonPositiveRegionDistanc
 
 } // namespace
 } // namespace occccad::kernel
+
+namespace occccad::kernel { namespace {
+TEST(GeometryExchange, HoleBlindAndDirectionalThroughPreserveOppositeMaterialAndHistory) {
+    OcctKernel kernel;
+    ProfilePadSpec stock;stock.feature_id="stock";stock.body_id="body";stock.profile_feature_id="stock-sketch";
+    stock.regions={rectangular_region("base",-10,-10,10,10)};stock.pad_length=20;
+    ProfileCurveSpec circle;circle.entity_id="location-point";circle.kind="CIRCLE";circle.radius=2;
+    ProfilePadSpec hole;hole.feature_id="hole";hole.body_id="body";hole.input_feature_id="stock";hole.profile_feature_id="location-sketch";
+    hole.generator="HOLE";hole.body_operation="REMOVE";hole.extent="BLIND";hole.pad_length=4;
+    hole.plane_origin={0,0,10};hole.plane_normal={0,0,1};hole.plane_u_direction={1,0,0};
+    hole.regions={{"hole-region",{"point-loop",{circle}},{}}};
+    for(bool reversed:{false,true})for(bool through:{false,true}) {
+        hole.reversed=reversed;hole.extent=through?"THROUGH_ALL":"BLIND";
+        const auto result=kernel.evaluateProfilePadsWithHistory({stock,hole});
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id),8000-4*3.141592653589793*(through?10:4),1e-5);
+        const auto topology=kernel.getTopology(result.geometry_id);const auto& tip=result.feature_results.back();
+        ASSERT_TRUE(tip.topology_history_complete);EXPECT_EQ(tip.semantic_outputs.size(),topology.face_count+topology.edge_count+topology.vertex_count);
+        bool wall=false,bottom=false,mouth=false;
+        for(const auto& o:tip.semantic_outputs)if(o.semantic_ref.feature_id=="hole"){
+            if(o.evidence.geometry_type=="CYLINDER")wall=true;
+            if(o.semantic_ref.output_slot.rfind("END_CAP/",0)==0)bottom=true;
+            if(o.semantic_ref.output_slot.rfind("START_BOUNDARY_FROM_PROFILE_EDGE/",0)==0)mouth=true;
+        }
+        EXPECT_TRUE(wall);EXPECT_TRUE(mouth);EXPECT_EQ(bottom,!through);
+        const auto cold=kernel.evaluateProfilePadsWithHistory({stock,hole});EXPECT_EQ(kernel.serializeBrepr(result.geometry_id),kernel.serializeBrepr(cold.geometry_id));
+        // A second blind cut on the opposite half must still remove all its material.
+        auto probe=hole;probe.feature_id="opposite-probe";probe.input_feature_id="hole";probe.reversed=!reversed;probe.extent="BLIND";probe.pad_length=3;
+        const auto opposite=kernel.evaluateProfilePadsWithHistory({stock,hole,probe});
+        EXPECT_NEAR(kernel.getVolume(opposite.geometry_id),kernel.getVolume(result.geometry_id)-12*3.141592653589793,1e-5);
+    }
+    hole.extent="BLIND";hole.pad_length=0;EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock,hole}),std::exception);
+    hole.pad_length=4;hole.plane_origin={50,0,10};EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock,hole}),std::exception);
+    hole.extent="THROUGH_ALL";hole.reversed=false;hole.plane_origin={0,0,30};EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock,hole}),std::exception);
+}
+} }

@@ -3597,6 +3597,23 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 tool = make_loft_tool(spec);
             } else {
                 auto generator_spec = spec;
+                if(spec.generator=="HOLE") {
+                    if(spec.body_operation!="REMOVE"||result.IsNull())throw std::invalid_argument("HOLE_REQUIRES_TARGET_BODY");
+                    if(spec.regions.size()!=1||spec.regions[0].outer.curves.size()!=1||!spec.regions[0].holes.empty()||spec.regions[0].outer.curves[0].kind!="CIRCLE")throw std::invalid_argument("HOLE_SINGLE_CIRCLE_REQUIRED");
+                    if(!std::isfinite(spec.regions[0].outer.curves[0].radius)||spec.regions[0].outer.curves[0].radius<=0)throw std::invalid_argument("HOLE_DIAMETER_INVALID");
+                    generator_spec.generator="LINEAR_EXTRUDE";generator_spec.extent="FINITE";
+                    if(spec.extent=="BLIND") {
+                        if(!std::isfinite(spec.pad_length)||spec.pad_length<=0)throw std::invalid_argument("HOLE_DEPTH_INVALID");
+                    } else if(spec.extent=="THROUGH_ALL") {
+                        const auto frame=profile_frame(spec);gp_Vec axis(frame.normal);if(spec.reversed)axis.Reverse();
+                        Bnd_Box box;BRepBndLib::AddOptimal(result,box,Standard_False,Standard_False);const auto bounds=to_bbox(box);
+                        double high=-std::numeric_limits<double>::infinity();
+                        for(double x:{bounds.min.x,bounds.max.x})for(double y:{bounds.min.y,bounds.max.y})for(double z:{bounds.min.z,bounds.max.z})
+                            high=std::max(high,gp_Vec(frame.origin,gp_Pnt(x,y,z)).Dot(axis));
+                        if(!std::isfinite(high)||high<=1e-7)throw std::invalid_argument("HOLE_NO_MATERIAL_INTERSECTION");
+                        generator_spec.pad_length=high+std::max(1e-5,high*1e-6);
+                    } else throw std::invalid_argument("HOLE_EXTENT_INVALID");
+                }
                 if (spec.generator == "LINEAR_EXTRUDE" || spec.generator.empty()) {
                     auto frame = profile_frame(spec);
                     gp_Vec axis(frame.normal);
@@ -3641,9 +3658,9 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             }
             topology_history_complete = topology_history_complete && tool.topology_history_complete;
             if (required_pattern_tools.count(spec.feature_id) &&
-                (modifier || spec.generator=="SOLID_PATTERN" || (spec.extent=="THROUGH_ALL" || spec.extent=="TO_PLANE") || tool.shape.IsNull()))
+                (modifier || spec.generator=="HOLE" || spec.generator=="SOLID_PATTERN" || (spec.extent=="THROUGH_ALL" || spec.extent=="TO_PLANE") || tool.shape.IsNull()))
                 throw std::invalid_argument("PATTERN_INDEPENDENT_TOOL_UNAVAILABLE");
-            if (!modifier && spec.generator!="SOLID_PATTERN" && spec.generator!="BOOLEAN" && spec.extent!="THROUGH_ALL" && spec.extent!="TO_PLANE" && !tool.shape.IsNull()) {
+            if (!modifier && spec.generator!="HOLE" && spec.generator!="SOLID_PATTERN" && spec.generator!="BOOLEAN" && spec.extent!="THROUGH_ALL" && spec.extent!="TO_PLANE" && !tool.shape.IsNull()) {
                 // Retain the real independently constructed tool before Body
                 // application, never the already-cut stage or the whole Body.
                 if (modifier || spec.generator == "SOLID_PATTERN" || spec.extent == "THROUGH_ALL" || tool.shape.IsNull())

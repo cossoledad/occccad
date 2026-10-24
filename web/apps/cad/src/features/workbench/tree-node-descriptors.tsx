@@ -59,6 +59,7 @@ export function treeNodeIcon(node: Pick<DocumentStructureNode, "kind" | "diagnos
       style={{ color: detail.color,position:"relative",display:"inline-flex" }}><CadIcon name={node.entityType==="FIX_TOGETHER"?"link":node.entityType==="FIX"?"fixed":node.entityType==="DISTANCE"?"offset":node.entityType==="ANGLE"?"angle":"coincident"}/><span style={{position:"absolute",right:-2,bottom:-2,fontSize:9}}>{icon}</span></span>;
   }
   if (node.evaluationStatus === "FAILED" || node.evaluationStatus === "BLOCKED") return <span aria-label={node.evaluationStatus === "FAILED" ? "计算失败" : "上游失败"} style={{color: node.evaluationStatus === "FAILED" ? "#b86151" : "#b38a48"}}><ExclamationCircleOutlined /></span>;
+  if(node.entityType==="HOLE")return <AimOutlined/>;
   if ((node.kind === "PAD" || node.kind === "REVOLVE") && node.operation === "REMOVE") return <ScissorOutlined />;
   return descriptors[node.kind]?.icon ?? <CloudUploadOutlined />;
 }

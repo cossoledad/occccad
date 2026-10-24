@@ -111,6 +111,11 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 					return err
 				}
 				for _, feature := range model.Features {
+					if feature.ID == edit.FeatureID && feature.Type == "HOLE" && !feature.Suppressed {
+						if _, err := holeInput(model, feature); err != nil {
+							return err
+						}
+					}
 					if feature.ID == edit.FeatureID && feature.Extent == "TO_PLANE" && !feature.Suppressed {
 						if _, _, err := service.resolveReferencedPlane(ctx, prepared.requestID+"/validate-termination", model, feature.ID, feature.TerminationPlaneID, feature.TerminationPlane); err != nil {
 							return err

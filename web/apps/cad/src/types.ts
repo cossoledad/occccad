@@ -34,6 +34,7 @@ export type PartBody = { appearance?: SurfaceAppearance; displayFallback?: BodyD
 
 export type FeatureInputResolution = { status: "RESOLVED" | "MISSING" | "AMBIGUOUS" | "TYPE_MISMATCH" | "SOURCE_UNAVAILABLE" | "CONTRACT_MISMATCH" | "OUTSIDE_CURRENT_TIP"; diagnosticCode?: string; diagnostic?: string };
 export type FeatureInput = {
+ pointPick?:FeatureInputResolution;
  terminationPick?:FeatureInput["neutralPick"];
   versionId: string; sourceFeatureId: string; artifact: Artifact; artifacts?: Artifact[];
   picks: Array<FeatureInputResolution & {index: number; kind: string; localId?: number}>;
@@ -146,6 +147,7 @@ export type DocumentProperties = {
 export type PatternDefinition = { directionReference?:SketchGeometryRef; reversed?:boolean; centerReference?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef}; axisEntityId?:string; id:string; kind:"LINEAR"|"CIRCULAR"|"MIRROR"; mirrorPlaneId?:string; mirrorPlane?:NonNullable<Feature["selections"]>[number]; distribution:"FIXED_STEP"|"TOTAL_SPAN"|"FULL_CIRCLE"; count:number; spacing?:number; angle?:number; phase?:number; origin:Vec3; direction:Vec3; skippedSlots?:number[]; suppressed?:boolean };
 export type SketchPattern = PatternDefinition & {entityIds:string[]};
 export type Feature = {
+ holePoint?:PatternDefinition["centerReference"];diameter?:number;depth?:number;
  terminationPlaneId?:string;terminationPlane?:NonNullable<Feature["selections"]>[number];
   pattern?:PatternDefinition & {startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
   profileSelection?: {mode:"WHOLE_SKETCH"|"REGIONS";regionIds?:string[]};
@@ -157,7 +159,7 @@ export type Feature = {
   selections?:{selection:PersistentSelection;sourceVersionId:string;sourceFeatureId?:string}[];
   neutralPlaneId?:string;
   neutralPlane?: NonNullable<Feature["selections"]>[number];
-  extent?: "FINITE"|"TWO_SIDED"|"SYMMETRIC"|"THROUGH_ALL"|"TO_PLANE";
+  extent?: "FINITE"|"TWO_SIDED"|"SYMMETRIC"|"THROUGH_ALL"|"TO_PLANE"|"BLIND";
   length2?:number;
   tools?: {bodyId:string; featureId:string}[];
   keepTools?: boolean;
@@ -166,7 +168,7 @@ export type Feature = {
   visible?: boolean;
   importDefinitionId?: string;
   id: string;
-  type: "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT";
+  type: "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT" | "HOLE";
   name?: string;
   plane?: PlaneName | "CUSTOM";
   sketch?: SketchFeature;

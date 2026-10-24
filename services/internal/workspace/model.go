@@ -463,6 +463,9 @@ type ProfileRegionSelection struct {
 }
 
 type Feature struct {
+	HolePoint          *PatternPointReference  `json:"holePoint,omitempty"`
+	Diameter           float64                 `json:"diameter,omitempty"`
+	Depth              float64                 `json:"depth,omitempty"`
 	TerminationPlaneID string                  `json:"terminationPlaneId,omitempty"`
 	TerminationPlane   *FeatureSelection       `json:"terminationPlane,omitempty"`
 	ProfileSelection   *ProfileRegionSelection `json:"profileSelection,omitempty"`

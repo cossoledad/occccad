@@ -28,6 +28,9 @@ func featureInputs(f Feature) []featureInput {
 		}
 	}
 	add("PROFILE", f.Profile, "", f.ProfileMemberSlot)
+	if f.HolePoint != nil {
+		add("POSITION", f.HolePoint.SketchID, f.HolePoint.Reference.EntityID, nil)
+	}
 	if f.TerminationPlaneID != "" {
 		out = append(out, featureInput{Role: "TERMINATION_PLANE", EntityKind: "PLANE", FeatureID: f.TerminationPlaneID})
 	}

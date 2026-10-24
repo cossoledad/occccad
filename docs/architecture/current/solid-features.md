@@ -8,6 +8,7 @@
 
 - 拉伸／切除和旋转支持[整草图或显式区域集合](part-sketch.md#显式轮廓区域)，定义、拾取、失效修复和验证边界由该主题统一说明。
 - 拉伸：有限长度、双侧独立长度、对称总长、贯穿切除，以及单方向[到平面](#到平面关联终止)。贯穿根据当前 Feature 上游输入的包围范围计算，不持久化一个任意的大长度。
+- Hole：独立的单点圆柱孔，范围见[独立 Hole](#独立-hole)。
 - 旋转：稳定轴引用、角度、反向及真实扫掠 Naming；轴与轮廓边界重合时，只保留最终扫掠拓扑中的实际成员，不把 OCCT 的轴上辅助点或边写为悬空输出。长度、第二长度和角度使用既有 Quantity/表达式参数。
 - Boolean：同一 Part 的并、差、交；并/差允许最多 32 个不同工具 Body，交集只允许一个。工具定义保存 `bodyId + featureId`，只读取该明确阶段。编辑可更换目标和工具。工具 BREP 和 Naming 必须属于同一个不可变快照。
 - 圆角：常量半径与持久边选择，按稳定语义对边集排序。凸全平面实体上，共享支撑面、被一条倒角边隔开的两条正交直边，使用原始支撑面构造恒半径圆柱及角区裁剪，允许半径超过小倒角尺寸；圆柱周期缝放在保留圆弧之外，避免斜向实体产生额外显示边。构造来源与每步 Boolean 的真实历史合成后进入同一命名门禁。其他情况使用通用 OCCT 圆角；同时构造失败时，按稳定语义顺序逐步构造并合成 OCCT 历史，已被相邻圆角消耗的边以实际删除历史识别。倒角：等距距离与持久边选择。局部修改复制上游精确几何，避免内核构造修改不可变阶段。
@@ -18,6 +19,18 @@
 - 放样：创建时默认以“添加”运算归入当前工作 Body，可显式改为新实体、切除或交集。2–32 个有序截面，至少一个单区域、无孔闭合轮廓；首尾可使用稳定草图点/端点/圆心/原点或基准轴系原点引用，经 OCCT `AddVertex` 构造真实点端，中间点截面拒绝。支持直纹/平滑、同边数轮廓及圆与多边形组合。内核按循环顺序生成起点/绕行方向/圆相位候选，以相邻框架间的归一化轮廓距离计算整组截面的最小代价对应；比较用的框架传递不移动输入截面。支撑法向没有放样前进方向；自动比较按实际轮廓中心之间的位移统一法向符号，避免垂直支撑选中翻折连接。位移在支撑面内而不能确定符号时，保留法向之间的最小旋转规则。圆按匹配边界数构造精确圆弧，关闭 OCCT 的隐式重新对应。自动结果的 stable seam EntityId、反向、相位与 `correspondenceResolved` 经纯 `ResolveLoftCorrespondence` RPC 写入 Feature 定义；后续重算保持已接受关系，丢失闭合边/点明确失败，手动设置优先。生成面来自实际输入边（含圆的解析分段）到 OCCT Generated 面的历史，点端独立命名为 `LOFT_START_VERTEX`/`LOFT_END_VERTEX`，不虚构封口面；退化边通过邻接闭包命名。所有构造几何为私有新建对象，结果在 Boolean 前通过实体检查和自干涉检查；交叉或无法构造时提示检查对应/补中间截面，不放宽容差。资源限制为最多 64 条轮廓边及一亿次候选采样比较。
 
 `Body` 身份不随材料连通性改变。Boolean 默认消耗工具的最终输出，`keepTools` 可保留它；定义、制品和历史始终保留。派生 `consumed` 与 `visible` 独立，视口/拾取、Product 展开和 STEP 导出遵循输出状态。抑制 Boolean 恢复工具输出。
+
+## 独立 Hole
+
+`HOLE` 是独立 Feature，使用既有创建/编辑、参数、Preview/Commit、ChangeSet 和历史链；结构树有独立定义及“孔”入口。定义保存目标 Body、`holePoint`（普通上游 Sketch ID + 显式 POINT 的稳定实体引用）、`diameter`、盲孔 `depth`、终止模式和反向。不生成隐藏圆草图或额外切除 Feature，不把拾取坐标写成孔位。多点草图须明确选点，多点预选不自动取其中一项；端点、圆心、原点、阵列派生点均不属于首轮定位输入。
+
+孔位由草图尺寸/约束和已求解支撑框架决定，孔轴沿有向支撑法向或反向。直径和盲孔深度复用 Quantity、单位、表达式与 managed ParameterID；切换单向贯穿移除非活动深度参数，Undo 恢复原定义。盲孔使用平底圆柱工具，深度从定位草图平面起算；贯穿也从该平面起算，只覆盖所选方向的目标 Body，不沿用普通拉伸贯穿跨越整个轴向包围范围的规则。非法尺寸、无材料交集和无效结果拒绝。权威 evaluator 内部构造圆形工具，经原 Worker/OCCT 粗粒度求值与真实 Boolean/Naming，孔壁、实际孔口及孔底均进入完整拓扑命名。
+
+定位草图、点实体和目标上游 Body 阶段进入依赖、删除/循环检查及缓存；合法删点/抑制留下 `HOLE_POINT_MISSING` 与下游 BLOCKED，保留原定义。面板保留待修复点，提供“修复孔位”入口并要求明确重选；未处理输入不能确认。草图支撑失败先沿[已有支撑重指定](part-sketch.md#支撑与外部几何)修复；Hole ID、名称、Body 和历史位置保持不变。尺寸/孔位变化保持可对应的孔口引用；换点后语义身份变化，下游已失效的圆角/倒角也须明确修复。
+
+首轮关闭 Hole 的 `GENERATOR_TOOL`/`FEATURE_DELTA`，保留合法的已求值 `BODY_STAGE` 复制；不逐实例重算孔。不包含沉孔、锥沉孔、螺纹、钻尖、多点孔组、到平面终止或历史重排。
+
+定向入口：`services/internal/control/hole_integration_test.go`（真实 Router/Worker：表达式、尺寸驱动点位、Body 隔离、支撑失效/重指定、删点修复、孔口倒角、方向与历史/冷重建）；内核 `GeometryExchange.Hole*` 检查反侧材料、平底/贯穿及完整 Naming；浏览器 `solid-feature-live.spec.ts` 的 `Hole` 用例验证实际选点、编辑、取消、重选、支撑更换、双向切换和孔口倒角。证据限当前 SQLite、Release Worker/OCCT 7.9.1 与 Chromium/SwiftShader，不代表所有参数组合或实机验收。
 
 ## 到平面关联终止
 
@@ -54,7 +67,7 @@
 
 依赖连接上游 Feature 输出，而不连接 Body 的未来最终结果。局部修改先重建自身之前的 Body 前缀，再以保存的 source Revision、Body 和 PersistentSelection 解析当前输入。缺失、歧义或类型变化必须失败，不能用最近几何或持久化 local ID 恢复。显示层的 local pick 只用于创建正式持久选择。
 
-生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 为 `part-solid-generators-v38-to-plane`，Naming policy 继续为 v6；缓存包含版本和完整来源历史。
+生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 为 `part-solid-generators-v39-hole`，Naming policy 继续为 v6；缓存包含版本和完整来源历史。
 
 精确边的直线识别由同一个内核判定供类型查询、方向属性与 Naming evidence 使用。非周期 B-spline 在实际裁剪参数区间内，正权控制点全部落在端点直线的 `Precision::Confusion()`（1e-7 mm）容差内，且沿直线单调排列时，识别为 `LINE`；不依据显示折线或有限采样。原 BREP 和真实 History 保留，属性同时报告 `underlyingCurveType=BSPLINE_CURVE` 与原生参数。选择 evidence 使用解析直线原点、单位方向和端点距离参数，现有轴/方向解析及外部几何投影消费同一证据，不能把 0–1 的样条参数当作毫米。弯曲、回折或周期样条保守保留曲线类型。evaluator 版本进入缓存键；旧制品须经正常特征编辑/重新求值生成新的成套 Naming/Visual，再选择其边。
 

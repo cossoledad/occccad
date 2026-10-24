@@ -56,6 +56,10 @@ func parameterPresentation(model PartModel, parameter modelcore.ParameterDefinit
 	}
 	group, name := "", parameter.Label
 	switch parameter.PropertySlot {
+	case "diameter":
+		group, name = "孔", "直径"
+	case "depth":
+		group, name = "孔", "深度"
 	case "length":
 		group, name = "第一限制", "长度"
 	default:

@@ -1,6 +1,6 @@
 import type { Selection, SelectionItem, SketchPlane, SketchProfileAnalysis } from "../../types";
 import { projectSketchFeatureSelection } from "./selection-mode";
-export type FeaturePickRole = "instance" | "direction" | "geometry" | "point" | "profile" | "profile-region" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
+export type FeaturePickRole = "instance" | "direction" | "geometry" | "point" | "profile" | "profile-region" | "sketch-point" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
 export type FeatureSelectionSession = {
     role: FeaturePickRole;
     profileRegions?: {sketchId:string;bodyId?:string;plane:SketchPlane;regions:NonNullable<SketchProfileAnalysis["regionViews"]>}[];
@@ -20,6 +20,7 @@ export type FeatureSelectionSession = {
     bodyId?: string;
     geometryKey?:string;
     planeGeometryKeys?:string[];
+    sketchPoints?:{sketchId:string;entityId:string}[];
     contextVariantKey?:string;
     rootDocumentId?:string;
     sketchIds?: string[];
@@ -47,6 +48,7 @@ export function featureSelectionHit(raw: Selection, session: FeatureSelectionSes
         return raw.kind === "plane" || raw.kind === "face" && (!session.planeGeometryKeys||session.planeGeometryKeys.includes(raw.geometryKey??"")) ? raw : null;
     if (session.role === "body")
         return raw.bodyId && ["face", "edge", "vertex", "body", "solid", "pad", "feature", "import"].includes(raw.kind) ? raw : null;
+    if(session.role==="sketch-point")return raw.kind==="visual"&&raw.visualType==="POINT"&&!!session.sketchPoints?.some(p=>p.sketchId===raw.featureId&&p.entityId===raw.entityId)?raw:null;
     if (session.role === "point") return ["axis-system","datum-point"].includes(raw.kind)||raw.kind==="visual"&&raw.visualType==="POINT"?raw:null;
     if(session.role==="direction")return raw.kind==="axis"||raw.kind==="edge"||raw.kind==="visual"&&raw.visualType==="CURVE"?raw:null;
     if (session.role === "axis")

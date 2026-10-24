@@ -466,18 +466,22 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		feature := Feature{ID: commandEntityID("boolean", request.RequestID), BodyID: request.BodyID, Type: "BOOLEAN", Name: numberedFeatureName(model.Features, "BOOLEAN", "Boolean"), Operation: request.Operation, Tools: request.Tools, KeepTools: request.KeepTools}
 		return typeCreateBooleanFeature, createFeaturePayload{Feature: feature}, nil
 	case "CREATE_SOLID_FEATURE":
-		if documentType == "PART" && request.Feature != nil && request.Feature.Type == "LOFT" {
+		if documentType == "PART" && request.Feature != nil && (request.Feature.Type == "LOFT" || request.Feature.Type == "HOLE") {
 			var model PartModel
 			if err := json.Unmarshal(modelJSON, &model); err != nil {
 				return "", nil, err
 			}
 			feature := *request.Feature
-			feature.ID = commandEntityID("loft", request.RequestID)
-			feature.Name = numberedFeatureName(model.Features, "LOFT", "Loft")
+			feature.ID = commandEntityID(strings.ToLower(feature.Type), request.RequestID)
+			feature.Name = numberedFeatureName(model.Features, feature.Type, map[string]string{"LOFT": "Loft", "HOLE": "Hole"}[feature.Type])
 			if err := service.prepareLoftDefinition(ctx, request.RequestID, model, &feature); err != nil {
 				return "", nil, err
 			}
-			return typeCreateSolidFeature, createFeaturePayload{Feature: feature}, nil
+			sources, err := featureParameterExpressions(model, feature, request.ParameterExpressions)
+			if err != nil {
+				return "", nil, err
+			}
+			return typeCreateSolidFeature, createFeaturePayload{Feature: feature, ParameterSources: sources}, nil
 		}
 		if documentType != "PART" {
 			break

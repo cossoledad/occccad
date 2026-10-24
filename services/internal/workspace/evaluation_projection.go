@@ -63,6 +63,12 @@ func ensureFeatureParameters(model *PartModel) {
 	}
 	for _, feature := range model.Features {
 		managedPrefixes["parameter:"+feature.ID+":"] = struct{}{}
+		if feature.Type == "HOLE" {
+			add(feature.ID, "diameter", "Diameter", "mm", feature.Diameter, modelcore.LengthDimension, false)
+			if feature.Extent == "BLIND" {
+				add(feature.ID, "depth", "Depth", "mm", feature.Depth, modelcore.LengthDimension, false)
+			}
+		}
 		if feature.Pattern != nil {
 			for _, parameter := range patternParameters(&feature.Pattern.PatternDefinition) {
 				add(feature.ID, "pattern:"+parameter.slot, parameter.slot, parameter.unit, parameter.value, parameter.dimension, false)
@@ -350,6 +356,18 @@ func validateAndResolvePartParameters(model *PartModel) error {
 
 	for index := range model.Features {
 		feature := &model.Features[index]
+		if feature.Type == "HOLE" {
+			feature.Diameter = values["parameter:"+feature.ID+":diameter"].SIValue * 1000
+			if !positiveFinite(feature.Diameter) {
+				return fmt.Errorf("%w: HOLE_DIAMETER_INVALID", ErrValidation)
+			}
+			if feature.Extent == "BLIND" {
+				feature.Depth = values["parameter:"+feature.ID+":depth"].SIValue * 1000
+				if !positiveFinite(feature.Depth) {
+					return fmt.Errorf("%w: HOLE_DEPTH_INVALID", ErrValidation)
+				}
+			}
+		}
 		if feature.Pattern != nil {
 			if err := resolvePatternParameters(feature.ID, "pattern:", &feature.Pattern.PatternDefinition, values); err != nil {
 				return err
@@ -680,13 +698,16 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
-		if feature.Type == "BOOLEAN" || feature.Type == "SOLID_PATTERN" || isLocalModifier(feature.Type) || feature.Type == "LOFT" {
+		if feature.Type == "HOLE" || feature.Type == "BOOLEAN" || feature.Type == "SOLID_PATTERN" || isLocalModifier(feature.Type) || feature.Type == "LOFT" {
 			if bodyTipFeatureID != "" {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 			for _, tool := range feature.Tools {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + tool.FeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
+		}
+		if feature.Type == "HOLE" && feature.HolePoint != nil {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.HolePoint.SketchID), Target: key, Kind: modelcore.ReadGeometry})
 		}
 		if feature.Pattern != nil {
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.Pattern.Source.FeatureID), Target: key, Kind: modelcore.ReadGeometry})

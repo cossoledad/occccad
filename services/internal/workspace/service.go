@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v38-to-plane"
+const evaluatorVersion = "part-solid-generators-v39-hole"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1797,6 +1797,14 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			continue
 		}
 		switch strings.ToUpper(feature.Type) {
+		case "HOLE":
+			spec, err := holeInput(fullModel, feature)
+			if err != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+			}
+			spec.InputFeatureID = bodyTipFeatureID
+			solidFeatures = append(solidFeatures, spec)
+			bodyTipFeatureID = feature.ID
 		case "LOFT":
 			spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "LOFT", BodyOperation: feature.Operation, Ruled: feature.Ruled}
 			sections, err := service.loftGeometrySections(ctx, reqID, fullModel, feature, sketches)

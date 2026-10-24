@@ -1,7 +1,7 @@
 import type { Feature } from "../../types";
 import { linearExtrudeLengthInput, parseParameterSource } from "./parameter-editor";
-const bodyFeatureTypes = new Set(["SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
-export const solidFeatureNames: Record<string, string> = { FILLET: "圆角", CHAMFER: "倒角", DRAFT: "拔模", SHELL: "抽壳", LOFT: "放样", REVOLVE: "旋转", PAD: "拉伸", LINEAR_EXTRUDE: "拉伸" };
+const bodyFeatureTypes = new Set(["HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
+export const solidFeatureNames: Record<string, string> = { HOLE:"孔", FILLET: "圆角", CHAMFER: "倒角", DRAFT: "拔模", SHELL: "抽壳", LOFT: "放样", REVOLVE: "旋转", PAD: "拉伸", LINEAR_EXTRUDE: "拉伸" };
 export function booleanInputStages(features: Feature[], editedId?: string): Feature[] {
     const boundary = editedId ? features.findIndex(feature => feature.id === editedId) : features.length;
     return features.slice(0, Math.max(0, boundary)).filter(feature => bodyFeatureTypes.has(feature.type.toUpperCase()) && !feature.suppressed);
@@ -13,7 +13,7 @@ export function booleanDefinitionReady(target: string | undefined, operation: Fe
 }
 // Unchanged text must preserve the original Quantity/expression, including digits
 // beyond the display precision. A changed value uses the shared unit parser.
-export function solidParameterEdit(slot: "length" | "length2" | "angle", text: string, initialText: string, unit: string): {
+export function solidParameterEdit(slot: "length" | "length2" | "angle" | "diameter" | "depth", text: string, initialText: string, unit: string): {
     value?: number;
     expression?: string;
 } {

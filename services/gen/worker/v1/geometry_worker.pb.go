@@ -5070,7 +5070,7 @@ type ProfilePadSpec struct {
 	Plane     string                 `protobuf:"bytes,4,opt,name=plane,proto3" json:"plane,omitempty"`
 	// NEW_BODY | ADD | REMOVE | INTERSECT. Legacy senders default to ADD.
 	BodyOperation string `protobuf:"bytes,5,opt,name=body_operation,json=bodyOperation,proto3" json:"body_operation,omitempty"`
-	// LINEAR_EXTRUDE | REVOLVE | LOFT | BOOLEAN | FILLET | CHAMFER | DRAFT | SHELL.
+	// LINEAR_EXTRUDE | REVOLVE | LOFT | BOOLEAN | FILLET | CHAMFER | DRAFT | SHELL | HOLE.
 	Generator    string  `protobuf:"bytes,6,opt,name=generator,proto3" json:"generator,omitempty"`
 	RevolveAngle float64 `protobuf:"fixed64,7,opt,name=revolve_angle,json=revolveAngle,proto3" json:"revolve_angle,omitempty"` // radians, ignored by LINEAR_EXTRUDE
 	AxisStart    *Vec2   `protobuf:"bytes,8,opt,name=axis_start,json=axisStart,proto3" json:"axis_start,omitempty"`            // sketch-local, required by REVOLVE
@@ -5082,11 +5082,12 @@ type ProfilePadSpec struct {
 	PlaneUDirection *Vec3 `protobuf:"bytes,13,opt,name=plane_u_direction,json=planeUDirection,proto3" json:"plane_u_direction,omitempty"`
 	// Stable domain identities. These are naming inputs, never OCCT labels or
 	// topology traversal indices.
-	FeatureId              string                 `protobuf:"bytes,14,opt,name=feature_id,json=featureId,proto3" json:"feature_id,omitempty"`
-	BodyId                 string                 `protobuf:"bytes,15,opt,name=body_id,json=bodyId,proto3" json:"body_id,omitempty"`
-	InputFeatureId         string                 `protobuf:"bytes,16,opt,name=input_feature_id,json=inputFeatureId,proto3" json:"input_feature_id,omitempty"`
-	ProfileFeatureId       string                 `protobuf:"bytes,17,opt,name=profile_feature_id,json=profileFeatureId,proto3" json:"profile_feature_id,omitempty"`
-	Tools                  []*BodyToolInput       `protobuf:"bytes,18,rep,name=tools,proto3" json:"tools,omitempty"`
+	FeatureId        string           `protobuf:"bytes,14,opt,name=feature_id,json=featureId,proto3" json:"feature_id,omitempty"`
+	BodyId           string           `protobuf:"bytes,15,opt,name=body_id,json=bodyId,proto3" json:"body_id,omitempty"`
+	InputFeatureId   string           `protobuf:"bytes,16,opt,name=input_feature_id,json=inputFeatureId,proto3" json:"input_feature_id,omitempty"`
+	ProfileFeatureId string           `protobuf:"bytes,17,opt,name=profile_feature_id,json=profileFeatureId,proto3" json:"profile_feature_id,omitempty"`
+	Tools            []*BodyToolInput `protobuf:"bytes,18,rep,name=tools,proto3" json:"tools,omitempty"`
+	// HOLE uses BLIND or THROUGH_ALL from the start plane in the selected direction.
 	Extent                 string                 `protobuf:"bytes,19,opt,name=extent,proto3" json:"extent,omitempty"` // FINITE | TWO_SIDED | SYMMETRIC | THROUGH_ALL (REMOVE only) | TO_PLANE
 	SecondLength           float64                `protobuf:"fixed64,20,opt,name=second_length,json=secondLength,proto3" json:"second_length,omitempty"`
 	Selections             []*SemanticTopologyRef `protobuf:"bytes,21,rep,name=selections,proto3" json:"selections,omitempty"`

@@ -69,6 +69,13 @@ try {
  assert.equal(featureSelectionHit({...face,geometryKey:"display-fallback"},planeSession),null);
  assert.equal(featureSelectionHit(face,{...planeSession,planeGeometryKeys:[]}),null,"no candidate source is not unrestricted picking");
  assert.equal(featureSelectionHit({...face,kind:"plane",id:"datum"},{...planeSession,planeGeometryKeys:[]}).id,"datum");
+ const holeSession={...session,role:"sketch-point",sketchPoints:[{sketchId:"sketch",entityId:"explicit"}]};
+ const explicitPoint={...line,entityId:"explicit",visualType:"POINT"};
+ assert.equal(featureSelectionHit(explicitPoint,holeSession),explicitPoint,"Hole keeps explicit stable point identity");
+ assert.equal(featureSelectionHit({...explicitPoint,entityId:"circle-center"},holeSession),null,"curve centers are not explicit Hole points");
+ assert.equal(featureSelectionHit({...explicitPoint,featureId:"downstream"},holeSession),null);
+ assert.equal(featureSelectionHit({...explicitPoint,versionId:"stale"},holeSession),null);
+ assert.equal(featureSelectionHit({...explicitPoint,occurrencePath:"other"},holeSession),null);
  const stages=[{id:"base",type:"LINEAR_EXTRUDE",bodyId:"body"},{id:"fillet",type:"FILLET",bodyId:"body"},{id:"suppressed",type:"CHAMFER",bodyId:"body",suppressed:true}];
  assert.deepEqual(bodyStage(edge,stages),{bodyId:"body",featureId:"fillet"});
  assert.deepEqual(bodyStage({kind:"pad",id:"base",entityId:"base",bodyId:"body"},stages),{bodyId:"body",featureId:"base"});

@@ -742,3 +742,85 @@ test("to-plane cut selects a hole region and reverse datum termination",async({p
  expect(v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume).toBeCloseTo(12000-120*Math.PI,5);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
+
+test("Hole picks one explicit point, edits, repairs and keeps mouth chamfer editable",async({page},testInfo)=>{
+ page.setDefaultTimeout(15_000);const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.createDocument("PART","Independent Hole acceptance");const id=v.document.id;
+  v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const base=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:base,operations:[{type:"ADD_RECTANGLE",first:{x:-20,y:-15},second:{x:20,y:15}}]});
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:base,generator:"LINEAR_EXTRUDE",operation:"ADD",length:20});const body=v.part!.activeBodyId;
+  v=await api.command(id,{type:"CREATE_DATUM_PLANE",name:"孔定位面",origin:[0,0,20],normal:[0,0,1],uDirection:[1,0,0]});const plane=v.part!.datumPlanes.at(-1)!.id;
+  v=await api.command(id,{type:"CREATE_SKETCH",datumPlaneId:plane});const sketch=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch,operations:[{type:"ADD_ENTITY",entity:{id:"p",kind:"POINT",role:"CONSTRUCTION",point:{x:-5,y:0}}},{type:"ADD_ENTITY",entity:{id:"q",kind:"POINT",role:"CONSTRUCTION",point:{x:5,y:0}}}]});
+  return {id,body,sketch,plane,version:v.document.versionId,featureCount:v.part!.features.length};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();
+ const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);
+ const filter=page.getByRole("textbox",{name:"筛选模型结构"});
+ const open=async()=>{await openCommand(page,"孔");const dialog=page.getByRole("dialog",{name:"创建 孔",exact:true});await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();return dialog;};
+ let dialog=await open();await clickWorld(page,[-5,0,20]);await expect(dialog.getByRole("button",{name:/定位点：.*已选择显式点/})).toBeVisible();
+ await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("6");await dialog.getByRole("textbox",{name:"深度（mm）",exact:true}).fill("8");await ready(page,dialog);
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("hole-blind-preview.png")});
+ await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ dialog=await open();await clickWorld(page,[-5,0,20]);await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("6");await dialog.getByRole("textbox",{name:"深度（mm）",exact:true}).fill("8");await ready(page,dialog);
+ await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const created=await current(page,seed.id),hole=created.part.features.at(-1);
+ const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;
+ expect(created.part.features).toHaveLength(seed.featureCount+1);expect(hole).toMatchObject({type:"HOLE",operation:"REMOVE",diameter:6,depth:8,holePoint:{sketchId:seed.sketch,reference:{target:"ENTITY",entityId:"p",subElement:"POINT"}}});expect(hole.profile).toBeUndefined();expect(volume(created)).toBeCloseTo(24000-72*Math.PI,5);
+ const edit=async()=>{await filter.fill(hole.name);await page.getByRole("treeitem").filter({hasText:hole.name}).first().dblclick();const d=page.getByRole("dialog",{name:"编辑 孔",exact:true});await expect(d).toBeVisible();return d;};
+ dialog=await edit();await ready(page,dialog);await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("8");await dialog.getByRole("textbox",{name:"深度（mm）",exact:true}).fill("5");await ready(page,dialog);
+ await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);
+ dialog=await edit();await ready(page,dialog);await dialog.getByRole("button",{name:/定位点：/}).click();await clickWorld(page,[5,0,20]);await ready(page,dialog);
+ await dialog.getByText("单向贯穿",{exact:true}).click();await expect(dialog.getByRole("textbox",{name:"深度（mm）",exact:true})).toHaveCount(0);await ready(page,dialog);
+ const reversed=dialog.getByRole("switch",{name:"反向",exact:true});await reversed.click();await expect(dialog.getByRole("alert")).toContainText(/NO_MATERIAL|HOLE_NO_MATERIAL/);await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
+ expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);await reversed.click();await ready(page,dialog);
+ await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const through=await current(page,seed.id);expect(volume(through)).toBeCloseTo(24000-180*Math.PI,5);expect(through.part.features.find((f:any)=>f.id===hole.id)).toMatchObject({extent:"THROUGH_ALL",holePoint:{reference:{entityId:"q"}}});expect(through.part.parameters.filter((p:any)=>p.ownerFeatureId===hole.id).map((p:any)=>p.propertySlot)).toEqual(["diameter"]);
+ const failed=await page.evaluate(async seed=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");return api.command(seed.id,{type:"EDIT_SKETCH",sketchId:seed.sketch,operations:[{type:"DELETE_ENTITIES",entityIds:["q"]}]});
+ },seed);
+ expect(failed.part!.features.find((f:any)=>f.id===hole.id).diagnostic).toContain("HOLE_POINT_MISSING");
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"修复孔位",exact:true}).click();dialog=page.getByRole("dialog",{name:"编辑 孔",exact:true});await expect(dialog.getByText("孔位需要修复",{exact:true})).toBeVisible();await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
+ await dialog.getByRole("button",{name:/定位点：/}).click();await clickWorld(page,[-5,0,20]);await ready(page,dialog);await page.screenshot({path:testInfo.outputPath("hole-point-repair.png")});
+ await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(failed.document.versionId);
+ await page.getByRole("button",{name:"修复孔位",exact:true}).click();dialog=page.getByRole("dialog",{name:"编辑 孔",exact:true});await dialog.getByRole("button",{name:/定位点：/}).click();await clickWorld(page,[-5,0,20]);await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const repaired=await current(page,seed.id),restored=repaired.part.features.find((f:any)=>f.id===hole.id);expect(restored).toMatchObject({id:hole.id,name:hole.name,bodyId:hole.bodyId,order:hole.order,holePoint:{reference:{entityId:"p"}}});expect(restored.evaluationStatus).toBeFalsy();
+ await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===hole.id).evaluationStatus).toBe("FAILED")).toPass();await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect(volume(await current(page,seed.id))).toBeCloseTo(24000-180*Math.PI,5)).toPass();
+ await filter.fill("");await openCommand(page,"倒角");const chamfer=page.getByRole("dialog",{name:"创建 倒角",exact:true});await clickWorld(page,[-5+3*Math.SQRT1_2,3*Math.SQRT1_2,20]);await expect(chamfer.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await chamfer.getByRole("textbox").fill("0.5");await ready(page,chamfer);await chamfer.getByRole("button",{name:/确\s*定/}).click();await expect(chamfer).toHaveCount(0);
+ const finished=await current(page,seed.id),child=finished.part.features.at(-1);expect(child.type).toBe("CHAMFER");expect(child.selections[0].selection.anchor.featureId).toBe(hole.id);
+ dialog=await edit();await ready(page,dialog);await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("7");await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===child.id).evaluationStatus).toBeFalsy();await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
+});
+
+test("Hole support reassignment and both through directions protect the opposite half",async({page},testInfo)=>{
+ page.setDefaultTimeout(15_000);await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.createDocument("PART","Directional Hole support acceptance");const id=v.document.id;
+  v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const base=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:base,operations:[{type:"ADD_RECTANGLE",first:{x:-10,y:-10},second:{x:10,y:10}}]});
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:base,generator:"LINEAR_EXTRUDE",operation:"ADD",length:20});const body=v.part!.activeBodyId;
+  v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const sketch=v.part!.features.at(-1)!;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch.id,operations:[{type:"ADD_ENTITY",entity:{id:"center",kind:"POINT",role:"CONSTRUCTION",point:{x:0,y:0}}}]});
+  v=await api.command(id,{type:"CREATE_DATUM_PLANE",name:"孔中间面",origin:[0,0,10],normal:[0,0,1],uDirection:[1,0,0]});
+  return {id,body,sketch,plane:v.part!.datumPlanes.at(-1)!,version:v.document.versionId};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);
+ await openCommand(page,"孔");let dialog=page.getByRole("dialog",{name:"创建 孔",exact:true});await clickWorld(page,[0,0,0]);await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("4");await dialog.getByText("单向贯穿",{exact:true}).click();await dialog.getByRole("switch",{name:"反向",exact:true}).click();await ready(page,dialog);
+ await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);const created=await current(page,seed.id),hole=created.part.features.at(-1);
+ const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;expect(volume(created)).toBeCloseTo(8000-80*Math.PI,5);
+ const filter=page.getByRole("textbox",{name:"筛选模型结构"});await filter.fill(seed.sketch.name!);await page.getByRole("treeitem",{name:new RegExp(`scissor ${seed.sketch.name}$`)}).click({button:"right"});await page.getByRole("menuitem",{name:/ 对象/}).hover();await page.getByRole("menuitem",{name:"更换草图支撑…",exact:true}).click();
+ const support=page.getByRole("dialog",{name:"更换草图支撑",exact:true});await expect(support).toBeVisible();await filter.fill(seed.plane.name);await page.getByRole("treeitem").filter({hasText:seed.plane.name}).last().click();await expect(support.getByRole("button",{name:/确\s*定/})).toBeEnabled();expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);
+ await support.getByRole("button",{name:/确\s*定/}).click();await expect(support).toHaveCount(0);const moved=await current(page,seed.id);expect(volume(moved)).toBeCloseTo(8000-40*Math.PI,5);expect(moved.part.features.find((f:any)=>f.id===hole.id).holePoint).toEqual(hole.holePoint);
+ await filter.fill(hole.name);await page.getByRole("treeitem").filter({hasText:hole.name}).first().dblclick();dialog=page.getByRole("dialog",{name:"编辑 孔",exact:true});await ready(page,dialog);await dialog.getByRole("switch",{name:"反向",exact:true}).click();await ready(page,dialog);await page.screenshot({path:testInfo.outputPath("hole-reversed-half-through.png")});await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const reverse=await current(page,seed.id);expect(volume(reverse)).toBeCloseTo(8000-40*Math.PI,5);expect(reverse.part.bodies.find((b:any)=>b.id===seed.body).geometryKey).not.toBe(moved.part.bodies.find((b:any)=>b.id===seed.body).geometryKey);
+ // The opposite half still accepts a full blind tool through the real API/Worker.
+ const probe=await page.evaluate(async({seed,hole})=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");return api.previewCommand(seed.id,{type:"CREATE_SOLID_FEATURE",feature:{...hole,id:"",extent:"BLIND",depth:3,reversed:false}});
+ },{seed,hole});expect(probe.artifact.volume).toBeCloseTo(8000-52*Math.PI,5);expect((await current(page,seed.id)).document.versionId).toBe(reverse.document.versionId);
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();
+});

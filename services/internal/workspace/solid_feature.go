@@ -18,10 +18,16 @@ func isLocalModifier(kind string) bool {
 }
 
 func isBodyFeature(kind string) bool {
-	return kind == "SOLID_PATTERN" || kind == "LOFT" || isLocalModifier(kind) || isSolidGenerator(kind) || kind == "IMPORT_BODY" || kind == "BOOLEAN"
+	return kind == "HOLE" || kind == "SOLID_PATTERN" || kind == "LOFT" || isLocalModifier(kind) || isSolidGenerator(kind) || kind == "IMPORT_BODY" || kind == "BOOLEAN"
 }
 
 func validateSolidStage(f Feature, earlier map[string]Feature) error {
+	if f.Type == "HOLE" {
+		return validateHole(f, earlier)
+	}
+	if f.HolePoint != nil || f.Diameter != 0 || f.Depth != 0 {
+		return fmt.Errorf("%w: hole parameters require HOLE", ErrValidation)
+	}
 	if f.Extent == "TO_PLANE" {
 		if (f.Type != "PAD" && f.Type != "LINEAR_EXTRUDE") || (f.Operation != "ADD" && f.Operation != "REMOVE" && f.Operation != "NEW_BODY") {
 			return fmt.Errorf("%w: TO_PLANE requires a single-direction linear extrude or cut", ErrValidation)
@@ -171,6 +177,10 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 		}
 		var oldValue, newValue float64
 		switch slot {
+		case "diameter":
+			oldValue, newValue = before.Diameter, replacement.Diameter
+		case "depth":
+			oldValue, newValue = before.Depth, replacement.Depth
 		case "length":
 			oldValue, newValue = before.Length, replacement.Length
 		case "length2":
@@ -285,10 +295,13 @@ func featureParameterExpressions(model PartModel, feature Feature, expressions m
 		names[p.Key] = modelcore.ParameterBinding{ParameterID: p.ParameterID, Dimension: p.Dimension}
 	}
 	for slot, text := range expressions {
+		if feature.Type == "HOLE" && slot != "diameter" && !(slot == "depth" && feature.Extent == "BLIND") {
+			return nil, fmt.Errorf("%w: HOLE_PARAMETER_UNSUPPORTED: %s", ErrValidation, slot)
+		}
 		dimension := modelcore.LengthDimension
 		if slot == "angle" {
 			dimension = modelcore.AngleDimension
-		} else if slot != "length" && slot != "length2" {
+		} else if slot != "length" && slot != "length2" && !(feature.Type == "HOLE" && (slot == "diameter" || slot == "depth" && feature.Extent == "BLIND")) {
 			found := false
 			if feature.Pattern != nil {
 				for _, p := range patternParameters(&feature.Pattern.PatternDefinition) {

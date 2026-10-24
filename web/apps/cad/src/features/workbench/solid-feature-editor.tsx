@@ -40,17 +40,19 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     onSelectionSession: (session?: FeatureSelectionSession) => void;
     onInputArtifact: (artifact?: Artifact | Artifact[]) => void;
 }) {
+    const hole=feature.type==="HOLE";
     const loft = feature.type === "LOFT", modifier = ["FILLET", "CHAMFER", "DRAFT", "SHELL"].includes(feature.type);
     const angular = feature.type === "REVOLVE" || feature.type === "DRAFT";
-    const pickRole: FeaturePickRole = modifier ? (feature.type === "FILLET" || feature.type === "CHAMFER" ? "edge" : "face") : "profile";
+    const pickRole: FeaturePickRole = hole ? "sketch-point" : modifier ? (feature.type === "FILLET" || feature.type === "CHAMFER" ? "edge" : "face") : "profile";
     const [showConnections,setShowConnections]=useState(false);
     const acceptedSections=useRef<Feature["sections"]>(undefined);
-    const [draft, setDraft] = useState<Feature>({ ...feature, profileSelection:feature.profileSelection??(!feature.id&&!modifier&&!loft?{mode:"REGIONS",regionIds:[]}:undefined) });
-    const terminating=!modifier&&!loft&&draft.extent==="TO_PLANE";
-    const explicitRegions = !modifier&&!loft&&draft.profileSelection?.mode==="REGIONS";
-    const profileRole:FeaturePickRole=explicitRegions?"profile-region":"profile";
+    const [draft, setDraft] = useState<Feature>({ ...feature, profileSelection:feature.profileSelection??(!feature.id&&!modifier&&!loft&&!hole?{mode:"REGIONS",regionIds:[]}:undefined) });
+    const terminating=!modifier&&!loft&&!hole&&draft.extent==="TO_PLANE";
+    const explicitRegions = !modifier&&!loft&&!hole&&draft.profileSelection?.mode==="REGIONS";
+    const profileRole:FeaturePickRole=hole?"sketch-point":explicitRegions?"profile-region":"profile";
     const [regionReplacement,setRegionReplacement]=useState<string>();
-    const [role, setRole] = useState<FeaturePickRole>(!feature.id&&!modifier&&!loft||feature.profileSelection?.mode==="REGIONS"?"profile-region":pickRole), [seamIndex, setSeamIndex] = useState<number>();
+    const [role, setRole] = useState<FeaturePickRole>(!feature.id&&!modifier&&!loft&&!hole||feature.profileSelection?.mode==="REGIONS"?"profile-region":pickRole), [seamIndex, setSeamIndex] = useState<number>();
+    const [pointResolution,setPointResolution]=useState<FeatureInputResolution>();
     const [terminationVisual,setTerminationVisual]=useState<SelectionItem>();
     const [terminationLoadError,setTerminationLoadError]=useState<string>();
     const [terminationResolution,setTerminationResolution]=useState<FeatureInputResolution>();
@@ -67,7 +69,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         const p = view.part?.parameters?.find(p => p.ownerFeatureId === feature.id && p.propertySlot === slot);
         return p ? parameterSourceText(p, slot === "angle" ? "deg" : unit, true) : String(slot === "angle" ? fallback : fallback / (({ mm: 1, cm: 10, m: 1000, in: 25.4 } as Record<string, number>)[unit] ?? 1));
     };
-    const original = useRef({ length: feature.id ? initial("length", feature.length ?? 10) : "", length2: feature.id && feature.extent === "TWO_SIDED" ? initial("length2", feature.length2 ?? 10) : "", angle: feature.id ? initial("angle", feature.angle ?? 360) : "" });
+    const original = useRef({diameter:feature.id?initial("diameter",feature.diameter??5):"",depth:feature.id?initial("depth",feature.depth??10):"", length: feature.id ? initial("length", feature.length ?? 10) : "", length2: feature.id && feature.extent === "TWO_SIDED" ? initial("length2", feature.length2 ?? 10) : "", angle: feature.id ? initial("angle", feature.angle ?? 360) : "" });
+    const [diameter,setDiameter]=useState(initial("diameter",feature.diameter??5)),[depth,setDepth]=useState(initial("depth",feature.depth??10));
     const [length, setLength] = useState(initial("length", feature.length ?? 10)), [second, setSecond] = useState(initial("length2", feature.length2 ?? 10)), [angle, setAngle] = useState(initial("angle", feature.angle ?? 360));
     const intent = useRef(intentRequestId??randomUUID()), version = useRef(view.document.versionId), alive = useRef(true), queue = useRef(Promise.resolve());
     const callbacks = useRef({ onSelectionSession, onInputArtifact });
@@ -87,6 +90,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             if (!current)
                 return;
             setInputContext(context);
+            setPointResolution(context.pointPick);
             if(context.terminationPick){const p=context.terminationPick;setTerminationResolution(p);if(p.status==="RESOLVED"&&p.localId)setTerminationVisual({...occurrenceContext,kind:"face",id:`input:termination:${p.localId}`,documentId:view.document.id,bodyId:p.bodyId,versionId:context.versionId,geometryKey:p.geometryKey,displayStageFeatureId:p.displayStageFeatureId,topologyId:p.localId,occurrencePath});}
             if (context.neutralPick) {
                 const p = context.neutralPick;
@@ -180,6 +184,13 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const pick = (selection: SelectionItem, chosenRole: FeaturePickRole = current.current.role) => {
         if ((selection.ownerDocumentId ?? selection.documentId) !== view.document.id || (selection.occurrencePath ?? "") !== (occurrencePath ?? "") || selection.versionId && selection.versionId !== version.current || committing || !validRevision)
             return;
+        if(hole&&chosenRole==="sketch-point") {
+            if(selection.kind!=="visual")return;
+            const sketch=upstream.find(f=>f.id===selection.featureId&&f.type==="SKETCH"&&!f.suppressed);
+            const entity=sketch?.sketch?.entities.find(e=>e.id===selection.entityId&&e.kind==="POINT"&&!e.sourceEntityId&&!e.suppressed);
+            if(selection.kind!=="visual"||selection.visualType!=="POINT"||!sketch||!entity||["FAILED_SUPPORT","BLOCKED"].includes(sketch.sketch!.support.status??""))return;
+            edit({holePoint:{sketchId:sketch.id,reference:{target:"ENTITY",entityId:entity.id,subElement:"POINT"}}});setPointResolution({status:"RESOLVED"});return;
+        }
         if (chosenRole === "edge" || chosenRole === "face") {
             bindPick(selection, replacement);
             return;
@@ -247,7 +258,11 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         if (seedOnce.current || feature.id)
             return;
         seedOnce.current = true;
-        if (modifier)
+        if(hole){
+            const points=seed.filter(s=>s.kind==="visual"&&s.visualType==="POINT"&&upstream.some(f=>f.id===s.featureId&&f.type==="SKETCH"&&!f.suppressed&&f.sketch?.entities.some(e=>e.id===s.entityId&&e.kind==="POINT"&&!e.sourceEntityId&&!e.suppressed)));
+            if(points.length===1)pick(points[0],"sketch-point");
+        }
+        else if (modifier)
             seed.forEach(s => pick(s, pickRole));
         else if (loft)
             seed.forEach(s => pick(s, "profile"));
@@ -268,7 +283,9 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const restoredAxis: SelectionItem | undefined = axisParts?.[0] === "SKETCH_LINE" ? {
         kind: "visual", visualType: "CURVE", id: `${occurrencePath || "root"}:${axisParts[1]}:${axisParts[2]}`, featureId: axisParts[1], entityId: axisParts[2], bodyId: upstream.find(f => f.id === axisParts[1])?.bodyId, documentId: view.document.id, versionId: version.current, occurrencePath
     } : undefined;
-    const highlights: SelectionItem[] = modifier ? picks.flatMap(p => p.visual ? [p.visual] : []) : loft ? (draft.sections ?? []).map(s => s.point?.sketchId ? ({kind:"visual",visualType:"POINT",id:`loft-point:${s.sketchId}:${JSON.stringify(s.point.reference)}`,featureId:s.sketchId,entityId:s.point.reference.entityId??s.point.reference.target,sketchReference:s.point.reference,documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : s.point?.axisEntityId ? ({kind:"axis-system",id:s.point.axisEntityId.split(":")[1],entityId:s.point.axisEntityId.split(":")[1],documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : sketchPick(view, s.sketchId, occurrencePath, s.memberSlot)) : draft.profile ? explicitRegions ? (draft.profileSelection?.regionIds??[]).map(id=>profileRegionPick(view,draft.profile!,id,occurrencePath)) : [sketchPick(view, draft.profile, occurrencePath, draft.profileMemberSlot)] : [];
+    const holeSource=upstream.find(f=>f.id===draft.holePoint?.sketchId&&!f.suppressed),holeEntity=holeSource?.sketch?.entities.find(e=>e.id===draft.holePoint?.reference.entityId&&e.kind==="POINT"&&!e.sourceEntityId&&!e.suppressed);
+    const holeReady=!!holeEntity&&!(["FAILED_SUPPORT","BLOCKED"].includes(holeSource?.sketch?.support.status??""))&&(!pointResolution||pointResolution.status==="RESOLVED");
+    const highlights: SelectionItem[] = hole ? holeReady?[{kind:"visual",visualType:"POINT",id:`${occurrencePath||"root"}:${holeSource!.id}:${holeEntity!.id}`,featureId:holeSource!.id,entityId:holeEntity!.id,sketchReference:draft.holePoint!.reference,bodyId:holeSource!.bodyId,documentId:view.document.id,versionId:version.current,occurrencePath}]:[] : modifier ? picks.flatMap(p => p.visual ? [p.visual] : []) : loft ? (draft.sections ?? []).map(s => s.point?.sketchId ? ({kind:"visual",visualType:"POINT",id:`loft-point:${s.sketchId}:${JSON.stringify(s.point.reference)}`,featureId:s.sketchId,entityId:s.point.reference.entityId??s.point.reference.target,sketchReference:s.point.reference,documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : s.point?.axisEntityId ? ({kind:"axis-system",id:s.point.axisEntityId.split(":")[1],entityId:s.point.axisEntityId.split(":")[1],documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : sketchPick(view, s.sketchId, occurrencePath, s.memberSlot)) : draft.profile ? explicitRegions ? (draft.profileSelection?.regionIds??[]).map(id=>profileRegionPick(view,draft.profile!,id,occurrencePath)) : [sketchPick(view, draft.profile, occurrencePath, draft.profileMemberSlot)] : [];
     if (axisVisual ?? restoredAxis)
         highlights.push((axisVisual ?? restoredAxis)!);
     if (neutralVisual) highlights.push(neutralVisual);
@@ -277,8 +294,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const selections = contextSelections.length ? highlights.filter(s => s.kind !== "sketch"&&s.kind!=="profile-region") : highlights;
     const highlightsToken = JSON.stringify([selections, contextSelections]);
     const seamSection=seamIndex!==undefined?draft.sections?.[seamIndex]:undefined;
-    const sketchIds = role === "seam" && seamSection ? seamSection.memberSlot!==undefined?profileSelectionIDs(view,upstream,seamSection.sketchId,seamSection.memberSlot):[seamSection.sketchId] : profileSelectionIDs(view,upstream);
-    const regionCandidates=!modifier&&!loft?profileRegionCandidates(view,upstream,explicitRegions?draft.profile:undefined):[];
+    const sketchIds = hole ? upstream.filter(f=>f.type==="SKETCH"&&f.sketch&&!f.suppressed&&!["FAILED_SUPPORT","BLOCKED"].includes(f.sketch.support.status??"")).map(f=>f.id) : role === "seam" && seamSection ? seamSection.memberSlot!==undefined?profileSelectionIDs(view,upstream,seamSection.sketchId,seamSection.memberSlot):[seamSection.sketchId] : profileSelectionIDs(view,upstream);
+    const regionCandidates=!modifier&&!loft&&!hole?profileRegionCandidates(view,upstream,explicitRegions?draft.profile:undefined):[];
     const regionIDs=draft.profileSelection?.regionIds??[];
     const availableRegionIDs=regionCandidates.find(c=>c.sketchId===draft.profile)?.regions.map(r=>r.id)??[];
     const profileAnalysis=draft.profile?view.sketchAnalyses?.[draft.profile]:undefined;
@@ -288,13 +305,14 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
 
     let input: Record<string, unknown> | undefined, parameterError: string | undefined;
     const unresolved = picks.filter(p=>p.resolution.status!=="RESOLVED");
-    const ready = (!terminating||!terminationLoadError&&!!(draft.terminationPlaneId||draft.terminationPlane)&&(!terminationResolution||terminationResolution.status==="RESOLVED")) && (!explicitRegions||regionIDs.length>0&&!missingRegions.length) && validRevision && !loadingInput && !binding && !inputError && (!modifier || !feature.id || !!inputContext) && !unresolved.length && (!neutralResolution || neutralResolution.status==="RESOLVED") && (loft ? (draft.sections?.length ?? 0) >= 2 && !!draft.sections?.some(s=>!s.point) && !draft.sections?.some((s,i)=>s.point&&i!==0&&i!==draft.sections!.length-1) : modifier ? picks.length > 0 && !!draft.bodyId && (feature.type !== "DRAFT" || !!draft.neutralPlaneId || !!draft.neutralPlane) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId));
+    const ready = (!terminating||!terminationLoadError&&!!(draft.terminationPlaneId||draft.terminationPlane)&&(!terminationResolution||terminationResolution.status==="RESOLVED")) && (!explicitRegions||regionIDs.length>0&&!missingRegions.length) && validRevision && !loadingInput && !binding && !inputError && (!(modifier||hole) || !feature.id || !!inputContext) && !unresolved.length && (!neutralResolution || neutralResolution.status==="RESOLVED") && (hole ? holeReady&&!!draft.bodyId : loft ? (draft.sections?.length ?? 0) >= 2 && !!draft.sections?.some(s=>!s.point) && !draft.sections?.some((s,i)=>s.point&&i!==0&&i!==draft.sections!.length-1) : modifier ? picks.length > 0 && !!draft.bodyId && (feature.type !== "DRAFT" || !!draft.neutralPlaneId || !!draft.neutralPlane) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId));
     try {
         const value = { ...draft, selections: modifier ? picks.map(p => p.definition) : draft.selections }, expressions: Record<string, string> = {};
-        const read = (slot: "length" | "length2" | "angle", text: string) => { const parsed = solidParameterEdit(slot, text, original.current[slot], unit); if (parsed.value !== undefined)
+        const read = (slot: "length" | "length2" | "angle" | "diameter" | "depth", text: string) => { const parsed = solidParameterEdit(slot, text, original.current[slot], unit); if (parsed.value !== undefined)
             value[slot] = parsed.value; if (parsed.expression !== undefined)
             expressions[slot] = parsed.expression; };
-        if (!loft) {
+        if(hole){read("diameter",diameter);if(draft.extent==="BLIND")read("depth",depth);}
+        else if (!loft) {
             if (angular)
                 read("angle", angle);
             else if (draft.extent !== "THROUGH_ALL" && !terminating) {
@@ -305,7 +323,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         }
         const common = { requestId: intent.current, parameterExpressions: expressions };
         if (ready)
-            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value } : loft ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value } : { ...common, type: "CREATE_SOLID_FEATURE", terminationPlaneId:value.terminationPlaneId,terminationPlane:value.terminationPlane,sketchId: value.profile, profileSelection:value.profileSelection, profileMemberSlot:value.profileMemberSlot, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
+            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value } : loft||hole ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value } : { ...common, type: "CREATE_SOLID_FEATURE", terminationPlaneId:value.terminationPlaneId,terminationPlane:value.terminationPlane,sketchId: value.profile, profileSelection:value.profileSelection, profileMemberSlot:value.profileMemberSlot, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
     }
     catch (cause) {
         parameterError = String(cause);
@@ -314,7 +332,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const preview = useFeaturePreview(view.document.id, view.document.versionId, input, draft.operation, onPreview);
     acceptedSections.current=preview.loftSections;
     useEffect(() => {
-        callbacks.current.onSelectionSession({ ...occurrenceContext,role,planeGeometryKeys:terminating?planeGeometryKeys:undefined, profileRegions:explicitRegions?regionCandidates:undefined, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, geometryKey:modifier && feature.id ? inputContext?.artifact.geometryKey : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });
+        callbacks.current.onSelectionSession({ ...occurrenceContext,role,sketchPoints:hole?upstream.filter(f=>sketchIds.includes(f.id)).flatMap(f=>f.sketch?.entities.filter(e=>e.kind==="POINT"&&!e.sourceEntityId&&!e.suppressed).map(e=>({sketchId:f.id,entityId:e.id}))??[]):undefined,planeGeometryKeys:terminating?planeGeometryKeys:undefined, profileRegions:explicitRegions?regionCandidates:undefined, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, geometryKey:modifier && feature.id ? inputContext?.artifact.geometryKey : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });
     }, [role, highlightsToken, sketchIdsToken, draft.bodyId,inputContext?.artifact.geometryKey,showConnections,JSON.stringify(preview.loftConnections),explicitRegions,draft.profile,terminating,JSON.stringify(planeGeometryKeys)]);
     const apply = async () => { if (!input || !preview.previewId || preview.pending || committing)
         return; setCommitting(true); try {
@@ -328,8 +346,17 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const name = (id?: string) => upstream.find(f => f.id === id)?.name ?? "已选择";
     return <CommandDialog id="solid-feature-editor" open title={`${feature.id ? "编辑" : "创建"} ${solidFeatureNames[feature.type] ?? feature.type}`} size="S" onClose={onClose} onConfirm={apply} confirmLoading={committing} confirmDisabled={!input || !preview.previewId || preview.pending || committing}>
   <fieldset disabled={committing} className="instance-pattern-fields feature-input-fields">
-   {!modifier && !loft && <FeaturePickField label="轮廓" value={draft.profile ? name(draft.profile) : explicitRegions?"请在视图区点击闭合区域":"请在视图区选择草图"} active={role === profileRole} onActivate={() => setRole(profileRole)} onClear={draft.profile ? () => {edit({ profile: undefined,profileMemberSlot:undefined,profileSelection:explicitRegions?{mode:"REGIONS",regionIds:[]}:draft.profileSelection });setRegionReplacement(undefined);} : undefined}/>}
-   {!modifier&&!loft&&<>
+   {hole&&<>
+    <FeaturePickField label="定位点" value={draft.holePoint?holeReady?`${name(draft.holePoint.sketchId)} · 已选择显式点`:pointResolution?inputStatusText(pointResolution):"原定位点已失效":"选择上游普通草图的显式点"} active={role==="sketch-point"} onActivate={()=>setRole("sketch-point")} onClear={draft.holePoint?()=>{edit({holePoint:undefined});setPointResolution(undefined)}:undefined}/>
+    {draft.holePoint&&!holeReady&&<Alert type="warning" title="孔位需要修复" description="请明确重选上游草图点；支撑失效时请先修复定位草图。"/>}
+    <small>孔轴沿定位草图的支撑法向，可反向；孔位通过草图尺寸和约束修改。</small>
+    <FeaturePickField label="目标实体" value={view.part?.bodies.find(b=>b.id===draft.bodyId)?.name??"选择实体"} disabled={!!feature.id} active={role==="body"} onActivate={()=>setRole("body")}/>
+    <label>直径（{unit}）<Input value={diameter} onChange={e=>setDiameter(e.target.value)}/></label>
+    <label>终止<Segmented value={draft.extent} options={[{value:"BLIND",label:"平底盲孔"},{value:"THROUGH_ALL",label:"单向贯穿"}]} onChange={extent=>edit({extent:extent as Feature["extent"]})}/></label>
+    {draft.extent==="BLIND"&&<label>深度（{unit}）<Input value={depth} onChange={e=>setDepth(e.target.value)}/></label>}
+   </>}
+   {!modifier && !loft && !hole && <FeaturePickField label="轮廓" value={draft.profile ? name(draft.profile) : explicitRegions?"请在视图区点击闭合区域":"请在视图区选择草图"} active={role === profileRole} onActivate={() => setRole(profileRole)} onClear={draft.profile ? () => {edit({ profile: undefined,profileMemberSlot:undefined,profileSelection:explicitRegions?{mode:"REGIONS",regionIds:[]}:draft.profileSelection });setRegionReplacement(undefined);} : undefined}/>}
+   {!modifier&&!loft&&!hole&&<>
     <label>轮廓范围<Segmented value={explicitRegions?"REGIONS":"WHOLE_SKETCH"} options={[{value:"REGIONS",label:"选定区域"},{value:"WHOLE_SKETCH",label:"整张草图"}]} onChange={mode=>{edit({profileSelection:mode==="REGIONS"?{mode:"REGIONS",regionIds:[]}:{mode:"WHOLE_SKETCH"}});setRegionReplacement(undefined);setRole(mode==="REGIONS"?"profile-region":"profile");}}/></label>
     <small>{explicitRegions?"固定区域集合；点击区域增减选择，不会吸收后来新增的独立区域。":"整张草图：包含求值时全部合法闭合区域，包括后来新增区域。"}</small>
     {explicitRegions&&<>
@@ -385,11 +412,11 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     </div>)}
     <label>截面连接<Segmented value={draft.ruled ? "ruled" : "smooth"} options={[{ value: "smooth", label: "平滑" }, { value: "ruled", label: "直纹" }]} onChange={v => edit({ ruled: v === "ruled" })}/></label>
    </>}
-   {!modifier && <>
+   {!modifier && !hole && <>
     <label>材料<Segmented value={draft.operation} options={[...(!feature.id ? [{ value: "NEW_BODY", label: "新实体" }] : []), { value: "ADD", label: "添加" }, { value: "REMOVE", label: "切除" }, { value: "INTERSECT", label: "交集" }]} onChange={operation => edit({ operation: operation as Feature["operation"], extent: operation !== "REMOVE" && draft.extent === "THROUGH_ALL" || operation==="INTERSECT"&&terminating ? "FINITE" : draft.extent, ...(operation==="INTERSECT"?{terminationPlane:undefined,terminationPlaneId:undefined}:{}) })}/></label>
     {draft.operation !== "NEW_BODY" && <FeaturePickField label="目标实体" value={view.part?.bodies.find(b => b.id === draft.bodyId)?.name ?? "请在视图区选择实体"} disabled={!!feature.id} active={role === "body"} onActivate={() => setRole("body")}/>}
    </>}
-   {!loft && (angular ? <label>角度（deg）<Input value={angle} disabled={committing} onChange={e => setAngle(e.target.value)}/></label> : <>
+   {!loft && !hole && (angular ? <label>角度（deg）<Input value={angle} disabled={committing} onChange={e => setAngle(e.target.value)}/></label> : <>
     {!modifier && <label>范围<Segmented value={draft.extent ?? "FINITE"} options={[{ value: "FINITE", label: "长度" }, { value: "TWO_SIDED", label: "双侧" }, { value: "SYMMETRIC", label: "对称" }, ...(["PAD","LINEAR_EXTRUDE"].includes(feature.type)&&["ADD","REMOVE","NEW_BODY"].includes(draft.operation??"")?[{value:"TO_PLANE",label:"到平面"}]:[]), ...(draft.operation === "REMOVE" ? [{ value: "THROUGH_ALL", label: "贯穿" }] : [])]} onChange={extent => {edit({ extent: extent as Feature["extent"],terminationPlane:undefined,terminationPlaneId:undefined });setTerminationResolution(undefined);setTerminationLoadError(undefined);setTerminationVisual(undefined);if(extent==="TO_PLANE")setRole("plane");else setRole(profileRole);}}/></label>}
     {draft.extent !== "THROUGH_ALL" && !terminating && <label>{feature.type === "FILLET" ? "半径" : feature.type === "CHAMFER" ? "距离" : feature.type === "SHELL" ? "厚度" : "长度"}（{unit}）<Input value={length} disabled={committing} onChange={e => setLength(e.target.value)}/></label>}
     {draft.extent === "TWO_SIDED" && <label>反向长度（{unit}）<Input value={second} disabled={committing} onChange={e => setSecond(e.target.value)}/></label>}

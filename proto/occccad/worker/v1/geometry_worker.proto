@@ -568,7 +568,7 @@ message ProfilePadSpec {
     string plane = 4;
     // NEW_BODY | ADD | REMOVE | INTERSECT. Legacy senders default to ADD.
     string body_operation = 5;
-    // LINEAR_EXTRUDE | REVOLVE | LOFT | BOOLEAN | FILLET | CHAMFER | DRAFT | SHELL.
+    // LINEAR_EXTRUDE | REVOLVE | LOFT | BOOLEAN | FILLET | CHAMFER | DRAFT | SHELL | HOLE.
     string generator = 6;
     double revolve_angle = 7; // radians, ignored by LINEAR_EXTRUDE
     Vec2 axis_start = 8;      // sketch-local, required by REVOLVE
@@ -585,6 +585,7 @@ message ProfilePadSpec {
     string input_feature_id = 16;
     string profile_feature_id = 17;
     repeated BodyToolInput tools = 18;
+    // HOLE uses BLIND or THROUGH_ALL from the start plane in the selected direction.
     string extent = 19; // FINITE | TWO_SIDED | SYMMETRIC | THROUGH_ALL (REMOVE only) | TO_PLANE
     double second_length = 20;
     repeated SemanticTopologyRef selections = 21;

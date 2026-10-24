@@ -68,14 +68,15 @@ func featureInputStageError(model PartModel, stage string, err error) error {
 }
 
 type FeatureInput struct {
-	TerminationPick *FeatureNeutralPick `json:"terminationPick,omitempty"`
-	NeutralPick     *FeatureNeutralPick `json:"neutralPick,omitempty"`
-	VersionID       string              `json:"versionId"`
-	SourceFeatureID string              `json:"sourceFeatureId"`
-	Artifact        Artifact            `json:"artifact"`
-	Artifacts       []Artifact          `json:"artifacts,omitempty"`
-	Picks           []FeatureInputPick  `json:"picks"`
-	Selection       *FeatureSelection   `json:"selection,omitempty"`
+	PointPick       *FeatureInputResolution `json:"pointPick,omitempty"`
+	TerminationPick *FeatureNeutralPick     `json:"terminationPick,omitempty"`
+	NeutralPick     *FeatureNeutralPick     `json:"neutralPick,omitempty"`
+	VersionID       string                  `json:"versionId"`
+	SourceFeatureID string                  `json:"sourceFeatureId"`
+	Artifact        Artifact                `json:"artifact"`
+	Artifacts       []Artifact              `json:"artifacts,omitempty"`
+	Picks           []FeatureInputPick      `json:"picks"`
+	Selection       *FeatureSelection       `json:"selection,omitempty"`
 }
 
 func (s *Service) featureStageAtVersion(ctx context.Context, documentID, versionID, stageID, bodyID string, display ...bool) (string, error) {
@@ -204,7 +205,7 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		return FeatureInput{}, fmt.Errorf("%w: feature has no solid input", ErrValidation)
 	}
 	var key string
-	if stage == "" {
+	if stage == "" || feature.Type == "HOLE" {
 		prefix := *view.Part
 		prefix.Features = append([]Feature(nil), prefix.Features[:index]...)
 		key, err = s.evaluateBodyPrefix(ctx, "empty-feature-input/"+request.VersionID+"/"+feature.ID, prefix, bodyID, true)
@@ -245,6 +246,10 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		return result, nil
 	}
 	result.Artifacts = []Artifact{a}
+	if feature.Type == "HOLE" {
+		state := holePointState(*view.Part, feature)
+		result.PointPick = &state
+	}
 	for _, tool := range feature.Tools {
 		toolKey, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, tool.FeatureID, tool.BodyID, true)
 		if err != nil {

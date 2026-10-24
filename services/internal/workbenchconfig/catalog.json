@@ -1422,6 +1422,42 @@
       "implementation": "form"
     },
     {
+      "id": "part.hole",
+      "name": "孔",
+      "helpText": "选择上游草图显式点，创建平底盲孔或单向贯穿孔。",
+      "iconKey": "pocket",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
       "id": "part.revolve",
       "name": "旋转",
       "helpText": "绕草图中的构造线旋转闭合区域并应用到当前 Body。",
@@ -5724,6 +5760,11 @@
           "commandId": "part.pocket",
           "groupKey": "primary",
           "order": 20
+        },
+        {
+          "commandId": "part.hole",
+          "groupKey": "primary",
+          "order": 25
         },
         {
           "commandId": "part.revolve",
