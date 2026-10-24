@@ -1,6 +1,6 @@
 import type {AssemblyConstraint,AssemblyBodyFreedom,DocumentView as DocumentDescriptor} from "../../types";
 import type {AssemblyConflictItem,AssemblyConflictMember} from "./assembly-conflict";
-export type AssemblyEngineeringEvidence={documentId:string;revisionId:string;available:boolean;referenceSemantics?:"STATIC_RELATIVE"|"INTERACTION_PHYSICAL";coordinateFrame?:"OWNING_PRODUCT";lengthUnit?:"mm";components:Array<{bodyIds:string[];relativeDof:number;gaugeDof:number;solved:boolean;freedoms:AssemblyBodyFreedom[]}>};
+export type AssemblyEngineeringEvidence={documentId:string;revisionId:string;available:boolean;source?:"COMMAND"|"READ_ONLY_ANALYSIS";status?:"NOT_COMPUTED"|"AVAILABLE"|"PARTIAL"|"UNKNOWN";inputDigest?:string;solverBuildPolicy?:string;solverBuild?:string;scopeBodyIds?:string[];constraintIds?:string[];excluded?:Array<{constraintId:string;reason:string;diagnostic?:string}>;references?:Array<{instanceId:string;documentId:string;revisionId:string}>;diagnosticCode?:string;diagnostic?:string;referenceSemantics?:"STATIC_RELATIVE"|"INTERACTION_PHYSICAL";coordinateFrame?:"OWNING_PRODUCT";lengthUnit?:"mm";components:Array<{bodyIds:string[];relativeDof:number;gaugeDof:number;jacobianRank?:number;diagnosticCode?:string;solved:boolean;freedoms:AssemblyBodyFreedom[]}>};
 
 const nameIndices=new WeakMap<DocumentDescriptor,Map<string,string>>();
 export function engineeringInstanceName(view:DocumentDescriptor|undefined,id:string):string {

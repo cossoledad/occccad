@@ -21,6 +21,10 @@ import (
 type assemblyFrozenInputKey struct{}
 
 func (service *Service) FreezeAssemblyInput(ctx context.Context, documentID, revisionID string, model ProductModel) (AssemblySolveManifest, error) {
+	return service.freezeAssemblyInput(ctx, documentID, revisionID, model, nil)
+}
+
+func (service *Service) freezeAssemblyInput(ctx context.Context, documentID, revisionID string, model ProductModel, excluded map[string]bool) (AssemblySolveManifest, error) {
 	copy, err := cloneAssemblyProduct(model)
 	if err != nil {
 		return AssemblySolveManifest{}, err
@@ -31,7 +35,7 @@ func (service *Service) FreezeAssemblyInput(ctx context.Context, documentID, rev
 	}
 	var frozen AssemblySolveManifest
 	ctx = context.WithValue(withAssemblyReadCache(ctx), assemblyFrozenInputKey{}, &frozen)
-	err = service.solveAssemblySet(ctx, documentID, revisionID, "diagnostic/compile", "", nil, &copy, "", nil, true)
+	err = service.solveAssemblySet(ctx, documentID, revisionID, "diagnostic/compile", "", nil, &copy, "", excluded, true)
 	if err != nil {
 		return frozen, err
 	}

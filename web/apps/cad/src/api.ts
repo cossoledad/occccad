@@ -253,6 +253,7 @@ export const restApi = {
   getProductSolveResult: (id:string,solveRequestId:string) => request<AssemblySolveManifestResult>(
     `/api/documents/${id}/solve-results?requestId=${encodeURIComponent(solveRequestId)}`),
   getAssemblyEngineeringEvidence:(id:string,revisionId:string,signal?:AbortSignal)=>request<import("./cad/assembly/assembly-engineering-state").AssemblyEngineeringEvidence>(`/api/documents/${id}/assembly-engineering-evidence?revisionId=${encodeURIComponent(revisionId)}`,{signal}),
+  refreshAssemblyEngineeringEvidence:(id:string,revisionId:string,signal?:AbortSignal)=>request<import("./cad/assembly/assembly-engineering-state").AssemblyEngineeringEvidence>(`/api/documents/${id}/assembly-engineering-evidence/refresh`,{method:"POST",body:JSON.stringify({revisionId}),signal}),
   getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),
   assemblyCapabilities: () => request<{contractVersion:string;capabilities:Array<{capabilityId:string;family:string;subtype:string;roles:Array<{role:string;descriptor:string}>}>}>("/api/assembly/capabilities"),
   inspectAssemblySupports: (id:string,references:AssemblyGeometryRef[],signal?:AbortSignal) => request<import("./cad/interaction/manipulator-snap").SupportInspection>(`/api/documents/${id}/assembly-supports/inspect`,{method:"POST",body:JSON.stringify({references}),signal}),

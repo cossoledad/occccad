@@ -8,6 +8,7 @@ import {ContextMenuIcon} from "../../components/context-menu-icon";
 import {motionPresentations,displayDirection,displayLength,type MotionPresentation} from "../../cad/assembly/motion-presentation";
 
 type Props={open:boolean;pending:boolean;report?:AssemblyConflictReport;current:boolean;error?:string;canEdit:boolean;defaultTab?:"issues"|"all"|"motion";view?:DocumentDescriptor;ownerOccurrence?:string;lengthUnit?:"mm"|"cm"|"m"|"in";evidence?:AssemblyEngineeringEvidence;onLocateInstance:(id:string)=>void;onMotion?:(motion:MotionPresentation|undefined)=>void;
+ motionStatus?:string;motionError?:string;onRefreshMotion?:()=>void;onCancelMotion?:()=>void;
  onAnalyze:(ids?:string[])=>void;onStop:()=>void;onClose:()=>void;
  onLocate:(member:AssemblyConflictMember,revisionId:string)=>void;onRepair:(member:AssemblyConflictMember,action:AssemblyConflictRepair,revisionId:string)=>void};
 const actions:Record<AssemblyConflictRepair,string>={EDIT:"编辑",SUPPRESS:"停用",MEASURE:"切换测量",RECONNECT:"重连支持"};
@@ -38,8 +39,20 @@ export function AssemblyConflictPanel(p:Props){
   <Tabs size="small" activeKey={tab} onChange={value=>{setTab(value);setFilter("all");setSelected(undefined);p.onMotion?.(undefined);}} items={[{key:"issues",label:`待处理问题 (${overview.issues.length})`},{key:"all",label:"全部约束"},{key:"motion",label:"剩余运动"}]}/>
   <Space wrap style={{marginBottom:8}}><Input.Search placeholder="搜索名称或组件" allowClear value={search} onChange={e=>setSearch(e.target.value)} style={{width:220}}/>
    <Select value={filter} onChange={setFilter} style={{width:120}} options={(tab==="motion"?["all","可运动","已定位","待计算","结果已失效"]:["all","停用","测量","已满足","支持断开","待更新","未接纳"]).map(value=>({value,label:value==="all"?"全部状态":value}))}/>
-   <Button size="small" loading={p.pending} onClick={()=>p.onAnalyze(id&&definition?[id]:undefined)}>检查{definition?"所选关系":"当前网络"}</Button>{p.pending&&<Button size="small" onClick={p.onStop}>取消检查</Button>}
+   {tab!=="motion"?<><Button size="small" loading={p.pending} onClick={()=>p.onAnalyze(id&&definition?[id]:undefined)}>检查{definition?"所选关系":"当前网络"}</Button>{p.pending&&<Button size="small" onClick={p.onStop}>取消检查</Button>}</>:<>
+    <Button size="small" disabled={!p.onRefreshMotion||p.motionStatus==="COMPUTING"} onClick={p.onRefreshMotion}>{(["FAILED","CANCELLED"].includes(p.motionStatus??"")||p.evidence?.status==="UNKNOWN")?"重试":"刷新剩余运动"}</Button>
+    {p.motionStatus==="COMPUTING"&&<Button size="small" onClick={p.onCancelMotion}>取消计算</Button>}
+   </>}
   </Space>
+  {tab==="motion"&&<div role="status" aria-label="剩余运动计算状态" style={{marginBottom:8}}>
+   <Tag>{p.motionStatus==="COMPUTING"?"正在计算":p.motionStatus==="CANCELLED"?"已取消":p.motionStatus==="FAILED"?"计算失败":p.motionStatus==="READING"?"正在读取":p.evidence?.status==="PARTIAL"?"部分范围未知":p.evidence?.available?"证据可用":p.evidence?.status==="UNKNOWN"?"证据不足，保持未知":"待计算"}</Tag>
+   <span>当前已接受 Revision：{revision}</span>
+   <p>只读分析已接纳的活动硬约束，不修改模型、位姿或历史；瞬时自由度不等于有限行程。数值 gauge 表示整体运动，不是物理固定。</p>
+   {p.evidence&&<><div>{p.evidence.source==="READ_ONLY_ANALYSIS"?"只读刷新结果":"当前命令结果"} · 已接纳约束 {p.evidence.constraintIds?.length??"待确认"} · 覆盖 {p.evidence.components.filter(c=>c.solved).flatMap(c=>c.bodyIds).length} / {overview.instances.length} 个运动单元</div>
+    {p.evidence.components.map((c,i)=><div key={i}>组件 {i+1}：{c.bodyIds.map(id=>engineeringInstanceName(p.view,id)).join(" / ")} · {c.solved?`相对 DOF ${c.relativeDof}，整体 gauge ${c.gaugeDof}`:"范围未知"}{c.diagnosticCode&&` · ${c.diagnosticCode}`}</div>)}
+    {!!p.evidence.excluded?.length&&<Collapse size="small" items={[{key:"excluded",label:`未纳入硬约束集合 (${p.evidence.excluded.length})`,children:p.evidence.excluded.map(e=><p key={e.constraintId}>{index.has(e.constraintId)?engineeringConstraintName(index.get(e.constraintId)!,p.view):e.constraintId} · {e.reason} {e.diagnostic}</p>)}]}/>}</>}
+   {(p.motionError||p.evidence?.diagnosticCode)&&<Alert type="warning" title="当前范围尚无完整证据" description={p.motionError??`${p.evidence?.diagnosticCode} ${p.evidence?.diagnostic??""}`}/>}
+  </div>}
   <Table size="small" rowKey="id" dataSource={visible} scroll={{y:230,x:720}} pagination={{defaultPageSize:10,showSizeChanger:true,pageSizeOptions:[10,20,50],showTotal:n=>`${n} 项`}}
    rowSelection={{type:"radio",selectedRowKeys:id?[id]:[],onChange:keys=>setSelected(keys[0]?`${context}:${keys[0]}`:undefined)}} onRow={row=>({tabIndex:0,onClick:()=>setSelected(`${context}:${row.id}`),onKeyDown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setSelected(`${context}:${row.id}`);}}})}
    columns={[{title:"名称",dataIndex:"name",ellipsis:true},{title:"状态",dataIndex:"status",width:95},{title:tab==="motion"?"参考对象":"相关组件",dataIndex:"components",ellipsis:true,width:130},...(tab==="motion"?[{title:"剩余运动",dataIndex:"description",ellipsis:true}]:[]),

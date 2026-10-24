@@ -3,7 +3,7 @@
 > 建立日期：2026-10-23  
 > 分析基线：[a10 · 9326ac9](https://github.com/cossoledad/occccad/commit/9326ac91b99e93e399099a9c2f3b8b3c756d86b6)  
 > 状态：阶段 1 与阶段 2 已实现并通过定向真实链路及浏览器验收，主体实机验收另行进行。当前事实与边界见[输入修复](../docs/architecture/current/solid-features.md#输入修复边界)、[区域选择](../docs/architecture/current/part-sketch.md#显式轮廓区域)及[草图支撑重指定](../docs/architecture/current/part-sketch.md#支撑与外部几何)。阶段 3 已交付的切片：单方向拉伸／切除[到平面关联终止](../docs/architecture/current/solid-features.md#到平面关联终止)、[单点圆柱 Hole](../docs/architecture/current/solid-features.md#独立-hole)、[同 Body 单特征受约束移动](../docs/architecture/current/solid-features.md#调整特征顺序)及[圆角/倒角阶段插入](../docs/architecture/current/solid-features.md#在实体阶段后插入)已实现并完成定向验收；其余关联终止、孔型扩展、其他类型的阶段插入与跨 Body/分组移动未完成。
-> 当前重点转入阶段 4：[关联更新与修复](../docs/architecture/current/product-assembly.md#关联更新与修复)首轮覆盖 owning Product 直接引用 Part 的版本检查、按实例定位及现有 Reconnect 闭环。嵌套更新编排、柔性装配及 DOF 刷新不在本轮范围；阶段 3 上述扩展项继续保留为未完成。
+> 当前重点转入阶段 4：[关联更新与修复](../docs/architecture/current/product-assembly.md#关联更新与修复)已覆盖 owning Product 直接引用 Part 的版本检查、按实例定位及现有 Reconnect 闭环，并接通[剩余运动独立只读刷新](../docs/architecture/current/product-assembly.md#局部诊断与剩余运动)。嵌套更新编排、柔性装配未扩展；阶段 3 上述扩展项继续保留为未完成。
 
 ## 目标与实施原则
 

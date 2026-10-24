@@ -51,3 +51,25 @@ func (server *Server) assemblyEngineeringEvidence(writer http.ResponseWriter, re
 	}
 	writeJSON(writer, http.StatusOK, result)
 }
+
+func (server *Server) refreshAssemblyEngineeringEvidence(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	var input struct {
+		RevisionID string `json:"revisionId"`
+	}
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	if input.RevisionID == "" {
+		writeError(writer, http.StatusBadRequest, "revisionId is required")
+		return
+	}
+	result, err := server.workspace.RefreshAssemblyEngineeringEvidence(request.Context(), request.PathValue("documentID"), input.RevisionID)
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}

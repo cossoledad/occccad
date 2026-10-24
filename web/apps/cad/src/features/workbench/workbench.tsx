@@ -1,3 +1,4 @@
+import {useAssemblyEngineering} from "./use-assembly-engineering";
 import {AssociationRepairPanel} from "./association-repair-panel";
 import {assistantTarget,dispatchAssistantCommand,handoffEditorIntent,handoffMatchesCommit,type AssistantHandoffSession} from "../assistant/workbench-handoff";
 import {AssistantPanel} from "../assistant/assistant-panel";
@@ -427,10 +428,8 @@ export function Workbench() {
   }, [editingView?.document.id,editingView?.document.versionId,activeInstancePath]);
   useEffect(()=>{if(solidEditor||booleanDialog||datumEditor||store.activeSketchID){historyGeneration.current++;setHistoryResult(undefined);setFeatureInputs(undefined);}},[solidEditor,booleanDialog,datumEditor,store.activeSketchID]);
   useEffect(()=>{setAssociationRepairOpen(false)},[documentID,activeInstancePath]);
-  const engineeringEvidence=useQuery({queryKey:["assembly-engineering-evidence",editingView?.document.id,editingView?.document.versionId],
-    queryFn:({signal})=>api.getAssemblyEngineeringEvidence(editingView!.document.id,editingView!.document.versionId,signal),
-    enabled:conflictOpen&&Boolean(editingView?.product),retry:false});
-  useEffect(()=>{if(engineeringEvidence.error)operationFeedback(engineeringEvidence.error,"读取装配状态");},[engineeringEvidence.error,operationFeedback]);
+  const engineeringEvidence=useAssemblyEngineering(editingView?.document.id,editingView?.document.versionId,conflictOpen&&Boolean(editingView?.product));
+
   latestHostVersion.current=view?.document.versionId;
   useEffect(()=>{
     conflictGate.current.invalidate();conflictAbort.current?.abort();setConflictPending(false);setConflictContextCurrent(false);
@@ -1674,7 +1673,7 @@ onToggleConstruction:(node)=>{
           onEdit={(id,revision,reconnect)=>{if(!repairRevisionCurrent(revision)||!canEditRoot||command.isPending)return;const c=view.product?.constraints?.find(c=>c.id===id);if(!c)return;setAssociationRepairOpen(false);openAssemblyConstraintEditor(c,reconnect);}}/>}
         <AssemblyConflictPanel open={conflictOpen} pending={conflictPending} report={conflictReport}
           current={Boolean(conflictContextCurrent&&editingView&&assemblyConflictCurrent(conflictReport,editingView.document.id,editingView.document.versionId))}
-          error={conflictError} canEdit={canEdit&&!command.isPending} view={editingView} evidence={engineeringEvidence.data}
+          error={conflictError} canEdit={canEdit&&!command.isPending} view={editingView} evidence={engineeringEvidence.evidence} motionStatus={engineeringEvidence.status} motionError={engineeringEvidence.error} onRefreshMotion={()=>void engineeringEvidence.refresh()} onCancelMotion={engineeringEvidence.cancel}
           onMotion={showAnalysisMotion}
           ownerOccurrence={activeInstancePath} lengthUnit={lengthUnit}
           onLocateInstance={id=>{if(!editingView?.product?.instances.some(instance=>instance.id===id))return;

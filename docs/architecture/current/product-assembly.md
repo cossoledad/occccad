@@ -72,11 +72,15 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 只读诊断冻结目标隔离定义及相关完整邻域，不调用会缩减集合的 admission。独立满足见证为 SAT，有限解析证书为 UNSAT，一般数值失败/预算/证书不足为 UNKNOWN。不可约须原集合 UNSAT 与必要删除 SAT 证据，不是最小基数。修复经用户选择正式 Edit/Reconnect/Suppress/Measured；版本变化使旧结论失效，正常受限拖动不触发搜索。
 
-剩余运动列出当前 owning Product 全部运动组件。读取精确 Revision 对应命令结果，不借旧 Revision，不按 Fix/参与关系猜测。缺失、范围未覆盖或 component 未 solved 保留待计算；没有独立只读刷新入口，元数据 Revision 缺结果时保持未知。
+剩余运动列出当前 owning Product 全部既有刚性运动单元。默认读取精确 Revision 的命令结果，亦可通过“刷新剩余运动”独立只读计算、取消或重试，Viewer 不需执行装配重算。刷新冻结当前 Head 的已接受引用版本及位姿，只编译未停用、非测量且 Verified 的硬约束；Broken/NotUpdated 等隔离定义列为排除项，不重新 admission。默认 `FreezeAssemblyInput` 仍为完整诊断保留可解析的隔离定义，不能把它直接当作已接纳集合。
+
+刷新复用原编译器、组关系和数值内核，不增加临时 Fix。只有求解返回位姿与每项自由度的 linearization pose 均匹配冻结位姿、范围覆盖完整的组件才可显示方向；发生实质位移、求解失败、缺证据或覆盖不完整时保持未知，不采用失败姿态或更新 branch/组捕获。结果带 Revision、输入摘要、已接纳/排除范围、确切引用及 solver 策略版本；独立于原命令结果，以服务进程内有界缓存保存可重建证据，服务重启或淘汰后可再次刷新。分析不写模型、引用、位姿、生产 warm start 或历史。版本变化、取消、关闭及迟到响应清理标记并阻止旧结果恢复。本入口不编排嵌套更新、不扩展柔性运动单元或数值算法。
 
 静态证据相对数值锚点，gauge 独立；交互证据是含整体运动的物理子空间。数值锚点不是 ground；未接地固联组组内刚性、整体可动。表格、详情、按需标记共享 MotionPresentation；方向是 owning Product 坐标，偏置轴不称为世界轴，瞬时自由度不等于关节、有限行程或极限。关闭/选中变化/版本变化清理标记，不参与持久几何或约束。
 
 剩余运动行选择自动显示有效方向；详情直接列出参考对象、平移方向、轴方向/位置和有意义的螺距，长度跟随工作台单位。显示副本以毫米尺度消除 1e-12 以下噪声，不修改原始证据或分类。analysis-guides 拥有独占几何/材质，在模型之后独立清深度覆盖绘制；箭头 64 CSS px、线宽 2 CSS px，正交/透视 zoom、resize 与 DPR 更新仅改变变换或 uniform。标记不参与模型包围盒、拾取、BVH、导出或历史。
+
+入口：[只读刷新与证据门](../../../services/internal/workspace/assembly_engineering_refresh.go)、[当前页签](../../../web/apps/cad/src/features/workbench/assembly-conflict-panel.tsx)。回归：[真实 Router/Worker](../../../services/internal/control/assembly_engineering_refresh_integration_test.go)、[浏览器与 Viewer](../../../web/apps/cad/browser/assembly-engineering-live.spec.ts)。
 
 ## 显示、历史与发布
 
