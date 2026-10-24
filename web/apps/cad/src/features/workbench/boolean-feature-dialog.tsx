@@ -105,10 +105,11 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occu
    <FeaturePickField label="目标实体" value={view.part?.bodies.find(b => b.id === target)?.name ?? "请在视图区选择实体"} selected={!!target} active={role === "target"} onActivate={() => setRole("target")} onClear={target?()=>setTarget(undefined):undefined}/>
    <CommandField  label={<>运算</>} width="content"><Segmented value={operation} options={[{ value: "ADD", label: "并集" }, { value: "REMOVE", label: "差集" }, { value: "INTERSECT", label: "交集" }]} onChange={value => { setOperation(value as Feature["operation"]); if (value === "INTERSECT")
         setTools(previous => previous.slice(0, 1)); }}/></CommandField>
-   <FeaturePickField mode="multiple" label="工具实体" value={`已选择 ${tools.length} 个实体`} selected={tools.length>0} active={role === "tools"&&!replacing} onActivate={() => {setReplacing(undefined);setRole("tools");}} onClear={tools.length ? () => setTools([]) : undefined}/>
+   <FeaturePickField mode="multiple" label="工具实体" active={role==='tools'&&!replacing} onActivate={()=>{setReplacing(undefined);setRole('tools')}} onClear={tools.length?()=>setTools([]):undefined} items={tools.map((tool,i)=>({key:tool.bodyId,actionLabel:`工具 ${i+1}`,value:view.part?.bodies.find(b=>b.id===tool.bodyId)?.name??'实体已丢失',error:!view.part?.bodies.some(b=>b.id===tool.bodyId),active:role==='tools'&&replacing===tool.bodyId,onActivate:()=>{setReplacing(tool.bodyId);setRole('tools')},onClear:()=>setTools(previous=>previous.filter(t=>t.bodyId!==tool.bodyId)),selections:[{...occurrenceContext,kind:'body' as const,id:tool.bodyId,bodyId:tool.bodyId,documentId:view.document.id,versionId:version.current,occurrencePath}]}))}/>
+
    <CommandField  label={<>保留工具结果</>} width="option"><Switch checked={keep} onChange={setKeep}/></CommandField>
    {initial && <CommandField  label={<>抑制</>} width="option"><Switch checked={suppressed} onChange={setSuppressed}/></CommandField>}
-   {tools.map((tool,i)=><FeaturePickField key={tool.bodyId} label={`工具 ${i+1}`} value={view.part?.bodies.find(b=>b.id===tool.bodyId)?.name??"实体已丢失"} selected active={role==="tools"&&replacing===tool.bodyId} onActivate={()=>{setReplacing(tool.bodyId);setRole("tools");}} onClear={()=>setTools(previous=>previous.filter(t=>t.bodyId!==tool.bodyId))} selections={[{...occurrenceContext,kind:"body",id:tool.bodyId,bodyId:tool.bodyId,documentId:view.document.id,versionId:version.current,occurrencePath}]}/>)}
+
    {error&&<Alert type="error" title={error}/>}
 
   </fieldset>

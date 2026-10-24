@@ -150,7 +150,7 @@ export type Feature = {
  order?:number;
  holePoint?:PatternDefinition["centerReference"];diameter?:number;depth?:number;
  terminationPlaneId?:string;terminationPlane?:NonNullable<Feature["selections"]>[number];
-  pattern?:PatternDefinition & {startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
+  pattern?:PatternDefinition & {additionalSources?:Array<{source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA";startFeatureId?:string}>;startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
   profileSelection?: {mode:"WHOLE_SKETCH"|"REGIONS";regionIds?:string[]};
   profileMemberSlot?:number;
   evaluationStatus?: "FAILED" | "BLOCKED" | "SUPPRESSED";

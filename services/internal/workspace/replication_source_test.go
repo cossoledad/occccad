@@ -133,3 +133,68 @@ func TestAutomaticPatternSourceKeepsSignedToolsAndExplicitStages(t *testing.T) {
 		t.Fatal("failed stage advertised")
 	}
 }
+
+func TestPatternSeedSetResolvesEveryInputAndRejectsMixedOperations(t *testing.T) {
+	m := PartModel{Features: []Feature{{ID: "a", BodyID: "b", Type: "LINEAR_EXTRUDE", Operation: "REMOVE"}, {ID: "c", BodyID: "b", Type: "LINEAR_EXTRUDE", Operation: "REMOVE"}}}
+	f := Feature{ID: "array", BodyID: "b", Type: "SOLID_PATTERN", Operation: "ADD", Pattern: &FeaturePattern{Source: FeatureStageRef{BodyID: "b", FeatureID: "a"}, SourceKind: "AUTO", AdditionalSources: []PatternSeed{{Source: FeatureStageRef{BodyID: "b", FeatureID: "c"}, SourceKind: "AUTO"}}, PatternDefinition: PatternDefinition{ID: "array", Kind: "LINEAR", Count: 2, Spacing: 10, Distribution: "FIXED_STEP", Direction: [3]float64{1, 0, 0}}}}
+	if err := resolveAutomaticPatternSource(m, &f); err != nil {
+		t.Fatal(err)
+	}
+	if f.Operation != "REMOVE" || f.Pattern.AdditionalSources[0].SourceKind != "GENERATOR_TOOL" {
+		t.Fatal(f)
+	}
+	earlier := map[string]Feature{"a": m.Features[0], "c": m.Features[1]}
+	if err := validateFeaturePattern(f, earlier); err != nil {
+		t.Fatal(err)
+	}
+	inputs := featureInputs(f)
+	found := map[string]bool{}
+	for _, input := range inputs {
+		if input.Role == "SEED" {
+			found[input.FeatureID] = true
+		}
+	}
+	if !found["a"] || !found["c"] {
+		t.Fatal(inputs)
+	}
+	delete(earlier, "c")
+	if validateFeaturePattern(f, earlier) == nil {
+		t.Fatal("missing additional seed accepted")
+	}
+	m.Features[1].Operation = "ADD"
+	f.Pattern.AdditionalSources[0].SourceKind = "AUTO"
+	if resolveAutomaticPatternSource(m, &f) == nil {
+		t.Fatal("mixed signs silently accepted")
+	}
+}
+
+func TestPatternSeedsCopyMaximalSelectedRangesWithoutDroppingReferences(t *testing.T) {
+	m := PartModel{Features: []Feature{{ID: "base", BodyID: "b", Type: "LINEAR_EXTRUDE"}, {ID: "boss", BodyID: "b", Type: "LINEAR_EXTRUDE"}, {ID: "round", BodyID: "b", Type: "FILLET"}, {ID: "bevel", BodyID: "b", Type: "CHAMFER"}, {ID: "other", BodyID: "b", Type: "LINEAR_EXTRUDE"}}}
+	p := &FeaturePattern{Source: FeatureStageRef{BodyID: "b", FeatureID: "boss"}, SourceKind: "GENERATOR_TOOL", AdditionalSources: []PatternSeed{{Source: FeatureStageRef{BodyID: "b", FeatureID: "round"}, SourceKind: "FEATURE_DELTA", StartFeatureID: "boss"}, {Source: FeatureStageRef{BodyID: "b", FeatureID: "bevel"}, SourceKind: "FEATURE_DELTA", StartFeatureID: "boss"}, {Source: FeatureStageRef{BodyID: "b", FeatureID: "other"}, SourceKind: "GENERATOR_TOOL"}}}
+	got := effectivePatternSeeds(m, p)
+	if len(got) != 2 || got[0].Source.FeatureID != "bevel" || got[1].Source.FeatureID != "other" {
+		t.Fatal(got)
+	}
+	if len(patternSeeds(p)) != 4 {
+		t.Fatal("formal input set was rewritten")
+	}
+	inputs := featureInputs(Feature{Pattern: p})
+	found := map[string]bool{}
+	for _, r := range inputs {
+		if r.Role == "SEED" {
+			found[r.FeatureID] = true
+		}
+	}
+	if len(found) != 4 {
+		t.Fatal("covered inputs lost dependency identity", inputs)
+	}
+	p.AdditionalSources = nil
+	if len(effectivePatternSeeds(m, p)) != 1 {
+		t.Fatal("standalone tool changed")
+	}
+	p.SourceKind = "BODY_STAGE"
+	p.AdditionalSources = []PatternSeed{{Source: FeatureStageRef{BodyID: "b", FeatureID: "round"}, SourceKind: "FEATURE_DELTA", StartFeatureID: "boss"}}
+	if len(effectivePatternSeeds(m, p)) != 2 {
+		t.Fatal("explicit Body-stage intent was reinterpreted")
+	}
+}

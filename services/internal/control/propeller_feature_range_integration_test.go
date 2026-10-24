@@ -18,9 +18,10 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 	for _, testCase := range []struct {
 		asymmetric bool
 		sourceKind string
-	}{{false, "FEATURE_DELTA"}, {true, "FEATURE_DELTA"}, {false, "GENERATOR_TOOL"}, {true, "GENERATOR_TOOL"}} {
+		contained  bool
+	}{{false, "FEATURE_DELTA", false}, {true, "FEATURE_DELTA", false}, {false, "GENERATOR_TOOL", false}, {true, "GENERATOR_TOOL", false}, {false, "FEATURE_DELTA", true}} {
 		asymmetric := testCase.asymmetric
-		t.Run(fmt.Sprintf("asymmetricBase=%v/%s", asymmetric, testCase.sourceKind), func(t *testing.T) {
+		t.Run(fmt.Sprintf("asymmetricBase=%v/%s/contained=%v", asymmetric, testCase.sourceKind, testCase.contained), func(t *testing.T) {
 			service, artifacts, db, client := featureAssociationTestService(t)
 			view, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Large fillet propeller"})
 			if err != nil {
@@ -169,6 +170,13 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 				sourceID, startID = blade.ID, ""
 			}
 			request := workspace.CommandRequest{ActorID: p6Actor, Type: "CREATE_PATTERN", Feature: &workspace.Feature{Type: "SOLID_PATTERN", BodyID: base.BodyID, Operation: "ADD", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "CIRCULAR", Distribution: "FULL_CIRCLE", Count: 2, AxisEntityID: "AXIS_SYSTEM:axis-system-default:Z", Direction: [3]float64{0, 0, 1}}, Source: workspace.FeatureStageRef{BodyID: base.BodyID, FeatureID: sourceID}, SourceKind: testCase.sourceKind, StartFeatureID: startID, ResultMode: "COMBINE"}}}
+			if testCase.contained {
+				p := request.Feature.Pattern
+				p.Source = workspace.FeatureStageRef{BodyID: base.BodyID, FeatureID: blade.ID}
+				p.SourceKind = "GENERATOR_TOOL"
+				p.StartFeatureID = ""
+				p.AdditionalSources = []workspace.PatternSeed{{Source: workspace.FeatureStageRef{BodyID: base.BodyID, FeatureID: fillet.ID}, SourceKind: "FEATURE_DELTA", StartFeatureID: blade.ID}}
+			}
 			request.RequestID = fmt.Sprintf("%s-prop-%d", view.Document.ID, seq+1)
 			preview, e := service.PreviewCommand(t.Context(), view.Document.ID, request)
 			if e != nil {
@@ -180,6 +188,10 @@ func TestPropellerLargeFilletMaterialRangeThroughRouter(t *testing.T) {
 			request.PreviewID = preview.PreviewID
 			apply(request)
 			pattern := view.Part.Features[len(view.Part.Features)-1]
+			if testCase.contained && (pattern.Pattern.Source.FeatureID != blade.ID || len(pattern.Pattern.AdditionalSources) != 1) {
+				t.Fatal("accepted seed identities were changed")
+			}
+
 			expectedVolume := 2*seedVolume - baseVolume
 			if testCase.sourceKind == "GENERATOR_TOOL" {
 				expectedVolume = seedVolume + unroundedVolume - baseVolume

@@ -67,7 +67,7 @@ test('group members use existing group identity when selecting an overlapping co
  await expect(list.locator('.feature-pick-detail').filter({hasText:/有效$/})).toHaveCount(2);
  await expect(list.getByRole('button',{name:/^定位成员 /})).toHaveCount(2);
  await expect(list.getByRole('button',{name:/^选择成员 /})).toHaveCount(2);
- await list.locator('.feature-pick-field').filter({has:page.locator('label',{hasText:/^成员 \d+$/})}).filter({hasText:'固联组.1'}).getByRole('button',{name:/^移除成员 /}).click();
+ await list.getByRole('listitem').filter({hasText:'固联组.1'}).getByRole('button',{name:/^移除成员 /}).click();
  await filter.fill('');
  // Feed the same tree selection route used by component rows.
  const instance=page.locator('[role=treeitem][data-tree-key*="instance:mock-instance-b"]').first();
@@ -75,7 +75,7 @@ test('group members use existing group identity when selecting an overlapping co
  await expect.poll(async()=>Number(await viewportProbe(page,"viewport-selection").getAttribute('data-highlighted'))).toBeGreaterThanOrEqual(3);
  await page.screenshot({path:'../../../build/acceptance/fix-together-members.png'});
  await list.getByRole('button',{name:/^选择成员 /}).first().click();await instance.click();
- await expect(list.locator('.feature-pick-field').filter({has:page.locator('label',{hasText:/^成员 \d+$/})})).toHaveCount(1);
+ await expect(list.getByRole('listitem')).toHaveCount(1);
  await expect(list.getByText('固联组.1',{exact:true})).toBeVisible();
  await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);
  expect(errors).toEqual([]);

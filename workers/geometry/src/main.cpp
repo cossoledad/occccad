@@ -1578,6 +1578,8 @@ public:
                 pad.pattern_source_kind = input.pattern_source_kind();
                 pad.pattern_start_feature_id = input.pattern_start_feature_id();
                 pad.pattern_result_mode = input.pattern_result_mode();
+                if(input.additional_pattern_sources_size()>31)throw std::invalid_argument("PATTERN_SEED_SET_INVALID");
+                for(const auto& source:input.additional_pattern_sources())pad.additional_pattern_sources.push_back({source.feature_id(),source.source_kind(),source.start_feature_id()});
                 if (input.pattern_placements_size() > 256)
                     throw std::invalid_argument("PATTERN_MEMBER_BUDGET");
                 for (const auto& placement : input.pattern_placements()) {

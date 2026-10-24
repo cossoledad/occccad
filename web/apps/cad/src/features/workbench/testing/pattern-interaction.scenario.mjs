@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {createServer} from "vite";
 const server=await createServer({server:{middlewareMode:true},appType:"custom",logLevel:"silent"});
 try {
- const {patternEntityStatus,pickedPatternCenter,sketchPatternDefaultReferences}=await server.ssrLoadModule("/src/features/workbench/pattern-selection.ts");
+ const {patternEntityStatus,pickedPatternCenter,sketchPatternDefaultReferences,patternAxisPick,patternReferencePick,patternReferenceName}=await server.ssrLoadModule("/src/features/workbench/pattern-selection.ts");
  const {selectedSketch,sketchPick}=await server.ssrLoadModule("/src/features/workbench/feature-picking.ts");
  const {referencePropertyRows}=await server.ssrLoadModule("/src/features/workbench/reference-properties.ts");
  const {featureSelectionHit}=await server.ssrLoadModule("/src/cad/interaction/feature-selection.ts");
@@ -10,7 +10,7 @@ try {
  const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
  const {SelectionIndex}=await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
  const {encodeMeshGLB,decodeMeshGLB}=await server.ssrLoadModule("/src/cad/visual/mesh-glb.ts");
- const sketch={id:"seed",type:"SKETCH",bodyId:"body",plane:"XY",sketch:{support:{plane:"XY"},entities:[{id:"point",kind:"POINT",role:"PROFILE",point:{x:2,y:3}}],constraints:[],solve:{status:"UNDER_CONSTRAINED",components:[{entityIds:["point"],definitionStatus:"FULLY_CONSTRAINED"}]}}};
+ const sketch={id:"seed",name:"Sketch.1",type:"SKETCH",bodyId:"body",plane:"XY",sketch:{support:{plane:"XY"},entities:[{id:"point",kind:"POINT",role:"PROFILE",point:{x:2,y:3}}],constraints:[],solve:{status:"UNDER_CONSTRAINED",components:[{entityIds:["point"],definitionStatus:"FULLY_CONSTRAINED"}]}}};
  const member={id:"derived",kind:"POINT",role:"PROFILE",point:{x:12,y:3},sourceEntityId:"point",createdByOperationId:"internal"};
  assert.equal(patternEntityStatus(sketch.sketch,member),"FULLY_CONSTRAINED");
  assert.equal(sketchPatternDefaultReferences("seed","LINEAR").directionReference.target,"SKETCH_X_AXIS");
@@ -37,6 +37,12 @@ try {
  const pattern={id:"pattern",type:"SKETCH_PATTERN",bodyId:"body"};
  const members=[0,1].map(slot=>({id:`document:part/body:body/sketch:pattern/member:${slot}`,kind:"SKETCH_PATTERN_MEMBER",entityId:`member-${slot}`,patternId:"pattern",patternMemberSlot:slot}));
  const view={document:{id:"part",versionId:"v",type:"PART"},part:{features:[sketch,pattern],bodies:[{id:"body"}],axisSystems:[{id:"axis",name:"坐标系",origin:[4,5,6],xDirection:[1,0,0],yDirection:[0,1,0],zDirection:[0,0,1]}],datumPlanes:[{id:"plane",name:"基准面",plane:"CUSTOM",origin:[2,3,4],normal:[0,0,1],uDirection:[1,0,0],size:30}]},sketchPatternMembers:{seed:[member]},structureTree:{kind:"PART",children:members}};
+ assert.equal(patternReferenceName(view,'AXIS_SYSTEM:axis:X'),'坐标系 / X 轴');
+ const restoredAxis=patternAxisPick(view,'AXIS_SYSTEM:axis:X','instance',{contextVariantKey:'context'});
+ assert.equal(restoredAxis.axis,'X');assert.equal(restoredAxis.entityId,'axis');assert.equal(restoredAxis.occurrencePath,'instance');assert.equal(restoredAxis.contextVariantKey,'context');
+ assert.equal(patternAxisPick(view,'DATUM_AXIS:missing'),undefined);
+ assert.equal(patternReferenceName(view,'seed',{target:'SKETCH_ORIGIN',subElement:'POINT'}),'Sketch.1 / 原点');
+ assert.equal(patternReferencePick(view,'seed',{target:'ENTITY',entityId:'missing',subElement:'POINT'}),undefined);
  const pick=sketchPick(view,"pattern",undefined,1);
  assert.equal(pick.id,"member-1");
  assert.equal(selectedSketch(view,pick,[pattern]).profileMemberSlot,1);

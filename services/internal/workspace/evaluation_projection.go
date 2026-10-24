@@ -723,7 +723,12 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.HolePoint.SketchID), Target: key, Kind: modelcore.ReadGeometry})
 		}
 		if feature.Pattern != nil {
-			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.Pattern.Source.FeatureID), Target: key, Kind: modelcore.ReadGeometry})
+			for _, seed := range patternSeeds(feature.Pattern) {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + seed.Source.FeatureID), Target: key, Kind: modelcore.ReadGeometry})
+				if seed.StartFeatureID != "" {
+					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + seed.StartFeatureID), Target: key, Kind: modelcore.ReadGeometry})
+				}
+			}
 
 			if axis := strings.Split(feature.Pattern.AxisEntityID, ":"); len(axis) >= 2 {
 				prefix := "datum:"

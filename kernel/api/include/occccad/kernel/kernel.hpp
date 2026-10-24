@@ -168,7 +168,9 @@ struct PatternPlacement {
     std::uint32_t slot{};
     std::array<double, 12> matrix{};
 };
+struct PatternSourceSpec {std::string feature_id, source_kind, start_feature_id;};
 struct ProfilePadSpec {
+    std::vector<PatternSourceSpec> additional_pattern_sources;
     std::string pattern_source_feature_id, pattern_source_kind, pattern_start_feature_id;
     std::string pattern_result_mode;
     std::vector<PatternPlacement> pattern_placements;

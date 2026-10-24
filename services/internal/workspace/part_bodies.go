@@ -102,7 +102,12 @@ func bodyModel(m PartModel, id string) PartModel {
 			}
 		}
 		if (f.BodyID == id || needed[f.ID]) && f.Pattern != nil {
-			needed[f.Pattern.Source.FeatureID] = true
+			for _, seed := range patternSeeds(f.Pattern) {
+				needed[seed.Source.FeatureID] = true
+				if seed.StartFeatureID != "" {
+					needed[seed.StartFeatureID] = true
+				}
+			}
 			for _, ref := range patternReferenceFeatures(f.Pattern.PatternDefinition) {
 				needed[ref] = true
 			}

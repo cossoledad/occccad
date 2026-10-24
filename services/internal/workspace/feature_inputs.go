@@ -64,8 +64,10 @@ func featureInputs(f Feature) []featureInput {
 		if f.Pattern.MirrorPlane != nil {
 			add("MIRROR_PLANE", f.Pattern.MirrorPlane.Selection.Anchor.FeatureID, "", nil)
 		}
-		add("SEED", f.Pattern.Source.FeatureID, "", nil)
-		add("RANGE_START", f.Pattern.StartFeatureID, "", nil)
+		for _, seed := range patternSeeds(f.Pattern) {
+			add("SEED", seed.Source.FeatureID, "", nil)
+			add("RANGE_START", seed.StartFeatureID, "", nil)
+		}
 		axis(f.Pattern.AxisEntityID)
 		for _, id := range patternReferenceFeatures(f.Pattern.PatternDefinition) {
 			add("PATTERN_REFERENCE", id, "", nil)

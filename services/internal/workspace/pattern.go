@@ -36,8 +36,19 @@ type PatternDefinition struct {
 
 const maxPatternMembers = 256
 
+type PatternSeed struct {
+	Source         FeatureStageRef `json:"source"`
+	SourceKind     string          `json:"sourceKind"`
+	StartFeatureID string          `json:"startFeatureId,omitempty"`
+}
+
+func patternSeeds(p *FeaturePattern) []PatternSeed {
+	return append([]PatternSeed{{Source: p.Source, SourceKind: p.SourceKind, StartFeatureID: p.StartFeatureID}}, p.AdditionalSources...)
+}
+
 type FeaturePattern struct {
-	ResultMode string `json:"resultMode,omitempty"` // COMBINE | INDEPENDENT
+	AdditionalSources []PatternSeed `json:"additionalSources,omitempty"`
+	ResultMode        string        `json:"resultMode,omitempty"` // COMBINE | INDEPENDENT
 	PatternDefinition
 	Source         FeatureStageRef `json:"source"`
 	SourceKind     string          `json:"sourceKind"`               // SKETCH_FRAME, GENERATOR_TOOL, BODY_STAGE, FEATURE_DELTA
@@ -111,6 +122,28 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 		return fmt.Errorf("%w: pattern identity required", ErrValidation)
 	}
 	p := f.Pattern
+	if len(p.AdditionalSources) > 0 {
+		if f.Type != "SOLID_PATTERN" || len(p.AdditionalSources) > 31 {
+			return fmt.Errorf("%w: PATTERN_SEED_SET_INVALID", ErrValidation)
+		}
+		seen := map[string]bool{}
+		for _, seed := range patternSeeds(p) {
+			if seen[seed.Source.FeatureID] {
+				return fmt.Errorf("%w: PATTERN_SEED_DUPLICATE", ErrValidation)
+			}
+			seen[seed.Source.FeatureID] = true
+			copyFeature := f
+			copyPattern := *p
+			copyPattern.AdditionalSources = nil
+			copyPattern.Source = seed.Source
+			copyPattern.SourceKind = seed.SourceKind
+			copyPattern.StartFeatureID = seed.StartFeatureID
+			copyFeature.Pattern = &copyPattern
+			if err := validateFeaturePattern(copyFeature, earlier); err != nil {
+				return err
+			}
+		}
+	}
 	for _, id := range patternReferenceFeatures(p.PatternDefinition) {
 		if _, ok := earlier[id]; !ok {
 			return fmt.Errorf("%w: pattern reference must precede pattern", ErrValidation)
@@ -464,6 +497,37 @@ func resolvePatternParameters(featureID, prefix string, p *PatternDefinition, va
 // AUTO is a command intent only. Persist the exact source contract, never an
 // instruction to silently reinterpret an accepted feature when upstream changes.
 func resolveAutomaticPatternSource(model PartModel, f *Feature) error {
+	if f.Pattern != nil && len(f.Pattern.AdditionalSources) > 31 {
+		return fmt.Errorf("%w: PATTERN_SEED_SET_INVALID", ErrValidation)
+	}
+	if f.Pattern != nil && len(f.Pattern.AdditionalSources) > 0 {
+		primary := *f.Pattern
+		primary.AdditionalSources = nil
+		copyFeature := *f
+		copyFeature.Pattern = &primary
+		if err := resolveAutomaticPatternSource(model, &copyFeature); err != nil {
+			return err
+		}
+		result := *copyFeature.Pattern
+		for _, seed := range f.Pattern.AdditionalSources {
+			candidate := *f
+			candidate.Operation = copyFeature.Operation
+			candidate.Pattern = &FeaturePattern{PatternDefinition: f.Pattern.PatternDefinition, Source: seed.Source, SourceKind: seed.SourceKind, StartFeatureID: seed.StartFeatureID, ResultMode: result.ResultMode}
+			if err := resolveAutomaticPatternSource(model, &candidate); err != nil {
+				return err
+			}
+			if candidate.Type != "SOLID_PATTERN" || copyFeature.Type != "SOLID_PATTERN" || candidate.Operation != copyFeature.Operation {
+				return fmt.Errorf("%w: PATTERN_SEEDS_REQUIRE_SAME_BODY_OPERATION", ErrValidation)
+			}
+			result.AdditionalSources = append(result.AdditionalSources, PatternSeed{Source: candidate.Pattern.Source, SourceKind: candidate.Pattern.SourceKind, StartFeatureID: candidate.Pattern.StartFeatureID})
+		}
+		f.Pattern = &result
+		f.Type = copyFeature.Type
+		f.BodyID = copyFeature.BodyID
+		f.Operation = copyFeature.Operation
+		return nil
+	}
+
 	if f.Pattern == nil || (f.Pattern.SourceKind != "" && f.Pattern.SourceKind != "AUTO") {
 		return nil
 	}
@@ -509,4 +573,42 @@ func resolveAutomaticPatternSource(model PartModel, f *Feature) error {
 	}
 	f.Pattern = &p
 	return nil
+}
+
+// Material ranges already contain their generating tool and earlier local
+// modifications. Keep all accepted references, but copy only maximal selected
+// ranges. Containment comes from exact history IDs, never geometric guesses.
+func effectivePatternSeeds(model PartModel, p *FeaturePattern) []PatternSeed {
+	seeds := patternSeeds(p)
+	var result []PatternSeed
+	for i, seed := range seeds {
+		covered := false
+		for j, other := range seeds {
+			if i == j || other.SourceKind != "FEATURE_DELTA" || seed.Source.BodyID != other.Source.BodyID {
+				continue
+			}
+			if seed.SourceKind == "GENERATOR_TOOL" && seed.Source.FeatureID == other.StartFeatureID {
+				covered = true
+				break
+			}
+			if seed.SourceKind == "FEATURE_DELTA" && seed.StartFeatureID == other.StartFeatureID {
+				rangePattern := *p
+				rangePattern.Source = other.Source
+				rangePattern.StartFeatureID = other.StartFeatureID
+				for _, id := range rangeMembers(model, &rangePattern) {
+					if id == seed.Source.FeatureID {
+						covered = true
+						break
+					}
+				}
+				if covered {
+					break
+				}
+			}
+		}
+		if !covered {
+			result = append(result, seed)
+		}
+	}
+	return result
 }

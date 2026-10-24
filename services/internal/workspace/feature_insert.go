@@ -27,8 +27,16 @@ func insertionAnchor(m PartModel, body, id string) (int, error) {
 
 func protectFeatureRanges(before, after PartModel, blocked func(Feature, string) error) error {
 	for _, f := range before.Features {
-		if f.Pattern != nil && f.Pattern.SourceKind == "FEATURE_DELTA" && !slices.Equal(rangeMembers(before, f.Pattern), rangeMembers(after, f.Pattern)) {
-			return blocked(f, "FEATURE_DELTA range membership/order is protected")
+		if f.Pattern != nil {
+			for _, seed := range patternSeeds(f.Pattern) {
+				p := *f.Pattern
+				p.Source = seed.Source
+				p.SourceKind = seed.SourceKind
+				p.StartFeatureID = seed.StartFeatureID
+				if p.SourceKind == "FEATURE_DELTA" && !slices.Equal(rangeMembers(before, &p), rangeMembers(after, &p)) {
+					return blocked(f, "FEATURE_DELTA range membership/order is protected")
+				}
+			}
 		}
 	}
 	return nil

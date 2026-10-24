@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v41-signed-pattern-tools"
+const evaluatorVersion = "part-solid-generators-v43-contained-pattern-ranges"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1832,7 +1832,15 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
-			spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "SOLID_PATTERN", BodyOperation: feature.Operation, PatternSourceFeatureID: feature.Pattern.Source.FeatureID, PatternSourceKind: feature.Pattern.SourceKind, PatternStartFeatureID: feature.Pattern.StartFeatureID, PatternResultMode: feature.Pattern.ResultMode}
+			seeds := effectivePatternSeeds(fullModel, feature.Pattern)
+			if len(seeds) == 0 {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: PATTERN_SEED_SET_INVALID", feature.ID)
+			}
+			primary := seeds[0]
+			spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "SOLID_PATTERN", BodyOperation: feature.Operation, PatternSourceFeatureID: primary.Source.FeatureID, PatternSourceKind: primary.SourceKind, PatternStartFeatureID: primary.StartFeatureID, PatternResultMode: feature.Pattern.ResultMode}
+			for _, seed := range seeds[1:] {
+				spec.AdditionalPatternSources = append(spec.AdditionalPatternSources, geometry.PatternSource{FeatureID: seed.Source.FeatureID, SourceKind: seed.SourceKind, StartFeatureID: seed.StartFeatureID})
+			}
 			for _, placement := range placements {
 				spec.PatternPlacements = append(spec.PatternPlacements, geometry.PatternPlacement{Slot: uint32(placement.Slot), Matrix: placement.Matrix})
 			}

@@ -69,7 +69,10 @@ type LoftSection struct {
 	Reversed                   bool
 	SeamAngle                  float64
 }
+type PatternSource struct{ FeatureID, SourceKind, StartFeatureID string }
+
 type ProfilePad struct {
+	AdditionalPatternSources                            []PatternSource
 	TerminationOrigin, TerminationNormal                [3]float64
 	PatternResultMode                                   string
 	PatternSourceFeatureID, PatternSourceKind           string
@@ -119,6 +122,9 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 		value.PatternSourceFeatureId, value.PatternSourceKind = pad.PatternSourceFeatureID, pad.PatternSourceKind
 		value.PatternStartFeatureId = pad.PatternStartFeatureID
 		value.PatternResultMode = pad.PatternResultMode
+		for _, seed := range pad.AdditionalPatternSources {
+			value.AdditionalPatternSources = append(value.AdditionalPatternSources, &workerv1.PatternSource{FeatureId: seed.FeatureID, SourceKind: seed.SourceKind, StartFeatureId: seed.StartFeatureID})
+		}
 		for _, placement := range pad.PatternPlacements {
 			value.PatternPlacements = append(value.PatternPlacements, &workerv1.PatternPlacement{Slot: placement.Slot, Matrix: append([]float64(nil), placement.Matrix[:]...)})
 		}

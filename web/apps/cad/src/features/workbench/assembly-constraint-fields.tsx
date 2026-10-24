@@ -57,7 +57,7 @@ export function AssemblyConstraintFields({ kind, references, exactTypes, sourceT
       {!contactCapabilities?.length && <Alert type="warning" message="所选几何不支持此接触关系"/>}
     </>}
     {kind === "FIX_TOGETHER" && <>
-      <CommandFormItem name="groupMembers" label="成员" rules={[{required:true,type:"array",min:1}]}><AssemblyGroupMemberList picking={groupPicking} onActivate={onPickGroup} view={view} replacing={replacingMember} onReplace={onReplaceMember} onLocate={onLocateMember}/></CommandFormItem>
+      <CommandFormItem name="groupMembers" noStyle rules={[{required:true,type:"array",min:1}]}><AssemblyGroupMemberList picking={groupPicking} onActivate={onPickGroup} view={view} replacing={replacingMember} onReplace={onReplaceMember} onLocate={onLocateMember}/></CommandFormItem>
     </>}
     <div className={`assembly-constraint-status status-${evaluationStatus.toLowerCase()}`} role="status"
       aria-label={`Constraint status ${status.label}`}>

@@ -206,3 +206,23 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--color-border);
 
 /* Coordinate groups retain required validation and aria semantics without three redundant stars. */
 .command-vector > .command-vector-fields .command-form-item-coordinate .ant-form-item-label > label.ant-form-item-required::before { display:none; }
+
+/* Reference collections use one field, with a bounded list instead of one card per item. */
+.feature-pick-collection { display:flex;flex-direction:column;gap:6px; }
+.feature-pick-collection-heading { display:flex;align-items:center;gap:6px;min-height:28px; }
+.feature-pick-collection-heading > strong { font-size:var(--ui-font-size,13px);font-weight:500; }
+.feature-pick-count { color:var(--color-text-secondary);font-variant-numeric:tabular-nums;white-space:nowrap; }
+.feature-pick-collection-heading > .feature-pick-actions { margin-left:auto;flex-wrap:nowrap; }
+.feature-pick-collection-list { max-height:160px;min-height:0;overflow:auto;overscroll-behavior:contain; }
+.feature-pick-item { display:flex;align-items:center;gap:6px;min-height:34px;padding:3px 4px;border-radius:var(--ui-radius);border-bottom:1px solid var(--color-border); }
+.feature-pick-item:hover { background:var(--color-primary-bg,var(--color-primary-soft)); }
+.feature-pick-item.is-active { outline:1px solid var(--color-primary);outline-offset:-1px;background:var(--color-primary-bg,var(--color-primary-soft)); }
+.feature-pick-item.has-error .feature-pick-item-name > small { color:var(--color-error,#b42318); }
+.feature-pick-item-name { flex:1;min-width:0;display:flex;flex-direction:column; }
+.feature-pick-item-name > span,.feature-pick-item-name > small { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.feature-pick-item-name > small { color:var(--color-text-secondary);font-size:12px; }
+.feature-pick-item-actions { display:flex;flex-shrink:0;align-items:center;gap:2px; }
+.feature-pick-ordinal { width:18px;flex-shrink:0;text-align:center;color:var(--color-text-secondary);font-variant-numeric:tabular-nums; }
+.cad-command-dialog .feature-pick-collection .ant-btn.ant-btn-icon-only,.cad-command-dialog .feature-pick-item-actions .ant-btn { width:24px;min-width:24px;height:24px;padding:0; }
+.feature-pick-item-settings { border-top:1px solid var(--color-border);padding-top:8px;display:flex;flex-direction:column;gap:8px;max-height:260px;overflow:auto; }
+.feature-pick-empty { color:var(--color-text-secondary);display:block;padding:8px; }

@@ -374,35 +374,19 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     <CommandField  label={<>终止</>} width="content"><Segmented value={draft.extent} options={[{value:"BLIND",label:"平底盲孔"},{value:"THROUGH_ALL",label:"单向贯穿"}]} onChange={extent=>edit({extent:extent as Feature["extent"]})}/></CommandField>
     {draft.extent==="BLIND"&&<CommandField  label={<>深度（{unit}）</>} error={parameterSlot==="depth"?parameterError:undefined} width="expression"><Input value={depth} onChange={e=>setDepth(e.target.value)}/></CommandField>}
    </>}
-   {!modifier && !loft && !hole && <FeaturePickField mode={explicitRegions?"multiple":"single"} label="轮廓" value={draft.profile ? name(draft.profile) : explicitRegions?"选择闭合区域":"选择草图"} detail={explicitRegions?`已选择 ${regionIDs.length} 个区域`:undefined} selected={!!draft.profile} selections={highlights.filter(s=>s.kind==='sketch'||s.kind==='profile-region')} active={role === profileRole&&!regionReplacement} onActivate={() => setRole(profileRole)} onClear={draft.profile ? () => {edit({ profile: undefined,profileMemberSlot:undefined,profileSelection:explicitRegions?{mode:"REGIONS",regionIds:[]}:draft.profileSelection });setRegionReplacement(undefined);} : undefined}/>}
+   {!modifier && !loft && !hole && <FeaturePickField mode={explicitRegions?"multiple":"single"} label="轮廓" value={draft.profile ? name(draft.profile) : explicitRegions?"选择闭合区域":"选择草图"} selected={!!draft.profile} selections={highlights.filter(s=>s.kind==='sketch'||s.kind==='profile-region')} items={explicitRegions?regionIDs.map((id,i)=>({key:id,actionLabel:`区域 ${i+1}`,value:`${name(draft.profile!)} / 区域 ${i+1}`,state:availableRegionIDs.includes(id)?'RESOLVED':'MISSING',error:!availableRegionIDs.includes(id),detail:availableRegionIDs.includes(id)?undefined:profileAnalysisError?'上游草图不可用':'区域已失效',active:role==='profile-region'&&regionReplacement===id,selections:highlights.filter(s=>s.kind==='profile-region'&&s.regionId===id),onActivate:()=>{setRegionReplacement(id);setRole('profile-region')},onClear:()=>{edit({profileSelection:{mode:'REGIONS',regionIds:regionIDs.filter(r=>r!==id)}});setRegionReplacement(undefined)}})):undefined} active={role === profileRole&&!regionReplacement} onActivate={() => setRole(profileRole)} onClear={draft.profile ? () => {edit({ profile: undefined,profileMemberSlot:undefined,profileSelection:explicitRegions?{mode:"REGIONS",regionIds:[]}:draft.profileSelection });setRegionReplacement(undefined);} : undefined}/>}
    {!modifier&&!loft&&!hole&&<>
     <CommandField  label={<>轮廓范围</>} width="content"><Segmented value={explicitRegions?"REGIONS":"WHOLE_SKETCH"} options={[{value:"REGIONS",label:"选定区域"},{value:"WHOLE_SKETCH",label:"整张草图"}]} onChange={mode=>{edit({profileSelection:mode==="REGIONS"?{mode:"REGIONS",regionIds:[]}:{mode:"WHOLE_SKETCH"}});setRegionReplacement(undefined);setRole(mode==="REGIONS"?"profile-region":"profile");}}/></CommandField>
     <small>{explicitRegions?"固定区域集合；点击区域增减选择，不会吸收后来新增的独立区域。":"整张草图：包含求值时全部合法闭合区域，包括后来新增区域。"}</small>
     {explicitRegions&&<>
      <Button size="small" disabled={!draft.profile||!availableRegionIDs.length} onClick={()=>{edit({profileSelection:{mode:"REGIONS",regionIds:[...availableRegionIDs]}});setRegionReplacement(undefined);}}>全选当前区域（固定集合）</Button>
-     {regionIDs.map((id,i)=><div key={id} data-region-status={availableRegionIDs.includes(id)?"RESOLVED":"MISSING"}>
-      <FeaturePickField label={`区域 ${i+1}`} value={name(draft.profile!)} selected active={role==="profile-region"&&regionReplacement===id}
-       detail={availableRegionIDs.includes(id)?undefined:profileAnalysisError?"上游草图不可用":"区域已失效"}
-       selections={highlights.filter(s=>s.kind==='profile-region'&&s.regionId===id)}
-       onActivate={()=>{setRegionReplacement(id);setRole("profile-region");}}
-       onClear={()=>{edit({profileSelection:{mode:"REGIONS",regionIds:regionIDs.filter(r=>r!==id)}});setRegionReplacement(undefined);}}/>
-     </div>)}
      {profileAnalysisError&&<Alert type="error" title="上游草图无法提供合法区域" description={engineeringProblem(profileAnalysisError)}/>}
      {missingRegions.length>0&&!profileAnalysisError&&<Alert type="warning" title="区域输入需要修复" description="原区域删除或拓扑改变后无法对应。请明确替换或移除失效区域；不会自动换区或使用整张草图。"/>}
     </>}
    </>}
    {draft.profile && upstream.find(f=>f.id===draft.profile)?.type==="SKETCH_PATTERN" && <CommandField  label={<>草图成员槽位</>} width="expression"><Input type="number" min={0} step={1} value={draft.profileMemberSlot} onChange={e=>edit({profileMemberSlot:e.target.value===""?undefined:Number(e.target.value)})}/></CommandField>}
    {feature.type === "REVOLVE" && <FeaturePickField label="旋转轴" value={draft.axisEntityId ? "已选择 1 条轴线" : "选择直线或轴"} selected={!!draft.axisEntityId} selections={axisVisual?[axisVisual]:restoredAxis?[restoredAxis]:[]} active={role === "axis"} onActivate={() => setRole("axis")} onClear={draft.axisEntityId ? () => { edit({ axisEntityId: undefined }); setAxisVisual(undefined); } : undefined}/>}
-   {modifier && <FeaturePickField mode="multiple" label={pickRole === "edge" ? "边集" : "面集"} value={loadingInput ? "正在恢复选择…" : unresolved.length ? `有效 ${picks.length-unresolved.length} 项，待修复 ${unresolved.length} 项` : `已选择 ${picks.length} ${pickRole === "edge" ? "条边" : "个面"}`} selected={picks.length>0} selections={picks.flatMap(p=>p.visual?[p.visual]:[])} active={role === pickRole && !replacement} disabled={loadingInput || !!inputError || !!binding} onActivate={() => {setReplacement(undefined);setRole(pickRole);}} onClear={picks.length && !binding ? () => {setPicks([]);setReplacement(undefined);} : undefined}/>}
-   {modifier && feature.id && picks.length>0 && <details open={unresolved.length>0 || !!replacement}>
-    <summary>输入明细（{picks.length} 项）</summary>
-    {picks.map((p,i)=><div key={p.id} data-input-status={p.resolution.status}>
-     <FeaturePickField label={`${pickRole==="edge"?"边":"面"} ${i+1}`} value={view.part?.features.find(f=>f.id===p.definition.sourceFeatureId)?.name??"上游几何"} selected
-      detail={inputStatusText(p.resolution)} active={role===pickRole&&replacement===p.id} selections={p.visual?[p.visual]:[]}
-      onActivate={()=>{setReplacement(p.id);setRole(pickRole);}}
-      onClear={()=>{setPicks(previous=>previous.filter(item=>item.id!==p.id));setReplacement(undefined);}}/>
-    </div>)}
-   </details>}
+   {modifier&&<FeaturePickField mode="multiple" label={pickRole==='edge'?'边集':'面集'} detail={loadingInput?'正在恢复选择…':undefined} active={role===pickRole&&!replacement} disabled={loadingInput||!!inputError||!!binding} onActivate={()=>{setReplacement(undefined);setRole(pickRole)}} onClear={picks.length&&!binding?()=>{setPicks([]);setReplacement(undefined)}:undefined} items={picks.map((p,i)=>({key:p.id,actionLabel:`${pickRole==='edge'?'边':'面'} ${i+1}`,value:`${view.part?.features.find(f=>f.id===p.definition.sourceFeatureId)?.name??'上游几何'} / ${pickRole==='edge'?'边':'面'} ${i+1}`,state:p.resolution.status,error:p.resolution.status!=='RESOLVED',detail:p.resolution.status==='RESOLVED'?undefined:inputStatusText(p.resolution),active:role===pickRole&&replacement===p.id,selections:p.visual?[p.visual]:[],onActivate:()=>{setReplacement(p.id);setRole(pickRole)},onClear:()=>{setPicks(previous=>previous.filter(item=>item.id!==p.id));setReplacement(undefined)}}))}/>}
    {unresolved.length>0 && <Alert type="warning" title="输入需要修复" description="请明确替换或移除每个失效输入。有效输入会保留；未处理前不能预览或确认。"/>}
    {terminating&&<>
     <FeaturePickField label="终止平面" value={terminationLoadError?"原目标解析受阻，请重新选择":terminationResolution&&terminationResolution.status!=="RESOLVED"?inputStatusText(terminationResolution):draft.terminationPlane?"已选择上游实体平面":view.part?.datumPlanes.find(p=>p.id===draft.terminationPlaneId)?.name??"选择基准平面或上游实体平面"} selected={!!(draft.terminationPlane||draft.terminationPlaneId)} selections={terminationVisual?[terminationVisual]:[]} active={role==="plane"} disabled={loadingInput||!!binding} onActivate={()=>setRole("plane")} onClear={draft.terminationPlane||draft.terminationPlaneId?()=>{edit({terminationPlane:undefined,terminationPlaneId:undefined});setTerminationResolution(undefined);setTerminationLoadError(undefined);setTerminationVisual(undefined);}:undefined}/>
@@ -417,22 +401,22 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
    </>}
 
    {loft && <>
-    <FeaturePickField mode="ordered" label="截面" value={`已选择 ${draft.sections?.length ?? 0} 个截面`} selected={!!draft.sections?.length} selections={highlights} active={role === "profile"&&sectionReplacement===undefined} onActivate={() => {setSectionReplacement(undefined);setRole("profile");}} onClear={draft.sections?.length ? () => edit({ sections: [] }) : undefined}/>
+
     <FeaturePickField label="点端" value="选择草图点或基准原点" active={role === "point"&&sectionReplacement===undefined} onActivate={()=>{setSectionReplacement(undefined);setRole("point");}}/>
     <CommandField  label={<>显示连接线</>} width="option"><Switch checked={showConnections} onChange={setShowConnections}/></CommandField>
-    {(preview.loftSections ?? draft.sections ?? []).map((section, i) => <div className="command-group" key={`${section.sketchId}/${section.memberSlot??""}/${i}`}>
-     <FeaturePickField label={`截面 ${i+1}`} value={section.point?`点端 · ${section.point.axisEntityId?view.part?.axisSystems.find(a=>a.id===section.point?.axisEntityId?.split(":")[1])?.name??"引用原点已丢失":name(section.sketchId)}`:name(section.sketchId)} selected
-      selections={highlights.filter(s=>"featureId" in s&&s.featureId===section.sketchId)} onActivate={()=>{setSectionReplacement(i);setRole(section.point?"point":"profile");}}
-      active={sectionReplacement===i&&(role==="profile"||role==="point")}
-      onClear={()=>edit({sections:draft.sections?.filter((_,j)=>j!==i)})}
-      actions={<><Button size="small" aria-label={`上移截面 ${i+1}`} disabled={!i} onClick={()=>{const sections=[...draft.sections!];[sections[i-1],sections[i]]=[sections[i],sections[i-1]];edit({sections});}}>↑</Button><Button size="small" aria-label={`下移截面 ${i+1}`} disabled={i===(draft.sections?.length??0)-1} onClick={()=>{const sections=[...draft.sections!];[sections[i+1],sections[i]]=[sections[i],sections[i+1]];edit({sections});}}>↓</Button></>}/>
+    <FeaturePickField mode="ordered" label="截面" active={role==='profile'&&sectionReplacement===undefined} onActivate={()=>{setSectionReplacement(undefined);setRole('profile')}} onClear={draft.sections?.length?()=>edit({sections:[]}):undefined} items={(preview.loftSections??draft.sections??[]).map((section,i)=>({
+     key:`${section.sketchId}/${section.memberSlot??''}/${JSON.stringify(section.point??'')}/${i}`,actionLabel:`截面 ${i+1}`,value:section.point?`点端 · ${section.point.axisEntityId?view.part?.axisSystems.find(a=>a.id===section.point?.axisEntityId?.split(':')[1])?.name??'引用原点已丢失':name(section.sketchId)}`:name(section.sketchId),selections:highlights[i]?[highlights[i]]:[],active:sectionReplacement===i&&(role==='profile'||role==='point'),onActivate:()=>{setSectionReplacement(i);setRole(section.point?'point':'profile')},onClear:()=>edit({sections:draft.sections?.filter((_,j)=>j!==i)}),
+     actions:<><Button size="small" aria-label={`上移截面 ${i+1}`} disabled={!i} onClick={()=>{const sections=[...draft.sections!];[sections[i-1],sections[i]]=[sections[i],sections[i-1]];edit({sections});}}>↑</Button><Button size="small" aria-label={`下移截面 ${i+1}`} disabled={i===(draft.sections?.length??0)-1} onClick={()=>{const sections=[...draft.sections!];[sections[i+1],sections[i]]=[sections[i],sections[i+1]];edit({sections});}}>↓</Button></>,
+     settings:section.point?undefined:<>
      {upstream.find(f=>f.id===section.sketchId)?.type==="SKETCH_PATTERN"&&<CommandField  label={<>成员槽位</>} width="expression"><Input type="number" min={0} step={1} value={section.memberSlot} onChange={e=>edit({sections:(acceptedSections.current??draft.sections)?.map((s,j)=>i===j?{...s,memberSlot:e.target.value===""?undefined:Number(e.target.value)}:s)})}/></CommandField>}
      {!section.point && <><Button size="small" onClick={()=>edit({sections:(acceptedSections.current??draft.sections)?.map((s,j)=>i===j?{...s,correspondenceResolved:false,seamEntityId:undefined,seamAngle:0,reversed:false}:s)})}>自动对应</Button>
      <CommandField  label={<>反向</>} width="option"><Switch checked={section.reversed} onChange={reversed => edit({ sections: (acceptedSections.current??draft.sections)?.map((s, j) => i === j ? { ...s, correspondenceResolved:true, reversed } : s) })}/></CommandField>
      <Button size="small" aria-pressed={role === "seam" && seamIndex === i} onClick={() => { setSeamIndex(i); setRole("seam"); }}>选择闭合起始边</Button>
      {upstream.find(f => f.id === section.sketchId)?.sketch?.entities.some(e => e.kind === "CIRCLE") && <CommandField  label={<>闭合点角度（deg）</>} width="expression"><Input type="number" value={section.seamAngle ?? 0} onChange={e => edit({ sections: (acceptedSections.current??draft.sections)?.map((s, j) => i === j ? { ...s, correspondenceResolved:true, seamAngle: Number(e.target.value) } : s) })}/></CommandField>}
      </>}
-    </div>)}
+
+     </>
+    }))}/>
     <CommandField  label={<>截面连接</>} width="content"><Segmented value={draft.ruled ? "ruled" : "smooth"} options={[{ value: "smooth", label: "平滑" }, { value: "ruled", label: "直纹" }]} onChange={v => edit({ ruled: v === "ruled" })}/></CommandField>
    </>}
    {!modifier && !hole && <>

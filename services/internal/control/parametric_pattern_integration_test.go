@@ -347,4 +347,26 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 		t.Fatal("reopen changed nested pattern", err)
 	}
 
+	// Multi-selection copies both exact cutting tools under one formal Feature.
+	apply(&nested, workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &workspace.Feature{Type: "SOLID_PATTERN", BodyID: cuttingSeed.BodyID, Operation: "REMOVE", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Count: 2, Spacing: 12, Direction: [3]float64{0, 1, 0}}, Source: workspace.FeatureStageRef{BodyID: cuttingSeed.BodyID, FeatureID: cuttingSeed.ID}, SourceKind: "AUTO", AdditionalSources: []workspace.PatternSeed{{Source: workspace.FeatureStageRef{BodyID: cuttingSeed.BodyID, FeatureID: mirrors[0].ID}, SourceKind: "AUTO"}}}}})
+	multi := nested.Part.Features[len(nested.Part.Features)-1]
+	if len(multi.Pattern.AdditionalSources) != 1 || multi.Pattern.AdditionalSources[0].SourceKind != "GENERATOR_TOOL" {
+		t.Fatal("seed set not persisted", multi)
+	}
+	if math.Abs(activeBodyArtifact(t, nested).Volume-(18000-6*math.Pi*9*5)) > 1e-5 {
+		t.Fatal("additional cutting seed was lost", activeBodyArtifact(t, nested).Volume)
+	}
+	apply(&nested, workspace.CommandRequest{Type: "UNDO"})
+	if math.Abs(activeBodyArtifact(t, nested).Volume-(18000-4*math.Pi*9*5)) > 1e-5 {
+		t.Fatal("multi-seed Undo")
+	}
+	apply(&nested, workspace.CommandRequest{Type: "REDO"})
+	if nested.Part.Features[len(nested.Part.Features)-1].ID != multi.ID {
+		t.Fatal("multi-seed Redo identity")
+	}
+	reopened, err = cold.GetDocument(t.Context(), nested.Document.ID, p6Actor)
+	if err != nil || len(reopened.Part.Features[len(reopened.Part.Features)-1].Pattern.AdditionalSources) != 1 {
+		t.Fatal("multi-seed reopen", err)
+	}
+
 }

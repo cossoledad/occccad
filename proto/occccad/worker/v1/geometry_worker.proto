@@ -601,6 +601,13 @@ message ProfilePadSpec {
     // Resolved infinite support plane in Part coordinates, for TO_PLANE only.
     Vec3 termination_origin = 31;
     Vec3 termination_normal = 32;
+    repeated PatternSource additional_pattern_sources = 33;
+}
+
+message PatternSource {
+    string feature_id = 1;
+    string source_kind = 2;
+    string start_feature_id = 3;
 }
 
 message PatternPlacement {

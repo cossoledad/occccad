@@ -3414,6 +3414,15 @@ TEST(GeometryExchange, MirrorOfMirrorPreservesSignedToolAndAllFourMembers) {
         OcctKernel cold;const auto rebuilt=cold.evaluateProfilePadsWithHistory({base,seed,first,second,third});
         EXPECT_NEAR(cold.getVolume(rebuilt.geometry_id),kernel.getVolume(all.geometry_id),1e-8);
         EXPECT_EQ(rebuilt.feature_results.back().topology_history.evidence_digest,last.topology_history.evidence_digest);
+        auto multi=mirror("multi","seed",identity);
+        auto shifted=identity;shifted[7]=12.;multi.pattern_placements={{0,identity},{1,shifted}};
+        multi.additional_pattern_sources={{"mirror-1","GENERATOR_TOOL",""}};
+        const auto selected=kernel.evaluateProfilePadsWithHistory({base,seed,first,second,third,multi});
+        EXPECT_NEAR(kernel.getVolume(selected.geometry_id),36000+6*signed_volume,1e-5);
+        ASSERT_TRUE(selected.feature_results.back().topology_history_complete);
+        OcctKernel multi_cold;const auto selected_cold=multi_cold.evaluateProfilePadsWithHistory({base,seed,first,second,third,multi});
+        EXPECT_NEAR(multi_cold.getVolume(selected_cold.geometry_id),kernel.getVolume(selected.geometry_id),1e-8);
+        EXPECT_EQ(selected_cold.feature_results.back().topology_history.evidence_digest,selected.feature_results.back().topology_history.evidence_digest);
         // Explicit Body-stage copying keeps its accepted additive semantics.
         third.pattern_source_kind="BODY_STAGE";third.body_operation="ADD";
         const auto body_copy=kernel.evaluateProfilePadsWithHistory({base,seed,first,second,third});

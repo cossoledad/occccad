@@ -3445,8 +3445,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     std::set<std::string> required_pattern_tools, required_pattern_bodies;
     for (const auto& spec : specs) {
         if (spec.generator != "SOLID_PATTERN") continue;
-        (spec.pattern_source_kind == "GENERATOR_TOOL" ? required_pattern_tools : required_pattern_bodies).insert(spec.pattern_source_feature_id);
-        if (spec.pattern_source_kind == "FEATURE_DELTA") range_starts.insert(spec.pattern_start_feature_id);
+        auto sources=spec.additional_pattern_sources;sources.insert(sources.begin(),{spec.pattern_source_feature_id,spec.pattern_source_kind,spec.pattern_start_feature_id});
+        for(const auto& source:sources){(source.source_kind=="GENERATOR_TOOL"?required_pattern_tools:required_pattern_bodies).insert(source.feature_id);if(source.source_kind=="FEATURE_DELTA")range_starts.insert(source.start_feature_id);}
     }
     if (import_seed && !result.IsNull() && !restored) {
         ToolBuild stage; stage.shape=result;stage.named=live_named;
@@ -3494,6 +3494,15 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             if (modifier) {
                 tool.feature_id = spec.feature_id;
             } else if (spec.generator == "SOLID_PATTERN") {
+                const auto& pattern_spec=spec;
+                auto sources=pattern_spec.additional_pattern_sources;sources.insert(sources.begin(),{pattern_spec.pattern_source_feature_id,pattern_spec.pattern_source_kind,pattern_spec.pattern_start_feature_id});
+                if(sources.size()>32)throw std::invalid_argument("PATTERN_SEED_SET_INVALID");
+                ToolBuild aggregate;aggregate.topology_history_complete=true;BRep_Builder seed_builder;TopoDS_Compound seed_shapes;seed_builder.MakeCompound(seed_shapes);
+                std::set<std::string> source_ids;
+                for(const auto& source:sources){
+                if(!source_ids.insert(source.feature_id).second)throw std::invalid_argument("PATTERN_SEED_DUPLICATE");
+                auto spec=pattern_spec;spec.pattern_source_feature_id=source.feature_id;spec.pattern_source_kind=source.source_kind;spec.pattern_start_feature_id=source.start_feature_id;
+                ToolBuild resolved;
                 const auto& stages = spec.pattern_source_kind == "GENERATOR_TOOL" ? pattern_tools : pattern_bodies;
                 if (spec.pattern_source_kind != "GENERATOR_TOOL" && spec.pattern_source_kind != "BODY_STAGE" && spec.pattern_source_kind != "FEATURE_DELTA")
                     throw std::invalid_argument("PATTERN_SOURCE_KIND_INVALID");
@@ -3537,8 +3546,14 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         delta.shape = cut.Shape();
                         delta.generated = complete_boolean_topology_naming(delta.shape, delta.named, spec.pattern_start_feature_id);
                     }
-                    tool = make_pattern_tool(delta, spec);
-                } else tool = make_pattern_tool(found->second,spec);
+                    resolved=std::move(delta);
+                } else resolved=found->second;
+                seed_builder.Add(seed_shapes,resolved.shape);
+                aggregate.named.insert(aggregate.named.end(),resolved.named.begin(),resolved.named.end());
+                aggregate.topology_history_complete=aggregate.topology_history_complete&&resolved.topology_history_complete;
+                }
+                aggregate.shape=seed_shapes;
+                tool=make_pattern_tool(aggregate,pattern_spec);
             } else if (spec.generator == "BOOLEAN") {
                 if (result.IsNull() || spec.tools.empty() || spec.tools.size() > 32 ||
                     (spec.body_operation == "INTERSECT" && spec.tools.size() != 1))
