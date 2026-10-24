@@ -16,11 +16,11 @@ export async function worldScreen(page:Page,point:number[]){
  await observeViewport(page);await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.viewTransition.active)).toBeFalsy();
  return page.evaluate(point=>{const e=(window as any).__cameraEngine,p=e.navigation.target.clone().set(...point).project(e.camera),box=document.querySelector('canvas')!.getBoundingClientRect();return {x:box.x+(p.x+1)*box.width/2,y:box.y+(1-p.y)*box.height/2}},point);
 }
-export async function setProjection(page:Page,label:"平行（无透视）"|"透视（近大远小）",commit=true){
+export async function setProjection(page:Page,label:"平行"|"透视"){
  await page.getByRole("button",{name:"选项",exact:true}).click();
  const dialog=page.getByRole("dialog",{name:"选项",exact:true});await dialog.getByRole("menuitem",{name:"场景",exact:true}).click();
- await dialog.getByRole("combobox",{name:"投影方式"}).click();await page.getByText(label,{exact:true}).click();
- await dialog.getByRole("button",{name:commit?/确\s*定/:/取\s*消/}).click();await expect(dialog).not.toBeVisible();
+ await dialog.getByRole("combobox",{name:"投影方式"}).click();await page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").getByText(label,{exact:true}).click();
+ await dialog.getByRole("button",{name:"关闭",exact:true}).click();await expect(dialog).not.toBeVisible();
 }
 
 // Tests read the existing engine snapshot directly. No debug strings or JSON

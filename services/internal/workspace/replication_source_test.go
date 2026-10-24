@@ -107,3 +107,29 @@ func TestMirrorDatumDependencyAndDeleteProtection(t *testing.T) {
 		t.Fatal("plane reference absent from ordered definition inputs")
 	}
 }
+
+func TestAutomaticPatternSourceKeepsSignedToolsAndExplicitStages(t *testing.T) {
+	m := PartModel{Features: []Feature{{ID: "base", BodyID: "b", Type: "LINEAR_EXTRUDE", Operation: "ADD"}, {ID: "round", BodyID: "b", Type: "FILLET"}, {ID: "cut", BodyID: "b", Type: "LINEAR_EXTRUDE", Operation: "REMOVE"}, {ID: "mirror", BodyID: "b", Type: "SOLID_PATTERN", Operation: "REMOVE", Pattern: &FeaturePattern{PatternDefinition: PatternDefinition{Count: 2}, SourceKind: "GENERATOR_TOOL", Source: FeatureStageRef{BodyID: "b", FeatureID: "cut"}}}}}
+	for _, tc := range []struct{ source, kind, op, start string }{{"base", "GENERATOR_TOOL", "ADD", ""}, {"round", "FEATURE_DELTA", "ADD", "base"}, {"cut", "GENERATOR_TOOL", "REMOVE", ""}, {"mirror", "GENERATOR_TOOL", "REMOVE", ""}} {
+		f := Feature{ID: "new", BodyID: "b", Type: "SOLID_PATTERN", Operation: "ADD", Pattern: &FeaturePattern{SourceKind: "AUTO", Source: FeatureStageRef{BodyID: "b", FeatureID: tc.source}}}
+		if err := resolveAutomaticPatternSource(m, &f); err != nil {
+			t.Fatal(err)
+		}
+		if f.Pattern.SourceKind != tc.kind || f.Operation != tc.op || f.Pattern.StartFeatureID != tc.start {
+			t.Fatal(tc, f)
+		}
+	}
+	f := Feature{Type: "SOLID_PATTERN", Operation: "ADD", Pattern: &FeaturePattern{SourceKind: "BODY_STAGE", Source: FeatureStageRef{BodyID: "b", FeatureID: "mirror"}}}
+	if err := resolveAutomaticPatternSource(m, &f); err != nil || f.Pattern.SourceKind != "BODY_STAGE" || f.Operation != "ADD" {
+		t.Fatal("accepted Body stage reinterpreted", err, f)
+	}
+	f.ID = "mirror"
+	f.Pattern.SourceKind = "AUTO"
+	if err := resolveAutomaticPatternSource(m, &f); err == nil {
+		t.Fatal("self reference accepted")
+	}
+	m.Features[2].EvaluationStatus = "FAILED"
+	if replicationSources(m)["cut"].SourceKind != "" {
+		t.Fatal("failed stage advertised")
+	}
+}

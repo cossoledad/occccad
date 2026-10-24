@@ -33,6 +33,5 @@ export function CaptureSettingsPanel({ settings, onEnabledChange, onSelectionTog
         checked={settings.sketch.includes(kind as SketchSnapCaptureKind)} disabled={!settings.enabled}
         onChange={() => onSketchToggle(kind as SketchSnapCaptureKind)}>{label}</Checkbox>)}
     </div></section>
-    <small>过滤器只影响下一次捕获；已有选择保持不变。</small>
   </div>;
 }

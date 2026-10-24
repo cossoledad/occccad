@@ -1711,8 +1711,8 @@
     },
     {
       "id": "part.pattern.linear",
-      "name": "线性阵列",
-      "helpText": "关联重复选定草图几何。",
+      "name": "阵列",
+      "helpText": "沿直线或圆周关联重复选定对象。",
       "iconKey": "pad",
       "repeatable": false,
       "visibleWhen": {
@@ -1744,7 +1744,7 @@
     {
       "id": "part.pattern.circular",
       "name": "圆周阵列",
-      "helpText": "关联重复选定草图几何。",
+      "helpText": "沿直线或圆周关联重复选定对象。",
       "iconKey": "pad",
       "repeatable": false,
       "visibleWhen": {
@@ -1775,7 +1775,7 @@
     },
     {
       "id": "part.pattern.mirror",
-      "name": "实体镜像",
+      "name": "镜像",
       "helpText": "相对引用平面镜像上游特征工具、材料范围或实体阶段。",
       "iconKey": "pad",
       "repeatable": false,
@@ -4794,7 +4794,7 @@
     },
     {
       "id": "assembly.analyze",
-      "name": "装配约束分析",
+      "name": "约束分析",
       "helpText": "查看装配工程状态，检查相关关系并定位修复。",
       "iconKey": "distance",
       "repeatable": false,
@@ -5408,7 +5408,7 @@
     },
     {
       "id": "assembly.motion-study",
-      "name": "机构",
+      "name": "运动机构",
       "helpText": "DMU · 进入机构编辑",
       "iconKey": "distance",
       "repeatable": false,
@@ -5929,11 +5929,6 @@
           "order": 110
         },
         {
-          "commandId": "part.pattern.circular",
-          "groupKey": "primary",
-          "order": 120
-        },
-        {
           "commandId": "part.pattern.mirror",
           "groupKey": "primary",
           "order": 130
@@ -6258,11 +6253,6 @@
           "commandId": "part.pattern.linear",
           "groupKey": "primary",
           "order": 67
-        },
-        {
-          "commandId": "part.pattern.circular",
-          "groupKey": "primary",
-          "order": 68
         },
         {
           "commandId": "sketch.edit.split",

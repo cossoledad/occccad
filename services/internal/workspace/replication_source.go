@@ -3,16 +3,24 @@ package workspace
 // ReplicationSource describes intrinsic geometry contracts, not a promise to
 // replay an arbitrary feature at another position. It is derived read data.
 type ReplicationSource struct {
-	Tool          bool   `json:"tool"`
-	RangeStart    bool   `json:"rangeStart"`
-	RangeModifier bool   `json:"rangeModifier"`
-	BodyStage     bool   `json:"bodyStage"`
-	Diagnostic    string `json:"diagnostic,omitempty"`
+	SourceKind     string `json:"sourceKind,omitempty"`
+	StartFeatureID string `json:"startFeatureId,omitempty"`
+	Operation      string `json:"operation,omitempty"`
+	Tool           bool   `json:"tool"`
+	RangeStart     bool   `json:"rangeStart"`
+	RangeModifier  bool   `json:"rangeModifier"`
+	BodyStage      bool   `json:"bodyStage"`
+	Diagnostic     string `json:"diagnostic,omitempty"`
 }
 
 func replicationSource(f Feature) ReplicationSource {
 	c := ReplicationSource{BodyStage: isBodyFeature(f.Type)}
 	switch f.Type {
+	case "SOLID_PATTERN":
+		c.Tool = f.Pattern != nil && !f.Pattern.Suppressed && f.Pattern.Count > 1 && (f.Operation == "ADD" || f.Operation == "REMOVE")
+		if !c.Tool {
+			c.Diagnostic = "PATTERN_INDEPENDENT_TOOL_UNAVAILABLE"
+		}
 	case "HOLE":
 		c.Diagnostic = "PATTERN_REEXECUTION_UNSUPPORTED"
 	case "PAD", "LINEAR_EXTRUDE", "REVOLVE", "LOFT":
@@ -31,10 +39,38 @@ func replicationSource(f Feature) ReplicationSource {
 
 func replicationSources(model PartModel) map[string]ReplicationSource {
 	result := make(map[string]ReplicationSource, len(model.Features))
-	for _, f := range model.Features {
+	for i, f := range model.Features {
 		c := replicationSource(f)
 		if f.Suppressed || f.EvaluationStatus == "FAILED" || f.EvaluationStatus == "BLOCKED" {
 			c = ReplicationSource{Diagnostic: "PATTERN_SOURCE_STAGE_UNAVAILABLE"}
+			result[f.ID] = c
+			continue
+		}
+		if c.Tool {
+			c.SourceKind = "GENERATOR_TOOL"
+			c.Operation = f.Operation
+			if c.Operation == "NEW_BODY" || c.Operation == "" {
+				c.Operation = "ADD"
+			}
+		} else if f.Sketch != nil && !f.Suppressed {
+			c.SourceKind = "SKETCH_FRAME"
+		} else if c.RangeModifier {
+			for j := i - 1; j >= 0; j-- {
+				previous := model.Features[j]
+				if previous.BodyID != f.BodyID || previous.Suppressed || !isBodyFeature(previous.Type) {
+					continue
+				}
+				cap := result[previous.ID]
+				if cap.RangeModifier {
+					continue
+				}
+				if cap.RangeStart {
+					c.SourceKind = "FEATURE_DELTA"
+					c.StartFeatureID = previous.ID
+					c.Operation = "ADD"
+				}
+				break
+			}
 		}
 		result[f.ID] = c
 	}

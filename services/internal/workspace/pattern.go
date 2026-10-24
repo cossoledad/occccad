@@ -460,3 +460,53 @@ func resolvePatternParameters(featureID, prefix string, p *PatternDefinition, va
 	_, err := patternPlacements(*p)
 	return err
 }
+
+// AUTO is a command intent only. Persist the exact source contract, never an
+// instruction to silently reinterpret an accepted feature when upstream changes.
+func resolveAutomaticPatternSource(model PartModel, f *Feature) error {
+	if f.Pattern == nil || (f.Pattern.SourceKind != "" && f.Pattern.SourceKind != "AUTO") {
+		return nil
+	}
+	end := len(model.Features)
+	if f.ID != "" {
+		for i, v := range model.Features {
+			if v.ID == f.ID {
+				end = i
+				break
+			}
+		}
+	}
+	prefix := model
+	prefix.Features = model.Features[:end]
+	caps := replicationSources(prefix)
+	p := *f.Pattern
+	cap, ok := caps[p.Source.FeatureID]
+	if !ok || cap.SourceKind == "" {
+		return fmt.Errorf("%w: PATTERN_INDEPENDENT_TOOL_UNAVAILABLE", ErrValidation)
+	}
+	for _, source := range prefix.Features {
+		if source.ID != p.Source.FeatureID {
+			continue
+		}
+		if p.Source.BodyID != "" && p.Source.BodyID != source.BodyID {
+			return fmt.Errorf("%w: PATTERN_SOURCE_STAGE_UNAVAILABLE", ErrValidation)
+		}
+		p.Source.BodyID = source.BodyID
+		if f.BodyID == "" {
+			f.BodyID = source.BodyID
+		}
+		break
+	}
+	p.SourceKind, p.StartFeatureID = cap.SourceKind, cap.StartFeatureID
+	f.Operation = cap.Operation
+	if cap.SourceKind == "SKETCH_FRAME" {
+		f.Type = "SKETCH_PATTERN"
+	} else {
+		f.Type = "SOLID_PATTERN"
+	}
+	if f.Operation == "REMOVE" {
+		p.ResultMode = "COMBINE"
+	}
+	f.Pattern = &p
+	return nil
+}

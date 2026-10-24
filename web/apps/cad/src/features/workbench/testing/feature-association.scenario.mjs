@@ -11,6 +11,8 @@ try {
  const {patternSourceCandidates}=await server.ssrLoadModule("/src/features/workbench/feature-picking.ts");
  const {featureSelectionHit}=await server.ssrLoadModule("/src/cad/interaction/feature-selection.ts");
  const {encodeMeshGLB,decodeMeshGLB}=await server.ssrLoadModule("/src/cad/visual/mesh-glb.ts");
+ const copies={features:['seed','mirror1','mirror2'],elements:[{kind:'FACE',localId:1,primary:['seed'],origins:['seed']},{kind:'FACE',localId:2,primary:['mirror1'],origins:['seed','mirror1']},{kind:'FACE',localId:3,primary:['mirror2'],origins:['seed','mirror1','mirror2']}]};
+ assert.deepEqual(featureContribution(copies,'seed').elements.map(e=>e.localId),[1]);assert.deepEqual(featureContribution(copies,'mirror1').elements.map(e=>e.localId),[2],'copy provenance does not expand feature ownership');
  const mesh={vertices:[[0,0,0],[1,0,0],[0,1,0],[2,0,0],[3,0,0],[2,1,0]],triangles:[[0,1,2],[3,4,5]],faceIds:[1,2],edges:[{localId:1,points:[[0,0,0],[1,0,0]]},{localId:1,points:[[2,0,0],[3,0,0]]}],topologyVertices:[]};
  const associations={features:["blade","fillet","consumed"],elements:[{kind:"FACE",localId:1,origins:["blade"],primary:["blade"],modifiers:["fillet"],status:"MAPPED"},{kind:"FACE",localId:2,origins:["fillet"],primary:["fillet"],supports:["blade"],members:[{patternId:"array",slot:2}],status:"MAPPED"},{kind:"EDGE",localId:1,origins:["blade"],primary:["blade"],status:"MAPPED"}]};
  const visual={schemaVersion:2,referenceGeometry:{datumPlanes:[],axisSystems:[]},primitives:[],featureAssociations:associations};

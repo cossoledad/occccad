@@ -155,6 +155,10 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 	if current == nil || (!isBodyFeature(current.Type) && current.Type != "SKETCH_PATTERN") || current.Type == "IMPORT_BODY" || replacement.Type != current.Type {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: unsupported Feature definition edit", ErrValidation)
 	}
+	replacement.ID = current.ID
+	if err := resolveAutomaticPatternSource(model, &replacement); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	// Identity and history position belong to the existing feature. Target is an explicit input.
 	before := *current
 	if current.Type != "BOOLEAN" && replacement.BodyID != current.BodyID {

@@ -950,7 +950,10 @@ select {
 }
 
 /* The parameter list owns its scroll extent; command chrome remains reachable. */
-.parameter-manager[aria-label="文档参数"] {max-height:min(62vh,620px);overflow:auto;}
+.parameter-manager[aria-label="文档参数"] {display:flex;flex-direction:column;min-height:0;max-height:min(62vh,620px);overflow:hidden;}
+.parameter-manager[aria-label="文档参数"] > :not(.parameter-manager-list) {flex-shrink:0;}
+.parameter-manager[aria-label="文档参数"] .parameter-manager-header {position:static;}
+.parameter-manager-list {min-height:0;overflow:auto;flex:1 1 auto;}
 .parameter-reference-input {display:grid;grid-template-columns:minmax(0,1fr);gap:6px;}
 .parameter-reference-input .ant-select {width:100%;}
 

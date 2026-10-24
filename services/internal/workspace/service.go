@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v40-profile-association"
+const evaluatorVersion = "part-solid-generators-v41-signed-pattern-tools"
 
 var (
 	ErrNotFound   = errors.New("document not found")

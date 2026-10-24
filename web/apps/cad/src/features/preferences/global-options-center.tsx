@@ -3,7 +3,7 @@ import {CommandDialog} from "../../cad/overlay/floating-panel";
 import {APP_OPTIONS_COMMAND,globalOptionsCommand} from "./global-options-command";
 import {SettingOutlined} from "@ant-design/icons";
 import {Button,Checkbox,ColorPicker,Input,InputNumber,Menu,Radio,Select,Space,Typography} from "antd";
-import {createContext,useCallback,useContext,useMemo,useState,type PropsWithChildren} from "react";
+import {createContext,useCallback,useContext,useMemo,useRef,useState,type PropsWithChildren} from "react";
 import {CommandRegistry} from "../../cad/command/command-registry";
 import {CaptureSettingsPanel} from "../../cad/overlay/capture-settings-panel";
 import {DEFAULT_CAPTURE_SETTINGS} from "../../cad/interaction/capture-settings";
@@ -23,9 +23,16 @@ type Page="scene"|"display"|"creation"|"navigation"|"units";
 export function GlobalOptionsProvider({children,activeDocumentID}:PropsWithChildren<{activeDocumentID?:string}>) {
  const [draft,setDraft]=useState<GlobalOptionsSnapshot>();const [page,setPage]=useState<Page>("scene");
  const [metrics,setMetrics]=useState<SceneMetrics>();
- const open=useCallback(()=>setDraft(globalOptionsSnapshot(useUIPreferences.getState())),[]);
+ const draftRef=useRef<GlobalOptionsSnapshot|undefined>(undefined);
+ const open=useCallback(()=>{const value=globalOptionsSnapshot(useUIPreferences.getState());draftRef.current=value;setDraft(value)},[]);
+ const close=()=>{draftRef.current=undefined;setDraft(undefined)};
  const registry=useMemo(()=>{const r=new CommandRegistry();r.register(globalOptionsCommand(open));return r},[open]);
- const patch=(change:Partial<GlobalOptionsSnapshot>)=>setDraft(current=>current?{...current,...change}:current);
+ const patch=(change:Partial<GlobalOptionsSnapshot>)=>{
+  const current=draftRef.current;if(!current)return;const next={...current,...change};draftRef.current=next;setDraft(next);
+  const preferences=useUIPreferences.getState();
+  // An incomplete HEX draft remains local; every other valid setting applies now.
+  preferences.applyGlobalOptions(/^#[0-9a-fA-F]{6}$/.test(next.creationDefaults.solid.color)?next:{...next,creationDefaults:{solid:{...next.creationDefaults.solid,color:preferences.creationDefaults.solid.color}}});
+ };
  const reset=()=>{if(!draft)return;switch(page){
   case "scene":patch({sceneSettings:{...DEFAULT_SCENE_SETTINGS}});break;
   case "display":patch({solidDisplay:{...DEFAULT_SOLID_DISPLAY},referenceVisibility:{...DEFAULT_REFERENCE_VISIBILITY},gridVisibility:{...DEFAULT_GRID_VISIBILITY}});break;
@@ -59,12 +66,11 @@ export function GlobalOptionsProvider({children,activeDocumentID}:PropsWithChild
   {page==="units"&&<Space orientation="vertical" className="global-options-fields">
    <CommandField label="默认长度单位" width="enum"><Select aria-label="默认长度单位" value={draft.displayLengthUnit} options={units} onChange={displayLengthUnit=>patch({displayLengthUnit:displayLengthUnit as DisplayLengthUnit})}/></CommandField>
    {activeDocumentID&&<CommandField label="当前文档显示单位" width="enum"><Select aria-label="当前文档显示单位" value={draft.documentLengthUnits[activeDocumentID]??"INHERIT"} options={[{value:"INHERIT",label:"继承全局设置"},...units]} onChange={unit=>{const documentLengthUnits={...draft.documentLengthUnits};if(String(unit)==="INHERIT")delete documentLengthUnits[activeDocumentID];else documentLengthUnits[activeDocumentID]=unit as DisplayLengthUnit;patch({documentLengthUnits})}}/></CommandField>}
-   <Typography.Text type="secondary">控制显示和新建数值输入；已有参数表达式与模型尺寸保持原值。</Typography.Text>
   </Space>}
  </>;
  const context=useMemo(()=>({draft,open,registry,setMetrics}),[draft,open,registry]);
- return <Context.Provider value={context}>{children}<CommandDialog id="global-options" open={Boolean(draft)} title="选项" size="L" onClose={()=>setDraft(undefined)} onConfirm={()=>{if(draft)useUIPreferences.getState().applyGlobalOptions(draft);setDraft(undefined)}} confirmDisabled={Boolean(draft&&!/^#[0-9a-fA-F]{6}$/.test(draft.creationDefaults.solid.color))} secondaryActions={<Button type="link" onClick={reset}>恢复当前页默认设置</Button>}>
-  <div className="global-options-layout"><Menu selectedKeys={[page]} onClick={({key})=>setPage(key as Page)} items={[{key:"scene",label:"场景"},{key:"display",label:"显示"},{key:"creation",label:"新建对象"},{key:"navigation",label:"导航与捕获"},{key:"units",label:"单位"}]}/><div className="global-options-content">{contents}</div></div>
+ return <Context.Provider value={context}>{children}<CommandDialog id="global-options" open={Boolean(draft)} title="选项" size="L" onClose={close} onConfirm={close} footer={false}>
+  <div className="global-options-layout"><Menu selectedKeys={[page]} onClick={({key})=>setPage(key as Page)} items={[{key:"scene",label:"场景"},{key:"display",label:"显示"},{key:"creation",label:"新建对象"},{key:"navigation",label:"导航与捕获"},{key:"units",label:"单位"}]}/><div className="global-options-content">{contents}<Button type="link" onClick={reset}>恢复当前页默认设置</Button></div></div>
  </CommandDialog></Context.Provider>;
 }
 export function GlobalOptionsButton(){const options=useGlobalOptions();return <Button ghost aria-label="选项" title="全局选项" icon={<SettingOutlined/>} onClick={()=>{void options?.registry.execute(APP_OPTIONS_COMMAND)}}/>}

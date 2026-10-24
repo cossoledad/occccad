@@ -47,7 +47,9 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store, developmentStaging))
 	sequence := 0
 	create := func(kind, name string) workspace.DocumentView {
@@ -298,6 +300,51 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 	apply(&blade, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + frames.ID + ":pattern:count", Value: 3, Unit: "1"})
 	if math.Abs(activeBodyArtifact(t, blade).Volume-120) > 1e-6 {
 		t.Fatal("restored member did not recover downstream loft")
+	}
+	// A mirrored cutting tool remains a cutting tool when selected again. AUTO
+	// freezes the resolved source contract inside the formal create transaction.
+	nested := create("PART", "Nested mirror cut tools")
+	apply(&nested, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	stockSketch := nested.Part.Features[len(nested.Part.Features)-1].ID
+	apply(&nested, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: stockSketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -30, Y: -30}, Second: &workspace.SketchPoint2{X: 30, Y: 30}}}})
+	apply(&nested, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: stockSketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 5})
+	apply(&nested, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	holeSketch := nested.Part.Features[len(nested.Part.Features)-1].ID
+	radius := 2.0
+	apply(&nested, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: holeSketch, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "hole-circle", Kind: "CIRCLE", Role: "PROFILE", Center: &workspace.SketchPoint2{X: 10, Y: 10}, Radius: 2}}, {Type: "ADD_CONSTRAINT", Constraint: &workspace.SketchConstraint{ID: "hole-radius", Kind: "RADIUS", References: []workspace.SketchGeometryRef{{Target: "ENTITY", EntityID: "hole-circle", SubElement: "WHOLE"}}, Value: &radius, Unit: "mm"}}}})
+	apply(&nested, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: holeSketch, Generator: "LINEAR_EXTRUDE", Operation: "REMOVE", Length: 5})
+	cuttingSeed := nested.Part.Features[len(nested.Part.Features)-1]
+	mirrors := []workspace.Feature{}
+	for i, plane := range []string{"datum-yz", "datum-xz", "datum-yz"} {
+		source := cuttingSeed.ID
+		if i == 2 {
+			source = mirrors[1].ID
+		}
+		apply(&nested, workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &workspace.Feature{Type: "SOLID_PATTERN", BodyID: cuttingSeed.BodyID, Operation: "ADD", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "MIRROR", Distribution: "FIXED_STEP", Count: 2, MirrorPlaneID: plane, Direction: [3]float64{1, 0, 0}}, Source: workspace.FeatureStageRef{BodyID: cuttingSeed.BodyID, FeatureID: source}, SourceKind: "AUTO"}}})
+		accepted := nested.Part.Features[len(nested.Part.Features)-1]
+		mirrors = append(mirrors, accepted)
+		if accepted.Operation != "REMOVE" || accepted.Pattern.SourceKind != "GENERATOR_TOOL" {
+			t.Fatal("negative source was reinterpreted", accepted)
+		}
+		if math.Abs(activeBodyArtifact(t, nested).Volume-(18000-float64(i+2)*math.Pi*4*5)) > 1e-5 {
+			t.Fatal("mirror filled or duplicated a hole", i, activeBodyArtifact(t, nested).Volume)
+		}
+	}
+	apply(&nested, workspace.CommandRequest{Type: "UNDO"})
+	if math.Abs(activeBodyArtifact(t, nested).Volume-(18000-3*math.Pi*4*5)) > 1e-5 {
+		t.Fatal("undo lost previous holes")
+	}
+	apply(&nested, workspace.CommandRequest{Type: "REDO"})
+	if nested.Part.Features[len(nested.Part.Features)-1].ID != mirrors[2].ID {
+		t.Fatal("redo changed feature identity")
+	}
+	apply(&nested, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + holeSketch + ":constraint:hole-radius:value", Value: 3, Unit: "mm"})
+	if math.Abs(activeBodyArtifact(t, nested).Volume-(18000-4*math.Pi*9*5)) > 1e-5 {
+		t.Fatal("nested tool did not follow seed diameter")
+	}
+	reopened, err := cold.GetDocument(t.Context(), nested.Document.ID, p6Actor)
+	if err != nil || reopened.Document.VersionID != nested.Document.VersionID || math.Abs(activeBodyArtifact(t, reopened).Volume-activeBodyArtifact(t, nested).Volume) > 1e-8 {
+		t.Fatal("reopen changed nested pattern", err)
 	}
 
 }

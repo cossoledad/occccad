@@ -1,7 +1,7 @@
 import {expect,test,type Page} from '@playwright/test';
 async function login(page:Page,email=process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password=process.env.OCCCCAD_ADMIN_PASSWORD){expect(password).toBeTruthy();const r=await page.request.post('/api/auth/login',{data:{email,password}});expect(r.ok()).toBeTruthy();await page.goto('/');}
 async function current(page:Page,id:string){return (await page.request.get(`/api/documents/${id}`)).json();}
-async function openMotion(page:Page){await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill('装配约束分析');await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:/^装配约束分析$/})}).click();const dialog=page.getByRole('dialog',{name:/装配状态 ·/});await dialog.getByRole('tab',{name:'剩余运动',exact:true}).click();return dialog;}
+async function openMotion(page:Page){await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill('约束分析');await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:/^约束分析$/})}).click();const dialog=page.getByRole('dialog',{name:/装配状态 ·/});await dialog.getByRole('tab',{name:'剩余运动',exact:true}).click();return dialog;}
 async function observeGuides(page:Page){
  // Same production-module observation used by the neighboring motion fixture.
  await page.route('**/src/viewport/cad-viewport-engine.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`\nconst show=CadViewportEngine.prototype.showRemainingMotion;CadViewportEngine.prototype.showRemainingMotion=function(...args){window.__engineeringEngine=this;return show.apply(this,args)};`});});

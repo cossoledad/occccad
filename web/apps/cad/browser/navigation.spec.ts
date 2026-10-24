@@ -27,7 +27,7 @@ async function openNavigation(page: Page, mode: string) {
   await page.getByRole("dialog",{name:"选项",exact:true}).getByRole("menuitem",{name:"导航与捕获",exact:true}).click();
   await page.getByRole("combobox", { name: "鼠标操作模式" }).click();
   await page.getByText(mode, { exact: true }).click();
-  await page.getByRole("dialog", { name: "选项" }).getByRole("button", { name: /确\s*定/ }).click();
+  await page.getByRole("dialog", { name: "选项" }).getByRole("button", { name: "关闭", exact:true }).click();
   await expect(page.getByRole("dialog", { name: "选项" })).not.toBeVisible();
   await expectViewport(viewportProbe(page,"debug")).toContainText(mode === "3DEXPERIENCE CATIA" ? "catia/none" : "solidworks/none");
   const box = (await page.locator("canvas").boundingBox())!;
@@ -62,7 +62,7 @@ test("CATIA native browser chords, sphere, zoom latch, cancellation and persiste
   await page.getByRole("button", { name: "选项", exact: true }).click();
   await page.getByRole("dialog",{name:"选项",exact:true}).getByRole("menuitem",{name:"导航与捕获",exact:true}).click();
   await page.getByRole("checkbox", { name: "显示旋转球" }).check();
-  await page.getByRole("dialog", { name: "选项" }).getByRole("button", { name: /确\s*定/ }).click();
+  await page.getByRole("dialog", { name: "选项" }).getByRole("button", { name: "关闭", exact:true }).click();
   await expect(page.getByRole("dialog", { name: "选项" })).not.toBeVisible();
   await page.mouse.move(x, y); await page.mouse.down({ button: "middle" }); await page.mouse.down({ button: "left" });
   await expectViewport(debug).not.toContainText("HUD: hidden");
@@ -107,7 +107,7 @@ test("orthographic detail navigation, isometric shortcut and sketch view round t
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (/THREE.WebGLProgram|VALIDATE_STATUS|Shader Error/.test(message.text())) errors.push(message.text()); });
   await page.goto("/documents/mock-part-bracket");
-  await setProjection(page,"平行（无透视）");
+  await setProjection(page,"平行");
   const canvas = page.locator("canvas"), camera = viewportProbe(page,"navigation-camera");
   const projection = viewportProbe(page,"navigation-projection");
   await expectViewport(projection).toContainText("orthographic");

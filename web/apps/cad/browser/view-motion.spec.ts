@@ -14,7 +14,7 @@ async function observe(page:Page){
 for(const parallel of [false,true])test(`Fit and standard views animate and interrupt (${parallel?"parallel":"perspective"})`,async({page},testInfo)=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
  await page.goto("/documents/mock-part-bracket");await expect(page.locator("canvas")).toBeVisible();
- if(parallel)await setProjection(page,"平行（无透视）");
+ if(parallel)await setProjection(page,"平行");
  const camera=viewportProbe(page,"navigation-camera"),canvas=page.locator("canvas");
  await page.getByRole("tab",{name:"视图",exact:true}).click();
  const deck=page.locator(".workbench-command-deck");

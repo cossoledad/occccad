@@ -56,7 +56,12 @@ export function profileSelectionIDs(view:DocumentView,upstream:Feature[],pattern
 
 // A generator tool is not the final Body stage. Viewport association may offer
 // several actual generators; callers present those candidates explicitly.
-export function patternSourceCandidates(selection:SelectionItem,stages:Feature[],kind:"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA",capabilities:DocumentView["replicationSources"]={}):Feature[] {
+export function patternSourceCandidates(selection:SelectionItem,stages:Feature[],kind:"AUTO"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA",capabilities:DocumentView["replicationSources"]={}):Feature[] {
+ if(kind==='AUTO'){
+  const eligible=stages.filter(f=>!f.suppressed&&f.bodyId===selection.bodyId&&!!capabilities[f.id]?.sourceKind);
+  if(['pad','feature','import','sketch'].includes(selection.kind))return eligible.filter(f=>f.id===(selection.entityId??selection.id));
+  return eligible.filter(f=>(selection.associatedFeatureIds??selection.sourceFeatureIds??[]).includes(f.id));
+ }
  if(kind==="GENERATOR_TOOL" && selection.patternMemberSlot!==undefined && selection.patternMemberSlot!==0)return [];
  const eligible=stages.filter(f=>!f.suppressed&&f.bodyId===selection.bodyId&&(kind==="GENERATOR_TOOL"?capabilities[f.id]?.tool:capabilities[f.id]?.bodyStage));
  if(["pad","feature","import"].includes(selection.kind))return eligible.filter(f=>f.id===(selection.entityId??selection.id));

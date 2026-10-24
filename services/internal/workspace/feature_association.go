@@ -237,7 +237,7 @@ func featureContributionStatuses(index *FeatureAssociationIndex) map[string]stri
 		}
 	}
 	for _, e := range index.Elements {
-		for _, id := range e.Origins {
+		for _, id := range e.Primary {
 			if e.Kind == "FACE" || e.Kind == "EDGE" {
 				out[id] = "CURRENT"
 			}

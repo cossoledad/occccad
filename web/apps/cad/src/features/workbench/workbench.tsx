@@ -1913,7 +1913,7 @@ onToggleConstruction:(node)=>{
         return api.command(target.documentId,{type:"SET_PROPERTIES",versionId:target.versionId,properties});
       });setPropertyTargets(undefined)}}
       onOpenOriginal={id=>{setPropertyTargets(undefined);void openDocumentTab(id,client,api.openDocument,navigate)}}/>}
-	<CommandDialog id="parameter-manager" open={parameterManagerOpen} title="参数" size="L"
+	<CommandDialog id="parameter-manager" bodyClassName="parameter-dialog-body" scrollBody={false} open={parameterManagerOpen} title="参数" size="L"
 		onClose={() => setParameterManagerOpen(false)} onConfirm={() => setParameterManagerOpen(false)}>
 		<div className="parameter-manager" aria-label="文档参数">
 			<Form form={createUserParameterForm} layout="inline" initialValues={{value:0,unit:"mm"}}>
@@ -1927,6 +1927,7 @@ onToggleConstruction:(node)=>{
 				}}>新建参数</Button></Form.Item>
 			</Form>
 			<Input.Search aria-label="搜索参数" placeholder="搜索参数、别名或所属对象" value={parameterSearch} onChange={e=>setParameterSearch(e.target.value)}/><div className="parameter-manager-header"><span>参数 / 别名</span><span>来源</span><span>计算值</span><span /></div>
+            <div className="parameter-manager-list" role="region" aria-label="参数列表">
 			{(editingView?.part?.parameters ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 Part 尚无参数" />
 				: (editingView?.part?.parameters ?? []).filter(p=>[p.key,p.displayAlias,p.qualifiedDisplayPath,p.label].some(text=>text?.toLowerCase().includes(parameterSearch.trim().toLowerCase()))).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
 					<span><strong>{parameter.qualifiedDisplayPath ?? parameter.displayName ?? parameter.label}</strong>
@@ -1944,6 +1945,7 @@ onToggleConstruction:(node)=>{
 						title={parameter.lifecycle === "SKETCH_DIMENSION" ? "请通过尺寸约束删除" : parameter.lifecycle !== "USER" ? "Feature 必需参数不能独立删除" : undefined}
 						onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"DELETE_PARAMETER",parameterId:parameter.parameterId}))}>删除</Button></Space>
 				</div>)}
+            </div>
 			<small className="cad-command-hint">可插入参数引用或输入表达式，重命名不影响已有关系。</small>
 		</div>
 	</CommandDialog>

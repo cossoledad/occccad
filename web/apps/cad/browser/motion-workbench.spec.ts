@@ -121,7 +121,7 @@ async function command(page:Page,name:string){
 
 async function enter(page:Page,existing=false){
  if(existing){const name=await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms[0]?.name??'测试机构');const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill(name);const row=page.getByRole('treeitem').filter({has:page.getByText(name+'，自由度=0',{exact:true})}).first();await expect(row).toHaveAttribute('data-action-enabled','true');await row.dblclick();await filter.fill('');}
- else {await command(page,'机构');await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);}
+ else {await command(page,'运动机构');await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);}
  await expect(page.getByRole('tab',{name:'机构与 DMU',exact:true})).toBeVisible();
  await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toHaveCount(0);
 }
@@ -166,15 +166,15 @@ test('joint toolbar is flat and prismatic plane direction is saved independently
 
 test('mechanism entry creates without selection, edits selected mechanisms and discards untouched empties',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);
- await command(page,'机构');await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(2);
+ await command(page,'运动机构');await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(2);
  await expect(page.getByRole('dialog')).toHaveCount(0);await command(page,'退出机构');
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);
  const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
- await filter.fill('测试机构');await tree.getByText('测试机构，自由度=0',{exact:true}).first().click();await command(page,'机构');
+ await filter.fill('测试机构');await tree.getByText('测试机构，自由度=0',{exact:true}).first().click();await command(page,'运动机构');
  await expect(page.locator('[data-application-id="m"]')).toBeVisible();
  expect(await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1).kinematics.mechanisms.length)).toBe(1);
  await filter.fill('');await command(page,'退出机构');
- await command(page,'机构');await command(page,'旋转接合');await page.keyboard.press('Escape');await command(page,'退出机构');
+ await command(page,'运动机构');await command(page,'旋转接合');await page.keyboard.press('Escape');await command(page,'退出机构');
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);expect(errors).toEqual([]);
 });
 

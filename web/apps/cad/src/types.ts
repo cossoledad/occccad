@@ -150,7 +150,7 @@ export type Feature = {
  order?:number;
  holePoint?:PatternDefinition["centerReference"];diameter?:number;depth?:number;
  terminationPlaneId?:string;terminationPlane?:NonNullable<Feature["selections"]>[number];
-  pattern?:PatternDefinition & {startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
+  pattern?:PatternDefinition & {startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
   profileSelection?: {mode:"WHOLE_SKETCH"|"REGIONS";regionIds?:string[]};
   profileMemberSlot?:number;
   evaluationStatus?: "FAILED" | "BLOCKED" | "SUPPRESSED";
@@ -440,7 +440,7 @@ export type SketchProfileAnalysis = {
 
 export type DocumentView = {
   bodyAppearances?: Record<string, ResolvedAppearance>;
- replicationSources?:Record<string,{tool:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
+ replicationSources?:Record<string,{sourceKind?:"SKETCH_FRAME"|"GENERATOR_TOOL"|"FEATURE_DELTA";startFeatureId?:string;operation?:Feature["operation"];tool:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
   sketchPatternMembers?:Record<string,SketchEntity[]>;
   document: DocumentSummary;
   sketchAnalyses?: Record<string, SketchProfileAnalysis>;

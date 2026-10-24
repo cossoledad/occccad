@@ -23,7 +23,7 @@ test("one global options entry previews, cancels and persists across documents",
  await open();await dialog.getByRole("tab",{name:"地面与网格",exact:true}).click();await dialog.getByRole("combobox",{name:"地面位置",exact:true}).click();await page.getByTitle("指定高度",{exact:true}).click();
  await dialog.getByRole("spinbutton",{name:"地面高度（mm）",exact:true}).fill("-42");await expect(dialog.getByLabel("当前场景地面")).toContainText("-42 mm");
  await dialog.getByRole("tab",{name:"光照",exact:true}).click();await dialog.getByRole("combobox",{name:"光照预设",exact:true}).click();await page.getByTitle("柔和",{exact:true}).click();
- await page.screenshot({path:"../../../build/acceptance/global-options-scene.png"});await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).not.toBeVisible();
+ await page.screenshot({path:"../../../build/acceptance/global-options-scene.png"});await dialog.getByRole("button",{name:"关闭",exact:true}).click();await expect(dialog).not.toBeVisible();
  const settings=()=>page.evaluate(async()=>{const {useUIPreferences}=await import("/src/state/ui-preferences.ts");return useUIPreferences.getState().sceneSettings});
  expect((await settings()).groundHeight).toBe(-42);expect((await settings()).lighting).toBe("SOFT");expect(await head()).toBe(original);
  await open();await dialog.getByRole("tab",{name:"地面与网格",exact:true}).click();await dialog.getByRole("spinbutton",{name:"地面高度（mm）",exact:true}).fill("12");await expect(dialog.getByLabel("当前场景地面")).toContainText("12 mm");await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await settings()).groundHeight).toBe(-42);

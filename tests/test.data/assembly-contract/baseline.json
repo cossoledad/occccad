@@ -871,7 +871,7 @@
     "assertions": {
         "m4.snapshot.current-render-bindings": "973b49dea9e0648957ab217ad7cceab407616282b965c666bc698aa969dd0ca8",
         "m4.target.diagonal-projection": "93e6f1d756a244cd2e0def0399b12a70ee53cd74d04324e42414a8be6b698482",
-        "m5.engineering.command-panel": "62f5d9a3703627fdee21e796e803abae5bc2784e1e65e3aa063bef5168ded5fa",
+        "m5.engineering.command-panel": "3f815c21ee65cfb25a006080c20691cc4a16d8859dace0800ec62309335d5370",
         "m5.engineering.server-catalog": "4cbe6fa37955432b3213674164441074a52a06e2ed9f57865f20258f03a56b0c",
         "m4.snapshot.metadata-only-router": "2e9107f2330b2f224e0caadf3885e4aeb57c9f1722d8d8b1b3a89d6b025f0639",
         "m4.snap.precise-frame": "0531a46c32c76513bc401d274e442749692051dc11e1cfd35e24b4bff6e18f49",
@@ -2210,5 +2210,9 @@
             "composition.trimmed-arc.production-ui-eligibility",
             "composition.edit-intent.production-ui"
         ]
+    },
+    "uiCommandLabelReview20261024": {
+        "caseId": "m5.engineering.command-panel",
+        "reason": "Rename search label from 装配约束分析 to 约束分析 as requested; command identity, executable assertion, status privacy and repair coverage remain unchanged."
     }
 }

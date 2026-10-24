@@ -69,9 +69,9 @@ test("real properties history, face preview, conflict recovery and adaptive scen
  await expect.poll(async()=>Number(/当前高度 ([^\s]+)/.exec(await scene.getByLabel("当前场景地面").innerText())?.[1])).toBe(seed.ground);
  await scene.getByRole("combobox",{name:"地面位置",exact:true}).click();await page.getByTitle("世界 XY 平面（Z=0）",{exact:true}).click();await expect(scene.getByLabel("当前场景地面")).toContainText("当前高度 0 mm");
  await scene.getByRole("tab",{name:"光照",exact:true}).click();await scene.getByRole("combobox",{name:"光照预设",exact:true}).click();await page.getByTitle("柔和",{exact:true}).click();
- await page.screenshot({path:"../../../build/acceptance/properties-real-scene.png"});await scene.getByRole("button",{name:/取\s*消/}).click();
+ await page.screenshot({path:"../../../build/acceptance/properties-real-scene.png"});await scene.getByRole("button",{name:"关闭",exact:true}).click();
  expect((await current(page,seed.id)).document.versionId).toBe(revision);
- await openScene();await expect.poll(async()=>Number(/当前高度 ([^\s]+)/.exec(await scene.getByLabel("当前场景地面").innerText())?.[1])).toBe(seed.ground);await scene.getByRole("button",{name:/取\s*消/}).click();
+ await openScene();await expect.poll(async()=>Number(/当前高度 ([^\s]+)/.exec(await scene.getByLabel("当前场景地面").innerText())?.[1] )).toBe(0);await scene.getByRole("button",{name:"关闭",exact:true}).click();
  expect(errors).toEqual([]);
 });
 
@@ -85,9 +85,9 @@ test("global creation defaults are frozen for ordinary and assembly-created Part
  const options=page.getByRole("dialog",{name:"选项",exact:true});
  const changeDefault=async(color:string)=>{
   await page.getByRole("button",{name:"选项",exact:true}).click();await options.getByRole("menuitem",{name:"新建对象",exact:true}).click();
-  await options.getByRole("textbox",{name:"默认实体颜色 HEX",exact:true}).fill("#bad");await expect(options.getByRole("button",{name:/确\s*定/})).toBeDisabled();
+  await options.getByRole("textbox",{name:"默认实体颜色 HEX",exact:true}).fill("#bad");await expect(options.getByRole("textbox",{name:"默认实体颜色 HEX",exact:true})).toHaveClass(/ant-input-status-error/);
   await options.getByRole("textbox",{name:"默认实体颜色 HEX",exact:true}).fill(color);await page.screenshot({path:"../../../build/acceptance/global-options-defaults.png"});
-  await options.getByRole("button",{name:/确\s*定/}).click();await expect(options).not.toBeVisible();
+  await options.getByRole("button",{name:"关闭",exact:true}).click();await expect(options).not.toBeVisible();
  };
  await changeDefault("#bb7733");
  const created=await page.evaluate(async()=>{
@@ -129,4 +129,15 @@ test("new API documents acquire previews in the list without entering the editor
  await expect.poll(()=>card.locator(".document-thumbnail img").evaluate((img:HTMLImageElement)=>img.complete&&img.naturalWidth===640)).toBe(true);
  expect(page.url()).not.toContain(`/documents/${view.document.id}`);
  const current=await page.request.get(`/api/documents/${view.document.id}`);expect((await current.json()).document.versionId).toBe(view.document.versionId);
+});
+
+test('global options apply immediately and parameter headers stay outside the scrolling list',async({page},testInfo)=>{
+ test.setTimeout(180_000);page.setDefaultTimeout(20_000);expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();await page.goto('/');
+ const seed=await page.evaluate(async()=>{const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','UI 参数滚动验收');for(let i=0;i<42;i++)v=await api.command(v.document.id,{type:'CREATE_PARAMETER',name:`engineering_length_${i}`,value:i,unit:'mm'});return {id:v.document.id,version:v.document.versionId}});
+ await page.goto('/documents/'+seed.id);await expect(page.locator('canvas')).toBeVisible();await worldScreen(page,[0,0,0]);await page.getByRole('button',{name:'选项',exact:true}).click();const options=page.getByRole('dialog',{name:'选项',exact:true});await options.getByRole('combobox',{name:'投影方式',exact:true}).click();await page.getByText('平行',{exact:true}).click();
+ await expect.poll(()=>page.evaluate(async()=>{const {useUIPreferences}=await import('/src/state/ui-preferences.ts');return {stored:useUIPreferences.getState().sceneSettings.projection,visible:(window as any).__cameraEngine.camera.isOrthographicCamera}})).toEqual({stored:'ORTHOGRAPHIC',visible:true});
+ await options.getByRole('tab',{name:'地面与网格',exact:true}).click();await expect(options.getByText('更多地面设置',{exact:true})).toHaveCount(0);await expect(options.getByRole('checkbox',{name:'地面柔和阴影',exact:true})).toBeVisible();await options.getByRole('checkbox',{name:'同时显示世界基准网格（Z=0）',exact:true}).check();await expect.poll(()=>page.evaluate(async()=>{const {useUIPreferences}=await import('/src/state/ui-preferences.ts');return useUIPreferences.getState().sceneSettings.worldGrid})).toBeTruthy();
+ await options.getByRole('tab',{name:'光照',exact:true}).click();await expect(options.getByRole('slider',{name:'主光方位角',exact:true})).toBeVisible();await options.getByRole('button',{name:'关闭',exact:true}).click();await page.reload();await expect(page.locator('canvas')).toBeVisible();await worldScreen(page,[0,0,0]);await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.camera.isOrthographicCamera)).toBeTruthy();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill('参数');await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:/^参数$/})}).click();const d=page.getByRole('dialog',{name:'参数',exact:true});const list=d.getByRole('region',{name:'参数列表',exact:true});await expect(list.locator('.parameter-manager-row')).toHaveCount(42);
+ await page.setViewportSize({width:1024,height:768});await page.evaluate(()=>document.documentElement.style.zoom='1.25');const before=await d.locator('form').boundingBox(),heading=await d.locator('.parameter-manager-header').boundingBox();const box=await list.boundingBox();expect(box).toBeTruthy();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,1600);await expect.poll(()=>list.evaluate(el=>el.scrollTop)).toBeGreaterThan(0);expect((await d.locator('form').boundingBox())!.y).toBeCloseTo(before!.y,1);expect((await d.locator('.parameter-manager-header').boundingBox())!.y).toBeCloseTo(heading!.y,1);await expect(d.getByRole('searchbox',{name:'搜索参数'})).toBeVisible();await page.screenshot({path:testInfo.outputPath('parameter-list-fixed-header.png')});await d.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
 });

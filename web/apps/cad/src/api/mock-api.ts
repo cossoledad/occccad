@@ -342,10 +342,18 @@ function getView(documentID: string): DocumentView {
   const view = views.get(documentID);
   if (!view) throw new Error("文档不存在");
   if(view.part)for(const f of view.part.features)f.bodyId??=view.part.activeBodyId;
-  if(view.part)view.replicationSources=Object.fromEntries(view.part.features.map(f=>{
-    const tool=["PAD","LINEAR_EXTRUDE","REVOLVE","LOFT"].includes(f.type)&&f.extent!=="THROUGH_ALL"&&!f.suppressed;
-    return [f.id,{tool,rangeStart:tool&&f.operation!=="REMOVE",rangeModifier:!f.suppressed&&["FILLET","CHAMFER"].includes(f.type),bodyStage:!f.suppressed&&["PAD","LINEAR_EXTRUDE","REVOLVE","LOFT","BOOLEAN","FILLET","CHAMFER","DRAFT","SHELL","SOLID_PATTERN","IMPORT_BODY"].includes(f.type)}];
-  }));
+  if(view.part){
+    const caps:NonNullable<DocumentView["replicationSources"]>={};
+    view.part.features.forEach((f,i)=>{
+      const available=!f.suppressed&&!['FAILED','BLOCKED'].includes(f.evaluationStatus??'');
+      const tool=available&&(["PAD","LINEAR_EXTRUDE","REVOLVE","LOFT"].includes(f.type)&&!['THROUGH_ALL','TO_PLANE'].includes(f.extent??'')||f.type==='SOLID_PATTERN'&&!!f.pattern&&!f.pattern.suppressed&&f.pattern.count>1&&['ADD','REMOVE'].includes(f.operation??''));
+      const c:NonNullable<DocumentView["replicationSources"]>[string]={tool,rangeStart:tool&&f.type!=='SOLID_PATTERN'&&f.operation!=="REMOVE",rangeModifier:available&&["FILLET","CHAMFER"].includes(f.type),bodyStage:available&&["PAD","LINEAR_EXTRUDE","REVOLVE","LOFT","HOLE","BOOLEAN","FILLET","CHAMFER","DRAFT","SHELL","SOLID_PATTERN","IMPORT_BODY"].includes(f.type)};
+      if(tool){c.sourceKind='GENERATOR_TOOL';c.operation=f.operation==='REMOVE'?'REMOVE':'ADD'}
+      else if(available&&f.sketch)c.sourceKind='SKETCH_FRAME';
+      else if(c.rangeModifier){for(const previous of view.part!.features.slice(0,i).reverse()){if(previous.bodyId!==f.bodyId||previous.suppressed||!caps[previous.id]?.bodyStage)continue;if(caps[previous.id].rangeModifier)continue;if(caps[previous.id].rangeStart){c.sourceKind='FEATURE_DELTA';c.startFeatureId=previous.id;c.operation='ADD'}break}}
+      caps[f.id]=c;
+    });view.replicationSources=caps;
+  }
   view.structureTree = mockStructure(view);
   annotateMockStructure(view.structureTree, view.document.id);
   if (view.product?.visibilityOverrides?.length) {

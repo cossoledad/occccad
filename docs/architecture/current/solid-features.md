@@ -70,18 +70,18 @@
 
 数量包含槽位 0，求值后必须是 1–256 的整数。线性支持固定步距和总跨度；圆周另支持整圆均布（步角为 360/N，不生成重复终点）。数量为 1 不除以零。跳过成员不重新编号；暂时超出当前数量的跳过槽位保留，恢复数量后仍跳过。成员身份来自 PatternId、槽位、源身份；位置和显示顺序不参与身份。成员消失后的下游引用明确失败，不按相近几何改绑。
 
-- `GENERATOR_TOOL` 复用同 Body 明确上游拉伸/旋转/放样生成工具。切除阵列变换切削工具，再与当前上游 Body 做差，不复制已经打孔的主体。有限、对称、双侧拉伸及有限旋转可复用；贯穿、到平面及其他逐位置重新求值不支持。
+- `GENERATOR_TOOL` 复用同 Body 明确上游拉伸/旋转/放样生成工具及已求值实体阵列／镜像工具。继续复制阵列时只复制其新增成员工具，排除槽位 0，继承添加／切除语义与真实历史。切除阵列变换切削工具，再与当前上游 Body 做差，不复制已经打孔的主体。有限、对称、双侧拉伸及有限旋转可复用；贯穿、到平面及其他逐位置重新求值不支持。
 - `FEATURE_DELTA` 明确保存 `startFeatureId` 与结束 `source.featureId`，复制起始步骤之前的 Body 与结束步骤之间的新增材料。范围限同 Body 的添加型拉伸/旋转及其后的圆角、倒角；通过现有非破坏布尔差集提取，检查结束阶段没有删除基线材料，再复用刚体变换与 Boolean/Naming。范围不是任意特征组重执行，起止引用均进入依赖与删除保护。面板分别选择起始生成特征和结束步骤。
 - `BODY_STAGE` 复用指定上游实体阶段。`COMBINE` 使用现有布尔；添加材料可选择 `INDEPENDENT`，在同一 Body 保留独立 Solid，不按数量创建 Body/Part。槽位 0 是已存在的上游种子，不能跳过或由阵列相位搬移；实体阵列的相位应设在种子参数上。草图和空间草图阵列可直接设置相位、跳过槽位 0。
 - `SKETCH_FRAME` 复用已求值二维草图与变换后框架，正式 Profile 引用保存阵列 FeatureId 和 `profileMemberSlot`；放样截面分别保存 `memberSlot`。同一阵列的多个成员可作为不同截面，不新增三维草图求解器或文档。每个槽位在树与同一 GLB 快照中拥有独立的关联草图身份和显示组；视图区或树选择成员后，下游命令写入明确槽位，不能把整个阵列当作单个轮廓。源 EntityId 保留在成员命名空间内，供截面接缝引用。
 
-`DocumentView.replicationSources` 由领域模型派生工具、材料范围起点/修饰步骤与实体阶段能力，前端拾取和列表共享此读模型；创建/编辑仍由领域校验及真实 Worker 验证。新增操作先实现独立工具与完整 Naming，再声明来源能力。圆角、倒角等局部修改不冒充独立工具；切除与整体阶段不能混用。复制成员拾取不自动跳回种子。
+`DocumentView.replicationSources` 由领域模型派生工具、材料范围起点/修饰步骤与实体阶段能力及推荐来源，前端拾取和列表共享此读模型；命令可传临时 `AUTO` 意图，由控制面按精确上游前缀解析并持久化既有明确来源类型、范围和运算。已接受定义不随能力变化自动改义，显式 `BODY_STAGE` 仍复制整个阶段，不能把它当成切削工具。创建/编辑仍由领域校验及真实 Worker 验证。新增操作先实现独立工具与完整 Naming，再声明来源能力。圆角、倒角等局部修改不冒充独立工具；切除与整体阶段不能混用。复制成员拾取不自动跳回种子。
 
 实体镜像保存为同一 `SOLID_PATTERN` 的 `MIRROR` 分布，固定保留槽位 0 并生成槽位 1；引用标准/基准面或上游实体平面，反射矩阵由实时引用求值，不以界面中的缓存方向为真相。实体平面复用拔模的持久面解析与 feature-input 上游显示，进入依赖和删除保护。旋转与反射共用正交等距变换、工具来源、组合运算及成员 Naming；无新增持久命名或几何求解架构。仅实现实体特征镜像，不新增草图阵列镜像或装配镜像。
 
-内核阶段检查点留存可复用的生成工具、实体阶段与添加范围起点，供后续追加阵列续算；复用种子几何，以 `BRepBuilderAPI_Transform` 真实历史合成 Boolean/同域合并 Naming。拓扑预算为源命名输出数乘成员数不超过 100000；成员身份稳定不保证布尔后的面永不分裂，仍执行完整性、缺失与歧义门禁。路径阵列、逐成员变尺寸、任意局部特征重执行未包含。
+内核阶段检查点留存可复用的生成工具、实体阶段与添加范围起点，供后续追加阵列续算；复用种子几何，以 `BRepBuilderAPI_Transform` 真实历史合成 Boolean/同域合并 Naming。拓扑预算为源命名输出数乘成员数不超过 100000；成员身份稳定不保证布尔后的面永不分裂，仍执行完整性、缺失与歧义门禁。独立 Hole 生成工具、贯穿／到平面逐成员重新终止、路径阵列、逐成员变尺寸、任意局部特征重执行未包含；这些对象仍可在合法时明确选取已求值实体阶段。
 
-入口：Part 和草图工具栏的线性/圆周阵列，Part 工具栏的实体镜像；空间草图成员可在视图区和树中分别选择，用于独立拉伸、旋转和放样。实体与空间草图阵列在树中编辑/抑制/删除；草图内阵列也有独立树节点，解除关联仍由阵列面板执行。空间与实体阵列默认绑定标准轴，方向、轴和圆周中心支持视图区拾取，反向改变分布步进符号。中心和方向的源引用进入依赖图及删除保护。
+入口：Part 和草图工具栏的“阵列”（面板内切换线性／圆周），Part 工具栏的“镜像”；空间草图成员可在视图区和树中分别选择，用于独立拉伸、旋转和放样。实体与空间草图阵列在树中编辑/抑制/删除；草图内阵列也有独立树节点，解除关联仍由阵列面板执行。空间与实体阵列默认绑定标准轴，方向、轴和圆周中心支持视图区拾取，反向改变分布步进符号。中心和方向的源引用进入依赖图及删除保护。
 
 ## 阶段、命名与历史
 
@@ -137,7 +137,7 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp` 的抽壳回归：大倒角、全棱圆角、倒角后底棱圆角及矩形到圆放样，检查开口、壁厚两侧材料分类、逐面网格覆盖、上游不可变与冷重算历史。三截面倾斜放样与盲孔用例同时覆盖孔底保留 0.1 mm 圆角的 2 mm 抽壳及移除圆角后的 0.5/1/2 mm 抽壳，额外检查凹圆角连接材料与自干涉。
 - `services/internal/geometry/shell_worker_integration_test.go`：真实 Worker 的全棱圆角、小型及偏置大截面矩形到圆放样，在 0.5/1/2 mm 下抽壳，检查阶段面引用、完整 Naming、BREP/GLB 与缓存复用。
 - `services/internal/geometry/corner_fillet_worker_integration_test.go`：真实 Worker RPC 的倒角 1 → 双边圆角 1/1.5/2，按阶段 Naming 绑定原边，检查完整历史及 BREP/GLB 制品。
-- 阵列定向入口：`kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `PatternCutReusesToolAndPreservesMemberNames`；`services/internal/workspace/pattern_test.go`、`parameter_update_plan_test.go`；真实 Worker 的 `services/internal/geometry/pattern_worker_integration_test.go`；真实 Router 的 `services/internal/control/parametric_pattern_integration_test.go`。后者使用当前开发数据库与制品存储，覆盖共享参数、显式接受、成员面引用、失败恢复、历史和 occurrence 位姿。
+- 阵列定向入口：`kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `PatternCutReusesToolAndPreservesMemberNames`、`MirrorOfMirrorPreservesSignedToolAndAllFourMembers`；`services/internal/workspace/pattern_test.go`、`parameter_update_plan_test.go`；真实 Worker 的 `services/internal/geometry/pattern_worker_integration_test.go`；真实 Router 的 `services/internal/control/parametric_pattern_integration_test.go`。后者使用当前开发数据库与制品存储，覆盖共享参数、显式接受、成员面引用、失败恢复、历史和 occurrence 位姿。
 - `services/internal/workspace/solid_feature_test.go`：阶段合法性、参数生命周期、定义编辑和补偿。
 - `services/internal/control/propeller_feature_range_integration_test.go`：真实 Router/Worker 重建 120×100×90 底座、倾斜叶片拉伸 120、叶根圆角 80，验证原面来源、含圆角新增材料的 180° 阵列及非对称底座不重复。
 - `services/internal/control/feature_association_integration_test.go`：真实 Router/Worker 的圆柱、偏心孔、叶片工具阵列、成员叶根圆角；验证贡献、成员槽位、种子/数量重算、历史阶段只读、Undo/Redo 与冷读取。人工步骤见[模型显示与选择](model-display.md)。

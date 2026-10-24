@@ -3390,3 +3390,34 @@ TEST(GeometryExchange, HoleBlindAndDirectionalThroughPreserveOppositeMaterialAnd
     hole.extent="THROUGH_ALL";hole.reversed=false;hole.plane_origin={0,0,30};EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock,hole}),std::exception);
 }
 } }
+
+namespace occccad::kernel {
+TEST(GeometryExchange, MirrorOfMirrorPreservesSignedToolAndAllFourMembers) {
+    for (const auto operation : {std::string("ADD"),std::string("REMOVE")}) {
+        OcctKernel kernel;
+        ProfilePadSpec base;base.feature_id="plate";base.body_id="body";base.profile_feature_id="plate-sketch";
+        base.regions={rectangular_region("plate-region",-30,-30,30,30)};base.pad_length=10;
+        ProfilePadSpec seed;seed.feature_id="seed";seed.body_id="body";seed.profile_feature_id="seed-sketch";
+        seed.pad_length=10;seed.body_operation=operation;seed.plane="CUSTOM";seed.plane_normal={0,0,1};seed.plane_u_direction={1,0,0};seed.plane_origin={0,0,operation=="ADD"?10.:0.};
+        ProfileCurveSpec circle;circle.entity_id="circle";circle.kind="CIRCLE";circle.center={10,10};circle.radius=2;
+        ProfileRegionSpec region;region.id="seed-region";region.outer={"seed-loop",{circle}};seed.regions={region};
+        const std::array<double,12> identity={1,0,0,0,0,1,0,0,0,0,1,0},x={-1,0,0,0,0,1,0,0,0,0,1,0},y={1,0,0,0,0,-1,0,0,0,0,1,0};
+        auto mirror=[&](std::string id,std::string source,const auto& matrix){ProfilePadSpec p;p.feature_id=id;p.body_id="body";p.generator="SOLID_PATTERN";p.body_operation=operation;p.pattern_source_kind="GENERATOR_TOOL";p.pattern_source_feature_id=source;p.pattern_placements={{0,identity},{1,matrix}};return p;};
+        auto first=mirror("mirror-1","seed",x),second=mirror("mirror-2","seed",y),third=mirror("mirror-3","mirror-2",x);
+        const auto one=kernel.evaluateProfilePadsWithHistory({base,seed,first,second});
+        const auto all=kernel.evaluateProfilePadsWithHistory({base,seed,first,second,third});
+        const double signed_volume=(operation=="ADD"?1.:-1.)*3.14159265358979323846*4*10;
+        EXPECT_NEAR(kernel.getVolume(one.geometry_id),36000+3*signed_volume,1e-5);
+        EXPECT_NEAR(kernel.getVolume(all.geometry_id),36000+4*signed_volume,1e-5);
+        const auto& last=all.feature_results.back();ASSERT_TRUE(last.topology_history_complete);
+        EXPECT_TRUE(std::any_of(last.topology_history.lineage.begin(),last.topology_history.lineage.end(),[](const auto& l){return l.result.feature_id=="mirror-3"&&l.result.output_slot.find("MEMBER/1/")==0&&std::any_of(l.sources.begin(),l.sources.end(),[](const auto& s){return s.feature_id=="mirror-2";});}));
+        OcctKernel cold;const auto rebuilt=cold.evaluateProfilePadsWithHistory({base,seed,first,second,third});
+        EXPECT_NEAR(cold.getVolume(rebuilt.geometry_id),kernel.getVolume(all.geometry_id),1e-8);
+        EXPECT_EQ(rebuilt.feature_results.back().topology_history.evidence_digest,last.topology_history.evidence_digest);
+        // Explicit Body-stage copying keeps its accepted additive semantics.
+        third.pattern_source_kind="BODY_STAGE";third.body_operation="ADD";
+        const auto body_copy=kernel.evaluateProfilePadsWithHistory({base,seed,first,second,third});
+        if(operation=="REMOVE")EXPECT_GT(kernel.getVolume(body_copy.geometry_id),kernel.getVolume(one.geometry_id));
+    }
+}
+} // namespace occccad::kernel

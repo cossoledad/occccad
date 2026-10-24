@@ -3660,12 +3660,12 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             }
             topology_history_complete = topology_history_complete && tool.topology_history_complete;
             if (required_pattern_tools.count(spec.feature_id) &&
-                (modifier || spec.generator=="HOLE" || spec.generator=="SOLID_PATTERN" || (spec.extent=="THROUGH_ALL" || spec.extent=="TO_PLANE") || tool.shape.IsNull()))
+                (modifier || spec.generator=="HOLE" || (spec.extent=="THROUGH_ALL" || spec.extent=="TO_PLANE") || tool.shape.IsNull()))
                 throw std::invalid_argument("PATTERN_INDEPENDENT_TOOL_UNAVAILABLE");
-            if (!modifier && spec.generator!="HOLE" && spec.generator!="SOLID_PATTERN" && spec.generator!="BOOLEAN" && spec.extent!="THROUGH_ALL" && spec.extent!="TO_PLANE" && !tool.shape.IsNull()) {
+            if (!modifier && spec.generator!="HOLE" && spec.generator!="BOOLEAN" && spec.extent!="THROUGH_ALL" && spec.extent!="TO_PLANE" && !tool.shape.IsNull()) {
                 // Retain the real independently constructed tool before Body
                 // application, never the already-cut stage or the whole Body.
-                if (modifier || spec.generator == "SOLID_PATTERN" || spec.extent == "THROUGH_ALL" || tool.shape.IsNull())
+                if (modifier || spec.extent == "THROUGH_ALL" || tool.shape.IsNull())
                     throw std::invalid_argument("PATTERN_INDEPENDENT_TOOL_UNAVAILABLE");
                 validate_body_solid_set(tool.shape);
                 auto closure = complete_boolean_topology_naming(tool.shape, tool.named, spec.feature_id);

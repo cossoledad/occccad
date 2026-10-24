@@ -96,7 +96,7 @@ test('direct Part association update and viewport Reconnect preserve occurrences
  expect(repaired.second).toMatchObject({instanceId:seed.ids[1],kind:'FACE',resolution:{targetVersionId:cut.document.versionId,result:{supportingElementStatus:'CONNECTED'}}});
  // The repaired accepted geometry can be analyzed independently, without consuming Undo.
  const beforeMotion=await current(page,seed.id);
- await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill('装配约束分析');await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:/^装配约束分析$/})}).click();
+ await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill('约束分析');await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:/^约束分析$/})}).click();
  const motion=page.getByRole('dialog',{name:/装配状态 ·/});await motion.getByRole('tab',{name:'剩余运动',exact:true}).click();await expect(motion).not.toContainText(beforeMotion.document.versionId);
  await motion.getByRole('button',{name:'刷新剩余运动',exact:true}).click();await expect(motion.getByRole('status',{name:'剩余运动计算状态'})).toContainText('分析完成');const afterMotion=await current(page,seed.id);expect(afterMotion.product).toEqual(beforeMotion.product);expect(afterMotion.document.versionId).toBe(beforeMotion.document.versionId);await motion.getByRole('button',{name:'关闭',exact:true}).click();
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect(async()=>{await verify(cut.document.versionId,'BROKEN');}).toPass();

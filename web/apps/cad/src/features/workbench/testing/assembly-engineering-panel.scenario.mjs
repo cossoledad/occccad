@@ -27,7 +27,7 @@ function load(file){
  const {CommandRegistry}=load(resolve(base,"../../../cad/command/command-registry.ts"));
  const registry=new CommandRegistry();let opened=0;
  registry.register({id:"assembly.analyze",execute:()=>opened++,isVisible:()=>true,isEnabled:()=>true});
- const commands=searchCommands(contextualToolbars(mockToolbarCatalog.toolbars,"ASSEMBLY_DESIGN"),"装配约束分析",id=>registry.state(id));
+ const commands=searchCommands(contextualToolbars(mockToolbarCatalog.toolbars,"ASSEMBLY_DESIGN"),"约束分析",id=>registry.state(id));
  assert.equal(commands.length,1);await registry.execute(commands[0].commandId);assert.equal(opened,1);
  const constraint={id:"technical-uuid",kind:"DISTANCE",name:"安装间隙",first:{instanceId:"a"},second:{instanceId:"b"},evaluationStatus:"NOT_UPDATED"};
  const report={status:"UNKNOWN",baseRevisionId:"technical-revision",solverBuildPolicy:"technical-build",probeCount:12,elapsedMs:4,scopeConstraintIds:[constraint.id],scopeBodyIds:["a","b"],items:[{kind:"LOCALIZED_SUSPECT",oracle:"UNKNOWN",evidence:"technical-oracle",reason:"algorithm text",members:[{constraintId:constraint.id,first:constraint.first,repairActions:["EDIT"]}]}]};

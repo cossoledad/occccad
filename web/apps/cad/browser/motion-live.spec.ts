@@ -152,7 +152,7 @@ CadViewportEngine.prototype.commitApplicationDisplay=function(){
  await page.goto('/');
  const seed=await seedProduct(page);
  await page.goto('/documents/'+seed.id);await expect(page.locator('canvas')).toBeVisible({timeout:60_000});
- await page.getByRole('textbox',{name:'筛选模型结构'}).fill('机械装置.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^机械装置\.1，/).first().click();await command(page,'机构');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('');await expect(page.locator('[data-application-id="'+seed.mid+'"]')).toBeVisible();await expect(page.getByRole('button',{name:'旋转接合',exact:true})).toBeEnabled();
+ await page.getByRole('textbox',{name:'筛选模型结构'}).fill('机械装置.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^机械装置\.1，/).first().click();await command(page,'运动机构');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('');await expect(page.locator('[data-application-id="'+seed.mid+'"]')).toBeVisible();await expect(page.getByRole('button',{name:'旋转接合',exact:true})).toBeEnabled();
  const filter=page.getByRole('textbox',{name:'筛选模型结构'});
  const edit=async()=>{await filter.fill('偏移.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^偏移\.1 \(/).first().dblclick();const d=page.getByRole('dialog',{name:'旋转.1',exact:true});await expect(d).toBeVisible();return d};
  const phase=async(stage:string)=>page.evaluate(s=>{(window as any).__dmuStage=s;sessionStorage.setItem('dmu-acceptance-stage',s)},stage);
@@ -174,7 +174,7 @@ CadViewportEngine.prototype.commitApplicationDisplay=function(){
  v=await current(page,seed.id);expect(v.product.constraints??[]).toHaveLength(0);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation[2]).toBeCloseTo(11,5);
  await collect();await phase('reopen');await page.reload();await expect(page.locator('canvas')).toBeVisible({timeout:60_000});await visibleZ(11);v=await current(page,seed.id);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation[2]).toBeCloseTo(11,5);
  await phase('conversion');
- await filter.fill('机械装置.1');await tree.getByText(/^机械装置\.1，/).first().click();await command(page,'机构');await filter.fill('');await command(page,'转换为产品约束');const apply=page.getByRole('dialog',{name:'转换为产品约束',exact:true});
+ await filter.fill('机械装置.1');await tree.getByText(/^机械装置\.1，/).first().click();await command(page,'运动机构');await filter.fill('');await command(page,'转换为产品约束');const apply=page.getByRole('dialog',{name:'转换为产品约束',exact:true});
  await apply.getByRole('button',{name:'生成／刷新转换计划'}).click();await expect(apply.getByText(/自由度 1/)).toBeVisible();await apply.getByRole('button',{name:/^确\s*定$/}).click();await expect(apply).toHaveCount(0);
  v=await current(page,seed.id);expect(v.product.constraints).toHaveLength(3);expect(v.product.kinematics.drivers??[]).toHaveLength(0);expect(v.product.kinematics.studies??[]).toHaveLength(0);
  const source=v.product.kinematics.mechanisms[0].joints.flatMap((j:any)=>j.constraints.map((c:any)=>c.id));for(const c of v.product.constraints)expect(source).not.toContain(c.id);
@@ -195,7 +195,7 @@ test('new mechanisms bind real tree supports through inspection, preview and com
  const login=await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}});expect(login.ok()).toBeTruthy();
  await page.goto('/');const seed=await seedProduct(page,false);
  await page.goto('/documents/'+seed.id);await expect(page.locator('canvas')).toBeVisible({timeout:60_000});
- await command(page,'机构');await expect(page.getByRole('button',{name:'固定件',exact:true})).toBeEnabled();
+ await command(page,'运动机构');await expect(page.getByRole('button',{name:'固定件',exact:true})).toBeEnabled();
  await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);const ground=page.getByRole('dialog',{name:'固定零件.1',exact:true});
  await expect(ground.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await ground.getByRole('button',{name:/^确\s*定$/}).click();await expect(ground).toHaveCount(0);
  await command(page,'旋转接合');const joint=page.getByRole('dialog',{name:'旋转.1',exact:true});
@@ -223,7 +223,7 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  const login=await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}});expect(login.ok()).toBeTruthy();
  await page.goto('/');const seed=await seedProduct(page,false,true);
  await page.goto('/documents/'+seed.id);await expect(page.locator('canvas')).toBeVisible({timeout:60_000});
- await command(page,'机构');await expect(page.getByRole('button',{name:'固定件',exact:true})).toBeEnabled();
+ await command(page,'运动机构');await expect(page.getByRole('button',{name:'固定件',exact:true})).toBeEnabled();
  await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^确\s*定$/}).click();
  await command(page,'旋转接合');const joint=page.getByRole('dialog',{name:'旋转.1',exact:true});
  const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
@@ -319,7 +319,7 @@ test('viewport instance picks and mechanism manipulation preserve Product constr
   // @ts-ignore production Vite module
   const {restApi:api}=await import('/src/api.ts');await api.command(id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'FIX',fixMode:'SPACE',firstAssemblyRef:{kind:'BODY',instanceId:rotor}});
  },seed);await page.reload();await expect(page.locator('canvas')).toBeVisible();v=await current(page,seed.id);const original=v.product.instances.find((i:any)=>i.id===seed.rotor),constraints=JSON.stringify(v.product.constraints);
- await command(page,'机构');await expect(page.getByRole('button',{name:'移动组件',exact:true})).toBeEnabled();await command(page,'移动组件');await pickVisibleInstance(page,seed.rotor);
+ await command(page,'运动机构');await expect(page.getByRole('button',{name:'移动组件',exact:true})).toBeEnabled();await command(page,'移动组件');await pickVisibleInstance(page,seed.rotor);
  await dragAttachedComponent(page);
  await expect.poll(async()=>{const currentView=await current(page,seed.id);const p=currentView.product.kinematics.mechanisms[0]?.poses?.[seed.rotor]?.translation;return p?Math.hypot(...p.map((v:number,i:number)=>v-original.translation[i])):0},{timeout:60_000}).toBeGreaterThan(1);
  v=await current(page,seed.id);const m=v.product.kinematics.mechanisms[0];expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation).toEqual(original.translation);expect(JSON.stringify(v.product.constraints)).toBe(constraints);expect(m.unitIds).toContain(seed.rotor);
@@ -419,7 +419,7 @@ test('cylindrical joint authors one angular and linear recording and pauses exac
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
  expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();
  await page.goto('/');const seed=await seedProduct(page,false,true);
- await page.goto('/documents/'+seed.id);await command(page,'机构');await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);
+ await page.goto('/documents/'+seed.id);await command(page,'运动机构');await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);
  await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^确\s*定$/}).click();
  await command(page,'圆柱接合');const joint=page.getByRole('dialog',{name:'圆柱.1',exact:true}),filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  await filter.fill('旋转圆柱面');const cylinders=tree.getByText('旋转圆柱面',{exact:true});await expect(cylinders).toHaveCount(2);
@@ -464,7 +464,7 @@ for(const definition of [
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
  expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();
  await page.goto('/');const seed=await seedProduct(page,false);
- await page.goto('/documents/'+seed.id);await command(page,'机构');await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);
+ await page.goto('/documents/'+seed.id);await command(page,'运动机构');await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);
  await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^确\s*定$/}).click();
  await command(page,definition.command);const dialog=page.getByRole('dialog',{name:definition.title,exact:true}),filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  if(definition.kind==='RIGID'){await pickVisibleInstance(page,seed.shaft);await pickVisibleInstance(page,seed.rotor)}
@@ -666,7 +666,7 @@ test('saved mechanism analysis uses the command dialog, automatic physical evide
  let release:()=>void=()=>{},started:()=>void=()=>{};const held=new Promise<void>(r=>release=r),ready=new Promise<void>(r=>started=r);await page.route(`**/api/documents/${seed.id}/mechanism-analysis`,async route=>{const r=await route.fetch();started();await held;await route.fulfill({response:r})});
  await panel.getByRole('button',{name:'重新分析',exact:true}).click();await ready;await panel.getByRole('button',{name:'取消计算'}).click();release();await expect(panel).toContainText('已取消');await expect(panel).not.toContainText('相对自由度 1');await page.unroute(`**/api/documents/${seed.id}/mechanism-analysis`);
  await page.route(`**/api/documents/${seed.id}/mechanism-analysis`,route=>route.abort('failed'));await panel.getByRole('button',{name:'重新分析'}).click();await expect(panel).toContainText('分析未完成');await page.unroute(`**/api/documents/${seed.id}/mechanism-analysis`);await panel.getByRole('button',{name:/重\s*试/}).click();await expect(panel).toContainText('相对自由度 1');await panel.getByRole('button',{name:'关闭',exact:true}).click();
- await page.getByRole('textbox',{name:'筛选模型结构'}).fill('机械装置.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^机械装置\.1，/).first().click();await command(page,'机构');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('');await expect(page.locator(`[data-application-id="${seed.mid}"]`)).toBeVisible();before=await current(page,seed.id);
+ await page.getByRole('textbox',{name:'筛选模型结构'}).fill('机械装置.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^机械装置\.1，/).first().click();await command(page,'运动机构');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('');await expect(page.locator(`[data-application-id="${seed.mid}"]`)).toBeVisible();before=await current(page,seed.id);
  await command(page,'机构分析');await expect(panel).toContainText('相对自由度 1');await panel.getByRole('button').filter({hasText:'绕图示轴旋转'}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.motionMarkers?.children.filter((c:any)=>c.name==='analysis-rotation-arc').length??0)).toBe(1);const visualHeader=await panel.locator('.cad-command-dialog-header').boundingBox();if(!visualHeader)throw new Error('Missing analysis header');await page.mouse.move(visualHeader.x+90,visualHeader.y+20);await page.mouse.down();await page.mouse.move(visualHeader.x+90,195,{steps:8});await page.mouse.up();const visibleArc=await page.evaluate(()=>{const e=(window as any).__dmuEngine,g=e.motionMarkers.children.find((c:any)=>c.name==='analysis-rotation-arc');g.updateWorldMatrix(true,true);const bounds=e.renderer.domElement.getBoundingClientRect(),a=g.position.clone().set(0,0,0),points=Array.from({length:48},(_,i)=>{const p=a.clone().set(Math.cos(i*Math.PI/24),Math.sin(i*Math.PI/24),0).applyMatrix4(g.matrixWorld).project(e.camera);return [p.x*bounds.width/2,p.y*bounds.height/2]});return {visible:g.visible,diameter:Math.max(Math.max(...points.map(p=>p[0]))-Math.min(...points.map(p=>p[0])),Math.max(...points.map(p=>p[1]))-Math.min(...points.map(p=>p[1]))),anchor:g.position.toArray(),scale:g.scale.toArray()}});expect(visibleArc.visible).toBeTruthy();expect(visibleArc.diameter).toBeGreaterThan(50);await testInfo.attach('rotation-guide',{body:JSON.stringify(visibleArc),contentType:'application/json'});await page.screenshot({path:testInfo.outputPath('engineering-mechanism-analysis.png')});expect((await current(page,seed.id)).product).toEqual(before.product);expect((await current(page,seed.id)).document.versionId).toBe(before.document.versionId);await panel.getByRole('button',{name:'关闭',exact:true}).click();await command(page,'退出机构');
  const viewerSeed=await page.evaluate(async seed=>{const {restApi:api}=await import('/src/api.ts');const email=`mechanism-viewer-${crypto.randomUUID()}@occccad.local`,password='MechanismViewer-123!';const u=await api.adminCreateUser({email,displayName:'机构分析只读',password,platformRole:'MEMBER',status:'ACTIVE'});for(const id of [seed.id,...seed.parts])await api.share('documents',id,'USER',u.id,'VIEWER');return {email,password}},seed);
  const context=await browser.newContext({baseURL:'http://127.0.0.1:5175',viewport:{width:1440,height:1000}}),viewer=await context.newPage();expect((await viewer.request.post('/api/auth/login',{data:viewerSeed})).ok()).toBeTruthy();await viewer.goto('/documents/'+seed.id);await command(viewer,'机构分析');const vp=viewer.getByRole('dialog',{name:'机构分析',exact:true});await vp.getByRole('combobox',{name:'分析机构'}).click();await viewer.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({hasText:'机械装置.1'}).click();await expect(vp).toContainText('相对自由度 1');await expect(vp.getByRole('button',{name:'修复支撑'}).last()).toBeDisabled();await context.close();expect(errors).toEqual([]);

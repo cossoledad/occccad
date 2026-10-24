@@ -1254,6 +1254,9 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	normalizePartModel(&model)
 	beforeModel := model
 	beforeModel.Features = append([]Feature(nil), model.Features...)
+	if err := resolveAutomaticPatternSource(model, &payload.Feature); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	if payload.Feature.Name == "" {
 		payload.Feature.Name = numberedFeatureName(model.Features, payload.Feature.Type, automaticTypePrefix(payload.Feature.Type))
 	}

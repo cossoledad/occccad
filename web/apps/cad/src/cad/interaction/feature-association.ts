@@ -3,7 +3,7 @@ const indices=new WeakMap<FeatureAssociationIndex,{byLocator:Map<string,FeatureT
 function index(source:FeatureAssociationIndex) {
  let value=indices.get(source);if(value)return value;
  value={byLocator:new Map(),byFeature:new Map()};
- for(const element of source.elements){value.byLocator.set(`${element.kind}:${element.localId}`,element);for(const id of element.origins??[]){const elements=value.byFeature.get(id)??[];elements.push(element);value.byFeature.set(id,elements);}}
+ for(const element of source.elements){value.byLocator.set(`${element.kind}:${element.localId}`,element);for(const id of element.primary??[]){const elements=value.byFeature.get(id)??[];elements.push(element);value.byFeature.set(id,elements);}}
  indices.set(source,value);return value;
 }
 export function topologyFeatureAssociation(source:FeatureAssociationIndex|undefined,kind:string,id:number) {return source?index(source).byLocator.get(`${kind.toUpperCase()}:${id}`):undefined;}

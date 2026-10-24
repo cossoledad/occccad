@@ -13,7 +13,7 @@ test("icon-only options, transparent tree, CATIA point/surface/empty pivots and 
  const dimensions=await page.evaluate(cursor=>new Promise<number[]>((resolve,reject)=>{const url=/url\("([^"]+)"\)/.exec(cursor)?.[1];if(!url)return reject("Missing SVG cursor");const img=new Image();img.onload=()=>resolve([img.naturalWidth,img.naturalHeight]);img.onerror=()=>reject("Invalid SVG cursor");img.src=url}),cursor);
  expect(dimensions).toEqual([32,32]);await page.mouse.up({button:"right"});
  await page.keyboard.press("1");
- await options.click();const dialog=page.getByRole("dialog",{name:"选项",exact:true});await dialog.getByRole("menuitem",{name:"导航与捕获",exact:true}).click();await dialog.getByRole("combobox",{name:"鼠标操作模式"}).click();await page.getByText("3DEXPERIENCE CATIA",{exact:true}).click();await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).not.toBeVisible();
+ await options.click();const dialog=page.getByRole("dialog",{name:"选项",exact:true});await dialog.getByRole("menuitem",{name:"导航与捕获",exact:true}).click();await dialog.getByRole("combobox",{name:"鼠标操作模式"}).click();await page.getByText("3DEXPERIENCE CATIA",{exact:true}).click();await dialog.getByRole("button",{name:"关闭",exact:true}).click();await expect(dialog).not.toBeVisible();
  const at=(point:number[])=>worldScreen(page,point);
  const vertex=await at([0,0,16]),pivot=viewportProbe(page,"navigation-pivot");
  const before=await pivot.textContent();await page.mouse.move(vertex.x,vertex.y);await page.mouse.down({button:"middle"});await expectViewport(pivot).toHaveAttribute("data-visible","true");expect(await pivot.textContent()).toBe(before);
@@ -75,14 +75,14 @@ test("world grid occludes from below and glass distinguishes front/back thin and
  await page.screenshot({path:"../../../build/acceptance/viewport-glass-depth.png"});expect(errors).toEqual([]);
 });
 
-test("perspective is default, projection preview cancels and global choice survives reload",async({page})=>{
+test("perspective is default, projection applies immediately and global choice survives reload",async({page})=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
  await page.goto("/documents/mock-part-bracket");const projection=viewportProbe(page,"navigation-projection");await expectViewport(projection).toContainText("perspective");
- const origin=await worldScreen(page,[36,19,8]),landmark=await worldScreen(page,[36,19,16]);
- await setProjection(page,"平行（无透视）",false);await expectViewport(projection).toContainText("perspective");
- const restored=await worldScreen(page,[36,19,16]);expect(Math.hypot(restored.x-landmark.x,restored.y-landmark.y)).toBeLessThan(.05);
- await setProjection(page,"平行（无透视）");await expectViewport(projection).toContainText("orthographic");await page.reload();await expectViewport(projection).toContainText("orthographic");
- await setProjection(page,"透视（近大远小）");await expectViewport(projection).toContainText("perspective");
+ const origin=await worldScreen(page,[36,19,8]);
+ await setProjection(page,"平行");await expectViewport(projection).toContainText("orthographic");
+ const parallelCentre=await worldScreen(page,[36,19,8]);expect(Math.hypot(parallelCentre.x-origin.x,parallelCentre.y-origin.y)).toBeLessThan(1);
+ await setProjection(page,"平行");await expectViewport(projection).toContainText("orthographic");await page.reload();await expectViewport(projection).toContainText("orthographic");
+ await setProjection(page,"透视");await expectViewport(projection).toContainText("perspective");
  const centre=await worldScreen(page,[36,19,8]);expect(Math.hypot(centre.x-origin.x,centre.y-origin.y)).toBeLessThan(1);
  expect(errors).toEqual([]);
 });
