@@ -1,3 +1,4 @@
+import {CommandField} from "../../cad/overlay/command-form";
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Checkbox, Input, InputNumber, Select, Slider, Space, Table, Typography } from 'antd';
 import { api } from '../../api/client';
@@ -333,7 +334,7 @@ export function MechanismMotionDialog(props: Props) {
         const label=props.drivers.length===1?(angular?'命令角度':'命令长度'):`${driver.name} ${angular?'角度':'长度'}`;
         return <section className="motion-dialog-section" key={driver.id}>
             <Checkbox aria-label={`使用 ${driver.name}`} checked={checked} disabled={busy||inputLocked||Boolean(draft.current?.keyframes?.length)||Boolean(clock)} onChange={event=>void selectDriver(driver.id,event.target.checked)}>{props.mechanism.joints.find(j=>j.id===driver.jointId)?.name} · {angular?'角度':'长度'}</Checkbox>
-            <label className="motion-labeled-field"><span>{angular?'角度':'长度'} {unit}</span><InputNumber aria-label={label} value={Number(value.toFixed(2))} precision={2} changeOnBlur={false} readOnly={!active} disabled={inputLocked||Boolean(clock)} onChange={value=>{if(value!==null&&active)void request(driver.id,value/factor)}}/></label>
+            <CommandField  label={<><span>{angular?'角度':'长度'} {unit}</span></>} width="number"><InputNumber aria-label={label} value={Number(value.toFixed(2))} precision={2} changeOnBlur={false} readOnly={!active} disabled={inputLocked||Boolean(clock)} onChange={value=>{if(value!==null&&active)void request(driver.id,value/factor)}}/></CommandField>
             <Slider aria-label={props.drivers.length===1?'命令游标':`${driver.name} 游标`} value={value} min={lower} max={upper} step={.1} disabled={!active||inputLocked||Boolean(clock)} onChange={value=>void request(driver.id,value/factor)}/>
             <div className="motion-range-labels"><Typography.Text type="secondary">{lower.toFixed(2)} {unit}</Typography.Text><Typography.Text type="secondary">{upper.toFixed(2)} {unit}</Typography.Text></div>
         </section>;
@@ -350,7 +351,7 @@ export function MechanismMotionDialog(props: Props) {
             publishStudy({ ...draft.current, name: e.target.value }, false); }}/>
     <Space><Checkbox checked={automatic} disabled={inputLocked || Boolean(clock)} onChange={e => {autoRef.current=e.target.checked;setAutomatic(e.target.checked);automaticClock.current.anchor(draft.current?.keyframes?.at(-1)?.timeSeconds??0);}}>自动插入</Checkbox><Checkbox checked={camera} disabled={inputLocked || Boolean(clock)} onChange={e => { setCamera(e.target.checked); if (draft.current)
             publishStudy({ ...draft.current, animateViewpoint: e.target.checked }, false); }}>动画视点</Checkbox></Space>
-    <label className="motion-labeled-field"><span>插入时间 s</span><InputNumber aria-label="关键帧时间" min={.01} max={3600} precision={2} changeOnBlur={false} step={.2} value={insertTime} disabled={inputLocked || Boolean(clock)} onChange={v => setInsertTime(v ?? .2)}/></label>
+    <CommandField  label={<><span>插入时间 s</span></>} width="number"><InputNumber aria-label="关键帧时间" min={.01} max={3600} precision={2} changeOnBlur={false} step={.2} value={insertTime} disabled={inputLocked || Boolean(clock)} onChange={v => setInsertTime(v ?? .2)}/></CommandField>
     <Space><Button aria-label="插入" disabled={pending || Boolean(clock)} onClick={() => void insert().catch(setError)}>插入</Button><Button aria-label="修改" disabled={pending || Boolean(clock) || !keyId || keyId === study?.keyframes?.[0]?.id} onClick={() => void insert(true).catch(setError)}>修改</Button><Button aria-label="删除" disabled={pending || Boolean(clock) || !keyId || keyId === study?.keyframes?.[0]?.id} onClick={() => { if (draft.current) {
             publishStudy({ ...draft.current, keyframes: draft.current.keyframes?.filter(k => k.id !== keyId) });
             setKeyId(undefined);
@@ -358,7 +359,7 @@ export function MechanismMotionDialog(props: Props) {
     <Table<MotionKeyframe> size="small" rowKey="id" pagination={false} scroll={{ y: 180 }} dataSource={study?.keyframes} columns={[{ title: '时间 s', render: (_, key) => key.timeSeconds.toFixed(2) }, ...(study?.activeDriverIds??[]).map(id=>{const driver=props.drivers.find(d=>d.id===id)!,coordinate=driverCoordinate(props.mechanism,driver)!;return {title:`${driver.name} ${coordinate.dimension==='ANGLE'?'°':'mm'}`,render:(_:unknown,key:MotionKeyframe)=>quantityIn(key.values[id],coordinateUnit(coordinate,true)).toFixed(2)}})]} rowSelection={{ type: 'radio', selectedRowKeys: keyId ? [keyId] : [], onChange: ids => {const id=String(ids[0]);setKeyId(id);const key=draft.current?.keyframes?.find(k=>k.id===id);if(key)setInsertTime(key.timeSeconds); } }} onRow={key => ({ onDoubleClick: () => { setKeyId(key.id);setInsertTime(key.timeSeconds); void seek(key.timeSeconds); } })}/>
     <div className="motion-playback-controls"><Button aria-label="起点" disabled={pending || !study?.keyframes?.length} onClick={() => void seek(0)}>起点</Button><Button aria-label={clock ? '暂停' : '播放'} type="primary" disabled={pending || (study?.keyframes?.length ?? 0) < 2} onClick={() => void play()}>{clock ? '暂停' : '播放'}</Button><Button aria-label="终点" disabled={pending || !study?.keyframes?.length} onClick={() => void seek(study?.keyframes?.at(-1)?.timeSeconds ?? 0)}>终点</Button></div>
     <Slider aria-label="模拟时间游标" min={0} max={study?.keyframes?.at(-1)?.timeSeconds || .01} step={.01} value={time} disabled={pending || Boolean(clock)} onChange={v => void seek(v)}/>
-    <label className="motion-labeled-field"><span>定位时间 s</span><InputNumber aria-label="模拟定位时间" value={time} min={0} max={study?.keyframes?.at(-1)?.timeSeconds ?? 0} precision={2} changeOnBlur={false} step={.01} disabled={pending || Boolean(clock)} onChange={v => void seek(v ?? 0)}/></label>
+    <CommandField  label={<><span>定位时间 s</span></>} width="number"><InputNumber aria-label="模拟定位时间" value={time} min={0} max={study?.keyframes?.at(-1)?.timeSeconds ?? 0} precision={2} changeOnBlur={false} step={.01} disabled={pending || Boolean(clock)} onChange={v => void seek(v ?? 0)}/></CommandField>
     {run?.failure && <Typography.Text type="warning">路径未完成 · {run.failure.timeSeconds.toFixed(2)} s</Typography.Text>}
    </div>
   </CommandDialog>}

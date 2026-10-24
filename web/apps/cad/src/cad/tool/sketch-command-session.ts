@@ -23,6 +23,7 @@ export type SketchCommandState = {
   options: { name: string; label: string; value: string; choices: { value: string; label: string }[] }[];
   canConfirm: boolean;
   next: string;
+  /** Authored validation or an already normalized service failure, ready for display. */
   error?: string;
   preview?: "approximate" | "authoritative" | "pending" | "unavailable";
 };

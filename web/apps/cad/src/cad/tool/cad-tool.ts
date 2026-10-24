@@ -1291,7 +1291,7 @@ export class ConstraintSketchTool implements CadTool {
     this.phase={step:"COMMITTING",references:this.references};this.error=undefined;const generation=++this.generation;
     context.viewport.clearReferencePreview();this.publish(context);
     const accepted=()=>{if(generation!==this.generation)return;this.cancel(context);context.viewport.finishToolUse();};
-    const failed=(error:unknown)=>{if(generation!==this.generation)return;const unknown=sketchCommitResultUnknown(error);this.phase={step:unknown?"UNKNOWN":"FAILED",references:this.references};if(!unknown)this.requestID=undefined;recordDeveloperEvidence("草图编辑失败",error);this.error=engineeringProblem(error);this.publish(context);context.viewport.setToolPrompt(engineeringProblem(this.error));};
+    const failed=(error:unknown)=>{if(generation!==this.generation)return;const unknown=sketchCommitResultUnknown(error);this.phase={step:unknown?"UNKNOWN":"FAILED",references:this.references};if(!unknown)this.requestID=undefined;recordDeveloperEvidence("草图编辑失败",error);this.error=engineeringProblem(error);this.publish(context);context.viewport.setToolPrompt(this.error);};
     try {const result=context.viewport.commitSketchOperations([this.pendingOperation],{requestId:this.requestID??=randomUUID(),baseVersionId:this.baseVersionID,retryReceipt:receiptRetry});
       if(result&&typeof result.then==="function")void result.then(accepted,failed);else accepted();
     }catch(error){failed(error);}

@@ -669,7 +669,7 @@ export class SketchEditTool implements CadTool{
           if(context.viewport.showSketchEditCandidate)context.viewport.showSketchEditCandidate(this.candidate);else context.viewport.showSketchEntityPreview?.(changed);
           this.publish(context);context.viewport.setToolPrompt("预览已更新；Enter 执行，Esc 取消");
           if(submitAfterPreview||this.acceptPendingCandidate){this.acceptPendingCandidate=false;this.commit(context,[operation]);}
-        },error=>{if(abort.signal.aborted||generation!==this.candidateGeneration)return;this.previewStatus="failed";recordDeveloperEvidence("草图编辑失败",error);this.error=engineeringProblem(error);context.viewport.clearToolPreview();this.publish(context);context.viewport.setToolPrompt(engineeringProblem(this.error));});
+        },error=>{if(abort.signal.aborted||generation!==this.candidateGeneration)return;this.previewStatus="failed";recordDeveloperEvidence("草图编辑失败",error);this.error=engineeringProblem(error);context.viewport.clearToolPreview();this.publish(context);context.viewport.setToolPrompt(this.error);});
       }else this.previewStatus="failed";
       this.publish(context);return;
     }
@@ -880,7 +880,7 @@ export class SketchEditTool implements CadTool{
     }
     if(!this.cornerPoint||this.cornerRefs.length!==2||this.cornerRefs[0].entityId===this.cornerRefs[1].entityId){context.viewport.setToolPrompt("先明确选择两条支撑的裁切端部，再点击分支位置");return;}
     const first=Number(this.fields[0]||"5"),second=Number(this.fields[1]||(this.chamferMode==="TWO_LENGTHS"?"5":"45"));
-    if(!Number.isFinite(first)||first<=0||(this.kind==="chamfer"&&this.chamferMode!=="EQUAL"&&(!Number.isFinite(second)||second<=0||this.chamferMode==="LENGTH_ANGLE"&&second>=180))){this.error="圆角半径/倒角长度必须为正有限值，倒角角度必须在 0° 与 180° 之间";context.viewport.setToolPrompt(engineeringProblem(this.error));return;}
+    if(!Number.isFinite(first)||first<=0||(this.kind==="chamfer"&&this.chamferMode!=="EQUAL"&&(!Number.isFinite(second)||second<=0||this.chamferMode==="LENGTH_ANGLE"&&second>=180))){this.error="圆角半径/倒角长度必须为正有限值，倒角角度必须在 0° 与 180° 之间";context.viewport.setToolPrompt(this.error);return;}
     const base={operationId:this.operationID!,entityIds:this.cornerRefs.map(reference=>reference.entityId!) as [string,string],
       firstReference:{...this.cornerRefs[0]},secondReference:{...this.cornerRefs[1]},point:point(this.cornerPoint),trimMode:this.cornerTrimMode};
     return this.kind==="fillet"?{type:"FILLET_ENTITIES",...base,value:first}:{type:"CHAMFER_ENTITIES",...base,chamferMode:this.chamferMode,chamferFirst:first,

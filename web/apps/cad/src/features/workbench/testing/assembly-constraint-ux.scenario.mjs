@@ -29,18 +29,18 @@ const incompleteEdge = { instanceId: "edge-b", kind: "EDGE", persistentSelection
   supportingElementStatus: "NOT_CONNECTED", status: "SOURCE_UNAVAILABLE", diagnosticCode: "TOPOLOGY_HISTORY_INCOMPLETE",
   diagnostic: "target revision does not declare complete topology history",
 } } };
-assert.equal(ux.assemblySupportPresentation(connected).label, "Connected");
+assert.equal(ux.assemblySupportPresentation(connected).label, "有效");
 assert.deepEqual(ux.assemblySupportPresentation(broken), {
-  status: "NOT_CONNECTED", label: "NotConnected", diagnosticCode: "MISSING", diagnostic: "face was deleted", evidenceDigest: undefined,
+  status: "NOT_CONNECTED", label: "需要重新选择", diagnosticCode: "MISSING", diagnostic: "face was deleted", evidenceDigest: undefined,
 });
-assert.equal(ux.assemblySupportPresentation(ambiguous).label, "NotConnected");
+assert.equal(ux.assemblySupportPresentation(ambiguous).label, "需要重新选择");
 assert.equal(ux.assemblySupportPresentation(ambiguous).diagnosticCode, "PERSISTENT_SELECTION_AMBIGUOUS");
-assert.equal(ux.assemblySupportPresentation(reconnectedPick).label, "Connected");
+assert.equal(ux.assemblySupportPresentation(reconnectedPick).label, "有效");
 assert.deepEqual(ux.assemblySupportPresentation(connectedEdge), {
-  status: "CONNECTED", label: "Connected", diagnosticCode: undefined, diagnostic: undefined, evidenceDigest: "edge-evidence",
+  status: "CONNECTED", label: "有效", diagnosticCode: undefined, diagnostic: undefined, evidenceDigest: "edge-evidence",
 });
-assert.equal(ux.assemblySupportPresentation(connectedVertex).label, "Connected");
-assert.equal(ux.assemblySupportPresentation(incompleteEdge).label, "NotConnected");
+assert.equal(ux.assemblySupportPresentation(connectedVertex).label, "有效");
+assert.equal(ux.assemblySupportPresentation(incompleteEdge).label, "需要重新选择");
 assert.equal(ux.assemblySupportPresentation(incompleteEdge).diagnosticCode, "TOPOLOGY_HISTORY_INCOMPLETE");
 assert.equal(ux.firstDisconnectedSupport({ first: incompleteEdge, second: connectedVertex, evaluationStatus: "BROKEN" }), 0);
 assert.equal(ux.assemblyStatusAfterPreviewFailure("RESOLVING_GEOMETRY", false,

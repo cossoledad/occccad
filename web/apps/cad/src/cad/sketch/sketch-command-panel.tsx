@@ -1,4 +1,4 @@
-import {engineeringProblem} from "../command/operation-feedback";
+import {CommandField} from "../overlay/command-form";
 import { Alert, Button, Card, Input, Select, Space, Typography } from "antd";
 import type { SketchCommandAction, SketchCommandState } from "../tool/sketch-command-session";
 
@@ -21,19 +21,16 @@ export function SketchCommandPanel({ state, prompt, onAction }: {
     <Space orientation="vertical" style={{ width: "100%" }}>
       {state && <Typography.Text strong>{state.role} · 已选 {state.selectedIds.length} 个对象</Typography.Text>}
       <Typography.Text>{prompt}</Typography.Text>
-      {state?.error && <Alert type="error" title={engineeringProblem(state.error)} />}
-      {state?.fields.map((field, index) => <label key={index} style={{ display: "block" }}>
-        <Typography.Text>{field.label}</Typography.Text>
+      {state?.error && <Alert type="error" title={state.error} />}
+      {state?.fields.map((field, index) => <CommandField key={index} label={field.label} width="expression">
         <Input value={field.value} placeholder={field.placeholder} disabled={pending || unknown}
           onChange={event => onAction({ type: "field", index, value: event.target.value })} />
-      </label>)}
-      {state?.options.map(option => <label key={option.name} style={{ display: "block" }}>
-        <Typography.Text>{option.label}</Typography.Text>
-        <Select style={{ width: "100%" }} value={option.value} options={option.choices} disabled={pending || unknown}
+      </CommandField>)}
+      {state?.options.map(option => <CommandField key={option.name} label={option.label} width="enum">
+        <Select value={option.value} options={option.choices} disabled={pending || unknown}
           onChange={value => onAction({ type: "option", name: option.name, value })} />
-      </label>)}
+      </CommandField>)}
       {state?.preview === "approximate" && <Typography.Text type="secondary">近似预览，确认时检查结果</Typography.Text>}
-      {state?.preview === "authoritative" && <Typography.Text type="secondary">预览已就绪，请确认</Typography.Text>}
       {state?.preview === "pending" && <Typography.Text type="secondary">正在计算预览…</Typography.Text>}
       {state?.preview === "unavailable" && <Button onClick={()=>onAction({type:"retry"})}>重新预览</Button>}
       {state && <Space wrap>

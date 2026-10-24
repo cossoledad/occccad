@@ -183,14 +183,14 @@ test('filtered tree picks advance roles and preview axes before locating planes'
  const dialog=page.getByRole('dialog',{name:/^旋转\./});await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeDisabled();
  const filter=page.getByRole('textbox',{name:'筛选模型结构'});
  // A plane is never accepted by the axial role.
- await filter.fill('试验平面 0');await page.getByText('试验平面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:'第一轴线',exact:true})).toContainText('选择几何');
+ await filter.fill('试验平面 0');await page.getByText('试验平面 0',{exact:true}).click();await expect(dialog.locator('.feature-pick-field').filter({hasText:'第一轴线'})).toContainText('未选择');
  for(const label of ['试验圆柱面 0','试验圆柱面 1','试验定位面 0','试验定位面 1']){
   await filter.fill(label);const item=page.getByText(label,{exact:true});
   const role=label.includes('圆柱')?'轴线':'定位平面';const before=['试验圆柱面 0','试验圆柱面 1','试验定位面 0','试验定位面 1'].indexOf(label);
   if(label==='试验圆柱面 0'){
    await page.evaluate(()=>(window as any).__motionFixture.failInspection=true);await item.click();
    await expect(page.locator('.cad-operation-notification')).toContainText('几何支持未完成');
-   await expect(dialog.getByRole('button',{name:'第一轴线',exact:true})).toContainText('选择几何');
+   await expect(dialog.locator('.feature-pick-field').filter({hasText:'第一轴线'})).toContainText('未选择');
    await page.evaluate(()=>(window as any).__motionFixture.failInspection=false);
   }
   await item.hover();await item.click();await expectViewport(viewportProbe(page,"viewport-feature-selection")).toHaveAttribute('data-count',String(before+1));
@@ -198,9 +198,9 @@ test('filtered tree picks advance roles and preview axes before locating planes'
   if(label==='试验圆柱面 1')await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.previews.some((p:any)=>p.draftJointId&&!p.mechanism.joints.at(-1).first.plane))).toBe(true);
  }
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
- await dialog.getByRole('button',{name:'清除第一轴线',exact:true}).click();await expect(dialog.getByRole('button',{name:'第一定位平面',exact:true})).toContainText('先选轴线');
+ await dialog.getByRole('button',{name:'移除第一轴线',exact:true}).click();await expect(dialog.locator('.feature-pick-field').filter({hasText:'第一定位平面'})).toContainText('先选轴线');
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeDisabled();
- await filter.fill('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:'第一定位平面',exact:true})).toHaveClass(/ant-btn-primary/);
+ await filter.fill('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:'选择第一定位平面',exact:true})).toHaveAttribute('aria-pressed','true');
  await filter.fill('试验定位面 0');await page.getByText('试验定位面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(1);
@@ -289,8 +289,8 @@ test('basic mechanism command catalog excludes retired functions and simulation 
 test('joint relation children edit their owner through the shared tree command',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);await enter(page,true);
  const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('重合.1');const coincidence=page.getByRole('treeitem').filter({hasText:/重合\.1 \(/}).first();await expect(coincidence).toHaveAttribute('data-action-enabled','true');await coincidence.dblclick();
- const dialog=page.getByRole('dialog',{name:'轴接合',exact:true});await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'第一轴线',exact:true})).toHaveClass(/ant-btn-primary/);await page.keyboard.press('Escape');
- await filter.fill('偏移.1');const offset=page.getByRole('treeitem').filter({hasText:/偏移\.1 \(/}).first();await expect(offset).toHaveAttribute('data-action-enabled','true');await offset.dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'第一定位平面',exact:true})).toHaveClass(/ant-btn-primary/);await page.keyboard.press('Escape');
+ const dialog=page.getByRole('dialog',{name:'轴接合',exact:true});await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'选择第一轴线',exact:true})).toHaveAttribute('aria-pressed','true');await page.keyboard.press('Escape');await expect(dialog).toBeVisible();await page.keyboard.press('Escape');
+ await filter.fill('偏移.1');const offset=page.getByRole('treeitem').filter({hasText:/偏移\.1 \(/}).first();await expect(offset).toHaveAttribute('data-action-enabled','true');await offset.dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'选择第一定位平面',exact:true})).toHaveAttribute('aria-pressed','true');await page.keyboard.press('Escape');await expect(dialog).toBeVisible();await page.keyboard.press('Escape');
  expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);expect(errors).toEqual([]);
 });
 

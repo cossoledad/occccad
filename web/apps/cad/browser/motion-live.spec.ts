@@ -230,8 +230,8 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  for(const [label,index] of [['旋转圆柱面',0],['旋转圆柱面',1],['旋转定位面',0],['旋转定位面',1]] as const){
   await filter.fill(label);const supports=tree.getByText(label,{exact:true});await expect(supports).toHaveCount(2);await supports.nth(index).click();
  }
- await expect(joint.getByRole('button',{name:'第一轴线',exact:true})).toContainText('圆柱面轴线');
- await expect(joint.getByRole('button',{name:'第二轴线',exact:true})).toContainText('圆柱面轴线');
+ await expect(joint.locator('.feature-pick-field').filter({hasText:'第一轴线'})).toContainText('圆柱面轴线');
+ await expect(joint.locator('.feature-pick-field').filter({hasText:'第二轴线'})).toContainText('圆柱面轴线');
  await joint.getByRole('spinbutton',{name:'轴向偏移 mm',exact:true}).fill('9');await joint.getByRole('combobox',{name:'平面方向',exact:true}).click();await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).check();
  await expect(joint.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await page.screenshot({path:'../../../build/acceptance/dmu-revolute-dialog.png'});
  await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);
@@ -424,7 +424,7 @@ test('cylindrical joint authors one angular and linear recording and pauses exac
  await command(page,'圆柱接合');const joint=page.getByRole('dialog',{name:'圆柱.1',exact:true}),filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  await filter.fill('旋转圆柱面');const cylinders=tree.getByText('旋转圆柱面',{exact:true});await expect(cylinders).toHaveCount(2);
  await cylinders.nth(0).click();await cylinders.nth(1).click();
- await expect(joint.getByRole('button',{name:'第一定位平面',exact:true})).toHaveCount(0);
+ await expect(joint.getByRole('button',{name:'选择第一定位平面',exact:true})).toHaveCount(0);
  await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).check();await joint.getByRole('checkbox',{name:'长度驱动',exact:true}).check();
  await expect(joint.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);await filter.fill('');
  let v=await current(page,seed.id);const mechanism=v.product.kinematics.mechanisms[0],cylinder=mechanism.joints.find((j:any)=>j.kind==='CYLINDRICAL');
@@ -500,13 +500,17 @@ test('Product Fix Together continuously picks viewport members and moves the com
   await api.command(id,{type:'MOVE_INSTANCE',instanceId:instance,translation:[0,-35,0],rotation:[0,0,0,1]});return instance;
  },{id:seed.id,part:initial.product.instances[0].documentId});await page.goto('/documents/'+seed.id);
  await command(page,'固联组');const dialog=page.getByRole('dialog').filter({has:page.getByLabel('固联组成员')});await expect(dialog).toBeVisible();
- await expect(dialog.getByRole('combobox')).toHaveCount(0);await pickVisibleInstance(page,seed.shaft);await pickVisibleInstance(page,seed.rotor);await pickVisibleInstance(page,third);
- await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除 /})).toHaveCount(3);await dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除 /}).last().click();await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除 /})).toHaveCount(2);await pickVisibleInstance(page,third);await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除 /})).toHaveCount(3);await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
+ await expect(dialog.getByRole('combobox')).toHaveCount(0);
+ const header=await dialog.locator('.cad-command-dialog-header').boundingBox();if(!header)throw new Error('Missing group dialog header');
+ await page.mouse.move(header.x+100,header.y+20);await page.mouse.down();await page.mouse.move(header.x+100,900,{steps:8});await page.mouse.up();
+ await page.keyboard.press('Escape');await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'选择成员集',exact:true})).toHaveAttribute('aria-pressed','false');await dialog.getByRole('button',{name:'选择成员集',exact:true}).click();
+ await pickVisibleInstance(page,seed.shaft);await pickVisibleInstance(page,seed.rotor);await pickVisibleInstance(page,third);
+ await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除成员 /})).toHaveCount(3);await dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除成员 /}).last().click();await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除成员 /})).toHaveCount(2);await dialog.getByRole('button',{name:'选择成员集',exact:true}).click();await pickVisibleInstance(page,third);await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除成员 /})).toHaveCount(3);await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
  await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
  const before=await current(page,seed.id),group=before.product.constraints.find((c:any)=>c.kind==='FIX_TOGETHER');expect(group.name).toBe('固联组.1');expect(group.groupMembers).toHaveLength(3);expect(group.groupRelations).toHaveLength(3);
  const references:any[]=[];const visit=(node:any)=>{if(node.kind==='ASSEMBLY_GROUP_MEMBER_REFERENCE')references.push(node);for(const child of node.children??[])visit(child)};visit(before.structureTree);expect(references).toHaveLength(3);expect(references.every(node=>!node.capabilities.includes('DELETE'))).toBeTruthy();
  const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true}),reference=references.find(node=>node.entityId===seed.rotor);
- await filter.fill(reference.name);await tree.getByText(reference.name,{exact:true}).dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除 /})).toHaveCount(3);await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);await filter.fill('');expect((await current(page,seed.id)).document.versionId).toBe(before.document.versionId);
+ await filter.fill(reference.name);await tree.getByText(reference.name,{exact:true}).dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除成员 /})).toHaveCount(3);await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);await filter.fill('');expect((await current(page,seed.id)).document.versionId).toBe(before.document.versionId);
  await command(page,'移动组件');await pickVisibleInstance(page,seed.rotor);await dragAttachedComponent(page,4);
  const after=await current(page,seed.id);const baseline=before.product.instances.find((i:any)=>i.id===seed.shaft),moved=after.product.instances.find((i:any)=>i.id===seed.shaft);expect(moved.translation).not.toEqual(baseline.translation);
  expect(after.product.constraints[0].groupRelations).toEqual(group.groupRelations);await page.screenshot({path:'../../../build/acceptance/product-fix-together-viewport.png'});expect(errors).toEqual([]);
@@ -621,11 +625,16 @@ test('fixed constraint create and edit close after authoritative commits',async(
  const row=page.getByRole('treeitem').filter({hasText:fixed.name}).last();
  await row.dblclick();await expect(dialog).toBeVisible();
  await expect(dialog.getByRole('spinbutton',{name:'X（mm）',exact:true})).toHaveValue('7.65');
- await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).press('Enter');
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
- await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
+ await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).press('Enter');
+ await expect(dialog).toHaveCount(0);
  expect((await current(page,seed.id)).product.constraints.find((c:any)=>c.id===fixed.id).fixedPose.translation[0]).toBeCloseTo(7.654,8);
  await row.dblclick();await expect(dialog).toBeVisible();
+ const beforeClear=(await current(page,seed.id)).document.versionId;
+ await dialog.getByRole('button',{name:'选择支撑 1',exact:true}).click();await page.keyboard.press('Escape');await expect(dialog).toBeVisible();
+ await dialog.getByRole('button',{name:'移除支撑 1',exact:true}).click();await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeDisabled();
+ await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(beforeClear);
+ await row.dblclick();await expect(dialog.getByRole('button',{name:'移除支撑 1',exact:true})).toBeVisible();
  await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).fill('9.876');
  await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).press('Tab');
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
@@ -682,7 +691,7 @@ test('invalid mechanism supports remain inspectable and repair through real view
  await row.getByRole('button',{name:'修复支撑'}).click();const dialog=page.getByRole('dialog',{name:'旋转.1',exact:true});await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(before.document.versionId);
  await command(page,'机构分析');await expect(panel).toContainText('部分结果未知');await panel.locator('tbody tr').filter({hasText:'旋转.1'}).getByRole('button',{name:'修复支撑'}).click();await expect(dialog).toBeVisible();
  // Select the axis role in the original JointFields, then click an actual outer cylinder face.
- const role=dialog.getByRole('button',{name:'第一轴线',exact:true});
+ const role=dialog.getByRole('button',{name:'选择第一轴线',exact:true});
  await role.click();await viewportEngine(page);
  const box=await page.locator('canvas').boundingBox();if(!box)throw new Error('canvas');
  let point:{x:number;y:number}|undefined;await expect.poll(async()=>{point=await page.evaluate(async({id,documentId,box})=>{const e=(window as any).__dmuEngine,{restApi:api}=await import('/src/api.ts');const checked=new Set();for(let y=60;y<box.height-20;y+=6)for(let x=40;x<box.width-20;x+=6){if(document.elementFromPoint(box.x+x,box.y+y)!==document.querySelector('canvas'))continue;const h=e.hitTest(x,y);if(h?.instanceId===id&&h.kind==='face'&&!checked.has(h.topologyId)){checked.add(h.topologyId);const result=await api.inspectAssemblySupports(documentId,[{instanceId:id,kind:'FACE',geometryKey:h.geometryKey,topologyId:h.topologyId}]);if(result.supports[0]?.descriptor?.Kind==='CYLINDER')return {x,y}}}},{id:seed.shaft,documentId:seed.id,box});return Boolean(point)},{timeout:30_000}).toBeTruthy();if(!point)throw new Error('No shaft face pixel');await page.mouse.click(box.x+point.x,box.y+point.y);

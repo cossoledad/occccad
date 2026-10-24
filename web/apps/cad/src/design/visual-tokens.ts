@@ -19,6 +19,7 @@ export const uiTokens = {
   fontFamily: '"Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif',
   fontSize: 13, fontSmall: 12, fontTitle: 14, fontDimension: 14, fontInline: 15,
   fontWeight: 400, fontGroupWeight: 500, fontTitleWeight: 600,
+  formLabelWidth:88, formNumberWidth:112, formEnumWidth:160, formActionMinWidth:48,
   controlHeight: 32, ribbonHeight: 30, statusActionHeight: 24, statusHeight: 32,
   categoryHeight: 36, commandAreaHeight: 88, toolWidth: 88, splitWidth: 112, arrowWidth: 24,
   iconToolbar: 18, iconMenu: 18, iconAction: 16,

@@ -1,3 +1,6 @@
+import {CommandField,CommandFormItem} from "../overlay/command-form";
+import {FeaturePickField} from "../../features/workbench/feature-pick-field";
+import {CommandInputError} from "../command/operation-failure";
 import {engineeringProblem} from "../command/operation-feedback";
 import { useEffect, useRef, useState } from "react";
 import { Button, Checkbox, Form, Input, Select, Space, Typography } from "antd";
@@ -19,11 +22,11 @@ export type DimensionRequest = { mode:"edit"; featureId:string; constraintId:str
  | { mode:"create"; featureId:string; kind:SketchConstraint["kind"]; references:SketchGeometryRef[]; labelPosition:Vec2; value:number; unit:"mm"|"deg";x:number;y:number };
 export function dimensionSourceInput(source:string,unit:string):string {
  const parsed=parseParameterSource(source,unit);
- if(parsed.kind==="EXPRESSION") { if(!parsed.expression)throw new Error("请输入尺寸值或表达式");return parsed.expression; }
+ if(parsed.kind==="EXPRESSION") { if(!parsed.expression)throw new CommandInputError("请输入尺寸值或表达式");return parsed.expression; }
  return `${parsed.value} ${parsed.unit}`;
 }
 export function dimensionDefinitionOperation(constraint:SketchConstraint, original:SketchConstraint|undefined, source:string, initialSource:string, name:string, readonly:boolean, restore:"ORIGINAL"|"MEASUREMENT",inputUnit:string=constraint.unit??"mm"):SketchOperation {
- if(name&&!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))throw new Error("名称须使用字母、数字和下划线，并以字母或下划线开头");
+ if(name&&!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))throw new CommandInputError("名称须使用字母、数字和下划线，并以字母或下划线开头");
  const parameterSource=!constraint.reference&&!readonly&&(!original||source!==initialSource)?dimensionSourceInput(source,inputUnit):undefined;
  return original?{type:"UPDATE_CONSTRAINT",constraintId:original.id,constraint,parameterSource,parameterKey:name||undefined,restoreMode:original.reference&&!constraint.reference?restore:undefined}:{type:"ADD_CONSTRAINT",constraint,parameterSource,parameterKey:name||undefined};
 }
@@ -45,7 +48,7 @@ export function constraintReferenceChoices(constraint:SketchConstraint,index:num
  return [...new Map(choices.map(ref=>[JSON.stringify(ref),ref])).values()];
 }
 export function logicalDefinitionOperation(original:SketchConstraint,references:SketchGeometryRef[],suppressed:boolean):SketchOperation{
- if(isDimensionConstraintKind(original.kind)||original.internal||["MIRROR","SAME_SUPPORT"].includes(original.kind))throw new Error("派生/内部关系须通过对应几何编辑显式解除，不能直接改写");
+ if(isDimensionConstraintKind(original.kind)||original.internal||["MIRROR","SAME_SUPPORT"].includes(original.kind))throw new CommandInputError("派生/内部关系须通过对应几何编辑显式解除，不能直接改写");
  return {type:"UPDATE_CONSTRAINT",constraintId:original.id,constraint:{...original,references,suppressed}};
 }
 export function dimensionDisplayValue(value:number,unit:DisplayLengthUnit|"deg"):number {
@@ -159,43 +162,41 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
    if(commitSession.current.unknown){await commit([]);setUnknown(false);onClose();return;}
    if(deleting&&original){await commit([{type:"DELETE_CONSTRAINT",constraintId:original.id}]);onClose();return;}
    if(logical&&original){await commit([logicalDefinitionOperation(original,references,suppressed)]);onClose();return;}
-   if(name&&!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))throw new Error("名称须使用字母、数字和下划线，并以字母或下划线开头");
+   if(name&&!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))throw new CommandInputError("名称须使用字母、数字和下划线，并以字母或下划线开头");
    const constraint:SketchConstraint=original?{...original,references,reference,suppressed}:{id:randomUUID(),kind,references,reference,unit:request.unit,value:request.value,labelPosition:request.mode==="create"?{x:request.labelPosition[0],y:request.labelPosition[1]}:undefined};
    await commit([dimensionDefinitionOperation(constraint,original,source,initialSource,name,readonly,restore,inputUnit)]);onClose();
   }finally{setUnknown(commitSession.current.unknown);setPending(false);}
  };
- return <CommandDialog id="sketch-dimension" open title={logical?`编辑${definition.label}约束`:`编辑${definition.label}尺寸`} onClose={close} onConfirm={submit} confirmDisabled={selecting!==undefined} size="S">
+ return <CommandDialog id="sketch-dimension" open title={logical?`编辑${definition.label}约束`:`编辑${definition.label}尺寸`} onClose={close} onCancelPick={()=>{if(selecting===undefined)return false;cancelSelection();return true}} onConfirm={submit} confirmDisabled={selecting!==undefined} size="S">
   <fieldset disabled={pending||unknown} style={{border:0,padding:0,margin:0,minWidth:0}}>
   <Form layout="vertical" component="div" className="sketch-dimension-form">
   {previewError&&<Typography.Text type="secondary" aria-live="polite">预览不可用：{engineeringProblem(previewError)}</Typography.Text>}
   {unknown&&<Typography.Paragraph aria-live="polite">请求已发出；结果待确认。重试使用同一请求查询结果，草稿暂不可修改。关闭面板不撤销已发请求。</Typography.Paragraph>}
   {deleting?<Typography.Paragraph>{logical?"确认后正式删除此关系。":"确认后正式删除关系及其尺寸参数；存在表达式依赖时操作将原子拒绝。"}</Typography.Paragraph>:<>
-   {!logical&&<Form.Item className="sketch-dimension-value" label={`值或表达式（${inputUnit}）`}>
+   {!logical&&<CommandFormItem className="sketch-dimension-value" label={`值或表达式（${inputUnit}）`}>
     <Input autoFocus aria-label="尺寸值或表达式" value={source} disabled={pending||unknown||reference||readonly}
      onFocus={e=>selectInitialDimensionValue(e.currentTarget,valueFocused)} onChange={e=>setSource(e.target.value)}/>
-   </Form.Item>}
-   {!logical&&<Form.Item className="sketch-dimension-name" label="名称" layout="horizontal">
+   </CommandFormItem>}
+   {!logical&&<CommandFormItem className="sketch-dimension-name" label="名称" layout="horizontal">
     <Input disabled={pending||unknown} aria-label="尺寸名称" value={name} placeholder="可选参数名称" onChange={e=>setName(e.target.value)}/>
-   </Form.Item>}
+   </CommandFormItem>}
    <div className="sketch-dimension-references" aria-label="作用对象">
     {references.map((ref,index)=><div className="sketch-dimension-reference" key={index}
       onMouseEnter={()=>{if(selecting===undefined)onHighlightReference?.(request.featureId,ref,index);}}
       onMouseLeave={()=>{if(selecting===undefined)onHighlightReference?.(request.featureId,undefined,index);}}>
-     <div><Typography.Text type="secondary">{definition.pickLabels[index]??"引用对象"}</Typography.Text>
-      <div><Typography.Text>{sketchReferenceLabel(ref,sketch?.entities??[])}</Typography.Text></div></div>
-     <Space size="small"><Button size="small" aria-label={`定位${definition.pickLabels[index]}`} disabled={pending||unknown||!onLocateReference} onClick={()=>onLocateReference?.(request.featureId,ref,index)}>定位</Button>
-      {logical&&<Button size="small" aria-label={`${selecting===index?"取消更换":"更换"}${definition.pickLabels[index]}`} type={selecting===index?"primary":"default"} disabled={pending||unknown||!onSelectReference} onClick={()=>selecting===index?cancelSelection():replace(index)}>{selecting===index?"取消更换":"更换"}</Button>}
-     </Space>
+     <FeaturePickField label={definition.pickLabels[index]??"引用对象"} value={sketchReferenceLabel(ref,sketch?.entities??[])} selected active={selecting===index} disabled={pending||unknown}
+      onLocate={onLocateReference?()=>{cancelSelection();onLocateReference(request.featureId,ref,index)}:undefined}
+      onActivate={logical&&onSelectReference?()=>replace(index):undefined} onCancel={cancelSelection}/>
+
     </div>)}
    </div>
-   {selecting!==undefined&&<Typography.Paragraph aria-live="polite">请在草图中选择{definition.pickLabels[selecting]}；Esc 取消此次更换，保留草稿。</Typography.Paragraph>}
    <div className="sketch-dimension-options">
     {!logical&&<Checkbox disabled={pending||unknown} checked={reference} onChange={e=>setReference(e.target.checked)}>参考尺寸</Checkbox>}
     {original&&<Checkbox disabled={pending||unknown} checked={suppressed} onChange={e=>setSuppressed(e.target.checked)}>停用</Checkbox>}
    </div>
    {!logical&&reference&&<Typography.Text type="secondary" aria-live="polite">草稿测量：{measurement===undefined?"不可测":`${formatDimensionValue(dimensionDisplayValue(measurement,inputUnit))} ${inputUnit}`} · 不驱动几何</Typography.Text>}
    {readonly&&<Typography.Text type="secondary">外部来源只读。</Typography.Text>}
-   {!logical&&original?.reference&&!reference&&<label>恢复驱动<Select disabled={pending||unknown} aria-label="恢复驱动规则" style={{width:"100%"}} value={restore} onChange={setRestore} options={[{value:"ORIGINAL",label:"恢复原驱动定义",disabled:!hasOriginal},{value:"MEASUREMENT",label:"显式使用当前测量",disabled:readonly||measurement===undefined}]}/></label>}
+   {!logical&&original?.reference&&!reference&&<CommandField label="恢复驱动" width="expression"><Select disabled={pending||unknown} aria-label="恢复驱动规则" value={restore} onChange={setRestore} options={[{value:"ORIGINAL",label:"恢复原驱动定义",disabled:!hasOriginal},{value:"MEASUREMENT",label:"显式使用当前测量",disabled:readonly||measurement===undefined}]}/></CommandField>}
    {!logical&&original?.reference&&!hasOriginal&&<Typography.Text type="secondary">此参考尺寸没有原驱动定义；恢复时需使用合法的当前测量。</Typography.Text>}
   </>}
   {original&&<div className="sketch-dimension-danger"><Button danger type="text" disabled={pending||unknown||selecting!==undefined} onClick={()=>setDeleting(!deleting)}>{deleting?"取消删除":logical?"删除约束":"删除尺寸"}</Button></div>}

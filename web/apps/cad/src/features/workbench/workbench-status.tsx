@@ -1,4 +1,3 @@
-import {engineeringProblem} from "../../cad/command/operation-feedback";
 import { useEffect, useState } from "react";
 import { Button, Popover, Select, Space, Tooltip, Typography } from "antd";
 import type { SketchCommandState, SketchCommandAction, SketchCommitReceipt } from "../../cad/tool/sketch-command-session";
@@ -31,7 +30,7 @@ export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengt
         </Space>
       }><Button size="small" disabled={pending}>工具选项</Button></Popover>}
       {sketchCommand.completion&&<Button size="small" type="default" className="cad-status-complete" disabled={pending||!sketchCommand.canConfirm} onClick={()=>onSketchAction?.({type:"confirm"})}>{sketchCommand.completion.label}</Button>}
-      {sketchCommand.error&&!sketchCommand.input&&<Typography.Text role="alert" type="danger" ellipsis={{tooltip:engineeringProblem(sketchCommand.error)}} style={{maxWidth:280}}>{engineeringProblem(sketchCommand.error)}</Typography.Text>}
+      {sketchCommand.error&&!sketchCommand.input&&<Typography.Text role="alert" type="danger" ellipsis={{tooltip:sketchCommand.error}} style={{maxWidth:280}}>{sketchCommand.error}</Typography.Text>}
       {sketchCommand.recovery&&<Button size="small" disabled={pending} onClick={()=>onSketchAction?.({type:sketchCommand.recovery!.action})}>{sketchCommand.recovery.label}</Button>}
       {sketchCommand.phase==="unknown"&&!sketchReceipt&&<Button size="small" onClick={()=>onSketchAction?.({type:"retry"})}>确认原请求结果</Button>}
     </div>}

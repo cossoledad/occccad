@@ -140,7 +140,8 @@ try {
  const productionKeyDown=actualSections.at(-1).props.onKeyDown;
  const field=new Surface();field.tagName="INPUT";field.isContentEditable=false;field.closest=()=>null;
  const reactKey=(overrides={})=>{const event={key:"Enter",repeat:false,target:field,defaultPrevented:false,nativeEvent:{isComposing:false,keyCode:13},stopPropagation(){},preventDefault(){this.defaultPrevented=true;},...overrides};productionKeyDown(event);return event;};
- assert(reactKey().defaultPrevented);reactKey();assert.equal(confirmCount,1,"actual dialog confirms only once while its first request is pending");
+ const frames=[];globalThis.requestAnimationFrame=fn=>{frames.push(fn);return frames.length};
+ assert(reactKey().defaultPrevented);reactKey();assert.equal(confirmCount,0,"Enter waits for the input parser/state update");frames.shift()();assert.equal(confirmCount,1,"actual dialog confirms only once while its first request is pending");
  completeConfirm();await Promise.resolve();await Promise.resolve();
  reactKey({repeat:true});reactKey({nativeEvent:{isComposing:true,keyCode:229}});assert.equal(confirmCount,1,"held Enter and IME Enter cannot issue a new command");
  field.tagName="TEXTAREA";reactKey();field.tagName="INPUT";field.closest=()=>({});reactKey();assert.equal(confirmCount,1,"Select candidates and multiline editing keep their Enter");assert.equal(closeCount,0);

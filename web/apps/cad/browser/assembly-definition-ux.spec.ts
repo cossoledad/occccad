@@ -64,18 +64,18 @@ test('group members use existing group identity when selecting an overlapping co
  const dialog=page.getByRole('dialog',{name:'约束定义',exact:true}),list=dialog.getByLabel('固联组成员');
  await expect(dialog.getByText('固联组名称',{exact:true})).toHaveCount(0);
  await expect(list.getByText('固联组.1',{exact:true})).toBeVisible();
- await expect(list.getByText('Connected',{exact:true})).toHaveCount(2);
- await expect(list.getByRole('button',{name:/^定\s*位$/})).toHaveCount(2);
- await expect(list.getByRole('button',{name:/^更\s*换$/})).toHaveCount(2);
- await list.getByRole('button',{name:'移除 固联组.1'}).click();
+ await expect(list.locator('.feature-pick-detail').filter({hasText:/有效$/})).toHaveCount(2);
+ await expect(list.getByRole('button',{name:/^定位成员 /})).toHaveCount(2);
+ await expect(list.getByRole('button',{name:/^选择成员 /})).toHaveCount(2);
+ await list.locator('.feature-pick-field').filter({has:page.locator('label',{hasText:/^成员 \d+$/})}).filter({hasText:'固联组.1'}).getByRole('button',{name:/^移除成员 /}).click();
  await filter.fill('');
  // Feed the same tree selection route used by component rows.
  const instance=page.locator('[role=treeitem][data-tree-key*="instance:mock-instance-b"]').first();
- await instance.click();await expect(list.getByText('固联组.1',{exact:true})).toBeVisible();
+ await list.getByRole('button',{name:'选择成员集',exact:true}).click();await instance.click();await expect(list.getByText('固联组.1',{exact:true})).toBeVisible();
  await expect.poll(async()=>Number(await viewportProbe(page,"viewport-selection").getAttribute('data-highlighted'))).toBeGreaterThanOrEqual(3);
  await page.screenshot({path:'../../../build/acceptance/fix-together-members.png'});
- await list.getByRole('button',{name:/^更\s*换$/}).first().click();await instance.click();
- await expect(list.locator('.assembly-support-row')).toHaveCount(1);
+ await list.getByRole('button',{name:/^选择成员 /}).first().click();await instance.click();
+ await expect(list.locator('.feature-pick-field').filter({has:page.locator('label',{hasText:/^成员 \d+$/})})).toHaveCount(1);
  await expect(list.getByText('固联组.1',{exact:true})).toBeVisible();
  await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);
  expect(errors).toEqual([]);
@@ -91,8 +91,8 @@ test('datum references stay compact and axis preview matches the saved reference
   api.previewCommand=async(id,input,signal)=>input.type==='CREATE_DATUM_AXIS'?{previewId:'axis-preview',baseVersionId:(await api.getDocument(id)).document.versionId,baseSequence:0,modelHash:'axis-ui-fixture',referenceGeometry:{datumPlanes:[],axisSystems:[],datumAxes:[{id:'axis-preview',name:String(input.name),origin:input.origin as [number,number,number],direction:input.direction as [number,number,number]}]}}:preview(id,input,signal);
  });
  await command(page,'基准轴');const dialog=page.getByRole('dialog',{name:'创建基准轴',exact:true});
- await expect(dialog.locator('.feature-reference-row')).toHaveCount(3);
- for(const row of await dialog.locator('.feature-reference-row').all())expect((await row.boundingBox())!.height).toBeLessThan(64);
+ await expect(dialog.locator('.feature-pick-field')).toHaveCount(3);
+ const heights=await Promise.all((await dialog.locator('.feature-pick-field').all()).map(async row=>(await row.boundingBox())!.height));expect(Math.max(...heights)).toBeLessThanOrEqual(76);expect(Math.max(...heights)-Math.min(...heights)).toBeLessThanOrEqual(1);
  await page.screenshot({path:'../../../build/acceptance/datum-reference-fields.png'});
  await dialog.getByText('自由坐标',{exact:true}).click();
  await dialog.getByRole('spinbutton',{name:'原点（mm） X',exact:true}).fill('12.34567');

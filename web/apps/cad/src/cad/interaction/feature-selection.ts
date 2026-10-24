@@ -66,3 +66,14 @@ export function pickFeatureSelection(raw:Selection,session:FeatureSelectionSessi
     if(hit)session.onPick(hit);
     else if(raw&&session.pendingCandidate?.(raw))session.resolvePick?.(raw);
 }
+
+/** A transient field/session epoch. It never becomes a persistent identity.
+ * Switching/cancelling a field invalidates every pending resolution from it. */
+export class FeaturePickScope {
+ private field?:string;private context='';private epoch=0;
+ activate(field:string|undefined,context:string){if(field!==this.field||context!==this.context){this.field=field;this.context=context;this.epoch++;}}
+ capture(){return this.epoch;}
+ latest(){return ++this.epoch;}
+ current(ticket:number){return ticket===this.epoch;}
+ cancel(){this.field=undefined;this.epoch++;}
+}

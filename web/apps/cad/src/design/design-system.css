@@ -59,8 +59,7 @@ body { color:var(--color-text); background:var(--color-canvas); }
 .sketch-dimension-form { display:grid; gap:16px; }
 .sketch-dimension-form .ant-form-item { margin-bottom:0; }
 .sketch-dimension-references { display:grid; gap:12px; padding-block:12px; border-block:1px solid var(--color-border); }
-.sketch-dimension-reference { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-.sketch-dimension-reference > div:first-child { min-width:0; }
+.sketch-dimension-reference { min-width:0; }
 .sketch-dimension-options { display:flex; flex-wrap:wrap; gap:16px; }
 .sketch-dimension-danger { display:flex; justify-content:flex-start; border-top:1px solid var(--color-border); padding-top:4px; }
 .sketch-dimension-danger .ant-btn { padding-inline:0; }
@@ -120,3 +119,51 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--color-border);
    Explicit recovery and close controls remain interactive. */
 .ant-notification .ant-notification-notice.cad-operation-notification { pointer-events:none; }
 .cad-operation-notification :is(button,a,.ant-notification-notice-close) { pointer-events:auto; }
+
+/* Command forms: structural widths, never a global width for every control. */
+.command-form { display:flex; flex-direction:column; gap:var(--ui-space-12); }
+.command-field { display:grid; grid-template-columns:minmax(64px,var(--ui-form-label-width)) minmax(0,1fr); gap:var(--ui-space-8); align-items:start; min-width:0; }
+.command-field-label { min-width:0; padding-top:6px; overflow-wrap:anywhere; color:var(--color-text); }
+.command-field-control { min-width:0; }
+.command-field-control > :is(.ant-input,.ant-input-affix-wrapper,.ant-select,.parameter-reference-input) { width:100%; min-width:0; }
+.command-field-number .command-field-control { width:var(--ui-form-number-width); max-width:100%; }
+.command-field-number .ant-input-number { width:100%; }
+.command-field-enum .command-field-control { width:var(--ui-form-enum-width); max-width:100%; }
+.command-field-option .command-field-control { padding-top:4px; justify-self:start; }
+.command-field-expression .command-field-control,.command-field-name .command-field-control { width:100%; }
+.command-field-error { display:block; color:var(--color-danger); font-size:12px; white-space:normal; overflow-wrap:anywhere; }
+.command-group { display:flex; flex-direction:column; gap:var(--ui-space-12); min-width:0; margin:0; padding:12px 0 0; border:0; border-top:1px solid var(--color-border); }
+.command-group legend { width:auto; padding:0 8px 0 0; font-size:12px; font-weight:500; }
+.feature-pick-field { border:1px solid var(--color-border); border-radius:var(--ui-radius); padding:8px; min-width:0; }
+.feature-pick-field.is-active { border-color:var(--color-primary); background:var(--color-primary-bg,var(--color-primary-soft)); }
+.feature-pick-field .command-field-label { padding-top:0; font-weight:500; }
+.feature-pick-content { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.feature-pick-value { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.feature-pick-detail { color:var(--color-text-secondary); overflow-wrap:anywhere; }
+.feature-pick-actions { display:flex; gap:4px; flex-wrap:wrap; align-items:center; }
+.cad-command-dialog .feature-pick-actions .ant-btn { height:var(--ui-status-action-height); min-width:var(--ui-form-action-min-width); width:auto; padding-inline:8px; }
+.command-status { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:12px; min-width:0; }
+.command-secondary-actions { margin-right:auto; display:flex; flex-wrap:wrap; align-items:center; gap:8px; min-width:0; }
+.cad-command-dialog-footer { min-height:52px; height:auto; padding-block:8px; justify-content:flex-end; flex-wrap:wrap; }
+.cad-command-dialog-footer .ant-btn { min-width:64px; width:auto; }
+.cad-command-dialog .command-secondary-actions .ant-btn { min-width:var(--ui-form-action-min-width); height:var(--ui-status-action-height); padding-inline:8px; }
+.command-form .ant-checkbox-wrapper { align-self:flex-start; margin-inline:0; }
+@media (max-width:520px) { .command-field { grid-template-columns:72px minmax(0,1fr); } .command-field-label { padding-top:4px; } }
+
+.command-form-item { margin-bottom:12px; min-width:0; }
+.command-form-item .ant-form-item-row { flex-wrap:nowrap; column-gap:8px; }
+.command-form-item .ant-form-item-label { text-align:left; white-space:normal; }
+.command-form-item .ant-form-item-label > label { height:auto; min-height:32px; white-space:normal; }
+.command-form-item .ant-form-item-control { min-width:0; }
+.command-form-item-number .ant-input-number { width:var(--ui-form-number-width); max-width:100%; }
+.command-form-item-enum .ant-select { width:var(--ui-form-enum-width); max-width:100%; }
+.command-form > .ant-btn,.command-form :is(.instance-pattern-fields,.motion-study-fields,.feature-input-fields) > .ant-btn { align-self:flex-start; width:auto; }
+.command-field .ant-segmented { max-width:100%; }
+.command-field .ant-segmented-group { flex-wrap:wrap; }
+.datum-vector-fields { border:0; margin:0; padding:0; min-width:0; display:flex; flex-direction:column; gap:8px; }
+
+.command-group > .ant-btn { align-self:flex-start; width:auto; }
+
+.command-property-controls,.command-inline-option { display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
+.command-property-controls .ant-input-number,.command-inline-option .ant-input-number { width:var(--ui-form-number-width); max-width:100%; }
+.command-property-controls .ant-select { min-width:88px; max-width:100%; }

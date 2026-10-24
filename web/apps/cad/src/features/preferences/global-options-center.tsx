@@ -1,3 +1,4 @@
+import {CommandField} from "../../cad/overlay/command-form";
 import {uiTokens} from "../../design/visual-tokens";
 import {APP_OPTIONS_COMMAND,globalOptionsCommand} from "./global-options-command";
 import {SettingOutlined} from "@ant-design/icons";
@@ -44,8 +45,8 @@ export function GlobalOptionsProvider({children,activeDocumentID}:PropsWithChild
   </Space>}
   {page==="creation"&&<Space orientation="vertical" className="global-options-fields">
    <Typography.Title level={5}>新建零件默认外观</Typography.Title>
-   <label className="cad-property-row"><span>实体表面颜色</span><Space><ColorPicker aria-label="新建实体表面颜色" disabledAlpha showText value={draft.creationDefaults.solid.color} onChange={c=>patch({creationDefaults:{solid:{...draft.creationDefaults.solid,color:c.toHexString()}}})}/><Input aria-label="默认实体颜色 HEX" style={{width:105}} maxLength={7} value={draft.creationDefaults.solid.color} status={/^#[0-9a-fA-F]{6}$/.test(draft.creationDefaults.solid.color)?undefined:"error"} onChange={e=>patch({creationDefaults:{solid:{...draft.creationDefaults.solid,color:e.target.value}}})}/></Space></label>
-   {([["roughness","粗糙度"],["metalness","金属度"]] as const).map(([key,label])=><label key={key} className="cad-property-row"><span>{label}</span><InputNumber aria-label={`默认${label}`} min={0} max={1} step={.05} value={draft.creationDefaults.solid[key]} onChange={v=>{if(v!==null)patch({creationDefaults:{solid:{...draft.creationDefaults.solid,[key]:v}}})}}/></label>)}
+   <CommandField label="实体表面颜色" width="expression"><Space><ColorPicker aria-label="新建实体表面颜色" disabledAlpha showText value={draft.creationDefaults.solid.color} onChange={c=>patch({creationDefaults:{solid:{...draft.creationDefaults.solid,color:c.toHexString()}}})}/><Input aria-label="默认实体颜色 HEX" style={{width:105}} maxLength={7} value={draft.creationDefaults.solid.color} status={/^#[0-9a-fA-F]{6}$/.test(draft.creationDefaults.solid.color)?undefined:"error"} onChange={e=>patch({creationDefaults:{solid:{...draft.creationDefaults.solid,color:e.target.value}}})}/></Space></CommandField>
+   {([["roughness","粗糙度"],["metalness","金属度"]] as const).map(([key,label])=><CommandField key={key} label={label} width="number"><InputNumber aria-label={`默认${label}`} min={0} max={1} step={.05} value={draft.creationDefaults.solid[key]} onChange={v=>{if(v!==null)patch({creationDefaults:{solid:{...draft.creationDefaults.solid,[key]:v}}})}}/></CommandField>)}
    <Typography.Paragraph type="secondary">用于文档中心、文档标签页及装配中创建的新零件。创建时保存为零件的默认外观；已有文档和导入模型的外观不受影响。</Typography.Paragraph>
   </Space>}
   {page==="navigation"&&<Space orientation="vertical" className="global-options-fields">
@@ -56,8 +57,8 @@ export function GlobalOptionsProvider({children,activeDocumentID}:PropsWithChild
    <CaptureSettingsPanel settings={draft.captureSettings} onEnabledChange={enabled=>patch({captureSettings:{...draft.captureSettings,enabled}})} onSelectionToggle={kind=>patch({captureSettings:{...draft.captureSettings,selection:draft.captureSettings.selection.includes(kind)?draft.captureSettings.selection.filter(k=>k!==kind):[...draft.captureSettings.selection,kind]}})} onSketchToggle={kind=>patch({captureSettings:{...draft.captureSettings,sketch:draft.captureSettings.sketch.includes(kind)?draft.captureSettings.sketch.filter(k=>k!==kind):[...draft.captureSettings.sketch,kind]}})} onAll={()=>patch({captureSettings:structuredClone(DEFAULT_CAPTURE_SETTINGS)})} onPointsOnly={()=>patch({captureSettings:{enabled:true,selection:["POINT"],sketch:["GRID","ORIGIN","POINT","ENDPOINT","CENTER","MIDPOINT"]}})}/>
   </Space>}
   {page==="units"&&<Space orientation="vertical" className="global-options-fields">
-   <label className="cad-property-row"><span>默认长度单位</span><Select aria-label="默认长度单位" value={draft.displayLengthUnit} options={units} onChange={displayLengthUnit=>patch({displayLengthUnit:displayLengthUnit as DisplayLengthUnit})}/></label>
-   {activeDocumentID&&<label className="cad-property-row"><span>当前文档显示单位</span><Select aria-label="当前文档显示单位" value={draft.documentLengthUnits[activeDocumentID]??"INHERIT"} options={[{value:"INHERIT",label:"继承全局设置"},...units]} onChange={unit=>{const documentLengthUnits={...draft.documentLengthUnits};if(String(unit)==="INHERIT")delete documentLengthUnits[activeDocumentID];else documentLengthUnits[activeDocumentID]=unit as DisplayLengthUnit;patch({documentLengthUnits})}}/></label>}
+   <CommandField label="默认长度单位" width="expression"><Select aria-label="默认长度单位" value={draft.displayLengthUnit} options={units} onChange={displayLengthUnit=>patch({displayLengthUnit:displayLengthUnit as DisplayLengthUnit})}/></CommandField>
+   {activeDocumentID&&<CommandField label="当前文档显示单位" width="expression"><Select aria-label="当前文档显示单位" value={draft.documentLengthUnits[activeDocumentID]??"INHERIT"} options={[{value:"INHERIT",label:"继承全局设置"},...units]} onChange={unit=>{const documentLengthUnits={...draft.documentLengthUnits};if(String(unit)==="INHERIT")delete documentLengthUnits[activeDocumentID];else documentLengthUnits[activeDocumentID]=unit as DisplayLengthUnit;patch({documentLengthUnits})}}/></CommandField>}
    <Typography.Text type="secondary">控制显示和新建数值输入；已有参数表达式与模型尺寸保持原值。</Typography.Text>
   </Space>}
  </>;

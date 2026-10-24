@@ -135,18 +135,10 @@
 .feature-preview-legend i.reference { border: 1px dashed; background: transparent; }
 .instance-pattern-fields { display: flex; flex-direction: column; gap: 14px; }
 .instance-pattern-fields p { margin: 0; color: var(--color-muted); font-size: 12px; }
-.instance-pattern-fields label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
 
 .feature-input-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
-.feature-pick-field { display: flex; gap: 6px; align-items: center; }
-.feature-pick-field > button:first-child { flex: 1; min-width: 0; height: auto; white-space: normal; text-align: left; }
-.feature-reference-row { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border: 1px solid var(--color-border); background: var(--color-subtle); }
-.feature-reference-detail { display: grid; flex: 1; min-width: 0; gap: 3px; font-size: 12px; }
-.feature-reference-detail strong { font-weight: 500; }
-.feature-reference-detail > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary); }
 .assembly-group-members { display: grid; gap: 7px; }
-.assembly-group-member-actions { grid-template-columns: 44px 64px 24px; }
-.assembly-group-members .assembly-support-detail strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .assembly-fixed-parameters { display: grid; gap: 10px; margin: 12px 0; }
 .assembly-fixed-space { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
 .assembly-pose-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
@@ -154,8 +146,6 @@
 .assembly-pose-fields .ant-form-item { min-width: 0; margin-bottom: 0; }
 .assembly-pose-fields .ant-form-item-label { padding-bottom: 3px; }
 .assembly-pose-fields .ant-input-number { width: 100%; }
-.feature-section-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 6px 0; }
-.feature-section-row > span { flex: 1; min-width: 100px; }
 
 .inspector-object-data { margin:0; padding:12px; max-height:60vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; font-size:12px; line-height:1.5; background:var(--wb-surface); border:1px solid var(--wb-border); border-radius:4px; }
 
@@ -164,15 +154,10 @@
 .motion-study-fields { display:flex; flex-direction:column; gap:10px; }
 .motion-joint-editor { display:flex; flex-direction:column; gap:10px; }
 .motion-labeled-field { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-.motion-labeled-field > .ant-input { flex:1; min-width:160px; }
+
 .motion-dialog-section { border:1px solid var(--wb-border); border-radius:6px; padding:10px; display:flex; flex-direction:column; gap:8px; }
 .motion-dialog-section h4 { margin:0; font-size:13px; }
 .motion-dialog-section p { margin:0; color:var(--wb-muted); font-size:12px; line-height:1.5; }
-.motion-support-row { display:flex; gap:8px; align-items:center; }
-.motion-support-number { font-size:12px; color:var(--wb-muted); }
-.motion-support-row > .ant-btn:first-of-type { flex:1; min-width:0; height:auto; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; white-space:normal; text-align:left; }
-.motion-support-title { font-size:12px; flex:none; }
-.motion-support-value { font-size:12px; overflow-wrap:anywhere; opacity:.85; text-align:right; }
 .motion-dialog-status { border-top:1px solid var(--wb-border); padding-top:8px; font-size:12px; }
 .motion-playback-controls { display:flex; flex-wrap:wrap; gap:6px; }
 

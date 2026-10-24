@@ -57,7 +57,7 @@ test('direct Part association update and viewport Reconnect preserve occurrences
   return v;
  };
  await expect(async()=>{await verify(changed.document.versionId,'VERIFIED');}).toPass({timeout:30_000});
- await expect(row(seed.ids[0])).toContainText('当前已是已检查版本');
+ await expect(row(seed.ids[0])).toContainText('已是最新版本');
  await expect(drawer.getByRole('button',{name:'重新计算',exact:true})).toBeEnabled();await drawer.getByRole('button',{name:'重新计算',exact:true}).click();
  await expect(drawer.getByRole('button',{name:'重新计算',exact:true})).toBeEnabled();await verify(changed.document.versionId,'VERIFIED');
  await expect(page.getByRole('dialog',{name:'约束定义',exact:true})).not.toBeVisible();
@@ -82,10 +82,10 @@ test('direct Part association update and viewport Reconnect preserve occurrences
   await page.mouse.move(header.x+100,header.y+15);await page.mouse.down();await page.mouse.move(header.x+420,header.y+15,{steps:6});await page.mouse.up();
   const a=await worldScreen(page,[3,3,7]);await page.mouse.click(a.x,a.y);
   await expect(dialog.getByText('重新选择支撑 1',{exact:true})).not.toBeVisible();
-  await dialog.locator('.assembly-support-row').nth(1).getByRole('button',{name:'重新选择',exact:true}).click();
+  await dialog.getByRole('button',{name:'选择支撑 2',exact:true}).click();
   const b=await worldScreen(page,[36,-4,7]);expect(await page.evaluate(p=>document.elementFromPoint(p.x,p.y)?.tagName,b)).toBe('CANVAS');await page.mouse.click(b.x,b.y);
   await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();
-  await expect(dialog.locator('.assembly-constraint-status')).toContainText('Verified');return dialog;
+  await expect(dialog.locator('.assembly-constraint-status')).toContainText('已满足');return dialog;
  };
  let dialog=await pickRepair();await dialog.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(brokenHead);
  drawer=await openRepair(page);await expect(brokenRow().getByRole('button',{name:'重新选择支撑',exact:true})).toBeEnabled();

@@ -1,3 +1,4 @@
+import {CommandFormContext,CommandField} from "../../cad/overlay/command-form";
 import {engineeringLabel} from "../../cad/presentation/engineering-text";
 import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {useAssemblyEngineering} from "./use-assembly-engineering";
@@ -449,11 +450,16 @@ export function Workbench() {
     }
   },[editingView,editingAssemblyConstraint]);
   const [replacingGroupMember,setReplacingGroupMember] = useState<string>();
+  const [groupPicking,setGroupPicking]=useState(true);
   const assemblyGroupMembers = Form.useWatch("groupMembers",assemblyConstraintForm) as string[]|undefined;
   useEffect(()=>{if(replacingGroupMember&&!assemblyGroupMembers?.includes(replacingGroupMember))setReplacingGroupMember(undefined);},[assemblyGroupMembers,replacingGroupMember]);
   const assemblyContactKind = Form.useWatch("contactKind",assemblyConstraintForm) as string|undefined;
   const editingGroup = editingAssemblyConstraint?.kind==="FIX_TOGETHER" || pendingAssemblyConstraint?.kind==="fix_together";
-  const assemblyReferences = editingAssemblyConstraint ? [editingAssemblyConstraint.first,editingAssemblyConstraint.second].filter((r):r is AssemblyGeometryRef=>!!r&&!!r.instanceId) : pendingAssemblyConstraint?.references ?? [];
+  useEffect(()=>{setGroupPicking(true);},[editingGroup]);
+  const [removedAssemblySupports,setRemovedAssemblySupports]=useState<ReadonlySet<number>>(()=>new Set());
+  useEffect(()=>{setRemovedAssemblySupports(new Set());},[editingAssemblyConstraint?.id,pendingAssemblyConstraint?.kind]);
+  const removeAssemblySupport=(index:0|1)=>{invalidateAssemblyDefinition();setRemovedAssemblySupports(old=>new Set(old).add(index));setReplacingAssemblyReference(undefined);store.setSelection(null);};
+  const assemblyReferences = removedAssemblySupports.size?[]:editingAssemblyConstraint ? [editingAssemblyConstraint.first,editingAssemblyConstraint.second].filter((r):r is AssemblyGeometryRef=>!!r&&!!r.instanceId) : pendingAssemblyConstraint?.references ?? [];
   const assemblyInspectionReferences = [...assemblyReferences.map(reference=>({...reference,derivedRole:undefined})),...assemblyReferences];
   const assemblySupportQuery = useQuery({queryKey:["assembly-support-inspection",editingView?.document.id,editingView?.document.versionId,assemblyInspectionReferences],
     queryFn:({signal})=>api.inspectAssemblySupports(editingView!.document.id,assemblyInspectionReferences,signal),enabled:!!editingView&&!editingGroup&&assemblyReferences.length>0,retry:false});
@@ -479,7 +485,7 @@ export function Workbench() {
   const axisReady = publicKind!=="ANGLE"||angleRelation!=="DIRECTED"||assemblyTargetSupportsEligible(axisInspection?.supports.slice(1))&&
     matchingAssemblyCapabilities(assemblyCapabilityQuery.data?.capabilities,"Angle",[axisExactType??"",axisExactType??""]).length>0;
   const assemblySupportsReady = editingGroup ? assemblyConstraintReferences({id:'draft',kind:'FIX_TOGETHER',first:{kind:'BODY',instanceId:''},evaluationStatus:'NOT_UPDATED',groupMembers:(assemblyGroupMembers??[]).map(token=>{const [kind,id]=token.split(':');return kind==='group'?{groupId:id}:{instanceId:id}})},editingView?.product?.constraints??[]).length>=2&&
-    matchingAssemblyCapabilities(assemblyCapabilityQuery.data?.capabilities,"FixTogether",["BODY"]).some(capability=>capability.subtype==="multi-member") : !!assemblyExactTypes?.length&&assemblyTargetSupportsEligible(assemblyTargetSupports)&&
+    matchingAssemblyCapabilities(assemblyCapabilityQuery.data?.capabilities,"FixTogether",["BODY"]).some(capability=>capability.subtype==="multi-member") : !removedAssemblySupports.size&&!!assemblyExactTypes?.length&&assemblyTargetSupportsEligible(assemblyTargetSupports)&&
     applicableCapabilities.length>0&&(!editingContact||contactRelationOptions(contactCapabilities).includes(assemblyContactKind??""))&&
     (publicKind!=="ANGLE"||applicableCapabilities.some(capability=>capability.subtype===angleRelation))&&axisReady;
   useEffect(()=>{
@@ -500,17 +506,17 @@ export function Workbench() {
     assemblyPreviewActor.current?.send({type:"CHANGE"});setAssemblyPreviewCommit(value=>value+1);
   };
   useEffect(()=>{
-    if(!editingGroup||!editingView)return;
+    if(!editingGroup||!editingView||!groupPicking)return;
     const owner=activeInstancePath??'';
     const members=(assemblyGroupMembers??[]).map(token=>{const [kind,id]=token.split(':');return kind==='group'?{groupId:id}:{instanceId:id}});
     const session:FeatureSelectionSession={role:'instance',documentId:editingView.document.id,versionId:editingView.document.versionId,
       project:item=>{const member=assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id);return member?groupMemberSelection(editingView,member,owner):null},
       accept:item=>Boolean(assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id)),
       selections:members.flatMap(member=>{const selection=groupMemberSelection(editingView,member,owner);return selection?[selection]:[]}),
-      onPick:item=>{const member=assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id);if(!member)return;const token=groupMemberToken(member),current:string[]=assemblyConstraintForm.getFieldValue('groupMembers')??[];assemblyConstraintForm.setFieldValue('groupMembers',replacingGroupMember?[...new Set(current.map(value=>value===replacingGroupMember?token:value))]:current.includes(token)?current.filter(value=>value!==token):[...current,token]);setReplacingGroupMember(undefined);invalidateAssemblyDefinition()}
+      onPick:item=>{const member=assemblyGroupMember(editingView,item,owner,editingAssemblyConstraint?.id);if(!member)return;const token=groupMemberToken(member),current:string[]=assemblyConstraintForm.getFieldValue('groupMembers')??[];assemblyConstraintForm.setFieldValue('groupMembers',replacingGroupMember?[...new Set(current.map(value=>value===replacingGroupMember?token:value))]:current.includes(token)?current.filter(value=>value!==token):[...current,token]);if(replacingGroupMember)setGroupPicking(false);setReplacingGroupMember(undefined);invalidateAssemblyDefinition()}
     };
     setFeatureSelection(session);return()=>setFeatureSelection(current=>current===session?undefined:current);
-  },[editingGroup,editingView,editingAssemblyConstraint?.id,activeInstancePath,assemblyGroupMembers,assemblyConstraintForm,replacingGroupMember]);
+  },[editingGroup,editingView,editingAssemblyConstraint?.id,activeInstancePath,assemblyGroupMembers,assemblyConstraintForm,replacingGroupMember,groupPicking]);
   const locateAssemblyMember=(member:AssemblyGroupMember)=>{
     if(!editingView)return;
     const selection=groupMemberSelection(editingView,member,activeInstancePath??'');
@@ -750,7 +756,7 @@ export function Workbench() {
       if (editingAssemblyConstraint) setEditingAssemblyConstraint({...editingAssemblyConstraint,angleAxis:reference,angleRelation:"DIRECTED"});
       if (pendingAssemblyConstraint) setPendingAssemblyConstraint({...pendingAssemblyConstraint,angleAxis:reference,angleRelation:"DIRECTED"});
     } else if (editingAssemblyConstraint) {
-      const other = replacingAssemblyReference === 0 ? editingAssemblyConstraint.second : editingAssemblyConstraint.first;
+      const other = removedAssemblySupports.has(replacingAssemblyReference===0?1:0)?undefined:replacingAssemblyReference === 0 ? editingAssemblyConstraint.second : editingAssemblyConstraint.first;
       const validation = validateReconnectCandidate(reference, other);
       if (validation) { setReconnectError(validation); return; }
       setEditingAssemblyConstraint((current) => {
@@ -760,18 +766,19 @@ export function Workbench() {
       });
     } else if (pendingAssemblyConstraint) {
       const references = [...pendingAssemblyConstraint.references];
-      const other = references[replacingAssemblyReference === 0 ? 1 : 0];
+      const other = removedAssemblySupports.has(replacingAssemblyReference===0?1:0)?undefined:references[replacingAssemblyReference === 0 ? 1 : 0];
       const validation = validateReconnectCandidate(reference, other);
       if (validation) { setReconnectError(validation); return; }
       references[replacingAssemblyReference] = reference;
       setPendingAssemblyConstraint(invalidateAngleReferenceDirection({ ...pendingAssemblyConstraint, references }));
     }
+    setRemovedAssemblySupports(old=>{const next=new Set(old);next.delete(replacingAssemblyReference);return next});
     invalidateAssemblyDefinition();
     setAssemblyDefinitionDirty(true);
     setAssemblyPreviewEvaluation(undefined);
     setReconnectError(undefined);
     setReplacingAssemblyReference(undefined);
-  }, [store.selection, replacingAssemblyReference, editingAssemblyConstraint, pendingAssemblyConstraint]);
+  }, [store.selection, replacingAssemblyReference, editingAssemblyConstraint, pendingAssemblyConstraint,removedAssemblySupports]);
 
   useEffect(() => {
     const previewState = assemblyPreviewActor.current?.getSnapshot().value;
@@ -1164,7 +1171,7 @@ export function Workbench() {
     setReplacingGroupMember(undefined);setFeatureSelection(undefined);store.setActiveTool("select","once");
     assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});
     assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;assemblyPreviewID.current=undefined;
-    viewport.current?.clearCommandPreview();setAssemblyPreviewEvaluation(undefined);setReplacingAssemblyReference(undefined);
+    viewport.current?.clearCommandPreview();setAssemblyPreviewEvaluation(undefined);setReplacingAssemblyReference(undefined);setRemovedAssemblySupports(new Set());
     setReconnectError(undefined);setAssemblyDefinitionDirty(false);setEditingAssemblyConstraint(undefined);setPendingAssemblyConstraint(undefined);
   };
   const closeCommandPanels=(nextCommand?:string)=>{
@@ -1614,7 +1621,7 @@ onToggleConstruction:(node)=>{
   const applicationParams=new URLSearchParams(window.location.search);
   const restoringMechanism=!mechanismDefinition&&!motionAcceptedFrame&&applicationParams.get('application')==='mechanism'?view.product?.kinematics?.mechanisms.find(m=>m.id===applicationParams.get('mechanismId')):undefined;
   const restoringPoses=restoringMechanism?Object.entries(Object.assign({},...restoredApplicationSources(view,restoringMechanism,applicationParams).map(id=>view.product?.kinematics?.mechanisms.find(m=>m.id===id)?.poses??{})) as Record<string,import("../../cad/assembly/motion-study").MotionPose>).map(([instanceId,p])=>({instanceId,...p})):undefined;
-  return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><section className="cad-workbench">
+  return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><CommandFormContext.Provider value={{locate:items=>{store.setSelections(items);viewport.current?.focusSelections(items)}}}><section className="cad-workbench">
 
     {mechanismAnalysisOpen&&view.product&&<MechanismAnalysisPanel view={view} selection={store.selection} currentId={mechanismDefinition?.id??(store.selection?.kind==='kinematic-object'?store.selection.mechanismId:undefined)} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")&&!motionCommandActive&&!motionDisplay&&!motionMutation.isPending} onClose={()=>{viewport.current?.showMechanismAnalysis();viewport.current?.showRemainingMotion();setMechanismAnalysisOpen(false)}} onLocate={store.setSelections} onShow={(m,r,j)=>viewport.current?.showMechanismAnalysis(m,r,j)??false} onMotion={showAnalysisMotion} onRepair={(m,j)=>{setMechanismAnalysisOpen(false);void motionPanel.current?.repairJoint(m,j)}}/>}
     {view.product&&<MotionStudyPanel ref={motionPanel} onRepairContext={setMotionRepair} sourceMechanismIds={motionSources.current} onDraft={setMotionDraft} captureViewpoint={()=>viewport.current?.captureMotionViewpoint()} previewViewpoint={(v,documentId)=>{if(!documentId||documentId===view.document.id)viewport.current?.previewMotionViewpoint(v)}} onCommit={async command=>{const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,command));await refresh(updated);return updated}} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onMechanism={m=>{setMechanismDefinition(m);if(m&&motionOpen&&motionSources.current.at(-1)===m.id){const url=new URL(window.location.href);url.searchParams.set("application","mechanism");url.searchParams.set("mechanismId",m.id);url.searchParams.set("applicationRevision",view.document.versionId);url.searchParams.set("mechanismSources",motionSources.current.join(','));window.history.replaceState(null,"",url)}}} onStatus={setMotionStatus} onSelectionSession={setFeatureSelection} onPreview={setMotionPosePreview} onSave={async (k,baseRevisionId)=>{if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:baseRevisionId??view.document.versionId,kinematics:k}));const created=updated.product?.kinematics?.mechanisms.find(m=>!view.product?.kinematics?.mechanisms.some(v=>v.id===m.id));const acceptedId=created?.id??mechanismDefinition?.id;if(acceptedId&&motionOpen)motionSources.current=[...motionSources.current.filter(id=>id!==acceptedId&&updated.product?.kinematics?.mechanisms.some(m=>m.id===id)),acceptedId];setMechanismDefinition(m=>updated.product?.kinematics?.mechanisms.find(v=>v.id===m?.id));setMotionPosePreview(undefined);await refresh(updated);return updated}} onSwitch={async input=>{
@@ -1790,8 +1797,27 @@ onToggleConstruction:(node)=>{
         locate={reference=>{const node=assistantTarget(treeNodes,reference.documentId,reference.id);if(node?.selection)store.setSelections([node.selection]);else message.info("当前结果中暂时无法定位该对象")}}/>}
     </WorkbenchLayout>
     <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" size="M"
+      secondaryActions={editingAssemblyConstraint && <Space className="assembly-constraint-actions">
+          <Button disabled={command.isPending} onClick={() => {
+            if (!editingView) return;
+            const constraint = editingAssemblyConstraint;
+            assemblyPreviewActor.current?.send({type:"CANCEL", sequence:assemblyPreviewSequence.current});
+            assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined;
+            command.mutate(() => api.command(editingView.document.id, {type:"SET_ASSEMBLY_CONSTRAINT_STATE",
+              constraintIds:[constraint.id], suppressed:!constraint.suppressed}), {onSuccess:()=>setEditingAssemblyConstraint(undefined)});
+          }}>{editingAssemblyConstraint.suppressed ? "激活约束" : "停用约束"}</Button>
+          {editingAssemblyConstraint.kind === "ANGLE" && (!editingAssemblyConstraint.angleRelation || editingAssemblyConstraint.angleRelation === "DIRECTED" || editingAssemblyConstraint.angleRelation === "FREE") && <Button disabled={command.isPending} onClick={() => {
+            if (!editingView) return;
+            const constraint = editingAssemblyConstraint;
+            assemblyPreviewActor.current?.send({type:"CANCEL", sequence:assemblyPreviewSequence.current});
+            assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined;
+            command.mutate(() => api.command(editingView.document.id, {type:"SET_ASSEMBLY_CONSTRAINT_STATE",
+              constraintIds:[constraint.id], constraintMode:constraint.mode === "MEASURED" ? "DRIVING" : "MEASURED"}),
+              {onSuccess:()=>setEditingAssemblyConstraint(undefined)});
+          }}>{editingAssemblyConstraint.mode === "MEASURED" ? "改为驱动" : "改为测量"}</Button>}
+        </Space>}
       onClose={closeAssemblyCandidate}
-      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined || !!replacingGroupMember ||
+      onCancelPick={()=>{if(replacingAssemblyReference===undefined&&!replacingGroupMember&&!(editingGroup&&groupPicking))return false;setGroupPicking(false);setReplacingAssemblyReference(undefined);setReplacingGroupMember(undefined);setReconnectError(undefined);return true}} confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined || !!replacingGroupMember ||
         Boolean(editingAssemblyConstraint?.kind === "ANGLE" && editingAssemblyConstraint.angleRelation === "DIRECTED" && !editingAssemblyConstraint.angleAxis)} onConfirm={async()=>{
         if(!editingView||!editingAssemblyConstraint)return;
         const constraint=editingAssemblyConstraint, target=editingView.document;
@@ -1811,50 +1837,31 @@ onToggleConstruction:(node)=>{
       }}>
       <Form form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>
         {editingAssemblyConstraint?.kind === "ANGLE" && <AssemblyAngleParameters value={editingAssemblyConstraint} view={editingView}
-          axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis}
+          axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis} picking={replacingAssemblyReference===2} onLocate={()=>{if(resolvedAngleAxis)viewport.current?.focusAssemblyReference(resolvedAngleAxis)}}
           onChange={value=>{invalidateAssemblyDefinition();if(!angleRelationSupportsMeasured(value.angleRelation))assemblyConstraintForm.setFieldValue("constraintMode","DRIVING");if(value.angleRelation === "PERPENDICULAR") assemblyConstraintForm.setFieldValue("directionRelation", assemblyConstraintForm.getFieldValue("directionRelation") === "OPPOSITE" ? "OPPOSITE" : "SAME");setEditingAssemblyConstraint({...editingAssemblyConstraint,...value});}}
           onPick={()=>{store.setSelection(null);setReplacingAssemblyReference(2);store.setActiveTool("select","once");}} />}
 
 
         {editingAssemblyConstraint && <AssemblyConstraintFields kind={editingAssemblyConstraint.kind} view={editingView} lengthUnit={lengthUnit}
-          replacingMember={replacingGroupMember} onReplaceMember={token=>{setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
+          groupPicking={groupPicking} onPickGroup={()=>setGroupPicking(true)} replacingMember={replacingGroupMember} onReplaceMember={token=>{setGroupPicking(true);setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
           onLocateMember={locateAssemblyMember}
           exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
-          references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second]} replacing={replacingAssemblyReference}
+          onRemove={removeAssemblySupport} references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second].map((r,i)=>removedAssemblySupports.has(i)?undefined:r)} replacing={replacingAssemblyReference}
           constraint={editingAssemblyConstraint} previewEvaluation={assemblyPreviewEvaluation} dirty={assemblyDefinitionDirty}
 
 		  onValueCommit={invalidateAssemblyDefinition}
           onLocate={(reference)=>{if(!viewport.current?.focusAssemblyReference(reference))setReconnectError("当前支持元素无法在视图区定位。");}}
 		  onRefresh={()=>refreshAssemblyConstraint(editingAssemblyConstraint.id)}
 		  onReplace={(index)=>{store.setSelection(null);setReconnectError(undefined);setReplacingAssemblyReference(index);store.setActiveTool("select","once");}} />}
-        {replacingAssemblyReference !== undefined && <Alert type="info" showIcon message={`重新选择支撑 ${replacingAssemblyReference + 1}`}
-          description="在视图区选择新的几何元素；Esc 取消整个编辑会话。" />}
-        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={engineeringProblem(reconnectError)} />}
+
+        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={reconnectError} />}
         {assemblyPreviewFeedback}
-        {editingAssemblyConstraint && <Space className="assembly-constraint-actions">
-          <Button disabled={command.isPending} onClick={() => {
-            if (!editingView) return;
-            const constraint = editingAssemblyConstraint;
-            assemblyPreviewActor.current?.send({type:"CANCEL", sequence:assemblyPreviewSequence.current});
-            assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined;
-            command.mutate(() => api.command(editingView.document.id, {type:"SET_ASSEMBLY_CONSTRAINT_STATE",
-              constraintIds:[constraint.id], suppressed:!constraint.suppressed}), {onSuccess:()=>setEditingAssemblyConstraint(undefined)});
-          }}>{editingAssemblyConstraint.suppressed ? "激活约束" : "停用约束"}</Button>
-          {editingAssemblyConstraint.kind === "ANGLE" && (!editingAssemblyConstraint.angleRelation || editingAssemblyConstraint.angleRelation === "DIRECTED" || editingAssemblyConstraint.angleRelation === "FREE") && <Button disabled={command.isPending} onClick={() => {
-            if (!editingView) return;
-            const constraint = editingAssemblyConstraint;
-            assemblyPreviewActor.current?.send({type:"CANCEL", sequence:assemblyPreviewSequence.current});
-            assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined;
-            command.mutate(() => api.command(editingView.document.id, {type:"SET_ASSEMBLY_CONSTRAINT_STATE",
-              constraintIds:[constraint.id], constraintMode:constraint.mode === "MEASURED" ? "DRIVING" : "MEASURED"}),
-              {onSuccess:()=>setEditingAssemblyConstraint(undefined)});
-          }}>{editingAssemblyConstraint.mode === "MEASURED" ? "改为驱动" : "改为测量"}</Button>}
-        </Space>}
+
       </Form>
     </CommandDialog>
     <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" size="M"
       onClose={closeAssemblyCandidate}
-      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined || !!replacingGroupMember ||
+      onCancelPick={()=>{if(replacingAssemblyReference===undefined&&!replacingGroupMember&&!(editingGroup&&groupPicking))return false;setGroupPicking(false);setReplacingAssemblyReference(undefined);setReplacingGroupMember(undefined);setReconnectError(undefined);return true}} confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined || !!replacingGroupMember ||
         Boolean(pendingAssemblyConstraint?.kind === "angle" && pendingAssemblyConstraint.angleRelation === "DIRECTED" && !pendingAssemblyConstraint.angleAxis)}
       onConfirm={async () => {
         if (!editingView || !pendingAssemblyConstraint) return;
@@ -1875,22 +1882,21 @@ onToggleConstruction:(node)=>{
       }}>
       <Form form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>
         {pendingAssemblyConstraint?.kind === "angle" && <AssemblyAngleParameters value={pendingAssemblyConstraint} view={editingView}
-          axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis}
+          axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis} picking={replacingAssemblyReference===2} onLocate={()=>{if(resolvedAngleAxis)viewport.current?.focusAssemblyReference(resolvedAngleAxis)}}
           onChange={value=>{invalidateAssemblyDefinition();if(!angleRelationSupportsMeasured(value.angleRelation))assemblyConstraintForm.setFieldValue("constraintMode","DRIVING");if(value.angleRelation === "PERPENDICULAR") assemblyConstraintForm.setFieldValue("directionRelation", assemblyConstraintForm.getFieldValue("directionRelation") === "OPPOSITE" ? "OPPOSITE" : "SAME");setPendingAssemblyConstraint({...pendingAssemblyConstraint,...value});}}
           onPick={()=>{store.setSelection(null);setReplacingAssemblyReference(2);store.setActiveTool("select","once");}} />}
         {pendingAssemblyConstraint && <AssemblyConstraintFields kind={pendingAssemblyConstraint.kind.toUpperCase() as AssemblyConstraint["kind"]} view={editingView} lengthUnit={lengthUnit}
-          replacingMember={replacingGroupMember} onReplaceMember={token=>{setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
+          groupPicking={groupPicking} onPickGroup={()=>setGroupPicking(true)} replacingMember={replacingGroupMember} onReplaceMember={token=>{setGroupPicking(true);setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
           onLocateMember={locateAssemblyMember}
           exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
-          references={pendingAssemblyConstraint.references} replacing={replacingAssemblyReference}
+          onRemove={removeAssemblySupport} references={pendingAssemblyConstraint.references.map((r,i)=>removedAssemblySupports.has(i)?undefined:r)} replacing={replacingAssemblyReference}
           previewEvaluation={assemblyPreviewEvaluation} dirty
           angleRelation={pendingAssemblyConstraint.angleRelation}
 		  onValueCommit={invalidateAssemblyDefinition}
           onLocate={(reference)=>{if(!viewport.current?.focusAssemblyReference(reference))setReconnectError("当前支持元素无法在视图区定位。");}}
 		  onReplace={(index)=>{store.setSelection(null);setReconnectError(undefined);setReplacingAssemblyReference(index);store.setActiveTool("select","once");}} />}
-        {replacingAssemblyReference !== undefined && <Alert type="info" showIcon message={`重新选择支持元素 ${replacingAssemblyReference + 1}`}
-          description="在视图区选择新的几何元素；Esc 取消整个创建会话。" />}
-        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={engineeringProblem(reconnectError)} />}
+
+        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={reconnectError} />}
         {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
@@ -2017,7 +2023,7 @@ onToggleConstruction:(node)=>{
     onClose={()=>setEditingContextInput(undefined)} confirmLoading={command.isPending}
     confirmDisabled={!canEdit||!editingContextInput?.name.trim()}
     onConfirm={()=>{if(editingView&&editingContextInput)command.mutate(()=>api.editContextInput(editingView.document.id,editingContextInput.id,editingContextInput.name.trim(),editingContextInput.required),{onSuccess:()=>setEditingContextInput(undefined)});}}>
-    <label className="cad-property-row"><span>名称</span><Input aria-label="上下文输入名称" value={editingContextInput?.name??""} onChange={event=>setEditingContextInput(current=>current?{...current,name:event.target.value}:current)}/></label>
+    <CommandField label="名称" width="name"><Input aria-label="上下文输入名称" value={editingContextInput?.name??""} onChange={event=>setEditingContextInput(current=>current?{...current,name:event.target.value}:current)}/></CommandField>
     <Checkbox checked={editingContextInput?.required??false} onChange={event=>setEditingContextInput(current=>current?{...current,required:event.target.checked}:current)}>必需输入</Checkbox>
   </CommandDialog>
 	<CommandDialog id="external-parameter" open={Boolean(externalParameterID)} title="引用外部参数 Publication"
@@ -2108,5 +2114,5 @@ onToggleConstruction:(node)=>{
       onReplay={async (release) => { const result = await api.replayProductRelease(documentID, release.id);
         message.info(result.status==="VERIFIED"||result.status==="SUCCEEDED"||result.status==="CONVERGED"?"版本检查完成":"版本检查尚未通过，请检查关联零件和约束。"); }} />
     <ShareDialog resource={shareResource} onClose={() => setShareResource(undefined)} />
-  </section></CommandProvider>;
+  </section></CommandFormContext.Provider></CommandProvider>;
 }

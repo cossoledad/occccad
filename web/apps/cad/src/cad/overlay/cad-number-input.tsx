@@ -24,7 +24,12 @@ export function CadNumberInput<T extends number|string=number>(props:InputNumber
     onBlurCapture={event=>{preserveDisplay(event.target);props.onBlurCapture?.(event);}}
     onInputCapture={event=>{preserved.current=undefined;props.onInputCapture?.(event);}}
     onFocusCapture={event=>{preserved.current=undefined;props.onFocusCapture?.(event);}}
-    onKeyDownCapture={event=>{preserved.current=undefined;if(event.key==='Enter')preserveDisplay(event.target);props.onKeyDownCapture?.(event);}}
+    onKeyDownCapture={event=>{preserved.current=undefined;if(event.key==='Enter'&&(event.target as HTMLElement).tagName==='INPUT'){
+      preserveDisplay(event.target);
+      const text=(event.target as HTMLInputElement).value;
+      const parsed=props.parser?props.parser(text):text.trim();
+      if(parsed===''||!Number.isFinite(Number(parsed))||(props.min!==undefined&&Number(parsed)<Number(props.min))||(props.max!==undefined&&Number(parsed)>Number(props.max))){event.preventDefault();event.stopPropagation();}
+    }props.onKeyDownCapture?.(event);}}
     onChange={value=>{const original=preserved.current;preserved.current=undefined;
       if(original!==undefined && value!==null && Number(value)===Number(formatDisplayNumber(Number(original))))return;
       props.onChange?.(value);}}/>;

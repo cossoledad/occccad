@@ -1,3 +1,4 @@
+import {CommandInputError} from "../../cad/command/operation-failure";
 import type { Feature } from "../../types";
 import { linearExtrudeLengthInput, parseParameterSource } from "./parameter-editor";
 const bodyFeatureTypes = new Set(["HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
@@ -26,14 +27,14 @@ export function solidParameterEdit(slot: "length" | "length2" | "angle" | "diame
     const result = parseParameterSource(text, "deg");
     if (result.kind === "EXPRESSION") {
         if (!result.expression)
-            throw new Error("请输入角度或表达式");
+            throw new CommandInputError("请输入角度或表达式");
         return { expression: result.expression };
     }
     if (!["deg", "rad"].includes(result.unit))
-        throw new Error("角度仅支持 deg 或 rad");
+        throw new CommandInputError("角度仅支持 deg 或 rad");
     const value = result.value * (result.unit === "rad" ? 180 / Math.PI : 1);
     if (!Number.isFinite(value) || value <= 0)
-        throw new Error("角度必须大于 0");
+        throw new CommandInputError("角度必须大于 0");
     return { value };
 }
 

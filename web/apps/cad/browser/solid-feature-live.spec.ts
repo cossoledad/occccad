@@ -71,9 +71,9 @@ test("viewport Boolean tools toggle, auto preview, commit and reopen",async({pag
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
  await openCommand(page,"布尔");const dialog=page.getByRole("dialog",{name:"布尔运算",exact:true});
  await expect(dialog.getByRole("combobox")).toHaveCount(0);
- await clickWorld(page,[7,7,20]);await expect(dialog.getByRole("button",{name:"工具实体：已选择 1 个实体"})).toBeVisible();
+ await clickWorld(page,[7,7,20]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"工具实体"}).getByText("已选择 1 个实体",{exact:true})).toBeVisible();
  await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
- await clickWorld(page,[7,7,20]);await expect(dialog.getByRole("button",{name:"工具实体：已选择 0 个实体"})).toBeVisible();
+ await clickWorld(page,[7,7,20]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"工具实体"}).getByText("已选择 0 个实体",{exact:true})).toBeVisible();
  await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
  await clickWorld(page,[7,7,20]);await ready(page,dialog);
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
@@ -86,10 +86,10 @@ test("viewport Boolean tools toggle, auto preview, commit and reopen",async({pag
  await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
  const edit=page.getByRole("dialog",{name:"编辑布尔",exact:true});await expect(edit).toBeVisible();await ready(page,edit);
  // Consumed definitions reappear temporarily at their saved input stage.
- await clickWorld(page,[7,7,20]);await expect(edit.getByRole("button",{name:"工具实体：已选择 0 个实体"})).toBeVisible();
+ await clickWorld(page,[7,7,20]);await expect(edit.locator(".feature-pick-field").filter({hasText:"工具实体"}).getByText("已选择 0 个实体",{exact:true})).toBeVisible();
  await expect(edit.getByRole("button",{name:/确\s*定/})).toBeDisabled();
  expect((await current(page,seed.id)).document.versionId).toBe(committed.document.versionId);
- await clickWorld(page,[7,7,20]);await expect(edit.getByRole("button",{name:"工具实体：已选择 1 个实体"})).toBeVisible();await ready(page,edit);
+ await clickWorld(page,[7,7,20]);await expect(edit.locator(".feature-pick-field").filter({hasText:"工具实体"}).getByText("已选择 1 个实体",{exact:true})).toBeVisible();await ready(page,edit);
  await edit.getByRole("button",{name:/确\s*定/}).click();await expect(edit).toHaveCount(0);
  const edited=await current(page,seed.id);
  expect(edited.part.bodies.find((b:{id:string})=>b.id===seed.tool).consumed).toBe(true);
@@ -110,10 +110,10 @@ test("preselected chamfer edge, automatic preview, input-stage edit and toggle",
   return {id,bodyId:v.part!.activeBodyId,version:v.document.versionId};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
- await clickWorld(page,[10,0,10]);await expectViewport(viewportProbe(page,"viewport-selection")).toContainText('"edge"');
+ await expect(async()=>{await clickWorld(page,[10,0,10]);await expectViewport(viewportProbe(page,"viewport-selection")).toContainText('"edge"');}).toPass({timeout:30_000});
  await openCommand(page,"倒角");const dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});
- await expect(dialog.getByRole("button",{name:"边集：已选择 1 条边"})).toBeVisible();await ready(page,dialog);
- await page.screenshot({path:"/tmp/feature-ux-modeling.png"});
+ await expect(dialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 1 条边",{exact:true})).toBeVisible();await ready(page,dialog);
+ await page.screenshot({path:"../../../build/acceptance/feature-form-modeling.png"});
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  // A failed preview clears the candidate and cannot submit stale geometry.
  await dialog.getByRole("textbox").fill("1000");
@@ -123,19 +123,19 @@ test("preselected chamfer edge, automatic preview, input-stage edit and toggle",
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  await dialog.getByRole("textbox").fill("1");await ready(page,dialog);
  await expect(dialog.getByRole("alert")).toHaveCount(0);
- await clickWorld(page,[0,-10,10]);await expect(dialog.getByRole("button",{name:"边集：已选择 2 条边"})).toBeVisible();await ready(page,dialog);
- await clickWorld(page,[0,-10,10]);await expect(dialog.getByRole("button",{name:"边集：已选择 1 条边"})).toBeVisible();await ready(page,dialog);
+ await clickWorld(page,[0,-10,10]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 2 条边",{exact:true})).toBeVisible();await ready(page,dialog);
+ await clickWorld(page,[0,-10,10]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 1 条边",{exact:true})).toBeVisible();await ready(page,dialog);
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const committed=await current(page,seed.id);const body=committed.part.bodies.find((b:{id:string})=>b.id===seed.bodyId);
  expect(committed.artifacts[body.geometryKey].volume).toBeCloseTo(3990,5);
  const feature=committed.part.features.at(-1);const filter=page.getByRole("textbox",{name:"筛选模型结构"});await filter.fill(feature.name);
  await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
  const edit=page.getByRole("dialog",{name:"编辑 倒角",exact:true});await expect(edit).toBeVisible();
- await expect(edit.getByRole("button",{name:"边集：已选择 1 条边"})).toBeVisible();await ready(page,edit);
+ await expect(edit.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 1 条边",{exact:true})).toBeVisible();await ready(page,edit);
  await expectViewport(viewportProbe(page,"viewport-feature-selection")).toHaveAttribute("data-overlays","1");
- await page.screenshot({path:"/tmp/feature-ux-chamfer-edit.png"});
- await clickWorld(page,[10,0,10]);await expect(edit.getByRole("button",{name:"边集：已选择 0 条边"})).toBeVisible();
- await clickWorld(page,[10,0,10]);await expect(edit.getByRole("button",{name:"边集：已选择 1 条边"})).toBeVisible();await ready(page,edit);
+ await page.screenshot({path:"../../../build/acceptance/feature-form-chamfer-edit.png"});
+ await clickWorld(page,[10,0,10]);await expect(edit.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 0 条边",{exact:true})).toBeVisible();
+ await clickWorld(page,[10,0,10]);await expect(edit.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 1 条边",{exact:true})).toBeVisible();await ready(page,edit);
  await edit.getByRole("button",{name:/确\s*定/}).click();await expect(edit).toHaveCount(0);
  const edited=await current(page,seed.id);expect(edited.part.features.at(-1).selections[0].sourceFeatureId).toBeTruthy();
  expect(edited.artifacts[edited.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).geometryKey].volume).toBeCloseTo(3990,5);
@@ -160,8 +160,11 @@ test("rectangle to circle loft previews directly from viewport sections",async({
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
  await openCommand(page,"放样");const dialog=page.getByRole("dialog",{name:"创建 放样",exact:true});
  await expect(dialog.getByRole("combobox")).toHaveCount(0);
- await clickWorld(page,[10,-5,0]);await expect(dialog.getByRole("button",{name:"截面：已选择 1 个截面"})).toBeVisible();
- await clickWorld(page,[-10,0,30]);await expect(dialog.getByRole("button",{name:"截面：已选择 2 个截面"})).toBeVisible();await ready(page,dialog);
+ await clickWorld(page,[10,-5,0]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"截面"}).getByText("已选择 1 个截面",{exact:true})).toBeVisible();
+ await clickWorld(page,[-10,0,30]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"截面"}).getByText("已选择 2 个截面",{exact:true})).toBeVisible();await ready(page,dialog);
+ await dialog.getByRole("button",{name:"上移截面 2",exact:true}).click();await ready(page,dialog);
+ const firstSection=dialog.locator('.feature-pick-field').filter({has:page.locator('label',{hasText:/^截面 1$/})});await expect(firstSection).toContainText('Sketch 2');
+ await dialog.getByRole("button",{name:"下移截面 1",exact:true}).click();await ready(page,dialog);
  await page.screenshot({path:testInfo.outputPath("loft-current-body.png")});
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
@@ -195,7 +198,7 @@ for(const fixture of [
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
  await openCommand(page,"抽壳");const dialog=page.getByRole("dialog",{name:"创建 抽壳",exact:true});
  await clickWorld(page,[0,0,fixture.height]);
- await expect(dialog.getByRole("button",{name:"面集：已选择 1 个面"})).toBeVisible();
+ await expect(dialog.locator(".feature-pick-field").filter({hasText:"面集"}).getByText("已选择 1 个面",{exact:true})).toBeVisible();
  await dialog.getByRole("textbox",{name:"厚度（mm）",exact:true}).fill("0.5");await ready(page,dialog);
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  await dialog.getByRole("textbox",{name:"厚度（mm）",exact:true}).fill("1000");
@@ -212,7 +215,7 @@ for(const fixture of [
  await page.getByRole("textbox",{name:"筛选模型结构"}).fill(feature.name);
  await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
  const edit=page.getByRole("dialog",{name:"编辑 抽壳",exact:true});await ready(page,edit);
- await expect(edit.getByRole("button",{name:"面集：已选择 1 个面"})).toBeVisible();
+ await expect(edit.locator(".feature-pick-field").filter({hasText:"面集"}).getByText("已选择 1 个面",{exact:true})).toBeVisible();
  await edit.getByRole("textbox",{name:"厚度（mm）",exact:true}).fill("1");await ready(page,edit);
  expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);
  await edit.getByRole("button",{name:/确\s*定/}).click();await expect(edit).toHaveCount(0);
@@ -261,7 +264,7 @@ test("revolve picks an individual sketch line and previews parameter changes",as
  expect(Math.abs(currentOrigin.x-originScreen.x)).toBeLessThan(.1);expect(Math.abs(currentOrigin.y-originScreen.y)).toBeLessThan(.1);
  await expect(dialog.getByRole("combobox")).toHaveCount(0);
  await clickWorld(page,[7.5,4,0]);await dialog.getByRole("button",{name:/旋转轴：/}).click();await expectViewport(viewportProbe(page,"viewport-feature-selection")).toHaveAttribute("data-role","axis");
- await clickWorld(page,[5,6,0]);await expect(dialog.getByRole("button",{name:"旋转轴：已选择 1 条轴线"})).toBeVisible();await ready(page,dialog);
+ await clickWorld(page,[5,6,0]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"旋转轴"}).getByText("已选择 1 条轴线",{exact:true})).toBeVisible();await ready(page,dialog);
  await page.screenshot({path:"/tmp/occccad-revolve-profile-axis.png"});
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  await dialog.getByRole("textbox",{name:"角度（deg）",exact:true}).fill("180");await ready(page,dialog);
@@ -388,14 +391,14 @@ for (const featureType of ["FILLET","CHAMFER","SHELL","DRAFT"] as const) {
    await expect(dialog.locator('[data-input-status="RESOLVED"]')).toHaveCount(1);
    await expect(dialog.locator('[data-input-status="OUTSIDE_CURRENT_TIP"]')).toHaveCount(1);
   }
-  if(featureType==="DRAFT")await dialog.getByRole("button",{name:/^中性平面：/}).click();
-  else await dialog.getByRole("button",{name:`替换输入 ${featureType==="FILLET"?2:1}`,exact:true}).click();
+  if(featureType==="DRAFT")await dialog.getByRole("button",{name:"选择中性平面",exact:true}).click();
+  else await dialog.getByRole("button",{name:`选择${["FILLET","CHAMFER"].includes(featureType)?"边":"面"} ${featureType==="FILLET"?2:1}`,exact:true}).click();
   await clickWorld(page,featureType==="FILLET"||featureType==="CHAMFER"?[20,0,10]:[10,-10,10]);
   if(featureType==="CHAMFER"){
    await expect(dialog.locator('[data-input-status="RESOLVED"]')).toHaveCount(1);
    await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
    await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
-   await dialog.getByRole("button",{name:"移除输入 2",exact:true}).click();
+   await dialog.getByRole("button",{name:"移除边 2",exact:true}).click();
   }
   await ready(page,dialog);
   expect((await current(page,seed.id)).document.versionId).toBe(seed.failedHead);
@@ -406,7 +409,7 @@ for (const featureType of ["FILLET","CHAMFER","SHELL","DRAFT"] as const) {
    expect((await current(page,seed.id)).document.versionId).toBe(seed.failedHead);
    await open();dialog=page.getByRole("dialog",{name:`编辑 ${name}`,exact:true});
    await expect(dialog.locator('[data-input-status="OUTSIDE_CURRENT_TIP"]')).toHaveCount(1);
-   await dialog.getByRole("button",{name:"替换输入 2",exact:true}).click();
+   await dialog.getByRole("button",{name:"选择边 2",exact:true}).click();
    await clickWorld(page,[20,0,10]);await ready(page,dialog);
   }
   await page.screenshot({path:testInfo.outputPath(`repaired-${featureType}.png`)});
@@ -436,7 +439,7 @@ for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
   const tool=generator==="REVOLVE"?"旋转":"拉伸";
   await openCommand(page,tool);let dialog=page.getByRole("dialog",{name:`创建 ${tool}`,exact:true});
   await expect(dialog.getByRole("radio",{name:/选定区域/})).toBeChecked();
-  const count=(n:number)=>dialog.getByRole("button",{name:`区域集：已选择 ${n} 个区域`,exact:true});
+  const count=(n:number)=>dialog.locator(".feature-pick-field").filter({hasText:"轮廓"}).getByText(`已选择 ${n} 个区域`,{exact:true});
   await clickWorld(page,[-11.5,15,0]);await expect(count(1)).toBeVisible();
   // A hole has no region pick surface.
   await clickWorld(page,[-15,15,0]);await expect(count(1)).toBeVisible();
@@ -444,7 +447,7 @@ for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
   await clickWorld(page,[15,15,0]);await expect(count(1)).toBeVisible();
   if(generator==="REVOLVE"){
    await dialog.getByRole("button",{name:/旋转轴：/}).click();await clickWorld(page,[8,0,0]);
-   await expect(dialog.getByRole("button",{name:"旋转轴：已选择 1 条轴线",exact:true})).toBeVisible();
+   await expect(dialog.locator(".feature-pick-field").filter({hasText:"旋转轴"}).getByText("已选择 1 条轴线",{exact:true})).toBeVisible();
   }else await dialog.getByRole("textbox",{name:"长度（mm）",exact:true}).fill("5");
   await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
   await page.screenshot({path:testInfo.outputPath("selected-region.png")});
@@ -487,7 +490,7 @@ for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
   },seed);
   await page.reload();await expect(page.locator("canvas")).toBeVisible();await editFeature();
   await expect(dialog.getByText("区域输入需要修复",{exact:true})).toBeVisible();await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
-  await dialog.getByRole("button",{name:"替换区域 1",exact:true}).click();await clickWorld(page,[40,15,0]);
+  await dialog.getByRole("button",{name:"选择区域 1",exact:true}).click();await clickWorld(page,[40,15,0]);
   await expect(dialog.getByText("区域输入需要修复",{exact:true})).toHaveCount(0);await ready(page,dialog);
   await page.screenshot({path:testInfo.outputPath("repaired-region.png")});
   await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
@@ -502,7 +505,7 @@ for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
    await page.reload();await expect(page.locator("canvas")).toBeVisible();await openCommand(page,"适合窗口");
    const canvas=await page.locator("canvas").boundingBox();await page.mouse.move(canvas!.x+canvas!.width/2,canvas!.y+canvas!.height/2);await page.mouse.wheel(0,700);
    await openCommand(page,"切除");const cut=page.getByRole("dialog",{name:"创建 拉伸",exact:true});
-   await clickWorld(page,[40,15,0]);await expect(cut.getByRole("button",{name:"区域集：已选择 1 个区域",exact:true})).toBeVisible();
+   await clickWorld(page,[40,15,0]);await expect(cut.locator(".feature-pick-field").filter({hasText:"轮廓"}).getByText("已选择 1 个区域",{exact:true})).toBeVisible();
    await cut.getByRole("textbox",{name:"长度（mm）",exact:true}).fill("2");
    const reversed=cut.getByRole("switch",{name:"反向",exact:true});if(await reversed.isChecked())await reversed.click();
    await ready(page,cut);await cut.getByRole("button",{name:/确\s*定/}).click();await expect(cut).toHaveCount(0);
@@ -561,7 +564,7 @@ test("sketch support changes and repairs a lost face through upstream viewport p
  await expect(dialog.getByText("原草图支撑已失效",{exact:true})).toBeVisible();
  await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
  // This hit must be the reconstructed prefix, even though the Body's final result is failed.
- await expect(async()=>{await clickWorld(page,[0,0,20]);await expect(dialog.getByRole("button",{name:"新支撑：已选上游实体平面",exact:true})).toBeVisible({timeout:1000})}).toPass({timeout:20_000});
+ await expect(async()=>{await clickWorld(page,[0,0,20]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"新支撑"}).getByText("已选上游实体平面",{exact:true})).toBeVisible({timeout:1000})}).toPass({timeout:20_000});
  await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeEnabled();expect((await current(page,seed.id)).document.versionId).toBe(failed.document.versionId);
  await page.screenshot({path:testInfo.outputPath("support-face-repair.png")});
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
@@ -639,7 +642,7 @@ test("closed sketch after boundary replacement offers explicit region repair and
  const dialog=page.getByRole("dialog",{name:"编辑 拉伸",exact:true});await expect(dialog).toBeVisible();
  await expect(dialog.getByText("区域输入需要修复",{exact:true})).toBeVisible();
  await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
- await dialog.getByRole("button",{name:"替换区域 1",exact:true}).click();await clickWorld(page,[0,0,0]);
+ await dialog.getByRole("button",{name:"选择区域 1",exact:true}).click();await clickWorld(page,[0,0,0]);
  await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.head);
  await page.screenshot({path:testInfo.outputPath("reclosed-region-repair.png")});
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
@@ -675,7 +678,7 @@ test("to-plane extent picks datum and upstream face, cancels and repairs a lost 
  const datumPick=async()=>{await filter.fill(seed.datum.name);await page.getByRole("treeitem").filter({hasText:seed.datum.name}).last().click();};
  const create=async()=>{
   await filter.fill("");await openCommand(page,"拉伸");const dialog=page.getByRole("dialog",{name:"创建 拉伸",exact:true});
-  await clickWorld(page,[10,0,0]);await expect(dialog.getByRole("button",{name:"区域集：已选择 1 个区域",exact:true})).toBeVisible();
+  await clickWorld(page,[10,0,0]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"轮廓"}).getByText("已选择 1 个区域",{exact:true})).toBeVisible();
   await dialog.getByText("到平面",{exact:true}).click();await expect(dialog.getByRole("textbox",{name:"长度（mm）",exact:true})).toHaveCount(0);return dialog;
  };
  let dialog=await create();await datumPick();await ready(page,dialog);
@@ -684,7 +687,7 @@ test("to-plane extent picks datum and upstream face, cancels and repairs a lost 
  await dialog.getByRole("button",{name:/取\s*消/}).click();await expect(dialog).toHaveCount(0);
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  dialog=await create();
- await expect(async()=>{await clickWorld(page,[-18,0,10]);await expect(dialog.getByRole("button",{name:"终止平面：已选择上游实体平面",exact:true})).toBeVisible({timeout:1000})}).toPass({timeout:20_000});
+ await expect(async()=>{await clickWorld(page,[-18,0,10]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"终止平面"}).getByText("已选择上游实体平面",{exact:true})).toBeVisible({timeout:1000})}).toPass({timeout:20_000});
  await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const created=await current(page,seed.id),feature=created.part.features.at(-1);
  expect(feature.extent).toBe("TO_PLANE");expect(feature.terminationPlane.sourceFeatureId).toBe(seed.tip.id);expect(feature.terminationPlane.selection.anchor.featureId).toBe(seed.base.id);
@@ -699,8 +702,8 @@ test("to-plane extent picks datum and upstream face, cancels and repairs a lost 
  expect(failed.part!.features.find((f:any)=>f.id===feature.id).evaluationStatus).toBe("FAILED");
  await page.reload();await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"修复终止平面",exact:true}).click();
  dialog=page.getByRole("dialog",{name:"编辑 拉伸",exact:true});await expect(dialog.getByText("终止平面需要修复",{exact:true})).toBeVisible();await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
- await dialog.getByRole("button",{name:/终止平面：/}).click();
- await expect(async()=>{await clickWorld(page,[-12,0,20]);await expect(dialog.getByRole("button",{name:"终止平面：已选择上游实体平面",exact:true})).toBeVisible({timeout:1000})}).toPass({timeout:20_000});
+ await dialog.getByRole("button",{name:"选择终止平面",exact:true}).click();
+ await expect(async()=>{await clickWorld(page,[-12,0,20]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"终止平面"}).getByText("已选择上游实体平面",{exact:true})).toBeVisible({timeout:1000})}).toPass({timeout:20_000});
  await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(failed.document.versionId);
  await page.screenshot({path:testInfo.outputPath("to-plane-face-repair.png")});
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
@@ -711,7 +714,7 @@ test("to-plane extent picks datum and upstream face, cancels and repairs a lost 
  await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect(volume(await current(page,seed.id))).toBeCloseTo(2000,5)).toPass();
  await page.reload();await expect(page.locator("canvas")).toBeVisible();await filter.fill(feature.name);await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
  dialog=page.getByRole("dialog",{name:"编辑 拉伸",exact:true});await ready(page,dialog);
- await dialog.getByRole("button",{name:/终止平面：/}).click();await datumPick();await ready(page,dialog);
+ await dialog.getByRole("button",{name:"选择终止平面",exact:true}).click();await datumPick();await ready(page,dialog);
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const inclined=await current(page,seed.id);expect(volume(inclined)).toBeCloseTo(1200,5);expect(inclined.part.features.find((f:any)=>f.id===feature.id).terminationPlaneId).toBe(seed.datum.id);
  expect(errors).toEqual([]);
@@ -734,7 +737,7 @@ test("to-plane cut selects a hole region and reverse datum termination",async({p
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();
  const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);await openCommand(page,"切除");
- const dialog=page.getByRole("dialog",{name:"创建 拉伸",exact:true});await clickWorld(page,[3,0,30]);await expect(dialog.getByRole("button",{name:"区域集：已选择 1 个区域",exact:true})).toBeVisible();
+ const dialog=page.getByRole("dialog",{name:"创建 拉伸",exact:true});await clickWorld(page,[3,0,30]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"轮廓"}).getByText("已选择 1 个区域",{exact:true})).toBeVisible();
  await dialog.getByText("到平面",{exact:true}).click();await page.getByRole("textbox",{name:"筛选模型结构"}).fill(seed.end.name);await page.getByRole("treeitem").filter({hasText:seed.end.name}).last().click();
  const reversed=dialog.getByRole("switch",{name:"反向",exact:true});if(!await reversed.isChecked())await reversed.click();
  await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("to-plane-reverse-cut-hole.png")});
@@ -790,7 +793,7 @@ test("Hole picks one explicit point, edits, repairs and keeps mouth chamfer edit
  await page.getByRole("button",{name:"修复孔位",exact:true}).click();dialog=page.getByRole("dialog",{name:"编辑 孔",exact:true});await dialog.getByRole("button",{name:/定位点：/}).click();await clickWorld(page,[-5,0,20]);await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const repaired=await current(page,seed.id),restored=repaired.part.features.find((f:any)=>f.id===hole.id);expect(restored).toMatchObject({id:hole.id,name:hole.name,bodyId:hole.bodyId,order:hole.order,holePoint:{reference:{entityId:"p"}}});expect(restored.evaluationStatus).toBeFalsy();
  await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===hole.id).evaluationStatus).toBe("FAILED")).toPass();await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect(volume(await current(page,seed.id))).toBeCloseTo(24000-180*Math.PI,5)).toPass();
- await filter.fill("");await openCommand(page,"倒角");const chamfer=page.getByRole("dialog",{name:"创建 倒角",exact:true});await clickWorld(page,[-5+3*Math.SQRT1_2,3*Math.SQRT1_2,20]);await expect(chamfer.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await chamfer.getByRole("textbox").fill("0.5");await ready(page,chamfer);await chamfer.getByRole("button",{name:/确\s*定/}).click();await expect(chamfer).toHaveCount(0);
+ await filter.fill("");await openCommand(page,"倒角");const chamfer=page.getByRole("dialog",{name:"创建 倒角",exact:true});await clickWorld(page,[-5+3*Math.SQRT1_2,3*Math.SQRT1_2,20]);await expect(chamfer.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 1 条边",{exact:true})).toBeVisible();await chamfer.getByRole("textbox").fill("0.5");await ready(page,chamfer);await chamfer.getByRole("button",{name:/确\s*定/}).click();await expect(chamfer).toHaveCount(0);
  const finished=await current(page,seed.id),child=finished.part.features.at(-1);expect(child.type).toBe("CHAMFER");expect(child.selections[0].selection.anchor.featureId).toBe(hole.id);
  dialog=await edit();await ready(page,dialog);await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("7");await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===child.id).evaluationStatus).toBeFalsy();await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
@@ -889,9 +892,9 @@ test("fillet keeps untouched opposite edge owned by extrusion during real pickin
   return {id,base,fillet:v.part!.features.at(-1)!,version:v.document.versionId};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await openCommand(page,"倒角");let dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});
- await clickWorld(page,[10,-10,10]);await expect(dialog.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await dialog.getByRole("textbox").fill("0.2");await ready(page,dialog);
+ await clickWorld(page,[10,-10,10]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 1 条边",{exact:true})).toBeVisible();await dialog.getByRole("textbox").fill("0.2");await ready(page,dialog);
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("extrude-edge-after-fillet-pick.png")});await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
- await openCommand(page,"倒角");dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});await clickWorld(page,[10,-10,10]);await expect(dialog.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await dialog.getByRole("textbox").fill("0.2");await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ await openCommand(page,"倒角");dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});await clickWorld(page,[10,-10,10]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 1 条边",{exact:true})).toBeVisible();await dialog.getByRole("textbox").fill("0.2");await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const v=await current(page,seed.id),chamfer=v.part.features.at(-1);expect(chamfer.selections[0].selection.anchor.featureId).toBe(seed.base.id);expect(chamfer.selections[0].selection.anchor.outputSlot).toMatch(/^VERTICAL_FROM_PROFILE_ENDPOINTS\//);expect(chamfer.evaluationStatus).toBeFalsy();await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
 
@@ -910,13 +913,13 @@ test("insert fillet after an exact base stage before existing chamfer in one his
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();const filter=page.getByRole("textbox",{name:"筛选模型结构"});
  const open=async(kind="圆角")=>{await filter.fill(seed.base.name!);await page.getByRole("treeitem",{name:new RegExp(`insert-row-above ${seed.base.name}$`)}).click({button:"right"});await page.getByRole("menuitem",{name:/ 对象/}).hover();await page.getByRole("menuitem",{name:/^在此步骤后插入/}).hover();await page.getByRole("menuitem",{name:kind,exact:true}).click();const d=page.getByRole("dialog",{name:`创建 ${kind}`,exact:true});await expect(d).toBeVisible();await expect(d.getByText(`插入位置：Body.1 / ${seed.base.name} 之后`,{exact:true})).toBeVisible();return d;};
- let d=await open();await clickWorld(page,[10,-10,10]);await expect(d.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await d.getByRole("textbox").fill("1");await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("insertion-stage-preview.png")});await d.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
+ let d=await open();await clickWorld(page,[10,-10,10]);await expect(d.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 1 条边",{exact:true})).toBeVisible();await d.getByRole("textbox").fill("1");await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("insertion-stage-preview.png")});await d.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
  // A Revision change disposes the temporary insertion context and its picks.
  d=await open("倒角");const peer=await page.context().newPage();await peer.goto("/");const changed=await peer.evaluate(async seed=>{
   // @ts-ignore production Vite module
   const {restApi:api}=await import("/src/api.ts");return api.command(seed.id,{type:"SET_ACTIVE_BODY",bodyId:seed.base.bodyId});
  },seed);expect(changed.document.versionId).not.toBe(seed.version);await expect(d).toHaveCount(0);await peer.close();
- const before=await current(page,seed.id);d=await open();await clickWorld(page,[10,-10,10]);await expect(d.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await d.getByRole("textbox").fill("1");await ready(page,d);await d.getByRole("button",{name:/确\s*定/}).click();await expect(d).toHaveCount(0);
+ const before=await current(page,seed.id);d=await open();await clickWorld(page,[10,-10,10]);await expect(d.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("已选择 1 条边",{exact:true})).toBeVisible();await d.getByRole("textbox").fill("1");await ready(page,d);await d.getByRole("button",{name:/确\s*定/}).click();await expect(d).toHaveCount(0);
  const committed=await current(page,seed.id),inserted=committed.part.features[2];expect(inserted.type).toBe("FILLET");expect(committed.part.features.at(-1).id).toBe(seed.chamfer.id);expect(inserted.selections[0]).toMatchObject({sourceVersionId:before.document.versionId,sourceFeatureId:seed.base.id,selection:{anchor:{featureId:seed.base.id}}});expect(committed.part.features.map((f:any)=>f.order)).toEqual([1,2,3,4]);
  const a=committed.artifacts[committed.part.bodies[0].geometryKey];expect(a.volume).toBeCloseTo(7990-20*(1-Math.PI/4),5);
  await filter.fill("");const bodyNode=page.getByRole("treeitem").filter({hasText:"Body.1 · 工作中"});if(await bodyNode.getByRole("button",{name:"展开",exact:true}).count())await bodyNode.getByRole("button",{name:"展开",exact:true}).click();await expect(async()=>{const labels=await page.locator(".specification-tree-label").allTextContents();expect(labels).toContain(inserted.name);expect(labels).toContain(seed.chamfer.name);expect(labels.indexOf(inserted.name)).toBeLessThan(labels.indexOf(seed.chamfer.name!));}).toPass({timeout:15_000});
@@ -960,4 +963,44 @@ test("merged loft side picks highlight the generating Feature rather than sectio
  };
  await pick();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("loft-merged-face-feature-highlight.png")});
  await page.reload();await expect(page.locator("canvas")).toBeVisible();await tree.fill("Loft 1");await pick();expect(errors).toEqual([]);
+});
+
+test("command forms keep field ownership across late picks, IME, expressions and history",async({page},testInfo)=>{
+ await login(page);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','命令表单交互验收');const id=v.document.id;
+  v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketch=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:'EDIT_SKETCH',sketchId:sketch,operations:[{type:'ADD_RECTANGLE',first:{x:-10,y:-10},second:{x:10,y:10}}]});
+  v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId:sketch,generator:'LINEAR_EXTRUDE',operation:'NEW_BODY',length:10});
+  v=await api.command(id,{type:'CREATE_DATUM_PLANE',name:'安装支撑平面 · 长名称用于窄窗口定位检查',origin:[0,0,3],normal:[0,0,1],uDirection:[1,0,0]});
+  return {id,version:v.document.versionId,plane:v.part!.datumPlanes.at(-1)!};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await worldScreen(page,[0,0,10]);
+ await openCommand(page,'基准面');let dialog=page.getByRole('dialog',{name:'创建基准面',exact:true});
+ const source=()=>dialog.locator('.feature-pick-field').filter({hasText:'源基准'});
+ await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();const original=await source().locator('.feature-pick-value').innerText();
+ let release=()=>{},started=false,fulfilled=false;const gate=new Promise<void>(r=>release=r);
+ const pattern=`**/api/documents/${seed.id}/topology-properties?*`;
+ await page.route(pattern,async route=>{const response=await route.fetch();if(new URL(route.request().url()).searchParams.get('kind')==='FACE'){started=true;await gate;}await route.fulfill({response});fulfilled=true;});
+ await dialog.getByRole('button',{name:'选择源基准',exact:true}).click();await clickWorld(page,[-5,0,10]);await expect.poll(()=>started).toBeTruthy();
+ await dialog.getByRole('button',{name:'选择旋转轴',exact:true}).click();release();await expect.poll(()=>fulfilled).toBeTruthy();
+ await expect(dialog.getByRole('button',{name:'选择旋转轴',exact:true})).toHaveAttribute('aria-pressed','true');await expect(source().locator('.feature-pick-value')).toHaveText(original);
+ await page.unroute(pattern);await page.keyboard.press('Escape');await expect(dialog).toBeVisible();await expect(dialog.locator('[data-pick-active]')).toHaveCount(0);
+ await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ await openCommand(page,'基准面');dialog=page.getByRole('dialog',{name:'创建基准面',exact:true});await dialog.getByRole('button',{name:'选择源基准',exact:true}).click();
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill(seed.plane.name);await page.getByRole('treeitem').filter({hasText:seed.plane.name}).last().click();
+ await expect(source().locator('.feature-pick-value')).toHaveText(seed.plane.name);await expect(dialog.locator('[data-pick-active]')).toHaveCount(0);await filter.fill('');
+ await dialog.getByRole('button',{name:'定位源基准',exact:true}).click();await expectViewport(viewportProbe(page,'viewport-selection')).toContainText(seed.plane.id);
+ const distance=dialog.getByRole('textbox',{name:/平移距离/});await distance.fill('2 mm + 3 mm');await distance.blur();
+ await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ await distance.evaluate(el=>{el.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true}));el.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));});
+ await expect(dialog).toBeVisible();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ await page.setViewportSize({width:1024,height:768});await page.evaluate(()=>document.documentElement.style.zoom='1.25');
+ await expect.poll(async()=>{const r=await dialog.boundingBox();return !!r&&r.x>=0&&r.y>=0&&r.x+r.width<=1025&&r.y+r.height<=769;}).toBeTruthy();
+ await page.screenshot({path:'../../../build/acceptance/command-form-125-percent.png'});
+ await page.evaluate(()=>document.documentElement.style.zoom='1');await page.setViewportSize({width:1440,height:1000});await distance.focus();await distance.press('Enter');await expect(dialog).toHaveCount(0);
+ const committed=await current(page,seed.id),plane=committed.part.datumPlanes.at(-1);expect(plane.origin[2]).toBeCloseTo(8,6);expect(plane.definition.source.entityId).toBe(seed.plane.id);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>((await current(page,seed.id)).part.datumPlanes.some((p:any)=>p.id===plane.id))).toBeFalsy();
+ await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>((await current(page,seed.id)).part.datumPlanes.find((p:any)=>p.id===plane.id)?.origin[2])).toBe(8);
+ await page.reload();await expect(page.locator('canvas')).toBeVisible();expect((await current(page,seed.id)).part.datumPlanes.find((p:any)=>p.id===plane.id)).toEqual(plane);expect(errors).toEqual([]);
 });

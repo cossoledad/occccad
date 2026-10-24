@@ -22,6 +22,7 @@ import type {MechanismMotionSession} from '../../cad/assembly/mechanism-motion-s
 import {assemblyGeometryRef} from '../../cad/assembly/assembly-reference';
 import {useCommandRegistry} from '../../cad/command/command-context';
 import type {CommandOperation} from '../../cad/command/command-registry';
+import {CommandField,CommandStatus} from '../../cad/overlay/command-form';
 import {CommandDialog} from '../../cad/overlay/floating-panel';
 import {motionFrameAt,motionPlayback,motionPlaybackTime,quantityIn,type MotionPlaybackClock,type JointEndpoint,type KinematicsDefinitions,type MechanismJoint,type MotionPlayback,type MotionRun,type MotionStudy,type MotionApplyRequest,type MotionApplyPlan,type MotionDriver} from '../../cad/assembly/motion-study';
 
@@ -61,7 +62,9 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  const playing=Boolean(clock);
  const playbackIndex=()=>run&&clock?motionFrameAt(run,motionPlaybackTime(clock,performance.now())):index;
  const [action,setAction]=useState<string>(),[objectId,setObjectId]=useState<string>(),[name,setName]=useState('');
- const [joint,setJoint]=useState<MechanismJoint>(),[pickRole,setPickRole]=useState<JointSupportRole>();
+ const [joint,setJoint]=useState<MechanismJoint>(),[pickRole,setPickRoleState]=useState<JointSupportRole>();
+ const setPickRole=(role:JointSupportRole|undefined)=>{pickSessionEpoch.current++;setPickRoleState(role)};
+ const cancelSupportPick=()=>{if(!pickRole)return false;setPickRole(undefined);return true};
  const [driving,setDriving]=useState<Record<string,boolean>>({}),[jointCoordinates,setJointCoordinates]=useState<Record<string,number>>({});
  const [driver,setDriver]=useState<MotionDriver>();
  const [plan,setPlan]=useState<MotionApplyPlan>(),[lockCoordinateIds,setLockCoordinateIds]=useState<string[]>([]),[applyOpen,setApplyOpen]=useState(false);
@@ -271,11 +274,11 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
    const [side]=role.split('.') as ['first'|'second','axis'|'plane'|'point'];
    pickedSupports.current.set(role,item);if(field==='axis'&&joint?.[side]?.instanceId!==support.reference.instanceId)pickedSupports.current.delete(`${side}.plane`);
    if(joint){const next=changeJointSupport(joint,role,support.reference);setJoint(next);setPickRole(nextJointSupportRole(next,role));}setError(undefined)
-  }catch(e){if(generation===commandEpoch.current){setError(e)}}
+  }catch(e){if(generation===commandEpoch.current&&sessionEpoch===pickSessionEpoch.current){setError(e)}}
  };
  useEffect(()=>{
   if(!working||action!=='joint'||!joint){callbacks.current.onSelectionSession();return}
-  if(joint.kind==='GROUND'||pickRole?.endsWith('instance')){
+  if(pickRole&&(joint.kind==='GROUND'||pickRole.endsWith('instance'))){
    const side=pickRole?.startsWith('second')?'second':'first';
    const role=`${side}.instance` as JointSupportRole;
    const selected=units.find(v=>v.id===joint[side]?.instanceId);
@@ -407,7 +410,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   {active&&motionDialog&&<MechanismMotionDialog {...motionDialog} initialDriverIds={selection?.kind==='kinematic-object'&&selection.entityKind==='MOTION_DRIVER'&&defs.drivers?.some(d=>d.id===selection.id&&d.mechanismId===motionDialog.mechanism.id)?[selection.id]:lastDrivers.current} drivers={(motionDialog.view.product?.kinematics?.drivers??[]).filter(d=>d.mechanismId===motionDialog.mechanism.id)} operation={commandOwner.current} sourceMechanismIds={sourceMechanismIds} captureViewpoint={captureViewpoint} previewViewpoint={previewViewpoint} onSession={s=>{if(!s&&motionSession.current?.identity)lastDrivers.current=motionSession.current.checkpoint?.activeDriverIds;motionSession.current=s;registry.notifyStateChanged()}} onDraft={onDraft} onPreview={onPreview} onPlayback={onPlayback} onCommit={async (command,recordedStudyId)=>{savingDefinition.current=true;try{const updated=await onCommit(command);adopt(updated);if(activeMechanismId.current)untouchedMechanisms.current.delete(activeMechanismId.current);
      if(motionDialog.record){const study=updated.product?.kinematics?.studies.find(s=>s.id===recordedStudyId);if(study){try{await api.startMotionRun(updated.document.id,{baseRevisionId:updated.document.versionId,studyId:study.id,requestId:randomUUID()});await client.invalidateQueries({queryKey:['motion-jobs',updated.document.id]})}catch(e){feedback(e,'生成模拟结果')}}}
      return updated}finally{savingDefinition.current=false}}} onClose={updated=>{if(updated)adopt(updated);closeCommand(false,true);registry.cancel()}}/>}
-  <CommandDialog id={'dmu.'+(action??'definition')} open={working&&Boolean(action)&&action!=='apply'&&!motionDialog&&!applyOpen} title={action==='results'?'仿真与回放':action==='joint'?joint?.name:action==='driver'?driver?.name:action==='mechanism'?'编辑机械装置':registry.declaration('dmu.'+action)?.name??'编辑对象'} onClose={()=>closeCommand()} onConfirm={confirmDefinition} confirmLoading={commandPending||pending} confirmDisabled={action!=='results'&&!definitionValid} size="M"><div className="motion-study-fields">
+  <CommandDialog id={'dmu.'+(action??'definition')} open={working&&Boolean(action)&&action!=='apply'&&!motionDialog&&!applyOpen} title={action==='results'?'仿真与回放':action==='joint'?joint?.name:action==='driver'?driver?.name:action==='mechanism'?'编辑机械装置':registry.declaration('dmu.'+action)?.name??'编辑对象'} onClose={()=>closeCommand()} onCancelPick={cancelSupportPick} commandStatus={<CommandStatus pending={previewPending}/>} onConfirm={confirmDefinition} confirmLoading={commandPending||pending} confirmDisabled={action!=='results'&&!definitionValid} size="M"><div className="motion-study-fields">
 
    {action==='results'&&<>
     {job&&!done(job)&&<Space><Progress percent={job.progress} size="small"/><Button disabled={!job.canCancel||pending||commandPending} onClick={()=>void stopCalculation()}>停止计算</Button></Space>}
@@ -434,12 +437,12 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
      </>}
     </section>
    </>}
-   {(action==='mechanism')&&<><Input aria-label="机构名称" value={name} onChange={e=>setName(e.target.value)}/></>}
+   {(action==='mechanism')&&<><CommandField label="机构名称" width="name"><Input aria-label="机构名称" value={name} onChange={e=>setName(e.target.value)}/></CommandField></>}
    {action==='joint'&&joint&&<JointFields view={view} joint={joint} pickRole={pickRole} onRole={setPickRole} onClear={clearSupport} onChange={changeJoint} driving={driving} referenced={commandReferenced} references={references} limitsIssue={limitsIssue} onDrive={toggleDrive} pending={previewPending} disabled={commandPending}/>}
    {action==='driver'&&driver&&<>
     <Typography.Text>{driver.name}</Typography.Text>
     <label className="motion-labeled-field"><span>所属接合</span><Typography.Text>{selectedMechanism?.joints.find(j=>j.id===driver.jointId)?.name}</Typography.Text></label>
-    <label className="motion-labeled-field"><span>当前值</span><InputNumber aria-label="命令当前值" readOnly precision={2} value={driver.reference?quantityIn({value:(selectedMechanism?.coordinates?.[driver.coordinateId]??0)-quantityIn(driver.reference,driverCoordinate(selectedMechanism!,driver)?.dimension==='ANGLE'?'rad':'mm'),unit:driverCoordinate(selectedMechanism!,driver)?.dimension==='ANGLE'?'rad':'mm'},driverCoordinate(selectedMechanism!,driver)?.dimension==='ANGLE'?'deg':'mm'):0}/></label>
+    <CommandField label="当前值" width="number"><InputNumber aria-label="命令当前值" readOnly precision={2} value={driver.reference?quantityIn({value:(selectedMechanism?.coordinates?.[driver.coordinateId]??0)-quantityIn(driver.reference,driverCoordinate(selectedMechanism!,driver)?.dimension==='ANGLE'?'rad':'mm'),unit:driverCoordinate(selectedMechanism!,driver)?.dimension==='ANGLE'?'rad':'mm'},driverCoordinate(selectedMechanism!,driver)?.dimension==='ANGLE'?'deg':'mm'):0}/></CommandField>
     <Button aria-label="置零" disabled={commandPending||!driver.reference} onClick={()=>setDriver({...driver,reference:undefined,referenceDigest:undefined})}>置零</Button>
    </>}
 

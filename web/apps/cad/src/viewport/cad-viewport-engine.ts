@@ -2272,6 +2272,15 @@ export class CadViewportEngine {
     return resolved[0].anchor.distanceTo(resolved[1].anchor);
   }
 
+  focusSelections(items:readonly SelectionItem[]):boolean {
+    this.replaceTopologyOverlays('selected',items);
+    const objects=this.selectedOverlays.length?this.selectedOverlays:this.selectionIndex.objectsForMany(items);
+    const box=new THREE.Box3();for(const object of objects)box.expandByObject(object);
+    if(box.isEmpty())return false;
+    const anchor=box.getCenter(new THREE.Vector3()),offset=this.camera.position.clone().sub(this.navigation.target);
+    this.viewTransition.cancel();this.navigation.target.copy(anchor);this.camera.position.copy(anchor).add(offset);this.navigation.syncCamera();this.invalidate();return true;
+  }
+
   focusAssemblyReference(reference: AssemblyGeometryRef,ownerOccurrence=""): boolean {
     const resolved = this.resolveAssemblyConstraintReference(reference,ownerOccurrence);
     const instance = this.instanceGroups.get(reference.instanceId);

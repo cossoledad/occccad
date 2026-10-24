@@ -18,7 +18,7 @@ flowchart TD
 
 页面通过 Viewport Engine 操作视口，不直接拥有 Three.js Scene/Renderer。模型、权限、Revision 与最终求值属于服务端；camera、hover、selection、工具采集和渲染插值是可丢弃状态。Mock 用于 UI 调试，不证明后端权限或几何正确性。
 
-工作台由独立结构树、视口和属性/历史面板组成。树筛选保留祖先与 stable key，虚拟树支持键盘和集合选择；Inspector 关闭时卸载，按页签请求数据，读取失败明确报错。Document tabs 位于全局标题栏，支持切换、关闭、新建、排序及窗口会话恢复。普通文档读取和依赖刷新不打开或重排标签；显式打开生命周期与窗口内稳定顺序见 [编辑上下文](product-edit-context.md)。
+工作台由独立结构树、视口和属性/历史面板组成。树筛选保留祖先与 stable key，虚拟树支持键盘和集合选择；Inspector 关闭时卸载；普通工程属性优先，唯一开发区默认收起、展开后按需查询完整对象与调试信息，读取失败保留明确反馈。Document tabs 位于全局标题栏，支持切换、关闭、新建、排序及窗口会话恢复。普通文档读取和依赖刷新不打开或重排标签；显式打开生命周期与窗口内稳定顺序见 [编辑上下文](product-edit-context.md)。
 
 ## 根场景与编辑上下文
 
@@ -39,6 +39,8 @@ InputManager、Tool、Selection 和 Overlay 共用完整 pointer down/move/up/ca
 结构树消费服务端 `DocumentStructureNode`：Product 的 Instance 下保留独立 Part/Product 定义根，Part 与 Product 内 Part 共用 Body/Feature/Sketch 投影；被多个 Feature 使用的 Sketch 保留一个定义入口和多个只读输入引用。节点显式携带 `EntityRef`、`OccurrenceRef`、`SnapshotScope`、owner、Body、能力，以及可分别读取的连接、时效、求值、子节点加载状态；树路径只标识当前投影入口。选择键包含文档、完整 occurrence、Revision/variant、Body 与几何范围；折叠祖先只显示后代提示，不变更精确命令目标。行虚拟化保留，Product/Part 历史分支默认按需展开；目前服务端仍构造完整结构快照，尚未实现分页获取子树。更多设计与 CATIA 对照见[语义结构树与交互上下文](semantic-tree.md)。
 
 单击树节点只选择，不改变编辑目标。双击 Instance 是激活其下 Part/Product 根的快捷方式；双击定义根得到同一目标，双击根 Product 返回装配编辑。只有类型、DocumentId 与完整 InstancePath 均匹配的 Part/Product 根显示文档编辑态，Instance 行不共用该标记。激活 Body 只改变会话工作 Body，覆盖持久 `activeBodyId` 默认值；选择、展开和临时显隐不写入 Revision。Feature 选择保持设计定义身份，使用 Naming 派生的当前面/边贡献集合高亮；无当前贡献与关联缺失分别提示。视图的真实面/边保持主选择，关联树节点只作定位提示，不再触发 Feature/Body 选择。“查看此步骤结果”显式加载历史制品，禁用其建模拾取并提供恢复当前结果；历史编辑使用上游阶段，结束恢复正常显示。Product 自动更新订阅来自服务端的非 PINNED 领域引用投影，并继续通过 UpdatePlan 按叶到根接受；过滤和展开状态不参与更新决策。
+
+CAD 命令字段、选择条目、状态与操作区复用公共表单组件，装配支撑与接合端点不维护独立列表外观。拾取结果绑定活动字段、会话及版本；输入失焦只更新草稿，当前候选才可确认。具体布局与键盘规则见[工作台 UI 规格](../../guides/workbench.md#命令表单与拾取)。
 
 捕捉过滤与 Selection 独立。三维类型过滤、草图网格/端点/中心/中点/曲线投影共用候选排序；禁用候选不能遮挡后方可用对象。显示折线上的投影仅是交互近似。命中稳定点时，同一编辑批次显式添加 Coincident，不能只保存相同坐标。
 
