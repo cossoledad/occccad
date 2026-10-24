@@ -43,6 +43,27 @@
 #include <utility>
 
 namespace occccad::kernel::detail {
+Handle(BRepTools_History) fillet_history(const TopoDS_Shape& input, BRepFilletAPI_MakeFillet& algorithm) {
+    TopTools_IndexedMapOfShape sources, members;
+    TopExp::MapShapes(input, sources);
+    TopExp::MapShapes(algorithm.Shape(), members);
+    Handle(BRepTools_History) history = new BRepTools_History();
+    for (int i = 1; i <= sources.Extent(); ++i) {
+        const auto& source = sources(i);
+        if (!BRepTools_History::IsSupportedType(source)) continue;
+        // OCCT 7.9 fillet IsDeleted is true for many untouched edges/vertices.
+        // Their exact TShapes still belong to the result. Feeding those false
+        // tombstones into Merge loses the preceding isolation-copy relation.
+        // This is topological identity, never geometric matching or rebinding.
+        if (!members.Contains(source) && algorithm.IsDeleted(source)) history->Remove(source);
+        for (TopTools_ListIteratorOfListOfShape it(algorithm.Modified(source)); it.More(); it.Next())
+            history->AddModified(source, it.Value());
+        for (TopTools_ListIteratorOfListOfShape it(algorithm.Generated(source)); it.More(); it.Next())
+            history->AddGenerated(source, it.Value());
+    }
+    return history;
+}
+
 namespace {
 constexpr double tolerance = 1e-7;
 struct Stage {
@@ -556,8 +577,6 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
             throw std::runtime_error(round.NbFaultyVertices() > 0
                                          ? "FILLET_BOUNDARY_CORNER_CLOSURE_FAILED"
                                          : "FILLET_BOUNDARY_TANGENT_CONSTRUCTION_FAILED");
-        TopTools_ListOfShape args;
-        args.Append(working);
         // Fillet's generated faces are reached through the constructed contour;
         // retain that explicit construction relation before composing trim history.
         for (const auto& s : supports) {
@@ -567,7 +586,7 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
             for (TopTools_ListIteratorOfListOfShape it(round.Generated(edge)); it.More(); it.Next())
                 result.history->AddGenerated(s.edge, it.Value());
         }
-        result.history->Merge(args, round);
+        result.history->Merge(fillet_history(working, round));
         result.shape =
             boolean_shape<BRepAlgoAPI_Common>(round.Shape(), input, result.history, "limit_trim");
         result.diagnostics.push_back("FILLET_SUPPORT_DOMAIN_EXTENDED:CONVEX_PLANAR");

@@ -603,6 +603,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, err
 		}
 		return typeCreatePattern, createFeaturePayload{Feature: feature, ParameterSources: sources}, nil
+	case "MOVE_FEATURE":
+		if documentType != "PART" {
+			break
+		}
+		return typeMoveFeature, moveFeaturePayload{FeatureID: request.TargetID, AnchorFeatureID: request.AnchorFeatureID, Placement: request.Placement, ExpectedFeatureDigest: request.ExpectedFeatureDigest}, nil
 	case "EDIT_FEATURE":
 		if documentType != "PART" {
 			break

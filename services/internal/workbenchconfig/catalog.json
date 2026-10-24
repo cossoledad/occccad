@@ -4971,6 +4971,33 @@
       }
     },
     {
+      "id": "tree.move",
+      "name": "调整特征顺序",
+      "helpText": "将单个实体特征移到同 Body 指定步骤之前或之后，预览通过后提交。",
+      "iconKey": "fit",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      }
+    },
+    {
       "id": "tree.edit",
       "name": "编辑",
       "helpText": "编辑所选结构对象。",

@@ -824,3 +824,72 @@ test("Hole support reassignment and both through directions protect the opposite
  },{seed,hole});expect(probe.artifact.volume).toBeCloseTo(8000-52*Math.PI,5);expect((await current(page,seed.id)).document.versionId).toBe(reverse.document.versionId);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();
 });
+
+test("constrained feature move previews tree order, restores history and rejects source crossing",async({page},testInfo)=>{
+ page.setDefaultTimeout(15_000);const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.createDocument("PART","Constrained feature move acceptance");const id=v.document.id;
+  v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const profile=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:profile,operations:[{type:"ADD_RECTANGLE",first:{x:-10,y:-10},second:{x:10,y:10}}]});
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:profile,generator:"LINEAR_EXTRUDE",operation:"ADD",length:20});const base=v.part!.features.at(-1)!;
+  v=await api.command(id,{type:"CREATE_DATUM_PLANE",origin:[0,0,20],normal:[0,0,1],uDirection:[1,0,0]});
+  v=await api.command(id,{type:"CREATE_SKETCH",datumPlaneId:v.part!.datumPlanes.at(-1)!.id});const location=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:location,operations:[{type:"ADD_ENTITY",entity:{id:"center",kind:"POINT",role:"CONSTRUCTION",point:{x:0,y:0}}}]});
+  const key=v.part!.bodies.find(b=>b.id===base.bodyId)!.geometryKey!,artifact=v.artifacts[key];let selection;
+  for(let i=1;i<=Number(artifact.topology.edges);i++){const p=await api.getTopologyProperties(id,key,"EDGE",i,v.document.versionId);if(p.persistentSelection?.anchor.featureId===base.id&&p.persistentSelection.anchor.outputSlot.startsWith("VERTICAL_FROM_PROFILE_ENDPOINTS/")){selection=p.persistentSelection;break;}}
+  if(!selection)throw Error("outer edge unavailable");
+  v=await api.command(id,{type:"CREATE_MODIFY_FEATURE",feature:{type:"FILLET",bodyId:base.bodyId,length:1,selections:[{selection,sourceVersionId:v.document.versionId}]}});const fillet=v.part!.features.at(-1)!;
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",feature:{type:"HOLE",bodyId:base.bodyId,operation:"REMOVE",extent:"BLIND",diameter:4,depth:5,reversed:true,holePoint:{sketchId:location,reference:{target:"ENTITY",entityId:"center",subElement:"POINT"}}}});const hole=v.part!.features.at(-1)!;
+  return {id,base,fillet,hole,version:v.document.versionId,ids:v.part!.features.map(f=>f.id),volume:v.artifacts[v.part!.bodies.find(b=>b.id===base.bodyId)!.geometryKey!].volume};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+ const filter=page.getByRole("textbox",{name:"筛选模型结构"});
+ const open=async(name:string)=>{await filter.fill(name);await page.getByRole("treeitem").filter({hasText:name}).first().click({button:"right"});await page.getByRole("menuitem",{name:/ 对象/}).hover();await page.getByRole("menuitem",{name:"调整特征顺序",exact:true}).click();const d=page.getByRole("dialog",{name:"调整特征顺序",exact:true});await expect(d).toBeVisible();return d;};
+ const anchor=async(d:ReturnType<Page["getByRole"]>,name:string)=>{await d.getByRole("combobox",{name:"锚点特征"}).click();await page.locator(".ant-select-item-option-content").filter({hasText:name}).click();};
+ const confirm=async(d:ReturnType<Page["getByRole"]>)=>{await ready(page,d);await d.getByRole("button",{name:/确\s*定/}).click();await expect(d).toHaveCount(0);};
+ let d=await open(seed.hole.name!);await anchor(d,seed.fillet.name!);await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("feature-move-preview.png")});
+ await d.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ d=await open(seed.hole.name!);await anchor(d,seed.fillet.name!);await confirm(d);
+ const first=await current(page,seed.id),firstIds=first.part.features.map((f:any)=>f.id);expect(firstIds).toEqual([...seed.ids.slice(0,-2),seed.hole.id,seed.fillet.id]);
+ expect(first.artifacts[first.part.bodies.find((b:any)=>b.id===seed.base.bodyId).geometryKey].volume).toBeCloseTo(seed.volume,5);
+ await filter.fill("");const bodyNode=page.getByRole("treeitem").filter({hasText:"Body.1 · 工作中"});if(await bodyNode.getByRole("button",{name:"展开",exact:true}).count())await bodyNode.getByRole("button",{name:"展开",exact:true}).click();await expect(async()=>{const labels=await page.locator(".specification-tree-label").allTextContents();expect(labels).toContain(seed.hole.name!);expect(labels).toContain(seed.fillet.name!);expect(labels.indexOf(seed.hole.name!)).toBeLessThan(labels.indexOf(seed.fillet.name!));}).toPass();
+ const stage=await page.evaluate(async seed=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");const v=await api.getDocument(seed.id);return api.getFeatureInput(seed.id,{versionId:v.document.versionId,featureId:seed.hole.id,resultStage:true});
+ },seed);expect(stage.artifact.volume).toBeCloseTo(8000-20*Math.PI,5);
+ d=await open(seed.hole.name!);await anchor(d,seed.fillet.name!);await d.getByText("之后",{exact:true}).click();await confirm(d);
+ for(const expected of [firstIds,seed.ids]){await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.map((f:any)=>f.id)).toEqual(expected)).toPass();}
+ for(const expected of [firstIds,seed.ids]){await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.map((f:any)=>f.id)).toEqual(expected)).toPass();}
+ await filter.fill(seed.hole.name!);await page.getByRole("treeitem").filter({hasText:seed.hole.name!}).first().dblclick();d=page.getByRole("dialog",{name:"编辑 孔",exact:true});await ready(page,d);await d.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("5");await confirm(d);
+ // A real downstream mouth reference must block crossing its Hole source.
+ const child=await page.evaluate(async seed=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.getDocument(seed.id);const key=v.part!.bodies.find(b=>b.id===seed.base.bodyId)!.geometryKey!,a=v.artifacts[key];let selection;
+  for(let i=1;i<=Number(a.topology.edges);i++){const p=await api.getTopologyProperties(seed.id,key,"EDGE",i,v.document.versionId);if(p.persistentSelection?.anchor.featureId===seed.hole.id&&p.persistentSelection.anchor.outputSlot.startsWith("START_BOUNDARY_FROM_PROFILE_EDGE/")){selection=p.persistentSelection;break;}}
+  if(!selection)throw Error("mouth unavailable");v=await api.command(seed.id,{type:"CREATE_MODIFY_FEATURE",feature:{type:"CHAMFER",bodyId:seed.base.bodyId,length:.2,selections:[{selection,sourceVersionId:v.document.versionId}]}});return {feature:v.part!.features.at(-1)!,version:v.document.versionId};
+ },seed);
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();d=await open(child.feature.name!);await anchor(d,seed.hole.name!);await expect(d.getByRole("alert")).toContainText(child.feature.id);await expect(d.getByRole("button",{name:/确\s*定/})).toBeDisabled();await expect(page.locator("[data-feature-preview]")).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(child.version);await page.screenshot({path:testInfo.outputPath("feature-move-source-blocked.png")});await d.getByRole("button",{name:/取\s*消/}).click();
+ await filter.fill(seed.base.name!);await page.getByRole("treeitem").filter({hasText:seed.base.name!}).first().click({button:"right"});await expect(page.getByRole("menu").first()).toBeVisible();const objectMenu=page.getByRole("menuitem",{name:/ 对象/});if(await objectMenu.count())await objectMenu.hover();await expect(page.getByRole("menuitem",{name:"调整特征顺序",exact:true})).toHaveCount(0);await page.keyboard.press("Escape");
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();const final=await current(page,seed.id);expect(final.part.features.find((f:any)=>f.id===seed.hole.id)).toMatchObject({id:seed.hole.id,bodyId:seed.hole.bodyId,name:seed.hole.name,diameter:5});expect(final.part.features.every((f:any)=>!f.evaluationStatus)).toBeTruthy();expect(errors).toEqual([]);
+});
+
+test("fillet keeps untouched opposite edge owned by extrusion during real picking",async({page},testInfo)=>{
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.createDocument("PART","Fillet edge ancestry acceptance");const id=v.document.id;
+  v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const sketch=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch,operations:[{type:"ADD_RECTANGLE",first:{x:-10,y:-10},second:{x:10,y:10}}]});
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:sketch,generator:"LINEAR_EXTRUDE",operation:"ADD",length:20});const base=v.part!.features.at(-1)!;
+  const key=v.part!.bodies[0].geometryKey!;let selection;
+  for(let i=1;i<=Number(v.artifacts[key].topology.edges);i++){const p=await api.getTopologyProperties(id,key,"EDGE",i,v.document.versionId);if(p.persistentSelection?.creationEvidence?.centroid?.every((x:number,j:number)=>Math.abs(x-[10,10,10][j])<1e-7)){selection=p.persistentSelection;break;}}
+  if(!selection)throw Error("round input missing");v=await api.command(id,{type:"CREATE_MODIFY_FEATURE",feature:{type:"FILLET",bodyId:base.bodyId,length:1,selections:[{selection,sourceVersionId:v.document.versionId}]}});
+  return {id,base,fillet:v.part!.features.at(-1)!,version:v.document.versionId};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await openCommand(page,"倒角");let dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});
+ await clickWorld(page,[10,-10,10]);await expect(dialog.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await dialog.getByRole("textbox").fill("0.2");await ready(page,dialog);
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("extrude-edge-after-fillet-pick.png")});await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ await openCommand(page,"倒角");dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});await clickWorld(page,[10,-10,10]);await expect(dialog.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await dialog.getByRole("textbox").fill("0.2");await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const v=await current(page,seed.id),chamfer=v.part.features.at(-1);expect(chamfer.selections[0].selection.anchor.featureId).toBe(seed.base.id);expect(chamfer.selections[0].selection.anchor.outputSlot).toMatch(/^VERTICAL_FROM_PROFILE_ENDPOINTS\//);expect(chamfer.evaluationStatus).toBeFalsy();await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
+});

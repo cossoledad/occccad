@@ -63,6 +63,11 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		if err = rejectExplicitBrokenPublication(prepared.command, model); err != nil {
 			return CommandPreview{}, err
 		}
+		if prepared.command.TypeURI == typeMoveFeature {
+			if err := rejectMoveReferenceFailures(model); err != nil {
+				return CommandPreview{}, err
+			}
+		}
 		previewChanges = appendEvaluatedDatumChanges(appendEvaluatedSketchChanges(previewChanges, beforeModel, model), beforeModel, model)
 		nextJSON, _ = json.Marshal(model)
 		previewChanges, err = reconcilePersistedChanges(prepared.documentType, prepared.modelJSON, nextJSON, previewChanges)
@@ -81,7 +86,15 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		diagnostic.stage("GEOMETRY")
 		finishGeometry := perf.Start(ctx, "geometry-evaluate")
 		bodyID := previewBodyID(prepared.command.Payload, model)
-		geometryKey, err := service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID, model, bodyID, true)
+		var geometryKey string
+		if prepared.command.TypeURI == typeMoveFeature {
+			err = service.evaluateMoveBodies(ctx, documentID, "preview/"+prepared.requestID, &model)
+			if i := bodyIndex(model, bodyID); i >= 0 {
+				geometryKey = model.Bodies[i].GeometryKey
+			}
+		} else {
+			geometryKey, err = service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID, model, bodyID, true)
+		}
 		finishGeometry()
 		if err != nil {
 			return CommandPreview{}, err

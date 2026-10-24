@@ -20,6 +20,16 @@
 
 `Body` 身份不随材料连通性改变。Boolean 默认消耗工具的最终输出，`keepTools` 可保留它；定义、制品和历史始终保留。派生 `consumed` 与 `visible` 独立，视口/拾取、Product 展开和 STEP 导出遵循输出状态。抑制 Boolean 恢复工具输出。
 
+## 调整特征顺序
+
+结构树的实体 Feature 对象菜单提供“调整特征顺序”：指定同 Body 锚点及之前/之后，权威预览通过后确认。普通生成、Hole、圆角/倒角/抽壳/拔模可以移动；导入、Body 创建者/首个基础实体、Boolean、实体阵列/镜像是同 Body 的固定边界，不能移动或跨越。已有 `FEATURE_DELTA` 范围的有序成员集合保持不变。草图不自动随特征移动。
+
+正式 `MOVE_FEATURE` 保存源/锚点 Feature ID、定位及期望定义摘要；确定性地从全局 `model.Features` 取出单项再插入，其他项相对顺序不变，并同步全部 `Order`。每项受影响定义在同一 ChangeSet 内补偿，Feature/Parameter ID、名称、Body、参数及显式引用不变。取消和预览不写 Head，输入或 Revision 变化不能复用旧候选；提交沿原幂等、CAS 和 Undo/Redo 链。
+
+按候选顺序重建 Body 前驱和依赖图，检查全 Part 的轮廓、孔位、支撑、终止面、外部投影及拓扑输入。语义 Anchor 和实际来源阶段分别验证；未显式保存阶段的既有引用从其不可变来源 Revision 的精确 Body Tip 核对，不补写或重绑引用。所有活动引用和 Body 的实际几何必须成功，失效指明阻塞特征并原子拒绝，不接纳 FAILED 移动。顺序与候选前驱进入原阶段输入、缓存和增量求值。
+
+源码入口为 `services/internal/workspace/feature_move.go`、`web/apps/cad/src/features/workbench/feature-move-dialog.tsx`。定向验证为 `feature_move_test.go`、真实 Router/Worker 的 `services/internal/control/feature_move_integration_test.go` 与浏览器 `solid-feature-live.spec.ts` 的 `constrained feature move`。范围含底座→定位草图→外边圆角→Hole 的移动/继续编辑、中间阶段、历史/重开/冷重建、实际来源阶段与跨 Body 几何阻塞、固定边界及范围保护。证据限当前 SQLite、Release OCCT 7.9.1 和 Chromium/SwiftShader；不包含历史插入点、跨 Body 搬迁、分组移动或自动依赖重排，主体实机验收另行进行。
+
 ## 独立 Hole
 
 `HOLE` 是独立 Feature，使用既有创建/编辑、参数、Preview/Commit、ChangeSet 和历史链；结构树有独立定义及“孔”入口。定义保存目标 Body、`holePoint`（普通上游 Sketch ID + 显式 POINT 的稳定实体引用）、`diameter`、盲孔 `depth`、终止模式和反向。不生成隐藏圆草图或额外切除 Feature，不把拾取坐标写成孔位。多点草图须明确选点，多点预选不自动取其中一项；端点、圆心、原点、阵列派生点均不属于首轮定位输入。
@@ -28,7 +38,7 @@
 
 定位草图、点实体和目标上游 Body 阶段进入依赖、删除/循环检查及缓存；合法删点/抑制留下 `HOLE_POINT_MISSING` 与下游 BLOCKED，保留原定义。面板保留待修复点，提供“修复孔位”入口并要求明确重选；未处理输入不能确认。草图支撑失败先沿[已有支撑重指定](part-sketch.md#支撑与外部几何)修复；Hole ID、名称、Body 和历史位置保持不变。尺寸/孔位变化保持可对应的孔口引用；换点后语义身份变化，下游已失效的圆角/倒角也须明确修复。
 
-首轮关闭 Hole 的 `GENERATOR_TOOL`/`FEATURE_DELTA`，保留合法的已求值 `BODY_STAGE` 复制；不逐实例重算孔。不包含沉孔、锥沉孔、螺纹、钻尖、多点孔组、到平面终止或历史重排。
+首轮关闭 Hole 的 `GENERATOR_TOOL`/`FEATURE_DELTA`，保留合法的已求值 `BODY_STAGE` 复制；不逐实例重算孔。不包含沉孔、锥沉孔、螺纹、钻尖、多点孔组、到平面终止；合法的单特征移动见[调整特征顺序](#调整特征顺序)。
 
 定向入口：`services/internal/control/hole_integration_test.go`（真实 Router/Worker：表达式、尺寸驱动点位、Body 隔离、支撑失效/重指定、删点修复、孔口倒角、方向与历史/冷重建）；内核 `GeometryExchange.Hole*` 检查反侧材料、平底/贯穿及完整 Naming；浏览器 `solid-feature-live.spec.ts` 的 `Hole` 用例验证实际选点、编辑、取消、重选、支撑更换、双向切换和孔口倒角。证据限当前 SQLite、Release Worker/OCCT 7.9.1 与 Chromium/SwiftShader，不代表所有参数组合或实机验收。
 

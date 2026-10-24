@@ -136,7 +136,11 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 				}
 			}
 			finishGeometry := perf.Start(ctx, "geometry-evaluate")
-			err = service.evaluatePartBodies(ctx, prepared.requestID, &model)
+			if prepared.command.TypeURI == typeMoveFeature {
+				err = service.evaluateMoveBodies(ctx, documentID, prepared.requestID, &model)
+			} else {
+				err = service.evaluatePartBodies(ctx, prepared.requestID, &model)
+			}
 			finishGeometry()
 			if err != nil {
 				var failed *solidEvaluationFailure

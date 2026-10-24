@@ -1115,6 +1115,8 @@ struct BodyOperationResult {
     std::vector<NamedShape> named;
     std::vector<TopologyLineage> derived;
     std::vector<std::string> diagnostics;
+    // Exact survivors of private input copies, not semantic modifications.
+    std::vector<NamedShape> unchanged;
 };
 
 bool same_ref(const SemanticTopologyRef& left, const SemanticTopologyRef& right) {
@@ -2669,7 +2671,7 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                          [&](const auto& shape) { return shape.IsSame(matches.front()); }))
             selected.push_back(matches.front());
     }
-    const auto finish = [&](auto& algorithm) -> BodyOperationResult {
+    const auto finish = [&](auto& algorithm, const std::vector<NamedShape>* copied_sources = nullptr) -> BodyOperationResult {
         if (!algorithm.IsDone())
             throw std::runtime_error("MODIFIER_ALGORITHM_FAILED:" + spec.generator);
         const auto result = algorithm.Shape();
@@ -2703,7 +2705,10 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
             throw std::runtime_error(spec.generator + ":" + error.what());
         }
         derived.insert(derived.end(), closure.begin(), closure.end());
-        return {result, std::move(mapped), std::move(derived), {}};
+        BodyOperationResult output{result, std::move(mapped), std::move(derived), {}};
+        for (const auto& source : copied_sources ? *copied_sources : named)
+            if (members.Contains(source.shape)) output.unchanged.push_back(source);
+        return output;
     };
     if (spec.generator == "FILLET") {
         validate_positive(spec.pad_length, "fillet radius");
@@ -2737,9 +2742,7 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
             TopTools_ListOfShape original;
             original.Append(input);
             composed.history->Merge(original, attempt);
-            TopTools_ListOfShape copied;
-            copied.Append(attempt.Shape());
-            composed.history->Merge(copied, algorithm);
+            composed.history->Merge(detail::fillet_history(attempt.Shape(), algorithm));
             // OCCT history composition drops Generated relations when the
             // intermediate edge is also deleted. Preserve the algorithm's
             // actual generation relation across the isolation copy explicitly.
@@ -2750,7 +2753,8 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                         composed.history->AddGenerated(source.shape, it.Value());
                 }
             }
-            return finish(composed);
+            const auto copied_sources = map_named_shapes(named, attempt, attempt.Shape());
+            return finish(composed, &copied_sources);
         }
         for (int i = 1; i <= algorithm.NbFaultyContours(); ++i)
             std::clog << "fillet stage=generic contour_status="
@@ -2815,9 +2819,7 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                 step.Build();
                 if (!step.IsDone()) throw std::runtime_error("MODIFIER_ALGORITHM_FAILED:FILLET:SEQUENTIAL");
                 validate_body_solid_set(step.Shape());
-                TopTools_ListOfShape arguments;
-                arguments.Append(sequential.shape);
-                sequential.history->Merge(arguments, step);
+                sequential.history->Merge(detail::fillet_history(sequential.shape, step));
                 sequential.shape = step.Shape();
             }
             return sequential;
@@ -3809,7 +3811,12 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         const auto original = std::find_if(
                             input_named.begin(), input_named.end(),
                             [&](const NamedShape& value) { return same_ref(value.ref, source); });
-                        if (original != input_named.end() && original->shape.IsSame(group.shape))
+                        if (original != input_named.end() &&
+                            (original->shape.IsSame(group.shape) ||
+                             std::any_of(operation.unchanged.begin(), operation.unchanged.end(),
+                                 [&](const NamedShape& value) {
+                                     return same_ref(value.ref, source) && value.shape.IsSame(group.shape);
+                                 })))
                             kind = TopologyLineageKind::unchanged;
                         else if (source.feature_id == spec.feature_id)
                             kind = TopologyLineageKind::generated;

@@ -87,6 +87,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeCreateBooleanFeature, "PART", applyCreateFeature},
 		commandHandler{typeCreateModifierFeature, "PART", applyCreateFeature},
 		commandHandler{typeEditFeature, "PART", applyEditFeature},
+		commandHandler{typeMoveFeature, "PART", applyMoveFeature},
 		commandHandler{typeSetFeatureSuppression, "PART", applyFeatureSuppression},
 		commandHandler{typeRenameFeature, "PART", applyRenameFeature},
 		commandHandler{typeCreateDatumPlane, "PART", applyCreateDatumPlane},

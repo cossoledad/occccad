@@ -23,6 +23,8 @@ OCCT IsDone 不是接纳条件。结果须非空、有效、满足多 Solid Body
 
 创建与编辑的失败接纳规则、FAILED/BLOCKED、displayFallback 及预览资格统一见[失败和预览](solid-features.md#失败和预览)。局部特征的逐项输入状态、显式替换/移除、必需输入门禁及定向证据统一见[输入修复边界](solid-features.md#输入修复边界)。
 
+[调整特征顺序](solid-features.md#调整特征顺序)按候选列表重建 Body 前驱和全 Part 依赖，使用候选阶段输入与缓存；不沿用旧图的隐式前驱边，不自动搬移或改绑输入。移动必须通过全 Part 引用与几何检查。
+
 ## Sketcher 的显示上下文
 
 进入草图改变交互，不创建第二份 BREP 或改写 Part 真相。视口叠加三个层次：当前 Revision 的只读 Body 制品、活动草图/约束/暂态预览、世界及支撑平面网格等参考元素。

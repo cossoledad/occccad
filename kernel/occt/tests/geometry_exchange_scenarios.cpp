@@ -1904,6 +1904,47 @@ TEST(GeometryExchange, LocalModifiersUseSemanticInputsAndCompleteHistory) {
                  std::invalid_argument);
 }
 
+TEST(GeometryExchange, FilletPreservesUntouchedExtrudeEdges) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "base";
+    base.body_id = "body";
+    base.profile_feature_id = "sketch";
+    base.pad_length = 20;
+    base.regions = {rectangular_region("region", -10, -10, 20, 20)};
+    const auto initial = kernel.evaluateProfilePadsWithHistory({base});
+    std::vector<SemanticTopologyRef> vertical;
+    for (const auto& output : initial.feature_results.back().semantic_outputs)
+        if (output.semantic_ref.output_slot.rfind("VERTICAL_FROM_PROFILE_ENDPOINTS/", 0) == 0)
+            vertical.push_back(output.semantic_ref);
+    ASSERT_EQ(vertical.size(), 4);
+    ProfilePadSpec fillet;
+    fillet.feature_id = "fillet";
+    fillet.body_id = "body";
+    fillet.input_feature_id = "base";
+    fillet.generator = "FILLET";
+    fillet.pad_length = 1;
+    fillet.selections = {{vertical[0].feature_id, vertical[0].output_slot, vertical[0].source_ids}};
+    const auto result = kernel.evaluateProfilePadsWithHistory({base, fillet});
+    const auto& outputs = result.feature_results.back().semantic_outputs;
+    for (size_t i = 1; i < vertical.size(); ++i) {
+        const auto found = std::find_if(outputs.begin(), outputs.end(), [&](const auto& output) {
+            return output.semantic_ref.feature_id == vertical[i].feature_id &&
+                   output.semantic_ref.output_slot == vertical[i].output_slot &&
+                   output.semantic_ref.source_ids == vertical[i].source_ids;
+        });
+        EXPECT_NE(found, outputs.end()) << vertical[i].output_slot;
+
+        const auto& lineage = result.feature_results.back().topology_history.lineage;
+        const auto history = std::find_if(lineage.begin(), lineage.end(), [&](const auto& item) {
+            return item.result.feature_id == vertical[i].feature_id &&
+                   item.result.output_slot == vertical[i].output_slot;
+        });
+        ASSERT_NE(history, lineage.end());
+        EXPECT_EQ(history->kind, TopologyLineageKind::unchanged);
+    }
+}
+
 TEST(GeometryExchange, ChamferedTrihedralCornerFillets) {
     const auto readShape = [](const std::vector<uint8_t>& bytes) {
         std::istringstream stream(std::string(bytes.begin(), bytes.end()));

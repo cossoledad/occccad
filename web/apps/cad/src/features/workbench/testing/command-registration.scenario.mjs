@@ -51,6 +51,12 @@ try{
  assert.equal(await definitionRegistry.execute('tree.properties',{payload:{node}}),true);assert.equal(properties,1);
  definitionFacts.rootCanEdit=false;assert.equal(await definitionRegistry.execute('tree.edit',{payload:{node}}),false,'frozen tree mutations stay disabled');
  assert.equal(await definitionRegistry.execute('tree.properties',{payload:{node}}),true,'read-only properties remain inspectable');
+ const movingNode={key:'hole',documentId:part.document.id,entityId:'hole',bodyId:'body-A',definitionDigest:'current',sourceRevisionId:'revision',kind:'FEATURE',capabilities:['EDIT','MOVE']};
+ let moved=0;
+ const moveCommand=structureCommands({onMove:node=>{assert.equal(node,movingNode);moved++}},[movingNode]).find(c=>c.id==='tree.move');
+ assert(moveCommand.isEnabled({payload:{node:movingNode}}));moveCommand.execute({payload:{node:movingNode}});assert.equal(moved,1);
+ assert.equal(moveCommand.isEnabled({payload:{node:{...movingNode,definitionDigest:'old'}}}),false,'stale reorder target cannot open a form');
+ const fixed={...movingNode,capabilities:['EDIT']};assert.equal(structureCommands({onMove:()=>{}},[fixed]).find(c=>c.id==='tree.move').isEnabled({payload:{node:fixed}}),false,'fixed nodes have no move capability');
  const commands=workbenchCommands(bindings);
  let loftDraft;
  const loft=workbenchCommands({...bindings,store:{...store,selection:{kind:'face',bodyId:'other-body'}},setSolidEditor:value=>loftDraft=value.feature}).find(command=>command.id==='part.loft');

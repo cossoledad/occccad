@@ -2,7 +2,7 @@
 
 > 建立日期：2026-10-23  
 > 分析基线：[a10 · 9326ac9](https://github.com/cossoledad/occccad/commit/9326ac91b99e93e399099a9c2f3b8b3c756d86b6)  
-> 状态：阶段 1 与阶段 2 已实现并通过定向真实链路及浏览器验收，主体实机验收另行进行。当前事实与边界见[输入修复](../docs/architecture/current/solid-features.md#输入修复边界)、[区域选择](../docs/architecture/current/part-sketch.md#显式轮廓区域)及[草图支撑重指定](../docs/architecture/current/part-sketch.md#支撑与外部几何)。阶段 3 正在推进：单方向拉伸／切除[到平面关联终止](../docs/architecture/current/solid-features.md#到平面关联终止)与[单点圆柱 Hole](../docs/architecture/current/solid-features.md#独立-hole)已实现并完成定向验收；其余关联终止、孔型扩展与合法历史编辑未完成。
+> 状态：阶段 1 与阶段 2 已实现并通过定向真实链路及浏览器验收，主体实机验收另行进行。当前事实与边界见[输入修复](../docs/architecture/current/solid-features.md#输入修复边界)、[区域选择](../docs/architecture/current/part-sketch.md#显式轮廓区域)及[草图支撑重指定](../docs/architecture/current/part-sketch.md#支撑与外部几何)。阶段 3 正在推进：单方向拉伸／切除[到平面关联终止](../docs/architecture/current/solid-features.md#到平面关联终止)、[单点圆柱 Hole](../docs/architecture/current/solid-features.md#独立-hole)及[同 Body 单特征受约束移动](../docs/architecture/current/solid-features.md#调整特征顺序)已实现并完成定向验收；其余关联终止、孔型扩展、历史插入点与跨 Body/分组移动未完成。
 
 ## 目标与实施原则
 

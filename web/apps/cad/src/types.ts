@@ -147,6 +147,7 @@ export type DocumentProperties = {
 export type PatternDefinition = { directionReference?:SketchGeometryRef; reversed?:boolean; centerReference?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef}; axisEntityId?:string; id:string; kind:"LINEAR"|"CIRCULAR"|"MIRROR"; mirrorPlaneId?:string; mirrorPlane?:NonNullable<Feature["selections"]>[number]; distribution:"FIXED_STEP"|"TOTAL_SPAN"|"FULL_CIRCLE"; count:number; spacing?:number; angle?:number; phase?:number; origin:Vec3; direction:Vec3; skippedSlots?:number[]; suppressed?:boolean };
 export type SketchPattern = PatternDefinition & {entityIds:string[]};
 export type Feature = {
+ order?:number;
  holePoint?:PatternDefinition["centerReference"];diameter?:number;depth?:number;
  terminationPlaneId?:string;terminationPlane?:NonNullable<Feature["selections"]>[number];
   pattern?:PatternDefinition & {startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
@@ -423,7 +424,7 @@ export type DocumentStructureNode = {
   productPublication?: ProductPublication;
   contextInput?: ContextInput;
   contextBinding?: ContextBinding;
-  capabilities?: Array<"RENAME" | "ACTIVATE" | "DEACTIVATE" | "DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">;
+  capabilities?: Array<"RENAME" | "ACTIVATE" | "DEACTIVATE" | "MOVE" | "DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">;
   children?: DocumentStructureNode[];
 };
 

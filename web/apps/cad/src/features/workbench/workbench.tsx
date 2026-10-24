@@ -43,6 +43,7 @@ import {useOperationFeedback} from "../../cad/command/operation-feedback";
 import { InsertDocumentDialog } from "./insert-document-dialog";
 import {SketchSupportEditor} from "./sketch-support-editor";
 import {profileRegionRepairFeature} from "./profile-region-selection";
+import {FeatureMoveDialog} from "./feature-move-dialog";
 import { SolidFeatureEditor } from "./solid-feature-editor";
 import { BooleanFeatureDialog } from "./boolean-feature-dialog";
 import { InstancePatternDialog } from "./instance-pattern-dialog";
@@ -197,6 +198,7 @@ export function Workbench() {
   const activationGate = useRef(new EditActivationGate());
   const [insertOpen, setInsertOpen] = useState(false);
   const [supportSketch,setSupportSketch]=useState<Feature>();
+  const [featureMove,setFeatureMove]=useState<{feature:Feature;digest:string}>();
   const [solidEditor,setSolidEditor]=useState<{feature:Feature;digest?:string}>();
   const [featureSelection,setFeatureSelection]=useState<FeatureSelectionSession>();
   const [featureInputs,setFeatureInputs]=useState<Artifact[]>();
@@ -1153,7 +1155,7 @@ export function Workbench() {
   const closeCommandPanels=(nextCommand?:string)=>{
     closeAssemblyCandidate();stopConflictAnalysis();viewport.current?.showRemainingMotion();
     if(nextCommand!=="dmu.apply"||!motionDisplay)motionPanel.current?.closeCommand();
-    setConflictOpen(false);setSupportSketch(undefined);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
+    setFeatureMove(undefined);setConflictOpen(false);setSupportSketch(undefined);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
     setFeatureSelection(undefined);setNewPartTarget(undefined);
     setPropertyTargets(undefined);
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
@@ -1167,6 +1169,11 @@ export function Workbench() {
     setPropertyTargets((selected.length?selected:[undefined]).map(selection=>propertyEditorTarget(view,editingView,selection,activeInstancePath,canEdit,canEditRoot)));
   };
   const treeActions:StructureActions={
+onMove:node=>{
+ if(!editingView?.part||!canEdit||command.isPending||store.activeSketchID||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.capabilities?.includes("MOVE")||!node.definitionDigest)return;
+ const feature=editingView.part.features.find(f=>f.id===node.entityId);if(!feature)return;
+ closeCommandPanels();endHistoryResult();setFeatureMove({feature,digest:node.definitionDigest});
+},
 onProperties:node=>{
   const selected=useWorkbenchStore.getState().selections;
   const selections=node.selection&&selected.some(s=>selectionKey(s)===selectionKey(node.selection!))?selected:node.selection?[node.selection]:undefined;
@@ -1336,7 +1343,7 @@ onToggleConstruction:(node)=>{
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
   const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    formActive:Boolean(supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+    formActive:Boolean(featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1622,6 +1629,7 @@ onToggleConstruction:(node)=>{
             onOpenDocumentTab={node=>executeTree("onOpenDocumentTab",{node})}
             onActivate={node=>executeTree("onActivate",{node})}
 			onEdit={node=>executeTree("onEdit",{node})}
+            onMove={node=>executeTree("onMove",{node})}
             onProperties={node=>executeTree("onProperties",{node})}
 			onCreatePart={node=>executeTree("onCreatePart",{node})}
 			onReferenceMode={(node,mode)=>executeTree("onReferenceMode",{node,referenceMode:mode})}
@@ -2025,6 +2033,10 @@ onToggleConstruction:(node)=>{
       onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"NEW_BODY",supportSketch.id);else viewport.current?.clearCommandPreview();}}
       onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}
       onClose={()=>{viewport.current?.clearCommandPreview();setDatumPreview(undefined);setSupportSketch(undefined);}}/>}
+    {featureMove&&editingView?.part&&<FeatureMoveDialog key={editingView.document.id+featureMove.feature.id} view={editingView} feature={featureMove.feature} digest={featureMove.digest}
+      onClose={()=>{viewport.current?.clearCommandPreview();setFeatureMove(undefined)}}
+      onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}}
+      onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}/>}
     {solidEditor && editingView?.part && <SolidFeatureEditor key={editingView.document.id+solidEditor.feature.id+solidEditor.feature.type} view={editingView} feature={solidEditor.feature} digest={solidEditor.digest} unit={lengthUnit} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifact={featureInputChanged}
       intentRequestId={handoffEditorIntent(assistantHandoff.current,editingView.document.id,editingView.document.versionId,solidEditor.feature.type)}
       onClose={()=>{const handoff=assistantHandoff.current;assistantHandoff.current=undefined;if(handoff&&handoff.state!=="COMMITTED")void finishAssistantHandoff(handoff,handoff.state==="UNKNOWN"?"UNKNOWN":"CANCELLED");viewport.current?.clearCommandPreview();setSolidEditor(undefined);}}

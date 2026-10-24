@@ -4,7 +4,11 @@
 
 #include <string>
 #include <vector>
+class BRepFilletAPI_MakeFillet;
+
 namespace occccad::kernel::detail {
+// Compose only real removals; fillet IsDeleted also reports live edges/vertices.
+Handle(BRepTools_History) fillet_history(const TopoDS_Shape& input, BRepFilletAPI_MakeFillet& algorithm);
 struct FilletBoundaryResult {
     TopoDS_Shape shape;
     Handle(BRepTools_History) history;

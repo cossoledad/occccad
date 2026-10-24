@@ -2414,6 +2414,9 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			}
 			digest, _ := featureDefinitionDigest(model, feature.ID)
 			node := featureStructureNode(feature, body.ID, documentID, versionID, digest, editable && !dependents[feature.ID], editable)
+			if editable && movableFeature(model, feature.ID) {
+				node.Capabilities = append(node.Capabilities, "MOVE")
+			}
 			collected := map[string]bool{}
 			for order, input := range featureInputs(feature) {
 				inputOrder := order

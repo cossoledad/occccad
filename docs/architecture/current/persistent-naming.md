@@ -41,6 +41,10 @@ Linear Extrude/Boolean、旋转、导入根及局部修改已有命名路径；�
 
 Do not start from generated protobuf or STEP corpus bytes. Begin with the stable semantic output or failing selection and expand to the exact OCCT/test range.
 
+局部修改的隔离副本不算语义修改。倒圆角合成历史前，以原生拓扑身份核对实际结果成员：OCCT `IsDeleted` 对仍存活的 Edge/Vertex 返回删除时，不把该结果转为 tombstone；真实 Modified/Generated/Deleted 继续保留。经过副本映射且未改变的成员维持上游语义引用及 UNCHANGED，不因副本 TShape 不同而计入圆角贡献。邻接闭包只处理尚未覆盖的真实新增拓扑，不能重新接管这些存活成员。
+
+回归入口：`GeometryExchange.FilletPreservesUntouchedExtrudeEdges`、`services/internal/control/fillet_naming_integration_test.go`；检查三条未选竖边的来源/UNCHANGED、显示贡献、半径编辑、历史与冷重建，以及下游倒角拾取。
+
 ## 失败门禁
 
 - Geometry may be numerically identical while Feature identity differs; cache/naming digest must keep them distinct.
