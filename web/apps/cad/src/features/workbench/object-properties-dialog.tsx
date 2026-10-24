@@ -1,3 +1,4 @@
+import {engineeringProblem} from "../../cad/command/operation-feedback";
 import { Alert, Button, Checkbox, Collapse, ColorPicker, Descriptions, Input, InputNumber, Select, Slider, Space, Tabs, Typography } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
@@ -68,7 +69,7 @@ export function ObjectPropertiesDialog({targets,pending,onPreviewRequest,onPrevi
   const basic=<Space orientation="vertical" style={{width:"100%"}}>
     {rename?<label className="cad-property-row"><span>{first.target.kind==="DOCUMENT"?"文档名称":first.target.kind==="INSTANCE"?"实例名称":"名称"}</span><Input aria-label="属性名称" value={name} disabled={!editable} status={nameValid?undefined:"error"} onChange={e=>{setNameDirty(true);setName(e.target.value)}}/></label>:<Typography.Text>{single?first.title:`已选择 ${targets.length} 个对象`}</Typography.Text>}
     {single&&first.target.kind==="DOCUMENT"&&<label className="cad-property-row"><span>描述</span><Input.TextArea aria-label="文档描述" value={description} disabled={!editable} autoSize={{minRows:2,maxRows:5}} onChange={e=>{setDescriptionDirty(true);setDescription(e.target.value)}}/></label>}
-    <Typography.Text type="secondary">名称用于显示，引用使用稳定身份。</Typography.Text>
+    <Typography.Text type="secondary">名称可修改，已有引用保持关联。</Typography.Text>
     {first.originalDocumentId&&<Button type="link" disabled={changedName||changedDescription||changedGraphics||pending} onClick={()=>onOpenOriginal?.(first.originalDocumentId!)}>打开原始文档</Button>}
   </Space>;
   const graphic=<Space orientation="vertical" style={{width:"100%"}}>
@@ -88,12 +89,12 @@ export function ObjectPropertiesDialog({targets,pending,onPreviewRequest,onPrevi
     {Boolean(projected?.unresolvedFaces||projected?.issues?.length)&&<Alert type="warning" title="部分外观引用已失效" description="请重新设置对应面的外观或清除分面覆盖；处理前不能导出 STEP。"/>}
     <Typography.Text type="secondary">修改表面属性会保留其他字段和已有分面赋色。</Typography.Text>
   </Space>;
-  const info=<Descriptions column={1} size="small" items={[{key:"scope",label:"作用范围",children:first.scope},{key:"owner",label:"写入文档",children:first.documentId},{key:"revision",label:"基于版本",children:first.versionId},{key:"path",label:"实例路径",children:first.target.instancePath?.display??first.occurrencePath??"根文档"},{key:"id",label:"对象身份",children:single?first.target.id:`${targets.length} 个对象`}]}/>;
+  const info=<Descriptions column={1} size="small" items={[{key:"scope",label:"作用范围",children:first.scope},{key:"object",label:"对象",children:first.title},{key:"path",label:"所在位置",children:first.target.instancePath?.display??"当前文档"}]}/>;
   return <CommandDialog id="object-properties" open title={`属性 · ${single?first.title:`${targets.length} 个对象`}`} size="M" onClose={onClose} confirmLoading={pending} confirmDisabled={!editable||!valid||!(changedName||changedDescription||changedGraphics)} onConfirm={async()=>{try{await onApply(request)}catch(error){setCommitError(error instanceof Error?error.message:String(error));throw error}}}>
     <Typography.Paragraph type="secondary">{first.scope} · 确定后保存到文档历史</Typography.Paragraph>
     {!canModify&&<Alert type="info" title={sameOwner?first.reason??"当前对象只读":"批量修改需要同一写入文档。请分别编辑原始文档，或使用当前装配的实例覆盖。"}/>}
-    {previewError&&<Alert type="error" title="外观预览失败" description={previewError} action={<Button size="small" onClick={()=>setRetry(v=>v+1)}>重试</Button>}/>}
-    {commitError&&<Alert type="error" title="属性尚未保存，修改已保留" description={commitError}/>}
+    {previewError&&<Alert type="error" title="外观预览失败" description={engineeringProblem(previewError)} action={<Button size="small" onClick={()=>setRetry(v=>v+1)}>重试</Button>}/>}
+    {commitError&&<Alert type="error" title="属性尚未保存，修改已保留" description={engineeringProblem(commitError)}/>}
     <Button type="link" disabled={pending} loading={refreshing} onClick={async()=>{setRefreshing(true);try{await onRefresh();setCommitError(undefined);setPreviewError(undefined);setRetry(v=>v+1)}catch(error){setCommitError(error instanceof Error?error.message:String(error))}finally{setRefreshing(false)}}}>加载最新版本并保留修改</Button>
     <Tabs defaultActiveKey={graphics&&first.target.kind!=="DOCUMENT"?"graphic":"basic"} items={[{key:"basic",label:"基本",children:basic},...(graphics?[{key:"graphic",label:"图形",children:graphic}]:[]),{key:"info",label:"信息",children:info}]}/>
   </CommandDialog>;

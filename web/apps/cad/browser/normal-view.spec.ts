@@ -1,6 +1,7 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
 async function camera(page:Page) {
- const text=(await page.getByTestId("navigation-camera").textContent())!;
+ const text=(await viewportProbe(page,"navigation-camera").textContent())!;
  const q=text.split(" / ")[1].split(",").map(Number);
  const [x,y,z,w]=q;
  return {direction:[-2*(x*z+w*y),-2*(y*z-w*x),-(1-2*(x*x+y*y))],zoom:Number(text.split("zoom ")[1])};
@@ -48,7 +49,7 @@ test("normal view aligns datum and exact face in a rotated occurrence without ch
  expect(await page.evaluate(async()=>{const {api}=await import("/src/api/client.ts");return (await api.getDocument("mock-product-frame")).document.versionId;})).toBe(revision);
  // A late exact-surface query must not redirect the camera after selection changes.
  await page.getByRole("toolbar",{name:"视图快捷操作"}).getByRole("button",{name:"等轴测",exact:true}).click();
- const untouched=await page.getByTestId("navigation-camera").textContent();
+ const untouched=await viewportProbe(page,"navigation-camera").textContent();
  await page.evaluate(async()=>{
   const {api}=await import("/src/api/client.ts");
   const original=api.getTopologyProperties;
@@ -67,6 +68,6 @@ test("normal view aligns datum and exact face in a rotated occurrence without ch
  await expect(normal).toBeDisabled();
  await page.evaluate(()=>window.releaseNormalQuery());
  await page.waitForFunction(()=>window.normalQueryFinished);
- await expect(page.getByTestId("navigation-camera")).toHaveText(untouched!);
+ await expectViewport(viewportProbe(page,"navigation-camera")).toHaveText(untouched!);
  expect(errors).toEqual([]);
 });

@@ -29,7 +29,7 @@ test('read-only remaining motion refresh freezes metadata Revision, cancels stal
  const before=await current(page,seed.id);await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();let dialog=await openMotion(page);
  const state=()=>dialog.getByRole('status',{name:'剩余运动计算状态'});
  await expect(state()).toContainText('待计算');await expect(dialog.getByRole('button',{name:'刷新剩余运动',exact:true})).toBeEnabled();
- const refresh=async()=>{const revision=(await current(page,seed.id)).document.versionId;await expect(state()).toContainText(revision);await dialog.getByRole('button',{name:/^(刷新剩余运动|重\s*试)$/}).click();await expect(state()).toContainText('证据可用');};
+ const refresh=async()=>{const revision=(await current(page,seed.id)).document.versionId;await expect(dialog).not.toContainText(revision);await dialog.getByRole('button',{name:/^(刷新剩余运动|重\s*试)$/}).click();await expect(state()).toContainText('分析完成');};
  await refresh();await expect(state()).toContainText('覆盖 5 / 5');await expect(state()).toContainText('整体 gauge 6');
  const names=before.product.instances.map((i:any)=>i.name);const shaft=()=>dialog.locator('tbody tr').filter({hasText:names[1]});await shaft().click();await expect(dialog).toContainText('沿轴平移并绕该轴旋转');await expect.poll(()=>guides(page)).toBeGreaterThan(0);
  await page.screenshot({path:testInfo.outputPath('accepted-pose-motion-directions.png')});
@@ -65,9 +65,9 @@ test('read-only remaining motion refresh freezes metadata Revision, cancels stal
   const {restApi:api}=await import('/src/api.ts');try{await api.refreshAssemblyEngineeringEvidence(s.id,s.version);return "accepted"}catch(error){return String(error)}
  },seed);expect(stale).toContain('ASSEMBLY_EVIDENCE_STALE');
  await dialog.getByRole('button',{name:'关闭',exact:true}).click();await page.getByRole('button',{name:'撤销',exact:true}).click();dialog=await openMotion(page);await refresh();await dialog.getByRole('button',{name:'关闭',exact:true}).click();await page.getByRole('button',{name:'重做',exact:true}).click();dialog=await openMotion(page);await refresh();
- await page.reload();dialog=await openMotion(page);await expect(state()).toContainText('证据可用');await shaft().click();await expect.poll(()=>guides(page)).toBeGreaterThan(0);
+ await page.reload();dialog=await openMotion(page);await expect(state()).toContainText('分析完成');await shaft().click();await expect.poll(()=>guides(page)).toBeGreaterThan(0);
  // A genuine Viewer can compute without invoking any Domain Command.
  const viewerContext=await browser.newContext({baseURL:'http://127.0.0.1:5175',viewport:{width:1440,height:1000}});const viewer=await viewerContext.newPage();await observeGuides(viewer);await login(viewer,seed.email,seed.password);await viewer.goto(`/documents/${seed.id}`);const vd=await openMotion(viewer);await expect(vd.getByRole('button',{name:'刷新剩余运动',exact:true})).toBeEnabled();
- const priorViewer=await current(viewer,seed.id);expect(priorViewer.document.permission).toBe('VIEWER');await vd.getByRole('button',{name:'刷新剩余运动',exact:true}).click();await expect(vd.getByRole('status',{name:'剩余运动计算状态'})).toContainText('证据可用');const postViewer=await current(viewer,seed.id);expect(postViewer.product).toEqual(priorViewer.product);expect(postViewer.document.versionId).toBe(priorViewer.document.versionId);await viewerContext.close();
+ const priorViewer=await current(viewer,seed.id);expect(priorViewer.document.permission).toBe('VIEWER');await vd.getByRole('button',{name:'刷新剩余运动',exact:true}).click();await expect(vd.getByRole('status',{name:'剩余运动计算状态'})).toContainText('分析完成');const postViewer=await current(viewer,seed.id);expect(postViewer.product).toEqual(priorViewer.product);expect(postViewer.document.versionId).toBe(priorViewer.document.versionId);await viewerContext.close();
  expect(errors).toEqual([]);await peer.close();
 });

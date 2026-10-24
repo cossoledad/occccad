@@ -1,6 +1,6 @@
 import {useEffect,useState} from "react";
 import {useQuery,useQueryClient} from "@tanstack/react-query";
-import {Button,Spin} from "antd";
+import {Button,Select,Spin} from "antd";
 import {ApiError} from "../../api";
 import {assistantApi,type ModelCallSummary,type ModelCallTrace,type RuntimeStamp} from "./assistant-api";
 import {cadCheckLabel} from "./conversation-model";
@@ -91,4 +91,17 @@ function ToolEntry({tool,index}:{tool:ModelCallTrace["tools"][number];index:numb
   </div>
   {tool.execution&&<details className="assistant-trace-execution" open={tool.execution.steps.some(step=>step.failure)}><summary>CAD 后续执行结果</summary><p className="assistant-trace-note">这是应用执行计划后的记录，模型在后续调用中通过阶段上下文观察它。</p>{tool.execution.steps.map(step=><div key={step.id}><strong>{step.operationId} · {phaseNames[step.phase]??step.phase}</strong>{step.failure&&<p className="assistant-trace-failure">{step.failure.message}</p>}<details><summary>实际参数与结果版本</summary><Payload value={{arguments:step.arguments,revisionId:step.revisionId,failure:step.failure}}/></details></div>)}</details>}
  </section>;
+}
+
+// Mounted only inside the inspector's explicitly opened developer area.
+export function AssistantDeveloperTrace({documentId}:{documentId:string}){
+ const [id,setId]=useState<string>();
+ const runs=useQuery({queryKey:["assistant-runs",documentId,undefined],queryFn:()=>assistantApi.runs(documentId)});
+ const selected=runs.data?.items.find(r=>r.id===id)??runs.data?.items[0];
+ useEffect(()=>setId(undefined),[documentId]);
+ return <div>{runs.isPending?<Spin size="small"/>:runs.error?<><p>无法读取调用记录。</p><Button size="small" onClick={()=>void runs.refetch()}>重试</Button></>:!selected?<p>当前文档尚无助手调用。</p>:<>
+  <Select aria-label="开发区助手记录" value={selected.id} options={runs.data?.items.map((r,index)=>({value:r.id,label:r.goal||`任务 ${index+1}`}))} onChange={setId} style={{width:"100%"}}/>
+  <a href={assistantApi.exportURL(documentId,selected.id,"json")}>导出完整调用数据</a>
+  <AssistantTrace documentId={documentId} runId={selected.id} eventSequence={selected.eventSequence} open active={false}/>
+ </>}</div>;
 }

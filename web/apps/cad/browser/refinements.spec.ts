@@ -1,3 +1,4 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import { expect, test } from "@playwright/test";
 
 test("numeric focus, unitless length and Boolean preview lifecycle", async ({ page }, testInfo) => {
@@ -28,7 +29,7 @@ test("numeric focus, unitless length and Boolean preview lifecycle", async ({ pa
   await page.screenshot({path:testInfo.outputPath("preview-remove.png")});
   await dialog.getByRole("button",{name:/取\s*消/}).click();
   await expect(page.locator('[data-feature-preview]')).toHaveCount(0);
-  await expect(page.getByTestId("viewport-selection")).toHaveAttribute("data-count","1");
+  await expectViewport(viewportProbe(page,"viewport-selection")).toHaveAttribute("data-count","1");
   expect(errors).toEqual([]);
 });
 

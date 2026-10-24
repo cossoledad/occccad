@@ -1,3 +1,4 @@
+import {engineeringProblem} from "../command/operation-feedback";
 import { useEffect, useRef, useState } from "react";
 import { Button, Checkbox, Form, Input, Select, Space, Typography } from "antd";
 import { formatDimensionValue, selectInitialDimensionValue } from "./dimension-value-format";
@@ -166,7 +167,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
  return <CommandDialog id="sketch-dimension" open title={logical?`编辑${definition.label}约束`:`编辑${definition.label}尺寸`} onClose={close} onConfirm={submit} confirmDisabled={selecting!==undefined} size="S">
   <fieldset disabled={pending||unknown} style={{border:0,padding:0,margin:0,minWidth:0}}>
   <Form layout="vertical" component="div" className="sketch-dimension-form">
-  {previewError&&<Typography.Text type="secondary" aria-live="polite">预览不可用：{previewError}</Typography.Text>}
+  {previewError&&<Typography.Text type="secondary" aria-live="polite">预览不可用：{engineeringProblem(previewError)}</Typography.Text>}
   {unknown&&<Typography.Paragraph aria-live="polite">请求已发出；结果待确认。重试使用同一请求查询结果，草稿暂不可修改。关闭面板不撤销已发请求。</Typography.Paragraph>}
   {deleting?<Typography.Paragraph>{logical?"确认后正式删除此关系。":"确认后正式删除关系及其尺寸参数；存在表达式依赖时操作将原子拒绝。"}</Typography.Paragraph>:<>
    {!logical&&<Form.Item className="sketch-dimension-value" label={`值或表达式（${inputUnit}）`}>

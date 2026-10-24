@@ -1,360 +1,79 @@
-import { inspectorObjectData, inspectorOwnerDocumentId, inspectorTopologyData } from "./inspector-object-data";
-import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
-import { referencePropertyRows } from "./reference-properties";
-import {formatDisplayNumber} from "../../utils/display-number";
-import { ExportOutlined } from "@ant-design/icons";
-import { Button, Descriptions, List, Space, Spin, Tag, Typography } from "antd";
-import {useWorkbenchCatalog} from "../../cad/command/command-context";
-import type {
-  DocumentProperties,
-  DocumentView,
-  Feature,
-  HistoryEntry,
-  Selection,
-  SketchPlane,
-  TopologyElementProperties,
-} from "../../types";
-import { parameterDisplayValue, parameterSourceText } from "./parameter-editor";
-import { sketchProfileFeedback } from "../../cad/sketch/sketch-profile-analysis";
+import {sketchProfileFeedback,profileIssueText} from "../../cad/sketch/sketch-profile-analysis";
+import {inspectorOwnerDocumentId,inspectorTopologyData} from './inspector-object-data';
+import {referencePropertyRows} from './reference-properties';
+import {formatDisplayNumber as number} from '../../utils/display-number';
+import {Button,Descriptions,List,Space,Spin,Tag,Typography} from 'antd';
+import type {DocumentProperties,DocumentView,Feature,HistoryEntry,Selection,SketchPlane,TopologyElementProperties} from '../../types';
+import {parameterDisplayValue,parameterSourceText} from './parameter-editor';
+import {engineeringLabel,featureName,historyAction,objectName,selectionName} from '../../cad/presentation/engineering-text';
+import {engineeringInstanceName,engineeringConstraintName} from '../../cad/assembly/assembly-engineering-state';
+import {describeAssemblyReference} from '../../cad/assembly/assembly-reference-presentation';
+import {engineeringProblem} from '../../cad/command/operation-feedback';
 
-type PropertiesProps = {
-  view: DocumentView;
-  ownerView?: DocumentView;
-  selection: Selection;
-  feature?: Feature;
-  workbench: string;
-  sketchPlane?: SketchPlane;
-  activeTool: string;
-  navigationProfile: string;
-  diagnostics?: DocumentProperties;
-  topology?: TopologyElementProperties;
-  topologyLoading?: boolean;
-  readErrors?: {owner?:string;diagnostics?:string;topology?:string};
-  onEditParameter?: (id:string) => void;
-  onEditPublication?: (id:string,kind:"PART"|"PRODUCT") => void;
-};
-
-export function Properties(props: PropertiesProps) {
-  const {view,selection,ownerView}=props;
-  const data=inspectorObjectData(view,selection,props.feature,props.topology,props.diagnostics,ownerView);
-  const target=inspectorOwnerDocumentId(view,selection);
-  const candidate=target===view.document.id ? view : ownerView;
-  const definitionView=candidate?.document.id===target && (!selection?.versionId||candidate.document.versionId===selection.versionId) ? candidate : undefined;
-  const summaryView=definitionView ?? (selection && (["body","face","edge","vertex","instance"].includes(selection.kind)||Boolean(selection.publication)) ? view : undefined);
-  const featureID=selection?.entityId ?? selection?.id;
-  const selectedFeature=definitionView?.part?.features.find(item=>item.id===featureID);
-  return <>
-    {summaryView ? <PropertySummary {...props} view={summaryView} feature={selectedFeature}
-      topology={inspectorTopologyData(selection,props.topology)}
-      onEditParameter={summaryView===view ? props.onEditParameter : undefined}
-      onEditPublication={summaryView===view ? props.onEditPublication : undefined} />
-      : <Typography.Text type="secondary">所选文档与 Revision 的完整定义尚未加载。</Typography.Text>}
-    <details className="inspector-diagnostics" open>
-      <summary>完整对象数据与上下文</summary>
-      <pre className="inspector-object-data" aria-label="完整对象数据">{JSON.stringify({...data,readErrors:props.readErrors},null,2)}</pre>
-    </details>
-  </>;
+type PropertiesProps={view:DocumentView;ownerView?:DocumentView;selection:Selection;feature?:Feature;workbench:string;sketchPlane?:SketchPlane;activeTool:string;navigationProfile:string;diagnostics?:DocumentProperties;topology?:TopologyElementProperties;topologyLoading?:boolean;readErrors?:{owner?:string;diagnostics?:string;topology?:string};onEditParameter?:(id:string)=>void;onEditPublication?:(id:string,kind:'PART'|'PRODUCT')=>void};
+export function Properties(p:PropertiesProps){
+ const target=inspectorOwnerDocumentId(p.view,p.selection),candidate=target===p.view.document.id?p.view:p.ownerView;
+ const definition=candidate?.document.id===target&&(!p.selection?.versionId||candidate.document.versionId===p.selection.versionId)?candidate:undefined;
+ const view=definition??p.view,s=p.selection;
+ const rows:Array<{key:string;label:string;children:React.ReactNode}>=[];
+ const add=(key:string,label:string,value:React.ReactNode)=>rows.push({key,label,children:value??'—'});
+ if(!s){add('name','文档',view.document.name);add('type','类型',engineeringLabel(view.document.type));add('count',view.part?'特征':'零件实例',view.part?.features.length??view.product?.instances.length??0);return <Descriptions column={1} size="small" bordered items={rows}/>}
+ if(!definition&&target!==p.view.document.id&&!['body','instance','face','edge','vertex'].includes(s.kind))return <Typography.Text type="secondary">正在读取所选对象的属性…</Typography.Text>;
+ const feature=definition?.part?.features.find(f=>f.id===(s.entityId??s.id))??p.feature;
+ const parameter=view.part?.parameters?.find(v=>v.parameterId===(s.entityId??s.id));
+ if(s.kind==='parameter'){
+  if(!parameter)return <Typography.Text type="secondary">该参数已不可用，请重新选择。</Typography.Text>;
+  add('name','参数',parameter.qualifiedDisplayPath??parameter.displayName??parameter.label??'参数');add('source','表达式 / 输入',parameterSourceText(parameter));add('value','当前值',parameterDisplayValue(parameter));add('owner','所属对象',parameter.ownerFeatureId?objectName(view,parameter.ownerFeatureId):'文档参数');add('state','状态','可用');
+  if(p.onEditParameter)add('edit','操作',<Button size="small" onClick={()=>p.onEditParameter?.(parameter.parameterId)}>编辑参数</Button>);
+ }else if(s.publication){add('type','类型','发布引用');add('name','名称',s.publication.name);add('geometry','几何类型',engineeringLabel(s.publication.type,'几何对象'));add('state','关联状态',engineeringLabel(s.publication.resolution?.status,'待检查'));if(p.onEditPublication)add('edit','操作',<Button size="small" onClick={()=>p.onEditPublication?.(s.publication!.id,view.document.type==='PRODUCT'?'PRODUCT':'PART')}>编辑发布引用</Button>);
+ }else if(['face','edge','vertex'].includes(s.kind)){
+  const topology=inspectorTopologyData(s,p.topology);
+  if(p.readErrors?.topology)return <Typography.Text type="secondary">无法读取该几何的属性，请重新选择或重试。</Typography.Text>;
+  if(p.topologyLoading||!topology)return <Spin size="small" tip="正在读取几何属性…"/>;
+  add('type','类型',engineeringLabel(topology.kind,'几何元素'));add('geometry','几何形状',engineeringLabel(topology.geometryType,'曲面或曲线'));add('owner','所属对象',objectName(view,s.bodyId,'实体'));if(s.instancePath?.display)add('path','所属位置',s.instancePath.display);if(topology.persistentSelection)add('feature','生成步骤',objectName(view,topology.persistentSelection.anchor.featureId,'生成步骤暂不可用'));
+  if(topology.point)add('point','位置 (mm)',topology.point.map(v=>number(v)).join(', '));
+  const props:Record<string,string>={area:'面积 (mm²)',length:'长度 (mm)',radius:'半径 (mm)',diameter:'直径 (mm)',volume:'体积 (mm³)',center:'中心 (mm)',centroid:'形心 (mm)',normal:'法向',direction:'方向',axis:'轴线方向',axisOrigin:'轴线上一点 (mm)',axisPoint:'轴线上一点 (mm)',origin:'原点 (mm)',closed:'闭合',periodic:'周期曲线',majorRadius:'主半径 (mm)',minorRadius:'次半径 (mm)',referenceRadius:'参考半径 (mm)',semiAngle:'半锥角 (°)',apex:'顶点 (mm)',axisDirection:'轴线方向',xDirection:'X 方向',yDirection:'Y 方向'};
+  for(const [key,value] of Object.entries(topology.properties??{}))if(props[key])add(key,props[key],Array.isArray(value)?value.map(v=>typeof v==='number'?number(v):'—').join(', '):typeof value==='number'?number(key==='semiAngle'?value*180/Math.PI:value):typeof value==='boolean'?value?'是':'否':'—');
+ }else if(s.kind==='body'){
+  const body=view.part?.bodies.find(b=>b.id===s.bodyId),resolved=p.view.resolvedInstances?.find(i=>i.bodyId===s.bodyId&&i.documentId===s.documentId&&i.occurrencePath===(s.occurrencePath??''));
+  add('name','实体',body?.name??resolved?.name??'引用实体暂不可用');add('path','所属位置',s.instancePath?.display??view.document.name);add('state','状态',body?.displayFallback?'计算失败，显示上次成功结果':body?.consumed?'已用于布尔运算':'参与输出');add('visible','显示',body?.visible===false?'隐藏':'可见');
+ }else if(s.entityKind==='ASSEMBLY_GROUP_MEMBER_REFERENCE'){
+  add('type','类型','固联组成员');add('owner','所属固联组',objectName(p.view,s.ownerEntityId,'固联组已丢失'));add('member','成员',objectName(p.view,s.entityId,'引用成员已丢失'));
+ }else if(s.kind==='kinematic-object'){
+  const k=p.view.product?.kinematics,m=k?.mechanisms.find(m=>m.id===s.mechanismId||m.id===s.id),joint=m?.joints.find(j=>j.id===s.id||j.constraints?.some(c=>c.id===s.id)),relation=joint?.constraints?.find(c=>c.id===s.id),driver=k?.drivers?.find(d=>d.id===s.id),study=k?.studies.find(v=>v.id===s.id);
+  add('type','类型',relation?'机构约束':joint?'接合':driver?'驱动命令':study?'模拟':'机构');add('name','名称',(relation??joint??driver??study??m)?.name??'引用定义已丢失');if(m&&m.id!==s.id)add('owner','所属机构',m.name);if(joint)add('kind','接合类型',engineeringLabel(joint.kind,'接合'));if(relation)add('state','当前状态',engineeringLabel(relation.evaluationStatus));
+ }else if(s.kind==='assembly-constraint'){
+  const c=view.product?.constraints?.find(c=>c.id===s.constraintId);
+  if(!c)return <Typography.Text type="secondary">该约束已不可用，请重新选择。</Typography.Text>;
+  add('name','名称',engineeringConstraintName(c,view));add('kind','关系',engineeringLabel(c.kind,'约束'));add('state','状态',c.suppressed?'已停用':engineeringLabel(c.evaluationStatus));add('mode','模式',engineeringLabel(c.mode??'DRIVING'));
+  if(c.kind==='ANGLE'||c.kind==='DISTANCE')add('value',c.kind==='ANGLE'?'角度':'偏移',c.kind==='ANGLE'?`${number((c.value??0)*180/Math.PI)}°`:`${number(c.value??0)} mm`);
+  for(const [index,ref] of [c.first,c.second].entries())if(ref){const label=describeAssemblyReference(ref,view);add(`support${index}`,`支撑 ${index+1}`,`${label.primary} / ${label.secondary}`)}
+  if(c.evaluationFailure)add('issue','问题',engineeringProblem(c.evaluationFailure));
+ }else if(s.kind==='instance'){
+  const instance=p.view.product?.instances.find(i=>i.id===(s.instanceId??s.id));add('name','零件实例',engineeringInstanceName(p.view,s.instanceId??s.id));if(instance){add('version','关联方式',engineeringLabel(instance.referenceMode??'FOLLOW_HEAD'));add('translation','位置 (mm)',instance.translation.map(v=>number(v)).join(', '));add('update','更新状态',instance.headChanged?'有可用更新':'使用已接受版本')}
+ }else if(s.kind==='sketch-constraint'){
+  const c=view.part?.features.find(f=>f.id===s.featureId)?.sketch?.constraints.find(c=>c.id===s.constraintId);add('type','约束',engineeringLabel(c?.kind??s.constraintType,'草图约束'));add('sketch','所属草图',featureName(view,s.featureId,'草图'));if(c&&'value'in c&&typeof c.value==='number')add('value','数值',`${number(c.value)} ${c.unit==='deg'?'°':c.unit??'mm'}`);
+ }else{
+  const refs=referencePropertyRows(view,s,p.diagnostics);if(refs)return <Descriptions column={1} size="small" bordered items={refs}/>;
+  add('name','名称',feature?.name??selectionName(view,s));add('type','类型',engineeringLabel(feature?.type??s.kind.toUpperCase(),'几何对象'));
+  if(feature?.evaluationStatus)add('state','状态',engineeringLabel(feature.evaluationStatus));
+  if(feature?.sketch){const sketch=feature.sketch;const profile=sketchProfileFeedback(view.sketchAnalyses?.[feature.id]);add('profile','轮廓',<Space orientation="vertical" size={2}><span>{profile.summary}</span>{profile.issues.map((issue,i)=><Typography.Text key={i} type="warning">{profileIssueText(issue.code)}{issue.position?`（${number(issue.position.x)}, ${number(issue.position.y)} mm）`:''}</Typography.Text>)}</Space>);add('entities','草图元素',sketch.entities.length);add('constraints','约束',sketch.constraints.length);add('solve','求解',`${engineeringLabel(sketch.solve.status,'待求解')} · ${sketch.solve.degreesOfFreedom} 个自由度`);add('support','草图支撑',engineeringLabel(sketch.support.status,'可用'));}
+  if(feature&&!feature.sketch){
+   if(feature.bodyId)add('body','所属实体',objectName(view,feature.bodyId,'引用实体已丢失'));
+   if(feature.operation)add('operation','材料处理',engineeringLabel(feature.operation));
+   if(feature.extent)add('extent','终止方式',engineeringLabel(feature.extent));
+   if(feature.profile)add('profile','输入草图',featureName(view,feature.profile,'引用草图已丢失'));
+   if(feature.profileSelection)add('regions','轮廓输入',feature.profileSelection.mode==='REGIONS'?`明确选择的 ${feature.profileSelection.regionIds?.length??0} 个区域`:'整张草图');
+   const lengthLabel=feature.type==='FILLET'?'圆角半径':feature.type==='CHAMFER'?'倒角距离':feature.type==='SHELL'?'壁厚':'长度';
+   const owned=view.part?.parameters?.filter(v=>v.ownerFeatureId===feature.id)??[];
+   if(owned.length)for(const parameter of owned)add(parameter.parameterId,parameter.propertySlot==='length'?lengthLabel:parameter.displayName??parameter.label??'参数',<><span>{parameterDisplayValue(parameter)}</span>{parameter.source.expression&&<small> · {parameter.source.expression.sourceText}</small>}</>);
+   else for(const [slot,label,unit] of [['length',lengthLabel,'mm'],['length2','第二方向长度','mm'],['diameter','直径','mm'],['depth','深度','mm'],['angle','角度','°']] as const){const value=feature[slot];if(typeof value==='number')add(slot,label,`${number(value)} ${unit}`)}
+   if(feature.diagnostic)add('issue','问题',engineeringProblem(feature.diagnostic));
+  }
+ }
+ return <Descriptions column={1} size="small" bordered className="property-list" items={rows}/>;
 }
-
-function PropertySummary({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading,
-  onEditParameter, onEditPublication, readErrors }: PropertiesProps) {
- const definition=useWorkbenchCatalog().tabs.find(tab=>tab.workbench===workbench);
-	const parameterFor = (parameterId?: string) => view.part?.parameters?.find((parameter) => parameter.parameterId === parameterId);
-	const parameterItems = (parameterId?: string) => {
-		const parameter = parameterFor(parameterId);
-		if (!parameter) return [];
-		return [
-			{ key: "parameter-id", label: "ParameterId", children: parameter.parameterId },
-			{ key: "parameter-name", label: "参数", children: parameter.qualifiedDisplayPath ?? parameter.displayName ?? parameter.label },
-			...(parameter.displayAlias ? [{key:"parameter-alias",label:"别名",children:parameter.displayAlias}] : []),
-			{ key: "parameter-source", label: "表达式 / 输入", children: parameterSourceText(parameter) || "—" },
-			{ key: "parameter-value", label: "计算值", children: parameterDisplayValue(parameter) },
-			...(onEditParameter ? [{key:"parameter-edit",label:"操作",children:<Button size="small" onClick={()=>onEditParameter(parameter.parameterId)}>编辑参数</Button>}] : []),
-		];
-	};
-  if (selection?.kind === "parameter") {
-    const parameter=parameterFor(selection.entityId ?? selection.id);
-    if (!parameter) return <Typography.Text type="secondary">所选快照的参数定义尚未加载。</Typography.Text>;
-    return <Descriptions column={1} size="small" bordered className="property-list" items={[
-      ...parameterItems(parameter.parameterId),
-      {key:"alias-key",label:"引用别名",children:parameter.key},
-      {key:"owner",label:"所有者",children:parameter.ownerFeatureId ?? "文档参数"},
-      {key:"slot",label:"属性槽",children:parameter.propertySlot ?? "—"},
-      {key:"lifecycle",label:"生命周期",children:parameter.lifecycle ?? "—"},
-      {key:"value-type",label:"值类型",children:parameter.valueType},
-      {key:"unit",label:"显示单位",children:parameter.displayUnit || "无量纲"},
-      {key:"role",label:"角色",children:parameter.role},
-      {key:"dimension",label:"量纲",children:JSON.stringify(parameter.dimension)},
-      {key:"si",label:"SI 值",children:parameter.evaluatedValue?.siValue ?? "未求值"},
-    ]} />;
-  }
-  if (selection?.publicationId) {
-    const publication = selection.publication ?? view.part?.publications?.find((candidate) => candidate.id === selection.publicationId);
-    if (publication) return <><div className="property-context-hint">Publication · 稳定公开契约</div>
-      {onEditPublication && <Button size="small" onClick={()=>onEditPublication(publication.id, view.document.type === "PRODUCT" ? "PRODUCT" : "PART")}>编辑 Publication</Button>}
-      <Descriptions column={1} size="small" bordered className="property-list" items={[
-        { key: "id", label: "PublicationId", children: publication.id },
-        { key: "name", label: "名称", children: publication.name },
-        { key: "type", label: "类型", children: publication.type },
-        { key: "purpose", label: "语义用途", children: publication.semanticPurpose || "—" },
-        { key: "version", label: "兼容版本", children: publication.compatibilityVersion },
-        { key: "target", label: "目标", children: `${publication.target.kind} · ${publication.target.bodyId ?? publication.target.datumId ?? publication.target.featureId ?? publication.target.parameterId ?? publication.target.persistentSelection?.anchor.outputSlot ?? "—"}` },
-        { key: "status", label: "解析状态", children: <Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{publication.resolution.status}</Tag> },
-        { key: "resolved", label: "Resolved Revision", children: publication.resolution.resolvedVersionId ?? "—" },
-        { key: "source", label: "Source Digest", children: publication.resolution.sourceDigest ?? "—" },
-        { key: "provenance", label: "Evaluator / OCCT", children: `${publication.resolution.evaluatorVersion ?? "—"} / ${publication.resolution.occtVersion ?? "—"}` },
-        { key: "diagnostic", label: "Diagnostic", children: publication.resolution.diagnosticCode
-          ? `${publication.resolution.diagnosticCode}: ${publication.resolution.diagnostic ?? ""}` : "—" },
-      ]} /></>;
-  }
-  if (!selection) {
-    const triangleCount = Object.values(view.artifacts ?? {}).reduce((total,a)=>total+a.triangleCount,0);
-    const geometryCount = diagnostics?.aggregate.artifactCount
-      ?? (view.document.type === "PRODUCT" ? view.resolvedInstances?.length ?? 0 : view.part?.bodies.length ?? 0);
-    const detail = diagnostics?.artifacts[0];
-    const bytes = (value = 0) => value < 1024 ? `${value} B` : `${(value / 1024).toFixed(1)} KiB`;
-    return <><div className="inspector-document-overview">
-      <span className="inspector-eyebrow">{view.document.type === "PART" ? "零件文档" : "装配文档"}</span>
-      <h3>{view.document.name}</h3>
-      <p>选择模型或结构树中的对象，查看几何、特征和参数。</p>
-    </div>
-    <Descriptions column={1} size="small" className="property-list" items={[
-      { key: "workspace", label: "工作区", children: view.document.workspaceName ?? "Main" },
-      { key: "workbench", label: "工作台", children: definition?.modeLabel??workbench },
-      { key: "permission", label: "访问权限", children: view.document.permission === "OWNER" ? "所有者"
-        : view.document.permission === "EDITOR" ? "可编辑" : "只读" },
-      { key: "features", label: view.document.type === "PART" ? "特征数量" : "组件数量",
-        children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },
-      ...(sketchPlane ? [{ key: "plane", label: "草图平面", children: sketchPlane.plane }] : []),
-    ]} />
-    <PartBodies view={view} />
-    <details className="inspector-diagnostics"><summary>技术详情与诊断</summary><Descriptions column={1} size="small"
-      bordered className="property-list" items={[
-        { key: "workbench", label: "Workbench", children: `${definition?.modeLabel??workbench} · ${definition?.domain??""}` },
-        { key: "document", label: "文档", children: `${view.document.name} (${view.document.type})` },
-        { key: "workspace", label: "工作区", children: view.document.workspaceName ?? "Main" },
-        { key: "permission", label: "权限", children: view.document.permission },
-        { key: "version", label: "Head Version", children: view.document.versionId.slice(0, 16) },
-        { key: "tool", label: "Active Tool", children: activeTool },
-        { key: "navigation", label: "Navigation", children: navigationProfile.toUpperCase() },
-        ...(sketchPlane ? [{ key: "plane", label: "Sketch Plane", children: sketchPlane.plane }] : []),
-        { key: "history", label: "History", children: `Undo ${view.document.canUndo ? "Yes" : "No"} · Redo ${view.document.canRedo ? "Yes" : "No"}` },
-        { key: "geometry", label: "Display Geometry", children: `${geometryCount} object(s) · ${triangleCount} triangles` },
-        { key: "topology", label: "Topology", children: diagnostics
-          ? `${diagnostics.aggregate.solidCount} solid(s) · ${diagnostics.aggregate.vertexCount} vertices` : "Loading…" },
-        { key: "artifact", label: "Geometry Key", children: detail?.geometryKey ?? "—" },
-        { key: "geometry-id", label: "Geometry ID", children: detail?.geometryId ?? "—" },
-        { key: "evaluator", label: "Evaluator", children: detail?.evaluatorVersion ?? "—" },
-        { key: "artifacts", label: "Artifacts", children: diagnostics
-          ? `GLB ${bytes(diagnostics.aggregate.glbBytes)} · B-Rep ${bytes(diagnostics.aggregate.brepBytes)}` : "Loading…" },
-        { key: "storage", label: "Storage", children: detail?.storageState ?? "—" },
-        { key: "artifact-worker", label: "Artifact Worker", children: detail?.workerId ?? "—" },
-        { key: "worker", label: "Worker Route", children: diagnostics?.worker.available
-          ? `${diagnostics.worker.workerId} · ${diagnostics.worker.residentGeometryCount} resident` : diagnostics?.worker.error ?? "Loading…" },
-        { key: "occt", label: "OCCT", children: diagnostics?.worker.occtVersion ?? detail?.occtVersion ?? "—" },
-        { key: "reference", label: "Reference Geometry", children: detail
-          ? `${detail.visualization.referenceGeometry.datumPlanes.length} planes · ${detail.visualization.referenceGeometry.axisSystems.length} axis system(s)` : "—" },
-        { key: "visual-primitives", label: "Non-solid Geometry", children: detail?.visualization.primitives?.length ?? "按需从 GLB 加载" },
-        { key: "rendering", label: "Rendering", children: "Phong Solid + welded feature edges" },
-        { key: "features", label: view.document.type === "PART" ? "Features" : "Instances",
-          children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },
-      ]} /></details></>;
-  }
-  if (selection.kind === "body") {
-    const sameDefinitionSnapshot = selection.documentId === view.document.id &&
-      selection.versionId === view.document.versionId;
-    const body = sameDefinitionSnapshot ? view.part?.bodies.find((candidate) => candidate.id === selection.bodyId) : undefined;
-    const resolved = view.resolvedInstances?.find((candidate) =>
-      candidate.documentId === selection.documentId && candidate.bodyId === selection.bodyId &&
-      candidate.occurrencePath === (selection.occurrencePath ?? "") &&
-      candidate.instancePath.segments.at(-1)?.resolvedVersionId === selection.versionId);
-    const geometryKey = resolved?.geometryKey ?? body?.geometryKey ?? selection.geometryKey;
-    const artifact = geometryKey ? view.artifacts?.[geometryKey] : undefined;
-    const base = (import.meta.env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
-    return <><Descriptions column={1} size="small" bordered className="property-list" items={[
-      { key: "body", label: "Body", children: body?.name ?? resolved?.name ?? selection.bodyId ?? "—" },
-      { key: "owner", label: "所属 Part", children: selection.documentId ?? "—" },
-      { key: "occurrence", label: "Occurrence", children: selection.instancePath?.display ?? "Part root" },
-      { key: "revision", label: "Revision", children: selection.versionId ?? view.document.versionId },
-      { key: "output", label: "最终输出", children: body?.consumed ? "已用于布尔" : "参与输出" },
-      { key: "visibility", label: "定义显隐", children: body ? body.visible ? "可见" : "隐藏"
-        : resolved ? resolved.bodyVisible ? "可见" : "隐藏" : "—" },
-      { key: "geometry", label: "Geometry Key", children: geometryKey ?? "—" },
-    ]} />
-      {artifact && selection.documentId && selection.versionId && selection.bodyId &&
-        <section aria-label="Part Files"><strong>实体与文件 / Part Files</strong>
-          {Object.entries(artifact.representations ?? {}).map(([role, reference]) =>
-            <div key={role}><Space wrap><span>{role === "VISUAL" ? "mesh.glb" : role === "NAMING" ? "naming.pb" : role}</span>
-              <small>{reference.size.toLocaleString()} B · v{reference.schemaVersion}</small>
-              <a download href={`${base}/api/documents/${encodeURIComponent(selection.documentId!)}/representations/${encodeURIComponent(reference.objectId)}?versionId=${encodeURIComponent(selection.versionId!)}&bodyId=${encodeURIComponent(selection.bodyId!)}&download=1`}>Download</a>
-            </Space></div>)}
-        </section>}</>;
-  }
-  if (["face", "edge", "vertex"].includes(selection.kind)) {
-    const format = (value: unknown): string => Array.isArray(value)
-      ? value.map((entry) => typeof entry === "number" ? formatDisplayNumber(entry) : String(entry)).join(", ")
-      : typeof value === "number" ? formatDisplayNumber(value) : String(value);
-    if (readErrors?.topology) return <Typography.Text type="secondary">精确拓扑属性读取未完成：{readErrors.topology}</Typography.Text>;
-    if (topologyLoading || !topology) return <Spin size="small" tip="从 Geometry Worker 读取 B-Rep…" />;
-    return <><div className="property-context-hint">OCCT B-Rep 拓扑属性</div><Descriptions column={1} size="small"
-      bordered className="property-list" items={[
-        { key: "kind", label: "Topology", children: `${topology.kind} #${topology.localId}` },
-        { key: "naming-status", label: "Persistent Naming", children: topology.namingStatus || "UNAVAILABLE" },
-        ...(topology.persistentSelection ? [
-          { key: "semantic-anchor", label: "Semantic Anchor", children: `${topology.persistentSelection.anchor.featureId} · ${topology.persistentSelection.anchor.outputSlot}` },
-          { key: "selection-recipe", label: "Selection Recipe", children: topology.persistentSelection.selector.kind },
-          { key: "support-status", label: "Supporting Element", children: topology.namingResolution?.supportingElementStatus ?? "NOT_CONNECTED" },
-          { key: "evidence", label: "Evidence Digest", children: topology.namingResolution?.evidenceDigest?.slice(0, 20) ?? "—" },
-        ] : [{ key: "naming-note", label: "Naming Diagnostic", children: topology.namingDiagnostic?.diagnostic ?? topology.namingResolution?.diagnostic ?? "当前制品未提供可绑定的完整 semantic topology history" }]),
-        { key: "geometry-type", label: "Geometry", children: topology.geometryType },
-        { key: "geometry-id", label: "Geometry ID", children: topology.geometryId },
-        { key: "worker", label: "Worker", children: topology.workerId },
-        { key: "occt", label: "OCCT", children: topology.occtVersion },
-        ...(topology.point ? [{ key: "point", label: "Point", children: format(topology.point) }] : []),
-        ...Object.entries(topology.properties).map(([key, value]) => ({ key: `brep-${key}`, label: key, children: format(value) })),
-      ]} /></>;
-  }
-  if(selection.entityKind==='ASSEMBLY_GROUP_MEMBER_REFERENCE'){
-   const group=view.product?.constraints?.find(c=>c.id===selection.ownerEntityId)??view.product?.kinematics?.mechanisms.flatMap(m=>m.joints.flatMap(j=>j.constraints??[])).find(c=>c.id===selection.ownerEntityId);
-   const member=group?.groupMembers?.find(member=>member.instanceId===selection.entityId||member.groupId===selection.entityId);
-   const name=member?.instanceId?view.product?.instances.find(i=>i.id===member.instanceId)?.name:view.product?.constraints?.find(c=>c.id===member?.groupId)?.name;
-   return <Descriptions column={1} size="small" bordered items={[{key:'type',label:'类型',children:'成员引用'},{key:'owner',label:'所属固联组',children:group?.name},{key:'member',label:'成员',children:name??selection.entityId}]}/>;
-  }
-  if(selection.kind==='kinematic-object'){
-   const k=view.product?.kinematics,id=selection.id;
-   const m=k?.mechanisms.find(m=>m.id===selection.mechanismId||m.id===id||m.joints.some(j=>j.id===id||j.constraints?.some(c=>c.id===id)));
-   const joint=m?.joints.find(j=>j.id===id||j.constraints?.some(c=>c.id===id)),relation=joint?.constraints?.find(c=>c.id===id);
-   const driver=k?.drivers?.find(d=>d.id===id),study=k?.studies.find(s=>s.id===id);
-   const object=relation??joint??driver??study??m;
-   return <Descriptions column={1} size="small" bordered className="property-list" items={[
-    {key:'type',label:'类型',children:relation?'机构约束':joint?'接合':driver?'驱动命令':study?'模拟':'机械装置'},
-    {key:'name',label:'名称',children:object?.name??'定义不可用'},
-    ...(m&&m.id!==id?[{key:'owner',label:'机械装置',children:m.name}]:[]),
-    ...(relation?[{key:'joint',label:'所属接合',children:joint?.name},{key:'state',label:'约束状态',children:relation.evaluationStatus}]:[]),
-    ...(m?.id===id&&m.evaluation?[{key:'physical',label:'物理自由度',children:m.evaluation.relativeDof},{key:'gauge',label:'整体自由度',children:m.evaluation.gaugeDof},{key:'commands',label:'候选命令数量',children:m.evaluation.driverCount}]:[]),
-   ]}/>;
-  }
-  const referenceRows=referencePropertyRows(view,selection,diagnostics);
-  if(referenceRows)return <Descriptions column={1} size="small" bordered className="property-list" items={referenceRows}/>;
-
-	if (selection.kind === "sketch-constraint") {
-		const sketch = view.part?.features.find((candidate) => candidate.id === selection.featureId)?.sketch;
-		const constraint = sketch?.constraints.find((candidate) => candidate.id === selection.constraintId);
-		return <Descriptions column={1} size="small" bordered className="property-list" items={[
-			{ key: "type", label: "约束", children: constraint?.kind === "MIRROR" ? "关联镜像" : constraint?.kind ?? selection.constraintType },
-			{ key: "status", label: "求解状态", children: sketch?.solve.status ?? "—" },
-			...parameterItems(constraint?.parameterId),
-		]} />;
-	}
-  const instance = selection.kind === "instance" ? view.product?.instances.find((item) => item.id === selection.id) : undefined;
-  if (selection.kind === "visual") {
-    const entity = view.part?.features.find(candidate => candidate.id === selection.featureId)?.sketch?.entities.find(candidate => candidate.id === selection.entityId) ?? view.sketchPatternMembers?.[selection.featureId]?.find(candidate => candidate.id === selection.entityId);
-    const external = view.part?.features.find((candidate)=>candidate.id===selection.featureId)?.sketch?.externalGeometry
-      ?.find((candidate)=>candidate.id===selection.entityId);
-    return <Descriptions column={1} size="small" bordered className="property-list" items={[
-    { key: "type", label: "类型", children: selection.visualType },
-    { key: "entity", label: "元素", children: selection.entityId },
-    { key: "feature", label: "所属特征", children: selection.featureId },
-    { key: "role", label: "角色", children: selection.role ?? "—" },
-    ...(entity?.sourceEntityId ? [{key:"pattern-source",label:"关联种子",children:entity.sourceEntityId},{key:"pattern-owner",label:"阵列",children:entity.createdByOperationId??"—"}] : []),
-    ...(entity?.kind === "SPLINE" ? [
-      { key: "spline-mode", label: "样条方式", children: entity.mode === "CONTROL" ? "控制顶点" : "插值拟合点" },
-      { key: "spline-points", label: entity.mode === "CONTROL" ? "控制顶点" : "拟合点", children: (entity.mode === "CONTROL" ? entity.poles : entity.controlPoints)?.length ?? 0 },
-      { key: "spline-basis", label: "曲线表示", children: entity.poles?.length && entity.knots?.length ? `有理 B-Spline · ${entity.degree} 次` : "待权威曲线计算" },
-      { key: "spline-closed", label: "开闭", children: entity.closed ? "闭合（不承诺接缝切向连续）" : "开放" },
-    ] : []),
-    ...(external ? [
-      {key:"external-status",label:"External Status",children:external.status},
-      {key:"external-anchor",label:"Semantic Anchor",children:`${external.persistentSelection.anchor.featureId} · ${external.persistentSelection.anchor.outputSlot}`},
-      {key:"external-kind",label:"Projection",children:`${external.projectionKind} · ${external.snapshot?.kind??"—"}`},
-      {key:"external-digest",label:"Source Digest",children:external.resolvedSourceDigest?.slice(0,20)??"—"},
-      {key:"external-diagnostic",label:"External Diagnostic",children:external.diagnosticCode??"—"},
-      {key:"external-affected",label:"Affected",children:[...(external.affectedConstraintIds??[]),...(external.affectedProfileRegionIds??[]),...(external.downstreamFeatureIds??[])].join(", ")||"—"},
-    ] : []),
-    { key: "reference", label: "Occurrence", children: selection.occurrencePath || "Part root" },
-  ]} />;
-  }
-  if (selection.kind === "assembly-constraint") {
-    const constraint = view.product?.constraints?.find((value) => value.id === selection.constraintId);
-    return <Descriptions column={1} size="small" bordered className="property-list" items={[
-      { key: "type", label: "类型", children: constraint?.family ?? ({COINCIDENT:"Coincidence",CONCENTRIC:"Coincidence",DISTANCE:"Offset",ANGLE:"Angle",FIX:"Fix",RIGID:"Fix Together",FIX_TOGETHER:"Fix Together",CONTACT:"Contact"}[constraint?.kind ?? "FIX"] ?? selection.constraintType) },
-      { key: "activation", label: "激活状态", children: constraint?.suppressed ? "停用" : "激活" },
-      { key: "mode", label: "模式", children: constraint?.mode ?? "DRIVING" },
-      ...(constraint?.kind === "DISTANCE" ? [
-        {key:"offset-definition",label:"驱动偏移",children:`${formatDisplayNumber(constraint.value ?? 0)} mm`},
-        {key:"offset-normal",label:"符号基准",children:constraint.distanceRelation === "SELECTED_PLANE_NORMAL_V1" ? "所选平面法向；双平面取第一元素；第一位置 − 第二位置" : constraint.distanceRelation === "UNSIGNED" || !constraint.distanceRelation ? "无符号无限支撑距离" : "历史第二法向约定"},
-        {key:"offset-parameter",label:"长度参数",children:(constraint.quantityParameter) ? `${(constraint.quantityParameter)!.key}: ${(constraint.quantityParameter)!.source.expression?.sourceText ?? "Literal"}` : "Literal"},
-      ] : []),
-      ...(constraint?.kind === "ANGLE" ? [
-        {key:"angle-relation",label:"角度关系",children:constraint.angleRelation ?? "FREE"},
-        {key:"angle-parameter",label:"角度参数",children:constraint.quantityParameter ? `${constraint.quantityParameter.key}: ${constraint.quantityParameter.source.expression?.sourceText??"Literal"}` : `${formatDisplayNumber((constraint.value??0)*180/Math.PI)}°`},
-      ]:[]),
-      ...(constraint?.mode === "MEASURED" ? [{key:"measurement",label:"测量值",children:constraint.measuredValue === undefined ? "不可测" : constraint.kind === "ANGLE" ? `${constraint.measuredValue*180/Math.PI}°` : `${constraint.measuredValue} mm`}] : []),
-      { key: "evaluation", label: "Evaluation", children: constraint?.evaluationStatus ?? "NOT_UPDATED" },
-      ...(constraint?.kind === "FIX_TOGETHER" ? [
-        {key:"group-identity",label:"固联组",children:constraint.name ?? constraint.id},
-        {key:"group-members",label:"成员",children:(constraint.groupMembers??[]).map(member=>member.groupId ? `组 ${view.product?.constraints?.find(c=>c.id===member.groupId)?.name??member.groupId}` : view.product?.instances.find(i=>i.id===member.instanceId)?.name??member.instanceId).join(" · ")},
-      ] : [
-        { key: "first-support", label: "第一支持", children: constraint?.first?.resolution?.result.supportingElementStatus ?? (constraint?.first?.persistentSelection ? "NOT_CONNECTED" : "CONNECTED") },
-        ...(constraint?.second ? [{ key: "second-support", label: "第二支持", children: constraint.second.resolution?.result.supportingElementStatus ?? (constraint.second.persistentSelection ? "NOT_CONNECTED" : "CONNECTED") }] : []),
-      ]),
-      ...(constraint?.kind === "CONTACT" ? [{key:"contact-branch",label:"接触关系",children:`${constraint.contactKind} · ${constraint.contactSide} · branch ${constraint.contactBranch}`}]:[]),
-      { key: "diagnostic", label: "Diagnostic", children: <>{constraint?.evaluationSummary ?? "—"}{constraint?.evaluationFailure&&<DiagnosticCopy text={diagnosticReference(constraint.evaluationFailure,{documentId:view.document.id,versionId:view.document.versionId})}/>}</> },
-    ]} />;
-  }
-  return <Descriptions column={1} size="small" bordered className="property-list" items={[
-    { key: "type", label: "类型", children: selection.kind.toUpperCase() },
-    { key: "name", label: "名称", children: feature?.name ?? instance?.name ?? selection.id },
-    ...(["pad", "import", "feature"].includes(selection.kind) ? [{ key: "contribution", label: "当前结果中的贡献",
-      children: (()=>{const status=selection.geometryKey?view.artifacts?.[selection.geometryKey]?.visualization?.featureContributions?.[selection.entityId??selection.id]:undefined;return status==="CURRENT"?"已突出当前结果中的生成贡献；支撑与后续修改单独关联。":status==="NO_CURRENT_CONTRIBUTION"?"无当前几何贡献；可通过“查看此步骤结果”查看历史结果。":"当前拓扑关联缺失，无法可靠定位。";})() }] : []),
-    ...(selection.kind === "plane" ? [{ key: "plane", label: "基准面", children: selection.plane }] : []),
-    ...(feature?.sketch ? [{ key: "entities", label: "草图元素", children: feature.sketch.entities.length },
-      { key: "external", label: "外部几何", children: `${feature.sketch.externalGeometry?.length??0} · ${(feature.sketch.externalGeometry??[]).filter((item)=>item.status!=="CONNECTED").length} unresolved` },
-      { key: "constraints", label: "约束", children: feature.sketch.constraints.length },
-	  { key: "solve", label: "求解", children: `${feature.sketch.solve.status} · ${feature.sketch.solve.degreesOfFreedom} DoF` },
-      { key: "profile-analysis", label: "轮廓", children: (() => {
-        const feedback = sketchProfileFeedback(view.sketchAnalyses?.[feature.id]);
-        return <Space direction="vertical" size={2}><span>{feedback.summary}</span>
-          {feedback.issues.map((issue, index) => <Typography.Text key={`${issue.code}:${index}`} type="warning">
-            {issue.message}{issue.position ? `（${issue.position.x.toFixed(2)}, ${issue.position.y.toFixed(2)} mm）` : ""}
-          </Typography.Text>)}</Space>;
-      })() },
-	  { key: "support", label: "Sketch Support", children: `${feature.sketch.support.type} · ${feature.sketch.support.status ?? "—"}` },
-	  ...(feature.sketch.support.type === "PLANAR_FACE" ? [
-		{ key: "support-anchor", label: "Semantic Anchor", children: `${feature.sketch.support.persistentSelection?.anchor.featureId ?? "—"} · ${feature.sketch.support.persistentSelection?.anchor.outputSlot ?? "—"}` },
-		{ key: "support-snapshot", label: "Support Snapshot", children: feature.sketch.support.dependencySnapshot?.manifestDigest.slice(0, 20) ?? "—" },
-		{ key: "support-diagnostic", label: "Support Diagnostic", children: feature.sketch.support.diagnosticCode ?? "—" },
-	  ] : [])] : []),
-    ...(feature?.length ? [{ key: "length", label: "长度", children: `${formatDisplayNumber(feature.length)} mm` }] : []),
-	...parameterItems(feature ? `parameter:${feature.id}:length` : undefined),
-    ...(instance ? [{ key: "transform", label: "位移", children: instance.translation.map((value) => value.toFixed(2)).join(", ") }] : []),
-  ]} />;
+export function History({entries,onRestore,canRestore=true}:{entries:HistoryEntry[];onRestore:(entry:HistoryEntry)=>void;canRestore?:boolean}){
+ return <List className="history-list" dataSource={[...entries].reverse()} locale={{emptyText:'尚无编辑历史'}} renderItem={entry=><List.Item actions={!entry.isHead&&canRestore?[<Button key="restore" type="link" onClick={()=>onRestore(entry)}>恢复</Button>]:[]}><List.Item.Meta title={<Space><span>{entry.versionName||historyAction(entry.commandType)}</span>{entry.isHead&&<Tag color="blue">当前版本</Tag>}</Space>} description={new Date(entry.createdAt).toLocaleString()}/></List.Item>}/>;
 }
-
-export function History({ entries, onRestore, canRestore = true }: { entries: HistoryEntry[]; onRestore: (entry: HistoryEntry) => void; canRestore?: boolean }) {
-  return <List className="history-list" dataSource={[...entries].reverse()} renderItem={(entry) => <List.Item actions={!entry.isHead && canRestore ? [<Button key="restore" type="link" icon={<ExportOutlined />} onClick={() => onRestore(entry)}>恢复</Button>] : []}>
-    <List.Item.Meta title={<Space><span>#{entry.sequence} {entry.commandType}</span>{entry.isHead && <Tag color="blue">HEAD</Tag>}</Space>}
-      description={<span>{entry.versionName ?? entry.versionId.slice(0, 12)}<br />{new Date(entry.createdAt).toLocaleString()}</span>} />
-  </List.Item>} />;
-}
-
-export function PartBodies({view}:{view:DocumentView}) {
-  if (!view.part) return null;
-  const base=(import.meta.env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
-  return <section aria-label="Part Files"><strong>实体与文件 / Part Files</strong>
-    {view.part.bodies.map(body=><div key={body.id} style={{marginTop:12}}>
-      <Typography.Text strong>{body.name}</Typography.Text>
-      <Space wrap>{body.id===view.part!.activeBodyId && <Tag>活动实体</Tag>}
-        <Tag>{body.visible ? "可见" : "隐藏"}</Tag>{body.displayFallback && <Tag color="error">计算失败 · 显示上次成功结果</Tag>}{body.consumed && <Tag>已用于布尔</Tag>}</Space>
-      <div>颜色：{body.appearance?.color ?? "默认"}{body.appearance?.faces?.length ? ` · ${body.appearance.faces.length} 个分面颜色` : ""}</div>
-      {Boolean(view.bodyAppearances?.[body.id]?.unresolvedFaces) && <Typography.Text type="warning">部分颜色的拓扑对应关系未解析，导出前需处理。</Typography.Text>}
-      {body.displayFallback && <div>显示来源版本：{body.displayFallback.sourceVersionId.slice(0,12)}；修复失败特征后恢复。</div>}
-      {Object.entries(view.artifacts?.[body.geometryKey??""]?.representations??{}).map(([role,ref])=><div key={role}>
-        <Space wrap><span>{role==="VISUAL"?"mesh.glb":role==="NAMING"?"naming.pb":role}</span>
-          <small>{ref.size.toLocaleString()} B · v{ref.schemaVersion}</small>
-          <a download href={`${base}/api/documents/${encodeURIComponent(view.document.id)}/representations/${encodeURIComponent(ref.objectId)}?versionId=${encodeURIComponent(view.document.versionId)}&bodyId=${encodeURIComponent(body.id)}&download=1`}>Download</a></Space>
-        <div title={ref.digest}><Typography.Text type="secondary">{ref.digest.slice(0,20)}…</Typography.Text></div>
-      </div>)}
-    </div>)}
-  </section>;
-}
+export function PartBodies({view}:{view:DocumentView}){return view.part?<section aria-label="实体"><strong>实体</strong>{view.part.bodies.map(body=><div key={body.id}><Space wrap><strong>{body.name||'实体'}</strong>{body.id===view.part!.activeBodyId&&<Tag>活动实体</Tag>}<Tag>{body.visible?'可见':'隐藏'}</Tag>{body.consumed&&<Tag>已用于布尔</Tag>}{body.displayFallback&&<Tag color="error">计算失败，显示上次成功结果</Tag>}</Space>{body.displayFallback&&<p>修复失败特征后可更新实体。</p>}</div>)}</section>:null;}

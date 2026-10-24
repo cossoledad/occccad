@@ -316,7 +316,7 @@ export function MechanismMotionDialog(props: Props) {
         message?: string;
     })?.message ?? error ?? ''), needsRevalidation = raw.includes('SIMULATION_REVALIDATION_REQUIRED');
     const sessionMessage = raw.includes('COMMAND_REFERENCE_REVALIDATION_REQUIRED') ? '命令基准已变化，请重新设置零点。' : raw.includes('UNSUPPORTED_DOF') ? '请选择完整且独立的驱动。' : raw.includes('SIMULATION_REVALIDATION_FAILED') ? '记录未通过当前定义的验证。' : raw.includes('mechanism session capacity') ? '请关闭其他运动窗口后重试。' : undefined;
-    const problem = needsRevalidation ? <Alert type="warning" showIcon title="模拟需要重新验证。" action={<Button size="small" onClick={() => setRevalidate(true)}>采用当前基准并验证</Button>}/> : failure ? <Alert type="error" showIcon title={sessionMessage ?? failure.message} action={<Space>{!opened && <Button size="small" aria-label="重试" onClick={() => setAttempt(a => a + 1)}>重试</Button>}<Button size="small" onClick={() => feedback(error, '机构运动')}>详情</Button></Space>}/> : null;
+    const problem = needsRevalidation ? <Alert type="warning" showIcon title="模拟需要重新验证。" action={<Button size="small" onClick={() => setRevalidate(true)}>采用当前基准并验证</Button>}/> : failure ? <Alert type="error" showIcon title={sessionMessage ?? failure.message} action={<Space>{!opened && <Button size="small" aria-label="重试" onClick={() => setAttempt(a => a + 1)}>重试</Button>}</Space>}/> : null;
     const displayValues=clock&&draft.current?Object.fromEntries(Object.entries(motionTargetAt(draft.current,time)).map(([id,q])=>[id,q.value])):frame?.frame.commandValues??{};
     const ready=Boolean(frame?.qualified);
     const pending = busy || saving || baking || Boolean(preparedCommit.current) || !opened || !ready;
@@ -340,7 +340,7 @@ export function MechanismMotionDialog(props: Props) {
     })}
     {!ready&&opened&&<Typography.Text type="secondary">请选择完整且独立的驱动</Typography.Text>}
     {frame?.failure && <Typography.Text type="warning">该位置未通过求解。</Typography.Text>}
-    {frame?.failure?.diagnosticId && <Button size="small" onClick={() => void navigator.clipboard.writeText('CAD_DIAGNOSTIC ' + frame.failure!.diagnosticId)}>复制诊断</Button>}
+
     {problem}
    </div>
   </CommandDialog>

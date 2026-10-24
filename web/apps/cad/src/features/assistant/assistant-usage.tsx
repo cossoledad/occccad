@@ -14,5 +14,5 @@ export function UsageDetails({usage,label}:{usage?:RunUsage|TurnUsage;label:stri
 
 export function ExportMenu({documentId,runId,turnId}:{documentId:string;runId:string;turnId?:string}){
  const label=turnId?"导出本轮":"导出会话";
- return <Dropdown trigger={["click"]} menu={{items:(["markdown","json"] as const).map(format=>({key:format,label:<a href={assistantApi.exportURL(documentId,runId,format,turnId)}>{format==="markdown"?"Markdown":"JSON"}</a>}))}}><Button type="text" size="small" icon={<DownloadOutlined/>} aria-label={label}>{label}</Button></Dropdown>;
+ return <Dropdown trigger={["click"]} menu={{items:(["markdown"] as const).map(format=>({key:format,label:<a href={assistantApi.exportURL(documentId,runId,format,turnId)}>会话记录</a>}))}}><Button type="text" size="small" icon={<DownloadOutlined/>} aria-label={label}>{label}</Button></Dropdown>;
 }

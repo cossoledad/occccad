@@ -33,7 +33,7 @@ try {
   assert.throws(() => linearExtrudeLengthInput("90 deg"), /mm、cm、m 或 in/);
   assert.equal(parameterSourceText({ ...parameter, source: { expression: { sourceText: "base_width / 2" } } }), "base_width / 2");
   assert.equal(parameterSourceText({ ...parameter, source: { external: { publicationId: "publication-width",
-    resolvedRevisionId: "revision-1234567890" } } }), "Publication publication-width @ revision-123");
+    resolvedRevisionId: "revision-1234567890" } } }), "关联发布参数");
   const precise={...parameter,source:{literal:{siValue:0.0123456789}},evaluatedValue:{siValue:0.0123456789}};
   assert.equal(parameterSourceText(precise,"mm"),"12.35");
   assert.equal(parameterDisplayValue(precise),"12.35 mm");

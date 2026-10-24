@@ -1,3 +1,4 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {worldScreen} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
 
@@ -36,7 +37,7 @@ test("new datum plane binds a body face, previews, commits and reopens",async({p
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
  await expect(async()=>{
   await clickWorld(page,[10,10,10]);
-  await expect(page.getByTestId("viewport-selection")).toContainText('"face"',{timeout:1000});
+  await expectViewport(viewportProbe(page,"viewport-selection")).toContainText('"face"',{timeout:1000});
  }).toPass({timeout:20_000});
  await openCommand(page,"基准面");const dialog=page.getByRole("dialog",{name:"创建基准面",exact:true});
  await expect(dialog.getByRole("radio",{name:"关联参考",exact:true})).toBeChecked();
@@ -109,7 +110,7 @@ test("preselected chamfer edge, automatic preview, input-stage edit and toggle",
   return {id,bodyId:v.part!.activeBodyId,version:v.document.versionId};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
- await clickWorld(page,[10,0,10]);await expect(page.getByTestId("viewport-selection")).toContainText('"edge"');
+ await clickWorld(page,[10,0,10]);await expectViewport(viewportProbe(page,"viewport-selection")).toContainText('"edge"');
  await openCommand(page,"倒角");const dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});
  await expect(dialog.getByRole("button",{name:"边集：已选择 1 条边"})).toBeVisible();await ready(page,dialog);
  await page.screenshot({path:"/tmp/feature-ux-modeling.png"});
@@ -131,7 +132,7 @@ test("preselected chamfer edge, automatic preview, input-stage edit and toggle",
  await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
  const edit=page.getByRole("dialog",{name:"编辑 倒角",exact:true});await expect(edit).toBeVisible();
  await expect(edit.getByRole("button",{name:"边集：已选择 1 条边"})).toBeVisible();await ready(page,edit);
- await expect(page.getByTestId("viewport-feature-selection")).toHaveAttribute("data-overlays","1");
+ await expectViewport(viewportProbe(page,"viewport-feature-selection")).toHaveAttribute("data-overlays","1");
  await page.screenshot({path:"/tmp/feature-ux-chamfer-edit.png"});
  await clickWorld(page,[10,0,10]);await expect(edit.getByRole("button",{name:"边集：已选择 0 条边"})).toBeVisible();
  await clickWorld(page,[10,0,10]);await expect(edit.getByRole("button",{name:"边集：已选择 1 条边"})).toBeVisible();await ready(page,edit);
@@ -249,17 +250,17 @@ test("revolve picks an individual sketch line and previews parameter changes",as
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
  const canvas=await page.locator("canvas").boundingBox();
- const beforeZoom=await page.getByTestId("navigation-camera").textContent();
+ const beforeZoom=await viewportProbe(page,"navigation-camera").textContent();
  await page.mouse.move(canvas!.x+canvas!.width/2+50,canvas!.y+canvas!.height/2);await page.mouse.wheel(0,-500);
- await expect(page.getByTestId("navigation-camera")).not.toHaveText(beforeZoom!);
- const camera=await page.getByTestId("navigation-camera").textContent();
+ await expectViewport(viewportProbe(page,"navigation-camera")).not.toHaveText(beforeZoom!);
+ const camera=await viewportProbe(page,"navigation-camera").textContent();
  const originScreen=await worldScreen(page,[0,0,0]);
  await openCommand(page,"旋转");const dialog=page.getByRole("dialog",{name:"创建 旋转",exact:true});
- const currentCamera=await page.getByTestId("navigation-camera").textContent(),currentOrigin=await worldScreen(page,[0,0,0]);
+ const currentCamera=await viewportProbe(page,"navigation-camera").textContent(),currentOrigin=await worldScreen(page,[0,0,0]);
  expect(currentCamera!.split(" / ").slice(1)).toEqual(camera!.split(" / ").slice(1));
  expect(Math.abs(currentOrigin.x-originScreen.x)).toBeLessThan(.1);expect(Math.abs(currentOrigin.y-originScreen.y)).toBeLessThan(.1);
  await expect(dialog.getByRole("combobox")).toHaveCount(0);
- await clickWorld(page,[7.5,4,0]);await dialog.getByRole("button",{name:/旋转轴：/}).click();await expect(page.getByTestId("viewport-feature-selection")).toHaveAttribute("data-role","axis");
+ await clickWorld(page,[7.5,4,0]);await dialog.getByRole("button",{name:/旋转轴：/}).click();await expectViewport(viewportProbe(page,"viewport-feature-selection")).toHaveAttribute("data-role","axis");
  await clickWorld(page,[5,6,0]);await expect(dialog.getByRole("button",{name:"旋转轴：已选择 1 条轴线"})).toBeVisible();await ready(page,dialog);
  await page.screenshot({path:"/tmp/occccad-revolve-profile-axis.png"});
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
@@ -470,7 +471,7 @@ for(const generator of ["LINEAR_EXTRUDE","REVOLVE"] as const){
   const editFeature=async()=>{
    await openCommand(page,"适合窗口");
    const canvas=await page.locator("canvas").boundingBox();await page.mouse.move(canvas!.x+canvas!.width/2,canvas!.y+canvas!.height/2);await page.mouse.wheel(0,700);
-   await expect(page.getByTestId("navigation-camera")).toHaveAttribute("data-transition-active","false");
+   await expectViewport(viewportProbe(page,"navigation-camera")).toHaveAttribute("data-transition-active","false");
    await page.getByRole("textbox",{name:"筛选模型结构"}).fill(feature.name);
    await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
    dialog=page.getByRole("dialog",{name:`编辑 ${tool}`,exact:true});await expect(dialog).toBeVisible();

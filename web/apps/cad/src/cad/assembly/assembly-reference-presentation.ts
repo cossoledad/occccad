@@ -1,3 +1,4 @@
+import {engineeringInstanceName} from "./assembly-engineering-state";
 import type { AssemblyGeometryRef, DocumentStructureNode, DocumentView } from "../../types";
 
 export type AssemblyReferencePresentation = { primary: string; secondary: string; publication?: string };
@@ -19,19 +20,13 @@ const kindLabel: Record<AssemblyGeometryRef["kind"], string> = {
 export function describeAssemblyReference(reference: AssemblyGeometryRef | undefined, view?: DocumentView): AssemblyReferencePresentation {
   if (!reference) return { primary: "未选择", secondary: "请选择支持元素" };
   const instanceNode = findNode(view?.structureTree, (node) => node.kind === "INSTANCE" && node.entityId === reference.instanceId);
-  const occurrence = instanceNode?.referenceName && instanceNode.instanceName
-    ? `${instanceNode.referenceName}(${instanceNode.instanceName})`
-    : instanceNode?.name ?? view?.product?.instances.find((instance) => instance.id === reference.instanceId)?.name ?? "未命名实例";
-  const publicationNode = reference.publicationRef && findNode(view?.structureTree,
-    (node) => (node.kind === "PUBLICATION" || node.kind === "PRODUCT_PUBLICATION") && node.entityId === reference.publicationRef?.publicationId);
+  const occurrence=reference.instancePath?.display??(view?.product?engineeringInstanceName(view,reference.instanceId):instanceNode?.name??"引用零件已丢失");
+  const occurrenceNode=findNode(view?.structureTree,node=>node.instancePath?.segments[0]?.instanceId===reference.instanceId||node.kind==="INSTANCE"&&node.entityId===reference.instanceId);
+  const publicationNode = reference.publicationRef&&occurrenceNode&&findNode(occurrenceNode,node=>(node.kind==="PUBLICATION"||node.kind==="PRODUCT_PUBLICATION")&&node.entityId===reference.publicationRef?.publicationId);
   const publicationName = publicationNode?.name;
-  const semantic = reference.persistentSelection?.anchor.outputSlot;
-  const sourceGeometry = semantic ? `${kindLabel[reference.kind]} · ${semantic}`
-    : reference.geometryId ? `${kindLabel[reference.kind]} · ${reference.geometryId}`
-    : reference.axis ? `${kindLabel[reference.kind]} · ${reference.axis}` : kindLabel[reference.kind];
-  const derived = reference.derivedRole ? `${sourceGeometry} · ${reference.derivedRole}` : sourceGeometry;
- const geometry=reference.capturedDirection?`${derived} · 捕获角度基准（以支持轴校验）`:derived;
-  return publicationName
-    ? { primary: `${occurrence} / ${publicationName}`, secondary: `${geometry} · 稳定发布接口`, publication: publicationName }
-    : { primary: occurrence, secondary: geometry };
+  const derived:Record<string,string>={"cylinder-axis":"圆柱面轴线","circle-axis":"圆边轴线","cone-axis":"圆锥面轴线","frame-axis-z":"坐标系 Z 轴","frame-origin":"坐标系原点","frame-plane-xy":"坐标系 XY 平面","sphere-center":"球心"};
+  const standards:Record<string,string>={"datum-xy":"XY 平面","datum-yz":"YZ 平面","datum-xz":"XZ 平面","datum-zx":"XZ 平面"};
+  const geometryNode=reference.geometryId?findNode(view?.structureTree,node=>node.entityId===reference.geometryId&&(node.kind==="PLANE"||node.kind==="DATUM_AXIS"||node.kind==="AXIS_SYSTEM")):undefined;
+  const geometry=derived[reference.derivedRole??""]??geometryNode?.name??standards[reference.geometryId??""]??(reference.axis?`${reference.axis} 轴`:kindLabel[reference.kind]);
+  return {primary:publicationName?`${occurrence} / ${publicationName}`:occurrence,secondary:geometry,publication:publicationName};
 }

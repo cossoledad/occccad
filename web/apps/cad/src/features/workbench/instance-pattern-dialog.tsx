@@ -1,3 +1,4 @@
+import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {CadNumberInput as InputNumber} from "../../cad/overlay/cad-number-input";
 import { Alert, Button, Segmented, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
@@ -51,7 +52,7 @@ export function InstancePatternDialog({ view, seed, onSelectionSession, parentOc
       <label>方向轴<Segmented value={axis} options={["X", "Y", "Z"]} disabled={busy}
         onChange={(value) => setAxis(value as PatternAxis)} /></label>
       <label>反向<Switch checked={reversed} disabled={busy} onChange={setReversed} /></label>
-      {error && <Alert type="error" showIcon title="创建失败" description={error} />}
+      {error && <Alert type="error" showIcon title="创建失败" description={engineeringProblem(error)} />}
       <Button disabled={!valid || busy || submitting} onClick={() => void apply(false)}>应用并继续</Button>
     </div>
   </CommandDialog>;

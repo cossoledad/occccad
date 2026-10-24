@@ -91,7 +91,7 @@ export class CommandRegistry {
   if(!command)return {enabled:false,visible:false,active:false};
   const declaration=this.declarations.get(id),facts=this.facts?.();
   return {enabled:(command.isEnabled?.(invocation)??true)&&(!declaration||!facts||matches(declaration.enabledWhen,facts)),
-   visible:(command.isVisible?.()??true)&&(!declaration||!facts||matches(declaration.visibleWhen,facts)),active:command.isActive?.()??Boolean(this.operation?.current&&this.operationID===id)};
+   visible:!["debug.part","debug.assembly"].includes(id)&&(command.isVisible?.()??true)&&(!declaration||!facts||matches(declaration.visibleWhen,facts)),active:command.isActive?.()??Boolean(this.operation?.current&&this.operationID===id)};
  }
  async execute(id:string,invocation?:CadCommandInvocation):Promise<boolean> {
   const command=this.commands.get(id);

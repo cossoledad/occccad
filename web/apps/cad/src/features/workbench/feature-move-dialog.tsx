@@ -1,3 +1,4 @@
+import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {Alert,Select,Segmented} from "antd";
 import {useRef,useState} from "react";
 import type {Artifact,DocumentView,Feature} from "../../types";
@@ -25,7 +26,7 @@ export function FeatureMoveDialog({view,feature,digest,onClose,onApply,onPreview
    <small>只移动当前特征，其他步骤保持相对顺序。固定步骤和受保护范围不能跨越；预览通过后才能确认。</small>
    {!valid&&<Alert type="warning" title="模型已改变，请关闭后重新打开"/>}
    {preview.pending&&<p role="status">正在验证候选顺序与几何…</p>}
-   {(error??preview.error)&&<Alert type="error" title="无法调整顺序" description={error??preview.error}/>}
+   {(error??preview.error)&&<Alert type="error" title="无法调整顺序" description={engineeringProblem(error??preview.error)}/>}
   </fieldset>
  </CommandDialog>;
 }

@@ -1,3 +1,4 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test} from "@playwright/test";
 
 test("tree collapse handle resizes, cancels, persists and remains keyboard accessible",async({page},testInfo)=>{
@@ -13,7 +14,7 @@ test("tree collapse handle resizes, cancels, persists and remains keyboard acces
  let point=await down();await page.mouse.move(point.x+100,point.y,{steps:8});await page.mouse.up();
  await expect(handle).toBeVisible();await expect.poll(width).toBe(start+100);
  expect(await page.locator("canvas").evaluate(e=>e.getBoundingClientRect().width)).toBe(canvasWidth);
- await expect(page.getByTestId("viewport-selection")).toHaveAttribute("data-count","0");
+ await expectViewport(viewportProbe(page,"viewport-selection")).toHaveAttribute("data-count","0");
  await page.reload();await expect.poll(width).toBe(start+100);
  for(const cancel of ["Escape","pointercancel","lostpointercapture","blur"]){
   point=await down();await page.mouse.move(point.x+60,point.y,{steps:5});await expect.poll(width).toBe(start+160);

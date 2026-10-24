@@ -1,3 +1,4 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {worldScreen,setProjection} from "./camera-helpers";
 import {expect,test} from "@playwright/test";
 
@@ -14,13 +15,13 @@ test("icon-only options, transparent tree, CATIA point/surface/empty pivots and 
  await page.keyboard.press("1");
  await options.click();const dialog=page.getByRole("dialog",{name:"选项",exact:true});await dialog.getByRole("menuitem",{name:"导航与捕获",exact:true}).click();await dialog.getByRole("combobox",{name:"鼠标操作模式"}).click();await page.getByText("3DEXPERIENCE CATIA",{exact:true}).click();await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).not.toBeVisible();
  const at=(point:number[])=>worldScreen(page,point);
- const vertex=await at([0,0,16]),pivot=page.getByTestId("navigation-pivot");
- const before=await pivot.textContent();await page.mouse.move(vertex.x,vertex.y);await page.mouse.down({button:"middle"});await expect(pivot).toHaveAttribute("data-visible","true");expect(await pivot.textContent()).toBe(before);
- await page.screenshot({path:"../../../build/acceptance/catia-point-centre.png"});await page.mouse.up({button:"middle"});await expect(pivot).toHaveAttribute("data-visible","false");await expect(pivot).toContainText("0.000000,0.000000,16.000000");
- const face=await at([36,19,16]);await page.mouse.move(face.x,face.y);await page.mouse.down({button:"middle"});await page.mouse.up({button:"middle"});await expect(pivot).toContainText("body:body-main");
+ const vertex=await at([0,0,16]),pivot=viewportProbe(page,"navigation-pivot");
+ const before=await pivot.textContent();await page.mouse.move(vertex.x,vertex.y);await page.mouse.down({button:"middle"});await expectViewport(pivot).toHaveAttribute("data-visible","true");expect(await pivot.textContent()).toBe(before);
+ await page.screenshot({path:"../../../build/acceptance/catia-point-centre.png"});await page.mouse.up({button:"middle"});await expectViewport(pivot).toHaveAttribute("data-visible","false");await expectViewport(pivot).toContainText("0.000000,0.000000,16.000000");
+ const face=await at([36,19,16]);await page.mouse.move(face.x,face.y);await page.mouse.down({button:"middle"});await page.mouse.up({button:"middle"});await expectViewport(pivot).toContainText("body:body-main");
  const centre=(await pivot.innerText()).split(" · ")[0];
- await page.mouse.move(box.x+box.width-20,box.y+100);await page.mouse.down({button:"middle"});await expect(pivot).toContainText(centre);await expect(pivot).toContainText("existing");await page.mouse.up({button:"middle"});
- await expect(page.getByTestId("viewport-selection")).toHaveAttribute("data-count","0");expect(errors).toEqual([]);
+ await page.mouse.move(box.x+box.width-20,box.y+100);await page.mouse.down({button:"middle"});await expectViewport(pivot).toContainText(centre);await expectViewport(pivot).toContainText("existing");await page.mouse.up({button:"middle"});
+ await expectViewport(viewportProbe(page,"viewport-selection")).toHaveAttribute("data-count","0");expect(errors).toEqual([]);
 });
 
 test("world grid occludes from below and glass distinguishes front/back thin and wide edges",async({page})=>{
@@ -76,12 +77,12 @@ test("world grid occludes from below and glass distinguishes front/back thin and
 
 test("perspective is default, projection preview cancels and global choice survives reload",async({page})=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
- await page.goto("/documents/mock-part-bracket");const projection=page.getByTestId("navigation-projection");await expect(projection).toContainText("perspective");
+ await page.goto("/documents/mock-part-bracket");const projection=viewportProbe(page,"navigation-projection");await expectViewport(projection).toContainText("perspective");
  const origin=await worldScreen(page,[36,19,8]),landmark=await worldScreen(page,[36,19,16]);
- await setProjection(page,"平行（无透视）",false);await expect(projection).toContainText("perspective");
+ await setProjection(page,"平行（无透视）",false);await expectViewport(projection).toContainText("perspective");
  const restored=await worldScreen(page,[36,19,16]);expect(Math.hypot(restored.x-landmark.x,restored.y-landmark.y)).toBeLessThan(.05);
- await setProjection(page,"平行（无透视）");await expect(projection).toContainText("orthographic");await page.reload();await expect(projection).toContainText("orthographic");
- await setProjection(page,"透视（近大远小）");await expect(projection).toContainText("perspective");
+ await setProjection(page,"平行（无透视）");await expectViewport(projection).toContainText("orthographic");await page.reload();await expectViewport(projection).toContainText("orthographic");
+ await setProjection(page,"透视（近大远小）");await expectViewport(projection).toContainText("perspective");
  const centre=await worldScreen(page,[36,19,8]);expect(Math.hypot(centre.x-origin.x,centre.y-origin.y)).toBeLessThan(1);
  expect(errors).toEqual([]);
 });

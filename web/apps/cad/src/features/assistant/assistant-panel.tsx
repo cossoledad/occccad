@@ -1,3 +1,4 @@
+import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {useEffect,useRef,useState} from "react";
 import {useQuery,useQueryClient} from "@tanstack/react-query";
 import {Alert,Button,Checkbox,Input,InputNumber,Popover,Select,Spin,Tooltip} from "antd";
@@ -10,7 +11,6 @@ import {assistantFailure,conversationProgress,mergeMessagePage,mergeProgressPage
 import {scopeSummary} from "./frozen-scope";
 import {messageOf,useModelingTask,type ModelingProps} from "./use-modeling-task";
 import {ExportMenu,UsageDetails} from "./assistant-usage";
-import {AssistantTrace} from "./assistant-trace";
 import "./assistant-panel.css";
 
 const tokenText=(value:number)=>value>=10000?`${Number((value/10000).toFixed(2))}万`:value.toLocaleString("zh-CN");
@@ -32,7 +32,6 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
  const [settingsOpen,setSettingsOpen]=useState(false),[apiKey,setApiKey]=useState(""),[keyBusy,setKeyBusy]=useState(false),[preferenceBusy,setPreferenceBusy]=useState(false);
  const [draft,setDraft]=useState(""),[sending,setSending]=useState(false),[error,setError]=useState<string>(),[optimistic,setOptimistic]=useState<Pending>(),[retry,setRetry]=useState<Pending>();
  const [newGoal,setNewGoal]=useState(false),[mode,setMode]=useState<RunMode>("AUTOMATIC"),[runCursor,setRunCursor]=useState<string>(),[historyBefore,setHistoryBefore]=useState<number>(),[stageBefore,setStageBefore]=useState<number>();
- const [eventsOpen,setEventsOpen]=useState(false);
  const model=useModelingTask(props,open),{run,task,step,busy}=model;
  const alive=useRef(true),end=useRef<HTMLDivElement>(null),followProgress=useRef(true);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false}},[]);
@@ -126,13 +125,11 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
       {run.status==="WAITING_UI"&&step&&["HANDED_OFF","UI_OPENED","UI_UNKNOWN"].includes(step.phase)&&<><span>工具操作待核对；不会自动重新打开</span><Button size="small" disabled={!canControl} onClick={()=>void model.control({action:"handoff_finish",taskId:task!.id,stepId:step.id,requestId:step.handoff?.domainRequestId,outcome:"COMPLETED"})}>核对操作结果</Button><Button size="small" disabled={!canControl} onClick={()=>void model.control({action:"handoff_finish",taskId:task!.id,stepId:step.id,outcome:"CANCELLED"})}>已取消操作</Button><Button size="small" disabled={!canControl} onClick={()=>void model.control({action:"handoff_finish",taskId:task!.id,stepId:step.id,outcome:"UNKNOWN"})}>结果待核对</Button></>}
      </div>
      {task&&<details className="assistant-task" open><summary>建模步骤</summary>{taskList()}</details>}
-     {model.displayError&&<Alert type="warning" title={model.displayError}/>} {run.latestRevisionId&&run.latestRevisionId!==run.presentedRevisionId&&<Button type="link" size="small" onClick={()=>void model.retryDisplay()}>重新显示结果</Button>}
-     {run.stageCount>0&&<details className="assistant-stage-history"><summary>步骤记录 · {run.stepCount}</summary>{stages.data?.hasEarlier&&<Button size="small" type="link" onClick={()=>setStageBefore(stages.data!.items[0]?.sequence)}>更早步骤</Button>}{stageBefore!==undefined&&<Button type="link" size="small" onClick={()=>setStageBefore(undefined)}>最近步骤</Button>}{stages.data?.items.filter(stage=>stage.taskId!==task?.id).map(stage=><PastTask key={stage.sequence} documentId={props.documentId} taskId={stage.taskId} sequence={stage.sequence} goalVersion={stage.goalVersion} names={operations.data?.operations??[]}/>)}{stages.isError&&<p>{stages.error.message}</p>}</details>}
-     <details className="assistant-events" onToggle={event=>{if(event.target===event.currentTarget)setEventsOpen(event.currentTarget.open)}}><summary>调用详情 · {tokenText(run.usage?.total_tokens??0)} Token</summary>
+     {model.displayError&&<Alert type="warning" title={engineeringProblem(model.displayError)}/>} {run.latestRevisionId&&run.latestRevisionId!==run.presentedRevisionId&&<Button type="link" size="small" onClick={()=>void model.retryDisplay()}>重新显示结果</Button>}
+     {run.stageCount>0&&<details className="assistant-stage-history"><summary>步骤记录 · {run.stepCount}</summary>{stages.data?.hasEarlier&&<Button size="small" type="link" onClick={()=>setStageBefore(stages.data!.items[0]?.sequence)}>更早步骤</Button>}{stageBefore!==undefined&&<Button type="link" size="small" onClick={()=>setStageBefore(undefined)}>最近步骤</Button>}{stages.data?.items.filter(stage=>stage.taskId!==task?.id).map(stage=><PastTask key={stage.sequence} documentId={props.documentId} taskId={stage.taskId} sequence={stage.sequence} goalVersion={stage.goalVersion} names={operations.data?.operations??[]}/>)}{stages.isError&&<p>{engineeringProblem(stages.error)}</p>}</details>}
+     <details className="assistant-events"><summary>用量统计 · {tokenText(run.usage?.total_tokens??0)} Token</summary>
       <div className="assistant-run-metrics">{run.modelCalls} 次模型调用 · {run.toolCalls} 次工具调用 · 累计已应用 {run.appliedCount} 步{run.tokenBudget!=null&&` · 预算 ${tokenText(run.tokenBudget)}`}{Boolean(run.usage?.unknownAttempts)&&` · ${run.usage.unknownAttempts} 次用量未知`}</div>
 
-      {run.failure&&<p className="assistant-diagnostic">{run.failure.code} · {run.failure.message}</p>}
-      <AssistantTrace documentId={props.documentId} runId={run.id} eventSequence={run.eventSequence} open={eventsOpen} active={["QUEUED","PLANNING","EXECUTING","WAITING_RETRY"].includes(run.status)}/>
      </details>
     </section>}<div ref={end}/>
    </div>
@@ -149,7 +146,7 @@ export function AssistantPanel(props:ModelingProps&{open:boolean;onClose:()=>voi
     <div className="assistant-composer-actions"><Tooltip title="每一步先预览，确认后再应用"><Checkbox checked={(run?.mode??mode)==="CONFIRM"} disabled={busy||props.readOnly} onChange={event=>{const value:RunMode=event.target.checked?"CONFIRM":"AUTOMATIC";if(run)void model.control({action:"mode",mode:value});else setMode(value)}}>逐步确认</Checkbox></Tooltip><Button type="primary" size="small" aria-label="发送建模需求" icon={<SendOutlined/>} loading={sending} disabled={sending||!draft.trim()||!connection.data?.configured} onClick={()=>void send()}/></div>
    </div>
   </>}
-  {(error||model.error||connection.error||conversation.error||runs.error)&&<div className="assistant-error"><Alert closable type="error" title={error??model.error??connection.error?.message??conversation.error?.message??runs.error?.message} onClose={()=>{setError(undefined);model.setError(undefined)}}/>{retry&&<Button size="small" disabled={sending} onClick={()=>void send(retry)}>恢复本次发送</Button>}</div>}
+  {(error||model.error||connection.error||conversation.error||runs.error)&&<div className="assistant-error"><Alert closable type="error" title={engineeringProblem(error??model.error??connection.error??conversation.error??runs.error)} onClose={()=>{setError(undefined);model.setError(undefined)}}/>{retry&&<Button size="small" disabled={sending} onClick={()=>void send(retry)}>恢复本次发送</Button>}</div>}
  </aside>;
 }
 
@@ -159,12 +156,12 @@ function ProgressTimeline({events}:{events:RunEvent[]}){
  return <div className="assistant-progress">{events.length>5&&<button type="button" className="assistant-progress-toggle" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>{expanded?"收起此前进展":"此前进展"}</button>}<ol>{(expanded?events:events.slice(-5)).map(event=><li key={event.sequence} className={event.type==="ASSISTANT_MESSAGE"?"is-explanation":"is-activity"} title={new Date(event.at).toLocaleTimeString()}><span className="assistant-progress-marker">{event.type==="CAD_APPLIED"?<CheckOutlined/>:"·"}</span><p>{event.data?.message}</p></li>)}</ol></div>;
 }
 function TaskSteps({steps,status,names,locate}:{steps:TaskStep[];status?:AutomationTask["status"];names:{id:string;name:string}[];locate?:ModelingProps["locate"]}){
- return <ol className="assistant-steps">{steps.map((item,index)=>{const cancelled=status==="STOPPED"&&!item.result&&["PLANNED","PREPARING","PREVIEW_READY"].includes(item.phase);return <li key={item.id} data-phase={cancelled?"CANCELLED":item.phase}><span className="assistant-step-index">{["COMMITTED","DISPLAYED","APPLIED"].includes(item.phase)?<CheckOutlined/>:index+1}</span><div className="assistant-step-body"><div><strong>{names.find(op=>op.id===item.operationId)?.name??item.operationId}</strong><span title={item.failure?assistantFailure(item.failure):phaseText[item.phase]}>{cancelled?"已取消":["COMMITTED","APPLIED","SUPERSEDED"].includes(item.phase)?"已应用":item.phase==="DISPLAYED"?"已显示":phaseText[item.phase]}</span></div><small>{stepDetail(item)}</small></div>{item.result?.output&&locate&&<Button type="text" size="small" onClick={()=>locate(item.result!.output!)}>定位</Button>}</li>})}</ol>;
+ return <ol className="assistant-steps">{steps.map((item,index)=>{const cancelled=status==="STOPPED"&&!item.result&&["PLANNED","PREPARING","PREVIEW_READY"].includes(item.phase);return <li key={item.id} data-phase={cancelled?"CANCELLED":item.phase}><span className="assistant-step-index">{["COMMITTED","DISPLAYED","APPLIED"].includes(item.phase)?<CheckOutlined/>:index+1}</span><div className="assistant-step-body"><div><strong>{names.find(op=>op.id===item.operationId)?.name??"建模操作"}</strong><span title={item.failure?assistantFailure(item.failure):phaseText[item.phase]}>{cancelled?"已取消":["COMMITTED","APPLIED","SUPERSEDED"].includes(item.phase)?"已应用":item.phase==="DISPLAYED"?"已显示":phaseText[item.phase]}</span></div><small>{stepDetail(item)}</small></div>{item.result?.output&&locate&&<Button type="text" size="small" onClick={()=>locate(item.result!.output!)}>定位</Button>}</li>})}</ol>;
 }
 function PastTask({documentId,taskId,sequence,goalVersion,names}:{documentId:string;taskId:string;sequence:number;goalVersion:number;names:{id:string;name:string}[]}){
  const [expanded,setExpanded]=useState(false);
  const query=useQuery({queryKey:["automation-task",documentId,taskId],queryFn:()=>automationApi.task(documentId,taskId),enabled:expanded,staleTime:30_000});
- return <details className="assistant-task" onToggle={event=>setExpanded(event.currentTarget.open)}><summary title={`请求版本 ${goalVersion}`}>步骤组 {sequence}{query.data?.status==="STOPPED"?" · 已停止":""}</summary>{expanded&&(query.isPending?<p>正在读取…</p>:query.data&&<TaskSteps steps={query.data.steps} status={query.data.status} names={names}/>)}{query.error&&<Alert type="error" title={query.error.message}/>}</details>;
+ return <details className="assistant-task" onToggle={event=>setExpanded(event.currentTarget.open)}><summary title={`请求版本 ${goalVersion}`}>步骤组 {sequence}{query.data?.status==="STOPPED"?" · 已停止":""}</summary>{expanded&&(query.isPending?<p>正在读取…</p>:query.data&&<TaskSteps steps={query.data.steps} status={query.data.status} names={names}/>)}{query.error&&<Alert type="error" title={engineeringProblem(query.error)}/>}</details>;
 }
 function BudgetControl({settings,run,busy,saveDefault,saveRun}:{settings:AssistantSettings;run?:AssistantRun;busy:boolean;saveDefault:(value:{tokenBudget:number|null})=>Promise<void>;saveRun:(value:number|null)=>Promise<void>}){
  const [open,setOpen]=useState(false),[value,setValue]=useState<number|null>(null);

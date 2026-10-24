@@ -1,3 +1,4 @@
+import {engineeringProblem} from "../../cad/command/operation-failure";
 import type { Job } from "../../types";
 
 export type ActivityStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
@@ -46,12 +47,12 @@ export function projectJobActivity(job: Job): ActivityItem {
   const fileName = typeof job.payload.fileName === "string" ? job.payload.fileName : "";
   const status = activityStatus(job);
   let description = status === "SUCCEEDED" ? presentation.succeeded
-    : status === "FAILED" ? (job.errorMessage || presentation.failed)
+    : status === "FAILED" ? (job.errorMessage?engineeringProblem(job.errorMessage):presentation.failed)
       : status === "CANCELED" ? "任务已取消"
         : job.cancelRequestedAt ? "正在取消任务" : presentation.running;
   if (status === "RUNNING" && !job.cancelRequestedAt) {
     const detail = job.payload.progressDetail as { phase?: string; completed?: number; total?: number } | undefined;
-    const phases: Record<string, string> = { PREPARING: "解析文件并拆分实体", EVALUATING: "生成零件几何", CREATING_PARTS: "创建零件与拓扑命名", ASSEMBLING: "创建装配" };
+    const phases: Record<string, string> = { PREPARING: "解析文件并拆分实体", EVALUATING: "生成零件几何", CREATING_PARTS: "生成零件", ASSEMBLING: "创建装配" };
     if (detail?.phase && phases[detail.phase]) {
       description = phases[detail.phase];
       if (typeof detail.total === "number" && detail.total > 0) description += `（${detail.completed ?? 0}/${detail.total}）`;

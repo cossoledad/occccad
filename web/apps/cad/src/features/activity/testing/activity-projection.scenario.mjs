@@ -9,7 +9,7 @@ const sourceURL = new URL("../activity-model.ts", import.meta.url);
 const source = await readFile(sourceURL, "utf8");
 const output = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText;
+}).outputText.replace('"../../cad/command/operation-failure"',JSON.stringify(new URL("../../../cad/command/operation-failure.ts",import.meta.url).href));
 const moduleURL = `data:text/javascript;base64,${Buffer.from(`${output}\n//# sourceURL=${pathToFileURL(sourceURL.pathname)}`).toString("base64")}`;
 const activity = await import(moduleURL);
 
@@ -32,7 +32,7 @@ assert.equal(succeeded.progress, undefined);
 
 const failed = activity.projectJobActivity({ ...baseJob, state: "FAILED", canCancel: false, canRetry: true,
   errorMessage: "worker unavailable" });
-assert.equal(failed.description, "assembly.step · worker unavailable");
+assert.match(failed.description,/assembly.step.*操作未完成/);assert.doesNotMatch(failed.description,/worker unavailable/);
 assert.deepEqual(failed.actions, ["RETRY"]);
 
 const feed = activity.buildActivityFeed([
@@ -52,6 +52,6 @@ assert.match(retryWaiting.description, /等待重试，保留已完成进度/);
 const retrying = activity.projectJobActivity({ ...baseJob, type: "EXCHANGE_IMPORT", attemptCount: 2, progress: 70,
   payload: { progressDetail: { phase: "CREATING_PARTS", completed: 0, total: 114 } } });
 assert.equal(retrying.progress, 70);
-assert.match(retrying.description, /第 2 次尝试.*创建零件与拓扑命名（0\/114）/);
+assert.match(retrying.description, /第 2 次尝试.*生成零件（0\/114）/);
 
 console.log("Activity center model tests passed.");

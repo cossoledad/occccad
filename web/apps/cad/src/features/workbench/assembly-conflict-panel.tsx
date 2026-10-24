@@ -1,3 +1,5 @@
+import {engineeringLabel} from "../../cad/presentation/engineering-text";
+import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {Alert,Button,Collapse,Dropdown,Input,Select,Space,Table,Tabs,Tag,Typography} from "antd";
 import {useEffect,useMemo,useState} from "react";
 import type {DocumentView as DocumentDescriptor} from "../../types";
@@ -14,7 +16,7 @@ type Props={open:boolean;pending:boolean;report?:AssemblyConflictReport;current:
 const actions:Record<AssemblyConflictRepair,string>={EDIT:"编辑",SUPPRESS:"停用",MEASURE:"切换测量",RECONNECT:"重连支持"};
 const statuses:Record<string,string>={VERIFIED:"已满足",BROKEN:"支持断开",NOT_UPDATED:"待更新",IMPOSSIBLE:"未接纳"};
 export function AssemblyConflictPanel(p:Props){
- const [tab,setTab]=useState<string>(p.defaultTab??"issues"),[search,setSearch]=useState(""),[filter,setFilter]=useState("all"),[selected,setSelected]=useState<string>(),[technical,setTechnical]=useState(false);
+ const [tab,setTab]=useState<string>(p.defaultTab??"issues"),[search,setSearch]=useState(""),[filter,setFilter]=useState("all"),[selected,setSelected]=useState<string>();
  const overview=useMemo(()=>assemblyEngineeringOverview(p.view),[p.view]);
  const revision=p.view?.document.versionId??"",context=`${p.view?.document.id}/${p.ownerOccurrence??""}/${revision}`;
  const motions=useMemo(()=>motionPresentations(p.view,p.evidence,p.ownerOccurrence),[p.view,p.evidence,p.ownerOccurrence]);
@@ -33,7 +35,7 @@ export function AssemblyConflictPanel(p:Props){
  useEffect(()=>()=>p.onMotion?.(undefined),[]);
  const definition=id?index.get(id):undefined,issue=id?problems.get(id):undefined;
  const act=(action:AssemblyConflictRepair)=>{if(definition)p.onRepair(engineeringMember(definition),action,revision);};
- const technicalText=technical?JSON.stringify({report:p.report,error:p.error,evidence:p.evidence},null,2):"";
+
  return <CommandDialog id="assembly-conflict-analysis" title={`装配状态 · ${overview.name}`} open={p.open} size="L" footer={false} onClose={p.onClose} onConfirm={p.onClose}>
   <Space wrap style={{marginBottom:8}}><Tag>{overview.status}</Tag><span>定义 {overview.total}</span><span>停用 {overview.suppressed}</span><span>测量 {overview.measured}</span><span>断链 {overview.broken}</span><span>待更新 {overview.notUpdated}</span></Space>
   <Tabs size="small" activeKey={tab} onChange={value=>{setTab(value);setFilter("all");setSelected(undefined);p.onMotion?.(undefined);}} items={[{key:"issues",label:`待处理问题 (${overview.issues.length})`},{key:"all",label:"全部约束"},{key:"motion",label:"剩余运动"}]}/>
@@ -45,13 +47,13 @@ export function AssemblyConflictPanel(p:Props){
    </>}
   </Space>
   {tab==="motion"&&<div role="status" aria-label="剩余运动计算状态" style={{marginBottom:8}}>
-   <Tag>{p.motionStatus==="COMPUTING"?"正在计算":p.motionStatus==="CANCELLED"?"已取消":p.motionStatus==="FAILED"?"计算失败":p.motionStatus==="READING"?"正在读取":p.evidence?.status==="PARTIAL"?"部分范围未知":p.evidence?.available?"证据可用":p.evidence?.status==="UNKNOWN"?"证据不足，保持未知":"待计算"}</Tag>
-   <span>当前已接受 Revision：{revision}</span>
-   <p>只读分析已接纳的活动硬约束，不修改模型、位姿或历史；瞬时自由度不等于有限行程。数值 gauge 表示整体运动，不是物理固定。</p>
-   {p.evidence&&<><div>{p.evidence.source==="READ_ONLY_ANALYSIS"?"只读刷新结果":"当前命令结果"} · 已接纳约束 {p.evidence.constraintIds?.length??"待确认"} · 覆盖 {p.evidence.components.filter(c=>c.solved).flatMap(c=>c.bodyIds).length} / {overview.instances.length} 个运动单元</div>
-    {p.evidence.components.map((c,i)=><div key={i}>组件 {i+1}：{c.bodyIds.map(id=>engineeringInstanceName(p.view,id)).join(" / ")} · {c.solved?`相对 DOF ${c.relativeDof}，整体 gauge ${c.gaugeDof}`:"范围未知"}{c.diagnosticCode&&` · ${c.diagnosticCode}`}</div>)}
-    {!!p.evidence.excluded?.length&&<Collapse size="small" items={[{key:"excluded",label:`未纳入硬约束集合 (${p.evidence.excluded.length})`,children:p.evidence.excluded.map(e=><p key={e.constraintId}>{index.has(e.constraintId)?engineeringConstraintName(index.get(e.constraintId)!,p.view):e.constraintId} · {e.reason} {e.diagnostic}</p>)}]}/>}</>}
-   {(p.motionError||p.evidence?.diagnosticCode)&&<Alert type="warning" title="当前范围尚无完整证据" description={p.motionError??`${p.evidence?.diagnosticCode} ${p.evidence?.diagnostic??""}`}/>}
+   <Tag>{p.motionStatus==="COMPUTING"?"正在计算":p.motionStatus==="CANCELLED"?"已取消":p.motionStatus==="FAILED"?"计算失败":p.motionStatus==="READING"?"正在读取":p.evidence?.status==="PARTIAL"?"部分范围未知":p.evidence?.available?"分析完成":p.evidence?.status==="UNKNOWN"?"当前运动未知":"待计算"}</Tag>
+
+   <p>显示当前构型的运动可能性。整体移动与零件之间的相对运动分别列出。</p>
+   {p.evidence&&<><div>已满足约束 {p.evidence.constraintIds?.length??"待确认"} · 覆盖 {p.evidence.components.filter(c=>c.solved).flatMap(c=>c.bodyIds).length} / {overview.instances.length} 个零件</div>
+    {p.evidence.components.map((c,i)=><div key={i}>组件 {i+1}：{c.bodyIds.map(id=>engineeringInstanceName(p.view,id)).join(" / ")} · {c.solved?`相对自由度 ${c.relativeDof}，整体自由度 ${c.gaugeDof}`:"范围未知"}</div>)}
+    {!!p.evidence.excluded?.length&&<Collapse size="small" items={[{key:"excluded",label:`未纳入硬约束集合 (${p.evidence.excluded.length})`,children:p.evidence.excluded.map(e=><p key={e.constraintId}>{index.has(e.constraintId)?engineeringConstraintName(index.get(e.constraintId)!,p.view):"引用约束已丢失"} · {engineeringLabel(e.reason,"未纳入当前分析")}</p>)}]}/>}</>}
+   {(p.motionError||p.evidence?.diagnosticCode)&&<Alert type="warning" title="当前运动尚无法确定" description={engineeringProblem(p.motionError??{code:p.evidence?.diagnosticCode,message:p.evidence?.diagnostic})}/>}
   </div>}
   <Table size="small" rowKey="id" dataSource={visible} scroll={{y:230,x:720}} pagination={{defaultPageSize:10,showSizeChanger:true,pageSizeOptions:[10,20,50],showTotal:n=>`${n} 项`}}
    rowSelection={{type:"radio",selectedRowKeys:id?[id]:[],onChange:keys=>setSelected(keys[0]?`${context}:${keys[0]}`:undefined)}} onRow={row=>({tabIndex:0,onClick:()=>setSelected(`${context}:${row.id}`),onKeyDown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setSelected(`${context}:${row.id}`);}}})}
@@ -73,7 +75,7 @@ export function AssemblyConflictPanel(p:Props){
    </div>
   </div>}
   {p.report&&<Typography.Paragraph style={{margin:"8px 0"}}>{!p.current?"结果已失效":p.report.status==="SAT"?"所选范围：约束可满足":p.report.status==="UNSAT"?"所选范围：存在不兼容要求":"检查未完成"}</Typography.Paragraph>}
-  {p.error&&<Alert type="error" message="检查未完成，可重试或查看技术详情"/>}
-  <Collapse size="small" activeKey={technical?["technical"]:[]} onChange={keys=>setTechnical(keys.includes("technical"))} items={[{key:"technical",label:"技术诊断 / 可复制报告",children:technical?<Typography.Paragraph copyable={{text:technicalText}}><pre style={{whiteSpace:"pre-wrap",maxHeight:140,overflow:"auto"}}>{technicalText}</pre></Typography.Paragraph>:null}]}/>
+  {p.error&&<Alert type="error" message="检查未完成，请重试"/>}
+
  </CommandDialog>;
 }

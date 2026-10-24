@@ -11,7 +11,6 @@ import type { NormalViewPlane } from "../cad/navigation/normal-view";
 import type { FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { CaptureSettings } from "../cad/interaction/capture-settings";
-import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input-debug-overlay";
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import type { WorkbenchToolID } from "../state/workbench-store";
 import type { TreeVisibilityOverrides } from "../cad/interaction/tree-visibility";
@@ -112,7 +111,6 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   const callbacks = useRef(props);
   const [toolPrompt,setToolPrompt]=useState("");
   const [sketchCommand,setSketchCommand]=useState<SketchCommandState>();
-  const [debug, setDebug] = useState<InputDebugSnapshot>();
   const [dimensionEditor, setDimensionEditor] = useState<DimensionRequest & {ownerDocumentID:string;ownerRevisionID:string;epoch:number}>();
   const dimensionEpoch=useRef(0);
   const openDimension=(request:DimensionRequest)=>{
@@ -159,7 +157,6 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
           engine.current?.beginSketch(current.activeSketchID, current.sketchPlane, restoredCamera);
         else engine.current?.endSketch();
       },
-      debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
     }, callbacks.current.documentSessions);
     engine.current = instance;
     instance.setApplicationDisplay(callbacks.current.applicationDisplay,callbacks.current.mechanismSelection);
@@ -279,5 +276,5 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
         return engine.current?.commitDimensionOperations(dimensionEditor.featureId,operations,intent)??callbacks.current.onDimensionOperations(dimensionEditor.featureId,operations,intent);
       }} />}
 
-    {debug && <InputDebugOverlay snapshot={debug} />}</>;
+    </>;
 });

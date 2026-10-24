@@ -106,7 +106,7 @@ try{
  extension.register({...selectionSummaryCommand({getContext:()=>({documentId:'target-part',selectionCount:2}),show:text=>messages.push(text)}),id:'example.summary'});
  extension.configure(custom,()=>facts);
  assert(projectToolbars(custom).some(bar=>bar.tabIds.includes('PART_DESIGN.view')&&bar.items.some(item=>item.commandId==='example.summary')));
- assert.equal(await extension.execute('example.summary'),true);assert.match(messages.at(-1),/target-part.*2/);
+ assert.equal(await extension.execute('example.summary'),true);assert.match(messages.at(-1),/当前文档.*2/);
  let finish;
  const deferred=new Promise(resolve=>finish=resolve),run=new CommandRegistry(),scopeCatalog=structuredClone(catalog);
  const declaration=scopeCatalog.commands.find(command=>command.id==='sketch.constraint.coincident');

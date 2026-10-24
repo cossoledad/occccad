@@ -1,3 +1,4 @@
+import {engineeringProblem} from "../../cad/command/operation-failure";
 import type {AssistantRun,AssistantTurn,RunEvent,SequencePage} from "./assistant-api";
 
 export function newerRun(current:AssistantRun|undefined,next:AssistantRun):AssistantRun{
@@ -21,7 +22,7 @@ export const turnStatusText:Record<AssistantTurn["status"],string>={RECEIVED:"�
 export function assistantFailure(failure:{code?:string;message?:string}|undefined):string|undefined{
  if(!failure)return undefined;
  const messages:Record<string,string>={FEATURE_EDIT_STALE:"特征已变化，需要重新读取后再编辑。",AI_NO_PROGRESS:"暂时无法继续，请调整要求或接管操作。"};
- return messages[failure.code??""]??failure.message;
+ return messages[failure.code??""]??engineeringProblem(failure);
 }
 // Keep a bounded recent journal window. Public explanations and operation
 // receipts are readable progress; provider accounting remains in details.

@@ -117,7 +117,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
 	  ({ id: "debug.part", execute: () => editingView && api.downloadDiagnosticBundle(editingView.document.id), isEnabled: () => Boolean(editingView?.part) }),
       ({ id: "debug.assembly", execute: () => editingView && api.downloadAssemblyDiagnostic(editingView.document.id), isEnabled: () => Boolean(editingView?.product) }),
  ...structureCommands(bindings.treeActions,treeNodes,showMessage,treeNodesForSelections(treeNodes,store.selections)),
- selectionSummaryCommand({getContext:()=>({documentId:editingView?.document.id??"",selectionCount:store.selections.length}),show:showMessage}),
+ selectionSummaryCommand({getContext:()=>({documentId:editingView?.document.id??"",documentName:editingView?.document.name??view?.document.name,selectionCount:store.selections.length}),show:showMessage}),
  ];
 }
 

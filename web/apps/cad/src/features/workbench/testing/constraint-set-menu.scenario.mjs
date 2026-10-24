@@ -12,6 +12,7 @@ const hooks = { ...React, useMemo: fn => fn(), useEffect() {}, useRef: value => 
 function load(file) {
   if (file.endsWith(".json")) return JSON.parse(readFileSync(file, "utf8"));
   if (file.endsWith("/cad/command/command-context.tsx")) return { useOptionalCommandRegistry: () => undefined };
+  if (file.endsWith("/cad/command/operation-feedback.tsx")) return {useOperationFeedback:()=>()=>{}};
   if (modules.has(file)) return modules.get(file).exports;
   const module = { exports: {} }; modules.set(file, module);
   const code = ts.transpileModule(readFileSync(file, "utf8"), {

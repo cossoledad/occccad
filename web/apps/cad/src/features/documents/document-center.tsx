@@ -1,3 +1,4 @@
+import {engineeringProblem,useOperationFeedback} from "../../cad/command/operation-feedback";
 import {CadIcon} from "../../cad/overlay/cad-icons";
 import {
   ApartmentOutlined, BuildOutlined, ClockCircleOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
@@ -28,6 +29,7 @@ export function DocumentCenter() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const { message, modal } = App.useApp();
+  const feedback=useOperationFeedback();
   const [scope, setScope] = useState<LibraryScope>("active");
   const [query, setQuery] = useState("");
   const [type, setType] = useState("");
@@ -91,14 +93,14 @@ export function DocumentCenter() {
     onSuccess: async (view) => {
       const created = !editing; setCreateOpen(false); setEditing(undefined); documentForm.resetFields(); await invalidateDocuments();
       message.success("文档已保存"); if (created) navigate(`/documents/${view.document.id}`);
-    }, onError: (error) => message.error(error.message)
+    }, onError: (error) => feedback(error,"文件操作")
   });
   const saveFolder = useMutation({
     mutationFn: (values: FolderForm) => folderEditor !== "new" && folderEditor
       ? api.updateFolder(folderEditor.id, values.name, values.description ?? "")
       : api.createFolder(values.name, values.description ?? "", currentFolderID || undefined),
     onSuccess: async () => { setFolderEditor(undefined); folderForm.resetFields(); await invalidateFolders(); message.success("文件夹已保存"); },
-    onError: (error) => message.error(error.message)
+    onError: (error) => feedback(error,"文件操作")
   });
   const runOperation = useMutation({
     mutationFn: (values: { name?: string; folderID?: string }) => {
@@ -107,7 +109,7 @@ export function DocumentCenter() {
         ? api.copyDocument(operation.document.id, values.name || `${operation.document.name} Copy`, values.folderID || undefined)
         : api.moveDocument(operation.document.id, values.folderID || undefined);
     }, onSuccess: async () => { setOperation(undefined); operationForm.resetFields(); await invalidateDocuments(); message.success("操作已完成"); },
-    onError: (error) => message.error(error.message)
+    onError: (error) => feedback(error,"文件操作")
   });
   const importDocument = useMutation({
     mutationFn: async () => {
@@ -122,10 +124,10 @@ export function DocumentCenter() {
       if (submitted.length > 0) message.info(isMockMode ? `已导入 ${submitted.length} 个文件` : `已提交 ${submitted.length} 个导入任务，可在任务中心查看进度`);
       if (failures.length > 0) {
         setImportFiles((previous) => previous.filter(({ uid }) => failures.some((item) => item.uid === uid)));
-        message.error(`${failures.length} 个文件提交失败：${failures.map(({ name, reason }) => `${name} (${reason})`).join("；")}`);
+        message.error(`${failures.length} 个文件提交失败：${failures.map(({ name, reason }) => `${name}（${engineeringProblem(reason)}）`).join("；")}`);
       } else { setImportOpen(false); setImportFiles([]); }
     },
-    onError: (error) => message.error(error.message),
+    onError: (error) => feedback(error,"文件操作"),
   });
   const exportExchange = useMutation({
     mutationFn: async () => {
@@ -138,7 +140,7 @@ export function DocumentCenter() {
       if (isMockMode && job.state === "SUCCEEDED") void api.downloadJob(job.id);
       message.info(isMockMode ? `${exportFormat} 导出完成` : "导出任务已提交，完成后会通知你");
     },
-    onError: (error) => message.error(error.message),
+    onError: (error) => feedback(error,"文件操作"),
   });
 
   const openDocument = (document: DocumentSummary) => { if (!document.deletedAt) navigate(`/documents/${document.id}`); };
@@ -161,12 +163,12 @@ export function DocumentCenter() {
     title: `将文件夹“${folder.name}”移入回收站？`, content: "文件夹及其中仍在使用的子文件夹、文档会一同移入回收站，可整体恢复。", okButtonProps: { danger: true },
     onOk: async () => {
       try { await api.deleteFolder(folder.id); setSelectedDocuments([]); await Promise.all([invalidateFolders(), invalidateDocuments()]); message.success("文件夹已移入回收站"); }
-      catch (error) { message.error(error instanceof Error ? error.message : "文件夹删除失败"); }
+      catch (error) { feedback(error,"文件操作"); }
     }
   });
   const restoreFolder = async (folder: FolderSummary) => {
     try { await api.restoreFolder(folder.id); await Promise.all([invalidateFolders(), invalidateDocuments()]); message.success("文件夹及其内容已恢复"); }
-    catch (error) { message.error(error instanceof Error ? error.message : "文件夹恢复失败"); }
+    catch (error) { feedback(error,"文件操作"); }
   };
   const addSelected = (items: DocumentSummary[]) => setSelectedDocuments((current) => {
     const byID = new Map(current.map((item) => [item.id, item]));
@@ -187,7 +189,7 @@ export function DocumentCenter() {
         if (all.length >= page.total || page.documents.length === 0) break;
       }
       addSelected(all);
-    } catch (error) { message.error(error instanceof Error ? error.message : "全选失败"); }
+    } catch (error) { feedback(error,"文件操作"); }
     finally { setSelectionBusy(false); }
   };
   const removeSelected = () => modal.confirm({
@@ -201,7 +203,7 @@ export function DocumentCenter() {
           const index = cursor++;
           if (index >= items.length) return;
           try { await api.deleteDocument(items[index].id); succeeded.add(items[index].id); }
-          catch (error) { failed.push(`${items[index].name}（${error instanceof Error ? error.message : String(error)}）`); }
+          catch (error) { failed.push(`${items[index].name}（${engineeringProblem(error)}）`); }
         }
       }));
       setSelectedDocuments((current) => current.filter((item) => !succeeded.has(item.id)));

@@ -32,7 +32,7 @@ export function contextTabs(catalog:WorkbenchCatalog,facts:ContextFacts) {
  const contexts=catalog.contexts.filter(context=>matches(context.when,facts));
  if(contexts.length!==1)throw new Error(`Expected one workbench context, found ${contexts.length}`);
  const ids=new Set(contexts[0].tabs);
- return catalog.tabs.filter(tab=>ids.has(tab.id)).sort((a,b)=>a.order-b.order);
+ return catalog.tabs.filter(tab=>ids.has(tab.id)&&tab.section!=="debug").sort((a,b)=>a.order-b.order);
 }
 export function projectToolbars(catalog:WorkbenchCatalog):ToolbarCatalogEntry[] {
  const commands=new Map(catalog.commands.map(command=>[command.id,command]));

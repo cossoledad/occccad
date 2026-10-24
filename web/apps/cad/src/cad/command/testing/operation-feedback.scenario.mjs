@@ -48,7 +48,7 @@ try{
  assert.equal(gate.accept({message:error.message,code:error.code,requestId:"request"},"command",102),false);
  assert.equal(gate.accept(new Error("network"),"move",1000),true);
  assert.equal(normalizeOperationFailure({code:"TIMEOUT",message:"rpc timeout"}).retryable,true);
- assert.match(normalizeOperationFailure({code:"PREVIEW_CANDIDATE_STALE_OR_MISMATCHED",message:"digest mismatch"}).message,/状态已变化/);
+ assert.match(normalizeOperationFailure({code:"PREVIEW_CANDIDATE_STALE_OR_MISMATCHED",message:"digest mismatch"}).message,/模型已发生变化/);
  const React=require("react"),{renderToStaticMarkup}=require("react-dom/server"),{App}=require("antd"),originalUseApp=App.useApp;
  const notices=[],diagnostics=[],dismissals=[];let retries=0,cancels=0,feedback;
  App.useApp=()=>({notification:{error:config=>notices.push(config),warning:config=>notices.push(config),destroy:key=>dismissals.push(key)},modal:{info:config=>diagnostics.push(config)},message:{success(){}}});
@@ -59,7 +59,8 @@ try{
   const recovery=notices.at(-1);assert.equal(recovery.duration,0);assert.equal(recovery.placement,"bottomRight");assert.equal(recovery.className,"cad-operation-notification");assert.equal(recovery.onClose,undefined,"dismissal never cancels an unknown operation");
   const buttons=recovery.description.props.children.filter(child=>child?.props?.onClick);
   buttons[0].props.onClick();buttons[1].props.onClick();assert.equal(retries,1);assert.equal(cancels,1);assert.equal(dismissals.length,2);
-  buttons.at(-1).props.onClick();assert.equal(diagnostics[0].width,640);assert(diagnostics[0].content.props.children[0].props.children.includes("preserved-request"));
+  assert.equal(buttons.length,2,"notifications retain recovery actions without a developer dialog");assert.equal(diagnostics.length,0);
+  assert.doesNotMatch(renderToStaticMarkup(recovery.description),/preserved-request|查看诊断|技术诊断/);
   feedback({code:"VALIDATION_FAILED",message:"ordinary failure",requestId:"ordinary-request"},"草图");assert.equal(notices.at(-1).duration,6);
  }finally{App.useApp=originalUseApp;}
 

@@ -1,4 +1,5 @@
-import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
+import {engineeringProblem} from "../../cad/command/operation-feedback";
+
 import { pickedPatternCenter } from "./pattern-selection";
 import { PatternFeatureEditor } from "./pattern-feature-editor";
 import { Alert, Button, Input, Segmented, Switch } from "antd";
@@ -345,7 +346,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         setError(String(cause));
         setCommitting(false);
     } };
-    const name = (id?: string) => upstream.find(f => f.id === id)?.name ?? "已选择";
+    const name = (id?: string) => upstream.find(f => f.id === id)?.name ?? (id?"引用草图已丢失":"未选择");
     return <CommandDialog id="solid-feature-editor" open title={`${feature.id ? "编辑" : "创建"} ${solidFeatureNames[feature.type] ?? feature.type}`} size="S" onClose={onClose} onConfirm={apply} confirmLoading={committing} confirmDisabled={!input || !preview.previewId || preview.pending || committing}>
   <fieldset disabled={committing} className="instance-pattern-fields feature-input-fields">
    {insertion&&<Alert type="info" title={`插入位置：${insertion.label} 之后`} description={`新建${solidFeatureNames[feature.type]}，仅拾取此步骤的实体；完整候选通过后一次提交。`}/>}
@@ -370,7 +371,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
       <Button size="small" aria-label={`替换区域 ${i+1}`} onClick={()=>{setRegionReplacement(id);setRole("profile-region");}}>替换</Button>
       <Button size="small" aria-label={`移除区域 ${i+1}`} onClick={()=>{edit({profileSelection:{mode:"REGIONS",regionIds:regionIDs.filter(r=>r!==id)}});setRegionReplacement(undefined);}}>移除</Button>
      </div>)}
-     {profileAnalysisError&&<Alert type="error" title="上游草图无法提供合法区域" description={profileAnalysisError}/>}
+     {profileAnalysisError&&<Alert type="error" title="上游草图无法提供合法区域" description={engineeringProblem(profileAnalysisError)}/>}
      {missingRegions.length>0&&!profileAnalysisError&&<Alert type="warning" title="区域输入需要修复" description="原区域删除或拓扑改变后无法对应。请明确替换或移除失效区域；不会自动换区或使用整张草图。"/>}
     </>}
    </>}
@@ -380,7 +381,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
    {modifier && feature.id && picks.length>0 && <details open={unresolved.length>0 || !!replacement}>
     <summary>输入明细（{picks.length} 项）</summary>
     {picks.map((p,i)=><div className="feature-reference-row" key={p.id} data-input-status={p.resolution.status}>
-     <span className="feature-reference-detail" title={p.resolution.diagnostic}><strong>{pickRole==="edge"?"边":"面"} {i+1}</strong><span>{replacement===p.id?"请在上游几何中选择替代对象":inputStatusText(p.resolution)}</span></span>
+     <span className="feature-reference-detail" title={inputStatusText(p.resolution)}><strong>{pickRole==="edge"?"边":"面"} {i+1}</strong><span>{replacement===p.id?"请在上游几何中选择替代对象":inputStatusText(p.resolution)}</span></span>
      <Button size="small" aria-label={`替换输入 ${i+1}`} aria-pressed={replacement===p.id} disabled={!!binding} onClick={()=>{setReplacement(p.id);setRole(pickRole);}}>替换</Button>
      <Button size="small" aria-label={`移除输入 ${i+1}`} disabled={!!binding} onClick={()=>{setPicks(previous=>previous.filter(item=>item.id!==p.id));setReplacement(undefined);}}>移除</Button>
     </div>)}
@@ -390,8 +391,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     <FeaturePickField label="终止平面" value={terminationLoadError?"原目标解析受阻，请重新选择":terminationResolution&&terminationResolution.status!=="RESOLVED"?inputStatusText(terminationResolution):draft.terminationPlane?"已选择上游实体平面":view.part?.datumPlanes.find(p=>p.id===draft.terminationPlaneId)?.name??"选择基准平面或上游实体平面"} active={role==="plane"} disabled={loadingInput||!!binding} onActivate={()=>setRole("plane")} onClear={draft.terminationPlane||draft.terminationPlaneId?()=>{edit({terminationPlane:undefined,terminationPlaneId:undefined});setTerminationResolution(undefined);setTerminationLoadError(undefined);setTerminationVisual(undefined);}:undefined}/>
     <small>到平面：使用目标的无限延伸支撑平面，随目标位置和朝向更新。</small>
     {terminationResolution&&terminationResolution.status!=="RESOLVED"&&<Alert type="warning" title="终止平面需要修复" description="请明确重新选择当前特征之前的合法平面。"/>}
-    {terminationLoadError&&<Alert type="error" title="原终止目标解析失败" description={terminationLoadError}/>}
-    {planeErrors.map((text,i)=><Alert key={i} type="error" title="部分上游输入不可用" description={text}/>)}
+    {terminationLoadError&&<Alert type="error" title="原终止目标解析失败" description={engineeringProblem(terminationLoadError)}/>}
+    {planeErrors.map((text,i)=><Alert key={i} type="error" title="部分上游输入不可用" description={engineeringProblem(text)}/>)}
    </>}
    {feature.type === "DRAFT" && <>
     <FeaturePickField label="中性平面" value={neutralResolution && neutralResolution.status!=="RESOLVED" ? inputStatusText(neutralResolution) : draft.neutralPlane ? "已选择实体平面" : view.part?.datumPlanes.find(p => p.id === draft.neutralPlaneId)?.name ?? "选择基准面或实体平面"} active={role === "plane"} disabled={loadingInput || !!inputError || !!binding} onActivate={() => {setReplacement(undefined);setRole("plane");}} onClear={(draft.neutralPlane || draft.neutralPlaneId) && !binding ? ()=>{edit({neutralPlane:undefined,neutralPlaneId:undefined});setNeutralVisual(undefined);setNeutralResolution(undefined);} : undefined}/>
@@ -403,7 +404,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     <FeaturePickField label="点端" value="选择草图点或基准原点" active={role === "point"} onActivate={()=>setRole("point")}/>
     <label>显示连接线<Switch checked={showConnections} onChange={setShowConnections}/></label>
     {(preview.loftSections ?? draft.sections ?? []).map((section, i) => <div className="feature-section-row" key={`${section.sketchId}/${i}`}>
-     <span>{i + 1}. {section.point ? `点端 · ${section.point.axisEntityId ?? name(section.sketchId)}` : name(section.sketchId)}</span>
+     <span>{i + 1}. {section.point ? `点端 · ${(section.point.axisEntityId?view.part?.axisSystems.find(a=>a.id===section.point?.axisEntityId?.split(":")[1])?.name??"引用原点已丢失":name(section.sketchId))}` : name(section.sketchId)}</span>
      {upstream.find(f=>f.id===section.sketchId)?.type==="SKETCH_PATTERN"&&<label>成员槽位<Input type="number" min={0} step={1} value={section.memberSlot} onChange={e=>edit({sections:(acceptedSections.current??draft.sections)?.map((s,j)=>i===j?{...s,memberSlot:e.target.value===""?undefined:Number(e.target.value)}:s)})}/></label>}
      <Button size="small" aria-label={`上移截面 ${i + 1}`} disabled={!i} onClick={() => { const sections = [...draft.sections!]; [sections[i - 1], sections[i]] = [sections[i], sections[i - 1]]; edit({ sections }); }}>↑</Button>
      <Button size="small" aria-label={`移除截面 ${i + 1}`} onClick={() => edit({ sections: draft.sections?.filter((_, j) => j !== i) })}>移除</Button>
@@ -426,11 +427,11 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
    </>)}
    {!loft && <label>反向<Switch checked={draft.reversed} disabled={committing} onChange={reversed => edit({ reversed })}/></label>}
    {feature.id && <label>抑制<Switch checked={draft.suppressed} disabled={committing} onChange={suppressed => edit({ suppressed })}/></label>}
-   <small role="status">{!validRevision ? "模型已改变，请关闭并重新打开此命令" : binding || loadingInput ? "正在恢复精确选择…" : preview.pending ? "正在预览…" : "在视图区点击添加选择，再次点击取消；参数修改后自动预览。"}</small>
-   {inputError && <Alert type="error" title="无法取得上游输入" description={inputError}/>}
-   {(error ?? parameterError ?? preview.error) && <Alert type="error" title="特征求值失败" description={error ?? parameterError ?? preview.error}/>}
+   <small role="status">{!validRevision ? "模型已改变，请关闭并重新打开此命令" : binding || loadingInput ? "正在读取输入…" : preview.pending ? "正在预览…" : "在视图区点击添加选择，再次点击取消；参数修改后自动预览。"}</small>
+   {inputError && <Alert type="error" title="无法取得上游输入" description={engineeringProblem(inputError)}/>}
+   {(error ?? parameterError ?? preview.error) && <Alert type="error" title="特征求值失败" description={engineeringProblem(error ?? parameterError ?? preview.error)}/>}
    {preview.error && <Button onClick={preview.retry}>重新预览</Button>}
-{!!preview.failure && <DiagnosticCopy text={diagnosticReference(preview.failure,{documentId:view.document.id,versionId:view.document.versionId})}/>}
+
   </fieldset>
  </CommandDialog>;
 }

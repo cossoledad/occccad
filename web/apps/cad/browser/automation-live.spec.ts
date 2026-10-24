@@ -1,3 +1,4 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
 import {startAssistantProvider} from "./assistant-provider.fixture";
 import {worldScreen} from "./camera-helpers";
@@ -92,7 +93,7 @@ test("frozen edge selection and native fillet handoff keep exact intent across c
   const email=`handoff-${crypto.randomUUID()}@test.invalid`,password=`Fixture-${crypto.randomUUID()}`;
   expect((await page.request.post("/api/admin/users",{headers:{"X-CSRF-Token":await csrf()},data:{email,displayName:"AI 选区接管验收",password,status:"ACTIVE",platformRole:"MEMBER"}})).ok()).toBeTruthy();expect((await page.request.post("/api/auth/login",{data:{email,password}})).ok()).toBeTruthy();await page.goto("/");
   let seed=await createDocument(page,true);documents.push(seed.id);await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"建模助手",exact:true}).click();const panel=page.getByRole("complementary",{name:"建模助手"});await panel.getByLabel("API Key",{exact:true}).fill("synthetic-browser-assistant-key");await panel.getByRole("button",{name:"保存并连接",exact:true}).click();connected=true;
-  await expect(async()=>{await clickWorld(page,[10,0,10]);await expect(page.getByTestId("viewport-selection")).toContainText('"edge"',{timeout:1000})}).toPass({timeout:20_000});
+  await expect(async()=>{await clickWorld(page,[10,0,10]);await expectViewport(viewportProbe(page,"viewport-selection")).toContainText('"edge"',{timeout:1000})}).toPass({timeout:20_000});
   provider.holdNext();await panel.getByRole("textbox",{name:"建模需求",exact:true}).fill("给选中的边做 R1 圆角");await panel.getByRole("button",{name:"发送建模需求",exact:true}).click();await expect.poll(provider.blocked).toBeTruthy();const frozen=await currentRun(page,seed.id);expect(frozen.scope.selectionCount).toBe(1);expect(frozen.scope.complete).toBe(true);expect(frozen.scope.selections[0].selection.expectedType).toBe("EDGE");
   await clickWorld(page,[0,-10,10]);provider.release();await expect.poll(async()=>(await currentRun(page,seed.id)).status,{timeout:90_000}).toBe("COMPLETED");const applied=await currentDocument(page,seed.id);expect(applied.part.features.at(-1).selections).toHaveLength(1);expect(applied.part.features.at(-1).selections[0].selection).toEqual(frozen.scope.selections[0].selection);
   seed=await createDocument(page,true);documents.push(seed.id);await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"建模助手",exact:true}).click();await clickWorld(page,[10,0,10]);

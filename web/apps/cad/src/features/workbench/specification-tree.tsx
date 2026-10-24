@@ -1,3 +1,4 @@
+import {useOperationFeedback} from "../../cad/command/operation-feedback";
 import {structureMenu} from "./tree-context-menu";
 import {defaultTreeCommand} from "./tree-node-interaction";
 import {useOptionalCommandRegistry} from "../../cad/command/command-context";
@@ -5,7 +6,7 @@ import {builtinCatalog} from "../../cad/command/workbench-catalog";
 import {CadIcon} from "../../cad/overlay/cad-icons";
 import { SearchOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Dropdown, Input, message } from "antd";
+import { Dropdown, Input } from "antd";
 import { isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { selectionSetToken } from "../../cad/interaction/selection-identity";
 import type { DocumentStructureNode, InstancePath, Selection } from "../../types";
@@ -106,9 +107,10 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   onToggleVisibility?: (node: SpecificationTreeNode, scope: "DEFINITION" | "OCCURRENCE", mode?: "SHOW" | "HIDE" | "INHERIT") => void;
   onToggleSuppression?: (node: SpecificationTreeNode) => void;
 }) {
+  const feedback=useOperationFeedback();
   const registry=useOptionalCommandRegistry();
   const declaration=(id:string)=>registry?.declaration(id)??builtinCatalog.commands.find(command=>command.id===id);
-  const menuLabel=(id:string,variant="default",count=0)=>{const command=declaration(id);return (command?.labels?.[variant]??command?.name??id).replace("{count}",String(count));};
+  const menuLabel=(id:string,variant="default",count=0)=>{const command=declaration(id);return (command?.labels?.[variant]??command?.name??"操作").replace("{count}",String(count));};
   const menuIcon=(id:string)=><ContextMenuIcon><CadIcon name={declaration(id)?.iconKey??""}/></ContextMenuIcon>;
   const [savedTree, setSavedTree] = useDocumentState(documentSessions, hostDocumentId, treeState, () => ({ query: "", expanded: [], knownBranches: [] }));
   const query = savedTree.query;
@@ -298,7 +300,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
             visibility ? {key:"visibility",icon:menuIcon("tree.visibility"),label:menuLabel("tree.visibility",visibility.label),
               onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,visibility.scope,visibility.mode);}} : null,
             node.kind==="PARAMETER"&&node.parameterAlias ? {key:"copy-alias",icon:menuIcon('tree.copy-alias'),label:menuLabel('tree.copy-alias'),onClick:()=>{
-              setContextMenu(undefined);void registry?.execute("tree.copy-alias",{payload:{node}}).catch(error=>message.error(String(error)));
+              setContextMenu(undefined);void registry?.execute("tree.copy-alias",{payload:{node}}).catch(error=>feedback(error,"复制参数别名"));
             }} : null,
             node.capabilities?.includes("SUPPRESS") ? { key: "suppress", icon: menuIcon('tree.suppression'),
               label: menuLabel('tree.suppression',node.suppressed?'off':'on'),

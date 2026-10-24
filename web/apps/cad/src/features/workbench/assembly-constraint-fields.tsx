@@ -1,7 +1,8 @@
+import {engineeringLabel} from "../../cad/presentation/engineering-text";
+import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {Alert, Button, Form, Input, Select, Switch, Tag, Typography} from "antd";
 import type {AssemblyConstraint, AssemblyGeometryRef, AssemblyGroupMember, CommandPreview, DocumentView} from "../../types";
 import {CadNumberInput as InputNumber} from "../../cad/overlay/cad-number-input";
-import {DiagnosticCopy, diagnosticReference} from "../../cad/command/diagnostic-copy";
 import {AssemblyGroupMemberList} from "./assembly-group-member-list";
 import {angleRelationSupportsMeasured} from "../../cad/assembly/assembly-angle";
 import {derivedSupportOptions} from "../../cad/assembly/assembly-capability";
@@ -46,12 +47,12 @@ export function AssemblyConstraintFields({ kind, references, exactTypes, sourceT
   const directionApplicable = relation === "PARALLEL" || relation === "PERPENDICULAR" || (kind !== "ANGLE" && definition.direction && planePair);
   const distanceDirectionApplicable = definition.distanceDirection && !!exactTypes?.includes("PLANE");
   return <>
-    {kind !== "FIX_TOGETHER" && <Typography.Text type="secondary">精确支持：{exactTypes?.join(" → ") || "待服务器解析；拾取面/边不代表平面/直线"}</Typography.Text>}
+    {kind !== "FIX_TOGETHER" && <Typography.Text type="secondary">所选支撑：{exactTypes?.map(type=>engineeringLabel(type,"几何元素")).join(" / ") || "请选择几何元素"}</Typography.Text>}
     {kind === "CONTACT" && <>
-      <Form.Item name="contactKind" label="接触集合" rules={[{required:true}]}><Select onChange={onValueCommit} options={[...new Set(contactCapabilities?.map(c=>c.subtype.split("-").at(-1)?.toUpperCase()))].filter(Boolean).map(value=>({value,label:value}))}/></Form.Item>
-      <Form.Item name="contactSide" label="材料侧" rules={[{required:true}]}><Select onChange={onValueCommit} options={[{value:"EXTERNAL",label:"External（外法向相反）"},{value:"INTERNAL",label:"Internal（外法向相同）"}]}/></Form.Item>
+      <Form.Item name="contactKind" label="接触集合" rules={[{required:true}]}><Select onChange={onValueCommit} options={[...new Set(contactCapabilities?.map(c=>c.subtype.split("-").at(-1)?.toUpperCase()))].filter(Boolean).map(value=>({value,label:engineeringLabel(value,"接触关系")}))}/></Form.Item>
+      <Form.Item name="contactSide" label="材料侧" rules={[{required:true}]}><Select onChange={onValueCommit} options={[{value:"EXTERNAL",label:"外接触"},{value:"INTERNAL",label:"内接触"}]}/></Form.Item>
       <Form.Item name="contactBranch" label="定向分支" rules={[{required:true}]}><Select onChange={onValueCommit} options={[{value:1,label:"正分支"},{value:-1,label:"负分支"}]}/></Form.Item>
-      {!contactCapabilities?.length && <Alert type="warning" message="此精确支持组合不在 Contact 合同内"/>}
+      {!contactCapabilities?.length && <Alert type="warning" message="所选几何不支持此接触关系"/>}
     </>}
     {kind === "FIX_TOGETHER" && <>
       <Form.Item name="groupMembers" label="成员" rules={[{required:true,type:"array",min:1}]}><AssemblyGroupMemberList view={view} replacing={replacingMember} onReplace={onReplaceMember} onLocate={onLocateMember}/></Form.Item>
@@ -59,8 +60,8 @@ export function AssemblyConstraintFields({ kind, references, exactTypes, sourceT
     <div className={`assembly-constraint-status status-${evaluationStatus.toLowerCase()}`} role="status"
       aria-label={`Constraint status ${status.label}`}>
       <span className="assembly-status-light" style={{ background: status.color }} />
-      <span><strong>{status.label}</strong><small>{previewEvaluation?.summary ?? (dirty ? "定义已修改，等待权威预览。" : constraint?.evaluationSummary ?? status.description)}</small></span>
-      <div className="assembly-status-actions">{(previewEvaluation?.failure??(!dirty?constraint?.evaluationFailure:undefined))&&<DiagnosticCopy text={diagnosticReference(previewEvaluation?.failure??constraint?.evaluationFailure)}/>}
+      <span><strong>{status.label}</strong><small>{dirty?"定义已修改，请预览后确认。":status.description}</small></span>
+      <div className="assembly-status-actions">
       {constraint && evaluationStatus !== "VERIFIED" && !dirty && <Button size="small" onClick={onRefresh}>重新计算</Button>}</div>
     </div>
     {definition.supports > 0 && <div className="assembly-support-list"><strong>支持元素</strong>{references.slice(0, definition.supports).map((reference,index)=><div className="assembly-support-row" key={index}>
@@ -70,18 +71,18 @@ export function AssemblyConstraintFields({ kind, references, exactTypes, sourceT
         <span className={`assembly-support-index status-${support.status.toLowerCase()}`}>{index+1}</span>
         {(() => { const presentation = describeAssemblyReference(reference, view); return <span className="assembly-support-detail">
           <strong>{presentation.primary}</strong><small>{presentation.secondary}</small>
-          <small><Tag color={support.status === "CONNECTED" ? "success" : "error"}>{support.label}</Tag>
-            {presentation.publication && <Tag color="blue">Publication</Tag>}
-            {support.diagnosticCode && <span>{support.diagnosticCode}</span>}</small>
-          {support.diagnostic && <small title={support.evidenceDigest}>{support.diagnostic}</small>}
+          <small><Tag color={support.status === "CONNECTED" ? "success" : "error"}>{support.status==="CONNECTED"?"有效":"需要重新选择"}</Tag>
+            {presentation.publication && <Tag color="blue">发布引用</Tag>}
+            </small>
+          {support.diagnostic && <small>{engineeringProblem({code:support.diagnosticCode,message:support.diagnostic})}</small>}
         </span>; })()}
         <div className="assembly-support-actions">
           <Button size="small" disabled={!reference} onClick={()=>reference&&onLocate(reference)}>定位</Button>
           <Button size="small" type={replacing===index?"primary":"default"} onClick={()=>onReplace(index as 0|1)}>
-            {support.status === "NOT_CONNECTED" ? "Reconnect" : "更换"}</Button>
+            {support.status === "NOT_CONNECTED" ? "重新选择" : "更换"}</Button>
         </div>
         {reference && derivedSupportOptions(sourceTypes?.[index]).length>0 && <div className="assembly-support-options">
-          <span>精确子元素</span><Select aria-label={`支持元素 ${index+1} 的精确子元素`}
+          <span>支撑类型</span><Select aria-label={`支持元素 ${index+1} 的支撑类型`}
           value={reference.derivedRole??""} options={derivedSupportOptions(sourceTypes?.[index])} onChange={role=>onDerive(index as 0|1,role)}/>
         </div>}
       </>; })()}</div>)}</div>}
@@ -118,5 +119,3 @@ export function AssemblyConstraintFields({ kind, references, exactTypes, sourceT
         onBlur={onValueCommit} onPressEnter={(event)=>event.currentTarget.blur()} /></Form.Item>}
   </>;
 }
-
-

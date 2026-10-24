@@ -32,22 +32,22 @@ function describe(f:AssemblyBodyFreedom):string {
  default:return "组合运动";
  }
 }
-export function motionPresentations(view:DocumentView|undefined,evidence?:AssemblyEngineeringEvidence,ownerOccurrence=""):MotionPresentation[]{
+export function motionPresentations(view:DocumentView|undefined,evidence?:AssemblyEngineeringEvidence,ownerOccurrence="",namesView=view):MotionPresentation[]{
  if(!view)return [];
  const revisionId=view.document.versionId,documentId=view.document.id;
  const current=evidence?.documentId===documentId&&evidence.revisionId===revisionId;
  const components=new Map(evidence?.components.flatMap(c=>c.bodyIds.map(id=>[id,c] as const))??[]);
  const freedoms=new Map(evidence?.components.flatMap(c=>c.freedoms.map(f=>[f.bodyId,f] as const))??[]);
  return (view.product?.instances??[]).map(i=>{
-  const row:MotionPresentation={id:`${documentId}/${ownerOccurrence}/${i.id}`,bodyId:i.id,documentId,revisionId,ownerOccurrence,name:engineeringInstanceName(view,i.id),reference:"尚无参考证据",description:"此版本暂无运动证据",status:"待计算",scope:[],gaugeDof:0,frame:"OWNING_PRODUCT",unit:"mm"};
+  const row:MotionPresentation={id:`${documentId}/${ownerOccurrence}/${i.id}`,bodyId:i.id,documentId,revisionId,ownerOccurrence,name:engineeringInstanceName(namesView,i.id),reference:"待分析",description:"尚未确定运动状态",status:"待计算",scope:[],gaugeDof:0,frame:"OWNING_PRODUCT",unit:"mm"};
   if(evidence&&!current)return {...row,status:"结果已失效",description:"结果已失效"};
   const c=components.get(i.id),f=freedoms.get(i.id);
-  if(!current||!evidence?.available||!c||!c.solved||!f||evidence.coordinateFrame!=="OWNING_PRODUCT"||evidence.lengthUnit!=="mm"||!evidence.referenceSemantics)return {...row,description:c&&!c.solved?"所在范围尚未求解":c?"参考语义尚未确认":"此版本未覆盖该组件"};
+  if(!current||!evidence?.available||!c||!c.solved||!f||evidence.coordinateFrame!=="OWNING_PRODUCT"||evidence.lengthUnit!=="mm"||!evidence.referenceSemantics)return {...row,description:c&&!c.solved?"所在范围尚未求解":c?"当前结果不足以确定运动":"该零件尚未完成分析"};
   row.scope=c.bodyIds;row.gaugeDof=c.gaugeDof;
   const relative=evidence.referenceSemantics==="STATIC_RELATIVE"&&c.gaugeDof>0;
-  if(relative&&(!f.relativeToBodyId||!c.bodyIds.includes(f.relativeToBodyId)))return {...row,description:"参考对象证据不足"};
+  if(relative&&(!f.relativeToBodyId||!c.bodyIds.includes(f.relativeToBodyId)))return {...row,description:"参考零件尚未确定"};
   row.reference=relative?"连通组件（整体可动）":"当前装配框架";
-  if(relative&&f.relativeToBodyId&&f.relativeToBodyId!==i.id)row.reference=engineeringInstanceName(view,f.relativeToBodyId);
+  if(relative&&f.relativeToBodyId&&f.relativeToBodyId!==i.id)row.reference=engineeringInstanceName(namesView,f.relativeToBodyId);
   // The numerical anchor has zero *relative* motion. It is not a ground.
   if(relative&&f.relativeToBodyId===i.id)return {...row,freedom:f,status:"可运动",description:"随连通组件整体移动和旋转"};
   row.freedom=f;row.description=describe(f);row.status=f.kind===0&&!relative?"已定位":"可运动";

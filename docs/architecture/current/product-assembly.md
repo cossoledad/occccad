@@ -78,7 +78,7 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 静态证据相对数值锚点，gauge 独立；交互证据是含整体运动的物理子空间。数值锚点不是 ground；未接地固联组组内刚性、整体可动。表格、详情、按需标记共享 MotionPresentation；方向是 owning Product 坐标，偏置轴不称为世界轴，瞬时自由度不等于关节、有限行程或极限。关闭/选中变化/版本变化清理标记，不参与持久几何或约束。
 
-剩余运动行选择自动显示有效方向；详情直接列出参考对象、平移方向、轴方向/位置和有意义的螺距，长度跟随工作台单位。显示副本以毫米尺度消除 1e-12 以下噪声，不修改原始证据或分类。analysis-guides 拥有独占几何/材质，在模型之后独立清深度覆盖绘制；箭头 64 CSS px、线宽 2 CSS px，正交/透视 zoom、resize 与 DPR 更新仅改变变换或 uniform。标记不参与模型包围盒、拾取、BVH、导出或历史。
+剩余运动行选择自动显示有效方向；详情直接列出参考对象、平移方向、轴方向/位置和有意义的螺距，长度跟随工作台单位。显示副本以毫米尺度消除 1e-12 以下噪声，不修改原始证据或分类。analysis-guides 拥有独占几何/材质，在模型之后独立清深度覆盖绘制；平移箭头 64 CSS px，旋转弧箭头位于真实轴线处，线宽 2 CSS px，正交/透视 zoom、resize 与 DPR 更新仅改变变换或 uniform。标记不参与模型包围盒、拾取、BVH、导出或历史。
 
 入口：[只读刷新与证据门](../../../services/internal/workspace/assembly_engineering_refresh.go)、[当前页签](../../../web/apps/cad/src/features/workbench/assembly-conflict-panel.tsx)。回归：[真实 Router/Worker](../../../services/internal/control/assembly_engineering_refresh_integration_test.go)、[浏览器与 Viewer](../../../web/apps/cad/browser/assembly-engineering-live.spec.ts)。
 
@@ -107,9 +107,9 @@ SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence
 
 ### 装配失败诊断与最小重放
 
-装配试算失败经现有 operation diagnostic repository 记录不可变 Product 基线/候选、来源 Revision、排除约束集合及精确数字重放。admission 隔离为 NotUpdated 的定义仍携带 `evaluationFailure.diagnosticId`，预览和属性面板复用 DiagnosticCopy；失败位姿不能进入已接纳集合。整体/相对 DOF 对应已接纳求解集合，不能用它替代被隔离试算的收敛证据。
+装配试算失败经现有 operation diagnostic repository 记录不可变 Product 基线/候选、来源 Revision、排除约束集合及精确数字重放。admission 隔离为 NotUpdated 的定义仍携带 `evaluationFailure.diagnosticId`，普通预览显示工程问题与恢复动作，原始失败信息集中到属性面板默认收起的开发区；失败位姿不能进入已接纳集合。整体/相对 DOF 对应已接纳求解集合，不能用它替代被隔离试算的收敛证据。
 
-DEBUG Tab 分别注册 `debug.part` 与 `debug.assembly`，各自调用独立诊断入口。装配下载 `GET /api/documents/{id}/assembly-diagnostic` 只读冻结当前 Head，输出 `occccad.assembly-diagnostic.v2`：全部原始定义/评价/停用/测量状态与来源表、精确 body-local 几何/数值约束表、当前姿态/初值/profile/参与集合、组阶段和递归来源 Revision/Part Body 身份。默认不附带完整 Part 模型历史；`?naming=true` 按需附加去重 Naming 证据。解析失败逐约束记录端点/阶段，其他可解析数据继续导出，不造假几何。导出不求解、不写 Revision/历史/暖启动。
+正常工作台不再显示 DEBUG 页签；开发信息统一从属性面板按需展开。现有后端诊断入口继续保留。装配下载 `GET /api/documents/{id}/assembly-diagnostic` 只读冻结当前 Head，输出 `occccad.assembly-diagnostic.v2`：全部原始定义/评价/停用/测量状态与来源表、精确 body-local 几何/数值约束表、当前姿态/初值/profile/参与集合、组阶段和递归来源 Revision/Part Body 身份。默认不附带完整 Part 模型历史；`?naming=true` 按需附加去重 Naming 证据。解析失败逐约束记录端点/阶段，其他可解析数据继续导出，不造假几何。导出不求解、不写 Revision/历史/暖启动。
 
 NotUpdated 通过 `evaluationFailure.diagnosticId` 关联归档的真实失败输入：实际 RPC 顺序、组阶段初始姿态/initialGuess、参与集合、有效配置、分支/意图、预算、结果/错误及实现 fingerprint。缺失或裁剪的历史显式标记，当前状态不能冒充原现场。数值捕获/导出限 8 MiB，操作序列限 4 MiB/32 帧，异步队列限 32 MiB；可选轨迹/矩阵采集有独立上限，落盘失败不破坏正式操作。
 

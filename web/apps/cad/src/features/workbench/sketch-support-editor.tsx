@@ -1,3 +1,5 @@
+import {recordDeveloperEvidence} from "../../cad/command/developer-evidence";
+import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {Alert,Button} from "antd";
 import {useEffect,useRef,useState} from "react";
 import {api} from "../../api/client";
@@ -23,7 +25,7 @@ export function SketchSupportEditor({view,feature,occurrencePath,occurrenceConte
   // An unavailable independent Body must not hide other legal input stages.
   void Promise.allSettled(view.part!.bodies.map(body=>api.getFeatureInput(view.document.id,{versionId:revision.current,featureId:feature.id,bodyId:body.id},controller.signal))).then(results=>{
    if(!alive)return;const artifacts:Artifact[]=[],errors:string[]=[];
-   results.forEach((r,i)=>{if(r.status==="fulfilled")artifacts.push(...(r.value.artifacts??[]));else errors.push(`${view.part!.bodies[i].name}: ${String(r.reason)}`)});
+   results.forEach((r,i)=>{if(r.status==="fulfilled")artifacts.push(...(r.value.artifacts??[]));else {recordDeveloperEvidence("草图支撑",r.reason);errors.push(`${view.part!.bodies[i].name}：${engineeringProblem(r.reason)}`)}});
    setInputs(artifacts);setSourceErrors(errors);callbacks.current.onInputs(artifacts);
   });
   return()=>{alive=false;controller.abort();callbacks.current.onInputs();callbacks.current.onSelectionSession();callbacks.current.onFrame();};
@@ -43,14 +45,14 @@ export function SketchSupportEditor({view,feature,occurrencePath,occurrenceConte
  const commit=async()=>{if(!input||!preview.previewId||preview.pending||busy)return;setBusy(true);try{await onApply({...input,previewId:preview.previewId});onClose()}catch(e){setError(String(e));setBusy(false)}};
  return <CommandDialog id="sketch-support-editor" open title="更换草图支撑" size="S" onClose={onClose} onConfirm={commit} confirmLoading={busy} confirmDisabled={!current||!input||!preview.previewId||preview.pending||busy}>
   <fieldset disabled={busy} className="feature-input-fields">
-   <p>保留局部二维设计，随新支撑移动。实体、尺寸、约束和区域选择保持原身份；关联外部几何重新投影、求解。</p>
-   {feature.sketch?.support.status==="FAILED_SUPPORT"&&<Alert type="warning" title="原草图支撑已失效" description={feature.sketch.support.diagnostic??feature.sketch.support.diagnosticCode}/>}
+   <p>草图随新支撑移动，保留尺寸和约束；关联几何按新位置更新。</p>
+   {feature.sketch?.support.status==="FAILED_SUPPORT"&&<Alert type="warning" title="原草图支撑已失效" description="请在视图区选择新的支撑面。"/>}
    <FeaturePickField label="新支撑" value={chosen?.kind==="plane"?view.part?.datumPlanes.find(p=>p.id===(chosen.datumPlane?.id??chosen.entityId??chosen.id))?.name??"已选基准面":chosen?"已选上游实体平面":"在视图区或结构树选择基准面、上游平面"} active onActivate={()=>{}} onClear={chosen?()=>setChosen(undefined):undefined}/>
    {plane&&<small>法向 [{plane.normal.map(n=>Number(n.toFixed(4))).join(", ")}]；X 方向 [{plane.uDirection.map(n=>Number(n.toFixed(4))).join(", ")}]</small>}
    {!current&&<Alert type="warning" title="模型版本已改变，请关闭并重新进入"/>}
    {sourceErrors.map((message,i)=><Alert key={i} type="error" title="部分上游几何不可用" description={message}/>)}
-   {(error??preview.error)&&<Alert type="error" title="支撑重指定失败" description={error??preview.error}/>}
-   <small role="status">{preview.pending?"正在验证支撑并预览位置…":"只能选择目标草图之前的合法支撑。取消不会写入模型历史。"}</small>
+   {(error??preview.error)&&<Alert type="error" title="支撑重指定失败" description={engineeringProblem(error??preview.error)}/>}
+   <small role="status">{preview.pending?"正在验证支撑并预览位置…":"请选择草图之前的支撑面，预览位置和方向后确认。"}</small>
    {preview.error&&<Button onClick={preview.retry}>重新预览</Button>}
   </fieldset>
  </CommandDialog>;

@@ -1,3 +1,5 @@
+import {engineeringProblem} from "../command/operation-failure";
+import {recordDeveloperEvidence} from "../command/developer-evidence";
 import {isExternalProjectionSource} from "../interaction/external-projection-selection";
 import type { SketchCommandState, SketchCommitIntent, SketchCommitResult } from "./sketch-command-session";
 import { dimensionDefinitionOperation, dimensionDisplayValue, SketchDimensionCommitSession } from "../sketch/sketch-dimension-editor";
@@ -210,9 +212,9 @@ export class SelectTool implements CadTool {
       const current=()=>generation===this.deletionGeneration&&owner()===submittedOwner;
       try {
         const result=context.viewport.commitSketchOperations(operations);
-        if(result&&typeof result.then==="function")void result.then(()=>{if(current())context.viewport.setToolPrompt("删除已完成");},error=>{if(current())context.viewport.setToolPrompt(`删除未完成：${error instanceof Error?error.message:String(error)}`);}).finally(()=>{this.deletionPending=false;});
+        if(result&&typeof result.then==="function")void result.then(()=>{if(current())context.viewport.setToolPrompt("删除已完成");},error=>{if(current())context.viewport.setToolPrompt(`删除未完成：${engineeringProblem(error)}`);}).finally(()=>{this.deletionPending=false;});
         else this.deletionPending=false;
-      } catch(error){this.deletionPending=false;context.viewport.setToolPrompt(`删除未完成：${error instanceof Error?error.message:String(error)}`);}
+      } catch(error){this.deletionPending=false;context.viewport.setToolPrompt(`删除未完成：${engineeringProblem(error)}`);}
       return InputResult.Consumed;
     }
     return InputResult.Ignored;
@@ -232,7 +234,7 @@ export class ProjectExternalGeometrySketchTool implements CadTool {
     const generation=++this.generation;this.pending=true;
     const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath]);};const initialOwner=owner();
     const accepted=()=>{if(generation!==this.generation)return;if(owner()!==initialOwner){this.cancel(context);return;}this.pending=false;this.draft=undefined;context.viewport.finishToolUse();};
-    const failed=(error:unknown)=>{if(generation!==this.generation)return;if(owner()!==initialOwner){this.cancel(context);return;}this.pending=sketchCommitResultUnknown(error);context.viewport.setToolPrompt(`${this.pending?"投影结果待确认；请查询原提交结果或取消":"投影失败；保留已选引用，Enter 重试或重新选择"}：${error instanceof Error?error.message:String(error)}`);};
+    const failed=(error:unknown)=>{if(generation!==this.generation)return;if(owner()!==initialOwner){this.cancel(context);return;}this.pending=sketchCommitResultUnknown(error);context.viewport.setToolPrompt(`${this.pending?"投影结果待确认；请查询原提交结果或取消":"投影失败；保留已选引用，Enter 重试或重新选择"}：${engineeringProblem(error)}`);};
     try{const result=context.viewport.commitExternalProjection(this.draft);if(result&&typeof result.then==="function")void Promise.resolve(result).then(accepted,failed);else accepted();}catch(error){failed(error);}
   }
   selectionInput(selections:readonly SelectionItem[],context:ToolContext,source:SelectionInputSource="selection"):SelectionInputResult {
@@ -379,7 +381,7 @@ abstract class SketchCreationTool implements CadTool {
       finishToolUse:()=>{},
     }};
     const success=()=>{if(generation!==this.creationGeneration)return;if(owner()!==submissionOwner){this.cancel(context);return;}this.creationPending=false;accepted();context.viewport.finishToolUse(exit);};
-    const failure=(error:unknown)=>{if(generation!==this.creationGeneration)return;if(owner()!==submissionOwner){this.cancel(context);return;}this.creationPending=sketchCommitResultUnknown(error);context.viewport.clearToolPreview();context.viewport.setToolPrompt(`${this.creationPending?"创建结果待确认；请查询原提交结果或取消":"创建失败；保留当前输入，可修改后重试"}：${error instanceof Error?error.message:String(error)}`);};
+    const failure=(error:unknown)=>{if(generation!==this.creationGeneration)return;if(owner()!==submissionOwner){this.cancel(context);return;}this.creationPending=sketchCommitResultUnknown(error);context.viewport.clearToolPreview();context.viewport.setToolPrompt(`${this.creationPending?"创建结果待确认；请查询原提交结果或取消":"创建失败；保留当前输入，可修改后重试"}：${engineeringProblem(error)}`);};
     try{invoke(submission);if(promises.length)void Promise.all(promises).then(success,failure);else success();}catch(error){failure(error);}
   }
 
@@ -602,7 +604,7 @@ export class RegularPolygonSketchTool extends SketchCreationTool {
   const operation:SketchOperation={type:"CREATE_POLYGON",operationId:this.operationId!,point:{x:this.center[0],y:this.center[1]},value:Math.hypot(this.edge[0]-this.center[0],this.edge[1]-this.center[1]),angle:Math.atan2(this.edge[1]-this.center[1],this.edge[0]-this.center[0]),sides,mode:this.mode,role:this.role,firstReference:this.centerSnap};
   this.phase="committing";this.publish(context);
   const owner=this.operationId;
-  this.submitCreation(context,submission=>{const result=submission.viewport.commitSketchOperations([operation]);if(result&&typeof result.then==="function")void result.catch(error=>{if(owner!==this.operationId)return;this.phase=sketchCommitResultUnknown(error)?"unknown":"failed";this.error=error instanceof Error?error.message:String(error);this.publish(context);});},()=>{this.stage="center";this.center=undefined;this.edge=undefined;this.centerSnap=undefined;this.operationId=undefined;this.error=undefined;this.phase="selection";this.publish(context);});
+  this.submitCreation(context,submission=>{const result=submission.viewport.commitSketchOperations([operation]);if(result&&typeof result.then==="function")void result.catch(error=>{if(owner!==this.operationId)return;this.phase=sketchCommitResultUnknown(error)?"unknown":"failed";recordDeveloperEvidence("草图编辑失败",error);this.error=engineeringProblem(error);this.publish(context);});},()=>{this.stage="center";this.center=undefined;this.edge=undefined;this.centerSnap=undefined;this.operationId=undefined;this.error=undefined;this.phase="selection";this.publish(context);});
  }
  commandAction(action:import("./sketch-command-session").SketchCommandAction,context:ToolContext):void{
   if(action.type==="cancel"){this.cancel(context);context.viewport.finishToolUse(true);return;}if(this.creationPending)return;
@@ -1289,7 +1291,7 @@ export class ConstraintSketchTool implements CadTool {
     this.phase={step:"COMMITTING",references:this.references};this.error=undefined;const generation=++this.generation;
     context.viewport.clearReferencePreview();this.publish(context);
     const accepted=()=>{if(generation!==this.generation)return;this.cancel(context);context.viewport.finishToolUse();};
-    const failed=(error:unknown)=>{if(generation!==this.generation)return;const unknown=sketchCommitResultUnknown(error);this.phase={step:unknown?"UNKNOWN":"FAILED",references:this.references};if(!unknown)this.requestID=undefined;this.error=error instanceof Error?error.message:String(error);this.publish(context);context.viewport.setToolPrompt(this.error);};
+    const failed=(error:unknown)=>{if(generation!==this.generation)return;const unknown=sketchCommitResultUnknown(error);this.phase={step:unknown?"UNKNOWN":"FAILED",references:this.references};if(!unknown)this.requestID=undefined;recordDeveloperEvidence("草图编辑失败",error);this.error=engineeringProblem(error);this.publish(context);context.viewport.setToolPrompt(engineeringProblem(this.error));};
     try {const result=context.viewport.commitSketchOperations([this.pendingOperation],{requestId:this.requestID??=randomUUID(),baseVersionId:this.baseVersionID,retryReceipt:receiptRetry});
       if(result&&typeof result.then==="function")void result.then(accepted,failed);else accepted();
     }catch(error){failed(error);}
@@ -1431,12 +1433,12 @@ export class LinearDimensionSketchTool implements CadTool {
     const current=context.viewport.currentSketchIdentity?.();
     if(!retry&&this.scope&&JSON.stringify(this.scope)!==JSON.stringify(current)){this.error="草图版本或上下文已变，请取消后重新选择";this.publish(context);return;}
     const phase=this.phase;let operation:SketchOperation;
-    try{operation=dimensionDefinitionOperation({id:phase.constraintId,kind:phase.kind,references:[...phase.references],unit:"mm",value:phase.value,labelPosition:{x:phase.position[0],y:phase.position[1]}},undefined,this.source,"","",false,"ORIGINAL",this.unit);}catch(error){this.error=error instanceof Error?error.message:String(error);this.publish(context);return;}
+    try{operation=dimensionDefinitionOperation({id:phase.constraintId,kind:phase.kind,references:[...phase.references],unit:"mm",value:phase.value,labelPosition:{x:phase.position[0],y:phase.position[1]}},undefined,this.source,"","",false,"ORIGINAL",this.unit);}catch(error){recordDeveloperEvidence("草图编辑失败",error);this.error=engineeringProblem(error);this.publish(context);return;}
     const owner=JSON.stringify([this.scope?.documentId,this.scope?.sketchId,this.scope?.occurrencePath]);
     const generation=++this.generation;this.status="committing";this.error=undefined;this.publish(context);
     void this.session.submit([operation],this.scope?.versionId??current?.versionId??"",async(ops,intent)=>context.viewport.commitSketchOperations(ops,intent)).then(()=>{
       if(generation!==this.generation)return;const scope=context.viewport.currentSketchIdentity?.();if(owner!==JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath])){this.cancel(context);this.publish(context);return;}this.cancel(context);context.viewport.finishToolUse();
-    },error=>{if(generation!==this.generation)return;const scope=context.viewport.currentSketchIdentity?.();if(owner!==JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath])){this.cancel(context);this.publish(context);return;}this.status=this.session.unknown?"unknown":"failed";this.error=error instanceof Error?error.message:String(error);this.publish(context);});
+    },error=>{if(generation!==this.generation)return;const scope=context.viewport.currentSketchIdentity?.();if(owner!==JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath])){this.cancel(context);this.publish(context);return;}this.status=this.session.unknown?"unknown":"failed";recordDeveloperEvidence("草图编辑失败",error);this.error=engineeringProblem(error);this.publish(context);});
   }
   commandAction(action:SketchCommandAction,context:ToolContext):void {
     if(action.type==="placement"&&this.phase.step==="VALUE"&&this.status!=="committing"&&this.status!=="unknown"){

@@ -130,9 +130,9 @@ test("paged component browser, folder breadcrumbs, insertion recovery and histor
     const parent = await api.createFolder("Standard Components", "");
     const child = await api.createFolder("Fasteners", "", parent.id);
     await Promise.all(Array.from({ length: 15 }, (_, index) => api.createDocument("PART", `Fixture ${String(index).padStart(2, "0")}`, "Browser fixture", child.id)));
-    const insert = api.insert;
+    const insert = api.insertMany;
     let rejectOnce = true;
-    api.insert = async (...args: Parameters<typeof insert>) => {
+    api.insertMany = async (...args: Parameters<typeof insert>) => {
       if (rejectOnce) { rejectOnce = false; throw new Error("插入服务暂时不可用，请重试"); }
       return insert(...args);
     };
@@ -156,21 +156,21 @@ test("paged component browser, folder breadcrumbs, insertion recovery and histor
   await dialog.getByRole("button", { name: "全部文档", exact: true }).click();
   await search.fill("Mounting");
   await dialog.getByRole("button", { name: "选择 Mounting Bracket", exact: true }).click();
-  await dialog.getByRole("button", { name: "插入组件", exact: true }).click();
-  await expect(dialog).toContainText("插入服务暂时不可用");
+  await dialog.getByRole("button", { name: /确\s*定/ }).click();
+  await expect(dialog).toContainText("插入失败");
   await expect(dialog.getByRole("button", { name: "选择 Mounting Bracket", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await dialog.getByRole("button", { name: "插入组件", exact: true }).click();
+  await dialog.getByRole("button", { name: /确\s*定/ }).click();
   await expect(dialog).toHaveCount(0);
   const instanceCount = () => page.evaluate(async () => (await (await import("/src/api/client.ts")).api.getDocument("mock-product-frame")).product!.instances.length);
-  await expect.poll(instanceCount).toBe(3);
+  await expect.poll(instanceCount).toBe(4);
   await page.locator(".workbench-status").click();
   await page.keyboard.press("Control+z");
   await expect.poll(instanceCount).toBe(2);
   await page.keyboard.press("Control+y");
-  await expect.poll(instanceCount).toBe(3);
+  await expect.poll(instanceCount).toBe(4);
   const filter = page.getByRole("textbox", { name: "筛选模型结构" });
   await filter.focus(); await page.keyboard.type("testing"); await page.keyboard.press("Control+z");
-  await expect.poll(instanceCount).toBe(3);
+  await expect.poll(instanceCount).toBe(4);
   await filter.fill(""); await page.locator(".workbench-status").click();
   await page.keyboard.press("Control+k");
   await expect(page.getByRole("dialog", { name: "搜索工具", exact: true })).toBeVisible();

@@ -1,62 +1,85 @@
-import {useEffect,useRef,useState} from 'react';
-import {Alert,Button,Select,Space,Table} from 'antd';
+import {useEffect,useMemo,useRef,useState} from 'react';
+import {useQueryClient} from '@tanstack/react-query';
+import {Alert,Button,Empty,Select,Space,Table,Tag,Typography} from 'antd';
 import {api} from '../../api/client';
 import type {DocumentView,SelectionItem} from '../../types';
 import type {Mechanism} from '../../cad/assembly/motion-study';
-import {mechanismAnalysisCSV,type MechanismAnalysis} from '../../cad/assembly/mechanism-analysis';
+import type {MechanismAnalysis} from '../../cad/assembly/mechanism-analysis';
 import {motionPresentations,type MotionPresentation} from '../../cad/assembly/motion-presentation';
-import {jointDefinitions} from '../../cad/assembly/joint-definitions';
-import {FloatingPanel} from '../../cad/overlay/floating-panel';
+import {engineeringInstanceName} from '../../cad/assembly/assembly-engineering-state';
+import {describeAssemblyReference} from '../../cad/assembly/assembly-reference-presentation';
+import {engineeringLabel} from '../../cad/presentation/engineering-text';
+import {engineeringProblem} from '../../cad/command/operation-feedback';
+import {recordDeveloperEvidence} from '../../cad/command/developer-evidence';
+import {CommandDialog} from '../../cad/overlay/floating-panel';
 
-type Props={view:DocumentView;currentId?:string;canEdit:boolean;onClose:()=>void;onLocate:(items:SelectionItem[])=>void;onRepair:(mechanismId:string,jointId:string)=>void;onShow:(mechanism?:Mechanism,report?:MechanismAnalysis,jointId?:string)=>boolean;onMotion:(motion?:MotionPresentation)=>void};
-export function MechanismAnalysisPanel({view,currentId,canEdit,onClose,onLocate,onRepair,onShow,onMotion}:Props){
- const mechanisms=view.product?.kinematics?.mechanisms??[];
+type Props={view:DocumentView;currentId?:string;selection?:SelectionItem|null;canEdit:boolean;onClose:()=>void;onLocate:(items:SelectionItem[])=>void;onRepair:(mechanismId:string,jointId:string)=>void;onShow:(mechanism?:Mechanism,report?:MechanismAnalysis,jointId?:string)=>boolean;onMotion:(motion?:MotionPresentation)=>void};
+export function MechanismAnalysisPanel({view,currentId,selection,canEdit,onClose,onLocate,onRepair,onShow,onMotion}:Props){
+ const client=useQueryClient(),mechanisms=view.product?.kinematics?.mechanisms??[];
  const [id,setId]=useState(()=>currentId??(mechanisms.length===1?mechanisms[0].id:undefined));
- const [report,setReport]=useState<MechanismAnalysis>(),[status,setStatus]=useState('待检查'),[error,setError]=useState<string>(),[selected,setSelected]=useState<string>(),[mismatch,setMismatch]=useState(false);
+ const [report,setReport]=useState<MechanismAnalysis>(),[status,setStatus]=useState('待分析'),[error,setError]=useState<string>(),[selected,setSelected]=useState<string>(),[mismatch,setMismatch]=useState(false);
+ const cleanup=useRef<{timer:ReturnType<typeof setTimeout>;key:unknown[]}|undefined>(undefined);
  const controller=useRef<AbortController|undefined>(undefined),generation=useRef(0),context=useRef('');
  context.current=JSON.stringify([view.document.id,view.document.versionId,id]);
  const callbacks=useRef({onShow,onMotion});callbacks.current={onShow,onMotion};
- const cancel=()=>{generation.current++;controller.current?.abort();setStatus('已取消');callbacks.current.onShow();callbacks.current.onMotion()};
- const analyze=async(numerical:boolean)=>{
-  if(!id)return;
+ const clear=()=>{callbacks.current.onShow();callbacks.current.onMotion()};
+ const cancel=()=>{generation.current++;controller.current?.abort();void client.cancelQueries({queryKey:['mechanism-analysis',view.document.id,view.document.versionId,id],exact:true});setStatus('已取消');clear()};
+ const analyze=async(force=false)=>{
+  if(!id){setStatus('请选择机构');return}
+  const queryKey=['mechanism-analysis',view.document.id,view.document.versionId,id];
   controller.current?.abort();const abort=new AbortController();controller.current=abort;
-  const seq=++generation.current,key=context.current;setStatus(numerical?'正在计算':'正在检查');setError(undefined);setReport(undefined);callbacks.current.onShow();callbacks.current.onMotion();
-  try{const result=await api.analyzeMechanism(view.document.id,view.document.versionId,id,numerical,abort.signal);
+  const seq=++generation.current,key=context.current;setError(undefined);clear();
+  const cached=force?undefined:client.getQueryData<MechanismAnalysis>(queryKey);
+  if(cached){setReport(cached);setStatus(cached.evidence.available&&cached.evidence.status!=='PARTIAL'?'分析完成':'部分结果未知');return}
+  setStatus('正在分析');setReport(undefined);
+  try{if(force)await client.cancelQueries({queryKey,exact:true});
+   const result=await client.fetchQuery({queryKey,staleTime:force?0:Infinity,retry:false,queryFn:({signal})=>api.analyzeMechanism(view.document.id,view.document.versionId,id,true,signal)});
    if(abort.signal.aborted||seq!==generation.current||context.current!==key)return;
-   if(result.documentId!==view.document.id||result.revisionId!==view.document.versionId||result.mechanismId!==id)throw new Error('机构分析来源不匹配');
-   setReport(result);setStatus(numerical?(result.evidence.available?'计算完成':'数值结果未知'):'结构检查完成');
-  }catch(e){if(!abort.signal.aborted&&seq===generation.current&&context.current===key){setStatus('失败');setError(String(e))}}
+   if(result.documentId!==view.document.id||result.revisionId!==view.document.versionId||result.mechanismId!==id)throw {code:'MECHANISM_ANALYSIS_STALE'};
+   client.setQueryData(queryKey,result);recordDeveloperEvidence('机构分析',result);
+   setReport(result);setStatus(result.evidence.available&&result.evidence.status!=='PARTIAL'?'分析完成':'部分结果未知');
+  }catch(e){if(!abort.signal.aborted&&seq===generation.current&&context.current===key){recordDeveloperEvidence('机构分析失败',e);setStatus('分析未完成');setError(engineeringProblem(e))}}
  };
- useEffect(()=>{setReport(undefined);setSelected(undefined);setMismatch(false);void analyze(false);return()=>{generation.current++;controller.current?.abort();callbacks.current.onShow();callbacks.current.onMotion()}},[view.document.id,view.document.versionId,id]);
- const mechanism=mechanisms.find(m=>m.id===id),busy=status==='正在计算'||status==='正在检查';
+ useEffect(()=>{
+  const key=['mechanism-analysis',view.document.id,view.document.versionId,id];
+  if(cleanup.current){clearTimeout(cleanup.current.timer);if(JSON.stringify(cleanup.current.key)!==JSON.stringify(key))void client.cancelQueries({queryKey:cleanup.current.key,exact:true});cleanup.current=undefined;}
+  setReport(undefined);setSelected(undefined);setMismatch(false);void analyze();
+  return()=>{generation.current++;controller.current?.abort();clear();cleanup.current={key,timer:setTimeout(()=>void client.cancelQueries({queryKey:key,exact:true}),0)}};
+ },[view.document.id,view.document.versionId,id]);
+ const mechanism=mechanisms.find(m=>m.id===id),busy=status==='正在分析';
+ const poseView=useMemo<DocumentView>(()=>report&&view.product?{...view,product:{...view.product,instances:view.product.instances.filter(i=>report.memberIds.includes(i.id)).map(i=>({...i,...report.poses?.[i.id]}))}}:view,[view,report]);
+ const motions=useMemo(()=>report?motionPresentations(poseView,report.evidence,"",view):[],[poseView,report]);
+ const showMotion=(motion?:MotionPresentation)=>{
+  if(!report||!mechanism||!motion?.freedom||motion.freedom.kind===0&&motion.gaugeDof===0){callbacks.current.onMotion();return}
+  const matches=callbacks.current.onShow(mechanism,report);setMismatch(!matches);
+  callbacks.current.onMotion(matches?{...motion,configurationPoses:report.poses}:undefined);
+ };
+ useEffect(()=>{const instance=selection?.instanceId??(selection?.kind==='instance'?selection.id:undefined);showMotion(motions.find(m=>m.bodyId===instance));},[selection,motions]);
  const locate=(row:MechanismAnalysis['joints'][number])=>{
-  setSelected(row.joint.id);
+  setSelected(row.joint.id);callbacks.current.onMotion();
   const find=(node:NonNullable<DocumentView['structureTree']>):string|undefined=>node.entityId===row.joint.id&&node.mechanismId===id?node.id:node.children?.map(find).find(Boolean);
-  onLocate([...row.endpoints.filter(e=>e.instanceId).map(e=>({kind:'instance' as const,id:e.instanceId,instanceId:e.instanceId})),{kind:'kinematic-object',id:row.joint.id,mechanismId:id,documentId:view.document.id,versionId:view.document.versionId,treeNodeId:view.structureTree?find(view.structureTree):undefined}]);
+  onLocate([...row.endpoints.filter(e=>e.instanceId).map(e=>({kind:'instance' as const,id:e.instanceId,instanceId:e.instanceId,occurrencePath:e.instanceId})),{kind:'kinematic-object',id:row.joint.id,mechanismId:id,documentId:view.document.id,versionId:view.document.versionId,treeNodeId:view.structureTree?find(view.structureTree):undefined}]);
  };
- const show=(jointId?:string)=>{if(report&&mechanism)setMismatch(!onShow(mechanism,report,jointId))};
- const download=(format:'json'|'csv')=>{if(!report)return;const url=URL.createObjectURL(new Blob([format==='json'?JSON.stringify(report,null,2):mechanismAnalysisCSV(report)],{type:format==='json'?'application/json':'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`mechanism-analysis-${report.mechanismId}.${format}`;a.click();URL.revokeObjectURL(url)};
- const poseView:DocumentView=report&&view.product?{...view,product:{...view.product,instances:view.product.instances.filter(i=>report.memberIds.includes(i.id)).map(i=>({...i,...report.poses?.[i.id]}))}}:view;
- const motions=report?motionPresentations(poseView,report.evidence):[];
- return <FloatingPanel title={<Space>机构分析<Button onClick={onClose}>关闭分析</Button></Space>} position="top-right" className="mechanism-analysis-panel"><div style={{padding:12,maxHeight:'75vh',overflow:'auto',width:720,maxWidth:'80vw'}}>
-  <Space wrap><Select aria-label="分析机构" value={id} placeholder="选择已保存机构" style={{minWidth:190}} options={mechanisms.map(m=>({value:m.id,label:m.name}))} onChange={setId}/><Button onClick={()=>void analyze(true)} disabled={!id||busy}>刷新分析</Button><Button onClick={cancel} disabled={!busy}>取消计算</Button>{status==='失败'&&<Button onClick={()=>void analyze(true)}>重试</Button>}<span role="status">{status}</span></Space>
-  <p>来源 Revision：<code>{view.document.versionId}</code></p>
-  <p>仅分析所选机构的完整物理关系与已接受位姿；不施加命令锁，不激活机构，不采用求解姿态。</p>
-  {error&&<Alert type="error" title={error}/>}{mismatch&&<Alert type="info" title="视口与分析构型不同，接合与方向标记已隐藏。可查看报告或编辑支撑。"/>}
-  {report&&<><p>成员 {report.memberIds.length} · 接合 {report.joints.length} · Ground {report.groundCount} · 命令 {report.commandCount}</p>
-   {report.diagnostics.map((d,i)=><Alert key={i} type="warning" title={d}/>)}
-   <Space wrap><Button onClick={()=>show()}>显示接合</Button><Button onClick={()=>{onShow();onMotion()}}>隐藏标记</Button><Button onClick={()=>download('json')}>导出 JSON</Button><Button onClick={()=>download('csv')}>导出 CSV</Button></Space>
-   <Table size="small" rowKey={r=>r.joint.id} dataSource={report.joints} pagination={false} scroll={{x:1050}} onRow={r=>({onClick:()=>locate(r),'data-selected':selected===r.joint.id})} columns={[
-    {title:'接合',render:(_,r)=><>{r.joint.name}<br/>{jointDefinitions[r.joint.kind]?.name??r.joint.kind}</>},
-    {title:'两端 occurrence / 几何支撑',render:(_,r)=><>{r.endpoints.map(e=><div key={e.side}><strong>{e.side==='first'?'端 1':'端 2'}：{e.name||e.instanceId||'缺失'}</strong><br/><small>{e.instanceId} · {e.status}</small><Button size="small" disabled={!e.instanceId} onClick={event=>{event.stopPropagation();onLocate([{kind:'instance',id:e.instanceId,instanceId:e.instanceId}])}}>定位端点</Button>{e.diagnostic&&<div>{e.diagnostic}</div>}{e.supports.map(s=><div key={s.role}>{s.role}: {s.reference?.derivedRole??s.reference?.kind??'局部框架'} · {s.status}{s.exactType&&` / ${s.exactType}`}<small>{s.reference?.geometryId}</small><div>{s.diagnostic}</div></div>)}</div>)}</>},
-    {title:'真实约束 / 命令与坐标',render:(_,r)=><>{r.joint.constraints?.map(c=><div key={c.id}>{c.name??c.kind} · {c.relationRole}<small> {c.id}</small></div>)}{r.drivers.map(d=><div key={d.id}>{d.name} → {r.joint.coordinates?.find(c=>c.id===d.coordinateId)?.role??d.coordinateId}</div>)}{!r.drivers.length&&'无关联命令'}</>},
-    {title:'检查',render:(_,r)=><>结构：{r.structureStatus}<br/>支撑：{r.supportStatus}<br/>当前构型：{r.configurationStatus}<div>{r.diagnostic}</div></>},
-    {title:'操作',render:(_,r)=><Space orientation="vertical"><Button aria-label="定位" onClick={()=>locate(r)}>定位</Button><Button onClick={()=>show(r.joint.id)}>显示此接合</Button><Button disabled={!canEdit||busy} onClick={()=>{onShow();onMotion();onRepair(report.mechanismId,r.joint.id)}}>编辑 / 重选</Button></Space>}
+ const issues=report?.joints.filter(r=>r.structureStatus!=='VALID'||r.supportStatus!=='VALID'||r.configurationStatus!=='VALID')??[];
+ const detail=report?.joints.find(r=>r.joint.id===selected);
+ const known=report?.evidence.components.filter(c=>c.solved)??[],relative=known.reduce((n,c)=>n+c.relativeDof,0),overall=known.reduce((n,c)=>n+c.gaugeDof,0);
+ return <CommandDialog id="mechanism-analysis" title="机构分析" open size="L" footer={false} onClose={onClose} onConfirm={onClose}><div className="mechanism-analysis-panel">
+  <Space wrap><Select aria-label="分析机构" value={id} placeholder="选择已保存机构" style={{minWidth:190}} options={mechanisms.map(m=>({value:m.id,label:m.name}))} onChange={setId}/><Button onClick={()=>void analyze(true)} disabled={!id||busy}>{error?'重试':'重新分析'}</Button>{busy&&<Button onClick={cancel}>取消计算</Button>}<Tag role="status" aria-label="机构分析状态">{status}</Tag></Space>
+  {!mechanisms.length&&<Empty description="尚未保存机构，请先创建机构。"/>}
+  {error&&<Alert type="error" title={error}/>}
+  {report&&<>
+   <div className="engineering-summary" aria-label="机构运动概况"><strong>{report.evidence.available&&report.evidence.status!=='PARTIAL'?`相对自由度 ${relative}`:'相对自由度待确定'}</strong><span>{!report.evidence.available||report.evidence.status==='PARTIAL'?'整体运动待确定':overall>0?`机构整体还可移动（${overall} 个自由度）`:'无整体运动'}</span><span>{report.memberIds.length} 个零件 · {report.joints.length} 个接合 · {report.groundCount} 个固定零件 · {report.commandCount} 个命令</span></div>
+   {(issues.length>0||!report.evidence.available||report.evidence.status==='PARTIAL')&&<Alert type="warning" showIcon title={issues.length?`${issues.length} 个接合需要检查`:'当前构型的自由度尚无法确定'} description={issues.some(r=>r.supportStatus!=='VALID')?'支撑已丢失或无法对应，请选中接合并重新选择支撑。':issues.some(r=>r.configurationStatus==='INVALID')?'部分接合在当前位置不满足要求，请检查接合与零件位置。':'现有结果不足以确定全部运动，请重新分析或检查接合。'}/>}
+   <div className="engineering-motion-list">{motions.map(m=><Button key={m.id} type={selection?.instanceId===m.bodyId?'primary':'default'} onClick={()=>{onLocate([{kind:'instance',id:m.bodyId,instanceId:m.bodyId,occurrencePath:m.bodyId}]);showMotion(m)}}>{m.name} · {m.description}</Button>)}</div>
+   {mismatch&&<Alert type="info" title="视口位置与分析时不同，已隐藏运动标记。"/>}
+   <Space wrap><Button onClick={()=>{if(mechanism)setMismatch(!onShow(mechanism,report))}}>显示接合</Button><Button onClick={clear}>隐藏标记</Button></Space>
+   <Table size="small" rowKey={r=>r.joint.id} dataSource={report.joints} pagination={false} locale={{emptyText:'该机构尚无接合'}} onRow={r=>({onClick:()=>locate(r),'aria-selected':selected===r.joint.id})} columns={[
+    {title:'接合',render:(_,r)=><>{r.joint.name}<Typography.Text type="secondary"> · {engineeringLabel(r.joint.kind,'接合')}</Typography.Text></>},
+    {title:'关联零件',render:(_,r)=>r.endpoints.map(e=>engineeringInstanceName(view,e.instanceId)).join(' / ')},
+    {title:'状态',render:(_,r)=>r.supportStatus!=='VALID'?'支撑需要修复':r.structureStatus!=='VALID'?'关系需要检查':r.configurationStatus==='INVALID'?'当前位置不满足':r.configurationStatus!=='VALID'?'当前位置待检查':'接合有效'},
+    {title:'操作',render:(_,r)=><Space><Button size="small" aria-label={`定位 ${r.joint.name}`} onClick={e=>{e.stopPropagation();locate(r)}}>定位</Button><Button size="small" disabled={!canEdit||busy} onClick={e=>{e.stopPropagation();clear();onRepair(report.mechanismId,r.joint.id)}}>修复支撑</Button></Space>}
    ]}/>
-   <p>物理自由度：{report.evidence.status==='NOT_COMPUTED'?'待刷新':report.evidence.status} {report.evidence.diagnosticCode} {report.evidence.diagnostic}</p>
-   {report.evidence.components.map((c,i)=><p key={i}>{c.bodyIds.map(id=>view.product?.instances.find(v=>v.id===id)?.name??id).join('、')}：{c.solved?`相对 DOF ${c.relativeDof}；整体运动 ${c.gaugeDof}`:'未知'} {c.gaugeDof>0&&'（数值 gauge 不是物理固定）'}</p>)}
-   {motions.map(m=><p key={m.id}>{m.name}：{m.description} <Button disabled={!m.freedom} onClick={()=>{if(mechanism&&onShow(mechanism,report,selected)){onMotion({...m,configurationPoses:report.poses});setMismatch(false)}else{onMotion();setMismatch(true)}}}>显示方向</Button></p>)}
-   <details><summary>来源与策略</summary><p>输入：{report.inputDigest}</p><p>策略：{report.policyDigest}</p></details>
+   {detail&&<section className="engineering-detail"><strong>{detail.joint.name}</strong>{detail.endpoints.map(e=><div key={e.side}><p>{e.side==='first'?'第一零件':'第二零件'}：{engineeringInstanceName(view,e.instanceId)}</p>{e.supports.map(s=>{const ref=describeAssemblyReference(s.reference,view);return <p key={s.role}>{s.role==='axis'?'轴线':s.role==='plane'?'定位面':'定位点'}：{ref.secondary} · {engineeringLabel(s.status,'支撑待检查')}</p>})}</div>)}<p>约束：{detail.joint.constraints?.map(c=>c.name||engineeringLabel(c.kind,'约束')).join('、')||'未定义'}</p><p>关联命令：{detail.drivers.map(d=>`${d.name}（${engineeringLabel(detail.joint.coordinates?.find(c=>c.id===d.coordinateId)?.role,'坐标')}）`).join('、')||'无'}</p></section>}
   </>}
- </div></FloatingPanel>;
+ </div></CommandDialog>;
 }

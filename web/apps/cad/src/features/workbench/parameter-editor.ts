@@ -14,7 +14,7 @@ export function parameterDisplayValue(parameter: ParameterDefinition, preferredL
 
 export function parameterSourceText(parameter: ParameterDefinition, inputUnit?: string, exact=false): string {
   if (parameter.source.expression) return parameter.source.expression.sourceText;
-  if (parameter.source.external) return `Publication ${parameter.source.external.publicationId} @ ${parameter.source.external.resolvedRevisionId.slice(0, 12)}`;
+  if (parameter.source.external) return "关联发布参数";
   if (!parameter.source.literal) return "";
   const unit = inputUnit ?? parameter.displayUnit;
   const number=parameter.source.literal.siValue * (unitScale[unit] ?? 1);

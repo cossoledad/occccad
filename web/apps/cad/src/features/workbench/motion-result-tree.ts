@@ -6,7 +6,7 @@ const states:Record<string,string>={QUEUED:'等待',RUNNING:'计算中',SUCCEEDE
 function resultState(job:Job):string {
  const motion=job.payload.motion as {status?:string;completed?:boolean;validFrames?:number}|undefined;
  if(motion){if(motion.completed)return '完成';return (motion.validFrames??0)>0?'部分结果':'未通过求解'}
- return states[job.state]??job.state;
+ return states[job.state]??'待检查';
 }
 // Job IDs identify retained result artifacts, not new model definitions.
 export function withMotionResults(nodes:SpecificationTreeNode[],view:DocumentView,jobs:readonly Job[],draft?:MotionStudy):SpecificationTreeNode[]{

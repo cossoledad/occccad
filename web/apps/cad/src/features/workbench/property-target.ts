@@ -1,3 +1,4 @@
+import {engineeringLabel} from "../../cad/presentation/engineering-text";
 import type { DocumentView, PropertyTarget, ResolvedAppearance, SelectionItem, SurfaceAppearance, SurfaceStyle } from "../../types";
 import { occurrenceSnapshot, refreshOccurrenceSelection } from "../../cad/assembly/assembly-occurrence-snapshot";
 import { palette } from "../../design/visual-tokens";
@@ -50,7 +51,7 @@ export function propertyEditorTarget(view:DocumentView,editingView:DocumentView|
   const supportedName=!protectedPlane&&(instanceScoped?kind==="INSTANCE":["BODY","FEATURE","PLANE","DATUM_AXIS"].includes(kind)&&Boolean(name));
   const target:PropertyTarget={kind,id,...(instanceScoped?{instancePath:path}:{}),...(kind==="FACE"&&selection.kind==="face"?{bodyId:bodyID,geometryKey:selection.geometryKey,localId:selection.topologyId}:{})};
   return {...base,target,selection,documentId:instanceScoped?view.document.id:source.document.id,versionId:instanceScoped?view.document.versionId:source.document.versionId,
-    occurrencePath:instanceScoped?undefined:occurrence,title:name??(kind==="FACE"?"所选面":selection.entityKind??selection.kind),name,
+    occurrencePath:instanceScoped?undefined:occurrence,title:name??(kind==="FACE"?"所选面":engineeringLabel((selection.entityKind??selection.kind).toUpperCase(),"所选对象")),name,
     appearance:local,effective:faceStyle,sources:kind==="FACE"&&selection.kind==="face"?{...effective?.sources,...effective?.faceSources?.[selection.topologyId]}:effective?.sources,scope:instanceScoped?"仅当前实例":"当前零件定义",canEdit:editable,canRename:supportedName,canGraphics:surface,
     originalDocumentId:instanceScoped?path?.segments.at(-1)?.referencedDocumentId:undefined,
     reason:!editable?"当前上下文只读；请在有编辑权限的文档中修改。":undefined};

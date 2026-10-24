@@ -1,3 +1,4 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from '@playwright/test';
 import {worldScreen} from './camera-helpers';
 
@@ -39,7 +40,7 @@ test('direct Part association update and viewport Reconnect preserve occurrences
  await expect(drawer.locator('[data-reference-instance]')).toHaveCount(3);
  const row=(id:string)=>drawer.locator(`[data-reference-instance="${id}"]`);
  await expect(row(seed.ids[2])).toContainText('固定版本，不参与跟随更新');
- await row(seed.ids[1]).getByRole('button',{name:'定位实例',exact:true}).click();await expect(page.getByTestId('viewport-selection')).toContainText(seed.ids[1]);
+ await row(seed.ids[1]).getByRole('button',{name:'定位实例',exact:true}).click();await expectViewport(viewportProbe(page,"viewport-selection")).toContainText(seed.ids[1]);
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  const changed=await peer.evaluate(async seed=>{
   // @ts-ignore production Vite module
@@ -56,7 +57,7 @@ test('direct Part association update and viewport Reconnect preserve occurrences
   return v;
  };
  await expect(async()=>{await verify(changed.document.versionId,'VERIFIED');}).toPass({timeout:30_000});
- await expect(row(seed.ids[0])).toContainText(changed.document.versionId);
+ await expect(row(seed.ids[0])).toContainText('当前已是已检查版本');
  await expect(drawer.getByRole('button',{name:'重新计算',exact:true})).toBeEnabled();await drawer.getByRole('button',{name:'重新计算',exact:true}).click();
  await expect(drawer.getByRole('button',{name:'重新计算',exact:true})).toBeEnabled();await verify(changed.document.versionId,'VERIFIED');
  await expect(page.getByRole('dialog',{name:'约束定义',exact:true})).not.toBeVisible();
@@ -69,25 +70,25 @@ test('direct Part association update and viewport Reconnect preserve occurrences
  },seed);
  await expect(async()=>{await verify(cut.document.versionId,'BROKEN');}).toPass({timeout:30_000});
  const brokenRow=()=>drawer.locator(`[data-repair-constraint="${seed.mate}"]`);
- await expect(brokenRow()).toContainText('NotConnected');await expect(brokenRow().getByRole('button',{name:'Reconnect',exact:true})).toBeEnabled();
- await brokenRow().getByRole('button',{name:'定位约束',exact:true}).click();await expect(page.getByTestId('viewport-selection')).toContainText(seed.mate);
+ await expect(brokenRow()).toContainText('支撑已断开');await expect(brokenRow().getByRole('button',{name:'重新选择支撑',exact:true})).toBeEnabled();
+ await brokenRow().getByRole('button',{name:'定位约束',exact:true}).click();await expectViewport(viewportProbe(page,"viewport-selection")).toContainText(seed.mate);
  await page.screenshot({path:'../../../build/acceptance/association-repair-broken.png'});
  const brokenHead=(await current(page,seed.id)).document.versionId;
  const pickRepair=async()=>{
-  await brokenRow().getByRole('button',{name:'Reconnect',exact:true}).click();
+  await brokenRow().getByRole('button',{name:'重新选择支撑',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'约束定义',exact:true});await expect(dialog).toBeVisible();
   // Actual ray picking in the production viewport, not injected persistent refs.
   const header=await dialog.locator('header').boundingBox();if(!header)throw Error('Missing draggable header');
   await page.mouse.move(header.x+100,header.y+15);await page.mouse.down();await page.mouse.move(header.x+420,header.y+15,{steps:6});await page.mouse.up();
   const a=await worldScreen(page,[3,3,7]);await page.mouse.click(a.x,a.y);
-  await expect(dialog.getByText('Reconnect 支持元素 1',{exact:true})).not.toBeVisible();
-  await dialog.locator('.assembly-support-row').nth(1).getByRole('button',{name:'Reconnect',exact:true}).click();
+  await expect(dialog.getByText('重新选择支撑 1',{exact:true})).not.toBeVisible();
+  await dialog.locator('.assembly-support-row').nth(1).getByRole('button',{name:'重新选择',exact:true}).click();
   const b=await worldScreen(page,[36,-4,7]);expect(await page.evaluate(p=>document.elementFromPoint(p.x,p.y)?.tagName,b)).toBe('CANVAS');await page.mouse.click(b.x,b.y);
   await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();
   await expect(dialog.locator('.assembly-constraint-status')).toContainText('Verified');return dialog;
  };
  let dialog=await pickRepair();await dialog.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(brokenHead);
- drawer=await openRepair(page);await expect(brokenRow().getByRole('button',{name:'Reconnect',exact:true})).toBeEnabled();
+ drawer=await openRepair(page);await expect(brokenRow().getByRole('button',{name:'重新选择支撑',exact:true})).toBeEnabled();
  dialog=await pickRepair();await page.screenshot({path:'../../../build/acceptance/association-repair-preview.png'});await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).not.toBeVisible();
  await expect(async()=>{await verify(cut.document.versionId,'VERIFIED');}).toPass();
  const repaired=(await current(page,seed.id)).product.constraints.find((c:any)=>c.id===seed.mate);
@@ -96,8 +97,8 @@ test('direct Part association update and viewport Reconnect preserve occurrences
  // The repaired accepted geometry can be analyzed independently, without consuming Undo.
  const beforeMotion=await current(page,seed.id);
  await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill('装配约束分析');await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:/^装配约束分析$/})}).click();
- const motion=page.getByRole('dialog',{name:/装配状态 ·/});await motion.getByRole('tab',{name:'剩余运动',exact:true}).click();await expect(motion.getByRole('status',{name:'剩余运动计算状态'})).toContainText(beforeMotion.document.versionId);
- await motion.getByRole('button',{name:'刷新剩余运动',exact:true}).click();await expect(motion.getByRole('status',{name:'剩余运动计算状态'})).toContainText('证据可用');const afterMotion=await current(page,seed.id);expect(afterMotion.product).toEqual(beforeMotion.product);expect(afterMotion.document.versionId).toBe(beforeMotion.document.versionId);await motion.getByRole('button',{name:'关闭',exact:true}).click();
+ const motion=page.getByRole('dialog',{name:/装配状态 ·/});await motion.getByRole('tab',{name:'剩余运动',exact:true}).click();await expect(motion).not.toContainText(beforeMotion.document.versionId);
+ await motion.getByRole('button',{name:'刷新剩余运动',exact:true}).click();await expect(motion.getByRole('status',{name:'剩余运动计算状态'})).toContainText('分析完成');const afterMotion=await current(page,seed.id);expect(afterMotion.product).toEqual(beforeMotion.product);expect(afterMotion.document.versionId).toBe(beforeMotion.document.versionId);await motion.getByRole('button',{name:'关闭',exact:true}).click();
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect(async()=>{await verify(cut.document.versionId,'BROKEN');}).toPass();
  await page.getByRole('button',{name:'重做',exact:true}).click();await expect(async()=>{await verify(cut.document.versionId,'VERIFIED');}).toPass();
  const accepted=(await current(page,seed.id)).document.versionId;
@@ -105,14 +106,14 @@ test('direct Part association update and viewport Reconnect preserve occurrences
   // @ts-ignore production Vite module
   const {restApi:api}=await import('/src/api.ts');await api.command(seed.pid,{type:'EDIT_SKETCH',sketchId:seed.sketch,operations:[{type:'DELETE_ENTITIES',entityIds:[seed.edge]}]});
  },seed);
- drawer=await openRepair(page);await expect(drawer).toContainText('REFERENCE_PART_NOT_READY');
+ drawer=await openRepair(page);await expect(drawer).toContainText('关联更新受阻');
  expect((await current(page,seed.id)).document.versionId).toBe(accepted);await verify(cut.document.versionId,'VERIFIED');
- await drawer.getByRole('button',{name:'重试检查',exact:true}).click();await expect(drawer).toContainText('REFERENCE_PART_NOT_READY');expect((await current(page,seed.id)).document.versionId).toBe(accepted);
+ await drawer.getByRole('button',{name:'重试检查',exact:true}).click();await expect(drawer).toContainText('关联更新受阻');expect((await current(page,seed.id)).document.versionId).toBe(accepted);
  const recovered=await peer.evaluate(async pid=>{
   // @ts-ignore production Vite module
   const {restApi:api}=await import('/src/api.ts');return api.command(pid,{type:'UNDO'});
  },seed.pid);
  await expect(async()=>{await verify(recovered.document.versionId,'VERIFIED');}).toPass({timeout:30_000});
- await page.reload();drawer=await openRepair(page);await expect(drawer.locator('[data-reference-instance]')).toHaveCount(3);await expect(brokenRow()).toContainText('已满足');await expect(row(seed.ids[2])).toContainText(seed.pinned);
+ await page.reload();drawer=await openRepair(page);await expect(drawer.locator('[data-reference-instance]')).toHaveCount(3);await expect(brokenRow()).toContainText('已满足');await expect(row(seed.ids[2])).toContainText('固定版本，不参与跟随更新');
  await verify(recovered.document.versionId,'VERIFIED');expect(errors).toEqual([]);await peer.close();
 });

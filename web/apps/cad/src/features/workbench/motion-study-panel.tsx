@@ -1,7 +1,8 @@
+import {engineeringLabel} from "../../cad/presentation/engineering-text";
 import {forwardRef,useCallback,useEffect,useImperativeHandle,useMemo,useRef,useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {Alert,Button,Checkbox,Input,InputNumber,Progress,Select,Slider,Space,Table,Typography} from 'antd';
-import {normalizeOperationFailure,useOperationFeedback} from '../../cad/command/operation-feedback';
+import {engineeringProblem,normalizeOperationFailure,useOperationFeedback} from '../../cad/command/operation-feedback';
 import type {FeatureSelectionSession} from '../../cad/interaction/feature-selection';
 import {createActor} from 'xstate';
 import {assemblyPreviewMachine} from './assembly-preview-machine';
@@ -402,7 +403,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
 
  };
  const failure=error?normalizeOperationFailure(error):undefined;
- const failureNotice=failure?<Alert type="error" showIcon title={failure.message} description={<details><summary>诊断详情</summary><pre style={{whiteSpace:'pre-wrap'}}>{failure.details}</pre></details>}/>:null;
+ const failureNotice=failure?<Alert type="error" showIcon title={failure.message}/>:null;
  return <>
   {active&&motionDialog&&<MechanismMotionDialog {...motionDialog} initialDriverIds={selection?.kind==='kinematic-object'&&selection.entityKind==='MOTION_DRIVER'&&defs.drivers?.some(d=>d.id===selection.id&&d.mechanismId===motionDialog.mechanism.id)?[selection.id]:lastDrivers.current} drivers={(motionDialog.view.product?.kinematics?.drivers??[]).filter(d=>d.mechanismId===motionDialog.mechanism.id)} operation={commandOwner.current} sourceMechanismIds={sourceMechanismIds} captureViewpoint={captureViewpoint} previewViewpoint={previewViewpoint} onSession={s=>{if(!s&&motionSession.current?.identity)lastDrivers.current=motionSession.current.checkpoint?.activeDriverIds;motionSession.current=s;registry.notifyStateChanged()}} onDraft={onDraft} onPreview={onPreview} onPlayback={onPlayback} onCommit={async (command,recordedStudyId)=>{savingDefinition.current=true;try{const updated=await onCommit(command);adopt(updated);if(activeMechanismId.current)untouchedMechanisms.current.delete(activeMechanismId.current);
      if(motionDialog.record){const study=updated.product?.kinematics?.studies.find(s=>s.id===recordedStudyId);if(study){try{await api.startMotionRun(updated.document.id,{baseRevisionId:updated.document.versionId,studyId:study.id,requestId:randomUUID()});await client.invalidateQueries({queryKey:['motion-jobs',updated.document.id]})}catch(e){feedback(e,'生成模拟结果')}}}
@@ -417,8 +418,8 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
      {job&&<Typography.Text>{String(job.payload.studyName??'模拟')} · {new Date(job.createdAt).toLocaleString()}</Typography.Text>}
 
      {pending&&<Typography.Text type="secondary">正在准备仿真…</Typography.Text>}
-     {run?.failure&&<Alert type="warning" title={run.failure.detail} description={`停止于 t=${run.failure.timeSeconds.toFixed(3)} s · ${run.failure.code}`}/>}
-     {job?.errorMessage&&!run&&<Alert type="error" title="仿真未完成" description={job.errorMessage}/>}
+     {run?.failure&&<Alert type="warning" title={engineeringProblem({code:run.failure.code,message:run.failure.detail})} description={`停止于 ${run.failure.timeSeconds.toFixed(2)} s`}/>}
+     {job?.errorMessage&&!run&&<Alert type="error" title="仿真未完成" description={engineeringProblem(job.errorMessage)}/>}
      {run&&run.frames.length===0&&<Typography.Text type="secondary">无可回放帧。</Typography.Text>}
      {run&&run.frames.length>0&&<>
       <div className="motion-playback-controls" role="group" aria-label="播放控制">
@@ -450,6 +451,6 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   {failureNotice}
   <Button loading={commandPending} onClick={()=>void review()}>生成／刷新转换计划</Button>
   <Typography.Paragraph>{showing?`仿真帧 ${index+1}`:"机械装置已确认位姿"}</Typography.Paragraph>{selectedMechanism?.joints.flatMap(j=>(j.coordinates??[]).map(c=><Checkbox key={c.id} checked={lockCoordinateIds.includes(c.id)} onChange={e=>{setLockCoordinateIds(ids=>e.target.checked?[...ids,c.id]:ids.filter(id=>id!==c.id));commandEpoch.current++;setPlan(undefined)}}>锁定 {j.name} · {c.dimension==='ANGLE'?'角度':'长度'}</Checkbox>))}
-  {plan&&<><Typography.Paragraph>{plan.poseChanges.length} 个位姿变化 · 求解 {plan.solverStatus??'待解决冲突'} · 自由度 {plan.degreesOfFreedom}</Typography.Paragraph>{plan.poseChanges.length>0&&<ul>{plan.poseChanges.map(id=>{const unit=units.find(v=>v.id===id),target=showing?frame?.unitPoses[id]:selectedMechanism?.poses?.[id];return <li key={id}>{unit?.name??id}：位置 mm ({unit?.translation.map(v=>v.toFixed(3)).join(', ')}) → ({target?.translation.map(v=>v.toFixed(3)).join(', ')})</li>})}</ul>}<Table size="small" pagination={false} rowKey={v=>JSON.stringify([v.jointId,v.constraintId,v.role,v.action])} dataSource={plan.items} columns={[{title:'关系',dataIndex:'role',render:(role:string,item)=>`${relationLabels[role]??role} · ${view.product?.constraints?.find(c=>c.id===item.constraintId)?.name??defs.mechanisms.flatMap(m=>m.joints).find(j=>j.id===item.jointId)?.name??item.constraintId??''}`},{title:'动作',dataIndex:'action',render:(value:string)=>actionLabels[value]??value},{title:'说明',dataIndex:'detail'},]}/></>}
+  {plan&&<><Typography.Paragraph>{plan.poseChanges.length} 个位姿变化 · 求解 {engineeringLabel(plan.solverStatus,'待解决冲突')} · 自由度 {plan.degreesOfFreedom}</Typography.Paragraph>{plan.poseChanges.length>0&&<ul>{plan.poseChanges.map(id=>{const unit=units.find(v=>v.id===id),target=showing?frame?.unitPoses[id]:selectedMechanism?.poses?.[id];return <li key={id}>{unit?.name??'引用零件已丢失'}：位置 mm ({unit?.translation.map(v=>v.toFixed(3)).join(', ')}) → ({target?.translation.map(v=>v.toFixed(3)).join(', ')})</li>})}</ul>}<Table size="small" pagination={false} rowKey={v=>JSON.stringify([v.jointId,v.constraintId,v.role,v.action])} dataSource={plan.items} columns={[{title:'关系',dataIndex:'role',render:(role:string,item)=>`${relationLabels[role]??'约束关系'} · ${view.product?.constraints?.find(c=>c.id===item.constraintId)?.name??defs.mechanisms.flatMap(m=>m.joints).find(j=>j.id===item.jointId)?.name??'引用关系已丢失'}`},{title:'动作',dataIndex:'action',render:(value:string)=>actionLabels[value]??'待检查'},]}/></>}
  </CommandDialog></>;
 });

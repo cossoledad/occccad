@@ -1,3 +1,5 @@
+import {engineeringProblem} from "../../cad/command/operation-feedback";
+import {recordDeveloperEvidence} from "../../cad/command/developer-evidence";
 import {LatestPreviewQueue} from "./latest-preview-queue";
 import {randomUUID} from "../../utils/random-uuid";
 import { useEffect, useRef, useState } from "react";
@@ -40,7 +42,7 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
                 setState({ key, referenceGeometry:result.referenceGeometry,parameterCandidates:result.parameterCandidates,id: result.previewId, pending: false, loftSections:result.loftSections,loftConnections:result.loftConnections });
                 callback.current(result.artifact, candidate.operation);
             }).catch(error => { if (alive && !controller.signal.aborted)
-                setState({ key, pending: false, error: String(error),failure:error }); });
+                {recordDeveloperEvidence("特征预览",error);setState({ key, pending: false, error: engineeringProblem(error),failure:error });} });
         }, 250);
         return () => { alive = false; clearTimeout(timer); controller.abort(); callback.current(); };
     }, [key, retry]);

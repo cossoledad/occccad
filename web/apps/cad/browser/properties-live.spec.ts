@@ -24,7 +24,11 @@ test("real properties history, face preview, conflict recovery and adaptive scen
   const gap=Math.max(dimensions[1]*.005,Math.min(dimensions[1]*.08,Math.cbrt(dimensions[0]*dimensions[1]*dimensions[2])*.08));
   return {id,bodyId:body.id,bodyName:body.name,key:body.geometryKey!,version:v.document.versionId,minZ:bbox.min[2],ground:Number((bbox.min[2]-gap).toFixed(2))};
  });
+ let developmentReads=0;page.on('request',r=>{if(r.method()==='GET'&&r.url().endsWith('/properties'))developmentReads++});
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+ const developer=page.locator('details.inspector-diagnostics');await expect(developer).not.toHaveAttribute('open','');expect(developmentReads).toBe(0);await expect(page.locator('.inspector-overlay-content')).not.toContainText(seed.version);
+ await developer.locator('summary').click();await expect.poll(()=>developmentReads).toBe(1);await expect(page.getByLabel('开发数据',{exact:true})).toContainText(seed.version);await developer.locator('summary').click();await expect(page.getByLabel('开发数据',{exact:true})).toHaveCount(0);
+
  const dialog=page.getByRole("dialog",{name:/^属性 ·/});
  const body=()=>page.locator(`[role="treeitem"][data-tree-key$="/body:${seed.bodyId}"]`);
  const openBody=async()=>{await page.getByRole("textbox",{name:"筛选模型结构"}).fill(seed.bodyName);await body().click({button:"right"});await page.getByRole("menuitem",{name:"属性…",exact:true}).click();await expect(dialog).toBeVisible()};

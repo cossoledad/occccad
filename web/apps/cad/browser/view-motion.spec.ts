@@ -1,20 +1,21 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
-import {setProjection} from "./camera-helpers";
+import {setProjection,observeViewport} from "./camera-helpers";
 
 async function observe(page:Page){
- await page.evaluate(()=>{
-  const camera=document.querySelector('[data-testid="navigation-camera"]')!;
-  const samples:any[]=[];(window as any).__viewSamples=samples;
-  const capture=()=>samples.push({state:JSON.parse(camera.getAttribute("data-camera-state")!),active:camera.getAttribute("data-transition-active")==="true"});
-  (window as any).__viewObserver?.disconnect();capture();
-  const observer=new MutationObserver(capture);observer.observe(camera,{attributes:true});(window as any).__viewObserver=observer;
+ await observeViewport(page);await page.evaluate(()=>{
+  const e=(window as any).__cameraEngine,samples:any[]=[];(window as any).__viewSamples=samples;
+  (window as any).__viewRestore?.();const render=e.renderer.render.bind(e.renderer);
+  e.renderer.render=(scene:any,camera:any)=>{if(scene===e.scene)samples.push({state:{position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),zoom:camera.zoom},active:e.viewTransition.active});return render(scene,camera)};
+  (window as any).__viewRestore=()=>{e.renderer.render=render};
  });
 }
+
 for(const parallel of [false,true])test(`Fit and standard views animate and interrupt (${parallel?"parallel":"perspective"})`,async({page},testInfo)=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
  await page.goto("/documents/mock-part-bracket");await expect(page.locator("canvas")).toBeVisible();
  if(parallel)await setProjection(page,"平行（无透视）");
- const camera=page.getByTestId("navigation-camera"),canvas=page.locator("canvas");
+ const camera=viewportProbe(page,"navigation-camera"),canvas=page.locator("canvas");
  await page.getByRole("tab",{name:"视图",exact:true}).click();
  const deck=page.locator(".workbench-command-deck");
  const moveAway=async()=>{const b=(await canvas.boundingBox())!;await page.mouse.move(b.x+b.width*.6,b.y+b.height*.4);await expect(page.getByRole("tooltip")).toHaveCount(0)};
@@ -22,22 +23,22 @@ for(const parallel of [false,true])test(`Fit and standard views animate and inte
  for(const name of ["前视图","右视图","顶视图","等轴测"]){
   await observe(page);await invoke(name);
   await expect.poll(()=>page.evaluate(()=>(window as any).__viewSamples.some((s:any)=>s.active))).toBe(true);
-  await expect(camera).toHaveAttribute("data-transition-active","false");
+  await expectViewport(camera).toHaveAttribute("data-transition-active","false");
   const samples=await page.evaluate(()=>(window as any).__viewSamples);
   expect(new Set(samples.map((s:any)=>JSON.stringify(s.state))).size).toBeGreaterThan(2);
  }
  const box=(await canvas.boundingBox())!;await page.mouse.move(box.x+box.width*.6,box.y+box.height*.4);await page.mouse.wheel(0,-700);
  await observe(page);await invoke("适合窗口");
  await expect.poll(()=>page.evaluate(()=>(window as any).__viewSamples.some((s:any)=>s.active))).toBe(true);
- await expect(camera).toHaveAttribute("data-transition-active","false");
+ await expectViewport(camera).toHaveAttribute("data-transition-active","false");
  const fit=await page.evaluate(()=>(window as any).__viewSamples);expect(new Set(fit.map((s:any)=>JSON.stringify(s.state))).size).toBeGreaterThan(2);
- await moveAway();await deck.getByRole("button",{name:"前视图",exact:true}).click();await expect(camera).toHaveAttribute("data-transition-active","true");
- await canvas.focus();await page.keyboard.press("Escape");await expect(camera).toHaveAttribute("data-transition-active","false");
+ await moveAway();await deck.getByRole("button",{name:"前视图",exact:true}).click();await expectViewport(camera).toHaveAttribute("data-transition-active","true");
+ await canvas.focus();await page.keyboard.press("Escape");await expectViewport(camera).toHaveAttribute("data-transition-active","false");
  const cancelled=await camera.getAttribute("data-camera-state");
- const later=await page.evaluate(()=>new Promise<string|null>(resolve=>{const start=performance.now();const frame=()=>{if(performance.now()-start>=350)resolve(document.querySelector('[data-testid="navigation-camera"]')!.getAttribute("data-camera-state"));else requestAnimationFrame(frame)};requestAnimationFrame(frame)}));
+ await page.waitForTimeout(350);const later=await camera.getAttribute("data-camera-state");
  expect(later).toBe(cancelled);
  await page.emulateMedia({reducedMotion:"reduce"});await observe(page);await invoke("右视图");
- await expect(camera).toHaveAttribute("data-transition-active","false");
+ await expectViewport(camera).toHaveAttribute("data-transition-active","false");
  expect(await page.evaluate(()=>(window as any).__viewSamples.some((s:any)=>s.active))).toBe(false);
  await testInfo.attach("fit-animation-frames",{body:JSON.stringify(fit,null,2),contentType:"application/json"});
  await page.screenshot({path:testInfo.outputPath("view-command-complete.png")});expect(errors).toEqual([]);

@@ -1,6 +1,8 @@
+import {engineeringProblem} from "../../cad/command/operation-feedback";
+import {CommandDialog} from "../../cad/overlay/floating-panel";
 import { ApartmentOutlined, CheckSquareOutlined, ClockCircleOutlined, FolderOutlined, SearchOutlined, TeamOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Breadcrumb, Button, Empty, Input, Modal, Pagination, Segmented, Select, Spin } from "antd";
+import { Alert, Breadcrumb, Button, Empty, Input, Pagination, Segmented, Select, Spin } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { DocumentThumbnail } from "../../components/document-thumbnail";
@@ -28,9 +30,10 @@ export function InsertDocumentDialog({ targetID, rootID, busy, onClose, onInsert
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   useEffect(() => {
+    if (query.trim() === search) return;
     const timer = window.setTimeout(() => { setSearch(query.trim()); setPage(1); }, 250);
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [query,search]);
   const options = { scope: "active" as const, query: search, type, folderId: scope === "folder" ? folderID : undefined,
     allFolders: scope !== "folder", recent: scope === "recent", shared: scope === "shared",
     sort: scope === "recent" ? "recent" as const : sort, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE };
@@ -59,13 +62,7 @@ export function InsertDocumentDialog({ targetID, rootID, busy, onClose, onInsert
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { submittingRef.current = false; setSubmitting(false); }
   };
-  return <Modal open title="插入组件" width={1060} className="insert-document-dialog" onCancel={onClose}
-    closable={!pending} mask={{ closable: false }} keyboard={!pending} footer={<div className="insert-dialog-footer">
-      <span>{selected.length ? `已选择 ${selected.length} 个文档` : "可多选零件或装配并一次插入"}</span>
-      <Button onClick={onClose} disabled={pending}>取消</Button>
-      <Button type="primary" disabled={!selected.length} loading={pending}
-        onClick={() => void confirm()}>插入组件</Button>
-    </div>}>
+  return <CommandDialog id="insert-components" open title="插入组件" size="L" onClose={onClose} confirmDisabled={!selected.length} confirmLoading={pending} onConfirm={confirm}><div className="insert-document-dialog">
     <div className="insert-browser" aria-busy={pending}>
       <nav className="insert-locations" aria-label="组件来源">
         {([{ id: "all", label: "全部文档", icon: <ApartmentOutlined /> }, { id: "recent", label: "最近打开", icon: <ClockCircleOutlined /> },
@@ -91,9 +88,9 @@ export function InsertDocumentDialog({ targetID, rootID, busy, onClose, onInsert
           ...(breadcrumbs.data ?? []).map((folder) => ({ title: <button disabled={pending} onClick={() => changeLocation("folder", folder.id)}>{folder.name}</button> })),
         ]} />}
         {((scope !== "selected" && documents.error) || (scope === "folder" && (folders.error || breadcrumbs.error))) && <Alert type="error" showIcon title="无法加载文档"
-          description={(documents.error ?? folders.error ?? breadcrumbs.error)?.message}
+          description={engineeringProblem(documents.error ?? folders.error ?? breadcrumbs.error)}
           action={<Button size="small" onClick={() => { void documents.refetch(); if (scope === "folder") { void folders.refetch(); if (folderID) void breadcrumbs.refetch(); } }}>重试</Button>} />}
-        {error && <Alert type="error" showIcon title="插入失败" description={error} />}
+        {error && <Alert type="error" showIcon title="插入失败" description={engineeringProblem(error)} />}
         <div className="insert-result-scroll">
           {scope === "folder" && <div className="insert-folder-list">{folders.data?.map((folder) => <button key={folder.id} aria-label={folder.name}
             disabled={pending} onClick={() => changeLocation("folder", folder.id)}><FolderOutlined /><span>{folder.name}</span></button>)}</div>}
@@ -121,10 +118,10 @@ export function InsertDocumentDialog({ targetID, rootID, busy, onClose, onInsert
           <p>{lastSelected.description || "暂无说明"}</p>
           <dl><dt>所在位置</dt><dd>{lastSelected.folderId ? selectedFolder.isError ? "位置读取失败" : selectedFolder.isPending ? "加载中…" : selectedFolder.data?.map((folder) => folder.name).join(" / ") || "文件夹" : "我的文档"}</dd>
             <dt>最近修改</dt><dd>{new Date(lastSelected.lastUpdated).toLocaleString()}</dd>
-            <dt>引用方式</dt><dd>跟随源文档；有更新时需确认接受</dd></dl>
+            <dt>引用方式</dt><dd>跟随最新版本；关联参数更新需确认</dd></dl>
           <p className="insert-preview-note">插入后可在视口中移动和约束组件。模型与缩略图可能存在细节差异。</p>
         </> : <div className="insert-preview-empty"><ApartmentOutlined /><strong>组件预览</strong><p>选择文档以查看缩略图、位置和详细信息</p></div>}
       </aside>
     </div>
-  </Modal>;
+  </div></CommandDialog>;
 }

@@ -1,3 +1,5 @@
+import {engineeringLabel} from "../../cad/presentation/engineering-text";
+import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {useAssemblyEngineering} from "./use-assembly-engineering";
 import {AssociationRepairPanel} from "./association-repair-panel";
 import {assistantTarget,dispatchAssistantCommand,handoffEditorIntent,handoffMatchesCommit,type AssistantHandoffSession} from "../assistant/workbench-handoff";
@@ -16,7 +18,6 @@ import {structureCommandIDs,type StructureActions,type StructureInvocation} from
 import {useWorkbenchCommandRegistration} from "./workbench-command-registration";
 import {ParameterReferenceInput} from "./parameter-reference-input";
 import {useFeaturePreview} from "./use-feature-preview";
-import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
 import { DatumEditor } from "./datum-editor";
 import type { DatumPreview } from "../../cad/rendering/datum-reference";
 import {assemblyGroupMember,groupMemberForInstance,groupMemberToken,groupMemberSelection} from "../../cad/assembly/group-selection";
@@ -288,7 +289,7 @@ export function Workbench() {
 	  activationGate.current.invalidate(); setEditSession(undefined); store.endSketch(); store.setSelection(null);
 	  if (!documentID) return;
 	  void registerDocumentTab(documentID, client, api.openDocument)
-	    .catch((error: Error) => message.error(`打开工作空间失败：${error.message}`));
+	    .catch((error: Error) => operationFeedback(error,"操作"));
 	  return () => {
         const session = latestEditSession.current;
         if (session?.hostDocumentId === documentID) documentSessions.write(documentID, documentEditingState,
@@ -374,7 +375,7 @@ export function Workbench() {
     }).then((dispose) => {
       if (disposed) dispose(); else unsubscribe = dispose;
     }).catch((error: Error) => {
-      if (!disposed) message.error(`实时连接失败：${error.message}`);
+      if (!disposed) operationFeedback(error,"操作");
     });
     return () => { disposed = true; unsubscribe?.(); };
   }, [client, documentID, message]);
@@ -416,7 +417,7 @@ export function Workbench() {
       }).catch(error => {
         if (!activationGate.current.isCurrent(generation)) return;
         activationGate.current.commit(generation, rootEditSession(view, generation), setEditSession);
-        message.info(`原编辑目标当前不可恢复，已返回宿主文档：${String(error)}`);
+        message.info("原编辑目标暂不可用，已返回装配。");
       });
     return () => { if (activationGate.current.isCurrent(generation)) activationGate.current.invalidate(); };
   }, [documentID, documentSessions, client, editSession?.hostDocumentId, view, document.isFetching]);
@@ -573,7 +574,7 @@ export function Workbench() {
     // switches suspend it in the document session instead of deleting it.
     void api.deleteNodes(session.documentId, [{ targetKind: "FEATURE", targetId: session.sketchId }])
       .then((updated) => refresh(updated))
-      .catch((error: Error) => message.error(`放弃空草图失败：${error.message}`));
+      .catch((error: Error) => operationFeedback(error,"操作"));
   };
   const discardNewSketchOnUnmount = useRef(discardNewSketch);
   discardNewSketchOnUnmount.current = discardNewSketch;
@@ -618,7 +619,7 @@ export function Workbench() {
       void client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" });
       void client.invalidateQueries({ queryKey: ["product-update-plan", documentID] });
     }).then((unsubscribe) => { if (disposed) unsubscribe(); else unsubscribers.push(unsubscribe); })
-      .catch((error: Error) => { if (!disposed) message.error(`引用文档实时连接失败：${error.message}`); });
+      .catch((error: Error) => { if (!disposed) operationFeedback(error,"操作"); });
     return () => { disposed = true; unsubscribers.forEach((unsubscribe) => unsubscribe()); };
   }, [client, documentID, followedIDs.join("|"), message, view]);
   const treeNodes = useMemo(() => {
@@ -666,7 +667,7 @@ export function Workbench() {
       if (!plane && selection.kind !== "plane") { message.info("请选择基准平面或实体的平面面；曲面没有唯一法线视图。"); return; }
       if (!viewport.current?.normalToPlane(selection,plane)) message.info("所选平面当前不可用，请重新选择。");
     } catch (error) {
-      if (!signal?.aborted&&generation===normalViewRequest.current) message.error(error instanceof Error ? error.message : String(error));
+      if (!signal?.aborted&&generation===normalViewRequest.current) operationFeedback(error,"操作");
     }
   };
   const canEdit = !motionOpen && !motionDisplay && Boolean(editSession) && (editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR");
@@ -722,7 +723,7 @@ export function Workbench() {
         if (!disposed) {
           const diagnostic = cause instanceof Error ? cause.message : String(cause);
           setProductUpdateFailure({documentId:view.document.id,revisionId:view.document.versionId,diagnostic});
-          message.error(`自动跟随最新版本失败：${diagnostic}`);
+          operationFeedback({message:diagnostic},"操作");
         }
       } finally {
         automaticUpdateRunning.current = false;
@@ -978,7 +979,7 @@ export function Workbench() {
     else if (sketchID && editingView) selectFeature(editingView, sketchID);
   };
   const startSketch = () => {
-    if (selectedNamingIssue) { message.warning(selectedNamingIssue.diagnostic); return; }
+    if (selectedNamingIssue) { operationFeedback(selectedNamingIssue,"操作"); return; }
     if (!editingView || !store.selection) return;
     if (store.selection.kind === "sketch") {
       const feature = editingView.part?.features.find((candidate) => candidate.id === store.selection!.id);
@@ -1209,7 +1210,7 @@ onViewResult:async(node,operation)=>{
 onOpenDocumentTab:async(node,operation) => {
               const targetDocumentId = node.kind === "INSTANCE" ? node.documentId : node.sourceDocumentId;
               if (targetDocumentId) await openDocumentTab(targetDocumentId, client, api.openDocument, path=>{if(!operation||operation.current)navigate(path);})
-                .catch((error: Error) => {if(!operation||operation.current)message.error(`打开文档失败：${error.message}`);});
+                .catch((error: Error) => {if(!operation||operation.current)operationFeedback(error,"操作");});
             },
 onActivate:async(node,operation) => {
  if(node.kind==='MOTION_RESULT'){if(motionCommandActive||motionDisplay)return;setMotionSession(documentID);await motionPanel.current?.execute('result',node.entityId);return}
@@ -1553,12 +1554,12 @@ onToggleConstruction:(node)=>{
       activationGate.current.commit(generation, prepared.session, setEditSession);
     } catch (error) {
       if (activationGate.current.isCurrent(generation)&&(!operation||operation.current)) {
-        message.error(`无法进入上下文编辑：${error instanceof Error ? error.message : String(error)}`);
+        operationFeedback(error,"操作");
       }
     }
   };
-  if (document.isLoading || view && !editSession) return <div className="workbench-loading"><Spin size="large" /></div>;
-  if (!view) return <Empty description="无法打开文档" />;
+  if (document.isLoading || view && !editSession) return <div className="workbench-loading"><Spin size="large" description="正在打开工作台…" /></div>;
+  if (!view) return <Empty description="无法打开文档"><Space><Button onClick={()=>void document.refetch()}>重试</Button><Button onClick={()=>navigate("/")}>返回文档中心</Button></Space></Empty>;
 
   const assemblyPreviewPending = assemblyPreviewSnapshot.matches("pending");
   const assemblyPreviewFailed = assemblyPreviewSnapshot.matches("failed");
@@ -1566,7 +1567,7 @@ onToggleConstruction:(node)=>{
   const freedomNames = ["固定", "转动", "滑动", "圆柱", "平面", "球面", "自由", "耦合"];
   const assemblyPreviewEvidence = assemblyPreviewFailed ? <Alert type="error" showIcon
     message="约束预览求解失败"
-    description={`${assemblyPreviewSnapshot.context.errorCode ? `[${assemblyPreviewSnapshot.context.errorCode}${assemblyPreviewSnapshot.context.phase ? ` @ ${assemblyPreviewSnapshot.context.phase}` : ""}] ` : ""}${assemblyPreviewSnapshot.context.error ?? "无法生成约束预览"}`}
+    description={engineeringProblem({code:assemblyPreviewSnapshot.context.errorCode,message:assemblyPreviewSnapshot.context.error})}
   /> : assemblyPreviewSnapshot.matches("definitionReady") ? <Alert type="warning" showIcon message="计算未完成，可确认保存为待更新" /> : motionComponents?.length ? <div aria-label="装配求解结果">
     {motionComponents.map(component => <div key={component.componentId}>
       <Typography.Text type="secondary">剩余相对自由度：{component.relativeDof}；整体自由度：{component.gaugeDof}</Typography.Text>
@@ -1574,21 +1575,21 @@ onToggleConstruction:(node)=>{
         第二元素变化：{formatDisplayNumber(body.translation)} mm / {formatDisplayNumber(body.rotation * 180 / Math.PI)}°
       </div>)}
       {component.freedoms.filter(freedom => !freedom.relativeToBodyId || freedom.bodyId !== freedom.relativeToBodyId).map(freedom => <div key={freedom.bodyId}>
-        {editingView?.product?.instances.find(instance => instance.id === freedom.bodyId)?.name ?? freedom.bodyId}：
+        {editingView?.product?.instances.find(instance => instance.id === freedom.bodyId)?.name ?? "引用零件已丢失"}：
         {freedomNames[freedom.kind]}（{freedom.translationDof} 平移 / {freedom.rotationDof} 转动）
-        {freedom.relativeToBodyId && `，相对 ${editingView?.product?.instances.find(instance => instance.id === freedom.relativeToBodyId)?.name ?? freedom.relativeToBodyId}`}
+        {freedom.relativeToBodyId && `，相对 ${editingView?.product?.instances.find(instance => instance.id === freedom.relativeToBodyId)?.name ?? "参考零件已丢失"}`}
       </div>)}
     </div>)}
   </div> : undefined;
   const assemblyPreviewFeedback = <>
     {publicKind==="ANGLE"&&angleRelation==="DIRECTED"&&angleAxisQuery.isPending&&angleAxis&&<Alert type="info" message="正在解析参考轴的精确方向"/>}
-    {publicKind==="ANGLE"&&angleRelation==="DIRECTED"&&angleAxisQuery.error&&<Alert type="error" message="参考轴查询失败" description={String(angleAxisQuery.error)}/>}
+    {publicKind==="ANGLE"&&angleRelation==="DIRECTED"&&angleAxisQuery.error&&<Alert type="error" message="参考轴查询失败" description={engineeringProblem(angleAxisQuery.error)}/>}
     {publicKind==="ANGLE"&&angleRelation==="DIRECTED"&&axisInspection?.supports.slice(1).filter(s=>s.status==="RESOLVED"&&s.constraintEligible!==true).map((support,index)=><Alert key={`axis-contract-${index}`} type="warning" message={support.constraintDiagnosticCode ?? "参考轴的约束适用性尚未确认"} description={support.constraintDiagnostic ?? "请选择适用的精确工程子元素。"}/>)}
     {!editingGroup && (assemblySupportQuery.isPending || assemblyCapabilityQuery.isPending) && <Alert type="info" message="正在解析精确支持及约束能力" />}
-    {!editingGroup && (assemblySupportQuery.error || assemblyCapabilityQuery.error) && <Alert type="error" message="精确支持查询失败" description={String(assemblySupportQuery.error ?? assemblyCapabilityQuery.error)} />}
-    {!editingGroup && assemblyInspection?.supports.filter(s=>s.status!=="RESOLVED").map((support,index)=><Alert key={index} type="error" message={support.diagnosticCode ?? "支持元素无法解析"} description={support.diagnostic} />)}
+    {!editingGroup && (assemblySupportQuery.error || assemblyCapabilityQuery.error) && <Alert type="error" message="精确支持查询失败" description={engineeringProblem(assemblySupportQuery.error ?? assemblyCapabilityQuery.error)} />}
+    {!editingGroup && assemblyInspection?.supports.filter(s=>s.status!=="RESOLVED").map((support,index)=><Alert key={index} type="error" message="所选支撑不可用" description={engineeringProblem({code:support.diagnosticCode,message:support.diagnostic})} />)}
     {!editingGroup && assemblyTargetSupports?.filter(s=>s.status==="RESOLVED"&&s.constraintEligible!==true).map((support,index)=><Alert key={`contract-${index}`} type="warning" message={support.constraintDiagnosticCode ?? "精确支持的约束适用性尚未确认"} description={support.constraintDiagnostic ?? "请明确选择 Underlying Circle 或适用的工程子元素；查询未确认时不能预览或提交。"}/>)}
-    {!editingGroup && assemblyExactTypes?.length && !assemblySupportsReady && assemblyInspection?.supports.every(s=>s.status==="RESOLVED") && <Alert type="warning" message="当前精确支持与关系不兼容" description="请选择能力目录允许的关系，或明确选择工程子元素；服务端仍将验证最终提交。" />}
+    {!editingGroup && assemblyExactTypes?.length && !assemblySupportsReady && assemblyInspection?.supports.every(s=>s.status==="RESOLVED") && <Alert type="warning" message="所选几何不支持此关系" description="请选择适用的几何类型，或更换接合关系。" />}
     {assemblyPreviewEvidence}
     {assemblyPreviewFailed && <Button onClick={async()=>{
       const sequence=assemblyPreviewSequence.current;
@@ -1614,7 +1615,7 @@ onToggleConstruction:(node)=>{
   return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><section className="cad-workbench">
 
     {historyResult&&<Alert type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/> }
-    {mechanismAnalysisOpen&&view.product&&<MechanismAnalysisPanel view={view} currentId={mechanismDefinition?.id??(store.selection?.kind==='kinematic-object'?store.selection.mechanismId:undefined)} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")&&!motionCommandActive&&!motionDisplay&&!motionMutation.isPending} onClose={()=>{viewport.current?.showMechanismAnalysis();viewport.current?.showRemainingMotion();setMechanismAnalysisOpen(false)}} onLocate={store.setSelections} onShow={(m,r,j)=>viewport.current?.showMechanismAnalysis(m,r,j)??false} onMotion={showAnalysisMotion} onRepair={(m,j)=>{setMechanismAnalysisOpen(false);void motionPanel.current?.repairJoint(m,j)}}/>}
+    {mechanismAnalysisOpen&&view.product&&<MechanismAnalysisPanel view={view} selection={store.selection} currentId={mechanismDefinition?.id??(store.selection?.kind==='kinematic-object'?store.selection.mechanismId:undefined)} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")&&!motionCommandActive&&!motionDisplay&&!motionMutation.isPending} onClose={()=>{viewport.current?.showMechanismAnalysis();viewport.current?.showRemainingMotion();setMechanismAnalysisOpen(false)}} onLocate={store.setSelections} onShow={(m,r,j)=>viewport.current?.showMechanismAnalysis(m,r,j)??false} onMotion={showAnalysisMotion} onRepair={(m,j)=>{setMechanismAnalysisOpen(false);void motionPanel.current?.repairJoint(m,j)}}/>}
     {view.product&&<MotionStudyPanel ref={motionPanel} onRepairContext={setMotionRepair} sourceMechanismIds={motionSources.current} onDraft={setMotionDraft} captureViewpoint={()=>viewport.current?.captureMotionViewpoint()} previewViewpoint={(v,documentId)=>{if(!documentId||documentId===view.document.id)viewport.current?.previewMotionViewpoint(v)}} onCommit={async command=>{const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,command));await refresh(updated);return updated}} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onMechanism={m=>{setMechanismDefinition(m);if(m&&motionOpen&&motionSources.current.at(-1)===m.id){const url=new URL(window.location.href);url.searchParams.set("application","mechanism");url.searchParams.set("mechanismId",m.id);url.searchParams.set("applicationRevision",view.document.versionId);url.searchParams.set("mechanismSources",motionSources.current.join(','));window.history.replaceState(null,"",url)}}} onStatus={setMotionStatus} onSelectionSession={setFeatureSelection} onPreview={setMotionPosePreview} onSave={async (k,baseRevisionId)=>{if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:baseRevisionId??view.document.versionId,kinematics:k}));const created=updated.product?.kinematics?.mechanisms.find(m=>!view.product?.kinematics?.mechanisms.some(v=>v.id===m.id));const acceptedId=created?.id??mechanismDefinition?.id;if(acceptedId&&motionOpen)motionSources.current=[...motionSources.current.filter(id=>id!==acceptedId&&updated.product?.kinematics?.mechanisms.some(m=>m.id===id)),acceptedId];setMechanismDefinition(m=>updated.product?.kinematics?.mechanisms.find(v=>v.id===m?.id));setMotionPosePreview(undefined);await refresh(updated);return updated}} onSwitch={async input=>{
       if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");
       input={...input,sourceMechanismIds:input.sourceMechanismIds??motionSources.current.filter(id=>view.product?.kinematics?.mechanisms.some(m=>m.id===id))};
@@ -1691,13 +1692,13 @@ onToggleConstruction:(node)=>{
         {view.document.type === "PRODUCT" && (productUpdateFailure || productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept) && <Alert
           style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",minWidth:420}}
           type="error" showIcon message="自动跟随最新版本被阻塞"
-          description={productUpdateFailure ?? productUpdatePlan.data?.entries.find((entry)=>entry.kind !== "ASSEMBLY_SOLVE" && entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"}
+          description={engineeringProblem(productUpdateFailure??productUpdatePlan.data?.entries.find(entry=>entry.kind!=="ASSEMBLY_SOLVE"&&entry.diagnostic)?.diagnostic)}
           action={<Button size="small" onClick={retryAssociationUpdates}>重试</Button>} />}
         {(selectedNamingIssue ?? activeNamingIssue) && <Alert
           style={{position:"absolute",zIndex:12,bottom:12,left:12,maxWidth:520}}
-          type="warning" showIcon message="当前几何暂不支持持久拓扑引用"
-          description={(selectedNamingIssue ?? activeNamingIssue)?.diagnostic}
-          action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>建立导入命名</Button> : undefined} />}
+          type="warning" showIcon message="当前几何暂不能用于关联建模"
+          description="当前几何的引用信息暂不可用，请重新计算或重新选择。"
+          action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>修复导入引用</Button> : undefined} />}
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} onDocumentDisplayed={(documentId,revisionId)=>setAssistantDisplayed({documentId,revisionId})} onSceneMetrics={globalOptions?.setMetrics} applicationDisplay={motionOpen||motionRepair||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen||motionRepair?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
           failureAction={inputRepair&&canEdit&&!motionDisplay ? {description:profileRepair?`草图已闭合，但 ${profileRepair.name??"特征"} 的原轮廓区域已失效，请重新选择。`:terminationRepair?`${terminationRepair.name??"特征"} 的终止平面不可用，请检查或重新选择。`:`${holeRepair!.name??"孔"} 的定位点已失效，请重新选择。`,label:profileRepair?(store.activeSketchID?"结束草图并修复区域":"修复轮廓区域"):terminationRepair?"修复终止平面":"修复孔位",disabled:command.isPending||!!sketchReceipt||!!solidEditor||!!supportSketch||!!datumEditor||!!booleanDialog,onClick:repairProfileRegion}:undefined}
           editingView={motionDisplay?undefined:editingView} activeInstancePath={motionDisplay?undefined:activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
@@ -1718,7 +1719,7 @@ onToggleConstruction:(node)=>{
               const issue = topologyNamingIssue(reference.geometryKey, editingView, view);
               return issue ? [issue] : [];
             })[0];
-            if (issue) { message.warning(issue.diagnostic); return; }
+            if (issue) { operationFeedback(issue,"操作"); return; }
             const { kind, angleRelation } = assemblyConstraintEntry(toolKind);
 			if (!editingView) return;
 			assemblyDialogLifecycle.current.invalidate();
@@ -1829,9 +1830,9 @@ onToggleConstruction:(node)=>{
           onLocate={(reference)=>{if(!viewport.current?.focusAssemblyReference(reference))setReconnectError("当前支持元素无法在视图区定位。");}}
 		  onRefresh={()=>refreshAssemblyConstraint(editingAssemblyConstraint.id)}
 		  onReplace={(index)=>{store.setSelection(null);setReconnectError(undefined);setReplacingAssemblyReference(index);store.setActiveTool("select","once");}} />}
-        {replacingAssemblyReference !== undefined && <Alert type="info" showIcon message={`Reconnect 支持元素 ${replacingAssemblyReference + 1}`}
+        {replacingAssemblyReference !== undefined && <Alert type="info" showIcon message={`重新选择支撑 ${replacingAssemblyReference + 1}`}
           description="在视图区选择新的几何元素；Esc 取消整个编辑会话。" />}
-        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={reconnectError} />}
+        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={engineeringProblem(reconnectError)} />}
         {assemblyPreviewFeedback}
         {editingAssemblyConstraint && <Space className="assembly-constraint-actions">
           <Button disabled={command.isPending} onClick={() => {
@@ -1892,7 +1893,7 @@ onToggleConstruction:(node)=>{
 		  onReplace={(index)=>{store.setSelection(null);setReconnectError(undefined);setReplacingAssemblyReference(index);store.setActiveTool("select","once");}} />}
         {replacingAssemblyReference !== undefined && <Alert type="info" showIcon message={`重新选择支持元素 ${replacingAssemblyReference + 1}`}
           description="在视图区选择新的几何元素；Esc 取消整个创建会话。" />}
-        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={reconnectError} />}
+        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={engineeringProblem(reconnectError)} />}
         {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
@@ -1929,7 +1930,7 @@ onToggleConstruction:(node)=>{
 					<Space direction="vertical" size={0}><Typography.Text ellipsis={{tooltip:parameterSourceText(parameter)}}>{parameterSourceText(parameter)}</Typography.Text>
 						{editingView?.referenceUpdates?.find((item) => item.consumerKind === "EXTERNAL_PARAMETER" && item.consumerId === parameter.parameterId) && ((update) =>
 							<Tag color={update.status === "CURRENT" ? "success" : update.status === "UPDATE_AVAILABLE" ? "processing" : "error"}
-								title={update.diagnostic}>{update.status}</Tag>)(editingView.referenceUpdates.find((item) => item.consumerKind === "EXTERNAL_PARAMETER" && item.consumerId === parameter.parameterId)!)}</Space>
+								title={engineeringLabel(update.status)}>{engineeringLabel(update.status)}</Tag>)(editingView.referenceUpdates.find((item) => item.consumerKind === "EXTERNAL_PARAMETER" && item.consumerId === parameter.parameterId)!)}</Space>
 					<Typography.Text>{parameterDisplayValue(parameter, lengthUnit)}</Typography.Text>
 					<Space><Button size="small" disabled={!canEdit} onClick={() => publishParameter(parameter)}>发布</Button>
 					<Button size="small" disabled={!canEdit} onClick={() => { externalParameterForm.resetFields(); setExternalParameterID(parameter.parameterId); }}>引用</Button>
@@ -1938,7 +1939,7 @@ onToggleConstruction:(node)=>{
 						title={parameter.lifecycle === "SKETCH_DIMENSION" ? "请通过尺寸约束删除" : parameter.lifecycle !== "USER" ? "Feature 必需参数不能独立删除" : undefined}
 						onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"DELETE_PARAMETER",parameterId:parameter.parameterId}))}>删除</Button></Space>
 				</div>)}
-			<small className="cad-command-hint">表达式使用可读别名输入，提交后绑定稳定 ParameterId；重命名别名不会断开已有引用。</small>
+			<small className="cad-command-hint">可插入参数引用或输入表达式，重命名不影响已有关系。</small>
 		</div>
 	</CommandDialog>
 	<CommandDialog id="publication-manager" open={publicationManagerOpen} title="Publications" size="L"
@@ -1954,22 +1955,22 @@ onToggleConstruction:(node)=>{
 			{editingView?.document.type === "PRODUCT" ? ((editingView.product?.publications ?? []).length === 0
 				? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 Product 尚无转发 Publication" />
 				: (editingView.product?.publications ?? []).map((publication) => <div className="parameter-manager-row" key={publication.id}>
-					<span><Typography.Text strong>{publication.name}</Typography.Text><Typography.Text type="secondary" copyable={{text:publication.id}}>{publication.id}</Typography.Text></span>
+					<span><Typography.Text strong>{publication.name}</Typography.Text></span>
 					<span>{publication.type} · {publication.target.instancePath.display}</span>
-					<Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{publication.resolution.status}</Tag>
+					<Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{engineeringLabel(publication.resolution.status)}</Tag>
 					<Space><Button size="small" disabled={!canEdit} onClick={() => openPublicationEditor(publication.id,"PRODUCT")}>编辑</Button>
 					<Button size="small" disabled={!canEdit} onClick={() => redirectProductPublicationToSelection(publication.id)}>重定向</Button>
 					<Button danger size="small" disabled={!canEdit} onClick={() => command.mutate(() => api.deleteProductPublication(editingView.document.id, publication.id))}>删除</Button></Space>
 				</div>)) : (editingView?.part?.publications ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 Part 尚无 Publication" />
 				: (editingView?.part?.publications ?? []).map((publication) => <div className="parameter-manager-row" key={publication.id}>
-					<span><Typography.Text strong>{publication.name}</Typography.Text><Typography.Text type="secondary" copyable={{text:publication.id}}>{publication.id}</Typography.Text></span>
-					<span>{publication.type} · {publication.target.kind}</span>
-					<Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{publication.resolution.status}</Tag>
+					<span><Typography.Text strong>{publication.name}</Typography.Text></span>
+					<span>{engineeringLabel(publication.type,"几何引用")} · {engineeringLabel(publication.target.kind,"关联对象")}</span>
+					<Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{engineeringLabel(publication.resolution.status)}</Tag>
 					<Space><Button size="small" disabled={!canEdit} onClick={() => openPublicationEditor(publication.id,"PART")}>编辑</Button>
 					<Button size="small" disabled={!canEdit} onClick={() => redirectPublicationToSelection(publication.id, publication.type)}>重定向</Button>
 					<Button danger size="small" disabled={!canEdit} onClick={() => editingView && command.mutate(() => api.deletePublication(editingView.document.id, publication.id))}>删除</Button></Space>
 				</div>)}
-			<small className="cad-command-hint">PublicationId 在兼容重定向时保持不变；断开的目标会以 BROKEN_PUBLICATION 保存在 Revision 中。</small>
+			<small className="cad-command-hint">发布目标丢失后可重新选择目标。</small>
 		</div>
 		{editingView?.part && <><Divider>Product Context Bindings</Divider>
 			<Form form={contextReferenceForm} layout="vertical" initialValues={{name:"Context Binding",publicationType:"PLANE"}}>
@@ -1984,22 +1985,22 @@ onToggleConstruction:(node)=>{
 							label:`${item.displayPath} · ${item.publication.type}`,disabled:!item.selectable}))}/></Form.Item>
 					<Form.Item name="targetId" label="本地目标" rules={[{required:true}]}><Select style={{width:220}} showSearch optionFilterProp="label" options={
 						contextPublicationType==="PARAMETER"?(editingView.part.parameters??[]).map((item)=>({value:item.parameterId,label:item.key}))
-						:contextPublicationType==="CURVE"?editingView.part.features.filter((item)=>item.sketch).map((item)=>({value:item.id,label:item.name??item.id}))
+						:contextPublicationType==="CURVE"?editingView.part.features.filter((item)=>item.sketch).map((item)=>({value:item.id,label:item.name??"未命名特征"}))
 						:contextPublicationType==="PLANE"?(editingView.datumPlanes??editingView.part.datumPlanes).map((item)=>({value:item.id,label:item.name}))
 						:contextPublicationType==="AXIS"?(editingView.datumAxes??[]).map((item)=>({value:item.id,label:item.name}))
-						:editingView.part.features.map((item)=>({value:item.id,label:item.name??item.id}))}/></Form.Item>
+						:editingView.part.features.map((item)=>({value:item.id,label:item.name??"未命名特征"}))}/></Form.Item>
 					<Form.Item label=" "><Button disabled={!canEdit||!activeInstancePath} onClick={()=>void createContextBinding()}>创建绑定</Button></Form.Item>
 				</Space>
 			</Form>
 			{(editingView.part.contextInputs??[]).map((input)=><div className="parameter-manager-row" key={input.id}>
 				<span><Typography.Text strong editable={canEdit?{onChange:(name)=>command.mutate(()=>api.editContextInput(editingView.document.id,input.id,name,Boolean(input.required)))}:false}>{input.name}</Typography.Text>
-				<Typography.Text type="secondary" copyable={{text:input.id}}>{input.id}</Typography.Text></span>
-				<span>{input.type} · {input.target.kind}</span><Tag color={input.required?"blue":"default"}>{input.required?"REQUIRED":"OPTIONAL"}</Tag><span />
+				</span>
+				<span>{engineeringLabel(input.type,"几何输入")} · {engineeringLabel(input.target.kind,"关联对象")}</span><Tag color={input.required?"blue":"default"}>{input.required?"必需":"可选"}</Tag><span />
 			</div>)}
 			{(view.product?.contextBindings??[]).filter((binding)=>binding.owningInstancePath.canonical===activeInstancePath).map((binding)=><div className="parameter-manager-row" key={binding.id}>
 				<span><strong>{binding.name}</strong><Typography.Text type="secondary">{binding.contextInputId}</Typography.Text></span>
 				<span>{binding.sourceInstancePath.display} / {binding.publication.expectedType}</span>
-				<Tag color={binding.resolution.status==="CONNECTED"?"success":"error"}>{binding.accepted.status}</Tag>
+				<Tag color={binding.resolution.status==="CONNECTED"?"success":"error"}>{engineeringLabel(binding.accepted.status)}</Tag>
 				<Typography.Text type="secondary">{binding.referenceMode}</Typography.Text>
 			</div>)}
 			{view.document.type!=="PRODUCT"&&<Alert type="info" showIcon message="跨文档关联从 Product 设计会话创建" description="请在 Product 中激活该 Part，再从当前产品上下文目录选择 Publication。" />}</>}
@@ -2011,8 +2012,8 @@ onToggleConstruction:(node)=>{
 		</Form><Divider>Instance Names</Divider>
 			{editingView.product.instances.map((instance)=><div className="parameter-manager-row" key={instance.id}>
 				<span><Typography.Text strong editable={canEdit?{onChange:(name)=>command.mutate(()=>api.renameInstance(editingView.document.id,instance.id,name))}:false}>{instance.name}</Typography.Text>
-				<Typography.Text type="secondary" copyable={{text:instance.id}}>{instance.id}</Typography.Text></span>
-				<span>{instance.documentId}</span><Tag>{instance.referenceMode??"FOLLOW_HEAD"}</Tag><span />
+				</span>
+				<span>{instance.documentId}</span><Tag>{engineeringLabel(instance.referenceMode??"FOLLOW_HEAD")}</Tag><span />
 			</div>)}</>}
 	</CommandDialog>
 	<CommandDialog id="context-input-edit" open={Boolean(editingContextInput)} title="编辑上下文输入" size="S"
@@ -2030,7 +2031,7 @@ onToggleConstruction:(node)=>{
 				loading={parameterContextCatalog.isLoading} placeholder={activeInstancePath?"按 occurrence / 发布名称选择":"请先在 Product 中激活 Part"}
 				options={(parameterContextCatalog.data?.publications??[]).map((item)=>({value:`${item.instancePath.canonical}::${item.publication.id}`,
 					label:`${item.displayPath} · ${item.publication.name}`,disabled:!item.selectable}))} /></Form.Item>
-			<small className="cad-command-hint">来源限定在当前 Product occurrence 图中；提交会原子创建 Part ContextInput、Product ContextBinding 与接受快照。</small>
+			<small className="cad-command-hint">从当前装配选择来源，确认后将其关联到当前零件。</small>
 		</Form>
 	</CommandDialog>
 	<CommandDialog size="S" id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
@@ -2041,11 +2042,11 @@ onToggleConstruction:(node)=>{
 			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={editingView?.part?.parameters??[]} excludeId={editingParameterID} unit={lengthUnit} placeholder="40 或 r_1 + 5"/></Form.Item>
             {parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":"外部来源只读，当前仅编辑名称。"}</small>}
 			{parameterInputPreview.pending&&<Typography.Text type="secondary">正在检查表达式…</Typography.Text>}{parameterInputPreview.error&&<Alert type="error" message={parameterInputPreview.error}/>}{parameterInputPreview.parameterCandidates?.find(p=>p.parameterId===editingParameterID)&&<Typography.Text>计算值：{parameterDisplayValue(parameterInputPreview.parameterCandidates.find(p=>p.parameterId===editingParameterID)!,lengthUnit)}</Typography.Text>}
- {editingView&&Boolean(parameterInputPreview.failure)&&<DiagnosticCopy text={diagnosticReference(parameterInputPreview.failure,{documentId:editingView.document.id,versionId:editingView.document.versionId})}/>}
- <small className="cad-command-hint">长度增量请显式输入单位，如 r_1 + 5 mm。表达式按当前 Part 的参数别名编辑；提交后 AST 绑定稳定 ParameterId，后续重命名不会破坏引用。</small>
+
+ <small className="cad-command-hint">长度增量需输入单位，如 r_1 + 5 mm。可使用参数引用，重命名不影响已有关系。</small>
 		</Form>
 	</CommandDialog>
-	<CommandDialog size="S" id="publication-edit" open={Boolean(editingPublication)} title="编辑 Publication"
+	<CommandDialog size="S" id="publication-edit" open={Boolean(editingPublication)} title="编辑发布引用"
 		onClose={() => setEditingPublication(undefined)} confirmLoading={command.isPending} onConfirm={commitPublicationEdit}>
 		<Form form={publicationEditForm} layout="vertical">
 			<Form.Item name="name" label="名称" rules={[{required:true}]}><Input /></Form.Item>
@@ -2093,7 +2094,7 @@ onToggleConstruction:(node)=>{
       <Form form={newPartForm} layout="vertical">
         <Form.Item name="name" label="零件名称" rules={[{ max: 120 }]}><Input placeholder="留空自动分配 Part1、Part2…" /></Form.Item>
         <Form.Item name="description" label="说明" rules={[{ max: 500 }]}><Input.TextArea rows={2} /></Form.Item>
-        <small className="cad-command-hint">新 Part 与 occurrence 会原子创建；默认位于所选 Product 原点，实例名按“零件名.序号”分配。</small>
+        <small className="cad-command-hint">新零件将插入当前装配原点，实例按零件名称和序号命名。</small>
       </Form>
     </CommandDialog>
     {datumEditor && editingView?.part && <DatumEditor key={editingView.document.id+datumEditor+(editingDatumId??"")+(activeInstancePath ?? "")} kind={datumEditor} datumId={editingDatumId} view={editingView} seed={store.selections} unit={lengthUnit}
@@ -2105,10 +2106,10 @@ onToggleConstruction:(node)=>{
       <Form form={versionForm} layout="vertical"><Form.Item name="name" label="版本名称" rules={[{ required: true }]}><Input placeholder="V1 - Initial concept" /></Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} /></Form.Item></Form>
     </CommandDialog>
-    <ProductReleaseCenter open={releaseOpen} releases={productReleases.data ?? []} loading={productReleases.isLoading}
+    <ProductReleaseCenter canCreate={canEditRoot} error={productReleases.error} onRetry={()=>void productReleases.refetch()} open={releaseOpen} releases={productReleases.data ?? []} loading={productReleases.isLoading}
       creating={command.isPending} onClose={() => setReleaseOpen(false)} onCreate={createRelease}
       onReplay={async (release) => { const result = await api.replayProductRelease(documentID, release.id);
-        message.success(`版本重放验证：${result.status}`); }} />
+        message.info(result.status==="VERIFIED"||result.status==="SUCCEEDED"||result.status==="CONVERGED"?"版本检查完成":"版本检查尚未通过，请检查关联零件和约束。"); }} />
     <ShareDialog resource={shareResource} onClose={() => setShareResource(undefined)} />
   </section></CommandProvider>;
 }

@@ -1,3 +1,4 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test} from "@playwright/test";
 
 test("parameter double click, focused Enter and context edit share one editor",async({page})=>{
@@ -17,7 +18,7 @@ test("parameter double click, focused Enter and context edit share one editor",a
 test("sketch focus hides both scene grids and adapts sketch feedback to bright backgrounds",async({page},testInfo)=>{
  const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));
  await page.goto("/documents/mock-part-bracket");await expect(page.locator("canvas")).toBeVisible();
- const state=async()=>JSON.parse((await page.getByTestId("scene-grid").getAttribute("data-state"))!);
+ const state=async()=>JSON.parse((await viewportProbe(page,"scene-grid").getAttribute("data-state"))!);
  await expect.poll(async()=>(await state()).ground).toBe(true);const before=await state();
  await page.getByRole("button",{name:"选项",exact:true}).click();const options=page.getByRole("dialog",{name:"选项",exact:true});
  await options.getByRole("button",{name:/明\s*亮/}).click();await options.getByRole("button",{name:/确\s*定/}).click();
@@ -25,10 +26,10 @@ test("sketch focus hides both scene grids and adapts sketch feedback to bright b
  await page.getByRole("textbox",{name:"筛选模型结构"}).fill("Sketch");
  await page.getByRole("treeitem").filter({hasText:"Sketch"}).last().dblclick();await expect(page.getByRole("button",{name:"退出草图",exact:true})).toBeVisible();
  await expect.poll(async()=>{const s=await state();return [s.ground,s.world,s.sketch]}).toEqual([false,false,true]);
- await expect(page.getByTestId("navigation-camera")).toHaveAttribute("data-transition-active","false");
+ await expectViewport(viewportProbe(page,"navigation-camera")).toHaveAttribute("data-transition-active","false");
  await page.screenshot({path:testInfo.outputPath("bright-sketch.png")});
  await page.getByRole("button",{name:"退出草图",exact:true}).click();await expect.poll(async()=>(await state()).ground).toBe(true);
- await expect(page.getByTestId("navigation-camera")).toHaveAttribute("data-transition-active","false");
+ await expectViewport(viewportProbe(page,"navigation-camera")).toHaveAttribute("data-transition-active","false");
  const after=await state();expect(after.center).toEqual(before.center);expect(after.halfSize).toBe(before.halfSize);
  await page.screenshot({path:testInfo.outputPath("bright-bounded-ground.png")});expect(errors).toEqual([]);
 });

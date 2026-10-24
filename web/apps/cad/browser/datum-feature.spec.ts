@@ -1,3 +1,4 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
 async function openCommand(page:Page, query:string, title:string) {
  await page.getByRole("button",{name:"搜索工具",exact:true}).click();
@@ -34,15 +35,15 @@ test("datum editors preview arbitrary geometry, copy references and delete throu
   };
  });
  const initial=await page.evaluate(async()=>{const {api}=await import("/src/api/client.ts");return (await api.getDocument("mock-part-bracket")).document.versionId;});
- const camera=await page.getByTestId("navigation-camera").textContent();
+ const camera=await viewportProbe(page,"navigation-camera").textContent();
  let dialog=await openCommand(page,"基准面","创建基准面");
  await expect(dialog.getByRole("radio",{name:"关联参考",exact:true})).toBeChecked();
  await dialog.getByText("自由坐标",{exact:true}).click();
  await dialog.getByRole("spinbutton",{name:"原点（mm） X",exact:true}).fill("20");
  await dialog.getByRole("spinbutton",{name:"法向 X",exact:true}).fill("1");
- await expect(page.getByTestId("viewport-datum-preview")).toContainText('"origin":[20,0,0]');
- await expect(page.getByTestId("viewport-datum-preview")).toContainText('"direction":[0.707106');
- const afterCamera=(await page.getByTestId("navigation-camera").textContent())!;
+ await expectViewport(viewportProbe(page,"viewport-datum-preview")).toContainText('"origin":[20,0,0]');
+ await expectViewport(viewportProbe(page,"viewport-datum-preview")).toContainText('"direction":[0.707106');
+ const afterCamera=(await viewportProbe(page,"navigation-camera").textContent())!;
  expect(afterCamera.split(" / ").slice(1)).toEqual(camera!.split(" / ").slice(1));
  // Clipping may move the orthographic eye along its isometric view axis.
  const position=(text:string)=>text.split(" / ")[0].replace("Camera: ","").split(",").map(Number);
@@ -50,7 +51,7 @@ test("datum editors preview arbitrary geometry, copy references and delete throu
  expect(Math.abs(delta[0]+delta[1])).toBeLessThan(.001);expect(Math.abs(delta[0]-delta[2])).toBeLessThan(.001);
  await page.screenshot({path:testInfo.outputPath("datum-plane-preview.png")});
  await dialog.getByRole("button",{name:"关闭",exact:true}).click();
- await expect(page.getByTestId("viewport-datum-preview")).toHaveCount(0);
+ await expectViewport(viewportProbe(page,"viewport-datum-preview")).toHaveCount(0);
  expect(await page.evaluate(async()=>{const {api}=await import("/src/api/client.ts");return (await api.getDocument("mock-part-bracket")).document.versionId;})).toBe(initial);
  // A copied face uses its bounded center, not the analytic surface origin.
  await page.evaluate(async()=>{
@@ -60,7 +61,7 @@ test("datum editors preview arbitrary geometry, copy references and delete throu
   useWorkbenchStore.getState().setSelection({kind:"face",id:"face",entityId:"face",topologyId:1,geometryKey:body.geometryKey!,bodyId:body.id,documentId:view.document.id,versionId:view.document.versionId});
  });
  dialog=await openCommand(page,"基准面","创建基准面");
- await expect(page.getByTestId("viewport-datum-preview")).toContainText('"origin":[8,9,10]');
+ await expectViewport(viewportProbe(page,"viewport-datum-preview")).toContainText('"origin":[8,9,10]');
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).__datumFixture.commits[0].datumDefinition.source)).toMatchObject({kind:"TOPOLOGY",selection:{anchor:{outputSlot:"FIXTURE_PLANAR_FACE"},expectedType:"FACE"}});
  const filter=page.getByRole("textbox",{name:"筛选模型结构"});await filter.fill("Plane");
@@ -74,11 +75,11 @@ test("datum editors preview arbitrary geometry, copy references and delete throu
   useWorkbenchStore.getState().setSelection({kind:"axis",axis:"X",id:"root:axis-system-default:X",entityId:view.axisSystems![0].id,documentId:view.document.id,versionId:view.document.versionId});
  });
  dialog=await openCommand(page,"基准轴","创建基准轴");
- await expect(page.getByTestId("viewport-datum-preview")).toContainText('"direction":[1,0,0]');
+ await expectViewport(viewportProbe(page,"viewport-datum-preview")).toContainText('"direction":[1,0,0]');
  await dialog.getByText("自由坐标",{exact:true}).click();
  await dialog.getByRole("spinbutton",{name:"方向 X",exact:true}).fill("1");await dialog.getByRole("spinbutton",{name:"方向 Z",exact:true}).fill("0");
  await dialog.getByRole("spinbutton",{name:"原点（mm） Y",exact:true}).fill("5");
- await expect(page.getByTestId("viewport-datum-preview")).toContainText('"origin":[0,5,0]');
+ await expectViewport(viewportProbe(page,"viewport-datum-preview")).toContainText('"origin":[0,5,0]');
  await page.screenshot({path:testInfo.outputPath("datum-axis-preview.png")});
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  await filter.fill("Axis");

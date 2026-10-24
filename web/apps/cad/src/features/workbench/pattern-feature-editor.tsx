@@ -1,4 +1,5 @@
-import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
+import {engineeringProblem} from "../../cad/command/operation-feedback";
+
 import type { FeaturePickRole } from "../../cad/interaction/feature-selection";
 import { Alert, Button, Input, Select, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
@@ -140,12 +141,12 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
         {editingPattern&&<><Button onClick={()=>void removePattern("DELETE_PATTERN")}>删除阵列</Button><Button onClick={()=>void removePattern("DETACH_PATTERN")}>解除关联</Button></>}
       </>}
       {!internal&&<>
-      {pattern.sourceKind==="FEATURE_DELTA"&&<><label>起始特征<Select value={pattern.startFeatureId} placeholder="选择生成特征" options={upstream.filter(f=>!f.suppressed&&caps[f.id]?.rangeStart).map(f=>({value:f.id,label:f.name??f.id}))} onChange={startFeatureId=>{const start=upstream.find(f=>f.id===startFeatureId)!;setDraft(f=>({...f,bodyId:start.bodyId,operation:"ADD",pattern:{...f.pattern!,startFeatureId,source:{bodyId:start.bodyId!,featureId:startFeatureId}}}));}}/></label><Alert type="info" title="复制所选生成特征的新增材料及其后的圆角、倒角，保留此前实体。"/></>}
+      {pattern.sourceKind==="FEATURE_DELTA"&&<><label>起始特征<Select value={pattern.startFeatureId} placeholder="选择生成特征" options={upstream.filter(f=>!f.suppressed&&caps[f.id]?.rangeStart).map(f=>({value:f.id,label:f.name??"未命名特征"}))} onChange={startFeatureId=>{const start=upstream.find(f=>f.id===startFeatureId)!;setDraft(f=>({...f,bodyId:start.bodyId,operation:"ADD",pattern:{...f.pattern!,startFeatureId,source:{bodyId:start.bodyId!,featureId:startFeatureId}}}));}}/></label><Alert type="info" title="复制所选生成特征的新增材料及其后的圆角、倒角，保留此前实体。"/></>}
       <FeaturePickField label={pattern.sourceKind==="FEATURE_DELTA"?"包含至":"种子"} value={choices.find(f=>f.id===pattern.source.featureId)?.name??"选择上游特征或草图"} active={role==="body"||role==="profile"} onActivate={()=>activatePick(draft.type==="SKETCH_PATTERN"?"profile":"body")}/>
-      <Select value={pattern.source.featureId||undefined} options={choices.map(f=>({value:f.id,label:f.name??f.id}))} onChange={selectSource}/>
+      <Select value={pattern.source.featureId||undefined} options={choices.map(f=>({value:f.id,label:f.name??"未命名特征"}))} onChange={selectSource}/>
       {mirror?<FeaturePickField label="镜像平面" value={pattern.mirrorPlane?"已选择实体平面":view.part?.datumPlanes.find(p=>p.id===pattern.mirrorPlaneId)?.name??"选择标准面、基准面或实体平面"} active={role==="plane"} onActivate={()=>activatePick("plane")}/>:<FeaturePickField label={pattern.kind==="CIRCULAR"?"轴":"方向"} value={pattern.axisEntityId?"已选择轴线":"请选择轴线"} active={role==="axis"} onActivate={()=>activatePick("axis")}/>}
       </>}
-      {!internal&&draft.type==="SOLID_PATTERN"&&draft.operation!=="REMOVE"&&<Select value={pattern.resultMode??"COMBINE"} options={[{value:"COMBINE",label:"与目标 Body 组合"},{value:"INDEPENDENT",label:"保留独立 Solid"}]} onChange={resultMode=>update({resultMode})}/>}
+      {!internal&&draft.type==="SOLID_PATTERN"&&draft.operation!=="REMOVE"&&<Select value={pattern.resultMode??"COMBINE"} options={[{value:"COMBINE",label:"与目标实体组合"},{value:"INDEPENDENT",label:"保留独立实体"}]} onChange={resultMode=>update({resultMode})}/>}
       {internal&&pattern.kind==="LINEAR"&&<FeaturePickField label="方向" value={pattern.directionReference||pattern.axisEntityId?"已选择草图方向":"选择 U/V 轴、直线或投影直线"} active={role==="axis"} onActivate={()=>activatePick("axis")}/>}
       {pattern.kind==="CIRCULAR"&&<FeaturePickField label="中心点" value={pattern.centerReference?"已选择中心点":internal?"选择原点、端点或圆心":"所选轴的原点"} active={role==="point"} onActivate={()=>activatePick("point")} onClear={pattern.centerReference?()=>update({centerReference:undefined}):undefined}/>}
       {!mirror&&<><label>反向<Switch checked={!!pattern.reversed} onChange={reversed=>update({reversed})}/></label>
@@ -153,7 +154,7 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
       {(["count",pattern.kind==="LINEAR"?"spacing":pattern.distribution==="FULL_CIRCLE"?null:"angle",(internal||draft.type==="SKETCH_PATTERN")&&pattern.kind==="CIRCULAR"?"phase":null] as const).filter(x=>x!==null).map(slot=><label key={slot}>{({count:"数量",spacing:`间距 / 跨度 (${unit})`,angle:"角度 (deg)",phase:"相位 (deg)"})[slot]}<Input value={text[slot]} onChange={e=>setText(t=>({...t,[slot]:e.target.value}))}/></label>)}
       <label>跳过槽位（从 0 开始）<Input value={skipped} onChange={e=>setSkipped(e.target.value)}/></label></>}
     </fieldset>
-    {(parameterError||error||preview.error)&&<Alert type="error" title={parameterError??error??preview.error}/>}
-  {!!preview.failure && <DiagnosticCopy text={diagnosticReference(preview.failure,{documentId:view.document.id,versionId:view.document.versionId})}/>}
+    {(parameterError||error||preview.error)&&<Alert type="error" title={engineeringProblem(parameterError??error??preview.error)}/>}
+
 </CommandDialog>;
 }

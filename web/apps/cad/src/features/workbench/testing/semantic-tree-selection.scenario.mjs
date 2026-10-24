@@ -44,7 +44,7 @@ try {
     resolvedInstances: [
       { bodyId: "body-a", documentId: "part", occurrencePath: "instance-a", geometryKey: "geometry-1",
         instancePath: firstPath, bodyVisible: true },
-      { bodyId: "body-a", documentId: "part", occurrencePath: "instance-b", geometryKey: "geometry-2",
+      { name:"Body.1", bodyId: "body-a", documentId: "part", occurrencePath: "instance-b", geometryKey: "geometry-2",
         instancePath: secondPath, bodyVisible: true },
     ], artifacts: { "geometry-2": { geometryKey: "geometry-2", representations: {
       VISUAL: { objectId: "mesh-object", size: 128, schemaVersion: 1 } } } } };
@@ -81,9 +81,13 @@ try {
   const pinnedBody = tree.structureSelection(instances[1].children[0].children[0], view);
   const properties = renderToStaticMarkup(createElement(Properties, { view, selection: pinnedBody,
     workbench: "part-design", activeTool: "select", navigationProfile: "cad" }));
-  assert(properties.includes("/api/documents/part/representations/mesh-object?versionId=revision-2"),
-    "Product Body file link must use the pinned Part Revision");
-  assert(properties.includes("bodyId=body-a"), "file link keeps the selected Body scope");
+  assert(properties.includes("Body.1")&&properties.includes("instance-b"),"properties identify the selected Body and occurrence");
+  assert.doesNotMatch(properties,/mesh-object|revision-2|body-a|representations/,"technical downloads belong in the developer area");
+  const {inspectorObjectData}=await server.ssrLoadModule("/src/features/workbench/inspector-object-data.ts");
+  const accepted=inspectorObjectData(view,pinnedBody);
+  assert.equal(pinnedBody.versionId,"revision-2","pinned selection keeps its accepted revision");
+  assert.equal(accepted.occurrence[0].geometryKey,"geometry-2","properties retain the selected occurrence geometry");
+  assert.equal(accepted.artifact.representations.VISUAL.objectId,"mesh-object","developer data retains exact pinned artifact scope");
   const publicationNode = { id: "document:part/publications/publication:pub", kind: "PUBLICATION",
     name: "Published Face", entityId: "pub", documentId: "part", versionId: "revision-1",
     publication: { id: "pub", name: "Published Face", type: "SURFACE", target: { kind: "TOPOLOGY",

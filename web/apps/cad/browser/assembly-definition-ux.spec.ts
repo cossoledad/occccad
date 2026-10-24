@@ -1,3 +1,4 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from '@playwright/test';
 import {mkdir} from 'node:fs/promises';
 
@@ -71,7 +72,7 @@ test('group members use existing group identity when selecting an overlapping co
  // Feed the same tree selection route used by component rows.
  const instance=page.locator('[role=treeitem][data-tree-key*="instance:mock-instance-b"]').first();
  await instance.click();await expect(list.getByText('固联组.1',{exact:true})).toBeVisible();
- await expect.poll(async()=>Number(await page.getByTestId('viewport-selection').getAttribute('data-highlighted'))).toBeGreaterThanOrEqual(3);
+ await expect.poll(async()=>Number(await viewportProbe(page,"viewport-selection").getAttribute('data-highlighted'))).toBeGreaterThanOrEqual(3);
  await page.screenshot({path:'../../../build/acceptance/fix-together-members.png'});
  await list.getByRole('button',{name:/^更\s*换$/}).first().click();await instance.click();
  await expect(list.locator('.assembly-support-row')).toHaveCount(1);

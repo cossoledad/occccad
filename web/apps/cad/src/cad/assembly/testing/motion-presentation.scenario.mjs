@@ -18,7 +18,7 @@ for(const [kind,description] of [[1,"绕图示轴旋转"],[2,"沿装配 X 方向
 }
 const ungrounded=structuredClone(evidence);ungrounded.components[0].gaugeDof=6;ungrounded.components[0].freedoms=[{...f,bodyId:"a",kind:0,relativeToBodyId:"a"},{...f,kind:0,relativeToBodyId:"a"}];
 const rigid=motionPresentations(view,ungrounded);assert.equal(rigid[0].status,"可运动");assert.match(rigid[0].description,/整体/);assert.doesNotMatch(rigid[0].reference,/基体/);assert.match(rigid[1].description,/刚性.*整体可动/);
-const whole=makeMotionMarkers(rigid[0],10);assert.equal(whole.children.length,12,"numeric anchor exposes component-wide rigid motion without inventing relative DOF");disposeMotionMarkers(whole);assert.equal(ungrounded.components[0].freedoms[0].kind,0);
+const whole=makeMotionMarkers(rigid[0],10);assert.equal(whole.children.length,9,"numeric anchor exposes component-wide rigid motion without inventing relative DOF");disposeMotionMarkers(whole);assert.equal(ungrounded.components[0].freedoms[0].kind,0);
 const drag=structuredClone(ungrounded);drag.referenceSemantics="INTERACTION_PHYSICAL";drag.components[0].freedoms[0].kind=6;drag.components[0].freedoms[0].relativeToBodyId="";assert.equal(motionPresentations(view,drag)[0].reference,"当前装配框架");
 assert.equal(motionPresentations(view,{...evidence,revisionId:"old"})[0].status,"结果已失效");
 assert.equal(motionPresentations(view,{...evidence,referenceSemantics:undefined})[0].status,"待计算");
@@ -28,7 +28,9 @@ assert.equal(displayLength(-7.10543e-14),"0 mm");assert.equal(displayLength(1.42
 assert.equal(displayNumber(-1e-10),"0");assert.equal(displayNumber(0.000012),"0");
 assert.equal(displayLength(0.000012,"mm"),"0 mm");assert.equal(displayLength(0.000012,"m"),"0 m");
 assert.notEqual(motionPresentations(view,evidence,"first")[0].id,motionPresentations(view,evidence,"second")[0].id,"shared subProduct occurrences have distinct presentation identities");
-const marker=makeMotionMarkers(rows[1],10);assert.equal(marker.children.length,6);assert.deepEqual(marker.children[4].position.toArray(),[10,0,0],"offset rotation axis not world Z");
+const marker=makeMotionMarkers(rows[1],10);assert.equal(marker.children.length,5);assert.deepEqual(marker.children[4].position.toArray(),[10,0,0],"offset rotation axis not world Z");
+assert.equal(marker.children[4].name,"analysis-rotation-arc");
+assert.equal(marker.children[4].children.filter(o=>o.geometry?.type==="ConeGeometry").length,2,"rotation uses a bidirectional arc instead of translation arrows");
 disposeMotionMarkers(marker);assert.equal(JSON.stringify(evidence),raw);
 for(const count of [0,1,100,500,1000]){const large={...view,product:{instances:Array.from({length:count},(_,i)=>({id:`b${i}`,name:"同名"})),constraints:[]}};const items=motionPresentations(large);assert.equal(items.length,count);assert.equal(new Set(items.map(i=>i.id)).size,count);assert.ok(items.every(i=>i.status==="待计算"));}
 try{
@@ -38,7 +40,7 @@ try{
  const scene=new THREE.Scene(),overlay=new THREE.Scene(),camera=new THREE.PerspectiveCamera();camera.position.z=100;
  const body=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial());scene.add(body);const geometry=body.geometry;
  Object.assign(engine,{scene,analysisScene:overlay,camera,view,navigation:{target:new THREE.Vector3()},invalidate:()=>frames++});
- engine.showRemainingMotion(rows[1]);assert.equal(overlay.children.length,1);assert.equal(engine.motionMarkers.children.length,6);
+ engine.showRemainingMotion(rows[1]);assert.equal(overlay.children.length,1);assert.equal(engine.motionMarkers.children.length,5);
  engine.view={...view,document:{...view.document,versionId:"new"}};
  engine.showRemainingMotion(rows[1]);assert.equal(overlay.children.length,0,"stale evidence cannot create markers");
  engine.view=view;engine.editContext={view,occurrencePath:"nested",translation:[20,0,0],rotation:[0,0,Math.SQRT1_2,Math.SQRT1_2]};

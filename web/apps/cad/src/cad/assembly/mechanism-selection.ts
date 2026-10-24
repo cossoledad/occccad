@@ -1,3 +1,4 @@
+import {describeAssemblyReference} from "./assembly-reference-presentation";
 import type {AssemblyGeometryRef,DocumentView,SelectionItem} from '../../types';
 import type {MechanismJoint} from './motion-study';
 import {assemblyGeometryRef} from './assembly-reference';
@@ -19,17 +20,8 @@ export function nextJointSupportRole(joint:MechanismJoint,after:JointSupportRole
  });
 }
 export function jointSupportLabel(view:DocumentView,reference:AssemblyGeometryRef):string {
- const unit=view.product?.instances.find(i=>i.id===reference.instanceId);
- const publicationName=(node:DocumentView['structureTree'],instanceId?:string):string|undefined=>{
-  if(!node)return;
-  const owner=node.occurrence?.instancePath.segments[0]?.instanceId??node.instancePath?.segments[0]?.instanceId??instanceId;
-  if(owner===reference.instanceId&&node.entityId===reference.publicationRef?.publicationId&&node.kind==='PUBLICATION')return node.name;
-  for(const child of node.children??[]){const name=publicationName(child,owner);if(name)return name;}
- };
- const derived:Record<string,string>={'cylinder-axis':'圆柱面轴线','circle-axis':'圆边轴线','cone-axis':'圆锥面轴线','sphere-center':'球心','origin':'原点'};
- const geometry=reference.derivedRole?derived[reference.derivedRole]:reference.geometryId==='datum-xy'?'XY 平面':reference.geometryId==='datum-yz'?'YZ 平面':reference.geometryId==='datum-zx'?'ZX 平面':reference.kind==='BODY'?'零件':reference.kind==='POINT'||reference.kind==='VERTEX'?'点':reference.axis?reference.axis+' 轴':reference.kind==='PLANE'||reference.kind==='FACE'?'平面':reference.kind==='EDGE'?'直边轴线':'轴线';
- const source=reference.publicationRef?publicationName(view.structureTree):reference.topologyId?`${reference.kind==='EDGE'?'边':'面'} ${reference.topologyId}`:undefined;
- return `${unit?.name??'零件'} · ${geometry??'几何支撑'}${source?' · '+source:''}`;
+ const info=describeAssemblyReference(reference,view);
+ return `${info.primary} · ${info.secondary}`;
 }
 
 // Coarse identity/role admission precedes exact type inspection. The same

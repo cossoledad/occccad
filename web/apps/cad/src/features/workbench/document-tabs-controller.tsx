@@ -1,5 +1,6 @@
+import {useOperationFeedback} from "../../cad/command/operation-feedback";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Form, Input, Modal, Segmented } from "antd";
+import { Button, Form, Input, Modal, Segmented } from "antd";
 import { useCallback, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../api/client";
@@ -15,7 +16,7 @@ export function DocumentTabsController() {
   const location = useLocation();
   const navigate = useNavigate();
   const client = useQueryClient();
-  const { message } = App.useApp();
+  const feedback=useOperationFeedback();
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const visibleOrder = useRef<string[]>([]);
@@ -36,7 +37,7 @@ export function DocumentTabsController() {
         client.invalidateQueries({ queryKey: queryKeys.openDocuments }),
       ]);
       navigate(`/documents/${created.document.id}`);
-    } catch (error) { message.error((error as Error).message); }
+    } catch (error) { feedback(error,"文档操作"); }
     finally { setCreating(false); }
   };
   const closeDocument = async (id: string) => {
@@ -50,7 +51,7 @@ export function DocumentTabsController() {
         const next = visibleOrder.current[index + 1] ?? visibleOrder.current[index - 1];
         navigate(next ? `/documents/${next}` : "/");
       }
-    } catch (error) { message.error((error as Error).message); }
+    } catch (error) { feedback(error,"文档操作"); }
   };
   const openCreateDocument = () => {
     createForm.setFieldsValue({ type: "PART", name: defaultDocumentName("PART", catalog.data?.documents ?? []), description: "" });
@@ -67,7 +68,7 @@ export function DocumentTabsController() {
       <Form form={createForm} layout="vertical" onFinish={(values) => void createDocument(values)}>
         <Form.Item name="type" label="文档类型" rules={[{ required: true }]}><Segmented block
           onChange={(value) => createForm.setFieldValue("name", defaultDocumentName(value as "PART" | "PRODUCT", catalog.data?.documents ?? []))} options={[
-          { value: "PART", label: "Part" }, { value: "PRODUCT", label: "Product" },
+          { value: "PART", label: "零件" }, { value: "PRODUCT", label: "装配" },
         ]} /></Form.Item>
         <Form.Item name="name" label="名称" rules={[{ required: true }]}><Input autoFocus /></Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} /></Form.Item>

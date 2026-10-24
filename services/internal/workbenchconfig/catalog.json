@@ -1532,7 +1532,7 @@
     {
       "id": "part.fillet",
       "name": "圆角",
-      "helpText": "对持久引用的边创建常量半径圆角。",
+      "helpText": "选择边并设置半径，预览圆角。",
       "iconKey": "pad",
       "repeatable": false,
       "visibleWhen": {
@@ -1568,7 +1568,7 @@
     {
       "id": "part.chamfer",
       "name": "倒角",
-      "helpText": "对持久引用的边创建等距倒角。",
+      "helpText": "选择边并设置倒角距离。",
       "iconKey": "pad",
       "repeatable": false,
       "visibleWhen": {
@@ -1848,7 +1848,7 @@
     {
       "id": "product.publications",
       "name": "发布",
-      "helpText": "转发子 Part Publication，形成稳定 Product 装配接口。",
+      "helpText": "管理装配引用的发布几何。",
       "iconKey": "publication",
       "repeatable": false,
       "visibleWhen": {
@@ -1920,7 +1920,7 @@
     {
       "id": "part.publications",
       "name": "发布",
-      "helpText": "创建和管理可跨文档引用的稳定几何与参数契约。",
+      "helpText": "管理可供其他零件引用的几何和参数。",
       "iconKey": "publication",
       "repeatable": false,
       "visibleWhen": {
@@ -3036,7 +3036,7 @@
     {
       "id": "sketch.edit.delete",
       "name": "删除",
-      "helpText": "删除选定本地几何；约束影响由原子领域操作验证。",
+      "helpText": "删除所选草图几何及相关约束。",
       "iconKey": "delete",
       "repeatable": false,
       "visibleWhen": {
@@ -3276,7 +3276,7 @@
     {
       "id": "sketch.edit.fillet",
       "name": "圆角",
-      "helpText": "选择两条适用曲线，直接输入半径并预览；Enter 原子提交。",
+      "helpText": "选择两条曲线，输入圆角半径并预览，按 Enter 确认。",
       "iconKey": "arc",
       "repeatable": false,
       "visibleWhen": {
@@ -3316,7 +3316,7 @@
     {
       "id": "sketch.edit.chamfer",
       "name": "倒角",
-      "helpText": "选择两条直线，直接输入距离并预览；Enter 原子提交。",
+      "helpText": "选择两条直线，输入倒角距离并预览，按 Enter 确认。",
       "iconKey": "line",
       "repeatable": false,
       "visibleWhen": {
@@ -3436,7 +3436,7 @@
     {
       "id": "sketch.edit.construction",
       "name": "构造线",
-      "helpText": "直接点选切换标准/构造状态；合法预选整体原子转换。",
+      "helpText": "切换所选几何的标准或构造状态。",
       "iconKey": "reference",
       "repeatable": false,
       "visibleWhen": {
@@ -4516,7 +4516,7 @@
     {
       "id": "edit.undo",
       "name": "撤销",
-      "helpText": "补偿最近一个可撤销的领域事务。",
+      "helpText": "撤销上一步编辑。",
       "iconKey": "undo",
       "repeatable": false,
       "visibleWhen": {
@@ -4555,7 +4555,7 @@
     {
       "id": "edit.redo",
       "name": "重做",
-      "helpText": "重新应用最近一个已撤销的领域事务。",
+      "helpText": "重做上一步撤销的编辑。",
       "iconKey": "redo",
       "repeatable": false,
       "visibleWhen": {
@@ -4594,7 +4594,7 @@
     {
       "id": "history.version",
       "name": "创建版本",
-      "helpText": "为当前 Revision 创建命名版本。",
+      "helpText": "为当前模型保存命名版本。",
       "iconKey": "version",
       "repeatable": false,
       "visibleWhen": {
@@ -5331,7 +5331,7 @@
     {
       "id": "tree.copy-alias",
       "name": "复制参数别名",
-      "helpText": "复制所选参数的稳定显示别名。",
+      "helpText": "复制参数的引用名称。",
       "iconKey": "copy",
       "repeatable": false,
       "implementation": "handler",

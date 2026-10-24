@@ -1,4 +1,5 @@
-import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
+import {engineeringProblem} from "../../cad/command/operation-feedback";
+
 import { Alert, Segmented, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
@@ -103,8 +104,8 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occu
    <label>保留工具结果<Switch checked={keep} onChange={setKeep}/></label>
    {initial && <label>抑制<Switch checked={suppressed} onChange={setSuppressed}/></label>}
    <small role="status">{loading ? "正在恢复上游实体…" : preview.pending ? "正在预览…" : "在视图区点击实体添加工具，再次点击取消。"}</small>
-   {(error ?? preview.error) && <Alert type="error" title="布尔求值失败" description={error ?? preview.error}/>}
+   {(error ?? preview.error) && <Alert type="error" title="布尔求值失败" description={engineeringProblem(error ?? preview.error)}/>}
   </fieldset>
- {!!preview.failure && <DiagnosticCopy text={diagnosticReference(preview.failure,{documentId:view.document.id,versionId:view.document.versionId})}/>}
+
 </CommandDialog>;
 }

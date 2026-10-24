@@ -41,8 +41,7 @@ for (const primitives of [null, undefined, []]) {
     view, selection: null, diagnostics, workbench: builtinCatalog.tabs[0].workbench, activeTool: "select", navigationProfile: "cad",
   }));
   assert.ok(html.includes("New Part"));
-  assert.ok(html.includes("Non-solid Geometry"));
-  if (primitives == null) assert.ok(html.includes("按需从 GLB 加载"), "unloaded data must not be reported as zero primitives");
+  assert.doesNotMatch(html,/Non-solid Geometry|GLB|完整对象数据/);
 }
 console.log("Properties renders lightweight Artifact descriptors with null, omitted and empty primitives");
 
@@ -50,10 +49,9 @@ const { PartBodies }=load(fileURLToPath(new URL("../workbench-inspector.tsx",imp
 view.part.bodies=[{id:"a",name:"Body.1",visible:true,geometryKey:"ga"},{id:"b",name:"Body.2",visible:false,geometryKey:"gb"}];view.part.activeBodyId="a";
 view.artifacts=Object.fromEntries(["ga","gb"].map(key=>[key,{representations:Object.fromEntries(["BREP","VISUAL","NAMING"].map(role=>[role,{objectId:`${key}-${role}`,digest:"d".repeat(64),schemaVersion:2,size:123}]))}]));
 const files=renderToStaticMarkup(React.createElement(PartBodies,{view}));
-for(const text of ["Body.1","Body.2","mesh.glb","naming.pb","BREP","123 B"]) assert.ok(files.includes(text));
-assert.equal((files.match(/>Download</g)??[]).length,6);
-assert.ok(files.includes("versionId=revision&amp;bodyId=b"));
-console.log("Part Files lists both frozen Body artifact groups and scoped download links");
+for(const text of ["Body.1","Body.2","活动实体","隐藏"])assert.ok(files.includes(text));
+assert.doesNotMatch(files,/mesh.glb|naming.pb|versionId|Download/);
+console.log("Body properties show current engineering visibility and output state");
 
 assert.ok(!/<button|<input|contenteditable|ant-typography-edit/.test(files), "Body properties must be read-only");
 
@@ -63,7 +61,7 @@ assert.ok(axisHTML.includes("Inspection axis") && axisHTML.includes("3, 4, 5") &
 view.part.bodies[0]={...view.part.bodies[0],geometryKey:undefined,displayFallback:{geometryKey:"ga",sourceVersionId:"successful-revision"}};
 const failedHTML=renderToStaticMarkup(React.createElement(PartBodies,{view}));
 assert.ok(failedHTML.includes("上次成功结果"));
-assert.equal((failedHTML.match(/>Download</g)??[]).length,3,"failed body has no authoritative artifact downloads");
+assert.equal((failedHTML.match(/>Download</g)??[]).length,0,"internal artifacts are not engineering properties");
 
 const dimension={Length:1,Mass:0,Time:0,Current:0,Temperature:0,Amount:0,Luminous:0,Semantic:''};
 const parameter={parameterId:'parameter-stable',key:'p111',label:'Plane offset',ownerFeatureId:'plane-stable',propertySlot:'datum:distance',lifecycle:'DATUM_REQUIRED',valueType:'QUANTITY',dimension,displayUnit:'mm',role:'DRIVING',
@@ -72,13 +70,13 @@ view.part.parameters=[parameter];
 const props={view,workbench:builtinCatalog.tabs[0].workbench,activeTool:'select',navigationProfile:'cad'};
 const render=selection=>renderToStaticMarkup(React.createElement(Properties,{...props,selection}));
 const parameterHTML=render({kind:'parameter',id:'parameter-stable',entityId:'parameter-stable',documentId:'part',versionId:'revision'});
-for(const value of ['p111','datum:distance','DATUM_REQUIRED','DRIVING','QUANTITY','upstream-stable','0.0123456789012345','完整对象数据与上下文'])assert(parameterHTML.includes(value),`parameter field missing: ${value}`);
-assert(!/<button|<input|contenteditable/.test(parameterHTML),'complete parameter details are read-only');
-assert(parameterHTML.includes('<details class="inspector-diagnostics" open=""'),'complete details are visible initially');
+for(const value of ['Plane offset','r_1 + 4','12.35'])assert(parameterHTML.includes(value),`engineering property missing: ${value}`);
+assert.doesNotMatch(parameterHTML,/parameter-stable|datum:distance|DATUM_REQUIRED|upstream-stable|0.0123456789012345|完整对象数据/);
+assert(!/<button|<input|contenteditable/.test(parameterHTML),'parameter summary is read-only');
 view.part.datumAxes[0].definition={source:{kind:'AXIS_SYSTEM',entityId:'frame-stable',axis:'Z'},angle:25,distance:13};
-assert(render({kind:'axis',axis:'DATUM',id:'axis-custom',entityId:'axis-custom'}).includes('frame-stable'),'datum transform references are retained');
+assert(!render({kind:'axis',axis:'DATUM',id:'axis-custom',entityId:'axis-custom'}).includes('frame-stable'));
 view.part.features=[{id:'feature-stable',type:'LOFT',name:'Loft',sections:[{sketchId:'section-stable'}],evaluationStatus:'FAILED',diagnostic:'exact-diagnostic'}];
-for(const value of ['section-stable','exact-diagnostic'])assert(render({kind:'feature',id:'feature-stable'}).includes(value),'full feature definition/diagnostic missing');
+const featureHTML=render({kind:'feature',id:'feature-stable'});assert.match(featureHTML,/Loft|计算失败/);assert.doesNotMatch(featureHTML,/section-stable|exact-diagnostic/);
 
 const {inspectorObjectData}=load(fileURLToPath(new URL('../inspector-object-data.ts',import.meta.url)));
 const foreign={kind:'parameter',id:'parameter-stable',documentId:'other-part',versionId:'other-revision',occurrencePath:'instance/b'};
@@ -96,4 +94,15 @@ const response={kind:'FACE',localId:7,geometryKey:'selected-key',properties:{exa
 assert.equal(inspectorObjectData(view,face,undefined,response).object,response);
 for(const stale of [{...response,geometryKey:'other-key'},{...response,localId:8},{...response,kind:'EDGE'}])assert.equal(inspectorObjectData(view,face,undefined,stale).object,undefined,'topology details must match the selected geometry snapshot');
 const errorHTML=renderToStaticMarkup(React.createElement(Properties,{...props,selection:face,readErrors:{topology:'specific-topology-error'}}));
-assert(errorHTML.includes('specific-topology-error')&&errorHTML.includes('selected-key'),'failed read retains selection context and diagnostic');
+assert(!errorHTML.includes('specific-topology-error')&&!errorHTML.includes('selected-key'),'failed read has a user message; raw context remains in developer data');
+assert.equal(inspectorObjectData(view,{kind:'parameter',id:'parameter-stable',entityId:'parameter-stable',documentId:'part',versionId:'revision'}).object.evaluatedValue.siValue,0.0123456789012345,'engineering display never changes exact values');
+
+const surface={...response,geometryType:'CONE',properties:{area:12.3456789,referenceRadius:4.56789,semiAngle:Math.PI/6,axis:[0,0,1],exactPrecision:0.0123456789012345}};
+const surfaceHTML=renderToStaticMarkup(React.createElement(Properties,{...props,selection:face,topology:surface}));
+for(const text of ['面积 (mm²)','12.35','参考半径 (mm)','4.57','半锥角 (°)','30','Loft'])assert(surfaceHTML.includes(text),`geometric property missing: ${text}`);
+assert.equal(surface.properties.semiAngle,Math.PI/6,'display units never change precise geometry');
+
+view.part.features.push({id:'fillet-input',type:'FILLET',name:'外边圆角',bodyId:'a',length:3.14159265});
+const filletHTML=render({kind:'feature',id:'fillet-input'});
+assert(filletHTML.includes('圆角半径')&&filletHTML.includes('3.14 mm')&&filletHTML.includes('Body.1'),'feature properties retain engineering dimensions and ownership');
+assert.equal(view.part.features.at(-1).length,3.14159265);

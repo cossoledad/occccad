@@ -10,7 +10,7 @@ export function engineeringInstanceName(view:DocumentDescriptor|undefined,id:str
     for(const i of view.product?.instances??[]){const n=i.name||"组件",ordinal=(seen.get(n)??0)+1;seen.set(n,ordinal);index.set(i.id,(totals.get(n)??0)>1?`${n}（第 ${ordinal} 个实例）`:n);}
     nameIndices.set(view,index);
   }
-  return index.get(id)??"组件";
+  return index.get(id)??"引用零件已丢失";
 }
 
 export function assemblyEngineeringOverview(view?:DocumentDescriptor){

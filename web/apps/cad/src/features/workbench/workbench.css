@@ -188,7 +188,6 @@
 .workbench-tree-collapse.ant-btn { position:absolute;right:8px;top:8px;color:var(--tree-foreground);pointer-events:auto;z-index:3;touch-action:none;user-select:none;cursor:ew-resize; }
 .workbench-layout[data-tree-resizing] * { cursor:ew-resize !important; user-select:none !important; }
 .workbench-structure .workbench-tree-filter { margin-right:40px; }
-.workbench-structure .workbench-request-time { color:var(--tree-muted); background:transparent; border:0; }
 .workbench-structure .specification-tree,.workbench-structure .specification-tree-virtual-row { pointer-events:none; }
 .workbench-structure .specification-tree-row,.workbench-structure .workbench-tree-filter { pointer-events:auto; }
 .workbench-structure .specification-tree-row { color:var(--tree-foreground); text-shadow:var(--tree-shadow); }

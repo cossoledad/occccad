@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type {MotionPresentation} from "./motion-presentation";
-import {analysisArrow,disposeAnalysisGuides,type AnalysisRole} from "../rendering/analysis-guides";
+import {analysisRotationArc,analysisArrow,disposeAnalysisGuides,type AnalysisRole} from "../rendering/analysis-guides";
 
 // Presentation-only objects: no SelectionIndex entry, shared materials, mesh
 // download, physical equation or persistent identity.
@@ -20,7 +20,7 @@ export function makeMotionMarkers(motion:MotionPresentation,length:number):THREE
   // Canonical closest point to the body origin: equivalent points along an
   // offset screw axis generate the same displayed line.
   const p=new THREE.Vector3().fromArray(r.axisPoint);p.addScaledVector(d,origin.clone().sub(p).dot(d));
-  for(const sign of [-1,1])group.add(arrow(d.clone().multiplyScalar(sign),p,"rotation"));}
+  group.add(analysisRotationArc(d,p,length));}
  return group;
 }
 export function disposeMotionMarkers(group:THREE.Group|undefined):void {

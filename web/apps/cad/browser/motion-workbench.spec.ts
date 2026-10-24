@@ -1,3 +1,4 @@
+import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from '@playwright/test';
 
 test.setTimeout(180_000);
@@ -192,8 +193,8 @@ test('filtered tree picks advance roles and preview axes before locating planes'
    await expect(dialog.getByRole('button',{name:'第一轴线',exact:true})).toContainText('选择几何');
    await page.evaluate(()=>(window as any).__motionFixture.failInspection=false);
   }
-  await item.hover();await item.click();await expect(page.getByTestId('viewport-feature-selection')).toHaveAttribute('data-count',String(before+1));
-  await expect(page.getByTestId('viewport-feature-selection')).toHaveAttribute('data-count',String(before+1));
+  await item.hover();await item.click();await expectViewport(viewportProbe(page,"viewport-feature-selection")).toHaveAttribute('data-count',String(before+1));
+  await expectViewport(viewportProbe(page,"viewport-feature-selection")).toHaveAttribute('data-count',String(before+1));
   if(label==='试验圆柱面 1')await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.previews.some((p:any)=>p.draftJointId&&!p.mechanism.joints.at(-1).first.plane))).toBe(true);
  }
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
