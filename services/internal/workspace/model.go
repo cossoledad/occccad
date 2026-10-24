@@ -1166,6 +1166,7 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	AfterFeatureID            string                       `json:"afterFeatureId,omitempty"`
 	AnchorFeatureID           string                       `json:"anchorFeatureId,omitempty"`
 	Placement                 string                       `json:"placement,omitempty"`
 	TerminationPlaneID        string                       `json:"terminationPlaneId,omitempty"`

@@ -256,14 +256,14 @@ export const restApi = {
   getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),
   assemblyCapabilities: () => request<{contractVersion:string;capabilities:Array<{capabilityId:string;family:string;subtype:string;roles:Array<{role:string;descriptor:string}>}>}>("/api/assembly/capabilities"),
   inspectAssemblySupports: (id:string,references:AssemblyGeometryRef[],signal?:AbortSignal) => request<import("./cad/interaction/manipulator-snap").SupportInspection>(`/api/documents/${id}/assembly-supports/inspect`,{method:"POST",body:JSON.stringify({references}),signal}),
-  getFeatureInput: async (id: string, input: {versionId:string;featureId:string;resultStage?:boolean;bodyId?:string;geometryKey?:string;kind?:string;localId?:number}, signal?:AbortSignal) => {
+  getFeatureInput: async (id: string, input: {versionId:string;featureId?:string;afterFeatureId?:string;resultStage?:boolean;bodyId?:string;geometryKey?:string;kind?:string;localId?:number}, signal?:AbortSignal) => {
     const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(input),signal});
     // A sketch before the first solid has no upstream artifact. This is a
     // valid empty pick context, so only decorate artifacts with actual geometry.
     const artifacts=[result.artifact,...(result.artifacts??[])].filter(artifact=>artifact?.geometryKey);
     for(const artifact of artifacts){
       for(const representation of Object.values(artifact.representations))
-        representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId,bodyId:artifact.bodyId??"",resultStage:String(!!input.resultStage)})}`);
+        representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId??"",afterFeatureId:input.afterFeatureId??"",bodyId:artifact.bodyId??"",resultStage:String(!!input.resultStage)})}`);
       artifact.historicalPreview=!!input.resultStage;
     }
     return result;

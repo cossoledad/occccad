@@ -44,7 +44,7 @@ import { InsertDocumentDialog } from "./insert-document-dialog";
 import {SketchSupportEditor} from "./sketch-support-editor";
 import {profileRegionRepairFeature} from "./profile-region-selection";
 import {FeatureMoveDialog} from "./feature-move-dialog";
-import { SolidFeatureEditor } from "./solid-feature-editor";
+import { SolidFeatureEditor, type FeatureInsertionContext } from "./solid-feature-editor";
 import { BooleanFeatureDialog } from "./boolean-feature-dialog";
 import { InstancePatternDialog } from "./instance-pattern-dialog";
 import type { InstancePatternPreview } from "./instance-pattern";
@@ -199,7 +199,7 @@ export function Workbench() {
   const [insertOpen, setInsertOpen] = useState(false);
   const [supportSketch,setSupportSketch]=useState<Feature>();
   const [featureMove,setFeatureMove]=useState<{feature:Feature;digest:string}>();
-  const [solidEditor,setSolidEditor]=useState<{feature:Feature;digest?:string}>();
+  const [solidEditor,setSolidEditor]=useState<{feature:Feature;digest?:string;insertion?:FeatureInsertionContext}>();
   const [featureSelection,setFeatureSelection]=useState<FeatureSelectionSession>();
   const [featureInputs,setFeatureInputs]=useState<Artifact[]>();
   const [historyResult,setHistoryResult]=useState<string>();
@@ -1169,6 +1169,11 @@ export function Workbench() {
     setPropertyTargets((selected.length?selected:[undefined]).map(selection=>propertyEditorTarget(view,editingView,selection,activeInstancePath,canEdit,canEditRoot)));
   };
   const treeActions:StructureActions={
+onInsertAfter:(node,type)=>{
+ if(!editingView?.part||!canEdit||command.isPending||store.activeSketchID||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.capabilities?.includes("INSERT_AFTER"))return;
+ const anchor=editingView.part.features.find(f=>f.id===node.entityId);if(!anchor)return;
+ closeCommandPanels();endHistoryResult();setSolidEditor({feature:{id:"",name:"",type,bodyId:anchor.bodyId,length:1},insertion:{afterFeatureId:anchor.id,bodyId:anchor.bodyId!,versionId:editingView.document.versionId,label:`${editingView.part.bodies.find(b=>b.id===anchor.bodyId)?.name} / ${anchor.name}`}});
+},
 onMove:node=>{
  if(!editingView?.part||!canEdit||command.isPending||store.activeSketchID||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.capabilities?.includes("MOVE")||!node.definitionDigest)return;
  const feature=editingView.part.features.find(f=>f.id===node.entityId);if(!feature)return;
@@ -1630,6 +1635,7 @@ onToggleConstruction:(node)=>{
             onActivate={node=>executeTree("onActivate",{node})}
 			onEdit={node=>executeTree("onEdit",{node})}
             onMove={node=>executeTree("onMove",{node})}
+            onInsertAfter={(node,modifierType)=>executeTree("onInsertAfter",{node,modifierType})}
             onProperties={node=>executeTree("onProperties",{node})}
 			onCreatePart={node=>executeTree("onCreatePart",{node})}
 			onReferenceMode={(node,mode)=>executeTree("onReferenceMode",{node,referenceMode:mode})}
@@ -2037,7 +2043,7 @@ onToggleConstruction:(node)=>{
       onClose={()=>{viewport.current?.clearCommandPreview();setFeatureMove(undefined)}}
       onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}}
       onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}/>}
-    {solidEditor && editingView?.part && <SolidFeatureEditor key={editingView.document.id+solidEditor.feature.id+solidEditor.feature.type} view={editingView} feature={solidEditor.feature} digest={solidEditor.digest} unit={lengthUnit} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifact={featureInputChanged}
+    {solidEditor && editingView?.part && <SolidFeatureEditor key={editingView.document.id+solidEditor.feature.id+solidEditor.feature.type} view={editingView} feature={solidEditor.feature} digest={solidEditor.digest} insertion={solidEditor.insertion} unit={lengthUnit} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifact={featureInputChanged}
       intentRequestId={handoffEditorIntent(assistantHandoff.current,editingView.document.id,editingView.document.versionId,solidEditor.feature.type)}
       onClose={()=>{const handoff=assistantHandoff.current;assistantHandoff.current=undefined;if(handoff&&handoff.state!=="COMMITTED")void finishAssistantHandoff(handoff,handoff.state==="UNKNOWN"?"UNKNOWN":"CANCELLED");viewport.current?.clearCommandPreview();setSolidEditor(undefined);}}
       onPreview={(artifact,operation,sketchFeatureId)=>{if(artifact)viewport.current?.previewArtifact(artifact,operation,sketchFeatureId);else viewport.current?.clearCommandPreview();}}

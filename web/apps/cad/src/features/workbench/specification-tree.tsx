@@ -83,7 +83,7 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onMove, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   documentSessions?: DocumentSessions; hostDocumentId?: string;
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string; editSession?: EditSession;
@@ -94,6 +94,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   onViewResult?: (node:SpecificationTreeNode)=>void;
   onEdit?: (node: SpecificationTreeNode) => void;
   onMove?: (node:SpecificationTreeNode)=>void;
+  onInsertAfter?: (node:SpecificationTreeNode,type:"FILLET"|"CHAMFER")=>void;
   onProperties?: (node: SpecificationTreeNode) => void;
   onCreatePart?: (node: SpecificationTreeNode) => void;
   onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD") => void;
@@ -277,6 +278,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               disabled: !node.capabilities?.includes("DELETE"),
               onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,
             ["PAD","REVOLVE","FEATURE","IMPORT"].includes(node.kind??"") && node.presentationRole!=="INPUT_REFERENCE" && onViewResult ? {key:"view-result",icon:menuIcon('tree.view-result'),label:menuLabel('tree.view-result'),onClick:()=>{setContextMenu(undefined);onViewResult(node);}}:null,
+            node.capabilities?.includes("INSERT_AFTER") && onInsertAfter ? {key:"insert-after",icon:menuIcon("tree.insert-after"),label:menuLabel("tree.insert-after"),children:(["FILLET","CHAMFER"] as const).map(type=>({key:`insert-${type}`,label:type==="FILLET"?"圆角":"倒角",onClick:()=>{setContextMenu(undefined);onInsertAfter(node,type);}}))}:null,
             node.capabilities?.includes("MOVE") && onMove ? {key:"move",icon:menuIcon("tree.move"),label:menuLabel("tree.move"),onClick:()=>{setContextMenu(undefined);onMove(node);}}:null,
             node.capabilities?.includes("EDIT") ? { key: "edit", icon: menuIcon('tree.edit'), label: menuLabel('tree.edit',['PAD','REVOLVE','FEATURE'].includes(node.kind??'')?'definition':'default'),
               disabled:Boolean(registry&&!registry.state("tree.edit",{payload:{node}}).enabled),
@@ -304,7 +306,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
             { key: "delete", icon: menuIcon('edit.delete'), danger: true,
             label: menuLabel('edit.delete',deletable.length>1?'many':'default',deletable.length), disabled: deletable.length === 0,
             onClick: () => { setContextMenu(undefined); onDelete?.(deletable); } },
-            ...(onProperties?[{type:"divider" as const},{key:"properties",icon:menuIcon("tree.properties"),label:menuLabel("tree.properties"),onClick:()=>{setContextMenu(undefined);onProperties(node)}}]:[])],titleText(node.title),selectedKeys.length>1) }}>{row}</Dropdown>
+            ...(onProperties?[{type:"divider" as const},{key:"properties",icon:menuIcon("tree.properties"),label:menuLabel("tree.properties"),onClick:()=>{setContextMenu(undefined);onProperties(node)}}]:[])],titleText(node.title),selectedNodes.filter(candidate=>candidate.presentationRole!=="INPUT_REFERENCE").length>1) }}>{row}</Dropdown>
         </div>;
       })}
     </div>

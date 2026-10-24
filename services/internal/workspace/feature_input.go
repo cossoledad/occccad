@@ -11,13 +11,14 @@ import (
 // FeatureInput is a read-only reconstruction of the stage before an edited
 // feature. It never moves Head or writes a compensable model change.
 type FeatureInputRequest struct {
-	ResultStage bool   `json:"resultStage,omitempty"`
-	BodyID      string `json:"bodyId,omitempty"`
-	VersionID   string `json:"versionId"`
-	FeatureID   string `json:"featureId"`
-	GeometryKey string `json:"geometryKey,omitempty"`
-	Kind        string `json:"kind,omitempty"`
-	LocalID     uint64 `json:"localId,omitempty"`
+	AfterFeatureID string `json:"afterFeatureId,omitempty"`
+	ResultStage    bool   `json:"resultStage,omitempty"`
+	BodyID         string `json:"bodyId,omitempty"`
+	VersionID      string `json:"versionId"`
+	FeatureID      string `json:"featureId,omitempty"`
+	GeometryKey    string `json:"geometryKey,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+	LocalID        uint64 `json:"localId,omitempty"`
 }
 type FeatureInputPick struct {
 	FeatureInputResolution
@@ -151,6 +152,9 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 	}
 	if view.Part == nil || request.VersionID != view.Document.VersionID {
 		return FeatureInput{}, fmt.Errorf("%w: feature editing revision changed", ErrValidation)
+	}
+	if request.AfterFeatureID != "" {
+		return s.insertionInput(ctx, documentID, request, view)
 	}
 	index := -1
 	for i, f := range view.Part.Features {

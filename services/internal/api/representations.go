@@ -23,8 +23,8 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	if featureID := r.URL.Query().Get("featureId"); featureID != "" && !allowed {
-		request := workspace.FeatureInputRequest{VersionID: version, FeatureID: featureID, ResultStage: r.URL.Query().Get("resultStage") == "true"}
+	if featureID := r.URL.Query().Get("featureId"); (featureID != "" || r.URL.Query().Get("afterFeatureId") != "") && !allowed {
+		request := workspace.FeatureInputRequest{AfterFeatureID: r.URL.Query().Get("afterFeatureId"), VersionID: version, FeatureID: featureID, ResultStage: r.URL.Query().Get("resultStage") == "true"}
 		if !request.ResultStage {
 			request.BodyID = r.URL.Query().Get("bodyId")
 		}

@@ -49,6 +49,9 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 			return err
 		}
 		diagnosticModel = &model
+		if err := service.validateInsertionSource(ctx, documentID, prepared.headRevision, prepared.command, beforeModel); err != nil {
+			return err
+		}
 		normalizePartModel(&model)
 		normalizePartModel(&beforeModel)
 		metadataOnly := isPartMetadataCommand(prepared.command)
@@ -136,8 +139,8 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 				}
 			}
 			finishGeometry := perf.Start(ctx, "geometry-evaluate")
-			if prepared.command.TypeURI == typeMoveFeature {
-				err = service.evaluateMoveBodies(ctx, documentID, prepared.requestID, &model)
+			if requiresOrderedEvaluation(prepared.command) {
+				err = service.evaluateOrderedBodies(ctx, documentID, prepared.requestID, &model, orderMutationBlocker(prepared.command))
 			} else {
 				err = service.evaluatePartBodies(ctx, prepared.requestID, &model)
 			}

@@ -424,7 +424,7 @@ export type DocumentStructureNode = {
   productPublication?: ProductPublication;
   contextInput?: ContextInput;
   contextBinding?: ContextBinding;
-  capabilities?: Array<"RENAME" | "ACTIVATE" | "DEACTIVATE" | "MOVE" | "DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">;
+  capabilities?: Array<"RENAME" | "ACTIVATE" | "DEACTIVATE" | "MOVE" | "INSERT_AFTER" | "DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">;
   children?: DocumentStructureNode[];
 };
 

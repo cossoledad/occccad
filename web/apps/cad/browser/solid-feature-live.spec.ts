@@ -893,3 +893,38 @@ test("fillet keeps untouched opposite edge owned by extrusion during real pickin
  await openCommand(page,"倒角");dialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});await clickWorld(page,[10,-10,10]);await expect(dialog.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await dialog.getByRole("textbox").fill("0.2");await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const v=await current(page,seed.id),chamfer=v.part.features.at(-1);expect(chamfer.selections[0].selection.anchor.featureId).toBe(seed.base.id);expect(chamfer.selections[0].selection.anchor.outputSlot).toMatch(/^VERTICAL_FROM_PROFILE_ENDPOINTS\//);expect(chamfer.evaluationStatus).toBeFalsy();await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
+
+test("insert fillet after an exact base stage before existing chamfer in one history step",async({page},testInfo)=>{
+ page.setDefaultTimeout(15_000);const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.createDocument("PART","Insert after solid stage acceptance");const id=v.document.id;
+  v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const sketch=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch,operations:[{type:"ADD_RECTANGLE",first:{x:-10,y:-10},second:{x:10,y:10}}]});
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:sketch,generator:"LINEAR_EXTRUDE",operation:"ADD",length:20});const base=v.part!.features.at(-1)!;
+  const key=v.part!.bodies[0].geometryKey!;let selection;
+  for(let i=1;i<=Number(v.artifacts[key].topology.edges);i++){const p=await api.getTopologyProperties(id,key,"EDGE",i,v.document.versionId);if(p.persistentSelection?.creationEvidence?.centroid?.every((x:number,j:number)=>Math.abs(x-[10,10,10][j])<1e-7)){selection=p.persistentSelection;break;}}
+  if(!selection)throw Error("chamfer seed edge missing");v=await api.command(id,{type:"CREATE_MODIFY_FEATURE",feature:{type:"CHAMFER",bodyId:base.bodyId,length:1,selections:[{selection,sourceVersionId:v.document.versionId}]}});
+  return {id,base,chamfer:v.part!.features.at(-1)!,version:v.document.versionId,features:v.part!.features,parameters:v.part!.parameters};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();const filter=page.getByRole("textbox",{name:"筛选模型结构"});
+ const open=async(kind="圆角")=>{await filter.fill(seed.base.name!);await page.getByRole("treeitem",{name:new RegExp(`insert-row-above ${seed.base.name}$`)}).click({button:"right"});await page.getByRole("menuitem",{name:/ 对象/}).hover();await page.getByRole("menuitem",{name:/^在此步骤后插入/}).hover();await page.getByRole("menuitem",{name:kind,exact:true}).click();const d=page.getByRole("dialog",{name:`创建 ${kind}`,exact:true});await expect(d).toBeVisible();await expect(d.getByText(`插入位置：Body.1 / ${seed.base.name} 之后`,{exact:true})).toBeVisible();return d;};
+ let d=await open();await clickWorld(page,[10,-10,10]);await expect(d.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await d.getByRole("textbox").fill("1");await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("insertion-stage-preview.png")});await d.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
+ // A Revision change disposes the temporary insertion context and its picks.
+ d=await open("倒角");const peer=await page.context().newPage();await peer.goto("/");const changed=await peer.evaluate(async seed=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");return api.command(seed.id,{type:"SET_ACTIVE_BODY",bodyId:seed.base.bodyId});
+ },seed);expect(changed.document.versionId).not.toBe(seed.version);await expect(d).toHaveCount(0);await peer.close();
+ const before=await current(page,seed.id);d=await open();await clickWorld(page,[10,-10,10]);await expect(d.getByRole("button",{name:"边集：已选择 1 条边",exact:true})).toBeVisible();await d.getByRole("textbox").fill("1");await ready(page,d);await d.getByRole("button",{name:/确\s*定/}).click();await expect(d).toHaveCount(0);
+ const committed=await current(page,seed.id),inserted=committed.part.features[2];expect(inserted.type).toBe("FILLET");expect(committed.part.features.at(-1).id).toBe(seed.chamfer.id);expect(inserted.selections[0]).toMatchObject({sourceVersionId:before.document.versionId,sourceFeatureId:seed.base.id,selection:{anchor:{featureId:seed.base.id}}});expect(committed.part.features.map((f:any)=>f.order)).toEqual([1,2,3,4]);
+ const a=committed.artifacts[committed.part.bodies[0].geometryKey];expect(a.volume).toBeCloseTo(7990-20*(1-Math.PI/4),5);
+ await filter.fill("");const bodyNode=page.getByRole("treeitem").filter({hasText:"Body.1 · 工作中"});if(await bodyNode.getByRole("button",{name:"展开",exact:true}).count())await bodyNode.getByRole("button",{name:"展开",exact:true}).click();await expect(async()=>{const labels=await page.locator(".specification-tree-label").allTextContents();expect(labels).toContain(inserted.name);expect(labels).toContain(seed.chamfer.name);expect(labels.indexOf(inserted.name)).toBeLessThan(labels.indexOf(seed.chamfer.name!));}).toPass({timeout:15_000});
+ const stage=await page.evaluate(async({seed,inserted})=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");const v=await api.getDocument(seed.id);return api.getFeatureInput(seed.id,{versionId:v.document.versionId,featureId:inserted.id,resultStage:true});
+ },{seed,inserted});expect(stage.artifact.volume).toBeCloseTo(8000-20*(1-Math.PI/4),5);
+ await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>{const v=await current(page,seed.id);expect(v.part.features).toEqual(before.part.features);expect(v.part.parameters).toEqual(before.part.parameters);}).toPass({timeout:15_000});await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features[2].id).toBe(inserted.id)).toPass({timeout:15_000});
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();expect((await current(page,seed.id)).part.features.every((f:any)=>!f.evaluationStatus)).toBeTruthy();
+ // ResultStage remains read-only; insertion is a separate authorized context.
+ const illegal=await page.request.post(`/api/documents/${seed.id}/feature-input`,{data:{versionId:(await current(page,seed.id)).document.versionId,featureId:seed.base.id,resultStage:true,geometryKey:stage.artifact.geometryKey,kind:"EDGE",localId:1}});expect(illegal.ok()).toBeFalsy();expect(errors).toEqual([]);
+});

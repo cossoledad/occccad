@@ -14,6 +14,9 @@ import (
 )
 
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
+	if request.AfterFeatureID != "" && request.Type != "CREATE_MODIFY_FEATURE" {
+		return "", nil, fmt.Errorf("%w: INSERT_FEATURE_TYPE_UNSUPPORTED", ErrValidation)
+	}
 	switch request.Type {
 	case "SET_PROPERTIES":
 		return service.adaptProperties(ctx, documentID, documentType, modelJSON, request)
@@ -454,7 +457,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err != nil {
 			return "", nil, err
 		}
-		return typeCreateModifierFeature, createFeaturePayload{Feature: feature, ParameterSources: sources}, nil
+		return typeCreateModifierFeature, createFeaturePayload{Feature: feature, ParameterSources: sources, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
 	case "CREATE_BOOLEAN_FEATURE":
 		if documentType != "PART" {
 			break

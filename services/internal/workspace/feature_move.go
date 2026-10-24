@@ -44,7 +44,9 @@ func moveBlocked(f Feature, reason string) error {
 
 // Validate declared inputs against the candidate list, without carrying over
 // implicit Body predecessor edges from the old evaluation graph.
-func validateMoveInputs(model PartModel) error {
+func validateMoveInputs(model PartModel) error { return validateFeatureOrderInputs(model, moveBlocked) }
+
+func validateFeatureOrderInputs(model PartModel, blocked func(Feature, string) error) error {
 	seen := map[string]bool{}
 	earlier := map[string]Feature{}
 	for _, f := range model.Features {
@@ -53,7 +55,7 @@ func validateMoveInputs(model PartModel) error {
 				continue
 			}
 			if !seen[input.FeatureID] {
-				return moveBlocked(f, fmt.Sprintf("%s source %s must precede its consumer", input.Role, input.FeatureID))
+				return blocked(f, fmt.Sprintf("%s source %s must precede its consumer", input.Role, input.FeatureID))
 			}
 		}
 		if f.Sketch != nil {
@@ -69,18 +71,18 @@ func validateMoveInputs(model PartModel) error {
 						return ""
 					}()} {
 						if id != "" && !seen[id] {
-							return moveBlocked(f, "external source "+id+" must precede sketch")
+							return blocked(f, "external source "+id+" must precede sketch")
 						}
 					}
 				} else if id := e.PersistentSelection.Anchor.FeatureID; id != "" && !seen[id] {
-					return moveBlocked(f, "external topology source "+id+" must precede sketch")
+					return blocked(f, "external topology source "+id+" must precede sketch")
 				}
 			}
 		}
 		// The regular definition validators cover types, Body/source stage and datum
 		// rules. Report the owning consumer as the actual blocker.
 		if err := validateSolidStage(f, earlier); err != nil {
-			return moveBlocked(f, err.Error())
+			return blocked(f, err.Error())
 		}
 		seen[f.ID] = true
 		earlier[f.ID] = f
@@ -169,9 +171,9 @@ func applyMoveFeature(raw, payloadJSON json.RawMessage) (json.RawMessage, modelc
 		if f.BodyID == source.BodyID && isBodyFeature(f.Type) && !movableFeature(oldModel, f.ID) && (i < oldIndex[f.ID]) != (a < newIndex[f.ID]) {
 			return nil, modelcore.ChangeSet{}, moveBlocked(f, "fixed feature cannot be crossed")
 		}
-		if f.Pattern != nil && f.Pattern.SourceKind == "FEATURE_DELTA" && !slices.Equal(rangeMembers(oldModel, f.Pattern), rangeMembers(m, f.Pattern)) {
-			return nil, modelcore.ChangeSet{}, moveBlocked(f, "FEATURE_DELTA range membership/order is protected")
-		}
+	}
+	if err := protectFeatureRanges(oldModel, m, moveBlocked); err != nil {
+		return nil, modelcore.ChangeSet{}, err
 	}
 	if err := validateMoveInputs(m); err != nil {
 		return nil, modelcore.ChangeSet{}, err
@@ -196,10 +198,10 @@ func applyMoveFeature(raw, payloadJSON json.RawMessage) (json.RawMessage, modelc
 	return next, set, err
 }
 
-func rejectMoveReferenceFailures(model PartModel) error {
+func rejectOrderReferenceFailures(model PartModel, blocked func(Feature, string) error) error {
 	for _, p := range model.Publications {
 		if p.Resolution.Status == "BROKEN_PUBLICATION" {
-			return fmt.Errorf("%w: MOVE_FEATURE_BLOCKED publication %s: %s", ErrValidation, p.Name, p.Resolution.Diagnostic)
+			return blocked(Feature{ID: p.ID, Name: p.Name}, "publication: "+p.Resolution.Diagnostic)
 		}
 	}
 	for _, f := range model.Features {
@@ -207,36 +209,36 @@ func rejectMoveReferenceFailures(model PartModel) error {
 			continue
 		}
 		if f.Sketch.Support.Status == "FAILED_SUPPORT" || f.Sketch.Support.Status == "BLOCKED" {
-			return moveBlocked(f, f.Sketch.Support.DiagnosticCode+": "+f.Sketch.Support.Diagnostic)
+			return blocked(f, f.Sketch.Support.DiagnosticCode+": "+f.Sketch.Support.Diagnostic)
 		}
 		for _, e := range f.Sketch.ExternalGeometry {
 			if e.Status != "CONNECTED" {
-				return moveBlocked(f, e.DiagnosticCode+": "+e.Diagnostic)
+				return blocked(f, e.DiagnosticCode+": "+e.Diagnostic)
 			}
 		}
 	}
 	return nil
 }
-func moveEvaluationError(model PartModel, err error) error {
+func orderEvaluationError(model PartModel, err error, blocked func(Feature, string) error) error {
 	matches := featureFailurePattern.FindAllStringSubmatch(err.Error(), -1)
 	if len(matches) > 0 {
 		for _, f := range model.Features {
 			if f.ID == matches[len(matches)-1][1] {
-				return fmt.Errorf("MOVE_FEATURE_BLOCKED[%s] %s: %w", f.ID, f.Name, err)
+				return fmt.Errorf("%w: %w", blocked(f, "geometry evaluation failed"), err)
 			}
 		}
 	}
 	return err
 }
-func (s *Service) evaluateMoveBodies(ctx context.Context, documentID, requestID string, m *PartModel) error {
-	if err := s.validateMoveHistoricalStages(ctx, documentID, *m); err != nil {
+func (s *Service) evaluateOrderedBodies(ctx context.Context, documentID, requestID string, m *PartModel, blocked func(Feature, string) error) error {
+	if err := s.validateOrderHistoricalStages(ctx, documentID, *m, blocked); err != nil {
 		return err
 	}
-	if err := rejectMoveReferenceFailures(*m); err != nil {
+	if err := rejectOrderReferenceFailures(*m, blocked); err != nil {
 		return err
 	}
 	if err := s.evaluatePartBodies(ctx, requestID, m); err != nil {
-		return moveEvaluationError(*m, err)
+		return orderEvaluationError(*m, err, blocked)
 	}
 	return nil
 }
@@ -244,7 +246,7 @@ func (s *Service) evaluateMoveBodies(ctx context.Context, documentID, requestID 
 // Empty stage is the existing "historical Body tip" contract, not permission
 // to ignore that stage during reordering. Read its exact immutable witness;
 // never fill or rewrite the saved selection as part of a move.
-func (s *Service) validateMoveHistoricalStages(ctx context.Context, documentID string, m PartModel) error {
+func (s *Service) validateOrderHistoricalStages(ctx context.Context, documentID string, m PartModel, blocked func(Feature, string) error) error {
 	indices := map[string]int{}
 	for i, f := range m.Features {
 		indices[f.ID] = i
@@ -280,7 +282,7 @@ func (s *Service) validateMoveHistoricalStages(ctx context.Context, documentID s
 		}
 		for _, p := range picks {
 			if p.Selection.SourceDocumentID != documentID {
-				return moveBlocked(f, "topology input must belong to the same Part")
+				return blocked(f, "topology input must belong to the same Part")
 			}
 			stage := p.SourceFeatureID
 			if stage == "" {
@@ -297,14 +299,14 @@ func (s *Service) validateMoveHistoricalStages(ctx context.Context, documentID s
 					}
 					tip := manifest.Tips[p.Selection.SourceBodyID]
 					if tip == nil || !topologyHistoryComplete(manifest) {
-						return moveBlocked(f, "source stage history is unavailable")
+						return blocked(f, "source stage history is unavailable")
 					}
 					stage = tip.FeatureId
 					stages[cacheKey] = stage
 				}
 			}
 			if index, exists := indices[stage]; !exists || index >= i {
-				return moveBlocked(f, "SOURCE_STAGE "+stage+" must precede its consumer")
+				return blocked(f, "SOURCE_STAGE "+stage+" must precede its consumer")
 			}
 		}
 	}

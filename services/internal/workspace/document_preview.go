@@ -34,6 +34,9 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			return CommandPreview{}, err
 		}
 		diagnosticModel = &model
+		if err := service.validateInsertionSource(ctx, documentID, prepared.headRevision, prepared.command, beforeModel); err != nil {
+			return CommandPreview{}, err
+		}
 		diagnostic.stage("PARAMETERS")
 		normalizePartModel(&model)
 		normalizePartModel(&beforeModel)
@@ -63,8 +66,8 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		if err = rejectExplicitBrokenPublication(prepared.command, model); err != nil {
 			return CommandPreview{}, err
 		}
-		if prepared.command.TypeURI == typeMoveFeature {
-			if err := rejectMoveReferenceFailures(model); err != nil {
+		if requiresOrderedEvaluation(prepared.command) {
+			if err := rejectOrderReferenceFailures(model, orderMutationBlocker(prepared.command)); err != nil {
 				return CommandPreview{}, err
 			}
 		}
@@ -87,8 +90,8 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		finishGeometry := perf.Start(ctx, "geometry-evaluate")
 		bodyID := previewBodyID(prepared.command.Payload, model)
 		var geometryKey string
-		if prepared.command.TypeURI == typeMoveFeature {
-			err = service.evaluateMoveBodies(ctx, documentID, "preview/"+prepared.requestID, &model)
+		if requiresOrderedEvaluation(prepared.command) {
+			err = service.evaluateOrderedBodies(ctx, documentID, "preview/"+prepared.requestID, &model, orderMutationBlocker(prepared.command))
 			if i := bodyIndex(model, bodyID); i >= 0 {
 				geometryKey = model.Bodies[i].GeometryKey
 			}

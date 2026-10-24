@@ -1233,9 +1233,12 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 }
 
 type createFeaturePayload struct {
-	BodyAppearance   *SurfaceAppearance               `json:"bodyAppearance,omitempty"`
-	Feature          Feature                          `json:"feature"`
-	ParameterSources map[string]modelcore.ValueSource `json:"parameterSources,omitempty"`
+	AfterFeatureID       string                           `json:"afterFeatureId,omitempty"`
+	InsertionVersionID   string                           `json:"insertionVersionId,omitempty"`
+	InsertionGeometryKey string                           `json:"insertionGeometryKey,omitempty"`
+	BodyAppearance       *SurfaceAppearance               `json:"bodyAppearance,omitempty"`
+	Feature              Feature                          `json:"feature"`
+	ParameterSources     map[string]modelcore.ValueSource `json:"parameterSources,omitempty"`
 }
 
 func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -1248,6 +1251,8 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&model)
+	beforeModel := model
+	beforeModel.Features = append([]Feature(nil), model.Features...)
 	payload.Feature.Order = 1
 	for _, f := range model.Features {
 		if f.Order >= payload.Feature.Order {
@@ -1279,7 +1284,13 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	if bodyIndex(model, payload.Feature.BodyID) < 0 {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: target Body does not exist", ErrValidation)
 	}
-	model.Features = append(model.Features, payload.Feature)
+	if payload.AfterFeatureID != "" {
+		if err := insertModifierCandidate(&model, payload); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+	} else {
+		model.Features = append(model.Features, payload.Feature)
+	}
 	if payload.BodyAppearance != nil {
 		if payload.Feature.Type != "IMPORT_BODY" {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: appearance requires import", ErrValidation)
@@ -1312,10 +1323,40 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	if err := validateAndResolvePartParameters(&model); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	created := model.Features[len(model.Features)-1]
+	var created Feature
+	for _, f := range model.Features {
+		if f.ID == payload.Feature.ID {
+			created = f
+			break
+		}
+	}
+	if payload.AfterFeatureID != "" {
+		if err := validateFeatureOrderInputs(model, insertionBlocked); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		if err := protectFeatureRanges(beforeModel, model, insertionBlocked); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		for _, before := range beforeModel.Features {
+			for _, after := range model.Features {
+				if before.ID == after.ID && before.Order != after.Order {
+					change, err := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: after.ID, SlotID: "entity"}, featureHistoryDefinition(before), featureHistoryDefinition(after))
+					if err != nil {
+						return nil, modelcore.ChangeSet{}, err
+					}
+					bodyChanges = append(bodyChanges, change)
+				}
+			}
+		}
+	}
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Feature.ID, SlotID: "entity"}, nil, featureHistoryDefinition(created))
 	changes, seeds := appendParameterLifecycleChanges(append(bodyChanges, change),
 		[]modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.Feature.ID)}, beforeParameters, model.Parameters)
+	for _, c := range bodyChanges {
+		if c.Target.SlotID == "entity" {
+			seeds = append(seeds, modelcore.DependencyKey("feature:"+c.Target.EntityID))
+		}
+	}
 	set := modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}
 	next, _ := json.Marshal(model)
 	return next, set, nil

@@ -28,7 +28,17 @@
 
 按候选顺序重建 Body 前驱和依赖图，检查全 Part 的轮廓、孔位、支撑、终止面、外部投影及拓扑输入。语义 Anchor 和实际来源阶段分别验证；未显式保存阶段的既有引用从其不可变来源 Revision 的精确 Body Tip 核对，不补写或重绑引用。所有活动引用和 Body 的实际几何必须成功，失效指明阻塞特征并原子拒绝，不接纳 FAILED 移动。顺序与候选前驱进入原阶段输入、缓存和增量求值。
 
-源码入口为 `services/internal/workspace/feature_move.go`、`web/apps/cad/src/features/workbench/feature-move-dialog.tsx`。定向验证为 `feature_move_test.go`、真实 Router/Worker 的 `services/internal/control/feature_move_integration_test.go` 与浏览器 `solid-feature-live.spec.ts` 的 `constrained feature move`。范围含底座→定位草图→外边圆角→Hole 的移动/继续编辑、中间阶段、历史/重开/冷重建、实际来源阶段与跨 Body 几何阻塞、固定边界及范围保护。证据限当前 SQLite、Release OCCT 7.9.1 和 Chromium/SwiftShader；不包含历史插入点、跨 Body 搬迁、分组移动或自动依赖重排，主体实机验收另行进行。
+源码入口为 `services/internal/workspace/feature_move.go`、`web/apps/cad/src/features/workbench/feature-move-dialog.tsx`。定向验证为 `feature_move_test.go`、真实 Router/Worker 的 `services/internal/control/feature_move_integration_test.go` 与浏览器 `solid-feature-live.spec.ts` 的 `constrained feature move`。范围含底座→定位草图→外边圆角→Hole 的移动/继续编辑、中间阶段、历史/重开/冷重建、实际来源阶段与跨 Body 几何阻塞、固定边界及范围保护。证据限当前 SQLite、Release OCCT 7.9.1 和 Chromium/SwiftShader；其他特征的历史插入、跨 Body 搬迁、分组移动或自动依赖重排未包含；圆角/倒角插入见[在实体阶段后插入](#在实体阶段后插入)，主体实机验收另行进行。
+
+## 在实体阶段后插入
+
+结构树实体步骤的对象菜单“在此步骤后插入”仅开放圆角/倒角，复用原面板并持续显示 Body、锚点与插入位置。上下文只存在于该次面板；取消、提交、Revision 或编辑目标改变后退出，不建立持久历史游标。锚点必须是当前 Revision 中指定 Body 的有效、未抑制实体阶段；最终 Body 失败时也不借 displayFallback 授权。
+
+`feature-input` 的独立 `afterFeatureId + bodyId + versionId` 模式重建锚点精确前缀，显示制品下载也按该上下文核对；边拾取必须匹配 GeometryKey，并返回 PersistentSelection、来源 Revision 及实际 SourceFeatureID。创建端再次验证阶段和 creation evidence。该模式与编辑输入、只读 `ResultStage` 不混用，不能绑定下游、最终结果或其他 Body 的几何。
+
+原 `CREATE_MODIFY_FEATURE` 携带临时插入信息，在内存候选中直接插入并同步全局数组/Order；按稳定 ID 读取新定义。新 Feature、参数与后续 Order 变化进入同一 ChangeSet/Transaction，沿既有预览、幂等、CAS、补偿历史与缓存提交。原定义和参数身份不变。插入和移动复用候选依赖、实际来源阶段、全 Part 引用/几何检查；下游或跨 Body 失败指出阻塞对象并原子拒绝。固定节点保持相对顺序，允许以其合法输出为锚点，不套用移动的固定边界规则；已有 FEATURE_DELTA 的有序成员集合不能改变。
+
+入口为 `services/internal/workspace/feature_insert.go`、既有 `applyCreateFeature` 与 `solid-feature-editor.tsx`。定向回归：`services/internal/control/feature_insert_integration_test.go` 和浏览器 `solid-feature-live.spec.ts` 的 `insert fillet after an exact base stage`；覆盖阶段拾取、底座→新圆角→已有倒角、取消/过期、一次撤销恢复全部顺序、Redo、重开/冷重建及下游/跨 Body/范围保护。仅此两种局部特征，不包含草图、生成特征插入或跨 Body 创建；主体实机与全部参数组合仍需单独验收。
 
 ## 独立 Hole
 
@@ -77,7 +87,7 @@
 
 依赖连接上游 Feature 输出，而不连接 Body 的未来最终结果。局部修改先重建自身之前的 Body 前缀，再以保存的 source Revision、Body 和 PersistentSelection 解析当前输入。缺失、歧义或类型变化必须失败，不能用最近几何或持久化 local ID 恢复。显示层的 local pick 只用于创建正式持久选择。
 
-生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 为 `part-solid-generators-v39-hole`，Naming policy 继续为 v6；缓存包含版本和完整来源历史。
+生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 为 `part-solid-generators-v39-hole`，Naming evaluator 为 v7（策略 ID、digest 与容差以[命名策略源码](../../../services/internal/modelcore/topology_naming.go)为准）；缓存包含版本和完整来源历史。
 
 精确边的直线识别由同一个内核判定供类型查询、方向属性与 Naming evidence 使用。非周期 B-spline 在实际裁剪参数区间内，正权控制点全部落在端点直线的 `Precision::Confusion()`（1e-7 mm）容差内，且沿直线单调排列时，识别为 `LINE`；不依据显示折线或有限采样。原 BREP 和真实 History 保留，属性同时报告 `underlyingCurveType=BSPLINE_CURVE` 与原生参数。选择 evidence 使用解析直线原点、单位方向和端点距离参数，现有轴/方向解析及外部几何投影消费同一证据，不能把 0–1 的样条参数当作毫米。弯曲、回折或周期样条保守保留曲线类型。evaluator 版本进入缓存键；旧制品须经正常特征编辑/重新求值生成新的成套 Naming/Visual，再选择其边。
 

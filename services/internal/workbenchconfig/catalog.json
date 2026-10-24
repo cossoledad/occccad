@@ -4971,6 +4971,33 @@
       }
     },
     {
+      "id": "tree.insert-after",
+      "name": "在此步骤后插入",
+      "helpText": "在同 Body 的指定实体阶段之后插入圆角或倒角，完整候选通过后一次提交。",
+      "iconKey": "fit",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      }
+    },
+    {
       "id": "tree.move",
       "name": "调整特征顺序",
       "helpText": "将单个实体特征移到同 Body 指定步骤之前或之后，预览通过后提交。",
