@@ -252,6 +252,7 @@ export const restApi = {
     {method:"POST",body:JSON.stringify({requestId:requestId()})}),
   getProductSolveResult: (id:string,solveRequestId:string) => request<AssemblySolveManifestResult>(
     `/api/documents/${id}/solve-results?requestId=${encodeURIComponent(solveRequestId)}`),
+  analyzeMechanism:(id:string,revisionId:string,mechanismId:string,numerical:boolean,signal?:AbortSignal)=>request<import("./cad/assembly/mechanism-analysis").MechanismAnalysis>(`/api/documents/${id}/mechanism-analysis`,{method:"POST",body:JSON.stringify({revisionId,mechanismId,numerical}),signal}),
   getAssemblyEngineeringEvidence:(id:string,revisionId:string,signal?:AbortSignal)=>request<import("./cad/assembly/assembly-engineering-state").AssemblyEngineeringEvidence>(`/api/documents/${id}/assembly-engineering-evidence?revisionId=${encodeURIComponent(revisionId)}`,{signal}),
   refreshAssemblyEngineeringEvidence:(id:string,revisionId:string,signal?:AbortSignal)=>request<import("./cad/assembly/assembly-engineering-state").AssemblyEngineeringEvidence>(`/api/documents/${id}/assembly-engineering-evidence/refresh`,{method:"POST",body:JSON.stringify({revisionId}),signal}),
   getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),

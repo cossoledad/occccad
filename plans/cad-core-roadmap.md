@@ -3,7 +3,7 @@
 > 建立日期：2026-10-23  
 > 分析基线：[a10 · 9326ac9](https://github.com/cossoledad/occccad/commit/9326ac91b99e93e399099a9c2f3b8b3c756d86b6)  
 > 状态：阶段 1 与阶段 2 已实现并通过定向真实链路及浏览器验收，主体实机验收另行进行。当前事实与边界见[输入修复](../docs/architecture/current/solid-features.md#输入修复边界)、[区域选择](../docs/architecture/current/part-sketch.md#显式轮廓区域)及[草图支撑重指定](../docs/architecture/current/part-sketch.md#支撑与外部几何)。阶段 3 已交付的切片：单方向拉伸／切除[到平面关联终止](../docs/architecture/current/solid-features.md#到平面关联终止)、[单点圆柱 Hole](../docs/architecture/current/solid-features.md#独立-hole)、[同 Body 单特征受约束移动](../docs/architecture/current/solid-features.md#调整特征顺序)及[圆角/倒角阶段插入](../docs/architecture/current/solid-features.md#在实体阶段后插入)已实现并完成定向验收；其余关联终止、孔型扩展、其他类型的阶段插入与跨 Body/分组移动未完成。
-> 当前重点转入阶段 4：[关联更新与修复](../docs/architecture/current/product-assembly.md#关联更新与修复)已覆盖 owning Product 直接引用 Part 的版本检查、按实例定位及现有 Reconnect 闭环，并接通[剩余运动独立只读刷新](../docs/architecture/current/product-assembly.md#局部诊断与剩余运动)。嵌套更新编排、柔性装配未扩展；阶段 3 上述扩展项继续保留为未完成。
+> 当前重点转入阶段 4：[关联更新与修复](../docs/architecture/current/product-assembly.md#关联更新与修复)已覆盖 owning Product 直接引用 Part 的版本检查、按实例定位及现有 Reconnect 闭环，并接通[剩余运动独立只读刷新](../docs/architecture/current/product-assembly.md#局部诊断与剩余运动)。本轮补齐[已保存机构分析](../docs/architecture/current/kinematics-dmu.md#机构分析)：逐端点支撑诊断、只读物理 DOF、定位／原 Joint 修复与报告导出。当前分析均限定 owning Product；嵌套更新编排、柔性装配未扩展；阶段 3 上述扩展项继续保留为未完成。
 
 ## 目标与实施原则
 
@@ -17,7 +17,7 @@
 |---|---|---|
 | 3. 机械零件深化 | 按场景补关联终止条件、独立 Hole，以及受依赖约束的历史插入或移动。 | 到面／到下一面等条件、孔参数修改和合法历史编辑具备创建、修改、失败诊断与恢复闭环。 |
 | 4. 关联装配修复 | 零件更新后的引用接受、共享实例同步、约束及位姿修复。 | 修改同一零件后，相关实例按引用版本一致更新；断裂支撑可定位并重连；约束状态和剩余运动信息有明确证据。 |
-| 5. 工程检查与交换 | 静态干涉／间隙、只读运动分析证据刷新、代表性 STEP 往返检查。 | 结果绑定来源版本，可定位或高亮；模型变化后明确过期；交换能核对几何、结构与实际支持的属性。 |
+| 5. 工程检查与交换 | 静态干涉／间隙、代表性 STEP 往返检查及按需扩展工程分析。 | 结果绑定来源版本，可定位或高亮；模型变化后明确过期；交换能核对几何、结构与实际支持的属性。 |
 | 6. 需求驱动的高级能力 | 按具体零件或机构需求引入 Sweep、增强 Loft／曲面、柔性装配等。 | 每次只推进明确场景，形成创建、编辑、失效修复及历史恢复闭环，不预设完整高级功能体系。 |
 
 阶段表示主要投入顺序。装配回归、求解稳定性、性能和浏览器交互质量从阶段 1 起持续验证；发现阻塞实际建模的问题时及时修复。

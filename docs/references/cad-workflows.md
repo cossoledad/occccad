@@ -58,6 +58,7 @@
 | `online/kinug_C2/kinugbt0514.htm` | 命令置零保持机构位置不变；本项目同时保持物理限位及旧记录路径 |
 | `online/kinug_C2/kinugat0104.htm` | CATIA 提供忽略／报告／停止的限位检测策略；本项目已启用限位始终参与合格检查 |
 | `online/kinug_C2/kinugbt0701.htm`、`kinugbt0801.htm` | 旋转接合的两轴、两定位平面；轴重合与平面偏移组成关系 |
+| `online/kinug_C2/kinugat0200.htm`，Analyzing a Mechanism | 清单保留无效接合，列出命令关联、两端零件及几何，提供 DOF、选中高亮与 Show joints；本项目的只读证据／修复语义见[机构分析](../architecture/current/kinematics-dmu.md#机构分析)，导出采用 JSON/CSV，并非 CATIA 的表格格式 |
 | `online/kinug_C2/kinugwd1000.htm` | 机构、接合、命令、固定零件、规律与模拟的树分类 |
 | `online/kinug_C2/kinugbt0205.htm`、`kinugbt0206.htm` | 退出与复位不同；修改后位置及再次进入时的命令读数按当前构型处理 |
 | `online/fitug_C2/fitugbt0304.htm`，Animating a Viewpoint | Insert 同时记录位置和当前视点；Animate viewpoint 控制回放，可在录制后切换 |

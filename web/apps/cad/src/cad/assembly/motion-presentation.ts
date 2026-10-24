@@ -2,7 +2,7 @@ import {formatDisplayNumber} from "../../utils/display-number";
 import type {AssemblyBodyFreedom,DocumentView,Vec3} from "../../types";
 import {engineeringInstanceName,type AssemblyEngineeringEvidence} from "./assembly-engineering-state";
 
-export type MotionPresentation={id:string;bodyId:string;documentId:string;revisionId:string;ownerOccurrence:string;name:string;reference:string;description:string;status:"可运动"|"已定位"|"待计算"|"结果已失效";scope:string[];freedom?:AssemblyBodyFreedom;gaugeDof:number;frame:"OWNING_PRODUCT";unit:"mm"};
+export type MotionPresentation={configurationPoses?:Record<string,import("./motion-study").MotionPose>;id:string;bodyId:string;documentId:string;revisionId:string;ownerOccurrence:string;name:string;reference:string;description:string;status:"可运动"|"已定位"|"待计算"|"结果已失效";scope:string[];freedom?:AssemblyBodyFreedom;gaugeDof:number;frame:"OWNING_PRODUCT";unit:"mm"};
 const dot=(a:Vec3,b:Vec3)=>a.reduce((s,v,i)=>s+v*b[i],0);
 export const displayNumber=formatDisplayNumber;
 export function displayDirection(v:Vec3):string {return v.map(n=>displayNumber(n)).join(", ");}

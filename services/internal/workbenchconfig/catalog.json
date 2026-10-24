@@ -5768,6 +5768,30 @@
         ]
       },
       "implementation": "handler"
+    },
+    {
+      "id": "dmu.analyze-mechanism",
+      "name": "机构分析",
+      "helpText": "检查已保存机构的接合支撑、构型与只读物理自由度",
+      "iconKey": "distance",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      },
+      "implementation": "handler"
     }
   ],
   "groups": [
@@ -6597,6 +6621,11 @@
           "commandId": "dmu.exit",
           "groupKey": "primary",
           "order": 0
+        },
+        {
+          "commandId": "dmu.analyze-mechanism",
+          "groupKey": "primary",
+          "order": 20
         }
       ]
     },
@@ -6611,6 +6640,11 @@
           "commandId": "assembly.motion-study",
           "groupKey": "primary",
           "order": 10
+        },
+        {
+          "commandId": "dmu.analyze-mechanism",
+          "groupKey": "primary",
+          "order": 20
         }
       ]
     }

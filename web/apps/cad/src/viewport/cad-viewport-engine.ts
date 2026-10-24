@@ -287,7 +287,7 @@ export class CadViewportEngine {
   showRemainingMotion(motion?:MotionPresentation):void {
     disposeMotionMarkers(this.motionMarkers);this.motionMarkers=undefined;this.motionPresentation=undefined;
     const context=this.editContext?.view??this.view;
-    if(motion?.freedom&&context?.document.id===motion.documentId&&context.document.versionId===motion.revisionId&&motion.ownerOccurrence===(this.editContext?.occurrencePath??"")){
+    if(motion?.freedom&&context?.document.id===motion.documentId&&context.document.versionId===motion.revisionId&&motion.ownerOccurrence===(this.editContext?.occurrencePath??"")&&(!motion.configurationPoses||this.matchesAnalysisPoses(motion.configurationPoses))){
       const markers=makeMotionMarkers(motion,Math.max(1,this.camera.position.distanceTo(this.navigation.target)*0.08));
       if(this.editContext?.occurrencePath){markers.position.fromArray(this.editContext.translation??[0,0,0]);markers.quaternion.fromArray(this.editContext.rotation??[0,0,0,1]);}
       this.motionPresentation=motion;this.motionMarkers=markers;this.analysisScene.add(markers);
@@ -439,6 +439,22 @@ export class CadViewportEngine {
     this.content.updateMatrixWorld(true);
     this.addAssemblyConstraintMarkers(this.view);this.refreshInteractionHighlights();this.refreshContentBounds();
     this.host.dataset.applicationMode=display.mode;this.host.dataset.applicationId=display.mechanism?.id??'PRODUCT';this.invalidate();
+  }
+  private analysisMechanism?:import('../cad/assembly/motion-study').Mechanism;
+  private analysisJointId?:string;
+  private matchesAnalysisPoses(poses:Record<string,import('../cad/assembly/motion-study').MotionPose>):boolean {
+    return Object.keys(poses).length>0&&Object.entries(poses).every(([id,p])=>{
+      const object=this.instanceGroups.get(id);if(!object||!validMotionPose(p))return false;
+      const q=new THREE.Quaternion(...p.rotation).normalize(),a=object.quaternion.clone().normalize();
+      const chord=Math.min(Math.hypot(a.x-q.x,a.y-q.y,a.z-q.z,a.w-q.w),Math.hypot(a.x+q.x,a.y+q.y,a.z+q.z,a.w+q.w));
+      return object.position.distanceTo(new THREE.Vector3(...p.translation))<=1e-7&&chord<=5e-9;
+    });
+  }
+  showMechanismAnalysis(m?:import('../cad/assembly/motion-study').Mechanism,report?:import('../cad/assembly/mechanism-analysis').MechanismAnalysis,jointId?:string):boolean {
+    this.analysisMechanism=undefined;this.analysisJointId=undefined;this.showRemainingMotion();
+    const matches=!!(m&&report&&this.view?.document.id===report.documentId&&this.view.document.versionId===report.revisionId&&m.id===report.mechanismId&&m.unitIds.length===Object.keys(report.poses??{}).length&&m.unitIds.every(id=>validMotionPose(report.poses?.[id]))&&!this.motionDisplay&&!this.assemblyPosePreview&&this.matchesAnalysisPoses(report.poses));
+    if(matches){this.analysisMechanism={...m,poses:report!.poses,joints:m.joints.filter(j=>report!.joints.some(r=>r.joint.id===j.id&&r.supportStatus==='VALID'&&r.configurationStatus==='VALID'))};this.analysisJointId=jointId;}
+    if(this.view)this.addAssemblyConstraintMarkers(this.view);this.invalidate();return matches;
   }
   private mechanismDefinition?:import('../cad/assembly/motion-study').Mechanism;
   private mechanismSelection?:string;
@@ -682,6 +698,7 @@ export class CadViewportEngine {
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
     const motionView=editContext?.view??view;
+    if(this.analysisMechanism&&this.view?.document.versionId!==motionView.document.versionId)this.analysisMechanism=undefined;
     if(this.motionPresentation&&(this.motionPresentation.documentId!==motionView.document.id||this.motionPresentation.revisionId!==motionView.document.versionId||this.motionPresentation.ownerOccurrence!==(editContext?.occurrencePath??"")))this.showRemainingMotion();
     // The same owning-Product evidence may remain valid while its outer rigid
     // occurrence moves. Reproject the temporary guides, not their local data.
@@ -2092,7 +2109,9 @@ export class CadViewportEngine {
       const scope=scopes.find(scope=>scope.occurrence===editing.occurrencePath && scope.view.document.id===editing.view.document.id);
       if(scope)scope.view=editing.view;
     }
-    if(this.mechanismDefinition)scopes=[{view:{...view,product:{...view.product!,constraints:mechanismConstraints(this.mechanismDefinition)}},occurrence:"",treeNodeId:`document:${view.document.id}`}];
+    if(this.analysisMechanism&&!this.matchesAnalysisPoses(this.analysisMechanism.poses??{})){this.analysisMechanism=undefined;this.showRemainingMotion();}
+    const markerMechanism=this.analysisMechanism??this.mechanismDefinition;
+    if(markerMechanism)scopes=[{view:{...view,product:{...view.product!,constraints:mechanismConstraints(this.analysisJointId?{...markerMechanism,joints:markerMechanism.joints.filter(j=>j.id===this.analysisJointId)}:markerMechanism)}},occurrence:"",treeNodeId:`document:${view.document.id}`}];
     for(const scope of scopes)this.reconcileAssemblyConstraintMarkers(scope.view,scope.occurrence,live,scope.treeNodeId,scope.instancePath);
     for(const [key,entry] of this.assemblyConstraintMarkers)if(!live.has(key))this.removeAssemblyConstraintMarker(key,entry);
     this.refreshInteractionHighlights();
@@ -2141,7 +2160,7 @@ export class CadViewportEngine {
       const span = located.length > 1 ? located[0].anchor.distanceTo(located[1].anchor) : 0;
       markerPosition.z += Math.max(4, span * 0.08);
       let treeNodeId = `${treePath ?? `document:${view.document.id}`}/assembly-constraints/constraint:${constraint.id}`;
-      const mechanism=this.mechanismDefinition;
+      const mechanism=this.analysisMechanism??this.mechanismDefinition;
       let selection:SelectionItem;
       if(mechanism){
         const find=(node:DocumentStructureNode):DocumentStructureNode|undefined=>(node.kind==='JOINT_EXPANSION'&&node.mechanismId===mechanism.id&&node.entityId===constraint.id)?node:node.children?.map(find).find(Boolean);
@@ -3896,6 +3915,8 @@ export class CadViewportEngine {
           this.motionClockFinished=clock.timeSeconds+Math.max(0,now-clock.startedAt)/1000>=(clock.frames.at(-1)?.timeSeconds??0);
         }
         if (this.viewTransition.update(now)) this.navigation.syncCamera(false);
+        if(this.analysisMechanism&&!this.matchesAnalysisPoses(this.analysisMechanism.poses??{})){this.analysisMechanism=undefined;if(this.view)this.addAssemblyConstraintMarkers(this.view);}
+        if(this.motionPresentation?.configurationPoses&&!this.matchesAnalysisPoses(this.motionPresentation.configurationPoses))this.showRemainingMotion();
         this.updateNavigationHUD();
         this.moveManipulator.updateScale(this.camera, viewportMetrics(this.renderer));
         this.sketchManipulator?.updateScale(this.camera,viewportMetrics(this.renderer));

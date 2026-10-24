@@ -79,6 +79,18 @@ JointCoordinate 保存稳定 ID、角色、ANGLE/LENGTH 维度、Direction、物
 
 会话端点为 Begin、updates、keys、preview、finalize、touch、DELETE。只读用户可做暂态计算和查看；finalize 与领域提交要求 Editor。会话取消释放计算及候选，不写 Revision。finalize 使用现有正式 PreviewCommand / PreviewID，客户端提交原 CommandRequest；没有新建跳过 evaluator 的保存通道。正式提交只复用服务端 Pin 的内部见证；直接领域命令修改录制坐标时重新验证初始构型和关键帧，客户端不能自证求解通过。
 
+## 机构分析
+
+“机构分析”可从 Product 或机构工具栏／搜索打开，默认当前机构，也可明确选择其他已保存机构；切换查看不激活机构。报告绑定 owning Product、Revision、Mechanism、规范输入及 Naming/solver 策略，列出成员、接合、Ground、命令数量，以及逐接合两端 occurrence、几何支撑、真实约束和全部关联命令／坐标。逐项保留缺失、歧义、类型不符及其他解析诊断，区分支撑、当前构型检查与数值结果；基础设施错误显示失败，可取消、重试。JSON/CSV 导出当前报告。
+
+只读刷新使用该机构完整接合、Ground、确切已接受引用和 `Mechanism.poses`，复用原支撑解析器、冻结编译、Jacobian/rank 与剩余运动证据门，不导入 Product 约束、不按 Product 的 Verified 状态过滤、不施加命令锁。相对 DOF 与整体 gauge 分别报告；数值锚点不是 Ground。输入不完整、求解失败、返回位姿或 linearization pose 离开冻结构型时保持未知，不采用求解姿态。命令表只说明绑定，试动资格仍走既有 Session 流程。
+
+分析与导出不写位姿、命令零位、连续坐标、刚性捕获、生产 warm start、正式 Session 或历史；Viewer 可使用。结果只保存在当前分析视图，关闭／版本变化后需重新刷新，取消与迟到响应不能恢复旧结果。行选择定位树与参与实例；“显示接合”复用原关系 renderer，方向共用 MotionPresentation。视口不在分析构型时隐藏分析标记，不为显示移动实例。
+
+失效机构无需先激活即可从报告进入原 Joint 编辑、支撑重选、权威预览和 `SAVE_KINEMATICS` 确认链；修复上下文临时存在，取消恢复显示且不写 Head，成功保留机构／接合／命令及关系身份。完整候选仍需沿原链成功，不丢弃其他失败接合来放行修复。本入口限当前 owning Product 的已保存七类接合，不分析实时试动／回放、路径可达性、规律、dressup 或柔性机构。
+
+入口：[后端分析](../../../services/internal/workspace/mechanism_analysis.go)、[分析视图](../../../web/apps/cad/src/features/workbench/mechanism-analysis-panel.tsx)、[原 Joint 编辑](../../../web/apps/cad/src/features/workbench/motion-study-panel.tsx)。定向验证：[真实 Router/Worker](../../../services/internal/control/mechanism_analysis_integration_test.go)、[motion-live 浏览器](../../../web/apps/cad/browser/motion-live.spec.ts)。
+
 ## 有限路径、回放和结果
 
 MotionStudy 只接受录制的 Keyframes，不存在规律对象、规律引用或起止值扫描分支。初始完整构型、全量坐标、活动集合与每个命令零位冻结路径起点；按时间分段线性生成完整操作向量，用同一引擎求解全部硬关系、分支及限位。采样时间包含配置的均匀网格和每个精确关键帧时刻。关键帧本身合格不作为完整路径通过的证明。MotionSnapshot Schema=2，求值策略为 joint-coordinates-vector-recorded-path-v3；帧的 Coordinates 以 CoordinateID 为键，CommandValues 以 DriverID 为键。未发布数据只使用唯一向量模型，不保留旧标量录制分支。

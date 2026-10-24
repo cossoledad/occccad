@@ -73,3 +73,27 @@ func (server *Server) refreshAssemblyEngineeringEvidence(writer http.ResponseWri
 	}
 	writeJSON(writer, http.StatusOK, result)
 }
+
+func (server *Server) analyzeMechanism(w http.ResponseWriter, r *http.Request) {
+	if _, ok := server.requireDocument(w, r, access.RoleViewer); !ok {
+		return
+	}
+	var input struct {
+		RevisionID  string `json:"revisionId"`
+		MechanismID string `json:"mechanismId"`
+		Numerical   bool   `json:"numerical"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.RevisionID == "" || input.MechanismID == "" {
+		writeError(w, http.StatusBadRequest, "revisionId and mechanismId required")
+		return
+	}
+	result, err := server.workspace.AnalyzeMechanism(r.Context(), r.PathValue("documentID"), input.RevisionID, input.MechanismID, input.Numerical)
+	if err != nil {
+		writeWorkspaceResult(w, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}

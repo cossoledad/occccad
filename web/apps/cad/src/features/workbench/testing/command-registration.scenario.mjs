@@ -40,9 +40,10 @@ try{
  // Converting inside a run keeps its operation and cancellation resources.
  const continuationRegistry=new CommandRegistry();let runOwner,applyOwner,disposed=0;
  continuationRegistry.registerMany([{id:'dmu.run',execute:inv=>{runOwner=inv.operation;inv.operation.own(()=>disposed++)}},
-  {id:'dmu.apply',continues:['dmu.run'],execute:inv=>{applyOwner=inv.operation;assert(inv.continuing)}}]);
- continuationRegistry.configure({...catalog,commands:catalog.commands.filter(c=>['dmu.run','dmu.apply'].includes(c.id)),groups:[],placements:[]},()=>({targetType:'PRODUCT',motionActive:true,busy:false}));
- await continuationRegistry.execute('dmu.run');await continuationRegistry.execute('dmu.apply');
+  {id:'dmu.apply',continues:['dmu.run'],execute:inv=>{applyOwner=inv.operation;assert(inv.continuing)}},
+  {id:'dmu.analyze-mechanism',execute:()=>{assert(runOwner.current);assert.equal(disposed,0)}}]);
+ continuationRegistry.configure({...catalog,commands:catalog.commands.filter(c=>['dmu.run','dmu.apply','dmu.analyze-mechanism'].includes(c.id)),groups:[],placements:[]},()=>({targetType:'PRODUCT',motionActive:true,busy:false}));
+ await continuationRegistry.execute('dmu.run');await continuationRegistry.execute('dmu.analyze-mechanism');assert(runOwner.current);await continuationRegistry.execute('dmu.apply');
  assert.equal(applyOwner,runOwner);assert.equal(disposed,0);continuationRegistry.cancel();assert.equal(disposed,1);
  const historyCommands=workbenchCommands({...bindings,editingView:{...host,document:{...host.document,canUndo:true,canRedo:true}},canEdit:false,motionOpen:true,canEditRoot:true});
  assert(historyCommands.find(c=>c.id==='edit.undo').isEnabled(),'mechanism definitions retain formal undo');

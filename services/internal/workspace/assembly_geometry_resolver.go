@@ -12,6 +12,13 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
+type assemblySupportResolutionError struct{ Status string }
+
+func (e *assemblySupportResolutionError) Error() string {
+	return ErrValidation.Error() + ": supporting element is " + e.Status
+}
+func (e *assemblySupportResolutionError) Unwrap() error { return ErrValidation }
+
 type assemblyResolvedPart struct{ model PartModel }
 type assemblySupportResolver struct {
 	ctx       context.Context
@@ -275,7 +282,7 @@ func (resolver *assemblySupportResolver) resolve(reference AssemblyGeometryRef) 
 			return geometry.AssemblyGeometry{}, err
 		}
 		if resolved.Resolution.Status != modelcore.SelectionResolved || resolved.Properties == nil {
-			return geometry.AssemblyGeometry{}, fmt.Errorf("%w: supporting element is %s", ErrValidation, resolved.Resolution.Status)
+			return geometry.AssemblyGeometry{}, &assemblySupportResolutionError{Status: string(resolved.Resolution.Status)}
 		}
 		value, err = assemblyGeometryFromProperties(value, *resolved.Properties)
 		if err != nil {

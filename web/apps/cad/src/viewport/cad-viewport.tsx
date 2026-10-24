@@ -29,6 +29,7 @@ export type CadViewportHandle = {
   previewMotionViewpoint:(viewpoint:import('../cad/assembly/motion-study').MotionViewpoint)=>void;
   sketchCommandAction:(action:SketchCommandAction)=>void;
   retrySketchReceipt:()=>Promise<void>;
+  showMechanismAnalysis:(mechanism?:import("../cad/assembly/motion-study").Mechanism,report?:import("../cad/assembly/mechanism-analysis").MechanismAnalysis,jointId?:string)=>boolean;
   showRemainingMotion: (motion?:import("../cad/assembly/motion-presentation").MotionPresentation)=>void;
   cancelAssemblyInteraction:()=>void;
   settleAssemblyInteraction:()=>Promise<void>;
@@ -254,6 +255,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     previewInsertPattern: (input) => { patternPreview.current = input; engine.current?.previewInsertPattern(input); },
     assemblyAngleReferenceDirection: (references) => engine.current?.assemblyAngleReferenceDirection(references),
     focusAssemblyReference: (reference,ownerOccurrence) => engine.current?.focusAssemblyReference(reference,ownerOccurrence) ?? false,
+    showMechanismAnalysis:(m,r,j)=>engine.current?.showMechanismAnalysis(m,r,j)??false,
     showRemainingMotion: motion=>engine.current?.showRemainingMotion(motion),
     sketchCommandAction:action=>engine.current?.commandAction(action),
     retrySketchReceipt:async()=>{await engine.current?.retrySketchReceipt();},

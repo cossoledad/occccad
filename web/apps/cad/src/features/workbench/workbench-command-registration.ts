@@ -28,6 +28,7 @@ export type WorkbenchCommandBindings={
  openSolidFeature:(generator:"LINEAR_EXTRUDE"|"REVOLVE",operation?:"NEW_BODY"|"ADD"|"REMOVE")=>void;
  deleteTreeNodes:(nodes:SpecificationTreeNode[])=>void;executeHistory:(direction:"undo"|"redo")=>void;
  setConflictOpen:(open:boolean)=>void;setParameterManagerOpen:(open:boolean)=>void;setPublicationManagerOpen:(open:boolean)=>void;
+ setMechanismAnalysisOpen?:(open:boolean)=>void;
  setInsertOpen:(open:boolean)=>void;setPatternOpen:(open:boolean)=>void;setReleaseOpen:(open:boolean)=>void;setVersionOpen:(open:boolean)=>void;
  setShareResource:(resource:ShareResource)=>void;
  setSolidEditor:(value:{feature:Feature;digest?:string}|undefined)=>void;
@@ -55,6 +56,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "assembly.move", continues:bindings.motionOpen?["dmu.run","dmu.study","tree.edit","assembly.move","tool.select"]:undefined,execute: async invocation => {const preparation=bindings.prepareAssemblyMove?.();if(preparation)await preparation;if(invocation?.operation&&!invocation.operation.current)return;store.setActiveTool("assembly.move", "continuous")},
         isEnabled: () => Boolean(canEditRoot&&(!bindings.motionOpen||bindings.motionCommandEnabled?.("move"))), isActive: () => store.activeToolID === "assembly.move" }),
       ...(["exit","ground","revolute","prismatic","cylindrical","planar","rigid","spherical","mechanism","study","apply","run"] as const).map(action=>({id:"dmu."+action,continues:action==="apply"?["dmu.run","dmu.apply"]:undefined,execute:(invocation:CadCommandInvocation|undefined)=>{store.setActiveTool("select","once");return bindings.onMotionCommand?.(action,invocation?.operation)},isEnabled:()=>Boolean(bindings.motionOpen&&view?.product&&!command.isPending&&bindings.onMotionCommand&&editingView?.document.id===view.document.id&&!store.activeSketchID&&(bindings.motionCommandEnabled?.(action)??(action==="apply"?["OWNER","EDITOR"].includes(view.document.permission??""):canEditRoot)))})),
+      ({id:"dmu.analyze-mechanism",execute:()=>bindings.setMechanismAnalysisOpen?.(true),isEnabled:()=>Boolean(bindings.setMechanismAnalysisOpen&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending)}),
       ({id:"assembly.motion-study",execute:()=>{store.setActiveTool("select","once");bindings.setMotionOpen?.(true);},isEnabled:()=>Boolean(view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&bindings.setMotionOpen),isActive:()=>Boolean(bindings.motionOpen)}),
       ({id:"assembly.association-repair",execute:()=>bindings.setAssociationRepairOpen?.(true),isEnabled:()=>Boolean(bindings.setAssociationRepairOpen&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!bindings.motionOpen),isActive:()=>bindings.associationRepairOpen??false}),
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),
