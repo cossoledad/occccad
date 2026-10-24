@@ -169,6 +169,9 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 			plan.HasUpdates = true
 		}
 	}
+	if err := service.checkDirectPartUpdateResults(ctx, &plan, rootModel); err != nil {
+		return ProductUpdatePlan{}, err
+	}
 	appendAssemblyUpdateDiagnostics(&plan, revisionID, rootModel.Constraints)
 
 	sort.Slice(plan.Entries, func(i, j int) bool { return plan.Entries[i].BindingID < plan.Entries[j].BindingID })
@@ -701,4 +704,54 @@ func appendDirectReferenceUpdates(plan *ProductUpdatePlan, items []expandedOccur
 		plan.Entries = append(plan.Entries, entry)
 	}
 	return candidateOccurrenceRevisions
+}
+
+// A source Part's FAILED definition is inspectable, but is not a successful
+// geometry snapshot for a Product to accept. Pending parameter consumers are
+// checked after their existing explicit preview/commit has produced a result.
+func (service *Service) requireReadyReferencedPart(ctx context.Context, documentID, revisionID string) error {
+	var kind, state string
+	var raw []byte
+	if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.state,v.model_json FROM occccad.documents d JOIN occccad.document_versions v ON v.document_id=d.id WHERE d.id=$1 AND v.id=$2`, documentID, revisionID).Scan(&kind, &state, &raw); err != nil {
+		return err
+	}
+	if kind != "PART" || state == "READY" {
+		return nil
+	}
+	var part PartModel
+	if err := json.Unmarshal(raw, &part); err != nil {
+		return err
+	}
+	for _, f := range part.Features {
+		if f.EvaluationStatus == "FAILED" {
+			return fmt.Errorf("%w: REFERENCE_PART_NOT_READY: Part %s Revision %s; %s [%s]: %s", ErrValidation, documentID, revisionID, f.Name, f.ID, f.Diagnostic)
+		}
+	}
+	return fmt.Errorf("%w: REFERENCE_PART_NOT_READY: Part %s Revision %s is %s", ErrValidation, documentID, revisionID, state)
+}
+func (service *Service) checkDirectPartUpdateResults(ctx context.Context, plan *ProductUpdatePlan, model ProductModel) error {
+	pending := map[string]bool{}
+	for _, n := range plan.ParameterUpdates {
+		pending[n.DocumentID] = n.NeedsUpdate
+	}
+	for _, instance := range model.Instances {
+		if instance.ReferenceMode == "PINNED" || pending[instance.ReferencedDocumentID] {
+			continue
+		}
+		for i := range plan.Entries {
+			e := &plan.Entries[i]
+			if e.Kind != "OCCURRENCE_REFERENCE" || e.BindingID != "occurrence:"+instance.ID || e.CandidateRevisionID == "" || e.Currency == "UPDATE_BLOCKED" {
+				continue
+			}
+			if err := service.requireReadyReferencedPart(ctx, instance.ReferencedDocumentID, e.CandidateRevisionID); err != nil {
+				if !errors.Is(err, ErrValidation) {
+					return err
+				}
+				e.Evaluation, e.Currency = "FAILED", "UPDATE_BLOCKED"
+				e.DiagnosticCode, e.Diagnostic = "REFERENCE_PART_NOT_READY", err.Error()
+				plan.CanAccept = false
+			}
+		}
+	}
+	return nil
 }

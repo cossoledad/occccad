@@ -4759,6 +4759,40 @@
       "implementation": "tool"
     },
     {
+      "id": "assembly.association-repair",
+      "name": "关联更新与修复",
+      "helpText": "检查当前 Product 的直接 Part 引用、已接受约束与支持，进入既有更新和修复操作。",
+      "iconKey": "distance",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
       "id": "assembly.analyze",
       "name": "装配约束分析",
       "helpText": "查看装配工程状态，检查相关关系并定位修复。",
@@ -5982,6 +6016,11 @@
           "commandId": "assembly.move-receipt",
           "groupKey": "primary",
           "order": 120
+        },
+        {
+          "commandId": "assembly.association-repair",
+          "groupKey": "primary",
+          "order": 115
         }
       ]
     },

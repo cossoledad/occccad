@@ -23,6 +23,13 @@ try{
  const hidden=workbenchCommands({...bindings,motionOpen:false}).find(c=>c.id==='dmu.revolute');assert.equal(hidden.isEnabled(),false);
  const nestedDmu=workbenchCommands(bindings).find(c=>c.id==='dmu.revolute');assert.equal(nestedDmu.isEnabled(),false);
  const viewer={...host,document:{...host.document,permission:'VIEWER'}};const viewerApply=workbenchCommands({...bindings,editingView:viewer,view:viewer}).find(c=>c.id==='dmu.apply');assert.equal(viewerApply.isEnabled(),false);
+ let repairOpened=false;
+ const repairBindings={...bindings,motionOpen:false,editingView:host,setAssociationRepairOpen:value=>repairOpened=value};
+ const repair=workbenchCommands(repairBindings).find(c=>c.id==='assembly.association-repair');
+ assert(repair.isEnabled());repair.execute();assert(repairOpened);
+ assert.equal(workbenchCommands({...repairBindings,editingView:part}).find(c=>c.id===repair.id).isEnabled(),false,'owning Product only');
+ assert.equal(workbenchCommands({...repairBindings,view:part,editingView:part}).find(c=>c.id===repair.id).isEnabled(),false,'Part has no association panel');
+ assert.equal(workbenchCommands({...repairBindings,motionOpen:true}).find(c=>c.id===repair.id).isEnabled(),false,'frozen motion context cannot open live repair');
  const resultNode={key:'result',documentId:host.document.id,kind:'MOTION_RESULT',entityId:'job',capabilities:['ACTIVATE','DELETE']};
  const artifactRegistry=new CommandRegistry();let dismissed=0;
  artifactRegistry.registerMany(workbenchCommands({...bindings,editingView:viewer,view:viewer,canEdit:false,canEditRoot:false,treeNodes:[resultNode],deleteTreeNodes:()=>dismissed++}));

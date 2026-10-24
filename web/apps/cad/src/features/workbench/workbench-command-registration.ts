@@ -16,6 +16,7 @@ import {selectionSummaryCommand} from "./commands/selection-summary";
 import {treeNodesForSelections} from "./tree-projection-index";
 
 export type WorkbenchCommandBindings={
+ setAssociationRepairOpen?:(open:boolean)=>void;associationRepairOpen?:boolean;
  openProperties?:()=>void;openOptions?:()=>void;
 	prepareAssemblyMove?:()=>Promise<void>;
  setMotionOpen?:(open:boolean)=>void;motionOpen?:boolean;motionCommandEnabled?:(action:string)=>boolean;onMotionCommand?:(action:string,operation?:CommandOperation)=>void;
@@ -55,6 +56,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
         isEnabled: () => Boolean(canEditRoot&&(!bindings.motionOpen||bindings.motionCommandEnabled?.("move"))), isActive: () => store.activeToolID === "assembly.move" }),
       ...(["exit","ground","revolute","prismatic","cylindrical","planar","rigid","spherical","mechanism","study","apply","run"] as const).map(action=>({id:"dmu."+action,continues:action==="apply"?["dmu.run","dmu.apply"]:undefined,execute:(invocation:CadCommandInvocation|undefined)=>{store.setActiveTool("select","once");return bindings.onMotionCommand?.(action,invocation?.operation)},isEnabled:()=>Boolean(bindings.motionOpen&&view?.product&&!command.isPending&&bindings.onMotionCommand&&editingView?.document.id===view.document.id&&!store.activeSketchID&&(bindings.motionCommandEnabled?.(action)??(action==="apply"?["OWNER","EDITOR"].includes(view.document.permission??""):canEditRoot)))})),
       ({id:"assembly.motion-study",execute:()=>{store.setActiveTool("select","once");bindings.setMotionOpen?.(true);},isEnabled:()=>Boolean(view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&bindings.setMotionOpen),isActive:()=>Boolean(bindings.motionOpen)}),
+      ({id:"assembly.association-repair",execute:()=>bindings.setAssociationRepairOpen?.(true),isEnabled:()=>Boolean(bindings.setAssociationRepairOpen&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!bindings.motionOpen),isActive:()=>bindings.associationRepairOpen??false}),
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),
         isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),
       ({id:"assembly.move-receipt",execute:()=>viewport.current?.retryAssemblyMoveCommit(),

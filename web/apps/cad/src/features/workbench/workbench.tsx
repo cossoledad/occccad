@@ -1,3 +1,4 @@
+import {AssociationRepairPanel} from "./association-repair-panel";
 import {assistantTarget,dispatchAssistantCommand,handoffEditorIntent,handoffMatchesCommit,type AssistantHandoffSession} from "../assistant/workbench-handoff";
 import {AssistantPanel} from "../assistant/assistant-panel";
 import {freezeScope,liveSelectionSummary} from "../assistant/frozen-scope";
@@ -191,7 +192,7 @@ export function Workbench() {
   const automaticUpdateSignature = useRef("");
   const automaticUpdateRunning = useRef(false);
   const [automaticUpdateEpoch, setAutomaticUpdateEpoch] = useState(0);
-  const [productUpdateFailure, setProductUpdateFailure] = useState<string>();
+  const [productUpdateFailureSnapshot, setProductUpdateFailure] = useState<{documentId:string;revisionId:string;diagnostic:string}>();
   const [editSessionState, setEditSession] = useState<EditSession>();
   const editSession = editSessionState?.hostDocumentId === documentID ? editSessionState : undefined;
   const latestEditSession = useRef(editSessionState); latestEditSession.current = editSessionState;
@@ -213,6 +214,7 @@ export function Workbench() {
   const [newPartTarget, setNewPartTarget] = useState<SpecificationTreeNode>();
   const [versionOpen, setVersionOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
+  const [associationRepairOpen,setAssociationRepairOpen]=useState(false);
   const [datumEditor, setDatumEditor] = useState<"plane" | "axis">();
  const [editingDatumId,setEditingDatumId]=useState<string>();
  const [parameterSearch,setParameterSearch]=useState("");
@@ -382,6 +384,7 @@ export function Workbench() {
   const moveCommand = useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),
     onSuccess:(updated)=>{void refresh(updated);},onError:()=>{void refresh();}});
   const view = document.data;
+  const productUpdateFailure=productUpdateFailureSnapshot?.documentId===view?.document.id&&productUpdateFailureSnapshot?.revisionId===view?.document.versionId?productUpdateFailureSnapshot?.diagnostic:undefined;
   const motionJobs=useQuery({queryKey:['motion-jobs',documentID],queryFn:async()=> (await api.listJobs()).filter(j=>j.type==='MOTION_STUDY'&&j.documentId===documentID),enabled:Boolean(view?.product),refetchInterval:5000});
 
   const featureOccurrenceContext = activeInstancePath ? {
@@ -423,6 +426,7 @@ export function Workbench() {
     historyGeneration.current++;setHistoryResult(undefined);setFeatureInputs(undefined);setFeatureSelection(undefined);
   }, [editingView?.document.id,editingView?.document.versionId,activeInstancePath]);
   useEffect(()=>{if(solidEditor||booleanDialog||datumEditor||store.activeSketchID){historyGeneration.current++;setHistoryResult(undefined);setFeatureInputs(undefined);}},[solidEditor,booleanDialog,datumEditor,store.activeSketchID]);
+  useEffect(()=>{setAssociationRepairOpen(false)},[documentID,activeInstancePath]);
   const engineeringEvidence=useQuery({queryKey:["assembly-engineering-evidence",editingView?.document.id,editingView?.document.versionId],
     queryFn:({signal})=>api.getAssemblyEngineeringEvidence(editingView!.document.id,editingView!.document.versionId,signal),
     enabled:conflictOpen&&Boolean(editingView?.product),retry:false});
@@ -550,7 +554,7 @@ export function Workbench() {
         ? { ...prepared.session, workingBodyId: current.workingBodyId } : current);
     }).catch((error) => {
       if (activationGate.current.isCurrent(generation)) setProductUpdateFailure(
-        `编辑上下文快照无法同步：${error instanceof Error ? error.message : String(error)}`);
+        {documentId:view.document.id,revisionId:view.document.versionId,diagnostic:`编辑上下文快照无法同步：${error instanceof Error ? error.message : String(error)}`});
     });
   // Re-resolve only when the host snapshot changes; target changes have their own activation flow.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -585,7 +589,7 @@ export function Workbench() {
   const parameterContextCatalog = useQuery({ queryKey: queryKeys.contextCatalog(documentID, activeInstancePath ?? "", "PARAMETER"),
     queryFn: () => api.getContextCatalog(documentID, activeInstancePath ?? "", "PARAMETER"),
     enabled: Boolean(view?.document.type === "PRODUCT" && activeInstancePath && externalParameterID) });
-  const productUpdatePlan = useQuery({ queryKey: ["product-update-plan", documentID],
+  const productUpdatePlan = useQuery({ queryKey: ["product-update-plan", documentID, view?.document.versionId],
     queryFn: () => api.getProductUpdatePlan(documentID), enabled: Boolean(view?.document.type === "PRODUCT") });
   const productReleases = useQuery({ queryKey: ["product-releases", documentID],
     queryFn: () => api.listProductReleases(documentID), enabled: Boolean(view?.document.type === "PRODUCT" && releaseOpen) });
@@ -716,7 +720,7 @@ export function Workbench() {
       } catch (cause) {
         if (!disposed) {
           const diagnostic = cause instanceof Error ? cause.message : String(cause);
-          setProductUpdateFailure(diagnostic);
+          setProductUpdateFailure({documentId:view.document.id,revisionId:view.document.versionId,diagnostic});
           message.error(`自动跟随最新版本失败：${diagnostic}`);
         }
       } finally {
@@ -946,6 +950,15 @@ export function Workbench() {
       if (refreshed) { setEditingAssemblyConstraint({ ...refreshed }); setAssemblyDefinitionDirty(false); }
     }});
   };
+  const repairRevisionCurrent=(revision:string)=>Boolean(view?.product&&view.document.versionId===revision&&editingView?.document.id===view.document.id&&!activeInstancePath);
+  const retryAssociationUpdates=()=>{setProductUpdateFailure(undefined);automaticUpdateSignature.current="";void productUpdatePlan.refetch().finally(()=>setAutomaticUpdateEpoch(value=>value+1));};
+  const locateAssociationConstraint=(id:string,revision:string,support?:number)=>{
+    if(!repairRevisionCurrent(revision)||!view)return;
+    const c=view.product?.constraints?.find(c=>c.id===id);if(!c)return;
+    store.setSelection({kind:"assembly-constraint",id:c.id,constraintId:c.id,constraintType:c.kind,documentId:view.document.id,versionId:revision});
+    const ref=support===1?c.second:support===2?c.angleAxis:c.first;
+    if(ref&&!viewport.current?.focusAssemblyReference(ref)){viewport.current?.focusAssemblyReference({instanceId:ref.instancePath?.segments[0]?.instanceId??ref.instanceId,kind:"BODY"});void message.info("原支持当前不可定位，已定位其所属实例。");}
+  };
   const selectFeature = (sourceView: DocumentView, featureID: string) => {
     const sourceNode = findStructureEntity(sourceView.structureTree, featureID);
     const node = activeInstancePath ? findStructureOccurrenceEntity(view?.structureTree, featureID,
@@ -1155,7 +1168,7 @@ export function Workbench() {
   const closeCommandPanels=(nextCommand?:string)=>{
     closeAssemblyCandidate();stopConflictAnalysis();viewport.current?.showRemainingMotion();
     if(nextCommand!=="dmu.apply"||!motionDisplay)motionPanel.current?.closeCommand();
-    setFeatureMove(undefined);setConflictOpen(false);setSupportSketch(undefined);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
+    setAssociationRepairOpen(false);setFeatureMove(undefined);setConflictOpen(false);setSupportSketch(undefined);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
     setFeatureSelection(undefined);setNewPartTarget(undefined);
     setPropertyTargets(undefined);
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
@@ -1348,7 +1361,7 @@ onToggleConstruction:(node)=>{
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
   const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    formActive:Boolean(featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+    setAssociationRepairOpen,associationRepairOpen,formActive:Boolean(featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1651,6 +1664,14 @@ onToggleConstruction:(node)=>{
         onEditParameter={openParameterEditor} onEditPublication={openPublicationEditor}
         navigationProfile={navigationProfile} canRestore={canEdit && !command.isPending}
         onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}>
+        {view.product&&editingView?.document.id===view.document.id&&!activeInstancePath&&<AssociationRepairPanel open={associationRepairOpen} view={view} plan={productUpdatePlan.data} loading={productUpdatePlan.isFetching} error={productUpdatePlan.error?String(productUpdatePlan.error):undefined} failure={productUpdateFailure} busy={command.isPending} canEdit={canEditRoot}
+          onClose={()=>setAssociationRepairOpen(false)} onRetry={retryAssociationUpdates}
+          onAccept={(revision,digest)=>{if(!repairRevisionCurrent(revision)||!canEditRoot||command.isPending||productUpdatePlan.isFetching||productUpdatePlan.data?.digest!==digest||productUpdatePlan.data.rootProductRevisionId!==revision)return;
+            command.mutate(()=>api.acceptProductUpdatePlan(documentID,digest),{onError:error=>setProductUpdateFailure({documentId:documentID,revisionId:revision,diagnostic:String(error)})});}}
+          onRefresh={revision=>{if(repairRevisionCurrent(revision)&&canEditRoot&&!command.isPending&&!productUpdatePlan.isFetching&&productUpdatePlan.data?.rootProductRevisionId===revision&&!productUpdatePlan.data.hasUpdates)refreshAssemblyConstraint();}}
+          onLocateInstance={(id,revision)=>{if(!repairRevisionCurrent(revision)||!view.product?.instances.some(i=>i.id===id))return;store.setSelection({kind:"instance",id,instanceId:id,documentId:view.document.id,occurrencePath:id,versionId:revision});viewport.current?.focusAssemblyReference({instanceId:id,kind:"BODY"});}}
+          onLocateConstraint={locateAssociationConstraint}
+          onEdit={(id,revision,reconnect)=>{if(!repairRevisionCurrent(revision)||!canEditRoot||command.isPending)return;const c=view.product?.constraints?.find(c=>c.id===id);if(!c)return;setAssociationRepairOpen(false);openAssemblyConstraintEditor(c,reconnect);}}/>}
         <AssemblyConflictPanel open={conflictOpen} pending={conflictPending} report={conflictReport}
           current={Boolean(conflictContextCurrent&&editingView&&assemblyConflictCurrent(conflictReport,editingView.document.id,editingView.document.versionId))}
           error={conflictError} canEdit={canEdit&&!command.isPending} view={editingView} evidence={engineeringEvidence.data}
@@ -1669,8 +1690,7 @@ onToggleConstruction:(node)=>{
           style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",minWidth:420}}
           type="error" showIcon message="自动跟随最新版本被阻塞"
           description={productUpdateFailure ?? productUpdatePlan.data?.entries.find((entry)=>entry.kind !== "ASSEMBLY_SOLVE" && entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"}
-          action={<Button size="small" onClick={() => { setProductUpdateFailure(undefined); automaticUpdateSignature.current = "";
-            void productUpdatePlan.refetch().finally(() => setAutomaticUpdateEpoch((value) => value + 1)); }}>重试</Button>} />}
+          action={<Button size="small" onClick={retryAssociationUpdates}>重试</Button>} />}
         {(selectedNamingIssue ?? activeNamingIssue) && <Alert
           style={{position:"absolute",zIndex:12,bottom:12,left:12,maxWidth:520}}
           type="warning" showIcon message="当前几何暂不支持持久拓扑引用"

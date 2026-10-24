@@ -14,6 +14,16 @@ Publication 用稳定目标身份，支持输出及转发；PersistentSelection 
 
 接受前校验计划 digest、每个文档权限及 CAS，固定外部参数输入，不读取半途变化的 Head 作为结果。PINNED/ISOLATED 不传播，循环拒绝。失败不接纳失败候选，Product 保持原接受版本；已成功的子 Part 可保留独立 Revision，重新取得计划后恢复。该批次只更新参数外部引用，不顺带更新 Part 的其他 ContextReference。当前一次计划覆盖 Product 直接引用的 Part 及其递归参数依赖，嵌套 Product 仍沿用各自叶到根接受计划；未引入跨文档长事务。
 
+## 关联更新与修复
+
+工作台“关联更新与修复”聚焦当前 owning Product 直接引用的 Part。按零件分组、按稳定 occurrence 路径分别显示重复实例的名称、FOLLOW_HEAD/PINNED、已接受及候选 Revision、来源阻塞与实际诊断；PINNED 明确为固定版本。定位实例、约束或支持使用当前 Revision 与原 occurrence，不按同名零件或几何猜测合并。
+
+约束及支持状态来自当前已接受 Product Revision；缺少支持解析快照时显示“待检查”。UpdatePlan 的 `ASSEMBLY_SOLVE` 也是已接受状态，`affectedConstraintIds` 只是保守集合，不是候选版本的逐约束结论。本入口不做更新前影响预测；Revision 变化后旧计划操作失效，刷新前不允许接受或重算。
+
+普通 FOLLOW_HEAD 仍自动跟随，参数更新仍需明确“更新关联零件”。面板复用原计划接受、重试、Refresh、Edit/Reconnect 与权威预览/确认，重算按钮不会隐式接受待更新参数。接受及普通 `UPDATE_REFERENCES` 检查确切来源 Part 的求值状态；FAILED 来源阻塞并指出 Part、Revision 和失败 Feature，保留原合法快照。待更新参数消费者先按原参数计划求值再检查结果。合法零件更新导致的 Broken/NotUpdated 仍按原合同保留，不增加全部 Verified 的接受门槛，不采用失败姿态。
+
+入口：[面板与版本范围](../../../web/apps/cad/src/features/workbench/association-repair-panel.tsx)、[原更新计划](../../../services/internal/workspace/product_update_release.go)。回归：[真实 Router/Worker](../../../services/internal/control/association_repair_integration_test.go)、[实际视图区重选](../../../web/apps/cad/browser/association-repair-live.spec.ts)。本入口不编排嵌套更新，不刷新 DOF，不扩展柔性装配或求解算法。
+
 ## 定义与求值
 
 独立机构定义、硬驱动、冻结回放与产品约束转换见[当前机构合同](kinematics-dmu.md)。它复用本域冻结输入及数值内核，运行保留完整机构方程，不继承 Product 关系；运动研究不改变普通装配编辑的偏好、Preview/Commit 或 Revision 语义。实时试动与关键帧录制已有实现；具体范围及验证边界由该主题拥有，独立静态干涉应用未交付。

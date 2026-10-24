@@ -928,3 +928,35 @@ test("insert fillet after an exact base stage before existing chamfer in one his
  // ResultStage remains read-only; insertion is a separate authorized context.
  const illegal=await page.request.post(`/api/documents/${seed.id}/feature-input`,{data:{versionId:(await current(page,seed.id)).document.versionId,featureId:seed.base.id,resultStage:true,geometryKey:stage.artifact.geometryKey,kind:"EDGE",localId:1}});expect(illegal.ok()).toBeFalsy();expect(errors).toEqual([]);
 });
+
+test("merged loft side picks highlight the generating Feature rather than section sketches",async({page},testInfo)=>{
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.createDocument("PART","Loft section ownership acceptance");const id=v.document.id,sections=[];
+  for(const z of [0,30]){
+   let datumPlaneId;
+   if(z){v=await api.command(id,{type:"CREATE_DATUM_PLANE",origin:[0,0,z],normal:[0,0,1],uDirection:[1,0,0]});datumPlaneId=v.part!.datumPlanes.at(-1)!.id;}
+   v=await api.command(id,{type:"CREATE_SKETCH",...(datumPlaneId?{datumPlaneId}:{plane:"XY"})});const sketchId=v.part!.features.at(-1)!.id;
+   v=await api.command(id,{type:"EDIT_SKETCH",sketchId,operations:[{type:"ADD_RECTANGLE",first:{x:-30,y:-30},second:{x:30,y:30}}]});sections.push({sketchId});
+  }
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",feature:{type:"LOFT",operation:"NEW_BODY",sections}});const loft=v.part!.features.at(-1)!,body=v.part!.bodies.find(b=>b.id===loft.bodyId)!,key=body.geometryKey!;
+  let face;
+  for(let i=1;i<=Number(v.artifacts[key].topology.faces);i++){const p=await api.getTopologyProperties(id,key,"FACE",i,v.document.versionId);if(p.persistentSelection?.anchor.outputSlot.startsWith("MERGED_FROM/")&&p.persistentSelection.creationEvidence!.direction[1]<-.9){face=p;break}}
+  if(!face)throw Error("Expected a merged visible side from real Naming");return {id,loft,body,face,version:v.document.versionId,sections};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+ const tree=page.getByRole("textbox",{name:"筛选模型结构"});await tree.fill("Loft 1");
+ const row=page.locator(`[data-tree-key$="/feature:${seed.loft.id}"]`);
+ const selected=()=>page.evaluate(async()=>{
+  // @ts-ignore read-only observation of the real viewport selection
+  const {useWorkbenchStore}=await import("/src/state/workbench-store.ts");return useWorkbenchStore.getState().selection;
+ });
+ const pick=async()=>{
+  await expect(async()=>{await clickWorld(page,seed.face.persistentSelection.creationEvidence.centroid);expect((await selected())?.topologyId).toBe(seed.face.localId);}).toPass({timeout:20_000});
+  await expect(row).toHaveClass(/selected-descendant/);
+  const hit=await selected();expect(hit).toMatchObject({kind:"face",bodyId:seed.body.id,associatedFeatureIds:[seed.loft.id],sourceFeatureIds:[seed.loft.id]});expect(hit!.treeNodeId).toContain(`/feature:${seed.loft.id}`);
+ };
+ await pick();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("loft-merged-face-feature-highlight.png")});
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();await tree.fill("Loft 1");await pick();expect(errors).toEqual([]);
+});

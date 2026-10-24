@@ -129,8 +129,20 @@ func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 			}
 			a := FeatureTopologyAssociation{Status: "MAPPED"}
 			var sources []string
+			var previous []FeatureTopologyAssociation
 			for _, s := range l.Sources {
 				prev := sourceState(s)
+				// Loft can merge/split several generated sides into one output.
+				// Its flattened PROFILE sources are section inputs, not existing
+				// solid contributors. Preserve them as supports of the generating
+				// Feature, while keeping real solid-source merges multi-owner.
+				_, known := states[associationRefKey(s)]
+				role, id, profile := strings.Cut(s.OutputSlot, "/")
+				if !known && profile && id != "" && (role == "PROFILE_EDGE" || role == "PROFILE_REGION" || role == "PROFILE_POINT") &&
+					l.Result.FeatureId == f.FeatureId && (l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MERGED || l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_SPLIT) {
+					prev = FeatureTopologyAssociation{Origins: []string{f.FeatureId}, Primary: []string{f.FeatureId}, Supports: []string{s.FeatureId}, Status: "MAPPED"}
+				}
+				previous = append(previous, prev)
 				sources = append(sources, prev.Origins...)
 				a.Modifiers = append(a.Modifiers, prev.Modifiers...)
 				a.Supports = append(a.Supports, prev.Supports...)
@@ -154,8 +166,7 @@ func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 				}
 			} else {
 				a.Origins = append(a.Origins, sources...)
-				for _, s := range l.Sources {
-					prev := sourceState(s)
+				for _, prev := range previous {
 					a.Primary = append(a.Primary, prev.Primary...)
 				}
 				if len(a.Primary) == 0 {

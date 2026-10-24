@@ -56,6 +56,8 @@ Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果
 
 Origin/基准的纯 `display.*` 补偿与重放沿用冻结的 Body 制品，不进入参数、Publication 或实体求值。显示命令不追加基准求值槽，避免同一次显隐同时写 `display.PLANE` 与整份 `datum.plane`，使 Undo/Redo 保持与普通显示命令相同的几何复用规则。
 
+放样侧面的 `MERGED/SPLIT` 历史可直接引用多个 `PROFILE_EDGE/PROFILE_REGION/PROFILE_POINT` 截面输入。显示贡献索引把这些输入作为生成 Feature 的支撑，面仍归生成它的 Loft；已有实体拓扑的真正合并继续保留多个贡献者，不能只按结果锚点或最近 Feature 归属。这是 Naming 到 GLB 的派生投影，不改持久 SemanticRef、历史或几何。显示规则进入 evaluator 缓存版本；旧冻结 GLB 在沿正式求值链重算后更新。回归入口：[放样贡献与冷重建](../../../services/internal/control/loft_association_integration_test.go)、[实际拾取与树高亮](../../../web/apps/cad/browser/solid-feature-live.spec.ts)。
+
 ## 完整属性检查
 
 属性面板保留对象摘要，并默认展开“完整对象数据与上下文”。`inspectorObjectData` 从已加载定义与权威拓扑响应解析所选对象，原样展示参数来源/AST/依赖、量纲、SI 值、特征输入、基准变换、约束、Publication、求值诊断及关联制品字段；不按显示精度截断原始数据。数据区只读，可选择复制文本，长内容在区域内滚动。选中参数另显示别名、稳定 ID、所有者、属性槽、生命周期、值类型、单位和角色。

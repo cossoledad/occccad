@@ -109,6 +109,11 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 				return err
 			}
 		}
+		if instance.ReferenceMode != "PINNED" {
+			if err := service.requireReadyReferencedPart(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID); err != nil {
+				return err
+			}
+		}
 		instance.ResolvedVersionID, instance.HeadChanged = instance.ReferencedVersionID, false
 	}
 	for index := range product.ContextBindings {

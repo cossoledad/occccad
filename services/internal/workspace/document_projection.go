@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
 	"strings"
 )
@@ -95,16 +94,9 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 			}
 			instance.HeadChanged = head != instance.ReferencedVersionID
 		}
-		if instance.HeadChanged {
-			for constraintIndex := range model.Constraints {
-				constraint := &model.Constraints[constraintIndex]
-				if constraint.First.InstanceID == instance.ID || (constraint.Second != nil && constraint.Second.InstanceID == instance.ID) {
-					constraint.EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
-					constraint.EvaluationSummary = "referenced Part has a newer unaccepted workspace revision"
-				}
-			}
-		}
 	}
+	// Availability of a newer Head does not invalidate evidence for the accepted Revision.
+	// Keep currency on instances and UpdatePlan, separate from constraint evaluation.
 	view.Product = &model
 	if err := validateAssemblyDefinitionFormat(model); err != nil {
 		return view, err
@@ -202,7 +194,6 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 		return DocumentStructureNode{}, err
 	}
 	root.Children = make([]DocumentStructureNode, 0, len(model.Instances))
-	staleInstances := map[string]bool{}
 	for _, instance := range model.Instances {
 		resolvedVersionID := instance.ReferencedVersionID
 		mode := strings.ToUpper(instance.ReferenceMode)
@@ -240,7 +231,6 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 		if mode == "FOLLOW_HEAD" || mode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
 			var head string
 			if service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&head) == nil && head != instance.ReferencedVersionID {
-				staleInstances[instance.ID] = true
 				instanceNode.CurrencyStatus = "UPDATE_AVAILABLE"
 				instanceNode.Diagnostic = "NOT_UPDATED: referenced workspace has a newer revision"
 				instanceNode.Capabilities = append(instanceNode.Capabilities, "UPDATE_REFERENCES")
@@ -314,9 +304,6 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 			status, summary := constraint.EvaluationStatus, constraint.EvaluationSummary
 			if constraint.Suppressed {
 				name += " [停用]"
-			}
-			if staleInstances[constraint.First.InstanceID] || (constraint.Second != nil && staleInstances[constraint.Second.InstanceID]) {
-				status, summary = modelcore.AssemblyConstraintNotUpdated, "referenced Part has a newer unaccepted workspace revision"
 			}
 			capabilities := assemblyConstraintStructureCapabilities(constraint, status)
 			node := DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,

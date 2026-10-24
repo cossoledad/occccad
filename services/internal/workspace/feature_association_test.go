@@ -87,3 +87,40 @@ func TestFeatureAssociationsMergeRetainsCandidatesAndDeletion(t *testing.T) {
 		t.Fatal("deleted result resurrected", index)
 	}
 }
+
+func TestFeatureAssociationsProfileLineageBelongsToGenerator(t *testing.T) {
+	generated := workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED
+	merged := workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MERGED
+	split := workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_SPLIT
+	first, second := testRef("section-a", "PROFILE_EDGE/a"), testRef("section-b", "PROFILE_EDGE/b")
+	base := testRef("base", "PROFILE_EDGE/actually-named-solid")
+	for _, tc := range []struct {
+		name              string
+		kind              workerv1.TopologyLineageKind
+		sources           []*workerv1.SemanticTopologyRef
+		primary, supports []string
+	}{
+		{"merged sections", merged, []*workerv1.SemanticTopologyRef{first, second}, []string{"loft"}, []string{"section-a", "section-b"}},
+		{"split section", split, []*workerv1.SemanticTopologyRef{first}, []string{"loft"}, []string{"section-a"}},
+		{"solid and generated section", merged, []*workerv1.SemanticTopologyRef{base, second}, []string{"base", "loft"}, []string{"section-b"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := testRef("loft", "MERGED_FROM/semantic-source-digest")
+			m := &topologyManifest{FeatureResults: []*workerv1.FeatureResult{
+				{FeatureId: "base", TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Kind: generated, Result: base}}}},
+				{FeatureId: "loft", TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Kind: tc.kind, Result: result, Sources: tc.sources}}}},
+			}, Tips: map[string]*workerv1.FeatureResult{"body": {SemanticOutputs: []*workerv1.SemanticTopologyOutput{{SemanticRef: result, LocalId: 3, TopologyType: 1}}}}}
+			check := func() {
+				t.Helper()
+				a := deriveFeatureAssociations(m).Elements[0]
+				if !slices.Equal(a.Primary, tc.primary) || !slices.Equal(a.Origins, tc.primary) || !slices.Equal(a.Supports, tc.supports) || a.Status != "MAPPED" {
+					t.Fatal("profile supports confused with solid ownership", a)
+				}
+			}
+			check()
+			// A later local modification must retain that ownership, not restore the sections.
+			m.FeatureResults = append(m.FeatureResults, &workerv1.FeatureResult{FeatureId: "fillet", TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MODIFIED, Result: result, Sources: []*workerv1.SemanticTopologyRef{result}}}}})
+			check()
+		})
+	}
+}
