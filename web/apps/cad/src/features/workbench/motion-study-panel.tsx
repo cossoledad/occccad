@@ -2,7 +2,7 @@ import {engineeringLabel} from "../../cad/presentation/engineering-text";
 import {forwardRef,useCallback,useEffect,useImperativeHandle,useMemo,useRef,useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {Alert,Button,Checkbox,Input,InputNumber,Progress,Select,Slider,Space,Table,Typography} from 'antd';
-import {engineeringProblem,normalizeOperationFailure,useOperationFeedback} from '../../cad/command/operation-feedback';
+import {engineeringProblem,useOperationFailureNotification,useOperationFeedback} from '../../cad/command/operation-feedback';
 import type {FeatureSelectionSession} from '../../cad/interaction/feature-selection';
 import {createActor} from 'xstate';
 import {assemblyPreviewMachine} from './assembly-preview-machine';
@@ -57,6 +57,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
  const [applicationQualified,setApplicationQualified]=useState(true);
  const [commandPending,setCommandPending]=useState(false),[pending,setPending]=useState(false),[error,setError]=useState<unknown>(),[jobId,setJobId]=useState<string>();
  const [run,setRun]=useState<MotionRun>(),[index,setIndex]=useState(0),[clock,setClock]=useState<MotionPlaybackClock>(),[displayTime,setDisplayTime]=useState(0),[showing,setShowing]=useState(false);
+ useOperationFailureNotification(working?error:undefined,'机构操作');
  const playing=Boolean(clock);
  const playbackIndex=()=>run&&clock?motionFrameAt(run,motionPlaybackTime(clock,performance.now())):index;
  const [action,setAction]=useState<string>(),[objectId,setObjectId]=useState<string>(),[name,setName]=useState('');
@@ -402,13 +403,10 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   if(action==='driver'&&driver)await save({...defs,drivers:[...(defs.drivers??[]).filter(d=>d.id!==driver.id),driver]});
 
  };
- const failure=error?normalizeOperationFailure(error):undefined;
- const failureNotice=failure?<Alert type="error" showIcon title={failure.message}/>:null;
  return <>
   {active&&motionDialog&&<MechanismMotionDialog {...motionDialog} initialDriverIds={selection?.kind==='kinematic-object'&&selection.entityKind==='MOTION_DRIVER'&&defs.drivers?.some(d=>d.id===selection.id&&d.mechanismId===motionDialog.mechanism.id)?[selection.id]:lastDrivers.current} drivers={(motionDialog.view.product?.kinematics?.drivers??[]).filter(d=>d.mechanismId===motionDialog.mechanism.id)} operation={commandOwner.current} sourceMechanismIds={sourceMechanismIds} captureViewpoint={captureViewpoint} previewViewpoint={previewViewpoint} onSession={s=>{if(!s&&motionSession.current?.identity)lastDrivers.current=motionSession.current.checkpoint?.activeDriverIds;motionSession.current=s;registry.notifyStateChanged()}} onDraft={onDraft} onPreview={onPreview} onPlayback={onPlayback} onCommit={async (command,recordedStudyId)=>{savingDefinition.current=true;try{const updated=await onCommit(command);adopt(updated);if(activeMechanismId.current)untouchedMechanisms.current.delete(activeMechanismId.current);
      if(motionDialog.record){const study=updated.product?.kinematics?.studies.find(s=>s.id===recordedStudyId);if(study){try{await api.startMotionRun(updated.document.id,{baseRevisionId:updated.document.versionId,studyId:study.id,requestId:randomUUID()});await client.invalidateQueries({queryKey:['motion-jobs',updated.document.id]})}catch(e){feedback(e,'生成模拟结果')}}}
      return updated}finally{savingDefinition.current=false}}} onClose={updated=>{if(updated)adopt(updated);closeCommand(false,true);registry.cancel()}}/>}
-  {active&&!action&&failureNotice}
   <CommandDialog id={'dmu.'+(action??'definition')} open={working&&Boolean(action)&&action!=='apply'&&!motionDialog&&!applyOpen} title={action==='results'?'仿真与回放':action==='joint'?joint?.name:action==='driver'?driver?.name:action==='mechanism'?'编辑机械装置':registry.declaration('dmu.'+action)?.name??'编辑对象'} onClose={()=>closeCommand()} onConfirm={confirmDefinition} confirmLoading={commandPending||pending} confirmDisabled={action!=='results'&&!definitionValid} size="M"><div className="motion-study-fields">
 
    {action==='results'&&<>
@@ -445,10 +443,8 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
     <Button aria-label="置零" disabled={commandPending||!driver.reference} onClick={()=>setDriver({...driver,reference:undefined,referenceDigest:undefined})}>置零</Button>
    </>}
 
-   {failureNotice}
   </div></CommandDialog>
  <CommandDialog id="dmu.apply" title="转换为产品约束" open={active&&applyOpen} size="M" onClose={closeApply} onConfirm={apply} confirmDisabled={!plan?.ready||commandPending} confirmLoading={commandPending}>
-  {failureNotice}
   <Button loading={commandPending} onClick={()=>void review()}>生成／刷新转换计划</Button>
   <Typography.Paragraph>{showing?`仿真帧 ${index+1}`:"机械装置已确认位姿"}</Typography.Paragraph>{selectedMechanism?.joints.flatMap(j=>(j.coordinates??[]).map(c=><Checkbox key={c.id} checked={lockCoordinateIds.includes(c.id)} onChange={e=>{setLockCoordinateIds(ids=>e.target.checked?[...ids,c.id]:ids.filter(id=>id!==c.id));commandEpoch.current++;setPlan(undefined)}}>锁定 {j.name} · {c.dimension==='ANGLE'?'角度':'长度'}</Checkbox>))}
   {plan&&<><Typography.Paragraph>{plan.poseChanges.length} 个位姿变化 · 求解 {engineeringLabel(plan.solverStatus,'待解决冲突')} · 自由度 {plan.degreesOfFreedom}</Typography.Paragraph>{plan.poseChanges.length>0&&<ul>{plan.poseChanges.map(id=>{const unit=units.find(v=>v.id===id),target=showing?frame?.unitPoses[id]:selectedMechanism?.poses?.[id];return <li key={id}>{unit?.name??'引用零件已丢失'}：位置 mm ({unit?.translation.map(v=>v.toFixed(3)).join(', ')}) → ({target?.translation.map(v=>v.toFixed(3)).join(', ')})</li>})}</ul>}<Table size="small" pagination={false} rowKey={v=>JSON.stringify([v.jointId,v.constraintId,v.role,v.action])} dataSource={plan.items} columns={[{title:'关系',dataIndex:'role',render:(role:string,item)=>`${relationLabels[role]??'约束关系'} · ${view.product?.constraints?.find(c=>c.id===item.constraintId)?.name??defs.mechanisms.flatMap(m=>m.joints).find(j=>j.id===item.jointId)?.name??'引用关系已丢失'}`},{title:'动作',dataIndex:'action',render:(value:string)=>actionLabels[value]??'待检查'},]}/></>}

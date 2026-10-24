@@ -6,7 +6,7 @@
 
 “装配设计 / 机构与 DMU”属于同一 owning Product。明确选中机构时“机构”编辑该对象，否则新建，不默认采用首个已有机构。当前会话新建且没有确认定义或移动的空机构在退出时通过正式命令删除；已有空机构保留。树中机构及模拟中的机构引用使用同一稳定 Mechanism ID。
 
-Product instance.pose 与 Mechanism.poses 独立。机构只保存自己的成员位置及接合连续坐标；完整 ApplicationDisplay 合并机构成员与非成员环境。进入从 accepted 位置启用机构关系，忽略 Product 方程；退出从机构位置启用 Product 活动关系。没有产品关系时保留并持久采用当前位置，有关系时允许重新求解。
+Product instance.pose 与 Mechanism.poses 独立。机构只保存自己的成员位置及接合连续坐标；完整 ApplicationDisplay 合并机构成员与非成员环境。进入从 accepted 位置启用机构关系，忽略 Product 方程；退出从机构位置启用 Product 活动关系。没有产品关系时保留并持久采用当前位置，有关系时允许重新求解。退出仍要求最终位姿的独立几何复核；圆柱面接触按材料侧及内／外接触核对轴线平行、径向距离或同面条件，不以数值收敛代替复核。失败保持当前应用和已接受位置，通过统一通知反馈。
 
 `mechanism-application` 只读准备当前 Head 的候选；`ACTIVATE_MECHANISM` / `EXIT_MECHANISM` 经重新验证、CAS 和 Undo/Redo 采用。空 ChangeSet 不产生 Revision。有序 sourceMechanismIds 只在匹配 Head 的应用环境中使用，不让机构持有非成员关系。URL 记录应用、机构和来源 Revision；刷新重新验证。外部 Head 变化撤销旧预览和采用资格，使用当前文档环境，不能把旧入口帧补写回去。
 

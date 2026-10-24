@@ -108,11 +108,25 @@ func conflictScale(a [3]float64, s float64) [3]float64 {
 }
 func conflictQuaternionAngle(a, b [4]float64) float64 {
 	a, b = normalizedInstanceRotation(a), normalizedInstanceRotation(b)
-	dot := 0.
+	na, nb := 0., 0.
 	for i := 0; i < 4; i++ {
-		dot += a[i] * b[i]
+		na += a[i] * a[i]
+		nb += b[i] * b[i]
 	}
-	return 2 * math.Acos(math.Min(1, math.Abs(dot)))
+	na, nb = math.Sqrt(na), math.Sqrt(nb)
+	if math.IsNaN(na) || math.IsNaN(nb) || math.IsInf(na, 0) || math.IsInf(nb, 0) {
+		return math.Inf(1)
+	}
+	same, opposite := 0., 0.
+	for i := 0; i < 4; i++ {
+		x, y := a[i]/na, b[i]/nb
+		same += (x - y) * (x - y)
+		opposite += (x + y) * (x + y)
+	}
+	// acos(dot) loses resolution near identical poses and can reject even
+	// byte-identical solver quaternions at the 1e-8 angular tolerance. Chord
+	// lengths preserve that resolution and the q/-q rotation equivalence.
+	return 4 * math.Atan2(math.Sqrt(math.Min(same, opposite)), math.Sqrt(math.Max(same, opposite)))
 }
 func conflictPoseClose(a, b geometry.AssemblyPose, lt, at float64) bool {
 	return conflictNorm(conflictSub(a.Translation, b.Translation)) <= lt && conflictQuaternionAngle(a.Rotation, b.Rotation) <= at
@@ -336,6 +350,32 @@ func conflictGeometryRelation(c geometry.AssemblyConstraint, local map[string]ge
 			return true, constant && math.Abs(distance) <= lt, "point incidence mismatch"
 		}
 	case "CONTACT":
+		if reason := contactDefinitionInfeasibility(c, a, b); reason != "" {
+			return true, false, reason
+		}
+		if a.Kind == "CYLINDER" && b.Kind == "CYLINDER" && (c.ContactKind == "LINE" || c.ContactKind == "FACE") {
+			if a.Radius <= 0 || b.Radius <= 0 || math.IsNaN(a.Radius) || math.IsNaN(b.Radius) || math.IsInf(a.Radius, 0) || math.IsInf(b.Radius, 0) {
+				return false, false, "invalid cylinder contact radii"
+			}
+			// Axis signs describe parameterization, not material orientation.
+			// Use the same frozen material-side branch as contact.cpp, then
+			// independently measure the final world-space axis separation.
+			material := func(g geometry.AssemblyGeometry) int32 {
+				if g.MaterialSide == 0 {
+					return 1
+				}
+				return g.MaterialSide
+			}
+			separation := conflictNorm(conflictCross(delta, a.Direction))
+			if c.ContactKind == "FACE" {
+				return true, parallel && separation <= lt, "cylinder face contact mismatch"
+			}
+			target := math.Abs(a.Radius - b.Radius)
+			if (c.ContactSide == "EXTERNAL") == (material(a)*material(b) > 0) {
+				target = a.Radius + b.Radius
+			}
+			return true, parallel && math.Abs(separation-target) <= lt, "cylinder line tangency mismatch"
+		}
 		if a.Kind == "PLANE" && b.Kind == "PLANE" && c.ContactKind == "FACE" {
 			orient := 1.
 			if c.ContactSide == "EXTERNAL" {

@@ -690,3 +690,43 @@ test('invalid mechanism supports remain inspectable and repair through real view
  let restored=await current(page,seed.id);expect(restored.product.kinematics.mechanisms[0].id).toBe(seed.mid);expect(restored.product.kinematics.mechanisms[0].joints.find((j:any)=>j.id===seed.jid).first.axis.persistentSelection).toBeTruthy();expect(restored.product.instances).toEqual(before.product.instances);
  await command(page,'机构分析');await expect(panel).toContainText('分析完成');await panel.getByRole('button',{name:'关闭',exact:true}).click();await command(page,'撤销');await command(page,'机构分析');await expect(panel).toContainText('支撑需要修复');await panel.getByRole('button',{name:'关闭',exact:true}).click();await command(page,'重做');await page.reload();await command(page,'机构分析');await expect(panel).toContainText('分析完成');expect(errors).toEqual([]);expect(supportSeed.version).toBeTruthy();
 });
+
+test('mechanism exit verifies cylinder contact and reports failures without changing the workbench layout',async({page},testInfo)=>{
+ test.setTimeout(180_000);
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();
+ await page.goto('/');const seed=await seedProduct(page);
+ const version=await page.evaluate(async s=>{
+  const {restApi:api}=await import('/src/api.ts');const refs=[];
+  for(const [index,partId] of s.parts.entries()){
+   const p=await api.getDocument(partId),body=p.part!.bodies.find(b=>b.geometryKey)!,key=body.geometryKey!;
+   let cylinder;
+   for(let i=1;i<=p.artifacts![key].topology.faces;i++){const face=await api.getTopologyProperties(partId,key,'FACE',i,p.document.versionId);if(face.geometryType==='CYLINDER'){cylinder=face;break}}
+   if(!cylinder)throw new Error('Missing exact cylinder');
+   const inspected=await api.inspectAssemblySupports(s.id,[{instanceId:index===0?s.shaft:s.rotor,kind:'FACE',geometryKey:key,topologyId:cylinder.localId}]);
+   if(inspected.supports[0].status!=='RESOLVED')throw new Error('Cylinder support not resolved');refs.push(inspected.supports[0].reference);
+  }
+  const v=await api.command(s.id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'CONTACT',contactKind:'LINE',contactSide:'INTERNAL',firstAssemblyRef:refs[0],secondAssemblyRef:refs[1]});
+  if(v.product!.constraints[0].evaluationStatus!=='VERIFIED')throw new Error('Contact not accepted');return v.document.versionId;
+ },seed);
+ await page.goto(`/documents/${seed.id}?application=mechanism&mechanismId=${seed.mid}&applicationRevision=${version}&mechanismSources=${seed.mid}`);
+ await expect(page.getByRole('button',{name:'退出机构',exact:true})).toBeEnabled();await expect(page.locator('canvas')).toBeVisible();
+ const before=await current(page,seed.id),history=await page.request.get(`/api/documents/${seed.id}/history`).then(r=>r.json());
+ const stage=page.getByRole('region',{name:'三维视口',exact:true}),bounds=await stage.boundingBox();
+ // Fault injection at the existing transport boundary; successful retry below
+ // uses the real Router, native solver and independent final-pose witness.
+ const endpoint=`**/api/documents/${seed.id}/mechanism-application`;
+ await page.route(endpoint,async route=>{if(!route.request().postDataJSON().mechanismId)await route.fulfill({status:400,json:{code:'EXECUTION_FAILURE',error:'injected mechanism exit failure',retryable:true}});else await route.continue()});
+ await command(page,'退出机构');const notice=page.locator('.ant-notification-bottomRight .cad-operation-notification');await expect(notice).toContainText('机构操作未完成');
+ await expect(page.locator('.cad-workbench > .ant-alert')).toHaveCount(0);
+ expect(await stage.boundingBox()).toEqual(bounds);expect((await current(page,seed.id)).document.versionId).toBe(before.document.versionId);expect(await page.request.get(`/api/documents/${seed.id}/history`).then(r=>r.json())).toEqual(history);
+ await page.screenshot({path:testInfo.outputPath('mechanism-exit-failure-notification.png')});await page.unroute(endpoint);
+ await command(page,'退出机构');await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();expect(new URL(page.url()).searchParams.has('application')).toBe(false);
+ const after=await current(page,seed.id);expect(after.product.kinematics).toEqual(before.product.kinematics);expect(after.product.constraints.map((c:any)=>[c.id,c.evaluationStatus])).toEqual(before.product.constraints.map((c:any)=>[c.id,c.evaluationStatus]));
+ const [a,b]=after.product.instances,q=a.rotation,axis=[2*(q[0]*q[2]+q[3]*q[1]),2*(q[1]*q[2]-q[3]*q[0]),1-2*(q[0]*q[0]+q[1]*q[1])],delta=b.translation.map((v:number,i:number)=>v-a.translation[i]),axial=delta.reduce((sum:number,v:number,i:number)=>sum+v*axis[i],0);
+ expect(Math.hypot(...delta.map((v:number,i:number)=>v-axial*axis[i]))).toBeCloseTo(8,5);
+ expect(after.document.versionId).not.toBe(before.document.versionId);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product.instances).toEqual(before.product.instances);
+ await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product.instances).toEqual(after.product.instances);
+ await page.reload();await expect(page.locator('canvas')).toBeVisible();expect((await current(page,seed.id)).product.instances).toEqual(after.product.instances);await expect(page.locator('.cad-workbench > .ant-alert')).toHaveCount(0);expect(errors).toEqual([]);
+});

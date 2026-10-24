@@ -42,7 +42,7 @@ import { fixedPoseAngles } from "../../cad/assembly/assembly-fixed-pose";
 import type { AssemblyInteractionCommit } from "../../cad/assembly/assembly-interaction";
 import { AssemblyConflictResponseGate,assemblyConflictCurrent,type AssemblyConflictReport,type AssemblyConflictMember,type AssemblyConflictRepair } from "../../cad/assembly/assembly-conflict";
 import { AssemblyConflictPanel } from "./assembly-conflict-panel";
-import {useOperationFeedback} from "../../cad/command/operation-feedback";
+import {useOperationFeedback,useOperationFailureNotification} from "../../cad/command/operation-feedback";
 import { InsertDocumentDialog } from "./insert-document-dialog";
 import {SketchSupportEditor} from "./sketch-support-editor";
 import {profileRegionRepairFeature} from "./profile-region-selection";
@@ -1558,6 +1558,8 @@ onToggleConstruction:(node)=>{
       }
     }
   };
+  const associationUpdateBlocked=!productUpdatePlan.isFetching&&view?.document.type==='PRODUCT'&&(productUpdateFailure||productUpdatePlan.data?.hasUpdates&&!productUpdatePlan.data.canAccept);
+  useOperationFailureNotification(associationUpdateBlocked?{diagnostic:productUpdateFailure??productUpdatePlan.data?.entries.find(entry=>entry.kind!=="ASSEMBLY_SOLVE"&&entry.diagnostic)?.diagnostic,retry:retryAssociationUpdates,retryLabel:'重试更新'}:undefined,'更新关联零件');
   if (document.isLoading || view && !editSession) return <div className="workbench-loading"><Spin size="large" description="正在打开工作台…" /></div>;
   if (!view) return <Empty description="无法打开文档"><Space><Button onClick={()=>void document.refetch()}>重试</Button><Button onClick={()=>navigate("/")}>返回文档中心</Button></Space></Empty>;
 
@@ -1614,7 +1616,6 @@ onToggleConstruction:(node)=>{
   const restoringPoses=restoringMechanism?Object.entries(Object.assign({},...restoredApplicationSources(view,restoringMechanism,applicationParams).map(id=>view.product?.kinematics?.mechanisms.find(m=>m.id===id)?.poses??{})) as Record<string,import("../../cad/assembly/motion-study").MotionPose>).map(([instanceId,p])=>({instanceId,...p})):undefined;
   return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><section className="cad-workbench">
 
-    {historyResult&&<Alert type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/> }
     {mechanismAnalysisOpen&&view.product&&<MechanismAnalysisPanel view={view} selection={store.selection} currentId={mechanismDefinition?.id??(store.selection?.kind==='kinematic-object'?store.selection.mechanismId:undefined)} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")&&!motionCommandActive&&!motionDisplay&&!motionMutation.isPending} onClose={()=>{viewport.current?.showMechanismAnalysis();viewport.current?.showRemainingMotion();setMechanismAnalysisOpen(false)}} onLocate={store.setSelections} onShow={(m,r,j)=>viewport.current?.showMechanismAnalysis(m,r,j)??false} onMotion={showAnalysisMotion} onRepair={(m,j)=>{setMechanismAnalysisOpen(false);void motionPanel.current?.repairJoint(m,j)}}/>}
     {view.product&&<MotionStudyPanel ref={motionPanel} onRepairContext={setMotionRepair} sourceMechanismIds={motionSources.current} onDraft={setMotionDraft} captureViewpoint={()=>viewport.current?.captureMotionViewpoint()} previewViewpoint={(v,documentId)=>{if(!documentId||documentId===view.document.id)viewport.current?.previewMotionViewpoint(v)}} onCommit={async command=>{const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,command));await refresh(updated);return updated}} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onMechanism={m=>{setMechanismDefinition(m);if(m&&motionOpen&&motionSources.current.at(-1)===m.id){const url=new URL(window.location.href);url.searchParams.set("application","mechanism");url.searchParams.set("mechanismId",m.id);url.searchParams.set("applicationRevision",view.document.versionId);url.searchParams.set("mechanismSources",motionSources.current.join(','));window.history.replaceState(null,"",url)}}} onStatus={setMotionStatus} onSelectionSession={setFeatureSelection} onPreview={setMotionPosePreview} onSave={async (k,baseRevisionId)=>{if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:baseRevisionId??view.document.versionId,kinematics:k}));const created=updated.product?.kinematics?.mechanisms.find(m=>!view.product?.kinematics?.mechanisms.some(v=>v.id===m.id));const acceptedId=created?.id??mechanismDefinition?.id;if(acceptedId&&motionOpen)motionSources.current=[...motionSources.current.filter(id=>id!==acceptedId&&updated.product?.kinematics?.mechanisms.some(m=>m.id===id)),acceptedId];setMechanismDefinition(m=>updated.product?.kinematics?.mechanisms.find(v=>v.id===m?.id));setMotionPosePreview(undefined);await refresh(updated);return updated}} onSwitch={async input=>{
       if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");
@@ -1685,15 +1686,11 @@ onToggleConstruction:(node)=>{
             viewport.current?.focusAssemblyReference({instanceId:id,kind:"BODY"},activeInstancePath);}}
           onAnalyze={ids=>void analyzeConflicts(ids)} onStop={stopConflictAnalysis}
           onClose={()=>{viewport.current?.showRemainingMotion();stopConflictAnalysis();setConflictOpen(false);}} onLocate={locateConflictMember} onRepair={repairConflictMember}/>
+        {historyResult&&<Alert style={{position:'absolute',zIndex:12,top:12,left:12}} type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/>}
         {view.document.type==="PRODUCT"&&productUpdatePlan.data?.parameterUpdates?.some(node=>node.needsUpdate)&&!productUpdateFailure&&<Alert
           style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)"}}
           type="info" showIcon message="共享参数有待接受的更新"
           action={<Button size="small" disabled={!canEditRoot||command.isPending||!productUpdatePlan.data.canAccept} onClick={()=>command.mutate(()=>api.acceptProductUpdatePlan(documentID,productUpdatePlan.data!.digest))}>更新关联零件</Button>}/>}
-        {view.document.type === "PRODUCT" && (productUpdateFailure || productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept) && <Alert
-          style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",minWidth:420}}
-          type="error" showIcon message="自动跟随最新版本被阻塞"
-          description={engineeringProblem(productUpdateFailure??productUpdatePlan.data?.entries.find(entry=>entry.kind!=="ASSEMBLY_SOLVE"&&entry.diagnostic)?.diagnostic)}
-          action={<Button size="small" onClick={retryAssociationUpdates}>重试</Button>} />}
         {(selectedNamingIssue ?? activeNamingIssue) && <Alert
           style={{position:"absolute",zIndex:12,bottom:12,left:12,maxWidth:520}}
           type="warning" showIcon message="当前几何暂不能用于关联建模"
