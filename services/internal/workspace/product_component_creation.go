@@ -275,23 +275,18 @@ func (service *Service) nextPartDocumentName(ctx context.Context) (string, error
 		return "", err
 	}
 	defer rows.Close()
-	used := map[string]bool{}
+	names := []string{}
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
 			return "", err
 		}
-		used[strings.ToLower(strings.TrimSpace(name))] = true
+		names = append(names, name)
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-	for ordinal := 1; ; ordinal++ {
-		candidate := fmt.Sprintf("Part%d", ordinal)
-		if !used[strings.ToLower(candidate)] {
-			return candidate, nil
-		}
-	}
+	return nextAutomaticName("Part", names), nil
 }
 
 func (service *Service) persistInitialDocumentCandidate(ctx context.Context, tx database.Tx, candidate *initialDocumentCandidate) error {

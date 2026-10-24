@@ -107,9 +107,9 @@ SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence
 
 ### 装配失败诊断与最小重放
 
-装配试算失败经现有 operation diagnostic repository 记录不可变 Product 基线/候选、来源 Revision、排除约束集合及精确数字重放。admission 隔离为 NotUpdated 的定义仍携带 `evaluationFailure.diagnosticId`，普通预览显示工程问题与恢复动作，原始失败信息集中到属性面板默认收起的开发区；失败位姿不能进入已接纳集合。整体/相对 DOF 对应已接纳求解集合，不能用它替代被隔离试算的收敛证据。
+装配试算失败经现有 operation diagnostic repository 记录不可变 Product 基线/候选、来源 Revision、排除约束集合及精确数字重放。admission 隔离为 NotUpdated 的定义仍携带 `evaluationFailure.diagnosticId`，普通预览显示工程问题与恢复动作，原始失败信息集中到DEBUG开发信息面板；失败位姿不能进入已接纳集合。整体/相对 DOF 对应已接纳求解集合，不能用它替代被隔离试算的收敛证据。
 
-正常工作台不再显示 DEBUG 页签；开发信息统一从属性面板按需展开。现有后端诊断入口继续保留。装配下载 `GET /api/documents/{id}/assembly-diagnostic` 只读冻结当前 Head，输出 `occccad.assembly-diagnostic.v2`：全部原始定义/评价/停用/测量状态与来源表、精确 body-local 几何/数值约束表、当前姿态/初值/profile/参与集合、组阶段和递归来源 Revision/Part Body 身份。默认不附带完整 Part 模型历史；`?naming=true` 按需附加去重 Naming 证据。解析失败逐约束记录端点/阶段，其他可解析数据继续导出，不造假几何。导出不求解、不写 Revision/历史/暖启动。
+DEBUG页签统一提供独立开发信息面板，属性与历史保留工程信息。现有后端诊断入口继续保留。装配下载 `GET /api/documents/{id}/assembly-diagnostic` 只读冻结当前 Head，输出 `occccad.assembly-diagnostic.v2`：全部原始定义/评价/停用/测量状态与来源表、精确 body-local 几何/数值约束表、当前姿态/初值/profile/参与集合、组阶段和递归来源 Revision/Part Body 身份。默认不附带完整 Part 模型历史；`?naming=true` 按需附加去重 Naming 证据。解析失败逐约束记录端点/阶段，其他可解析数据继续导出，不造假几何。导出不求解、不写 Revision/历史/暖启动。
 
 NotUpdated 通过 `evaluationFailure.diagnosticId` 关联归档的真实失败输入：实际 RPC 顺序、组阶段初始姿态/initialGuess、参与集合、有效配置、分支/意图、预算、结果/错误及实现 fingerprint。缺失或裁剪的历史显式标记，当前状态不能冒充原现场。数值捕获/导出限 8 MiB，操作序列限 4 MiB/32 帧，异步队列限 32 MiB；可选轨迹/矩阵采集有独立上限，落盘失败不破坏正式操作。
 

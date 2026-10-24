@@ -1,8 +1,8 @@
 import {CommandField} from "../../cad/overlay/command-form";
-import {uiTokens} from "../../design/visual-tokens";
+import {CommandDialog} from "../../cad/overlay/floating-panel";
 import {APP_OPTIONS_COMMAND,globalOptionsCommand} from "./global-options-command";
 import {SettingOutlined} from "@ant-design/icons";
-import {Button,Checkbox,ColorPicker,Input,InputNumber,Menu,Modal,Radio,Select,Space,Typography} from "antd";
+import {Button,Checkbox,ColorPicker,Input,InputNumber,Menu,Radio,Select,Space,Typography} from "antd";
 import {createContext,useCallback,useContext,useMemo,useState,type PropsWithChildren} from "react";
 import {CommandRegistry} from "../../cad/command/command-registry";
 import {CaptureSettingsPanel} from "../../cad/overlay/capture-settings-panel";
@@ -45,9 +45,9 @@ export function GlobalOptionsProvider({children,activeDocumentID}:PropsWithChild
   </Space>}
   {page==="creation"&&<Space orientation="vertical" className="global-options-fields">
    <Typography.Title level={5}>新建零件默认外观</Typography.Title>
-   <CommandField label="实体表面颜色" width="expression"><Space><ColorPicker aria-label="新建实体表面颜色" disabledAlpha showText value={draft.creationDefaults.solid.color} onChange={c=>patch({creationDefaults:{solid:{...draft.creationDefaults.solid,color:c.toHexString()}}})}/><Input aria-label="默认实体颜色 HEX" style={{width:105}} maxLength={7} value={draft.creationDefaults.solid.color} status={/^#[0-9a-fA-F]{6}$/.test(draft.creationDefaults.solid.color)?undefined:"error"} onChange={e=>patch({creationDefaults:{solid:{...draft.creationDefaults.solid,color:e.target.value}}})}/></Space></CommandField>
+   <CommandField label="实体表面颜色" width="content"><Space><ColorPicker aria-label="新建实体表面颜色" disabledAlpha showText value={draft.creationDefaults.solid.color} onChange={c=>patch({creationDefaults:{solid:{...draft.creationDefaults.solid,color:c.toHexString()}}})}/><Input aria-label="默认实体颜色 HEX" style={{width:105}} maxLength={7} value={draft.creationDefaults.solid.color} status={/^#[0-9a-fA-F]{6}$/.test(draft.creationDefaults.solid.color)?undefined:"error"} onChange={e=>patch({creationDefaults:{solid:{...draft.creationDefaults.solid,color:e.target.value}}})}/></Space></CommandField>
    {([["roughness","粗糙度"],["metalness","金属度"]] as const).map(([key,label])=><CommandField key={key} label={label} width="number"><InputNumber aria-label={`默认${label}`} min={0} max={1} step={.05} value={draft.creationDefaults.solid[key]} onChange={v=>{if(v!==null)patch({creationDefaults:{solid:{...draft.creationDefaults.solid,[key]:v}}})}}/></CommandField>)}
-   <Typography.Paragraph type="secondary">用于文档中心、文档标签页及装配中创建的新零件。创建时保存为零件的默认外观；已有文档和导入模型的外观不受影响。</Typography.Paragraph>
+
   </Space>}
   {page==="navigation"&&<Space orientation="vertical" className="global-options-fields">
    <Typography.Title level={5}>鼠标操作</Typography.Title>
@@ -57,15 +57,14 @@ export function GlobalOptionsProvider({children,activeDocumentID}:PropsWithChild
    <CaptureSettingsPanel settings={draft.captureSettings} onEnabledChange={enabled=>patch({captureSettings:{...draft.captureSettings,enabled}})} onSelectionToggle={kind=>patch({captureSettings:{...draft.captureSettings,selection:draft.captureSettings.selection.includes(kind)?draft.captureSettings.selection.filter(k=>k!==kind):[...draft.captureSettings.selection,kind]}})} onSketchToggle={kind=>patch({captureSettings:{...draft.captureSettings,sketch:draft.captureSettings.sketch.includes(kind)?draft.captureSettings.sketch.filter(k=>k!==kind):[...draft.captureSettings.sketch,kind]}})} onAll={()=>patch({captureSettings:structuredClone(DEFAULT_CAPTURE_SETTINGS)})} onPointsOnly={()=>patch({captureSettings:{enabled:true,selection:["POINT"],sketch:["GRID","ORIGIN","POINT","ENDPOINT","CENTER","MIDPOINT"]}})}/>
   </Space>}
   {page==="units"&&<Space orientation="vertical" className="global-options-fields">
-   <CommandField label="默认长度单位" width="expression"><Select aria-label="默认长度单位" value={draft.displayLengthUnit} options={units} onChange={displayLengthUnit=>patch({displayLengthUnit:displayLengthUnit as DisplayLengthUnit})}/></CommandField>
-   {activeDocumentID&&<CommandField label="当前文档显示单位" width="expression"><Select aria-label="当前文档显示单位" value={draft.documentLengthUnits[activeDocumentID]??"INHERIT"} options={[{value:"INHERIT",label:"继承全局设置"},...units]} onChange={unit=>{const documentLengthUnits={...draft.documentLengthUnits};if(String(unit)==="INHERIT")delete documentLengthUnits[activeDocumentID];else documentLengthUnits[activeDocumentID]=unit as DisplayLengthUnit;patch({documentLengthUnits})}}/></CommandField>}
+   <CommandField label="默认长度单位" width="enum"><Select aria-label="默认长度单位" value={draft.displayLengthUnit} options={units} onChange={displayLengthUnit=>patch({displayLengthUnit:displayLengthUnit as DisplayLengthUnit})}/></CommandField>
+   {activeDocumentID&&<CommandField label="当前文档显示单位" width="enum"><Select aria-label="当前文档显示单位" value={draft.documentLengthUnits[activeDocumentID]??"INHERIT"} options={[{value:"INHERIT",label:"继承全局设置"},...units]} onChange={unit=>{const documentLengthUnits={...draft.documentLengthUnits};if(String(unit)==="INHERIT")delete documentLengthUnits[activeDocumentID];else documentLengthUnits[activeDocumentID]=unit as DisplayLengthUnit;patch({documentLengthUnits})}}/></CommandField>}
    <Typography.Text type="secondary">控制显示和新建数值输入；已有参数表达式与模型尺寸保持原值。</Typography.Text>
   </Space>}
  </>;
  const context=useMemo(()=>({draft,open,registry,setMetrics}),[draft,open,registry]);
- return <Context.Provider value={context}>{children}<Modal zIndex={uiTokens.layerModal} styles={{mask:{backgroundColor:"rgba(12,24,36,.12)"}}} title="选项" className="global-options-dialog" width={870} open={Boolean(draft)} destroyOnHidden onCancel={()=>setDraft(undefined)} onOk={()=>{if(draft)useUIPreferences.getState().applyGlobalOptions(draft);setDraft(undefined)}} okButtonProps={{disabled:Boolean(draft&&!/^#[0-9a-fA-F]{6}$/.test(draft.creationDefaults.solid.color))}} okText="确定" cancelText="取消" footer={(_,buttons)=><div className="global-options-footer"><Button type="link" onClick={reset}>恢复当前页默认设置</Button><Space><buttons.CancelBtn/><buttons.OkBtn/></Space></div>}>
-  <Typography.Paragraph type="secondary">作用于所有文档 · 实时预览 · 确定后保存到当前浏览器</Typography.Paragraph>
+ return <Context.Provider value={context}>{children}<CommandDialog id="global-options" open={Boolean(draft)} title="选项" size="L" onClose={()=>setDraft(undefined)} onConfirm={()=>{if(draft)useUIPreferences.getState().applyGlobalOptions(draft);setDraft(undefined)}} confirmDisabled={Boolean(draft&&!/^#[0-9a-fA-F]{6}$/.test(draft.creationDefaults.solid.color))} secondaryActions={<Button type="link" onClick={reset}>恢复当前页默认设置</Button>}>
   <div className="global-options-layout"><Menu selectedKeys={[page]} onClick={({key})=>setPage(key as Page)} items={[{key:"scene",label:"场景"},{key:"display",label:"显示"},{key:"creation",label:"新建对象"},{key:"navigation",label:"导航与捕获"},{key:"units",label:"单位"}]}/><div className="global-options-content">{contents}</div></div>
- </Modal></Context.Provider>;
+ </CommandDialog></Context.Provider>;
 }
 export function GlobalOptionsButton(){const options=useGlobalOptions();return <Button ghost aria-label="选项" title="全局选项" icon={<SettingOutlined/>} onClick={()=>{void options?.registry.execute(APP_OPTIONS_COMMAND)}}/>}

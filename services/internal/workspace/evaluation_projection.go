@@ -163,6 +163,19 @@ func geometryFeatureDefinition(feature Feature) Feature {
 		copySketch.Entities = append([]SketchEntity(nil), copySketch.Entities...)
 		for i := range copySketch.Entities {
 			copySketch.Entities[i].Visible = nil
+			copySketch.Entities[i].Name = ""
+		}
+		copySketch.Constraints = append([]SketchConstraint(nil), copySketch.Constraints...)
+		for i := range copySketch.Constraints {
+			copySketch.Constraints[i].Name = ""
+		}
+		copySketch.ExternalGeometry = append([]SketchExternalGeometry(nil), copySketch.ExternalGeometry...)
+		for i := range copySketch.ExternalGeometry {
+			copySketch.ExternalGeometry[i].Name = ""
+		}
+		copySketch.Patterns = append([]SketchPattern(nil), copySketch.Patterns...)
+		for i := range copySketch.Patterns {
+			copySketch.Patterns[i].Name = ""
 		}
 		feature.Sketch = &copySketch
 	}

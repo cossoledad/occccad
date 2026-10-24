@@ -120,10 +120,6 @@
 .cad-failed-body-notice { position: absolute; left: 12px; bottom: 48px; max-width: calc(100% - 24px); padding: 8px 12px; border-radius: 6px; color: #8e4034; background: #f9e9e4; pointer-events: none; }
 .cad-failed-body-notice button { margin-left: 8px; padding: 2px 6px; border: 1px solid currentColor; border-radius: 4px; color: inherit; background: transparent; font: inherit; cursor: pointer; pointer-events: auto; }
 .cad-failed-body-notice button:disabled { opacity: .5; cursor: default; }
-.datum-vector-fields { border: 0; padding: 0; margin: 12px 0; display: flex; gap: 8px; }
-.datum-vector-fields legend { margin-bottom: 6px; font-size: 12px; }
-.datum-vector-fields label { flex: 1; min-width: 0; display: grid; gap: 4px; }
-.datum-vector-fields .ant-input-number { width: 100%; }
 
 /* Every virtual row fits the available panel width, including its indentation. */
 .workbench-structure .specification-tree-virtual-row { width: 100%; min-width: 0; box-sizing: border-box; }
@@ -141,11 +137,6 @@
 .assembly-group-members { display: grid; gap: 7px; }
 .assembly-fixed-parameters { display: grid; gap: 10px; margin: 12px 0; }
 .assembly-fixed-space { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
-.assembly-pose-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.assembly-pose-fields legend { margin-bottom: 4px; font-size: 12px; }
-.assembly-pose-fields .ant-form-item { min-width: 0; margin-bottom: 0; }
-.assembly-pose-fields .ant-form-item-label { padding-bottom: 3px; }
-.assembly-pose-fields .ant-input-number { width: 100%; }
 
 .inspector-object-data { margin:0; padding:12px; max-height:60vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; font-size:12px; line-height:1.5; background:var(--wb-surface); border:1px solid var(--wb-border); border-radius:4px; }
 

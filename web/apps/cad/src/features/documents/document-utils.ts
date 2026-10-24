@@ -1,13 +1,11 @@
+import {nextObjectName} from "../../utils/automatic-name";
 import type { DocumentSummary, FolderSummary } from "../../types";
 
 export type LibraryScope = "active" | "recent" | "shared" | "parts" | "products" | "trash";
 
 export function defaultDocumentName(type: "PART" | "PRODUCT", documents: readonly Pick<DocumentSummary, "name">[]): string {
   const prefix = type === "PART" ? "Part" : "Product";
-  const occupied = new Set(documents.map((document) => document.name.trim().toLocaleLowerCase()));
-  let sequence = 1;
-  while (occupied.has(`${prefix}${sequence}`.toLocaleLowerCase())) sequence++;
-  return `${prefix}${sequence}`;
+  return nextObjectName(prefix,documents.map(document=>document.name));
 }
 
 export function documentMetrics(documents: DocumentSummary[]) {

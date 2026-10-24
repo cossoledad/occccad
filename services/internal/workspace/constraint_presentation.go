@@ -44,21 +44,17 @@ func assignConstraintName(c *AssemblyConstraint, counters *map[string]int, exist
 	if c.Name != "" {
 		return
 	}
-	label := constraintTypeLabel(*c)
+	label := automaticTypePrefix(c.Kind)
 	if *counters == nil {
 		*counters = map[string]int{}
 	}
-	n := (*counters)[label]
+	names := []string{fmt.Sprintf("%s.%d", label, (*counters)[label])}
 	for _, v := range existing {
-		if tail, ok := strings.CutPrefix(v.Name, label+"."); ok {
-			if i, err := strconv.Atoi(tail); err == nil && i > n {
-				n = i
-			}
-		}
+		names = append(names, v.Name)
 	}
-	n++
+	c.Name = nextAutomaticName(label, names)
+	n, _ := strconv.Atoi(strings.TrimPrefix(c.Name, label+"."))
 	(*counters)[label] = n
-	c.Name = fmt.Sprintf("%s.%d", label, n)
 }
 
 func constraintDisplayName(c AssemblyConstraint, nameFor func(string) string, groups ...AssemblyConstraint) string {

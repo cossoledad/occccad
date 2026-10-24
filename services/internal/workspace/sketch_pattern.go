@@ -50,6 +50,7 @@ func applySketchPatternParameterSources(model *PartModel, featureID string, befo
 }
 
 type SketchPattern struct {
+	Name string `json:"name,omitempty"`
 	PatternDefinition
 	EntityIDs []string `json:"entityIds"`
 }
@@ -63,9 +64,9 @@ func validateSketchPatterns(sketch SketchFeature) error {
 	budget := 0
 	for _, p := range sketch.Patterns {
 		if p.Kind == "MIRROR" {
- return fmt.Errorf("%w: sketch mirror unsupported", ErrValidation)
-}
-if p.ID == "" || ids[p.ID] || len(p.EntityIDs) == 0 {
+			return fmt.Errorf("%w: sketch mirror unsupported", ErrValidation)
+		}
+		if p.ID == "" || ids[p.ID] || len(p.EntityIDs) == 0 {
 			return fmt.Errorf("%w: invalid sketch pattern identity or source", ErrValidation)
 		}
 		ids[p.ID] = true

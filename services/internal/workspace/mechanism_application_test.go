@@ -51,13 +51,13 @@ func TestConstraintNamesSurviveDeletionAndHistory(t *testing.T) {
 		return m, set
 	}
 	first, _ := create("opaque-first")
-	if first.Constraints[0].Name != "重合.1" {
+	if first.Constraints[0].Name != "Coincident.1" {
 		t.Fatal(first.Constraints[0].Name)
 	}
 	first.Constraints = nil
 	raw, _ = json.Marshal(first)
 	second, set := create("opaque-second")
-	if second.Constraints[0].Name != "重合.2" {
+	if second.Constraints[0].Name != "Coincident.2" {
 		t.Fatal("deleted identity was renumbered", second.Constraints)
 	}
 	values, err := modelValues("PRODUCT", raw, set)
@@ -65,7 +65,7 @@ func TestConstraintNamesSurviveDeletionAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	counter := modelcore.PropertyAddress{EntityID: "product", SlotID: "product.constraint-name-counters"}
-	if string(values[counter]) != "{\"重合\":2}" {
+	if string(values[counter]) != "{\"Coincident\":2}" {
 		t.Fatal("naming counter missing from current history values", values)
 	}
 	before := map[modelcore.PropertyAddress]json.RawMessage{}
@@ -78,7 +78,7 @@ func TestConstraintNamesSurviveDeletionAndHistory(t *testing.T) {
 	}
 	var m ProductModel
 	json.Unmarshal(restored, &m)
-	if len(m.Constraints) != 0 || m.ConstraintNameCounters["重合"] != 1 {
+	if len(m.Constraints) != 0 || m.ConstraintNameCounters["Coincident"] != 1 {
 		t.Fatal("counter and relation do not compensate together", m)
 	}
 	label := constraintDisplayName(second.Constraints[0], func(id string) string {
@@ -87,7 +87,7 @@ func TestConstraintNamesSurviveDeletionAndHistory(t *testing.T) {
 		}
 		return "Part.2"
 	})
-	if label != "重合.2 (Part.1,Part.2)" {
+	if label != "Coincident.2 (Part.1,Part.2)" {
 		t.Fatal(label)
 	}
 	custom := second.Constraints[0]

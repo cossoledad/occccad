@@ -8,6 +8,7 @@ try {
   const { ContextMenuIcon } = await server.ssrLoadModule("/src/components/context-menu-icon.tsx");
   const blank = renderToStaticMarkup(createElement(ContextMenuIcon));
   const populated = renderToStaticMarkup(createElement(ContextMenuIcon, null, createElement("svg", { "aria-label": "ignored" })));
+  assert.match(renderToStaticMarkup(createElement(ContextMenuIcon,{className:"ant-dropdown-menu-item-icon"})),/context-menu-icon-slot ant-dropdown-menu-item-icon/,"Antd layout class reaches the actual slot");
   assert.match(blank, /class="context-menu-icon-slot"/);
   assert.match(blank, /aria-hidden="true"/);
   assert(!blank.includes("?"), "blank slots contain no fallback symbol");

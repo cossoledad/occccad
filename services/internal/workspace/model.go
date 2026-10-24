@@ -244,6 +244,7 @@ type SketchSupportDependencySnapshot struct {
 	EvidenceDigest string `json:"evidenceDigest,omitempty"`
 }
 type SketchEntity struct {
+	Name                 string         `json:"name,omitempty"`
 	StartPointID         string         `json:"startPointId,omitempty"`
 	EndPointID           string         `json:"endPointId,omitempty"`
 	ID                   string         `json:"id"`
@@ -299,6 +300,7 @@ func (s *SketchExternalGeometrySnapshot) entity(id string) SketchEntity {
 }
 
 type SketchExternalGeometry struct {
+	Name                     string                           `json:"name,omitempty"`
 	DatumReference           *DatumReference                  `json:"datumReference,omitempty"`
 	ID                       string                           `json:"id"`
 	ProjectionKind           string                           `json:"projectionKind"`
@@ -326,6 +328,7 @@ type SketchGeometryRef struct {
 	ControlPointID    string `json:"controlPointId,omitempty"`
 }
 type SketchConstraint struct {
+	Name           string              `json:"name,omitempty"`
 	SelfMirrorMode string              `json:"selfMirrorMode,omitempty"`
 	ID             string              `json:"id"`
 	Kind           string              `json:"kind"`

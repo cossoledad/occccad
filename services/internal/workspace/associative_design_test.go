@@ -398,3 +398,41 @@ func TestExplicitExternalProjectionFailureRejectsTheCommand(t *testing.T) {
 		t.Fatalf("an already-broken dependency must remain inspectable/editable: %v", err)
 	}
 }
+
+// Restoring a union replaces the accepted source; omitted JSON members must not
+// leave the other source active during literal/expression undo and redo.
+func TestHistoryReplacesParameterSourceAlternatives(t *testing.T) {
+	literal, _ := modelcore.NewQuantity(20, "mm")
+	expr, err := modelcore.CompileExpression("10 mm", nil, modelcore.LengthDimension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, slot := range []string{"parameter.source", "sketch.dimension.value", "pad.length"} {
+		id := "parameter:f:length"
+		addressID := id
+		if slot == "pad.length" {
+			addressID = "f"
+		}
+		m := PartModel{Parameters: []modelcore.ParameterDefinition{{ParameterID: id, Key: "length", ValueType: modelcore.ValueQuantity, Dimension: modelcore.LengthDimension, DisplayUnit: "mm", Role: "INPUT", Source: modelcore.ValueSource{Expression: &expr}}}}
+		for _, want := range []modelcore.ValueSource{{Literal: &literal}, {Expression: &expr}, {Literal: &literal}} {
+			before, _ := json.Marshal(m)
+			value, _ := json.Marshal(want)
+			after, err := applyModelValues("PART", before, map[modelcore.PropertyAddress]json.RawMessage{{EntityID: addressID, SlotID: slot}: value})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = json.Unmarshal(after, &m); err != nil {
+				t.Fatal(err)
+			}
+			// Decode the entire snapshot into a fresh object too, as reopen does.
+			var restored PartModel
+			if err = json.Unmarshal(after, &restored); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(restored.Parameters[0].Source, want) {
+				t.Fatalf("%s source merged: %#v", slot, restored.Parameters[0].Source)
+			}
+			m = restored
+		}
+	}
+}

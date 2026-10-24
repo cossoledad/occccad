@@ -342,12 +342,19 @@ func materializeContextReference(model *PartModel, reference *ContextReference, 
 				continue
 			}
 			externalID := "context-external-" + reference.ID
-			external := SketchExternalGeometry{ID: externalID, ProjectionKind: "ORTHOGONAL",
+			external := SketchExternalGeometry{ID: externalID, Name: nextAutomaticName("External", func() []string {
+				names := []string{}
+				for _, e := range feature.Sketch.ExternalGeometry {
+					names = append(names, e.Name)
+				}
+				return names
+			}()), ProjectionKind: "ORTHOGONAL",
 				PersistentSelection: *reference.Publication.PersistentSelection,
 				SourceVersionID:     reference.Publication.SelectionSourceVersionID,
 				SourceDocumentID:    reference.SourceDocumentID, ContextReferenceID: reference.ID, Status: "PENDING"}
 			for index := range feature.Sketch.ExternalGeometry {
 				if feature.Sketch.ExternalGeometry[index].ID == externalID {
+					external.Name = feature.Sketch.ExternalGeometry[index].Name
 					feature.Sketch.ExternalGeometry[index] = external
 					goto stored
 				}
@@ -398,6 +405,7 @@ func isolateContextCurve(model *PartModel, reference ContextReference) error {
 			}
 			snapshot := external.Snapshot
 			entity := snapshot.entity(external.ID)
+			entity.Name = external.Name
 			feature.Sketch.Entities = append(feature.Sketch.Entities, entity)
 			feature.Sketch.ExternalGeometry = append(feature.Sketch.ExternalGeometry[:externalIndex], feature.Sketch.ExternalGeometry[externalIndex+1:]...)
 			for constraintIndex := range feature.Sketch.Constraints {

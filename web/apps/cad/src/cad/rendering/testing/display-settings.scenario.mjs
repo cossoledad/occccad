@@ -6,7 +6,7 @@ try {
   const { applySolidDisplaySettings } = await server.ssrLoadModule("/src/cad/rendering/solid-render-mode.ts");
   const { normalizeReferenceVisibility, normalizeSolidDisplaySettings, referenceCategory } =
     await server.ssrLoadModule("/src/cad/rendering/display-settings.ts");
-  const { raycastDatumAxis } = await server.ssrLoadModule("/src/cad/interaction/datum-axis-picking.ts");
+  const { raycastDatumAxis,raycastDatumPoint } = await server.ssrLoadModule("/src/cad/interaction/datum-axis-picking.ts");
   const { SelectionIndex } = await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
   const { datumAxisHitAccepted } = await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
   const { makeSketchOverlayLine } = await server.ssrLoadModule("/src/cad/rendering/interaction-highlight.ts");
@@ -64,12 +64,22 @@ try {
     scaledRay.params.Line.threshold = .005*scale;
     assert.equal(scaledRay.intersectObject(axis).length, 0);
   }
+  const origin=new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]),new THREE.PointsMaterial());origin.raycast=raycastDatumPoint;axisParent.add(origin);
+  for(const scale of [.00001,1,100000]){
+    axisParent.scale.setScalar(scale);axisParent.updateMatrixWorld(true);
+    const r=new THREE.Raycaster(new THREE.Vector3(.01,0,5),new THREE.Vector3(0,0,-1));r.params.Points.threshold=.02;
+    assert.equal(r.intersectObject(origin).length,1,"origin pick tolerance is world space independent of parent scale");r.params.Points.threshold=.005;assert.equal(r.intersectObject(origin).length,0);
+  }
   axisParent.scale.setScalar(1); axisParent.updateMatrixWorld(true);
   const index = new SelectionIndex();
   index.registerPick(mesh, () => ({kind:"solid",id:"body"}));
   index.registerPick(axis, intersection => datumAxisHitAccepted(ray.ray.distanceToPoint(intersection.point), .02)
     ? {kind:"axis",id:"axis"} : null, 200, 10);
   assert.equal(index.pick(ray).id, "axis", "axis behind a solid stays selectable");
+  index.registerPick(origin,()=>({kind:"datum-point",id:"origin"}),230,11);
+  assert.equal(index.pick(ray).id,"origin","origin behind solid and planes has its own interaction layer");
+  assert.equal(index.pick(ray,s=>s.kind!=="datum-point").id,"axis","command filters exclude origin before ranking");
+  origin.visible=false;assert.equal(index.pick(ray).id,"axis","hidden origin does not intercept axes");
   axis.visible = false;
   assert.equal(index.pick(ray).id, "body", "hidden axes do not intercept picking");
 

@@ -167,6 +167,8 @@ export class InputManager {
     this.publishControlState(state);
     const normalized: CadKeyboardEvent = { phase: "down", key: event.key, code: event.code, repeat: event.repeat,
       editableTarget: isEditableTarget(event.target), isComposing:event.isComposing||event.keyCode===229, state, originalEvent: event };
+    if(event.defaultPrevented||event.isComposing||event.keyCode===229)return;
+    if(event.key==='Escape'&&document.querySelector?.('.ant-dropdown:not(.ant-dropdown-hidden),.ant-select-dropdown:not(.ant-select-dropdown-hidden)'))return;
     const modalResult=this.modalInput.keyDown?.(event)??InputResult.Ignored;
     if(isHandled(modalResult)){event.preventDefault();event.stopImmediatePropagation();return;}
     // A closed toolbar control returns Escape to the existing tool route;

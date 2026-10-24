@@ -9,7 +9,7 @@ export const CATIA_VISUAL_THEME = {
   sketchSolved: colorNumber(palette.solved), sketchInvalid: colorNumber(palette.invalid), sketchRedundant: colorNumber(palette.redundant),
   sketchGrid: colorNumber(palette.sketchGrid),
   constraint: colorNumber(palette.solved), gridMinor: colorNumber(palette.gridMinor), gridMajor: colorNumber(palette.gridMajor),
-  preview: colorNumber(palette.preview), commandPreview: colorNumber(palette.preview), snap: colorNumber(palette.snap),
+  reference:colorNumber(palette.reference),preview: colorNumber(palette.preview), commandPreview: colorNumber(palette.preview), snap: colorNumber(palette.snap),
   hover: colorNumber(palette.hover), selected: colorNumber(palette.selected), selectedEmissive: 0x49331c,
   axisX: colorNumber(palette.axisX), axisY: colorNumber(palette.axisY), axisZ: colorNumber(palette.axisZ),
   navigation: colorNumber(palette.selected), navigationHighlight: colorNumber(palette.snap),

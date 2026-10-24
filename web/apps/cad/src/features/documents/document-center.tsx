@@ -10,7 +10,7 @@ import {
   App, Breadcrumb, Button, Card, Checkbox, Dropdown, Empty, Form, Input, Layout, Menu, Modal, Pagination,
   Segmented, Select, Space, Spin, Tag, Typography, Upload,
 } from "antd";
-import { useState } from "react";
+import { useEffect,useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, isMockMode } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
@@ -35,6 +35,7 @@ export function DocumentCenter() {
   const [type, setType] = useState("");
   const [sort, setSort] = useState<"updated" | "name" | "created">("updated");
   const [offset, setOffset] = useState(0);
+  const [pageSize,setPageSize]=useState(24);
   const [currentFolderID, setCurrentFolderID] = useState("");
   const [selectedDocuments, setSelectedDocuments] = useState<DocumentSummary[]>([]);
   const [selectionBusy, setSelectionBusy] = useState(false);
@@ -57,15 +58,16 @@ export function DocumentCenter() {
   const exchangeCapabilities = useQuery({ queryKey: ["exchange-capabilities"], queryFn: () => api.exchangeCapabilities(), enabled: importOpen });
   const uploadLimit = exchangeCapabilities.data?.maxUploadBytes;
   const specialScope = scope === "recent" || scope === "shared" || scope === "trash";
-  const filters = { scope, query, type, sort, offset, currentFolderID };
+  const filters = { scope, query, type, sort, offset, pageSize,currentFolderID };
   const documents = useQuery({
     queryKey: queryKeys.documents(filters), queryFn: () => api.listDocuments({
       scope: scope === "trash" ? "trash" : "active", query,
       type: type || (scope === "parts" ? "PART" : scope === "products" ? "PRODUCT" : ""),
       folderId: specialScope || query ? undefined : currentFolderID, recent: scope === "recent", shared: scope === "shared",
-      allFolders: specialScope || Boolean(query), sort: scope === "recent" ? "recent" : sort, limit: 24, offset,
+      allFolders: specialScope || Boolean(query), sort: scope === "recent" ? "recent" : sort, limit: pageSize, offset,
     })
   });
+  useEffect(()=>{const total=documents.data?.total;if(total!==undefined&&offset>=Math.max(1,total))setOffset(Math.max(0,Math.ceil(total/pageSize)-1)*pageSize);},[documents.data?.total,offset,pageSize]);
   const catalog = useQuery({ queryKey: queryKeys.documents({ defaultNames: true }), queryFn: () => api.listDocuments({ limit: 200, allFolders: true }) });
   const folders = useQuery({
     queryKey: queryKeys.folders(`${scope}:${currentFolderID}`),
@@ -332,7 +334,7 @@ export function DocumentCenter() {
               }}><Button className="card-menu" type="text" icon={<MoreOutlined />} /></Dropdown>
             </Card>;
           })}</div> : scope === "trash" && trashedFolders.data?.length ? null : <Empty description="没有找到文档" />}
-        <Pagination current={Math.floor(offset / 24) + 1} pageSize={24} total={documents.data?.total ?? 0} hideOnSinglePage onChange={(page) => setOffset((page - 1) * 24)} />
+        <Pagination current={Math.floor(offset / pageSize) + 1} pageSize={pageSize} showSizeChanger pageSizeOptions={[24,50,100]} total={documents.data?.total ?? 0} onChange={(page,size) => {setPageSize(size);setOffset(size!==pageSize?0:(page-1)*size)}} />
       </Card>
     </Layout.Content>
 

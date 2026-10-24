@@ -6,7 +6,7 @@ export const palette = {
   text: "#24334a", textSecondary: "#5f6f82", textDisabled: "#9aa7b6", muted: "#5f6f82", success: "#25846a", warning: "#a56a19", danger: "#c44658",
   viewportTop: "#233346", viewportBottom: "#70869b", solid: "#98a8b8", productSolid: "#94a6b8",
   edge: "#172a3e", vertex: "#edf3fa", sketch: "#f0f5fc", construction: "#8facca", external: "#80cfe6",
-  selected: "#f4ba62", hover: "#68d7e6", preview: "#aab9ff", snap: "#ffe099",
+  reference:"#9eadd1",selected: "#f4ba62", hover: "#68d7e6", preview: "#aab9ff", snap: "#ffe099",
   sketchGrid: "#8dc7de", previewNew: "#8bb8e8", previewAdd: "#70c9ab", previewRemove: "#ebaa84",
   previewIntersect: "#b1a1df", previewReference: "#e1b896",
   dimensionText: "#f4e6bc", dimensionReference: "#cfdbe7", viewportText: "#eef3f8",

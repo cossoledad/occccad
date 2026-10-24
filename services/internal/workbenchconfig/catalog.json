@@ -5792,6 +5792,16 @@
         ]
       },
       "implementation": "handler"
+    },
+    {
+      "id": "debug.information",
+      "name": "开发信息",
+      "helpText": "查看对象、查询、调用和诊断数据。",
+      "iconKey": "debug",
+      "repeatable": false,
+      "visibleWhen": {},
+      "enabledWhen": {},
+      "implementation": "handler"
     }
   ],
   "groups": [
@@ -6512,14 +6522,9 @@
       "orientation": "horizontal",
       "commands": [
         {
-          "commandId": "debug.part",
+          "commandId": "debug.information",
           "groupKey": "primary",
           "order": 10
-        },
-        {
-          "commandId": "debug.assembly",
-          "groupKey": "primary",
-          "order": 20
         }
       ]
     },

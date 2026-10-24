@@ -129,7 +129,7 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--color-border);
 .command-field-number .command-field-control { width:var(--ui-form-number-width); max-width:100%; }
 .command-field-number .ant-input-number { width:100%; }
 .command-field-enum .command-field-control { width:var(--ui-form-enum-width); max-width:100%; }
-.command-field-option .command-field-control { padding-top:4px; justify-self:start; }
+.command-field-option .command-field-control { padding-top:4px; }
 .command-field-expression .command-field-control,.command-field-name .command-field-control { width:100%; }
 .command-field-error { display:block; color:var(--color-danger); font-size:12px; white-space:normal; overflow-wrap:anywhere; }
 .command-group { display:flex; flex-direction:column; gap:var(--ui-space-12); min-width:0; margin:0; padding:12px 0 0; border:0; border-top:1px solid var(--color-border); }
@@ -160,10 +160,49 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--color-border);
 .command-form > .ant-btn,.command-form :is(.instance-pattern-fields,.motion-study-fields,.feature-input-fields) > .ant-btn { align-self:flex-start; width:auto; }
 .command-field .ant-segmented { max-width:100%; }
 .command-field .ant-segmented-group { flex-wrap:wrap; }
-.datum-vector-fields { border:0; margin:0; padding:0; min-width:0; display:flex; flex-direction:column; gap:8px; }
 
 .command-group > .ant-btn { align-self:flex-start; width:auto; }
 
 .command-property-controls,.command-inline-option { display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
 .command-property-controls .ant-input-number,.command-inline-option .ant-input-number { width:var(--ui-form-number-width); max-width:100%; }
 .command-property-controls .ant-select { min-width:88px; max-width:100%; }
+
+/* Short controls share the right edge; text and expressions retain their own text alignment. */
+.command-field-control { justify-self:end; }
+.command-field-content .command-field-control { width:auto; max-width:100%; }
+.command-field-option .command-field-control { justify-self:end; }
+.command-field-coordinate { grid-template-columns:14px minmax(0,1fr); gap:4px; }
+.command-field-coordinate .command-field-control { width:100%; }
+.command-field-coordinate .ant-input-number { width:100%; }
+.feature-pick-actions { justify-content:flex-end; }
+.feature-pick-value { text-align:right; }
+.command-form-item .ant-form-item-control-input-content { display:flex; flex-wrap:wrap; justify-content:flex-end; min-width:0; }
+.command-form-item :is(.ant-form-item-explain,.ant-form-item-extra) { width:100%; }
+.command-form-item-name .ant-input,.command-form-item-expression .ant-input { width:100%; }
+.command-vector { min-width:0; margin:0; padding:0; border:0; }
+.command-vector legend { font-size:12px; margin-bottom:8px; }
+.command-vector-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.command-vector-fields .command-form-item { margin:0; }
+.command-vector-fields .ant-input-number { width:100%; }
+.command-vector-fields .ant-form-item-row { column-gap:4px; }
+.command-vector-fields .command-field { grid-template-columns:14px minmax(0,1fr); }
+.command-vector-fields .command-field-control { width:100%; }
+.command-secondary-actions { margin-right:0; margin-left:auto; justify-content:flex-end; }
+
+/* Submenus are portals too: every depth uses the same grid. */
+.cad-command-submenu .ant-dropdown-menu { width:256px; max-width:calc(100vw - 32px); padding:4px; max-height:360px; overflow:auto; border:1px solid var(--color-border); border-radius:var(--ui-radius-panel); box-shadow:var(--ui-shadow-popup); }
+.cad-command-submenu :is(.ant-dropdown-menu-item,.ant-dropdown-menu-submenu-title) { min-height:32px; padding:4px 8px; display:flex; align-items:center; font-size:13px; }
+:is(.cad-command-menu,.specification-tree-context-menu,.cad-command-submenu) .ant-dropdown-menu-title-content { min-width:0; flex:1; }
+:is(.cad-command-menu,.specification-tree-context-menu,.cad-command-submenu) .ant-dropdown-menu-item-icon { width:20px; min-width:20px; margin-inline-end:8px; }
+.cad-menu-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cad-menu-label kbd { min-width:48px; text-align:right; }
+:is(.cad-command-menu,.specification-tree-context-menu,.cad-command-submenu) .ant-dropdown-menu-item::after { content:''; width:12px; flex:none; margin-left:8px; }
+.tree-object-icon { position:relative; display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; }
+.tree-status-badge { position:absolute; right:-4px; bottom:-3px; width:10px; height:10px; line-height:10px; font-size:10px; background:var(--color-surface); border-radius:50%; }
+.specification-tree-row:focus-visible { outline:1px solid var(--color-primary); outline-offset:-1px; }
+.specification-tree-row.working-body .specification-tree-label { font-weight:600; text-decoration:underline; text-decoration-color:var(--color-primary); text-underline-offset:3px; }
+.specification-tree-row.display-hidden .specification-tree-label,.specification-tree-row.display-hidden .tree-type-icon { opacity:.5; }
+.specification-tree-row.suppressed .specification-tree-label { font-style:italic; text-decoration:line-through; color:var(--color-text-secondary); }
+
+/* Coordinate groups retain required validation and aria semantics without three redundant stars. */
+.command-vector > .command-vector-fields .command-form-item-coordinate .ant-form-item-label > label.ant-form-item-required::before { display:none; }

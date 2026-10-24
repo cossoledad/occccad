@@ -1,5 +1,5 @@
 import {CommandInputError} from "../../cad/command/operation-failure";
-import {CommandField,CommandStatus,fieldErrorText} from "../../cad/overlay/command-form";
+import {CommandField,CommandVector,CommandStatus,fieldErrorText} from "../../cad/overlay/command-form";
 import {FeaturePickScope} from "../../cad/interaction/feature-selection";
 import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {Alert,Input,Segmented} from "antd";
@@ -25,7 +25,7 @@ export function DatumEditor({kind,view,seed,unit,datumId,occurrencePath,placemen
  onClose:()=>void;onApply:(input:Record<string,unknown>)=>Promise<unknown>;onPreview:(preview?:DatumPreview)=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;
 }) {
  const existing=kind==="plane"?view.part?.datumPlanes.find(p=>p.id===datumId):view.part?.datumAxes?.find(p=>p.id===datumId);
- const [mode,setMode]=useState(existing&&!existing.definition?"CUSTOM":"REFERENCE"),[name,setName]=useState(existing?.name??(kind==="plane"?"Plane":"Axis"));
+ const [mode,setMode]=useState(existing&&!existing.definition?"CUSTOM":"REFERENCE"),[name,setName]=useState(existing?.name??"");
  const [origin,setOrigin]=useState<Vec3>((existing?.origin??[0,0,0]).map(v=>millimetersToDisplayLength(v,unit)) as Vec3);
  const [direction,setDirection]=useState<Vec3>(existing&&"normal" in existing?existing.normal:existing&&"direction" in existing?existing.direction:[0,0,1]);
  const [refs,setRefs]=useState<Partial<Record<Slot,DatumReference>>>(existing?.definition??{});
@@ -77,7 +77,7 @@ export function DatumEditor({kind,view,seed,unit,datumId,occurrencePath,placemen
  try{
   if(!valid)throw new CommandInputError("模型已改变，请关闭并重新打开命令");
   if(loading)throw new CommandInputError("正在读取参考");
-  parameterSlot="name";if(!name.trim())throw new CommandInputError("请输入名称");
+  parameterSlot="name";if(datumId&&!name.trim())throw new CommandInputError("请输入名称");
   parameterSlot="frame";
   const center=origin.map(v=>displayLengthToMillimeters(v,unit)) as Vec3;
   const n=unitVector(direction);if(!finiteVector(center))throw new CommandInputError("原点需要有限数值");
@@ -108,9 +108,9 @@ export function DatumEditor({kind,view,seed,unit,datumId,occurrencePath,placemen
   if(ref.kind==="AXIS"||ref.kind==="AXIS_SYSTEM")return [{...context,kind:"axis",id:ref.entityId!,entityId:ref.entityId!,axis:ref.kind==="AXIS"?"DATUM":ref.axis!}];
   if(ref.kind==="SKETCH_LINE")return [{...context,kind:"visual",id:ref.entityId!,entityId:ref.entityId!,featureId:ref.featureId!,visualType:"CURVE"}];return [];
  };
- const vector=(title:string,values:Vec3,set:(value:Vec3)=>void)=><fieldset className="datum-vector-fields"><legend>{title}</legend>{["X","Y","Z"].map((axis,i)=><CommandField key={axis} label={<>{axis}</>} width="number"><InputNumber aria-label={`${title} ${axis}`} value={Number.isFinite(values[i])?values[i]:null} onChange={v=>set(values.map((x,j)=>i===j?v??NaN:x) as Vec3)}/></CommandField>)}</fieldset>;
+ const vector=(title:string,values:Vec3,set:(value:Vec3)=>void)=><CommandVector label={title}>{["X","Y","Z"].map((axis,i)=><CommandField key={axis} label={<>{axis}</>} width="coordinate"><InputNumber aria-label={`${title} ${axis}`} value={Number.isFinite(values[i])?values[i]:null} onChange={v=>set(values.map((x,j)=>i===j?v??NaN:x) as Vec3)}/></CommandField>)}</CommandVector>;
  return <CommandDialog id={`datum-${kind}`} open size="M" title={`${datumId?"编辑":"创建"}基准${kind==="plane"?"面":"轴"}`} onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={loading||preview.pending} error={preview.error} onRetry={preview.retry}/>} confirmLoading={busy} confirmDisabled={!input||!preview.previewId||preview.pending||loading} onConfirm={async()=>{if(!input||!preview.previewId||busy)return;setBusy(true);try{await onApply({...input,previewId:preview.previewId});onClose();}catch(cause){setError(engineeringProblem(cause));setBusy(false);}}}>
-  <CommandField  label={<>名称</>} error={parameterSlot==="name"?parameterError:undefined} width="name"><Input value={name} onChange={e=>setName(e.target.value)}/></CommandField>
+  <CommandField  label={<>名称</>} error={parameterSlot==="name"?parameterError:undefined} width="name"><Input placeholder="自动命名" value={name} onChange={e=>setName(e.target.value)}/></CommandField>
   <Segmented block value={mode} options={[{label:"关联参考",value:"REFERENCE"},{label:"自由坐标",value:"CUSTOM"}]} onChange={v=>{setMode(v);activate();}}/>
   {mode==="CUSTOM"?<>{vector(`原点（${unit}）`,origin,setOrigin)}{vector(kind==="plane"?"法向":"方向",direction,setDirection)}</>:<>
    {(["source","rotationAxis","translationDirection"] as Slot[]).map(slot=><FeaturePickField key={slot} selected={Boolean(refs[slot])} label={slot==="source"?"源基准":slot==="rotationAxis"?"旋转轴":"平移方向"} value={refs[slot]?label(refs[slot]):slot==="source"?"未选择":"默认"} active={picking===slot} onActivate={()=>activate(slot)} error={parameterSlot===slot?parameterError:undefined} selections={datumSelection(refs[slot])} onClear={refs[slot]?()=>setRefs(old=>({...old,[slot]:undefined})):undefined}/>)}

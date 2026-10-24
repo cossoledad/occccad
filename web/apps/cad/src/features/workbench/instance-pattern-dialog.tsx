@@ -53,7 +53,7 @@ export function InstancePatternDialog({ view, seed, onSelectionSession, parentOc
       <FeaturePickField label="源组件" value={sourceInstance?.name??"选择组件"} selected={!!source} selections={source?[source]:[]} active={picking} onActivate={()=>setPicking(true)} onClear={()=>setSource(null)}/>
       <CommandField  label={<>新增实例数量</>} width="number"><InputNumber min={1} max={127} precision={0} value={newCount} disabled={busy} onChange={setNewCount} /></CommandField>
       <CommandField  label={<>相邻间距（mm）</>} width="number"><InputNumber min={0.001} max={1e6} value={spacing} disabled={busy} onChange={setSpacing} /></CommandField>
-      <CommandField  label={<>方向轴</>} width="enum"><Segmented value={axis} options={["X", "Y", "Z"]} disabled={busy}
+      <CommandField  label={<>方向轴</>} width="content"><Segmented value={axis} options={["X", "Y", "Z"]} disabled={busy}
         onChange={(value) => setAxis(value as PatternAxis)} /></CommandField>
       <CommandField  label={<>反向</>} width="option"><Switch checked={reversed} disabled={busy} onChange={setReversed} /></CommandField>
       {error && <Alert type="error" showIcon title="创建失败" description={engineeringProblem(error)} />}

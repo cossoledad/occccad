@@ -1,3 +1,4 @@
+import {nextObjectName} from "../../utils/automatic-name";
 import {CommandField} from "../../cad/overlay/command-form";
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Checkbox, Input, InputNumber, Select, Slider, Space, Table, Typography } from 'antd';
@@ -64,7 +65,7 @@ export function MechanismMotionDialog(props: Props) {
         if(!props.record||!result.qualified||draft.current||recording.current)return;
         recording.current=true;
         try{
-            const initial:MotionStudy=owner.identity?.study?structuredClone(owner.identity.study):{id:randomUUID(),name:'模拟.'+((props.view.product?.kinematics?.studies.length??0)+1),mechanismId:props.mechanism.id,activeDriverIds:[...result.activeDriverIds],durationSeconds:0,frames:121,budgetMs:60000,sourceRevisionId:result.baseRevisionId,basisDigest:result.basisDigest,geometryDigest:result.geometryDigest,references:Object.fromEntries(props.drivers.filter(d=>result.activeDriverIds.includes(d.id)).map(d=>[d.id,d.reference!])),initialPoses:result.initialPoses,initialCoordinates:result.frame.coordinates,keyframes:[],animateViewpoint:cameraRef.current};
+            const initial:MotionStudy=owner.identity?.study?structuredClone(owner.identity.study):{id:randomUUID(),name:nextObjectName('MotionStudy',(props.view.product?.kinematics?.studies??[]).map(s=>s.name)),mechanismId:props.mechanism.id,activeDriverIds:[...result.activeDriverIds],durationSeconds:0,frames:121,budgetMs:60000,sourceRevisionId:result.baseRevisionId,basisDigest:result.basisDigest,geometryDigest:result.geometryDigest,references:Object.fromEntries(props.drivers.filter(d=>result.activeDriverIds.includes(d.id)).map(d=>[d.id,d.reference!])),initialPoses:result.initialPoses,initialCoordinates:result.frame.coordinates,keyframes:[],animateViewpoint:cameraRef.current};
             if(!initial.keyframes?.length){const key=await owner.record({id:randomUUID(),timeSeconds:0,values:commandQuantities(result.frame.commandValues,result.activeDriverIds),viewpoint:cameraRef.current?callbacks.current.captureViewpoint():undefined});initial.keyframes=[key]}
             if(closed.current||controller.current!==owner)return;
             publishStudy(initial);automaticClock.current.anchor(initial.keyframes!.at(-1)!.timeSeconds);setKeyId(initial.keyframes![0].id);setInsertTime((initial.keyframes?.at(-1)?.timeSeconds??0)+.2);

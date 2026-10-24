@@ -7,7 +7,7 @@ import {mechanismConstraints} from '../cad/assembly/mechanism-constraints';
 import {isExternalProjectionSource} from "../cad/interaction/external-projection-selection";
 import { featureContribution, topologyFeatureAssociation, sameDisplayContext } from "../cad/interaction/feature-association";
 import { patternEntityStatus } from "../features/workbench/pattern-selection";
-import { DATUM_AXIS_PIXELS, makeDatumAxisReference, makeReferenceArrow, type DatumPreview } from "../cad/rendering/datum-reference";
+import { DATUM_AXIS_PIXELS,DATUM_PLANE_PIXELS,STANDARD_REFERENCE_RANGE,makeDatumPlaneReference, makeDatumAxisReference, type DatumPreview } from "../cad/rendering/datum-reference";
 import { featureSelectionHit, pickFeatureSelection, type FeatureSelectionSession } from "../cad/interaction/feature-selection";
 import { makeSplineControlFeedback } from "../cad/rendering/spline-control-feedback";
 import { useUIPreferences, sketchLabelPositionKey } from "../state/ui-preferences";
@@ -29,7 +29,7 @@ import {updateAnalysisGuides} from "../cad/rendering/analysis-guides";
 import { AssemblyInteractionController,assemblyInteractionFailureState, type AssemblyInteractionBegin, type AssemblyInteractionSession, type AssemblyInteractionUpdate, type AssemblyInteractionFrame, type AssemblyInteractionCommit, type AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 import { makeSketchReferenceAxis, sketchAxisEndpoints } from "../cad/rendering/sketch-reference-axis";
 import { createStudioEnvironment } from "../cad/rendering/studio-environment";
-import { raycastDatumAxis } from "../cad/interaction/datum-axis-picking";
+import { raycastDatumAxis,raycastDatumPoint } from "../cad/interaction/datum-axis-picking";
 import { applySolidDisplaySettings } from "../cad/rendering/solid-render-mode";
 import { updateScreenLines } from "../cad/rendering/screen-space-lines";
 import { DEFAULT_SOLID_DISPLAY, DEFAULT_REFERENCE_VISIBILITY, referenceCategory, type ReferenceVisibility, type SolidDisplaySettings } from "../cad/rendering/display-settings";
@@ -209,7 +209,7 @@ function sketchReferenceEntities(feature?: Feature): SketchEntity[] {
   } satisfies SketchEntity] : [])];
 }
 
-const planeColors: Record<PlaneName | "CUSTOM", number> = { XY: CATIA_VISUAL_THEME.axisZ, XZ: CATIA_VISUAL_THEME.axisY, YZ: CATIA_VISUAL_THEME.axisX, CUSTOM: CATIA_VISUAL_THEME.sketchExternal };
+const planeColors: Record<PlaneName | "CUSTOM", number> = { XY: CATIA_VISUAL_THEME.axisZ, XZ: CATIA_VISUAL_THEME.axisY, YZ: CATIA_VISUAL_THEME.axisX, CUSTOM: CATIA_VISUAL_THEME.reference };
 
 function planeFrame(plane: PlaneName | SketchPlane): { origin: THREE.Vector3; normal: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3 } {
   if (typeof plane !== "string") {
@@ -2391,15 +2391,7 @@ export class CadViewportEngine {
 
   private addDatumPlane(datum: DatumPlane, parent: THREE.Group, selectable: boolean, context?: SolidContext): void {
     const { id, plane } = datum;
-    const geometry = new THREE.PlaneGeometry(0.72, 0.72);
-    if (plane !== "CUSTOM") geometry.translate(0.54, 0.54, 0);
-    const material = this.materials.datumPlane(planeColors[plane]);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.fromArray(datum.origin);
-    const normal = new THREE.Vector3().fromArray(datum.normal).normalize();
-    const u = new THREE.Vector3().fromArray(datum.uDirection).normalize();
-    mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, normal.clone().cross(u).normalize(), normal));
-    mesh.renderOrder = 90;
+    const mesh=makeDatumPlaneReference(datum,this.materials.datumPlane(planeColors[plane]));
     const selection = {
       kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, entityId: id, plane, datumPlane: datum,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
@@ -2408,7 +2400,7 @@ export class CadViewportEngine {
     };
     mesh.userData = selection;
     parent.add(mesh);
-    this.screenStableReferences.set(mesh, 46);
+    this.screenStableReferences.set(mesh, DATUM_PLANE_PIXELS);
     if (selectable || context) {
       this.selectable.set(`plane:${selection.id}`, mesh);
       this.selectionIndex.register(selection, mesh);
@@ -2440,7 +2432,7 @@ export class CadViewportEngine {
     const origin = new THREE.Vector3().fromArray(axis.origin);
     const system = new THREE.Group();
     system.position.copy(origin);
-    this.screenStableReferences.set(system, 64);
+    this.screenStableReferences.set(system, DATUM_PLANE_PIXELS);
     const systemSelection = {
       ...context, kind: "axis-system" as const, id: `${context?.occurrencePath || "root"}:${axis.id}`,
       entityId: axis.id,
@@ -2450,12 +2442,9 @@ export class CadViewportEngine {
     const definitions = [["X", axis.xDirection, CATIA_VISUAL_THEME.axisX], ["Y", axis.yDirection, CATIA_VISUAL_THEME.axisY], ["Z", axis.zDirection, CATIA_VISUAL_THEME.axisZ]] as const;
     for (const [name, direction, color] of definitions) {
       const axisReference = new THREE.Group();
-      const points = [new THREE.Vector3(), new THREE.Vector3().fromArray(direction)];
+      const points=STANDARD_REFERENCE_RANGE.map(t=>new THREE.Vector3().fromArray(direction).multiplyScalar(t));
       const visibleLine = makeDatumReferenceLine(points, color);
       visibleLine.material.linewidth=1.5;
-      const arrowFrame=new THREE.Group();
-      arrowFrame.quaternion.setFromUnitVectors(new THREE.Vector3(1,0,0),new THREE.Vector3().fromArray(direction).normalize());
-      arrowFrame.add(makeReferenceArrow(color));
       updateHighlightLineResolution(visibleLine, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
       const pickLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),
         new THREE.LineBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
@@ -2466,7 +2455,7 @@ export class CadViewportEngine {
       pickLine.raycast = raycastDatumAxis;
       axisReference.userData = selection;
       pickLine.userData = selection;
-      axisReference.add(visibleLine, arrowFrame, pickLine);
+      axisReference.add(visibleLine, pickLine);
       system.add(axisReference);
       this.selectionIndex.register(selection, axisReference);
       this.selectionIndex.registerPick(pickLine, (hit) =>
@@ -2475,10 +2464,11 @@ export class CadViewportEngine {
     const originPoint = new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]), this.materials.point(CATIA_VISUAL_THEME.vertex, 5, false));
     const pointSelection={...systemSelection,kind:"datum-point" as const,id:`${systemSelection.id}:point`,treeNodeId:systemSelection.treeNodeId?`${systemSelection.treeNodeId}/point`:undefined};
     originPoint.userData=pointSelection;
-    originPoint.visible=true;
+    originPoint.visible=true;originPoint.renderOrder=110;
+    originPoint.raycast=(raycaster,hits)=>{const previous=raycaster.params.Points!.threshold;raycaster.params.Points!.threshold=Math.min(previous,this.datumAxisPickToleranceWorld*4/1.75);try{raycastDatumPoint.call(originPoint,raycaster,hits)}finally{raycaster.params.Points!.threshold=previous}};
     this.selectionIndex.register(pointSelection,originPoint);
     system.add(originPoint);
-    this.selectionIndex.registerPick(originPoint, () => pointSelection, 210);
+    this.selectionIndex.registerPick(originPoint, () => pointSelection, 230,11);
     system.userData = systemSelection; parent.add(system);
     this.selectionIndex.register(systemSelection, system);
   }
@@ -2970,22 +2960,20 @@ export class CadViewportEngine {
       let reference: THREE.Group | THREE.Mesh | undefined;
       if (preview.axis) reference = makeDatumAxisReference(preview.axis, CATIA_VISUAL_THEME.commandPreview);
       if (preview.plane) {
-        const p = preview.plane, normal = new THREE.Vector3().fromArray(p.normal), u = new THREE.Vector3().fromArray(p.uDirection);
-        reference = new THREE.Mesh(new THREE.PlaneGeometry(1.5,1.5), this.materials.datumPlane(CATIA_VISUAL_THEME.commandPreview));
-        reference.position.fromArray(p.origin);
-        reference.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, normal.clone().cross(u), normal));
-        reference.renderOrder = 95;
+        const p = preview.plane;
+        reference=makeDatumPlaneReference(p,this.materials.datumPlane(CATIA_VISUAL_THEME.commandPreview));
+        reference.renderOrder=95;
         if(preview.showFrame){
-          this.screenStableReferences.set(reference,90);
+          this.screenStableReferences.set(reference,DATUM_PLANE_PIXELS);
           const frame=new THREE.Group();frame.add(reference);
-          for(const [id,direction,color] of [["normal",p.normal,0x399cdb],["x",p.uDirection,0xe06b50]] as const){
+          for(const [id,direction,color] of [["normal",p.normal,CATIA_VISUAL_THEME.axisZ],["x",p.uDirection,CATIA_VISUAL_THEME.axisX]] as const){
             const arrow=makeDatumAxisReference({id:`support-${id}`,name:id,origin:p.origin,direction},color);
             frame.add(arrow);this.screenStableReferences.set(arrow,DATUM_AXIS_PIXELS);
           }
           reference=frame;
         }
       }
-      if (reference) { placement.add(reference); this.helpers.add(placement); if(!preview.showFrame)this.screenStableReferences.set(reference, preview.axis?DATUM_AXIS_PIXELS:90); this.datumPreviewGroup = placement; }
+      if (reference) { placement.add(reference); this.helpers.add(placement); if(!preview.showFrame)this.screenStableReferences.set(reference, preview.axis?DATUM_AXIS_PIXELS:DATUM_PLANE_PIXELS); this.datumPreviewGroup = placement; }
       updateHighlightLineResolution(placement,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);
     }
     this.emitDebugState(); this.invalidate();
@@ -3648,6 +3636,7 @@ export class CadViewportEngine {
       editDimensionAt: (x, y) => this.editDimensionAt(x, y),
       clearReferencePreview: () => this.clearReferencePreview(),
       clearReferenceHover:()=>this.clearReferenceHover(),
+      clearInteractionSelection:()=>{this.select(null,true);this.preselect(null,true);this.clearReferencePreview();this.clearSnapPreview();},
       setToolPrompt: (prompt) => this.callbacks.toolPromptChanged(prompt),
       finishToolUse: (exit) => {
         if(exit){this.tools.activate("select");return;}

@@ -15,3 +15,12 @@ export function raycastDatumAxis(this: THREE.Line, raycaster: THREE.Raycaster, h
   if (distance < raycaster.near || distance > raycaster.far) return;
   hits.push({ distance, point: onAxis, object: this, index: 0 });
 }
+
+/** Origin markers inherit the same parent scaling as the reference axes. */
+export function raycastDatumPoint(this:THREE.Points,raycaster:THREE.Raycaster,hits:THREE.Intersection[]):void {
+ const point=new THREE.Vector3().setFromMatrixPosition(this.matrixWorld),onRay=raycaster.ray.closestPointToPoint(point,new THREE.Vector3());
+ const threshold=raycaster.params.Points?.threshold??1;
+ if(onRay.distanceToSquared(point)>threshold*threshold)return;
+ const distance=raycaster.ray.origin.distanceTo(onRay);if(distance<raycaster.near||distance>raycaster.far)return;
+ hits.push({distance,distanceToRay:onRay.distanceTo(point),point,object:this,index:0});
+}

@@ -580,6 +580,7 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 	if err := validateSketchPatterns(candidate); err != nil {
 		return err
 	}
+	assignSketchNames(&candidate, *sketch)
 	*sketch = candidate
 	return nil
 }
@@ -1253,6 +1254,12 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	normalizePartModel(&model)
 	beforeModel := model
 	beforeModel.Features = append([]Feature(nil), model.Features...)
+	if payload.Feature.Name == "" {
+		payload.Feature.Name = numberedFeatureName(model.Features, payload.Feature.Type, automaticTypePrefix(payload.Feature.Type))
+	}
+	if payload.Feature.Sketch != nil {
+		assignSketchNames(payload.Feature.Sketch, SketchFeature{})
+	}
 	payload.Feature.Order = 1
 	for _, f := range model.Features {
 		if f.Order >= payload.Feature.Order {
@@ -1392,6 +1399,13 @@ func applyCreateDatumPlane(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate datum plane identity", ErrValidation)
 		}
 	}
+	if payload.Plane.Name == "" {
+		names := []string{}
+		for _, p := range model.DatumPlanes {
+			names = append(names, p.Name)
+		}
+		payload.Plane.Name = nextAutomaticName("Plane", names)
+	}
 	model.DatumPlanes = append(model.DatumPlanes, payload.Plane)
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Plane.ID, SlotID: "datum.plane"}, nil, payload.Plane)
 	applyDatumParameterSources(&model, payload.Plane.ID, payload.ParameterSources)
@@ -1420,6 +1434,13 @@ func applyCreateDatumAxis(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		if axis.ID == payload.Axis.ID {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate datum axis identity", ErrValidation)
 		}
+	}
+	if payload.Axis.Name == "" {
+		names := []string{}
+		for _, p := range model.DatumAxes {
+			names = append(names, p.Name)
+		}
+		payload.Axis.Name = nextAutomaticName("Axis", names)
 	}
 	model.DatumAxes = append(model.DatumAxes, payload.Axis)
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Axis.ID, SlotID: "datum.axis"}, nil, payload.Axis)

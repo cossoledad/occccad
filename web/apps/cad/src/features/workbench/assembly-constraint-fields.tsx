@@ -1,5 +1,5 @@
 import {FeaturePickField} from "./feature-pick-field";
-import {CommandGroup,CommandField,CommandFormItem} from "../../cad/overlay/command-form";
+import {CommandGroup,CommandField,CommandFormItem,CommandVector} from "../../cad/overlay/command-form";
 import {engineeringLabel} from "../../cad/presentation/engineering-text";
 import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {Alert, Button, Form, Input, Select, Switch, Tag, Typography} from "antd";
@@ -76,10 +76,10 @@ export function AssemblyConstraintFields({ kind, references, exactTypes, sourceT
     })}</CommandGroup>}
     {kind === "FIX" && <div className="assembly-fixed-parameters">
       <div className="assembly-fixed-space"><span>在空间中固定</span><CommandFormItem name="fixMode" noStyle getValueProps={value=>({checked:value!=="RELATIVE"})} getValueFromEvent={checked=>checked?"SPACE":"RELATIVE"}><Switch aria-label="在空间中固定" /></CommandFormItem></div>
-      {([['fixedTranslation',`位置（${lengthUnit}）`],['fixedAngles','旋转（deg）']] as const).map(([field,label])=><fieldset key={field} className="assembly-pose-fields"><legend>{label}</legend>
-        {["X","Y","Z"].map((axis,index)=><CommandFormItem key={axis} name={[field,index]} label={axis} rules={[{required:true,type:"number"}]}>
+      {([['fixedTranslation',`位置（${lengthUnit}）`],['fixedAngles','旋转（deg）']] as const).map(([field,label])=><CommandVector key={field} label={label}>
+        {["X","Y","Z"].map((axis,index)=><CommandFormItem key={axis} name={[field,index]} width="coordinate" label={axis} rules={[{required:true,type:"number"}]}>
           <InputNumber aria-label={field==='fixedTranslation'?`${axis}（${lengthUnit}）`:`绕 ${axis} 旋转（deg）`}  /></CommandFormItem>)}
-      </fieldset>)}
+      </CommandVector>)}
     </div>}
     {directionApplicable && <CommandFormItem name="directionRelation" label="方向" width="enum"><Select onChange={onValueCommit} options={relation === "PERPENDICULAR" ? [{value:"SAME",label:"正向（90°）"},{value:"OPPOSITE",label:"反向（270°）"}] : [
       {value:"UNORIENTED",label:"未定义"},{value:"SAME",label:"同向"},{value:"OPPOSITE",label:"反向"}]} /></CommandFormItem>}

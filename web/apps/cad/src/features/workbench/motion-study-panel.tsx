@@ -1,3 +1,4 @@
+import {nextObjectName} from "../../utils/automatic-name";
 import {engineeringLabel} from "../../cad/presentation/engineering-text";
 import {forwardRef,useCallback,useEffect,useImperativeHandle,useMemo,useRef,useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
@@ -152,8 +153,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   const id=randomUUID(),generation=++previewSequence.current;
   setCommandPending(true);savingDefinition.current=true;setError(undefined);
   try{
-   const number=Math.max(0,...defs.mechanisms.map(m=>Number(/^机械装置\.(\d+)$/.exec(m.name)?.[1]??0)))+1;
-   const updated=await onSave({...defs,mechanisms:[...defs.mechanisms,{id,name:'机械装置.'+number,unitIds:[],joints:[]}]});
+   const updated=await onSave({...defs,mechanisms:[...defs.mechanisms,{id,name:nextObjectName('Mechanism',defs.mechanisms.map(m=>m.name)),unitIds:[],joints:[]}]});
    if(!alive.current||generation!==previewSequence.current)return;
    untouchedMechanisms.current.add(id);activeMechanismId.current=id;setMechanismId(id);adopt(updated,id);setApplicationQualified(true);
   }catch(e){setError(e)}finally{savingDefinition.current=false;setCommandPending(false)}
@@ -217,11 +217,11 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
    setDriving({});setJointCoordinates({});
    const kind=nextAction==='ground'?'GROUND':nextAction.toUpperCase() as MechanismJoint['kind'];const selected=selection?owningInstanceSelection(view,selection)?.instanceId??'':'';
    const first:JointEndpoint={instanceId:selected,frame:identity()};
-   const created:MechanismJoint={id:randomUUID(),name:jointDefinitions[kind].name+'.'+(selectedMechanism.joints.filter(j=>j.kind===kind).length+1),kind,first,second:kind==='GROUND'?undefined:{instanceId:'',frame:identity()},coordinates:createJointCoordinates(kind),orientationAngle:{value:0,unit:'deg'},axialOffset:{value:0,unit:'mm'},axialDirection:'SAME'};
+   const created:MechanismJoint={id:randomUUID(),name:nextObjectName(({GROUND:'Ground',REVOLUTE:'Revolute',PRISMATIC:'Prismatic',CYLINDRICAL:'Cylindrical',PLANAR:'Planar',RIGID:'Rigid',SPHERICAL:'Spherical'})[kind],selectedMechanism.joints.map(j=>j.name)),kind,first,second:kind==='GROUND'?undefined:{instanceId:'',frame:identity()},coordinates:createJointCoordinates(kind),orientationAngle:{value:0,unit:'deg'},axialOffset:{value:0,unit:'mm'},axialDirection:'SAME'};
    setJoint(created);nextAction='joint';setPickRole(jointDefinitions[kind].roles.find(role=>!(role.endsWith('instance')&&created[role.startsWith('first')?'first':'second']?.instanceId)));setObjectId(undefined)
   }
   if(nextAction==='study'){if(!selectedMechanism)return;setMotionDialog({record:true,study:id?defs.studies.find(s=>s.id===id):undefined,view,mechanism:selectedMechanism});setAction('record-motion');onCommandState(true);return}
-  if(nextAction==='mechanism'&&!id)setName('机械装置.'+(defs.mechanisms.length+1));
+  if(nextAction==='mechanism'&&!id)setName(nextObjectName('Mechanism',defs.mechanisms.map(m=>m.name)));
   if(nextAction==='apply'){if(!selectedMechanism||showing&&(!run||!jobId||!run.frames[index]?.kinematicValid)){setError('选择机械装置已确认位姿或合格仿真帧');return}setClock(undefined);setApplyOpen(true);setLockCoordinateIds([])}
   setAction(nextAction==='run'?'results':nextAction);onCommandState(true)
  };
@@ -389,7 +389,7 @@ export const MotionStudyPanel=forwardRef<MotionPanelHandle,Props>(function Motio
   const m={...selectedMechanism,poses:commandBaseline.current?.poses??selectedMechanism.poses,joints:[...selectedMechanism.joints.filter(j=>j.id!==joint.id),accepted]};
   m.unitIds=[...new Set([...m.unitIds,...m.joints.flatMap(j=>[j.first.instanceId,...(j.second?[j.second.instanceId]:[])])])];
   let drivers=(defs.drivers??[]).filter(d=>d.jointId!==joint.id||driving[d.coordinateId]);
-  for(const coordinate of joint.coordinates??[]){if(driving[coordinate.id]&&!drivers.some(d=>d.coordinateId===coordinate.id))drivers=[...drivers,{id:randomUUID(),name:'命令.'+(drivers.filter(d=>d.mechanismId===m.id).length+1),mechanismId:m.id,jointId:joint.id,coordinateId:coordinate.id}];}
+  for(const coordinate of joint.coordinates??[]){if(driving[coordinate.id]&&!drivers.some(d=>d.coordinateId===coordinate.id))drivers=[...drivers,{id:randomUUID(),name:nextObjectName('Command',drivers.filter(d=>d.mechanismId===m.id).map(d=>d.name)),mechanismId:m.id,jointId:joint.id,coordinateId:coordinate.id}];}
   await save({...defs,drivers,mechanisms:[...defs.mechanisms.filter(v=>v.id!==m.id),m]});
  };
 

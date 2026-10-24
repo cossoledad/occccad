@@ -54,6 +54,7 @@ export type ToolViewportPort = {
   editDimensionAt(x: number, y: number): boolean;
   clearReferencePreview(): void;
   clearReferenceHover?():void;
+  clearInteractionSelection?():void;
   setToolPrompt(prompt: string): void;
   finishToolUse(exit?: boolean): void;
   selectionAt(x: number, y: number): SelectionItem | null;

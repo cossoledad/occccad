@@ -13,7 +13,7 @@ export function AssemblyAngleParameters({value,view,onChange,onPick,axisSourceTy
   const relation = value.angleRelation ?? "FREE";
   const reference = value.angleAxis && describeAssemblyReference(value.angleAxis,view);
   return <div style={{display:"grid",gap:8,marginBottom:12}}>
-    <CommandField label="角度关系" width="expression"><Select aria-label="角度关系" value={relation}
+    <CommandField label="角度关系" width="enum"><Select aria-label="角度关系" value={relation}
       options={[{value:"FREE",label:"空间夹角（无指定轴）"},{value:"DIRECTED",label:"绕所选轴的角"},{value:"PARALLEL",label:"平行"},{value:"PERPENDICULAR",label:"垂直"}]}
       onChange={angleRelation=>onChange(changeAngleRelation(value,angleRelation))} /></CommandField>
     {relation === "FREE" && <Typography.Text type="secondary">只限制两支持方向的夹角，保留旋转轴自由度。大于 180° 选择反向解；方向分支随已接受姿态更新，不固定旋转轴。</Typography.Text>}

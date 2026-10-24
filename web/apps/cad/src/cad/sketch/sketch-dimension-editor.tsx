@@ -70,7 +70,7 @@ export function sketchReferenceLabel(reference:SketchGeometryRef,entities:readon
  const entity=entities.find(entity=>entity.id===reference.entityId);
  if(!entity)return "引用元素已不可用";
  const role=reference.subElement==="CONTROL"?(entity.kind==="SPLINE"&&entity.mode==="CONTROL"?"控制极点":"拟合点"):roleLabels[reference.subElement];
- return `${entityLabels[entity.kind]} · ${role}`;
+ return `${entity.name??entityLabels[entity.kind]} · ${role}`;
 }
 /** The exact atomic definition and receipt identity survive transport ambiguity. */
 export class SketchDimensionCommitSession {

@@ -697,7 +697,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		name := strings.TrimSpace(request.Name)
 		if name == "" {
-			name = "Plane"
+			name = ""
 		}
 		plane := DatumPlane{ID: commandEntityID("plane", request.RequestID), Name: name, Plane: "CUSTOM",
 			Origin: request.Origin, Normal: request.Normal, UDirection: request.UDirection, Size: 180}
@@ -726,7 +726,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		name := strings.TrimSpace(request.Name)
 		if name == "" {
-			name = "Axis"
+			name = ""
 		}
 		axis := DatumAxis{ID: commandEntityID("axis", request.RequestID), Name: name, Origin: request.Origin,
 			Direction: [3]float64{request.Direction[0] / magnitude, request.Direction[1] / magnitude, request.Direction[2] / magnitude}}

@@ -49,15 +49,30 @@ func sketchPatternNodes(sketch SketchFeature, path, sketchID, documentID, versio
 	entities, _ := evaluatedSketchPatternEntities(sketch)
 	var nodes []DocumentStructureNode
 	for _, p := range sketch.Patterns {
-		node := DocumentStructureNode{ID: path + "/patterns/" + p.ID, Kind: "SKETCH_PATTERN_DEFINITION", Name: map[string]string{"LINEAR": "线性阵列", "CIRCULAR": "圆周阵列"}[p.Kind], EntityID: p.ID, OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Suppressed: p.Suppressed}
+		node := DocumentStructureNode{ID: path + "/patterns/" + p.ID, Kind: "SKETCH_PATTERN_DEFINITION", Name: func() string {
+			if p.Name != "" {
+				return p.Name
+			}
+			return automaticTypePrefix(p.Kind) + "Pattern"
+		}(), EntityID: p.ID, OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Suppressed: p.Suppressed}
 		if editable {
 			node.Capabilities = []string{"EDIT", "DELETE", "SUPPRESS"}
 		}
 		labels := map[string]string{}
 		placements, _ := patternPlacements(p.PatternDefinition)
 		for _, placement := range placements {
-			for i, id := range p.EntityIDs {
-				labels[patternMemberID(p.ID, placement.Slot, id)] = fmt.Sprintf("成员 %d · 几何 %d", placement.Slot+1, i+1)
+			for _, id := range p.EntityIDs {
+				label := "几何"
+				for _, source := range sketch.Entities {
+					if source.ID == id {
+						label = source.Name
+						if label == "" {
+							label = automaticTypePrefix(source.Kind)
+						}
+						break
+					}
+				}
+				labels[patternMemberID(p.ID, placement.Slot, id)] = fmt.Sprintf("成员 %d · %s", placement.Slot+1, label)
 			}
 		}
 		for _, e := range entities {

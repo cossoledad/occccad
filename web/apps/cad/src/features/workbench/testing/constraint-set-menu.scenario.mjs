@@ -1,3 +1,4 @@
+import {renderToStaticMarkup} from "react-dom/server";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync, existsSync, statSync } from "node:fs";
@@ -52,13 +53,13 @@ function menu(target, activeDocumentId = "product", editSession) {
     });
 }
 const hide = menu(node).find(item => item.key === "visibility");
-assert.equal(hide.label, "隐藏");
+assert.equal(renderToStaticMarkup(hide.label).replace(/<[^>]+>/g,""), "隐藏");
 assert.equal(menu(node).some(item => item.key === "session-visibility"), false, "bulk display must use the formal definition command");
 hide.onClick();
 assert.deepEqual(calls.at(-1), [node, "DEFINITION", undefined]);
 const hidden = { ...node, localVisible: false };
 const show = menu(hidden).find(item => item.key === "visibility");
-assert.equal(show.label, "显示"); show.onClick();
+assert.equal(renderToStaticMarkup(show.label).replace(/<[^>]+>/g,""), "显示"); show.onClick();
 assert.deepEqual(calls.at(-1), [hidden, "DEFINITION", undefined]);
 assert.equal(menu({ ...node, documentId: "nested-product", instancePath: { canonical: "nested" } }).some(item => item.key === "visibility"), false,
   "a referenced Product does not silently become the active edit target");
@@ -77,7 +78,7 @@ for (const [target, session, scope, label, mode] of [
     partSession, "OCCURRENCE", "隐藏", "HIDE"],
 ]) {
   const actions = menu(target, "part", session).filter(item => item.key.includes("visibility"));
-  assert.equal(actions.length, 1); assert.equal(actions[0].label, label); actions[0].onClick();
+  assert.equal(actions.length, 1); assert.equal(renderToStaticMarkup(actions[0].label).replace(/<[^>]+>/g,""), label); actions[0].onClick();
   assert.deepEqual(calls.at(-1), [target, scope, mode]);
 }
 // Verify real menu elements across domains, including the common icon slot

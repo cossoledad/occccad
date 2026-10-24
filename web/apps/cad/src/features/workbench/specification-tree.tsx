@@ -4,7 +4,7 @@ import {defaultTreeCommand} from "./tree-node-interaction";
 import {useOptionalCommandRegistry} from "../../cad/command/command-context";
 import {builtinCatalog} from "../../cad/command/workbench-catalog";
 import {CadIcon} from "../../cad/overlay/cad-icons";
-import { SearchOutlined } from "@ant-design/icons";
+import { SearchOutlined,RightOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dropdown, Input } from "antd";
 import { isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
@@ -240,14 +240,14 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
         const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${descendantHints.has(node.key) && !isSelected ? "selected-descendant" : ""} ${isActiveDocument ? "active-document" : ""} ${isWorkingBody ? "working-body" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.hidden ? "display-hidden" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
           role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
           data-default-command={defaultCommand} data-action-enabled={actionEnabled} aria-keyshortcuts={defaultCommand==="tree.edit"?"Enter":undefined}
-          aria-selected={isSelected} data-tree-key={node.key}
+          data-working-body={isWorkingBody||undefined} aria-selected={isSelected} data-tree-key={node.key}
           title={node.hiddenByAncestor ? `被上级隐藏：${node.visibilityBlocker}` : node.hidden ? "本地隐藏" : undefined}
           tabIndex={node.key === (visibleKeys.includes(focusedKey ?? "") ? focusedKey : visibleKeys[0]) ? 0 : -1}
           onFocus={() => setFocusedKey(node.key)} onClick={(event) => { event.stopPropagation(); selectNode(node, eventModifiers(event)); }}
           onDoubleClick={(event) => { event.stopPropagation(); invokeDefault(node); }}
           onContextMenu={(event) => contextSelection(event, node)}
           onMouseEnter={() => onHover?.(node)} onMouseLeave={() => onHover?.()}
-          onKeyDown={(event) => {if(event.altKey&&event.key==="Enter"&&onProperties){event.preventDefault();event.stopPropagation();onProperties(node)}else keyboardSelect(event, entry)}}>
+          onKeyDown={(event) => {if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();event.stopPropagation();const r=event.currentTarget.getBoundingClientRect();event.currentTarget.dispatchEvent(new globalThis.MouseEvent('contextmenu',{bubbles:true,clientX:r.left+24,clientY:r.bottom}));}else if(event.altKey&&event.key==="Enter"&&onProperties){event.preventDefault();event.stopPropagation();onProperties(node)}else keyboardSelect(event, entry)}}>
           {depth === 0 ? <span className="specification-tree-root-anchor" /> : hasChildren
             ? <button className={`specification-tree-junction branch ${isExpanded ? "expanded" : "collapsed"}`}
               tabIndex={-1} aria-label={isExpanded ? "折叠" : "展开"}
@@ -259,15 +259,15 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               </svg>
             </button> : <span className="specification-tree-junction leaf" />}
           <span className="specification-tree-icon">{node.icon}</span>
-          <span className="specification-tree-label">{node.title}{isWorkingBody ? " · 工作中" : ""}</span>
+          <span className="specification-tree-label">{node.title}</span>
         </div>;
         return <div key={node.key} className={`specification-tree-virtual-row ${depth > 0 ? "nested" : "root"}`} style={rowStyle}>
           {Array.from({ length: depth }, (_, guide) => <i key={guide} className="specification-tree-depth-guide"
             style={{ left: guide * 22 + 13 }} />)}
-          <Dropdown trigger={[]} placement="bottomLeft" classNames={{ root: "specification-tree-context-menu" }}
+          <Dropdown trigger={["contextMenu"]} placement="bottomLeft" classNames={{ root: "specification-tree-context-menu" }}
             open={contextMenu?.nodeKey === node.key}
             onOpenChange={(open) => { if (!open) setContextMenu(undefined); }}
-            menu={{ items: structureMenu([node.kind === "INSTANCE" && node.documentId && onOpenDocumentTab ? {
+            menu={{ expandIcon:<RightOutlined aria-hidden/>,items: structureMenu([node.kind === "INSTANCE" && node.documentId && onOpenDocumentTab ? {
               key: "open-document-tab", icon: menuIcon('tree.open-document'), label: menuLabel('tree.open-document'),
               onClick: () => { setContextMenu(undefined); onOpenDocumentTab(node); } } : null,
             node.sourceDocumentId && onOpenDocumentTab ? {

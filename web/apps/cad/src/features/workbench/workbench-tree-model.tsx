@@ -1,6 +1,5 @@
 import {engineeringLabel} from "../../cad/presentation/engineering-text";
 import {documentRegistry} from "../../cad/document/document-registry";
-import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusFromDiagnostic } from "../../cad/assembly/assembly-constraint-ux";
 import { treeNodeIcon } from "./tree-node-descriptors";
 import type { DocumentStructureNode, DocumentView, Feature, Selection, SelectionItem } from "../../types";
 import type { SpecificationTreeNode } from "./specification-tree";
@@ -179,8 +178,6 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
       for(const id of ids)if(!conflictEntities.has(id)){conflictEntities.add(id);changed=true;}}
   }}
 	const component=node.entityId?sketch?.solve.components?.find((candidate)=>candidate.entityIds.includes(node.entityId!)):undefined;
-  const assemblyStatus = node.kind === "ASSEMBLY_CONSTRAINT"
-    ? assemblyStatusFromDiagnostic(node.evaluationStatus ?? node.diagnostic) : undefined;
   const featureStatus = node.evaluationStatus === "FAILED" ? "求值失败" : node.evaluationStatus === "BLOCKED" ? "上游失败" : node.evaluationStatus === "SUPPRESSED" ? "已抑制" : undefined;
   const inputLabel:Record<string,string>={POSITION:"定位点",PROFILE:"轮廓",SECTION:"截面",SECTION_POINT:"截面点",AXIS:"轴",SUPPORT:"支撑",TOOL:"工具",RANGE_START:"范围起始",SEED:"种子",TOPOLOGY:"拓扑引用",STAGE:"输入阶段",NEUTRAL_PLANE:"中性面",TERMINATION_PLANE:"终止平面",PATTERN_REFERENCE:"阵列参考"};
   const displayName=node.kind==="APPLICATIONS"?"机构与模拟":node.inputRole&&node.kind!=="KINEMATICS_GROUP"?`${inputLabel[node.inputRole]??"输入"}${["SECTION","SECTION_POINT"].includes(node.inputRole)?` ${1+(node.inputOrder??0)}`:""} · ${node.name}`:node.name===node.entityId?engineeringLabel(node.entityType??node.kind,"引用对象已丢失"):node.name;
@@ -188,9 +185,8 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
   const contribution=currentSelection?.geometryKey?view.artifacts?.[currentSelection.geometryKey]?.visualization?.featureContributions?.[node.entityId??""]:undefined;
   const contributionStatus=contribution==="NO_CURRENT_CONTRIBUTION"?"无当前几何贡献":contribution==="MAPPING_MISSING"?"拓扑关联缺失":undefined;
   const outputStatus = node.consumed ? "已用于布尔" : featureStatus??contributionStatus;
-  return { key: node.id, title: outputStatus ? <>{displayName}<span title={outputStatus} aria-label={`状态 ${outputStatus}`}> · {outputStatus}</span></> : assemblyStatus ? <>{displayName}<span className={`assembly-tree-status status-${node.suppressed ? "not_updated" : assemblyStatus.toLowerCase()}`}
-    aria-label={`状态 ${node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}`}>{node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}</span></> : displayName,
-    icon: treeNodeIcon(node), kind: node.kind,
+  return { key: node.id, title: displayName,
+    icon: treeNodeIcon(node,outputStatus), kind: node.kind,
     axis:node.axis, parameterAlias:node.parameterAlias, entityId: node.entityId, documentId: node.documentId, documentType: node.documentType, instancePath: node.instancePath,
     ownerDocumentId: node.ownerDocumentId, bodyId: node.bodyId, presentationRole: node.presentationRole,
     definitionVisible: node.localVisible, localVisible: node.localVisible, visibilityMode: node.visibilityMode,

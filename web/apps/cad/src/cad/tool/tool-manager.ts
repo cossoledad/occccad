@@ -57,8 +57,12 @@ export class ToolManager {
   keyDown(event: CadKeyboardEvent): InputResult {
     if(event.editableTarget||event.isComposing)return InputResult.Ignored;
     const result = this.active?.keyDown?.(event, this.context) ?? InputResult.Ignored;
-    if (result !== InputResult.Ignored || event.key !== "Escape" || this.active?.id === "select") return result;
-    this.activate("select");
+    if(event.key!=="Escape")return result;
+    // A command's reference sub-session owns Escape before ordinary selection.
+    if(this.context.viewport.isFeatureSelectionActive?.())return result;
+    this.context.viewport.clearInteractionSelection?.();
+    if(result!==InputResult.Ignored)return result;
+    if(this.active?.id!=="select")this.activate("select");
     return InputResult.Consumed;
   }
   keyUp(event: CadKeyboardEvent): InputResult { return event.editableTarget||event.isComposing?InputResult.Ignored:this.active?.keyUp?.(event, this.context) ?? InputResult.Ignored; }

@@ -116,8 +116,8 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
   const dialog = useRef<HTMLElement>(null);
   const confirmRef=useRef<()=>Promise<void>>(async()=>{}),enterFrame=useRef<number|undefined>(undefined),composing=useRef(false),compositionFrame=useRef<number|undefined>(undefined);
   useEffect(()=>()=>{if(enterFrame.current!==undefined)cancelAnimationFrame(enterFrame.current);if(compositionFrame.current!==undefined)cancelAnimationFrame(compositionFrame.current);},[]);
-  const [overlayHost,setOverlayHost]=useState<HTMLElement|null>(()=>typeof document!=="undefined"?document.querySelector?.<HTMLElement>('[data-command-overlay-host]')??null:null);
-  useEffect(()=>{if(open)setOverlayHost(document.querySelector<HTMLElement>('[data-command-overlay-host]'));},[open]);
+  const [overlayHost,setOverlayHost]=useState<HTMLElement|null>(()=>typeof document!=="undefined"?document.querySelector?.<HTMLElement>('[data-command-overlay-host]')??document.body:null);
+  useEffect(()=>{if(open)setOverlayHost(document.querySelector<HTMLElement>('[data-command-overlay-host]')??document.body);},[open]);
   const positionRef = useRef(position); positionRef.current = position;
   const drag = useRef<{ pointerId: number; offsetX: number; offsetY: number } | undefined>(undefined);
   useEffect(() => {

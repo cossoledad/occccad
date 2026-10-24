@@ -62,16 +62,7 @@ func ensureUniqueScopedName(value string, existing []string, self string) error 
 }
 
 func nextScopedName(base string, existing []string) string {
-	used := make(map[string]bool, len(existing))
-	for _, item := range existing {
-		used[scopedNameKey(item)] = true
-	}
-	for ordinal := 1; ; ordinal++ {
-		candidate := fmt.Sprintf("%s%d", base, ordinal)
-		if !used[scopedNameKey(candidate)] {
-			return candidate
-		}
-	}
+	return nextAutomaticName(strings.TrimSuffix(base, "."), existing)
 }
 
 func defaultPublicationBase(targetKind, publicationType string) string {

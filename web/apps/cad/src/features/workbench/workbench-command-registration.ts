@@ -16,7 +16,7 @@ import {selectionSummaryCommand} from "./commands/selection-summary";
 import {treeNodesForSelections} from "./tree-projection-index";
 
 export type WorkbenchCommandBindings={
- setAssociationRepairOpen?:(open:boolean)=>void;associationRepairOpen?:boolean;
+ setDeveloperOpen?:(open:boolean)=>void;setAssociationRepairOpen?:(open:boolean)=>void;associationRepairOpen?:boolean;
  openProperties?:()=>void;openOptions?:()=>void;
 	prepareAssemblyMove?:()=>Promise<void>;
  setMotionOpen?:(open:boolean)=>void;motionOpen?:boolean;motionCommandEnabled?:(action:string)=>boolean;onMotionCommand?:(action:string,operation?:CommandOperation)=>void;
@@ -114,7 +114,8 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "view.front", execute: () => viewport.current?.setStandardView("FRONT") }),
       ({ id: "view.right", execute: () => viewport.current?.setStandardView("RIGHT") }),
       ({ id: "view.iso", execute: () => viewport.current?.setStandardView("ISO") }),
-	  ({ id: "debug.part", execute: () => editingView && api.downloadDiagnosticBundle(editingView.document.id), isEnabled: () => Boolean(editingView?.part) }),
+	  ({id:"debug.information",execute:()=>bindings.setDeveloperOpen?.(true),isEnabled:()=>true}),
+  ({ id: "debug.part", execute: () => editingView && api.downloadDiagnosticBundle(editingView.document.id), isEnabled: () => Boolean(editingView?.part) }),
       ({ id: "debug.assembly", execute: () => editingView && api.downloadAssemblyDiagnostic(editingView.document.id), isEnabled: () => Boolean(editingView?.product) }),
  ...structureCommands(bindings.treeActions,treeNodes,showMessage,treeNodesForSelections(treeNodes,store.selections)),
  selectionSummaryCommand({getContext:()=>({documentId:editingView?.document.id??"",documentName:editingView?.document.name??view?.document.name,selectionCount:store.selections.length}),show:showMessage}),

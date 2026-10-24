@@ -1636,14 +1636,11 @@ func mutatePart(model *PartModel, request CommandRequest) error {
 }
 
 func numberedFeatureName(features []Feature, featureType, label string) string {
-	count := 0
-	for _, feature := range features {
-		if strings.EqualFold(feature.Type, featureType) ||
-			(featureType == "SKETCH" && strings.Contains(strings.ToUpper(feature.Type), "SKETCH")) {
-			count++
-		}
+	names := make([]string, 0, len(features))
+	for _, f := range features {
+		names = append(names, f.Name)
 	}
-	return fmt.Sprintf("%s %d", label, count+1)
+	return nextAutomaticName(label, names)
 }
 
 func (service *Service) mutateProduct(
@@ -2267,10 +2264,11 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, versionID string, editable bool) []DocumentStructureNode {
 	geometry := DocumentStructureNode{ID: path + "/geometry", Kind: "SKETCH_GEOMETRY_SET", Name: "Geometry",
 		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
-	counts := map[string]int{}
 	for _, entity := range sketch.Entities {
-		counts[entity.Kind]++
-		name := strings.Title(strings.ToLower(entity.Kind)) + " " + fmt.Sprint(counts[entity.Kind])
+		name := entity.Name
+		if name == "" {
+			name = automaticTypePrefix(entity.Kind)
+		}
 		node := DocumentStructureNode{ID: geometry.ID + "/entity:" + entity.ID, Kind: "SKETCH_ENTITY", Name: name,
 			EntityID: entity.ID, OwnerEntityID: sketchID, EntityType: entity.Kind, Role: entity.Role,
 			DocumentID: documentID, VersionID: versionID, Suppressed: entity.Suppressed}
@@ -2283,10 +2281,15 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 	}
 	externals := DocumentStructureNode{ID: path + "/external-geometry", Kind: "SKETCH_EXTERNAL_GEOMETRY_SET", Name: "External Geometry",
 		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
-	for index, external := range sketch.ExternalGeometry {
-		name := fmt.Sprintf("External %d", index+1)
+	for _, external := range sketch.ExternalGeometry {
+		name := external.Name
+		if name == "" {
+			name = "External"
+		}
 		if external.Snapshot != nil && external.Snapshot.Kind != "" {
-			name = strings.Title(strings.ToLower(external.Snapshot.Kind)) + " " + fmt.Sprint(index+1)
+			if external.Name == "" {
+				name = "External" + automaticTypePrefix(external.Snapshot.Kind)
+			}
 		}
 		node := DocumentStructureNode{ID: externals.ID + "/external:" + external.ID, Kind: "SKETCH_EXTERNAL_GEOMETRY", Name: name,
 			EntityID: external.ID, OwnerEntityID: sketchID, EntityType: "EXTERNAL", Role: "CONSTRUCTION",
@@ -2297,7 +2300,7 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 		if editable {
 			node.Capabilities = []string{"DETACH", "RECONNECT"}
 			if external.DatumReference != nil && external.Snapshot != nil && external.Snapshot.Kind == "LINE" {
-				node.Name = "Projected Axis " + fmt.Sprint(index+1)
+				node.Name = name
 				node.Capabilities = []string{"RECONNECT"}
 			}
 		}
@@ -2309,10 +2312,11 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
 	dimensions := DocumentStructureNode{ID: constraints.ID + "/dimensions", Kind: "SKETCH_DIMENSION_SET", Name: "Dimensions",
 		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
-	counts = map[string]int{}
 	for _, constraint := range sketch.Constraints {
-		counts[constraint.Kind]++
-		name := strings.Title(strings.ToLower(strings.ReplaceAll(constraint.Kind, "_", " "))) + " " + fmt.Sprint(counts[constraint.Kind])
+		name := constraint.Name
+		if name == "" {
+			name = automaticTypePrefix(constraint.Kind)
+		}
 		parent := &logical
 		if isDimensionalConstraint(constraint.Kind) {
 			parent = &dimensions

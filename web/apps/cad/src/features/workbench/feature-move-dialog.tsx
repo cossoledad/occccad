@@ -23,7 +23,7 @@ export function FeatureMoveDialog({view,feature,digest,onClose,onApply,onPreview
   <fieldset disabled={busy} style={{display:"grid",gap:12,margin:0,border:0,padding:0}}>
    <p>移动：{feature.name} · {view.part!.bodies.find(b=>b.id===feature.bodyId)?.name}</p>
    <CommandField  label={<>锚点特征</>} width="enum"><Select aria-label="锚点特征" placeholder="选择同 Body 的步骤" value={anchor} style={{width:"100%"}} options={anchors.map(f=>({value:f.id,label:`${f.order??view.part!.features.indexOf(f)+1}. ${f.name}`}))} onChange={id=>{setAnchor(id);setError(undefined)}}/></CommandField>
-   <CommandField  label={<>位置</>} width="enum"><Segmented value={placement} options={[{value:"BEFORE",label:"之前"},{value:"AFTER",label:"之后"}]} onChange={value=>{setPlacement(value);setError(undefined)}}/></CommandField>
+   <CommandField  label={<>位置</>} width="content"><Segmented value={placement} options={[{value:"BEFORE",label:"之前"},{value:"AFTER",label:"之后"}]} onChange={value=>{setPlacement(value);setError(undefined)}}/></CommandField>
    <small>只移动当前特征，其他步骤保持相对顺序。固定步骤和受保护范围不能跨越；预览通过后才能确认。</small>
    {!valid&&<Alert type="warning" title="模型已改变，请关闭后重新打开"/>}
    {preview.pending&&<p role="status">正在验证候选顺序与几何…</p>}

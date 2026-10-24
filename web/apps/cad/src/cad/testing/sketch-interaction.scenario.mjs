@@ -675,8 +675,8 @@ try {
   assert.equal(datumReferenceLine.material.dashed, true);
   assert.equal(datumReferenceLine.renderOrder, 92);
   datumReferenceLine.geometry.dispose(); datumReferenceLine.material.dispose();
-  assert.equal(defaultDocumentName("PART", [{ name: "Part1" }, { name: "part3" }]), "Part2");
-  assert.equal(defaultDocumentName("PRODUCT", [{ name: "Product1" }, { name: "Product2" }]), "Product3");
+  assert.equal(defaultDocumentName("PART", [{ name: "Part.1" }, { name: "part.3" }]), "Part.4");
+  assert.equal(defaultDocumentName("PRODUCT", [{ name: "Product.1" }, { name: "Product.2" }]), "Product.3");
   const persistedLine = { id: "line-1", featureId: "sketch-1", kind: "POLYLINE",
     semantic: "SKETCH_CURVE", role: "PROFILE", positions: [[0, 0, 0], [2, 0, 0]], selectable: true };
   assert.equal(visualType(persistedLine), "CURVE");

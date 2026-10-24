@@ -13,12 +13,12 @@ type Scope = "all" | "recent" | "shared" | "folder" | "selected";
 const PAGE_SIZE = 12;
 
 /** A paged resource browser. Selection persists across pages and filters. */
-export function InsertDocumentDialog({ targetID, rootID, busy, onClose, onInsertDocuments }: {
-  targetID: string; rootID: string; busy: boolean;
+export function InsertDocumentDialog({ targetID, rootID, targetFolderID,busy, onClose, onInsertDocuments }: {
+  targetID: string; rootID: string;targetFolderID?:string; busy: boolean;
   onClose: () => void; onInsertDocuments: (ids: string[]) => Promise<unknown>;
 }) {
-  const [scope, setScope] = useState<Scope>("all");
-  const [folderID, setFolderID] = useState("");
+  const [scope, setScope] = useState<Scope>("folder");
+  const [folderID, setFolderID] = useState(targetFolderID??"");
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [type, setType] = useState("");
@@ -70,7 +70,6 @@ export function InsertDocumentDialog({ targetID, rootID, busy, onClose, onInsert
           { id: "selected", label: `当前选择 (${selected.length})`, icon: <CheckSquareOutlined /> }] as const)
           .map((location) => <button key={location.id} aria-label={location.label} disabled={pending} aria-current={scope === location.id ? "page" : undefined}
             onClick={() => changeLocation(location.id)}>{location.icon}{location.label}</button>)}
-        <p>{scope === "selected" ? "取消选择后条目暂留本页，可立即重新选择；离开再进入时刷新。" : "通过文件夹逐层浏览，或在全部文档中检索名称与说明。"}</p>
       </nav>
       <section className="insert-results" aria-label="可插入文档">
         {scope !== "selected" && <>
@@ -119,7 +118,6 @@ export function InsertDocumentDialog({ targetID, rootID, busy, onClose, onInsert
           <dl><dt>所在位置</dt><dd>{lastSelected.folderId ? selectedFolder.isError ? "位置读取失败" : selectedFolder.isPending ? "加载中…" : selectedFolder.data?.map((folder) => folder.name).join(" / ") || "文件夹" : "我的文档"}</dd>
             <dt>最近修改</dt><dd>{new Date(lastSelected.lastUpdated).toLocaleString()}</dd>
             <dt>引用方式</dt><dd>跟随最新版本；关联参数更新需确认</dd></dl>
-          <p className="insert-preview-note">插入后可在视口中移动和约束组件。模型与缩略图可能存在细节差异。</p>
         </> : <div className="insert-preview-empty"><ApartmentOutlined /><strong>组件预览</strong><p>选择文档以查看缩略图、位置和详细信息</p></div>}
       </aside>
     </div>

@@ -362,9 +362,11 @@ func applyPartHistoryValues(modelJSON json.RawMessage, values map[modelcore.Prop
 		case "parameter.source", "sketch.dimension.value":
 			for i := range model.Parameters {
 				if model.Parameters[i].ParameterID == address.EntityID {
-					if err := json.Unmarshal(value, &model.Parameters[i].Source); err != nil {
+					var source modelcore.ValueSource
+					if err := json.Unmarshal(value, &source); err != nil {
 						return nil, err
 					}
+					model.Parameters[i].Source = source
 				}
 			}
 		case "parameter.entity":
@@ -403,9 +405,11 @@ func applyPartHistoryValues(modelJSON json.RawMessage, values map[modelcore.Prop
 			found := false
 			for i := range model.Parameters {
 				if model.Parameters[i].ParameterID == parameterID {
-					if err := json.Unmarshal(value, &model.Parameters[i].Source); err != nil {
+					var source modelcore.ValueSource
+					if err := json.Unmarshal(value, &source); err != nil {
 						return nil, err
 					}
+					model.Parameters[i].Source = source
 					found = true
 					break
 				}
