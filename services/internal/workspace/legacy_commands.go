@@ -490,6 +490,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if operation != "NEW_BODY" && operation != "ADD" && operation != "REMOVE" && operation != "INTERSECT" {
 			return "", nil, fmt.Errorf("%w: invalid BodyOperation %s", ErrValidation, operation)
 		}
+		if request.Extent == "TO_PLANE" && request.Length == 0 {
+			request.Length = 1
+		}
 		if generator == "LINEAR_EXTRUDE" && strings.TrimSpace(request.LengthExpression) == "" && !positiveFinite(request.Length) {
 			return "", nil, fmt.Errorf("%w: extrude length must be a positive finite value", ErrValidation)
 		}
@@ -528,8 +531,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		feature := Feature{BodyID: request.BodyID, ID: commandEntityID(prefix, request.RequestID), Type: generator,
 			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID, ProfileMemberSlot: request.ProfileMemberSlot, ProfileSelection: request.ProfileSelection,
-			Length: request.Length, Angle: request.Angle, Extent: request.Extent, Length2: request.Length2, Operation: operation,
+			TerminationPlaneID: request.TerminationPlaneID, TerminationPlane: request.TerminationPlane, Length: request.Length, Angle: request.Angle, Extent: request.Extent, Length2: request.Length2, Operation: operation,
 			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed}
+		if err := service.qualifyTerminationPlane(ctx, documentID, &feature); err != nil {
+			return "", nil, err
+		}
 		parameterSources := map[string]modelcore.ValueSource{}
 		if generator == "LINEAR_EXTRUDE" && strings.TrimSpace(request.LengthExpression) != "" {
 			names := map[string]modelcore.ParameterBinding{}
@@ -614,6 +620,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		if request.Feature != nil {
 			definition := *request.Feature
+			if err := service.qualifyTerminationPlane(ctx, documentID, &definition); err != nil {
+				return "", nil, err
+			}
 			if err := service.prepareLoftDefinition(ctx, request.RequestID, model, &definition); err != nil {
 				return "", nil, err
 			}

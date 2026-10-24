@@ -46,10 +46,15 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const [showConnections,setShowConnections]=useState(false);
     const acceptedSections=useRef<Feature["sections"]>(undefined);
     const [draft, setDraft] = useState<Feature>({ ...feature, profileSelection:feature.profileSelection??(!feature.id&&!modifier&&!loft?{mode:"REGIONS",regionIds:[]}:undefined) });
+    const terminating=!modifier&&!loft&&draft.extent==="TO_PLANE";
     const explicitRegions = !modifier&&!loft&&draft.profileSelection?.mode==="REGIONS";
     const profileRole:FeaturePickRole=explicitRegions?"profile-region":"profile";
     const [regionReplacement,setRegionReplacement]=useState<string>();
     const [role, setRole] = useState<FeaturePickRole>(!feature.id&&!modifier&&!loft||feature.profileSelection?.mode==="REGIONS"?"profile-region":pickRole), [seamIndex, setSeamIndex] = useState<number>();
+    const [terminationVisual,setTerminationVisual]=useState<SelectionItem>();
+    const [terminationLoadError,setTerminationLoadError]=useState<string>();
+    const [terminationResolution,setTerminationResolution]=useState<FeatureInputResolution>();
+    const [planeInputs,setPlaneInputs]=useState<Artifact[]>([]),[planeErrors,setPlaneErrors]=useState<string[]>([]);
     const [neutralVisual, setNeutralVisual] = useState<SelectionItem>();
     const [neutralResolution, setNeutralResolution] = useState<FeatureInputResolution>();
     const [replacement, setReplacement] = useState<string>();
@@ -82,7 +87,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             if (!current)
                 return;
             setInputContext(context);
-            callbacks.current.onInputArtifact(context.artifacts ?? context.artifact);
+            if(context.terminationPick){const p=context.terminationPick;setTerminationResolution(p);if(p.status==="RESOLVED"&&p.localId)setTerminationVisual({...occurrenceContext,kind:"face",id:`input:termination:${p.localId}`,documentId:view.document.id,bodyId:p.bodyId,versionId:context.versionId,geometryKey:p.geometryKey,displayStageFeatureId:p.displayStageFeatureId,topologyId:p.localId,occurrencePath});}
             if (context.neutralPick) {
                 const p = context.neutralPick;
                 setNeutralResolution(p);
@@ -90,10 +95,25 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             }
             setPicks(context.picks.map(p => ({ id:`original/${p.index}`, definition: feature.selections![p.index], resolution:p, visual: p.status === "RESOLVED" && p.localId ? { ...occurrenceContext, kind: p.kind.toLowerCase() as "edge" | "face", id: `input:${p.kind}:${p.localId}`, documentId: view.document.id, bodyId: feature.bodyId, displayStageFeatureId:context.sourceFeatureId, versionId: context.versionId, geometryKey: context.artifact.geometryKey, topologyId: p.localId, occurrencePath } : undefined })));
         }).catch(cause => { if (current && !controller.signal.aborted)
-            setInputError(String(cause)); }).finally(() => { if (current)
+            if(feature.extent==="TO_PLANE")setTerminationLoadError(String(cause));else setInputError(String(cause)); }).finally(() => { if (current)
             setLoadingInput(false); });
         return () => { current = false; controller.abort(); };
     }, []);
+    useEffect(()=>{
+        if(!feature.id||!terminating){setPlaneInputs([]);setPlaneErrors([]);return;}
+        const controller=new AbortController();let active=true;
+        void Promise.allSettled(view.part!.bodies.map(b=>api.getFeatureInput(view.document.id,{versionId:version.current,featureId:feature.id,bodyId:b.id},controller.signal))).then(results=>{
+            if(!active)return;const inputs:Artifact[]=[],errors:string[]=[];
+            results.forEach((r,i)=>{if(r.status==="fulfilled"){if(r.value.sourceFeatureId)inputs.push(r.value.artifact);}else errors.push(`${view.part!.bodies[i].name}: ${String(r.reason)}`)});
+            setPlaneInputs(inputs);setPlaneErrors(errors);
+        });
+        return()=>{active=false;controller.abort()};
+    },[terminating]);
+    useEffect(()=>{
+        if(!inputContext&&!planeInputs.length)return;
+        const artifacts=[...(inputContext?(inputContext.artifacts??[inputContext.artifact]):[]),...planeInputs];
+        callbacks.current.onInputArtifact([...new Map(artifacts.map(a=>[`${a.bodyId}/${a.geometryKey}`,a])).values()]);
+    },[inputContext,planeInputs]);
     const current = useRef({ draft, role, inputContext, upstream, committing, validRevision, picks });
     current.current = { draft, role, inputContext, upstream, committing, validRevision, picks };
     const bindPick = (selection: SelectionItem, replaceID?: string) => {
@@ -137,7 +157,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             setError(String(cause)); }).finally(() => { if (alive.current)
             setBinding(n => n - 1); });
     };
-    const bindNeutralPlane = (selection: SelectionItem) => {
+    const bindNeutralPlane = (selection: SelectionItem, termination=false) => {
         if (selection.kind !== "face" || !selection.geometryKey) return;
         setBinding(n => n+1);
         queue.current = queue.current.then(async () => {
@@ -145,7 +165,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             let definition: NonNullable<Feature["selections"]>[number];
             if (feature.id) {
                 const result = await api.getFeatureInput(view.document.id, { versionId:version.current, featureId:feature.id, bodyId:selection.bodyId, geometryKey:selection.geometryKey, kind:"FACE", localId:selection.topologyId });
-                if (!result.selection || result.selection.selection.creationEvidence.geometryType !== "PLANE") throw new Error("中性平面必须是平面");
+                if (!result.selection || result.selection.selection.creationEvidence.geometryType !== "PLANE") throw new Error(termination?"终止目标必须是平面":"中性平面必须是平面");
                 definition = result.selection;
             } else {
                 const result = await api.getTopologyProperties(view.document.id, selection.geometryKey!, "FACE", selection.topologyId, version.current);
@@ -153,7 +173,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
                 definition = { selection:result.persistentSelection, sourceVersionId:version.current };
             }
             if (!alive.current || !current.current.validRevision) return;
-            edit({neutralPlaneId:undefined, neutralPlane:definition}); setNeutralResolution({status:"RESOLVED"}); setNeutralVisual(selection); setRole(pickRole);
+            if(termination){if(current.current.draft.extent!=="TO_PLANE")return;edit({terminationPlaneId:undefined,terminationPlane:definition});setTerminationResolution({status:"RESOLVED"});setTerminationLoadError(undefined);setTerminationVisual(selection);setRole(profileRole);}
+            else {edit({neutralPlaneId:undefined, neutralPlane:definition}); setNeutralResolution({status:"RESOLVED"}); setNeutralVisual(selection); setRole(pickRole);}
         }).catch(cause => { if (alive.current) setError(String(cause)); }).finally(()=>{if(alive.current)setBinding(n=>n-1);});
     };
     const pick = (selection: SelectionItem, chosenRole: FeaturePickRole = current.current.role) => {
@@ -204,13 +225,14 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         else if (chosenRole === "plane" && selection.kind === "plane") {
             const plane = view.part?.datumPlanes.find(p => p.id === selection.datumPlane?.id || p.id === selection.entityId || p.id === selection.id);
             if (plane) {
+                if(terminating){edit({terminationPlaneId:plane.id,terminationPlane:undefined});setTerminationResolution({status:"RESOLVED"});setTerminationLoadError(undefined);setTerminationVisual(selection);setRole(profileRole);return;}
                 edit({ neutralPlaneId: plane.id, neutralPlane: undefined });
                 setNeutralResolution({status:"RESOLVED"});
                 setNeutralVisual(selection);
                 setRole(pickRole);
             }
         }
-        else if (chosenRole === "plane" && selection.kind === "face") { bindNeutralPlane(selection); }
+        else if (chosenRole === "plane" && selection.kind === "face") { bindNeutralPlane(selection,terminating); }
         else if (chosenRole === "seam" && selection.kind === "visual" && seamIndex !== undefined) {
             edit({ sections: (acceptedSections.current??draft.sections)?.map((s, i) => i === seamIndex && (s.sketchId === selection.featureId || s.sketchId===selection.patternId&&s.memberSlot===selection.patternMemberSlot) ? { ...s, correspondenceResolved:true, seamEntityId: selection.entityId } : s) });
             setRole("profile");
@@ -250,6 +272,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     if (axisVisual ?? restoredAxis)
         highlights.push((axisVisual ?? restoredAxis)!);
     if (neutralVisual) highlights.push(neutralVisual);
+    if(terminating&&terminationVisual)highlights.push(terminationVisual);
     const contextSelections = feature.type === "REVOLVE" && role === "axis" ? highlights.filter(s => s.kind === "sketch"||s.kind==="profile-region") : [];
     const selections = contextSelections.length ? highlights.filter(s => s.kind !== "sketch"&&s.kind!=="profile-region") : highlights;
     const highlightsToken = JSON.stringify([selections, contextSelections]);
@@ -265,7 +288,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
 
     let input: Record<string, unknown> | undefined, parameterError: string | undefined;
     const unresolved = picks.filter(p=>p.resolution.status!=="RESOLVED");
-    const ready = (!explicitRegions||regionIDs.length>0&&!missingRegions.length) && validRevision && !loadingInput && !binding && !inputError && (!modifier || !feature.id || !!inputContext) && !unresolved.length && (!neutralResolution || neutralResolution.status==="RESOLVED") && (loft ? (draft.sections?.length ?? 0) >= 2 && !!draft.sections?.some(s=>!s.point) && !draft.sections?.some((s,i)=>s.point&&i!==0&&i!==draft.sections!.length-1) : modifier ? picks.length > 0 && !!draft.bodyId && (feature.type !== "DRAFT" || !!draft.neutralPlaneId || !!draft.neutralPlane) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId));
+    const ready = (!terminating||!terminationLoadError&&!!(draft.terminationPlaneId||draft.terminationPlane)&&(!terminationResolution||terminationResolution.status==="RESOLVED")) && (!explicitRegions||regionIDs.length>0&&!missingRegions.length) && validRevision && !loadingInput && !binding && !inputError && (!modifier || !feature.id || !!inputContext) && !unresolved.length && (!neutralResolution || neutralResolution.status==="RESOLVED") && (loft ? (draft.sections?.length ?? 0) >= 2 && !!draft.sections?.some(s=>!s.point) && !draft.sections?.some((s,i)=>s.point&&i!==0&&i!==draft.sections!.length-1) : modifier ? picks.length > 0 && !!draft.bodyId && (feature.type !== "DRAFT" || !!draft.neutralPlaneId || !!draft.neutralPlane) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId));
     try {
         const value = { ...draft, selections: modifier ? picks.map(p => p.definition) : draft.selections }, expressions: Record<string, string> = {};
         const read = (slot: "length" | "length2" | "angle", text: string) => { const parsed = solidParameterEdit(slot, text, original.current[slot], unit); if (parsed.value !== undefined)
@@ -274,7 +297,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         if (!loft) {
             if (angular)
                 read("angle", angle);
-            else if (draft.extent !== "THROUGH_ALL") {
+            else if (draft.extent !== "THROUGH_ALL" && !terminating) {
                 read("length", length);
                 if (draft.extent === "TWO_SIDED")
                     read("length2", second);
@@ -282,16 +305,17 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         }
         const common = { requestId: intent.current, parameterExpressions: expressions };
         if (ready)
-            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value } : loft ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value } : { ...common, type: "CREATE_SOLID_FEATURE", sketchId: value.profile, profileSelection:value.profileSelection, profileMemberSlot:value.profileMemberSlot, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
+            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value } : loft ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value } : { ...common, type: "CREATE_SOLID_FEATURE", terminationPlaneId:value.terminationPlaneId,terminationPlane:value.terminationPlane,sketchId: value.profile, profileSelection:value.profileSelection, profileMemberSlot:value.profileMemberSlot, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
     }
     catch (cause) {
         parameterError = String(cause);
     }
+    const planeGeometryKeys=feature.id?planeInputs.map(a=>a.geometryKey):view.part!.bodies.filter(b=>b.geometryKey).map(b=>b.geometryKey!);
     const preview = useFeaturePreview(view.document.id, view.document.versionId, input, draft.operation, onPreview);
     acceptedSections.current=preview.loftSections;
     useEffect(() => {
-        callbacks.current.onSelectionSession({ ...occurrenceContext,role, profileRegions:explicitRegions?regionCandidates:undefined, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, geometryKey:modifier && feature.id ? inputContext?.artifact.geometryKey : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });
-    }, [role, highlightsToken, sketchIdsToken, draft.bodyId,inputContext?.artifact.geometryKey,showConnections,JSON.stringify(preview.loftConnections),explicitRegions,draft.profile]);
+        callbacks.current.onSelectionSession({ ...occurrenceContext,role,planeGeometryKeys:terminating?planeGeometryKeys:undefined, profileRegions:explicitRegions?regionCandidates:undefined, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, geometryKey:modifier && feature.id ? inputContext?.artifact.geometryKey : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });
+    }, [role, highlightsToken, sketchIdsToken, draft.bodyId,inputContext?.artifact.geometryKey,showConnections,JSON.stringify(preview.loftConnections),explicitRegions,draft.profile,terminating,JSON.stringify(planeGeometryKeys)]);
     const apply = async () => { if (!input || !preview.previewId || preview.pending || committing)
         return; setCommitting(true); try {
         await onApply({ ...input, previewId: preview.previewId });
@@ -332,6 +356,13 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     </div>)}
    </details>}
    {unresolved.length>0 && <Alert type="warning" title="输入需要修复" description="请明确替换或移除每个失效输入。有效输入会保留；未处理前不能预览或确认。"/>}
+   {terminating&&<>
+    <FeaturePickField label="终止平面" value={terminationLoadError?"原目标解析受阻，请重新选择":terminationResolution&&terminationResolution.status!=="RESOLVED"?inputStatusText(terminationResolution):draft.terminationPlane?"已选择上游实体平面":view.part?.datumPlanes.find(p=>p.id===draft.terminationPlaneId)?.name??"选择基准平面或上游实体平面"} active={role==="plane"} disabled={loadingInput||!!binding} onActivate={()=>setRole("plane")} onClear={draft.terminationPlane||draft.terminationPlaneId?()=>{edit({terminationPlane:undefined,terminationPlaneId:undefined});setTerminationResolution(undefined);setTerminationLoadError(undefined);setTerminationVisual(undefined);}:undefined}/>
+    <small>到平面：使用目标的无限延伸支撑平面，随目标位置和朝向更新。</small>
+    {terminationResolution&&terminationResolution.status!=="RESOLVED"&&<Alert type="warning" title="终止平面需要修复" description="请明确重新选择当前特征之前的合法平面。"/>}
+    {terminationLoadError&&<Alert type="error" title="原终止目标解析失败" description={terminationLoadError}/>}
+    {planeErrors.map((text,i)=><Alert key={i} type="error" title="部分上游输入不可用" description={text}/>)}
+   </>}
    {feature.type === "DRAFT" && <>
     <FeaturePickField label="中性平面" value={neutralResolution && neutralResolution.status!=="RESOLVED" ? inputStatusText(neutralResolution) : draft.neutralPlane ? "已选择实体平面" : view.part?.datumPlanes.find(p => p.id === draft.neutralPlaneId)?.name ?? "选择基准面或实体平面"} active={role === "plane"} disabled={loadingInput || !!inputError || !!binding} onActivate={() => {setReplacement(undefined);setRole("plane");}} onClear={(draft.neutralPlane || draft.neutralPlaneId) && !binding ? ()=>{edit({neutralPlane:undefined,neutralPlaneId:undefined});setNeutralVisual(undefined);setNeutralResolution(undefined);} : undefined}/>
     {neutralResolution && neutralResolution.status!=="RESOLVED" && <Alert type="warning" title="中性平面需要修复" description="请选择当前特征之前的基准面或实体平面。"/>}
@@ -355,12 +386,12 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     <label>截面连接<Segmented value={draft.ruled ? "ruled" : "smooth"} options={[{ value: "smooth", label: "平滑" }, { value: "ruled", label: "直纹" }]} onChange={v => edit({ ruled: v === "ruled" })}/></label>
    </>}
    {!modifier && <>
-    <label>材料<Segmented value={draft.operation} options={[...(!feature.id ? [{ value: "NEW_BODY", label: "新实体" }] : []), { value: "ADD", label: "添加" }, { value: "REMOVE", label: "切除" }, { value: "INTERSECT", label: "交集" }]} onChange={operation => edit({ operation: operation as Feature["operation"], extent: operation !== "REMOVE" && draft.extent === "THROUGH_ALL" ? "FINITE" : draft.extent })}/></label>
+    <label>材料<Segmented value={draft.operation} options={[...(!feature.id ? [{ value: "NEW_BODY", label: "新实体" }] : []), { value: "ADD", label: "添加" }, { value: "REMOVE", label: "切除" }, { value: "INTERSECT", label: "交集" }]} onChange={operation => edit({ operation: operation as Feature["operation"], extent: operation !== "REMOVE" && draft.extent === "THROUGH_ALL" || operation==="INTERSECT"&&terminating ? "FINITE" : draft.extent, ...(operation==="INTERSECT"?{terminationPlane:undefined,terminationPlaneId:undefined}:{}) })}/></label>
     {draft.operation !== "NEW_BODY" && <FeaturePickField label="目标实体" value={view.part?.bodies.find(b => b.id === draft.bodyId)?.name ?? "请在视图区选择实体"} disabled={!!feature.id} active={role === "body"} onActivate={() => setRole("body")}/>}
    </>}
    {!loft && (angular ? <label>角度（deg）<Input value={angle} disabled={committing} onChange={e => setAngle(e.target.value)}/></label> : <>
-    {!modifier && <label>范围<Segmented value={draft.extent ?? "FINITE"} options={[{ value: "FINITE", label: "长度" }, { value: "TWO_SIDED", label: "双侧" }, { value: "SYMMETRIC", label: "对称" }, ...(draft.operation === "REMOVE" ? [{ value: "THROUGH_ALL", label: "贯穿" }] : [])]} onChange={extent => edit({ extent: extent as Feature["extent"] })}/></label>}
-    {draft.extent !== "THROUGH_ALL" && <label>{feature.type === "FILLET" ? "半径" : feature.type === "CHAMFER" ? "距离" : feature.type === "SHELL" ? "厚度" : "长度"}（{unit}）<Input value={length} disabled={committing} onChange={e => setLength(e.target.value)}/></label>}
+    {!modifier && <label>范围<Segmented value={draft.extent ?? "FINITE"} options={[{ value: "FINITE", label: "长度" }, { value: "TWO_SIDED", label: "双侧" }, { value: "SYMMETRIC", label: "对称" }, ...(["PAD","LINEAR_EXTRUDE"].includes(feature.type)&&["ADD","REMOVE","NEW_BODY"].includes(draft.operation??"")?[{value:"TO_PLANE",label:"到平面"}]:[]), ...(draft.operation === "REMOVE" ? [{ value: "THROUGH_ALL", label: "贯穿" }] : [])]} onChange={extent => {edit({ extent: extent as Feature["extent"],terminationPlane:undefined,terminationPlaneId:undefined });setTerminationResolution(undefined);setTerminationLoadError(undefined);setTerminationVisual(undefined);if(extent==="TO_PLANE")setRole("plane");else setRole(profileRole);}}/></label>}
+    {draft.extent !== "THROUGH_ALL" && !terminating && <label>{feature.type === "FILLET" ? "半径" : feature.type === "CHAMFER" ? "距离" : feature.type === "SHELL" ? "厚度" : "长度"}（{unit}）<Input value={length} disabled={committing} onChange={e => setLength(e.target.value)}/></label>}
     {draft.extent === "TWO_SIDED" && <label>反向长度（{unit}）<Input value={second} disabled={committing} onChange={e => setSecond(e.target.value)}/></label>}
    </>)}
    {!loft && <label>反向<Switch checked={draft.reversed} disabled={committing} onChange={reversed => edit({ reversed })}/></label>}

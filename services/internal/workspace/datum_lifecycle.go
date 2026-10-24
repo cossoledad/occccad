@@ -60,7 +60,7 @@ func deleteDatum(model PartModel, kind, id string) (json.RawMessage, modelcore.C
 				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is used by loft %s", ErrValidation, f.ID)
 			}
 		}
-		if f.NeutralPlaneID == id || f.AxisEntityID == "DATUM_AXIS:"+id || f.Sketch != nil && f.Sketch.Support.DatumPlaneID == id {
+		if f.TerminationPlaneID == id || f.NeutralPlaneID == id || f.AxisEntityID == "DATUM_AXIS:"+id || f.Sketch != nil && f.Sketch.Support.DatumPlaneID == id {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is used by feature %s", ErrValidation, f.ID)
 		}
 	}

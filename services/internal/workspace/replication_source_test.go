@@ -15,8 +15,10 @@ func TestReplicationToolCapabilities(t *testing.T) {
 				t.Fatal(kind, op, c)
 			}
 		}
-		if replicationSource(Feature{Type: kind, Extent: "THROUGH_ALL", Operation: "REMOVE"}).Tool {
-			t.Fatal("through-all cannot be transformed as a finite tool")
+		for _, extent := range []string{"THROUGH_ALL", "TO_PLANE", "UNKNOWN"} {
+			if replicationSource(Feature{Type: kind, Extent: extent, Operation: "REMOVE"}).Tool {
+				t.Fatal("non-finite extent exposed as generator tool", extent)
+			}
 		}
 	}
 	for _, kind := range []string{"FILLET", "CHAMFER", "SHELL", "BOOLEAN", "SOLID_PATTERN"} {

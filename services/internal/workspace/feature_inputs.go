@@ -28,6 +28,13 @@ func featureInputs(f Feature) []featureInput {
 		}
 	}
 	add("PROFILE", f.Profile, "", f.ProfileMemberSlot)
+	if f.TerminationPlaneID != "" {
+		out = append(out, featureInput{Role: "TERMINATION_PLANE", EntityKind: "PLANE", FeatureID: f.TerminationPlaneID})
+	}
+	if p := f.TerminationPlane; p != nil {
+		add("TERMINATION_PLANE", p.Selection.Anchor.FeatureID, "", nil)
+		add("STAGE", p.SourceFeatureID, "", nil)
+	}
 	for order, s := range f.Sections {
 		start := len(out)
 		if s.Point != nil {

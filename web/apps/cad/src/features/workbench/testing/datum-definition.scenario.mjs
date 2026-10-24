@@ -30,10 +30,11 @@ try {
  materials.setInteractionState(reference,"selected");const selectedColor=visible.material.color.getHex();
  materials.setInteractionState(reference,"hover"); assert.notEqual(visible.material.color.getHex(),selectedColor);assert.notEqual(contextColor,selectedColor);
  materials.setInteractionState(reference,"default");assert.equal(visible.material.opacity,.96);assert.equal(visible.material.linewidth,1.5);
- let reframed=false;
- const engine={featureSelection:undefined,preselect(){},updateSketchContextVisibility(){},applyTreeVisibility(){},refreshInteractionHighlights(){},emitDebugState(){},invalidate(){},fit(){reframed=true;}};
+ let reframed=false;const profileSessions=[];
+ const engine={featureSelection:undefined,showProfileRegions(session){profileSessions.push(session)},preselect(){},updateSketchContextVisibility(){},applyTreeVisibility(){},refreshInteractionHighlights(){},emitDebugState(){},invalidate(){},fit(){reframed=true;}};
  CadViewportEngine.prototype.setFeatureSelection.call(engine,{role:"axis",sketchIds:["sketch"],selections:[]});
  assert.equal(reframed,false,"starting a feature selection preserves camera");
+ assert.deepEqual(profileSessions,[engine.featureSelection],"selection updates the shared profile overlay lifecycle");
  const stale={bodyId:"body",geometryKey:"old",mesh:{vertices:[[0,0,0],[1,0,0],[0,1,0]],triangles:[[0,1,2]],faceIds:[1]}};
  const failedGroup=CadViewportEngine.prototype.makeFailedBody.call({materials},stale,true,{bodyId:"body",documentId:"document",occurrencePath:"",treeNodeId:"body-node"});
  assert.equal(failedGroup.children[0].material.color.getHex(),0xb86151);

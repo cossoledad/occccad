@@ -1605,6 +1605,8 @@ public:
                                       input.neutral_origin().z()};
                 pad.neutral_normal = {input.neutral_normal().x(), input.neutral_normal().y(),
                                       input.neutral_normal().z()};
+                pad.termination_origin = {input.termination_origin().x(), input.termination_origin().y(), input.termination_origin().z()};
+                pad.termination_normal = {input.termination_normal().x(), input.termination_normal().y(), input.termination_normal().z()};
                 pad.extent = input.extent();
                 pad.second_length = input.second_length();
                 pad.plane_origin = {input.plane_origin().x(), input.plane_origin().y(),

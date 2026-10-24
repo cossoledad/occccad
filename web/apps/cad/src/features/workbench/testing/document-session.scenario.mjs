@@ -83,13 +83,13 @@ try {
   Object.assign(engine, { documentSessions: sessions, camera, navigation: { target, cancel: noop, syncCamera: () => cameraSyncs++, setEnabled: noop },
     renderer: { domElement: { clientWidth: 1200, clientHeight: 600 } }, viewTransition: { cancel: noop, start: () => animations++ },
     content: new THREE.Group(), helpers: new THREE.Group(), sketchContext: new THREE.Group(), instanceGroups: new Map(),
-    solidBindings: new Map(), selectable: new Set(), assemblyConstraintReferences: new Map(), assemblyConstraintMarkers: new Map(),
+    solidBindings: new Map(), selectable: new Set(), profileRegionBindings: [], assemblyConstraintReferences: new Map(), assemblyConstraintMarkers: new Map(),
     screenStableReferences: new Map(), selectionIndex: { clear: noop }, selected: [], activeToolID: "select",
     transforms: { stopAll: noop }, moveManipulator: { detach: noop },
     clearInsertPatternPreview: noop, clearCommandPreview: noop, clearInteractionState: noop, disposeGroup: noop,
     renderPart: noop, renderProduct: noop, showMechanism: noop, updateSketchContextVisibility: noop, applyTreeVisibility: noop,
     setDatumPreview: noop, refreshContentBounds: noop, selectMany: noop, select: noop, buildSketchContext: noop,
-    emitDebugState: noop, invalidate: noop,
+    emitDebugState: noop, invalidate: noop, refreshInteractionHighlights: noop,
     frameContent: () => { throw Error("restored camera must not be fitted automatically"); },
     callbacks: { toolPromptChanged: noop, documentViewReady: (id, restoredCamera) => {
       ready++; assert.equal(id, "root"); assert.equal(restoredCamera, true);

@@ -3265,3 +3265,52 @@ TEST(GeometryExchange, IncrementalStagesResumeEditEvictAndColdNaming) {
 }
 
 } // namespace occccad::kernel
+
+namespace occccad::kernel {
+namespace {
+TEST(GeometryExchange, ToPlaneExtrudeBuildsInclinedCapsWithHolesAndStableHistory) {
+    OcctKernel kernel;
+    ProfileCurveSpec outer;outer.entity_id="outer";outer.kind="CIRCLE";outer.radius=4;
+    auto hole=outer;hole.entity_id="hole";hole.radius=2;hole.reversed=true;
+    ProfileRegionSpec annulus;annulus.id="annulus";annulus.outer={"outer-loop",{outer}};annulus.holes={{"hole-loop",{hole}}};
+    auto other=rectangular_region("other",10,-2,14,2);
+    ProfilePadSpec pad;pad.feature_id="to-plane";pad.body_id="body";pad.profile_feature_id="sketch";
+    pad.extent="TO_PLANE";pad.regions={annulus,other};pad.termination_origin={0,0,10};pad.termination_normal={-.25,0,1};
+    for(bool reversed:{false,true}) {
+        pad.reversed=reversed;pad.termination_origin.z=reversed?-10:10;
+        pad.termination_normal.x=reversed?.25:-.25;
+        const auto result=kernel.evaluateProfilePadsWithHistory({pad});
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id),120*3.14159265358979323846+16*13,1e-5);
+        const auto topology=kernel.getTopology(result.geometry_id);
+        ASSERT_EQ(result.feature_results.size(),1U);
+        const auto& feature=result.feature_results.front();EXPECT_TRUE(feature.topology_history_complete);
+        EXPECT_EQ(feature.semantic_outputs.size(),topology.face_count+topology.edge_count+topology.vertex_count);
+        unsigned caps=0,ends=0;
+        for(const auto& output:feature.semantic_outputs){
+            if(output.semantic_ref.output_slot.rfind("END_CAP/",0)==0){++caps;EXPECT_EQ(output.evidence.geometry_type,"PLANE");EXPECT_GT((reversed?-1:1)*output.evidence.direction.z,.9);}
+            if(output.semantic_ref.output_slot.rfind("END_BOUNDARY_FROM_PROFILE_EDGE/",0)==0)++ends;
+        }
+        EXPECT_EQ(caps,2U);EXPECT_GE(ends,6U);
+        const auto cold=kernel.evaluateProfilePadsWithHistory({pad});
+        EXPECT_EQ(kernel.serializeBrepr(cold.geometry_id),kernel.serializeBrepr(result.geometry_id));
+    }
+    pad.reversed=false;pad.regions={annulus};pad.termination_origin={0,0,10};pad.termination_normal={0,0,1};
+    const auto parallel=kernel.evaluateProfilePadsWithHistory({pad});
+    EXPECT_NEAR(kernel.getVolume(parallel.geometry_id),120*3.14159265358979323846,1e-5);
+    auto base=pad;base.feature_id="base";base.extent="FINITE";base.pad_length=20;base.regions={rectangular_region("stock",-8,-8,8,8)};
+    pad.body_operation="REMOVE";pad.input_feature_id="base";pad.termination_normal={-.25,0,1};
+    const auto cut=kernel.evaluateProfilePadsWithHistory({base,pad});
+    EXPECT_NEAR(kernel.getVolume(cut.geometry_id),256*20-120*3.14159265358979323846,1e-5);
+}
+
+TEST(GeometryExchange, ToPlaneRejectsInvalidDirectionAndNonPositiveRegionDistances) {
+    OcctKernel kernel;ProfilePadSpec pad;pad.feature_id="to-plane";pad.body_id="body";pad.profile_feature_id="sketch";
+    pad.extent="TO_PLANE";pad.regions={rectangular_region("region",-5,-5,5,5)};
+    for(const auto& target:std::vector<std::pair<Vec3,Vec3>>{{{0,0,10},{1,0,0}},{{0,0,-2},{0,0,1}},{{0,0,0},{0,0,1}},{{0,0,1},{-1,0,1}},{{0,0,10},{0,0,0}}}) {
+        pad.termination_origin=target.first;pad.termination_normal=target.second;
+        EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({pad}),std::exception);
+    }
+}
+
+} // namespace
+} // namespace occccad::kernel

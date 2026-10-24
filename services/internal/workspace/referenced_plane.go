@@ -7,7 +7,7 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
-// Draft and mirror share one upstream plane contract and resolver.
+// Draft, mirror and associative extrusion share one upstream plane resolver.
 func validateReferencedPlane(id string, pick *FeatureSelection, earlier map[string]Feature) error {
 	if (id == "") == (pick == nil) {
 		return fmt.Errorf("%w: one referenced plane required", ErrValidation)

@@ -68,6 +68,7 @@ func featureInputStageError(model PartModel, stage string, err error) error {
 }
 
 type FeatureInput struct {
+	TerminationPick *FeatureNeutralPick `json:"terminationPick,omitempty"`
 	NeutralPick     *FeatureNeutralPick `json:"neutralPick,omitempty"`
 	VersionID       string              `json:"versionId"`
 	SourceFeatureID string              `json:"sourceFeatureId"`
@@ -166,7 +167,8 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 	}
 	// Non-plane inputs authorize their complete declared context (including
 	// Boolean tools). The download gate separately checks the requested Body.
-	if !resolve && feature.Type != "DRAFT" && !(feature.Type == "SOLID_PATTERN" && feature.Pattern != nil && feature.Pattern.Kind == "MIRROR") {
+	planeConsumer := feature.Type == "DRAFT" || feature.Extent == "TO_PLANE" || (feature.Type == "SOLID_PATTERN" && feature.Pattern != nil && feature.Pattern.Kind == "MIRROR")
+	if !resolve && !planeConsumer {
 		request.BodyID = ""
 	}
 	if request.ResultStage {
@@ -187,7 +189,7 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 	}
 	bodyID := feature.BodyID
 	if request.BodyID != "" && request.BodyID != feature.BodyID {
-		if feature.Type != "DRAFT" && !(feature.Type == "SOLID_PATTERN" && feature.Pattern != nil && feature.Pattern.Kind == "MIRROR") {
+		if !planeConsumer {
 			return FeatureInput{}, fmt.Errorf("%w: alternate input Body requires a referenced plane", ErrValidation)
 		}
 		bodyID = request.BodyID
@@ -219,7 +221,7 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 	a.BodyID = bodyID
 	a.DisplayStageFeatureID = stage
 	result := FeatureInput{VersionID: request.VersionID, SourceFeatureID: stage, Artifact: a, Picks: []FeatureInputPick{}}
-	if !resolve && request.BodyID != "" {
+	if request.BodyID != "" && request.LocalID == 0 {
 		return result, nil
 	}
 	if request.LocalID != 0 {
@@ -257,64 +259,26 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		result.Artifacts = append(result.Artifacts, toolArtifact)
 	}
 	planePick := feature.NeutralPlane
+	planeID := feature.NeutralPlaneID
 	if feature.Pattern != nil && feature.Pattern.Kind == "MIRROR" {
 		planePick = feature.Pattern.MirrorPlane
+		planeID = feature.Pattern.MirrorPlaneID
 	}
-	if planePick != nil {
-		pick := *planePick
-		neutralKey := key
-		neutralStage := stage
-		if pick.Selection.SourceBodyID != feature.BodyID {
-			neutralStage = ""
-			prefix := *view.Part
-			prefix.Features = append([]Feature(nil), prefix.Features[:index]...)
-			for _, f := range prefix.Features {
-				if f.BodyID == pick.Selection.SourceBodyID && isBodyFeature(f.Type) && !f.Suppressed {
-					neutralStage = f.ID
-				}
-			}
-			if neutralStage == "" {
-				result.NeutralPick = &FeatureNeutralPick{FeatureInputResolution: FeatureInputResolution{Status: modelcore.SelectionMissing, DiagnosticCode: "FEATURE_INPUT_SOURCE_BODY_EMPTY", Diagnostic: "referenced Body has no solid before this feature"}, Kind: "FACE", BodyID: pick.Selection.SourceBodyID}
-			} else {
-				neutralKey, err = s.evaluateBodyPrefix(ctx, "neutral-input/"+request.VersionID+"/"+feature.ID, prefix, pick.Selection.SourceBodyID)
-				if err != nil {
-					return FeatureInput{}, featureInputStageError(prefix, neutralStage, err)
-				}
-				neutralArtifact, loadErr := s.loadArtifact(ctx, neutralKey)
-				if loadErr != nil {
-					return FeatureInput{}, loadErr
-				}
-				neutralArtifact.BodyID = pick.Selection.SourceBodyID
-				neutralArtifact.DisplayStageFeatureID = neutralStage
-				result.Artifacts = append(result.Artifacts, neutralArtifact)
-			}
+	if planePick != nil || planeID != "" {
+		state, artifacts, err := s.featurePlaneInput(ctx, request, *view.Part, index, key, stage, feature.BodyID, planeID, planePick, resolve)
+		if err != nil {
+			return FeatureInput{}, err
 		}
-		if !resolve {
-			return result, nil
+		result.NeutralPick = state
+		result.Artifacts = append(result.Artifacts, artifacts...)
+	}
+	if feature.Extent == "TO_PLANE" {
+		state, artifacts, err := s.featurePlaneInput(ctx, request, *view.Part, index, key, stage, feature.BodyID, feature.TerminationPlaneID, feature.TerminationPlane, resolve)
+		if err != nil {
+			return FeatureInput{}, err
 		}
-		if result.NeutralPick == nil {
-			resolution, resolveErr := s.resolveFeaturePick(ctx, pick, neutralKey)
-			if resolveErr != nil {
-				return FeatureInput{}, resolveErr
-			}
-			state, err := featureInputResolution(resolution, "PLANE")
-			if err != nil {
-				return FeatureInput{}, err
-			}
-			result.NeutralPick = &FeatureNeutralPick{FeatureInputResolution: state, DisplayStageFeatureID: neutralStage, Kind: "FACE", BodyID: pick.Selection.SourceBodyID, GeometryKey: neutralKey}
-			if state.Status == modelcore.SelectionResolved {
-				result.NeutralPick.LocalID = resolution.Candidates[0].LocalID
-			}
-		}
-	} else if feature.Type == "DRAFT" && feature.NeutralPlaneID != "" {
-		state := FeatureInputResolution{Status: modelcore.SelectionMissing, DiagnosticCode: "FEATURE_INPUT_DATUM_MISSING", Diagnostic: "referenced datum plane is missing"}
-		for _, plane := range view.Part.DatumPlanes {
-			if plane.ID == feature.NeutralPlaneID {
-				state = FeatureInputResolution{Status: modelcore.SelectionResolved}
-				break
-			}
-		}
-		result.NeutralPick = &FeatureNeutralPick{FeatureInputResolution: state, Kind: "PLANE"}
+		result.TerminationPick = state
+		result.Artifacts = append(result.Artifacts, artifacts...)
 	}
 	if !resolve {
 		return result, nil

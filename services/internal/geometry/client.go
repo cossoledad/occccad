@@ -70,6 +70,7 @@ type LoftSection struct {
 	SeamAngle                  float64
 }
 type ProfilePad struct {
+	TerminationOrigin, TerminationNormal                [3]float64
 	PatternResultMode                                   string
 	PatternSourceFeatureID, PatternSourceKind           string
 	PatternStartFeatureID                               string
@@ -127,6 +128,8 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 		for _, ref := range pad.Selections {
 			value.Selections = append(value.Selections, &workerv1.SemanticTopologyRef{FeatureId: ref.FeatureID, OutputSlot: ref.OutputSlot, SourceIds: ref.SourceIDs})
 		}
+		value.TerminationOrigin = &workerv1.Vec3{X: pad.TerminationOrigin[0], Y: pad.TerminationOrigin[1], Z: pad.TerminationOrigin[2]}
+		value.TerminationNormal = &workerv1.Vec3{X: pad.TerminationNormal[0], Y: pad.TerminationNormal[1], Z: pad.TerminationNormal[2]}
 		value.NeutralOrigin = &workerv1.Vec3{X: pad.NeutralOrigin[0], Y: pad.NeutralOrigin[1], Z: pad.NeutralOrigin[2]}
 		value.NeutralNormal = &workerv1.Vec3{X: pad.NeutralNormal[0], Y: pad.NeutralNormal[1], Z: pad.NeutralNormal[2]}
 		value.Extent, value.SecondLength = pad.Extent, pad.Length2

@@ -191,6 +191,7 @@ struct ProfilePadSpec {
     std::string input_feature_id;
     std::string profile_feature_id;
     std::vector<BodyToolInput> tools;
+    Vec3 termination_origin, termination_normal;
     std::string extent;
     double second_length{};
     std::vector<FeatureTopologyRef> selections;

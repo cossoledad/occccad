@@ -803,7 +803,7 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
         throw std::invalid_argument("solid feature requires at least one profile region");
     const std::string generator = spec.generator.empty() ? "LINEAR_EXTRUDE" : spec.generator;
     if (generator == "LINEAR_EXTRUDE") {
-        validate_positive(spec.pad_length, "extrude length");
+        if(spec.extent!="TO_PLANE") validate_positive(spec.pad_length, "extrude length");
     } else if (generator == "REVOLVE") {
         validate_positive(spec.revolve_angle, "revolve angle");
         if (spec.revolve_angle > 2.0 * 3.14159265358979323846 + 1.0e-12)
@@ -978,14 +978,72 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
         };
         TopoDS_Shape generated;
         if (generator == "LINEAR_EXTRUDE") {
-            gp_Vec direction(frame.normal);
-            direction.Multiply(spec.reversed ? -spec.pad_length : spec.pad_length);
+            gp_Vec direction(frame.normal);if(spec.reversed)direction.Reverse();
+            double length=spec.pad_length;
+            gp_Pln termination;
+            if(spec.extent=="TO_PLANE") {
+                for(double v : {spec.termination_origin.x,spec.termination_origin.y,spec.termination_origin.z,
+                                spec.termination_normal.x,spec.termination_normal.y,spec.termination_normal.z})
+                    if(!std::isfinite(v))throw std::invalid_argument("TO_PLANE_FRAME_INVALID");
+                gp_Vec n(spec.termination_normal.x,spec.termination_normal.y,spec.termination_normal.z);
+                if(n.Magnitude()<1e-12)throw std::invalid_argument("TO_PLANE_FRAME_INVALID");
+                termination=gp_Pln(gp_Pnt(spec.termination_origin.x,spec.termination_origin.y,spec.termination_origin.z),gp_Dir(n));
+                const double denominator=gp_Vec(termination.Axis().Direction()).Dot(direction);
+                if(std::abs(denominator)<1e-10)throw std::invalid_argument("TO_PLANE_DIRECTION_PARALLEL");
+                // Tight OCCT bounds of the exact face in the target frame bound
+                // the linear ray-plane distance over every selected region.
+                gp_Trsf to_target;to_target.SetTransformation(termination.Position());
+                BRepBuilderAPI_Transform transformed(face_builder.Face(),to_target,Standard_True);
+                Bnd_Box bounds;BRepBndLib::AddOptimal(transformed.Shape(),bounds,Standard_False,Standard_False);
+                double xmin,ymin,zmin,xmax,ymax,zmax;bounds.Get(xmin,ymin,zmin,xmax,ymax,zmax);
+                const double first=-zmin/denominator,last=-zmax/denominator;
+                const double low=std::min(first,last),high=std::max(first,last);
+                const double tolerance=std::max(1e-7,topology_linear_tolerance_meters*1000);
+                if(!std::isfinite(low)||!std::isfinite(high))throw std::invalid_argument("TO_PLANE_DISTANCE_INVALID");
+                if(high<=tolerance)throw std::invalid_argument(high < -tolerance ? "TO_PLANE_TARGET_BEHIND" : "TO_PLANE_ZERO_THICKNESS");
+                if(low<=tolerance)throw std::invalid_argument("TO_PLANE_CROSSES_PROFILE");
+                length=high+std::max(1.0,high*1e-6);
+                if(!std::isfinite(length))throw std::invalid_argument("TO_PLANE_DISTANCE_INVALID");
+            }
+            direction.Multiply(length);
             BRepPrimAPI_MakePrism prism(face_builder.Face(), direction);
             prism.Build();
             if (!prism.IsDone())
                 throw std::runtime_error("profile prism failed: " + region.id);
             generated = prism.Shape();
+            const auto first_named=result.named.size();
             name_sweep(prism);
+            if(spec.extent=="TO_PLANE") {
+                const TopoDS_Face cap=BRepBuilderAPI_MakeFace(termination).Face();
+                const gp_Pnt start=BRep_Tool::Pnt(TopExp::FirstVertex(face_edges.front()));
+                const auto half=BRepPrimAPI_MakeHalfSpace(cap,start).Solid();
+                BRepAlgoAPI_Common clip;clip.SetNonDestructive(Standard_True);
+                TopTools_ListOfShape arguments,tools;arguments.Append(generated);tools.Append(half);
+                clip.SetArguments(arguments);clip.SetTools(tools);clip.Build();
+                if(!clip.IsDone()||clip.Shape().IsNull())throw std::runtime_error("TO_PLANE_TRIM_FAILED");
+                std::vector<NamedShape> region_names(result.named.begin()+first_named,result.named.end());
+                auto named=map_named_shapes(region_names,clip,clip.Shape());
+                const SemanticTopologyRef cap_ref{spec.feature_id,"END_CAP/"+region.id,{region.id}};
+                auto caps=map_named_shapes(std::vector<NamedShape>{{cap_ref,cap}},clip,clip.Shape());
+                if(caps.empty())throw std::runtime_error("TO_PLANE_CAP_HISTORY_MISSING");
+                TopTools_IndexedMapOfShape cap_edges,cap_vertices;
+                for(const auto& face:caps){TopExp::MapShapes(face.shape,TopAbs_EDGE,cap_edges);TopExp::MapShapes(face.shape,TopAbs_VERTEX,cap_vertices);}
+                std::vector<NamedShape> ends;
+                for(const auto& source:named) {
+                    const std::string side_prefix="SIDE_FROM_PROFILE_EDGE/",vertical_prefix="VERTICAL_FROM_PROFILE_ENDPOINTS/";
+                    if(source.ref.output_slot.rfind(side_prefix,0)==0) {
+                        for(TopExp_Explorer edge(source.shape,TopAbs_EDGE);edge.More();edge.Next())if(cap_edges.Contains(edge.Current()))
+                            ends.push_back({{spec.feature_id,"END_BOUNDARY_FROM_PROFILE_EDGE/"+source.ref.output_slot.substr(side_prefix.size()),source.ref.source_ids},edge.Current()});
+                    } else if(source.ref.output_slot.rfind(vertical_prefix,0)==0) {
+                        for(TopExp_Explorer vertex(source.shape,TopAbs_VERTEX);vertex.More();vertex.Next())if(cap_vertices.Contains(vertex.Current()))
+                            ends.push_back({{spec.feature_id,"END_VERTEX_FROM_PROFILE_ENDPOINTS/"+source.ref.output_slot.substr(vertical_prefix.size()),source.ref.source_ids},vertex.Current()});
+                    }
+                }
+                named.insert(named.end(),caps.begin(),caps.end());named.insert(named.end(),ends.begin(),ends.end());
+                result.named.erase(result.named.begin()+first_named,result.named.end());
+                result.named.insert(result.named.end(),named.begin(),named.end());
+                generated=clip.Shape();
+            }
         } else {
             const gp_Pnt start = profile_point(frame, spec.axis_start);
             const gp_Pnt end = profile_point(frame, spec.axis_end);
@@ -3411,17 +3469,21 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         check_cancel();
         const auto exact_started=std::chrono::steady_clock::now();
         try {
+            if(spec.extent=="TO_PLANE") {
+                if(spec.generator!="LINEAR_EXTRUDE" && !spec.generator.empty())throw std::invalid_argument("TO_PLANE_REQUIRES_LINEAR_EXTRUDE");
+                if(spec.body_operation!="ADD" && spec.body_operation!="NEW_BODY" && spec.body_operation!="REMOVE")throw std::invalid_argument("TO_PLANE_OPERATION_UNSUPPORTED");
+            }
             const auto input_shape = result;
             const auto input_id = result_id;
             const auto input_named = live_named;
             if (range_starts.count(spec.feature_id)) {
                 if ((spec.generator != "LINEAR_EXTRUDE" && spec.generator != "REVOLVE" && spec.generator != "LOFT") ||
-                    (spec.body_operation != "ADD" && spec.body_operation != "NEW_BODY") || spec.extent == "THROUGH_ALL")
+                    (spec.body_operation != "ADD" && spec.body_operation != "NEW_BODY") || (spec.extent == "THROUGH_ALL" || spec.extent == "TO_PLANE"))
                     throw std::invalid_argument("PATTERN_RANGE_INVALID");
                 pattern_range_bases.emplace(spec.feature_id, result);
             }
             if ((spec.generator=="LINEAR_EXTRUDE" || spec.generator=="REVOLVE" || spec.generator=="LOFT") &&
-                (spec.body_operation=="ADD" || spec.body_operation=="NEW_BODY") && spec.extent!="THROUGH_ALL")
+                (spec.body_operation=="ADD" || spec.body_operation=="NEW_BODY") && spec.extent!="THROUGH_ALL" && spec.extent!="TO_PLANE")
                 pattern_range_bases.insert_or_assign(spec.feature_id,result);
             ToolBuild tool;
             const bool modifier = spec.generator == "FILLET" || spec.generator == "CHAMFER" ||
@@ -3565,7 +3627,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         const double margin = std::max(1e-5, (high - low) * 1e-6);
                         start = low - margin;
                         length = high - low + 2 * margin;
-                    } else if (!spec.extent.empty() && spec.extent != "FINITE")
+                    } else if (!spec.extent.empty() && spec.extent != "FINITE" && spec.extent != "TO_PLANE")
                         throw std::invalid_argument("INVALID_EXTRUDE_EXTENT");
                     auto origin = frame.origin.Translated(axis.Multiplied(start));
                     generator_spec.plane_origin = {origin.X(), origin.Y(), origin.Z()};
@@ -3579,9 +3641,9 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             }
             topology_history_complete = topology_history_complete && tool.topology_history_complete;
             if (required_pattern_tools.count(spec.feature_id) &&
-                (modifier || spec.generator=="SOLID_PATTERN" || spec.extent=="THROUGH_ALL" || tool.shape.IsNull()))
+                (modifier || spec.generator=="SOLID_PATTERN" || (spec.extent=="THROUGH_ALL" || spec.extent=="TO_PLANE") || tool.shape.IsNull()))
                 throw std::invalid_argument("PATTERN_INDEPENDENT_TOOL_UNAVAILABLE");
-            if (!modifier && spec.generator!="SOLID_PATTERN" && spec.generator!="BOOLEAN" && spec.extent!="THROUGH_ALL" && !tool.shape.IsNull()) {
+            if (!modifier && spec.generator!="SOLID_PATTERN" && spec.generator!="BOOLEAN" && spec.extent!="THROUGH_ALL" && spec.extent!="TO_PLANE" && !tool.shape.IsNull()) {
                 // Retain the real independently constructed tool before Body
                 // application, never the already-cut stage or the whole Body.
                 if (modifier || spec.generator == "SOLID_PATTERN" || spec.extent == "THROUGH_ALL" || tool.shape.IsNull())

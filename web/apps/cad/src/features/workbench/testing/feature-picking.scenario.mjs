@@ -63,6 +63,12 @@ try {
  const face={...edge,kind:"face"};
  assert.equal(featureSelectionHit(face,{...session,role:"plane"}),face,"draft and datum planes accept exact face picks");
  assert.equal(featureSelectionHit({...face,documentId:"foreign"},{...session,role:"plane"}),null);
+ const planeSession={...session,role:"plane",planeGeometryKeys:["input"]};
+ assert.equal(featureSelectionHit(face,planeSession),face,"termination face comes from an authorized upstream stage");
+ assert.equal(featureSelectionHit({...face,geometryKey:"downstream"},planeSession),null);
+ assert.equal(featureSelectionHit({...face,geometryKey:"display-fallback"},planeSession),null);
+ assert.equal(featureSelectionHit(face,{...planeSession,planeGeometryKeys:[]}),null,"no candidate source is not unrestricted picking");
+ assert.equal(featureSelectionHit({...face,kind:"plane",id:"datum"},{...planeSession,planeGeometryKeys:[]}).id,"datum");
  const stages=[{id:"base",type:"LINEAR_EXTRUDE",bodyId:"body"},{id:"fillet",type:"FILLET",bodyId:"body"},{id:"suppressed",type:"CHAMFER",bodyId:"body",suppressed:true}];
  assert.deepEqual(bodyStage(edge,stages),{bodyId:"body",featureId:"fillet"});
  assert.deepEqual(bodyStage({kind:"pad",id:"base",entityId:"base",bodyId:"body"},stages),{bodyId:"body",featureId:"base"});

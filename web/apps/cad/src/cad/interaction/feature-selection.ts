@@ -19,6 +19,7 @@ export type FeatureSelectionSession = {
     instancePath?: SelectionItem["instancePath"];
     bodyId?: string;
     geometryKey?:string;
+    planeGeometryKeys?:string[];
     contextVariantKey?:string;
     rootDocumentId?:string;
     sketchIds?: string[];
@@ -43,7 +44,7 @@ export function featureSelectionHit(raw: Selection, session: FeatureSelectionSes
     if (session.role === "edge" || session.role === "face")
         return (!session.geometryKey || raw.geometryKey===session.geometryKey) && raw.kind === session.role ? raw : null;
     if (session.role === "plane")
-        return raw.kind === "plane" || raw.kind === "face" ? raw : null;
+        return raw.kind === "plane" || raw.kind === "face" && (!session.planeGeometryKeys||session.planeGeometryKeys.includes(raw.geometryKey??"")) ? raw : null;
     if (session.role === "body")
         return raw.bodyId && ["face", "edge", "vertex", "body", "solid", "pad", "feature", "import"].includes(raw.kind) ? raw : null;
     if (session.role === "point") return ["axis-system","datum-point"].includes(raw.kind)||raw.kind==="visual"&&raw.visualType==="POINT"?raw:null;

@@ -1015,11 +1015,13 @@ export function Workbench() {
     }
   };
   const profileRepair = profileRegionRepairFeature(editingView);
+  const terminationRepair = editingView?.part?.features.find(f=>f.extent==="TO_PLANE"&&f.evaluationStatus==="FAILED"&&f.diagnostic?.includes("TO_PLANE"));
+  const inputRepair = profileRepair ?? terminationRepair;
   const repairProfileRegion = () => {
-    if(!profileRepair||!editingView||!canEdit||command.isPending||sketchReceipt)return;
+    if(!inputRepair||!editingView||!canEdit||command.isPending||sketchReceipt)return;
     const find=(nodes:SpecificationTreeNode[]):SpecificationTreeNode|undefined=>{
       for(const node of nodes){
-        if(node.entityId===profileRepair.id&&node.documentId===editingView.document.id&&node.presentationRole!=="INPUT_REFERENCE"&&node.capabilities?.includes("EDIT"))return node;
+        if(node.entityId===inputRepair.id&&node.documentId===editingView.document.id&&node.presentationRole!=="INPUT_REFERENCE"&&node.capabilities?.includes("EDIT"))return node;
         const child=node.children&&find(node.children);if(child)return child;
       }
     };
@@ -1660,7 +1662,7 @@ onToggleConstruction:(node)=>{
           description={(selectedNamingIssue ?? activeNamingIssue)?.diagnostic}
           action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>建立导入命名</Button> : undefined} />}
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} onDocumentDisplayed={(documentId,revisionId)=>setAssistantDisplayed({documentId,revisionId})} onSceneMetrics={globalOptions?.setMetrics} applicationDisplay={motionOpen||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
-          failureAction={profileRepair&&canEdit&&!motionDisplay ? {description:`草图已闭合，但 ${profileRepair.name??"特征"} 的原轮廓区域已失效，请重新选择。`,label:store.activeSketchID?"结束草图并修复区域":"修复轮廓区域",disabled:command.isPending||!!sketchReceipt||!!solidEditor||!!supportSketch||!!datumEditor||!!booleanDialog,onClick:repairProfileRegion}:undefined}
+          failureAction={inputRepair&&canEdit&&!motionDisplay ? {description:profileRepair?`草图已闭合，但 ${profileRepair.name??"特征"} 的原轮廓区域已失效，请重新选择。`:`${terminationRepair!.name??"特征"} 的终止平面不可用，请检查或重新选择。`,label:profileRepair?(store.activeSketchID?"结束草图并修复区域":"修复轮廓区域"):"修复终止平面",disabled:command.isPending||!!sketchReceipt||!!solidEditor||!!supportSketch||!!datumEditor||!!booleanDialog,onClick:repairProfileRegion}:undefined}
           editingView={motionDisplay?undefined:editingView} activeInstancePath={motionDisplay?undefined:activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           liveDefinitionProjection={Boolean(canEdit && editSession?.hostDocumentId===view.document.id && activeInstancePath &&
             !pinnedReferenceInPath(view.structureTree,activeInstancePath))}

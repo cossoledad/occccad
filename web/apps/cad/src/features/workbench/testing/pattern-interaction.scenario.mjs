@@ -82,7 +82,7 @@ try {
  }
  const {SketchModalInputController}=await server.ssrLoadModule("/src/cad/sketch/sketch-modal-input.ts");
  const modalEngine=Object.create(CadViewportEngine.prototype),accepted=[];
- Object.assign(modalEngine,{activeSketchID:"seed",preselect(value){this.preselected=value},updateSketchContextVisibility(){},applyTreeVisibility(){},refreshInteractionHighlights(){},emitDebugState(){},invalidate(){},clearReferenceHover(){}});
+ Object.assign(modalEngine,{activeSketchID:"seed",profileRegionBindings:[],preselect(value){this.preselected=value},updateSketchContextVisibility(){},applyTreeVisibility(){},refreshInteractionHighlights(){},emitDebugState(){},invalidate(){},clearReferenceHover(){}});
  const originRef={target:"SKETCH_ORIGIN",subElement:"POINT"};
  modalEngine.sketchModal=new SketchModalInputController({cancel(){},pointerDown(){throw Error("ordinary selection must not own reference gestures")}}, {wantsPointerPriority:()=>false},{pick:request=>{assert.equal(request.pick,"POINT");return originRef}});
  modalEngine.setFeatureSelection({...localSession,role:"point",onPick:s=>accepted.push(s)});

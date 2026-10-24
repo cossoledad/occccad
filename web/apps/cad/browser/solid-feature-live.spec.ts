@@ -649,3 +649,96 @@ test("closed sketch after boundary replacement offers explicit region repair and
  await expect(page.getByRole("button",{name:"修复轮廓区域",exact:true})).toHaveCount(0);
  await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });
+
+test("to-plane extent picks datum and upstream face, cancels and repairs a lost target",async({page},testInfo)=>{
+ page.setDefaultTimeout(15_000);
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");
+  let v=await api.createDocument("PART","To-plane viewport acceptance");const id=v.document.id;
+  const rectangle=async(x:number,y:number,w:number,h:number)=>{
+   v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const s=v.part!.features.at(-1)!.id;
+   v=await api.command(id,{type:"EDIT_SKETCH",sketchId:s,operations:[{type:"ADD_RECTANGLE",first:{x,y},second:{x:x+w,y:y+h}}]});return s;
+  };
+  let s=await rectangle(-20,-10,15,20);v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:s,generator:"LINEAR_EXTRUDE",operation:"ADD",length:10});const base=v.part!.features.at(-1)!;
+  s=await rectangle(-15,-5,5,10);v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:s,generator:"LINEAR_EXTRUDE",operation:"ADD",length:20});const tip=v.part!.features.at(-1)!;
+  v=await api.command(id,{type:"CREATE_DATUM_PLANE",name:"终止目标",origin:[0,0,10],normal:[-.2,0,1],uDirection:[1,0,.2]});const datum=v.part!.datumPlanes.at(-1)!;
+  v=await api.command(id,{type:"CREATE_BODY"});const body=v.part!.activeBodyId;
+  const sketch=await rectangle(5,-5,10,10);
+  return {id,base,tip,datum,body,sketch,version:v.document.versionId};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();
+ const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);
+ const filter=page.getByRole("textbox",{name:"筛选模型结构"});
+ const datumPick=async()=>{await filter.fill(seed.datum.name);await page.getByRole("treeitem").filter({hasText:seed.datum.name}).last().click();};
+ const create=async()=>{
+  await filter.fill("");await openCommand(page,"拉伸");const dialog=page.getByRole("dialog",{name:"创建 拉伸",exact:true});
+  await clickWorld(page,[10,0,0]);await expect(dialog.getByRole("button",{name:"区域集：已选择 1 个区域",exact:true})).toBeVisible();
+  await dialog.getByText("到平面",{exact:true}).click();await expect(dialog.getByRole("textbox",{name:"长度（mm）",exact:true})).toHaveCount(0);return dialog;
+ };
+ let dialog=await create();await datumPick();await ready(page,dialog);
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ await page.screenshot({path:testInfo.outputPath("to-plane-inclined-datum.png")});
+ await dialog.getByRole("button",{name:/取\s*消/}).click();await expect(dialog).toHaveCount(0);
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ dialog=await create();
+ await expect(async()=>{await clickWorld(page,[-18,0,10]);await expect(dialog.getByRole("button",{name:"终止平面：已选择上游实体平面",exact:true})).toBeVisible({timeout:1000})}).toPass({timeout:20_000});
+ await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const created=await current(page,seed.id),feature=created.part.features.at(-1);
+ expect(feature.extent).toBe("TO_PLANE");expect(feature.terminationPlane.sourceFeatureId).toBe(seed.tip.id);expect(feature.terminationPlane.selection.anchor.featureId).toBe(seed.base.id);
+ const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;
+ expect(volume(created)).toBeCloseTo(1000,5);
+ const failed=await page.evaluate(async seed=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");const v=await api.getDocument(seed.id);
+  const find=(n:any):any=>n.entityId===seed.base.id&&n.definitionDigest?n:n.children?.map(find).find(Boolean);
+  return api.command(seed.id,{type:"SET_FEATURE_SUPPRESSION",targetId:seed.base.id,expectedFeatureDigest:find(v.structureTree).definitionDigest,suppressed:true});
+ },seed);
+ expect(failed.part!.features.find((f:any)=>f.id===feature.id).evaluationStatus).toBe("FAILED");
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"修复终止平面",exact:true}).click();
+ dialog=page.getByRole("dialog",{name:"编辑 拉伸",exact:true});await expect(dialog.getByText("终止平面需要修复",{exact:true})).toBeVisible();await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
+ await dialog.getByRole("button",{name:/终止平面：/}).click();
+ await expect(async()=>{await clickWorld(page,[-12,0,20]);await expect(dialog.getByRole("button",{name:"终止平面：已选择上游实体平面",exact:true})).toBeVisible({timeout:1000})}).toPass({timeout:20_000});
+ await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(failed.document.versionId);
+ await page.screenshot({path:testInfo.outputPath("to-plane-face-repair.png")});
+ await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const repaired=await current(page,seed.id),result=repaired.part.features.find((f:any)=>f.id===feature.id);
+ expect(result).toMatchObject({id:feature.id,name:feature.name,bodyId:feature.bodyId,order:feature.order,profileSelection:feature.profileSelection});
+ expect(result.terminationPlane.sourceVersionId).toBe(failed.document.versionId);expect(result.terminationPlane.sourceFeatureId).toBe(seed.tip.id);expect(result.evaluationStatus).toBeFalsy();expect(volume(repaired)).toBeCloseTo(2000,5);
+ await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===feature.id).evaluationStatus).toBe("FAILED")).toPass();
+ await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect(volume(await current(page,seed.id))).toBeCloseTo(2000,5)).toPass();
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();await filter.fill(feature.name);await page.getByRole("treeitem").filter({hasText:feature.name}).first().dblclick();
+ dialog=page.getByRole("dialog",{name:"编辑 拉伸",exact:true});await ready(page,dialog);
+ await dialog.getByRole("button",{name:/终止平面：/}).click();await datumPick();await ready(page,dialog);
+ await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const inclined=await current(page,seed.id);expect(volume(inclined)).toBeCloseTo(1200,5);expect(inclined.part.features.find((f:any)=>f.id===feature.id).terminationPlaneId).toBe(seed.datum.id);
+ expect(errors).toEqual([]);
+});
+
+test("to-plane cut selects a hole region and reverse datum termination",async({page},testInfo)=>{
+ page.setDefaultTimeout(15_000);
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.createDocument("PART","To-plane cut acceptance");const id=v.document.id;
+  v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const base=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:base,operations:[{type:"ADD_RECTANGLE",first:{x:-10,y:-10},second:{x:10,y:10}}]});
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:base,generator:"LINEAR_EXTRUDE",operation:"ADD",length:30});const body=v.part!.activeBodyId;
+  v=await api.command(id,{type:"CREATE_DATUM_PLANE",name:"切除起始面",origin:[0,0,30],normal:[0,0,1],uDirection:[1,0,0]});const start=v.part!.datumPlanes.at(-1)!;
+  v=await api.command(id,{type:"CREATE_DATUM_PLANE",name:"切除终止面",origin:[0,0,20],normal:[-.25,0,1],uDirection:[1,0,.25]});const end=v.part!.datumPlanes.at(-1)!;
+  v=await api.command(id,{type:"CREATE_SKETCH",datumPlaneId:start.id});const sketch=v.part!.features.at(-1)!.id;
+  const circle=(id:string,r:number)=>({type:"ADD_ENTITY",entity:{id,kind:"CIRCLE",role:"PROFILE",center:{x:0,y:0},radius:r}});
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch,operations:[circle("outer",4),circle("hole",2)]});return {id,body,end,version:v.document.versionId};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();
+ const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);await openCommand(page,"切除");
+ const dialog=page.getByRole("dialog",{name:"创建 拉伸",exact:true});await clickWorld(page,[3,0,30]);await expect(dialog.getByRole("button",{name:"区域集：已选择 1 个区域",exact:true})).toBeVisible();
+ await dialog.getByText("到平面",{exact:true}).click();await page.getByRole("textbox",{name:"筛选模型结构"}).fill(seed.end.name);await page.getByRole("treeitem").filter({hasText:seed.end.name}).last().click();
+ const reversed=dialog.getByRole("switch",{name:"反向",exact:true});if(!await reversed.isChecked())await reversed.click();
+ await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("to-plane-reverse-cut-hole.png")});
+ await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const v=await current(page,seed.id),feature=v.part.features.at(-1);expect(feature).toMatchObject({extent:"TO_PLANE",operation:"REMOVE",reversed:true,terminationPlaneId:seed.end.id});
+ expect(v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume).toBeCloseTo(12000-120*Math.PI,5);
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
+});

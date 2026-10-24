@@ -7,7 +7,7 @@
 实体生成、跨 Body 组合、局部修改复用 Part Feature、参数、ChangeSet、CAS、补偿历史和每 Body 的 BREP/Visual/Naming 制品。它们采用不同的 OCCT 算法，不把局部修改伪装成草图拉伸。
 
 - 拉伸／切除和旋转支持[整草图或显式区域集合](part-sketch.md#显式轮廓区域)，定义、拾取、失效修复和验证边界由该主题统一说明。
-- 拉伸：有限长度、双侧独立长度、对称总长、贯穿切除。贯穿根据当前 Feature 上游输入的包围范围计算，不持久化一个任意的大长度。
+- 拉伸：有限长度、双侧独立长度、对称总长、贯穿切除，以及单方向[到平面](#到平面关联终止)。贯穿根据当前 Feature 上游输入的包围范围计算，不持久化一个任意的大长度。
 - 旋转：稳定轴引用、角度、反向及真实扫掠 Naming；轴与轮廓边界重合时，只保留最终扫掠拓扑中的实际成员，不把 OCCT 的轴上辅助点或边写为悬空输出。长度、第二长度和角度使用既有 Quantity/表达式参数。
 - Boolean：同一 Part 的并、差、交；并/差允许最多 32 个不同工具 Body，交集只允许一个。工具定义保存 `bodyId + featureId`，只读取该明确阶段。编辑可更换目标和工具。工具 BREP 和 Naming 必须属于同一个不可变快照。
 - 圆角：常量半径与持久边选择，按稳定语义对边集排序。凸全平面实体上，共享支撑面、被一条倒角边隔开的两条正交直边，使用原始支撑面构造恒半径圆柱及角区裁剪，允许半径超过小倒角尺寸；圆柱周期缝放在保留圆弧之外，避免斜向实体产生额外显示边。构造来源与每步 Boolean 的真实历史合成后进入同一命名门禁。其他情况使用通用 OCCT 圆角；同时构造失败时，按稳定语义顺序逐步构造并合成 OCCT 历史，已被相邻圆角消耗的边以实际删除历史识别。倒角：等距距离与持久边选择。局部修改复制上游精确几何，避免内核构造修改不可变阶段。
@@ -19,13 +19,25 @@
 
 `Body` 身份不随材料连通性改变。Boolean 默认消耗工具的最终输出，`keepTools` 可保留它；定义、制品和历史始终保留。派生 `consumed` 与 `visible` 独立，视口/拾取、Product 展开和 STEP 导出遵循输出状态。抑制 Boolean 恢复工具输出。
 
+## 到平面关联终止
+
+单方向直线拉伸／切除的 `TO_PLANE` 目标为标准/自定义基准面，或同 Part 合法上游实体平面的无限延伸支撑平面，包含已有跨 Body 场景。显式区域集合、外环和孔沿用精确 Profile Builder；目标不受有限面的边界限制。定义保存 `terminationPlaneId` 或 `terminationPlane`（PersistentSelection、来源 Revision、Body 与实际来源阶段），不以语义 Anchor 代替阶段，也不保存一次测得的长度作为终止条件。
+
+每次求值从当前合法上游前缀解析目标框架；Proto/Worker 接收当前精确平面，OCCT 以棱柱和支撑半空间求交形成平行或倾斜端面。每个选中区域的所有点沿指定方向都须有正终止距离；平行、反向、穿过起始轮廓、零厚度或无效结果明确失败。端面、侧面与边/点使用真实生成及裁剪历史进入原 Naming 门禁。目标移动或旋转进入依赖和缓存，删除、循环及非平面目标由权威校验拒绝。
+
+面板明确显示“到平面”，可拾取和重选基准面/实体平面。失效目标保留原定义及解析状态，失败提示提供“修复终止平面”入口；候选来自当前特征之前的合法阶段，不能绑定下游或 displayFallback。显式修复须解析全部必需输入，沿原 Preview/EDIT_FEATURE、ChangeSet 与历史提交，保持 Feature ID、名称、Body 和位置。合法上游变化可留下可检查的 FAILED/BLOCKED；服务、权限、制品错误继续返回实际错误。圆边变为椭圆等几何类型变化仍按现有引用合同要求明确重选。
+
+`GENERATOR_TOOL` 和 `FEATURE_DELTA` 不接受此终止模式，线性/圆周阵列及镜像共用此能力限制。`BODY_STAGE` 仍可刚体复制已经求值的实体阶段，不在每个成员位置重新终止。未包含到下一面、有限面边界、任意曲面、双向关联、终止偏移。
+
+定向入口：`services/internal/control/to_plane_integration_test.go` 的真实 Router/Worker 生命周期、目标失效与修复、历史/冷重建；`GeometryExchange.ToPlane*` 的精确体积、内孔、多区域、正反方向、Naming 与非法距离；`solid-feature-live.spec.ts` 的 `to-plane` 实际拾取和修复。执行证据限当前 SQLite、Release OCCT 7.9.1 与 Chromium/SwiftShader；不代表全量参数组合或 PostgreSQL/实机验收。
+
 ## 参数化阵列
 
 `CREATE_PATTERN` 创建 `SOLID_PATTERN` 或 `SKETCH_PATTERN`；编辑、预览、抑制、删除、补偿历史和 per-Body 制品沿用 Feature 链。共同定义为稳定源引用、`PatternDefinition` 分布及逻辑槽位；控制面只计算刚体变换，三类几何分别求值。长度、角度、相位、数量使用既有 Quantity、ParameterID 和 checkedAST，不由浏览器逐成员发命令。
 
 数量包含槽位 0，求值后必须是 1–256 的整数。线性支持固定步距和总跨度；圆周另支持整圆均布（步角为 360/N，不生成重复终点）。数量为 1 不除以零。跳过成员不重新编号；暂时超出当前数量的跳过槽位保留，恢复数量后仍跳过。成员身份来自 PatternId、槽位、源身份；位置和显示顺序不参与身份。成员消失后的下游引用明确失败，不按相近几何改绑。
 
-- `GENERATOR_TOOL` 复用同 Body 明确上游拉伸/旋转/放样生成工具。切除阵列变换切削工具，再与当前上游 Body 做差，不复制已经打孔的主体。有限、对称、双侧拉伸及有限旋转可复用；贯穿及其他逐位置重新求值不支持。
+- `GENERATOR_TOOL` 复用同 Body 明确上游拉伸/旋转/放样生成工具。切除阵列变换切削工具，再与当前上游 Body 做差，不复制已经打孔的主体。有限、对称、双侧拉伸及有限旋转可复用；贯穿、到平面及其他逐位置重新求值不支持。
 - `FEATURE_DELTA` 明确保存 `startFeatureId` 与结束 `source.featureId`，复制起始步骤之前的 Body 与结束步骤之间的新增材料。范围限同 Body 的添加型拉伸/旋转及其后的圆角、倒角；通过现有非破坏布尔差集提取，检查结束阶段没有删除基线材料，再复用刚体变换与 Boolean/Naming。范围不是任意特征组重执行，起止引用均进入依赖与删除保护。面板分别选择起始生成特征和结束步骤。
 - `BODY_STAGE` 复用指定上游实体阶段。`COMBINE` 使用现有布尔；添加材料可选择 `INDEPENDENT`，在同一 Body 保留独立 Solid，不按数量创建 Body/Part。槽位 0 是已存在的上游种子，不能跳过或由阵列相位搬移；实体阵列的相位应设在种子参数上。草图和空间草图阵列可直接设置相位、跳过槽位 0。
 - `SKETCH_FRAME` 复用已求值二维草图与变换后框架，正式 Profile 引用保存阵列 FeatureId 和 `profileMemberSlot`；放样截面分别保存 `memberSlot`。同一阵列的多个成员可作为不同截面，不新增三维草图求解器或文档。每个槽位在树与同一 GLB 快照中拥有独立的关联草图身份和显示组；视图区或树选择成员后，下游命令写入明确槽位，不能把整个阵列当作单个轮廓。源 EntityId 保留在成员命名空间内，供截面接缝引用。
@@ -42,7 +54,7 @@
 
 依赖连接上游 Feature 输出，而不连接 Body 的未来最终结果。局部修改先重建自身之前的 Body 前缀，再以保存的 source Revision、Body 和 PersistentSelection 解析当前输入。缺失、歧义或类型变化必须失败，不能用最近几何或持久化 local ID 恢复。显示层的 local pick 只用于创建正式持久选择。
 
-生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 为 `part-solid-generators-v37-shell-circular-corners`，Naming policy 继续为 v6；缓存包含版本和完整来源历史。
+生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 为 `part-solid-generators-v38-to-plane`，Naming policy 继续为 v6；缓存包含版本和完整来源历史。
 
 精确边的直线识别由同一个内核判定供类型查询、方向属性与 Naming evidence 使用。非周期 B-spline 在实际裁剪参数区间内，正权控制点全部落在端点直线的 `Precision::Confusion()`（1e-7 mm）容差内，且沿直线单调排列时，识别为 `LINE`；不依据显示折线或有限采样。原 BREP 和真实 History 保留，属性同时报告 `underlyingCurveType=BSPLINE_CURVE` 与原生参数。选择 evidence 使用解析直线原点、单位方向和端点距离参数，现有轴/方向解析及外部几何投影消费同一证据，不能把 0–1 的样条参数当作毫米。弯曲、回折或周期样条保守保留曲线类型。evaluator 版本进入缓存键；旧制品须经正常特征编辑/重新求值生成新的成套 Naming/Visual，再选择其边。
 

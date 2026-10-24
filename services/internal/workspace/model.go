@@ -463,6 +463,8 @@ type ProfileRegionSelection struct {
 }
 
 type Feature struct {
+	TerminationPlaneID string                  `json:"terminationPlaneId,omitempty"`
+	TerminationPlane   *FeatureSelection       `json:"terminationPlane,omitempty"`
 	ProfileSelection   *ProfileRegionSelection `json:"profileSelection,omitempty"`
 	Pattern            *FeaturePattern         `json:"pattern,omitempty"`
 	ProfileMemberSlot  *int                    `json:"profileMemberSlot,omitempty"`
@@ -1161,6 +1163,8 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	TerminationPlaneID        string                       `json:"terminationPlaneId,omitempty"`
+	TerminationPlane          *FeatureSelection            `json:"terminationPlane,omitempty"`
 	ExpectedHead              *CommandBaseline             `json:"expectedHead,omitempty"`
 	Properties                *PropertyUpdateRequest       `json:"properties,omitempty"`
 	Color                     string                       `json:"color,omitempty"`

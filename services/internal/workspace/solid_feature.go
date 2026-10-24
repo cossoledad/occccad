@@ -22,6 +22,20 @@ func isBodyFeature(kind string) bool {
 }
 
 func validateSolidStage(f Feature, earlier map[string]Feature) error {
+	if f.Extent == "TO_PLANE" {
+		if (f.Type != "PAD" && f.Type != "LINEAR_EXTRUDE") || (f.Operation != "ADD" && f.Operation != "REMOVE" && f.Operation != "NEW_BODY") {
+			return fmt.Errorf("%w: TO_PLANE requires a single-direction linear extrude or cut", ErrValidation)
+		}
+		if err := validateReferencedPlane(f.TerminationPlaneID, f.TerminationPlane, earlier); err != nil {
+			return err
+		}
+		if f.TerminationPlane != nil && f.TerminationPlane.SourceFeatureID == "" {
+			return fmt.Errorf("%w: termination plane requires a source stage", ErrValidation)
+		}
+	} else if f.TerminationPlaneID != "" || f.TerminationPlane != nil {
+		return fmt.Errorf("%w: termination target requires TO_PLANE extent", ErrValidation)
+	}
+
 	if err := validateProfileRegionSelection(f); err != nil {
 		return err
 	}
@@ -63,7 +77,7 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 		}
 	}
 	if isSolidGenerator(f.Type) {
-		if f.Extent != "" && f.Extent != "FINITE" && f.Extent != "SYMMETRIC" && f.Extent != "TWO_SIDED" && f.Extent != "THROUGH_ALL" {
+		if f.Extent != "" && f.Extent != "FINITE" && f.Extent != "SYMMETRIC" && f.Extent != "TWO_SIDED" && f.Extent != "THROUGH_ALL" && f.Extent != "TO_PLANE" {
 			return fmt.Errorf("%w: invalid extrude extent", ErrValidation)
 		}
 		if f.Extent == "THROUGH_ALL" && (f.Type == "REVOLVE" || f.Operation != "REMOVE") {

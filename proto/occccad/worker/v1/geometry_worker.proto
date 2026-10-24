@@ -585,7 +585,7 @@ message ProfilePadSpec {
     string input_feature_id = 16;
     string profile_feature_id = 17;
     repeated BodyToolInput tools = 18;
-    string extent = 19; // FINITE | TWO_SIDED | SYMMETRIC | THROUGH_ALL (REMOVE only)
+    string extent = 19; // FINITE | TWO_SIDED | SYMMETRIC | THROUGH_ALL (REMOVE only) | TO_PLANE
     double second_length = 20;
     repeated SemanticTopologyRef selections = 21;
     Vec3 neutral_origin = 22;
@@ -597,6 +597,9 @@ message ProfilePadSpec {
     repeated PatternPlacement pattern_placements = 28;
     string pattern_result_mode = 29; // COMBINE | INDEPENDENT
     string pattern_start_feature_id = 30; // FEATURE_DELTA inclusive start; source is inclusive end.
+    // Resolved infinite support plane in Part coordinates, for TO_PLANE only.
+    Vec3 termination_origin = 31;
+    Vec3 termination_normal = 32;
 }
 
 message PatternPlacement {

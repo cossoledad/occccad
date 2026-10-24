@@ -111,6 +111,12 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 					return err
 				}
 				for _, feature := range model.Features {
+					if feature.ID == edit.FeatureID && feature.Extent == "TO_PLANE" && !feature.Suppressed {
+						if _, _, err := service.resolveReferencedPlane(ctx, prepared.requestID+"/validate-termination", model, feature.ID, feature.TerminationPlaneID, feature.TerminationPlane); err != nil {
+							return err
+						}
+					}
+
 					if feature.ID == edit.FeatureID && isSolidGenerator(feature.Type) && feature.ProfileSelection != nil && feature.ProfileSelection.Mode == "REGIONS" && !feature.Suppressed {
 						if _, _, err := service.featureProfileRegions(ctx, model, feature, prepared.requestID+"/validate-profile"); err != nil {
 							return err
@@ -129,7 +135,7 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 			finishGeometry()
 			if err != nil {
 				var failed *solidEvaluationFailure
-				if !errors.As(err, &failed) || (prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetFeatureSuppression && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch) {
+				if !errors.As(err, &failed) || (prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetFeatureSuppression && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch && prepared.command.TypeURI != typeEditDatum) {
 					return err
 				}
 				revisionState, evaluationStatus = "FAILED", "FAILED"

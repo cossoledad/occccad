@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v37-shell-circular-corners"
+const evaluatorVersion = "part-solid-generators-v38-to-plane"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1886,8 +1886,19 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 					return "", fmt.Errorf("%w: FAILED_SUPPORT: sketch %s support frame is unavailable", ErrValidation, sketch.ID)
 				}
 			}
+			var endOrigin, endNormal [3]float64
+			if feature.Extent == "TO_PLANE" {
+				endOrigin, endNormal, err = service.resolveReferencedPlane(ctx, reqID, fullModel, feature.ID, feature.TerminationPlaneID, feature.TerminationPlane)
+				if err != nil {
+					if !errors.Is(err, ErrValidation) {
+						return "", err
+					}
+					return "", fmt.Errorf("FEATURE_FAILED[%s]: TO_PLANE_TARGET_UNRESOLVED: %w", feature.ID, err)
+				}
+			}
 			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID,
 				InputFeatureID: bodyTipFeatureID, ProfileFeatureID: sketch.ID,
+				TerminationOrigin: endOrigin, TerminationNormal: endNormal,
 				Regions: regions, Length: feature.Length, Extent: feature.Extent, Length2: feature.Length2,
 				Plane: plane, BodyOperation: operation, Generator: generator, RevolveAngle: angle,
 				AxisStart: axisStart, AxisEnd: axisEnd, Reversed: feature.Reversed,
