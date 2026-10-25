@@ -296,6 +296,7 @@ private:
         std::unordered_set<std::string> seen_constraint_ids;
         std::unordered_set<std::string> whole_fixed_entities;
         std::vector<std::string> proven_redundant_ids;
+        std::vector<std::pair<GCS::Point*,GCS::Point*>> angular_coincidences;
         for (const auto& constraint : model.constraints)
             if (constraint.kind == ConstraintKind::fixed && constraint.references.size() == 1U &&
                 constraint.references[0].target == GeometryTarget::entity &&
@@ -397,7 +398,7 @@ private:
                     constraint, tag, point_indices, line_indices, circle_indices, arc_indices,
                     spline_indices, points, lines, circles, arcs, splines, ellipses,
                     elliptical_arcs, ellipse_indices, elliptical_arc_indices, dimension_ellipses,
-                    curve_parameters, origin, x_axis, y_axis, model, constant, system);
+                    curve_parameters, origin, x_axis, y_axis, model, constant, system, angular_coincidences);
                 if (!error.empty())
                     return invalid(error);
                 ++tag;
@@ -594,6 +595,13 @@ private:
                 if (!std::isfinite(error) || std::abs(error) > residual_limit)
                     return failed("accepted PlaneGCS solution exceeds native residual policy");
             }
+            // Keep the geometric Coincident residual gate even when a proven
+            // same-support relation compiled to a single angular equation.
+            for (const auto& [first,second] : angular_coincidences) {
+                const double gap=std::hypot(*first->x-*second->x,*first->y-*second->y);
+                if (!std::isfinite(gap) || gap>residual_limit)
+                    return failed("accepted coincidence exceeds native geometric residual policy");
+            }
             for (const auto& parameter : curve_parameters) {
                 const double lo = std::min(*parameter.start, *parameter.end);
                 const double hi = std::max(*parameter.start, *parameter.end);
@@ -765,7 +773,8 @@ private:
         std::vector<EllipticalArcState>& elliptical_arcs, const Index& ellipse_i,
         const Index& elliptical_arc_i, std::deque<GCS::Ellipse>& dimension_ellipses,
         std::deque<CurveParameter>& curve_parameters, GCS::Point& origin, GCS::Line& x_axis,
-        GCS::Line& y_axis, const SketchModel& model, Constant&& constant, GCS::System& system) {
+        GCS::Line& y_axis, const SketchModel& model, Constant&& constant, GCS::System& system,
+        std::vector<std::pair<GCS::Point*,GCS::Point*>>& angular_coincidences) {
         const auto count = [&c](std::size_t expected) { return c.references.size() == expected; };
         if (c.kind == ConstraintKind::same_support) {
             if (!count(2) || c.references[0].target != GeometryTarget::entity ||
@@ -1063,6 +1072,42 @@ private:
                                     elliptical_arcs, ellipse_i, elliptical_arc_i, origin);
             if (!a || !b)
                 return "coincident contains an invalid point reference";
+            // Exact SAME_SUPPORT arcs already share center and radius. Their
+            // endpoint coincidence has one independent angular equation; two
+            // Cartesian equations duplicate an intrinsic ArcRule and destabilize
+            // native rank reduction when a split arc's size changes.
+            const auto angle = [&](const GeometryRef& ref) -> double* {
+                if (ref.target!=GeometryTarget::entity) return nullptr;
+                const auto i=arc_i.find(ref.entity_id);
+                if (i==arc_i.end()) return nullptr;
+                if (ref.sub_element==SubElement::start) return arcs[i->second].arc.startAngle;
+                if (ref.sub_element==SubElement::end) return arcs[i->second].arc.endAngle;
+                return nullptr;
+            };
+            auto* first_angle=angle(c.references[0]);
+            auto* second_angle=angle(c.references[1]);
+            if (first_angle && second_angle && c.references[0].entity_id!=c.references[1].entity_id) {
+                std::unordered_set<std::string> supports{c.references[0].entity_id};
+                for (bool changed=true;changed;) {
+                    changed=false;
+                    for (const auto& relation:model.constraints) {
+                        if (relation.kind!=ConstraintKind::same_support || relation.references.size()!=2U) continue;
+                        const auto& x=relation.references[0];const auto& y=relation.references[1];
+                        if (x.target!=GeometryTarget::entity || y.target!=GeometryTarget::entity ||
+                            x.sub_element!=SubElement::whole || y.sub_element!=SubElement::whole) continue;
+                        if (supports.count(x.entity_id)!=supports.count(y.entity_id)) {
+                            supports.insert(x.entity_id);supports.insert(y.entity_id);changed=true;
+                        }
+                    }
+                }
+                if (supports.count(c.references[1].entity_id)) {
+                    const double period=2*std::acos(-1.0);
+                    const double turn=std::round((*second_angle-*first_angle)/period)*period;
+                    system.addConstraintDifference(first_angle,second_angle,constant(turn),tag);
+                    angular_coincidences.emplace_back(a,b);
+                    return {};
+                }
+            }
             system.addConstraintP2PCoincident(*a, *b, tag);
             return {};
         }

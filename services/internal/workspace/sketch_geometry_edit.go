@@ -129,6 +129,7 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 		return nil
 	}
 	if op.Type == "DELETE_ENTITIES" {
+		connections := sketchCoincidencesAfterDeletion(sketch, selected, detached)
 		kept := sketch.Entities[:0]
 		for _, e := range sketch.Entities {
 			if !selected[e.ID] {
@@ -153,7 +154,7 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 				constraints = append(constraints, c)
 			}
 		}
-		sketch.Constraints = constraints
+		sketch.Constraints = append(constraints, connections...)
 		return nil
 	}
 	if op.OperationID == "" {

@@ -25,6 +25,7 @@ try {
  const {cornerClickIntent}=await server.ssrLoadModule('/src/cad/tool/sketch-direct-input.ts');
  const {resolveSketchReference}=await server.ssrLoadModule('/src/cad/interaction/sketch-reference-pick.ts');
  const {measureSketchDimension}=await server.ssrLoadModule('/src/cad/sketch/sketch-constraint-layout.ts');
+ const {dimensionDefinitionOperation,SketchDimensionCommitSession}=await server.ssrLoadModule('/src/cad/sketch/sketch-dimension-editor.tsx');
  const {sketchEntityPoint}=await server.ssrLoadModule('/src/cad/sketch/sketch-geometry.ts');
  const {useWorkbenchStore}=await server.ssrLoadModule('/src/state/workbench-store.ts');
  const {defaultSketchToolMode}=await server.ssrLoadModule('/src/cad/sketch/sketch-inline-parameter-input.tsx');
@@ -33,7 +34,7 @@ try {
  const featureId=view.part.features.find(f=>f.type==='SKETCH').id;
  useWorkbenchStore.getState().beginSketch(featureId,"XY");
  const sketch=()=>view.part.features.find(f=>f.id===featureId).sketch;
- let fakeSubmit;let selected=[],source='selection',state,snap,pending=0,finished=0,browseClicks=0,unit='mm';const trace=[];
+ let dimensionDraft;let dimensionCounter=0;let fakeSubmit;let selected=[],source='selection',state,snap,pending=0,finished=0,browseClicks=0,unit='mm';const trace=[];
  const visual=id=>({kind:'visual',visualType:'CURVE',id,entityId:id,featureId,ownerDocumentId:view.document.id,versionId:view.document.versionId});
  const project=p=>({x:p[0]*4+100,y:p[1]*4+100});
  const world=(x,y)=>[(x-100)/4,(y-100)/4];
@@ -48,6 +49,7 @@ try {
  setToolPrompt:prompt=>trace.push({type:'prompt',prompt}),showPolylinePreview:points=>trace.push({type:'polyline',points}),showReferenceDimensions:values=>trace.push({type:'dimensions',values}),
  showPointPreview:point=>trace.push({type:'point',point}),showReferencePreview:(ref,refs)=>trace.push({type:'references',ref,refs}),showConstraintPreview:(kind,refs,value,pos)=>trace.push({type:'dimension',kind,refs,value,pos}),
  showSketchEntityPreview:entities=>trace.push({type:'geometry-preview',entities}),showSketchEditCandidate:candidate=>trace.push({type:'edit-preview',candidate}),clearToolPreview:()=>trace.push({type:'clear-preview'}),clearReferencePreview:()=>trace.push({type:'clear-reference'}),
+ requestDimensionCreation:(kind,references,value,unit,position)=>{dimensionDraft={id:'replay-dimension-'+(++dimensionCounter),kind,references:structuredClone(references),value,unit,labelPosition:{x:position[0],y:position[1]}};trace.push({type:'dimension-editor',constraint:dimensionDraft});},
  measureDimension:(kind,refs)=>measureSketchDimension(kind,refs,visible()),beginDimensionDrag:()=>false,cancelDimensionDrag:()=>{},
  finishToolUse:exit=>{finished++;if(exit)useWorkbenchStore.getState().setActiveTool("select","once");else useWorkbenchStore.getState().completeToolUse();if(manager.activeToolID!==useWorkbenchStore.getState().activeToolID)manager.activate(useWorkbenchStore.getState().activeToolID,"result");},
  commitSketchOperations:(operations,intent)=>{const frozen=structuredClone(operations);trace.push({type:'commit',operations:frozen,intent});pending++;return (live?request({kind:'operation',featureId,operations:frozen,intent}):fakeSubmit?fakeSubmit():Promise.resolve({...view,document:{...view.document,versionId:'v'+(finished+2)}})).then(updated=>{view=updated;source='result';return updated;}).finally(()=>pending--);},
@@ -60,6 +62,13 @@ try {
  const key=(value,type='keydown')=>{const e=new Event(type,{cancelable:true});Object.assign(e,{key:value,code:value,repeat:false,isComposing:false,ctrlKey:false,metaKey:false,shiftKey:false,altKey:false});Object.defineProperty(e,'target',{value:surface});window.dispatchEvent(e);};
  const start=(id,continuous=false)=>{useWorkbenchStore.getState().setActiveTool('select','once');manager.activate('select','result');selected=[];source='result';useWorkbenchStore.getState().setActiveTool(id,defaultSketchToolMode(id,continuous));manager.activate(id);};
  const settle=async()=>{for(let i=0;i<10000;i++){await new Promise(r=>setTimeout(r,2));if(!pending){await new Promise(r=>setImmediate(r));return;}}throw new Error('submission did not complete');};
+ const confirmDimension=async expression=>{
+  assert(dimensionDraft,'linear placement must hand off to the shared dimension editor');
+  const operation=dimensionDefinitionOperation(dimensionDraft,undefined,expression,'','',false,'ORIGINAL',unit);
+  await port.previewSketchOperations([operation],new AbortController().signal);
+  await new SketchDimensionCommitSession().submit([operation],view.document.versionId,(ops,intent)=>port.commitSketchOperations(ops,intent));
+  dimensionDraft=undefined;
+ };
  const midpoint=e=>[(e.start.x+e.end.x)/2,(e.start.y+e.end.y)/2];
  if(!live){
   assert(cornerClickIntent([{id:'edge',kind:'LINE',role:'PROFILE',start:{x:10,y:0},end:{x:30,y:0}},{id:'arc',kind:'ARC',role:'PROFILE',center:{x:0,y:0},radius:10,endAngle:Math.PI/2}],[[20,0],[7,7]]),'zero omitted arc start is still a real shared endpoint');
@@ -93,8 +102,8 @@ try {
   }
   assert.equal(visible().filter(e=>e.role==='PROFILE'&&e.kind==='ARC').length,4);
   for(const rounded of visible().filter(e=>e.role==='PROFILE'&&e.kind==='ARC')){assert(Math.abs(rounded.radius-5)<1e-6);assert(Math.abs(Math.abs((rounded.endAngle??0)-(rounded.startAngle??0))-Math.PI/2)<1e-6);}
-  start('sketch.dimension.linear');const longLines=visible().filter(e=>e.role==='PROFILE'&&e.kind==='LINE'&&Math.abs(e.end.y-e.start.y)<1e-6).sort((a,b)=>midpoint(a)[1]-midpoint(b)[1]);click(midpoint(longLines[0]));assert.equal(state.completion.label,'锁定长度');click([midpoint(longLines[0])[0],midpoint(longLines[0])[1]-12]);assert(state.input);manager.commandAction({type:'field',index:0,value:'80 mm'});key('Enter');await settle();
-  start('sketch.dimension.linear');const parallels=visible().filter(e=>e.role==='PROFILE'&&e.kind==='LINE'&&Math.abs(e.end.y-e.start.y)<1e-5).sort((a,b)=>midpoint(a)[1]-midpoint(b)[1]);click(midpoint(parallels[0]));click(midpoint(parallels.at(-1)));assert.equal(state.phase,'placement');assert.equal(state.references.length,2);click([Math.max(...parallels.map(e=>Math.max(e.start.x,e.end.x)))+18,midpoint(parallels[0])[1]]);manager.commandAction({type:'field',index:0,value:'50 mm'});key('Enter');await settle();
+  start('sketch.dimension.linear');const longLines=visible().filter(e=>e.role==='PROFILE'&&e.kind==='LINE'&&Math.abs(e.end.y-e.start.y)<1e-6).sort((a,b)=>midpoint(a)[1]-midpoint(b)[1]);click(midpoint(longLines[0]));assert.equal(state.completion.label,'锁定长度');click([midpoint(longLines[0])[0],midpoint(longLines[0])[1]-12]);await confirmDimension('80 mm');await settle();
+  start('sketch.dimension.linear');const parallels=visible().filter(e=>e.role==='PROFILE'&&e.kind==='LINE'&&Math.abs(e.end.y-e.start.y)<1e-5).sort((a,b)=>midpoint(a)[1]-midpoint(b)[1]);click(midpoint(parallels[0]));click(midpoint(parallels.at(-1)));assert.equal(state.phase,'placement');assert.equal(state.references.length,2);click([Math.max(...parallels.map(e=>Math.max(e.start.x,e.end.x)))+18,midpoint(parallels[0])[1]]);await confirmDimension('50 mm');await settle();
   const outer=visible().filter(e=>e.role==='PROFILE'&&e.kind==='LINE'),xs=outer.flatMap(e=>[e.start.x,e.end.x]),ys=outer.flatMap(e=>[e.start.y,e.end.y]),center=[(Math.max(...xs)+Math.min(...xs))/2,(Math.max(...ys)+Math.min(...ys))/2];
   assert(Math.abs(Math.max(...xs)-Math.min(...xs)-90)<1e-5,'rounded outer width must be 90');assert(Math.abs(Math.max(...ys)-Math.min(...ys)-50)<1e-5,'rounded outer height must be 50');
   start('sketch.circle');click(center);click([center[0]+8,center[1]]);await settle();const circle=visible().find(e=>e.kind==='CIRCLE'&&e.role==='PROFILE');assert(circle);const circlePoint=t=>[circle.center.x+circle.radius*Math.cos(t*2*Math.PI),circle.center.y+circle.radius*Math.sin(t*2*Math.PI)];

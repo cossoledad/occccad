@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v47-blind-hole-tools"
+const evaluatorVersion = "part-solid-generators-v48-sketch-intersection-junctions"
 
 var (
 	ErrNotFound   = errors.New("document not found")

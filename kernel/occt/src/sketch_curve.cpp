@@ -234,7 +234,7 @@ SketchCurveIntersections intersect_sketch_curves(const ProfileCurveSpec& first,
     const auto circular=[](const ProfileCurveSpec& c){return c.kind=="CIRCLE"||c.kind=="ARC";};
     const auto elliptical=[](const ProfileCurveSpec& c){return c.kind=="ELLIPSE"||c.kind=="ELLIPTICAL_ARC";};
     const bool same_center=first.center.x==second.center.x && first.center.y==second.center.y;
-    const bool exact_support=same_center &&
+    bool same_support=same_center &&
         ((circular(first)&&circular(second)&&first.radius==second.radius) ||
          (elliptical(first)&&elliptical(second)&&first.major_radius==second.major_radius&&
           first.minor_radius==second.minor_radius&&std::remainder(second.rotation-first.rotation,pi)==0));
@@ -242,18 +242,22 @@ SketchCurveIntersections intersect_sketch_curves(const ProfileCurveSpec& first,
     // crossings as tiny tolerance segments. A native segment is not evidence
     // that two periodic supports coincide. Use OCCT's analytic circle solution
     // for distinct supports, then restrict it to the actual arc domains.
-    if (circular(first) && circular(second) && !exact_support) {
+    if (circular(first) && circular(second) && !same_support) {
         IntAna2d_AnaIntersection analytic(Handle(Geom2d_Circle)::DownCast(a.curve)->Circ2d(),
                                          Handle(Geom2d_Circle)::DownCast(b.curve)->Circ2d());
         if (!analytic.IsDone()) throw std::runtime_error("analytic circle intersection did not converge");
-        if (analytic.IdenticalElements())
-            throw std::invalid_argument("distinct circle supports are indistinguishable at numerical precision");
+        // Solver reflection may leave sub-machine center residuals. OCCT's
+        // analytic equivalence is authority for same-support classification;
+        // the mere presence of a generic tolerance segment never is.
+        if (analytic.IdenticalElements()) same_support=true;
+        else {
         for (int i=1;i<=analytic.NbPoints();++i) {
             const auto& point=analytic.Point(i);
             append_point(point.Value(),point.ParamOnFirst(),point.ParamOnSecond());
         }
         std::sort(result.points.begin(),result.points.end(),[](const auto& x,const auto& y){return x.first_parameter<y.first_parameter;});
         return result;
+        }
     }
     Geom2dAPI_InterCurveCurve operation(bounded(a), bounded(b), tolerance);
     if (!operation.Intersector().IsDone())
@@ -262,7 +266,7 @@ SketchCurveIntersections intersect_sketch_curves(const ProfileCurveSpec& first,
         const auto& point=operation.Intersector().Point(i);
         append_point(point.Value(),point.ParamOnFirst(),point.ParamOnSecond());
     }
-    if(exact_support) {
+    if(same_support) {
         result.points.clear(); // Native contact encodings are replaced by the domain intersection.
 
         const double phase=elliptical(first)?std::remainder(second.rotation,2*pi)-std::remainder(first.rotation,2*pi):0;

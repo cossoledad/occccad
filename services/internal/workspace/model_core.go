@@ -295,10 +295,10 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 		return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 	case "SKETCH_PATTERN_DEFINITION":
 		return applyEditSketch(modelJSON, mustPatternDeletePayload(payload.OwnerEntityID, payload.TargetID))
-	case "SKETCH_EXTERNAL_GEOMETRY":
+	case "SKETCH_ENTITY", "SKETCH_EXTERNAL_GEOMETRY":
 		data, _ := json.Marshal(editSketchPayload{SketchID: payload.OwnerEntityID, Operations: []SketchOperation{{Type: "DELETE_ENTITIES", EntityIDs: []string{payload.TargetID}}}})
 		return applyEditSketch(modelJSON, data)
-	case "SKETCH_ENTITY", "SKETCH_CONSTRAINT":
+	case "SKETCH_CONSTRAINT":
 		for i := range model.Features {
 			feature := &model.Features[i]
 			if feature.ID != payload.OwnerEntityID || feature.Sketch == nil {
@@ -307,49 +307,20 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 			var before SketchFeature
 			beforeJSON, _ := json.Marshal(feature.Sketch)
 			_ = json.Unmarshal(beforeJSON, &before)
-			if payload.TargetKind == "SKETCH_ENTITY" {
-				found := false
-				entities := feature.Sketch.Entities[:0]
-				for _, entity := range feature.Sketch.Entities {
-					if entity.ID == payload.TargetID {
-						found = true
-						continue
-					}
-					entities = append(entities, entity)
+
+			found := false
+			constraints := feature.Sketch.Constraints[:0]
+			for _, constraint := range feature.Sketch.Constraints {
+				if constraint.ID == payload.TargetID {
+					found = true
+					continue
 				}
-				if !found {
-					return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected sketch entity does not exist", ErrValidation)
-				}
-				feature.Sketch.Entities = entities
-				constraints := feature.Sketch.Constraints[:0]
-				for _, constraint := range feature.Sketch.Constraints {
-					referencesDeleted := false
-					for _, reference := range constraint.References {
-						if reference.Target == "ENTITY" && reference.EntityID == payload.TargetID {
-							referencesDeleted = true
-							break
-						}
-					}
-					if !referencesDeleted {
-						constraints = append(constraints, constraint)
-					}
-				}
-				feature.Sketch.Constraints = constraints
-			} else {
-				found := false
-				constraints := feature.Sketch.Constraints[:0]
-				for _, constraint := range feature.Sketch.Constraints {
-					if constraint.ID == payload.TargetID {
-						found = true
-						continue
-					}
-					constraints = append(constraints, constraint)
-				}
-				if !found {
-					return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected sketch constraint does not exist", ErrValidation)
-				}
-				feature.Sketch.Constraints = constraints
+				constraints = append(constraints, constraint)
 			}
+			if !found {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected sketch constraint does not exist", ErrValidation)
+			}
+			feature.Sketch.Constraints = constraints
 			if len(feature.Sketch.Entities) == 0 {
 				feature.Sketch.Solve = SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}
 			}

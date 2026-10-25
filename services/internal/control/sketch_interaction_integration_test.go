@@ -334,6 +334,9 @@ func TestUnequalCircleIntersectionsThroughRouter(t *testing.T) {
 				t.Fatal(entity)
 			}
 		}
+		for _, hit := range hits.Intersections {
+			assertSplitJunction(t, split, hit.Point, 4, "")
+		}
 		apply(workspace.CommandRequest{Type: "UNDO"})
 		if !reflect.DeepEqual(original, v.Part.Features[0].Sketch) {
 			t.Fatal("split undo")
@@ -347,5 +350,168 @@ func TestUnequalCircleIntersectionsThroughRouter(t *testing.T) {
 			t.Fatal("split reopen", e)
 		}
 		apply(workspace.CommandRequest{Type: "UNDO"})
+		op.Mode = "FIRST"
+		op.OperationID = "circle-first-" + ids[0]
+		edit(op)
+		first := v.Part.Features[0].Sketch
+		if len(first.Entities) != 3 {
+			t.Fatal("first-only intervals", first.Entities)
+		}
+		for _, hit := range hits.Intersections {
+			assertSplitJunction(t, first, hit.Point, 2, ids[1])
+		}
+		// Drive a split arc's radius through the real parameter/solver chain;
+		// its cut endpoints must stay on the uncut support after recomputation.
+		radius := 0.0
+		for _, e := range first.Entities {
+			if e.ID == ids[0] {
+				radius = e.Radius + 0.1
+			}
+		}
+		edit(workspace.SketchOperation{Type: "ADD_CONSTRAINT", Constraint: &workspace.SketchConstraint{ID: "driven-radius", Kind: "RADIUS", Unit: "mm", Value: &radius, References: []workspace.SketchGeometryRef{{Target: "ENTITY", EntityID: ids[0], SubElement: "WHOLE"}}}})
+		moved := v.Part.Features[0].Sketch
+		for _, c := range moved.Constraints {
+			if c.Kind != "POINT_ON_OBJECT" || c.References[1].EntityID != ids[1] {
+				continue
+			}
+			var support workspace.SketchEntity
+			for _, e := range moved.Entities {
+				if e.ID == ids[1] {
+					support = e
+				}
+			}
+			ref := c.References[0]
+			point := sketchTestEndpoint(t, moved, ref)
+			if math.Abs(math.Hypot(point[0]-support.Center.X, point[1]-support.Center.Y)-support.Radius) > 1e-6 {
+				t.Fatalf("point left its intersection support: point=%v support=%+v solve=%+v entities=%+v", point, support, moved.Solve, moved.Entities)
+			}
+			assertSplitJunction(t, moved, point, 2, ids[1])
+		}
+		apply(workspace.CommandRequest{Type: "UNDO"})
+		if !reflect.DeepEqual(first, v.Part.Features[0].Sketch) {
+			t.Fatal("undo driven radius")
+		}
+		center := first.Entities[0].Center
+		for _, e := range first.Entities {
+			if e.ID == ids[0] {
+				center = e.Center
+			}
+		}
+		edit(workspace.SketchOperation{Type: "UPDATE_ENTITY_POINT", EntityID: ids[0], SubElement: "CENTER", Point: &workspace.SketchPoint2{X: center.X + 2, Y: center.Y + 1}})
+		centered := v.Part.Features[0].Sketch
+		for _, c := range centered.Constraints {
+			if c.Kind != "POINT_ON_OBJECT" {
+				continue
+			}
+			point := sketchTestEndpoint(t, centered, c.References[0])
+			assertSplitJunction(t, centered, point, 2, ids[1])
+			for _, e := range centered.Entities {
+				if e.ID == ids[1] && math.Abs(math.Hypot(point[0]-e.Center.X, point[1]-e.Center.Y)-e.Radius) > 1e-6 {
+					t.Fatal("center edit detached intersection", point)
+				}
+			}
+		}
+		apply(workspace.CommandRequest{Type: "UNDO"})
+		apply(workspace.CommandRequest{Type: "UNDO"})
+		if !reflect.DeepEqual(original, v.Part.Features[0].Sketch) {
+			t.Fatal("first split undo")
+		}
+		apply(workspace.CommandRequest{Type: "REDO"})
+		if !reflect.DeepEqual(first, v.Part.Features[0].Sketch) {
+			t.Fatal("first split redo")
+		}
+		read, e = service.GetDocument(t.Context(), v.Document.ID, p6Actor)
+		if e != nil || !reflect.DeepEqual(first, read.Part.Features[0].Sketch) {
+			t.Fatal("first split reopen", e)
+		}
+		apply(workspace.CommandRequest{Type: "UNDO"})
+	}
+}
+
+func sketchTestEndpoint(t *testing.T, s *workspace.SketchFeature, r workspace.SketchGeometryRef) [2]float64 {
+	t.Helper()
+	for _, e := range s.Entities {
+		if e.ID != r.EntityID {
+			continue
+		}
+		if e.Kind == "LINE" {
+			p := e.Start
+			if r.SubElement == "END" {
+				p = e.End
+			}
+			return [2]float64{p.X, p.Y}
+		}
+		angle := e.StartAngle
+		if r.SubElement == "END" {
+			angle = e.EndAngle
+		}
+		return [2]float64{e.Center.X + e.Radius*math.Cos(angle), e.Center.Y + e.Radius*math.Sin(angle)}
+	}
+	t.Fatal("missing endpoint", r)
+	return [2]float64{}
+}
+
+// Geometry is only the test oracle for the junction under inspection. The
+// assertion traverses formal Coincident/PointOnObject references and also
+// rejects duplicate equations; production never uses these coordinates as IDs.
+func assertSplitJunction(t *testing.T, s *workspace.SketchFeature, point [2]float64, count int, support string) {
+	t.Helper()
+	if s.Solve.Status != "UNDER_CONSTRAINED" && s.Solve.Status != "FULLY_CONSTRAINED" {
+		t.Fatal("junction must be solvable", s.Solve)
+	}
+	key := func(r workspace.SketchGeometryRef) string { return r.EntityID + "/" + r.SubElement }
+	refs := []workspace.SketchGeometryRef{}
+	for _, e := range s.Entities {
+		if e.Kind != "ARC" && e.Kind != "LINE" {
+			continue
+		}
+		for _, sub := range []string{"START", "END"} {
+			r := workspace.SketchGeometryRef{Target: "ENTITY", EntityID: e.ID, SubElement: sub}
+			p := sketchTestEndpoint(t, s, r)
+			if math.Hypot(p[0]-point[0], p[1]-point[1]) < 1e-6 {
+				refs = append(refs, r)
+			}
+		}
+	}
+	if len(refs) != count {
+		t.Fatal("junction endpoint count", len(refs), count, point, s)
+	}
+	seen := map[string]bool{key(refs[0]): true}
+	for changed := true; changed; {
+		changed = false
+		for _, c := range s.Constraints {
+			if c.Suppressed || c.Kind != "COINCIDENT" || len(c.References) != 2 {
+				continue
+			}
+			a, b := key(c.References[0]), key(c.References[1])
+			if seen[a] != seen[b] {
+				seen[a] = true
+				seen[b] = true
+				changed = true
+			}
+		}
+	}
+	for _, r := range refs {
+		if !seen[key(r)] {
+			t.Fatal("independent cut endpoint", r, s.Constraints)
+		}
+	}
+	coincidences, onObject := 0, 0
+	for _, c := range s.Constraints {
+		if c.Suppressed || len(c.References) != 2 {
+			continue
+		}
+		if c.Kind == "COINCIDENT" && seen[key(c.References[0])] && seen[key(c.References[1])] {
+			coincidences++
+		}
+		if c.Kind == "POINT_ON_OBJECT" && seen[key(c.References[0])] && c.References[1].EntityID == support {
+			onObject++
+		}
+	}
+	if coincidences != count-1 {
+		t.Fatal("junction must use a spanning Coincident graph", coincidences, count)
+	}
+	if support != "" && onObject != 1 {
+		t.Fatal("junction must have one explicit support relation", onObject, s.Constraints)
 	}
 }

@@ -423,6 +423,21 @@ TEST(ExactSketchCurve, DistinctCircleSupportsPreserveTangencyAndEmptyCases) {
         }
     }
 }
+TEST(ExactSketchCurve, NativeCoincidentCircleSupportsPreserveReflectedArcContacts) {
+    const double pi=std::acos(-1.0);
+    ProfileCurveSpec a;
+    a.kind="ARC";a.radius=7;a.start_angle=-pi/2;a.end_angle=pi/2;
+    auto b=a;
+    b.center={-2.465190328815662e-32,-2.3023546945310163e-31};
+    b.start_angle=3*pi/2;b.end_angle=pi/2;
+    for(bool swapped:{false,true}) {
+        const auto hits=intersect_sketch_curves(swapped?b:a,swapped?a:b);
+        EXPECT_TRUE(hits.overlaps.empty());
+        ASSERT_EQ(hits.points.size(),2U);
+    }
+    a.kind="CIRCLE";b.kind="CIRCLE";
+    EXPECT_FALSE(intersect_sketch_curves(a,b).overlaps.empty());
+}
 TEST(ExactSketchCurve, FullPeriodicOverlapRetainsNonzeroNativeInterval) {
     ProfileCurveSpec circle;
     circle.kind = "CIRCLE";

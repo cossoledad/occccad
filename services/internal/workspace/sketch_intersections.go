@@ -207,57 +207,143 @@ func (s *Service) prepareSketchIntersection(ctx context.Context, model PartModel
 	if err != nil {
 		return nil, err
 	}
+	// Resolve every new endpoint from exact interval provenance, including the
+	// wrapped side of a periodic cut. Deduplicate against the final candidate's
+	// real Coincident graph, rather than the pre-split source sketch.
+	candidateJSON, _ := json.Marshal(staged)
+	var connected SketchFeature
+	if err := json.Unmarshal(candidateJSON, &connected); err != nil {
+		return nil, err
+	}
+	if err := applySketchOperations(&connected, prepared); err != nil {
+		return nil, err
+	}
 	for _, hit := range hits {
-		refs := hit.References
-		for i, id := range op.EntityIDs {
-			for _, p := range prepared {
-				if p.Type != "REPLACE_CURVE_INTERVALS" || p.EntityIDs[0] != id {
-					continue
-				}
-				for j, interval := range p.Intervals {
-					t := hit.Parameters[i]
-					if math.Abs(interval.Start-t) < 1e-9 {
-						refs[i] = SketchGeometryRef{Target: "ENTITY", EntityID: p.ComputedEntities[j].ID, SubElement: "START", PointID: p.ComputedEntities[j].StartPointID}
-						break
-					}
-					if math.Abs(interval.End-t) < 1e-9 {
-						refs[i] = SketchGeometryRef{Target: "ENTITY", EntityID: p.ComputedEntities[j].ID, SubElement: "END", PointID: p.ComputedEntities[j].EndPointID}
-						break
-					}
+		var points, supports []SketchGeometryRef
+		for i := range op.EntityIDs {
+			refs, err := sketchIntersectionCutReferences(staged, prepared, hit, i)
+			if err != nil {
+				return nil, err
+			}
+			for _, ref := range refs {
+				if ref.SubElement == "WHOLE" {
+					supports = append(supports, ref)
+				} else {
+					points = append(points, ref)
 				}
 			}
 		}
-		if refs[0].SubElement == "WHOLE" {
-			refs[0], refs[1] = refs[1], refs[0]
+		if len(points) == 0 {
+			return nil, fmt.Errorf("%w: intersection has no split endpoint", ErrValidation)
 		}
-		kind := "COINCIDENT"
-		if refs[1].SubElement == "WHOLE" {
-			kind = "POINT_ON_OBJECT"
+		added := 0
+		add := func(kind string, ref SketchGeometryRef, role string) error {
+			if kind == "COINCIDENT" && sketchPointsJoined(&connected, points[0], ref) {
+				return nil
+			}
+			if kind == "POINT_ON_OBJECT" {
+				for _, c := range connected.Constraints {
+					if c.Suppressed || c.Kind != kind || len(c.References) != 2 {
+						continue
+					}
+					if c.References[1] == ref && sketchPointsJoined(&connected, points[0], c.References[0]) {
+						return nil
+					}
+				}
+			}
+			slot := fmt.Sprintf("join/%g/%g", hit.Parameters[0], hit.Parameters[1])
+			if added > 0 {
+				slot += "/" + role
+			}
+			relation := SketchOperation{Type: "ADD_CONSTRAINT", Constraint: &SketchConstraint{
+				ID:   macroID(op.OperationID, slot),
+				Kind: kind, References: []SketchGeometryRef{points[0], ref},
+			}}
+			if err := applySketchOperations(&connected, []SketchOperation{relation}); err != nil {
+				return err
+			}
+			prepared = append(prepared, relation)
+			added++
+			return nil
 		}
-		if kind == "COINCIDENT" && sketchPointsJoined(staged, refs[0], refs[1]) {
-			continue
+		for i, ref := range points[1:] {
+			if err := add("COINCIDENT", ref, fmt.Sprintf("point/%d", i)); err != nil {
+				return nil, err
+			}
 		}
-		prepared = append(prepared, SketchOperation{Type: "ADD_CONSTRAINT", Constraint: &SketchConstraint{ID: macroID(op.OperationID, fmt.Sprintf("join/%g/%g", hit.Parameters[0], hit.Parameters[1])), Kind: kind, References: refs[:]}})
+		for i, ref := range supports {
+			if !hit.ConstraintSupported {
+				return nil, fmt.Errorf("%w: intersection support is unavailable to the sketch solver", ErrValidation)
+			}
+			if err := add("POINT_ON_OBJECT", ref, fmt.Sprintf("support/%d", i)); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return prepared, nil
 }
-func sketchPointsJoined(sketch *SketchFeature, a, b SketchGeometryRef) bool {
-	key := func(r SketchGeometryRef) string {
-		if r.PointID != "" {
-			return r.Target + "/point/" + r.PointID
+
+// A split intersection is a set of stable endpoints, never one chosen display
+// point. Interval parameters are frozen operation evidence, not persistent IDs.
+func sketchIntersectionCutReferences(source *SketchFeature, prepared []SketchOperation, hit SketchIntersection, side int) ([]SketchGeometryRef, error) {
+	ref := hit.References[side]
+	periodic := false
+	for _, e := range source.Entities {
+		if e.ID == ref.EntityID {
+			periodic = e.Kind == "CIRCLE" || e.Kind == "ELLIPSE" || e.Closed
+			break
 		}
-		for _, e := range sketch.Entities {
-			if e.ID == r.EntityID {
-				if r.SubElement == "START" && e.StartPointID != "" {
-					return r.Target + "/point/" + e.StartPointID
+	}
+	for _, operation := range prepared {
+		if operation.Type != "REPLACE_CURVE_INTERVALS" || len(operation.EntityIDs) != 1 || operation.EntityIDs[0] != ref.EntityID {
+			continue
+		}
+		refs := []SketchGeometryRef{}
+		for i, interval := range operation.Intervals {
+			if i >= len(operation.ComputedEntities) {
+				return nil, fmt.Errorf("%w: malformed split intervals", ErrValidation)
+			}
+			e := operation.ComputedEntities[i]
+			for _, endpoint := range []struct {
+				parameter    float64
+				sub, pointID string
+			}{{interval.Start, "START", e.StartPointID}, {interval.End, "END", e.EndPointID}} {
+				delta := endpoint.parameter - hit.Parameters[side]
+				if periodic {
+					delta = math.Remainder(delta, 1)
 				}
-				if r.SubElement == "END" && e.EndPointID != "" {
-					return r.Target + "/point/" + e.EndPointID
+				if math.Abs(delta) < 1e-9 {
+					refs = append(refs, SketchGeometryRef{Target: "ENTITY", EntityID: e.ID, SubElement: endpoint.sub, PointID: endpoint.pointID})
 				}
 			}
 		}
-		return fmt.Sprintf("%s/%s/%s/%s", r.Target, r.EntityID, r.SubElement, r.ControlPointID)
+		if len(refs) == 0 {
+			return nil, fmt.Errorf("%w: exact intersection split endpoint missing", ErrValidation)
+		}
+		return refs, nil
 	}
+	return []SketchGeometryRef{ref}, nil
+}
+
+func sketchPointReferenceKey(sketch *SketchFeature, r SketchGeometryRef) string {
+	if r.PointID != "" {
+		return r.Target + "/point/" + r.PointID
+	}
+	for _, e := range sketch.Entities {
+		if e.ID == r.EntityID {
+			if r.SubElement == "START" && e.StartPointID != "" {
+				return r.Target + "/point/" + e.StartPointID
+			}
+			if r.SubElement == "END" && e.EndPointID != "" {
+				return r.Target + "/point/" + e.EndPointID
+			}
+		}
+	}
+	return fmt.Sprintf("%s/%s/%s/%s", r.Target, r.EntityID, r.SubElement, r.ControlPointID)
+}
+
+func sketchPointsJoined(sketch *SketchFeature, a, b SketchGeometryRef) bool {
+	key := func(r SketchGeometryRef) string { return sketchPointReferenceKey(sketch, r) }
 	seen := map[string]bool{key(a): true}
 	for changed := true; changed; {
 		changed = false

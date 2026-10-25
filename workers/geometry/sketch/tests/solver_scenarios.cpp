@@ -2060,3 +2060,37 @@ TEST(ExternalGeometryProjector, EdgeOnArcIncludesInteriorExtrema) {
     auto line=project_external_geometry(source,{{0,0,0},{1,0,0},{0,1,0}});
     ASSERT_EQ(line.kind,ProjectedGeometryKind::line);EXPECT_NEAR(line.start.x,10/std::sqrt(2.),1e-10);EXPECT_NEAR(line.end.x,10,1e-10);
 }
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, SplitCircularJunctionsRemainConnectedWhenRadiusChanges) {
+    const double pi=std::acos(-1.0),start=2.6531799028736467,end=3.0135773916364323;
+    for (bool reverse : {false,true}) {
+        SketchModel model;
+        model.circles={{"support",{-5.922796809179472,62.04834752473689},50.219388220237825}};
+        model.arcs={{"first",{138.48063015748073,16.076162767772786},191.33172199358864,start,end},
+                    {"wrap",{138.48063015748073,16.076162767772786},191.33172199358864,end,start+2*pi}};
+        model.constraints={
+            {"same",ConstraintKind::same_support,{endpoint("first",SubElement::whole),endpoint("wrap",SubElement::whole)},{},0,"",true},
+            {"end-join",ConstraintKind::coincident,{endpoint("first",SubElement::end),endpoint("wrap",SubElement::start)},{},0,"",true},
+            {"seam-join",ConstraintKind::coincident,{endpoint("first",SubElement::start),endpoint("wrap",SubElement::end)},{},0,"",true},
+            {"on-first",ConstraintKind::point_on_object,{endpoint("first",SubElement::start),endpoint("support",SubElement::whole)},{}},
+            {"on-second",ConstraintKind::point_on_object,{endpoint("first",SubElement::end),endpoint("support",SubElement::whole)},{}},
+            {"radius",ConstraintKind::radius,{endpoint("first",SubElement::whole)},{},191.43172199358864,"mm"}};
+        if(reverse) {
+            std::reverse(model.constraints.begin(),model.constraints.end());
+            for(auto& c:model.constraints) if(c.kind==ConstraintKind::coincident) std::swap(c.references[0],c.references[1]);
+        }
+        const auto result=make_plane_gcs_sketch_solver()->solve(model);
+        ASSERT_EQ(result.status,SolveStatus::under_constrained)<<result.diagnostic;
+        EXPECT_EQ(result.degrees_of_freedom,5);
+        ASSERT_EQ(result.arcs.size(),2U);
+        const auto point=[](const ArcEntity& a,bool last){const double angle=last?a.end_angle:a.start_angle;return Vec2{a.center.x+a.radius*std::cos(angle),a.center.y+a.radius*std::sin(angle)};};
+        const auto a=point(result.arcs[0],false),b=point(result.arcs[1],true),c=point(result.arcs[0],true),d=point(result.arcs[1],false);
+        EXPECT_NEAR(std::hypot(a.x-b.x,a.y-b.y),0,1e-6);
+        EXPECT_NEAR(std::hypot(c.x-d.x,c.y-d.y),0,1e-6);
+        for(const auto& p:{a,b,c,d}) EXPECT_NEAR(std::hypot(p.x-result.circles[0].center.x,p.y-result.circles[0].center.y),result.circles[0].radius,1e-6);
+        EXPECT_NEAR(result.arcs[0].radius,191.43172199358864,1e-6);
+        EXPECT_NEAR(result.arcs[1].radius,result.arcs[0].radius,1e-6);
+    }
+}
+} // namespace occccad::geometry::sketch
