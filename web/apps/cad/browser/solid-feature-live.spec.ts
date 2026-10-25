@@ -241,6 +241,75 @@ for(const fixture of [
  expect(errors).toEqual([]);
 });
 
+for (const round of [false, true]) test(`shell ${round ? 'cylinder' : 'box'} ownership agrees with interior picking and complete tree highlight`, async ({page}) => {
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async round=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');
+  let v=await api.createDocument('PART','Shell topology ownership');const id=v.document.id;
+  v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=v.part!.features.at(-1)!.id;
+  const operation=round?{type:'ADD_ENTITY',entity:{id:crypto.randomUUID(),kind:'CIRCLE',role:'PROFILE',center:{x:0,y:0},radius:10}}:{type:'ADD_RECTANGLE',first:{x:-10,y:-10},second:{x:10,y:10}};
+  v=await api.command(id,{type:'EDIT_SKETCH',sketchId,operations:[operation]});
+  v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId,generator:'LINEAR_EXTRUDE',operation:'ADD',length:20});
+  return {id,base:v.part!.features.at(-1)!,version:v.document.versionId};
+ },round);
+ await page.goto(`/documents/${seed.id}`);await worldScreen(page,[0,0,20]);
+ await openCommand(page,'抽壳');const dialog=page.getByRole('dialog',{name:'创建 抽壳',exact:true});
+ await expect.poll(async()=>{
+  const p=await worldScreen(page,[2,2,20]);
+  return page.evaluate(p=>{const e=(window as any).__cameraEngine,r=e.renderer.domElement.getBoundingClientRect();return e.hitTest(p.x-r.x,p.y-r.y)?.kind},p);
+ }).toBe('face');
+ await clickWorld(page,[2,2,20]);await expect(dialog.locator('.feature-pick-field').getByText('1 项',{exact:true})).toBeVisible();await ready(page,dialog);
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const created=await current(page,seed.id),shell=created.part.features.at(-1),filter=page.getByRole('textbox',{name:'筛选模型结构'});
+ const row=()=>page.locator(`[role=treeitem][data-tree-key$="feature:${shell.id}"]`);
+ const checkHighlight=async()=>{
+  await filter.fill(shell.name);await row().click();
+  await expect(async()=>{
+   const counts=await page.evaluate(id=>{
+    const e=(window as any).__cameraEngine,b=[...e.solidBindings.values()][0] as any,a=b.artifact;
+    const ids=new Set(a.visualization.featureAssociations.elements.filter((v:any)=>v.kind==='FACE'&&v.primary.includes(id)).map((v:any)=>v.localId));
+    return {faces:ids.size,expected:a.mesh.faceIds.filter((n:number)=>ids.has(n)).length*3,actual:e.selectedOverlays.filter((o:any)=>o.isMesh).reduce((n:number,o:any)=>n+o.geometry.attributes.position.count,0)};
+   },shell.id);
+   expect(counts.faces).toBe(round?2:5);expect(counts.expected).toBeGreaterThan(0);expect(counts.actual).toBe(counts.expected);
+  }).toPass();
+ };
+ await checkHighlight();await page.keyboard.press('Escape');await filter.fill('');
+ await page.getByRole('button',{name:'顶视图',exact:true}).click();
+ await worldScreen(page,[0,0,1]);
+ const interior=await page.evaluate(id=>{
+  const e=(window as any).__cameraEngine,r=e.renderer.domElement.getBoundingClientRect();
+  for(let y=40;y<r.height-40;y+=5)for(let x=40;x<r.width-40;x+=5){
+   if(document.elementFromPoint(r.x+x,r.y+y)!==e.renderer.domElement)continue;
+   const hit=e.hitTest(x,y);if(hit?.kind==='face'&&hit.associatedFeatureIds?.includes(id))return {x:r.x+x,y:r.y+y};
+  }
+ },shell.id);
+ expect(interior).toBeTruthy();
+ await page.mouse.move(interior!.x,interior!.y);await page.mouse.click(interior!.x,interior!.y);
+ await expect.poll(()=>page.evaluate(()=>{const e=(window as any).__cameraEngine;return e.selected.map((s:any)=>({kind:s.kind,owners:s.associatedFeatureIds}))})).toContainEqual({kind:'face',owners:[shell.id]});
+ await filter.fill(shell.name);
+ await expect(row()).toHaveClass(/selected-descendant/);
+ // Inspect the actual hit through the authoritative topology endpoint, not only display metadata.
+ const property=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');
+  const s=(window as any).__cameraEngine.selected[0];
+  return api.getTopologyProperties(s.documentId,s.geometryKey,s.kind.toUpperCase(),s.topologyId,s.versionId);
+ });
+ expect(property.persistentSelection?.anchor.featureId).toBe(shell.id);
+ await page.keyboard.press('Escape');await page.getByRole('button',{name:'等轴测',exact:true}).click();
+ const outside=await worldScreen(page,round?[Math.SQRT1_2*10,-Math.SQRT1_2*10,20]:[10,-10,10]);
+ await page.mouse.click(outside.x,outside.y);
+ await expect.poll(()=>page.evaluate(()=>{const e=(window as any).__cameraEngine;return e.selected.map((s:any)=>({kind:s.kind,owners:s.associatedFeatureIds}))})).toContainEqual({kind:'edge',owners:[seed.base.id]});
+ await checkHighlight();await page.screenshot({path:test.info().outputPath('shell-interior-highlight.png')});
+ await row().dblclick();const edit=page.getByRole('dialog',{name:'编辑 抽壳',exact:true});await ready(page,edit);await edit.getByRole('button',{name:/取\s*消/}).click();
+ expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(seed.base.id);
+ await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(shell.id);
+ await page.reload();await worldScreen(page,[0,0,20]);await checkHighlight();expect(errors).toEqual([]);
+});
+
 test("revolve picks an individual sketch line and previews parameter changes",async({page})=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
  await login(page);

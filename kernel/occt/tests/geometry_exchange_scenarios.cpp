@@ -1,3 +1,5 @@
+#include <internal/shell_history.hpp>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <internal/occt_kernel.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <Geom_BSplineCurve.hxx>
@@ -3477,3 +3479,162 @@ TEST(GeometryExchange, BooleanCellAssemblyRemovesInternalBoundariesAndKeepsEmpty
 }
 
 }
+
+namespace occccad::kernel {
+TEST(GeometryExchange, ShellSeparatesGeneratedInteriorFromRetainedOuterTopology) {
+    for (bool round : {false, true}) {
+        SCOPED_TRACE(round);
+        OcctKernel kernel;
+        ProfilePadSpec base;
+        base.feature_id = "base";
+        base.body_id = "body";
+        base.profile_feature_id = "sketch";
+        base.pad_length = 20;
+        if (round) {
+            ProfileCurveSpec circle;
+            circle.entity_id = "circle";
+            circle.kind = "CIRCLE";
+            circle.radius = 10;
+            ProfileRegionSpec region;
+            region.id = "region";
+            region.outer.id = "loop";
+            region.outer.curves = {circle};
+            base.regions = {region};
+        } else
+            base.regions = {rectangular_region("region", -10, -10, 10, 10)};
+        const auto upstream = kernel.evaluateProfilePadsWithHistory({base});
+        ProfilePadSpec shell;
+        shell.feature_id = "shell";
+        shell.body_id = "body";
+        shell.input_feature_id = "base";
+        shell.generator = "SHELL";
+        shell.pad_length = 1;
+        for (const auto& out : upstream.feature_results.back().semantic_outputs)
+            if (out.topology_type == PersistentTopologyType::face &&
+                out.semantic_ref.output_slot.find("END_CAP/") == 0)
+                shell.selections.push_back({out.semantic_ref.feature_id,
+                                            out.semantic_ref.output_slot,
+                                            out.semantic_ref.source_ids});
+        const auto result = kernel.evaluateProfilePadsWithHistory({base, shell});
+        int innerFaces = 0, outerEdges = 0;
+        for (const auto& out : result.feature_results.back().semantic_outputs) {
+            const auto& e = out.evidence;
+            const auto& p = e.centroid;
+            if (out.topology_type == PersistentTopologyType::face) {
+                const bool inner = round ? (e.radius_mm && std::abs(*e.radius_mm - 9) < 1e-6) ||
+                                               std::abs(p.z - 1) < 1e-6
+                                         : std::abs(std::abs(p.x) - 9) < 1e-6 ||
+                                               std::abs(std::abs(p.y) - 9) < 1e-6 ||
+                                               std::abs(p.z - 1) < 1e-6;
+                EXPECT_EQ(out.semantic_ref.feature_id, inner ? "shell" : "base")
+                    << out.semantic_ref.output_slot;
+                if (inner)
+                    ++innerFaces;
+            }
+            if (out.topology_type == PersistentTopologyType::edge) {
+                const bool outer =
+                    round ? e.radius_mm && std::abs(*e.radius_mm - 10) < 1e-6
+                          : (std::abs(p.x) <= 10 + 1e-6 && std::abs(p.y) <= 10 + 1e-6 &&
+                             (std::abs(std::abs(p.x) - 10) < 1e-6 ||
+                              std::abs(std::abs(p.y) - 10) < 1e-6));
+                if (outer) {
+                    ++outerEdges;
+                    EXPECT_EQ(out.semantic_ref.feature_id, "base") << out.semantic_ref.output_slot;
+                }
+            }
+        }
+        EXPECT_EQ(innerFaces, round ? 2 : 5);
+        EXPECT_GT(outerEdges, 0);
+        OcctKernel cold;
+        const auto rebuilt = cold.evaluateProfilePadsWithHistory({base, shell});
+        EXPECT_EQ(result.feature_results.back().topology_history.evidence_digest,
+                  rebuilt.feature_results.back().topology_history.evidence_digest);
+        EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+    }
+}
+}  // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(GeometryExchange, ShellWallBranchesPreserveOuterTopologyOnLoft) {
+    OSD_Parallel::SetUseOcctThreads(Standard_True);
+    OSD_ThreadPool::DefaultPool(4)->SetNbDefaultThreadsToLaunch(4);
+    OcctKernel kernel;
+    ProfilePadSpec loft;
+    loft.feature_id = "loft";
+    loft.body_id = "body";
+    loft.generator = "LOFT";
+    LoftSectionSpec bottom;
+    bottom.sketch_id = "rectangle";
+    bottom.normal = {0, 0, 1};
+    bottom.u_direction = {1, 0, 0};
+    bottom.region = rectangular_region("rectangle", -82.8172482034993, -87.47795914135841,
+                                       111.25953546530698, 69.55214784189991);
+    bottom.seam_entity_id = bottom.region.outer.curves.front().entity_id;
+    auto top = bottom;
+    top.sketch_id = "circle";
+    top.origin = {0, 0, 100};
+    ProfileCurveSpec circle;
+    circle.entity_id = "circle-edge";
+    circle.kind = "CIRCLE";
+    circle.radius = 90;
+    top.region.id = "circle";
+    top.region.outer = {"circle-loop", {circle}};
+    top.seam_entity_id = circle.entity_id;
+    loft.sections = {bottom, top};
+    const auto upstream = kernel.evaluateProfilePadsWithHistory({loft});
+    ProfilePadSpec shell;
+    shell.feature_id = "shell";
+    shell.body_id = "body";
+    shell.input_feature_id = "loft";
+    shell.generator = "SHELL";
+    shell.pad_length = 1;
+    for (const auto& out : upstream.feature_results.back().semantic_outputs)
+        if (out.semantic_ref.output_slot == "LOFT_END_CAP")
+            shell.selections.push_back({out.semantic_ref.feature_id, out.semantic_ref.output_slot,
+                                        out.semantic_ref.source_ids});
+    ASSERT_EQ(shell.selections.size(), 1);
+    const auto result = kernel.evaluateProfilePadsWithHistory({loft, shell});
+    for (const auto& original : upstream.feature_results.back().semantic_outputs) {
+        if (original.topology_type != PersistentTopologyType::edge)
+            continue;
+        const auto& outputs = result.feature_results.back().semantic_outputs;
+        EXPECT_NE(std::find_if(
+                      outputs.begin(), outputs.end(),
+                      [&](const auto& out) {
+                          return out.semantic_ref.feature_id == original.semantic_ref.feature_id &&
+                                 out.semantic_ref.output_slot ==
+                                     original.semantic_ref.output_slot &&
+                                 out.semantic_ref.source_ids == original.semantic_ref.source_ids;
+                      }),
+                  outputs.end())
+            << original.semantic_ref.output_slot;
+    }
+    EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+}
+}  // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(GeometryExchange, ShellCopyHistoryRetainsModifiedImageWhenGeneratedImageWasRemoved) {
+    const auto original = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(10, 0, 0)).Shape();
+    BRepBuilderAPI_Copy first(original), second(first.Shape());
+    const auto source = first.Shape(), live = second.Shape(),
+               generated = BRepBuilderAPI_MakeVertex(gp_Pnt(0, 1, 0)).Shape();
+    Handle(BRepTools_History) inner = new BRepTools_History(), later = new BRepTools_History();
+    inner->AddModified(source, live);
+    inner->AddGenerated(source, generated);
+    later->Remove(generated);
+    inner->Merge(later);
+    ASSERT_TRUE(inner->IsRemoved(source));
+    ASSERT_TRUE(inner->Modified(source).Contains(live));
+    const auto resolved = detail::shell_result_history(source, live, inner);
+    EXPECT_FALSE(resolved->IsRemoved(source));
+    EXPECT_TRUE(resolved->Modified(source).Contains(live));
+    EXPECT_TRUE(resolved->Generated(source).IsEmpty());
+    TopTools_ListOfShape arguments;
+    arguments.Append(original);
+    Handle(BRepTools_History) outer = new BRepTools_History(arguments, first);
+    outer->Merge(resolved);
+    EXPECT_TRUE(outer->Modified(original).Contains(live));
+    EXPECT_FALSE(outer->IsRemoved(original));
+}
+}  // namespace occccad::kernel

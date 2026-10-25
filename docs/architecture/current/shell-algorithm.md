@@ -26,6 +26,12 @@
 
 生成面以源边的真实 `Generated` 关系加入历史；复制、偏置、裁剪、分区、组装、同域合并和逆变换合成一条完整 Naming 链。边面对应不来自几何邻近猜测。
 
+## 拓扑历史与归属
+
+抽壳的原边界延续与新偏置边界分别命名：原面仍存在时，OCCT SIMPLE 返回的偏置 `Modified` 图像归为新生成拓扑，不把外面和内面伪装成原面的分裂。同类型内面、内边及顶点也进入 `MODIFIER_GENERATED` 历史；有真实同类型延续的边界优先保留上游身份，不因相邻面提供了 `Generated` 支撑而改归 Shell。并行壁层历史同时保留每条分支中实际存活的源边界，避免组装时漏掉原外边。属性与树／视图高亮均使用由这条历史派生的当前贡献，不扩大到来源或修改关系中的全部拓扑。
+
+合成历史进入外层副本前，按最终精确拓扑成员收敛存活、修改、生成与删除关系，防止 OCCT 在生成图像消失后留下的矛盾删除标记吞掉仍有效的延续。真正分裂仍保存分裂锚点；属性的“生成步骤”使用当前贡献证据，不把最近分裂步骤当成原边界的生成者。缺少贡献或所选版本定义时明确不可用。缓存随 evaluator 版本失效，已冻结历史制品不原地改写。
+
 ## 精度与结果门禁
 
 精度预算为 `max(1e-5 mm, 输入最大边/点容差 × 1.01)`。检查精确实体有效性、连通性、3D 曲线/pcurve 一致性及端点偏差。若只有保守记录超限、实际几何偏差仍合格，可在独立副本中收紧记录；不提高预算或移动支撑曲线/曲面。
@@ -46,10 +52,9 @@
 
 - `kernel/occt/src/occt_kernel.cpp`：路径调度、壁层分区、历史、精度及结果门禁。
 - `kernel/occt/src/shell_corner.cpp`：解析凹圆形连接体。
+- `kernel/occt/include/internal/shell_history.hpp`：面向精确结果的历史收敛。
 - `kernel/occt/src/shell_junction.cpp`、`mesh_boundary.cpp`：受控端点闭合与显示边界采样。
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `Shell*`：平面、放样、圆角后抽壳、倾斜盲孔、厚度跨越孔半径、材料分类、完整 Naming、网格及上游不可变。
-- `services/internal/geometry/shell_worker_integration_test.go`：真实 Worker 与制品；`web/apps/cad/browser/solid-feature-live.spec.ts`：真实预览、提交、编辑、失败恢复和重开。
+- `services/internal/geometry/shell_worker_integration_test.go`：真实 Worker 与制品；`services/internal/control/shell_naming_integration_test.go`：Router 下的内外拓扑归属、属性／显示一致、编辑、Undo/Redo、重开和冷重建；`web/apps/cad/browser/solid-feature-live.spec.ts`：真实拾取、高亮、预览、提交、编辑、失败恢复和重开。
 
 执行入口为 `invoke check --scope geometry --match Shell`；测试范围与实际结果另行记录，不将测试存在视为验收通过。
-
-已有执行边界：2026-10-16 的 `ShellAfterLargeModifiersAndMixedLoft`、`ShellOffsetRectangleToLargerCircle` 曾失败；2026-10-21 同名用例在 Release CTest 中分别通过（当日 403/403）。因此不继续将旧失败列为确认未修复缺陷，也不由后来通过推断任意厚度/曲面的能力。本次文档整理只核对两次原始 CTest 日志，未重跑抽壳或其浏览器链路。

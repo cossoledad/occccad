@@ -1,3 +1,4 @@
+#include <internal/shell_history.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -2414,42 +2415,74 @@ void verify_shell_offset(ComposedModifier& candidate, double toleranceLimit, boo
 
 template <typename Algorithm>
 Handle(BRepTools_History) shell_offset_history(const TopoDS_Shape& input, Algorithm& algorithm) {
-    TopTools_ListOfShape arguments; arguments.Append(input);
-    Handle(BRepTools_History) history = new BRepTools_History(arguments, algorithm);
+    Handle(BRepTools_History) history = new BRepTools_History();
     TopTools_IndexedMapOfShape sources, members;
-    TopExp::MapShapes(input, sources); TopExp::MapShapes(algorithm.Shape(), members);
+    TopExp::MapShapes(input, sources);
+    TopExp::MapShapes(algorithm.Shape(), members);
     for (int i = 1; i <= sources.Extent(); ++i) {
         const auto& source = sources(i);
-        if (source.ShapeType() != TopAbs_FACE && source.ShapeType() != TopAbs_EDGE && source.ShapeType() != TopAbs_VERTEX) continue;
-        // A thickening keeps the outer source while also returning its inner
-        // image as Modified. Both real images must survive history composition.
-        if (members.Contains(source) && !history->Modified(source).IsEmpty() && !history->Modified(source).Contains(source))
-            history->AddModified(source, source);
+        if (source.ShapeType() != TopAbs_FACE && source.ShapeType() != TopAbs_EDGE &&
+            source.ShapeType() != TopAbs_VERTEX)
+            continue;
+        const auto modified = algorithm.Modified(source);
+        const auto generated = algorithm.Generated(source);
+        const bool retained = members.Contains(source);
+        // SIMPLE reports the new offset image as Modified while retaining the
+        // original boundary. The offset is new shell material boundary, not a
+        // split/continuation of the surviving outside face/edge/vertex.
+        for (TopTools_ListIteratorOfListOfShape it(modified); it.More(); it.Next()) {
+            if (it.Value().IsSame(source))
+                continue;
+            if (retained)
+                history->AddGenerated(source, it.Value());
+            else
+                history->AddModified(source, it.Value());
+        }
+        for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next())
+            if (!it.Value().IsSame(source))
+                history->AddGenerated(source, it.Value());
+        if (!retained && modified.IsEmpty() && generated.IsEmpty() && algorithm.IsDeleted(source))
+            history->Remove(source);
     }
     return history;
 }
 
-void accumulate_shell_history(const Handle(BRepTools_History)& history,
-                              const Handle(BRepTools_History)& branch, const TopoDS_Shape& input) {
-    TopTools_IndexedMapOfShape sources;
+void accumulate_shell_history(const Handle(BRepTools_History) & history,
+                              const Handle(BRepTools_History) & branch, const TopoDS_Shape& input,
+                              const TopoDS_Shape& result) {
+    TopTools_IndexedMapOfShape sources, members;
     TopExp::MapShapes(input, sources);
+    TopExp::MapShapes(result, members);
     for (int i = 1; i <= sources.Extent(); ++i) {
         const auto& source = sources(i);
-        if (source.ShapeType() != TopAbs_FACE && source.ShapeType() != TopAbs_EDGE && source.ShapeType() != TopAbs_VERTEX) continue;
-        for (TopTools_ListIteratorOfListOfShape images(branch->Modified(source)); images.More(); images.Next())
-            if (!history->Modified(source).Contains(images.Value())) history->AddModified(source, images.Value());
-        for (TopTools_ListIteratorOfListOfShape images(branch->Generated(source)); images.More(); images.Next())
-            if (!history->Generated(source).Contains(images.Value())) history->AddGenerated(source, images.Value());
+        if (source.ShapeType() != TopAbs_FACE && source.ShapeType() != TopAbs_EDGE &&
+            source.ShapeType() != TopAbs_VERTEX)
+            continue;
+        for (TopTools_ListIteratorOfListOfShape images(branch->Modified(source)); images.More();
+             images.Next())
+            if (!history->Modified(source).Contains(images.Value()))
+                history->AddModified(source, images.Value());
+        for (TopTools_ListIteratorOfListOfShape images(branch->Generated(source)); images.More();
+             images.Next())
+            if (!history->Generated(source).Contains(images.Value()))
+                history->AddGenerated(source, images.Value());
+        // Parallel wall branches can return the original operand boundary
+        // directly, while another branch returns a trimmed copy of it. Keep
+        // that exact surviving image in the union of branch histories too.
+        if (members.Contains(source) && !history->Modified(source).Contains(source))
+            history->AddModified(source, source);
     }
 }
 
 ComposedModifier simple_open_shell(const TopoDS_Shape& input,
-                                  const std::vector<TopoDS_Shape>& removed, double thickness, double toleranceLimit) {
+                                   const std::vector<TopoDS_Shape>& removed, double thickness,
+                                   double toleranceLimit) {
     TopoDS_Shell open;
     BRep_Builder builder;
     builder.MakeShell(open);
     for (TopExp_Explorer faces(input, TopAbs_FACE); faces.More(); faces.Next()) {
-        if (std::none_of(removed.begin(), removed.end(), [&](const auto& r) { return r.IsSame(faces.Current()); }))
+        if (std::none_of(removed.begin(), removed.end(),
+                         [&](const auto& r) { return r.IsSame(faces.Current()); }))
             builder.Add(open, faces.Current());
     }
     BRepOffsetAPI_MakeThickSolid algorithm;
@@ -2488,7 +2521,7 @@ ComposedModifier inward_face_shell(const TopoDS_Shape& input,
         Handle(BRepTools_History) branch = new BRepTools_History(faceSource, faceCopy);
         branch->Merge(shell_offset_history(faceCopy.Shape(), wall));
         // Accumulate parallel branches before composing their Boolean history.
-        accumulate_shell_history(history, branch, face);
+        accumulate_shell_history(history, branch, face, wall.Shape());
         walls.Append(wall.Shape());
     }
     if (walls.IsEmpty()) throw std::invalid_argument("SHELL_NO_RETAINED_FACES");
@@ -2497,7 +2530,7 @@ ComposedModifier inward_face_shell(const TopoDS_Shape& input,
     // its native source edge and the constructive containment proof.
     for (auto& join : circular_shell_corner_walls(input, removed, thickness, toleranceLimit)) {
         validate_shell_offset(join.shape, toleranceLimit);
-        accumulate_shell_history(history, join.history, input);
+        accumulate_shell_history(history, join.history, input, join.shape);
         walls.Append(join.shape);
     }
     measured("wall_offsets");
@@ -2636,7 +2669,7 @@ ComposedModifier sequential_inward_face_shell(const TopoDS_Shape& input,
         prune_shell_internal_traces(wall, workspaceTolerance);
         std::clog << "shell stage=face_clip index=" << walls.size() << " model_volume="
                   << shape_volume(wall.shape)/(workspaceScale*workspaceScale*workspaceScale) << '\n';
-        accumulate_shell_history(branches, branch, working);
+        accumulate_shell_history(branches, branch, working, wall.shape);
         walls.push_back(wall.shape);
     }
     if (walls.empty()) throw std::invalid_argument("SHELL_NO_RETAINED_FACES");
@@ -2804,20 +2837,39 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                          [&](const auto& shape) { return shape.IsSame(matches.front()); }))
             selected.push_back(matches.front());
     }
-    const auto finish = [&](auto& algorithm, const std::vector<NamedShape>* copied_sources = nullptr) -> BodyOperationResult {
+    const auto finish = [&](auto& algorithm, const std::vector<NamedShape>* copied_sources =
+                                                 nullptr) -> BodyOperationResult {
         if (!algorithm.IsDone())
             throw std::runtime_error("MODIFIER_ALGORITHM_FAILED:" + spec.generator);
         const auto result = algorithm.Shape();
         validate_body_solid_set(result);
-        auto mapped = map_named_shapes(named, algorithm, result);
+        std::vector<NamedShape> mapped;
         std::vector<TopologyLineage> derived;
         TopTools_IndexedMapOfShape members;
         TopExp::MapShapes(result, members);
+        if (spec.generator == "SHELL") {
+            Handle(BRepTools_History) continuation = new BRepTools_History();
+            for (const auto& source : named)
+                for (TopTools_ListIteratorOfListOfShape it(algorithm.Modified(source.shape));
+                     it.More(); it.Next())
+                    if (it.Value().ShapeType() == source.shape.ShapeType())
+                        continuation->AddModified(source.shape, it.Value());
+            mapped = map_named_history(named, continuation, result);
+        } else
+            mapped = map_named_shapes(named, algorithm, result);
+        // A generated cross-type image can also be an existing boundary of a
+        // retained face. Real typed continuation wins over generated support.
+        TopTools_MapOfShape continuations;
+        if (spec.generator == "SHELL")
+            for (const auto& item : mapped)
+                continuations.Add(item.shape);
         for (const auto& source : named) {
             const auto generated = algorithm.Generated(source.shape);
             for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next()) {
                 const auto& shape = it.Value();
-                if (shape.ShapeType() == source.shape.ShapeType() || !members.Contains(shape) ||
+                if ((shape.ShapeType() == source.shape.ShapeType() && spec.generator != "SHELL") ||
+                    !members.Contains(shape) ||
+                    (spec.generator == "SHELL" && continuations.Contains(shape)) ||
                     (shape.ShapeType() != TopAbs_FACE && shape.ShapeType() != TopAbs_EDGE &&
                      shape.ShapeType() != TopAbs_VERTEX))
                     continue;
@@ -2840,7 +2892,8 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
         derived.insert(derived.end(), closure.begin(), closure.end());
         BodyOperationResult output{result, std::move(mapped), std::move(derived), {}};
         for (const auto& source : copied_sources ? *copied_sources : named)
-            if (members.Contains(source.shape)) output.unchanged.push_back(source);
+            if (members.Contains(source.shape))
+                output.unchanged.push_back(source);
         return output;
     };
     if (spec.generator == "FILLET") {
@@ -3029,7 +3082,7 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
                     (!clippedToInput && !inward_valid(candidate.shape)))) throw std::runtime_error("SHELL_INVALID_INTERIOR");
                 TopTools_ListOfShape source; source.Append(input);
                 Handle(BRepTools_History) history = new BRepTools_History(source, attemptCopy);
-                history->Merge(candidate.history);
+                history->Merge(detail::shell_result_history(attemptCopy.Shape(), candidate.shape, candidate.history));
                 candidate.history = history;
                 return finish(candidate);
             } catch (const Standard_Failure& error) {

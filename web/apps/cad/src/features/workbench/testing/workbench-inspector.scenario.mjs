@@ -89,7 +89,7 @@ const unrelated=inspectorObjectData(view,{kind:'feature',id:'unknown'});
 assert.equal(unrelated.parameters,undefined,'unknown object must not show all unrelated document parameters');
 console.log('Complete parameter/feature/datum data, read-only rendering and selected Revision/owner scope passed');
 
-const face={kind:'face',id:'face',topologyId:7,geometryKey:'selected-key',documentId:'part',versionId:'revision'};
+const face={kind:'face',id:'face',topologyId:7,geometryKey:'selected-key',documentId:'part',versionId:'revision',associatedFeatureIds:['feature-stable']};
 const response={kind:'FACE',localId:7,geometryKey:'selected-key',properties:{exactPrecision:0.0123456789012345},persistentSelection:{anchor:{featureId:'feature-stable',outputSlot:'root-face'}}};
 assert.equal(inspectorObjectData(view,face,undefined,response).object,response);
 for(const stale of [{...response,geometryKey:'other-key'},{...response,localId:8},{...response,kind:'EDGE'}])assert.equal(inspectorObjectData(view,face,undefined,stale).object,undefined,'topology details must match the selected geometry snapshot');
@@ -101,6 +101,10 @@ const surface={...response,geometryType:'CONE',properties:{area:12.3456789,refer
 const surfaceHTML=renderToStaticMarkup(React.createElement(Properties,{...props,selection:face,topology:surface}));
 for(const text of ['面积 (mm²)','12.35','参考半径 (mm)','4.57','半锥角 (°)','30','Loft'])assert(surfaceHTML.includes(text),`geometric property missing: ${text}`);
 assert.equal(surface.properties.semiAngle,Math.PI/6,'display units never change precise geometry');
+const splitHTML=renderToStaticMarkup(React.createElement(Properties,{...props,selection:face,topology:{...surface,persistentSelection:{anchor:{featureId:'later-shell',outputSlot:'SPLIT_FROM/original'}}}}));
+assert(splitHTML.includes('Loft')&&!splitHTML.includes('later-shell'),'a split anchor is not the feature owning the current boundary');
+const unknownOwnerHTML=renderToStaticMarkup(React.createElement(Properties,{...props,selection:{...face,associatedFeatureIds:undefined},topology:surface}));
+assert(unknownOwnerHTML.includes('生成步骤暂不可用'),'missing contribution evidence must not be replaced by the semantic anchor');
 
 view.part.features.push({id:'fillet-input',type:'FILLET',name:'外边圆角',bodyId:'a',length:3.14159265});
 const filletHTML=render({kind:'feature',id:'fillet-input'});
