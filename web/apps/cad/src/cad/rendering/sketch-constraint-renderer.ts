@@ -1,7 +1,7 @@
 import { formatDimensionLabelText } from "../sketch/dimension-value-format";
 import { acquireDimensionLabelTextures } from "./dimension-label-textures";
 import { colorNumber, palette } from "../../design/visual-tokens";
-import { SKETCH_FEEDBACK_ORDER } from "./sketch-feedback-style";
+import { SKETCH_FEEDBACK_ORDER,SKETCH_ELEMENT_STYLE } from "./sketch-feedback-style";
 import { registerScreenLineUpdate, screenSpaceEndpoint } from "./screen-space-lines";
 import * as THREE from "three";
 import type { SketchConstraint, SketchEntity, Vec2 } from "../../types";
@@ -31,6 +31,9 @@ export function makeConstraintDimensionLabel(text: string, toWorld?: (point: Vec
   material.userData.baseColor = color;
   material.addEventListener("dispose",textures.release);
   const label = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
+  // Position remains the semantic layout/drag anchor. Shift only the transparent
+  // glyph quad: a CSS-pixel gap above the leader, also after the readable half-turn.
+  label.geometry.translate(0,.5+SKETCH_ELEMENT_STYLE.labelGap/textures.height,0);
   if (toWorld) {
     // Keep the baseline aligned with its leader (or angular arc tangent),
     // choosing an upright equivalent in sketch coordinates, never camera facing.
@@ -100,14 +103,18 @@ export function makeSketchConstraintRenderable(
   }
   if (layout.segments.length) {
     const leaders = makeOcclusionVisibleSegments(layout.segments.filter(segment => !segment.screenAnchor).map(([first, second]) => [toWorld(first), toWorld(second)]),
-      diagnosticColor ?? CATIA_VISUAL_THEME.constraint, 1.25);
+      diagnosticColor ?? CATIA_VISUAL_THEME.constraint, SKETCH_ELEMENT_STYLE.dimensionWidth);
+    leaders.material.opacity=SKETCH_ELEMENT_STYLE.dimensionOpacity;
+    leaders.material.userData.sketchDimensionLeader=true;
     leaders.renderOrder = SKETCH_FEEDBACK_ORDER.leader;
     updateHighlightLineResolution(leaders, viewport.width, viewport.height);
     group.add(leaders);
   }
   for (const segment of layout.segments.filter(segment => segment.screenAnchor)) {
     const anchor = toWorld(segment[0]), toward = toWorld(segment[1]);
-    const arrow = makeOcclusionVisibleSegments([[anchor, toward]], diagnosticColor ?? CATIA_VISUAL_THEME.constraint, 1.25);
+    const arrow = makeOcclusionVisibleSegments([[anchor, toward]], diagnosticColor ?? CATIA_VISUAL_THEME.constraint, SKETCH_ELEMENT_STYLE.dimensionWidth);
+    arrow.material.opacity=SKETCH_ELEMENT_STYLE.dimensionOpacity;
+    arrow.material.userData.sketchDimensionLeader=true;
     arrow.frustumCulled = false;
     arrow.renderOrder = SKETCH_FEEDBACK_ORDER.leader;
     registerScreenLineUpdate(arrow, (camera, cssWidth, cssHeight) => {

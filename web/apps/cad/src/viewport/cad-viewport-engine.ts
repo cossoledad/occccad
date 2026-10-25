@@ -77,12 +77,12 @@ import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
 import { surfaceAppearanceMaterials, scopedSurfaceAppearance, materialAllowsPick, applyEdgeAppearance } from "../cad/rendering/surface-appearance";
 import { visualSelection, visualType } from "../cad/rendering/visualization-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
-import { SKETCH_FEEDBACK_ORDER, sketchGeometryPickPriority } from "../cad/rendering/sketch-feedback-style";
+import { SKETCH_FEEDBACK_ORDER, SKETCH_ELEMENT_STYLE, sketchGeometryPickPriority } from "../cad/rendering/sketch-feedback-style";
 import { makeDatumReferenceLine, makeOcclusionVisibleHighlightLine, makeOcclusionVisibleSegments,
   makeSketchOverlayLine, updateHighlightLineResolution } from "../cad/rendering/interaction-highlight";
 import { constraintSymbolCode, makeConstraintDimensionLabel, makeSketchConstraintRenderable } from "../cad/rendering/sketch-constraint-renderer";
 import { isDimensionConstraintKind, type ConstraintKind } from "../cad/sketch/sketch-constraint-definition";
-import { measureSketchDimension, sketchDimensionText } from "../cad/sketch/sketch-constraint-layout";
+import { buildSketchConstraintLayout, measureSketchDimension, sketchDimensionText } from "../cad/sketch/sketch-constraint-layout";
 import { sketchReferenceDimensions, SKETCH_INPUT_POLICY } from "../cad/sketch/sketch-input-policy";
 import { sampleSketchEntity, ellipsePoint, sketchEntityPoint, splineEditablePoints, splineReferencePoint } from "../cad/sketch/sketch-geometry";
 import { sketchProfileFeedback } from "../cad/sketch/sketch-profile-analysis";
@@ -238,12 +238,13 @@ function worldToLocal(plane: PlaneName | SketchPlane, point: THREE.Vector3): Vec
 }
 
 function sketchDiagnosticColor(status: string | undefined, construction = false): number {
-  if (construction) return CATIA_VISUAL_THEME.sketchConstruction;
+  if (construction&&!['CONFLICTING','FAILED','INVALID','INVALID_MODEL','REDUNDANT'].includes(status??'')) return CATIA_VISUAL_THEME.sketchConstruction;
   switch (status) {
   case "SOLVED":
   case "FULLY_CONSTRAINED": return CATIA_VISUAL_THEME.sketchSolved;
   case "CONFLICTING":
   case "FAILED":
+  case "INVALID":
   case "INVALID_MODEL": return CATIA_VISUAL_THEME.sketchInvalid;
   case "REDUNDANT": return CATIA_VISUAL_THEME.sketchRedundant;
   default: return CATIA_VISUAL_THEME.sketchProfile;
@@ -923,7 +924,7 @@ export class CadViewportEngine {
     this.groundGrid.setStyle(sceneGridColor(s),s.gridOpacity,s.gridSpacing);
     this.worldGrid.setStyle(sceneGridColor(s),s.gridOpacity*.55,s.gridSpacing);
     this.sketchColors=sceneSketchColors(s);
-    this.sketchGrid.setStyle(new THREE.Color(this.sketchColors.grid).getStyle(),1);
+    this.sketchGrid.setStyle(new THREE.Color(this.sketchColors.grid).getStyle(),SKETCH_ELEMENT_STYLE.gridOpacity);
     Object.assign(this.visualTheme,{selected:this.sketchColors.selected,hover:this.sketchColors.hover,constraint:this.sketchColors.solved});
     this.background.setColors(s.background==="THEME"?undefined:s.backgroundTop,s.background==="SOLID"?s.backgroundTop:s.background==="GRADIENT"?s.backgroundBottom:undefined);
     this.refreshSceneGround();this.invalidate();
@@ -1204,8 +1205,8 @@ export class CadViewportEngine {
     const group=new THREE.Group();
     for(const entity of result.entities.filter(entity=>visible.has(entity.id)&&!entity.suppressed)){
       const points=sampleSketchEntity(entity).map(point=>localToWorld(this.sketchPlane!,point));if(!points.length)continue;
-      const primitive=entity.kind==="POINT"?new THREE.Points(new THREE.BufferGeometry().setFromPoints(points),this.materials.point(CATIA_VISUAL_THEME.preview,9,false)):makeSketchOverlayLine(points,CATIA_VISUAL_THEME.preview,entity.role==="CONSTRUCTION"?2:2.5,entity.role==="CONSTRUCTION");
-      primitive.renderOrder=entity.role==="CONSTRUCTION"?SKETCH_FEEDBACK_ORDER.construction:SKETCH_FEEDBACK_ORDER.geometry;
+      const primitive=entity.kind==="POINT"?new THREE.Points(new THREE.BufferGeometry().setFromPoints(points),this.materials.sketchPoint(CATIA_VISUAL_THEME.preview)):makeSketchOverlayLine(points,CATIA_VISUAL_THEME.preview,entity.role==="CONSTRUCTION"?SKETCH_ELEMENT_STYLE.constructionWidth:SKETCH_ELEMENT_STYLE.profileWidth,entity.role==="CONSTRUCTION");
+      primitive.renderOrder=entity.kind==='POINT'?SKETCH_FEEDBACK_ORDER.point:entity.role==="CONSTRUCTION"?SKETCH_FEEDBACK_ORDER.construction:SKETCH_FEEDBACK_ORDER.geometry;
       updateHighlightLineResolution(primitive,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);group.add(primitive);
     }
     const replacements=new Map(operations.flatMap(operation=>operation.type==="UPDATE_CONSTRAINT"?[[operation.constraintId,operation.constraint] as const]:operation.type==="ADD_CONSTRAINT"?[[operation.constraint.id,operation.constraint] as const]:[]));
@@ -2545,7 +2546,9 @@ export class CadViewportEngine {
         const group = new THREE.Group();
         const segments: Array<[THREE.Vector3, THREE.Vector3]> = [];
         for (let index = 0; index + 1 < points.length; index += 2) segments.push([points[index], points[index + 1]]);
-        const leaders = makeOcclusionVisibleSegments(segments, CATIA_VISUAL_THEME.constraint, 1.25);
+        const leaders = makeOcclusionVisibleSegments(segments, CATIA_VISUAL_THEME.constraint, SKETCH_ELEMENT_STYLE.dimensionWidth);
+        leaders.material.opacity=SKETCH_ELEMENT_STYLE.dimensionOpacity;
+        leaders.material.userData.sketchDimensionLeader=true;
         leaders.renderOrder = SKETCH_FEEDBACK_ORDER.leader;
         updateHighlightLineResolution(leaders, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
         group.add(leaders);
@@ -2556,14 +2559,15 @@ export class CadViewportEngine {
           const datum=ownerView?.datumPlanes?.find(plane=>plane.id===support?.datumPlaneId)??ownerView?.part?.datumPlanes?.find(plane=>plane.id===support?.datumPlaneId);
           const plane:PlaneName|SketchPlane=support?.origin&&support.normal&&support.xDirection?{datumPlaneId:support.datumPlaneId??feature!.id,plane:"CUSTOM",origin:support.origin,normal:support.normal,uDirection:support.xDirection}:datum?{datumPlaneId:datum.id,plane:datum.plane,origin:datum.origin,normal:datum.normal,uDirection:datum.uDirection}:feature?.plane!=="CUSTOM"?feature?.plane??"XY":"XY";
           const definition=feature?.sketch?.constraints.find(constraint=>constraint.id===primitive.id);
-          const label = makeConstraintDimensionLabel(definition?sketchDimensionText(definition):primitive.label,point=>localToWorld(plane,point));
+          const direction=definition&&feature?buildSketchConstraintLayout(definition,sketchReferenceEntities(feature)).label?.direction:undefined;
+          const label = makeConstraintDimensionLabel(definition?sketchDimensionText(definition):primitive.label,point=>localToWorld(plane,point),direction);
           label.position.fromArray(primitive.labelPosition);
           label.renderOrder = SKETCH_FEEDBACK_ORDER.label;
           group.add(label);
         }
         object = group;
       } else if (primitive.kind === "POINTS") {
-        object = new THREE.Points(geometry, this.materials.point(color, 9, false));
+        object = new THREE.Points(geometry, primitive.entityType==='POINT'?this.materials.sketchPoint(color):this.materials.point(color,SKETCH_ELEMENT_STYLE.endpointSize,false));
       } else if (primitive.kind === "POLYLINE") {
         geometry.dispose();
         object = makeSketchOverlayLine(points, color, 2.25, construction);
@@ -2578,7 +2582,7 @@ export class CadViewportEngine {
           color, transparent: true, opacity: 0.58, side: THREE.DoubleSide, depthWrite: false,
         }));
       }
-      if (primitive.semantic !== "SKETCH_CONSTRAINT") object.renderOrder = primitive.kind === "POINTS" ? construction ? SKETCH_FEEDBACK_ORDER.constructionEndpoint : SKETCH_FEEDBACK_ORDER.endpoint : construction ? SKETCH_FEEDBACK_ORDER.construction : SKETCH_FEEDBACK_ORDER.geometry;
+      if (primitive.semantic !== "SKETCH_CONSTRAINT") object.renderOrder = primitive.kind === "POINTS" ? primitive.entityType==='POINT'?SKETCH_FEEDBACK_ORDER.point:construction ? SKETCH_FEEDBACK_ORDER.constructionEndpoint : SKETCH_FEEDBACK_ORDER.endpoint : construction ? SKETCH_FEEDBACK_ORDER.construction : SKETCH_FEEDBACK_ORDER.geometry;
       if (!featureTreeNodes.has(primitive.featureId)) featureTreeNodes.set(primitive.featureId, this.featureTreeNode(context, primitive.featureId));
       const featureTreeNode = featureTreeNodes.get(primitive.featureId);
       let objectParent = parent;
@@ -2732,13 +2736,13 @@ export class CadViewportEngine {
       const entityColor=conflictEntities.has(entity.sourceEntityId??entity.id)?CATIA_VISUAL_THEME.sketchInvalid:sketchDiagnosticColor(diagnosticStatus, entity.role === "CONSTRUCTION");
       if (entity.kind === "POINT" && entity.point) {
         object = new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, [entity.point.x, entity.point.y])]),
-          this.materials.point(entityColor, 9, false));
-        object.renderOrder = entity.role === "CONSTRUCTION" ? SKETCH_FEEDBACK_ORDER.constructionEndpoint : SKETCH_FEEDBACK_ORDER.endpoint;
+          this.materials.sketchPoint(entityColor));
+        object.renderOrder = SKETCH_FEEDBACK_ORDER.point;
       } else {
         const sampled=sampleSketchEntity(entity);
         if(sampled.length<2)continue;
         const positions=sampled.map((point)=>localToWorld(plane,point));
-        object = makeSketchOverlayLine(positions, entityColor, entity.role === "CONSTRUCTION" ? 2 : 2.5, entity.role === "CONSTRUCTION");
+        object = makeSketchOverlayLine(positions, entityColor, entity.role === "CONSTRUCTION" ? SKETCH_ELEMENT_STYLE.constructionWidth : SKETCH_ELEMENT_STYLE.profileWidth, entity.role === "CONSTRUCTION");
         updateHighlightLineResolution(object, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
         object.renderOrder = entity.role === "CONSTRUCTION" ? SKETCH_FEEDBACK_ORDER.construction : SKETCH_FEEDBACK_ORDER.geometry;
         if (entity.kind === "SPLINE") group.add(makeSplineControlFeedback(
@@ -2755,7 +2759,7 @@ export class CadViewportEngine {
         }
         const markers=markerPoints.map(point=>localToWorld(plane,point));
         const endpointMarkers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(markers),
-          this.materials.point(CATIA_VISUAL_THEME.vertex, 8, false));
+          this.materials.point(CATIA_VISUAL_THEME.vertex, SKETCH_ELEMENT_STYLE.endpointSize, false));
         endpointMarkers.userData = { ...entitySelection, sketchEntityOverlay: true,patternMember:patternMemberIDs.has(entity.id) }; endpointMarkers.renderOrder = entity.role === "CONSTRUCTION" ? SKETCH_FEEDBACK_ORDER.constructionEndpoint : SKETCH_FEEDBACK_ORDER.endpoint; group.add(endpointMarkers);
         this.selectionIndex.registerPick(endpointMarkers,hit=>{
           if(this.featureSelection?.role!=="point")return null;
@@ -2804,7 +2808,7 @@ export class CadViewportEngine {
       const color = external.status === "CONNECTED" ? CATIA_VISUAL_THEME.sketchExternal : CATIA_VISUAL_THEME.sketchInvalid;
       if (snapshot.kind === "POINT" && snapshot.point) {
         object = new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, [snapshot.point.x, snapshot.point.y])]),
-          this.materials.point(color, 10, false));
+          this.materials.sketchPoint(color));
       } else if(entity.infinite&&snapshot.start&&snapshot.end){
         const origin=localToWorld(plane,[snapshot.start.x,snapshot.start.y]);
         const direction=localToWorld(plane,[snapshot.end.x,snapshot.end.y]).sub(origin);
@@ -2812,12 +2816,12 @@ export class CadViewportEngine {
       } else {
         const sampled = sampleSketchEntity(entity);
         if (sampled.length >= 2) {
-          object = makeSketchOverlayLine(sampled.map((point) => localToWorld(plane, point)), color, 2.75, true);
+          object = makeSketchOverlayLine(sampled.map((point) => localToWorld(plane, point)), color, SKETCH_ELEMENT_STYLE.externalWidth, true);
           updateHighlightLineResolution(object, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
         }
       }
       if (object) {
-        object.renderOrder = SKETCH_FEEDBACK_ORDER.construction; object.userData = { ...selection, sketchEntityOverlay: true }; group.add(object);
+        object.renderOrder = snapshot.kind==='POINT'?SKETCH_FEEDBACK_ORDER.point:SKETCH_FEEDBACK_ORDER.construction; object.userData = { ...selection, sketchEntityOverlay: true }; group.add(object);
         sketchEntityObjects.set(external.id, object); this.selectable.set(`visual:${selection.id}`, object);
         this.selectionIndex.register(selection, object); this.selectionIndex.registerPick(object, () => selection, type === "POINT" ? 65 : 60);
       }
@@ -3525,7 +3529,7 @@ export class CadViewportEngine {
     this.clearPreview();
     const group=new THREE.Group();const marker = new THREE.Points(
       new THREE.BufferGeometry().setFromPoints([localToWorld(plane, point)]),
-      this.materials.point(CATIA_VISUAL_THEME.preview, 11, false),
+      this.materials.sketchPoint(CATIA_VISUAL_THEME.preview),
     );
     marker.renderOrder = SKETCH_FEEDBACK_ORDER.preview;group.add(marker);this.preview=group;this.attachSketchPreview(group);
     this.invalidate();
@@ -3602,7 +3606,7 @@ export class CadViewportEngine {
     if (entity.kind === "POINT" && entity.point) {
       return new THREE.Points(
         new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane, [entity.point.x, entity.point.y])]),
-        this.materials.point(color, 15, false),
+        this.materials.sketchPoint(color, 15),
       );
     }
     if (["POINT", "START", "END", "CENTER"].includes(reference.subElement)) {
@@ -3802,7 +3806,7 @@ export class CadViewportEngine {
         const group=new THREE.Group();
         for(const entity of entities){const points=sampleSketchEntity(entity).map(point=>localToWorld(this.sketchPlane!,point));
           if(!points.length)continue;
-          const primitive=entity.kind==="POINT"?new THREE.Points(new THREE.BufferGeometry().setFromPoints(points),this.materials.point(CATIA_VISUAL_THEME.preview,11,false)):
+          const primitive=entity.kind==="POINT"?new THREE.Points(new THREE.BufferGeometry().setFromPoints(points),this.materials.sketchPoint(CATIA_VISUAL_THEME.preview)):
             makeSketchOverlayLine(points,CATIA_VISUAL_THEME.preview,2.75,entity.role==="CONSTRUCTION");
           primitive.renderOrder=SKETCH_FEEDBACK_ORDER.preview;updateHighlightLineResolution(primitive,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);group.add(primitive);
           if (entity.kind === "SPLINE") group.add(makeSplineControlFeedback(

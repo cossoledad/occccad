@@ -91,7 +91,7 @@ export class PlaneGrid {
         }`,
     });
     this.object = new THREE.Mesh(this.geometry, this.material);
-    this.object.frustumCulled = false; this.object.renderOrder = style==="sketch"?14:0; this.scene.add(this.object);
+    this.object.frustumCulled = false; this.object.renderOrder = 0; this.scene.add(this.object);
   }
   setStyle(color:string,opacity:number,spacing=0):void {this.material.uniforms.uColor.value.set(color);this.material.uniforms.uOpacity.value=opacity;this.spacing=spacing;}
   setFootprint(footprint:GroundFootprint):void {this.footprint={center:footprint.center.clone(),halfSize:footprint.halfSize};}

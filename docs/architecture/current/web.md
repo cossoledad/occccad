@@ -20,6 +20,8 @@ flowchart TD
 
 工作台由独立结构树、视口和属性/历史面板组成。树筛选保留祖先与 stable key，虚拟树支持键盘和集合选择；Inspector 关闭时卸载；普通工程属性优先，DEBUG开发信息面板独立打开，挂载及切换页签后按需查询完整对象与调试信息，读取失败保留明确反馈。Document tabs 位于全局标题栏，支持切换、关闭、新建、排序及窗口会话恢复。普通文档读取和依赖刷新不打开或重排标签；显式打开生命周期与窗口内稳定顺序见 [编辑上下文](product-edit-context.md)。
 
+草图提交屏障只等待权威命令回执、必要的宿主文档刷新及已校验显示制品；历史、属性和目录仍失效并按需刷新，其请求不延长草图输入锁。相同命令响应对象的刷新复用同一次发布，未知回执和显示失败继续保留原恢复/阻塞合同。标签栏的新建文档名称目录仅在新建入口读取，不在每次建模后查询整个目录。定向测量入口为 `solid-feature-live.spec.ts` 的 `sketch performance line`：分开记录命令回调（含服务调用）、显示加载、场景重建及工具栏可用耗时；这些阶段可能重叠，不能相加为内核 CPU 时间。草图图元规范见[工作台](../../guides/workbench.md)。
+
 ## 根场景与编辑上下文
 
 Product 始终显示根装配场景，宿主 Product 决定路由与活动标签，唯一 Edit Target 的 Reference Workspace 决定工作台、命令、历史和属性目标。Product 内只有携带完整 occurrence 路径的上下文编辑，不存在脱离 occurrence 的定义编辑切换；独立 Part 标签是另一个宿主工作空间。`ViewportEditContext`/`editingView` 将活动 Part 草图的拾取、约束、尺寸拖拽和编辑从根 Product 投影中分离；切换激活状态不产生空 Revision。创建 Part、Context Catalog、Pin/Follow 和产品版本中心的领域行为见[Product 架构](product-assembly.md)。

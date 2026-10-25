@@ -28,6 +28,7 @@ import {CadNumberInput as InputNumber} from "../../cad/overlay/cad-number-input"
 import type { SketchCommandState, SketchCommitIntent, SketchCommitReceipt } from "../../cad/tool/sketch-command-session";
 import { selectionNamingIssue, topologyNamingIssue } from "./topology-naming-capability";
 import { openDocumentTab, registerDocumentTab, updateOpenDocumentSummary } from "./open-document-tab";
+import {refreshWorkbenchQueries} from './refresh-workbench-queries';
 import { EditActivationGate, prepareOccurrenceEditSession, rootEditSession, pinnedReferenceInPath,
   withWorkingBody, type EditSession } from "./edit-session";
 import { canDiscardNewSketch, defaultSolidReversed, type NewSketchSession } from "./sketch-session-policy";
@@ -331,7 +332,9 @@ export function Workbench() {
 	const toolbarCatalog = useQuery({ queryKey: ["ui", "toolbars"], queryFn: api.toolbarCatalog, staleTime: 5 * 60_000 });
   const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }), enabled: publicationManagerOpen });
 
-  const refresh = useCallback(async (view?: DocumentView) => {
+  const appliedRefreshes=useRef(new WeakMap<DocumentView,Promise<void>>());
+  const refresh = useCallback((view?: DocumentView):Promise<void> => {
+    if(view){const pending=appliedRefreshes.current.get(view);if(pending)return pending;}
     if (view) {
       const selectionState=useWorkbenchStore.getState();
       if(view.product&&selectionState.selections.some(s=>s.kind==='kinematic-object'&&(s.ownerDocumentId??s.documentId)===view.document.id))selectionState.setSelections(qualifyMotionSelections(view,selectionState.selections));
@@ -347,14 +350,9 @@ export function Workbench() {
       } : current);
     }
     const changedID = view?.document.id ?? activeID;
-    await Promise.all([view ? (changedID === documentID ? Promise.resolve() : client.invalidateQueries({ queryKey: queryKeys.document(documentID) }))
-      : client.invalidateQueries({ queryKey: queryKeys.document(changedID) }),
-    client.invalidateQueries({ queryKey: queryKeys.history(changedID), refetchType: "active" }),
-    client.invalidateQueries({ queryKey: queryKeys.documentProperties(changedID), refetchType: "active" }),
-    client.invalidateQueries({ queryKey: ["product-design-session", documentID] }),
-    client.invalidateQueries({ queryKey: ["context-catalog", documentID] }),
-    client.invalidateQueries({ queryKey: ["product-update-plan", documentID] }),
-    client.invalidateQueries({ queryKey: ["documents"] })]);
+    const pending=refreshWorkbenchQueries(client,changedID,documentID,Boolean(view));
+    if(view)appliedRefreshes.current.set(view,pending);
+    return pending;
   }, [activeID, client, documentID]);
   useEffect(() => {
     if (!documentID || isMockMode) return;

@@ -52,12 +52,14 @@ try {
  assert.equal(rows.find(r=>r.key==="direction").children,"1, 0, 0");
  assert.equal(referencePropertyRows(view,{kind:"plane",entityId:"plane"}).find(r=>r.key==="size").children,"30");
  const engine=Object.create(CadViewportEngine.prototype);
- Object.assign(engine,{view,content:new THREE.Group(),helpers:new THREE.Group(),selectable:new Map(),selectionIndex:new SelectionIndex(),activeSketchID:"seed",materials:{point:color=>new THREE.PointsMaterial({color,size:1})}});
+ const {CadMaterialFactory}=await server.ssrLoadModule('/src/cad/rendering/cad-material-factory.ts');
+ const {CadShaderLibrary}=await server.ssrLoadModule('/src/cad/rendering/shader/cad-shader-library.ts');
+ Object.assign(engine,{view,content:new THREE.Group(),helpers:new THREE.Group(),selectable:new Map(),selectionIndex:new SelectionIndex(),activeSketchID:"seed",materials:new CadMaterialFactory(new CadShaderLibrary())});
  engine.addSketch(sketch,true,view);
  engine.helpers.updateMatrixWorld(true);engine.content.updateMatrixWorld(true);
  const seedObject=engine.selectable.get("visual:root:seed:point"),memberObject=engine.selectable.get("visual:root:seed:derived");
  assert.ok(memberObject,"active sketch registers associated member");
- assert.equal(memberObject.material.color.getHex(),seedObject.material.color.getHex(),"unrelated under-constrained geometry must not whiten associated members");
+ assert.equal(memberObject.material.uniforms.uColor.value.getHex(),seedObject.material.uniforms.uColor.value.getHex(),"unrelated under-constrained geometry must not whiten associated members");
  const ray=new THREE.Raycaster(new THREE.Vector3(12,3,10),new THREE.Vector3(0,0,-1));
  assert.equal(engine.selectionIndex.pick(ray)?.entityId,"derived");
  assert.equal(engine.selectionIndex.objectsFor({kind:"feature",id:"internal",documentId:"part",bodyId:"body",versionId:"v",occurrencePath:""}).length,1,"tree pattern selects member geometry");

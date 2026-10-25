@@ -4,6 +4,7 @@ import { CATIA_VISUAL_THEME, type CadVisualTheme } from "./cad-visual-theme";
 import { CadShaderLibrary } from "./shader/cad-shader-library";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import {SurfaceDepthPass} from "./surface-depth-pass";
+import {SKETCH_ELEMENT_STYLE} from './sketch-feedback-style';
 
 export class CadMaterialFactory {
   readonly surfaceDepth=new SurfaceDepthPass();
@@ -50,6 +51,15 @@ export class CadMaterialFactory {
     return this.shaders.createMaterial("cad.datum.plane", {
       uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uOpacity: this.theme.datumOpacity,
     });
+  }
+
+  /** Independent sketch points use a filled dot with a contrasting clearance ring.
+   * Endpoints/centres keep the established cross and identical stable picking. */
+  sketchPoint(color:number,size:number=SKETCH_ELEMENT_STYLE.pointSize):THREE.ShaderMaterial{
+    const material=this.point(color,size,false);
+    material.uniforms.uMarkerShape.value=1;
+    material.uniforms.uHaloColor.value.setHex(this.theme.sketchPointHalo);
+    return material;
   }
 
   datumLine(color: number, dashed = false): THREE.ShaderMaterial {
@@ -105,7 +115,7 @@ export class CadMaterialFactory {
           material.userData.baseOpacity ??= material.opacity;
           material.userData.baseLinewidth ??= material.linewidth;
           material.opacity = state === "context" ? .5 : Number(material.userData.baseOpacity);
-          material.linewidth = material.userData.propertyPreview?Number(material.userData.baseLinewidth):Math.max(Number(material.userData.baseLinewidth),state === "hover" ? 4 : state === "selected" ? 3.5 : 0);
+          material.linewidth = material.userData.propertyPreview?Number(material.userData.baseLinewidth):Math.max(Number(material.userData.baseLinewidth),material.userData.sketchDimensionLeader?state==='hover'||state==='selected'?1.5:0:state === "hover" ? 4 : state === "selected" ? 3.5 : 0);
         } else if (material instanceof THREE.ShaderMaterial) {
           const selectedUniform = material.uniforms.uSelected;
           const selectedColor = material.uniforms.uSelectedColor;

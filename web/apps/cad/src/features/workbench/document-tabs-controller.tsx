@@ -20,10 +20,11 @@ export function DocumentTabsController() {
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const visibleOrder = useRef<string[]>([]);
+  const preparingCreate = useRef(false);
   const [createForm] = Form.useForm<CreateDocumentValues>();
   const opened = useQuery({ queryKey: queryKeys.openDocuments, queryFn: api.listOpenDocuments });
   const catalog = useQuery({ queryKey: queryKeys.documents({ defaultNames: true }),
-    queryFn: () => api.listDocuments({ limit: 200, allFolders: true }) });
+    queryFn: () => api.listDocuments({ limit: 200, allFolders: true }), enabled: createOpen });
   const activeID = location.pathname.match(/^\/documents\/([^/]+)/)?.[1] ?? "";
 
   const createDocument = async (values: CreateDocumentValues) => {
@@ -53,16 +54,22 @@ export function DocumentTabsController() {
       }
     } catch (error) { feedback(error,"文档操作"); }
   };
-  const openCreateDocument = () => {
-    createForm.setFieldsValue({ type: "PART", name: defaultDocumentName("PART", catalog.data?.documents ?? []), description: "" });
-    setCreateOpen(true);
+  const openCreateDocument = async () => {
+    if(preparingCreate.current)return;
+    preparingCreate.current=true;
+    try {
+      const names=await client.fetchQuery({queryKey:queryKeys.documents({defaultNames:true}),queryFn:()=>api.listDocuments({limit:200,allFolders:true})});
+      createForm.setFieldsValue({ type: "PART", name: defaultDocumentName("PART", names.documents), description: "" });
+      setCreateOpen(true);
+    } catch(error){feedback(error,"新建文档");}
+    finally{preparingCreate.current=false;}
   };
 
   const updateVisibleOrder = useCallback((ids: string[]) => { visibleOrder.current = ids; }, []);
   const productHostID = opened.data?.find((document) => document.id === activeID && document.type === "PRODUCT")?.id;
   return <>
     <DocumentTabs documents={(opened.data ?? []).map(({ id, name, type }) => ({ id, name, type }))}
-      activeID={activeID} productHostID={productHostID} onVisibleOrderChange={updateVisibleOrder} onCreate={openCreateDocument}
+      activeID={activeID} productHostID={productHostID} onVisibleOrderChange={updateVisibleOrder} onCreate={()=>void openCreateDocument()}
       onSwitch={(id) => navigate(`/documents/${id}`)} onClose={(id) => void closeDocument(id)} />
     <Modal title="新建文档" open={createOpen} onCancel={() => { setCreateOpen(false); createForm.resetFields(); }} footer={null} destroyOnHidden>
       <Form form={createForm} layout="vertical" onFinish={(values) => void createDocument(values)}>

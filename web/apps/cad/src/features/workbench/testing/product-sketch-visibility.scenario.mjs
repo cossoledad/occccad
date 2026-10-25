@@ -5,6 +5,8 @@ const server = await createServer({appType:"custom",logLevel:"silent",server:{mi
 try {
   const THREE = await server.ssrLoadModule("three");
   const {CadViewportEngine} = await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
+  const {CadMaterialFactory}=await server.ssrLoadModule('/src/cad/rendering/cad-material-factory.ts');
+  const {CadShaderLibrary}=await server.ssrLoadModule('/src/cad/rendering/shader/cad-shader-library.ts');
   const {SelectionIndex} = await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
   const {visibilityResolverForView} = await server.ssrLoadModule("/src/cad/interaction/visibility-resolver.ts");
   const {encodeMeshGLB,decodeMeshGLB} = await server.ssrLoadModule("/src/cad/visual/mesh-glb.ts");
@@ -44,7 +46,7 @@ try {
   const engine=Object.create(CadViewportEngine.prototype);
   Object.assign(engine,{view,content:new THREE.Group(),helpers:new THREE.Group(),selectable:new Map(),
     instanceGroups:new Map(),solidBindings:new Map(),selectionIndex:new SelectionIndex(),treeVisibilityOverrides:{},
-    referenceVisibility:{},materials:{point:()=>new THREE.PointsMaterial({size:1})},
+    referenceVisibility:{},materials:new CadMaterialFactory(new CadShaderLibrary()),
     refreshSceneGround(){},addAssemblyConstraintMarkers(){},refreshInteractionHighlights(){}});
   engine.visibilityResolver=visibilityResolverForView(view);
   engine.renderProduct(view);
@@ -55,6 +57,7 @@ try {
   const visible=object=>{for(let current=object;current;current=current.parent)if(!current.visible)return false;return true;};
   const point=id=>points.find(([key])=>key.startsWith(`visual:${id}:`))?.[1];
   assert.ok(point("first"));assert.ok(point("second"));
+  assert.equal(point('first').material.uniforms.uMarkerShape.value,1,'Product occurrences use the same independent point marker as Sketch edit');
   assert.equal(visible(point("first")),true,"SHOW reveals the first occurrence");
   assert.equal(visible(point("second")),false,"HIDE affects only the second occurrence");
   const ray=x=>new THREE.Raycaster(new THREE.Vector3(x,3,10),new THREE.Vector3(0,0,-1));

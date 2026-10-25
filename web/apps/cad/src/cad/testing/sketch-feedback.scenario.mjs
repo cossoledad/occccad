@@ -14,6 +14,8 @@ try {
  const {CadShaderLibrary}=await server.ssrLoadModule('/src/cad/rendering/shader/cad-shader-library.ts');
  const {CATIA_VISUAL_THEME:theme}=await server.ssrLoadModule('/src/cad/rendering/cad-visual-theme.ts');
  const {SKETCH_FEEDBACK_ORDER:order}=await server.ssrLoadModule('/src/cad/rendering/sketch-feedback-style.ts');
+ assert(order.leader<order.construction&&order.leader<order.geometry,'dimension lines remain behind all design geometry');
+ assert(order.point>order.geometry&&order.constructionEndpoint>order.geometry,'points and construction endpoints remain visible on overlapping curves');
  const {SketchEditTool}=await server.ssrLoadModule('/src/cad/tool/sketch-edit-tool.ts');
  const {ToolManager}=await server.ssrLoadModule('/src/cad/tool/tool-manager.ts');
  const {InputManager}=await server.ssrLoadModule('/src/cad/input/input-manager.ts');
@@ -46,6 +48,9 @@ try {
  const label=makeConstraintDimensionLabel('R5',([x,y])=>new THREE.Vector3(x,0,y));assert(label.isMesh&&!label.isSprite);
  const normal=new THREE.Vector3(0,0,1).applyQuaternion(label.quaternion);assert(normal.distanceTo(new THREE.Vector3(0,-1,0))<1e-12);
  const {palette,colorNumber}=await server.ssrLoadModule('/src/design/visual-tokens.ts');
+ const dot=engine.materials.sketchPoint(theme.sketchConstruction),cross=engine.materials.point(theme.vertex,8,false);
+ assert.equal(dot.uniforms.uMarkerShape.value,1);assert.equal(cross.uniforms.uMarkerShape.value,0,'ordinary endpoints retain their cross');assert.equal(dot.depthWrite,false);
+ const {SketchColorAdapter,sceneSketchColors}=await server.ssrLoadModule('/src/cad/rendering/sketch-colors.ts');const colors=sceneSketchColors({background:'SOLID',backgroundTop:'#ffffff'}),adapter=new SketchColorAdapter();const point=new THREE.Points(new THREE.BufferGeometry(),dot);adapter.apply(point,colors);assert.equal(dot.uniforms.uHaloColor.value.getHex(),colors.pointHalo,'point clearance adapts to a light scene');
  const baseText=colorNumber(palette.dimensionText);
  for(const state of ['default','hover','selected','default','hover','default']){
   engine.applyHighlight(label,state);
@@ -67,6 +72,7 @@ try {
  const diagnostic=makeSketchConstraintRenderable(lineDimension,inclined,toWorld,engine.materials,{width:800,height:600},theme.sketchInvalid);
  engine.applyHighlight(diagnostic,'selected');assert.equal(diagnostic.children.find(c=>c.userData.sketchDimensionLabel).material.color.getHex(),theme.sketchInvalid,'selection never hides diagnostic text');engine.applyHighlight(diagnostic,'default');assert.equal(diagnostic.children.find(c=>c.userData.sketchDimensionLabel).material.color.getHex(),theme.sketchInvalid,'reset preserves diagnostic state color');
  const root=new THREE.Group();root.add(label);const camera=new THREE.OrthographicCamera(-50,50,50,-50,.1,1000);camera.position.set(0,-100,0);camera.up.set(0,0,1);camera.lookAt(0,0,0);updateScreenLines(root,camera,800,600);const beforeScale=label.scale.y,beforeQuaternion=label.quaternion.clone();camera.zoom=2;camera.updateProjectionMatrix();camera.position.set(50,-100,30);camera.lookAt(0,0,0);updateScreenLines(root,camera,800,600);assert(Math.abs(label.scale.y-beforeScale/2)<1e-12);assert(label.quaternion.equals(beforeQuaternion),'orbit never billboards a sketch label');
+ label.geometry.computeBoundingBox();const bottom=label.geometry.boundingBox.min.y*label.userData.screenSize.height;assert(Math.abs(bottom-3)<1e-6,'glyph quad clears its layout anchor by three CSS pixels at any zoom');
  // Camera roll may reverse reading direction, but only a plane-preserving half-turn is allowed.
  camera.rotateZ(Math.PI);updateScreenLines(root,camera,800,600);
  const uprightNormal=new THREE.Vector3(0,0,1).applyQuaternion(label.quaternion);assert(uprightNormal.distanceTo(normal)<1e-12);
@@ -104,7 +110,8 @@ try {
  const feature=engine.view.part.features[0];feature.sketch.solve={};feature.sketch.entities.unshift({...entities[0],id:'support',role:'CONSTRUCTION'});feature.sketch.constraints[0].labelPosition={x:20,y:5};engine.addSketch(feature,true,engine.view);engine.scene.add(engine.helpers);
  const rendered=engine.selectable.get('visual:root:sketch:a'),support=engine.selectable.get('visual:root:sketch:support');assert.equal(rendered.renderOrder,order.geometry);assert.equal(support.renderOrder,order.construction);assert(support.material.transparent&&rendered.material.transparent);
  const screen=([x,y])=>{const p=new THREE.Vector3(x,y,0).project(camera);return [(p.x+1)*400,(1-p.y)*300];};
- assert.equal(engine.hitTest(...screen([20,10])).entityId,'a','normal viewport selection agrees with typed role picking at overlapping construction geometry');assert.equal(engine.hitTest(...screen([20,5])).kind,'sketch-constraint','dimension text remains explicitly selectable');
+ assert.equal(engine.hitTest(...screen([20,10])).entityId,'a','normal viewport selection agrees with typed role picking at overlapping construction geometry');
+ const annotation=engine.selectable.get('sketch-constraint:root:sketch:constraint:length').children.find(c=>c.userData.sketchDimensionLabel);annotation.geometry.computeBoundingBox();const annotationCenter=annotation.geometry.boundingBox.getCenter(new THREE.Vector3());annotation.localToWorld(annotationCenter);assert.equal(engine.hitTest(...screen([annotationCenter.x,annotationCenter.y])).kind,'sketch-constraint','actual raised dimension text remains explicitly selectable');
  engine.selectSketchMarquee({x:470,y:230},{x:650,y:250},false);assert.deepEqual(engine.selected.map(selection=>selection.entityId),['support','a']);assert.equal(canonical[1].documentId,'part');assert.equal(canonical[1].bodyId,'body');engine.selectSketchMarquee({x:470,y:170},{x:650,y:190},true);assert.deepEqual(engine.selected.map(selection=>selection.entityId),['support','a','b']);
  // Real tool phases publish separate candidate/selection feedback, with no writes on hover.
  let hit=ref('b'),state;const hover=[],sent=[],selection=[];
