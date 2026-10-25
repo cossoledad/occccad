@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -189,5 +190,62 @@ func TestAutomationNestedCommandContractsValidateRealDTOs(t *testing.T) {
 	_ = json.Unmarshal(actual, &values)
 	if err = validateTyped(reflect.TypeOf(modelcore.Quantity{}), values, 0); err != nil {
 		t.Fatal("DTO schema rejects its own canonical quantity types", graph, err)
+	}
+}
+
+func TestAutomationCurrentPartCommandInputs(t *testing.T) {
+	catalog := NewCatalog()
+	cases := []struct {
+		id, raw string
+		check   func(workspace.CommandRequest) bool
+	}{
+		{"command.move_feature", `{"targetId":"hole","anchorFeatureId":"fillet","placement":"BEFORE","expectedFeatureDigest":"definition-proof"}`, func(r workspace.CommandRequest) bool {
+			return r.TargetID == "hole" && r.AnchorFeatureID == "fillet" && r.Placement == "BEFORE" && r.ExpectedFeatureDigest == "definition-proof"
+		}},
+		{"command.reassign_sketch_support", `{"sketchId":"location","datumPlaneId":"datum-xz"}`, func(r workspace.CommandRequest) bool { return r.SketchID == "location" && r.DatumPlaneID == "datum-xz" }},
+		{"command.create_modify_feature", `{"afterFeatureId":"base","versionId":"revision","geometryKey":"stage","feature":{"type":"FILLET","bodyId":"body","length":1}}`, func(r workspace.CommandRequest) bool {
+			return r.AfterFeatureID == "base" && r.VersionID == "revision" && r.GeometryKey == "stage" && r.Feature.Type == "FILLET"
+		}},
+		{"command.create_boolean_feature", `{"bodyId":"body","operation":"REMOVE","tools":[{"bodyId":"tool","featureId":"stage"}],"booleanResult":{"mode":"EXPLICIT","regions":[{"boundaryUnique":true,"boundary":["proof"],"inputDigest":"input","cellDigest":"cell"}]}}`, func(r workspace.CommandRequest) bool {
+			return r.BooleanResult != nil && r.BooleanResult.Mode == "EXPLICIT" && len(r.BooleanResult.Regions) == 1 && r.BooleanResult.Regions[0].CellDigest == "cell"
+		}},
+		{"command.create_solid_feature", `{"bodyId":"body","sketchId":"sketch","generator":"LINEAR_EXTRUDE","operation":"ADD","extent":"TO_PLANE","terminationPlaneId":"datum","profileSelection":{"mode":"REGIONS","regionIds":["region"]}}`, func(r workspace.CommandRequest) bool {
+			return r.Extent == "TO_PLANE" && r.TerminationPlaneID == "datum" && r.ProfileSelection.Mode == "REGIONS" && reflect.DeepEqual(r.ProfileSelection.RegionIDs, []string{"region"})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id, func(t *testing.T) {
+			r, e := catalog.Compile(tc.id, 1, json.RawMessage(tc.raw))
+			if e != nil || !tc.check(r) {
+				t.Fatal("current command fields lost", r, e)
+			}
+		})
+	}
+	for _, raw := range []string{`{"targetId":"hole","anchorFeatureId":"fillet","placement":"SIDEWAYS","expectedFeatureDigest":"proof"}`, `{"targetId":"hole","anchorFeatureId":"fillet","placement":"AFTER","expectedFeatureDigest":"proof","requestId":"forged"}`} {
+		if _, e := catalog.Compile("command.move_feature", 1, json.RawMessage(raw)); e == nil {
+			t.Fatal("invalid move contract accepted", raw)
+		}
+	}
+	if _, e := catalog.Compile("command.reassign_sketch_support", 1, json.RawMessage(`{"sketchId":"sketch","targetKind":"FACE"}`)); e == nil || !strings.Contains(e.Error(), "UI_HANDOFF_REQUIRED") {
+		t.Fatal("face support bypassed the authorized stage picker", e)
+	}
+	for _, name := range []string{"workspace.Feature", "workspace.CommandRequest"} {
+		schema, e := DescribeType(name)
+		if e != nil {
+			t.Fatal(e)
+		}
+		properties := schema["properties"].(map[string]any)
+		values := properties["extent"].(map[string]any)["enum"].([]string)
+		if !slices.Contains(values, "TO_PLANE") {
+			t.Fatal("stale extent schema", name, values)
+		}
+		if name == "workspace.Feature" {
+			if !slices.Contains(values, "BLIND") || !slices.Contains(properties["type"].(map[string]any)["enum"].([]string), "HOLE") {
+				t.Fatal("Hole schema missing")
+			}
+			if !reflect.DeepEqual(properties["holeKind"].(map[string]any)["enum"], []string{"SIMPLE", "COUNTERBORE", "COUNTERSINK"}) {
+				t.Fatal("stale Hole kinds")
+			}
+		}
 	}
 }

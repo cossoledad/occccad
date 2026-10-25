@@ -66,8 +66,15 @@ func TestAutomationHTTPQueriesAndRealtimeCommitBoundary(t *testing.T) {
 	}
 	err = json.NewDecoder(response.Body).Decode(&operations)
 	response.Body.Close()
-	if err != nil || response.StatusCode != 200 || len(operations.Operations) != 1 {
+	if err != nil || response.StatusCode != 200 {
 		t.Fatal("operation discovery", response.StatusCode, err)
+	}
+	found := map[string]bool{}
+	for _, op := range operations.Operations {
+		found[op.ID] = true
+	}
+	if !found["part.extrude"] || !found["command.create_solid_feature"] {
+		t.Fatal("operation discovery lost matching contracts", operations.Operations)
 	}
 	response = get("/api/documents/" + view.Document.ID + "/automation/context")
 	var current automation.Context

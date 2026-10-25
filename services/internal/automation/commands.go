@@ -33,13 +33,15 @@ var commandContracts = []commandContract{
 	{"RENAME_FEATURE", "PART", "重命名特征", "name targetId", "targetId name", ""},
 	{"CREATE_PARAMETER", "PART", "创建参数", "name unit value", "value unit", ""},
 	{"CREATE_SKETCH", "PART", "创建草图", "bodyId datumPlaneId geometryKey plane targetKind versionId", "bodyId", ""},
+	{"REASSIGN_SKETCH_SUPPORT", "PART", "更换草图支撑", "bodyId datumPlaneId geometryKey plane sketchId targetKind versionId", "sketchId", ""},
 	{"EDIT_SKETCH", "PART", "编辑草图几何、尺寸和约束", "operations sketchId", "sketchId operations", ""},
 	{"PAD_SKETCH", "PART", "拉伸草图", "bodyId length sketchId", "bodyId sketchId length", ""},
-	{"CREATE_MODIFY_FEATURE", "PART", "创建圆角、倒角、拔模或抽壳", "feature parameterExpressions", "feature", ""},
-	{"CREATE_BOOLEAN_FEATURE", "PART", "创建布尔特征", "bodyId keepTools operation tools", "bodyId operation tools", ""},
-	{"CREATE_SOLID_FEATURE", "PART", "创建拉伸、切除、旋转或放样", "angle axisEntityId bodyId extent feature generator length length2 lengthExpression operation parameterExpressions profileMemberSlot reversed sketchId", "", ""},
+	{"CREATE_MODIFY_FEATURE", "PART", "创建圆角、倒角、拔模或抽壳", "afterFeatureId feature geometryKey parameterExpressions versionId", "feature", ""},
+	{"CREATE_BOOLEAN_FEATURE", "PART", "创建布尔特征", "bodyId booleanResult keepTools operation tools", "bodyId operation tools", ""},
+	{"CREATE_SOLID_FEATURE", "PART", "创建拉伸、切除、旋转、放样或孔", "angle axisEntityId bodyId extent feature generator length length2 lengthExpression operation parameterExpressions profileMemberSlot profileSelection reversed sketchId terminationPlane terminationPlaneId", "", ""},
 	{"SET_FEATURE_SUPPRESSION", "PART", "停用或启用特征", "expectedFeatureDigest suppressed targetId", "targetId suppressed expectedFeatureDigest", ""},
 	{"CREATE_PATTERN", "PART", "创建阵列或镜像", "feature parameterExpressions", "feature", ""},
+	{"MOVE_FEATURE", "PART", "调整特征顺序", "anchorFeatureId expectedFeatureDigest placement targetId", "targetId anchorFeatureId placement expectedFeatureDigest", ""},
 	{"EDIT_FEATURE", "PART", "编辑特征", "expectedFeatureDigest feature length lengthExpression parameterExpressions targetId unit", "targetId expectedFeatureDigest", ""},
 	{"CREATE_DATUM_PLANE", "PART", "创建基准面", "datumAngleExpression datumDefinition datumDistanceExpression name normal origin targetId uDirection", "origin normal uDirection", ""},
 	{"EDIT_DATUM_PLANE", "PART", "编辑基准面", "datumAngleExpression datumDefinition datumDistanceExpression name normal origin targetId uDirection", "targetId origin normal uDirection", ""},
@@ -92,7 +94,10 @@ func commandOperations() []Operation {
 		op := Operation{ID: "command." + strings.ToLower(contract.command), Name: contract.name, DocumentType: contract.document, CommandType: contract.command, Handoff: contract.handoff,
 			Description: contract.command + ". Existing versioned domain command; lengths mm, angles degrees unless an explicit unit is provided. Nested types: cad_describe_type. " + contract.handoff}
 		if contract.command == "CREATE_SOLID_FEATURE" {
-			op.Description += " Linear extrusion/cut requires sketchId, bodyId, generator=LINEAR_EXTRUDE, operation=ADD|REMOVE|NEW_BODY|INTERSECT, extent=FINITE|SYMMETRIC|TWO_SIDED|THROUGH_ALL and positive length (also for THROUGH_ALL). Prefer part.cut for a through cut without a length argument. CUT is not an operation value."
+			op.Description += " Linear extrusion/cut requires sketchId, bodyId, generator=LINEAR_EXTRUDE, operation=ADD|REMOVE|NEW_BODY|INTERSECT, extent=FINITE|SYMMETRIC|TWO_SIDED|THROUGH_ALL|TO_PLANE; TO_PLANE requires a formal termination plane, other linear modes require a positive length (also for THROUGH_ALL). Hole uses feature.type=HOLE with an explicit upstream sketch point and BLIND|THROUGH_ALL extent. Prefer part.cut for a through cut without a length argument. CUT is not an operation value."
+		}
+		if contract.command == "REASSIGN_SKETCH_SUPPORT" {
+			op.Description += " Datum support uses plane or datumPlaneId at the command baseline; face support requires the existing sketch support editor to pick an exact legal upstream stage, never an invented topologyId."
 		}
 		if contract.command == "EDIT_FEATURE" || contract.command == "SET_FEATURE_SUPPRESSION" {
 			op.Description += " First query this exact stable feature ID with fields [definition,definitionDigest] at the current revision; pass definitionDigest as expectedFeatureDigest. A replacement feature must preserve the complete definition including type, Body, profile and selections. Prefer editing an owned parameter for a dimension-only change. Never invent the digest or change a different feature to satisfy a goal."
@@ -121,6 +126,9 @@ func commandOperations() []Operation {
 			op.Fields = append(op.Fields, Field{Name: "selectionSet", MaxLength: 16384, Title: "Revision-bound topology set from cad_query_topology; resolves to formal PersistentSelections", Type: "string"})
 		}
 		op.validate = func(args map[string]any) error {
+			if contract.command == "REASSIGN_SKETCH_SUPPORT" && textArg(args, "targetKind") == "FACE" {
+				return fault("UI_HANDOFF_REQUIRED", "Use the sketch support editor to select an exact upstream face")
+			}
 			for name, value := range args {
 				if name == "selectionSet" {
 					continue
@@ -334,14 +342,16 @@ func DescribeType(name string) (map[string]any, error) {
 var contractEnums = map[string][]string{
 	"workspace.CommandRequest.generator":       {"LINEAR_EXTRUDE", "REVOLVE"},
 	"workspace.CommandRequest.operation":       {"NEW_BODY", "ADD", "REMOVE", "INTERSECT"},
-	"workspace.CommandRequest.extent":          {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL"},
-	"workspace.Feature.extent":                 {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL"},
+	"workspace.CommandRequest.extent":          {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE"},
+	"workspace.Feature.extent":                 {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE", "BLIND"},
+	"workspace.Feature.holeKind":               {"SIMPLE", "COUNTERBORE", "COUNTERSINK"},
+	"workspace.CommandRequest.placement":       {"BEFORE", "AFTER"},
 	"workspace.PatternDefinition.kind":         {"LINEAR", "CIRCULAR", "MIRROR"},
 	"workspace.PatternDefinition.distribution": {"FIXED_STEP", "TOTAL_SPAN", "FULL_CIRCLE"},
 	"workspace.SketchOperation.type":           {"ADD_ENTITY", "ADD_CONSTRAINT", "ADD_RECTANGLE", "CREATE_POLYGON", "CREATE_PATTERN", "EDIT_PATTERN", "DELETE_PATTERN", "DETACH_PATTERN", "OFFSET_ENTITIES", "FILLET_ENTITIES", "CHAMFER_ENTITIES", "APPLY_DRAG_RESULT", "DELETE_ENTITIES", "COPY_ENTITIES", "TRANSFORM_ENTITIES", "MIRROR_ENTITIES", "SPLIT_ENTITY", "REPLACE_CURVE_INTERVALS", "ADD_EXTERNAL_GEOMETRY", "RECONNECT_EXTERNAL_GEOMETRY", "DETACH_EXTERNAL_GEOMETRY", "UPDATE_ENTITY_ROLE", "EDIT_SPLINE_POINT", "SET_SPLINE_CLOSED", "CONVERT_SPLINE_TO_CONTROL", "UPDATE_ENTITY_POINT", "UPDATE_ENTITY_SUPPRESSION", "UPDATE_CONSTRAINT_SUPPRESSION", "DELETE_CONSTRAINT", "UPDATE_CONSTRAINT", "UPDATE_CONSTRAINT_VALUE"},
 	"workspace.SketchEntity.role":              {"PROFILE", "CONSTRUCTION"},
 	"workspace.SketchEntity.kind":              {"POINT", "LINE", "CIRCLE", "ARC", "ELLIPSE", "ELLIPTICAL_ARC", "SPLINE"},
-	"workspace.Feature.type":                   {"SKETCH", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT", "BOOLEAN", "SOLID_PATTERN", "SKETCH_PATTERN"},
+	"workspace.Feature.type":                   {"SKETCH", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT", "HOLE", "BOOLEAN", "SOLID_PATTERN", "SKETCH_PATTERN"},
 	"workspace.Feature.operation":              {"NEW_BODY", "ADD", "REMOVE", "INTERSECT"},
 }
 

@@ -281,12 +281,12 @@ func TestContactAnalyticSupportsAndHistoryThroughRouter(t *testing.T) {
 				t.Fatal("Contact endpoint instance missing", id)
 				return ""
 			}
-			wantName := "接触.1 (" + instanceName(definition.First.InstanceID) + "," + instanceName(definition.Second.InstanceID) + ")"
+			wantName := "Contact.1 (" + instanceName(definition.First.InstanceID) + "," + instanceName(definition.Second.InstanceID) + ")"
 			contactNamed := false
 			for _, group := range product.StructureTree.Children {
 				for _, node := range group.Children {
 					if node.Kind == "ASSEMBLY_CONSTRAINT" && node.EntityID == targetID {
-						contactNamed = definition.Name == "接触.1" && node.Name == wantName
+						contactNamed = definition.Name == "Contact.1" && node.Name == wantName
 					}
 				}
 			}

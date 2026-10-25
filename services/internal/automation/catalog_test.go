@@ -59,10 +59,17 @@ func TestAutomationCatalogContractsAndValidation(t *testing.T) {
 		t.Fatal("catalog digest is unstable")
 	}
 	ops, err := catalog.Search("extrude", "PART", 10)
-	if err != nil || len(ops) != 1 || ops[0].ID != "part.extrude" {
+	if err != nil {
 		t.Fatalf("discovery: %+v %v", ops, err)
 	}
-	op, err := catalog.Describe(ops[0].ID)
+	found := map[string]bool{}
+	for _, op := range ops {
+		found[op.ID] = true
+	}
+	if !found["part.extrude"] || !found["command.create_solid_feature"] {
+		t.Fatalf("missing matching operations: %+v", ops)
+	}
+	op, err := catalog.Describe("part.extrude")
 	if err != nil || op.InputSchema["additionalProperties"] != false || op.OutputSchema == nil {
 		t.Fatalf("operation has no checked contract: %+v %v", op, err)
 	}

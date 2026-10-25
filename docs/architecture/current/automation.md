@@ -89,7 +89,7 @@ AES-256-GCM、账号 AAD 和本地主密钥延续原凭证方案；主密钥与�
 
 ## 命令、选择与动态绑定
 
-目录复用所有公开 `command.*` 适配器与 Workbench `ui.*` 投影，覆盖测试对照真实 switch/catalog；合同覆盖不代表所有参数组合都通过原生验收。`part.fillet/chamfer` 等小操作减小 DTO 成本。先搜索再 describe，嵌套类型按需读取；未知字段、类型、数组维度、权限、几何和量纲仍由原校验负责。Host 固定 actor/document、requestId、baseline、preview 和 epoch，模型不能覆盖。
+目录复用所有公开 `command.*` 适配器与 Workbench `ui.*` 投影，覆盖测试对照真实 switch/catalog；合同覆盖不代表所有参数组合都通过原生验收。 搜索可同时返回便捷操作、原领域命令与工作台入口，调用方须按 operation ID 选择并按游标分页，不能假定关键词只有一项结果。目录同步现有草图支撑重指定、特征移动/局部插入、轮廓及布尔区域输入和工程孔类型；基准面支撑可经原命令执行并固定来源 Revision，实体面支撑仍需原编辑器的合法阶段拾取，不接受模型生成的 local ID。`part.fillet/chamfer` 等小操作减小 DTO 成本。先搜索再 describe，嵌套类型按需读取；未知字段、类型、数组维度、权限、几何和量纲仍由原校验负责。Host 固定 actor/document、requestId、baseline、preview 和 epoch，模型不能覆盖。
 
 发送前完整复制选择，再读取正式 PersistentSelection；工作台去重复用 document/Revision/InstancePath/Body/几何及草图子元素的正式选择键，不按 kind:id 合并不同 occurrence。树的 pad/visual 仅是展示分类，冻结时按该 Revision 的定义补齐真实 Feature 类型、草图实体/约束及所属关系；草图端点/控制点保留 SketchGeometryRef。实例使用路径接受的源文档/Revision，不能以父 Product 的快照替代；实例使用稳定 InstancePath，定义/根/源文档 Revision 分别保存；服务端逐路径核对接受的源文档与版本，不能冒用同源新Head或可读的无关定义。LLM 初始上下文只有紧凑预览，完整 Scope 仍用于执行和导出，不把同份拓扑证据同时注入 frozenScope 和 selectionPreview。发送前后显示简短类型/数量摘要。当前单输入最多 256 项及 512 KiB，超额拒绝整个输入，不静默截断。发送后换选不影响原指令。过期拓扑只经正式 Naming/selection resolver 的唯一 RESOLVED 结果重定位；失败或歧义要求重新选择，不依靠名称、mesh 序号、local ID 或改写 Revision。
 

@@ -123,7 +123,7 @@ func (s *Service) command(ctx context.Context, actor, document string, a ActionR
 		return command, err
 	}
 	switch command.Type {
-	case "SET_PROPERTIES", "ACTIVATE_MECHANISM", "EXIT_MECHANISM", "SAVE_KINEMATICS", "APPLY_MOTION_FRAME", "CREATE_SKETCH", "CREATE_PUBLICATION", "REDIRECT_PUBLICATION":
+	case "SET_PROPERTIES", "ACTIVATE_MECHANISM", "EXIT_MECHANISM", "SAVE_KINEMATICS", "APPLY_MOTION_FRAME", "CREATE_SKETCH", "REASSIGN_SKETCH_SUPPORT", "CREATE_PUBLICATION", "REDIRECT_PUBLICATION":
 		if command.VersionID != "" && command.VersionID != a.ExpectedHead.RevisionID {
 			return command, fault("WORKSPACE_HEAD_CONFLICT", "command source revision differs from task baseline")
 		}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -605,3 +607,57 @@ func TestAutomationGenericSketchSolidAndProductCommands(t *testing.T) {
 }
 
 func marshalOccurrenceArguments(value any) json.RawMessage { raw, _ := json.Marshal(value); return raw }
+
+func TestAutomationReassignSketchSupportUsesExactBaseline(t *testing.T) {
+	db, domain, view := automationFixture(t)
+	actor := access.DefaultUserID
+	service := automation.New(db, domain, access.New(db))
+	document := view.Document.ID
+	run := func(operation string, args map[string]any) automation.ActionResult {
+		t.Helper()
+		snapshot, e := domain.ReadModelSnapshot(t.Context(), document, "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		raw, _ := json.Marshal(args)
+		action := automation.ActionRequest{OperationID: operation, Version: 1, Arguments: raw, ExpectedHead: snapshot.CommandBaseline, RequestID: uuid.NewString()}
+		preview, e := service.Prepare(t.Context(), actor, document, action)
+		if e != nil {
+			t.Fatal("prepare", operation, e)
+		}
+		unchanged, e := domain.ReadModelSnapshot(t.Context(), document, "")
+		if e != nil || unchanged.RevisionID != snapshot.RevisionID {
+			t.Fatal("preview changed Head", e)
+		}
+		action.PreviewID = preview.PreviewID
+		result, e := service.Commit(t.Context(), actor, document, action)
+		if e != nil {
+			t.Fatal("commit", e)
+		}
+		return result
+	}
+	created := run("sketch.create", map[string]any{"bodyId": view.Part.ActiveBodyID, "plane": "XY"})
+	sketch := created.Output.ID
+	run("command.edit_sketch", map[string]any{"sketchId": sketch, "operations": []any{map[string]any{"type": "ADD_ENTITY", "entity": map[string]any{"id": "location-point", "kind": "POINT", "role": "CONSTRUCTION", "point": map[string]float64{"x": 3, "y": 4}}}}})
+	before, e := domain.GetDocument(t.Context(), document, actor)
+	if e != nil {
+		t.Fatal(e)
+	}
+	snapshot, e := domain.ReadModelSnapshot(t.Context(), document, "")
+	if e != nil {
+		t.Fatal(e)
+	}
+	forged := automation.ActionRequest{OperationID: "command.reassign_sketch_support", Version: 1, RequestID: uuid.NewString(), ExpectedHead: snapshot.CommandBaseline, Arguments: json.RawMessage(`{"sketchId":"` + sketch + `","datumPlaneId":"datum-xz","versionId":"` + uuid.NewString() + `"}`)}
+	if _, e := service.Prepare(t.Context(), actor, document, forged); e == nil || !strings.Contains(e.Error(), "WORKSPACE_HEAD_CONFLICT") {
+		t.Fatal("forged source revision accepted", e)
+	}
+	run("command.reassign_sketch_support", map[string]any{"sketchId": sketch, "datumPlaneId": "datum-xz"})
+	after, e := domain.GetDocument(t.Context(), document, actor)
+	if e != nil {
+		t.Fatal(e)
+	}
+	old, next := before.Part.Features[0], after.Part.Features[0]
+	if next.ID != old.ID || next.BodyID != old.BodyID || next.Order != old.Order || next.Name != old.Name || !reflect.DeepEqual(next.Sketch.Entities, old.Sketch.Entities) || next.Sketch.Support.DatumPlaneID != "datum-xz" || next.Sketch.Support.Status != "CONNECTED" {
+		t.Fatal("support command changed identity or failed", next)
+	}
+}
