@@ -1349,6 +1349,7 @@ func (server *Server) booleanRegions(writer http.ResponseWriter, request *http.R
 	if !decodeJSON(writer, request, &input) {
 		return
 	}
+	input.ActorID = principal(request).ID
 	result, err := server.workspace.AnalyzeBooleanRegions(request.Context(), request.PathValue("documentID"), input)
 	if err != nil {
 		writeTopologySelectionError(writer, err)

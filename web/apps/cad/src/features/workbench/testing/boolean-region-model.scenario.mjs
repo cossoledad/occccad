@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'vite';
 const server=await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
 try{
- const {matchBooleanRegion}=await server.ssrLoadModule('/src/features/workbench/boolean-region-model.ts');
+ const {matchBooleanRegion,selectBooleanRegion}=await server.ssrLoadModule('/src/features/workbench/boolean-region-model.ts');
  const {featureSelectionHit}=await server.ssrLoadModule('/src/cad/interaction/feature-selection.ts');
  const ref={boundaryUnique:true,boundary:['source-face'],inputDigest:'frozen',cellDigest:'left'};
  const cell=(reference,eligible=true)=>({reference,eligible});
@@ -15,6 +15,14 @@ try{
  assert.equal(matchBooleanRegion(ambiguous,[cell({...ambiguous,inputDigest:'changed',cellDigest:'right'})]).status,'AMBIGUOUS','removal of the original twin must never bind the surviving twin');
  assert.equal(matchBooleanRegion(ref,[cell({...ref,inputDigest:'split',boundaryUnique:false}),cell({...ref,inputDigest:'split',cellDigest:'other',boundaryUnique:false},false)]).status,'AMBIGUOUS','operation filtering must not hide a second lineage match');
  assert.equal(matchBooleanRegion(ref,[cell(ref,false)]).status,'MISSING','operation eligibility remains authoritative');
+ const current=cell({...ref,inputDigest:'current',cellDigest:'remaining'});
+ const lost=[{...ref,boundary:['deleted-a'],inputDigest:'old',cellDigest:'a'},{...ref,boundary:['deleted-b'],inputDigest:'old',cellDigest:'b'}];
+ let repaired=selectBooleanRegion(lost,[current],current,0);
+ assert.equal(repaired.length,2,'the other failed input must remain visible');
+ repaired=selectBooleanRegion(repaired,[current],current,1);
+ assert.deepEqual(repaired,[current.reference],'two repairs to the same current cell form one retained input');
+ assert.deepEqual(selectBooleanRegion(repaired,[current],current),[],'viewport toggle removes that one cell');
+ assert.deepEqual(selectBooleanRegion([ref,current.reference],[current],current,0),[current.reference],'resolved lineage and frozen identity deduplicate together');
  const hit={kind:'boolean-region',id:'temporary',regionId:'left',analysisId:'frozen',documentId:'part',versionId:'head',occurrencePath:'a'};
  const session={role:'boolean-region',documentId:'part',versionId:'head',occurrencePath:'a',selections:[],booleanRegions:{cells:[cell(ref)]}};
  assert.equal(featureSelectionHit(hit,session),hit);

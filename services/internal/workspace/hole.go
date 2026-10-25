@@ -2,12 +2,16 @@ package workspace
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
 func validateHole(f Feature, earlier map[string]Feature) error {
+	if k := holeKind(f); k != "SIMPLE" && k != "COUNTERBORE" && k != "COUNTERSINK" {
+		return fmt.Errorf("%w: HOLE_KIND_INVALID", ErrValidation)
+	}
 	p := f.HolePoint
 	if f.Sketch != nil || f.ProfileMemberSlot != nil || f.KeepTools || f.Operation != "REMOVE" || f.Profile != "" || f.ProfileSelection != nil || f.TerminationPlane != nil || f.TerminationPlaneID != "" || f.NeutralPlane != nil || f.NeutralPlaneID != "" || f.AxisEntityID != "" || len(f.Tools) > 0 || len(f.Selections) > 0 || len(f.Sections) > 0 || f.Pattern != nil || (f.Extent != "BLIND" && f.Extent != "THROUGH_ALL") {
 		return fmt.Errorf("%w: HOLE_DEFINITION_INVALID", ErrValidation)
@@ -81,5 +85,64 @@ func holeInput(model PartModel, f Feature) (geometry.ProfilePad, error) {
 		return geometry.ProfilePad{}, fmt.Errorf("%w: HOLE_SUPPORT_UNAVAILABLE", ErrValidation)
 	}
 	id := f.HolePoint.Reference.EntityID
-	return geometry.ProfilePad{FeatureID: f.ID, BodyID: f.BodyID, Generator: "HOLE", BodyOperation: "REMOVE", ProfileFeatureID: source.ID, Extent: f.Extent, Length: f.Depth, Reversed: f.Reversed, PlaneOrigin: origin, PlaneNormal: n, PlaneUDirection: u, Regions: []geometry.ProfileRegion{{ID: "hole/" + source.ID + "/" + id, Outer: geometry.ProfileLoop{ID: "hole-loop/" + id, Curves: []geometry.ProfileCurve{{EntityID: id, Kind: "CIRCLE", Radius: f.Diameter / 2}}}}}}, nil
+	return geometry.ProfilePad{FeatureID: f.ID, BodyID: f.BodyID, Generator: "HOLE", HoleKind: holeKind(f), RecessDiameter: f.RecessDiameter, RecessDepth: f.RecessDepth, CountersinkAngle: f.CountersinkAngle * math.Pi / 180, BodyOperation: "REMOVE", ProfileFeatureID: source.ID, Extent: f.Extent, Length: f.Depth, Reversed: f.Reversed, PlaneOrigin: origin, PlaneNormal: n, PlaneUDirection: u, Regions: []geometry.ProfileRegion{{ID: "hole/" + source.ID + "/" + id, Outer: geometry.ProfileLoop{ID: "hole-loop/" + id, Curves: []geometry.ProfileCurve{{EntityID: id, Kind: "CIRCLE", Radius: f.Diameter / 2}}}}}}, nil
+}
+
+func holeKind(f Feature) string {
+	if f.HoleKind == "" {
+		return "SIMPLE"
+	}
+	return f.HoleKind
+}
+
+type holeParameter struct {
+	slot, label, unit string
+	value             float64
+	dimension         modelcore.Dimension
+}
+
+func holeParameters(f Feature) []holeParameter {
+	result := []holeParameter{{"diameter", "Diameter", "mm", f.Diameter, modelcore.LengthDimension}}
+	if f.Extent == "BLIND" {
+		result = append(result, holeParameter{"depth", "Depth", "mm", f.Depth, modelcore.LengthDimension})
+	}
+	if holeKind(f) != "SIMPLE" {
+		result = append(result, holeParameter{"recessDiameter", "Recess diameter", "mm", f.RecessDiameter, modelcore.LengthDimension})
+	}
+	if holeKind(f) == "COUNTERBORE" {
+		result = append(result, holeParameter{"recessDepth", "Recess depth", "mm", f.RecessDepth, modelcore.LengthDimension})
+	}
+	if holeKind(f) == "COUNTERSINK" {
+		result = append(result, holeParameter{"countersinkAngle", "Countersink angle", "deg", f.CountersinkAngle, modelcore.AngleDimension})
+	}
+	return result
+}
+func validateHoleDimensions(f Feature) error {
+	if !positiveFinite(f.Diameter) {
+		return fmt.Errorf("%w: HOLE_DIAMETER_INVALID", ErrValidation)
+	}
+	if f.Extent == "BLIND" && !positiveFinite(f.Depth) {
+		return fmt.Errorf("%w: HOLE_DEPTH_INVALID", ErrValidation)
+	}
+	if holeKind(f) == "SIMPLE" {
+		return nil
+	}
+	if !positiveFinite(f.RecessDiameter) || f.RecessDiameter <= f.Diameter {
+		return fmt.Errorf("%w: HOLE_RECESS_DIAMETER_INVALID", ErrValidation)
+	}
+	depth := f.RecessDepth
+	if holeKind(f) == "COUNTERBORE" {
+		if !positiveFinite(depth) {
+			return fmt.Errorf("%w: HOLE_RECESS_DEPTH_INVALID", ErrValidation)
+		}
+	} else {
+		if !positiveFinite(f.CountersinkAngle) || f.CountersinkAngle >= 180 {
+			return fmt.Errorf("%w: HOLE_COUNTERSINK_ANGLE_INVALID", ErrValidation)
+		}
+		depth = (f.RecessDiameter - f.Diameter) / (2 * math.Tan(f.CountersinkAngle*math.Pi/360))
+	}
+	if !positiveFinite(depth) || f.Extent == "BLIND" && depth >= f.Depth {
+		return fmt.Errorf("%w: HOLE_RECESS_EXCEEDS_DEPTH", ErrValidation)
+	}
+	return nil
 }

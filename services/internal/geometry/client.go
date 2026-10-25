@@ -72,6 +72,8 @@ type LoftSection struct {
 type PatternSource struct{ FeatureID, SourceKind, StartFeatureID string }
 
 type ProfilePad struct {
+	HoleKind                                            string
+	RecessDiameter, RecessDepth, CountersinkAngle       float64
 	BooleanResult                                       *modelcore.BooleanResultSelection
 	AdditionalPatternSources                            []PatternSource
 	TerminationOrigin, TerminationNormal                [3]float64
@@ -117,6 +119,7 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 		value := &workerv1.ProfilePadSpec{FeatureId: pad.FeatureID, BodyId: pad.BodyID,
 			InputFeatureId: pad.InputFeatureID, ProfileFeatureId: pad.ProfileFeatureID,
 			PadLength: pad.Length, Units: "mm", Plane: pad.Plane,
+			HoleKind: pad.HoleKind, RecessDiameter: pad.RecessDiameter, RecessDepth: pad.RecessDepth, CountersinkAngle: pad.CountersinkAngle,
 			BodyOperation: pad.BodyOperation, Generator: pad.Generator, RevolveAngle: pad.RevolveAngle,
 			AxisStart: &workerv1.Vec2{X: pad.AxisStart[0], Y: pad.AxisStart[1]},
 			AxisEnd:   &workerv1.Vec2{X: pad.AxisEnd[0], Y: pad.AxisEnd[1]}, Reversed: pad.Reversed}

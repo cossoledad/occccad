@@ -616,7 +616,7 @@ func datumPreviewReferences(c modelcore.DomainCommand, m PartModel) *ReferenceGe
 	return &r
 }
 func parameterPreviewCandidates(c modelcore.DomainCommand, m PartModel) []modelcore.ParameterDefinition {
-	if c.TypeURI != typeEditParameter && c.TypeURI != typeCreateDatumPlane && c.TypeURI != typeCreateDatumAxis && c.TypeURI != typeEditDatum {
+	if c.TypeURI != typeCreateSolidFeature && c.TypeURI != typeEditFeature && c.TypeURI != typeEditParameter && c.TypeURI != typeCreateDatumPlane && c.TypeURI != typeCreateDatumAxis && c.TypeURI != typeEditDatum {
 		return nil
 	}
 	return m.Parameters

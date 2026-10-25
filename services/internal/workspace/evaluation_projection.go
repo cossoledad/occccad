@@ -64,9 +64,8 @@ func ensureFeatureParameters(model *PartModel) {
 	for _, feature := range model.Features {
 		managedPrefixes["parameter:"+feature.ID+":"] = struct{}{}
 		if feature.Type == "HOLE" {
-			add(feature.ID, "diameter", "Diameter", "mm", feature.Diameter, modelcore.LengthDimension, false)
-			if feature.Extent == "BLIND" {
-				add(feature.ID, "depth", "Depth", "mm", feature.Depth, modelcore.LengthDimension, false)
+			for _, p := range holeParameters(feature) {
+				add(feature.ID, p.slot, p.label, p.unit, p.value, p.dimension, false)
 			}
 		}
 		if feature.Pattern != nil {
@@ -370,15 +369,27 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	for index := range model.Features {
 		feature := &model.Features[index]
 		if feature.Type == "HOLE" {
-			feature.Diameter = values["parameter:"+feature.ID+":diameter"].SIValue * 1000
-			if !positiveFinite(feature.Diameter) {
-				return fmt.Errorf("%w: HOLE_DIAMETER_INVALID", ErrValidation)
-			}
-			if feature.Extent == "BLIND" {
-				feature.Depth = values["parameter:"+feature.ID+":depth"].SIValue * 1000
-				if !positiveFinite(feature.Depth) {
-					return fmt.Errorf("%w: HOLE_DEPTH_INVALID", ErrValidation)
+			for _, p := range holeParameters(*feature) {
+				q := values["parameter:"+feature.ID+":"+p.slot]
+				value, err := quantityInDisplayUnit(q, p.unit)
+				if err != nil {
+					return err
 				}
+				switch p.slot {
+				case "diameter":
+					feature.Diameter = value
+				case "depth":
+					feature.Depth = value
+				case "recessDiameter":
+					feature.RecessDiameter = value
+				case "recessDepth":
+					feature.RecessDepth = value
+				case "countersinkAngle":
+					feature.CountersinkAngle = value
+				}
+			}
+			if err := validateHoleDimensions(*feature); err != nil {
+				return err
 			}
 		}
 		if feature.Pattern != nil {

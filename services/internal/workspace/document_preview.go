@@ -3,11 +3,14 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
-	"time"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type documentPreviewInput struct {
@@ -90,6 +93,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		finishGeometry := perf.Start(ctx, "geometry-evaluate")
 		bodyID := previewBodyID(prepared.command.Payload, model)
 		var geometryKey string
+		var repairRequired []FeaturePreviewIssue
 		if requiresOrderedEvaluation(prepared.command) {
 			err = service.evaluateOrderedBodies(ctx, documentID, "preview/"+prepared.requestID, &model, orderMutationBlocker(prepared.command))
 			if i := bodyIndex(model, bodyID); i >= 0 {
@@ -97,6 +101,39 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			}
 		} else {
 			geometryKey, err = service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID, model, bodyID, true)
+			if err != nil && prepared.command.TypeURI == typeEditFeature && (errors.Is(err, ErrValidation) || status.Code(err) == codes.InvalidArgument) {
+				// A valid Hole edit can remove a downstream role. Preview the exact Hole
+				// stage and report the real blocker; commit still evaluates the full model.
+				var payload editFeaturePayload
+				if parseErr := json.Unmarshal(prepared.command.Payload, &payload); parseErr != nil {
+					return CommandPreview{}, parseErr
+				}
+				matches := featureFailurePattern.FindAllStringSubmatch(err.Error(), -1)
+				for i, f := range model.Features {
+					if f.ID != payload.FeatureID || f.Type != "HOLE" {
+						continue
+					}
+					if len(matches) > 0 {
+						for _, downstream := range model.Features[i+1:] {
+							if downstream.ID != matches[len(matches)-1][1] {
+								continue
+							}
+							prefix := model
+							prefix.Features = append([]Feature(nil), model.Features[:i+1]...)
+							var prefixErr error
+							geometryKey, prefixErr = service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID+"/hole-stage", prefix, bodyID, true)
+							if prefixErr == nil {
+								repairRequired = []FeaturePreviewIssue{{FeatureID: downstream.ID, Name: downstream.Name, Diagnostic: err.Error()}}
+								err = nil
+							} else {
+								err = prefixErr
+							}
+							break
+						}
+					}
+					break
+				}
+			}
 		}
 		finishGeometry()
 		if err != nil {
@@ -161,7 +198,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			}
 		}
 		return CommandPreview{
-			LoftSections: loftSections, LoftConnections: loftConnections,
+			RepairRequired: repairRequired, LoftSections: loftSections, LoftConnections: loftConnections,
 			ReferenceGeometry: datumPreviewReferences(prepared.command, model), ParameterCandidates: parameterPreviewCandidates(prepared.command, model),
 			PreviewID: previewID, BaseVersionID: prepared.headRevision,
 			BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,

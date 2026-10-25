@@ -260,7 +260,7 @@ export const restApi = {
   inspectAssemblySupports: (id:string,references:AssemblyGeometryRef[],signal?:AbortSignal) => request<import("./cad/interaction/manipulator-snap").SupportInspection>(`/api/documents/${id}/assembly-supports/inspect`,{method:"POST",body:JSON.stringify({references}),signal}),
   analyzeBooleanRegions:async(id:string,input:{versionId:string;featureId?:string;bodyId:string;tool:{bodyId:string;featureId:string};operation:string},signal?:AbortSignal)=>{
     const result=await request<import('./features/workbench/boolean-region-model').BooleanRegionsAnalysis>(`/api/documents/${id}/boolean-regions`,{method:'POST',body:JSON.stringify(input),signal});
-    const query=new URLSearchParams({versionId:input.versionId,featureId:input.featureId??'',bodyId:input.bodyId,booleanToolFeatureId:input.tool.featureId,booleanToolBodyId:input.tool.bodyId,booleanOperation:input.operation});
+    const query=new URLSearchParams({booleanAnalysisId:result.analysisId,booleanManifestDigest:result.manifestDigest,versionId:input.versionId,featureId:input.featureId??'',bodyId:input.bodyId,booleanToolFeatureId:input.tool.featureId,booleanToolBodyId:input.tool.bodyId,booleanOperation:input.operation});
     for(const artifact of [...result.inputs,...result.regions.map(c=>c.artifact)])for(const rep of Object.values(artifact.representations))
       rep.url=apiURL(`/api/documents/${id}/representations/${rep.objectId}?${query}`);
     return result;

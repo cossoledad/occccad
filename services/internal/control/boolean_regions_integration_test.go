@@ -68,6 +68,12 @@ func TestBooleanResultRegionsLifecycleThroughRouter(t *testing.T) {
 	if _, e := service.PreviewCommand(t.Context(), doc, input); e == nil || !strings.Contains(e.Error(), "BOOLEAN_REGION_SELECTION_EMPTY") {
 		t.Fatal("empty selection accepted", e)
 	}
+	alias := regions[0]
+	alias.CellDigest = regions[1].CellDigest // Different saved proof, same uniquely resolved current cell.
+	input.BooleanResult.Regions = []modelcore.BooleanRegionRef{regions[0], alias}
+	if _, e := service.PreviewCommand(t.Context(), doc, input); e == nil || !strings.Contains(e.Error(), "BOOLEAN_REGION_DUPLICATE") {
+		t.Fatal("two references to the same resolved cell accepted", e)
+	}
 	input.BooleanResult.Regions = regions[:1]
 	input.RequestID = doc + "-select-one"
 	preview, e := service.PreviewCommand(t.Context(), doc, input)

@@ -16,24 +16,10 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 	id := r.PathValue("objectID")
 	version := r.URL.Query().Get("versionId")
 	var allowed bool
-	if toolID := r.URL.Query().Get("booleanToolFeatureId"); toolID != "" {
-		analysis, err := s.workspace.AnalyzeBooleanRegions(r.Context(), r.PathValue("documentID"), workspace.BooleanRegionsRequest{VersionID: version, FeatureID: r.URL.Query().Get("featureId"), BodyID: r.URL.Query().Get("bodyId"), Tool: workspace.FeatureStageRef{BodyID: r.URL.Query().Get("booleanToolBodyId"), FeatureID: toolID}, Operation: r.URL.Query().Get("booleanOperation")})
-		if err != nil {
-			writeError(w, http.StatusNotFound, "Boolean input unavailable")
-			return
-		}
-		for _, cell := range analysis.Regions {
-			if rep, ok := cell.Artifact.Representations["VISUAL"]; ok && rep.ObjectID == id {
-				allowed = true
-			}
-		}
-		for _, a := range analysis.Inputs {
-			if rep, ok := a.Representations["VISUAL"]; ok && rep.ObjectID == id {
-				allowed = true
-			}
-		}
+	if analysisID := r.URL.Query().Get("booleanAnalysisId"); analysisID != "" || r.URL.Query().Get("booleanToolFeatureId") != "" {
+		allowed = s.workspace.BooleanAnalysisRepresentationAllowed(r.Context(), r.PathValue("documentID"), principal(r).ID, analysisID, r.URL.Query().Get("booleanManifestDigest"), id, workspace.BooleanRegionsRequest{VersionID: version, FeatureID: r.URL.Query().Get("featureId"), BodyID: r.URL.Query().Get("bodyId"), Tool: workspace.FeatureStageRef{BodyID: r.URL.Query().Get("booleanToolBodyId"), FeatureID: r.URL.Query().Get("booleanToolFeatureId")}, Operation: r.URL.Query().Get("booleanOperation")})
 		if !allowed {
-			writeError(w, http.StatusNotFound, "representation outside Boolean analysis")
+			writeError(w, http.StatusNotFound, "Boolean analysis expired or representation outside input scope")
 			return
 		}
 	}

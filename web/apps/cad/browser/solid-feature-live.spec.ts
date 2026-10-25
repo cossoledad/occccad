@@ -17,6 +17,11 @@ async function clickWorld(page:Page,point:number[]){
  const position=await worldScreen(page,point);
  await page.mouse.click(position.x,position.y);
 }
+async function pickHolePoint(page:Page,dialog:ReturnType<Page["getByRole"]>,point:number[]){
+ const field=dialog.getByRole("button",{name:"选择定位点",exact:true});if(await field.getAttribute("aria-pressed")!=="true")await field.click();
+ await expect.poll(async()=>{const screen=await worldScreen(page,point);return page.evaluate(({x,y})=>{const e=(window as any).__cameraEngine,r=document.querySelector("canvas")!.getBoundingClientRect(),hit=e.hitTest(x-r.x,y-r.y,true);return hit?.kind+":"+hit?.visualType},screen)}).toBe("visual:POINT");
+ await clickWorld(page,point);await expect(dialog.locator(".feature-pick-field").filter({hasText:"定位点"}).getByText(/已选择显式点/)).toBeVisible();
+}
 async function current(page:Page,id:string){return (await page.request.get(`/api/documents/${id}`)).json();}
 async function ready(page:Page,dialog:ReturnType<Page["getByRole"]>){
  await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeEnabled();
@@ -835,11 +840,11 @@ test("Hole picks one explicit point, edits, repairs and keeps mouth chamfer edit
  const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);
  const filter=page.getByRole("textbox",{name:"筛选模型结构"});
  const open=async()=>{await openCommand(page,"孔");const dialog=page.getByRole("dialog",{name:"创建 孔",exact:true});await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();return dialog;};
- let dialog=await open();await clickWorld(page,[-5,0,20]);await expect(dialog.getByRole("button",{name:/定位点：.*已选择显式点/})).toBeVisible();
+ let dialog=await open();await pickHolePoint(page,dialog,[-5,0,20]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"定位点"}).getByText(/已选择显式点/)).toBeVisible();
  await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("6");await dialog.getByRole("textbox",{name:"深度（mm）",exact:true}).fill("8");await ready(page,dialog);
  expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("hole-blind-preview.png")});
  await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
- dialog=await open();await clickWorld(page,[-5,0,20]);await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("6");await dialog.getByRole("textbox",{name:"深度（mm）",exact:true}).fill("8");await ready(page,dialog);
+ dialog=await open();await pickHolePoint(page,dialog,[-5,0,20]);await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("6");await dialog.getByRole("textbox",{name:"深度（mm）",exact:true}).fill("8");await ready(page,dialog);
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const created=await current(page,seed.id),hole=created.part.features.at(-1);
  const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;
@@ -847,9 +852,9 @@ test("Hole picks one explicit point, edits, repairs and keeps mouth chamfer edit
  const edit=async()=>{await filter.fill(hole.name);await page.getByRole("treeitem").filter({hasText:hole.name}).first().dblclick();const d=page.getByRole("dialog",{name:"编辑 孔",exact:true});await expect(d).toBeVisible();return d;};
  dialog=await edit();await ready(page,dialog);await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("8");await dialog.getByRole("textbox",{name:"深度（mm）",exact:true}).fill("5");await ready(page,dialog);
  await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);
- dialog=await edit();await ready(page,dialog);await dialog.getByRole("button",{name:/定位点：/}).click();await clickWorld(page,[5,0,20]);await ready(page,dialog);
+ dialog=await edit();await ready(page,dialog);await pickHolePoint(page,dialog,[5,0,20]);await ready(page,dialog);
  await dialog.getByText("单向贯穿",{exact:true}).click();await expect(dialog.getByRole("textbox",{name:"深度（mm）",exact:true})).toHaveCount(0);await ready(page,dialog);
- const reversed=dialog.getByRole("switch",{name:"反向",exact:true});await reversed.click();await expect(dialog.getByRole("alert")).toContainText(/NO_MATERIAL|HOLE_NO_MATERIAL/);await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
+ const reversed=dialog.getByRole("switch",{name:"反向",exact:true});await reversed.click();await expect(dialog.getByRole("alert")).toContainText(/没有与目标实体相交/);await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();await expect(page.locator("[data-feature-preview]")).toHaveCount(0);
  expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);await reversed.click();await ready(page,dialog);
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const through=await current(page,seed.id);expect(volume(through)).toBeCloseTo(24000-180*Math.PI,5);expect(through.part.features.find((f:any)=>f.id===hole.id)).toMatchObject({extent:"THROUGH_ALL",holePoint:{reference:{entityId:"q"}}});expect(through.part.parameters.filter((p:any)=>p.ownerFeatureId===hole.id).map((p:any)=>p.propertySlot)).toEqual(["diameter"]);
@@ -858,10 +863,13 @@ test("Hole picks one explicit point, edits, repairs and keeps mouth chamfer edit
   const {restApi:api}=await import("/src/api.ts");return api.command(seed.id,{type:"EDIT_SKETCH",sketchId:seed.sketch,operations:[{type:"DELETE_ENTITIES",entityIds:["q"]}]});
  },seed);
  expect(failed.part!.features.find((f:any)=>f.id===hole.id).diagnostic).toContain("HOLE_POINT_MISSING");
+ let releasePointInput!:()=>void,inputArrived!:()=>void;
+ const heldPointInput=new Promise<void>(resolve=>{releasePointInput=resolve}),pointInputArrived=new Promise<void>(resolve=>{inputArrived=resolve});
+ await page.route('**/feature-input',async route=>{const response=await route.fetch();inputArrived();await heldPointInput;await route.fulfill({response})});
  await page.reload();await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"修复孔位",exact:true}).click();dialog=page.getByRole("dialog",{name:"编辑 孔",exact:true});await expect(dialog.getByText("孔位需要修复",{exact:true})).toBeVisible();await expect(dialog.getByRole("button",{name:/确\s*定/})).toBeDisabled();
- await dialog.getByRole("button",{name:/定位点：/}).click();await clickWorld(page,[-5,0,20]);await ready(page,dialog);await page.screenshot({path:testInfo.outputPath("hole-point-repair.png")});
+ await pointInputArrived;await pickHolePoint(page,dialog,[-5,0,20]);releasePointInput();await ready(page,dialog);await page.unroute("**/feature-input");await page.screenshot({path:testInfo.outputPath("hole-point-repair.png")});
  await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(failed.document.versionId);
- await page.getByRole("button",{name:"修复孔位",exact:true}).click();dialog=page.getByRole("dialog",{name:"编辑 孔",exact:true});await dialog.getByRole("button",{name:/定位点：/}).click();await clickWorld(page,[-5,0,20]);await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ await page.getByRole("button",{name:"修复孔位",exact:true}).click();dialog=page.getByRole("dialog",{name:"编辑 孔",exact:true});await pickHolePoint(page,dialog,[-5,0,20]);await ready(page,dialog);await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const repaired=await current(page,seed.id),restored=repaired.part.features.find((f:any)=>f.id===hole.id);expect(restored).toMatchObject({id:hole.id,name:hole.name,bodyId:hole.bodyId,order:hole.order,holePoint:{reference:{entityId:"p"}}});expect(restored.evaluationStatus).toBeFalsy();
  await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===hole.id).evaluationStatus).toBe("FAILED")).toPass();await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect(volume(await current(page,seed.id))).toBeCloseTo(24000-180*Math.PI,5)).toPass();
  await filter.fill("");await openCommand(page,"倒角");const chamfer=page.getByRole("dialog",{name:"创建 倒角",exact:true});await clickWorld(page,[-5+3*Math.SQRT1_2,3*Math.SQRT1_2,20]);await expect(chamfer.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await chamfer.getByRole("textbox").fill("0.5");await ready(page,chamfer);await chamfer.getByRole("button",{name:/确\s*定/}).click();await expect(chamfer).toHaveCount(0);
@@ -884,10 +892,10 @@ test("Hole support reassignment and both through directions protect the opposite
   return {id,body,sketch,plane:v.part!.datumPlanes.at(-1)!,version:v.document.versionId};
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);
- await openCommand(page,"孔");let dialog=page.getByRole("dialog",{name:"创建 孔",exact:true});await clickWorld(page,[0,0,0]);await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("4");await dialog.getByText("单向贯穿",{exact:true}).click();await dialog.getByRole("switch",{name:"反向",exact:true}).click();await ready(page,dialog);
+ await openCommand(page,"孔");let dialog=page.getByRole("dialog",{name:"创建 孔",exact:true});await pickHolePoint(page,dialog,[0,0,0]);await dialog.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("4");await dialog.getByText("单向贯穿",{exact:true}).click();await dialog.getByRole("switch",{name:"反向",exact:true}).click();await ready(page,dialog);
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);const created=await current(page,seed.id),hole=created.part.features.at(-1);
  const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;expect(volume(created)).toBeCloseTo(8000-80*Math.PI,5);
- const filter=page.getByRole("textbox",{name:"筛选模型结构"});await filter.fill(seed.sketch.name!);await page.getByRole("treeitem",{name:new RegExp(`scissor ${seed.sketch.name}$`)}).click({button:"right"});await page.getByRole("menuitem",{name:"对象",exact:true}).hover();await page.getByRole("menuitem",{name:"更换草图支撑…",exact:true}).click();
+ const filter=page.getByRole("textbox",{name:"筛选模型结构"});await filter.fill(seed.sketch.name!);await page.getByRole("treeitem",{name:new RegExp(`^(?:折叠|展开) ${seed.sketch.name}$`)}).click({button:"right"});await page.getByRole("menuitem",{name:"对象",exact:true}).hover();await page.getByRole("menuitem",{name:"更换草图支撑…",exact:true}).click();
  const support=page.getByRole("dialog",{name:"更换草图支撑",exact:true});await expect(support).toBeVisible();await filter.fill(seed.plane.name);await page.getByRole("treeitem").filter({hasText:seed.plane.name}).last().click();await expect(support.getByRole("button",{name:/确\s*定/})).toBeEnabled();expect((await current(page,seed.id)).document.versionId).toBe(created.document.versionId);
  await support.getByRole("button",{name:/确\s*定/}).click();await expect(support).toHaveCount(0);const moved=await current(page,seed.id);expect(volume(moved)).toBeCloseTo(8000-40*Math.PI,5);expect(moved.part.features.find((f:any)=>f.id===hole.id).holePoint).toEqual(hole.holePoint);
  await filter.fill(hole.name);await page.getByRole("treeitem").filter({hasText:hole.name}).first().dblclick();dialog=page.getByRole("dialog",{name:"编辑 孔",exact:true});await ready(page,dialog);await dialog.getByRole("switch",{name:"反向",exact:true}).click();await ready(page,dialog);await page.screenshot({path:testInfo.outputPath("hole-reversed-half-through.png")});await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
@@ -1185,6 +1193,7 @@ test("Boolean result regions pick exact volumes, exclude, edit, cancel and reope
  });
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();
  await openCommand(page,'布尔');let dialog=page.getByRole('dialog',{name:'布尔运算',exact:true});
+ await expect.poll(async()=>{const point=await worldScreen(page,[15,5,20]);return page.evaluate(({x,y})=>{const e=(window as any).__cameraEngine,r=document.querySelector('canvas')!.getBoundingClientRect();return e.hitTest(x-r.x,y-r.y,true)?.bodyId},point)}).toBe(seed.tool);
  await clickWorld(page,[15,5,20]);await ready(page,dialog);
  let analysisCalls=0;page.on('request',r=>{if(r.method()==='POST'&&r.url().endsWith('/boolean-regions'))analysisCalls++});
  await dialog.getByText('选择区域',{exact:true}).click();
@@ -1241,7 +1250,7 @@ test("Boolean lost region reselects in viewport and late analysis cannot reopen 
   };
   const base=await rectangle(0,0,30,10,10),tool=await rectangle(10,-5,10,20,20);
   const cells=await api.analyzeBooleanRegions(id,{versionId:v.document.versionId,bodyId:base.bodyId!,tool:{bodyId:tool.bodyId!,featureId:tool.id},operation:'REMOVE'});
-  v=await api.command(id,{type:'CREATE_BOOLEAN_FEATURE',bodyId:base.bodyId,operation:'REMOVE',tools:[{bodyId:tool.bodyId,featureId:tool.id}],booleanResult:{mode:'EXPLICIT',regions:[cells.regions.find(c=>c.eligible)!.reference]}});
+  v=await api.command(id,{type:'CREATE_BOOLEAN_FEATURE',bodyId:base.bodyId,operation:'REMOVE',tools:[{bodyId:tool.bodyId,featureId:tool.id}],booleanResult:{mode:'EXPLICIT',regions:cells.regions.filter(c=>c.eligible).map(c=>c.reference)}});
   const feature=v.part!.features.at(-1)!;
   let digest='';const visit=(n:any)=>{if(n.entityId===tool.id)digest=n.definitionDigest;(n.children??[]).forEach(visit)};visit(v.structureTree);
   v=await api.command(id,{type:'EDIT_FEATURE',targetId:tool.id,expectedFeatureDigest:digest,feature:{...tool,length:5}});
@@ -1253,17 +1262,22 @@ test("Boolean lost region reselects in viewport and late analysis cannot reopen 
  let dialog=page.getByRole('dialog',{name:'编辑布尔',exact:true});
  await expect(page.locator('[data-boolean-regions="1"]')).toBeVisible();
  const missing=dialog.getByRole('listitem').filter({hasText:'失效区域'});
- await expect(missing).toHaveCount(1);await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeDisabled();
+ await expect(missing).toHaveCount(2);await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeDisabled();
  await dialog.getByRole('button',{name:'定位区域 1',exact:true}).click();
  await page.getByRole('button',{name:'适合窗口',exact:true}).click();
+ await missing.first().getByRole('button',{name:/选择结果区域/}).click();
+ await clickWorld(page,[5,5,10]);await expect(missing).toHaveCount(1);
+ await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeDisabled();
  await missing.getByRole('button',{name:/选择结果区域/}).click();
  await clickWorld(page,[5,5,10]);await expect(missing).toHaveCount(0);
+ await expect(dialog.getByRole('list',{name:'结果区域列表'}).getByRole('switch',{checked:true})).toHaveCount(1);
  await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();
  expect((await current(page,seed.id)).document.versionId).toBe(seed.head);
  await page.screenshot({path:'../../../build/agent-check/boolean-regions/repair-preview.png'});
  await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const repaired=await current(page,seed.id),feature=repaired.part.features.find((f:{id:string})=>f.id===seed.feature.id),body=repaired.part.bodies.find((b:{id:string})=>b.id===seed.base);
  expect(feature).toMatchObject({id:seed.feature.id,name:seed.feature.name,bodyId:seed.base});
+ expect(feature.booleanResult.regions).toHaveLength(1);
  expect(feature.evaluationStatus??'').not.toMatch(/FAILED|BLOCKED/);
  expect(repaired.artifacts[body.geometryKey].volume).toBeCloseTo(2500,5);
  // Delay the genuine response, then cancel before it is delivered.
@@ -1313,4 +1327,35 @@ test('sketch on a shelled outer cap keeps the actual support stage and draws in 
  await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(child.id);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();const reopened=await current(page,seed.id);expect(reopened.part.features.find((f:any)=>f.id===sketch.id).sketch.support.status).toBe('CONNECTED');
  await page.screenshot({path:test.info().outputPath('shell-supported-sketch.png')});expect(errors).toEqual([]);
+});
+
+
+test("engineering Hole counterbore and countersink create, edit expressions and history",async({page},testInfo)=>{
+ page.setDefaultTimeout(15_000);const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.createDocument("PART","Engineering Hole browser acceptance");const id=v.document.id;
+  v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const profile=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:profile,operations:[{type:"ADD_RECTANGLE",first:{x:-20,y:-15},second:{x:20,y:15}}]});
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:profile,generator:"LINEAR_EXTRUDE",operation:"ADD",length:20});const body=v.part!.activeBodyId;
+  v=await api.command(id,{type:"CREATE_DATUM_PLANE",origin:[0,0,20],normal:[0,0,1],uDirection:[1,0,0]});
+  v=await api.command(id,{type:"CREATE_SKETCH",datumPlaneId:v.part!.datumPlanes.at(-1)!.id});const sketch=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch,operations:[{type:"ADD_ENTITY",entity:{id:"p",kind:"POINT",role:"CONSTRUCTION",point:{x:-8,y:0}}},{type:"ADD_ENTITY",entity:{id:"q",kind:"POINT",role:"CONSTRUCTION",point:{x:8,y:0}}}]});return {id,body,version:v.document.versionId};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);
+ const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;
+ const create=async(kind:string,x:number)=>{await openCommand(page,"孔");const d=page.getByRole("dialog",{name:"创建 孔",exact:true});await pickHolePoint(page,d,[x,0,20]);await d.getByText(kind,{exact:true}).click();await d.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("2 mm * 2");await d.getByRole("textbox",{name:"深度（mm）",exact:true}).fill("8");await d.getByRole("textbox",{name:"沉孔直径（mm）",exact:true}).fill("2 * 4 mm");return d;};
+ let d=await create("圆柱沉孔",-8);await d.getByRole("textbox",{name:"沉孔深度（mm）",exact:true}).fill("6 mm/2");await ready(page,d);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("counterbore-preview.png")});await d.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ d=await create("圆柱沉孔",-8);await d.getByRole("textbox",{name:"沉孔深度（mm）",exact:true}).fill("6 mm/2");await ready(page,d);await d.getByRole("button",{name:/确\s*定/}).click();await expect(d).toHaveCount(0);const bored=await current(page,seed.id),bore=bored.part.features.at(-1);expect(bore).toMatchObject({holeKind:"COUNTERBORE",diameter:4,recessDiameter:8,recessDepth:3});expect(volume(bored)).toBeCloseTo(24000-68*Math.PI,5);
+ d=await create("锥沉孔",8);await expect(d.getByRole("textbox",{name:"沉孔深度（mm）",exact:true})).toHaveCount(0);await d.getByRole("textbox",{name:"锥面夹角（°）",exact:true}).fill("45 deg + 45 deg");await ready(page,d);await expect(d.locator(".command-field").filter({hasText:"锥段深度"})).toContainText("2 mm");await page.screenshot({path:testInfo.outputPath("countersink-preview.png")});await d.getByRole("button",{name:/确\s*定/}).click();await expect(d).toHaveCount(0);
+ const sunk=await current(page,seed.id),sink=sunk.part.features.at(-1);expect(sink).toMatchObject({holeKind:"COUNTERSINK",countersinkAngle:90});expect(volume(sunk)).toBeCloseTo(24000-Math.PI*(68+32+32/3),5);
+ const filter=page.getByRole("textbox",{name:"筛选模型结构"});const edit=async(name:string)=>{await filter.fill(name);await page.getByRole("treeitem").filter({hasText:name}).first().dblclick();const d=page.getByRole("dialog",{name:"编辑 孔",exact:true});await expect(d).toBeVisible();return d;};
+ d=await edit(sink.name);await ready(page,d);await expect(d.getByRole("textbox",{name:"锥面夹角（°）",exact:true})).toHaveValue("45 deg + 45 deg");await d.getByRole("textbox",{name:"沉孔直径（mm）",exact:true}).fill("3");await expect(d.getByRole("button",{name:/确\s*定/})).toBeDisabled();await expect(d.getByRole("alert")).toContainText("大于");expect((await current(page,seed.id)).document.versionId).toBe(sunk.document.versionId);await d.getByRole("button",{name:/取\s*消/}).click();
+ d=await edit(bore.name);await ready(page,d);await d.getByRole("textbox",{name:"沉孔深度（mm）",exact:true}).fill("4 mm");await ready(page,d);await d.getByRole("button",{name:/确\s*定/}).click();await expect(d).toHaveCount(0);const edited=await current(page,seed.id);expect(edited.part.features.find((f:any)=>f.id===bore.id)).toMatchObject({id:bore.id,recessDepth:4});
+ await page.getByRole("button",{name:"撤销",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===bore.id).recessDepth).toBe(3)).toPass();await page.getByRole("button",{name:"重做",exact:true}).click();await expect(async()=>expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===bore.id).recessDepth).toBe(4)).toPass();await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(volume(await current(page,seed.id))).toBeCloseTo(volume(edited),6);
+ await filter.fill("");await openCommand(page,"倒角");let chamferDialog=page.getByRole("dialog",{name:"创建 倒角",exact:true});
+ await clickWorld(page,[-8+4*Math.SQRT1_2,4*Math.SQRT1_2,20]);await expect(chamferDialog.locator(".feature-pick-field").filter({hasText:"边集"}).getByText("1 项",{exact:true})).toBeVisible();await chamferDialog.getByRole("textbox").fill("0.2");await ready(page,chamferDialog);await chamferDialog.getByRole("button",{name:/确\s*定/}).click();await expect(chamferDialog).toHaveCount(0);
+ const chamfer=(await current(page,seed.id)).part.features.at(-1);d=await edit(bore.name);await ready(page,d);await d.getByText("锥沉孔",{exact:true}).click();await d.getByRole("textbox",{name:"锥面夹角（°）",exact:true}).fill("90");await ready(page,d);await expect(d.getByRole("alert")).toContainText(`下游需要修复：${chamfer.name}`);await page.screenshot({path:testInfo.outputPath("hole-type-switch-repair-warning.png")});await d.getByRole("button",{name:/确\s*定/}).click();await expect(d).toHaveCount(0);
+ const failed=await current(page,seed.id);expect(failed.part.features.find((f:any)=>f.id===chamfer.id).evaluationStatus).toBe("FAILED");await filter.fill(chamfer.name);await page.getByRole("treeitem").filter({hasText:chamfer.name}).first().dblclick();chamferDialog=page.getByRole("dialog",{name:"编辑 倒角",exact:true});await expect(chamferDialog.getByText("输入需要修复",{exact:true})).toBeVisible();await chamferDialog.getByRole("button",{name:"选择边 1",exact:true}).click();await clickWorld(page,[-8+4*Math.SQRT1_2,4*Math.SQRT1_2,20]);await ready(page,chamferDialog);await page.screenshot({path:testInfo.outputPath("countersink-mouth-chamfer-repair.png")});await chamferDialog.getByRole("button",{name:/确\s*定/}).click();await expect(chamferDialog).toHaveCount(0);
+ expect((await current(page,seed.id)).part.features.find((f:any)=>f.id===chamfer.id).evaluationStatus).toBeFalsy();await page.reload();await expect(page.locator("canvas")).toBeVisible();expect(errors).toEqual([]);
 });

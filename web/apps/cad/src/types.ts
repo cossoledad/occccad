@@ -87,7 +87,7 @@ export type AssemblyComponentDof = {
 export type CommandPreview = {
   propertyAppearances?:PropertyAppearanceProjection[];
   expiresAt?: string;
- referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
+ repairRequired?:{featureId:string;name:string;diagnostic:string}[];referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
   sketchCandidates?: Array<{featureId:string;entities:SketchEntity[];solve:SketchFeature["solve"]}>;
   evaluationOutcome?: "DEFINITION_ONLY";
   evaluationFailure?: AssemblyEvaluationFailure;
@@ -148,7 +148,7 @@ export type PatternDefinition = { directionReference?:SketchGeometryRef; reverse
 export type SketchPattern = PatternDefinition & {name?:string;entityIds:string[]};
 export type Feature = {
  order?:number;
- holePoint?:PatternDefinition["centerReference"];diameter?:number;depth?:number;
+ holePoint?:PatternDefinition["centerReference"];diameter?:number;depth?:number;holeKind?:"SIMPLE"|"COUNTERBORE"|"COUNTERSINK";recessDiameter?:number;recessDepth?:number;countersinkAngle?:number;
  terminationPlaneId?:string;terminationPlane?:NonNullable<Feature["selections"]>[number];
   pattern?:PatternDefinition & {additionalSources?:Array<{source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA";startFeatureId?:string}>;startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
   profileSelection?: {mode:"WHOLE_SKETCH"|"REGIONS";regionIds?:string[]};

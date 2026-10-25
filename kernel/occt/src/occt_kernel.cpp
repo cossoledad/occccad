@@ -1,3 +1,5 @@
+#include <BRepPrimAPI_MakeCone.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <internal/shell_history.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -2808,6 +2810,89 @@ ComposedModifier convex_planar_shell(const TopoDS_Shape& input,
     return {cut.Shape(), history};
 }
 
+
+// One Hole cutter, with source roles assigned at native construction. Fusion
+// trims the main wall and counterbore shoulder through actual OCCT history.
+ToolBuild add_hole_recess(ToolBuild tool, const ProfilePadSpec& spec) {
+    const auto kind = spec.hole_kind.empty() ? "SIMPLE" : spec.hole_kind;
+    if (kind == "SIMPLE")
+        return tool;
+    if (kind != "COUNTERBORE" && kind != "COUNTERSINK")
+        throw std::invalid_argument("HOLE_KIND_INVALID");
+    const double radius = spec.regions[0].outer.curves[0].radius, recess = spec.recess_diameter / 2;
+    if (!std::isfinite(recess) || recess - radius <= Precision::Confusion())
+        throw std::invalid_argument("HOLE_RECESS_DIAMETER_INVALID");
+    double depth = spec.recess_depth;
+    if (kind == "COUNTERSINK") {
+        if (!std::isfinite(spec.countersink_angle) || spec.countersink_angle <= 0 ||
+            spec.countersink_angle >= 3.14159265358979323846)
+            throw std::invalid_argument("HOLE_COUNTERSINK_ANGLE_INVALID");
+        depth = (recess - radius) / std::tan(spec.countersink_angle / 2);
+    }
+    if (!std::isfinite(depth) || depth <= Precision::Confusion())
+        throw std::invalid_argument("HOLE_RECESS_DEPTH_INVALID");
+    if (spec.extent == "BLIND" && depth >= spec.pad_length)
+        throw std::invalid_argument("HOLE_RECESS_EXCEEDS_DEPTH");
+    const auto frame = profile_frame(spec);
+    gp_Dir axis = frame.normal;
+    if (spec.reversed)
+        axis.Reverse();
+    const gp_Ax2 axes(frame.origin, axis, frame.u_direction);
+    const auto point =
+        profile_source(spec, "PROFILE_EDGE", spec.regions[0].outer.curves[0].entity_id);
+    const auto named = [&](const std::string& role, const TopoDS_Shape& shape) {
+        append_generated(tool, point,
+                         {spec.feature_id,
+                          "HOLE_" + kind + "_" + role,
+                          {spec.regions[0].id, spec.regions[0].outer.curves[0].entity_id}},
+                         shape);
+    };
+    const auto record = [&](auto& primitive) {
+        named(kind == "COUNTERSINK" ? "CONE" : "WALL", primitive.LateralFace());
+        named("START_CAP", primitive.BottomFace());
+        named(kind == "COUNTERBORE" ? "SHOULDER" : "END_CAP", primitive.TopFace());
+        for (TopExp_Explorer edges(primitive.BottomWire(), TopAbs_EDGE); edges.More(); edges.Next())
+            if (BRepAdaptor_Curve(TopoDS::Edge(edges.Current())).GetType() == GeomAbs_Circle)
+                named("MOUTH", edges.Current());
+        if (kind == "COUNTERBORE")
+            for (TopExp_Explorer edges(primitive.TopWire(), TopAbs_EDGE); edges.More();
+                 edges.Next())
+                if (BRepAdaptor_Curve(TopoDS::Edge(edges.Current())).GetType() == GeomAbs_Circle)
+                    named("SHOULDER_OUTER", edges.Current());
+    };
+    TopoDS_Shape recessShape;
+    if (kind == "COUNTERBORE") {
+        BRepPrimAPI_MakeCylinder builder(axes, recess, depth);
+        recessShape = builder.Shape();
+        record(builder.Cylinder());
+    } else {
+        BRepPrimAPI_MakeCone builder(axes, recess, radius, depth);
+        recessShape = builder.Shape();
+        record(builder.Cone());
+    }
+    BRepAlgoAPI_Fuse fuse;
+    TopTools_ListOfShape objects, tools;
+    objects.Append(tool.shape);
+    tools.Append(recessShape);
+    fuse.SetArguments(objects);
+    fuse.SetTools(tools);
+    fuse.SetNonDestructive(Standard_True);
+    fuse.Build();
+    if (!fuse.IsDone() || fuse.HasErrors())
+        throw std::runtime_error("HOLE_TOOL_FUSION_FAILED");
+    auto mapped = map_named_shapes(tool.named, fuse, fuse.Shape());
+    ShapeUpgrade_UnifySameDomain unify(fuse.Shape(), Standard_True, Standard_True, Standard_False);
+    unify.SetSafeInputMode(Standard_True);
+    unify.Build();
+    mapped = map_named_history(mapped, unify.History(), unify.Shape());
+    tool.shape = unify.Shape();
+    auto closure = complete_boolean_topology_naming(tool.shape, mapped, spec.feature_id);
+    tool.generated.insert(tool.generated.end(), closure.begin(), closure.end());
+    tool.named = std::move(mapped);
+    validate_body_solid_set(tool.shape);
+    return tool;
+}
+
 // Local modifiers use the exact upstream shape and semantic references. No
 // saved local topology index, geometry search, or nearest-element recovery.
 BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
@@ -3901,6 +3986,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     generator_spec.pad_length = length;
                 }
                 tool = make_profile_tool(generator_spec);
+                if(spec.generator=="HOLE")tool=add_hole_recess(std::move(tool),spec);
             }
             topology_history_complete = topology_history_complete && tool.topology_history_complete;
             if (required_pattern_tools.count(spec.feature_id) &&

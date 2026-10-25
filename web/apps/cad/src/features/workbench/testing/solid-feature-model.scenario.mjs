@@ -43,6 +43,10 @@ try {
   assert.equal(solidParameterEdit("angle","Alpha / 2","90","mm").expression,"Alpha / 2");
   assert.deepEqual(solidGeneratorParameters({generator:"REVOLVE",angle:"Alpha / 2"},"mm"),{angle:360,parameterExpressions:{angle:"Alpha / 2"}});
   assert.deepEqual(solidGeneratorParameters({generator:"LINEAR_EXTRUDE",extent:"TWO_SIDED",angle:360,length2:"2 cm"},"mm"),{length2:20,parameterExpressions:{}});
+  assert.equal(solidParameterEdit("recessDepth","0.3 cm","1","mm").value,3);
+  assert.equal(solidParameterEdit("countersinkAngle",`${Math.PI / 2} rad`,"60","mm").value,90);
+  assert.equal(solidParameterEdit("countersinkAngle","Angle/2","60","mm").expression,"Angle/2");
+  assert.throws(()=>solidParameterEdit("countersinkAngle","2 mm","90","mm"));
   assert.throws(()=>solidParameterEdit("angle","2 cm","90","mm"));
   assert.throws(()=>solidParameterEdit("length","-1","2","mm"));
 } finally { await server.close(); }

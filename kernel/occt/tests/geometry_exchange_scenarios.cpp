@@ -3638,3 +3638,121 @@ TEST(GeometryExchange, ShellCopyHistoryRetainsModifiedImageWhenGeneratedImageWas
     EXPECT_FALSE(outer->IsRemoved(original));
 }
 }  // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(GeometryExchange, HoleCounterboreAndCountersinkExactRolesAndDirectionalExtent) {
+    for (const std::string kind : {"COUNTERBORE", "COUNTERSINK"})
+        for (bool reverse : {false, true})
+            for (bool through : {false, true}) {
+                SCOPED_TRACE(kind + std::to_string(reverse) + std::to_string(through));
+                OcctKernel kernel;
+                ProfilePadSpec stock;
+                stock.feature_id = "stock";
+                stock.body_id = "body";
+                stock.profile_feature_id = "stock-sketch";
+                stock.regions = {rectangular_region("stock-region", -10, -10, 10, 10)};
+                stock.pad_length = 20;
+                ProfilePadSpec hole;
+                hole.feature_id = "hole";
+                hole.body_id = "body";
+                hole.profile_feature_id = "point-sketch";
+                hole.input_feature_id = "stock";
+                hole.generator = "HOLE";
+                hole.body_operation = "REMOVE";
+                hole.extent = through ? "THROUGH_ALL" : "BLIND";
+                hole.pad_length = 8;
+                hole.hole_kind = kind;
+                hole.recess_diameter = 8;
+                hole.recess_depth = 3;
+                hole.countersink_angle = 3.14159265358979323846 / 2;
+                hole.reversed = reverse;
+                hole.plane_origin = {0, 0, 10};
+                hole.plane_normal = {0, 0, 1};
+                hole.plane_u_direction = {1, 0, 0};
+                ProfileCurveSpec circle;
+                circle.entity_id = "point";
+                circle.kind = "CIRCLE";
+                circle.radius = 2;
+                hole.regions = {{"hole-region", {"hole-loop", {circle}}, {}}};
+                const auto result = kernel.evaluateProfilePadsWithHistory({stock, hole});
+                const double extra = kind == "COUNTERBORE" ? 36. : 32. / 3.;
+                EXPECT_NEAR(kernel.getVolume(result.geometry_id),
+                            8000 - 3.14159265358979323846 * (4 * (through ? 10 : 8) + extra), 1e-5);
+                const auto& outputs = result.feature_results.back().semantic_outputs;
+                const auto has = [&](const std::string& slot) {
+                    return std::any_of(outputs.begin(), outputs.end(), [&](const auto& out) {
+                        return out.semantic_ref.feature_id == "hole" &&
+                               out.semantic_ref.output_slot == slot;
+                    });
+                };
+                EXPECT_TRUE(has("SIDE_FROM_PROFILE_EDGE/point"));
+                EXPECT_TRUE(has("HOLE_" + kind + (kind == "COUNTERBORE" ? "_WALL" : "_CONE")));
+                EXPECT_EQ(has("HOLE_COUNTERBORE_SHOULDER"), kind == "COUNTERBORE");
+                EXPECT_TRUE(has("HOLE_" + kind + "_MOUTH"));
+                EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+                OcctKernel cold;
+                const auto rebuilt = cold.evaluateProfilePadsWithHistory({stock, hole});
+                EXPECT_EQ(result.geometry_id, rebuilt.geometry_id);
+                EXPECT_EQ(result.feature_results.back().topology_history.evidence_digest,
+                          rebuilt.feature_results.back().topology_history.evidence_digest);
+                for (int invalid = 0; invalid < 3; ++invalid) {
+                    auto wrong = hole;
+                    if (invalid == 0)
+                        wrong.recess_diameter = 3;
+                    else if (invalid == 1) {
+                        wrong.extent = "BLIND";
+                        wrong.pad_length = 1;
+                    } else if (kind == "COUNTERBORE")
+                        wrong.recess_depth = 0;
+                    else
+                        wrong.countersink_angle = 3.14159265358979323846;
+                    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock, wrong}),
+                                 std::invalid_argument);
+                }
+            }
+}
+}  // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(GeometryExchange, HoleRecessRolesRetainSketchPointScope) {
+    OcctKernel kernel;
+    ProfilePadSpec stock;
+    stock.feature_id = "stock";
+    stock.body_id = "body";
+    stock.profile_feature_id = "stock-sketch";
+    stock.regions = {rectangular_region("stock-region", -10, -10, 10, 10)};
+    stock.pad_length = 20;
+    for (const std::string kind : {"COUNTERBORE", "COUNTERSINK"}) {
+        ProfilePadSpec hole;
+        hole.feature_id = "hole";
+        hole.body_id = "body";
+        hole.input_feature_id = "stock";
+        hole.profile_feature_id = "first-sketch";
+        hole.generator = "HOLE";
+        hole.body_operation = "REMOVE";
+        hole.extent = "BLIND";
+        hole.pad_length = 8;
+        hole.hole_kind = kind;
+        hole.recess_diameter = 8;
+        hole.recess_depth = 3;
+        hole.countersink_angle = 3.14159265358979323846 / 2;
+        ProfileCurveSpec circle;
+        circle.entity_id = "point";
+        circle.kind = "CIRCLE";
+        circle.radius = 2;
+        hole.regions = {{"hole/first-sketch/point", {"hole-loop/point", {circle}}, {}}};
+        const auto before = kernel.evaluateProfilePadsWithHistory({stock, hole});
+        hole.profile_feature_id = "other-sketch";
+        hole.regions[0].id = "hole/other-sketch/point";
+        const auto after = kernel.evaluateProfilePadsWithHistory({stock, hole});
+        const auto mouth = [&](const auto& result) {
+            for (const auto& output : result.feature_results.back().semantic_outputs)
+                if (output.semantic_ref.output_slot == "HOLE_" + kind + "_MOUTH")
+                    return output.semantic_ref;
+            throw std::runtime_error("missing mouth");
+        };
+        EXPECT_NE(mouth(before).source_ids, mouth(after).source_ids)
+            << "Hole point identity includes its sketch, even when entity IDs are equal";
+    }
+}
+}  // namespace occccad::kernel

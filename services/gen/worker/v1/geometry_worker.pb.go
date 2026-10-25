@@ -5356,6 +5356,10 @@ type ProfilePadSpec struct {
 	AdditionalPatternSources []*PatternSource    `protobuf:"bytes,33,rep,name=additional_pattern_sources,json=additionalPatternSources,proto3" json:"additional_pattern_sources,omitempty"`
 	ExplicitBooleanRegions   bool                `protobuf:"varint,34,opt,name=explicit_boolean_regions,json=explicitBooleanRegions,proto3" json:"explicit_boolean_regions,omitempty"`
 	BooleanRegions           []*BooleanRegionRef `protobuf:"bytes,35,rep,name=boolean_regions,json=booleanRegions,proto3" json:"boolean_regions,omitempty"`
+	HoleKind                 string              `protobuf:"bytes,36,opt,name=hole_kind,json=holeKind,proto3" json:"hole_kind,omitempty"`                           // SIMPLE (empty compatible) | COUNTERBORE | COUNTERSINK
+	RecessDiameter           float64             `protobuf:"fixed64,37,opt,name=recess_diameter,json=recessDiameter,proto3" json:"recess_diameter,omitempty"`       // mm, greater than the main bore diameter
+	RecessDepth              float64             `protobuf:"fixed64,38,opt,name=recess_depth,json=recessDepth,proto3" json:"recess_depth,omitempty"`                // mm from positioning plane, COUNTERBORE only
+	CountersinkAngle         float64             `protobuf:"fixed64,39,opt,name=countersink_angle,json=countersinkAngle,proto3" json:"countersink_angle,omitempty"` // included cone angle in radians, (0, pi)
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -5633,6 +5637,34 @@ func (x *ProfilePadSpec) GetBooleanRegions() []*BooleanRegionRef {
 		return x.BooleanRegions
 	}
 	return nil
+}
+
+func (x *ProfilePadSpec) GetHoleKind() string {
+	if x != nil {
+		return x.HoleKind
+	}
+	return ""
+}
+
+func (x *ProfilePadSpec) GetRecessDiameter() float64 {
+	if x != nil {
+		return x.RecessDiameter
+	}
+	return 0
+}
+
+func (x *ProfilePadSpec) GetRecessDepth() float64 {
+	if x != nil {
+		return x.RecessDepth
+	}
+	return 0
+}
+
+func (x *ProfilePadSpec) GetCountersinkAngle() float64 {
+	if x != nil {
+		return x.CountersinkAngle
+	}
+	return 0
 }
 
 type PatternSource struct {
@@ -13156,7 +13188,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x17correspondence_resolved\x18\t \x01(\bR\x16correspondenceResolved\x12\x19\n" +
 	"\bpoint_id\x18\n" +
 	" \x01(\tR\apointId\x12-\n" +
-	"\x05point\x18\v \x01(\v2\x17.occccad.worker.v1.Vec3R\x05point\"\x89\x0e\n" +
+	"\x05point\x18\v \x01(\v2\x17.occccad.worker.v1.Vec3R\x05point\"\x9f\x0f\n" +
 	"\x0eProfilePadSpec\x12:\n" +
 	"\aregions\x18\x01 \x03(\v2 .occccad.worker.v1.ProfileRegionR\aregions\x12\x1d\n" +
 	"\n" +
@@ -13198,7 +13230,11 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x12termination_normal\x18  \x01(\v2\x17.occccad.worker.v1.Vec3R\x11terminationNormal\x12^\n" +
 	"\x1aadditional_pattern_sources\x18! \x03(\v2 .occccad.worker.v1.PatternSourceR\x18additionalPatternSources\x128\n" +
 	"\x18explicit_boolean_regions\x18\" \x01(\bR\x16explicitBooleanRegions\x12L\n" +
-	"\x0fboolean_regions\x18# \x03(\v2#.occccad.worker.v1.BooleanRegionRefR\x0ebooleanRegions\"y\n" +
+	"\x0fboolean_regions\x18# \x03(\v2#.occccad.worker.v1.BooleanRegionRefR\x0ebooleanRegions\x12\x1b\n" +
+	"\thole_kind\x18$ \x01(\tR\bholeKind\x12'\n" +
+	"\x0frecess_diameter\x18% \x01(\x01R\x0erecessDiameter\x12!\n" +
+	"\frecess_depth\x18& \x01(\x01R\vrecessDepth\x12+\n" +
+	"\x11countersink_angle\x18' \x01(\x01R\x10countersinkAngle\"y\n" +
 	"\rPatternSource\x12\x1d\n" +
 	"\n" +
 	"feature_id\x18\x01 \x01(\tR\tfeatureId\x12\x1f\n" +

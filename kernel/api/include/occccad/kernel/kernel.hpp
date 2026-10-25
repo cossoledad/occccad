@@ -183,6 +183,8 @@ struct PatternPlacement {
 };
 struct PatternSourceSpec {std::string feature_id, source_kind, start_feature_id;};
 struct ProfilePadSpec {
+    std::string hole_kind;
+    double recess_diameter{}, recess_depth{}, countersink_angle{}; // mm, mm, included radians
     bool explicit_boolean_regions{};
     std::vector<BooleanRegionRef> boolean_regions;
     std::vector<PatternSourceSpec> additional_pattern_sources;

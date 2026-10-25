@@ -1003,7 +1003,7 @@ export class CadViewportEngine {
   private editingSketchScope(): import("../cad/interaction/visibility-resolver").EditingSketchScope | undefined {
     if(this.activeSketchID)return {id:this.activeSketchID,occurrencePath:this.editContext?.occurrencePath??""};
     const session=this.featureSelection;
-    if(!session||!["profile","axis","seam","point","geometry"].includes(session.role)||!session.sketchIds?.length)return;
+    if(!session||!["profile","axis","seam","point","sketch-point","geometry"].includes(session.role)||!session.sketchIds?.length)return;
     return {id:session.sketchIds[0],ids:session.sketchIds,documentId:session.documentId,occurrencePath:session.occurrencePath??""};
   }
 

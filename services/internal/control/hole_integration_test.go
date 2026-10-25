@@ -404,3 +404,215 @@ func TestHoleAdmissionAndReplicationThroughRouter(t *testing.T) {
 		t.Fatal("Hole did not follow the new solved support frame", wall.Selection.CreationEvidence)
 	}
 }
+
+func TestEngineeringHoleLifecycleThroughRouter(t *testing.T) {
+	service, store, db, client, _ := featureAssociationRuntimeService(t)
+	v, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Engineering Hole"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq := 0
+	apply := func(r workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		r.ActorID = p6Actor
+		if r.RequestID == "" {
+			r.RequestID = fmt.Sprintf("%s-engineering-%d", v.Document.ID, seq)
+		}
+		v, err = service.ApplyCommand(t.Context(), v.Document.ID, r)
+		if err != nil {
+			t.Fatal(r.Type, err)
+		}
+	}
+	saved := func(id string) workspace.Feature {
+		t.Helper()
+		for _, f := range v.Part.Features {
+			if f.ID == id {
+				return f
+			}
+		}
+		t.Fatal("missing feature", id)
+		return workspace.Feature{}
+	}
+	edit := func(f workspace.Feature) {
+		t.Helper()
+		apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: f.ID, Feature: &f, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, f.ID)})
+	}
+	parameter := func(id, slot string) modelcore.ParameterDefinition {
+		t.Helper()
+		for _, p := range v.Part.Parameters {
+			if p.OwnerFeatureID == id && p.PropertySlot == slot {
+				return p
+			}
+		}
+		t.Fatal("missing parameter", slot)
+		return modelcore.ParameterDefinition{}
+	}
+	apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	profile := v.Part.Features[0].ID
+	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: profile, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -10, Y: -10}, Second: &workspace.SketchPoint2{X: 10, Y: 10}}}})
+	apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: profile, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 30})
+	base := v.Part.Features[len(v.Part.Features)-1]
+	apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Origin: [3]float64{0, 0, 30}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
+	apply(workspace.CommandRequest{Type: "CREATE_SKETCH", DatumPlaneID: v.Part.DatumPlanes[len(v.Part.DatumPlanes)-1].ID})
+	location := v.Part.Features[len(v.Part.Features)-1].ID
+	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: location, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "p", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{}}}}})
+	definition := workspace.Feature{Type: "HOLE", BodyID: base.BodyID, Operation: "REMOVE", Extent: "BLIND", HoleKind: "COUNTERBORE", Diameter: 4, Depth: 10, RecessDiameter: 8, RecessDepth: 3, Reversed: true, HolePoint: &workspace.PatternPointReference{SketchID: location, Reference: workspace.SketchGeometryRef{Target: "ENTITY", EntityID: "p", SubElement: "POINT"}}}
+	create := workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", ActorID: p6Actor, RequestID: v.Document.ID + "-counterbore", Feature: &definition, ParameterExpressions: map[string]string{"diameter": "2 mm + 2 mm", "recessDiameter": "2 * 4 mm", "recessDepth": "6 mm / 2"}}
+	before := v.Document.VersionID
+	preview, e := service.PreviewCommand(t.Context(), v.Document.ID, create)
+	if e != nil || preview.Artifact == nil {
+		t.Fatal("counterbore preview", e)
+	}
+	untouched, e := service.GetDocument(t.Context(), v.Document.ID, p6Actor)
+	if e != nil || untouched.Document.VersionID != before {
+		t.Fatal("preview wrote", e)
+	}
+	create.PreviewID = preview.PreviewID
+	apply(create)
+	hole := v.Part.Features[len(v.Part.Features)-1]
+	checkVolume := func(extra float64) {
+		t.Helper()
+		stage, e := service.GetFeatureInput(t.Context(), v.Document.ID, workspace.FeatureInputRequest{VersionID: v.Document.VersionID, FeatureID: hole.ID, ResultStage: true})
+		if e != nil || math.Abs(stage.Artifact.Volume-(12000-math.Pi*(40+extra))) > 1e-5 {
+			t.Fatal("volume", stage.Artifact.Volume, extra, e)
+		}
+	}
+	checkVolume(36)
+	mainID, recessID := parameter(hole.ID, "diameter").ParameterID, parameter(hole.ID, "recessDiameter").ParameterID
+	// A stable expression dependency on the parent pad changes both managed seat dimensions.
+	diameter := parameter(base.ID, "length")
+	source := fmt.Sprintf("%s / 5", diameter.Key)
+	changed := saved(hole.ID)
+	request := workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: hole.ID, Feature: &changed, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, hole.ID), ParameterExpressions: map[string]string{"recessDiameter": source}}
+	apply(request)
+	if saved(hole.ID).RecessDiameter != 6 || parameter(hole.ID, "recessDiameter").ParameterID != recessID {
+		t.Fatal("expression or parameter identity lost")
+	}
+	base.Length = 40
+	edit(base)
+	if saved(hole.ID).RecessDiameter != 8 {
+		t.Fatal("expression dependency not recomputed", saved(hole.ID).RecessDiameter)
+	}
+	base.Length = 30
+	edit(base)
+	// Restore the fixed seat size before checking downstream topology continuity.
+	changed = saved(hole.ID)
+	changed.RecessDiameter = 8
+	edit(changed)
+	mouth := findP7TopologyPick(t, service, v, "EDGE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+		return s.Anchor.FeatureID == hole.ID && strings.HasPrefix(s.Anchor.OutputSlot, "HOLE_COUNTERBORE_MOUTH")
+	})
+	apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: hole.BodyID, Length: .2, Selections: []workspace.FeatureSelection{{Selection: mouth.Selection, SourceVersionID: mouth.SourceVersionID}}}})
+	chamfer := v.Part.Features[len(v.Part.Features)-1]
+	changed = saved(hole.ID)
+	changed.RecessDiameter = 9
+	edit(changed)
+	if saved(chamfer.ID).EvaluationStatus != "" {
+		t.Fatal("mouth lost after size edit", saved(chamfer.ID).Diagnostic)
+	}
+	shoulder := findP7TopologyPick(t, service, v, "FACE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+		return s.Anchor.FeatureID == hole.ID && s.Anchor.OutputSlot == "HOLE_COUNTERBORE_SHOULDER"
+	})
+	apply(workspace.CommandRequest{Type: "CREATE_SKETCH", TargetKind: "FACE", BodyID: hole.BodyID, VersionID: v.Document.VersionID, GeometryKey: shoulder.GeometryKey, TopologyID: shoulder.LocalID})
+	shoulderSketch := v.Part.Features[len(v.Part.Features)-1]
+	// Removing the counterbore role must preserve the failed downstream definition.
+	changed = saved(hole.ID)
+	changed.HoleKind = "COUNTERSINK"
+	changed.CountersinkAngle = 90
+	changed.RecessDepth = 0
+	switchRequest := workspace.CommandRequest{ActorID: p6Actor, RequestID: v.Document.ID + "-switch-preview", Type: "EDIT_FEATURE", TargetID: hole.ID, Feature: &changed, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, hole.ID)}
+	switchPreview, e := service.PreviewCommand(t.Context(), v.Document.ID, switchRequest)
+	if e != nil || switchPreview.Artifact == nil || len(switchPreview.RepairRequired) != 1 || switchPreview.RepairRequired[0].FeatureID != chamfer.ID {
+		t.Fatal("downstream repair preview", switchPreview.RepairRequired, e)
+	}
+	switchRequest.PreviewID = switchPreview.PreviewID
+	apply(switchRequest)
+	if saved(chamfer.ID).EvaluationStatus != "FAILED" {
+		t.Fatal("vanished role silently rebound", saved(chamfer.ID))
+	}
+	if saved(shoulderSketch.ID).Sketch.Support.Status != "BLOCKED" {
+		t.Fatal("failed predecessor did not block support", saved(shoulderSketch.ID).Sketch.Support)
+	}
+	if saved(hole.ID).ID != hole.ID || saved(hole.ID).BodyID != hole.BodyID || saved(hole.ID).Name != hole.Name || parameter(hole.ID, "diameter").ParameterID != mainID || parameter(hole.ID, "recessDiameter").ParameterID != recessID {
+		t.Fatal("switch changed stable identity")
+	}
+	for _, p := range v.Part.Parameters {
+		if p.OwnerFeatureID == hole.ID && p.PropertySlot == "recessDepth" {
+			t.Fatal("inactive parameter retained")
+		}
+	}
+	// Rebind explicitly to the cone mouth using the legal input prefix of the failed chamfer.
+	input, e := service.GetFeatureInput(t.Context(), v.Document.ID, workspace.FeatureInputRequest{VersionID: v.Document.VersionID, FeatureID: chamfer.ID})
+	if e != nil {
+		t.Fatal(e)
+	}
+	var replacement *workspace.FeatureSelection
+	for local := uint64(1); local <= p6TopologyCount(t, input.Artifact.Topology, "edges"); local++ {
+		p, e := service.GetFeatureInput(t.Context(), v.Document.ID, workspace.FeatureInputRequest{VersionID: v.Document.VersionID, FeatureID: chamfer.ID, GeometryKey: input.Artifact.GeometryKey, Kind: "EDGE", LocalID: local})
+		if e != nil {
+			t.Fatal(e)
+		}
+		if p.Selection != nil && strings.HasPrefix(p.Selection.Selection.Anchor.OutputSlot, "HOLE_COUNTERSINK_MOUTH") {
+			replacement = p.Selection
+			break
+		}
+	}
+	if replacement == nil {
+		t.Fatal("cone mouth not named")
+	}
+	child := saved(chamfer.ID)
+	child.Selections = []workspace.FeatureSelection{*replacement}
+	edit(child)
+	if saved(chamfer.ID).EvaluationStatus != "" {
+		t.Fatal("explicit repair failed")
+	}
+	if saved(shoulderSketch.ID).Sketch.Support.Status != "FAILED_SUPPORT" {
+		t.Fatal("vanished shoulder did not fail support", saved(shoulderSketch.ID).Sketch.Support)
+	}
+	apply(workspace.CommandRequest{Type: "REASSIGN_SKETCH_SUPPORT", VersionID: v.Document.VersionID, SketchID: shoulderSketch.ID, DatumPlaneID: v.Part.DatumPlanes[len(v.Part.DatumPlanes)-1].ID})
+	if saved(shoulderSketch.ID).Sketch.Support.Status != "CONNECTED" {
+		t.Fatal("support repair failed")
+	}
+	changed = saved(hole.ID)
+	changed.CountersinkAngle = 100
+	request = workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: hole.ID, Feature: &changed, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, hole.ID), ParameterExpressions: map[string]string{"countersinkAngle": "50 deg + 50 deg"}}
+	apply(request)
+	angleID := parameter(hole.ID, "countersinkAngle").ParameterID
+	invalid := []workspace.Feature{saved(hole.ID), saved(hole.ID), saved(hole.ID)}
+	invalid[0].RecessDiameter = 3
+	invalid[1].CountersinkAngle = 180
+	invalid[2].Depth = .1
+	head := v.Document.VersionID
+	for i, f := range invalid {
+		_, e := service.PreviewCommand(t.Context(), v.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-invalid-%d", head, i), Type: "EDIT_FEATURE", TargetID: hole.ID, Feature: &f, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, hole.ID)})
+		if e == nil {
+			t.Fatal("invalid hole accepted", i)
+		}
+	}
+	current, e := service.GetDocument(t.Context(), v.Document.ID, p6Actor)
+	if e != nil || current.Document.VersionID != head {
+		t.Fatal("invalid preview advanced Head", e)
+	}
+	final := activeBodyArtifact(t, v)
+	apply(workspace.CommandRequest{Type: "UNDO"})
+	apply(workspace.CommandRequest{Type: "REDO"})
+	if activeBodyArtifact(t, v).GeometryID != final.GeometryID || parameter(hole.ID, "countersinkAngle").ParameterID != angleID {
+		t.Fatal("history differs")
+	}
+	fresh := workspace.NewWithArtifacts(db, client, store)
+	opened, e := fresh.GetDocument(t.Context(), v.Document.ID, p6Actor)
+	if e != nil || activeBodyArtifact(t, opened).GeometryID != final.GeometryID {
+		t.Fatal("reopen", e)
+	}
+	child = saved(chamfer.ID)
+	cold, e := fresh.PreviewCommand(workspace.WithColdEvaluation(t.Context()), v.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: head + "-cold", Type: "EDIT_FEATURE", TargetID: child.ID, Feature: &child, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, child.ID)})
+	if e != nil || cold.Artifact == nil {
+		t.Fatal("cold", e)
+	}
+	for _, role := range []string{"BREP", "NAMING"} {
+		if final.Representations[role].Digest != cold.Artifact.Representations[role].Digest {
+			t.Fatal("cold digest differs", role)
+		}
+	}
+}

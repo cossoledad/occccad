@@ -14,13 +14,13 @@ export function booleanDefinitionReady(target: string | undefined, operation: Fe
 }
 // Unchanged text must preserve the original Quantity/expression, including digits
 // beyond the display precision. A changed value uses the shared unit parser.
-export function solidParameterEdit(slot: "length" | "length2" | "angle" | "diameter" | "depth", text: string, initialText: string, unit: string): {
+export function solidParameterEdit(slot: "length" | "length2" | "angle" | "diameter" | "depth" | "recessDiameter" | "recessDepth" | "countersinkAngle", text: string, initialText: string, unit: string): {
     value?: number;
     expression?: string;
 } {
     if (text === initialText)
         return {};
-    if (slot !== "angle") {
+    if (slot !== "angle" && slot!=="countersinkAngle") {
         const result = linearExtrudeLengthInput(text, unit);
         return { value: result.length, expression: result.lengthExpression };
     }

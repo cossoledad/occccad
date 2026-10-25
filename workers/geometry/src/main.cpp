@@ -1633,6 +1633,7 @@ public:
                         "profile pads require feature_id, body_id, and profile_feature_id");
                 }
                 occccad::kernel::ProfilePadSpec pad;
+                pad.hole_kind=input.hole_kind();pad.recess_diameter=input.recess_diameter();pad.recess_depth=input.recess_depth();pad.countersink_angle=input.countersink_angle();
                 pad.explicit_boolean_regions=input.explicit_boolean_regions();
                 for(const auto& ref:input.boolean_regions())pad.boolean_regions.push_back({ref.boundary_unique(),{ref.boundary().begin(),ref.boundary().end()},ref.input_digest(),ref.cell_digest()});
                 if(pad.explicit_boolean_regions&&(input.generator()!="BOOLEAN"||input.tools_size()!=1))throw std::invalid_argument("BOOLEAN_REGIONS_REQUIRE_ONE_TOOL");

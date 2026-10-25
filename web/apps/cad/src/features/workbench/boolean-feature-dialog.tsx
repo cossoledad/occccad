@@ -5,7 +5,7 @@ import {engineeringProblem} from "../../cad/command/operation-feedback";
 import { Alert, Button, Segmented, Switch, Tooltip } from "antd";
 import {booleanRoleColors} from "../../cad/rendering/boolean-region-style";
 import {EyeOutlined} from "@ant-design/icons";
-import {matchBooleanRegion,type BooleanRegionRef,type BooleanRegionsAnalysis,type BooleanRegionCell} from "./boolean-region-model";
+import {selectBooleanRegion,matchBooleanRegion,type BooleanRegionRef,type BooleanRegionsAnalysis,type BooleanRegionCell} from "./boolean-region-model";
 import { useEffect, useRef, useState } from "react";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
 import { api } from "../../api/client";
@@ -48,8 +48,7 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occu
     const failedRegions=analysis?resolved.flatMap((r,index)=>r.status!=='RESOLVED'?[index]:[]):[];
     const toggleRegion=(cell:BooleanRegionCell)=>{
         if(!cell.eligible)return;
-        const index=resolved.findIndex(r=>r.cell?.reference.cellDigest===cell.reference.cellDigest);
-        setRetained(previous=>replacingRegion!==undefined?previous.map((ref,i)=>i===replacingRegion?cell.reference:ref):index>=0?previous.filter((_,i)=>i!==index):[...previous,cell.reference]);
+        setRetained(previous=>selectBooleanRegion(previous,analysis?.regions??[],cell,replacingRegion));
         setFocusId(cell.reference.cellDigest);setReplacingRegion(undefined);
     };
     useEffect(()=>{
@@ -135,7 +134,7 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occu
     const valid = !loading && version.current === view.document.versionId && booleanDefinitionReady(target, operation, tools, stages);
     const definition: Feature = { ...initial, id: initial?.id ?? "", type: "BOOLEAN", bodyId: target, operation, tools, keepTools: keep, suppressed };
     const resultReady=resultMode==='ALL'||!!analysis&&!analysisPending&&!failedRegions.length&&retained.length>0;
-    definition.booleanResult=resultMode==='EXPLICIT'?{mode:'EXPLICIT',regions:retained}:undefined;
+    definition.booleanResult=resultMode==='EXPLICIT'?{mode:'EXPLICIT',regions:[...new Map(resolved.flatMap(r=>r.cell?[r.cell.reference]:[]).map(ref=>[ref.cellDigest,ref])).values()]}:undefined;
     const input: Record<string, unknown> | undefined = valid && resultReady ? initial ? { type: "EDIT_FEATURE", targetId: initial.id, expectedFeatureDigest: digest, feature: definition, requestId: intent.current } : { type: "CREATE_BOOLEAN_FEATURE", bodyId: target, operation, tools, keepTools: keep, booleanResult:definition.booleanResult, requestId: intent.current } : undefined;
     const preview = useFeaturePreview(view.document.id, view.document.versionId, input, operation, (artifact,op)=>{if(resultMode==='ALL')onPreview(artifact,op);else onPreview();});
     const apply = async () => { if (!input || !preview.previewId || preview.pending || committing)

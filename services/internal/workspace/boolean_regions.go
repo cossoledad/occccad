@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"time"
 
 	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -11,6 +12,7 @@ import (
 // Analysis reconstructs only legal exact inputs, independently of the Boolean
 // result or its saved region references. No candidate is a bindable Body stage.
 type BooleanRegionsRequest struct {
+	ActorID   string          `json:"-"`
 	VersionID string          `json:"versionId"`
 	FeatureID string          `json:"featureId,omitempty"`
 	BodyID    string          `json:"bodyId"`
@@ -26,9 +28,11 @@ type BooleanRegionCell struct {
 	Artifact   Artifact                   `json:"artifact"`
 }
 type BooleanRegionsAnalysis struct {
-	VersionID string              `json:"versionId"`
-	Regions   []BooleanRegionCell `json:"regions"`
-	Inputs    []Artifact          `json:"inputs"`
+	AnalysisID     string              `json:"analysisId"`
+	ManifestDigest string              `json:"manifestDigest"`
+	VersionID      string              `json:"versionId"`
+	Regions        []BooleanRegionCell `json:"regions"`
+	Inputs         []Artifact          `json:"inputs"`
 }
 
 func (s *Service) AnalyzeBooleanRegions(ctx context.Context, documentID string, request BooleanRegionsRequest) (BooleanRegionsAnalysis, error) {
@@ -121,5 +125,52 @@ func (s *Service) AnalyzeBooleanRegions(ctx context.Context, documentID string, 
 		eligible := request.Operation == "ADD" && (cell.InTarget || cell.InTool) || request.Operation == "REMOVE" && cell.InTarget && !cell.InTool || request.Operation == "INTERSECT" && cell.InTarget && cell.InTool
 		result.Regions = append(result.Regions, BooleanRegionCell{Reference: modelcore.BooleanRegionRef{BoundaryUnique: cell.Reference.BoundaryUnique, Boundary: cell.Reference.Boundary, InputDigest: cell.Reference.InputDigest, CellDigest: cell.Reference.CellDigest}, InTarget: cell.InTarget, InTool: cell.InTool, Eligible: eligible, Operations: operations, Artifact: a})
 	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	result.AnalysisID = attempt
+	result.ManifestDigest = resolvedDigest(struct {
+		Scope   BooleanRegionsRequest
+		Regions []BooleanRegionCell
+		Inputs  []Artifact
+	}{request, result.Regions, result.Inputs})
+	ids := map[string]bool{}
+	for _, a := range append(append([]Artifact(nil), result.Inputs...), booleanCellArtifacts(result.Regions)...) {
+		for _, rep := range a.Representations {
+			ids[rep.ObjectID] = true
+		}
+	}
+	s.interactionCandidates.put(interactionCandidate{id: attempt, documentID: documentID, actorID: request.ActorID, headRevision: request.VersionID, expiresAt: time.Now().Add(5 * time.Minute), booleanAnalysis: &booleanAnalysisSnapshot{request: request, digest: result.ManifestDigest, objects: ids}})
 	return result, nil
+}
+
+type booleanAnalysisSnapshot struct {
+	request BooleanRegionsRequest
+	digest  string
+	objects map[string]bool
+}
+
+func booleanCellArtifacts(cells []BooleanRegionCell) []Artifact {
+	result := make([]Artifact, 0, len(cells))
+	for _, cell := range cells {
+		result = append(result, cell.Artifact)
+	}
+	return result
+}
+
+// Resource authorization never rebuilds inputs, partitions cells or publishes artifacts.
+func (s *Service) BooleanAnalysisRepresentationAllowed(ctx context.Context, documentID, actorID, id, digest, objectID string, request BooleanRegionsRequest) bool {
+	cache := &s.interactionCandidates
+	cache.mu.Lock()
+	value, ok := cache.values[id]
+	cache.mu.Unlock()
+	if !ok || value.booleanAnalysis == nil || value.documentID != documentID || value.actorID != actorID || time.Now().After(value.expiresAt) {
+		return false
+	}
+	snapshot := value.booleanAnalysis
+	if digest != snapshot.digest || !snapshot.objects[objectID] || request.VersionID != value.headRevision || request.BodyID != snapshot.request.BodyID || request.FeatureID != snapshot.request.FeatureID || request.Tool != snapshot.request.Tool || request.Operation != snapshot.request.Operation {
+		return false
+	}
+	var head string
+	return s.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, documentID).Scan(&head) == nil && head == value.headRevision
 }

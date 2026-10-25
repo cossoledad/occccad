@@ -627,6 +627,11 @@ message ProfilePadSpec {
     repeated PatternSource additional_pattern_sources = 33;
     bool explicit_boolean_regions = 34;
     repeated BooleanRegionRef boolean_regions = 35;
+    string hole_kind = 36; // SIMPLE (empty compatible) | COUNTERBORE | COUNTERSINK
+    double recess_diameter = 37; // mm, greater than the main bore diameter
+    double recess_depth = 38; // mm from positioning plane, COUNTERBORE only
+    double countersink_angle = 39; // included cone angle in radians, (0, pi)
+
 }
 
 message PatternSource {

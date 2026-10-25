@@ -22,6 +22,7 @@ const (
 // may be promoted only while its exact base and typed command still match.
 // Explicit missing tokens are rejected; only tokenless commands evaluate anew.
 type interactionCandidate struct {
+	booleanAnalysis                                                   *booleanAnalysisSnapshot
 	definitionOnly                                                    bool
 	assemblyPreviewRequestID                                          string
 	id, documentID, actorID, headRevision, commandType, payloadDigest string
@@ -295,5 +296,5 @@ func (service *Service) PreviewVisualAllowed(documentID, actorID, id, objectID s
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	value, ok := cache.values[id]
-	return ok && objectID != "" && value.visualObjectID == objectID && value.documentID == documentID && value.actorID == actorID && time.Now().Before(value.expiresAt)
+	return ok && value.booleanAnalysis == nil && objectID != "" && value.visualObjectID == objectID && value.documentID == documentID && value.actorID == actorID && time.Now().Before(value.expiresAt)
 }

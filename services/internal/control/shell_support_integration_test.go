@@ -126,3 +126,77 @@ func TestSketchOnShellOuterFaceThroughRouter(t *testing.T) {
 		}
 	}
 }
+
+func TestEngineeringHoleOnShellOuterWallThroughRouter(t *testing.T) {
+	service, store, db, client, _ := featureAssociationRuntimeService(t)
+	v, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Engineering Hole on shell"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq := 0
+	apply := func(r workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		r.ActorID = p6Actor
+		r.RequestID = fmt.Sprintf("%s-shell-hole-%d", v.Document.ID, seq)
+		v, err = service.ApplyCommand(t.Context(), v.Document.ID, r)
+		if err != nil {
+			t.Fatal(r.Type, err)
+		}
+	}
+	apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	profile := v.Part.Features[0].ID
+	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: profile, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -15, Y: -15}, Second: &workspace.SketchPoint2{X: 15, Y: 15}}}})
+	apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: profile, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 30})
+	base := v.Part.Features[len(v.Part.Features)-1]
+	opening := findP7TopologyPick(t, service, v, "FACE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+		return s.Anchor.FeatureID == base.ID && math.Abs(s.CreationEvidence.Direction[2]) < 1e-6
+	})
+	apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "SHELL", BodyID: base.BodyID, Length: 1, Selections: []workspace.FeatureSelection{{Selection: opening.Selection, SourceVersionID: opening.SourceVersionID}}}})
+	shell := v.Part.Features[len(v.Part.Features)-1]
+	outer := findP7TopologyPick(t, service, v, "FACE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+		return s.Anchor.FeatureID == base.ID && math.Abs(s.CreationEvidence.Centroid[2]-30) < 1e-6
+	})
+	apply(workspace.CommandRequest{Type: "CREATE_SKETCH", TargetKind: "FACE", BodyID: base.BodyID, VersionID: v.Document.VersionID, GeometryKey: outer.GeometryKey, TopologyID: outer.LocalID})
+	location := v.Part.Features[len(v.Part.Features)-1]
+	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: location.ID, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "center", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{}}}}})
+	apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &workspace.Feature{Type: "HOLE", BodyID: base.BodyID, Operation: "REMOVE", Extent: "BLIND", HoleKind: "COUNTERBORE", Diameter: 4, Depth: 3, RecessDiameter: 8, RecessDepth: .4, Reversed: true, HolePoint: &workspace.PatternPointReference{SketchID: location.ID, Reference: workspace.SketchGeometryRef{Target: "ENTITY", EntityID: "center", SubElement: "POINT"}}}})
+	hole := v.Part.Features[len(v.Part.Features)-1]
+	before := activeBodyArtifact(t, v)
+	shell.Length = 2
+	apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: shell.ID, Feature: &shell, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, shell.ID)})
+	for _, f := range v.Part.Features {
+		if f.EvaluationStatus != "" {
+			t.Fatal("downstream failed", f.Name, f.Diagnostic)
+		}
+		if f.ID == location.ID && (f.Sketch.Support.Status != "CONNECTED" || math.Abs(f.Sketch.Support.Origin[2]-30) > 1e-6 || f.Sketch.Support.SourceFeatureID != shell.ID) {
+			t.Fatal("outer support drift", f.Sketch.Support)
+		}
+	}
+	final := activeBodyArtifact(t, v)
+	if final.GeometryID == before.GeometryID || v.Part.Features[len(v.Part.Features)-1].ID != hole.ID {
+		t.Fatal("thickness did not rebuild original Hole")
+	}
+	apply(workspace.CommandRequest{Type: "UNDO"})
+	if activeBodyArtifact(t, v).GeometryID != before.GeometryID {
+		t.Fatal("undo")
+	}
+	apply(workspace.CommandRequest{Type: "REDO"})
+	if activeBodyArtifact(t, v).GeometryID != final.GeometryID {
+		t.Fatal("redo")
+	}
+	fresh := workspace.NewWithArtifacts(db, client, store)
+	opened, e := fresh.GetDocument(t.Context(), v.Document.ID, p6Actor)
+	if e != nil || activeBodyArtifact(t, opened).GeometryID != final.GeometryID {
+		t.Fatal("reopen", e)
+	}
+	cold, e := fresh.PreviewCommand(workspace.WithColdEvaluation(t.Context()), v.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: v.Document.ID + "-shell-hole-cold", Type: "EDIT_FEATURE", TargetID: hole.ID, Feature: &hole, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, hole.ID)})
+	if e != nil || cold.Artifact == nil {
+		t.Fatal("cold", e)
+	}
+	for _, role := range []string{"BREP", "NAMING"} {
+		if cold.Artifact.Representations[role].Digest != final.Representations[role].Digest {
+			t.Fatal("cold differs", role)
+		}
+	}
+}

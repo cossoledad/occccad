@@ -56,6 +56,12 @@ func parameterPresentation(model PartModel, parameter modelcore.ParameterDefinit
 	}
 	group, name := "", parameter.Label
 	switch parameter.PropertySlot {
+	case "recessDiameter":
+		group, name = "孔", "沉孔直径"
+	case "recessDepth":
+		group, name = "孔", "沉孔深度"
+	case "countersinkAngle":
+		group, name = "孔", "锥面夹角"
 	case "diameter":
 		group, name = "孔", "直径"
 	case "depth":

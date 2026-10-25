@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v45-shell-boundary-lineage"
+const evaluatorVersion = "part-solid-generators-v46-engineering-hole-scoped-roles"
 
 var (
 	ErrNotFound   = errors.New("document not found")

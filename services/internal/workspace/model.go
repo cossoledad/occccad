@@ -468,6 +468,10 @@ type ProfileRegionSelection struct {
 }
 
 type Feature struct {
+	HoleKind           string                  `json:"holeKind,omitempty"`
+	RecessDiameter     float64                 `json:"recessDiameter,omitempty"`
+	RecessDepth        float64                 `json:"recessDepth,omitempty"`
+	CountersinkAngle   float64                 `json:"countersinkAngle,omitempty"`
 	HolePoint          *PatternPointReference  `json:"holePoint,omitempty"`
 	Diameter           float64                 `json:"diameter,omitempty"`
 	Depth              float64                 `json:"depth,omitempty"`
@@ -1297,7 +1301,14 @@ type CommandRequest struct {
 // CommandPreview is a non-persistent evaluation of the same typed command
 // used by ApplyCommand. The base revision lets clients reject a response that
 // arrived after the workspace head changed.
+type FeaturePreviewIssue struct {
+	FeatureID  string `json:"featureId"`
+	Name       string `json:"name"`
+	Diagnostic string `json:"diagnostic"`
+}
+
 type CommandPreview struct {
+	RepairRequired       []FeaturePreviewIssue                `json:"repairRequired,omitempty"`
 	PropertyAppearances  []PropertyAppearanceProjection       `json:"propertyAppearances,omitempty"`
 	ExpiresAt            string                               `json:"expiresAt,omitempty"`
 	Runtime              *EvaluationRuntime                   `json:"runtime,omitempty"`

@@ -7,7 +7,7 @@ import type { Artifact, Feature,ReferenceGeometry,ParameterDefinition } from "..
 import { api } from "../../api/client";
 export function useFeaturePreview(documentId: string, versionId: string, input: Record<string, unknown> | undefined, operation: Feature["operation"], onPreview: (artifact?: Artifact, operation?: Feature["operation"]) => void) {
     const [state, setState] = useState<{
-        referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
+        repairRequired?:{featureId:string;name:string;diagnostic:string}[];referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
         key?: string;
         id?: string;
         pending: boolean;
@@ -39,13 +39,13 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
             void queue.current.submit(signal=>api.previewCommand(documentId,candidate.input!,signal),controller.signal).then(result => {
                 if (!alive || latest.current.key !== key || result.baseVersionId !== versionId)
                     return;
-                setState({ key, referenceGeometry:result.referenceGeometry,parameterCandidates:result.parameterCandidates,id: result.previewId, pending: false, loftSections:result.loftSections,loftConnections:result.loftConnections });
+                setState({ key, repairRequired:result.repairRequired,referenceGeometry:result.referenceGeometry,parameterCandidates:result.parameterCandidates,id: result.previewId, pending: false, loftSections:result.loftSections,loftConnections:result.loftConnections });
                 callback.current(result.artifact, candidate.operation);
             }).catch(error => { if (alive && !controller.signal.aborted)
                 {recordDeveloperEvidence("特征预览",error);setState({ key, pending: false, error: engineeringProblem(error),failure:error });} });
         }, 250);
         return () => { alive = false; clearTimeout(timer); controller.abort(); callback.current(); };
     }, [key, retry]);
-    return {referenceGeometry:state.key===key?state.referenceGeometry:undefined,parameterCandidates:state.key===key?state.parameterCandidates:undefined, loftSections:state.key===key?state.loftSections:undefined,loftConnections:state.key===key?state.loftConnections:undefined, pending: !!key && (state.key !== key || state.pending), previewId: state.key === key ? state.id : undefined,
+    return {repairRequired:state.key===key?state.repairRequired:undefined,referenceGeometry:state.key===key?state.referenceGeometry:undefined,parameterCandidates:state.key===key?state.parameterCandidates:undefined, loftSections:state.key===key?state.loftSections:undefined,loftConnections:state.key===key?state.loftConnections:undefined, pending: !!key && (state.key !== key || state.pending), previewId: state.key === key ? state.id : undefined,
         failure:state.key===key?state.failure:undefined, error: state.key === key ? state.error : undefined, retry: () => setRetry(value => value + 1) };
 }

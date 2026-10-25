@@ -331,7 +331,7 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 		geometryKey, err := service.evaluateBodyPrefix(ctx, requestID+"/support/"+feature.ID, prefix, support.PersistentSelection.SourceBodyID)
 		if err != nil {
 			matches := featureFailurePattern.FindAllStringSubmatch(err.Error(), -1)
-			modelFailure := status.Code(err) == codes.InvalidArgument || errors.Is(err, ErrValidation) && (strings.Contains(err.Error(), "PROFILE_REGION_MISSING") || strings.Contains(err.Error(), "PROFILE_REGION_AMBIGUOUS"))
+			modelFailure := status.Code(err) == codes.InvalidArgument || errors.Is(err, ErrValidation) && (strings.Contains(err.Error(), "PROFILE_REGION_MISSING") || strings.Contains(err.Error(), "PROFILE_REGION_AMBIGUOUS") || strings.Contains(err.Error(), "PERSISTENT_SELECTION_OUTSIDE_CURRENT_TIP"))
 			if len(matches) > 0 && modelFailure {
 				support.Status, support.DiagnosticCode, support.Diagnostic = "BLOCKED", "SUPPORT_UPSTREAM_FAILED", err.Error()
 				blockDownstream(matches[len(matches)-1][1])

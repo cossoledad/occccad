@@ -61,6 +61,7 @@ export function Properties(p:PropertiesProps){
   if(feature&&!feature.sketch){
    if(feature.bodyId)add('body','所属实体',objectName(view,feature.bodyId,'引用实体已丢失'));
    if(feature.operation)add('operation','材料处理',engineeringLabel(feature.operation));
+   if(feature.type==='HOLE')add('holeKind','孔型',engineeringLabel(feature.holeKind??'SIMPLE'));
    if(feature.extent)add('extent','终止方式',engineeringLabel(feature.extent));
    if(feature.profile)add('profile','输入草图',featureName(view,feature.profile,'引用草图已丢失'));
    if(feature.profileSelection)add('regions','轮廓输入',feature.profileSelection.mode==='REGIONS'?`明确选择的 ${feature.profileSelection.regionIds?.length??0} 个区域`:'整张草图');
