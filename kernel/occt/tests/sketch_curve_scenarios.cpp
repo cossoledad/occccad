@@ -380,6 +380,49 @@ TEST(ExactSketchCurve, SplitEllipseAdjacentSubarcsRemainExactClosedProfile) {
     pad.pad_length = 3;
     EXPECT_NEAR(kernel.getVolume(kernel.evaluateProfilePads({pad})), 30 * std::acos(-1.0), 1e-5);
 }
+TEST(ExactSketchCurve, UnequalIntersectingCirclesKeepBothIsolatedCrossings) {
+    ProfileCurveSpec a;
+    a.kind = "CIRCLE";
+    a.center = {138.48063015748073, 16.076162767772786};
+    a.radius = 191.33172199358864;
+    auto b = a;
+    b.center = {-5.922796809179472, 62.04834752473689};
+    b.radius = 50.219388220237825;
+    for (bool swapped : {false, true}) {
+        const auto& first = swapped ? b : a;
+        const auto& second = swapped ? a : b;
+        const auto hits = intersect_sketch_curves(first, second);
+        ASSERT_TRUE(hits.overlaps.empty());
+        ASSERT_EQ(hits.points.size(), 2U);
+        for (const auto& hit : hits.points) {
+            EXPECT_EQ(hit.kind, SketchCurveIntersectionKind::point);
+            EXPECT_NEAR(std::hypot(hit.point.x-a.center.x, hit.point.y-a.center.y), a.radius, 1e-7);
+            EXPECT_NEAR(std::hypot(hit.point.x-b.center.x, hit.point.y-b.center.y), b.radius, 1e-7);
+            const auto p = evaluate_sketch_curve(first, hit.first_parameter).point;
+            const auto q = evaluate_sketch_curve(second, hit.second_parameter).point;
+            EXPECT_NEAR(p.x, q.x, 1e-7);
+            EXPECT_NEAR(p.y, q.y, 1e-7);
+        }
+    }
+}
+TEST(ExactSketchCurve, DistinctCircleSupportsPreserveTangencyAndEmptyCases) {
+    ProfileCurveSpec a;
+    a.kind = "CIRCLE";
+    a.radius = 10;
+    for (const auto& example : std::vector<std::pair<ProfileCurveSpec, size_t>>{
+             {ProfileCurveSpec{.kind="CIRCLE", .center={20,0}, .radius=10},1},
+             {ProfileCurveSpec{.kind="CIRCLE", .center={5,0}, .radius=5},1},
+             {ProfileCurveSpec{.kind="CIRCLE", .center={0,0}, .radius=5},0},
+             {ProfileCurveSpec{.kind="CIRCLE", .center={2,0}, .radius=5},0},
+             {ProfileCurveSpec{.kind="CIRCLE", .center={25,0}, .radius=10},0}}) {
+        for (bool swapped : {false,true}) {
+            const auto hits=intersect_sketch_curves(swapped?example.first:a,swapped?a:example.first);
+            EXPECT_TRUE(hits.overlaps.empty());
+            ASSERT_EQ(hits.points.size(),example.second);
+            for(const auto& hit:hits.points) EXPECT_EQ(hit.kind,SketchCurveIntersectionKind::tangent);
+        }
+    }
+}
 TEST(ExactSketchCurve, FullPeriodicOverlapRetainsNonzeroNativeInterval) {
     ProfileCurveSpec circle;
     circle.kind = "CIRCLE";

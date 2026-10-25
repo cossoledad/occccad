@@ -258,3 +258,94 @@ func TestSketchAngleSectorsAndAutomaticRelationsThroughRouter(t *testing.T) {
 }
 
 func sketchInteractionSource(s string) *string { return &s }
+
+// The reported unequal circles produce two tolerance segments in OCCT's
+// general intersector. They must remain isolated crossings through Router and
+// the formal point/split commands, in either user selection order.
+func TestUnequalCircleIntersectionsThroughRouter(t *testing.T) {
+	service, _, _, _, _ := featureAssociationRuntimeService(t)
+	v, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Unequal circle intersections"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply := func(r workspace.CommandRequest) {
+		t.Helper()
+		r.ActorID = p6Actor
+		v, err = service.ApplyCommand(t.Context(), v.Document.ID, r)
+		if err != nil {
+			t.Fatal(r.Type, err)
+		}
+	}
+	apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	sketch := v.Part.Features[0].ID
+	edit := func(ops ...workspace.SketchOperation) {
+		t.Helper()
+		apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: ops})
+	}
+	edit(workspace.SketchOperation{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "large", Kind: "CIRCLE", Role: "PROFILE", Center: &workspace.SketchPoint2{X: 138.48063015748073, Y: 16.076162767772786}, Radius: 191.33172199358864}}, workspace.SketchOperation{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "small", Kind: "CIRCLE", Role: "PROFILE", Center: &workspace.SketchPoint2{X: -5.922796809179472, Y: 62.04834752473689}, Radius: 50.219388220237825}})
+	original := v.Part.Features[0].Sketch
+	for _, ids := range [][]string{{"large", "small"}, {"small", "large"}} {
+		hits, e := service.SketchIntersections(t.Context(), v.Document.ID, workspace.SketchIntersectionsRequest{VersionID: v.Document.VersionID, SketchID: sketch, EntityIDs: ids})
+		if e != nil || len(hits.Intersections) != 2 {
+			t.Fatal("circle analysis", e, hits)
+		}
+		for _, h := range hits.Intersections {
+			if !h.ConstraintSupported {
+				t.Fatal("point support", h)
+			}
+			for i, id := range ids {
+				if h.References[i].EntityID != id || h.Parameters[i] < 0 || h.Parameters[i] > 1 {
+					t.Fatal("curve correspondence", h)
+				}
+			}
+		}
+		edit(workspace.SketchOperation{Type: "CREATE_INTERSECTION", OperationID: "circle-point-" + ids[0], EntityIDs: ids, Parameters: hits.Intersections[0].Parameters[:]})
+		s := v.Part.Features[0].Sketch
+		if len(s.Entities) != 3 || len(s.Constraints) != 2 {
+			t.Fatal("point and relations", s)
+		}
+		for _, c := range s.Constraints {
+			if c.Kind != "POINT_ON_OBJECT" {
+				t.Fatal(c)
+			}
+		}
+		apply(workspace.CommandRequest{Type: "UNDO"})
+		if !reflect.DeepEqual(original, v.Part.Features[0].Sketch) {
+			t.Fatal("point undo")
+		}
+		params := append(append([]float64{}, hits.Intersections[0].Parameters[:]...), hits.Intersections[1].Parameters[:]...)
+		op := workspace.SketchOperation{Type: "SPLIT_INTERSECTION", OperationID: "circle-split-" + ids[0], EntityIDs: ids, Parameters: params, Mode: "BOTH"}
+		head := v.Document.VersionID
+		p, e := service.PreviewCommand(t.Context(), v.Document.ID, workspace.CommandRequest{ActorID: p6Actor, Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{op}})
+		if e != nil || p.PreviewID == "" {
+			t.Fatal("split preview", e)
+		}
+		read, e := service.GetDocument(t.Context(), v.Document.ID, p6Actor)
+		if e != nil || read.Document.VersionID != head {
+			t.Fatal("preview wrote head", e)
+		}
+		edit(op)
+		split := v.Part.Features[0].Sketch
+		if len(split.Entities) != 4 {
+			t.Fatal("split intervals", split.Entities)
+		}
+		for _, entity := range split.Entities {
+			if entity.Kind != "ARC" {
+				t.Fatal(entity)
+			}
+		}
+		apply(workspace.CommandRequest{Type: "UNDO"})
+		if !reflect.DeepEqual(original, v.Part.Features[0].Sketch) {
+			t.Fatal("split undo")
+		}
+		apply(workspace.CommandRequest{Type: "REDO"})
+		if !reflect.DeepEqual(split, v.Part.Features[0].Sketch) {
+			t.Fatal("split redo")
+		}
+		read, e = service.GetDocument(t.Context(), v.Document.ID, p6Actor)
+		if e != nil || !reflect.DeepEqual(split, read.Part.Features[0].Sketch) {
+			t.Fatal("split reopen", e)
+		}
+		apply(workspace.CommandRequest{Type: "UNDO"})
+	}
+}

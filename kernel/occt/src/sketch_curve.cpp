@@ -15,6 +15,7 @@
 #include <Geom2d_TrimmedCurve.hxx>
 #include <GeomAPI.hxx>
 #include <IntRes2d_IntersectionSegment.hxx>
+#include <IntAna2d_AnaIntersection.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TColgp_HArray1OfPnt2d.hxx>
@@ -208,27 +209,25 @@ SketchCurveIntersections intersect_sketch_curves(const ProfileCurveSpec& first,
     if (!std::isfinite(tolerance) || tolerance <= 0.0)
         throw std::invalid_argument("invalid intersection tolerance");
     const auto a = exact_curve(first), b = exact_curve(second);
-    Geom2dAPI_InterCurveCurve operation(bounded(a), bounded(b), tolerance);
-    if (!operation.Intersector().IsDone())
-        throw std::runtime_error("exact curve intersection did not converge");
     SketchCurveIntersections result;
-    for (int i = 1; i <= operation.NbPoints(); ++i) {
-        const auto& intersection = operation.Intersector().Point(i);
-        const auto p = intersection.Value();
-        const auto da = evaluate_sketch_curve(first, intersection.ParamOnFirst()).first_derivative;
-        const auto db =
-            evaluate_sketch_curve(second, intersection.ParamOnSecond()).first_derivative;
-        const double determinant = da.x * db.y - da.y * db.x;
-        const double norm = std::hypot(da.x, da.y) * std::hypot(db.x, db.y);
+    const auto append_point = [&](const gp_Pnt2d& p, double u, double v) {
+        u = unwrap_parameter(a, u); v = unwrap_parameter(b, v);
+        const auto da = evaluate_sketch_curve(first, u).first_derivative;
+        const auto db = evaluate_sketch_curve(second, v).first_derivative;
+        const double na = std::hypot(da.x, da.y), nb = std::hypot(db.x, db.y);
+        const double norm = na * nb;
         if (!std::isfinite(norm) || norm == 0.0)
             throw std::invalid_argument("intersection has singular curve derivative");
-        result.points.push_back({std::abs(determinant) <= 1e-10 * norm
+        if (u < std::min(a.start,a.end)-tolerance/na || u > std::max(a.start,a.end)+tolerance/na ||
+            v < std::min(b.start,b.end)-tolerance/nb || v > std::max(b.start,b.end)+tolerance/nb)
+            return;
+        result.points.push_back({std::abs(da.x*db.y-da.y*db.x) <= 1e-10*norm
                                      ? SketchCurveIntersectionKind::tangent
                                      : SketchCurveIntersectionKind::point,
                                  {p.X(), p.Y()},
-                                 unwrap_parameter(a, intersection.ParamOnFirst()),
-                                 unwrap_parameter(b, intersection.ParamOnSecond())});
-    }
+                                 std::clamp(u,std::min(a.start,a.end),std::max(a.start,a.end)),
+                                 std::clamp(v,std::min(b.start,b.end),std::max(b.start,b.end))});
+    };
     // Periodic same-support native segments may report a ±period parameter
     // jump for a shared endpoint. Intersect actual bounded domains instead of
     // interpreting that encoding as a full-period overlap.
@@ -239,7 +238,31 @@ SketchCurveIntersections intersect_sketch_curves(const ProfileCurveSpec& first,
         ((circular(first)&&circular(second)&&first.radius==second.radius) ||
          (elliptical(first)&&elliptical(second)&&first.major_radius==second.major_radius&&
           first.minor_radius==second.minor_radius&&std::remainder(second.rotation-first.rotation,pi)==0));
-    if((exact_support || operation.NbSegments()>0) && ((circular(first)&&circular(second)) || (elliptical(first)&&elliptical(second)))) {
+    // The general trimmed-curve intersector may encode transverse circle
+    // crossings as tiny tolerance segments. A native segment is not evidence
+    // that two periodic supports coincide. Use OCCT's analytic circle solution
+    // for distinct supports, then restrict it to the actual arc domains.
+    if (circular(first) && circular(second) && !exact_support) {
+        IntAna2d_AnaIntersection analytic(Handle(Geom2d_Circle)::DownCast(a.curve)->Circ2d(),
+                                         Handle(Geom2d_Circle)::DownCast(b.curve)->Circ2d());
+        if (!analytic.IsDone()) throw std::runtime_error("analytic circle intersection did not converge");
+        if (analytic.IdenticalElements())
+            throw std::invalid_argument("distinct circle supports are indistinguishable at numerical precision");
+        for (int i=1;i<=analytic.NbPoints();++i) {
+            const auto& point=analytic.Point(i);
+            append_point(point.Value(),point.ParamOnFirst(),point.ParamOnSecond());
+        }
+        std::sort(result.points.begin(),result.points.end(),[](const auto& x,const auto& y){return x.first_parameter<y.first_parameter;});
+        return result;
+    }
+    Geom2dAPI_InterCurveCurve operation(bounded(a), bounded(b), tolerance);
+    if (!operation.Intersector().IsDone())
+        throw std::runtime_error("exact curve intersection did not converge");
+    for (int i=1;i<=operation.NbPoints();++i) {
+        const auto& point=operation.Intersector().Point(i);
+        append_point(point.Value(),point.ParamOnFirst(),point.ParamOnSecond());
+    }
+    if(exact_support) {
         result.points.clear(); // Native contact encodings are replaced by the domain intersection.
 
         const double phase=elliptical(first)?std::remainder(second.rotation,2*pi)-std::remainder(first.rotation,2*pi):0;
