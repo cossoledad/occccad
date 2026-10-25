@@ -17,6 +17,8 @@ import (
 	perf "github.com/occccad/occccad/internal/performance"
 )
 
+const topologySelectionResolverVersion = "semantic-continuation-v1"
+
 type BindPersistentSelectionRequest struct {
 	BodyID          string `json:"bodyId"`
 	SourceVersionID string `json:"sourceVersionId"`
@@ -626,14 +628,12 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 				}
 			}
 			if matched {
-				// A pattern member is a new occurrence of the source topology,
-				// not a continuation of a selection on the surviving seed.
-				// Explicit member anchors remain in current and their later
-				// Modified/Split/Merged transitions are followed normally.
-				if lineage.Result != nil && lineage.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED {
-					if _, _, _, replica := semanticPatternMember(lineage.Result); replica {
-						continue
-					}
+				// Generated records constructive support, not continuation of
+				// the source's identity (e.g. shell inner walls, fillet surfaces,
+				// or pattern replicas). Explicit generated anchors still start
+				// in current; follow their Modified/Split/Merged history normally.
+				if lineage.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED {
+					continue
 				}
 				ref := semanticRef(lineage.GetResult())
 				current[refKey(ref)] = ref
@@ -833,7 +833,7 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "TARGET_MANIFEST_MISMATCH"}, nil
 	}
 	selectionJSON, _ := json.Marshal(request.Selection)
-	cacheHash := sha256.Sum256(append(selectionJSON, []byte("|"+request.TargetVersionID+"|"+digest+"|"+request.PolicyDigest)...))
+	cacheHash := sha256.Sum256(append(selectionJSON, []byte("|"+request.TargetVersionID+"|"+digest+"|"+request.PolicyDigest+"|"+topologySelectionResolverVersion)...))
 	cacheKey := hex.EncodeToString(cacheHash[:])
 	if cached, ok := service.selectionResolutions.Load(cacheKey); ok {
 		return cached.(modelcore.SelectionResolution), nil

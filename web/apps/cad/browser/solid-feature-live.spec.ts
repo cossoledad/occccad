@@ -1276,3 +1276,41 @@ test("Boolean lost region reselects in viewport and late analysis cannot reopen 
  await page.waitForTimeout(350);await expect(page.locator('[data-feature-preview]')).toHaveCount(0);
  expect((await current(page,seed.id)).document.versionId).toBe(repaired.document.versionId);expect(errors).toEqual([]);
 });
+
+test('sketch on a shelled outer cap keeps the actual support stage and draws in the viewport',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');
+  let v=await api.createDocument('PART','Shell outer face sketch');const id=v.document.id;
+  v=await api.command(id,{type:'CREATE_SKETCH',plane:'YZ'});const profile=v.part!.features.at(-1)!.id;
+  const points=Array.from({length:6},(_,i)=>({x:30*Math.cos(i*Math.PI/3),y:30*Math.sin(i*Math.PI/3)})),ids=points.map(()=>crypto.randomUUID()),pointIds=points.map(()=>crypto.randomUUID());
+  const entities=points.map((p,i)=>({type:'ADD_ENTITY',entity:{id:ids[i],kind:'LINE',role:'PROFILE',startPointId:pointIds[i],endPointId:pointIds[(i+1)%6],start:p,end:points[(i+1)%6]}}));
+  const joins=points.map((_,i)=>({type:'ADD_CONSTRAINT',constraint:{id:crypto.randomUUID(),kind:'COINCIDENT',references:[{target:'ENTITY',entityId:ids[i],subElement:'END'},{target:'ENTITY',entityId:ids[(i+1)%6],subElement:'START'}]}}));
+  v=await api.command(id,{type:'EDIT_SKETCH',sketchId:profile,operations:[...entities,...joins]});
+  v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId:profile,generator:'LINEAR_EXTRUDE',operation:'ADD',length:40});const base=v.part!.features.at(-1)!,a=v.artifacts![v.part!.bodies.find(b=>b.id===base.bodyId)!.geometryKey!];
+  let opening;for(let n=1;n<=a.topology.faces;n++){const p=await api.getTopologyProperties(id,a.geometryKey,'FACE',n,v.document.versionId);if(p.persistentSelection!.creationEvidence.direction![2]<-.5){opening=p.persistentSelection;break}}
+  if(!opening)throw Error('missing shell opening');
+  v=await api.command(id,{type:'CREATE_MODIFY_FEATURE',feature:{type:'SHELL',bodyId:base.bodyId,length:1,selections:[{selection:opening,sourceVersionId:v.document.versionId}]}});
+  return {id,base,shell:v.part!.features.at(-1)!,version:v.document.versionId};
+ });
+ await page.goto(`/documents/${seed.id}`);
+ await expect.poll(async()=>{const p=await worldScreen(page,[40,4,4]);return page.evaluate(p=>{const e=(window as any).__cameraEngine,r=e.renderer.domElement.getBoundingClientRect(),s=e.hitTest(p.x-r.x,p.y-r.y);return s?.kind},p)}).toBe('face');
+ await clickWorld(page,[40,4,4]);await page.getByRole('button',{name:'草图',exact:true}).click();
+ await expect(page.getByRole('button',{name:'退出草图',exact:true})).toBeVisible();
+ await expect.poll(async()=>(await current(page,seed.id)).part.features.length).toBe(4);
+ const sketch=(await current(page,seed.id)).part.features.at(-1);
+ expect(sketch.sketch.support).toMatchObject({status:'CONNECTED',sourceFeatureId:seed.shell.id,persistentSelection:{anchor:{featureId:seed.base.id}},origin:[40,0,0]});
+ await openCommand(page,'矩形');await clickWorld(page,[40,-3,-3]);await clickWorld(page,[40,3,3]);await page.keyboard.press('Escape');
+ await expect.poll(async()=>(await current(page,seed.id)).part.features.find((f:any)=>f.id===sketch.id).sketch.entities.length).toBe(4);
+ await openCommand(page,'退出草图');
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill(sketch.name);await page.getByRole('treeitem').filter({hasText:sketch.name}).first().click();
+ await openCommand(page,'拉伸');const dialog=page.getByRole('dialog',{name:'创建 拉伸',exact:true});await ready(page,dialog);const head=(await current(page,seed.id)).document.versionId;
+ await dialog.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(head);
+ await openCommand(page,'拉伸');await ready(page,dialog);await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const result=await current(page,seed.id),child=result.part.features.at(-1);expect(child.evaluationStatus??'').not.toMatch(/FAILED|BLOCKED/);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(sketch.id);
+ await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(child.id);
+ await page.reload();await expect(page.locator('canvas')).toBeVisible();const reopened=await current(page,seed.id);expect(reopened.part.features.find((f:any)=>f.id===sketch.id).sketch.support.status).toBe('CONNECTED');
+ await page.screenshot({path:test.info().outputPath('shell-supported-sketch.png')});expect(errors).toEqual([]);
+});

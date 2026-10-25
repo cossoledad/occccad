@@ -111,6 +111,8 @@ EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named 
 
 ## 阵列复制与选择延续
 
-`LINEAGE_DESCENDANT` 跟踪所选拓扑的实际延续，不把 `GENERATED → MEMBER/slot/seed-digest` 刚体复制关系作为种子选择的延续。种子仍存在时只解析其当前结果；种子消失时不能跳到副本。显式 MEMBER 锚点保留其槽位，并继续跟踪下游 Modified/Split/Merged；真实分裂仍保留 Ambiguous。Feature 的当前贡献与树／视图联动使用 `featureAssociations.primary`，只突出其实际拥有的结果；`origins` 保留复制来源链用于溯源，不能把祖先链当作当前归属而连带选中其他副本。成员槽位及持久拓扑选择合同保持不变。该修正没有修改持久命名格式或用坐标挑选候选。
+`LINEAGE_DESCENDANT` 跟踪所选拓扑的实际延续，沿 Modified/Unchanged/Split/Merged 解析；`GENERATED` 表达构造来源，不是原拓扑身份的延续。因此抽壳内壁、圆角生成面和 `MEMBER/slot/seed-digest` 刚体副本不会成为原面／边选择的候选，原拓扑消失时也不能跳到新生成拓扑。显式选中的内壁或 MEMBER 以自身语义引用为锚点，继续跟踪后续延续；真实分裂仍保留 Ambiguous。引用解析缓存包含解析策略版本，不修改既有 Naming/BREP 制品或持久引用格式。
+
+Feature 的当前贡献与树／视图联动使用 `featureAssociations.primary`，只突出其实际拥有的结果；`origins` 保留复制来源链用于溯源，不能把祖先链当作当前归属而连带选中其他副本。成员槽位及持久拓扑选择合同保持不变，不按坐标挑选候选。回归见 `TestResolveManifestGeneratedBoundaryIsNotSourceContinuation` 和 `TestSketchOnShellOuterFaceThroughRouter`：外面与内面独立绑定、外面支撑的草图／拉伸、壁厚更新、历史及冷重建；视图区流程见 `solid-feature-live.spec.ts`。
 
 解析直线样条的 evidence 与类型查询共用完整裁剪区间控制点证明；origin/direction 和 parameterStart/End 表达毫米直线区间，底层 BREP 原生参数仍在属性查询中报告。该识别不产生新拓扑身份或几何替换，详见[实体 Feature](solid-features.md)。

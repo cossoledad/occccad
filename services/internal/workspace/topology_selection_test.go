@@ -188,3 +188,32 @@ func TestResolveManifestPatternReplicaIsNotSeedContinuation(t *testing.T) {
 		t.Fatalf("deleted seed jumped to member: %+v", got)
 	}
 }
+
+func TestResolveManifestGeneratedBoundaryIsNotSourceContinuation(t *testing.T) {
+	outer := testRef("extrude-1", "END_CAP/region-1")
+	inner := testRef("shell-1", "MODIFIER_GENERATED/outer/1")
+	trimmed := testRef("cut-1", "inner-trim")
+	generated := workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED
+	modified := workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MODIFIED
+	manifest := testBodyTips(&topologyManifest{FeatureResults: []*workerv1.FeatureResult{
+		{FeatureId: "extrude-1", BodyId: "body-main", TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Kind: generated, Result: outer}}}},
+		{FeatureId: "shell-1", BodyId: "body-main", TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{
+			{Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_UNCHANGED, Sources: []*workerv1.SemanticTopologyRef{outer}, Result: outer},
+			{Kind: generated, Sources: []*workerv1.SemanticTopologyRef{outer}, Result: inner},
+		}}},
+		{FeatureId: "cut-1", BodyId: "body-main", SemanticOutputs: []*workerv1.SemanticTopologyOutput{testOutput(outer, 5, 1), testOutput(trimmed, 9, 1)}, TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Kind: modified, Sources: []*workerv1.SemanticTopologyRef{inner}, Result: trimmed}}}},
+	}})
+	selection := testSelection()
+	if got := resolveManifest(selection, "shell-key", manifest); got.Status != modelcore.SelectionResolved || len(got.Candidates) != 1 || got.Candidates[0].LocalID != 5 {
+		t.Fatalf("outer acquired the generated inner wall: %+v", got)
+	}
+	selection.Anchor = semanticRef(inner)
+	if got := resolveManifest(selection, "shell-key", manifest); got.Status != modelcore.SelectionResolved || got.Candidates[0].LocalID != 9 {
+		t.Fatalf("explicit inner wall lost its actual continuation: %+v", got)
+	}
+	manifest.Tips["body-main"].SemanticOutputs = manifest.Tips["body-main"].SemanticOutputs[1:]
+	selection = testSelection()
+	if got := resolveManifest(selection, "shell-key", manifest); got.Status != modelcore.SelectionMissing {
+		t.Fatalf("lost outer wall silently rebound to its generated offset: %+v", got)
+	}
+}
