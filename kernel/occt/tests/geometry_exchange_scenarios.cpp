@@ -3430,3 +3430,50 @@ TEST(GeometryExchange, MirrorOfMirrorPreservesSignedToolAndAllFourMembers) {
     }
 }
 } // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(GeometryExchange, BooleanCellsSelectIndependentSameMembershipVolumesAndRebuild) {
+ OcctKernel kernel;
+ ProfilePadSpec base;base.feature_id="base";base.body_id="target";base.profile_feature_id="base-sketch";base.regions={rectangular_region("base-region",0,0,30,10)};base.pad_length=10;
+ auto cutter=base;cutter.feature_id="cutter";cutter.body_id="tool";cutter.profile_feature_id="tool-sketch";cutter.regions={rectangular_region("cut-region",10,-5,20,15)};
+ auto source=[&](const ProfilePadSpec& spec){auto e=kernel.evaluateProfilePadsWithHistory({spec});BodyToolInput input;input.body_id=spec.body_id;input.feature_id=spec.feature_id;input.geometry_id=e.geometry_id;input.brep=kernel.serializeBrepr(e.geometry_id);for(const auto& out:e.feature_results.back().semantic_outputs){const auto& r=out.semantic_ref;input.topology.push_back({r.feature_id,r.output_slot,r.source_ids,out.topology_type==PersistentTopologyType::face?TopologyType::FACE:out.topology_type==PersistentTopologyType::edge?TopologyType::EDGE:TopologyType::VERTEX,out.local_id});}return input;};
+ const auto target=source(base),tool=source(cutter);const auto cells=kernel.analyze_boolean_regions(target,tool);
+ std::vector<BooleanRegionRef> retained;for(const auto& c:cells)if(c.in_target&&!c.in_tool){retained.push_back(c.reference);EXPECT_NEAR(kernel.getVolume(c.geometry_id),1000,1e-6);}
+ ASSERT_EQ(retained.size(),2);EXPECT_NE(retained[0].boundary,retained[1].boundary);
+ ProfilePadSpec op;op.feature_id="boolean";op.body_id=base.body_id;op.input_feature_id=base.feature_id;op.generator="BOOLEAN";op.body_operation="REMOVE";op.tools={tool};op.explicit_boolean_regions=true;
+ for(const auto& ref:retained){op.boolean_regions={ref};auto e=kernel.evaluateProfilePadsWithHistory({base,op});EXPECT_NEAR(kernel.getVolume(e.geometry_id),1000,1e-6);EXPECT_TRUE(e.feature_results.back().topology_history_complete);EXPECT_GT(std::count_if(e.feature_results.back().topology_history.lineage.begin(),e.feature_results.back().topology_history.lineage.end(),[](const auto& item){return item.kind==TopologyLineageKind::unchanged;}),0);OcctKernel cold;auto rebuilt=cold.evaluateProfilePadsWithHistory({base,op});EXPECT_EQ(e.geometry_id,rebuilt.geometry_id);EXPECT_EQ(e.feature_results.back().topology_history.evidence_digest,rebuilt.feature_results.back().topology_history.evidence_digest);}
+ op.boolean_regions=retained;auto disconnected=kernel.evaluateProfilePadsWithHistory({base,op});EXPECT_EQ(kernel.getTopology(disconnected.geometry_id).solid_count,2);std::reverse(op.boolean_regions.begin(),op.boolean_regions.end());auto reordered=kernel.evaluateProfilePadsWithHistory({base,op});EXPECT_EQ(disconnected.geometry_id,reordered.geometry_id);EXPECT_EQ(disconnected.feature_results.back().topology_history.evidence_digest,reordered.feature_results.back().topology_history.evidence_digest);
+ op.boolean_regions={};EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base,op}),std::invalid_argument);
+ op.boolean_regions={retained[0]};op.boolean_regions[0].boundary={"missing"};op.boolean_regions[0].input_digest="changed";EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base,op}),std::invalid_argument);
+ // A dimension-only update keeps the exact source-boundary correspondence.
+ op.boolean_regions={retained[0]};base.pad_length=15;cutter.pad_length=15;op.tools={source(cutter)};auto resized=kernel.evaluateProfilePadsWithHistory({base,op});EXPECT_NEAR(kernel.getVolume(resized.geometry_id),1500,1e-6);
+}
+TEST(GeometryExchange, BooleanCellsAnalysisSurvivesContainedNoChangeAndEmptyResult) {
+ OcctKernel kernel;
+ ProfilePadSpec base;base.feature_id="base";base.body_id="target";base.profile_feature_id="sketch";base.regions={rectangular_region("base-region",0,0,20,20)};base.pad_length=20;
+ auto tool=base;tool.feature_id="tool";tool.body_id="tool-body";tool.profile_feature_id="tool-sketch";tool.regions={rectangular_region("tool-region",5,5,15,15)};tool.pad_length=10;tool.plane_origin={0,0,5};tool.plane_normal={0,0,1};tool.plane_u_direction={1,0,0};
+ auto source=[&](const ProfilePadSpec& spec){auto e=kernel.evaluateProfilePadsWithHistory({spec});BodyToolInput v;v.body_id=spec.body_id;v.feature_id=spec.feature_id;v.geometry_id=e.geometry_id;v.brep=kernel.serializeBrepr(e.geometry_id);for(const auto& out:e.feature_results.back().semantic_outputs){const auto& r=out.semantic_ref;v.topology.push_back({r.feature_id,r.output_slot,r.source_ids,out.topology_type==PersistentTopologyType::face?TopologyType::FACE:out.topology_type==PersistentTopologyType::edge?TopologyType::EDGE:TopologyType::VERTEX,out.local_id});}return v;};
+ const auto a=source(base),b=source(tool);auto cells=kernel.analyze_boolean_regions(a,b);ASSERT_EQ(cells.size(),2);
+ ProfilePadSpec op;op.feature_id="boolean";op.body_id=base.body_id;op.generator="BOOLEAN";op.input_feature_id=base.feature_id;op.body_operation="ADD";op.tools={b};
+ EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base,op}),std::invalid_argument);
+ op.explicit_boolean_regions=true;for(const auto& c:cells)if(c.in_target&&!c.in_tool)op.boolean_regions={c.reference};auto result=kernel.evaluateProfilePadsWithHistory({base,op});EXPECT_NEAR(kernel.getVolume(result.geometry_id),7000,1e-6);
+ op.body_operation="INTERSECT";op.boolean_regions.clear();for(const auto& c:cells)if(c.in_target&&c.in_tool)op.boolean_regions.push_back(c.reference);EXPECT_NEAR(kernel.getVolume(kernel.evaluateProfilePadsWithHistory({base,op}).geometry_id),1000,1e-6);
+}
+TEST(GeometryExchange, BooleanCellAssemblyRemovesInternalBoundariesAndKeepsEmptyAnalysis) {
+ OcctKernel kernel;
+ ProfilePadSpec base;base.feature_id="base";base.body_id="target";base.profile_feature_id="sketch";base.regions={rectangular_region("base",0,0,30,10)};base.pad_length=10;
+ auto tool=base;tool.feature_id="tool";tool.body_id="tool-body";tool.profile_feature_id="tool-sketch";tool.regions={rectangular_region("tool",10,-5,20,15)};tool.pad_length=20;
+ auto source=[&](const ProfilePadSpec& spec){auto e=kernel.evaluateProfilePadsWithHistory({spec});BodyToolInput v;v.body_id=spec.body_id;v.feature_id=spec.feature_id;v.geometry_id=e.geometry_id;v.brep=kernel.serializeBrepr(e.geometry_id);for(const auto& out:e.feature_results.back().semantic_outputs){const auto& r=out.semantic_ref;v.topology.push_back({r.feature_id,r.output_slot,r.source_ids,out.topology_type==PersistentTopologyType::face?TopologyType::FACE:out.topology_type==PersistentTopologyType::edge?TopologyType::EDGE:TopologyType::VERTEX,out.local_id});}return v;};
+ const auto target=source(base),cutter=source(tool);const auto cells=kernel.analyze_boolean_regions(target,cutter);
+ ProfilePadSpec op;op.feature_id="boolean";op.body_id=base.body_id;op.generator="BOOLEAN";op.input_feature_id=base.feature_id;op.body_operation="ADD";op.tools={cutter};
+ const auto ordinary=kernel.evaluateProfilePadsWithHistory({base,op});op.explicit_boolean_regions=true;for(const auto& c:cells)op.boolean_regions.push_back(c.reference);
+ const auto selected=kernel.evaluateProfilePadsWithHistory({base,op});EXPECT_NEAR(kernel.getVolume(selected.geometry_id),6000,1e-6);EXPECT_EQ(kernel.getTopology(selected.geometry_id).face_count,kernel.getTopology(ordinary.geometry_id).face_count);
+ for(const auto& c:cells)if(c.in_target&&!c.in_tool){op.boolean_regions.erase(std::remove_if(op.boolean_regions.begin(),op.boolean_regions.end(),[&](const auto& ref){return ref.cell_digest==c.reference.cell_digest;}),op.boolean_regions.end());break;}
+ EXPECT_NEAR(kernel.getVolume(kernel.evaluateProfilePadsWithHistory({base,op}).geometry_id),5000,1e-6);
+ tool.regions={rectangular_region("tool",-5,-5,35,15)};tool.pad_length=20;tool.plane_origin={0,0,-5};tool.plane_normal={0,0,1};tool.plane_u_direction={1,0,0};
+ const auto enclosing=source(tool);const auto empty_candidates=kernel.analyze_boolean_regions(target,enclosing);
+ ASSERT_FALSE(empty_candidates.empty());EXPECT_EQ(std::count_if(empty_candidates.begin(),empty_candidates.end(),[](const auto& c){return c.in_target&&!c.in_tool;}),0);
+ op.tools={enclosing};op.body_operation="REMOVE";op.explicit_boolean_regions=false;op.boolean_regions.clear();EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base,op}),std::invalid_argument);
+}
+
+}

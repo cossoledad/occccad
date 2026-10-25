@@ -5,7 +5,7 @@ export const selectionKey = (selection: SelectionItem): string => {
  const occurrence=path?.canonical||(path?.segments.length?JSON.stringify(path.segments.map(segment=>segment.instanceId)):undefined)||selection.occurrencePath||"";
  return JSON.stringify([
   selection.kind, selection.entityRef?.documentId ?? selection.ownerDocumentId ?? selection.documentId ?? "",
-  selection.kind === "profile-region" ? [selection.featureId,selection.regionId] : selection.kind === "body" ? selection.bodyId ?? selection.entityId ?? selection.id
+  selection.kind === "boolean-region" ? [selection.analysisId,selection.regionId] : selection.kind === "profile-region" ? [selection.featureId,selection.regionId] : selection.kind === "body" ? selection.bodyId ?? selection.entityId ?? selection.id
     : selection.kind === "part" || selection.kind === "product" ? selection.documentId ?? selection.id
       : selection.kind === "instance" ? occurrence || selection.id
         : selection.kind === "sketch-constraint" || selection.kind === "assembly-constraint" ? selection.constraintId

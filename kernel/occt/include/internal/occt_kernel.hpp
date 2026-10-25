@@ -95,6 +95,8 @@ public:
     std::vector<uint8_t> serializeStep(const GeometryId& id) override;
 
     // Additional accessors
+    std::vector<BooleanRegion> analyze_boolean_regions(const BodyToolInput& target, const BodyToolInput& tool,
+        const std::function<bool()>& cancelled = {});
     void clear_runtime_cache();
     void set_runtime_cache_budget(size_t bytes);
     size_t runtime_cache_bytes() const noexcept;

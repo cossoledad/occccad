@@ -163,6 +163,7 @@ export type Feature = {
   extent?: "FINITE"|"TWO_SIDED"|"SYMMETRIC"|"THROUGH_ALL"|"TO_PLANE"|"BLIND";
   length2?:number;
   tools?: {bodyId:string; featureId:string}[];
+  booleanResult?:import("./features/workbench/boolean-region-model").BooleanResultSelection;
   keepTools?: boolean;
   suppressed?: boolean;
   bodyId?: string;
@@ -560,6 +561,7 @@ export type SelectionIdentity = {
 };
 
 export type SelectionItem =
+  | (SelectionIdentity & {kind:"boolean-region";regionId:string;analysisId:string})
   | (SelectionIdentity & {kind:"profile-region";featureId:string;regionId:string})
   | (SelectionIdentity & { kind: "kinematic-object" | "part" | "product" | "feature" | "publication" | "external-reference" | "context-input" | "context-binding" | "parameter" })
   | (SelectionIdentity & { kind: "plane"; plane: PlaneName | "CUSTOM"; datumPlane?: DatumPlane })

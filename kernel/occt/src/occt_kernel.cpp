@@ -700,6 +700,7 @@ struct NamedShape {
 };
 
 struct ToolBuild {
+    std::vector<NamedShape> region_named;
     TopoDS_Shape shape;
     std::vector<NamedShape> named;
     std::vector<TopologyLineage> generated;
@@ -2064,6 +2065,138 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     return {result, mapped, std::move(derived), std::move(diagnostics)};
 }
 
+// CellsBuilder's public Take/Avoid API selects by operand membership. Expose
+// only its existing exact-cell assembly machinery here, so two independent
+// cells with identical operand membership can be retained separately. No new
+// intersection pass or geometric classification is performed by assembly.
+class BooleanCellsBuilder final : public BOPAlgo_CellsBuilder {
+public:
+    void assemble(const std::vector<TopoDS_Shape>& cells) {
+        RemoveAllFromResult();myReport->Clear(Message_Warning);
+        TopoDS_Compound result;BRep_Builder builder;builder.MakeCompound(result);
+        TopTools_ListOfShape material;
+        for(const auto& cell:cells){if(!myIndex.Contains(cell))throw std::invalid_argument("BOOLEAN_REGION_OUTSIDE_PARTITION");builder.Add(result,cell);material.Append(cell);myShapeMaterial.Bind(cell,1);}
+        myShape=result;myMaterials.Bind(1,material);RemoveInternalBoundaries();PrepareHistory(Message_ProgressRange());
+        if(HasErrors()||HasWarnings())throw std::runtime_error("BOOLEAN_REGION_ASSEMBLY_FAILED");
+    }
+};
+// Independent volume cells are obtained BEFORE any result is assembled.
+struct BooleanPartition {
+    struct Cell { TopoDS_Shape shape; BooleanRegionRef ref; bool target{}, tool{}; };
+    std::shared_ptr<BooleanCellsBuilder> builder;
+    std::vector<Cell> cells;
+    std::string digest;
+    std::vector<NamedShape> target_names,tool_names;
+    std::size_t bytes{};
+};
+std::string region_inputs_key(const TopoDS_Shape& target, const std::vector<NamedShape>& target_names,
+                              const TopoDS_Shape& tool, const std::vector<NamedShape>& tool_names) {
+    const auto shape_digest=[](const TopoDS_Shape& shape){std::ostringstream out;BRepTools::Write(shape,out,Standard_False,Standard_False,TopTools_FormatVersion_CURRENT);return make_geometry_id(out.str());};
+    std::vector<std::string> keys;
+    const auto append=[&](const std::string& role,const TopoDS_Shape& shape,const std::vector<NamedShape>& names){
+        TopTools_IndexedMapOfShape members;TopExp::MapShapes(shape,members);
+        for(const auto& n:names){const int locator=members.FindIndex(n.shape);if(!locator)throw std::invalid_argument("BOOLEAN_REGION_SOURCE_OUTSIDE_INPUT");
+            // This locator only seals the naming-to-BREP binding in the cache
+            // digest. It is never a region identity or a continuation rule.
+            keys.push_back(role+ref_key(n.ref)+"/binding="+std::to_string(locator));}
+    };
+    append("T/",target,target_names);append("U/",tool,tool_names);
+    std::sort(keys.begin(),keys.end());
+    std::string raw="boolean-cells-v1/"+shape_digest(target)+shape_digest(tool);
+    for(const auto& key:keys)raw+="\n"+key;
+    return make_geometry_id(raw);
+}
+std::shared_ptr<BooleanPartition> partition_boolean(const TopoDS_Shape& target,
+        const std::vector<NamedShape>& target_names,const TopoDS_Shape& tool,
+        const std::vector<NamedShape>& tool_names,const std::string& digest) {
+    auto p=std::make_shared<BooleanPartition>();p->digest=digest;p->target_names=target_names;p->tool_names=tool_names;
+    p->builder=std::make_shared<BooleanCellsBuilder>();auto& b=*p->builder;
+    TopTools_ListOfShape arguments;arguments.Append(target);arguments.Append(tool);
+    b.SetArguments(arguments);b.SetNonDestructive(Standard_True);b.SetUseOBB(Standard_True);b.Perform();
+    if(b.HasErrors())throw std::runtime_error("BOOLEAN_REGION_PARTITION_FAILED");
+    const auto parts=b.GetAllParts();
+    TopTools_IndexedMapOfShape target_cells,tool_cells;
+    for(const auto& item:std::vector<std::pair<TopoDS_Shape,TopTools_IndexedMapOfShape*>>{{target,&target_cells},{tool,&tool_cells}}){
+        b.RemoveAllFromResult();TopTools_ListOfShape take,avoid;take.Append(item.first);b.AddToResult(take,avoid);
+        TopExp::MapShapes(b.Shape(),TopAbs_SOLID,*item.second);
+    }
+    b.AddAllToResult();
+    // Tokens describe oriented source boundaries, not tessellation, enumeration,
+    // volume, centroids or a sampled geometric fingerprint.
+    const auto target_lineage=map_named_shapes(target_names,b,parts),tool_lineage=map_named_shapes(tool_names,b,parts);
+    TopTools_IndexedMapOfShape solids;TopExp::MapShapes(parts,TopAbs_SOLID,solids);
+    if(solids.Extent()>128)throw std::invalid_argument("BOOLEAN_REGION_LIMIT_EXCEEDED");
+    for(int i=1;i<=solids.Extent();++i){
+        BooleanPartition::Cell cell;cell.shape=solids(i);cell.target=target_cells.Contains(cell.shape);cell.tool=tool_cells.Contains(cell.shape);
+        validate_body_solid_set(cell.shape);
+        if(!cell.target&&!cell.tool)throw std::runtime_error("BOOLEAN_REGION_CLASSIFICATION_FAILED");
+        for(TopExp_Explorer face(cell.shape,TopAbs_FACE);face.More();face.Next()){
+            std::vector<std::string> origins;
+            for(const auto& role:std::vector<std::pair<std::string,const std::vector<NamedShape>*>>{{"T/",&target_lineage},{"U/",&tool_lineage}})
+                for(const auto& n:*role.second)if(n.shape.IsSame(face.Current()))origins.push_back(make_geometry_id(role.first+ref_key(n.ref)+"/"+std::to_string(face.Current().Orientation())));
+            if(origins.empty())throw std::runtime_error("BOOLEAN_REGION_HISTORY_INCOMPLETE");
+            std::sort(origins.begin(),origins.end());origins.erase(std::unique(origins.begin(),origins.end()),origins.end());
+            cell.ref.boundary.insert(cell.ref.boundary.end(),origins.begin(),origins.end());
+        }
+        if(cell.ref.boundary.empty())throw std::runtime_error("BOOLEAN_REGION_HISTORY_INCOMPLETE");
+        std::sort(cell.ref.boundary.begin(),cell.ref.boundary.end());
+        std::ostringstream bytes;BRepTools::Write(cell.shape,bytes);const auto raw=bytes.str();
+        cell.ref.input_digest=digest;cell.ref.cell_digest=make_geometry_id(raw);p->bytes+=raw.size()*16;
+        p->cells.push_back(std::move(cell));
+    }
+    for(auto& c:p->cells)c.ref.boundary_unique=std::count_if(p->cells.begin(),p->cells.end(),[&](const auto& other){return other.ref.boundary==c.ref.boundary;})==1;
+    return p;
+}
+bool eligible_boolean_region(const BooleanPartition::Cell& c,const std::string& operation){
+    if(operation=="ADD")return c.target||c.tool;
+    if(operation=="REMOVE")return c.target&&!c.tool;
+    if(operation=="INTERSECT")return c.target&&c.tool;
+    throw std::invalid_argument("INVALID_BOOLEAN_OPERATION");
+}
+BodyOperationResult assemble_boolean_regions(BooleanPartition& p,const TopoDS_Shape& /*input*/,
+    const std::vector<NamedShape>& /*names*/,const ToolBuild& tool,const ProfilePadSpec& spec){
+    if(spec.boolean_regions.empty())throw std::invalid_argument("BOOLEAN_REGION_SELECTION_EMPTY");
+    std::vector<const BooleanPartition::Cell*> chosen;
+    for(const auto& saved:spec.boolean_regions){
+        std::vector<const BooleanPartition::Cell*> matches;
+        for(const auto& c:p.cells)if(saved.boundary_unique&&c.ref.boundary_unique&&eligible_boolean_region(c,spec.body_operation)&&c.ref.boundary==saved.boundary)matches.push_back(&c);
+        const bool ambiguous=matches.size()>1||!saved.boundary_unique||std::any_of(p.cells.begin(),p.cells.end(),[&](const auto& c){return !c.ref.boundary_unique&&c.ref.boundary==saved.boundary;});
+        if(matches.size()!=1){
+            matches.clear();
+            for(const auto& c:p.cells)if(eligible_boolean_region(c,spec.body_operation)&&saved.input_digest==p.digest&&saved.cell_digest==c.ref.cell_digest)matches.push_back(&c);
+        }
+        if(matches.empty())throw std::invalid_argument(ambiguous?"BOOLEAN_REGION_AMBIGUOUS: reselect retained regions":"BOOLEAN_REGION_MISSING: reselect retained regions");
+        if(matches.size()!=1)throw std::invalid_argument("BOOLEAN_REGION_AMBIGUOUS: reselect retained regions");
+        if(std::find(chosen.begin(),chosen.end(),matches[0])!=chosen.end())throw std::invalid_argument("BOOLEAN_REGION_DUPLICATE");
+        chosen.push_back(matches[0]);
+    }
+    std::sort(chosen.begin(),chosen.end(),[](const auto* a,const auto* b){
+        if(a->ref.boundary!=b->ref.boundary)return a->ref.boundary<b->ref.boundary;
+        return a->ref.cell_digest<b->ref.cell_digest;
+    });
+    // Fuse the chosen exact cells, including disconnected cells. This does not
+    // repeat splitting the two operands. True history is composed at each step.
+    // A content cache can own different TShapes from a reconstructed input.
+    // Bind semantic names to the exact cached operand before querying history.
+    auto sources=p.target_names;
+    for(const auto& named:tool.named)for(const auto& original:tool.region_named)if(original.shape.IsSame(named.shape))
+        for(const auto& cached:p.tool_names)if(same_ref(original.ref,cached.ref))sources.push_back({named.ref,cached.shape});
+    auto& b=*p.builder;
+    bool changes=false;std::vector<TopoDS_Shape> selected_shapes;
+    for(const auto& cell:p.cells){const bool selected=std::find(chosen.begin(),chosen.end(),&cell)!=chosen.end();if(selected!=cell.target)changes=true;}
+    if(!changes)throw std::invalid_argument("NO_MATERIAL_CHANGE: selected regions do not change target");
+    for(const auto* cell:chosen)selected_shapes.push_back(cell->shape);
+    b.assemble(selected_shapes);auto result=b.Shape();
+    auto mapped=map_named_shapes(sources,b,result);
+    ShapeUpgrade_UnifySameDomain unify(result,Standard_True,Standard_True,Standard_False);unify.SetSafeInputMode(Standard_True);unify.Build();
+    mapped=map_named_history(mapped,unify.History(),unify.Shape());result=unify.Shape();validate_body_solid_set(result);
+    auto derived=complete_boolean_topology_naming(result,mapped,tool.feature_id);
+    std::vector<NamedShape> unchanged;
+    for(const auto& original:p.target_names)for(const auto& final:mapped)
+        if(same_ref(original.ref,final.ref)&&original.shape.IsSame(final.shape))unchanged.push_back(final);
+    return {result,std::move(mapped),std::move(derived),{},std::move(unchanged)};
+}
+
 // Expose a composed OCCT history through the same modifier naming gate.
 struct ComposedModifier {
     TopoDS_Shape shape;
@@ -3059,6 +3192,27 @@ std::vector<std::vector<Vec3>> loft_connection_points(
 }
 
 struct OcctKernel::Impl {
+    std::unordered_map<std::string,std::shared_ptr<BooleanPartition>> boolean_partitions;
+    std::shared_ptr<BooleanPartition> boolean_partition(const TopoDS_Shape& target,const std::vector<NamedShape>& names,
+        const TopoDS_Shape& tool,const std::vector<NamedShape>& tool_names){
+        const auto key=region_inputs_key(target,names,tool,tool_names);
+        const auto found=boolean_partitions.find(key);if(found!=boolean_partitions.end())return found->second;
+        const auto freeze=[](const TopoDS_Shape& original,const std::vector<NamedShape>& source){
+            std::ostringstream bytes;BRepTools::Write(original,bytes,Standard_False,Standard_False,TopTools_FormatVersion_CURRENT);
+            std::istringstream input(bytes.str());BRep_Builder builder;TopoDS_Shape frozen;BRepTools::Read(frozen,input,builder);
+            if(frozen.IsNull())throw std::runtime_error("BOOLEAN_REGION_FREEZE_FAILED");
+            TopTools_IndexedMapOfShape before,after;TopExp::MapShapes(original,before);TopExp::MapShapes(frozen,after);
+            if(before.Extent()!=after.Extent())throw std::runtime_error("BOOLEAN_REGION_FREEZE_TOPOLOGY_MISMATCH");
+            std::vector<NamedShape> bound;for(const auto& n:source){const int index=before.FindIndex(n.shape);if(!index)throw std::runtime_error("BOOLEAN_REGION_SOURCE_OUTSIDE_INPUT");bound.push_back({n.ref,after(index)});}
+            return std::make_pair(frozen,bound);
+        };
+        const auto a=freeze(target,names),b=freeze(tool,tool_names);
+        auto result=partition_boolean(a.first,a.second,b.first,b.second,key);
+        std::size_t bytes=result->bytes;for(const auto& entry:boolean_partitions)bytes+=entry.second->bytes;
+        if(boolean_partitions.size()>=8||bytes>64*1024*1024)boolean_partitions.clear();
+        if(result->bytes<=64*1024*1024)boolean_partitions.emplace(key,result);
+        return result;
+    }
     struct StoredGeometry {
         TopoDS_Shape shape;
         std::vector<uint8_t> brep;
@@ -3134,7 +3288,27 @@ OcctKernel::~OcctKernel() = default;
 OcctKernel::OcctKernel(OcctKernel&&) noexcept = default;
 OcctKernel& OcctKernel::operator=(OcctKernel&&) noexcept = default;
 
-void OcctKernel::clear_runtime_cache() {impl_->stages.clear();impl_->stage_bytes=0;}
+std::vector<BooleanRegion> OcctKernel::analyze_boolean_regions(const BodyToolInput& target,const BodyToolInput& tool,
+    const std::function<bool()>& cancelled){
+    const auto load=[&](const BodyToolInput& source){
+        const auto shape=impl_->find(loadBrepr(source.brep));validate_body_solid_set(shape);
+        if(source.geometry_id!=make_geometry_id(source.brep.data(),source.brep.size()))throw std::invalid_argument("BOOLEAN_REGION_SNAPSHOT_MISMATCH");
+        TopTools_IndexedMapOfShape faces,edges,vertices;TopExp::MapShapes(shape,TopAbs_FACE,faces);TopExp::MapShapes(shape,TopAbs_EDGE,edges);TopExp::MapShapes(shape,TopAbs_VERTEX,vertices);
+        if(source.topology.size()!=static_cast<std::size_t>(faces.Extent()+edges.Extent()+vertices.Extent()))throw std::invalid_argument("BOOLEAN_REGION_NAMING_INCOMPLETE");
+        std::vector<NamedShape> names;std::unordered_set<std::string> keys;
+        for(const auto& n:source.topology){const auto& map=n.type==TopologyType::FACE?faces:n.type==TopologyType::EDGE?edges:vertices;
+            SemanticTopologyRef ref{n.feature_id,n.output_slot,n.source_ids};
+            if(!n.local_id||n.local_id>static_cast<unsigned>(map.Extent())||!keys.insert(ref_key(ref)).second)throw std::invalid_argument("BOOLEAN_REGION_NAMING_INVALID");
+            names.push_back({ref,map(static_cast<int>(n.local_id))});}
+        return std::make_pair(shape,names);
+    };
+    if(cancelled&&cancelled())throw std::runtime_error("EVALUATION_CANCELLED");
+    const auto a=load(target),b=load(tool);const auto partition=impl_->boolean_partition(a.first,a.second,b.first,b.second);
+    std::vector<BooleanRegion> result;
+    for(const auto& c:partition->cells){if(cancelled&&cancelled())throw std::runtime_error("EVALUATION_CANCELLED");result.push_back({c.ref,impl_->store(c.shape),c.target,c.tool});}
+    return result;
+}
+void OcctKernel::clear_runtime_cache() {impl_->boolean_partitions.clear();impl_->stages.clear();impl_->stage_bytes=0;}
 void OcctKernel::set_runtime_cache_budget(size_t bytes) {impl_->stage_budget=bytes;impl_->trim_stages();}
 size_t OcctKernel::runtime_cache_bytes() const noexcept {return impl_->stage_bytes;}
 
@@ -3361,6 +3535,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     if(runtime.force_cold) {
         // No borrowed OCCT handles survive across a coarse request. The caller's
         // frozen BREP inputs restore exact data; resident Shapes cannot mask defects.
+        impl_->boolean_partitions.clear();
         impl_->shapes.clear();impl_->topologies.clear();impl_->shape_bytes=0;
     }
     std::shared_ptr<const Impl::Stage> restored;
@@ -3591,6 +3766,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                             throw std::invalid_argument("BOOLEAN_TOOL_NAMING_INVALID");
                         const auto suffix =
                             make_geometry_id(source.body_id + "/" + ref_key(upstream)).substr(7);
+                        tool.region_named.push_back({upstream,map(static_cast<int>(output.local_id))});
                         append_generated(tool, upstream,
                                          {spec.feature_id,
                                           "TOOL_TOPOLOGY/" + suffix,
@@ -3699,6 +3875,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             auto operation = spec.generator == "SOLID_PATTERN" && tool.shape.IsNull()
                 ? BodyOperationResult{result,live_named,{}, {}}
                 : spec.generator=="SOLID_PATTERN" && spec.pattern_result_mode=="INDEPENDENT" ? independent()
+                : spec.generator=="BOOLEAN" && spec.explicit_boolean_regions
+                    ? assemble_boolean_regions(*impl_->boolean_partition(result,live_named,tool.shape,tool.region_named),result,live_named,tool,spec)
                 : modifier ? apply_local_modifier(result, live_named, spec)
                            : apply_body_operation(result, live_named, tool, spec.body_operation, spec.generator == "LOFT");
             result = operation.shape;

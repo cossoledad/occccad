@@ -486,6 +486,22 @@ func (pool *GeometryPool) ComputeSketchCurves(ctx context.Context, request *work
 	return response, err
 }
 
+func (pool *GeometryPool) AnalyzeBooleanRegions(ctx context.Context, request *workerv1.AnalyzeBooleanRegionsRequest) (*workerv1.AnalyzeBooleanRegionsResponse, error) {
+	// Share the target Body's existing runtime affinity with Preview/Commit,
+	// so retaining a different cell set reuses its exact partition.
+	affinity := "body-runtime:" + request.GetTarget().GetBodyId()
+	client, worker, err := pool.selectClient(affinity)
+	if err != nil {
+		return nil, err
+	}
+	if worker != nil {
+		_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
+	}
+	response, err := client.AnalyzeBooleanRegions(outgoing(ctx), request)
+	pool.release(worker, affinity, err == nil)
+	return response, err
+}
+
 func (pool *GeometryPool) ResolveLoftCorrespondence(ctx context.Context, request *workerv1.ResolveLoftCorrespondenceRequest) (*workerv1.ResolveLoftCorrespondenceResponse, error) {
 	client, worker, err := pool.selectClient("")
 	if err != nil {

@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v43-contained-pattern-ranges"
+const evaluatorVersion = "part-solid-generators-v44-boolean-result-regions"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1851,7 +1851,7 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
-			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "BOOLEAN", BodyOperation: feature.Operation, Tools: tools})
+			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "BOOLEAN", BodyOperation: feature.Operation, Tools: tools, BooleanResult: feature.BooleanResult})
 			bodyTipFeatureID = feature.ID
 		case "IMPORT_BODY":
 			baseKey = feature.GeometryKey

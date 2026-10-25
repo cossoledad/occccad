@@ -12,6 +12,8 @@ import (
 
 const SketchSchemaVersion = uint32(2)
 
+type BooleanResultSelection = modelcore.BooleanResultSelection
+
 type Mesh = visual.Mesh
 type MeshEdge = visual.Edge
 type TopologyPoint = visual.Point
@@ -484,6 +486,7 @@ type Feature struct {
 	Extent             string                  `json:"extent,omitempty"`
 	Length2            float64                 `json:"length2,omitempty"`
 	Tools              []FeatureStageRef       `json:"tools,omitempty"`
+	BooleanResult      *BooleanResultSelection `json:"booleanResult,omitempty"`
 	KeepTools          bool                    `json:"keepTools,omitempty"`
 	Suppressed         bool                    `json:"suppressed,omitempty"`
 	Order              int                     `json:"order"`
@@ -1193,6 +1196,7 @@ type CommandRequest struct {
 	ParameterExpressions      map[string]string            `json:"parameterExpressions,omitempty"`
 	Feature                   *Feature                     `json:"feature,omitempty"`
 	Tools                     []FeatureStageRef            `json:"tools,omitempty"`
+	BooleanResult             *BooleanResultSelection      `json:"booleanResult,omitempty"`
 	KeepTools                 bool                         `json:"keepTools,omitempty"`
 	SessionID                 string                       `json:"sessionId,omitempty"`
 	InteractionTarget         *geometry.AssemblyDragTarget `json:"interactionTarget,omitempty"`

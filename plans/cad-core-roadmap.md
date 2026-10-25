@@ -3,8 +3,8 @@
 > 建立日期：2026-10-23
 > 分析基线：[a10 · 9326ac9](https://github.com/cossoledad/occccad/commit/9326ac91b99e93e399099a9c2f3b8b3c756d86b6)
 > 状态：阶段 1 与阶段 2 已实现并通过定向真实链路及浏览器验收，主体实机验收另行进行。当前事实与边界见[输入修复](../docs/architecture/current/solid-features.md#输入修复边界)、[区域选择](../docs/architecture/current/part-sketch.md#显式轮廓区域)及[草图支撑重指定](../docs/architecture/current/part-sketch.md#支撑与外部几何)。阶段 3 已交付的切片：单方向拉伸／切除[到平面关联终止](../docs/architecture/current/solid-features.md#到平面关联终止)、[单点圆柱 Hole](../docs/architecture/current/solid-features.md#独立-hole)、[同 Body 单特征受约束移动](../docs/architecture/current/solid-features.md#调整特征顺序)及[圆角/倒角阶段插入](../docs/architecture/current/solid-features.md#在实体阶段后插入)已实现并完成定向验收；其余关联终止、孔型扩展、其他类型的阶段插入与跨 Body/分组移动未完成。
-> 当前重点转入阶段 4：[关联更新与修复](../docs/architecture/current/product-assembly.md#关联更新与修复)已覆盖 owning Product 直接引用 Part 的版本检查、按实例定位及现有 Reconnect 闭环，并接通[剩余运动独立只读刷新](../docs/architecture/current/product-assembly.md#局部诊断与剩余运动)。本轮补齐[已保存机构分析](../docs/architecture/current/kinematics-dmu.md#机构分析)：逐端点支撑诊断、只读物理 DOF、定位／原 Joint 修复。当前分析均限定 owning Product；嵌套更新编排、柔性装配未扩展；阶段 3 上述扩展项继续保留为未完成。
-> 本轮暂停新增 CAD 功能，完成工作台交互与信息表达统一；长期显示规则见[工作台 UI 规格](../docs/guides/workbench.md#工程信息表达)。
+> 阶段 4：[关联更新与修复](../docs/architecture/current/product-assembly.md#关联更新与修复)已覆盖 owning Product 直接引用 Part 的版本检查、按实例定位及现有 Reconnect 闭环，并接通[剩余运动独立只读刷新](../docs/architecture/current/product-assembly.md#局部诊断与剩余运动)。[已保存机构分析]具备(../docs/architecture/current/kinematics-dmu.md#机构分析)：逐端点支撑诊断、只读物理 DOF、定位／原 Joint 修复。当前分析均限定 owning Product；嵌套更新编排、柔性装配未扩展；阶段 3 上述扩展项继续保留为未完成。
+> 当前补齐 Part 的[布尔结果区域选择](../docs/architecture/current/solid-features.md#布尔结果区域)：单目标／单工具精确分区、显式保留与失效修复；普通多工具布尔保持兼容。工作台继续遵循[统一 UI 规格](../docs/guides/workbench.md#工程信息表达)。
 
 ## 目标与实施原则
 

@@ -146,6 +146,26 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 			}
 			finishGeometry()
 			if err != nil {
+				// A Boolean definition edit is a result confirmation.
+				// Its target chain must pass the same geometry gate as preview,
+				// even for API clients that do not supply a preview token.
+				// Editing an upstream tool still retains inspectable failures.
+				if prepared.command.TypeURI == typeEditFeature {
+					var edit editFeaturePayload
+					if parseErr := json.Unmarshal(prepared.command.Payload, &edit); parseErr != nil {
+						return parseErr
+					}
+					for _, feature := range model.Features {
+						if feature.ID != edit.FeatureID || feature.Type != "BOOLEAN" || feature.Suppressed {
+							continue
+						}
+						for _, dependent := range model.Features {
+							if dependent.BodyID == feature.BodyID && (dependent.EvaluationStatus == "FAILED" || dependent.EvaluationStatus == "BLOCKED") {
+								return err
+							}
+						}
+					}
+				}
 				var failed *solidEvaluationFailure
 				if !errors.As(err, &failed) || (prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetFeatureSuppression && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch && prepared.command.TypeURI != typeEditDatum) {
 					return err

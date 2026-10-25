@@ -263,7 +263,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
 
   const failedDisplay = props.view.part?.bodies.some(b => b.displayFallback) || props.view.resolvedInstances?.some(r => r.displayFallback);
   return <><div ref={host} className="cad-viewport-canvas" data-property-preview={props.propertyPreview?.versionId} />
-    {failedDisplay && <div className="cad-failed-body-notice" role="status">{props.failureAction ? <>{props.failureAction.description}<button type="button" disabled={props.failureAction.disabled} onClick={props.failureAction.onClick}>{props.failureAction.label}</button></> : "部分特征计算失败：红色半透明实体为上次成功结果，请修复结构树中标记的特征。"}</div>}
+    {failedDisplay && <div className="cad-failed-body-notice" role="status">{props.failureAction ? <>{props.failureAction.description}<button type="button" disabled={props.failureAction.disabled} onClick={props.failureAction.onClick}>{props.failureAction.label}</button></> : props.featureInputArtifacts?.length ? "部分特征需要修复。" : "部分特征计算失败：红色半透明实体为上次成功结果，请修复结构树中标记的特征。"}</div>}
     {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="advanced"&&<SketchCommandPanel state={sketchCommand} prompt={toolPrompt} onAction={action=>engine.current?.commandAction(action)} />}
     {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="inline"&&<SketchInlineParameterInput state={sketchCommand} lengthUnit={props.preferredLengthUnit} onEditing={editing=>engine.current?.setSketchParameterEditing(editing)} onAction={action=>engine.current?.commandAction(action)} />}
     {dimensionEditor && <SketchDimensionEditor key={`${dimensionEditor.epoch}:${dimensionEditor.featureId}:${dimensionEditor.mode === "edit" ? dimensionEditor.constraintId : dimensionEditor.kind}`}

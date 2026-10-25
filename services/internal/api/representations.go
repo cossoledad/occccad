@@ -16,6 +16,27 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 	id := r.PathValue("objectID")
 	version := r.URL.Query().Get("versionId")
 	var allowed bool
+	if toolID := r.URL.Query().Get("booleanToolFeatureId"); toolID != "" {
+		analysis, err := s.workspace.AnalyzeBooleanRegions(r.Context(), r.PathValue("documentID"), workspace.BooleanRegionsRequest{VersionID: version, FeatureID: r.URL.Query().Get("featureId"), BodyID: r.URL.Query().Get("bodyId"), Tool: workspace.FeatureStageRef{BodyID: r.URL.Query().Get("booleanToolBodyId"), FeatureID: toolID}, Operation: r.URL.Query().Get("booleanOperation")})
+		if err != nil {
+			writeError(w, http.StatusNotFound, "Boolean input unavailable")
+			return
+		}
+		for _, cell := range analysis.Regions {
+			if rep, ok := cell.Artifact.Representations["VISUAL"]; ok && rep.ObjectID == id {
+				allowed = true
+			}
+		}
+		for _, a := range analysis.Inputs {
+			if rep, ok := a.Representations["VISUAL"]; ok && rep.ObjectID == id {
+				allowed = true
+			}
+		}
+		if !allowed {
+			writeError(w, http.StatusNotFound, "representation outside Boolean analysis")
+			return
+		}
+	}
 	if previewID := r.URL.Query().Get("previewId"); previewID != "" {
 		allowed = s.workspace.PreviewVisualAllowed(r.PathValue("documentID"), principal(r).ID, previewID, id)
 		if !allowed {

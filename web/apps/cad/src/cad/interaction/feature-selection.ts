@@ -1,8 +1,9 @@
 import type { Selection, SelectionItem, SketchPlane, SketchProfileAnalysis } from "../../types";
 import { projectSketchFeatureSelection } from "./selection-mode";
-export type FeaturePickRole = "instance" | "direction" | "geometry" | "point" | "profile" | "profile-region" | "sketch-point" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
+export type FeaturePickRole = "boolean-region" | "instance" | "direction" | "geometry" | "point" | "profile" | "profile-region" | "sketch-point" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
 export type FeatureSelectionSession = {
     role: FeaturePickRole;
+    booleanRegions?:import("../../features/workbench/boolean-region-model").BooleanRegionsPresentation;
     profileRegions?: {sketchId:string;bodyId?:string;plane:SketchPlane;regions:NonNullable<SketchProfileAnalysis["regionViews"]>}[];
     project?: (selection:SelectionItem)=>Selection;
     // Shared scene/tree filtering for cross-occurrence command supports.
@@ -42,6 +43,7 @@ export function featureSelectionHit(raw: Selection, session: FeatureSelectionSes
     if(session.localSketchId && (raw.kind!=="visual" || raw.featureId!==session.localSketchId || ((session.role==="point"||session.role==="axis")&&!raw.sketchReference)))return null;
     if (session.bodyId && raw.bodyId !== session.bodyId && (session.role === "edge" || session.role === "face"))
         return null;
+    if(session.role==="boolean-region")return raw.kind==="boolean-region"&&!!session.booleanRegions?.cells.some(c=>c.eligible&&c.reference.cellDigest===raw.regionId&&c.reference.inputDigest===raw.analysisId)?raw:null;
     if (session.role === "edge" || session.role === "face")
         return (!session.geometryKey || raw.geometryKey===session.geometryKey) && raw.kind === session.role ? raw : null;
     if (session.role === "plane")

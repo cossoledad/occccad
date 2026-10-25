@@ -258,6 +258,13 @@ export const restApi = {
   getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),
   assemblyCapabilities: () => request<{contractVersion:string;capabilities:Array<{capabilityId:string;family:string;subtype:string;roles:Array<{role:string;descriptor:string}>}>}>("/api/assembly/capabilities"),
   inspectAssemblySupports: (id:string,references:AssemblyGeometryRef[],signal?:AbortSignal) => request<import("./cad/interaction/manipulator-snap").SupportInspection>(`/api/documents/${id}/assembly-supports/inspect`,{method:"POST",body:JSON.stringify({references}),signal}),
+  analyzeBooleanRegions:async(id:string,input:{versionId:string;featureId?:string;bodyId:string;tool:{bodyId:string;featureId:string};operation:string},signal?:AbortSignal)=>{
+    const result=await request<import('./features/workbench/boolean-region-model').BooleanRegionsAnalysis>(`/api/documents/${id}/boolean-regions`,{method:'POST',body:JSON.stringify(input),signal});
+    const query=new URLSearchParams({versionId:input.versionId,featureId:input.featureId??'',bodyId:input.bodyId,booleanToolFeatureId:input.tool.featureId,booleanToolBodyId:input.tool.bodyId,booleanOperation:input.operation});
+    for(const artifact of [...result.inputs,...result.regions.map(c=>c.artifact)])for(const rep of Object.values(artifact.representations))
+      rep.url=apiURL(`/api/documents/${id}/representations/${rep.objectId}?${query}`);
+    return result;
+  },
   getFeatureInput: async (id: string, input: {versionId:string;featureId?:string;afterFeatureId?:string;resultStage?:boolean;bodyId?:string;geometryKey?:string;kind?:string;localId?:number}, signal?:AbortSignal) => {
     const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(input),signal});
     // A sketch before the first solid has no upstream artifact. This is a

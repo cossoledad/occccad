@@ -4,7 +4,7 @@ import {useEffect,useRef,useState,type ReactNode} from 'react';
 import type {SelectionItem} from '../../types';
 import {CommandField,useCommandForm} from '../../cad/overlay/command-form';
 
-export type FeaturePickItem={key:string;value:ReactNode;actionLabel?:string;searchText?:string;detail?:ReactNode;error?:boolean;state?:string;active?:boolean;disabled?:boolean;selections?:SelectionItem[];onLocate?:()=>void;onActivate?:()=>void;onClear?:()=>void;actions?:ReactNode;settings?:ReactNode};
+export type FeaturePickItem={key:string;value:ReactNode;actionLabel?:string;searchText?:string;detail?:ReactNode;error?:boolean;state?:string;active?:boolean;disabled?:boolean;selections?:SelectionItem[];onLocate?:()=>void;onSelect?:()=>void;onActivate?:()=>void;onClear?:()=>void;actions?:ReactNode;settings?:ReactNode};
 type Props={label:string;value?:ReactNode;active:boolean;disabled?:boolean;onActivate?:()=>void;onCancel?:()=>void;onClear?:()=>void;onLocate?:()=>void;mode?:'single'|'multiple'|'ordered';selected?:boolean;selections?:SelectionItem[];detail?:ReactNode;error?:ReactNode;actions?:ReactNode;children?:ReactNode;items?:FeaturePickItem[]};
 
 /** One reference field. Collections have bounded compact rows, retaining the
@@ -34,7 +34,7 @@ export function FeaturePickField({label,value,active,disabled,onActivate,onCance
     <div ref={rows} className="feature-pick-collection-list" role="list" aria-label={`${label}列表`}>
      {visible.map(item=>{const index=items.indexOf(item),actionLabel=item.actionLabel??`${label} ${index+1}`,locateItem=locate(item.onLocate,item.selections);return <div key={item.key} role="listitem" className={`feature-pick-item ${item.active?'is-active':''} ${item.error?'has-error':''}`} data-item-active={item.active||undefined} data-item-error={item.error||undefined} data-state={item.state}>
       {mode==='ordered'&&<span className="feature-pick-ordinal">{index+1}</span>}
-      <div className="feature-pick-item-name"><span title={typeof item.value==='string'?item.value:undefined}>{item.value}</span>{item.detail&&<small title={typeof item.detail==='string'?item.detail:undefined}>{item.detail}</small>}</div>
+      <div className="feature-pick-item-name" role={item.onSelect?'button':undefined} tabIndex={item.onSelect?0:undefined} aria-label={item.onSelect?`高亮${actionLabel}`:undefined} onClick={item.onSelect} onKeyDown={item.onSelect?event=>{if(event.nativeEvent.isComposing||event.nativeEvent.keyCode===229)return;if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();item.onSelect?.()}}:undefined}><span title={typeof item.value==='string'?item.value:undefined}>{item.value}</span>{item.detail&&<small title={typeof item.detail==='string'?item.detail:undefined}>{item.detail}</small>}</div>
       <div className="feature-pick-item-actions">
        {locateItem&&compactAction(`定位${actionLabel}`,'定位',<AimOutlined/>,locateItem,item.disabled)}
        {item.onActivate&&compactAction(`选择${actionLabel}`,item.active?'取消更换':'更换',<SwapOutlined/>,item.active?cancel:item.onActivate,item.disabled)}

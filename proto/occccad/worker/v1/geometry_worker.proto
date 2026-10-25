@@ -18,6 +18,8 @@ service GeometryWorker {
     // Evaluate one complete Part feature chain in a coarse-grained worker call.
     rpc EvaluatePart(EvaluatePartRequest) returns (EvaluatePartResponse);
 
+    rpc AnalyzeBooleanRegions(AnalyzeBooleanRegionsRequest) returns (AnalyzeBooleanRegionsResponse);
+
     // Pure correspondence resolution; accepted choices belong to the feature definition.
     rpc ResolveLoftCorrespondence(ResolveLoftCorrespondenceRequest) returns (ResolveLoftCorrespondenceResponse);
 
@@ -534,6 +536,27 @@ message BodyToolInput {
     string feature_id = 4;
 }
 
+// Boundary proof and frozen identity are rebuildable analysis values, never
+// display ordinals or mesh locators. Matching fails closed after topology changes.
+message BooleanRegionRef {
+    bool boundary_unique = 4;
+    repeated string boundary = 1;
+    string input_digest = 2;
+    string cell_digest = 3;
+}
+message AnalyzeBooleanRegionsRequest {
+    string request_id = 1;
+    BodyToolInput target = 2;
+    BodyToolInput tool = 3;
+    string output_prefix = 4;
+}
+message BooleanRegionCell {
+    BooleanRegionRef reference = 1;
+    bool in_target = 2;
+    bool in_tool = 3;
+    EvaluatePartResponse geometry = 4;
+}
+message AnalyzeBooleanRegionsResponse { repeated BooleanRegionCell regions = 1; }
 message ResolveLoftCorrespondenceRequest {
     string request_id = 1;
     repeated LoftSectionSpec sections = 2;
@@ -602,6 +625,8 @@ message ProfilePadSpec {
     Vec3 termination_origin = 31;
     Vec3 termination_normal = 32;
     repeated PatternSource additional_pattern_sources = 33;
+    bool explicit_boolean_regions = 34;
+    repeated BooleanRegionRef boolean_regions = 35;
 }
 
 message PatternSource {

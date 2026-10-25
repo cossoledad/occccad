@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	GeometryWorker_Ping_FullMethodName                      = "/occccad.worker.v1.GeometryWorker/Ping"
 	GeometryWorker_EvaluatePart_FullMethodName              = "/occccad.worker.v1.GeometryWorker/EvaluatePart"
+	GeometryWorker_AnalyzeBooleanRegions_FullMethodName     = "/occccad.worker.v1.GeometryWorker/AnalyzeBooleanRegions"
 	GeometryWorker_ResolveLoftCorrespondence_FullMethodName = "/occccad.worker.v1.GeometryWorker/ResolveLoftCorrespondence"
 	GeometryWorker_SolveSketch_FullMethodName               = "/occccad.worker.v1.GeometryWorker/SolveSketch"
 	GeometryWorker_ComputeSketchCurves_FullMethodName       = "/occccad.worker.v1.GeometryWorker/ComputeSketchCurves"
@@ -46,6 +47,7 @@ type GeometryWorkerClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
 	// Evaluate one complete Part feature chain in a coarse-grained worker call.
 	EvaluatePart(ctx context.Context, in *EvaluatePartRequest, opts ...grpc.CallOption) (*EvaluatePartResponse, error)
+	AnalyzeBooleanRegions(ctx context.Context, in *AnalyzeBooleanRegionsRequest, opts ...grpc.CallOption) (*AnalyzeBooleanRegionsResponse, error)
 	// Pure correspondence resolution; accepted choices belong to the feature definition.
 	ResolveLoftCorrespondence(ctx context.Context, in *ResolveLoftCorrespondenceRequest, opts ...grpc.CallOption) (*ResolveLoftCorrespondenceResponse, error)
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
@@ -103,6 +105,16 @@ func (c *geometryWorkerClient) EvaluatePart(ctx context.Context, in *EvaluatePar
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EvaluatePartResponse)
 	err := c.cc.Invoke(ctx, GeometryWorker_EvaluatePart_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *geometryWorkerClient) AnalyzeBooleanRegions(ctx context.Context, in *AnalyzeBooleanRegionsRequest, opts ...grpc.CallOption) (*AnalyzeBooleanRegionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AnalyzeBooleanRegionsResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_AnalyzeBooleanRegions_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -267,6 +279,7 @@ type GeometryWorkerServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	// Evaluate one complete Part feature chain in a coarse-grained worker call.
 	EvaluatePart(context.Context, *EvaluatePartRequest) (*EvaluatePartResponse, error)
+	AnalyzeBooleanRegions(context.Context, *AnalyzeBooleanRegionsRequest) (*AnalyzeBooleanRegionsResponse, error)
 	// Pure correspondence resolution; accepted choices belong to the feature definition.
 	ResolveLoftCorrespondence(context.Context, *ResolveLoftCorrespondenceRequest) (*ResolveLoftCorrespondenceResponse, error)
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
@@ -315,6 +328,9 @@ func (UnimplementedGeometryWorkerServer) Ping(context.Context, *PingRequest) (*P
 }
 func (UnimplementedGeometryWorkerServer) EvaluatePart(context.Context, *EvaluatePartRequest) (*EvaluatePartResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EvaluatePart not implemented")
+}
+func (UnimplementedGeometryWorkerServer) AnalyzeBooleanRegions(context.Context, *AnalyzeBooleanRegionsRequest) (*AnalyzeBooleanRegionsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AnalyzeBooleanRegions not implemented")
 }
 func (UnimplementedGeometryWorkerServer) ResolveLoftCorrespondence(context.Context, *ResolveLoftCorrespondenceRequest) (*ResolveLoftCorrespondenceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveLoftCorrespondence not implemented")
@@ -414,6 +430,24 @@ func _GeometryWorker_EvaluatePart_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GeometryWorkerServer).EvaluatePart(ctx, req.(*EvaluatePartRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GeometryWorker_AnalyzeBooleanRegions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AnalyzeBooleanRegionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GeometryWorkerServer).AnalyzeBooleanRegions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GeometryWorker_AnalyzeBooleanRegions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GeometryWorkerServer).AnalyzeBooleanRegions(ctx, req.(*AnalyzeBooleanRegionsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -702,6 +736,10 @@ var GeometryWorker_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "EvaluatePart",
 			Handler:    _GeometryWorker_EvaluatePart_Handler,
+		},
+		{
+			MethodName: "AnalyzeBooleanRegions",
+			Handler:    _GeometryWorker_AnalyzeBooleanRegions_Handler,
 		},
 		{
 			MethodName: "ResolveLoftCorrespondence",

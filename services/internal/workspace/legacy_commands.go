@@ -466,7 +466,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err := json.Unmarshal(modelJSON, &model); err != nil {
 			return "", nil, err
 		}
-		feature := Feature{ID: commandEntityID("boolean", request.RequestID), BodyID: request.BodyID, Type: "BOOLEAN", Name: numberedFeatureName(model.Features, "BOOLEAN", "Boolean"), Operation: request.Operation, Tools: request.Tools, KeepTools: request.KeepTools}
+		feature := Feature{ID: commandEntityID("boolean", request.RequestID), BodyID: request.BodyID, Type: "BOOLEAN", Name: numberedFeatureName(model.Features, "BOOLEAN", "Boolean"), Operation: request.Operation, Tools: request.Tools, KeepTools: request.KeepTools, BooleanResult: request.BooleanResult}
 		return typeCreateBooleanFeature, createFeaturePayload{Feature: feature}, nil
 	case "CREATE_SOLID_FEATURE":
 		if documentType == "PART" && request.Feature != nil && (request.Feature.Type == "LOFT" || request.Feature.Type == "HOLE") {

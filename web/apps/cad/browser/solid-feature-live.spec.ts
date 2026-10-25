@@ -71,6 +71,8 @@ test("viewport Boolean tools toggle, auto preview, commit and reopen",async({pag
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
  await openCommand(page,"布尔");const dialog=page.getByRole("dialog",{name:"布尔运算",exact:true});
  await expect(dialog.getByRole("combobox")).toHaveCount(0);
+ // Wait for the exact current scene to be pickable before the first click.
+ await expect.poll(async()=>{const position=await worldScreen(page,[7,7,20]);return page.evaluate(({x,y})=>{const e=(window as any).__cameraEngine,r=document.querySelector('canvas')!.getBoundingClientRect();return e.hitTest(x-r.x,y-r.y,true)?.bodyId},position)}).toBe(seed.tool);
  await clickWorld(page,[7,7,20]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"工具实体"}).getByText("1 项",{exact:true})).toBeVisible();
  await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
  await clickWorld(page,[7,7,20]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"工具实体"}).getByText("0 项",{exact:true})).toBeVisible();
@@ -1096,4 +1098,112 @@ test('pattern seed collections use tree and viewport with named locatable refere
  await a.getByRole('button',{name:'选择轴',exact:true}).click();await pickReference('axis');await expect(a).toContainText('Z 轴');await a.getByRole('button',{name:'定位轴',exact:true}).click();await expect.poll(()=>page.evaluate(()=>{const e=(window as any).__cameraEngine;return e.selectionIndex.objectsFor(e.selected[0]).length})).toBeGreaterThan(0);
  await a.getByRole('button',{name:'选择中心点',exact:true}).click();await pickReference('point');const centre=a.locator('.feature-pick-field').filter({has:page.locator('label',{hasText:/^中心点$/})});await expect(centre).toContainText('原点');await expect(centre.getByRole('button',{name:'定位中心点',exact:true})).toBeEnabled();await centre.getByRole('button',{name:'定位中心点',exact:true}).click();await expect.poll(()=>page.evaluate(()=>{const e=(window as any).__cameraEngine;return e.selectionIndex.objectsFor(e.selected[0]).length})).toBeGreaterThan(0);
  const labels=await a.locator('.command-field > label').allTextContents();expect(labels.at(-1)).toBe('反向');await expect(a.getByRole('radiogroup',{name:'材料',exact:true})).toContainText('切除');await page.screenshot({path:testInfo.outputPath('named-pattern-references.png')});const head=(await current(page,seed.id)).document.versionId;await a.getByRole('button',{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(head);expect(errors).toEqual([]);
+});
+
+test("Boolean result regions pick exact volumes, exclude, edit, cancel and reopen",async({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');
+  let v=await api.createDocument('PART','Boolean region browser acceptance');const id=v.document.id;
+  const rectangle=async(x:number,y:number,w:number,h:number,length:number)=>{
+   v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=v.part!.features.at(-1)!.id;
+   v=await api.command(id,{type:'EDIT_SKETCH',sketchId,operations:[{type:'ADD_RECTANGLE',first:{x,y},second:{x:x+w,y:y+h}}]});
+   v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId,generator:'LINEAR_EXTRUDE',operation:'NEW_BODY',length});return v.part!.features.at(-1)!;
+  };
+  const base=await rectangle(0,0,30,10,10),tool=await rectangle(10,-5,10,20,20);
+  v=await api.command(id,{type:'SET_ACTIVE_BODY',bodyId:base.bodyId});return {id,head:v.document.versionId,base:base.bodyId!,tool:tool.bodyId!};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();
+ await openCommand(page,'布尔');let dialog=page.getByRole('dialog',{name:'布尔运算',exact:true});
+ await clickWorld(page,[15,5,20]);await ready(page,dialog);
+ let analysisCalls=0;page.on('request',r=>{if(r.method()==='POST'&&r.url().endsWith('/boolean-regions'))analysisCalls++});
+ await dialog.getByText('选择区域',{exact:true}).click();
+ await expect(page.locator('[data-boolean-regions="2"]')).toBeVisible();
+ const rows=()=>dialog.getByRole('list',{name:'结果区域列表'});
+ await expect(rows().getByRole('switch',{checked:true})).toHaveCount(2);
+ await expect.poll(()=>page.evaluate(({target,tool})=>{const e=(window as any).__cameraEngine;return [target,tool].every(id=>e.solidBindings.get(`root/body:${id}`)?.group.visible===false)},{target:seed.base,tool:seed.tool})).toBe(true);
+ await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();
+ // Surface picks toggle a complete volume, including its other faces.
+ await clickWorld(page,[5,5,10]);await expect(rows().getByRole('switch',{checked:true})).toHaveCount(1);
+ await clickWorld(page,[25,5,10]);await expect(rows().getByRole('switch',{checked:true})).toHaveCount(0);
+ await expect(dialog.getByText('至少保留一个结果区域',{exact:true})).toBeVisible();
+ await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeDisabled();
+ // Excluded geometry remains pickable and can be selected back.
+ await clickWorld(page,[5,5,10]);await expect(rows().getByRole('switch',{checked:true})).toHaveCount(1);
+ await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();
+ const selectedRow=rows().getByRole('listitem').filter({has:page.getByRole('switch',{checked:true})});
+ await selectedRow.getByRole('button',{name:/单独显示区域/}).click();
+ await expect(selectedRow.getByRole('button',{name:/单独显示区域/})).toHaveAttribute('aria-pressed','true');
+ await selectedRow.getByRole('button',{name:/单独显示区域/}).click();
+ await page.screenshot({path:'../../../build/agent-check/boolean-regions/selected-region.png'});
+ expect(analysisCalls).toBe(1);
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.head);
+ await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const committed=await current(page,seed.id),feature=committed.part.features.at(-1),body=committed.part.bodies.find((b:{id:string})=>b.id===seed.base);
+ expect(feature.booleanResult.mode).toBe('EXPLICIT');expect(feature.booleanResult.regions).toHaveLength(1);
+ expect(committed.artifacts[body.geometryKey].volume).toBeCloseTo(1000,5);
+ await page.getByRole('textbox',{name:'筛选模型结构'}).fill(feature.name);
+ await page.getByRole('treeitem').filter({hasText:feature.name}).first().dblclick();dialog=page.getByRole('dialog',{name:'编辑布尔',exact:true});
+ await expect(page.locator('[data-boolean-regions="2"]')).toBeVisible();
+ await expect(rows().getByRole('switch',{checked:true})).toHaveCount(1);
+ await rows().getByRole('switch',{checked:false}).click();await expect(rows().getByRole('switch',{checked:true})).toHaveCount(2);
+ await dialog.getByRole('button',{name:/取\s*消/}).click();await expect(dialog).toHaveCount(0);
+ await expect(page.locator('[data-boolean-regions]')).toHaveCount(0);
+ expect((await current(page,seed.id)).document.versionId).toBe(committed.document.versionId);
+ await page.getByRole('textbox',{name:'筛选模型结构'}).clear();
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>((await current(page,seed.id)).part.features as {id:string}[]).some(f=>f.id===feature.id)).toBe(false);
+ await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>((await current(page,seed.id)).part.features as {id:string}[]).some(f=>f.id===feature.id)).toBe(true);
+ await page.reload();await expect(page.locator('canvas')).toBeVisible();
+ const reopened=await current(page,seed.id);expect(reopened.part.features.find((f:{id:string})=>f.id===feature.id).booleanResult).toEqual(feature.booleanResult);
+ await page.screenshot({path:'../../../build/agent-check/boolean-regions/reopened.png'});expect(errors).toEqual([]);
+});
+
+test("Boolean lost region reselects in viewport and late analysis cannot reopen cancelled command",async({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');
+  let v=await api.createDocument('PART','Boolean region repair acceptance');const id=v.document.id;
+  const rectangle=async(x:number,y:number,w:number,h:number,length:number)=>{
+   v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=v.part!.features.at(-1)!.id;
+   v=await api.command(id,{type:'EDIT_SKETCH',sketchId,operations:[{type:'ADD_RECTANGLE',first:{x,y},second:{x:x+w,y:y+h}}]});
+   v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId,generator:'LINEAR_EXTRUDE',operation:'NEW_BODY',length});return v.part!.features.at(-1)!;
+  };
+  const base=await rectangle(0,0,30,10,10),tool=await rectangle(10,-5,10,20,20);
+  const cells=await api.analyzeBooleanRegions(id,{versionId:v.document.versionId,bodyId:base.bodyId!,tool:{bodyId:tool.bodyId!,featureId:tool.id},operation:'REMOVE'});
+  v=await api.command(id,{type:'CREATE_BOOLEAN_FEATURE',bodyId:base.bodyId,operation:'REMOVE',tools:[{bodyId:tool.bodyId,featureId:tool.id}],booleanResult:{mode:'EXPLICIT',regions:[cells.regions.find(c=>c.eligible)!.reference]}});
+  const feature=v.part!.features.at(-1)!;
+  let digest='';const visit=(n:any)=>{if(n.entityId===tool.id)digest=n.definitionDigest;(n.children??[]).forEach(visit)};visit(v.structureTree);
+  v=await api.command(id,{type:'EDIT_FEATURE',targetId:tool.id,expectedFeatureDigest:digest,feature:{...tool,length:5}});
+  return {id,head:v.document.versionId,base:base.bodyId!,feature};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();
+ await page.getByRole('textbox',{name:'筛选模型结构'}).fill(seed.feature.name!);
+ await page.getByRole('treeitem').filter({hasText:seed.feature.name!}).first().dblclick();
+ let dialog=page.getByRole('dialog',{name:'编辑布尔',exact:true});
+ await expect(page.locator('[data-boolean-regions="1"]')).toBeVisible();
+ const missing=dialog.getByRole('listitem').filter({hasText:'失效区域'});
+ await expect(missing).toHaveCount(1);await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeDisabled();
+ await dialog.getByRole('button',{name:'定位区域 1',exact:true}).click();
+ await page.getByRole('button',{name:'适合窗口',exact:true}).click();
+ await missing.getByRole('button',{name:/选择结果区域/}).click();
+ await clickWorld(page,[5,5,10]);await expect(missing).toHaveCount(0);
+ await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.head);
+ await page.screenshot({path:'../../../build/agent-check/boolean-regions/repair-preview.png'});
+ await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
+ const repaired=await current(page,seed.id),feature=repaired.part.features.find((f:{id:string})=>f.id===seed.feature.id),body=repaired.part.bodies.find((b:{id:string})=>b.id===seed.base);
+ expect(feature).toMatchObject({id:seed.feature.id,name:seed.feature.name,bodyId:seed.base});
+ expect(feature.evaluationStatus??'').not.toMatch(/FAILED|BLOCKED/);
+ expect(repaired.artifacts[body.geometryKey].volume).toBeCloseTo(2500,5);
+ // Delay the genuine response, then cancel before it is delivered.
+ let release!:()=>void,received!:()=>void;
+ const held=new Promise<void>(resolve=>{release=resolve}),arrived=new Promise<void>(resolve=>{received=resolve});
+ await page.route('**/boolean-regions',async route=>{const response=await route.fetch();received();await held;try{await route.fulfill({response})}catch{/* browser cancelled the request */}});
+ await page.getByRole('treeitem').filter({hasText:seed.feature.name!}).first().dblclick();dialog=page.getByRole('dialog',{name:'编辑布尔',exact:true});
+ await arrived;await dialog.getByRole('button',{name:/取\s*消/}).click();release();
+ await expect(dialog).toHaveCount(0);await expect(page.locator('[data-boolean-regions]')).toHaveCount(0);
+ await page.waitForTimeout(350);await expect(page.locator('[data-feature-preview]')).toHaveCount(0);
+ expect((await current(page,seed.id)).document.versionId).toBe(repaired.document.versionId);expect(errors).toEqual([]);
 });

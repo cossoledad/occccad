@@ -7,6 +7,7 @@ import (
 	"math"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/occccad/occccad/internal/geometry"
@@ -22,6 +23,9 @@ func isBodyFeature(kind string) bool {
 }
 
 func validateSolidStage(f Feature, earlier map[string]Feature) error {
+	if f.Type != "BOOLEAN" && f.BooleanResult != nil {
+		return fmt.Errorf("%w: Boolean regions require Boolean feature", ErrValidation)
+	}
 	if f.Type == "HOLE" {
 		return validateHole(f, earlier)
 	}
@@ -130,6 +134,32 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 	}
 	if len(f.Tools) == 0 || len(f.Tools) > 32 || (f.Operation == "INTERSECT" && len(f.Tools) != 1) {
 		return fmt.Errorf("%w: Boolean needs 1..32 tools; intersection needs exactly one", ErrValidation)
+	}
+	if selection := f.BooleanResult; selection != nil {
+		if selection.Mode != "ALL" && selection.Mode != "EXPLICIT" {
+			return fmt.Errorf("%w: invalid Boolean result mode", ErrValidation)
+		}
+		if selection.Mode == "ALL" && len(selection.Regions) != 0 {
+			return fmt.Errorf("%w: all results cannot carry explicit regions", ErrValidation)
+		}
+		if selection.Mode == "EXPLICIT" {
+			if len(f.Tools) != 1 || len(selection.Regions) > 128 {
+				return fmt.Errorf("%w: explicit Boolean regions require one tool", ErrValidation)
+			}
+			for _, ref := range selection.Regions {
+				if len(ref.Boundary) == 0 || len(ref.Boundary) > 4096 || len(ref.InputDigest) != 71 || len(ref.CellDigest) != 71 {
+					return fmt.Errorf("%w: invalid Boolean region reference", ErrValidation)
+				}
+				for _, token := range ref.Boundary {
+					if len(token) != 71 || !strings.HasPrefix(token, "sha256:") {
+						return fmt.Errorf("%w: invalid Boolean boundary proof", ErrValidation)
+					}
+				}
+				if !sort.StringsAreSorted(ref.Boundary) {
+					return fmt.Errorf("%w: unordered Boolean boundary proof", ErrValidation)
+				}
+			}
+		}
 	}
 	target := false
 	for _, previous := range earlier {

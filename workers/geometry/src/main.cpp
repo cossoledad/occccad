@@ -1452,6 +1452,69 @@ public:
         return grpc::Status::OK;
     }
 
+    template<typename Reader>
+    occccad::kernel::BodyToolInput read_boolean_source(const worker_api::BodyToolInput& source,Reader&& read) {
+    occccad::kernel::BodyToolInput tool;
+    tool.body_id = source.body_id();
+    tool.feature_id = source.feature_id();
+    tool.brep = read(source.brep());
+    const auto bytes = read(source.naming());
+    worker_api::PartTopologyManifest naming;
+    if (!naming.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())) ||
+        naming.schema_version() != 2 || naming.bodies_size() != 1 ||
+        naming.brep_sha256() != source.brep().sha256() ||
+        naming.bodies(0).body_id() != tool.body_id ||
+        naming.bodies(0).tip_transition() == 0 ||
+        naming.bodies(0).tip_transition() >
+            static_cast<unsigned>(naming.transitions_size()))
+        throw std::invalid_argument("BOOLEAN_TOOL_NAMING_SNAPSHOT_MISMATCH");
+    const auto& tip = naming.transitions(naming.bodies(0).tip_transition() - 1);
+    if (tip.feature_id() != tool.feature_id || !tip.complete())
+        throw std::invalid_argument("BOOLEAN_TOOL_STAGE_MISMATCH");
+    tool.geometry_id = naming.geometry_id();
+    for (const auto& output : naming.bodies(0).tip()) {
+        if (output.semantic_ref() == 0 ||
+            output.semantic_ref() >
+                static_cast<unsigned>(naming.semantic_refs_size()))
+            throw std::invalid_argument("BOOLEAN_TOOL_NAMING_REF_INVALID");
+        const auto& ref = naming.semantic_refs(output.semantic_ref() - 1);
+        const auto type =
+            output.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_FACE
+                ? occccad::kernel::TopologyType::FACE
+            : output.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE
+                ? occccad::kernel::TopologyType::EDGE
+                : occccad::kernel::TopologyType::VERTEX;
+        tool.topology.push_back({ref.feature_id(),
+                 ref.output_slot(),
+                 {ref.source_ids().begin(), ref.source_ids().end()},
+                 type,
+                 output.local_id()});
+    }
+    return tool;
+    }
+    grpc::Status AnalyzeBooleanRegions(grpc::ServerContext* context,const worker_api::AnalyzeBooleanRegionsRequest* request,
+        worker_api::AnalyzeBooleanRegionsResponse* response) override {
+        if(request->request_id().empty()||request->output_prefix().empty()||!request->has_target()||!request->has_tool())return {grpc::StatusCode::INVALID_ARGUMENT,"Boolean partition inputs required"};
+        std::unique_lock<std::mutex> lock(mutex_,std::defer_lock);
+        while(!lock.try_lock()){if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"cancelled"};std::this_thread::sleep_for(std::chrono::milliseconds(5));}
+        try {
+            const auto read=[this](const auto& ref){return read_input(ref,false);};
+            const auto target=read_boolean_source(request->target(),read),tool=read_boolean_source(request->tool(),read);
+            if(target.body_id==tool.body_id)throw std::invalid_argument("BOOLEAN_REGION_DISTINCT_BODIES_REQUIRED");
+            const auto regions=kernel_.analyze_boolean_regions(target,tool,[context](){return context->IsCancelled();});
+            for(const auto& cell:regions){
+                if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"cancelled"};
+                auto* value=response->add_regions();value->set_in_target(cell.in_target);value->set_in_tool(cell.in_tool);
+                auto* ref=value->mutable_reference();for(const auto& token:cell.reference.boundary)ref->add_boundary(token);
+                ref->set_boundary_unique(cell.reference.boundary_unique);ref->set_input_digest(cell.reference.input_digest);ref->set_cell_digest(cell.reference.cell_digest);
+                const auto prefix=request->output_prefix()+"/"+cell.reference.cell_digest.substr(7);
+                fill_evaluation(cell.geometry_id,cell.geometry_id,0.1,0.5,value->mutable_geometry(),prefix+".brep",prefix+".glb");
+            }
+            return grpc::Status::OK;
+        } catch(const std::invalid_argument& e){return {grpc::StatusCode::INVALID_ARGUMENT,e.what()};}
+          catch(const std::exception& e){return {context->IsCancelled()?grpc::StatusCode::CANCELLED:grpc::StatusCode::INTERNAL,e.what()};}
+    }
+
     grpc::Status EvaluatePart(grpc::ServerContext* context,
                               const worker_api::EvaluatePartRequest* request,
                               worker_api::EvaluatePartResponse* response) override {
@@ -1570,6 +1633,9 @@ public:
                         "profile pads require feature_id, body_id, and profile_feature_id");
                 }
                 occccad::kernel::ProfilePadSpec pad;
+                pad.explicit_boolean_regions=input.explicit_boolean_regions();
+                for(const auto& ref:input.boolean_regions())pad.boolean_regions.push_back({ref.boundary_unique(),{ref.boundary().begin(),ref.boundary().end()},ref.input_digest(),ref.cell_digest()});
+                if(pad.explicit_boolean_regions&&(input.generator()!="BOOLEAN"||input.tools_size()!=1))throw std::invalid_argument("BOOLEAN_REGIONS_REQUIRE_ONE_TOOL");
                 pad.feature_id = input.feature_id();
                 pad.body_id = input.body_id();
                 pad.input_feature_id = input.input_feature_id();
@@ -1632,43 +1698,7 @@ public:
                     pad.sections.push_back(std::move(section));
                 }
                 for (const auto& source : input.tools()) {
-                    occccad::kernel::BodyToolInput tool;
-                    tool.body_id = source.body_id();
-                    tool.feature_id = source.feature_id();
-                    tool.brep = input_artifact(source.brep());
-                    const auto bytes = input_artifact(source.naming());
-                    worker_api::PartTopologyManifest naming;
-                    if (!naming.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())) ||
-                        naming.schema_version() != 2 || naming.bodies_size() != 1 ||
-                        naming.brep_sha256() != source.brep().sha256() ||
-                        naming.bodies(0).body_id() != tool.body_id ||
-                        naming.bodies(0).tip_transition() == 0 ||
-                        naming.bodies(0).tip_transition() >
-                            static_cast<unsigned>(naming.transitions_size()))
-                        throw std::invalid_argument("BOOLEAN_TOOL_NAMING_SNAPSHOT_MISMATCH");
-                    const auto& tip = naming.transitions(naming.bodies(0).tip_transition() - 1);
-                    if (tip.feature_id() != tool.feature_id || !tip.complete())
-                        throw std::invalid_argument("BOOLEAN_TOOL_STAGE_MISMATCH");
-                    tool.geometry_id = naming.geometry_id();
-                    for (const auto& output : naming.bodies(0).tip()) {
-                        if (output.semantic_ref() == 0 ||
-                            output.semantic_ref() >
-                                static_cast<unsigned>(naming.semantic_refs_size()))
-                            throw std::invalid_argument("BOOLEAN_TOOL_NAMING_REF_INVALID");
-                        const auto& ref = naming.semantic_refs(output.semantic_ref() - 1);
-                        const auto type =
-                            output.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_FACE
-                                ? occccad::kernel::TopologyType::FACE
-                            : output.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE
-                                ? occccad::kernel::TopologyType::EDGE
-                                : occccad::kernel::TopologyType::VERTEX;
-                        tool.topology.push_back({ref.feature_id(),
-                                                 ref.output_slot(),
-                                                 {ref.source_ids().begin(), ref.source_ids().end()},
-                                                 type,
-                                                 output.local_id()});
-                    }
-                    pad.tools.push_back(std::move(tool));
+                    pad.tools.push_back(read_boolean_source(source,input_artifact));
                 }
                 profile_specs.push_back(std::move(pad));
             }

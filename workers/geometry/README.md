@@ -11,7 +11,7 @@
 | Ping | Worker 身份、OCCT 版本、驻留数量 |
 | SolveSketch / ComputeSketchCurves | 约束求解 / 精确曲线计算；[Sketch adapter](sketch/README.md) |
 | ProjectExternalGeometry | 已解析支持到草图平面的权威投影；[Part/Sketch](../../docs/architecture/current/part-sketch.md) |
-| EvaluatePart / ResolveLoftCorrespondence | 每 Body 的冻结链/阶段续算、截面对应；[实体 Feature](../../docs/architecture/current/solid-features.md) |
+| EvaluatePart / ResolveLoftCorrespondence / AnalyzeBooleanRegions | 每 Body 的冻结链/阶段续算、截面对应及独立精确布尔分区；[实体 Feature](../../docs/architecture/current/solid-features.md) |
 | SolveAssembly | body-local 几何与纯值方程；[算法](../../kernel/assembly/SOLVER_ALGORITHMS.md)，Product/Session 仍由 Go 管理 |
 | AnalyzeInterference | 不可变 BREP/Pose 的底层分析；[exact 输入与限制](../../docs/architecture/current/geometry-representations.md#独立几何分析的-exact-输入)，不代表已交付干涉应用 |
 | InspectExchange / ImportExchange / ExportExchange | ArtifactReference 上的 STEP/BREP/XDE；[交换](../../docs/architecture/current/jobs-artifacts.md) |

@@ -72,6 +72,7 @@ type LoftSection struct {
 type PatternSource struct{ FeatureID, SourceKind, StartFeatureID string }
 
 type ProfilePad struct {
+	BooleanResult                                       *modelcore.BooleanResultSelection
 	AdditionalPatternSources                            []PatternSource
 	TerminationOrigin, TerminationNormal                [3]float64
 	PatternResultMode                                   string
@@ -119,6 +120,12 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 			BodyOperation: pad.BodyOperation, Generator: pad.Generator, RevolveAngle: pad.RevolveAngle,
 			AxisStart: &workerv1.Vec2{X: pad.AxisStart[0], Y: pad.AxisStart[1]},
 			AxisEnd:   &workerv1.Vec2{X: pad.AxisEnd[0], Y: pad.AxisEnd[1]}, Reversed: pad.Reversed}
+		if pad.BooleanResult != nil && pad.BooleanResult.Mode == "EXPLICIT" {
+			value.ExplicitBooleanRegions = true
+			for _, ref := range pad.BooleanResult.Regions {
+				value.BooleanRegions = append(value.BooleanRegions, BooleanRegionRefProto(ref))
+			}
+		}
 		value.PatternSourceFeatureId, value.PatternSourceKind = pad.PatternSourceFeatureID, pad.PatternSourceKind
 		value.PatternStartFeatureId = pad.PatternStartFeatureID
 		value.PatternResultMode = pad.PatternResultMode
@@ -1119,4 +1126,14 @@ func assemblySolveRequest(requestID string, bodies []AssemblyBody, geometryValue
 		request.Constraints = append(request.Constraints, item)
 	}
 	return request
+}
+
+func BooleanRegionRefProto(ref modelcore.BooleanRegionRef) *workerv1.BooleanRegionRef {
+	return &workerv1.BooleanRegionRef{BoundaryUnique: ref.BoundaryUnique, Boundary: ref.Boundary, InputDigest: ref.InputDigest, CellDigest: ref.CellDigest}
+}
+func (client *Client) AnalyzeBooleanRegions(ctx context.Context, id, prefix string, target, tool BodyToolInput) (*workerv1.AnalyzeBooleanRegionsResponse, error) {
+	source := func(v BodyToolInput) *workerv1.BodyToolInput {
+		return &workerv1.BodyToolInput{Brep: artifactProto(v.BRep), Naming: artifactProto(v.Naming), BodyId: v.BodyID, FeatureId: v.FeatureID}
+	}
+	return client.worker.AnalyzeBooleanRegions(ctx, &workerv1.AnalyzeBooleanRegionsRequest{RequestId: id, Target: source(target), Tool: source(tool), OutputPrefix: prefix})
 }

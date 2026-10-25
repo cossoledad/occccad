@@ -39,6 +39,7 @@ import { convertProjection, resizeCamera, fitPerspectiveView, updatePerspectiveC
 import { ViewTransition } from "../cad/navigation/view-transition";
 import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-view";
 import { makeFeatureEdges } from "../cad/rendering/feature-edges";
+import {booleanRegionStyle,booleanRoleColors} from "../cad/rendering/boolean-region-style";
 import { makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { adaptiveGridSpacing, PlaneGrid } from "../cad/rendering/plane-grid";
 import { groundFootprint, includeVisibleSketchBounds, sceneGroundVisible, type SceneGridDisplay } from "../cad/rendering/scene-ground";
@@ -733,6 +734,7 @@ export class CadViewportEngine {
       this.clearInteractionState();
       this.disposeGroup(this.content);
       this.clearProfileRegions();
+      this.clearBooleanRegions();
       this.disposeGroup(this.helpers);
       this.disposeGroup(this.sketchContext);
       this.solidBindings.clear();
@@ -793,6 +795,7 @@ export class CadViewportEngine {
     this.moveTarget = undefined;
     this.disposeGroup(this.content);
     this.clearProfileRegions();
+    this.clearBooleanRegions();
     this.disposeGroup(this.helpers);
     this.selectable.clear();
     this.selectionIndex.clear();
@@ -851,6 +854,7 @@ export class CadViewportEngine {
     this.showMechanism(this.mechanismDefinition,this.mechanismSelection);
     this.commitApplicationDisplay();
     this.showProfileRegions(this.featureSelection);
+    this.showBooleanRegions(this.featureSelection);
     this.refreshInteractionHighlights();
     this.emitDebugState();
     this.callbacks.documentViewReady?.(view.document.id, restoredCamera);
@@ -871,6 +875,7 @@ export class CadViewportEngine {
     this.moveTarget = undefined;
     this.disposeGroup(this.content);
     this.clearProfileRegions();
+    this.clearBooleanRegions();
     this.disposeGroup(this.helpers);
     this.selectable.clear();
     this.instanceGroups.clear();
@@ -1024,6 +1029,7 @@ export class CadViewportEngine {
   }
 
   private applyTreeVisibility(): void {
+    this.restoreBooleanInputs();
     for (const root of [this.content, this.helpers]) root.traverse((object) => {
       const entry = object.userData as Partial<SelectionItem> & {visualizationPrimitive?: boolean; sketchFeatureID?: string};
       const semanticKey = typeof entry.kind === "string" && typeof entry.id === "string"
@@ -1048,6 +1054,7 @@ export class CadViewportEngine {
       else if (semanticVisible !== undefined) object.visible = semanticVisible;
       else if (hidden === false) object.visible = false;
     });
+    this.hideBooleanInputs();
     this.refreshInteractionHighlights();
     this.refreshSceneGround();
   }
@@ -1929,6 +1936,7 @@ export class CadViewportEngine {
     this.cancelMovePreviewGesture("viewport interaction reset");
     this.clearSketchMarquee();this.clearDimensionDefinitionPreview(false);
     this.visualGeneration++;
+    this.clearBooleanRegions();
     this.visuals.dispose();
     this.visualError?.remove();
     this.clearInsertPatternPreview();
@@ -1958,6 +1966,7 @@ export class CadViewportEngine {
     this.disposeGroup(this.lighting);
     this.disposeGroup(this.content);
     this.clearProfileRegions();
+    this.clearBooleanRegions();
     this.disposeGroup(this.helpers);
     this.disposeGroup(this.sketchContext);
     this.scene.environment = null;
@@ -2979,6 +2988,93 @@ export class CadViewportEngine {
     this.emitDebugState(); this.invalidate();
   }
 
+  private booleanRegionLayer?:THREE.Group;
+  private booleanRegionVisuals?:VisualRepository;
+  private booleanRegionGeneration=0;
+  private booleanRegionKey='';
+  private booleanRegionFocus=0;
+  private booleanRegionBindings:Array<{selection:SelectionItem;mesh:THREE.Mesh;outline:THREE.LineSegments;cell:NonNullable<FeatureSelectionSession['booleanRegions']>['cells'][number]}>=[];
+  private booleanHiddenInputs:Array<{group:THREE.Group;visible:boolean}>=[];
+  private clearBooleanRegions():void {
+    if(!this.booleanRegionKey&&!this.booleanRegionLayer&&!this.booleanRegionVisuals)return;
+    this.booleanRegionGeneration++;this.booleanRegionVisuals?.dispose();this.booleanRegionVisuals=undefined;
+    for(const {selection,mesh} of this.booleanRegionBindings){this.selectionIndex.unregister(selection,mesh);this.highlightedRoots.delete(mesh);}
+    this.booleanRegionBindings=[];this.booleanRegionKey='';this.booleanRegionFocus=0;
+    if(this.booleanRegionLayer){this.booleanRegionLayer.removeFromParent();this.disposeGroup(this.booleanRegionLayer);this.booleanRegionLayer=undefined;}
+    this.restoreBooleanInputs();delete this.host.dataset.booleanRegions;
+  }
+  private restoreBooleanInputs():void {if(!this.booleanHiddenInputs?.length)return;for(const {group,visible} of this.booleanHiddenInputs)group.visible=visible;this.booleanHiddenInputs=[];}
+  private hideBooleanInputs():void {
+    const session=this.featureSelection,data=session?.booleanRegions;if(!session||!data||!this.booleanRegionLayer)return;
+    if(session.role==='boolean-region'||session.accept){
+      for(const body of [data.targetBodyId,data.toolBodyId]){
+        const binding=this.solidBindings.get(`${session.occurrencePath||'root'}/body:${body}`);
+        if(binding){this.booleanHiddenInputs.push({group:binding.group,visible:binding.group.visible});binding.group.visible=false;}
+      }
+    }
+  }
+  private styleBooleanRegions(session:FeatureSelectionSession):void {
+    const data=session.booleanRegions;if(!data)return;
+    this.restoreBooleanInputs();this.hideBooleanInputs();
+    for(const binding of this.booleanRegionBindings){
+      const cell=data.cells.find(c=>c.reference.cellDigest===binding.cell.reference.cellDigest);if(!cell)continue;binding.cell=cell;
+      const style=booleanRegionStyle(cell.retained,cell.eligible,cell.inTarget);
+      const material=binding.mesh.material as THREE.MeshPhongMaterial;
+      material.color.set(style.color);material.opacity=style.opacity;material.depthWrite=cell.retained;
+      binding.mesh.userData.booleanRegionColor=style.color;binding.mesh.userData.booleanRegionOpacity=style.opacity;
+      const outline=binding.outline.material as THREE.LineBasicMaterial;
+      outline.color.set(style.color);outline.opacity=cell.retained?0.85:0.42;
+      binding.mesh.visible=binding.outline.visible=!data.isolateId||data.isolateId===cell.reference.cellDigest;
+      if(data.focusId===cell.reference.cellDigest){material.emissive.set(CATIA_VISUAL_THEME.selected);material.emissiveIntensity=0.16;}
+      else material.emissive.set(0x000000);
+    }
+    this.booleanRegionLayer?.traverse(object=>{if(object.userData.booleanOperand)object.visible=!data.isolateId;});
+    if(data.focusRequest&&data.focusRequest!==this.booleanRegionFocus&&data.focusId){
+      this.booleanRegionFocus=data.focusRequest;
+      const selection=this.booleanRegionBindings.find(b=>b.cell.reference.cellDigest===data.focusId)?.selection;
+      if(selection)this.focusSelections([selection]);
+    }
+    this.host.dataset.booleanRegions=String(data.cells.filter(c=>c.eligible).length);
+    this.updateCameraClipping();this.invalidate();
+  }
+  private showBooleanRegions(session?:FeatureSelectionSession):void {
+    const data=session?.booleanRegions;
+    const owner=this.editContext&&this.editContext.view.document.id===session?.documentId?this.editContext.view.document:this.view?.document;
+    if(!data||!session||!this.view||owner?.id!==session.documentId||owner.versionId!==session.versionId){this.clearBooleanRegions();return;}
+    const key=JSON.stringify([session.documentId,session.versionId,session.occurrencePath,data.cells.map(c=>[c.reference.inputDigest,c.reference.cellDigest])]);
+    if(this.booleanRegionKey===key){this.styleBooleanRegions(session);return;}
+    this.clearBooleanRegions();this.booleanRegionKey=key;
+    const generation=this.booleanRegionGeneration,repository=this.booleanRegionVisuals=this.visuals.previewRepository();
+    const descriptor={...this.view,document:{...this.view.document,id:session.documentId,versionId:session.versionId},artifact:undefined,artifacts:Object.fromEntries(data.cells.map(c=>[c.reference.cellDigest,c.artifact]))};
+    void repository.hydrate(descriptor).then(display=>{
+      if(this.disposed||generation!==this.booleanRegionGeneration||this.featureSelection?.versionId!==session.versionId)return;
+      const group=new THREE.Group();
+      if(session.occurrencePath&&session.occurrencePath===this.editContext?.occurrencePath){group.position.fromArray(this.editContext.translation??[0,0,0]);group.quaternion.fromArray(this.editContext.rotation??[0,0,0,1]);}
+      for(const cell of data.cells){
+        const artifact=display.artifacts?.[cell.reference.cellDigest];if(!artifact)continue;
+        const geometry=makeGeometry(artifact),style=booleanRegionStyle(cell.retained,cell.eligible,cell.inTarget);
+        const mesh=new THREE.Mesh(geometry,new THREE.MeshPhongMaterial({color:style.color,transparent:true,opacity:style.opacity,side:THREE.DoubleSide,depthWrite:cell.retained,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1}));
+        const outline=new THREE.LineSegments(makeFeatureEdges(geometry),new THREE.LineBasicMaterial({color:style.color,transparent:true,opacity:0.6,depthWrite:false}));
+        mesh.renderOrder=34;outline.renderOrder=35;
+        const selection:SelectionItem={...session.instancePath&&{instancePath:session.instancePath},kind:'boolean-region',id:`boolean-region:${cell.reference.cellDigest}`,regionId:cell.reference.cellDigest,analysisId:cell.reference.inputDigest,documentId:session.documentId,versionId:session.versionId,occurrencePath:session.occurrencePath,contextVariantKey:session.contextVariantKey,rootDocumentId:session.rootDocumentId};
+        mesh.name='boolean-region';mesh.userData.booleanRegion=true;
+        this.selectionIndex.register(selection,mesh);this.selectionIndex.registerPick(mesh,()=>selection,0,25);
+        this.booleanRegionBindings.push({selection,mesh,outline,cell});group.add(mesh,outline);
+      }
+      for(const [body,role] of [[data.targetBodyId,'target'],[data.toolBodyId,'tool']] as const){
+        const binding=this.solidBindings.get(`${session.occurrencePath||'root'}/body:${body}`),frozen=data.inputs.find(a=>a.bodyId===body);
+        if(!binding||binding.artifact.geometryKey!==frozen?.geometryKey)continue;
+        const reference=new THREE.LineSegments(makeFeatureEdges(binding.mesh.geometry),new THREE.LineBasicMaterial({color:booleanRoleColors[role],transparent:true,opacity:0.3,depthWrite:false}));
+        reference.userData.booleanOperand=true;reference.renderOrder=33;group.add(reference);
+      }
+      this.helpers.add(group);this.booleanRegionLayer=group;group.updateMatrixWorld(true);
+      if(this.featureSelection)this.styleBooleanRegions(this.featureSelection);
+    }).catch(error=>{
+      if(generation!==this.booleanRegionGeneration||this.disposed)return;
+      this.callbacks.operationFailed?.(error);
+    });
+  }
+
   private clearProfileRegions():void {
     for(const {selection,mesh} of this.profileRegionBindings){this.selectionIndex.unregister(selection,mesh);this.highlightedRoots.delete(mesh);}
     this.profileRegionBindings=[];
@@ -3014,6 +3110,7 @@ export class CadViewportEngine {
     if(this.featureSelection?.localSketchId&&!session?.localSketchId)this.clearReferenceHover();
     this.featureSelection = session;
     this.showProfileRegions(session);
+    this.showBooleanRegions(session);
     if(this.loftConnections){this.loftConnections.removeFromParent();this.disposeGroup(this.loftConnections);this.loftConnections=undefined;}
     if(session?.connectionLines?.length){
       const group=new THREE.Group();
@@ -3767,6 +3864,12 @@ export class CadViewportEngine {
   }
 
   private applyHighlight(object: THREE.Object3D, state: "default" | "hover" | "selected" | "context"): void {
+    if(object.userData.booleanRegion){
+      const material=(object as THREE.Mesh).material as THREE.MeshPhongMaterial;
+      material.color.set(state==='selected'?CATIA_VISUAL_THEME.selected:state==='hover'?CATIA_VISUAL_THEME.hover:object.userData.booleanRegionColor);
+      material.opacity=state==='selected'?0.9:state==='hover'?0.6:object.userData.booleanRegionOpacity;
+      return;
+    }
     this.materials.setInteractionState(object, state);
     object.traverse((child) => {
       const material = (child as THREE.Mesh).material;
@@ -3831,6 +3934,7 @@ export class CadViewportEngine {
     }
     if (this.sketchPlane) bounds.expandByPoint(localToWorld(this.sketchPlane, [0, 0]));
     if (bounds.isEmpty()) bounds.expandByPoint(this.navigation.target);
+    if(this.booleanRegionLayer){this.booleanRegionLayer.updateMatrixWorld(true);for(const {mesh} of this.booleanRegionBindings)if(mesh.visible)bounds.union(new THREE.Box3().setFromObject(mesh));}
     if (this.commandPreview) bounds.union(new THREE.Box3().setFromObject(this.commandPreview));
     if(this.camera instanceof THREE.PerspectiveCamera)updatePerspectiveClipping(this.camera,this.navigation.target,bounds,()=>{
       const canvas=this.renderer.domElement;

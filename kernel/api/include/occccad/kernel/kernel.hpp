@@ -151,6 +151,19 @@ struct BodyToolInput {
     std::vector<uint8_t> brep;
     std::vector<BodyToolTopology> topology;
 };
+// Rebuildable volume reference. Boundary proof comes only from exact source
+// topology/history; the frozen digest disambiguates identical proofs only for
+// identical inputs. It never supplies a geometric nearest-neighbour fallback.
+struct BooleanRegionRef {
+    bool boundary_unique{};
+    std::vector<std::string> boundary;
+    std::string input_digest, cell_digest;
+};
+struct BooleanRegion {
+    BooleanRegionRef reference;
+    std::string geometry_id;
+    bool in_target{}, in_tool{};
+};
 struct LoftSectionSpec {
     std::string sketch_id, seam_entity_id;
     ProfileRegionSpec region;
@@ -170,6 +183,8 @@ struct PatternPlacement {
 };
 struct PatternSourceSpec {std::string feature_id, source_kind, start_feature_id;};
 struct ProfilePadSpec {
+    bool explicit_boolean_regions{};
+    std::vector<BooleanRegionRef> boolean_regions;
     std::vector<PatternSourceSpec> additional_pattern_sources;
     std::string pattern_source_feature_id, pattern_source_kind, pattern_start_feature_id;
     std::string pattern_result_mode;
