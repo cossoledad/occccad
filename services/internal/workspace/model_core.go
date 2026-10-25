@@ -295,6 +295,9 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 		return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 	case "SKETCH_PATTERN_DEFINITION":
 		return applyEditSketch(modelJSON, mustPatternDeletePayload(payload.OwnerEntityID, payload.TargetID))
+	case "SKETCH_EXTERNAL_GEOMETRY":
+		data, _ := json.Marshal(editSketchPayload{SketchID: payload.OwnerEntityID, Operations: []SketchOperation{{Type: "DELETE_ENTITIES", EntityIDs: []string{payload.TargetID}}}})
+		return applyEditSketch(modelJSON, data)
 	case "SKETCH_ENTITY", "SKETCH_CONSTRAINT":
 		for i := range model.Features {
 			feature := &model.Features[i]
@@ -590,6 +593,10 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 		return fmt.Errorf("%w: sketch edit requires at least one operation", ErrValidation)
 	}
 	for _, operation := range operations {
+		var placements map[string]sketchDimensionPlacement
+		if operation.Type == "APPLY_DRAG_RESULT" || operation.Type == "UPDATE_ENTITY_POINT" || operation.Type == "EDIT_SPLINE_POINT" {
+			placements = sketchDimensionPlacements(sketch)
+		}
 		switch operation.Type {
 		case "CREATE_PATTERN", "EDIT_PATTERN", "DELETE_PATTERN", "DETACH_PATTERN":
 			if err := applySketchPatternOperation(sketch, operation); err != nil {
@@ -877,6 +884,7 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 		default:
 			return fmt.Errorf("%w: unsupported sketch operation %s", ErrValidation, operation.Type)
 		}
+		carrySketchDimensionPlacements(sketch, placements)
 	}
 	return nil
 }
@@ -2859,6 +2867,7 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 		return nil
 	}
 	input.DragTargets = targets
+	placements := sketchDimensionPlacements(sketch)
 	result, err := preparedResult(ctx, &service.prepared, "feature:"+model.Features[featureIndex].ID, input, func() (geometry.SketchSolve, error) {
 		return service.worker.SolveSketch(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
 	})
@@ -2974,6 +2983,7 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 	}
 	sketch.Solve = SketchSolveState{Status: status, DefinitionStatus: definition, DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: diagnostic,
 		ConflictingConstraintIDs: publicSketchConstraintIDs(result.ConflictingConstraintIDs), RedundantConstraintIDs: publicSketchConstraintIDs(result.RedundantConstraintIDs), Components: components}
+	carrySketchDimensionPlacements(sketch, placements)
 	refreshSketchReferenceMeasurements(model)
 	return resolveSketchPatternReferences(model, featureIndex)
 }

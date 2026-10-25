@@ -1,7 +1,7 @@
 /** One ordering contract for persistent annotations and transient sketch feedback. */
 export const SKETCH_FEEDBACK_ORDER = {
   leader: 10, construction: 20, constructionEndpoint: 36, geometry: 30, endpoint: 35, controlPoint: 37, point:50, glyph: 61, label: 62,
-  preview: 70, snap: 80, hover: 90, selected: 100, trim: 110,
+  preview: 70, snap: 130, hover: 90, selected: 100, trim: 110,
 } as const;
 
 /** Same role preference for model picking and rendered overlay picking.
@@ -15,7 +15,7 @@ export function sketchGeometryPickPriority(role: string | undefined): number {
 export const SPLINE_CONTROL_FEEDBACK = { size: 12, haloSize: 16, pickRadius: 13 } as const;
 
 export const SKETCH_ELEMENT_STYLE={
- pointSize:12, endpointSize:8, profileWidth:2.5, constructionWidth:2, externalWidth:2.5,
+ pointSize:16, pointCenterRadius:3.24, endpointSize:10, profileWidth:2.5, constructionWidth:2, externalWidth:2.5,
  dimensionWidth:1, dimensionOpacity:.72, labelGap:3,
  gridOpacity:.65,
 } as const;

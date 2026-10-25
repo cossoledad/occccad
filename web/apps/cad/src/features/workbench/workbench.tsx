@@ -1096,11 +1096,11 @@ export function Workbench() {
   const updated=await api.command(base.document.id,{type:"SAVE_KINEMATICS",versionId:base.document.versionId,kinematics:deleteMotionObjects(base.product!.kinematics!,candidates.map(n=>n.entityId!))});motionPanel.current?.adoptDefinition(updated);return updated;
  });return;
  }
- const selectedFeatures = new Set(candidates.filter((node) => !["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!))
+ const selectedFeatures = new Set(candidates.filter((node) => !["SKETCH_ENTITY", "SKETCH_EXTERNAL_GEOMETRY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!))
       .map((node) => node.entityId));
     const featureOrder = new Map((editingView.part?.features ?? []).map((feature, index) => [feature.id, index]));
     const targets = candidates.filter((node) => !node.ownerEntityId || !selectedFeatures.has(node.ownerEntityId)).sort((left, right) => {
-      const rank = (node: SpecificationTreeNode) => node.kind === "SKETCH_CONSTRAINT" ? 0 : node.kind === "SKETCH_ENTITY" ? 1 : 2;
+      const rank = (node: SpecificationTreeNode) => node.kind === "SKETCH_CONSTRAINT" ? 0 : ["SKETCH_ENTITY","SKETCH_EXTERNAL_GEOMETRY"].includes(node.kind!) ? 1 : 2;
       const difference = rank(left) - rank(right); if (difference) return difference;
       return (featureOrder.get(right.entityId!) ?? 0) - (featureOrder.get(left.entityId!) ?? 0);
     });
@@ -1123,7 +1123,7 @@ export function Workbench() {
       return;
     }
     command.mutate(() => api.deleteNodes(editingView.document.id, targets.map((node) => ({
-      targetKind: ["SKETCH_PATTERN_DEFINITION", "SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE", "DATUM_AXIS"].includes(node.kind!) ? node.kind! : node.kind === "PLANE" ? "DATUM_PLANE" : "FEATURE",
+      targetKind: ["SKETCH_PATTERN_DEFINITION", "SKETCH_ENTITY", "SKETCH_EXTERNAL_GEOMETRY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE", "DATUM_AXIS"].includes(node.kind!) ? node.kind! : node.kind === "PLANE" ? "DATUM_PLANE" : "FEATURE",
       targetId: node.entityId!, ownerEntityId: node.ownerEntityId,
     }))));
   };

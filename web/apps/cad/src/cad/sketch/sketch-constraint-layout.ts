@@ -18,6 +18,14 @@ const scale = (a: Vec2, value: number): Vec2 => [a[0] * value, a[1] * value];
 const midpoint = (a: Vec2, b: Vec2): Vec2 => scale(add(a, b), 0.5);
 const normalize = (value: Vec2): Vec2 => { const length = Math.hypot(value[0], value[1]); return length > 1e-9 ? scale(value, 1 / length) : [1, 0]; };
 
+/** Carry layout with the same exact, stable references in a solved preview. */
+export function sketchConstraintOnMovedGeometry(constraint:SketchConstraint,before:readonly SketchEntity[],after:readonly SketchEntity[]):SketchConstraint{
+  if(!constraint.labelPosition)return constraint;
+  const automatic={...constraint,labelPosition:undefined};
+  const a=buildSketchConstraintLayout(automatic,before).label?.position,b=buildSketchConstraintLayout(automatic,after).label?.position;
+  return a&&b?{...constraint,labelPosition:{x:constraint.labelPosition.x+b[0]-a[0],y:constraint.labelPosition.y+b[1]-a[1]}}:constraint;
+}
+
 function entityFor(reference: SketchGeometryRef, entities: ReadonlyMap<string, SketchEntity>): SketchEntity | undefined {
   return reference.entityId ? entities.get(reference.entityId) : undefined;
 }

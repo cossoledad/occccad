@@ -274,9 +274,9 @@ try {
   smartDistance.pointerDown(pointer(10, 10, "down"), context); smartDistance.pointerUp(pointer(10, 10, "up"), context);
   smartDistance.keyDown({ key: "2" }, context); smartDistance.keyDown({ key: "0" }, context); smartDistance.keyDown({ key: "Enter" }, context);
   assert.equal(operations[smartDistanceIndex][0].constraint.kind, "DISTANCE");
-  assert.equal(dimensionRequests.length, 1,"only explicit legacy dimension opens a dialog; smart linear commits inline quantities");
-  assert.equal(operations[smartLengthIndex][0].parameterSource,"40 mm");
-  assert.equal(operations[smartDistanceIndex][0].parameterSource,"20 mm");
+  assert.equal(dimensionRequests.length, 3,"all dimensional placement paths open the common editor");
+  assert.equal(dimensionRequests.at(-2).kind,"LENGTH");
+  assert.equal(dimensionRequests.at(-1).kind,"DISTANCE");
   await new Promise(resolve=>setImmediate(resolve));
 
   const renderModel = buildSketchRenderModel({

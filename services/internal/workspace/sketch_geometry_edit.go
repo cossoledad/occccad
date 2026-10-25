@@ -48,6 +48,9 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 		for _, e := range sketch.Entities {
 			known[e.ID] = true
 		}
+		for _, e := range sketch.ExternalGeometry {
+			known[e.ID] = true
+		}
 		removed := map[string]bool{}
 		for id := range selected {
 			if !known[id] && len(owners[id]) == 0 {
@@ -76,6 +79,11 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 	entities := map[string]SketchEntity{}
 	for _, e := range sketch.Entities {
 		entities[e.ID] = e
+	}
+	if op.Type == "DELETE_ENTITIES" {
+		for _, e := range sketch.ExternalGeometry {
+			entities[e.ID] = SketchEntity{ID: e.ID}
+		}
 	}
 	for id := range selected {
 		if _, ok := entities[id]; !ok {
@@ -128,6 +136,13 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 			}
 		}
 		sketch.Entities = kept
+		externals := sketch.ExternalGeometry[:0]
+		for _, e := range sketch.ExternalGeometry {
+			if !selected[e.ID] {
+				externals = append(externals, e)
+			}
+		}
+		sketch.ExternalGeometry = externals
 		constraints := sketch.Constraints[:0]
 		for _, c := range sketch.Constraints {
 			remove := false

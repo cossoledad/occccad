@@ -66,6 +66,8 @@ body { color:var(--color-text); background:var(--color-canvas); }
 .cad-inline-annotation { position:absolute; z-index:var(--ui-layer-inline); font:500 14px/1.5 var(--ui-font-family); color:var(--color-dimension-text); max-width:calc(100% - 24px); }
 .cad-inline-editor { width:160px; height:32px; display:flex; align-items:center; gap:4px; padding:0 8px; background:var(--color-surface); color:var(--color-text); border:1px solid var(--color-primary-border); border-radius:4px; box-shadow:var(--ui-shadow-inline); }
 .cad-inline-editor:focus-within { outline:2px solid var(--color-primary); outline-offset:0; }
+.cad-inline-counter { display:flex; align-items:center; height:32px; padding:0 2px; background:var(--color-surface); border:1px solid var(--color-primary-border); border-radius:4px; box-shadow:var(--ui-shadow-inline); color:var(--color-text); }
+.cad-inline-counter .ant-btn { min-width:28px; padding:0 4px; color:inherit; font-variant-numeric:tabular-nums; }
 .cad-inline-prefix { flex:none; font-size:12px; white-space:nowrap; }
 .cad-inline-editor .ant-input { flex:1; min-width:0; width:0; height:30px; padding:0; font-size:15px; font-weight:500; font-variant-numeric:tabular-nums; color:var(--color-text); background:transparent; }
 .cad-inline-editor small { color:var(--color-text-secondary); font-size:12px; flex:none; }

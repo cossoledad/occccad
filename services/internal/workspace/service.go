@@ -2306,10 +2306,10 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 			node.Diagnostic = strings.Trim(external.DiagnosticCode+": "+external.Diagnostic, ": ")
 		}
 		if editable {
-			node.Capabilities = []string{"DETACH", "RECONNECT"}
+			node.Capabilities = []string{"DETACH", "RECONNECT", "DELETE"}
 			if external.DatumReference != nil && external.Snapshot != nil && external.Snapshot.Kind == "LINE" {
 				node.Name = name
-				node.Capabilities = []string{"RECONNECT"}
+				node.Capabilities = []string{"RECONNECT", "DELETE"}
 			}
 		}
 		externals.Children = append(externals.Children, node)

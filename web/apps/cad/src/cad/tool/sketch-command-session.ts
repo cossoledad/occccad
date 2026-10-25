@@ -15,7 +15,7 @@ export type SketchCommandState = {
   selectedIds: string[];
   references: SketchGeometryRef[];
   presentation?: "inline" | "advanced";
-  input?: { id: string; fieldIndex: number; anchor?: import("../../types").Vec2; modelAnchor?: import("../../types").Vec2; dimension?: boolean };
+  input?: { id: string; fieldIndex: number; anchor?: import("../../types").Vec2; modelAnchor?: import("../../types").Vec2; dimension?: boolean; counter?:{min:number;max:number} };
   count?: { accepted: number; required?: number };
   completion?: { label: string };
   recovery?: {label:string;action:"release"|"retry"};

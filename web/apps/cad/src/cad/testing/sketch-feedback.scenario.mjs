@@ -50,7 +50,7 @@ try {
  const {palette,colorNumber}=await server.ssrLoadModule('/src/design/visual-tokens.ts');
  const dot=engine.materials.sketchPoint(theme.sketchConstruction),cross=engine.materials.point(theme.vertex,8,false);
  assert.equal(dot.uniforms.uMarkerShape.value,1);assert.equal(cross.uniforms.uMarkerShape.value,0,'ordinary endpoints retain their cross');assert.equal(dot.depthWrite,false);
- const {SketchColorAdapter,sceneSketchColors}=await server.ssrLoadModule('/src/cad/rendering/sketch-colors.ts');const colors=sceneSketchColors({background:'SOLID',backgroundTop:'#ffffff'}),adapter=new SketchColorAdapter();const point=new THREE.Points(new THREE.BufferGeometry(),dot);adapter.apply(point,colors);assert.equal(dot.uniforms.uHaloColor.value.getHex(),colors.pointHalo,'point clearance adapts to a light scene');
+ const {SketchColorAdapter,sceneSketchColors}=await server.ssrLoadModule('/src/cad/rendering/sketch-colors.ts');const colors=sceneSketchColors({background:'SOLID',backgroundTop:'#ffffff'}),adapter=new SketchColorAdapter();const point=new THREE.Points(new THREE.BufferGeometry(),dot);adapter.apply(point,colors);assert.equal(dot.uniforms.uCenterColor.value.getHex(),colors.vertex,'point centre adapts to a light scene');
  const baseText=colorNumber(palette.dimensionText);
  for(const state of ['default','hover','selected','default','hover','default']){
   engine.applyHighlight(label,state);

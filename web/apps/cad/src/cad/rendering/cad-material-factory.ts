@@ -53,12 +53,13 @@ export class CadMaterialFactory {
     });
   }
 
-  /** Independent sketch points use a filled dot with a contrasting clearance ring.
+  /** Independent sketch points keep their centre and share the endpoint cross.
    * Endpoints/centres keep the established cross and identical stable picking. */
   sketchPoint(color:number,size:number=SKETCH_ELEMENT_STYLE.pointSize):THREE.ShaderMaterial{
     const material=this.point(color,size,false);
     material.uniforms.uMarkerShape.value=1;
-    material.uniforms.uHaloColor.value.setHex(this.theme.sketchPointHalo);
+    material.uniforms.uCenterRadius.value=SKETCH_ELEMENT_STYLE.pointCenterRadius/size;
+    material.uniforms.uCenterColor.value.setHex(this.theme.vertex);
     return material;
   }
 

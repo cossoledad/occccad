@@ -6,7 +6,7 @@
 > 阶段 4：[关联更新与修复](../docs/architecture/current/product-assembly.md#关联更新与修复)已覆盖 owning Product 直接引用 Part 的版本检查、按实例定位及现有 Reconnect 闭环，并接通[剩余运动独立只读刷新](../docs/architecture/current/product-assembly.md#局部诊断与剩余运动)。[已保存机构分析](../docs/architecture/current/kinematics-dmu.md#机构分析)具备：逐端点支撑诊断、只读物理 DOF、定位／原 Joint 修复。当前分析均限定 owning Product；嵌套更新编排、柔性装配未扩展；阶段 3 上述扩展项继续保留为未完成。
 > 当前已补齐 Part 的[布尔结果区域选择](../docs/architecture/current/solid-features.md#布尔结果区域)：单目标／单工具精确分区、显式保留与失效修复；普通多工具布尔保持兼容，区域资源按冻结清单直接下载，修复集合按当前区域去重。独立 Hole 已扩展普通孔、圆柱沉孔、锥沉孔及原编辑/修复/历史链；本轮补齐同 Body 有限孔的线性／圆周阵列、镜像和阵列成员失效后的下游显式修复。贯穿孔工具、逐成员重新终止与切除特征组仍未开放。工作台继续遵循[统一 UI 规格](../docs/guides/workbench.md#工程信息表达)。
 
-当前重点为[草图交互](../docs/architecture/current/part-sketch.md)：捕获到自动约束、角色选择、精确交点创建/分割、持久角度区域，以及[提交等待与草图显示](../docs/architecture/current/web.md#状态与模块职责)。继续暂停新增三维 Feature；上述 Part 扩展项继续保留，尚未开放的能力不因 UI 整理改变范围。
+当前重点为[草图交互](../docs/architecture/current/part-sketch.md)：捕获到自动约束、角色选择、精确交点创建/分割、持久角度区域、投影删除、统一尺寸编辑与多边形边数交互，以及[提交等待与草图显示](../docs/architecture/current/web.md#状态与模块职责)。继续暂停新增三维 Feature；上述 Part 扩展项继续保留，尚未开放的能力不因 UI 整理改变范围。
 
 ## 目标与实施原则
 

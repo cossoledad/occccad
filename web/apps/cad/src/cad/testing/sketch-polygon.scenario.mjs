@@ -37,6 +37,8 @@ try {
   assert.equal(requests.length,mode==='INSCRIBED'?1:2);scope.versionId+='x';resolveCommit();await new Promise(r=>setImmediate(r));assert.equal(manager.activeToolID,'select');
  }
  manager.activate('sketch.polygon');click(13,29);key('Escape');assert.equal(manager.activeToolID,'select');assert.equal(requests.length,2);assert.equal(surface.captures.size,0);
+ port.projectSketchPoint=p=>p;
+ manager.activate('sketch.polygon');manager.commandAction({type:'field',index:0,value:'6'});click(13,29);click(18,29);pointer('pointermove',46,29);assert.equal(states.at(-1).fields[0].value,'8','outward screen movement increases sides');pointer('pointermove',32,29);assert.equal(states.at(-1).fields[0].value,'7','inward movement decreases sides');assert.deepEqual(states.at(-1).input.counter,{min:3,max:50});key('Escape');assert.equal(requests.length,2,'count controls remain a draft until confirmation');
  const inside=polygonVertices([0,0],[5,0],7,'CIRCUMSCRIBED'),outside=polygonVertices([0,0],[5,0],7,'INSCRIBED');assert(Math.abs(Math.hypot(...inside[0])-5)<1e-10);assert(Math.abs(Math.hypot(...outside[0])-5/Math.cos(Math.PI/7))<1e-10);
  input.dispose();
 }finally{await server.close();}

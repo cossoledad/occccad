@@ -260,7 +260,7 @@ export class CadShaderLibrary {
         uSelected: { value: 0 },
         uOpacity:{value:1},
         uPointSize: { value: 5 },
-        uMarkerShape:{value:0},uHaloColor:{value:new THREE.Color()},
+        uMarkerShape:{value:0},uCenterRadius:{value:.27},uCenterColor:{value:new THREE.Color()},
         ...sectionUniforms(),
       },
       vertexShader: `
@@ -279,26 +279,21 @@ export class CadShaderLibrary {
         uniform float uSelected;
         uniform float uOpacity;
         uniform float uMarkerShape;
-        uniform vec3 uHaloColor;
+        uniform float uCenterRadius;
+        uniform vec3 uCenterColor;
         varying vec3 vWorldPosition;
         ${sectionFragment}
         void main() {
           applyCadSection();
           vec2 p = gl_PointCoord - 0.5;
-          if(uMarkerShape>0.5){
-            float r=length(p),aa=max(fwidth(r),0.01);
-            float alpha=1.0-smoothstep(0.44-aa,0.44+aa,r);
-            if(alpha<0.01)discard;
-            vec3 ink=mix(uColor,uSelectedColor,uSelected);
-            gl_FragColor=vec4(mix(ink,uHaloColor,smoothstep(0.27-aa,0.27+aa,r)),alpha*uOpacity);
-          }else{
           float diagonal = min(abs(p.x - p.y), abs(p.x + p.y));
           float aa = max(fwidth(diagonal), 0.01);
-          float alpha = (1.0 - smoothstep(0.085-aa, 0.085+aa, diagonal))
+          float alpha = (1.0 - smoothstep(0.065-aa, 0.065+aa, diagonal))
             * (1.0 - smoothstep(0.42, 0.5, max(abs(p.x), abs(p.y))));
+          float dotAlpha=uMarkerShape>0.5?1.0-smoothstep(uCenterRadius-fwidth(length(p)),uCenterRadius+fwidth(length(p)),length(p)):0.0;
+          alpha=max(alpha,dotAlpha);
           if (alpha < 0.01) discard;
-          gl_FragColor = vec4(mix(uColor, uSelectedColor, uSelected), alpha*uOpacity);
-          }
+          gl_FragColor = vec4(mix(mix(uColor, uSelectedColor, uSelected),uCenterColor,dotAlpha), alpha*uOpacity);
           #include <colorspace_fragment>
         }
       `,

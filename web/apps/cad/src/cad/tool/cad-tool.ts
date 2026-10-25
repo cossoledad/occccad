@@ -4,7 +4,6 @@ import {engineeringProblem} from "../command/operation-failure";
 import {recordDeveloperEvidence} from "../command/developer-evidence";
 import {isExternalProjectionSource} from "../interaction/external-projection-selection";
 import type { SketchCommandState, SketchCommitIntent, SketchCommitResult } from "./sketch-command-session";
-import { dimensionDefinitionOperation, dimensionDisplayValue, SketchDimensionCommitSession } from "../sketch/sketch-dimension-editor";
 import { formatDimensionValue } from "../sketch/dimension-value-format";
 import type { DisplayLengthUnit } from "../../state/ui-preferences";
 import { selectionModeForTool } from "../interaction/selection-mode";
@@ -592,12 +591,13 @@ export class RegularPolygonSketchTool extends SketchCreationTool {
  private stage:"center"|"radius"|"sides"="center";
  private center?:Vec2;private edge?:Vec2;private centerSnap?:SketchGeometryRef;private pointer?:number;
  private sides="6";private operationId?:string;private error?:string;private phase:SketchCommandState["phase"]="selection";
+ private sidesDistance?:number;private cursor?:Vec2;
  constructor(private mode:"INSCRIBED"|"CIRCUMSCRIBED"="INSCRIBED"){super();this.id=mode==="INSCRIBED"?"sketch.polygon":"sketch.polygon.circumscribed";}
  activate(context:ToolContext):void{this.publish(context);}
  private publish(context:ToolContext):void{
-  const role=this.stage==="center"?"选择中心":this.stage==="radius"?"选择构造圆半径":"输入边数，Enter 完成";
+  const role=this.stage==="center"?"选择中心":this.stage==="radius"?"选择构造圆半径":"边数";
   context.viewport.setToolPrompt(`${this.mode==="INSCRIBED"?"内接":"外接"}多边形｜${role}`);
-  context.viewport.setSketchCommandState?.({toolId:this.id,operation:"多边形",phase:this.phase,role,selectedIds:[],references:this.centerSnap?[this.centerSnap]:[],presentation:"inline",fields:this.stage==="sides"?[{label:"边数",value:this.sides,unit:"scalar"}]:[],options:[],input:this.stage==="sides"?{id:this.operationId!,fieldIndex:0,modelAnchor:this.edge}:undefined,canConfirm:this.stage==="sides"&&!this.creationPending,next:role,error:this.error,preview:"approximate"});
+  context.viewport.setSketchCommandState?.({toolId:this.id,operation:"多边形",phase:this.phase,role,selectedIds:[],references:this.centerSnap?[this.centerSnap]:[],presentation:"inline",fields:this.stage==="sides"?[{label:"边数",value:this.sides,unit:"scalar"}]:[],options:[],input:this.stage==="sides"?{id:this.operationId!,fieldIndex:0,anchor:this.cursor,counter:{min:3,max:50}}:undefined,canConfirm:this.stage==="sides"&&!this.creationPending,next:role,error:this.error,preview:"approximate"});
  }
  private preview(context:ToolContext):void{
   if(!this.center||!this.edge)return;const n=Number(this.sides);if(!Number.isInteger(n)||n<3||n>50)return;
@@ -614,20 +614,26 @@ export class RegularPolygonSketchTool extends SketchCreationTool {
  }
  commandAction(action:import("./sketch-command-session").SketchCommandAction,context:ToolContext):void{
   if(action.type==="cancel"){this.cancel(context);context.viewport.finishToolUse(true);return;}if(this.creationPending)return;
-  if(action.type==="field"&&action.index===0){this.sides=action.value;this.error=undefined;this.preview(context);this.publish(context);}
+  if(action.type==="field"&&action.index===0){this.sides=action.value;this.sidesDistance=undefined;this.error=undefined;this.preview(context);this.publish(context);}
   if(action.type==="confirm")this.finish(context);
   if(action.type==="back"){this.stage=this.stage==="sides"?"radius":"center";this.publish(context);}
  }
  pointerDown(event:CadPointerEvent,context:ToolContext):InputResult{
   if(event.button!==0||event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;if(this.creationPending)return InputResult.Consumed;
-  const point=context.viewport.sketchPoint(event.x,event.y);if(!point)return InputResult.Consumed;this.pointer=event.pointerId;
+  const point=context.viewport.sketchPoint(event.x,event.y);if(!point)return InputResult.Consumed;this.pointer=event.pointerId;this.cursor=[event.x,event.y];
   if(this.stage==="center"){this.center=point;this.edge=point;this.centerSnap=this.capturedSnap(event,context);this.operationId=randomUUID();this.stage="radius";this.phase="definition";this.publish(context);}
-  else if(this.stage==="radius"){if(Math.hypot(point[0]-this.center![0],point[1]-this.center![1])<SKETCH_INPUT_POLICY.minimumGeometryLength){this.error="半径必须大于零";this.publish(context);}else{this.edge=point;this.stage="sides";this.preview(context);this.publish(context);}}
+  else if(this.stage==="radius"){if(Math.hypot(point[0]-this.center![0],point[1]-this.center![1])<SKETCH_INPUT_POLICY.minimumGeometryLength){this.error="半径必须大于零";this.publish(context);}else{this.edge=point;this.stage="sides";const origin=context.viewport.projectSketchPoint?.(this.center!);this.sidesDistance=origin?Math.hypot(event.x-origin[0],event.y-origin[1]):undefined;this.preview(context);this.publish(context);}}
   else this.finish(context);
   return InputResult.Capture;
  }
  pointerMove(event:CadPointerEvent,context:ToolContext):InputResult{
   if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;if(this.creationPending)return InputResult.Consumed;
+  this.cursor=[event.x,event.y];
+  if(this.stage==="sides"){
+   const origin=context.viewport.projectSketchPoint?.(this.center!);
+   if(origin){const distance=Math.hypot(event.x-origin[0],event.y-origin[1]);this.sidesDistance??=distance;const steps=Math.trunc((distance-this.sidesDistance)/14);if(steps){this.sides=String(Math.max(3,Math.min(50,(Number(this.sides)||6)+steps)));this.sidesDistance+=steps*14;this.error=undefined;this.preview(context);}}
+   this.publish(context);
+  }
   if(this.stage==="center"||this.stage==="radius"){
    const p=context.viewport.sketchPoint(event.x,event.y);
    if(p){if(this.stage==="center")context.viewport.showPointPreview(p);else{this.edge=p;this.preview(context);}}
@@ -641,10 +647,10 @@ export class RegularPolygonSketchTool extends SketchCreationTool {
   const shared=this.creationKey(event,context);if(shared!==InputResult.Ignored)return shared;
   if(event.state?.modifiers.ctrl||event.state?.modifiers.meta||event.state?.modifiers.alt)return InputResult.Ignored;
   if(event.key==="Enter"&&this.stage==="sides"){this.finish(context);return InputResult.Consumed;}
-  if(this.stage!=="center"&&/^[0-9]$/.test(event.key)){this.sides=this.sides==="6"?event.key:this.sides+event.key;this.preview(context);this.publish(context);return InputResult.Consumed;}return InputResult.Ignored;
+  if(this.stage!=="center"&&/^[0-9]$/.test(event.key)){this.sides=this.sides==="6"?event.key:this.sides+event.key;this.sidesDistance=undefined;this.preview(context);this.publish(context);return InputResult.Consumed;}return InputResult.Ignored;
  }
  deactivate(context:ToolContext):void{this.cancel(context);context.viewport.setSketchCommandState?.(undefined);}
- cancel(context:ToolContext):void{this.invalidateCreationSubmission();this.stage="center";this.center=undefined;this.edge=undefined;this.centerSnap=undefined;this.pointer=undefined;this.operationId=undefined;this.error=undefined;this.phase="selection";context.viewport.clearToolPreview();this.publish(context);}
+ cancel(context:ToolContext):void{this.invalidateCreationSubmission();this.stage="center";this.center=undefined;this.edge=undefined;this.centerSnap=undefined;this.pointer=undefined;this.operationId=undefined;this.error=undefined;this.sidesDistance=undefined;this.cursor=undefined;this.phase="selection";context.viewport.clearToolPreview();this.publish(context);}
 }
 
 export class CircleSketchTool extends TwoClickSketchTool {
@@ -1312,168 +1318,66 @@ export class ConstraintSketchTool implements CadTool {
 }
 
 type LinearDimensionPhase =
-  | {step:"SELECTING";references:SketchGeometryRef[]}
-  | {step:"LINE_PENDING";references:readonly SketchGeometryRef[]}
-  | {step:"PLACING";kind:"LENGTH"|"DISTANCE";references:readonly SketchGeometryRef[]}
-  | {step:"VALUE";kind:"LENGTH"|"DISTANCE";references:readonly SketchGeometryRef[];position:Vec2;value:number;constraintId:string};
+ | {step:"SELECTING";references:readonly SketchGeometryRef[]}
+ | {step:"LINE_PENDING";references:readonly SketchGeometryRef[]}
+ | {step:"PLACING";kind:"LENGTH"|"DISTANCE";references:readonly SketchGeometryRef[]};
+
+/** Geometry roles and placement belong to the tool; definitions use the shared editor. */
 export class LinearDimensionSketchTool implements CadTool {
-  readonly id="sketch.dimension.linear";
-  private phase:LinearDimensionPhase={step:"SELECTING",references:[]};
-  private capturedPointerID?:number;
-  private cursor?:Vec2;
-  private anchor?:Vec2;
-  private source="";
-  private sourceEdited=false;
-  private unit:DisplayLengthUnit="mm";
-  private inputGeneration=0;
-  private generation=0;
-  private error?:string;
-  private status?:"committing"|"failed"|"unknown";
-  private session=new SketchDimensionCommitSession();
-  private scope?:ReturnType<NonNullable<ToolViewportPort["currentSketchIdentity"]>>;
-  private freeze(kind:"LENGTH"|"DISTANCE",references:readonly SketchGeometryRef[]):void {
-    this.error=undefined;this.phase={step:"PLACING",kind,references:Object.freeze(references.map(reference=>Object.freeze({...reference})))};
+ readonly id="sketch.dimension.linear";
+ private phase:LinearDimensionPhase={step:"SELECTING",references:[]};
+ private capturedPointerID?:number;private cursor?:Vec2;private anchor?:Vec2;private error?:string;
+ private scope?:ReturnType<NonNullable<ToolViewportPort["currentSketchIdentity"]>>;
+ private freeze(kind:"LENGTH"|"DISTANCE",references:readonly SketchGeometryRef[]){this.error=undefined;this.phase={step:"PLACING",kind,references:Object.freeze(references.map(r=>Object.freeze({...r})))};}
+ private preview(c:ToolContext,position?:Vec2){const refs=[...this.phase.references];if(this.phase.step!=="SELECTING"){const kind=this.phase.step==="LINE_PENDING"?"LENGTH":this.phase.kind;c.viewport.showConstraintPreview(kind,refs,c.viewport.measureDimension(kind,refs),position)}else if(refs.length)c.viewport.showReferencePreview(refs.at(-1)!,refs);}
+ private publish(c:ToolContext){const step=this.phase.step,refs=[...this.phase.references],role=step==="LINE_PENDING"?"暂定线长或选择第二对象":step==="PLACING"?"放置尺寸":"选择点或直线";
+  c.viewport.setSketchCommandState?.({toolId:this.id,operation:"线性尺寸",phase:step==="PLACING"?"placement":step==="LINE_PENDING"?"definition":"selection",presentation:"inline",role,selectedIds:refs.flatMap(r=>r.entityId?[r.entityId]:[]),references:refs,count:{accepted:refs.length,required:step==="SELECTING"?2:undefined},completion:{label:step==="LINE_PENDING"?"锁定长度":"放置尺寸"},fields:[],options:[],canConfirm:step==="LINE_PENDING"||step==="PLACING"&&!!this.cursor,next:role,error:this.error,preview:"approximate"});c.viewport.setToolPrompt(role);
+ }
+ private validPair(refs:readonly SketchGeometryRef[],c:ToolContext){
+  if(refs.every(r=>r.subElement==="WHOLE"||r.subElement==="DIRECTION")){
+   const entities=c.viewport.currentSketchReferenceEntities?.()??c.viewport.currentSketchEntities?.()??[];
+   const direction=(r:SketchGeometryRef):Vec2|undefined=>{if(r.target==="SKETCH_X_AXIS")return [1,0];if(r.target==="SKETCH_Y_AXIS")return [0,1];const e=entities.find(e=>e.id===r.entityId);return e?.kind==="LINE"&&e.start&&e.end?[e.end.x-e.start.x,e.end.y-e.start.y]:undefined};
+   const a=direction(refs[0]),b=direction(refs[1]),norm=a&&b?Math.hypot(...a)*Math.hypot(...b):0;
+   if(!a||!b||!norm||Math.abs(a[0]*b[1]-a[1]*b[0])>1e-10*norm){this.error="线线间距需要平行直线";this.publish(c);return false;}
+  }return true;
+ }
+ private accept(refs:SketchGeometryRef[],c:ToolContext){if(refs.length===2&&!this.validPair(refs,c))return false;const scope=c.viewport.currentSketchIdentity?.();if(!this.scope&&scope)this.scope={...scope};this.error=undefined;
+  if(refs.length===2)this.freeze("DISTANCE",refs);else if(refs[0]?.target==="ENTITY"&&refs[0].subElement==="WHOLE")this.phase={step:"LINE_PENDING",references:Object.freeze(refs.map(r=>Object.freeze({...r})))};else this.phase={step:"SELECTING",references:refs};this.preview(c);this.publish(c);return true;
+ }
+ selectionInput(selections:readonly SelectionItem[],c:ToolContext,source:SelectionInputSource="selection"):SelectionInputResult{
+  if(source==="command"||source==="result")return SelectionInputResult.Unhandled;if(this.phase.step==="PLACING")return SelectionInputResult.Rejected;
+  const entities=localSketchSelection(selections,c),picked=entities.flatMap(e=>{const ref=preselectedSketchReference(e,"LINEAR_DIMENSION");return ref?[ref]:[]});if(!entities.length)return SelectionInputResult.Unhandled;
+  const added=picked.filter(ref=>!this.phase.references.some(r=>sameSketchReference(r,ref))),refs=[...this.phase.references,...added];if(!added.length)return SelectionInputResult.Rejected;
+  if(picked.length!==entities.length||entities.length!==selections.length||refs.length>2){this.error="请选择一条直线，或两个点/直线";this.publish(c);return SelectionInputResult.Rejected;}
+  return this.accept(refs,c)?SelectionInputResult.Accepted:SelectionInputResult.Rejected;
+ }
+ activate(c:ToolContext){this.publish(c)}
+ private place(c:ToolContext,position:Vec2){if(this.phase.step!=="PLACING")return;
+  if(this.scope&&JSON.stringify(this.scope)!==JSON.stringify(c.viewport.currentSketchIdentity?.())){this.error="草图版本或上下文已变，请重新选择";this.publish(c);return;}
+  const value=c.viewport.measureDimension(this.phase.kind,[...this.phase.references]);if(value===undefined||!Number.isFinite(value)){this.error="当前尺寸不可测";this.publish(c);return;}
+  const anchor=this.anchor??c.viewport.projectSketchPoint?.(position)??[0,0];
+  c.viewport.requestDimensionCreation(this.phase.kind,[...this.phase.references],value,"mm",position,anchor[0],anchor[1]);this.cancel(c);c.viewport.finishToolUse();
+ }
+ pointerDown(e:CadPointerEvent,c:ToolContext):InputResult{if(e.button!==0||this.capturedPointerID!==undefined||e.state.buttons.middle||e.state.buttons.right||!c.viewport.hasActiveSketch())return InputResult.Ignored;
+  this.anchor=[e.x,e.y];
+  if(this.phase.step==="LINE_PENDING"){
+   const r=c.viewport.sketchReferenceAt(e.x,e.y,"LINEAR_DIMENSION",this.phase.references[0],ref=>!this.phase.references.some(item=>sameSketchReference(item,ref)));
+   if(r){if(this.accept([...this.phase.references,{...r}],c)){this.capturedPointerID=e.pointerId;return InputResult.Capture;}return InputResult.Consumed;}this.freeze("LENGTH",this.phase.references);
   }
-  private rememberScope(context:ToolContext):void{const scope=context.viewport.currentSketchIdentity?.();if(!this.scope&&scope)this.scope={...scope};}
-  private preview(context:ToolContext,position?:Vec2):void {
-    const refs=[...this.phase.references];
-    if(this.phase.step!=="SELECTING"){
-      const kind=this.phase.step==="LINE_PENDING"?"LENGTH":this.phase.kind;
-      context.viewport.showConstraintPreview(kind,refs,context.viewport.measureDimension(kind,refs),this.phase.step==="VALUE"?this.phase.position:position);
-    }else if(refs.length)context.viewport.showReferencePreview(refs.at(-1)!,refs);
-  }
-  private publish(context:ToolContext):void {
-    const step=this.phase.step,value=step==="VALUE",refs=[...this.phase.references];
-    context.viewport.setSketchCommandState?.({toolId:this.id,operation:"线性尺寸",phase:this.status??(step==="PLACING"?"placement":step==="SELECTING"?"selection":"definition"),
-      presentation:"inline",role:step==="LINE_PENDING"?"暂定线长或选择第二对象":step==="PLACING"?"放置尺寸":value?"输入尺寸值或表达式":"选择点或直线",selectedIds:refs.flatMap(ref=>ref.entityId?[ref.entityId]:[]),references:refs,
-      count:{accepted:refs.length,required:step==="SELECTING"?2:undefined},completion:{label:step==="LINE_PENDING"?"锁定长度":value?"创建尺寸":"放置尺寸"},
-      fields:value?[{label:"尺寸",value:this.source,unit:"length",displayUnit:this.unit,placeholder:this.unit}]:[],options:[],
-      input:value&&this.status!=="committing"&&this.status!=="unknown"?{id:`${this.id}:${this.inputGeneration}`,fieldIndex:0,anchor:this.phase.step==="VALUE"?context.viewport.projectSketchPoint?.(this.phase.position)??this.anchor:this.anchor,modelAnchor:this.phase.step==="VALUE"?this.phase.position:undefined,dimension:true}:undefined,
-      canConfirm:this.status!=="committing"&&this.status!=="unknown"&&(step==="LINE_PENDING"||value||step==="PLACING"&&!!this.cursor),next:this.definitionPrompt(),error:this.error,preview:"approximate"});
-    context.viewport.setToolPrompt(this.definitionPrompt());
-  }
-  private validPair(refs:readonly SketchGeometryRef[],context:ToolContext):boolean {
-    if(refs.every(ref=>ref.subElement==="WHOLE"||ref.subElement==="DIRECTION")){
-      const entities=context.viewport.currentSketchReferenceEntities?.()??context.viewport.currentSketchEntities?.()??[];
-      const direction=(ref:SketchGeometryRef):Vec2|undefined=>{
-        if(ref.target==="SKETCH_X_AXIS")return [1,0];if(ref.target==="SKETCH_Y_AXIS")return [0,1];
-        const entity=entities.find(entity=>entity.id===ref.entityId);return entity?.kind==="LINE"&&entity.start&&entity.end?[entity.end.x-entity.start.x,entity.end.y-entity.start.y]:undefined;
-      };
-      const a=direction(refs[0]),b=direction(refs[1]),norm=a&&b?Math.hypot(...a)*Math.hypot(...b):0;
-      if(!a||!b||!norm||Math.abs(a[0]*b[1]-a[1]*b[0])>1e-10*norm){this.error="线线间距需要平行直线；保留当前单线，或使用显式距离命令建立平行关系";this.publish(context);return false;}
-    }
-    return true;
-  }
-  private accept(references:SketchGeometryRef[],context:ToolContext):boolean {
-    if(references.length===2&&!this.validPair(references,context))return false;
-    this.rememberScope(context);this.error=undefined;
-    if(references.length===2)this.freeze("DISTANCE",references);
-    else if(references[0]?.target==="ENTITY"&&references[0].subElement==="WHOLE")this.phase={step:"LINE_PENDING",references:Object.freeze(references.map(ref=>Object.freeze({...ref})))};
-    else this.phase={step:"SELECTING",references};
-    this.preview(context);this.publish(context);return true;
-  }
-  selectionInput(selections:readonly SelectionItem[],context:ToolContext,source:SelectionInputSource="selection"):SelectionInputResult {
-    if(source==="command"||source==="result")return SelectionInputResult.Unhandled;
-    if(this.phase.step==="PLACING"||this.phase.step==="VALUE")return SelectionInputResult.Rejected;
-    const existing=this.phase.references,entities=localSketchSelection(selections,context),picked=entities.flatMap(entity=>{const ref=preselectedSketchReference(entity,"LINEAR_DIMENSION");return ref?[ref]:[];});
-    if(!entities.length)return SelectionInputResult.Unhandled;
-    const added=picked.filter(ref=>!existing.some(item=>sameSketchReference(item,ref))),references=[...existing,...added];
-    if(!added.length)return SelectionInputResult.Rejected;
-    if(picked.length!==entities.length||entities.length!==selections.length||references.length>2){this.error="线性尺寸需要一条直线，或合法的两个点/直线；重新选择明确对象";this.publish(context);return SelectionInputResult.Rejected;}
-    return this.accept(references,context)?SelectionInputResult.Accepted:SelectionInputResult.Rejected;
-  }
-  private definitionPrompt():string {
-    if(this.status==="committing")return "尺寸正在提交，请等待权威结果";
-    if(this.status==="unknown")return "尺寸结果待确认；查询原提交结果或取消";
-    return this.phase.step==="LINE_PENDING"?"暂定线长：选择第二条平行直线/点改为距离，空白单击放置长度，Enter 锁定长度；Backspace 重选":
-      this.phase.step==="PLACING"?"尺寸定义已冻结：单击放置标注，命中其他几何不会改变定义；Backspace 返回":
-      this.phase.step==="VALUE"?"输入尺寸值或表达式，Enter 创建；Backspace 返回放置，Esc 退出":"线性尺寸：选择点或直线；Backspace 返回上一选择";
-  }
-  activate(context:ToolContext):void{this.publish(context);}
-  private place(context:ToolContext,position:Vec2):void {
-    if(this.phase.step!=="PLACING")return;
-    const value=context.viewport.measureDimension(this.phase.kind,[...this.phase.references]);
-    if(value===undefined||!Number.isFinite(value)){this.error="当前尺寸不可测；定义保持不变，请取消或重新选择";this.publish(context);return;}
-    this.unit=context.viewport.currentLengthUnit?.()??"mm";
-    this.source=formatDimensionValue(dimensionDisplayValue(value,this.unit));this.sourceEdited=false;this.inputGeneration++;
-    this.phase={...this.phase,step:"VALUE",position:[...position],value,constraintId:randomUUID()};this.preview(context);this.publish(context);
-  }
-  pointerDown(event:CadPointerEvent,context:ToolContext):InputResult {
-    if(event.button!==0||this.capturedPointerID!==undefined||event.state.buttons.middle||event.state.buttons.right||!context.viewport.hasActiveSketch())return InputResult.Ignored;
-    if(this.status==="committing"||this.status==="unknown"||this.phase.step==="VALUE")return InputResult.Consumed;
-    if(this.phase.step==="LINE_PENDING"){
-      const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0],ref=>!this.phase.references.some(item=>sameSketchReference(item,ref)));
-      if(reference){if(!this.phase.references.some(item=>sameSketchReference(item,reference))&&this.accept([...this.phase.references,{...reference}],context)){this.capturedPointerID=event.pointerId;return InputResult.Capture;}return InputResult.Consumed;}
-      this.freeze("LENGTH",this.phase.references);
-    }
-    if(this.phase.step==="PLACING"){
-      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Consumed;
-      this.capturedPointerID=event.pointerId;this.anchor=[event.x,event.y];this.cursor=position;this.place(context,position);return InputResult.Capture;
-    }
-    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0],ref=>!this.phase.references.some(item=>sameSketchReference(item,ref)));
-    if(!reference||this.phase.references.some(item=>sameSketchReference(item,reference)))return InputResult.Consumed;
-    if(!this.accept([...this.phase.references,{...reference}],context))return InputResult.Consumed;
-    this.capturedPointerID=event.pointerId;return InputResult.Capture;
-  }
-  pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
-    if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
-    if(this.status==="committing"||this.status==="unknown"||this.phase.step==="VALUE")return InputResult.Consumed;
-    const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(position){this.cursor=position;this.anchor=[event.x,event.y];}
-    if(this.phase.step==="PLACING"){context.viewport.clearReferenceHover?.();if(position)this.preview(context,position);return InputResult.Consumed;}
-    if(this.phase.step==="LINE_PENDING"&&position)this.preview(context,position);
-    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0],ref=>!this.phase.references.some(item=>sameSketchReference(item,ref)));
-    if(reference&&!this.phase.references.some(item=>sameSketchReference(item,reference)))context.viewport.showReferencePreview(reference,this.phase.references);else {context.viewport.clearReferenceHover?.();if(this.phase.step==="SELECTING")this.preview(context);}
-    return InputResult.Consumed;
-  }
-  pointerUp(event:CadPointerEvent):InputResult{if(event.button!==0||event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.capturedPointerID=undefined;return InputResult.ReleaseCapture;}
-  pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult{if(event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
-  private back(context:ToolContext):void {
-    if(this.status==="committing"||this.status==="unknown")return;
-    const phase=this.phase,refs=[...phase.references];this.error=undefined;this.status=undefined;
-    if(phase.step==="VALUE")this.freeze(phase.kind,refs);
-    else if(phase.step==="PLACING")this.phase=refs.length===1&&refs[0].subElement==="WHOLE"?{step:"LINE_PENDING",references:refs}:{step:"SELECTING",references:refs.slice(0,-1)};
-    else this.phase={step:"SELECTING",references:refs.slice(0,-1)};
-    context.viewport.clearReferencePreview();this.preview(context);this.publish(context);
-  }
-  private confirm(context:ToolContext):void {
-    if(this.status==="committing"||this.status==="unknown")return;
-    if(this.phase.step==="LINE_PENDING"){this.freeze("LENGTH",this.phase.references);this.preview(context,this.cursor);this.publish(context);}
-    else if(this.phase.step==="PLACING"&&this.cursor)this.place(context,this.cursor);
-    else if(this.phase.step==="VALUE")this.submit(context);
-  }
-  private submit(context:ToolContext,retry=false):void {
-    if(this.phase.step!=="VALUE"||this.status==="committing"||this.status==="unknown"&&!retry)return;
-    const current=context.viewport.currentSketchIdentity?.();
-    if(!retry&&this.scope&&JSON.stringify(this.scope)!==JSON.stringify(current)){this.error="草图版本或上下文已变，请取消后重新选择";this.publish(context);return;}
-    const phase=this.phase;let operation:SketchOperation;
-    try{operation=dimensionDefinitionOperation({id:phase.constraintId,kind:phase.kind,references:[...phase.references],unit:"mm",value:phase.value,labelPosition:{x:phase.position[0],y:phase.position[1]}},undefined,this.source,"","",false,"ORIGINAL",this.unit);}catch(error){recordDeveloperEvidence("草图编辑失败",error);this.error=engineeringProblem(error);this.publish(context);return;}
-    const owner=JSON.stringify([this.scope?.documentId,this.scope?.sketchId,this.scope?.occurrencePath]);
-    const generation=++this.generation;this.status="committing";this.error=undefined;this.publish(context);
-    void this.session.submit([operation],this.scope?.versionId??current?.versionId??"",async(ops,intent)=>context.viewport.commitSketchOperations(ops,intent)).then(()=>{
-      if(generation!==this.generation)return;const scope=context.viewport.currentSketchIdentity?.();if(owner!==JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath])){this.cancel(context);this.publish(context);return;}this.cancel(context);context.viewport.finishToolUse();
-    },error=>{if(generation!==this.generation)return;const scope=context.viewport.currentSketchIdentity?.();if(owner!==JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath])){this.cancel(context);this.publish(context);return;}this.status=this.session.unknown?"unknown":"failed";recordDeveloperEvidence("草图编辑失败",error);this.error=engineeringProblem(error);this.publish(context);});
-  }
-  commandAction(action:SketchCommandAction,context:ToolContext):void {
-    if(action.type==="placement"&&this.phase.step==="VALUE"&&this.status!=="committing"&&this.status!=="unknown"){
-      const position=context.viewport.sketchPlacementPoint(action.position[0],action.position[1]);
-      if(position){this.phase={...this.phase,position};this.preview(context,position);this.publish(context);}return;
-    }
-    if(action.type==="cancel"){this.cancel(context);context.viewport.finishToolUse(true);return;}
-    if(action.type==="retry"){this.submit(context,true);return;}
-    if(this.status==="committing"||this.status==="unknown")return;
-    if(action.type==="back"){this.back(context);return;}
-    if(action.type==="confirm"){this.confirm(context);return;}
-    if(action.type==="input"&&this.phase.step==="VALUE"){this.inputGeneration++;this.publish(context);return;}
-    if(action.type==="field"&&action.index===0&&this.phase.step==="VALUE"){this.source=action.value;this.sourceEdited=true;this.status=undefined;this.error=undefined;this.publish(context);}
-  }
-  keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {
-    if(event.repeat||event.editableTarget||event.isComposing||event.state?.modifiers.ctrl||event.state?.modifiers.meta||event.state?.modifiers.alt)return InputResult.Ignored;
-    if(event.key==="Escape"){this.cancel(context);return InputResult.Ignored;}
-    if(event.key==="Enter"){this.confirm(context);return InputResult.Consumed;}
-    if(event.key==="Backspace"){this.back(context);return InputResult.Consumed;}
-    if(this.phase.step==="VALUE"&&!this.status&&event.key.length===1&&/[a-zA-Z0-9_.+*/() -]/.test(event.key)){this.source=this.sourceEdited?this.source+event.key:event.key;this.sourceEdited=true;this.publish(context);return InputResult.Consumed;}
-    return InputResult.Ignored;
-  }
-  deactivate(context:ToolContext):void{this.cancel(context);context.viewport.setSketchCommandState?.(undefined);}
-  cancel(context:ToolContext):void{this.generation++;this.phase={step:"SELECTING",references:[]};this.scope=undefined;this.source="";this.status=undefined;this.error=undefined;this.session=new SketchDimensionCommitSession();this.cursor=undefined;this.anchor=undefined;this.capturedPointerID=undefined;context.viewport.clearReferencePreview();}
+  if(this.phase.step==="PLACING"){const p=c.viewport.sketchPlacementPoint(e.x,e.y);if(p){this.cursor=p;this.place(c,p);}return InputResult.Consumed;}
+  const r=c.viewport.sketchReferenceAt(e.x,e.y,"LINEAR_DIMENSION",this.phase.references[0],ref=>!this.phase.references.some(item=>sameSketchReference(item,ref)));if(!r||!this.accept([...this.phase.references,{...r}],c))return InputResult.Consumed;
+  this.capturedPointerID=e.pointerId;return InputResult.Capture;
+ }
+ pointerMove(e:CadPointerEvent,c:ToolContext):InputResult{if(e.state.buttons.middle||e.state.buttons.right)return InputResult.Ignored;const p=c.viewport.sketchPlacementPoint(e.x,e.y);if(p){this.cursor=p;this.anchor=[e.x,e.y];}
+  if(this.phase.step==="PLACING"){c.viewport.clearReferenceHover?.();if(p)this.preview(c,p);return InputResult.Consumed;}
+  if(this.phase.step==="LINE_PENDING"&&p)this.preview(c,p);const r=c.viewport.sketchReferenceAt(e.x,e.y,"LINEAR_DIMENSION",this.phase.references[0],ref=>!this.phase.references.some(item=>sameSketchReference(item,ref)));if(r)c.viewport.showReferencePreview(r,this.phase.references);else c.viewport.clearReferenceHover?.();return InputResult.Consumed;
+ }
+ pointerUp(e:CadPointerEvent):InputResult{if(e.button!==0||e.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.capturedPointerID=undefined;return InputResult.ReleaseCapture;}
+ pointerCancel(_e:CadPointerEvent,c:ToolContext){this.cancel(c);return InputResult.Consumed;}
+ private back(c:ToolContext){const refs=[...this.phase.references];this.phase=this.phase.step==="PLACING"&&refs.length===1&&refs[0].subElement==="WHOLE"?{step:"LINE_PENDING",references:refs}:{step:"SELECTING",references:refs.slice(0,-1)};this.error=undefined;c.viewport.clearReferencePreview();this.preview(c);this.publish(c);}
+ private confirm(c:ToolContext){if(this.phase.step==="LINE_PENDING"){this.freeze("LENGTH",this.phase.references);this.preview(c,this.cursor);this.publish(c);}else if(this.phase.step==="PLACING"&&this.cursor)this.place(c,this.cursor);}
+ commandAction(a:SketchCommandAction,c:ToolContext){if(a.type==="cancel"){this.cancel(c);c.viewport.finishToolUse(true);}else if(a.type==="back")this.back(c);else if(a.type==="confirm")this.confirm(c);}
+ keyDown(e:CadKeyboardEvent,c:ToolContext):InputResult{if(e.repeat||e.editableTarget||e.isComposing||e.state?.modifiers.ctrl||e.state?.modifiers.meta||e.state?.modifiers.alt)return InputResult.Ignored;if(e.key==="Escape"){this.cancel(c);return InputResult.Ignored;}if(e.key==="Enter"){this.confirm(c);return InputResult.Consumed;}if(e.key==="Backspace"){this.back(c);return InputResult.Consumed;}return InputResult.Ignored;}
+ deactivate(c:ToolContext){this.cancel(c);c.viewport.setSketchCommandState?.(undefined);}
+ cancel(c:ToolContext){this.phase={step:"SELECTING",references:[]};this.scope=undefined;this.error=undefined;this.cursor=undefined;this.anchor=undefined;this.capturedPointerID=undefined;c.viewport.clearReferencePreview();}
 }

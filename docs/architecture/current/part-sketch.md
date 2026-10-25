@@ -58,7 +58,7 @@ PlaneGCS 适配器按 `DogLeg → Levenberg-Marquardt → BFGS` 执行确定性�
 
 尺寸保留稳定 ParameterId、Quantity 与 checkedAST 绑定；默认别名为可读的种类编号。统一尺寸定义编辑将引用、值/表达式、名称、停用与驱动/参考模式放入一次 Domain Command。参考尺寸保留原驱动 Source，退出 Solver 与 DoF 计算，解后按当前精确几何重新测量；不可测的约束值和参数 EvaluatedValue 均为空。恢复驱动须显式选择原 Source 或当前测量，不覆盖公式。当前 evaluator 明确拒绝表达式读取参考尺寸，以免形成同一草图的测量—驱动反馈环。
 
-两直线角度在放置时按鼠标区域确定两条有向射线和扫掠方向，`angleSector` 随 Constraint 保存；工具选项可选择反角，原尺寸编辑器提供明确的弧线方向切换。前端测量/绘制、服务端参考测量及既有 PlaneGCS 角度输入转换使用同一语义；反角绘制完整有向弧。普通文字拖动仅更新既有本地排版偏好，不改区域、表达式、几何或模型历史；无 `angleSector` 的原定义保留原角度数值语义。
+两直线角度在放置时按鼠标区域确定两条有向射线和扫掠方向，`angleSector` 随 Constraint 保存；工具选项可选择反角，原尺寸编辑器提供明确的弧线方向切换。前端测量/绘制、服务端参考测量及既有 PlaneGCS 角度输入转换使用同一语义；反角绘制完整有向弧。普通文字拖动仅更新既有本地排版偏好，不改区域、表达式、几何或模型历史；偏好保存相对几何锚点的偏移。点编辑及权威求解导致几何移动时，既有尺寸文字与引线随相同稳定支撑移动，并进入该几何编辑的原 ChangeSet；预览使用同一锚点差，Undo/Redo 与重开恢复一致。无 `angleSector` 的原定义保留原角度数值语义。
 
 
 本地 `OFFSET_ENTITIES` 生成独立 Line/Circle/Arc 精确副本，保留曲线种类、Construction role 及确定性来源/输出身份；支持单元素和由正式连接构成的适用连续链。正距离沿链方向左法向，独立完整圆按逆时针处理；MITER 使用解析支撑曲线交点，ROUND 使用真实圆弧和正式连接。圆/弧半径非正、非法短段、重叠和自交原子拒绝。不复制原驱动关系、不承诺持续偏移关联，也不把椭圆或任意样条的等距曲线折线化。原始几何、驱动尺寸和公式不因偏移创建被修改。
@@ -106,6 +106,8 @@ Sketch support 使用明确的右手框架。默认／自定义基准面保存 `
 ExternalGeometry 与普通 Sketch Entity 分开持久化。每项保存稳定 ExternalId、Edge/Vertex PersistentSelection、source Revision、`ORTHOGONAL` projection kind、resolved source digest、dependency snapshot 和 Worker 生成的二维 Point/Line/Circle/Arc/Ellipse/EllipticalArc snapshot；Constraint 通过 `EXTERNAL + ExternalId + stable sub-element` 引用它。控制面固定按 naming resolver → Worker projection → Sketch solve → downstream Feature 顺序处理，求解边界把外部几何作为内部 fixed geometry 输入 PlaneGCS，但不会把求解结果写回它。`DETACH_EXTERNAL_GEOMETRY` 将当前已连接 snapshot 原子冻结为同 ID 的普通 Construction Entity 并改写引用；Reconnect 只替换 PersistentSelection，保留 ExternalId。显式 ADD/RECONNECT 若无法完成权威投影，会以 `EXTERNAL_GEOMETRY_PROJECTION` 阶段和 Worker 稳定诊断原子拒绝，旧 Head 不变；只有先前已连接的来源因上游更新而缺失、歧义、类型变化或投影退化时，才清除旧 snapshot、列出受影响 constraint/profile/downstream Feature 并提交可检查、可 Reconnect 的 FAILED Revision。FAILED Revision 不得把 dependency snapshot 的上游 prefix geometry key 冒充自己的最终制品；读取时只生成与当前模型 Manifest 匹配的诊断可视化，因此失败状态仍可继续检查和编辑。圆与椭圆 Edge 使用 Naming 中的精确半径、轴、X 方向和参数区间做正交投影：修剪区间保留为 Arc/EllipticalArc，斜投影圆得到精确椭圆，反向框架保留同一修剪轨迹；侧向退化的圆锥曲线用包含内部极值的线段表示。圆心是同 ExternalId 的 CENTER 子元素，支持显示、捕获和约束，不另建持久 Point。面边界组、Section、Silhouette 和一般 BSpline 投影未交付；当前精确修剪圆/椭圆弧投影不能被列为待实现。
 
 草图投影工具通过统一选择输入接收结构树与视图区的原点、标准轴、基准轴、实体边和顶点；仅接受当前编辑文档、Revision 与 occurrence。启动/退出工具时刷新基准显示，投影期间临时显示当前 occurrence 的基准，退出恢复普通草图显示。普通草图拾取策略不扩大。
+
+投影支持视图区 Delete 和结构树删除，复用 `DELETE_ENTITIES` / `DELETE_NODE(S)`；只删除当前 Sketch 的 ExternalGeometry 定义及其草图内依赖关系/尺寸，不删除来源几何。失败投影同样可从树删除，无须先恢复旧快照。尺寸参数生命周期、跨参数依赖校验、原子提交及 Undo/Redo 沿现有链路，不能通过删除投影绕过依赖保护。入口见 `sketch_geometry_edit.go` 与 `sketch_followup_integration_test.go`。
 
 原点、标准轴和基准轴投影在同一 ExternalGeometry 中保存 DatumReference，复用 ProjectExternalGeometry RPC。方向斜投生成无限支撑线，垂直于草图面时生成点；有限直线实体边保留真实参数域；垂直投影生成关联 Point，PersistentSelection 仍是原 EDGE，零长度/非法方向源仍拒绝。方向快照的两个点仅编码规范单位方向，不是边长或可拾取端点；视图区按屏幕长度显示，约束/捕捉不提供伪端点、中点、长度或相等关系，也不能将轴断开成任意有限线段。角度/高度更新后重新解析方向与二维快照。创建与重连要求当前所有者 Revision；跨 occurrence 输入由同一选择上下文门禁拒绝。
 

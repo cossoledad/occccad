@@ -21,8 +21,8 @@ type UIPreferences = {
   sceneSettings:SceneSettings;
   creationDefaults:CreationDefaults;
   applyGlobalOptions:(options:GlobalOptionsSnapshot)=>void;
-  sketchLabelPositions: Record<string, {x:number;y:number}>;
-  setSketchLabelPosition: (documentId:string, sketchId:string, constraintId:string, position:{x:number;y:number}) => void;
+  sketchLabelPositions: Record<string, {x:number;y:number;anchor?:{x:number;y:number}}>;
+  setSketchLabelPosition: (documentId:string, sketchId:string, constraintId:string, position:{x:number;y:number},anchor?:{x:number;y:number}) => void;
   gridVisibility: GridVisibility;
   setGridVisibility: (value: GridVisibility) => void;
   referenceVisibility: ReferenceVisibility;
@@ -98,9 +98,9 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
     solidDisplay:normalizeSolidDisplaySettings(value.solidDisplay),referenceVisibility:normalizeReferenceVisibility(value.referenceVisibility),
     gridVisibility:normalizeGridVisibility(value.gridVisibility),captureSettings:normalizeCaptureSettings(value.captureSettings),displayLengthUnit:normalizeDisplayLengthUnit(value.displayLengthUnit)}),
   sketchLabelPositions: {},
-  setSketchLabelPosition: (documentId,sketchId,constraintId,position) => {
+  setSketchLabelPosition: (documentId,sketchId,constraintId,position,anchor) => {
     if(!documentId||!sketchId||!constraintId||!Number.isFinite(position.x)||!Number.isFinite(position.y))return;
-    set(state=>({sketchLabelPositions:{...state.sketchLabelPositions,[sketchLabelPositionKey(documentId,sketchId,constraintId)]:{...position}}}));
+    set(state=>({sketchLabelPositions:{...state.sketchLabelPositions,[sketchLabelPositionKey(documentId,sketchId,constraintId)]:{...position,...(anchor?{anchor}:{} )}}}));
   },
   gridVisibility: {...DEFAULT_GRID_VISIBILITY},
   setGridVisibility: value => set({gridVisibility:normalizeGridVisibility(value)}),

@@ -188,10 +188,15 @@ try{
   Object.assign(dimensionSession,{sketchView:()=>fixture,sketchPlane:"XY",selectionIndex:new SelectionIndex(),selectable:new Map(),materials:new CadMaterialFactory(new CadShaderLibrary()),renderer:{domElement:{clientWidth:800,clientHeight:600}}});
   dimensionSession.dimensionDrag={selection:{id:"label",featureId:"sketch"},constraint:driver,position:[3,4],scopeKey:"changed-revision"};dimensionSession.finishDimensionDrag();
   assert.equal(placementCommits.length,0,"label drag never sends a domain operation or modifies Undo/Redo");
-  assert.deepEqual(useUIPreferences.getState().sketchLabelPositions[sketchLabelPositionKey('part','sketch','driver')],{x:3,y:4});
+  const placement=useUIPreferences.getState().sketchLabelPositions[sketchLabelPositionKey('part','sketch','driver')];assert.equal(placement.x,3);assert.equal(placement.y,4);assert(placement.anchor,'manual layout retains its geometry anchor');
   assert.equal(driver.labelPosition,undefined,"display movement cannot mutate authoritative model");
   assert.deepEqual(dimensionSession.displaySketchConstraint('part','sketch',driver).labelPosition,{x:3,y:4},"position survives ordinary display/model refresh");
   assert.equal(dimensionSession.displaySketchConstraint('other','sketch',driver).labelPosition,undefined,"display positions are owner scoped");
+  const movedLine=fixture.part.features[0].sketch.entities[0];for(const p of [movedLine.start,movedLine.end]){p.x+=20;p.y+=30;}
+  assert.deepEqual(dimensionSession.displaySketchConstraint('part','sketch',driver).labelPosition,{x:23,y:34},'manual layout follows reference movement');
+  for(const p of [movedLine.start,movedLine.end]){p.x-=20;p.y-=30;}
+  assert.deepEqual(dimensionSession.displaySketchConstraint('part','sketch',driver).labelPosition,{x:3,y:4},'undoing reference movement restores manual layout');
+
   dimensionSession.activeSketchID="sketch";dimensionSession.dimensionConstraintAt=()=>({selection:{featureId:"sketch",constraintId:"unmeasurable"},constraint:{id:"unmeasurable",reference:true,unit:"mm"}});
   let unavailableDimensionEdited=false;dimensionSession.requestDimensionEdit=()=>{unavailableDimensionEdited=true;return true;};assert.equal(dimensionSession.editDimensionAt(5,6),true);assert(unavailableDimensionEdited,"unmeasurable reference remains editable for reference replacement and restoration");
 

@@ -48,7 +48,7 @@ export class SketchColorAdapter {
       const convert=(value:number)=>{const role=this.roles.get(value);return role?colors[role]:value;};
       if("color" in m&&m.color instanceof THREE.Color)m.color.setHex(convert(m.color.getHex()));
       for(const key of ["baseColor","dimensionDiagnosticColor"])if(typeof m.userData[key]==="number")m.userData[key]=convert(m.userData[key]);
-      if(m instanceof THREE.ShaderMaterial)for(const key of ["uColor","uSelectedColor","uHaloColor"]){const value=m.uniforms[key]?.value;if(value instanceof THREE.Color)value.setHex(convert(value.getHex()));}
+      if(m instanceof THREE.ShaderMaterial)for(const key of ["uColor","uSelectedColor","uCenterColor"]){const value=m.uniforms[key]?.value;if(value instanceof THREE.Color)value.setHex(convert(value.getHex()));}
       this.applied.set(m,colors);
     }
   }
