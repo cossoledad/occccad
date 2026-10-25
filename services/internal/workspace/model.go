@@ -329,7 +329,19 @@ type SketchGeometryRef struct {
 	ControlPointIndex *int   `json:"controlPointIndex,omitempty"`
 	ControlPointID    string `json:"controlPointId,omitempty"`
 }
+
+// SketchPointCapture is command input, expanded into ordinary constraints.
+type SketchPointCapture struct {
+	Kind       string              `json:"kind"`
+	References []SketchGeometryRef `json:"references"`
+}
+type SketchAngleSector struct {
+	FirstReversed  bool `json:"firstReversed"`
+	SecondReversed bool `json:"secondReversed"`
+	Clockwise      bool `json:"clockwise"`
+}
 type SketchConstraint struct {
+	AngleSector    *SketchAngleSector  `json:"angleSector,omitempty"`
 	Name           string              `json:"name,omitempty"`
 	SelfMirrorMode string              `json:"selfMirrorMode,omitempty"`
 	ID             string              `json:"id"`
@@ -388,6 +400,8 @@ type SketchOperation struct {
 	Value                       *float64                         `json:"value,omitempty"`
 	First                       *SketchPoint2                    `json:"first,omitempty"`
 	Second                      *SketchPoint2                    `json:"second,omitempty"`
+	FirstCapture                *SketchPointCapture              `json:"firstCapture,omitempty"`
+	SecondCapture               *SketchPointCapture              `json:"secondCapture,omitempty"`
 	FirstReference              *SketchGeometryRef               `json:"firstReference,omitempty"`
 	SecondReference             *SketchGeometryRef               `json:"secondReference,omitempty"`
 	EntityID                    string                           `json:"entityId,omitempty"`

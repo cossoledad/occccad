@@ -18,11 +18,12 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
   kind: SketchReferencePickKind, thresholdPixels = 12, axisExtent: number | Vec2 = 110, retained?: SketchGeometryRef, allowed?: (reference:SketchGeometryRef)=>boolean): SketchGeometryRef | null {
   const mode = kind;
   const [extentX, extentY] = typeof axisExtent === "number" ? [axisExtent, axisExtent] : axisExtent;
-  let best: { distance: number; priority: number; reference: SketchGeometryRef } | undefined;
+  const candidates:Array<{distance:number;priority:number;reference:SketchGeometryRef}>=[];
+  const same=(a:SketchGeometryRef,b:SketchGeometryRef)=>a.target===b.target&&a.entityId===b.entityId&&a.subElement===b.subElement&&a.controlPointId===b.controlPointId&&a.controlPointIndex===b.controlPointIndex;
   const consider = (distance: number, reference: SketchGeometryRef, priority = 0) => {
-    if (distance >= thresholdPixels || allowed&&!allowed(reference)) return;
-    if (!best || distance < best.distance - 1.5 || (Math.abs(distance-best.distance)<=1.5&&priority>best.priority))
-      best = { distance, priority, reference };
+    if (distance >= thresholdPixels || allowed&&!allowed(reference) || retained&&same(reference,retained)) return;
+    const point=["POINT","START","END","CENTER","CONTROL"].includes(reference.subElement);
+    candidates.push({distance,priority:priority+(point?1000:0),reference});
   };
   if (mode === "POINT" || mode === "LINEAR_DIMENSION" || mode === "SYMMETRY_CENTER") {
     const origin = project([0, 0]);
@@ -126,7 +127,10 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
     if (extentY > 0) consider(segmentDistance(cursor, project([0, -extentY]), project([0, extentY])),
       { target: "SKETCH_Y_AXIS", subElement: "DIRECTION" });
   }
-  return best?.reference ?? null;
+  candidates.sort((a,b)=>Math.floor(b.priority/1000)-Math.floor(a.priority/1000)||
+    Math.floor(a.distance/1.5)-Math.floor(b.distance/1.5)||b.priority-a.priority||a.distance-b.distance||
+    JSON.stringify(a.reference).localeCompare(JSON.stringify(b.reference)));
+  return candidates[0]?.reference ?? null;
 }
 
 // Whole-object preselection has no cursor intent: never invent a line endpoint

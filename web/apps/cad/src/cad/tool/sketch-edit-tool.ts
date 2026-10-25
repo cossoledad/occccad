@@ -3,7 +3,7 @@ import {recordDeveloperEvidence} from "../command/developer-evidence";
 import { constraintDefinition } from "../sketch/sketch-constraint-definition";
 import { buildSketchConstraintLayout } from "../sketch/sketch-constraint-layout";
 import { cornerClickIntent, directLengthInput, type DirectEditInput } from "./sketch-direct-input";
-import { buildSketchEditPreview, localIntersections, type SketchEditCandidatePreview } from "../sketch/sketch-edit-preview";
+import { buildSketchEditPreview, type SketchEditCandidatePreview } from "../sketch/sketch-edit-preview";
 import { sketchCommitResultUnknown, type SketchCommandAction, type SketchCommandState, type SketchCommandPhase } from "./sketch-command-session";
 import type {SelectionItem,SketchConstraint,SketchEntity,SketchGeometryRef,SketchOperation,SketchPoint2,Vec2} from "../../types";
 import {SelectionInputResult,InputResult,type SelectionInputSource,type CadKeyboardEvent,type CadPointerEvent} from "../input/input-types";
@@ -89,7 +89,6 @@ export function resolveSplitLocation(entity:SketchEntity,raw:Vec2,entities:reado
   for(const other of entities){if(other.id===entity.id||other.suppressed)continue;const target=localIds&&!localIds.has(other.id)?"EXTERNAL":"ENTITY";
     if(other.kind==="POINT"&&other.point){const p:Vec2=[other.point.x,other.point.y],t=selectedCurveParameter(entity,p),q=t===undefined?undefined:curvePoint(entity,t);if(t!==undefined&&t>=0&&t<1&&q&&Math.hypot(q[0]-p[0],q[1]-p[1])<=1e-6)offer(p,{target,entityId:other.id,subElement:"POINT"},2);}
     for(const subElement of ["START","END"] as const){if(["CIRCLE","ELLIPSE","POINT"].includes(other.kind)||other.closed)continue;const p=curvePoint(other,subElement==="START"?0:1);if(!p)continue;const t=selectedCurveParameter(entity,p),q=t===undefined?undefined:curvePoint(entity,t);if(t!==undefined&&t>=0&&t<=1&&q&&Math.hypot(q[0]-p[0],q[1]-p[1])<=1e-6)offer(p,{target,entityId:other.id,subElement,pointId:subElement==="START"?other.startPointId:other.endPointId},2);}
-    try {for(const t of localIntersections(entity,[other])){const p=curvePoint(entity,t);if(p)offer(p,{target,entityId:other.id,subElement:"WHOLE"},1);}}catch{/* Other exact combinations retain endpoint snapping and server validation. */}
   }
   return best?{point:best.point,reference:best.reference}:{point:base};
 }
@@ -372,7 +371,9 @@ export class SketchEditTool implements CadTool{
     const reference=context.viewport.sketchReferenceAt(event.x,event.y,"CURVE",undefined,ref=>ref.target==="ENTITY"&&(context.viewport.currentSketchEntities?.()??[]).some(e=>e.id===ref.entityId&&e.kind!=="POINT"&&(!this.selected.size||this.selected.has(e.id))));
     const entity=reference?.entityId&&(context.viewport.currentSketchEntities?.()??[]).find(e=>e.id===reference.entityId);
     if(!entity||!target)return;
-    const snap=resolveSplitLocation(entity,target,context.viewport.currentSketchReferenceEntities?.()??context.viewport.currentSketchEntities?.()??[],p=>context.viewport.projectSketchPoint?.(p)??p,new Set((context.viewport.currentSketchEntities?.()??[]).map(e=>e.id)));
+    let snap=resolveSplitLocation(entity,target,context.viewport.currentSketchReferenceEntities?.()??context.viewport.currentSketchEntities?.()??[],p=>context.viewport.projectSketchPoint?.(p)??p,new Set((context.viewport.currentSketchEntities?.()??[]).map(e=>e.id)));
+    const intersection=context.viewport.sketchIntersectionAt?.(event.x,event.y,[entity.id]);
+    if(intersection){const index=intersection.references.findIndex(r=>r.entityId===entity.id);if(index>=0)snap={point:intersection.point,reference:intersection.references[1-index]};}
     const parameter=selectedCurveParameter(entity,snap.point);if(parameter===undefined||!Number.isFinite(parameter))return;
     const periodic=entity.kind==="CIRCLE"||entity.kind==="ELLIPSE"||entity.kind==="SPLINE"&&entity.closed;
     if(direct.first&&direct.first.entityId!==entity.id){this.error="第二个分割位置必须在同一条闭合曲线上";this.publishDirect(context);return;}

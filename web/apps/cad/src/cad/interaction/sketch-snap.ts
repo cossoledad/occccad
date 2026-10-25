@@ -3,9 +3,10 @@ import type { SketchEntity, Vec2 } from "../../types";
 import type { SketchSnapCaptureKind } from "./capture-settings";
 import { sampleSketchEntity, splineEditablePoints, splineEditablePointIDs } from "../sketch/sketch-geometry";
 
-export type SketchSnapKind = "ORIGIN" | "POINT" | "ENDPOINT" | "CENTER" | "MIDPOINT" | "CURVE" | "GRID";
+export type SketchSnapKind = "ORIGIN" | "POINT" | "ENDPOINT" | "CENTER" | "MIDPOINT" | "CURVE" | "INTERSECTION" | "GRID";
 
 export type SketchSnapResult = {
+  intersection?:import("./sketch-intersections").SketchIntersection;
   draftPointIndex?: number;
   point: Vec2;
   kind: SketchSnapKind;
@@ -41,7 +42,7 @@ function projectToCurve(point: Vec2, sampled: Vec2[]): Vec2 | undefined {
 
 export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPerUnit: number,
   gridSpacing = 10, thresholdPixels = 11,
-  enabled: readonly SketchSnapCaptureKind[] = ["GRID", "ORIGIN", "POINT", "ENDPOINT", "CENTER", "MIDPOINT", "CURVE"],
+  enabled: readonly SketchSnapCaptureKind[] = ["GRID", "ORIGIN", "POINT", "ENDPOINT", "CENTER", "MIDPOINT", "INTERSECTION", "CURVE"],
   project?: (point: Vec2) => Vec2, draftPoints: readonly Vec2[] = []): SketchSnapResult | undefined {
   const scale = Math.max(pixelsPerUnit, 1.0e-6);
   const candidates: Candidate[] = [];
@@ -83,12 +84,12 @@ export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPer
       }
     }
     if (enabled.includes("CENTER") && entity.center) offer([entity.center.x, entity.center.y], "CENTER", 520, entity.id, "CENTER", 13);
-    if (enabled.includes("MIDPOINT") && !closed) {
+    if (enabled.includes("MIDPOINT") && entity.kind==="LINE") {
       const position = (sampled.length - 1) / 2, lower = Math.floor(position), upper = Math.ceil(position), blend = position - lower;
       offer([sampled[lower][0] * (1 - blend) + sampled[upper][0] * blend,
         sampled[lower][1] * (1 - blend) + sampled[upper][1] * blend], "MIDPOINT", 420, entity.id, "DIRECTION");
     }
-    const projected = enabled.includes("CURVE") ? projectToCurve(raw, sampled) : undefined;
+    const projected = enabled.includes("CURVE") && ["LINE","CIRCLE","ARC","ELLIPSE","ELLIPTICAL_ARC"].includes(entity.kind) ? projectToCurve(raw, sampled) : undefined;
     if (projected) offer(projected, "CURVE", 300, entity.id, "DIRECTION", 8);
   }
 

@@ -34,7 +34,9 @@ try {
   const ref = id => ({ target: "ENTITY", entityId: id, subElement: "WHOLE" });
   assert.equal(resolveSketchReference({ x: 30, y: 50 }, [ellipse], project, "TANGENT_CURVE", 1, 0, ref("e")), null, "ellipse/ellipse tangent excluded");
   const circular = { id: "c", kind: "CIRCLE", role: "PROFILE", center: { x: 30, y: 40 }, radius: 10 };
-  assert.equal(resolveSketchReference({ x: 30, y: 50 }, [ellipse, circular], project, "EQUAL_CURVE", 1, 0, ref("e")).entityId, "e", "equal half axes excludes circles");
+  assert.equal(resolveSketchReference({ x: 30, y: 50 }, [ellipse, circular], project, "EQUAL_CURVE", 1, 0, ref("e")), null, "accepted ellipse is excluded before ranking");
+  const retainedEllipse={...ellipse,id:"retained",center:{x:300,y:400}};
+  assert.equal(resolveSketchReference({ x: 30, y: 50 }, [ellipse,circular,retainedEllipse], project, "EQUAL_CURVE", 1, 0, ref("retained")).entityId, "e", "equal half axes excludes circles");
   assert.equal(resolveSketchReference({ x: 40, y: 40 }, [ellipse, circular], project, "CENTER_CURVE", 1, 0).entityId, "c");
   assert.equal(resolveSketchSnap([30, 50], [ellipse], 1, 10, 1, ["ENDPOINT"]), undefined);
   assert.equal(resolveSketchSnap(arcSample[0], [arc], 1, 10, 1, ["ENDPOINT"]).subElement, "START");

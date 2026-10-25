@@ -61,8 +61,32 @@ func applySketchPolygon(sketch *SketchFeature, op SketchOperation) error {
 		add("midpoint-radius-center", "COINCIDENT", []SketchGeometryRef{ref(midpointID, "START"), ref(circleID, "CENTER")}, nil)
 		add("midpoint-radius-normal", "PERPENDICULAR", []SketchGeometryRef{ref(midpointID, "WHOLE"), ref(ids[0], "WHOLE")}, nil)
 	}
-	if op.FirstReference != nil {
-		add("center-connection", "COINCIDENT", []SketchGeometryRef{ref(circleID, "CENTER"), *op.FirstReference}, nil)
+	captured, err := pointCaptureOperations(macroID(op.OperationID, "center-connection"), ref(circleID, "CENTER"), op.FirstCapture, op.FirstReference)
+	if err != nil {
+		return err
 	}
+	ops = append(ops, captured...)
+
 	return applySketchOperationsCandidate(sketch, ops)
+}
+
+func pointCaptureOperations(id string, point SketchGeometryRef, capture *SketchPointCapture, legacy *SketchGeometryRef) ([]SketchOperation, error) {
+	if capture == nil {
+		if legacy == nil {
+			return nil, nil
+		}
+		capture = &SketchPointCapture{Kind: "COINCIDENT", References: []SketchGeometryRef{*legacy}}
+	}
+	if (capture.Kind != "COINCIDENT" && capture.Kind != "MIDPOINT" && capture.Kind != "POINT_ON_OBJECT") || len(capture.References) < 1 || len(capture.References) > 2 {
+		return nil, fmt.Errorf("%w: invalid point capture relationship", ErrValidation)
+	}
+	result := []SketchOperation{}
+	for i, r := range capture.References {
+		kind := capture.Kind
+		if kind == "POINT_ON_OBJECT" && r.SubElement != "WHOLE" && r.SubElement != "DIRECTION" {
+			kind = "COINCIDENT"
+		}
+		result = append(result, SketchOperation{Type: "ADD_CONSTRAINT", Constraint: &SketchConstraint{ID: macroID(id, fmt.Sprintf("%d", i)), Kind: kind, References: []SketchGeometryRef{point, r}}})
+	}
+	return result, nil
 }

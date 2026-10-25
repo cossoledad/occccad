@@ -19,7 +19,7 @@ import {sketchEntityPoint,splineEditablePointIDs,splineEditablePoints} from "./s
 import { randomUUID } from "../../utils/random-uuid";
 
 export type DimensionRequest = { mode:"edit"; featureId:string; constraintId:string; value?:number; unit:"mm"|"deg"; x:number;y:number }
- | { mode:"create"; featureId:string; kind:SketchConstraint["kind"]; references:SketchGeometryRef[]; labelPosition:Vec2; value:number; unit:"mm"|"deg";x:number;y:number };
+ | { mode:"create"; featureId:string; kind:SketchConstraint["kind"];angleSector?:SketchConstraint["angleSector"]; references:SketchGeometryRef[]; labelPosition:Vec2; value:number; unit:"mm"|"deg";x:number;y:number };
 export function dimensionSourceInput(source:string,unit:string):string {
  const parsed=parseParameterSource(source,unit);
  if(parsed.kind==="EXPRESSION") { if(!parsed.expression)throw new CommandInputError("请输入尺寸值或表达式");return parsed.expression; }
@@ -61,7 +61,7 @@ export function referenceMatches(a:SketchGeometryRef,b:SketchGeometryRef):boolea
  return a.controlPointIndex===b.controlPointIndex;
 }
 export function validReferenceReplacement(constraint:SketchConstraint,slot:number,candidate:SketchGeometryRef,entities:SketchEntity[]):boolean {
- return constraintReferenceChoices(constraint,slot,entities).some(choice=>referenceMatches(choice,candidate));
+ return !constraint.references.some((ref,index)=>index!==slot&&referenceMatches(ref,candidate))&&constraintReferenceChoices(constraint,slot,entities).some(choice=>referenceMatches(choice,candidate));
 }
 const entityLabels:Record<SketchEntity["kind"],string>={POINT:"点",LINE:"直线",CIRCLE:"圆",ARC:"圆弧",ELLIPSE:"椭圆",ELLIPTICAL_ARC:"椭圆弧",SPLINE:"样条"};
 const roleLabels:Record<SketchGeometryRef["subElement"],string>={POINT:"点",START:"起点",END:"终点",CENTER:"中心",CONTROL:"编辑点",WHOLE:"整体",DIRECTION:"方向"};
@@ -100,6 +100,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
  const [reference,setReference]=useState(original?.reference??false);
  const hasOriginal=!!parameter?.source.literal||!!parameter?.source.expression||!!parameter?.source.external;
  const [restore,setRestore]=useState<"ORIGINAL"|"MEASUREMENT">(hasOriginal?"ORIGINAL":"MEASUREMENT");
+ const [angleSector,setAngleSector]=useState(original?.angleSector??(request.mode==="create"?request.angleSector:undefined));
  const [references,setReferences]=useState(original?.references??(request.mode==="create"?request.references:[]));
  const [suppressed,setSuppressed]=useState(original?.suppressed??false);
  const [previewConstraintID]=useState(()=>request.mode==="edit"?request.constraintId:randomUUID());
@@ -107,8 +108,8 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
  const [unknown,setUnknown]=useState(false);
  const [deleting,setDeleting]=useState(false),[selecting,setSelecting]=useState<number>(),[pending,setPending]=useState(false);
  const readonly=!!parameter?.source.external;
- const draft={...(original??{id:"candidate",kind}),references};
- const measured=measureSketchDimension(kind,references,sketch?.entities??[]);
+ const draft={...(original??{id:"candidate",kind}),references,angleSector};
+ const measured=measureSketchDimension(kind,references,sketch?.entities??[],angleSector);
  const measurement=measured!==undefined&&Number.isFinite(measured)?measured:undefined;
  const current=useRef({view,references,draft,sketch,onHighlightReference});
  current.current={view,references,draft,sketch,onHighlightReference};
@@ -146,13 +147,13 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
   if(pending||unknown||deleting||selecting!==undefined)return ()=>abort.abort();
   const timer=setTimeout(()=>{
    try {
-    const constraint:SketchConstraint=original?{...original,references,reference,suppressed}:{id:previewConstraintID,kind,references,reference,unit:request.unit,value:request.value,labelPosition:request.mode==="create"?{x:request.labelPosition[0],y:request.labelPosition[1]}:undefined};
+    const constraint:SketchConstraint=original?{...original,references,angleSector,reference,suppressed}:{id:previewConstraintID,kind,references,angleSector,reference,unit:request.unit,value:request.value,labelPosition:request.mode==="create"?{x:request.labelPosition[0],y:request.labelPosition[1]}:undefined};
     const operation=logical&&original?logicalDefinitionOperation(original,references,suppressed):dimensionDefinitionOperation(constraint,original,source,initialSource,name,readonly,restore,inputUnit);
     void previewPort.current!([operation],abort.signal).then(()=>{if(!abort.signal.aborted)setPreviewError(undefined);},error=>{if(!abort.signal.aborted)setPreviewError(error instanceof Error?error.message:String(error));});
    } catch {setPreviewError(undefined);}
   },180);
   return ()=>{clearTimeout(timer);abort.abort();};
- },[source,name,reference,references,suppressed,restore,pending,unknown,deleting,selecting]);
+ },[source,name,reference,references,angleSector,suppressed,restore,pending,unknown,deleting,selecting]);
  const close=()=>{if(session.current!.active){cancelSelection();return;}if(!pending)onClose();};
  const submit=async()=>{
   if(session.current!.active||pending)return;
@@ -163,7 +164,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
    if(deleting&&original){await commit([{type:"DELETE_CONSTRAINT",constraintId:original.id}]);onClose();return;}
    if(logical&&original){await commit([logicalDefinitionOperation(original,references,suppressed)]);onClose();return;}
    if(name&&!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))throw new CommandInputError("名称须使用字母、数字和下划线，并以字母或下划线开头");
-   const constraint:SketchConstraint=original?{...original,references,reference,suppressed}:{id:randomUUID(),kind,references,reference,unit:request.unit,value:request.value,labelPosition:request.mode==="create"?{x:request.labelPosition[0],y:request.labelPosition[1]}:undefined};
+   const constraint:SketchConstraint=original?{...original,references,angleSector,reference,suppressed}:{id:randomUUID(),kind,references,angleSector,reference,unit:request.unit,value:request.value,labelPosition:request.mode==="create"?{x:request.labelPosition[0],y:request.labelPosition[1]}:undefined};
    await commit([dimensionDefinitionOperation(constraint,original,source,initialSource,name,readonly,restore,inputUnit)]);onClose();
   }finally{setUnknown(commitSession.current.unknown);setPending(false);}
  };
@@ -177,6 +178,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
     <Input autoFocus aria-label="尺寸值或表达式" value={source} disabled={pending||unknown||reference||readonly}
      onFocus={e=>selectInitialDimensionValue(e.currentTarget,valueFocused)} onChange={e=>setSource(e.target.value)}/>
    </CommandFormItem>}
+   {kind==="ANGLE"&&angleSector&&<CommandFormItem label="弧线方向" layout="horizontal"><Select aria-label="弧线方向" value={angleSector.clockwise?"CW":"CCW"} options={[{value:"CCW",label:"逆时针"},{value:"CW",label:"顺时针"}]} onChange={v=>{const next={...angleSector,clockwise:v==="CW"};setAngleSector(next);if(!parameter?.source.expression){const measured=measureSketchDimension(kind,references,sketch?.entities??[],next);if(measured!==undefined)setSource(String(measured));}}}/></CommandFormItem>}
    {!logical&&<CommandFormItem className="sketch-dimension-name" label="名称" layout="horizontal">
     <Input disabled={pending||unknown} aria-label="尺寸名称" value={name} placeholder="可选参数名称" onChange={e=>setName(e.target.value)}/>
    </CommandFormItem>}

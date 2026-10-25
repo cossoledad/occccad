@@ -1,3 +1,4 @@
+import {sketchAngleSweep} from "./sketch-angle";
 import type { SketchConstraint, SketchEntity, SketchGeometryRef, Vec2 } from "../../types";
 import { ellipsePoint, sampleSketchEntity, sketchEntityPoint, splineReferencePoint } from "./sketch-geometry";
 import { constraintDefinition } from "./sketch-constraint-definition";
@@ -106,7 +107,7 @@ function lineIntersection(first: [Vec2, Vec2], second: [Vec2, Vec2]): Vec2 {
 }
 
 export function measureSketchDimension(kind: SketchConstraint["kind"], references: readonly SketchGeometryRef[],
-  sketchEntities: readonly SketchEntity[]): number | undefined {
+  sketchEntities: readonly SketchEntity[], angleSector?:SketchConstraint["angleSector"]): number | undefined {
   const entities = new Map(sketchEntities.map((entity) => [entity.id, entity]));
   if (kind === "HORIZONTAL_DISTANCE" || kind === "VERTICAL_DISTANCE") {
     const a = references[0] ? sketchReferencePoint(references[0], entities) : undefined;
@@ -145,7 +146,7 @@ export function measureSketchDimension(kind: SketchConstraint["kind"], reference
     const second = references[1] ? linePoints(references[1], entities) : undefined;
     if (first && second) {
       const a = normalize(sub(first[1], first[0])), b = normalize(sub(second[1], second[0]));
-      return Math.acos(Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1]))) * 180 / Math.PI;
+      return angleSector?sketchAngleSweep(a,b,angleSector).degrees:Math.acos(Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1]))) * 180 / Math.PI;
     }
   }
   return undefined;
@@ -218,16 +219,12 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
       const origin = lineIntersection(first, second);
       const placement = constraint.labelPosition ? [constraint.labelPosition.x, constraint.labelPosition.y] as Vec2 : undefined;
       let a = normalize(sub(first[1], first[0])), b = normalize(sub(second[1], second[0]));
-      if (placement) {
-        const towardLabel=normalize(sub(placement,origin));
-        if(a[0]*towardLabel[0]+a[1]*towardLabel[1]<0)a=scale(a,-1);
-        if(b[0]*towardLabel[0]+b[1]*towardLabel[1]<0)b=scale(b,-1);
-      }
-      let firstAngle = Math.atan2(a[1], a[0]), secondAngle = Math.atan2(b[1], b[0]);
-      while (secondAngle < firstAngle) secondAngle += Math.PI * 2;
-      if (secondAngle - firstAngle > Math.PI) [firstAngle, secondAngle] = [secondAngle, firstAngle + Math.PI * 2];
+      const sector=constraint.angleSector;
+      let firstAngle=Math.atan2(a[1],a[0]),sweep=Math.atan2(a[0]*b[1]-a[1]*b[0],a[0]*b[0]+a[1]*b[1]);
+      if(sector){const arc=sketchAngleSweep(a,b,sector);firstAngle=arc.start;sweep=arc.sweep;}
+      const secondAngle=firstAngle+sweep;
       const radius = placement ? Math.max(6, Math.hypot(...sub(placement, origin)) - 4) : 14;
-      const arc = Array.from({ length: 13 }, (_, index) => firstAngle + (secondAngle - firstAngle) * index / 12)
+      const arc = Array.from({ length: 65 }, (_, index) => firstAngle + (secondAngle - firstAngle) * index / 64)
         .map((angle) => add(origin, [Math.cos(angle) * radius, Math.sin(angle) * radius]));
       segments.push([origin, arc[0]], [origin, arc.at(-1)!]);
       for (let index = 1; index < arc.length; index++) segments.push([arc[index - 1], arc[index]]);

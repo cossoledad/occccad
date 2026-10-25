@@ -249,6 +249,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/documents/{documentID}/topology-properties", server.topologyProperties)
 	mux.HandleFunc("POST /api/documents/{documentID}/feature-input", server.featureInput)
 	mux.HandleFunc("POST /api/documents/{documentID}/boolean-regions", server.booleanRegions)
+	mux.HandleFunc("POST /api/documents/{documentID}/sketch-intersections", server.sketchIntersections)
 	mux.HandleFunc("POST /api/documents/{documentID}/persistent-selections/bind", server.bindPersistentSelection)
 	mux.HandleFunc("POST /api/documents/{documentID}/persistent-selections/resolve", server.resolvePersistentSelection)
 	mux.HandleFunc("POST /api/documents/{documentID}/resolved-topology-properties", server.resolvedTopologyProperties)
@@ -1351,6 +1352,22 @@ func (server *Server) booleanRegions(writer http.ResponseWriter, request *http.R
 	}
 	input.ActorID = principal(request).ID
 	result, err := server.workspace.AnalyzeBooleanRegions(request.Context(), request.PathValue("documentID"), input)
+	if err != nil {
+		writeTopologySelectionError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) sketchIntersections(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	var input workspace.SketchIntersectionsRequest
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	result, err := server.workspace.SketchIntersections(request.Context(), request.PathValue("documentID"), input)
 	if err != nil {
 		writeTopologySelectionError(writer, err)
 		return

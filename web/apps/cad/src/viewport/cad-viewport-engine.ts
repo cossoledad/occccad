@@ -1,3 +1,6 @@
+import {SketchIntersectionTool} from "../cad/tool/sketch-intersection-tool";
+import {SketchIntersectionCache} from "../cad/interaction/sketch-intersections";
+import type {CapturedSketchReference} from "../cad/sketch/sketch-point-capture";
 import {faceOutlineSegments} from "../cad/rendering/face-outline";
 import {frameDocuments} from "./display-receipt";
 import { ScenePresentation } from "../cad/rendering/scene-presentation";
@@ -103,12 +106,13 @@ type Callbacks = {
   sketchCommandChanged?: (state:SketchCommandState|undefined)=>void;
   sketchReceiptChanged?:(receipt:SketchCommitReceipt|undefined)=>void;
   sketchReceiptCheck?:(receipt:SketchCommitReceipt)=>Promise<SketchCommitResult>;
+  sketchIntersections?:(documentId:string,input:{versionId:string;sketchId:string;entityIds:string[]},signal:AbortSignal)=>Promise<import("../cad/interaction/sketch-intersections").SketchIntersections>;
   sketchPreview?:(featureId:string,operations:SketchOperation[],signal?:AbortSignal)=>Promise<import("../types").CommandPreview>;
   toolPromptChanged: (prompt: string) => void;
   toolUseCompleted: () => void;
   dimensionEditRequested: (request: { mode: "edit"; featureId: string; constraintId: string; value?: number; unit: "mm" | "deg"; x: number; y: number }) => void;
   dimensionCreateRequested: (request: { mode: "create"; featureId: string; kind: "DISTANCE"|"HORIZONTAL_DISTANCE"|"VERTICAL_DISTANCE"|"LENGTH"|"RADIUS"|"DIAMETER"|"MAJOR_RADIUS"|"MINOR_RADIUS"|"ANGLE";
-    references: SketchGeometryRef[]; labelPosition: Vec2; value: number; unit: "mm"|"deg"; x: number; y: number }) => void;
+    angleSector?:SketchConstraint["angleSector"];references: SketchGeometryRef[]; labelPosition: Vec2; value: number; unit: "mm"|"deg"; x: number; y: number }) => void;
   activeToolChanged: (toolID: import("../state/workbench-store").WorkbenchToolID) => void;
   instanceMoved: (documentId: string, candidate: AssemblyInteractionCommit) => Promise<void>;
   assemblyInteractionBegin: (documentId: string, input: AssemblyInteractionBegin, signal: AbortSignal) => Promise<AssemblyInteractionSession>;
@@ -388,6 +392,9 @@ export class CadViewportEngine {
   private sketchManipulatorChanged?:(value:{translation:Vec2;angle:number;origin:Vec2;finish?:boolean})=>void;
   private sketchManipulatorLastValue?:{translation:Vec2;angle:number;origin:Vec2};
   private sketchManipulatorOrigin:Vec2=[0,0];
+  private sketchIntersections=new SketchIntersectionCache();
+  private intersectionTicket="";
+  private intersectionToolTicket="";
   private lastSketchSnap?: SketchSnapResult;
   private sketchDraftPoints: Vec2[] = [];
   private commandPreview?: THREE.Object3D;
@@ -596,6 +603,8 @@ export class CadViewportEngine {
     for (const kind of ["fix", "rigid", "fix_together", "contact", "coincident", "concentric", "angle", "parallel", "perpendicular", "distance"] as const)
       this.tools.register(new AssemblyConstraintTool(kind));
     this.tools.register(new PointSketchTool());
+    this.tools.register(new SketchIntersectionTool());
+    this.tools.register(new SketchIntersectionTool(true));
     this.tools.register(new ProjectExternalGeometrySketchTool());
     this.tools.register(new LineSketchTool());
     this.tools.register(new CircleSketchTool());
@@ -1930,6 +1939,7 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    this.sketchIntersections.reset();
     this.captureDocumentView();
     this.showMechanism();
     disposeMotionMarkers(this.motionMarkers);
@@ -3449,14 +3459,25 @@ export class CadViewportEngine {
     };
     const first = screen(raw), second = screen([raw[0] + 1, raw[1]]);
     const pixelsPerUnit = Math.max(Math.hypot(second[0] - first[0], second[1] - first[1]), 1.0e-6);
-    const snap = this.captureSettings.enabled
+    let snap = this.captureSettings.enabled
       ? resolveSketchSnap(raw, snapEntities, pixelsPerUnit, geometryOnly?1:adaptiveGridSpacing(this.camera, this.renderer.domElement.clientHeight,localToWorld(this.sketchPlane!,[0,0])),
         SKETCH_INPUT_POLICY.snapThresholdPixels, geometryOnly?this.captureSettings.sketch.filter(kind=>kind!=="GRID"&&kind!=="ORIGIN"):this.captureSettings.sketch, screen, geometryOnly?[]:this.sketchDraftPoints) : undefined;
+    if(this.captureSettings.enabled&&this.captureSettings.sketch.includes("INTERSECTION")){
+      const ticket=JSON.stringify([this.sketchView()?.document.versionId,this.activeSketchID,this.activeToolID,raw,excludedEntityId]);this.intersectionTicket=ticket;
+      const hit=this.exactIntersectionsNear(raw,[],()=>{if(ticket===this.intersectionTicket&&this.activeSketchID&&this.sketchPlane)this.snapSketchLocalPoint(raw,geometryOnly,excludedEntityId)},excludedEntityId).find(h=>h.constraintSupported);
+      if(hit&&(!snap||["GRID","CURVE","MIDPOINT"].includes(snap.kind))){const p=screen(hit.point),q=screen(raw);snap={kind:"INTERSECTION",point:hit.point,distancePixels:Math.hypot(p[0]-q[0],p[1]-q[1]),intersection:hit};}
+    }
     if(!geometryOnly)this.lastSketchSnap = snap;
     if (snap) this.showSnapPreview(snap, 8 / pixelsPerUnit); else this.clearSnapPreview();
     return snap?.point ?? raw;
   }
 
+  private exactIntersectionsNear(raw:Vec2,required:readonly string[]=[],onReady=()=>{this.invalidate()},excludedEntityId?:string){
+    const view=this.sketchView();if(!view||!this.activeSketchID||!this.sketchPlane||!this.callbacks.sketchIntersections)return [];
+    const sketchId=this.activeSketchID,versionId=view.document.versionId,documentId=view.document.id;
+    const project=(p:Vec2):Vec2=>{const v=localToWorld(this.sketchPlane!,p).project(this.camera);return[(v.x+1)*this.renderer.domElement.clientWidth/2,(1-v.y)*this.renderer.domElement.clientHeight/2]};
+    return this.sketchIntersections.near(`${documentId}/${versionId}/${sketchId}/${this.editContext?.occurrencePath??""}`,versionId,sketchId,raw,this.visibleSketchReferenceEntities().filter(e=>e.id!==excludedEntityId),project,(entityIds,signal)=>this.callbacks.sketchIntersections!(documentId,{versionId,sketchId,entityIds},signal),onReady,required);
+  }
   private showSnapPreview(snap: SketchSnapResult, markerRadius: number): void {
     this.clearSnapPreview();
     if (!this.sketchPlane) return;
@@ -3615,7 +3636,7 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  private showConstraintPreview(kind: ConstraintKind, references: readonly SketchGeometryRef[], value?: number, labelPosition?: Vec2): void {
+  private showConstraintPreview(kind: ConstraintKind, references: readonly SketchGeometryRef[], value?: number, labelPosition?: Vec2, angleSector?:SketchConstraint["angleSector"]): void {
     this.clearConstraintPreview();
     const sketchView = this.sketchView();
     if (!this.sketchPlane || !sketchView) return;
@@ -3627,7 +3648,7 @@ export class CadViewportEngine {
       if (highlight){highlight.traverse(child=>child.renderOrder=SKETCH_FEEDBACK_ORDER.selected);group.add(highlight);}
     }
     const constraint: SketchConstraint = {
-      id: "constraint-preview", kind, references: [...references],
+      id: "constraint-preview", kind, angleSector, references: [...references],
       ...(value === undefined ? {} : { value, unit: kind === "ANGLE" ? "deg" : "mm" }),
       ...(labelPosition ? { labelPosition: { x: labelPosition[0], y: labelPosition[1] } } : {}),
     };
@@ -3672,17 +3693,25 @@ export class CadViewportEngine {
       sketchManipulatorPointerDown:(id,x,y)=>{this.sketchManipulator?.updateScale(this.camera,viewportMetrics(this.renderer));return this.sketchManipulator?.pointerDown(id,x,y,this.camera,this.renderer.domElement)??false;},
       sketchManipulatorPointerMove:(id,x,y)=>this.sketchManipulator?.pointerMove(id,x,y,this.camera,this.renderer.domElement)??false,
       sketchManipulatorPointerUp:(id,commit)=>this.sketchManipulator?.pointerUp(id,commit)??false,
+      reportSketchFailure:(message,unknown)=>{if(this.sketchCommandState)this.setSketchCommandState({...this.sketchCommandState,error:message,phase:unknown?"unknown":"failed"});},
       sketchPoint: (x, y) => this.sketchPoint(x, y),
       setSketchDraftPoints: points => { this.sketchDraftPoints = [...points]; },
       snapSketchEditPoint: (point, entityId) => this.snapSketchLocalPoint(point, true, entityId),
-      sketchSnapReference: () => {
+      retrySketchIntersections:()=>this.sketchIntersections.retry(),
+      sketchIntersectionAt:(x,y,ids)=>{const p=this.rawSketchPoint(x,y);if(!p)return;const ticket=JSON.stringify([this.sketchView()?.document.versionId,this.activeSketchID,this.activeToolID,p,ids]);this.intersectionToolTicket=ticket;const tool=this.activeToolID;
+        const refresh=()=>{if(ticket!==this.intersectionToolTicket||tool!==this.activeToolID||!this.sketchPlane)return;const hit=this.exactIntersectionsNear(p,ids,refresh)[0];if(hit&&(tool==="sketch.intersection"||tool==="sketch.edit.split_intersections"))this.drawPointPreview(hit.point,this.sketchPlane);this.invalidate()};return this.exactIntersectionsNear(p,ids,refresh)[0];},
+      sketchSnapReference: ():CapturedSketchReference|undefined => {
         const snap=this.lastSketchSnap;
         if(!snap)return undefined;
-        if(snap.kind==="ORIGIN")return {target:"SKETCH_ORIGIN",subElement:"POINT"};
-        if(snap.entityId && (snap.subElement==="POINT"||snap.subElement==="START"||snap.subElement==="END"||snap.subElement==="CENTER"||snap.subElement==="CONTROL")) {
-          const external = this.sketchView()?.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch?.externalGeometry
-            ?.some((candidate) => candidate.id === snap.entityId);
-          return {target:external?"EXTERNAL":"ENTITY",entityId:snap.entityId,subElement:snap.subElement,...(snap.subElement==="CONTROL"?{controlPointIndex:snap.controlPointIndex,controlPointId:snap.controlPointId}:{})};
+        if(snap.intersection){const refs=snap.intersection.references;const capture={kind:"POINT_ON_OBJECT" as const,references:refs};return {...refs[0],capture};}
+        if(snap.kind==="ORIGIN"){const ref={target:"SKETCH_ORIGIN" as const,subElement:"POINT" as const};return {...ref,capture:{kind:"COINCIDENT",references:[ref]}};}
+        if(snap.entityId) {
+          const feature=this.sketchView()?.part?.features.find(f=>f.id===this.activeSketchID),entity=this.visibleSketchReferenceEntities().find(e=>e.id===snap.entityId);
+          const target=feature?.sketch?.externalGeometry?.some(e=>e.id===snap.entityId)?"EXTERNAL":"ENTITY";
+          const point=["POINT","START","END","CENTER","CONTROL"].includes(snap.subElement??"");
+          const ref:SketchGeometryRef={target,entityId:snap.entityId,subElement:point?snap.subElement!:"WHOLE",...(snap.subElement==="START"&&entity?.startPointId?{pointId:entity.startPointId}:snap.subElement==="END"&&entity?.endPointId?{pointId:entity.endPointId}:{}),...(snap.subElement==="CONTROL"?{controlPointIndex:snap.controlPointIndex,controlPointId:snap.controlPointId}:{})};
+          if(point)return {...ref,capture:{kind:"COINCIDENT",references:[ref]}};
+          if(entity&&["LINE","CIRCLE","ARC","ELLIPSE","ELLIPTICAL_ARC"].includes(entity.kind))return {...ref,capture:{kind:snap.kind==="MIDPOINT"&&entity.kind==="LINE"?"MIDPOINT":"POINT_ON_OBJECT",references:[ref]}};
         }
         return undefined;
       },
@@ -3706,7 +3735,7 @@ export class CadViewportEngine {
           sprite.position.copy(localToWorld(this.sketchPlane,dimension.position));sprite.renderOrder=31;this.preview.add(sprite);}
         this.invalidate();
       },
-      clearToolPreview: () => { this.clearPreview(); this.clearSnapPreview(); },
+      clearToolPreview: () => {this.intersectionTicket="";this.intersectionToolTicket="";this.clearPreview(); this.clearSnapPreview(); },
       commitSketchOperations: (operations,intent) => {const result=this.commitSketchOperations(operations,intent);void result.catch(()=>{});return result;},
       setSketchCommandState: state=>this.setSketchCommandState(state),
       isFeatureSelectionActive:()=>!!this.featureSelection,
@@ -3714,17 +3743,17 @@ export class CadViewportEngine {
       hasActiveSketch: () => Boolean(this.sketchPlane && this.activeSketchID),
       sketchReferenceAt: (x, y, kind, retained,allowed) => this.sketchReferenceAt(x, y, kind, retained,allowed),
       showReferencePreview: (reference, retained) => this.showReferencePreview(reference, retained),
-      showConstraintPreview: (kind, references, value, labelPosition) => this.showConstraintPreview(kind, references, value, labelPosition),
-      measureDimension: (kind, references) => {
+      showConstraintPreview: (kind, references, value, labelPosition,angleSector) => this.showConstraintPreview(kind, references, value, labelPosition,angleSector),
+      measureDimension: (kind, references,angleSector) => {
         const sketchView = this.sketchView();
         const sketch = sketchView?.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch;
         const feature = sketchView?.part?.features.find((candidate) => candidate.id === this.activeSketchID);
-        return sketch && feature ? measureSketchDimension(kind, references, sketchReferenceEntities(feature)) : undefined;
+        return sketch && feature ? measureSketchDimension(kind, references, sketchReferenceEntities(feature),angleSector) : undefined;
       },
-      requestDimensionCreation: (kind, references, value, unit, labelPosition, x, y) => {
+      requestDimensionCreation: (kind, references, value, unit, labelPosition, x, y,angleSector) => {
         if (!this.activeSketchID || !isDimensionConstraintKind(kind)) return;
         this.callbacks.dimensionCreateRequested({ mode: "create", featureId: this.activeSketchID, kind,
-          references: [...references], labelPosition, value, unit, x, y });
+          references: [...references], labelPosition, value, unit, x, y,angleSector });
       },
       beginDimensionDrag: (x, y) => this.beginDimensionDrag(x, y),
       updateDimensionDrag: (x, y) => this.updateDimensionDrag(x, y),

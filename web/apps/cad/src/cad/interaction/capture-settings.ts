@@ -5,7 +5,7 @@ export const SELECTION_CAPTURE_KINDS = [
 ] as const;
 export type SelectionCaptureKind = typeof SELECTION_CAPTURE_KINDS[number];
 
-export const SKETCH_SNAP_KINDS = ["GRID", "ORIGIN", "POINT", "ENDPOINT", "CENTER", "MIDPOINT", "CURVE"] as const;
+export const SKETCH_SNAP_KINDS = ["GRID", "ORIGIN", "POINT", "ENDPOINT", "CENTER", "MIDPOINT", "INTERSECTION", "CURVE"] as const;
 export type SketchSnapCaptureKind = typeof SKETCH_SNAP_KINDS[number];
 
 export type CaptureSettings = {

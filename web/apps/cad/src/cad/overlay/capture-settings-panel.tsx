@@ -7,7 +7,7 @@ const selectionLabels: Record<SelectionCaptureKind, string> = {
 };
 const sketchLabels: Record<SketchSnapCaptureKind, string> = {
   GRID: "网格点", ORIGIN: "草图原点", POINT: "独立点", ENDPOINT: "端点", CENTER: "圆心 / 圆弧中心",
-  MIDPOINT: "中点", CURVE: "曲线投影",
+  MIDPOINT: "直线中点", INTERSECTION:"交点", CURVE: "曲线投影",
 };
 
 export function CaptureSettingsPanel({ settings, onEnabledChange, onSelectionToggle, onSketchToggle, onAll, onPointsOnly }: {

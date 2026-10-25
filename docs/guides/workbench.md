@@ -72,6 +72,8 @@ Esc 依次交给菜单／IME、当前拾取、命令。普通工具取消与空�
 
 表达式沿既有解析、量纲与依赖机制，`len/2` 与 `len / 2` 等价；括号、单位、一元负号及科学计数法无需强制空格，保存原文，不用格式化显示改写输入。
 
+草图入口沿 catalog 的 variants 分组：点包含创建交点，圆包含椭圆，直线/折线、圆弧、修剪/分割/延伸、变换各归同类；删除主要使用键盘及对象菜单。状态栏只显示当前角色、实际问题与恢复动作，不重复显示同一命令的整段教学提示。拾取及角度语义统一见[Part/Sketch](../architecture/current/part-sketch.md)。
+
 ## 定向验证与人工检查
 
 公共交互入口：`workbench-visual`、`workbench-more-commands`、`sketch-inline-ui`、`sketch-input-session`、`sketch-linear-input`、`sketch-continuous-selection`、`sketch-direct-workflow`、`sketch-feedback`、`sketch-dimension-lifecycle`、`assembly-engineering-panel` 场景；执行 `pnpm typecheck` 与 `pnpm build`。测试通过不等于WebGL实机验收通过。

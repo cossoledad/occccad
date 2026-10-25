@@ -442,6 +442,9 @@ func measureSketchConstraint(constraint SketchConstraint, entities map[string]Sk
 		a, b := sub2(a2, a1), sub2(b2, b1)
 		length := math.Hypot(a.X, a.Y) * math.Hypot(b.X, b.Y)
 		if ok && other && length > 0 {
+			if constraint.AngleSector != nil {
+				return sketchMeasuredAngle(a, b, constraint.AngleSector), true
+			}
 			return math.Acos(math.Max(-1, math.Min(1, (a.X*b.X+a.Y*b.Y)/length))) * 180 / math.Pi, true
 		}
 	}

@@ -1072,6 +1072,9 @@ func validateSketch(sketch SketchFeature) error {
 				}
 			}
 		}
+		if constraint.AngleSector != nil && (constraint.Kind != "ANGLE" || !constraint.Reference && constraint.Value != nil && (*constraint.Value <= 0 || *constraint.Value >= 360)) {
+			return fmt.Errorf("%w: angle region requires an angle between 0 and 360 degrees", ErrValidation)
+		}
 		if constraint.Reference && !isDimensionalConstraint(constraint.Kind) {
 			return fmt.Errorf("%w: only dimensions can be reference measurements", ErrValidation)
 		}
@@ -2828,6 +2831,9 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 		value := geometry.SketchConstraint{ID: constraint.ID, Kind: constraint.Kind, Unit: constraint.Unit, Internal: constraint.Internal, SelfMirrorMode: constraint.SelfMirrorMode}
 		if constraint.Value != nil {
 			value.Value = *constraint.Value
+			if constraint.Kind == "ANGLE" && constraint.AngleSector != nil {
+				value.Value = sketchSolverAngle(value.Value, constraint.AngleSector)
+			}
 		}
 		if constraint.FixedPoint != nil {
 			value.FixedX, value.FixedY = constraint.FixedPoint.X, constraint.FixedPoint.Y

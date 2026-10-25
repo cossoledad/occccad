@@ -48,7 +48,7 @@ try {
  store.getState().setSelection(null);
  engine.lastSketchSnap=resolveSketchSnap([30,35],[control],20,10,11,['POINT']);
  engine.sketchView=()=>({part:{features:[{id:'sketch',sketch:{externalGeometry:[]}}]}});
- assert.deepEqual(engine.toolViewportPort().sketchSnapReference(),{target:'ENTITY',entityId:'control',subElement:'CONTROL',controlPointIndex:1,controlPointId:'b'},'accepted automatic snap keeps stable control identity');
+ assert.deepEqual((({capture,...ref})=>ref)(engine.toolViewportPort().sketchSnapReference()),{target:'ENTITY',entityId:'control',subElement:'CONTROL',controlPointIndex:1,controlPointId:'b'},'accepted automatic snap keeps stable control identity');
  const {makeSplineControlFeedback}=await server.ssrLoadModule('/src/cad/rendering/spline-control-feedback.ts');
  const {CadMaterialFactory}=await server.ssrLoadModule('/src/cad/rendering/cad-material-factory.ts');
  const {CadShaderLibrary}=await server.ssrLoadModule('/src/cad/rendering/shader/cad-shader-library.ts');

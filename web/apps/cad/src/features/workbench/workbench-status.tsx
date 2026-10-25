@@ -35,7 +35,7 @@ export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengt
       {sketchCommand.phase==="unknown"&&!sketchReceipt&&<Button size="small" onClick={()=>onSketchAction?.({type:"retry"})}>确认原请求结果</Button>}
     </div>}
     {sketchReceipt?.status==="unknown"&&<Button size="small" onClick={onSketchReceiptCheck}>确认草图结果</Button>}
-    {prompt&&<span role="status" className="workbench-sketch-role" title={prompt}>{prompt}</span>}
+    {prompt&&!sketchCommand&&<span role="status" className="workbench-sketch-role" title={prompt}>{prompt}</span>}
     {!sketchCommand&&!prompt&&<span className="workbench-selection-count">{selectionCount ? `已选择 ${selectionCount} 项` : "未选择对象"}</span>}
     <span className="workbench-status-spacer" />
     {onAssistantToggle&&<Tooltip title="建模助手"><Button type="text" size="small" className="workbench-assistant-toggle" aria-label="建模助手" aria-pressed={assistantOpen} icon={<CommentOutlined/>} onClick={onAssistantToggle}/></Tooltip>}

@@ -182,3 +182,15 @@ func TestSketchPlacementIsNotADomainOperation(t *testing.T) {
 		t.Fatal("display movement must not enter model history")
 	}
 }
+
+func TestSketchReferenceAngleSectorAllowsZero(t *testing.T) {
+	zero := 0.0
+	s := SketchFeature{SchemaVersion: SketchSchemaVersion, Entities: []SketchEntity{{ID: "line", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{}, End: &SketchPoint2{X: 10}}}, Constraints: []SketchConstraint{{ID: "angle", Kind: "ANGLE", ParameterID: "angle-parameter", Reference: true, Unit: "deg", Value: &zero, AngleSector: &SketchAngleSector{}, References: []SketchGeometryRef{{Target: "SKETCH_X_AXIS", SubElement: "DIRECTION"}, {Target: "ENTITY", EntityID: "line", SubElement: "DIRECTION"}}}}}
+	if err := validateSketch(s); err != nil {
+		t.Fatal("zero reference angle is a measurement", err)
+	}
+	s.Constraints[0].Reference = false
+	if err := validateSketch(s); err == nil {
+		t.Fatal("zero driving angle bypassed the existing dimension gate")
+	}
+}

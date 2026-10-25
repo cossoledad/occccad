@@ -323,7 +323,7 @@ try {
   assert.equal(resolveSketchSnap([30.2, 29.9], curvedSnapEntities, 10)?.kind, "CENTER");
   assert.equal(resolveSketchSnap([39.8, 30.1], curvedSnapEntities, 10)?.kind, "CURVE");
   assert.equal(resolveSketchSnap([10.1, 30.1], curvedSnapEntities, 10)?.kind, "ENDPOINT");
-  assert.equal(resolveSketchSnap([4.375, 53.125], curvedSnapEntities, 10)?.kind, "CURVE");
+  assert.equal(resolveSketchSnap([4.375, 53.125], curvedSnapEntities, 10), undefined, "unsupported spline interior cannot silently lose an automatic point-on-object relationship");
   assert.equal(selectionCaptureKind({ kind: "plane", id: "xy", plane: "XY" }), "DATUM_PLANE");
   assert.equal(selectionCaptureKind({ kind: "axis", id: "x", axis: "X" }), "DATUM_AXIS");
   assert.equal(selectionCaptureKind({ kind: "vertex", id: "v1", topologyId: 1 }), "POINT");
@@ -531,13 +531,13 @@ try {
   assert.equal(resolveSketchReference({ x: 38, y: 20 }, constraintEntities, identityProject, "EQUAL_CURVE", 12, 110,
     ref("line-a")), null, "equal line must reject a circular second element");
   assert.equal(resolveSketchReference({ x: 38, y: 20 }, constraintEntities, identityProject, "EQUAL_CURVE", 12, 110,
-    ref("circle-a"))?.entityId, "circle-a");
+    ref("circle-a"))?.entityId, "arc-a", "accepted circle is excluded; the other compatible arc remains selectable");
   assert.equal(resolveSketchReference({ x: 10, y: 0 }, constraintEntities, identityProject, "TANGENT_CURVE", 12, 110,
     ref("line-b")), null, "line-line tangent must be rejected while selecting");
   assert.equal(resolveSketchReference({ x: 38, y: 20 }, constraintEntities, identityProject, "TANGENT_CURVE", 12, 110,
-    ref("line-a"))?.entityId, "circle-a");
+    ref("line-a"))?.entityId, "arc-a", "an eligible arc endpoint wins inside its point marker range");
   assert.equal(resolveSketchReference({ x: 10, y: 0 }, constraintEntities, identityProject, "SYMMETRY_CENTER")?.subElement,
-    "DIRECTION");
+    "POINT", "an exposed point marker is preferred to the supporting line inside its capture radius");
   assert.equal(formatSketchDimensionValue(12.3456, "mm"), "12.35");
   assert.equal(formatSketchDimensionValue(12.3456, "deg"), "12.35");
   assert.equal(perspectiveWorldUnitsPerPixel(200, 50, 800), perspectiveWorldUnitsPerPixel(100, 50, 800)*2,

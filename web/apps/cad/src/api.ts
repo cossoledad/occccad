@@ -265,6 +265,7 @@ export const restApi = {
       rep.url=apiURL(`/api/documents/${id}/representations/${rep.objectId}?${query}`);
     return result;
   },
+  sketchIntersections:(id:string,input:{versionId:string;sketchId:string;entityIds:string[]},signal?:AbortSignal)=>request<import('./cad/interaction/sketch-intersections').SketchIntersections>(`/api/documents/${id}/sketch-intersections`,{method:'POST',body:JSON.stringify(input),signal}),
   getFeatureInput: async (id: string, input: {versionId:string;featureId?:string;afterFeatureId?:string;resultStage?:boolean;bodyId?:string;geometryKey?:string;kind?:string;localId?:number}, signal?:AbortSignal) => {
     const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(input),signal});
     // A sketch before the first solid has no upstream artifact. This is a

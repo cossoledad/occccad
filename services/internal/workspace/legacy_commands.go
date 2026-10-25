@@ -376,11 +376,12 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				suffix    string
 				point     SketchPoint2
 				reference *SketchGeometryRef
+				capture   *SketchPointCapture
 			}{
-				{"first", *operation.First, operation.FirstReference},
-				{"second", *operation.Second, operation.SecondReference},
+				{"first", *operation.First, operation.FirstReference, operation.FirstCapture},
+				{"second", *operation.Second, operation.SecondReference, operation.SecondCapture},
 			} {
-				if snapped.reference == nil {
+				if snapped.reference == nil && snapped.capture == nil {
 					continue
 				}
 				found := false
@@ -393,9 +394,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 						point *SketchPoint2
 					}{{"START", candidate.Entity.Start}, {"END", candidate.Entity.End}} {
 						if endpoint.point != nil && endpoint.point.X == snapped.point.X && endpoint.point.Y == snapped.point.Y {
-							constraint := SketchConstraint{ID: macroID(request.RequestID+fmt.Sprintf("/%d", index), "snap-"+snapped.suffix), Kind: "COINCIDENT",
-								References: []SketchGeometryRef{{Target: "ENTITY", EntityID: candidate.Entity.ID, SubElement: endpoint.sub}, *snapped.reference}}
-							operations = append(operations, SketchOperation{Type: "ADD_CONSTRAINT", Constraint: &constraint})
+							captured, err := pointCaptureOperations(macroID(request.RequestID+fmt.Sprintf("/%d", index), "snap-"+snapped.suffix), SketchGeometryRef{Target: "ENTITY", EntityID: candidate.Entity.ID, SubElement: endpoint.sub}, snapped.capture, snapped.reference)
+							if err != nil {
+								return "", nil, err
+							}
+							operations = append(operations, captured...)
 							found = true
 							break
 						}

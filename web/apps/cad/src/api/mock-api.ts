@@ -840,6 +840,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 }
 
 export const mockApi: CadApi = {
+ sketchIntersections:async()=>{throw new Error("精确交点需要真实几何服务")},
  bindTopologySelection:async()=>{throw new Error("Exact datum topology requires the real Worker");},
   analyzeBooleanRegions:async()=>{throw new Error("Mock 没有精确体积分区")},
   getFeatureInput: async () => { throw new Error("Mock 没有精确特征输入阶段；请使用真实 API 验证编辑"); },

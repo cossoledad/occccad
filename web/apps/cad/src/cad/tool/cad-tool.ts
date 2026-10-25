@@ -1,3 +1,5 @@
+import {chooseSketchAngleSector} from "../sketch/sketch-angle";
+import {normalizeSketchCaptureOperations} from "../sketch/sketch-point-capture";
 import {engineeringProblem} from "../command/operation-failure";
 import {recordDeveloperEvidence} from "../command/developer-evidence";
 import {isExternalProjectionSource} from "../interaction/external-projection-selection";
@@ -24,7 +26,10 @@ import {sketchCommitResultUnknown,type SketchCommandAction} from "./sketch-comma
 
 export type ToolViewportPort = {
   sketchPoint(x: number, y: number): Vec2 | null;
+  reportSketchFailure?(message:string,unknown:boolean):void;
   sketchSnapReference(): SketchGeometryRef | undefined;
+  retrySketchIntersections?():void;
+  sketchIntersectionAt?(x:number,y:number,ids?:readonly string[]):import("../interaction/sketch-intersections").SketchIntersection|undefined;
   setSketchDraftPoints?(points: readonly Vec2[]): void;
   snapSketchEditPoint?(point: Vec2, excludedEntityId: string): Vec2;
   sketchPlacementPoint(x: number, y: number): Vec2 | null;
@@ -43,10 +48,10 @@ export type ToolViewportPort = {
   hasActiveSketch(): boolean;
   sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind, retained?: SketchGeometryRef,allowed?:(reference:SketchGeometryRef)=>boolean): SketchGeometryRef | null;
   showReferencePreview(reference: SketchGeometryRef, retained?: readonly SketchGeometryRef[]): void;
-  showConstraintPreview(kind: ConstraintKind, references: readonly SketchGeometryRef[], value?: number, labelPosition?: Vec2): void;
-  measureDimension(kind: ConstraintKind, references: readonly SketchGeometryRef[]): number | undefined;
+  showConstraintPreview(kind: ConstraintKind, references: readonly SketchGeometryRef[], value?: number, labelPosition?: Vec2, angleSector?:SketchConstraint["angleSector"]): void;
+  measureDimension(kind: ConstraintKind, references: readonly SketchGeometryRef[], angleSector?:SketchConstraint["angleSector"]): number | undefined;
   requestDimensionCreation(kind: ConstraintKind, references: readonly SketchGeometryRef[], value: number,
-    unit: "mm" | "deg", labelPosition: Vec2, x: number, y: number): void;
+    unit: "mm" | "deg", labelPosition: Vec2, x: number, y: number, angleSector?:SketchConstraint["angleSector"]): void;
   beginDimensionDrag(x: number, y: number): boolean;
   updateDimensionDrag(x: number, y: number): void;
   finishDimensionDrag(): void;
@@ -378,11 +383,11 @@ abstract class SketchCreationTool implements CadTool {
     const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath]);};const submissionOwner=owner();
     const promises:Promise<SketchCommitResult>[]=[];
     const submission:ToolContext={...context,viewport:{...context.viewport,
-      commitSketchOperations:(operations,intent)=>{const result=context.viewport.commitSketchOperations(operations,intent);if(result&&typeof result.then==="function")promises.push(Promise.resolve(result));return result;},
+      commitSketchOperations:(operations,intent)=>{const result=context.viewport.commitSketchOperations(normalizeSketchCaptureOperations(operations,context.viewport.currentSketchConstraints?.()),intent);if(result&&typeof result.then==="function")promises.push(Promise.resolve(result));return result;},
       finishToolUse:()=>{},
     }};
     const success=()=>{if(generation!==this.creationGeneration)return;if(owner()!==submissionOwner){this.cancel(context);return;}this.creationPending=false;accepted();context.viewport.finishToolUse(exit);};
-    const failure=(error:unknown)=>{if(generation!==this.creationGeneration)return;if(owner()!==submissionOwner){this.cancel(context);return;}this.creationPending=sketchCommitResultUnknown(error);context.viewport.clearToolPreview();context.viewport.setToolPrompt(`${this.creationPending?"创建结果待确认；请查询原提交结果或取消":"创建失败；保留当前输入，可修改后重试"}：${engineeringProblem(error)}`);};
+    const failure=(error:unknown)=>{if(generation!==this.creationGeneration)return;if(owner()!==submissionOwner){this.cancel(context);return;}this.creationPending=sketchCommitResultUnknown(error);context.viewport.reportSketchFailure?.(engineeringProblem(error),this.creationPending);context.viewport.clearToolPreview();context.viewport.setToolPrompt(`${this.creationPending?"创建结果待确认；请查询原提交结果或取消":"创建失败；保留当前输入，可修改后重试"}：${engineeringProblem(error)}`);};
     try{invoke(submission);if(promises.length)void Promise.all(promises).then(success,failure);else success();}catch(error){failure(error);}
   }
 
@@ -1168,12 +1173,19 @@ export class ConstraintSketchTool implements CadTool {
   private definitionScope?:string;
   private baseVersionID?:string;
   private rememberScope(context:ToolContext):void {if(this.definitionScope!==undefined)return;this.definitionScope=JSON.stringify(context.viewport.currentSketchIdentity?.())??"";this.baseVersionID=context.viewport.currentSketchIdentity?.()?.versionId;}
+  private angleSector?:SketchConstraint["angleSector"];
+  private reflex=false;
+  private anglePosition?:Vec2;
+  private region(context:ToolContext,position:Vec2){if(this.kind!=="ANGLE")return;this.anglePosition=position;this.angleSector=chooseSketchAngleSector(this.references,context.viewport.currentSketchReferenceEntities?.()??context.viewport.currentSketchEntities?.()??[],position,this.reflex);}
   private publish(context:ToolContext):void {
-    if(this.spec.unit)return;
+    if(this.spec.unit&&this.kind!=="ANGLE")return;
+    if(this.kind==="ANGLE")context.viewport.setToolPrompt("");
     const phase:SketchCommandState["phase"]=this.phase.step==="COMMITTING"?"committing":this.phase.step==="FAILED"?"failed":this.phase.step==="UNKNOWN"?"unknown":"selection";
-    context.viewport.setSketchCommandState?.({toolId:this.id,operation:`${this.spec.label}约束`,phase,presentation:this.phase.step==="FAILED"||this.phase.step==="UNKNOWN"?"advanced":"inline",role:this.spec.pickLabels[this.references.length]??"确认约束",selectedIds:this.references.flatMap(ref=>ref.entityId?[ref.entityId]:[]),references:[...this.references],fields:[],options:[],canConfirm:this.phase.step==="FAILED",next:this.phase.step==="UNKNOWN"?"查询原请求结果后重试":this.phase.step==="FAILED"?"重试或返回重新选择":this.phase.step==="COMMITTING"?"等待权威验证":this.prompt(),error:this.error});
+    context.viewport.setSketchCommandState?.({toolId:this.id,operation:`${this.spec.label}约束`,phase,presentation:this.phase.step==="FAILED"||this.phase.step==="UNKNOWN"?"advanced":"inline",role:this.kind==="ANGLE"&&this.phase.step==="PLACING"?"选择角度区域":this.spec.pickLabels[this.references.length]??"确认约束",selectedIds:this.references.flatMap(ref=>ref.entityId?[ref.entityId]:[]),references:[...this.references],fields:[],options:this.kind==="ANGLE"?[{name:"angleRegion",label:"角度区域",value:this.reflex?"REFLEX":"MINOR",choices:[{value:"MINOR",label:"鼠标所在区域"},{value:"REFLEX",label:"反角"}]}]:[],canConfirm:this.phase.step==="FAILED",next:this.phase.step==="UNKNOWN"?"查询原请求结果后重试":this.phase.step==="FAILED"?"重试或返回重新选择":this.phase.step==="COMMITTING"?"等待权威验证":this.prompt(),error:this.error});
   }
   commandAction(action:SketchCommandAction,context:ToolContext):void {
+    if(action.type==="option"&&action.name==="angleRegion"){this.reflex=action.value==="REFLEX";if(this.anglePosition){this.region(context,this.anglePosition);context.viewport.showConstraintPreview(this.kind,this.references,context.viewport.measureDimension(this.kind,this.references,this.angleSector),this.anglePosition,this.angleSector);}this.publish(context);return;}
+
     if(action.type==="cancel"){this.cancel(context);context.viewport.finishToolUse(true);return;}
     if(this.phase.step==="COMMITTING")return;
     if(action.type==="retry"&&this.pendingOperation){this.commit(context);return;}
@@ -1216,13 +1228,13 @@ export class ConstraintSketchTool implements CadTool {
       context.viewport.clearReferenceHover?.();
       if(!this.spec.unit||this.labelPosition)return InputResult.Ignored;
       const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Consumed;
-      const value=context.viewport.measureDimension(this.kind,this.references);if(value===undefined||!Number.isFinite(value)||!this.spec.unit){context.viewport.setToolPrompt("当前尺寸不可测；定义保持不变，请取消或重新选择");return InputResult.Consumed;}
+      this.region(context,position);const value=context.viewport.measureDimension(this.kind,this.references,this.angleSector);if(value===undefined||!Number.isFinite(value)||!this.spec.unit){context.viewport.setToolPrompt("当前尺寸不可测；定义保持不变，请取消或重新选择");return InputResult.Consumed;}
       this.capturedPointerID=event.pointerId;this.labelPosition=position;
-      context.viewport.requestDimensionCreation(this.kind,this.references,value,this.spec.unit,position,event.x,event.y);
+      context.viewport.requestDimensionCreation(this.kind,this.references,value,this.spec.unit,position,event.x,event.y,this.angleSector);
       this.references=[];this.labelPosition=undefined;context.viewport.clearReferencePreview();
       context.viewport.setToolPrompt(this.prompt());context.viewport.finishToolUse();return InputResult.Capture;
     }
-    const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length], this.references[0]); if (!reference) return InputResult.Consumed;
+    const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length], this.references[0],ref=>!this.references.some(item=>sameSketchReference(item,ref))); if (!reference) return InputResult.Consumed;
     if (this.references.some((item)=>sameSketchReference(item, reference))) {
       context.viewport.showReferencePreview(reference,this.references);
       return InputResult.Consumed;
@@ -1255,9 +1267,9 @@ export class ConstraintSketchTool implements CadTool {
       context.viewport.clearReferenceHover?.();
       if(!this.spec.unit||this.labelPosition)return InputResult.Ignored;
       const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Consumed;
-      context.viewport.showConstraintPreview(this.kind,this.references,context.viewport.measureDimension(this.kind,this.references),position);return InputResult.Consumed;
+      this.region(context,position);context.viewport.showConstraintPreview(this.kind,this.references,context.viewport.measureDimension(this.kind,this.references,this.angleSector),position,this.angleSector);return InputResult.Consumed;
     }
-    const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length], this.references[0]);
+    const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length], this.references[0],ref=>!this.references.some(item=>sameSketchReference(item,ref)));
     if (!reference) {
       if (this.references[0]) context.viewport.showReferencePreview(this.references.at(-1)!,this.references);
       else context.viewport.clearReferenceHover?.();
@@ -1277,7 +1289,7 @@ export class ConstraintSketchTool implements CadTool {
   }
   deactivate(context: ToolContext): void { this.cancel(context);context.viewport.setSketchCommandState?.(undefined); }
   cancel(context: ToolContext): void {
-    this.generation++;this.pendingOperation=undefined;this.requestID=undefined;this.error=undefined;this.definitionScope=undefined;this.baseVersionID=undefined;
+    this.angleSector=undefined;this.anglePosition=undefined;this.reflex=false;this.generation++;this.pendingOperation=undefined;this.requestID=undefined;this.error=undefined;this.definitionScope=undefined;this.baseVersionID=undefined;
     this.capturedPointerID = undefined;
     this.references = [];
     this.labelPosition=undefined;
@@ -1390,7 +1402,7 @@ export class LinearDimensionSketchTool implements CadTool {
     if(event.button!==0||this.capturedPointerID!==undefined||event.state.buttons.middle||event.state.buttons.right||!context.viewport.hasActiveSketch())return InputResult.Ignored;
     if(this.status==="committing"||this.status==="unknown"||this.phase.step==="VALUE")return InputResult.Consumed;
     if(this.phase.step==="LINE_PENDING"){
-      const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0]);
+      const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0],ref=>!this.phase.references.some(item=>sameSketchReference(item,ref)));
       if(reference){if(!this.phase.references.some(item=>sameSketchReference(item,reference))&&this.accept([...this.phase.references,{...reference}],context)){this.capturedPointerID=event.pointerId;return InputResult.Capture;}return InputResult.Consumed;}
       this.freeze("LENGTH",this.phase.references);
     }
@@ -1398,7 +1410,7 @@ export class LinearDimensionSketchTool implements CadTool {
       const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Consumed;
       this.capturedPointerID=event.pointerId;this.anchor=[event.x,event.y];this.cursor=position;this.place(context,position);return InputResult.Capture;
     }
-    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0]);
+    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0],ref=>!this.phase.references.some(item=>sameSketchReference(item,ref)));
     if(!reference||this.phase.references.some(item=>sameSketchReference(item,reference)))return InputResult.Consumed;
     if(!this.accept([...this.phase.references,{...reference}],context))return InputResult.Consumed;
     this.capturedPointerID=event.pointerId;return InputResult.Capture;
@@ -1409,7 +1421,7 @@ export class LinearDimensionSketchTool implements CadTool {
     const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(position){this.cursor=position;this.anchor=[event.x,event.y];}
     if(this.phase.step==="PLACING"){context.viewport.clearReferenceHover?.();if(position)this.preview(context,position);return InputResult.Consumed;}
     if(this.phase.step==="LINE_PENDING"&&position)this.preview(context,position);
-    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0]);
+    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0],ref=>!this.phase.references.some(item=>sameSketchReference(item,ref)));
     if(reference&&!this.phase.references.some(item=>sameSketchReference(item,reference)))context.viewport.showReferencePreview(reference,this.phase.references);else {context.viewport.clearReferenceHover?.();if(this.phase.step==="SELECTING")this.preview(context);}
     return InputResult.Consumed;
   }

@@ -93,7 +93,7 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 	}
 	needs := false
 	for _, op := range operations {
-		needs = needs || op.Type == "TRIM_ENTITY" || op.Type == "QUICK_TRIM" || op.Type == "SPLIT_ENTITY" || op.Type == "EXTEND_ENTITY" || op.Type == "ARC_COMPLEMENT" || op.Type == "CLOSE_CURVE"
+		needs = needs || op.Type == "CREATE_INTERSECTION" || op.Type == "SPLIT_INTERSECTION" || op.Type == "TRIM_ENTITY" || op.Type == "QUICK_TRIM" || op.Type == "SPLIT_ENTITY" || op.Type == "EXTEND_ENTITY" || op.Type == "ARC_COMPLEMENT" || op.Type == "CLOSE_CURVE"
 	}
 	if !needs {
 		for _, op := range operations {
@@ -114,6 +114,17 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 	}
 	prepared := []SketchOperation{}
 	for index, op := range operations {
+		if op.Type == "CREATE_INTERSECTION" || op.Type == "SPLIT_INTERSECTION" {
+			candidates, err := service.prepareSketchIntersection(ctx, model, sketchID, &staged, op, requestID+fmt.Sprintf("/intersection/%d", index))
+			if err != nil {
+				return nil, err
+			}
+			if err = applySketchOperations(&staged, candidates); err != nil {
+				return nil, err
+			}
+			prepared = append(prepared, candidates...)
+			continue
+		}
 		if op.Type == "REPLACE_CURVE_INTERVALS" {
 			return nil, fmt.Errorf("%w: computed curve replacements cannot be supplied by the client", ErrValidation)
 		}

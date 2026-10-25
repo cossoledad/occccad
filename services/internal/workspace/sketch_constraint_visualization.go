@@ -280,23 +280,20 @@ func constraintVisual(constraint SketchConstraint, entities map[string]SketchEnt
 		}
 		origin := constraintLineIntersection(a1, a2, b1, b2)
 		a, b := normalize2(sub2(a2, a1)), normalize2(sub2(b2, b1))
-		if constraint.LabelPosition != nil {
-			towardLabel := normalize2(sub2(*constraint.LabelPosition, origin))
-			if a.X*towardLabel.X+a.Y*towardLabel.Y < 0 {
-				a = scale2(a, -1)
+		firstAngle := math.Atan2(a.Y, a.X)
+		sweep := math.Atan2(a.X*b.Y-a.Y*b.X, a.X*b.X+a.Y*b.Y)
+		if sector := constraint.AngleSector; sector != nil {
+			if sector.FirstReversed {
+				firstAngle += math.Pi
 			}
-			if b.X*towardLabel.X+b.Y*towardLabel.Y < 0 {
-				b = scale2(b, -1)
+			sweep = sketchMeasuredAngle(a, b, sector) * math.Pi / 180
+			if sector.Clockwise {
+				sweep = -sweep
 			}
 		}
-		firstAngle, secondAngle := math.Atan2(a.Y, a.X), math.Atan2(b.Y, b.X)
-		for secondAngle < firstAngle {
-			secondAngle += 2 * math.Pi
-		}
-		if secondAngle-firstAngle > math.Pi {
-			firstAngle, secondAngle = secondAngle, firstAngle+2*math.Pi
-		}
-		arc := make([]SketchPoint2, 13)
+		secondAngle := firstAngle + sweep
+
+		arc := make([]SketchPoint2, 65)
 		radius := 14.0
 		if constraint.LabelPosition != nil {
 			radius = math.Max(6, math.Hypot(constraint.LabelPosition.X-origin.X, constraint.LabelPosition.Y-origin.Y)-4)

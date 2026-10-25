@@ -1982,6 +1982,46 @@
       "implementation": "tool"
     },
     {
+      "id": "sketch.intersection",
+      "name": "创建交点",
+      "helpText": "选择两条曲线和精确交点，创建点及支撑关系。",
+      "iconKey": "point",
+      "repeatable": true,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
       "id": "sketch.line",
       "name": "直线",
       "helpText": "连续创建两点直线；长度/角度数值输入，Tab 切换，Enter 确认。",
@@ -3397,6 +3437,46 @@
       "id": "sketch.edit.split",
       "name": "分割",
       "helpText": "点击内部位置打断；闭合曲线选两个位置。保留形状并连接新端点。",
+      "iconKey": "reference",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "tool"
+    },
+    {
+      "id": "sketch.edit.split_intersections",
+      "name": "交点分割",
+      "helpText": "在精确交点处分割第一条或两条曲线；闭合曲线选择两个交点。",
       "iconKey": "reference",
       "repeatable": false,
       "visibleWhen": {
@@ -5996,17 +6076,22 @@
       "commands": [
         {
           "commandId": "sketch.point",
-          "groupKey": "primary",
+          "groupKey": "variants:point",
           "order": 10
         },
         {
+          "commandId": "sketch.intersection",
+          "groupKey": "variants:point",
+          "order": 11
+        },
+        {
           "commandId": "sketch.line",
-          "groupKey": "primary",
+          "groupKey": "variants:line",
           "order": 20
         },
         {
           "commandId": "sketch.polyline",
-          "groupKey": "primary",
+          "groupKey": "variants:line",
           "order": 40
         },
         {
@@ -6021,7 +6106,9 @@
         }
       ],
       "variants": {
-        "variants:spline": "样条线"
+        "variants:spline": "样条线",
+        "variants:point": "点",
+        "variants:line": "直线"
       }
     },
     {
@@ -6126,7 +6213,7 @@
         },
         {
           "commandId": "sketch.ellipse",
-          "groupKey": "variants:ellipse",
+          "groupKey": "variants:circle",
           "order": 80
         },
         {
@@ -6139,8 +6226,7 @@
         "variants:rectangle": "矩形",
         "variants:polygon": "多边形",
         "variants:circle": "圆",
-        "variants:arc": "圆弧",
-        "variants:ellipse": "椭圆"
+        "variants:arc": "圆弧"
       }
     },
     {
@@ -6205,49 +6291,44 @@
       "orientation": "horizontal",
       "commands": [
         {
-          "commandId": "sketch.edit.delete",
-          "groupKey": "primary",
-          "order": 10
-        },
-        {
           "commandId": "sketch.edit.copy",
-          "groupKey": "primary",
+          "groupKey": "variants:transform",
           "order": 20
         },
         {
           "commandId": "sketch.edit.move",
-          "groupKey": "primary",
+          "groupKey": "variants:transform",
           "order": 30
         },
         {
           "commandId": "sketch.edit.mirror",
-          "groupKey": "primary",
+          "groupKey": "variants:transform",
           "order": 60
         },
         {
           "commandId": "sketch.edit.extend",
-          "groupKey": "primary",
-          "order": 61
+          "groupKey": "variants:curve_edit",
+          "order": 33
         },
         {
           "commandId": "sketch.edit.offset",
-          "groupKey": "primary",
+          "groupKey": "variants:transform",
           "order": 62
         },
         {
           "commandId": "sketch.edit.fillet",
-          "groupKey": "primary",
+          "groupKey": "variants:corner",
           "order": 63
         },
         {
           "commandId": "sketch.edit.chamfer",
-          "groupKey": "primary",
+          "groupKey": "variants:corner",
           "order": 64
         },
         {
           "commandId": "sketch.edit.trim",
-          "groupKey": "primary",
-          "order": 65
+          "groupKey": "variants:curve_edit",
+          "order": 30
         },
         {
           "commandId": "part.pattern.linear",
@@ -6256,8 +6337,8 @@
         },
         {
           "commandId": "sketch.edit.split",
-          "groupKey": "primary",
-          "order": 70
+          "groupKey": "variants:curve_edit",
+          "order": 31
         },
         {
           "commandId": "sketch.edit.construction",
@@ -6266,13 +6347,13 @@
         },
         {
           "commandId": "sketch.edit.complement",
-          "groupKey": "primary",
-          "order": 81
+          "groupKey": "variants:curve_edit",
+          "order": 34
         },
         {
           "commandId": "sketch.edit.close",
-          "groupKey": "primary",
-          "order": 82
+          "groupKey": "variants:curve_edit",
+          "order": 35
         },
         {
           "commandId": "sketch.edit.spline_insert",
@@ -6293,10 +6374,18 @@
           "commandId": "sketch.edit.spline_control",
           "groupKey": "variants:spline_control",
           "order": 86
+        },
+        {
+          "commandId": "sketch.edit.split_intersections",
+          "groupKey": "variants:curve_edit",
+          "order": 32
         }
       ],
       "variants": {
-        "variants:spline_control": "样条控制"
+        "variants:spline_control": "样条控制",
+        "variants:curve_edit": "修剪与分割",
+        "variants:transform": "变换",
+        "variants:corner": "圆角与倒角"
       }
     },
     {
