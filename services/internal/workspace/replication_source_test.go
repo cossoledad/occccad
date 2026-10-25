@@ -198,3 +198,40 @@ func TestPatternSeedsCopyMaximalSelectedRangesWithoutDroppingReferences(t *testi
 		t.Fatal("explicit Body-stage intent was reinterpreted")
 	}
 }
+
+func TestBlindHoleReplicationCapabilitiesAndAutomaticSource(t *testing.T) {
+	for _, kind := range []string{"", "SIMPLE", "COUNTERBORE", "COUNTERSINK"} {
+		hole := Feature{ID: "hole", BodyID: "body", Type: "HOLE", Operation: "REMOVE", Extent: "BLIND", HoleKind: kind, Diameter: 2, Depth: 5, RecessDiameter: 4, RecessDepth: 1, CountersinkAngle: 90}
+		model := PartModel{Features: []Feature{hole}}
+		capability := replicationSources(model)[hole.ID]
+		if !capability.Tool || capability.SourceKind != "GENERATOR_TOOL" || capability.Operation != "REMOVE" || capability.RangeStart || capability.RangeModifier || !capability.BodyStage {
+			t.Fatal(kind, capability)
+		}
+		pattern := Feature{Type: "SOLID_PATTERN", BodyID: "body", Operation: "ADD", Pattern: &FeaturePattern{Source: FeatureStageRef{BodyID: "body", FeatureID: "hole"}, SourceKind: "AUTO"}}
+		if e := resolveAutomaticPatternSource(model, &pattern); e != nil || pattern.Operation != "REMOVE" || pattern.Pattern.SourceKind != "GENERATOR_TOOL" {
+			t.Fatal(pattern, e)
+		}
+		pattern.Operation = "ADD"
+		pattern.Pattern.SourceKind = "BODY_STAGE"
+		if e := resolveAutomaticPatternSource(model, &pattern); e != nil || pattern.Operation != "ADD" || pattern.Pattern.SourceKind != "BODY_STAGE" {
+			t.Fatal("Body-stage intent changed", e)
+		}
+		for _, extent := range []string{"THROUGH_ALL", "TO_PLANE", "FINITE", ""} {
+			bad := hole
+			bad.Extent = extent
+			capability := replicationSource(bad)
+			if capability.Tool || !capability.BodyStage {
+				t.Fatal("unsupported Hole became tool", bad, capability)
+			}
+			pattern.Pattern.SourceKind = "AUTO"
+			if e := resolveAutomaticPatternSource(PartModel{Features: []Feature{bad}}, &pattern); e == nil {
+				t.Fatal("unsupported AUTO silently downgraded", extent)
+			}
+		}
+		for _, bad := range []Feature{func() Feature { x := hole; x.Depth = 0; return x }(), func() Feature { x := hole; x.HoleKind = "UNKNOWN"; return x }(), func() Feature { x := hole; x.Operation = "ADD"; return x }()} {
+			if replicationSource(bad).Tool {
+				t.Fatal("invalid Hole became a tool", bad)
+			}
+		}
+	}
+}

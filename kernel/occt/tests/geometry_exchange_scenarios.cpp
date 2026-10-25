@@ -3756,3 +3756,130 @@ TEST(GeometryExchange, HoleRecessRolesRetainSketchPointScope) {
     }
 }
 }  // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(GeometryExchange, BlindEngineeringHoleToolsReplicateFromWarmCheckpoints) {
+    const std::array<double, 12> identity = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0},
+                                 rx = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0},
+                                 ry = {1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0};
+    for (const std::string kind : {"SIMPLE", "COUNTERBORE", "COUNTERSINK"})
+        for (const std::string mode : {"LINEAR", "CIRCULAR", "MIRROR"}) {
+            SCOPED_TRACE(kind + "/" + mode);
+            OcctKernel kernel;
+            ProfilePadSpec stock;
+            stock.feature_id = "base";
+            stock.body_id = "body";
+            stock.profile_feature_id = "stock-sketch";
+            stock.regions = {rectangular_region("stock-region", -50, -50, 50, 50)};
+            stock.pad_length = 12;
+            ProfilePadSpec hole;
+            hole.feature_id = "hole";
+            hole.body_id = "body";
+            hole.profile_feature_id = "point-sketch";
+            hole.generator = "HOLE";
+            hole.body_operation = "REMOVE";
+            hole.extent = "BLIND";
+            hole.pad_length = 5;
+            hole.hole_kind = kind;
+            hole.recess_diameter = 4;
+            hole.recess_depth = 1.5;
+            hole.countersink_angle = 3.14159265358979323846 / 2;
+            hole.plane_origin = {8, 8, 0};
+            hole.plane_normal={0,0,1};hole.plane_u_direction={1,0,0};
+            ProfileCurveSpec circle;
+            circle.entity_id = "point";
+            circle.kind = "CIRCLE";
+            circle.radius = 1;
+            hole.regions = {{"hole/point-sketch/point", {"loop", {circle}}, {}}};
+            ProfilePadSpec pattern;
+            pattern.feature_id = "array";
+            pattern.body_id = "body";
+            pattern.generator = "SOLID_PATTERN";
+            pattern.body_operation = "REMOVE";
+            pattern.pattern_source_kind = "GENERATOR_TOOL";
+            pattern.pattern_source_feature_id = "hole";
+            pattern.pattern_placements = {{0, identity}};
+            if (mode == "LINEAR") {
+                auto a = identity, b = identity;
+                a[3] = 12;
+                b[3] = 36;
+                pattern.pattern_placements.push_back({1, a});
+                pattern.pattern_placements.push_back({3, b});
+            } else if (mode == "CIRCULAR") {
+                pattern.pattern_placements.push_back({1, {0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0}});
+                pattern.pattern_placements.push_back({2, {-1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0}});
+            } else
+                pattern.pattern_placements.push_back({1, rx});
+            PartRuntimeStats stats;
+            PartRuntimeOptions runtime;
+            runtime.stats = &stats;
+            runtime.stage_keys = {kind + mode + "/base", kind + mode + "/hole"};
+            kernel.evaluateProfilePadsWithHistory(
+                {stock, hole}, {}, nullptr, runtime);  // No consumer yet: cache the complete tool.
+            runtime.stage_keys.push_back(kind + mode + "/array");
+            const auto hot =
+                kernel.evaluateProfilePadsWithHistory({stock, hole, pattern}, {}, nullptr, runtime);
+            EXPECT_EQ(stats.stages_reused, 2);
+            EXPECT_EQ(stats.stages_executed, 1);
+            EXPECT_EQ(stats.generator_calls, 0);
+            const double unit = 3.14159265358979323846 * (5 + (kind == "COUNTERBORE"   ? 4.5
+                                                               : kind == "COUNTERSINK" ? 4. / 3.
+                                                                                       : 0.));
+            EXPECT_NEAR(kernel.getVolume(hot.geometry_id),
+                        120000 - pattern.pattern_placements.size() * unit, 1e-5);
+            EXPECT_TRUE(hot.feature_results.back().topology_history_complete);
+            const auto hasSlot = [&](int slot) {
+                return std::any_of(hot.feature_results.back().semantic_outputs.begin(),
+                                   hot.feature_results.back().semantic_outputs.end(),
+                                   [&](const auto& out) {
+                                       return out.semantic_ref.feature_id == "array" &&
+                                              out.semantic_ref.output_slot.find(
+                                                  "MEMBER/" + std::to_string(slot) + "/") == 0;
+                                   });
+            };
+            EXPECT_TRUE(hasSlot(1));
+            if (mode == "LINEAR") {
+                EXPECT_TRUE(hasSlot(3));
+                EXPECT_FALSE(hasSlot(2));
+            }
+            OcctKernel cold;
+            const auto rebuilt = cold.evaluateProfilePadsWithHistory({stock, hole, pattern});
+            EXPECT_EQ(hot.geometry_id, rebuilt.geometry_id);
+            EXPECT_EQ(hot.feature_results.back().topology_history.evidence_digest,
+                      rebuilt.feature_results.back().topology_history.evidence_digest);
+            if (mode == "MIRROR") {
+                auto next = pattern;
+                next.feature_id = "chain";
+                next.pattern_source_feature_id = "array";
+                next.pattern_placements = {{0, identity}, {1, ry}};
+                const auto chained =
+                    kernel.evaluateProfilePadsWithHistory({stock, hole, pattern, next});
+                EXPECT_NEAR(kernel.getVolume(chained.geometry_id), 120000 - 3 * unit, 1e-5);
+                auto multi = pattern;
+                multi.feature_id = "multi";
+                multi.additional_pattern_sources = {{"array", "GENERATOR_TOOL", ""}};
+                auto shift = identity;
+                shift[7] = 15;
+                multi.pattern_placements = {{0, identity}, {1, shift}};
+                const auto multiple =
+                    kernel.evaluateProfilePadsWithHistory({stock, hole, pattern, multi});
+                EXPECT_NEAR(kernel.getVolume(multiple.geometry_id), 120000 - 4 * unit, 1e-5);
+                multi.additional_pattern_sources = {{"hole", "GENERATOR_TOOL", ""}};
+                EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock, hole, multi}),
+                             std::invalid_argument);
+            }
+            auto through = hole;
+            through.extent = "THROUGH_ALL";
+            EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock, through, pattern}),
+                         std::invalid_argument);
+            auto wrong = pattern;
+            wrong.body_operation = "ADD";
+            EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock, hole, wrong}),
+                         std::invalid_argument);
+            wrong = pattern;
+            wrong.body_id = "other-body";
+            EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock, hole, wrong}),
+                         std::invalid_argument);
+        }
+}
+}  // namespace occccad::kernel

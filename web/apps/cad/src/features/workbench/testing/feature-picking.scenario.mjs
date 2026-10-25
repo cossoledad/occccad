@@ -101,4 +101,10 @@ try {
  assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["loft"]},[loft],"GENERATOR_TOOL",caps),[loft]);
  assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["loft"],patternMemberSlot:1},[loft],"GENERATOR_TOOL",caps),[],"member pick cannot silently jump to seed");
  assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["loft"]},[loft],"GENERATOR_TOOL",{}),[],"missing capability is not inferred from type");
+ const finiteHole={id:"hole",type:"HOLE",bodyId:"body",extent:"BLIND",operation:"REMOVE"};
+ const throughHole={...finiteHole,id:"through",extent:"THROUGH_ALL"};
+ const holeCaps={hole:{tool:true,sourceKind:"GENERATOR_TOOL",operation:"REMOVE",bodyStage:true},through:{tool:false,bodyStage:true,diagnostic:"PATTERN_REEXECUTION_UNSUPPORTED"}};
+ for(const hit of [{kind:"feature",id:"hole",entityId:"hole",bodyId:"body"},{...face,sourceFeatureIds:["hole"]}])assert.deepEqual(patternSourceCandidates(hit,[finiteHole,throughHole],"AUTO",holeCaps),[finiteHole],"tree and viewport use authoritative finite Hole capabilities");
+ assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["through"]},[throughHole],"AUTO",holeCaps),[],"unsupported Hole never falls back to a whole Body");
+ assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["through"]},[throughHole],"BODY_STAGE",holeCaps),[throughHole],"explicit stage preserves whole-Body semantics");
 }finally{await server.close();}

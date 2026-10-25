@@ -364,10 +364,10 @@ func TestHoleAdmissionAndReplicationThroughRouter(t *testing.T) {
 	}
 	apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &valid})
 	hole := view.Part.Features[len(view.Part.Features)-1]
-	if caps := view.ReplicationSources[hole.ID]; caps.Tool || caps.RangeStart || caps.RangeModifier || !caps.BodyStage {
+	if caps := view.ReplicationSources[hole.ID]; !caps.Tool || caps.RangeStart || caps.RangeModifier || !caps.BodyStage {
 		t.Fatal("wrong Hole replication capabilities", caps)
 	}
-	for _, kind := range []string{"GENERATOR_TOOL", "FEATURE_DELTA", "BODY_STAGE"} {
+	for _, kind := range []string{"FEATURE_DELTA", "BODY_STAGE"} {
 		pattern := &workspace.Feature{Type: "SOLID_PATTERN", BodyID: base.BodyID, Operation: "ADD", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Count: 2, Spacing: 30, Direction: [3]float64{1, 0, 0}}, Source: workspace.FeatureStageRef{BodyID: base.BodyID, FeatureID: hole.ID}, SourceKind: kind, ResultMode: "COMBINE"}}
 		if kind == "FEATURE_DELTA" {
 			pattern.Pattern.StartFeatureID = hole.ID

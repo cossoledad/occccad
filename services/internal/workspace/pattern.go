@@ -546,7 +546,11 @@ func resolveAutomaticPatternSource(model PartModel, f *Feature) error {
 	p := *f.Pattern
 	cap, ok := caps[p.Source.FeatureID]
 	if !ok || cap.SourceKind == "" {
-		return fmt.Errorf("%w: PATTERN_INDEPENDENT_TOOL_UNAVAILABLE", ErrValidation)
+		code := cap.Diagnostic
+		if code == "" {
+			code = "PATTERN_INDEPENDENT_TOOL_UNAVAILABLE"
+		}
+		return fmt.Errorf("%w: %s", ErrValidation, code)
 	}
 	for _, source := range prefix.Features {
 		if source.ID != p.Source.FeatureID {
@@ -569,6 +573,9 @@ func resolveAutomaticPatternSource(model PartModel, f *Feature) error {
 		f.Type = "SOLID_PATTERN"
 	}
 	if f.Operation == "REMOVE" {
+		if p.ResultMode == "INDEPENDENT" {
+			return fmt.Errorf("%w: independent pattern requires additive source geometry", ErrValidation)
+		}
 		p.ResultMode = "COMBINE"
 	}
 	f.Pattern = &p

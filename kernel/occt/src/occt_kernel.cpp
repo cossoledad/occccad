@@ -3757,9 +3757,28 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     std::set<std::string> range_starts;
     std::set<std::string> required_pattern_tools, required_pattern_bodies;
     for (const auto& spec : specs) {
-        if (spec.generator != "SOLID_PATTERN") continue;
-        auto sources=spec.additional_pattern_sources;sources.insert(sources.begin(),{spec.pattern_source_feature_id,spec.pattern_source_kind,spec.pattern_start_feature_id});
-        for(const auto& source:sources){(source.source_kind=="GENERATOR_TOOL"?required_pattern_tools:required_pattern_bodies).insert(source.feature_id);if(source.source_kind=="FEATURE_DELTA")range_starts.insert(source.start_feature_id);}
+        if (spec.generator != "SOLID_PATTERN")
+            continue;
+        auto sources = spec.additional_pattern_sources;
+        sources.insert(sources.begin(), {spec.pattern_source_feature_id, spec.pattern_source_kind,
+                                         spec.pattern_start_feature_id});
+        for (const auto& source : sources) {
+            if (source.source_kind == "GENERATOR_TOOL") {
+                const auto seed = std::find_if(specs.begin(), specs.end(), [&](const auto& input) {
+                    return input.feature_id == source.feature_id;
+                });
+                if (seed != specs.end() && seed->generator == "HOLE") {
+                    if (seed->extent != "BLIND")
+                        throw std::invalid_argument("PATTERN_REEXECUTION_UNSUPPORTED");
+                    if (seed->body_id != spec.body_id || spec.body_operation != "REMOVE")
+                        throw std::invalid_argument("PATTERN_HOLE_TOOL_CONTRACT_INVALID");
+                }
+                required_pattern_tools.insert(source.feature_id);
+            } else
+                required_pattern_bodies.insert(source.feature_id);
+            if (source.source_kind == "FEATURE_DELTA")
+                range_starts.insert(source.start_feature_id);
+        }
     }
     if (import_seed && !result.IsNull() && !restored) {
         ToolBuild stage; stage.shape=result;stage.named=live_named;
@@ -3989,14 +4008,14 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 if(spec.generator=="HOLE")tool=add_hole_recess(std::move(tool),spec);
             }
             topology_history_complete = topology_history_complete && tool.topology_history_complete;
-            if (required_pattern_tools.count(spec.feature_id) &&
-                (modifier || spec.generator=="HOLE" || (spec.extent=="THROUGH_ALL" || spec.extent=="TO_PLANE") || tool.shape.IsNull()))
+            const bool reusable_tool = !modifier && spec.generator!="BOOLEAN" &&
+                spec.extent!="THROUGH_ALL" && spec.extent!="TO_PLANE" &&
+                (spec.generator!="HOLE" || spec.extent=="BLIND") && !tool.shape.IsNull();
+            if (required_pattern_tools.count(spec.feature_id) && !reusable_tool)
                 throw std::invalid_argument("PATTERN_INDEPENDENT_TOOL_UNAVAILABLE");
-            if (!modifier && spec.generator!="HOLE" && spec.generator!="BOOLEAN" && spec.extent!="THROUGH_ALL" && spec.extent!="TO_PLANE" && !tool.shape.IsNull()) {
+            if (reusable_tool) {
                 // Retain the real independently constructed tool before Body
                 // application, never the already-cut stage or the whole Body.
-                if (modifier || spec.extent == "THROUGH_ALL" || tool.shape.IsNull())
-                    throw std::invalid_argument("PATTERN_INDEPENDENT_TOOL_UNAVAILABLE");
                 validate_body_solid_set(tool.shape);
                 auto closure = complete_boolean_topology_naming(tool.shape, tool.named, spec.feature_id);
                 tool.generated.insert(tool.generated.end(), closure.begin(), closure.end());

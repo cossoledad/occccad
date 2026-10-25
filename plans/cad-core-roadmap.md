@@ -2,9 +2,9 @@
 
 > 建立日期：2026-10-23
 > 分析基线：[a10 · 9326ac9](https://github.com/cossoledad/occccad/commit/9326ac91b99e93e399099a9c2f3b8b3c756d86b6)
-> 状态：阶段 1 与阶段 2 已实现并通过定向真实链路及浏览器验收，主体实机验收另行进行。当前事实与边界见[输入修复](../docs/architecture/current/solid-features.md#输入修复边界)、[区域选择](../docs/architecture/current/part-sketch.md#显式轮廓区域)及[草图支撑重指定](../docs/architecture/current/part-sketch.md#支撑与外部几何)。阶段 3 已交付的切片：单方向拉伸／切除[到平面关联终止](../docs/architecture/current/solid-features.md#到平面关联终止)、[单点工程 Hole](../docs/architecture/current/solid-features.md#独立-hole)、[同 Body 单特征受约束移动](../docs/architecture/current/solid-features.md#调整特征顺序)及[圆角/倒角阶段插入](../docs/architecture/current/solid-features.md#在实体阶段后插入)已实现并完成定向验收；其余关联终止、孔工具阵列/镜像复用、其他类型的阶段插入与跨 Body/分组移动未完成。
+> 状态：阶段 1 与阶段 2 已实现并通过定向真实链路及浏览器验收，主体实机验收另行进行。当前事实与边界见[输入修复](../docs/architecture/current/solid-features.md#输入修复边界)、[区域选择](../docs/architecture/current/part-sketch.md#显式轮廓区域)及[草图支撑重指定](../docs/architecture/current/part-sketch.md#支撑与外部几何)。阶段 3 已交付的切片：单方向拉伸／切除[到平面关联终止](../docs/architecture/current/solid-features.md#到平面关联终止)、[单点工程 Hole](../docs/architecture/current/solid-features.md#独立-hole)、[同 Body 单特征受约束移动](../docs/architecture/current/solid-features.md#调整特征顺序)及[圆角/倒角阶段插入](../docs/architecture/current/solid-features.md#在实体阶段后插入)已实现并完成定向验收；有限深度三孔型的工具阵列／镜像复用已实现；其余关联终止、贯穿孔工具复用、切除特征组、其他类型的阶段插入与跨 Body/分组移动未完成。
 > 阶段 4：[关联更新与修复](../docs/architecture/current/product-assembly.md#关联更新与修复)已覆盖 owning Product 直接引用 Part 的版本检查、按实例定位及现有 Reconnect 闭环，并接通[剩余运动独立只读刷新](../docs/architecture/current/product-assembly.md#局部诊断与剩余运动)。[已保存机构分析](../docs/architecture/current/kinematics-dmu.md#机构分析)具备：逐端点支撑诊断、只读物理 DOF、定位／原 Joint 修复。当前分析均限定 owning Product；嵌套更新编排、柔性装配未扩展；阶段 3 上述扩展项继续保留为未完成。
-> 当前已补齐 Part 的[布尔结果区域选择](../docs/architecture/current/solid-features.md#布尔结果区域)：单目标／单工具精确分区、显式保留与失效修复；普通多工具布尔保持兼容，区域资源按冻结清单直接下载，修复集合按当前区域去重。独立 Hole 已扩展普通孔、圆柱沉孔、锥沉孔及原编辑/修复/历史链；紧接的重点为孔工具阵列/镜像复用。工作台继续遵循[统一 UI 规格](../docs/guides/workbench.md#工程信息表达)。
+> 当前已补齐 Part 的[布尔结果区域选择](../docs/architecture/current/solid-features.md#布尔结果区域)：单目标／单工具精确分区、显式保留与失效修复；普通多工具布尔保持兼容，区域资源按冻结清单直接下载，修复集合按当前区域去重。独立 Hole 已扩展普通孔、圆柱沉孔、锥沉孔及原编辑/修复/历史链；本轮补齐同 Body 有限孔的线性／圆周阵列、镜像和阵列成员失效后的下游显式修复。贯穿孔工具、逐成员重新终止与切除特征组仍未开放。工作台继续遵循[统一 UI 规格](../docs/guides/workbench.md#工程信息表达)。
 
 ## 目标与实施原则
 

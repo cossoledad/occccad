@@ -22,7 +22,11 @@ func replicationSource(f Feature) ReplicationSource {
 			c.Diagnostic = "PATTERN_INDEPENDENT_TOOL_UNAVAILABLE"
 		}
 	case "HOLE":
-		c.Diagnostic = "PATTERN_REEXECUTION_UNSUPPORTED"
+		kind := holeKind(f)
+		c.Tool = f.Extent == "BLIND" && f.Operation == "REMOVE" && (kind == "SIMPLE" || kind == "COUNTERBORE" || kind == "COUNTERSINK") && validateHoleDimensions(f) == nil
+		if !c.Tool {
+			c.Diagnostic = "PATTERN_REEXECUTION_UNSUPPORTED"
+		}
 	case "PAD", "LINEAR_EXTRUDE", "REVOLVE", "LOFT":
 		c.Tool = (f.Extent == "" || f.Extent == "FINITE" || f.Extent == "SYMMETRIC" || f.Extent == "TWO_SIDED") && (f.Operation == "ADD" || f.Operation == "REMOVE" || f.Operation == "NEW_BODY" || f.Operation == "")
 		c.RangeStart = c.Tool && f.Operation != "REMOVE"

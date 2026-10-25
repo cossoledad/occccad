@@ -102,7 +102,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		} else {
 			geometryKey, err = service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID, model, bodyID, true)
 			if err != nil && prepared.command.TypeURI == typeEditFeature && (errors.Is(err, ErrValidation) || status.Code(err) == codes.InvalidArgument) {
-				// A valid Hole edit can remove a downstream role. Preview the exact Hole
+				// A valid Hole or solid pattern edit can remove a downstream role. Preview the exact target
 				// stage and report the real blocker; commit still evaluates the full model.
 				var payload editFeaturePayload
 				if parseErr := json.Unmarshal(prepared.command.Payload, &payload); parseErr != nil {
@@ -110,7 +110,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 				}
 				matches := featureFailurePattern.FindAllStringSubmatch(err.Error(), -1)
 				for i, f := range model.Features {
-					if f.ID != payload.FeatureID || f.Type != "HOLE" {
+					if f.ID != payload.FeatureID || (f.Type != "HOLE" && f.Type != "SOLID_PATTERN") {
 						continue
 					}
 					if len(matches) > 0 {
@@ -121,7 +121,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 							prefix := model
 							prefix.Features = append([]Feature(nil), model.Features[:i+1]...)
 							var prefixErr error
-							geometryKey, prefixErr = service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID+"/hole-stage", prefix, bodyID, true)
+							geometryKey, prefixErr = service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID+"/edited-stage", prefix, bodyID, true)
 							if prefixErr == nil {
 								repairRequired = []FeaturePreviewIssue{{FeatureID: downstream.ID, Name: downstream.Name, Diagnostic: err.Error()}}
 								err = nil
