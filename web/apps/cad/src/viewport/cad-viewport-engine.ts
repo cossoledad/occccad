@@ -785,6 +785,15 @@ export class CadViewportEngine {
     this.clearInsertPatternPreview();
     this.navigation.cancel();
     const previousDocumentID = this.view?.document.id;
+    // Loading an authorized input stage can finish after a fast preview. Keep
+    // that current command result across display-only scene reconstruction;
+    // cancellation/input changes clear the request, and revisions isolate it.
+    const retainedPreview = previousDocumentID === view.document.id &&
+      this.view?.document.versionId === view.document.versionId &&
+      this.editContext?.view.document.id === editContext?.view.document.id &&
+      this.editContext?.view.document.versionId === editContext?.view.document.versionId &&
+      this.editContext?.occurrencePath === editContext?.occurrencePath
+      ? this.commandPreviewRequest : undefined;
     let restoredCamera = false;
     if (previousDocumentID !== view.document.id) {
       this.viewTransition.cancel();
@@ -866,6 +875,7 @@ export class CadViewportEngine {
     this.showProfileRegions(this.featureSelection);
     this.showBooleanRegions(this.featureSelection);
     this.refreshInteractionHighlights();
+    if (retainedPreview) this.previewArtifact(retainedPreview.descriptor,retainedPreview.operation,retainedPreview.sketchFeatureId);
     this.emitDebugState();
     this.callbacks.documentViewReady?.(view.document.id, restoredCamera);
     this.invalidate();
@@ -1418,6 +1428,7 @@ export class CadViewportEngine {
   }
 
   private previewInputMaterials:Array<{object:THREE.Mesh;original:THREE.Material|THREE.Material[];temporary:THREE.Material[]}>=[];
+  private commandPreviewRequest?:{descriptor:ArtifactDescriptor;operation:FeaturePreviewOperation;sketchFeatureId?:string};
   private previewVisualGeneration = 0;
   private previewVisuals?: VisualRepository;
   private previewSketchHidden:THREE.Object3D[]=[];
@@ -1425,6 +1436,7 @@ export class CadViewportEngine {
     this.clearCommandPreview();
     const generation = this.previewVisualGeneration;
     if (descriptor.representationKind !== "TRANSIENT_PREVIEW" || !this.view) return;
+    this.commandPreviewRequest={descriptor,operation,sketchFeatureId};
     const view = { ...this.view, artifact: descriptor, artifacts: {} };
     this.previewVisuals = this.visuals.previewRepository();
     void this.previewVisuals.hydrate(view).then(display => {
@@ -1487,6 +1499,7 @@ export class CadViewportEngine {
   }
 
   clearCommandPreview(restore = true): void {
+    this.commandPreviewRequest=undefined;
     this.previewVisualGeneration++;
     this.previewVisuals?.dispose();
     this.previewVisuals = undefined;

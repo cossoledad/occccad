@@ -71,7 +71,7 @@ export function patternSourceCandidates(selection:SelectionItem,stages:Feature[]
 }
 
 // A material range has an explicit additive seed and inclusive end. Only local
-// fillet/chamfer steps are supported; this never promises arbitrary group replay.
+// fillet/chamfer/draft steps are supported; this never promises arbitrary group replay.
 export function patternRangeEnds(stages:Feature[],startId?:string,capabilities:DocumentView["replicationSources"]={}):Feature[] {
  const start=stages.find(f=>f.id===startId);
  if(!start||start.suppressed||!capabilities[start.id]?.rangeStart)return [];

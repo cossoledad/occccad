@@ -3883,3 +3883,80 @@ TEST(GeometryExchange, BlindEngineeringHoleToolsReplicateFromWarmCheckpoints) {
         }
 }
 }  // namespace occccad::kernel
+
+namespace occccad::kernel { namespace {
+TEST(GeometryExchange, DraftAdditiveRangesCopyNetMaterialAndOwnAngleFaces) {
+    for (const bool reversed : {false,true}) for (const int generator : {0,1,2}) {
+        OcctKernel kernel;
+        ProfilePadSpec base; base.feature_id="base";base.body_id="body";base.profile_feature_id="base-sketch";
+        base.regions={rectangular_region("stock",-23,-16,20,18)};base.pad_length=4;
+        ProfilePadSpec boss=base;boss.feature_id="boss";boss.input_feature_id="base";boss.profile_feature_id="boss-sketch";
+        boss.regions={rectangular_region("blade",7,-2,11,2)};boss.plane_origin={0,0,4};boss.plane_normal={0,0,1};boss.plane_u_direction={1,0,0};boss.pad_length=10;boss.body_operation="ADD";
+        if(generator==1) {
+            auto a=loft_rectangle("start",4),b=loft_rectangle("end",14);
+            a.region=rectangular_region("blade-a",7,-2,11,2);b.region=rectangular_region("blade-b",7,-2,11,2);
+            boss=loft_spec({a,b});boss.feature_id="boss";boss.input_feature_id="base";boss.body_operation="ADD";
+        }
+        if(generator==2) {
+            boss.generator="REVOLVE";boss.plane_origin={0,0,0};boss.plane_normal={0,-1,0};boss.plane_u_direction={1,0,0};
+            boss.regions={rectangular_region("sector",7,4,11,14)};boss.axis_start={0,0};boss.axis_end={0,1};boss.revolve_angle=25*3.141592653589793/180;
+        }
+        const auto seed=kernel.evaluateProfilePadsWithHistory({base,boss});
+        ProfilePadSpec draft;draft.feature_id="draft";draft.body_id="body";draft.input_feature_id="boss";draft.generator="DRAFT";
+        draft.neutral_origin={0,0,4};draft.neutral_normal={0,0,1};draft.revolve_angle=3*3.141592653589793/180;draft.reversed=reversed;
+        for(const auto& o:seed.feature_results.back().semantic_outputs)
+            if(o.topology_type==PersistentTopologyType::face && o.semantic_ref.feature_id=="boss" && o.evidence.geometry_type=="PLANE" && std::abs(o.evidence.direction.z)<.1)
+                draft.selections.push_back({o.semantic_ref.feature_id,o.semantic_ref.output_slot,o.semantic_ref.source_ids});
+        ASSERT_EQ(draft.selections.size(),generator==2?2U:4U);
+        PartRuntimeStats stats;PartRuntimeOptions runtime;runtime.stats=&stats;runtime.stage_keys={"stock","boss","draft"};
+        const auto tapered=kernel.evaluateProfilePadsWithHistory({base,boss,draft},{},nullptr,runtime);
+        unsigned owned=0;
+        for(const auto& o:tapered.feature_results.back().semantic_outputs)
+            if(o.topology_type==PersistentTopologyType::face && o.semantic_ref.feature_id=="draft" && o.semantic_ref.output_slot.find("DRAFTED_FROM/")==0)++owned;
+        EXPECT_EQ(owned,generator==2?2U:4U);
+        const auto stock=43*34*4.;const auto delta=kernel.getVolume(tapered.geometry_id)-stock;
+        EXPECT_GT(delta,0);EXPECT_NE(delta,160);
+        ProfilePadSpec pattern;pattern.feature_id="copies";pattern.body_id="body";pattern.input_feature_id="draft";pattern.generator="SOLID_PATTERN";
+        pattern.body_operation="ADD";pattern.pattern_source_kind="FEATURE_DELTA";pattern.pattern_start_feature_id="boss";pattern.pattern_source_feature_id="draft";
+        for(int kind=0;kind<3;++kind) {
+            pattern.pattern_placements={{0,{1,0,0,0,0,1,0,0,0,0,1,0}},{1,kind==0?std::array<double,12>{1,0,0,-18,0,1,0,0,0,0,1,0}:kind==1?std::array<double,12>{-1,0,0,0,0,-1,0,0,0,0,1,0}:std::array<double,12>{-1,0,0,0,0,1,0,0,0,0,1,0}}};
+            runtime.stage_keys={"stock","boss","draft","copies-"+std::to_string(kind)};
+            const auto result=kernel.evaluateProfilePadsWithHistory({base,boss,draft,pattern},{},nullptr,runtime);
+            EXPECT_GE(stats.stages_reused,3U);
+            EXPECT_NEAR(kernel.getVolume(result.geometry_id),stock+2*delta,1e-5);
+            EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+            bool member=false;for(const auto& o:result.feature_results.back().semantic_outputs)member|=o.semantic_ref.output_slot.find("MEMBER/1/")==0;
+            EXPECT_TRUE(member);
+            runtime.force_cold=true;
+            const auto cold=kernel.evaluateProfilePadsWithHistory({base,boss,draft,pattern},{},nullptr,runtime);
+            EXPECT_EQ(result.geometry_id,cold.geometry_id);EXPECT_EQ(result.feature_results.back().topology_history.evidence_digest,cold.feature_results.back().topology_history.evidence_digest);
+            runtime.force_cold=false;
+        }
+        if(generator==0) {
+            std::vector<ProfilePadSpec> chain{base,boss,draft};
+            auto stage=tapered;
+            for(const std::string modifier : {"CHAMFER","FILLET"}) {
+                ProfilePadSpec local;local.feature_id=modifier;local.body_id="body";local.input_feature_id=chain.back().feature_id;
+                local.generator=modifier;local.pad_length=modifier=="CHAMFER"?.15:.08;
+                for(const auto& o:stage.feature_results.back().semantic_outputs)
+                    if(o.topology_type==PersistentTopologyType::edge && o.evidence.geometry_type=="LINE" && o.evidence.centroid.z>4.1) {
+                        local.selections={{o.semantic_ref.feature_id,o.semantic_ref.output_slot,o.semantic_ref.source_ids}};break;
+                    }
+                ASSERT_EQ(local.selections.size(),1U)<<modifier;chain.push_back(local);stage=kernel.evaluateProfilePadsWithHistory(chain);
+            }
+            auto combined=pattern;combined.pattern_source_feature_id=chain.back().feature_id;combined.input_feature_id=chain.back().feature_id;
+            const auto net=kernel.getVolume(stage.geometry_id)-stock;chain.push_back(combined);
+            const auto copied=kernel.evaluateProfilePadsWithHistory(chain);
+            EXPECT_NEAR(kernel.getVolume(copied.geometry_id),stock+2*net,1e-5);EXPECT_TRUE(copied.feature_results.back().topology_history_complete);
+        }
+        // Selecting the base walls makes this a real subtractive range. Never
+        // substitute a whole Body or skip the exact containment gate.
+        draft.selections.clear();draft.reversed=false;draft.neutral_origin={0,0,0};
+        for(const auto& o:seed.feature_results.front().semantic_outputs)
+            if(o.topology_type==PersistentTopologyType::face && std::abs(o.evidence.direction.z)<.1)
+                draft.selections.push_back({o.semantic_ref.feature_id,o.semantic_ref.output_slot,o.semantic_ref.source_ids});
+        try {kernel.evaluateProfilePadsWithHistory({base,boss,draft,pattern});FAIL()<<"removed baseline accepted";}
+        catch(const std::exception& e){EXPECT_NE(std::string(e.what()).find("PATTERN_RANGE_REMOVES_BASELINE"),std::string::npos)<<e.what();}
+    }
+}
+} }

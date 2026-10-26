@@ -1,24 +1,38 @@
 # 实体 Feature
 
-返回[Part/Sketch](part-sketch.md)。这里记录实现合同，测试执行结果与人工验收必须另行区分。
+返回[Part/Sketch](part-sketch.md)。当前行为以代码为准，范围和修复方式由本文维护。
+
+## Feature 能力表
+
+这是唯一 Feature 能力表；表述是代码合同，验证入口不表示当轮已执行。共享链为正式创建/编辑、Quantity/表达式与稳定参数、权威预览/取消、上游重算、抑制/删除保护、Undo/Redo 和重开。空白或不适用的参数不强行建立接口；导入基础实体的例外见表。
+
+| Feature | 当前定义、编辑与修复 | 阵列／镜像来源 |
+|---|---|---|
+| SKETCH | 稳定实体/端点、正式约束与尺寸表达式；支撑重指定、投影删除、交点分割及引用影响检查，见 [Part/Sketch](part-sketch.md) | 空间草图框架与草图内派生成员；成员修改须解除关联 |
+| PAD / LINEAR_EXTRUDE | 整草图或显式区域；有限、对称、双侧、贯穿切除及到平面；区域/终止面失效显式重选 | 有限工具；添加型可作为材料范围起点；关联终止仅实体阶段 |
+| REVOLVE | 草图/区域、稳定轴、角度、反向；编辑轴与区域，失效不自动换区 | 有限工具；添加型可作为范围起点 |
+| LOFT | 2–32 有序截面，至少一个单区域无孔闭合轮廓；首尾支持稳定点；编辑顺序、对应、接缝和相位；形状尺寸由截面参数管理，丢失输入需重选 | ADD/REMOVE 工具；添加型也可作为范围起点，非任意截面重执行 |
+| HOLE | 单个上游显式 POINT；普通/圆柱沉孔/锥沉孔，盲孔/单向贯穿；孔位、孔型与尺寸可编辑，丢点重选 | 三孔型 BLIND 切削工具；贯穿仅实体阶段，不支持切除范围 |
+| FILLET / CHAMFER | 恒半径/等距，稳定边集；部分/全部丢失可逐项替换或移除 | 仅添加材料范围内修饰步骤，或明确实体阶段 |
+| DRAFT | 稳定面集、上游中性平面、角度/反向；面和中性面显式修复 | 添加材料范围内修饰步骤；须精确保留基体，无独立工具 |
+| SHELL | 开口面集、恒定厚度、内/外偏置；面集可修复，算法边界见[抽壳](shell-algorithm.md) | 仅实体阶段 |
+| BOOLEAN | 同 Part 目标/工具阶段，并/差/交；编辑来源，单工具支持显式结果区域及修复；无尺寸参数 | 仅实体阶段 |
+| SOLID_PATTERN | 多种子线性/圆周/镜像、稳定成员槽位与跳过；成员丢失后修复下游；数量/步距/角度表达式 | 有效新增成员工具，继承 ADD/REMOVE；数量1或全部新增槽位跳过时仅实体阶段 |
+| SKETCH_PATTERN | 单草图空间框架复制，成员可供拉伸/旋转/放样；分布表达式与成员身份 | 草图框架，不是实体切削工具 |
+| IMPORT_BODY | 冻结导入定义；正式命名建立及整体删除保护，无参数化几何编辑/任意抑制 | 仅实体阶段 |
+
+依赖阻止非法删除/循环，抑制可能令后代 FAILED/BLOCKED；这不等于所有输入都能自动修复。实体特征保持 Feature/Parameter ID、名称、所属 Body 与历史位置，移动和插入限下述范围。基准与轴系是 Part 对象，不伪装为实体 Feature，约定见 [Part/Sketch](part-sketch.md#支撑与外部几何)。
 
 ## 定义与求值
 
-实体生成、跨 Body 组合、局部修改复用 Part Feature、参数、ChangeSet、CAS、补偿历史和每 Body 的 BREP/Visual/Naming 制品。它们采用不同的 OCCT 算法，不把局部修改伪装成草图拉伸。
+实体生成、跨 Body 组合与局部修改复用 Feature、参数、ChangeSet、CAS、补偿历史及 per-Body BREP/Visual/Naming。算法成功后仍检查有效实体和完整命名，具体阶段见[求值链](part-feature-evaluation.md)。Body 不因材料不连通而改身份。
 
-- 拉伸／切除和旋转支持[整草图或显式区域集合](part-sketch.md#显式轮廓区域)，定义、拾取、失效修复和验证边界由该主题统一说明。
-- 拉伸：有限长度、双侧独立长度、对称总长、贯穿切除，以及单方向[到平面](#到平面关联终止)。贯穿根据当前 Feature 上游输入的包围范围计算，不持久化一个任意的大长度。
-- Hole：独立的单点普通孔、圆柱沉孔与锥沉孔，范围见[独立 Hole](#独立-hole)。
-- 旋转：稳定轴引用、角度、反向及真实扫掠 Naming；轴与轮廓边界重合时，只保留最终扫掠拓扑中的实际成员，不把 OCCT 的轴上辅助点或边写为悬空输出。长度、第二长度和角度使用既有 Quantity/表达式参数。
-- Boolean：同一 Part 的并、差、交；并/差允许最多 32 个不同工具 Body，交集只允许一个。工具定义保存 `bodyId + featureId`，只读取该明确阶段。编辑可更换目标和工具。工具 BREP 和 Naming 必须属于同一个不可变快照；单工具还支持[结果区域选择](#布尔结果区域)。
-- 圆角：常量半径与持久边选择，按稳定语义对边集排序。凸全平面实体上，共享支撑面、被一条倒角边隔开的两条正交直边，使用原始支撑面构造恒半径圆柱及角区裁剪，允许半径超过小倒角尺寸；圆柱周期缝放在保留圆弧之外，避免斜向实体产生额外显示边。构造来源与每步 Boolean 的真实历史合成后进入同一命名门禁。其他情况使用通用 OCCT 圆角；同时构造失败时，按稳定语义顺序逐步构造并合成 OCCT 历史，已被相邻圆角消耗的边以实际删除历史识别。倒角：等距距离与持久边选择。局部修改复制上游精确几何，避免内核构造修改不可变阶段。
-- 有限面域圆角补充路径：通用 OCCT 失败后，`kernel/occt/src/fillet_boundary.cpp` 识别单 Solid 的解析支撑。平行端面的凸等截面实体使用真实端面边界延伸工作支撑（侧面限平面/圆柱）；其他凸全平面实体通过有向支撑半空间建立工作域，圆角后与原实体求交恢复限制面。单条凹平面叶根从两侧法向解析恒半径圆柱扇区，以全局支撑平面和所选根边两端实际关联的平面端面裁剪后并入材料；端部限面须包含该根边端点、法向在根轴方向有分量且材料侧包含根边中点。允许远处已存在曲面，但新增扇区与任何既有曲面接触时拒绝该分支，不借平面外壳填充曲面空腔或改变另一处过渡。多条凹根交会不进入该分支。延伸不写回参数或上游几何，不增加建模特征，不改变半径/厚度。生成与裁剪关系进入实际 History，失败候选不复用。
-  结果检查包含精确 pcurve/3D 曲线一致性、自干涉、材料与过渡面保留；解析棱柱的 B-spline 角区与相邻过渡面须通过边界法向检查，否则返回 `FILLET_BOUNDARY_CORNER_TANGENCY_FAILED`；圆角全部被限制面消耗不能作为成功。数值容差上限为 `max(1e-6 mm, 上游实测最大边/点容差 × 1.01)`，不提高构造公差。OCCT 角区仅记录偏保守容差时，先逐面检查 3D 曲线/pcurve 与端点实际偏差；只有偏差在门限内，才在独立副本中收紧容差并重新进行精确有效性检查，副本关系合成进 History；不移动几何或强行合并边。最多 128 面、64 条选边；全平面支撑延伸距离设几何预算。日志区分通用构造、支撑延伸、相切/角区、限制面裁剪、材料组装与验证耗时。该能力不等于任意大半径或任意角区光顺；相关回归入口与未验收边界见下节“验证入口与限制”。
-- 拔模：持久面选择，中性平面可为标准/基准面或同一 Part 上游 Body 的任意平面，后者保存 PersistentSelection 和 source Revision/stage，重算以精确平面来源解析；恒角及反向。
-- 抽壳：移除所选面、恒定厚度、向内或向外。按输入选择半空间内腔、通用 OCCT 偏置、开口壳、独立壁层的一次分区或有界工作域组装；凹圆形平面/圆柱交界补充精确连接材料。每条路径保持源副本、真实拓扑历史、精度、连通性、材料包含及显示门禁。构造、Naming、性能与适用限制统一见[抽壳算法](shell-algorithm.md)。
-- 放样：创建时默认以“添加”运算归入当前工作 Body，可显式改为新实体、切除或交集。2–32 个有序截面，至少一个单区域、无孔闭合轮廓；首尾可使用稳定草图点/端点/圆心/原点或基准轴系原点引用，经 OCCT `AddVertex` 构造真实点端，中间点截面拒绝。支持直纹/平滑、同边数轮廓及圆与多边形组合。内核按循环顺序生成起点/绕行方向/圆相位候选，以相邻框架间的归一化轮廓距离计算整组截面的最小代价对应；比较用的框架传递不移动输入截面。支撑法向没有放样前进方向；自动比较按实际轮廓中心之间的位移统一法向符号，避免垂直支撑选中翻折连接。位移在支撑面内而不能确定符号时，保留法向之间的最小旋转规则。圆按匹配边界数构造精确圆弧，关闭 OCCT 的隐式重新对应。自动结果的 stable seam EntityId、反向、相位与 `correspondenceResolved` 经纯 `ResolveLoftCorrespondence` RPC 写入 Feature 定义；后续重算保持已接受关系，丢失闭合边/点明确失败，手动设置优先。生成面来自实际输入边（含圆的解析分段）到 OCCT Generated 面的历史，点端独立命名为 `LOFT_START_VERTEX`/`LOFT_END_VERTEX`，不虚构封口面；退化边通过邻接闭包命名。所有构造几何为私有新建对象，结果在 Boolean 前通过实体检查和自干涉检查；交叉或无法构造时提示检查对应/补中间截面，不放宽容差。资源限制为最多 64 条轮廓边及一亿次候选采样比较。
+旋转以真实扫掠历史命名；轴上不属于最终结果的辅助边/点不进入输出。Loft 使用真实 OCCT AddVertex 点端和精确轮廓；自动比较循环起点、方向和圆相位后保存 stable seam、反向、相位与 correspondenceResolved，重算不重新猜对应。法向符号按截面位移统一，框架比较不移动输入。上限为64条轮廓边、一亿次候选比较；自交或构造失败拒绝。
 
-`Body` 身份不随材料连通性改变。Boolean 默认消耗工具的最终输出，`keepTools` 可保留它；定义、制品和历史始终保留。派生 `consumed` 与 `visible` 独立，视口/拾取、Product 展开和 STEP 导出遵循输出状态。抑制 Boolean 恢复工具输出。
+圆角优先通用 OCCT，失败时可按稳定边顺序构造并合成真实历史；凸解析支撑与单条凹平面叶根的有界延伸/裁剪见 `kernel/occt/src/fillet_boundary.cpp`。保持半径、材料、连接及法向检查，不以提高容差接纳候选。凹根多边交会及与既有曲面相接不进入平面补充路径。最多128面、64条选边；不是任意大半径或任意角区保证。抽壳算法和历史仅由[抽壳算法](shell-algorithm.md)维护。
+
+Boolean 并/差最多32工具，交集一个；工具定义保存 Body+Feature 阶段，BREP 和 Naming 属于同一快照。默认消耗工具输出，keepTools 可保留，抑制 Boolean 恢复输出；consumed 与 visible 独立，定义/历史不删除。
+
 
 ## 布尔结果区域
 
@@ -42,7 +56,7 @@
 
 按候选顺序重建 Body 前驱和依赖图，检查全 Part 的轮廓、孔位、支撑、终止面、外部投影及拓扑输入。语义 Anchor 和实际来源阶段分别验证；未显式保存阶段的既有引用从其不可变来源 Revision 的精确 Body Tip 核对，不补写或重绑引用。所有活动引用和 Body 的实际几何必须成功，失效指明阻塞特征并原子拒绝，不接纳 FAILED 移动。顺序与候选前驱进入原阶段输入、缓存和增量求值。
 
-源码入口为 `services/internal/workspace/feature_move.go`、`web/apps/cad/src/features/workbench/feature-move-dialog.tsx`。定向验证为 `feature_move_test.go`、真实 Router/Worker 的 `services/internal/control/feature_move_integration_test.go` 与浏览器 `solid-feature-live.spec.ts` 的 `constrained feature move`。范围含底座→定位草图→外边圆角→Hole 的移动/继续编辑、中间阶段、历史/重开/冷重建、实际来源阶段与跨 Body 几何阻塞、固定边界及范围保护。证据限当前 SQLite、Release OCCT 7.9.1 和 Chromium/SwiftShader；其他特征的历史插入、跨 Body 搬迁、分组移动或自动依赖重排未包含；圆角/倒角插入见[在实体阶段后插入](#在实体阶段后插入)，主体实机验收另行进行。
+入口：`services/internal/workspace/feature_move.go`、`feature_insert.go`；真实 Router/Worker 回归 `feature_move_integration_test.go`、`feature_insert_integration_test.go`，浏览器 `solid-feature-live.spec.ts`。
 
 ## 在实体阶段后插入
 
@@ -76,7 +90,7 @@
 
 `GENERATOR_TOOL` 和 `FEATURE_DELTA` 不接受此终止模式，线性/圆周阵列及镜像共用此能力限制。`BODY_STAGE` 仍可刚体复制已经求值的实体阶段，不在每个成员位置重新终止。未包含到下一面、有限面边界、任意曲面、双向关联、终止偏移。
 
-定向入口：`services/internal/control/to_plane_integration_test.go` 的真实 Router/Worker 生命周期、目标失效与修复、历史/冷重建；`GeometryExchange.ToPlane*` 的精确体积、内孔、多区域、正反方向、Naming 与非法距离；`solid-feature-live.spec.ts` 的 `to-plane` 实际拾取和修复。执行证据限当前 SQLite、Release OCCT 7.9.1 与 Chromium/SwiftShader；不代表全量参数组合或 PostgreSQL/实机验收。
+定向入口：`services/internal/control/to_plane_integration_test.go` 的真实 Router/Worker 生命周期、目标失效与修复、历史/冷重建；`GeometryExchange.ToPlane*` 的精确体积、内孔、多区域、正反方向、Naming 与非法距离；`solid-feature-live.spec.ts` 的 `to-plane` 实际拾取和修复。
 
 ## 参数化阵列
 
@@ -84,8 +98,8 @@
 
 数量包含槽位 0，求值后必须是 1–256 的整数。线性支持固定步距和总跨度；圆周另支持整圆均布（步角为 360/N，不生成重复终点）。数量为 1 不除以零。跳过成员不重新编号；暂时超出当前数量的跳过槽位保留，恢复数量后仍跳过。成员身份来自 PatternId、槽位、源身份；位置和显示顺序不参与身份。成员消失后的下游引用明确失败，不按相近几何改绑。编辑实体阵列／镜像时，仅下游失败且目标和上游阶段成功的候选可预览有效目标阶段，显示待修复特征；提交仍完整求值并保存真实 FAILED/BLOCKED，随后由原下游编辑器明确重选。当前操作或上游无效不能确认。
 
-- `GENERATOR_TOOL` 复用同 Body 明确上游拉伸/旋转/放样生成工具、有限深度普通孔／圆柱沉孔／锥沉孔的完整切削工具及已求值实体阵列／镜像工具。继续复制阵列时只复制其新增成员工具，排除槽位 0，继承添加／切除语义与真实历史。切除阵列变换切削工具，再与当前上游 Body 做差，不复制已经打孔的主体。有限、对称、双侧拉伸及有限旋转可复用；贯穿、到平面及其他逐位置重新求值不支持。
-- `FEATURE_DELTA` 明确保存 `startFeatureId` 与结束 `source.featureId`，复制起始步骤之前的 Body 与结束步骤之间的新增材料。范围限同 Body 的添加型拉伸/旋转及其后的圆角、倒角；通过现有非破坏布尔差集提取，检查结束阶段没有删除基线材料，再复用刚体变换与 Boolean/Naming。范围不是任意特征组重执行，起止引用均进入依赖与删除保护。面板分别选择起始生成特征和结束步骤。
+- `GENERATOR_TOOL` 复用同 Body 明确上游拉伸/旋转/放样生成工具、有限深度普通孔／圆柱沉孔／锥沉孔的完整切削工具及已求值实体阵列／镜像工具。能力按有效新增成员判断：数量为1或所有额外槽位均跳过时不可作为工具，恢复成员后重新可用；继续复制阵列时只复制其新增成员工具，排除槽位 0，继承添加／切除语义与真实历史。切除阵列变换切削工具，再与当前上游 Body 做差，不复制已经打孔的主体。有限、对称、双侧拉伸及有限旋转可复用；贯穿、到平面及其他逐位置重新求值不支持。
+- `FEATURE_DELTA` 明确保存 `startFeatureId` 与结束 `source.featureId`，复制起始步骤之前的 Body 与结束步骤之间的新增材料。范围限同 Body 的添加型拉伸/旋转/放样及其后的拔模、圆角、倒角；通过现有非破坏布尔差集提取，检查结束阶段没有删除基线材料，再复用刚体变换与 Boolean/Naming。范围不是任意特征组重执行，起止引用均进入依赖与删除保护。AUTO 按所选修饰步骤找到正式起点，不要求用户选择内部来源类型。正反拔模均按真实材料检查，不按方向放行；重叠种子保留输入及依赖，仅复制最大包含范围。
 - `BODY_STAGE` 复用指定上游实体阶段。`COMBINE` 使用现有布尔；添加材料可选择 `INDEPENDENT`，在同一 Body 保留独立 Solid，不按数量创建 Body/Part。槽位 0 是已存在的上游种子，不能跳过或由阵列相位搬移；实体阵列的相位应设在种子参数上。草图和空间草图阵列可直接设置相位、跳过槽位 0。
 - `SKETCH_FRAME` 复用已求值二维草图与变换后框架，正式 Profile 引用保存阵列 FeatureId 和 `profileMemberSlot`；放样截面分别保存 `memberSlot`。同一阵列的多个成员可作为不同截面，不新增三维草图求解器或文档。每个槽位在树与同一 GLB 快照中拥有独立的关联草图身份和显示组；视图区或树选择成员后，下游命令写入明确槽位，不能把整个阵列当作单个轮廓。源 EntityId 保留在成员命名空间内，供截面接缝引用。
 
@@ -103,7 +117,7 @@
 
 依赖连接上游 Feature 输出，而不连接 Body 的未来最终结果。局部修改先重建自身之前的 Body 前缀，再以保存的 source Revision、Body 和 PersistentSelection 解析当前输入。缺失、歧义或类型变化必须失败，不能用最近几何或持久化 local ID 恢复。显示层的 local pick 只用于创建正式持久选择。
 
-生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 以[求值入口](../../../services/internal/workspace/service.go)为准，Naming evaluator、策略 ID、digest 与容差以[命名策略源码](../../../services/internal/modelcore/topology_naming.go)为准；缓存包含版本和完整来源历史。
+拔模所选角度面的单一 Modified 输出以 DRAFTED_FROM 归属拔模，并沿原面保持 Modified 延续；未变面/边不改归属。真实分裂/合并仍走原规则，不猜测面对应。生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 以[求值入口](../../../services/internal/workspace/service.go)为准，Naming evaluator、策略 ID、digest 与容差以[命名策略源码](../../../services/internal/modelcore/topology_naming.go)为准；缓存包含版本和完整来源历史。
 
 精确边的直线识别由同一个内核判定供类型查询、方向属性与 Naming evidence 使用。非周期 B-spline 在实际裁剪参数区间内，正权控制点全部落在端点直线的 `Precision::Confusion()`（1e-7 mm）容差内，且沿直线单调排列时，识别为 `LINE`；不依据显示折线或有限采样。原 BREP 和真实 History 保留，属性同时报告 `underlyingCurveType=BSPLINE_CURVE` 与原生参数。选择 evidence 使用解析直线原点、单位方向和端点距离参数，现有轴/方向解析及外部几何投影消费同一证据，不能把 0–1 的样条参数当作毫米。弯曲、回折或周期样条保守保留曲线类型。evaluator 版本进入缓存键；旧制品须经正常特征编辑/重新求值生成新的成套 Naming/Visual，再选择其边。
 
@@ -115,7 +129,7 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 
 - 面板中的输入按钮切换当前拾取角色。角色先过滤原始 hit，再按业务对象投影；拉伸／旋转的显式轮廓保留权威区域 ID，整草图及放样截面选整个草图；旋转轴和闭合起始边保留草图的单条实体，边/面不能被邻近顶点抢走。所有输入限定同一所有者文档、Revision 和 occurrence。基准面/轴输入临时显示该 occurrence 的参考几何，退出恢复原显示偏好；保存选择的高亮携带已提交编辑会话的完整 InstancePath 和 contextVariantKey。
 - 进入实体 Feature 命令不改变相机 fit。旋转拾轴阶段的已选轮廓只作淡色上下文，轴线选择和 hover 分别使用更明显的颜色和线宽，包含轮廓自身的直线。
-- 圆角/倒角自动带入已选边，拔模/抽壳自动带入已选面。后续点击累加，再次点击取消，不要求 Ctrl 或“添加当前选择”。集合只显示计数；高亮显示真实几何。异步持久绑定顺序执行，不能因为快速连续点击丢掉输入。
+- 圆角/倒角自动带入已选边，拔模/抽壳自动带入已选面。后续点击累加，再次点击取消，不要求 Ctrl 或“添加当前选择”。多选集合默认显示紧凑摘要，可展开条目定位、更换、移除；有序截面保留顺序操作。高亮显示真实几何。异步持久绑定顺序执行，不能因为快速连续点击丢掉输入。
 - 放样截面按拾取顺序添加；“点端”拾取保留具体点引用，可上移至首端。直接选择仅含一个点的普通草图也会在预览/提交前绑定到该稳定点引用；多点草图要求明确选点，已接受轮廓不会因上游变成点草图而自动改类。默认自动对应，可逐截面重新自动、反向、拾取闭合边或设置圆相位；可选连接线来自当前成功预览的权威边界点，随预览失效清除。编辑控件显示已接受自动对应，人工修改以它为基线。
 - 输入完整或参数修改后，250 ms 合并请求既有权威预览命令；新输入中止旧请求，旧 generation/Revision 的结果不能显示或提交。仅当前输入获得成功预览后启用提交；预览失败移除旧候选，修正输入自动恢复。取消、文档/Revision/occurrence 变化结束会话。预览显示结果和上游参考线，同时仍允许继续拾取原始输入。
 - 编辑已有生成、放样、实体阵列和局部特征时通过只读 `POST /api/documents/{id}/feature-input` 重建自身之前的 Body 阶段并解析原选择，高亮显示原边面。该接口也为阶段上的新点击绑定持久选择；它不推进 Head。新绑定使用 `sourceVersionId + sourceFeatureId` 指明不可变来源，重算仍由真实 Naming 解析，不保存局部序号。已保存的旧 Revision 选择继续按既有最终输出来源解析。
@@ -139,29 +153,11 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 
 沿用权威 Preview 和 EDIT_FEATURE；显式局部特征编辑在接纳前校验全部必需输入，不能把未处理引用保存为“修复成功”的 FAILED Revision。原 Feature ID、名称、顺序及 Body 保持不变；上游/参数变化导致的 FAILED/BLOCKED 与合法引用下的几何算法失败仍沿用原合同。预览、取消不写 Head；输入变化使旧候选失效。
 
-定向回归见 `services/internal/control/feature_input_repair_integration_test.go`：真实 Router/Worker 覆盖部分/全部引用失效、有效项保留、替换/移除、未处理输入拒绝、真实上游失败定位、原身份、下游恢复、Undo/Redo、重开，以及强制冷重建的 BREP/Naming 摘要一致。解析状态及平面类型门由 `workspace/feature_input_test.go` 与既有 Resolver corpus 覆盖。浏览器 `solid-feature-live.spec.ts` 的 `repairs lost topology` 使用真实 API 和实际视口拾取，覆盖四类特征及跨 Body 中性面来源消失；相关既有倒角和 Boolean 编辑也有定向回归。
-
-上述定向证据使用当前 SQLite、Release Worker 和 Chromium/SwiftShader；不是全部曲面、任意拓扑变化或 PostgreSQL 验收。歧义与类型不匹配有解析层回归，尚无对应复杂几何的浏览器实机案例。主体建模流程继续由后续实机验收确认；下一步见 [CAD 核心主线](../../../plans/cad-core-roadmap.md)。
-
 ## 验证入口与限制
 
-- `services/internal/control/loft_linear_boundary_integration_test.go`：真实 Router/Worker 下的平滑放样直线样条类型、距离证据、投影端点、预览不写 Head、Undo/Redo 与冷读取。
-- `services/internal/control/loft_integration_test.go`：配置的开发数据库/制品与真实 Router/Worker，验证点端预览不写 Head、对应持久化、参数更新、Undo/Redo、冷读取、丢失起点拒绝与反向编辑。
-- `kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `Loft*`：循环起点/方向、圆相位、垂直及中间截面、真实尖端/退化边、命名与切除。
-- `kernel/occt/tests/geometry_exchange_scenarios.cpp`：Boolean 精确体积与冷重算、拉伸范围、旋转 Naming、局部修改、放样后切除/倒角，检查完整拓扑覆盖。
-- 同一内核 corpus 覆盖轴与轮廓边界重合的半周/整周旋转、长方体一条棱倒角 1 后相邻两棱半径 0.5/1/1.01/1.5/2/5 的圆角（含旋转平移、独立参考形体差集、精确半径、逐面网格覆盖和反向选择冷重算）、四条竖边倒角后的 1–8 条底边圆角、消失小倒角面的向内抽壳与冷重复历史。
-- `kernel/occt/tests/geometry_exchange_scenarios.cpp` 的抽壳回归：大倒角、全棱圆角、倒角后底棱圆角及矩形到圆放样，检查开口、壁厚两侧材料分类、逐面网格覆盖、上游不可变与冷重算历史。三截面倾斜放样与盲孔用例同时覆盖孔底保留 0.1 mm 圆角的 2 mm 抽壳及移除圆角后的 0.5/1/2 mm 抽壳，额外检查凹圆角连接材料与自干涉。
-- `services/internal/geometry/shell_worker_integration_test.go`：真实 Worker 的全棱圆角、小型及偏置大截面矩形到圆放样，在 0.5/1/2 mm 下抽壳，检查阶段面引用、完整 Naming、BREP/GLB 与缓存复用。
-- `services/internal/geometry/corner_fillet_worker_integration_test.go`：真实 Worker RPC 的倒角 1 → 双边圆角 1/1.5/2，按阶段 Naming 绑定原边，检查完整历史及 BREP/GLB 制品。
-- 阵列定向入口：`kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `PatternCutReusesToolAndPreservesMemberNames`、`MirrorOfMirrorPreservesSignedToolAndAllFourMembers`；`services/internal/workspace/pattern_test.go`、`parameter_update_plan_test.go`；真实 Worker 的 `services/internal/geometry/pattern_worker_integration_test.go`；真实 Router 的 `services/internal/control/parametric_pattern_integration_test.go`。后者使用当前开发数据库与制品存储，覆盖共享参数、显式接受、成员面引用、失败恢复、历史和 occurrence 位姿。
-- `services/internal/workspace/solid_feature_test.go`：阶段合法性、参数生命周期、定义编辑和补偿。
-- `services/internal/control/propeller_feature_range_integration_test.go`：真实 Router/Worker 重建 120×100×90 底座、倾斜叶片拉伸 120、叶根圆角 80，验证原面来源、含圆角新增材料的 180° 阵列及非对称底座不重复。
-- `services/internal/control/feature_association_integration_test.go`：真实 Router/Worker 的圆柱、偏心孔、叶片工具阵列、成员叶根圆角；验证贡献、成员槽位、种子/数量重算、历史阶段只读、Undo/Redo 与冷读取。人工步骤见[模型显示与选择](model-display.md)。
-- `services/internal/control/solid_feature_integration_test.go`：真实 Router/Worker、预览、三条建模链、上游修改、失败恢复与保存重开。
-- `web/apps/cad/browser/solid-feature-live.spec.ts`：真实 API/Router/Worker 下的视图区布尔工具拾取/取消及消耗工具编辑恢复、倒角预选/编辑阶段拾取/失败预览恢复、矩形到圆放样、两类放样后的抽壳拾面/失败恢复/编辑/Undo/Redo、单条草图轴线旋转、自动预览、精确体积和页面重开；通过 `playwright.live.config.ts` 启动 API 模式前端，需运行应用及配置登录。
-- `web/apps/cad/browser/solid-feature.spec.ts`：真实浏览器中的面板入口、未完成定义禁用提交、取消。Mock 浏览器用例不证明精确几何或真实后端拾取。
-- `web/apps/cad/browser/datum-feature.spec.ts`：自由框架和参考复制预览、取消不写 Head、实体面中心、标准轴复制、属性与自定义基准树删除；精确绑定/求值仍由服务端与 Worker 测试证明。
+- `services/internal/workspace/solid_feature.go`、`replication_source.go`、`pattern.go`：定义、参数、能力、正式来源和范围去重；`feature_input.go`：逐项引用修复。
+- `kernel/occt/tests/geometry_exchange_scenarios.cpp`：真实精确几何、材料包含、拓扑历史和热/冷检查点；`DraftAdditiveRanges*` 覆盖添加型拉伸/放样/旋转、正反拔模及三种复制。
+- `services/internal/control/*_integration_test.go`：solid_feature、feature_input_repair、loft、hole、hole_pattern、draft_pattern、replication_loft_mirror、to_plane、boolean_regions、feature_move/insert 对应真实 Router/Worker 链；`solid-feature-live.spec.ts` 验证视图区/树拾取、预览取消、编辑修复与历史。
+- `invoke check --scope geometry`、`--scope workspace`、`--scope services`、`--scope web`；运行与共享资源见[测试入口](../../../tests/README.md)。测试存在、定向通过、浏览器验收分别举证。
 
-未包含多工具交集、跨文档 Boolean、可变半径、非等距倒角、复杂拔模、带导轨/带孔/任意不同边数放样。关联基准面的旋转/平移定义与参数编辑见 [Part/Sketch](part-sketch.md)。三条完整建模链的逐步鼠标拾取、全部参数组合和复杂实体的 WebGL 人工验收仍需独立证据。
-
-- `services/internal/control/replication_loft_mirror_integration_test.go`：真实 Router/Worker 的偏心孔、放样切除工具、圆周阵列/引用实体面镜像、成员倒角、种子/数量编辑、Undo/Redo 与冷读取；内核 `LoftCutCircularAndMirrorUseOnlyToolWithMemberHistory` 检查体积、Naming、反射与冷重建。
+已知限制：不支持 Sweep、到下一面/任意曲面终止、贯穿 Hole 工具复用、切除 FEATURE_DELTA、任意历史插入、跨 Body 移动和任意特征重执行。复杂拓扑分裂/合并可能必须显式重选。常规建模与正式历史链已接通，不代表所有曲面/参数组合或所有 Feature×复制×修复组合完成验收；未运行组合属于验证缺口，不写成保证。

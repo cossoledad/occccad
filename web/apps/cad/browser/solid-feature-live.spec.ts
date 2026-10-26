@@ -1581,3 +1581,51 @@ test('split circles retain a closed profile after viewport and tree segment dele
  await openCommand(page,'拉伸');await dialog.getByRole('textbox',{name:'长度（mm）',exact:true}).fill('2 mm');await ready(page,dialog);await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);const final=await current(page,seed.id);const feature=final.part.features.at(-1);expect(feature.evaluationStatus??'').not.toMatch(/FAILED|BLOCKED/);expect(Object.values(final.artifacts).some((a:any)=>a.volume>0)).toBe(true);
  await page.reload();await expect(page.locator('canvas')).toBeVisible();const reopened=await current(page,seed.id);expect(reopened.part.features.at(-1).id).toBe(feature.id);expect(reopened.sketchAnalyses[seed.sketch].status).toBe('CLOSED');expect((await sketchView(page,seed.id)).s).toEqual(closed);expect(errors).toEqual([]);
 });
+
+for(const mode of ['LINEAR','CIRCULAR','MIRROR'] as const)test(`draft additive range ${mode} picks angle face, previews, cancels and restores history`,async({page},testInfo)=>{
+ await login(page);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Draft range UI baseline');const id=v.document.id;
+  for(const [x,y,X,Y,h] of [[-23,-16,20,18,4],[7,-2,11,2,14]]){
+   v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketch=v.part!.features.at(-1)!.id;
+   v=await api.command(id,{type:'EDIT_SKETCH',sketchId:sketch,operations:[{type:'ADD_RECTANGLE',first:{x,y},second:{x:X,y:Y}}]});
+   v=await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId:sketch,generator:'LINEAR_EXTRUDE',operation:'ADD',length:h});
+  }
+  const boss=v.part!.features.at(-1)!,body=boss.bodyId!,key=v.part!.bodies.find(b=>b.id===body)!.geometryKey!;let selection;
+  for(let local=1;local<=Number(v.artifacts[key].topology.faces);local++){
+   const p=await api.getTopologyProperties(id,key,'FACE',local,v.document.versionId);
+   if(p.persistentSelection?.anchor.featureId===boss.id&&p.persistentSelection?.creationEvidence?.centroid?.[0]>10.9){selection=p.persistentSelection;break;}
+  }
+  if(!selection)throw Error('boss side missing');
+  v=await api.command(id,{type:'CREATE_MODIFY_FEATURE',feature:{type:'DRAFT',bodyId:body,angle:3,neutralPlaneId:'datum-xy',selections:[{selection,sourceVersionId:v.document.versionId,sourceFeatureId:boss.id}]}});
+  const draft=v.part!.features.at(-1)!,result=v.part!.bodies.find(b=>b.id===body)!.geometryKey!;let anglePoint:number[]|undefined;
+  for(let local=1;local<=Number(v.artifacts[result].topology.faces);local++){const p=await api.getTopologyProperties(id,result,'FACE',local,v.document.versionId);if(p.persistentSelection?.anchor.featureId===draft.id&&p.persistentSelection.anchor.outputSlot.startsWith('DRAFTED_FROM/')){anglePoint=p.persistentSelection.creationEvidence.centroid;break;}}
+  if(!anglePoint)throw Error('draft angle face missing');
+  return {id,boss,draft,anglePoint,body,version:v.document.versionId,volume:v.artifacts[v.part!.bodies.find(b=>b.id===body)!.geometryKey!].volume};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();
+ const angle=seed.anglePoint;
+ await expect.poll(async()=>{const screen=await worldScreen(page,angle);return page.evaluate(({x,y})=>{const e=(window as any).__cameraEngine,r=e.renderer.domElement.getBoundingClientRect();return e.hitTest(x-r.x,y-r.y)?.associatedFeatureIds??[]},screen)}).toContain(seed.draft.id);
+ await clickWorld(page,angle);await page.screenshot({path:testInfo.outputPath('draft-angle-face-selection.png')});
+ const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=(id:string)=>page.locator(`[role=treeitem][data-tree-key$="feature:${id}"]`);
+ const configure=async()=>{
+  await openCommand(page,mode==='MIRROR'?'镜像':'阵列');const d=page.getByRole('dialog',{name:mode==='MIRROR'?'创建镜像':'创建阵列',exact:true});
+  if(!(await d.getByRole('group',{name:'种子',exact:true}).textContent())?.includes(seed.draft.name!)){await filter.fill(seed.draft.name!);await tree(seed.draft.id).click();}
+  await expect(d.getByRole('group',{name:'种子',exact:true})).toContainText(seed.draft.name!);
+  if(mode==='MIRROR'){await d.getByRole('button',{name:'选择镜像平面',exact:true}).click();await filter.fill('YZ');await page.getByRole('treeitem').filter({has:page.getByText('YZ Plane',{exact:true})}).last().click();}
+  else {if(mode==='CIRCULAR')await d.getByLabel('阵列方式').getByText('圆周',{exact:true}).click();await d.getByRole('textbox',{name:'数量',exact:true}).fill('2');if(mode==='LINEAR'){await d.getByRole('textbox',{name:'间距 / 跨度 (mm)',exact:true}).fill('18');await d.getByRole('switch',{name:'反向',exact:true}).click();}}
+  await ready(page,d);return d;
+ };
+ let d=await configure();expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await d.getByRole('button',{name:/取\s*消/}).click();await expect(d).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);
+ await filter.fill('');d=await configure();await page.screenshot({path:testInfo.outputPath(`${mode}-draft-range-preview.png`)});await d.getByRole('button',{name:/确\s*定/}).click();await expect(d).toHaveCount(0);
+ let saved=await current(page,seed.id);const pattern=saved.part.features.at(-1);expect(pattern.pattern).toMatchObject({sourceKind:'FEATURE_DELTA',startFeatureId:seed.boss.id,source:{featureId:seed.draft.id}});
+ const volume=(v:any)=>v.artifacts[v.part.bodies.find((b:any)=>b.id===seed.body).geometryKey].volume;
+ expect(volume(saved)).toBeCloseTo(2*seed.volume-43*34*4,5);
+ // Real input-stage responses intentionally arrive after the fast no-op preview.
+ await page.route('**/api/documents/**/feature-input',async route=>{await new Promise(resolve=>setTimeout(resolve,800));await route.continue();});
+ await filter.fill(pattern.name);await tree(pattern.id).dblclick();d=page.getByRole('dialog',{name:mode==='MIRROR'?'编辑镜像':'编辑阵列',exact:true});await ready(page,d);await expect(d.getByRole('group',{name:'种子',exact:true})).toContainText(seed.draft.name!);await d.getByRole('button',{name:/取\s*消/}).click();await expect(d).toHaveCount(0);await page.unrouteAll({behavior:'wait'});
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>volume(await current(page,seed.id))).toBeCloseTo(seed.volume,5);
+ await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(pattern.id);
+ await page.reload();await expect(page.locator('canvas')).toBeVisible();saved=await current(page,seed.id);expect(saved.part.features.at(-1).pattern).toEqual(pattern.pattern);expect(errors).toEqual([]);
+});

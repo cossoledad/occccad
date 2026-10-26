@@ -67,7 +67,7 @@ PlaneGCS 适配器按 `DogLeg → Levenberg-Marquardt → BFGS` 执行确定性�
 
 周期 Circle/Ellipse 在两个位置分割时，参数接缝两侧合并为同一循环区间，产生两段真实曲线；任意参数接缝不是额外拓扑端点。删除命中模式在没有内部交点时删除整条命中曲线，保留命中/仅打断须有适用分割区间。编辑按稳定端点和正式关系报告用户引用影响，不按最近端点重绑。删除一段 Circle/Arc 时，中心和半径/直径/同心引用只可迁移到正式 SAME_SUPPORT 关系证明的共享支撑曲线；端点和其它整体曲线引用仍须显式处理或拒绝，不能套用这种迁移。
 
-公共交点捕获按当前文档/Revision/Sketch 和附近最多四条曲线筛选，复用 Worker 精确求交并缓存曲线对；采样仅用于排除远处候选，不生成权威交点。 不同圆支撑使用 OCCT 解析求交并按圆弧真实参数域筛选；通用求交器的短容差片段不能作为同支撑或整段重叠的证据。并发请求受限，版本变化、取消及迟到响应不能恢复旧标记。创建交点生成普通稳定 Point 及必要的 Coincident/PointOnObject 支撑关系；求解器不支持的内部支撑明确拒绝。
+公共交点捕获按当前文档/Revision/Sketch 和附近最多四条曲线筛选，复用 Worker 精确求交并缓存曲线对；圆/椭圆（含裁剪弧）以精确有理二次控制包络、正权 B-spline 以控制极点包络保守粗筛，不以固定采样折线排除候选；高缩放仍由 Worker 返回精确交点。 不同圆支撑使用 OCCT 解析求交并按圆弧真实参数域筛选；通用求交器的短容差片段不能作为同支撑或整段重叠的证据。并发请求受限，版本变化、取消及迟到响应不能恢复旧标记。创建交点生成普通稳定 Point 及必要的 Coincident/PointOnObject 支撑关系；求解器不支持的内部支撑明确拒绝。
 
 “分割”保留单曲线位置编辑；“交点分割”选择两条曲线及精确交点，可分割第一条或两条曲线，无须先建 Point。闭合曲线要求两个不同交点，参数接缝可作为明确选定的位置；交点处按精确分割区间收集全部稳定端点（包含跨接缝的一侧）；双曲线在内部交点切断后的四端点通过无重复的 Coincident 连接成一组，只分割第一条时用同一端点组的 PointOnObject 关联未分割曲线。连接去重使用最终候选的正式关系图。 删除曲线时将有效 Coincident 等价组投影到剩余稳定端点，补齐删除中间连接点所丢失的必要关系；视图区与结构树复用同一删除链，停用或显式解除的关系不用于推导，坐标接近及 PointOnObject 不作为点重合的证据。同支撑圆弧的端点重合在适配层编译为等价的周期角度关系，避免重复笛卡尔方程导致尺寸更新冲突；正式约束与身份保持。端点接触不生成零长段，全部替换与必要连接同一事务/撤销。提交重新核对冻结来源和精确参数，持久身份来自实体/端点及操作来源，不使用交点列表编号。原有尺寸/引用迁移及显式解除门禁继续适用，不能确定对应时拒绝。裁剪保留规范区间原端点，非周期曲线仅允许最多 8 ULP 的跨语言端点归一化。
 
@@ -131,35 +131,7 @@ Part 交互在退出 Sketcher 后把选择提升为整个 Sketch Feature，并�
 
 多边形创建以 `CREATE_POLYGON` 原子操作接收中心、参考圆半径、方向、3–50 整数边数及内接/外接模式。模式采用 Onshape 参考圆的命名：INSCRIBED 的边在圆外相切，CIRCUMSCRIBED 的顶点在圆上。控制面生成确定身份的普通线段与 Construction 圆，显式闭环 Coincident、Equal、Tangent/PointOnObject 保持其圆关系；中心吸附成为显式 Coincident。参数修改、Profile、拉伸及历史沿现有求解链，未新增特殊多边形实体类型。
 
-### PlaneGCS 技术验证边界
-
-- 上游锁定 FreeCAD `1.0.2` commit `256fc7eff3379911ab5daf88e10182c509aa8052`；该版本原生满足仓库 C++17 基线，未为引入求解器升级全仓语言标准；
-- 构建仅从 FreeCAD 官方仓库获取审计清单内的 PlaneGCS 源文件、必要支持头和许可证，每个文件都有 SHA-256 校验，不下载/链接 FreeCAD App、GUI 或 Python；
-- PlaneGCS 编译为独立 `liboccccad_planegcs.so`，Eigen 3.4.0 与 header-only Boost 1.86.0 由 Conan 显式提供；FreeCAD 配置与日志依赖由 Worker 内窄兼容头隔离；
-- Geometry Worker 持有项目自有 `SketchSolver`，业务头文件不暴露 `GCS::*`。构建目录同时输出 `LICENSE.FreeCAD-PlaneGCS`；
-- 当前测试验证 Rectangle 宏求解、未知引用失败、Circle Radius + Line Tangent、Profile 外环/孔、Arc + Line 混合闭环、开放/T-junction 诊断，以及 OCCT 圆环 Pad 的体积和有效拓扑。Sketch 实体与约束支持持久抑制：被抑制项保留稳定身份，但退出 Solver、Profile、Pad 与 VisualizationManifest；实体抑制会同时抑制引用它的约束。服务端按约束引用图拆分连通闭包并分别求解，向 Web 投影组件级 status/DoF、冲突集与冗余集。带约束拖动复用 `SolveSketch` 的临时目标，未新增会话 RPC；完整 B-Spline 曲率约束和大规模 corpus conformance 仍属于后续工作。
-
-### Geometry Worker 真实 RPC
-
-| RPC | 当前状态 | 说明 |
-|---|---|---|
-| `Ping` | 已实现 | 健康与 resident 数量 |
-| `EvaluatePart` | 已实现 | ProfileRegion/孔环 Pad 链、基础 B-Rep；Profile Pad 强制稳定 Feature/Body/source identity 与 naming policy，按单 Body 求值链执行，回传摘要/ArtifactReference，完整 Naming 只写入该 Body 的制品 |
-| `SolveSketch` | 已实现 | GeometryPool Router 转发到 Worker，执行 SketchModel v2 的权威 PlaneGCS 求解与诊断 |
-| `ProjectExternalGeometry` | 已实现 | Router 转发 Edge/Vertex evidence 与 support frame，Worker 权威生成 Point/Line/Circle 投影及稳定失败诊断 |
-| `InspectExchange` | 已实现 | 读取 STEP/BREP 制品清单，判定 Part 或可并行根组件 Product |
-| `ImportExchange` | 已实现 | 从 ArtifactReference 导入一个 STEP 根或 BREP，输出 B-Rep/GLB 制品引用 |
-| `ExportExchange` | 已实现 | 将一个或多个带放置的 B-Rep 制品合成为 STEP/BREP |
-| `GetTopology` | 已实现 | 拓扑摘要与属性；同一 GeometryId 的完整拓扑分析在 Worker 内只计算一次 |
-| `LoadGeometry` / `UnloadGeometry` | 仅 Proto 声明 | 服务未覆盖，返回 `UNIMPLEMENTED` |
-| `Tessellate` | 仅 Proto 声明 | 服务未覆盖 |
-| `CreateChamfer` / `CreateFillet` | 仅 Proto 声明 | 服务未覆盖 |
-
-这里特意区分“契约占位”和“已实现”，避免客户端基于 Proto 误判能力。
-
-DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投影。开放端、分支、重复、退化和失效连接携带实体/引用/模型位置；Web 只展示后端分析，不另建闭合判定；仅 `geometryVerified=true` 的闭合结果显示检查通过，未精确验证的连通闭环明确显示等待验证。合法开放草图可以保存；封闭实体拉伸在消费 Profile 时拒绝开放边界。闭合状态与求解约束程度独立。功能支持组合及定向验证入口见[二维草图能力](../../guides/sketch-capabilities.md)。
-
-草图创建、编辑、约束和尺寸命令由 `internal/workbenchconfig/catalog.json` 配置注册；后端校验并提供目录，Mock 与真实前端消费同一配置和 Web CommandRegistry。数据库基线不包含界面种子，当前不提供旧 Slot 兼容命令。配置与实现职责见[公共框架](document-command-framework.md)。
+DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投影。开放端、分支、重复、退化和失效连接携带实体/引用/模型位置；Web 只展示后端分析，不另建闭合判定；仅 `geometryVerified=true` 的闭合结果显示检查通过，未精确验证的连通闭环明确显示等待验证。合法开放草图可以保存；封闭实体拉伸在消费 Profile 时拒绝开放边界。闭合状态与求解约束程度独立。交互与验证入口见[草图交互](../../guides/sketch-interaction.md)。
 
 ## 实现与验证入口
 

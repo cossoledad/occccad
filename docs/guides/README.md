@@ -5,8 +5,6 @@
 | 主题 | 用途 |
 |---|---|
 | [工作台 UI](workbench.md) | 视觉 tokens、公共控件、布局、焦点及尺寸显示 |
-| [草图能力](sketch-capabilities.md) | 实体/约束矩阵、支持边界、验证映射 |
-| [草图输入](sketch-input.md) | 当前动作、内联数值、工具变体与人工步骤 |
 | [草图交互生命周期](sketch-interaction.md) | 工具阶段、选择/输入、提交回执与人工验收 |
 | [鼠标导航](../../web/apps/cad/src/cad/navigation/README.md) | 导航模式、状态机、相机与手势来源 |
 

@@ -235,3 +235,29 @@ func TestBlindHoleReplicationCapabilitiesAndAutomaticSource(t *testing.T) {
 		}
 	}
 }
+
+func TestPatternToolRequiresEffectiveAdditionalMembers(t *testing.T) {
+	for _, tc := range []struct {
+		count   float64
+		skipped []int
+		tool    bool
+	}{
+		{1, nil, false}, {3, []int{1, 2}, false}, {3, []int{1, 2, 9}, false}, {3, []int{1}, true}, {2, nil, true},
+	} {
+		f := Feature{ID: "array", Type: "SOLID_PATTERN", Operation: "ADD", Pattern: &FeaturePattern{PatternDefinition: PatternDefinition{Count: tc.count, SkippedSlots: tc.skipped}}}
+		if got := replicationSource(f).Tool; got != tc.tool {
+			t.Fatalf("count=%v skipped=%v tool=%v", tc.count, tc.skipped, got)
+		}
+	}
+}
+func TestDraftReplicationRangeRetainsExplicitContract(t *testing.T) {
+	m := PartModel{Features: []Feature{{ID: "base", BodyID: "b", Type: "LINEAR_EXTRUDE", Operation: "ADD", Order: 0}, {ID: "draft", BodyID: "b", Type: "DRAFT", Order: 1}, {ID: "round", BodyID: "b", Type: "FILLET", Order: 2}}}
+	caps := replicationSources(m)
+	if caps["draft"].Tool || caps["draft"].SourceKind != "FEATURE_DELTA" || caps["draft"].StartFeatureID != "base" || caps["round"].StartFeatureID != "base" {
+		t.Fatal(caps)
+	}
+	p := Feature{ID: "copies", Type: "SOLID_PATTERN", BodyID: "b", Order: 3, Operation: "ADD", Pattern: &FeaturePattern{PatternDefinition: PatternDefinition{ID: "copies", Kind: "LINEAR", Distribution: "FIXED_STEP", Count: 2, Spacing: 20, Direction: [3]float64{1, 0, 0}}, Source: FeatureStageRef{BodyID: "b", FeatureID: "draft"}, SourceKind: "FEATURE_DELTA", StartFeatureID: "base"}}
+	if e := validateFeaturePattern(p, map[string]Feature{"base": m.Features[0], "draft": m.Features[1]}); e != nil {
+		t.Fatal(e)
+	}
+}

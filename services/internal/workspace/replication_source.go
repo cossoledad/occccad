@@ -17,7 +17,7 @@ func replicationSource(f Feature) ReplicationSource {
 	c := ReplicationSource{BodyStage: isBodyFeature(f.Type)}
 	switch f.Type {
 	case "SOLID_PATTERN":
-		c.Tool = f.Pattern != nil && !f.Pattern.Suppressed && f.Pattern.Count > 1 && (f.Operation == "ADD" || f.Operation == "REMOVE")
+		c.Tool = f.Pattern != nil && !f.Pattern.Suppressed && patternHasAdditionalMembers(f.Pattern) && (f.Operation == "ADD" || f.Operation == "REMOVE")
 		if !c.Tool {
 			c.Diagnostic = "PATTERN_INDEPENDENT_TOOL_UNAVAILABLE"
 		}
@@ -33,7 +33,7 @@ func replicationSource(f Feature) ReplicationSource {
 		if !c.Tool {
 			c.Diagnostic = "PATTERN_REEXECUTION_UNSUPPORTED"
 		}
-	case "FILLET", "CHAMFER":
+	case "FILLET", "CHAMFER", "DRAFT":
 		c.RangeModifier = true
 	default:
 		c.Diagnostic = "PATTERN_INDEPENDENT_TOOL_UNAVAILABLE"
@@ -79,4 +79,22 @@ func replicationSources(model PartModel) map[string]ReplicationSource {
 		result[f.ID] = c
 	}
 	return result
+}
+
+// Only additional active slots form an independently reusable tool. Keep
+// out-of-count skip identities for later restoration, without counting them.
+func patternHasAdditionalMembers(p *FeaturePattern) bool {
+	if p == nil || p.Count < 2 || p.Count > maxPatternMembers {
+		return false
+	}
+	skipped := make(map[int]bool, len(p.SkippedSlots))
+	for _, slot := range p.SkippedSlots {
+		skipped[slot] = true
+	}
+	for slot := 1; slot < int(p.Count); slot++ {
+		if !skipped[slot] {
+			return true
+		}
+	}
+	return false
 }

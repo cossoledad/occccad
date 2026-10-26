@@ -250,7 +250,15 @@ func TestPatternMaterialRangeContract(t *testing.T) {
 	if !strings.Contains(strings.Join(featureInputIDs(f), ","), seed.ID) {
 		t.Fatal("range start missing from dependency graph")
 	}
-	for _, kind := range []string{"BOOLEAN", "DRAFT", "SHELL", "SOLID_PATTERN", "LINEAR_EXTRUDE"} {
+	for _, kind := range []string{"FILLET", "CHAMFER", "DRAFT"} {
+		modifier := round
+		modifier.Type = kind
+		earlier[round.ID] = modifier
+		if err := validateFeaturePattern(f, earlier); err != nil {
+			t.Fatal(kind, err)
+		}
+	}
+	for _, kind := range []string{"BOOLEAN", "SHELL", "SOLID_PATTERN", "LINEAR_EXTRUDE"} {
 		broken := round
 		broken.Type = kind
 		earlier[round.ID] = broken

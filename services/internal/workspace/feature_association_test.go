@@ -124,3 +124,15 @@ func TestFeatureAssociationsProfileLineageBelongsToGenerator(t *testing.T) {
 		})
 	}
 }
+
+func TestDraftAngleFaceOwnershipKeepsModifiedContinuation(t *testing.T) {
+	source, angle := testRef("boss", "side"), testRef("draft", "DRAFTED_FROM/proof")
+	m := &topologyManifest{FeatureResults: []*workerv1.FeatureResult{
+		{FeatureId: "boss", TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED, Result: source}}}},
+		{FeatureId: "draft", TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MODIFIED, Result: angle, Sources: []*workerv1.SemanticTopologyRef{source}}}}},
+	}, Tips: map[string]*workerv1.FeatureResult{"body": {SemanticOutputs: []*workerv1.SemanticTopologyOutput{{LocalId: 1, TopologyType: 1, SemanticRef: angle}}}}}
+	index := deriveFeatureAssociations(m)
+	if len(index.Elements) != 1 || !slices.Equal(index.Elements[0].Primary, []string{"draft"}) || !slices.Contains(index.Elements[0].Origins, "boss") {
+		t.Fatal(index)
+	}
+}

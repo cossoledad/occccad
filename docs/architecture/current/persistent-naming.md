@@ -116,3 +116,5 @@ EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named 
 Feature 的当前贡献与树／视图联动使用 `featureAssociations.primary`，只突出其实际拥有的结果；`origins` 保留复制来源链用于溯源，不能把祖先链当作当前归属而连带选中其他副本。成员槽位及持久拓扑选择合同保持不变，不按坐标挑选候选。回归见 `TestResolveManifestGeneratedBoundaryIsNotSourceContinuation` 和 `TestSketchOnShellOuterFaceThroughRouter`：外面与内面独立绑定、外面支撑的草图／拉伸、壁厚更新、历史及冷重建；视图区流程见 `solid-feature-live.spec.ts`。
 
 解析直线样条的 evidence 与类型查询共用完整裁剪区间控制点证明；origin/direction 和 parameterStart/End 表达毫米直线区间，底层 BREP 原生参数仍在属性查询中报告。该识别不产生新拓扑身份或几何替换，详见[实体 Feature](solid-features.md)。
+
+拔模的实际角度面使用 `DRAFTED_FROM` 输出归属拔模，来源仍为原面的 `Modified` 延续；显示主归属采用该正式角色，溯源保留原生成步骤。相邻未变拓扑和一般裁剪面的主归属不随之改变。范围复制只消费[精确净新增材料](solid-features.md#参数化阵列)，不把拔模声明为独立工具。

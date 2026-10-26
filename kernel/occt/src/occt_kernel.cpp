@@ -3848,7 +3848,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     for (const auto& member : specs) {
                         if (member.feature_id == spec.pattern_start_feature_id) inside = true;
                         if (inside && member.feature_id != spec.pattern_start_feature_id &&
-                            member.generator != "FILLET" && member.generator != "CHAMFER")
+                            member.generator != "FILLET" && member.generator != "CHAMFER" && member.generator != "DRAFT")
                             throw std::invalid_argument("PATTERN_RANGE_REEXECUTION_UNSUPPORTED");
                         if (inside && member.feature_id == spec.pattern_source_feature_id) { ended = true; break; }
                     }
@@ -4171,6 +4171,18 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                             kind = TopologyLineageKind::unchanged;
                         else if (source.feature_id == spec.feature_id)
                             kind = TopologyLineageKind::generated;
+                        // Draft transforms a selected face instead of generating
+                        // a new fillet face. Attribute that actual angle face to
+                        // Draft while retaining typed Modified continuation for
+                        // existing supports; do not claim neighboring boundaries.
+                        if (spec.generator == "DRAFT" && kind == TopologyLineageKind::modified &&
+                            group.shape.ShapeType() == TopAbs_FACE &&
+                            std::any_of(spec.selections.begin(), spec.selections.end(), [&](const auto& pick) {
+                                return same_ref(source, {pick.feature_id, pick.output_slot, pick.source_ids});
+                            }))
+                            output_ref = {spec.feature_id, "DRAFTED_FROM/" + make_geometry_id(ref_key(source)).substr(7),
+                                          {source.feature_id, source.output_slot}};
+
                     }
                 }
                 int local_id = 0;

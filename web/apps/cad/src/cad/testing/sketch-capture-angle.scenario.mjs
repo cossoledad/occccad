@@ -40,6 +40,21 @@ try{
   const first=buildSketchConstraintLayout(c,[l]),dragged=buildSketchConstraintLayout({...c,labelPosition:{x:-p[0],y:-p[1]}},[l]);
   assert.deepEqual(first.segments[0],dragged.segments[0],'text crossing quadrants does not redefine the angle rays');assert.equal(first.segments.length,66,'reflex uses the full directed arc');
  }
+ // Fixed 48-segment chords miss a real crossing halfway between samples at high zoom.
+ for(const zoom of [1,100,10000]) {
+  const theta=Math.PI/48,p=[100*Math.cos(theta),100*Math.sin(theta)];
+  const circle={id:'circle',kind:'CIRCLE',role:'PROFILE',center:{x:0,y:0},radius:100};
+  const crossing={...line,id:'crossing',start:{x:p[0]-2,y:p[1]},end:{x:p[0]+2,y:p[1]}};
+  const requests=[],local=new SketchIntersectionCache();
+  local.near('zoom/v1/s','v1','s',p,[circle,crossing],v=>v.map(x=>x*zoom),async ids=>{requests.push(ids);return {versionId:'v1',sketchId:'s',intersections:[]}},()=>{});
+  assert.equal(requests.length,1,`exact crossing must survive conservative filtering at zoom ${zoom}`);
+  const ellipse={id:'ellipse',kind:'ELLIPSE',role:'PROFILE',center:{x:0,y:0},majorRadius:100,minorRadius:20,rotation:.3};
+  const t=Math.PI/48,x=100*Math.cos(t),y=20*Math.sin(t),q=[Math.cos(.3)*x-Math.sin(.3)*y,Math.sin(.3)*x+Math.cos(.3)*y];
+  const cut={...crossing,start:{x:q[0]-2,y:q[1]},end:{x:q[0]+2,y:q[1]}};const ellipseRequests=[];
+  new SketchIntersectionCache().near('ellipse/v1/s','v1','s',q,[ellipse,cut],v=>v.map(x=>x*zoom),async ids=>{ellipseRequests.push(ids);return {versionId:'v1',sketchId:'s',intersections:[]}},()=>{});
+  assert.equal(ellipseRequests.length,1,'rotated eccentric ellipse hull remains conservative');
+
+ }
  let resolve,calls=0,ready=0,aborted;
  const cache=new SketchIntersectionCache(),curves=[{...line,id:'a'},{...line,id:'b',start:{x:30,y:-20},end:{x:30,y:20}}],project=p=>p;
  const query=(ids,signal)=>{calls++;aborted=signal;return new Promise(done=>resolve=done)};

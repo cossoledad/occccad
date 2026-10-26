@@ -179,6 +179,13 @@ func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 					a.Status = "MAPPING_MISSING"
 				}
 			}
+			// Draft's explicit angle-face output changes engineering ownership,
+			// while Modified remains the real continuation used by selection
+			// resolution. Other trimmed/modified faces keep their prior owner.
+			if l.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MODIFIED && l.Result.FeatureId == f.FeatureId && strings.HasPrefix(l.Result.OutputSlot, "DRAFTED_FROM/") {
+				a.Primary = []string{f.FeatureId}
+				a.Origins = append(a.Origins, f.FeatureId)
+			}
 			a.Origins = uniqueAssociationIDs(a.Origins)
 			a.Primary = uniqueAssociationIDs(a.Primary)
 			a.Modifiers = uniqueAssociationIDs(a.Modifiers)

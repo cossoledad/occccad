@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v48-sketch-intersection-junctions"
+const evaluatorVersion = "part-solid-generators-v49-draft-range-naming"
 
 var (
 	ErrNotFound   = errors.New("document not found")

@@ -346,8 +346,8 @@ function getView(documentID: string): DocumentView {
     const caps:NonNullable<DocumentView["replicationSources"]>={};
     view.part.features.forEach((f,i)=>{
       const available=!f.suppressed&&!['FAILED','BLOCKED'].includes(f.evaluationStatus??'');
-      const tool=available&&(["PAD","LINEAR_EXTRUDE","REVOLVE","LOFT"].includes(f.type)&&!['THROUGH_ALL','TO_PLANE'].includes(f.extent??'')||f.type==='SOLID_PATTERN'&&!!f.pattern&&!f.pattern.suppressed&&f.pattern.count>1&&['ADD','REMOVE'].includes(f.operation??''));
-      const c:NonNullable<DocumentView["replicationSources"]>[string]={tool,rangeStart:tool&&f.type!=='SOLID_PATTERN'&&f.operation!=="REMOVE",rangeModifier:available&&["FILLET","CHAMFER"].includes(f.type),bodyStage:available&&["PAD","LINEAR_EXTRUDE","REVOLVE","LOFT","HOLE","BOOLEAN","FILLET","CHAMFER","DRAFT","SHELL","SOLID_PATTERN","IMPORT_BODY"].includes(f.type)};
+      const tool=available&&(["PAD","LINEAR_EXTRUDE","REVOLVE","LOFT"].includes(f.type)&&!['THROUGH_ALL','TO_PLANE'].includes(f.extent??'')||f.type==='SOLID_PATTERN'&&!!f.pattern&&!f.pattern.suppressed&&Array.from({length:Math.max(0,f.pattern.count-1)},(_,i)=>i+1).some(slot=>!f.pattern!.skippedSlots?.includes(slot))&&['ADD','REMOVE'].includes(f.operation??''));
+      const c:NonNullable<DocumentView["replicationSources"]>[string]={tool,rangeStart:tool&&f.type!=='SOLID_PATTERN'&&f.operation!=="REMOVE",rangeModifier:available&&["FILLET","CHAMFER","DRAFT"].includes(f.type),bodyStage:available&&["PAD","LINEAR_EXTRUDE","REVOLVE","LOFT","HOLE","BOOLEAN","FILLET","CHAMFER","DRAFT","SHELL","SOLID_PATTERN","IMPORT_BODY"].includes(f.type)};
       if(tool){c.sourceKind='GENERATOR_TOOL';c.operation=f.operation==='REMOVE'?'REMOVE':'ADD'}
       else if(available&&f.sketch)c.sourceKind='SKETCH_FRAME';
       else if(c.rangeModifier){for(const previous of view.part!.features.slice(0,i).reverse()){if(previous.bodyId!==f.bodyId||previous.suppressed||!caps[previous.id]?.bodyStage)continue;if(caps[previous.id].rangeModifier)continue;if(caps[previous.id].rangeStart){c.sourceKind='FEATURE_DELTA';c.startFeatureId=previous.id;c.operation='ADD'}break}}
