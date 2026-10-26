@@ -24,6 +24,7 @@ const (
 	typeCreateContextInput     = "occccad://part/context-input/create"
 	typeEditContextInput       = "occccad://part/context-input/edit"
 	typeDeleteContextInput     = "occccad://part/context-input/delete"
+	typeEditContextBinding     = "occccad://product/context-binding/edit"
 	typeCreateContextBinding   = "occccad://product/context-binding/create"
 	typeDeleteContextBinding   = "occccad://product/context-binding/delete"
 )
@@ -216,6 +217,9 @@ func applyCreateContextInput(modelJSON, payloadJSON json.RawMessage) (json.RawMe
 	names := make([]string, 0, len(model.ContextInputs))
 	for _, item := range model.ContextInputs {
 		names = append(names, item.Name)
+		if payload.Input.Target.Kind != "SKETCH_EXTERNAL_GEOMETRY" && item.Target == payload.Input.Target {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: local object already has an input port", ErrValidation)
+		}
 		if item.ID == payload.Input.ID {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate ContextInputId", ErrValidation)
 		}
@@ -223,10 +227,27 @@ func applyCreateContextInput(modelJSON, payloadJSON json.RawMessage) (json.RawMe
 	if err := ensureUniqueScopedName(payload.Input.Name, names, ""); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
+	if err := captureContextInputDefault(model, &payload.Input); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := installContextInput(&model, payload.Input); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	model.ContextInputs = append(model.ContextInputs, payload.Input)
 	next, _ := json.Marshal(model)
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Input.ID, SlotID: "context-input.entity"}, nil, payload.Input)
-	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"context-input:" + modelcore.DependencyKey(payload.Input.ID)}}, nil
+	changes := []modelcore.ModelChange{change}
+	if payload.Input.Target.Kind == "SKETCH_EXTERNAL_GEOMETRY" {
+		var prior PartModel
+		_ = json.Unmarshal(modelJSON, &prior)
+		for i := range model.Features {
+			if model.Features[i].ID == payload.Input.Target.TargetID {
+				item, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: model.Features[i].ID, SlotID: "sketch.model"}, prior.Features[i].Sketch, model.Features[i].Sketch)
+				changes = append(changes, item)
+			}
+		}
+	}
+	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: []modelcore.DependencyKey{"context-input:" + modelcore.DependencyKey(payload.Input.ID)}}, nil
 }
 
 func applyEditContextInput(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -254,9 +275,31 @@ func applyEditContextInput(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 		return nil, modelcore.ChangeSet{}, err
 	}
 	model.ContextInputs[index].Name, model.ContextInputs[index].Required = strings.TrimSpace(payload.Name), payload.Required
+	changes := []modelcore.ModelChange{}
+	if before.Target.Kind == "SKETCH_EXTERNAL_GEOMETRY" {
+		for i := range model.Features {
+			f := &model.Features[i]
+			if f.Sketch == nil {
+				continue
+			}
+			prior := clonePartModel(PartModel{Features: []Feature{*f}}).Features[0].Sketch
+			changed := false
+			for j := range f.Sketch.ExternalGeometry {
+				e := &f.Sketch.ExternalGeometry[j]
+				if e.ContextInputID == before.ID {
+					e.Name = model.ContextInputs[index].Name
+					changed = true
+				}
+			}
+			if changed {
+				c, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: f.ID, SlotID: "sketch.model"}, prior, f.Sketch)
+				changes = append(changes, c)
+			}
+		}
+	}
 	next, _ := json.Marshal(model)
 	change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: before.ID, SlotID: "context-input.entity"}, before, model.ContextInputs[index])
-	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"context-input:" + modelcore.DependencyKey(before.ID)}}, nil
+	return next, modelcore.ChangeSet{Changes: append(changes, change), ImpactSeeds: []modelcore.DependencyKey{"context-input:" + modelcore.DependencyKey(before.ID)}}, nil
 }
 
 func applyDeleteContextInput(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -272,10 +315,36 @@ func applyDeleteContextInput(modelJSON, payloadJSON json.RawMessage) (json.RawMe
 		if item.ID != payload.ContextInputID {
 			continue
 		}
+		changes := []modelcore.ModelChange{}
+		if item.Target.Kind == "SKETCH_EXTERNAL_GEOMETRY" {
+			for j := range model.Features {
+				f := &model.Features[j]
+				if f.ID != item.Target.TargetID || f.Sketch == nil {
+					continue
+				}
+				id := contextExternalID(item.ID)
+				for _, c := range f.Sketch.Constraints {
+					for _, r := range c.References {
+						if r.EntityID == id {
+							return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: local input is used by a sketch constraint", ErrValidation)
+						}
+					}
+				}
+				prior := clonePartModel(PartModel{Features: []Feature{*f}}).Features[0].Sketch
+				for k, e := range f.Sketch.ExternalGeometry {
+					if e.ContextInputID == item.ID {
+						f.Sketch.ExternalGeometry = append(f.Sketch.ExternalGeometry[:k], f.Sketch.ExternalGeometry[k+1:]...)
+						break
+					}
+				}
+				c, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: f.ID, SlotID: "sketch.model"}, prior, f.Sketch)
+				changes = append(changes, c)
+			}
+		}
 		model.ContextInputs = append(model.ContextInputs[:index], model.ContextInputs[index+1:]...)
 		next, _ := json.Marshal(model)
 		change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: item.ID, SlotID: "context-input.entity"}, item, nil)
-		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"context-input:" + modelcore.DependencyKey(item.ID)}}, nil
+		return next, modelcore.ChangeSet{Changes: append(changes, change), ImpactSeeds: []modelcore.DependencyKey{"context-input:" + modelcore.DependencyKey(item.ID)}}, nil
 	}
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: ContextInput does not exist", ErrValidation)
 }
@@ -606,8 +675,8 @@ func contextInputFromRequest(model PartModel, request CommandRequest) (ContextIn
 		if inputType == "" {
 			inputType = "CURVE"
 		}
-		if inputType != "CURVE" {
-			return ContextInput{}, fmt.Errorf("%w: sketch external input requires CURVE", ErrValidation)
+		if inputType != "CURVE" && inputType != "POINT" {
+			return ContextInput{}, fmt.Errorf("%w: sketch external input requires POINT or CURVE", ErrValidation)
 		}
 		found := false
 		for _, feature := range model.Features {
@@ -619,7 +688,11 @@ func contextInputFromRequest(model PartModel, request CommandRequest) (ContextIn
 		if !found {
 			return ContextInput{}, fmt.Errorf("%w: ContextInput target sketch does not exist", ErrValidation)
 		}
-		contract = PublicationContract{GeometryKind: "CURVE", Symmetry: "PARAMETER_DIRECTION"}
+		symmetry := "PARAMETER_DIRECTION"
+		if inputType == "POINT" {
+			symmetry = "NONE"
+		}
+		contract = PublicationContract{GeometryKind: inputType, Symmetry: symmetry}
 	case "DATUM":
 		if inputType != "PLANE" && inputType != "AXIS" && inputType != "POINT" && inputType != "FRAME" {
 			return ContextInput{}, fmt.Errorf("%w: datum ContextInput type is unsupported", ErrValidation)
@@ -677,8 +750,16 @@ func contextInputFromRequest(model PartModel, request CommandRequest) (ContextIn
 		}
 		name = nextScopedName("Input", existing)
 	}
+	if !contextConsumerSupported(kind, inputType) {
+		return ContextInput{}, fmt.Errorf("%w: CONTEXT_CONSUMER_UNSUPPORTED", ErrValidation)
+	}
 	return ContextInput{ID: commandEntityID("context-input", request.RequestID), Name: name, Type: inputType,
-		Required: request.Required, Target: ContextInputTarget{Kind: kind, TargetID: targetID}, Contract: contract}, nil
+		Required: request.Required, Default: func() *ContextInputDefault {
+			if request.ContextInput != nil {
+				return request.ContextInput.Default
+			}
+			return nil
+		}(), Target: ContextInputTarget{Kind: kind, TargetID: targetID}, Contract: contract}, nil
 }
 
 func (service *Service) contextBindingFromRequest(ctx context.Context, rootProductDocumentID, rootRevisionID string, request CommandRequest) (ContextBinding, error) {
@@ -738,7 +819,7 @@ func (service *Service) contextBindingFromRequest(ctx context.Context, rootProdu
 	if publication == nil {
 		return ContextBinding{}, fmt.Errorf("%w: source Publication does not exist", ErrValidation)
 	}
-	if !contractsCompatible(input.Contract, input.Type, *publication) {
+	if !contextConsumerSupported(input.Target.Kind, input.Type) || !contextPublicationSupported(*publication) || !contractsCompatible(input.Contract, input.Type, *publication) {
 		return ContextBinding{}, fmt.Errorf("%w: PUBLICATION_CONTRACT_INCOMPATIBLE", ErrValidation)
 	}
 	if publication.Resolution.Status != "CONNECTED" {
@@ -746,7 +827,13 @@ func (service *Service) contextBindingFromRequest(ctx context.Context, rootProdu
 	}
 	name := strings.TrimSpace(request.Name)
 	if name == "" {
-		name = input.Name + " <- " + publication.Name
+		names := []string{}
+		for _, item := range items {
+			for _, binding := range item.ContextBindings {
+				names = append(names, binding.Name)
+			}
+		}
+		name = nextScopedName("Link", names)
 	}
 	mode := strings.ToUpper(strings.TrimSpace(request.ReferenceMode))
 	if mode == "" {
@@ -762,4 +849,34 @@ func (service *Service) contextBindingFromRequest(ctx context.Context, rootProdu
 		Accepted: ContextBindingResolutionSnapshot{RootProductRevisionID: rootRevisionID, SourceRevisionID: source.RevisionID,
 			OwningRevisionID: owner.RevisionID, ContractDigest: resolvedDigest(publication.Contract),
 			SourceDigest: publication.Resolution.SourceDigest, Status: "CONNECTED"}}, nil
+}
+
+func applyEditContextBinding(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model ProductModel
+	var payload contextBindingPayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	for i, b := range model.ContextBindings {
+		if b.ID == payload.Binding.ID {
+			names := []string{}
+			for _, other := range model.ContextBindings {
+				names = append(names, other.Name)
+			}
+			if err := ensureUniqueScopedName(payload.Binding.Name, names, b.Name); err != nil {
+				return nil, modelcore.ChangeSet{}, err
+			}
+			if b.ContextInputID != payload.Binding.ContextInputID || b.OwningInstancePath.Canonical != payload.Binding.OwningInstancePath.Canonical {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: reconnect must retain the owning input", ErrValidation)
+			}
+			model.ContextBindings[i] = payload.Binding
+			next, _ := json.Marshal(model)
+			change, _ := modelcore.NewChange(modelcore.ChangeBind, modelcore.PropertyAddress{EntityID: b.ID, SlotID: "context-binding.entity"}, b, payload.Binding)
+			return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{modelcore.DependencyKey("context-binding:" + b.ID)}}, nil
+		}
+	}
+	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: context binding missing", ErrValidation)
 }

@@ -34,6 +34,7 @@ export async function followProductUpdates(initial: DocumentView, api: ProductUp
       // This wave may follow already computed versions, but must not commit
       // shared design changes to other Parts without the user's confirmation.
       if (plan.parameterUpdates?.some(node=>node.needsUpdate)) continue;
+      if(plan.entries?.some(entry=>entry.kind==='CONTEXT_BINDING'&&entry.currency!=='CURRENT'))continue;
       if (!plan.canAccept) throw new Error(plan.entries.find((entry) =>
         entry.kind !== "ASSEMBLY_SOLVE" && entry.diagnostic)?.diagnostic ?? "Product 自动更新被上游求值阻塞");
       updated.set(productID, await api.acceptProductUpdatePlan(productID, plan.digest));

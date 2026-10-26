@@ -22,6 +22,7 @@ const (
 // may be promoted only while its exact base and typed command still match.
 // Explicit missing tokens are rejected; only tokenless commands evaluate anew.
 type interactionCandidate struct {
+	contextKey                                                        string
 	booleanAnalysis                                                   *booleanAnalysisSnapshot
 	definitionOnly                                                    bool
 	assemblyPreviewRequestID                                          string
@@ -157,6 +158,7 @@ func (cache *interactionCandidateCache) takeDiagnosed(id, documentID string, pre
 		reason   string
 	}{
 		{value.documentID != documentID, "target_document_mismatch"},
+		{value.contextKey != prepared.contextKey, "context_scope_mismatch"},
 		{value.actorID != prepared.actorID, "actor_scope_mismatch"},
 		{value.headRevision != prepared.headRevision || value.headSequence != prepared.headSequence, "base_revision_mismatch"},
 		{value.commandType != prepared.command.TypeURI, "command_type_mismatch"},

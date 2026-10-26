@@ -54,3 +54,9 @@ assert.deepEqual(await context.followProductUpdates({...view,followedProductIds:
  async acceptProductUpdatePlan(){assert.fail("background following must not commit shared parameter changes");},
  async getDocument(){assert.fail("no version was accepted");},
 }),[]);
+
+assert.deepEqual(await context.followProductUpdates({...view,followedProductIds:[]},{
+ async getProductUpdatePlan(){return {hasUpdates:true,canAccept:true,entries:[{kind:'CONTEXT_BINDING',currency:'UPDATE_AVAILABLE'}]};},
+ async acceptProductUpdatePlan(){assert.fail('context source changes require explicit acceptance');},
+ async getDocument(){assert.fail('no version was accepted');},
+}),[]);

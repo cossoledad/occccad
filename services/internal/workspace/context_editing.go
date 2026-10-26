@@ -1,0 +1,272 @@
+package workspace
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/google/uuid"
+	"github.com/occccad/occccad/internal/modelcore"
+)
+
+func (s *Service) resolveVariantModel(ctx context.Context, documentID, key string, m *PartModel, bindings []ContextBinding) error {
+	for _, b := range bindings {
+		if err := materializeContextBindingVariant(m, b); err != nil {
+			return err
+		}
+	}
+	if err := validateAndResolvePartParameters(m); err != nil {
+		return err
+	}
+	if err := s.resolveAndSolveSketches(ctx, documentID, "context-projection/"+key, m); err != nil {
+		return err
+	}
+	return s.resolvePartPublications(ctx, documentID, "context-projection/"+key, key, m)
+}
+
+// Resolve the accepted owning Product, never the source's latest Head. The
+// caller's exact scope is also checked at preview promotion and final CAS.
+func (s *Service) contextEditBindings(ctx context.Context, documentID string, r CommandRequest) ([]ContextBinding, string, error) {
+	if r.RootProductDocumentID == "" {
+		return nil, "", nil
+	}
+	if r.InstancePath == nil || len(r.InstancePath.Segments) != 1 || r.InstancePath.RootDocumentID != r.RootProductDocumentID {
+		return nil, "", fmt.Errorf("%w: direct Product occurrence is required", ErrValidation)
+	}
+	revision, items, err := s.productContextRoot(ctx, r.RootProductDocumentID)
+	if err != nil {
+		return nil, "", err
+	}
+	if revision != r.RootProductRevisionID {
+		return nil, "", fmt.Errorf("%w: CONTEXT_PRODUCT_REVISION_CHANGED", ErrValidation)
+	}
+	owner, ok := occurrenceByCanonical(items, r.InstancePath.Canonical)
+	if !ok || owner.DocumentID != documentID || owner.ReferenceMode == "PINNED" {
+		return nil, "", fmt.Errorf("%w: context edit occurrence unavailable or fixed", ErrValidation)
+	}
+	if err := validateResolvedInstancePath(*r.InstancePath, owner.Path); err != nil {
+		return nil, "", err
+	}
+	var bindings []ContextBinding
+	for _, item := range items {
+		for _, b := range item.ContextBindings {
+			if b.OwningInstancePath.Canonical == owner.Path.Canonical {
+				bindings = append(bindings, b)
+			}
+		}
+	}
+	key := ""
+	if len(bindings) > 0 {
+		key = contextVariantKey(owner.RevisionID, contextVariantBindingDigest(bindings))
+	}
+	if r.ContextVariantID != key {
+		return nil, "", fmt.Errorf("%w: CONTEXT_VARIANT_CHANGED", ErrValidation)
+	}
+	return bindings, revision, nil
+}
+
+// Only explicit field changes from the projected editor are applied to the
+// base definition. Solved coordinates and bound values are not shared edits.
+func retainBaseFeatureValues(base, projected PartModel, f *Feature) {
+	if f == nil {
+		return
+	}
+	var original, shown *Feature
+	for i := range base.Features {
+		if base.Features[i].ID == f.ID {
+			original = &base.Features[i]
+		}
+	}
+	for i := range projected.Features {
+		if projected.Features[i].ID == f.ID {
+			shown = &projected.Features[i]
+		}
+	}
+	if original == nil || shown == nil {
+		return
+	}
+	patch := func(dst *float64, visible, value float64) {
+		if *dst == visible {
+			*dst = value
+		}
+	}
+	patch(&f.Length, shown.Length, original.Length)
+	patch(&f.Length2, shown.Length2, original.Length2)
+	patch(&f.Angle, shown.Angle, original.Angle)
+	patch(&f.Diameter, shown.Diameter, original.Diameter)
+	patch(&f.Depth, shown.Depth, original.Depth)
+	patch(&f.RecessDiameter, shown.RecessDiameter, original.RecessDiameter)
+	patch(&f.RecessDepth, shown.RecessDepth, original.RecessDepth)
+	patch(&f.CountersinkAngle, shown.CountersinkAngle, original.CountersinkAngle)
+	if f.Pattern != nil && shown.Pattern != nil && original.Pattern != nil {
+		pattern := *f.Pattern
+		f.Pattern = &pattern // the caller's editor draft remains immutable
+		patch(&pattern.Spacing, shown.Pattern.Spacing, original.Pattern.Spacing)
+		patch(&pattern.Angle, shown.Pattern.Angle, original.Pattern.Angle)
+		patch(&pattern.Phase, shown.Pattern.Phase, original.Pattern.Phase)
+		if pattern.Count == shown.Pattern.Count {
+			pattern.Count = original.Pattern.Count
+		}
+		for i := range pattern.Origin {
+			patch(&pattern.Origin[i], shown.Pattern.Origin[i], original.Pattern.Origin[i])
+			patch(&pattern.Direction[i], shown.Pattern.Direction[i], original.Pattern.Direction[i])
+		}
+	}
+
+}
+func clonePartModel(m PartModel) PartModel {
+	raw, _ := json.Marshal(m)
+	var out PartModel
+	_ = json.Unmarshal(raw, &out)
+	return out
+}
+
+// Reuse the existing multi-workspace design transaction: the edited base and
+// its owning Product reference advance together, while source inputs stay at
+// their explicitly accepted revisions.
+func (s *Service) commitContextPartEdit(ctx context.Context, documentID, revisionID string, p preparedDomainMutation, r CommandRequest, e documentEvaluationResult) error {
+	if e.revisionState != "READY" {
+		return fmt.Errorf("%w: independent Part defaults must remain valid", ErrValidation)
+	}
+	var root ProductModel
+	var raw, priorRaw []byte
+	var ws, head string
+	var seq uint64
+	if err := s.database.QueryRow(ctx, `SELECT w.id::text,w.head_revision_id::text,w.head_sequence,v.model_json,v.evaluation_manifest FROM occccad.workspaces w JOIN occccad.document_versions v ON v.id=w.head_revision_id WHERE w.document_id=$1 AND w.name='main'`, p.contextRootID).Scan(&ws, &head, &seq, &raw, &priorRaw); err != nil {
+		return err
+	}
+	if head != p.contextRootRevision {
+		return fmt.Errorf("%w: CONTEXT_PRODUCT_REVISION_CHANGED", ErrValidation)
+	}
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return err
+	}
+	for i := range root.Instances {
+		f := &root.Instances[i]
+		if f.ReferencedDocumentID == documentID && f.ReferenceMode != "PINNED" {
+			f.ReferencedVersionID, f.ResolvedVersionID = revisionID, revisionID
+		}
+	}
+	rootUUID, _ := uuid.NewV7()
+	rootRevision := rootUUID.String()
+	var base PartModel
+	if err := json.Unmarshal(e.nextJSON, &base); err != nil {
+		return err
+	}
+	for i := range root.ContextBindings {
+		b := &root.ContextBindings[i]
+		affected := false
+		for _, instance := range root.Instances {
+			if len(b.OwningInstancePath.Segments) == 1 && instance.ID == b.OwningInstancePath.Segments[0].InstanceID && instance.ReferencedVersionID == revisionID {
+				affected = true
+			}
+		}
+		if !affected {
+			continue
+		}
+		if len(b.OwningInstancePath.Segments) == 1 && b.OwningInstancePath.Segments[0].ReferencedDocumentID == documentID {
+			leaf := &b.OwningInstancePath.Segments[0]
+			leaf.ResolvedVersionID = revisionID
+			leaf.OwnerVersionID = rootRevision
+			b.Accepted.OwningRevisionID = revisionID
+		}
+	}
+	// Check each repeated occurrence with its complete set of inputs.
+	grouped := map[string][]ContextBinding{}
+	for _, b := range root.ContextBindings {
+		changed := false
+		for _, instance := range root.Instances {
+			if len(b.OwningInstancePath.Segments) == 1 && instance.ID == b.OwningInstancePath.Segments[0].InstanceID && instance.ReferencedVersionID == revisionID {
+				changed = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		if len(b.OwningInstancePath.Segments) == 1 && b.OwningInstancePath.Segments[0].ReferencedDocumentID == documentID {
+			grouped[b.OwningInstancePath.Canonical] = append(grouped[b.OwningInstancePath.Canonical], b)
+		}
+	}
+	for path, bindings := range grouped {
+		projection := clonePartModel(base)
+		if err := s.resolveVariantModel(ctx, documentID, path, &projection, bindings); err != nil {
+			return err
+		}
+		if err := s.evaluatePartBodies(ctx, r.RequestID+"/context/"+path, &projection); err != nil {
+			return err
+		}
+	}
+	for i := range root.Constraints {
+		if root.Constraints[i].EvaluationStatus != modelcore.AssemblyConstraintBroken {
+			root.Constraints[i].EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
+		}
+	}
+	next, _ := json.Marshal(root)
+	hash := canonicalModelHash(next)
+	graph, manifest, err := buildProductEvaluation(root, rootRevision, hash, nil, nil)
+	if err != nil {
+		return err
+	}
+	changes, err := reconcilePersistedChanges("PRODUCT", raw, next, modelcore.ChangeSet{})
+	if err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(updateReferencesPayload{Model: root})
+	command := modelcore.DomainCommand{CommandID: newID("command"), TypeURI: typeUpdateReferences, SchemaVersion: 1, Payload: payload}
+	owner := atomicDomainCandidate{documentID: documentID, workspaceID: p.workspaceID, headRevision: p.headRevision, headSequence: p.headSequence, documentType: "PART", revisionID: revisionID, request: r, command: p.command, nextJSON: e.nextJSON, modelHash: e.modelHash, graph: e.graph, manifest: e.manifest, changes: e.changes}
+	parent := atomicDomainCandidate{documentID: p.contextRootID, workspaceID: ws, headRevision: head, headSequence: seq, documentType: "PRODUCT", revisionID: rootRevision, request: CommandRequest{Type: "UPDATE_REFERENCES", RequestID: r.RequestID + "/owning-product", ActorID: p.actorID}, command: command, nextJSON: next, modelHash: hash, graph: graph, manifest: manifest, changes: changes}
+	groupUUID, _ := uuid.NewV7()
+	return s.commitProductDesignCandidates(ctx, groupUUID.String(), r.RequestID, p.requestDigest, p.actorID, p.contextRootID, []atomicDomainCandidate{owner, parent})
+}
+
+// A read scope selects the exact accepted occurrence projection. It never
+// resolves source Head and does not require edit permission or activate it.
+type ContextReadScope struct {
+	RootProductDocumentID string        `json:"rootProductDocumentId,omitempty"`
+	RootProductRevisionID string        `json:"rootProductRevisionId,omitempty"`
+	InstancePath          *InstancePath `json:"instancePath,omitempty"`
+	ContextVariantID      string        `json:"contextVariantId,omitempty"`
+}
+
+func (s *Service) acceptedContextPart(ctx context.Context, documentID string, view *DocumentView, scope ContextReadScope) error {
+	if scope.RootProductDocumentID == "" {
+		return nil
+	}
+	if scope.InstancePath == nil || len(scope.InstancePath.Segments) != 1 || scope.InstancePath.RootDocumentID != scope.RootProductDocumentID {
+		return fmt.Errorf("%w: direct Product occurrence is required", ErrValidation)
+	}
+	root, err := s.GetDocument(ctx, scope.RootProductDocumentID)
+	if err != nil {
+		return err
+	}
+	if root.Document.VersionID != scope.RootProductRevisionID {
+		return fmt.Errorf("%w: CONTEXT_PRODUCT_REVISION_CHANGED", ErrValidation)
+	}
+	for _, variant := range root.ContextVariants {
+		if variant.OwningInstancePath.Canonical != scope.InstancePath.Canonical || variant.VariantKey != scope.ContextVariantID || variant.BaseDocumentID != documentID || variant.BaseRevisionID != view.Document.VersionID {
+			continue
+		}
+		if err := validateResolvedInstancePath(*scope.InstancePath, variant.OwningInstancePath); err != nil {
+			return err
+		}
+		if variant.Status != "READY" || variant.Part == nil {
+			return fmt.Errorf("%w: accepted context unavailable", ErrValidation)
+		}
+		view.Part = variant.Part
+		view.SketchAnalyses = variant.SketchAnalyses
+		return nil
+	}
+	return fmt.Errorf("%w: CONTEXT_VARIANT_CHANGED", ErrValidation)
+}
+
+func contextInputBound(model PartModel, bindings []ContextBinding, kind, target string) bool {
+	for _, input := range model.ContextInputs {
+		if input.Target.Kind == kind && input.Target.TargetID == target {
+			for _, binding := range bindings {
+				if binding.ContextInputID == input.ID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}

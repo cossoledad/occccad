@@ -19,11 +19,19 @@ type CommandSnapshotReader interface {
 // caller separately authorizes edits to target. New source references may never
 // bypass read permission merely because the target is writable.
 func RequireCommandReferences(ctx context.Context, acl CommandAuthorizer, reader CommandSnapshotReader, actor, target string, input CommandRequest) error {
+	if input.RootProductDocumentID != "" && input.ContextVariantID != "" {
+		if _, err := acl.RequireDocument(ctx, input.RootProductDocumentID, actor, access.RoleEditor); err != nil {
+			return err
+		}
+	}
 	ids := []string{input.ReferencedDocumentID, input.SourceDocumentID, input.RootProductDocumentID}
 	ids = append(ids, input.ReferencedDocumentIDs...)
 	for _, path := range []*InstancePath{input.InstancePath, input.SourceInstancePath, input.OwningInstancePath} {
 		if path != nil {
 			ids = append(ids, path.RootDocumentID)
+			for _, segment := range path.Segments {
+				ids = append(ids, segment.ReferencedDocumentID)
+			}
 		}
 	}
 	if strings.ToUpper(input.Type) == "INSERT_INSTANCES" && input.InstanceID != "" {

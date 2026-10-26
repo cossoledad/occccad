@@ -82,6 +82,25 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 入口：[只读刷新与证据门](../../../services/internal/workspace/assembly_engineering_refresh.go)、[当前页签](../../../web/apps/cad/src/features/workbench/assembly-conflict-panel.tsx)。回归：[真实 Router/Worker](../../../services/internal/control/assembly_engineering_refresh_integration_test.go)、[浏览器与 Viewer](../../../web/apps/cad/browser/assembly-engineering-live.spec.ts)。
 
+## 发布与关联设计
+
+“发布接口”管理稳定 Publication，包括重命名与兼容重定向；“引用设计信息”在已激活 Part occurrence 中创建或复用本地输入，并管理绑定、定位、重连、固定与恢复跟随。新端口与 Product 绑定复用设计事务，预览和取消不创建模型对象。参数的既有定义级 ExternalParameterRef 仍作用于共享 Part，保持独立语义。
+
+| 发布类型 | 当前上下文消费者 |
+|---|---|
+| PARAMETER | 已存在的本地参数，保留 ParameterId、表达式及独立默认 Source；绑定值在产品上下文中只读，默认值在独立 Part 编辑 |
+| PLANE / AXIS | 已存在的本地基准，保留 DatumId、名称及独立框架；关联几何在产品中通过关联管理更换来源，独立 Part 编辑默认框架 |
+| POINT / CURVE | 目标草图的稳定外部输入槽；原生 POINT、LINE、CIRCLE、ARC 使用已求解几何及支撑框架精确投影 |
+| SURFACE / BODY / FRAME | 不开放本轮上下文消费者；已有发布、转发及其他合法用途保留 |
+
+本地槽位身份由 ContextInputId 分配，与 BindingId、显示编号和临时几何无关。原生草图发布保存明确的 SketchId、EntityId、EntityKind；不伪装 BREP 边。外部点经现有 Coincident 驱动普通本地 POINT，再用于 Hole；不直接用投影点冒充 Hole 定位实体。曲线复用 Worker 的精确投影及支撑关系，显示折线不参与关联真相。
+
+Product 只保存来源和值：ContextBinding 冻结来源 Revision、完整 occurrence 路径、相对变换及发布契约，ContextVariant 由基础 Part 和已接受输入重建。独立打开使用保存的本地默认输入。来源改变、失效或重定向经 UpdatePlan 显示可更新/阻塞状态；完整健康候选才接受，失败保留原已接受结果。PINNED 使用确切旧来源与变换，不读取来源 Head；恢复跟随后仍需接受更新。直接重复实例复用同一 Part 端口，各自绑定和投影独立。上下文编辑合同见[编辑会话](product-edit-context.md#编辑会话)。
+
+实现入口：workspace 的 publication、context_input_geometry、product_context、product_design_transaction、product_update_release、context_editing；Web 的 design-association-dialog 与 context-edit-scope。真实回归入口为 control/publication_layout_integration_test、browser/publication-layout-live.spec。它们是验证入口，执行范围以本轮报告为准。
+
+当前限定直接 owning Product；不提供 Wire、曲面/实体 Feature 输入、复杂嵌套编排或 Skeleton 文档类型。删除发布的跨工作区并发预检限制见[建模与显示](model-display.md#参数与-publication)。
+
 ## 显示、历史与发布
 
 新 DocumentView 即使 GeometryKey/pose 不变，也同步 owner/version/referenceMode、InstancePath、选择与操纵绑定；开始手势从当前权威快照按稳定 occurrence 冻结，旧路径严格拒绝。约束显示按 owner/occurrence/ConstraintId 增量 reconcile，增删、模式、抑制、评价、支持与标签独立失效，请求帧并清理拾取/高亮，无 GLB 下载或完整 BVH 重建。单一手柄吸附复用可见拾取与精确查询；中心重定位不是模型移动，手势框架冻结。

@@ -47,7 +47,7 @@ func TestP10RenameInstancePreservesIdentityAndRejectsSiblingCollision(t *testing
 
 func TestP10ContextInputIsPartOwnedAndCompensatable(t *testing.T) {
 	t.Parallel()
-	before, _ := json.Marshal(PartModel{})
+	before, _ := json.Marshal(newPartModel())
 	input := ContextInput{ID: "context-input-1", Name: "MountPlaneInput", Type: "PLANE", Required: true,
 		Target: ContextInputTarget{Kind: "DATUM", TargetID: "datum-xy"}, Contract: PublicationContract{GeometryKind: "PLANE"}}
 	payload, _ := json.Marshal(contextInputPayload{Input: input})

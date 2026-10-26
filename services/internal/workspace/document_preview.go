@@ -36,6 +36,11 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		if err = json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
 			return CommandPreview{}, err
 		}
+		for _, binding := range prepared.contextBindings {
+			if err := materializeContextBindingVariant(&model, binding); err != nil {
+				return CommandPreview{}, err
+			}
+		}
 		diagnosticModel = &model
 		if err := service.validateInsertionSource(ctx, documentID, prepared.headRevision, prepared.command, beforeModel); err != nil {
 			return CommandPreview{}, err
@@ -83,7 +88,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		modelHash := canonicalModelHash(nextJSON)
 		if _, broken := firstUnresolvedExternal(model); broken {
 			previewID := newID("preview")
-			service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
+			service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
 				headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 				payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
 				expiresAt: time.Now().Add(interactionCandidateTTL)})
@@ -159,7 +164,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		previewID := newID("preview")
-		service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
+		service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
 			headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 			payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, geometryKey: geometryKey, visualObjectID: artifact.Representations["VISUAL"].ObjectID,
 			changes: previewChanges, expiresAt: time.Now().Add(interactionCandidateTTL)})
@@ -277,7 +282,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 			previewID = ""
 		}
 		if previewID != "" {
-			service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
+			service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
 				definitionOnly: retainedFailure,
 				headRevision:   prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 				assemblyPreviewRequestID: "preview/" + prepared.requestID,

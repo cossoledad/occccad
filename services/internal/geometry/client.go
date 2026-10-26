@@ -263,6 +263,7 @@ type ExternalProjectionFrame struct {
 }
 
 type ExternalProjectionSource struct {
+	SourceKind                                                          string
 	RadiusMM, MinorRadiusMM                                             *float64
 	XDirection                                                          [3]float64
 	GeometryID, GeometryKey, TopologyType, GeometryType, EvidenceDigest string
@@ -752,7 +753,7 @@ func (client *Client) ProjectExternalGeometry(ctx context.Context, requestID str
 		evidence.ParameterEnd = source.ParameterEnd
 	}
 	response, err := client.worker.ProjectExternalGeometry(ctx, &workerv1.ProjectExternalGeometryRequest{
-		RequestId: requestID, ProjectionKind: "ORTHOGONAL",
+		RequestId: requestID, ProjectionKind: "ORTHOGONAL", SourceKind: source.SourceKind,
 		Source: &workerv1.ResolvedTopologyElement{GeometryId: source.GeometryID, GeometryKey: source.GeometryKey,
 			TopologyType: topologyType, LocalId: source.LocalID, Evidence: evidence},
 		Frame: &workerv1.SketchProjectionFrame{Origin: vec3(frame.Origin), XDirection: vec3(frame.XDirection), Normal: vec3(frame.Normal)},

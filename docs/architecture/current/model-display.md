@@ -20,11 +20,13 @@ Body 是稳定的历史和独立求值单元。`ADD/REMOVE/INTERSECT` 在指定 
 
 装配约束集合以所属文档内的 `ASSEMBLY_CONSTRAINT_SET / assembly-constraints` 标识，根节点显隐将当前全部约束的本地 Visible 属性写入同一个 ChangeSet/Revision；根节点聚合是否仍有可见约束，不另存集合显示状态。显示全部会显示当前每项，Undo 恢复各自原值，新建约束保留默认显示。约束显隐历史只有在无几何影响种子、写入槽全为约束实体且完整前后模型剔除约束 Visible 后完全一致时复用已接受结果；位姿、支持、定义、状态和引用变化继续执行原有装配历史验证。
 
-Product 普通视图从每个已解析 Body 的现有 GLB 读取草图图元，不要求进入 Part 原位编辑。GLB 扩展解码后是 schema 2 图元，视口也接受内存中的 schema 1 图元。`ResolvedInstance.ownedSketchIds` 由该 Part Revision 的 Feature 所属 Body 投影，只包含轻量 ID；跨 Body 使用 Sketch 时，消费 Body 的 GLB 也可能携带该输入，但视口仅在所属 Body 绘制它。每个 occurrence 各有草图渲染对象和选择身份，显示解析器按该实例的定义状态与覆盖更新对象及拾取；原位编辑的草图覆盖层替代当前实例的普通图元。Part 引用 Revision 或 ContextVariant 改变时重新绑定该实例场景，复用已下载的 GLB；单纯切换 occurrence 显隐只更新现有对象。
+Product 普通视图从每个已解析 Body 的现有 GLB 读取草图图元，不要求进入 Part 原位编辑；直接无实体布局的已发布原生草图，按已接受 Publication 的精确几何与框架显示和拾取，保留来源实体身份。GLB 扩展解码后是 schema 2 图元，视口也接受内存中的 schema 1 图元。`ResolvedInstance.ownedSketchIds` 由该 Part Revision 的 Feature 所属 Body 投影，只包含轻量 ID；跨 Body 使用 Sketch 时，消费 Body 的 GLB 也可能携带该输入，但视口仅在所属 Body 绘制它。每个 occurrence 各有草图渲染对象和选择身份，显示解析器按该实例的定义状态与覆盖更新对象及拾取；原位编辑的草图覆盖层替代当前实例的普通图元。Part 引用 Revision 或 ContextVariant 改变时重新绑定该实例场景，复用已下载的 GLB；单纯切换 occurrence 显隐只更新现有对象。
 
 ## 参数与 Publication
 
-Feature 必需参数带稳定 ParameterId、OwnerFeatureId、PropertySlot 和生命周期；默认 UI 展示由 Body/Feature 名称与属性描述组成的路径，内部生成 key 仅在技术详情中出现。`EDIT_PARAMETER` 一次验证并提交别名与数值/表达式，表达式依赖绑定 ParameterId；`DELETE_PARAMETER` 拒绝必需参数、Sketch 尺寸及仍被表达式、Publication 或 ContextInput 使用的参数。参数管理器可创建受限的用户数值参数（长度、角度或无量纲），经依赖检查后可删除，并支持 Undo/Redo。输入限定显示路径目前只支持完整路径解析，混合公式仍使用别名。
+Feature 必需参数带稳定 ParameterId、OwnerFeatureId、PropertySlot 和生命周期；默认 UI 展示由 Body/Feature 名称与属性描述组成的路径，内部生成 key 仅在 DEBUG 开发信息中出现。`EDIT_PARAMETER` 一次验证并提交别名与数值/表达式，表达式依赖绑定 ParameterId；`DELETE_PARAMETER` 拒绝必需参数、Sketch 尺寸及仍被表达式、Publication 或 ContextInput 使用的参数。参数管理器可创建受限的用户数值参数（长度、角度或无量纲），经依赖检查后可删除，并支持 Undo/Redo。输入限定显示路径目前只支持完整路径解析，混合公式仍使用别名。
+
+参数、基准与原生草图发布的关联消费者、稳定本地槽位和接受更新语义统一见[发布与关联设计](product-assembly.md#发布与关联设计)。
 
 Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果；Feature 输出用 `FEATURE_OUTPUT + FeatureId + OutputSlot` 表示其历史输出。旧 `FEATURE_OUTPUT` Revision 仍按原语义读取，不在加载时转换。默认名称在所属 Part/Product 的 Publication 命名空间分配 `Body.1`、`Face.1` 等，与拓扑 localId 无关。树、管理器和属性面板共用编辑/删除入口；Part 与 Product 转发 Publication 均可重定向，服务端检查目标连通、所属路径和合同兼容，保留 PublicationId 与名称。删除 Body/Feature 时先检查同一 Part 的 Publication 目标；删除 Publication 时服务端扫描当前主工作区的 ContextReference、外部参数、ContextBinding 和转发 Publication。发现依赖则拒绝；删除 Publication 本体保留目标几何。该检查当前是主工作区快照预检，尚无跨工作区并发的锁定索引；完整引用查看仍未闭环。
 

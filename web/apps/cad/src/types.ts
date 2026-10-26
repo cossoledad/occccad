@@ -188,7 +188,7 @@ export type Feature = {
 export type SketchPoint2 = { x: number; y: number };
 export type SketchGeometryRef = { target: "ENTITY" | "EXTERNAL" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number; controlPointId?: string; pointId?: string };
 export type SketchEntity = {name?:string; infinite?:boolean; id: string; createdByOperationId?: string; sourceEntityId?: string; startPointId?:string; endPointId?:string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "ELLIPSE" | "ELLIPTICAL_ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; visible?: boolean; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; majorRadius?: number; minorRadius?: number; rotation?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; controlPointIds?: string[]; degree?: number; closed?: boolean; mode?: "FIT" | "CONTROL"; poles?: SketchPoint2[]; poleIds?: string[]; knots?: number[]; multiplicities?: number[]; weights?: number[]; periodic?: boolean; parameterStart?: number; parameterEnd?: number };
-export type SketchExternalGeometry = { name?:string;datumReference?:DatumReference;id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE"|"ARC"|"ELLIPSE"|"ELLIPTICAL_ARC";persistentSelection:PersistentSelection;sourceVersionId:string;
+export type SketchExternalGeometry = { contextInputId?:string; name?:string;datumReference?:DatumReference;id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE"|"ARC"|"ELLIPSE"|"ELLIPTICAL_ARC";persistentSelection:PersistentSelection;sourceVersionId:string;
   sourceDocumentId?:string;contextReferenceId?:string;
   status:"PENDING"|"CONNECTED"|"UNRESOLVED_EXTERNAL";diagnosticCode?:string;diagnostic?:string;resolvedSourceDigest?:string;
   snapshot?:{kind:"POINT"|"LINE"|"CIRCLE"|"ARC"|"ELLIPSE"|"ELLIPTICAL_ARC";point?:SketchPoint2;start?:SketchPoint2;end?:SketchPoint2;center?:SketchPoint2;radius?:number;majorRadius?:number;minorRadius?:number;rotation?:number;startAngle?:number;endAngle?:number};
@@ -441,7 +441,7 @@ export type SketchProfileAnalysis = {
   issues: Array<{ code: string; message: string; entityIds: string[]; references?: SketchGeometryRef[]; position?: SketchPoint2 }>;
 };
 
-export type DocumentView = {
+export type DocumentView = {basePart?:DocumentView["part"];contextProduct?:DocumentView;
   bodyAppearances?: Record<string, ResolvedAppearance>;
  replicationSources?:Record<string,{sourceKind?:"SKETCH_FRAME"|"GENERATOR_TOOL"|"FEATURE_DELTA";startFeatureId?:string;operation?:Feature["operation"];tool:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
   sketchPatternMembers?:Record<string,SketchEntity[]>;
@@ -482,11 +482,11 @@ export type ParameterDefinition = { parameterId: string; key: string; label: str
 
 export type Publication = { id: string; name: string; type: "POINT" | "AXIS" | "PLANE" | "FRAME" | "CURVE" | "SURFACE" | "BODY" | "PARAMETER";
   semanticPurpose?: string; compatibilityVersion: string;
-  target: { kind: "DATUM" | "TOPOLOGY" | "BODY_RESULT" | "FEATURE_OUTPUT" | "PARAMETER"; bodyId?: string; datumId?: string; axis?: "X" | "Y" | "Z";
+  target: { kind: "DATUM" | "TOPOLOGY" | "BODY_RESULT" | "FEATURE_OUTPUT" | "PARAMETER" | "SKETCH_ENTITY"; sketchId?:string;entityId?:string;entityKind?:string; bodyId?: string; datumId?: string; axis?: "X" | "Y" | "Z";
     persistentSelection?: PersistentSelection; sourceVersionId?: string; featureId?: string; outputSlot?: string; parameterId?: string };
   contract: { geometryKind?: string; valueType?: "QUANTITY" | "REAL"; dimension?: Dimension; unitPolicy?: string;
     bounds?: { minimum?: Quantity; maximum?: Quantity }; symmetry?: string };
-  resolution: { status: "CONNECTED" | "BROKEN_PUBLICATION" | "PENDING"; diagnosticCode?: string; diagnostic?: string;
+  resolution: { nativeSketch?:{sketchId:string;entityId:string;geometry:NonNullable<SketchExternalGeometry["snapshot"]>;origin:Vec3;xDirection:Vec3;normal:Vec3};status: "CONNECTED" | "BROKEN_PUBLICATION" | "PENDING"; diagnosticCode?: string; diagnostic?: string;
     resolvedVersionId?: string; geometryKey?: string; geometryId?: string; topologyKind?: "FACE" | "EDGE" | "VERTEX";
     geometryKind?: string; symmetry?: string; localId?: number; radius?: number;
     origin?: Vec3; xDirection?: Vec3; yDirection?: Vec3; zDirection?: Vec3; sourceDigest?: string; value?: Quantity;
@@ -494,7 +494,7 @@ export type Publication = { id: string; name: string; type: "POINT" | "AXIS" | "
 
 export type ProductPublication = { id:string;name:string;type:Publication["type"];semanticPurpose?:string;compatibilityVersion:string;
   target:{instancePath:InstancePath;publicationId:string};contract:Publication["contract"];resolution:Publication["resolution"] };
-export type ContextInput = { id:string;name:string;type:Publication["type"];required?:boolean;
+export type ContextInput = { default?:{external?:SketchExternalGeometry["snapshot"];parameterSource?:ParameterDefinition["source"];plane?:DatumPlane;axis?:DatumAxis}; id:string;name:string;type:Publication["type"];required?:boolean;
   target:{kind:"PARAMETER"|"DATUM"|"SKETCH_EXTERNAL_GEOMETRY"|"FEATURE_INPUT";targetId:string};contract:Publication["contract"] };
 export type ContextBinding = { id:string;name:string;owningInstancePath:InstancePath;contextInputId:string;
   sourceInstancePath:InstancePath;publication:{publicationId:string;expectedType:string;compatibilityVersion:string};
@@ -512,7 +512,7 @@ export type ContextCatalogPublication = { instancePath:InstancePath;documentId:s
   displayPath:string;selectable:boolean;diagnostic?:string };
 export type ContextCatalog = { rootProductDocumentId:string;rootProductRevisionId:string;activeInstancePath?:InstancePath;
   expectedType?:string;digest:string;publications:ContextCatalogPublication[] };
-export type ContextVariantSnapshot = {variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
+export type ContextVariantSnapshot = {part?:DocumentView["part"];sketchAnalyses?:DocumentView["sketchAnalyses"];variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
   bindingIds:string[];bindingDigest:string;evaluationManifestDigest?:string;bodies:PartBody[];status:"READY"|"FAILED";
   publications?:Publication[];diagnosticCode?:string;diagnostic?:string};
 export type ProductUpdatePlanEntry = {kind:"CONTEXT_BINDING"|"OCCURRENCE_REFERENCE"|"ASSEMBLY_SOLVE";bindingId:string;name:string;sourceDisplayPath:string;owningDisplayPath:string;

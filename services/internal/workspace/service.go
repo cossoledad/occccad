@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v49-draft-range-naming"
+const evaluatorVersion = "part-solid-generators-v50-context-input-projection"
 
 var (
 	ErrNotFound   = errors.New("document not found")

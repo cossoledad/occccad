@@ -880,13 +880,13 @@ public:
         } else if ((input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_VERTEX || input.topology_type()==worker_api::PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED) &&
             evidence.geometry_type() == "POINT") {
             source.kind = sketch_api::ExternalSourceKind::point;
-        } else if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE &&
+        } else if ((input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE || (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED && request->source_kind()=="SKETCH_ENTITY")) &&
                    evidence.geometry_type() == "LINE") {
             source.kind = sketch_api::ExternalSourceKind::line;
-        } else if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE &&
+        } else if ((input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE || (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED && request->source_kind()=="SKETCH_ENTITY")) &&
                    evidence.geometry_type() == "CIRCLE") {
             source.kind = sketch_api::ExternalSourceKind::circle;
-        } else if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE && evidence.geometry_type() == "ELLIPSE") {
+        } else if ((input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE || (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED && request->source_kind()=="SKETCH_ENTITY")) && evidence.geometry_type() == "ELLIPSE") {
             source.kind = sketch_api::ExternalSourceKind::ellipse;
         } else {
             response->set_status("UNRESOLVED_EXTERNAL");

@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+const require=createRequire(new URL('../../../package.json',import.meta.url)),ts=require('typescript');
+const output=ts.transpileModule(await readFile(new URL('../context-edit-scope.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const m=await import(`data:text/javascript;base64,${Buffer.from(output).toString('base64')}`);
+const base={document:{id:'part',versionId:'base-2'},part:{parameters:[{id:'local',value:100}]}};
+const projected={parameters:[{id:'local',value:140}]};
+const root={document:{id:'product',versionId:'accepted'},contextVariants:[{owningInstancePath:{canonical:'left'},baseDocumentId:'part',baseRevisionId:'base-1',part:projected,status:'READY'}]};
+const accepted=m.acceptedContextView(base,root,'left');assert.equal(accepted.part,projected);assert.equal(accepted.document.versionId,'base-1');assert.equal(base.part.parameters[0].value,100);
+assert.equal(m.acceptedContextView(base,root,'right'),base,'an unrelated occurrence must not borrow an input');
+assert.equal(m.acceptedContextView(base,{...root,contextVariants:[{...root.contextVariants[0],part:undefined,status:'FAILED'}]},'left').part,undefined,'failed bindings must not display independent defaults as accepted input');
+const clear=m.setContextEditScope({documentId:'part',rootProductDocumentId:'product',rootProductRevisionId:'accepted',instancePath:{canonical:'left'},contextVariantId:'variant-a'});
+assert.deepEqual(m.contextCommand('other',{type:'X'}),{type:'X'});
+assert(!('documentId' in m.contextCommand('part',{type:'X'})),'the local adapter key is not a command payload field');
+const clearNew=m.setContextEditScope({documentId:'part',contextVariantId:'variant-b'});clear();assert.equal(m.contextEditScope('part').contextVariantId,'variant-b','late cleanup cannot cancel a new occurrence');clearNew();assert.equal(m.contextEditScope('part'),undefined);
+console.log('Accepted context display, command scoping and late cleanup passed');

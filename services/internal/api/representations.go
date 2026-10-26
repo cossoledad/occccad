@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,6 +33,19 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 	}
 	if featureID := r.URL.Query().Get("featureId"); (featureID != "" || r.URL.Query().Get("afterFeatureId") != "") && !allowed {
 		request := workspace.FeatureInputRequest{AfterFeatureID: r.URL.Query().Get("afterFeatureId"), VersionID: version, FeatureID: featureID, ResultStage: r.URL.Query().Get("resultStage") == "true"}
+		request.RootProductDocumentID = r.URL.Query().Get("rootProductDocumentId")
+		request.RootProductRevisionID = r.URL.Query().Get("rootProductRevisionId")
+		request.ContextVariantID = r.URL.Query().Get("contextVariantId")
+		if request.RootProductDocumentID != "" {
+			if _, err := s.access.RequireDocument(r.Context(), request.RootProductDocumentID, principal(r).ID, access.RoleViewer); err != nil {
+				writeAccessError(w, err)
+				return
+			}
+			if err := json.Unmarshal([]byte(r.URL.Query().Get("instancePath")), &request.InstancePath); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid occurrence")
+				return
+			}
+		}
 		if !request.ResultStage {
 			request.BodyID = r.URL.Query().Get("bodyId")
 		}

@@ -437,6 +437,39 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 	}
 	for index := range sketch.ExternalGeometry {
 		external := &sketch.ExternalGeometry[index]
+		if external.ContextInputID != "" {
+			var input *ContextInput
+			for i := range model.ContextInputs {
+				if model.ContextInputs[i].ID == external.ContextInputID && model.ContextInputs[i].Target.TargetID == model.Features[featureIndex].ID {
+					input = &model.ContextInputs[i]
+					break
+				}
+			}
+			if input == nil || input.Default == nil || input.Default.External == nil {
+				return fmt.Errorf("%w: CONTEXT_INPUT_DEFAULT_MISSING", ErrValidation)
+			}
+			snapshot := input.Default.External
+			digest := resolvedDigest(snapshot)
+			for _, ref := range model.ContextReferences {
+				if ref.ID == input.ID {
+					if ref.Resolution.Status != "CONNECTED" {
+						return fmt.Errorf("%w: CONTEXT_INPUT_BINDING_BROKEN", ErrValidation)
+					}
+					var err error
+					snapshot, err = service.projectInputPublication(ctx, requestID, *model, model.Features[featureIndex].ID, input.ID, ref.Resolution, ref.Transform)
+					if err != nil {
+						return err
+					}
+					digest = ref.Resolution.SourceDigest
+				}
+			}
+			external.Snapshot = snapshot
+			external.GeometryKind = snapshot.Kind
+			external.Status = "CONNECTED"
+			external.ResolvedSourceDigest = digest
+			external.DiagnosticCode, external.Diagnostic = "", ""
+			continue
+		}
 		if external.DatumReference != nil {
 			source, err := datumProjectionSource(*model, *external.DatumReference)
 			if err != nil {

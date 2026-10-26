@@ -10,6 +10,7 @@ import (
 )
 
 type SketchIntersectionsRequest struct {
+	ContextReadScope
 	VersionID string   `json:"versionId"`
 	SketchID  string   `json:"sketchId"`
 	EntityIDs []string `json:"entityIds"`
@@ -35,6 +36,9 @@ func (s *Service) SketchIntersections(ctx context.Context, documentID string, r 
 	}
 	if v.Part == nil || v.Document.VersionID != r.VersionID {
 		return result, fmt.Errorf("%w: sketch intersection revision changed", ErrValidation)
+	}
+	if err := s.acceptedContextPart(ctx, documentID, &v, r.ContextReadScope); err != nil {
+		return result, err
 	}
 	for _, f := range v.Part.Features {
 		if f.ID == r.SketchID && f.Sketch != nil {

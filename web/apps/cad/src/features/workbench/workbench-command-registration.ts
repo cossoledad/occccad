@@ -16,7 +16,7 @@ import {selectionSummaryCommand} from "./commands/selection-summary";
 import {treeNodesForSelections} from "./tree-projection-index";
 
 export type WorkbenchCommandBindings={
- setDeveloperOpen?:(open:boolean)=>void;setAssociationRepairOpen?:(open:boolean)=>void;associationRepairOpen?:boolean;
+ setDesignAssociationOpen?:(open:boolean)=>void;setDeveloperOpen?:(open:boolean)=>void;setAssociationRepairOpen?:(open:boolean)=>void;associationRepairOpen?:boolean;
  openProperties?:()=>void;openOptions?:()=>void;
 	prepareAssemblyMove?:()=>Promise<void>;
  setMotionOpen?:(open:boolean)=>void;motionOpen?:boolean;motionCommandEnabled?:(action:string)=>boolean;onMotionCommand?:(action:string,operation?:CommandOperation)=>void;
@@ -84,6 +84,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "part.revolve", execute: () => openSolidFeature("REVOLVE"), isEnabled: () => Boolean(canEdit && !store.activeSketchID) }),
       ({ id: "part.parameters", execute: () => setParameterManagerOpen(true),
         isEnabled: () => Boolean(editingView?.part) }),
+      ({id:"part.design-associations",execute:()=>bindings.setDesignAssociationOpen?.(true),isEnabled:()=>Boolean(canEditRoot&&editingView?.part&&["OWNER","EDITOR"].includes(editingView.document.permission)&&bindings.setDesignAssociationOpen)}),
       ({ id: "part.publications", execute: () => setPublicationManagerOpen(true),
 		 isEnabled: () => Boolean(editingView?.part || editingView?.product) }),
       ({ id: "product.publications", execute: () => setPublicationManagerOpen(true),

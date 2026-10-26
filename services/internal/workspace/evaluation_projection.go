@@ -576,6 +576,20 @@ func validatePartStructure(model PartModel) error {
 	contextIDs := map[string]bool{}
 	contextInputIDs, contextInputNames := map[string]bool{}, map[string]bool{}
 	for _, input := range model.ContextInputs {
+		if input.Target.Kind == "SKETCH_EXTERNAL_GEOMETRY" {
+			found := false
+			for _, f := range model.Features {
+				if f.ID == input.Target.TargetID && f.Sketch != nil {
+					for _, e := range f.Sketch.ExternalGeometry {
+						found = found || e.ContextInputID == input.ID && e.ID == contextExternalID(input.ID)
+					}
+				}
+			}
+			if !found {
+				return fmt.Errorf("%w: local input slot is missing; manage the input port before deleting its geometry", ErrValidation)
+			}
+		}
+
 		name := scopedNameKey(input.Name)
 		if input.ID == "" || contextInputIDs[input.ID] || name == "" || contextInputNames[name] || input.Type == "" || input.Target.Kind == "" || input.Target.TargetID == "" {
 			return fmt.Errorf("%w: ContextInput identity, name, target and contract must be complete and unique", ErrValidation)
@@ -840,7 +854,9 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				data, _ := json.Marshal(external)
 				nodes = append(nodes, modelcore.DependencyNode{Key: projectionKey, Phase: 2, Type: "EXTERNAL_PROJECTION", CanonicalInput: data})
 				edges = append(edges, modelcore.DependencyEdge{Source: projectionKey, Target: key, Kind: modelcore.ReadGeometry})
-				if external.DatumReference != nil {
+				if external.ContextInputID != "" {
+					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("context-input:" + external.ContextInputID), Target: projectionKey, Kind: modelcore.ReadGeometry})
+				} else if external.DatumReference != nil {
 					edges = append(edges, modelcore.DependencyEdge{Source: datumReferenceDependency(*external.DatumReference), Target: projectionKey, Kind: modelcore.ReadGeometry})
 				} else if external.ContextReferenceID != "" {
 					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("context-reference:" + external.ContextReferenceID), Target: projectionKey, Kind: modelcore.ReadGeometry})
@@ -860,7 +876,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 
 				if external.DatumReference != nil {
 					edges = append(edges, modelcore.DependencyEdge{Source: datumReferenceDependency(*external.DatumReference), Target: key, Kind: modelcore.ReadGeometry})
-				} else if external.ContextReferenceID == "" {
+				} else if external.ContextReferenceID == "" && external.ContextInputID == "" {
 					sources[external.PersistentSelection.SourceBodyID] = true
 				}
 			}
@@ -896,6 +912,10 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		data, _ := json.Marshal(publication)
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 3, Type: "PUBLICATION", CanonicalInput: data})
 		switch publication.Target.Kind {
+		case "SKETCH_ENTITY":
+			if featureIDs[publication.Target.SketchID] {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + publication.Target.SketchID), Target: key, Kind: modelcore.ReadGeometry})
+			}
 		case "DATUM":
 			if datumIDs[publication.Target.DatumID] {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + publication.Target.DatumID), Target: key, Kind: modelcore.ReadGeometry})

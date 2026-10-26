@@ -2116,7 +2116,10 @@ export class CadViewportEngine {
           new Set(resolved.ownedSketchIds ?? []));
         if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
       }
-      if (group.children.length === 0) {
+      // Publications also expose layout Parts with no solid artifact. Display
+      // their accepted exact sketch snapshots, retaining original entity IDs.
+      const published=this.addPublishedLayout(view,instance.id,group);
+      if (group.children.length === 0 && !published) {
         const placeholder = new THREE.Mesh(
           new THREE.BoxGeometry(20, 20, 20),
           this.materials.surface(CATIA_VISUAL_THEME.placeholder),
@@ -2127,6 +2130,36 @@ export class CadViewportEngine {
       }
     }
     this.addAssemblyConstraintMarkers(view);
+  }
+
+  private addPublishedLayout(view:DocumentView,instanceId:string,group:THREE.Group):boolean {
+    const instance=view.product?.instances.find(v=>v.id===instanceId);
+    if(!instance)return false;
+    const nodes:import('../types').DocumentStructureNode[]=[];
+    const visit=(node:import('../types').DocumentStructureNode)=>{if(node.instancePath?.canonical===instanceId&&node.publication)nodes.push(node);for(const child of node.children??[])visit(child)};
+    if(view.structureTree)visit(view.structureTree);
+    const sketches=new Map<string,{source:NonNullable<import('../types').Publication['resolution']['nativeSketch']>;entities:import('../types').SketchEntity[];node:import('../types').DocumentStructureNode}>();
+    let displayed=false;
+    for(const node of nodes){const p=node.publication!,r=p.resolution;if(r.status!=='CONNECTED')continue;
+      const n=r.nativeSketch;
+      if(n){displayed=true;if(this.editContext?.occurrencePath===instanceId)continue;
+        let entry=sketches.get(n.sketchId);if(!entry){entry={source:n,entities:[],node};sketches.set(n.sketchId,entry)}
+        if(!entry.entities.some(e=>e.id===n.entityId))entry.entities.push({...n.geometry,id:n.entityId,kind:n.geometry.kind as import('../types').SketchEntity['kind'],role:'CONSTRUCTION'});
+      } else if(p.target.kind==='DATUM'&&p.target.datumId&&(p.type==='PLANE'||p.type==='AXIS')){
+        const context:SolidContext={documentId:node.sourceDocumentId??node.documentId??node.instancePath?.segments.at(-1)?.referencedDocumentId??view.document.id,versionId:r.resolvedVersionId,geometryKey:'',occurrencePath:instanceId,instancePath:node.instancePath,instanceId,treeNodeId:node.id};
+        const base={id:p.target.datumId,name:p.name,origin:r.origin??[0,0,0] as Vec3};
+        const refs:ReferenceGeometry={datumPlanes:p.type==='PLANE'?[{...base,plane:'CUSTOM',normal:r.zDirection??[0,0,1],uDirection:r.xDirection??[1,0,0],size:200}]:[],datumAxes:p.type==='AXIS'?[{...base,direction:r.zDirection??[0,0,1]}]:[],axisSystems:[]};
+        if(!view.resolvedInstances?.some(r=>r.occurrencePath===instanceId&&r.geometryKey))this.addReferenceGeometry(refs,group,context);
+        displayed=true;
+      }
+    }
+    for(const [id,{source:n,entities,node}] of sketches){
+      const plane:DatumPlane={id:`publication-frame:${id}`,name:node.name,plane:'CUSTOM',origin:n.origin,normal:n.normal,uDirection:n.xDirection,size:200};
+      const descriptor={...view,document:{...view.document,id:node.sourceDocumentId??node.documentId??node.instancePath?.segments.at(-1)?.referencedDocumentId??view.document.id,versionId:node.instancePath?.segments.at(-1)?.resolvedVersionId??view.document.versionId},datumPlanes:[plane]};
+      const feature:Feature={id,type:'SKETCH',sketch:{schemaVersion:2,entities,constraints:[],solve:{status:'REFERENCE',degreesOfFreedom:0},support:{type:'DATUM_PLANE',plane:'CUSTOM',datumPlaneId:plane.id}}};
+      this.addSketch(feature,false,descriptor,{documentId:descriptor.document.id,versionId:descriptor.document.versionId,geometryKey:'',occurrencePath:instanceId,instancePath:node.instancePath,instanceId,treeNodeId:node.id},instance.translation,instance.rotation,true);
+    }
+    return displayed;
   }
 
   private addAssemblyConstraintMarkers(view: DocumentView): void {

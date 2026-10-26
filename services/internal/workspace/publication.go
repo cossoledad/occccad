@@ -176,6 +176,17 @@ func validatePublicationDefinitions(model PartModel) error {
 			return fmt.Errorf("%w: unsupported publication type %s", ErrValidation, publication.Type)
 		}
 		switch publication.Target.Kind {
+		case "SKETCH_ENTITY":
+			symmetry := "NONE"
+			if publication.Type == "CURVE" {
+				symmetry = "PARAMETER_DIRECTION"
+			}
+			if publication.Contract.GeometryKind != publication.Type || publication.Contract.Symmetry != symmetry {
+				return fmt.Errorf("%w: native sketch publication contract invalid", ErrValidation)
+			}
+			if publication.Target.SketchID == "" || publication.Target.EntityID == "" || !((publication.Type == "POINT" && publication.Target.EntityKind == "POINT") || (publication.Type == "CURVE" && (publication.Target.EntityKind == "LINE" || publication.Target.EntityKind == "CIRCLE" || publication.Target.EntityKind == "ARC"))) {
+				return fmt.Errorf("%w: native sketch publication contract invalid", ErrValidation)
+			}
 		case "DATUM":
 			if publication.Target.DatumID == "" {
 				return fmt.Errorf("%w: datum publication target is incomplete", ErrValidation)
@@ -255,6 +266,13 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 			publication.Resolution = PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: code, Diagnostic: diagnostic}
 		}
 		switch publication.Target.Kind {
+		case "SKETCH_ENTITY":
+			value, err := nativeSketchPublication(*model, publication.Target, revisionID)
+			if err != nil {
+				broken("PUBLICATION_SKETCH_ENTITY_UNAVAILABLE", err.Error())
+				continue
+			}
+			publication.Resolution = value
 		case "BODY_RESULT":
 			if bodyIndex(*model, publication.Target.BodyID) < 0 {
 				broken("PUBLICATION_BODY_MISSING", "published Body no longer exists")
@@ -503,6 +521,33 @@ func (service *Service) publicationFromRequest(ctx context.Context, documentID s
 	}
 	publication := Publication{ID: publicationID, Name: name, Type: publicationType, SemanticPurpose: strings.TrimSpace(request.SemanticPurpose), CompatibilityVersion: version, Resolution: PublicationResolution{Status: "PENDING"}}
 	switch strings.ToUpper(strings.TrimSpace(request.TargetKind)) {
+	case "SKETCH_ENTITY":
+		target := PublicationTarget{Kind: "SKETCH_ENTITY", SketchID: request.SketchID, EntityID: request.TargetID}
+		for _, f := range model.Features {
+			if f.ID == target.SketchID && f.Sketch != nil {
+				for _, e := range f.Sketch.Entities {
+					if e.ID == target.EntityID {
+						target.EntityKind = e.Kind
+					}
+				}
+			}
+		}
+		expected := "CURVE"
+		if target.EntityKind == "POINT" {
+			expected = "POINT"
+		}
+		if publicationType != expected {
+			return Publication{}, fmt.Errorf("%w: native sketch publication type mismatch", ErrValidation)
+		}
+		if _, err := nativeSketchPublication(model, target, request.VersionID); err != nil {
+			return Publication{}, err
+		}
+		publication.Target = target
+		symmetry := "NONE"
+		if publicationType == "CURVE" {
+			symmetry = "PARAMETER_DIRECTION"
+		}
+		publication.Contract = PublicationContract{GeometryKind: publicationType, Symmetry: symmetry}
 	case "PLANE":
 		publication.Target = PublicationTarget{Kind: "DATUM", DatumID: request.TargetID}
 		publication.Contract = PublicationContract{GeometryKind: "PLANE", Symmetry: "NORMAL_UNORIENTED"}

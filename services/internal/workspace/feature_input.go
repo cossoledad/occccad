@@ -11,6 +11,7 @@ import (
 // FeatureInput is a read-only reconstruction of the stage before an edited
 // feature. It never moves Head or writes a compensable model change.
 type FeatureInputRequest struct {
+	ContextReadScope
 	AfterFeatureID string `json:"afterFeatureId,omitempty"`
 	ResultStage    bool   `json:"resultStage,omitempty"`
 	BodyID         string `json:"bodyId,omitempty"`
@@ -153,6 +154,9 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 	if view.Part == nil || request.VersionID != view.Document.VersionID {
 		return FeatureInput{}, fmt.Errorf("%w: feature editing revision changed", ErrValidation)
 	}
+	if err := s.acceptedContextPart(ctx, documentID, &view, request.ContextReadScope); err != nil {
+		return FeatureInput{}, err
+	}
 	if request.AfterFeatureID != "" {
 		return s.insertionInput(ctx, documentID, request, view)
 	}
@@ -180,7 +184,7 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		if request.GeometryKey != "" || request.Kind != "" || request.LocalID != 0 || request.BodyID != "" {
 			return FeatureInput{}, fmt.Errorf("%w: historical result is display only", ErrValidation)
 		}
-		key, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, feature.ID, feature.BodyID, true)
+		key, err := s.featureStageInModel(ctx, *view.Part, request.VersionID, feature.ID, feature.BodyID, true)
 		if err != nil {
 			return FeatureInput{}, err
 		}
@@ -214,7 +218,7 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		prefix.Features = append([]Feature(nil), prefix.Features[:index]...)
 		key, err = s.evaluateBodyPrefix(ctx, "empty-feature-input/"+request.VersionID+"/"+feature.ID, prefix, bodyID, true)
 	} else {
-		key, err = s.featureStageAtVersion(ctx, documentID, request.VersionID, stage, bodyID, true)
+		key, err = s.featureStageInModel(ctx, *view.Part, request.VersionID, stage, bodyID, true)
 	}
 	if err != nil {
 		return FeatureInput{}, featureInputStageError(*view.Part, stage, err)
@@ -246,6 +250,9 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		if err := pick.Selection.Validate(); err != nil {
 			return FeatureInput{}, fmt.Errorf("%w: %v", ErrValidation, err)
 		}
+		if err := s.contextDefinitionPick(ctx, request.ContextReadScope, &pick, key, request.LocalID); err != nil {
+			return FeatureInput{}, err
+		}
 		result.Selection = &pick
 		return result, nil
 	}
@@ -255,7 +262,7 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		result.PointPick = &state
 	}
 	for _, tool := range feature.Tools {
-		toolKey, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, tool.FeatureID, tool.BodyID, true)
+		toolKey, err := s.featureStageInModel(ctx, *view.Part, request.VersionID, tool.FeatureID, tool.BodyID, true)
 		if err != nil {
 			return FeatureInput{}, err
 		}
@@ -308,4 +315,48 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		result.Picks = append(result.Picks, input)
 	}
 	return result, nil
+}
+
+func (s *Service) featureStageInModel(ctx context.Context, model PartModel, revision, stage, body string, display ...bool) (string, error) {
+	index := -1
+	for i, f := range model.Features {
+		if (stage == "" || f.ID == stage) && f.BodyID == body && isBodyFeature(f.Type) && !f.Suppressed {
+			index = i
+		}
+	}
+	if index < 0 {
+		return "", fmt.Errorf("%w: source feature stage missing", ErrValidation)
+	}
+	model.Features = append([]Feature(nil), model.Features[:index+1]...)
+	return s.evaluateBodyPrefix(ctx, "accepted-input/"+revision+"/"+stage, model, body, display...)
+}
+
+// A shared definition keeps its references in the definition's immutable source
+// stage. Context picking may only use the same formal Naming output, uniquely
+// resolving to the explicitly clicked element in the accepted projection.
+func (s *Service) contextDefinitionPick(ctx context.Context, scope ContextReadScope, pick *FeatureSelection, target string, local uint64) error {
+	if scope.RootProductDocumentID == "" {
+		return nil
+	}
+	key, err := s.featureStageAtVersion(ctx, pick.Selection.SourceDocumentID, pick.SourceVersionID, pick.SourceFeatureID, pick.Selection.SourceBodyID)
+	if err != nil {
+		return err
+	}
+	manifest, _, err := s.topologyManifestForGeometryKey(ctx, key)
+	if err != nil {
+		return err
+	}
+	output := manifestSemanticOutput(manifest, pick.Selection)
+	if !topologyHistoryComplete(manifest) || output == nil {
+		return fmt.Errorf("%w: context topology has no corresponding definition output", ErrValidation)
+	}
+	pick.Selection.CreationEvidence = selectionEvidence(output.GetEvidence())
+	resolution, err := s.resolveFeaturePick(ctx, *pick, target)
+	if err != nil {
+		return err
+	}
+	if resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 || resolution.Candidates[0].LocalID != local {
+		return fmt.Errorf("%w: context topology does not uniquely correspond to the selected definition output", ErrValidation)
+	}
+	return nil
 }

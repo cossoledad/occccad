@@ -1847,7 +1847,7 @@
     },
     {
       "id": "product.publications",
-      "name": "发布",
+      "name": "发布接口",
       "helpText": "管理装配引用的发布几何。",
       "iconKey": "publication",
       "repeatable": false,
@@ -1919,8 +1919,32 @@
     },
     {
       "id": "part.publications",
-      "name": "发布",
+      "name": "发布接口",
       "helpText": "管理可供其他零件引用的几何和参数。",
+      "iconKey": "publication",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "part.design-associations",
+      "name": "引用设计信息",
+      "helpText": "引用产品内已发布的设计信息并管理关联。",
       "iconKey": "publication",
       "repeatable": false,
       "visibleWhen": {
@@ -6064,6 +6088,11 @@
           "commandId": "part.publications",
           "groupKey": "primary",
           "order": 20
+        },
+        {
+          "commandId": "part.design-associations",
+          "groupKey": "primary",
+          "order": 30
         }
       ]
     },
@@ -7215,6 +7244,11 @@
       "tabId": "KINEMATICS_DMU.model",
       "groupId": "dmu-association",
       "order": 50
+    },
+    {
+      "tabId": "SKETCHER.model",
+      "groupId": "part-knowledge",
+      "order": 25
     }
   ]
 }

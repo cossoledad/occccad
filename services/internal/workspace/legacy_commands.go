@@ -1308,6 +1308,63 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, err
 		}
 		return typeCreateContextBinding, contextBindingPayload{Binding: binding}, nil
+	case "EDIT_CONTEXT_BINDING":
+		if documentType != "PRODUCT" {
+			break
+		}
+		var model ProductModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		var existing *ContextBinding
+		for i := range model.ContextBindings {
+			if model.ContextBindings[i].ID == request.ContextBindingID {
+				existing = &model.ContextBindings[i]
+				break
+			}
+		}
+		if existing == nil {
+			return "", nil, fmt.Errorf("%w: context binding missing", ErrValidation)
+		}
+		binding := *existing
+		if request.SourceInstancePath != nil {
+			owning, err := service.refreshProductInstancePath(ctx, model, existing.OwningInstancePath)
+			if err != nil {
+				return "", nil, err
+			}
+			request.OwningInstancePath = &owning
+			request.ContextInputID = existing.ContextInputID
+			if request.ReferenceMode == "" {
+				request.ReferenceMode = existing.ReferenceMode
+			}
+			if request.Name == "" {
+				request.Name = existing.Name
+			}
+			var rootRevision string
+			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&rootRevision); err != nil {
+				return "", nil, err
+			}
+			request.OwningInstancePath.Segments[0].OwnerVersionID = rootRevision
+			binding, err = service.contextBindingFromRequest(ctx, documentID, rootRevision, request)
+			if err != nil {
+				return "", nil, err
+			}
+			binding.ID = existing.ID
+		} else {
+			if request.ReferenceMode != "" {
+				if request.ReferenceMode != "PINNED" && request.ReferenceMode != "FOLLOW_WORKSPACE_WITH_ACCEPT" && request.ReferenceMode != "FOLLOW_HEAD" {
+					return "", nil, fmt.Errorf("%w: invalid binding mode", ErrValidation)
+				}
+				binding.ReferenceMode = request.ReferenceMode
+			}
+			if request.Name != "" {
+				if err := validateScopedName(request.Name); err != nil {
+					return "", nil, err
+				}
+				binding.Name = request.Name
+			}
+		}
+		return typeEditContextBinding, contextBindingPayload{Binding: binding}, nil
 	case "DELETE_CONTEXT_BINDING":
 		if documentType != "PRODUCT" {
 			break

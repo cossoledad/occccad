@@ -72,6 +72,9 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		} else {
 			return ProductUpdatePlan{}, refreshErr
 		}
+		if binding.ReferenceMode == "PINNED" && len(projectedBinding.SourceInstancePath.Segments) > 0 {
+			projectedBinding.SourceInstancePath.Segments[len(projectedBinding.SourceInstancePath.Segments)-1].ResolvedVersionID = binding.Accepted.SourceRevisionID
+		}
 		entry := ProductUpdatePlanEntry{Kind: "CONTEXT_BINDING", BindingID: binding.ID, Name: binding.Name,
 			SourceDisplayPath: binding.SourceInstancePath.Display, OwningDisplayPath: binding.OwningInstancePath.Display,
 			AcceptedRevisionID: binding.Accepted.SourceRevisionID, Connection: "CONNECTED", Currency: "CURRENT", Evaluation: "READY"}
@@ -81,12 +84,18 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 			entry.Connection, entry.Currency, entry.Evaluation = "BROKEN", "UPDATE_BLOCKED", "BLOCKED_BY_UPSTREAM"
 			entry.DiagnosticCode, entry.Diagnostic = "INSTANCE_PATH_NOT_RESOLVED", "binding endpoint is outside the accepted root Product snapshot"
 		} else {
-			var head string
-			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents
-				WHERE id=$1 AND deleted_at IS NULL`, source.DocumentID).Scan(&head); err != nil {
+			head := binding.Accepted.SourceRevisionID
+			var headErr error
+			if binding.ReferenceMode != "PINNED" {
+				headErr = service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, source.DocumentID).Scan(&head)
+			}
+			if headErr != nil {
 				entry.Connection, entry.Currency, entry.Evaluation = "BROKEN", "UPDATE_BLOCKED", "BLOCKED_BY_UPSTREAM"
 				entry.DiagnosticCode, entry.Diagnostic = "REFERENCE_SOURCE_MISSING", "source document Head is unavailable"
 			} else {
+				if binding.ReferenceMode == "PINNED" {
+					head = binding.Accepted.SourceRevisionID
+				}
 				entry.CandidateRevisionID = head
 				if head != binding.Accepted.SourceRevisionID {
 					entry.Currency, plan.HasUpdates = "UPDATE_AVAILABLE", true
@@ -112,6 +121,12 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 				if len(binding.SourceInstancePath.Segments) > 1 && head != source.RevisionID {
 					entry.Currency, entry.Evaluation = "UPDATE_BLOCKED", "BLOCKED_BY_UPSTREAM"
 					entry.DiagnosticCode, entry.Diagnostic = "NESTED_REFERENCE_UPDATE_REQUIRED", "accept nested source Product references from leaf to root before accepting this binding"
+				}
+			}
+			if binding.ReferenceMode != "PINNED" && entry.Connection == "CONNECTED" {
+				projectedBinding.Transform = inverseRelativePose(source.Pose, owner.Pose)
+				if resolvedDigest(projectedBinding.Transform) != resolvedDigest(binding.Transform) {
+					entry.Currency, plan.HasUpdates = "UPDATE_AVAILABLE", true
 				}
 			}
 			variantBindings[owner.Path.Canonical] = append(variantBindings[owner.Path.Canonical], projectedBinding)
@@ -247,6 +262,16 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 		if err := json.Unmarshal(cachedPublications, &variant.Publications); err != nil {
 			return ContextVariantSnapshot{}, err
 		}
+		var projection PartModel
+		if err := json.Unmarshal(modelJSON, &projection); err != nil {
+			return ContextVariantSnapshot{}, err
+		}
+		if err := service.resolveVariantModel(ctx, owner.DocumentID, variant.VariantKey, &projection, bindings); err != nil {
+			return ContextVariantSnapshot{}, err
+		}
+		projection.Bodies = variant.Bodies
+		variant.Part = &projection
+		variant.SketchAnalyses = service.projectExactSketchAnalyses(ctx, projection)
 		return variant, nil
 	} else if !errors.Is(err, database.ErrNoRows) {
 		return ContextVariantSnapshot{}, err
@@ -297,6 +322,8 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 		return variant, nil
 	}
 	manifestJSON, _ := json.Marshal(manifest)
+	variant.Part = &model
+	variant.SketchAnalyses = service.projectExactSketchAnalyses(ctx, model)
 	variant.Bodies = model.Bodies
 	bodiesJSON, _ := json.Marshal(variant.Bodies)
 	variant.EvaluationManifestDigest = modelcore.ValueDigest(manifestJSON)
@@ -341,6 +368,7 @@ type contextVariantInput struct {
 }
 
 type contextVariantResolution struct {
+	NativeSketch                                                          *NativeSketchPublication
 	Status, GeometryKey, GeometryID, TopologyKind, GeometryKind, Symmetry string
 	LocalID                                                               uint64
 	Radius                                                                float64
@@ -362,7 +390,7 @@ func contextVariantBindingDigest(bindings []ContextBinding) string {
 			SourceRevisionID: binding.Accepted.SourceRevisionID, OwningRevisionID: binding.Accepted.OwningRevisionID,
 			ContractDigest: binding.Accepted.ContractDigest, SourceDigest: binding.Accepted.SourceDigest,
 			Status: binding.Accepted.Status, Transform: transform,
-			Resolution: contextVariantResolution{Status: resolution.Status, GeometryKey: resolution.GeometryKey,
+			Resolution: contextVariantResolution{NativeSketch: resolution.NativeSketch, Status: resolution.Status, GeometryKey: resolution.GeometryKey,
 				GeometryID: resolution.GeometryID, TopologyKind: resolution.TopologyKind, GeometryKind: resolution.GeometryKind,
 				Symmetry: resolution.Symmetry, LocalID: resolution.LocalID, Radius: resolution.Radius, Origin: resolution.Origin,
 				XDirection: resolution.XDirection, YDirection: resolution.YDirection, ZDirection: resolution.ZDirection,
@@ -448,6 +476,23 @@ func materializeContextBindingVariant(model *PartModel, binding ContextBinding) 
 	if binding.Accepted.Status != "CONNECTED" || binding.Resolution.Status != "CONNECTED" {
 		return fmt.Errorf("%w: ContextBinding %s is not connected", ErrValidation, binding.ID)
 	}
+	if !contextConsumerSupported(input.Target.Kind, input.Type) {
+		return fmt.Errorf("%w: CONTEXT_CONSUMER_UNSUPPORTED", ErrValidation)
+	}
+	if input.Target.Kind == "SKETCH_EXTERNAL_GEOMETRY" {
+		if err := installContextInput(model, *input); err != nil {
+			return err
+		}
+		ref := ContextReference{ID: input.ID, Name: input.Name, OwningWorkspace: "context-variant", ReferenceMode: "PINNED", SourceDocumentID: binding.SourceInstancePath.Segments[len(binding.SourceInstancePath.Segments)-1].ReferencedDocumentID, Publication: binding.Publication, ResolvedRevisionID: binding.Accepted.SourceRevisionID, Resolution: binding.Resolution, Transform: binding.Transform, LocalTargetID: input.Target.TargetID}
+		for i := range model.ContextReferences {
+			if model.ContextReferences[i].ID == input.ID {
+				model.ContextReferences[i] = ref
+				return nil
+			}
+		}
+		model.ContextReferences = append(model.ContextReferences, ref)
+		return nil
+	}
 	if input.Target.Kind == "PARAMETER" {
 		if binding.Resolution.Value == nil {
 			return fmt.Errorf("%w: parameter Publication has no frozen value", ErrValidation)
@@ -461,20 +506,30 @@ func materializeContextBindingVariant(model *PartModel, binding ContextBinding) 
 		}
 		return fmt.Errorf("%w: ContextInput target parameter is missing", ErrValidation)
 	}
-	resolution := binding.Resolution
-	resolution.Origin = pointByPose(binding.Transform, resolution.Origin)
-	resolution.XDirection = rotateByPose(binding.Transform, resolution.XDirection)
-	resolution.YDirection = rotateByPose(binding.Transform, resolution.YDirection)
-	resolution.ZDirection = rotateByPose(binding.Transform, resolution.ZDirection)
-	sourceDocumentID := ""
-	if count := len(binding.SourceInstancePath.Segments); count > 0 {
-		sourceDocumentID = binding.SourceInstancePath.Segments[count-1].ReferencedDocumentID
+	if input.Target.Kind == "DATUM" {
+		value := binding.Resolution
+		for i := range model.DatumPlanes {
+			p := &model.DatumPlanes[i]
+			if input.Type == "PLANE" && p.ID == input.Target.TargetID {
+				p.Origin = pointByPose(binding.Transform, value.Origin)
+				p.Normal = rotateByPose(binding.Transform, value.ZDirection)
+				p.UDirection = rotateByPose(binding.Transform, value.XDirection)
+				p.Definition = nil
+				return nil
+			}
+		}
+		for i := range model.DatumAxes {
+			p := &model.DatumAxes[i]
+			if input.Type == "AXIS" && p.ID == input.Target.TargetID {
+				p.Origin = pointByPose(binding.Transform, value.Origin)
+				p.Direction = rotateByPose(binding.Transform, value.ZDirection)
+				p.Definition = nil
+				return nil
+			}
+		}
+		return fmt.Errorf("%w: context datum slot missing", ErrValidation)
 	}
-	reference := ContextReference{ID: "context-variant-" + binding.ID, Name: binding.Name, OwningWorkspace: "context-variant",
-		SourceDocumentID: sourceDocumentID, ReferenceMode: "PINNED", SourceInstancePath: &binding.SourceInstancePath,
-		Transform: binding.Transform, ResolvedRevisionID: binding.Accepted.SourceRevisionID, LocalTargetID: input.Target.TargetID,
-		Publication: binding.Publication, Resolution: resolution}
-	return materializeContextReference(model, &reference, input.Target.TargetID)
+	return fmt.Errorf("%w: CONTEXT_CONSUMER_UNSUPPORTED", ErrValidation)
 }
 
 func (service *Service) CreateProductRelease(ctx context.Context, rootDocumentID string, request CreateProductReleaseRequest) (ProductRelease, error) {

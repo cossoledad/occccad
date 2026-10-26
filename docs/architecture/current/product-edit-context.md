@@ -10,7 +10,7 @@ Product 内只有 occurrence 上下文中的唯一编辑目标，取消定义编
 
 Occurrence 激活先用 Product Design Session 校验 root Revision、完整路径、目标身份和 resolved Revision，再读取目标文档。空 Part 不依赖 `ResolvedInstance` 或任意 Body/Artifact，也可以激活。路径中存在 `PINNED` 引用时保留冻结快照供 Product 查看，但拒绝进入修改并要求先显式恢复跟随；非固定引用若 resolved Revision 与目标 HEAD 不一致也拒绝激活，等待 UpdatePlan 收敛。验证成功后才结束旧工具、取消 Preview、清理选择，并一次提交新会话；activation generation 丢弃旧查询和迟到回调。失败保留原有效会话。
 
-普通 Sketch、Feature、Body、Parameter 与 Part Publication 修改共享 Part 定义，不复制 Part，也不创建 occurrence 专属文档。Occurrence 只提供 placement、外部引用、权限和快照验证。显式 ContextBinding/ContextVariant 继续使用原有合同。独立打开 Part 会建立另一个 Part 宿主工作空间。
+普通 Sketch、Feature、Body、Parameter 与 Part Publication 修改共享 Part 定义，不复制 Part，也不创建 occurrence 专属文档。有 ContextBinding 的直接 Part occurrence，编辑器、草图与参数读取该实例已接受的 ContextVariant；命令携带根 Product Revision、完整路径及 Variant 标识。写入只应用用户的基础定义修改，并通过现有设计事务一起推进 Part 与宿主 Product 引用，禁止把投影后的 Part 整份回写。联合 Undo/Redo 直接绑定同一次补偿的成员 Revision，复用历史求值及不可变补偿结果校验，不通过额外自动跟随补齐引用。独立 Part 读取本地默认输入；绑定失效不回退默认值。独立打开 Part 会建立另一个 Part 宿主工作空间。
 
 ## 标签与读取边界
 
@@ -30,7 +30,7 @@ Occurrence 激活先用 Product Design Session 校验 root Revision、完整路�
 
 ## 更新失败与右键菜单
 
-非 PINNED Product 引用继续通过服务端 `followedProductIds` 与 UpdatePlan 按叶到根自动接受。失败保留已提交的子 Part 和原合法 Product 快照，不切换宿主或编辑目标；工作台显示诊断和显式重试入口。PINNED 路径不进入自动接受。
+非 PINNED Product 引用继续通过服务端 `followedProductIds` 与 UpdatePlan 按叶到根自动接受。失败保留已提交的子 Part 和原合法 Product 快照，不切换宿主或编辑目标；工作台显示诊断和显式重试入口。PINNED 路径不进入自动接受。带关联输入的来源变化先显示可用更新，由用户接受 UpdatePlan；普通无关联 FOLLOW_HEAD 继续自动跟随。
 
 结构树右键菜单的每个可操作项都使用公共 `ContextMenuIcon` 槽。有图标时在固定 16 px 槽内显示；无图标时保留 `aria-hidden` 空槽。禁用、危险、多选和普通操作共用相同文字起点；空槽不产生可访问文本。分隔线或纯标题无需图标槽。点击、键盘和命令行为仍由 Ant Design Menu 负责。
 

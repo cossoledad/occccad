@@ -124,6 +124,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeEditProductPublication, "PRODUCT", applyEditProductPublication},
 		commandHandler{typeDeleteProductPublication, "PRODUCT", applyDeleteProductPublication},
 		commandHandler{typeCreateContextBinding, "PRODUCT", applyCreateContextBinding},
+		commandHandler{typeEditContextBinding, "PRODUCT", applyEditContextBinding},
 		commandHandler{typeDeleteContextBinding, "PRODUCT", applyDeleteContextBinding},
 		commandHandler{typeMoveInstance, "PRODUCT", applyMoveInstance},
 		commandHandler{typeAddAssemblyConstraint, "PRODUCT", applyAddAssemblyConstraint},
@@ -954,7 +955,11 @@ func validateSketch(sketch SketchFeature) error {
 		if external.ProjectionKind != "ORTHOGONAL" || external.SourceVersionID == "" {
 			return fmt.Errorf("%w: external geometry %s has an incomplete source contract", ErrValidation, external.ID)
 		}
-		if external.DatumReference != nil {
+		if external.ContextInputID != "" {
+			if external.ID != contextExternalID(external.ContextInputID) || external.DatumReference != nil || external.PersistentSelection.Anchor.FeatureID != "" {
+				return fmt.Errorf("%w: invalid context input external slot", ErrValidation)
+			}
+		} else if external.DatumReference != nil {
 			if err := validateDatumReference(*external.DatumReference); err != nil {
 				return err
 			}
@@ -2276,6 +2281,8 @@ func applyUpdateReferences(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 }
 
 type preparedDomainMutation struct {
+	contextBindings                                                            []ContextBinding
+	contextRootID, contextRootRevision, contextKey                             string
 	workspaceID, headRevision, documentType, requestDigest, requestID, actorID string
 	headSequence                                                               uint64
 	modelJSON                                                                  json.RawMessage
@@ -2298,6 +2305,7 @@ func isPartMetadataCommand(command modelcore.DomainCommand) bool {
 func (service *Service) prepareDomainMutation(ctx context.Context, documentID string, request CommandRequest) (preparedDomainMutation, error) {
 	var prepared preparedDomainMutation
 	request.RequestID = requestID(request.RequestID)
+	originalRequest, _ := json.Marshal(request)
 	prepared.requestID = request.RequestID
 	prepared.actorID = actorID(request.ActorID)
 	var priorManifestJSON []byte
@@ -2318,6 +2326,9 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if (request.Type == "SET_BODY_COLOR" || request.Type == "SET_PROPERTIES") && request.VersionID != "" && request.VersionID != prepared.headRevision {
 		return prepared, fmt.Errorf("%w: APPEARANCE_BASE_REVISION_CHANGED", ErrValidation)
 	}
+	if request.Type == "EDIT_CONTEXT_BINDING" && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
+		return prepared, fmt.Errorf("%w: CONTEXT_BINDING_REVISION_CHANGED", ErrValidation)
+	}
 	if len(priorManifestJSON) > 0 {
 		var manifest modelcore.EvaluationManifest
 		if json.Unmarshal(priorManifestJSON, &manifest) == nil {
@@ -2330,6 +2341,37 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	}
 	if err := adapter.ValidateCommandModel(prepared.modelJSON); err != nil {
 		return prepared, err
+	}
+	if prepared.documentType == "PART" && request.RootProductDocumentID != "" && request.ContextVariantID != "" {
+		bindings, rootRevision, err := service.contextEditBindings(ctx, documentID, request)
+		if err != nil {
+			return prepared, err
+		}
+		if request.InstancePath.Segments[len(request.InstancePath.Segments)-1].ResolvedVersionID != prepared.headRevision {
+			return prepared, fmt.Errorf("%w: CONTEXT_BASE_REVISION_CHANGED", ErrValidation)
+		}
+		var definition PartModel
+		_ = json.Unmarshal(prepared.modelJSON, &definition)
+		editingParameter := request.Type == "SET_PARAMETER_VALUE" || request.Type == "SET_PARAMETER_EXPRESSION" || request.Type == "EDIT_PARAMETER"
+		editingDatum := request.Type == "EDIT_DATUM_PLANE" || request.Type == "EDIT_DATUM_AXIS"
+		if editingParameter && contextInputBound(definition, bindings, "PARAMETER", request.ParameterID) || editingDatum && contextInputBound(definition, bindings, "DATUM", request.TargetID) {
+			return prepared, fmt.Errorf("%w: CONTEXT_INPUT_VALUE_READ_ONLY", ErrValidation)
+		}
+		prepared.contextBindings = bindings
+		prepared.contextRootID = request.RootProductDocumentID
+		prepared.contextRootRevision = rootRevision
+		prepared.contextKey = request.ContextVariantID + "/" + rootRevision + "/" + request.InstancePath.Canonical
+		if request.Feature != nil && request.Feature.ID != "" {
+			var base PartModel
+			_ = json.Unmarshal(prepared.modelJSON, &base)
+			projection := clonePartModel(base)
+			if err := service.resolveVariantModel(ctx, documentID, prepared.contextKey, &projection, bindings); err != nil {
+				return prepared, err
+			}
+			copy := *request.Feature
+			retainBaseFeatureValues(base, projection, &copy)
+			request.Feature = &copy
+		}
 	}
 	command, payload, err := adapter.AdaptCommand(ctx, service, documentID, prepared.modelJSON, request)
 	if err != nil {
@@ -2367,11 +2409,7 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if _, err = transaction.CanonicalDigest(); err != nil {
 		return prepared, err
 	}
-	requestJSON, err := json.Marshal(request)
-	if err != nil {
-		return prepared, err
-	}
-	prepared.requestDigest = modelcore.ValueDigest(requestJSON)
+	prepared.requestDigest = modelcore.ValueDigest(originalRequest)
 	return prepared, nil
 }
 
@@ -2428,11 +2466,15 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	}
 	candidate, rejection := service.interactionCandidates.takeDiagnosed(request.PreviewID, documentID, prepared)
 	promoted := rejection == ""
+	if prepared.contextRootID != "" && promoted {
+		promoted = false
+		rejection = ""
+	}
 	if promoted && candidate.definitionOnly && !retainsAssemblyDefinition(prepared.command.TypeURI) {
 		return fmt.Errorf("%w: definition-only candidate cannot commit a move", ErrValidation)
 	}
 	finishPromote()
-	if request.PreviewID != "" && !promoted {
+	if request.PreviewID != "" && !promoted && rejection != "" {
 		return fmt.Errorf("%w: PREVIEW_CANDIDATE_STALE_OR_MISMATCHED: %s", ErrValidation, rejection)
 	}
 	var nextJSON json.RawMessage
@@ -2505,6 +2547,10 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	if err != nil {
 		return err
 	}
+	if prepared.contextRootID != "" {
+		return service.commitContextPartEdit(ctx, documentID, revisionID, prepared, request, evaluated)
+	}
+
 	nextJSON, changes = evaluated.nextJSON, evaluated.changes
 	modelHash, graph, manifest := evaluated.modelHash, evaluated.graph, evaluated.manifest
 	revisionState, evaluationStatus := evaluated.revisionState, evaluated.evaluationStatus

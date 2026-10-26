@@ -360,6 +360,7 @@ func (server *Server) createProductContextBinding(writer http.ResponseWriter, re
 		return
 	}
 	input.ActorID = principal(request).ID
+	input.Preview = request.URL.Query().Get("preview") == "true"
 	if len(input.OwningInstancePath.Segments) == 0 || len(input.SourceInstancePath.Segments) == 0 {
 		writeError(writer, http.StatusBadRequest, "source and owning InstancePath are required")
 		return
@@ -384,6 +385,14 @@ func (server *Server) createProductContextBinding(writer http.ResponseWriter, re
 		return
 	}
 	result, err := server.workspace.CreateProductContextBinding(request.Context(), request.PathValue("documentID"), input)
+	if input.Preview {
+		if err != nil {
+			writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+		return
+	}
 	server.writeDocumentResult(writer, request, result, err)
 }
 
@@ -1334,6 +1343,12 @@ func (server *Server) featureInput(writer http.ResponseWriter, request *http.Req
 	if !decodeJSON(writer, request, &input) {
 		return
 	}
+	if input.RootProductDocumentID != "" {
+		if _, err := server.access.RequireDocument(request.Context(), input.RootProductDocumentID, principal(request).ID, access.RoleViewer); err != nil {
+			writeAccessError(writer, err)
+			return
+		}
+	}
 	result, err := server.workspace.GetFeatureInput(request.Context(), request.PathValue("documentID"), input)
 	if err != nil {
 		writeTopologySelectionError(writer, err)
@@ -1366,6 +1381,12 @@ func (server *Server) sketchIntersections(writer http.ResponseWriter, request *h
 	var input workspace.SketchIntersectionsRequest
 	if !decodeJSON(writer, request, &input) {
 		return
+	}
+	if input.RootProductDocumentID != "" {
+		if _, err := server.access.RequireDocument(request.Context(), input.RootProductDocumentID, principal(request).ID, access.RoleViewer); err != nil {
+			writeAccessError(writer, err)
+			return
+		}
 	}
 	result, err := server.workspace.SketchIntersections(request.Context(), request.PathValue("documentID"), input)
 	if err != nil {

@@ -66,6 +66,13 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 	if err != nil {
 		return err
 	}
+	// Allocate all immutable outcomes first, so a compensated Product can point
+	// directly at the Part/Product outcomes from this same atomic action.
+	revisions := map[string]string{}
+	for _, v := range inputs {
+		id, _ := uuid.NewV7()
+		revisions[v.documentID] = id.String()
+	}
 	candidates := []atomicDomainCandidate{}
 	for _, v := range inputs {
 		originalTransaction, workspaceID, documentID, documentType, headRevision := v.originalTransaction, v.workspaceID, v.documentID, v.documentType, v.headRevision
@@ -107,6 +114,24 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 		if err != nil {
 			return err
 		}
+		var outcome []byte
+		if request.Type == "REDO" {
+			err = service.database.QueryRow(ctx, `SELECT v.model_json FROM occccad.domain_transactions t JOIN occccad.document_versions v ON v.id=t.result_revision_id WHERE t.id=$1 AND t.workspace_id=$2 AND t.kind='REVERT' AND t.status='COMMITTED'`, consumedRevert, workspaceID).Scan(&outcome)
+		} else {
+			err = service.database.QueryRow(ctx, `SELECT v.model_json FROM occccad.domain_transactions t JOIN occccad.document_versions v ON v.id=t.result_revision_id WHERE t.root_transaction_id=$1 AND t.workspace_id=$2 AND t.kind='REAPPLY' AND t.status='COMMITTED' ORDER BY t.sequence DESC LIMIT 1`, originalTransaction, workspaceID).Scan(&outcome)
+			if errors.Is(err, database.ErrNoRows) {
+				err = nil
+			}
+		}
+		if err != nil {
+			return err
+		}
+		if len(outcome) > 0 {
+			original, err = historyChangeSetAgainstOutcome(documentType, original, outcome, request.Type == "UNDO")
+			if err != nil {
+				return err
+			}
+		}
 		current, err := modelValues(documentType, currentJSON, original)
 		if err != nil {
 			return err
@@ -128,23 +153,20 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 		if err != nil {
 			return err
 		}
-		revisionUUID, _ := uuid.NewV7()
-		revisionID := revisionUUID.String()
+		revisionID := revisions[documentID]
 		modelHash := canonicalModelHash(nextJSON)
 		var graph *modelcore.DependencyGraph
 		var manifest modelcore.EvaluationManifest
 		if documentType == "PART" {
-			var model PartModel
-			if err := json.Unmarshal(nextJSON, &model); err != nil {
-				return err
+			evaluated, e := evaluatePartHistory(ctx, service, historyCommit{documentID: documentID, workspaceID: workspaceID, headRevision: headRevision, requestID: request.RequestID + "/" + documentID, modelJSON: nextJSON, changes: reverse}, revisionID)
+			if e != nil {
+				return e
 			}
-			normalizePartModel(&model)
-			if err := validateAndResolvePartParameters(&model); err != nil {
-				return err
+			if evaluated.revisionState != "READY" {
+				return fmt.Errorf("%w: PRODUCT_DESIGN_HISTORY_PART_FAILED", ErrValidation)
 			}
-			nextJSON, _ = json.Marshal(model)
-			modelHash = canonicalModelHash(nextJSON)
-			graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, reverse.ImpactSeeds, nil)
+			nextJSON, modelHash, graph, manifest = evaluated.nextJSON, evaluated.modelHash, evaluated.graph, evaluated.manifest
+			reverse, err = reconcilePersistedChanges(documentType, currentJSON, nextJSON, evaluated.changes)
 		} else {
 			var model ProductModel
 			if err := json.Unmarshal(nextJSON, &model); err != nil {
@@ -173,6 +195,95 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 	}
 	if len(candidates) == 0 {
 		return fmt.Errorf("%w: ProductDesignTransaction has an incomplete member set", ErrValidation)
+	}
+	products := map[string]ProductModel{}
+	for _, candidate := range candidates {
+		if candidate.documentType != "PRODUCT" {
+			continue
+		}
+		var model ProductModel
+		if err := json.Unmarshal(candidate.nextJSON, &model); err != nil {
+			return err
+		}
+		for i := range model.Instances {
+			instance := &model.Instances[i]
+			if revision := revisions[instance.ReferencedDocumentID]; revision != "" && instance.ReferenceMode != "PINNED" {
+				instance.ReferencedVersionID, instance.ResolvedVersionID = revision, revision
+			}
+		}
+		products[candidate.documentID] = model
+	}
+	for i := range candidates {
+		candidate := &candidates[i]
+		if candidate.documentType != "PRODUCT" {
+			continue
+		}
+		model := products[candidate.documentID]
+		for j := range model.ContextBindings {
+			binding := &model.ContextBindings[j]
+			for k := range binding.OwningInstancePath.Segments {
+				segment := &binding.OwningInstancePath.Segments[k]
+				owner, ok := products[segment.OwnerDocumentID]
+				if !ok {
+					continue
+				}
+				for _, instance := range owner.Instances {
+					if instance.ID == segment.InstanceID {
+						segment.OwnerVersionID = revisions[segment.OwnerDocumentID]
+						segment.ResolvedVersionID = instance.ReferencedVersionID
+						segment.InstanceName = instance.Name
+						break
+					}
+				}
+			}
+			if n := len(binding.OwningInstancePath.Segments); n > 0 {
+				binding.Accepted.OwningRevisionID = binding.OwningInstancePath.Segments[n-1].ResolvedVersionID
+			}
+		}
+		final, _ := json.Marshal(model)
+		var current []byte
+		for _, v := range inputs {
+			if v.documentID == candidate.documentID {
+				current = v.currentJSON
+				break
+			}
+		}
+		candidate.changes, err = reconcilePersistedChanges("PRODUCT", current, final, candidate.changes)
+		if err != nil {
+			return err
+		}
+		candidate.nextJSON, candidate.modelHash = final, canonicalModelHash(final)
+		candidate.graph, candidate.manifest, err = buildProductEvaluation(model, candidate.revisionID, candidate.modelHash, candidate.changes.ImpactSeeds, nil)
+		if err != nil {
+			return err
+		}
+		// The owning Part is not in the database until this atomic commit. Check
+		// its complete accepted inputs against the in-memory member instead.
+		for _, part := range candidates {
+			if part.documentType != "PART" {
+				continue
+			}
+			var base PartModel
+			if err := json.Unmarshal(part.nextJSON, &base); err != nil {
+				return err
+			}
+			grouped := map[string][]ContextBinding{}
+			for _, binding := range model.ContextBindings {
+				path := binding.OwningInstancePath
+				if len(path.Segments) == 1 && path.Segments[0].ReferencedDocumentID == part.documentID && path.Segments[0].ResolvedVersionID == part.revisionID {
+					grouped[path.Canonical] = append(grouped[path.Canonical], binding)
+				}
+			}
+			for path, bindings := range grouped {
+				projection := clonePartModel(base)
+				if err := service.resolveVariantModel(ctx, part.documentID, path, &projection, bindings); err != nil {
+					return err
+				}
+				if err := service.evaluatePartBodies(ctx, request.RequestID+"/history-context/"+path, &projection); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	groupUUID, _ := uuid.NewV7()
 	return service.commitProductDesignCandidates(ctx, groupUUID.String(), request.RequestID, requestDigest,

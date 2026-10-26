@@ -3411,6 +3411,7 @@ func (x *SketchProjectionFrame) GetNormal() *Vec3 {
 
 type ProjectExternalGeometryRequest struct {
 	state          protoimpl.MessageState   `protogen:"open.v1"`
+	SourceKind     string                   `protobuf:"bytes,5,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"` // SKETCH_ENTITY: exact solved native sketch geometry, no BREP locator
 	RequestId      string                   `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	ProjectionKind string                   `protobuf:"bytes,2,opt,name=projection_kind,json=projectionKind,proto3" json:"projection_kind,omitempty"` // ORTHOGONAL
 	Source         *ResolvedTopologyElement `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
@@ -3447,6 +3448,13 @@ func (x *ProjectExternalGeometryRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ProjectExternalGeometryRequest.ProtoReflect.Descriptor instead.
 func (*ProjectExternalGeometryRequest) Descriptor() ([]byte, []int) {
 	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ProjectExternalGeometryRequest) GetSourceKind() string {
+	if x != nil {
+		return x.SourceKind
+	}
+	return ""
 }
 
 func (x *ProjectExternalGeometryRequest) GetRequestId() string {
@@ -12992,8 +13000,10 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x06origin\x18\x01 \x01(\v2\x17.occccad.worker.v1.Vec3R\x06origin\x128\n" +
 	"\vx_direction\x18\x02 \x01(\v2\x17.occccad.worker.v1.Vec3R\n" +
 	"xDirection\x12/\n" +
-	"\x06normal\x18\x03 \x01(\v2\x17.occccad.worker.v1.Vec3R\x06normal\"\xec\x01\n" +
-	"\x1eProjectExternalGeometryRequest\x12\x1d\n" +
+	"\x06normal\x18\x03 \x01(\v2\x17.occccad.worker.v1.Vec3R\x06normal\"\x8d\x02\n" +
+	"\x1eProjectExternalGeometryRequest\x12\x1f\n" +
+	"\vsource_kind\x18\x05 \x01(\tR\n" +
+	"sourceKind\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12'\n" +
 	"\x0fprojection_kind\x18\x02 \x01(\tR\x0eprojectionKind\x12B\n" +

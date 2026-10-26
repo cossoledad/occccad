@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/occccad/occccad/internal/database"
@@ -18,18 +19,22 @@ import (
 // owning Product reference along that path, and binds the input to a compatible
 // Publication reachable through the root Product snapshot.
 type ProductContextBindingRequest struct {
-	RequestID          string       `json:"requestId"`
-	Name               string       `json:"name,omitempty"`
-	ContextInputName   string       `json:"contextInputName,omitempty"`
-	OwningInstancePath InstancePath `json:"owningInstancePath"`
-	SourceInstancePath InstancePath `json:"sourceInstancePath"`
-	PublicationID      string       `json:"publicationId"`
-	PublicationType    string       `json:"publicationType,omitempty"`
-	TargetKind         string       `json:"targetKind"`
-	TargetID           string       `json:"targetId"`
-	Required           bool         `json:"required,omitempty"`
-	ReferenceMode      string       `json:"referenceMode,omitempty"`
-	ActorID            string       `json:"-"`
+	Preview                bool         `json:"-"`
+	PreviewID              string       `json:"previewId,omitempty"`
+	ExpectedRootRevisionID string       `json:"expectedRootRevisionId,omitempty"`
+	RequestID              string       `json:"requestId"`
+	Name                   string       `json:"name,omitempty"`
+	ContextInputName       string       `json:"contextInputName,omitempty"`
+	OwningInstancePath     InstancePath `json:"owningInstancePath"`
+	SourceInstancePath     InstancePath `json:"sourceInstancePath"`
+	PublicationID          string       `json:"publicationId"`
+	PublicationType        string       `json:"publicationType,omitempty"`
+	TargetKind             string       `json:"targetKind"`
+	TargetID               string       `json:"targetId"`
+	Required               bool         `json:"required,omitempty"`
+	ReferenceMode          string       `json:"referenceMode,omitempty"`
+	ContextInputID         string       `json:"contextInputId,omitempty"`
+	ActorID                string       `json:"-"`
 }
 
 type atomicDomainCandidate struct {
@@ -59,7 +64,18 @@ type initialDocumentCandidate struct {
 func (service *Service) CreateProductContextBinding(ctx context.Context, rootProductDocumentID string, request ProductContextBindingRequest) (DocumentView, error) {
 	request.RequestID = requestID(request.RequestID)
 	request.ActorID = actorID(request.ActorID)
-	rawRequest, _ := json.Marshal(request)
+	if request.ContextInputID != "" {
+		command := CommandRequest{Type: "CREATE_CONTEXT_BINDING", VersionID: request.ExpectedRootRevisionID, PreviewID: request.PreviewID, RequestID: request.RequestID, ActorID: request.ActorID, ContextInputID: request.ContextInputID, OwningInstancePath: &request.OwningInstancePath, SourceInstancePath: &request.SourceInstancePath, PublicationID: request.PublicationID, ReferenceMode: request.ReferenceMode, Name: request.Name}
+		if request.Preview {
+			preview, err := service.PreviewCommand(ctx, rootProductDocumentID, command)
+			return DocumentView{CommandPreview: &preview}, err
+		}
+		return service.ApplyCommand(ctx, rootProductDocumentID, command)
+	}
+
+	canonicalRequest := request
+	canonicalRequest.PreviewID = ""
+	rawRequest, _ := json.Marshal(canonicalRequest)
 	requestDigest := modelcore.ValueDigest(rawRequest)
 	var storedDigest, status string
 	if err := service.database.QueryRow(ctx, `SELECT request_digest,status FROM occccad.product_design_transactions WHERE root_product_document_id=$1 AND request_id=$2`, rootProductDocumentID, request.RequestID).Scan(&storedDigest, &status); err == nil {
@@ -80,6 +96,9 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	var rootManifestJSON []byte
 	if err := service.database.QueryRow(ctx, `SELECT w.id::text,w.head_revision_id::text,w.head_sequence,v.model_json,v.evaluation_manifest FROM occccad.workspaces w JOIN occccad.documents d ON d.id=w.document_id JOIN occccad.document_versions v ON v.id=w.head_revision_id WHERE d.id=$1 AND d.document_type='PRODUCT' AND d.deleted_at IS NULL AND w.name='main'`, rootProductDocumentID).Scan(&rootWorkspaceID, &rootRevisionID, &rootSequence, &rootJSON, &rootManifestJSON); err != nil {
 		return DocumentView{}, err
+	}
+	if request.ExpectedRootRevisionID != "" && request.ExpectedRootRevisionID != rootRevisionID {
+		return DocumentView{}, fmt.Errorf("%w: PRODUCT_DESIGN_SESSION_STALE", ErrValidation)
 	}
 	var root ProductModel
 	if err := json.Unmarshal(rootJSON, &root); err != nil {
@@ -129,6 +148,9 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 		return DocumentView{}, fmt.Errorf("%w: source Publication is missing or broken", ErrValidation)
 	}
 
+	if !contextPublicationSupported(*sourcePublication) {
+		return DocumentView{}, fmt.Errorf("%w: CONTEXT_CONSUMER_UNSUPPORTED", ErrValidation)
+	}
 	var ownerWorkspaceID, ownerHead string
 	var ownerSequence uint64
 	var ownerJSON []byte
@@ -152,6 +174,13 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	if !contractsCompatible(input.Contract, input.Type, *sourcePublication) {
 		return DocumentView{}, fmt.Errorf("%w: PUBLICATION_CONTRACT_INCOMPATIBLE", ErrValidation)
 	}
+	if input.Target.Kind == "SKETCH_EXTERNAL_GEOMETRY" {
+		snapshot, err := service.projectInputPublication(ctx, request.RequestID, ownerModel, input.Target.TargetID, input.ID, sourcePublication.Resolution, inverseRelativePose(source.Pose, owner.Pose))
+		if err != nil {
+			return DocumentView{}, err
+		}
+		input.Default = &ContextInputDefault{External: snapshot}
+	}
 	inputPayload := contextInputPayload{Input: input}
 	inputPayloadJSON, _ := json.Marshal(inputPayload)
 	ownerNextJSON, ownerChanges, err := applyCreateContextInput(ownerJSON, inputPayloadJSON)
@@ -167,6 +196,15 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	}
 	ownerRevisionUUID, _ := uuid.NewV7()
 	ownerRevisionID := ownerRevisionUUID.String()
+	if err := service.resolveAndSolveSketches(ctx, owner.DocumentID, request.RequestID+"/input-default", &ownerNext); err != nil {
+		return DocumentView{}, err
+	}
+	if err := service.resolvePartPublications(ctx, owner.DocumentID, request.RequestID+"/input-default", ownerRevisionID, &ownerNext); err != nil {
+		return DocumentView{}, err
+	}
+	if err := service.evaluatePartBodies(ctx, request.RequestID+"/input-default", &ownerNext); err != nil {
+		return DocumentView{}, err
+	}
 	ownerNextJSON, _ = json.Marshal(ownerNext)
 	var ownerPrior *modelcore.EvaluationManifest
 	if len(ownerManifestJSON) > 0 {
@@ -196,7 +234,11 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	}
 	bindingName := strings.TrimSpace(request.Name)
 	if bindingName == "" {
-		bindingName = input.Name + " <- " + sourcePublication.Name
+		names := make([]string, 0, len(root.ContextBindings))
+		for _, item := range root.ContextBindings {
+			names = append(names, item.Name)
+		}
+		bindingName = nextScopedName("Link", names)
 	}
 	inputCommand := modelcore.DomainCommand{CommandID: newID("command"), TypeURI: typeCreateContextInput, SchemaVersion: 1, Payload: inputPayloadJSON}
 	ownerCandidate := atomicDomainCandidate{documentID: owner.DocumentID, workspaceID: ownerWorkspaceID, headRevision: ownerHead,
@@ -292,7 +334,18 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 			SourceDigest: sourcePublication.Resolution.SourceDigest, Status: "CONNECTED"}}
 	binding.Publication.PersistentSelection = sourcePublication.Target.PersistentSelection
 	binding.Publication.SelectionSourceVersionID = sourcePublication.Target.SourceVersionID
-	derivedOwner := ownerNext
+	var derivedOwner PartModel
+	baseBytes, _ := json.Marshal(ownerNext)
+	if err := json.Unmarshal(baseBytes, &derivedOwner); err != nil {
+		return DocumentView{}, err
+	}
+	for _, existing := range root.ContextBindings {
+		if existing.OwningInstancePath.Canonical == owner.Path.Canonical {
+			if err := materializeContextBindingVariant(&derivedOwner, existing); err != nil {
+				return DocumentView{}, err
+			}
+		}
+	}
 	if err := materializeContextBindingVariant(&derivedOwner, binding); err != nil {
 		return DocumentView{}, err
 	}
@@ -314,9 +367,40 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	if err := service.evaluatePartBodies(ctx, request.RequestID+"/context-variant", &derivedOwner); err != nil {
 		return DocumentView{}, err
 	}
+	if request.Preview {
+		key := ""
+		bodyID := ""
+		for _, body := range derivedOwner.Bodies {
+			if body.GeometryKey != "" {
+				key = body.GeometryKey
+				bodyID = body.ID
+				break
+			}
+		}
+		preview := CommandPreview{PreviewID: newID("preview"), BaseVersionID: rootRevisionID, BaseSequence: rootSequence}
+		object := ""
+		if key != "" {
+			a, err := service.loadArtifact(ctx, key)
+			if err != nil {
+				return DocumentView{}, err
+			}
+			a.BodyID = bodyID
+			a.RepresentationKind = "TRANSIENT_PREVIEW"
+			object = a.Representations["VISUAL"].ObjectID
+			preview.Artifact = &a
+		}
+		service.interactionCandidates.put(interactionCandidate{id: preview.PreviewID, documentID: rootProductDocumentID, actorID: request.ActorID, headRevision: rootRevisionID, headSequence: rootSequence, commandType: typeCreateContextBinding, intentPayload: rawRequest, visualObjectID: object, expiresAt: time.Now().Add(interactionCandidateTTL)})
+		return DocumentView{CommandPreview: &preview, ContextVariants: []ContextVariantSnapshot{{Part: &derivedOwner, BaseDocumentID: owner.DocumentID, BaseRevisionID: owner.RevisionID, OwningInstancePath: owner.Path, Status: "READY"}}}, nil
+	}
+	if request.PreviewID != "" {
+		prepared := preparedDomainMutation{headRevision: rootRevisionID, headSequence: rootSequence, actorID: request.ActorID, command: modelcore.DomainCommand{TypeURI: typeCreateContextBinding, Payload: rawRequest}}
+		if _, reason := service.interactionCandidates.takeDiagnosed(request.PreviewID, rootProductDocumentID, prepared); reason != "" {
+			return DocumentView{}, fmt.Errorf("%w: PREVIEW_CANDIDATE_STALE_OR_MISMATCHED", ErrValidation)
+		}
+	}
 	rootOwnerInstanceID := ownerPath.Segments[0].InstanceID
 	for index := range root.Instances {
-		if root.Instances[index].ID == rootOwnerInstanceID {
+		if root.Instances[index].ID == rootOwnerInstanceID || (len(ownerPath.Segments) == 1 && root.Instances[index].ReferencedDocumentID == owner.DocumentID && root.Instances[index].ReferenceMode != "PINNED") {
 			root.Instances[index].ReferencedVersionID, root.Instances[index].ResolvedVersionID = childRevisionID, childRevisionID
 		}
 	}

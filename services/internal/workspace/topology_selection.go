@@ -133,7 +133,17 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 			binding.Accepted.OwningRevisionID = owningPath.Segments[len(owningPath.Segments)-1].ResolvedVersionID
 		}
 		if binding.ReferenceMode == "PINNED" || len(binding.SourceInstancePath.Segments) == 0 {
+			if len(binding.SourceInstancePath.Segments) > 0 {
+				binding.SourceInstancePath.Segments[len(binding.SourceInstancePath.Segments)-1].ResolvedVersionID = binding.Accepted.SourceRevisionID
+			}
 			continue
+		}
+		if len(owningPath.Segments) == 1 && len(sourcePath.Segments) == 1 {
+			owner, source := instances[owningPath.Segments[0].InstanceID], instances[sourcePath.Segments[0].InstanceID]
+			if owner == nil || source == nil {
+				return fmt.Errorf("%w: binding occurrence missing", ErrValidation)
+			}
+			binding.Transform = inverseRelativePose(InstancePose{Translation: source.Translation, Rotation: source.Rotation}, InstancePose{Translation: owner.Translation, Rotation: owner.Rotation})
 		}
 		sourceDocumentID := binding.SourceInstancePath.Segments[len(binding.SourceInstancePath.Segments)-1].ReferencedDocumentID
 		sourceHead := revisions[sourceDocumentID]

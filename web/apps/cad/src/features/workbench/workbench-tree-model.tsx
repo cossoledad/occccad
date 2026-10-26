@@ -107,7 +107,9 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
       const targetBodyId = resolvedTargetBody ?? (matchingBodies.length === 1 ? matchingBodies[0].bodyId :
         matchingPartBodies.length === 1 ? matchingPartBodies[0].id : undefined);
       let highlightTarget: SelectionItem | undefined;
-      if (resolution?.status === "CONNECTED" && resolution.topologyKind && resolution.localId &&
+      if(resolution?.status==='CONNECTED'&&source?.target.kind==='SKETCH_ENTITY'&&source.target.sketchId&&source.target.entityId){
+       highlightTarget={kind:'visual',visualType:source.target.entityKind==='POINT'?'POINT':'CURVE',id:source.target.entityId,featureId:source.target.sketchId,entityId:source.target.entityId,documentId:node.sourceDocumentId??node.documentId,versionId:resolution.resolvedVersionId,instancePath:targetPath,occurrencePath:targetOccurrence,contextVariantKey:targetVariantKey};
+      } else if (resolution?.status === "CONNECTED" && resolution.topologyKind && resolution.localId &&
           resolution.geometryKey && resolution.resolvedVersionId && targetBodyId) {
         highlightTarget = { kind: resolution.topologyKind.toLowerCase() as "face" | "edge" | "vertex",
           id: `${targetOccurrence || "root"}:${resolution.geometryKey}:${resolution.topologyKind.toLowerCase()}:${resolution.localId}`,

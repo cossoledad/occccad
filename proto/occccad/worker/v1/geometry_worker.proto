@@ -389,6 +389,8 @@ message SketchProjectionFrame {
 }
 
 message ProjectExternalGeometryRequest {
+    string source_kind = 5; // SKETCH_ENTITY: exact solved native sketch geometry, no BREP locator
+
     string request_id = 1;
     string projection_kind = 2; // ORTHOGONAL
     ResolvedTopologyElement source = 3;

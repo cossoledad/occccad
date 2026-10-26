@@ -1,3 +1,4 @@
+import {contextCommand,contextEditScope,acceptedContextView} from "./api/context-edit-scope";
 import {useUIPreferences} from "./state/ui-preferences";
 import {documentRegistry} from "./cad/document/document-registry";
 import type { Artifact, Feature, FeatureInput, AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductRelease, ProductReleaseReplay, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
@@ -105,10 +106,23 @@ async function downloadAssemblyDiagnostic(documentId: string): Promise<void> {
   });
 }
 
+async function bindingPreview(documentId:string, input:Record<string,unknown>, signal?:AbortSignal):Promise<CommandPreview>{
+ const {type:_type,interactionId:_interaction,...body}=input;
+ const result=await request<{commandPreview:CommandPreview}>(`/api/documents/${documentId}/context-bindings?preview=true`,{method:'POST',body:JSON.stringify(body),signal});
+ const preview=result.commandPreview;
+ for(const representation of Object.values(preview.artifact?.representations??{})) representation.url=apiURL(`/api/documents/${documentId}/representations/${representation.objectId}?previewId=${encodeURIComponent(preview.previewId)}&versionId=${encodeURIComponent(preview.baseVersionId)}`);
+ return preview;
+}
 async function executeDocumentCommand(documentId: string, command: Record<string, unknown>): Promise<DocumentView> {
-	const commandWithID: Record<string, unknown> = { requestId: previewIdentities.requestFor(documentId, command.previewId) ?? requestId(), ...command };
+	const commandWithID: Record<string, unknown> = { requestId: previewIdentities.requestFor(documentId, command.previewId) ?? requestId(), ...contextCommand(documentId,command) };
 	try {
-		return documentRegistry.validate(await realtime.executeCommand(documentId, commandWithID));
+        if(command.type==='CREATE_PRODUCT_CONTEXT_BINDING'){
+         const {type:_type,interactionId:_interaction,...body}=commandWithID;
+         return await requestDocumentView(`/api/documents/${documentId}/context-bindings`,{method:'POST',body:JSON.stringify(body)});
+        }
+        const scope=contextEditScope(documentId);
+        const updated=documentRegistry.validate(await realtime.executeCommand(documentId, commandWithID));
+        return scope?acceptedContextView(updated,await restApi.getDocument(scope.rootProductDocumentId),scope.instancePath.canonical):updated;
 	} catch (cause) {
 		const error = cause instanceof Error ? cause : new Error(String(cause));
  Object.assign(error,{requestId:String(commandWithID.requestId)});
@@ -231,7 +245,7 @@ export const restApi = {
   getDocument: (id: string) => requestDocumentView(`/api/documents/${id}`),
   getProductDesignSession: (id:string, activePath="") => request<ProductDesignSession>(`/api/documents/${id}/design-session?activePath=${encodeURIComponent(activePath)}`),
   getContextCatalog: (id:string, activePath:string, expectedType="") => request<ContextCatalog>(`/api/documents/${id}/context-catalog?activePath=${encodeURIComponent(activePath)}&expectedType=${encodeURIComponent(expectedType)}`),
-  createProductContextBinding: (id:string, input:{name?:string;contextInputName?:string;owningInstancePath:InstancePath;
+  createProductContextBinding: (id:string, input:{name?:string;contextInputName?:string;contextInputId?:string;owningInstancePath:InstancePath;
       sourceInstancePath:InstancePath;publicationId:string;publicationType?:string;targetKind:string;targetId:string;
       required?:boolean;referenceMode?:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED"}) =>
     requestDocumentView(`/api/documents/${id}/context-bindings`, {method:"POST", body:JSON.stringify({requestId:requestId(),...input})}),
@@ -265,15 +279,15 @@ export const restApi = {
       rep.url=apiURL(`/api/documents/${id}/representations/${rep.objectId}?${query}`);
     return result;
   },
-  sketchIntersections:(id:string,input:{versionId:string;sketchId:string;entityIds:string[]},signal?:AbortSignal)=>request<import('./cad/interaction/sketch-intersections').SketchIntersections>(`/api/documents/${id}/sketch-intersections`,{method:'POST',body:JSON.stringify(input),signal}),
+  sketchIntersections:(id:string,input:{versionId:string;sketchId:string;entityIds:string[]},signal?:AbortSignal)=>request<import('./cad/interaction/sketch-intersections').SketchIntersections>(`/api/documents/${id}/sketch-intersections`,{method:'POST',body:JSON.stringify(contextCommand(id,input)),signal}),
   getFeatureInput: async (id: string, input: {versionId:string;featureId?:string;afterFeatureId?:string;resultStage?:boolean;bodyId?:string;geometryKey?:string;kind?:string;localId?:number}, signal?:AbortSignal) => {
-    const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(input),signal});
+    const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(contextCommand(id,input)),signal});
     // A sketch before the first solid has no upstream artifact. This is a
     // valid empty pick context, so only decorate artifacts with actual geometry.
     const artifacts=[result.artifact,...(result.artifacts??[])].filter(artifact=>artifact?.geometryKey);
     for(const artifact of artifacts){
       for(const representation of Object.values(artifact.representations))
-        representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId??"",afterFeatureId:input.afterFeatureId??"",bodyId:artifact.bodyId??"",resultStage:String(!!input.resultStage)})}`);
+        representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId??"",afterFeatureId:input.afterFeatureId??"",bodyId:artifact.bodyId??"",resultStage:String(!!input.resultStage),...(contextEditScope(id)?{rootProductDocumentId:contextEditScope(id)!.rootProductDocumentId,rootProductRevisionId:contextEditScope(id)!.rootProductRevisionId,contextVariantId:contextEditScope(id)!.contextVariantId,instancePath:JSON.stringify(contextEditScope(id)!.instancePath)}:{})})}`);
       artifact.historicalPreview=!!input.resultStage;
     }
     return result;
@@ -335,9 +349,9 @@ export const restApi = {
 		{ type: "MANUAL_DIAGNOSTIC_EXPORT", requestId: requestId() }, "manual diagnostic export"),
   downloadAssemblyDiagnostic,
   previewCommand: async (documentId: string, command: Record<string, unknown>, signal?: AbortSignal) => {
-    const input = { requestId: requestId(), ...command };
+    const input = { requestId: requestId(), ...contextCommand(documentId,command) };
     let result;
-    try {result=await realtime.previewCommand(documentId,input,signal);}
+    try {result=command.type==='CREATE_PRODUCT_CONTEXT_BINDING'?await bindingPreview(documentId,input,signal):await realtime.previewCommand(documentId,input,signal);}
     catch(cause){if(cause instanceof Error)Object.assign(cause,{requestId:String(input.requestId)});throw cause;}
     previewIdentities.remember(documentId, result.previewId, String(input.requestId));
     return result;
@@ -366,13 +380,13 @@ export const restApi = {
       referenceMode:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED"="FOLLOW_HEAD") =>
     restApi.command(documentId, { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, versionId, referenceMode }),
   createPublication: (documentId: string, input: { name?: string; publicationType: string; semanticPurpose?: string;
-      compatibilityVersion?: string; targetKind: string; targetId?: string; axis?: string; geometryKey?: string;
+      compatibilityVersion?: string; targetKind: string; sketchId?:string;targetId?: string; axis?: string; geometryKey?: string;
       topologyId?: number; versionId?: string }) =>
     restApi.command(documentId, { type: "CREATE_PUBLICATION", ...input }),
   editPublication: (documentId: string, publicationId: string, input: { name: string; semanticPurpose?: string; compatibilityVersion?: string }) =>
     restApi.command(documentId, { type: "EDIT_PUBLICATION", publicationId, ...input }),
   redirectPublication: (documentId: string, publicationId: string, input: { publicationType: string; targetKind: string;
-      targetId?: string; axis?: string; geometryKey?: string; topologyId?: number; versionId?: string }) =>
+      sketchId?:string;targetId?: string; axis?: string; geometryKey?: string; topologyId?: number; versionId?: string }) =>
     restApi.command(documentId, { type: "REDIRECT_PUBLICATION", publicationId, ...input }),
   deletePublication: (documentId: string, publicationId: string) =>
     restApi.command(documentId, { type: "DELETE_PUBLICATION", publicationId }),

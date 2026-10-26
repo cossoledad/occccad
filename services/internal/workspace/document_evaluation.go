@@ -48,6 +48,13 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 		if err := json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
 			return err
 		}
+		for i := range model.ContextInputs {
+			if model.ContextInputs[i].Target.Kind != "SKETCH_EXTERNAL_GEOMETRY" {
+				if err := captureContextInputDefault(model, &model.ContextInputs[i]); err != nil {
+					return err
+				}
+			}
+		}
 		diagnosticModel = &model
 		if err := service.validateInsertionSource(ctx, documentID, prepared.headRevision, prepared.command, beforeModel); err != nil {
 			return err
@@ -174,6 +181,15 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 			}
 		}
 		retainFailedBodyDisplay(&model, beforeModel, prepared.headRevision)
+		if prepared.contextRootID != "" {
+			projection := clonePartModel(model)
+			if err := service.resolveVariantModel(ctx, documentID, prepared.contextKey, &projection, prepared.contextBindings); err != nil {
+				return err
+			}
+			if err := service.evaluatePartBodies(ctx, prepared.requestID+"/accepted-context", &projection); err != nil {
+				return err
+			}
+		}
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
@@ -196,6 +212,11 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 		var model ProductModel
 		if err := json.Unmarshal(nextJSON, &model); err != nil {
 			return err
+		}
+		if len(model.ContextBindings) > 0 {
+			if _, err := service.contextVariantsForProductModel(ctx, model); err != nil {
+				return err
+			}
 		}
 		if prepared.command.TypeURI == typeUpdateReferences {
 			for index := range model.ContextBindings {

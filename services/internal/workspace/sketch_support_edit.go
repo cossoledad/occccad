@@ -71,7 +71,11 @@ func (s *Service) sketchSupportInput(ctx context.Context, view DocumentView, r F
 			if err := selection.Validate(); err != nil {
 				return result, fmt.Errorf("%w: %v", ErrValidation, err)
 			}
-			result.Selection = &FeatureSelection{Selection: selection, SourceVersionID: r.VersionID, SourceFeatureID: stage}
+			pick := FeatureSelection{Selection: selection, SourceVersionID: r.VersionID, SourceFeatureID: stage}
+			if err := s.contextDefinitionPick(ctx, r.ContextReadScope, &pick, key, r.LocalID); err != nil {
+				return result, err
+			}
+			result.Selection = &pick
 		}
 	}
 	if r.GeometryKey != "" && (result.Artifact.GeometryKey != r.GeometryKey || r.Kind != "" && result.Selection == nil) {

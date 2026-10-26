@@ -109,7 +109,19 @@ type DatumAxis struct {
 	Direction  [3]float64      `json:"direction"`
 }
 
+type NativeSketchPublication struct {
+	SketchID   string                         `json:"sketchId"`
+	EntityID   string                         `json:"entityId"`
+	Geometry   SketchExternalGeometrySnapshot `json:"geometry"`
+	Origin     [3]float64                     `json:"origin"`
+	XDirection [3]float64                     `json:"xDirection"`
+	Normal     [3]float64                     `json:"normal"`
+}
+
 type PublicationTarget struct {
+	SketchID            string                         `json:"sketchId,omitempty"`
+	EntityID            string                         `json:"entityId,omitempty"`
+	EntityKind          string                         `json:"entityKind,omitempty"`
 	Kind                string                         `json:"kind"` // DATUM | TOPOLOGY | BODY_RESULT | FEATURE_OUTPUT | PARAMETER
 	BodyID              string                         `json:"bodyId,omitempty"`
 	DatumID             string                         `json:"datumId,omitempty"`
@@ -136,35 +148,36 @@ type PublicationBounds struct {
 }
 
 type PublicationResolution struct {
-	HalfAngle          float64             `json:"halfAngle,omitempty"`
-	ConeLeaf           int32               `json:"coneLeaf,omitempty"`
-	MaterialSide       int32               `json:"materialSide,omitempty"`
-	ParameterStart     *float64            `json:"parameterStart,omitempty"`
-	ParameterEnd       *float64            `json:"parameterEnd,omitempty"`
-	LengthUnit         string              `json:"lengthUnit,omitempty"`
-	Status             string              `json:"status"` // CONNECTED | BROKEN_PUBLICATION
-	DiagnosticCode     string              `json:"diagnosticCode,omitempty"`
-	Diagnostic         string              `json:"diagnostic,omitempty"`
-	ResolvedVersionID  string              `json:"resolvedVersionId,omitempty"`
-	GeometryKey        string              `json:"geometryKey,omitempty"`
-	GeometryID         string              `json:"geometryId,omitempty"`
-	TopologyKind       string              `json:"topologyKind,omitempty"`
-	GeometryKind       string              `json:"geometryKind,omitempty"`
-	Symmetry           string              `json:"symmetry,omitempty"`
-	LocalID            uint64              `json:"localId,omitempty"`
-	Origin             [3]float64          `json:"origin,omitempty"`
-	XDirection         [3]float64          `json:"xDirection,omitempty"`
-	YDirection         [3]float64          `json:"yDirection,omitempty"`
-	ZDirection         [3]float64          `json:"zDirection,omitempty"`
-	Radius             float64             `json:"radius,omitempty"`
-	SourceDigest       string              `json:"sourceDigest,omitempty"`
-	Value              *modelcore.Quantity `json:"value,omitempty"`
-	ValueDigest        string              `json:"valueDigest,omitempty"`
-	ManifestDigest     string              `json:"manifestDigest,omitempty"`
-	NamingPolicyDigest string              `json:"namingPolicyDigest,omitempty"`
-	EvaluatorVersion   string              `json:"evaluatorVersion,omitempty"`
-	WorkerID           string              `json:"workerId,omitempty"`
-	OCCTVersion        string              `json:"occtVersion,omitempty"`
+	NativeSketch       *NativeSketchPublication `json:"nativeSketch,omitempty"`
+	HalfAngle          float64                  `json:"halfAngle,omitempty"`
+	ConeLeaf           int32                    `json:"coneLeaf,omitempty"`
+	MaterialSide       int32                    `json:"materialSide,omitempty"`
+	ParameterStart     *float64                 `json:"parameterStart,omitempty"`
+	ParameterEnd       *float64                 `json:"parameterEnd,omitempty"`
+	LengthUnit         string                   `json:"lengthUnit,omitempty"`
+	Status             string                   `json:"status"` // CONNECTED | BROKEN_PUBLICATION
+	DiagnosticCode     string                   `json:"diagnosticCode,omitempty"`
+	Diagnostic         string                   `json:"diagnostic,omitempty"`
+	ResolvedVersionID  string                   `json:"resolvedVersionId,omitempty"`
+	GeometryKey        string                   `json:"geometryKey,omitempty"`
+	GeometryID         string                   `json:"geometryId,omitempty"`
+	TopologyKind       string                   `json:"topologyKind,omitempty"`
+	GeometryKind       string                   `json:"geometryKind,omitempty"`
+	Symmetry           string                   `json:"symmetry,omitempty"`
+	LocalID            uint64                   `json:"localId,omitempty"`
+	Origin             [3]float64               `json:"origin,omitempty"`
+	XDirection         [3]float64               `json:"xDirection,omitempty"`
+	YDirection         [3]float64               `json:"yDirection,omitempty"`
+	ZDirection         [3]float64               `json:"zDirection,omitempty"`
+	Radius             float64                  `json:"radius,omitempty"`
+	SourceDigest       string                   `json:"sourceDigest,omitempty"`
+	Value              *modelcore.Quantity      `json:"value,omitempty"`
+	ValueDigest        string                   `json:"valueDigest,omitempty"`
+	ManifestDigest     string                   `json:"manifestDigest,omitempty"`
+	NamingPolicyDigest string                   `json:"namingPolicyDigest,omitempty"`
+	EvaluatorVersion   string                   `json:"evaluatorVersion,omitempty"`
+	WorkerID           string                   `json:"workerId,omitempty"`
+	OCCTVersion        string                   `json:"occtVersion,omitempty"`
 }
 
 type Publication struct {
@@ -302,6 +315,7 @@ func (s *SketchExternalGeometrySnapshot) entity(id string) SketchEntity {
 }
 
 type SketchExternalGeometry struct {
+	ContextInputID           string                           `json:"contextInputId,omitempty"`
 	Name                     string                           `json:"name,omitempty"`
 	DatumReference           *DatumReference                  `json:"datumReference,omitempty"`
 	ID                       string                           `json:"id"`
@@ -551,13 +565,21 @@ type ContextInputTarget struct {
 
 // ContextInput is a reusable, source-independent input port owned by a Part.
 // The Product that instantiates the Part owns the source occurrence wiring.
+type ContextInputDefault struct {
+	ParameterSource *modelcore.ValueSource          `json:"parameterSource,omitempty"`
+	Plane           *DatumPlane                     `json:"plane,omitempty"`
+	Axis            *DatumAxis                      `json:"axis,omitempty"`
+	External        *SketchExternalGeometrySnapshot `json:"external,omitempty"`
+}
+
 type ContextInput struct {
-	ID       string              `json:"id"`
-	Name     string              `json:"name"`
-	Type     string              `json:"type"`
-	Required bool                `json:"required,omitempty"`
-	Target   ContextInputTarget  `json:"target"`
-	Contract PublicationContract `json:"contract"`
+	Default  *ContextInputDefault `json:"default,omitempty"`
+	ID       string               `json:"id"`
+	Name     string               `json:"name"`
+	Type     string               `json:"type"`
+	Required bool                 `json:"required,omitempty"`
+	Target   ContextInputTarget   `json:"target"`
+	Contract PublicationContract  `json:"contract"`
 }
 
 type PublicationRef struct {
@@ -763,18 +785,20 @@ type ReferenceUpdate struct {
 }
 
 type ContextVariantSnapshot struct {
-	VariantKey               string        `json:"variantKey"`
-	OwningInstancePath       InstancePath  `json:"owningInstancePath"`
-	BaseDocumentID           string        `json:"baseDocumentId"`
-	BaseRevisionID           string        `json:"baseRevisionId"`
-	BindingIDs               []string      `json:"bindingIds"`
-	BindingDigest            string        `json:"bindingDigest"`
-	EvaluationManifestDigest string        `json:"evaluationManifestDigest,omitempty"`
-	Bodies                   []PartBody    `json:"bodies"`
-	Publications             []Publication `json:"publications,omitempty"`
-	Status                   string        `json:"status"`
-	DiagnosticCode           string        `json:"diagnosticCode,omitempty"`
-	Diagnostic               string        `json:"diagnostic,omitempty"`
+	SketchAnalyses           map[string]SketchProfileAnalysis `json:"sketchAnalyses,omitempty"`
+	Part                     *PartModel                       `json:"part,omitempty"`
+	VariantKey               string                           `json:"variantKey"`
+	OwningInstancePath       InstancePath                     `json:"owningInstancePath"`
+	BaseDocumentID           string                           `json:"baseDocumentId"`
+	BaseRevisionID           string                           `json:"baseRevisionId"`
+	BindingIDs               []string                         `json:"bindingIds"`
+	BindingDigest            string                           `json:"bindingDigest"`
+	EvaluationManifestDigest string                           `json:"evaluationManifestDigest,omitempty"`
+	Bodies                   []PartBody                       `json:"bodies"`
+	Publications             []Publication                    `json:"publications,omitempty"`
+	Status                   string                           `json:"status"`
+	DiagnosticCode           string                           `json:"diagnosticCode,omitempty"`
+	Diagnostic               string                           `json:"diagnostic,omitempty"`
 }
 
 type ProductUpdatePlanEntry struct {
@@ -1091,6 +1115,7 @@ type DocumentStructureNode struct {
 }
 
 type DocumentView struct {
+	CommandPreview          *CommandPreview                  `json:"commandPreview,omitempty"`
 	BodyAppearances         map[string]ResolvedAppearance    `json:"bodyAppearances,omitempty"`
 	ReplicationSources      map[string]ReplicationSource     `json:"replicationSources,omitempty"`
 	SketchPatternMembers    map[string][]SketchEntity        `json:"sketchPatternMembers,omitempty"`
@@ -1303,10 +1328,12 @@ type CommandRequest struct {
 	ContextBindingID          string                `json:"contextBindingId,omitempty"`
 	ContextVariantID          string                `json:"contextVariantId,omitempty"`
 	UpdatePlanDigest          string                `json:"updatePlanDigest,omitempty"`
+	RootProductRevisionID     string                `json:"rootProductRevisionId,omitempty"`
 	RootProductDocumentID     string                `json:"rootProductDocumentId,omitempty"`
 	InstancePath              *InstancePath         `json:"instancePath,omitempty"`
 	OwningInstancePath        *InstancePath         `json:"owningInstancePath,omitempty"`
 	SourceInstancePath        *InstancePath         `json:"sourceInstancePath,omitempty"`
+	ContextInput              *ContextInput         `json:"contextInput,omitempty"`
 	ContextInputID            string                `json:"contextInputId,omitempty"`
 	Required                  bool                  `json:"required,omitempty"`
 	ActorID                   string                `json:"-"`
