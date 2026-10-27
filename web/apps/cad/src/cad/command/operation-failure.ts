@@ -7,6 +7,8 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const reasons:Record<string,string>={
+    PUBLICATION_SKETCH_ENTITY_UNAVAILABLE:"来源草图对象不可用，已接受输入保留；可固定当前输入或重新连接。",PUBLICATION_CONTRACT_INCOMPATIBLE:"来源接口缺失或类型不兼容，请重新连接符合要求的接口。",REFERENCE_SOURCE_MISSING:"来源文档暂不可用，已接受结果保留；请检查来源或重新连接。",
+    CONTEXT_INPUT_VALUE_READ_ONLY:"此值由产品关联驱动，请定位来源或在关联管理中更换输入。",CONTEXT_CONSUMER_UNSUPPORTED:"此发布类型暂不支持所选本地输入。",PUBLICATION_TARGET_DOCUMENT_MISMATCH:"请选择当前零件中的对象。",PUBLICATION_TARGET_OCCURRENCE_MISMATCH:"所选对象不属于当前零件实例，请重新选择。",PUBLICATION_TARGET_REVISION_CHANGED:"所选对象已更新，请重新选择发布目标。",CONTEXT_PRODUCT_REVISION_CHANGED:"产品已更新，请重新打开操作。",CONTEXT_VARIANT_CHANGED:"关联输入已更新，请重新打开操作。",CONTEXT_BASE_REVISION_CHANGED:"零件已更新，请重新打开操作。",
     BOOLEAN_REGION_MISSING:"原结果区域已失效，请重新选择或移除。",BOOLEAN_REGION_AMBIGUOUS:"分区变化后无法唯一对应，请重新选择。",BOOLEAN_REGION_SELECTION_EMPTY:"至少保留一个结果区域。",BOOLEAN_REGION_DUPLICATE:"结果区域不能重复保留。",BOOLEAN_REGION_PARTITION_FAILED:"实体分割失败，请检查目标与工具。",BOOLEAN_REGION_LIMIT_EXCEEDED:"结果区域过多，请简化输入实体。",NO_MATERIAL_CHANGE:"所选结果没有改变目标实体，请调整运算或保留区域。",EMPTY_RESULT:"没有可保留的实体材料，请调整输入。",INVALID_RESULT:"结果实体无效，请调整保留区域或输入。",
 
     PATTERN_SEEDS_REQUIRE_SAME_BODY_OPERATION:"种子必须属于同一实体，并具有一致的添加或切除语义。",PATTERN_SEED_SET_INVALID:"种子集合无效，最多选择32个同实体的实体特征。",PATTERN_SEED_DUPLICATE:"同一种子不能重复添加。",

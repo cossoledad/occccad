@@ -270,6 +270,9 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 			return ContextVariantSnapshot{}, err
 		}
 		projection.Bodies = variant.Bodies
+		collections := DocumentView{}
+		projectPartCollections(&collections, projection)
+		variant.ReplicationSources, variant.SketchPatternMembers = collections.ReplicationSources, collections.SketchPatternMembers
 		variant.Part = &projection
 		variant.SketchAnalyses = service.projectExactSketchAnalyses(ctx, projection)
 		return variant, nil
@@ -322,6 +325,9 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 		return variant, nil
 	}
 	manifestJSON, _ := json.Marshal(manifest)
+	collections := DocumentView{}
+	projectPartCollections(&collections, model)
+	variant.ReplicationSources, variant.SketchPatternMembers = collections.ReplicationSources, collections.SketchPatternMembers
 	variant.Part = &model
 	variant.SketchAnalyses = service.projectExactSketchAnalyses(ctx, model)
 	variant.Bodies = model.Bodies
@@ -376,6 +382,7 @@ type contextVariantResolution struct {
 	SourceDigest, ValueDigest, ManifestDigest, NamingPolicyDigest         string
 	Value                                                                 *modelcore.Quantity
 	EvaluatorVersion, OCCTVersion                                         string
+	ParameterStart, ParameterEnd                                          *float64
 }
 
 func contextVariantBindingDigest(bindings []ContextBinding) string {
@@ -390,7 +397,7 @@ func contextVariantBindingDigest(bindings []ContextBinding) string {
 			SourceRevisionID: binding.Accepted.SourceRevisionID, OwningRevisionID: binding.Accepted.OwningRevisionID,
 			ContractDigest: binding.Accepted.ContractDigest, SourceDigest: binding.Accepted.SourceDigest,
 			Status: binding.Accepted.Status, Transform: transform,
-			Resolution: contextVariantResolution{NativeSketch: resolution.NativeSketch, Status: resolution.Status, GeometryKey: resolution.GeometryKey,
+			Resolution: contextVariantResolution{ParameterStart: resolution.ParameterStart, ParameterEnd: resolution.ParameterEnd, NativeSketch: resolution.NativeSketch, Status: resolution.Status, GeometryKey: resolution.GeometryKey,
 				GeometryID: resolution.GeometryID, TopologyKind: resolution.TopologyKind, GeometryKind: resolution.GeometryKind,
 				Symmetry: resolution.Symmetry, LocalID: resolution.LocalID, Radius: resolution.Radius, Origin: resolution.Origin,
 				XDirection: resolution.XDirection, YDirection: resolution.YDirection, ZDirection: resolution.ZDirection,

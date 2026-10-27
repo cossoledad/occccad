@@ -30,26 +30,7 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 			view.BodyAppearances[body.ID] = appearance
 		}
 	}
-	view.ReplicationSources = replicationSources(model)
-	view.SketchPatternMembers = map[string][]SketchEntity{}
-	for _, feature := range model.Features {
-		if feature.Sketch == nil || len(feature.Sketch.Patterns) == 0 {
-			continue
-		}
-		members, err := evaluatedSketchPatternEntities(*feature.Sketch)
-		if err != nil {
-			continue
-		}
-		patterns := map[string]bool{}
-		for _, p := range feature.Sketch.Patterns {
-			patterns[p.ID] = true
-		}
-		for _, member := range members {
-			if patterns[member.CreatedByOperationID] {
-				view.SketchPatternMembers[feature.ID] = append(view.SketchPatternMembers[feature.ID], member)
-			}
-		}
-	}
+	projectPartCollections(&view, model)
 	view.SketchAnalyses = service.projectExactSketchAnalyses(ctx, model)
 	view.ReferenceUpdates = service.projectPartReferenceUpdates(ctx, model)
 	view.DatumPlanes = model.DatumPlanes
@@ -322,4 +303,28 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 	applyOccurrenceVisibilityProjection(&root, model.VisibilityOverrides)
 	projectOccurrenceNames(&root, model, occurrenceIdentity.Canonical)
 	return root, nil
+}
+
+// Value-dependent collections are projected for both independent and accepted views.
+func projectPartCollections(view *DocumentView, model PartModel) {
+	view.ReplicationSources = replicationSources(model)
+	view.SketchPatternMembers = map[string][]SketchEntity{}
+	for _, feature := range model.Features {
+		if feature.Sketch == nil || len(feature.Sketch.Patterns) == 0 {
+			continue
+		}
+		members, err := evaluatedSketchPatternEntities(*feature.Sketch)
+		if err != nil {
+			continue
+		}
+		patterns := map[string]bool{}
+		for _, p := range feature.Sketch.Patterns {
+			patterns[p.ID] = true
+		}
+		for _, member := range members {
+			if patterns[member.CreatedByOperationID] {
+				view.SketchPatternMembers[feature.ID] = append(view.SketchPatternMembers[feature.ID], member)
+			}
+		}
+	}
 }

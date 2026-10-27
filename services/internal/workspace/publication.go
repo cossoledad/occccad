@@ -503,6 +503,31 @@ func rejectExplicitBrokenPublication(command modelcore.DomainCommand, model Part
 }
 
 func (service *Service) publicationFromRequest(ctx context.Context, documentID string, model PartModel, request CommandRequest, publicationID string) (Publication, error) {
+	if request.SourceDocumentID != "" && request.SourceDocumentID != documentID {
+		return Publication{}, fmt.Errorf("%w: PUBLICATION_TARGET_DOCUMENT_MISMATCH", ErrValidation)
+	}
+	if request.VersionID != "" {
+		var head string
+		if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, documentID).Scan(&head); err != nil {
+			return Publication{}, err
+		}
+		if request.VersionID != head {
+			return Publication{}, fmt.Errorf("%w: PUBLICATION_TARGET_REVISION_CHANGED", ErrValidation)
+		}
+	}
+	if request.InstancePath != nil {
+		_, occurrences, err := service.productContextRoot(ctx, request.InstancePath.RootDocumentID)
+		if err != nil {
+			return Publication{}, err
+		}
+		owner, ok := occurrenceByCanonical(occurrences, request.InstancePath.Canonical)
+		if !ok || owner.DocumentID != documentID || (request.VersionID != "" && owner.RevisionID != request.VersionID) {
+			return Publication{}, fmt.Errorf("%w: PUBLICATION_TARGET_OCCURRENCE_MISMATCH", ErrValidation)
+		}
+		if err := validateResolvedInstancePath(*request.InstancePath, owner.Path); err != nil {
+			return Publication{}, err
+		}
+	}
 	publicationType := strings.ToUpper(strings.TrimSpace(request.PublicationType))
 	if publicationType == "" {
 		return Publication{}, fmt.Errorf("%w: publication type is required", ErrValidation)

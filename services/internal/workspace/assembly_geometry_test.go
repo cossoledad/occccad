@@ -219,3 +219,26 @@ func TestAssemblySupportResolverDistinguishesForwardedPublications(t *testing.T)
 		t.Fatal("unbounded inspection accepted")
 	}
 }
+
+func TestPublishedStraightEdgeRetainsFiniteExactDomain(t *testing.T) {
+	p := TopologyElementProperties{Kind: "EDGE", GeometryType: "LINE", Properties: map[string]any{"origin": [3]float64{2, 3, 4}, "direction": [3]float64{1, 0, 0}, "parameterUnit": "mm", "firstParameter": -7.5, "lastParameter": 22.5}}
+	got, err := assemblyGeometryFromProperties(geometry.AssemblyGeometry{}, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ParameterStart == nil || got.ParameterEnd == nil || *got.ParameterStart != -7.5 || *got.ParameterEnd != 22.5 {
+		t.Fatalf("finite edge became infinite axis: %+v", got)
+	}
+	publication := Publication{Type: "CURVE", Resolution: PublicationResolution{TopologyKind: "EDGE", GeometryKind: "LINE", ParameterStart: got.ParameterStart, ParameterEnd: got.ParameterEnd}}
+	if !contextPublicationSupported(publication) {
+		t.Fatal("precise finite line rejected")
+	}
+	publication.Resolution.ParameterEnd = nil
+	if contextPublicationSupported(publication) {
+		t.Fatal("infinite line advertised for finite projection")
+	}
+	publication.Resolution.GeometryKind = "ELLIPSE"
+	if contextPublicationSupported(publication) {
+		t.Fatal("unsupported ellipse descriptor advertised")
+	}
+}

@@ -1,3 +1,4 @@
+import {boundContextParameter,ContextInputSource} from '../../features/workbench/context-input-source';
 import {CommandField,CommandFormItem} from "../overlay/command-form";
 import {FeaturePickField} from "../../features/workbench/feature-pick-field";
 import {CommandInputError} from "../command/operation-failure";
@@ -107,7 +108,8 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
  const commitSession=useRef(new SketchDimensionCommitSession());
  const [unknown,setUnknown]=useState(false);
  const [deleting,setDeleting]=useState(false),[selecting,setSelecting]=useState<number>(),[pending,setPending]=useState(false);
- const readonly=!!parameter?.source.external;
+ const contextBinding=boundContextParameter(view,parameter?.parameterId);
+ const readonly=!!parameter?.source.external||!!contextBinding;
  const draft={...(original??{id:"candidate",kind}),references,angleSector};
  const measured=measureSketchDimension(kind,references,sketch?.entities??[],angleSector);
  const measurement=measured!==undefined&&Number.isFinite(measured)?measured:undefined;
@@ -178,6 +180,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
     <Input autoFocus aria-label="尺寸值或表达式" value={source} disabled={pending||unknown||reference||readonly}
      onFocus={e=>selectInitialDimensionValue(e.currentTarget,valueFocused)} onChange={e=>setSource(e.target.value)}/>
    </CommandFormItem>}
+   <ContextInputSource binding={contextBinding}/>
    {kind==="ANGLE"&&angleSector&&<CommandFormItem label="弧线方向" layout="horizontal"><Select aria-label="弧线方向" value={angleSector.clockwise?"CW":"CCW"} options={[{value:"CCW",label:"逆时针"},{value:"CW",label:"顺时针"}]} onChange={v=>{const next={...angleSector,clockwise:v==="CW"};setAngleSector(next);if(!parameter?.source.expression){const measured=measureSketchDimension(kind,references,sketch?.entities??[],next);if(measured!==undefined)setSource(String(measured));}}}/></CommandFormItem>}
    {!logical&&<CommandFormItem className="sketch-dimension-name" label="名称" layout="horizontal">
     <Input disabled={pending||unknown} aria-label="尺寸名称" value={name} placeholder="可选参数名称" onChange={e=>setName(e.target.value)}/>
@@ -193,7 +196,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
     </div>)}
    </div>
    <div className="sketch-dimension-options">
-    {!logical&&<Checkbox disabled={pending||unknown} checked={reference} onChange={e=>setReference(e.target.checked)}>参考尺寸</Checkbox>}
+    {!logical&&<Checkbox disabled={pending||unknown||!!contextBinding} checked={reference} onChange={e=>setReference(e.target.checked)}>参考尺寸</Checkbox>}
     {original&&<Checkbox disabled={pending||unknown} checked={suppressed} onChange={e=>setSuppressed(e.target.checked)}>停用</Checkbox>}
    </div>
    {!logical&&reference&&<Typography.Text type="secondary" aria-live="polite">草稿测量：{measurement===undefined?"不可测":`${formatDimensionValue(dimensionDisplayValue(measurement,inputUnit))} ${inputUnit}`} · 不驱动几何</Typography.Text>}

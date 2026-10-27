@@ -785,6 +785,8 @@ type ReferenceUpdate struct {
 }
 
 type ContextVariantSnapshot struct {
+	ReplicationSources       map[string]ReplicationSource     `json:"replicationSources,omitempty"`
+	SketchPatternMembers     map[string][]SketchEntity        `json:"sketchPatternMembers,omitempty"`
 	SketchAnalyses           map[string]SketchProfileAnalysis `json:"sketchAnalyses,omitempty"`
 	Part                     *PartModel                       `json:"part,omitempty"`
 	VariantKey               string                           `json:"variantKey"`

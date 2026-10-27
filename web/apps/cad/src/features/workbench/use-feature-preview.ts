@@ -1,3 +1,4 @@
+import {contextCommand} from '../../api/context-edit-scope';
 import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {recordDeveloperEvidence} from "../../cad/command/developer-evidence";
 import {LatestPreviewQueue} from "./latest-preview-queue";
@@ -6,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Artifact, Feature,ReferenceGeometry,ParameterDefinition } from "../../types";
 import { api } from "../../api/client";
 export function useFeaturePreview(documentId: string, versionId: string, input: Record<string, unknown> | undefined, operation: Feature["operation"], onPreview: (artifact?: Artifact, operation?: Feature["operation"]) => void) {
+    input=input?contextCommand(documentId,input):undefined;
     const [state, setState] = useState<{
         repairRequired?:{featureId:string;name:string;diagnostic:string}[];referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
         key?: string;

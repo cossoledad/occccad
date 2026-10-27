@@ -503,6 +503,12 @@ func TestNativeLayoutCurvesUseExactProjectionAndStableInputSlots(t *testing.T) {
 	if e != nil || root.Document.VersionID != head || root.ContextVariants[0].Status != "READY" {
 		t.Fatal("failed update lost accepted result", e)
 	}
+	// Freezing accepted geometry must not require the now-broken source to resolve.
+	frozen := root.Product.ContextBindings[0]
+	apply(&root, workspace.CommandRequest{Type: "EDIT_CONTEXT_BINDING", VersionID: root.Document.VersionID, ContextBindingID: frozen.ID, ReferenceMode: "PINNED", Name: "Frozen accepted line"})
+	if root.ContextVariants[0].Status != "READY" || root.Product.ContextBindings[0].Resolution.SourceDigest != frozen.Resolution.SourceDigest {
+		t.Fatal("pin queried or replaced broken source")
+	}
 	for _, index := range []int{0, 2} {
 		a, _ := paths()
 		existing := root.Product.ContextBindings[index]
@@ -520,5 +526,248 @@ func TestNativeLayoutCurvesUseExactProjectionAndStableInputSlots(t *testing.T) {
 	bad := workspace.ProductContextBindingRequest{RequestID: root.Document.ID + "-unsupported", ActorID: p6Actor, OwningInstancePath: b, SourceInstancePath: a, PublicationID: source.Part.Publications[0].ID, PublicationType: "CURVE", TargetKind: "FEATURE_INPUT", TargetID: local}
 	if _, e = s.CreateProductContextBinding(t.Context(), root.Document.ID, bad); e == nil {
 		t.Fatal("unimplemented Feature consumer was accepted")
+	}
+}
+
+func TestPublishedSolidLineAndContextManagedWritesThroughRouter(t *testing.T) {
+	s, _, _, _, _ := featureAssociationRuntimeService(t)
+	seq := 0
+	create := func(name, kind string) workspace.DocumentView {
+		t.Helper()
+		v, e := s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Name: name, Type: kind})
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	apply := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		r.ActorID = p6Actor
+		r.RequestID = fmt.Sprintf("%s-finite-%d", v.Document.ID, seq)
+		n, e := s.ApplyCommand(t.Context(), v.Document.ID, r)
+		if e != nil {
+			t.Fatal(r.Type, e)
+		}
+		*v = n
+	}
+	source := create("Published solid edge", "PART")
+	target := create("Finite edge receiver", "PART")
+	for _, v := range []*workspace.DocumentView{&source, &target} {
+		apply(v, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+		sketch := v.Part.Features[0].ID
+		apply(v, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -20, Y: -10}, Second: &workspace.SketchPoint2{X: 20, Y: 10}}}})
+		apply(v, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Generator: "LINEAR_EXTRUDE", Operation: "ADD", SketchID: sketch, Length: 8})
+	}
+	// Different defaults expose accidental projection echo during a permitted edit.
+	for _, p := range source.Part.Parameters {
+		if p.PropertySlot == "length" {
+			apply(&source, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: p.ParameterID, Value: 12, Unit: "mm"})
+			break
+		}
+	}
+	artifact := activeBodyArtifact(t, source)
+	var edge uint64
+	for i := uint64(1); i <= p6TopologyCount(t, artifact.Topology, "edges"); i++ {
+		p, e := s.GetTopologyElementPropertiesAtVersion(t.Context(), source.Document.ID, source.Document.VersionID, artifact.GeometryKey, "EDGE", i)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if p.GeometryType == "LINE" && p.Properties["direction"].([3]float64)[2] == 0 {
+			edge = i
+			break
+		}
+	}
+	if edge == 0 {
+		t.Fatal("missing finite horizontal edge")
+	}
+	// Same standard datum ID in another Part is not an authorization token.
+	bad := workspace.CommandRequest{Type: "CREATE_PUBLICATION", RequestID: source.Document.ID + "-foreign", ActorID: p6Actor, PublicationType: "PLANE", TargetKind: "PLANE", TargetID: "datum-xy", SourceDocumentID: target.Document.ID, VersionID: source.Document.VersionID}
+	if _, e := s.PreviewCommand(t.Context(), source.Document.ID, bad); e == nil {
+		t.Fatal("foreign datum document accepted")
+	}
+	apply(&source, workspace.CommandRequest{Type: "CREATE_PUBLICATION", PublicationType: "CURVE", TargetKind: "EDGE", GeometryKey: artifact.GeometryKey, TopologyID: edge, VersionID: source.Document.VersionID, SourceDocumentID: source.Document.ID, Name: "Finite edge"})
+	pub := source.Part.Publications[0]
+	if pub.Resolution.ParameterStart == nil || pub.Resolution.ParameterEnd == nil {
+		t.Fatal("published line lost finite BREP domain")
+	}
+	var sourceParameter, targetParameter string
+	for _, p := range source.Part.Parameters {
+		if p.PropertySlot == "length" {
+			sourceParameter = p.ParameterID
+		}
+	}
+	for _, p := range target.Part.Parameters {
+		if p.PropertySlot == "length" {
+			targetParameter = p.ParameterID
+		}
+	}
+	apply(&source, workspace.CommandRequest{Type: "CREATE_PUBLICATION", PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: sourceParameter, Name: "Linked depth"})
+	apply(&target, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	receiver := target.Part.Features[len(target.Part.Features)-1].ID
+	root := create("Finite edge context", "PRODUCT")
+	apply(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: source.Document.ID})
+	apply(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: target.Document.ID})
+	for i, kind := range []string{"SKETCH_EXTERNAL_GEOMETRY", "PARAMETER"} {
+		a, e := s.GetProductDesignSession(t.Context(), root.Document.ID, root.Product.Instances[0].ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		b, e := s.GetProductDesignSession(t.Context(), root.Document.ID, root.Product.Instances[1].ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		targetID := receiver
+		if i == 1 {
+			targetID = targetParameter
+		}
+		n, e := s.CreateProductContextBinding(t.Context(), root.Document.ID, workspace.ProductContextBindingRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-edge-bind-%d", root.Document.ID, i), OwningInstancePath: *b.ActiveInstancePath, SourceInstancePath: *a.ActiveInstancePath, PublicationID: source.Part.Publications[i].ID, PublicationType: source.Part.Publications[i].Type, TargetKind: kind, TargetID: targetID})
+		if e != nil {
+			t.Fatal(e)
+		}
+		root = n
+	}
+	variant := root.ContextVariants[0]
+	var projected *workspace.SketchExternalGeometrySnapshot
+	for _, f := range variant.Part.Features {
+		if f.ID == receiver {
+			projected = f.Sketch.ExternalGeometry[0].Snapshot
+		}
+	}
+	if projected == nil || projected.Kind != "LINE" || projected.Start == projected.End {
+		t.Fatal("finite edge failed exact projection", projected)
+	}
+	var readErr error
+	target, readErr = s.GetDocument(t.Context(), target.Document.ID, p6Actor)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	extrude := variant.Part.Features[1]
+	extrude.Length = 17
+	r := workspace.CommandRequest{Type: "EDIT_FEATURE", ActorID: p6Actor, RequestID: target.Document.ID + "-protected-feature", TargetID: extrude.ID, Feature: &extrude, ExpectedFeatureDigest: findP6FeatureDigest(t, target.StructureTree, extrude.ID), RootProductDocumentID: root.Document.ID, RootProductRevisionID: root.Document.VersionID, ContextVariantID: variant.VariantKey, InstancePath: &variant.OwningInstancePath}
+	for _, preview := range []bool{true, false} {
+		var e error
+		if preview {
+			_, e = s.PreviewCommand(t.Context(), target.Document.ID, r)
+		} else {
+			_, e = s.ApplyCommand(t.Context(), target.Document.ID, r)
+		}
+		if e == nil || !strings.Contains(e.Error(), "CONTEXT_INPUT_VALUE_READ_ONLY") {
+			t.Fatal("Feature edit bypassed read protection", e)
+		}
+	}
+	r.RequestID += "-expression"
+	extrude.Length = 12
+	r.ParameterExpressions = map[string]string{"length": "12 mm"}
+	if _, e := s.PreviewCommand(t.Context(), target.Document.ID, r); e == nil || !strings.Contains(e.Error(), "CONTEXT_INPUT_VALUE_READ_ONLY") {
+		t.Fatal("expression bypassed read protection", e)
+	}
+	now, e := s.GetDocument(t.Context(), target.Document.ID, p6Actor)
+	if e != nil || now.Document.VersionID != target.Document.VersionID {
+		t.Fatal("rejected write advanced Head", e)
+	}
+	r.RequestID += "-permitted"
+	r.ParameterExpressions = nil
+	extrude.Reversed = true // unrelated field remains editable
+	next, editErr := s.ApplyCommand(t.Context(), target.Document.ID, r)
+	if editErr != nil {
+		t.Fatal("unbound field rejected", editErr)
+	}
+	if next.Part.Features[1].Length != 8 || !next.Part.Features[1].Reversed {
+		t.Fatal("projected managed value leaked into default definition", next.Part.Features[1])
+	}
+}
+
+func TestContextDrivenSketchDimensionWritesThroughRouter(t *testing.T) {
+	s, _, _, _, _ := featureAssociationRuntimeService(t)
+	seq := 0
+	create := func(name, kind string) workspace.DocumentView {
+		t.Helper()
+		v, e := s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Name: name, Type: kind})
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	apply := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		r.ActorID = p6Actor
+		r.RequestID = fmt.Sprintf("%s-linked-dim-%d", v.Document.ID, seq)
+		n, e := s.ApplyCommand(t.Context(), v.Document.ID, r)
+		if e != nil {
+			t.Fatal(r.Type, e)
+		}
+		*v = n
+	}
+	source, target := create("Linked dimension source", "PART"), create("Linked dimension receiver", "PART")
+	apply(&source, workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: "pitch", Value: 12, Unit: "mm"})
+	parameterID := ""
+	for _, p := range source.Part.Parameters {
+		if p.DisplayAlias == "pitch" {
+			parameterID = p.ParameterID
+		}
+	}
+	apply(&source, workspace.CommandRequest{Type: "CREATE_PUBLICATION", PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: parameterID})
+	apply(&target, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	sketch := target.Part.Features[0].ID
+	value := 8.
+	apply(&target, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "point", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: 8, Y: 3}}}, {Type: "ADD_CONSTRAINT", Constraint: &workspace.SketchConstraint{ID: "dimension", Kind: "HORIZONTAL_DISTANCE", Value: &value, Unit: "mm", References: []workspace.SketchGeometryRef{{Target: "SKETCH_ORIGIN", SubElement: "POINT"}, {Target: "ENTITY", EntityID: "point", SubElement: "POINT"}}}}}})
+	dimension := target.Part.Features[0].Sketch.Constraints[0]
+	root := create("Linked dimension product", "PRODUCT")
+	apply(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: source.Document.ID})
+	apply(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: target.Document.ID})
+	a, e := s.GetProductDesignSession(t.Context(), root.Document.ID, root.Product.Instances[0].ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	b, e := s.GetProductDesignSession(t.Context(), root.Document.ID, root.Product.Instances[1].ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	root, e = s.CreateProductContextBinding(t.Context(), root.Document.ID, workspace.ProductContextBindingRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-bind-dimension", OwningInstancePath: *b.ActiveInstancePath, SourceInstancePath: *a.ActiveInstancePath, PublicationID: source.Part.Publications[0].ID, PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: dimension.ParameterID})
+	if e != nil {
+		t.Fatal(e)
+	}
+	variant := root.ContextVariants[0]
+	shown := variant.Part.Features[0].Sketch.Constraints[0]
+	if shown.Value == nil || *shown.Value != 12 {
+		t.Fatal("accepted dimension did not drive local point")
+	}
+	target, e = s.GetDocument(t.Context(), target.Document.ID, p6Actor)
+	if e != nil {
+		t.Fatal(e)
+	}
+	change := 17.
+	text := "18 mm"
+	for i, op := range []workspace.SketchOperation{{Type: "UPDATE_CONSTRAINT_VALUE", ConstraintID: dimension.ID, Value: &change}, {Type: "UPDATE_CONSTRAINT", ConstraintID: dimension.ID, Constraint: &shown, ParameterSource: &text}} {
+		r := workspace.CommandRequest{Type: "EDIT_SKETCH", ActorID: p6Actor, RequestID: fmt.Sprintf("%s-reject-%d", target.Document.ID, i), SketchID: sketch, Operations: []workspace.SketchOperation{op}, RootProductDocumentID: root.Document.ID, RootProductRevisionID: root.Document.VersionID, ContextVariantID: variant.VariantKey, InstancePath: &variant.OwningInstancePath}
+		if _, e := s.PreviewCommand(t.Context(), target.Document.ID, r); e == nil || !strings.Contains(e.Error(), "CONTEXT_INPUT_VALUE_READ_ONLY") {
+			t.Fatal("dimension preview bypassed protection", e)
+		}
+		if _, e := s.ApplyCommand(t.Context(), target.Document.ID, r); e == nil || !strings.Contains(e.Error(), "CONTEXT_INPUT_VALUE_READ_ONLY") {
+			t.Fatal("dimension commit bypassed protection", e)
+		}
+	}
+	now, e := s.GetDocument(t.Context(), target.Document.ID, p6Actor)
+	if e != nil || now.Document.VersionID != target.Document.VersionID {
+		t.Fatal("rejected dimension advanced Head", e)
+	}
+	r := workspace.CommandRequest{Type: "EDIT_SKETCH", ActorID: p6Actor, RequestID: target.Document.ID + "-rename-dimension", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "UPDATE_CONSTRAINT", ConstraintID: shown.ID, Constraint: &shown, ParameterKey: "linked_position"}}, RootProductDocumentID: root.Document.ID, RootProductRevisionID: root.Document.VersionID, ContextVariantID: variant.VariantKey, InstancePath: &variant.OwningInstancePath}
+	preview, e := s.PreviewCommand(t.Context(), target.Document.ID, r)
+	if e != nil {
+		t.Fatal("rename echoed projected dimension", e)
+	}
+	r.PreviewID = preview.PreviewID
+	renamed, e := s.ApplyCommand(t.Context(), target.Document.ID, r)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if *renamed.Part.Features[0].Sketch.Constraints[0].Value != 8 {
+		t.Fatal("rename overwrote independent default")
+	}
+	currentRoot, e := s.GetDocument(t.Context(), root.Document.ID, p6Actor)
+	if e != nil || *currentRoot.ContextVariants[0].Part.Features[0].Sketch.Constraints[0].Value != 12 {
+		t.Fatal("rename lost accepted dimension", e)
 	}
 }

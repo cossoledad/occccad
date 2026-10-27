@@ -441,7 +441,7 @@ export type SketchProfileAnalysis = {
   issues: Array<{ code: string; message: string; entityIds: string[]; references?: SketchGeometryRef[]; position?: SketchPoint2 }>;
 };
 
-export type DocumentView = {basePart?:DocumentView["part"];contextProduct?:DocumentView;
+export type DocumentView = {baseView?:DocumentView;contextOccurrencePath?:string;contextProduct?:DocumentView;
   bodyAppearances?: Record<string, ResolvedAppearance>;
  replicationSources?:Record<string,{sourceKind?:"SKETCH_FRAME"|"GENERATOR_TOOL"|"FEATURE_DELTA";startFeatureId?:string;operation?:Feature["operation"];tool:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
   sketchPatternMembers?:Record<string,SketchEntity[]>;
@@ -512,7 +512,7 @@ export type ContextCatalogPublication = { instancePath:InstancePath;documentId:s
   displayPath:string;selectable:boolean;diagnostic?:string };
 export type ContextCatalog = { rootProductDocumentId:string;rootProductRevisionId:string;activeInstancePath?:InstancePath;
   expectedType?:string;digest:string;publications:ContextCatalogPublication[] };
-export type ContextVariantSnapshot = {part?:DocumentView["part"];sketchAnalyses?:DocumentView["sketchAnalyses"];variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
+export type ContextVariantSnapshot = {replicationSources?:DocumentView["replicationSources"];sketchPatternMembers?:DocumentView["sketchPatternMembers"];part?:DocumentView["part"];sketchAnalyses?:DocumentView["sketchAnalyses"];variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
   bindingIds:string[];bindingDigest:string;evaluationManifestDigest?:string;bodies:PartBody[];status:"READY"|"FAILED";
   publications?:Publication[];diagnosticCode?:string;diagnostic?:string};
 export type ProductUpdatePlanEntry = {kind:"CONTEXT_BINDING"|"OCCURRENCE_REFERENCE"|"ASSEMBLY_SOLVE";bindingId:string;name:string;sourceDisplayPath:string;owningDisplayPath:string;

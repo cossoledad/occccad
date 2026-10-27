@@ -136,6 +136,15 @@ func assemblyGeometryFromProperties(value geometry.AssemblyGeometry, p TopologyE
 			return fail("material side")
 		}
 	}
+	// Axis constraints need only the infinite line. Curve consumers additionally
+	// require its authoritative finite BREP domain, in length units.
+	if p.GeometryType == "LINE" && p.Properties["parameterUnit"] == "mm" {
+		start, a := number("firstParameter")
+		end, b := number("lastParameter")
+		if a && b && end > start {
+			value.ParameterStart, value.ParameterEnd = &start, &end
+		}
+	}
 	if value.Kind == "CIRCLE" {
 		if unit, exists := p.Properties["parameterUnit"].(string); exists && unit != "rad" {
 			return fail("circle parameterUnit must be rad")

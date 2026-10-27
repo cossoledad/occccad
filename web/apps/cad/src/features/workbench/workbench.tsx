@@ -1,7 +1,10 @@
+import {ContextInputSource,boundContextParameter as contextParameterBinding} from './context-input-source';
+import {FeaturePickField} from './feature-pick-field';
+import {publicationSelectionTarget,publicationForwardSource} from './publication-target';
 import {DesignAssociationDialog} from "./design-association-dialog";
-import {setContextEditScope,acceptedContextView} from "../../api/context-edit-scope";
+import {setContextEditScope,acceptedContextView,baseDocumentView} from "../../api/context-edit-scope";
 import {CommandFormContext,CommandField} from "../../cad/overlay/command-form";
-import {engineeringLabel} from "../../cad/presentation/engineering-text";
+import {engineeringLabel,selectionName} from "../../cad/presentation/engineering-text";
 import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {useAssemblyEngineering} from "./use-assembly-engineering";
 import {AssociationRepairPanel} from "./association-repair-panel";
@@ -231,6 +234,8 @@ export function Workbench() {
   const [datumPreview, setDatumPreview] = useState<DatumPreview>();
   const [parameterManagerOpen, setParameterManagerOpen] = useState(false);
   const [publicationManagerOpen, setPublicationManagerOpen] = useState(false);
+  const [publicationPick,setPublicationPick]=useState<import("../../types").SelectionItem>();
+  const [pickingPublication,setPickingPublication]=useState(false);
   const [designAssociationOpen,setDesignAssociationOpen]=useState(false);
   const [externalParameterID, setExternalParameterID] = useState<string>();
   const [editingParameterID, setEditingParameterID] = useState<string>();
@@ -340,11 +345,11 @@ export function Workbench() {
     if(view){const pending=appliedRefreshes.current.get(view);if(pending)return pending;}
     if (view) {
       if(view.contextProduct){client.setQueryData(queryKeys.document(view.contextProduct.document.id),view.contextProduct);updateOpenDocumentSummary(client,view.contextProduct.document);}
-      const sharedView=view.basePart?{...view,part:view.basePart,basePart:undefined,contextProduct:undefined}:view;
+      const sharedView=baseDocumentView(view);
       const selectionState=useWorkbenchStore.getState();
       if(view.product&&selectionState.selections.some(s=>s.kind==='kinematic-object'&&(s.ownerDocumentId??s.documentId)===view.document.id))selectionState.setSelections(qualifyMotionSelections(view,selectionState.selections));
       client.setQueryData(queryKeys.document(view.document.id), sharedView);
-      updateOpenDocumentSummary(client, view.document);
+      updateOpenDocumentSummary(client, sharedView.document);
       setEditSession((current) => current && current.hostDocumentId === documentID ? {
         ...current,
         snapshot: {
@@ -1384,32 +1389,20 @@ onToggleConstruction:(node)=>{
 
 
   const selected = selectedFeature(editingView ?? {} as DocumentView, store.selection);
-  const publicationTarget = () => {
-    if (selectedNamingIssue) return;
-    const selection = store.selection;
-    if (!selection || !editingView?.part) return undefined;
-    if (selection.kind === "plane" && selection.entityId) return { publicationType: "PLANE", targetKind: "PLANE", targetId: selection.entityId };
-    if (selection.kind === "axis-system" && selection.entityId) return { publicationType: "FRAME", targetKind: "AXIS_SYSTEM", targetId: selection.entityId };
-    if (selection.kind === "axis" && selection.entityId) return { publicationType: "AXIS", targetKind: selection.axis === "DATUM" ? "DATUM_AXIS" : "AXIS",
-      targetId: selection.entityId, axis: selection.axis === "DATUM" ? undefined : selection.axis };
-    if ((selection.kind === "face" || selection.kind === "edge") && selection.geometryKey) return {
-      publicationType: selection.kind === "face" ? "SURFACE" : "CURVE", targetKind: selection.kind.toUpperCase(),
-      geometryKey: selection.geometryKey, topologyId: selection.topologyId, versionId: selection.versionId ?? editingView.document.versionId,
-    };
-    if (selection.kind === "body") {
-      const bodyId = selection.bodyId ?? selection.entityId;
-      if (bodyId && editingView.part.bodies.some((body) => body.id === bodyId))
-        return { publicationType: "BODY", targetKind: "BODY", targetId: bodyId };
-    }
-    if ((selection.kind === "pad" || selection.kind === "import") && selection.entityId &&
-      editingView.part.features.some((feature) => feature.id === selection.entityId && isSolidFeature(feature)))
-      return {publicationType:"BODY",targetKind:"FEATURE_OUTPUT",targetId:selection.entityId};
-    if (selection?.kind==='visual'&&selection.featureId&&selection.entityId) {
-      const entity=editingView?.part?.features.find(f=>f.id===selection.featureId)?.sketch?.entities.find(e=>e.id===selection.entityId);
-      if(entity&&['POINT','LINE','CIRCLE','ARC'].includes(entity.kind))return {targetKind:'SKETCH_ENTITY',targetId:entity.id,sketchId:selection.featureId,publicationType:entity.kind==='POINT'?'POINT':'CURVE'};
-    }
-    return undefined;
-  };
+  const publicationPath=activeResolvedInstance?.instancePath;
+  const publicationTarget = () => editingView?publicationSelectionTarget(editingView,publicationPick,publicationPath):undefined;
+  const validForward=(pick:import("../../types").SelectionItem|undefined)=>!!editingView&&publicationForwardSource(editingView,pick);
+  useEffect(()=>{
+    if(!publicationManagerOpen)return;
+    setPublicationPick(undefined);setPickingPublication(true);
+    return()=>{setFeatureSelection(undefined);setPickingPublication(false)};
+  },[publicationManagerOpen,editingView?.document.id,editingView?.document.versionId,publicationPath?.canonical]);
+  useEffect(()=>{
+    if(!publicationManagerOpen||!pickingPublication||!editingView)return;
+    const accepts=(pick:import("../../types").SelectionItem)=>editingView.part?!!publicationSelectionTarget(editingView,pick,publicationPath):validForward(pick);
+    setFeatureSelection({role:'geometry',documentId:editingView.document.id,versionId:editingView.document.versionId,selections:publicationPick?[publicationPick]:[],accept:accepts,onPick:pick=>{if(accepts(pick)){setPublicationPick(pick);setPickingPublication(false)}}});
+    return()=>setFeatureSelection(undefined);
+  },[publicationManagerOpen,pickingPublication,editingView?.document.id,editingView?.document.versionId,publicationPath?.canonical]);
   const createSelectedPublication = async () => {
     if (!editingView) return;
     const target = publicationTarget();
@@ -1419,12 +1412,12 @@ onToggleConstruction:(node)=>{
       { onSuccess: () => publicationForm.resetFields() });
   };
   const forwardSelectedPublication = async () => {
-    if (!editingView?.product || !store.selection?.publication || !store.selection.instanceId) {
+    if (!editingView?.product || !publicationPick?.publication || !publicationPick.instanceId) {
       message.warning("请在 Product 的引用树中选择一个子 Part Publication"); return;
     }
     const values = await publicationForm.validateFields();
-    command.mutate(() => api.createProductPublication(editingView.document.id, store.selection!.instanceId!,
-      store.selection!.publicationId!, values.name, values.semanticPurpose, store.selection!.instancePath));
+    command.mutate(() => api.createProductPublication(editingView.document.id, publicationPick!.instanceId!,
+      publicationPick!.publicationId!, values.name, values.semanticPurpose, publicationPick!.instancePath));
   };
   const replaceSelectedInstance = async () => {
     if (!editingView?.product || store.selection?.kind !== "instance" || !store.selection.instanceId) {
@@ -1442,13 +1435,13 @@ onToggleConstruction:(node)=>{
     if (!editingView) return;
     const target = publicationTarget();
     if (!target || target.publicationType !== publicationType) {
-      message.warning(`请选择与 ${publicationType} 合同兼容的目标`); return;
+      message.warning("请选择与该接口兼容的对象"); return;
     }
     command.mutate(() => api.redirectPublication(editingView.document.id, publicationId, target));
   };
   const redirectProductPublicationToSelection = (publicationId: string) => {
-    const source = store.selection;
-    if (!editingView?.product || source?.kind !== "publication" || !source.publicationId || !source.instancePath?.segments.length) {
+    const source = publicationPick;
+    if (!validForward(source) || !editingView?.product || source?.kind !== "publication" || !source.publicationId || !source.instancePath?.segments.length) {
       message.warning("请先选择当前 Product 实例中的来源 Publication"); return;
     }
     command.mutate(() => api.command(editingView.document.id, {type:"REDIRECT_PRODUCT_PUBLICATION",
@@ -1474,7 +1467,7 @@ onToggleConstruction:(node)=>{
 	if (!parameter) return;
 	parameterForm.setFieldsValue({key:parameter.displayAlias ?? "",source:parameterSourceText(parameter, isLengthParameter(parameter) ? lengthUnit : parameter.displayUnit)}); setEditingParameterID(parameterID);
   };
-  const boundContextParameter=(id?:string)=>{const input=editingView?.part?.contextInputs?.find(p=>p.target.kind==='PARAMETER'&&p.target.targetId===id);return input&&activeInstancePath?view?.product?.contextBindings?.find(b=>b.owningInstancePath.canonical===activeInstancePath&&b.contextInputId===input.id):undefined};
+  const boundContextParameter=(id?:string)=>editingView?contextParameterBinding(editingView,id):undefined;
   const parameterDraftSource=Form.useWatch("source",parameterForm),parameterDraftKey=Form.useWatch("key",parameterForm);
  const previewParameter=editingView?.part?.parameters?.find(p=>p.parameterId===editingParameterID);
  let parameterPreviewInput:Record<string,unknown>|undefined;
@@ -1505,6 +1498,7 @@ onToggleConstruction:(node)=>{
   const editingParameterDefinition=editingView?.part?.parameters?.find(parameter=>parameter.parameterId===editingParameterID);
   const parameterSourceReadonly=editingParameterDefinition?.role==="MEASURED"||Boolean(editingParameterDefinition?.source.external)||Boolean(boundContextParameter(editingParameterID));
   const endInteractionForActivation = () => {
+    setDesignAssociationOpen(false);setPublicationManagerOpen(false);setFeatureSelection(undefined);
     viewport.current?.cancelAssemblyInteraction();stopConflictAnalysis();
     assemblyDialogLifecycle.current.invalidate();
     setDatumEditor(undefined);setSolidEditor(undefined); setBooleanDialog(undefined);
@@ -1542,8 +1536,9 @@ onToggleConstruction:(node)=>{
       }
     }
   };
+  const blockedAssociationEntry=productUpdatePlan.data?.rootProductRevisionId===view?.document.versionId?productUpdatePlan.data?.entries.find(entry=>entry.kind!=="ASSEMBLY_SOLVE"&&entry.currency==="UPDATE_BLOCKED"):undefined;
   const associationUpdateBlocked=!productUpdatePlan.isFetching&&view?.document.type==='PRODUCT'&&(productUpdateFailure||productUpdatePlan.data?.hasUpdates&&!productUpdatePlan.data.canAccept);
-  useOperationFailureNotification(associationUpdateBlocked?{diagnostic:productUpdateFailure??productUpdatePlan.data?.entries.find(entry=>entry.kind!=="ASSEMBLY_SOLVE"&&entry.diagnostic)?.diagnostic,retry:retryAssociationUpdates,retryLabel:'重试更新'}:undefined,'更新关联零件');
+  useOperationFailureNotification(associationUpdateBlocked?{diagnostic:productUpdateFailure??blockedAssociationEntry?.diagnostic,diagnosticCode:productUpdateFailure?undefined:blockedAssociationEntry?.diagnosticCode,retry:retryAssociationUpdates,retryLabel:'重试更新'}:undefined,'更新关联零件');
   if (document.isLoading || view && !editSession) return <div className="workbench-loading"><Spin size="large" description="正在打开工作台…" /></div>;
   if (!view) return <Empty description="无法打开文档"><Space><Button onClick={()=>void document.refetch()}>重试</Button><Button onClick={()=>navigate("/")}>返回文档中心</Button></Space></Empty>;
 
@@ -1926,11 +1921,12 @@ onToggleConstruction:(node)=>{
 	</CommandDialog>
  {designAssociationOpen&&editingView?.part&&<DesignAssociationDialog root={view} owner={editingView} initialParameterId={externalParameterID} path={activeResolvedInstance?.instancePath} activeSketchId={store.activeSketchID} canEdit={canEditRoot&&["OWNER","EDITOR"].includes(editingView.document.permission)} onClose={()=>{setDesignAssociationOpen(false);setExternalParameterID(undefined);setFeatureSelection(undefined);viewport.current?.clearCommandPreview()}} onApply={async updated=>{await refresh(updated);await client.invalidateQueries({queryKey:queryKeys.document(editingView.document.id)})}} onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}} onSelectionSession={setFeatureSelection} onLocate={selection=>store.setSelections([selection])}/>}
 	<CommandDialog id="publication-manager" open={publicationManagerOpen} title="发布接口" size="L"
-		onClose={() => setPublicationManagerOpen(false)} onConfirm={() => setPublicationManagerOpen(false)}>
+		onClose={() => setPublicationManagerOpen(false)} onConfirm={() => setPublicationManagerOpen(false)} onCancelPick={()=>{if(!pickingPublication)return false;setPickingPublication(false);return true}}>
+    <FeaturePickField label="发布对象" value={publicationPick&&editingView?selectionName(editingView,publicationPick):undefined} selected={!!publicationPick} active={pickingPublication} onActivate={()=>setPickingPublication(true)} onCancel={()=>setPickingPublication(false)} onClear={publicationPick?()=>setPublicationPick(undefined):undefined} onLocate={publicationPick?()=>store.setSelections([publicationPick]):undefined}/>
 		<Form form={publicationForm} layout="inline" initialValues={{ name: "", semanticPurpose: "" }}>
 			<Form.Item name="name"><Input placeholder="自动命名（可选）" /></Form.Item>
 			<Form.Item name="semanticPurpose"><Input placeholder="语义用途" /></Form.Item>
-			<Form.Item><Button type="primary" disabled={!canEdit || (editingView?.document.type === "PART" ? !publicationTarget() : !store.selection?.publicationId)} loading={command.isPending}
+			<Form.Item><Button type="primary" disabled={!canEdit || (editingView?.document.type === "PART" ? !publicationTarget() : !validForward(publicationPick))} loading={command.isPending}
 				onClick={() => void (editingView?.document.type === "PRODUCT" ? forwardSelectedPublication() : createSelectedPublication())}>
 				{editingView?.document.type === "PRODUCT" ? "转发所选接口" : "发布当前选择"}</Button></Form.Item>
 		</Form>
@@ -1964,7 +1960,7 @@ onToggleConstruction:(node)=>{
 			{editingView.product.instances.map((instance)=><div className="parameter-manager-row" key={instance.id}>
 				<span><Typography.Text strong editable={canEdit?{onChange:(name)=>command.mutate(()=>api.renameInstance(editingView.document.id,instance.id,name))}:false}>{instance.name}</Typography.Text>
 				</span>
-				<span>{instance.documentId}</span><Tag>{engineeringLabel(instance.referenceMode??"FOLLOW_HEAD")}</Tag><span />
+				<span>{"零件"}</span><Tag>{engineeringLabel(instance.referenceMode??"FOLLOW_HEAD")}</Tag><span />
 			</div>)}</>}
 	</CommandDialog>
 	<CommandDialog id="context-input-edit" open={Boolean(editingContextInput)} title="编辑上下文输入" size="S"
@@ -1980,7 +1976,7 @@ onToggleConstruction:(node)=>{
 			<Form.Item name="key" label="可读别名（可选）" rules={[{pattern:/^$|^[A-Za-z_][A-Za-z0-9_]*$/,
 				message:"请输入 ASCII 标识符"}]}><Input /></Form.Item>
 			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={editingView?.part?.parameters??[]} excludeId={editingParameterID} unit={lengthUnit} placeholder="40 或 r_1 + 5"/></Form.Item>
-            {parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":boundContextParameter(editingParameterID)?"值来自产品关联；独立打开零件可编辑默认输入。":"外部来源作用于共享定义，当前仅编辑名称。"}</small>}
+            <ContextInputSource binding={boundContextParameter(editingParameterID)}/>{parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":boundContextParameter(editingParameterID)?"值来自产品关联；独立打开零件可编辑默认输入。":"外部来源作用于共享定义，当前仅编辑名称。"}</small>}
 			{parameterInputPreview.pending&&<Typography.Text type="secondary">正在检查表达式…</Typography.Text>}{parameterInputPreview.error&&<Alert type="error" message={parameterInputPreview.error}/>}{parameterInputPreview.parameterCandidates?.find(p=>p.parameterId===editingParameterID)&&<Typography.Text>计算值：{parameterDisplayValue(parameterInputPreview.parameterCandidates.find(p=>p.parameterId===editingParameterID)!,lengthUnit)}</Typography.Text>}
 
  <small className="cad-command-hint">长度增量需输入单位，如 r_1 + 5 mm。可使用参数引用，重命名不影响已有关系。</small>

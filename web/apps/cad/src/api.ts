@@ -120,7 +120,7 @@ async function executeDocumentCommand(documentId: string, command: Record<string
          const {type:_type,interactionId:_interaction,...body}=commandWithID;
          return await requestDocumentView(`/api/documents/${documentId}/context-bindings`,{method:'POST',body:JSON.stringify(body)});
         }
-        const scope=contextEditScope(documentId);
+        const scope=commandWithID.rootProductDocumentId&&commandWithID.instancePath?{rootProductDocumentId:String(commandWithID.rootProductDocumentId),instancePath:commandWithID.instancePath as import("./types").InstancePath}:undefined;
         const updated=documentRegistry.validate(await realtime.executeCommand(documentId, commandWithID));
         return scope?acceptedContextView(updated,await restApi.getDocument(scope.rootProductDocumentId),scope.instancePath.canonical):updated;
 	} catch (cause) {
@@ -281,13 +281,14 @@ export const restApi = {
   },
   sketchIntersections:(id:string,input:{versionId:string;sketchId:string;entityIds:string[]},signal?:AbortSignal)=>request<import('./cad/interaction/sketch-intersections').SketchIntersections>(`/api/documents/${id}/sketch-intersections`,{method:'POST',body:JSON.stringify(contextCommand(id,input)),signal}),
   getFeatureInput: async (id: string, input: {versionId:string;featureId?:string;afterFeatureId?:string;resultStage?:boolean;bodyId?:string;geometryKey?:string;kind?:string;localId?:number}, signal?:AbortSignal) => {
-    const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(contextCommand(id,input)),signal});
+    const scopedInput=contextCommand(id,input);
+    const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(scopedInput),signal});
     // A sketch before the first solid has no upstream artifact. This is a
     // valid empty pick context, so only decorate artifacts with actual geometry.
     const artifacts=[result.artifact,...(result.artifacts??[])].filter(artifact=>artifact?.geometryKey);
     for(const artifact of artifacts){
       for(const representation of Object.values(artifact.representations))
-        representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId??"",afterFeatureId:input.afterFeatureId??"",bodyId:artifact.bodyId??"",resultStage:String(!!input.resultStage),...(contextEditScope(id)?{rootProductDocumentId:contextEditScope(id)!.rootProductDocumentId,rootProductRevisionId:contextEditScope(id)!.rootProductRevisionId,contextVariantId:contextEditScope(id)!.contextVariantId,instancePath:JSON.stringify(contextEditScope(id)!.instancePath)}:{})})}`);
+        representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId??"",afterFeatureId:input.afterFeatureId??"",bodyId:artifact.bodyId??"",resultStage:String(!!input.resultStage),...(scopedInput.rootProductDocumentId?{rootProductDocumentId:scopedInput.rootProductDocumentId,rootProductRevisionId:scopedInput.rootProductRevisionId!,contextVariantId:scopedInput.contextVariantId!,instancePath:JSON.stringify(scopedInput.instancePath)}:{})})}`);
       artifact.historicalPreview=!!input.resultStage;
     }
     return result;
@@ -380,12 +381,12 @@ export const restApi = {
       referenceMode:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED"="FOLLOW_HEAD") =>
     restApi.command(documentId, { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, versionId, referenceMode }),
   createPublication: (documentId: string, input: { name?: string; publicationType: string; semanticPurpose?: string;
-      compatibilityVersion?: string; targetKind: string; sketchId?:string;targetId?: string; axis?: string; geometryKey?: string;
+      compatibilityVersion?: string; sourceDocumentId?:string;instancePath?:import("./types").InstancePath;targetKind: string; sketchId?:string;targetId?: string; axis?: string; geometryKey?: string;
       topologyId?: number; versionId?: string }) =>
     restApi.command(documentId, { type: "CREATE_PUBLICATION", ...input }),
   editPublication: (documentId: string, publicationId: string, input: { name: string; semanticPurpose?: string; compatibilityVersion?: string }) =>
     restApi.command(documentId, { type: "EDIT_PUBLICATION", publicationId, ...input }),
-  redirectPublication: (documentId: string, publicationId: string, input: { publicationType: string; targetKind: string;
+  redirectPublication: (documentId: string, publicationId: string, input: { sourceDocumentId?:string;instancePath?:import("./types").InstancePath;publicationType: string; targetKind: string;
       sketchId?:string;targetId?: string; axis?: string; geometryKey?: string; topologyId?: number; versionId?: string }) =>
     restApi.command(documentId, { type: "REDIRECT_PUBLICATION", publicationId, ...input }),
   deletePublication: (documentId: string, publicationId: string) =>

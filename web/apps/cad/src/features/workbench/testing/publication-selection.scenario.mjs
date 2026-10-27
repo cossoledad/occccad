@@ -71,3 +71,18 @@ try {
 } finally {
   await server.close();
 }
+
+const scopedServer=await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
+try {
+ const {publicationSelectionTarget,selectionInSnapshot}=await scopedServer.ssrLoadModule('/src/features/workbench/publication-target.ts');
+ const view={document:{id:'part-a',versionId:'v1'},part:{datumPlanes:[{id:'datum-xy'}],axisSystems:[],features:[],bodies:[]}};
+ const pick={kind:'plane',plane:'XY',id:'datum-xy',entityId:'datum-xy',documentId:'part-a',versionId:'v1'};
+ assert.equal(publicationSelectionTarget(view,pick).targetId,'datum-xy');
+ assert.equal(publicationSelectionTarget(view,{...pick,documentId:'part-b'}),undefined,'shared standard datum names must not authorize another Part');
+ assert.equal(publicationSelectionTarget(view,{...pick,versionId:'old'}),undefined);
+ const path={rootDocumentId:'product',canonical:'a',segments:[{ownerDocumentId:'product',ownerVersionId:'r1',instanceId:'a',referencedDocumentId:'part-a',resolvedVersionId:'v1'}]};
+ const instancePick={...pick,occurrencePath:'a',instancePath:path};
+ assert(selectionInSnapshot(instancePick,'part-a','v1',path));
+ assert(!selectionInSnapshot({...instancePick,instancePath:{...path,segments:[{...path.segments[0],ownerVersionId:'r0'}]}},'part-a','v1',path),'full path revision required');
+ assert(!publicationSelectionTarget(view,instancePick),'independent Part must not accept occurrence pick');
+}finally{await scopedServer.close()}

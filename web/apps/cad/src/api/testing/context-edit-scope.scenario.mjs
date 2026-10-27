@@ -15,3 +15,17 @@ assert.deepEqual(m.contextCommand('other',{type:'X'}),{type:'X'});
 assert(!('documentId' in m.contextCommand('part',{type:'X'})),'the local adapter key is not a command payload field');
 const clearNew=m.setContextEditScope({documentId:'part',contextVariantId:'variant-b'});clear();assert.equal(m.contextEditScope('part').contextVariantId,'variant-b','late cleanup cannot cancel a new occurrence');clearNew();assert.equal(m.contextEditScope('part'),undefined);
 console.log('Accepted context display, command scoping and late cleanup passed');
+
+base.datumPlanes=[{id:'default-plane'}];base.datumAxes=[{id:'default-axis'}];base.axisSystems=[{id:'default-frame'}];base.sketchAnalyses={default:{}};base.artifacts={default:{geometryKey:'base'}};
+projected.datumPlanes=[{id:'left-plane'}];projected.datumAxes=[];projected.axisSystems=[];
+root.artifacts={left:{geometryKey:'left'}};root.contextVariants[0].sketchAnalyses={left:{}};
+const left=m.acceptedContextView(base,root,'left');
+assert.equal(m.baseDocumentView(left),base,'restore the whole view, not only its Part');
+for(const field of ['document','part','datumPlanes','datumAxes','axisSystems','sketchAnalyses','artifacts'])assert.equal(m.baseDocumentView(left)[field],base[field],field);
+const rightRoot={...root,contextVariants:[{...root.contextVariants[0],owningInstancePath:{canonical:'right'},part:{...projected,datumPlanes:[{id:'right-plane'}]}}]};
+const right=m.acceptedContextView(left,rightRoot,'right');assert.equal(right.baseView,base);assert.equal(right.datumPlanes[0].id,'right-plane');
+assert.equal(m.acceptedContextView(left,rightRoot,'left'),base,'missing occurrence must restore independent view');
+const projectedGeometry={...projected,activeBodyId:'body',bodies:[{id:'body',geometryKey:'left'}]};
+const complete=m.acceptedContextView({...base,artifact:{geometryKey:'default'},replicationSources:{base:{}},sketchPatternMembers:{base:[]}}, {...root,contextVariants:[{...root.contextVariants[0],part:projectedGeometry,replicationSources:{projected:{}},sketchPatternMembers:{projected:[]}}]},'left');
+assert.equal(complete.artifact,root.artifacts.left,'primary artifact must belong to the accepted body');
+assert.deepEqual(Object.keys(complete.replicationSources),['projected']);assert.deepEqual(Object.keys(complete.sketchPatternMembers),['projected']);

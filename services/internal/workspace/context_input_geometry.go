@@ -22,7 +22,7 @@ func contextPublicationSupported(p Publication) bool {
 		return kind == "LINE" || kind == "CIRCLE" || kind == "ARC"
 	}
 	kind := p.Resolution.GeometryKind
-	return p.Resolution.TopologyKind == "EDGE" && (kind == "LINE" || kind == "CIRCLE" || kind == "ELLIPSE")
+	return p.Resolution.TopologyKind == "EDGE" && (kind == "LINE" || kind == "CIRCLE") && p.Resolution.ParameterStart != nil && p.Resolution.ParameterEnd != nil && *p.Resolution.ParameterEnd > *p.Resolution.ParameterStart
 }
 func contextExternalID(inputID string) string { return macroID(inputID, "external") }
 func nativeSketchPublication(model PartModel, target PublicationTarget, revision string) (PublicationResolution, error) {

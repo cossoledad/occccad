@@ -15,6 +15,7 @@ export class OperationFailureGate {
   }
 }
 const gate=new OperationFailureGate();
+let noticeSequence=0;const activeNotices=new Map<string,string>();
 /** One Antd App-owned outlet for command/dialog/interaction failures. Raw
  * protocol messages live in details, never in the primary notification. */
 export function useOperationFeedback(){
@@ -24,19 +25,24 @@ export function useOperationFeedback(){
     const failure=normalizeOperationFailure(error);
     recordDeveloperEvidence(scope,{error,failure});
     const recovery=error as {retry?:()=>void;retryLabel?:string;cancel?:()=>void};
-    notification[failure.severity]({className:"cad-operation-notification",placement:"bottomRight",duration:recovery?.retry||recovery?.cancel?0:6,key:`failure:${scope}`,title:`${scope}未完成`,description:<>
-      <div>{failure.message}</div>{recovery?.retry&&<Button size="small" onClick={()=>{notification.destroy(`failure:${scope}`);recovery.retry?.();}}>{recovery.retryLabel??"重试确认"}</Button>}{recovery?.cancel&&<Button size="small" onClick={()=>{notification.destroy(`failure:${scope}`);recovery.cancel?.();}}>取消并恢复</Button>}</>});
+    const key=`failure:${scope}:${++noticeSequence}`,previous=activeNotices.get(scope);
+    if(previous)notification.destroy(previous);activeNotices.set(scope,key);
+    const dismiss=()=>{notification.destroy(key);if(activeNotices.get(scope)===key)activeNotices.delete(scope)};
+    notification[failure.severity]({className:"cad-operation-notification",placement:"bottomRight",duration:recovery?.retry||recovery?.cancel?0:6,key,title:`${scope}未完成`,description:<>
+      <div>{failure.message}</div>{recovery?.retry&&<Button size="small" onClick={()=>{dismiss();recovery.retry?.();}}>{recovery.retryLabel??"重试确认"}</Button>}{recovery?.cancel&&<Button size="small" onClick={()=>{dismiss();recovery.cancel?.();}}>取消并恢复</Button>}</>});
+    return dismiss;
   },[notification]);
 }
 
 /** Async operation state uses the same outlet as rejected commands. Repeated
  * renders (including StrictMode) do not repost a retained failure. */
 export function useOperationFailureNotification(error:unknown,scope:string){
-  const feedback=useOperationFeedback(),last=useRef<string|undefined>(undefined);
+  const feedback=useOperationFeedback(),last=useRef<string|undefined>(undefined),dismiss=useRef<(()=>void)|undefined>(undefined),mounted=useRef(false);
   useEffect(()=>{
-    if(!error){last.current=undefined;return;}
+    if(!error){dismiss.current?.();dismiss.current=undefined;last.current=undefined;return;}
     const failure=normalizeOperationFailure(error),key=JSON.stringify([scope,failure.code,failure.details,failure.requestId]);
     if(last.current===key)return;
-    last.current=key;feedback(error,scope);
+    last.current=key;dismiss.current?.();dismiss.current=feedback(error,scope);
   },[error,scope,feedback]);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;queueMicrotask(()=>{if(!mounted.current)dismiss.current?.()})}},[]);
 }

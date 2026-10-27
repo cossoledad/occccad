@@ -62,6 +62,11 @@ try{
   assert.equal(buttons.length,2,"notifications retain recovery actions without a developer dialog");assert.equal(diagnostics.length,0);
   assert.doesNotMatch(renderToStaticMarkup(recovery.description),/preserved-request|查看诊断|技术诊断/);
   feedback({code:"VALIDATION_FAILED",message:"ordinary failure",requestId:"ordinary-request"},"草图");assert.equal(notices.at(-1).duration,6);
+  const clearOld=feedback({code:"PUBLICATION_SKETCH_ENTITY_UNAVAILABLE",message:"missing published entity",requestId:"source-old"},"关联");const oldKey=notices.at(-1).key;
+  const clearCurrent=feedback({code:"PUBLICATION_CONTRACT_INCOMPATIBLE",message:"changed contract",requestId:"source-current"},"关联");const currentKey=notices.at(-1).key;
+  assert.notEqual(oldKey,currentKey);clearOld();assert.equal(dismissals.at(-1),oldKey,"late cleanup must not dismiss a newer failure");clearCurrent();assert.equal(dismissals.at(-1),currentKey);
+  assert.match(normalizeOperationFailure({diagnosticCode:"PUBLICATION_SKETCH_ENTITY_UNAVAILABLE",diagnostic:"sketch support unavailable"}).message,/已接受输入保留/);
+
  }finally{App.useApp=originalUseApp;}
 
 }finally{await server.close();}

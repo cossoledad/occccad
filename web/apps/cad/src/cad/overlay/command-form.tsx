@@ -5,9 +5,9 @@ import type {SelectionItem} from '../../types';
 export const CommandFormContext=createContext<{cancelPick?:()=>boolean;locate?:(items:SelectionItem[])=>void}>({});
 export const useCommandForm=()=>useContext(CommandFormContext);
 export type CommandFieldWidth='number'|'enum'|'expression'|'name'|'option'|'selection'|'content'|'coordinate';
-export function CommandField({label,width='expression',error,children}:PropsWithChildren<{label:ReactNode;width?:CommandFieldWidth;error?:ReactNode}>){
+export function CommandField({label,width='expression',error,actions,children}:PropsWithChildren<{label:ReactNode;width?:CommandFieldWidth;error?:ReactNode;actions?:ReactNode}>){
  const generated=useId(),child=isValidElement(children)?children as ReactElement<{id?:string}>:undefined,id=child?.props.id??generated;
- return <div className={`command-field command-field-${width}`}><label className="command-field-label" htmlFor={id}>{label}</label><div className="command-field-control" role="group" aria-label={typeof label==='string'?label:undefined}>{child?cloneElement(child,{id}):children}{error&&<div className="command-field-error" role="alert">{error}</div>}</div></div>;
+ return <div className={`command-field command-field-${width}`}><label className="command-field-label" htmlFor={id}>{label}</label><div className="command-field-control" role="group" aria-label={typeof label==='string'?label:undefined}>{child?cloneElement(child,{id}):children}{actions}{error&&<div className="command-field-error" role="alert">{error}</div>}</div></div>;
 }
 /** Ant Form owns registration and validation; layout uses the same field tokens. */
 export function CommandFormItem({width='expression',...props}:FormItemProps&{width?:CommandFieldWidth}){

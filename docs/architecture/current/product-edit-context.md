@@ -10,7 +10,7 @@ Product 内只有 occurrence 上下文中的唯一编辑目标，取消定义编
 
 Occurrence 激活先用 Product Design Session 校验 root Revision、完整路径、目标身份和 resolved Revision，再读取目标文档。空 Part 不依赖 `ResolvedInstance` 或任意 Body/Artifact，也可以激活。路径中存在 `PINNED` 引用时保留冻结快照供 Product 查看，但拒绝进入修改并要求先显式恢复跟随；非固定引用若 resolved Revision 与目标 HEAD 不一致也拒绝激活，等待 UpdatePlan 收敛。验证成功后才结束旧工具、取消 Preview、清理选择，并一次提交新会话；activation generation 丢弃旧查询和迟到回调。失败保留原有效会话。
 
-普通 Sketch、Feature、Body、Parameter 与 Part Publication 修改共享 Part 定义，不复制 Part，也不创建 occurrence 专属文档。有 ContextBinding 的直接 Part occurrence，编辑器、草图与参数读取该实例已接受的 ContextVariant；命令携带根 Product Revision、完整路径及 Variant 标识。写入只应用用户的基础定义修改，并通过现有设计事务一起推进 Part 与宿主 Product 引用，禁止把投影后的 Part 整份回写。联合 Undo/Redo 直接绑定同一次补偿的成员 Revision，复用历史求值及不可变补偿结果校验，不通过额外自动跟随补齐引用。独立 Part 读取本地默认输入；绑定失效不回退默认值。独立打开 Part 会建立另一个 Part 宿主工作空间。
+普通 Sketch、Feature、Body、Parameter 与 Part Publication 修改共享 Part 定义，不复制 Part，也不创建 occurrence 专属文档。有 ContextBinding 的直接 Part occurrence，编辑器、草图与参数读取该实例已接受的 ContextVariant；命令携带根 Product Revision、完整路径及 Variant 标识。写入只应用用户的基础定义修改，并通过现有设计事务一起推进 Part 与宿主 Product 引用，禁止把投影后的 Part 整份回写。联合 Undo/Redo 直接绑定同一次补偿的成员 Revision，复用历史求值及不可变补偿结果校验，不通过额外自动跟随补齐引用。共享文档缓存只保存完整基础视图；实例投影连同基准、轴系、草图分析和制品独立组合，异步请求冻结来源上下文。参数表、特征、尺寸及表达式共用关联输入写保护，受驱动字段只读并可定位来源，未修改的投影值不回写默认定义。独立 Part 读取本地默认输入；绑定失效不回退默认值。独立打开 Part 会建立另一个 Part 宿主工作空间。
 
 ## 标签与读取边界
 

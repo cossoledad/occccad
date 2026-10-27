@@ -1,3 +1,4 @@
+import {boundContextParameter,ContextInputSource} from './context-input-source';
 import {CommandInputError} from "../../cad/command/operation-failure";
 import {CommandField,CommandStatus,fieldErrorText} from "../../cad/overlay/command-form";
 import {engineeringProblem} from "../../cad/command/operation-feedback";
@@ -31,6 +32,7 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
     return feature;
   });
   const [role,setRoleState]=useState<FeaturePickRole|undefined>(internal?"geometry":feature.type==="SKETCH_PATTERN"?"profile":"body");
+  const boundSlot=(slot:string)=>boundContextParameter(view,view.part?.parameters?.find(p=>p.ownerFeatureId===feature.id&&p.propertySlot===`pattern:${slot}`)?.parameterId);
   const [inputArtifacts,setInputArtifacts]=useState<Artifact[]>();
   const [replacingSeed,setReplacingSeed]=useState<string>();
   const [pickGeneration,setPickGeneration]=useState(0);
@@ -203,7 +205,7 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
       {pattern.kind==="CIRCULAR"&&<FeaturePickField label="中心点" value={centerName} selections={centerPick?[centerPick]:[]} selected={!!pattern.centerReference} active={role==="point"} onActivate={()=>activatePick("point")} onClear={pattern.centerReference?()=>update({centerReference:undefined}):undefined}/>}
       {!mirror&&<>
       <Select value={pattern.distribution} options={[{value:"FIXED_STEP",label:"固定步距"},{value:"TOTAL_SPAN",label:"总跨度均布"},...(pattern.kind==="CIRCULAR"?[{value:"FULL_CIRCLE",label:"整圆均布"}]:[])]} onChange={value=>update({distribution:value as PatternDefinition["distribution"]})}/>
-      {(["count",pattern.kind==="LINEAR"?"spacing":pattern.distribution==="FULL_CIRCLE"?null:"angle",(internal||draft.type==="SKETCH_PATTERN")&&pattern.kind==="CIRCULAR"?"phase":null] as const).filter(x=>x!==null).map(slot=><CommandField key={slot} label={<>{({count:"数量",spacing:`间距 / 跨度 (${unit})`,angle:"角度 (deg)",phase:"相位 (deg)"})[slot]}</>} width="expression"><Input value={text[slot]} onChange={e=>setText(t=>({...t,[slot]:e.target.value}))}/></CommandField>)}
+      {(["count",pattern.kind==="LINEAR"?"spacing":pattern.distribution==="FULL_CIRCLE"?null:"angle",(internal||draft.type==="SKETCH_PATTERN")&&pattern.kind==="CIRCULAR"?"phase":null] as const).filter(x=>x!==null).map(slot=><CommandField actions={<ContextInputSource binding={boundSlot(slot)}/>} key={slot} label={<>{({count:"数量",spacing:`间距 / 跨度 (${unit})`,angle:"角度 (deg)",phase:"相位 (deg)"})[slot]}</>} width="expression"><Input disabled={!!boundSlot(slot)} value={text[slot]} onChange={e=>setText(t=>({...t,[slot]:e.target.value}))}/></CommandField>)}
       <CommandField  label={<>跳过槽位（从 0 开始）</>} width="expression"><Input value={skipped} onChange={e=>setSkipped(e.target.value)}/></CommandField>
       <CommandField label="反向" width="option"><Switch aria-label="反向" checked={!!pattern.reversed} onChange={reversed=>update({reversed})}/></CommandField></>}
     </fieldset>

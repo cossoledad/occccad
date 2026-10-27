@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/occccad/occccad/internal/modelcore"
+	"reflect"
 )
 
 func (s *Service) resolveVariantModel(ctx context.Context, documentID, key string, m *PartModel, bindings []ContextBinding) error {
@@ -269,4 +270,97 @@ func contextInputBound(model PartModel, bindings []ContextBinding, kind, target 
 		}
 	}
 	return false
+}
+
+// Check the canonical candidate, after every command adapter. This covers
+// managed Feature parameters and sketch dimensions as well as direct edits.
+// Accepted projection values are never used as writable defaults.
+func validateContextInputWrites(beforeJSON, afterJSON json.RawMessage, bindings []ContextBinding) error {
+	if len(bindings) == 0 {
+		return nil
+	}
+	var before, after PartModel
+	if err := json.Unmarshal(beforeJSON, &before); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(afterJSON, &after); err != nil {
+		return err
+	}
+	protected := map[string]string{}
+	for _, input := range before.ContextInputs {
+		if !contextInputBound(before, bindings, input.Target.Kind, input.Target.TargetID) {
+			continue
+		}
+		for _, p := range before.Parameters {
+			if input.Target.Kind == "PARAMETER" && p.ParameterID == input.Target.TargetID || input.Target.Kind == "DATUM" && p.OwnerFeatureID == input.Target.TargetID {
+				protected[p.ParameterID] = input.Name
+			}
+		}
+	}
+	for id, name := range protected {
+		var old, next *modelcore.ParameterDefinition
+		for i := range before.Parameters {
+			if before.Parameters[i].ParameterID == id {
+				old = &before.Parameters[i]
+			}
+		}
+		for i := range after.Parameters {
+			if after.Parameters[i].ParameterID == id {
+				next = &after.Parameters[i]
+			}
+		}
+		if old == nil || next == nil || !contextSourceEqual(old.Source, next.Source) || old.Role != next.Role {
+			return fmt.Errorf("%w: CONTEXT_INPUT_VALUE_READ_ONLY: %s", ErrValidation, name)
+		}
+	}
+	return nil
+}
+
+// A definition dialog may rename or change references without editing its
+// displayed, accepted dimension. Retain its independent source/value.
+func retainBaseSketchValues(base, projected PartModel, sketchID string, operations []SketchOperation) []SketchOperation {
+	out := append([]SketchOperation(nil), operations...)
+	constraints := func(model PartModel) map[string]SketchConstraint {
+		result := map[string]SketchConstraint{}
+		for _, f := range model.Features {
+			if f.ID == sketchID && f.Sketch != nil {
+				for _, c := range f.Sketch.Constraints {
+					result[c.ID] = c
+				}
+			}
+		}
+		return result
+	}
+	original, shown := constraints(base), constraints(projected)
+	for i := range out {
+		op := &out[i]
+		if op.Type != "UPDATE_CONSTRAINT" || op.Constraint == nil || op.ParameterSource != nil {
+			continue
+		}
+		old, a := original[op.ConstraintID]
+		visible, b := shown[op.ConstraintID]
+		if a && b && old.Value != nil && visible.Value != nil && op.Constraint.Value != nil && *op.Constraint.Value == *visible.Value {
+			copy := *op.Constraint
+			value := *old.Value
+			copy.Value = &value
+			op.Constraint = &copy
+		}
+	}
+	return out
+}
+
+func contextSourceEqual(a, b modelcore.ValueSource) bool {
+	// Alias renaming rewrites display text; the checked AST and stable reads
+	// remain the authority for whether an associated default source changed.
+	if a.Expression != nil {
+		e := *a.Expression
+		e.SourceText = ""
+		a.Expression = &e
+	}
+	if b.Expression != nil {
+		e := *b.Expression
+		e.SourceText = ""
+		b.Expression = &e
+	}
+	return reflect.DeepEqual(a, b)
 }

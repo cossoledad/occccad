@@ -2326,6 +2326,12 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if (request.Type == "SET_BODY_COLOR" || request.Type == "SET_PROPERTIES") && request.VersionID != "" && request.VersionID != prepared.headRevision {
 		return prepared, fmt.Errorf("%w: APPEARANCE_BASE_REVISION_CHANGED", ErrValidation)
 	}
+	if (request.Type == "CREATE_PRODUCT_PUBLICATION" || request.Type == "REDIRECT_PRODUCT_PUBLICATION") && request.InstancePath != nil {
+		path := request.InstancePath
+		if path.RootDocumentID != documentID || len(path.Segments) == 0 || path.Segments[0].OwnerVersionID != prepared.headRevision {
+			return prepared, fmt.Errorf("%w: PUBLICATION_TARGET_REVISION_CHANGED", ErrValidation)
+		}
+	}
 	if request.Type == "EDIT_CONTEXT_BINDING" && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
 		return prepared, fmt.Errorf("%w: CONTEXT_BINDING_REVISION_CHANGED", ErrValidation)
 	}
@@ -2361,16 +2367,22 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 		prepared.contextRootID = request.RootProductDocumentID
 		prepared.contextRootRevision = rootRevision
 		prepared.contextKey = request.ContextVariantID + "/" + rootRevision + "/" + request.InstancePath.Canonical
-		if request.Feature != nil && request.Feature.ID != "" {
+		if request.Feature != nil || request.Type == "EDIT_SKETCH" {
 			var base PartModel
 			_ = json.Unmarshal(prepared.modelJSON, &base)
 			projection := clonePartModel(base)
 			if err := service.resolveVariantModel(ctx, documentID, prepared.contextKey, &projection, bindings); err != nil {
 				return prepared, err
 			}
-			copy := *request.Feature
-			retainBaseFeatureValues(base, projection, &copy)
-			request.Feature = &copy
+			if request.Feature != nil {
+				copy := *request.Feature
+				if copy.ID == "" {
+					copy.ID = request.TargetID
+				}
+				retainBaseFeatureValues(base, projection, &copy)
+				request.Feature = &copy
+			}
+			request.Operations = retainBaseSketchValues(base, projection, request.SketchID, request.Operations)
 		}
 	}
 	command, payload, err := adapter.AdaptCommand(ctx, service, documentID, prepared.modelJSON, request)
@@ -2488,6 +2500,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err != nil {
 			return err
 		}
+	}
+	if err := validateContextInputWrites(prepared.modelJSON, nextJSON, prepared.contextBindings); err != nil {
+		return err
 	}
 	diagnosticJSON = nextJSON
 	if (request.Type == "ACTIVATE_MECHANISM" || request.Type == "EXIT_MECHANISM") && len(changes.Changes) == 0 {
@@ -2734,6 +2749,9 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	diagnostic.stage("DEFINITION")
 	nextJSON, previewChanges, err := workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
 	if err != nil {
+		return CommandPreview{}, err
+	}
+	if err := validateContextInputWrites(prepared.modelJSON, nextJSON, prepared.contextBindings); err != nil {
 		return CommandPreview{}, err
 	}
 	diagnosticJSON = nextJSON
