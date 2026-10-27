@@ -9,4 +9,4 @@
 - 常读主题以简短摘要、源码/测试入口开头，再展开细节；索引只保存路由与边界，不复制完整能力清单或执行日志。
 - 模块 README 保留职责、启动、配置、接口和故障语义，领域细节链接到 current。源码目录不因文档整理改名。
 
-验证：`python -m unittest discover -s tests/python -p 'test_documentation_audit.py'`、`invoke context-audit`、`git diff --check`。修改审计/Invoke 时补运行路由测试。完整规则见[文档维护](development/documentation.md)。
+验证：`mise run contract:check`、`mise run docs:check`、`git diff --check`。修改审计/开发入口 时补运行路由测试。完整规则见[文档维护](development/documentation.md)。

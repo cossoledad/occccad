@@ -15,3 +15,16 @@ func TestResolveDataDirectoryUsesManagedServiceWorkingDirectory(t *testing.T) {
 		t.Fatalf("absolute data directory changed to %q", got)
 	}
 }
+
+func TestManagementRequiresLoopback(t *testing.T) {
+	for _, bad := range []string{"0.0.0.0:19090", "example.org:19090", "localhost:19090", "[::]:19090", ""} {
+		if requireLoopback(bad) == nil {
+			t.Fatalf("accepted non-loopback %q", bad)
+		}
+	}
+	for _, good := range []string{"127.0.0.1:19090", "[::1]:19090"} {
+		if err := requireLoopback(good); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,13 +50,7 @@ func TestMigrationBaselinePreservesDocuments(t *testing.T) {
 		url := "sqlite:" + filepath.Join(t.TempDir(), "baseline.db")
 		testMigrationBaseline(t, url, "sqlite_migrations")
 	})
-	t.Run("PostgreSQL", func(t *testing.T) {
-		url := os.Getenv("OCCCCAD_DATABASE_URL")
-		if strings.HasPrefix(url, "sqlite:") {
-			t.Skip("NOT_APPLICABLE: configured backend is SQLite")
-		}
-		testMigrationBaseline(t, url, "postgres_migrations")
-	})
+	testConfiguredMigrationBaseline(t)
 }
 
 func testMigrationBaseline(t *testing.T, url, directory string) {

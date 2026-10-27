@@ -19,13 +19,13 @@
 
 [README](README.md)是运行和验证入口，领域事实由其链接的 current 主题拥有。公共领域/历史语义转到 `services/AGENTS.md`；复杂架构问题按 [项目地图](../../../docs/README.md) 定位。锁文件仅用于依赖版本/解析问题。
 
-`invoke run.web` / `pnpm dev` 默认连接根配置的真实 API，与人工/Agent 共用数据。Mock 仅由显式隔离场景选择；它不证明真实后台链路。
+`mise run web:dev` / `pnpm dev` 默认连接根配置的真实 API，与人工/Agent 共用数据。Mock 仅由显式隔离场景选择；它不证明真实后台链路。
 
 ## Validation
 
 - 列出场景：在本目录运行 `pnpm test -- --list [filter]`
 - 单域筛选：`pnpm test -- sketch` 或任意路径/文件名片段；成功只输出摘要，失败展开该场景输出；`--verbose` 流式显示。
-- 完整 Web：`invoke check --scope web`（scenarios + typecheck/production build）
-- 稳定精确入口：`invoke check --scope web --match <substring>`；完成后再运行完整 Web scope
+- 完整 Web：`mise run check --scope web`（scenarios + typecheck/production build）
+- 稳定精确入口：`mise run check --scope web --match <substring>`；完成后再运行完整 Web scope
 - 纯展示样式无需强造单元测试；状态机、命令、选择引用和 render data 分层必须有轻量场景。
 - 复杂视觉/拾取/交互需重启浏览器人工验收；Node scenario 和 build 不能替代 WebGL acceptance。

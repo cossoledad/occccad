@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE quiet=true
+#MISE description="web:check"
+#USAGE flag "--level <level>" default="unit" { choices "unit" "browser-mock" "browser-live"; }
+#USAGE flag "--match <match>"
+#USAGE flag "--test-jobs <test_jobs>" default="1"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry web:check "$@"

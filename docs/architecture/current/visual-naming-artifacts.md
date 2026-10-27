@@ -28,4 +28,4 @@
 
 ## 演进与边界
 
-旧 v1 文件不兼容读取；开发数据通过维护者运行 `invoke data.reset --yes` 后重建。新字段遵循 protobuf 保留字段号、glTF extension 和显式 schemaVersion；消费者不能把未知必需语义当成已支持。Preview 仍是 transient representation，可使用同一个显示 schema，但不成为正式 Naming/业务真相。
+旧 v1 文件不兼容读取；开发数据通过维护者运行 `mise run data:reset --yes` 后重建。新字段遵循 protobuf 保留字段号、glTF extension 和显式 schemaVersion；消费者不能把未知必需语义当成已支持。Preview 仍是 transient representation，可使用同一个显示 schema，但不成为正式 Naming/业务真相。

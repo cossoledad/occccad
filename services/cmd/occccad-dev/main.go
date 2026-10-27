@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/occccad/occccad/internal/devtool"
 	"os"
 	"strings"
 	"time"
@@ -49,7 +50,7 @@ func diagnoseResources(ctx context.Context, configuration config.Config) []check
 		var count int
 		err = db.QueryRow(ctx, "SELECT count(*) FROM occccad.schema_migrations").Scan(&count)
 		if err == nil && count == 0 {
-			err = fmt.Errorf("database has no applied migrations; run invoke run")
+			err = fmt.Errorf("database has no applied migrations; run mise run dev")
 		}
 		add("schema", "migration records present; actual migration validation remains enforced at startup", err)
 	}
@@ -68,7 +69,18 @@ func diagnoseResources(ctx context.Context, configuration config.Config) []check
 }
 
 func main() {
-	if len(os.Args) != 2 || os.Args[1] != "doctor" {
+	if len(os.Args) > 1 && os.Args[1] == "doctor:resources" {
+		resourceMain()
+		return
+	}
+	if err := devtool.Main(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, config.Redact(err.Error()))
+		os.Exit(1)
+	}
+}
+
+func resourceMain() {
+	if len(os.Args) != 2 || os.Args[1] != "doctor:resources" {
 		fmt.Fprintln(os.Stderr, "usage: occccad-dev doctor")
 		os.Exit(1)
 	}

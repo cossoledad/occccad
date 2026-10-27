@@ -33,7 +33,7 @@ cd services
 OCCCCAD_ALLOW_DEV_RESET=1 go run ./cmd/occccad-migrate --reset-development-data
 ```
 
-通常应使用仓库入口 `invoke data.reset --yes` 或 `invoke run.app --reset-data`，避免手工设置保护变量。制品目录为空、指向文件系统根、仓库/服务工作目录或符号链接时命令会拒绝执行；数据库凭据不会写入日志。重置不是备份或生产迁移工具，执行前必须停止使用目标数据库/目录的 API、Jobs 等进程。SQLite 文件位于制品目录内时，会先关闭连接再清理目录，重新打开后执行迁移；位于目录外时原位重建表结构。
+通常应使用仓库入口 `mise run data:reset --yes`，避免手工设置保护变量。制品目录为空、指向文件系统根、仓库/服务工作目录或符号链接时命令会拒绝执行；数据库凭据不会写入日志。重置不是备份或生产迁移工具，执行前必须停止使用目标数据库/目录的 API、Jobs 等进程。SQLite 文件位于制品目录内时，会先关闭连接再清理目录，重新打开后执行迁移；位于目录外时原位重建表结构。
 
 ## 运维规则
 
@@ -46,7 +46,7 @@ OCCCCAD_ALLOW_DEV_RESET=1 go run ./cmd/occccad-migrate --reset-development-data
 
 ```bash
 cd services
-go test ./internal/database -count=1
+go test -tags=integration ./internal/database -count=1
 ```
 
 配置从根 `.env` 读取，已导出的环境变量优先。删除前报告 PostgreSQL 数据库/schema 或 SQLite 文件、本地目录和当前配置 S3 桶；只清理这一桶，不遍历其他桶。S3 清理失败时不继续删除本地目录或数据库表，但已删除对象无法回滚；清库与存储不是跨服务事务，可修复后重复执行。版本枚举、删除和分片撤销的故障测试使用本地 SDK/HTTP fixture。真实清空使用这个统一入口及当前配置桶，不另建测试桶。

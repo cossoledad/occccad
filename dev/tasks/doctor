@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="doctor"
+#MISE quiet=true
+#USAGE flag "--scope <scope>" { choices "assembly" "geometry" "sketch" "workspace" "services" "web" "tooling" "docs" "all"; }
+#USAGE flag "--profile <profile>" default="release" { choices "release" "debug" "sanitize"; }
+#USAGE flag "--browser"
+#USAGE flag "--live"
+#USAGE flag "--json"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry doctor "$@"

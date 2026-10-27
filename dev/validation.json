@@ -1,0 +1,576 @@
+{
+  "rules": [
+    {
+      "prefix": "",
+      "suffix": ".md",
+      "scopes": [
+        "docs"
+      ]
+    },
+    {
+      "prefix": "tests/assembly-corpus/",
+      "scopes": [
+        "assembly"
+      ]
+    },
+    {
+      "prefix": "kernel/api/",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "shared kernel contract"
+    },
+    {
+      "prefix": "proto/",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "public protocol requires integration and live acceptance"
+    },
+    {
+      "prefix": "services/internal/database/",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "shared database and migrations"
+    },
+    {
+      "prefix": "CMake",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "shared build"
+    },
+    {
+      "prefix": "cmake/",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "shared build"
+    },
+    {
+      "prefix": "conan",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "dependency identity"
+    },
+    {
+      "prefix": "build-support/",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "toolchain identity"
+    },
+    {
+      "prefix": "mise.",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "shared tooling"
+    },
+    {
+      "prefix": "dev/",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "shared tooling"
+    },
+    {
+      "prefix": "services/internal/devtool/",
+      "scopes": [
+        "tooling"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "services/cmd/occccad-dev/",
+      "scopes": [
+        "tooling"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "tools/",
+      "scopes": [
+        "tooling"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "tests/tooling/",
+      "scopes": [
+        "tooling"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "tests/assembly-contract/",
+      "scopes": [
+        "tooling"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "tests/test.data/assembly-contract/",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "shared assembly evidence"
+    },
+    {
+      "prefix": "kernel/assembly/",
+      "scopes": [
+        "assembly"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "kernel/occt/",
+      "scopes": [
+        "geometry"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "workers/geometry/sketch/",
+      "scopes": [
+        "sketch"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "workers/",
+      "scopes": [
+        "all"
+      ],
+      "escalate": true,
+      "reason": "shared Worker boundary"
+    },
+    {
+      "prefix": "services/internal/workspace/",
+      "scopes": [
+        "workspace"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "services/internal/modelcore/",
+      "scopes": [
+        "workspace"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "services/",
+      "scopes": [
+        "services"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "web/",
+      "scopes": [
+        "web"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "tests/test.data/sketch/",
+      "scopes": [
+        "workspace"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "tests/test.data/",
+      "scopes": [
+        "geometry"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "tests/go/",
+      "scopes": [
+        "services"
+      ],
+      "escalate": true,
+      "reason": "cross-module conformance"
+    },
+    {
+      "prefix": "docs/",
+      "scopes": [
+        "docs"
+      ],
+      "escalate": false,
+      "reason": ""
+    },
+    {
+      "prefix": "plans/",
+      "scopes": [
+        "docs"
+      ],
+      "escalate": false,
+      "reason": ""
+    }
+  ],
+  "steps": [
+    {
+      "id": "assembly-build",
+      "task": "cpp:build",
+      "kind": "build",
+      "scopes": [
+        "assembly"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "targets": [
+        "occcad_assembly_solver_scenarios",
+        "occcad_assembly_solver_corpus"
+      ]
+    },
+    {
+      "id": "assembly-native",
+      "task": "cpp:test",
+      "kind": "ctest",
+      "scopes": [
+        "assembly"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "resources": []
+    },
+    {
+      "id": "geometry-build",
+      "task": "cpp:build",
+      "kind": "build",
+      "scopes": [
+        "geometry"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "targets": [
+        "occcad_geometry_scenarios",
+        "occccad_naming_artifact_tests"
+      ]
+    },
+    {
+      "id": "geometry-native",
+      "task": "cpp:test",
+      "kind": "ctest",
+      "scopes": [
+        "geometry"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "resources": []
+    },
+    {
+      "id": "sketch-build",
+      "task": "cpp:build",
+      "kind": "build",
+      "scopes": [
+        "sketch"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "targets": [
+        "occcad_sketch_solver_scenarios"
+      ]
+    },
+    {
+      "id": "sketch-native",
+      "task": "cpp:test",
+      "kind": "ctest",
+      "scopes": [
+        "sketch"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "resources": []
+    },
+    {
+      "id": "workspace-unit",
+      "task": "go:check",
+      "kind": "go",
+      "scopes": [
+        "workspace"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "packages": [
+        "./internal/workspace",
+        "./internal/modelcore"
+      ],
+      "resources": []
+    },
+    {
+      "id": "services-unit",
+      "task": "go:check",
+      "kind": "go",
+      "scopes": [
+        "services"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "packages": [
+        "./..."
+      ],
+      "resources": []
+    },
+    {
+      "id": "tooling-unit",
+      "task": "go:check",
+      "kind": "go",
+      "scopes": [
+        "tooling"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "packages": [
+        "./internal/devtool",
+        "./cmd/occccad-dev",
+        "./internal/config",
+        "./cmd/occccad-control",
+        "./cmd/occccad-migrate",
+        "./internal/control"
+      ],
+      "resources": []
+    },
+    {
+      "id": "integration-native",
+      "task": "cpp:build",
+      "kind": "build",
+      "scopes": [
+        "assembly",
+        "geometry",
+        "sketch",
+        "workspace",
+        "services"
+      ],
+      "levels": [
+        "integration"
+      ],
+      "targets": [
+        "occccad_geometry_worker",
+        "occcad_geometry_scenarios",
+        "occccad_naming_artifact_tests"
+      ]
+    },
+    {
+      "id": "workspace-integration",
+      "task": "go:check",
+      "kind": "go",
+      "scopes": [
+        "workspace",
+        "sketch"
+      ],
+      "levels": [
+        "integration"
+      ],
+      "packages": [
+        "./internal/workspace"
+      ],
+      "resources": [
+        "worker",
+        "database",
+        "artifact-store"
+      ]
+    },
+    {
+      "id": "router-integration",
+      "task": "go:check",
+      "kind": "go",
+      "scopes": [
+        "assembly",
+        "geometry",
+        "services"
+      ],
+      "levels": [
+        "integration"
+      ],
+      "packages": [
+        "./internal/control",
+        "./internal/geometry"
+      ],
+      "resources": [
+        "worker",
+        "database",
+        "artifact-store"
+      ]
+    },
+    {
+      "id": "services-integration",
+      "task": "go:check",
+      "kind": "go",
+      "scopes": [
+        "services"
+      ],
+      "levels": [
+        "integration"
+      ],
+      "packages": [
+        "./internal/api",
+        "./internal/assistant",
+        "./internal/automation",
+        "./internal/database",
+        "./internal/jobs",
+        "./cmd/occccad-jobs",
+        "./internal/artifact"
+      ],
+      "resources": [
+        "database",
+        "artifact-store"
+      ]
+    },
+    {
+      "id": "web-unit",
+      "task": "web:check",
+      "kind": "web",
+      "scopes": [
+        "web"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "resources": []
+    },
+    {
+      "id": "web-browser-mock",
+      "task": "web:check",
+      "kind": "browser",
+      "scopes": [
+        "web"
+      ],
+      "levels": [
+        "browser-mock"
+      ],
+      "resources": [
+        "browser"
+      ]
+    },
+    {
+      "id": "web-browser-live",
+      "task": "web:check",
+      "kind": "browser",
+      "scopes": [
+        "web"
+      ],
+      "levels": [
+        "browser-live"
+      ],
+      "resources": [
+        "live-stack",
+        "browser"
+      ]
+    },
+    {
+      "id": "docs",
+      "task": "docs:check",
+      "kind": "audit",
+      "scopes": [
+        "docs"
+      ],
+      "levels": [
+        "unit"
+      ]
+    },
+    {
+      "id": "contract-tools",
+      "task": "contract:check",
+      "kind": "node",
+      "scopes": [
+        "tooling"
+      ],
+      "levels": [
+        "unit"
+      ]
+    },
+    {
+      "id": "go-conformance-unit",
+      "task": "go:conformance",
+      "kind": "go",
+      "scopes": [
+        "services"
+      ],
+      "levels": [
+        "unit"
+      ],
+      "packages": [
+        "./exchange"
+      ]
+    },
+    {
+      "id": "go-conformance-live",
+      "task": "go:conformance",
+      "kind": "go",
+      "scopes": [
+        "services"
+      ],
+      "levels": [
+        "integration"
+      ],
+      "packages": [
+        "./realtime"
+      ],
+      "resources": [
+        "live-stack"
+      ]
+    },
+    {
+      "id": "web-production",
+      "task": "web:build",
+      "kind": "build",
+      "scopes": [
+        "web"
+      ],
+      "levels": [
+        "unit"
+      ]
+    },
+    {
+      "id": "codegen-drift",
+      "task": "codegen",
+      "kind": "audit",
+      "scopes": [
+        "tooling"
+      ],
+      "levels": [
+        "unit"
+      ]
+    }
+  ]
+}

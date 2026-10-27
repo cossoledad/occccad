@@ -37,23 +37,23 @@ Worker 使用 spdlog 1.15.3 同时输出控制台与滚动文件。托管启动�
 ## 构建与运行
 
 ```bash
-invoke configure --build-type=Release
-invoke build --build-type=Release --target=occccad_geometry_worker
-invoke run.worker --build-type=Release
+mise run cpp:deps --profile release
+mise run cpp:build --profile release --target=occccad_geometry_worker
+mise exec -- build/cmake/linux-gcc15-x86_64/release/workers/geometry/occccad_geometry_worker --profile release
 ```
 
 Geometry 测试邻近位于 `kernel/occt/tests`，PlaneGCS 测试邻近位于 `workers/geometry/sketch/tests`。可运行全部测试：
 
 ```bash
-invoke test --build-type=Release
+mise run check --scope all --level full --profile release
 ```
 
-局部开发优先使用 `invoke check --scope geometry` 或 `invoke check --scope sketch`；公共 Proto、通用 Worker/RPC 和 Router 边界使用 `invoke check --scope all`。这些命令成功时保持摘要输出，失败时展开底层诊断。
+局部开发优先使用 `mise run check --scope geometry` 或 `mise run check --scope sketch`；公共 Proto、通用 Worker/RPC 和 Router 边界使用 `mise run check --scope all`。这些命令成功时保持摘要输出，失败时展开底层诊断。
 
 只验证几何交换回归（包括 `tests/test.data/` 中的真实 STEP 语料和共享/嵌套 XDE Product round-trip）：
 
 ```bash
-invoke run.geometry --build-type=Release
+mise exec -- build/cmake/linux-gcc15-x86_64/release/workers/geometry/occccad_geometry_worker --profile release
 ```
 
 Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用分支。

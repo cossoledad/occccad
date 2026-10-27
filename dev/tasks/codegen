@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE description="codegen"
+#MISE quiet=true
+#USAGE flag "--check"
+#USAGE flag "--jobs <jobs>" env="OCCCCAD_BUILD_JOBS" default="4" help="Positive native build jobs; independent of mise scheduling"
+#USAGE flag "--verbose"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry codegen "$@"

@@ -1,6 +1,6 @@
 # Explicit live-provider evaluation
 
-该命令只在开发者显式运行时发起真实模型调用，不属于单测、`invoke check` 或 CI 默认流程。它通过当前 CAD HTTP/session 与正式 realtime Preview/Command API 创建独立评测文档，使用已有账号保存在服务端的 API Key；不读取、回显、更换或删除 Key，也不修改模型、思考度和账号预算。
+该命令只在开发者显式运行时发起真实模型调用，不属于单测、`mise run check` 或 CI 默认流程。它通过当前 CAD HTTP/session 与正式 realtime Preview/Command API 创建独立评测文档，使用已有账号保存在服务端的 API Key；不读取、回显、更换或删除 Key，也不修改模型、思考度和账号预算。
 
 从仓库根目录启动当前默认 DeepSeek 配置的服务后，在 `services/` 执行：
 

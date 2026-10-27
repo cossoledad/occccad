@@ -7,9 +7,9 @@
 按需查看：
 
 ```sh
-python tests/assembly-contract/catalog.py --capability offset.plane-plane
-python tests/assembly-contract/catalog.py --family Angle
-python tests/assembly-contract/catalog.py --case offset.plane-plane.first-normal-editor
+node tests/assembly-contract/catalog.mjs --capability offset.plane-plane
+node tests/assembly-contract/catalog.mjs --family Angle
+node tests/assembly-contract/catalog.mjs --case offset.plane-plane.first-normal-editor
 ```
 
 命令在仓库根运行；零匹配明确失败。测试映射由[合同执行器](../../../tests/assembly-contract/README.md)组合，不能覆盖生产语义。

@@ -1,4 +1,4 @@
-// Node development servers and Live tests read the same literal .env as Go/Invoke.
+// Node development servers and Live tests read the same literal .env as Go.
 // Backend values stay in the Node process; Vite exposes only its VITE_ prefix.
 import {readFileSync} from "node:fs";
 import {resolve} from "node:path";
@@ -7,7 +7,7 @@ export function readDevelopmentEnvironment(root, exported = process.env) {
   const explicit = exported.OCCCCAD_ENV_FILE?.trim();
   let content = "";
   try {
-    content = readFileSync(explicit ? resolve(explicit) : resolve(root, ".env"), "utf8");
+    content = readFileSync(explicit ? resolve(root, explicit) : resolve(root, ".env"), "utf8");
   } catch (error) {
     if (explicit || error.code !== "ENOENT") throw error;
   }

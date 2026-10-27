@@ -55,13 +55,13 @@ flowchart LR
 ## 运行
 
 ```bash
-invoke run.jobs
+mise exec -- go -C services run ./cmd/occccad-jobs
 ```
 
 完整本地拓扑使用：
 
 ```bash
-invoke run.app --build-type=Release
+mise run dev --profile release
 ```
 
 ## 失败处理
@@ -76,8 +76,7 @@ invoke run.app --build-type=Release
 多个实例可以并行消费，`SKIP LOCKED` 防止同时领取同一行。源文件解析一次，按唯一 Part Definition 生成本地坐标快照；同一 Jobs 进程的所有导入共享最多 4 个并行工作额度（`OCCCCAD_IMPORT_CONCURRENCY`：正整数，默认 4），正式 Geometry Router 可把它们分配给不同 Worker；最终 Product 组装与交换文件写出仍是确定性的 reduce 阶段。扩容前要确认 Geometry Worker 与共享制品存储容量；当前没有按任务类型隔离队列，耗时交换工作可能影响缩略图延迟。
 
 ```bash
-cd services
-go test ./...
+mise run go:check --packages ./internal/jobs --level unit --jobs 4
 ```
 
 当任务出现多阶段补偿、跨天计时、人工审批或复杂扇出时，再按[目标架构](../../../docs/architecture/target/README.md)引入工作流引擎；不要因任务数量增加就立即替换当前简单队列。
@@ -97,14 +96,14 @@ Jobs 同样使用 [统一数据库访问层](../../internal/database/README.md)�
 完整导入的定向验证（使用当前开发数据库和制品存储；创建测试账号和文件夹，结束移入回收站）：
 
 ```sh
- OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/LD200 torsen v7.step' go test ./cmd/occccad-jobs -run '^TestXdeImportSharedDefinitionsAndRoundTrip$' -count=1 -v -timeout 20m
+ OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/LD200 torsen v7.step' go test -tags=integration ./cmd/occccad-jobs -run '^TestXdeImportSharedDefinitionsAndRoundTrip$' -count=1 -v -timeout 20m
 ```
 
 测试检查源 Definition 数量、共享/嵌套引用、冻结命名、全部 Part 面绑定和进度单调性；保留命中去重的源对象，不删除业务共享制品。
 
 Part 求值结果仅携带摘要和 BREP/VISUAL/NAMING 引用，导入 identity seed 另存 Artifact。缩略图通过 `HydrateDisplay` 读取与前端相同的 GLB，不读取数据库 Mesh；仅在渲染调用范围内解码，DocumentView 不包含完整网格。详见[几何表示](../../../docs/architecture/current/geometry-representations.md)。
 
-不提供 STEP 样本时，上述集成测试生成共享 100 次 Part、共享子装配及同形不同定义的 fixture，并验证导出重新导入；与 `invoke run` 使用同一开发数据库和存储。协议细节见[交换架构](../../../docs/architecture/current/jobs-artifacts.md)。
+不提供 STEP 样本时，上述集成测试生成共享 100 次 Part、共享子装配及同形不同定义的 fixture，并验证导出重新导入；与 `mise run dev` 使用同一开发数据库和存储。协议细节见[交换架构](../../../docs/architecture/current/jobs-artifacts.md)。
 
 ## 机构研究消费者
 

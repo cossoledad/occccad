@@ -66,8 +66,8 @@ Search the command type URI, PropertySlot or test name before reading these file
 ## 验证入口
 
 ```bash
-invoke check --scope workspace --match '<test regex>'
-invoke check --scope workspace
+mise run check --scope workspace --match '<test regex>'
+mise run check --scope workspace
 ```
 
 Escalate to services/web when a public view or API changes, and to `all` for migrations, shared protocol, cross-language evaluator contracts or broad history semantics. Development data reset does not replace state-transition, retry and Undo/Redo tests.

@@ -1,3 +1,5 @@
+//go:build integration
+
 package control
 
 import (
@@ -19,7 +21,7 @@ import (
 // timing. Do not run alongside builds, benchmarks or parallel tests.
 func TestAssemblyPerformance(t *testing.T) {
 	if os.Getenv("OCCCCAD_RUN_ASSEMBLY_PERFORMANCE") != "1" {
-		t.Skip("NOT_APPLICABLE: measured separately by invoke performance.assembly")
+		t.Skip("NOT_APPLICABLE: measured separately by mise run benchmark")
 	}
 	n := 5
 	if raw := os.Getenv("OCCCCAD_PERFORMANCE_SAMPLES"); raw != "" {

@@ -20,4 +20,4 @@
 
 主密钥默认 `<OCCCCAD_DATA_DIR>/assistant/credentials.key`（0600），可覆盖 `OCCCCAD_AI_KEY_FILE`，须与数据库共同备份。多 API 进程使用相同主密钥与 Provider 配置；调度认领由其非秘密 digest 隔离。设置、事件和账本不回显 Key 或私有思考。
 
-在 `services/` 运行 `go test -p 1 ./internal/assistant ./internal/automation ./internal/api -run '^TestAssistant|^TestAutomation'`。真实集成沿用当前开发资源，故障注入使用测试临时对象；合成百万 usage 不调用付费 Provider。[证据与当前限制](../../../docs/architecture/current/automation.md#当前限制)不等于线上推理质量保证；明确小预算的线上入口见 [ai-eval](../../cmd/occccad-ai-eval/README.md)。
+在 `services/` 运行 `go test -tags=integration -count=1 -p 1 ./internal/assistant ./internal/automation ./internal/api -run '^TestAssistant|^TestAutomation'`。真实集成沿用当前开发资源，故障注入使用测试临时对象；合成百万 usage 不调用付费 Provider。[证据与当前限制](../../../docs/architecture/current/automation.md#当前限制)不等于线上推理质量保证；明确小预算的线上入口见 [ai-eval](../../cmd/occccad-ai-eval/README.md)。

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+setup_jobs=${OCCCCAD_BUILD_JOBS-4}
+setup_component=all
+setup_profile=release
+setup_arguments=("$@")
+while (($#)); do
+  case "$1" in
+    --help|-h)
+      cat <<'HELP'
+Usage: mise run setup [--component cpp|go|web|all|tooling] [--profile release|debug|sanitize] [--jobs N] [--verbose]
+Defaults: component=all, profile=release; jobs: explicit > OCCCCAD_BUILD_JOBS > 4.
+Prepares tools/dependencies without changing existing application configuration.
+HELP
+      exit 0 ;;
+    --component|--profile|--jobs)
+      (($# >= 2)) && [[ -n "$2" ]] || { echo "$1 requires a non-empty value" >&2; exit 2; }
+      case "$1" in
+        --component) setup_component=$2 ;;
+        --profile) setup_profile=$2 ;;
+        --jobs) setup_jobs=$2 ;;
+      esac
+      shift 2 ;;
+    --component=*) setup_component=${1#*=}; shift ;;
+    --profile=*) setup_profile=${1#*=}; shift ;;
+    --jobs=*) setup_jobs=${1#*=}; shift ;;
+    --verbose|--verbose=true|--verbose=false) shift ;;
+    *) echo "unknown setup argument: $1" >&2; exit 2 ;;
+  esac
+done
+case "$setup_component" in cpp|go|web|all|tooling) ;; *) echo 'invalid --component' >&2; exit 2 ;; esac
+case "$setup_profile" in release|debug|sanitize) ;; *) echo 'invalid --profile' >&2; exit 2 ;; esac
+[[ "$setup_jobs" =~ ^[1-9][0-9]*$ ]] || { echo '--jobs / OCCCCAD_BUILD_JOBS must be a positive decimal integer' >&2; exit 2; }
+mkdir -p build/tools build/locks
+exec 9>build/locks/tooling.lock
+flock 9
+(cd services && go build -p "$setup_jobs" -o ../build/tools/occccad-dev.new ./cmd/occccad-dev)
+mv build/tools/occccad-dev.new build/tools/occccad-dev
+flock -u 9
+exec build/tools/occccad-dev setup "${setup_arguments[@]}"

@@ -7,7 +7,7 @@ import {fileURLToPath} from "node:url";
 // Consume the production catalog, not implementationProfile or test PASS counts.
 // Every marker is emitted only after assertions for that exact capability.
 const catalog=JSON.parse(await readFile(new URL("../../../../../../../services/internal/assemblycontract/catalog.json",import.meta.url),"utf8"));
-const evidence=JSON.parse(execFileSync("python3",[fileURLToPath(new URL("../../../../../../../tests/assembly-contract/catalog.py",import.meta.url)),"--expanded"],{encoding:"utf8"}));
+const evidence=JSON.parse(execFileSync("node",[fileURLToPath(new URL("../../../../../../../tests/assembly-contract/catalog.mjs",import.meta.url)),"--expanded"],{encoding:"utf8"}));
 const requested=process.env.OCCCCAD_ASSEMBLY_CONTRACT_CASES?JSON.parse(process.env.OCCCCAD_ASSEMBLY_CONTRACT_CASES):undefined;
 const cases=catalog.capabilities.map(capability=>({
  caseId:`${capability.capabilityId}.web-production-capability`,capability,

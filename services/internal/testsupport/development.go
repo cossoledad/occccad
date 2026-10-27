@@ -15,13 +15,16 @@ import (
 
 func Environment(t *testing.T) config.Config {
 	t.Helper()
+	if !integrationEnabled {
+		t.Fatal("configured application resources require go test -tags=integration or mise run check --level integration")
+	}
 	if _, err := config.LoadEnvironment(); err != nil {
 		t.Fatal(err)
 	}
 	return config.Load()
 }
 
-// OpenDevelopmentDatabase opens exactly the database used by invoke run.
+// OpenDevelopmentDatabase opens exactly the database used by mise run dev.
 // Fixtures migrate it without resetting data or selecting another database.
 func OpenDevelopmentDatabase(t *testing.T) *database.Pool {
 	t.Helper()
@@ -48,8 +51,15 @@ func OpenArtifactStore(t *testing.T) artifact.Store {
 
 // Run loads the same environment as application startup before tests read it.
 func Run(m *testing.M) int {
+	if !integrationEnabled {
+		return m.Run()
+	}
 	if _, err := config.LoadEnvironment(); err != nil {
 		fmt.Fprintln(os.Stderr, "development environment:", err)
+		return 1
+	}
+	if err := os.MkdirAll(os.Getenv("OCCCCAD_TEST_RESOURCES_DIR"), 0700); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	return m.Run()

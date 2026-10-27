@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#MISE quiet=true
+#MISE description="contract"
+#USAGE flag "--purpose <purpose>"
+#USAGE flag "--capability <capability>"
+#USAGE flag "--family <family>"
+#USAGE flag "--layer <layer>"
+#USAGE flag "--case <case>"
+#USAGE flag "--adapters <adapters>"
+#USAGE flag "--profile <profile>" default="release" { choices "release" "debug" "sanitize"; }
+#USAGE flag "--jobs <jobs>" env="OCCCCAD_BUILD_JOBS" default="4"
+#USAGE flag "--test-jobs <test_jobs>" default="1"
+#USAGE flag "--verbose"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry contract "$@"

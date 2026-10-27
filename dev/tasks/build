@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="build"
+#MISE quiet=true
+#USAGE flag "--component <component>" default="all" { choices "cpp" "go" "web" "all" "tooling"; }
+#USAGE flag "--profile <profile>" default="release" { choices "release" "debug" "sanitize"; }
+#USAGE flag "--jobs <jobs>" env="OCCCCAD_BUILD_JOBS" default="4" help="Positive native build jobs; independent of mise scheduling"
+#USAGE flag "--verbose"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry build "$@"

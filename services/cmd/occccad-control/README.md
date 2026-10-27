@@ -64,13 +64,14 @@ flowchart LR
 ## 运行与边界
 
 ```bash
-invoke run.app --build-type=Release
+mise run dev --profile release
 ```
 
 当前未发布开发环境需要丢弃全部服务端数据并从空基线启动时：
 
 ```bash
-invoke run.app --reset-data --build-type=Release
+mise run data:reset --yes
+mise run dev --profile release
 ```
 
 重置会删除数据库中固定的 `occcad` schema 与 `OCCCCAD_DATA_DIR` 本地制品/暂存目录；S3 模式还清空当前配置的专用桶全部对象、版本和未完成分片（保留桶），再执行当前迁移。它要求旧的 occccad 进程已经停止，且不能用于已发布或需要保留外部数据的环境。
@@ -83,7 +84,7 @@ Geometry Router 的服务端、受管理 Worker 连接和 debug override 连接�
 
 ```sh
 go test ./internal/control -run '^TestGeometryRouterLargeRequestAndMeshResponse$' -count=1
-OCCCCAD_GEOMETRY_WORKER_BIN=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/large-model.step' go test ./internal/control -run '^TestLargeSTEPImportThroughManagedRouter$' -count=1 -v -timeout 15m
+OCCCCAD_GEOMETRY_WORKER_BIN=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/large-model.step' go test -tags=integration ./internal/control -run '^TestLargeSTEPImportThroughManagedRouter$' -count=1 -v -timeout 15m
 ```
 
 第二项读取 `.env` 选择实际存储后端，要求样本产生超过 4 MiB 的响应，逐组件记录响应字节数及网格/实体数量；输入为内容寻址对象，可能与业务导入共享，测试不删除源对象。Worker 和计算暂存目录独立，不创建业务文档。
@@ -91,7 +92,7 @@ OCCCCAD_GEOMETRY_WORKER_BIN=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_
 忙碌存活与真实崩溃恢复回归（只需 Worker 和大型 STEP，无数据库）：
 
 ```sh
-OCCCCAD_GEOMETRY_WORKER_BIN=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP=/absolute/path/large-model.step go test ./internal/control -run '^TestGeometryWorkerRemainsHealthyDuringSTEPTransfer$' -count=1 -v -timeout 7m
+OCCCCAD_GEOMETRY_WORKER_BIN=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP=/absolute/path/large-model.step go test -tags=integration ./internal/control -run '^TestGeometryWorkerRemainsHealthyDuringSTEPTransfer$' -count=1 -v -timeout 7m
 ```
 
 此测试强制单 Worker、驻留容量 100，在 STEP 解析期间交错 Ping 与短 RPC，随后终止测试自己的 Worker 验证恢复。

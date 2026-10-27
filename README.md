@@ -13,25 +13,16 @@
 
 ## 快速开始
 
-Linux/WSL2 构建依赖与数据库配置见[环境准备](docs/development/environment.md)。准确版本看 Conan、Go、Web 的清单与锁文件。已有根 `.env` 时保留；首次才从 `.env.example` 复制并配置数据库与 `OCCCCAD_ADMIN_PASSWORD`。
+Linux x86_64 / WSL2 使用 mise 2026.8.3+ 与系统 GCC/G++ 15。系统依赖、资源选择与调试见[环境准备](docs/development/environment.md)。已有 .env 保留；首次从 .env.example 复制并配置数据库/存储和管理员。
 
 ```bash
-python -m pip install -r requirements-build.txt
-invoke configure --build-type=Release
-invoke build --build-type=Release
-invoke run --build-type=Release
+mise trust
+mise install --locked
+mise run setup --component all --profile release --jobs 4
+mise run dev --profile release --jobs 4
 ```
 
-另开终端启动前端，默认连接同一套真实 API：
-
-```bash
-invoke run.web
-invoke doctor --live --browser
-```
-
-只读监控用 `invoke run.monitor`。原生构建默认 Release，显式 `--build-type` 优先于 `OCCCCAD_BUILD_TYPE`；调试可选 Debug。
-
-开发数据重置用 `invoke data.reset --yes` 或 `invoke run --reset-data`，先停止占用进程。清理配置所指数据库业务域、本地制品/暂存和专用 S3 桶，完整授权与范围见[开发数据边界](AGENTS.md#当前开发数据边界)。
+默认启动全栈；仅后端加 --no-web，单独前端用 `mise run web:dev`。`mise run doctor` 检查准备与资源。构建默认 release，debug/sanitize 显式选择；setup 不覆盖配置。无需安装 Invoke 或项目 Python 编排环境。
 
 ## 模块与运行单元
 
@@ -55,12 +46,15 @@ invoke doctor --live --browser
 ## 验证与维护
 
 ```bash
-invoke check --plan
-invoke check --scope <assembly|geometry|sketch|workspace|services|web>
-invoke context-audit
+mise run --quiet plan --changed --level unit --json
+mise run check --scope assembly --level unit --match DirectedAngle --jobs 4
+mise run check --scope workspace --level integration --match '^TestHistoryCapabilitiesAcrossTwoUndoAndRedoSteps$'
+mise run docs:check
 ```
 
-精确回归用 `--match`；`invoke test` 为全量入口。性能入口为 `invoke performance.assembly` 与 `invoke performance-baseline`，最新本机数据与复现见[性能基线](docs/validation/performance-baseline.md)，计时和证据边界见所属 README。文档归属、命名与链接检查见[文档维护](docs/development/documentation.md)。
+任务发现用 `mise tasks ls`，参数用 `mise run <task> --help`；[Agent 工作流](docs/development/agent-workflow.md)说明选择、证据层和结构化报告。优先最小 target/scope，不默认全库测试；浏览器只在显式选择相应 level 时运行，不自动下载。
+
+`mise run clean --component cpp --profile debug` 只清可重建输出；`mise run data:reset --yes` 独立清理已授权的配置开发资源，先停止相关进程。报告、诊断、日志和全局缓存不属于 clean。
 
 ## License
 

@@ -4,45 +4,45 @@ find_package(spdlog REQUIRED CONFIG)
 
 add_subdirectory(sketch)
 
-set(OCCCCAD_WORKER_PROTO
-    "${PROJECT_SOURCE_DIR}/proto/occccad/worker/v1/geometry_worker.proto"
-)
+# Every project Proto is generated in one native rule. Imported project files,
+# generator executables and generated headers remain in Ninja's dependency graph.
+foreach(tool IN ITEMS OCCCCAD_PROTOC_EXECUTABLE OCCCCAD_GRPC_CPP_PLUGIN_EXECUTABLE)
+    if(NOT EXISTS "${${tool}}")
+        message(FATAL_ERROR "Missing build-context generator ${tool}; run mise run cpp:deps")
+    endif()
+endforeach()
+file(GLOB_RECURSE OCCCCAD_PROTO_INPUTS CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/proto/*.proto")
 set(OCCCCAD_PROTO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-set(OCCCCAD_PROTO_SOURCE
-    "${OCCCCAD_PROTO_GENERATED_DIR}/occccad/worker/v1/geometry_worker.pb.cc"
-)
-set(OCCCCAD_PROTO_HEADER
-    "${OCCCCAD_PROTO_GENERATED_DIR}/occccad/worker/v1/geometry_worker.pb.h"
-)
-set(OCCCCAD_GRPC_SOURCE
-    "${OCCCCAD_PROTO_GENERATED_DIR}/occccad/worker/v1/geometry_worker.grpc.pb.cc"
-)
-set(OCCCCAD_GRPC_HEADER
-    "${OCCCCAD_PROTO_GENERATED_DIR}/occccad/worker/v1/geometry_worker.grpc.pb.h"
-)
-
+set(OCCCCAD_PROTO_SOURCES)
+set(OCCCCAD_PROTO_OUTPUTS)
+foreach(proto IN LISTS OCCCCAD_PROTO_INPUTS)
+    file(RELATIVE_PATH relative "${PROJECT_SOURCE_DIR}/proto" "${proto}")
+    string(REGEX REPLACE "\\.proto$" "" stem "${relative}")
+    list(APPEND OCCCCAD_PROTO_SOURCES
+        "${OCCCCAD_PROTO_GENERATED_DIR}/${stem}.pb.cc"
+        "${OCCCCAD_PROTO_GENERATED_DIR}/${stem}.grpc.pb.cc")
+    list(APPEND OCCCCAD_PROTO_OUTPUTS
+        "${OCCCCAD_PROTO_GENERATED_DIR}/${stem}.pb.cc"
+        "${OCCCCAD_PROTO_GENERATED_DIR}/${stem}.pb.h"
+        "${OCCCCAD_PROTO_GENERATED_DIR}/${stem}.grpc.pb.cc"
+        "${OCCCCAD_PROTO_GENERATED_DIR}/${stem}.grpc.pb.h")
+endforeach()
 add_custom_command(
-    OUTPUT
-        "${OCCCCAD_PROTO_SOURCE}"
-        "${OCCCCAD_PROTO_HEADER}"
-        "${OCCCCAD_GRPC_SOURCE}"
-        "${OCCCCAD_GRPC_HEADER}"
+    OUTPUT ${OCCCCAD_PROTO_OUTPUTS}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${OCCCCAD_PROTO_GENERATED_DIR}"
     COMMAND
-        $<TARGET_FILE:protobuf::protoc>
+        "${OCCCCAD_PROTOC_EXECUTABLE}"
         --proto_path=${PROJECT_SOURCE_DIR}/proto
         --cpp_out=${OCCCCAD_PROTO_GENERATED_DIR}
         --grpc_out=${OCCCCAD_PROTO_GENERATED_DIR}
-        --plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>
-        "${OCCCCAD_WORKER_PROTO}"
-    DEPENDS "${OCCCCAD_WORKER_PROTO}"
+        --plugin=protoc-gen-grpc=${OCCCCAD_GRPC_CPP_PLUGIN_EXECUTABLE}
+        ${OCCCCAD_PROTO_INPUTS}
+    DEPENDS ${OCCCCAD_PROTO_INPUTS}
+        "${OCCCCAD_PROTOC_EXECUTABLE}"
+        "${OCCCCAD_GRPC_CPP_PLUGIN_EXECUTABLE}"
     VERBATIM
 )
-
-add_library(occccad_worker_proto STATIC
-    "${OCCCCAD_PROTO_SOURCE}"
-    "${OCCCCAD_GRPC_SOURCE}"
-)
+add_library(occccad_worker_proto STATIC ${OCCCCAD_PROTO_SOURCES})
 target_include_directories(occccad_worker_proto PUBLIC "${OCCCCAD_PROTO_GENERATED_DIR}")
 target_link_libraries(occccad_worker_proto PUBLIC protobuf::libprotobuf gRPC::grpc++)
 target_compile_features(occccad_worker_proto PUBLIC cxx_std_17)

@@ -4,12 +4,14 @@ Replay an immutable numerical snapshot using the production Go adapter and C++ s
 
 ```sh
 go run ./cmd/occccad-3dreplay \
-  -worker-binary ../build/cmake/release/workers/geometry/occccad_geometry_worker \
+  -worker-binary ../build/cmake/linux-gcc15-x86_64/release/workers/geometry/occccad_geometry_worker \
   -mode original -target <NotUpdated-constraint-id> \
   -out ../build/diagnostics/original-result.3dreplay ../tests/test.data/assembly-notupdated-product.3dreplay
 ```
 
 `-worker address` uses an existing Worker or Router instead. A local Worker uses its own temporary directory and is closed on success and errors. `-out` requires a new path and never overwrites the source or an existing result. Numerical failure is structured output; malformed input, invalid table references and digests fail explicitly.
+
+The prepared development entry is `mise run diagnose --file <file> --json`. It preserves retained JSON order and numeric tokens when exporting immutable replay input. For a complete snapshot, inspect `availableDiagnosticIds`, then select the exact original attempt with `--diagnostic <id> --replay`. `observedOutcome` reports the solver result separately from command execution success.
 
 ## Input and output
 
@@ -69,8 +71,8 @@ Unit tests can load a file and call `workspace.ReplayAssemblyDiagnosticWithOptio
 
 ```sh
 # services/, matching built Worker; offline tests do not use PostgreSQL
-OCCCCAD_GEOMETRY_WORKER_BIN="$PWD/../build/cmake/release/workers/geometry/occccad_geometry_worker" \
-  go test ./internal/workspace -run 'TestAssemblyOfflineReplay|TestAssemblyDiagnostic|TestAssemblyOriginal' -count=1
+OCCCCAD_GEOMETRY_WORKER_BIN="$PWD/../build/cmake/linux-gcc15-x86_64/release/workers/geometry/occccad_geometry_worker" \
+  go test -tags=integration ./internal/workspace -run 'TestAssemblyOfflineReplay|TestAssemblyDiagnostic|TestAssemblyOriginal' -count=1
 
 go test ./internal/geometry ./internal/valuecopy -run 'TestAssembly|TestClone' -count=1
 ```

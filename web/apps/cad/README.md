@@ -24,24 +24,24 @@
 仓库根目录：
 
 ```bash
-invoke run.web
+mise run web:dev
 # 隔离前端场景
-invoke run.web --mode=mock
+mise exec -- pnpm --dir web/apps/cad dev:mock
 ```
 
-默认前端通过 `/api` 代理根 `.env` 的 `OCCCCAD_APP_LISTEN`，与正常应用和 Agent 验证共用数据。也可在 `web/` 安装依赖后执行 `pnpm dev`；`dev:mock` 是显式隔离入口。默认地址为 `http://localhost:5173`。前端 `.env.development` / `.env.mock` 只保存 Vite 参数；后端连接由根配置决定，凭据不进入浏览器变量。
+默认前端通过 `/api` 代理根 `.env` 的 `OCCCCAD_APP_LISTEN`，与正常应用和 Agent 验证共用数据。也可在 `web/` 安装依赖后执行 `pnpm dev`；`dev:mock` 是显式隔离入口。默认监听 `0.0.0.0:5173`，可通过 `http://localhost:5173` 或 `http://<开发机 IP>:5173` 访问。`mise run dev --profile release` 同样启动 Vite 开发服务器，保留 React Fast Refresh / CSS 热更新；release 不会把前端改为静态预览。前端 `.env.development` / `.env.mock` 只保存 Vite 参数；后端连接由根配置决定，凭据不进入浏览器变量。
 
 
 ## 验证
 
 ```bash
 # 仓库根：精确场景及完整 Web scope
-invoke check --scope web --match <substring>
-invoke check --scope web
-invoke web.build
+mise run check --scope web --match <substring>
+mise run check --scope web
+mise run web:build
 ```
 
-`web.build` 做类型检查与生产构建。邻近场景为 `src/**/testing/*.scenario.mjs`，每个在独立 Node 进程执行。在本目录用 `pnpm test -- --list [filter]` 预览，`pnpm test -- sketch` 按路径/文件名筛选（多个筛选 OR），零匹配失败；默认成功只输出汇总，失败展开诊断，`--verbose` 流式输出。
+`mise run web:build` 做类型检查与生产构建。邻近场景为 `src/**/testing/*.scenario.mjs`，每个在独立 Node 进程执行。在本目录用 `pnpm test -- --list [filter]` 预览，`pnpm test -- sketch` 按路径/文件名筛选（多个筛选 OR），零匹配失败；默认成功只输出汇总，失败展开诊断，`--verbose` 流式输出。
 
 浏览器环境依赖按[环境准备](../../../docs/development/environment.md#chromium-与浏览器验证)复用系统配置。在本目录：
 
@@ -53,7 +53,7 @@ pnpm test:browser
 
 Mock Playwright 自动在 5174 启动独立 Vite，使用 Chromium/软件 WebGL，结束关闭进程；失败截图和 trace 在配置的构建输出目录。`browser/workbench.spec.ts` 覆盖布局/命令/树，`browser/navigation.spec.ts` 覆盖组合手势；Mock/Node/build 不证明真实几何、权限、后端装配或原生 GPU 通过。
 
-真实服务验收先启动最新 API/Worker（`invoke run --build-type=Release`），Live 配置自动读取根 `.env` 或 `OCCCCAD_ENV_FILE` 的同一登录环境，再在本目录运行：
+真实服务验收先启动最新 API/Worker（`mise run dev --profile release`），Live 配置自动读取根 `.env` 或 `OCCCCAD_ENV_FILE` 的同一登录环境，再在本目录运行：
 
 ```bash
 pnpm exec playwright test --config playwright.live.config.ts

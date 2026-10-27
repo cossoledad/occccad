@@ -45,3 +45,40 @@ func TestEnvironmentLoadsExplicitFileAndAnchorsPaths(t *testing.T) {
 		t.Fatal("exported value overridden")
 	}
 }
+
+func TestExplicitRelativeEnvironmentIsRootAnchoredAndLiteral(t *testing.T) {
+	root, e := ProjectRoot()
+	if e != nil {
+		t.Fatal(e)
+	}
+	file := filepath.Join(t.TempDir(), "literal.env")
+	if e = os.WriteFile(file, []byte("export OCCCCAD_LITERAL_PROBE=\"$(false)\"\nOCCCCAD_LITERAL_PROBE=duplicate\nOCCCCAD_OVERRIDE_PROBE=file\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	relative, e := filepath.Rel(root, file)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Setenv("OCCCCAD_ENV_FILE", relative)
+	t.Setenv("OCCCCAD_OVERRIDE_PROBE", "exported")
+	old, exists := os.LookupEnv("OCCCCAD_LITERAL_PROBE")
+	os.Unsetenv("OCCCCAD_LITERAL_PROBE")
+	t.Cleanup(func() {
+		if exists {
+			os.Setenv("OCCCCAD_LITERAL_PROBE", old)
+		} else {
+			os.Unsetenv("OCCCCAD_LITERAL_PROBE")
+		}
+	})
+	selected, e := LoadProjectEnv()
+	if e != nil || selected != file {
+		t.Fatal(selected, e)
+	}
+	if os.Getenv("OCCCCAD_LITERAL_PROBE") != "$(false)" || os.Getenv("OCCCCAD_OVERRIDE_PROBE") != "exported" {
+		t.Fatal("literal/export precedence differs")
+	}
+	t.Setenv("OCCCCAD_ENV_FILE", relative+".missing")
+	if _, e = LoadProjectEnv(); e == nil {
+		t.Fatal("missing explicit file fell back")
+	}
+}

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE quiet=true
+#MISE description="debug:route"
+#USAGE flag "--service <service>"
+#USAGE flag "--target <target>"
+#USAGE flag "--off"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry debug:route "$@"

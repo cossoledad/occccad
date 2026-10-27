@@ -1,28 +1,21 @@
 # occccad tests
 
-本目录只保存无法归属单个实现模块的跨包、跨进程和协议 conformance。单元测试及模块级用户场景必须邻近被测实现：
+测试邻近所属实现：C++ CTest 在 kernel/Worker，Go 白盒在各包，Node scenarios 在 Web。根 tests 仅保存跨模块设施、[装配合同](assembly-contract/README.md)、[装配 corpus](assembly-corpus/README.md)、[静态数据](test.data/README.md)、Go conformance 和开发工具回归。
 
-[六类装配可执行合同](assembly-contract/README.md)是唯一生产能力目录与定向跨实现 adapter 的入口；它复用各模块邻近测试，生成实现覆盖/验证证据分离的报告。`baseline` 防止既有能力退化，`gaps` 展示完整目标、实际差异及环境阻塞；`composition` 要求每项必需的专用证据实际通过，缺失或阻塞不能成为六类自动验收通过。人工交互验收独立记录。
+公开入口是 `mise run plan` / `mise run check`，准确选择、层级、状态、报告见[Agent 工作流](../docs/development/agent-workflow.md)，资源规则见[环境](../docs/development/environment.md)。
 
-- C++ 装配 solver 场景位于 `kernel/assembly/tests`，Sketch solver 场景位于 `workers/geometry/sketch/tests`，OCCT 几何场景位于 `kernel/occt/tests`，由所属模块的 CMake 注册；
-- Web 场景位于对应 `src/**/testing/*.scenario.mjs`，每个文件在独立 Node 进程运行并由 `pnpm test` 自动发现；
-- Go 遵循工具链要求，以邻近 `_test.go` 构建 package-private 白盒测试；本目录的 `go/` 只保留通过公开边界运行的多包/进程测试；
-- `test.data/` 是文件型测试数据的唯一入口，保存 STEP/BREP、最小数值重放、草图输入、测试合同数据与截图；必要测量归[验证记录](../docs/validation/README.md)，功能限制与证据边界归所属当前主题；目录说明见 [test.data/README.md](test.data/README.md)。测试代码及生产合同仍由原模块拥有。
+```bash
+mise run --quiet plan --changed --level unit --json
+mise run check --scope assembly --level unit --match DirectedAngle --jobs 4
+mise run check --scope assembly --level integration --match '^TestAssemblyMotionThroughRealRouter$' --jobs 4 --test-jobs 1
+mise run check --scope tooling --level unit
+mise run check --scope docs --level unit
+```
 
-`invoke test` 是全量入口，依次执行全部 `tests/python` 开发工具单测、模块注册的 CTest、`services/` Go package tests、`tests/go` conformance 和自动发现的 Front 场景。Agent/局部开发使用 `invoke check --scope <domain>`，或直接运行 `invoke check` 让 Git changed-file mapping 保守选择 `assembly / geometry / sketch / workspace / services / web / all`。公共 Proto、数据库迁移、共享构建/Worker 边界和未知路径自动升级到 `all`。终态区分通过、明确不适用的跳过、环境阻塞、失败、未执行和验证期间源码变化；报告绑定当前制品与资源。失败保留完整 stdout/stderr 和复现命令，`--verbose` 可流式显示。
+Go 的配置数据库、ArtifactStore、生产 Worker 证据显式使用 integration build tag，文件资源归属见 [test-resources.json](../dev/test-resources.json)。不带 tag 的单元测试不加载应用配置；允许自己拥有短期 SQLite/RPC 对象。直接原生命令仍可用：在 services 运行 `go test ./internal/modelcore`，真实资源用 `go test -tags=integration -count=1 ./internal/control -run '^TestAssemblyMotionThroughRealRouter$'`。TestMain 复用正式配置加载器，资源依赖不能用测试名称排除规则隐瞒。
 
-`invoke check --scope <domain> --match <pattern>` 提供 Level 1 精确验证：Assembly/Geometry/Sketch 将 pattern 限制在所属 CTest 前缀，Workspace/Services 传给 Go `-run`，Web 作为场景路径 substring。`--match` 只接受一个非 `all` scope，并有意跳过跨层集成与 production build；行为完成后按风险升级到无 `--match` 的 domain scope。
+`--level full --scope all` 覆盖注册表各层，包括显式浏览器层与真实 realtime conformance；不表示所有可能后端、corpus 或平台。普通局部工作不默认全量，不自动下载浏览器或大型数据。缺资源报告 ENVIRONMENT_BLOCKED，零匹配失败，未执行不算通过。
 
-`--plan` 输出 changed paths、scope、升级原因、工作目录和底层命令但不执行。失败输出超过上下文上限时保留首尾与 error/fail/expected 等高信号行，完整 stdout/stderr 写入忽略提交的 `build/agent-check/<run>/`；这不是删除诊断。`invoke context-audit` 验证指南/项目地图尺寸、链接/锚点、文档可达性及目录归属、旧提示词残留、validation tooling 大小，并只在 `--verbose` 时列出全部已跟踪及未忽略的大文本。
+Node `pnpm --dir web/apps/cad test -- sketch` 按路径片段 OR 筛选，--list 列表，--verbose 展开。复杂交互仍需要浏览器验收，Mock/Node 不证明真实 WebGL 后台链路。`tests/go/realtime` 要求本次正常 Control/API/Jobs 应用已运行，同一 .env，不设置第二套服务/数据库地址。
 
-Front runner 支持路径/文件名片段筛选，例如在 `web/apps/cad` 运行 `pnpm test -- sketch`；`--list` 只列命中场景，`--verbose` 显示成功场景的原始输出。筛选为 OR 语义，无匹配会失败而不是假装通过。
-
-测试以行为所有权分层，而不是以语言集中：pure model tests 不启动网络或数据库；interaction scenario 用新的 driver/fixture 表达完整手势；adapter conformance 复用 corpus 比较不变量；只有 transport/process boundary 才进入根目录。禁止跨场景共享可变数组、按前一测试产生的下标断言，或把多个工具串成一个依赖执行顺序的脚本。
-
-`python/test_validation_routing.py` 固定验证 changed-file 到 scope 的路由与保守升级规则；它测试开发入口本身，不改变产品测试所有权。
-
-真实集成复用人工 `invoke run` 的同一根 `.env`、数据库和 ArtifactStore；`testsupport.OpenDevelopmentDatabase` 不另选环境。后端/事务/故障单元测试的临时对象仍只证明其局部合同。配置见[开发环境](../docs/development/environment.md)。
-
-已提交改动可用 `invoke check --base <base> --head <head> --plan --json` 选择；`--staged` 只选暂存区，重命名保留两边所有权。干净工作区不是提交验收。高频任务路由、源码位置审计及失败重放见[Agent 工作流](../docs/development/agent-workflow.md)。
-
-`tests/go/realtime` 验证正常运行的 Control/API/Jobs/WebSocket 链路，先执行 `invoke run`；它从同一 `.env` 推导应用地址和登录配置。默认导入当前 Native 生成的解析 STEP，`OCCCCAD_TEST_EXCHANGE_STEP` 可选真实 corpus。未启动应用不计通过，不设置另一套测试服务地址。
+工具回归已迁至 [Go devtool](../services/internal/devtool/devtool_test.go)、[合同测试](assembly-contract/runner.test.mjs)、[Node 工具测试](tooling/audit.test.mjs)；保留路径/rename/零匹配/skip/锁/脱敏/合同 baseline 的负例。文档审计用 `mise run docs:check`，修改审计后用 `mise run contract:check`。原始日志与结构化报告在 build，源码变更期间的旧结果不能绑定新工作区。

@@ -23,9 +23,11 @@
 
 ## Validation
 
+默认 unit 不加载应用环境；真实数据库/Worker 用 `--level integration` 或原生 `go test -tags=integration -count=1`。显式 unit 不会替代集成验收；先读 `mise run plan --changed --json` 和报告中的 outstandingEvidence。
+
 - 单包优先：在本目录运行 `go test ./internal/<owner>`，可用 `-run '<name>'` 精确筛选。
-- 稳定入口也支持 `invoke check --scope workspace --match '<test regex>'` 或 services scope；match 不包含跨包 conformance。
-- Workspace/Model Core：`invoke check --scope workspace`
-- 其他控制面：`invoke check --scope services`
-- Proto、迁移、共享 Router/build 边界：`invoke check --scope all`
+- 稳定入口也支持 `mise run check --scope workspace --match '<test regex>'` 或 services scope；match 不包含跨包 conformance。
+- Workspace/Model Core：`mise run check --scope workspace`
+- 其他控制面：`mise run check --scope services`
+- Proto、迁移、共享 Router/build 边界：`mise run check --scope all`
 - 数据语义变化按根指南从空 schema 验证；清库不是 Undo/Redo、重试或状态转换测试的替代品。

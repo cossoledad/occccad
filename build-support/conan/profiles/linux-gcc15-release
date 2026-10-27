@@ -9,7 +9,6 @@ build_type=Release
 
 [conf]
 tools.cmake.cmaketoolchain:generator=Ninja
-tools.build:jobs=4
 
 [buildenv]
 CC=gcc-15

@@ -39,6 +39,7 @@ type application struct {
 	mu                              sync.Mutex
 	apiTarget                       string
 	apiProcess, jobsProcess         *control.ManagedProcess
+	webProcess                      *control.ManagedProcess
 	jobsPaused                      bool
 	monitoringToken                 string
 	processSampler                  *monitoring.ProcSampler
@@ -60,6 +61,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := requireLoopback(value("OCCCCAD_CONTROL_LISTEN", "127.0.0.1:19090")); err != nil {
+		return err
+	}
+	if err := requireLoopback(value("OCCCCAD_API_INTERNAL_LISTEN", "127.0.0.1:18080")); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	servicesDirectory := filepath.Join(root, "services")
@@ -67,15 +74,31 @@ func run() error {
 	logDirectory := resolveDataDirectory(servicesDirectory, value("OCCCCAD_LOG_DIR", "./logs"))
 	app := &application{
 		ctx: ctx, root: root, servicesDirectory: servicesDirectory, dataDirectory: dataDirectory, logDirectory: logDirectory,
-		serverBinary:     value("OCCCCAD_SERVER_BIN", filepath.Join(root, "build", "services", "occccad-server")),
-		jobsBinary:       value("OCCCCAD_JOBS_BIN", filepath.Join(root, "build", "services", "occccad-jobs")),
+		serverBinary:     value("OCCCCAD_SERVER_BIN", filepath.Join(root, "build", "services", value("OCCCCAD_DEV_PROFILE", "release"), "occccad-server")),
+		jobsBinary:       value("OCCCCAD_JOBS_BIN", filepath.Join(root, "build", "services", value("OCCCCAD_DEV_PROFILE", "release"), "occccad-jobs")),
 		routerAddress:    value("OCCCCAD_GEOMETRY_ROUTER_LISTEN", "127.0.0.1:51001"),
 		managedAPITarget: value("OCCCCAD_API_INTERNAL_LISTEN", "127.0.0.1:18080"),
 	}
 	app.apiTarget = app.managedAPITarget
 	app.monitoringToken = randomToken()
 	app.processSampler = monitoring.NewProcSampler()
-	workerBinary := value("OCCCCAD_GEOMETRY_WORKER_BIN", filepath.Join(root, "build", "cmake",
+	managementListener, err := net.Listen("tcp", value("OCCCCAD_CONTROL_LISTEN", "127.0.0.1:19090"))
+	if err != nil {
+		return fmt.Errorf("listen control: %w", err)
+	}
+	defer managementListener.Close()
+	proxyListener, err := net.Listen("tcp", value("OCCCCAD_APP_LISTEN", value("OCCCCAD_SERVER_LISTEN", "0.0.0.0:8080")))
+	if err != nil {
+		return fmt.Errorf("listen application: %w", err)
+	}
+	defer proxyListener.Close()
+	routerListener, err := net.Listen("tcp", app.routerAddress)
+	if err != nil {
+		return fmt.Errorf("listen geometry router: %w", err)
+	}
+	defer routerListener.Close()
+	serveFailures := make(chan error, 3)
+	workerBinary := value("OCCCCAD_GEOMETRY_WORKER_BIN", filepath.Join(root, "build", "cmake", "linux-gcc15-x86_64",
 		strings.ToLower(value("OCCCCAD_BUILD_TYPE", "Release")), "workers", "geometry", "occccad_geometry_worker"))
 	app.pool = control.NewGeometryPool(ctx, control.GeometryPoolConfig{
 		WorkerBinary: workerBinary, DataDirectory: dataDirectory, LogDirectory: logDirectory,
@@ -86,35 +109,48 @@ func run() error {
 		GeometryCapacity: integer("OCCCCAD_GEOMETRY_PER_WORKER", 2),
 		IdleTimeout:      duration("OCCCCAD_GEOMETRY_WORKER_IDLE", 5*time.Minute),
 	})
+	defer func() { stop(); app.pool.Close() }()
 	if err := app.pool.Start(); err != nil {
 		return err
-	}
-	defer app.pool.Close()
-
-	routerListener, err := net.Listen("tcp", app.routerAddress)
-	if err != nil {
-		return fmt.Errorf("listen geometry router: %w", err)
 	}
 	grpcServer := grpc.NewServer(geometryrpc.ServerOptions()...)
 	workerv1.RegisterGeometryWorkerServer(grpcServer, app.pool)
 	go func() {
 		if err := grpcServer.Serve(routerListener); err != nil {
 			slog.Error("geometry router stopped", "error", err)
+			serveFailures <- err
 			stop()
 		}
 	}()
 	defer grpcServer.GracefulStop()
 
+	defer func() { stop(); app.stopManagedServices() }()
 	if err := app.startManagedServices(); err != nil {
 		return err
 	}
-	defer app.stopManagedServices()
+	if value("OCCCCAD_DEV_WEB", "false") == "true" {
+		web, err := app.startWeb()
+		if err != nil {
+			return err
+		}
+		app.webProcess = web
+		defer web.Stop(5 * time.Second)
+		go func() {
+			<-web.Done()
+			if ctx.Err() == nil {
+				slog.Error("managed frontend exited", "error", web.Err())
+				serveFailures <- fmt.Errorf("managed frontend exited unexpectedly: %v", web.Err())
+				stop()
+			}
+		}()
+	}
 
 	management := &http.Server{Addr: value("OCCCCAD_CONTROL_LISTEN", "127.0.0.1:19090"),
 		Handler: app.managementHandler(), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
-		if err := management.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := management.Serve(managementListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("control API stopped", "error", err)
+			serveFailures <- err
 			stop()
 		}
 	}()
@@ -137,8 +173,13 @@ func run() error {
 	}()
 	slog.Info("occccad application ready", "application", proxy.Addr, "control", management.Addr,
 		"geometry_router", app.routerAddress, "api_target", app.managedAPITarget)
-	err = proxy.ListenAndServe()
+	err = proxy.Serve(proxyListener)
 	if errors.Is(err, http.ErrServerClosed) {
+		select {
+		case cause := <-serveFailures:
+			return cause
+		default:
+		}
 		return nil
 	}
 	return err
@@ -162,6 +203,9 @@ func (app *application) startManagedServices() error {
 }
 
 func (app *application) startAPI() error {
+	if err := available(app.managedAPITarget); err != nil {
+		return err
+	}
 	api, err := control.StartManagedProcess(app.ctx, "api", app.serverBinary, app.servicesDirectory, nil,
 		withEnvironment("OCCCCAD_SERVER_LISTEN", app.managedAPITarget,
 			"OCCCCAD_GEOMETRY_WORKER_ADDRESS", app.routerAddress,
@@ -283,7 +327,7 @@ func (app *application) managementHandler() http.Handler {
 		writeJSON(writer, http.StatusOK, map[string]any{"apiTarget": target,
 			"managedApiTarget": app.managedAPITarget, "jobsPausedForDebug": paused,
 			"services": map[string]any{"api": processStatus(apiProcess), "jobs": processStatus(jobsProcess)},
-			"geometry": app.pool.Status()})
+			"geometry": app.pool.Status(), "web": processStatus(app.webProcess), "runtimeId": os.Getenv("OCCCCAD_RUNTIME_ID"), "workspace": app.root, "profile": os.Getenv("OCCCCAD_DEV_PROFILE")})
 	})
 	mux.HandleFunc("GET /control/monitoring/snapshot", app.monitoringSnapshot)
 	mux.HandleFunc("POST /control/debug/api", func(writer http.ResponseWriter, request *http.Request) {
@@ -428,8 +472,8 @@ func decodeTarget(writer http.ResponseWriter, request *http.Request) (string, bo
 		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "target is required"})
 		return "", false
 	}
-	if _, _, err := net.SplitHostPort(input.Target); err != nil {
-		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "target must be host:port"})
+	if err := requireLoopback(input.Target); err != nil {
+		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "target must be numeric loopback host:port"})
 		return "", false
 	}
 	return input.Target, true
@@ -497,4 +541,44 @@ func duration(name string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return result
+}
+
+// Control owns the optional frontend and only the processes it starts.
+func (app *application) startWeb() (*control.ManagedProcess, error) {
+	address := value("OCCCCAD_WEB_LISTEN", "0.0.0.0:5173")
+	if err := available(address); err != nil {
+		return nil, err
+	}
+	host, port, _ := net.SplitHostPort(address)
+	p, err := control.StartManagedProcess(app.ctx, "web", "pnpm", filepath.Join(app.root, "web/apps/cad"), []string{"dev", "--host", host, "--port", port, "--strictPort"}, os.Environ())
+	if err != nil {
+		return nil, err
+	}
+	if err = waitTCP(app.ctx, address, 20*time.Second); err != nil {
+		p.Stop(5 * time.Second)
+		return nil, err
+	}
+	if !p.Running() {
+		p.Stop(5 * time.Second)
+		return nil, fmt.Errorf("frontend exited during startup")
+	}
+	return p, nil
+}
+func requireLoopback(address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("management/debug listener must be numeric loopback: %s", address)
+	}
+	return nil
+}
+func available(address string) error {
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return fmt.Errorf("configured port unavailable (no process was killed): %s: %w", address, err)
+	}
+	return listener.Close()
 }

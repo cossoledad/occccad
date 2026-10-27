@@ -48,9 +48,9 @@ flowchart LR
 
 ### 统一本地模式
 
-原生制品默认使用 `Release`（`build/cmake/release`）：Invoke 允许 `--build-type` 或 `OCCCCAD_BUILD_TYPE` 覆盖，控制进程独立启动时同样默认选择 Release Worker。Go API、Jobs 与 Control 制品仍位于 `build/services`；前端由独立 Vite 入口启动。
+原生制品由 mise --profile release|debug|sanitize 选择，位于 `build/cmake/linux-gcc15-x86_64/<profile>`；Go 服务位于 `build/services/<profile>`。`mise run dev` 增量构建后由 Control 管理后端和可选前端；配置与资源选择规则见开发环境。
 
-`invoke run`（同 `invoke run.app`）构建后启动 `occccad-control`。控制进程：
+`mise run dev`（同 `mise run dev`）构建后启动 `occccad-control`。控制进程：
 
 1. 在 `127.0.0.1:18080` 启动 API；
 2. 启动一个 Jobs 进程；
@@ -59,7 +59,7 @@ flowchart LR
 5. 在 `0.0.0.0:8080` 提供稳定 HTTP 代理入口；
 6. 在 `127.0.0.1:19090` 提供无认证的本机 Control API。
 
-`invoke data.reset --yes` 与 `invoke run.app --reset-data` 按 `.env`（已导出环境变量优先）选择数据库和 ArtifactStore。后者在启动控制进程前运行同一受保护的开发重置：PostgreSQL 删除固定的 `occccad` schema，SQLite 删除当前配置专用数据库的全部用户表、视图与迁移记录；清空 `OCCCCAD_DATA_DIR` 对应的本地 ArtifactStore/暂存目录；S3 模式还清空当前配置专用桶中的全部对象、历史版本、删除标记和未完成分片（保留桶），再从嵌入迁移重建表结构及种子数据。SQLite 文件可位于制品目录内：清理目录前关闭数据库连接，之后重新打开并迁移。必须先停止写入进程；跨存储删除不具备原子回滚，失败后可修复并重跑。该命令只面向当前未发布开发数据；Router、Worker resident geometry 和其他进程内状态由新进程自然重建。
+独立入口 `mise run data:reset --yes` 按 `.env`（已导出环境变量优先）选择数据库和 ArtifactStore；dev 不隐式重置。受保护的开发重置范围：PostgreSQL 删除固定的 `occccad` schema，SQLite 删除当前配置专用数据库的全部用户表、视图与迁移记录；清空 `OCCCCAD_DATA_DIR` 对应的本地 ArtifactStore/暂存目录；S3 模式还清空当前配置专用桶中的全部对象、历史版本、删除标记和未完成分片（保留桶），再从嵌入迁移重建表结构及种子数据。SQLite 文件可位于制品目录内：清理目录前关闭数据库连接，之后重新打开并迁移。必须先停止写入进程；跨存储删除不具备原子回滚，失败后可修复并重跑。该命令只面向当前未发布开发数据；Router、Worker resident geometry 和其他进程内状态由新进程自然重建。
 
 ```mermaid
 sequenceDiagram
@@ -70,7 +70,7 @@ sequenceDiagram
     participant R as Geometry Router
     participant G as Geometry Worker
 
-    Dev->>C: invoke run.app
+    Dev->>C: mise run dev
     C->>G: start and wait for Ping
     C->>R: serve gRPC
     C->>A: start with internal addresses
@@ -78,15 +78,15 @@ sequenceDiagram
     C-->>Dev: expose :8080 and :19090
 ```
 
-人工运行与真实集成使用同一 `.env` 的数据库、制品存储、暂存和日志，不另选测试环境。Go 启动与测试共用 `config.LoadEnvironment`；生成输入位于 `build/test-resources`，不是另一套业务存储。`invoke run` 写入源码/制品/资源身份与本次进程标识，`invoke doctor --live` 可发现未重启的旧构建或配置。详细路径规则见[开发环境](../../development/environment.md)。
+人工运行与真实集成使用同一 `.env` 的数据库、制品存储、暂存和日志，不另选测试环境。Go 启动与测试共用 `config.LoadEnvironment`；生成输入位于 `build/test-resources`，不是另一套业务存储。`mise run dev` 写入源码/制品/资源身份与本次进程标识，`mise run doctor --live` 可发现未重启的旧构建或配置。详细路径规则见[开发环境](../../development/environment.md)。
 
 ### 独立模式
 
-- `invoke run.worker`：单独启动 Geometry Worker；
-- `invoke run.server`：单独启动 API；
-- `invoke run.jobs`：单独启动任务消费者；
-- `invoke run.web`：前端代理同一根配置的真实 API；
-- `invoke run.web --mode=mock`：前端隔离场景。
+- `mise exec -- build/cmake/linux-gcc15-x86_64/release/workers/geometry/occccad_geometry_worker`：单独启动 Geometry Worker；
+- `mise exec -- go -C services run ./cmd/occccad-server`：单独启动 API；
+- `mise exec -- go -C services run ./cmd/occccad-jobs`：单独启动任务消费者；
+- `mise run web:dev`：前端代理同一根配置的真实 API；
+- `mise exec -- pnpm --dir web/apps/cad dev:mock`：前端隔离场景。
 
 当前没有容器编排清单、服务发现、跨主机 Worker 注册、分布式租户配额或生产网关。
 

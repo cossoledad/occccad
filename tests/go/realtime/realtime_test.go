@@ -1,3 +1,5 @@
+//go:build integration
+
 package realtime_test
 
 import (
@@ -43,7 +45,7 @@ func TestRealtimeTwoClientCommit(t *testing.T) {
 	base := developmentEndpoint(t)
 	password := os.Getenv("OCCCCAD_ADMIN_PASSWORD")
 	if password == "" {
-		t.Skip("configured development login missing; prepare .env and invoke run")
+		t.Skip("configured development login missing; prepare .env and mise run dev")
 	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -103,7 +105,7 @@ func TestRealtimeExchangeImportNotification(t *testing.T) {
 	password := os.Getenv("OCCCCAD_ADMIN_PASSWORD")
 	stepPath := os.Getenv("OCCCCAD_TEST_EXCHANGE_STEP")
 	if password == "" {
-		t.Skip("configured development login missing; prepare .env and invoke run")
+		t.Skip("configured development login missing; prepare .env and mise run dev")
 	}
 	if stepPath == "" {
 		testsupport.PrepareAssemblyFixtures(t)

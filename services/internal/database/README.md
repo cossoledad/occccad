@@ -41,7 +41,7 @@ PostgreSQL 使用 `postgres_migrations/0001_baseline.sql`，SQLite 使用 `sqlit
 公共迁移目录检查要求两边文件数量、文件名和连续编号一致；SQL 内容与 SHA-256 校验值按后端分别记录。后续结构变更同时增加同名、同编号的两种方言文件。PostgreSQL 使用连接级 advisory lock，SQLite 使用 BEGIN IMMEDIATE；结构变更与对应迁移记录在事务中提交。已应用文件校验失败、未知旧文件或迁移记录缺号时拒绝继续，不自动补写 checksum 或替换旧记录。
 
 当前是未发布开发基线，旧迁移链不能直接升级到该基线；已有旧库需要显式重建。普通 `Migrate` 不删除用户数据，也不会自动运行 reset。
-SQLite 迁移不读取 PostgreSQL，也不需要联网。`invoke data.reset --yes` 与 `invoke run.app --reset-data` 按环境配置选择后端：PostgreSQL 删除 `occccad` schema，SQLite 在事务内删除当前专用数据库的全部用户表、视图及迁移记录，再执行迁移恢复表结构与种子数据。SQLite 文件应专用于本应用；文件位于制品目录内时，清理目录前先关闭连接，再重新打开数据库迁移。执行前须停止 API、Jobs 等占用进程。
+SQLite 迁移不读取 PostgreSQL，也不需要联网。独立入口 `mise run data:reset --yes` 按环境配置选择后端：PostgreSQL 删除 `occccad` schema，SQLite 在事务内删除当前专用数据库的全部用户表、视图及迁移记录，再执行迁移恢复表结构与种子数据。SQLite 文件应专用于本应用；文件位于制品目录内时，清理目录前先关闭连接，再重新打开数据库迁移。执行前须停止 API、Jobs 等占用进程。
 
 ## 配置
 
@@ -63,4 +63,4 @@ SQLite 迁移不读取 PostgreSQL，也不需要联网。`invoke data.reset --ye
 - `go test ./internal/database -count=1` 验证迁移目录、SQLite 查询/事务、批处理与调度。
 - SQLite 方言、锁、回滚和故障注入使用单元测试临时对象；这些断言不替代真实应用链路。
 - 当前配置为 PostgreSQL 时，pool 与 PostgreSQL 迁移/只读 schema parity 测试使用同一开发数据库；SQLite 配置下明确报告不适用，不另建测试库。迁移损坏注入的恢复属于对应测试，不改变正常 Migrate 的拒绝策略。
-- `invoke check --scope services --match '^TestSolidBooleanLifecycleThroughRouter$'` 验证当前 Router、Worker、ArtifactStore 与数据库中的真实 Preview/提交/失败/历史/冷读链路。
+- `mise run check --scope services --match '^TestSolidBooleanLifecycleThroughRouter$'` 验证当前 Router、Worker、ArtifactStore 与数据库中的真实 Preview/提交/失败/历史/冷读链路。

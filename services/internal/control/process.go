@@ -2,23 +2,31 @@ package control
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/occccad/occccad/internal/config"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
 
 type ManagedProcess struct {
-	name    string
-	command *exec.Cmd
-	done    chan struct{}
-	mu      sync.Mutex
-	waitErr error
+	name     string
+	instance string
+	command  *exec.Cmd
+	done     chan struct{}
+	mu       sync.Mutex
+	waitErr  error
 }
 
 func StartManagedProcess(ctx context.Context, name, executable, workingDirectory string, arguments []string, environment []string) (*ManagedProcess, error) {
@@ -38,21 +46,48 @@ func StartManagedProcessPassthrough(ctx context.Context, name, executable, worki
 func startManagedProcess(ctx context.Context, name, executable, workingDirectory string, arguments []string, environment []string, stdout, stderr io.Writer) (*ManagedProcess, error) {
 	command := exec.CommandContext(ctx, executable, arguments...)
 	command.Dir = workingDirectory
-	command.Env = environment
+	token := make([]byte, 16)
+	if _, err := rand.Read(token); err != nil {
+		return nil, err
+	}
+	instance := hex.EncodeToString(token)
+	if environment == nil {
+		environment = os.Environ()
+	}
+	command.Env = []string{}
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, "OCCCCAD_PROCESS_INSTANCE=") {
+			command.Env = append(command.Env, entry)
+		}
+	}
+	command.Env = append(command.Env, "OCCCCAD_PROCESS_INSTANCE="+instance)
 	command.Stdout = stdout
 	command.Stderr = stderr
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := command.Start(); err != nil {
-		return nil, fmt.Errorf("start %s: %w", name, err)
-	}
-	process := &ManagedProcess{name: name, command: command, done: make(chan struct{})}
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGTERM}
+	command.Cancel = func() error { return command.Process.Signal(syscall.SIGTERM) }
+	command.WaitDelay = 5 * time.Second
+	process := &ManagedProcess{name: name, instance: instance, command: command, done: make(chan struct{})}
+	started := make(chan error, 1)
 	go func() {
+		// Linux Pdeathsig follows the creating thread. Keep it alive for the
+		// child's lifetime so Go thread retirement cannot terminate a Worker.
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		if err := command.Start(); err != nil {
+			started <- err
+			return
+		}
+		started <- nil
 		err := command.Wait()
+		process.signalGroup(syscall.SIGTERM)
 		process.mu.Lock()
 		process.waitErr = err
 		process.mu.Unlock()
 		close(process.done)
 	}()
+	if err := <-started; err != nil {
+		return nil, fmt.Errorf("start %s: %w", name, err)
+	}
 	slog.Info("managed process started", "service", name, "pid", command.Process.Pid)
 	return process, nil
 }
@@ -61,7 +96,7 @@ func (process *ManagedProcess) Stop(timeout time.Duration) error {
 	if process == nil || process.command == nil || process.command.Process == nil {
 		return nil
 	}
-	_ = syscall.Kill(-process.command.Process.Pid, syscall.SIGTERM)
+	process.signalGroup(syscall.SIGTERM)
 	select {
 	case <-process.done:
 		err := process.Err()
@@ -72,9 +107,14 @@ func (process *ManagedProcess) Stop(timeout time.Duration) error {
 			}
 		}
 	case <-time.After(timeout):
-		_ = syscall.Kill(-process.command.Process.Pid, syscall.SIGKILL)
+		process.signalGroup(syscall.SIGKILL)
 		<-process.done
 	}
+	deadline := time.Now().Add(timeout)
+	for process.signalGroup(syscall.SIGTERM) && time.Now().Before(deadline) {
+		time.Sleep(25 * time.Millisecond)
+	}
+	process.signalGroup(syscall.SIGKILL)
 	slog.Info("managed process stopped", "service", process.name)
 	return nil
 }
@@ -106,10 +146,22 @@ func (process *ManagedProcess) Err() error {
 type logWriter struct {
 	service string
 	level   slog.Level
+	mu      sync.Mutex
+	pending strings.Builder
 }
 
 func (writer *logWriter) Write(data []byte) (int, error) {
-	message := string(data)
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	writer.pending.Write(data)
+	text := writer.pending.String()
+	index := strings.LastIndex(text, "\n")
+	if index < 0 {
+		return len(data), nil
+	}
+	message := config.Redact(text[:index+1])
+	writer.pending.Reset()
+	writer.pending.WriteString(text[index+1:])
 	if writer.level >= slog.LevelError {
 		slog.Error("service output", "service", writer.service, "message", message)
 	} else {
@@ -119,3 +171,40 @@ func (writer *logWriter) Write(data []byte) (int, error) {
 }
 
 var _ io.Writer = (*logWriter)(nil)
+
+// A process group can outlive its original leader. Confirm the per-launch
+// token in /proc before signalling descendants, including after leader exit.
+func (process *ManagedProcess) signalGroup(signal syscall.Signal) bool {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return false
+	}
+	owned := false
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		p := filepath.Join("/proc", entry.Name())
+		stat, err := os.ReadFile(filepath.Join(p, "stat"))
+		if err != nil {
+			continue
+		}
+		index := strings.LastIndex(string(stat), ")")
+		if index < 0 {
+			continue
+		}
+		fields := strings.Fields(string(stat)[index+1:])
+		if len(fields) < 3 || fields[2] != strconv.Itoa(process.command.Process.Pid) || fields[0] == "Z" {
+			continue
+		}
+		env, err := os.ReadFile(filepath.Join(p, "environ"))
+		if err != nil || !strings.Contains("\x00"+string(env), "\x00OCCCCAD_PROCESS_INSTANCE="+process.instance+"\x00") {
+			return false
+		}
+		owned = true
+	}
+	if owned {
+		_ = syscall.Kill(-process.command.Process.Pid, signal)
+	}
+	return owned
+}

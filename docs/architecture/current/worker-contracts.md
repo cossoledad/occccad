@@ -75,4 +75,4 @@ Job key 应覆盖规范输入、依赖 Revision、evaluator/kernel/solver 版本
 - Worker 无业务数据库凭据，持久协议无 OCCT/临时 topology/mesh primitive identity；
 - 当前开发期的契约统一后从空数据重建；发布边界后才执行追加演进与旧协议兼容测试。
 
-相关验证从 `invoke check --scope geometry`、`invoke check --scope services` 或精确 `--match` 开始；共享 Proto/Router 改动按 `invoke check --plan` 给出的升级路径执行。
+相关验证从 `mise run check --scope geometry`、`mise run check --scope services` 或精确 `--match` 开始；共享 Proto/Router 改动按 `mise run plan` 给出的升级路径执行。

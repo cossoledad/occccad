@@ -1,5 +1,7 @@
 # 本机性能基线
 
+> 历史测量记录：文中的 Invoke/Python 命令是当时执行证据，已退出活动流程；当前复现入口见[开发环境](../development/environment.md)与 `mise run benchmark`。这些历史结果不代表新流程已运行。
+
 测量日期：2026-10-16 UTC；源码 HEAD：`a8dd5345a35c5f547466ef3ba45455d9cd61b6d6`，含工作区改动；准确源码摘要、二进制、命令、资源身份和完整样本见[机器可读数据](performance-baseline.json)。这些样本仅描述指定源码与环境。
 
 ## 环境与计时范围

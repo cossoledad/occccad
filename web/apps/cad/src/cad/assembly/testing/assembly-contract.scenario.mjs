@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 
 // Included by the existing assembly scenario discovery, so catalog-only edits
 // also check mapping/semantic locks without running a new full test platform.
-execFileSync("python3", [resolve("../../../tests/assembly-contract/runner.py"), "validate"], { stdio: "pipe" });
+execFileSync("node", [resolve("../../../tests/assembly-contract/runner.mjs"), "validate"], { stdio: "pipe" });
 
 const require = createRequire(new URL("../../../../package.json", import.meta.url));
 const ts = require("typescript");
@@ -15,7 +15,7 @@ const output = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const actual = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
-const catalog = JSON.parse(execFileSync("python3",[resolve("../../../tests/assembly-contract/catalog.py"),"--expanded"],{encoding:"utf8"}));
+const catalog = JSON.parse(execFileSync("node",[resolve("../../../tests/assembly-contract/catalog.mjs"),"--expanded"],{encoding:"utf8"}));
 const selection = process.env.OCCCCAD_ASSEMBLY_CONTRACT_CASES
   ? JSON.parse(process.env.OCCCCAD_ASSEMBLY_CONTRACT_CASES) : undefined;
 const fixturePath = "web/apps/cad/src/cad/assembly/testing/assembly-contract.scenario.mjs";

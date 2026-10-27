@@ -24,8 +24,8 @@ Go 操作负责关系与尺寸的原子创建、Parameter/单位以及历史。
 
 ## 验证
 
-- 定向：`invoke check --scope sketch --match ParallelLineDistance`
-- 领域：`invoke check --scope sketch`
+- 定向：`mise run check --scope sketch --match ParallelLineDistance`
+- 领域：`mise run check --scope sketch`
 
 对应 `tests/solver_scenarios.cpp` 中 `ParallelLineDistance*`：实际残差、DOF、
 非原点倾斜线、反向/选择顺序、零/重合初值、尺度变化、内置轴、已有 H/V、
@@ -56,7 +56,7 @@ Go 操作负责关系与尺寸的原子创建、Parameter/单位以及历史。
 没有相应适配，明确拒绝。椭圆弧范围外的点/切点、圆退化和负/零半轴不能当成可行结果；
 有限参数分支没有全局穷举保证，范围门禁失败返回数值失败诊断，不宣称已证明无解。
 
-测试入口：`invoke check --scope sketch --match 'Ellipse|Elliptical'`。
+测试入口：`mise run check --scope sketch --match 'Ellipse|Elliptical'`。
 `Ellipse*` / `EllipticalArc*` 场景覆盖五/七 DOF、真实半轴尺寸、解析椭圆残差、
 Line tangent、端点连接、Equal/Concentric、反向跨周期弧、弧范围门禁和退化拒绝。
 
@@ -88,8 +88,8 @@ PlaneGCS 原生对称的 Perpendicular 以两条线长度归一，合法轴上�
 适配仅改该原语的 rescale 为轴长归一，保留原生精确 residual 与 analytic gradient。
 `ReflectionNormalResidual*` 对零/非零 chord 全部参数进行中央差分导数验证。
 
-验证入口：`invoke check --scope sketch --match LinkedMirror` 与
-`ctest --test-dir build/cmake/release -R '^geometry/ExactSketchCurve' --output-on-failure`。
+验证入口：`mise run check --scope sketch --match LinkedMirror` 与
+`ctest --test-dir build/cmake/linux-gcc15-x86_64/release -R '^geometry/ExactSketchCurve' --output-on-failure`。
 其中 kernel 测试独立检查 rational curve 解析值/端部 D1、FIT/canonical 值和 D1、
 周期转非周期、exact split、镜像整曲线等变性及 canonical Profile Shape gate。
 
@@ -106,7 +106,7 @@ PlaneGCS 原生对称的 Perpendicular 以两条线长度归一，合法轴上�
 不新增方程种类，不固定几何；两条自由线共线保留 6 DOF。
 同一支撑对的非平行 Angle 与 Collinear 数学矛盾在原生数值求解前明确返回双方 ID；
 其他数值不收敛继续是 failed，不能据此宣称冲突。
-测试入口：`invoke check --scope sketch --match 'ProjectedDistance|Collinear'`。
+测试入口：`mise run check --scope sketch --match 'ProjectedDistance|Collinear'`。
 
 ## 支撑关系与精确端部相切
 
@@ -118,7 +118,7 @@ Line × Arc/EllipticalArc 指定 START/END 时使用真实端点接触和原生�
 已有 Coincident 到 Line 端点时去重 PointOnLine。CONTROL 开放 clamped 非周期 Spline
 端部切向以首/末极点 chord 编译 Parallel：有理 B-Spline 端部 D1 是该 chord 的正标量倍数。
 拒绝奇异零导数、FIT 点冒充极点、周期/未 clamped 的该端部组合。FIT 可显式转换 CONTROL。
-入口：`invoke check --scope sketch --match 'SameSupport|SelfMirror|Endpoint|ReflectionNormal'`。
+入口：`mise run check --scope sketch --match 'SameSupport|SelfMirror|Endpoint|ReflectionNormal'`。
 
 精确 Profile 分类由 `classify_sketch_profile` 执行：真正参数曲线 self-intersection、
 非相邻接触、边重叠、环间交点先拒绝，再用原生 wire/face、面积与 BRepClass 确定孔/岛。

@@ -31,6 +31,13 @@ type Config struct {
 // launched either from the repository root or from services/.
 func LoadProjectEnv() (string, error) {
 	if explicit := strings.TrimSpace(os.Getenv("OCCCCAD_ENV_FILE")); explicit != "" {
+		if !filepath.IsAbs(explicit) {
+			root, err := ProjectRoot()
+			if err != nil {
+				return "", err
+			}
+			explicit = filepath.Join(root, explicit)
+		}
 		return explicit, loadEnvFile(explicit)
 	}
 	directory, err := os.Getwd()

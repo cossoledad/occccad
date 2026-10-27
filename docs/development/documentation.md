@@ -49,6 +49,6 @@ build/                           生成报告、临时记录、日志和制品
 1. 检查工作区，定位主题、调用方及已存在的权威说明。
 2. 移动时同步 Markdown、源码注释、工具内路径；保留资源相对链接，标题改变时修正锚点。用 Git 历史追溯，不加旧路径跳转页。
 3. 新文档加入所属索引，确保根 README/AGENTS 可经链接找到。不要只用反引号列出路径。
-4. 运行 `invoke context-audit`，修改审计时运行对应 Python 测试，最后 `git diff --check`。
+4. 运行 `mise run docs:check`，修改审计时运行对应 Python 测试，最后 `git diff --check`。
 
-审计验证本地路径/锚点、围栏、指南尺寸、知识目录及文档可达性；静态可达不证明内容正确。`python tools/documentation_audit.py --baseline <git-revision>` 可比较字节数与入口链。字节是可复现代理指标，不是模型 token 数，也不证明任务耗时改善；入口链不含实际源码、测试读取或系统注入成本。
+审计验证本地路径/锚点、围栏、指南尺寸、知识目录及文档可达性；静态可达不证明内容正确。`node tools/documentation-audit.mjs --baseline <git-revision>` 可比较字节数与入口链。字节是可复现代理指标，不是模型 token 数，也不证明任务耗时改善；入口链不含实际源码、测试读取或系统注入成本。

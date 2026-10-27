@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#MISE description="clean"
+#MISE quiet=true
+#USAGE flag "--component <component>" default="all" { choices "cpp" "go" "web" "all" "tooling"; }
+#USAGE flag "--profile <profile>" default="release" { choices "release" "debug" "sanitize"; }
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry clean "$@"

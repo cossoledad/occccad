@@ -3,12 +3,14 @@ package config
 import (
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 )
 
 // Redact removes configured credentials from operational error text. Domain
 // snapshots never include the environment itself.
 func Redact(text string) string {
+	text = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+(?::[^\s/@]*)?@`).ReplaceAllString(text, "${1}<redacted>@")
 	dsn := Load().DatabaseURL
 	text = strings.ReplaceAll(text, dsn, "<configured database>")
 	secrets := []string{}
@@ -18,6 +20,12 @@ func Redact(text string) string {
 	if parsed, err := url.Parse(dsn); err == nil && parsed.User != nil {
 		password, _ := parsed.User.Password()
 		secrets = append(secrets, password)
+	}
+	for _, entry := range os.Environ() {
+		key, v, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(key, "OCCCCAD_") && (strings.Contains(key, "TOKEN") || strings.Contains(key, "PASSWORD") || strings.Contains(key, "SECRET") || strings.Contains(key, "API_KEY")) {
+			secrets = append(secrets, v)
+		}
 	}
 	for _, secret := range secrets {
 		if secret == "" {

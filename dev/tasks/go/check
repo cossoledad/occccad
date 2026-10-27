@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE quiet=true
+#MISE description="go:check"
+#USAGE flag "--packages <packages>"
+#USAGE flag "--level <level>" default="unit" { choices "unit" "integration"; }
+#USAGE flag "--match <match>"
+#USAGE flag "--jobs <jobs>" env="OCCCCAD_BUILD_JOBS" default="4"
+#USAGE flag "--test-jobs <test_jobs>" default="1"
+#USAGE flag "--profile <profile>" default="release" { choices "release" "debug" "sanitize"; }
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry go:check "$@"

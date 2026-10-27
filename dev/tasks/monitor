@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE quiet=true
+#MISE description="monitor"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry monitor "$@"

@@ -21,55 +21,55 @@
       "name": "occccad: API (routed debug)",
       "type": "go",
       "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}/services/cmd/occccad-server",
+      "mode": "exec",
+      "program": "${workspaceFolder}/build/services/debug/occccad-server",
       "cwd": "${workspaceFolder}/services",
-      "envFile": "${workspaceFolder}/.env",
       "env": {
         "OCCCCAD_SERVER_LISTEN": "127.0.0.1:18081",
-        "OCCCCAD_GEOMETRY_WORKER_ADDRESS": "127.0.0.1:51001"
+        "OCCCCAD_GEOMETRY_WORKER_ADDRESS": "127.0.0.1:51001",
+        "OCCCCAD_DEV_PROFILE": "debug",
+        "OCCCCAD_BUILD_TYPE": "Debug"
       },
-      "preLaunchTask": "control: debug API on",
+      "preLaunchTask": "go: API debug and route",
       "postDebugTask": "control: debug API off"
     },
     {
       "name": "occccad: Jobs (exclusive debug)",
       "type": "go",
       "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}/services/cmd/occccad-jobs",
+      "mode": "exec",
+      "program": "${workspaceFolder}/build/services/debug/occccad-jobs",
       "cwd": "${workspaceFolder}/services",
-      "envFile": "${workspaceFolder}/.env",
       "env": {
-        "OCCCCAD_GEOMETRY_WORKER_ADDRESS": "127.0.0.1:51001"
+        "OCCCCAD_GEOMETRY_WORKER_ADDRESS": "127.0.0.1:51001",
+        "OCCCCAD_DEV_PROFILE": "debug",
+        "OCCCCAD_BUILD_TYPE": "Debug"
       },
-      "preLaunchTask": "control: debug Jobs on",
+      "preLaunchTask": "go: Jobs debug and route",
       "postDebugTask": "control: debug Jobs off"
     },
     {
       "name": "occccad: Geometry Worker (routed debug)",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/build/cmake/debug/workers/geometry/occccad_geometry_worker",
+      "program": "${workspaceFolder}/build/cmake/linux-gcc15-x86_64/debug/workers/geometry/occccad_geometry_worker",
       "cwd": "${workspaceFolder}",
       "environment": [
-        { "name": "OCCCCAD_GEOMETRY_WORKER_LISTEN", "value": "127.0.0.1:51999" }
+        {
+          "name": "OCCCCAD_GEOMETRY_WORKER_LISTEN",
+          "value": "127.0.0.1:51999"
+        }
       ],
       "MIMode": "gdb",
       "setupCommands": [
-        { "description": "Enable pretty printing", "text": "-enable-pretty-printing", "ignoreFailures": true }
+        {
+          "description": "Enable pretty printing",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
       ],
-      "preLaunchTask": "control: debug Geometry on",
+      "preLaunchTask": "cpp: worker debug and route",
       "postDebugTask": "control: debug Geometry off"
-    },
-    {
-      "name": "occccad: Control Plane",
-      "type": "go",
-      "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}/services/cmd/occccad-control",
-      "cwd": "${workspaceFolder}",
-      "envFile": "${workspaceFolder}/.env"
     }
   ]
 }

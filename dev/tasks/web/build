@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#MISE description="web:build"
+#MISE quiet=true
+#USAGE flag "--jobs <jobs>" env="OCCCCAD_BUILD_JOBS" default="4" help="Positive native build jobs; independent of mise scheduling"
+#USAGE flag "--verbose"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry web:build "$@"

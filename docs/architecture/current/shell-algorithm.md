@@ -57,4 +57,4 @@
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `Shell*`：平面、放样、圆角后抽壳、倾斜盲孔、厚度跨越孔半径、材料分类、完整 Naming、网格及上游不可变。
 - `services/internal/geometry/shell_worker_integration_test.go`：真实 Worker 与制品；`services/internal/control/shell_naming_integration_test.go`：Router 下的内外拓扑归属、属性／显示一致、编辑、Undo/Redo、重开和冷重建；`web/apps/cad/browser/solid-feature-live.spec.ts`：真实拾取、高亮、预览、提交、编辑、失败恢复和重开。
 
-执行入口为 `invoke check --scope geometry --match Shell`；测试范围与实际结果另行记录，不将测试存在视为验收通过。
+执行入口为 `mise run check --scope geometry --match Shell`；测试范围与实际结果另行记录，不将测试存在视为验收通过。

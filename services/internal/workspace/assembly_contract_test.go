@@ -11,7 +11,7 @@ import (
 // Test-only adapter: the single catalog supplies inputs and independent expected
 // parameter availability; the implementation remains assemblyCapabilities.
 func TestAssemblyContractCatalog(t *testing.T) {
-	data, err := exec.Command("python3", "../../../tests/assembly-contract/catalog.py", "--expanded").Output()
+	data, err := exec.Command("node", "../../../tests/assembly-contract/catalog.mjs", "--expanded").Output()
 	if err != nil {
 		t.Fatal(err)
 	}

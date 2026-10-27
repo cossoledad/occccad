@@ -1,14 +1,14 @@
 # 六类装配约束可执行合同
 
-这里是六类约束的跨实现执行入口，不是第二套持久 Constraint 模型。唯一[生产合同](../../services/internal/assemblycontract/README.md)拥有数学语义；`../test.data/assembly-contract/catalog.json` 是组合索引。`catalog.py` 读取生产合同与测试专用 `../test.data/assembly-contract/evidence.json`，不允许测试元数据覆盖生产声明。数学/产品预期见[当前合同](../../docs/architecture/current/assembly-constraints.md)，当前行为见[Product](../../docs/architecture/current/product-assembly.md)，后续任务只见 [CAD 核心主线](../../plans/cad-core-roadmap.md)。
+这里是六类约束的跨实现执行入口，不是第二套持久 Constraint 模型。唯一[生产合同](../../services/internal/assemblycontract/README.md)拥有数学语义；`../test.data/assembly-contract/catalog.json` 是组合索引。`catalog.mjs` 读取生产合同与测试专用 `../test.data/assembly-contract/evidence.json`，不允许测试元数据覆盖生产声明。数学/产品预期见[当前合同](../../docs/architecture/current/assembly-constraints.md)，当前行为见[Product](../../docs/architecture/current/product-assembly.md)，后续任务只见 [CAD 核心主线](../../plans/cad-core-roadmap.md)。
 
 ## 文件与证据职责
 
-- `../test.data/assembly-contract/catalog.json` 与本目录 `catalog.py`：组合入口；默认输出短摘要，`--capability`/`--family`/`--case` 定向查询，`--expanded` 是适配器显式完整导出。生产保持 schemaVersion=1、contractVersion=assembly-six-families-v2。
+- `../test.data/assembly-contract/catalog.json` 与本目录 `catalog.mjs`：组合入口；默认输出短摘要，`--capability`/`--family`/`--case` 定向查询，`--expanded` 是适配器显式完整导出。生产保持 schemaVersion=1、contractVersion=assembly-six-families-v2。
 - `../test.data/assembly-contract/evidence.json`：只维护 capabilityId 引用、实现证据、case/fixture/执行环境。共享 binding 只定义一次，caseIds 从引用关系派生；既有稳定 case ID、预期和 requiredLayers 不因物理拆分改变。缺 binding、零匹配、重复声明、越权覆盖与缺执行证据仍失败。
-- `runner.py`：选择并校验同一目录；C++ 映射到现有 GTest，Go 调用真实包内函数/既有测试，TypeScript 读取目录调用现有规则；集成走正式 Router/Worker。纯模型与带 scalar test double 的编排测试各有 `evidenceKind`，不冒充几何或数据库集成。
+- `runner.mjs`：选择并校验同一目录；C++ 映射到现有 GTest，Go 调用真实包内函数/既有测试，TypeScript 读取目录调用现有规则；集成走正式 Router/Worker。纯模型与带 scalar test double 的编排测试各有 `evidenceKind`，不冒充几何或数据库集成。
 - `../test.data/assembly-contract/baseline.json`：目标/案例摘要、实现声明下限及测试断言源摘要的回归锁，不另维护覆盖表。目录新增可以扩展；删除目标、改预期、降声明、改已有断言会失败。C++/Go 的 `fixture.assertionHelperSymbol` 必须指向实际调用的断言 helper，其源码纳入同一锁，不能只锁空包装 TEST 而遗漏共享几何/生命周期断言。真实合同演进或合法测试调整必须连同目标依据与锁的变更一起审查，不用自动 bless 绕过失败。
-- `test_runner.py`：目录/执行器的完整性与负例检查，不计为产品能力验证。
+- `test_runner.mjs`：目录/执行器的完整性与负例检查，不计为产品能力验证。
 
 实现字段与执行 verdict 独立。`implemented` 仅指该层的窄组合；`partial/missing/unknown` 不可提升为完整产品能力。`specific-combination` 与 `representative-shared-foundation` 明确区分，复用生命周期或入口测试不代表每种几何组合都完成。`caseIds` 是可追溯映射，测试代码 fixture 保留在原模块，文件型输入位于 `../test.data/`，不复制 solver/command 逻辑。
 
@@ -21,11 +21,11 @@
 从仓库根目录执行，依赖沿用既有 Debug CMake、Go、pnpm/TypeScript 和 Python 3 标准库：
 
 ```sh
-python -m unittest discover -s tests/assembly-contract -p 'test_*.py'
-python tests/assembly-contract/runner.py validate
-python tests/assembly-contract/runner.py baseline --output build/assembly-contract-baseline
-python tests/assembly-contract/runner.py gaps --output build/assembly-contract-gaps
-python tests/assembly-contract/runner.py composition --output build/assembly-contract-composition
+mise run contract:check
+mise run contract --purpose validate
+mise run contract --purpose baseline
+mise run contract --purpose gaps
+mise run contract --purpose composition
 ```
 
 `baseline` 只执行目录中已纳入既有验证基线的 case；尚未纳入的目标断言显示 NOT_RUN。`gaps` 执行全部选中目标断言，实际失败返回 1；未来未实现项目继续保留为 TARGET_NOT_IMPLEMENTED，缺少目标测试显示 MISSING_TEST，不改成 PASS。两种检查都要求实际执行且成功的断言；空选择、拼错 ID、过时映射或零测试不能返回绿色结果。未执行、skip 或缺环境独立记录；选中的必需基线 case 未运行返回 2。可选集成环境阻塞不使数学/模型基线失效，但报告始终保留阻塞，不能称作集成通过。
@@ -38,23 +38,23 @@ python tests/assembly-contract/runner.py composition --output build/assembly-con
 定向选择可组合 capability、family、layer 和 case；未知值与交集为空报错：
 
 ```sh
-python tests/assembly-contract/runner.py baseline --family Angle
-python tests/assembly-contract/runner.py baseline --capability offset.point-axis
-python tests/assembly-contract/runner.py baseline --layer domain
-python tests/assembly-contract/runner.py baseline --case composition.finite-joints
-python tests/assembly-contract/runner.py gaps --case offset.plane-plane.first-normal-editor
-python tests/assembly-contract/runner.py baseline --family Offset --output build/offset-after-baseline
-python tests/assembly-contract/runner.py gaps --family Offset --output build/offset-after-gaps
+mise run contract --purpose baseline --family Angle
+mise run contract --purpose baseline --capability offset.point-axis
+mise run contract --purpose baseline --layer domain
+mise run contract --purpose baseline --case composition.finite-joints
+mise run contract --purpose gaps --case offset.plane-plane.first-normal-editor
+mise run contract --purpose baseline --family Offset
+mise run contract --purpose gaps --family Offset
 ```
 
-`--adapters` 可限定实际执行设施；排除必需 case 仍报告 NOT_RUN，不获得完整基线通过。`--build-type Release` 使用既有对应构建目录，执行器不会下载依赖或启动新平台。C++ 每次先构建 scenario target；Go 使用 `-count=1` 及结构化事件，子测试跳过不能被父 PASS 隐藏；Web 复用 `pnpm test` 的场景发现与零匹配失败规则。新增 Web 场景同时调用目录/锁校验，因此 `pnpm test -- assembly` 会发现目录映射退化；Go/C++ 新断言也进入原模块的测试入口，没有修改共享构建系统或 `invoke check` 路由。
+`--adapters` 可限定实际执行设施；排除必需 case 仍报告 NOT_RUN，不获得完整基线通过。`--profile release` 使用既有对应构建目录，执行器不会下载依赖或启动新平台。C++ 每次先构建 scenario target；Go 使用 `-count=1` 及结构化事件，子测试跳过不能被父 PASS 隐藏；Web 复用 `pnpm test` 的场景发现与零匹配失败规则。新增 Web 场景同时调用目录/锁校验，因此 `pnpm test -- assembly` 会发现目录映射退化；Go/C++ 新断言也进入原模块的测试入口，没有修改共享构建系统或 `mise run check` 路由。
 
-运行真实 Router 前完成 Worker 与 `occcad_geometry_scenarios` 构建。环境从根 `.env` 读取，默认资源目录为 `build/test-resources/`，数据库和制品存储与 `invoke run` 相同；解析 fixture 缺失时，Go fixture 自动调用 `AssemblyExactSupport.ExportAnalyticRouterFixtures`，不需要手动 export 或另外编译。也可显式预生成：
+运行真实 Router 前完成 Worker 与 `occcad_geometry_scenarios` 构建。环境从根 `.env` 读取，默认资源目录为 `build/test-resources/`，数据库和制品存储与 `mise run dev` 相同；解析 fixture 缺失时，Go fixture 自动调用 `AssemblyExactSupport.ExportAnalyticRouterFixtures`，不需要手动 export 或另外编译。也可显式预生成：
 
 ```sh
-build/cmake/release/kernel/occt/tests/occcad_geometry_scenarios \
+build/cmake/linux-gcc15-x86_64/release/kernel/occt/tests/occcad_geometry_scenarios \
   --gtest_filter=AssemblyExactSupport.ExportAnalyticRouterFixtures
-python tests/assembly-contract/runner.py baseline --case integration.router-worker
+mise run contract --purpose baseline --case integration.router-worker
 ```
 
 装配与诊断数据库入口为 `internal/testsupport.OpenDevelopmentDatabase`，使用当前 `.env` 的 SQLite 或 PostgreSQL，并执行当前迁移，不另建测试环境、不自动清库、不改用 Mock。SQLite 上通过的证据不证明 PostgreSQL 专用行为。不能在集成运行期间重新链接同一 Worker；具体配置见[开发环境](../../docs/development/README.md)。
@@ -73,16 +73,16 @@ python tests/assembly-contract/runner.py baseline --case integration.router-work
 定向执行：
 
 ```sh
-invoke check --scope assembly --match 'Interaction|Motion'
+mise run check --scope assembly --match 'Interaction|Motion'
 cd services
 go test ./internal/workspace -run 'AssemblySolveManifest|AssemblyInteraction' -count=1
-go test ./internal/control -run 'Assembly.*(Trajectory|Snapshot|Composition)' -count=1 -v
+go test -tags=integration ./internal/control -run 'Assembly.*(Trajectory|Snapshot|Composition)' -count=1 -v
 cd ../web/apps/cad
 pnpm test -- assembly-engineering motion-presentation assembly-interaction assembly-drag-trace
 pnpm typecheck
 ```
 
-集成复用当前配置的 Worker、可丢弃开发数据库及解析 fixture。构建后再运行，不能并发重链接在用 Worker；需要清空时统一使用 `invoke data.reset --yes`，缺环境不静默改 Mock。
+集成复用当前配置的 Worker、可丢弃开发数据库及解析 fixture。构建后再运行，不能并发重链接在用 Worker；需要清空时统一使用 `mise run data:reset --yes`，缺环境不静默改 Mock。
 
 ## 剩余运动
 
@@ -93,9 +93,9 @@ motion-presentation 场景检查固联整体可动、方向子空间等价、偏
 `TestAssemblyDeferredDefinitionPreviewCommit` 使用真实 Router、Worker、当前配置的开发数据库，并只在数值 RPC 边界注入 deadline/Unavailable/数值失败。检查显式候选确认、编辑/新增、不重复求解、保持姿态、NotUpdated、幂等/历史/冷读取、Release gate 与正常恢复；权限和取消不得变成定义候选。`motion-presentation` 同时执行真实 viewport 方法的可控 Promise 结束/选择/屏障/取消回归及 Three.js 覆盖标记的 CSS 尺寸、相机、资源生命周期检查。面板场景执行实际 hook/row/键盘/定位回调，不只检索源码。
 
 ```sh
-python tests/assembly-contract/runner.py baseline --case lifecycle.deferred-definition.router-worker
-python tests/assembly-contract/runner.py baseline --case assembly.motion.presentation
-python tests/assembly-contract/runner.py gaps --family Offset --adapters go,web,web-catalog
+mise run contract --purpose baseline --case lifecycle.deferred-definition.router-worker
+mise run contract --purpose baseline --case assembly.motion.presentation
+mise run contract --purpose gaps --family Offset --adapters go,web,web-catalog
 ```
 
 最后一条刻意不执行原生或数据库映射，报告明确 NOT_RUN，不是完整 Offset 验收。生产只支持当前定义/Quantity/policy/canonical 摘要，旧实验格式测试改为拒绝；旧格式拒绝测试的稳定 case ID 保留，baseline 的 closeoutReview 记录授权原因，未降低数学预期或覆盖下限。
@@ -106,7 +106,7 @@ python tests/assembly-contract/runner.py gaps --family Offset --adapters go,web,
 
 报告派生自目录和实际结果，保存 commit/dirty、schema/version、命令/环境/选择、预期/观察、证据层与未执行/缺测/失败/阻塞。PASS 数量从报告生成，不永久手写多份。测试存在、历史运行、本次执行及维护者反馈分别标记。
 
-性能复用 invoke performance-baseline 和固定原生/Session 轨迹。记录硬件、Debug/Release/build、活动量与连通范围、样本和 P50/P95。Debug 导数 oracle 不是生产成本；kernel/RPC 延迟不是浏览器输入至显示延迟。100 ms/60 Hz 为待测目标，工业容量和全局非凸最优未获证明。
+性能复用 mise run benchmark:baseline 和固定原生/Session 轨迹。记录硬件、Debug/Release/build、活动量与连通范围、样本和 P50/P95。Debug 导数 oracle 不是生产成本；kernel/RPC 延迟不是浏览器输入至显示延迟。100 ms/60 Hz 为待测目标，工业容量和全局非凸最优未获证明。
 
 ## 人工检查
 

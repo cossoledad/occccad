@@ -64,7 +64,7 @@ WebSocket 首条消息必须是携带 CSRF token 的 `connection.initialize.v1`�
 
 后台 Exchange 到达最终状态时发布用户级 `job.state.changed.v1`。事件只发送到 `requested_by_user_id` 对应的连接；没有在线连接时保持在 Outbox，不能因一次空广播丢失完成通知。前端提交后立即返回 Document Center，导出结果只在用户点击通知中的下载动作时走流式 HTTP。
 
-先用根 `invoke run` 启动整套应用，再从 `tests/go/` 执行 `go test ./realtime -count=1 -v`，验证双客户端提交和“HTTP 立即返回、后台导入、用户级 WebSocket 终态通知”。入口读取同一 `.env` 的 `OCCCCAD_APP_LISTEN` 和管理员配置；未指定 `OCCCCAD_TEST_EXCHANGE_STEP` 时使用当前 Native 生成的解析 STEP。测试不轮询 Job 状态。
+先用根 `mise run dev` 启动整套应用，再从 `tests/go/` 执行 `go test -tags=integration ./realtime -count=1 -v`，验证双客户端提交和“HTTP 立即返回、后台导入、用户级 WebSocket 终态通知”。入口读取同一 `.env` 的 `OCCCCAD_APP_LISTEN` 和管理员配置；未指定 `OCCCCAD_TEST_EXCHANGE_STEP` 时使用当前 Native 生成的解析 STEP。测试不轮询 Job 状态。
 
 RFC 6455 Upgrade、frame、Ping/Pong 由 `github.com/gorilla/websocket` v1.5.3 提供；该依赖使用两条款 BSD 许可。它只位于 HTTP transport adapter，领域 Envelope、Command、Outbox 和恢复语义不依赖其类型，未来可以替换实现而不改变持久模型。
 
@@ -97,10 +97,10 @@ RFC 6455 Upgrade、frame、Ping/Pong 由 `github.com/gorilla/websocket` v1.5.3 �
 在仓库根目录配置 `.env` 后：
 
 ```bash
-invoke run.server
+mise exec -- go -C services run ./cmd/occccad-server
 ```
 
-完整本地拓扑通常通过 `invoke run.app` 由 occccad-control 管理，此时 API 实际监听内部地址并由控制进程代理。
+完整本地拓扑通常通过 `mise run dev` 由 occccad-control 管理，此时 API 实际监听内部地址并由控制进程代理。
 
 ## 一致性与故障语义
 
@@ -117,11 +117,10 @@ invoke run.server
 ## 验证与扩展边界
 
 ```bash
-cd services
-go test ./...
+mise run check --scope services --level unit --jobs 4
 
 # 仓库根目录生成可由 benchstat 比较的多样本基线
-invoke performance-baseline
+mise run benchmark:baseline
 ```
 
 扩展业务能力优先增加 `services/internal` 模块，只有出现独立扩缩容、故障隔离、安全边界或发布节奏需求时才拆分网络服务。长期演进见项目[目标架构](../../../docs/architecture/target/README.md)。

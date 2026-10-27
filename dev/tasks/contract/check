@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Contract and documentation/performance tooling regression tests"
+#MISE quiet=true
+#MISE raw_args=true
+set -euo pipefail
+if (($#)); then
+  if [[ $# == 1 && "$1" == --help ]]; then echo 'Usage: mise run contract:check'; exit 0; fi
+  echo 'contract:check accepts no arguments' >&2
+  exit 2
+fi
+exec node --test --test-reporter=tap tests/assembly-contract/runner.test.mjs tests/tooling/*.test.mjs

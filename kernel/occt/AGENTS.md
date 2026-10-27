@@ -16,6 +16,6 @@
 
 ## Validation
 
-- 领域验证：`invoke check --scope geometry`
-- 单个测试：`ctest --test-dir build/cmake/release -R '^geometry/<name>$' --output-on-failure`
+- 领域验证：`mise run check --scope geometry`
+- 单个测试：`ctest --test-dir build/cmake/linux-gcc15-x86_64/release -R '^geometry/<name>$' --output-on-failure`
 - 只有测试明确需要真实交换输入时才读 `tests/test.data/`；通常从测试中的 fixture 名和断言开始。

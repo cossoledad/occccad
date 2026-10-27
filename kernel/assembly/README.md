@@ -91,11 +91,11 @@ Solves are local, with no global closest-solution or finite-travel guarantee. In
 Build and run the focused scenarios with:
 
 ```sh
-cmake --build build/cmake/release --target occcad_assembly_solver_scenarios
-ctest --test-dir build/cmake/release -R '^assembly/' --output-on-failure
+cmake --build build/cmake/linux-gcc15-x86_64/release --target occcad_assembly_solver_scenarios
+ctest --test-dir build/cmake/linux-gcc15-x86_64/release -R '^assembly/' --output-on-failure
 ```
 
-For the stable, quiet domain entry (including relevant Go integration and Web assembly scenarios), use `invoke check --scope assembly`. It prints summaries on success and expands subprocess diagnostics on failure.
+For the stable, quiet domain entry (including relevant Go integration and Web assembly scenarios), use `mise run check --scope assembly`. It prints summaries on success and expands subprocess diagnostics on failure.
 
 The executable conformance corpus lives in
 [`tests/assembly-corpus`](../../tests/assembly-corpus). It records canonical
@@ -103,8 +103,8 @@ freedoms, conflict/degeneracy baselines, permutation invariance, branch continui
 and cold/warm-start equivalence. Run it independently with:
 
 ```sh
-cmake --build build/cmake/release --target occcad_assembly_solver_corpus
-ctest --test-dir build/cmake/release -R '^assembly-corpus/' --output-on-failure
+cmake --build build/cmake/linux-gcc15-x86_64/release --target occcad_assembly_solver_corpus
+ctest --test-dir build/cmake/linux-gcc15-x86_64/release -R '^assembly-corpus/' --output-on-failure
 ```
 
 ## Performance
@@ -112,7 +112,7 @@ ctest --test-dir build/cmake/release -R '^assembly-corpus/' --output-on-failure
 Dated workstation measurements and raw-sample snapshot: [performance baseline](../../docs/validation/performance-baseline.md).
 
 Run the deterministic dense-backend baseline with
-`invoke performance-baseline`; the assembly result is written to
+`mise run benchmark:baseline`; the assembly result is written to
 `build/performance/assembly-solver.txt`.
 
 Cross-layer evidence and safe execution requirements belong to the shared
@@ -123,14 +123,13 @@ to current usage, not industrial or performance acceptance.
 Run the focused solver benchmark with one command:
 
 ```sh
-invoke performance.assembly
+mise run benchmark
 # Optional: more samples or all kernel/Router/Session/allocation stages.
-invoke performance.assembly --samples=20
-invoke performance.assembly --stages=static,interaction,service,allocations
+mise run benchmark --samples=20
+mise run benchmark --stages=static,interaction,service,allocations
 ```
 
-The command uses existing optimized artifacts selected by `--build-type` or
-`OCCCCAD_BUILD_TYPE` (Release by default); it does not configure or rebuild
+The command uses existing optimized artifacts selected by `--profile` (default release) (Release by default); it does not configure or rebuild
 native targets. Optional service/allocation stages use `go test` and may compile
 the Go test harness.
 Default stages are native static chains/BFGS and interaction/failure paths,
@@ -141,7 +140,7 @@ and `summary.json` (native means/medians and full interaction samples).
 Explicit `service` stages use the same configured SQLite/PostgreSQL development database, ArtifactStore and
 analytic fixtures as normal application startup; an environment-blocked test fails the command instead of
 reporting performance success. No stage resets data. The underlying runner is
-`python kernel/assembly/tests/run_performance.py`; `--label` accepts a unique
+`mise run benchmark`; `--label` accepts a unique
 run name and never overwrites an existing run. See the
 [performance report](../../docs/validation/performance-baseline.md) for
 measured inputs, environment and evidence boundaries.

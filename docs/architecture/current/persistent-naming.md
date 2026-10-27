@@ -58,11 +58,11 @@ Do not start from generated protobuf or STEP corpus bytes. Begin with the stable
 Use an exact geometry/workspace test first, then:
 
 ```bash
-invoke check --scope geometry
-invoke check --scope workspace
+mise run check --scope geometry
+mise run check --scope workspace
 ```
 
-Changes spanning Proto/Worker/Router/Product require `invoke check --scope all` and a test through the formal Router. Only read `tests/test.data/` when the regression explicitly requires real STEP/BREP input.
+Changes spanning Proto/Worker/Router/Product require `mise run check --scope all` and a test through the formal Router. Only read `tests/test.data/` when the regression explicitly requires real STEP/BREP input.
 
 ## 当前实现
 

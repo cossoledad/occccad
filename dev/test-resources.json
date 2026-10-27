@@ -1,0 +1,869 @@
+[
+  {
+    "path": "services/cmd/occccad-jobs/import_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/cmd/occccad-jobs/motion_apply_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/api/assembly_replay_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase"
+    ]
+  },
+  {
+    "path": "services/internal/api/assistant_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/api/automation_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/api/boolean_regions_download_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/api/motion_test.go",
+    "resources": [
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/api/realtime_integration_test.go",
+    "resources": [
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/api/representations_test.go",
+    "resources": [
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/artifact/s3_integration_test.go",
+    "resources": [
+      "configured ArtifactStore"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/conversation_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/provider_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#writeCompletion"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/query_debug_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/run_stages_test.go#syntheticStageWorkspace"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_capacity_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#assistantFixture"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_completion_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#toolMessage"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_concurrency_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#assistantFixture"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_product_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#assistantFixture"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_provider_recovery_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#toolMessage"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_query_bindings_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#toolMessage"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_questions_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/run_stages_test.go#syntheticStageWorkspace"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_request_boundaries_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#toolMessage"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_request_native_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#assistantFixture"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_scope_occurrence_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#assistantFixture"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_scope_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/run_request_native_test.go#newRequestFixture"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_stage_repair_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/run_stages_test.go#stageFixture"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/run_stages_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/selection_context_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#toolMessage"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/session_export_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#toolMessage"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/tool_result_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/conversation_test.go#toolMessage"
+    ]
+  },
+  {
+    "path": "services/internal/assistant/turn_usage_test.go",
+    "resources": [
+      "fixture dependency: services/internal/assistant/run_request_native_test.go#newRequestFixture"
+    ]
+  },
+  {
+    "path": "services/internal/automation/execution_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/automation/integration_test.go#automationFixture"
+    ]
+  },
+  {
+    "path": "services/internal/automation/integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/automation/occurrence_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/automation/integration_test.go#automationFixture"
+    ]
+  },
+  {
+    "path": "services/internal/automation/query_debug_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/automation/integration_test.go#automationFixture"
+    ]
+  },
+  {
+    "path": "services/internal/automation/selection_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/automation/integration_test.go#automationFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_arc_eligibility_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#compositionDot"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_composition_control_fixture_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.PrepareAssemblyFixtures",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_composition_quality_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#compositionNorm"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_conflict_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_contact_reference_recovery_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#compositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_deferred_definition_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_diagnostic_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_drag_trace_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_edge_offset_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_edit_candidate_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_engineering_refresh_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_four_families_composition_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#compositionNorm"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_groups_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_interaction_concurrency_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_interaction_context_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_interaction_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_motion_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured Worker executable",
+      "configured Worker executable",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_offset_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_performance_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_snapshot_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_visibility_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/assembly_windmill_replay_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#postgresGeometryTestService"
+    ]
+  },
+  {
+    "path": "services/internal/control/association_repair_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/boolean_regions_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/bottom_support_parametric_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/conic_projection_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/continuous_modeling_baseline_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/cut_hole_naming_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/development_fixture_test.go",
+    "resources": [
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/draft_pattern_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/edge_vertex_naming_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/feature_association_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured Worker executable",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/feature_input_repair_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/feature_insert_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6TopologyCount"
+    ]
+  },
+  {
+    "path": "services/internal/control/feature_move_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#findP6FeatureDigest"
+    ]
+  },
+  {
+    "path": "services/internal/control/fillet_boundary_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/fillet_naming_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#findP6FeatureDigest"
+    ]
+  },
+  {
+    "path": "services/internal/control/geometry_health_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/geometry_representations_test.go",
+    "resources": [
+      "configured database / integration fixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/hole_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/hole_pattern_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#findP6FeatureDigest"
+    ]
+  },
+  {
+    "path": "services/internal/control/import_naming_diagnostics_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/import_naming_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/incremental_runtime_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/large_step_import_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/loft_association_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#findP6FeatureDigest"
+    ]
+  },
+  {
+    "path": "services/internal/control/loft_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/loft_linear_boundary_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/mechanism_analysis_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/control/multi_body_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/parametric_pattern_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/perpendicular_edge_projection_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/profile_reclosure_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#findP6FeatureDigest"
+    ]
+  },
+  {
+    "path": "services/internal/control/profile_region_selection_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/propeller_feature_range_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/publication_layout_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/replication_loft_mirror_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/shell_naming_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/shell_support_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/sketch_followup_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/sketch_interaction_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/sketch_split_delete_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/sketch_support_reassignment_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
+    "path": "services/internal/control/solid_feature_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/control/to_plane_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6TopologyCount"
+    ]
+  },
+  {
+    "path": "services/internal/database/migration_postgres_test.go",
+    "resources": [
+      "configured database and backend-specific evidence"
+    ]
+  },
+  {
+    "path": "services/internal/database/pool_integration_test.go",
+    "resources": [
+      "configured database and backend-specific evidence"
+    ]
+  },
+  {
+    "path": "services/internal/database/schema_parity_test.go",
+    "resources": [
+      "configured database and backend-specific evidence"
+    ]
+  },
+  {
+    "path": "services/internal/database/test_main_test.go",
+    "resources": [
+      "configured database and backend-specific evidence"
+    ]
+  },
+  {
+    "path": "services/internal/geometry/artifact_staging_test.go",
+    "resources": [
+      "fixture dependency: services/internal/geometry/topology_worker_integration_test.go#openCppWorkerForNamingContract"
+    ]
+  },
+  {
+    "path": "services/internal/geometry/assembly_worker_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured Worker executable"
+    ]
+  },
+  {
+    "path": "services/internal/geometry/corner_fillet_worker_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/geometry/topology_worker_integration_test.go#openCppWorkerForNamingContract"
+    ]
+  },
+  {
+    "path": "services/internal/geometry/dmu_test.go",
+    "resources": [
+      "fixture dependency: services/internal/geometry/topology_worker_integration_test.go#openCppWorkerForNamingContract"
+    ]
+  },
+  {
+    "path": "services/internal/geometry/fillet_boundary_worker_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/geometry/topology_worker_integration_test.go#openCppWorkerForNamingContract"
+    ]
+  },
+  {
+    "path": "services/internal/geometry/pattern_worker_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/geometry/topology_worker_integration_test.go#openCppWorkerForNamingContract"
+    ]
+  },
+  {
+    "path": "services/internal/geometry/shell_worker_integration_test.go",
+    "resources": [
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/geometry/topology_worker_integration_test.go",
+    "resources": [
+      "production Worker"
+    ]
+  },
+  {
+    "path": "services/internal/jobs/progress_integration_test.go",
+    "resources": [
+      "configured database / integration fixture"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/assembly_offline_replay_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured Worker executable"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/automation_occurrence_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/history_batch_integration_test.go",
+    "resources": [
+      "configured database / integration fixture"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/history_diagnostic_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/history_integration_test.go",
+    "resources": [
+      "configured database / integration fixture"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/naming_artifact_test.go",
+    "resources": [
+      "configured testsupport.PrepareNamingFixture"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/properties_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/sketch_command_preview_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#newSketchWorkflowFixture"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/sketch_corner_parallel_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#newSketchWorkflowFixture"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/sketch_corner_parameters_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#workflowValue"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/sketch_direct_modeling_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#workflowRef"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/sketch_direct_tool_replay_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#newSketchWorkflowFixture"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/sketch_drag_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#workflowEntity"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/sketch_polygon_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#workflowRef"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/sketch_ux_workflow_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#workflowRef"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/sketch_workflow_integration_test.go",
+    "resources": [
+      "configured testsupport.Environment",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
+    "path": "tests/go/realtime/realtime_test.go",
+    "resources": [
+      "configured live application"
+    ]
+  }
+]

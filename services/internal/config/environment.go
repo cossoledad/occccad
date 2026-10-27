@@ -70,7 +70,7 @@ func LoadEnvironment() (string, error) {
 		"OCCCCAD_TEST_GLB_FIXTURE":            filepath.Join(resource, "geometry.glb"),
 		"OCCCCAD_TEST_ASSEMBLY_REPLAY_OUTPUT": filepath.Join(resource, "assembly-replay.3dreplay"),
 		"OCCCCAD_TEST_NAMING_FIXTURE":         filepath.Join(resource, "naming-v2.pb"),
-		"OCCCCAD_GEOMETRY_WORKER_BIN":         filepath.Join(root, "build", "cmake", strings.ToLower(value("OCCCCAD_BUILD_TYPE", "Release")), "workers", "geometry", "occccad_geometry_worker"),
+		"OCCCCAD_GEOMETRY_WORKER_BIN":         filepath.Join(root, "build", "cmake", "linux-gcc15-x86_64", value("OCCCCAD_DEV_PROFILE", strings.ToLower(value("OCCCCAD_BUILD_TYPE", "Release"))), "workers", "geometry", "occccad_geometry_worker"),
 	}
 	for key, fallback := range paths {
 		if err := os.Setenv(key, resolve(value(key, fallback))); err != nil {
@@ -91,9 +91,6 @@ func LoadEnvironment() (string, error) {
 		if err := os.Setenv(key, filepath.Clean(path)); err != nil {
 			return "", err
 		}
-	}
-	if err := os.MkdirAll(resource, 0700); err != nil {
-		return "", err
 	}
 	dsn := Load().DatabaseURL
 	if strings.HasPrefix(dsn, "sqlite:") {

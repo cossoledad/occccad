@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="benchmark"
+#MISE quiet=true
+#USAGE flag "--profile <profile>" default="release" { choices "release" "debug" "sanitize"; }
+#USAGE flag "--jobs <jobs>" env="OCCCCAD_BUILD_JOBS" default="4" help="Positive native build jobs; independent of mise scheduling"
+#USAGE flag "--samples <samples>" default="5"
+#USAGE flag "--stages <stages>" default="static,interaction"
+#USAGE flag "--label <label>"
+#USAGE flag "--verbose"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry benchmark "$@"

@@ -1,0 +1,178 @@
+{
+  "property": {
+    "goal": "Add or change a writable domain property through its complete history lifecycle",
+    "scopes": [
+      "workspace"
+    ],
+    "sources": [
+      [
+        "services/internal/workspace/model_core.go",
+        "PropertySlot"
+      ],
+      [
+        "services/internal/workspace/history_core.go",
+        "applyCompensatingHistory"
+      ],
+      [
+        "services/internal/workspace/history_integration_test.go",
+        "TestHistoryCapabilitiesAcrossTwoUndoAndRedoSteps"
+      ]
+    ],
+    "documents": [
+      "docs/architecture/current/model-history.md"
+    ],
+    "obligations": [
+      "same stable slot in write/read/compensation",
+      "canonical digest and dependency closure",
+      "two Undo followed by two Redo",
+      "final evaluated Revision owns the ChangeSet"
+    ],
+    "focused": "mise run check --scope workspace --match History",
+    "complete": "mise run check --scope workspace",
+    "escalate": "Public views require services/web; shared identity, migrations or protocol require all"
+  },
+  "rpc": {
+    "goal": "Change a Worker RPC through its formal Router and capability boundary",
+    "scopes": [
+      "all"
+    ],
+    "sources": [
+      [
+        "proto/occccad/worker/v1/geometry_worker.proto",
+        "SolveAssembly"
+      ],
+      [
+        "workers/geometry/src/main.cpp",
+        "SolveAssembly"
+      ],
+      [
+        "services/internal/geometry/client.go",
+        "SolveAssembly"
+      ],
+      [
+        "services/internal/control/geometry_pool.go",
+        "SolveAssembly"
+      ],
+      [
+        "services/internal/control/assembly_motion_integration_test.go",
+        "TestAssemblyMotionThroughRealRouter"
+      ]
+    ],
+    "documents": [
+      "docs/architecture/current/worker-contracts.md"
+    ],
+    "obligations": [
+      "Proto source and generated C++/Go agree",
+      "server/client/Router/capability agree",
+      "selected current Worker build",
+      "real Router request and stable failure contract"
+    ],
+    "focused": "mise run check --scope services --match '^TestAssemblyMotionThroughRealRouter$'",
+    "complete": "mise run check --scope all",
+    "escalate": "A direct Worker test does not certify the Router"
+  },
+  "selection": {
+    "goal": "Change selection or gestures while preserving owner and interaction lifetime",
+    "scopes": [
+      "web"
+    ],
+    "sources": [
+      [
+        "web/apps/cad/src/cad/command/command-registry.ts",
+        "CommandRegistry"
+      ],
+      [
+        "web/apps/cad/src/viewport/cad-viewport-engine.ts",
+        "selectionsChanged"
+      ],
+      [
+        "web/apps/cad/src/cad/assembly/testing/assembly-edit-intent.scenario.mjs",
+        "assert"
+      ]
+    ],
+    "documents": [
+      "docs/architecture/current/web.md",
+      "docs/architecture/current/product-edit-context.md"
+    ],
+    "obligations": [
+      "owner Document/Revision/InstancePath survives",
+      "pointer cancel/blur/Esc and late responses",
+      "UI Command and Tool ownership",
+      "actual browser picking/gesture acceptance when affected"
+    ],
+    "focused": "mise run check --scope web --match assembly-edit-intent",
+    "complete": "mise run check --scope web",
+    "escalate": "Mock/SSR evidence and live WebGL acceptance are separate"
+  },
+  "feature": {
+    "goal": "Change exact Feature behavior through preview, commit, naming and history",
+    "scopes": [
+      "all"
+    ],
+    "sources": [
+      [
+        "services/internal/workspace/model_core.go",
+        "typeCreateSolidFeature"
+      ],
+      [
+        "kernel/occt/src/occt_kernel.cpp",
+        "BRepCheck"
+      ],
+      [
+        "services/internal/control/solid_feature_integration_test.go",
+        "TestSolidBooleanLifecycleThroughRouter"
+      ]
+    ],
+    "documents": [
+      "docs/architecture/current/solid-features.md",
+      "docs/architecture/current/part-feature-evaluation.md"
+    ],
+    "obligations": [
+      "exact shape and topology-history gates",
+      "Preview does not mutate Head",
+      "one authoritative candidate/CAS commit",
+      "Undo/Redo, cold read and persistent selection"
+    ],
+    "focused": "mise run check --scope services --match '^TestSolidBooleanLifecycleThroughRouter$'",
+    "complete": "mise run check --scope all",
+    "escalate": "New CAD semantics require the corresponding target contract before implementation"
+  },
+  "diagnostic": {
+    "goal": "Turn a retained failure into immutable, bounded, repeatable evidence",
+    "scopes": [
+      "services",
+      "web"
+    ],
+    "sources": [
+      [
+        "services/internal/workspace/operation_diagnostic.go",
+        "finishOperationDiagnostic"
+      ],
+      [
+        "services/internal/debugartifact/store.go",
+        "SaveJSON"
+      ],
+      [
+        "services/internal/workspace/operation_diagnostic_test.go",
+        "TestOperationDiagnosticFailureSnapshotAndColdRead"
+      ],
+      [
+        "services/cmd/occccad-3dreplay/main.go",
+        "ReplayAssemblyDiagnosticWithOptions"
+      ]
+    ],
+    "documents": [
+      "docs/architecture/current/validation.md",
+      "services/cmd/occccad-3dreplay/README.md"
+    ],
+    "obligations": [
+      "failure-time input/Revision and stage",
+      "same production adapter and explicit evidence limits",
+      "no current Head substitution",
+      "no credential or unrelated log export"
+    ],
+    "focused": "mise run check --scope workspace --match '^TestOperationDiagnosticFailureSnapshotAndColdRead$'",
+    "complete": "mise run check --scope services,web",
+    "escalate": "Missing archived input must remain explicitly non-replayable"
+  }
+}

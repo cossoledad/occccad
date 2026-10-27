@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="cpp:build"
+#MISE quiet=true
+#USAGE flag "--target <target>"
+#USAGE flag "--profile <profile>" default="release" { choices "release" "debug" "sanitize"; }
+#USAGE flag "--jobs <jobs>" env="OCCCCAD_BUILD_JOBS" default="4" help="Positive native build jobs; independent of mise scheduling"
+#USAGE flag "--verbose"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry cpp:build "$@"

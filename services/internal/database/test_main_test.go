@@ -1,16 +1,17 @@
+//go:build integration
+
 package database
 
 import (
 	"fmt"
+	"github.com/occccad/occccad/internal/config"
 	"os"
 	"testing"
-
-	"github.com/occccad/occccad/internal/config"
 )
 
 func TestMain(m *testing.M) {
-	if _, err := config.LoadEnvironment(); err != nil {
-		fmt.Fprintln(os.Stderr, "test environment:", err)
+	if _, e := config.LoadEnvironment(); e != nil {
+		fmt.Fprintln(os.Stderr, e)
 		os.Exit(1)
 	}
 	os.Exit(m.Run())

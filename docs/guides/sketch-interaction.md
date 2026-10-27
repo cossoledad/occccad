@@ -28,7 +28,7 @@ ToolManager/Input Router 拥有选择、定义、放置、提交和未知回执�
 | 精确曲线、闭合与拉伸 | Workspace `sketch_workflow_integration_test.go`、`TestSketchDirectProductionToolReplay`；Control `sketch_split_delete_integration_test.go` |
 | 显示、文字布局与手柄 | Web `sketch-feedback`、`sketch-manipulator`；浏览器 `solid-feature-live.spec.ts` |
 
-运行 `invoke check --scope sketch`、`invoke check --scope web`；真实 Router/Worker 及浏览器配置见[测试路由](../../tests/README.md)与[Web README](../../web/apps/cad/README.md)。Skip、未运行、Node/Mock 通过均不等于浏览器/WebGL 验收。
+运行 `mise run check --scope sketch`、`mise run check --scope web`；真实 Router/Worker 及浏览器配置见[测试路由](../../tests/README.md)与[Web README](../../web/apps/cad/README.md)。Skip、未运行、Node/Mock 通过均不等于浏览器/WebGL 验收。
 
 ## 人工验收
 

@@ -57,7 +57,7 @@ scope 明确 PART_LOCAL 与 mm/rad；lengthMM、areaMM2 已从 Naming SI 测量�
 
 ```sh
 # services/
-go test -p 1 ./internal/workspace ./internal/automation ./internal/assistant ./internal/api -run '^TestTopology(ObservationCurrentMeasurementsAndIdentity|Filter|Unknown)|^TestAssistant(ToolResult|Debug)|^TestAutomationDebug' -count=1 -v
+go test -tags=integration -p 1 ./internal/workspace ./internal/automation ./internal/assistant ./internal/api -run '^TestTopology(ObservationCurrentMeasurementsAndIdentity|Filter|Unknown)|^TestAssistant(ToolResult|Debug)|^TestAutomationDebug' -count=1 -v
 # web/apps/cad/
 pnpm test -- automation-debug
 pnpm typecheck

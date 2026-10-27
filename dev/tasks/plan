@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#MISE description="Read-only validation plan"
+#MISE quiet=true
+#USAGE flag "--changed"
+#USAGE flag "--staged"
+#USAGE flag "--base <base>"
+#USAGE flag "--head <head>"
+#USAGE flag "--scope <scope>" { choices "assembly" "geometry" "sketch" "workspace" "services" "web" "tooling" "docs" "all"; }
+#USAGE flag "--level <level>" default="unit" { choices "unit" "integration" "browser-mock" "browser-live" "full"; }
+#USAGE flag "--match <match>"
+#USAGE flag "--profile <profile>" default="release" { choices "release" "debug" "sanitize"; }
+#USAGE flag "--jobs <jobs>" env="OCCCCAD_BUILD_JOBS" default="4" help="Positive native build jobs; independent of mise scheduling"
+#USAGE flag "--test-jobs <test_jobs>" default="1" help="Test concurrency (shared integration resources require 1)"
+#USAGE flag "--json"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry plan "$@"

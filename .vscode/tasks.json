@@ -4,11 +4,13 @@
     {
       "label": "frontend: mock",
       "type": "shell",
-      "command": "pnpm --dir web dev:mock",
+      "command": "mise exec -- pnpm --dir web/apps/cad dev:mock --host 127.0.0.1 --strictPort",
       "isBackground": true,
       "problemMatcher": {
         "owner": "vite",
-        "pattern": { "regexp": "$^" },
+        "pattern": {
+          "regexp": "$^"
+        },
         "background": {
           "activeOnStart": true,
           "beginsPattern": ".*VITE.*",
@@ -19,11 +21,13 @@
     {
       "label": "frontend: api",
       "type": "shell",
-      "command": "pnpm --dir web dev:api",
+      "command": "mise run web:dev",
       "isBackground": true,
       "problemMatcher": {
         "owner": "vite",
-        "pattern": { "regexp": "$^" },
+        "pattern": {
+          "regexp": "$^"
+        },
         "background": {
           "activeOnStart": true,
           "beginsPattern": ".*VITE.*",
@@ -33,38 +37,142 @@
     },
     {
       "label": "control: debug API on",
-      "type": "shell",
-      "command": "curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"target\":\"127.0.0.1:18081\"}' http://127.0.0.1:19090/control/debug/api",
-      "problemMatcher": []
+      "type": "process",
+      "command": "mise",
+      "problemMatcher": [],
+      "args": [
+        "run",
+        "debug:route",
+        "--service",
+        "api",
+        "--target",
+        "127.0.0.1:18081"
+      ]
     },
     {
       "label": "control: debug API off",
-      "type": "shell",
-      "command": "curl -fsS -X DELETE http://127.0.0.1:19090/control/debug/api",
-      "problemMatcher": []
+      "type": "process",
+      "command": "mise",
+      "problemMatcher": [],
+      "args": [
+        "run",
+        "debug:route",
+        "--service",
+        "api",
+        "--off"
+      ]
     },
     {
       "label": "control: debug Geometry on",
-      "type": "shell",
-      "command": "curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"target\":\"127.0.0.1:51999\"}' http://127.0.0.1:19090/control/debug/geometry",
-      "problemMatcher": []
+      "type": "process",
+      "command": "mise",
+      "problemMatcher": [],
+      "args": [
+        "run",
+        "debug:route",
+        "--service",
+        "geometry",
+        "--target",
+        "127.0.0.1:51999"
+      ]
     },
     {
       "label": "control: debug Geometry off",
-      "type": "shell",
-      "command": "curl -fsS -X DELETE http://127.0.0.1:19090/control/debug/geometry",
-      "problemMatcher": []
+      "type": "process",
+      "command": "mise",
+      "problemMatcher": [],
+      "args": [
+        "run",
+        "debug:route",
+        "--service",
+        "geometry",
+        "--off"
+      ]
     },
     {
       "label": "control: debug Jobs on",
-      "type": "shell",
-      "command": "curl -fsS -X POST http://127.0.0.1:19090/control/debug/jobs",
-      "problemMatcher": []
+      "type": "process",
+      "command": "mise",
+      "problemMatcher": [],
+      "args": [
+        "run",
+        "debug:route",
+        "--service",
+        "jobs"
+      ]
     },
     {
       "label": "control: debug Jobs off",
-      "type": "shell",
-      "command": "curl -fsS -X DELETE http://127.0.0.1:19090/control/debug/jobs",
+      "type": "process",
+      "command": "mise",
+      "problemMatcher": [],
+      "args": [
+        "run",
+        "debug:route",
+        "--service",
+        "jobs",
+        "--off"
+      ]
+    },
+    {
+      "label": "cpp: worker debug",
+      "type": "process",
+      "command": "mise",
+      "args": [
+        "run",
+        "cpp:build",
+        "--target",
+        "occccad_geometry_worker",
+        "--profile",
+        "debug",
+        "--jobs",
+        "4"
+      ],
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "go: debug build",
+      "type": "process",
+      "command": "mise",
+      "args": [
+        "run",
+        "go:build",
+        "--profile",
+        "debug",
+        "--jobs",
+        "4"
+      ],
+      "problemMatcher": [
+        "$go"
+      ]
+    },
+    {
+      "label": "cpp: worker debug and route",
+      "dependsOn": [
+        "cpp: worker debug",
+        "control: debug Geometry on"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "go: API debug and route",
+      "dependsOn": [
+        "go: debug build",
+        "control: debug API on"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "go: Jobs debug and route",
+      "dependsOn": [
+        "go: debug build",
+        "control: debug Jobs on"
+      ],
+      "dependsOrder": "sequence",
       "problemMatcher": []
     }
   ]

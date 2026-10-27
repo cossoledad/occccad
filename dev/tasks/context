@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="context"
+#MISE quiet=true
+#USAGE flag "--recipe <recipe>"
+#USAGE flag "--symbol <symbol>"
+#USAGE flag "--read"
+#USAGE flag "--json"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry context "$@"

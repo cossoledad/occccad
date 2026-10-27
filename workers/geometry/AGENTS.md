@@ -16,8 +16,8 @@
 
 ## Validation
 
-- Sketch：`invoke check --scope sketch`
-- OCCT 几何：`invoke check --scope geometry`
-- 公共 Proto、通用 Worker server/CMake 或 Router contract：`invoke check --scope all`
+- Sketch：`mise run check --scope sketch`
+- OCCT 几何：`mise run check --scope geometry`
+- 公共 Proto、通用 Worker server/CMake 或 Router contract：`mise run check --scope all`
 - 精确单测可用 CTest 前缀 `^sketch/`、`^geometry/`、`^assembly/`；直连 Worker 成功不能证明 Router 完整。
-- 稳定入口支持 `invoke check --scope <assembly|geometry|sketch> --match '<test regex>'`；精确回归后仍按契约风险升级。
+- 稳定入口支持 `mise run check --scope <assembly|geometry|sketch> --match '<test regex>'`；精确回归后仍按契约风险升级。

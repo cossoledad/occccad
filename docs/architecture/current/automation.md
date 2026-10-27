@@ -136,9 +136,9 @@ Web 继续由 TanStack Query 保存服务状态，原工作台选择/CommandRegi
 
 ## 验证入口
 
-- 服务：`go test -p 1 ./internal/assistant ./internal/automation ./internal/api -run '^TestAssistant|^TestAutomation'`（services目录）；容量/故障注入使用受控 Provider，不付费压测。
-- Web：`invoke check --scope web --match assistant`；真实工作台先用本地19091 Provider启动服务，再运行 `pnpm exec playwright test --config playwright.live.config.ts automation-live.spec.ts`。独立测试账号不改个人Key，结束恢复默认 DeepSeek 配置。
-- 原生几何、迁移与共享链：按 `invoke check --scope all`，数据库当前配置之外的 Provider 验证必须单独标明未执行。
+- 服务：`go test -tags=integration -count=1 -p 1 ./internal/assistant ./internal/automation ./internal/api -run '^TestAssistant|^TestAutomation'`（services目录）；容量/故障注入使用受控 Provider，不付费压测。
+- Web：`mise run check --scope web --match assistant`；真实工作台先用本地19091 Provider启动服务，再运行 `pnpm exec playwright test --config playwright.live.config.ts automation-live.spec.ts`。独立测试账号不改个人Key，结束恢复默认 DeepSeek 配置。
+- 原生几何、迁移与共享链：按 `mise run check --scope all`，数据库当前配置之外的 Provider 验证必须单独标明未执行。
 - 线上小样：`services/cmd/occccad-ai-eval` 使用已有合法 Key 和显式小预算。模型表现、原生几何、浏览器、合成百万 usage 必须分别报告。
 
 保留的历史证据范围（本次文档整理未重跑业务验收）：

@@ -158,6 +158,6 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 - `services/internal/workspace/solid_feature.go`、`replication_source.go`、`pattern.go`：定义、参数、能力、正式来源和范围去重；`feature_input.go`：逐项引用修复。
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp`：真实精确几何、材料包含、拓扑历史和热/冷检查点；`DraftAdditiveRanges*` 覆盖添加型拉伸/放样/旋转、正反拔模及三种复制。
 - `services/internal/control/*_integration_test.go`：solid_feature、feature_input_repair、loft、hole、hole_pattern、draft_pattern、replication_loft_mirror、to_plane、boolean_regions、feature_move/insert 对应真实 Router/Worker 链；`solid-feature-live.spec.ts` 验证视图区/树拾取、预览取消、编辑修复与历史。
-- `invoke check --scope geometry`、`--scope workspace`、`--scope services`、`--scope web`；运行与共享资源见[测试入口](../../../tests/README.md)。测试存在、定向通过、浏览器验收分别举证。
+- `mise run check --scope geometry`、`--scope workspace`、`--scope services`、`--scope web`；运行与共享资源见[测试入口](../../../tests/README.md)。测试存在、定向通过、浏览器验收分别举证。
 
 已知限制：不支持 Sweep、到下一面/任意曲面终止、贯穿 Hole 工具复用、切除 FEATURE_DELTA、任意历史插入、跨 Body 移动和任意特征重执行。复杂拓扑分裂/合并可能必须显式重选。常规建模与正式历史链已接通，不代表所有曲面/参数组合或所有 Feature×复制×修复组合完成验收；未运行组合属于验证缺口，不写成保证。

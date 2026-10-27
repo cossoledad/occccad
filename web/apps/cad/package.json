@@ -4,9 +4,9 @@
   "version": "0.0.10",
   "type": "module",
   "scripts": {
-    "dev": "vite --mode development --host 0.0.0.0",
-    "dev:mock": "vite --mode mock --host 0.0.0.0",
-    "dev:api": "vite --mode development --host 0.0.0.0",
+    "dev": "vite --mode development",
+    "dev:mock": "vite --mode mock --host 127.0.0.1",
+    "dev:api": "vite --mode development",
     "preview": "vite preview --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",

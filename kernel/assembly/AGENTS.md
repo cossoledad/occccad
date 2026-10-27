@@ -22,7 +22,7 @@
 
 - 场景：`tests/assembly_solver_scenarios.cpp`、`tests/motion_scenarios.cpp`、`tests/assembly_composition_scenarios.cpp`、`tests/contact_scenarios.cpp`、`tests/contact_solver_scenarios.cpp`
 - corpus：根 `tests/assembly-corpus/`
-- 局部验证：`invoke check --scope assembly`
-- 精确回归：`invoke check --scope assembly --match '<test regex>'`，随后按语义风险升级到完整 assembly scope
-- 单个回归：构建 `occcad_assembly_solver_scenarios` 后用 `ctest --test-dir build/cmake/release -R '<exact regex>' --output-on-failure`
-- 三维求解器性能：`invoke performance.assembly`，默认复用已构建优化制品串行测量 Native；Router/Session 通过 `--stages=static,interaction,service,allocations` 选测。性能测试不替代正确性测试。
+- 局部验证：`mise run check --scope assembly`
+- 精确回归：`mise run check --scope assembly --match '<test regex>'`，随后按语义风险升级到完整 assembly scope
+- 单个回归：构建 `occcad_assembly_solver_scenarios` 后用 `ctest --test-dir build/cmake/linux-gcc15-x86_64/release -R '<exact regex>' --output-on-failure`
+- 三维求解器性能：`mise run benchmark`，默认复用已构建优化制品串行测量 Native；Router/Session 通过 `--stages=static,interaction,service,allocations` 选测。性能测试不替代正确性测试。

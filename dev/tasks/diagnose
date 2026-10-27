@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="diagnose"
+#MISE quiet=true
+#USAGE flag "--reference <reference>"
+#USAGE flag "--file <file>"
+#USAGE flag "--document <document>"
+#USAGE flag "--job <job>"
+#USAGE flag "--attempt <attempt>" default="0"
+#USAGE flag "--diagnostic <diagnostic>" help="Exact recorded snapshot diagnostic ID for original replay"
+#USAGE flag "--replay"
+#USAGE flag "--profile <profile>" default="release" { choices "release" "debug" "sanitize"; }
+#USAGE flag "--json"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry diagnose "$@"

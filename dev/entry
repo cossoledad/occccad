@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [[ ! -x build/tools/occccad-dev ]]; then
+  echo 'Development tool missing. Run: mise run setup --component tooling' >&2
+  exit 2
+fi
+shopt -s nullglob
+for source in services/internal/devtool/*.go services/cmd/occccad-dev/*.go services/internal/config/*.go services/go.mod services/go.sum; do
+  if [[ "$source" -nt build/tools/occccad-dev ]]; then
+    echo 'Development tool sources changed. Run: mise run setup --component tooling' >&2
+    exit 2
+  fi
+done
+exec build/tools/occccad-dev "$@"

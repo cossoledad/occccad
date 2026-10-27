@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE description="docs:check"
+#MISE quiet=true
+#USAGE flag "--json"
+#USAGE flag "--verbose"
+#USAGE flag "--base <base>" help="Compare Markdown byte sizes with a local Git revision"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry docs:check "$@"
