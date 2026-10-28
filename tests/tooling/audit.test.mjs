@@ -10,6 +10,7 @@ import {
   audit,
   entrySizes,
   codeGuides,
+  publicTaskErrors,
 } from "../../tools/documentation-audit.mjs";
 import { readDevelopmentEnvironment } from "../../tools/development_environment.mjs";
 import {
@@ -214,4 +215,33 @@ test("integration build tags and resource inventory stay explicit", () => {
         assert.ok(source.startsWith("//go:build integration"), "configured resources leaked into unit compilation: " + p);
     }
   }
+});
+
+test("public tasks survive Git ignore rules and documented commands exist", t => {
+ const root=fixture(t);
+ put(root,".gitignore","data/\n");
+ put(root,"dev/tasks/data/reset","#!/bin/sh\n");
+ fs.chmodSync(path.join(root,"dev/tasks/data/reset"),0o755);
+ put(root,"README.md","mise run data:reset --yes\n");
+ assert.ok(publicTaskErrors(root).some(e=>e.includes("ignored")));
+ fs.appendFileSync(path.join(root,".gitignore"),"!dev/tasks/data/\n!dev/tasks/data/reset\n");
+ assert.deepEqual(publicTaskErrors(root),[]);
+ put(root,"services/data/persistent.bin","private");
+ assert.equal(execFileSync("git",["check-ignore","services/data/persistent.bin"],{cwd:root,encoding:"utf8"}).trim(),"services/data/persistent.bin");
+ execFileSync("git",["add","dev/tasks/data/reset","README.md",".gitignore"],{cwd:root});
+ assert.deepEqual(publicTaskErrors(root),[]);
+ put(root,"README.md","mise run deleted:command\n");
+ assert.ok(publicTaskErrors(root).some(e=>e.includes("deleted:command")));
+ fs.unlinkSync(path.join(root,"dev/tasks/data/reset"));
+ put(root,"README.md","mise run data:reset --yes\n");
+ assert.ok(publicTaskErrors(root).some(e=>e.includes("data:reset")));
+});
+
+test("services package roots cover every owned Go source without walking runtime data", () => {
+ const root=path.resolve(import.meta.dirname,'../..');
+ const registration=JSON.parse(fs.readFileSync(path.join(root,'dev/validation.json'),'utf8')).steps.find(s=>s.id==='services-unit');
+ assert.ok(!registration.packages.includes('./...'),'do not traverse services/data as Go source');
+ const prefixes=registration.packages.map(p=>'services/'+p.replace(/^\.\//,'').replace(/\.\.\.$/,''));
+ const files=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','-z'],{cwd:root,encoding:'utf8'}).split('\0').filter(p=>p.startsWith('services/')&&p.endsWith('.go')&&fs.existsSync(path.join(root,p)));
+ for(const p of files)assert.ok(prefixes.some(prefix=>p.startsWith(prefix)),'owned Go source has no services unit package root: '+p);
 });

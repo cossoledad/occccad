@@ -114,7 +114,7 @@ func (a *App) Run(args []string) error {
 			case "level":
 				f.StringVar(&o.Level, n, o.Level, "unit, integration, browser-mock, browser-live or full")
 			case "match":
-				f.StringVar(&o.Match, n, "", "native regex (Go/CTest), path substring (Web)")
+				f.StringVar(&o.Match, n, "", "discover matching Go/CTest cases or Web paths; omit empty leaves, fail an empty total")
 			case "jobs":
 				f.Func(n, "positive native build jobs; OCCCCAD_BUILD_JOBS; default 4", func(s string) error { v, e := positive(s); o.Jobs = v; return e })
 			case "test-jobs":
@@ -183,15 +183,15 @@ func (a *App) Run(args []string) error {
 	case "cpp:build":
 		add("target profile jobs verbose")
 	case "cpp:test":
-		add("scope match profile test-jobs report")
+		add("scope match profile test-jobs report verbose")
 	case "go:build":
 		add("profile jobs verbose")
 	case "web:build":
 		add("jobs verbose")
 	case "go:check", "go:conformance":
-		add("packages level match profile jobs test-jobs")
+		add("packages level match profile jobs test-jobs verbose")
 	case "web:check":
-		add("level match test-jobs")
+		add("level match test-jobs verbose")
 	case "plan", "check":
 		add("scope changed staged base head level match profile jobs test-jobs json verbose")
 	case "dev":

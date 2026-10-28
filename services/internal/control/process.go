@@ -175,6 +175,12 @@ var _ io.Writer = (*logWriter)(nil)
 // A process group can outlive its original leader. Confirm the per-launch
 // token in /proc before signalling descendants, including after leader exit.
 func (process *ManagedProcess) signalGroup(signal syscall.Signal) bool {
+	return SignalOwnedProcessGroup(process.command.Process.Pid, process.instance, signal)
+}
+
+// SignalOwnedProcessGroup only signals a live group whose members retain the
+// per-launch identity. The group may outlive its leader; reused PIDs are rejected.
+func SignalOwnedProcessGroup(pid int, instance string, signal syscall.Signal) bool {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return false
@@ -194,17 +200,81 @@ func (process *ManagedProcess) signalGroup(signal syscall.Signal) bool {
 			continue
 		}
 		fields := strings.Fields(string(stat)[index+1:])
-		if len(fields) < 3 || fields[2] != strconv.Itoa(process.command.Process.Pid) || fields[0] == "Z" {
+		if len(fields) < 3 || fields[2] != strconv.Itoa(pid) || fields[0] == "Z" {
 			continue
 		}
 		env, err := os.ReadFile(filepath.Join(p, "environ"))
-		if err != nil || !strings.Contains("\x00"+string(env), "\x00OCCCCAD_PROCESS_INSTANCE="+process.instance+"\x00") {
+		if err != nil || !ownsProcess(env, instance) {
 			return false
 		}
 		owned = true
 	}
 	if owned {
-		_ = syscall.Kill(-process.command.Process.Pid, signal)
+		_ = syscall.Kill(-pid, signal)
 	}
 	return owned
+}
+
+// OwnedProcessGroups finds finite-command descendants that created their own
+// process group. The inherited launch identity survives a leader's early exit.
+func OwnedProcessGroups(instance string) []int {
+	if instance == "" {
+		return nil
+	}
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	groups := map[int]bool{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		p := filepath.Join("/proc", entry.Name())
+		env, err := os.ReadFile(filepath.Join(p, "environ"))
+		if err != nil || !ownsProcess(env, instance) {
+			continue
+		}
+		stat, err := os.ReadFile(filepath.Join(p, "stat"))
+		if err != nil {
+			continue
+		}
+		end := strings.LastIndex(string(stat), ")")
+		if end < 0 {
+			continue
+		}
+		fields := strings.Fields(string(stat)[end+1:])
+		if len(fields) < 3 || fields[0] == "Z" {
+			continue
+		}
+		group, err := strconv.Atoi(fields[2])
+		if err == nil && group > 1 {
+			groups[group] = true
+		}
+	}
+	result := []int{}
+	for group := range groups {
+		result = append(result, group)
+	}
+	return result
+}
+
+func ownsProcess(env []byte, instance string) bool {
+	if instance == "" {
+		return false
+	}
+	text := "\x00" + string(env)
+	if strings.Contains(text, "\x00OCCCCAD_PROCESS_INSTANCE="+instance+"\x00") {
+		return true
+	}
+	key := "\x00OCCCCAD_EXECUTION_LINEAGE="
+	i := strings.Index(text, key)
+	if i < 0 {
+		return false
+	}
+	value := text[i+len(key):]
+	if end := strings.IndexByte(value, 0); end >= 0 {
+		value = value[:end]
+	}
+	return strings.Contains(value, ":"+instance+":")
 }

@@ -346,7 +346,9 @@
         "unit"
       ],
       "packages": [
-        "./..."
+        "./cmd/...",
+        "./internal/...",
+        "./gen/..."
       ],
       "resources": []
     },
@@ -572,5 +574,18 @@
         "unit"
       ]
     }
-  ]
+  ],
+  "ctestScopes": {
+    "assembly": [
+      "assembly/",
+      "assembly-corpus/"
+    ],
+    "geometry": [
+      "geometry/",
+      "worker/"
+    ],
+    "sketch": [
+      "sketch/"
+    ]
+  }
 }

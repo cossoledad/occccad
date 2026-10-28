@@ -3,6 +3,7 @@ package devtool
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,7 +36,10 @@ type Report struct {
 }
 
 func (a *App) Validate(o Options, planOnly bool) error {
-	p, e := a.MakePlan(o)
+	// Ninja owns test discovery outputs too. A C++ check refreshes its native
+	// targets before selecting cases; read-only plan uses existing registration.
+	deferCTest := !planOnly && o.Level == "unit" && oneOf(o.Scope, "assembly", "geometry", "sketch") && o.Match != ""
+	p, e := a.makePlan(o, !deferCTest)
 	if e != nil {
 		return e
 	}
@@ -82,11 +86,35 @@ func (a *App) Validate(o Options, planOnly bool) error {
 		if step.Kind == "ctest" {
 			rec.Argv = append(rec.Argv, "--report", xml)
 		}
-		if len(step.Resources) > 0 && release == nil && o.Level != "unit" {
+		if release == nil && (step.Kind == "ctest" || oneOf("worker", step.Resources...)) {
 			release, e = a.buildLock(o, true)
 			if e != nil {
 				return e
 			}
+		}
+		if deferCTest && step.Kind == "ctest" {
+			local := o
+			local.Scope = argument(step.Argv, "--scope")
+			names, err := a.ctestCases(local)
+			if err == nil && len(names) == 0 {
+				err = fmt.Errorf("selected zero CTest cases for %q", o.Match)
+			}
+			if err != nil {
+				rec.Status = "FAIL"
+				rec.Reason = err.Error()
+				rec.Log = filepath.Join(dir, fmt.Sprintf("%02d-%s.log", i, step.ID))
+				if e = os.WriteFile(rec.Log, []byte(redact(rec.Reason)), 0600); e != nil {
+					return e
+				}
+				report.Steps = append(report.Steps, rec)
+				failed = true
+				report.Status = rec.Status
+				fmt.Fprintf(a.Err, "[%s] %s: %s; log: %s\n", rec.Status, step.ID, rec.Reason, rec.Log)
+				continue
+			}
+			step.Expected = names
+			rec.Expected = names
+			report.Plan.Steps[i] = step
 		}
 		if e := a.Preflight(o, step.Resources); e != nil {
 			rec.Status = "ENVIRONMENT_BLOCKED"
@@ -105,10 +133,40 @@ func (a *App) Validate(o Options, planOnly bool) error {
 			rec.Environment = environmentIdentity()
 		}
 		if step.Kind != "build" {
-			rec.ArtifactsBefore = a.Artifacts(o)
+			rec.ArtifactsBefore = a.stepArtifacts(o, step)
+		}
+		rec.Log = filepath.Join(dir, fmt.Sprintf("%02d-%s.log", i, step.ID))
+		fmt.Fprintf(a.Err, "[run] %s; log: %s\n", step.ID, rec.Log)
+		webCases := []CaseResult{}
+		var protocolError error
+		observe := func(line string) {
+			if strings.HasPrefix(line, "OCCCCAD_NATIVE_COMMAND ") {
+				if len(rec.NativeCommands) >= 1000 {
+					protocolError = fmt.Errorf("native command count exceeds 1000")
+					return
+				}
+				var command map[string]any
+				if json.Unmarshal([]byte(strings.TrimPrefix(line, "OCCCCAD_NATIVE_COMMAND ")), &command) == nil {
+					rec.NativeCommands = append(rec.NativeCommands, command)
+				}
+			}
+			if strings.HasPrefix(line, "OCCCCAD_WEB_CASE ") {
+				if len(webCases) >= 20000 {
+					protocolError = fmt.Errorf("Web case count exceeds 20000")
+					return
+				}
+				webCases = append(webCases, CaseResult{Name: strings.TrimPrefix(line, "OCCCCAD_WEB_CASE "), Status: "PASS"})
+			}
+		}
+		var live io.Writer
+		if o.Verbose {
+			live = a.Err
 		}
 		before := time.Now()
-		out, err := a.capture(rec.Cwd, nil, rec.Argv...)
+		out, err := a.stream(rec.Cwd, append(os.Environ(), "OCCCCAD_DEV_EVIDENCE_STREAM=1"), rec.Log, live, observe, rec.Argv...)
+		if err == nil {
+			err = protocolError
+		}
 		if err != nil {
 			rec.ExitCode = -1
 			if code, ok := err.(*exec.ExitError); ok {
@@ -116,27 +174,16 @@ func (a *App) Validate(o Options, planOnly bool) error {
 			}
 		}
 		rec.Duration = time.Since(before).Seconds()
-		for _, line := range strings.Split(out, "\n") {
-			if strings.HasPrefix(line, "OCCCCAD_NATIVE_COMMAND ") {
-				var command map[string]any
-				if json.Unmarshal([]byte(strings.TrimPrefix(line, "OCCCCAD_NATIVE_COMMAND ")), &command) == nil {
-					rec.NativeCommands = append(rec.NativeCommands, command)
-				}
-			}
-		}
-		rec.Log = filepath.Join(dir, fmt.Sprintf("%02d-%s.log", i, step.ID))
-		if e = os.WriteFile(rec.Log, []byte(redact(out)), 0600); e != nil {
-			return e
-		}
 		switch step.Kind {
 		case "go":
-			rec.Evidence = GoEvidence(out, err != nil, o.Match != "")
+			rec.Evidence = GoEvidenceFile(rec.Log, err != nil, o.Match != "")
 		case "ctest":
 			rec.Evidence = CTestEvidence(xml, err != nil)
 		case "node":
 			rec.Evidence = NodeEvidence(out, err != nil)
 		case "web":
 			rec.Evidence = WebEvidence(out, err != nil)
+			rec.Cases = webCases
 		case "browser":
 			rec.Evidence = browserEvidence(out, err != nil)
 		default:
@@ -145,8 +192,11 @@ func (a *App) Validate(o Options, planOnly bool) error {
 				rec.Status = "FAIL"
 			}
 		}
-		if strings.Contains(out, "ENVIRONMENT_BLOCKED:") {
+		if err != nil && rec.Counts.Failed == 0 && (strings.Contains(out, "\nENVIRONMENT_BLOCKED:") || strings.HasPrefix(out, "ENVIRONMENT_BLOCKED:")) {
 			rec.Status = "ENVIRONMENT_BLOCKED"
+		}
+		if len(step.Expected) > 0 {
+			expectedEvidence(step, &rec.Evidence, o.Match)
 		}
 		if step.Task == "go:check" || step.Task == "go:conformance" {
 			leaf := o
@@ -165,14 +215,17 @@ func (a *App) Validate(o Options, planOnly bool) error {
 			rec.Reason = "selected runtime configuration changed during validation"
 		}
 		if step.Kind != "build" {
-			rec.ArtifactsAfter = a.Artifacts(o)
+			rec.ArtifactsAfter = a.stepArtifacts(o, step)
 			if hashJSON(rec.ArtifactsBefore) != hashJSON(rec.ArtifactsAfter) {
 				rec.Status = "SOURCE_CHANGED"
 				rec.Reason = "related generated sources or native artifacts changed during execution"
 			}
 		}
 		fmt.Fprintf(a.Err, "[%s] %s (%.2fs; passed=%d skipped=%d); log: %s\n", rec.Status, step.ID, rec.Duration, rec.Counts.Passed, rec.Counts.Skipped, rec.Log)
-		if o.Verbose || rec.Status != "PASS" {
+		if rec.Status != "PASS" && rec.Reason != "" {
+			fmt.Fprintln(a.Err, "  reason:", redact(rec.Reason))
+		}
+		if !o.Verbose && rec.Status != "PASS" {
 			fmt.Fprintln(a.Err, compact(redact(out)))
 		}
 		report.Steps = append(report.Steps, rec)

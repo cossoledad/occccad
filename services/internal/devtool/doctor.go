@@ -111,31 +111,28 @@ func (a *App) Doctor(o Options) error {
 }
 func (a *App) RunningIdentity(o Options) error { return a.runningIdentityAt(o, "/proc") }
 func (a *App) runningIdentityAt(o Options, procRoot string) error {
-	var saved struct {
-		Source             any
-		Artifacts          map[string]string
-		RuntimeID          string `json:"runtimeId"`
-		Profile, Workspace string
-		Environment        map[string]any
-	}
+	var saved runtimeReceipt
 	if e := loadJSON(filepath.Join(a.Root, "build/runtime/identity.json"), &saved); e != nil {
-		return blocked("no runtime receipt")
+		return blocked("no runtime receipt; start mise run dev")
 	}
-	source, e := a.Source()
+	if saved.Profile != o.Profile || saved.Workspace != a.Root {
+		return blocked("runtime profile/workspace differs; restart mise run dev with the selected profile")
+	}
+	inputs, e := a.backendInputs()
 	if e != nil {
 		return e
 	}
-	if hashJSON(source) != hashJSON(saved.Source) || saved.Profile != o.Profile || saved.Workspace != a.Root {
-		return blocked("runtime source/profile/workspace changed")
+	if hashJSON(inputs) != hashJSON(saved.BackendInputs) {
+		return blocked("backend inputs changed; incrementally build and restart mise run dev (frontend HMR/docs are independent)")
 	}
-	if hashJSON(saved.Environment) != hashJSON(environmentIdentity()) {
-		return blocked("configured runtime resources or Worker changed")
+	if hashJSON(saved.Environment) != hashJSON(runtimeConfiguration()) {
+		return blocked("effective backend configuration or selected Worker path changed; restart mise run dev")
 	}
 	if len(saved.Artifacts) < 4 {
 		return blocked("runtime receipt lacks mandatory binaries")
 	}
 	names := map[string]bool{}
-	for p := range saved.Artifacts {
+	for p := range saved.LoadedArtifacts {
 		names[filepath.Base(p)] = true
 	}
 	for _, n := range []string{"occccad-control", "occccad-server", "occccad-jobs", "occccad_geometry_worker"} {
@@ -143,10 +140,13 @@ func (a *App) runningIdentityAt(o Options, procRoot string) error {
 			return blocked("runtime receipt missing " + n)
 		}
 	}
+	if len(saved.LoadedArtifacts) != len(saved.Artifacts) {
+		return blocked("runtime receipt lacks loaded snapshot identities; restart mise run dev")
+	}
 	seen := map[string]bool{}
 	for p, h := range saved.Artifacts {
 		if fileHash(p) != h {
-			return blocked("disk artifact updated since startup: " + p)
+			return blocked("disk artifact updated since startup; running snapshot is unchanged. Restart mise run dev: " + p)
 		}
 	}
 	entries, e := os.ReadDir(procRoot)
@@ -167,14 +167,14 @@ func (a *App) runningIdentityAt(o Options, procRoot string) error {
 			continue
 		}
 		exe = strings.TrimSuffix(exe, " (deleted)")
-		if expected, ok := saved.Artifacts[exe]; ok {
+		if expected, ok := saved.LoadedArtifacts[exe]; ok {
 			if fileHash(filepath.Join(p, "exe")) != expected {
 				return blocked("loaded process binary is stale: " + entry.Name())
 			}
 			seen[exe] = true
 		}
 	}
-	for p := range saved.Artifacts {
+	for p := range saved.LoadedArtifacts {
 		if !seen[p] {
 			return blocked("recorded runtime process not running: " + p)
 		}

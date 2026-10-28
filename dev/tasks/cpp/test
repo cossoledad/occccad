@@ -6,6 +6,7 @@
 #USAGE flag "--profile <profile>" default="release" { choices "release" "debug" "sanitize"; }
 #USAGE flag "--test-jobs <test_jobs>" default="1"
 #USAGE flag "--report <report>"
+#USAGE flag "--verbose" help="Stream redacted diagnostics while running"
 #MISE raw_args=true
 set -euo pipefail
 exec dev/entry cpp:test "$@"

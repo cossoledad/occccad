@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { resolve, relative } from "node:path";
 
 const args = process.argv.slice(2);
 const verbose = args.includes("--verbose");
@@ -44,7 +44,10 @@ for (const scenario of selected) {
     child.stderr?.on("data", (chunk) => stderr.push(chunk));
     child.once("error", reject);
     child.once("exit", (code) => {
-      if (code === 0) return accept();
+      if (code === 0) {
+ if(process.env.OCCCCAD_DEV_EVIDENCE_STREAM === "1")console.log("OCCCCAD_WEB_CASE " + relative(process.cwd(),scenario).split("\\").join("/"));
+ return accept();
+}
       if (!verbose) {
         if (stdout.length > 0) process.stdout.write(Buffer.concat(stdout));
         if (stderr.length > 0) process.stderr.write(Buffer.concat(stderr));

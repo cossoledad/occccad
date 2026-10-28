@@ -2,10 +2,11 @@ package devtool
 
 import (
 	"fmt"
-	"os"
+	"io"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"time"
 )
 
 func (a *App) Benchmark(o Options, baseline bool) error {
@@ -13,18 +14,29 @@ func (a *App) Benchmark(o Options, baseline bool) error {
 		return fmt.Errorf("--samples must be 2..100")
 	}
 	if baseline {
-		out, e := a.capture(a.services(), nil, "go", "test", "-p", strconv.Itoa(o.Jobs), "./internal/workspace", "-run", "^$", "-bench", "Benchmark(ProfileBuilder|VisualizationManifest)", "-benchmem", "-count="+strconv.Itoa(o.Samples))
 		dir := filepath.Join(a.Root, "build/performance")
-		os.MkdirAll(dir, 0700)
-		log := filepath.Join(dir, "go-workspace.txt")
-		if err := os.WriteFile(log, []byte(redact(out)), 0600); err != nil {
-			return err
+		log := filepath.Join(dir, "go-workspace-"+time.Now().UTC().Format("20060102T150405.000000000")+".txt")
+		argv := []string{"go", "test", "-p", strconv.Itoa(o.Jobs), "./internal/workspace", "-run", "^$", "-bench", "Benchmark(ProfileBuilder|VisualizationManifest)", "-benchmem", "-count=" + strconv.Itoa(o.Samples)}
+		a.recordNative(a.services(), argv)
+		fmt.Fprintln(a.Err, "[run] Go benchmarks; log:", log)
+		var live io.Writer
+		if o.Verbose {
+			live = a.Err
 		}
+		counts := map[string]int{}
+		observe := func(line string) {
+			for _, name := range []string{"ProfileBuilder", "VisualizationManifest"} {
+				if regexp.MustCompile(`^Benchmark` + name + `\S*\s+\d+\s+[0-9.eE+-]+\s+ns/op`).MatchString(line) {
+					counts[name]++
+				}
+			}
+		}
+		_, e := a.stream(a.services(), nil, log, live, observe, argv...)
 		if e != nil {
 			return fmt.Errorf("Go benchmarks failed; log %s: %w", log, e)
 		}
 		for _, name := range []string{"ProfileBuilder", "VisualizationManifest"} {
-			if len(regexp.MustCompile(`(?m)^Benchmark`+name+`\S*\s+\d+\s+[0-9.eE+-]+\s+ns/op`).FindAllString(out, -1)) < o.Samples {
+			if counts[name] < o.Samples {
 				return fmt.Errorf("Benchmark%s missing measured samples; %s", name, log)
 			}
 		}

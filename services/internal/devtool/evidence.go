@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -54,10 +55,21 @@ func redactGoOutput(raw string) string {
 }
 
 func GoEvidence(raw string, failed, required bool) Evidence {
+	return goEvidenceReader(strings.NewReader(raw), failed, required)
+}
+func GoEvidenceFile(file string, failed, required bool) Evidence {
+	f, e := os.Open(file)
+	if e != nil {
+		return Evidence{Status: "FAIL", Reason: e.Error()}
+	}
+	defer f.Close()
+	return goEvidenceReader(f, failed, required)
+}
+func goEvidenceReader(input io.Reader, failed, required bool) Evidence {
 	r := Evidence{Status: "PASS"}
 	tests := map[string]*CaseResult{}
 	started := map[string]bool{}
-	s := bufio.NewScanner(strings.NewReader(raw))
+	s := bufio.NewScanner(input)
 	s.Buffer(make([]byte, 4096), 16*1024*1024)
 	for s.Scan() {
 		var e GoEvent
@@ -73,6 +85,9 @@ func GoEvidence(raw string, failed, required bool) Evidence {
 		key := e.Package + "/" + e.Test
 		t := tests[key]
 		if t == nil {
+			if len(tests) >= 20000 {
+				return Evidence{Status: "FAIL", Reason: "Go case count exceeds 20000"}
+			}
 			t = &CaseResult{Package: e.Package, Name: e.Test, Status: "NOT_RUN"}
 			tests[key] = t
 		}
@@ -87,6 +102,9 @@ func GoEvidence(raw string, failed, required bool) Evidence {
 			t.Status = "ENVIRONMENT_BLOCKED"
 		case "output":
 			t.Detail += e.Output
+			if len(t.Detail) > 3000 {
+				t.Detail = t.Detail[len(t.Detail)-3000:]
+			}
 		}
 	}
 	for key, t := range tests {
@@ -144,7 +162,7 @@ func CTestEvidence(path string, failed bool) Evidence {
 		return Evidence{Status: "FAIL", Reason: "missing fresh CTest report"}
 	}
 	defer f.Close()
-	d := xml.NewDecoder(f)
+	d := xml.NewDecoder(io.LimitReader(f, 32*1024*1024))
 	for {
 		tok, e := d.Token()
 		if e != nil {

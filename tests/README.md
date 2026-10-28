@@ -19,3 +19,7 @@ Go 的配置数据库、ArtifactStore、生产 Worker 证据显式使用 integra
 Node `pnpm --dir web/apps/cad test -- sketch` 按路径片段 OR 筛选，--list 列表，--verbose 展开。复杂交互仍需要浏览器验收，Mock/Node 不证明真实 WebGL 后台链路。`tests/go/realtime` 要求本次正常 Control/API/Jobs 应用已运行，同一 .env，不设置第二套服务/数据库地址。
 
 工具回归已迁至 [Go devtool](../services/internal/devtool/devtool_test.go)、[合同测试](assembly-contract/runner.test.mjs)、[Node 工具测试](tooling/audit.test.mjs)；保留路径/rename/零匹配/skip/锁/脱敏/合同 baseline 的负例。文档审计用 `mise run docs:check`，修改审计后用 `mise run contract:check`。原始日志与结构化报告在 build，源码变更期间的旧结果不能绑定新工作区。
+
+CTest 的完整归属由 `dev/validation.json` 的 ctestScopes 拥有：assembly/assembly-corpus → assembly，geometry/worker（包括全部 NamingArtifact 用例）→ geometry，sketch → sketch。每次 CTest 发现会审计实际注册用例恰有一个验证归属；不能仅构建 Naming 二进制或运行 fixture 生产者就声称 Naming 回归通过。
+
+services unit 使用 `./cmd/...`、`./internal/...`、`./gen/...` 三个源码根，避免让 Go 的 `./...` 遍历运行数据/日志目录；定向发现再将命中包显式传给 go test。所有受版本控制及非忽略的 Go 源码必须落在这些根中，工具审计会阻止遗漏；原生包集合对比用于确认覆盖未缩减。

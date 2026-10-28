@@ -249,11 +249,9 @@ func (a *App) Diagnose(o Options) error {
 			return e
 		}
 		defer hold()
-		out, err := a.capture(a.services(), nil, argv...)
 		log := output + ".log"
-		if e = os.WriteFile(log, []byte(redact(out)), 0600); e != nil {
-			return e
-		}
+		fmt.Fprintln(a.Err, "[run] numerical replay; log:", log)
+		out, err := a.stream(a.services(), nil, log, nil, nil, argv...)
 		result["log"] = log
 		result["output"] = output
 		result["replayStatus"] = "EXECUTED"

@@ -113,9 +113,37 @@ export function entrySizes(bytes) {
     ),
   };
 }
+// Compare actual file tasks with the Git delivery inventory, not only mise's
+// filesystem discovery: ignored tasks work locally but disappear in a checkout.
+export function publicTaskErrors(root, markdown = owned(root)) {
+  const base = path.join(root, "dev/tasks");
+  if (!fs.existsSync(base)) return [];
+  const deliverable = new Set(execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {cwd:root, encoding:"utf8"}).split("\0"));
+  const names = new Set(), errors = [];
+  function visit(dir) {
+    for (const e of fs.readdirSync(dir, {withFileTypes:true})) {
+      const file = path.join(dir,e.name);
+      if (e.isDirectory()) visit(file);
+      else if (e.isFile()) {
+        const rel = path.relative(root,file).split(path.sep).join("/");
+        if (!deliverable.has(rel)) errors.push("public task absent from Git delivery inventory (ignored): " + rel);
+        if (!(fs.statSync(file).mode & 0o111)) errors.push("public task is not executable: " + rel);
+        names.add(path.relative(base,file).split(path.sep).filter(n => n !== "_default").join(":"));
+      }
+    }
+  }
+  visit(base);
+  for (const file of markdown) {
+    if (file.startsWith("docs/validation/")) continue; // Explicit historical evidence.
+    for (const m of fs.readFileSync(path.join(root,file),"utf8").matchAll(/mise run (?:--quiet )?([a-z][a-z:._-]*)/g)) {
+      if (!names.has(m[1])) errors.push("undelivered public command: " + file + " -> " + m[1]);
+    }
+  }
+  return errors;
+}
 export function audit(root) {
   const files = owned(root),
-    errors = [],
+    errors = publicTaskErrors(root, files),
     bytes = {},
     hotspots = [];
   for (const f of files) {

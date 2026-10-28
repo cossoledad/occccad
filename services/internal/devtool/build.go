@@ -1,6 +1,7 @@
 package devtool
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const dependenciesSchema = "occccad.dependencies.v1"
@@ -192,16 +194,32 @@ func (a *App) configure(o Options) error {
 
 var targetName = regexp.MustCompile(`^[A-Za-z0-9_./+][A-Za-z0-9_./+-]*$`)
 
-func (a *App) CPPBuild(o Options) error {
+func (a *App) CPPBuild(o Options) (result error) {
+	started := time.Now()
+	timing := map[string]any{"profile": o.Profile, "target": o.Target, "jobs": o.Jobs}
+	defer func() {
+		timing["totalSeconds"] = time.Since(started).Seconds()
+		timing["success"] = result == nil
+		p := a.logPath("cpp-build") + ".json"
+		if e := writeJSON(p, timing); e != nil && result == nil {
+			result = e
+		}
+		b, _ := json.Marshal(timing)
+		fmt.Fprintf(a.Err, "OCCCCAD_BUILD_TIMING %s; report: %s\n", b, p)
+	}()
 	if o.Target != "" && !targetName.MatchString(o.Target) {
 		return fmt.Errorf("invalid CMake target %q", o.Target)
 	}
 	unlock, e := a.buildLock(o, false)
+	timing["lockWaitSeconds"] = time.Since(started).Seconds()
 	if e != nil {
 		return e
 	}
 	defer unlock()
-	if e = a.verifyDeps(o); e != nil {
+	checking := time.Now()
+	e = a.verifyDeps(o)
+	timing["dependencyCheckSeconds"] = time.Since(checking).Seconds()
+	if e != nil {
 		return e
 	}
 	var configuration map[string]string
@@ -210,15 +228,20 @@ func (a *App) CPPBuild(o Options) error {
 		return e
 	}
 	if _, e = os.Stat(filepath.Join(a.buildDir(o), "build.ninja")); e != nil || configuration["preset"] != fileHash(filepath.Join(a.Root, "CMakePresets.json")) || cmakeCacheValue(filepath.Join(a.buildDir(o), "CMakeCache.txt"), "CMAKE_BUILD_TYPE") != buildType(o.Profile) {
+		configuring := time.Now()
 		if e = a.configure(o); e != nil {
 			return e
 		}
+		timing["configureSeconds"] = time.Since(configuring).Seconds()
 	}
 	args := []string{"cmake", "--build", a.buildDir(o), "--parallel", strconv.Itoa(o.Jobs)}
 	if o.Target != "" {
 		args = append(args, "--target", o.Target)
 	}
-	return a.native(a.Root, o.Verbose, args...)
+	building := time.Now()
+	result = a.native(a.Root, o.Verbose, args...)
+	timing["nativeBuildSeconds"] = time.Since(building).Seconds()
+	return result
 }
 func (a *App) GoBuild(o Options) error {
 	release, e := lock(a.Context, filepath.Join(a.Root, "build/locks/go-"+o.Profile+".lock"), false)

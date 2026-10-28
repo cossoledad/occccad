@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -110,6 +109,10 @@ func (a *App) Dev(o Options) error {
 		}
 		listener.Close()
 	}
+	before, e := a.backendInputs()
+	if e != nil {
+		return e
+	}
 	cp := o
 	cp.Target = "occccad_geometry_worker"
 	if e = a.CPPBuild(cp); e != nil {
@@ -118,46 +121,28 @@ func (a *App) Dev(o Options) error {
 	if e = a.GoBuild(o); e != nil {
 		return e
 	}
-	hold, e := a.buildLock(o, true)
-	if e != nil {
-		return e
-	}
-	defer hold()
-	goRelease, e := lock(a.Context, filepath.Join(a.Root, "build/locks/go-"+o.Profile+".lock"), true)
-	if e != nil {
-		return e
-	}
-	defer goRelease()
-	source, e := a.Source()
-	if e != nil {
-		return e
-	}
 	id := fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
-	os.Setenv("OCCCCAD_RUNTIME_ID", id)
-	os.Setenv("OCCCCAD_DEV_PROFILE", o.Profile)
-	os.Setenv("OCCCCAD_DEV_WEB", fmt.Sprint(!o.NoWeb))
-	artifacts := map[string]string{}
-	for _, n := range []string{"occccad-control", "occccad-server", "occccad-jobs"} {
-		p := filepath.Join(a.Root, "build/services", o.Profile, n)
-		artifacts[p] = fileHash(p)
-	}
-	artifacts[os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN")] = fileHash(os.Getenv("OCCCCAD_GEOMETRY_WORKER_BIN"))
-	receipt := filepath.Join(a.Root, "build/runtime/identity.json")
-	if e = writeJSON(receipt, map[string]any{"schema": "occccad.runtime-build.v2", "runtimeId": id, "source": source, "artifacts": artifacts, "profile": o.Profile, "workspace": a.Root, "environment": environmentIdentity()}); e != nil {
+	receipt, dir, e := a.snapshotRuntime(o, id)
+	defer os.RemoveAll(dir)
+	if e != nil {
 		return e
 	}
-	c := exec.CommandContext(a.Context, filepath.Join(a.Root, "build/services", o.Profile, "occccad-control"))
-	c.Dir = a.services()
-	c.Stdout = a.Out
-	c.Stderr = a.Err
-	c.Cancel = func() error { return c.Process.Signal(syscall.SIGTERM) }
-	c.WaitDelay = 15 * time.Second
-	e = c.Run()
+	if hashJSON(before) != hashJSON(receipt.BackendInputs) {
+		return fmt.Errorf("SOURCE_CHANGED: backend inputs changed during preparation; rebuild and retry dev")
+	}
+	if e = writeJSON(filepath.Join(a.Root, "build/runtime/identity.json"), receipt); e != nil {
+		return e
+	}
+	env := append(os.Environ(), "OCCCCAD_RUNTIME_ID="+id, "OCCCCAD_DEV_PROFILE="+o.Profile, "OCCCCAD_DEV_WEB="+fmt.Sprint(!o.NoWeb), "OCCCCAD_SERVER_BIN="+filepath.Join(dir, "occccad-server"), "OCCCCAD_JOBS_BIN="+filepath.Join(dir, "occccad-jobs"), "OCCCCAD_GEOMETRY_WORKER_BIN="+filepath.Join(dir, "occccad_geometry_worker"))
+	// Only the long-running Control phase treats requested SIGINT/SIGTERM as a
+	// normal stop. Cancellation during dependency preparation/build is a failure.
+	e = a.rawEnv(a.services(), env, filepath.Join(dir, "occccad-control"))
 	if a.Context.Err() != nil {
 		return nil
 	}
 	return e
 }
+
 func tryLock(p string) (func(), error) {
 	if e := os.MkdirAll(filepath.Dir(p), 0700); e != nil {
 		return nil, e

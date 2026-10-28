@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="data:reset"
+#MISE quiet=true
+#USAGE flag "--yes"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry data:reset "$@"

@@ -57,17 +57,37 @@ func TestRoutingLocalSharedUnknownAndDocsActuallyExecute(t *testing.T) {
 }
 func TestPlanReadOnlyExplicitProfileBudgetMatchAndOutstanding(t *testing.T) {
 	a := fixture(t)
+	fakeExecutable(t, a, "ctest", `printf '%s\n' '{"tests":[{"name":"assembly/DirectedAngle.fixture"}]}'`+"\n")
 	initGit(t, a)
 	registryFixture(t, a)
 	t.Setenv("OCCCCAD_ENV_FILE", filepath.Join(a.Root, "nonexistent.env"))
 	o := Options{Scope: "assembly", Level: "unit", Match: "DirectedAngle", Profile: "debug", Jobs: 7, TestJobs: 1}
+	marker := filepath.Join(a.buildDir(o), "CTestTestfile.cmake")
+	put(t, a.Root, filepath.ToSlash(strings.TrimPrefix(marker, a.Root+string(filepath.Separator))), "# prepared CTest definitions\n")
+	unlock, err := a.buildLock(o, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock()
+	before, err := os.Stat(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
 	p, e := a.MakePlan(o)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = os.Stat(filepath.Join(a.Root, "build")); !os.IsNotExist(e) {
-		t.Fatal("plan wrote build output")
+	after, err := os.Stat(marker)
+	if err != nil || !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
+		t.Fatal("plan changed configured test definitions", err)
 	}
+	if _, err = os.Stat(filepath.Join(a.buildDir(o), "Testing")); !os.IsNotExist(err) {
+		t.Fatal("plan created native test logs", err)
+	}
+	if _, err = os.Stat(filepath.Join(a.buildDir(o), "build.ninja")); !os.IsNotExist(err) {
+		t.Fatal("plan configured/built native outputs", err)
+	}
+
 	if !oneOf("integration", p.Outstanding...) {
 		t.Fatal("risk evidence hidden")
 	}
@@ -83,6 +103,12 @@ func TestPlanReadOnlyExplicitProfileBudgetMatchAndOutstanding(t *testing.T) {
 			t.Fatal(s)
 		}
 	}
+	put(t, a.Root, "services/internal/fixture/owner_test.go", `package fixture
+import "testing"
+func TestDirectedAngle(t *testing.T){}
+`)
+	writeJSON(filepath.Join(a.Root, "discovery.json"), map[string]any{"Dir": filepath.Join(a.Root, "services/internal/fixture"), "ImportPath": "fixture", "TestGoFiles": []string{"owner_test.go"}})
+	fakeExecutable(t, a, "go", "cat "+shellJoin([]string{filepath.Join(a.Root, "discovery.json")})+"\n")
 	o.Scope = "workspace"
 	o.Level = "integration"
 	p, e = a.MakePlan(o)
@@ -158,7 +184,14 @@ func TestBenchmarkFailuresAndZeroSamplesNeverBuildNative(t *testing.T) {
 		if e == nil {
 			t.Fatal("unmeasured benchmark accepted")
 		}
-		b, _ := os.ReadFile(filepath.Join(a.Root, "build/performance/go-workspace.txt"))
+		paths, globErr := filepath.Glob(filepath.Join(a.Root, "build/performance/go-workspace-*.txt"))
+		if globErr != nil || len(paths) != 1 {
+			t.Fatal("missing unique benchmark log", paths, globErr)
+		}
+		b, readErr := os.ReadFile(paths[0])
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
 		if !strings.Contains(string(b), "compiler failed") && !strings.Contains(e.Error(), "missing measured samples") {
 			t.Fatal(e, string(b))
 		}
@@ -285,7 +318,7 @@ func TestLoadedRuntimeRequiresSameInstanceResourcesAndBinaries(t *testing.T) {
 	initGit(t, a)
 	o := Options{Profile: "release"}
 	t.Setenv("OCCCCAD_DATABASE_URL", "sqlite:/owned/app.db")
-	source, _ := a.Source()
+	source, _ := a.backendInputs()
 	artifacts := map[string]string{}
 	proc := filepath.Join(a.Root, "build/proc")
 	paths := []string{}
@@ -298,25 +331,48 @@ func TestLoadedRuntimeRequiresSameInstanceResourcesAndBinaries(t *testing.T) {
 		put(t, proc, pid+"/environ", "OCCCCAD_RUNTIME_ID=instance-1\x00")
 		os.Symlink(p, filepath.Join(proc, pid, "exe"))
 	}
-	writeJSON(filepath.Join(a.Root, "build/runtime/identity.json"), map[string]any{"source": source, "artifacts": artifacts, "runtimeId": "instance-1", "profile": "release", "workspace": a.Root, "environment": environmentIdentity()})
+	writeJSON(filepath.Join(a.Root, "build/runtime/identity.json"), map[string]any{"backendInputs": source, "artifacts": artifacts, "loadedArtifacts": artifacts, "runtimeId": "instance-1", "profile": "release", "workspace": a.Root, "environment": runtimeConfiguration()})
 	if e := a.runningIdentityAt(o, proc); e != nil {
 		t.Fatal(e)
+	}
+	if e := a.runningIdentityAt(Options{Profile: "debug"}, proc); e == nil || !strings.Contains(e.Error(), "profile") {
+		t.Fatal("wrong requested profile accepted", e)
 	}
 	put(t, proc, "1/environ", "OCCCCAD_RUNTIME_ID=older-instance\x00")
 	if a.runningIdentityAt(o, proc) == nil {
 		t.Fatal("old process instance accepted")
 	}
 	put(t, proc, "1/environ", "OCCCCAD_RUNTIME_ID=instance-1\x00")
+	previousListen, hadListen := os.LookupEnv("OCCCCAD_APP_LISTEN")
 	t.Setenv("OCCCCAD_APP_LISTEN", "127.0.0.1:29000")
 	if a.runningIdentityAt(o, proc) == nil {
 		t.Fatal("changed listeners accepted")
 	}
-	os.Unsetenv("OCCCCAD_APP_LISTEN")
+	if hadListen {
+		os.Setenv("OCCCCAD_APP_LISTEN", previousListen)
+	} else {
+		os.Unsetenv("OCCCCAD_APP_LISTEN")
+	}
+	previousPool, hadPool := os.LookupEnv("OCCCCAD_GEOMETRY_WORKER_MAX")
+	t.Setenv("OCCCCAD_GEOMETRY_WORKER_MAX", "42")
+	if e := a.runningIdentityAt(o, proc); e == nil || !strings.Contains(e.Error(), "configuration") {
+		t.Fatal("changed Worker pool accepted", e)
+	}
+	if hadPool {
+		os.Setenv("OCCCCAD_GEOMETRY_WORKER_MAX", previousPool)
+	} else {
+		os.Unsetenv("OCCCCAD_GEOMETRY_WORKER_MAX")
+	}
 	os.WriteFile(paths[0], []byte("v2"), 0644)
 	if a.runningIdentityAt(o, proc) == nil {
 		t.Fatal("updated disk artifact accepted")
 	}
 	os.WriteFile(paths[0], []byte("v1"), 0644)
+	os.WriteFile(paths[3], []byte("old-or-replaced-worker"), 0644)
+	if e := a.runningIdentityAt(o, proc); e == nil || !strings.Contains(e.Error(), "disk artifact updated") {
+		t.Fatal("stale Worker artifact accepted", e)
+	}
+	os.WriteFile(paths[3], []byte("v1"), 0644)
 	os.WriteFile(paths[0]+" (deleted)", []byte("old inode"), 0644)
 	os.Remove(filepath.Join(proc, "1/exe"))
 	os.Symlink(paths[0]+" (deleted)", filepath.Join(proc, "1/exe"))

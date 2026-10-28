@@ -1,7 +1,6 @@
 package devtool
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,7 +9,6 @@ import (
 	"github.com/occccad/occccad/internal/config"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -23,18 +21,11 @@ type Blocked struct{ Reason string }
 func (e *Blocked) Error() string { return "ENVIRONMENT_BLOCKED: " + e.Reason }
 func blocked(s string) *Blocked  { return &Blocked{s} }
 func (a *App) capture(cwd string, env []string, argv ...string) (string, error) {
-	c := exec.CommandContext(a.Context, argv[0], argv[1:]...)
-	c.Dir = cwd
-	c.Env = env
-	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	c.Cancel = func() error { return syscall.Kill(-c.Process.Pid, syscall.SIGTERM) }
-	c.WaitDelay = 5 * time.Second
-	var b bytes.Buffer
-	c.Stdout = &b
-	c.Stderr = &b
-	err := c.Run()
-	// Machine output must retain its bytes (Git paths, JSON identities, counts).
-	// Callers redact diagnostics at the terminal/log boundary, never before parsing.
+	b := &cappedBuffer{limit: 16 * 1024 * 1024}
+	err := a.execute(cwd, env, b, b, argv...)
+	if b.exceeded {
+		return b.String(), fmt.Errorf("machine output exceeds 16 MiB")
+	}
 	return b.String(), err
 }
 
@@ -44,28 +35,24 @@ var urlCredentials = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+(?:
 var tokenField = regexp.MustCompile(`(?i)((?:password|token|secret|api[_-]?key)["']?\s*[:=]\s*["']?)[^\s,"'}]+`)
 
 func redact(s string) string {
-	s = config.Redact(s)
+	// Scrub labelled values before configured short secrets can alter labels
+	// such as "password", making them unrecognizable to the field scrubber.
+	s = tokenField.ReplaceAllString(s, "${1}<redacted>")
 	s = urlCredentials.ReplaceAllString(s, "${1}<redacted>@")
-	return tokenField.ReplaceAllString(s, "${1}<redacted>")
+	return config.Redact(s)
 }
 func (a *App) native(cwd string, verbose bool, argv ...string) error {
 	return a.nativeEnv(cwd, nil, verbose, argv...)
 }
 func (a *App) nativeEnv(cwd string, env []string, verbose bool, argv ...string) error {
 	a.recordNative(cwd, argv)
-	out, err := a.capture(cwd, env, argv...)
-	out = redact(out)
+	log := a.logPath(filepath.Base(argv[0]))
+	fmt.Fprintf(a.Err, "[run] %s; log: %s\n", filepath.Base(argv[0]), log)
+	var live io.Writer
 	if verbose {
-		fmt.Fprint(a.Out, out)
+		live = a.Err
 	}
-	dir := filepath.Join(a.Root, "build/logs")
-	if e := os.MkdirAll(dir, 0700); e != nil {
-		return e
-	}
-	log := filepath.Join(dir, fmt.Sprintf("%s-%s.log", filepath.Base(argv[0]), time.Now().UTC().Format("20060102T150405.000000000")))
-	if e := os.WriteFile(log, []byte(out), 0600); e != nil {
-		return e
-	}
+	out, err := a.stream(cwd, env, log, live, nil, argv...)
 	if err != nil {
 		fmt.Fprintln(a.Err, compact(out))
 		return fmt.Errorf("%s: %w; log: %s", argv[0], err, log)
@@ -73,6 +60,7 @@ func (a *App) nativeEnv(cwd string, env []string, verbose bool, argv ...string) 
 	fmt.Fprintf(a.Err, "%s completed; log: %s\n", argv[0], log)
 	return nil
 }
+
 func compact(s string) string {
 	const max = 16000
 	if len(s) > max {
@@ -129,6 +117,8 @@ func lock(ctx context.Context, p string, shared bool) (func(), error) {
 	if shared {
 		op = syscall.LOCK_SH
 	}
+	started := time.Now()
+	announced := false
 	for {
 		e = syscall.Flock(int(f.Fd()), op|syscall.LOCK_NB)
 		if e == nil {
@@ -137,6 +127,14 @@ func lock(ctx context.Context, p string, shared bool) (func(), error) {
 		if e != syscall.EWOULDBLOCK {
 			f.Close()
 			return nil, e
+		}
+		if !announced {
+			fmt.Fprintf(os.Stderr, "[lock] waiting for %s (%s): another build/clean or validation owns this path; finish or cancel that command, then retry. dev runs from a snapshot and does not hold build locks.\n", p, map[bool]string{true: "reader", false: "writer"}[shared])
+			announced = true
+		}
+		if time.Since(started) >= 15*time.Second {
+			f.Close()
+			return nil, blocked("lock busy after 15s: " + p + "; finish/cancel the build or validation holding it, then retry")
 		}
 		select {
 		case <-ctx.Done():
@@ -153,19 +151,9 @@ func (a *App) buildLock(o Options, shared bool) (func(), error) {
 func (a *App) raw(cwd string, argv ...string) error { return a.rawEnv(cwd, nil, argv...) }
 func (a *App) rawEnv(cwd string, env []string, argv ...string) error {
 	a.recordNative(cwd, argv)
-	c := exec.CommandContext(a.Context, argv[0], argv[1:]...)
-	c.Dir = cwd
-	c.Env = env
-	c.Stdin = os.Stdin
-	c.Stdout = a.Out
-	c.Stderr = a.Err
-	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	c.Cancel = func() error { return syscall.Kill(-c.Process.Pid, syscall.SIGTERM) }
-	c.WaitDelay = 5 * time.Second
-	err := c.Run()
-	if a.Context.Err() != nil {
-		return nil
-	}
+	log := a.logPath(filepath.Base(argv[0]))
+	fmt.Fprintf(a.Err, "[run] %s; log: %s\n", filepath.Base(argv[0]), log)
+	_, err := a.stream(cwd, env, log, a.Out, nil, argv...)
 	return err
 }
 

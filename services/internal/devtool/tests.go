@@ -3,6 +3,7 @@ package devtool
 import (
 	"fmt"
 	"github.com/occccad/occccad/internal/config"
+	"io"
 	"os"
 
 	"path/filepath"
@@ -73,28 +74,42 @@ func (a *App) goTestAt(o Options, cwd string) error {
 	}
 	defer os.RemoveAll(temp)
 	prep := goCompileArgs(o, temp)
-	a.recordNative(cwd, prep)
-	out, e := a.capture(cwd, offlineGo(), prep...)
-	if e != nil {
-		fmt.Fprint(a.Err, redact(out))
-		return fmt.Errorf("Go test preparation failed; run mise run setup --component go if modules are missing: %w", e)
+	if e = a.nativeEnv(cwd, offlineGo(), o.Verbose, prep...); e != nil {
+		return fmt.Errorf("Go test preparation failed; setup --component go if modules are missing: %w", e)
 	}
 	if o.Level == "integration" {
+		hold, e := a.buildLock(o, true)
+		if e != nil {
+			return e
+		}
+		defer hold()
 		if e = a.runtimeEnv(o); e != nil {
 			return e
 		}
 	}
 	a.recordNative(cwd, args)
-	out, e = a.capture(cwd, offlineGo(), args...)
-	// Parse machine verdicts before redacting diagnostic text. In particular,
-	// a password that also occurs in a package name must not alter its identity.
-	verdict := GoEvidence(out, e != nil, o.Match != "")
-	fmt.Fprint(a.Out, redactGoOutput(out))
-	if e != nil {
-		return e
+	log := a.logPath("go-test")
+	fmt.Fprintf(a.Err, "[run] Go tests; log: %s\n", log)
+	var live io.Writer
+	if os.Getenv("OCCCCAD_DEV_EVIDENCE_STREAM") == "1" {
+		live = a.Out
+	} else if o.Verbose {
+		live = a.Err
 	}
-	if verdict.Counts.Started == 0 {
-		return fmt.Errorf("selected zero Go tests")
+	out, err := a.stream(cwd, offlineGo(), log, live, nil, args...)
+	verdict := GoEvidenceFile(log, err != nil, o.Match != "")
+	fmt.Fprintf(a.Err, "[%s] Go tests passed=%d skipped=%d; log: %s\n", verdict.Status, verdict.Counts.Passed, verdict.Counts.Skipped, log)
+	if err != nil {
+		if live == nil {
+			fmt.Fprintln(a.Err, compact(out))
+		}
+		return err
+	}
+	if verdict.Status == "ENVIRONMENT_BLOCKED" {
+		return blocked("Go tests skipped required evidence; log: " + log)
+	}
+	if verdict.Status != "PASS" {
+		return fmt.Errorf("%s; log: %s", verdict.Reason, log)
 	}
 	return nil
 }
@@ -102,27 +117,54 @@ func (a *App) CPPTest(o Options) error {
 	if !oneOf(o.Scope, "assembly", "geometry", "sketch") {
 		return fmt.Errorf("cpp:test requires assembly, geometry or sketch scope")
 	}
-	filter := "^" + o.Scope + "/"
-	if o.Scope == "assembly" {
-		filter = "^(assembly|assembly-corpus)/"
+	hold, e := a.buildLock(o, true)
+	if e != nil {
+		return e
 	}
-	if o.Match != "" {
-		filter += ".*(" + o.Match + ")"
+	defer hold()
+	names, e := a.ctestCases(o)
+	if e != nil {
+		return e
 	}
+	if len(names) == 0 {
+		return fmt.Errorf("selected zero CTest cases")
+	}
+	filter := exactCTestFilter(names)
 	args := []string{"ctest", "--test-dir", a.buildDir(o), "--no-tests=error", "--output-on-failure", "--parallel", strconv.Itoa(o.TestJobs), "-R", filter}
-	if o.Report != "" {
-		args = append(args, "--output-junit", o.Report)
+	report := o.Report
+	if report == "" {
+		report = a.logPath("ctest") + ".xml"
 	}
+	if e = os.MkdirAll(filepath.Dir(report), 0700); e != nil {
+		return e
+	}
+	args = append(args, "--output-junit", report)
 	if e := a.runtimeEnv(o); e != nil {
 		return e
 	}
 	if e := os.MkdirAll(os.Getenv("OCCCCAD_TEST_RESOURCES_DIR"), 0700); e != nil {
 		return e
 	}
-	return a.raw(a.Root, args...)
+	if os.Getenv("OCCCCAD_DEV_EVIDENCE_STREAM") == "1" {
+		e = a.raw(a.Root, args...)
+	} else {
+		e = a.native(a.Root, o.Verbose, args...)
+	}
+	verdict := CTestEvidence(report, e != nil)
+	expectedEvidence(Step{Kind: "ctest", Expected: names}, &verdict, o.Match)
+	if e != nil {
+		return e
+	}
+	if verdict.Status == "ENVIRONMENT_BLOCKED" {
+		return blocked("required CTest evidence skipped; report: " + report)
+	}
+	if verdict.Status != "PASS" {
+		return fmt.Errorf("CTest %s: %s; report: %s", verdict.Status, verdict.Reason, report)
+	}
+	return nil
 }
 func (a *App) WebTest(o Options) error {
-	args := []string{"pnpm", "test", "--"}
+	args := []string{"pnpm", "test", "--", "--verbose"}
 	if o.Match != "" {
 		args = append(args, o.Match)
 	}
@@ -135,7 +177,10 @@ func (a *App) WebTest(o Options) error {
 			args = append(args, "--config", "playwright.live.config.ts")
 		}
 	}
-	return a.raw(a.web(), args...)
+	if os.Getenv("OCCCCAD_DEV_EVIDENCE_STREAM") == "1" {
+		return a.raw(a.web(), args...)
+	}
+	return a.native(a.web(), o.Verbose, args...)
 }
 func (a *App) Codegen(o Options) error {
 	unlock, e := lock(a.Context, filepath.Join(a.Root, "build/locks/codegen.lock"), false)

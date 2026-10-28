@@ -20,10 +20,12 @@ type Registration struct {
 	Scopes, Levels, Resources, Targets, Packages []string
 }
 type Registry struct {
-	Rules []Rule
-	Steps []Registration
+	CTestScopes map[string][]string `json:"ctestScopes"`
+	Rules       []Rule
+	Steps       []Registration
 }
 type Step struct {
+	Expected  []string `json:"expectedCases,omitempty"`
 	ID        string   `json:"id"`
 	Task      string   `json:"task"`
 	Argv      []string `json:"argv"`
@@ -166,6 +168,10 @@ func (a *App) Source() (map[string]any, error) {
 	return map[string]any{"sha256": hashJSON(inputs), "files": len(inputs), "commit": strings.TrimSpace(head), "dirty": len(sourceStatus(dirty)) > 0, "worktree": sourceStatus(dirty), "boundary": "tracked and untracked owned inputs; excludes generated Go, build outputs, logs and secret configuration"}, nil
 }
 func (a *App) MakePlan(o Options) (Plan, error) {
+	return a.makePlan(o, true)
+}
+
+func (a *App) makePlan(o Options, discover bool) (Plan, error) {
 	p := Plan{Schema: "occccad.validation-plan.v1", Level: o.Level, Paths: []string{}, Scopes: []string{}, Reasons: []string{}, Outstanding: []string{}, Steps: []Step{}, Comparison: "worktree: staged + unstaged + untracked; rename includes both paths"}
 	if o.Head != "" {
 		p.Comparison = "merge-base(base, head)..head; worktree excluded"
@@ -283,6 +289,11 @@ func (a *App) MakePlan(o Options) (Plan, error) {
 		return p, fmt.Errorf("no validation registered for scopes %v at level %s", p.Scopes, o.Level)
 	}
 	sort.SliceStable(p.Steps, func(i, j int) bool { return p.Steps[i].Kind == "build" && p.Steps[j].Kind != "build" })
+	if discover {
+		if e := a.resolveMatches(&p, o); e != nil {
+			return p, e
+		}
+	}
 	source, e := a.Source()
 	p.Source = source
 	return p, e
@@ -340,6 +351,18 @@ func sourceStatus(raw string) []string {
 			if rename {
 				result = append(result, old)
 			}
+		}
+	}
+	return result
+}
+
+func (a *App) stepArtifacts(o Options, step Step) map[string]string {
+	all := a.Artifacts(o)
+	result := map[string]string{}
+	for p, h := range all {
+		generated := strings.HasPrefix(p, filepath.Join(a.services(), "gen")+string(filepath.Separator))
+		if (generated && step.Kind == "go") || (!generated && (step.Kind == "ctest" || oneOf("worker", step.Resources...))) {
+			result[p] = h
 		}
 	}
 	return result

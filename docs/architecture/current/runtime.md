@@ -48,9 +48,9 @@ flowchart LR
 
 ### 统一本地模式
 
-原生制品由 mise --profile release|debug|sanitize 选择，位于 `build/cmake/linux-gcc15-x86_64/<profile>`；Go 服务位于 `build/services/<profile>`。`mise run dev` 增量构建后由 Control 管理后端和可选前端；配置与资源选择规则见开发环境。
+原生制品由 mise --profile release|debug|sanitize 选择，位于 `build/cmake/linux-gcc15-x86_64/<profile>`；Go 服务位于 `build/services/<profile>`。`mise run dev` 增量构建后，将 Control/API/Jobs/Worker 复制到 `build/runtime/instances/<runtimeId>`，由现有 Control 使用启动快照管理进程。复制完成即释放构建锁，同 profile 后续构建不更新正在运行的实例；重启后用 doctor --live 验证磁盘产物、加载快照和后端身份。前端 Vite/HMR 与后端身份分开；配置、锁和资源规则见[开发环境](../../development/environment.md)。
 
-`mise run dev`（同 `mise run dev`）构建后启动 `occccad-control`。控制进程：
+`mise run dev` 构建后启动 `occccad-control`。控制进程：
 
 1. 在 `127.0.0.1:18080` 启动 API；
 2. 启动一个 Jobs 进程；

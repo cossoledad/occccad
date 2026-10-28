@@ -52,7 +52,11 @@ mise run doctor --live
 mise run monitor
 ```
 
-dev 完成增量构建，由现有 Control 管理 API、Jobs、Router/Worker 和可选前端。默认包含 Web，`--no-web` 仅后端。前端默认监听 `0.0.0.0:5173`，应用 API 默认监听 `0.0.0.0:8080`；可用 `OCCCCAD_WEB_LISTEN` / `OCCCCAD_APP_LISTEN` 覆盖。Control 管理、内部 API 和调试端口仍只允许环回地址。前端运行 Vite development server，支持 React Fast Refresh、CSS 热更新和必要时整页重载；release/debug 只选择 Go/C++ 构建配置。重复启动报告已有所有者；未知端口占用不杀进程。Ctrl-C 停止本次进程组。运行身份保存 workspace、profile、runtime ID、源码与磁盘制品 hash；doctor --live 另检查 `/proc` 加载的进程，端口可达不代表新代码已运行。
+dev 完成增量构建，由现有 Control 管理 API、Jobs、Router/Worker 和可选前端。默认包含 Web，`--no-web` 仅后端。前端默认监听 `0.0.0.0:5173`，应用 API 默认监听 `0.0.0.0:8080`；可用 `OCCCCAD_WEB_LISTEN` / `OCCCCAD_APP_LISTEN` 覆盖。Control 管理、内部 API 和调试端口仍只允许环回地址。前端运行 Vite development server，支持 React Fast Refresh、CSS 热更新和必要时整页重载；release/debug 只选择 Go/C++ 构建配置。重复启动报告已有所有者；未知端口占用不杀进程。Ctrl-C 请求停止本次进程；顶层 mise 的 SIGINT 退出码实测为 130。验证清理需要等待所拥有的 TCP 监听关闭，不能只等 mise 父进程退出。启动只在复制期间持有 C++/Go 共享锁，将 Control/API/Jobs/Worker 复制到 `build/runtime/instances/<runtimeId>`，由 Control 从该快照启动及重启子进程；随后释放构建锁。因此同 profile 可以继续增量 build/check，运行进程仍使用启动时的快照。退出后删除本次快照，日志和身份回执保留。
+
+后端运行身份包含 workspace、profile、后端 Go/C++/Proto 编译输入、有效配置、原产物与加载快照 hash；doctor --live 另检查 `/proc` 的进程实例和实际可执行文件。README、测试文件、前端源码热更新及 `.env` 注释不会让后端失效；后端源码、相关配置或磁盘产物更新后，doctor 提示增量构建并重启 dev。前端 Vite/HMR 单独记录，不代表后端更新。
+
+推荐循环：启动 dev → 修改代码 → 在另一终端增量 build/check → 按需 Ctrl-C 后重新 dev。真实集成和 CTest 在执行期间保留 C++ 共享锁，防止所用 Worker/测试二进制被重链接；构建、配置、依赖同步和 clean 仍需单写入者锁。冲突先显示锁路径及解除方式，15 秒内未获得锁则明确阻塞并退出，可在对应验证完成后重试。`OCCCCAD_BUILD_TIMING` 和其 JSON 日志分别记录锁等待、依赖检查、配置、原生构建与总耗时。
 
 Control 管理端口、内部 API 与调试目标仅接受数字环回地址。VS Code 使用同一 Worker Debug 产物，Go/Delve 使用原生服务路径与相同加载器。调试切流用 `mise run debug:route --service api --target 127.0.0.1:18081`，退出用 `--off`；Jobs 调试先暂停托管消费者，结束恢复；编辑器 postDebugTask 负责还原路由。
 

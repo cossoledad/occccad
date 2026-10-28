@@ -58,6 +58,8 @@ db/*.sqlite
 
 # Runtime artifacts (local object-store backend)
 data/
+!dev/tasks/data/
+!dev/tasks/data/reset
 services/data/
 
 *.task.txt
