@@ -804,18 +804,21 @@ type ContextVariantSnapshot struct {
 }
 
 type ProductUpdatePlanEntry struct {
-	Kind                string `json:"kind"`
-	BindingID           string `json:"bindingId"`
-	Name                string `json:"name"`
-	SourceDisplayPath   string `json:"sourceDisplayPath"`
-	OwningDisplayPath   string `json:"owningDisplayPath"`
-	AcceptedRevisionID  string `json:"acceptedRevisionId"`
-	CandidateRevisionID string `json:"candidateRevisionId,omitempty"`
-	Connection          string `json:"connection"`
-	Currency            string `json:"currency"`
-	Evaluation          string `json:"evaluation"`
-	DiagnosticCode      string `json:"diagnosticCode,omitempty"`
-	Diagnostic          string `json:"diagnostic,omitempty"`
+	SourceProductDocumentID string `json:"sourceProductDocumentId,omitempty"`
+	SourceProductRevisionID string `json:"sourceProductRevisionId,omitempty"`
+	SourceUpdatePlanDigest  string `json:"sourceUpdatePlanDigest,omitempty"`
+	Kind                    string `json:"kind"`
+	BindingID               string `json:"bindingId"`
+	Name                    string `json:"name"`
+	SourceDisplayPath       string `json:"sourceDisplayPath"`
+	OwningDisplayPath       string `json:"owningDisplayPath"`
+	AcceptedRevisionID      string `json:"acceptedRevisionId"`
+	CandidateRevisionID     string `json:"candidateRevisionId,omitempty"`
+	Connection              string `json:"connection"`
+	Currency                string `json:"currency"`
+	Evaluation              string `json:"evaluation"`
+	DiagnosticCode          string `json:"diagnosticCode,omitempty"`
+	Diagnostic              string `json:"diagnostic,omitempty"`
 }
 
 type ProductUpdatePlan struct {

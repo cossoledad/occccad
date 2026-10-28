@@ -10,14 +10,15 @@ import type {FeatureSelectionSession} from '../../cad/interaction/feature-select
 import {FeaturePickField} from './feature-pick-field';
 import {useFeaturePreview} from './use-feature-preview';
 import {engineeringProblem} from '../../cad/command/operation-feedback';
-import {selectionInSnapshot} from './publication-target';
+import {selectionInSnapshot,publicInterfaceForPick} from './publication-target';
 import {engineeringLabel} from '../../cad/presentation/engineering-text';
+import {AssociationSourceUpdates} from './association-source-updates';
 
 const supported=new Set(['PARAMETER','PLANE','AXIS','POINT','CURVE']);
 const key=(p:ContextCatalogPublication)=>`${p.instancePath.canonical}:${p.publication.id}`;
-export function DesignAssociationDialog({root,owner,path,initialParameterId,activeSketchId,canEdit,onClose,onApply,onPreview,onSelectionSession,onLocate}:{
+export function DesignAssociationDialog({root,owner,path,initialParameterId,activeSketchId,canEdit,onClose,onApply,onPreview,onSelectionSession,onLocate,onOpenSource}:{
  root:DocumentView;owner:DocumentView;path?:InstancePath;initialParameterId?:string;activeSketchId?:string;canEdit:boolean;onClose:()=>void;
- onApply:(view:DocumentView)=>Promise<unknown>;onPreview:(artifact?:Artifact)=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;onLocate:(selection:SelectionItem)=>void;
+ onApply:(view:DocumentView)=>Promise<unknown>;onPreview:(artifact?:Artifact)=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;onLocate:(selection:SelectionItem)=>void;onOpenSource:(id:string)=>void;
 }){
  const [sourceKey,setSourceKey]=useState<string>(),[target,setTarget]=useState(initialParameterId??''),[inputId,setInputId]=useState(''),[name,setName]=useState('');
  const [reconnecting,setReconnecting]=useState(false),[editing,setEditing]=useState<ContextBinding>(),[mode,setMode]=useState('FOLLOW_WORKSPACE_WITH_ACCEPT');
@@ -43,7 +44,7 @@ export function DesignAssociationDialog({root,owner,path,initialParameterId,acti
  const choose=(p:ContextCatalogPublication)=>{if(p.publication.type!==type){if(!(['POINT','CURVE'].includes(p.publication.type)&&target&&owner.part?.features.some(f=>f.id===target&&f.sketch)))setTarget(p.publication.type==='PARAMETER'?initialParameterId??'':'');setInputId('')}setSourceKey(key(p));if(editing)setReconnecting(true);setPicking(undefined);setError(undefined)};
  const sourceFor=(s:SelectionItem)=>entries.find(p=>selectionInSnapshot(s,p.documentId,p.revisionId,p.instancePath)&&(
   s.publicationId===p.publication.id || p.publication.target.kind==='SKETCH_ENTITY'&&s.kind==='visual'&&s.featureId===p.publication.target.sketchId&&s.entityId===p.publication.target.entityId ||
-  p.publication.target.kind==='DATUM'&&s.entityId===p.publication.target.datumId || p.publication.target.kind==='PARAMETER'&&s.id===p.publication.target.parameterId));
+  p.publication.target.kind==='DATUM'&&s.entityId===p.publication.target.datumId || p.publication.target.kind==='PARAMETER'&&s.id===p.publication.target.parameterId))??publicInterfaceForPick(root,entries,s);
  const localFor=(s:SelectionItem)=>{
   if(!selectionInSnapshot(s,owner.document.id,owner.document.versionId,path))return undefined;
   const id=kind==='SKETCH_EXTERNAL_GEOMETRY'?(s.kind==='sketch'?s.id:s.kind==='visual'?s.featureId:undefined):s.entityId??s.id;
@@ -98,9 +99,10 @@ export function DesignAssociationDialog({root,owner,path,initialParameterId,acti
    const p=catalogEntries.find(p=>p.instancePath.canonical===b.sourceInstancePath.canonical&&p.publication.id===b.publication.publicationId),update=plan.data?.entries.find(e=>e.bindingId===b.id),local=owner.part?.contextInputs?.find(i=>i.id===b.contextInputId);
    const editBinding=(reconnect:boolean)=>{setEditing(b);setReconnecting(reconnect);setName(b.name);setMode(b.referenceMode);setInputId(b.contextInputId);setSourceKey(!reconnect&&p?.selectable?key(p):undefined);setPicking(reconnect?'source':undefined);setError(undefined)};
    return {key:b.id,value:`${p?.publication.name??'来源接口'} → ${local?.name??'本地输入'}`,actionLabel:b.name,error:!!update&&update.currency==='UPDATE_BLOCKED',detail:`${b.sourceInstancePath.display} · ${b.referenceMode==='PINNED'?'固定输入':update?.currency==='UPDATE_BLOCKED'?'来源不可用，保留已接受输入':update?.currency==='UPDATE_AVAILABLE'?'有可用更新':engineeringLabel(b.accepted.status)}`,
-    onLocate:()=>onLocate(bindingSourceSelection(b)),onActivate:()=>editBinding(true),
+    onLocate:()=>onLocate(bindingSourceSelection(b,root)),onActivate:()=>editBinding(true),
     actions:<><Button size="small" disabled={!canEdit||busy} onClick={()=>editBinding(false)}>编辑</Button><Button size="small" disabled={!canEdit||busy} onClick={()=>{editBinding(false);setMode(b.referenceMode==='PINNED'?'FOLLOW_WORKSPACE_WITH_ACCEPT':'PINNED')}}>{b.referenceMode==='PINNED'?'恢复跟随':'固定'}</Button></>};
   })}/>
-  {plan.data?.hasUpdates&&<Button disabled={!canEdit||!plan.data.canAccept||busy} onClick={()=>void action(()=>api.acceptProductUpdatePlan(root.document.id,plan.data!.digest))}>接受关联更新</Button>}
+  {plan.data?.rootProductRevisionId===root.document.versionId&&<AssociationSourceUpdates plan={plan.data} onOpen={onOpenSource}/>}
+  {plan.data?.rootProductRevisionId===root.document.versionId&&plan.data.hasUpdates&&<Button disabled={!canEdit||!plan.data.canAccept||busy||plan.isFetching} onClick={()=>void action(()=>api.acceptProductUpdatePlan(root.document.id,plan.data!.digest))}>接受关联更新</Button>}
  </CommandDialog>;
 }

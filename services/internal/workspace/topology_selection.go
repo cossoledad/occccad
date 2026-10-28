@@ -146,13 +146,9 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 			binding.Transform = inverseRelativePose(InstancePose{Translation: source.Translation, Rotation: source.Rotation}, InstancePose{Translation: owner.Translation, Rotation: owner.Rotation})
 		}
 		sourceDocumentID := binding.SourceInstancePath.Segments[len(binding.SourceInstancePath.Segments)-1].ReferencedDocumentID
-		sourceHead := revisions[sourceDocumentID]
-		if sourceHead == "" {
-			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents
-			WHERE id=$1 AND deleted_at IS NULL`, sourceDocumentID).Scan(&sourceHead); err != nil {
-				return err
-			}
-		}
+		// Inputs come from the exact accepted/candidate occurrence edge above,
+		// including a PINNED module. Never bypass it by reading a newer Head.
+		sourceHead := sourcePath.Segments[len(sourcePath.Segments)-1].ResolvedVersionID
 		publication, err := service.publicationAtRevision(ctx, sourceDocumentID, sourceHead, binding.Publication.PublicationID)
 		if err != nil {
 			return err

@@ -221,7 +221,7 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 	}
 	if len(model.Publications) > 0 {
 		group := DocumentStructureNode{ID: path + "/publications", Kind: "PRODUCT_PUBLICATION_SET", Name: "Publications",
-			DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+			DocumentID: documentID, VersionID: versionID, InstancePath: root.InstancePath, Children: []DocumentStructureNode{}}
 		for _, publication := range model.Publications {
 			copy := publication
 			sourceDocumentID := ""
@@ -234,7 +234,7 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 			}
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/publication:" + publication.ID,
 				Kind: "PRODUCT_PUBLICATION", Name: publication.Name, EntityID: publication.ID, EntityType: publication.Type,
-				DocumentID: documentID, VersionID: versionID, Diagnostic: diagnostic,
+				DocumentID: documentID, VersionID: versionID, InstancePath: root.InstancePath, Diagnostic: diagnostic,
 				ResolutionStatus:  publication.Resolution.Status,
 				ConnectionStatus:  publication.Resolution.Status,
 				SourceDocumentID:  sourceDocumentID,
@@ -246,7 +246,7 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 	}
 	if len(model.ContextBindings) > 0 {
 		group := DocumentStructureNode{ID: path + "/context-bindings", Kind: "CONTEXT_BINDING_SET", Name: "Context Bindings",
-			DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+			DocumentID: documentID, VersionID: versionID, InstancePath: root.InstancePath, Children: []DocumentStructureNode{}}
 		for _, binding := range model.ContextBindings {
 			copy := binding
 			sourceDocumentID := ""
@@ -259,7 +259,7 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 			}
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/binding:" + binding.ID,
 				Kind: "CONTEXT_BINDING", Name: binding.Name, EntityID: binding.ID, EntityType: binding.Publication.ExpectedType,
-				DocumentID: documentID, VersionID: versionID, Diagnostic: diagnostic,
+				DocumentID: documentID, VersionID: versionID, InstancePath: root.InstancePath, Diagnostic: diagnostic,
 				ResolutionStatus: binding.Resolution.Status, ConnectionStatus: binding.Resolution.Status,
 				Capabilities:      []string{"DELETE", "REFRESH"},
 				SourceDocumentID:  sourceDocumentID,

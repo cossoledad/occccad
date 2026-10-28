@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v51-finite-publication-domain"
+const evaluatorVersion = "part-solid-generators-v52-forwarded-native-frame"
 
 var (
 	ErrNotFound   = errors.New("document not found")

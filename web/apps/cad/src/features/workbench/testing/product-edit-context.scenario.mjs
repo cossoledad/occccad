@@ -60,3 +60,9 @@ assert.deepEqual(await context.followProductUpdates({...view,followedProductIds:
  async acceptProductUpdatePlan(){assert.fail('context source changes require explicit acceptance');},
  async getDocument(){assert.fail('no version was accepted');},
 }),[]);
+
+assert.deepEqual(await context.followProductUpdates({...view,followedProductIds:[]},{
+ async getProductUpdatePlan(){return {hasUpdates:true,canAccept:false,entries:[{kind:'OCCURRENCE_REFERENCE',currency:'UPDATE_BLOCKED',diagnosticCode:'NESTED_REFERENCE_UPDATE_REQUIRED'}]};},
+ async acceptProductUpdatePlan(){assert.fail('source assembly needs its own acceptance');},
+ async getDocument(){assert.fail('no version was accepted');},
+}),[],'pending source assembly uses the repair entry, not a generic automatic-update failure');

@@ -7,7 +7,7 @@ export function associationRepairGroups(view:DocumentView,plan?:ProductUpdatePla
  const current=associationPlanCurrent(view,plan),nodes=view.structureTree?.children??[];
  const direct=(view.product?.instances??[]).flatMap(instance=>{
   const node=nodes.find(n=>n.kind==="INSTANCE"&&n.entityId===instance.id&&n.ownerDocumentId===view.document.id);
-  if(node?.documentType!=="PART"||node.instancePath?.segments.length!==1)return [];
+  if(!['PART','PRODUCT'].includes(node?.documentType??'')||node?.instancePath?.segments.length!==1)return [];
   const path=node.instancePath;
   const update=current&&instance.referenceMode!=="PINNED"?plan!.entries.find(e=>e.kind==="OCCURRENCE_REFERENCE"&&e.bindingId===`occurrence:${path.canonical}`):undefined;
   const bindings=(view.product?.contextBindings??[]).filter(b=>[b.sourceInstancePath,b.owningInstancePath].some(p=>p.segments.length===1&&p.segments[0].instanceId===instance.id));

@@ -2276,6 +2276,17 @@ func applyUpdateReferences(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 			changes = append(changes, change)
 		}
 	}
+	beforeBindings := map[string]ContextBinding{}
+	for _, value := range before.ContextBindings {
+		beforeBindings[value.ID] = value
+	}
+	for _, value := range payload.Model.ContextBindings {
+		if old, ok := beforeBindings[value.ID]; ok && !reflect.DeepEqual(old, value) {
+			change, _ := modelcore.NewChange(modelcore.ChangeBind,
+				modelcore.PropertyAddress{EntityID: value.ID, SlotID: "context-binding.entity"}, old, value)
+			changes = append(changes, change)
+		}
+	}
 	next, _ := json.Marshal(payload.Model)
 	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: []modelcore.DependencyKey{"product:references"}}, nil
 }

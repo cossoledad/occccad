@@ -54,7 +54,13 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 	}
 	bindings := []ContextBinding{}
 	for _, item := range items {
-		bindings = append(bindings, item.ContextBindings...)
+		// Nested bindings belong to their owning Product's transaction/plan.
+		if len(item.Path.Segments) == 0 {
+			bindings = append(bindings, item.ContextBindings...)
+		}
+	}
+	if err := service.appendNestedProductUpdateDiagnostics(ctx, &plan, items); err != nil {
+		return ProductUpdatePlan{}, err
 	}
 
 	if len(bindings) > maxProductUpdateBindings {
@@ -86,8 +92,10 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		} else {
 			head := binding.Accepted.SourceRevisionID
 			var headErr error
-			if binding.ReferenceMode != "PINNED" {
+			if binding.ReferenceMode != "PINNED" && source.ReferenceMode != "PINNED" {
 				headErr = service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, source.DocumentID).Scan(&head)
+			} else if binding.ReferenceMode != "PINNED" {
+				head = source.RevisionID
 			}
 			if headErr != nil {
 				entry.Connection, entry.Currency, entry.Evaluation = "BROKEN", "UPDATE_BLOCKED", "BLOCKED_BY_UPSTREAM"
@@ -200,6 +208,41 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		Parameters     []ParameterUpdateNode
 	}{rootDocumentID, revisionID, plan.Entries, plan.ContextVariants, plan.ParameterUpdates})
 	return plan, nil
+}
+
+// Inspect each owning Product's existing plan, never accept its sources from
+// the parent transaction. The child plan digest freezes the blocking frontier;
+// repeated module occurrences share the check but keep separate plan rows.
+func (service *Service) appendNestedProductUpdateDiagnostics(ctx context.Context, plan *ProductUpdatePlan, items []expandedOccurrence) error {
+	plans := map[string]ProductUpdatePlan{}
+	for _, item := range items {
+		if len(item.Path.Segments) != 1 || item.DocumentType != "PRODUCT" || item.ReferenceMode == "PINNED" {
+			continue
+		}
+		child, ok := plans[item.DocumentID]
+		if !ok {
+			var err error
+			child, err = service.GetProductUpdatePlan(ctx, item.DocumentID)
+			if err != nil {
+				return err
+			}
+			plans[item.DocumentID] = child
+		}
+		if !child.HasUpdates && child.CanAccept {
+			continue
+		}
+		for i := range plan.Entries {
+			entry := &plan.Entries[i]
+			if entry.Kind != "OCCURRENCE_REFERENCE" || entry.BindingID != "occurrence:"+item.Path.Canonical {
+				continue
+			}
+			entry.Currency, entry.Evaluation = "UPDATE_BLOCKED", "BLOCKED_BY_UPSTREAM"
+			entry.DiagnosticCode, entry.Diagnostic = "NESTED_REFERENCE_UPDATE_REQUIRED", "source assembly must accept or repair its internal references before this assembly can update"
+			entry.SourceProductDocumentID, entry.SourceProductRevisionID, entry.SourceUpdatePlanDigest = item.DocumentID, child.RootProductRevisionID, child.Digest
+			plan.HasUpdates, plan.CanAccept = true, false
+		}
+	}
+	return nil
 }
 
 // Constraint failures describe the accepted assembly, not whether a source Head

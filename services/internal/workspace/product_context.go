@@ -600,6 +600,9 @@ func (service *Service) GetContextCatalog(ctx context.Context, rootDocumentID, a
 				continue
 			}
 			selectable, diagnostic := true, ""
+			if len(active.Path.Segments) != 1 || len(occurrence.Path.Segments) != 1 {
+				selectable, diagnostic = false, "CONTEXT_PUBLIC_INTERFACE_REQUIRED"
+			}
 			if contextDependencyReachable(dependencyEdges, activeCanonical, occurrence.Path.Canonical) {
 				selectable, diagnostic = false, "CONTEXT_REFERENCE_CYCLE"
 			}
@@ -766,6 +769,9 @@ func (service *Service) contextBindingFromRequest(ctx context.Context, rootProdu
 	if request.OwningInstancePath == nil || request.SourceInstancePath == nil {
 		return ContextBinding{}, fmt.Errorf("%w: source and owning InstancePath are required", ErrValidation)
 	}
+	if err := validateContextBindingBoundary(*request.OwningInstancePath, *request.SourceInstancePath); err != nil {
+		return ContextBinding{}, err
+	}
 	if err := validateNonRootInstancePath(*request.OwningInstancePath, rootProductDocumentID); err != nil {
 		return ContextBinding{}, err
 	}
@@ -849,6 +855,16 @@ func (service *Service) contextBindingFromRequest(ctx context.Context, rootProdu
 		Accepted: ContextBindingResolutionSnapshot{RootProductRevisionID: rootRevisionID, SourceRevisionID: source.RevisionID,
 			OwningRevisionID: owner.RevisionID, ContractDigest: resolvedDigest(publication.Contract),
 			SourceDigest: publication.Resolution.SourceDigest, Status: "CONNECTED"}}, nil
+}
+
+func validateContextBindingBoundary(owner, source InstancePath) error {
+	if len(owner.Segments) != 1 {
+		return fmt.Errorf("%w: CONTEXT_DIRECT_RECEIVER_REQUIRED", ErrValidation)
+	}
+	if len(source.Segments) != 1 {
+		return fmt.Errorf("%w: CONTEXT_PUBLIC_INTERFACE_REQUIRED", ErrValidation)
+	}
+	return nil
 }
 
 func applyEditContextBinding(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {

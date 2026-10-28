@@ -676,6 +676,13 @@
     ]
   },
   {
+    "path": "services/internal/control/subassembly_publication_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#featureAssociationRuntimeService",
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#geometryRuntimeTestService"
+    ]
+  },
+  {
     "path": "services/internal/control/to_plane_integration_test.go",
     "resources": [
       "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6TopologyCount"

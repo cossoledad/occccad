@@ -14,6 +14,6 @@ try{
  assert.equal(acceptedSupportState(view,{instanceId:'missing',kind:'BODY'}).status,'NOT_CONNECTED');assert.equal(acceptedSupportState(view,{instanceId:'b',kind:'FACE',geometryKey:'x',topologyId:3}).status,'UNKNOWN','transient pick evidence is not an accepted resolution');
  assert.deepEqual(constraintSupports({kind:'FIX_TOGETHER',groupMembers:[{instanceId:'a'}]}),[],'groups have members rather than a fabricated first topology support');
  const pinnedPlan=structuredClone(plan);pinnedPlan.entries.push({kind:'OCCURRENCE_REFERENCE',bindingId:'occurrence:c',candidateRevisionId:'v2'});assert.equal(associationRepairGroups(view,pinnedPlan)[0].instances[2].update,undefined,'pinned row never projects a following candidate');
- const nested=structuredClone(view);nested.structureTree.children[1].documentType='PRODUCT';assert.equal(associationRepairGroups(nested,plan)[0].instances.length,2,'only direct Part rows are included');
+ const nested=structuredClone(view);nested.structureTree.children[1].documentType='PRODUCT';assert.equal(associationRepairGroups(nested,plan)[0].instances.length,3,'direct Product modules expose their owning update plan too');
  console.log('Association groups, pinned isolation, revision fences and accepted support evidence passed.');
 }finally{await server.close()}

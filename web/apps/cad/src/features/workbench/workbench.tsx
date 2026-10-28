@@ -1,6 +1,6 @@
 import {ContextInputSource,boundContextParameter as contextParameterBinding} from './context-input-source';
 import {FeaturePickField} from './feature-pick-field';
-import {publicationSelectionTarget,publicationForwardSource} from './publication-target';
+import {publicationSelectionTarget,publicationForwardTarget} from './publication-target';
 import {DesignAssociationDialog} from "./design-association-dialog";
 import {setContextEditScope,acceptedContextView,baseDocumentView} from "../../api/context-edit-scope";
 import {CommandFormContext,CommandField} from "../../cad/overlay/command-form";
@@ -1391,7 +1391,7 @@ onToggleConstruction:(node)=>{
   const selected = selectedFeature(editingView ?? {} as DocumentView, store.selection);
   const publicationPath=activeResolvedInstance?.instancePath;
   const publicationTarget = () => editingView?publicationSelectionTarget(editingView,publicationPick,publicationPath):undefined;
-  const validForward=(pick:import("../../types").SelectionItem|undefined)=>!!editingView&&publicationForwardSource(editingView,pick);
+  const validForward=(pick:import("../../types").SelectionItem|undefined)=>!!editingView&&!!publicationForwardTarget(editingView,pick,publicationPath);
   useEffect(()=>{
     if(!publicationManagerOpen)return;
     setPublicationPick(undefined);setPickingPublication(true);
@@ -1412,12 +1412,13 @@ onToggleConstruction:(node)=>{
       { onSuccess: () => publicationForm.resetFields() });
   };
   const forwardSelectedPublication = async () => {
-    if (!editingView?.product || !publicationPick?.publication || !publicationPick.instanceId) {
-      message.warning("请在 Product 的引用树中选择一个子 Part Publication"); return;
+    const target=editingView&&publicationForwardTarget(editingView,publicationPick,publicationPath);
+    if (!editingView?.product || !target) {
+      message.warning("请选择子实例的发布接口"); return;
     }
     const values = await publicationForm.validateFields();
-    command.mutate(() => api.createProductPublication(editingView.document.id, publicationPick!.instanceId!,
-      publicationPick!.publicationId!, values.name, values.semanticPurpose, publicationPick!.instancePath));
+    command.mutate(() => api.createProductPublication(editingView.document.id, target.instanceId,
+      target.publicationId, values.name, values.semanticPurpose, target.instancePath));
   };
   const replaceSelectedInstance = async () => {
     if (!editingView?.product || store.selection?.kind !== "instance" || !store.selection.instanceId) {
@@ -1441,11 +1442,12 @@ onToggleConstruction:(node)=>{
   };
   const redirectProductPublicationToSelection = (publicationId: string) => {
     const source = publicationPick;
-    if (!validForward(source) || !editingView?.product || source?.kind !== "publication" || !source.publicationId || !source.instancePath?.segments.length) {
-      message.warning("请先选择当前 Product 实例中的来源 Publication"); return;
+    const target=editingView&&publicationForwardTarget(editingView,source,publicationPath);
+    if (!target || !editingView?.product) {
+      message.warning("请选择当前装配中的来源接口"); return;
     }
     command.mutate(() => api.command(editingView.document.id, {type:"REDIRECT_PRODUCT_PUBLICATION",
-      publicationId, targetId:source.publicationId, instancePath:source.instancePath}));
+      publicationId, targetId:target.publicationId, instancePath:target.instancePath}));
   };
   const openPublicationEditor = (publicationID: string, kind: "PART" | "PRODUCT") => {
     const publication = kind === "PART" ? editingView?.part?.publications?.find((item) => item.id === publicationID)
@@ -1648,7 +1650,7 @@ onToggleConstruction:(node)=>{
         navigationProfile={navigationProfile} canRestore={canEdit && !command.isPending}
         onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}>
         {view.product&&editingView?.document.id===view.document.id&&!activeInstancePath&&<AssociationRepairPanel open={associationRepairOpen} view={view} plan={productUpdatePlan.data} loading={productUpdatePlan.isFetching} error={productUpdatePlan.error?String(productUpdatePlan.error):undefined} failure={productUpdateFailure} busy={command.isPending} canEdit={canEditRoot}
-          onClose={()=>setAssociationRepairOpen(false)} onRetry={retryAssociationUpdates}
+          onClose={()=>setAssociationRepairOpen(false)} onOpenSource={id=>{setAssociationRepairOpen(false);void openDocumentTab(id,client,api.openDocument,navigate)}} onRetry={retryAssociationUpdates}
           onAccept={(revision,digest)=>{if(!repairRevisionCurrent(revision)||!canEditRoot||command.isPending||productUpdatePlan.isFetching||productUpdatePlan.data?.digest!==digest||productUpdatePlan.data.rootProductRevisionId!==revision)return;
             command.mutate(()=>api.acceptProductUpdatePlan(documentID,digest),{onError:error=>setProductUpdateFailure({documentId:documentID,revisionId:revision,diagnostic:String(error)})});}}
           onRefresh={revision=>{if(repairRevisionCurrent(revision)&&canEditRoot&&!command.isPending&&!productUpdatePlan.isFetching&&productUpdatePlan.data?.rootProductRevisionId===revision&&!productUpdatePlan.data.hasUpdates)refreshAssemblyConstraint();}}
@@ -1919,7 +1921,7 @@ onToggleConstruction:(node)=>{
 			<small className="cad-command-hint">可插入参数引用或输入表达式，重命名不影响已有关系。</small>
 		</div>
 	</CommandDialog>
- {designAssociationOpen&&editingView?.part&&<DesignAssociationDialog root={view} owner={editingView} initialParameterId={externalParameterID} path={activeResolvedInstance?.instancePath} activeSketchId={store.activeSketchID} canEdit={canEditRoot&&["OWNER","EDITOR"].includes(editingView.document.permission)} onClose={()=>{setDesignAssociationOpen(false);setExternalParameterID(undefined);setFeatureSelection(undefined);viewport.current?.clearCommandPreview()}} onApply={async updated=>{await refresh(updated);await client.invalidateQueries({queryKey:queryKeys.document(editingView.document.id)})}} onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}} onSelectionSession={setFeatureSelection} onLocate={selection=>store.setSelections([selection])}/>}
+ {designAssociationOpen&&editingView?.part&&<DesignAssociationDialog root={view} owner={editingView} initialParameterId={externalParameterID} path={activeResolvedInstance?.instancePath} activeSketchId={store.activeSketchID} canEdit={canEditRoot&&["OWNER","EDITOR"].includes(editingView.document.permission)} onClose={()=>{setDesignAssociationOpen(false);setExternalParameterID(undefined);setFeatureSelection(undefined);viewport.current?.clearCommandPreview()}} onApply={async updated=>{await refresh(updated);await client.invalidateQueries({queryKey:queryKeys.document(editingView.document.id)})}} onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}} onSelectionSession={setFeatureSelection} onLocate={selection=>store.setSelections([selection])} onOpenSource={id=>{setDesignAssociationOpen(false);setFeatureSelection(undefined);viewport.current?.clearCommandPreview();void openDocumentTab(id,client,api.openDocument,navigate)}}/>}
 	<CommandDialog id="publication-manager" open={publicationManagerOpen} title="发布接口" size="L"
 		onClose={() => setPublicationManagerOpen(false)} onConfirm={() => setPublicationManagerOpen(false)} onCancelPick={()=>{if(!pickingPublication)return false;setPickingPublication(false);return true}}>
     <FeaturePickField label="发布对象" value={publicationPick&&editingView?selectionName(editingView,publicationPick):undefined} selected={!!publicationPick} active={pickingPublication} onActivate={()=>setPickingPublication(true)} onCancel={()=>setPickingPublication(false)} onClear={publicationPick?()=>setPublicationPick(undefined):undefined} onLocate={publicationPick?()=>store.setSelections([publicationPick]):undefined}/>
@@ -1976,7 +1978,7 @@ onToggleConstruction:(node)=>{
 			<Form.Item name="key" label="可读别名（可选）" rules={[{pattern:/^$|^[A-Za-z_][A-Za-z0-9_]*$/,
 				message:"请输入 ASCII 标识符"}]}><Input /></Form.Item>
 			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={editingView?.part?.parameters??[]} excludeId={editingParameterID} unit={lengthUnit} placeholder="40 或 r_1 + 5"/></Form.Item>
-            <ContextInputSource binding={boundContextParameter(editingParameterID)}/>{parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":boundContextParameter(editingParameterID)?"值来自产品关联；独立打开零件可编辑默认输入。":"外部来源作用于共享定义，当前仅编辑名称。"}</small>}
+            <ContextInputSource view={editingView} binding={boundContextParameter(editingParameterID)}/>{parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":boundContextParameter(editingParameterID)?"值来自产品关联；独立打开零件可编辑默认输入。":"外部来源作用于共享定义，当前仅编辑名称。"}</small>}
 			{parameterInputPreview.pending&&<Typography.Text type="secondary">正在检查表达式…</Typography.Text>}{parameterInputPreview.error&&<Alert type="error" message={parameterInputPreview.error}/>}{parameterInputPreview.parameterCandidates?.find(p=>p.parameterId===editingParameterID)&&<Typography.Text>计算值：{parameterDisplayValue(parameterInputPreview.parameterCandidates.find(p=>p.parameterId===editingParameterID)!,lengthUnit)}</Typography.Text>}
 
  <small className="cad-command-hint">长度增量需输入单位，如 r_1 + 5 mm。可使用参数引用，重命名不影响已有关系。</small>

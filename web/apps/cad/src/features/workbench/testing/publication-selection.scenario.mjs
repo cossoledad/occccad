@@ -86,3 +86,35 @@ try {
  assert(!selectionInSnapshot({...instancePick,instancePath:{...path,segments:[{...path.segments[0],ownerVersionId:'r0'}]}},'part-a','v1',path),'full path revision required');
  assert(!publicationSelectionTarget(view,instancePick),'independent Part must not accept occurrence pick');
 }finally{await scopedServer.close()}
+
+const moduleServer=await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
+try{
+ const {publicationForwardTarget,publicInterfaceForPick}=await moduleServer.ssrLoadModule('/src/features/workbench/publication-target.ts');
+ const {structureSelection}=await moduleServer.ssrLoadModule('/src/features/workbench/workbench-tree-model.tsx');
+ const inner={rootDocumentId:'module',canonical:'adapter',display:'Adapter.1',segments:[{ownerDocumentId:'module',ownerVersionId:'m1',instanceId:'adapter',instanceName:'Adapter.1',referencedDocumentId:'adapterdoc',resolvedVersionId:'a1'}]};
+ const forwarded={id:'public-hole',name:'Hole location',type:'POINT',compatibilityVersion:'1.0.0',contract:{geometryKind:'POINT'},target:{instancePath:{rootDocumentId:'adapterdoc',canonical:'layout',segments:[]},publicationId:'native'},resolution:{status:'CONNECTED'}};
+ const node={id:'adapter-publication',kind:'PRODUCT_PUBLICATION',entityId:forwarded.id,documentId:'adapterdoc',versionId:'a1',instancePath:inner,productPublication:forwarded};
+ const view={document:{id:'module',versionId:'m1'},product:{instances:[],publications:[]},structureTree:{kind:'PRODUCT',children:[node]}};
+ const selection=structureSelection(node,view);
+ assert.equal(selection.productPublication.id,'public-hole','public Product interface must not unwrap to its private native source');
+ assert.equal(publicationForwardTarget(view,selection).publicationId,'public-hole');
+ assert(!publicationForwardTarget(view,{...selection,versionId:'stale'}));
+ const outer={rootDocumentId:'assembly',canonical:'module-2',segments:[{ownerDocumentId:'assembly',ownerVersionId:'root1',instanceId:'module-2',referencedDocumentId:'module',resolvedVersionId:'m1'}]};
+ const globalPath={rootDocumentId:'assembly',canonical:'module-2/adapter',segments:[...outer.segments,...inner.segments]};
+ const globalPick={...selection,instancePath:globalPath,occurrencePath:globalPath.canonical};
+ assert.deepEqual(publicationForwardTarget(view,globalPick,outer).instancePath,inner,'nested editing submits a module-owned exact path');
+ assert(!publicationForwardTarget(view,globalPick,{...outer,segments:[{...outer.segments[0],instanceId:'module-1'}]}),'repeated module occurrences cannot authorize one another');
+ assert(!publicationForwardTarget(view,{...globalPick,instancePath:{...globalPath,segments:[{...outer.segments[0],ownerVersionId:'old'},...inner.segments]}},outer));
+ const leafPath={rootDocumentId:'assembly',canonical:'module-2/leaf',segments:[...outer.segments,{ownerDocumentId:'module',ownerVersionId:'m1',instanceId:'leaf',referencedDocumentId:'layout',resolvedVersionId:'s1'}]};
+ const native={id:'point-port',name:'Point',type:'POINT',target:{kind:'SKETCH_ENTITY',sketchId:'sketch',entityId:'point',entityKind:'POINT'},resolution:{status:'CONNECTED',resolvedVersionId:'s1'}};
+ const nativeNode={kind:'PUBLICATION',entityId:'point-port',documentId:'layout',versionId:'s1',instancePath:leafPath,publication:native};
+ const publicNode={kind:'PRODUCT_PUBLICATION',entityId:'public-point',documentId:'module',versionId:'m1',instancePath:outer,productPublication:{...forwarded,id:'public-point',target:{instancePath:{canonical:'leaf'},publicationId:'point-port'}}};
+ const root={document:{id:'assembly',versionId:'root1'},structureTree:{kind:'PRODUCT',children:[publicNode,nativeNode]}};
+ const entry={publication:{id:'public-point'},instancePath:outer,documentId:'module',revisionId:'m1'};
+ const raw={kind:'visual',id:'point',entityId:'point',featureId:'sketch',documentId:'layout',versionId:'s1',instancePath:leafPath,occurrencePath:leafPath.canonical};
+ assert.equal(publicInterfaceForPick(root,[entry],raw),entry,'viewport native pick binds the module public identity');
+ assert(!publicInterfaceForPick(root,[entry],{...raw,versionId:'stale'}));
+ const duplicate={...entry,publication:{id:'second-public-point'}};root.structureTree.children.push({...publicNode,entityId:'second-public-point',productPublication:{...publicNode.productPublication,id:'second-public-point'}});
+ assert(!publicInterfaceForPick(root,[entry,duplicate],raw),'two public interfaces on one source require explicit interface selection');
+
+}finally{await moduleServer.close()}

@@ -110,6 +110,9 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	if err := validateNonRootInstancePath(request.SourceInstancePath, rootProductDocumentID); err != nil {
 		return DocumentView{}, err
 	}
+	if err := validateContextBindingBoundary(request.OwningInstancePath, request.SourceInstancePath); err != nil {
+		return DocumentView{}, err
+	}
 	items, err := service.expandProductContext(ctx, rootProductDocumentID, rootRevisionID)
 	if err != nil {
 		return DocumentView{}, err

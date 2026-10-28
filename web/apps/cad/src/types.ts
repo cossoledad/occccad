@@ -516,6 +516,7 @@ export type ContextVariantSnapshot = {replicationSources?:DocumentView["replicat
   bindingIds:string[];bindingDigest:string;evaluationManifestDigest?:string;bodies:PartBody[];status:"READY"|"FAILED";
   publications?:Publication[];diagnosticCode?:string;diagnostic?:string};
 export type ProductUpdatePlanEntry = {kind:"CONTEXT_BINDING"|"OCCURRENCE_REFERENCE"|"ASSEMBLY_SOLVE";bindingId:string;name:string;sourceDisplayPath:string;owningDisplayPath:string;
+  sourceProductDocumentId?:string;sourceProductRevisionId?:string;sourceUpdatePlanDigest?:string;
   acceptedRevisionId:string;candidateRevisionId?:string;connection:"CONNECTED"|"BROKEN"|"INCOMPATIBLE";
   currency:"CURRENT"|"UPDATE_AVAILABLE"|"UPDATE_BLOCKED";evaluation:"READY"|"FAILED"|"BLOCKED_BY_UPSTREAM";
   diagnosticCode?:string;diagnostic?:string};

@@ -9,7 +9,7 @@ import {acceptedSupportState,associationRepairGroups,associationPlanCurrent,cons
 
 type Props={open:boolean;view:DocumentView;plan?:ProductUpdatePlan;loading:boolean;error?:string;failure?:string;busy:boolean;canEdit:boolean;
  onClose:()=>void;onRetry:()=>void;onAccept:(revision:string,digest:string)=>void;onRefresh:(revision:string)=>void;
- onLocateInstance:(id:string,revision:string)=>void;onLocateConstraint:(id:string,revision:string,support?:number)=>void;onEdit:(id:string,revision:string,reconnect:boolean)=>void};
+ onLocateInstance:(id:string,revision:string)=>void;onLocateConstraint:(id:string,revision:string,support?:number)=>void;onEdit:(id:string,revision:string,reconnect:boolean)=>void;onOpenSource:(id:string)=>void};
 const states:Record<string,string>={VERIFIED:"已满足",BROKEN:"支持断开",NOT_UPDATED:"待更新",IMPOSSIBLE:"未接纳"};
 
 export function AssociationRepairPanel(p:Props){
@@ -34,7 +34,7 @@ export function AssociationRepairPanel(p:Props){
     <div>路径：{row.path.display} </div>
 
     {row.instance.referenceMode==="PINNED"?<div>固定版本，不参与跟随更新</div>:<div>{!current?"可用更新：待刷新":!row.update?"更新状态待检查":row.update.currency==="UPDATE_BLOCKED"?"更新被阻塞":row.update?.candidateRevisionId!==row.instance.versionId?"有可用更新":"已是最新版本"}</div>}
-    {[...(row.update?[row.update]:[]),...row.diagnostics].filter(e=>e.diagnostic||e.currency==="UPDATE_BLOCKED").map(e=><Alert key={e.bindingId} type="warning" title={"关联更新受阻"} description={engineeringProblem({code:e.diagnosticCode,message:e.diagnostic})} style={{marginTop:6}}/>)}
+    {[...(row.update?[row.update]:[]),...row.diagnostics].filter(e=>e.diagnostic||e.currency==="UPDATE_BLOCKED").map(e=><Alert key={e.bindingId} type="warning" title={"关联更新受阻"} description={<>{engineeringProblem({code:e.diagnosticCode,message:e.diagnostic})}{e.sourceProductDocumentId&&<Button size="small" onClick={()=>p.onOpenSource(e.sourceProductDocumentId!)}>转到来源装配</Button>}</>} style={{marginTop:6}}/>)}
    </div>)}
   </section>)}
   <Typography.Title level={5}>当前已接受约束与支持</Typography.Title>

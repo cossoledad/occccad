@@ -22,6 +22,7 @@ export function objectName(view:DocumentView,id?:string,fallback='引用对象�
  return object?.name||fallback;
 }
 export function selectionName(view:DocumentView,s:SelectionItem):string{
+ if(s.kind==='publication')return s.publication?.name??s.productPublication?.name??objectName(view,s.publicationId,'发布接口');
  if(s.kind==='instance')return engineeringInstanceName(view,s.instanceId??s.id);
  if(['face','edge','vertex'].includes(s.kind))return `${objectName(view,s.bodyId,'实体')} / ${engineeringLabel(s.kind.toUpperCase(),'几何元素')}`;
  if(s.kind==='profile-region')return `${featureName(view,s.featureId,'草图')} / 轮廓区域`;

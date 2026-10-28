@@ -45,10 +45,28 @@ func nativeSketchPublication(model PartModel, target PublicationTarget, revision
 				break
 			}
 			source := &NativeSketchPublication{SketchID: f.ID, EntityID: e.ID, Origin: origin, XDirection: x, Normal: n, Geometry: SketchExternalGeometrySnapshot{Kind: e.Kind, Point: e.Point, Start: e.Start, End: e.End, Center: e.Center, Radius: e.Radius, StartAngle: e.StartAngle, EndAngle: e.EndAngle}}
-			return PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revision, LengthUnit: "mm", GeometryKind: e.Kind, NativeSketch: source, SourceDigest: resolvedDigest(source)}, nil
+			return nativePublicationDescriptor(PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revision, LengthUnit: "mm", NativeSketch: source, SourceDigest: resolvedDigest(source)})
 		}
 	}
 	return PublicationResolution{}, fmt.Errorf("%w: published native sketch element is missing, suppressed, unsupported or has invalid support", ErrValidation)
+}
+
+// Both consumers describe geometry in the publication owner's coordinates.
+// NativeSketch retains its 2D definition/frame; the outer analytic descriptor
+// carries the same exact geometry for other existing Publication consumers.
+func nativePublicationDescriptor(r PublicationResolution) (PublicationResolution, error) {
+	n := r.NativeSketch
+	r.XDirection, r.YDirection, r.ZDirection = n.XDirection, cross3(n.Normal, n.XDirection), n.Normal
+	p, err := publicationProjectionSource(r, InstancePose{Rotation: [4]float64{0, 0, 0, 1}})
+	if err != nil {
+		return PublicationResolution{}, err
+	}
+	r.Origin, r.ZDirection, r.GeometryKind = p.Origin, p.Direction, p.GeometryType
+	r.ParameterStart, r.ParameterEnd = p.ParameterStart, p.ParameterEnd
+	if p.RadiusMM != nil {
+		r.Radius = *p.RadiusMM
+	}
+	return r, nil
 }
 func publicationProjectionSource(r PublicationResolution, pose InstancePose) (geometry.ExternalProjectionSource, error) {
 	source := geometry.ExternalProjectionSource{EvidenceDigest: r.SourceDigest, Origin: pointByPose(pose, r.Origin), Direction: rotateByPose(pose, r.ZDirection), XDirection: rotateByPose(pose, r.XDirection), GeometryType: r.GeometryKind}

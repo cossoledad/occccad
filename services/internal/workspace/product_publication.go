@@ -358,7 +358,15 @@ func (service *Service) resolveProductPublications(ctx context.Context, product 
 		broken := func(code, diagnostic string) {
 			forwarding.Resolution = PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: code, Diagnostic: diagnostic}
 		}
-		publication, path, err := service.publicationAtRelativePath(ctx, *product, forwarding.Target.InstancePath, forwarding.Target.PublicationID)
+		// The stable occurrence path survives accepting a newer child Revision.
+		// Refresh its snapshot fields against this candidate's accepted edges;
+		// creation/redirect still validate the caller's complete original path.
+		currentPath, err := service.refreshProductInstancePath(ctx, *product, forwarding.Target.InstancePath)
+		if err != nil {
+			broken("PRODUCT_PUBLICATION_TARGET_MISSING", err.Error())
+			continue
+		}
+		publication, path, err := service.publicationAtRelativePath(ctx, *product, currentPath, forwarding.Target.PublicationID)
 		if err != nil {
 			code := "PRODUCT_PUBLICATION_TARGET_MISSING"
 			if strings.Contains(err.Error(), "PUBLICATION_MISSING") {
@@ -451,10 +459,31 @@ func publicationThroughRigidPose(publication Publication, pose InstancePose) Pub
 	}
 	switch publication.Type {
 	case "POINT", "AXIS", "PLANE", "FRAME", "CURVE", "SURFACE":
+		// Native coordinates are local to this frame, not to Resolution's
+		// generic origin. Forward the frame as well, without mutating the
+		// source descriptor shared by other occurrences or accepted snapshots.
+		if native := publication.Resolution.NativeSketch; native != nil {
+			copy := *native
+			copy.Origin = pointByPose(pose, native.Origin)
+			copy.XDirection = rotateByPose(pose, native.XDirection)
+			copy.Normal = rotateByPose(pose, native.Normal)
+			publication.Resolution.NativeSketch = &copy
+		}
 		publication.Resolution.Origin = pointByPose(pose, publication.Resolution.Origin)
 		publication.Resolution.XDirection = rotateByPose(pose, publication.Resolution.XDirection)
 		publication.Resolution.YDirection = rotateByPose(pose, publication.Resolution.YDirection)
 		publication.Resolution.ZDirection = rotateByPose(pose, publication.Resolution.ZDirection)
+		if publication.Resolution.NativeSketch != nil {
+			// Re-express the analytic descriptor from the forwarded exact native
+			// frame so the outer evidence and projection agree, including points.
+			if descriptor, err := nativePublicationDescriptor(publication.Resolution); err == nil {
+				publication.Resolution = descriptor
+			} else {
+				publication.Resolution.Status = "BROKEN_PUBLICATION"
+				publication.Resolution.DiagnosticCode = "PUBLICATION_SKETCH_ENTITY_UNAVAILABLE"
+				publication.Resolution.Diagnostic = err.Error()
+			}
+		}
 		publication.Resolution.SourceDigest = resolvedDigest(struct {
 			Source string
 			Pose   InstancePose

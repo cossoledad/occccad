@@ -180,7 +180,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
     <Input autoFocus aria-label="尺寸值或表达式" value={source} disabled={pending||unknown||reference||readonly}
      onFocus={e=>selectInitialDimensionValue(e.currentTarget,valueFocused)} onChange={e=>setSource(e.target.value)}/>
    </CommandFormItem>}
-   <ContextInputSource binding={contextBinding}/>
+   <ContextInputSource view={view} binding={contextBinding}/>
    {kind==="ANGLE"&&angleSector&&<CommandFormItem label="弧线方向" layout="horizontal"><Select aria-label="弧线方向" value={angleSector.clockwise?"CW":"CCW"} options={[{value:"CCW",label:"逆时针"},{value:"CW",label:"顺时针"}]} onChange={v=>{const next={...angleSector,clockwise:v==="CW"};setAngleSector(next);if(!parameter?.source.expression){const measured=measureSketchDimension(kind,references,sketch?.entities??[],next);if(measured!==undefined)setSource(String(measured));}}}/></CommandFormItem>}
    {!logical&&<CommandFormItem className="sketch-dimension-name" label="名称" layout="horizontal">
     <Input disabled={pending||unknown} aria-label="尺寸名称" value={name} placeholder="可选参数名称" onChange={e=>setName(e.target.value)}/>

@@ -84,7 +84,7 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 ## 发布与关联设计
 
-“发布接口”管理稳定 Publication，包括重命名与兼容重定向；“引用设计信息”在已激活 Part occurrence 中创建或复用本地输入，并管理绑定、定位、重连、固定与恢复跟随。新端口与 Product 绑定复用设计事务，预览和取消不创建模型对象。“应用并继续引用”一次提交一项，保留接收草图并更新修订、目录和预览基线；随后取消只丢弃未应用草稿，已应用项可逐次撤销。发布创建与重定向使用同一选择字段，核对目标文档、修订和完整实例路径。参数的既有定义级 ExternalParameterRef 仍作用于共享 Part，保持独立语义。
+“发布接口”管理稳定 Publication，包括重命名与兼容重定向；“引用设计信息”在已激活 Part occurrence 中创建或复用本地输入，并管理绑定、定位、重连、固定与恢复跟随。新端口与 Product 绑定复用设计事务，预览和取消不创建模型对象。“应用并继续引用”一次提交一项，保留接收草图并更新修订、目录和预览基线；随后取消只丢弃未应用草稿，已应用项可逐次撤销。Part 发布与 Product 转发、重定向使用同一选择字段，核对目标文档、修订和完整实例路径；子装配接口可继续转发，定位仍指向确切 occurrence，改名不改变接口身份。参数的既有定义级 ExternalParameterRef 仍作用于共享 Part，保持独立语义。
 
 | 发布类型 | 当前上下文消费者 |
 |---|---|
@@ -93,13 +93,15 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 | POINT / CURVE | 目标草图的稳定外部输入槽；原生 POINT、LINE、CIRCLE、ARC 使用已求解几何及支撑框架精确投影 |
 | SURFACE / BODY / FRAME | 不开放本轮上下文消费者；已有发布、转发及其他合法用途保留 |
 
-本地槽位身份由 ContextInputId 分配，与 BindingId、显示编号和临时几何无关。原生草图发布保存明确的 SketchId、EntityId、EntityKind；不伪装 BREP 边。外部点经现有 Coincident 驱动普通本地 POINT，再用于 Hole；不直接用投影点冒充 Hole 定位实体。曲线复用 Worker 的精确投影及支撑关系，显示折线不参与关联真相。实体直线边保留 BREP 的有限毫米参数区间，圆/圆弧保留有向框架与弧度区间；上下文草图消费者仅开放已有精确描述及投影的曲线，不把无限轴线或尚未接通的椭圆描述当作有限边。
+本地槽位身份由 ContextInputId 分配，与 BindingId、显示编号和临时几何无关。原生草图发布保存明确的 SketchId、EntityId、EntityKind；不伪装 BREP 边。每级转发复制来源描述并变换内部支撑框架，外层解析描述与精确投影同属该 Product 坐标系；接收端再应用冻结的实例相对变换，不重复变换二维几何。外部点经现有 Coincident 驱动普通本地 POINT，再用于 Hole；不直接用投影点冒充 Hole 定位实体。曲线复用 Worker 的精确投影及支撑关系，显示折线不参与关联真相。实体直线边保留 BREP 的有限毫米参数区间，圆/圆弧保留有向框架与弧度区间；上下文草图消费者仅开放已有精确描述及投影的曲线，不把无限轴线或尚未接通的椭圆描述当作有限边。
 
 Product 只保存来源和值：ContextBinding 冻结来源 Revision、完整 occurrence 路径、相对变换及发布契约，ContextVariant 由基础 Part 和已接受输入重建。独立打开使用保存的本地默认输入。来源改变、失效或重定向经 UpdatePlan 显示可更新/阻塞状态；完整健康候选才接受，失败保留原已接受结果。已有绑定的改名与固定只使用已接受输入，不要求失效来源仍可选择；重连沿用原绑定和本地槽位，保留下游身份。PINNED 使用确切旧来源与变换，不读取来源 Head；恢复跟随后仍需接受更新。直接重复实例复用同一 Part 端口，各自绑定和投影独立。上下文编辑合同见[编辑会话](product-edit-context.md#编辑会话)。
 
-实现入口：workspace 的 publication、context_input_geometry、product_context、product_design_transaction、product_update_release、context_editing；Web 的 design-association-dialog 与 context-edit-scope。真实回归入口为 control/publication_layout_integration_test、browser/publication-layout-live.spec。它们是验证入口，执行范围以本轮报告为准。
+子装配消费者保存模块的公开 PublicationId 与模块 occurrence 路径，不绕过接口绑定内部布局。各 owning Product 的 UpdatePlan 只更新自身引用和绑定；来源装配内部待更新或受阻时，父计划携带来源计划摘要并保留已接受结果，可从关联管理或更新修复入口转到来源装配。先在来源装配接受内部来源，再在父装配接受模块和本地输入；普通 FOLLOW_HEAD 仍可跟随已计算版本，关联输入保持显式接受，PINNED 输入和固定模块不读取新 Head。接受输入的全部 Binding 快照进入同一 ChangeSet，撤销/重做同时恢复孔位、来源及引用。
 
-当前限定直接 owning Product；不提供 Wire、曲面/实体 Feature 输入、复杂嵌套编排或 Skeleton 文档类型。删除发布的跨工作区并发预检限制见[建模与显示](model-display.md#参数与-publication)。
+实现入口：workspace 的 publication、context_input_geometry、product_context、product_design_transaction、product_update_release、context_editing；Web 的 design-association-dialog 与 context-edit-scope。真实回归入口为 control/publication_layout_integration_test、control/subassembly_publication_integration_test、browser/publication-layout-live.spec。它们是验证入口，执行范围以本轮报告为准。
+
+接收 Part 限定当前 owning Product 的直接子实例；来源为直接 Part 发布或直接子 Product 的公开接口。支持逐层公开转发与各层独立接受，不提供任意深层上下文编辑、完整组件替换、跨层原子更新编排、Wire、曲面/实体 Feature 输入或 Skeleton 文档类型。删除发布的跨工作区并发预检限制见[建模与显示](model-display.md#参数与-publication)。
 
 ## 显示、历史与发布
 
