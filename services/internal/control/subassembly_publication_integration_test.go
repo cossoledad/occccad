@@ -383,3 +383,39 @@ func TestSubassemblyPublicInterfacesDriveHoleThroughTwoRigidLevels(t *testing.T)
 		t.Fatal("warm/cold result changed")
 	}
 }
+
+func TestEmptyProductUpdatePlanReturnsEmptyCollectionsWithoutHistory(t *testing.T) {
+	s, _, _, _, _ := featureAssociationRuntimeService(t)
+	v, err := s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PRODUCT", Name: "Empty Product update plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.GetProductUpdatePlan(t.Context(), v.Document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.HasUpdates || !p.CanAccept || p.Digest == "" {
+		t.Fatalf("unexpected empty Product status: %+v", p)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"entries", "contextVariants"} {
+		if string(body[field]) != "[]" {
+			t.Fatalf("empty %s must be an array, got %s", field, body[field])
+		}
+	}
+	again, err := s.GetProductUpdatePlan(t.Context(), v.Document.ID)
+	if err != nil || again.Digest != p.Digest {
+		t.Fatal("read-only checks changed plan", err)
+	}
+	unchanged, err := s.GetDocument(t.Context(), v.Document.ID, p6Actor)
+	if err != nil || unchanged.Document.VersionID != v.Document.VersionID {
+		t.Fatal("empty update check wrote history", err)
+	}
+}

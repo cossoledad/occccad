@@ -96,7 +96,7 @@ export function DesignAssociationDialog({root,owner,path,initialParameterId,acti
    </>}
   </>}
   <FeaturePickField label="已有关联" active={false} items={bindings.map(b=>{
-   const p=catalogEntries.find(p=>p.instancePath.canonical===b.sourceInstancePath.canonical&&p.publication.id===b.publication.publicationId),update=plan.data?.entries.find(e=>e.bindingId===b.id),local=owner.part?.contextInputs?.find(i=>i.id===b.contextInputId);
+   const p=catalogEntries.find(p=>p.instancePath.canonical===b.sourceInstancePath.canonical&&p.publication.id===b.publication.publicationId),update=plan.data?.entries?.find(e=>e.bindingId===b.id),local=owner.part?.contextInputs?.find(i=>i.id===b.contextInputId);
    const editBinding=(reconnect:boolean)=>{setEditing(b);setReconnecting(reconnect);setName(b.name);setMode(b.referenceMode);setInputId(b.contextInputId);setSourceKey(!reconnect&&p?.selectable?key(p):undefined);setPicking(reconnect?'source':undefined);setError(undefined)};
    return {key:b.id,value:`${p?.publication.name??'来源接口'} → ${local?.name??'本地输入'}`,actionLabel:b.name,error:!!update&&update.currency==='UPDATE_BLOCKED',detail:`${b.sourceInstancePath.display} · ${b.referenceMode==='PINNED'?'固定输入':update?.currency==='UPDATE_BLOCKED'?'来源不可用，保留已接受输入':update?.currency==='UPDATE_AVAILABLE'?'有可用更新':engineeringLabel(b.accepted.status)}`,
     onLocate:()=>onLocate(bindingSourceSelection(b,root)),onActivate:()=>editBinding(true),

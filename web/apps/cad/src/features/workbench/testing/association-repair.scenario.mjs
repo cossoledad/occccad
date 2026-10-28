@@ -15,5 +15,10 @@ try{
  assert.deepEqual(constraintSupports({kind:'FIX_TOGETHER',groupMembers:[{instanceId:'a'}]}),[],'groups have members rather than a fabricated first topology support');
  const pinnedPlan=structuredClone(plan);pinnedPlan.entries.push({kind:'OCCURRENCE_REFERENCE',bindingId:'occurrence:c',candidateRevisionId:'v2'});assert.equal(associationRepairGroups(view,pinnedPlan)[0].instances[2].update,undefined,'pinned row never projects a following candidate');
  const nested=structuredClone(view);nested.structureTree.children[1].documentType='PRODUCT';assert.equal(associationRepairGroups(nested,plan)[0].instances.length,3,'direct Product modules expose their owning update plan too');
+ const emptyPlan={...plan,hasUpdates:false,entries:null,contextVariants:null,parameterUpdates:null};
+ const emptyGroups=associationRepairGroups(view,emptyPlan);assert.equal(emptyGroups.length,1);assert(emptyGroups[0].instances.every(row=>!row.update&&row.diagnostics.length===0),'a null collection is an empty update list, not a failed model');
+ const {AssociationSourceUpdates}=await server.ssrLoadModule('/src/features/workbench/association-source-updates.tsx');
+ const {renderToStaticMarkup}=await import('react-dom/server');const {createElement}=await import('react');
+ assert.equal(renderToStaticMarkup(createElement(AssociationSourceUpdates,{plan:emptyPlan,onOpen:()=>assert.fail('empty plan cannot navigate to a source')})), '');
  console.log('Association groups, pinned isolation, revision fences and accepted support evidence passed.');
 }finally{await server.close()}

@@ -1538,7 +1538,7 @@ onToggleConstruction:(node)=>{
       }
     }
   };
-  const blockedAssociationEntry=productUpdatePlan.data?.rootProductRevisionId===view?.document.versionId?productUpdatePlan.data?.entries.find(entry=>entry.kind!=="ASSEMBLY_SOLVE"&&entry.currency==="UPDATE_BLOCKED"):undefined;
+  const blockedAssociationEntry=productUpdatePlan.data?.rootProductRevisionId===view?.document.versionId?productUpdatePlan.data?.entries?.find(entry=>entry.kind!=="ASSEMBLY_SOLVE"&&entry.currency==="UPDATE_BLOCKED"):undefined;
   const associationUpdateBlocked=!productUpdatePlan.isFetching&&view?.document.type==='PRODUCT'&&(productUpdateFailure||productUpdatePlan.data?.hasUpdates&&!productUpdatePlan.data.canAccept);
   useOperationFailureNotification(associationUpdateBlocked?{diagnostic:productUpdateFailure??blockedAssociationEntry?.diagnostic,diagnosticCode:productUpdateFailure?undefined:blockedAssociationEntry?.diagnosticCode,retry:retryAssociationUpdates,retryLabel:'重试更新'}:undefined,'更新关联零件');
   if (document.isLoading || view && !editSession) return <div className="workbench-loading"><Spin size="large" description="正在打开工作台…" /></div>;

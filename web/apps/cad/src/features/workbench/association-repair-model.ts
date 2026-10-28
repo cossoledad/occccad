@@ -9,9 +9,9 @@ export function associationRepairGroups(view:DocumentView,plan?:ProductUpdatePla
   const node=nodes.find(n=>n.kind==="INSTANCE"&&n.entityId===instance.id&&n.ownerDocumentId===view.document.id);
   if(!['PART','PRODUCT'].includes(node?.documentType??'')||node?.instancePath?.segments.length!==1)return [];
   const path=node.instancePath;
-  const update=current&&instance.referenceMode!=="PINNED"?plan!.entries.find(e=>e.kind==="OCCURRENCE_REFERENCE"&&e.bindingId===`occurrence:${path.canonical}`):undefined;
+  const update=current&&instance.referenceMode!=="PINNED"?plan!.entries?.find(e=>e.kind==="OCCURRENCE_REFERENCE"&&e.bindingId===`occurrence:${path.canonical}`):undefined;
   const bindings=(view.product?.contextBindings??[]).filter(b=>[b.sourceInstancePath,b.owningInstancePath].some(p=>p.segments.length===1&&p.segments[0].instanceId===instance.id));
-  const diagnostics=current?plan!.entries.filter(e=>e.kind==="CONTEXT_BINDING"&&bindings.some(b=>b.id===e.bindingId)):[];
+  const diagnostics=current?plan!.entries?.filter(e=>e.kind==="CONTEXT_BINDING"&&bindings.some(b=>b.id===e.bindingId))??[]:[];
   return [{instance,path,name:node.instanceName??instance.name,partName:node.referenceName??"关联零件",update,diagnostics}];
  });
  return [...new Set(direct.map(i=>i.instance.documentId))].map(documentId=>({documentId,name:direct.find(i=>i.instance.documentId===documentId)!.partName,instances:direct.filter(i=>i.instance.documentId===documentId),parameters:current?plan!.parameterUpdates?.filter(p=>p.documentId===documentId)??[]:[]}));

@@ -22,7 +22,8 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 	if err != nil {
 		return ProductUpdatePlan{}, err
 	}
-	plan := ProductUpdatePlan{RootProductDocumentID: rootDocumentID, RootProductRevisionID: revisionID, CanAccept: true}
+	plan := ProductUpdatePlan{RootProductDocumentID: rootDocumentID, RootProductRevisionID: revisionID, CanAccept: true,
+		Entries: []ProductUpdatePlanEntry{}, ContextVariants: []ContextVariantSnapshot{}}
 	var rootRaw []byte
 	if err := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, revisionID).Scan(&rootRaw); err != nil {
 		return ProductUpdatePlan{}, err
