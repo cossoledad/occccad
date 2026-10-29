@@ -34,6 +34,7 @@ export async function followProductUpdates(initial: DocumentView, api: ProductUp
       // This wave may follow already computed versions, but must not commit
       // shared design changes to other Parts without the user's confirmation.
       if (plan.parameterUpdates?.some(node=>node.needsUpdate)) continue;
+      if(plan.entries?.some(entry=>entry.kind==='OCCURRENCE_REFERENCE'&&entry.referenceMode==='FOLLOW_WORKSPACE_WITH_ACCEPT'&&entry.currency!=='CURRENT'))continue;
       if(plan.entries?.some(entry=>entry.kind==='CONTEXT_BINDING'&&entry.currency!=='CURRENT'))continue;
       if(plan.entries?.some(entry=>entry.diagnosticCode==='NESTED_REFERENCE_UPDATE_REQUIRED'))continue;
       if (!plan.canAccept) throw new Error(plan.entries?.find((entry) =>

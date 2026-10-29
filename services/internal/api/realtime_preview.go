@@ -170,6 +170,17 @@ func (client *realtimeClient) startPreview(server *Server, ctx context.Context, 
 			}
 			result.Artifact = &a
 		}
+		if result.ReplacementView != nil {
+			for key, artifact := range result.ReplacementView.Artifacts {
+				refs := map[string]workspace.Representation{}
+				for role, ref := range artifact.Representations {
+					ref.URL = "/api/documents/" + url.PathEscape(input.DocumentID) + "/representations/" + url.PathEscape(ref.ObjectID) + "?previewId=" + url.QueryEscape(result.PreviewID)
+					refs[role] = ref
+				}
+				artifact.Representations = refs
+				result.ReplacementView.Artifacts[key] = artifact
+			}
+		}
 		client.sendResponse(envelope.ID, "workspace.preview.ready.v1", map[string]any{"documentId": input.DocumentID, "interactionId": input.InteractionID, "previewSequence": input.Sequence, "preview": result})
 	}
 	runner.pending = execute

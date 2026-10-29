@@ -1,6 +1,6 @@
 # CAD 核心主线
 
-当前重点：子装配公开接口与关联更新闭环，巩固原生草图逐层转发坐标、模块接口身份、各 owning Product 分层接受与原孔位修复；接收方仍限定总装直接 Part。当前能力及边界见[发布与关联设计](../docs/architecture/current/product-assembly.md#发布与关联设计)。草图与 Feature 基线继续维护，唯一能力表见 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)。不累计实施日志。
+当前重点：基于公开接口的单个直接来源组件替换。已接通 Part→Part、Product→Product、实际使用接口对应、单实例候选预览与同一 ChangeSet 的关联/约束/转发接口迁移；接收端本地输入、深层/批量替换、原始拓扑匹配与机构迁移仍不开放。继续巩固模块接口分层接受及孔位编辑修复。当前能力及边界见[发布与关联设计](../docs/architecture/current/product-assembly.md#发布与关联设计)，草图与 Feature 的唯一能力表见 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)。不累计实施日志。
 
 后续按实际建模需求推进：其余关联终止、贯穿 Hole 工具、切除范围、更多合法历史插入/移动；任意深层上下文编辑、跨层更新编排与柔性场景、静态干涉/间隙及交换验收仍未完成。具体边界分别归所属 current 主题，不把设计或接口存在当作交付。
 

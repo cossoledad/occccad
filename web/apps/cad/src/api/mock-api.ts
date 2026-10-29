@@ -1186,7 +1186,6 @@ export const mockApi: CadApi = {
   insertMany: async (documentID, referencedDocumentIds) => command(documentID, { type: "INSERT_INSTANCES", referencedDocumentIds }),
   patternInstances: async (documentID, input) => command(documentID, { type: "INSERT_INSTANCES", instanceId: input.sourceInstanceId,
     patternAxis: input.axis, patternCount: input.count, patternSpacing: input.spacing, patternReversed: input.reversed }),
-  replaceInstance: async (documentID, instanceID, referencedDocumentID) => command(documentID, {type:"REPLACE_INSTANCE",instanceId:instanceID,referencedDocumentId:referencedDocumentID}),
   renameInstance: async (documentID, instanceID, name) => command(documentID, {type:"RENAME_INSTANCE",instanceId:instanceID,name}),
   createProductPublication: async (documentID, instanceID, publicationID, name, semanticPurpose, instancePath) => command(documentID,
 	{type:"CREATE_PRODUCT_PUBLICATION",instanceId:instanceID,publicationId:publicationID,name,semanticPurpose,instancePath}),

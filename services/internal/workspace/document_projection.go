@@ -94,7 +94,7 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 		map[string]bool{}, view.Artifacts, &view.ResolvedInstances, &view.ConstraintDisplayScopes); err != nil {
 		return view, err
 	}
-	items, err := service.expandProductContext(ctx, summary.ID, summary.VersionID)
+	items, err := service.expandProductContext(ctx, summary.ID, summary.VersionID, model)
 	if err != nil {
 		return view, err
 	}

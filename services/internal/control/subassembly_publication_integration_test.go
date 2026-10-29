@@ -419,3 +419,301 @@ func TestEmptyProductUpdatePlanReturnsEmptyCollectionsWithoutHistory(t *testing.
 		t.Fatal("empty update check wrote history", err)
 	}
 }
+
+func TestReplacePublicComponentScopedHistoryAndHole(t *testing.T) {
+	s, _, _, _, _ := featureAssociationRuntimeService(t)
+	for _, kind := range []string{"PART", "PRODUCT"} {
+		t.Run(kind, func(t *testing.T) {
+			seq := 0
+			create := func(k, name string) workspace.DocumentView {
+				t.Helper()
+				v, e := s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: k, Name: name})
+				if e != nil {
+					t.Fatal(e)
+				}
+				return v
+			}
+			run := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+				t.Helper()
+				seq++
+				r.ActorID = p6Actor
+				r.RequestID = fmt.Sprintf("%s-replace-%d", v.Document.ID, seq)
+				n, e := s.ApplyCommand(t.Context(), v.Document.ID, r)
+				if e != nil {
+					t.Fatalf("%s: %v", r.Type, e)
+				}
+				*v = n
+			}
+			read := func(v *workspace.DocumentView) {
+				t.Helper()
+				n, e := s.GetDocument(t.Context(), v.Document.ID, p6Actor)
+				if e != nil {
+					t.Fatal(e)
+				}
+				*v = n
+			}
+			path := func(v workspace.DocumentView, i int) workspace.InstancePath {
+				t.Helper()
+				session, e := s.GetProductDesignSession(t.Context(), v.Document.ID, v.Product.Instances[i].ID)
+				if e != nil || session.ActiveInstancePath == nil {
+					t.Fatal(e)
+				}
+				return *session.ActiveInstancePath
+			}
+			source := func(name string, x float64) workspace.DocumentView {
+				v := create("PART", name)
+				run(&v, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+				sketch := v.Part.Features[0].ID
+				run(&v, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "hole-position", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: x, Y: 10}}}}})
+				run(&v, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Mount position", PublicationType: "POINT", TargetKind: "SKETCH_ENTITY", SketchID: sketch, TargetID: "hole-position"})
+				run(&v, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Mount plane", PublicationType: "PLANE", TargetKind: "PLANE", TargetID: "datum-xy"})
+				// An unused broken/extra interface is deliberately not part of the mapping.
+				run(&v, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Unused plane", PublicationType: "PLANE", TargetKind: "PLANE", TargetID: "datum-yz"})
+				if kind == "PART" {
+					return v
+				}
+				m := create("PRODUCT", name+" module")
+				run(&m, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: v.Document.ID})
+				for _, p := range v.Part.Publications {
+					q := path(m, 0)
+					run(&m, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", PublicationID: p.ID, InstanceID: m.Product.Instances[0].ID, InstancePath: &q, Name: p.Name})
+				}
+				return m
+			}
+			a, b := source("Replace A", 20), source("Replace B", 30)
+			pubs := func(v workspace.DocumentView) []workspace.Publication {
+				if v.Part != nil {
+					return v.Part.Publications
+				}
+				result := []workspace.Publication{}
+				for _, p := range v.Product.Publications {
+					result = append(result, workspace.Publication{ID: p.ID, Name: p.Name, Type: p.Type, Contract: p.Contract, CompatibilityVersion: p.CompatibilityVersion, Resolution: p.Resolution})
+				}
+				return result
+			}
+			pa, pb := pubs(a), pubs(b)
+			plate := create("PART", "Replacement mounting plate")
+			run(&plate, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+			profile := plate.Part.Features[0].ID
+			run(&plate, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: profile, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -60, Y: -40}, Second: &workspace.SketchPoint2{X: 60, Y: 40}}}})
+			run(&plate, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Generator: "LINEAR_EXTRUDE", Operation: "ADD", SketchID: profile, Length: 5})
+			run(&plate, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+			receiver := plate.Part.Features[len(plate.Part.Features)-1].ID
+			run(&plate, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Plate plane", PublicationType: "PLANE", TargetKind: "PLANE", TargetID: "datum-xy"})
+			unrelated := create("PART", "Unrelated pending component")
+			root := create("PRODUCT", "Scoped component replacement")
+			for _, v := range []workspace.DocumentView{a, a, plate, unrelated} {
+				run(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: v.Document.ID})
+			}
+			run(&root, workspace.CommandRequest{Type: "SET_REFERENCE_MODE", InstanceID: root.Product.Instances[3].ID, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"})
+			owner, src := path(root, 2), path(root, 0)
+			n, e := s.CreateProductContextBinding(t.Context(), root.Document.ID, workspace.ProductContextBindingRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-binding", ExpectedRootRevisionID: root.Document.VersionID, OwningInstancePath: owner, SourceInstancePath: src, PublicationID: pa[0].ID, PublicationType: "POINT", TargetKind: "SKETCH_EXTERNAL_GEOMETRY", TargetID: receiver, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"})
+			if e != nil {
+				t.Fatal(e)
+			}
+			root = n
+			binding := root.Product.ContextBindings[0]
+			variant := func() workspace.ContextVariantSnapshot {
+				t.Helper()
+				for _, v := range root.ContextVariants {
+					if v.BaseDocumentID == plate.Document.ID {
+						return v
+					}
+				}
+				t.Fatal("missing variant")
+				return workspace.ContextVariantSnapshot{}
+			}
+			external := ""
+			for _, f := range variant().Part.Features {
+				if f.ID == receiver {
+					external = f.Sketch.ExternalGeometry[0].ID
+				}
+			}
+			scope := func(r workspace.CommandRequest) workspace.CommandRequest {
+				v := variant()
+				r.RootProductDocumentID = root.Document.ID
+				r.RootProductRevisionID = root.Document.VersionID
+				r.ContextVariantID = v.VariantKey
+				r.InstancePath = &v.OwningInstancePath
+				return r
+			}
+			run(&plate, scope(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: receiver, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "local-hole", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: 20, Y: 10}}}, {Type: "ADD_CONSTRAINT", Constraint: &workspace.SketchConstraint{ID: "point-link", Kind: "COINCIDENT", References: []workspace.SketchGeometryRef{{Target: "ENTITY", EntityID: "local-hole", SubElement: "POINT"}, {Target: "EXTERNAL", EntityID: external, SubElement: "POINT"}}}}}}))
+			read(&root)
+			run(&plate, scope(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &workspace.Feature{Type: "HOLE", BodyID: plate.Part.ActiveBodyID, Operation: "REMOVE", Extent: "BLIND", Diameter: 4, Depth: 3, HolePoint: &workspace.PatternPointReference{SketchID: receiver, Reference: workspace.SketchGeometryRef{Target: "ENTITY", EntityID: "local-hole", SubElement: "POINT"}}}}))
+			read(&root)
+			hole := plate.Part.Features[len(plate.Part.Features)-1].ID
+			owner2, src2 := path(root, 2), path(root, 1)
+			seq++
+			linked, e := s.CreateProductContextBinding(t.Context(), root.Document.ID, workspace.ProductContextBindingRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-second-binding-%d", root.Document.ID, seq), ExpectedRootRevisionID: root.Document.VersionID, OwningInstancePath: owner2, SourceInstancePath: src2, PublicationID: pa[0].ID, PublicationType: "POINT", TargetKind: "SKETCH_EXTERNAL_GEOMETRY", TargetID: receiver, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"})
+			if e != nil {
+				t.Fatal(e)
+			}
+			root = linked
+
+			// Keep the accepted A input at x=20 while the occurrence has moved.
+			// Replacement accepts B through the current frozen relative frame.
+			run(&root, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: root.Product.Instances[0].ID, Translation: [3]float64{10, 0, 0}, Rotation: [4]float64{0, 0, 0, 1}})
+
+			run(&root, workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX", FixMode: "SPACE", FirstAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: root.Product.Instances[0].ID, Kind: "BODY"}})
+			run(&root, workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "COINCIDENT", FirstAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: root.Product.Instances[0].ID, Kind: "PLANE", PublicationRef: &workspace.PublicationRef{PublicationID: pa[1].ID, ExpectedType: "PLANE", CompatibilityVersion: pa[1].CompatibilityVersion}}, SecondAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: root.Product.Instances[2].ID, Kind: "PLANE", PublicationRef: &workspace.PublicationRef{PublicationID: plate.Part.Publications[0].ID, ExpectedType: "PLANE", CompatibilityVersion: plate.Part.Publications[0].CompatibilityVersion}}})
+			q := path(root, 0)
+			run(&root, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", PublicationID: pa[0].ID, InstancePath: &q, Name: "Public mounting point"})
+			// A pending unrelated Head must not be accepted by replacement.
+			run(&unrelated, workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: "pending", Value: 9, Unit: "mm"})
+			before := root
+			beforeGeometry := variant().Bodies[0].GeometryKey
+			untouchedBinding, _ := json.Marshal(root.Product.ContextBindings[1])
+			frozenSecond := root.Product.Instances[1]
+			frozenOther := root.Product.Instances[3]
+			request := workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-candidate", Type: "REPLACE_INSTANCE", VersionID: root.Document.VersionID, InstanceID: root.Product.Instances[0].ID, ReferencedDocumentID: b.Document.ID, ReplacementVersionID: b.Document.VersionID, PublicationMapping: map[string]string{pa[0].ID: pb[0].ID, pa[1].ID: pb[1].ID}}
+			reject := func(r workspace.CommandRequest) {
+				t.Helper()
+				r.RequestID += "-reject"
+				if _, e := s.PreviewCommand(t.Context(), root.Document.ID, r); e == nil {
+					t.Fatal("invalid replacement preview accepted")
+				}
+				read(&root)
+				if root.Document.VersionID != before.Document.VersionID {
+					t.Fatal("failure wrote Head")
+				}
+			}
+			missing := request
+			missing.PublicationMapping = map[string]string{pa[0].ID: pb[0].ID}
+			reject(missing)
+			mismatch := request
+			mismatch.PublicationMapping = map[string]string{pa[0].ID: pb[1].ID, pa[1].ID: pb[1].ID}
+			reject(mismatch)
+			// A contract-compatible source outside the plate invalidates the real Hole.
+			outside := source("Outside mounting component", 500)
+			outsidePubs := pubs(outside)
+			invalidGeometry := request
+			invalidGeometry.ReferencedDocumentID = outside.Document.ID
+			invalidGeometry.ReplacementVersionID = outside.Document.VersionID
+			invalidGeometry.PublicationMapping = map[string]string{pa[0].ID: outsidePubs[0].ID, pa[1].ID: outsidePubs[1].ID}
+			reject(invalidGeometry)
+			receiverReplacement := request
+			receiverReplacement.InstanceID = root.Product.Instances[2].ID
+			receiverReplacement.ReferencedDocumentID = unrelated.Document.ID
+			receiverReplacement.ReplacementVersionID = unrelated.Document.VersionID
+			receiverReplacement.PublicationMapping = nil
+			reject(receiverReplacement)
+
+			preview, e := s.PreviewCommand(t.Context(), root.Document.ID, request)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if preview.PreviewID == "" || preview.ReplacementView == nil {
+				t.Fatal("no qualified replacement view")
+			}
+			if preview.ReplacementView.Product.Instances[0].ReferencedDocumentID != b.Document.ID {
+				t.Fatal("preview still shows old source")
+			}
+			for _, a := range preview.ReplacementView.Artifacts {
+				for role, ref := range a.Representations {
+					if role == "VISUAL" && !s.PreviewVisualAllowed(root.Document.ID, p6Actor, preview.PreviewID, ref.ObjectID) {
+						t.Fatal("candidate visual not authorized")
+					}
+				}
+			}
+
+			read(&root)
+			if root.Document.VersionID != before.Document.VersionID {
+				t.Fatal("preview wrote Head")
+			}
+			s.DiscardPreview(root.Document.ID, p6Actor, preview.PreviewID)
+			canceled := request
+			canceled.PreviewID = preview.PreviewID
+			if _, e = s.ApplyCommand(t.Context(), root.Document.ID, canceled); e == nil {
+				t.Fatal("canceled candidate committed")
+			}
+			preview, e = s.PreviewCommand(t.Context(), root.Document.ID, request)
+			if e != nil {
+				t.Fatal(e)
+			}
+			request.PreviewID = preview.PreviewID
+			run(&root, request)
+			check := func(x float64, sourceID string) {
+				t.Helper()
+				if root.Product.Instances[0].ReferencedDocumentID != sourceID || root.Product.Instances[0].ID != before.Product.Instances[0].ID || root.Product.Instances[0].Name != before.Product.Instances[0].Name || root.Product.Instances[0].ReferenceMode != before.Product.Instances[0].ReferenceMode {
+					t.Fatal("instance identity/policy changed")
+				}
+				if root.Product.Instances[1].ReferencedVersionID != frozenSecond.ReferencedVersionID || root.Product.Instances[1].ReferencedDocumentID != frozenSecond.ReferencedDocumentID || root.Product.Instances[3].ReferencedVersionID != frozenOther.ReferencedVersionID {
+					t.Fatal("unrelated references advanced")
+				}
+				actualUntouched, _ := json.Marshal(root.Product.ContextBindings[1])
+				if string(actualUntouched) != string(untouchedBinding) {
+					t.Fatal("unrelated accepted binding changed")
+				}
+
+				b := root.Product.ContextBindings[0]
+				if b.ID != binding.ID || b.ContextInputID != binding.ContextInputID {
+					t.Fatal("binding/input identity changed")
+				}
+				v := variant()
+				artifact, exists := root.Artifacts[v.Bodies[0].GeometryKey]
+				if !exists || math.Abs(artifact.Volume-(120*80*5-3*math.Pi*4)) > 1e-4 {
+					t.Fatalf("incorrect exact Hole volume %+v", artifact)
+				}
+				found := false
+				for _, f := range v.Part.Features {
+					if f.ID == hole {
+						found = true
+						if f.EvaluationStatus != "" {
+							t.Fatalf("Hole failed: %+v", f)
+						}
+					}
+					if f.ID == receiver {
+						for _, p := range f.Sketch.Entities {
+							if p.ID == "local-hole" && math.Abs(p.Point.X-x) > 1e-6 {
+								t.Fatalf("Hole position %v want %v", p.Point.X, x)
+							}
+						}
+					}
+				}
+				if !found {
+					t.Fatal("Hole identity lost")
+				}
+				for _, c := range root.Product.Constraints {
+					if c.EvaluationStatus != "VERIFIED" {
+						t.Fatalf("constraint failed %+v", c)
+					}
+				}
+				if root.Product.Publications[0].ID != before.Product.Publications[0].ID || root.Product.Publications[0].Resolution.Status != "CONNECTED" {
+					t.Fatal("public interface identity lost")
+				}
+			}
+			stale := request
+			stale.RequestID += "-stale"
+			if _, e := s.ApplyCommand(t.Context(), root.Document.ID, stale); e == nil {
+				t.Fatal("stale replacement committed")
+			}
+
+			check(40, b.Document.ID)
+			if variant().Bodies[0].GeometryKey == beforeGeometry {
+				t.Fatal("Hole geometry did not change with the new point")
+			}
+			run(&root, workspace.CommandRequest{Type: "UNDO"})
+			check(20, a.Document.ID)
+			run(&root, workspace.CommandRequest{Type: "REDO"})
+			check(40, b.Document.ID)
+			read(&root)
+			check(40, b.Document.ID)
+			// The same accepted input can be fixed, but replacement must not silently reconnect it.
+			run(&root, workspace.CommandRequest{Type: "EDIT_CONTEXT_BINDING", VersionID: root.Document.VersionID, ContextBindingID: binding.ID, ReferenceMode: "PINNED"})
+			frozen := root.Document.VersionID
+			request.VersionID = frozen
+			request.PreviewID = ""
+			request.ReferencedDocumentID = a.Document.ID
+			request.ReplacementVersionID = a.Document.VersionID
+			request.PublicationMapping = map[string]string{pb[0].ID: pa[0].ID, pb[1].ID: pa[1].ID}
+			request.RequestID += "-fixed"
+			if _, e := s.ApplyCommand(t.Context(), root.Document.ID, request); e == nil {
+				t.Fatal("fixed binding silently rebound")
+			}
+			read(&root)
+			if root.Document.VersionID != frozen {
+				t.Fatal("fixed-input failure wrote history")
+			}
+		})
+	}
+}

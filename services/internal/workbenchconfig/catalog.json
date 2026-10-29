@@ -5906,6 +5906,30 @@
       "visibleWhen": {},
       "enabledWhen": {},
       "implementation": "handler"
+    },
+    {
+      "id": "product.replace",
+      "name": "替换组件",
+      "helpText": "通过公开接口替换所选直接组件。",
+      "iconKey": "insert",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "handler"
     }
   ],
   "groups": [
@@ -6069,6 +6093,11 @@
           "commandId": "product.release",
           "groupKey": "primary",
           "order": 20
+        },
+        {
+          "commandId": "product.replace",
+          "groupKey": "primary",
+          "order": 15
         }
       ]
     },

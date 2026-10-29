@@ -2617,6 +2617,9 @@ func (service *Service) buildDocumentStructure(
 		WHERE v.id=$1`, versionID).Scan(&documentID, &documentType, &storedName, &modelJSON); err != nil {
 		return DocumentStructureNode{}, err
 	}
+	if draft, ok := ctx.Value(propertyPreviewSnapshotKey{}).(propertyPreviewSnapshot); ok && draft.Revision == versionID {
+		modelJSON = draft.Model
+	}
 	if displayName == "" {
 		displayName = storedName
 	}

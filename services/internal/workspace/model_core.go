@@ -2343,6 +2343,9 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 			return prepared, fmt.Errorf("%w: PUBLICATION_TARGET_REVISION_CHANGED", ErrValidation)
 		}
 	}
+	if request.Type == "REPLACE_INSTANCE" && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
+		return prepared, fmt.Errorf("%w: PREVIEW_STALE", ErrValidation)
+	}
 	if request.Type == "EDIT_CONTEXT_BINDING" && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
 		return prepared, fmt.Errorf("%w: CONTEXT_BINDING_REVISION_CHANGED", ErrValidation)
 	}

@@ -85,6 +85,7 @@ export type AssemblyComponentDof = {
   freedoms: AssemblyBodyFreedom[];
 };
 export type CommandPreview = {
+  replacementView?:DocumentView;
   propertyAppearances?:PropertyAppearanceProjection[];
   expiresAt?: string;
  repairRequired?:{featureId:string;name:string;diagnostic:string}[];referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
@@ -515,7 +516,7 @@ export type ContextCatalog = { rootProductDocumentId:string;rootProductRevisionI
 export type ContextVariantSnapshot = {replicationSources?:DocumentView["replicationSources"];sketchPatternMembers?:DocumentView["sketchPatternMembers"];part?:DocumentView["part"];sketchAnalyses?:DocumentView["sketchAnalyses"];variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
   bindingIds:string[];bindingDigest:string;evaluationManifestDigest?:string;bodies:PartBody[];status:"READY"|"FAILED";
   publications?:Publication[];diagnosticCode?:string;diagnostic?:string};
-export type ProductUpdatePlanEntry = {kind:"CONTEXT_BINDING"|"OCCURRENCE_REFERENCE"|"ASSEMBLY_SOLVE";bindingId:string;name:string;sourceDisplayPath:string;owningDisplayPath:string;
+export type ProductUpdatePlanEntry = {referenceMode?:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED";kind:"CONTEXT_BINDING"|"OCCURRENCE_REFERENCE"|"ASSEMBLY_SOLVE";bindingId:string;name:string;sourceDisplayPath:string;owningDisplayPath:string;
   sourceProductDocumentId?:string;sourceProductRevisionId?:string;sourceUpdatePlanDigest?:string;
   acceptedRevisionId:string;candidateRevisionId?:string;connection:"CONNECTED"|"BROKEN"|"INCOMPATIBLE";
   currency:"CURRENT"|"UPDATE_AVAILABLE"|"UPDATE_BLOCKED";evaluation:"READY"|"FAILED"|"BLOCKED_BY_UPSTREAM";

@@ -84,7 +84,7 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onReplace, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   documentSessions?: DocumentSessions; hostDocumentId?: string;
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string; editSession?: EditSession;
@@ -94,6 +94,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   onOpenDocumentTab?: (node: SpecificationTreeNode) => void;
   onViewResult?: (node:SpecificationTreeNode)=>void;
   onEdit?: (node: SpecificationTreeNode) => void;
+  onReplace?: (node:SpecificationTreeNode)=>void;
   onMove?: (node:SpecificationTreeNode)=>void;
   onInsertAfter?: (node:SpecificationTreeNode,type:"FILLET"|"CHAMFER")=>void;
   onProperties?: (node: SpecificationTreeNode) => void;
@@ -280,6 +281,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               disabled: !node.capabilities?.includes("DELETE"),
               onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,
             ["PAD","REVOLVE","FEATURE","IMPORT"].includes(node.kind??"") && node.presentationRole!=="INPUT_REFERENCE" && onViewResult ? {key:"view-result",icon:menuIcon('tree.view-result'),label:menuLabel('tree.view-result'),onClick:()=>{setContextMenu(undefined);onViewResult(node);}}:null,
+            onReplace&&node.kind==="INSTANCE"&&node.ownerDocumentId===hostDocumentId&&node.instancePath?.segments?.length===1 ? {key:"replace",icon:menuIcon("product.replace"),label:"替换组件",onClick:()=>{setContextMenu(undefined);onReplace(node)}}:null,
             node.capabilities?.includes("INSERT_AFTER") && onInsertAfter ? {key:"insert-after",icon:menuIcon("tree.insert-after"),label:menuLabel("tree.insert-after"),children:(["FILLET","CHAMFER"] as const).map(type=>({key:`insert-${type}`,label:type==="FILLET"?"圆角":"倒角",onClick:()=>{setContextMenu(undefined);onInsertAfter(node,type);}}))}:null,
             node.capabilities?.includes("MOVE") && onMove ? {key:"move",icon:menuIcon("tree.move"),label:menuLabel("tree.move"),onClick:()=>{setContextMenu(undefined);onMove(node);}}:null,
             node.capabilities?.includes("EDIT") ? { key: "edit", icon: menuIcon('tree.edit'), label: menuLabel('tree.edit',['PAD','REVOLVE','FEATURE'].includes(node.kind??'')?'definition':'default'),

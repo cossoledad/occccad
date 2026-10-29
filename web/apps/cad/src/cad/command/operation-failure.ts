@@ -7,6 +7,22 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const reasons:Record<string,string>={
+    REPLACEMENT_VERSION_REQUIRED:"替换需要明确的装配和新组件版本，请重新选择组件",
+    REPLACEMENT_DIRECT_INSTANCE_REQUIRED:"只能替换当前装配的直接组件",
+    REPLACEMENT_TYPE_MISMATCH:"请选择同类型的替换组件",
+    REPLACEMENT_CYCLE:"替换会形成循环装配引用",
+    REPLACEMENT_RECEIVER_UNSUPPORTED:"组件是关联输入的接收方，本轮不支持迁移其本地输入",
+    REPLACEMENT_DEEP_REFERENCE_UNSUPPORTED:"固联组使用了组件内的深层成员，不能直接迁移",
+    REPLACEMENT_PINNED_INPUT:"组件提供了固定输入，请先明确处理该关联后再替换",
+    REPLACEMENT_MECHANISM_UNSUPPORTED:"组件属于运动机构，本轮不迁移机构关系",
+    REPLACEMENT_MAPPING_REQUIRED:"仍有已使用接口未指定对应接口",
+    REPLACEMENT_IMPACT_CHANGED:"接口影响范围已变化，请重新预览",
+    REPLACEMENT_GEOMETRY_FAILED:"关联零件无法完成替换后的求值，请检查输入及下游特征",
+    REPLACEMENT_RAW_SUPPORT_UNSUPPORTED:"约束支撑未使用公开接口，请先重新指定支撑。",
+    REPLACEMENT_CONTRACT_INCOMPATIBLE:"对应接口的类型、契约或量纲不兼容，请重新选择。",
+    REPLACEMENT_PUBLICATION_UNAVAILABLE:"所选新接口尚不可用，请修复来源或选择其他接口。",
+    REPLACEMENT_FORWARDING_FAILED:"对外接口无法恢复，请检查对应接口。",
+    REPLACEMENT_CONSTRAINT_FAILED:"装配约束无法迁移到新组件，请检查支撑和接口。",
     NESTED_REFERENCE_UPDATE_REQUIRED:"来源装配的内部关联尚待更新或修复，请先在来源装配接受更新。",
     CONTEXT_PUBLIC_INTERFACE_REQUIRED:"请选择直接子零件的发布接口，或子装配的公开接口。",CONTEXT_DIRECT_RECEIVER_REQUIRED:"请在当前装配中激活直接子零件接收关联输入。",
     PUBLICATION_SKETCH_ENTITY_UNAVAILABLE:"来源草图对象不可用，已接受输入保留；可固定当前输入或重新连接。",PUBLICATION_CONTRACT_INCOMPATIBLE:"来源接口缺失或类型不兼容，请重新连接符合要求的接口。",REFERENCE_SOURCE_MISSING:"来源文档暂不可用，已接受结果保留；请检查来源或重新连接。",

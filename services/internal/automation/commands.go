@@ -69,7 +69,7 @@ var commandContracts = []commandContract{
 	{"INSERT_INSTANCES", "PRODUCT", "插入多个实例", "instanceId patternAxis patternCount patternReversed patternSpacing referenceMode referencedDocumentIds", "", ""},
 	{"INSERT_INSTANCE", "PRODUCT", "插入实例", "referencedDocumentId translation", "referencedDocumentId", ""},
 	{"RENAME_INSTANCE", "PRODUCT", "重命名实例", "instanceId name", "instanceId name", ""},
-	{"REPLACE_INSTANCE", "PRODUCT", "替换实例", "instanceId referencedDocumentId", "instanceId referencedDocumentId", ""},
+	{"REPLACE_INSTANCE", "PRODUCT", "替换组件", "instanceId publicationMapping referencedDocumentId replacementVersionId versionId", "instanceId referencedDocumentId replacementVersionId versionId", ""},
 	{"CREATE_PRODUCT_PUBLICATION", "PRODUCT", "创建产品发布", "instanceId instancePath name publicationId semanticPurpose targetId targetKind", "instancePath publicationId", ""},
 	{"DELETE_PRODUCT_PUBLICATION", "PRODUCT", "删除产品发布", "publicationId", "publicationId", ""},
 	{"REDIRECT_PRODUCT_PUBLICATION", "PRODUCT", "重定向产品发布", "instancePath publicationId targetId", "publicationId instancePath targetId", ""},

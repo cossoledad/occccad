@@ -249,6 +249,13 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 				}
 			}
 		}
+		if prepared.command.TypeURI == typeReplaceInstance {
+			var p replaceInstancePayload
+			_ = json.Unmarshal(prepared.command.Payload, &p)
+			if err := validateReplacementConstraints(model, p.InstanceID); err != nil {
+				return CommandPreview{}, err
+			}
+		}
 		nextJSON, err = json.Marshal(model)
 		if err != nil {
 			return CommandPreview{}, err
@@ -281,14 +288,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 		if !kinematicsPreview && len(model.Constraints) > 0 && !retainedFailure && assemblyResult.Status != "CONVERGED" {
 			previewID = ""
 		}
-		if previewID != "" {
-			service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
-				definitionOnly: retainedFailure,
-				headRevision:   prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-				assemblyPreviewRequestID: "preview/" + prepared.requestID,
-				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
-				expiresAt: expiresAt})
-		}
+
 		result := CommandPreview{PreviewID: previewID, ExpiresAt: expiresAt.Format(time.RFC3339Nano), BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
 			ModelHash: canonicalModelHash(nextJSON), AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
 		if retainedFailure {
@@ -317,6 +317,34 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 				Translation [3]float64 `json:"translation"`
 				Rotation    [4]float64 `json:"rotation"`
 			}{instance.ID, instance.Translation, normalizedInstanceRotation(instance.Rotation)})
+		}
+		if prepared.command.TypeURI == typeReplaceInstance {
+			projectionContext := context.WithValue(ctx, propertyPreviewSnapshotKey{}, propertyPreviewSnapshot{Revision: prepared.headRevision, Model: nextJSON})
+			summary := DocumentSummary{ID: documentID, Type: "PRODUCT", VersionID: prepared.headRevision}
+			if err := service.database.QueryRow(ctx, `SELECT name FROM occccad.documents WHERE id=$1`, documentID).Scan(&summary.Name); err != nil {
+				return CommandPreview{}, err
+			}
+			view, err := projectProductDocument(projectionContext, service, summary, nextJSON)
+			if err != nil {
+				return CommandPreview{}, err
+			}
+			result.ReplacementView = &view
+		}
+		visuals := map[string]bool{}
+		if result.ReplacementView != nil {
+			for _, artifact := range result.ReplacementView.Artifacts {
+				if ref, ok := artifact.Representations["VISUAL"]; ok {
+					visuals[ref.ObjectID] = true
+				}
+			}
+		}
+		if previewID != "" {
+			service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
+				definitionOnly: retainedFailure,
+				headRevision:   prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
+				assemblyPreviewRequestID: "preview/" + prepared.requestID,
+				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, visualObjectIDs: visuals, nextJSON: nextJSON, changes: previewChanges,
+				expiresAt: expiresAt})
 		}
 		return result, nil
 	}()

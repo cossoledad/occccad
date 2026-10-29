@@ -804,6 +804,7 @@ type ContextVariantSnapshot struct {
 }
 
 type ProductUpdatePlanEntry struct {
+	ReferenceMode           string `json:"referenceMode,omitempty"`
 	SourceProductDocumentID string `json:"sourceProductDocumentId,omitempty"`
 	SourceProductRevisionID string `json:"sourceProductRevisionId,omitempty"`
 	SourceUpdatePlanDigest  string `json:"sourceUpdatePlanDigest,omitempty"`
@@ -1220,6 +1221,8 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	ReplacementVersionID      string                       `json:"replacementVersionId,omitempty"`
+	PublicationMapping        map[string]string            `json:"publicationMapping,omitempty"`
 	AfterFeatureID            string                       `json:"afterFeatureId,omitempty"`
 	AnchorFeatureID           string                       `json:"anchorFeatureId,omitempty"`
 	Placement                 string                       `json:"placement,omitempty"`
@@ -1354,6 +1357,7 @@ type FeaturePreviewIssue struct {
 }
 
 type CommandPreview struct {
+	ReplacementView      *DocumentView                        `json:"replacementView,omitempty"`
 	RepairRequired       []FeaturePreviewIssue                `json:"repairRequired,omitempty"`
 	PropertyAppearances  []PropertyAppearanceProjection       `json:"propertyAppearances,omitempty"`
 	ExpiresAt            string                               `json:"expiresAt,omitempty"`

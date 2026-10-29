@@ -30,6 +30,7 @@ type interactionCandidate struct {
 	headSequence                                                      uint64
 	nextJSON                                                          json.RawMessage
 	geometryKey                                                       string
+	visualObjectIDs                                                   map[string]bool
 	visualObjectID                                                    string
 	changes                                                           modelcore.ChangeSet
 	intentPayload                                                     json.RawMessage
@@ -298,5 +299,5 @@ func (service *Service) PreviewVisualAllowed(documentID, actorID, id, objectID s
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	value, ok := cache.values[id]
-	return ok && value.booleanAnalysis == nil && objectID != "" && value.visualObjectID == objectID && value.documentID == documentID && value.actorID == actorID && time.Now().Before(value.expiresAt)
+	return ok && value.booleanAnalysis == nil && objectID != "" && (value.visualObjectID == objectID || value.visualObjectIDs[objectID]) && value.documentID == documentID && value.actorID == actorID && time.Now().Before(value.expiresAt)
 }

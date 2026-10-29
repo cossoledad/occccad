@@ -19,27 +19,46 @@ const (
 )
 
 type replaceInstancePayload struct {
-	InstanceID           string       `json:"instanceId"`
-	ReferencedDocumentID string       `json:"referencedDocumentId"`
-	ReferencedVersionID  string       `json:"referencedVersionId"`
-	Model                ProductModel `json:"model"`
+	RootRevisionID         string            `json:"rootRevisionId"`
+	SourceDocumentID       string            `json:"sourceDocumentId"`
+	SourceRevisionID       string            `json:"sourceRevisionId"`
+	PublicationMapping     map[string]string `json:"publicationMapping"`
+	AffectedBindingIDs     []string          `json:"affectedBindingIds"`
+	AffectedConstraintIDs  []string          `json:"affectedConstraintIds"`
+	AffectedPublicationIDs []string          `json:"affectedPublicationIds"`
+	InstanceID             string            `json:"instanceId"`
+	ReferencedDocumentID   string            `json:"referencedDocumentId"`
+	ReferencedVersionID    string            `json:"referencedVersionId"`
+	Model                  ProductModel      `json:"model"`
 }
 
 type productPublicationPayload struct {
 	Publication ProductPublication `json:"publication"`
 }
 
-func applyReplaceInstance(_ json.RawMessage, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+func applyReplaceInstance(modelJSON json.RawMessage, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
 	var payload replaceInstancePayload
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	next, _ := json.Marshal(payload.Model)
-	change, _ := modelcore.NewChange(modelcore.ChangeBind,
-		modelcore.PropertyAddress{EntityID: payload.InstanceID, SlotID: "instance.reference"}, nil,
-		struct{ DocumentID, VersionID string }{payload.ReferencedDocumentID, payload.ReferencedVersionID})
-	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change},
-		ImpactSeeds: []modelcore.DependencyKey{"reference:" + modelcore.DependencyKey(payload.InstanceID)}}, nil
+	// Use the existing complete relation slots; the old reference-only ChangeSet
+	// could not undo migrated bindings and forwarded public interfaces.
+	raw, err := json.Marshal(updateReferencesPayload{Model: payload.Model})
+	if err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	next, set, err := applyUpdateReferences(modelJSON, raw)
+	if err != nil {
+		return nil, set, err
+	}
+	change, _ := modelcore.NewChange(modelcore.ChangeBind, modelcore.PropertyAddress{EntityID: payload.InstanceID, SlotID: "instance.reference"}, nil, struct{ DocumentID, VersionID string }{payload.ReferencedDocumentID, payload.ReferencedVersionID})
+	for _, c := range set.Changes {
+		if c.Target == change.Target {
+			return next, set, nil
+		}
+	}
+	set.Changes = append(set.Changes, change)
+	return next, set, nil
 }
 
 func applyCreateProductPublication(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {

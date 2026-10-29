@@ -1177,35 +1177,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PRODUCT" {
 			break
 		}
-		var replacementID, replacementVersion string
-		if err := service.database.QueryRow(ctx, `SELECT id::text,head_version_id::text FROM occccad.documents
-			WHERE id=$1 AND deleted_at IS NULL`, request.ReferencedDocumentID).Scan(&replacementID, &replacementVersion); errors.Is(err, database.ErrNoRows) {
-			return "", nil, fmt.Errorf("%w: replacement document does not exist", ErrValidation)
-		} else if err != nil {
-			return "", nil, err
-		}
-		var product ProductModel
-		if err := json.Unmarshal(modelJSON, &product); err != nil {
-			return "", nil, err
-		}
-		found := false
-		for index := range product.Instances {
-			if product.Instances[index].ID != request.InstanceID {
-				continue
-			}
-			found = true
-			product.Instances[index].ReferencedDocumentID = replacementID
-			product.Instances[index].ReferencedVersionID = replacementVersion
-			product.Instances[index].ResolvedVersionID = replacementVersion
-		}
-		if !found {
-			return "", nil, fmt.Errorf("%w: selected instance does not exist", ErrValidation)
-		}
-		if err := service.updateProductReferences(ctx, &product); err != nil {
-			return "", nil, err
-		}
-		return typeReplaceInstance, replaceInstancePayload{InstanceID: request.InstanceID,
-			ReferencedDocumentID: replacementID, ReferencedVersionID: replacementVersion, Model: product}, nil
+		return service.prepareInstanceReplacement(ctx, documentID, modelJSON, request)
 	case "CREATE_PRODUCT_PUBLICATION":
 		if documentType != "PRODUCT" {
 			break

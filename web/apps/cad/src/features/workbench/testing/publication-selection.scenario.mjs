@@ -117,4 +117,30 @@ try{
  const duplicate={...entry,publication:{id:'second-public-point'}};root.structureTree.children.push({...publicNode,entityId:'second-public-point',productPublication:{...publicNode.productPublication,id:'second-public-point'}});
  assert(!publicInterfaceForPick(root,[entry,duplicate],raw),'two public interfaces on one source require explicit interface selection');
 
+ // Published datums retain the true leaf Revision when selected through a module.
+ for(const [type,datumKind,pickKind] of [['PLANE','PLANE','plane'],['AXIS','DATUM_AXIS','axis']]){
+  const datumPub={...native,id:'datum-port',type,target:{kind:'DATUM',datumId:'shared-datum'},resolution:{status:'CONNECTED',resolvedVersionId:'s1'}};
+  const datumNode={...nativeNode,entityId:'datum-port',publication:datumPub};
+  const forwardedDatum={...publicNode,entityId:'public-datum',productPublication:{...publicNode.productPublication,id:'public-datum',type,target:{instancePath:{canonical:'leaf'},publicationId:'datum-port'}}};
+  const v={...root,structureTree:{kind:'PRODUCT',children:[forwardedDatum,datumNode]}};
+  const entry={...entryForDatum(),publication:{id:'public-datum'}};
+  function entryForDatum(){return {instancePath:outer,documentId:'module',revisionId:'m1'}}
+  const leaf=structureSelection(datumNode,v).highlightTarget;
+  assert.equal(leaf.versionId,'s1');assert.equal(leaf.documentId,'layout');
+  const raw={kind:pickKind,entityId:'shared-datum',documentId:'layout',versionId:'s1',instancePath:leafPath,occurrencePath:leafPath.canonical};
+  assert.equal(publicInterfaceForPick(v,[entry],raw),entry);
+  assert(!publicInterfaceForPick(v,[entry],{...raw,versionId:'wrong'}));
+ }
+ const {replacementImpact,replacementCompatible}=await moduleServer.ssrLoadModule('/src/features/workbench/instance-replacement-model.ts');
+ const old={id:'old',name:'Mount',type:'POINT',compatibilityVersion:'1',contract:{geometryKind:'POINT',dimension:{length:1}},resolution:{status:'CONNECTED'}};
+ assert(replacementCompatible(old,{...old,id:'new'}));
+ assert(!replacementCompatible(old,{...old,contract:{...old.contract,dimension:{length:2}}}));
+ assert(!replacementCompatible(old,{...old,resolution:{status:'BROKEN_PUBLICATION'}}));
+ const bind={id:'binding',name:'Hole input',contextInputId:'local',referenceMode:'FOLLOW_WORKSPACE_WITH_ACCEPT',owningInstancePath:{segments:[{instanceId:'plate'}]},sourceInstancePath:{segments:[{instanceId:'a'}]},publication:{publicationId:'old'}};
+ const impactView={product:{instances:[],contextBindings:[bind,{...bind,id:'other',sourceInstancePath:{segments:[{instanceId:'a2'}]}}],publications:[{name:'Public mount',target:{instancePath:bind.sourceInstancePath,publicationId:'old'}}],constraints:[{name:'Mate',first:{instanceId:'a',publicationRef:{publicationId:'plane'}},second:{instanceId:'a2',publicationRef:{publicationId:'unrelated'}}}]}};
+ const impact=replacementImpact(impactView,'a');assert.deepEqual(impact.used,['old','plane']);assert.equal(impact.bindings.length,1);assert.equal(impact.constraints.length,1);assert.equal(impact.forwarding.length,1);assert.equal(impact.blocked.length,0);
+ assert.equal(replacementImpact({product:{constraints:[{name:'Rigid group',kind:'FIX_TOGETHER',groupMembers:[{instanceId:'a'},{instanceId:'a2'}]}]}},'a').constraints.length,1);
+ assert(replacementImpact({product:{contextBindings:[{...bind,referenceMode:'PINNED'}]}},'a').blocked.length);
+ assert(replacementImpact({product:{contextBindings:[{...bind,owningInstancePath:bind.sourceInstancePath}]}},'a').blocked.length);
+
 }finally{await moduleServer.close()}

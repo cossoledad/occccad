@@ -421,8 +421,6 @@ export const restApi = {
     restApi.command(documentId, { type: "INSERT_INSTANCES", instanceId: input.sourceInstanceId,
       patternAxis: input.axis, patternCount: input.count, patternSpacing: input.spacing,
       patternReversed: input.reversed }),
-  replaceInstance: (documentId:string, instanceId:string, referencedDocumentId:string) =>
-    restApi.command(documentId, {type:"REPLACE_INSTANCE", instanceId, referencedDocumentId}),
   renameInstance: (documentId:string, instanceId:string, name:string) =>
     restApi.command(documentId, {type:"RENAME_INSTANCE", instanceId, name}),
   createProductPublication: (documentId:string, instanceId:string, publicationId:string, name:string, semanticPurpose="", instancePath?:InstancePath) =>

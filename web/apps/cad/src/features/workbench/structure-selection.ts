@@ -120,10 +120,10 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
         const targetId = source.target.datumId;
         if (source.type === "PLANE") highlightTarget = { kind: "plane", plane: node.plane ?? "CUSTOM",
           id: `${targetOccurrence || "root"}:${targetId}`, entityId: targetId,
-          documentId: node.documentId, instancePath: targetPath, occurrencePath: targetOccurrence };
+          documentId: node.sourceDocumentId ?? node.documentId, versionId: resolution.resolvedVersionId, instancePath: targetPath, occurrencePath: targetOccurrence };
         if (source.type === "AXIS") highlightTarget = { kind: "axis", axis: source.target.axis ?? "DATUM",
           id: `${targetOccurrence || "root"}:${targetId}:${source.target.axis ?? "DATUM"}`,
-          entityId: targetId, documentId: node.documentId, instancePath: targetPath,
+          entityId: targetId, documentId: node.sourceDocumentId ?? node.documentId, versionId: resolution.resolvedVersionId, instancePath: targetPath,
           occurrencePath: targetOccurrence };
       }
       if (forwarded && view.structureTree) {

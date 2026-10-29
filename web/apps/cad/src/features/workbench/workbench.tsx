@@ -1,3 +1,4 @@
+import {ReplaceInstanceDialog} from "./replace-instance-dialog";
 import {ContextInputSource,boundContextParameter as contextParameterBinding} from './context-input-source';
 import {FeaturePickField} from './feature-pick-field';
 import {publicationSelectionTarget,publicationForwardTarget} from './publication-target';
@@ -288,7 +289,9 @@ export function Workbench() {
   const [publicationForm] = Form.useForm<{ name: string; semanticPurpose: string }>();
   const [publicationEditForm] = Form.useForm<{name:string;semanticPurpose:string}>();
 
-  const [replacementForm] = Form.useForm<{referencedDocumentId:string}>();
+  const [replacementOpen,setReplacementOpen]=useState(false);
+  const [replacementInstanceId,setReplacementInstanceId]=useState<string>();
+  const [replacementPreview,setReplacementPreview]=useState<DocumentView>();
 
   const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string; quantityExpression?:string;quantityKey?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupMembers?:string[];fixMode?:AssemblyConstraint["fixMode"];constraintMode?:string; fixedTranslation:Vec3; fixedAngles:Vec3 }>();
 
@@ -1192,7 +1195,7 @@ export function Workbench() {
     if(nextCommand!=="dmu.apply"||!motionDisplay)motionPanel.current?.closeCommand();
     setAssociationRepairOpen(false);setFeatureMove(undefined);setConflictOpen(false);setSupportSketch(undefined);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
     setFeatureSelection(undefined);setNewPartTarget(undefined);
-    setPropertyTargets(undefined);
+    setPropertyTargets(undefined);setReplacementOpen(false);setReplacementPreview(undefined);
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
     setParameterManagerOpen(false);setPublicationManagerOpen(false);setDesignAssociationOpen(false);setExternalParameterID(undefined);
     setEditingParameterID(undefined);setEditingPublication(undefined);
@@ -1383,7 +1386,7 @@ onToggleConstruction:(node)=>{
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
   const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{setDeveloperOpen,openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMechanismAnalysisOpen,setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    setAssociationRepairOpen,associationRepairOpen,setDesignAssociationOpen,formActive:Boolean(designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+    setAssociationRepairOpen,associationRepairOpen,setDesignAssociationOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},formActive:Boolean(replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1420,13 +1423,7 @@ onToggleConstruction:(node)=>{
     command.mutate(() => api.createProductPublication(editingView.document.id, target.instanceId,
       target.publicationId, values.name, values.semanticPurpose, target.instancePath));
   };
-  const replaceSelectedInstance = async () => {
-    if (!editingView?.product || store.selection?.kind !== "instance" || !store.selection.instanceId) {
-      message.warning("请先选择要替换的 Instance"); return;
-    }
-    const values=await replacementForm.validateFields();
-    command.mutate(()=>api.replaceInstance(editingView.document.id,store.selection!.instanceId!,values.referencedDocumentId));
-  };
+
   const publishParameter = (parameter: ParameterDefinition) => {
     if (!editingView) return;
     command.mutate(() => api.createPublication(editingView.document.id, {
@@ -1637,7 +1634,7 @@ onToggleConstruction:(node)=>{
             onProperties={node=>executeTree("onProperties",{node})}
 			onCreatePart={node=>executeTree("onCreatePart",{node})}
 			onReferenceMode={(node,mode)=>executeTree("onReferenceMode",{node,referenceMode:mode})}
-			onReconnect={node=>executeTree("onReconnect",{node})}
+			onReplace={canEditRoot&&!motionOpen?node=>{void commandRegistry.execute("product.replace",{payload:{instanceId:node.entityId}})}:undefined} onReconnect={node=>executeTree("onReconnect",{node})}
 			onDetach={node=>executeTree("onDetach",{node})}
             onRefresh={node=>executeTree("onRefresh",{node})}
             onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={nodes=>executeTree("onDelete",{nodes})}
@@ -1677,7 +1674,7 @@ onToggleConstruction:(node)=>{
           type="warning" showIcon message="当前几何暂不能用于关联建模"
           description="当前几何的引用信息暂不可用，请重新计算或重新选择。"
           action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>修复导入引用</Button> : undefined} />}
-        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} onDocumentDisplayed={(documentId,revisionId)=>setAssistantDisplayed({documentId,revisionId})} onSceneMetrics={globalOptions?.setMetrics} applicationDisplay={motionOpen||motionRepair||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen||motionRepair?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
+        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} onDocumentDisplayed={(documentId,revisionId)=>setAssistantDisplayed({documentId,revisionId})} onSceneMetrics={globalOptions?.setMetrics} applicationDisplay={motionOpen||motionRepair||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={replacementPreview?.document.versionId===view.document.versionId?replacementPreview:motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen||motionRepair?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
           failureAction={inputRepair&&canEdit&&!motionDisplay ? {description:profileRepair?`草图已闭合，但 ${profileRepair.name??"特征"} 的原轮廓区域已失效，请重新选择。`:terminationRepair?`${terminationRepair.name??"特征"} 的终止平面不可用，请检查或重新选择。`:`${holeRepair!.name??"孔"} 的定位点已失效，请重新选择。`,label:profileRepair?(store.activeSketchID?"结束草图并修复区域":"修复轮廓区域"):terminationRepair?"修复终止平面":"修复孔位",disabled:command.isPending||!!sketchReceipt||!!solidEditor||!!supportSketch||!!datumEditor||!!booleanDialog,onClick:repairProfileRegion}:undefined}
           editingView={motionDisplay?undefined:editingView} activeInstancePath={motionDisplay?undefined:activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           liveDefinitionProjection={Boolean(canEdit && editSession?.hostDocumentId===view.document.id && activeInstancePath &&
@@ -1953,12 +1950,7 @@ onToggleConstruction:(node)=>{
 				</div>)}
 			<small className="cad-command-hint">发布目标丢失后可重新选择目标。</small>
 		</div>
-		{editingView?.product && <><Divider>兼容替换</Divider><Form form={replacementForm} layout="inline">
-			<Form.Item name="referencedDocumentId" rules={[{required:true}]}><Select style={{width:240}} placeholder="选择替换 Part" showSearch optionFilterProp="label"
-				options={(catalog.data?.documents??[]).filter((item)=>item.type==="PART").map((item)=>({value:item.id,label:item.name}))}/></Form.Item>
-			<Form.Item><Button disabled={!canEdit||store.selection?.kind!=="instance"} onClick={()=>void replaceSelectedInstance()}>替换所选实例</Button></Form.Item>
-			<small className="cad-command-hint">替换前按已使用 Publication contract 解析；兼容接口自动重连，不兼容接口保留为 Broken 供 Reconnect。</small>
-		</Form><Divider>实例名称</Divider>
+		{editingView?.product && <><Divider>实例名称</Divider>
 			{editingView.product.instances.map((instance)=><div className="parameter-manager-row" key={instance.id}>
 				<span><Typography.Text strong editable={canEdit?{onChange:(name)=>command.mutate(()=>api.renameInstance(editingView.document.id,instance.id,name))}:false}>{instance.name}</Typography.Text>
 				</span>
@@ -2001,6 +1993,7 @@ onToggleConstruction:(node)=>{
       onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"NEW_BODY",supportSketch.id);else viewport.current?.clearCommandPreview();}}
       onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}
       onClose={()=>{viewport.current?.clearCommandPreview();setDatumPreview(undefined);setSupportSketch(undefined);}}/>}
+    {replacementOpen&&view.product&&<ReplaceInstanceDialog key={view.document.id} view={view} initialInstanceId={replacementInstanceId} onSelectionSession={setFeatureSelection} onLocate={s=>store.setSelections([s])} onPreview={setReplacementPreview} onApply={refresh} onClose={()=>{setReplacementOpen(false);setReplacementPreview(undefined);setFeatureSelection(undefined)}}/>}
     {featureMove&&editingView?.part&&<FeatureMoveDialog key={editingView.document.id+featureMove.feature.id} view={editingView} feature={featureMove.feature} digest={featureMove.digest}
       onClose={()=>{viewport.current?.clearCommandPreview();setFeatureMove(undefined)}}
       onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}}

@@ -16,6 +16,7 @@ import {selectionSummaryCommand} from "./commands/selection-summary";
 import {treeNodesForSelections} from "./tree-projection-index";
 
 export type WorkbenchCommandBindings={
+ openReplaceInstance?:(id?:string)=>void;
  setDesignAssociationOpen?:(open:boolean)=>void;setDeveloperOpen?:(open:boolean)=>void;setAssociationRepairOpen?:(open:boolean)=>void;associationRepairOpen?:boolean;
  openProperties?:()=>void;openOptions?:()=>void;
 	prepareAssemblyMove?:()=>Promise<void>;
@@ -93,6 +94,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
         isEnabled: () => Boolean(canEdit && !store.activeSketchID && !command.isPending) }),
       ({ id: "part.datum-axis", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setEditingDatumId(undefined);setDatumEditor("axis"); },
         isEnabled: () => Boolean(canEdit && !store.activeSketchID && !command.isPending) }),
+      ({id:"product.replace",execute:invocation=>bindings.openReplaceInstance?.((invocation?.payload as {instanceId?:string}|undefined)?.instanceId),isEnabled:()=>Boolean(bindings.openReplaceInstance&&canEditRoot&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!bindings.motionOpen&&!command.isPending)}),
       ({ id: "product.insert", execute: () => setInsertOpen(true), isEnabled: () => Boolean(canEdit) }),
       ({ id: "product.pattern", execute: () => {store.setActiveTool("select","once");setPatternOpen(true);},
         isEnabled: () => Boolean(canEdit) }),

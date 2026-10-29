@@ -792,7 +792,7 @@ func appendDirectReferenceUpdates(plan *ProductUpdatePlan, items []expandedOccur
 		if len(occurrence.Path.Segments) != 1 || occurrence.ReferenceMode == "PINNED" {
 			continue
 		}
-		entry := ProductUpdatePlanEntry{Kind: "OCCURRENCE_REFERENCE", BindingID: "occurrence:" + occurrence.Path.Canonical,
+		entry := ProductUpdatePlanEntry{ReferenceMode: occurrence.ReferenceMode, Kind: "OCCURRENCE_REFERENCE", BindingID: "occurrence:" + occurrence.Path.Canonical,
 			Name: occurrence.Name, SourceDisplayPath: occurrence.Path.Display, OwningDisplayPath: occurrence.Path.Display,
 			AcceptedRevisionID: occurrence.RevisionID, Connection: "CONNECTED", Currency: "CURRENT", Evaluation: "READY"}
 		head, err := loadHead(occurrence.DocumentID)

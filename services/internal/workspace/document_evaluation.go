@@ -246,7 +246,7 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 			}
 			if err = service.solveAssembly(ctx, documentID, revisionID, prepared.requestID, drivenInstanceID, solveIntent, &model, ""); err != nil {
-				allowFailure := retainsAssemblyDefinition(prepared.command.TypeURI) || prepared.command.TypeURI == typeUpdateReferences || prepared.command.TypeURI == typeReplaceInstance
+				allowFailure := retainsAssemblyDefinition(prepared.command.TypeURI) || prepared.command.TypeURI == typeUpdateReferences
 				if err = acceptAssemblyEvaluationFailure(&model, err, allowFailure); err != nil {
 					finishSolve()
 					return err
@@ -263,6 +263,14 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 					}
 				}
 			}
+		}
+		if prepared.command.TypeURI == typeReplaceInstance {
+			var p replaceInstancePayload
+			_ = json.Unmarshal(prepared.command.Payload, &p)
+			if err := validateReplacementConstraints(model, p.InstanceID); err != nil {
+				return err
+			}
+			stampReplacementSnapshot(&model, p, revisionID)
 		}
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
