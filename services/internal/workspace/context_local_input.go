@@ -65,12 +65,13 @@ func validateLocalInput(v *ContextInputLocalValue) error {
 }
 
 // A local assignment has no dormant external reference that could later be read
-// by update, projection or dependency analysis.
+// by update, projection or dependency analysis. Saved modules may be rebased
+// through deeper paths; direct-receiver scope belongs to mutation validation.
 func validateContextAssignment(b ContextBinding) error {
 	if b.Local == nil {
 		return nil
 	}
-	if len(b.OwningInstancePath.Segments) != 1 {
+	if len(b.OwningInstancePath.Segments) == 0 {
 		return fmt.Errorf("%w: CONTEXT_DIRECT_RECEIVER_REQUIRED", ErrValidation)
 	}
 	if (b.SourceInstancePath.RootDocumentID != "" || b.SourceInstancePath.Canonical != "" || b.SourceInstancePath.Display != "" || len(b.SourceInstancePath.Segments) != 0) || b.Publication != (PublicationRef{}) || b.ReferenceMode != "" || b.Transform != (InstancePose{}) || !reflect.DeepEqual(b.Resolution, PublicationResolution{}) || b.Accepted.SourceRevisionID != "" || b.Accepted.SourceDigest != "" {
@@ -96,7 +97,7 @@ func (s *Service) prepareContextInputMaintenance(ctx context.Context, doc string
 	if e != nil {
 		return "", nil, e
 	}
-	if r.Type == "RESTORE_CONTEXT_INPUT_DEFAULT" {
+	if r.Type == "RESTORE_CONTEXT_INPUT_DEFAULT" || r.Type == "DELETE_CONTEXT_BINDING" {
 		return typeDeleteContextBinding, contextBindingDeletePayload{ContextBindingID: b.ID}, nil
 	}
 	if b.Local != nil {
@@ -264,7 +265,7 @@ func (s *Service) projectLocalInput(ctx context.Context, request string, m PartM
 // Both Preview and Commit (including adoption) check the complete, accepted
 // candidate, while unrelated pre-existing assembly definitions retain policy.
 func assignmentMutation(r CommandRequest) bool {
-	return r.Type == "LOCALIZE_CONTEXT_INPUT" || r.Type == "RESTORE_CONTEXT_INPUT_DEFAULT" || r.Type == "EDIT_CONTEXT_BINDING" && r.SourceInstancePath != nil
+	return r.Type == "DELETE_CONTEXT_BINDING" || r.Type == "LOCALIZE_CONTEXT_INPUT" || r.Type == "RESTORE_CONTEXT_INPUT_DEFAULT" || r.Type == "EDIT_CONTEXT_BINDING" && r.SourceInstancePath != nil
 }
 func (s *Service) checkInputAssignmentCandidate(ctx context.Context, m *ProductModel, before ProductModel, r CommandRequest) error {
 	if !assignmentMutation(r) {
@@ -322,4 +323,11 @@ func appendInputAssignmentChanges(before json.RawMessage, after ProductModel, se
 	}
 	set.ImpactSeeds = append(set.ImpactSeeds, resolved.ImpactSeeds...)
 	return set, nil
+}
+
+func validateContextAssignmentEdit(b ContextBinding) error {
+	if b.Local != nil && len(b.OwningInstancePath.Segments) != 1 {
+		return fmt.Errorf("%w: CONTEXT_DIRECT_RECEIVER_REQUIRED", ErrValidation)
+	}
+	return validateContextAssignment(b)
 }

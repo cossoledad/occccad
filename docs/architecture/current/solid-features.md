@@ -12,7 +12,7 @@
 | PAD / LINEAR_EXTRUDE | 整草图或显式区域；有限、对称、双侧、贯穿切除及到平面；区域/终止面失效显式重选 | 有限工具；添加型可作为材料范围起点；关联终止仅实体阶段 |
 | REVOLVE | 草图/区域、稳定轴、角度、反向；编辑轴与区域，失效不自动换区 | 有限工具；添加型可作为范围起点 |
 | LOFT | 2–32 有序截面，至少一个单区域无孔闭合轮廓；首尾支持稳定点；编辑顺序、对应、接缝和相位；形状尺寸由截面参数管理，丢失输入需重选 | ADD/REMOVE 工具；添加型也可作为范围起点，非任意截面重执行 |
-| HOLE | 单个上游显式 POINT；普通/圆柱沉孔/锥沉孔，盲孔/单向贯穿；孔位、孔型与尺寸可编辑，丢点重选 | 三孔型 BLIND 切削工具；贯穿仅实体阶段，不支持切除范围 |
+| HOLE | 单个上游显式 POINT；普通/圆柱沉孔/锥沉孔，盲孔/单向贯穿/到平面；孔位、孔型与尺寸可编辑，丢点或终止面失效重选 | 三孔型 BLIND 切削工具；贯穿/到平面仅实体阶段，不支持切除范围 |
 | FILLET / CHAMFER | 恒半径/等距，稳定边集；部分/全部丢失可逐项替换或移除 | 仅添加材料范围内修饰步骤，或明确实体阶段 |
 | DRAFT | 稳定面集、上游中性平面、角度/反向；面和中性面显式修复 | 添加材料范围内修饰步骤；须精确保留基体，无独立工具 |
 | SHELL | 开口面集、恒定厚度、内/外偏置；面集可修复，算法边界见[抽壳](shell-algorithm.md) | 仅实体阶段 |
@@ -76,13 +76,15 @@ Boolean 并/差最多32工具，交集一个；工具定义保存 Body+Feature �
 
 所有活动尺寸沿用 Quantity、单位、表达式、依赖和 managed ParameterID；孔型/终止模式切换移除非活动参数，共有参数身份及自定义别名保留，Undo/Redo 恢复原定义。evaluator 构造一个精确切削工具，由主圆柱与原生圆柱/圆锥通过真实 OCCT 历史融合，再进入既有 Boolean/Naming。主孔壁、沉孔壁、台阶、锥面、孔口和孔底按实际构造与裁剪命名，保留定位草图与点的完整来源身份；确定的尺寸修改延续引用，孔型切换后消失的角色保留失败定义，要求明确重选，不自动换面。Hole 编辑若仅下游失败，预览显示权威孔阶段并指出实际待修复特征，提交仍完整求值；孔自身或上游失败不允许确认。
 
-定位草图、点实体和目标上游阶段进入依赖、删除/循环检查及缓存；合法删点留下 `HOLE_POINT_MISSING`，下游按依赖阻塞。编辑器保留待修复输入并提供“修复孔位”；草图支撑失效沿[已有支撑重指定](part-sketch.md#支撑与外部几何)修复。取消和预览不写 Head，修复保持 Hole ID、名称、Body 与历史位置。同 Body 的合法 `BLIND` 三种孔型可作为 `GENERATOR_TOOL`，复用完整精确切削工具执行线性／圆周阵列与镜像，详见[参数化阵列](#参数化阵列)。贯穿孔工具复用及切除 `FEATURE_DELTA` 继续关闭；显式 `BODY_STAGE` 保持复制整个已求值阶段的原意。尚无钻尖、螺纹、多点孔组及 Hole 到平面。
+定位草图、点实体和目标上游阶段进入依赖、删除/循环检查及缓存；合法删点留下 `HOLE_POINT_MISSING`，下游按依赖阻塞。编辑器保留待修复输入并提供“修复孔位”；草图支撑失效沿[已有支撑重指定](part-sketch.md#支撑与外部几何)修复。取消和预览不写 Head，修复保持 Hole ID、名称、Body 与历史位置。同 Body 的合法 `BLIND` 三种孔型可作为 `GENERATOR_TOOL`，复用完整精确切削工具执行线性／圆周阵列与镜像，详见[参数化阵列](#参数化阵列)。贯穿孔工具复用及切除 `FEATURE_DELTA` 继续关闭；显式 `BODY_STAGE` 保持复制整个已求值阶段的原意。到平面 Hole 不作为复制工具；尚无钻尖、螺纹、多点孔组。
 
-源码入口：`workspace/hole.go`、`evaluation_projection.go`、`occt_kernel.cpp` 的 `add_hole_recess` 与 `solid-feature-editor.tsx`。定向回归入口：`GeometryExchange.Hole*`、`TestEngineeringHole*`、`TestHoleLifecycleThroughRouter` 和 `solid-feature-live.spec.ts` 的 Hole 场景；覆盖精确体积/方向、表达式、引用延续/失效修复、抽壳外壁支撑、历史与冷重建。执行结果以当轮交付为准；当前环境是 SQLite、Release OCCT 7.9.1 与 Chromium/SwiftShader，不代表 PostgreSQL 或全部几何组合验收。
+源码入口：`workspace/hole.go`、`evaluation_projection.go`、`occt_kernel.cpp` 的 `add_hole_recess` 与 `solid-feature-editor.tsx`。定向回归入口：`GeometryExchange.Hole*`、`TestEngineeringHole*`、`TestHoleLifecycleThroughRouter`、`TestHoleToPlane*` 和 `solid-feature-live.spec.ts` 的 Hole 场景；覆盖精确体积/方向、表达式、引用延续/失效修复、抽壳外壁支撑、历史与冷重建。执行结果以当轮交付为准；当前环境是 SQLite、Release OCCT 7.9.1 与 Chromium/SwiftShader，不代表 PostgreSQL 或全部几何组合验收。
 
 ## 到平面关联终止
 
-单方向直线拉伸／切除的 `TO_PLANE` 目标为标准/自定义基准面，或同 Part 合法上游实体平面的无限延伸支撑平面，包含已有跨 Body 场景。显式区域集合、外环和孔沿用精确 Profile Builder；目标不受有限面的边界限制。定义保存 `terminationPlaneId` 或 `terminationPlane`（PersistentSelection、来源 Revision、Body 与实际来源阶段），不以语义 Anchor 代替阶段，也不保存一次测得的长度作为终止条件。
+单方向直线拉伸／切除及 Hole 的 `TO_PLANE` 目标为标准/自定义基准面，或同 Part 合法上游实体平面的无限延伸支撑平面，包含已有跨 Body 场景。显式区域集合、外环和孔沿用精确 Profile Builder；目标不受有限面的边界限制。定义保存 `terminationPlaneId` 或 `terminationPlane`（PersistentSelection、来源 Revision、Body 与实际来源阶段），不以语义 Anchor 代替阶段，也不保存一次测得的长度作为终止条件。
+
+Hole 主孔从定位草图平面沿所选法向终止，入口圆柱沉孔/锥沉孔保留尺寸；不保存测得孔深，也不创建深度参数。完整精确入口工具必须严格位于终止面之前，平面截入沉孔段或较宽孔口也拒绝。外部目标先经 Publication → ContextInput → 本地基准面接入，不直接绑定外部实体面。
 
 每次求值从当前合法上游前缀解析目标框架；Proto/Worker 接收当前精确平面，OCCT 以棱柱和支撑半空间求交形成平行或倾斜端面。每个选中区域的所有点沿指定方向都须有正终止距离；平行、反向、穿过起始轮廓、零厚度或无效结果明确失败。端面、侧面与边/点使用真实生成及裁剪历史进入原 Naming 门禁。目标移动或旋转进入依赖和缓存，删除、循环及非平面目标由权威校验拒绝。
 

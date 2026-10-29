@@ -345,3 +345,19 @@ func TestContextLocalAssignmentHasNoSourceDependencyAndDistinctDigest(t *testing
 		t.Fatal("local/source union conflict accepted")
 	}
 }
+
+func TestRebasedLocalAssignmentIsReadableButNotEditable(t *testing.T) {
+	value := modelcore.Quantity{SIValue: .003, Dimension: modelcore.LengthDimension}
+	binding := ContextBinding{Local: &ContextInputLocalValue{Type: "PARAMETER", Value: &value}, OwningInstancePath: InstancePath{RootDocumentID: "top", Canonical: "module/receiver", Segments: []InstancePathSegment{{InstanceID: "module"}, {InstanceID: "receiver"}}}}
+	if err := validateContextAssignment(binding); err != nil {
+		t.Fatal("rebased accepted input rejected", err)
+	}
+	if err := validateContextAssignmentEdit(binding); err == nil {
+		t.Fatal("deep mutation allowed")
+	}
+	root := DocumentStructureNode{Kind: "BODY", GeometryKey: "default-shape", InstancePath: &binding.OwningInstancePath, Snapshot: &StructureSnapshotScope{GeometryKey: "default-shape"}}
+	bindStructureVariants(&root, []ContextVariantSnapshot{{OwningInstancePath: binding.OwningInstancePath, VariantKey: "failed", Status: "FAILED"}})
+	if root.GeometryKey != "" || root.Snapshot.GeometryKey != "" {
+		t.Fatal("failed contextual input exposes default geometry", root)
+	}
+}

@@ -522,6 +522,12 @@
     ]
   },
   {
+    "path": "services/internal/control/hole_to_plane_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#featureAssociationRuntimeService"
+    ]
+  },
+  {
     "path": "services/internal/control/import_naming_diagnostics_test.go",
     "resources": [
       "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"

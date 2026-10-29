@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	perf "github.com/occccad/occccad/internal/performance"
 	"strings"
@@ -104,6 +105,7 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	}
 	for _, variant := range view.ContextVariants {
 		if variant.Status != "READY" {
+			view.ResolvedInstances = slices.DeleteFunc(view.ResolvedInstances, func(r ResolvedInstance) bool { return r.OccurrencePath == variant.OwningInstancePath.Canonical })
 			continue
 		}
 		for _, body := range variant.Bodies {

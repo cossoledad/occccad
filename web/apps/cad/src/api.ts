@@ -439,8 +439,8 @@ export const restApi = {
     restApi.command(documentId,{type:"EDIT_CONTEXT_INPUT",contextInputId,name,required}),
   deleteContextInput: (documentId:string, contextInputId:string) =>
     restApi.command(documentId,{type:"DELETE_CONTEXT_INPUT",contextInputId}),
-  deleteContextBinding: (documentId:string, contextBindingId:string) =>
-    restApi.command(documentId,{type:"DELETE_CONTEXT_BINDING",contextBindingId}),
+  deleteContextBinding: (documentId:string, contextBindingId:string, versionId:string) =>
+    restApi.command(documentId,{type:"DELETE_CONTEXT_BINDING",contextBindingId,versionId}),
   detachContextReference: (documentId:string, contextReferenceId:string) =>
     restApi.command(documentId, {type:"DETACH_CONTEXT_REFERENCE", contextReferenceId}),
   move: (documentId: string, instanceId: string, translation: Vec3, rotation: [number,number,number,number], previewId?: string) =>

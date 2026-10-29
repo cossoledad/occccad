@@ -78,7 +78,7 @@ var commandContracts = []commandContract{
 	{"EDIT_CONTEXT_BINDING", "PRODUCT", "编辑上下文关联", "contextBindingId contextInputId name referenceMode owningInstancePath sourceInstancePath publicationId versionId", "contextBindingId versionId", ""},
 	{"LOCALIZE_CONTEXT_INPUT", "PRODUCT", "解除关联并保留", "contextBindingId versionId", "contextBindingId versionId", ""},
 	{"RESTORE_CONTEXT_INPUT_DEFAULT", "PRODUCT", "恢复零件默认", "contextBindingId versionId", "contextBindingId versionId", ""},
-	{"DELETE_CONTEXT_BINDING", "PRODUCT", "删除上下文绑定", "contextBindingId", "contextBindingId", ""},
+	{"DELETE_CONTEXT_BINDING", "PRODUCT", "恢复零件默认", "contextBindingId versionId", "contextBindingId versionId", ""},
 	{"MOVE_INSTANCE", "PRODUCT", "移动实例", "instanceId interactionTarget rotation sessionId translation", "instanceId translation rotation", ""},
 	{"SET_ASSEMBLY_CONSTRAINT_STATE", "PRODUCT", "修改装配约束状态", "constraintIds constraintMode suppressed", "constraintIds", ""},
 	{"ADD_ASSEMBLY_CONSTRAINT", "PRODUCT", "添加装配约束", "angleAxis angleReferenceDirection angleRelation constraintFamily constraintKind constraintMode constraintSubtype contactBranch contactKind contactSide directionRelation distanceRelation firstAssemblyRef fixMode fixedPose groupMembers name offsetExpression offsetKey quantityExpression quantityKey reverseAngleAxis secondAssemblyRef value", "", ""},

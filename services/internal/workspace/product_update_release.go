@@ -326,6 +326,10 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 			return ContextVariantSnapshot{}, err
 		}
 		projection.Bodies = variant.Bodies
+		// Publications belong to the same accepted evaluation as cached bodies.
+		// Reprojection uses a request key, not that evaluation's synthetic
+		// Revision; replacing its provenance would destabilize UpdatePlan.
+		projection.Publications = variant.Publications
 		collections := DocumentView{}
 		projectPartCollections(&collections, projection)
 		variant.ReplicationSources, variant.SketchPatternMembers = collections.ReplicationSources, collections.SketchPatternMembers
@@ -484,7 +488,7 @@ func (service *Service) acceptedContextVariants(ctx context.Context, items []exp
 	// A prepared, unassigned Part still displays its accepted defaults. A
 	// newer independent Head must not replace that occurrence's complete view.
 	for _, item := range items {
-		if item.DocumentType == "PART" && len(item.Path.Segments) == 1 && len(item.ContextInputs) > 0 {
+		if item.DocumentType == "PART" && len(item.ContextInputs) > 0 {
 			grouped[item.Path.Canonical] = []ContextBinding{}
 		}
 	}

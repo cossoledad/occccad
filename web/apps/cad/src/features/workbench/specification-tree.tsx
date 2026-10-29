@@ -307,8 +307,8 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
             node.capabilities?.includes("SUPPRESS") ? { key: "suppress", icon: menuIcon('tree.suppression'),
               label: menuLabel('tree.suppression',node.suppressed?'off':'on'),
               onClick: () => { setContextMenu(undefined); onToggleSuppression?.(node); } } : null,
-            { key: "delete", icon: menuIcon('edit.delete'), danger: true,
-            label: menuLabel('edit.delete',deletable.length>1?'many':'default',deletable.length), disabled: deletable.length === 0,
+            { key: "delete", icon: menuIcon('edit.delete'), danger: node.kind!=="CONTEXT_BINDING",
+            label: node.kind==="CONTEXT_BINDING"&&deletable.length===1?"恢复零件默认":menuLabel('edit.delete',deletable.length>1?'many':'default',deletable.length), disabled: deletable.length === 0,
             onClick: () => { setContextMenu(undefined); onDelete?.(deletable); } },
             ...(onProperties?[{type:"divider" as const},{key:"properties",icon:menuIcon("tree.properties"),label:menuLabel("tree.properties"),onClick:()=>{setContextMenu(undefined);onProperties(node)}}]:[])],titleText(node.title),selectedNodes.filter(candidate=>candidate.presentationRole!=="INPUT_REFERENCE").length>1) }}>{row}</Dropdown>
         </div>;

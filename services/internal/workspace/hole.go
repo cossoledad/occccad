@@ -12,8 +12,11 @@ func validateHole(f Feature, earlier map[string]Feature) error {
 	if k := holeKind(f); k != "SIMPLE" && k != "COUNTERBORE" && k != "COUNTERSINK" {
 		return fmt.Errorf("%w: HOLE_KIND_INVALID", ErrValidation)
 	}
+	if err := validateTerminationPlane(f, earlier); err != nil {
+		return err
+	}
 	p := f.HolePoint
-	if f.Sketch != nil || f.ProfileMemberSlot != nil || f.KeepTools || f.Operation != "REMOVE" || f.Profile != "" || f.ProfileSelection != nil || f.TerminationPlane != nil || f.TerminationPlaneID != "" || f.NeutralPlane != nil || f.NeutralPlaneID != "" || f.AxisEntityID != "" || len(f.Tools) > 0 || len(f.Selections) > 0 || len(f.Sections) > 0 || f.Pattern != nil || (f.Extent != "BLIND" && f.Extent != "THROUGH_ALL") {
+	if f.Sketch != nil || f.ProfileMemberSlot != nil || f.KeepTools || f.Operation != "REMOVE" || f.Profile != "" || f.ProfileSelection != nil || f.NeutralPlane != nil || f.NeutralPlaneID != "" || f.AxisEntityID != "" || len(f.Tools) > 0 || len(f.Selections) > 0 || len(f.Sections) > 0 || f.Pattern != nil || (f.Extent != "BLIND" && f.Extent != "THROUGH_ALL" && f.Extent != "TO_PLANE") {
 		return fmt.Errorf("%w: HOLE_DEFINITION_INVALID", ErrValidation)
 	}
 	if p == nil || p.AxisEntityID != "" || p.Reference.Target != "ENTITY" || p.Reference.SubElement != "POINT" || p.Reference.EntityID == "" || p.Reference.PointID != "" || p.Reference.ControlPointIndex != nil || p.Reference.ControlPointID != "" {

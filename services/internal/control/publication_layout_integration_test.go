@@ -10,6 +10,7 @@ import (
 	"github.com/occccad/occccad/internal/workspace"
 	"io"
 	"math"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -919,6 +920,8 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 	})
 	run(&plate, workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: plate.Part.ActiveBodyID, Length: .15, Selections: []workspace.FeatureSelection{{Selection: mouth.Selection, SourceVersionID: mouth.SourceVersionID}}}})
 	chamfer := plate.Part.Features[len(plate.Part.Features)-1].ID
+	run(&plate, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Hole depth", PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: depth})
+	depthPub := plate.Part.Publications[0].ID
 	independentRevision := plate.Document.VersionID
 	root := create("PRODUCT", "Local values isolate occurrences")
 	for _, v := range []workspace.DocumentView{source, plate, plate} {
@@ -957,6 +960,8 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 		t.Fatal("missing receiver variant")
 		return workspace.ContextVariantSnapshot{}
 	}
+	receiverPath := path(root, 1)
+	run(&root, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", Name: "Accepted hole depth", InstancePath: &receiverPath, PublicationID: depthPub})
 	first, second := root.Product.Instances[1].ID, root.Product.Instances[2].ID
 	wantedPoint := map[string]float64{first: 20, second: 20}
 	baseline := root
@@ -1103,6 +1108,10 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	hotPlan, e := s.GetProductUpdatePlan(t.Context(), root.Document.ID)
+	if e != nil || hotPlan.Digest != plan.Digest {
+		t.Fatal("cold/warm update plan differ", e, plan.Digest, hotPlan.Digest)
+	}
 	for _, entry := range plan.Entries {
 		if entry.Kind == "CONTEXT_BINDING" && (entry.ReferenceMode != "LOCAL" || entry.Currency != "CURRENT" || entry.SourceDisplayPath != "本地输入") {
 			t.Fatal("local input still queries upstream", entry)
@@ -1142,6 +1151,36 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 	check(root, first, firstArt.Volume, 3)
 	run(&root, workspace.CommandRequest{Type: "REDO"})
 	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	// The old tree/API deletion is precisely the same restoration operation,
+	// including forwarded values and candidate preview/cancel semantics.
+	run(&root, workspace.CommandRequest{Type: "UNDO"})
+	check(root, first, firstArt.Volume, 3)
+	deleteReq := workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-delete-default-preview", Type: "DELETE_CONTEXT_BINDING", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0]["Depth"]}
+	beforeDelete := root.Document.VersionID
+	p, e := s.PreviewCommand(t.Context(), root.Document.ID, deleteReq)
+	if e != nil || p.ReplacementView == nil {
+		t.Fatal("delete default preview", e)
+	}
+	if p.ReplacementView.Product.Publications[0].Resolution.Value == nil || math.Abs(p.ReplacementView.Product.Publications[0].Resolution.Value.SIValue-.002) > 1e-9 {
+		t.Fatal("forwarded default not refreshed", p.ReplacementView.Product.Publications)
+	}
+	s.DiscardPreview(root.Document.ID, p6Actor, p.PreviewID)
+	read(&root)
+	if root.Document.VersionID != beforeDelete {
+		t.Fatal("delete cancel wrote Head")
+	}
+	run(&root, deleteReq)
+	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	if math.Abs(root.Product.Publications[0].Resolution.Value.SIValue-.002) > 1e-9 {
+		t.Fatal("delete did not commit publication refresh")
+	}
+	run(&root, workspace.CommandRequest{Type: "UNDO"})
+	check(root, first, firstArt.Volume, 3)
+	if math.Abs(root.Product.Publications[0].Resolution.Value.SIValue-.003) > 1e-9 {
+		t.Fatal("undo did not restore forwarded snapshot")
+	}
+	run(&root, workspace.CommandRequest{Type: "REDO"})
+	check(root, first, firstArt.Volume+4*math.Pi, 2)
 	// Every source is removed from the current graph before making it unavailable.
 	run(&root, workspace.CommandRequest{Type: "LOCALIZE_CONTEXT_INPUT", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0]["point"]})
 	run(&root, workspace.CommandRequest{Type: "DELETE_NODE", TargetKind: "INSTANCE", TargetID: root.Product.Instances[0].ID})
@@ -1159,4 +1198,44 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 	check(root, first, firstArt.Volume+4*math.Pi, 2)
 	read(&root)
 	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	// Saved modules remain readable when rebased through multiple owning Products.
+	module := create("PRODUCT", "Saved local module")
+	run(&module, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: root.Document.ID})
+	top := create("PRODUCT", "Nested local assembly")
+	run(&top, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: module.Document.ID})
+	want := variant(root, first)
+	verifyNested := func(v workspace.DocumentView) {
+		t.Helper()
+		found := false
+		for _, cv := range v.ContextVariants {
+			segments := cv.OwningInstancePath.Segments
+			if len(segments) != 3 || segments[2].InstanceID != first {
+				continue
+			}
+			found = true
+			if cv.Status != "READY" || cv.Part == nil || cv.Bodies[0].GeometryKey != want.Bodies[0].GeometryKey || !reflect.DeepEqual(cv.Part, want.Part) {
+				t.Fatal("nested LOCAL lost precise accepted geometry", cv.Status, cv.Diagnostic)
+			}
+			for _, r := range v.ResolvedInstances {
+				if r.OccurrencePath == cv.OwningInstancePath.Canonical && r.BodyID == cv.Bodies[0].ID && r.GeometryKey != cv.Bodies[0].GeometryKey {
+					t.Fatal("nested display used shared defaults")
+				}
+			}
+		}
+		if !found {
+			t.Fatal("missing nested local projection")
+		}
+	}
+	verifyNested(top)
+	read(&top)
+	verifyNested(top)
+	if _, e := db.Exec(t.Context(), `DELETE FROM occccad.product_context_variants WHERE base_document_id=$1`, plate.Document.ID); e != nil {
+		t.Fatal(e)
+	}
+	nestedCold, e := s.GetDocument(workspace.WithColdEvaluation(t.Context()), top.Document.ID, p6Actor)
+	if e != nil {
+		t.Fatal("nested local cold rebuild", e)
+	}
+	verifyNested(nestedCold)
+
 }

@@ -381,7 +381,7 @@ func applyCreateContextBinding(modelJSON, payloadJSON json.RawMessage) (json.Raw
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	if err := validateContextAssignment(payload.Binding); err != nil {
+	if err := validateContextAssignmentEdit(payload.Binding); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	names := make([]string, 0, len(model.ContextBindings))
@@ -941,7 +941,7 @@ func applyEditContextBinding(modelJSON, payloadJSON json.RawMessage) (json.RawMe
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	if err := validateContextAssignment(payload.Binding); err != nil {
+	if err := validateContextAssignmentEdit(payload.Binding); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	for i, b := range model.ContextBindings {

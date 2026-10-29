@@ -2346,7 +2346,7 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if request.Type == "REPLACE_INSTANCE" && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
 		return prepared, fmt.Errorf("%w: PREVIEW_STALE", ErrValidation)
 	}
-	if (request.Type == "EDIT_CONTEXT_BINDING" || request.Type == "LOCALIZE_CONTEXT_INPUT" || request.Type == "RESTORE_CONTEXT_INPUT_DEFAULT") && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
+	if (request.Type == "DELETE_CONTEXT_BINDING" || request.Type == "EDIT_CONTEXT_BINDING" || request.Type == "LOCALIZE_CONTEXT_INPUT" || request.Type == "RESTORE_CONTEXT_INPUT_DEFAULT") && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
 		return prepared, fmt.Errorf("%w: CONTEXT_BINDING_REVISION_CHANGED", ErrValidation)
 	}
 	if len(priorManifestJSON) > 0 {

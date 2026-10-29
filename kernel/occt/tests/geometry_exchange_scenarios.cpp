@@ -3960,3 +3960,51 @@ TEST(GeometryExchange, DraftAdditiveRangesCopyNetMaterialAndOwnAngleFaces) {
     }
 }
 } }
+
+namespace occccad::kernel {
+TEST(GeometryExchange, HoleToPlaneExactBottomRecessAndHistory) {
+    constexpr double pi = 3.14159265358979323846;
+    OcctKernel kernel;
+    ProfilePadSpec stock; stock.feature_id="stock";stock.body_id="body";stock.profile_feature_id="stock-sketch";
+    stock.regions={rectangular_region("stock-region",-10,-10,10,10)};stock.pad_length=30;
+    ProfileCurveSpec circle;circle.entity_id="point";circle.kind="CIRCLE";circle.radius=2;
+    ProfilePadSpec hole;hole.feature_id="hole";hole.body_id="body";hole.input_feature_id="stock";hole.profile_feature_id="point-sketch";
+    hole.generator="HOLE";hole.body_operation="REMOVE";hole.extent="TO_PLANE";
+    hole.plane_origin={0,0,15};hole.plane_normal={0,0,1};hole.plane_u_direction={1,0,0};
+    hole.regions={{"hole/point-sketch/point",{"hole-loop/point",{circle}},{}}};
+    hole.recess_diameter=8;hole.recess_depth=2;hole.countersink_angle=pi/2;
+    for(const std::string kind:{"SIMPLE","COUNTERBORE","COUNTERSINK"})
+      for(bool reverse:{false,true})for(double slope:{0.,.5}) {
+        hole.hole_kind=kind;hole.reversed=reverse;
+        hole.termination_origin={0,0,reverse?7.:23.};hole.termination_normal={-slope,0,1};
+        const auto result=kernel.evaluateProfilePadsWithHistory({stock,hole});
+        const double extra=kind=="SIMPLE"?0:kind=="COUNTERBORE"?24.:32./3.;
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id),12000-pi*(32+extra),1e-5);
+        const auto& tip=result.feature_results.back();EXPECT_TRUE(tip.topology_history_complete);
+        bool cap=false;
+        for(const auto& out:tip.semantic_outputs)if(out.semantic_ref.feature_id=="hole"&&out.semantic_ref.output_slot.rfind("END_CAP/",0)==0) {
+          cap=true;
+          EXPECT_EQ(out.evidence.geometry_type,"PLANE");
+          const auto& e=out.evidence;
+          EXPECT_NEAR(e.origin.z-hole.termination_origin.z-slope*e.origin.x,0,1e-7);
+          EXPECT_NEAR(std::abs(e.direction.z-slope*e.direction.x),std::sqrt(1+slope*slope),1e-7);
+        }
+        EXPECT_TRUE(cap);
+        OcctKernel cold;const auto rebuilt=cold.evaluateProfilePadsWithHistory({stock,hole});
+        EXPECT_EQ(result.geometry_id,rebuilt.geometry_id);
+        EXPECT_EQ(tip.topology_history.evidence_digest,rebuilt.feature_results.back().topology_history.evidence_digest);
+      }
+    hole.reversed=false;hole.hole_kind="SIMPLE";
+    for(const auto& target:std::vector<std::pair<Vec3,Vec3>>{{{0,0,23},{1,0,0}},{{0,0,7},{0,0,1}},{{0,0,15},{0,0,1}},{{0,0,16},{-1,0,1}}}) {
+      hole.termination_origin=target.first;hole.termination_normal=target.second;
+      EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock,hole}),std::invalid_argument);
+    }
+    // Axis end is beyond both recess depths, and the small main circle starts
+    // wholly before the plane. The wide recess still crosses/touches the plane.
+    for(const std::string kind:{"COUNTERBORE","COUNTERSINK"}) {
+      hole.hole_kind=kind;hole.termination_origin={0,0,18};hole.termination_normal={-.75,0,1};
+      try { kernel.evaluateProfilePadsWithHistory({stock,hole});FAIL()<<"recess escaped plane"; }
+      catch(const std::invalid_argument& e) { EXPECT_NE(std::string(e.what()).find("TO_PLANE_HOLE_RECESS_INTERSECTION"),std::string::npos); }
+    }
+}
+}

@@ -1133,7 +1133,7 @@ export function Workbench() {
       if (node.kind === "PARAMETER") { command.mutate(() => api.command(documentId, {type:"DELETE_PARAMETER",parameterId:id})); return; }
       if (node.kind === "PRODUCT_PUBLICATION") { command.mutate(() => api.deleteProductPublication(documentId, id)); return; }
       if (node.kind === "CONTEXT_INPUT") { command.mutate(() => api.deleteContextInput(documentId, id)); return; }
-      if (node.kind === "CONTEXT_BINDING") { command.mutate(() => api.deleteContextBinding(documentId, id)); return; }
+      if (node.kind === "CONTEXT_BINDING") { command.mutate(() => api.deleteContextBinding(documentId, id, editingView.document.versionId)); return; }
     }
     if (targets.some((node) => ["PUBLICATION", "PRODUCT_PUBLICATION", "PARAMETER", "CONTEXT_INPUT", "CONTEXT_BINDING"].includes(node.kind ?? ""))) {
       message.warning("请分别删除 Publication、上下文输入和绑定。");

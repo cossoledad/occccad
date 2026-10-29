@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v52-forwarded-native-frame"
+const evaluatorVersion = "part-solid-generators-v53-hole-to-plane"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1800,6 +1800,15 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
+			if feature.Extent == "TO_PLANE" {
+				spec.TerminationOrigin, spec.TerminationNormal, err = service.resolveReferencedPlane(ctx, reqID, fullModel, feature.ID, feature.TerminationPlaneID, feature.TerminationPlane)
+				if err != nil {
+					if !errors.Is(err, ErrValidation) {
+						return "", err
+					}
+					return "", fmt.Errorf("FEATURE_FAILED[%s]: TO_PLANE_TARGET_UNRESOLVED: %w", feature.ID, err)
+				}
+			}
 			spec.InputFeatureID = bodyTipFeatureID
 			solidFeatures = append(solidFeatures, spec)
 			bodyTipFeatureID = feature.ID
@@ -2762,6 +2771,12 @@ func bindStructureVariants(root *DocumentStructureNode, variants []ContextVarian
 		if node.InstancePath != nil {
 			if variant, exists := byOccurrence[node.InstancePath.Canonical]; exists {
 				node.ContextVariantKey = variant.VariantKey
+				if variant.Status != "READY" {
+					node.GeometryKey = ""
+					if node.Kind == "BODY" || node.Kind == "INSTANCE" {
+						node.EvaluationStatus = "FAILED"
+					}
+				}
 				if node.Kind == "BODY" && variant.Status == "READY" {
 					for _, body := range variant.Bodies {
 						if body.ID == node.BodyID {

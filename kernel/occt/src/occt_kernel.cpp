@@ -2870,6 +2870,25 @@ ToolBuild add_hole_recess(ToolBuild tool, const ProfilePadSpec& spec) {
         recessShape = builder.Shape();
         record(builder.Cone());
     }
+    if (spec.extent == "TO_PLANE") {
+        // Bound the complete exact recess in the terminal plane frame. The
+        // centre ray alone misses an inclined plane intersecting the wide mouth.
+        const gp_Pln plane(gp_Pnt(spec.termination_origin.x, spec.termination_origin.y,
+                                  spec.termination_origin.z),
+                           gp_Dir(spec.termination_normal.x, spec.termination_normal.y,
+                                  spec.termination_normal.z));
+        gp_Trsf to_plane;
+        to_plane.SetTransformation(plane.Position());
+        BRepBuilderAPI_Transform placed(recessShape, to_plane, Standard_True);
+        Bnd_Box bounds;
+        BRepBndLib::AddOptimal(placed.Shape(), bounds, Standard_False, Standard_False);
+        Standard_Real xmin,ymin,zmin,xmax,ymax,zmax;
+        bounds.Get(xmin,ymin,zmin,xmax,ymax,zmax);
+        const double denominator = gp_Vec(plane.Axis().Direction()).Dot(gp_Vec(axis));
+        const double tolerance = std::max(1e-7, topology_linear_tolerance_meters * 1000);
+        if (std::max(zmin / denominator, zmax / denominator) >= -tolerance)
+            throw std::invalid_argument("TO_PLANE_HOLE_RECESS_INTERSECTION");
+    }
     BRepAlgoAPI_Fuse fuse;
     TopTools_ListOfShape objects, tools;
     objects.Append(tool.shape);
@@ -3804,7 +3823,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         const auto exact_started=std::chrono::steady_clock::now();
         try {
             if(spec.extent=="TO_PLANE") {
-                if(spec.generator!="LINEAR_EXTRUDE" && !spec.generator.empty())throw std::invalid_argument("TO_PLANE_REQUIRES_LINEAR_EXTRUDE");
+                if(spec.generator!="LINEAR_EXTRUDE" && spec.generator!="HOLE" && !spec.generator.empty())throw std::invalid_argument("TO_PLANE_REQUIRES_LINEAR_EXTRUDE");
                 if(spec.body_operation!="ADD" && spec.body_operation!="NEW_BODY" && spec.body_operation!="REMOVE")throw std::invalid_argument("TO_PLANE_OPERATION_UNSUPPORTED");
             }
             const auto input_shape = result;
@@ -3962,6 +3981,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                             high=std::max(high,gp_Vec(frame.origin,gp_Pnt(x,y,z)).Dot(axis));
                         if(!std::isfinite(high)||high<=1e-7)throw std::invalid_argument("HOLE_NO_MATERIAL_INTERSECTION");
                         generator_spec.pad_length=high+std::max(1e-5,high*1e-6);
+                    } else if(spec.extent=="TO_PLANE") {
+                        generator_spec.extent="TO_PLANE";
                     } else throw std::invalid_argument("HOLE_EXTENT_INVALID");
                 }
                 if (spec.generator == "LINEAR_EXTRUDE" || spec.generator.empty()) {

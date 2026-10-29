@@ -1287,7 +1287,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, err
 		}
 		return typeCreateContextBinding, contextBindingPayload{Binding: binding}, nil
-	case "LOCALIZE_CONTEXT_INPUT", "RESTORE_CONTEXT_INPUT_DEFAULT":
+	case "LOCALIZE_CONTEXT_INPUT", "RESTORE_CONTEXT_INPUT_DEFAULT", "DELETE_CONTEXT_BINDING":
 		if documentType != "PRODUCT" {
 			break
 		}
@@ -1352,11 +1352,6 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 		}
 		return typeEditContextBinding, contextBindingPayload{Binding: binding}, nil
-	case "DELETE_CONTEXT_BINDING":
-		if documentType != "PRODUCT" {
-			break
-		}
-		return typeDeleteContextBinding, contextBindingDeletePayload{ContextBindingID: request.ContextBindingID}, nil
 	case "MOVE_INSTANCE":
 		if documentType != "PRODUCT" {
 			break
