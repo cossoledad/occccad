@@ -101,6 +101,8 @@ Product 只保存来源和值：ContextBinding 冻结来源 Revision、完整 oc
 
 “替换组件”由装配工具和直接组件的结构树菜单进入，独立于发布管理。当前只替换 owning Product 的一个直接来源组件，支持 Part→Part、Product→Product；仅对实际被 ContextBinding、当前装配约束和对外转发接口使用的 Publication 指定对应关系。名称只推荐唯一兼容候选，命令冻结装配基线、新组件确切 Revision、旧/新 PublicationId 和影响集合，权威校验类型、兼容版本、契约、量纲及解析状态。实例名称、策略和初始位姿保留；候选求值与求解成功后才可采用，视图区展示候选组件和关联结果，取消恢复原显示且不写 Head。替换不调用整装配 UPDATE_REFERENCES，其他实例和无关已接受输入保持原版本；后台自动跟随也不会接受含待确认组件或关联输入的计划。接口、Binding、本地端口、约束和下游 Feature 保持身份，全部迁移与求解变化进入一次正式 ChangeSet，撤销/重做恢复完整关系。
 
+替换输入按完整 occurrence 路径和稳定实例 ID 取得两端，不依赖实例或 Binding 的排列。接收定义采用 Product 已接受的实例版本，各 Binding 保留自己的已接受来源和值快照。候选在现有求值与装配求解之间最多重算四轮，直到受影响输入的相对变换与最终位姿一致；预览、直接提交与预览采用共用最终检查，不一致时拒绝并保留原模型。只更新本次迁移的输入，其他已接受绑定和待接受版本不变。来源快照在每次新操作或明确重选时重新获取，在本次映射、预览和确认期间冻结；后台刷新不改变候选版本。
+
 首轮不迁移接收组件的本地输入、深层私有引用、原始拓扑/基准支撑或机构关系，不支持批量或跨类型替换；被选来源提供固定输入时要求先明确处理该关联，不能隐式解除固定或改绑。FIX 的整个 occurrence 与现有直接实例固联组沿用实例身份。未使用的接口无需映射；缺失、不可用或不兼容接口、关联几何失败及约束迁移失败均拒绝候选并保留原装配。
 
 实现入口：workspace 的 publication、context_input_geometry、product_context、product_design_transaction、product_update_release、instance_replacement、context_editing；Web 的 design-association-dialog、replace-instance-dialog 与 context-edit-scope。真实回归入口为 control/publication_layout_integration_test、control/subassembly_publication_integration_test、browser/publication-layout-live.spec。它们是验证入口，执行范围以本轮报告为准。

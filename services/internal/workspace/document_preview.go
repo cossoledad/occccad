@@ -240,20 +240,23 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 		}
 		// The adapter has already qualified the independent mechanism. Product
 		// equations belong to Product application/exit, never this confirmation.
-		if !kinematicsPreview {
+		solveRequestID := "preview/" + prepared.requestID
+		if prepared.command.TypeURI == typeReplaceInstance {
+			var p replaceInstancePayload
+			if err = json.Unmarshal(prepared.command.Payload, &p); err != nil {
+				return CommandPreview{}, err
+			}
+			solveRequestID, err = service.settleInstanceReplacement(ctx, documentID, prepared.headRevision, solveRequestID, &model, p, &assemblyResult)
+			if err != nil {
+				return CommandPreview{}, err
+			}
+		} else if !kinematicsPreview {
 			if err = service.solveAssembly(ctx, documentID, prepared.headRevision, "preview/"+prepared.requestID, driven, solveIntent, &model, warmStartKey, &assemblyResult); err != nil {
 				if retained := acceptAssemblyEvaluationFailure(&model, err, retainsAssemblyDefinition(prepared.command.TypeURI)); retained == nil {
 					retainedFailure = true
 				} else {
 					return CommandPreview{}, err
 				}
-			}
-		}
-		if prepared.command.TypeURI == typeReplaceInstance {
-			var p replaceInstancePayload
-			_ = json.Unmarshal(prepared.command.Payload, &p)
-			if err := validateReplacementConstraints(model, p.InstanceID); err != nil {
-				return CommandPreview{}, err
 			}
 		}
 		nextJSON, err = json.Marshal(model)
@@ -342,7 +345,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 			service.interactionCandidates.put(interactionCandidate{contextKey: prepared.contextKey, id: previewID, documentID: documentID, actorID: prepared.actorID,
 				definitionOnly: retainedFailure,
 				headRevision:   prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-				assemblyPreviewRequestID: "preview/" + prepared.requestID,
+				assemblyPreviewRequestID: solveRequestID,
 				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, visualObjectIDs: visuals, nextJSON: nextJSON, changes: previewChanges,
 				expiresAt: expiresAt})
 		}

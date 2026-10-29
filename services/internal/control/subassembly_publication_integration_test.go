@@ -5,7 +5,9 @@ package control
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -714,6 +716,393 @@ func TestReplacePublicComponentScopedHistoryAndHole(t *testing.T) {
 			if root.Document.VersionID != frozen {
 				t.Fatal("fixed-input failure wrote history")
 			}
+		})
+	}
+}
+
+// Exact solids, six bindings/four instances, a non-first source and a solver
+// displacement. Both command paths must produce the same physical hole tools.
+func TestReplacementFinalFramesAndManyInputs(t *testing.T) {
+	s, store, _, client, _ := featureAssociationRuntimeService(t)
+	for _, mode := range []string{"PART-preview", "PRODUCT-direct", "PRODUCT-preview", "PART-inconsistent"} {
+		t.Run(mode, func(t *testing.T) {
+			seq := 0
+			create := func(kind, name string) workspace.DocumentView {
+				t.Helper()
+				v, e := s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: kind, Name: name})
+				if e != nil {
+					t.Fatal(e)
+				}
+				return v
+			}
+			run := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+				t.Helper()
+				seq++
+				r.ActorID = p6Actor
+				r.RequestID = fmt.Sprintf("%s-final-frame-%d", v.Document.ID, seq)
+				next, e := s.ApplyCommand(t.Context(), v.Document.ID, r)
+				if e != nil {
+					t.Fatalf("%s: %v", r.Type, e)
+				}
+				*v = next
+			}
+			read := func(v *workspace.DocumentView) {
+				t.Helper()
+				next, e := s.GetDocument(t.Context(), v.Document.ID, p6Actor)
+				if e != nil {
+					t.Fatal(e)
+				}
+				*v = next
+			}
+			path := func(v workspace.DocumentView, index int) workspace.InstancePath {
+				t.Helper()
+				session, e := s.GetProductDesignSession(t.Context(), v.Document.ID, v.Product.Instances[index].ID)
+				if e != nil || session.ActiveInstancePath == nil {
+					t.Fatal(e)
+				}
+				return *session.ActiveInstancePath
+			}
+			box := func(v *workspace.DocumentView, x float64, operation string) {
+				t.Helper()
+				run(v, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+				sk := v.Part.Features[len(v.Part.Features)-1].ID
+				run(v, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sk, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: x - 4, Y: -5}, Second: &workspace.SketchPoint2{X: x + 4, Y: 5}}}})
+				run(v, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Generator: "LINEAR_EXTRUDE", Operation: operation, SketchID: sk, Length: 2})
+			}
+			publications := func(v workspace.DocumentView) map[string]workspace.Publication {
+				out := map[string]workspace.Publication{}
+				if v.Part != nil {
+					for _, p := range v.Part.Publications {
+						out[p.Name] = p
+					}
+				} else {
+					for _, p := range v.Product.Publications {
+						out[p.Name] = workspace.Publication{ID: p.ID, Type: p.Type, CompatibilityVersion: p.CompatibilityVersion, Resolution: p.Resolution}
+					}
+				}
+				return out
+			}
+			source := func(name string, x, z float64) workspace.DocumentView {
+				v := create("PART", name)
+				box(&v, -45, "ADD")
+				box(&v, 45, "NEW_BODY")
+				run(&v, workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Origin: [3]float64{0, 0, z}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
+				plane := v.Part.DatumPlanes[len(v.Part.DatumPlanes)-1].ID
+				run(&v, workspace.CommandRequest{Type: "CREATE_SKETCH", DatumPlaneID: plane})
+				sk := v.Part.Features[len(v.Part.Features)-1].ID
+				for j := 0; j < 4; j++ {
+					px, py := x, -12.0
+					if j%2 == 0 {
+						px = -x
+					}
+					if j > 1 {
+						py = 12
+					}
+					id := fmt.Sprintf("mount-%d", j)
+					run(&v, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sk, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: id, Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: px, Y: py}}}}})
+					run(&v, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: fmt.Sprintf("Point.%d", j), PublicationType: "POINT", TargetKind: "SKETCH_ENTITY", SketchID: sk, TargetID: id})
+				}
+				run(&v, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Mount", PublicationType: "PLANE", TargetKind: "PLANE", TargetID: plane})
+				run(&v, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Reference", PublicationType: "PLANE", TargetKind: "PLANE", TargetID: "datum-xy"})
+				if !strings.HasPrefix(mode, "PRODUCT") {
+					return v
+				}
+				m := create("PRODUCT", name+" module")
+				run(&m, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: v.Document.ID})
+				for _, p := range v.Part.Publications {
+					q := path(m, 0)
+					run(&m, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", Name: p.Name, InstancePath: &q, PublicationID: p.ID})
+				}
+				return m
+			}
+			a, b := source("Frame source A", 20, 0), source("Frame source B", 25, 1)
+			pa, pb := publications(a), publications(b)
+			plate := create("PART", "Four-hole receiver")
+			run(&plate, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+			profile := plate.Part.Features[0].ID
+			run(&plate, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: profile, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -60, Y: -40}, Second: &workspace.SketchPoint2{X: 60, Y: 40}}}})
+			thickness := 5.0
+			if strings.HasSuffix(mode, "inconsistent") {
+				thickness = 20
+			}
+			run(&plate, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Generator: "LINEAR_EXTRUDE", Operation: "ADD", SketchID: profile, Length: thickness})
+			run(&plate, workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
+			mount := plate.Part.DatumPlanes[len(plate.Part.DatumPlanes)-1].ID
+			run(&plate, workspace.CommandRequest{Type: "CREATE_SKETCH", DatumPlaneID: mount})
+			receiver := plate.Part.Features[len(plate.Part.Features)-1].ID
+			targetPlane := "datum-xy"
+			if strings.HasSuffix(mode, "inconsistent") {
+				targetPlane = mount
+			}
+			run(&plate, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Receiver plane", PublicationType: "PLANE", TargetKind: "PLANE", TargetID: targetPlane})
+			other := create("PART", "Pending outside replacement")
+			root := create("PRODUCT", "Physical replacement frames")
+			for _, v := range []workspace.DocumentView{a, a, plate, other} {
+				run(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: v.Document.ID})
+			}
+			run(&root, workspace.CommandRequest{Type: "SET_REFERENCE_MODE", InstanceID: root.Product.Instances[3].ID, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"})
+			// An unrelated accepted input precedes the five migrated inputs. Reversing
+			// creation order exercises association order independently of instance order.
+			bindingByName := map[string]string{}
+			bind := func(name, kind, target string, sourceIndex int) {
+				t.Helper()
+				seq++
+				v, e := s.CreateProductContextBinding(t.Context(), root.Document.ID, workspace.ProductContextBindingRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-bind-%d", root.Document.ID, seq), ExpectedRootRevisionID: root.Document.VersionID, OwningInstancePath: path(root, 2), SourceInstancePath: path(root, sourceIndex), PublicationID: pa[name].ID, PublicationType: pa[name].Type, TargetKind: kind, TargetID: target, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"})
+				if e != nil {
+					t.Fatal(e)
+				}
+				root = v
+				bindingByName[name] = root.Product.ContextBindings[len(root.Product.ContextBindings)-1].ID
+			}
+			bind("Point.0", "SKETCH_EXTERNAL_GEOMETRY", receiver, 0)
+			untouchedID := bindingByName["Point.0"]
+			order := []string{"Point.3", "Mount", "Point.1", "Point.0", "Point.2"}
+			if strings.HasSuffix(mode, "direct") {
+				slices.Reverse(order)
+			}
+			for _, name := range order {
+				if name == "Mount" {
+					bind(name, "DATUM", mount, 1)
+				} else {
+					bind(name, "SKETCH_EXTERNAL_GEOMETRY", receiver, 1)
+				}
+			}
+			variantOf := func(v workspace.DocumentView) workspace.ContextVariantSnapshot {
+				t.Helper()
+				for _, c := range v.ContextVariants {
+					if c.BaseDocumentID == plate.Document.ID {
+						return c
+					}
+				}
+				t.Fatal("missing variant")
+				return workspace.ContextVariantSnapshot{}
+			}
+			scope := func(r workspace.CommandRequest) workspace.CommandRequest {
+				v := variantOf(root)
+				r.RootProductDocumentID = root.Document.ID
+				r.RootProductRevisionID = root.Document.VersionID
+				r.ContextVariantID = v.VariantKey
+				r.InstancePath = &v.OwningInstancePath
+				return r
+			}
+			ops := []workspace.SketchOperation{}
+			for j := 0; j < 4; j++ {
+				name := fmt.Sprintf("Point.%d", j)
+				inputID := ""
+				for _, link := range root.Product.ContextBindings {
+					if link.ID == bindingByName[name] {
+						inputID = link.ContextInputID
+					}
+				}
+				ext := ""
+				for _, f := range variantOf(root).Part.Features {
+					if f.ID == receiver {
+						for _, g := range f.Sketch.ExternalGeometry {
+							if g.ContextInputID == inputID {
+								ext = g.ID
+							}
+						}
+					}
+				}
+				px, py := 20.0, -12.0
+				if j%2 == 0 {
+					px = -20
+				}
+				if j > 1 {
+					py = 12
+				}
+				id := fmt.Sprintf("local-%d", j)
+				ops = append(ops, workspace.SketchOperation{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: id, Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: px, Y: py}}}, workspace.SketchOperation{Type: "ADD_CONSTRAINT", Constraint: &workspace.SketchConstraint{ID: "link-" + id, Kind: "COINCIDENT", References: []workspace.SketchGeometryRef{{Target: "ENTITY", EntityID: id, SubElement: "POINT"}, {Target: "EXTERNAL", EntityID: ext, SubElement: "POINT"}}}})
+			}
+			run(&plate, scope(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: receiver, Operations: ops}))
+			read(&root)
+			holeIDs := []string{}
+			for j := 0; j < 4; j++ {
+				run(&plate, scope(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &workspace.Feature{Type: "HOLE", BodyID: plate.Part.ActiveBodyID, Operation: "REMOVE", Extent: "BLIND", Diameter: 4, Depth: 3, HolePoint: &workspace.PatternPointReference{SketchID: receiver, Reference: workspace.SketchGeometryRef{Target: "ENTITY", EntityID: fmt.Sprintf("local-%d", j), SubElement: "POINT"}}}}))
+				holeIDs = append(holeIDs, plate.Part.Features[len(plate.Part.Features)-1].ID)
+				read(&root)
+			}
+			fixed := 2
+			constraintPlane := "Mount"
+			if strings.HasSuffix(mode, "inconsistent") {
+				fixed = 1
+				constraintPlane = "Reference"
+			}
+			run(&root, workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX", FixMode: "SPACE", FirstAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: root.Product.Instances[fixed].ID, Kind: "BODY"}})
+			run(&root, workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "COINCIDENT", FirstAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: root.Product.Instances[1].ID, Kind: "PLANE", PublicationRef: &workspace.PublicationRef{PublicationID: pa[constraintPlane].ID, ExpectedType: "PLANE", CompatibilityVersion: pa[constraintPlane].CompatibilityVersion}}, SecondAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: root.Product.Instances[2].ID, Kind: "PLANE", PublicationRef: &workspace.PublicationRef{PublicationID: plate.Part.Publications[0].ID, ExpectedType: "PLANE", CompatibilityVersion: plate.Part.Publications[0].CompatibilityVersion}}})
+			run(&other, workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: "pending", Value: 8, Unit: "mm"})
+			read(&root)
+			before := root
+			untouched := ""
+			for _, v := range before.Product.ContextBindings {
+				if v.ID == untouchedID {
+					raw, _ := json.Marshal(v)
+					untouched = string(raw)
+				}
+			}
+			mapping := map[string]string{}
+			for _, name := range []string{"Point.0", "Point.1", "Point.2", "Point.3", "Mount", constraintPlane} {
+				mapping[pa[name].ID] = pb[name].ID
+			}
+			request := workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-physical-replacement", Type: "REPLACE_INSTANCE", VersionID: root.Document.VersionID, InstanceID: root.Product.Instances[1].ID, ReferencedDocumentID: b.Document.ID, ReplacementVersionID: b.Document.VersionID, PublicationMapping: mapping}
+			preview, e := s.PreviewCommand(t.Context(), root.Document.ID, request)
+			if strings.HasSuffix(mode, "inconsistent") {
+				if e == nil || !strings.Contains(e.Error(), "REPLACEMENT_FRAME_INCONSISTENT") {
+					t.Fatalf("inconsistent candidate: %v", e)
+				}
+				read(&root)
+				if root.Document.VersionID != before.Document.VersionID {
+					t.Fatal("failed preview advanced Head")
+				}
+				request.RequestID += "-direct"
+				if _, e = s.ApplyCommand(t.Context(), root.Document.ID, request); e == nil || !strings.Contains(e.Error(), "REPLACEMENT_FRAME_INCONSISTENT") {
+					t.Fatal("inconsistent direct commit", e)
+				}
+				read(&root)
+				if root.Document.VersionID != before.Document.VersionID {
+					t.Fatal("failed commit advanced Head")
+				}
+				return
+			}
+			if e != nil {
+				t.Fatal(e)
+			}
+			if preview.ReplacementView == nil {
+				t.Fatal("missing physical preview")
+			}
+			check := func(v workspace.DocumentView, wantB bool) {
+				t.Helper()
+				expectedX, expectedZ := 20.0, 0.0
+				if wantB {
+					expectedX, expectedZ = 25, -1
+				}
+				if math.Abs(v.Product.Instances[1].Translation[2]-expectedZ) > 1e-6 {
+					t.Fatalf("source pose %v", v.Product.Instances[1].Translation)
+				}
+				for _, i := range []int{0, 3} {
+					a, _ := json.Marshal(before.Product.Instances[i])
+					b, _ := json.Marshal(v.Product.Instances[i])
+					if string(a) != string(b) {
+						t.Fatalf("unrelated instance %d changed", i)
+					}
+				}
+				for _, link := range v.Product.ContextBindings {
+					if link.ID == untouchedID {
+						raw, _ := json.Marshal(link)
+						if string(raw) != untouched {
+							t.Fatal("unrelated accepted input changed")
+						}
+					} else if math.Abs(link.Transform.Translation[2]-expectedZ) > 1e-6 {
+						t.Fatalf("input %s frame %v disagrees with final pose", link.Name, link.Transform)
+					}
+				}
+				cv := variantOf(v)
+				found := map[string]bool{}
+				for _, f := range cv.Part.Features {
+					if slices.Contains(holeIDs, f.ID) {
+						found[f.ID] = true
+						if f.EvaluationStatus != "" {
+							t.Fatal("hole failed", f.EvaluationStatus)
+						}
+					}
+					if f.ID == receiver {
+						if math.Abs(f.Sketch.Support.Origin[2]) > 1e-6 {
+							t.Fatalf("support not in final frame: %+v", f.Sketch.Support)
+						}
+						for _, p := range f.Sketch.Entities {
+							if strings.HasPrefix(p.ID, "local-") && math.Abs(math.Abs(p.Point.X)-expectedX) > 1e-6 {
+								t.Fatal("incorrect solved point", p.Point)
+							}
+						}
+					}
+				}
+				if len(found) != 4 {
+					t.Fatal("Hole identity lost")
+				}
+				art := v.Artifacts[cv.Bodies[0].GeometryKey]
+				if math.Abs(art.Volume-(120*80*thickness-4*3*math.Pi*4)) > 1e-4 {
+					t.Fatal("incorrect exact volume", art.Volume)
+				}
+				_, reader, e := store.Open(t.Context(), art.Representations["BREP"].ObjectID)
+				if e != nil {
+					t.Fatal(e)
+				}
+				brep, e := io.ReadAll(reader)
+				reader.Close()
+				if e != nil {
+					t.Fatal(e)
+				}
+				topology, _, e := client.GetTopology(t.Context(), art.GeometryID, brep, "FACE", 0)
+				if e != nil {
+					t.Fatal(e)
+				}
+				walls := 0
+				for _, face := range topology.Faces {
+					if face.SurfaceType != 1 {
+						continue
+					}
+					walls++
+					bb := face.Bbox
+					if math.Abs(bb.MinZ) > 1e-5 || math.Abs(bb.MaxZ-3) > 1e-5 || math.Abs(math.Abs((bb.MinX+bb.MaxX)/2)-expectedX) > 1e-5 {
+						t.Fatalf("physical hole wall in wrong position: %+v", bb)
+					}
+				}
+				if walls != 4 {
+					t.Fatal("missing precise hole walls", walls)
+				}
+				if strings.HasPrefix(mode, "PRODUCT") && wantB {
+					count := 0
+					for _, r := range v.ResolvedInstances {
+						if len(r.InstancePath.Segments) > 0 && r.InstancePath.Segments[0].InstanceID == v.Product.Instances[1].ID {
+							count++
+							if math.Abs(r.Translation[2]+1) > 1e-6 {
+								t.Fatal("preview module body not at solved pose")
+							}
+						}
+					}
+					if count != 2 {
+						t.Fatalf("multi-Body module lost bodies: %d", count)
+					}
+				}
+			}
+			check(*preview.ReplacementView, true)
+			read(&root)
+			if root.Document.VersionID != before.Document.VersionID {
+				t.Fatal("preview advanced Head")
+			}
+			if strings.HasSuffix(mode, "direct") {
+				s.DiscardPreview(root.Document.ID, p6Actor, preview.PreviewID)
+			} else {
+				request.PreviewID = preview.PreviewID
+			}
+			run(&root, request)
+			check(root, true)
+			run(&root, workspace.CommandRequest{Type: "UNDO"})
+			check(root, false)
+			run(&root, workspace.CommandRequest{Type: "REDO"})
+			check(root, true)
+			read(&root)
+			check(root, true)
+			read(&plate)
+			feature := *func() *workspace.Feature {
+				for i := range plate.Part.Features {
+					if plate.Part.Features[i].ID == holeIDs[0] {
+						return &plate.Part.Features[i]
+					}
+				}
+				t.Fatal("hole absent")
+				return nil
+			}()
+			feature.Diameter = 5
+			edit := scope(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: feature.ID, Feature: &feature, ExpectedFeatureDigest: findP6FeatureDigest(t, plate.StructureTree, feature.ID)})
+			seq++
+			edit.ActorID = p6Actor
+			edit.RequestID = fmt.Sprintf("%s-edit-original-%d", plate.Document.ID, seq)
+			candidate, e := s.PreviewCommand(t.Context(), plate.Document.ID, edit)
+			if e != nil {
+				t.Fatal("original Hole edit", e)
+			}
+			s.DiscardPreview(plate.Document.ID, p6Actor, candidate.PreviewID)
 		})
 	}
 }

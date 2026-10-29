@@ -3,9 +3,11 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
+	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -166,18 +168,7 @@ func (s *Service) prepareInstanceReplacement(ctx context.Context, documentID str
 			continue
 		}
 		p := publications[b.Publication.PublicationID]
-		// Accept the new source in this frozen Product's actual frame, even
-		// when an earlier move left the old input awaiting explicit acceptance.
-		if len(b.OwningInstancePath.Segments) != 1 {
-			return fail("REPLACEMENT_DEEP_REFERENCE_UNSUPPORTED: 接收输入不属于直接组件")
-		}
-		ownerID := b.OwningInstancePath.Segments[0].InstanceID
-		ownerIndex := slices.IndexFunc(model.Instances, func(v ProductInstance) bool { return v.ID == ownerID })
-		if ownerIndex < 0 {
-			return fail("REPLACEMENT_DIRECT_INSTANCE_REQUIRED: 接收组件不存在")
-		}
-		sourceInstance, ownerInstance := model.Instances[i], model.Instances[ownerIndex]
-		b.Transform = inverseRelativePose(InstancePose{Translation: sourceInstance.Translation, Rotation: sourceInstance.Rotation}, InstancePose{Translation: ownerInstance.Translation, Rotation: ownerInstance.Rotation})
+
 		b.SourceInstancePath = path(b.SourceInstancePath)
 		b.Publication = PublicationRef{PublicationID: p.ID, ExpectedType: p.Type, CompatibilityVersion: p.CompatibilityVersion, PersistentSelection: p.Target.PersistentSelection, SelectionSourceVersionID: p.Target.SourceVersionID}
 		b.Resolution = p.Resolution
@@ -219,6 +210,10 @@ func (s *Service) prepareInstanceReplacement(ctx context.Context, documentID str
 				m.InstancePath = &p
 			}
 		}
+	}
+	replacement := replaceInstancePayload{InstanceID: old.ID, AffectedBindingIDs: bindingIDs}
+	if _, err = s.refreshReplacementFrames(&model, replacement, true); err != nil {
+		return "", nil, err
 	}
 	if err = s.resolveAssemblySupports(ctx, &model); err != nil {
 		return "", nil, err
@@ -303,4 +298,131 @@ func stampReplacementSnapshot(model *ProductModel, p replaceInstancePayload, rev
 			}
 		}
 	}
+}
+
+// Stable occurrence identity, rather than the order of bindings, determines both
+// ends. Validate the complete accepted edge before deriving a relative frame.
+func replacementBindingFrames(model ProductModel, p replaceInstancePayload) (map[string]InstancePose, error) {
+	instances := map[string]ProductInstance{}
+	for _, v := range model.Instances {
+		instances[v.ID] = v
+	}
+	frames := map[string]InstancePose{}
+	resolve := func(path InstancePath, sourceSnapshot bool) (ProductInstance, error) {
+		if len(path.Segments) != 1 {
+			return ProductInstance{}, fmt.Errorf("%w: REPLACEMENT_DEEP_REFERENCE_UNSUPPORTED", ErrValidation)
+		}
+		edge := path.Segments[0]
+		v, ok := instances[edge.InstanceID]
+		if !ok || edge.ReferencedDocumentID != v.ReferencedDocumentID || (sourceSnapshot && edge.ResolvedVersionID != v.ReferencedVersionID) {
+			return ProductInstance{}, fmt.Errorf("%w: REPLACEMENT_DIRECT_INSTANCE_REQUIRED", ErrValidation)
+		}
+		return v, nil
+	}
+	for _, b := range model.ContextBindings {
+		if !slices.Contains(p.AffectedBindingIDs, b.ID) {
+			continue
+		}
+		source, err := resolve(b.SourceInstancePath, true)
+		if err != nil {
+			return nil, err
+		}
+		// Input acceptance and the receiving definition have separate snapshots.
+		// Later edits may advance the same receiving Part in this Product; use
+		// that already accepted edge, never the source Head or a binding index.
+		owner, err := resolve(b.OwningInstancePath, false)
+		if err != nil {
+			return nil, err
+		}
+		if source.ID != p.InstanceID || b.SourceInstancePath.RootDocumentID != b.OwningInstancePath.RootDocumentID || b.ReferenceMode == "PINNED" {
+			return nil, fmt.Errorf("%w: REPLACEMENT_IMPACT_CHANGED", ErrValidation)
+		}
+		frames[b.ID] = inverseRelativePose(InstancePose{Translation: source.Translation, Rotation: source.Rotation}, InstancePose{Translation: owner.Translation, Rotation: owner.Rotation})
+	}
+	if len(frames) != len(p.AffectedBindingIDs) {
+		return nil, fmt.Errorf("%w: REPLACEMENT_IMPACT_CHANGED", ErrValidation)
+	}
+	return frames, nil
+}
+
+// Translation tolerance is in the workbench's millimetres; orientation is in
+// radians, matching the existing accepted-pose comparison policy.
+func (s *Service) refreshReplacementFrames(model *ProductModel, p replaceInstancePayload, write bool) (bool, error) {
+	frames, err := replacementBindingFrames(*model, p)
+	if err != nil {
+		return false, err
+	}
+	changed := false
+	for i := range model.ContextBindings {
+		b := &model.ContextBindings[i]
+		expected, ok := frames[b.ID]
+		if !ok {
+			continue
+		}
+		if b.Transform != expected && !conflictPoseClose(geometry.AssemblyPose{Translation: b.Transform.Translation, Rotation: b.Transform.Rotation}, geometry.AssemblyPose{Translation: expected.Translation, Rotation: expected.Rotation}, 1e-7, 1e-8) {
+			changed = true
+		}
+		if write {
+			b.Transform = expected
+		}
+	}
+	return changed, nil
+}
+
+func (s *Service) checkReplacementCandidate(ctx context.Context, model *ProductModel, p replaceInstancePayload) error {
+	changed, err := s.refreshReplacementFrames(model, p, false)
+	if err != nil {
+		return err
+	}
+	if changed {
+		return fmt.Errorf("%w: REPLACEMENT_FRAME_INCONSISTENT", ErrValidation)
+	}
+	if err = validateReplacementConstraints(*model, p.InstanceID); err != nil {
+		return err
+	}
+	variants, err := s.contextVariantsForProductModel(ctx, *model)
+	if err != nil {
+		if errors.Is(err, ErrValidation) {
+			return fmt.Errorf("REPLACEMENT_GEOMETRY_FAILED: %w", err)
+		}
+		return err
+	}
+	s.resolveProductPublications(ctx, model, variants)
+	for _, pub := range model.Publications {
+		if slices.Contains(p.AffectedPublicationIDs, pub.ID) && pub.Resolution.Status != "CONNECTED" {
+			return fmt.Errorf("%w: REPLACEMENT_FORWARDING_FAILED: %s", ErrValidation, pub.Name)
+		}
+	}
+	return nil
+}
+
+// A bounded replacement-only alternation of the existing evaluator and solver.
+// Each round consumes the previous accepted candidate pose. The final numerical
+// evidence and displayed variants must describe that same physical frame.
+func (s *Service) settleInstanceReplacement(ctx context.Context, documentID, revisionID, requestID string, model *ProductModel, p replaceInstancePayload, evidence *geometry.AssemblySolve) (string, error) {
+	const maxRounds = 4
+	for round := 0; round < maxRounds; round++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if _, err := s.refreshReplacementFrames(model, p, true); err != nil {
+			return "", err
+		}
+		// This also covers the no-constraint path, where solveAssembly is a no-op.
+		if _, err := s.contextVariantsForProductModel(ctx, *model); err != nil {
+			return "", err
+		}
+		solveID := fmt.Sprintf("%s/replacement/%d", requestID, round)
+		if err := s.solveAssembly(ctx, documentID, revisionID, solveID, "", nil, model, "", evidence); err != nil {
+			return "", err
+		}
+		changed, err := s.refreshReplacementFrames(model, p, false)
+		if err != nil {
+			return "", err
+		}
+		if !changed {
+			return solveID, s.checkReplacementCandidate(ctx, model, p)
+		}
+	}
+	return "", fmt.Errorf("%w: REPLACEMENT_FRAME_INCONSISTENT: replacement did not settle within %d evaluations", ErrValidation, maxRounds)
 }

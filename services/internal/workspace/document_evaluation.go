@@ -229,12 +229,12 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				}
 			}
 		}
-		if promoted && !candidate.definitionOnly && prepared.command.TypeURI != typeSetKinematics && (len(model.Constraints) > 0 || request.SessionID != "") {
+		if promoted && !candidate.definitionOnly && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeSetKinematics && (len(model.Constraints) > 0 || request.SessionID != "") {
 			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, candidate.assemblyPreviewRequestID, canonicalModelHash(nextJSON)); err != nil {
 				return err
 			}
 		}
-		if !promoted && prepared.command.TypeURI != typeOccurrenceVisibility && prepared.command.TypeURI != typeConstraintVisibility && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetProductProperties {
+		if !promoted && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeOccurrenceVisibility && prepared.command.TypeURI != typeConstraintVisibility && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetProductProperties {
 			finishSolve := perf.Start(ctx, "assembly-solve")
 			drivenInstanceID := ""
 			var solveIntent *geometry.AssemblySolveIntent
@@ -264,16 +264,41 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				}
 			}
 		}
+		replacementSolveID := ""
 		if prepared.command.TypeURI == typeReplaceInstance {
 			var p replaceInstancePayload
-			_ = json.Unmarshal(prepared.command.Payload, &p)
-			if err := validateReplacementConstraints(model, p.InstanceID); err != nil {
+			if err := json.Unmarshal(prepared.command.Payload, &p); err != nil {
 				return err
 			}
+			if promoted {
+				replacementSolveID = candidate.assemblyPreviewRequestID
+				if err := service.checkReplacementCandidate(ctx, &model, p); err != nil {
+					return err
+				}
+			} else {
+				replacementSolveID, err = service.settleInstanceReplacement(ctx, documentID, revisionID, prepared.requestID, &model, p, nil)
+				if err != nil {
+					return err
+				}
+			}
 			stampReplacementSnapshot(&model, p, revisionID)
+			raw, marshalErr := json.Marshal(updateReferencesPayload{Model: model})
+			if marshalErr != nil {
+				return marshalErr
+			}
+			_, changes, err = applyUpdateReferences(prepared.modelJSON, raw)
+			if err != nil {
+				return err
+			}
 		}
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
+		if replacementSolveID != "" && len(model.Constraints) > 0 {
+			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, replacementSolveID, modelHash); err != nil {
+				return err
+			}
+		}
+
 		var priorProduct ProductModel
 		_ = json.Unmarshal(prepared.modelJSON, &priorProduct)
 		changes = appendAssemblyEvaluationChanges(changes, priorProduct, model)

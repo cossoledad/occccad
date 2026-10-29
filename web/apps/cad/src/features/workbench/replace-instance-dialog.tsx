@@ -1,3 +1,4 @@
+import {randomUUID} from '../../utils/random-uuid';
 import {Select} from 'antd';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
@@ -14,6 +15,7 @@ import {publicDescriptors,replacementCompatible,replacementImpact} from './insta
 export function ReplaceInstanceDialog({view,initialInstanceId,onClose,onApply,onPreview,onSelectionSession,onLocate}:{
  view:DocumentView;initialInstanceId?:string;onClose:()=>void;onApply:(v:DocumentView)=>Promise<unknown>;onPreview:(v?:DocumentView)=>void;onSelectionSession:(s?:FeatureSelectionSession)=>void;onLocate:(s:SelectionItem)=>void;
 }){
+ const [operationId]=useState(randomUUID),[sourceGeneration,setSourceGeneration]=useState(0);
  const [baseline]=useState(view.document.versionId),[instanceId,setInstanceId]=useState(initialInstanceId),[picking,setPicking]=useState(!initialInstanceId);
  const [newId,setNewId]=useState<string>(),[search,setSearch]=useState(''),[mapping,setMapping]=useState<Record<string,string>>({}),[busy,setBusy]=useState(false),[error,setError]=useState<string>();
  const alive=useRef(true),callbacks=useRef({onPreview,onSelectionSession});callbacks.current={onPreview,onSelectionSession};
@@ -25,7 +27,13 @@ export function ReplaceInstanceDialog({view,initialInstanceId,onClose,onApply,on
  const findKind=(n:DocumentView['structureTree']):string|undefined=>{if(n?.kind==='INSTANCE'&&n.entityId===instanceId&&n.instancePath?.segments.length===1)return n.documentType;for(const c of n?.children??[]){const k=findKind(c);if(k)return k}};
  const kind=findKind(view.structureTree);
  const documents=useQuery({queryKey:['replacement-documents',kind,search],queryFn:()=>api.listDocuments({type:kind,query:search,allFolders:true,limit:50}),enabled:!!instance&&!!kind});
- const replacement=useQuery({queryKey:['replacement-document',newId],queryFn:()=>api.getDocument(newId!),enabled:!!newId,refetchOnWindowFocus:false,staleTime:Infinity});
+ const [sourceSnapshot,setSourceSnapshot]=useState<{generation:number;id:string;view:DocumentView}>();
+ const frozen=sourceSnapshot?.generation===sourceGeneration&&sourceSnapshot.id===newId?sourceSnapshot:undefined;
+ const acquisition=useQuery({queryKey:['replacement-document',operationId,sourceGeneration,newId],queryFn:()=>api.getDocument(newId!),enabled:!!newId&&!frozen,refetchOnWindowFocus:false,refetchOnReconnect:false,refetchOnMount:false,gcTime:0,staleTime:Infinity});
+ useEffect(()=>{if(!frozen&&newId&&acquisition.data?.document.id===newId)setSourceSnapshot({generation:sourceGeneration,id:newId,view:acquisition.data})},[frozen,newId,sourceGeneration,acquisition.data]);
+ // A completed acquisition belongs to the command, independently of subsequent
+ // query invalidation/cache publication. Only an explicit selection replaces it.
+ const replacement={...acquisition,data:frozen?.view,error:frozen?null:acquisition.error,isFetching:!frozen&&acquisition.isFetching};
  const impact=useMemo(()=>replacementImpact(view,instanceId??''),[view,instanceId]);
  const candidates=replacement.data?publicDescriptors(replacement.data):[];
  const chooseInstance=(id:string)=>{setInstanceId(id);setNewId(undefined);setMapping({});setPicking(false);setError(undefined)};
@@ -38,16 +46,16 @@ export function ReplaceInstanceDialog({view,initialInstanceId,onClose,onApply,on
  }:undefined,[valid,instance?.id,replacement.data,complete,JSON.stringify(mapping),impact.blocked.join('|')]);
  const preview=useFeaturePreview(view.document.id,baseline,command,undefined,()=>{});
  useEffect(()=>{callbacks.current.onPreview(preview.result?.replacementView);return()=>callbacks.current.onPreview()},[preview.result]);
- const chooseReplacement=(id:string)=>{setNewId(id);setMapping({});setError(undefined)};
+ const chooseReplacement=(id:string)=>{setSourceSnapshot(undefined);setSourceGeneration(g=>g+1);setNewId(id);setMapping({});setError(undefined)};
  const suggest=useMemo(()=>{
   const result:Record<string,string>={};for(const id of impact.used){const old=oldPublications.find(p=>p.id===id);if(!old)continue;const same=candidates.filter(p=>p.name===old.name&&replacementCompatible(old,p));if(same.length===1)result[id]=same[0].id;}return result;
  },[JSON.stringify(oldPublications),JSON.stringify(candidates),impact.used.join('|')]);
  // A name only recommends an explicit identity pair; ambiguous matches stay empty.
  useEffect(()=>{setMapping(suggest)},[newId,replacement.data?.document.versionId,instanceId,JSON.stringify(suggest)]);
  const apply=async()=>{if(!command||!preview.previewId||busy)return;setBusy(true);try{const next=await api.command(view.document.id,{...command,previewId:preview.previewId});if(!alive.current)return;await onApply(next);onClose()}catch(e){if(alive.current)setError(engineeringProblem(e))}finally{if(alive.current)setBusy(false)}};
- return <CommandDialog id="replace-instance" open title="替换组件" size="M" placement="right" onClose={onClose} onConfirm={()=>void apply()} confirmLoading={busy} confirmDisabled={!valid||!command||preview.pending||!preview.previewId||!!preview.error} onCancelPick={()=>{if(!picking)return false;setPicking(false);return true}} commandStatus={<CommandStatus pending={preview.pending} error={!valid?'装配已更新，请重新打开':error||impact.blocked[0]||preview.error||(replacement.error?engineeringProblem(replacement.error):catalog.error?engineeringProblem(catalog.error):undefined)} onRetry={preview.retry}/>}>
+ return <CommandDialog id="replace-instance" open title="替换组件" size="M" placement="right" onClose={onClose} onConfirm={()=>void apply()} confirmLoading={busy} confirmDisabled={!valid||!command||preview.pending||!preview.previewId||!!preview.error} onCancelPick={()=>{if(!picking)return false;setPicking(false);return true}} commandStatus={<CommandStatus pending={preview.pending} error={!valid?'装配已更新，请重新打开':error||impact.blocked[0]||preview.error||(replacement.error?engineeringProblem(replacement.error):catalog.error?engineeringProblem(catalog.error):undefined)} onRetry={replacement.error?()=>{setSourceSnapshot(undefined);setSourceGeneration(g=>g+1)}:catalog.error?()=>{void catalog.refetch()}:preview.retry}/>}>
   <FeaturePickField label="原组件" value={instance?.name} selected={!!instance} active={picking} onActivate={()=>setPicking(true)} onCancel={()=>setPicking(false)} onClear={()=>{setInstanceId(undefined);setNewId(undefined);setMapping({})}} onLocate={instance?()=>onLocate({kind:'instance',id:instance.id,instanceId:instance.id,occurrencePath:instance.id}):undefined}/>
-  <CommandField label="新组件" width="expression"><Select aria-label="新组件" showSearch filterOption={false} searchValue={search} onSearch={setSearch} placeholder="搜索同类型组件" value={newId} onChange={chooseReplacement} loading={documents.isFetching||replacement.isFetching} options={(documents.data?.documents??[]).filter(d=>d.id!==view.document.id&&d.id!==instance?.documentId).map(d=>({value:d.id,label:d.name}))}/></CommandField>
+  <CommandField label="新组件" width="expression"><Select aria-label="新组件" showSearch filterOption={false} searchValue={search} onSearch={setSearch} placeholder="搜索同类型组件" value={newId} onSelect={chooseReplacement} loading={documents.isFetching||replacement.isFetching} options={(documents.data?.documents??[]).filter(d=>d.id!==view.document.id&&d.id!==instance?.documentId).map(d=>({value:d.id,label:d.name}))}/></CommandField>
   {instance&&<CommandField label="引用方式"><span>{instance.referenceMode==='PINNED'?'固定版本':instance.referenceMode==='FOLLOW_WORKSPACE_WITH_ACCEPT'?'接受更新后采用':'跟随更新'}</span></CommandField>}
   {impact.used.map(id=>{const old=oldPublications.find(p=>p.id===id);return <CommandField key={id} label={old?.name??'来源接口已丢失'} width="expression"><Select allowClear aria-label={`对应接口：${old?.name??'来源接口已丢失'}`} placeholder="选择对应接口" value={mapping[id]} onChange={value=>setMapping(m=>{const next={...m};if(value)next[id]=value;else delete next[id];return next})} options={candidates.filter(p=>old&&replacementCompatible(old,p)).map(p=>({value:p.id,label:p.name}))}/></CommandField>})}
   {instance&&<CommandField label="影响范围" width="expression"><span>{impact.bindings.length} 项关联输入 · {impact.constraints.length} 项约束 · {impact.forwarding.length} 项转发接口</span></CommandField>}

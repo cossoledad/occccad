@@ -497,8 +497,18 @@ func (service *Service) contextVariantsForProductModel(ctx context.Context, mode
 	}
 	result := map[string]ContextVariantSnapshot{}
 	for canonical, bindings := range grouped {
-		path := paths[canonical]
+		// All bindings retain their accepted source/value snapshots. The
+		// receiving definition comes from this candidate's accepted edges,
+		// independently of which binding was most recently created.
+		original := paths[canonical]
+		path, err := service.refreshProductInstancePath(ctx, model, original)
+		if err != nil {
+			return nil, err
+		}
 		leaf := path.Segments[len(path.Segments)-1]
+		if leaf.ReferencedDocumentID != original.Segments[len(original.Segments)-1].ReferencedDocumentID {
+			return nil, fmt.Errorf("%w: ContextBinding receiver document changed", ErrValidation)
+		}
 		owner := expandedOccurrence{Path: path, DocumentID: leaf.ReferencedDocumentID,
 			RevisionID: leaf.ResolvedVersionID, DocumentType: "PART", Name: leaf.InstanceName}
 		variant, err := service.contextVariantSnapshot(ctx, owner, bindings)
