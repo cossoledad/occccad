@@ -1,3 +1,4 @@
+import {DesignInputDialog} from "./design-input-dialog";
 import {ReplaceInstanceDialog} from "./replace-instance-dialog";
 import {ContextInputSource,boundContextParameter as contextParameterBinding} from './context-input-source';
 import {FeaturePickField} from './feature-pick-field';
@@ -241,6 +242,7 @@ export function Workbench() {
   const [externalParameterID, setExternalParameterID] = useState<string>();
   const [editingParameterID, setEditingParameterID] = useState<string>();
   const [editingPublication, setEditingPublication] = useState<{id:string;kind:"PART"|"PRODUCT"}>();
+  const [designInputsOpen,setDesignInputsOpen]=useState(false);
   const [editingContextInput,setEditingContextInput]=useState<{id:string;name:string;required:boolean}>();
   const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: AssemblyConstraintToolKind; references: AssemblyGeometryRef[]; angleRelation?:AssemblyConstraint["angleRelation"]; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; angleReferenceDirection?: Vec3 }>();
   const [editingAssemblyConstraint, setEditingAssemblyConstraint] = useState<AssemblyConstraint>();
@@ -1199,7 +1201,7 @@ export function Workbench() {
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
     setParameterManagerOpen(false);setPublicationManagerOpen(false);setDesignAssociationOpen(false);setExternalParameterID(undefined);
     setEditingParameterID(undefined);setEditingPublication(undefined);
-    setEditingContextInput(undefined);
+    setEditingContextInput(undefined);setDesignInputsOpen(false);
   };
   const openObjectProperties=(selections?:import("../../types").SelectionItem[])=>{
     if(!view)return;
@@ -1386,7 +1388,7 @@ onToggleConstruction:(node)=>{
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
   const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{setDeveloperOpen,openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMechanismAnalysisOpen,setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    setAssociationRepairOpen,associationRepairOpen,setDesignAssociationOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},formActive:Boolean(replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+    setAssociationRepairOpen,associationRepairOpen,setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},formActive:Boolean(designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1993,6 +1995,7 @@ onToggleConstruction:(node)=>{
       onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"NEW_BODY",supportSketch.id);else viewport.current?.clearCommandPreview();}}
       onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}
       onClose={()=>{viewport.current?.clearCommandPreview();setDatumPreview(undefined);setSupportSketch(undefined);}}/>}
+    {designInputsOpen&&editingView?.part&&!activeInstancePath&&<DesignInputDialog view={editingView} onClose={()=>{setDesignInputsOpen(false);setFeatureSelection(undefined)}} onApply={refresh} onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}} onSelectionSession={setFeatureSelection} onLocate={s=>store.setSelections([s])}/>}
     {replacementOpen&&view.product&&<ReplaceInstanceDialog key={view.document.id} view={view} initialInstanceId={replacementInstanceId} onSelectionSession={setFeatureSelection} onLocate={s=>store.setSelections([s])} onPreview={setReplacementPreview} onApply={refresh} onClose={()=>{setReplacementOpen(false);setReplacementPreview(undefined);setFeatureSelection(undefined)}}/>}
     {featureMove&&editingView?.part&&<FeatureMoveDialog key={editingView.document.id+featureMove.feature.id} view={editingView} feature={featureMove.feature} digest={featureMove.digest}
       onClose={()=>{viewport.current?.clearCommandPreview();setFeatureMove(undefined)}}

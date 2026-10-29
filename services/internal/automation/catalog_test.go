@@ -177,6 +177,8 @@ func TestAutomationSourcePermissionsBeforeEvaluation(t *testing.T) {
 			args["referencedDocumentId"] = source
 		case "command.replace_instance":
 			args["instanceId"] = "instance"
+			args["versionId"] = uuid.NewString()
+			args["replacementVersionId"] = uuid.NewString()
 			args["referencedDocumentId"] = source
 		case "command.set_parameter_external":
 			args = map[string]any{"parameterId": "parameter", "sourceDocumentId": source, "publicationId": "publication", "referenceMode": "FOLLOW_HEAD"}

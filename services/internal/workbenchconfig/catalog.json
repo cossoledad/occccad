@@ -1918,6 +1918,30 @@
       "implementation": "handler"
     },
     {
+      "id": "part.design-inputs",
+      "name": "设计输入",
+      "helpText": "准备关联输入的本地对象与独立默认值。",
+      "iconKey": "publication",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
       "id": "part.publications",
       "name": "发布接口",
       "helpText": "管理可供其他零件引用的几何和参数。",
@@ -6122,6 +6146,11 @@
           "commandId": "part.design-associations",
           "groupKey": "primary",
           "order": 30
+        },
+        {
+          "commandId": "part.design-inputs",
+          "groupKey": "primary",
+          "order": 25
         }
       ]
     },

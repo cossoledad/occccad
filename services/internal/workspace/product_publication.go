@@ -19,17 +19,20 @@ const (
 )
 
 type replaceInstancePayload struct {
-	RootRevisionID         string            `json:"rootRevisionId"`
-	SourceDocumentID       string            `json:"sourceDocumentId"`
-	SourceRevisionID       string            `json:"sourceRevisionId"`
-	PublicationMapping     map[string]string `json:"publicationMapping"`
-	AffectedBindingIDs     []string          `json:"affectedBindingIds"`
-	AffectedConstraintIDs  []string          `json:"affectedConstraintIds"`
-	AffectedPublicationIDs []string          `json:"affectedPublicationIds"`
-	InstanceID             string            `json:"instanceId"`
-	ReferencedDocumentID   string            `json:"referencedDocumentId"`
-	ReferencedVersionID    string            `json:"referencedVersionId"`
-	Model                  ProductModel      `json:"model"`
+	Receiver               bool                    `json:"receiver,omitempty"`
+	ContextInputMapping    map[string]string       `json:"contextInputMapping,omitempty"`
+	FrozenSourcePoses      map[string]InstancePose `json:"frozenSourcePoses,omitempty"`
+	RootRevisionID         string                  `json:"rootRevisionId"`
+	SourceDocumentID       string                  `json:"sourceDocumentId"`
+	SourceRevisionID       string                  `json:"sourceRevisionId"`
+	PublicationMapping     map[string]string       `json:"publicationMapping"`
+	AffectedBindingIDs     []string                `json:"affectedBindingIds"`
+	AffectedConstraintIDs  []string                `json:"affectedConstraintIds"`
+	AffectedPublicationIDs []string                `json:"affectedPublicationIds"`
+	InstanceID             string                  `json:"instanceId"`
+	ReferencedDocumentID   string                  `json:"referencedDocumentId"`
+	ReferencedVersionID    string                  `json:"referencedVersionId"`
+	Model                  ProductModel            `json:"model"`
 }
 
 type productPublicationPayload struct {

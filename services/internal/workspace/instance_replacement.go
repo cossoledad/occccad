@@ -59,6 +59,36 @@ func (s *Service) prepareInstanceReplacement(ctx context.Context, documentID str
 		}
 	}
 
+	receiver := false
+	outgoing := false
+	for _, b := range model.ContextBindings {
+		if len(b.OwningInstancePath.Segments) > 0 && b.OwningInstancePath.Segments[0].InstanceID == old.ID {
+			receiver = true
+		}
+		if len(b.SourceInstancePath.Segments) > 0 && b.SourceInstancePath.Segments[0].InstanceID == old.ID {
+			outgoing = true
+		}
+	}
+	if receiver && outgoing {
+		return fail("REPLACEMENT_CHAIN_UNSUPPORTED")
+	}
+	if receiver && oldKind != "PART" {
+		return fail("REPLACEMENT_RECEIVER_UNSUPPORTED")
+	}
+	receiverIDs := []string{}
+	frozen := map[string]InstancePose{}
+	if oldKind == "PART" {
+		part, readErr := s.readAssemblyPartModel(ctx, r.ReferencedDocumentID, r.ReplacementVersionID)
+		if readErr != nil {
+			return "", nil, readErr
+		}
+		receiverIDs, frozen, err = s.receiverReplacementInputs(ctx, documentID, model, old, part.model, r.ContextInputMapping)
+		if err != nil {
+			return "", nil, err
+		}
+	} else if len(r.ContextInputMapping) > 0 {
+		return fail("REPLACEMENT_IMPACT_CHANGED")
+	}
 	used := map[string]bool{}
 	bindingIDs, constraintIDs, publicationIDs := []string{}, []string{}, []string{}
 	uses := func(p InstancePath) bool { return len(p.Segments) > 0 && p.Segments[0].InstanceID == old.ID }
@@ -67,7 +97,8 @@ func (s *Service) prepareInstanceReplacement(ctx context.Context, documentID str
 	}
 	for _, b := range model.ContextBindings {
 		if uses(b.OwningInstancePath) {
-			return fail("REPLACEMENT_RECEIVER_UNSUPPORTED: 组件是关联输入的接收方，本轮不支持迁移其本地输入")
+			bindingIDs = append(bindingIDs, b.ID)
+			continue
 		}
 		if !uses(b.SourceInstancePath) {
 			continue
@@ -164,6 +195,12 @@ func (s *Service) prepareInstanceReplacement(ctx context.Context, documentID str
 	}
 	for i := range model.ContextBindings {
 		b := &model.ContextBindings[i]
+		if receiver && slices.Contains(receiverIDs, b.ID) {
+			b.OwningInstancePath = path(b.OwningInstancePath)
+			b.ContextInputID = r.ContextInputMapping[b.ContextInputID]
+			b.Accepted.OwningRevisionID = r.ReplacementVersionID
+			continue
+		}
 		if !uses(b.SourceInstancePath) {
 			continue
 		}
@@ -211,32 +248,35 @@ func (s *Service) prepareInstanceReplacement(ctx context.Context, documentID str
 			}
 		}
 	}
-	replacement := replaceInstancePayload{InstanceID: old.ID, AffectedBindingIDs: bindingIDs}
+	replacement := replaceInstancePayload{InstanceID: old.ID, AffectedBindingIDs: bindingIDs, Receiver: receiver, FrozenSourcePoses: frozen, ReferencedDocumentID: r.ReferencedDocumentID, ReferencedVersionID: r.ReplacementVersionID}
 	if _, err = s.refreshReplacementFrames(&model, replacement, true); err != nil {
 		return "", nil, err
 	}
-	if err = s.resolveAssemblySupports(ctx, &model); err != nil {
-		return "", nil, err
-	}
-	variants, err := s.contextVariantsForProductModel(ctx, model)
-	if err != nil {
-		return "", nil, fmt.Errorf("REPLACEMENT_GEOMETRY_FAILED: %w", err)
-	}
-	for _, v := range variants {
-		if v.Status != "READY" {
-			return fail("REPLACEMENT_GEOMETRY_FAILED: 关联零件无法完成替换后的求值，请检查输入及下游特征")
+	if !receiver {
+		if err = s.resolveAssemblySupports(ctx, &model); err != nil {
+			return "", nil, err
+		}
+		variants, err := s.contextVariantsForProductModel(ctx, model)
+		if err != nil {
+			return "", nil, fmt.Errorf("REPLACEMENT_GEOMETRY_FAILED: %w", err)
+		}
+		for _, v := range variants {
+			if v.Status != "READY" {
+				return fail("REPLACEMENT_GEOMETRY_FAILED: 关联零件无法完成替换后的求值，请检查输入及下游特征")
+			}
+		}
+		s.resolveProductPublications(ctx, &model, variants)
+		for _, p := range model.Publications {
+			if uses(p.Target.InstancePath) && p.Resolution.Status != "CONNECTED" {
+				return fail("REPLACEMENT_FORWARDING_FAILED: 对外接口“" + p.Name + "”无法恢复")
+			}
 		}
 	}
-	s.resolveProductPublications(ctx, &model, variants)
-	for _, p := range model.Publications {
-		if uses(p.Target.InstancePath) && p.Resolution.Status != "CONNECTED" {
-			return fail("REPLACEMENT_FORWARDING_FAILED: 对外接口“" + p.Name + "”无法恢复")
-		}
-	}
+
 	slices.Sort(bindingIDs)
 	slices.Sort(constraintIDs)
 	slices.Sort(publicationIDs)
-	return typeReplaceInstance, replaceInstancePayload{RootRevisionID: r.VersionID, SourceDocumentID: old.ReferencedDocumentID, SourceRevisionID: old.ReferencedVersionID, PublicationMapping: r.PublicationMapping, AffectedBindingIDs: bindingIDs, AffectedConstraintIDs: constraintIDs, AffectedPublicationIDs: publicationIDs, InstanceID: old.ID, ReferencedDocumentID: r.ReferencedDocumentID, ReferencedVersionID: r.ReplacementVersionID, Model: model}, nil
+	return typeReplaceInstance, replaceInstancePayload{Receiver: receiver, ContextInputMapping: r.ContextInputMapping, FrozenSourcePoses: frozen, RootRevisionID: r.VersionID, SourceDocumentID: old.ReferencedDocumentID, SourceRevisionID: old.ReferencedVersionID, PublicationMapping: r.PublicationMapping, AffectedBindingIDs: bindingIDs, AffectedConstraintIDs: constraintIDs, AffectedPublicationIDs: publicationIDs, InstanceID: old.ID, ReferencedDocumentID: r.ReferencedDocumentID, ReferencedVersionID: r.ReplacementVersionID, Model: model}, nil
 }
 
 func validateReplacementConstraints(model ProductModel, instanceID string) error {
@@ -272,7 +312,9 @@ func stampReplacementSnapshot(model *ProductModel, p replaceInstancePayload, rev
 		if slices.Contains(p.AffectedBindingIDs, b.ID) {
 			b.Accepted.RootProductRevisionID = revisionID
 			stamp(&b.OwningInstancePath)
-			stamp(&b.SourceInstancePath)
+			if !p.Receiver {
+				stamp(&b.SourceInstancePath)
+			}
 		}
 	}
 	for i := range model.Publications {
@@ -323,21 +365,29 @@ func replacementBindingFrames(model ProductModel, p replaceInstancePayload) (map
 		if !slices.Contains(p.AffectedBindingIDs, b.ID) {
 			continue
 		}
-		source, err := resolve(b.SourceInstancePath, true)
-		if err != nil {
-			return nil, err
+		if b.ReferenceMode == "PINNED" {
+			return nil, fmt.Errorf("%w: REPLACEMENT_PINNED_INPUT", ErrValidation)
 		}
-		// Input acceptance and the receiving definition have separate snapshots.
-		// Later edits may advance the same receiving Part in this Product; use
-		// that already accepted edge, never the source Head or a binding index.
 		owner, err := resolve(b.OwningInstancePath, false)
 		if err != nil {
 			return nil, err
 		}
-		if source.ID != p.InstanceID || b.SourceInstancePath.RootDocumentID != b.OwningInstancePath.RootDocumentID || b.ReferenceMode == "PINNED" {
-			return nil, fmt.Errorf("%w: REPLACEMENT_IMPACT_CHANGED", ErrValidation)
+		if p.Receiver {
+			pose, ok := p.FrozenSourcePoses[b.ID]
+			if !ok || owner.ID != p.InstanceID {
+				return nil, fmt.Errorf("%w: REPLACEMENT_IMPACT_CHANGED", ErrValidation)
+			}
+			frames[b.ID] = inverseRelativePose(pose, InstancePose{Translation: owner.Translation, Rotation: owner.Rotation})
+		} else {
+			source, err := resolve(b.SourceInstancePath, true)
+			if err != nil {
+				return nil, err
+			}
+			if source.ID != p.InstanceID || b.SourceInstancePath.RootDocumentID != b.OwningInstancePath.RootDocumentID {
+				return nil, fmt.Errorf("%w: REPLACEMENT_IMPACT_CHANGED", ErrValidation)
+			}
+			frames[b.ID] = inverseRelativePose(InstancePose{Translation: source.Translation, Rotation: source.Rotation}, InstancePose{Translation: owner.Translation, Rotation: owner.Rotation})
 		}
-		frames[b.ID] = inverseRelativePose(InstancePose{Translation: source.Translation, Rotation: source.Rotation}, InstancePose{Translation: owner.Translation, Rotation: owner.Rotation})
 	}
 	if len(frames) != len(p.AffectedBindingIDs) {
 		return nil, fmt.Errorf("%w: REPLACEMENT_IMPACT_CHANGED", ErrValidation)
@@ -410,7 +460,22 @@ func (s *Service) settleInstanceReplacement(ctx context.Context, documentID, rev
 		}
 		// This also covers the no-constraint path, where solveAssembly is a no-op.
 		if _, err := s.contextVariantsForProductModel(ctx, *model); err != nil {
-			return "", err
+			var failure *contextVariantEvaluationFailure
+			if round != 0 || !p.Receiver || !errors.As(err, &failure) || failure.Code != "CONTEXT_VARIANT_GEOMETRY_EVALUATION_FAILED" || failure.Occurrence != p.InstanceID {
+				if errors.Is(err, ErrValidation) {
+					return "", fmt.Errorf("REPLACEMENT_GEOMETRY_FAILED: %w", err)
+				}
+				return "", err
+			}
+			if placementErr := s.placeReceiverBeforeEvaluation(ctx, documentID, revisionID, requestID, model, p); placementErr != nil {
+				return "", fmt.Errorf("%w: initial placement: %v", placementErr, err)
+			}
+			if _, err := s.refreshReplacementFrames(model, p, true); err != nil {
+				return "", err
+			}
+			if _, err := s.contextVariantsForProductModel(ctx, *model); err != nil {
+				return "", err
+			}
 		}
 		solveID := fmt.Sprintf("%s/replacement/%d", requestID, round)
 		if err := s.solveAssembly(ctx, documentID, revisionID, solveID, "", nil, model, "", evidence); err != nil {

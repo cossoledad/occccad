@@ -952,7 +952,14 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err != nil {
 			return "", nil, err
 		}
-		return typeCreateContextInput, contextInputPayload{Input: input}, nil
+		point := ""
+		if request.ConnectInputPoint {
+			if input.Type != "POINT" || request.OwnerEntityID == "" {
+				return "", nil, fmt.Errorf("%w: select a local point for the input relation", ErrValidation)
+			}
+			point = request.OwnerEntityID
+		}
+		return typeCreateContextInput, contextInputPayload{Input: input, PointID: point}, nil
 	case "EDIT_CONTEXT_INPUT":
 		if documentType != "PART" {
 			break

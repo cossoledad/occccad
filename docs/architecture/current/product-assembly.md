@@ -84,6 +84,8 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 ## 发布与关联设计
 
+“设计输入”在独立 Part 中准备参数、平面/轴及草图点、直线/圆/圆弧的本地输入和默认值，支持定位、改名、必需标记与受保护删除。默认草图几何来自同一接收草图的已求解原生图元；点输入可原子建立外部槽位与普通 POINT 的重合关系，供原 Hole 使用。“应用并继续”每次提交一个输入，随后取消只丢弃未应用草稿，已应用项可逐次撤销。
+
 “发布接口”管理稳定 Publication，包括重命名与兼容重定向；“引用设计信息”在已激活 Part occurrence 中创建或复用本地输入，并管理绑定、定位、重连、固定与恢复跟随。新端口与 Product 绑定复用设计事务，预览和取消不创建模型对象。“应用并继续引用”一次提交一项，保留接收草图并更新修订、目录和预览基线；随后取消只丢弃未应用草稿，已应用项可逐次撤销。Part 发布与 Product 转发、重定向使用同一选择字段，核对目标文档、修订和完整实例路径；子装配接口可继续转发，定位仍指向确切 occurrence，改名不改变接口身份。参数的既有定义级 ExternalParameterRef 仍作用于共享 Part，保持独立语义。
 
 | 发布类型 | 当前上下文消费者 |
@@ -99,13 +101,15 @@ Product 只保存来源和值：ContextBinding 冻结来源 Revision、完整 oc
 
 子装配消费者保存模块的公开 PublicationId 与模块 occurrence 路径，不绕过接口绑定内部布局。各 owning Product 的 UpdatePlan 只更新自身引用和绑定；来源装配内部待更新或受阻时，父计划携带来源计划摘要并保留已接受结果，可从关联管理或更新修复入口转到来源装配。先在来源装配接受内部来源，再在父装配接受模块和本地输入；普通 FOLLOW_HEAD 仍可跟随已计算版本，关联输入保持显式接受，PINNED 输入和固定模块不读取新 Head。接受输入的全部 Binding 快照进入同一 ChangeSet，撤销/重做同时恢复孔位、来源及引用。
 
-“替换组件”由装配工具和直接组件的结构树菜单进入，独立于发布管理。当前只替换 owning Product 的一个直接来源组件，支持 Part→Part、Product→Product；仅对实际被 ContextBinding、当前装配约束和对外转发接口使用的 Publication 指定对应关系。名称只推荐唯一兼容候选，命令冻结装配基线、新组件确切 Revision、旧/新 PublicationId 和影响集合，权威校验类型、兼容版本、契约、量纲及解析状态。实例名称、策略和初始位姿保留；候选求值与求解成功后才可采用，视图区展示候选组件和关联结果，取消恢复原显示且不写 Head。替换不调用整装配 UPDATE_REFERENCES，其他实例和无关已接受输入保持原版本；后台自动跟随也不会接受含待确认组件或关联输入的计划。接口、Binding、本地端口、约束和下游 Feature 保持身份，全部迁移与求解变化进入一次正式 ChangeSet，撤销/重做恢复完整关系。
+“替换组件”由装配工具和直接组件的结构树菜单进入，独立于发布管理。当前替换 owning Product 的一个直接来源组件（Part→Part、Product→Product），或一个直接接收 Part（Part→Part）；仅对实际被 ContextBinding、当前装配约束和对外转发接口使用的 Publication 指定对应关系。名称只推荐唯一兼容候选，命令冻结装配基线、新组件确切 Revision、旧/新 PublicationId 和影响集合，权威校验类型、兼容版本、契约、量纲及解析状态。实例名称、策略和初始位姿保留；候选求值与求解成功后才可采用，视图区展示候选组件和关联结果，取消恢复原显示且不写 Head。替换不调用整装配 UPDATE_REFERENCES，其他实例和无关已接受输入保持原版本；后台自动跟随也不会接受含待确认组件或关联输入的计划。Product 接口、Binding 与约束保持身份；来源替换保留接收端本地端口和下游 Feature，接收替换采用新件自身的内部身份。全部迁移与求解变化进入一次正式 ChangeSet，撤销/重做恢复完整关系。
 
 替换输入按完整 occurrence 路径和稳定实例 ID 取得两端，不依赖实例或 Binding 的排列。接收定义采用 Product 已接受的实例版本，各 Binding 保留自己的已接受来源和值快照。候选在现有求值与装配求解之间最多重算四轮，直到受影响输入的相对变换与最终位姿一致；预览、直接提交与预览采用共用最终检查，不一致时拒绝并保留原模型。只更新本次迁移的输入，其他已接受绑定和待接受版本不变。来源快照在每次新操作或明确重选时重新获取，在本次映射、预览和确认期间冻结；后台刷新不改变候选版本。
 
-首轮不迁移接收组件的本地输入、深层私有引用、原始拓扑/基准支撑或机构关系，不支持批量或跨类型替换；被选来源提供固定输入时要求先明确处理该关联，不能隐式解除固定或改绑。FIX 的整个 occurrence 与现有直接实例固联组沿用实例身份。未使用的接口无需映射；缺失、不可用或不兼容接口、关联几何失败及约束迁移失败均拒绝候选并保留原装配。
+接收端以明确的旧/新 ContextInputId 对应覆盖全部已有绑定，校验类型、契约、量纲和本地目标唯一性。同名唯一兼容只作推荐；新件额外可选输入使用其本地默认值，额外必需输入未满足则拒绝。保留实例和 Binding 身份、策略、已接受来源版本、值及来源路径；根据每条绑定接受时的来源世界框架换算新接收坐标，不推进上游待接受输入或其他实例。新件使用自己的端口、草图和 Feature 身份，不复制旧件内部对象。初始关联实体失败时，仅允许用不依赖关联输入或失败 Feature 的独立安装基准先摆放一次；随后仍完整求值并检查实际 Variant 的约束和对外接口，不能满足则原子拒绝。
 
-实现入口：workspace 的 publication、context_input_geometry、product_context、product_design_transaction、product_update_release、instance_replacement、context_editing；Web 的 design-association-dialog、replace-instance-dialog 与 context-edit-scope。真实回归入口为 control/publication_layout_integration_test、control/subassembly_publication_integration_test、browser/publication-layout-live.spec。它们是验证入口，执行范围以本轮报告为准。
+不迁移固定 ContextBinding，也不支持接收件同时作为其他 ContextBinding 来源、深层私有引用、原始拓扑/基准支撑或机构关系，不支持批量或跨类型替换；被选来源提供固定输入时要求先明确处理该关联，不能隐式解除固定或改绑。FIX 的整个 occurrence 与现有直接实例固联组沿用实例身份。未使用的接口无需映射；缺失、不可用或不兼容接口、关联几何失败及约束迁移失败均拒绝候选并保留原装配。
+
+实现入口：workspace 的 publication、context_input_geometry、product_context、product_design_transaction、product_update_release、instance_replacement、receiver_replacement、context_editing；Web 的 design-input-dialog、design-association-dialog、replace-instance-dialog 与 context-edit-scope。真实回归入口为 control/publication_layout_integration_test、control/subassembly_publication_integration_test、browser/publication-layout-live.spec。它们是验证入口，执行范围以本轮报告为准。
 
 接收 Part 限定当前 owning Product 的直接子实例；来源为直接 Part 发布或直接子 Product 的公开接口。支持逐层公开转发与各层独立接受，不提供任意深层上下文编辑、深层或批量组件替换、跨层原子更新编排、Wire、曲面/实体 Feature 输入或 Skeleton 文档类型。删除发布的跨工作区并发预检限制见[建模与显示](model-display.md#参数与-publication)。
 

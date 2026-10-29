@@ -358,6 +358,11 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 	}
 	err := service.evaluatePartBodies(ctx, "context-variant/"+variant.VariantKey, &model)
 	if err != nil {
+		var geometryFailure *solidEvaluationFailure
+		if !errors.As(err, &geometryFailure) {
+			return ContextVariantSnapshot{}, err
+		}
+
 		variant.Status, variant.DiagnosticCode, variant.Diagnostic = "FAILED", "CONTEXT_VARIANT_GEOMETRY_EVALUATION_FAILED", err.Error()
 		return variant, nil
 	}
@@ -484,6 +489,12 @@ func (service *Service) acceptedContextVariants(ctx context.Context, items []exp
 	return result, nil
 }
 
+// Keeps candidate failure location distinct from transport/database errors.
+type contextVariantEvaluationFailure struct{ Code, Occurrence, Detail string }
+
+func (e *contextVariantEvaluationFailure) Error() string { return e.Code + ": " + e.Detail }
+func (e *contextVariantEvaluationFailure) Unwrap() error { return ErrValidation }
+
 func (service *Service) contextVariantsForProductModel(ctx context.Context, model ProductModel) (map[string]ContextVariantSnapshot, error) {
 	grouped := map[string][]ContextBinding{}
 	paths := map[string]InstancePath{}
@@ -516,7 +527,7 @@ func (service *Service) contextVariantsForProductModel(ctx context.Context, mode
 			return nil, err
 		}
 		if variant.Status != "READY" {
-			return nil, fmt.Errorf("%w: %s: %s", ErrValidation, variant.DiagnosticCode, variant.Diagnostic)
+			return nil, &contextVariantEvaluationFailure{Code: variant.DiagnosticCode, Occurrence: canonical, Detail: variant.Diagnostic}
 		}
 		result[canonical] = variant
 	}

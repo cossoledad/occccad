@@ -55,3 +55,27 @@ func TestReplacementFramesUseStableEdgesAndPreserveUnrelatedInputs(t *testing.T)
 		t.Fatal("stale path silently accepted")
 	}
 }
+
+func TestReceiverReplacementFramesUseAcceptedPoseAndPreserveSourceReceipt(t *testing.T) {
+	ownerPath := InstancePath{RootDocumentID: "root", Segments: []InstancePathSegment{{OwnerVersionID: "old-root", InstanceID: "receiver", ReferencedDocumentID: "new-part", ResolvedVersionID: "new-r1"}}}
+	sourcePath := InstancePath{RootDocumentID: "root", Segments: []InstancePathSegment{{OwnerVersionID: "accepted-root", InstanceID: "source", ReferencedDocumentID: "source", ResolvedVersionID: "accepted-source"}}}
+	frozen := InstancePose{Translation: [3]float64{25, 12, 0}, Rotation: [4]float64{0, 0, 0, 1}}
+	m := ProductModel{Instances: []ProductInstance{{ID: "source", ReferencedDocumentID: "source", ReferencedVersionID: "pending-source", Translation: [3]float64{100, 0, 0}}, {ID: "receiver", ReferencedDocumentID: "new-part", ReferencedVersionID: "new-r1", Translation: [3]float64{5, 0, 0}, Rotation: [4]float64{0, 0, 0, 1}}}, ContextBindings: []ContextBinding{{ID: "b", OwningInstancePath: ownerPath, SourceInstancePath: sourcePath, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT", Accepted: ContextBindingResolutionSnapshot{SourceRevisionID: "accepted-source"}}}}
+	p := replaceInstancePayload{Receiver: true, InstanceID: "receiver", AffectedBindingIDs: []string{"b"}, FrozenSourcePoses: map[string]InstancePose{"b": frozen}}
+	s := &Service{}
+	if _, e := s.refreshReplacementFrames(&m, p, true); e != nil {
+		t.Fatal(e)
+	}
+	if m.ContextBindings[0].Transform.Translation != [3]float64{20, 12, 0} {
+		t.Fatal("used current source pose instead of accepted source frame", m.ContextBindings[0].Transform)
+	}
+	stampReplacementSnapshot(&m, p, "committed-root")
+	raw, _ := json.Marshal(m.ContextBindings[0].SourceInstancePath)
+	want, _ := json.Marshal(sourcePath)
+	if string(raw) != string(want) || m.ContextBindings[0].Accepted.SourceRevisionID != "accepted-source" {
+		t.Fatal("accepted source receipt changed")
+	}
+	if m.ContextBindings[0].OwningInstancePath.Segments[0].OwnerVersionID != "committed-root" {
+		t.Fatal("owner receipt not committed")
+	}
+}

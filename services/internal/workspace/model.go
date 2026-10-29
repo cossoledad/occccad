@@ -1221,6 +1221,8 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	ContextInputMapping       map[string]string            `json:"contextInputMapping,omitempty"`
+	ConnectInputPoint         bool                         `json:"connectInputPoint,omitempty"`
 	ReplacementVersionID      string                       `json:"replacementVersionId,omitempty"`
 	PublicationMapping        map[string]string            `json:"publicationMapping,omitempty"`
 	AfterFeatureID            string                       `json:"afterFeatureId,omitempty"`

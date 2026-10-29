@@ -28,7 +28,7 @@ export type WorkbenchCommandBindings={
  startSketch:()=>void;finishSketch:()=>void;normalToSelection:(signal?:AbortSignal)=>void|Promise<void>;
  openSolidFeature:(generator:"LINEAR_EXTRUDE"|"REVOLVE",operation?:"NEW_BODY"|"ADD"|"REMOVE")=>void;
  deleteTreeNodes:(nodes:SpecificationTreeNode[])=>void;executeHistory:(direction:"undo"|"redo")=>void;
- setConflictOpen:(open:boolean)=>void;setParameterManagerOpen:(open:boolean)=>void;setPublicationManagerOpen:(open:boolean)=>void;
+ setDesignInputsOpen?:(open:boolean)=>void;setConflictOpen:(open:boolean)=>void;setParameterManagerOpen:(open:boolean)=>void;setPublicationManagerOpen:(open:boolean)=>void;
  setMechanismAnalysisOpen?:(open:boolean)=>void;
  setInsertOpen:(open:boolean)=>void;setPatternOpen:(open:boolean)=>void;setReleaseOpen:(open:boolean)=>void;setVersionOpen:(open:boolean)=>void;
  setShareResource:(resource:ShareResource)=>void;
@@ -86,6 +86,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "part.parameters", execute: () => setParameterManagerOpen(true),
         isEnabled: () => Boolean(editingView?.part) }),
       ({id:"part.design-associations",execute:()=>bindings.setDesignAssociationOpen?.(true),isEnabled:()=>Boolean(canEditRoot&&editingView?.part&&["OWNER","EDITOR"].includes(editingView.document.permission)&&bindings.setDesignAssociationOpen)}),
+      ({id:"part.design-inputs",execute:()=>bindings.setDesignInputsOpen?.(true),isEnabled:()=>Boolean(canEdit&&editingView?.part&&editingView.document.id===view?.document.id&&!store.activeSketchID&&!command.isPending)}),
       ({ id: "part.publications", execute: () => setPublicationManagerOpen(true),
 		 isEnabled: () => Boolean(editingView?.part || editingView?.product) }),
       ({ id: "product.publications", execute: () => setPublicationManagerOpen(true),

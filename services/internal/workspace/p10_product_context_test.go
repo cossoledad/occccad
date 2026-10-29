@@ -260,3 +260,65 @@ func TestUpdateReferencesCompensatesAcceptedBindingSnapshots(t *testing.T) {
 		t.Fatal("undo did not restore exact accepted inputs")
 	}
 }
+
+func TestContextInputNativeDefaultsAndPointLinkAreAtomic(t *testing.T) {
+	for _, kind := range []string{"POINT", "LINE", "CIRCLE", "ARC"} {
+		t.Run(kind, func(t *testing.T) {
+			m := newPartModel()
+			e := SketchEntity{ID: "native", Name: "Native.1", Kind: kind, Role: "CONSTRUCTION", Point: &SketchPoint2{X: 3, Y: 4}, Start: &SketchPoint2{X: 1, Y: 2}, End: &SketchPoint2{X: 8, Y: 9}, Center: &SketchPoint2{X: 3, Y: 2}, Radius: 5, StartAngle: .3, EndAngle: 2.5}
+			m.Features = []Feature{{ID: "sketch", Name: "Sketch.1", Type: "SKETCH", BodyID: m.ActiveBodyID, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"}, Entities: []SketchEntity{e}}}}
+			typ := "CURVE"
+			if kind == "POINT" {
+				typ = "POINT"
+			}
+			request := CommandRequest{RequestID: "prepare-" + kind, VersionID: "base", Name: "Design", TargetKind: "SKETCH_EXTERNAL_GEOMETRY", TargetID: "sketch", SketchID: "sketch", OwnerEntityID: "native", PublicationType: typ}
+			input, err := contextInputFromRequest(m, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if input.Default == nil || input.Default.External == nil || input.Default.External.Kind != kind {
+				t.Fatal("missing exact local default")
+			}
+			before, _ := json.Marshal(m)
+			payload := contextInputPayload{Input: input}
+			if kind == "POINT" {
+				payload.PointID = "native"
+			}
+			raw, _ := json.Marshal(payload)
+			next, changes, err := applyCreateContextInput(before, raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var prepared PartModel
+			_ = json.Unmarshal(next, &prepared)
+			sk := prepared.Features[0].Sketch
+			if len(sk.ExternalGeometry) != 1 || sk.ExternalGeometry[0].ID != contextExternalID(input.ID) {
+				t.Fatal("port-owned identity missing")
+			}
+			if kind == "POINT" && (len(sk.Constraints) != 1 || sk.Constraints[0].Name != "Coincident.1" || sk.Constraints[0].References[0].EntityID != "native" || sk.Constraints[0].References[1].EntityID != sk.ExternalGeometry[0].ID) {
+				t.Fatal("formal point link missing", sk.Constraints)
+			}
+			current, err := modelValues("PART", next, changes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			inverse, err := changes.Compensate(current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reverted, err := applyModelValues("PART", next, inverse)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var original PartModel
+			_ = json.Unmarshal(reverted, &original)
+			if len(original.ContextInputs) != 0 || len(original.Features[0].Sketch.ExternalGeometry) != 0 || len(original.Features[0].Sketch.Constraints) != 0 {
+				t.Fatal("undo left half an input or point relation")
+			}
+			request.SketchID = "other-sketch"
+			if _, err := contextInputFromRequest(m, request); err == nil {
+				t.Fatal("default from a different receiving sketch accepted")
+			}
+		})
+	}
+}

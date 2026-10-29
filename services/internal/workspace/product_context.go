@@ -120,7 +120,8 @@ type productPublicationEditPayload struct {
 }
 
 type contextInputPayload struct {
-	Input ContextInput `json:"input"`
+	PointID string       `json:"pointId,omitempty"`
+	Input   ContextInput `json:"input"`
 }
 
 type contextInputEditPayload struct {
@@ -232,6 +233,28 @@ func applyCreateContextInput(modelJSON, payloadJSON json.RawMessage) (json.RawMe
 	}
 	if err := installContextInput(&model, payload.Input); err != nil {
 		return nil, modelcore.ChangeSet{}, err
+	}
+	if payload.PointID != "" {
+		found := false
+		for i := range model.Features {
+			f := &model.Features[i]
+			if f.ID != payload.Input.Target.TargetID || f.Sketch == nil {
+				continue
+			}
+			for _, e := range f.Sketch.Entities {
+				if e.ID == payload.PointID && e.Kind == "POINT" && !e.Suppressed {
+					found = true
+				}
+			}
+			if found {
+				prior := *f.Sketch
+				f.Sketch.Constraints = append(f.Sketch.Constraints, SketchConstraint{ID: macroID(payload.Input.ID, "point-link"), Kind: "COINCIDENT", References: []SketchGeometryRef{{Target: "ENTITY", EntityID: payload.PointID, SubElement: "POINT"}, {Target: "EXTERNAL", EntityID: contextExternalID(payload.Input.ID), SubElement: "POINT"}}})
+				assignSketchNames(f.Sketch, prior)
+			}
+		}
+		if !found {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: local input point is unavailable", ErrValidation)
+		}
 	}
 	model.ContextInputs = append(model.ContextInputs, payload.Input)
 	next, _ := json.Marshal(model)
@@ -744,6 +767,37 @@ func contextInputFromRequest(model PartModel, request CommandRequest) (ContextIn
 		contract = PublicationContract{GeometryKind: inputType, Symmetry: "NONE"}
 	default:
 		return ContextInput{}, fmt.Errorf("%w: unsupported ContextInput target kind", ErrValidation)
+	}
+	if kind == "SKETCH_EXTERNAL_GEOMETRY" && request.OwnerEntityID != "" {
+		if request.SketchID != targetID {
+			return ContextInput{}, fmt.Errorf("%w: default must belong to the receiving sketch", ErrValidation)
+		}
+		var entity *SketchEntity
+		for _, f := range model.Features {
+			if f.ID == targetID && f.Sketch != nil {
+				for i := range f.Sketch.Entities {
+					if f.Sketch.Entities[i].ID == request.OwnerEntityID {
+						e := f.Sketch.Entities[i]
+						entity = &e
+					}
+				}
+			}
+		}
+		if entity == nil {
+			return ContextInput{}, fmt.Errorf("%w: default sketch geometry is missing", ErrValidation)
+		}
+		typ := "CURVE"
+		if entity.Kind == "POINT" {
+			typ = "POINT"
+		}
+		if typ != inputType {
+			return ContextInput{}, fmt.Errorf("%w: default geometry type does not match input", ErrValidation)
+		}
+		resolved, err := nativeSketchPublication(model, PublicationTarget{Kind: "SKETCH_ENTITY", SketchID: targetID, EntityID: entity.ID, EntityKind: entity.Kind}, request.VersionID)
+		if err != nil {
+			return ContextInput{}, err
+		}
+		request.ContextInput = &ContextInput{Default: &ContextInputDefault{External: &resolved.NativeSketch.Geometry}}
 	}
 	name := strings.TrimSpace(request.Name)
 	if name == "" {

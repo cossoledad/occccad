@@ -213,7 +213,7 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 		if err := json.Unmarshal(nextJSON, &model); err != nil {
 			return err
 		}
-		if len(model.ContextBindings) > 0 {
+		if len(model.ContextBindings) > 0 && prepared.command.TypeURI != typeReplaceInstance {
 			if _, err := service.contextVariantsForProductModel(ctx, model); err != nil {
 				return err
 			}
