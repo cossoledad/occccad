@@ -285,7 +285,7 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 				t.Fatal("chain copied seed zero or filled holes")
 			}
 			// Unsupported contracts reject atomically and never become BODY_STAGE.
-			for _, mode := range []string{"duplicate", "delta", "independent", "through"} {
+			for _, mode := range []string{"duplicate", "delta", "independent", "to-plane"} {
 				bad := definition
 				q := *definition.Pattern
 				bad.Pattern = &q
@@ -298,11 +298,12 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 					q.StartFeatureID = hole.ID
 				case "independent":
 					q.ResultMode = "INDEPENDENT"
-				case "through":
+				case "to-plane":
 					f := saved(hole.ID)
-					f.Extent = "THROUGH_ALL"
+					f.Extent = "TO_PLANE"
+					f.TerminationPlaneID = "datum-xy"
 					if _, err := service.PreviewCommand(t.Context(), v.Document.ID, editRequest(f)); err == nil {
-						t.Fatal("through seed with consumer accepted")
+						t.Fatal("associative termination seed with consumer accepted")
 					}
 					continue
 				}
@@ -327,6 +328,342 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 				}
 			}
 			t.Logf("warm append reused=%d executed=%d generator_calls=%d; original Hole and Pattern identities retained", reused, executed, generators)
+		})
+	}
+}
+
+func TestDirectionalThroughEngineeringHoleReplicationThroughRouter(t *testing.T) {
+	for _, kind := range []string{"SIMPLE", "COUNTERBORE", "COUNTERSINK"} {
+		t.Run(kind, func(t *testing.T) {
+			service, store, db, client, _ := featureAssociationRuntimeService(t)
+			v, e := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Directional through Hole " + kind})
+			if e != nil {
+				t.Fatal(e)
+			}
+			seq := 0
+			request := func(r workspace.CommandRequest) workspace.CommandRequest {
+				seq++
+				r.ActorID = p6Actor
+				if r.RequestID == "" {
+					r.RequestID = fmt.Sprintf("%s-directional-%d", v.Document.ID, seq)
+				}
+				return r
+			}
+			apply := func(r workspace.CommandRequest) {
+				t.Helper()
+				next, err := service.ApplyCommand(t.Context(), v.Document.ID, request(r))
+				if err != nil {
+					t.Fatal(r.Type, err)
+				}
+				v = next
+			}
+			saved := func(id string) workspace.Feature {
+				t.Helper()
+				for _, f := range v.Part.Features {
+					if f.ID == id {
+						return f
+					}
+				}
+				t.Fatal("missing", id)
+				return workspace.Feature{}
+			}
+			editRequest := func(f workspace.Feature) workspace.CommandRequest {
+				return request(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: f.ID, Feature: &f, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, f.ID)})
+			}
+			preview := func(r workspace.CommandRequest) workspace.CommandPreview {
+				t.Helper()
+				head := v.Document.VersionID
+				p, err := service.PreviewCommand(t.Context(), v.Document.ID, r)
+				if err != nil || p.Artifact == nil {
+					t.Fatal("preview", err)
+				}
+				now, err := service.GetDocument(t.Context(), v.Document.ID, p6Actor)
+				if err != nil || now.Document.VersionID != head {
+					t.Fatal("preview wrote Head", err)
+				}
+				return p
+			}
+			closeVolume := func(got, want float64) {
+				t.Helper()
+				if math.Abs(got-want) > 1e-5 {
+					t.Fatal("exact volume", got, want)
+				}
+			}
+			apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+			profile := v.Part.Features[0].ID
+			apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: profile, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -50, Y: -30}, Second: &workspace.SketchPoint2{X: 50, Y: 30}}}})
+			apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: profile, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 14})
+			body := v.Part.ActiveBodyID
+			apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Origin: [3]float64{0, 0, 10}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
+			start := v.Part.DatumPlanes[len(v.Part.DatumPlanes)-1].ID
+			apply(workspace.CommandRequest{Type: "CREATE_DATUM_AXIS", Origin: [3]float64{0, 0, 10}, Direction: [3]float64{0, 1, 0}})
+			axis := v.Part.DatumAxes[len(v.Part.DatumAxes)-1].ID
+			apply(workspace.CommandRequest{Type: "CREATE_SKETCH", DatumPlaneID: start})
+			location := v.Part.Features[len(v.Part.Features)-1].ID
+			apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: location, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "p", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: 6, Y: 8}}}, {Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "q", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: -25, Y: -20}}}}})
+			holeDef := workspace.Feature{Type: "HOLE", BodyID: body, Operation: "REMOVE", Extent: "THROUGH_ALL", HoleKind: kind, Diameter: 2, RecessDiameter: 4, RecessDepth: 1.5, CountersinkAngle: 90, HolePoint: &workspace.PatternPointReference{SketchID: location, Reference: workspace.SketchGeometryRef{Target: "ENTITY", EntityID: "p", SubElement: "POINT"}}}
+			apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &holeDef})
+			hole := v.Part.Features[len(v.Part.Features)-1]
+			if c := v.ReplicationSources[hole.ID]; !c.Tool || c.SourceKind != "GENERATOR_TOOL" || c.Operation != "REMOVE" {
+				t.Fatal("through capability", c)
+			}
+			diameterID := ""
+			for _, p := range v.Part.Parameters {
+				if p.OwnerFeatureID == hole.ID && p.PropertySlot == "diameter" {
+					diameterID = p.ParameterID
+				}
+				if p.OwnerFeatureID == hole.ID && p.PropertySlot == "depth" {
+					t.Fatal("through Hole acquired finite depth parameter")
+				}
+			}
+			blindDef := holeDef
+			blindDef.HoleKind = "SIMPLE"
+			blindDef.Extent = "BLIND"
+			blindDef.Depth = 3
+			blindDef.RecessDepth = 0
+			blindDef.RecessDiameter = 0
+			blindDef.CountersinkAngle = 0
+			blindDef.HolePoint = &workspace.PatternPointReference{SketchID: location, Reference: workspace.SketchGeometryRef{Target: "ENTITY", EntityID: "q", SubElement: "POINT"}}
+			apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &blindDef})
+			blind := v.Part.Features[len(v.Part.Features)-1]
+			apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Origin: [3]float64{0, 0, 14}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
+			apply(workspace.CommandRequest{Type: "CREATE_SKETCH", DatumPlaneID: v.Part.DatumPlanes[len(v.Part.DatumPlanes)-1].ID})
+			bossSketch := v.Part.Features[len(v.Part.Features)-1].ID
+			apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: bossSketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -49, Y: -29}, Second: &workspace.SketchPoint2{X: 49, Y: 29}}}})
+			apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: bossSketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", BodyID: body, Length: 16})
+			const full = 84000. + 98*58*16
+			extra := func(f workspace.Feature) float64 { f.Depth = 0; return engineeringHoleVolume(f) }
+			E := extra(saved(hole.ID))
+			closeVolume(activeBodyArtifact(t, v).Volume, full-7*math.Pi-E)
+			// Warm checkpoint was created without any pattern consumer, after the later boss.
+			definition := workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "ADD", Pattern: &workspace.FeaturePattern{Source: workspace.FeatureStageRef{BodyID: body, FeatureID: hole.ID}, SourceKind: "AUTO", ResultMode: "COMBINE", PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Count: 4, Spacing: math.Sqrt(180), Direction: [3]float64{12, 0, 6}, SkippedSlots: []int{2}}}}
+			linearRequest := request(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &definition})
+			hot := preview(linearRequest)
+			closeVolume(hot.Artifact.Volume, full-23*math.Pi-3*E)
+			var reused, executed, generators uint32
+			if hot.Runtime == nil {
+				t.Fatal("runtime evidence missing")
+			}
+			for _, run := range hot.Runtime.WorkerRuns {
+				reused += run.StagesReused
+				executed += run.StagesExecuted
+				generators += run.GeneratorCalls
+			}
+			if reused < 4 || executed != 1 || generators != 2 {
+				t.Fatal("append did not rebuild from warm recipe", reused, executed, generators)
+			}
+			for _, mode := range []string{"CIRCULAR", "MIRROR"} {
+				f := definition
+				f.ID = ""
+				p := *definition.Pattern
+				f.Pattern = &p
+				p.Kind = mode
+				p.SkippedSlots = nil
+				p.Spacing = 0
+				want := full - 67*math.Pi - 3*E
+				if mode == "CIRCULAR" {
+					p.Count = 3
+					p.Angle = 90
+					p.Direction = [3]float64{0, 1, 0}
+					p.AxisEntityID = "DATUM_AXIS:" + axis
+				} else {
+					p.Count = 2
+					p.MirrorPlaneID = start
+					want = full - 17*math.Pi - 2*E
+				}
+				candidate := preview(request(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &f}))
+				closeVolume(candidate.Artifact.Volume, want)
+				service.DiscardPreview(v.Document.ID, p6Actor, candidate.PreviewID)
+			}
+			linearRequest.PreviewID = hot.PreviewID
+			apply(linearRequest)
+			pattern := v.Part.Features[len(v.Part.Features)-1]
+			if pattern.Operation != "REMOVE" || pattern.Pattern.SourceKind != "GENERATOR_TOOL" {
+				t.Fatal("AUTO changed signed tool semantics", pattern)
+			}
+			// An unchanged seed slot is never recut through the subsequently added boss.
+			stage := func(id string) workspace.Artifact {
+				t.Helper()
+				r, err := service.GetFeatureInput(t.Context(), v.Document.ID, workspace.FeatureInputRequest{VersionID: v.Document.VersionID, FeatureID: id, ResultStage: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return r.Artifact
+			}
+			cancelled := saved(pattern.ID)
+			cp := *cancelled.Pattern
+			cp.Count = 3
+			cancelled.Pattern = &cp
+			head := v.Document.VersionID
+			cancelPreview := preview(editRequest(cancelled))
+			service.DiscardPreview(v.Document.ID, p6Actor, cancelPreview.PreviewID)
+			now, err := service.GetDocument(t.Context(), v.Document.ID, p6Actor)
+			if err != nil || now.Document.VersionID != head {
+				t.Fatal("cancel wrote Head", err)
+			}
+			// A through exit is an actual tool/Body intersection edge, often
+			// adjacency-derived. Locate the test pick geometrically, then save
+			// only the authoritative PersistentSelection, never these coordinates.
+			mouth := findP7TopologyPick(t, service, v, "EDGE", func(_ workspace.TopologyElementProperties, s modelcore.PersistentSelection) bool {
+				return s.Anchor.FeatureID == pattern.ID && math.Abs(s.CreationEvidence.Centroid[0]-42) < 1e-6 && s.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(s.CreationEvidence.Centroid[2]-30) < 1e-6
+			})
+			apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: body, Length: .1, Selections: []workspace.FeatureSelection{{Selection: mouth.Selection, SourceVersionID: mouth.SourceVersionID, SourceFeatureID: pattern.ID}}}})
+			child := v.Part.Features[len(v.Part.Features)-1]
+			repair := func(slot int) {
+				t.Helper()
+				input, err := service.GetFeatureInput(t.Context(), v.Document.ID, workspace.FeatureInputRequest{VersionID: v.Document.VersionID, FeatureID: child.ID})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var pick *workspace.FeatureSelection
+				for local := uint64(1); local <= p6TopologyCount(t, input.Artifact.Topology, "edges"); local++ {
+					r, err := service.GetFeatureInput(t.Context(), v.Document.ID, workspace.FeatureInputRequest{VersionID: v.Document.VersionID, FeatureID: child.ID, GeometryKey: input.Artifact.GeometryKey, Kind: "EDGE", LocalID: local})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if r.Selection != nil {
+						s := r.Selection.Selection
+						if s.Anchor.FeatureID == pattern.ID && math.Abs(s.CreationEvidence.Centroid[0]-(6+12*float64(slot))) < 1e-6 && s.CreationEvidence.GeometryType == "CIRCLE" && math.Abs(s.CreationEvidence.Centroid[2]-30) < 1e-6 {
+							pick = r.Selection
+							break
+						}
+					}
+				}
+				if pick == nil {
+					t.Fatal("replacement member unavailable", slot)
+				}
+				f := saved(child.ID)
+				f.Selections = []workspace.FeatureSelection{*pick}
+				r := editRequest(f)
+				p := preview(r)
+				r.PreviewID = p.PreviewID
+				apply(r)
+				if saved(child.ID).EvaluationStatus != "" {
+					t.Fatal("repair failed")
+				}
+			}
+			for _, skip := range []bool{false, true} {
+				changed := saved(pattern.ID)
+				p := *changed.Pattern
+				changed.Pattern = &p
+				want := full - 21*math.Pi - 2*E
+				if skip {
+					p.SkippedSlots = []int{1, 2}
+					want = full - 9*math.Pi - 2*E
+				} else {
+					p.Count = 2
+				}
+				r := editRequest(changed)
+				candidate := preview(r)
+				closeVolume(candidate.Artifact.Volume, want)
+				if len(candidate.RepairRequired) != 1 || candidate.RepairRequired[0].FeatureID != child.ID {
+					t.Fatal("missing downstream repair preview", candidate.RepairRequired)
+				}
+				r.PreviewID = candidate.PreviewID
+				apply(r)
+				if saved(child.ID).EvaluationStatus != "FAILED" || saved(pattern.ID).EvaluationStatus != "" {
+					t.Fatal("wrong failure boundary")
+				}
+				if skip {
+					repair(3)
+				} else {
+					repair(1)
+					changed = saved(pattern.ID)
+					p = *changed.Pattern
+					changed.Pattern = &p
+					p.Count = 4
+					apply(editRequest(changed))
+				}
+			}
+			restored := saved(pattern.ID)
+			p := *restored.Pattern
+			restored.Pattern = &p
+			p.SkippedSlots = []int{2}
+			apply(editRequest(restored))
+			bad := saved(pattern.ID)
+			bp := *bad.Pattern
+			bad.Pattern = &bp
+			bp.Spacing = 1000
+			head = v.Document.VersionID
+			if _, err := service.PreviewCommand(t.Context(), v.Document.ID, editRequest(bad)); err == nil {
+				t.Fatal("invalid current tool accepted as downstream repair")
+			}
+			wrong := saved(hole.ID)
+			wrong.Extent = "TO_PLANE"
+			wrong.TerminationPlaneID = "datum-xy"
+			if _, err := service.PreviewCommand(t.Context(), v.Document.ID, editRequest(wrong)); err == nil {
+				t.Fatal("TO_PLANE became reusable tool")
+			}
+			now, err = service.GetDocument(t.Context(), v.Document.ID, p6Actor)
+			if err != nil || now.Document.VersionID != head {
+				t.Fatal("failed operation wrote Head", err)
+			}
+			changedHole := saved(hole.ID)
+			r := editRequest(changedHole)
+			r.ParameterExpressions = map[string]string{"diameter": "2.4 mm"}
+			apply(r)
+			apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: location, Operations: []workspace.SketchOperation{{Type: "UPDATE_ENTITY_POINT", EntityID: "p", SubElement: "POINT", Point: &workspace.SketchPoint2{X: 7, Y: 8}}}})
+			changedHole = saved(hole.ID)
+			if changedHole.Diameter != 2.4 || changedHole.Extent != "THROUGH_ALL" || saved(child.ID).EvaluationStatus != "" {
+				t.Fatal("upstream changes lost semantic members", changedHole, saved(child.ID))
+			}
+			E = extra(changedHole)
+			closeVolume(stage(pattern.ID).Volume, full-(20*1.2*1.2+3)*math.Pi-3*E)
+			for _, param := range v.Part.Parameters {
+				if param.OwnerFeatureID == hole.ID && param.PropertySlot == "diameter" && (param.ParameterID != diameterID || param.Source.Expression == nil) {
+					t.Fatal("diameter parameter identity lost")
+				}
+			}
+			beforeCopies := activeBodyArtifact(t, v).Volume
+			multi := definition
+			multi.ID = ""
+			mp := *definition.Pattern
+			multi.Pattern = &mp
+			mp.Count = 2
+			mp.Spacing = 15
+			mp.Direction = [3]float64{0, 1, 0}
+			mp.SkippedSlots = nil
+			mp.AdditionalSources = []workspace.PatternSeed{{Source: workspace.FeatureStageRef{BodyID: body, FeatureID: blind.ID}, SourceKind: "AUTO"}}
+			apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &multi})
+			multi = saved(v.Part.Features[len(v.Part.Features)-1].ID)
+			cut := 20*1.2*1.2*math.Pi + E + 3*math.Pi
+			closeVolume(activeBodyArtifact(t, v).Volume, beforeCopies-cut)
+			chain := workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "ADD", Pattern: &workspace.FeaturePattern{Source: workspace.FeatureStageRef{BodyID: body, FeatureID: multi.ID}, SourceKind: "AUTO", ResultMode: "COMBINE", PatternDefinition: workspace.PatternDefinition{Kind: "MIRROR", Distribution: "FIXED_STEP", Count: 2, Direction: [3]float64{0, 1, 0}, MirrorPlaneID: "datum-xz"}}}
+			apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &chain})
+			chain = saved(v.Part.Features[len(v.Part.Features)-1].ID)
+			closeVolume(activeBodyArtifact(t, v).Volume, beforeCopies-2*cut)
+			final := activeBodyArtifact(t, v)
+			apply(workspace.CommandRequest{Type: "UNDO"})
+			apply(workspace.CommandRequest{Type: "UNDO"})
+			closeVolume(activeBodyArtifact(t, v).Volume, beforeCopies)
+			apply(workspace.CommandRequest{Type: "REDO"})
+			apply(workspace.CommandRequest{Type: "REDO"})
+			if activeBodyArtifact(t, v).GeometryID != final.GeometryID {
+				t.Fatal("redo differs")
+			}
+			off := true
+			apply(workspace.CommandRequest{Type: "SET_FEATURE_SUPPRESSION", TargetID: chain.ID, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, chain.ID), Suppressed: &off})
+			closeVolume(activeBodyArtifact(t, v).Volume, beforeCopies-cut)
+			off = false
+			apply(workspace.CommandRequest{Type: "SET_FEATURE_SUPPRESSION", TargetID: chain.ID, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, chain.ID), Suppressed: &off})
+			if activeBodyArtifact(t, v).GeometryID != final.GeometryID {
+				t.Fatal("suppression changed tool identity")
+			}
+			fresh := workspace.NewWithArtifacts(db, client, store)
+			opened, err := fresh.GetDocument(t.Context(), v.Document.ID, p6Actor)
+			if err != nil || !reflect.DeepEqual(opened.Part, v.Part) || activeBodyArtifact(t, opened).GeometryID != final.GeometryID {
+				t.Fatal("reopen", err)
+			}
+			last := saved(chain.ID)
+			cold, err := fresh.PreviewCommand(workspace.WithColdEvaluation(t.Context()), v.Document.ID, request(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: last.ID, Feature: &last, ExpectedFeatureDigest: findP6FeatureDigest(t, v.StructureTree, last.ID)}))
+			if err != nil || cold.Artifact == nil {
+				t.Fatal("cold", err)
+			}
+			for _, role := range []string{"BREP", "NAMING"} {
+				if cold.Artifact.Representations[role].Digest != final.Representations[role].Digest {
+					t.Fatal("hot/cold mismatch", role)
+				}
+			}
 		})
 	}
 }

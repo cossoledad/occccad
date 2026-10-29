@@ -702,7 +702,16 @@ struct NamedShape {
     TopoDS_Shape shape;
 };
 
+// A directional through Hole is a constructive tool definition, not the finite
+// BREP used at its original stage. Copies retain their real semantic slot chain.
+struct HoleToolCopy { std::string feature_id; PatternPlacement placement; };
+struct ThroughHoleTool { ProfilePadSpec definition; std::vector<HoleToolCopy> copies; };
+
 struct ToolBuild {
+    std::vector<ThroughHoleTool> through_holes;
+    // Only the non-deferred portion of a mixed pattern is copied as fixed BREP.
+    TopoDS_Shape fixed_shape;
+    std::vector<NamedShape> fixed_named;
     std::vector<NamedShape> region_named;
     TopoDS_Shape shape;
     std::vector<NamedShape> named;
@@ -1135,10 +1144,41 @@ std::string ref_key(const SemanticTopologyRef& ref) {
     return key;
 }
 
-ToolBuild make_pattern_tool(const ToolBuild& source, const ProfilePadSpec& spec) {
+ToolBuild make_hole_tool(const ProfilePadSpec& spec, const TopoDS_Shape& target,
+                         const gp_Trsf& placement = gp_Trsf());
+ToolBuild rebuild_through_hole(const ThroughHoleTool& source, const TopoDS_Shape& target);
+
+gp_Trsf pattern_transform(const PatternPlacement& placement) {
+    const auto& m = placement.matrix;
+    gp_Trsf transform;
+    transform.SetValues(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11]);
+    return transform;
+}
+
+ToolBuild transform_pattern_tool(const ToolBuild& source, const HoleToolCopy& copy) {
+    BRepBuilderAPI_Transform algorithm(source.shape, pattern_transform(copy.placement), Standard_True);
+    if (!algorithm.IsDone()) throw std::runtime_error("PATTERN_TRANSFORM_FAILED");
+    ToolBuild output;
+    output.feature_id = copy.feature_id;
+    output.shape = algorithm.Shape();
+    output.topology_history_complete = source.topology_history_complete;
+    for (const auto& named : source.named) {
+        const auto shape = algorithm.ModifiedShape(named.shape);
+        if (shape.IsNull()) throw std::runtime_error("PATTERN_TRANSFORM_HISTORY_MISSING");
+        SemanticTopologyRef ref{copy.feature_id,
+            "MEMBER/"+std::to_string(copy.placement.slot)+"/"+make_geometry_id(ref_key(named.ref)),
+            named.ref.source_ids};
+        append_generated(output,named.ref,ref,shape);
+    }
+    return output;
+}
+
+ToolBuild make_pattern_tool(const ToolBuild& source, const ProfilePadSpec& spec,
+                            const TopoDS_Shape& target) {
     if (spec.pattern_placements.empty() || spec.pattern_placements.size() > 256)
         throw std::invalid_argument("PATTERN_MEMBER_BUDGET");
-    if (source.named.size() > 100000 / spec.pattern_placements.size())
+    if (source.named.size() > 100000 / spec.pattern_placements.size() ||
+        source.through_holes.size() > 100000 / spec.pattern_placements.size())
         throw std::invalid_argument("PATTERN_TOPOLOGY_BUDGET");
     if (!spec.pattern_result_mode.empty() && spec.pattern_result_mode!="COMBINE" && spec.pattern_result_mode!="INDEPENDENT")
         throw std::invalid_argument("PATTERN_RESULT_MODE_INVALID");
@@ -1148,8 +1188,10 @@ ToolBuild make_pattern_tool(const ToolBuild& source, const ProfilePadSpec& spec)
     output.feature_id = spec.feature_id;
     output.topology_history_complete = source.topology_history_complete;
     BRep_Builder builder;
-    TopoDS_Compound compound;
+    TopoDS_Compound compound, fixed;
     builder.MakeCompound(compound);
+    builder.MakeCompound(fixed);
+    bool has_fixed = false;
     std::set<std::uint32_t> slots;
     bool seed = false;
     for (const auto& member : spec.pattern_placements) {
@@ -1174,22 +1216,38 @@ ToolBuild make_pattern_tool(const ToolBuild& source, const ProfilePadSpec& spec)
             seed = true;
             continue; // The accepted upstream stage already contains the seed.
         }
-        gp_Trsf transform;
-        transform.SetValues(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11]);
-        BRepBuilderAPI_Transform algorithm(source.shape, transform, Standard_True);
-        if (!algorithm.IsDone()) throw std::runtime_error("PATTERN_TRANSFORM_FAILED");
-        builder.Add(compound, algorithm.Shape());
-        for (const auto& named : source.named) {
-            const auto shape = algorithm.ModifiedShape(named.shape);
-            if (shape.IsNull()) throw std::runtime_error("PATTERN_TRANSFORM_HISTORY_MISSING");
-            SemanticTopologyRef ref{spec.feature_id,
-                "MEMBER/"+std::to_string(member.slot)+"/"+make_geometry_id(ref_key(named.ref)),
-                named.ref.source_ids};
-            append_generated(output,named.ref,ref,shape);
+        ToolBuild fixed_source;
+        fixed_source.shape = source.through_holes.empty() ? source.shape : source.fixed_shape;
+        fixed_source.named = source.through_holes.empty() ? source.named : source.fixed_named;
+        fixed_source.topology_history_complete = source.topology_history_complete;
+        if (!fixed_source.shape.IsNull()) {
+            auto part = transform_pattern_tool(fixed_source, {spec.feature_id,member});
+            builder.Add(compound,part.shape);
+            builder.Add(fixed,part.shape);
+            has_fixed = true;
+            output.named.insert(output.named.end(),part.named.begin(),part.named.end());
+            output.fixed_named.insert(output.fixed_named.end(),part.named.begin(),part.named.end());
+            output.generated.insert(output.generated.end(),part.generated.begin(),part.generated.end());
+        }
+        for (auto recipe : source.through_holes) {
+            if (spec.body_operation != "REMOVE" || recipe.definition.body_id != spec.body_id)
+                throw std::invalid_argument("PATTERN_HOLE_TOOL_CONTRACT_INVALID");
+            recipe.copies.push_back({spec.feature_id,member});
+            // Every seed/member uses the identical immutable pre-pattern target.
+            // Rebuild before transforming, then retain actual transform history.
+            auto part = rebuild_through_hole(recipe,target);
+            builder.Add(compound,part.shape);
+            output.named.insert(output.named.end(),part.named.begin(),part.named.end());
+            output.generated.insert(output.generated.end(),part.generated.begin(),part.generated.end());
+            output.topology_history_complete &= part.topology_history_complete;
+            if (output.named.size()>100000)
+                throw std::invalid_argument("PATTERN_TOPOLOGY_BUDGET");
+            output.through_holes.push_back(std::move(recipe));
         }
     }
     if (!seed) throw std::invalid_argument("PATTERN_SEED_SLOT_REQUIRED");
     if (slots.size()>1) output.shape=compound;
+    if (has_fixed) output.fixed_shape=fixed;
     return output;
 }
 
@@ -2912,6 +2970,57 @@ ToolBuild add_hole_recess(ToolBuild tool, const ProfilePadSpec& spec) {
     return tool;
 }
 
+ToolBuild make_hole_tool(const ProfilePadSpec& spec, const TopoDS_Shape& target,
+                         const gp_Trsf& placement) {
+    if (spec.body_operation!="REMOVE" || target.IsNull())
+        throw std::invalid_argument("HOLE_REQUIRES_TARGET_BODY");
+    if (spec.regions.size()!=1 || spec.regions[0].outer.curves.size()!=1 ||
+        !spec.regions[0].holes.empty() || spec.regions[0].outer.curves[0].kind!="CIRCLE")
+        throw std::invalid_argument("HOLE_SINGLE_CIRCLE_REQUIRED");
+    if (!std::isfinite(spec.regions[0].outer.curves[0].radius) || spec.regions[0].outer.curves[0].radius<=0)
+        throw std::invalid_argument("HOLE_DIAMETER_INVALID");
+    auto generator_spec = spec;
+    generator_spec.generator="LINEAR_EXTRUDE";
+    generator_spec.extent="FINITE";
+    if (spec.extent=="BLIND") {
+        if (!std::isfinite(spec.pad_length) || spec.pad_length<=0)
+            throw std::invalid_argument("HOLE_DEPTH_INVALID");
+    } else if (spec.extent=="THROUGH_ALL") {
+        const auto frame=profile_frame(spec);
+        gp_Dir axis=frame.normal;
+        if (spec.reversed) axis.Reverse();
+        const gp_Ax3 axes(frame.origin.Transformed(placement),axis.Transformed(placement),
+                         frame.u_direction.Transformed(placement));
+        gp_Trsf to_axis;to_axis.SetTransformation(axes);
+        BRepBuilderAPI_Transform transformed(target,to_axis,Standard_True);
+        Bnd_Box bounds;BRepBndLib::AddOptimal(transformed.Shape(),bounds,Standard_False,Standard_False);
+        Standard_Real xmin,ymin,zmin,xmax,ymax,high;
+        bounds.Get(xmin,ymin,zmin,xmax,ymax,high);
+        if (!std::isfinite(high) || high<=1e-7)
+            throw std::invalid_argument("HOLE_NO_MATERIAL_INTERSECTION");
+        // A BREP bound in the transformed ray frame, with a tolerance margin.
+        // The origin is never shifted behind its start plane.
+        generator_spec.pad_length=high+std::max(1e-5,high*1e-6);
+    } else if (spec.extent=="TO_PLANE") {
+        generator_spec.extent="TO_PLANE";
+    } else throw std::invalid_argument("HOLE_EXTENT_INVALID");
+    return add_hole_recess(make_profile_tool(generator_spec),spec);
+}
+
+ToolBuild rebuild_through_hole(const ThroughHoleTool& recipe, const TopoDS_Shape& target) {
+    if (recipe.definition.generator!="HOLE" || recipe.definition.extent!="THROUGH_ALL")
+        throw std::invalid_argument("PATTERN_REEXECUTION_UNSUPPORTED");
+    gp_Trsf placement;
+    for (const auto& copy : recipe.copies)
+        placement=pattern_transform(copy.placement)*placement;
+    auto tool=make_hole_tool(recipe.definition,target,placement);
+    auto closure=complete_boolean_topology_naming(tool.shape,tool.named,recipe.definition.feature_id);
+    tool.generated.insert(tool.generated.end(),closure.begin(),closure.end());
+    for (const auto& copy : recipe.copies)
+        tool=transform_pattern_tool(tool,copy);
+    return tool;
+}
+
 // Local modifiers use the exact upstream shape and semantic references. No
 // saved local topology index, geometry search, or nearest-element recovery.
 BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
@@ -3787,7 +3896,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     return input.feature_id == source.feature_id;
                 });
                 if (seed != specs.end() && seed->generator == "HOLE") {
-                    if (seed->extent != "BLIND")
+                    if (seed->extent != "BLIND" && seed->extent != "THROUGH_ALL")
                         throw std::invalid_argument("PATTERN_REEXECUTION_UNSUPPORTED");
                     if (seed->body_id != spec.body_id || spec.body_operation != "REMOVE")
                         throw std::invalid_argument("PATTERN_HOLE_TOOL_CONTRACT_INVALID");
@@ -3848,7 +3957,9 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 const auto& pattern_spec=spec;
                 auto sources=pattern_spec.additional_pattern_sources;sources.insert(sources.begin(),{pattern_spec.pattern_source_feature_id,pattern_spec.pattern_source_kind,pattern_spec.pattern_start_feature_id});
                 if(sources.size()>32)throw std::invalid_argument("PATTERN_SEED_SET_INVALID");
-                ToolBuild aggregate;aggregate.topology_history_complete=true;BRep_Builder seed_builder;TopoDS_Compound seed_shapes;seed_builder.MakeCompound(seed_shapes);
+                ToolBuild aggregate;aggregate.topology_history_complete=true;BRep_Builder seed_builder;
+                TopoDS_Compound seed_shapes,fixed_shapes;seed_builder.MakeCompound(seed_shapes);seed_builder.MakeCompound(fixed_shapes);
+                bool has_fixed=false;
                 std::set<std::string> source_ids;
                 for(const auto& source:sources){
                 if(!source_ids.insert(source.feature_id).second)throw std::invalid_argument("PATTERN_SEED_DUPLICATE");
@@ -3899,12 +4010,22 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     }
                     resolved=std::move(delta);
                 } else resolved=found->second;
+                if (resolved.through_holes.empty()) {
+                    seed_builder.Add(fixed_shapes,resolved.shape);has_fixed=true;
+                    aggregate.fixed_named.insert(aggregate.fixed_named.end(),resolved.named.begin(),resolved.named.end());
+                } else {
+                    if (!resolved.fixed_shape.IsNull()) {seed_builder.Add(fixed_shapes,resolved.fixed_shape);has_fixed=true;}
+                    aggregate.fixed_named.insert(aggregate.fixed_named.end(),resolved.fixed_named.begin(),resolved.fixed_named.end());
+                    aggregate.through_holes.insert(aggregate.through_holes.end(),resolved.through_holes.begin(),resolved.through_holes.end());
+                }
                 seed_builder.Add(seed_shapes,resolved.shape);
                 aggregate.named.insert(aggregate.named.end(),resolved.named.begin(),resolved.named.end());
                 aggregate.topology_history_complete=aggregate.topology_history_complete&&resolved.topology_history_complete;
                 }
                 aggregate.shape=seed_shapes;
-                tool=make_pattern_tool(aggregate,pattern_spec);
+                if (has_fixed) aggregate.fixed_shape=fixed_shapes;
+                tool=make_pattern_tool(aggregate,pattern_spec,input_shape);
+                stats.generator_calls+=tool.through_holes.size();
             } else if (spec.generator == "BOOLEAN") {
                 if (result.IsNull() || spec.tools.empty() || spec.tools.size() > 32 ||
                     (spec.body_operation == "INTERSECT" && spec.tools.size() != 1))
@@ -3964,27 +4085,11 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 }
             } else if (spec.generator == "LOFT") {
                 tool = make_loft_tool(spec);
+            } else if (spec.generator=="HOLE") {
+                tool=make_hole_tool(spec,input_shape);
+                if (spec.extent=="THROUGH_ALL") tool.through_holes.push_back({spec,{}});
             } else {
                 auto generator_spec = spec;
-                if(spec.generator=="HOLE") {
-                    if(spec.body_operation!="REMOVE"||result.IsNull())throw std::invalid_argument("HOLE_REQUIRES_TARGET_BODY");
-                    if(spec.regions.size()!=1||spec.regions[0].outer.curves.size()!=1||!spec.regions[0].holes.empty()||spec.regions[0].outer.curves[0].kind!="CIRCLE")throw std::invalid_argument("HOLE_SINGLE_CIRCLE_REQUIRED");
-                    if(!std::isfinite(spec.regions[0].outer.curves[0].radius)||spec.regions[0].outer.curves[0].radius<=0)throw std::invalid_argument("HOLE_DIAMETER_INVALID");
-                    generator_spec.generator="LINEAR_EXTRUDE";generator_spec.extent="FINITE";
-                    if(spec.extent=="BLIND") {
-                        if(!std::isfinite(spec.pad_length)||spec.pad_length<=0)throw std::invalid_argument("HOLE_DEPTH_INVALID");
-                    } else if(spec.extent=="THROUGH_ALL") {
-                        const auto frame=profile_frame(spec);gp_Vec axis(frame.normal);if(spec.reversed)axis.Reverse();
-                        Bnd_Box box;BRepBndLib::AddOptimal(result,box,Standard_False,Standard_False);const auto bounds=to_bbox(box);
-                        double high=-std::numeric_limits<double>::infinity();
-                        for(double x:{bounds.min.x,bounds.max.x})for(double y:{bounds.min.y,bounds.max.y})for(double z:{bounds.min.z,bounds.max.z})
-                            high=std::max(high,gp_Vec(frame.origin,gp_Pnt(x,y,z)).Dot(axis));
-                        if(!std::isfinite(high)||high<=1e-7)throw std::invalid_argument("HOLE_NO_MATERIAL_INTERSECTION");
-                        generator_spec.pad_length=high+std::max(1e-5,high*1e-6);
-                    } else if(spec.extent=="TO_PLANE") {
-                        generator_spec.extent="TO_PLANE";
-                    } else throw std::invalid_argument("HOLE_EXTENT_INVALID");
-                }
                 if (spec.generator == "LINEAR_EXTRUDE" || spec.generator.empty()) {
                     auto frame = profile_frame(spec);
                     gp_Vec axis(frame.normal);
@@ -4026,12 +4131,11 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     generator_spec.pad_length = length;
                 }
                 tool = make_profile_tool(generator_spec);
-                if(spec.generator=="HOLE")tool=add_hole_recess(std::move(tool),spec);
             }
             topology_history_complete = topology_history_complete && tool.topology_history_complete;
             const bool reusable_tool = !modifier && spec.generator!="BOOLEAN" &&
-                spec.extent!="THROUGH_ALL" && spec.extent!="TO_PLANE" &&
-                (spec.generator!="HOLE" || spec.extent=="BLIND") && !tool.shape.IsNull();
+                spec.extent!="TO_PLANE" && (spec.extent!="THROUGH_ALL" || spec.generator=="HOLE") &&
+                (spec.generator!="HOLE" || spec.extent=="BLIND" || spec.extent=="THROUGH_ALL") && !tool.shape.IsNull();
             if (required_pattern_tools.count(spec.feature_id) && !reusable_tool)
                 throw std::invalid_argument("PATTERN_INDEPENDENT_TOOL_UNAVAILABLE");
             if (reusable_tool) {
@@ -4049,6 +4153,23 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 auto named=live_named;named.insert(named.end(),tool.named.begin(),tool.named.end());
                 return BodyOperationResult{compound,std::move(named),{}, {}};
             };
+            const auto apply_through_pattern = [&]() {
+                // Coincident forward/reverse Hole walls can make OCCT attach
+                // new pcurves to argument edges even in NonDestructive mode.
+                // Neither cancelled previews nor later cuts may mutate a stage
+                // or an independently retained tool checkpoint.
+                BRepBuilderAPI_Copy body_copy(result,Standard_True,Standard_False);
+                BRepBuilderAPI_Copy tool_copy(tool.shape,Standard_True,Standard_False);
+                const auto body_names=map_named_shapes(live_named,body_copy,body_copy.Shape());
+                auto private_tool=tool;
+                private_tool.shape=tool_copy.Shape();
+                private_tool.named=map_named_shapes(tool.named,tool_copy,private_tool.shape);
+                auto operation=apply_body_operation(body_copy.Shape(),body_names,private_tool,spec.body_operation);
+                TopTools_IndexedMapOfShape members;TopExp::MapShapes(operation.shape,members);
+                for(const auto& source:body_names)
+                    if(members.Contains(source.shape))operation.unchanged.push_back(source);
+                return operation;
+            };
             if(modifier)++stats.modifier_calls;
             else ++stats.body_operation_calls;
             auto operation = spec.generator == "SOLID_PATTERN" && tool.shape.IsNull()
@@ -4056,6 +4177,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 : spec.generator=="SOLID_PATTERN" && spec.pattern_result_mode=="INDEPENDENT" ? independent()
                 : spec.generator=="BOOLEAN" && spec.explicit_boolean_regions
                     ? assemble_boolean_regions(*impl_->boolean_partition(result,live_named,tool.shape,tool.region_named),result,live_named,tool,spec)
+                : spec.generator=="SOLID_PATTERN" && !tool.through_holes.empty() ? apply_through_pattern()
                 : modifier ? apply_local_modifier(result, live_named, spec)
                            : apply_body_operation(result, live_named, tool, spec.body_operation, spec.generator == "LOFT");
             result = operation.shape;
@@ -4397,6 +4519,10 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 for(const auto& entry:stage->bodies) {
                     stage->bytes+=entry.second.named.size()*sizeof(NamedShape);
                 }
+                for (const auto& entry:stage->tools)
+                    for (const auto& recipe:entry.second.through_holes)
+                        stage->bytes+=sizeof(ThroughHoleTool)+sizeof(ProfileCurveSpec)*4+
+                                      recipe.copies.size()*(sizeof(HoleToolCopy)+128);
                 stage->bytes*=1+stage->tools.size()+stage->bodies.size();
                 stage->used=++impl_->clock;
                 if(stage->bytes<=impl_->stage_budget) {

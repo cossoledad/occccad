@@ -216,7 +216,17 @@ func TestBlindHoleReplicationCapabilitiesAndAutomaticSource(t *testing.T) {
 		if e := resolveAutomaticPatternSource(model, &pattern); e != nil || pattern.Operation != "ADD" || pattern.Pattern.SourceKind != "BODY_STAGE" {
 			t.Fatal("Body-stage intent changed", e)
 		}
-		for _, extent := range []string{"THROUGH_ALL", "TO_PLANE", "FINITE", ""} {
+		through := hole
+		through.Extent = "THROUGH_ALL"
+		through.Depth = 0 // Directional tools have no finite depth parameter.
+		if c := replicationSource(through); !c.Tool || c.RangeStart || c.RangeModifier || !c.BodyStage {
+			t.Fatal("through Hole capability", kind, c)
+		}
+		pattern.Pattern.SourceKind = "AUTO"
+		if e := resolveAutomaticPatternSource(PartModel{Features: []Feature{through}}, &pattern); e != nil || pattern.Operation != "REMOVE" || pattern.Pattern.SourceKind != "GENERATOR_TOOL" {
+			t.Fatal("through AUTO", kind, pattern, e)
+		}
+		for _, extent := range []string{"TO_PLANE", "FINITE", ""} {
 			bad := hole
 			bad.Extent = extent
 			capability := replicationSource(bad)

@@ -1731,7 +1731,7 @@ public:
             // Canonical keys include actual immutable source digests, stable Body /
             // Feature identity and the naming policy; transport IDs/outputs do not.
             std::string prefix=occccad::kernel::make_geometry_id(base_brep.data(),base_brep.size())+
-                request->topology_policy().SerializeAsString()+request->import_seed().SerializeAsString()+"stage-runtime-v3-draft-range-naming";
+                request->topology_policy().SerializeAsString()+request->import_seed().SerializeAsString()+"stage-runtime-v4-directional-hole-tools";
             for(const auto& pad:request->profile_pads()) {
                 prefix=occccad::kernel::make_geometry_id(prefix+pad.SerializeAsString());
                 runtime.stage_keys.push_back(prefix);

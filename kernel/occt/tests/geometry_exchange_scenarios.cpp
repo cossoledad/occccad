@@ -3869,7 +3869,8 @@ TEST(GeometryExchange, BlindEngineeringHoleToolsReplicateFromWarmCheckpoints) {
                              std::invalid_argument);
             }
             auto through = hole;
-            through.extent = "THROUGH_ALL";
+            through.extent = "TO_PLANE";
+            through.termination_origin={0,0,5};through.termination_normal={0,0,1};
             EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock, through, pattern}),
                          std::invalid_argument);
             auto wrong = pattern;
@@ -4006,5 +4007,114 @@ TEST(GeometryExchange, HoleToPlaneExactBottomRecessAndHistory) {
       try { kernel.evaluateProfilePadsWithHistory({stock,hole});FAIL()<<"recess escaped plane"; }
       catch(const std::invalid_argument& e) { EXPECT_NE(std::string(e.what()).find("TO_PLANE_HOLE_RECESS_INTERSECTION"),std::string::npos); }
     }
+}
+}
+
+namespace occccad::kernel {
+TEST(GeometryExchange, DirectionalThroughHoleToolsRebuildAgainstFrozenPatternTarget) {
+    constexpr double pi=3.14159265358979323846;
+    const std::array<double,12> identity{1,0,0,0,0,1,0,0,0,0,1,0};
+    ProfilePadSpec stock;stock.feature_id="stock";stock.body_id="body";stock.profile_feature_id="stock-sketch";
+    stock.regions={rectangular_region("stock-region",-50,-30,50,30)};stock.pad_length=14;
+    ProfilePadSpec boss=stock;boss.feature_id="later-boss";boss.input_feature_id="hole";boss.profile_feature_id="boss-sketch";
+    boss.regions={rectangular_region("boss-region",-49,-29,49,29)};
+    boss.plane_origin={0,0,14};boss.plane_normal={0,0,1};boss.plane_u_direction={1,0,0};boss.pad_length=16;
+    const double full=84000+98*58*16;
+    ProfileCurveSpec circle;circle.entity_id="point";circle.kind="CIRCLE";circle.radius=1;
+    ProfilePadSpec hole;hole.feature_id="hole";hole.body_id="body";hole.input_feature_id="stock";hole.profile_feature_id="point-sketch";
+    hole.generator="HOLE";hole.body_operation="REMOVE";hole.extent="THROUGH_ALL";
+    hole.plane_origin={6,8,10};hole.plane_normal={0,0,1};hole.plane_u_direction={1,0,0};
+    hole.regions={{"hole/point-sketch/point",{"point-loop",{circle}},{}}};
+    hole.recess_diameter=4;hole.recess_depth=1.5;hole.countersink_angle=pi/2;
+    ProfilePadSpec pattern;pattern.feature_id="array";pattern.body_id="body";pattern.generator="SOLID_PATTERN";
+    pattern.body_operation="REMOVE";pattern.pattern_source_kind="GENERATOR_TOOL";pattern.pattern_source_feature_id="hole";
+    const auto same=[&](OcctKernel& kernel,const ProfileEvaluationResult& hot,const std::vector<ProfilePadSpec>& specs) {
+        EXPECT_TRUE(hot.feature_results.back().topology_history_complete);
+        OcctKernel cold;const auto rebuilt=cold.evaluateProfilePadsWithHistory(specs);
+        EXPECT_EQ(kernel.serializeBrepr(hot.geometry_id),cold.serializeBrepr(rebuilt.geometry_id));
+        EXPECT_EQ(hot.feature_results.back().topology_history.evidence_digest,rebuilt.feature_results.back().topology_history.evidence_digest);
+    };
+    for(const std::string kind:{"SIMPLE","COUNTERBORE","COUNTERSINK"})for(const std::string mode:{"LINEAR","CIRCULAR","MIRROR"}) {
+        SCOPED_TRACE(kind+mode);OcctKernel kernel;hole.hole_kind=kind;
+        const double extra=kind=="COUNTERBORE"?4.5:kind=="COUNTERSINK"?4./3.:0.;
+        pattern.pattern_placements={{0,identity}};
+        double removed=4+extra;
+        if(mode=="LINEAR") {
+            auto first=identity,third=identity;first[3]=12;first[11]=6;third[3]=36;third[11]=-12;
+            pattern.pattern_placements.push_back({1,first});pattern.pattern_placements.push_back({3,third});
+            removed+=14+extra+30; // Entry recess at z=-2 stays outside material.
+        } else if(mode=="CIRCULAR") {
+            // Rotate about Y through z=10: +X from (0,8,4), then -Z from (-6,8,10).
+            pattern.pattern_placements.push_back({1,{0,0,1,-10,0,1,0,0,-1,0,0,10}});
+            pattern.pattern_placements.push_back({2,{-1,0,0,0,0,1,0,0,0,0,-1,20}});
+            removed+=50+10+2*extra;
+        } else {
+            // Reflect across z=10: cut only below the plane, leaving the later boss above it.
+            pattern.pattern_placements.push_back({1,{1,0,0,0,0,1,0,0,0,0,-1,20}});
+            removed+=10+extra;
+        }
+        PartRuntimeStats stats;PartRuntimeOptions runtime;runtime.stats=&stats;
+        runtime.stage_keys={kind+mode+"/stock",kind+mode+"/hole",kind+mode+"/boss"};
+        kernel.evaluateProfilePadsWithHistory({stock,hole,boss},{},nullptr,runtime);
+        if(mode=="LINEAR") {
+            auto preview=pattern;preview.feature_id="cancelled-mirror";
+            preview.pattern_placements={{0,identity},{1,{1,0,0,0,0,1,0,0,0,0,-1,20}}};
+            auto temporary=runtime;temporary.stage_keys.push_back(kind+mode+"/cancelled-mirror");
+            kernel.evaluateProfilePadsWithHistory({stock,hole,boss,preview},{},nullptr,temporary);
+        }
+        runtime.stage_keys.push_back(kind+mode+"/array");
+        const auto hot=kernel.evaluateProfilePadsWithHistory({stock,hole,boss,pattern},{},nullptr,runtime);
+        EXPECT_EQ(stats.stages_reused,3);EXPECT_EQ(stats.stages_executed,1);
+        EXPECT_EQ(stats.generator_calls,pattern.pattern_placements.size()-1);
+        EXPECT_NEAR(kernel.getVolume(hot.geometry_id),full-pi*removed,1e-5);
+        same(kernel,hot,{stock,hole,boss,pattern});
+        if(mode=="MIRROR") {
+            auto next=pattern;next.feature_id="chain";next.pattern_source_feature_id="array";
+            auto shift=identity;shift[3]=-20;shift[11]=5;next.pattern_placements={{0,identity},{1,shift}};
+            const auto chained=kernel.evaluateProfilePadsWithHistory({stock,hole,boss,pattern,next});
+            EXPECT_NEAR(kernel.getVolume(chained.geometry_id),full-pi*(removed+15+extra),1e-5);
+            same(kernel,chained,{stock,hole,boss,pattern,next});
+            // Probe the protected side of the shifted reverse member. Its recess
+            // never migrates to the Body surface at z=30.
+            auto probe=hole;probe.feature_id="protected-material";probe.extent="BLIND";probe.pad_length=2;probe.hole_kind="SIMPLE";
+            probe.plane_origin={-14,8,20};probe.input_feature_id="chain";
+            const auto protected_side=kernel.evaluateProfilePadsWithHistory({stock,hole,boss,pattern,next,probe});
+            EXPECT_NEAR(kernel.getVolume(protected_side.geometry_id),kernel.getVolume(chained.geometry_id)-2*pi,1e-5);
+        }
+    }
+    // Mixed finite + deferred seed tools retain their own semantics through a
+    // second copy. Slot 0 of either pattern is never replayed.
+    for(const std::string kind:{"SIMPLE","COUNTERBORE","COUNTERSINK"}) {
+        SCOPED_TRACE(kind);OcctKernel kernel;hole.hole_kind=kind;
+        const double extra=kind=="COUNTERBORE"?4.5:kind=="COUNTERSINK"?4./3.:0.;
+        auto blind=hole;blind.feature_id="blind";blind.extent="BLIND";blind.pad_length=3;blind.hole_kind="SIMPLE";
+        blind.plane_origin={-25,-20,10};blind.input_feature_id="hole";
+        auto multi=pattern;multi.feature_id="multi";multi.additional_pattern_sources={{"blind","GENERATOR_TOOL",""}};
+        auto shift=identity;shift[7]=15;multi.pattern_placements={{0,identity},{1,shift}};
+        auto outer=pattern;outer.feature_id="outer";outer.pattern_source_feature_id="multi";
+        outer.pattern_placements={{0,identity},{1,{1,0,0,0,0,-1,0,0,0,0,1,0}}};
+        const auto result=kernel.evaluateProfilePadsWithHistory({stock,hole,blind,boss,multi,outer});
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id),full-pi*(53+3*extra),1e-5);
+        same(kernel,result,{stock,hole,blind,boss,multi,outer});
+    }
+    // Mirror the real command path: an unchanged stock checkpoint, edited
+    // diameter/point, and non-axis-aligned placement from the shared parameters.
+    for(const std::string kind:{"SIMPLE","COUNTERBORE","COUNTERSINK"}) {
+        SCOPED_TRACE(kind+" parameter checkpoint");OcctKernel kernel;
+        auto edited=hole;edited.hole_kind=kind;edited.regions[0].outer.curves[0].radius=1.2;edited.plane_origin={7,8,10};
+        auto blind=hole;blind.feature_id="blind";blind.extent="BLIND";blind.pad_length=3;blind.hole_kind="SIMPLE";blind.plane_origin={-25,-20,10};
+        auto array=pattern;array.feature_id="edited-array";array.pattern_placements={{0,identity}};
+        for(int slot:{1,3}) {auto m=identity;const double norm=std::hypot(std::hypot(12.,0.),6.);m[3]=slot*std::sqrt(180.)*(12/norm);m[11]=slot*std::sqrt(180.)*(6/norm);array.pattern_placements.push_back({static_cast<uint32_t>(slot),m});}
+        PartRuntimeOptions options;options.stage_keys={kind+"/stock",kind+"/initial-hole",kind+"/initial-blind",kind+"/initial-boss"};
+        const auto initial=kernel.evaluateProfilePadsWithHistory({stock,hole,blind,boss},{},nullptr,options);
+        kernel.tessellate(initial.geometry_id,.1,.2,false);
+        options.stage_keys={kind+"/stock",kind+"/edited-hole",kind+"/edited-blind",kind+"/edited-boss",kind+"/edited-array"};
+        const auto hot=kernel.evaluateProfilePadsWithHistory({stock,edited,blind,boss,array},{},nullptr,options);
+        same(kernel,hot,{stock,edited,blind,boss,array});
+        options.force_cold=true;
+        const auto cold=kernel.evaluateProfilePadsWithHistory({stock,edited,blind,boss,array},{},nullptr,options);
+        EXPECT_EQ(hot.geometry_id,cold.geometry_id);
+    }
+
 }
 }

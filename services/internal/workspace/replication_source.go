@@ -23,7 +23,7 @@ func replicationSource(f Feature) ReplicationSource {
 		}
 	case "HOLE":
 		kind := holeKind(f)
-		c.Tool = f.Extent == "BLIND" && f.Operation == "REMOVE" && (kind == "SIMPLE" || kind == "COUNTERBORE" || kind == "COUNTERSINK") && validateHoleDimensions(f) == nil
+		c.Tool = (f.Extent == "BLIND" || f.Extent == "THROUGH_ALL") && f.Operation == "REMOVE" && (kind == "SIMPLE" || kind == "COUNTERBORE" || kind == "COUNTERSINK") && validateHoleDimensions(f) == nil
 		if !c.Tool {
 			c.Diagnostic = "PATTERN_REEXECUTION_UNSUPPORTED"
 		}

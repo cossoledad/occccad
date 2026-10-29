@@ -7,6 +7,10 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const reasons:Record<string,string>={
+    HOLE_NO_MATERIAL_INTERSECTION:"孔的所选方向没有可切除的目标材料，请检查起点、方向和阵列位置。",
+    PATTERN_REEXECUTION_UNSUPPORTED:"此来源暂不支持工具复制，请选择受支持的特征。",
+    PATTERN_HOLE_TOOL_CONTRACT_INVALID:"孔工具仅可在同一实体内切除材料。",
+    PATTERN_INDEPENDENT_TOOL_UNAVAILABLE:"该来源没有可复制的新增工具，请检查成员数量和跳过项。",
     REPLACEMENT_FRAME_INCONSISTENT:"替换后的组件位置与关联输入无法保持一致，请检查约束和接口。",
     REPLACEMENT_VERSION_REQUIRED:"替换需要明确的装配和新组件版本，请重新选择组件",
     REPLACEMENT_DIRECT_INSTANCE_REQUIRED:"只能替换当前装配的直接组件",

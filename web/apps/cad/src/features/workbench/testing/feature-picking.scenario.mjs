@@ -103,8 +103,10 @@ try {
  assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["loft"]},[loft],"GENERATOR_TOOL",{}),[],"missing capability is not inferred from type");
  const finiteHole={id:"hole",type:"HOLE",bodyId:"body",extent:"BLIND",operation:"REMOVE"};
  const throughHole={...finiteHole,id:"through",extent:"THROUGH_ALL"};
- const holeCaps={hole:{tool:true,sourceKind:"GENERATOR_TOOL",operation:"REMOVE",bodyStage:true},through:{tool:false,bodyStage:true,diagnostic:"PATTERN_REEXECUTION_UNSUPPORTED"}};
+ const holeCaps={hole:{tool:true,sourceKind:"GENERATOR_TOOL",operation:"REMOVE",bodyStage:true},through:{tool:true,sourceKind:"GENERATOR_TOOL",operation:"REMOVE",bodyStage:true},toPlane:{tool:false,bodyStage:true,diagnostic:"PATTERN_REEXECUTION_UNSUPPORTED"}};
  for(const hit of [{kind:"feature",id:"hole",entityId:"hole",bodyId:"body"},{...face,sourceFeatureIds:["hole"]}])assert.deepEqual(patternSourceCandidates(hit,[finiteHole,throughHole],"AUTO",holeCaps),[finiteHole],"tree and viewport use authoritative finite Hole capabilities");
- assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["through"]},[throughHole],"AUTO",holeCaps),[],"unsupported Hole never falls back to a whole Body");
+ for(const hit of [{kind:"feature",id:"through",entityId:"through",bodyId:"body"},{...face,sourceFeatureIds:["through"]}])assert.deepEqual(patternSourceCandidates(hit,[throughHole],"AUTO",holeCaps),[throughHole],"directional Hole uses the same authoritative capability for tree and viewport");
+ const toPlaneHole={...throughHole,id:"toPlane",extent:"TO_PLANE"};
+ assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["toPlane"]},[toPlaneHole],"AUTO",holeCaps),[],"associative termination cannot fall back to a whole Body");
  assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["through"]},[throughHole],"BODY_STAGE",holeCaps),[throughHole],"explicit stage preserves whole-Body semantics");
 }finally{await server.close();}
