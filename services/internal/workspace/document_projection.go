@@ -254,17 +254,21 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 				sourceDocumentID = segments[len(segments)-1].ReferencedDocumentID
 			}
 			diagnostic := ""
-			if binding.Resolution.Status != "CONNECTED" {
+			if binding.Local == nil && binding.Resolution.Status != "CONNECTED" {
 				diagnostic = strings.TrimSpace(binding.Resolution.DiagnosticCode + ": " + binding.Resolution.Diagnostic)
 			}
+			kind, status, display := binding.Publication.ExpectedType, binding.Resolution.Status, binding.SourceInstancePath.Display
+			if binding.Local != nil {
+				kind, status, display = binding.Local.Type, "CONNECTED", "本地输入"
+			}
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/binding:" + binding.ID,
-				Kind: "CONTEXT_BINDING", Name: binding.Name, EntityID: binding.ID, EntityType: binding.Publication.ExpectedType,
+				Kind: "CONTEXT_BINDING", Name: binding.Name, EntityID: binding.ID, EntityType: kind,
 				DocumentID: documentID, VersionID: versionID, InstancePath: root.InstancePath, Diagnostic: diagnostic,
-				ResolutionStatus: binding.Resolution.Status, ConnectionStatus: binding.Resolution.Status,
+				ResolutionStatus: status, ConnectionStatus: status,
 				Capabilities:      []string{"DELETE", "REFRESH"},
 				SourceDocumentID:  sourceDocumentID,
 				SourceRevisionID:  binding.Accepted.SourceRevisionID,
-				SourceDisplayPath: binding.SourceInstancePath.Display, ContextBinding: &copy})
+				SourceDisplayPath: display, ContextBinding: &copy})
 		}
 		root.Children = append(root.Children, group)
 	}

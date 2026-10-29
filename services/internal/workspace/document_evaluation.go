@@ -264,6 +264,19 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				}
 			}
 		}
+		var assignmentBefore ProductModel
+		if assignmentMutation(request) {
+			if err := json.Unmarshal(prepared.modelJSON, &assignmentBefore); err != nil {
+				return err
+			}
+			if err := service.checkInputAssignmentCandidate(ctx, &model, assignmentBefore, request); err != nil {
+				return err
+			}
+			changes, err = appendInputAssignmentChanges(prepared.modelJSON, model, changes)
+			if err != nil {
+				return err
+			}
+		}
 		replacementSolveID := ""
 		if prepared.command.TypeURI == typeReplaceInstance {
 			var p replaceInstancePayload

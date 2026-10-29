@@ -56,7 +56,7 @@ func (s *Service) contextEditBindings(ctx context.Context, documentID string, r 
 		}
 	}
 	key := ""
-	if len(bindings) > 0 {
+	if len(bindings) > 0 || len(owner.ContextInputs) > 0 {
 		key = contextVariantKey(owner.RevisionID, contextVariantBindingDigest(bindings))
 	}
 	if r.ContextVariantID != key {

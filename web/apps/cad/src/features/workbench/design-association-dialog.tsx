@@ -1,5 +1,5 @@
 import {bindingSourceSelection} from './context-input-source';
-import {Button,Input,Select} from 'antd';
+import {Button,Dropdown,Input,Select} from 'antd';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {api} from '../../api/client';
@@ -16,20 +16,21 @@ import {AssociationSourceUpdates} from './association-source-updates';
 
 const supported=new Set(['PARAMETER','PLANE','AXIS','POINT','CURVE']);
 const key=(p:ContextCatalogPublication)=>`${p.instancePath.canonical}:${p.publication.id}`;
-export function DesignAssociationDialog({root,owner,path,initialParameterId,activeSketchId,canEdit,onClose,onApply,onPreview,onSelectionSession,onLocate,onOpenSource}:{
+export function DesignAssociationDialog({root,owner,path,initialParameterId,activeSketchId,canEdit,onClose,onApply,onPreview,onPreviewView,onSelectionSession,onLocate,onOpenSource}:{
  root:DocumentView;owner:DocumentView;path?:InstancePath;initialParameterId?:string;activeSketchId?:string;canEdit:boolean;onClose:()=>void;
- onApply:(view:DocumentView)=>Promise<unknown>;onPreview:(artifact?:Artifact)=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;onLocate:(selection:SelectionItem)=>void;onOpenSource:(id:string)=>void;
+ onApply:(view:DocumentView)=>Promise<unknown>;onPreview:(artifact?:Artifact)=>void;onPreviewView?:(view?:DocumentView)=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;onLocate:(selection:SelectionItem)=>void;onOpenSource:(id:string)=>void;
 }){
  const [sourceKey,setSourceKey]=useState<string>(),[target,setTarget]=useState(initialParameterId??''),[inputId,setInputId]=useState(''),[name,setName]=useState('');
+ const [maintenance,setMaintenance]=useState<'LOCALIZE_CONTEXT_INPUT'|'RESTORE_CONTEXT_INPUT_DEFAULT'>();
  const [reconnecting,setReconnecting]=useState(false),[editing,setEditing]=useState<ContextBinding>(),[mode,setMode]=useState('FOLLOW_WORKSPACE_WITH_ACCEPT');
  const [picking,setPicking]=useState<'source'|'target'>(),[busy,setBusy]=useState(false),[error,setError]=useState<string>();
  const [baseline,setBaseline]=useState(root.document.versionId);
- const alive=useRef(true),callbacks=useRef({onSelectionSession,onPreview});callbacks.current={onSelectionSession,onPreview};
+ const alive=useRef(true),callbacks=useRef({onSelectionSession,onPreview,onPreviewView});callbacks.current={onSelectionSession,onPreview,onPreviewView};
  const valid=baseline===root.document.versionId;
  const catalog=useQuery({queryKey:['design-publications',root.document.id,root.document.versionId,path?.canonical],queryFn:()=>api.getContextCatalog(root.document.id,path?.canonical??''),enabled:!!path});
  const catalogEntries=(catalog.data?.rootProductRevisionId===root.document.versionId?catalog.data.publications:[])??[];
  const allEntries=catalogEntries.filter(p=>supported.has(p.publication.type)&&p.selectable&&(p.publication.type!=='CURVE'||(p.publication.resolution.nativeSketch?['LINE','CIRCLE','ARC'].includes(p.publication.resolution.nativeSketch.geometry.kind):p.publication.resolution.topologyKind==='EDGE'&&['LINE','CIRCLE'].includes(p.publication.resolution.geometryKind??''))));
- const entries=allEntries.filter(p=>!editing||p.publication.type===editing.publication.expectedType);
+ const entries=allEntries.filter(p=>!editing||p.publication.type===(editing.local?.type??editing.publication.expectedType));
  const source=entries.find(p=>key(p)===sourceKey),type=source?.publication.type;
  const inputs=(owner.part?.contextInputs??[]).filter(p=>p.type===type);
  const input=inputs.find(p=>p.id===inputId);
@@ -55,22 +56,24 @@ export function DesignAssociationDialog({root,owner,path,initialParameterId,acti
   callbacks.current.onSelectionSession({role:field==='source'?'geometry':'profile',documentId:owner.document.id,versionId:owner.document.versionId,selections:[],accept:s=>field==='source'?!!sourceFor(s):!!localFor(s),onPick:s=>{if(field==='source'){const p=sourceFor(s);if(p)choose(p)}else{const id=localFor(s);if(id){setTarget(id);setInputId('');setPicking(undefined)}}}});
   return()=>callbacks.current.onSelectionSession();
  },[picking,valid,JSON.stringify(entries),kind,JSON.stringify(targets),owner.document.versionId]);
- useEffect(()=>{alive.current=true;return()=>{alive.current=false;callbacks.current.onSelectionSession();callbacks.current.onPreview()}},[]);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;callbacks.current.onSelectionSession();callbacks.current.onPreview();callbacks.current.onPreviewView?.()}},[]);
  const command=useMemo(()=>{
   if(!valid||!path)return;
+  if(editing&&maintenance)return {type:maintenance,versionId:root.document.versionId,contextBindingId:editing.id};
   if(editing){
    if(reconnecting&&!source)return;
-   return {type:'EDIT_CONTEXT_BINDING',versionId:root.document.versionId,contextBindingId:editing.id,contextInputId:editing.contextInputId,name:name||editing.name,referenceMode:mode,owningInstancePath:path,...(reconnecting&&source?{sourceInstancePath:source.instancePath,publicationId:source.publication.id}:{})};
+   return {type:'EDIT_CONTEXT_BINDING',versionId:root.document.versionId,contextBindingId:editing.id,contextInputId:editing.contextInputId,name:name||editing.name,...(!editing.local||reconnecting?{referenceMode:mode}:{}),owningInstancePath:path,...(reconnecting&&source?{sourceInstancePath:source.instancePath,publicationId:source.publication.id}:{})};
   }
   if(!source||!targetId)return;
   return {type:'CREATE_PRODUCT_CONTEXT_BINDING',expectedRootRevisionId:root.document.versionId,name:name||undefined,owningInstancePath:path,sourceInstancePath:source.instancePath,publicationId:source.publication.id,publicationType:type,targetKind:kind,targetId,contextInputId:inputId||undefined,referenceMode:mode};
- },[valid,sourceKey,catalog.data?.digest,path,targetId,inputId,name,mode,reconnecting,editing?.id,root.document.versionId]);
+ },[valid,sourceKey,catalog.data?.digest,path,targetId,inputId,name,mode,reconnecting,editing?.id,root.document.versionId,maintenance]);
  const preview=useFeaturePreview(root.document.id,root.document.versionId,command,undefined,onPreview);
+ useEffect(()=>{callbacks.current.onPreviewView?.(preview.result?.replacementView);return()=>callbacks.current.onPreviewView?.()},[preview.result]);
  const cancelPick=()=>{if(!picking)return false;if(picking==='source'&&editing&&reconnecting){setReconnecting(false);setSourceKey(undefined)}setPicking(undefined);return true};
  const apply=async(keepOpen=false)=>{if(!command||!preview.previewId||busy)return;setBusy(true);setError(undefined);setPicking(undefined);try{
   const v=await api.command(root.document.id,{...command,previewId:preview.previewId});if(!alive.current)return;
   await onApply(v);if(!alive.current)return;
-  if(keepOpen){setBaseline(v.document.versionId);setSourceKey(undefined);setEditing(undefined);setReconnecting(false);setInputId('');setName('');setMode('FOLLOW_WORKSPACE_WITH_ACCEPT');callbacks.current.onPreview();}
+  if(keepOpen){setBaseline(v.document.versionId);setSourceKey(undefined);setEditing(undefined);setMaintenance(undefined);setReconnecting(false);setInputId('');setName('');setMode('FOLLOW_WORKSPACE_WITH_ACCEPT');callbacks.current.onPreview();}
   else onClose();
  }catch(e){if(alive.current)setError(engineeringProblem(e))}finally{if(alive.current)setBusy(false)}};
  const action=async(run:()=>Promise<DocumentView>)=>{setBusy(true);try{await onApply(await run());onClose()}catch(e){setError(engineeringProblem(e))}finally{setBusy(false)}};
@@ -85,22 +88,23 @@ export function DesignAssociationDialog({root,owner,path,initialParameterId,acti
   secondaryActions={<><Button disabled={!canEdit||!valid||!command||busy||preview.pending||!preview.previewId||!!preview.error||!!editing} onClick={()=>void apply(true)}>应用并继续引用</Button><Button size="small" loading={plan.isFetching} onClick={()=>void plan.refetch()}>检查更新</Button></>} commandStatus={<CommandStatus pending={preview.pending} error={error||preview.error||(catalog.error?engineeringProblem(catalog.error):undefined)||(!valid?'模型已更新，请重新打开':undefined)} onRetry={preview.retry}/>}>
   {!path?<p>请在产品中激活接收设计信息的零件。</p>:<>
    <CommandField label="接收零件" width="expression"><span>{path.display}</span></CommandField>
-   <FeaturePickField label="发布接口" value={source?.displayPath??(editing&&!reconnecting?`${editing.sourceInstancePath.display} / 已接受接口`:undefined)} active={picking==='source'} selected={!!source||!!editing&&!reconnecting} onActivate={()=>setPicking('source')} onCancel={cancelPick} onClear={source?()=>{setSourceKey(undefined);if(editing)setReconnecting(true)}:undefined} onLocate={source?()=>locate(source):undefined}/>
-   <CommandField label="接口目录" width="expression"><Select aria-label="发布接口目录" showSearch optionFilterProp="label" placeholder="选择已发布的设计信息" loading={catalog.isLoading} value={source?sourceKey:undefined} options={entries.map(p=>({value:key(p),label:p.displayPath}))} onChange={k=>{const p=entries.find(p=>key(p)===k);if(p)choose(p)}}/></CommandField>
-   {(source||editing)&&<>
+   {!maintenance&&<><FeaturePickField label="发布接口" value={source?.displayPath??(editing&&!reconnecting?editing.local?'本地输入':`${editing.sourceInstancePath.display} / 已接受接口`:undefined)} active={picking==='source'} selected={!!source||!!editing&&!reconnecting} onActivate={()=>setPicking('source')} onCancel={cancelPick} onClear={source?()=>{setSourceKey(undefined);if(editing)setReconnecting(true)}:undefined} onLocate={source?()=>locate(source):undefined}/>
+   <CommandField label="接口目录" width="expression"><Select aria-label="发布接口目录" showSearch optionFilterProp="label" placeholder="选择已发布的设计信息" loading={catalog.isLoading} value={source?sourceKey:undefined} options={entries.map(p=>({value:key(p),label:p.displayPath}))} onChange={k=>{const p=entries.find(p=>key(p)===k);if(p)choose(p)}}/></CommandField></>}
+   {maintenance&&editing&&<><CommandField label="输入"><span>{owner.part?.contextInputs?.find(i=>i.id===editing.contextInputId)?.name??'本地输入'}</span></CommandField><CommandField label="操作"><span>{maintenance==='LOCALIZE_CONTEXT_INPUT'?'解除关联并保留':'恢复零件默认'}</span></CommandField></>}
+   {!maintenance&&(source||editing)&&<>
     <CommandField label="名称" width="expression"><Input aria-label="关联名称" placeholder="自动命名" value={name} onChange={e=>setName(e.target.value)}/></CommandField>
     {!editing&&<CommandField label="本地输入" width="expression"><Select aria-label="本地输入" value={inputId} onChange={setInputId} options={[{value:'',label:'新建本地输入'},...inputs.map(p=>({value:p.id,label:p.name,disabled:bindings.some(b=>b.contextInputId===p.id)}))]}/></CommandField>}
     {!editing&&!inputId&&<><FeaturePickField label={kind==='SKETCH_EXTERNAL_GEOMETRY'?'接收草图':'本地对象'} value={targets.find(t=>t.value===targetId)?.label} active={picking==='target'} selected={!!targetId} onActivate={()=>setPicking('target')} onCancel={cancelPick} onLocate={targetId?locateLocal:undefined} onClear={target?()=>setTarget(''):undefined}/>
      <CommandField label="本地对象" width="expression"><Select aria-label="本地对象" value={targetId||undefined} placeholder="选择本地对象" options={targets} onChange={setTarget}/></CommandField></>}
-    <CommandField label="更新方式" width="expression"><Select aria-label="关联更新方式" value={mode} onChange={setMode} options={[{value:'FOLLOW_WORKSPACE_WITH_ACCEPT',label:'接受更新后采用'},{value:'PINNED',label:'固定当前输入'}]}/></CommandField>
+    {(!editing?.local||reconnecting)&&<CommandField label="更新方式" width="expression"><Select aria-label="关联更新方式" value={mode} onChange={setMode} options={[{value:'FOLLOW_WORKSPACE_WITH_ACCEPT',label:'接受更新后采用'},{value:'PINNED',label:'固定当前输入'}]}/></CommandField>}
    </>}
   </>}
-  <FeaturePickField label="已有关联" active={false} items={bindings.map(b=>{
+  <FeaturePickField label="输入赋值" active={false} detail={bindings.length?undefined:"零件默认"} items={bindings.map(b=>{
    const p=catalogEntries.find(p=>p.instancePath.canonical===b.sourceInstancePath.canonical&&p.publication.id===b.publication.publicationId),update=plan.data?.entries?.find(e=>e.bindingId===b.id),local=owner.part?.contextInputs?.find(i=>i.id===b.contextInputId);
-   const editBinding=(reconnect:boolean)=>{setEditing(b);setReconnecting(reconnect);setName(b.name);setMode(b.referenceMode);setInputId(b.contextInputId);setSourceKey(!reconnect&&p?.selectable?key(p):undefined);setPicking(reconnect?'source':undefined);setError(undefined)};
-   return {key:b.id,value:`${p?.publication.name??'来源接口'} → ${local?.name??'本地输入'}`,actionLabel:b.name,error:!!update&&update.currency==='UPDATE_BLOCKED',detail:`${b.sourceInstancePath.display} · ${b.referenceMode==='PINNED'?'固定输入':update?.currency==='UPDATE_BLOCKED'?'来源不可用，保留已接受输入':update?.currency==='UPDATE_AVAILABLE'?'有可用更新':engineeringLabel(b.accepted.status)}`,
-    onLocate:()=>onLocate(bindingSourceSelection(b,root)),onActivate:()=>editBinding(true),
-    actions:<><Button size="small" disabled={!canEdit||busy} onClick={()=>editBinding(false)}>编辑</Button><Button size="small" disabled={!canEdit||busy} onClick={()=>{editBinding(false);setMode(b.referenceMode==='PINNED'?'FOLLOW_WORKSPACE_WITH_ACCEPT':'PINNED')}}>{b.referenceMode==='PINNED'?'恢复跟随':'固定'}</Button></>};
+   const editBinding=(reconnect:boolean)=>{setEditing(b);setMaintenance(undefined);setReconnecting(reconnect);setName(b.name);setMode(b.local?'FOLLOW_WORKSPACE_WITH_ACCEPT':b.referenceMode);setInputId(b.contextInputId);setSourceKey(!reconnect&&p?.selectable?key(p):undefined);setPicking(reconnect?'source':undefined);setError(undefined)};
+   return {key:b.id,value:b.local?`${local?.name??'本地输入'}`:`${p?.publication.name??'来源接口'} → ${local?.name??'本地输入'}`,actionLabel:b.name,error:!!update&&update.currency==='UPDATE_BLOCKED',detail:b.local?'本地输入':`${b.sourceInstancePath.display} · ${b.referenceMode==='PINNED'?'固定输入':update?.currency==='UPDATE_BLOCKED'?'来源不可用，保留已接受输入':update?.currency==='UPDATE_AVAILABLE'?'有可用更新':engineeringLabel(b.accepted.status)}`,
+    onLocate:()=>onLocate(bindingSourceSelection(b,root)),
+    actions:<><Button size="small" disabled={!canEdit||busy||!valid} onClick={()=>editBinding(true)}>重新关联</Button><Dropdown trigger={['click']} menu={{items:[{key:'edit',label:'编辑名称',onClick:()=>editBinding(false)},...(!b.local?[{key:'pin',label:b.referenceMode==='PINNED'?'恢复跟随':'固定',onClick:()=>{editBinding(false);setMode(b.referenceMode==='PINNED'?'FOLLOW_WORKSPACE_WITH_ACCEPT':'PINNED')}},{key:'local',label:'解除并保留',onClick:()=>{editBinding(false);setSourceKey(undefined);setPicking(undefined);setMaintenance('LOCALIZE_CONTEXT_INPUT')}}]:[]),{key:'default',label:'恢复零件默认',onClick:()=>{editBinding(false);setSourceKey(undefined);setPicking(undefined);setMaintenance('RESTORE_CONTEXT_INPUT_DEFAULT')}}]}}><Button size="small" disabled={!canEdit||busy||!valid}>操作</Button></Dropdown></>};
   })}/>
   {plan.data?.rootProductRevisionId===root.document.versionId&&<AssociationSourceUpdates plan={plan.data} onOpen={onOpenSource}/>}
   {plan.data?.rootProductRevisionId===root.document.versionId&&plan.data.hasUpdates&&<Button disabled={!canEdit||!plan.data.canAccept||busy||plan.isFetching} onClick={()=>void action(()=>api.acceptProductUpdatePlan(root.document.id,plan.data!.digest))}>接受关联更新</Button>}

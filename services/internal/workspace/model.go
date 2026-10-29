@@ -315,6 +315,7 @@ func (s *SketchExternalGeometrySnapshot) entity(id string) SketchEntity {
 }
 
 type SketchExternalGeometry struct {
+	LocalInput               *ContextInputLocalValue          `json:"localInput,omitempty"`
 	ContextInputID           string                           `json:"contextInputId,omitempty"`
 	Name                     string                           `json:"name,omitempty"`
 	DatumReference           *DatumReference                  `json:"datumReference,omitempty"`
@@ -615,9 +616,24 @@ type ContextBindingResolutionSnapshot struct {
 	Status                string `json:"status"`
 }
 
-// ContextBinding is Product-owned wiring between two occurrences. It never
-// uses display names as identity and does not mutate either referenced Part.
+// ContextBinding assigns a Product occurrence input from either a source
+// publication or a self-contained local value. It never mutates the shared Part.
+// ContextInputLocalValue is self-contained in the receiving Part coordinates.
+// Finite analytic curves carry their exact parameter interval, never a BREP locator.
+type ContextInputLocalValue struct {
+	Type           string              `json:"type"`
+	Value          *modelcore.Quantity `json:"value,omitempty"`
+	GeometryKind   string              `json:"geometryKind,omitempty"`
+	Origin         [3]float64          `json:"origin,omitempty"`
+	Direction      [3]float64          `json:"direction,omitempty"`
+	XDirection     [3]float64          `json:"xDirection,omitempty"`
+	Radius         float64             `json:"radius,omitempty"`
+	ParameterStart *float64            `json:"parameterStart,omitempty"`
+	ParameterEnd   *float64            `json:"parameterEnd,omitempty"`
+}
+
 type ContextBinding struct {
+	Local              *ContextInputLocalValue          `json:"local,omitempty"`
 	ID                 string                           `json:"id"`
 	Name               string                           `json:"name"`
 	OwningInstancePath InstancePath                     `json:"owningInstancePath"`

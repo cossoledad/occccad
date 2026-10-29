@@ -381,6 +381,9 @@ func applyCreateContextBinding(modelJSON, payloadJSON json.RawMessage) (json.Raw
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
+	if err := validateContextAssignment(payload.Binding); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	names := make([]string, 0, len(model.ContextBindings))
 	for _, item := range model.ContextBindings {
 		names = append(names, item.Name)
@@ -500,7 +503,9 @@ func (service *Service) expandProductContext(ctx context.Context, rootDocumentID
 		}
 		for _, binding := range model.ContextBindings {
 			binding.OwningInstancePath = rebaseInstancePath(rootDocumentID, path, binding.OwningInstancePath)
-			binding.SourceInstancePath = rebaseInstancePath(rootDocumentID, path, binding.SourceInstancePath)
+			if binding.Local == nil {
+				binding.SourceInstancePath = rebaseInstancePath(rootDocumentID, path, binding.SourceInstancePath)
+			}
 			item.ContextBindings = append(item.ContextBindings, binding)
 		}
 		result = append(result, item)
@@ -611,6 +616,9 @@ func (service *Service) GetContextCatalog(ctx context.Context, rootDocumentID, a
 	dependencyEdges := map[string][]string{}
 	for _, occurrence := range items {
 		for _, binding := range occurrence.ContextBindings {
+			if binding.Local != nil {
+				continue
+			}
 			dependencyEdges[binding.SourceInstancePath.Canonical] = append(dependencyEdges[binding.SourceInstancePath.Canonical], binding.OwningInstancePath.Canonical)
 		}
 	}
@@ -853,6 +861,9 @@ func (service *Service) contextBindingFromRequest(ctx context.Context, rootProdu
 	edges := map[string][]string{}
 	for _, occurrence := range items {
 		for _, existing := range occurrence.ContextBindings {
+			if existing.Local != nil {
+				continue
+			}
 			edges[existing.SourceInstancePath.Canonical] = append(edges[existing.SourceInstancePath.Canonical], existing.OwningInstancePath.Canonical)
 		}
 	}
@@ -928,6 +939,9 @@ func applyEditContextBinding(modelJSON, payloadJSON json.RawMessage) (json.RawMe
 		return nil, modelcore.ChangeSet{}, err
 	}
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := validateContextAssignment(payload.Binding); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	for i, b := range model.ContextBindings {

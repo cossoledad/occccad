@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/modelcore"
 	"github.com/occccad/occccad/internal/workspace"
+	"io"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -532,7 +535,7 @@ func TestNativeLayoutCurvesUseExactProjectionAndStableInputSlots(t *testing.T) {
 }
 
 func TestPublishedSolidLineAndContextManagedWritesThroughRouter(t *testing.T) {
-	s, _, _, _, _ := featureAssociationRuntimeService(t)
+	s, _, db, _, _ := featureAssociationRuntimeService(t)
 	seq := 0
 	create := func(name, kind string) workspace.DocumentView {
 		t.Helper()
@@ -639,6 +642,24 @@ func TestPublishedSolidLineAndContextManagedWritesThroughRouter(t *testing.T) {
 	if projected == nil || projected.Kind != "LINE" || projected.Start == projected.End {
 		t.Fatal("finite edge failed exact projection", projected)
 	}
+	apply(&root, workspace.CommandRequest{Type: "LOCALIZE_CONTEXT_INPUT", VersionID: root.Document.VersionID, ContextBindingID: root.Product.ContextBindings[0].ID})
+	localLine := root.Product.ContextBindings[0].Local
+	if localLine == nil || localLine.GeometryKind != "LINE" || localLine.ParameterStart == nil || localLine.ParameterEnd == nil {
+		t.Fatal("finite BREP line did not become self-contained")
+	}
+	checkLine := func(v workspace.DocumentView) {
+		t.Helper()
+		for _, f := range v.ContextVariants[0].Part.Features {
+			if f.ID == receiver {
+				p := f.Sketch.ExternalGeometry[0].Snapshot
+				if p == nil || p.Kind != "LINE" || math.Hypot(p.Start.X-projected.Start.X, p.Start.Y-projected.Start.Y) > 1e-7 || math.Hypot(p.End.X-projected.End.X, p.End.Y-projected.End.Y) > 1e-7 {
+					t.Fatal("localized BREP line changed finite geometry", p)
+				}
+			}
+		}
+	}
+	checkLine(root)
+	variant = root.ContextVariants[0]
 	var readErr error
 	target, readErr = s.GetDocument(t.Context(), target.Document.ID, p6Actor)
 	if readErr != nil {
@@ -678,6 +699,30 @@ func TestPublishedSolidLineAndContextManagedWritesThroughRouter(t *testing.T) {
 	if next.Part.Features[1].Length != 8 || !next.Part.Features[1].Reversed {
 		t.Fatal("projected managed value leaked into default definition", next.Part.Features[1])
 	}
+	root, editErr = s.GetDocument(t.Context(), root.Document.ID, p6Actor)
+	if editErr != nil {
+		t.Fatal(editErr)
+	}
+	apply(&root, workspace.CommandRequest{Type: "LOCALIZE_CONTEXT_INPUT", VersionID: root.Document.VersionID, ContextBindingID: root.Product.ContextBindings[1].ID})
+	apply(&root, workspace.CommandRequest{Type: "DELETE_NODE", TargetKind: "INSTANCE", TargetID: root.Product.Instances[0].ID})
+	if err := s.DeleteDocument(t.Context(), source.Document.ID, root.Document.ID+"-line-source-unavailable"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(t.Context(), `DELETE FROM occccad.product_context_variants WHERE base_document_id=$1`, target.Document.ID); err != nil {
+		t.Fatal(err)
+	}
+	root, editErr = s.GetDocument(workspace.WithColdEvaluation(t.Context()), root.Document.ID, p6Actor)
+	if editErr != nil {
+		t.Fatal("finite local line still needs source BREP", editErr)
+	}
+	checkLine(root)
+	for len(root.Product.ContextBindings) > 0 {
+		apply(&root, workspace.CommandRequest{Type: "RESTORE_CONTEXT_INPUT_DEFAULT", VersionID: root.Document.VersionID, ContextBindingID: root.Product.ContextBindings[0].ID})
+	}
+	if len(root.ContextVariants) != 1 || root.ContextVariants[0].Part == nil || root.ContextVariants[0].Part.Features[1].Length != 8 {
+		t.Fatal("last restoration lost the accepted default view")
+	}
+
 }
 
 func TestContextDrivenSketchDimensionWritesThroughRouter(t *testing.T) {
@@ -772,4 +817,346 @@ func TestContextDrivenSketchDimensionWritesThroughRouter(t *testing.T) {
 	if e != nil || *currentRoot.ContextVariants[0].Part.Features[0].Sketch.Constraints[0].Value != 12 {
 		t.Fatal("rename lost accepted dimension", e)
 	}
+}
+
+// Local values are exact receiver-space inputs, not pinned source references.
+func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
+	s, store, db, client, _ := featureAssociationRuntimeService(t)
+	seq := 0
+	create := func(kind, name string) workspace.DocumentView {
+		t.Helper()
+		v, e := s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: kind, Name: name})
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	run := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		r.ActorID = p6Actor
+		r.RequestID = fmt.Sprintf("%s-local-%d", v.Document.ID, seq)
+		n, e := s.ApplyCommand(t.Context(), v.Document.ID, r)
+		if e != nil {
+			t.Fatal(r.Type, e)
+		}
+		*v = n
+	}
+	read := func(v *workspace.DocumentView) {
+		t.Helper()
+		n, e := s.GetDocument(t.Context(), v.Document.ID, p6Actor)
+		if e != nil {
+			t.Fatal(e)
+		}
+		*v = n
+	}
+	path := func(v workspace.DocumentView, i int) workspace.InstancePath {
+		t.Helper()
+		p, e := s.GetProductDesignSession(t.Context(), v.Document.ID, v.Product.Instances[i].ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return *p.ActiveInstancePath
+	}
+	source := create("PART", "Exact local source")
+	run(&source, workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: "depth", Value: 3, Unit: "mm"})
+	depthSource := source.Part.Parameters[0].ParameterID
+	run(&source, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Depth", PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: depthSource})
+	run(&source, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Mount", PublicationType: "PLANE", TargetKind: "PLANE", TargetID: "datum-xy"})
+	run(&source, workspace.CommandRequest{Type: "CREATE_DATUM_AXIS", Direction: [3]float64{0, 0, 1}})
+	sourceAxis := source.Part.DatumAxes[len(source.Part.DatumAxes)-1].ID
+	run(&source, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Axis", PublicationType: "AXIS", TargetKind: "DATUM_AXIS", TargetID: sourceAxis})
+	run(&source, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	sourceSketch := source.Part.Features[0].ID
+	entities := []workspace.SketchEntity{{ID: "point", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: 20, Y: 10}}, {ID: "line", Kind: "LINE", Role: "CONSTRUCTION", Start: &workspace.SketchPoint2{X: -20, Y: 20}, End: &workspace.SketchPoint2{X: 20, Y: 20}}, {ID: "circle", Kind: "CIRCLE", Role: "CONSTRUCTION", Center: &workspace.SketchPoint2{X: -20, Y: 0}, Radius: 8}, {ID: "arc", Kind: "ARC", Role: "CONSTRUCTION", Center: &workspace.SketchPoint2{X: 0, Y: -20}, Radius: 5, StartAngle: .2, EndAngle: 2.4}}
+	for _, e := range entities {
+		entity := e
+		run(&source, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sourceSketch, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &entity}}})
+		typ := "CURVE"
+		if e.Kind == "POINT" {
+			typ = "POINT"
+		}
+		run(&source, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: e.ID, PublicationType: typ, TargetKind: "SKETCH_ENTITY", SketchID: sourceSketch, TargetID: e.ID})
+	}
+	plate := create("PART", "Repeated local receiver")
+	run(&plate, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	profile := plate.Part.Features[0].ID
+	run(&plate, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: profile, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -60, Y: -40}, Second: &workspace.SketchPoint2{X: 60, Y: 40}}}})
+	run(&plate, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Generator: "LINEAR_EXTRUDE", Operation: "ADD", SketchID: profile, Length: 8})
+	run(&plate, workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: "localDepth", Value: 2, Unit: "mm"})
+	depth := ""
+	for _, p := range plate.Part.Parameters {
+		if p.DisplayAlias == "localDepth" {
+			depth = p.ParameterID
+		}
+	}
+	run(&plate, workspace.CommandRequest{Type: "CREATE_CONTEXT_INPUT", Name: "Depth", TargetKind: "PARAMETER", TargetID: depth})
+	run(&plate, workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
+	mount := plate.Part.DatumPlanes[len(plate.Part.DatumPlanes)-1].ID
+	run(&plate, workspace.CommandRequest{Type: "CREATE_CONTEXT_INPUT", Name: "Mount", TargetKind: "DATUM", PublicationType: "PLANE", TargetID: mount})
+	run(&plate, workspace.CommandRequest{Type: "CREATE_DATUM_AXIS", Direction: [3]float64{1, 0, 0}})
+	axis := plate.Part.DatumAxes[len(plate.Part.DatumAxes)-1].ID
+	run(&plate, workspace.CommandRequest{Type: "CREATE_CONTEXT_INPUT", Name: "Axis", TargetKind: "DATUM", PublicationType: "AXIS", TargetID: axis})
+	run(&plate, workspace.CommandRequest{Type: "CREATE_SKETCH", DatumPlaneID: mount})
+	sketch := plate.Part.Features[len(plate.Part.Features)-1].ID
+	for _, e := range entities {
+		entity := e
+		entity.ID = "local-" + e.ID
+		if entity.Kind == "POINT" {
+			entity.Point = &workspace.SketchPoint2{X: 10, Y: 10}
+		}
+		run(&plate, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &entity}}})
+		typ := "CURVE"
+		if entity.Kind == "POINT" {
+			typ = "POINT"
+		}
+		run(&plate, workspace.CommandRequest{Type: "CREATE_CONTEXT_INPUT", Name: e.ID, TargetKind: "SKETCH_EXTERNAL_GEOMETRY", TargetID: sketch, SketchID: sketch, OwnerEntityID: entity.ID, PublicationType: typ, ConnectInputPoint: typ == "POINT"})
+	}
+	run(&plate, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &workspace.Feature{Type: "HOLE", BodyID: plate.Part.ActiveBodyID, Operation: "REMOVE", Extent: "BLIND", Diameter: 4, Depth: 2, HolePoint: &workspace.PatternPointReference{SketchID: sketch, Reference: workspace.SketchGeometryRef{Target: "ENTITY", EntityID: "local-point", SubElement: "POINT"}}}, ParameterExpressions: map[string]string{"depth": "localDepth"}})
+	hole := plate.Part.Features[len(plate.Part.Features)-1].ID
+	mouth := findP7TopologyPick(t, s, plate, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.Anchor.FeatureID == hole && strings.HasPrefix(p.Anchor.OutputSlot, "START_BOUNDARY_FROM_PROFILE_EDGE/")
+	})
+	run(&plate, workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: plate.Part.ActiveBodyID, Length: .15, Selections: []workspace.FeatureSelection{{Selection: mouth.Selection, SourceVersionID: mouth.SourceVersionID}}}})
+	chamfer := plate.Part.Features[len(plate.Part.Features)-1].ID
+	independentRevision := plate.Document.VersionID
+	root := create("PRODUCT", "Local values isolate occurrences")
+	for _, v := range []workspace.DocumentView{source, plate, plate} {
+		run(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: v.Document.ID})
+	}
+	for i := 0; i < 3; i++ {
+		run(&root, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: root.Product.Instances[i].ID, Translation: [3]float64{float64(i) * 5, 4, 0}, Rotation: [4]float64{0, 0, math.Sin(.2), math.Cos(.2)}})
+	}
+	run(&root, workspace.CommandRequest{Type: "SET_REFERENCE_MODE", InstanceID: root.Product.Instances[0].ID, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"})
+	bindingIDs := []map[string]string{{}, {}}
+	for i := 1; i <= 2; i++ {
+		for _, p := range source.Part.Publications {
+			input := ""
+			for _, v := range plate.Part.ContextInputs {
+				if v.Name == p.Name {
+					input = v.ID
+				}
+			}
+			seq++
+			r := workspace.ProductContextBindingRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-local-bind-%d", root.Document.ID, seq), ExpectedRootRevisionID: root.Document.VersionID, OwningInstancePath: path(root, i), SourceInstancePath: path(root, 0), PublicationID: p.ID, PublicationType: p.Type, ContextInputID: input, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"}
+			n, e := s.CreateProductContextBinding(t.Context(), root.Document.ID, r)
+			if e != nil {
+				t.Fatal(p.Name, e)
+			}
+			root = n
+			bindingIDs[i-1][p.Name] = root.Product.ContextBindings[len(root.Product.ContextBindings)-1].ID
+		}
+	}
+	variant := func(v workspace.DocumentView, instanceID string) workspace.ContextVariantSnapshot {
+		t.Helper()
+		for _, c := range v.ContextVariants {
+			if c.OwningInstancePath.Segments[0].InstanceID == instanceID {
+				return c
+			}
+		}
+		t.Fatal("missing receiver variant")
+		return workspace.ContextVariantSnapshot{}
+	}
+	first, second := root.Product.Instances[1].ID, root.Product.Instances[2].ID
+	wantedPoint := map[string]float64{first: 20, second: 20}
+	baseline := root
+	firstPart := variant(root, first)
+	firstArt := root.Artifacts[firstPart.Bodies[0].GeometryKey]
+	originalBindings, _ := json.Marshal(root.Product.ContextBindings[7:])
+	check := func(v workspace.DocumentView, instance string, wantVolume float64, wantDepth float64) {
+		t.Helper()
+		cv := variant(v, instance)
+		if cv.Status != "READY" || cv.Part == nil {
+			t.Fatal("invalid local candidate")
+		}
+		art := v.Artifacts[cv.Bodies[0].GeometryKey]
+		if math.Abs(art.Volume-wantVolume) > 1e-5 {
+			t.Fatal("wrong exact local volume", art.Volume, wantVolume)
+		}
+		for _, f := range cv.Part.Features {
+			if (f.ID == hole || f.ID == chamfer) && f.EvaluationStatus != "" {
+				t.Fatal("downstream identity failed", f.ID, f.EvaluationStatus)
+			}
+			if f.ID == hole && math.Abs(f.Depth-wantDepth) > 1e-7 {
+				t.Fatal("wrong depth", f.Depth)
+			}
+		}
+		_, reader, e := store.Open(t.Context(), art.Representations["BREP"].ObjectID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		brep, e := io.ReadAll(reader)
+		reader.Close()
+		if e != nil {
+			t.Fatal(e)
+		}
+		top, _, e := client.GetTopology(t.Context(), art.GeometryID, brep, "FACE", 0)
+		if e != nil {
+			t.Fatal(e)
+		}
+		walls := 0
+		for _, f := range top.Faces {
+			if f.SurfaceType == 1 {
+				walls++
+				owner := v.Product.Instances[slices.IndexFunc(v.Product.Instances, func(i workspace.ProductInstance) bool { return i.ID == instance })]
+				delta := float64(0) - owner.Translation[0]
+				wantX, wantY := wantedPoint[instance]+math.Cos(.4)*delta, 10-math.Sin(.4)*delta
+				if math.Abs((f.Bbox.MinX+f.Bbox.MaxX)/2-wantX) > 1e-6 || math.Abs((f.Bbox.MinY+f.Bbox.MaxY)/2-wantY) > 1e-6 {
+					t.Fatal("exact receiver-space hole position changed", f.Bbox, wantX, wantY)
+				}
+				if math.Abs(f.Bbox.MaxZ-wantDepth) > 1e-5 {
+					t.Fatal("exact hole depth changed", f.Bbox)
+				}
+			}
+		}
+		if walls != 1 {
+			t.Fatal("missing exact wall", walls)
+		}
+	}
+	run(&source, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: depthSource, Value: 4, Unit: "mm"})
+	run(&source, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sourceSketch, Operations: []workspace.SketchOperation{{Type: "UPDATE_ENTITY_POINT", EntityID: "point", SubElement: "POINT", Point: &workspace.SketchPoint2{X: 100, Y: 10}}}})
+	read(&root)
+	if root.Document.VersionID != baseline.Document.VersionID {
+		t.Fatal("pending input silently accepted")
+	}
+	for j, name := range []string{"point", "Depth", "Mount", "Axis", "line", "circle", "arc"} {
+		req := workspace.CommandRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-local-preview-%d", root.Document.ID, j), Type: "LOCALIZE_CONTEXT_INPUT", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0][name]}
+		preview, e := s.PreviewCommand(t.Context(), root.Document.ID, req)
+		if e != nil {
+			t.Fatal(name, e)
+		}
+		if preview.ReplacementView == nil {
+			t.Fatal("missing full input preview")
+		}
+		head := root.Document.VersionID
+		read(&root)
+		if root.Document.VersionID != head {
+			t.Fatal("preview advanced Head")
+		}
+		if j == 0 {
+			s.DiscardPreview(root.Document.ID, p6Actor, preview.PreviewID)
+			cancelled := root
+			read(&root)
+			if cancelled.Document.VersionID != root.Document.VersionID {
+				t.Fatal("cancel changed model")
+			}
+			preview, e = s.PreviewCommand(t.Context(), root.Document.ID, req)
+			if e != nil {
+				t.Fatal(e)
+			}
+		}
+		req.PreviewID = preview.PreviewID
+		run(&root, req)
+		check(root, first, firstArt.Volume, 3)
+		b := root.Product.ContextBindings[slices.IndexFunc(root.Product.ContextBindings, func(b workspace.ContextBinding) bool { return b.ID == req.ContextBindingID })]
+		raw, _ := json.Marshal(b)
+		if b.Local == nil || strings.Contains(string(raw), source.Document.ID) || b.Publication.PublicationID != "" || len(b.SourceInstancePath.Segments) != 0 {
+			t.Fatal("source reference survived localization")
+		}
+	}
+	other, _ := json.Marshal(root.Product.ContextBindings[7:])
+	check(root, second, root.Artifacts[variant(baseline, second).Bodies[0].GeometryKey].Volume, 3)
+	if string(other) != string(originalBindings) {
+		t.Fatal("other occurrence inputs changed")
+	}
+	read(&plate)
+	if plate.Document.VersionID != independentRevision {
+		t.Fatal("shared defaults mutated")
+	}
+	stale := workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-stale-local", Type: "RESTORE_CONTEXT_INPUT_DEFAULT", VersionID: baseline.Document.VersionID, ContextBindingID: bindingIDs[0]["Depth"]}
+	if _, e := s.PreviewCommand(t.Context(), root.Document.ID, stale); e == nil || !strings.Contains(e.Error(), "CONTEXT_BINDING_REVISION_CHANGED") {
+		t.Fatal("stale default restoration accepted", e)
+	}
+	run(&plate, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: depth, Value: 5, Unit: "mm"})
+	beforeDefault := root.Document.VersionID
+	defaultPreview, e := s.PreviewCommand(t.Context(), root.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-accepted-default", Type: "RESTORE_CONTEXT_INPUT_DEFAULT", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0]["Depth"]})
+	if e != nil || defaultPreview.ReplacementView == nil {
+		t.Fatal("accepted default preview", e)
+	}
+	check(*defaultPreview.ReplacementView, first, firstArt.Volume+4*math.Pi, 2)
+	if defaultPreview.ReplacementView.Product.Instances[1].ReferencedVersionID != independentRevision {
+		t.Fatal("restoration advanced receiver to new Part Head")
+	}
+	s.DiscardPreview(root.Document.ID, p6Actor, defaultPreview.PreviewID)
+	read(&root)
+	if root.Document.VersionID != beforeDefault {
+		t.Fatal("cancelled defaults wrote history")
+	}
+	run(&plate, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: depth, Value: 2, Unit: "mm"})
+	// Undo/Redo restores the union and every local snapshot in one action.
+	run(&root, workspace.CommandRequest{Type: "UNDO"})
+	last := root.Product.ContextBindings[slices.IndexFunc(root.Product.ContextBindings, func(b workspace.ContextBinding) bool { return b.ID == bindingIDs[0]["arc"] })]
+	if last.Local != nil {
+		t.Fatal("undo did not restore source")
+	}
+	run(&root, workspace.CommandRequest{Type: "REDO"})
+	check(root, first, firstArt.Volume, 3)
+	// The local snapshot is explicitly protected from receiver replacement.
+	badReplace := workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-local-replace", Type: "REPLACE_INSTANCE", VersionID: root.Document.VersionID, InstanceID: first, ReferencedDocumentID: plate.Document.ID, ReplacementVersionID: plate.Document.VersionID}
+	if _, e := s.PreviewCommand(t.Context(), root.Document.ID, badReplace); e == nil || !strings.Contains(e.Error(), "REPLACEMENT_LOCAL_INPUT_UNSUPPORTED") {
+		t.Fatal("local assignment silently dropped by replacement", e)
+	}
+	for _, id := range bindingIDs[1] {
+		run(&root, workspace.CommandRequest{Type: "LOCALIZE_CONTEXT_INPUT", VersionID: root.Document.VersionID, ContextBindingID: id})
+	}
+	plan, e := s.GetProductUpdatePlan(t.Context(), root.Document.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, entry := range plan.Entries {
+		if entry.Kind == "CONTEXT_BINDING" && (entry.ReferenceMode != "LOCAL" || entry.Currency != "CURRENT" || entry.SourceDisplayPath != "本地输入") {
+			t.Fatal("local input still queries upstream", entry)
+		}
+	}
+	run(&root, workspace.CommandRequest{Type: "UPDATE_REFERENCES", UpdatePlanDigest: plan.Digest})
+	check(root, first, firstArt.Volume, 3)
+	// The source occurrence can now advance without changing local input values.
+	pointPub := source.Part.Publications[slices.IndexFunc(source.Part.Publications, func(p workspace.Publication) bool { return p.Name == "point" })]
+	reconnect := workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-bad-reconnect", Type: "EDIT_CONTEXT_BINDING", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0]["point"], SourceInstancePath: func() *workspace.InstancePath { p := path(root, 0); return &p }(), PublicationID: pointPub.ID, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"}
+	head := root.Document.VersionID
+	if _, e := s.PreviewCommand(t.Context(), root.Document.ID, reconnect); e == nil {
+		t.Fatal("invalid reconnect geometry accepted")
+	}
+	read(&root)
+	if root.Document.VersionID != head {
+		t.Fatal("failed reconnect changed Head")
+	}
+	run(&source, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sourceSketch, Operations: []workspace.SketchOperation{{Type: "UPDATE_ENTITY_POINT", EntityID: "point", SubElement: "POINT", Point: &workspace.SketchPoint2{X: 25, Y: 10}}}})
+	plan, e = s.GetProductUpdatePlan(t.Context(), root.Document.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	run(&root, workspace.CommandRequest{Type: "UPDATE_REFERENCES", UpdatePlanDigest: plan.Digest})
+	reconnect.VersionID = root.Document.VersionID
+	reconnect.SourceInstancePath = func() *workspace.InstancePath { p := path(root, 0); return &p }()
+	run(&root, reconnect)
+	wantedPoint[first] = 25
+	check(root, first, firstArt.Volume, 3)
+	b := root.Product.ContextBindings[slices.IndexFunc(root.Product.ContextBindings, func(b workspace.ContextBinding) bool { return b.ID == bindingIDs[0]["point"] })]
+	if b.Local != nil {
+		t.Fatal("reconnect retained local state")
+	}
+	run(&root, workspace.CommandRequest{Type: "RESTORE_CONTEXT_INPUT_DEFAULT", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0]["Depth"]})
+	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	run(&root, workspace.CommandRequest{Type: "UNDO"})
+	check(root, first, firstArt.Volume, 3)
+	run(&root, workspace.CommandRequest{Type: "REDO"})
+	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	// Every source is removed from the current graph before making it unavailable.
+	run(&root, workspace.CommandRequest{Type: "LOCALIZE_CONTEXT_INPUT", VersionID: root.Document.VersionID, ContextBindingID: bindingIDs[0]["point"]})
+	run(&root, workspace.CommandRequest{Type: "DELETE_NODE", TargetKind: "INSTANCE", TargetID: root.Product.Instances[0].ID})
+	if e := s.DeleteDocument(t.Context(), source.Document.ID, root.Document.ID+"-remove-source"); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := db.Exec(t.Context(), `DELETE FROM occccad.product_context_variants WHERE base_document_id=$1`, plate.Document.ID); e != nil {
+		t.Fatal(e)
+	}
+	cold, e := s.GetDocument(workspace.WithColdEvaluation(t.Context()), root.Document.ID, p6Actor)
+	if e != nil {
+		t.Fatal("local rebuild read unavailable source", e)
+	}
+	root = cold
+	check(root, first, firstArt.Volume+4*math.Pi, 2)
+	read(&root)
+	check(root, first, firstArt.Volume+4*math.Pi, 2)
 }

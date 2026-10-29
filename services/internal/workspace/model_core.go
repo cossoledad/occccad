@@ -2346,7 +2346,7 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if request.Type == "REPLACE_INSTANCE" && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
 		return prepared, fmt.Errorf("%w: PREVIEW_STALE", ErrValidation)
 	}
-	if request.Type == "EDIT_CONTEXT_BINDING" && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
+	if (request.Type == "EDIT_CONTEXT_BINDING" || request.Type == "LOCALIZE_CONTEXT_INPUT" || request.Type == "RESTORE_CONTEXT_INPUT_DEFAULT") && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
 		return prepared, fmt.Errorf("%w: CONTEXT_BINDING_REVISION_CHANGED", ErrValidation)
 	}
 	if len(priorManifestJSON) > 0 {
@@ -3287,9 +3287,9 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 	for _, binding := range model.ContextBindings {
 		name := scopedNameKey(binding.Name)
 		if binding.ID == "" || bindingIDs[binding.ID] || name == "" || bindingNames[name] ||
-			len(binding.OwningInstancePath.Segments) == 0 || len(binding.SourceInstancePath.Segments) == 0 ||
+			len(binding.OwningInstancePath.Segments) == 0 || binding.Local == nil && len(binding.SourceInstancePath.Segments) == 0 ||
 			len(binding.OwningInstancePath.Segments) > instancePathMaxDepth || len(binding.SourceInstancePath.Segments) > instancePathMaxDepth ||
-			binding.ContextInputID == "" || binding.Publication.PublicationID == "" {
+			binding.ContextInputID == "" || binding.Local == nil && binding.Publication.PublicationID == "" {
 			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: ContextBinding identity, name or endpoint is invalid", ErrValidation)
 		}
 		endpoint := binding.OwningInstancePath.Canonical + "#" + binding.ContextInputID
@@ -3297,14 +3297,42 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: ContextInput has more than one Product binding", ErrValidation)
 		}
 		bindingIDs[binding.ID], bindingNames[name], boundInputs[endpoint] = true, true, true
-		ownerRoot, sourceRoot := binding.OwningInstancePath.Segments[0].InstanceID, binding.SourceInstancePath.Segments[0].InstanceID
-		if !instanceIDs[ownerRoot] || !instanceIDs[sourceRoot] {
+		if e := validateContextAssignment(binding); e != nil {
+			return nil, modelcore.EvaluationManifest{}, e
+		}
+		ownerRoot := binding.OwningInstancePath.Segments[0].InstanceID
+		sourceRoot := ""
+		if binding.Local == nil {
+			sourceRoot = binding.SourceInstancePath.Segments[0].InstanceID
+		}
+		if !instanceIDs[ownerRoot] || binding.Local == nil && !instanceIDs[sourceRoot] {
 			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: ContextBinding occurrence is missing", ErrValidation)
 		}
 		data, _ := json.Marshal(binding)
 		key := modelcore.DependencyKey("context-binding:" + binding.ID)
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: "CONTEXT_BINDING", CanonicalInput: data})
-		edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + sourceRoot), Target: key, Kind: modelcore.ReadGeometry})
+		edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + ownerRoot), Target: key, Kind: modelcore.ReadGeometry})
+		if binding.Local == nil {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + sourceRoot), Target: key, Kind: modelcore.ReadGeometry})
+		}
+		for _, c := range model.Constraints {
+			if c.Suppressed {
+				continue
+			}
+			used := c.First.InstanceID == ownerRoot || c.Second != nil && c.Second.InstanceID == ownerRoot || c.AngleAxis != nil && c.AngleAxis.InstanceID == ownerRoot
+			for _, member := range c.GroupMembers {
+				used = used || member.InstanceID == ownerRoot
+			}
+			if used {
+				edges = append(edges, modelcore.DependencyEdge{Source: key, Target: modelcore.DependencyKey("assembly-constraint:" + c.ID), Kind: modelcore.ReadGeometry})
+			}
+		}
+		for _, pub := range model.Publications {
+			if len(pub.Target.InstancePath.Segments) > 0 && pub.Target.InstancePath.Segments[0].InstanceID == ownerRoot {
+				edges = append(edges, modelcore.DependencyEdge{Source: key, Target: modelcore.DependencyKey("product-publication:" + pub.ID), Kind: modelcore.ReadGeometry})
+			}
+		}
+
 	}
 	graph, err := modelcore.NewDependencyGraph(nodes, edges)
 	if err != nil {

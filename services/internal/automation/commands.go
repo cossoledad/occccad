@@ -76,6 +76,8 @@ var commandContracts = []commandContract{
 	{"EDIT_PRODUCT_PUBLICATION", "PRODUCT", "编辑产品发布", "name publicationId semanticPurpose", "publicationId", ""},
 	{"CREATE_CONTEXT_BINDING", "PRODUCT", "创建上下文绑定", "contextInputId contextVariantId name owningInstancePath publicationId referenceMode sourceDocumentId sourceInstancePath versionId", "contextInputId owningInstancePath sourceInstancePath publicationId", ""},
 	{"EDIT_CONTEXT_BINDING", "PRODUCT", "编辑上下文关联", "contextBindingId contextInputId name referenceMode owningInstancePath sourceInstancePath publicationId versionId", "contextBindingId versionId", ""},
+	{"LOCALIZE_CONTEXT_INPUT", "PRODUCT", "解除关联并保留", "contextBindingId versionId", "contextBindingId versionId", ""},
+	{"RESTORE_CONTEXT_INPUT_DEFAULT", "PRODUCT", "恢复零件默认", "contextBindingId versionId", "contextBindingId versionId", ""},
 	{"DELETE_CONTEXT_BINDING", "PRODUCT", "删除上下文绑定", "contextBindingId", "contextBindingId", ""},
 	{"MOVE_INSTANCE", "PRODUCT", "移动实例", "instanceId interactionTarget rotation sessionId translation", "instanceId translation rotation", ""},
 	{"SET_ASSEMBLY_CONSTRAINT_STATE", "PRODUCT", "修改装配约束状态", "constraintIds constraintMode suppressed", "constraintIds", ""},

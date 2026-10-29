@@ -13,7 +13,7 @@ export function replacementImpact(view:DocumentView,id:string){
  const uses=(p?:InstancePath)=>p?.segments[0]?.instanceId===id;
  const direct=(p?:InstancePath)=>uses(p)&&p?.segments.length===1;
  for(const b of view.product?.contextBindings??[]){
-  if(uses(b.owningInstancePath)){bindings.push(b.name);if(!direct(b.owningInstancePath)||!b.sourceInstancePath||b.sourceInstancePath.segments.length!==1)blocked.push('关联使用深层路径，本轮不迁移');if(b.referenceMode==='PINNED')blocked.push('该组件接收固定输入，请先明确处理关联');}
+  if(uses(b.owningInstancePath)){bindings.push(b.name);if(b.local)blocked.push('接收零件含本地输入，请先恢复默认或重新关联后再替换');else if(!direct(b.owningInstancePath)||!b.sourceInstancePath||b.sourceInstancePath.segments.length!==1)blocked.push('关联使用深层路径，本轮不迁移');if(b.referenceMode==='PINNED')blocked.push('该组件接收固定输入，请先明确处理关联');}
   if(!uses(b.sourceInstancePath))continue;bindings.push(b.name);used.add(b.publication.publicationId);
   if(!direct(b.sourceInstancePath))blocked.push('关联使用深层来源，请先转发为组件公开接口');
   if(b.referenceMode==='PINNED')blocked.push('该组件提供固定输入，请先明确处理关联');
@@ -42,4 +42,9 @@ export function receiverMappingComplete(old:ContextInput[],next:ContextInput[],i
   const key=b.target.kind==='SKETCH_EXTERNAL_GEOMETRY'?b.id:`${b.target.kind}:${b.target.targetId}`;if(targets.has(key))return false;targets.add(key);
  }
  return next.every(i=>!i.required||ids.some(id=>mapping[id]===i.id));
+}
+
+export function receiverMappingProblem(old:ContextInput[],next:ContextInput[],mapping:Record<string,string>){
+ const assigned=new Map<string,ContextInput>();
+ for(const a of old){const b=next.find(i=>i.id===mapping[a.id]);if(!b)continue;const key=b.target.kind==='SKETCH_EXTERNAL_GEOMETRY'?b.id:`${b.target.kind}:${b.target.targetId}`;const first=assigned.get(key);if(first)return `输入“${first.name}”与“${a.name}”同时对应“${b.name}”，请选择不同目标`;assigned.set(key,a)}
 }

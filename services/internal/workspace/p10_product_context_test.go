@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"encoding/json"
+	"github.com/occccad/occccad/internal/modelcore"
 	"math"
 	"strings"
 	"testing"
@@ -320,5 +321,27 @@ func TestContextInputNativeDefaultsAndPointLinkAreAtomic(t *testing.T) {
 				t.Fatal("default from a different receiving sketch accepted")
 			}
 		})
+	}
+}
+
+func TestContextLocalAssignmentHasNoSourceDependencyAndDistinctDigest(t *testing.T) {
+	q := modelcore.Quantity{SIValue: .003, Dimension: modelcore.LengthDimension}
+	binding := ContextBinding{ID: "local", Name: "Local", ContextInputID: "port", OwningInstancePath: InstancePath{RootDocumentID: "root", Canonical: "receiver", Segments: []InstancePathSegment{{InstanceID: "receiver", ReferencedDocumentID: "part", ResolvedVersionID: "accepted"}}}, Local: &ContextInputLocalValue{Type: "PARAMETER", Value: &q}}
+	m := ProductModel{Instances: []ProductInstance{{ID: "receiver", Name: "Receiver", ReferencedDocumentID: "part", ReferencedVersionID: "accepted", Rotation: [4]float64{0, 0, 0, 1}}}, ContextBindings: []ContextBinding{binding}}
+	graph, _, err := buildProductEvaluation(m, "r1", "hash", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graph.Edges) != 1 || graph.Edges[0].Source != "instance:receiver" || graph.Edges[0].Target != "context-binding:local" {
+		t.Fatal("local input retains an external dependency", graph.Edges)
+	}
+	digest := contextVariantBindingDigest(m.ContextBindings)
+	q.SIValue = .004
+	if contextVariantBindingDigest(m.ContextBindings) == digest {
+		t.Fatal("local value omitted from canonical input")
+	}
+	m.ContextBindings[0].Publication.PublicationID = "old-source"
+	if _, _, err := buildProductEvaluation(m, "r2", "hash", nil, nil); err == nil {
+		t.Fatal("local/source union conflict accepted")
 	}
 }

@@ -450,8 +450,16 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 			}
 			snapshot := input.Default.External
 			digest := resolvedDigest(snapshot)
+			if external.LocalInput != nil {
+				var err error
+				snapshot, err = service.projectLocalInput(ctx, requestID, *model, model.Features[featureIndex].ID, input.ID, external.LocalInput)
+				if err != nil {
+					return err
+				}
+				digest = resolvedDigest(external.LocalInput)
+			}
 			for _, ref := range model.ContextReferences {
-				if ref.ID == input.ID {
+				if external.LocalInput == nil && ref.ID == input.ID {
 					if ref.Resolution.Status != "CONNECTED" {
 						return fmt.Errorf("%w: CONTEXT_INPUT_BINDING_BROKEN", ErrValidation)
 					}

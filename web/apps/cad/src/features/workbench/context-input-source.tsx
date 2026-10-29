@@ -9,6 +9,7 @@ export function boundContextParameter(view:DocumentView,id?:string){
  return port?view.contextProduct?.product?.contextBindings?.find(b=>b.contextInputId===port.id&&b.owningInstancePath.canonical===view.contextOccurrencePath):undefined;
 }
 export function bindingSourceSelection(binding:ContextBinding,root?:DocumentView):SelectionItem {
+ if(binding.local){const path=binding.owningInstancePath,leaf=path.segments.at(-1);return {kind:'context-input',id:binding.contextInputId,entityId:binding.contextInputId,documentId:leaf?.referencedDocumentId,versionId:leaf?.resolvedVersionId,instancePath:path,occurrencePath:path.canonical}}
  const path=binding.sourceInstancePath,leaf=path.segments.at(-1),native=binding.resolution.nativeSketch;
  const identity={documentId:leaf?.referencedDocumentId??'',versionId:binding.accepted.sourceRevisionId,instancePath:path,occurrencePath:path.canonical};
  const find=(n:NonNullable<DocumentView['structureTree']>):SelectionItem|undefined=>{
@@ -22,5 +23,5 @@ export function bindingSourceSelection(binding:ContextBinding,root?:DocumentView
 }
 export function ContextInputSource({binding,view}:{binding?:ContextBinding;view?:DocumentView}){
  const locate=useWorkbenchStore(s=>s.setSelections);
- return binding?<Button size="small" type="link" title={binding.sourceInstancePath.display} onClick={()=>locate([bindingSourceSelection(binding,view?.contextProduct??view)])}>关联输入 · 定位来源</Button>:null;
+ return binding?.local?<Button size="small" type="link" onClick={()=>locate([bindingSourceSelection(binding,view?.contextProduct??view)])}>本地输入 · 定位</Button>:binding?<Button size="small" type="link" title={binding.sourceInstancePath.display} onClick={()=>locate([bindingSourceSelection(binding,view?.contextProduct??view)])}>关联输入 · 定位来源</Button>:null;
 }

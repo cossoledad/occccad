@@ -124,6 +124,11 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 		if err != nil {
 			return err
 		}
+		if binding.Local != nil {
+			binding.OwningInstancePath = owningPath
+			binding.Accepted.OwningRevisionID = owningPath.Segments[len(owningPath.Segments)-1].ResolvedVersionID
+			continue
+		}
 		sourcePath, err := service.refreshProductInstancePath(ctx, *product, binding.SourceInstancePath)
 		if err != nil {
 			return err

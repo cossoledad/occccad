@@ -1287,6 +1287,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, err
 		}
 		return typeCreateContextBinding, contextBindingPayload{Binding: binding}, nil
+	case "LOCALIZE_CONTEXT_INPUT", "RESTORE_CONTEXT_INPUT_DEFAULT":
+		if documentType != "PRODUCT" {
+			break
+		}
+		return service.prepareContextInputMaintenance(ctx, documentID, modelJSON, request)
 	case "EDIT_CONTEXT_BINDING":
 		if documentType != "PRODUCT" {
 			break
@@ -1331,6 +1336,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			binding.ID = existing.ID
 		} else {
 			if request.ReferenceMode != "" {
+				if binding.Local != nil {
+					return "", nil, fmt.Errorf("%w: CONTEXT_LOCAL_INPUT_HAS_NO_SOURCE", ErrValidation)
+				}
 				if request.ReferenceMode != "PINNED" && request.ReferenceMode != "FOLLOW_WORKSPACE_WITH_ACCEPT" && request.ReferenceMode != "FOLLOW_HEAD" {
 					return "", nil, fmt.Errorf("%w: invalid binding mode", ErrValidation)
 				}

@@ -189,7 +189,7 @@ export type Feature = {
 export type SketchPoint2 = { x: number; y: number };
 export type SketchGeometryRef = { target: "ENTITY" | "EXTERNAL" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number; controlPointId?: string; pointId?: string };
 export type SketchEntity = {name?:string; infinite?:boolean; id: string; createdByOperationId?: string; sourceEntityId?: string; startPointId?:string; endPointId?:string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "ELLIPSE" | "ELLIPTICAL_ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; visible?: boolean; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; majorRadius?: number; minorRadius?: number; rotation?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; controlPointIds?: string[]; degree?: number; closed?: boolean; mode?: "FIT" | "CONTROL"; poles?: SketchPoint2[]; poleIds?: string[]; knots?: number[]; multiplicities?: number[]; weights?: number[]; periodic?: boolean; parameterStart?: number; parameterEnd?: number };
-export type SketchExternalGeometry = { contextInputId?:string; name?:string;datumReference?:DatumReference;id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE"|"ARC"|"ELLIPSE"|"ELLIPTICAL_ARC";persistentSelection:PersistentSelection;sourceVersionId:string;
+export type SketchExternalGeometry = { localInput?:ContextInputLocalValue; contextInputId?:string; name?:string;datumReference?:DatumReference;id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE"|"ARC"|"ELLIPSE"|"ELLIPTICAL_ARC";persistentSelection:PersistentSelection;sourceVersionId:string;
   sourceDocumentId?:string;contextReferenceId?:string;
   status:"PENDING"|"CONNECTED"|"UNRESOLVED_EXTERNAL";diagnosticCode?:string;diagnostic?:string;resolvedSourceDigest?:string;
   snapshot?:{kind:"POINT"|"LINE"|"CIRCLE"|"ARC"|"ELLIPSE"|"ELLIPTICAL_ARC";point?:SketchPoint2;start?:SketchPoint2;end?:SketchPoint2;center?:SketchPoint2;radius?:number;majorRadius?:number;minorRadius?:number;rotation?:number;startAngle?:number;endAngle?:number};
@@ -497,7 +497,8 @@ export type ProductPublication = { id:string;name:string;type:Publication["type"
   target:{instancePath:InstancePath;publicationId:string};contract:Publication["contract"];resolution:Publication["resolution"] };
 export type ContextInput = { default?:{external?:SketchExternalGeometry["snapshot"];parameterSource?:ParameterDefinition["source"];plane?:DatumPlane;axis?:DatumAxis}; id:string;name:string;type:Publication["type"];required?:boolean;
   target:{kind:"PARAMETER"|"DATUM"|"SKETCH_EXTERNAL_GEOMETRY"|"FEATURE_INPUT";targetId:string};contract:Publication["contract"] };
-export type ContextBinding = { id:string;name:string;owningInstancePath:InstancePath;contextInputId:string;
+export type ContextInputLocalValue={type:Publication["type"];value?:Quantity;geometryKind?:string;origin?:Vec3;direction?:Vec3;xDirection?:Vec3;radius?:number;parameterStart?:number;parameterEnd?:number};
+export type ContextBinding = {local?:ContextInputLocalValue; id:string;name:string;owningInstancePath:InstancePath;contextInputId:string;
   sourceInstancePath:InstancePath;publication:{publicationId:string;expectedType:string;compatibilityVersion:string};
   referenceMode:"PINNED"|"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT";transform:{translation:Vec3;rotation:[number,number,number,number]};
   resolution:Publication["resolution"];accepted:{rootProductRevisionId:string;sourceRevisionId:string;owningRevisionId:string;

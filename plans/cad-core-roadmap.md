@@ -1,6 +1,6 @@
 # CAD 核心主线
 
-当前重点：巩固设计输入准备与公开接口替换。独立 Part 可准备本地输入及默认几何；单个直接来源组件支持 Part→Part、Product→Product，单个直接接收 Part 支持显式输入对应、已接受快照迁移及独立安装支撑的有界初始摆放。继续验证几何、上下文编辑与原子历史。固定输入迁移、接收兼来源链、深层/批量替换、原始拓扑匹配与机构迁移仍不开放。当前能力及边界见[发布与关联设计](../docs/architecture/current/product-assembly.md#发布与关联设计)，草图与 Feature 的唯一能力表见 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)。不累计实施日志。
+当前重点：巩固实例输入的来源关联、本地化、恢复默认与重新关联闭环。直接 Part occurrence 已支持保留权威接受结果的自包含精确输入、预览检查及原子历史；共享 Part 默认与其他实例隔离。含本地输入的接收替换先明确拒绝，固定输入迁移、接收兼来源链、深层/批量替换、原始拓扑匹配与机构迁移仍不开放。当前能力及边界见[发布与关联设计](../docs/architecture/current/product-assembly.md#发布与关联设计)，Feature 的唯一能力表见 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)。不累计实施日志。
 
 后续按实际建模需求推进：其余关联终止、贯穿 Hole 工具、切除范围、更多合法历史插入/移动；任意深层上下文编辑、跨层更新编排与柔性场景、静态干涉/间隙及交换验收仍未完成。具体边界分别归所属 current 主题，不把设计或接口存在当作交付。
 

@@ -74,6 +74,18 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		} else {
 			return ProductUpdatePlan{}, refreshErr
 		}
+		if binding.Local != nil {
+			if err := validateContextAssignment(binding); err != nil {
+				return ProductUpdatePlan{}, err
+			}
+			owner, ok := occurrenceByCanonical(items, projectedBinding.OwningInstancePath.Canonical)
+			if !ok {
+				return ProductUpdatePlan{}, fmt.Errorf("%w: CONTEXT_DIRECT_RECEIVER_REQUIRED", ErrValidation)
+			}
+			variantBindings[owner.Path.Canonical] = append(variantBindings[owner.Path.Canonical], projectedBinding)
+			plan.Entries = append(plan.Entries, ProductUpdatePlanEntry{Kind: "CONTEXT_BINDING", BindingID: binding.ID, Name: binding.Name, ReferenceMode: "LOCAL", SourceDisplayPath: "本地输入", OwningDisplayPath: owner.Path.Display, AcceptedRevisionID: owner.RevisionID, Connection: "LOCAL", Currency: "CURRENT", Evaluation: "READY"})
+			continue
+		}
 		if path, refreshErr := service.refreshProductInstancePath(ctx, rootModel, projectedBinding.SourceInstancePath); refreshErr == nil {
 			projectedBinding.SourceInstancePath = path
 		} else {
@@ -411,6 +423,7 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 }
 
 type contextVariantInput struct {
+	Local            *ContextInputLocalValue  `json:"local,omitempty"`
 	ContextInputID   string                   `json:"contextInputId"`
 	Publication      PublicationRef           `json:"publication"`
 	SourceRevisionID string                   `json:"sourceRevisionId"`
@@ -437,6 +450,10 @@ type contextVariantResolution struct {
 func contextVariantBindingDigest(bindings []ContextBinding) string {
 	inputs := make([]contextVariantInput, 0, len(bindings))
 	for _, binding := range bindings {
+		if binding.Local != nil {
+			inputs = append(inputs, contextVariantInput{ContextInputID: binding.ContextInputID, OwningRevisionID: binding.Accepted.OwningRevisionID, Local: binding.Local})
+			continue
+		}
 		resolution := binding.Resolution
 		transform := binding.Transform
 		if binding.Publication.ExpectedType == "PARAMETER" {
@@ -464,6 +481,14 @@ func contextVariantKey(baseRevisionID, bindingDigest string) string {
 
 func (service *Service) acceptedContextVariants(ctx context.Context, items []expandedOccurrence) ([]ContextVariantSnapshot, error) {
 	grouped := map[string][]ContextBinding{}
+	// A prepared, unassigned Part still displays its accepted defaults. A
+	// newer independent Head must not replace that occurrence's complete view.
+	for _, item := range items {
+		if item.DocumentType == "PART" && len(item.Path.Segments) == 1 && len(item.ContextInputs) > 0 {
+			grouped[item.Path.Canonical] = []ContextBinding{}
+		}
+	}
+
 	for _, item := range items {
 		for _, binding := range item.ContextBindings {
 			grouped[binding.OwningInstancePath.Canonical] = append(grouped[binding.OwningInstancePath.Canonical], binding)
@@ -544,6 +569,12 @@ func materializeContextBindingVariant(model *PartModel, binding ContextBinding) 
 	}
 	if input == nil {
 		return fmt.Errorf("%w: ContextInput %s is missing", ErrValidation, binding.ContextInputID)
+	}
+	if binding.Local != nil {
+		if err := validateContextAssignment(binding); err != nil {
+			return err
+		}
+		return materializeLocalInput(model, *input, binding.Local)
 	}
 	if binding.Accepted.Status != "CONNECTED" || binding.Resolution.Status != "CONNECTED" {
 		return fmt.Errorf("%w: ContextBinding %s is not connected", ErrValidation, binding.ID)

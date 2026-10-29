@@ -259,6 +259,19 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 				}
 			}
 		}
+		if assignmentMutation(request) {
+			var before ProductModel
+			if err := json.Unmarshal(prepared.modelJSON, &before); err != nil {
+				return CommandPreview{}, err
+			}
+			if err := service.checkInputAssignmentCandidate(ctx, &model, before, request); err != nil {
+				return CommandPreview{}, err
+			}
+			previewChanges, err = appendInputAssignmentChanges(prepared.modelJSON, model, previewChanges)
+			if err != nil {
+				return CommandPreview{}, err
+			}
+		}
 		nextJSON, err = json.Marshal(model)
 		if err != nil {
 			return CommandPreview{}, err
@@ -321,7 +334,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 				Rotation    [4]float64 `json:"rotation"`
 			}{instance.ID, instance.Translation, normalizedInstanceRotation(instance.Rotation)})
 		}
-		if prepared.command.TypeURI == typeReplaceInstance {
+		if prepared.command.TypeURI == typeReplaceInstance || assignmentMutation(request) {
 			projectionContext := context.WithValue(ctx, propertyPreviewSnapshotKey{}, propertyPreviewSnapshot{Revision: prepared.headRevision, Model: nextJSON})
 			summary := DocumentSummary{ID: documentID, Type: "PRODUCT", VersionID: prepared.headRevision}
 			if err := service.database.QueryRow(ctx, `SELECT name FROM occccad.documents WHERE id=$1`, documentID).Scan(&summary.Name); err != nil {

@@ -131,7 +131,7 @@ try{
   assert.equal(publicInterfaceForPick(v,[entry],raw),entry);
   assert(!publicInterfaceForPick(v,[entry],{...raw,versionId:'wrong'}));
  }
- const {replacementImpact,replacementCompatible,replacementInputCompatible,receiverMappingComplete}=await moduleServer.ssrLoadModule('/src/features/workbench/instance-replacement-model.ts');
+ const {replacementImpact,replacementCompatible,replacementInputCompatible,receiverMappingComplete,receiverMappingProblem}=await moduleServer.ssrLoadModule('/src/features/workbench/instance-replacement-model.ts');
  const old={id:'old',name:'Mount',type:'POINT',compatibilityVersion:'1',contract:{geometryKind:'POINT',dimension:{length:1}},resolution:{status:'CONNECTED'}};
  assert(replacementCompatible(old,{...old,id:'new'}));
  assert(!replacementCompatible(old,{...old,contract:{...old.contract,dimension:{length:2}}}));
@@ -147,6 +147,13 @@ try{
  assert(replacementInputCompatible(oldInputs[0],nextInputs[0]));
  assert(receiverMappingComplete(oldInputs,nextInputs,['old1','old2'],{old1:'new1',old2:'new2'}));
  assert(!receiverMappingComplete(oldInputs,nextInputs,['old1','old2'],{old1:'new1',old2:'new1'}),'distinct old ports cannot collapse into one local slot');
+ assert.equal(receiverMappingProblem(oldInputs,nextInputs,{old1:'new1',old2:'new1'}),'输入“Position.1”与“Position.2”同时对应“Position.1”，请选择不同目标');
+ assert.equal(receiverMappingProblem(oldInputs,nextInputs,{old1:'new1',old2:'new2'}),undefined);
+ assert(replacementImpact({product:{contextBindings:[{...bind,local:{type:'POINT'},sourceInstancePath:{segments:[]}}]}},'plate').blocked.some(p=>p.includes('本地输入')));
+ const {bindingSourceSelection}=await moduleServer.ssrLoadModule('/src/features/workbench/context-input-source.tsx');
+ const localBinding={...bind,local:{type:'POINT'},sourceInstancePath:{segments:[]},owningInstancePath:{canonical:'plate',segments:[{instanceId:'plate',referencedDocumentId:'receiver',resolvedVersionId:'accepted'}]}};
+ assert.equal(bindingSourceSelection(localBinding).id,'local');assert.equal(bindingSourceSelection(localBinding).kind,'context-input');assert.equal(bindingSourceSelection(localBinding).documentId,'receiver');
+
  assert(!receiverMappingComplete(oldInputs,[...nextInputs,input('required','Extra',true)],['old1','old2'],{old1:'new1',old2:'new2'}));
  const receiverImpact=replacementImpact({product:{contextBindings:[bind]},contextVariants:[{owningInstancePath:bind.owningInstancePath,part:{contextInputs:oldInputs}}]},'plate');
  assert.equal(receiverImpact.blocked.length,0);assert.equal(receiverImpact.incoming.length,1);assert.deepEqual(receiverImpact.receiverInputs,oldInputs);assert.deepEqual(receiverImpact.used,[]);

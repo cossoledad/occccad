@@ -25,13 +25,16 @@ func (s *Service) receiverReplacementInputs(ctx context.Context, root string, be
 	for _, i := range newPart.ContextInputs {
 		newInputs[i.ID] = i
 	}
-	used, targets, assigned := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	used, targets, assigned := map[string]bool{}, map[string]string{}, map[string]bool{}
 	ids := []string{}
 	frozen := map[string]InstancePose{}
 	snapshots := map[string]ProductModel{}
 	for _, b := range before.ContextBindings {
 		if len(b.OwningInstancePath.Segments) == 0 || b.OwningInstancePath.Segments[0].InstanceID != instance.ID {
 			continue
+		}
+		if b.Local != nil {
+			return fail("REPLACEMENT_LOCAL_INPUT_UNSUPPORTED")
 		}
 		if len(b.OwningInstancePath.Segments) != 1 || len(b.SourceInstancePath.Segments) != 1 {
 			return fail("REPLACEMENT_DEEP_REFERENCE_UNSUPPORTED")
@@ -54,10 +57,10 @@ func (s *Service) receiverReplacementInputs(ctx context.Context, root string, be
 		if n.Target.Kind == "SKETCH_EXTERNAL_GEOMETRY" {
 			target = n.ID
 		}
-		if targets[target] {
-			return fail("REPLACEMENT_INPUT_DUPLICATE")
+		if oldName := targets[target]; oldName != "" {
+			return fail(fmt.Sprintf("REPLACEMENT_INPUT_DUPLICATE: 输入“%s”和“%s”同时对应“%s”", oldName, a.Name, n.Name))
 		}
-		targets[target] = true
+		targets[target] = a.Name
 		assigned[n.ID] = true
 		used[b.ContextInputID] = true
 		if b.Accepted.Status != "CONNECTED" || b.Resolution.Status != "CONNECTED" {

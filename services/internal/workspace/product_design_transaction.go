@@ -134,6 +134,9 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	dependencyEdges := map[string][]string{}
 	for _, occurrence := range items {
 		for _, existing := range occurrence.ContextBindings {
+			if existing.Local != nil {
+				continue
+			}
 			dependencyEdges[existing.SourceInstancePath.Canonical] = append(dependencyEdges[existing.SourceInstancePath.Canonical], existing.OwningInstancePath.Canonical)
 		}
 	}
