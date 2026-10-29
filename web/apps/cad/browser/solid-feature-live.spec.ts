@@ -28,6 +28,57 @@ async function ready(page:Page,dialog:ReturnType<Page["getByRole"]>){
  await expect(page.locator("[data-feature-preview]")).toHaveCount(1);
 }
 
+test("Hole preview keeps one shaded result through picking and cancel",async({page},info)=>{
+ page.setDefaultTimeout(15_000);
+ const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production Vite module
+  const {restApi:api}=await import("/src/api.ts");let v=await api.createDocument("PART","Hole preview surface acceptance");const id=v.document.id;
+  v=await api.command(id,{type:"CREATE_SKETCH",plane:"XY"});const profile=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:profile,operations:[{type:"ADD_RECTANGLE",first:{x:-30,y:-20},second:{x:30,y:20}}]});
+  v=await api.command(id,{type:"CREATE_SOLID_FEATURE",sketchId:profile,generator:"LINEAR_EXTRUDE",operation:"ADD",length:20});
+  v=await api.command(id,{type:"CREATE_DATUM_PLANE",origin:[0,0,20],normal:[0,0,1],uDirection:[1,0,0]});
+  v=await api.command(id,{type:"CREATE_SKETCH",datumPlaneId:v.part!.datumPlanes.at(-1)!.id});const sketch=v.part!.features.at(-1)!.id;
+  v=await api.command(id,{type:"EDIT_SKETCH",sketchId:sketch,operations:[{type:"ADD_ENTITY",entity:{id:"point",kind:"POINT",role:"CONSTRUCTION",point:{x:0,y:0}}}]});
+  return {id,head:v.document.versionId};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();
+ await openCommand(page,"孔");const d=page.getByRole("dialog",{name:"创建 孔",exact:true});
+ await d.getByRole("textbox",{name:"直径（mm）",exact:true}).fill("16");await d.getByRole("textbox",{name:"深度（mm）",exact:true}).fill("12");
+ await d.getByRole("switch",{name:"反向",exact:true}).check();await pickHolePoint(page,d,[0,0,20]);await ready(page,d);
+ await page.mouse.move(600,850);await page.screenshot({path:info.outputPath("hole-preview.png")});
+ const snapshot=()=>page.evaluate(()=>{
+  const e=(window as any).__cameraEngine;let originalSurfaces=0,previewSurfaces=0;
+  e.scene.traverseVisible((o:any)=>{if(!o.isMesh)return;const materials=Array.isArray(o.material)?o.material:[o.material];if(!materials.some((m:any)=>m.visible&&m.opacity>0))return;
+   if(o.name==="feature-preview-result")previewSurfaces++;
+   if(o.name==="feature-preview-original"||o===e.solidBindings.values().next().value?.mesh)originalSurfaces++;
+  });return {originalSurfaces,previewSurfaces};
+ });
+ await info.attach("preview-surfaces",{body:JSON.stringify(await snapshot()),contentType:"application/json"});
+ expect(await snapshot()).toEqual({originalSurfaces:0,previewSurfaces:1});
+ await d.getByRole("button",{name:"选择定位点",exact:true}).click();
+ await page.mouse.move(600,850);await page.screenshot({path:info.outputPath("hole-preview-picking.png")});
+ expect(await snapshot()).toEqual({originalSurfaces:0,previewSurfaces:1});
+ await page.keyboard.press("Escape");await expect(d).toBeVisible();await ready(page,d);
+ expect(await snapshot()).toEqual({originalSurfaces:0,previewSurfaces:1});
+ await d.getByRole("button",{name:"选择定位点",exact:true}).click();await pickHolePoint(page,d,[0,0,20]);await ready(page,d);
+ expect(await snapshot()).toEqual({originalSurfaces:0,previewSurfaces:1});
+ await d.getByRole("button",{name:/取\s*消/}).click();await expect(d).toHaveCount(0);
+ await expect.poll(async()=>page.evaluate(()=>{const e=(window as any).__cameraEngine;const b=e.solidBindings.values().next().value;return !e.commandPreview&&b.group.visible&&b.mesh.material.visible})).toBe(true);
+ expect((await current(page,seed.id)).document.versionId).toBe(seed.head);
+ await openCommand(page,"孔");await d.getByRole("switch",{name:"反向",exact:true}).check();await pickHolePoint(page,d,[0,0,20]);await ready(page,d);
+ await d.getByRole("button",{name:/确\s*定/}).click();await expect(d).toHaveCount(0);
+ const committed=await current(page,seed.id),hole=committed.part.features.at(-1);
+ await page.getByRole("button",{name:"撤销",exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.some((f:any)=>f.id===hole.id)).toBe(false);
+ await page.getByRole("button",{name:"重做",exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).part.features.at(-1).id).toBe(hole.id);
+ await page.reload();await expect(page.locator("canvas")).toBeVisible();
+ await page.getByRole("textbox",{name:"筛选模型结构"}).fill(hole.name);await page.getByRole("treeitem").filter({hasText:hole.name}).first().dblclick();
+ const edit=page.getByRole("dialog",{name:"编辑 孔",exact:true});await ready(page,edit);
+ await worldScreen(page,[0,0,20]);
+ await expect.poll(snapshot).toEqual({originalSurfaces:0,previewSurfaces:1});
+ await page.screenshot({path:info.outputPath("hole-edit-preview.png")});await edit.getByRole("button",{name:/取\s*消/}).click();expect(errors).toEqual([]);
+});
+
 test("new datum plane binds a body face, previews, commits and reopens",async({page})=>{
  const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));await login(page);
  const seed=await page.evaluate(async()=>{

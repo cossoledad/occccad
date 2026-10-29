@@ -43,7 +43,7 @@ import { ViewTransition } from "../cad/navigation/view-transition";
 import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-view";
 import { makeFeatureEdges } from "../cad/rendering/feature-edges";
 import {booleanRegionStyle,booleanRoleColors} from "../cad/rendering/boolean-region-style";
-import { makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
+import { hideFeaturePreviewInput, makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { adaptiveGridSpacing, PlaneGrid } from "../cad/rendering/plane-grid";
 import { groundFootprint, includeVisibleSketchBounds, sceneGroundVisible, type SceneGridDisplay } from "../cad/rendering/scene-ground";
 import { sceneSketchColors, SketchColorAdapter } from "../cad/rendering/sketch-colors";
@@ -1075,6 +1075,7 @@ export class CadViewportEngine {
       else if (hidden === false) object.visible = false;
     });
     this.hideBooleanInputs();
+    if (this.previewBody && !this.featureSelection) this.previewBody.group.visible = false;
     this.refreshInteractionHighlights();
     this.refreshSceneGround();
   }
@@ -1427,7 +1428,7 @@ export class CadViewportEngine {
     this.frameContent(true);
   }
 
-  private previewInputMaterials:Array<{object:THREE.Mesh;original:THREE.Material|THREE.Material[];temporary:THREE.Material[]}>=[];
+  private restorePreviewInput?: () => void;
   private commandPreviewRequest?:{descriptor:ArtifactDescriptor;operation:FeaturePreviewOperation;sketchFeatureId?:string};
   private previewVisualGeneration = 0;
   private previewVisuals?: VisualRepository;
@@ -1476,20 +1477,11 @@ export class CadViewportEngine {
     if (!artifact.mesh.vertices.length || !artifact.mesh.triangles.length) return;
     const binding = this.solidBindings.get(`${this.editContext?.occurrencePath || "root"}/body:${artifact.bodyId}`);
     const geometry = makeGeometry(artifact);
-    const group = makeFeaturePreview(geometry, operation, binding?.mesh.geometry.clone());
+    const group = makeFeaturePreview(geometry, operation, binding?.mesh.geometry);
     if (binding) {
       this.previewBody = { group: binding.group, visible: binding.group.visible };
-      binding.group.visible = !!this.featureSelection;
-      if(this.featureSelection)binding.group.traverse(child=>{
-        const object=child as THREE.Mesh;
-        if(!object.material)return;
-        const original=object.material;
-        const temporary=(Array.isArray(original)?original:[original]).map(material=>{
-          const copy=material.clone();copy.visible=false;return copy;
-        });
-        object.material=Array.isArray(original)?temporary:temporary[0];
-        this.previewInputMaterials.push({object,original,temporary});
-      });
+      binding.group.visible = binding.group.visible && !!this.featureSelection;
+      this.restorePreviewInput = hideFeaturePreviewInput(binding.group);
     }
     if (this.editContext?.translation) group.position.fromArray(this.editContext.translation);
     if (this.editContext?.rotation) group.quaternion.fromArray(this.editContext.rotation);
@@ -1504,8 +1496,8 @@ export class CadViewportEngine {
     this.previewVisuals?.dispose();
     this.previewVisuals = undefined;
     delete this.host.dataset.featurePreview;
-    for(const {object,original,temporary} of this.previewInputMaterials){object.material=original;for(const material of temporary)material.dispose();}
-    this.previewInputMaterials=[];
+    this.restorePreviewInput?.();
+    this.restorePreviewInput = undefined;
     for(const object of this.previewSketchHidden)object.visible=true;
     this.previewSketchHidden=[];
     if (this.previewBody) {
