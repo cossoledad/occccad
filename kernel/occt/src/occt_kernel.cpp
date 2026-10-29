@@ -708,6 +708,7 @@ struct HoleToolCopy { std::string feature_id; PatternPlacement placement; };
 struct ThroughHoleTool { ProfilePadSpec definition; std::vector<HoleToolCopy> copies; };
 
 struct ToolBuild {
+    bool private_boolean{false};
     std::vector<ThroughHoleTool> through_holes;
     // Only the non-deferred portion of a mixed pattern is copied as fixed BREP.
     TopoDS_Shape fixed_shape;
@@ -1162,6 +1163,7 @@ ToolBuild transform_pattern_tool(const ToolBuild& source, const HoleToolCopy& co
     output.feature_id = copy.feature_id;
     output.shape = algorithm.Shape();
     output.topology_history_complete = source.topology_history_complete;
+    output.private_boolean = source.private_boolean;
     for (const auto& named : source.named) {
         const auto shape = algorithm.ModifiedShape(named.shape);
         if (shape.IsNull()) throw std::runtime_error("PATTERN_TRANSFORM_HISTORY_MISSING");
@@ -1187,6 +1189,7 @@ ToolBuild make_pattern_tool(const ToolBuild& source, const ProfilePadSpec& spec,
     ToolBuild output;
     output.feature_id = spec.feature_id;
     output.topology_history_complete = source.topology_history_complete;
+    output.private_boolean = source.private_boolean;
     BRep_Builder builder;
     TopoDS_Compound compound, fixed;
     builder.MakeCompound(compound);
@@ -2124,6 +2127,66 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
         diagnostics.push_back("TOPOLOGY_HISTORY_DERIVED_CLOSURE:" +
                               std::to_string(derived.size()));
     return {result, mapped, std::move(derived), std::move(diagnostics)};
+}
+
+bool material_range_start(const ProfilePadSpec& spec) {
+    if (spec.generator=="HOLE")
+        return spec.extent=="BLIND" && spec.body_operation=="REMOVE";
+    return (spec.generator=="LINEAR_EXTRUDE" || spec.generator=="REVOLVE" || spec.generator=="LOFT") &&
+        (spec.body_operation=="ADD" || spec.body_operation=="NEW_BODY" || spec.body_operation=="REMOVE") &&
+        (spec.extent.empty() || spec.extent=="FINITE" || spec.extent=="SYMMETRIC" || spec.extent=="TWO_SIDED");
+}
+
+ToolBuild private_stage(const ToolBuild& source) {
+    ToolBuild copy;
+    copy.feature_id=source.feature_id;
+    copy.topology_history_complete=source.topology_history_complete;
+    if (!source.shape.IsNull()) {
+        BRepBuilderAPI_Copy algorithm(source.shape,Standard_True,Standard_False);
+        copy.shape=algorithm.Shape();
+        copy.named=map_named_shapes(source.named,algorithm,copy.shape);
+    }
+    return copy;
+}
+
+ToolBuild material_range_tool(const ToolBuild& base, const ToolBuild& end,
+                              const std::string& operation, const std::string& start_id) {
+    if (!base.topology_history_complete || !end.topology_history_complete)
+        throw std::invalid_argument("PATTERN_RANGE_HISTORY_INCOMPLETE");
+    if ((operation!="ADD" && operation!="REMOVE") || (operation=="REMOVE" && base.shape.IsNull()))
+        throw std::invalid_argument("PATTERN_RANGE_INVALID");
+    auto b0=private_stage(base), b1=private_stage(end);
+    ToolBuild tool;tool.feature_id=end.feature_id;tool.private_boolean=true;
+    if (b0.shape.IsNull()) {
+        tool.shape=b1.shape;tool.named=b1.named;
+    } else {
+        // Compare an actual spatial difference, never the two overall volumes.
+        // REMOVE requires B1\B0 empty; ADD requires B0\B1 empty.
+        TopTools_ListOfShape baseline,endpoint;baseline.Append(b0.shape);endpoint.Append(b1.shape);
+        BRepAlgoAPI_Cut outside;outside.SetNonDestructive(Standard_True);
+        outside.SetArguments(operation=="REMOVE"?endpoint:baseline);
+        outside.SetTools(operation=="REMOVE"?baseline:endpoint);outside.Build();
+        if (!outside.IsDone() || outside.HasErrors())
+            throw std::runtime_error("PATTERN_RANGE_BASELINE_CHECK_FAILED");
+        if (shape_volume(outside.Shape())>std::max(1e-7,shape_volume(b0.shape)*1e-10))
+            throw std::invalid_argument(operation=="REMOVE"?"PATTERN_RANGE_ADDS_MATERIAL":"PATTERN_RANGE_REMOVES_BASELINE");
+        BRepAlgoAPI_Cut cut;cut.SetNonDestructive(Standard_True);
+        cut.SetArguments(operation=="REMOVE"?baseline:endpoint);
+        cut.SetTools(operation=="REMOVE"?endpoint:baseline);cut.Build();
+        if (!cut.IsDone() || cut.HasErrors())
+            throw std::runtime_error("PATTERN_RANGE_EXTRACTION_FAILED");
+        if (cut.Shape().IsNull() || shape_volume(cut.Shape())<=1e-9)
+            throw std::invalid_argument("PATTERN_RANGE_EMPTY");
+        validate_body_solid_set(cut.Shape());
+        auto sources=b1.named;
+        // Retain existing additive range roles. A removed cavity needs both
+        // baseline skin and end-stage cavity walls, with their real cut history.
+        if (operation=="REMOVE") sources.insert(sources.end(),b0.named.begin(),b0.named.end());
+        tool.named=map_named_shapes(sources,cut,cut.Shape());tool.shape=cut.Shape();
+    }
+    validate_body_solid_set(tool.shape);
+    tool.generated=complete_boolean_topology_naming(tool.shape,tool.named,start_id);
+    return tool;
 }
 
 // CellsBuilder's public Take/Avoid API selects by operand membership. Expose
@@ -3494,7 +3557,7 @@ struct OcctKernel::Impl {
         ProfileEvaluationResult evaluation;
         bool history_complete = false;
         std::map<std::string, ToolBuild> tools, bodies;
-        std::map<std::string, TopoDS_Shape> bases;
+        std::map<std::string, ToolBuild> bases;
         size_t bytes = 0;
         mutable uint64_t used = 0;
     };
@@ -3881,7 +3944,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     }
 
     std::map<std::string, ToolBuild> pattern_tools, pattern_bodies;
-    std::map<std::string, TopoDS_Shape> pattern_range_bases;
+    std::map<std::string, ToolBuild> pattern_range_bases;
     std::set<std::string> range_starts;
     std::set<std::string> required_pattern_tools, required_pattern_bodies;
     for (const auto& spec : specs) {
@@ -3938,15 +4001,14 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             const auto input_shape = result;
             const auto input_id = result_id;
             const auto input_named = live_named;
-            if (range_starts.count(spec.feature_id)) {
-                if ((spec.generator != "LINEAR_EXTRUDE" && spec.generator != "REVOLVE" && spec.generator != "LOFT") ||
-                    (spec.body_operation != "ADD" && spec.body_operation != "NEW_BODY") || (spec.extent == "THROUGH_ALL" || spec.extent == "TO_PLANE"))
-                    throw std::invalid_argument("PATTERN_RANGE_INVALID");
-                pattern_range_bases.emplace(spec.feature_id, result);
+            if (range_starts.count(spec.feature_id) && !material_range_start(spec))
+                throw std::invalid_argument("PATTERN_RANGE_INVALID");
+            if (material_range_start(spec)) {
+                ToolBuild baseline;baseline.shape=result;baseline.named=live_named;
+                baseline.feature_id=spec.input_feature_id;
+                baseline.topology_history_complete=topology_history_complete;
+                pattern_range_bases.insert_or_assign(spec.feature_id,private_stage(baseline));
             }
-            if ((spec.generator=="LINEAR_EXTRUDE" || spec.generator=="REVOLVE" || spec.generator=="LOFT") &&
-                (spec.body_operation=="ADD" || spec.body_operation=="NEW_BODY") && spec.extent!="THROUGH_ALL" && spec.extent!="TO_PLANE")
-                pattern_range_bases.insert_or_assign(spec.feature_id,result);
             ToolBuild tool;
             const bool modifier = spec.generator == "FILLET" || spec.generator == "CHAMFER" ||
                                   spec.generator == "DRAFT" || spec.generator == "SHELL";
@@ -3972,43 +4034,23 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 if (found == stages.end()) throw std::invalid_argument("PATTERN_SOURCE_STAGE_UNAVAILABLE");
                 if (spec.pattern_source_kind == "FEATURE_DELTA") {
                     const auto base = pattern_range_bases.find(spec.pattern_start_feature_id);
-                    if (base == pattern_range_bases.end() || spec.body_operation != "ADD")
+                    if (base == pattern_range_bases.end())
                         throw std::invalid_argument("PATTERN_RANGE_INVALID");
                     bool inside = false, ended = false;
                     for (const auto& member : specs) {
-                        if (member.feature_id == spec.pattern_start_feature_id) inside = true;
+                        if (member.feature_id == spec.pattern_start_feature_id) {
+                            inside = true;
+                            const auto operation=member.body_operation=="REMOVE"?"REMOVE":"ADD";
+                            if (!material_range_start(member) || spec.body_operation!=operation)
+                                throw std::invalid_argument("PATTERN_RANGE_INVALID");
+                        }
                         if (inside && member.feature_id != spec.pattern_start_feature_id &&
                             member.generator != "FILLET" && member.generator != "CHAMFER" && member.generator != "DRAFT")
                             throw std::invalid_argument("PATTERN_RANGE_REEXECUTION_UNSUPPORTED");
                         if (inside && member.feature_id == spec.pattern_source_feature_id) { ended = true; break; }
                     }
                     if (!ended) throw std::invalid_argument("PATTERN_RANGE_INVALID");
-                    auto delta = found->second;
-                    if (!base->second.IsNull()) {
-                        // Additive ranges must retain all baseline material. This is
-                        // an exact stage difference, not re-execution or Body copying.
-                        BRepAlgoAPI_Cut removed;
-                        removed.SetNonDestructive(Standard_True);
-                        TopTools_ListOfShape baseline, endpoint; baseline.Append(base->second); endpoint.Append(delta.shape);
-                        removed.SetArguments(baseline);
-                        removed.SetTools(endpoint);
-                        removed.Build();
-                        if (!removed.IsDone() || removed.HasErrors())
-                            throw std::runtime_error("PATTERN_RANGE_BASELINE_CHECK_FAILED");
-                        if (shape_volume(removed.Shape()) > std::max(1e-7, shape_volume(base->second)*1e-10))
-                            throw std::invalid_argument("PATTERN_RANGE_REMOVES_BASELINE");
-                        BRepAlgoAPI_Cut cut;
-                        cut.SetNonDestructive(Standard_True);
-                        cut.SetArguments(endpoint);
-                        cut.SetTools(baseline);
-                        cut.Build();
-                        if (!cut.IsDone() || cut.HasErrors()) throw std::runtime_error("PATTERN_RANGE_EXTRACTION_FAILED");
-                        validate_body_solid_set(cut.Shape());
-                        delta.named = map_named_shapes(delta.named, cut, cut.Shape());
-                        delta.shape = cut.Shape();
-                        delta.generated = complete_boolean_topology_naming(delta.shape, delta.named, spec.pattern_start_feature_id);
-                    }
-                    resolved=std::move(delta);
+                    resolved=material_range_tool(base->second,found->second,spec.body_operation,spec.pattern_start_feature_id);
                 } else resolved=found->second;
                 if (resolved.through_holes.empty()) {
                     seed_builder.Add(fixed_shapes,resolved.shape);has_fixed=true;
@@ -4018,6 +4060,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     aggregate.fixed_named.insert(aggregate.fixed_named.end(),resolved.fixed_named.begin(),resolved.fixed_named.end());
                     aggregate.through_holes.insert(aggregate.through_holes.end(),resolved.through_holes.begin(),resolved.through_holes.end());
                 }
+                aggregate.private_boolean |= resolved.private_boolean;
                 seed_builder.Add(seed_shapes,resolved.shape);
                 aggregate.named.insert(aggregate.named.end(),resolved.named.begin(),resolved.named.end());
                 aggregate.topology_history_complete=aggregate.topology_history_complete&&resolved.topology_history_complete;
@@ -4153,7 +4196,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 auto named=live_named;named.insert(named.end(),tool.named.begin(),tool.named.end());
                 return BodyOperationResult{compound,std::move(named),{}, {}};
             };
-            const auto apply_through_pattern = [&]() {
+            const auto apply_private_pattern = [&]() {
                 // Coincident forward/reverse Hole walls can make OCCT attach
                 // new pcurves to argument edges even in NonDestructive mode.
                 // Neither cancelled previews nor later cuts may mutate a stage
@@ -4177,7 +4220,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 : spec.generator=="SOLID_PATTERN" && spec.pattern_result_mode=="INDEPENDENT" ? independent()
                 : spec.generator=="BOOLEAN" && spec.explicit_boolean_regions
                     ? assemble_boolean_regions(*impl_->boolean_partition(result,live_named,tool.shape,tool.region_named),result,live_named,tool,spec)
-                : spec.generator=="SOLID_PATTERN" && !tool.through_holes.empty() ? apply_through_pattern()
+                : spec.generator=="SOLID_PATTERN" && (tool.private_boolean || !tool.through_holes.empty()) ? apply_private_pattern()
                 : modifier ? apply_local_modifier(result, live_named, spec)
                            : apply_body_operation(result, live_named, tool, spec.body_operation, spec.generator == "LOFT");
             result = operation.shape;
@@ -4519,11 +4562,13 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 for(const auto& entry:stage->bodies) {
                     stage->bytes+=entry.second.named.size()*sizeof(NamedShape);
                 }
+                for (const auto& entry:stage->bases)
+                    stage->bytes+=entry.second.named.size()*sizeof(NamedShape);
                 for (const auto& entry:stage->tools)
                     for (const auto& recipe:entry.second.through_holes)
                         stage->bytes+=sizeof(ThroughHoleTool)+sizeof(ProfileCurveSpec)*4+
                                       recipe.copies.size()*(sizeof(HoleToolCopy)+128);
-                stage->bytes*=1+stage->tools.size()+stage->bodies.size();
+                stage->bytes*=1+stage->tools.size()+stage->bodies.size()+stage->bases.size();
                 stage->used=++impl_->clock;
                 if(stage->bytes<=impl_->stage_budget) {
                     impl_->trim_stages(stage->bytes);

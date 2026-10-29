@@ -11,7 +11,7 @@ func TestReplicationToolCapabilities(t *testing.T) {
 	for _, kind := range []string{"PAD", "LINEAR_EXTRUDE", "REVOLVE", "LOFT"} {
 		for _, op := range []string{"ADD", "REMOVE", "NEW_BODY"} {
 			c := replicationSource(Feature{Type: kind, Operation: op})
-			if !c.Tool || c.RangeStart != (op != "REMOVE") {
+			if !c.Tool || !c.RangeStart {
 				t.Fatal(kind, op, c)
 			}
 		}
@@ -204,7 +204,7 @@ func TestBlindHoleReplicationCapabilitiesAndAutomaticSource(t *testing.T) {
 		hole := Feature{ID: "hole", BodyID: "body", Type: "HOLE", Operation: "REMOVE", Extent: "BLIND", HoleKind: kind, Diameter: 2, Depth: 5, RecessDiameter: 4, RecessDepth: 1, CountersinkAngle: 90}
 		model := PartModel{Features: []Feature{hole}}
 		capability := replicationSources(model)[hole.ID]
-		if !capability.Tool || capability.SourceKind != "GENERATOR_TOOL" || capability.Operation != "REMOVE" || capability.RangeStart || capability.RangeModifier || !capability.BodyStage {
+		if !capability.Tool || capability.SourceKind != "GENERATOR_TOOL" || capability.Operation != "REMOVE" || !capability.RangeStart || capability.RangeModifier || !capability.BodyStage {
 			t.Fatal(kind, capability)
 		}
 		pattern := Feature{Type: "SOLID_PATTERN", BodyID: "body", Operation: "ADD", Pattern: &FeaturePattern{Source: FeatureStageRef{BodyID: "body", FeatureID: "hole"}, SourceKind: "AUTO"}}
@@ -269,5 +269,54 @@ func TestDraftReplicationRangeRetainsExplicitContract(t *testing.T) {
 	p := Feature{ID: "copies", Type: "SOLID_PATTERN", BodyID: "b", Order: 3, Operation: "ADD", Pattern: &FeaturePattern{PatternDefinition: PatternDefinition{ID: "copies", Kind: "LINEAR", Distribution: "FIXED_STEP", Count: 2, Spacing: 20, Direction: [3]float64{1, 0, 0}}, Source: FeatureStageRef{BodyID: "b", FeatureID: "draft"}, SourceKind: "FEATURE_DELTA", StartFeatureID: "base"}}
 	if e := validateFeaturePattern(p, map[string]Feature{"base": m.Features[0], "draft": m.Features[1]}); e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestFiniteRemovalRangeCapabilitiesAndAuto(t *testing.T) {
+	starts := []Feature{{Type: "LINEAR_EXTRUDE", Extent: "FINITE"}, {Type: "LINEAR_EXTRUDE", Extent: "SYMMETRIC"}, {Type: "LINEAR_EXTRUDE", Extent: "TWO_SIDED"}, {Type: "REVOLVE"}, {Type: "LOFT"}}
+	for _, kind := range []string{"SIMPLE", "COUNTERBORE", "COUNTERSINK"} {
+		starts = append(starts, Feature{Type: "HOLE", Extent: "BLIND", HoleKind: kind, Diameter: 2, Depth: 6, RecessDiameter: 4, RecessDepth: 2, CountersinkAngle: 90})
+	}
+	for _, start := range starts {
+		start.ID = "cut"
+		start.BodyID = "body"
+		start.Operation = "REMOVE"
+		start.Order = 0
+		m := PartModel{Features: []Feature{start, {ID: "round", BodyID: "body", Type: "FILLET", Order: 1}, {ID: "bevel", BodyID: "body", Type: "CHAMFER", Order: 2}, {ID: "draft", BodyID: "body", Type: "DRAFT", Order: 3}}}
+		caps := replicationSources(m)
+		if !caps[start.ID].RangeStart || caps["draft"].SourceKind != "FEATURE_DELTA" || caps["draft"].Operation != "REMOVE" || caps["draft"].StartFeatureID != start.ID {
+			t.Fatal(start, caps)
+		}
+		f := Feature{ID: "copies", Type: "SOLID_PATTERN", BodyID: "body", Operation: "ADD", Pattern: &FeaturePattern{Source: FeatureStageRef{BodyID: "body", FeatureID: "draft"}, SourceKind: "AUTO", PatternDefinition: PatternDefinition{ID: "copies", Kind: "LINEAR", Distribution: "FIXED_STEP", Count: 2, Spacing: 20, Direction: [3]float64{1, 0, 0}}}}
+		if e := resolveAutomaticPatternSource(m, &f); e != nil || f.Operation != "REMOVE" || f.Pattern.StartFeatureID != start.ID {
+			t.Fatal(start, f, e)
+		}
+		earlier := map[string]Feature{}
+		for _, v := range m.Features {
+			earlier[v.ID] = v
+		}
+		if e := validateFeaturePattern(f, earlier); e != nil {
+			t.Fatal(start, e)
+		}
+		f.Operation = "ADD"
+		if e := validateFeaturePattern(f, earlier); e == nil {
+			t.Fatal("subtractive range accepted additive operation")
+		}
+		f.Operation = "REMOVE"
+		p := *f.Pattern
+		p.AdditionalSources = []PatternSeed{{Source: FeatureStageRef{BodyID: "body", FeatureID: start.ID}, SourceKind: "GENERATOR_TOOL"}, {Source: FeatureStageRef{BodyID: "body", FeatureID: "round"}, SourceKind: "FEATURE_DELTA", StartFeatureID: start.ID}}
+		f.Pattern = &p
+		if got := effectivePatternSeeds(m, f.Pattern); len(got) != 1 || got[0].Source.FeatureID != "draft" || len(patternSeeds(f.Pattern)) != 3 {
+			t.Fatal("raw cutter or earlier range recopied", got)
+		}
+		for _, bad := range []Feature{{Type: "HOLE", Extent: "THROUGH_ALL", Diameter: 2}, {Type: "HOLE", Extent: "TO_PLANE", Diameter: 2}, {Type: "LINEAR_EXTRUDE", Extent: "THROUGH_ALL"}, {Type: "LINEAR_EXTRUDE", Extent: "TO_PLANE"}, {Type: "BOOLEAN"}, {Type: "SHELL"}, {Type: "SOLID_PATTERN"}} {
+			bad.ID = start.ID
+			bad.BodyID = "body"
+			bad.Operation = "REMOVE"
+			earlier[bad.ID] = bad
+			if e := validateFeaturePattern(f, earlier); e == nil {
+				t.Fatal("unsupported range start", bad)
+			}
+		}
 	}
 }

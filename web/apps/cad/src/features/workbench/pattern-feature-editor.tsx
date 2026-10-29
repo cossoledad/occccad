@@ -61,6 +61,7 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
   const [skipped,setSkipped]=useState((pattern.skippedSlots??[]).join(","));
   type Seed=NonNullable<Feature["pattern"]>["additionalSources"] extends Array<infer T>|undefined?T:never;
   const seeds:Seed[]=pattern.source.featureId?[{source:pattern.source,sourceKind:pattern.sourceKind as Seed['sourceKind'],startFeatureId:pattern.startFeatureId},...(pattern.additionalSources??[])]:[];
+  const seedName=(s:Seed)=>{const start=s.startFeatureId??(s.sourceKind==='AUTO'?caps[s.source.featureId]?.startFeatureId:undefined);return start?`${objectName(view,start)} → ${objectName(view,s.source.featureId)}`:objectName(view,s.source.featureId)};
   const setSeeds=(items:Seed[])=>setDraft(f=>{const first=items[0],source=upstream.find(s=>s.id===first?.source.featureId),operation=first?.sourceKind==='BODY_STAGE'?'ADD':caps[first?.source.featureId??'']?.operation??f.operation;
     return {...f,type:source?.sketch?'SKETCH_PATTERN':'SOLID_PATTERN',bodyId:feature.id?f.bodyId:source?.bodyId??f.bodyId,operation,pattern:{...f.pattern!,source:first?.source??{bodyId:f.bodyId??'',featureId:''},sourceKind:first?.sourceKind??'AUTO',startFeatureId:first?.startFeatureId,additionalSources:items.slice(1),resultMode:operation==='REMOVE'?'COMBINE':f.pattern!.resultMode}};
   });
@@ -170,7 +171,7 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
     candidate.skippedSlots=skipped.trim()?skipped.split(",").map(value=>{if(!/^\d+$/.test(value.trim()))throw new CommandInputError("跳过槽位应为整数，以逗号分隔");return Number(value);}):[];
     if(internal&&candidate.kind==="CIRCULAR"&&!candidate.centerReference)throw new CommandInputError("请选择阵列中心点");
     if(candidate.kind==="LINEAR"&&!candidate.axisEntityId&&!candidate.directionReference)throw new CommandInputError("请选择阵列方向");
-    if(candidate.sourceKind==="FEATURE_DELTA"&&!patternRangeEnds(upstream,candidate.startFeatureId,caps).some(f=>f.id===candidate.source.featureId))throw new CommandInputError("请选择新增材料范围的起始特征和结束步骤");
+    if(candidate.sourceKind==="FEATURE_DELTA"&&!patternRangeEnds(upstream,candidate.startFeatureId,caps).some(f=>f.id===candidate.source.featureId))throw new CommandInputError("请选择材料范围的起始特征和结束步骤");
     if(mirror&&!candidate.mirrorPlaneId&&!candidate.mirrorPlane)throw new CommandInputError("请选择镜像平面");
     if(candidate.source.featureId&&!binding&&base.current===view.document.versionId) {
       input={requestId:intent.current,parameterExpressions:expressions,feature:{...draft,pattern:candidate},...(feature.id?{type:"EDIT_FEATURE",targetId:feature.id,expectedFeatureDigest:digest}:{type:"CREATE_PATTERN"})};
@@ -195,7 +196,7 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
       </>}
       {!internal&&<>
       <FeaturePickField label="种子" mode="multiple" active={role==="body"&&!replacingSeed||role==="profile"} onActivate={()=>{setReplacingSeed(undefined);activatePick(draft.type==="SKETCH_PATTERN"?"profile":"body")}} onClear={seeds.length?()=>setSeeds([]):undefined} items={seeds.map((s,i)=>({
-       key:s.source.featureId,actionLabel:`种子 ${i+1}`,value:objectName(view,s.source.featureId),detail:s.startFeatureId?`${objectName(view,s.startFeatureId)} → ${objectName(view,s.source.featureId)}`:s.sourceKind==='BODY_STAGE'?'实体阶段':undefined,active:role==='body'&&replacingSeed===s.source.featureId,
+       key:s.source.featureId,actionLabel:`种子 ${i+1}`,value:seedName(s),detail:s.sourceKind==='BODY_STAGE'?'实体阶段':undefined,active:role==='body'&&replacingSeed===s.source.featureId,
        onActivate:()=>{setReplacingSeed(s.source.featureId);activatePick('body')},selections:seedPicks[i]&&(seedPicks[i].kind==='sketch'||seedPicks[i].geometryKey)?[seedPicks[i]]:[],onClear:()=>setSeeds(seeds.filter((_,j)=>j!==i))
       }))}/>
       {mirror?<FeaturePickField label="镜像平面" value={pattern.mirrorPlane?(planeVisual?selectionName(view,planeVisual):"引用平面暂不可定位"):view.part?.datumPlanes.find(p=>p.id===pattern.mirrorPlaneId)?.name??"未选择"} selected={!!(pattern.mirrorPlaneId||pattern.mirrorPlane)} selections={planeVisual?[planeVisual]:[]} onClear={pattern.mirrorPlane||pattern.mirrorPlaneId?()=>{update({mirrorPlane:undefined,mirrorPlaneId:undefined});setPlaneVisual(undefined);}:undefined} active={role==="plane"} onActivate={()=>activatePick("plane")}/>:<FeaturePickField label={pattern.kind==="CIRCULAR"?"轴":"方向"} value={axisName} selections={axisPick?[axisPick]:[]} selected={!!(pattern.axisEntityId||pattern.directionReference)} active={role==="axis"} onActivate={()=>activatePick("axis")} onClear={pattern.axisEntityId||pattern.directionReference?()=>update({axisEntityId:undefined,directionReference:undefined}):undefined}/>}

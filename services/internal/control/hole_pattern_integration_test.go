@@ -285,7 +285,7 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 				t.Fatal("chain copied seed zero or filled holes")
 			}
 			// Unsupported contracts reject atomically and never become BODY_STAGE.
-			for _, mode := range []string{"duplicate", "delta", "independent", "to-plane"} {
+			for _, mode := range []string{"duplicate", "delta-operation", "independent", "to-plane"} {
 				bad := definition
 				q := *definition.Pattern
 				bad.Pattern = &q
@@ -293,7 +293,8 @@ func TestBlindEngineeringHoleReplicationThroughRouter(t *testing.T) {
 				switch mode {
 				case "duplicate":
 					q.AdditionalSources = []workspace.PatternSeed{{Source: q.Source, SourceKind: "AUTO"}}
-				case "delta":
+				case "delta-operation":
+					bad.Operation = "ADD" // A removal range cannot add material.
 					q.SourceKind = "FEATURE_DELTA"
 					q.StartFeatureID = hole.ID
 				case "independent":

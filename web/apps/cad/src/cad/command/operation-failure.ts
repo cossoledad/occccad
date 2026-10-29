@@ -7,6 +7,10 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const reasons:Record<string,string>={
+    PATTERN_RANGE_ADDS_MATERIAL:"所选加工范围在基线实体之外新增了材料，不能作为净切除范围。",
+    PATTERN_RANGE_REMOVES_BASELINE:"所选加工范围删除了基线材料，不能作为添加范围。",
+    PATTERN_RANGE_EMPTY:"所选范围没有有效的材料差集。",
+    PATTERN_RANGE_HISTORY_INCOMPLETE:"加工范围的拓扑引用不完整，请先修复来源。",
     HOLE_NO_MATERIAL_INTERSECTION:"孔的所选方向没有可切除的目标材料，请检查起点、方向和阵列位置。",
     PATTERN_REEXECUTION_UNSUPPORTED:"此来源暂不支持工具复制，请选择受支持的特征。",
     PATTERN_HOLE_TOOL_CONTRACT_INVALID:"孔工具仅可在同一实体内切除材料。",

@@ -24,12 +24,13 @@ func replicationSource(f Feature) ReplicationSource {
 	case "HOLE":
 		kind := holeKind(f)
 		c.Tool = (f.Extent == "BLIND" || f.Extent == "THROUGH_ALL") && f.Operation == "REMOVE" && (kind == "SIMPLE" || kind == "COUNTERBORE" || kind == "COUNTERSINK") && validateHoleDimensions(f) == nil
+		c.RangeStart = c.Tool && f.Extent == "BLIND"
 		if !c.Tool {
 			c.Diagnostic = "PATTERN_REEXECUTION_UNSUPPORTED"
 		}
 	case "PAD", "LINEAR_EXTRUDE", "REVOLVE", "LOFT":
 		c.Tool = (f.Extent == "" || f.Extent == "FINITE" || f.Extent == "SYMMETRIC" || f.Extent == "TWO_SIDED") && (f.Operation == "ADD" || f.Operation == "REMOVE" || f.Operation == "NEW_BODY" || f.Operation == "")
-		c.RangeStart = c.Tool && f.Operation != "REMOVE"
+		c.RangeStart = c.Tool
 		if !c.Tool {
 			c.Diagnostic = "PATTERN_REEXECUTION_UNSUPPORTED"
 		}
@@ -71,7 +72,7 @@ func replicationSources(model PartModel) map[string]ReplicationSource {
 				if cap.RangeStart {
 					c.SourceKind = "FEATURE_DELTA"
 					c.StartFeatureID = previous.ID
-					c.Operation = "ADD"
+					c.Operation = cap.Operation
 				}
 				break
 			}

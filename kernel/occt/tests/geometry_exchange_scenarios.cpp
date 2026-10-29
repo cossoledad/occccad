@@ -4118,3 +4118,83 @@ TEST(GeometryExchange, DirectionalThroughHoleToolsRebuildAgainstFrozenPatternTar
 
 }
 }
+
+namespace occccad::kernel {
+TEST(GeometryExchange, FiniteRemovalRangesPreserveInnerFilletsAndWarmNaming) {
+    constexpr double pi=3.14159265358979323846;
+    const std::array<double,12> identity{1,0,0,0,0,1,0,0,0,0,1,0};
+    for(const std::string family:{"FINITE","SYMMETRIC","TWO_SIDED","REVOLVE","LOFT","SIMPLE","COUNTERBORE","COUNTERSINK"}) {
+        SCOPED_TRACE(family);OcctKernel kernel;
+        ProfilePadSpec base;base.feature_id="base";base.body_id="body";base.profile_feature_id="base-sketch";
+        base.regions={rectangular_region("stock",-40,-25,40,25)};base.pad_length=12;
+        ProfileCurveSpec circle;circle.entity_id="point";circle.kind="CIRCLE";circle.radius=2;
+        ProfilePadSpec cut;cut.feature_id="cut";cut.body_id="body";cut.input_feature_id="base";cut.profile_feature_id="cut-sketch";
+        cut.body_operation="REMOVE";cut.pad_length=6;cut.extent="FINITE";cut.reversed=true;
+        cut.plane_origin={12,6,12};cut.plane_normal={0,0,1};cut.plane_u_direction={1,0,0};cut.regions={{"cut-region",{"cut-loop",{circle}},{}}};
+        if(family=="SYMMETRIC") {cut.extent=family;cut.pad_length=12;}
+        else if(family=="TWO_SIDED") {cut.extent=family;cut.second_length=3;}
+        else if(family=="REVOLVE") {
+            cut.generator="REVOLVE";cut.reversed=false;cut.revolve_angle=2*pi;cut.plane_origin={0,6,0};cut.plane_normal={0,-1,0};
+            cut.regions={rectangular_region("sector",12,6,14,12)};cut.axis_start={12,0};cut.axis_end={12,12};
+        } else if(family=="LOFT") {
+            cut.generator="LOFT";cut.reversed=false;auto a=loft_rectangle("top",12),b=loft_rectangle("bottom",6);
+            a.origin={12,6,12};b.origin={12,6,6};a.region=cut.regions[0];b.region=cut.regions[0];b.region.id="bottom-region";cut.sections={a,b};
+        } else if(family=="SIMPLE"||family=="COUNTERBORE"||family=="COUNTERSINK") {
+            cut.generator="HOLE";cut.extent="BLIND";cut.hole_kind=family;cut.recess_diameter=6;cut.recess_depth=2;cut.countersink_angle=pi/2;
+        }
+        const auto cavity=kernel.evaluateProfilePadsWithHistory({base,cut});
+        ProfilePadSpec round;round.feature_id="round";round.body_id="body";round.input_feature_id="cut";round.generator="FILLET";round.pad_length=.5;
+        for(const auto& out:cavity.feature_results.back().semantic_outputs)
+            if(out.topology_type==PersistentTopologyType::edge && out.evidence.geometry_type=="CIRCLE" && std::abs(out.evidence.centroid.z-6)<1e-7)
+                round.selections.push_back({out.semantic_ref.feature_id,out.semantic_ref.output_slot,out.semantic_ref.source_ids});
+        ASSERT_FALSE(round.selections.empty());
+        PartRuntimeStats stats;PartRuntimeOptions runtime;runtime.stats=&stats;runtime.stage_keys={family+"/base",family+"/cut",family+"/round"};
+        const auto seed=kernel.evaluateProfilePadsWithHistory({base,cut,round},{},nullptr,runtime);
+        const double net=48000-kernel.getVolume(seed.geometry_id);
+        EXPECT_GT(net,0);EXPECT_GT(kernel.getVolume(seed.geometry_id),kernel.getVolume(cavity.geometry_id));
+        ProfilePadSpec copy;copy.feature_id="copy";copy.body_id="body";copy.input_feature_id="round";copy.generator="SOLID_PATTERN";copy.body_operation="REMOVE";
+        copy.pattern_source_kind="FEATURE_DELTA";copy.pattern_start_feature_id="cut";copy.pattern_source_feature_id="round";
+        for(const std::string mode:{"LINEAR","CIRCULAR","MIRROR"}) {
+            SCOPED_TRACE(mode);auto matrix=identity;
+            if(mode=="LINEAR")matrix[3]=-24;
+            else if(mode=="CIRCULAR"){matrix[0]=-1;matrix[5]=-1;}
+            else matrix[0]=-1;
+            copy.pattern_placements={{0,identity},{1,matrix}};runtime.stage_keys.resize(3);runtime.stage_keys.push_back(family+mode+"/copy");
+            const auto hot=kernel.evaluateProfilePadsWithHistory({base,cut,round,copy},{},nullptr,runtime);
+            EXPECT_EQ(stats.stages_reused,3);EXPECT_EQ(stats.stages_executed,1);
+            EXPECT_NEAR(kernel.getVolume(hot.geometry_id),48000-2*net,1e-5);
+            EXPECT_TRUE(hot.feature_results.back().topology_history_complete);
+            OcctKernel cold;const auto rebuilt=cold.evaluateProfilePadsWithHistory({base,cut,round,copy});
+            EXPECT_EQ(hot.geometry_id,rebuilt.geometry_id);
+            EXPECT_EQ(hot.feature_results.back().topology_history.evidence_digest,rebuilt.feature_results.back().topology_history.evidence_digest);
+            auto next=copy;next.feature_id="second";next.pattern_source_kind="GENERATOR_TOOL";next.pattern_start_feature_id="";next.pattern_source_feature_id="copy";
+            matrix=identity;matrix[7]=-12;next.pattern_placements={{0,identity},{1,matrix}};
+            const auto chained=kernel.evaluateProfilePadsWithHistory({base,cut,round,copy,next});
+            EXPECT_NEAR(kernel.getVolume(chained.geometry_id),48000-3*net,1e-5);
+        }
+    }
+}
+
+TEST(GeometryExchange, RemovalRangeRejectsAddedMaterialDespiteLowerTotalVolume) {
+    constexpr double pi=3.14159265358979323846;OcctKernel kernel;
+    ProfilePadSpec base;base.feature_id="base";base.body_id="body";base.profile_feature_id="stock-sketch";base.regions={rectangular_region("stock",-20,-20,20,20)};base.pad_length=10;
+    ProfileCurveSpec circle;circle.entity_id="circle";circle.kind="CIRCLE";circle.center={-8,0};circle.radius=6;
+    ProfilePadSpec cut;cut.feature_id="cut";cut.body_id="body";cut.profile_feature_id="pocket";cut.body_operation="REMOVE";cut.pad_length=8;cut.reversed=true;
+    cut.plane_origin={0,0,10};cut.plane_normal={0,0,1};cut.plane_u_direction={1,0,0};cut.regions={{"pocket",{"loop",{circle}},{}}};
+    const auto seed=kernel.evaluateProfilePadsWithHistory({base,cut});
+    ProfilePadSpec draft;draft.feature_id="draft";draft.body_id="body";draft.generator="DRAFT";draft.neutral_normal={0,0,1};draft.revolve_angle=3*pi/180;
+    for(const auto& out:seed.feature_results.back().semantic_outputs)
+        if(out.topology_type==PersistentTopologyType::face && out.evidence.geometry_type=="PLANE"&&out.evidence.centroid.x>19.9&&std::abs(out.evidence.direction.x)>.9)
+            draft.selections.push_back({out.semantic_ref.feature_id,out.semantic_ref.output_slot,out.semantic_ref.source_ids});
+    ASSERT_EQ(draft.selections.size(),1U);int rejected=0;
+    for(bool reverse:{false,true}) {
+        draft.reversed=reverse;const auto modified=kernel.evaluateProfilePadsWithHistory({base,cut,draft});
+        EXPECT_LT(kernel.getVolume(modified.geometry_id),16000); // A volume-only gate would accept both.
+        ProfilePadSpec copy;copy.feature_id="copies";copy.body_id="body";copy.generator="SOLID_PATTERN";copy.body_operation="REMOVE";copy.pattern_source_kind="FEATURE_DELTA";copy.pattern_start_feature_id="cut";copy.pattern_source_feature_id="draft";
+        copy.pattern_placements={{0,{1,0,0,0,0,1,0,0,0,0,1,0}},{1,{1,0,0,0,0,1,0,12,0,0,1,0}}};
+        try {kernel.evaluateProfilePadsWithHistory({base,cut,draft,copy});}
+        catch(const std::invalid_argument& e) {if(std::string(e.what()).find("PATTERN_RANGE_ADDS_MATERIAL")!=std::string::npos)++rejected;else throw;}
+    }
+    EXPECT_EQ(rejected,1);
+}
+}

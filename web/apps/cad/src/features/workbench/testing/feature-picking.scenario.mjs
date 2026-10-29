@@ -81,9 +81,9 @@ try {
  assert.deepEqual(bodyStage({kind:"pad",id:"base",entityId:"base",bodyId:"body"},stages),{bodyId:"body",featureId:"base"});
  assert.equal(bodyStage({kind:"pad",id:"future",bodyId:"body"},stages),undefined,"never replace invalid stage with the Body final result");
  const range=[{id:"hub",type:"LINEAR_EXTRUDE",bodyId:"body",operation:"ADD"},{id:"leaf",type:"LINEAR_EXTRUDE",bodyId:"body",operation:"ADD"},{id:"sketch",type:"SKETCH",bodyId:"body",sketch:{}},{id:"round",type:"FILLET",bodyId:"body"},{id:"cut",type:"LINEAR_EXTRUDE",bodyId:"body",operation:"REMOVE"},{id:"later",type:"FILLET",bodyId:"body"}];
- const caps=Object.fromEntries(range.map(f=>[f.id,{tool:f.type==="LINEAR_EXTRUDE",rangeStart:f.type==="LINEAR_EXTRUDE"&&f.operation!=="REMOVE",rangeModifier:f.type==="FILLET"||f.type==="CHAMFER",bodyStage:f.type!=="SKETCH"}]));view.replicationSources=caps;
+ const caps=Object.fromEntries(range.map(f=>[f.id,{tool:f.type==="LINEAR_EXTRUDE",rangeStart:f.type==="LINEAR_EXTRUDE",rangeModifier:f.type==="FILLET"||f.type==="CHAMFER",bodyStage:f.type!=="SKETCH"}]));view.replicationSources=caps;
  assert.deepEqual(patternRangeEnds(range,"leaf",caps).map(f=>f.id),["leaf","round"]);
- assert.deepEqual(patternRangeEnds(range,"cut",caps),[],"subtractive seed cannot masquerade as added material");
+ assert.deepEqual(patternRangeEnds(range,"cut",caps).map(f=>f.id),["cut","later"],"finite removal uses the same constrained range selection");
  assert.deepEqual(patternRangeEnds(range,"missing",caps),[]);
  const roundedFace={...face,sourceFeatureIds:["round"]};
  assert.deepEqual(patternSourceCandidates(roundedFace,patternRangeEnds(range,"leaf",caps),"FEATURE_DELTA",caps).map(f=>f.id),["round"]);
@@ -103,7 +103,7 @@ try {
  assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["loft"]},[loft],"GENERATOR_TOOL",{}),[],"missing capability is not inferred from type");
  const finiteHole={id:"hole",type:"HOLE",bodyId:"body",extent:"BLIND",operation:"REMOVE"};
  const throughHole={...finiteHole,id:"through",extent:"THROUGH_ALL"};
- const holeCaps={hole:{tool:true,sourceKind:"GENERATOR_TOOL",operation:"REMOVE",bodyStage:true},through:{tool:true,sourceKind:"GENERATOR_TOOL",operation:"REMOVE",bodyStage:true},toPlane:{tool:false,bodyStage:true,diagnostic:"PATTERN_REEXECUTION_UNSUPPORTED"}};
+ const holeCaps={hole:{tool:true,rangeStart:true,sourceKind:"GENERATOR_TOOL",operation:"REMOVE",bodyStage:true},through:{tool:true,sourceKind:"GENERATOR_TOOL",operation:"REMOVE",bodyStage:true},toPlane:{tool:false,bodyStage:true,diagnostic:"PATTERN_REEXECUTION_UNSUPPORTED"}};
  for(const hit of [{kind:"feature",id:"hole",entityId:"hole",bodyId:"body"},{...face,sourceFeatureIds:["hole"]}])assert.deepEqual(patternSourceCandidates(hit,[finiteHole,throughHole],"AUTO",holeCaps),[finiteHole],"tree and viewport use authoritative finite Hole capabilities");
  for(const hit of [{kind:"feature",id:"through",entityId:"through",bodyId:"body"},{...face,sourceFeatureIds:["through"]}])assert.deepEqual(patternSourceCandidates(hit,[throughHole],"AUTO",holeCaps),[throughHole],"directional Hole uses the same authoritative capability for tree and viewport");
  const toPlaneHole={...throughHole,id:"toPlane",extent:"TO_PLANE"};

@@ -205,7 +205,7 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 			}
 		} else if p.SourceKind == "FEATURE_DELTA" {
 			start, valid := earlier[p.StartFeatureID]
-			if !valid || start.Suppressed || start.BodyID != source.BodyID || start.Order > source.Order || !replicationSource(start).RangeStart || !isBodyFeature(source.Type) || f.Operation != "ADD" {
+			if !valid || start.Suppressed || start.BodyID != source.BodyID || start.Order > source.Order || !replicationSource(start).RangeStart || !isBodyFeature(source.Type) || f.Operation != materialRangeOperation(start) {
 				return fmt.Errorf("%w: PATTERN_RANGE_INVALID", ErrValidation)
 			}
 			for _, member := range earlier {
@@ -618,4 +618,11 @@ func effectivePatternSeeds(model PartModel, p *FeaturePattern) []PatternSeed {
 		}
 	}
 	return result
+}
+
+func materialRangeOperation(start Feature) string {
+	if start.Operation == "REMOVE" {
+		return "REMOVE"
+	}
+	return "ADD"
 }

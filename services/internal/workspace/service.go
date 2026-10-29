@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v54-directional-hole-tools"
+const evaluatorVersion = "part-solid-generators-v55-finite-removal-ranges"
 
 var (
 	ErrNotFound   = errors.New("document not found")
