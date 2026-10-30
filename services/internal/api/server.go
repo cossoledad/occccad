@@ -746,7 +746,9 @@ func (server *Server) listDocuments(writer http.ResponseWriter, request *http.Re
 		Sort: request.URL.Query().Get("sort"), Recent: request.URL.Query().Get("recent") == "true",
 		AllFolders: request.URL.Query().Get("allFolders") == "true",
 		Shared:     request.URL.Query().Get("shared") == "true",
-		Limit:      limit, Offset: offset, ActorID: principal(request).ID,
+		// Browsers need metadata, not a history fold for every listed document.
+		OmitHistory: request.URL.Query().Get("includeHistory") == "false",
+		Limit:       limit, Offset: offset, ActorID: principal(request).ID,
 	})
 	if err != nil {
 		writeWorkspaceResult(writer, workspace.DocumentView{}, err)

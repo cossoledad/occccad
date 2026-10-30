@@ -37,7 +37,7 @@ export function InsertDocumentDialog({ targetID, rootID, targetFolderID,busy, on
   const options = { scope: "active" as const, query: search, type, folderId: scope === "folder" ? folderID : undefined,
     allFolders: scope !== "folder", recent: scope === "recent", shared: scope === "shared",
     sort: scope === "recent" ? "recent" as const : sort, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE };
-  const documents = useQuery({ queryKey: ["documents", "insert", options], queryFn: () => api.listDocuments(options), enabled: scope !== "selected" });
+  const documents = useQuery({ queryKey: ["documents", "insert", options], queryFn: ({ signal }) => api.listDocuments(options, signal), enabled: scope !== "selected" });
   const folders = useQuery({ queryKey: ["folders", "insert", folderID], queryFn: () => api.listFolders(folderID), enabled: scope === "folder" });
   const breadcrumbs = useQuery({ queryKey: ["folder-breadcrumbs", folderID], queryFn: () => api.folderBreadcrumbs(folderID), enabled: scope === "folder" && Boolean(folderID) });
   const lastSelected = selected.at(-1);

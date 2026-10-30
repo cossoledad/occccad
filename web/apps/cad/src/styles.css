@@ -564,7 +564,7 @@ select {
   object-fit: contain;
 }
 
- .document-thumbnail.fallback { background:linear-gradient(#233346,#70869b); }
+.document-thumbnail:not(:has(img)) { background:linear-gradient(#233346,#70869b); }
 .empty-scene-preview { position:absolute;inset:0;overflow:hidden; }
 .empty-scene-preview::after { content:"";position:absolute;left:-50%;right:-50%;top:35%;bottom:-65%;
   background-image:linear-gradient(rgba(203,220,237,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(203,220,237,.10) 1px,transparent 1px);

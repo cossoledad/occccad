@@ -176,7 +176,8 @@ export const restApi = {
   listDocuments: async (options: {
     scope?: DocumentScope; query?: string; type?: string; folderId?: string;
     recent?: boolean; shared?: boolean; allFolders?: boolean; sort?: "updated" | "name" | "created" | "recent"; limit?: number; offset?: number;
-  } = {}): Promise<DocumentPage> => {
+    includeHistory?: boolean;
+  } = {}, signal?: AbortSignal): Promise<DocumentPage> => {
     const parameters = new URLSearchParams({ scope: options.scope ?? "active" });
     const { query = "", type = "", folderId = "" } = options;
     if (query) parameters.set("q", query);
@@ -188,7 +189,8 @@ export const restApi = {
     if (options.sort) parameters.set("sort", options.sort);
     parameters.set("limit", String(options.limit ?? 50));
     parameters.set("offset", String(options.offset ?? 0));
-    return request<DocumentPage>(`/api/documents?${parameters}`);
+    parameters.set("includeHistory", String(options.includeHistory ?? false));
+    return request<DocumentPage>(`/api/documents?${parameters}`, { signal });
   },
   listOpenDocuments: async (): Promise<DocumentSummary[]> =>
     (await request<{ documents: DocumentSummary[] }>("/api/open-documents", { headers: workspaceHeaders() })).documents,

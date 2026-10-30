@@ -995,6 +995,7 @@ type DocumentListOptions struct {
 	Scope, Query, Type, FolderID, Sort, ActorID string
 	Recent, AllFolders, Shared                  bool
 	Limit, Offset                               int
+	OmitHistory                                 bool
 }
 
 type DocumentPage struct {

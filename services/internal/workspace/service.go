@@ -162,6 +162,8 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 	}
 	query := strings.TrimSpace(options.Query)
 	principalID := actorID(options.ActorID)
+	// Owners have the maximum effective role. Keep the exact inherited/team
+	// resolution for other users without expanding its recursive ACL per own row.
 	var total int
 	if err := service.database.QueryRow(ctx, `
 		SELECT count(*) FROM occccad.documents d
@@ -173,8 +175,8 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 		  AND ($3='' OR d.document_type=$3)
 		  AND ($6 OR (($4='' AND d.folder_id IS NULL) OR ($4<>'' AND d.folder_id=$4::uuid)))
 		  AND (NOT $5 OR d.last_opened_at IS NOT NULL)
-		  AND occccad.effective_document_role(d.id,$7) >= 10
-		  AND (NOT $8 OR occccad.effective_document_role(d.id,$7) < 30)`,
+		  AND (CASE WHEN d.owner_user_id=$7 THEN 30 ELSE occccad.effective_document_role(d.id,$7) END) >= 10
+		  AND (NOT $8 OR (CASE WHEN d.owner_user_id=$7 THEN 30 ELSE occccad.effective_document_role(d.id,$7) END) < 30)`,
 		scope, query, documentType, folderID, options.Recent, options.AllFolders, principalID, options.Shared).Scan(&total); err != nil {
 		return DocumentPage{}, err
 	}
@@ -183,7 +185,7 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 		       d.created_at::text,
 		       d.updated_at::text,d.deleted_at::text,d.folder_id::text,d.last_opened_at::text,
 		       d.copied_from_document_id::text,d.workspace_name,
-		       occccad.role_name(occccad.effective_document_role(d.id,$9))
+		       occccad.role_name((CASE WHEN d.owner_user_id=$9 THEN 30 ELSE occccad.effective_document_role(d.id,$9) END))
 		FROM occccad.documents d
 		WHERE ($1='all' OR ($1='active' AND d.deleted_at IS NULL) OR
 		       ($1='trash' AND d.deleted_at IS NOT NULL))
@@ -193,8 +195,8 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 		  AND ($3='' OR d.document_type=$3)
 		  AND ($6 OR (($4='' AND d.folder_id IS NULL) OR ($4<>'' AND d.folder_id=$4::uuid)))
 		  AND (NOT $5 OR d.last_opened_at IS NOT NULL)
-		  AND occccad.effective_document_role(d.id,$9) >= 10
-		  AND (NOT $10 OR occccad.effective_document_role(d.id,$9) < 30)
+		  AND (CASE WHEN d.owner_user_id=$9 THEN 30 ELSE occccad.effective_document_role(d.id,$9) END) >= 10
+		  AND (NOT $10 OR (CASE WHEN d.owner_user_id=$9 THEN 30 ELSE occccad.effective_document_role(d.id,$9) END) < 30)
 		ORDER BY `+orderBy+`
 		LIMIT $7 OFFSET $8`, scope, query, documentType, folderID, options.Recent,
 		options.AllFolders, limit, options.Offset, principalID, options.Shared)
@@ -218,8 +220,10 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 	if err := rows.Err(); err != nil {
 		return DocumentPage{}, err
 	}
-	if err := service.populateHistoryCapabilities(ctx, result, options.ActorID); err != nil {
-		return DocumentPage{}, err
+	if !options.OmitHistory {
+		if err := service.populateHistoryCapabilities(ctx, result, options.ActorID); err != nil {
+			return DocumentPage{}, err
+		}
 	}
 
 	return DocumentPage{Documents: result, Total: total, Limit: limit, Offset: options.Offset}, rows.Err()
