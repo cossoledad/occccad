@@ -126,7 +126,7 @@ func TestInsertModifierLifecycleThroughRouter(t *testing.T) {
 		{VersionID: head, AfterFeatureID: x.base.ID, BodyID: x.base.BodyID, ResultStage: true},
 		{VersionID: head, AfterFeatureID: x.v.Part.Features[0].ID, BodyID: x.base.BodyID},
 		{VersionID: head, AfterFeatureID: x.base.ID, BodyID: "wrong-body"},
-		{VersionID: head, AfterFeatureID: x.base.ID, BodyID: x.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Kind: "FACE", LocalID: 1},
+		{VersionID: head, AfterFeatureID: x.base.ID, BodyID: x.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Kind: "VERTEX", LocalID: 1},
 	} {
 		if _, e := x.s.GetFeatureInput(tctx, x.v.Document.ID, r); e == nil {
 			t.Fatal("illegal pick authorized", r)
@@ -148,7 +148,7 @@ func TestInsertModifierLifecycleThroughRouter(t *testing.T) {
 	f = *r.Feature
 	f.Type = "SHELL"
 	bad.Feature = &f
-	x.reject(bad, "only FILLET/CHAMFER")
+	x.reject(bad, "modifier selection")
 	bad = r
 	bad.VersionID = "missing-revision"
 	x.reject(bad, "insertion stage")
@@ -268,6 +268,12 @@ func TestInsertModifierRangeAndFixedStageThroughRouter(t *testing.T) {
 	x.apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &workspace.Feature{Type: "SOLID_PATTERN", BodyID: x.base.BodyID, Operation: "ADD", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Direction: [3]float64{1, 0, 0}, Count: 2, Spacing: 30}, SourceKind: "FEATURE_DELTA", StartFeatureID: x.base.ID, Source: workspace.FeatureStageRef{BodyID: x.base.BodyID, FeatureID: x.chamfer.ID}, ResultMode: "COMBINE"}}})
 	pattern := x.v.Part.Features[len(x.v.Part.Features)-1]
 	x.reject(x.insert(x.base.ID, [3]float64{-10, -10, 10}, 1), "FEATURE_DELTA")
+	for _, kind := range []string{"DRAFT", "SHELL"} {
+		x.reject(x.faceInsertion(kind, x.base.ID), "FEATURE_DELTA")
+	}
+	if p, e := x.s.PreviewCommand(t.Context(), x.v.Document.ID, x.faceInsertion("DRAFT", pattern.ID)); e != nil || p.Artifact == nil {
+		t.Fatal("draft after fixed pattern output", e)
+	}
 	// An unchanged fixed pattern is a legitimate insertion anchor; this is not a move.
 	r := x.insert(pattern.ID, [3]float64{-10, -10, 10}, .2)
 	r.Feature.Type = "CHAMFER"
@@ -299,4 +305,358 @@ func TestInsertModifierRejectsCrossBodyFailureThroughRouter(t *testing.T) {
 	if !slices.ContainsFunc(x.v.Part.Features, func(f workspace.Feature) bool { return f.ID == consumer.ID && f.EvaluationStatus == "" }) {
 		t.Fatal("original consumer lost")
 	}
+}
+
+// The target Body and a plane's source Body are separate authorization scopes.
+func (x *insertionScene) face(after, target, source string, centroid [3]float64, reference bool) (workspace.FeatureSelection, string) {
+	return x.faceWhere(after, target, source, reference, func(p workspace.FeatureSelection) bool {
+		c := p.Selection.CreationEvidence.Centroid
+		return math.Abs(c[0]-centroid[0]) < 1e-7 && math.Abs(c[1]-centroid[1]) < 1e-7 && math.Abs(c[2]-centroid[2]) < 1e-7
+	})
+}
+func (x *insertionScene) faceWhere(after, target, source string, reference bool, match func(workspace.FeatureSelection) bool) (workspace.FeatureSelection, string) {
+	x.t.Helper()
+	r := workspace.FeatureInputRequest{VersionID: x.v.Document.VersionID, AfterFeatureID: after, BodyID: target}
+	if reference {
+		r.ReferenceBodyID = source
+	}
+	input, e := x.s.GetFeatureInput(x.t.Context(), x.v.Document.ID, r)
+	if e != nil {
+		x.t.Fatal(e)
+	}
+	r.GeometryKey = input.Artifact.GeometryKey
+	r.Kind = "FACE"
+	for local := uint64(1); local <= p6TopologyCount(x.t, input.Artifact.Topology, "faces"); local++ {
+		r.LocalID = local
+		p, e := x.s.GetFeatureInput(x.t.Context(), x.v.Document.ID, r)
+		if e != nil {
+			x.t.Fatal(e)
+		}
+		if match(*p.Selection) {
+			return *p.Selection, input.Artifact.GeometryKey
+		}
+	}
+	x.t.Fatal("stage face missing", after, source)
+	return workspace.FeatureSelection{}, ""
+}
+func (x *insertionScene) faceInsertion(kind, after string) workspace.CommandRequest {
+	x.t.Helper()
+	point := [3]float64{-10, 0, 10}
+	if kind == "SHELL" {
+		point = [3]float64{0, 0, 20}
+	}
+	p, key := x.face(after, x.base.BodyID, x.base.BodyID, point, false)
+	return x.request(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", AfterFeatureID: after, VersionID: x.v.Document.VersionID, GeometryKey: key, Feature: &workspace.Feature{Type: kind, BodyID: x.base.BodyID, Length: 2, Angle: 3, NeutralPlaneID: "datum-xy", Selections: []workspace.FeatureSelection{p}}})
+}
+func TestInsertFaceModifiersLifecycleThroughRouter(t *testing.T) {
+	for _, kind := range []string{"DRAFT", "SHELL"} {
+		t.Run(kind, func(t *testing.T) {
+			x := newInsertionScene(t)
+			ctx := t.Context()
+			head := x.v.Document.VersionID
+			before := append([]workspace.Feature(nil), x.v.Part.Features...)
+			parameters := append([]modelcore.ParameterDefinition(nil), x.v.Part.Parameters...)
+			r := x.faceInsertion(kind, x.base.ID)
+			slot, expression := "angle", "1 deg + 2 deg"
+			if kind == "SHELL" {
+				slot, expression = "length", "1 mm + 1 mm"
+			}
+			r.ParameterExpressions = map[string]string{slot: expression}
+			// The final Body and a newer source stage cannot impersonate this input.
+			wrong := r
+			f := *r.Feature
+			f.Selections = append([]workspace.FeatureSelection(nil), f.Selections...)
+			f.Selections[0].SourceFeatureID = x.chamfer.ID
+			wrong.Feature = &f
+			x.reject(wrong, "insertion stage")
+			wrong = r
+			wrong.GeometryKey = activeBodyArtifact(t, x.v).GeometryKey
+			x.reject(wrong, "GeometryKey")
+			history, e := x.s.ListHistory(ctx, x.v.Document.ID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			preview, e := x.s.PreviewCommand(ctx, x.v.Document.ID, r)
+			if e != nil || preview.Artifact == nil {
+				t.Fatal("preview", e)
+			}
+			current, e := x.s.GetDocument(ctx, x.v.Document.ID, p6Actor)
+			if e != nil || current.Document.VersionID != head {
+				t.Fatal("preview wrote Head", e)
+			}
+			coldPreview, e := x.s.PreviewCommand(workspace.WithColdEvaluation(ctx), x.v.Document.ID, r)
+			if e != nil || coldPreview.Artifact == nil {
+				t.Fatal("cold preview", e)
+			}
+			for _, role := range []string{"BREP", "NAMING"} {
+				if preview.Artifact.Representations[role].Digest != coldPreview.Artifact.Representations[role].Digest {
+					t.Fatal("hot/cold preview mismatch", role)
+				}
+			}
+			stale := r
+			bad := *r.Feature
+			bad.Length = 3
+			bad.Angle = 4
+			stale.Feature = &bad
+			stale.ParameterExpressions = nil
+			stale.PreviewID = preview.PreviewID
+			if _, e = x.s.ApplyCommand(ctx, x.v.Document.ID, stale); e == nil {
+				t.Fatal("changed inputs adopted old preview")
+			}
+			r.PreviewID = preview.PreviewID
+			x.apply(r)
+			created := x.v.Part.Features[2]
+			if created.Type != kind || created.ID == x.chamfer.ID || created.Selections[0].SourceFeatureID != x.base.ID || x.v.Part.Features[3].ID != x.chamfer.ID {
+				t.Fatal("identity or order lost", created)
+			}
+			for i, old := range before {
+				now := x.v.Part.Features[i+func() int {
+					if i > 1 {
+						return 1
+					}
+					return 0
+				}()]
+				old.Order = now.Order
+				if !reflect.DeepEqual(old, now) {
+					t.Fatal("existing definition changed", old.Name)
+				}
+			}
+			for _, old := range parameters {
+				if !slices.ContainsFunc(x.v.Part.Parameters, func(p modelcore.ParameterDefinition) bool { return reflect.DeepEqual(old, p) }) {
+					t.Fatal("old parameter changed", old.ParameterID)
+				}
+			}
+			after, e := x.s.ListHistory(ctx, x.v.Document.ID)
+			if e != nil || len(after) != len(history)+1 {
+				t.Fatal("insertion not one history entry", e)
+			}
+			final := activeBodyArtifact(t, x.v)
+			if !(final.Volume > 0 && final.Volume < 8000) {
+				t.Fatal("no real material change", final.Volume)
+			}
+			x.apply(workspace.CommandRequest{Type: "UNDO"})
+			if !reflect.DeepEqual(x.v.Part.Features, before) {
+				t.Fatal("Undo lost definitions")
+			}
+			x.apply(workspace.CommandRequest{Type: "REDO"})
+			if activeBodyArtifact(t, x.v).GeometryID != final.GeometryID || x.v.Part.Features[2].ID != created.ID {
+				t.Fatal("Redo lost geometry/identity")
+			}
+			fresh := workspace.NewWithArtifacts(x.db, x.client, x.artifacts)
+			opened, e := fresh.GetDocument(ctx, x.v.Document.ID, p6Actor)
+			if e != nil || !reflect.DeepEqual(opened.Part.Features, x.v.Part.Features) {
+				t.Fatal("reopen", e)
+			}
+			edit := workspace.CommandRequest{ActorID: p6Actor, Type: "EDIT_FEATURE", TargetID: created.ID, Feature: &created, ExpectedFeatureDigest: findP6FeatureDigest(t, x.v.StructureTree, created.ID)}
+			cold, e := fresh.PreviewCommand(workspace.WithColdEvaluation(ctx), x.v.Document.ID, edit)
+			if e != nil || cold.Artifact == nil {
+				t.Fatal("cold edit", e)
+			}
+			for _, role := range []string{"BREP", "NAMING"} {
+				if final.Representations[role].Digest != cold.Artifact.Representations[role].Digest {
+					t.Fatal("reopened cold mismatch", role)
+				}
+			}
+			if _, e = x.s.GetFeatureInput(ctx, x.v.Document.ID, workspace.FeatureInputRequest{VersionID: head, AfterFeatureID: x.base.ID, BodyID: x.base.BodyID}); e == nil {
+				t.Fatal("stale input accepted")
+			}
+			// A direct commit must perform the same final evaluation as preview adoption.
+			x.apply(workspace.CommandRequest{Type: "UNDO"})
+			r.RequestID += "-direct"
+			r.PreviewID = ""
+			r.VersionID = x.v.Document.VersionID
+			for i := range r.Feature.Selections {
+				r.Feature.Selections[i].SourceVersionID = r.VersionID
+			}
+			x.apply(r)
+			if math.Abs(activeBodyArtifact(t, x.v).Volume-final.Volume) > 1e-6 {
+				t.Fatal("direct/preview geometry mismatch")
+			}
+		})
+	}
+}
+
+func TestInsertDraftHistoricalNeutralPlaneThroughRouter(t *testing.T) {
+	x := newInsertionScene(t)
+	ctx := t.Context()
+	target := x.base.BodyID
+	// Create an independent reference Body, then a new target stage after it.
+	x.apply(workspace.CommandRequest{Type: "CREATE_BODY"})
+	other := x.v.Part.ActiveBodyID
+	x.apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	sketch := x.v.Part.Features[len(x.v.Part.Features)-1].ID
+	x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 30, Y: -10}, Second: &workspace.SketchPoint2{X: 50, Y: 10}}}})
+	x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 10})
+	otherBase := x.v.Part.Features[len(x.v.Part.Features)-1]
+	edge := findP7TopologyPick(t, x.s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.SourceBodyID == other && p.CreationEvidence.Centroid == [3]float64{50, 10, 5}
+	})
+	x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: other, Length: .5, Selections: []workspace.FeatureSelection{{Selection: edge.Selection, SourceVersionID: edge.SourceVersionID}}}})
+	reference := x.v.Part.Features[len(x.v.Part.Features)-1]
+	x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: target})
+	p := findP7TopologyPick(t, x.s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.SourceBodyID == target && p.CreationEvidence.Centroid == [3]float64{-10, -10, 10}
+	})
+	x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: target, Length: .5, Selections: []workspace.FeatureSelection{{Selection: p.Selection, SourceVersionID: p.SourceVersionID}}}})
+	anchor := x.v.Part.Features[len(x.v.Part.Features)-1]
+	// Later reference-Body geometry must never be exposed as this earlier plane input.
+	x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: other})
+	edge = findP7TopologyPick(t, x.s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.SourceBodyID == other && p.CreationEvidence.Centroid == [3]float64{30, -10, 5}
+	})
+	x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: other, Length: .5, Selections: []workspace.FeatureSelection{{Selection: edge.Selection, SourceVersionID: edge.SourceVersionID}}}})
+	later := x.v.Part.Features[len(x.v.Part.Features)-1]
+	x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: target})
+	face, key := x.faceWhere(anchor.ID, target, target, false, func(p workspace.FeatureSelection) bool {
+		return p.Selection.CreationEvidence.GeometryType == "PLANE" && math.Abs(p.Selection.CreationEvidence.Centroid[0]+10) < 1e-7
+	})
+	neutral, referenceKey := x.faceWhere(anchor.ID, target, other, true, func(p workspace.FeatureSelection) bool {
+		return math.Abs(p.Selection.CreationEvidence.Centroid[2]) < 1e-7
+	})
+	if neutral.SourceFeatureID != reference.ID || neutral.Selection.Anchor.FeatureID != otherBase.ID || neutral.SourceFeatureID == neutral.Selection.Anchor.FeatureID {
+		t.Fatal("semantic anchor used as source stage", neutral)
+	}
+	r := x.request(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", AfterFeatureID: anchor.ID, VersionID: x.v.Document.VersionID, GeometryKey: key, Feature: &workspace.Feature{Type: "DRAFT", BodyID: target, Angle: 2, NeutralPlane: &neutral, Selections: []workspace.FeatureSelection{face}}})
+	for _, badStage := range []string{later.ID, otherBase.ID} {
+		wrong := r
+		f := *r.Feature
+		n := neutral
+		n.SourceFeatureID = badStage
+		f.NeutralPlane = &n
+		wrong.Feature = &f
+		x.reject(wrong, "plane")
+	}
+	wrong := r
+	f := *r.Feature
+	n := neutral
+	n.SourceVersionID = "00000000-0000-7000-8000-000000000099"
+	f.NeutralPlane = &n
+	wrong.Feature = &f
+	x.reject(wrong, "neutral plane")
+	inputRequest := workspace.FeatureInputRequest{VersionID: x.v.Document.VersionID, AfterFeatureID: anchor.ID, BodyID: target, ReferenceBodyID: other}
+	display, e := x.s.GetFeatureInputGeometry(ctx, x.v.Document.ID, inputRequest)
+	if e != nil || display.SourceFeatureID != reference.ID || display.Artifact.GeometryKey != referenceKey || display.Artifact.BodyID != other {
+		t.Fatal("reference display authorization", e)
+	}
+	finalOther := ""
+	for _, b := range x.v.Part.Bodies {
+		if b.ID == other {
+			finalOther = b.GeometryKey
+		}
+	}
+	if finalOther == referenceKey {
+		t.Fatal("test has no later reference geometry")
+	}
+	for _, kind := range []string{"FACE", "EDGE"} {
+		bad := inputRequest
+		bad.Kind = kind
+		bad.LocalID = 1
+		bad.GeometryKey = finalOther
+		if _, e = x.s.GetFeatureInput(ctx, x.v.Document.ID, bad); e == nil {
+			t.Fatal("downstream/edge plane pick accepted")
+		}
+	}
+	// A Body created after the insertion point cannot be borrowed for a plane.
+	if _, e = x.s.GetFeatureInput(ctx, x.v.Document.ID, workspace.FeatureInputRequest{VersionID: x.v.Document.VersionID, AfterFeatureID: x.base.ID, BodyID: target, ReferenceBodyID: other}); e == nil {
+		t.Fatal("future Body authorized")
+	}
+	head := x.v.Document.VersionID
+	pre, e := x.s.PreviewCommand(ctx, x.v.Document.ID, r)
+	if e != nil || pre.Artifact == nil {
+		t.Fatal("cross-Body plane preview", e)
+	}
+	originalOther := finalOther
+	r.PreviewID = pre.PreviewID
+	x.apply(r)
+	created := x.v.Part.Features[slices.IndexFunc(x.v.Part.Features, func(f workspace.Feature) bool { return f.ID == anchor.ID })+1]
+	if created.NeutralPlane.SourceFeatureID != reference.ID || created.NeutralPlane.SourceVersionID != head || created.NeutralPlane.Selection.SourceBodyID != other {
+		t.Fatal("plane source changed")
+	}
+	for _, b := range x.v.Part.Bodies {
+		if b.ID == other && b.GeometryKey != originalOther {
+			t.Fatal("unrelated Body changed")
+		}
+	}
+	cold, e := x.s.PreviewCommand(workspace.WithColdEvaluation(ctx), x.v.Document.ID, workspace.CommandRequest{ActorID: p6Actor, Type: "EDIT_FEATURE", TargetID: created.ID, Feature: &created, ExpectedFeatureDigest: findP6FeatureDigest(t, x.v.StructureTree, created.ID)})
+	if e != nil || cold.Artifact == nil {
+		t.Fatal("cold cross-Body plane", e)
+	}
+	for _, role := range []string{"BREP", "NAMING"} {
+		if cold.Artifact.Representations[role].Digest != pre.Artifact.Representations[role].Digest {
+			t.Fatal("plane hot/cold mismatch", role)
+		}
+	}
+}
+
+func TestInsertDraftDatumOrderAndFaceModifierFailureThroughRouter(t *testing.T) {
+	x := newInsertionScene(t)
+	top := findP7TopologyPick(t, x.s, x.v, "FACE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.CreationEvidence.GeometryType == "PLANE" && math.Abs(p.CreationEvidence.Centroid[2]-20) < 1e-7
+	})
+	x.apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}, DatumDefinition: &workspace.DatumTransform{Source: workspace.DatumReference{Kind: "TOPOLOGY", FeatureID: x.chamfer.ID, SourceVersionID: top.SourceVersionID, Selection: &top.Selection}}})
+	future := x.v.Part.DatumPlanes[len(x.v.Part.DatumPlanes)-1]
+	x.apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}, DatumDefinition: &workspace.DatumTransform{Source: workspace.DatumReference{Kind: "PLANE", EntityID: future.ID}}})
+	chain := x.v.Part.DatumPlanes[len(x.v.Part.DatumPlanes)-1]
+	r := x.faceInsertion("DRAFT", x.base.ID)
+	r.Feature.NeutralPlaneID = chain.ID
+	x.reject(r, "DEPENDENCY_CYCLE")
+	r = x.faceInsertion("SHELL", x.base.ID)
+	r.Feature.Length = 40
+	x.reject(r, "Shell.1")
+	// A datum created later in wall-clock time is legal when its full dependency
+	// chain comes from standard datums, rather than a later solid stage.
+	x.apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}, DatumDefinition: &workspace.DatumTransform{Source: workspace.DatumReference{Kind: "PLANE", EntityID: "datum-xy"}}})
+	r = x.faceInsertion("DRAFT", x.base.ID)
+	r.Feature.NeutralPlaneID = x.v.Part.DatumPlanes[len(x.v.Part.DatumPlanes)-1].ID
+	if p, e := x.s.PreviewCommand(t.Context(), x.v.Document.ID, r); e != nil || p.Artifact == nil {
+		t.Fatal("legal custom datum rejected", e)
+	}
+}
+
+func TestInsertFaceModifiersBooleanAndRemovalProtectionThroughRouter(t *testing.T) {
+	t.Run("Boolean output", func(t *testing.T) {
+		x := newInsertionScene(t)
+		body := x.base.BodyID
+		x.apply(workspace.CommandRequest{Type: "CREATE_BODY"})
+		toolBody := x.v.Part.ActiveBodyID
+		x.apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+		sketch := x.v.Part.Features[len(x.v.Part.Features)-1].ID
+		x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 8, Y: -20}, Second: &workspace.SketchPoint2{X: 12, Y: 20}}}})
+		x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 25})
+		tool := x.v.Part.Features[len(x.v.Part.Features)-1]
+		x.apply(workspace.CommandRequest{Type: "CREATE_BOOLEAN_FEATURE", BodyID: body, Operation: "REMOVE", KeepTools: true, Tools: []workspace.FeatureStageRef{{BodyID: toolBody, FeatureID: tool.ID}}})
+		anchor := x.v.Part.Features[len(x.v.Part.Features)-1]
+		top, key := x.faceWhere(anchor.ID, body, body, false, func(p workspace.FeatureSelection) bool {
+			return math.Abs(p.Selection.CreationEvidence.Centroid[2]-20) < 1e-7
+		})
+		r := x.request(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", AfterFeatureID: anchor.ID, VersionID: x.v.Document.VersionID, GeometryKey: key, Feature: &workspace.Feature{Type: "SHELL", BodyID: body, Length: 2, Selections: []workspace.FeatureSelection{top}}})
+		x.apply(r)
+		last := x.v.Part.Features[len(x.v.Part.Features)-1]
+		if last.Type != "SHELL" || last.Selections[0].SourceFeatureID != anchor.ID {
+			t.Fatal("Boolean output stage lost")
+		}
+	})
+	t.Run("net removal range", func(t *testing.T) {
+		x := newInsertionScene(t)
+		body := x.base.BodyID
+		x.apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+		sketch := x.v.Part.Features[len(x.v.Part.Features)-1].ID
+		x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -3, Y: -3}, Second: &workspace.SketchPoint2{X: 3, Y: 3}}}})
+		x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "REMOVE", Length: 10})
+		cut := x.v.Part.Features[len(x.v.Part.Features)-1]
+		side, _ := x.face(cut.ID, body, body, [3]float64{-3, 0, 5}, false)
+		x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "DRAFT", BodyID: body, Angle: 2, NeutralPlaneID: "datum-xy", Selections: []workspace.FeatureSelection{side}}})
+		end := x.v.Part.Features[len(x.v.Part.Features)-1]
+		x.apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "REMOVE", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Direction: [3]float64{1, 0, 0}, Count: 2, Spacing: 8}, SourceKind: "FEATURE_DELTA", StartFeatureID: cut.ID, Source: workspace.FeatureStageRef{BodyID: body, FeatureID: end.ID}, ResultMode: "COMBINE"}}})
+		for _, kind := range []string{"DRAFT", "SHELL"} {
+			pick, key := x.faceWhere(cut.ID, body, body, false, func(p workspace.FeatureSelection) bool {
+				if kind == "SHELL" {
+					return math.Abs(p.Selection.CreationEvidence.Centroid[2]-20) < 1e-7
+				}
+				return math.Abs(p.Selection.CreationEvidence.Centroid[0]+10) < 1e-7
+			})
+			r := x.request(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", AfterFeatureID: cut.ID, VersionID: x.v.Document.VersionID, GeometryKey: key, Feature: &workspace.Feature{Type: kind, BodyID: body, Length: 1, Angle: 2, NeutralPlaneID: "datum-xy", Selections: []workspace.FeatureSelection{pick}}})
+			x.reject(r, "FEATURE_DELTA")
+		}
+	})
 }

@@ -63,6 +63,16 @@ try {
  const face={...edge,kind:"face"};
  assert.equal(featureSelectionHit(face,{...session,role:"plane"}),face,"draft and datum planes accept exact face picks");
  assert.equal(featureSelectionHit({...face,documentId:"foreign"},{...session,role:"plane"}),null);
+ const {normalizeOperationFailure}=await server.ssrLoadModule("/src/cad/command/operation-failure.ts");
+ const blocker=normalizeOperationFailure(new Error("invalid workspace command: INSERT_FEATURE_BLOCKED[internal-stable-id] Chamfer.1: geometry evaluation failed"));
+ assert.match(blocker.message,/Chamfer\.1/);assert.doesNotMatch(blocker.message,/internal-stable-id|geometry evaluation/);
+ assert.match(normalizeOperationFailure(new Error("INSERT_FEATURE_BLOCKED[pattern-id] Pattern.1: FEATURE_DELTA range membership/order is protected")).message,/Pattern\.1.*范围/);
+ const {modifierTypes,defaultModifierFeature}=await server.ssrLoadModule("/src/features/workbench/solid-feature-model.ts");
+ assert.deepEqual(modifierTypes,["FILLET","CHAMFER","DRAFT","SHELL"]);
+ assert.equal(defaultModifierFeature("DRAFT","body").angle,5);
+ const historicalPlane={...session,role:"plane",bodyId:"target",geometryKey:"target-stage",planeGeometryKeys:["reference-prefix"]};
+ assert.equal(featureSelectionHit({...face,bodyId:"reference",geometryKey:"reference-prefix"},historicalPlane)?.bodyId,"reference","neutral planes use authorized global-prefix stages, independently of the target Body");
+ assert.equal(featureSelectionHit({...face,bodyId:"reference",geometryKey:"reference-final"},historicalPlane),null);
  const planeSession={...session,role:"plane",planeGeometryKeys:["input"]};
  assert.equal(featureSelectionHit(face,planeSession),face,"termination face comes from an authorized upstream stage");
  assert.equal(featureSelectionHit({...face,geometryKey:"downstream"},planeSession),null);

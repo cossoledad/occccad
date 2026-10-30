@@ -1,3 +1,4 @@
+import {modifierTypes,solidFeatureNames,type ModifierType} from "./solid-feature-model";
 import {useOperationFeedback} from "../../cad/command/operation-feedback";
 import {structureMenu} from "./tree-context-menu";
 import {defaultTreeCommand} from "./tree-node-interaction";
@@ -96,7 +97,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   onEdit?: (node: SpecificationTreeNode) => void;
   onReplace?: (node:SpecificationTreeNode)=>void;
   onMove?: (node:SpecificationTreeNode)=>void;
-  onInsertAfter?: (node:SpecificationTreeNode,type:"FILLET"|"CHAMFER")=>void;
+  onInsertAfter?: (node:SpecificationTreeNode,type:ModifierType)=>void;
   onProperties?: (node: SpecificationTreeNode) => void;
   onCreatePart?: (node: SpecificationTreeNode) => void;
   onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD") => void;
@@ -282,7 +283,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,
             ["PAD","REVOLVE","FEATURE","IMPORT"].includes(node.kind??"") && node.presentationRole!=="INPUT_REFERENCE" && onViewResult ? {key:"view-result",icon:menuIcon('tree.view-result'),label:menuLabel('tree.view-result'),onClick:()=>{setContextMenu(undefined);onViewResult(node);}}:null,
             onReplace&&node.kind==="INSTANCE"&&node.ownerDocumentId===hostDocumentId&&node.instancePath?.segments?.length===1 ? {key:"replace",icon:menuIcon("product.replace"),label:"替换组件",onClick:()=>{setContextMenu(undefined);onReplace(node)}}:null,
-            node.capabilities?.includes("INSERT_AFTER") && onInsertAfter ? {key:"insert-after",icon:menuIcon("tree.insert-after"),label:menuLabel("tree.insert-after"),children:(["FILLET","CHAMFER"] as const).map(type=>({key:`insert-${type}`,label:type==="FILLET"?"圆角":"倒角",onClick:()=>{setContextMenu(undefined);onInsertAfter(node,type);}}))}:null,
+            node.capabilities?.includes("INSERT_AFTER") && onInsertAfter ? {key:"insert-after",icon:menuIcon("tree.insert-after"),label:menuLabel("tree.insert-after"),children:modifierTypes.map(type=>({key:`insert-${type}`,label:solidFeatureNames[type],onClick:()=>{setContextMenu(undefined);onInsertAfter(node,type);}}))}:null,
             node.capabilities?.includes("MOVE") && onMove ? {key:"move",icon:menuIcon("tree.move"),label:menuLabel("tree.move"),onClick:()=>{setContextMenu(undefined);onMove(node);}}:null,
             node.capabilities?.includes("EDIT") ? { key: "edit", icon: menuIcon('tree.edit'), label: menuLabel('tree.edit',['PAD','REVOLVE','FEATURE'].includes(node.kind??'')?'definition':'default'),
               disabled:Boolean(registry&&!registry.state("tree.edit",{payload:{node}}).enabled),

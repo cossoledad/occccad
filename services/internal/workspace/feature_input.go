@@ -12,14 +12,15 @@ import (
 // feature. It never moves Head or writes a compensable model change.
 type FeatureInputRequest struct {
 	ContextReadScope
-	AfterFeatureID string `json:"afterFeatureId,omitempty"`
-	ResultStage    bool   `json:"resultStage,omitempty"`
-	BodyID         string `json:"bodyId,omitempty"`
-	VersionID      string `json:"versionId"`
-	FeatureID      string `json:"featureId,omitempty"`
-	GeometryKey    string `json:"geometryKey,omitempty"`
-	Kind           string `json:"kind,omitempty"`
-	LocalID        uint64 `json:"localId,omitempty"`
+	AfterFeatureID  string `json:"afterFeatureId,omitempty"`
+	ResultStage     bool   `json:"resultStage,omitempty"`
+	BodyID          string `json:"bodyId,omitempty"`
+	ReferenceBodyID string `json:"referenceBodyId,omitempty"` // insertion plane source; BodyID remains the insertion target
+	VersionID       string `json:"versionId"`
+	FeatureID       string `json:"featureId,omitempty"`
+	GeometryKey     string `json:"geometryKey,omitempty"`
+	Kind            string `json:"kind,omitempty"`
+	LocalID         uint64 `json:"localId,omitempty"`
 }
 type FeatureInputPick struct {
 	FeatureInputResolution
@@ -159,6 +160,9 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 	}
 	if request.AfterFeatureID != "" {
 		return s.insertionInput(ctx, documentID, request, view)
+	}
+	if request.ReferenceBodyID != "" {
+		return FeatureInput{}, fmt.Errorf("%w: reference Body requires an insertion context", ErrValidation)
 	}
 	index := -1
 	for i, f := range view.Part.Features {

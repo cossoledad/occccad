@@ -199,6 +199,9 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 		}
 		return nil
 	}()
+	if diagnosticModel != nil && requiresOrderedEvaluation(prepared.command) {
+		err = orderEvaluationError(*diagnosticModel, err, orderMutationBlocker(prepared.command))
+	}
 	return documentEvaluationResult{nextJSON, modelHash, graph, manifest, changes, revisionState, evaluationStatus, diagnosticModel}, err
 }
 func evaluateProductDocument(ctx context.Context, service *Service, input documentEvaluationInput) (result documentEvaluationResult, err error) {

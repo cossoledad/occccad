@@ -1,3 +1,4 @@
+import {defaultModifierFeature} from "./solid-feature-model";
 import {DesignInputDialog} from "./design-input-dialog";
 import {ReplaceInstanceDialog} from "./replace-instance-dialog";
 import {ContextInputSource,boundContextParameter as contextParameterBinding} from './context-input-source';
@@ -1212,7 +1213,7 @@ export function Workbench() {
 onInsertAfter:(node,type)=>{
  if(!editingView?.part||!canEdit||command.isPending||store.activeSketchID||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.capabilities?.includes("INSERT_AFTER"))return;
  const anchor=editingView.part.features.find(f=>f.id===node.entityId);if(!anchor)return;
- closeCommandPanels();endHistoryResult();setSolidEditor({feature:{id:"",name:"",type,bodyId:anchor.bodyId,length:1},insertion:{afterFeatureId:anchor.id,bodyId:anchor.bodyId!,versionId:editingView.document.versionId,label:`${editingView.part.bodies.find(b=>b.id===anchor.bodyId)?.name} / ${anchor.name}`}});
+ closeCommandPanels();endHistoryResult();setSolidEditor({feature:defaultModifierFeature(type,anchor.bodyId),insertion:{afterFeatureId:anchor.id,bodyId:anchor.bodyId!,versionId:editingView.document.versionId,label:`${editingView.part.bodies.find(b=>b.id===anchor.bodyId)?.name} / ${anchor.name}`}});
 },
 onMove:node=>{
  if(!editingView?.part||!canEdit||command.isPending||store.activeSketchID||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.capabilities?.includes("MOVE")||!node.definitionDigest)return;

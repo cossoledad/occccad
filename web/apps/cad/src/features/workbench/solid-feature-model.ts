@@ -3,6 +3,11 @@ import type { Feature } from "../../types";
 import { linearExtrudeLengthInput, parseParameterSource } from "./parameter-editor";
 const bodyFeatureTypes = new Set(["HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
 export const solidFeatureNames: Record<string, string> = { HOLE:"孔", FILLET: "圆角", CHAMFER: "倒角", DRAFT: "拔模", SHELL: "抽壳", LOFT: "放样", REVOLVE: "旋转", PAD: "拉伸", LINEAR_EXTRUDE: "拉伸" };
+export const modifierTypes = ["FILLET", "CHAMFER", "DRAFT", "SHELL"] as const;
+export type ModifierType = typeof modifierTypes[number];
+export function defaultModifierFeature(type: ModifierType, bodyId?: string): Feature {
+    return {id:"", type, bodyId, length:1, angle:5, neutralPlaneId:"datum-xy", selections:[]};
+}
 export function booleanInputStages(features: Feature[], editedId?: string): Feature[] {
     const boundary = editedId ? features.findIndex(feature => feature.id === editedId) : features.length;
     return features.slice(0, Math.max(0, boundary)).filter(feature => bodyFeatureTypes.has(feature.type.toUpperCase()) && !feature.suppressed);

@@ -1,3 +1,4 @@
+import {defaultModifierFeature,modifierTypes} from "./solid-feature-model";
 import {globalOptionsCommand} from "../preferences/global-options-command";
 import {documentRegistry} from "../../cad/document/document-registry";
 import {structureCommands,structureInvocation,resolveStructureNode,type StructureActions} from "./commands/structure-commands";
@@ -78,7 +79,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       },isEnabled:()=>Boolean(canEdit&&!command.isPending&&(kind!=="MIRROR"||!store.activeSketchID))})),
       ({id:"part.hole",execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"HOLE",bodyId:workingBodyID,operation:"REMOVE",extent:"BLIND",diameter:5,depth:10,reversed:true}});},isEnabled:()=>canEdit&&!command.isPending&&!store.activeSketchID&&!!editingView?.part?.features.some(isSolidFeature)}),
       ({id:"part.loft",execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"LOFT",bodyId:workingBodyID,operation:"ADD",sections:[]}});},isEnabled:()=>canEdit&&!command.isPending&&!store.activeSketchID}),
-      ...(["FILLET","CHAMFER","DRAFT","SHELL"] as const).map(type=>({id:`part.${type.toLowerCase()}`, execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type,bodyId:store.selection?.bodyId??workingBodyID,length:1,angle:5,neutralPlaneId:"datum-xy",selections:[]}});},isEnabled:()=>canEdit&&!command.isPending&&!store.activeSketchID})),
+      ...modifierTypes.map(type=>({id:`part.${type.toLowerCase()}`, execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:defaultModifierFeature(type,store.selection?.bodyId??workingBodyID)});},isEnabled:()=>canEdit&&!command.isPending&&!store.activeSketchID})),
       ({ id: "part.boolean", execute: () => {setDatumEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({});}, isEnabled: () => canEdit&&!command.isPending && !store.activeSketchID }),
       ({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isEnabled: () => Boolean(canEdit && !store.activeSketchID) }),
       ({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isEnabled: () => Boolean(canEdit && !store.activeSketchID && editingView?.part?.features.some((feature) => isSolidFeature(feature))) }),

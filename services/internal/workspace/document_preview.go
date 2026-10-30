@@ -211,6 +211,9 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			SketchCandidates: solvedSketchPreviewCandidates(prepared.command, model),
 		}, nil
 	}()
+	if diagnosticModel != nil && requiresOrderedEvaluation(prepared.command) {
+		failure = orderEvaluationError(*diagnosticModel, failure, orderMutationBlocker(prepared.command))
+	}
 	return result, diagnosticModel, failure
 }
 func previewProductDocument(ctx context.Context, service *Service, input documentPreviewInput) (CommandPreview, *PartModel, error) {

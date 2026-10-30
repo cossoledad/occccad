@@ -13,9 +13,9 @@
 | REVOLVE | 草图/区域、稳定轴、角度、反向；编辑轴与区域，失效不自动换区 | 有限工具；添加/净切除范围起点 |
 | LOFT | 2–32 有序截面，至少一个单区域无孔闭合轮廓；首尾支持稳定点；编辑顺序、对应、接缝和相位；形状尺寸由截面参数管理，丢失输入需重选 | ADD/REMOVE 工具及相应范围起点，非任意截面重执行 |
 | HOLE | 单个上游显式 POINT；普通/圆柱沉孔/锥沉孔，盲孔/单向贯穿/到平面；孔位、孔型与尺寸可编辑，丢点或终止面失效重选 | 三孔型 BLIND / 单向 THROUGH_ALL 切削工具；BLIND 可作净切除范围起点，到平面仅实体阶段 |
-| FILLET / CHAMFER | 恒半径/等距，稳定边集；部分/全部丢失可逐项替换或移除 | 添加/净切除范围内修饰步骤，或明确实体阶段 |
-| DRAFT | 稳定面集、上游中性平面、角度/反向；面和中性面显式修复 | 添加/净切除范围内修饰步骤；须通过对应包含检查，无独立工具 |
-| SHELL | 开口面集、恒定厚度、内/外偏置；面集可修复，算法边界见[抽壳](shell-algorithm.md) | 仅实体阶段 |
+| FILLET / CHAMFER | 恒半径/等距，稳定边集；支持历史阶段插入，部分/全部丢失可逐项替换或移除 | 添加/净切除范围内修饰步骤，或明确实体阶段 |
+| DRAFT | 稳定面集、上游中性平面、角度/反向；支持历史阶段插入，面和中性面显式修复 | 添加/净切除范围内修饰步骤；须通过对应包含检查，无独立工具 |
+| SHELL | 开口面集、恒定厚度、内/外偏置；支持历史阶段插入和面集修复，算法边界见[抽壳](shell-algorithm.md) | 仅实体阶段 |
 | BOOLEAN | 同 Part 目标/工具阶段，并/差/交；编辑来源，单工具支持显式结果区域及修复；无尺寸参数 | 仅实体阶段 |
 | SOLID_PATTERN | 多种子线性/圆周/镜像、稳定成员槽位与跳过；成员丢失后修复下游；数量/步距/角度表达式 | 有效新增成员工具，继承 ADD/REMOVE；数量1或全部新增槽位跳过时仅实体阶段 |
 | SKETCH_PATTERN | 单草图空间框架复制，成员可供拉伸/旋转/放样；分布表达式与成员身份 | 草图框架，不是实体切削工具 |
@@ -60,13 +60,13 @@ Boolean 并/差最多32工具，交集一个；工具定义保存 Body+Feature �
 
 ## 在实体阶段后插入
 
-结构树实体步骤的对象菜单“在此步骤后插入”仅开放圆角/倒角，复用原面板并持续显示 Body、锚点与插入位置。上下文只存在于该次面板；取消、提交、Revision 或编辑目标改变后退出，不建立持久历史游标。锚点必须是当前 Revision 中指定 Body 的有效、未抑制实体阶段；最终 Body 失败时也不借 displayFallback 授权。
+结构树实体步骤的对象菜单“在此步骤后插入”开放圆角、倒角、拔模和抽壳，复用原面板，简洁显示 Body / 锚点之后；默认参数与普通创建一致。上下文只存在于该次面板；取消、提交、Revision 或编辑目标改变后退出，不建立持久历史游标。锚点必须是当前 Revision 中指定 Body 的有效、未抑制实体阶段；最终 Body 失败时也不借 displayFallback 授权。
 
-`feature-input` 的独立 `afterFeatureId + bodyId + versionId` 模式重建锚点精确前缀，显示制品下载也按该上下文核对；边拾取必须匹配 GeometryKey，并返回 PersistentSelection、来源 Revision 及实际 SourceFeatureID。创建端再次验证阶段和 creation evidence。该模式与编辑输入、只读 `ResultStage` 不混用，不能绑定下游、最终结果或其他 Body 的几何。
+`feature-input` 的独立 `afterFeatureId + bodyId + versionId` 模式重建锚点精确前缀：圆角/倒角选边，拔模/抽壳选目标 Body 的面。GeometryKey、来源 Revision、Body、实际 SourceFeatureID 与 PersistentSelection 在创建端再次验证。拔模实体中性面也经该接口绑定，`referenceBodyId` 单独指定同 Part 来源 Body，按同一全局历史前缀取其有效阶段；显示与下载使用相同授权。标准/自定义基准面按递归依赖顺序检查。该模式与编辑输入、只读 `ResultStage` 不混用，不能用最终结果、下游或 displayFallback 冒充历史输入。
 
 原 `CREATE_MODIFY_FEATURE` 携带临时插入信息，在内存候选中直接插入并同步全局数组/Order；按稳定 ID 读取新定义。新 Feature、参数与后续 Order 变化进入同一 ChangeSet/Transaction，沿既有预览、幂等、CAS、补偿历史与缓存提交。原定义和参数身份不变。插入和移动复用候选依赖、实际来源阶段、全 Part 引用/几何检查；下游或跨 Body 失败指出阻塞对象并原子拒绝。固定节点保持相对顺序，允许以其合法输出为锚点，不套用移动的固定边界规则；已有 FEATURE_DELTA 的有序成员集合不能改变。
 
-入口为 `services/internal/workspace/feature_insert.go`、既有 `applyCreateFeature` 与 `solid-feature-editor.tsx`。定向回归：`services/internal/control/feature_insert_integration_test.go` 和浏览器 `solid-feature-live.spec.ts` 的 `insert fillet after an exact base stage`；覆盖阶段拾取、底座→新圆角→已有倒角、取消/过期、一次撤销恢复全部顺序、Redo、重开/冷重建及下游/跨 Body/范围保护。仅此两种局部特征，不包含草图、生成特征插入或跨 Body 创建；主体实机与全部参数组合仍需单独验收。
+入口为 `services/internal/workspace/feature_insert.go`、既有 `applyCreateFeature` 与 `solid-feature-editor.tsx`。定向回归：`services/internal/control/feature_insert_integration_test.go` 覆盖四种局部修改、历史面与跨 Body 中性面、递归基准依赖、预览/过期、一次撤销恢复顺序、Redo、重开及热冷 BREP/Naming 对照、下游/跨 Body/材料范围保护。浏览器入口仍为 `solid-feature-live.spec.ts`；新增拔模/抽壳插入的视图区操作需单独实机验收。不包含草图、生成器、Hole 的历史创建或跨 Body 创建，不扩大历史移动边界。
 
 ## 独立 Hole
 

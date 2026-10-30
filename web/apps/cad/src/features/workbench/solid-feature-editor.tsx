@@ -14,7 +14,7 @@ import type { Artifact, DocumentView, Feature, FeatureInputResolution, Selection
 import type { FeaturePickRole, FeatureSelectionSession } from "../../cad/interaction/feature-selection";
 import { selectionKey } from "../../cad/interaction/selection-identity";
 import { parameterDisplayValue,parameterSourceText } from "./parameter-editor";
-import { solidParameterEdit, solidFeatureNames, pickLoftSection } from "./solid-feature-model";
+import { booleanInputStages, solidParameterEdit, solidFeatureNames, pickLoftSection } from "./solid-feature-model";
 import { selectedAxis, selectedSketch, sketchPick, profileSelectionIDs } from "./feature-picking";
 import { FeaturePickField } from "./feature-pick-field";
 import { useFeaturePreview } from "./use-feature-preview";
@@ -120,11 +120,13 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         return () => { current = false; controller.abort(); };
     }, []);
     useEffect(()=>{
-        if(!feature.id||!terminating){setPlaneInputs([]);setPlaneErrors([]);return;}
+        if(!(feature.id||insertion)||!(terminating||feature.type==="DRAFT")){setPlaneInputs([]);setPlaneErrors([]);return;}
         const controller=new AbortController();let active=true;
-        void Promise.allSettled(view.part!.bodies.map(b=>api.getFeatureInput(view.document.id,{versionId:version.current,featureId:feature.id,bodyId:b.id},controller.signal))).then(results=>{
+        const sourceBodies=new Set(booleanInputStages(upstream).map(f=>f.bodyId));
+        const bodies=view.part!.bodies.filter(b=>sourceBodies.has(b.id));
+        void Promise.allSettled(bodies.map(b=>api.getFeatureInput(view.document.id,{versionId:version.current,featureId:feature.id||undefined,afterFeatureId:insertion?.afterFeatureId,bodyId:insertion?.bodyId??b.id,referenceBodyId:insertion?b.id:undefined},controller.signal))).then(results=>{
             if(!active)return;const inputs:Artifact[]=[],errors:string[]=[];
-            results.forEach((r,i)=>{if(r.status==="fulfilled"){if(r.value.sourceFeatureId)inputs.push(r.value.artifact);}else errors.push(`${view.part!.bodies[i].name}: ${String(r.reason)}`)});
+            results.forEach((r,i)=>{if(r.status==="fulfilled"){if(r.value.sourceFeatureId)inputs.push(r.value.artifact);}else errors.push(`${bodies[i].name}: ${String(r.reason)}`)});
             setPlaneInputs(inputs);setPlaneErrors(errors);
         });
         return()=>{active=false;controller.abort()};
@@ -185,8 +187,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         queue.current = queue.current.then(async () => {
             if (!alive.current || !current.current.validRevision || !pickOwner.current.current(ticket) || current.current.committing) return;
             let definition: NonNullable<Feature["selections"]>[number];
-            if (feature.id) {
-                const result = await api.getFeatureInput(view.document.id, { versionId:version.current, featureId:feature.id, bodyId:selection.bodyId, geometryKey:selection.geometryKey, kind:"FACE", localId:selection.topologyId });
+            if (feature.id || insertion) {
+                const result = await api.getFeatureInput(view.document.id, { versionId:version.current, featureId:feature.id||undefined,afterFeatureId:insertion?.afterFeatureId, bodyId:insertion?.bodyId??selection.bodyId,referenceBodyId:insertion?selection.bodyId:undefined, geometryKey:selection.geometryKey, kind:"FACE", localId:selection.topologyId });
                 if (!result.selection || result.selection.selection.creationEvidence.geometryType !== "PLANE") throw new CommandInputError(termination?"终止目标必须是平面":"中性平面必须是平面");
                 definition = result.selection;
             } else {
@@ -357,14 +359,14 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     catch (cause) {
         parameterError = fieldErrorText(cause);
     }
-    const planeGeometryKeys=feature.id?planeInputs.map(a=>a.geometryKey):view.part!.bodies.filter(b=>b.geometryKey).map(b=>b.geometryKey!);
+    const planeGeometryKeys=feature.id||insertion?[...new Set([...planeInputs.map(a=>a.geometryKey),...(inputContext?[inputContext.artifact.geometryKey]:[])])]:view.part!.bodies.filter(b=>b.geometryKey).map(b=>b.geometryKey!);
     const preview = useFeaturePreview(view.document.id, view.document.versionId, input, draft.operation, onPreview);
     const holeQuantities=preview.parameterCandidates?.filter(p=>feature.id?p.ownerFeatureId===feature.id:!view.part?.parameters?.some(old=>old.parameterId===p.parameterId));
     const bore=holeQuantities?.find(p=>p.propertySlot==='diameter'),recess=holeQuantities?.find(p=>p.propertySlot==='recessDiameter'),cone=holeQuantities?.find(p=>p.propertySlot==='countersinkAngle');
     const coneDepth=bore?.evaluatedValue&&recess?.evaluatedValue&&cone?.evaluatedValue?parameterDisplayValue({...bore,displayUnit:unit,evaluatedValue:{...bore.evaluatedValue,siValue:(recess.evaluatedValue.siValue-bore.evaluatedValue.siValue)/(2*Math.tan(cone.evaluatedValue.siValue/2))}}):'—';
     acceptedSections.current=preview.loftSections;
     useEffect(() => {
-        callbacks.current.onSelectionSession(role?{ ...occurrenceContext,role,sketchPoints:hole?upstream.filter(f=>sketchIds.includes(f.id)).flatMap(f=>f.sketch?.entities.filter(e=>e.kind==="POINT"&&!e.sourceEntityId&&!e.suppressed).map(e=>({sketchId:f.id,entityId:e.id}))??[]):undefined,planeGeometryKeys:terminating?planeGeometryKeys:undefined, profileRegions:explicitRegions?regionCandidates:undefined, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, geometryKey:modifier && (feature.id || insertion) ? inputContext?.artifact.geometryKey : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) }:undefined);
+        callbacks.current.onSelectionSession(role?{ ...occurrenceContext,role,sketchPoints:hole?upstream.filter(f=>sketchIds.includes(f.id)).flatMap(f=>f.sketch?.entities.filter(e=>e.kind==="POINT"&&!e.sourceEntityId&&!e.suppressed).map(e=>({sketchId:f.id,entityId:e.id}))??[]):undefined,planeGeometryKeys:terminating||feature.type==="DRAFT"?planeGeometryKeys:undefined, profileRegions:explicitRegions?regionCandidates:undefined, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, geometryKey:modifier && (feature.id || insertion) ? inputContext?.artifact.geometryKey : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) }:undefined);
     }, [role, highlightsToken, sketchIdsToken, draft.bodyId,inputContext?.artifact.geometryKey,showConnections,JSON.stringify(preview.loftConnections),explicitRegions,draft.profile,terminating,JSON.stringify(planeGeometryKeys)]);
     const apply = async () => { if (!input || !preview.previewId || preview.pending || committing)
         return; setCommitting(true); try {
@@ -378,7 +380,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const name = (id?: string) => upstream.find(f => f.id === id)?.name ?? (id?"引用草图已丢失":"未选择");
     return <CommandDialog id="solid-feature-editor" open title={`${feature.id ? "编辑" : "创建"} ${solidFeatureNames[feature.type] ?? feature.type}`} size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={!!binding||loadingInput||preview.pending} error={preview.error} onRetry={preview.retry}/>} onConfirm={apply} confirmLoading={committing} confirmDisabled={!input || !preview.previewId || preview.pending || committing}>
   <fieldset disabled={committing} className="instance-pattern-fields feature-input-fields">
-   {insertion&&<Alert type="info" title={`插入位置：${insertion.label} 之后`} description={`新建${solidFeatureNames[feature.type]}，仅拾取此步骤的实体；完整候选通过后一次提交。`}/>}
+   {insertion&&<CommandField label="插入位置" width="expression"><span>{insertion.label} 之后</span></CommandField>}
    {hole&&preview.repairRequired?.length? <Alert type="warning" title={`下游需要修复：${preview.repairRequired.map(f=>f.name||"引用特征").join("、")}`}/>:null}
    {hole&&<>
     <FeaturePickField label="定位点" value={draft.holePoint?holeReady?`${name(draft.holePoint.sketchId)} · 已选择显式点`:pointResolution?inputStatusText(pointResolution):"原定位点已失效":"选择上游普通草图的显式点"} selected={!!draft.holePoint} selections={holeReady?highlights.filter(s=>s.kind==="visual"&&s.visualType==="POINT"):[]} active={role==="sketch-point"} onActivate={()=>setRole("sketch-point")} onClear={draft.holePoint?()=>{pointReplaced.current=true;edit({holePoint:undefined});setPointResolution(undefined)}:undefined}/>

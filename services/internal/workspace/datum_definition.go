@@ -90,7 +90,7 @@ func validateDatumReference(ref DatumReference) error {
 
 // Historical consumers may only use datums derived from their upstream stages.
 // Walk the existing graph so indirect datum chains obey the same rule.
-func validateDatumFeatureOrder(m PartModel, graph *modelcore.DependencyGraph) error {
+func validateDatumFeatureOrder(m PartModel, graph *modelcore.DependencyGraph, blocked ...func(Feature, string) error) error {
 	indices := map[modelcore.DependencyKey]int{}
 	incoming := map[modelcore.DependencyKey][]modelcore.DependencyKey{}
 	for i, f := range m.Features {
@@ -110,7 +110,11 @@ func validateDatumFeatureOrder(m PartModel, graph *modelcore.DependencyGraph) er
 			for _, source := range incoming[key] {
 				if sourceIndex, ok := indices[source]; ok {
 					if sourceIndex >= index {
-						return fmt.Errorf("%w: DATUM_DOWNSTREAM_REFERENCE: %s reads %s", ErrValidation, target, source)
+						reason := fmt.Sprintf("DATUM_DOWNSTREAM_REFERENCE: %s reads %s", target, source)
+						if len(blocked) > 0 {
+							return blocked[0](m.Features[index], reason)
+						}
+						return fmt.Errorf("%w: %s", ErrValidation, reason)
 					}
 				} else if strings.HasPrefix(string(source), "datum:") {
 					if err := visit(source); err != nil {

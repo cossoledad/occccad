@@ -1285,6 +1285,11 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		if err := insertModifierCandidate(&model, payload); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
+		// Guard membership before ordinary range validation: inserting SHELL
+		// would otherwise report an unsupported range instead of its owner.
+		if err := protectFeatureRanges(beforeModel, model, insertionBlocked); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
 	} else {
 		model.Features = append(model.Features, payload.Feature)
 	}
@@ -1329,9 +1334,9 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	}
 	if payload.AfterFeatureID != "" {
 		if err := validateFeatureOrderInputs(model, insertionBlocked); err != nil {
-			return nil, modelcore.ChangeSet{}, err
-		}
-		if err := protectFeatureRanges(beforeModel, model, insertionBlocked); err != nil {
+			if errors.Is(err, modelcore.ErrDependencyCycle) {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: %w", insertionBlocked(created, "referenced inputs form a dependency cycle"), err)
+			}
 			return nil, modelcore.ChangeSet{}, err
 		}
 		for _, before := range beforeModel.Features {

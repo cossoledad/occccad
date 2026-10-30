@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/occccad/occccad/internal/modelcore"
 )
@@ -94,7 +95,7 @@ func validateFeatureOrderInputs(model PartModel, blocked func(Feature, string) e
 	if err != nil {
 		return err
 	}
-	return validateDatumFeatureOrder(model, graph)
+	return validateDatumFeatureOrder(model, graph, blocked)
 }
 
 func rangeMembers(model PartModel, p *FeaturePattern) []string {
@@ -220,6 +221,9 @@ func rejectOrderReferenceFailures(model PartModel, blocked func(Feature, string)
 	return nil
 }
 func orderEvaluationError(model PartModel, err error, blocked func(Feature, string) error) error {
+	if err == nil || strings.Contains(err.Error(), "INSERT_FEATURE_BLOCKED[") || strings.Contains(err.Error(), "MOVE_FEATURE_BLOCKED[") {
+		return err
+	}
 	matches := featureFailurePattern.FindAllStringSubmatch(err.Error(), -1)
 	if len(matches) > 0 {
 		for _, f := range model.Features {

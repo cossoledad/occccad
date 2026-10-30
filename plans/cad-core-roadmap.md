@@ -1,6 +1,6 @@
 # CAD 核心主线
 
-当前重点：有限净切除材料范围的阵列与镜像。FEATURE_DELTA 支持有限切除拉伸/旋转/放样及 BLIND Hole 后的连续圆角/倒角/拔模，以真实包含检查提取最终净切除，保留内圆角材料；复用最大范围去重、私有基线检查点、稳定命名和历史保护。已有添加范围及单向贯穿孔工具保持，THROUGH_ALL/TO_PLANE 不进入材料范围。当前能力和边界见唯一 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)。不累计实施日志。
+当前重点：四种局部修改共用历史插入。FILLET / CHAMFER / DRAFT / SHELL 沿既有创建、精确阶段拾取、预览确认与补偿历史；拔模中性面区分目标 Body 与同 Part 参考 Body，按同一全局前缀绑定。保留添加/净切除 FEATURE_DELTA 的起止和有序成员集合保护。当前能力、限制及验证入口见唯一 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)。新增拔模/抽壳插入的浏览器操作待实机验收，不累计实施日志。
 
 后续按实际建模需求推进：更多合法历史插入/移动；任意深层上下文编辑、跨层更新编排与柔性场景、静态干涉/间隙及交换验收仍未完成。具体边界分别归所属 current 主题，不把设计或接口存在当作交付。
 

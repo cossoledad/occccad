@@ -43,8 +43,8 @@ func protectFeatureRanges(before, after PartModel, blocked func(Feature, string)
 }
 
 func insertModifierCandidate(m *PartModel, p createFeaturePayload) error {
-	if p.Feature.Type != "FILLET" && p.Feature.Type != "CHAMFER" {
-		return insertionBlocked(p.Feature, "only FILLET/CHAMFER can be inserted")
+	if !isLocalModifier(p.Feature.Type) {
+		return insertionBlocked(p.Feature, "only FILLET/CHAMFER/DRAFT/SHELL can be inserted")
 	}
 	i, err := insertionAnchor(*m, p.Feature.BodyID, p.AfterFeatureID)
 	if err != nil {
@@ -96,17 +96,21 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 	if c.TypeURI != typeCreateModifierFeature || p.InsertionVersionID != head {
 		return insertionBlocked(p.Feature, "insertion Revision or command type is invalid")
 	}
-	if _, err := insertionAnchor(before, p.Feature.BodyID, p.AfterFeatureID); err != nil {
-		return err
-	}
-	key, err := s.featureStageAtVersion(ctx, documentID, head, p.AfterFeatureID, p.Feature.BodyID, true)
+	key, _, err := s.insertionStage(ctx, before, head, p.AfterFeatureID, p.Feature.BodyID, p.Feature.BodyID)
 	if err != nil {
-		return featureInputStageError(before, p.AfterFeatureID, err)
+		return err
 	}
 	if key != p.InsertionGeometryKey {
 		return insertionBlocked(p.Feature, "GeometryKey does not belong to the insertion stage")
 	}
 	for _, pick := range p.Feature.Selections {
+		kind := modelcore.PersistentTopologyFace
+		if p.Feature.Type == "FILLET" || p.Feature.Type == "CHAMFER" {
+			kind = modelcore.PersistentTopologyEdge
+		}
+		if pick.Selection.ExpectedType != kind {
+			return insertionBlocked(p.Feature, "modifier input topology type mismatch")
+		}
 		if pick.Selection.SourceDocumentID != documentID || pick.SourceVersionID != head || pick.SourceFeatureID != p.AfterFeatureID || pick.Selection.SourceBodyID != p.Feature.BodyID {
 			return insertionBlocked(p.Feature, "selection must belong to the insertion Revision, Body and stage")
 		}
@@ -118,7 +122,53 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 			return insertionBlocked(p.Feature, string(resolution.Status)+": "+resolution.Diagnostic)
 		}
 	}
+	if pick := p.Feature.NeutralPlane; pick != nil {
+		planeKey, stage, err := s.insertionStage(ctx, before, head, p.AfterFeatureID, p.Feature.BodyID, pick.Selection.SourceBodyID)
+		if err != nil {
+			return err
+		}
+		if pick.Selection.SourceDocumentID != documentID || pick.SourceVersionID != head || pick.SourceFeatureID != stage || pick.Selection.ExpectedType != modelcore.PersistentTopologyFace {
+			return insertionBlocked(p.Feature, "neutral plane must belong to its exact upstream insertion stage")
+		}
+		resolution, err := s.resolveFeaturePick(ctx, *pick, planeKey)
+		if err != nil {
+			return err
+		}
+		state, err := featureInputResolution(resolution, "PLANE")
+		if err != nil {
+			return err
+		}
+		if state.Status != modelcore.SelectionResolved {
+			return insertionBlocked(p.Feature, string(state.Status)+": "+state.Diagnostic)
+		}
+	}
 	return nil
+}
+
+// Both target and reference Bodies are evaluated at the same global prefix.
+// A semantic anchor is not the actual source stage, and another Body's final
+// output must not leak backwards across the insertion point.
+func (s *Service) insertionStage(ctx context.Context, model PartModel, revision, after, targetBody, sourceBody string) (string, string, error) {
+	i, err := insertionAnchor(model, targetBody, after)
+	if err != nil {
+		return "", "", err
+	}
+	prefix := model
+	prefix.Features = append([]Feature(nil), model.Features[:i+1]...)
+	stage := ""
+	for _, f := range prefix.Features {
+		if f.BodyID == sourceBody && isBodyFeature(f.Type) && !f.Suppressed {
+			stage = f.ID
+		}
+	}
+	if stage == "" {
+		return "", "", fmt.Errorf("%w: reference Body has no solid at the insertion stage", ErrValidation)
+	}
+	key, err := s.evaluateBodyPrefix(ctx, "insertion-input/"+revision+"/"+after, prefix, sourceBody, true)
+	if err != nil {
+		return "", "", featureInputStageError(prefix, stage, err)
+	}
+	return key, stage, nil
 }
 
 // Insertion is an explicit pick context, separate from display-only ResultStage.
@@ -126,36 +176,44 @@ func (s *Service) insertionInput(ctx context.Context, documentID string, request
 	if request.ResultStage || request.FeatureID != "" {
 		return FeatureInput{}, fmt.Errorf("%w: insertion and result/edit contexts cannot be combined", ErrValidation)
 	}
-	if _, err := insertionAnchor(*view.Part, request.BodyID, request.AfterFeatureID); err != nil {
-		return FeatureInput{}, err
+	bodyID := request.BodyID
+	if request.ReferenceBodyID != "" {
+		bodyID = request.ReferenceBodyID
 	}
-	key, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, request.AfterFeatureID, request.BodyID, true)
+	key, stage, err := s.insertionStage(ctx, *view.Part, request.VersionID, request.AfterFeatureID, request.BodyID, bodyID)
 	if err != nil {
-		return FeatureInput{}, featureInputStageError(*view.Part, request.AfterFeatureID, err)
+		return FeatureInput{}, err
 	}
 	a, err := s.loadArtifact(ctx, key)
 	if err != nil {
 		return FeatureInput{}, err
 	}
-	a.BodyID = request.BodyID
-	a.DisplayStageFeatureID = request.AfterFeatureID
-	result := FeatureInput{VersionID: request.VersionID, SourceFeatureID: request.AfterFeatureID, Artifact: a, Artifacts: []Artifact{a}, Picks: []FeatureInputPick{}}
+	a.BodyID = bodyID
+	a.DisplayStageFeatureID = stage
+	result := FeatureInput{VersionID: request.VersionID, SourceFeatureID: stage, Artifact: a, Artifacts: []Artifact{a}, Picks: []FeatureInputPick{}}
 	if request.LocalID == 0 && request.Kind == "" && request.GeometryKey == "" {
 		return result, nil
 	}
-	if request.LocalID == 0 || request.Kind != "EDGE" || request.GeometryKey != key {
+	if request.LocalID == 0 || (request.Kind != "EDGE" && request.Kind != "FACE") || request.ReferenceBodyID != "" && request.Kind != "FACE" || request.GeometryKey != key {
 		return FeatureInput{}, fmt.Errorf("%w: INSERT_STAGE_PICK_OUTSIDE_INPUT", ErrValidation)
 	}
 	manifest, _, err := s.topologyManifestForGeometryKey(ctx, key)
 	if err != nil {
 		return FeatureInput{}, err
 	}
-	output, body := manifestOutput(manifest, modelcore.PersistentTopologyEdge, request.LocalID)
-	if !topologyHistoryComplete(manifest) || output == nil || body != request.BodyID {
+	kind := modelcore.PersistentTopologyType(request.Kind)
+	output, body := manifestOutput(manifest, kind, request.LocalID)
+	if !topologyHistoryComplete(manifest) || output == nil || body != bodyID {
 		return FeatureInput{}, fmt.Errorf("%w: insertion topology unavailable", ErrValidation)
 	}
-	pick := FeatureSelection{SourceVersionID: request.VersionID, SourceFeatureID: request.AfterFeatureID, Selection: modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: documentID, SourceBodyID: body, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: modelcore.PersistentTopologyEdge, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: selectionEvidence(output.GetEvidence())}}
+	pick := FeatureSelection{SourceVersionID: request.VersionID, SourceFeatureID: stage, Selection: modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: documentID, SourceBodyID: body, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: kind, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: selectionEvidence(output.GetEvidence())}}
+	if request.ReferenceBodyID != "" && pick.Selection.CreationEvidence.GeometryType != "PLANE" {
+		return FeatureInput{}, fmt.Errorf("%w: insertion reference must be a planar face", ErrValidation)
+	}
 	if err := pick.Selection.Validate(); err != nil {
+		return FeatureInput{}, err
+	}
+	if err := s.contextDefinitionPick(ctx, request.ContextReadScope, &pick, key, request.LocalID); err != nil {
 		return FeatureInput{}, err
 	}
 	result.Selection = &pick

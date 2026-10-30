@@ -280,7 +280,7 @@ export const restApi = {
     return result;
   },
   sketchIntersections:(id:string,input:{versionId:string;sketchId:string;entityIds:string[]},signal?:AbortSignal)=>request<import('./cad/interaction/sketch-intersections').SketchIntersections>(`/api/documents/${id}/sketch-intersections`,{method:'POST',body:JSON.stringify(contextCommand(id,input)),signal}),
-  getFeatureInput: async (id: string, input: {versionId:string;featureId?:string;afterFeatureId?:string;resultStage?:boolean;bodyId?:string;geometryKey?:string;kind?:string;localId?:number}, signal?:AbortSignal) => {
+  getFeatureInput: async (id: string, input: {versionId:string;featureId?:string;afterFeatureId?:string;resultStage?:boolean;bodyId?:string;referenceBodyId?:string;geometryKey?:string;kind?:string;localId?:number}, signal?:AbortSignal) => {
     const scopedInput=contextCommand(id,input);
     const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(scopedInput),signal});
     // A sketch before the first solid has no upstream artifact. This is a
@@ -288,7 +288,7 @@ export const restApi = {
     const artifacts=[result.artifact,...(result.artifacts??[])].filter(artifact=>artifact?.geometryKey);
     for(const artifact of artifacts){
       for(const representation of Object.values(artifact.representations))
-        representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId??"",afterFeatureId:input.afterFeatureId??"",bodyId:artifact.bodyId??"",resultStage:String(!!input.resultStage),...(scopedInput.rootProductDocumentId?{rootProductDocumentId:scopedInput.rootProductDocumentId,rootProductRevisionId:scopedInput.rootProductRevisionId!,contextVariantId:scopedInput.contextVariantId!,instancePath:JSON.stringify(scopedInput.instancePath)}:{})})}`);
+        representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId??"",afterFeatureId:input.afterFeatureId??"",bodyId:(input.afterFeatureId?input.bodyId:artifact.bodyId)??"",referenceBodyId:input.referenceBodyId??"",resultStage:String(!!input.resultStage),...(scopedInput.rootProductDocumentId?{rootProductDocumentId:scopedInput.rootProductDocumentId,rootProductRevisionId:scopedInput.rootProductRevisionId!,contextVariantId:scopedInput.contextVariantId!,instancePath:JSON.stringify(scopedInput.instancePath)}:{})})}`);
       artifact.historicalPreview=!!input.resultStage;
     }
     return result;
