@@ -122,8 +122,8 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 	if !validType || p.InsertionVersionID != head {
 		return insertionBlocked(p.Feature, "insertion Revision or command type is invalid")
 	}
-	if !isLocalModifier(p.Feature.Type) && scope.RootProductDocumentID != "" {
-		return insertionBlocked(p.Feature, "historical sketch/generator creation requires an independent Part")
+	if scope.RootProductDocumentID == "" && (scope.RootProductRevisionID != "" || scope.ContextVariantID != "" || scope.InstancePath != nil) {
+		return insertionBlocked(p.Feature, "CONTEXT_VARIANT_CHANGED: incomplete context scope")
 	}
 	// Read the exact accepted occurrence, not a newly resolved source Head. The
 	// independent model remains the authority for persisted Naming/evidence.
@@ -164,6 +164,28 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 			}
 			if state.Status != modelcore.SelectionResolved {
 				return insertionBlocked(p.Feature, string(state.Status)+": "+state.Diagnostic)
+			}
+			pick := FeatureSelection{Selection: *support.PersistentSelection, SourceVersionID: head, SourceFeatureID: targetStage}
+			expected, e := s.definitionSketchSupport(ctx, pick, key)
+			if e != nil {
+				return e
+			}
+			if support.Origin != expected.Origin || support.Normal != expected.Normal || support.XDirection != expected.XDirection || support.OrientationRule != expected.OrientationRule {
+				return insertionBlocked(p.Feature, "sketch support must retain the independent definition frame")
+			}
+			projected, e := s.resolveFeaturePick(ctx, pick, shownKey)
+			if e != nil {
+				return e
+			}
+			if projected.Status != modelcore.SelectionResolved || len(projected.Candidates) != 1 {
+				return insertionBlocked(p.Feature, "sketch support does not uniquely correspond in the accepted context")
+			}
+			canonical := pick
+			if e = s.contextDefinitionPick(ctx, scope, &canonical, shownKey, projected.Candidates[0].LocalID); e != nil {
+				return e
+			}
+			if !reflect.DeepEqual(canonical.Selection.CreationEvidence, pick.Selection.CreationEvidence) {
+				return insertionBlocked(p.Feature, "sketch support must retain independent definition evidence")
 			}
 		} else if support.Type != "DATUM_PLANE" {
 			return insertionBlocked(p.Feature, "sketch requires a datum or upstream planar face")

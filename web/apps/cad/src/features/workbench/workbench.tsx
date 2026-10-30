@@ -7,7 +7,7 @@ import {ContextInputSource,boundContextParameter as contextParameterBinding} fro
 import {FeaturePickField} from './feature-pick-field';
 import {publicationSelectionTarget,publicationForwardTarget} from './publication-target';
 import {DesignAssociationDialog} from "./design-association-dialog";
-import {setContextEditScope,acceptedContextView,baseDocumentView} from "../../api/context-edit-scope";
+import {setContextEditScope,acceptedContextView,baseDocumentView,contextScopeForView,viewContextKey,commandForView} from "../../api/context-edit-scope";
 import {CommandFormContext,CommandField} from "../../cad/overlay/command-form";
 import {engineeringLabel,selectionName} from "../../cad/presentation/engineering-text";
 import {engineeringProblem} from "../../cad/command/operation-feedback";
@@ -220,7 +220,7 @@ export function Workbench() {
   const [supportSketch,setSupportSketch]=useState<Feature>();
   const [sketchInsertion,setSketchInsertion]=useState<FeatureInsertionContext>();
   const sketchCreationScope=useRef(new FeaturePickScope());
-  const [sketchStage,setSketchStage]=useState<{sketchId:string;versionId:string;inputs:Artifact[]}>();
+  const [sketchStage,setSketchStage]=useState<{sketchId:string;scopeKey:string;inputs:Artifact[]}>();
   const [featureMove,setFeatureMove]=useState<{features:Feature[];digests:Record<string,string>;orderDigest:string}>();
   const [solidEditor,setSolidEditor]=useState<{feature:Feature;digest?:string;insertion?:FeatureInsertionContext}>();
   const [featureSelection,setFeatureSelection]=useState<FeatureSelectionSession>();
@@ -367,6 +367,7 @@ export function Workbench() {
         snapshot: {
           ...current.snapshot,
           ...(view.document.id === current.hostDocumentId ? { hostRevisionId: view.document.versionId } : {}),
+          ...(view.contextProduct?.document.id===current.hostDocumentId?{hostRevisionId:view.contextProduct.document.versionId}:{}),
           ...(view.document.id === current.editTarget.documentId ? { targetRevisionId: view.document.versionId } : {}),
         },
       } : current);
@@ -415,7 +416,7 @@ export function Workbench() {
   const motionJobs=useQuery({queryKey:['motion-jobs',documentID],queryFn:async()=> (await api.listJobs()).filter(j=>j.type==='MOTION_STUDY'&&j.documentId===documentID),enabled:Boolean(view?.product),refetchInterval:5000});
 
   const featureOccurrenceContext = activeInstancePath ? {
-    instancePath: editSession?.editTarget.instancePath, rootDocumentId: documentID,
+    instancePath: view?.contextVariants?.find(v=>v.owningInstancePath.canonical===activeInstancePath)?.owningInstancePath??editSession?.editTarget.instancePath, rootDocumentId: documentID,
     contextVariantKey: view?.contextVariants?.find(v => v.owningInstancePath.canonical === activeInstancePath)?.variantKey,
   } : undefined;
   useEffect(() => {
@@ -448,24 +449,25 @@ export function Workbench() {
   const activeVariant=view?.contextVariants?.find(v=>v.owningInstancePath.canonical===activeInstancePath);
   const editingView=baseEditingView&&view&&activeInstancePath&&activeVariant?acceptedContextView(baseEditingView,view,activeInstancePath):baseEditingView;
   sketchCreationScope.current.activate("create-sketch",JSON.stringify([documentID,activeID,activeInstancePath]));
-  const historicalSketchId=editingView?.part&&editingView.part.features.some(f=>f.id===store.activeSketchID)&&view?.document.type==="PART"&&!activeInstancePath&&store.activeSketchID&&editingView.part.features.findIndex(f=>f.id===store.activeSketchID)<editingView.part.features.length-1?store.activeSketchID:undefined;
+  const historicalSketchId=editingView?.part&&editingView.part.features.some(f=>f.id===store.activeSketchID)&&(!activeInstancePath||editSession?.editTarget.instancePath?.segments.length===1)&&store.activeSketchID&&editingView.part.features.findIndex(f=>f.id===store.activeSketchID)<editingView.part.features.length-1?store.activeSketchID:undefined;
+  const historicalScopeKey=editingView?viewContextKey(editingView):"";
   useEffect(()=>{
     setSketchStage(undefined);
-    if(!historicalSketchId||!editingView?.part)return;
+    if(!historicalSketchId||!editingView?.part||activeInstancePath&&!contextScopeForView(editingView))return;
     const controller=new AbortController();let alive=true;
     const owner=editingView.document;
-    void Promise.allSettled(editingView.part.bodies.map(body=>api.getFeatureInput(owner.id,{versionId:owner.versionId,featureId:historicalSketchId,bodyId:body.id},controller.signal))).then(results=>{
+    void Promise.allSettled(editingView.part.bodies.map(body=>api.getFeatureInput(owner.id,commandForView(editingView,{versionId:owner.versionId,featureId:historicalSketchId,bodyId:body.id}),controller.signal))).then(results=>{
       if(!alive)return;
       const inputs:Artifact[]=[];
       for(const r of results){if(r.status==="fulfilled")inputs.push(...(r.value.artifacts??[]));else operationFeedback(r.reason,"读取草图上游");}
-      setSketchStage({sketchId:historicalSketchId,versionId:owner.versionId,inputs});
+      setSketchStage({sketchId:historicalSketchId,scopeKey:historicalScopeKey,inputs});
     });
     return()=>{alive=false;controller.abort()};
-  },[editingView?.document.id,editingView?.document.versionId,historicalSketchId]);
+  },[historicalScopeKey,historicalSketchId,activeInstancePath]);
   useEffect(()=>{
-    if(sketchInsertion&&sketchInsertion.versionId!==editingView?.document.versionId){setSketchInsertion(undefined);setFeatureInputs(undefined);setFeatureSelection(undefined);setDatumPreview(undefined);}
-    if(solidEditor?.insertion&&solidEditor.insertion.versionId!==editingView?.document.versionId)setSolidEditor(undefined);
-  },[editingView?.document.versionId,sketchInsertion,solidEditor?.insertion]);
+    if(sketchInsertion&&(sketchInsertion.versionId!==editingView?.document.versionId||JSON.stringify(sketchInsertion.context)!==JSON.stringify(editingView&&contextScopeForView(editingView)))){setSketchInsertion(undefined);setFeatureInputs(undefined);setFeatureSelection(undefined);setDatumPreview(undefined);}
+    if(solidEditor?.insertion&&(solidEditor.insertion.versionId!==editingView?.document.versionId||JSON.stringify(solidEditor.insertion.context)!==JSON.stringify(editingView&&contextScopeForView(editingView))))setSolidEditor(undefined);
+  },[historicalScopeKey,sketchInsertion,solidEditor?.insertion]);
   useEffect(()=>setContextEditScope(activeVariant?.part&&editingView&&view?{documentId:editingView.document.id,rootProductDocumentId:view.document.id,rootProductRevisionId:view.document.versionId,contextVariantId:activeVariant.variantKey,instancePath:activeVariant.owningInstancePath}:undefined),[editingView?.document.id,view?.document.versionId,activeVariant?.variantKey,activeInstancePath]);
   useEffect(()=>{setMotionDisplay(undefined);if(motionOpen&&(activeInstancePath||store.activeSketchID))setMotionOpen(false)},[view?.document.id,view?.document.versionId,activeInstancePath,store.activeSketchID,motionOpen]);
   useEffect(() => {
@@ -725,6 +727,7 @@ export function Workbench() {
   const liveMotionOwner=motionPanel.current?.motionSession();
   const liveMotionCanPause=Boolean(liveMotionOwner?.active&&liveMotionOwner.checkpoint?.qualified&&liveMotionOwner.identity?.baseRevisionId===view?.document.versionId);
   const canEditRoot = (!motionDisplay||liveMotionCanPause) && (view?.document.permission === "OWNER" || view?.document.permission === "EDITOR");
+  const canCreateHistorical=canEdit&&(!activeInstancePath?view?.document.type==="PART":canEditRoot&&!!editingView&&!!contextScopeForView(editingView));
   const canDeleteMotionResult=!motionDisplay&&!motionCommandActive&&store.selections.length>0&&store.selections.every(s=>s.kind==="kinematic-object"&&s.entityKind==="MOTION_RESULT"&&motionJobs.data?.some(j=>j.id===s.id&&["SUCCEEDED","FAILED","CANCELED"].includes(j.state)));
   // Route rendering precedes the layout cleanup of the previous tab. A sketch
   // belongs to the active edit session; a previous Part's store state must not
@@ -904,12 +907,12 @@ export function Workbench() {
 
   const editSketch = async (featureID: string, operations: SketchOperation[],intent?:SketchCommitIntent):Promise<DocumentView> => {
     const owner=editingView;
-    if(!owner||store.activeSketchID!==featureID)throw new Error("草图编辑会话已结束");
+    if(!owner||store.activeSketchID!==featureID||historicalSketchId&&activeInstancePath&&!contextScopeForView(owner))throw new Error("草图编辑会话已结束");
     if(!intent?.retryReceipt&&intent?.baseVersionId&&intent.baseVersionId!==owner.document.versionId)throw new Error("草图版本已变化，请重新确认操作");
     const issue=operations.flatMap(operation=>operation.type==="ADD_EXTERNAL_GEOMETRY"||operation.type==="RECONNECT_EXTERNAL_GEOMETRY"?[topologyNamingIssue(operation.geometryKey,owner,view)].filter(Boolean):[])[0];
     if(issue)throw new Error(issue.diagnostic);
     if(!operations.length)throw new Error("没有有效的草图编辑");
-    const updated=await command.mutateAsync(()=>api.command(owner.document.id,{type:"EDIT_SKETCH",sketchId:featureID,operations,requestId:intent?.requestId??randomUUID()}));
+    const updated=await command.mutateAsync(()=>api.command(owner.document.id,{...commandForView(owner,{}),...intent?.context,type:"EDIT_SKETCH",versionId:intent?.baseVersionId??owner.document.versionId,sketchId:featureID,operations,requestId:intent?.requestId??randomUUID()}));
     if(newSketchSession.current?.sketchId===featureID)newSketchSession.current.edited=true;
     await refresh(updated);
     return updated;
@@ -1243,8 +1246,8 @@ export function Workbench() {
 onInsertAfter:(node,type)=>{
  if(!editingView?.part||!canEdit||command.isPending||store.activeSketchID||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.capabilities?.includes("INSERT_AFTER"))return;
  const anchor=editingView.part.features.find(f=>f.id===node.entityId);if(!anchor)return;
- const insertion={intentId:randomUUID(),afterFeatureId:anchor.id,bodyId:anchor.bodyId!,versionId:editingView.document.versionId,label:`${editingView.part.bodies.find(b=>b.id===anchor.bodyId)?.name} / ${anchor.name}`};
- if(["SKETCH","EXTRUDE_ADD","EXTRUDE_REMOVE"].includes(type)&&(view?.document.type!=="PART"||activeInstancePath))return;
+ const insertion={context:contextScopeForView(editingView),intentId:randomUUID(),afterFeatureId:anchor.id,bodyId:anchor.bodyId!,versionId:editingView.document.versionId,occurrencePath:activeInstancePath,label:`${editingView.part.bodies.find(b=>b.id===anchor.bodyId)?.name} / ${anchor.name}`};
+ if(["SKETCH","EXTRUDE_ADD","EXTRUDE_REMOVE"].includes(type)&&!canCreateHistorical)return;
  closeCommandPanels();endHistoryResult();
  if(type==="SKETCH"){setSketchInsertion(insertion);return;}
  if(type==="EXTRUDE_ADD"||type==="EXTRUDE_REMOVE"){
@@ -1584,8 +1587,8 @@ onToggleConstruction:(node)=>{
   const blockedAssociationEntry=productUpdatePlan.data?.rootProductRevisionId===view?.document.versionId?productUpdatePlan.data?.entries?.find(entry=>entry.kind!=="ASSEMBLY_SOLVE"&&entry.currency==="UPDATE_BLOCKED"):undefined;
   const associationUpdateBlocked=!productUpdatePlan.isFetching&&view?.document.type==='PRODUCT'&&(productUpdateFailure||productUpdatePlan.data?.hasUpdates&&!productUpdatePlan.data.canAccept);
   useOperationFailureNotification(associationUpdateBlocked?{diagnostic:productUpdateFailure??blockedAssociationEntry?.diagnostic,diagnosticCode:productUpdateFailure?undefined:blockedAssociationEntry?.diagnosticCode,retry:retryAssociationUpdates,retryLabel:'重试更新'}:undefined,'更新关联零件');
-  const drawInputs=useMemo(()=>sketchStage&&sketchStage.sketchId===historicalSketchId&&sketchStage.versionId===editingView?.document.versionId?sketchStage.inputs:[],[sketchStage,historicalSketchId,editingView?.document.versionId]);
-  const inputBoundary=useMemo(()=>historicalSketchId?{afterFeatureId:historicalSketchId,versionId:editingView!.document.versionId}:sketchInsertion??(solidEditor?.feature.type==="LINEAR_EXTRUDE"?solidEditor.insertion:undefined),[historicalSketchId,editingView?.document.versionId,sketchInsertion,solidEditor?.insertion,solidEditor?.feature.type]);
+  const drawInputs=useMemo(()=>sketchStage&&sketchStage.sketchId===historicalSketchId&&sketchStage.scopeKey===historicalScopeKey?sketchStage.inputs:[],[sketchStage,historicalSketchId,historicalScopeKey]);
+  const inputBoundary=useMemo(()=>historicalSketchId?{afterFeatureId:historicalSketchId,versionId:editingView!.document.versionId,context:contextScopeForView(editingView!),occurrencePath:activeInstancePath}:sketchInsertion??(solidEditor?.feature.type==="LINEAR_EXTRUDE"?solidEditor.insertion:undefined),[historicalSketchId,historicalScopeKey,activeInstancePath,sketchInsertion,solidEditor?.insertion,solidEditor?.feature.type]);
   const viewportInputs=historicalSketchId?drawInputs:featureInputs;
   if (document.isLoading || view && !editSession) return <div className="workbench-loading"><Spin size="large" description="正在打开工作台…" /></div>;
   if (!view) return <Empty description="无法打开文档"><Space><Button onClick={()=>void document.refetch()}>重试</Button><Button onClick={()=>navigate("/")}>返回文档中心</Button></Space></Empty>;
@@ -1669,7 +1672,7 @@ onToggleConstruction:(node)=>{
             activeDocumentId={activeID}
             activeInstancePath={activeInstancePath}
             workingBodyId={workingBodyID}
-            allowHistoricalCreation={view.document.type==="PART"&&!activeInstancePath}
+            allowHistoricalCreation={canCreateHistorical}
             onViewResult={node=>executeTree("onViewResult",{node})}
             onSelect={(nodes) => {
               const selections = [...new Map(nodes.flatMap((node) => node.selection ? [[selectionKey(node.selection), node.selection] as const] : [])).values()];
@@ -1736,7 +1739,7 @@ onToggleConstruction:(node)=>{
           treeVisibilityOverrides={treeVisibilityOverrides}
           sketchPlane={motionDisplay?undefined:store.sketchPlane} activeSketchID={motionDisplay?undefined:store.activeSketchID} activeToolID={motionDisplay?"select":store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
           propertyPreview={objectPreview} sceneSettings={sceneSettings} gridVisibility={{...gridVisibility,scene:true}} referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
-          datumPreview={datumPreview} featureSelection={featureSelection} featureInputArtifacts={viewportInputs} featureInputBoundary={inputBoundary} preferredLengthUnit={lengthUnit} captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={editSketch} onSketchIntersections={(id,input,signal)=>api.sketchIntersections(id,input,signal)} onSketchPreview={(featureId,operations,signal)=>{if(!editingView||store.activeSketchID!==featureId)return Promise.reject(new Error("草图预览上下文已结束"));return api.previewCommand(editingView.document.id,{type:"EDIT_SKETCH",sketchId:featureId,operations},signal);}} onSketchReceiptCheck={async receipt=>{const updated=await command.mutateAsync(()=>api.command(receipt.ownerDocumentId,{type:"EDIT_SKETCH",sketchId:receipt.featureId,operations:receipt.operations,requestId:receipt.intent.requestId}));await refresh(updated);return updated;}}
+          datumPreview={datumPreview} featureSelection={featureSelection} featureInputArtifacts={viewportInputs} featureInputBoundary={inputBoundary} preferredLengthUnit={lengthUnit} captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={editSketch} onSketchIntersections={(id,input,signal)=>api.sketchIntersections(id,input,signal)} onSketchPreview={(featureId,operations,signal)=>{if(!editingView||store.activeSketchID!==featureId)return Promise.reject(new Error("草图预览上下文已结束"));if(historicalSketchId&&activeInstancePath&&!contextScopeForView(editingView))return Promise.reject(new Error("关联输入尚未就绪"));return api.previewCommand(editingView.document.id,commandForView(editingView,{type:"EDIT_SKETCH",versionId:editingView.document.versionId,sketchId:featureId,operations}),signal);}} onSketchReceiptCheck={async receipt=>{const updated=await command.mutateAsync(()=>api.command(receipt.ownerDocumentId,{...(receipt.intent.context??commandForView(editingView!,{})),type:"EDIT_SKETCH",versionId:receipt.intent.baseVersionId,sketchId:receipt.featureId,operations:receipt.operations,requestId:receipt.intent.requestId}));await refresh(updated);return updated;}}
           onSketchReceiptChange={setSketchReceipt} onSketchCommandStateChange={setSketchCommandState} onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(toolKind, references,groupMembers) => {
             const issue = references.flatMap((reference) => {
@@ -2038,15 +2041,15 @@ onToggleConstruction:(node)=>{
       targetFolderID={editingView.document.folderId} targetID={activeID} rootID={documentID} busy={command.isPending}
       onClose={() => setInsertOpen(false)}
       onInsertDocuments={(ids) => command.mutateAsync(() => api.insertMany(activeID, ids))} />}
-    {sketchInsertion&&editingView?.part&&<SketchSupportEditor key={editingView.document.id+(sketchInsertion.intentId??sketchInsertion.afterFeatureId+sketchInsertion.versionId)} view={editingView} feature={{id:"",type:"SKETCH",bodyId:sketchInsertion.bodyId}} insertion={sketchInsertion}
-      onSelectionSession={setFeatureSelection} onInputs={setFeatureInputs} onFrame={setDatumPreview} onPreview={()=>{}}
+    {sketchInsertion&&editingView?.part&&<SketchSupportEditor key={editingView.document.id+(sketchInsertion.intentId??sketchInsertion.afterFeatureId+sketchInsertion.versionId)} view={editingView} feature={{id:"",type:"SKETCH",bodyId:sketchInsertion.bodyId}} insertion={sketchInsertion} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext}
+      onSelectionSession={setFeatureSelection} onInputs={setFeatureInputs} onFrame={frame=>setDatumPreview(frame?{...frame,translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}:undefined)} onPreview={()=>{}}
       onApply={async input=>{
         const generation=sketchCreationScope.current.latest();
         const updated=await command.mutateAsync(()=>api.command(editingView.document.id,input));
         if(!sketchCreationScope.current.current(generation))return updated;
         const sketch=createdSketchFeature(editingView,updated),plane=sketch&&featureSketchPlane(updated,sketch);
         if(!sketch||!plane)throw new CommandInputError("已创建草图，但无法进入编辑，请从结构树打开。");
-        newSketchSession.current={documentId:updated.document.id,sketchId:sketch.id,edited:false};store.beginSketch(sketch.id,plane);
+        newSketchSession.current={documentId:updated.document.id,sketchId:sketch.id,edited:false};store.beginSketch(sketch.id,occurrenceSketchPlane(plane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation));
         return updated;
       }} onClose={()=>{sketchCreationScope.current.cancel();setSketchInsertion(undefined);setFeatureSelection(undefined);setFeatureInputs(undefined);setDatumPreview(undefined);viewport.current?.clearCommandPreview();}}/>}
     {supportSketch&&editingView?.part&&<SketchSupportEditor key={editingView.document.id+supportSketch.id} view={editingView} feature={supportSketch} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext}

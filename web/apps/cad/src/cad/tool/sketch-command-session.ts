@@ -27,7 +27,7 @@ export type SketchCommandState = {
   error?: string;
   preview?: "approximate" | "authoritative" | "pending" | "unavailable";
 };
-export type SketchCommitIntent = { requestId: string; baseVersionId?: string; retryReceipt?: boolean };
+export type SketchCommitIntent = { requestId: string; baseVersionId?: string; retryReceipt?: boolean; context?:Omit<import("../../api/context-edit-scope").ContextEditScope,"documentId"> };
 export type SketchCommitResult = DocumentView | undefined;
 
 // Unknown transport results retain their request identity. Reissuing that exact

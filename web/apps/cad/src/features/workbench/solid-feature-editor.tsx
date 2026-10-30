@@ -1,3 +1,4 @@
+import {commandForView,viewContextKey} from "../../api/context-edit-scope";
 import {boundContextParameter,ContextInputSource} from './context-input-source';
 import {FeaturePickScope} from "../../cad/interaction/feature-selection";
 import {CommandInputError} from "../../cad/command/operation-failure";
@@ -85,8 +86,9 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const [recessDiameter,setRecessDiameter]=useState(initial("recessDiameter",feature.recessDiameter??10)),[recessDepth,setRecessDepth]=useState(initial("recessDepth",feature.recessDepth??3)),[countersinkAngle,setCountersinkAngle]=useState(initial("countersinkAngle",feature.countersinkAngle??90));
     const [diameter,setDiameter]=useState(initial("diameter",feature.diameter??5)),[depth,setDepth]=useState(initial("depth",feature.depth??10));
     const [length, setLength] = useState(initial("length", feature.length ?? 10)), [second, setSecond] = useState(initial("length2", feature.length2 ?? 10)), [angle, setAngle] = useState(initial("angle", feature.angle ?? 360));
+    const frozen=useRef(commandForView(view,{})),scopeKey=useRef(viewContextKey(view));
     const intent = useRef(intentRequestId??insertion?.intentId??randomUUID()), version = useRef(view.document.versionId), alive = useRef(true), queue = useRef(Promise.resolve());
-    const pickOwner=useRef(new FeaturePickScope()),pickContext=JSON.stringify([view.document.id,view.document.versionId,replacement,regionReplacement,seamIndex,sectionReplacement]);
+    const pickOwner=useRef(new FeaturePickScope()),pickContext=JSON.stringify([viewContextKey(view),replacement,regionReplacement,seamIndex,sectionReplacement]);
     pickOwner.current.activate(role,pickContext);
     const setRole=(next:FeaturePickRole|undefined)=>{pickOwner.current.cancel();pickOwner.current.activate(next,pickContext);setRoleState(next);setBinding(0)};
     const cancelPick=()=>{if(!role)return false;pickOwner.current.cancel();setRoleState(undefined);setBinding(0);setReplacement(undefined);setRegionReplacement(undefined);setSectionReplacement(undefined);return true};
@@ -96,7 +98,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const upstream = view.part!.features.slice(0, Math.max(0, index));
     const profileUpstream=insertion&&!modifier?upstream.filter(f=>f.id===insertion.afterFeatureId):upstream;
     const edit = (patch: Partial<Feature>) => { setError(undefined); setDraft(current => ({ ...current, ...patch })); };
-    const validRevision = version.current === view.document.versionId && (!insertion || insertion.versionId===view.document.versionId);
+    const validRevision = scopeKey.current===viewContextKey(view) && version.current === view.document.versionId && (!insertion || insertion.versionId===view.document.versionId);
     useEffect(() => { alive.current = true; pickOwner.current.activate(role,pickContext); return () => { alive.current = false; pickOwner.current.cancel(); callbacks.current.onSelectionSession(); callbacks.current.onInputArtifact(); }; }, []);
     useEffect(() => {
         if (!feature.id && !insertion)
@@ -104,7 +106,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         let current = true;
         const controller = new AbortController();
         setLoadingInput(true);
-        void api.getFeatureInput(view.document.id, { versionId: view.document.versionId, featureId: feature.id||undefined,afterFeatureId:insertion?.afterFeatureId,bodyId:insertion?.bodyId }, controller.signal).then(context => {
+        void api.getFeatureInput(view.document.id, { ...frozen.current,versionId: view.document.versionId, featureId: feature.id||undefined,afterFeatureId:insertion?.afterFeatureId,bodyId:insertion?.bodyId }, controller.signal).then(context => {
             if (!current)
                 return;
             setInputContext(context);
@@ -126,7 +128,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         const controller=new AbortController();let active=true;
         const sourceBodies=new Set(booleanInputStages(upstream).map(f=>f.bodyId));
         const bodies=view.part!.bodies.filter(b=>sourceBodies.has(b.id));
-        void Promise.allSettled(bodies.map(b=>api.getFeatureInput(view.document.id,{versionId:version.current,featureId:feature.id||undefined,afterFeatureId:insertion?.afterFeatureId,bodyId:insertion?.bodyId??b.id,referenceBodyId:insertion?b.id:undefined},controller.signal))).then(results=>{
+        void Promise.allSettled(bodies.map(b=>api.getFeatureInput(view.document.id,{...frozen.current,versionId:version.current,featureId:feature.id||undefined,afterFeatureId:insertion?.afterFeatureId,bodyId:insertion?.bodyId??b.id,referenceBodyId:insertion?b.id:undefined},controller.signal))).then(results=>{
             if(!active)return;const inputs:Artifact[]=[],errors:string[]=[];
             results.forEach((r,i)=>{if(r.status==="fulfilled"){if(r.value.sourceFeatureId)inputs.push(r.value.artifact);}else errors.push(bodies[i].name)});
             setPlaneInputs(inputs);setPlaneErrors(errors);
@@ -153,7 +155,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             if (feature.id || insertion) {
                 if (!state.inputContext || selection.geometryKey !== state.inputContext.artifact.geometryKey)
                     return;
-                const result = await api.getFeatureInput(view.document.id, { versionId: version.current, featureId: feature.id||undefined, afterFeatureId:insertion?.afterFeatureId,bodyId:insertion?.bodyId, geometryKey: selection.geometryKey, kind: selection.kind.toUpperCase(), localId: selection.topologyId });
+                const result = await api.getFeatureInput(view.document.id, { ...frozen.current,versionId: version.current, featureId: feature.id||undefined, afterFeatureId:insertion?.afterFeatureId,bodyId:insertion?.bodyId, geometryKey: selection.geometryKey, kind: selection.kind.toUpperCase(), localId: selection.topologyId });
                 if (!result.selection)
                     throw new CommandInputError("所选边面没有可用的持久引用");
                 definition = result.selection;
@@ -190,7 +192,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             if (!alive.current || !current.current.validRevision || !pickOwner.current.current(ticket) || current.current.committing) return;
             let definition: NonNullable<Feature["selections"]>[number];
             if (feature.id || insertion) {
-                const result = await api.getFeatureInput(view.document.id, { versionId:version.current, featureId:feature.id||undefined,afterFeatureId:insertion?.afterFeatureId, bodyId:insertion?.bodyId??selection.bodyId,referenceBodyId:insertion?selection.bodyId:undefined, geometryKey:selection.geometryKey, kind:"FACE", localId:selection.topologyId });
+                const result = await api.getFeatureInput(view.document.id, { ...frozen.current,versionId:version.current, featureId:feature.id||undefined,afterFeatureId:insertion?.afterFeatureId, bodyId:insertion?.bodyId??selection.bodyId,referenceBodyId:insertion?selection.bodyId:undefined, geometryKey:selection.geometryKey, kind:"FACE", localId:selection.topologyId });
                 if (!result.selection || result.selection.selection.creationEvidence.geometryType !== "PLANE") throw new CommandInputError(termination?"终止目标必须是平面":"中性平面必须是平面");
                 definition = result.selection;
             } else {
@@ -354,7 +356,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
                     read("length2", second);
             }
         }
-        const common = { requestId: intent.current, parameterExpressions: expressions };
+        const common = { ...frozen.current,requestId: intent.current, parameterExpressions: expressions };
         if (ready && (!insertion || !!inputContext))
             input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value,afterFeatureId:insertion?.afterFeatureId,versionId:insertion?.versionId,geometryKey:insertion?inputContext?.artifact.geometryKey:undefined } : loft||hole ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value } : { ...common, type: "CREATE_SOLID_FEATURE", afterFeatureId:insertion?.afterFeatureId, versionId:insertion?.versionId, geometryKey:insertion?inputContext?.artifact.geometryKey:undefined, terminationPlaneId:value.terminationPlaneId,terminationPlane:value.terminationPlane,sketchId: value.profile, profileSelection:value.profileSelection, profileMemberSlot:value.profileMemberSlot, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
     }

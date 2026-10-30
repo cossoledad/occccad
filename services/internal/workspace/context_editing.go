@@ -171,30 +171,8 @@ func (s *Service) commitContextPartEdit(ctx context.Context, documentID, revisio
 			b.Accepted.OwningRevisionID = revisionID
 		}
 	}
-	// Check each repeated occurrence with its complete set of inputs.
-	grouped := map[string][]ContextBinding{}
-	for _, b := range root.ContextBindings {
-		changed := false
-		for _, instance := range root.Instances {
-			if len(b.OwningInstancePath.Segments) == 1 && instance.ID == b.OwningInstancePath.Segments[0].InstanceID && instance.ReferencedVersionID == revisionID {
-				changed = true
-			}
-		}
-		if !changed {
-			continue
-		}
-		if len(b.OwningInstancePath.Segments) == 1 && b.OwningInstancePath.Segments[0].ReferencedDocumentID == documentID {
-			grouped[b.OwningInstancePath.Canonical] = append(grouped[b.OwningInstancePath.Canonical], b)
-		}
-	}
-	for path, bindings := range grouped {
-		projection := clonePartModel(base)
-		if err := s.resolveVariantModel(ctx, documentID, path, &projection, bindings); err != nil {
-			return err
-		}
-		if err := s.evaluatePartBodies(ctx, r.RequestID+"/context/"+path, &projection); err != nil {
-			return err
-		}
+	if err := s.validateContextPartOccurrences(ctx, documentID, base, root, r, p.command); err != nil {
+		return err
 	}
 	for i := range root.Constraints {
 		if root.Constraints[i].EvaluationStatus != modelcore.AssemblyConstraintBroken {
@@ -217,6 +195,71 @@ func (s *Service) commitContextPartEdit(ctx context.Context, documentID, revisio
 	parent := atomicDomainCandidate{documentID: p.contextRootID, workspaceID: ws, headRevision: head, headSequence: seq, documentType: "PRODUCT", revisionID: rootRevision, request: CommandRequest{Type: "UPDATE_REFERENCES", RequestID: r.RequestID + "/owning-product", ActorID: p.actorID}, command: command, nextJSON: next, modelHash: hash, graph: graph, manifest: manifest, changes: changes}
 	groupUUID, _ := uuid.NewV7()
 	return s.commitProductDesignCandidates(ctx, groupUUID.String(), r.RequestID, p.requestDigest, p.actorID, p.contextRootID, []atomicDomainCandidate{owner, parent})
+}
+
+// Check every affected direct, following occurrence with its own accepted
+// inputs. No source Head is consulted, and fixed occurrences keep their version.
+func (s *Service) validateContextPartOccurrences(ctx context.Context, documentID string, base PartModel, root ProductModel, r CommandRequest, c modelcore.DomainCommand) error {
+	for _, instance := range root.Instances {
+		if instance.ReferencedDocumentID != documentID || instance.ReferenceMode == "PINNED" {
+			continue
+		}
+		var bindings []ContextBinding
+		for _, b := range root.ContextBindings {
+			if len(b.OwningInstancePath.Segments) == 1 && b.OwningInstancePath.Segments[0].InstanceID == instance.ID {
+				bindings = append(bindings, b)
+			}
+		}
+		projection := clonePartModel(base)
+		if err := s.resolveVariantModel(ctx, documentID, instance.ID, &projection, bindings); err != nil {
+			return err
+		}
+		var err error
+		if requiresOrderedEvaluation(c) {
+			err = s.evaluateOrderedBodies(ctx, documentID, r.RequestID+"/context/"+instance.ID, &projection, orderMutationBlocker(c))
+		} else {
+			err = s.evaluatePartBodies(ctx, r.RequestID+"/context/"+instance.ID, &projection)
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %s: %w", ErrValidation, instance.Name, err)
+		}
+	}
+	return nil
+}
+
+// A historical context preview must be legal in the independent definition
+// and all affected occurrences before it can become a confirmable candidate.
+func (s *Service) validateContextInsertionPreview(ctx context.Context, documentID string, p preparedDomainMutation, r CommandRequest, raw json.RawMessage) error {
+	if p.contextRootID == "" || !requiresOrderedEvaluation(p.command) {
+		return nil
+	}
+	var base PartModel
+	if err := json.Unmarshal(raw, &base); err != nil {
+		return err
+	}
+	if err := resolveRuntimeParameters(ctx, &base); err != nil {
+		return err
+	}
+	if err := s.resolveAndSolveSketches(ctx, documentID, r.RequestID+"/definition", &base); err != nil {
+		return err
+	}
+	if err := resolveRuntimeParameters(ctx, &base); err != nil {
+		return err
+	}
+	if err := s.evaluateOrderedBodies(ctx, documentID, r.RequestID+"/definition", &base, orderMutationBlocker(p.command)); err != nil {
+		return err
+	}
+	root, err := s.GetDocument(ctx, p.contextRootID)
+	if err != nil {
+		return err
+	}
+	if root.Document.VersionID != p.contextRootRevision {
+		return fmt.Errorf("%w: CONTEXT_PRODUCT_REVISION_CHANGED", ErrValidation)
+	}
+	if root.Product == nil {
+		return fmt.Errorf("%w: Product required", ErrValidation)
+	}
+	return s.validateContextPartOccurrences(ctx, documentID, base, *root.Product, r, p.command)
 }
 
 // A read scope selects the exact accepted occurrence projection. It never

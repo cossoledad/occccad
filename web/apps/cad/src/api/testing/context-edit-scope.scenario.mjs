@@ -29,3 +29,26 @@ const projectedGeometry={...projected,activeBodyId:'body',bodies:[{id:'body',geo
 const complete=m.acceptedContextView({...base,artifact:{geometryKey:'default'},replicationSources:{base:{}},sketchPatternMembers:{base:[]}}, {...root,contextVariants:[{...root.contextVariants[0],part:projectedGeometry,replicationSources:{projected:{}},sketchPatternMembers:{projected:[]}}]},'left');
 assert.equal(complete.artifact,root.artifacts.left,'primary artifact must belong to the accepted body');
 assert.deepEqual(Object.keys(complete.replicationSources),['projected']);assert.deepEqual(Object.keys(complete.sketchPatternMembers),['projected']);
+
+const path={rootDocumentId:'product',canonical:'left',segments:[{instanceId:'left',resolvedVersionId:'base-1'}]};
+const readyRoot={...root,product:{instances:[{id:'left',referenceMode:'FOLLOW_HEAD'}]},contextVariants:[{...root.contextVariants[0],variantKey:'left-v',owningInstancePath:path}]};
+const ready=m.acceptedContextView(base,readyRoot,'left');
+const command=m.commandForView(ready,{type:'CREATE_SKETCH',versionId:ready.document.versionId,afterFeatureId:'base'});
+assert.equal(command.rootProductRevisionId,'accepted');assert.equal(command.contextVariantId,'left-v');assert.equal(command.instancePath,path);
+m.setContextEditScope({documentId:'part',contextVariantId:'later-operation'});
+assert.equal(m.contextCommand('part',command).contextVariantId,'left-v','an explicitly frozen input must not borrow a later operation scope');
+const nextRoot={...readyRoot,document:{...readyRoot.document,versionId:'next'},contextVariants:[{...readyRoot.contextVariants[0],variantKey:'next-v'}]};
+assert.notEqual(m.viewContextKey(ready),m.viewContextKey(m.acceptedContextView(base,nextRoot,'left')),'same Part revision with another Product/Variant invalidates old input');
+const failed=m.acceptedContextView(base,{...readyRoot,contextVariants:[{...readyRoot.contextVariants[0],status:'FAILED'}]},'left');
+assert.throws(()=>m.commandForView(failed,{type:'EDIT_SKETCH'}),/尚未就绪/);
+assert.equal(m.contextScopeForView(m.acceptedContextView(base,{...readyRoot,product:{instances:[{id:'left',referenceMode:'PINNED'}]}},'left')),undefined);
+const deep=m.acceptedContextView(base,{...readyRoot,contextVariants:[{...readyRoot.contextVariants[0],owningInstancePath:{...path,segments:[...path.segments,{instanceId:'nested'}]}}]},'left');
+assert.equal(m.contextScopeForView(deep),undefined,'historical creation remains direct-only');
+m.setContextEditScope(undefined);
+
+const submitted={baseVersionId:'base-1',context:command};
+const next=m.acceptedContextView(base,nextRoot,'left');
+assert(m.contextResultMatchesActiveView(ready,submitted,next),'a response can advance its own frozen baseline');
+assert(m.contextResultMatchesActiveView(next,submitted,next),'the receipt may catch up after refresh installed its own result');
+assert.equal(m.contextResultMatchesActiveView(next,submitted,ready),false,'late replies cannot restore an older Product/Variant on the same occurrence');
+assert.equal(m.contextResultMatchesActiveView(base,submitted,next),false,'a lost context cannot silently become independent');

@@ -1,3 +1,4 @@
+import {contextScopeForView,type ContextEditScope} from "../api/context-edit-scope";
 import type { Artifact, DatumReference, DocumentStructureNode, DocumentView } from "../types";
 
 function inputBodyNode(node: DocumentStructureNode | undefined, ownerId: string, bodyId: string, occurrencePath: string): DocumentStructureNode | undefined {
@@ -11,10 +12,32 @@ function inputBodyNode(node: DocumentStructureNode | undefined, ownerId: string,
 }
 // Temporary geometry is scoped to the committed edit occurrence; definitions,
 // Head, persistent visibility and every other occurrence keep their own state.
-export type FeatureInputBoundary = { afterFeatureId: string; versionId: string };
+export type FeatureInputBoundary = { afterFeatureId: string; versionId: string; occurrencePath?:string; context?:ContextEditScope };
 export function featureInputDisplay(view: DocumentView, inputs: Artifact[] | undefined, ownerId: string, occurrencePath?: string, boundary?:FeatureInputBoundary): DocumentView {
-    if (boundary && view.part && view.document.id === ownerId && !occurrencePath)
+    if (boundary && view.part && view.document.id === ownerId){
+        const context=boundary.context;
+        if(boundary.occurrencePath&&(!context||view.contextOccurrencePath!==boundary.occurrencePath||JSON.stringify(contextScopeForView(view))!==JSON.stringify(context)))
+            return {...view,part:undefined,artifact:undefined,artifacts:{},sketchAnalyses:{},datumPlanes:[],datumAxes:[],axisSystems:[]};
         return historicalPartDisplay(view,boundary.afterFeatureId,boundary.versionId===view.document.versionId?inputs??[]:[]);
+    }
+    if(boundary && view.product && occurrencePath){
+        const scope=boundary.context;
+        const variant=view.contextVariants?.find(v=>v.owningInstancePath.canonical===occurrencePath&&v.baseDocumentId===ownerId);
+        const valid=!!scope&&scope.rootProductDocumentId===view.document.id&&scope.rootProductRevisionId===view.document.versionId&&scope.instancePath.canonical===occurrencePath&&variant?.variantKey===scope.contextVariantId&&variant?.baseRevisionId===boundary.versionId&&variant.status==='READY'&&!!variant.part;
+        const accepted=valid?inputs??[]:[];
+        const local=variant?.part?historicalPartDisplay({document:{...view.document,id:ownerId,versionId:boundary.versionId},part:variant.part,sketchAnalyses:variant.sketchAnalyses} as DocumentView,boundary.afterFeatureId,accepted):undefined;
+        const ids=new Set(local?.part?.features.map(f=>f.id)??[]);
+        // Remove every active Body tip/fallback, including Bodies with no prefix
+        // output. A sibling occurrence retains its complete accepted snapshot.
+        const resolvedInstances=(view.resolvedInstances??[]).map(r=>r.occurrencePath===occurrencePath&&r.documentId===ownerId?{...r,geometryKey:accepted.find(a=>a.bodyId===r.bodyId)?.geometryKey??'',displayFallback:undefined,ownedSketchIds:(r.ownedSketchIds??[]).filter(id=>ids.has(id))}:r);
+        const template=resolvedInstances.find(r=>r.occurrencePath===occurrencePath&&r.documentId===ownerId);
+        if(template)for(const input of accepted){
+            if(!input.bodyId||resolvedInstances.some(r=>r.occurrencePath===occurrencePath&&r.bodyId===input.bodyId))continue;
+            const node=inputBodyNode(view.structureTree,ownerId,input.bodyId,occurrencePath);
+            if(node)resolvedInstances.push({...template,id:`${template.id}/feature-input:${input.bodyId}`,name:node.name,bodyId:input.bodyId,bodyTreeNodeId:node.id,geometryKey:input.geometryKey,ownedSketchIds:[]});
+        }
+        return {...view,resolvedInstances,artifacts:{...view.artifacts,...Object.fromEntries(accepted.map(a=>[a.geometryKey,a]))},contextVariants:view.contextVariants?.map(v=>v===variant&&local?{...v,part:local.part,sketchAnalyses:local.sketchAnalyses}:v)};
+    }
     if (!inputs?.length)
         return view;
     const artifacts = { ...view.artifacts, ...Object.fromEntries(inputs.map(a => [a.geometryKey, a])) };
@@ -57,7 +80,7 @@ export function historicalPartDisplay(view: DocumentView, after: string, inputs:
     return [definition.source, definition.rotationAxis, definition.translationDirection].every(ref => !ref || legal(ref));
   };
   const datumPlanes = view.part.datumPlanes.filter(d => available(d.id)), datumAxes = view.part.datumAxes?.filter(d => available(d.id));
-  return { ...view, artifact: undefined, datumPlanes, artifacts: Object.fromEntries(inputs.map(a => [a.geometryKey, a])),
+  return { ...view, artifact: undefined, datumPlanes, datumAxes, axisSystems:view.part.axisSystems, artifacts: Object.fromEntries(inputs.map(a => [a.geometryKey, a])),
     sketchAnalyses: Object.fromEntries(Object.entries(view.sketchAnalyses ?? {}).filter(([id]) => ids.has(id))),
     part: { ...view.part, features, datumPlanes, datumAxes,
       bodies: view.part.bodies.map(b => ({ ...b, geometryKey: inputs.find(a => a.bodyId === b.id)?.geometryKey, displayFallback: undefined, consumed: false })) } };

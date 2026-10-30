@@ -1,3 +1,4 @@
+import {contextScopeForView,contextResultMatchesActiveView} from "../api/context-edit-scope";
 import {SketchIntersectionTool} from "../cad/tool/sketch-intersection-tool";
 import {SketchIntersectionCache} from "../cad/interaction/sketch-intersections";
 import type {CapturedSketchReference} from "../cad/sketch/sketch-point-capture";
@@ -136,7 +137,7 @@ type SolidContext = {
 
 type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext; appearance?:import("../types").ResolvedAppearance; defaultColor:number; renderedAppearanceDigest?:string };
 export type ViewportEditContext = { view: DocumentDescriptor; occurrencePath?: string; translation?: Vec3;
-  rotation?: [number, number, number, number]; bodyTreeNodeId?: string; liveDefinitionProjection?: boolean };
+  rotation?: [number, number, number, number]; bodyTreeNodeId?: string; historicalBoundary?:import("./feature-input-display").FeatureInputBoundary; liveDefinitionProjection?: boolean };
 
 // A Product viewport owns the assembly scene, while sketch interaction belongs
 // to the active occurrence's reference document. Keeping this decision in one
@@ -705,7 +706,7 @@ export class CadViewportEngine {
         resolved.ownedSketchIds]),
       view.product?.instances.map((instance) => [instance.id, instance.translation, instance.rotation]),
       view.contextVariants?.map((variant) => [variant.owningInstancePath.canonical, variant.variantKey]),
-      editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
+      editContext?.historicalBoundary, editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
     const motionView=editContext?.view??view;
@@ -1283,12 +1284,13 @@ export class CadViewportEngine {
     try {
       const updated=await this.callbacks.sketchReceiptCheck(receipt);confirmed=true;
       this.sketchReceipt=undefined;this.callbacks.sketchReceiptChanged?.(undefined);
-      if(updated&&current()) {
+      if(updated&&current()&&contextResultMatchesActiveView(this.sketchView(),receipt.intent,updated)) {
         this.pendingVisualSnapshot=true;
         const hydrated=await this.visuals.hydrate(updated);
-        if(current()) {
+        const contextRoot=updated.contextProduct?await this.visuals.hydrate(updated.contextProduct):undefined;
+        if(current()&&contextResultMatchesActiveView(this.sketchView(),receipt.intent,updated)) {
           this.visualGeneration++;
-          if(this.editContext&&this.view&&this.view.document.id!==updated.document.id)this.renderReady(this.view,{...this.editContext,view:hydrated});else this.renderReady(hydrated);
+          if(this.editContext&&this.view&&this.view.document.id!==updated.document.id)this.renderReady(contextRoot??this.view,{...this.editContext,view:hydrated});else this.renderReady(hydrated);
           this.pendingVisualSnapshot=false;
         }
       }
@@ -1326,20 +1328,24 @@ export class CadViewportEngine {
     if(!operations.length)throw new Error("操作为空，没有产生有效编辑");
     this.clearSnapPreview();
     const receipt:SketchCommitReceipt={ownerDocumentId:owner,featureId,operations:structuredClone(operations),intent:intent?structuredClone(intent):{requestId:randomUUID(),baseVersionId:this.sketchView()?.document.versionId},status:"committing"};
+    receipt.intent.baseVersionId??=this.sketchView()?.document.versionId;
+    const acceptedScope=this.sketchView()&&contextScopeForView(this.sketchView()!);
+    if(acceptedScope&&!receipt.intent.context){const {documentId:_owner,...frozen}=acceptedScope;receipt.intent.context=frozen;}
     this.sketchReceipt=receipt;this.callbacks.sketchReceiptChanged?.(receipt);
     const pending=Promise.resolve().then(()=>this.callbacks.sketchOperations(featureId,receipt.operations,receipt.intent));
     this.sketchCommitPending=pending;
     let confirmed:SketchCommitResult;
     try {
       const updated=await pending;confirmed=updated;
-      if(updated&&this.activeSketchID===featureId&&this.sketchView()?.document.id===owner&&this.editContext?.occurrencePath===occurrence) {
+      if(updated&&this.activeSketchID===featureId&&this.sketchView()?.document.id===owner&&this.editContext?.occurrencePath===occurrence&&contextResultMatchesActiveView(this.sketchView(),receipt.intent,updated)) {
         // The next gesture uses the accepted model only after its visual data is
         // ready. This does not reinterpret a failed request as a successful one.
         this.pendingVisualSnapshot=true;
         const display=await this.visuals.hydrate(updated);
-        if(this.activeSketchID===featureId&&this.sketchView()?.document.id===owner&&this.editContext?.occurrencePath===occurrence) {
+        const contextRoot=updated.contextProduct?await this.visuals.hydrate(updated.contextProduct):undefined;
+        if(this.activeSketchID===featureId&&this.sketchView()?.document.id===owner&&this.editContext?.occurrencePath===occurrence&&contextResultMatchesActiveView(this.sketchView(),receipt.intent,updated)) {
           this.visualGeneration++;
-          if(this.editContext&&this.view&&this.view.document.id!==owner)this.renderReady(this.view,{...this.editContext,view:display});
+          if(this.editContext&&this.view&&this.view.document.id!==owner)this.renderReady(contextRoot??this.view,{...this.editContext,view:display});
           else this.renderReady(display);
           this.pendingVisualSnapshot=false;
         }
@@ -2103,7 +2109,10 @@ export class CadViewportEngine {
           geometryKey: artifact.geometryKey, occurrencePath: resolved.occurrencePath,
           instancePath: resolved.instancePath, treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id,
         };
-        if (resolved.geometryKey && !referencedOccurrences.has(resolved.occurrencePath)) { this.addReferenceGeometry(artifact.visualization.referenceGeometry, resolvedGroup, visualContext); referencedOccurrences.add(resolved.occurrencePath); }
+        if (resolved.geometryKey && !referencedOccurrences.has(resolved.occurrencePath)) {
+          const prefix=this.editContext?.historicalBoundary&&this.editContext.occurrencePath===resolved.occurrencePath?this.editContext.view.part:undefined;
+          this.addReferenceGeometry(prefix?{datumPlanes:prefix.datumPlanes,datumAxes:prefix.datumAxes??[],axisSystems:prefix.axisSystems}:artifact.visualization.referenceGeometry, resolvedGroup, visualContext); referencedOccurrences.add(resolved.occurrencePath);
+        }
         if (resolved.geometryKey) this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext, true,
           new Set(resolved.ownedSketchIds ?? []));
         if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
@@ -2125,6 +2134,7 @@ export class CadViewportEngine {
   }
 
   private addPublishedLayout(view:DocumentView,instanceId:string,group:THREE.Group):boolean {
+    if(this.editContext?.historicalBoundary&&this.editContext.occurrencePath===instanceId)return false;
     const instance=view.product?.instances.find(v=>v.id===instanceId);
     if(!instance)return false;
     const nodes:import('../types').DocumentStructureNode[]=[];

@@ -101,6 +101,21 @@ try {
   assert(!events.some(event=>typeof event==='string'&&event.startsWith('render:')),changedScope+' stale receipt rendered');
   assert.equal(engine.tools.activeToolID,'sketch.edit.trim',changedScope+' stale receipt changed tool');
  }
+ // Context receipts retain their frozen accepted Product input, and a late
+ // reply cannot put that occurrence's geometry into a sibling editor.
+ {
+  const {engine,events}=harness(),path={canonical:'left',segments:[{instanceId:'left'}]};
+  const root={document:{id:'product',versionId:'product-1',type:'PRODUCT'},product:{instances:[{id:'left',referenceMode:'FOLLOW_HEAD'}]},contextVariants:[{variantKey:'variant-1',baseDocumentId:'part',baseRevisionId:'v1',status:'READY',part:engine.view.part,owningInstancePath:path}]};
+  const accepted={...engine.view,contextOccurrencePath:'left',contextProduct:root};engine.view=root;engine.editContext={view:accepted,occurrencePath:'left'};
+  engine.callbacks.sketchOperations=async(_id,_ops,frozen)=>{assert.equal(frozen.context.rootProductRevisionId,'product-1');assert.equal(frozen.context.contextVariantId,'variant-1');throw Object.assign(new Error('timeout'),{code:'TIMEOUT'});};
+  await assert.rejects(engine.commitDimensionOperations('sketch',ops,intent),/timeout/);
+  const original=structuredClone(engine.sketchReceipt.intent);
+  engine.editContext={view:{...accepted,contextProduct:{...root,document:{...root.document,versionId:'product-2'}}},occurrencePath:'left'};
+  engine.callbacks.sketchReceiptCheck=async receipt=>{assert.deepEqual(receipt.intent,original);return {...view('part','v2'),contextProduct:{...root,document:{...root.document,versionId:'product-2'}}};};
+  const network=deferred();engine.callbacks.sketchReceiptCheck=receipt=>{assert.deepEqual(receipt.intent,original);return network.promise;};
+  const retry=engine.retrySketchReceipt();engine.editContext={view:accepted,occurrencePath:'right'};network.resolve(view('part','v2'));await retry;
+  assert(!events.some(event=>typeof event==='string'&&event.startsWith('render:')),'late context receipt rendered into another occurrence');
+ }
  // Actual typed picking filters hidden/suppressed entities and the requested
  // semantic role, including an external boundary's typed ownership.
  {

@@ -1,3 +1,4 @@
+import {commandForView,viewContextKey} from "../../api/context-edit-scope";
 import {recordDeveloperEvidence} from "../../cad/command/developer-evidence";
 import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {Alert} from "antd";
@@ -23,14 +24,15 @@ export function SketchSupportEditor({view,feature,insertion,occurrencePath,occur
  const [planes,setPlanes]=useState<string[]>(),[loading,setLoading]=useState(true),[attempt,setAttempt]=useState(0);
  const [picking,setPicking]=useState(true);
  const cancelPick=()=>{if(!picking)return false;setPicking(false);return true};
+ const frozen=useRef(commandForView(view,{})),scopeKey=useRef(viewContextKey(view));
  const revision=useRef(view.document.versionId),intent=useRef(insertion?.intentId??randomUUID());
- const current=revision.current===view.document.versionId;
+ const current=revision.current===view.document.versionId&&scopeKey.current===viewContextKey(view);
  const callbacks=useRef({onSelectionSession,onInputs,onFrame});callbacks.current={onSelectionSession,onInputs,onFrame};
  useEffect(()=>{
   const controller=new AbortController();let alive=true;
   // An unavailable independent Body must not hide other legal input stages.
   setLoading(true);setError(undefined);
-  void Promise.allSettled(view.part!.bodies.filter(body=>!insertion||body.id===insertion.bodyId).map(body=>api.getFeatureInput(view.document.id,{versionId:revision.current,featureId:insertion?undefined:feature.id,afterFeatureId:insertion?.afterFeatureId,bodyId:body.id},controller.signal))).then(results=>{
+  void Promise.allSettled(view.part!.bodies.filter(body=>!insertion||body.id===insertion.bodyId).map(body=>api.getFeatureInput(view.document.id,{...frozen.current,versionId:revision.current,featureId:insertion?undefined:feature.id,afterFeatureId:insertion?.afterFeatureId,bodyId:body.id},controller.signal))).then(results=>{
    if(!alive)return;const artifacts:Artifact[]=[];
    results.forEach(r=>{if(r.status==="fulfilled"){artifacts.push(...(r.value.artifacts??[]));if(r.value.referenceGeometry)setPlanes(r.value.referenceGeometry.datumPlanes.map(p=>p.id));}else {recordDeveloperEvidence("草图支撑",r.reason);if(insertion)setError(engineeringProblem(r.reason));}});
    setInputs(artifacts);callbacks.current.onInputs(artifacts);
@@ -47,7 +49,7 @@ export function SketchSupportEditor({view,feature,insertion,occurrencePath,occur
  const pickRef=useRef((s:SelectionItem)=>{});pickRef.current=s=>{if(current&&!busy&&accepted(s)){setChosen(s);setPicking(false);setError(undefined)}};
  useEffect(()=>{callbacks.current.onSelectionSession(picking?{...occurrenceContext,role:"plane",documentId:view.document.id,versionId:revision.current,occurrencePath,selections:chosen?[{...occurrenceContext,...chosen}]:[],accept:accepted,onPick:s=>pickRef.current(s)}:undefined);},[JSON.stringify(chosen),JSON.stringify(inputs.map(a=>[a.bodyId,a.geometryKey])),current,busy,picking,loading,planes]);
  let input:Record<string,unknown>|undefined;
- if(chosen&&current&&!loading&&!error&&(!insertion||inputs.length))input={type:insertion?"CREATE_SKETCH":"REASSIGN_SKETCH_SUPPORT",requestId:intent.current,versionId:revision.current,sketchId:insertion?undefined:feature.id,...(chosen.kind==="plane"?{datumPlaneId:chosen.datumPlane?.id??chosen.entityId??chosen.id}:{targetKind:"FACE",bodyId:chosen.bodyId,geometryKey:chosen.geometryKey,topologyId:"topologyId"in chosen?chosen.topologyId:undefined}),...(insertion?{afterFeatureId:insertion.afterFeatureId,bodyId:insertion.bodyId,geometryKey:inputs[0]?.geometryKey}:{})};
+ if(chosen&&current&&!loading&&!error&&(!insertion||inputs.length))input={...frozen.current,type:insertion?"CREATE_SKETCH":"REASSIGN_SKETCH_SUPPORT",requestId:intent.current,versionId:revision.current,sketchId:insertion?undefined:feature.id,...(chosen.kind==="plane"?{datumPlaneId:chosen.datumPlane?.id??chosen.entityId??chosen.id}:{targetKind:"FACE",bodyId:chosen.bodyId,geometryKey:chosen.geometryKey,topologyId:"topologyId"in chosen?chosen.topologyId:undefined}),...(insertion?{afterFeatureId:insertion.afterFeatureId,bodyId:insertion.bodyId,geometryKey:inputs[0]?.geometryKey}:{})};
  const preview=useFeaturePreview(view.document.id,revision.current,input,undefined,onPreview);
  const plane=preview.referenceGeometry?.datumPlanes.find(p=>p.id==="sketch-support-preview");
  useEffect(()=>{callbacks.current.onFrame(plane?{plane,showFrame:true}:undefined)},[JSON.stringify(plane)]);

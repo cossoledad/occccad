@@ -18,8 +18,8 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if request.Type != "CREATE_MODIFY_FEATURE" && request.Type != "CREATE_SKETCH" && request.Type != "CREATE_SOLID_FEATURE" {
 			return "", nil, fmt.Errorf("%w: INSERT_FEATURE_TYPE_UNSUPPORTED", ErrValidation)
 		}
-		if request.Type != "CREATE_MODIFY_FEATURE" && (request.RootProductDocumentID != "" || documentType != "PART") {
-			return "", nil, fmt.Errorf("%w: historical sketch/generator creation requires an independent Part", ErrValidation)
+		if documentType != "PART" {
+			return "", nil, fmt.Errorf("%w: historical creation requires a Part", ErrValidation)
 		}
 		if request.Type == "CREATE_SOLID_FEATURE" && (request.Feature != nil || request.Generator != "LINEAR_EXTRUDE" || request.Operation != "ADD" && request.Operation != "REMOVE" || request.Extent != "" && request.Extent != "FINITE") {
 			return "", nil, fmt.Errorf("%w: historical generator requires finite LINEAR_EXTRUDE ADD/REMOVE", ErrValidation)
@@ -216,7 +216,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			var selection modelcore.PersistentSelection
 			var err error
 			if request.AfterFeatureID != "" {
-				input, inputErr := service.GetFeatureInput(ctx, documentID, FeatureInputRequest{VersionID: sourceVersionID, AfterFeatureID: request.AfterFeatureID, BodyID: request.BodyID, GeometryKey: request.GeometryKey, Kind: "FACE", LocalID: request.TopologyID})
+				input, inputErr := service.GetFeatureInput(ctx, documentID, FeatureInputRequest{ContextReadScope: commandReadScope(request), VersionID: sourceVersionID, AfterFeatureID: request.AfterFeatureID, BodyID: request.BodyID, GeometryKey: request.GeometryKey, Kind: "FACE", LocalID: request.TopologyID})
 				err = inputErr
 				if input.Selection != nil {
 					selection = input.Selection.Selection
@@ -229,6 +229,17 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 			if selection.CreationEvidence.GeometryType != "PLANE" {
 				return "", nil, fmt.Errorf("%w: SUPPORT_TYPE_MISMATCH: selected face is not planar", ErrValidation)
+			}
+			if request.AfterFeatureID != "" {
+				key, stage, e := service.insertionStage(ctx, model, sourceVersionID, request.AfterFeatureID, request.BodyID, request.BodyID)
+				if e != nil {
+					return "", nil, e
+				}
+				support, e := service.definitionSketchSupport(ctx, FeatureSelection{Selection: selection, SourceVersionID: sourceVersionID, SourceFeatureID: stage}, key)
+				if e != nil {
+					return "", nil, e
+				}
+				return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: "CUSTOM", Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: support, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}}}, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
 			}
 			// Persistent evidence identifies the face; its immutable source
 			// manifest may predate orientation fixes. Read the exact B-Rep

@@ -144,6 +144,9 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		if err != nil {
 			return CommandPreview{}, err
 		}
+		if err := service.validateContextInsertionPreview(ctx, documentID, prepared, request, input.nextJSON); err != nil {
+			return CommandPreview{}, err
+		}
 		diagnostic.stage("ARTIFACT")
 		finishArtifact := perf.Start(ctx, "artifact-load")
 		artifact, err := service.loadArtifact(ctx, geometryKey)

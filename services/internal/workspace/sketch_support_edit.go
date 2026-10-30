@@ -4,9 +4,43 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/occccad/occccad/internal/modelcore"
 )
+
+// Persist the independent stage's complete frame. A projected face's local
+// index, origin or normal is never a definition-level support witness.
+func (s *Service) definitionSketchSupport(ctx context.Context, pick FeatureSelection, key string) (SketchSupport, error) {
+	manifest, _, err := s.topologyManifestForGeometryKey(ctx, key)
+	if err != nil {
+		return SketchSupport{}, err
+	}
+	output := manifestSemanticOutput(manifest, pick.Selection)
+	if !topologyHistoryComplete(manifest) || output == nil || !reflect.DeepEqual(selectionEvidence(output.GetEvidence()), pick.Selection.CreationEvidence) {
+		return SketchSupport{}, fmt.Errorf("%w: sketch support must retain independent definition evidence", ErrValidation)
+	}
+	resolution, err := s.resolveFeaturePick(ctx, pick, key)
+	if err != nil {
+		return SketchSupport{}, err
+	}
+	if resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 || resolution.Candidates[0].Evidence.GeometryType != "PLANE" {
+		return SketchSupport{}, fmt.Errorf("%w: SUPPORT_TYPE_MISMATCH: independent planar support required", ErrValidation)
+	}
+	properties, err := s.getTopologyElementPropertiesFromArtifact(ctx, key, "FACE", resolution.Candidates[0].LocalID)
+	if err != nil {
+		return SketchSupport{}, err
+	}
+	normal, ok := properties.Properties["normal"].([3]float64)
+	if !ok {
+		return SketchSupport{}, fmt.Errorf("%w: SUPPORT_FRAME_INVALID", ErrValidation)
+	}
+	x, ok := stableSupportX(normal, [3]float64{})
+	if !ok {
+		return SketchSupport{}, fmt.Errorf("%w: SUPPORT_FRAME_INVALID", ErrValidation)
+	}
+	return SketchSupport{Type: "PLANAR_FACE", Plane: "CUSTOM", PersistentSelection: &pick.Selection, SourceVersionID: pick.SourceVersionID, SourceFeatureID: pick.SourceFeatureID, Origin: pick.Selection.CreationEvidence.Origin, XDirection: x, Normal: normal, OrientationRule: sketchSupportOrientationRule, Status: "CONNECTED"}, nil
+}
 
 // This is the existing Feature input-stage contract, also usable when the old
 // sketch support cannot resolve. No final failed Body or displayFallback is read.

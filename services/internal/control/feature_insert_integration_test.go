@@ -28,6 +28,354 @@ type insertionScene struct {
 	seq           int
 }
 
+type contextInsertionScene struct {
+	*insertionScene
+	root, source workspace.DocumentView
+	height       string
+	active       string
+}
+
+func newContextInsertionScene(t *testing.T, repeatedHeight float64) *contextInsertionScene {
+	x := newInsertionScene(t)
+	height := ""
+	for _, p := range x.v.Part.Parameters {
+		if p.OwnerFeatureID == x.base.ID && p.PropertySlot == "length" {
+			height = p.ParameterID
+		}
+	}
+	x.apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: height, Value: 10, Unit: "mm"})
+	x.apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "YZ"})
+	create := func(typ, name string) workspace.DocumentView {
+		v, e := x.s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: typ, Name: name})
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	c := &contextInsertionScene{insertionScene: x, source: create("PART", "Historical layout"), root: create("PRODUCT", "Context sketch insertion"), height: height}
+	c.run(&c.source, workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: "height", Value: 20, Unit: "mm"})
+	sourceHeight := c.source.Part.Parameters[0].ParameterID
+	c.run(&c.source, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Height", PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: sourceHeight})
+	publications := []string{c.source.Part.Publications[0].ID}
+	c.run(&c.source, workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: "otherHeight", Value: repeatedHeight, Unit: "mm"})
+	otherHeight := ""
+	for _, p := range c.source.Part.Parameters {
+		if p.ParameterID != sourceHeight {
+			otherHeight = p.ParameterID
+		}
+	}
+	c.run(&c.source, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Other height", PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: otherHeight})
+	for _, p := range c.source.Part.Publications {
+		if p.ID != publications[0] {
+			publications = append(publications, p.ID)
+		}
+	}
+	c.run(&c.root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: c.source.Document.ID})
+	for i := 0; i < 2; i++ {
+		c.run(&c.root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: x.v.Document.ID})
+	}
+	c.active = c.root.Product.Instances[1].ID
+	c.run(&c.root, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: c.active, Translation: [3]float64{30, 40, 50}, Rotation: [4]float64{0, 0, math.Sqrt(.5), math.Sqrt(.5)}})
+	for i := 1; i <= 2; i++ {
+		a, e := x.s.GetProductDesignSession(t.Context(), c.root.Document.ID, c.root.Product.Instances[0].ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		b, e := x.s.GetProductDesignSession(t.Context(), c.root.Document.ID, c.root.Product.Instances[i].ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		binding := workspace.ProductContextBindingRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-bind-%d", c.root.Document.ID, i), OwningInstancePath: *b.ActiveInstancePath, SourceInstancePath: *a.ActiveInstancePath, PublicationID: publications[i-1], PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: height}
+		if i == 2 {
+			binding.ContextInputID = c.v.Part.ContextInputs[0].ID
+			binding.TargetKind = ""
+			binding.TargetID = ""
+		}
+		c.root, e = x.s.CreateProductContextBinding(t.Context(), c.root.Document.ID, binding)
+		if e != nil {
+			t.Fatal(e)
+		}
+		c.reload()
+	}
+	// Source Head can change; all editing keeps the explicit accepted values.
+	c.run(&c.source, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: sourceHeight, Value: 25, Unit: "mm"})
+	c.reload()
+	return c
+}
+func (c *contextInsertionScene) run(v *workspace.DocumentView, r workspace.CommandRequest) {
+	c.t.Helper()
+	n, e := c.s.ApplyCommand(c.t.Context(), v.Document.ID, c.request(r))
+	if e != nil {
+		c.t.Fatal(r.Type, e)
+	}
+	*v = n
+}
+func (c *contextInsertionScene) reload() {
+	c.t.Helper()
+	var e error
+	c.root, e = c.s.GetDocument(c.t.Context(), c.root.Document.ID, p6Actor)
+	if e != nil {
+		c.t.Fatal(e)
+	}
+	c.v, e = c.s.GetDocument(c.t.Context(), c.v.Document.ID, p6Actor)
+	if e != nil {
+		c.t.Fatal(e)
+	}
+}
+func (c *contextInsertionScene) variant() workspace.ContextVariantSnapshot {
+	c.t.Helper()
+	for _, v := range c.root.ContextVariants {
+		if v.OwningInstancePath.Segments[0].InstanceID == c.active {
+			if v.Status != "READY" {
+				c.t.Fatal("context not READY", v.Status)
+			}
+			return v
+		}
+	}
+	c.t.Fatal("active variant missing")
+	return workspace.ContextVariantSnapshot{}
+}
+func (c *contextInsertionScene) scope() workspace.ContextReadScope {
+	v := c.variant()
+	return workspace.ContextReadScope{RootProductDocumentID: c.root.Document.ID, RootProductRevisionID: c.root.Document.VersionID, ContextVariantID: v.VariantKey, InstancePath: &v.OwningInstancePath}
+}
+func (c *contextInsertionScene) scoped(r workspace.CommandRequest) workspace.CommandRequest {
+	scope := c.scope()
+	r.RootProductDocumentID = scope.RootProductDocumentID
+	r.RootProductRevisionID = scope.RootProductRevisionID
+	r.ContextVariantID = scope.ContextVariantID
+	r.InstancePath = scope.InstancePath
+	r.VersionID = c.v.Document.VersionID
+	return c.request(r)
+}
+func (c *contextInsertionScene) input(after string) workspace.FeatureInput {
+	c.t.Helper()
+	v, e := c.s.GetFeatureInput(c.t.Context(), c.v.Document.ID, workspace.FeatureInputRequest{ContextReadScope: c.scope(), VersionID: c.v.Document.VersionID, AfterFeatureID: after, BodyID: c.base.BodyID})
+	if e != nil {
+		c.t.Fatal(e)
+	}
+	return v
+}
+
+func TestInsertContextSketchAndFiniteExtrudeThroughRouter(t *testing.T) {
+	for _, operation := range []string{"ADD", "REMOVE"} {
+		for _, face := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/face=%v", operation, face), func(t *testing.T) {
+				c := newContextInsertionScene(t, 24)
+				ctx := t.Context()
+				before := c.v
+				rootBefore := c.root
+				input := c.input(c.base.ID)
+				if input.Artifact.GeometryKey == c.insertionScene.input(c.base.ID, c.base.BodyID).Artifact.GeometryKey {
+					t.Fatal("10 -> 20 fixture did not change prefix")
+				}
+				r := c.scoped(workspace.CommandRequest{Type: "CREATE_SKETCH", AfterFeatureID: c.base.ID, BodyID: c.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Plane: "XY"})
+				if face {
+					for local := uint64(1); local <= p6TopologyCount(t, input.Artifact.Topology, "faces"); local++ {
+						p, e := c.s.GetFeatureInput(ctx, c.v.Document.ID, workspace.FeatureInputRequest{ContextReadScope: c.scope(), VersionID: c.v.Document.VersionID, AfterFeatureID: c.base.ID, BodyID: c.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Kind: "FACE", LocalID: local})
+						if e != nil {
+							t.Fatal(e)
+						}
+						if math.Abs(p.Selection.Selection.CreationEvidence.Centroid[2]-10) < 1e-7 {
+							r.TargetKind = "FACE"
+							r.TopologyID = local
+							break
+						}
+					}
+					if r.TopologyID == 0 {
+						t.Fatal("top projected face missing")
+					}
+				}
+				for _, mutate := range []func(*workspace.CommandRequest){func(q *workspace.CommandRequest) {
+					q.GeometryKey = c.insertionScene.input(c.base.ID, c.base.BodyID).Artifact.GeometryKey
+				}, func(q *workspace.CommandRequest) { q.RootProductRevisionID = c.source.Document.VersionID }, func(q *workspace.CommandRequest) { q.ContextVariantID = "forged" }, func(q *workspace.CommandRequest) { q.RootProductDocumentID = "" }, func(q *workspace.CommandRequest) {
+					p := *q.InstancePath
+					p.Segments = append([]workspace.InstancePathSegment(nil), p.Segments...)
+					p.Segments[0].ResolvedVersionID = c.source.Document.VersionID
+					q.InstancePath = &p
+				}} {
+					bad := r
+					mutate(&bad)
+					c.reject(bad, "")
+				}
+				preview, e := c.s.PreviewCommand(ctx, c.v.Document.ID, r)
+				if e != nil || preview.ReferenceGeometry == nil {
+					t.Fatal("context sketch preview", e)
+				}
+				plane := preview.ReferenceGeometry.DatumPlanes[0]
+				if face && math.Abs(plane.Origin[2]-20) > 1e-7 {
+					t.Fatal("preview used independent support frame", plane.Origin)
+				}
+				c.reload()
+				if c.v.Document.VersionID != before.Document.VersionID || c.root.Document.VersionID != rootBefore.Document.VersionID {
+					t.Fatal("preview wrote document heads")
+				}
+				if face {
+					r.PreviewID = preview.PreviewID
+				}
+				c.apply(r)
+				c.reload()
+				sketch := c.v.Part.Features[2]
+				if sketch.Sketch == nil || sketch.ID == before.Part.Features[len(before.Part.Features)-1].ID {
+					t.Fatal("created wrong sketch")
+				}
+				if face && (sketch.Sketch.Support.SourceFeatureID != c.base.ID || math.Abs(sketch.Sketch.Support.Origin[2]-10) > 1e-7) {
+					t.Fatal("projected support saved as default", sketch.Sketch.Support)
+				}
+				oldScope := c.scope()
+				for _, ops := range [][]workspace.SketchOperation{{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -2, Y: -2}, Second: &workspace.SketchPoint2{X: 2, Y: 2}}}, {{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: sketch.ID + "-construction", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: 7, Y: 7}}}}} {
+					c.apply(c.scoped(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch.ID, Operations: ops}))
+					c.reload()
+				}
+				if _, e = c.s.GetFeatureInput(ctx, c.v.Document.ID, workspace.FeatureInputRequest{ContextReadScope: oldScope, VersionID: c.v.Document.VersionID, AfterFeatureID: sketch.ID, BodyID: sketch.BodyID}); e == nil {
+					t.Fatal("old context accepted after sketch edit")
+				}
+				input = c.input(sketch.ID)
+				if input.SourceFeatureID != c.base.ID {
+					t.Fatal("sketch mistaken for solid source")
+				}
+				length := 5.
+				if !face && operation == "ADD" {
+					length = 25
+				}
+				r = c.scoped(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", AfterFeatureID: sketch.ID, SketchID: sketch.ID, BodyID: sketch.BodyID, GeometryKey: input.Artifact.GeometryKey, Generator: "LINEAR_EXTRUDE", Operation: operation, Extent: "FINITE", Length: length, LengthExpression: fmt.Sprintf("%g mm", length), Reversed: face && operation == "REMOVE", ProfileSelection: &workspace.ProfileRegionSelection{Mode: "REGIONS", RegionIDs: c.variant().SketchAnalyses[sketch.ID].RegionIDs}})
+				beforeGenerator := c.v
+				beforeRoot := c.root
+				preview, e = c.s.PreviewCommand(ctx, c.v.Document.ID, r)
+				if e != nil || preview.Artifact == nil {
+					t.Fatal("context generator preview", e)
+				}
+				cold, e := c.s.PreviewCommand(workspace.WithColdEvaluation(ctx), c.v.Document.ID, r)
+				if e != nil || cold.Artifact == nil {
+					t.Fatal("cold context generator", e)
+				}
+				for _, role := range []string{"BREP", "NAMING"} {
+					if preview.Artifact.Representations[role].Digest != cold.Artifact.Representations[role].Digest {
+						t.Fatal("context hot/cold mismatch", role)
+					}
+				}
+				c.s.DiscardPreview(c.v.Document.ID, p6Actor, preview.PreviewID)
+				c.reload()
+				if c.v.Document.VersionID != beforeGenerator.Document.VersionID || c.root.Document.VersionID != beforeRoot.Document.VersionID {
+					t.Fatal("cancel wrote head")
+				}
+				preview, e = c.s.PreviewCommand(ctx, c.v.Document.ID, r)
+				if e != nil {
+					t.Fatal(e)
+				}
+				if face {
+					r.PreviewID = preview.PreviewID
+				}
+				c.apply(r)
+				c.reload()
+				created := c.v.Part.Features[3]
+				if created.Profile != sketch.ID || created.BodyID != sketch.BodyID {
+					t.Fatal("generator identity/profile mismatch")
+				}
+				actual := c.variant()
+				body := actual.Part.Bodies[0]
+				for _, role := range []string{"BREP", "NAMING"} {
+					if c.root.Artifacts[body.GeometryKey].Representations[role].Digest != preview.Artifact.Representations[role].Digest {
+						t.Fatal("adopted context geometry differs from preview", role)
+					}
+				}
+				prior := beforeRoot.ContextVariants[0]
+				for _, v := range beforeRoot.ContextVariants {
+					if v.OwningInstancePath.Canonical == actual.OwningInstancePath.Canonical {
+						prior = v
+					}
+				}
+				priorVolume := beforeRoot.Artifacts[prior.Part.Bodies[0].GeometryKey].Volume
+				finalVolume := c.root.Artifacts[body.GeometryKey].Volume
+				if math.Abs(math.Abs(finalVolume-priorVolume)-80) > 1e-5 || operation == "ADD" && finalVolume <= priorVolume || operation == "REMOVE" && finalVolume >= priorVolume {
+					t.Fatal("wrong context material delta", finalVolume, priorVolume)
+				}
+				if face {
+					for _, f := range actual.Part.Features {
+						if f.ID == sketch.ID && math.Abs(f.Sketch.Support.Origin[2]-20) > 1e-7 {
+							t.Fatal("context sketch plane did not follow accepted support")
+						}
+					}
+				}
+				for _, variant := range c.root.ContextVariants {
+					height := 0.
+					for _, f := range variant.Part.Features {
+						if f.ID == c.base.ID {
+							height = f.Length
+						}
+					}
+					if height != 20 && height != 24 {
+						t.Fatal("accepted input read source Head", height)
+					}
+				}
+				active := c.root.Product.Instances[1]
+				if active.Translation != rootBefore.Product.Instances[1].Translation || active.Rotation != rootBefore.Product.Instances[1].Rotation {
+					t.Fatal("creation changed occurrence pose")
+				}
+				for i, b := range beforeRoot.Product.ContextBindings {
+					if b.Accepted.SourceRevisionID != c.root.Product.ContextBindings[i].Accepted.SourceRevisionID {
+						t.Fatal("unaccepted update advanced")
+					}
+				}
+				c.apply(workspace.CommandRequest{Type: "UNDO"})
+				c.reload()
+				if !reflect.DeepEqual(c.v.Part.Features, beforeGenerator.Part.Features) {
+					t.Fatal("Undo did not restore sketch/order")
+				}
+				c.apply(workspace.CommandRequest{Type: "REDO"})
+				c.reload()
+				if c.v.Part.Features[3].ID != created.ID {
+					t.Fatal("Redo changed identity")
+				}
+				fresh := workspace.NewWithArtifacts(c.db, c.client, c.artifacts)
+				opened, e := fresh.GetDocument(ctx, c.root.Document.ID, p6Actor)
+				if e != nil || len(opened.ContextVariants) != 2 {
+					t.Fatal("reopen", e)
+				}
+				for _, scoped := range []bool{false, true} {
+					q := workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: created.ID, Feature: &created, ExpectedFeatureDigest: findP6FeatureDigest(t, c.v.StructureTree, created.ID)}
+					if scoped {
+						q = c.scoped(q)
+					} else {
+						q = c.request(q)
+					}
+					p, e := fresh.PreviewCommand(workspace.WithColdEvaluation(ctx), c.v.Document.ID, q)
+					if e != nil || p.Artifact == nil {
+						t.Fatal("reopened cold reconstruction", scoped, e)
+					}
+					want := activeBodyArtifact(t, c.v)
+					if scoped {
+						want = c.root.Artifacts[c.variant().Part.Bodies[0].GeometryKey]
+					}
+					for _, role := range []string{"BREP", "NAMING"} {
+						if want.Representations[role].Digest != p.Artifact.Representations[role].Digest {
+							t.Fatal("reopened configuration mismatch", scoped, role)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestInsertContextSketchRepeatedOccurrenceFailureIsAtomicThroughRouter(t *testing.T) {
+	c := newContextInsertionScene(t, 5)
+	input := c.input(c.base.ID)
+	c.apply(c.scoped(workspace.CommandRequest{Type: "CREATE_SKETCH", AfterFeatureID: c.base.ID, BodyID: c.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Plane: "XY"}))
+	c.reload()
+	sketch := c.v.Part.Features[2]
+	c.apply(c.scoped(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch.ID, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -11, Y: -11}, Second: &workspace.SketchPoint2{X: 11, Y: 11}}}}))
+	c.reload()
+	input = c.input(sketch.ID)
+	r := c.scoped(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", AfterFeatureID: sketch.ID, BodyID: sketch.BodyID, SketchID: sketch.ID, GeometryKey: input.Artifact.GeometryKey, Generator: "LINEAR_EXTRUDE", Operation: "REMOVE", Extent: "FINITE", Length: 6})
+	beforeRoot := c.root.Document.VersionID
+	c.reject(r, "")
+	c.reload()
+	if c.root.Document.VersionID != beforeRoot {
+		t.Fatal("failed repeated occurrence advanced Product")
+	}
+}
+
 func (x *insertionScene) historicalSketch(after string, face bool, adopt bool) workspace.Feature {
 	x.t.Helper()
 	input := x.input(after, x.base.BodyID)
@@ -1103,18 +1451,6 @@ func TestInsertContextVariantModifiersThroughRouter(t *testing.T) {
 					}
 				}
 				r := x.request(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", AfterFeatureID: anchor.ID, VersionID: x.v.Document.VersionID, GeometryKey: key, Feature: &f, RootProductDocumentID: scope.RootProductDocumentID, RootProductRevisionID: scope.RootProductRevisionID, ContextVariantID: scope.ContextVariantID, InstancePath: scope.InstancePath})
-				for _, kind := range []string{"CREATE_SKETCH", "CREATE_SOLID_FEATURE"} {
-					restricted := r
-					restricted.Type = kind
-					restricted.Feature = nil
-					restricted.BodyID = f.BodyID
-					restricted.Plane = "XY"
-					restricted.Generator = "LINEAR_EXTRUDE"
-					restricted.Operation = "ADD"
-					restricted.Length = 1
-					restricted.Extent = "FINITE"
-					x.reject(restricted, "independent Part")
-				}
 
 				wrong := r
 				wrong.GeometryKey = independent.Artifact.GeometryKey

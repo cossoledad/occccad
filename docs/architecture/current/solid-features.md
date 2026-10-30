@@ -8,8 +8,8 @@
 
 | Feature | 当前定义、编辑与修复 | 阵列／镜像来源 |
 |---|---|---|
-| SKETCH | 支持独立 Part 历史补建，见[历史位置创建](#在历史位置创建)；稳定实体/端点、正式约束与尺寸表达式；支撑重指定、投影删除、交点分割及引用影响检查，见 [Part/Sketch](part-sketch.md) | 空间草图框架与草图内派生成员；成员修改须解除关联 |
-| PAD / LINEAR_EXTRUDE | 独立 Part 支持草图后有限 ADD/REMOVE 历史创建；整草图或显式区域；有限、对称、双侧、贯穿切除及到平面；区域/终止面失效显式重选 | 有限工具；添加/净切除材料范围起点；关联终止仅实体阶段 |
+| SKETCH | 支持独立 Part／直接 READY ContextVariant 历史补建，见[历史位置创建](#在历史位置创建)；稳定实体/端点、正式约束与尺寸表达式；支撑重指定、投影删除、交点分割及引用影响检查，见 [Part/Sketch](part-sketch.md) | 空间草图框架与草图内派生成员；成员修改须解除关联 |
+| PAD / LINEAR_EXTRUDE | 独立 Part／直接 READY ContextVariant 支持草图后有限 ADD/REMOVE 历史创建；整草图或显式区域；有限、对称、双侧、贯穿切除及到平面；区域/终止面失效显式重选 | 有限工具；添加/净切除材料范围起点；关联终止仅实体阶段 |
 | REVOLVE | 草图/区域、稳定轴、角度、反向；编辑轴与区域，失效不自动换区 | 有限工具；添加/净切除范围起点 |
 | LOFT | 2–32 有序截面，至少一个单区域无孔闭合轮廓；首尾支持稳定点；编辑顺序、对应、接缝和相位；形状尺寸由截面参数管理，丢失输入需重选 | ADD/REMOVE 工具及相应范围起点，非任意截面重执行 |
 | HOLE | 单个上游显式 POINT；普通/圆柱沉孔/锥沉孔，盲孔/单向贯穿/到平面；孔位、孔型与尺寸可编辑，丢点或终止面失效重选 | 三孔型 BLIND / 单向 THROUGH_ALL 切削工具；BLIND 可作净切除范围起点，到平面仅实体阶段 |
@@ -60,15 +60,17 @@ Boolean 并/差最多32工具，交集一个；工具定义保存 Body+Feature �
 
 ## 在历史位置创建
 
-结构树实体步骤的对象菜单“在此步骤后插入”开放圆角、倒角、拔模和抽壳；独立 Part 还可补建草图，草图节点后可创建同 Body、单方向 FINITE 的 LINEAR_EXTRUDE ADD/REMOVE。复用草图支撑选择、绘制工具和生成器面板，简洁显示 Body / 锚点之后；默认参数与普通创建一致。上下文只存在于该次面板；取消、提交、Revision 或编辑目标改变后退出，不建立持久历史游标。补建草图及修饰的锚点必须是当前 Revision 中指定 Body 的有效、未抑制实体阶段，有限拉伸的锚点则必须是其定位草图；最终 Body 失败时也不借 displayFallback 授权。
+结构树实体步骤的对象菜单“在此步骤后插入”开放圆角、倒角、拔模和抽壳；独立 Part 或当前可编辑、READY 的直接 Product ContextVariant 还可补建草图，草图节点后可创建同 Body、单方向 FINITE 的 LINEAR_EXTRUDE ADD/REMOVE。复用草图支撑选择、绘制工具和生成器面板，简洁显示 Body / 锚点之后；默认参数与普通创建一致。上下文只存在于该次面板；取消、提交、Revision 或编辑目标改变后退出，不建立持久历史游标。补建草图及修饰的锚点必须是当前 Revision 中指定 Body 的有效、未抑制实体阶段，有限拉伸的锚点则必须是其定位草图；最终 Body 失败时也不借 displayFallback 授权。
 
 `afterFeatureId` 是全局数组插入边界，`SourceFeatureID` 是该前缀中来源 Body 的实际实体阶段，不能将草图边界或语义 Anchor 当作实体阶段。`feature-input` 的独立 `afterFeatureId + bodyId + versionId` 模式重建精确前缀：圆角/倒角选边，拔模/抽壳选目标 Body 的面。GeometryKey、来源 Revision、Body、实际 SourceFeatureID 与 PersistentSelection 在创建端再次验证。拔模实体中性面也经该接口绑定，`referenceBodyId` 单独指定同 Part 来源 Body，按同一全局历史前缀取其有效阶段；显示与下载使用相同授权。标准/自定义基准面按递归依赖顺序检查。ContextVariant 插入按冻结的 Product Revision、Variant 和 occurrence 重建已接受投影的目标/参考 Body 前缀，GeometryKey 与显示/拾取阶段一致；正式 PersistentSelection、实际来源阶段和 CreationEvidence 仍用独立定义校验，不保存投影拓扑或回写投影参数。预览、直接提交及携带预览确认共用此校验，过期上下文拒绝。该模式与编辑输入、只读 `ResultStage` 不混用，不能用最终结果、下游或 displayFallback 冒充历史输入。
 
 原 `CREATE_SKETCH`、`CREATE_SOLID_FEATURE` 和 `CREATE_MODIFY_FEATURE` 携带临时插入信息，在内存候选中直接插入并同步全局数组/Order；按稳定 ID 读取新定义。新 Feature、参数与后续 Order 变化进入同一 ChangeSet/Transaction，沿既有预览、幂等、CAS、补偿历史与缓存提交。原定义和参数身份不变。插入和移动复用候选依赖、实际来源阶段、全 Part 引用/几何检查；下游或跨 Body 失败指出阻塞对象并原子拒绝。固定节点保持相对顺序，允许以其合法输出为锚点，不套用移动的固定边界规则；已有 FEATURE_DELTA 的有序成员集合不能改变。
 
-历史草图仅使用合法基准面或目标 Body 的历史平面支撑；编辑显示、捕获和投影不暴露下游或失败回退。创建后按响应中的新增稳定 Sketch ID 进入原编辑器，不按列表末项推断。逐次 EDIT_SKETCH 各自提交，生成器再单独提交；每次按当前 Revision 重建输入和预览，取消生成器保留已确认草图，空白新草图沿原放弃规则清理。Product 上下文由 UI 和服务同时关闭这两个新入口，已有修饰插入不受影响。
+历史草图仅使用合法基准面或目标 Body 的历史平面支撑；编辑显示、捕获和投影不暴露下游或失败回退。创建后按响应中的新增稳定 Sketch ID 进入原编辑器，不按列表末项推断。逐次 EDIT_SKETCH 各自提交，生成器再单独提交；每次按当前 Revision 重建输入和预览，取消生成器保留已确认草图，空白新草图沿原放弃规则清理。Product 仅开放直接、可编辑且 READY 的 ContextVariant；Part Revision、Product Revision、Variant、完整 InstancePath 与边界共同冻结。每次编辑后复用 contextProduct/baseView 刷新，重新取得已接受前缀；未就绪不回退独立默认值。活动 occurrence 独立过滤实体、草图与顶层／Part 参考几何，兄弟 occurrence 保持完整显示，不写持久显隐。草图编辑平面和支撑预览应用 occurrence 位姿。
 
-入口为 `services/internal/workspace/feature_insert.go`、既有 `applyCreateFeature`、`historical-creation.ts`、`sketch-support-editor.tsx` 与 `solid-feature-editor.tsx`。定向 Router/Worker 回归为 `feature_insert_integration_test.go`，选择回归为 `feature-picking.scenario.mjs`。覆盖支撑、区域、范围保护、下游／跨 Body 原子失败、独立提交、Undo/Redo、重开及热冷 BREP/Naming。历史草图／拉伸的浏览器交互仍待手工验收；不开放旋转、Hole、Loft、NEW_BODY、关联终止或跨 Body 历史创建，不扩大历史移动的固定边界。
+上下文 FACE 支撑经 `contextDefinitionPick` 唯一对应到独立阶段；正式 PersistentSelection、来源 Revision／实际阶段、CreationEvidence 和右手框架都取自独立定义，显示 GeometryKey 只校验已接受投影。预览检查独立默认构型与受影响重复实例，确认沿 `commitContextPartEdit` 重放独立定义并在既有双文档事务中原子提交；接受输入保持原快照，不顺带读取来源 Head。采用预览也不回写投影模型。取消、目标切换、作用域变化和迟到回执不能恢复旧输入或预览。
+
+入口为 `services/internal/workspace/feature_insert.go`、既有 `applyCreateFeature`、`historical-creation.ts`、`sketch-support-editor.tsx` 与 `solid-feature-editor.tsx`。定向 Router/Worker 回归为 `feature_insert_integration_test.go`，选择回归为 `feature-picking.scenario.mjs`。覆盖支撑、区域、范围保护、下游／跨 Body 原子失败、独立提交、Undo/Redo、重开及热冷 BREP/Naming。历史草图／拉伸的浏览器交互仍待手工验收；不开放任意深层／PINNED／非 READY 上下文、旋转、Hole、Loft、NEW_BODY、关联终止或跨 Body 历史创建，不扩大历史移动的固定边界。
 
 ## 独立 Hole
 

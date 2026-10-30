@@ -2370,6 +2370,9 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if err := adapter.ValidateCommandModel(prepared.modelJSON); err != nil {
 		return prepared, err
 	}
+	if prepared.documentType == "PART" && request.AfterFeatureID != "" && request.RootProductDocumentID != "" && request.ContextVariantID == "" {
+		return prepared, fmt.Errorf("%w: CONTEXT_VARIANT_CHANGED", ErrValidation)
+	}
 	if prepared.documentType == "PART" && request.RootProductDocumentID != "" && request.ContextVariantID != "" {
 		bindings, rootRevision, err := service.contextEditBindings(ctx, documentID, request)
 		if err != nil {

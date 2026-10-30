@@ -108,7 +108,9 @@ type Props = {
 };
 
 function inputDisplay(view:DocumentView,current:Props):DocumentView {
-  return featureInputDisplay(view,current.featureInputArtifacts,(current.editingView??current.view).document.id,view.part?undefined:current.activeInstancePath,current.featureInputBoundary);
+  const owner=(current.editingView??current.view).document.id;
+  const local=featureInputDisplay(view,current.featureInputArtifacts,owner,view.part?undefined:current.activeInstancePath,current.featureInputBoundary);
+  return local.contextProduct&&current.featureInputBoundary?{...local,contextProduct:featureInputDisplay(local.contextProduct,current.featureInputArtifacts,owner,current.activeInstancePath,current.featureInputBoundary)}:local;
 }
 
 export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadViewport(props, ref) {
@@ -196,7 +198,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     const replaceInput = (view:DocumentView) => inputDisplay(view,props);
     instance.render(replaceInput(props.view), props.editingView ? { view: replaceInput(props.editingView), occurrencePath: props.activeInstancePath,
       translation: props.activeInstanceTranslation, rotation: props.activeInstanceRotation,
-      bodyTreeNodeId: props.activeBodyTreeNodeId, liveDefinitionProjection:props.liveDefinitionProjection } : undefined);
+      bodyTreeNodeId: props.activeBodyTreeNodeId, historicalBoundary:props.featureInputBoundary, liveDefinitionProjection:props.liveDefinitionProjection } : undefined);
     instance.commitApplicationDisplay();
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
@@ -236,7 +238,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       const instance=engine.current,current=callbacks.current;if(!instance)return;
       const replaceInput=(view:DocumentView)=>inputDisplay(view,current);
       instance.render(replaceInput(current.view),current.editingView?{view:replaceInput(current.editingView),occurrencePath:current.activeInstancePath,
-        translation:current.activeInstanceTranslation,rotation:current.activeInstanceRotation,bodyTreeNodeId:current.activeBodyTreeNodeId,liveDefinitionProjection:current.liveDefinitionProjection}:undefined);
+        translation:current.activeInstanceTranslation,rotation:current.activeInstanceRotation,bodyTreeNodeId:current.activeBodyTreeNodeId,historicalBoundary:current.featureInputBoundary, liveDefinitionProjection:current.liveDefinitionProjection}:undefined);
     },
     captureMotionViewpoint:()=>engine.current?.captureMotionViewpoint(),
     previewMotionViewpoint:viewpoint=>engine.current?.previewMotionViewpoint(viewpoint),

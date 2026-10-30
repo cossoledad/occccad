@@ -186,7 +186,12 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 			if err := service.resolveVariantModel(ctx, documentID, prepared.contextKey, &projection, prepared.contextBindings); err != nil {
 				return err
 			}
-			if err := service.evaluatePartBodies(ctx, prepared.requestID+"/accepted-context", &projection); err != nil {
+			if requiresOrderedEvaluation(prepared.command) {
+				err = service.evaluateOrderedBodies(ctx, documentID, prepared.requestID+"/accepted-context", &projection, orderMutationBlocker(prepared.command))
+			} else {
+				err = service.evaluatePartBodies(ctx, prepared.requestID+"/accepted-context", &projection)
+			}
+			if err != nil {
 				return err
 			}
 		}

@@ -130,6 +130,8 @@ try {
  const {createdSketchFeature,historicalPartDisplay,historicalCreationTypes}=await server.ssrLoadModule("/src/features/workbench/historical-creation.ts");
  const earlier={id:"base",type:"LINEAR_EXTRUDE",bodyId:"body"},insertedSketch={id:"inserted-sketch",type:"SKETCH",bodyId:"body",sketch:{}},late={id:"later-sketch",type:"SKETCH",bodyId:"body",sketch:{}};
  const original={document:{id:"part",versionId:"v"},part:{features:[earlier,{id:"later-solid",type:"CHAMFER",bodyId:"body"},late],bodies:[{id:"body",geometryKey:"final",displayFallback:{geometryKey:"fallback"}},{id:"future-body",geometryKey:"future-final"}],datumPlanes:[{id:"xy",plane:"XY"},{id:"late-plane",definition:{source:{kind:"TOPOLOGY",featureId:"later-solid",selection:{anchor:{featureId:"base"}}}}},{id:"recursive-late",definition:{source:{kind:"PLANE",entityId:"late-plane"}}}],datumAxes:[],axisSystems:[{id:"absolute"}]},artifacts:{final:{geometryKey:"final"},fallback:{geometryKey:"fallback"}},sketchAnalyses:{"inserted-sketch":{status:"CLOSED"},"later-sketch":{status:"CLOSED"}}};
+ const axes=[{id:"upstream-axis",definition:{source:{kind:"TOPOLOGY",featureId:"base"}}},{id:"downstream-axis",definition:{source:{kind:"TOPOLOGY",featureId:"later-solid"}}}];
+ original.part.datumAxes=axes;original.datumAxes=axes;original.datumPlanes=original.part.datumPlanes;original.axisSystems=original.part.axisSystems;
  const returned={...original,part:{...original.part,features:[earlier,insertedSketch,...original.part.features.slice(1)]}};
  assert.equal(createdSketchFeature(original,returned),insertedSketch,"new sketch comes from this response's stable ID, never the last sketch");
  assert.equal(createdSketchFeature(original,original),undefined,"no new sketch cannot silently select an existing one");
@@ -140,6 +142,10 @@ try {
  assert.deepEqual(Object.keys(prefix.artifacts),["base-stage"],"no final, downstream or displayFallback artifacts leak into input display");
  assert.deepEqual(prefix.part.datumPlanes.map(p=>p.id),["xy"],"recursive datum chains cannot expose downstream support");
  assert.deepEqual(Object.keys(prefix.sketchAnalyses),["inserted-sketch"]);
+ assert.deepEqual(prefix.datumAxes.map(a=>a.id),["upstream-axis"],"renderPart's preferred top-level axis collection must use the same prefix");
+ assert.equal(prefix.datumAxes,prefix.part.datumAxes);assert.equal(prefix.datumPlanes,prefix.part.datumPlanes);assert.equal(prefix.axisSystems,prefix.part.axisSystems);
+ assert.equal(returned.datumAxes.length,2,"projection does not mutate either authoritative collection");
+
  assert.equal(original.part.bodies[0].geometryKey,"final","temporary input display cannot mutate the formal model");
  const pendingPrefix=historicalPartDisplay(returned,"inserted-sketch",[]);
  assert.equal(pendingPrefix.part.bodies[0].geometryKey,undefined,"loading fails closed instead of restoring final geometry");
@@ -159,6 +165,24 @@ try {
  const receiptView=featureInputDisplay(newRevision,[{bodyId:"body",geometryKey:"old-input"}],"part",undefined,{afterFeatureId:"inserted-sketch",versionId:"v"});
  assert.equal(receiptView.part.bodies[0].geometryKey,undefined,"commit/receipt replies cannot restore an old input or the new final Body before current input reloads");
  assert.deepEqual(receiptView.part.features.map(f=>f.id),["base","inserted-sketch"]);
+ const frozenContext={documentId:"part",rootProductDocumentId:"product",rootProductRevisionId:"product-rev",contextVariantId:"variant-left",instancePath:{canonical:"left",segments:[{instanceId:"left"}]}};
+ const boundary={afterFeatureId:"inserted-sketch",versionId:"v",context:frozenContext,occurrencePath:"left"};
+ const assembly={...productView,product:{instances:[{id:"left",referenceMode:"FOLLOW_HEAD"}]},document:{id:"product",versionId:"product-rev"},contextVariants:[{variantKey:"variant-left",baseDocumentId:"part",baseRevisionId:"v",status:"READY",owningInstancePath:frozenContext.instancePath,part:returned.part,sketchAnalyses:returned.sketchAnalyses}],resolvedInstances:[{documentId:"part",occurrencePath:"left",bodyId:"body",geometryKey:"left-final",displayFallback:{geometryKey:"old"},ownedSketchIds:["inserted-sketch","later-sketch"]},{documentId:"part",occurrencePath:"left",bodyId:"future-body",geometryKey:"future-final",ownedSketchIds:["later-sketch"]},{documentId:"part",occurrencePath:"right",bodyId:"body",geometryKey:"right-final",ownedSketchIds:["later-sketch"]}],artifacts:{"right-final":{geometryKey:"right-final"}}};
+ const historicalAssembly=featureInputDisplay(assembly,[input],"part","left",boundary);
+ assert.equal(historicalAssembly.resolvedInstances[0].geometryKey,"upstream");assert.equal(historicalAssembly.resolvedInstances[0].displayFallback,undefined);
+ assert.deepEqual(historicalAssembly.resolvedInstances[0].ownedSketchIds,["inserted-sketch"]);
+ assert.equal(historicalAssembly.resolvedInstances[1].geometryKey,"");assert.deepEqual(historicalAssembly.resolvedInstances[1].ownedSketchIds,[]);
+ assert.equal(historicalAssembly.resolvedInstances[2],assembly.resolvedInstances[2],"a sibling occurrence keeps its normal accepted solid, sketches and references");
+ assert.deepEqual(historicalAssembly.contextVariants[0].part.datumAxes.map(a=>a.id),["upstream-axis"]);
+ assert.deepEqual(assembly.contextVariants[0].part.datumAxes.map(a=>a.id),["upstream-axis","downstream-axis"]);
+ for(const stale of [{...assembly,document:{...assembly.document,versionId:"new-product"}},{...assembly,contextVariants:[{...assembly.contextVariants[0],variantKey:"new-variant"}]}]){
+  assert.equal(featureInputDisplay(stale,[input],"part","left",boundary).resolvedInstances[0].geometryKey,"");
+ }
+ assert.equal(featureInputDisplay(returned,[input],"part",undefined,boundary).part,undefined,"a pending context cannot fall back to independent default geometry");
+ const acceptedLocal={...returned,contextOccurrencePath:"left",contextProduct:assembly};
+ const localPrefix=featureInputDisplay(acceptedLocal,[input],"part",undefined,boundary);
+ assert.deepEqual(localPrefix.datumAxes.map(a=>a.id),["upstream-axis"]);
+ assert.equal(isExternalProjectionSource({...upstreamEdge,occurrencePath:"right"},projectionScopeForView(localPrefix,"left")),false,"a sibling occurrence is not a sketch projection source");
  const missingBoundary=featureInputDisplay(newRevision,[input],"part",undefined,{afterFeatureId:"deleted-sketch",versionId:"new"});
  assert.equal(missingBoundary.part.bodies[0].geometryKey,undefined,"missing positions fail closed");
 
