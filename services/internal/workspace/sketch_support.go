@@ -64,7 +64,7 @@ func (failure *externalGeometryProjectionFailure) Phase() string {
 }
 func (failure *externalGeometryProjectionFailure) Retryable() bool { return false }
 
-func rejectExplicitUnresolvedExternal(command modelcore.DomainCommand, model PartModel) error {
+func (service *Service) rejectExplicitUnresolvedExternal(ctx context.Context, documentID string, command modelcore.DomainCommand, model PartModel) error {
 	if command.TypeURI != typeEditSketch {
 		return nil
 	}
@@ -99,6 +99,30 @@ func rejectExplicitUnresolvedExternal(command modelcore.DomainCommand, model Par
 				diagnostic:     external.Diagnostic,
 			}
 		}
+	}
+	// Typed commands carry formal selections instead of viewport pick arguments.
+	// Validate their actual source witnesses as well, without imposing atomic
+	// downstream geometry success on ordinary, individually committed drawing.
+	check := model
+	check.Features = append([]Feature(nil), model.Features...)
+	for i, f := range check.Features {
+		if f.ID != payload.SketchID || f.Sketch == nil {
+			continue
+		}
+		sketch := *f.Sketch
+		sketch.Support.PersistentSelection = nil
+		sketch.ExternalGeometry = nil
+		for _, e := range f.Sketch.ExternalGeometry {
+			if _, ok := requested[e.ID]; ok && e.ContextInputID == "" {
+				sketch.ExternalGeometry = append(sketch.ExternalGeometry, e)
+			}
+		}
+		check.Features[i].Sketch = &sketch
+	}
+	if err := service.validateOrderHistoricalStages(ctx, documentID, check, func(f Feature, _ string) error {
+		return &externalGeometryProjectionFailure{diagnosticCode: "EXTERNAL_SOURCE_STAGE_INVALID", diagnostic: f.Name + ": projection source must precede the sketch"}
+	}, payload.SketchID); err != nil {
+		return err
 	}
 	return nil
 }
@@ -551,7 +575,17 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 			markBroken(external, "EXTERNAL_SOURCE_UNAVAILABLE", "context Publication has no resolved geometry")
 			continue
 		}
-		resolution, manifestDigest, err := service.resolveSelectionAgainstGeometry(ctx, sourceDocumentID, external.SourceVersionID, sourceGeometryKey, external.PersistentSelection)
+		var resolution modelcore.SelectionResolution
+		var manifestDigest string
+		var err error
+		if external.SourceFeatureID != "" && external.ContextReferenceID == "" && sourceDocumentID == documentID {
+			resolution, err = service.resolveFeaturePick(ctx, FeatureSelection{Selection: external.PersistentSelection, SourceVersionID: external.SourceVersionID, SourceFeatureID: external.SourceFeatureID}, sourceGeometryKey)
+			if err == nil {
+				_, manifestDigest, err = service.topologyManifestForGeometryKey(ctx, sourceGeometryKey)
+			}
+		} else {
+			resolution, manifestDigest, err = service.resolveSelectionAgainstGeometry(ctx, sourceDocumentID, external.SourceVersionID, sourceGeometryKey, external.PersistentSelection)
+		}
 		if err != nil {
 			return err
 		}

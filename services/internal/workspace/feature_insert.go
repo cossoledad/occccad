@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/occccad/occccad/internal/modelcore"
 )
@@ -15,13 +16,26 @@ func insertionBlocked(f Feature, reason string) error {
 }
 
 func insertionAnchor(m PartModel, body, id string) (int, error) {
+	i, err := insertionBoundary(m, body, id)
+	if err != nil {
+		return -1, err
+	}
+	if !isBodyFeature(m.Features[i].Type) {
+		return -1, insertionBlocked(m.Features[i], "anchor must be an active solid stage of the specified Body")
+	}
+	return i, nil
+}
+
+// A position is global. Its target Body's solid tip can precede that position
+// (notably when the position is a sketch), and must retain its own identity.
+func insertionBoundary(m PartModel, body, id string) (int, error) {
 	i := slices.IndexFunc(m.Features, func(f Feature) bool { return f.ID == id })
 	if i < 0 {
 		return -1, fmt.Errorf("%w: INSERT_STAGE_MISSING", ErrValidation)
 	}
 	f := m.Features[i]
-	if body == "" || f.BodyID != body || !isBodyFeature(f.Type) || f.Suppressed {
-		return -1, insertionBlocked(f, "anchor must be an active solid stage of the specified Body")
+	if body == "" || f.BodyID != body || (!isBodyFeature(f.Type) && f.Sketch == nil) || f.Suppressed {
+		return -1, insertionBlocked(f, "anchor must be an active solid or sketch of the specified Body")
 	}
 	return i, nil
 }
@@ -43,16 +57,26 @@ func protectFeatureRanges(before, after PartModel, blocked func(Feature, string)
 	return nil
 }
 
-func insertModifierCandidate(m *PartModel, p createFeaturePayload) error {
-	if !isLocalModifier(p.Feature.Type) {
-		return insertionBlocked(p.Feature, "only FILLET/CHAMFER/DRAFT/SHELL can be inserted")
-	}
-	i, err := insertionAnchor(*m, p.Feature.BodyID, p.AfterFeatureID)
+func insertFeatureCandidate(m *PartModel, p createFeaturePayload) error {
+	i, err := insertionBoundary(*m, p.Feature.BodyID, p.AfterFeatureID)
 	if err != nil {
 		return err
 	}
 	if p.InsertionVersionID == "" || p.InsertionGeometryKey == "" {
 		return insertionBlocked(p.Feature, "Revision and exact stage GeometryKey are required")
+	}
+	anchor := m.Features[i]
+	switch {
+	case isLocalModifier(p.Feature.Type), p.Feature.Type == "SKETCH" && p.Feature.Sketch != nil:
+		if !isBodyFeature(anchor.Type) {
+			return insertionBlocked(anchor, "sketch/modifier creation requires a solid boundary")
+		}
+	case p.Feature.Type == "LINEAR_EXTRUDE":
+		if anchor.Sketch == nil || p.Feature.Profile != anchor.ID || (p.Feature.Operation != "ADD" && p.Feature.Operation != "REMOVE") || (p.Feature.Extent != "" && p.Feature.Extent != "FINITE") || p.Feature.ProfileMemberSlot != nil {
+			return insertionBlocked(p.Feature, "only finite ADD/REMOVE extrusion immediately after its sketch is supported")
+		}
+	default:
+		return insertionBlocked(p.Feature, "historical creation type is unsupported")
 	}
 	for _, pick := range p.Feature.Selections {
 		if pick.SourceFeatureID != p.AfterFeatureID || pick.SourceVersionID != p.InsertionVersionID || pick.Selection.SourceBodyID != p.Feature.BodyID {
@@ -94,8 +118,12 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 	if !insert {
 		return nil
 	}
-	if c.TypeURI != typeCreateModifierFeature || p.InsertionVersionID != head {
+	validType := c.TypeURI == typeCreateModifierFeature && isLocalModifier(p.Feature.Type) || c.TypeURI == typeCreateSketch && p.Feature.Type == "SKETCH" || c.TypeURI == typeCreateSolidFeature && p.Feature.Type == "LINEAR_EXTRUDE"
+	if !validType || p.InsertionVersionID != head {
 		return insertionBlocked(p.Feature, "insertion Revision or command type is invalid")
+	}
+	if !isLocalModifier(p.Feature.Type) && scope.RootProductDocumentID != "" {
+		return insertionBlocked(p.Feature, "historical sketch/generator creation requires an independent Part")
 	}
 	// Read the exact accepted occurrence, not a newly resolved source Head. The
 	// independent model remains the authority for persisted Naming/evidence.
@@ -106,7 +134,7 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 		return err
 	}
 	shown := *view.Part
-	key, _, err := s.insertionStage(ctx, before, head, p.AfterFeatureID, p.Feature.BodyID, p.Feature.BodyID)
+	key, targetStage, err := s.insertionStage(ctx, before, head, p.AfterFeatureID, p.Feature.BodyID, p.Feature.BodyID)
 	if err != nil {
 		return err
 	}
@@ -119,6 +147,27 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 	}
 	if shownKey != p.InsertionGeometryKey {
 		return insertionBlocked(p.Feature, "GeometryKey does not belong to the insertion stage")
+	}
+	if p.Feature.Sketch != nil {
+		support := p.Feature.Sketch.Support
+		if support.Type == "PLANAR_FACE" {
+			if support.PersistentSelection == nil || support.SourceFeatureID != targetStage || support.SourceVersionID != head || support.PersistentSelection.SourceDocumentID != documentID || support.PersistentSelection.SourceBodyID != p.Feature.BodyID || support.PersistentSelection.ExpectedType != modelcore.PersistentTopologyFace {
+				return insertionBlocked(p.Feature, "sketch support must belong to its exact upstream Body stage")
+			}
+			resolution, err := s.resolveFeaturePick(ctx, FeatureSelection{Selection: *support.PersistentSelection, SourceVersionID: head, SourceFeatureID: targetStage}, key)
+			if err != nil {
+				return err
+			}
+			state, err := featureInputResolution(resolution, "PLANE")
+			if err != nil {
+				return err
+			}
+			if state.Status != modelcore.SelectionResolved {
+				return insertionBlocked(p.Feature, string(state.Status)+": "+state.Diagnostic)
+			}
+		} else if support.Type != "DATUM_PLANE" {
+			return insertionBlocked(p.Feature, "sketch requires a datum or upstream planar face")
+		}
 	}
 	validateProjection := func(pick FeatureSelection, displayKey string, plane bool) error {
 		if scope.RootProductDocumentID == "" {
@@ -207,7 +256,7 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 // A semantic anchor is not the actual source stage, and another Body's final
 // output must not leak backwards across the insertion point.
 func (s *Service) insertionStage(ctx context.Context, model PartModel, revision, after, targetBody, sourceBody string) (string, string, error) {
-	i, err := insertionAnchor(model, targetBody, after)
+	i, err := insertionBoundary(model, targetBody, after)
 	if err != nil {
 		return "", "", err
 	}
@@ -249,6 +298,12 @@ func (s *Service) insertionInput(ctx context.Context, documentID string, request
 	a.BodyID = bodyID
 	a.DisplayStageFeatureID = stage
 	result := FeatureInput{VersionID: request.VersionID, SourceFeatureID: stage, Artifact: a, Artifacts: []Artifact{a}, Picks: []FeatureInputPick{}}
+	index, _ := insertionBoundary(*view.Part, request.BodyID, request.AfterFeatureID)
+	refs, err := referenceGeometryBefore(*view.Part, index+1)
+	if err != nil {
+		return FeatureInput{}, err
+	}
+	result.ReferenceGeometry = &refs
 	if request.LocalID == 0 && request.Kind == "" && request.GeometryKey == "" {
 		return result, nil
 	}
@@ -276,4 +331,50 @@ func (s *Service) insertionInput(ctx context.Context, documentID string, request
 	}
 	result.Selection = &pick
 	return result, nil
+}
+
+// Use the same recursive datum dependency edges as the creation/order gate.
+// Numerical frames are read from this Revision, never from displayFallback.
+func referenceGeometryBefore(model PartModel, limit int) (ReferenceGeometry, error) {
+	graph, _, err := buildPartEvaluation(model, "", "", nil, nil)
+	if err != nil {
+		return ReferenceGeometry{}, err
+	}
+	indices := map[modelcore.DependencyKey]int{}
+	incoming := map[modelcore.DependencyKey][]modelcore.DependencyKey{}
+	for i, f := range model.Features {
+		indices[modelcore.DependencyKey("feature:"+f.ID)] = i
+	}
+	for _, e := range graph.Edges {
+		incoming[e.Target] = append(incoming[e.Target], e.Source)
+	}
+	var legal func(modelcore.DependencyKey, map[modelcore.DependencyKey]bool) bool
+	legal = func(key modelcore.DependencyKey, seen map[modelcore.DependencyKey]bool) bool {
+		if i, ok := indices[key]; ok {
+			return i < limit
+		}
+		if seen[key] {
+			return true
+		}
+		seen[key] = true
+		for _, source := range incoming[key] {
+			if (strings.HasPrefix(string(source), "feature:") || strings.HasPrefix(string(source), "datum:")) && !legal(source, seen) {
+				return false
+			}
+		}
+		return true
+	}
+	refs := ReferenceGeometry{DatumPlanes: []DatumPlane{}, DatumAxes: []DatumAxis{}, AxisSystems: []AxisSystem{}}
+	for _, p := range model.DatumPlanes {
+		if legal(modelcore.DependencyKey("datum:"+p.ID), map[modelcore.DependencyKey]bool{}) {
+			refs.DatumPlanes = append(refs.DatumPlanes, p)
+		}
+	}
+	for _, a := range model.DatumAxes {
+		if legal(modelcore.DependencyKey("datum:"+a.ID), map[modelcore.DependencyKey]bool{}) {
+			refs.DatumAxes = append(refs.DatumAxes, a)
+		}
+	}
+	refs.AxisSystems = append(refs.AxisSystems, model.AxisSystems...)
+	return refs, nil
 }

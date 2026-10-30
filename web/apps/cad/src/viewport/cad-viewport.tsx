@@ -1,5 +1,5 @@
 import type { SceneSettings } from "../cad/rendering/scene-settings";
-import { featureInputDisplay } from "./feature-input-display";
+import { featureInputDisplay, type FeatureInputBoundary } from "./feature-input-display";
 import type { DatumPreview } from "../cad/rendering/datum-reference";
 import type { FeatureSelectionSession } from "../cad/interaction/feature-selection";
 import type { SketchCommandState, SketchCommandAction, SketchCommitIntent, SketchCommitResult, SketchCommitReceipt } from "../cad/tool/sketch-command-session";
@@ -65,6 +65,7 @@ type Props = {
   datumPreview?:DatumPreview;
   featureSelection?:FeatureSelectionSession;
   featureInputArtifacts?:Artifact[];
+  featureInputBoundary?:FeatureInputBoundary;
   preferredLengthUnit?: "mm"|"cm"|"m"|"in";
   onSketchCommandStateChange?:(state:SketchCommandState|undefined)=>void;
   onSketchReceiptChange?:(receipt:SketchCommitReceipt|undefined)=>void;
@@ -106,6 +107,10 @@ type Props = {
   onAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[],members?:import("../types").AssemblyGroupMember[]) => void;
 };
 
+function inputDisplay(view:DocumentView,current:Props):DocumentView {
+  return featureInputDisplay(view,current.featureInputArtifacts,(current.editingView??current.view).document.id,view.part?undefined:current.activeInstancePath,current.featureInputBoundary);
+}
+
 export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadViewport(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<CadViewportEngine | undefined>(undefined);
@@ -132,12 +137,12 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     const instance = new CadViewportEngine(host.current, {
       selectionsChanged: (selections) => callbacks.current.onSelectionsChange(selections),
       preselectionChanged: (selection) => callbacks.current.onPreselectionChange(selection),
-      sketchOperations: (featureID, operations,intent) => callbacks.current.onSketchOperations(featureID, operations,intent),
+      sketchOperations: async (featureID, operations,intent) => {const result=await callbacks.current.onSketchOperations(featureID, operations,intent);return result?inputDisplay(result,callbacks.current):result},
       sketchCommandChanged:state=>{setSketchCommand(state);callbacks.current.onSketchCommandStateChange?.(state);},
       sketchReceiptChanged:receipt=>callbacks.current.onSketchReceiptChange?.(receipt),
       sketchIntersections:(id,input,signal)=>callbacks.current.onSketchIntersections?.(id,input,signal)??Promise.reject(new Error("精确交点不可用")),
       sketchPreview:(featureId,operations,signal)=>callbacks.current.onSketchPreview?.(featureId,operations,signal)??Promise.reject(new Error("草图权威预览不可用")),
-      sketchReceiptCheck:receipt=>callbacks.current.onSketchReceiptCheck?.(receipt)??Promise.reject(new Error("原请求查询不可用")),
+      sketchReceiptCheck:async receipt=>{const result=await (callbacks.current.onSketchReceiptCheck?.(receipt)??Promise.reject(new Error("原请求查询不可用")));return result?inputDisplay(result,callbacks.current):result},
       toolUseCompleted: () => callbacks.current.onToolUseComplete(),
       dimensionEditRequested: (request) => openDimension(request),
       dimensionCreateRequested: (request) => openDimension(request),
@@ -188,9 +193,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => {
     const instance = engine.current; if (!instance) return;
     instance.setApplicationDisplay(callbacks.current.applicationDisplay,callbacks.current.mechanismSelection);
-    const inputs = props.featureInputArtifacts;
-    const ownerId=(props.editingView??props.view).document.id;
-    const replaceInput = (view:DocumentView) => featureInputDisplay(view,inputs,ownerId,view.part?undefined:props.activeInstancePath);
+    const replaceInput = (view:DocumentView) => inputDisplay(view,props);
     instance.render(replaceInput(props.view), props.editingView ? { view: replaceInput(props.editingView), occurrencePath: props.activeInstancePath,
       translation: props.activeInstanceTranslation, rotation: props.activeInstanceRotation,
       bodyTreeNodeId: props.activeBodyTreeNodeId, liveDefinitionProjection:props.liveDefinitionProjection } : undefined);
@@ -198,7 +201,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
-  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts]);
+  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts, props.featureInputBoundary]);
 
   // Pose/clock changes update existing occurrences without rebuilding geometry.
   useEffect(()=>{
@@ -231,8 +234,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useImperativeHandle(ref, () => ({
     retryDocumentDisplay:()=>{
       const instance=engine.current,current=callbacks.current;if(!instance)return;
-      const inputs=current.featureInputArtifacts,ownerId=(current.editingView??current.view).document.id;
-      const replaceInput=(view:DocumentView)=>featureInputDisplay(view,inputs,ownerId,view.part?undefined:current.activeInstancePath);
+      const replaceInput=(view:DocumentView)=>inputDisplay(view,current);
       instance.render(replaceInput(current.view),current.editingView?{view:replaceInput(current.editingView),occurrencePath:current.activeInstancePath,
         translation:current.activeInstanceTranslation,rotation:current.activeInstanceRotation,bodyTreeNodeId:current.activeBodyTreeNodeId,liveDefinitionProjection:current.liveDefinitionProjection}:undefined);
     },

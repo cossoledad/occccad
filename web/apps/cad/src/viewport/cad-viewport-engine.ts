@@ -7,7 +7,7 @@ import { ScenePresentation } from "../cad/rendering/scene-presentation";
 import { DEFAULT_SCENE_SETTINGS, groundLevel, normalizeSceneSettings,sceneGridColor, sceneBackgroundIsLight, type SceneSettings } from "../cad/rendering/scene-settings";
 import {validMotionPose} from "../cad/assembly/motion-study";
 import {mechanismConstraints} from '../cad/assembly/mechanism-constraints';
-import {isExternalProjectionSource} from "../cad/interaction/external-projection-selection";
+import {isExternalProjectionSource,projectionScopeForView} from "../cad/interaction/external-projection-selection";
 import { featureContribution, topologyFeatureAssociation, sameDisplayContext } from "../cad/interaction/feature-association";
 import { patternEntityStatus } from "../features/workbench/pattern-selection";
 import { DATUM_AXIS_PIXELS,DATUM_PLANE_PIXELS,STANDARD_REFERENCE_RANGE,makeDatumPlaneReference, makeDatumAxisReference, type DatumPreview } from "../cad/rendering/datum-reference";
@@ -3270,8 +3270,8 @@ export class CadViewportEngine {
       if(entity&&current(entity))return entity;
       return this.selectionIndex.pick(this.raycaster,selection=>!!selection.associatedSourceEntityId&&current(selection));
     }
-    const projectionDocument=this.sketchView()?.document;
-    const projectionScope=projectionDocument?{documentId:projectionDocument.id,versionId:projectionDocument.versionId,occurrencePath:this.editContext?.occurrencePath}:undefined;
+    const projectionView=this.sketchView();
+    const projectionScope=projectionView?projectionScopeForView(projectionView,this.editContext?.occurrencePath):undefined;
     const hit = this.selectionIndex.pickWithIntersection(this.raycaster, (selection) =>
       this.featureSelection ? !!featureSelectionHit(selection, this.featureSelection) :
       this.activeToolID === "sketch.project"
@@ -3847,6 +3847,7 @@ export class CadViewportEngine {
       currentSketchDeletableEntities:()=>this.visibleSketchDeletionEntities(),
       currentSketchEntities: () => this.visibleSketchReferenceEntities().filter(entity=>!this.sketchView()?.part?.features.find(feature=>feature.id===this.activeSketchID)?.sketch?.externalGeometry?.some(external=>external.id===entity.id)),
       currentSketchIdentity: () => {const view=this.sketchView();return view&&this.activeSketchID?{documentId:view.document.id,versionId:view.document.versionId,sketchId:this.activeSketchID,occurrencePath:this.editContext?.occurrencePath}:undefined;},
+      currentProjectionScope:()=>{const view=this.sketchView();return view?projectionScopeForView(view,this.editContext?.occurrencePath):undefined;},
       showSketchEditCandidate:candidate=>this.showSketchEditCandidate(candidate),
       showSketchEntityPreview: (entities) => {
         this.clearPreview();if(!this.sketchPlane)return;

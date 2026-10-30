@@ -1,4 +1,4 @@
-import type { Artifact, DocumentStructureNode, DocumentView } from "../types";
+import type { Artifact, DatumReference, DocumentStructureNode, DocumentView } from "../types";
 
 function inputBodyNode(node: DocumentStructureNode | undefined, ownerId: string, bodyId: string, occurrencePath: string): DocumentStructureNode | undefined {
     if (!node) return;
@@ -11,7 +11,10 @@ function inputBodyNode(node: DocumentStructureNode | undefined, ownerId: string,
 }
 // Temporary geometry is scoped to the committed edit occurrence; definitions,
 // Head, persistent visibility and every other occurrence keep their own state.
-export function featureInputDisplay(view: DocumentView, inputs: Artifact[] | undefined, ownerId: string, occurrencePath?: string): DocumentView {
+export type FeatureInputBoundary = { afterFeatureId: string; versionId: string };
+export function featureInputDisplay(view: DocumentView, inputs: Artifact[] | undefined, ownerId: string, occurrencePath?: string, boundary?:FeatureInputBoundary): DocumentView {
+    if (boundary && view.part && view.document.id === ownerId && !occurrencePath)
+        return historicalPartDisplay(view,boundary.afterFeatureId,boundary.versionId===view.document.versionId?inputs??[]:[]);
     if (!inputs?.length)
         return view;
     const artifacts = { ...view.artifacts, ...Object.fromEntries(inputs.map(a => [a.geometryKey, a])) };
@@ -36,4 +39,26 @@ export function featureInputDisplay(view: DocumentView, inputs: Artifact[] | und
             bodyTreeNodeId: node.id, geometryKey: input.geometryKey, ownedSketchIds: [] });
     }
     return { ...view, artifacts, resolvedInstances };
+}
+
+/** A display projection only. The full definition remains the command baseline. */
+export function historicalPartDisplay(view: DocumentView, after: string, inputs: Artifact[]): DocumentView {
+  if (!view.part) return view;
+  const index = view.part.features.findIndex(f => f.id === after);
+  if (index < 0) inputs = [];
+  const features = view.part.features.slice(0, index + 1), ids = new Set(features.map(f => f.id));
+  const definitions = new Map([...view.part.datumPlanes, ...(view.part.datumAxes??[])].map(d => [d.id, d.definition]));
+  const available = (id: string, seen = new Set<string>()): boolean => {
+    if (seen.has(id)) return false;
+    const definition = definitions.get(id); if (!definition) return definitions.has(id) || view.part!.axisSystems.some(a => a.id === id);
+    const next = new Set(seen).add(id);
+    const legal = (ref: DatumReference): boolean => (!ref.featureId || ids.has(ref.featureId)) && (!ref.selection?.anchor.featureId || ids.has(ref.selection.anchor.featureId)) &&
+      (!["PLANE", "AXIS", "AXIS_SYSTEM", "POINT"].includes(ref.kind) || !!ref.entityId && available(ref.entityId, next));
+    return [definition.source, definition.rotationAxis, definition.translationDirection].every(ref => !ref || legal(ref));
+  };
+  const datumPlanes = view.part.datumPlanes.filter(d => available(d.id)), datumAxes = view.part.datumAxes?.filter(d => available(d.id));
+  return { ...view, artifact: undefined, datumPlanes, artifacts: Object.fromEntries(inputs.map(a => [a.geometryKey, a])),
+    sketchAnalyses: Object.fromEntries(Object.entries(view.sketchAnalyses ?? {}).filter(([id]) => ids.has(id))),
+    part: { ...view.part, features, datumPlanes, datumAxes,
+      bodies: view.part.bodies.map(b => ({ ...b, geometryKey: inputs.find(a => a.bodyId === b.id)?.geometryKey, displayFallback: undefined, consumed: false })) } };
 }

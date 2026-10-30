@@ -1282,7 +1282,7 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: target Body does not exist", ErrValidation)
 	}
 	if payload.AfterFeatureID != "" {
-		if err := insertModifierCandidate(&model, payload); err != nil {
+		if err := insertFeatureCandidate(&model, payload); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
 		// Guard membership before ordinary range validation: inserting SHELL

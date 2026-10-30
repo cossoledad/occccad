@@ -72,6 +72,7 @@ export type ToolViewportPort = {
   currentSketchEntities?(): readonly SketchEntity[];
   currentSketchConstraints?(): readonly SketchConstraint[];
   currentSketchIdentity?(): {documentId:string;sketchId:string;versionId:string;occurrencePath?:string}|undefined;
+  currentProjectionScope?(): import("../interaction/external-projection-selection").ProjectionScope|undefined;
   showSketchEntityPreview?(entities:readonly SketchEntity[]):void;
   retainSelections(selections: SelectionItem[]): void;
   requestAssemblyConstraint(kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[],members?:AssemblyGroupMember[]): void;
@@ -246,7 +247,7 @@ export class ProjectExternalGeometrySketchTool implements CadTool {
     if(source==="activation" || source==="command" || source==="result")return SelectionInputResult.Unhandled;
     if(this.pending)return SelectionInputResult.Rejected;
     const selection=selections.length===1?selections[0]:undefined;
-    if(!isExternalProjectionSource(selection,context.viewport.currentSketchIdentity?.())){
+    if(!isExternalProjectionSource(selection,context.viewport.currentProjectionScope?.()??context.viewport.currentSketchIdentity?.())){
       context.viewport.setToolPrompt("请选择当前 Part 的原点、轴、实体边或顶点");return SelectionInputResult.Rejected;
     }
     this.draft={...selection};context.viewport.retainSelections([selection]);this.submit(context);

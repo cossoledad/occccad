@@ -2440,7 +2440,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			}
 			digest, _ := featureDefinitionDigest(model, feature.ID)
 			node := featureStructureNode(feature, body.ID, documentID, versionID, digest, editable && !dependents[feature.ID], editable)
-			if editable && isBodyFeature(feature.Type) && !feature.Suppressed && feature.EvaluationStatus == "" {
+			if editable && (isBodyFeature(feature.Type) || feature.Sketch != nil) && !feature.Suppressed && feature.EvaluationStatus == "" {
 				node.Capabilities = append(node.Capabilities, "INSERT_AFTER")
 			}
 			if editable && movableFeature(model, feature.ID) {

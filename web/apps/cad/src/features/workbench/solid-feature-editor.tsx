@@ -20,7 +20,8 @@ import { FeaturePickField } from "./feature-pick-field";
 import { useFeaturePreview } from "./use-feature-preview";
 import {profileRegionCandidates,profileRegionPick} from "./profile-region-selection";
 import { randomUUID } from "../../utils/random-uuid";
-export type FeatureInsertionContext = {afterFeatureId:string;bodyId:string;versionId:string;label:string};
+import type { FeatureInsertionContext } from "./historical-creation";
+export type { FeatureInsertionContext } from "./historical-creation";
 type BoundPick = {
     id: string;
     resolution: FeatureInputResolution;
@@ -75,7 +76,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const [picks, setPicks] = useState<BoundPick[]>([]), [axisVisual, setAxisVisual] = useState<SelectionItem>();
     const [error, setError] = useState<string>(), [committing, setCommitting] = useState(false), [binding, setBinding] = useState(0);
     const [inputContext, setInputContext] = useState<Awaited<ReturnType<typeof api.getFeatureInput>>>();
-    const [loadingInput, setLoadingInput] = useState(modifier && (!!feature.id || !!insertion));
+    const [loadingInput, setLoadingInput] = useState(!!insertion || modifier && !!feature.id);
     const initial = (slot: string, fallback: number) => {
         const p = view.part?.parameters?.find(p => p.ownerFeatureId === feature.id && p.propertySlot === slot);
         return p ? parameterSourceText(p, (slot === "angle"||slot==="countersinkAngle") ? "deg" : unit, true) : String((slot === "angle"||slot==="countersinkAngle") ? fallback : fallback / (({ mm: 1, cm: 10, m: 1000, in: 25.4 } as Record<string, number>)[unit] ?? 1));
@@ -84,7 +85,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const [recessDiameter,setRecessDiameter]=useState(initial("recessDiameter",feature.recessDiameter??10)),[recessDepth,setRecessDepth]=useState(initial("recessDepth",feature.recessDepth??3)),[countersinkAngle,setCountersinkAngle]=useState(initial("countersinkAngle",feature.countersinkAngle??90));
     const [diameter,setDiameter]=useState(initial("diameter",feature.diameter??5)),[depth,setDepth]=useState(initial("depth",feature.depth??10));
     const [length, setLength] = useState(initial("length", feature.length ?? 10)), [second, setSecond] = useState(initial("length2", feature.length2 ?? 10)), [angle, setAngle] = useState(initial("angle", feature.angle ?? 360));
-    const intent = useRef(intentRequestId??randomUUID()), version = useRef(view.document.versionId), alive = useRef(true), queue = useRef(Promise.resolve());
+    const intent = useRef(intentRequestId??insertion?.intentId??randomUUID()), version = useRef(view.document.versionId), alive = useRef(true), queue = useRef(Promise.resolve());
     const pickOwner=useRef(new FeaturePickScope()),pickContext=JSON.stringify([view.document.id,view.document.versionId,replacement,regionReplacement,seamIndex,sectionReplacement]);
     pickOwner.current.activate(role,pickContext);
     const setRole=(next:FeaturePickRole|undefined)=>{pickOwner.current.cancel();pickOwner.current.activate(next,pickContext);setRoleState(next);setBinding(0)};
@@ -93,6 +94,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     callbacks.current = { onSelectionSession, onInputArtifact };
     const index = feature.id ? view.part!.features.findIndex(f => f.id === feature.id) : insertion ? view.part!.features.findIndex(f=>f.id===insertion.afterFeatureId)+1 : view.part!.features.length;
     const upstream = view.part!.features.slice(0, Math.max(0, index));
+    const profileUpstream=insertion&&!modifier?upstream.filter(f=>f.id===insertion.afterFeatureId):upstream;
     const edit = (patch: Partial<Feature>) => { setError(undefined); setDraft(current => ({ ...current, ...patch })); };
     const validRevision = version.current === view.document.versionId && (!insertion || insertion.versionId===view.document.versionId);
     useEffect(() => { alive.current = true; pickOwner.current.activate(role,pickContext); return () => { alive.current = false; pickOwner.current.cancel(); callbacks.current.onSelectionSession(); callbacks.current.onInputArtifact(); }; }, []);
@@ -319,8 +321,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const selections = contextSelections.length ? highlights.filter(s => s.kind !== "sketch"&&s.kind!=="profile-region") : highlights;
     const highlightsToken = JSON.stringify([selections, contextSelections]);
     const seamSection=seamIndex!==undefined?draft.sections?.[seamIndex]:undefined;
-    const sketchIds = hole ? upstream.filter(f=>f.type==="SKETCH"&&f.sketch&&!f.suppressed&&!["FAILED_SUPPORT","BLOCKED"].includes(f.sketch.support.status??"")).map(f=>f.id) : role === "seam" && seamSection ? seamSection.memberSlot!==undefined?profileSelectionIDs(view,upstream,seamSection.sketchId,seamSection.memberSlot):[seamSection.sketchId] : profileSelectionIDs(view,upstream);
-    const regionCandidates=!modifier&&!loft&&!hole?profileRegionCandidates(view,upstream,explicitRegions?draft.profile:undefined):[];
+    const sketchIds = insertion && !modifier ? [insertion.afterFeatureId] : hole ? upstream.filter(f=>f.type==="SKETCH"&&f.sketch&&!f.suppressed&&!["FAILED_SUPPORT","BLOCKED"].includes(f.sketch.support.status??"")).map(f=>f.id) : role === "seam" && seamSection ? seamSection.memberSlot!==undefined?profileSelectionIDs(view,upstream,seamSection.sketchId,seamSection.memberSlot):[seamSection.sketchId] : profileSelectionIDs(view,upstream);
+    const regionCandidates=!modifier&&!loft&&!hole?profileRegionCandidates(view,profileUpstream,explicitRegions?draft.profile:undefined):[];
     const regionIDs=draft.profileSelection?.regionIds??[];
     const availableRegionIDs=regionCandidates.find(c=>c.sketchId===draft.profile)?.regions.map(r=>r.id)??[];
     const profileAnalysis=draft.profile?view.sketchAnalyses?.[draft.profile]:undefined;
@@ -353,8 +355,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             }
         }
         const common = { requestId: intent.current, parameterExpressions: expressions };
-        if (ready)
-            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value,afterFeatureId:insertion?.afterFeatureId,versionId:insertion?.versionId,geometryKey:insertion?inputContext?.artifact.geometryKey:undefined } : loft||hole ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value } : { ...common, type: "CREATE_SOLID_FEATURE", terminationPlaneId:value.terminationPlaneId,terminationPlane:value.terminationPlane,sketchId: value.profile, profileSelection:value.profileSelection, profileMemberSlot:value.profileMemberSlot, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
+        if (ready && (!insertion || !!inputContext))
+            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value,afterFeatureId:insertion?.afterFeatureId,versionId:insertion?.versionId,geometryKey:insertion?inputContext?.artifact.geometryKey:undefined } : loft||hole ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value } : { ...common, type: "CREATE_SOLID_FEATURE", afterFeatureId:insertion?.afterFeatureId, versionId:insertion?.versionId, geometryKey:insertion?inputContext?.artifact.geometryKey:undefined, terminationPlaneId:value.terminationPlaneId,terminationPlane:value.terminationPlane,sketchId: value.profile, profileSelection:value.profileSelection, profileMemberSlot:value.profileMemberSlot, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
     }
     catch (cause) {
         parameterError = fieldErrorText(cause);
@@ -442,11 +444,11 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     <CommandField  label={<>截面连接</>} width="content"><Segmented value={draft.ruled ? "ruled" : "smooth"} options={[{ value: "smooth", label: "平滑" }, { value: "ruled", label: "直纹" }]} onChange={v => edit({ ruled: v === "ruled" })}/></CommandField>
    </>}
    {!modifier && !hole && <>
-    <CommandField  label={<>材料</>} width="content"><Segmented value={draft.operation} options={[...(!feature.id ? [{ value: "NEW_BODY", label: "新实体" }] : []), { value: "ADD", label: "添加" }, { value: "REMOVE", label: "切除" }, { value: "INTERSECT", label: "交集" }]} onChange={operation => edit({ operation: operation as Feature["operation"], extent: operation !== "REMOVE" && draft.extent === "THROUGH_ALL" || operation==="INTERSECT"&&terminating ? "FINITE" : draft.extent, ...(operation==="INTERSECT"?{terminationPlane:undefined,terminationPlaneId:undefined}:{}) })}/></CommandField>
+    <CommandField  label={<>材料</>} width="content"><Segmented value={draft.operation} options={[...(!feature.id&&!insertion ? [{ value: "NEW_BODY", label: "新实体" }] : []), { value: "ADD", label: "添加" }, { value: "REMOVE", label: "切除" }, ...(!insertion?[{ value: "INTERSECT", label: "交集" }]:[])]} onChange={operation => edit({ operation: operation as Feature["operation"], extent: operation !== "REMOVE" && draft.extent === "THROUGH_ALL" || operation==="INTERSECT"&&terminating ? "FINITE" : draft.extent, ...(operation==="INTERSECT"?{terminationPlane:undefined,terminationPlaneId:undefined}:{}) })}/></CommandField>
     {draft.operation !== "NEW_BODY" && <FeaturePickField label="目标实体" value={view.part?.bodies.find(b => b.id === draft.bodyId)?.name ?? "选择实体"} disabled={!!feature.id||!!insertion} selected={!!draft.bodyId} active={role === "body"} onActivate={() => setRole("body")} onClear={!feature.id&&!insertion&&draft.bodyId?()=>edit({bodyId:undefined}):undefined}/>}
    </>}
    {!loft && !hole && (angular ? <CommandField actions={<ContextInputSource view={view} binding={boundSlot("angle")}/>}  label={<>角度（deg）</>} error={parameterSlot==="angle"?parameterError:undefined} width="expression"><Input value={angle} disabled={committing||!!boundSlot("angle")} onChange={e => setAngle(e.target.value)}/></CommandField> : <>
-    {!modifier && <CommandField  label={<>范围</>} width="content"><Segmented value={draft.extent ?? "FINITE"} options={[{ value: "FINITE", label: "长度" }, { value: "TWO_SIDED", label: "双侧" }, { value: "SYMMETRIC", label: "对称" }, ...(["PAD","LINEAR_EXTRUDE"].includes(feature.type)&&["ADD","REMOVE","NEW_BODY"].includes(draft.operation??"")?[{value:"TO_PLANE",label:"到平面"}]:[]), ...(draft.operation === "REMOVE" ? [{ value: "THROUGH_ALL", label: "贯穿" }] : [])]} onChange={extent => {edit({ extent: extent as Feature["extent"],terminationPlane:undefined,terminationPlaneId:undefined });setTerminationResolution(undefined);setTerminationLoadError(undefined);setTerminationVisual(undefined);if(extent==="TO_PLANE")setRole("plane");else setRole(undefined);}}/></CommandField>}
+    {!modifier && <CommandField  label={<>范围</>} width="content"><Segmented value={draft.extent ?? "FINITE"} disabled={!!insertion} options={[{ value: "FINITE", label: "长度" }, { value: "TWO_SIDED", label: "双侧" }, { value: "SYMMETRIC", label: "对称" }, ...(["PAD","LINEAR_EXTRUDE"].includes(feature.type)&&["ADD","REMOVE","NEW_BODY"].includes(draft.operation??"")?[{value:"TO_PLANE",label:"到平面"}]:[]), ...(draft.operation === "REMOVE" ? [{ value: "THROUGH_ALL", label: "贯穿" }] : [])]} onChange={extent => {edit({ extent: extent as Feature["extent"],terminationPlane:undefined,terminationPlaneId:undefined });setTerminationResolution(undefined);setTerminationLoadError(undefined);setTerminationVisual(undefined);if(extent==="TO_PLANE")setRole("plane");else setRole(undefined);}}/></CommandField>}
     {draft.extent !== "THROUGH_ALL" && !terminating && <CommandField actions={<ContextInputSource view={view} binding={boundSlot("length")}/>}  label={<>{feature.type === "FILLET" ? "半径" : feature.type === "CHAMFER" ? "距离" : feature.type === "SHELL" ? "厚度" : "长度"}（{unit}）</>} error={parameterSlot==="length"?parameterError:undefined} width="expression"><Input value={length} disabled={committing||!!boundSlot("length")} onChange={e => setLength(e.target.value)}/></CommandField>}
     {draft.extent === "TWO_SIDED" && <CommandField actions={<ContextInputSource view={view} binding={boundSlot("length2")}/>}  label={<>反向长度（{unit}）</>} error={parameterSlot==="length2"?parameterError:undefined} width="expression"><Input value={second} disabled={committing||!!boundSlot("length2")} onChange={e => setSecond(e.target.value)}/></CommandField>}
    </>)}

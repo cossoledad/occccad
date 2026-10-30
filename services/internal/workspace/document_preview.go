@@ -64,7 +64,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		if err := rejectExplicitBrokenSupport(prepared.command, model); err != nil {
 			return CommandPreview{}, err
 		}
-		if err = rejectExplicitUnresolvedExternal(prepared.command, model); err != nil {
+		if err = service.rejectExplicitUnresolvedExternal(ctx, documentID, prepared.command, model); err != nil {
 			return CommandPreview{}, err
 		}
 		if err = service.resolvePartPublications(ctx, documentID, "preview/"+prepared.requestID,

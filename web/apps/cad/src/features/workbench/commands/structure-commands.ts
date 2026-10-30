@@ -1,4 +1,4 @@
-import type {ModifierType} from "../solid-feature-model";
+import type {HistoricalCreationType} from "../historical-creation";
 import {copyTextToClipboard} from "../../../utils/clipboard";
 import type {ComponentProps} from 'react';
 import type {CadCommand,CadCommandInvocation,CommandOperation} from '../../../cad/command/command-registry';
@@ -7,7 +7,7 @@ type TreeActions=Pick<ComponentProps<typeof SpecificationTree>,
  'onActivate'|'onOpenDocumentTab'|'onViewResult'|'onMove'|'onInsertAfter'|'onEdit'|'onProperties'|'onCreatePart'|'onReferenceMode'|'onDetach'|'onReconnect'|'onRefresh'|'onDelete'|'onToggleConstruction'|'onToggleVisibility'|'onToggleSuppression'>;
 export type StructureActions={[Action in keyof TreeActions]?: (...args:[...Parameters<NonNullable<TreeActions[Action]>>,operation?:CommandOperation])=>void|Promise<void>};
 export const structureCommandIDs={onActivate:'tree.activate',onOpenDocumentTab:'tree.open-document',onViewResult:'tree.view-result',onEdit:'tree.edit',onMove:'tree.move',onInsertAfter:'tree.insert-after',onProperties:'tree.properties',onCreatePart:'tree.create-part',onReferenceMode:'tree.reference-mode',onDetach:'tree.detach',onReconnect:'tree.reconnect',onRefresh:'tree.refresh',onDelete:'edit.delete',onToggleConstruction:'tree.construction',onToggleVisibility:'tree.visibility',onToggleSuppression:'tree.suppression'} as const;
-export type StructureInvocation={node?:SpecificationTreeNode;nodeKey?:string;nodes?:SpecificationTreeNode[];referenceMode?:'PINNED'|'FOLLOW_HEAD';scope?:'DEFINITION'|'OCCURRENCE';visibilityMode?:'SHOW'|'HIDE'|'INHERIT';modifierType?:ModifierType};
+export type StructureInvocation={node?:SpecificationTreeNode;nodeKey?:string;nodes?:SpecificationTreeNode[];referenceMode?:'PINNED'|'FOLLOW_HEAD';scope?:'DEFINITION'|'OCCURRENCE';visibilityMode?:'SHOW'|'HIDE'|'INHERIT';modifierType?:HistoricalCreationType};
 export function structureInvocation(invocation?:CadCommandInvocation):StructureInvocation {
  if(!invocation?.payload||typeof invocation.payload!=='object')throw new Error('Missing structure command target');
  return invocation.payload as StructureInvocation;
@@ -33,7 +33,7 @@ export function structureCommands(actions:StructureActions={},currentNodes:reado
  const command=(action:keyof StructureActions,execute:(target:StructureInvocation&{node:SpecificationTreeNode},operation?:CommandOperation)=>void|Promise<void>):CadCommand=>({id:structureCommandIDs[action],isEnabled:invocation=>{
    if(!actions[action])return false;
    if(action!=="onEdit"&&action!=="onMove"&&action!=="onInsertAfter")return true;
-   try{const {node,nodes}=current(invocation,action==="onMove");return (action!=="onMove"||!nodes?.length||nodes.every(n=>n.presentationRole!=="INPUT_REFERENCE"&&n.capabilities?.includes("MOVE")&&n.documentId===node.documentId&&n.bodyId===node.bodyId&&(n.selection?.occurrencePath??"")===(node.selection?.occurrencePath??"")))&&node.presentationRole!=="INPUT_REFERENCE"&&Boolean(node.capabilities?.includes(action==="onMove"?"MOVE":action==="onInsertAfter"?"INSERT_AFTER":"EDIT"));}catch{return false;}
+   try{const {node,nodes,modifierType}=current(invocation,action==="onMove");if(action==="onInsertAfter"&&(node.kind==="SKETCH"||["SKETCH","EXTRUDE_ADD","EXTRUDE_REMOVE"].includes(modifierType??""))&&(node.selection?.occurrencePath||node.instancePath?.canonical))return false;return (action!=="onMove"||!nodes?.length||nodes.every(n=>n.presentationRole!=="INPUT_REFERENCE"&&n.capabilities?.includes("MOVE")&&n.documentId===node.documentId&&n.bodyId===node.bodyId&&(n.selection?.occurrencePath??"")===(node.selection?.occurrencePath??"")))&&node.presentationRole!=="INPUT_REFERENCE"&&Boolean(node.capabilities?.includes(action==="onMove"?"MOVE":action==="onInsertAfter"?"INSERT_AFTER":"EDIT"));}catch{return false;}
   },execute:invocation=>{
    const target=current(invocation,action==="onMove");
    const capability:Partial<Record<keyof StructureActions,string>>={onInsertAfter:'INSERT_AFTER',onMove:'MOVE',onEdit:'EDIT',onCreatePart:'CREATE_PART',onDetach:'DETACH',onReconnect:'RECONNECT',onRefresh:'REFRESH',onToggleConstruction:'DELETE',onToggleSuppression:'SUPPRESS'};
@@ -50,7 +50,7 @@ export function structureCommands(actions:StructureActions={},currentNodes:reado
   command('onActivate',({node},operation)=>actions.onActivate?.(node,operation)),
   command('onOpenDocumentTab',({node},operation)=>actions.onOpenDocumentTab?.(node,operation)),
   command('onViewResult',({node},operation)=>actions.onViewResult?.(node,operation)),
-  command('onInsertAfter',({node,modifierType},operation)=>actions.onInsertAfter?.(node,modifierType??'FILLET',operation)),
+  command('onInsertAfter',({node,modifierType},operation)=>actions.onInsertAfter?.(node,modifierType??(node.kind==='SKETCH'?'EXTRUDE_ADD':'FILLET'),operation)),
   command('onMove',({node,nodes},operation)=>{if(nodes?.some(n=>!n.capabilities?.includes('MOVE')||n.presentationRole==='INPUT_REFERENCE'))throw new Error('Structure operation unavailable');return actions.onMove?.(node,nodes,operation)}),
   command('onEdit',({node},operation)=>actions.onEdit?.(node,operation)),
   command('onProperties',({node})=>actions.onProperties?.(node)),

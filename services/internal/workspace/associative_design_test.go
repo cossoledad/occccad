@@ -374,7 +374,7 @@ func TestExplicitExternalProjectionFailureRejectsTheCommand(t *testing.T) {
 	payload, _ := json.Marshal(editSketchPayload{SketchID: "sketch-face", Operations: []SketchOperation{{
 		Type: "ADD_EXTERNAL_GEOMETRY", ExternalGeometry: &unresolved,
 	}}})
-	err := rejectExplicitUnresolvedExternal(modelcore.DomainCommand{TypeURI: typeEditSketch, Payload: payload}, model)
+	err := (&Service{}).rejectExplicitUnresolvedExternal(t.Context(), "part", modelcore.DomainCommand{TypeURI: typeEditSketch, Payload: payload}, model)
 	var failure *externalGeometryProjectionFailure
 	if !errors.As(err, &failure) {
 		t.Fatalf("explicit unsupported projection must reject the command, got %v", err)
@@ -387,14 +387,14 @@ func TestExplicitExternalProjectionFailureRejectsTheCommand(t *testing.T) {
 	reconnectPayload, _ := json.Marshal(editSketchPayload{SketchID: "sketch-face", Operations: []SketchOperation{{
 		Type: "RECONNECT_EXTERNAL_GEOMETRY", ExternalID: unresolved.ID, ExternalGeometry: &unresolved,
 	}}})
-	if err := rejectExplicitUnresolvedExternal(modelcore.DomainCommand{TypeURI: typeEditSketch, Payload: reconnectPayload}, model); err == nil {
+	if err := (&Service{}).rejectExplicitUnresolvedExternal(t.Context(), "part", modelcore.DomainCommand{TypeURI: typeEditSketch, Payload: reconnectPayload}, model); err == nil {
 		t.Fatal("an unresolved reconnect must retain the old Head instead of committing a failed replacement")
 	}
 
 	ordinaryPayload, _ := json.Marshal(editSketchPayload{SketchID: "sketch-face", Operations: []SketchOperation{{
 		Type: "ADD_ENTITY", Entity: &SketchEntity{ID: "point", Kind: "POINT", Role: "CONSTRUCTION", Point: &SketchPoint2{}},
 	}}})
-	if err := rejectExplicitUnresolvedExternal(modelcore.DomainCommand{TypeURI: typeEditSketch, Payload: ordinaryPayload}, model); err != nil {
+	if err := (&Service{}).rejectExplicitUnresolvedExternal(t.Context(), "part", modelcore.DomainCommand{TypeURI: typeEditSketch, Payload: ordinaryPayload}, model); err != nil {
 		t.Fatalf("an already-broken dependency must remain inspectable/editable: %v", err)
 	}
 }

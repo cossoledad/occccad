@@ -313,13 +313,16 @@ func (s *Service) evaluateOrderedBodies(ctx context.Context, documentID, request
 // Empty stage is the existing "historical Body tip" contract, not permission
 // to ignore that stage during reordering. Read its exact immutable witness;
 // never fill or rewrite the saved selection as part of a move.
-func (s *Service) validateOrderHistoricalStages(ctx context.Context, documentID string, m PartModel, blocked func(Feature, string) error) error {
+func (s *Service) validateOrderHistoricalStages(ctx context.Context, documentID string, m PartModel, blocked func(Feature, string) error, targets ...string) error {
 	indices := map[string]int{}
 	for i, f := range m.Features {
 		indices[f.ID] = i
 	}
 	stages := map[string]string{}
 	for i, f := range m.Features {
+		if len(targets) > 0 && !slices.Contains(targets, f.ID) {
+			continue
+		}
 		picks := append([]FeatureSelection(nil), f.Selections...)
 		for _, p := range []*FeatureSelection{f.NeutralPlane, f.TerminationPlane} {
 			if p != nil {
@@ -343,7 +346,7 @@ func (s *Service) validateOrderHistoricalStages(ctx context.Context, documentID 
 						picks = append(picks, FeatureSelection{Selection: *d.Selection, SourceVersionID: d.SourceVersionID, SourceFeatureID: d.FeatureID})
 					}
 				} else {
-					picks = append(picks, FeatureSelection{Selection: e.PersistentSelection, SourceVersionID: e.SourceVersionID})
+					picks = append(picks, FeatureSelection{Selection: e.PersistentSelection, SourceVersionID: e.SourceVersionID, SourceFeatureID: e.SourceFeatureID})
 				}
 			}
 		}

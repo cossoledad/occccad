@@ -14,8 +14,16 @@ import (
 )
 
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
-	if request.AfterFeatureID != "" && request.Type != "CREATE_MODIFY_FEATURE" {
-		return "", nil, fmt.Errorf("%w: INSERT_FEATURE_TYPE_UNSUPPORTED", ErrValidation)
+	if request.AfterFeatureID != "" {
+		if request.Type != "CREATE_MODIFY_FEATURE" && request.Type != "CREATE_SKETCH" && request.Type != "CREATE_SOLID_FEATURE" {
+			return "", nil, fmt.Errorf("%w: INSERT_FEATURE_TYPE_UNSUPPORTED", ErrValidation)
+		}
+		if request.Type != "CREATE_MODIFY_FEATURE" && (request.RootProductDocumentID != "" || documentType != "PART") {
+			return "", nil, fmt.Errorf("%w: historical sketch/generator creation requires an independent Part", ErrValidation)
+		}
+		if request.Type == "CREATE_SOLID_FEATURE" && (request.Feature != nil || request.Generator != "LINEAR_EXTRUDE" || request.Operation != "ADD" && request.Operation != "REMOVE" || request.Extent != "" && request.Extent != "FINITE") {
+			return "", nil, fmt.Errorf("%w: historical generator requires finite LINEAR_EXTRUDE ADD/REMOVE", ErrValidation)
+		}
 	}
 	switch request.Type {
 	case "SET_PROPERTIES":
@@ -205,9 +213,17 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 					return "", nil, err
 				}
 			}
-			selection, err := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{
-				SourceVersionID: sourceVersionID, GeometryKey: request.GeometryKey, Kind: "FACE", LocalID: request.TopologyID,
-			})
+			var selection modelcore.PersistentSelection
+			var err error
+			if request.AfterFeatureID != "" {
+				input, inputErr := service.GetFeatureInput(ctx, documentID, FeatureInputRequest{VersionID: sourceVersionID, AfterFeatureID: request.AfterFeatureID, BodyID: request.BodyID, GeometryKey: request.GeometryKey, Kind: "FACE", LocalID: request.TopologyID})
+				err = inputErr
+				if input.Selection != nil {
+					selection = input.Selection.Selection
+				}
+			} else {
+				selection, err = service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{SourceVersionID: sourceVersionID, GeometryKey: request.GeometryKey, Kind: "FACE", LocalID: request.TopologyID})
+			}
 			if err != nil {
 				return "", nil, err
 			}
@@ -243,7 +259,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH",
 				Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: "CUSTOM",
 				Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: support, Entities: []SketchEntity{},
-					Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
+					Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
 		}
 		plane := strings.ToUpper(request.Plane)
 		datumID := strings.TrimSpace(request.DatumPlaneID)
@@ -264,7 +280,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, fmt.Errorf("%w: selected datum plane does not exist", ErrValidation)
 			}
 		}
-		return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
+		return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
 	case "REASSIGN_SKETCH_SUPPORT":
 		if documentType != "PART" {
 			break
@@ -344,11 +360,41 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				if kind != "EDGE" && kind != "VERTEX" {
 					return "", nil, fmt.Errorf("%w: external geometry source must be an edge or vertex", ErrValidation)
 				}
-				selection, err := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{
-					SourceVersionID: sourceVersionID, GeometryKey: operation.GeometryKey, Kind: kind, LocalID: operation.TopologyID,
-				})
+				var head string
+				if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&head); err != nil {
+					return "", nil, err
+				}
+				var input FeatureInput
+				var err error
+				if sourceVersionID == head {
+					input, err = service.GetFeatureInput(ctx, documentID, FeatureInputRequest{ContextReadScope: commandReadScope(request), VersionID: sourceVersionID, FeatureID: request.SketchID, GeometryKey: operation.GeometryKey, Kind: kind, LocalID: operation.TopologyID})
+				} else {
+					// Existing projection clients can explicitly reference an immutable
+					// earlier revision. Its exact Body-tip witness must still precede
+					// the receiving sketch; never treat an old prefix as a current pick.
+					var selection modelcore.PersistentSelection
+					selection, err = service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{SourceVersionID: sourceVersionID, GeometryKey: operation.GeometryKey, Kind: kind, LocalID: operation.TopologyID})
+					if errors.Is(err, ErrNotFound) {
+						return "", nil, fmt.Errorf("%w: projection geometryKey or source Revision is unavailable", ErrValidation)
+					}
+					if err == nil {
+						manifest, _, e := service.topologyManifestForGeometryKey(ctx, operation.GeometryKey)
+						err = e
+						if err == nil {
+							tip := manifest.Tips[selection.SourceBodyID]
+							if tip == nil {
+								return "", nil, fmt.Errorf("%w: projection source stage missing", ErrValidation)
+							}
+							input.SourceFeatureID = tip.FeatureId
+							input.Selection = &FeatureSelection{Selection: selection, SourceVersionID: sourceVersionID, SourceFeatureID: tip.FeatureId}
+						}
+					}
+				}
 				if err != nil {
 					return "", nil, err
+				}
+				if input.Selection == nil {
+					return "", nil, fmt.Errorf("%w: external geometry is outside sketch upstream stages", ErrValidation)
 				}
 				externalID := strings.TrimSpace(operation.ExternalID)
 				if externalID == "" {
@@ -356,7 +402,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				}
 				operation.ExternalID = externalID
 				operation.ExternalGeometry = &SketchExternalGeometry{ID: externalID, ProjectionKind: "ORTHOGONAL",
-					PersistentSelection: selection, SourceVersionID: sourceVersionID, Status: "PENDING"}
+					PersistentSelection: input.Selection.Selection, SourceVersionID: sourceVersionID, SourceFeatureID: input.SourceFeatureID, Status: "PENDING"}
 				operations = append(operations, operation)
 				continue
 			}
@@ -572,7 +618,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		for slot, source := range extraSources {
 			parameterSources[slot] = source
 		}
-		return typeCreateSolidFeature, createFeaturePayload{Feature: feature, ParameterSources: parameterSources}, nil
+		return typeCreateSolidFeature, createFeaturePayload{Feature: feature, ParameterSources: parameterSources, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
 	case "SET_FEATURE_SUPPRESSION":
 		if documentType != "PART" || request.Suppressed == nil {
 			break

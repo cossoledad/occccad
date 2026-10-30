@@ -315,6 +315,7 @@ func (s *SketchExternalGeometrySnapshot) entity(id string) SketchEntity {
 }
 
 type SketchExternalGeometry struct {
+	SourceFeatureID          string                           `json:"sourceFeatureId,omitempty"`
 	LocalInput               *ContextInputLocalValue          `json:"localInput,omitempty"`
 	ContextInputID           string                           `json:"contextInputId,omitempty"`
 	Name                     string                           `json:"name,omitempty"`

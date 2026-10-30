@@ -34,6 +34,7 @@ export type PartBody = { appearance?: SurfaceAppearance; displayFallback?: BodyD
 
 export type FeatureInputResolution = { status: "RESOLVED" | "MISSING" | "AMBIGUOUS" | "TYPE_MISMATCH" | "SOURCE_UNAVAILABLE" | "CONTRACT_MISMATCH" | "OUTSIDE_CURRENT_TIP"; diagnosticCode?: string; diagnostic?: string };
 export type FeatureInput = {
+ referenceGeometry?:{datumPlanes:DatumPlane[];datumAxes:DatumAxis[];axisSystems:AxisSystem[]};
  pointPick?:FeatureInputResolution;
  terminationPick?:FeatureInput["neutralPick"];
   versionId: string; sourceFeatureId: string; artifact: Artifact; artifacts?: Artifact[];
@@ -189,7 +190,7 @@ export type Feature = {
 export type SketchPoint2 = { x: number; y: number };
 export type SketchGeometryRef = { target: "ENTITY" | "EXTERNAL" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number; controlPointId?: string; pointId?: string };
 export type SketchEntity = {name?:string; infinite?:boolean; id: string; createdByOperationId?: string; sourceEntityId?: string; startPointId?:string; endPointId?:string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "ELLIPSE" | "ELLIPTICAL_ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; visible?: boolean; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; majorRadius?: number; minorRadius?: number; rotation?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; controlPointIds?: string[]; degree?: number; closed?: boolean; mode?: "FIT" | "CONTROL"; poles?: SketchPoint2[]; poleIds?: string[]; knots?: number[]; multiplicities?: number[]; weights?: number[]; periodic?: boolean; parameterStart?: number; parameterEnd?: number };
-export type SketchExternalGeometry = { localInput?:ContextInputLocalValue; contextInputId?:string; name?:string;datumReference?:DatumReference;id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE"|"ARC"|"ELLIPSE"|"ELLIPTICAL_ARC";persistentSelection:PersistentSelection;sourceVersionId:string;
+export type SketchExternalGeometry = { sourceFeatureId?:string; localInput?:ContextInputLocalValue; contextInputId?:string; name?:string;datumReference?:DatumReference;id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE"|"ARC"|"ELLIPSE"|"ELLIPTICAL_ARC";persistentSelection:PersistentSelection;sourceVersionId:string;
   sourceDocumentId?:string;contextReferenceId?:string;
   status:"PENDING"|"CONNECTED"|"UNRESOLVED_EXTERNAL";diagnosticCode?:string;diagnostic?:string;resolvedSourceDigest?:string;
   snapshot?:{kind:"POINT"|"LINE"|"CIRCLE"|"ARC"|"ELLIPSE"|"ELLIPTICAL_ARC";point?:SketchPoint2;start?:SketchPoint2;end?:SketchPoint2;center?:SketchPoint2;radius?:number;majorRadius?:number;minorRadius?:number;rotation?:number;startAngle?:number;endAngle?:number};

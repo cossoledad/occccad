@@ -17,6 +17,11 @@ func (s *Service) sketchSupportInput(ctx context.Context, view DocumentView, r F
 	prefix := *view.Part
 	prefix.Features = append([]Feature(nil), prefix.Features[:index]...)
 	result := FeatureInput{VersionID: r.VersionID, Picks: []FeatureInputPick{}}
+	refs, err := referenceGeometryBefore(*view.Part, index)
+	if err != nil {
+		return result, err
+	}
+	result.ReferenceGeometry = &refs
 	for _, body := range prefix.Bodies {
 		if r.BodyID != "" && body.ID != r.BodyID {
 			continue
@@ -49,8 +54,8 @@ func (s *Service) sketchSupportInput(ctx context.Context, view DocumentView, r F
 			result.SourceFeatureID = stage
 		}
 		if r.Kind != "" || r.LocalID != 0 {
-			if r.Kind != "FACE" || r.LocalID == 0 || r.GeometryKey != key {
-				return result, fmt.Errorf("%w: exact upstream FACE required", ErrValidation)
+			if (r.Kind != "FACE" && r.Kind != "EDGE" && r.Kind != "VERTEX") || r.LocalID == 0 || r.GeometryKey != key {
+				return result, fmt.Errorf("%w: exact upstream topology required", ErrValidation)
 			}
 			manifest, _, err := s.topologyManifestForGeometryKey(ctx, key)
 			if err != nil {
@@ -59,15 +64,16 @@ func (s *Service) sketchSupportInput(ctx context.Context, view DocumentView, r F
 			if !topologyHistoryComplete(manifest) || manifest.Tips[body.ID] == nil || manifest.Tips[body.ID].FeatureId != stage {
 				return result, fmt.Errorf("%w: upstream support stage lacks complete Naming", ErrValidation)
 			}
-			output, _ := manifestOutput(manifest, modelcore.PersistentTopologyFace, r.LocalID)
-			if output == nil {
+			kind := modelcore.PersistentTopologyType(r.Kind)
+			output, sourceBody := manifestOutput(manifest, kind, r.LocalID)
+			if output == nil || sourceBody != body.ID {
 				return result, fmt.Errorf("%w: face missing from upstream stage", ErrValidation)
 			}
 			evidence := selectionEvidence(output.GetEvidence())
-			if evidence.GeometryType != "PLANE" {
+			if r.Kind == "FACE" && evidence.GeometryType != "PLANE" {
 				return result, fmt.Errorf("%w: SUPPORT_TYPE_MISMATCH: selected face is not planar", ErrValidation)
 			}
-			selection := modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: view.Document.ID, SourceBodyID: body.ID, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: modelcore.PersistentTopologyFace, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: evidence}
+			selection := modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: view.Document.ID, SourceBodyID: body.ID, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: kind, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: evidence}
 			if err := selection.Validate(); err != nil {
 				return result, fmt.Errorf("%w: %v", ErrValidation, err)
 			}

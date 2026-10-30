@@ -71,15 +71,16 @@ func featureInputStageError(model PartModel, stage string, err error) error {
 }
 
 type FeatureInput struct {
-	PointPick       *FeatureInputResolution `json:"pointPick,omitempty"`
-	TerminationPick *FeatureNeutralPick     `json:"terminationPick,omitempty"`
-	NeutralPick     *FeatureNeutralPick     `json:"neutralPick,omitempty"`
-	VersionID       string                  `json:"versionId"`
-	SourceFeatureID string                  `json:"sourceFeatureId"`
-	Artifact        Artifact                `json:"artifact"`
-	Artifacts       []Artifact              `json:"artifacts,omitempty"`
-	Picks           []FeatureInputPick      `json:"picks"`
-	Selection       *FeatureSelection       `json:"selection,omitempty"`
+	ReferenceGeometry *ReferenceGeometry      `json:"referenceGeometry,omitempty"`
+	PointPick         *FeatureInputResolution `json:"pointPick,omitempty"`
+	TerminationPick   *FeatureNeutralPick     `json:"terminationPick,omitempty"`
+	NeutralPick       *FeatureNeutralPick     `json:"neutralPick,omitempty"`
+	VersionID         string                  `json:"versionId"`
+	SourceFeatureID   string                  `json:"sourceFeatureId"`
+	Artifact          Artifact                `json:"artifact"`
+	Artifacts         []Artifact              `json:"artifacts,omitempty"`
+	Picks             []FeatureInputPick      `json:"picks"`
+	Selection         *FeatureSelection       `json:"selection,omitempty"`
 }
 
 func (s *Service) featureStageAtVersion(ctx context.Context, documentID, versionID, stageID, bodyID string, display ...bool) (string, error) {

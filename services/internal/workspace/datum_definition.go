@@ -595,6 +595,18 @@ func datumProjectionSource(m PartModel, ref DatumReference) (geometry.ExternalPr
 }
 
 func datumPreviewReferences(c modelcore.DomainCommand, m PartModel) *ReferenceGeometry {
+	if c.TypeURI == typeCreateSketch {
+		var p createFeaturePayload
+		if json.Unmarshal(c.Payload, &p) != nil {
+			return nil
+		}
+		for _, f := range m.Features {
+			if f.ID == p.Feature.ID && f.Sketch != nil {
+				s := f.Sketch.Support
+				return &ReferenceGeometry{DatumPlanes: []DatumPlane{{ID: "sketch-support-preview", Name: "草图支撑预览", Plane: "CUSTOM", Origin: s.Origin, Normal: s.Normal, UDirection: s.XDirection, Size: 60}}}
+			}
+		}
+	}
 	if c.TypeURI == typeEditSketch {
 		var p editSketchPayload
 		if json.Unmarshal(c.Payload, &p) != nil {

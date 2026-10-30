@@ -91,6 +91,8 @@ Profile Builder 排除 Construction/Point，以正式连接等价类构建 Line/
 
 ## 支撑与外部几何
 
+独立 Part 的历史补建草图及后续有限拉伸见[历史位置创建](solid-features.md#在历史位置创建)。拓扑投影保存真实来源阶段及 Revision；当前视图的拾取必须来自草图之前的精确前缀，显式冻结的较早版本须有原始证据且其真实阶段仍在草图之前。二者均不以最终 Body、displayFallback 或坐标近似代替来源。
+
 基准面/轴沿用已有 Datum 身份和框架，支持自由坐标及关联定义。关联定义保存来源基准、绕引用直线旋转、沿引用方向平移；先按右手方向旋转原点与框架，再平移。标准面/轴、自定义基准、上游草图直线和精确实体平面/直线边按角色解析；实体来源保存 PersistentSelection、source Revision 和明确的 Body 特征阶段。角度和距离分别使用 `datum:angle / datum:distance` 的稳定 ParameterDefinition/checked AST，数值框架是求值结果。现有依赖图拒绝缺失、循环及通过基准间接读取下游阶段；失效引用不回退为自由框架。创建/编辑复用权威 PreviewCommand，取消不写 Head；参数更新将最终基准框架和草图支撑纳入已有 ChangeSet、CAS、Undo/Redo。树中自定义基准可编辑/删除，标准基准与被引用基准受保护；普通单击仍只选择。
 
 Origin 的轴系增加显式原点入口，标准 X/Y/Z 与原点的树/视图选择共用文档、Revision 和 occurrence 身份。Part 原点随实例位姿变换，不是装配世界原点。
@@ -163,6 +165,6 @@ DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投�
 - 拉伸／切除和旋转支持[显式区域集合](#显式轮廓区域)；空间草图阵列成员尚无区域拾取投影。
 - 草图支撑主动更换与失效重指定见[支撑与外部几何](#支撑与外部几何)；关联基准自身失效仍沿原子拒绝合同，未引入通用基准修复工具。
 - 当前草图的精确修剪圆/椭圆弧投影已有实现；面边界组、Section、Silhouette、一般 B-spline 投影未交付。关联偏移、完整样条曲率/G2/G3、通用三维线框/曲面建模也不属于当前支持范围。
-- Sweep、到下一面等其余关联终止条件，以及草图/生成特征插入、跨 Body/任意非连续集合移动尚无完整用户闭环；工具协议或历史阶段显示不能替代这些能力。单点工程 [Hole](solid-features.md#独立-hole)及有限孔的[阵列/镜像复用](solid-features.md#参数化阵列)、单方向拉伸／切除[到平面](solid-features.md#到平面关联终止)、同 Body [连续实体特征受约束移动](solid-features.md#调整特征顺序)及[四种局部修改的阶段插入](solid-features.md#在实体阶段后插入)的范围与修复合同由对应主题说明。
+- Sweep、到下一面等其余关联终止条件，以及已支持范围以外的生成器历史创建、跨 Body/任意非连续集合移动尚无完整用户闭环；工具协议或历史阶段显示不能替代这些能力。单点工程 [Hole](solid-features.md#独立-hole)及有限孔的[阵列/镜像复用](solid-features.md#参数化阵列)、单方向拉伸／切除[到平面](solid-features.md#到平面关联终止)、同 Body [连续实体特征受约束移动](solid-features.md#调整特征顺序)及[历史草图／有限拉伸及四种局部修改插入](solid-features.md#在历史位置创建)的范围与修复合同由对应主题说明。
 
 交互验证入口：`sketch-capture-angle.scenario.mjs`、`services/internal/control/sketch_interaction_integration_test.go` 与 `solid-feature-live.spec.ts` 的 `sketch interaction` 场景。分别验证捕获/选择状态与迟到响应、真实 Router/Worker 的精确分割/角度求解与历史、浏览器拾取/尺寸/取消及重开；测试存在不代表当次已执行，结果以交付记录为准。

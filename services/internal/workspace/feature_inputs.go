@@ -80,6 +80,11 @@ func featureInputs(f Feature) []featureInput {
 		add("SUPPORT", f.Sketch.Support.PersistentSelection.Anchor.FeatureID, "", nil)
 		add("STAGE", f.Sketch.Support.SourceFeatureID, "", nil)
 	}
+	if f.Sketch != nil {
+		for _, external := range f.Sketch.ExternalGeometry {
+			add("STAGE", external.SourceFeatureID, "", nil)
+		}
+	}
 	if p := f.NeutralPlane; p != nil {
 		add("NEUTRAL_PLANE", p.Selection.Anchor.FeatureID, "", nil)
 		add("STAGE", p.SourceFeatureID, "", nil)
