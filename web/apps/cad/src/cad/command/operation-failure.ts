@@ -7,6 +7,10 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const reasons:Record<string,string>={
+    STATIC_INTERFERENCE_LIMIT:"检查范围超出上限，请减少零件或精确几何大小。",
+    STATIC_INTERFERENCE_STALE:"装配已更新，请重新检查。",
+    STATIC_INTERFERENCE_INPUT_INVALID:"最小间隙必须是有效的非负长度。",
+    STATIC_INTERFERENCE_SELECTION_REQUIRED:"至少选择两个零件。",
     PATTERN_RANGE_ADDS_MATERIAL:"所选加工范围在基线实体之外新增了材料，不能作为净切除范围。",
     PATTERN_RANGE_REMOVES_BASELINE:"所选加工范围删除了基线材料，不能作为添加范围。",
     PATTERN_RANGE_EMPTY:"所选范围没有有效的材料差集。",

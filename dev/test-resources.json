@@ -682,6 +682,15 @@
     ]
   },
   {
+    "path": "services/internal/control/static_interference_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#featureAssociationRuntimeService",
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#geometryRuntimeTestService",
+      "fixture dependency: services/internal/control/feature_insert_integration_test.go#newContextInsertionScene",
+      "configured testsupport.OpenDevelopmentDatabase"
+    ]
+  },
+  {
     "path": "services/internal/control/subassembly_publication_integration_test.go",
     "resources": [
       "fixture dependency: services/internal/control/feature_association_integration_test.go#featureAssociationRuntimeService",

@@ -149,6 +149,13 @@ try {
  assert.equal(original.part.bodies[0].geometryKey,"final","temporary input display cannot mutate the formal model");
  const pendingPrefix=historicalPartDisplay(returned,"inserted-sketch",[]);
  assert.equal(pendingPrefix.part.bodies[0].geometryKey,undefined,"loading fails closed instead of restoring final geometry");
+ const {CadViewportEngine}=await server.ssrLoadModule('/src/viewport/cad-viewport-engine.ts'),THREE=await server.ssrLoadModule('three');
+ const productRenderer=Object.create(CadViewportEngine.prototype);
+ Object.assign(productRenderer,{editContext:{historicalBoundary:{afterFeatureId:'base',versionId:'v'},occurrencePath:'active'},content:new THREE.Group(),instanceGroups:new Map(),selectable:new Map(),selectionIndex:{register(){}},materials:{surface:()=>new THREE.MeshBasicMaterial()},addAssemblyConstraintMarkers(){}});
+ const emptyRoot={document:{id:'root',type:'PRODUCT',name:'Assembly'},product:{instances:['active','sibling'].map(id=>({id,documentId:'part',versionId:'v',translation:[0,0,0],rotation:[0,0,0,1]}))},resolvedInstances:[],artifacts:{}};
+ productRenderer.renderProduct(emptyRoot);
+ assert.equal(productRenderer.instanceGroups.get('active').children.length,0,'a pending/empty historical prefix is not an invented cube');
+ assert.equal(productRenderer.instanceGroups.get('sibling').children.length,1,'ordinary empty occurrence display is unchanged');
  const {projectionScopeForView,isExternalProjectionSource}=await server.ssrLoadModule("/src/cad/interaction/external-projection-selection.ts");
  const scope=projectionScopeForView(prefix);
  const upstreamEdge={kind:"edge",id:"edge",documentId:"part",versionId:"v",geometryKey:"base-stage",topologyId:1};

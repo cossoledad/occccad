@@ -98,9 +98,9 @@ export function ToolbarGroup({ children }: PropsWithChildren) {
 
 export function ToolbarSeparator() { return <span className="cad-toolbar-separator" aria-hidden />; }
 
-export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmLoading = false, confirmDisabled = false, size = "M",footer=true,placement,onCancelPick,secondaryActions,commandStatus,bodyClassName="",scrollBody=true }: PropsWithChildren<{
+export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmText="确定",cancelText="取消", confirmLoading = false, confirmDisabled = false, size = "M",footer=true,placement,onCancelPick,secondaryActions,commandStatus,bodyClassName="",scrollBody=true }: PropsWithChildren<{
   bodyClassName?:string;scrollBody?:boolean;id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
-  confirmLoading?: boolean; confirmDisabled?: boolean; size?:CommandPanelSize;footer?:boolean;placement?:'left'|'right';onCancelPick?:()=>boolean;secondaryActions?:ReactNode;commandStatus?:ReactNode;
+  confirmText?:string;cancelText?:string;confirmLoading?: boolean; confirmDisabled?: boolean; size?:CommandPanelSize;footer?:boolean;placement?:'left'|'right';onCancelPick?:()=>boolean;secondaryActions?:ReactNode;commandStatus?:ReactNode;
 }>) {
   const feedback=useOperationFeedback(),parentForm=useCommandForm();
   const openRef=useRef(open);openRef.current=open;
@@ -205,9 +205,9 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
     </header>
     <div className={`cad-command-dialog-body command-form ${bodyClassName}`} style={{overflowY:scrollBody?"auto":"hidden",minHeight:0}}>{children}</div>
     {/* Cancel must not blur/commit the focused draft input before its click. */}
-    {footer&&<footer className="cad-command-dialog-footer" style={{flexShrink:0}}><div className="command-secondary-actions">{commandStatus}{secondaryActions}</div><Button onPointerDown={event=>event.preventDefault()} onClick={onClose}>取消</Button>
+    {footer&&<footer className="cad-command-dialog-footer" style={{flexShrink:0}}><div className="command-secondary-actions">{commandStatus}{secondaryActions}</div><Button onPointerDown={event=>event.preventDefault()} onClick={onClose}>{cancelText}</Button>
       <Button type="primary" loading={confirmLoading || submitting} disabled={confirmDisabled}
-        onClick={() => void confirm()}>确定</Button></footer>}
+        onClick={() => void confirm()}>{confirmText}</Button></footer>}
   </section>;
   const framed=<CommandFormContext.Provider value={{...parentForm,cancelPick:onCancelPick}}>{content}</CommandFormContext.Provider>;
   return overlayHost?createPortal(framed,overlayHost):framed;

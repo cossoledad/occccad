@@ -851,6 +851,7 @@ export const mockApi: CadApi = {
   cancelAssemblyConflicts:async()=>undefined,
 	assemblyCapabilities: async () => { throw new Error("Exact assembly capabilities require the real server"); },
 	inspectAssemblySupports: async () => { throw new Error("Exact support inspection requires the real Worker; mock geometry is not authoritative"); },
+ analyzeStaticInterference:async()=>{throw new Error("静态干涉检查需要真实 Worker");},
  analyzeMechanism:async(_id:string,_revisionId:string,_mechanismId:string,_numerical:boolean,_signal?:AbortSignal)=>{throw new Error("机构分析需要真实 Worker");},
 	getAssemblyEngineeringEvidence:async(id:string,revisionId:string)=>({documentId:id,revisionId,available:false,components:[]}),
  refreshAssemblyEngineeringEvidence:async(_id:string,_revisionId:string,_signal?:AbortSignal)=>{throw new Error("只读运动分析需要真实 Worker");},

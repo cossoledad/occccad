@@ -30,6 +30,7 @@ export type WorkbenchCommandBindings={
  openSolidFeature:(generator:"LINEAR_EXTRUDE"|"REVOLVE",operation?:"NEW_BODY"|"ADD"|"REMOVE")=>void;
  deleteTreeNodes:(nodes:SpecificationTreeNode[])=>void;executeHistory:(direction:"undo"|"redo")=>void;
  setDesignInputsOpen?:(open:boolean)=>void;setConflictOpen:(open:boolean)=>void;setParameterManagerOpen:(open:boolean)=>void;setPublicationManagerOpen:(open:boolean)=>void;
+ setStaticInterferenceOpen?:(open:boolean)=>void;staticInterferenceAllowed?:boolean;
  setMechanismAnalysisOpen?:(open:boolean)=>void;
  setInsertOpen:(open:boolean)=>void;setPatternOpen:(open:boolean)=>void;setReleaseOpen:(open:boolean)=>void;setVersionOpen:(open:boolean)=>void;
  setShareResource:(resource:ShareResource)=>void;
@@ -61,6 +62,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({id:"dmu.analyze-mechanism",execute:()=>bindings.setMechanismAnalysisOpen?.(true),isEnabled:()=>Boolean(bindings.setMechanismAnalysisOpen&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending)}),
       ({id:"assembly.motion-study",execute:()=>{store.setActiveTool("select","once");bindings.setMotionOpen?.(true);},isEnabled:()=>Boolean(view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&bindings.setMotionOpen),isActive:()=>Boolean(bindings.motionOpen)}),
       ({id:"assembly.association-repair",execute:()=>bindings.setAssociationRepairOpen?.(true),isEnabled:()=>Boolean(bindings.setAssociationRepairOpen&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!bindings.motionOpen),isActive:()=>bindings.associationRepairOpen??false}),
+      ({id:"assembly.static-interference",execute:()=>{store.setActiveTool("select","once");bindings.setStaticInterferenceOpen?.(true)},isEnabled:()=>Boolean(bindings.setStaticInterferenceOpen&&bindings.staticInterferenceAllowed&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&!moveReceiptPending)}),
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),
         isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),
       ({id:"assembly.move-receipt",execute:()=>viewport.current?.retryAssemblyMoveCommit(),

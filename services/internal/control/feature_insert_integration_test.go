@@ -376,6 +376,33 @@ func TestInsertContextSketchRepeatedOccurrenceFailureIsAtomicThroughRouter(t *te
 	}
 }
 
+func TestInsertContextDefaultPublicationFailureRejectsPreviewThroughRouter(t *testing.T) {
+	c := newContextInsertionScene(t, 24)
+	c.apply(c.scoped(workspace.CommandRequest{Type: "DELETE_NODE", TargetKind: "FEATURE", TargetID: c.chamfer.ID}))
+	c.reload()
+	pick := findP7TopologyPick(t, c.s, c.v, "FACE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+		return p.CreationEvidence.GeometryType == "PLANE" && math.Abs(p.CreationEvidence.Centroid[2]-10) < 1e-7
+	})
+	c.apply(c.scoped(workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Default top face", PublicationType: "SURFACE", TargetKind: "FACE", GeometryKey: pick.GeometryKey, TopologyID: pick.LocalID}))
+	c.reload()
+	input := c.input(c.base.ID)
+	c.apply(c.scoped(workspace.CommandRequest{Type: "CREATE_SKETCH", AfterFeatureID: c.base.ID, BodyID: c.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Plane: "XY"}))
+	c.reload()
+	sketch := c.v.Part.Features[2]
+	c.apply(c.scoped(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch.ID, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -12, Y: -12}, Second: &workspace.SketchPoint2{X: 12, Y: 12}}}}))
+	c.reload()
+	input = c.input(sketch.ID)
+	// The default 10 mm top disappears inside the larger 15 mm pad. Accepted
+	// 20/24 mm tops survive and their geometry alone would incorrectly preview.
+	r := c.scoped(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", AfterFeatureID: sketch.ID, SketchID: sketch.ID, BodyID: sketch.BodyID, GeometryKey: input.Artifact.GeometryKey, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Extent: "FINITE", Length: 15})
+	head := c.root.Document.VersionID
+	c.reject(r, "Default top face")
+	c.reload()
+	if c.root.Document.VersionID != head {
+		t.Fatal("publication rejection changed Product")
+	}
+}
+
 func (x *insertionScene) historicalSketch(after string, face bool, adopt bool) workspace.Feature {
 	x.t.Helper()
 	input := x.input(after, x.base.BodyID)

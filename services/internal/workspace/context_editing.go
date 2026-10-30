@@ -246,6 +246,9 @@ func (s *Service) validateContextInsertionPreview(ctx context.Context, documentI
 	if err := resolveRuntimeParameters(ctx, &base); err != nil {
 		return err
 	}
+	if err := s.resolvePartPublications(ctx, documentID, r.RequestID+"/definition", p.headRevision, &base); err != nil {
+		return err
+	}
 	if err := s.evaluateOrderedBodies(ctx, documentID, r.RequestID+"/definition", &base, orderMutationBlocker(p.command)); err != nil {
 		return err
 	}

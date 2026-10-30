@@ -26,7 +26,7 @@ Publication 用稳定目标身份，支持输出及转发；PersistentSelection 
 
 ## 定义与求值
 
-独立机构定义、硬驱动、冻结回放与产品约束转换见[当前机构合同](kinematics-dmu.md)。它复用本域冻结输入及数值内核，运行保留完整机构方程，不继承 Product 关系；运动研究不改变普通装配编辑的偏好、Preview/Commit 或 Revision 语义。实时试动与关键帧录制已有实现；具体范围及验证边界由该主题拥有，独立静态干涉应用未交付。
+独立机构定义、硬驱动、冻结回放与产品约束转换见[当前机构合同](kinematics-dmu.md)。它复用本域冻结输入及数值内核，运行保留完整机构方程，不继承 Product 关系；运动研究不改变普通装配编辑的偏好、Preview/Commit 或 Revision 语义。实时试动与关键帧录制已有实现；具体范围及验证边界由该主题拥有，当前已接受 Product 的独立静态检查见[静态干涉与最小间隙](#静态干涉与最小间隙)。
 
 公共六族为 Coincidence、Contact、Offset、Angle、Fix、Fix Together；Concentric/Distance/Parallel/Perpendicular/Rigid 是内部原语或明确快捷入口。唯一生产目录在 [assemblycontract](../../../services/internal/assemblycontract/README.md)，测试目录仅引用 capabilityId 并映射执行证据；生产按一次加载的只读索引查询，返回脱离缓存的副本。按钮可用性不依赖 PASS 计数，FACE/EDGE/VERTEX 不等于精确类型。
 
@@ -81,6 +81,16 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 剩余运动行选择自动显示有效方向；详情直接列出参考对象、平移方向、轴方向/位置和有意义的螺距，长度跟随工作台单位。显示副本以毫米尺度消除 1e-12 以下噪声，不修改原始证据或分类。analysis-guides 拥有独占几何/材质，在模型之后独立清深度覆盖绘制；平移箭头 64 CSS px，旋转弧箭头位于真实轴线处，线宽 2 CSS px，正交/透视 zoom、resize 与 DPR 更新仅改变变换或 uniform。标记不参与模型包围盒、拾取、BVH、导出或历史。
 
 入口：[只读刷新与证据门](../../../services/internal/workspace/assembly_engineering_refresh.go)、[当前页签](../../../web/apps/cad/src/features/workbench/assembly-conflict-panel.tsx)。回归：[真实 Router/Worker](../../../services/internal/control/assembly_engineering_refresh_integration_test.go)、[浏览器与 Viewer](../../../web/apps/cad/browser/assembly-engineering-live.spec.ts)。
+
+## 静态干涉与最小间隙
+
+Product 的“干涉与间隙检查”独立只读，使用 `AnalyzeInterference`，不接旧 Motion 静态分析分支。支持全部叶零件或明确选定叶零件之间，最小间隙使用工作台长度单位。隐藏不排除；已消费 Body 排除，无活动实体的零件计入无实体范围说明。同一叶零件内的 Body 不互检，不同叶零件（包括同一子装配中的两个叶零件）按 Body 成对检查。
+
+`static_interference.go` 从确切 Product Revision 的接受引用递归展开完整 InstancePath、Part Revision、ContextVariant、Body、精确 BREP 和组合位姿，不从可显示的 resolvedInstances 建立范围，不读取来源 Head。复用已接受上下文投影及可重建缓存；失败 Variant、失败实体、缺失 BREP 和 displayFallback 不能充当有效输入。未完成的应检查零件对保留 INCONCLUSIVE，零对、取消、超限或部分失败不报告全部通过。Worker 上限在开始前检查：128 个 Body、8192 对、256 MiB 去重 BREP，不截断。
+
+OCCT 在隔离副本上计算精确最小距离和必要 Common，区分分离、接触、穿透及包含；结果带距离、交叠体积、见证点、Kernel 策略和完成状态。面板只显示工程名称、路径、数值及状态；内部身份、摘要和诊断进入 DEBUG。行选择定位两个实体，使用两种角色颜色；有效距离显示见证点和连线。显示标记要求 Revision、精确几何及当前位姿与冻结输入匹配；临时预览、拖动、机构试动／回放不显示保存姿态的结果。关闭、范围或版本变化清理临时结果，不写显隐、引用、位姿、Revision 或历史。
+
+入口：`POST /api/documents/{documentID}/static-interference`（Viewer 可读）、`services/internal/geometry/dmu.go`、`kernel/occt/src/dmu.cpp`、`static-interference-panel.tsx`；回归为 `static_interference_integration_test.go` 和 `static-interference.scenario.mjs`。本轮不提供动态碰撞、自动修复、交叠体制品或报告导出；复杂模型、最大资源边界及浏览器拾取／视觉效果仍需专项验收，已有定向测试不代表全规模保证。
 
 ## 发布与关联设计
 

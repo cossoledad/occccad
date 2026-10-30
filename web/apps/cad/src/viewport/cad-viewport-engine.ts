@@ -1,3 +1,4 @@
+import type {StaticInterferenceReport} from "../cad/assembly/static-interference";
 import {contextScopeForView,contextResultMatchesActiveView} from "../api/context-edit-scope";
 import {SketchIntersectionTool} from "../cad/tool/sketch-intersection-tool";
 import {SketchIntersectionCache} from "../cad/interaction/sketch-intersections";
@@ -300,6 +301,37 @@ export class CadViewportEngine {
       this.motionPresentation=motion;this.motionMarkers=markers;this.analysisScene.add(markers);
     }
     this.invalidate();
+  }
+  private staticInterferenceReport?:StaticInterferenceReport;
+  private staticInterferenceMarkers?:THREE.Group;
+  private staticInterferenceCompatible(report:StaticInterferenceReport):boolean {
+    if(this.view?.document.id!==report.documentId||this.view.document.versionId!==report.revisionId||this.motionDisplay||this.mechanismDefinition||this.assemblyPosePreview||this.preview||this.moveCommitPending||this.moveManipulator?.isDragging())return false;
+    this.content.updateMatrixWorld(true);
+    return report.bodies.filter(b=>!b.diagnosticCode).every(b=>{
+      const binding=this.solidBindings.get(`${b.instancePath.canonical}/body:${b.bodyId}`);if(!binding||binding.artifact.geometryKey!==b.geometryKey)return false;
+      const p=binding.group.getWorldPosition(new THREE.Vector3()),q=binding.group.getWorldQuaternion(new THREE.Quaternion());
+      return p.distanceTo(new THREE.Vector3().fromArray(b.pose.translation))<1e-6&&1-Math.abs(q.dot(new THREE.Quaternion().fromArray(b.pose.rotation)))<1e-10;
+    });
+  }
+  showStaticInterference(report?:StaticInterferenceReport,index?:number):boolean {
+    disposeMotionMarkers(this.staticInterferenceMarkers);this.staticInterferenceMarkers=undefined;this.staticInterferenceReport=undefined;
+    if(!report){this.invalidate();return true}
+    if(!this.staticInterferenceCompatible(report))return false;
+    const pair=index===undefined?undefined:report.pairs[index];if(!pair)return false;
+    const group=new THREE.Group();group.name='static-interference';
+    for(const [i,id] of [pair.firstId,pair.secondId].entries()){
+      const body=report.bodies.find(b=>b.id===id);if(!body||body.diagnosticCode)continue;
+      const binding=this.solidBindings.get(`${body.instancePath.canonical}/body:${body.bodyId}`);if(!binding)continue;
+      const color=i===0?CATIA_VISUAL_THEME.selected:CATIA_VISUAL_THEME.hover;
+      const mesh=new THREE.Mesh(binding.mesh.geometry.clone(),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.3,depthTest:false,depthWrite:false,toneMapped:false}));
+      mesh.applyMatrix4(binding.mesh.matrixWorld);mesh.renderOrder=1;group.add(mesh);
+    }
+    if(pair.complete&&Number.isFinite(pair.distanceMm)&&[...pair.firstWitness,...pair.secondWitness].every(Number.isFinite)){
+      const a=new THREE.Vector3().fromArray(pair.firstWitness),b=new THREE.Vector3().fromArray(pair.secondWitness);
+      const connector=makeOcclusionVisibleSegments([[a,b]],CATIA_VISUAL_THEME.selected,2);connector.renderOrder=2;group.add(connector);
+      const points=new THREE.Points(new THREE.BufferGeometry().setFromPoints([a,b]),new THREE.PointsMaterial({color:CATIA_VISUAL_THEME.hover,size:9,sizeAttenuation:false,transparent:true,depthTest:false,depthWrite:false,toneMapped:false}));points.renderOrder=3;group.add(points);
+    }
+    this.staticInterferenceReport=report;this.staticInterferenceMarkers=group;this.analysisScene.add(group);this.invalidate();return true;
   }
   private camera: CadCamera = new THREE.PerspectiveCamera(DEFAULT_PERSPECTIVE_FOV, 1, 0.1, 5000);
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -709,6 +741,7 @@ export class CadViewportEngine {
       editContext?.historicalBoundary, editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
+    if(this.staticInterferenceReport&&this.staticInterferenceReport.revisionId!==view.document.versionId)this.showStaticInterference();
     const motionView=editContext?.view??view;
     if(this.analysisMechanism&&this.view?.document.versionId!==motionView.document.versionId)this.analysisMechanism=undefined;
     if(this.motionPresentation&&(this.motionPresentation.documentId!==motionView.document.id||this.motionPresentation.revisionId!==motionView.document.versionId||this.motionPresentation.ownerOccurrence!==(editContext?.occurrencePath??"")))this.showRemainingMotion();
@@ -1782,6 +1815,7 @@ export class CadViewportEngine {
   private beginMovePreviewGesture():void{
     this.manipulatorSnapCache?.cancelPending();
     if(this.moveCommitPending)return;
+    this.showStaticInterference();
     this.showRemainingMotion();
     const target=this.moveTarget;
     if(target&&this.view){
@@ -1956,6 +1990,7 @@ export class CadViewportEngine {
     this.captureDocumentView();
     this.showMechanism();
     disposeMotionMarkers(this.motionMarkers);
+    disposeMotionMarkers(this.staticInterferenceMarkers);
     this.cancelMovePreviewGesture("viewport interaction reset");
     this.clearSketchMarquee();this.clearDimensionDefinitionPreview(false);
     this.visualGeneration++;
@@ -2120,7 +2155,7 @@ export class CadViewportEngine {
       // Publications also expose layout Parts with no solid artifact. Display
       // their accepted exact sketch snapshots, retaining original entity IDs.
       const published=this.addPublishedLayout(view,instance.id,group);
-      if (group.children.length === 0 && !published) {
+      if (group.children.length === 0 && !published && !(this.editContext?.historicalBoundary&&this.editContext.occurrencePath===instance.id)) {
         const placeholder = new THREE.Mesh(
           new THREE.BoxGeometry(20, 20, 20),
           this.materials.surface(CATIA_VISUAL_THEME.placeholder),
@@ -4109,6 +4144,7 @@ export class CadViewportEngine {
         }
         if (this.viewTransition.update(now)) this.navigation.syncCamera(false);
         if(this.analysisMechanism&&!this.matchesAnalysisPoses(this.analysisMechanism.poses??{})){this.analysisMechanism=undefined;if(this.view)this.addAssemblyConstraintMarkers(this.view);}
+        if(this.staticInterferenceReport&&!this.staticInterferenceCompatible(this.staticInterferenceReport))this.showStaticInterference();
         if(this.motionPresentation?.configurationPoses&&!this.matchesAnalysisPoses(this.motionPresentation.configurationPoses))this.showRemainingMotion();
         this.updateNavigationHUD();
         this.moveManipulator.updateScale(this.camera, viewportMetrics(this.renderer));

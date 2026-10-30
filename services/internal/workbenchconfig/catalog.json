@@ -4955,6 +4955,40 @@
       "implementation": "handler"
     },
     {
+      "id": "assembly.static-interference",
+      "name": "干涉与间隙检查",
+      "helpText": "检查当前已接受装配的干涉、接触与最小间隙。",
+      "iconKey": "distance",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
       "id": "assembly.move-receipt",
       "name": "确认移动结果",
       "helpText": "查询或重试同一移动提交回执，不重复创建操作。",
@@ -6222,6 +6256,11 @@
         },
         {
           "commandId": "assembly.association-repair",
+          "groupKey": "primary",
+          "order": 115
+        },
+        {
+          "commandId": "assembly.static-interference",
           "groupKey": "primary",
           "order": 115
         }

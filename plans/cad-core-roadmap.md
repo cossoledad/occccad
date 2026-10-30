@@ -1,8 +1,8 @@
 # CAD 核心主线
 
-当前重点回到装配关联与静态干涉／间隙：按现有公开接口、接受更新、定位与修复机制推进，首轮范围和验收方案按实际任务确定，不另建更新或求解体系。
+当前重点：当前已接受装配的静态干涉与最小间隙检查。首轮已接通全部／所选叶零件、接受构型冻结、精确分析、完整性与资源门禁，以及只读定位；新增交互仍待手工验收。能力与边界见[当前装配](../docs/architecture/current/product-assembly.md#静态干涉与最小间隙)。接下来按实际反馈完善装配关联及检查闭环，不扩展动态碰撞、自动修复或新求解体系。
 
-历史创建阶段性收口：独立 Part 与直接、可编辑、READY 的 Product ContextVariant 支持历史补草图及同 Body、单方向 FINITE 的 LINEAR_EXTRUDE ADD/REMOVE；沿用四种修饰插入、受约束移动、完整候选检查及历史。能力和边界见唯一 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)，新增上下文交互仍待手工验收。
+历史创建阶段性收口：独立 Part 与直接、可编辑、READY 的 Product ContextVariant 支持历史补草图及同 Body、单方向 FINITE 的 LINEAR_EXTRUDE ADD/REMOVE；沿用四种修饰插入、受约束移动、完整候选检查及历史。能力和边界见唯一 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)，新增上下文交互仍待手工验收；默认构型发布失效时预览与提交共用发布解析门禁，历史输入为空不显示占位实体。
 
 保留后续扩展：其他生成器的合法历史创建、更多受约束移动、任意深层上下文编辑、跨层更新编排、柔性场景及交换验收；具体限制归所属 current 主题，本阶段不继续扩展。
 

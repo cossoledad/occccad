@@ -97,3 +97,19 @@ func (server *Server) analyzeMechanism(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, result)
 }
+
+func (server *Server) analyzeStaticInterference(w http.ResponseWriter, r *http.Request) {
+	if _, ok := server.requireDocument(w, r, access.RoleViewer); !ok {
+		return
+	}
+	var input workspace.StaticInterferenceRequest
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	result, err := server.workspace.AnalyzeStaticInterference(r.Context(), r.PathValue("documentID"), input)
+	if err != nil {
+		writeWorkspaceResult(w, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
