@@ -21,21 +21,21 @@ export function resolveStructureNode(nodes:readonly SpecificationTreeNode[],targ
  return node;
 }
 export function structureCommands(actions:StructureActions={},currentNodes:readonly SpecificationTreeNode[]=[],show:(text:string)=>void=()=>{},selectedNodes:readonly SpecificationTreeNode[]=[]):CadCommand[]{
- const current=(invocation?:CadCommandInvocation)=>{
-  const target=invocation?.payload?structureInvocation(invocation):{node:selectedNodes.length===1?selectedNodes[0]:undefined};
+ const current=(invocation?:CadCommandInvocation,multiple=false)=>{
+  const target:StructureInvocation=invocation?.payload?structureInvocation(invocation):{node:selectedNodes.length===1||multiple?selectedNodes[0]:undefined,nodes:multiple?[...selectedNodes]:undefined};
   if(target.nodeKey){
    const find=(nodes:readonly SpecificationTreeNode[]):SpecificationTreeNode|undefined=>{for(const node of nodes){if(node.key===target.nodeKey)return node;const found=node.children&&find(node.children);if(found)return found;}};
    target.node=find(currentNodes);
   }
   if(!target.node)throw new Error('Missing structure node');
-  return {...target,node:resolveStructureNode(currentNodes,target.node)};
+  return {...target,node:resolveStructureNode(currentNodes,target.node),nodes:target.nodes?.map(n=>resolveStructureNode(currentNodes,n))};
  };
  const command=(action:keyof StructureActions,execute:(target:StructureInvocation&{node:SpecificationTreeNode},operation?:CommandOperation)=>void|Promise<void>):CadCommand=>({id:structureCommandIDs[action],isEnabled:invocation=>{
    if(!actions[action])return false;
    if(action!=="onEdit"&&action!=="onMove"&&action!=="onInsertAfter")return true;
-   try{const {node}=current(invocation);return node.presentationRole!=="INPUT_REFERENCE"&&Boolean(node.capabilities?.includes(action==="onMove"?"MOVE":action==="onInsertAfter"?"INSERT_AFTER":"EDIT"));}catch{return false;}
+   try{const {node,nodes}=current(invocation,action==="onMove");return (action!=="onMove"||!nodes?.length||nodes.every(n=>n.presentationRole!=="INPUT_REFERENCE"&&n.capabilities?.includes("MOVE")&&n.documentId===node.documentId&&n.bodyId===node.bodyId&&(n.selection?.occurrencePath??"")===(node.selection?.occurrencePath??"")))&&node.presentationRole!=="INPUT_REFERENCE"&&Boolean(node.capabilities?.includes(action==="onMove"?"MOVE":action==="onInsertAfter"?"INSERT_AFTER":"EDIT"));}catch{return false;}
   },execute:invocation=>{
-   const target=current(invocation);
+   const target=current(invocation,action==="onMove");
    const capability:Partial<Record<keyof StructureActions,string>>={onInsertAfter:'INSERT_AFTER',onMove:'MOVE',onEdit:'EDIT',onCreatePart:'CREATE_PART',onDetach:'DETACH',onReconnect:'RECONNECT',onRefresh:'REFRESH',onToggleConstruction:'DELETE',onToggleSuppression:'SUPPRESS'};
    const required=action==='onReferenceMode'?(target.referenceMode==='PINNED'?'PIN_VERSION':'FOLLOW_HEAD'):capability[action];if(required&&!target.node.capabilities?.some(capability=>capability===required))throw new Error('Structure operation unavailable');
    return execute(target,invocation?.operation);
@@ -51,7 +51,7 @@ export function structureCommands(actions:StructureActions={},currentNodes:reado
   command('onOpenDocumentTab',({node},operation)=>actions.onOpenDocumentTab?.(node,operation)),
   command('onViewResult',({node},operation)=>actions.onViewResult?.(node,operation)),
   command('onInsertAfter',({node,modifierType},operation)=>actions.onInsertAfter?.(node,modifierType??'FILLET',operation)),
-  command('onMove',({node},operation)=>actions.onMove?.(node,operation)),
+  command('onMove',({node,nodes},operation)=>{if(nodes?.some(n=>!n.capabilities?.includes('MOVE')||n.presentationRole==='INPUT_REFERENCE'))throw new Error('Structure operation unavailable');return actions.onMove?.(node,nodes,operation)}),
   command('onEdit',({node},operation)=>actions.onEdit?.(node,operation)),
   command('onProperties',({node})=>actions.onProperties?.(node)),
   command('onCreatePart',({node})=>actions.onCreatePart?.(node)),

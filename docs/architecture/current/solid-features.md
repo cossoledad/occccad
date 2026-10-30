@@ -50,9 +50,9 @@ Boolean 并/差最多32工具，交集一个；工具定义保存 Body+Feature �
 
 ## 调整特征顺序
 
-结构树的实体 Feature 对象菜单提供“调整特征顺序”：指定同 Body 锚点及之前/之后，权威预览通过后确认。普通生成、Hole、圆角/倒角/抽壳/拔模可以移动；导入、Body 创建者/首个基础实体、Boolean、实体阵列/镜像是同 Body 的固定边界，不能移动或跨越。已有 `FEATURE_DELTA` 范围的有序成员集合保持不变。草图不自动随特征移动。
+结构树支持选择同 Body 的单个或连续实体 Feature 后“调整特征顺序”：连续性按该 Body 的实体历史判断，包含区间内抑制项；指定集合外同 Body 实体锚点及之前/之后，权威预览通过后确认。普通生成、Hole、圆角/倒角/抽壳/拔模可以移动；导入、Body 创建者/首个基础实体、Boolean、实体阵列/镜像是同 Body 的固定边界，不能移动或跨越。已有 `FEATURE_DELTA` 范围的有序成员集合保持不变。草图和其他 Body 不自动随特征移动。
 
-正式 `MOVE_FEATURE` 保存源/锚点 Feature ID、定位及期望定义摘要；确定性地从全局 `model.Features` 取出单项再插入，其他项相对顺序不变，并同步全部 `Order`。每项受影响定义在同一 ChangeSet 内补偿，Feature/Parameter ID、名称、Body、参数及显式引用不变。取消和预览不写 Head，输入或 Revision 变化不能复用旧候选；提交沿原幂等、CAS 和 Undo/Redo 链。
+正式 `MOVE_FEATURE` 冻结有序 `featureIds`、逐项定义摘要和全局顺序摘要，由后端核验集合、连续性与固定边界；单项也按长度1的集合处理。从全局 `model.Features` 一次提取集合，保持内部顺序，整体插到锚点之前/之后；未选对象相对顺序不变，同步全部 `Order`，不循环提交单项移动，不建立持久特征组。每项受影响定义在同一 ChangeSet 内补偿，Feature/Parameter ID、名称、Body、参数及显式引用不变。取消和预览不写 Head，输入或 Revision 变化不能复用旧候选；提交沿原幂等、CAS 和 Undo/Redo 链。
 
 按候选顺序重建 Body 前驱和依赖图，检查全 Part 的轮廓、孔位、支撑、终止面、外部投影及拓扑输入。语义 Anchor 和实际来源阶段分别验证；未显式保存阶段的既有引用从其不可变来源 Revision 的精确 Body Tip 核对，不补写或重绑引用。所有活动引用和 Body 的实际几何必须成功，失效指明阻塞特征并原子拒绝，不接纳 FAILED 移动。顺序与候选前驱进入原阶段输入、缓存和增量求值。
 
@@ -62,11 +62,11 @@ Boolean 并/差最多32工具，交集一个；工具定义保存 Body+Feature �
 
 结构树实体步骤的对象菜单“在此步骤后插入”开放圆角、倒角、拔模和抽壳，复用原面板，简洁显示 Body / 锚点之后；默认参数与普通创建一致。上下文只存在于该次面板；取消、提交、Revision 或编辑目标改变后退出，不建立持久历史游标。锚点必须是当前 Revision 中指定 Body 的有效、未抑制实体阶段；最终 Body 失败时也不借 displayFallback 授权。
 
-`feature-input` 的独立 `afterFeatureId + bodyId + versionId` 模式重建锚点精确前缀：圆角/倒角选边，拔模/抽壳选目标 Body 的面。GeometryKey、来源 Revision、Body、实际 SourceFeatureID 与 PersistentSelection 在创建端再次验证。拔模实体中性面也经该接口绑定，`referenceBodyId` 单独指定同 Part 来源 Body，按同一全局历史前缀取其有效阶段；显示与下载使用相同授权。标准/自定义基准面按递归依赖顺序检查。该模式与编辑输入、只读 `ResultStage` 不混用，不能用最终结果、下游或 displayFallback 冒充历史输入。
+`feature-input` 的独立 `afterFeatureId + bodyId + versionId` 模式重建锚点精确前缀：圆角/倒角选边，拔模/抽壳选目标 Body 的面。GeometryKey、来源 Revision、Body、实际 SourceFeatureID 与 PersistentSelection 在创建端再次验证。拔模实体中性面也经该接口绑定，`referenceBodyId` 单独指定同 Part 来源 Body，按同一全局历史前缀取其有效阶段；显示与下载使用相同授权。标准/自定义基准面按递归依赖顺序检查。ContextVariant 插入按冻结的 Product Revision、Variant 和 occurrence 重建已接受投影的目标/参考 Body 前缀，GeometryKey 与显示/拾取阶段一致；正式 PersistentSelection、实际来源阶段和 CreationEvidence 仍用独立定义校验，不保存投影拓扑或回写投影参数。预览、直接提交及携带预览确认共用此校验，过期上下文拒绝。该模式与编辑输入、只读 `ResultStage` 不混用，不能用最终结果、下游或 displayFallback 冒充历史输入。
 
 原 `CREATE_MODIFY_FEATURE` 携带临时插入信息，在内存候选中直接插入并同步全局数组/Order；按稳定 ID 读取新定义。新 Feature、参数与后续 Order 变化进入同一 ChangeSet/Transaction，沿既有预览、幂等、CAS、补偿历史与缓存提交。原定义和参数身份不变。插入和移动复用候选依赖、实际来源阶段、全 Part 引用/几何检查；下游或跨 Body 失败指出阻塞对象并原子拒绝。固定节点保持相对顺序，允许以其合法输出为锚点，不套用移动的固定边界规则；已有 FEATURE_DELTA 的有序成员集合不能改变。
 
-入口为 `services/internal/workspace/feature_insert.go`、既有 `applyCreateFeature` 与 `solid-feature-editor.tsx`。定向回归：`services/internal/control/feature_insert_integration_test.go` 覆盖四种局部修改、历史面与跨 Body 中性面、递归基准依赖、预览/过期、一次撤销恢复顺序、Redo、重开及热冷 BREP/Naming 对照、下游/跨 Body/材料范围保护。浏览器入口仍为 `solid-feature-live.spec.ts`；新增拔模/抽壳插入的视图区操作需单独实机验收。不包含草图、生成器、Hole 的历史创建或跨 Body 创建，不扩大历史移动边界。
+入口为 `services/internal/workspace/feature_insert.go`、既有 `applyCreateFeature` 与 `solid-feature-editor.tsx`。定向回归：`services/internal/control/feature_insert_integration_test.go` 覆盖四种局部修改、历史面与跨 Body 中性面、递归基准依赖、预览/过期、一次撤销恢复顺序、Redo、重开及热冷 BREP/Naming 对照、下游/跨 Body/材料范围保护。浏览器入口仍为 `solid-feature-live.spec.ts`；新增拔模/抽壳插入的视图区操作需单独实机验收。不包含草图、生成器、Hole 的历史创建或跨 Body 创建，不扩大历史移动的固定边界。
 
 ## 独立 Hole
 

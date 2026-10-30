@@ -65,6 +65,13 @@ try{
  assert(moveCommand.isEnabled({payload:{node:movingNode}}));moveCommand.execute({payload:{node:movingNode}});assert.equal(moved,1);
  assert.equal(moveCommand.isEnabled({payload:{node:{...movingNode,definitionDigest:'old'}}}),false,'stale reorder target cannot open a form');
  const fixed={...movingNode,capabilities:['EDIT']};assert.equal(structureCommands({onMove:()=>{}},[fixed]).find(c=>c.id==='tree.move').isEnabled({payload:{node:fixed}}),false,'fixed nodes have no move capability');
+ const movingSecond={...movingNode,key:'second',entityId:'second',definitionDigest:'second-current'};
+ let members;
+ const multiMove=structureCommands({onMove:(_node,nodes)=>{members=nodes}},[movingNode,movingSecond],()=>{},[movingNode,movingSecond]).find(c=>c.id==='tree.move');
+ assert(multiMove.isEnabled());multiMove.execute();assert.deepEqual(members,[movingNode,movingSecond]);
+ assert.equal(multiMove.isEnabled({payload:{node:movingNode,nodes:[movingNode,{...movingSecond,definitionDigest:'old'}]}}),false,'every selected definition is frozen');
+ const otherBody={...movingSecond,bodyId:'another'};
+ assert.equal(structureCommands({onMove(){}},[movingNode,otherBody],()=>{},[movingNode,otherBody]).find(c=>c.id==='tree.move').isEnabled(),false,'collection cannot cross Bodies');
  const insertAnchor={...movingNode,key:'base',entityId:'base',capabilities:['EDIT','INSERT_AFTER']};let inserted;
  const insertCommand=structureCommands({onInsertAfter:(node,type)=>{inserted={node,type}}},[insertAnchor]).find(c=>c.id==='tree.insert-after');
  assert(insertCommand.isEnabled({payload:{node:insertAnchor}}));insertCommand.execute({payload:{node:insertAnchor,modifierType:'CHAMFER'}});assert.equal(inserted.node,insertAnchor);assert.equal(inserted.type,'CHAMFER');

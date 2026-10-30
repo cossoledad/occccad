@@ -660,3 +660,198 @@ func TestInsertFaceModifiersBooleanAndRemovalProtectionThroughRouter(t *testing.
 		}
 	})
 }
+
+func TestInsertContextVariantModifiersThroughRouter(t *testing.T) {
+	for _, kind := range []string{"DRAFT", "SHELL"} {
+		for _, adopt := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/adopt=%v", kind, adopt), func(t *testing.T) {
+				x := newInsertionScene(t)
+				ctx := t.Context()
+				body := x.base.BodyID
+				param := ""
+				for _, p := range x.v.Part.Parameters {
+					if p.OwnerFeatureID == x.base.ID && p.PropertySlot == "length" {
+						param = p.ParameterID
+					}
+				}
+				x.apply(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: param, Value: 10, Unit: "mm"})
+				x.apply(workspace.CommandRequest{Type: "CREATE_BODY"})
+				referenceBody := x.v.Part.ActiveBodyID
+				x.apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+				sketch := x.v.Part.Features[len(x.v.Part.Features)-1].ID
+				x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 30, Y: -10}, Second: &workspace.SketchPoint2{X: 50, Y: 10}}}})
+				x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 10})
+				reference := x.v.Part.Features[len(x.v.Part.Features)-1]
+				referenceParam := ""
+				for _, p := range x.v.Part.Parameters {
+					if p.OwnerFeatureID == reference.ID && p.PropertySlot == "length" {
+						referenceParam = p.ParameterID
+					}
+				}
+				x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: body})
+				anchor := x.base
+				if kind == "DRAFT" {
+					edge := findP7TopologyPick(t, x.s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+						return p.SourceBodyID == body && p.CreationEvidence.Centroid == [3]float64{-10, -10, 5}
+					})
+					x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: body, Length: .5, Selections: []workspace.FeatureSelection{{Selection: edge.Selection, SourceVersionID: edge.SourceVersionID}}}})
+					anchor = x.v.Part.Features[len(x.v.Part.Features)-1]
+				}
+
+				create := func(typ, name string) workspace.DocumentView {
+					v, e := x.s.CreateDocument(ctx, workspace.CreateDocumentRequest{ActorID: p6Actor, Type: typ, Name: name})
+					if e != nil {
+						t.Fatal(e)
+					}
+					return v
+				}
+				run := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+					r = x.request(r)
+					n, e := x.s.ApplyCommand(ctx, v.Document.ID, r)
+					if e != nil {
+						t.Fatal(r.Type, e)
+					}
+					*v = n
+				}
+				source := create("PART", "Context insertion layout")
+				run(&source, workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: "height", Value: 20, Unit: "mm"})
+				run(&source, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Height", PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: source.Part.Parameters[0].ParameterID})
+				root := create("PRODUCT", "Projected historical insertion")
+				run(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: source.Document.ID})
+				run(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: x.v.Document.ID})
+				for _, parameter := range []string{param, referenceParam} {
+					a, e := x.s.GetProductDesignSession(ctx, root.Document.ID, root.Product.Instances[0].ID)
+					if e != nil {
+						t.Fatal(e)
+					}
+					b, e := x.s.GetProductDesignSession(ctx, root.Document.ID, root.Product.Instances[1].ID)
+					if e != nil {
+						t.Fatal(e)
+					}
+					root, e = x.s.CreateProductContextBinding(ctx, root.Document.ID, workspace.ProductContextBindingRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-input-%s", root.Document.ID, parameter), OwningInstancePath: *b.ActiveInstancePath, SourceInstancePath: *a.ActiveInstancePath, PublicationID: source.Part.Publications[0].ID, PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: parameter})
+					if e != nil {
+						t.Fatal(e)
+					}
+				}
+				acceptedRoot := root.Document.VersionID
+				run(&source, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: source.Part.Parameters[0].ParameterID, Value: 25, Unit: "mm"})
+				pendingRoot, pendingError := x.s.GetDocument(ctx, root.Document.ID, p6Actor)
+				if pendingError != nil || pendingRoot.Document.VersionID != acceptedRoot {
+					t.Fatal("unaccepted source update advanced Product", pendingError)
+				}
+				root = pendingRoot
+				for _, feature := range root.ContextVariants[0].Part.Features {
+					if (feature.ID == x.base.ID || feature.ID == reference.ID) && feature.Length != 20 {
+						t.Fatal("projection read source Head instead of accepted 20 mm", feature.Length)
+					}
+				}
+
+				var e error
+				x.v, e = x.s.GetDocument(ctx, x.v.Document.ID, p6Actor)
+				if e != nil {
+					t.Fatal(e)
+				}
+				variant := root.ContextVariants[0]
+				scope := workspace.ContextReadScope{RootProductDocumentID: root.Document.ID, RootProductRevisionID: root.Document.VersionID, ContextVariantID: variant.VariantKey, InstancePath: &variant.OwningInstancePath}
+				pick := func(other string, match func(modelcore.TopologySelectionEvidence) bool) (workspace.FeatureSelection, string) {
+					r := workspace.FeatureInputRequest{ContextReadScope: scope, VersionID: x.v.Document.VersionID, AfterFeatureID: anchor.ID, BodyID: body, ReferenceBodyID: other}
+					input, e := x.s.GetFeatureInput(ctx, x.v.Document.ID, r)
+					if e != nil {
+						t.Fatal(e)
+					}
+					r.GeometryKey = input.Artifact.GeometryKey
+					r.Kind = "FACE"
+					for i := uint64(1); i <= p6TopologyCount(t, input.Artifact.Topology, "faces"); i++ {
+						r.LocalID = i
+						p, e := x.s.GetFeatureInput(ctx, x.v.Document.ID, r)
+						if e != nil {
+							t.Fatal(e)
+						}
+						if match(p.Selection.Selection.CreationEvidence) {
+							return *p.Selection, r.GeometryKey
+						}
+					}
+					t.Fatal("context stage face missing")
+					return workspace.FeatureSelection{}, ""
+				}
+				face, key := pick("", func(e modelcore.TopologySelectionEvidence) bool {
+					if kind == "SHELL" {
+						return math.Abs(e.Centroid[2]-10) < 1e-7
+					}
+					return math.Abs(e.Centroid[0]+10) < 1e-7 && e.GeometryType == "PLANE"
+				})
+				independent := x.input(anchor.ID, body)
+				if independent.Artifact.GeometryKey == key {
+					t.Fatal("fixture did not project 10 to 20 mm")
+				}
+				f := workspace.Feature{Type: kind, BodyID: body, Length: 2, Angle: 2, Selections: []workspace.FeatureSelection{face}}
+				if kind == "DRAFT" {
+					neutral, _ := pick(referenceBody, func(e modelcore.TopologySelectionEvidence) bool { return math.Abs(e.Centroid[2]-10) < 1e-7 })
+					f.NeutralPlane = &neutral
+					if neutral.SourceFeatureID != reference.ID {
+						t.Fatal("reference stage lost")
+					}
+				}
+				r := x.request(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", AfterFeatureID: anchor.ID, VersionID: x.v.Document.VersionID, GeometryKey: key, Feature: &f, RootProductDocumentID: scope.RootProductDocumentID, RootProductRevisionID: scope.RootProductRevisionID, ContextVariantID: scope.ContextVariantID, InstancePath: scope.InstancePath})
+				wrong := r
+				wrong.GeometryKey = independent.Artifact.GeometryKey
+				x.reject(wrong, "GeometryKey")
+				wrong = r
+				forged := f
+				forged.Selections = append([]workspace.FeatureSelection(nil), f.Selections...)
+				forged.Selections[0].Selection.CreationEvidence.Centroid[2] += 10
+				wrong.Feature = &forged
+				x.reject(wrong, "independent definition evidence")
+				wrong = r
+				wrong.RootProductRevisionID = source.Document.VersionID
+				x.reject(wrong, "CONTEXT_PRODUCT_REVISION_CHANGED")
+				wrong = r
+				wrong.ContextVariantID = "stale-variant"
+				x.reject(wrong, "CONTEXT_VARIANT_CHANGED")
+				if f.NeutralPlane != nil {
+					wrong = r
+					badFeature := f
+					badPlane := *f.NeutralPlane
+					badPlane.Selection.CreationEvidence.Centroid[2] += 10
+					badFeature.NeutralPlane = &badPlane
+					wrong.Feature = &badFeature
+					x.reject(wrong, "independent definition evidence")
+				}
+
+				preview, e := x.s.PreviewCommand(ctx, x.v.Document.ID, r)
+				if e != nil || preview.Artifact == nil {
+					t.Fatal("projected preview", e)
+				}
+				cold, e := x.s.PreviewCommand(workspace.WithColdEvaluation(ctx), x.v.Document.ID, r)
+				if e != nil || cold.Artifact == nil {
+					t.Fatal("cold projected preview", e)
+				}
+				for _, role := range []string{"BREP", "NAMING"} {
+					if preview.Artifact.Representations[role].Digest != cold.Artifact.Representations[role].Digest {
+						t.Fatal("projected hot/cold mismatch", role)
+					}
+				}
+				unchanged, e := x.s.GetDocument(ctx, x.v.Document.ID, p6Actor)
+				if e != nil || unchanged.Document.VersionID != x.v.Document.VersionID {
+					t.Fatal("preview wrote Head", e)
+				}
+				if adopt {
+					r.PreviewID = preview.PreviewID
+				}
+				x.apply(r)
+				created := x.v.Part.Features[slices.IndexFunc(x.v.Part.Features, func(f workspace.Feature) bool { return f.ID == anchor.ID })+1]
+				if !reflect.DeepEqual(created.Selections, f.Selections) || !reflect.DeepEqual(created.NeutralPlane, f.NeutralPlane) {
+					t.Fatal("projected topology/evidence was persisted")
+				}
+				for _, p := range x.v.Part.Parameters {
+					if (p.ParameterID == param || p.ParameterID == referenceParam) && math.Abs(p.EvaluatedValue.SIValue-.01) > 1e-9 {
+						t.Fatal("projected value overwrote default")
+					}
+				}
+				if _, e = x.s.GetFeatureInput(ctx, x.v.Document.ID, workspace.FeatureInputRequest{ContextReadScope: scope, VersionID: x.v.Document.VersionID, AfterFeatureID: anchor.ID, BodyID: body}); e == nil {
+					t.Fatal("old occurrence accepted after commit")
+				}
+			})
+		}
+	}
+}

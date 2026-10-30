@@ -1,3 +1,5 @@
+import {consecutiveSolidFeatures} from "./solid-feature-model";
+import {CommandInputError} from "../../cad/command/operation-failure";
 import {defaultModifierFeature} from "./solid-feature-model";
 import {DesignInputDialog} from "./design-input-dialog";
 import {ReplaceInstanceDialog} from "./replace-instance-dialog";
@@ -215,7 +217,7 @@ export function Workbench() {
   const [developerOpen,setDeveloperOpen]=useState(false);
   const [insertOpen, setInsertOpen] = useState(false);
   const [supportSketch,setSupportSketch]=useState<Feature>();
-  const [featureMove,setFeatureMove]=useState<{feature:Feature;digest:string}>();
+  const [featureMove,setFeatureMove]=useState<{features:Feature[];digests:Record<string,string>;orderDigest:string}>();
   const [solidEditor,setSolidEditor]=useState<{feature:Feature;digest?:string;insertion?:FeatureInsertionContext}>();
   const [featureSelection,setFeatureSelection]=useState<FeatureSelectionSession>();
   const [featureInputs,setFeatureInputs]=useState<Artifact[]>();
@@ -1215,10 +1217,14 @@ onInsertAfter:(node,type)=>{
  const anchor=editingView.part.features.find(f=>f.id===node.entityId);if(!anchor)return;
  closeCommandPanels();endHistoryResult();setSolidEditor({feature:defaultModifierFeature(type,anchor.bodyId),insertion:{afterFeatureId:anchor.id,bodyId:anchor.bodyId!,versionId:editingView.document.versionId,label:`${editingView.part.bodies.find(b=>b.id===anchor.bodyId)?.name} / ${anchor.name}`}});
 },
-onMove:node=>{
+onMove:(node,nodes)=>{
  if(!editingView?.part||!canEdit||command.isPending||store.activeSketchID||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.capabilities?.includes("MOVE")||!node.definitionDigest)return;
- const feature=editingView.part.features.find(f=>f.id===node.entityId);if(!feature)return;
- closeCommandPanels();endHistoryResult();setFeatureMove({feature,digest:node.definitionDigest});
+ const targets=nodes?.length?nodes:[node];
+ if(targets.some(n=>n.documentId!==node.documentId||(n.selection?.occurrencePath??"")!==(activeInstancePath??"")||!n.capabilities?.includes("MOVE")||!n.definitionDigest))return;
+ const features=consecutiveSolidFeatures(editingView.part.features,targets.map(n=>n.entityId!));
+ if(!features)throw new CommandInputError("请选择同一实体中连续的实体特征，包含区间内的抑制项。");
+ if(!editingView.featureOrderDigest)throw new CommandInputError("模型顺序已更新，请刷新后重试。");
+ closeCommandPanels();endHistoryResult();setFeatureMove({features,digests:Object.fromEntries(targets.map(n=>[n.entityId!,n.definitionDigest!])),orderDigest:editingView.featureOrderDigest});
 },
 onProperties:node=>{
   const selected=useWorkbenchStore.getState().selections;
@@ -1632,7 +1638,7 @@ onToggleConstruction:(node)=>{
             onOpenDocumentTab={node=>executeTree("onOpenDocumentTab",{node})}
             onActivate={node=>executeTree("onActivate",{node})}
 			onEdit={node=>executeTree("onEdit",{node})}
-            onMove={node=>executeTree("onMove",{node})}
+            onMove={(node,nodes)=>executeTree("onMove",{node,nodes})}
             onInsertAfter={(node,modifierType)=>executeTree("onInsertAfter",{node,modifierType})}
             onProperties={node=>executeTree("onProperties",{node})}
 			onCreatePart={node=>executeTree("onCreatePart",{node})}
@@ -1998,7 +2004,7 @@ onToggleConstruction:(node)=>{
       onClose={()=>{viewport.current?.clearCommandPreview();setDatumPreview(undefined);setSupportSketch(undefined);}}/>}
     {designInputsOpen&&editingView?.part&&!activeInstancePath&&<DesignInputDialog view={editingView} onClose={()=>{setDesignInputsOpen(false);setFeatureSelection(undefined)}} onApply={refresh} onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}} onSelectionSession={setFeatureSelection} onLocate={s=>store.setSelections([s])}/>}
     {replacementOpen&&view.product&&<ReplaceInstanceDialog key={view.document.id} view={view} initialInstanceId={replacementInstanceId} onSelectionSession={setFeatureSelection} onLocate={s=>store.setSelections([s])} onPreview={setReplacementPreview} onApply={refresh} onClose={()=>{setReplacementOpen(false);setReplacementPreview(undefined);setFeatureSelection(undefined)}}/>}
-    {featureMove&&editingView?.part&&<FeatureMoveDialog key={editingView.document.id+featureMove.feature.id} view={editingView} feature={featureMove.feature} digest={featureMove.digest}
+    {featureMove&&editingView?.part&&<FeatureMoveDialog key={editingView.document.id+featureMove.features.map(f=>f.id).join("/")} view={editingView} features={featureMove.features} digests={featureMove.digests} orderDigest={featureMove.orderDigest}
       onClose={()=>{viewport.current?.clearCommandPreview();setFeatureMove(undefined)}}
       onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}}
       onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}/>}

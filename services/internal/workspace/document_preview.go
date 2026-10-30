@@ -42,7 +42,7 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			}
 		}
 		diagnosticModel = &model
-		if err := service.validateInsertionSource(ctx, documentID, prepared.headRevision, prepared.command, beforeModel); err != nil {
+		if err := service.validateInsertionSource(ctx, documentID, prepared.headRevision, prepared.command, beforeModel, commandReadScope(request)); err != nil {
 			return CommandPreview{}, err
 		}
 		diagnostic.stage("PARAMETERS")

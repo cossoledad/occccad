@@ -1137,6 +1137,7 @@ type DocumentStructureNode struct {
 }
 
 type DocumentView struct {
+	FeatureOrderDigest      string                           `json:"featureOrderDigest,omitempty"`
 	CommandPreview          *CommandPreview                  `json:"commandPreview,omitempty"`
 	BodyAppearances         map[string]ResolvedAppearance    `json:"bodyAppearances,omitempty"`
 	ReplicationSources      map[string]ReplicationSource     `json:"replicationSources,omitempty"`
@@ -1237,6 +1238,10 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	FeatureIDs                 []string          `json:"featureIds,omitempty"`
+	ExpectedFeatureDigests     map[string]string `json:"expectedFeatureDigests,omitempty"`
+	ExpectedFeatureOrderDigest string            `json:"expectedFeatureOrderDigest,omitempty"`
+
 	ContextInputMapping       map[string]string            `json:"contextInputMapping,omitempty"`
 	ConnectInputPoint         bool                         `json:"connectInputPoint,omitempty"`
 	ReplacementVersionID      string                       `json:"replacementVersionId,omitempty"`

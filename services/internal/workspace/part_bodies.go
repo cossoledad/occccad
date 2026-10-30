@@ -375,11 +375,15 @@ func applyBodyCommand(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, 
 
 func previewBodyID(payload json.RawMessage, m PartModel) string {
 	var p struct {
-		Feature   Feature `json:"feature"`
-		FeatureID string  `json:"featureId"`
-		SketchID  string  `json:"sketchId"`
+		Feature    Feature  `json:"feature"`
+		FeatureID  string   `json:"featureId"`
+		FeatureIDs []string `json:"featureIds"`
+		SketchID   string   `json:"sketchId"`
 	}
 	_ = json.Unmarshal(payload, &p)
+	if len(p.FeatureIDs) > 0 {
+		p.FeatureID = p.FeatureIDs[0]
+	}
 	for _, f := range m.Features {
 		if f.ID == p.Feature.ID || f.ID == p.FeatureID || f.ID == p.SketchID {
 			return f.BodyID

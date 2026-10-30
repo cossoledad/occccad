@@ -52,7 +52,7 @@ type FeaturePattern struct {
 	PatternDefinition
 	Source         FeatureStageRef `json:"source"`
 	SourceKind     string          `json:"sourceKind"`               // SKETCH_FRAME, GENERATOR_TOOL, BODY_STAGE, FEATURE_DELTA
-	StartFeatureID string          `json:"startFeatureId,omitempty"` // inclusive start of additive material range
+	StartFeatureID string          `json:"startFeatureId,omitempty"` // inclusive start of finite material range
 }
 
 func resolvePatternAxisDefinition(model PartModel, p PatternDefinition) (PatternDefinition, error) {

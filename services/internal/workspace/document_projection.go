@@ -314,6 +314,7 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 // Value-dependent collections are projected for both independent and accepted views.
 func projectPartCollections(view *DocumentView, model PartModel) {
 	view.ReplicationSources = replicationSources(model)
+	view.FeatureOrderDigest = featureOrderDigest(model)
 	view.SketchPatternMembers = map[string][]SketchEntity{}
 	for _, feature := range model.Features {
 		if feature.Sketch == nil || len(feature.Sketch.Patterns) == 0 {

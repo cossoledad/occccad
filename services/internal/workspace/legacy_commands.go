@@ -613,7 +613,18 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PART" {
 			break
 		}
-		return typeMoveFeature, moveFeaturePayload{FeatureID: request.TargetID, AnchorFeatureID: request.AnchorFeatureID, Placement: request.Placement, ExpectedFeatureDigest: request.ExpectedFeatureDigest}, nil
+		ids, digests, order := request.FeatureIDs, request.ExpectedFeatureDigests, request.ExpectedFeatureOrderDigest
+		if len(ids) == 0 && request.TargetID != "" {
+			ids = []string{request.TargetID}
+			digests = map[string]string{request.TargetID: request.ExpectedFeatureDigest}
+			var model PartModel
+			if err := json.Unmarshal(modelJSON, &model); err != nil {
+				return "", nil, err
+			}
+			normalizePartModel(&model)
+			order = featureOrderDigest(model)
+		}
+		return typeMoveFeature, moveFeaturePayload{FeatureIDs: ids, ExpectedFeatureDigests: digests, ExpectedFeatureOrderDigest: order, AnchorFeatureID: request.AnchorFeatureID, Placement: request.Placement}, nil
 	case "EDIT_FEATURE":
 		if documentType != "PART" {
 			break

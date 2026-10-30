@@ -442,7 +442,7 @@ export type SketchProfileAnalysis = {
   issues: Array<{ code: string; message: string; entityIds: string[]; references?: SketchGeometryRef[]; position?: SketchPoint2 }>;
 };
 
-export type DocumentView = {baseView?:DocumentView;contextOccurrencePath?:string;contextProduct?:DocumentView;
+export type DocumentView = {featureOrderDigest?:string;baseView?:DocumentView;contextOccurrencePath?:string;contextProduct?:DocumentView;
   bodyAppearances?: Record<string, ResolvedAppearance>;
  replicationSources?:Record<string,{sourceKind?:"SKETCH_FRAME"|"GENERATOR_TOOL"|"FEATURE_DELTA";startFeatureId?:string;operation?:Feature["operation"];tool:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
   sketchPatternMembers?:Record<string,SketchEntity[]>;

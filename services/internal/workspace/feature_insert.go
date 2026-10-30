@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 
 	"github.com/occccad/occccad/internal/modelcore"
@@ -88,7 +89,7 @@ func orderMutationBlocker(c modelcore.DomainCommand) func(Feature, string) error
 
 // Check the frozen pre-command stage, never a prefix containing the new feature.
 // Keeping this at the service evaluation boundary also covers typed commands.
-func (s *Service) validateInsertionSource(ctx context.Context, documentID, head string, c modelcore.DomainCommand, before PartModel) error {
+func (s *Service) validateInsertionSource(ctx context.Context, documentID, head string, c modelcore.DomainCommand, before PartModel, scope ContextReadScope) error {
 	p, insert := insertionPayload(c)
 	if !insert {
 		return nil
@@ -96,12 +97,57 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 	if c.TypeURI != typeCreateModifierFeature || p.InsertionVersionID != head {
 		return insertionBlocked(p.Feature, "insertion Revision or command type is invalid")
 	}
+	// Read the exact accepted occurrence, not a newly resolved source Head. The
+	// independent model remains the authority for persisted Naming/evidence.
+	view := DocumentView{Part: &before}
+	view.Document.ID = documentID
+	view.Document.VersionID = head
+	if err := s.acceptedContextPart(ctx, documentID, &view, scope); err != nil {
+		return err
+	}
+	shown := *view.Part
 	key, _, err := s.insertionStage(ctx, before, head, p.AfterFeatureID, p.Feature.BodyID, p.Feature.BodyID)
 	if err != nil {
 		return err
 	}
-	if key != p.InsertionGeometryKey {
+	shownKey := key
+	if scope.RootProductDocumentID != "" {
+		shownKey, _, err = s.insertionStage(ctx, shown, head, p.AfterFeatureID, p.Feature.BodyID, p.Feature.BodyID)
+		if err != nil {
+			return err
+		}
+	}
+	if shownKey != p.InsertionGeometryKey {
 		return insertionBlocked(p.Feature, "GeometryKey does not belong to the insertion stage")
+	}
+	validateProjection := func(pick FeatureSelection, displayKey string, plane bool) error {
+		if scope.RootProductDocumentID == "" {
+			return nil
+		}
+		resolution, e := s.resolveFeaturePick(ctx, pick, displayKey)
+		if e != nil {
+			return e
+		}
+		state, e := featureInputResolution(resolution, func() string {
+			if plane {
+				return "PLANE"
+			}
+			return ""
+		}())
+		if e != nil {
+			return e
+		}
+		if state.Status != modelcore.SelectionResolved {
+			return insertionBlocked(p.Feature, "context input does not uniquely resolve")
+		}
+		canonical := pick
+		if e = s.contextDefinitionPick(ctx, scope, &canonical, displayKey, resolution.Candidates[0].LocalID); e != nil {
+			return e
+		}
+		if !reflect.DeepEqual(canonical.Selection.CreationEvidence, pick.Selection.CreationEvidence) {
+			return insertionBlocked(p.Feature, "context input must retain independent definition evidence")
+		}
+		return nil
 	}
 	for _, pick := range p.Feature.Selections {
 		kind := modelcore.PersistentTopologyFace
@@ -120,6 +166,9 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 		}
 		if resolution.Status != modelcore.SelectionResolved {
 			return insertionBlocked(p.Feature, string(resolution.Status)+": "+resolution.Diagnostic)
+		}
+		if err := validateProjection(pick, shownKey, false); err != nil {
+			return err
 		}
 	}
 	if pick := p.Feature.NeutralPlane; pick != nil {
@@ -140,6 +189,15 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 		}
 		if state.Status != modelcore.SelectionResolved {
 			return insertionBlocked(p.Feature, string(state.Status)+": "+state.Diagnostic)
+		}
+		if scope.RootProductDocumentID != "" {
+			displayKey, _, e := s.insertionStage(ctx, shown, head, p.AfterFeatureID, p.Feature.BodyID, pick.Selection.SourceBodyID)
+			if e != nil {
+				return e
+			}
+			if e = validateProjection(*pick, displayKey, true); e != nil {
+				return e
+			}
 		}
 	}
 	return nil

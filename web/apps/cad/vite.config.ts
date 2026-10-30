@@ -11,7 +11,15 @@ export default defineConfig(({ mode }) => {
   const target = listen.replace(/^0\.0\.0\.0:/, "127.0.0.1:").replace(/^\[::\]:/, "[::1]:");
   const hmrPort = Number(environment.VITE_HMR_CLIENT_PORT || 0) || undefined;
   return {
-    plugins: [react()],
+    plugins: [react(), {
+      name: "cad-dependency-cache",
+      config(config, { mode }) {
+        // Middleware scenarios and browser servers can run concurrently. They
+        // must not replace one another's optimized dependency files/metadata.
+        const scope = config.server?.middlewareMode ? "scenarios" : `${mode}-${config.server?.port ?? 5173}`;
+        return { cacheDir: `${root}/build/vite/cad/${scope}` };
+      },
+    }],
     server: {
       host: "0.0.0.0",
       port: Number(environment.VITE_DEV_PORT || 5173),

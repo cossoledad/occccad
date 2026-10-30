@@ -13,10 +13,26 @@ import (
 const typeMoveFeature = "occccad://part/feature/move"
 
 type moveFeaturePayload struct {
-	FeatureID             string `json:"featureId"`
-	AnchorFeatureID       string `json:"anchorFeatureId"`
-	Placement             string `json:"placement"`
-	ExpectedFeatureDigest string `json:"expectedFeatureDigest"`
+	FeatureIDs                 []string          `json:"featureIds"`
+	ExpectedFeatureDigests     map[string]string `json:"expectedFeatureDigests"`
+	ExpectedFeatureOrderDigest string            `json:"expectedFeatureOrderDigest"`
+	AnchorFeatureID            string            `json:"anchorFeatureId"`
+	Placement                  string            `json:"placement"`
+}
+
+// Includes interleaved sketches/other Bodies: their relative order is frozen,
+// although only explicitly selected Body-solid features will be extracted.
+func featureOrderDigest(model PartModel) string {
+	type entry struct {
+		ID, BodyID string
+		Order      int
+	}
+	entries := make([]entry, 0, len(model.Features))
+	for _, f := range model.Features {
+		entries = append(entries, entry{f.ID, f.BodyID, f.Order})
+	}
+	raw, _ := json.Marshal(entries)
+	return modelcore.ValueDigest(raw)
 }
 
 func movableFeature(model PartModel, id string) bool {
@@ -125,52 +141,99 @@ func applyMoveFeature(raw, payloadJSON json.RawMessage) (json.RawMessage, modelc
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&m)
-	i := slices.IndexFunc(m.Features, func(f Feature) bool { return f.ID == p.FeatureID })
-	a := slices.IndexFunc(m.Features, func(f Feature) bool { return f.ID == p.AnchorFeatureID })
-	if i < 0 || a < 0 || i == a || (p.Placement != "BEFORE" && p.Placement != "AFTER") {
+	if len(p.FeatureIDs) == 0 || (p.Placement != "BEFORE" && p.Placement != "AFTER") {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: MOVE_FEATURE_TARGET_INVALID", ErrValidation)
 	}
-	source := m.Features[i]
-	if !movableFeature(m, source.ID) {
-		return nil, modelcore.ChangeSet{}, moveBlocked(source, "fixed feature cannot move")
+	selected := map[string]bool{}
+	sourceIndex := slices.IndexFunc(m.Features, func(f Feature) bool { return f.ID == p.FeatureIDs[0] })
+	if sourceIndex < 0 {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: MOVE_FEATURE_TARGET_INVALID", ErrValidation)
 	}
-	if source.BodyID != m.Features[a].BodyID {
-		return nil, modelcore.ChangeSet{}, moveBlocked(source, "anchor must belong to the same Body")
+	source := m.Features[sourceIndex]
+	for _, id := range p.FeatureIDs {
+		if selected[id] {
+			return nil, modelcore.ChangeSet{}, moveBlocked(source, "selection contains duplicate features")
+		}
+		selected[id] = true
 	}
-	digest, err := featureDefinitionDigest(m, p.FeatureID)
-	if err != nil {
-		return nil, modelcore.ChangeSet{}, err
-	}
-	if p.ExpectedFeatureDigest == "" || digest != p.ExpectedFeatureDigest {
+	if len(p.ExpectedFeatureDigests) != len(p.FeatureIDs) || p.ExpectedFeatureOrderDigest == "" || p.ExpectedFeatureOrderDigest != featureOrderDigest(m) {
 		return nil, modelcore.ChangeSet{}, featureEditFailure{code: "FEATURE_EDIT_STALE"}
 	}
+	bodyHistory := []string{}
+	for _, f := range m.Features {
+		if f.BodyID == source.BodyID && isBodyFeature(f.Type) {
+			bodyHistory = append(bodyHistory, f.ID)
+		}
+	}
+	start := slices.Index(bodyHistory, source.ID)
+	for offset, id := range p.FeatureIDs {
+		index := slices.IndexFunc(m.Features, func(f Feature) bool { return f.ID == id })
+		if index < 0 {
+			return nil, modelcore.ChangeSet{}, moveBlocked(source, "selection contains duplicate or missing features")
+		}
+		f := m.Features[index]
+		if !movableFeature(m, id) {
+			return nil, modelcore.ChangeSet{}, moveBlocked(f, "fixed feature cannot move")
+		}
+		if f.BodyID != source.BodyID || start < 0 || start+offset >= len(bodyHistory) || bodyHistory[start+offset] != id {
+			return nil, modelcore.ChangeSet{}, moveBlocked(f, "selection must be consecutive in one Body, including suppressed steps")
+		}
+		digest, err := featureDefinitionDigest(m, id)
+		if err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		if digest != p.ExpectedFeatureDigests[id] || digest == "" {
+			return nil, modelcore.ChangeSet{}, featureEditFailure{code: "FEATURE_EDIT_STALE"}
+		}
+	}
+	anchorIndex := slices.IndexFunc(m.Features, func(f Feature) bool { return f.ID == p.AnchorFeatureID })
+	if anchorIndex < 0 || selected[p.AnchorFeatureID] {
+		return nil, modelcore.ChangeSet{}, moveBlocked(source, "anchor must be outside the selected features")
+	}
+	anchor := m.Features[anchorIndex]
+	if anchor.BodyID != source.BodyID {
+		return nil, modelcore.ChangeSet{}, moveBlocked(anchor, "anchor must belong to the same Body")
+	}
+	if !isBodyFeature(anchor.Type) {
+		return nil, modelcore.ChangeSet{}, moveBlocked(anchor, "anchor must be a solid step")
+	}
 	before := append([]Feature(nil), m.Features...)
-	m.Features = append(m.Features[:i:i], m.Features[i+1:]...)
-	a = slices.IndexFunc(m.Features, func(f Feature) bool { return f.ID == p.AnchorFeatureID })
+	members := make([]Feature, 0, len(selected))
+	remaining := make([]Feature, 0, len(before)-len(selected))
+	for _, f := range before {
+		if selected[f.ID] {
+			members = append(members, f)
+		} else {
+			remaining = append(remaining, f)
+		}
+	}
+	a := slices.IndexFunc(remaining, func(f Feature) bool { return f.ID == p.AnchorFeatureID })
 	if p.Placement == "AFTER" {
 		a++
 	}
-	if a == i {
+	m.Features = slices.Insert(remaining, a, members...)
+	if slices.EqualFunc(before, m.Features, func(a, b Feature) bool { return a.ID == b.ID }) {
 		return nil, modelcore.ChangeSet{}, moveBlocked(source, "position is unchanged")
 	}
-	m.Features = slices.Insert(m.Features, a, source)
-	for j := range m.Features {
-		m.Features[j].Order = j + 1
-	}
-	// Fixed nodes divide each Body's history. Other Bodies keep their relative
-	// order, and their explicit consumers are checked over the full global list.
 	oldIndex, newIndex := map[string]int{}, map[string]int{}
-	for j, f := range before {
-		oldIndex[f.ID] = j
+	for i, f := range before {
+		oldIndex[f.ID] = i
 	}
-	for j, f := range m.Features {
-		newIndex[f.ID] = j
+	for i := range m.Features {
+		m.Features[i].Order = i + 1
+		newIndex[m.Features[i].ID] = i
 	}
 	oldModel := m
 	oldModel.Features = before
-	for _, f := range before {
-		if f.BodyID == source.BodyID && isBodyFeature(f.Type) && !movableFeature(oldModel, f.ID) && (i < oldIndex[f.ID]) != (a < newIndex[f.ID]) {
-			return nil, modelcore.ChangeSet{}, moveBlocked(f, "fixed feature cannot be crossed")
+	// Every selected member must stay on the same side of every fixed Body node.
+	for _, fixed := range before {
+		if fixed.BodyID != source.BodyID || !isBodyFeature(fixed.Type) || movableFeature(oldModel, fixed.ID) {
+			continue
+		}
+		for _, f := range members {
+			if (oldIndex[f.ID] < oldIndex[fixed.ID]) != (newIndex[f.ID] < newIndex[fixed.ID]) {
+				return nil, modelcore.ChangeSet{}, moveBlocked(fixed, "fixed feature cannot be crossed")
+			}
 		}
 	}
 	if err := protectFeatureRanges(oldModel, m, moveBlocked); err != nil {

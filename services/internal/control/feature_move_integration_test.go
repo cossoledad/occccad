@@ -300,3 +300,166 @@ func TestMoveFeatureRejectsCrossBodyGeometryFailureThroughRouter(t *testing.T) {
 	reject(hole.ID, cut.ID, "AFTER", consumer.ID)
 	reject(cut.ID, child.ID, "BEFORE", "anchor must belong to the same Body")
 }
+
+func TestMoveFeatureCollectionsThroughRouter(t *testing.T) {
+	for _, consumer := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cross-consumer=%v", consumer), func(t *testing.T) {
+			x := newInsertionScene(t)
+			ctx := t.Context()
+			body := x.base.BodyID
+			x.apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Origin: [3]float64{0, 0, 20}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
+			plane := x.v.Part.DatumPlanes[len(x.v.Part.DatumPlanes)-1].ID
+			x.apply(workspace.CommandRequest{Type: "CREATE_SKETCH", DatumPlaneID: plane})
+			position := x.v.Part.Features[len(x.v.Part.Features)-1].ID
+			x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: position, Operations: []workspace.SketchOperation{{Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "a", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: -5, Y: -3}}}, {Type: "ADD_ENTITY", Entity: &workspace.SketchEntity{ID: "b", Kind: "POINT", Role: "CONSTRUCTION", Point: &workspace.SketchPoint2{X: 5, Y: -3}}}}})
+			hole := func(point string) workspace.Feature {
+				x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &workspace.Feature{Type: "HOLE", BodyID: body, Operation: "REMOVE", HoleKind: "SIMPLE", Extent: "BLIND", Diameter: 3, Depth: 5, Reversed: true, HolePoint: &workspace.PatternPointReference{SketchID: position, Reference: workspace.SketchGeometryRef{Target: "ENTITY", EntityID: point, SubElement: "POINT"}}}})
+				return x.v.Part.Features[len(x.v.Part.Features)-1]
+			}
+			chamfer := func(center float64) workspace.Feature {
+				p := findP7TopologyPick(t, x.s, x.v, "EDGE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+					c := p.CreationEvidence.Centroid
+					return p.SourceBodyID == body && math.Abs(c[0]-center) < 1e-7 && math.Abs(c[1]+3) < 1e-7 && math.Abs(c[2]-20) < 1e-7
+				})
+				x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "CHAMFER", BodyID: body, Length: .3, Selections: []workspace.FeatureSelection{{Selection: p.Selection, SourceVersionID: p.SourceVersionID}}}})
+				return x.v.Part.Features[len(x.v.Part.Features)-1]
+			}
+			first := hole("a")
+			firstEnd := chamfer(-5)
+			second := hole("b")
+			// A different Body and its sketch stay in the global list; neither belongs
+			// to the moving Body's continuous solid interval.
+			x.apply(workspace.CommandRequest{Type: "CREATE_BODY"})
+			other := x.v.Part.ActiveBodyID
+			x.apply(workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Origin: [3]float64{0, 0, 16}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
+			x.apply(workspace.CommandRequest{Type: "CREATE_SKETCH", DatumPlaneID: x.v.Part.DatumPlanes[len(x.v.Part.DatumPlanes)-1].ID})
+			otherSketch := x.v.Part.Features[len(x.v.Part.Features)-1].ID
+			x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: otherSketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 4.8, Y: -3.2}, Second: &workspace.SketchPoint2{X: 5.2, Y: -2.8}}, {Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 30, Y: -3.2}, Second: &workspace.SketchPoint2{X: 31, Y: -2.8}}}})
+			x.apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: otherSketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 3})
+			x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: body})
+			side, _ := x.faceWhere(second.ID, body, body, false, func(p workspace.FeatureSelection) bool {
+				return math.Abs(p.Selection.CreationEvidence.Centroid[0]+10) < 1e-7
+			})
+			x.apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "DRAFT", BodyID: body, Angle: 2, NeutralPlaneID: "datum-xy", Suppressed: true, Selections: []workspace.FeatureSelection{side}}})
+			suppressed := x.v.Part.Features[len(x.v.Part.Features)-1]
+			secondEnd := chamfer(5)
+			x.apply(workspace.CommandRequest{Type: "CREATE_PATTERN", Feature: &workspace.Feature{Type: "SOLID_PATTERN", BodyID: body, Operation: "REMOVE", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Direction: [3]float64{0, 1, 0}, Count: 2, Spacing: 8}, SourceKind: "FEATURE_DELTA", StartFeatureID: first.ID, Source: workspace.FeatureStageRef{BodyID: body, FeatureID: firstEnd.ID}, AdditionalSources: []workspace.PatternSeed{{SourceKind: "FEATURE_DELTA", StartFeatureID: second.ID, Source: workspace.FeatureStageRef{BodyID: body, FeatureID: secondEnd.ID}}}, ResultMode: "COMBINE"}}})
+			pattern := x.v.Part.Features[len(x.v.Part.Features)-1]
+			blocker := ""
+			if consumer {
+				x.apply(workspace.CommandRequest{Type: "CREATE_BOOLEAN_FEATURE", BodyID: other, Operation: "INTERSECT", KeepTools: true, Tools: []workspace.FeatureStageRef{{BodyID: body, FeatureID: first.ID}}})
+				blocker = x.v.Part.Features[len(x.v.Part.Features)-1].Name
+				x.apply(workspace.CommandRequest{Type: "SET_ACTIVE_BODY", BodyID: body})
+			}
+			request := func(ids []string, anchor, placement string) workspace.CommandRequest {
+				digests := map[string]string{}
+				for _, id := range ids {
+					digests[id] = findP6FeatureDigest(t, x.v.StructureTree, id)
+				}
+				return x.request(workspace.CommandRequest{Type: "MOVE_FEATURE", VersionID: x.v.Document.VersionID, FeatureIDs: ids, ExpectedFeatureDigests: digests, ExpectedFeatureOrderDigest: x.v.FeatureOrderDigest, AnchorFeatureID: anchor, Placement: placement})
+			}
+			members := []string{second.ID, suppressed.ID, secondEnd.ID}
+			r := request(members, first.ID, "BEFORE")
+			if consumer {
+				before := *x.v.Part
+				x.reject(r, blocker)
+				now, e := x.s.GetDocument(ctx, x.v.Document.ID, p6Actor)
+				if e != nil || !reflect.DeepEqual(now.Part.Features, before.Features) || !reflect.DeepEqual(now.Part.Parameters, before.Parameters) {
+					t.Fatal("full-Part failure mutated definitions", e)
+				}
+				return
+			}
+			x.reject(request([]string{second.ID, secondEnd.ID}, first.ID, "BEFORE"), "consecutive")
+			x.reject(request([]string{secondEnd.ID}, first.ID, "BEFORE"), "FEATURE_DELTA")
+			x.reject(request(members, suppressed.ID, "BEFORE"), "outside")
+			x.reject(request(members, pattern.ID, "AFTER"), "fixed feature")
+			wrong := r
+			wrong.ExpectedFeatureOrderDigest = "stale"
+			x.reject(wrong, "")
+			before := append([]workspace.Feature(nil), x.v.Part.Features...)
+			parameters := append([]modelcore.ParameterDefinition(nil), x.v.Part.Parameters...)
+			original := activeBodyArtifact(t, x.v)
+			history, e := x.s.ListHistory(ctx, x.v.Document.ID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			preview, e := x.s.PreviewCommand(ctx, x.v.Document.ID, r)
+			if e != nil || preview.Artifact == nil {
+				t.Fatal("range collection preview", e)
+			}
+			now, e := x.s.GetDocument(ctx, x.v.Document.ID, p6Actor)
+			if e != nil || now.Document.VersionID != x.v.Document.VersionID {
+				t.Fatal("preview wrote Head", e)
+			}
+			stale := r
+			stale.AnchorFeatureID = firstEnd.ID
+			stale.Placement = "AFTER"
+			stale.PreviewID = preview.PreviewID
+			if _, e = x.s.ApplyCommand(ctx, x.v.Document.ID, stale); e == nil {
+				t.Fatal("old preview adopted")
+			}
+			r.PreviewID = preview.PreviewID
+			x.apply(r)
+			final := activeBodyArtifact(t, x.v)
+			if math.Abs(final.Volume-original.Volume) > 1e-6 {
+				t.Fatal("range exchange changed material", original.Volume, final.Volume)
+			}
+			for i, id := range members {
+				at := slices.IndexFunc(x.v.Part.Features, func(f workspace.Feature) bool { return f.ID == id })
+				if i > 0 && x.v.Part.Features[at-1].ID != members[i-1] {
+					t.Fatal("internal order changed")
+				}
+			}
+			remaining := func(features []workspace.Feature) []string {
+				var ids []string
+				for _, f := range features {
+					if !slices.Contains(members, f.ID) {
+						ids = append(ids, f.ID)
+					}
+				}
+				return ids
+			}
+			if !reflect.DeepEqual(remaining(before), remaining(x.v.Part.Features)) || !reflect.DeepEqual(parameters, x.v.Part.Parameters) {
+				t.Fatal("unselected objects or parameters moved")
+			}
+			for i, f := range x.v.Part.Features {
+				if f.Order != i+1 {
+					t.Fatal("Order not synchronized")
+				}
+				if f.ID == pattern.ID && !reflect.DeepEqual(f.Pattern, pattern.Pattern) {
+					t.Fatal("pattern range definitions changed")
+				}
+			}
+			after, e := x.s.ListHistory(ctx, x.v.Document.ID)
+			if e != nil || len(after) != len(history)+1 {
+				t.Fatal("collection was not one transaction", e)
+			}
+			x.apply(workspace.CommandRequest{Type: "UNDO"})
+			if !reflect.DeepEqual(x.v.Part.Features, before) {
+				t.Fatal("one Undo did not restore complete global order")
+			}
+			x.apply(workspace.CommandRequest{Type: "REDO"})
+			if activeBodyArtifact(t, x.v).GeometryID != final.GeometryID {
+				t.Fatal("Redo changed result")
+			}
+			fresh := workspace.NewWithArtifacts(x.db, x.client, x.artifacts)
+			opened, e := fresh.GetDocument(ctx, x.v.Document.ID, p6Actor)
+			if e != nil || !reflect.DeepEqual(opened.Part.Features, x.v.Part.Features) {
+				t.Fatal("reopen", e)
+			}
+			currentPattern := x.v.Part.Features[slices.IndexFunc(x.v.Part.Features, func(f workspace.Feature) bool { return f.ID == pattern.ID })]
+			cold, e := fresh.PreviewCommand(workspace.WithColdEvaluation(ctx), x.v.Document.ID, workspace.CommandRequest{ActorID: p6Actor, Type: "EDIT_FEATURE", TargetID: pattern.ID, Feature: &currentPattern, ExpectedFeatureDigest: findP6FeatureDigest(t, x.v.StructureTree, pattern.ID)})
+			if e != nil || cold.Artifact == nil {
+				t.Fatal("cold collection rebuild", e)
+			}
+			for _, role := range []string{"BREP", "NAMING"} {
+				if cold.Artifact.Representations[role].Digest != final.Representations[role].Digest {
+					t.Fatal("collection hot/cold mismatch", role)
+				}
+			}
+			r.PreviewID = ""
+			r.RequestID += "-stale"
+			x.reject(r, "")
+		})
+	}
+}

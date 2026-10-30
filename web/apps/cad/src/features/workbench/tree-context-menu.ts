@@ -8,7 +8,7 @@ type Item=NonNullable<MenuProps["items"]>[number];
 export function structureMenu(items:Item[],name:string,multiple=false):Item[] {
  const live=items.filter((item):item is Exclude<Item,null>=>Boolean(item)&&item?.type!=="divider");
  const take=(keys:string[])=>live.filter(item=>"key" in item&&keys.includes(String(item.key)));
- const object=multiple?[]:take(["activate-body","construction","view-result","replace","insert-after","move","edit","create-part","pin-version","follow-head","detach","reconnect","refresh","suppress"]);
+ const object=multiple?take(["move"]):take(["activate-body","construction","view-result","replace","insert-after","move","edit","create-part","pin-version","follow-head","detach","reconnect","refresh","suppress"]);
  const groups=[multiple?[]:take(["activate","open-document-tab","open-source"]),multiple?[]:take(["visibility"]),
   take(["copy-alias","delete"]).filter(item=>item?.key!=="delete"||!("disabled" in item&&item.disabled)),
   object.length?[{key:"object-actions",label:"对象",children:object}]:[],take(["properties"])];

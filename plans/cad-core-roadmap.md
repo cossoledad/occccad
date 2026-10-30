@@ -1,6 +1,6 @@
 # CAD 核心主线
 
-当前重点：四种局部修改共用历史插入。FILLET / CHAMFER / DRAFT / SHELL 沿既有创建、精确阶段拾取、预览确认与补偿历史；拔模中性面区分目标 Body 与同 Part 参考 Body，按同一全局前缀绑定。保留添加/净切除 FEATURE_DELTA 的起止和有序成员集合保护。当前能力、限制及验证入口见唯一 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)。新增拔模/抽壳插入的浏览器操作待实机验收，不累计实施日志。
+当前重点：上下文历史插入一致性与同 Body 连续实体特征整体移动。插入按冻结的 Product / Variant / occurrence 校验投影 GeometryKey，正式引用和证据来自独立定义；MOVE_FEATURE 一次提取并移动明确集合，保留内部顺序、抑制项、固定边界、添加/净切除范围及全 Part 校验。当前能力、限制和验证入口见唯一 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)。新增交互待手工验收，不累计实施日志。
 
 后续按实际建模需求推进：更多合法历史插入/移动；任意深层上下文编辑、跨层更新编排与柔性场景、静态干涉/间隙及交换验收仍未完成。具体边界分别归所属 current 主题，不把设计或接口存在当作交付。
 

@@ -56,7 +56,7 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 			}
 		}
 		diagnosticModel = &model
-		if err := service.validateInsertionSource(ctx, documentID, prepared.headRevision, prepared.command, beforeModel); err != nil {
+		if err := service.validateInsertionSource(ctx, documentID, prepared.headRevision, prepared.command, beforeModel, commandReadScope(input.request)); err != nil {
 			return err
 		}
 		normalizePartModel(&model)

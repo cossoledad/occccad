@@ -67,7 +67,15 @@ try {
  const blocker=normalizeOperationFailure(new Error("invalid workspace command: INSERT_FEATURE_BLOCKED[internal-stable-id] Chamfer.1: geometry evaluation failed"));
  assert.match(blocker.message,/Chamfer\.1/);assert.doesNotMatch(blocker.message,/internal-stable-id|geometry evaluation/);
  assert.match(normalizeOperationFailure(new Error("INSERT_FEATURE_BLOCKED[pattern-id] Pattern.1: FEATURE_DELTA range membership/order is protected")).message,/Pattern\.1.*范围/);
- const {modifierTypes,defaultModifierFeature}=await server.ssrLoadModule("/src/features/workbench/solid-feature-model.ts");
+ const {modifierTypes,defaultModifierFeature,consecutiveSolidFeatures}=await server.ssrLoadModule("/src/features/workbench/solid-feature-model.ts");
+ const collectionHistory=[{id:'base',bodyId:'body',type:'PAD'},{id:'a',bodyId:'body',type:'HOLE'},{id:'sketch',bodyId:'body',type:'SKETCH'},{id:'other',bodyId:'other',type:'PAD'},{id:'suppressed',bodyId:'body',type:'DRAFT',suppressed:true},{id:'b',bodyId:'body',type:'CHAMFER'}];
+ assert.deepEqual(consecutiveSolidFeatures(collectionHistory,['b','a','suppressed']).map(f=>f.id),['a','suppressed','b']);
+ assert.equal(consecutiveSolidFeatures(collectionHistory,['a','b']),undefined,'suppressed solid members must be explicit');
+ assert.equal(consecutiveSolidFeatures(collectionHistory,['a','other']),undefined);
+ assert.equal(consecutiveSolidFeatures(collectionHistory,['a','a']),undefined);
+ const movedFailure=normalizeOperationFailure(new Error('MOVE_FEATURE_BLOCKED[private-id] Boolean.1: geometry evaluation failed'));
+ assert.match(movedFailure.message,/Boolean\.1/);assert.doesNotMatch(movedFailure.message,/private-id/);
+ assert.match(normalizeOperationFailure(new Error('FEATURE_EDIT_STALE')).message,/模型已发生变化/);
  assert.deepEqual(modifierTypes,["FILLET","CHAMFER","DRAFT","SHELL"]);
  assert.equal(defaultModifierFeature("DRAFT","body").angle,5);
  const historicalPlane={...session,role:"plane",bodyId:"target",geometryKey:"target-stage",planeGeometryKeys:["reference-prefix"]};

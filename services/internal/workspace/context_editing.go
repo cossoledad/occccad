@@ -228,6 +228,10 @@ type ContextReadScope struct {
 	ContextVariantID      string        `json:"contextVariantId,omitempty"`
 }
 
+func commandReadScope(r CommandRequest) ContextReadScope {
+	return ContextReadScope{RootProductDocumentID: r.RootProductDocumentID, RootProductRevisionID: r.RootProductRevisionID, ContextVariantID: r.ContextVariantID, InstancePath: r.InstancePath}
+}
+
 func (s *Service) acceptedContextPart(ctx context.Context, documentID string, view *DocumentView, scope ContextReadScope) error {
 	if scope.RootProductDocumentID == "" {
 		return nil

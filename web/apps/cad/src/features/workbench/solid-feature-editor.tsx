@@ -67,7 +67,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const [terminationVisual,setTerminationVisual]=useState<SelectionItem>();
     const [terminationLoadError,setTerminationLoadError]=useState<string>();
     const [terminationResolution,setTerminationResolution]=useState<FeatureInputResolution>();
-    const [planeInputs,setPlaneInputs]=useState<Artifact[]>([]),[planeErrors,setPlaneErrors]=useState<string[]>([]);
+    const [planeInputs,setPlaneInputs]=useState<Artifact[]>([]),[planeErrors,setPlaneErrors]=useState<string[]>([]),[planeLoadAttempt,setPlaneLoadAttempt]=useState(0);
     const [neutralVisual, setNeutralVisual] = useState<SelectionItem>();
     const [neutralResolution, setNeutralResolution] = useState<FeatureInputResolution>();
     const [replacement, setReplacement] = useState<string>();
@@ -126,11 +126,11 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         const bodies=view.part!.bodies.filter(b=>sourceBodies.has(b.id));
         void Promise.allSettled(bodies.map(b=>api.getFeatureInput(view.document.id,{versionId:version.current,featureId:feature.id||undefined,afterFeatureId:insertion?.afterFeatureId,bodyId:insertion?.bodyId??b.id,referenceBodyId:insertion?b.id:undefined},controller.signal))).then(results=>{
             if(!active)return;const inputs:Artifact[]=[],errors:string[]=[];
-            results.forEach((r,i)=>{if(r.status==="fulfilled"){if(r.value.sourceFeatureId)inputs.push(r.value.artifact);}else errors.push(`${bodies[i].name}: ${String(r.reason)}`)});
+            results.forEach((r,i)=>{if(r.status==="fulfilled"){if(r.value.sourceFeatureId)inputs.push(r.value.artifact);}else errors.push(bodies[i].name)});
             setPlaneInputs(inputs);setPlaneErrors(errors);
         });
         return()=>{active=false;controller.abort()};
-    },[terminating]);
+    },[terminating,planeLoadAttempt]);
     useEffect(()=>{
         if(!inputContext&&!planeInputs.length)return;
         const artifacts=[...(inputContext?(inputContext.artifacts??[inputContext.artifact]):[]),...planeInputs];
@@ -415,8 +415,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     <small>到平面：使用目标的无限延伸支撑平面，随目标位置和朝向更新。</small>
     {terminationResolution&&terminationResolution.status!=="RESOLVED"&&<Alert type="warning" title="终止平面需要修复" description="请明确重新选择当前特征之前的合法平面。"/>}
     {terminationLoadError&&<Alert type="error" title="原终止目标解析失败" description={engineeringProblem(terminationLoadError)}/>}
-    {planeErrors.map((text,i)=><Alert key={i} type="error" title="部分上游输入不可用" description={engineeringProblem(text)}/>)}
    </>}
+   {(feature.type==="DRAFT"||terminating)&&planeErrors.length>0&&<Alert type="warning" title={`参考阶段加载失败：${planeErrors.join("、")}`} action={<Button size="small" onClick={()=>setPlaneLoadAttempt(n=>n+1)}>重试</Button>}/>}
    {feature.type === "DRAFT" && <>
     <FeaturePickField label="中性平面" value={neutralResolution && neutralResolution.status!=="RESOLVED" ? inputStatusText(neutralResolution) : draft.neutralPlane ? "已选择实体平面" : view.part?.datumPlanes.find(p => p.id === draft.neutralPlaneId)?.name ?? "选择基准面或实体平面"} selected={!!(draft.neutralPlane||draft.neutralPlaneId)} selections={neutralVisual?[neutralVisual]:[]} active={role === "plane"} disabled={loadingInput || !!inputError || !!binding} onActivate={() => {setReplacement(undefined);setRole("plane");}} onClear={(draft.neutralPlane || draft.neutralPlaneId) && !binding ? ()=>{edit({neutralPlane:undefined,neutralPlaneId:undefined});setNeutralVisual(undefined);setNeutralResolution(undefined);} : undefined}/>
     {neutralResolution && neutralResolution.status!=="RESOLVED" && <Alert type="warning" title="中性平面需要修复" description="请选择当前特征之前的基准面或实体平面。"/>}
