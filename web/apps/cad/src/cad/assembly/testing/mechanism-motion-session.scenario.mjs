@@ -40,6 +40,16 @@ try{
  assert.equal(switchingOwner.identity.inputDigest,'digest2');assert.equal(switchingOwner.identity.activeDriverIds[0],'d2');assert.deepEqual(switchingOwner.checkpoint.frame.unitPoses,accepted.unitPoses,'active coordinate change must preserve the qualified model');
  const refused=switchingOwner.request({activeDriverIds:['d3']},false);switchedRequests[2].resolve({...switchingOwner.checkpoint,sequence:3,accepted:false,failure:{code:'UNSUPPORTED_DOF'}});await refused;await switchingOwner.settle();assert.equal(switchingOwner.identity.activeDriverIds[0],'d2','a failed coordinate change must retain the previous driver');
  const resumed=switchingOwner.request({values:{d2:{value:4.5,unit:'rad'}}});switchedRequests[3].resolve({...switchingOwner.checkpoint,sequence:4,accepted:true,frame:{...accepted,commandValues:{d2:4.5}}});await resumed;await switchingOwner.cancel();
+ const collisionFrames=[],collisionRequests=[];
+ const collisionOwner=new MechanismMotionSession({begin:async()=>opened,update:(id,input)=>new Promise(resolve=>collisionRequests.push({input,resolve})),record:async()=>{},finalize:async()=>{},preview:async()=>{},cancel:async()=>{},onFrame:(f,recordable)=>collisionFrames.push({f,recordable}),onBusy:()=>{}});
+ await collisionOwner.begin({});
+ const policy=collisionOwner.request({clash:{mode:'STOP',clearanceMm:2}},false);
+ collisionRequests[0].resolve({...opened,sequence:1,clash:{mode:'STOP',stopped:false,sampled:true,report:{frameSequence:1}}});await policy;await collisionOwner.settle();
+ assert.deepEqual(collisionRequests[0].input.clash,{mode:'STOP',clearanceMm:2});assert.equal(collisionFrames.at(-1).recordable,false,'changing the analysis policy cannot record a motion key');
+ const stoppedMove=collisionOwner.request({values:{d:{value:2,unit:'rad'}}});
+ collisionRequests[1].resolve({...opened,sequence:2,accepted:false,frame:{...accepted,commandValues:{d:.4}},clash:{mode:'STOP',stopped:true,sampled:true,report:{frameSequence:2}}});await stoppedMove;await collisionOwner.settle();
+ assert.equal(collisionOwner.checkpoint.frame.commandValues.d,.4,'collision stop uses the actual safe coordinates, not the requested value');assert.equal(collisionOwner.checkpoint.clash.stopped,true);assert.equal(collisionOwner.checkpoint.failure,undefined,'collision and solver failure remain separate');
+ await collisionOwner.cancel();
  const key=(id,t,q)=>({id,timeSeconds:t,values:{d:{value:q,unit:'deg'}}});
  let keys=[key('zero',0,0)];keys=replaceMotionKey(keys,key('turn',1,360));keys=replaceMotionKey(keys,key('return',2,0));
  assert.equal(motionTargetAt({activeDriverIds:['d'],keyframes:keys},.5).d.value,Math.PI,'full-turn winding is retained in recorded coordinates');

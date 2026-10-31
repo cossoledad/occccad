@@ -9,7 +9,7 @@ async function observeGuides(page:Page){
 const guides=(page:Page)=>page.evaluate(()=>(window as any).__engineeringEngine?.motionMarkers?.children.length??0);
 
 test('read-only remaining motion refresh freezes metadata Revision, cancels stale markers and works for Viewer',async({page,browser},testInfo)=>{
- test.setTimeout(240_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await observeGuides(page);await login(page);
+ test.setTimeout(240_000);page.setDefaultTimeout(20000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await observeGuides(page);await login(page);
  const seed=await page.evaluate(async()=>{
   // @ts-ignore production module
   const {restApi:api}=await import('/src/api.ts');let part=await api.createDocument('PART','只读运动证据零件');const pid=part.document.id;
@@ -70,4 +70,81 @@ test('read-only remaining motion refresh freezes metadata Revision, cancels stal
  const viewerContext=await browser.newContext({baseURL:'http://127.0.0.1:5175',viewport:{width:1440,height:1000}});const viewer=await viewerContext.newPage();await observeGuides(viewer);await login(viewer,seed.email,seed.password);await viewer.goto(`/documents/${seed.id}`);const vd=await openMotion(viewer);await expect(vd.getByRole('button',{name:'刷新剩余运动',exact:true})).toBeEnabled();
  const priorViewer=await current(viewer,seed.id);expect(priorViewer.document.permission).toBe('VIEWER');await vd.getByRole('button',{name:'刷新剩余运动',exact:true}).click();await expect(vd.getByRole('status',{name:'剩余运动计算状态'})).toContainText('分析完成');const postViewer=await current(viewer,seed.id);expect(postViewer.product).toEqual(priorViewer.product);expect(postViewer.document.versionId).toBe(priorViewer.document.versionId);await viewerContext.close();
  expect(errors).toEqual([]);await peer.close();
+});
+
+async function clashCommand(page:Page,name:string){await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill(name);await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp('^'+name+'$')})}).click();}
+async function clashSeed(page:Page,motion=false){return page.evaluate(async motion=>{
+ // @ts-ignore production Vite module
+ const {restApi:api}=await import('/src/api.ts');let p=await api.createDocument('PART','Clash验收块');
+ p=await api.command(p.document.id,{type:'CREATE_SKETCH',plane:'XY'});const sid=p.part!.features.at(-1)!.id;
+ p=await api.command(p.document.id,{type:'EDIT_SKETCH',sketchId:sid,operations:[{type:'ADD_RECTANGLE',first:{x:-5,y:-5},second:{x:5,y:5}}]});
+ p=await api.command(p.document.id,{type:'CREATE_SOLID_FEATURE',sketchId:sid,generator:'LINEAR_EXTRUDE',operation:'ADD',length:10});
+ let v=await api.createDocument('PRODUCT',motion?'Clash运动停止验收':'Clash局部图形验收');
+ for(let i=0;i<3;i++)v=await api.command(v.document.id,{type:'INSERT_INSTANCE',referencedDocumentId:p.document.id});
+ const [ground,moving,environment]=v.product!.instances.map(i=>i.id);
+ for(const [instanceId,translation] of [[moving,motion?[0,0,20]:[8,0,0]],[environment,motion?[0,0,35]:[26,0,0]]] as const)v=await api.command(v.document.id,{type:'MOVE_INSTANCE',instanceId,translation,rotation:[0,0,0,1]});
+ const mid=crypto.randomUUID();
+ if(motion){const end=(instanceId:string)=>({instanceId,frame:{translation:[0,0,0],rotation:[0,0,0,1]},capturedX:[1,0,0],axis:{instanceId,kind:'AXIS',geometryId:'axis-system-default',axis:'Z'},plane:{instanceId,kind:'PLANE',geometryId:'datum-yz'}});
+ v=await api.command(v.document.id,{type:'SAVE_KINEMATICS',versionId:v.document.versionId,kinematics:{mechanisms:[{id:mid,name:'滑块机构.1',unitIds:[ground,moving],joints:[{id:crypto.randomUUID(),name:'固定件.1',kind:'GROUND',first:end(ground)},{id:'slider',name:'棱形.1',kind:'PRISMATIC',first:end(ground),second:end(moving),orientationAngle:{value:0,unit:'deg'},coordinates:[{id:'travel',role:'AXIAL_TRANSLATION',dimension:'LENGTH',zero:{value:0,unit:'mm'},direction:1,lower:{value:-50,unit:'mm'},upper:{value:50,unit:'mm'}}]}]}],drivers:[{id:'driver',name:'行程.1',mechanismId:mid,jointId:'slider',coordinateId:'travel'}],studies:[],associations:[]}})}
+ return {id:v.document.id,mid,ground,moving,environment,version:v.document.versionId};
+ },motion)}
+async function observeClash(page:Page){await page.route('**/src/viewport/cad-viewport-engine.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`\nconst clash=CadViewportEngine.prototype.showStaticInterference;CadViewportEngine.prototype.showStaticInterference=function(...args){window.__clashEngine=this;return clash.apply(this,args)};`})})}
+async function clickClashInstance(page:Page,id:string){const canvas=page.locator('canvas'),box=await canvas.boundingBox();if(!box)throw Error('canvas missing');const point=await page.evaluate(({id,box})=>{const e=(window as any).__clashEngine;for(let y=20;y<box.height-20;y+=6)for(let x=20;x<box.width-20;x+=6){if(document.elementFromPoint(box.x+x,box.y+y)!==document.querySelector('canvas'))continue;const hit=e.hitTest(x,y);if(hit?.instanceId===id)return {x:box.x+x,y:box.y+y}}}, {id,box});if(!point)throw Error('No exposed selectable pixels for component');await page.mouse.click(point.x,point.y)}
+
+test('clash exact local graphics, viewport scope, temporary isolate/section and late cancellation',async({page},testInfo)=>{
+ test.setTimeout(240_000);page.setDefaultTimeout(20000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await observeClash(page);await login(page);const seed=await clashSeed(page);await page.goto('/documents/'+seed.id);
+ await clashCommand(page,'干涉与间隙检查');let dialog=page.getByRole('dialog',{name:'干涉与间隙检查',exact:true});
+ const before=await current(page,seed.id),history=await (await page.request.get(`/api/documents/${seed.id}/history`)).json();
+ await dialog.getByRole('button',{name:/^检\s*查$/}).click();await expect(dialog.getByRole('status',{name:'干涉检查状态'})).toContainText('发现需要检查');
+ const row=dialog.locator('tbody tr').filter({hasText:'干涉'});await expect(row).toHaveCount(1);let detailRelease!:()=>void,detailSeen!:()=>void;const detailHold=new Promise<void>(r=>detailRelease=r),detailStarted=new Promise<void>(r=>detailSeen=r);
+ await page.route(`**/api/documents/${seed.id}/static-interference`,async route=>{const response=await route.fetch();if(route.request().postDataJSON().detailPair){detailSeen();await detailHold}await route.fulfill({response}).catch(()=>{})});
+ await row.click();await detailStarted;await dialog.getByRole('checkbox',{name:'只看这一对',exact:true}).check();detailRelease();
+ await expect.poll(()=>page.evaluate(()=>{const e=(window as any).__clashEngine;return e?.staticInterferenceReport?.pairs.some((p:any)=>p.overlapTriangles?.length>0&&p.sectionPoints?.length>0)})).toBeTruthy();
+ await dialog.getByRole('checkbox',{name:'只看这一对',exact:true}).check();await expect.poll(()=>page.evaluate(()=>[...(window as any).__clashEngine.solidBindings.values()].filter((b:any)=>b.group.visible).length)).toBe(2);
+ await dialog.getByRole('checkbox',{name:'剖切',exact:true}).check();await expect.poll(()=>page.evaluate(()=>[...(window as any).__clashEngine.solidBindings.values()].filter((b:any)=>b.group.visible).length)).toBe(0);
+ await page.unroute(`**/api/documents/${seed.id}/static-interference`);
+ await dialog.getByRole('button',{name:'查看几何',exact:true}).click();await expect(dialog).toHaveAttribute('data-panel-size','S');
+ await testInfo.attach('clash-section',{body:await page.screenshot({path:testInfo.outputPath('clash-view.png')}),contentType:'image/png'});
+ await dialog.getByRole('button',{name:'返回列表',exact:true}).click();
+ await dialog.getByRole('checkbox',{name:'剖切',exact:true}).uncheck();await dialog.getByRole('checkbox',{name:'只看这一对',exact:true}).uncheck();await expect.poll(()=>page.evaluate(()=>[...(window as any).__clashEngine.solidBindings.values()].filter((b:any)=>b.group.visible).length)).toBe(3);
+ await dialog.getByRole('combobox',{name:'检查范围'}).click();await page.locator('.ant-select-dropdown:visible').getByText('所选零件与其余零件',{exact:true}).click();
+ // Pick actual canvas pixels through the production hit tester/session.
+ await clickClashInstance(page,seed.ground);await dialog.getByRole('button',{name:/^检\s*查$/}).click();await expect(dialog.getByRole('status',{name:'干涉检查状态'})).toContainText('发现需要检查');await expect(dialog.getByText('2 / 2 对已完成')).toBeVisible();
+ await dialog.getByRole('button',{name:'关闭',exact:true}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__clashEngine.staticInterferenceMarkers?.children.length??0)).toBe(0);
+ const after=await current(page,seed.id);expect(after.product).toEqual(before.product);expect(after.document.versionId).toBe(before.document.versionId);expect(await (await page.request.get(`/api/documents/${seed.id}/history`)).json()).toEqual(history);
+ await page.setViewportSize({width:1100,height:720});await clashCommand(page,'干涉与间隙检查');dialog=page.getByRole('dialog',{name:'干涉与间隙检查',exact:true});const bounds=await dialog.boundingBox();expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(1100);
+ let release!:()=>void;const hold=new Promise<void>(r=>release=r);let observed!:()=>void;const started=new Promise<void>(r=>observed=r);
+ await page.route(`**/api/documents/${seed.id}/static-interference`,async route=>{const response=await route.fetch();observed();await hold;await route.fulfill({response}).catch(()=>{})});
+ await dialog.getByRole('button',{name:/^检\s*查$/}).click();await started;await dialog.getByRole('button',{name:'取消计算',exact:true}).click();release();await expect(dialog.getByRole('status',{name:'干涉检查状态'})).toHaveText('已取消');await expect.poll(()=>page.evaluate(()=>(window as any).__clashEngine.staticInterferenceMarkers?.children.length??0)).toBe(0);await page.unroute(`**/api/documents/${seed.id}/static-interference`);
+ await dialog.getByRole('button',{name:'关闭',exact:true}).click();await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product.instances.find((i:any)=>i.id===seed.environment).translation).toEqual([0,0,0]);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product).toEqual(before.product);
+ await page.reload();expect((await current(page,seed.id)).product).toEqual(before.product);expect(errors).toEqual([]);
+ await testInfo.attach('clash-document',{body:JSON.stringify(seed),contentType:'application/json'});
+});
+
+test('mechanism clash stop retains safe geometry and prompt permits the checked collision without history',async({page},testInfo)=>{
+ test.setTimeout(240_000);page.setDefaultTimeout(20000);await observeClash(page);await login(page);const seed=await clashSeed(page,true);await page.goto(`/documents/${seed.id}?application=mechanism&mechanismId=${seed.mid}`);
+ await expect(page.getByRole('button',{name:'使用命令进行模拟',exact:true})).toBeEnabled({timeout:60_000});await clashCommand(page,'使用命令进行模拟');const dialog=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true});const before=await current(page,seed.id);
+ await dialog.getByRole('combobox',{name:'运动干涉检测'}).click();await page.locator('.ant-select-dropdown:visible').getByText('干涉时停止',{exact:true}).click();await expect(dialog.getByText('当前采样位置无干涉',{exact:true})).toBeVisible();
+ const input=dialog.getByRole('spinbutton',{name:'命令长度',exact:true});await input.fill('-20');await expect(dialog.getByText('检测到干涉或间隙不足，目标未到达',{exact:true})).toBeVisible();
+ const stopped=Number(await input.inputValue());expect(stopped).toBeLessThan(0);expect(stopped).toBeGreaterThanOrEqual(-10.00001);
+ await dialog.getByRole('combobox',{name:'运动干涉检测'}).click();await page.locator('.ant-select-dropdown:visible').getByText('提示',{exact:true}).click();await input.fill('-20');await expect(dialog.getByText('检测到干涉或间隙不足',{exact:true})).toBeVisible();await expect.poll(async()=>Number(await input.inputValue())).toBeCloseTo(-20,2);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__clashEngine.staticInterferenceMarkers?.children.length??0)).toBeGreaterThan(0);
+ await testInfo.attach('motion-clash-prompt',{body:await page.screenshot({path:testInfo.outputPath('clash-view.png')}),contentType:'image/png'});
+ await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);await expect.poll(()=>page.evaluate(()=>(window as any).__clashEngine.staticInterferenceMarkers?.children.length??0)).toBe(0);
+ const after=await current(page,seed.id);expect(after.product).toEqual(before.product);expect(after.document.versionId).toBe(before.document.versionId);await page.reload();expect((await current(page,seed.id)).product).toEqual(before.product);
+});
+
+test('clash checked recording playback stops at a qualified sample and keeps its time',async({page})=>{
+ test.setTimeout(180_000);page.setDefaultTimeout(20000);await observeClash(page);await login(page);const seed=await clashSeed(page,true);await page.goto(`/documents/${seed.id}?application=mechanism&mechanismId=${seed.mid}`);
+ await expect(page.getByRole('button',{name:'模拟',exact:true})).toBeEnabled({timeout:60_000});await clashCommand(page,'模拟');
+ const trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true}),recorder=page.getByRole('dialog',{name:'模拟',exact:true}),input=trial.getByRole('spinbutton',{name:'命令长度',exact:true});
+ await expect(input).toBeEnabled();await recorder.getByRole('checkbox',{name:'自动插入',exact:true}).uncheck();
+ await input.fill('35');await expect.poll(async()=>Number(await input.inputValue())).toBeCloseTo(35,2);await expect(recorder.getByRole('button',{name:'插入',exact:true})).toBeEnabled();
+ await recorder.getByRole('spinbutton',{name:'关键帧时间',exact:true}).fill('1');await recorder.getByRole('button',{name:'插入',exact:true}).click();await expect(recorder.locator('tbody tr')).toHaveCount(2);
+ await recorder.getByRole('button',{name:'起点',exact:true}).click();await expect.poll(async()=>Number(await input.inputValue())).toBeCloseTo(0,2);
+ await trial.getByRole('combobox',{name:'运动干涉检测'}).click();await page.locator('.ant-select-dropdown:visible').getByText('干涉时停止',{exact:true}).click();await expect(trial.getByText('当前采样位置无干涉',{exact:true})).toBeVisible();
+ await recorder.getByRole('button',{name:'播放',exact:true}).click();await expect(trial.getByText('检测到干涉或间隙不足，目标未到达',{exact:true})).toBeVisible();await expect(recorder.getByRole('button',{name:'播放',exact:true})).toBeEnabled();
+ const position=Number(await input.inputValue()),time=Number(await recorder.getByRole('spinbutton',{name:'模拟定位时间',exact:true}).inputValue());expect(position).toBeGreaterThan(0);expect(position).toBeLessThanOrEqual(5.00001);expect(time).toBeCloseTo(position/35,2);
+ await recorder.getByRole('button',{name:/^取\s*消$/}).click();await expect(trial).toHaveCount(0);
+ const currentView=await current(page,seed.id);expect(currentView.product.kinematics.studies??[]).toHaveLength(0);
 });

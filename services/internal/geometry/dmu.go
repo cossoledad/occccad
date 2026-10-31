@@ -19,17 +19,23 @@ type AnalysisPair struct {
 	SecondID string `json:"secondId"`
 }
 type InterferencePair struct {
-	FirstID            string     `json:"firstId"`
-	SecondID           string     `json:"secondId"`
-	Classification     string     `json:"classification"`
-	DistanceMM         float64    `json:"distanceMm"`
-	CommonVolumeMM3    float64    `json:"commonVolumeMm3"`
-	FirstWitness       [3]float64 `json:"firstWitness"`
-	SecondWitness      [3]float64 `json:"secondWitness"`
-	Complete           bool       `json:"complete"`
-	ClearanceSatisfied bool       `json:"clearanceSatisfied"`
-	Diagnostic         string     `json:"diagnostic,omitempty"`
-	CommonTested       bool       `json:"commonTested"`
+	FirstID            string       `json:"firstId"`
+	SecondID           string       `json:"secondId"`
+	Classification     string       `json:"classification"`
+	DistanceMM         float64      `json:"distanceMm"`
+	CommonVolumeMM3    float64      `json:"commonVolumeMm3"`
+	FirstWitness       [3]float64   `json:"firstWitness"`
+	SecondWitness      [3]float64   `json:"secondWitness"`
+	Complete           bool         `json:"complete"`
+	ClearanceSatisfied bool         `json:"clearanceSatisfied"`
+	Diagnostic         string       `json:"diagnostic,omitempty"`
+	CommonTested       bool         `json:"commonTested"`
+	DistanceExact      bool         `json:"distanceExact"`
+	WitnessKind        string       `json:"witnessKind"`
+	DetailStatus       string       `json:"detailStatus"`
+	Containment        string       `json:"containment,omitempty"`
+	SectionPoints      [][3]float64 `json:"sectionPoints,omitempty"`
+	OverlapTriangles   [][3]float64 `json:"overlapTriangles,omitempty"`
 }
 type InterferenceReport struct {
 	Pairs       []InterferencePair `json:"pairs"`
@@ -37,8 +43,14 @@ type InterferenceReport struct {
 	KernelBuild string             `json:"kernelBuild"`
 }
 
-func (c *Client) AnalyzeInterference(ctx context.Context, id string, inputs []AnalysisGeometry, pairs []AnalysisPair, clearance, tolerance float64) (InterferenceReport, error) {
+type InterferenceOptions struct{ ThresholdOnly, Details bool }
+
+func (c *Client) AnalyzeInterference(ctx context.Context, id string, inputs []AnalysisGeometry, pairs []AnalysisPair, clearance, tolerance float64, options ...InterferenceOptions) (InterferenceReport, error) {
 	request := &workerv1.AnalyzeInterferenceRequest{RequestId: id, ClearanceMm: clearance, ToleranceMm: tolerance}
+	if len(options) > 0 {
+		request.ThresholdOnly = options[0].ThresholdOnly
+		request.Details = options[0].Details
+	}
 	for _, v := range inputs {
 		request.Geometry = append(request.Geometry, &workerv1.AnalysisGeometry{Id: v.ID, GeometryId: v.GeometryID, Brep: artifactProto(v.BRep), Pose: protoPose(v.Pose)})
 	}
@@ -88,13 +100,54 @@ func (c *Client) AnalyzeInterference(ctx context.Context, id string, inputs []An
 			}
 		}
 		pair := InterferencePair{FirstID: v.FirstId, SecondID: v.SecondId, Classification: v.Classification,
-			Complete: v.Complete, ClearanceSatisfied: v.ClearanceSatisfied, Diagnostic: v.Diagnostic, CommonTested: v.CommonTested}
+			Complete: v.Complete, ClearanceSatisfied: v.ClearanceSatisfied, Diagnostic: v.Diagnostic, CommonTested: v.CommonTested, DistanceExact: v.DistanceExact,
+			WitnessKind: v.WitnessKind, DetailStatus: v.DetailStatus, Containment: v.Containment}
 		// Unfinished numeric intermediates are not certified measurements and may
 		// contain NaN. Keep the diagnostic and completed pairs JSON-persistable.
 		if v.Complete {
 			pair.DistanceMM, pair.CommonVolumeMM3 = v.DistanceMm, v.CommonVolumeMm3
 			pair.FirstWitness = [3]float64{v.FirstWitness.X, v.FirstWitness.Y, v.FirstWitness.Z}
 			pair.SecondWitness = [3]float64{v.SecondWitness.X, v.SecondWitness.Y, v.SecondWitness.Z}
+		}
+		if v.Complete && !v.DistanceExact && (v.Classification != "SEPARATED" || !v.ClearanceSatisfied || !request.ThresholdOnly || request.Details || v.WitnessKind != "NONE" || v.CommonTested || v.CommonVolumeMm3 != 0) {
+			return result, fmt.Errorf("invalid conservative interference proof")
+		}
+		if v.Complete && v.DistanceExact && (v.Classification == "SEPARATED" && v.WitnessKind != "DISTANCE" || v.Classification == "CONTACT" && v.WitnessKind != "CONTACT") {
+			return result, fmt.Errorf("missing exact interference witness semantics")
+		}
+		switch v.DetailStatus {
+		case "NOT_REQUESTED", "COMPLETE", "UNAVAILABLE", "LIMIT":
+		default:
+			return result, fmt.Errorf("invalid interference detail status")
+		}
+		if v.DetailStatus != "NOT_REQUESTED" && !request.Details {
+			return result, fmt.Errorf("unsolicited interference detail")
+		}
+		if v.Complete && v.Classification == "CONTAINMENT" && v.Containment != "FIRST_INSIDE_SECOND" && v.Containment != "SECOND_INSIDE_FIRST" && v.Containment != "COINCIDENT" {
+			return result, fmt.Errorf("missing containment direction")
+		}
+		if v.WitnessKind != "NONE" && v.WitnessKind != "DISTANCE" && v.WitnessKind != "CONTACT" {
+			return result, fmt.Errorf("invalid interference witness kind")
+		}
+		if v.WitnessKind != "NONE" && (!v.DistanceExact || !v.Complete || v.Classification == "PENETRATION" || v.Classification == "CONTAINMENT") {
+			return result, fmt.Errorf("invalid interference witness evidence")
+		}
+		if len(v.SectionPoints)%2 != 0 || len(v.SectionPoints) > 32768 || len(v.OverlapTriangles)%3 != 0 || len(v.OverlapTriangles) > 90000 {
+			return result, fmt.Errorf("invalid interference graphics limits")
+		}
+		if (len(v.SectionPoints) > 0 || len(v.OverlapTriangles) > 0) && (!v.Complete || v.DetailStatus != "COMPLETE") {
+			return result, fmt.Errorf("uncertified interference graphics")
+		}
+		for _, group := range []struct {
+			src []*workerv1.Vec3
+			dst *[][3]float64
+		}{{v.SectionPoints, &pair.SectionPoints}, {v.OverlapTriangles, &pair.OverlapTriangles}} {
+			for _, p := range group.src {
+				if p == nil || math.IsNaN(p.X) || math.IsInf(p.X, 0) || math.IsNaN(p.Y) || math.IsInf(p.Y, 0) || math.IsNaN(p.Z) || math.IsInf(p.Z, 0) {
+					return result, fmt.Errorf("invalid interference graphic point")
+				}
+				*group.dst = append(*group.dst, [3]float64{p.X, p.Y, p.Z})
+			}
 		}
 		result.Pairs = append(result.Pairs, pair)
 	}

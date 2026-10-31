@@ -2,11 +2,13 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/occccad/occccad/internal/database"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/occccad/occccad/internal/geometry"
 )
@@ -19,10 +21,14 @@ const staticInterferenceBytes = 256 * 1024 * 1024
 const staticInterferenceToleranceMM = 1e-7
 
 type StaticInterferenceRequest struct {
-	RevisionID  string         `json:"revisionId"`
-	Scope       string         `json:"scope"`
-	Selected    []InstancePath `json:"selected,omitempty"`
-	ClearanceMM float64        `json:"clearanceMm"`
+	MechanismID     string         `json:"mechanismId,omitempty"`
+	RevisionID      string         `json:"revisionId"`
+	Scope           string         `json:"scope"`
+	Selected        []InstancePath `json:"selected,omitempty"`
+	ClearanceMM     float64        `json:"clearanceMm"`
+	SecondSelection []InstancePath `json:"secondSelection,omitempty"`
+	DetailPair      []string       `json:"detailPair,omitempty"`
+	ThresholdOnly   bool           `json:"thresholdOnly,omitempty"`
 }
 type StaticInterferenceBody struct {
 	ID             string       `json:"id"`
@@ -44,6 +50,7 @@ type StaticInterferenceIssue struct {
 	Diagnostic     string `json:"diagnostic,omitempty"`
 }
 type StaticInterferenceReport struct {
+	MechanismID    string                      `json:"mechanismId,omitempty"`
 	DocumentID     string                      `json:"documentId"`
 	RevisionID     string                      `json:"revisionId"`
 	InputDigest    string                      `json:"inputDigest"`
@@ -58,6 +65,8 @@ type StaticInterferenceReport struct {
 	CheckedPairs   int                         `json:"checkedPairs"`
 	LayoutParts    int                         `json:"layoutParts"`
 	ConsumedBodies int                         `json:"consumedBodies"`
+	Source         string                      `json:"source,omitempty"`
+	FrameSequence  uint64                      `json:"frameSequence,omitempty"`
 	KernelBuild    string                      `json:"kernelBuild,omitempty"`
 }
 
@@ -79,8 +88,46 @@ func (s *Service) staticInterferenceRevision(ctx context.Context, doc, rev strin
 }
 
 func (s *Service) AnalyzeStaticInterference(ctx context.Context, doc string, r StaticInterferenceRequest) (StaticInterferenceReport, error) {
-	out := StaticInterferenceReport{DocumentID: doc, RevisionID: r.RevisionID, Scope: r.Scope, ClearanceMM: r.ClearanceMM, ToleranceMM: staticInterferenceToleranceMM, Policy: "accepted-solid-dmu-v1", Bodies: []StaticInterferenceBody{}, Pairs: []geometry.InterferencePair{}, Issues: []StaticInterferenceIssue{}}
-	if math.IsNaN(r.ClearanceMM) || math.IsInf(r.ClearanceMM, 0) || r.ClearanceMM < 0 || (r.Scope != "ALL" && r.Scope != "SELECTED") || r.Scope == "ALL" && len(r.Selected) > 0 {
+	if r.MechanismID != "" {
+		if err := s.staticInterferenceRevision(ctx, doc, r.RevisionID); err != nil {
+			return StaticInterferenceReport{}, err
+		}
+		var raw []byte
+		if err := s.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE document_id=$1 AND id=$2`, doc, r.RevisionID).Scan(&raw); err != nil {
+			return StaticInterferenceReport{}, err
+		}
+		var model ProductModel
+		if err := json.Unmarshal(raw, &model); err != nil {
+			return StaticInterferenceReport{}, err
+		}
+		poses := map[string]InstancePose{}
+		for _, i := range model.Instances {
+			poses[i.ID] = InstancePose{Translation: i.Translation, Rotation: normalizedInstanceRotation(i.Rotation)}
+		}
+		found := false
+		for _, m := range model.Kinematics.Mechanisms {
+			if m.ID == r.MechanismID {
+				found = true
+				for id, pose := range m.Poses {
+					poses[id] = pose
+				}
+			}
+		}
+		if !found {
+			return StaticInterferenceReport{}, ErrNotFound
+		}
+		out, err := s.analyzeInterference(ctx, doc, r, poses)
+		out.Source = "MECHANISM"
+		out.MechanismID = r.MechanismID
+		return out, err
+	}
+	return s.analyzeInterference(ctx, doc, r, nil)
+}
+
+// Poses are supplied only by a frozen, qualified server-side mechanism frame.
+func (s *Service) analyzeInterference(ctx context.Context, doc string, r StaticInterferenceRequest, poses map[string]InstancePose, capture ...*frozenInterference) (StaticInterferenceReport, error) {
+	out := StaticInterferenceReport{Source: "PRODUCT", DocumentID: doc, RevisionID: r.RevisionID, Scope: r.Scope, ClearanceMM: r.ClearanceMM, ToleranceMM: staticInterferenceToleranceMM, Policy: "accepted-solid-dmu-v2", Bodies: []StaticInterferenceBody{}, Pairs: []geometry.InterferencePair{}, Issues: []StaticInterferenceIssue{}}
+	if math.IsNaN(r.ClearanceMM) || math.IsInf(r.ClearanceMM, 0) || r.ClearanceMM < 0 || (r.Scope != "ALL" && r.Scope != "SELECTED" && r.Scope != "AGAINST_ALL" && r.Scope != "BETWEEN") || r.Scope == "ALL" && (len(r.Selected) > 0 || len(r.SecondSelection) > 0) || r.Scope != "BETWEEN" && len(r.SecondSelection) > 0 || len(r.DetailPair) != 0 && len(r.DetailPair) != 2 {
 		return out, fmt.Errorf("%w: STATIC_INTERFERENCE_INPUT_INVALID", ErrValidation)
 	}
 	if err := s.staticInterferenceRevision(ctx, doc, r.RevisionID); err != nil {
@@ -91,25 +138,63 @@ func (s *Service) AnalyzeStaticInterference(ctx context.Context, doc string, r S
 	if err != nil {
 		return out, err
 	}
-	selected := map[string]bool{}
-	for _, path := range r.Selected {
-		item, ok := occurrenceByCanonical(items, path.Canonical)
-		if !ok || item.DocumentType != "PART" {
-			return out, fmt.Errorf("%w: select accepted Part leaves", ErrValidation)
+	expandSelection := func(paths []InstancePath) (map[string]bool, error) {
+		result := map[string]bool{}
+		for _, path := range paths {
+			item, ok := occurrenceByCanonical(items, path.Canonical)
+			if !ok {
+				return nil, fmt.Errorf("%w: select accepted components", ErrValidation)
+			}
+			if err := validateResolvedInstancePath(path, item.Path); err != nil {
+				return nil, err
+			}
+			for _, leaf := range items {
+				if leaf.DocumentType == "PART" && (leaf.Path.Canonical == path.Canonical || strings.HasPrefix(leaf.Path.Canonical, path.Canonical+"/")) {
+					result[leaf.Path.Canonical] = true
+				}
+			}
 		}
-		if err := validateResolvedInstancePath(path, item.Path); err != nil {
-			return out, err
-		}
-		selected[path.Canonical] = true
+		return result, nil
 	}
-	if r.Scope == "SELECTED" && len(selected) < 2 {
+	selected, err := expandSelection(r.Selected)
+	if err != nil {
+		return out, err
+	}
+	second, err := expandSelection(r.SecondSelection)
+	if err != nil {
+		return out, err
+	}
+	if r.Scope == "SELECTED" && len(selected) < 2 || r.Scope == "AGAINST_ALL" && len(selected) == 0 || r.Scope == "BETWEEN" && (len(selected) == 0 || len(second) == 0) {
 		return out, fmt.Errorf("%w: STATIC_INTERFERENCE_SELECTION_REQUIRED", ErrValidation)
+	}
+	included := func(path string) bool {
+		return r.Scope == "ALL" || r.Scope == "AGAINST_ALL" || selected[path] || second[path]
+	}
+	if poses != nil {
+		roots := map[string]InstancePose{}
+		for _, item := range items {
+			if len(item.Path.Segments) == 1 {
+				roots[item.Path.Segments[0].InstanceID] = item.Pose
+			}
+		}
+		for i := range items {
+			if len(items[i].Path.Segments) == 0 {
+				continue
+			}
+			root := items[i].Path.Segments[0].InstanceID
+			pose, ok := poses[root]
+			base, found := roots[root]
+			if !ok || !found {
+				return out, fmt.Errorf("%w: incomplete mechanism placement", ErrValidation)
+			}
+			items[i].Pose = composeInstancePose(pose, inverseRelativePose(items[i].Pose, base))
+		}
 	}
 	chosen := map[string]PartModel{}
 	// Establish expected material from definitions, not resolved display rows.
 	expected := 0
 	for _, item := range items {
-		if item.DocumentType != "PART" || r.Scope == "SELECTED" && !selected[item.Path.Canonical] {
+		if item.DocumentType != "PART" || !included(item.Path.Canonical) {
 			continue
 		}
 		source, e := s.readAssemblyPartModel(ctx, item.DocumentID, item.RevisionID)
@@ -241,6 +326,16 @@ func (s *Service) AnalyzeStaticInterference(ctx context.Context, doc string, r S
 			if a.InstancePath.Canonical == b.InstancePath.Canonical {
 				continue
 			}
+			ap, bp := a.InstancePath.Canonical, b.InstancePath.Canonical
+			if r.Scope == "AGAINST_ALL" && selected[ap] == selected[bp] {
+				continue
+			}
+			if r.Scope == "BETWEEN" && !((selected[ap] && second[bp]) || (selected[bp] && second[ap])) {
+				continue
+			}
+			if len(r.DetailPair) > 0 && !((a.ID == r.DetailPair[0] && b.ID == r.DetailPair[1]) || (a.ID == r.DetailPair[1] && b.ID == r.DetailPair[0])) {
+				continue
+			}
 			out.Pairs = append(out.Pairs, geometry.InterferencePair{FirstID: a.ID, SecondID: b.ID, Classification: "INCONCLUSIVE", Diagnostic: "INPUT_UNAVAILABLE"})
 			if _, ok := valid[a.ID]; !ok {
 				continue
@@ -251,6 +346,9 @@ func (s *Service) AnalyzeStaticInterference(ctx context.Context, doc string, r S
 			pairs = append(pairs, geometry.AnalysisPair{FirstID: a.ID, SecondID: b.ID})
 			used[a.ID], used[b.ID] = true, true
 		}
+	}
+	if len(r.DetailPair) > 0 && len(out.Pairs) != 1 {
+		return out, fmt.Errorf("%w: requested detail is outside the frozen check scope", ErrValidation)
 	}
 	if len(out.Pairs) > staticInterferencePairs {
 		return out, staticInterferenceLimit()
@@ -276,14 +374,34 @@ func (s *Service) AnalyzeStaticInterference(ctx context.Context, doc string, r S
 	if bytes > staticInterferenceBytes {
 		return out, staticInterferenceLimit()
 	}
+	expectedPairs := make([]geometry.AnalysisPair, 0, len(out.Pairs))
+	for _, pair := range out.Pairs {
+		expectedPairs = append(expectedPairs, geometry.AnalysisPair{FirstID: pair.FirstID, SecondID: pair.SecondID})
+	}
 	out.InputDigest = resolvedDigest(struct {
-		Revision, Policy, Scope string
-		Clearance               float64
-		Bodies                  []StaticInterferenceBody
-		Inputs                  []geometry.AnalysisGeometry
-	}{r.RevisionID, out.Policy, r.Scope, r.ClearanceMM, out.Bodies, inputs})
+		Revision, Policy, Scope, Mechanism string
+		Clearance                          float64
+		ThresholdOnly, Details             bool
+		Bodies                             []StaticInterferenceBody
+		Inputs                             []geometry.AnalysisGeometry
+		Pairs                              []geometry.AnalysisPair
+	}{r.RevisionID, out.Policy, r.Scope, r.MechanismID, r.ClearanceMM, r.ThresholdOnly, len(r.DetailPair) > 0, out.Bodies, inputs, expectedPairs})
+
+	if len(capture) > 0 {
+		frozen := capture[0]
+		frozen.report = out
+		frozen.inputs = inputs
+		frozen.pairs = pairs
+		frozen.roots = map[string]InstancePose{}
+		for _, item := range items {
+			if len(item.Path.Segments) == 1 {
+				frozen.roots[item.Path.Segments[0].InstanceID] = item.Pose
+			}
+		}
+		return out, s.staticInterferenceRevision(ctx, doc, r.RevisionID)
+	}
 	if len(pairs) > 0 {
-		report, e := s.worker.AnalyzeInterference(ctx, newID("static-analysis"), inputs, pairs, r.ClearanceMM, out.ToleranceMM)
+		report, e := s.worker.AnalyzeInterference(ctx, newID("static-analysis"), inputs, pairs, r.ClearanceMM, out.ToleranceMM, geometry.InterferenceOptions{ThresholdOnly: r.ThresholdOnly, Details: len(r.DetailPair) == 2})
 		if e != nil {
 			return out, e
 		}

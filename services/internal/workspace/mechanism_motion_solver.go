@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -23,6 +24,7 @@ type mechanismMotionState struct {
 	PhysicalConstraints []geometry.AssemblyConstraint
 }
 type mechanismMotionSolver struct {
+	checkFrame         func(MotionFrame) error
 	service            *Service
 	snapshot           MotionSnapshot
 	state              mechanismMotionState
@@ -189,7 +191,9 @@ func (e *mechanismMotionSolver) Advance(ctx context.Context, targets map[string]
 	}
 	f, err := e.advance(ctx, targets, 0)
 	if err != nil {
-		e.state = before
+		if !errors.Is(err, errMechanismClash) {
+			e.state = before
+		}
 		return MotionFrame{}, err
 	}
 	return f, nil
@@ -421,6 +425,11 @@ func (e *mechanismMotionSolver) advance(ctx context.Context, targets map[string]
 		return e.advance(ctx, targets, depth+1)
 	}
 	f := MotionFrame{UnitPoses: p, Coordinates: coordinates, CommandValues: commandValues(e.snapshot.Mechanism, e.snapshot.Drivers, coordinates), AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations}
+	if e.checkFrame != nil {
+		if err := e.checkFrame(f); err != nil {
+			return MotionFrame{}, err
+		}
+	}
 	e.publish(r, f)
 	return f, nil
 }
@@ -454,6 +463,11 @@ func (e *mechanismMotionSolver) Drag(ctx context.Context, target geometry.Assemb
 	}
 	f := MotionFrame{CommandValues: commandValues(e.snapshot.Mechanism, e.snapshot.Drivers, coordinates), UnitPoses: p, Coordinates: coordinates, AngleBranches: r.AngleBranches, KinematicValid: true, HardIterations: r.Iterations}
 	before, _ := valuecopy.Clone(e.state)
+	if e.checkFrame != nil {
+		if err := e.checkFrame(f); err != nil {
+			return MotionFrame{}, err
+		}
+	}
 	e.publish(r, f)
 	if err = e.SelectDrivers(ctx, e.snapshot.Study.ActiveDriverIDs); err != nil {
 		e.state = before

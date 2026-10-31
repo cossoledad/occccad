@@ -688,18 +688,31 @@ public:
     grpc::Status AnalyzeInterference(grpc::ServerContext* context,
         const worker_api::AnalyzeInterferenceRequest* request,
         worker_api::AnalyzeInterferenceResponse* response) override {
+        const auto started=std::chrono::steady_clock::now();
+        size_t restored=0,reused=0;
         if(request->geometry_size()<2 || request->geometry_size()>128 || request->pairs_size()>8192 ||
             !std::isfinite(request->clearance_mm()) || request->clearance_mm()<0 ||
-            !std::isfinite(request->tolerance_mm()) || request->tolerance_mm()<=0)
+            !std::isfinite(request->tolerance_mm()) || request->tolerance_mm()<=0 || (request->details() && request->pairs_size()!=1))
             return {grpc::StatusCode::INVALID_ARGUMENT,"invalid interference request limits"};
         std::unique_lock<std::mutex> lock(mutex_,std::defer_lock);
         while(!lock.try_lock()) {
             if(context->IsCancelled()) return {grpc::StatusCode::CANCELLED,"analysis cancelled while queued"};
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-        occccad::kernel::OcctKernel analysis;
+        // This cache owns private exact geometry and never aliases the modelling kernel.
+        // Reset as a unit before loading a request; the full request budget still applies.
+        uint64_t incoming=0;std::unordered_set<std::string> refs;
+        for(const auto& input:request->geometry())if(input.has_brep()){
+            const auto k=input.brep().SerializeAsString();
+            if(refs.insert(k).second){if(input.brep().size_bytes()>256ULL*1024*1024-incoming)
+                return {grpc::StatusCode::INVALID_ARGUMENT,"analysis B-Rep byte budget exceeded"};incoming+=input.brep().size_bytes();}
+        }
+        if(!interference_kernel_ || interference_bytes_+incoming>256ULL*1024*1024 || interference_loaded_.size()+refs.size()>128){
+            interference_kernel_=std::make_unique<occccad::kernel::OcctKernel>();interference_loaded_.clear();interference_bytes_=0;
+        }
+        auto& analysis=*interference_kernel_;
         std::unordered_map<std::string,occccad::kernel::PlacedGeometry> placed;
-        std::unordered_map<std::string,std::string> loaded,failures;
+        std::unordered_map<std::string,std::string> failures;
         uint64_t bytes=0;
         for(const auto& input:request->geometry()) {
             if(input.id().empty() || placed.count(input.id()))
@@ -712,23 +725,25 @@ public:
             try {
                 if(context->IsCancelled()) throw std::runtime_error("CANCELLED");
                 if(!input.has_brep()) throw std::invalid_argument("B-Rep artifact required");
-                const auto cache_key=input.brep().object_key()+":"+input.brep().sha256();
-                auto existing=loaded.find(cache_key);
+                const auto cache_key=input.brep().SerializeAsString();
+                auto existing=interference_loaded_.find(cache_key);
                 std::string id;
-                if(existing!=loaded.end()) id=existing->second;
+                if(existing!=interference_loaded_.end()){id=existing->second;++reused;}
                 else {
                     if(input.brep().size_bytes()>256ULL*1024*1024-bytes)
                         throw std::invalid_argument("analysis B-Rep byte budget exceeded");
                     bytes+=input.brep().size_bytes();
-                    id=analysis.loadBrepr(read_artifact(input.brep()));
-                    loaded.emplace(cache_key,id);
+                    id=analysis.loadBrepr(read_artifact(input.brep()));++restored;
+                    interference_loaded_.emplace(cache_key,id);interference_bytes_+=input.brep().size_bytes();
                 }
                 if(id!=input.geometry_id()) throw std::invalid_argument("analysis geometry digest mismatch");
             } catch(const Standard_Failure& e) {failures[input.id()]=e.GetMessageString();}
               catch(const std::exception& e) {failures[input.id()]=e.what();}
         }
+        const auto loaded_at=std::chrono::steady_clock::now();
         bool complete=true;
         for(const auto& pair:request->pairs()) {
+            if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"interference cancelled"};
             auto a=placed.find(pair.first_id()),b=placed.find(pair.second_id());
             if(a==placed.end() || b==placed.end() || a==b)
                 return {grpc::StatusCode::INVALID_ARGUMENT,"invalid interference pair identity"};
@@ -736,13 +751,17 @@ public:
             if(failures.count(a->first) || failures.count(b->first))
                 result.diagnostic="INPUT_GEOMETRY_FAILED:"+failures[a->first]+":"+failures[b->first];
             else result=analysis.analyze_interference(a->second,b->second,request->clearance_mm(),
-                request->tolerance_mm(),[&]{return context->IsCancelled();});
+                request->tolerance_mm(),[&]{return context->IsCancelled();},request->threshold_only(),request->details());
             auto* output=response->add_pairs();
             output->set_first_id(a->first);output->set_second_id(b->first);
             output->set_classification(result.classification);output->set_diagnostic(result.diagnostic);
             output->set_distance_mm(result.distance);output->set_common_volume_mm3(result.common_volume);
             output->set_complete(result.complete);output->set_clearance_satisfied(result.clearance_satisfied);
             output->set_common_tested(result.common_tested);
+            output->set_distance_exact(result.distance_exact);output->set_witness_kind(result.witness_kind);
+            output->set_detail_status(result.detail_status);output->set_containment(result.containment);
+            for(const auto& p:result.section_points){auto* v=output->add_section_points();v->set_x(p.x);v->set_y(p.y);v->set_z(p.z);}
+            for(const auto& p:result.overlap_triangles){auto* v=output->add_overlap_triangles();v->set_x(p.x);v->set_y(p.y);v->set_z(p.z);}
             output->mutable_first_witness()->set_x(result.first_witness.x);
             output->mutable_first_witness()->set_y(result.first_witness.y);
             output->mutable_first_witness()->set_z(result.first_witness.z);
@@ -751,7 +770,8 @@ public:
             output->mutable_second_witness()->set_z(result.second_witness.z);
             complete=complete && result.complete;
         }
-        response->set_complete(complete);response->set_kernel_build("occt-" OCC_VERSION_COMPLETE "/solid-dmu-v1");
+        response->set_complete(complete);response->set_kernel_build("occt-" OCC_VERSION_COMPLETE "/solid-dmu-v2");
+        spdlog::info("interference request={} bodies={} pairs={} restored={} reused={} input_ms={} pairs_ms={} details={} complete={}",request->request_id(),request->geometry_size(),request->pairs_size(),restored,reused,std::chrono::duration<double,std::milli>(loaded_at-started).count(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-loaded_at).count(),request->details(),complete);
         return grpc::Status::OK;
     }
 
@@ -2371,6 +2391,9 @@ private:
         return data;
     }
     std::mutex mutex_;
+    std::unique_ptr<occccad::kernel::OcctKernel> interference_kernel_;
+    std::unordered_map<std::string,std::string> interference_loaded_;
+    uint64_t interference_bytes_=0;
     occccad::kernel::OcctKernel kernel_;
     std::unique_ptr<occccad::geometry::sketch::SketchSolver> sketch_solver_ =
         occccad::geometry::sketch::make_plane_gcs_sketch_solver();

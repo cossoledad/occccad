@@ -66,8 +66,8 @@ func TestDMUIncompleteNumericIntermediatesRemainPersistable(t *testing.T) {
 	server := grpc.NewServer()
 	defer server.Stop()
 	response := &workerv1.AnalyzeInterferenceResponse{KernelBuild: "fixture", Pairs: []*workerv1.InterferencePairResult{
-		{FirstId: "a", SecondId: "b", Classification: "SEPARATED", DistanceMm: 5, Complete: true, ClearanceSatisfied: true, FirstWitness: &workerv1.Vec3{}, SecondWitness: &workerv1.Vec3{X: 5}},
-		{FirstId: "a", SecondId: "c", Classification: "INCONCLUSIVE", DistanceMm: math.NaN(), CommonVolumeMm3: math.Inf(1), Diagnostic: "DISTANCE_UNFINISHED"},
+		{FirstId: "a", SecondId: "b", Classification: "SEPARATED", WitnessKind: "DISTANCE", DetailStatus: "NOT_REQUESTED", DistanceExact: true, DistanceMm: 5, Complete: true, ClearanceSatisfied: true, FirstWitness: &workerv1.Vec3{}, SecondWitness: &workerv1.Vec3{X: 5}},
+		{FirstId: "a", SecondId: "c", Classification: "INCONCLUSIVE", WitnessKind: "NONE", DetailStatus: "NOT_REQUESTED", DistanceMm: math.NaN(), CommonVolumeMm3: math.Inf(1), Diagnostic: "DISTANCE_UNFINISHED"},
 	}}
 	workerv1.RegisterGeometryWorkerServer(server, dmuFixtureServer{response: response})
 	go server.Serve(listener)

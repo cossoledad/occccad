@@ -275,3 +275,182 @@ func TestAcceptedStaticInterferenceContextAndMissingInputsThroughRouter(t *testi
 		t.Fatal("missing input was omitted or certified", missing, e)
 	}
 }
+
+func TestClashScopesDetailsAndMechanismStopThroughRouter(t *testing.T) {
+	s, _, db, _, _ := featureAssociationRuntimeService(t)
+	ctx := t.Context()
+	seq := 0
+	create := func(kind, name string) workspace.DocumentView {
+		v, e := s.CreateDocument(ctx, workspace.CreateDocumentRequest{ActorID: p6Actor, Type: kind, Name: name})
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	apply := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		r.ActorID = p6Actor
+		r.RequestID = fmt.Sprintf("%s-clash-%d", v.Document.ID, seq)
+		n, e := s.ApplyCommand(ctx, v.Document.ID, r)
+		if e != nil {
+			t.Fatal(r.Type, e)
+		}
+		*v = n
+	}
+	part := create("PART", "Clash moving cube")
+	apply(&part, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	sketch := part.Part.Features[0].ID
+	apply(&part, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -5, Y: -5}, Second: &workspace.SketchPoint2{X: 5, Y: 5}}}})
+	apply(&part, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 10})
+	product := create("PRODUCT", "Clash scopes and runtime")
+	for range 3 {
+		apply(&product, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID})
+	}
+	ground, moving, environment := product.Product.Instances[0].ID, product.Product.Instances[1].ID, product.Product.Instances[2].ID
+	apply(&product, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: moving, Translation: [3]float64{0, 0, 20}, Rotation: [4]float64{0, 0, 0, 1}})
+	apply(&product, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: environment, Translation: [3]float64{0, 0, 35}, Rotation: [4]float64{0, 0, 0, 1}})
+	all, e := s.AnalyzeStaticInterference(ctx, product.Document.ID, workspace.StaticInterferenceRequest{RevisionID: product.Document.VersionID, Scope: "ALL", ThresholdOnly: true})
+	if e != nil || !all.Complete || len(all.Pairs) != 3 {
+		t.Fatal(all, e)
+	}
+	for _, pair := range all.Pairs {
+		if pair.DistanceExact || pair.WitnessKind != "NONE" {
+			t.Fatal("broad-phase proof invented a measurement", pair)
+		}
+	}
+	paths := map[string]workspace.InstancePath{}
+	for _, b := range all.Bodies {
+		paths[b.InstancePath.Segments[0].InstanceID] = b.InstancePath
+	}
+	var betweenDigest string
+	for _, tc := range []struct {
+		scope string
+		a, b  []workspace.InstancePath
+		count int
+	}{{"SELECTED", []workspace.InstancePath{paths[ground], paths[moving]}, nil, 1}, {"AGAINST_ALL", []workspace.InstancePath{paths[moving]}, nil, 2}, {"BETWEEN", []workspace.InstancePath{paths[ground], paths[moving]}, []workspace.InstancePath{paths[moving], paths[environment]}, 3}} {
+		r, err := s.AnalyzeStaticInterference(ctx, product.Document.ID, workspace.StaticInterferenceRequest{RevisionID: product.Document.VersionID, Scope: tc.scope, Selected: tc.a, SecondSelection: tc.b, ThresholdOnly: true})
+		if err != nil || !r.Complete || len(r.Pairs) != tc.count {
+			t.Fatal(tc, r, err)
+		}
+		if tc.scope == "BETWEEN" {
+			betweenDigest = r.InputDigest
+		}
+	}
+	oneSide, e := s.AnalyzeStaticInterference(ctx, product.Document.ID, workspace.StaticInterferenceRequest{RevisionID: product.Document.VersionID, Scope: "BETWEEN", Selected: []workspace.InstancePath{paths[ground]}, SecondSelection: []workspace.InstancePath{paths[moving], paths[environment]}, ThresholdOnly: true})
+	if e != nil || len(oneSide.Pairs) != 2 || oneSide.InputDigest == betweenDigest {
+		t.Fatal("same leaves with different pair scope reused analysis identity", oneSide, e)
+	}
+
+	detail, e := s.AnalyzeStaticInterference(ctx, product.Document.ID, workspace.StaticInterferenceRequest{RevisionID: product.Document.VersionID, Scope: "ALL", DetailPair: []string{all.Pairs[0].FirstID, all.Pairs[0].SecondID}})
+	if e != nil || len(detail.Pairs) != 1 || !detail.Pairs[0].DistanceExact || detail.Pairs[0].WitnessKind != "DISTANCE" || detail.Pairs[0].DetailStatus != "COMPLETE" {
+		t.Fatal("authoritative detail", detail, e)
+	}
+	end := func(id string) workspace.JointEndpoint {
+		return workspace.JointEndpoint{InstanceID: id, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, CapturedX: &[3]float64{1, 0, 0}, Axis: &workspace.AssemblyGeometryRef{InstanceID: id, Kind: "AXIS", GeometryID: "axis-system-default", Axis: "Z"}, Plane: &workspace.AssemblyGeometryRef{InstanceID: id, Kind: "PLANE", GeometryID: "datum-yz"}}
+	}
+	second := end(moving)
+	mechanism := workspace.Mechanism{ID: "clash-mechanism", Name: "Clash slider", UnitIDs: []string{ground, moving}, Joints: []workspace.MechanismJoint{{ID: "clash-ground", Name: "Ground", Kind: "GROUND", First: end(ground)}, {ID: "clash-slider", Name: "Slider", Kind: "PRISMATIC", OrientationAngle: workspace.MotionQuantity{Unit: "deg"}, First: end(ground), Second: &second, Coordinates: []workspace.JointCoordinate{{ID: "clash-coordinate", Role: "AXIAL_TRANSLATION", Dimension: "LENGTH", Zero: workspace.MotionQuantity{Unit: "mm"}, Direction: 1, Lower: &workspace.MotionQuantity{Value: -50, Unit: "mm"}, Upper: &workspace.MotionQuantity{Value: 50, Unit: "mm"}}}}}}
+	definitions := workspace.KinematicsDefinitions{Mechanisms: []workspace.Mechanism{mechanism}, Drivers: []workspace.MotionDriver{{ID: "clash-driver", Name: "Travel", MechanismID: mechanism.ID, JointID: "clash-slider", CoordinateID: "clash-coordinate"}}}
+	apply(&product, workspace.CommandRequest{Type: "SAVE_KINEMATICS", VersionID: product.Document.VersionID, Kinematics: &definitions})
+	var original []byte
+	if e = db.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, product.Document.VersionID).Scan(&original); e != nil {
+		t.Fatal(e)
+	}
+	history, e := s.ListHistory(ctx, product.Document.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	opened, e := s.BeginMechanismSession(ctx, product.Document.ID, p6Actor, workspace.MechanismSessionBegin{OwnerID: "clash-owner", Generation: 1, BaseRevisionID: product.Document.VersionID, MechanismID: mechanism.ID, ActiveDriverIDs: []string{"clash-driver"}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.CancelMechanismSession(product.Document.ID, p6Actor, opened.SessionID)
+	current, e := s.UpdateMechanismSession(ctx, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 1, Clash: &workspace.MechanismClashPolicy{Mode: "STOP"}})
+	if e != nil || !current.Accepted || current.Clash == nil || !current.Clash.Report.Complete {
+		t.Fatal("enable detection", current, e)
+	}
+	stopped, e := s.UpdateMechanismSession(ctx, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 2, Values: map[string]workspace.MotionQuantity{"clash-driver": {Value: -20, Unit: "mm"}}})
+	if e != nil || stopped.Accepted || stopped.Clash == nil || !stopped.Clash.Stopped || !stopped.Frame.KinematicValid {
+		t.Fatal("stop event", stopped, e)
+	}
+	z := stopped.Frame.UnitPoses[moving].Translation[2]
+	if z < 10-1e-6 || z >= 20 {
+		t.Fatal("did not retain the last safe physical checkpoint", z)
+	}
+	if stopped.Clash.Report.Source != "MECHANISM" || stopped.Clash.Report.FrameSequence != 2 {
+		t.Fatal("unscoped collision evidence", stopped.Clash)
+	}
+	// The source changes, but the session must retain accepted exact BREP.
+	for _, parameter := range part.Part.Parameters {
+		if parameter.PropertySlot == "length" {
+			apply(&part, workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: parameter.ParameterID, Value: 20, Unit: "mm"})
+			break
+		}
+	}
+	// Switch to prompt without reaching the previously rejected target, then allow
+	// that target and inspect the actual overlap at its authoritative frame.
+	_, e = s.UpdateMechanismSession(ctx, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 3, Clash: &workspace.MechanismClashPolicy{Mode: "PROMPT"}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	prompt, e := s.UpdateMechanismSession(ctx, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 4, Values: map[string]workspace.MotionQuantity{"clash-driver": {Value: -20, Unit: "mm"}}})
+	if e != nil || !prompt.Accepted || prompt.Clash == nil || !prompt.Clash.Report.Complete || prompt.Clash.Stopped {
+		t.Fatal(prompt, e)
+	}
+	collision := false
+	for _, p := range prompt.Clash.Report.Pairs {
+		collision = collision || p.Classification == "PENETRATION" || p.Classification == "CONTAINMENT"
+	}
+	if !collision {
+		t.Fatal("prompt omitted the collision", prompt.Clash)
+	}
+	for _, body := range prompt.Clash.Report.Bodies {
+		if body.GeometryKey != all.Bodies[0].GeometryKey {
+			t.Fatal("motion analysis adopted pending source geometry", body)
+		}
+	}
+	// The endpoint is safe beyond the obstacle. STOP must also check internal
+	// continuation samples, instead of inspecting only the requested endpoint.
+	_, e = s.UpdateMechanismSession(ctx, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 5, Clash: &workspace.MechanismClashPolicy{Mode: "OFF"}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, e = s.UpdateMechanismSession(ctx, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 6, Values: map[string]workspace.MotionQuantity{"clash-driver": {Value: 0, Unit: "mm"}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, e = s.UpdateMechanismSession(ctx, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 7, Clash: &workspace.MechanismClashPolicy{Mode: "STOP"}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	crossed, e := s.UpdateMechanismSession(ctx, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 8, Values: map[string]workspace.MotionQuantity{"clash-driver": {Value: 35, Unit: "mm"}}})
+	if e != nil || crossed.Accepted || crossed.Clash == nil || !crossed.Clash.Stopped || crossed.Frame.UnitPoses[moving].Translation[2] > 25+1e-6 {
+		t.Fatal("safe endpoint skipped intermediate collision", crossed, e)
+	}
+	atomic, e := s.UpdateMechanismSession(ctx, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 9, AtomicTarget: true, Values: map[string]workspace.MotionQuantity{"clash-driver": {Value: 35, Unit: "mm"}}})
+	if e != nil || atomic.Clash == nil || !atomic.Clash.Stopped || !reflect.DeepEqual(atomic.Frame, crossed.Frame) {
+		t.Fatal("timeline collision changed a frame without its sample time", atomic, e)
+	}
+	if _, e = s.UpdateMechanismSession(ctx, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 7, Clash: &workspace.MechanismClashPolicy{Mode: "OFF"}}); e == nil {
+		t.Fatal("stale policy accepted")
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, e = s.UpdateMechanismSession(cancelled, product.Document.ID, p6Actor, opened.SessionID, workspace.MechanismSessionUpdate{Sequence: 10, Clash: &workspace.MechanismClashPolicy{Mode: "PROMPT"}}); e == nil {
+		t.Fatal("cancelled analysis accepted")
+	}
+	saved, e := s.AnalyzeStaticInterference(ctx, product.Document.ID, workspace.StaticInterferenceRequest{RevisionID: product.Document.VersionID, Scope: "ALL", MechanismID: mechanism.ID, ThresholdOnly: true})
+	if e != nil || saved.Source != "MECHANISM" || !saved.Complete {
+		t.Fatal("read-only saved mechanism", saved, e)
+	}
+	after, e := s.ListHistory(ctx, product.Document.ID)
+	if e != nil || !reflect.DeepEqual(history, after) {
+		t.Fatal("collision analysis changed history", e)
+	}
+	var final []byte
+	var head string
+	if e = db.QueryRow(ctx, `SELECT d.head_version_id::text,v.model_json FROM occccad.documents d JOIN occccad.document_versions v ON v.id=d.head_version_id WHERE d.id=$1`, product.Document.ID).Scan(&head, &final); e != nil || head != product.Document.VersionID || string(final) != string(original) {
+		t.Fatal("clash modified product, references, poses or mechanism zero", e)
+	}
+}

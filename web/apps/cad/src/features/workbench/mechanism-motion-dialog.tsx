@@ -14,6 +14,7 @@ import {motionCommandRange,driverCoordinate,coordinateUnit} from '../../cad/asse
 import { motionViewpointAt } from '../../cad/assembly/motion-frame';
 import { randomUUID } from '../../utils/random-uuid';
 type Props = {
+ onClash?:(report?:import("../../cad/assembly/static-interference").StaticInterferenceReport,index?:number)=>void;
     view: DocumentView;
     mechanism: Mechanism;
     drivers: MotionDriver[];
@@ -35,6 +36,8 @@ type Props = {
 };
 export function MechanismMotionDialog(props: Props) {
     const feedback = useOperationFeedback();
+    const [clashMode,setClashMode]=useState<'OFF'|'PROMPT'|'STOP'>('OFF'),[clashGap,setClashGap]=useState(0),[checkedPlaying,setCheckedPlaying]=useState(false);
+    const checkedGeneration=useRef(0),checkedActive=useRef(false);
     const ownerId = useRef(randomUUID());
     const callbacks = useRef(props);
     callbacks.current = props;
@@ -150,6 +153,7 @@ export function MechanismMotionDialog(props: Props) {
                 await initializeRecordingRef.current(owner,value);
                 callbacks.current.onPlayback();
                 callbacks.current.onPreview(Object.entries(value.frame.unitPoses).map(([instanceId, pose]) => ({ instanceId, ...pose })));
+                callbacks.current.onClash?.(value.clash?.stopped?undefined:value.clash?.report);
                 if (value.accepted && value.sequence > 0) {
                     setError(undefined);
                     if (props.record && recordable && intent)
@@ -171,7 +175,7 @@ export function MechanismMotionDialog(props: Props) {
             await initializeRecordingRef.current(owner,result);
         }).catch(e => { if (generation === epoch.current && !closed.current)
             setError(e); });
-        return () => { window.removeEventListener('pagehide', unload); epoch.current++; clearInterval(lease); leaseAbort.abort(); if (!closed.current && baselineCamera.current)
+        return () => { checkedGeneration.current++;checkedActive.current=false;callbacks.current.onClash?.();window.removeEventListener('pagehide', unload); epoch.current++; clearInterval(lease); leaseAbort.abort(); if (!closed.current && baselineCamera.current)
             callbacks.current.previewViewpoint(baselineCamera.current, props.view.document.id); void owner.cancel().catch(() => undefined); if (controller.current === owner) {
             controller.current = undefined;
             callbacks.current.onSession();
@@ -187,7 +191,7 @@ export function MechanismMotionDialog(props: Props) {
         callbacks.current.onSession();
         callbacks.current.onDraft();
         callbacks.current.onPlayback();
-        callbacks.current.onPreview();
+        callbacks.current.onClash?.();checkedGeneration.current++;checkedActive.current=false;setCheckedPlaying(false);callbacks.current.onPreview();
         if (baselineCamera.current)
             callbacks.current.previewViewpoint(baselineCamera.current, props.view.document.id);
         callbacks.current.onClose();
@@ -211,7 +215,7 @@ export function MechanismMotionDialog(props: Props) {
             return false;
         setClock(undefined);
         try {
-            const response = await controller.current?.request({values:motionTargetAt(draft.current,value)}, false);
+            const response = await controller.current?.request({values:motionTargetAt(draft.current,value),atomicTarget:true}, false);
             if (response?.accepted) {
                 setTime(value);
                 qualifiedTime.current = value;
@@ -235,6 +239,25 @@ export function MechanismMotionDialog(props: Props) {
     const pause = async () => { const at = exactTime(); playingClock.current=undefined;setClock(undefined); setTime(at); if(!await seek(at))throw new Error('当前时间未通过求解'); };
  pauseRef.current=pause;
     const play = async () => {
+        if(checkedActive.current){checkedGeneration.current++;checkedActive.current=false;setCheckedPlaying(false);return}
+        if(clashMode!=='OFF'){
+            if(!draft.current)return;
+            const generation=++checkedGeneration.current;checkedActive.current=true;setCheckedPlaying(true);
+            try{
+                let cache=run;if(!cache){setBaking(true);cache=await controller.current!.preview({...draft.current,animateViewpoint:cameraRef.current});if(closed.current||generation!==checkedGeneration.current)return;setRun(cache);setBaking(false)}
+                const start=time>=(cache.frames.at(-1)?.timeSeconds??0)?0:time;
+                for(const sample of cache.frames.filter(f=>f.timeSeconds>=start)){
+                    if(closed.current||generation!==checkedGeneration.current)break;
+                    const result=await controller.current!.request({values:motionTargetAt(draft.current,sample.timeSeconds),atomicTarget:true},false);
+                    if(closed.current||generation!==checkedGeneration.current)break;
+                    if(!result?.accepted||result.clash?.stopped)break;
+                    setTime(sample.timeSeconds);qualifiedTime.current=sample.timeSeconds;
+                    const viewpoint=motionViewpointAt({...draft.current,animateViewpoint:cameraRef.current},sample.timeSeconds);if(viewpoint)callbacks.current.previewViewpoint(viewpoint,props.view.document.id);
+                    await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
+                }
+            }catch(e){if(!closed.current)setError(e)}finally{if(generation===checkedGeneration.current){checkedActive.current=false;setCheckedPlaying(false)}setBaking(false)}
+            return;
+        }
         if (clock) {
             await pause();
             return;
@@ -303,7 +326,7 @@ export function MechanismMotionDialog(props: Props) {
             callbacks.current.onSession();
             callbacks.current.onDraft();
             callbacks.current.onPlayback();
-            callbacks.current.onPreview();
+            callbacks.current.onClash?.();checkedGeneration.current++;checkedActive.current=false;setCheckedPlaying(false);callbacks.current.onPreview();
             callbacks.current.onClose(updated);
         }
         catch (e) {
@@ -322,10 +345,18 @@ export function MechanismMotionDialog(props: Props) {
     const displayValues=clock&&draft.current?Object.fromEntries(Object.entries(motionTargetAt(draft.current,time)).map(([id,q])=>[id,q.value])):frame?.frame.commandValues??{};
     const ready=Boolean(frame?.qualified);
     const pending = busy || saving || baking || Boolean(preparedCommit.current) || !opened || !ready;
-    const inputLocked = switching || saving || baking || Boolean(preparedCommit.current);
+    const inputLocked = switching || saving || baking || checkedPlaying || Boolean(preparedCommit.current);
+    const configureClash=async(mode:typeof clashMode,gap=clashGap)=>{
+      try{const result=await controller.current?.request({clash:{mode,clearanceMm:gap}},false);if(result?.accepted){setClashMode(mode);setClashGap(gap)}}catch(e){setError(e)}
+    };
     return <>
   <CommandDialog id="dmu.command-motion" open title="使用命令进行模拟" size="S" placement={props.record ? 'left' : undefined} onClose={close} onConfirm={confirm} confirmLoading={saving} confirmDisabled={busy || saving || baking || !opened || !ready} footer={!props.record}>
    <div className="motion-study-fields">
+    <CommandField label="干涉检测" width="content"><Select aria-label="运动干涉检测" value={clashMode} disabled={!opened||busy||inputLocked||Boolean(clock)} options={[{value:'OFF',label:'关闭'},{value:'PROMPT',label:'提示'},{value:'STOP',label:'干涉时停止'}]} onChange={mode=>void configureClash(mode)}/></CommandField>
+    {clashMode!=='OFF'&&<CommandField label="最小间隙 mm" width="number"><InputNumber aria-label="运动最小间隙" min={0} value={clashGap} disabled={busy||inputLocked||Boolean(clock)} changeOnBlur={false} onChange={v=>{if(v!==null&&Number.isFinite(v)&&v>=0)void configureClash(clashMode,v)}}/></CommandField>}
+    {frame?.clash&&<><Typography.Text type={frame.clash.stopped?'warning':'secondary'}>{frame.clash.stopped?(frame.clash.report.complete?'检测到干涉或间隙不足，目标未到达':'检查未完成，运动已停止'):frame.clash.report.pairs.length===0?'没有可检查的零件对':!frame.clash.report.complete?'检查未完成':frame.clash.report.pairs.some(p=>p.classification==='PENETRATION'||p.classification==='CONTAINMENT'||!p.clearanceSatisfied)?'检测到干涉或间隙不足':'当前采样位置无干涉'}</Typography.Text><span className="command-field-hint">运动采样检查</span>
+    {frame.clash.report.pairs.filter(p=>!p.complete||p.classification==='PENETRATION'||p.classification==='CONTAINMENT'||!p.clearanceSatisfied).slice(0,8).map(p=><div key={p.firstId+p.secondId}><Button type="text" size="small" onClick={()=>callbacks.current.onClash?.(frame.clash!.report,frame.clash!.report.pairs.indexOf(p))}>{[p.firstId,p.secondId].map(id=>frame.clash!.report.bodies.find(b=>b.id===id)?.name??'零件不可用').join(' ↔ ')}</Button></div>)}
+    <Button size="small" disabled={busy||inputLocked||Boolean(clock)} onClick={()=>void configureClash(clashMode)}>检查当前位置</Button></>}
     <Typography.Text type="secondary">使用的命令</Typography.Text>
     {props.drivers.map(driver=>{
         const coordinate=driverCoordinate(props.mechanism,driver);if(!coordinate)return null;
@@ -358,7 +389,7 @@ export function MechanismMotionDialog(props: Props) {
             setKeyId(undefined);
         } }}>删除</Button></Space>
     <Table<MotionKeyframe> size="small" rowKey="id" pagination={false} scroll={{ y: 180 }} dataSource={study?.keyframes} columns={[{ title: '时间 s', render: (_, key) => key.timeSeconds.toFixed(2) }, ...(study?.activeDriverIds??[]).map(id=>{const driver=props.drivers.find(d=>d.id===id)!,coordinate=driverCoordinate(props.mechanism,driver)!;return {title:`${driver.name} ${coordinate.dimension==='ANGLE'?'°':'mm'}`,render:(_:unknown,key:MotionKeyframe)=>quantityIn(key.values[id],coordinateUnit(coordinate,true)).toFixed(2)}})]} rowSelection={{ type: 'radio', selectedRowKeys: keyId ? [keyId] : [], onChange: ids => {const id=String(ids[0]);setKeyId(id);const key=draft.current?.keyframes?.find(k=>k.id===id);if(key)setInsertTime(key.timeSeconds); } }} onRow={key => ({ onDoubleClick: () => { setKeyId(key.id);setInsertTime(key.timeSeconds); void seek(key.timeSeconds); } })}/>
-    <div className="motion-playback-controls"><Button aria-label="起点" disabled={pending || !study?.keyframes?.length} onClick={() => void seek(0)}>起点</Button><Button aria-label={clock ? '暂停' : '播放'} type="primary" disabled={pending || (study?.keyframes?.length ?? 0) < 2} onClick={() => void play()}>{clock ? '暂停' : '播放'}</Button><Button aria-label="终点" disabled={pending || !study?.keyframes?.length} onClick={() => void seek(study?.keyframes?.at(-1)?.timeSeconds ?? 0)}>终点</Button></div>
+    <div className="motion-playback-controls"><Button aria-label="起点" disabled={pending || !study?.keyframes?.length} onClick={() => void seek(0)}>起点</Button><Button aria-label={clock||checkedPlaying ? '暂停' : '播放'} type="primary" disabled={!checkedPlaying&&(pending || (study?.keyframes?.length ?? 0) < 2)} onClick={() => void play()}>{clock||checkedPlaying ? '暂停' : '播放'}</Button><Button aria-label="终点" disabled={pending || !study?.keyframes?.length} onClick={() => void seek(study?.keyframes?.at(-1)?.timeSeconds ?? 0)}>终点</Button></div>
     <Slider aria-label="模拟时间游标" min={0} max={study?.keyframes?.at(-1)?.timeSeconds || .01} step={.01} value={time} disabled={pending || Boolean(clock)} onChange={v => void seek(v)}/>
     <CommandField  label={<><span>定位时间 s</span></>} width="number"><InputNumber aria-label="模拟定位时间" value={time} min={0} max={study?.keyframes?.at(-1)?.timeSeconds ?? 0} precision={2} changeOnBlur={false} step={.01} disabled={pending || Boolean(clock)} onChange={v => void seek(v ?? 0)}/></CommandField>
     {run?.failure && <Typography.Text type="warning">路径未完成 · {run.failure.timeSeconds.toFixed(2)} s</Typography.Text>}

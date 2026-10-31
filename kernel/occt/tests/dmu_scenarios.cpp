@@ -25,3 +25,24 @@ TEST(DMU,InvalidAndCancelledAreInconclusive){OcctKernel k;auto a=dmu_shape(k,BRe
 }
 }
 }
+namespace occccad::kernel {
+TEST(DMU,ThresholdProofDetailedOverlapAndContainmentWitnesses){
+ OcctKernel k;auto box=dmu_shape(k,BRepPrimAPI_MakeBox(10,10,10).Shape());
+ auto r=k.analyze_interference(at(box),at(box,15),2,1e-7,{},true);
+ ASSERT_TRUE(r.complete);EXPECT_TRUE(r.clearance_satisfied);EXPECT_FALSE(r.distance_exact);EXPECT_EQ(r.witness_kind,"NONE");
+ r=k.analyze_interference(at(box),at(box,15),6,1e-7,{},true);
+ EXPECT_TRUE(r.distance_exact);EXPECT_NEAR(r.distance,5,1e-9);EXPECT_FALSE(r.clearance_satisfied);EXPECT_EQ(r.witness_kind,"DISTANCE");
+ // A new threshold reuses geometric evidence, never the former pass/fail flag.
+ r=k.analyze_interference(at(box),at(box,15),4,1e-7);EXPECT_TRUE(r.clearance_satisfied);EXPECT_TRUE(r.distance_exact);
+ r=k.analyze_interference(at(box),at(box,8),0,1e-7,{},false,true);
+ ASSERT_TRUE(r.complete);EXPECT_EQ(r.classification,"PENETRATION");EXPECT_EQ(r.witness_kind,"NONE");
+ ASSERT_EQ(r.detail_status,"COMPLETE");EXPECT_FALSE(r.section_points.empty());EXPECT_FALSE(r.overlap_triangles.empty());
+ EXPECT_EQ(r.section_points.size()%2,0);EXPECT_EQ(r.overlap_triangles.size()%3,0);EXPECT_NEAR(r.common_volume,200,1e-7);
+ auto tiny=dmu_shape(k,BRepPrimAPI_MakeBox(2,2,2).Shape());
+ r=k.analyze_interference(at(box),at(tiny,2,2,2),0,1e-7,{},false,true);
+ ASSERT_TRUE(r.complete);EXPECT_EQ(r.containment,"SECOND_INSIDE_FIRST");EXPECT_EQ(r.witness_kind,"NONE");EXPECT_FALSE(r.overlap_triangles.empty());
+ r=k.analyze_interference(at(box),at(box),0,1e-7);EXPECT_EQ(r.containment,"COINCIDENT");
+ // A genuine tiny solid overlap may not be removed by relative volume filtering.
+ r=k.analyze_interference(at(box),at(box,9.999999),0,1e-7);ASSERT_TRUE(r.complete);EXPECT_EQ(r.classification,"PENETRATION");EXPECT_GT(r.common_volume,0);
+}
+}

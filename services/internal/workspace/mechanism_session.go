@@ -28,6 +28,7 @@ type MechanismSessionBegin struct {
 	SourceMechanismIDs []string `json:"sourceMechanismIds,omitempty"`
 }
 type MechanismSessionFrame struct {
+	Clash           *MechanismClashResult                 `json:"clash,omitempty"`
 	BasisDigest     string                                `json:"basisDigest"`
 	GeometryDigest  string                                `json:"geometryDigest"`
 	InitialPoses    map[string]InstancePose               `json:"initialPoses"`
@@ -55,6 +56,9 @@ type MechanismSessionOpened struct {
 	Study                *MotionStudy   `json:"study,omitempty"`
 }
 type MechanismSessionUpdate struct {
+	AtomicTarget bool `json:"atomicTarget,omitempty"` // timeline sample stays paired with its exact time on collision
+
+	Clash           *MechanismClashPolicy        `json:"clash,omitempty"`
 	ActiveDriverIDs []string                     `json:"activeDriverIds,omitempty"`
 	Sequence        uint64                       `json:"sequence"`
 	Values          map[string]MotionQuantity    `json:"values,omitempty"`
@@ -65,6 +69,9 @@ type MechanismSessionFinalize struct {
 	Study    *MotionStudy `json:"study,omitempty"`
 }
 type mechanismSession struct {
+	clashPolicy          MechanismClashPolicy
+	clashInput           *frozenInterference
+	clashResult          *MechanismClashResult
 	id, actor, document  string
 	owner                string
 	generation           uint64
@@ -118,7 +125,7 @@ func (service *Service) mechanismSessionLocked(document, actor, id string) (*mec
 }
 func (s *mechanismSession) frame(accepted bool) MechanismSessionFrame {
 	f, _ := valuecopy.Clone(s.engine.state.Frame)
-	return MechanismSessionFrame{BasisDigest: s.basis, GeometryDigest: s.geometry, InitialPoses: mechanismMemberPoses(s.engine.snapshot.Mechanism, s.initial.UnitPoses), ActiveDriverIDs: append([]string{}, s.engine.snapshot.Study.ActiveDriverIDs...), Qualified: s.engine.state.Qualified, SessionID: s.id, BaseRevisionID: s.view.Document.VersionID, InputDigest: s.engine.snapshot.Digest, Sequence: s.sequence, Accepted: accepted, Frame: f}
+	return MechanismSessionFrame{Clash: s.clashResult, BasisDigest: s.basis, GeometryDigest: s.geometry, InitialPoses: mechanismMemberPoses(s.engine.snapshot.Mechanism, s.initial.UnitPoses), ActiveDriverIDs: append([]string{}, s.engine.snapshot.Study.ActiveDriverIDs...), Qualified: s.engine.state.Qualified, SessionID: s.id, BaseRevisionID: s.view.Document.VersionID, InputDigest: s.engine.snapshot.Digest, Sequence: s.sequence, Accepted: accepted, Frame: f}
 }
 func (service *Service) BeginMechanismSession(parent context.Context, document, actor string, req MechanismSessionBegin) (_ MechanismSessionOpened, returnErr error) {
 	ctx, cancel := context.WithTimeout(withAssemblyReadCache(parent), 30*time.Second)
@@ -365,6 +372,12 @@ func (service *Service) TouchMechanismSession(ctx context.Context, document, act
 
 func (service *Service) UpdateMechanismSession(parent context.Context, document, actor, id string, req MechanismSessionUpdate) (MechanismSessionFrame, error) {
 	inputs := 0
+	if req.Clash != nil {
+		if !validClashPolicy(*req.Clash) {
+			return MechanismSessionFrame{}, fmt.Errorf("%w: invalid collision policy", ErrValidation)
+		}
+		inputs++
+	}
 	if req.Values != nil {
 		inputs++
 	}
@@ -414,13 +427,47 @@ func (service *Service) UpdateMechanismSession(parent context.Context, document,
 	e.calls = 0
 	e.last = nil
 	e.replay = nil
+	e.checkFrame = nil
+	policy, frozen := s.clashPolicy, s.clashInput
+	if policy.Mode == "" {
+		policy.Mode = "OFF"
+	}
+	if req.Clash != nil {
+		policy = *req.Clash
+	}
+	var clash *MechanismClashResult
 	c.mu.Unlock()
 	started := time.Now()
 	if err == nil {
 		err = service.mechanismHead(ctx, document, s.view.Document.VersionID)
 	}
+	if err == nil && policy.Mode != "OFF" && frozen == nil {
+		frozen = &frozenInterference{}
+		_, err = service.analyzeInterference(ctx, document, StaticInterferenceRequest{RevisionID: s.view.Document.VersionID, Scope: "ALL", ThresholdOnly: true}, nil, frozen)
+	}
+	if err == nil && policy.Mode == "STOP" && req.Clash == nil && req.ActiveDriverIDs == nil {
+		samples := 0
+		e.checkFrame = func(f MotionFrame) error {
+			samples++
+			if samples > 128 {
+				return fmt.Errorf("BUDGET_EXHAUSTED: collision samples")
+			}
+			report, checkErr := service.checkFrozenInterference(ctx, frozen, f.UnitPoses, policy.ClearanceMM, e.snapshot.Mechanism.ID, req.Sequence)
+			if checkErr != nil {
+				return checkErr
+			}
+			clash = &MechanismClashResult{Mode: policy.Mode, Sampled: true, Report: report}
+			if clashViolation(report) || len(report.Issues) > 0 || len(report.Pairs) > 0 && !report.Complete {
+				clash.Stopped = true
+				return errMechanismClash
+			}
+			return nil
+		}
+	}
 	if err == nil {
-		if req.ActiveDriverIDs != nil {
+		if req.Clash != nil {
+			// A policy update only inspects the current qualified checkpoint.
+		} else if req.ActiveDriverIDs != nil {
 			err = e.SelectDrivers(ctx, req.ActiveDriverIDs)
 		} else if req.Values != nil {
 			var targets map[string]float64
@@ -432,8 +479,18 @@ func (service *Service) UpdateMechanismSession(parent context.Context, document,
 			_, err = e.Drag(ctx, *req.SpatialTarget)
 		}
 	}
-	if err == nil {
-		err = service.mechanismHead(ctx, document, s.view.Document.VersionID)
+	if err == nil && policy.Mode != "OFF" {
+		report, checkErr := service.checkFrozenInterference(ctx, frozen, e.state.Frame.UnitPoses, policy.ClearanceMM, e.snapshot.Mechanism.ID, req.Sequence)
+		err = checkErr
+		if err == nil {
+			clash = &MechanismClashResult{Mode: policy.Mode, Sampled: true, Report: report}
+		}
+	}
+	e.checkFrame = nil
+	if err == nil || errors.Is(err, errMechanismClash) {
+		if headErr := service.mechanismHead(ctx, document, s.view.Document.VersionID); headErr != nil {
+			err = headErr
+		}
 	}
 	c.mu.Lock()
 	if c.entries[id] != s || s.sequence != req.Sequence || parent.Err() != nil {
@@ -455,18 +512,35 @@ func (service *Service) UpdateMechanismSession(parent context.Context, document,
 	}
 	s.busy = false
 	s.cancel = nil
-	if err == nil {
+	if errors.Is(err, errMechanismClash) && req.AtomicTarget {
+		var copyErr error
+		e.state, copyErr = valuecopy.Clone(s.engine.state)
+		if copyErr != nil {
+			err = copyErr
+		}
+	}
+	if err == nil || errors.Is(err, errMechanismClash) {
+		s.clashPolicy = policy
+		s.clashInput = frozen
+		s.clashResult = clash
 		s.engine = &e
 		s.drivers = append([]MotionDriver(nil), e.state.Drivers...)
 		s.basis = recordingBasis(e.snapshot.Mechanism, s.drivers)
 	}
 	out := s.frame(err == nil)
+	if err != nil && !errors.Is(err, errMechanismClash) {
+		s.clashResult = nil
+		out.Clash = nil
+	}
 	if req.SpatialTarget != nil && e.last != nil {
 		out.Interaction = e.last.Interaction
 	}
 	checkpoint, _ := valuecopy.Clone(s.engine.state.Frame)
 	c.mu.Unlock()
 	out.SolveMS = float64(time.Since(started).Microseconds()) / 1000
+	if errors.Is(err, errMechanismClash) {
+		return out, nil
+	}
 	if err != nil {
 		if errors.Is(err, ErrValidation) {
 			return out, err

@@ -71,7 +71,7 @@
 
 本项目据此选择[命令试动与录制合同](../architecture/current/kinematics-dmu.md)：稳定操作零位、同一约束内核、双面板单拥有者、合格检查点、明确确定／取消及独立产品转换。两套关系独立、以当前 confirmed 按目标关系切换、Revision/CAS/Undo 和近似显示边界都是本项目决策，不声称照搬 CATIA 的约束自动更新或内部架构。
 
-空间分析扩展参考 `control/SpaEnglishC2.viewdoc` → `online/spaug_C2/spaugbt0302.htm` 的 clash/contact/clearance 流程；其网格／sag 判定不作为本项目 OCCT 实体精度依据，也不代表当前机构应用已有干涉分析入口。
+空间分析参考 `control/SpaEnglishC2.viewdoc` → `online/spaug_C2/spaugbt0302.htm` 的 clash/contact/clearance 流程，结果分析见 `spaugbt0303.htm`、`spaugbt0304.htm`、`spaugbt0306.htm`，剖切见 `spaugat0101.htm`。运动 On／Stop 参考 `online/kinug_C2/kinugbt0305.htm`；制造仿真范围与反馈参考 `online/cfyugsimanl_C2/cfyugsimanlut0105.htm`、`cfyugsimanlut0121.htm`、`cfyugsimanlut0130.htm`，其中忽略机构内部碰撞的特定自动模式不作为本项目默认；其网格／sag 判定不作为本项目 OCCT 实体精度依据，当前实现范围由[装配检查](../architecture/current/product-assembly.md#静态干涉与最小间隙)与[机构会话](../architecture/current/kinematics-dmu.md#试动和录制会话)维护。
 
 ## 五类简单接合与固联组
 

@@ -304,8 +304,9 @@ export class CadViewportEngine {
   }
   private staticInterferenceReport?:StaticInterferenceReport;
   private staticInterferenceMarkers?:THREE.Group;
+  private interferenceVisibility=new Map<THREE.Object3D,boolean>();
   private staticInterferenceCompatible(report:StaticInterferenceReport):boolean {
-    if(this.view?.document.id!==report.documentId||this.view.document.versionId!==report.revisionId||this.motionDisplay||this.mechanismDefinition||this.assemblyPosePreview||this.preview||this.moveCommitPending||this.moveManipulator?.isDragging())return false;
+    if(this.view?.document.id!==report.documentId||this.view.document.versionId!==report.revisionId||(report.source!=='MECHANISM'&&(this.motionDisplay||this.mechanismDefinition||this.assemblyPosePreview))||this.motionDisplay?.clock||this.preview||this.moveCommitPending||this.moveManipulator?.isDragging())return false;
     this.content.updateMatrixWorld(true);
     return report.bodies.filter(b=>!b.diagnosticCode).every(b=>{
       const binding=this.solidBindings.get(`${b.instancePath.canonical}/body:${b.bodyId}`);if(!binding||binding.artifact.geometryKey!==b.geometryKey)return false;
@@ -313,20 +314,36 @@ export class CadViewportEngine {
       return p.distanceTo(new THREE.Vector3().fromArray(b.pose.translation))<1e-6&&1-Math.abs(q.dot(new THREE.Quaternion().fromArray(b.pose.rotation)))<1e-10;
     });
   }
-  showStaticInterference(report?:StaticInterferenceReport,index?:number):boolean {
+  showStaticInterference(report?:StaticInterferenceReport,index?:number,isolate=false,section=false):boolean {
+    for(const [object,visible] of this.interferenceVisibility??[])object.visible=visible;
+    this.interferenceVisibility?.clear();
     disposeMotionMarkers(this.staticInterferenceMarkers);this.staticInterferenceMarkers=undefined;this.staticInterferenceReport=undefined;
     if(!report){this.invalidate();return true}
     if(!this.staticInterferenceCompatible(report))return false;
     const pair=index===undefined?undefined:report.pairs[index];if(!pair)return false;
     const group=new THREE.Group();group.name='static-interference';
+    let clip:THREE.Plane|undefined;
+    if(section){
+      const bounds=new THREE.Box3();for(const id of [pair.firstId,pair.secondId]){const body=report.bodies.find(b=>b.id===id);const binding=body&&this.solidBindings.get(`${body.instancePath.canonical}/body:${body.bodyId}`);if(binding)bounds.expandByObject(binding.mesh)}
+      const center=bounds.getCenter(new THREE.Vector3()),normal=this.camera.getWorldDirection(new THREE.Vector3());
+      clip=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,center);
+    }
+    if(isolate||section){this.interferenceVisibility??=new Map();for(const [key,binding] of this.solidBindings){
+      const keep=[pair.firstId,pair.secondId].includes(key);if(section||!keep){this.interferenceVisibility.set(binding.group,binding.group.visible);binding.group.visible=false}
+    }}
     for(const [i,id] of [pair.firstId,pair.secondId].entries()){
       const body=report.bodies.find(b=>b.id===id);if(!body||body.diagnosticCode)continue;
       const binding=this.solidBindings.get(`${body.instancePath.canonical}/body:${body.bodyId}`);if(!binding)continue;
       const color=i===0?CATIA_VISUAL_THEME.selected:CATIA_VISUAL_THEME.hover;
-      const mesh=new THREE.Mesh(binding.mesh.geometry.clone(),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.3,depthTest:false,depthWrite:false,toneMapped:false}));
+      const mesh=new THREE.Mesh(binding.mesh.geometry.clone(),new THREE.MeshBasicMaterial({color,transparent:true,opacity:section?.85:.3,side:THREE.DoubleSide,clippingPlanes:clip?[clip]:null,depthTest:false,depthWrite:false,toneMapped:false}));
       mesh.applyMatrix4(binding.mesh.matrixWorld);mesh.renderOrder=1;group.add(mesh);
     }
-    if(pair.complete&&Number.isFinite(pair.distanceMm)&&[...pair.firstWitness,...pair.secondWitness].every(Number.isFinite)){
+    if(pair.overlapTriangles?.length){
+      const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(pair.overlapTriangles.flat(),3));geometry.computeVertexNormals();
+      const mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color:CATIA_VISUAL_THEME.analysisClash,side:THREE.DoubleSide,transparent:true,opacity:.8,depthTest:false,depthWrite:false,clippingPlanes:clip?[clip]:null}));mesh.renderOrder=3;group.add(mesh);
+    }
+    if(pair.sectionPoints?.length){const segments:Array<[THREE.Vector3,THREE.Vector3]>=[];for(let n=0;n<pair.sectionPoints.length;n+=2)segments.push([new THREE.Vector3().fromArray(pair.sectionPoints[n]),new THREE.Vector3().fromArray(pair.sectionPoints[n+1])]);const lines=makeOcclusionVisibleSegments(segments,pair.classification==='CONTACT'?CATIA_VISUAL_THEME.analysisContact:CATIA_VISUAL_THEME.analysisClash,3);lines.renderOrder=4;group.add(lines)}
+    if(pair.complete&&['DISTANCE','CONTACT'].includes(pair.witnessKind??'')&&pair.distanceExact!==false&&Number.isFinite(pair.distanceMm)&&[...pair.firstWitness,...pair.secondWitness].every(Number.isFinite)){
       const a=new THREE.Vector3().fromArray(pair.firstWitness),b=new THREE.Vector3().fromArray(pair.secondWitness);
       const connector=makeOcclusionVisibleSegments([[a,b]],CATIA_VISUAL_THEME.selected,2);connector.renderOrder=2;group.add(connector);
       const points=new THREE.Points(new THREE.BufferGeometry().setFromPoints([a,b]),new THREE.PointsMaterial({color:CATIA_VISUAL_THEME.hover,size:9,sizeAttenuation:false,transparent:true,depthTest:false,depthWrite:false,toneMapped:false}));points.renderOrder=3;group.add(points);

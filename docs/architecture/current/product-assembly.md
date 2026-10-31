@@ -84,13 +84,17 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 ## 静态干涉与最小间隙
 
-Product 的“干涉与间隙检查”独立只读，使用 `AnalyzeInterference`，不接旧 Motion 静态分析分支。支持全部叶零件或明确选定叶零件之间，最小间隙使用工作台长度单位。隐藏不排除；已消费 Body 排除，无活动实体的零件计入无实体范围说明。同一叶零件内的 Body 不互检，不同叶零件（包括同一子装配中的两个叶零件）按 Body 成对检查。
+Product 的“干涉与间隙检查”独立只读，复用 `AnalyzeInterference`。范围支持全部零件、所选内部、所选与其余、两组之间；树／视图区使用同一选择会话，子装配展开为接受的叶零件，两组重叠时去重并排除自身。隐藏不排除；已消费 Body 排除，无活动实体的零件计入范围说明。同一叶 Part 内 Body 不互检，不同叶零件（包括同一模块内部）按 Body 配对。
 
-`static_interference.go` 从确切 Product Revision 的接受引用递归展开完整 InstancePath、Part Revision、ContextVariant、Body、精确 BREP 和组合位姿，不从可显示的 resolvedInstances 建立范围，不读取来源 Head。复用已接受上下文投影及可重建缓存；失败 Variant、失败实体、缺失 BREP 和 displayFallback 不能充当有效输入。未完成的应检查零件对保留 INCONCLUSIVE，零对、取消、超限或部分失败不报告全部通过。Worker 上限在开始前检查：128 个 Body、8192 对、256 MiB 去重 BREP，不截断。
+`static_interference.go` 从确切 Product Revision 的接受引用展开完整 InstancePath、Part Revision、ContextVariant、Body、精确 BREP 和组合位姿，不从显示行建立范围，不读取来源新 Head。失败 Variant、失败实体、缺失 BREP 与 displayFallback 不能充当有效输入；未完成配对保留 INCONCLUSIVE。零对、取消、超限或部分失败不报告全部通过；已有冲突与未完成分别表达。开始前预检 128 Body、8192 对、256 MiB 去重 BREP，不截断。
 
-OCCT 在隔离副本上计算精确最小距离和必要 Common，区分分离、接触、穿透及包含；结果带距离、交叠体积、见证点、Kernel 策略和完成状态。面板只显示工程名称、路径、数值及状态；内部身份、摘要和诊断进入 DEBUG。行选择定位两个实体，使用两种角色颜色；有效距离显示见证点和连线。显示标记要求 Revision、精确几何及当前位姿与冻结输入匹配；临时预览、拖动、机构试动／回放不显示保存姿态的结果。关闭、范围或版本变化清理临时结果，不写显隐、引用、位姿、Revision 或历史。
+OCCT 在私有几何上计算分离、接触、干涉及包含；包含通过真实残余差集校验，不以总体积相近代替。Worker 使用有界 BREP／已准备形状及精确配对缓存。阈值检查可用保守包围距离证明间隙满足，此时不生成虚假的精确距离或见证点；选中配对后按需求精确距离、真实 Section 交线及 Common 交叠体的临时网格。图形离散不参与工程分类；局部显示超限／失败不改变已完成的数值判定。包含／干涉不绘制虚构的穿透向量，当前没有穿透深度算法。接触提供可靠见证，未实现完整接触／间隙区域面。
 
-入口：`POST /api/documents/{documentID}/static-interference`（Viewer 可读）、`services/internal/geometry/dmu.go`、`kernel/occt/src/dmu.cpp`、`static-interference-panel.tsx`；回归为 `static_interference_integration_test.go` 和 `static-interference.scenario.mjs`。本轮不提供动态碰撞、自动修复、交叠体制品或报告导出；复杂模型、最大资源边界及浏览器拾取／视觉效果仍需专项验收，已有定向测试不代表全规模保证。
+面板提供问题／类型过滤、按配对或零件组合浏览、工程数值和覆盖计数。行选择定位两个实体，分别用角色色显示；可临时只看这一对、剖切并查看冲突局部图形；“查看几何”将同一对话框收为紧凑尺寸，返回保留列表和选择。剖切是无封盖的显示裁剪，不改变数值输入。临时显隐在关闭、换范围、取消或版本变化时恢复，分析不写引用、位姿、Revision 或历史。图形必须匹配冻结的 Revision、几何与实际显示位姿；源、策略及内部诊断只进入 DEBUG。
+
+可选择已保存机构的接受构型进行同样的只读检查，无需激活、求解或采用其位置；视口与报告位置不同则不显示标记。命令试动／录制内的采样检测及停止边界见[机构会话](kinematics-dmu.md#试动和录制会话)。
+
+入口：`POST /api/documents/{documentID}/static-interference`（Viewer 可读）、`services/internal/geometry/dmu.go`、`kernel/occt/src/dmu.cpp`、`static-interference-panel.tsx`；真实回归在 `static_interference_integration_test.go`，状态／图形在 `static-interference.scenario.mjs`，浏览器在 `assembly-engineering-live.spec.ts`。不提供连续碰撞保证、自动修复、结果保存／导出或结构树分析对象；最大资源规模和复杂导入实体仍需专项验证。
 
 ## 发布与关联设计
 

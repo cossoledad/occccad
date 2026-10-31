@@ -5345,7 +5345,7 @@ type ProfilePadSpec struct {
 	InputFeatureId   string           `protobuf:"bytes,16,opt,name=input_feature_id,json=inputFeatureId,proto3" json:"input_feature_id,omitempty"`
 	ProfileFeatureId string           `protobuf:"bytes,17,opt,name=profile_feature_id,json=profileFeatureId,proto3" json:"profile_feature_id,omitempty"`
 	Tools            []*BodyToolInput `protobuf:"bytes,18,rep,name=tools,proto3" json:"tools,omitempty"`
-	// HOLE uses BLIND or THROUGH_ALL from the start plane in the selected direction.
+	// HOLE uses BLIND, directional THROUGH_ALL or TO_PLANE from its start plane.
 	Extent                 string                 `protobuf:"bytes,19,opt,name=extent,proto3" json:"extent,omitempty"` // FINITE | TWO_SIDED | SYMMETRIC | THROUGH_ALL (REMOVE only) | TO_PLANE
 	SecondLength           float64                `protobuf:"fixed64,20,opt,name=second_length,json=secondLength,proto3" json:"second_length,omitempty"`
 	Selections             []*SemanticTopologyRef `protobuf:"bytes,21,rep,name=selections,proto3" json:"selections,omitempty"`
@@ -12292,6 +12292,8 @@ type AnalyzeInterferenceRequest struct {
 	Pairs         []*AnalysisPair        `protobuf:"bytes,3,rep,name=pairs,proto3" json:"pairs,omitempty"`
 	ClearanceMm   float64                `protobuf:"fixed64,4,opt,name=clearance_mm,json=clearanceMm,proto3" json:"clearance_mm,omitempty"`
 	ToleranceMm   float64                `protobuf:"fixed64,5,opt,name=tolerance_mm,json=toleranceMm,proto3" json:"tolerance_mm,omitempty"`
+	ThresholdOnly bool                   `protobuf:"varint,6,opt,name=threshold_only,json=thresholdOnly,proto3" json:"threshold_only,omitempty"` // conservative separation proof; no invented distance
+	Details       bool                   `protobuf:"varint,7,opt,name=details,proto3" json:"details,omitempty"`                                  // bounded transient graphics, at most one pair
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -12361,6 +12363,20 @@ func (x *AnalyzeInterferenceRequest) GetToleranceMm() float64 {
 	return 0
 }
 
+func (x *AnalyzeInterferenceRequest) GetThresholdOnly() bool {
+	if x != nil {
+		return x.ThresholdOnly
+	}
+	return false
+}
+
+func (x *AnalyzeInterferenceRequest) GetDetails() bool {
+	if x != nil {
+		return x.Details
+	}
+	return false
+}
+
 type InterferencePairResult struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	FirstId            string                 `protobuf:"bytes,1,opt,name=first_id,json=firstId,proto3" json:"first_id,omitempty"`
@@ -12374,6 +12390,12 @@ type InterferencePairResult struct {
 	ClearanceSatisfied bool                   `protobuf:"varint,9,opt,name=clearance_satisfied,json=clearanceSatisfied,proto3" json:"clearance_satisfied,omitempty"`
 	Diagnostic         string                 `protobuf:"bytes,10,opt,name=diagnostic,proto3" json:"diagnostic,omitempty"`
 	CommonTested       bool                   `protobuf:"varint,11,opt,name=common_tested,json=commonTested,proto3" json:"common_tested,omitempty"`
+	DistanceExact      bool                   `protobuf:"varint,12,opt,name=distance_exact,json=distanceExact,proto3" json:"distance_exact,omitempty"`
+	WitnessKind        string                 `protobuf:"bytes,13,opt,name=witness_kind,json=witnessKind,proto3" json:"witness_kind,omitempty"` // NONE, DISTANCE, CONTACT; never a penetration vector
+	DetailStatus       string                 `protobuf:"bytes,14,opt,name=detail_status,json=detailStatus,proto3" json:"detail_status,omitempty"`
+	SectionPoints      []*Vec3                `protobuf:"bytes,15,rep,name=section_points,json=sectionPoints,proto3" json:"section_points,omitempty"`          // consecutive pairs form display segments
+	OverlapTriangles   []*Vec3                `protobuf:"bytes,16,rep,name=overlap_triangles,json=overlapTriangles,proto3" json:"overlap_triangles,omitempty"` // triples; transient exact-common tessellation
+	Containment        string                 `protobuf:"bytes,17,opt,name=containment,proto3" json:"containment,omitempty"`                                   // FIRST_INSIDE_SECOND, SECOND_INSIDE_FIRST, COINCIDENT
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -12483,6 +12505,48 @@ func (x *InterferencePairResult) GetCommonTested() bool {
 		return x.CommonTested
 	}
 	return false
+}
+
+func (x *InterferencePairResult) GetDistanceExact() bool {
+	if x != nil {
+		return x.DistanceExact
+	}
+	return false
+}
+
+func (x *InterferencePairResult) GetWitnessKind() string {
+	if x != nil {
+		return x.WitnessKind
+	}
+	return ""
+}
+
+func (x *InterferencePairResult) GetDetailStatus() string {
+	if x != nil {
+		return x.DetailStatus
+	}
+	return ""
+}
+
+func (x *InterferencePairResult) GetSectionPoints() []*Vec3 {
+	if x != nil {
+		return x.SectionPoints
+	}
+	return nil
+}
+
+func (x *InterferencePairResult) GetOverlapTriangles() []*Vec3 {
+	if x != nil {
+		return x.OverlapTriangles
+	}
+	return nil
+}
+
+func (x *InterferencePairResult) GetContainment() string {
+	if x != nil {
+		return x.Containment
+	}
+	return ""
 }
 
 type AnalyzeInterferenceResponse struct {
@@ -13870,14 +13934,16 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x04pose\x18\x04 \x01(\v2\x1c.occccad.worker.v1.RigidPoseR\x04pose\"F\n" +
 	"\fAnalysisPair\x12\x19\n" +
 	"\bfirst_id\x18\x01 \x01(\tR\afirstId\x12\x1b\n" +
-	"\tsecond_id\x18\x02 \x01(\tR\bsecondId\"\xf9\x01\n" +
+	"\tsecond_id\x18\x02 \x01(\tR\bsecondId\"\xba\x02\n" +
 	"\x1aAnalyzeInterferenceRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12?\n" +
 	"\bgeometry\x18\x02 \x03(\v2#.occccad.worker.v1.AnalysisGeometryR\bgeometry\x125\n" +
 	"\x05pairs\x18\x03 \x03(\v2\x1f.occccad.worker.v1.AnalysisPairR\x05pairs\x12!\n" +
 	"\fclearance_mm\x18\x04 \x01(\x01R\vclearanceMm\x12!\n" +
-	"\ftolerance_mm\x18\x05 \x01(\x01R\vtoleranceMm\"\xd5\x03\n" +
+	"\ftolerance_mm\x18\x05 \x01(\x01R\vtoleranceMm\x12%\n" +
+	"\x0ethreshold_only\x18\x06 \x01(\bR\rthresholdOnly\x12\x18\n" +
+	"\adetails\x18\a \x01(\bR\adetails\"\xec\x05\n" +
 	"\x16InterferencePairResult\x12\x19\n" +
 	"\bfirst_id\x18\x01 \x01(\tR\afirstId\x12\x1b\n" +
 	"\tsecond_id\x18\x02 \x01(\tR\bsecondId\x12&\n" +
@@ -13893,7 +13959,13 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"diagnostic\x18\n" +
 	" \x01(\tR\n" +
 	"diagnostic\x12#\n" +
-	"\rcommon_tested\x18\v \x01(\bR\fcommonTested\"\x9d\x01\n" +
+	"\rcommon_tested\x18\v \x01(\bR\fcommonTested\x12%\n" +
+	"\x0edistance_exact\x18\f \x01(\bR\rdistanceExact\x12!\n" +
+	"\fwitness_kind\x18\r \x01(\tR\vwitnessKind\x12#\n" +
+	"\rdetail_status\x18\x0e \x01(\tR\fdetailStatus\x12>\n" +
+	"\x0esection_points\x18\x0f \x03(\v2\x17.occccad.worker.v1.Vec3R\rsectionPoints\x12D\n" +
+	"\x11overlap_triangles\x18\x10 \x03(\v2\x17.occccad.worker.v1.Vec3R\x10overlapTriangles\x12 \n" +
+	"\vcontainment\x18\x11 \x01(\tR\vcontainment\"\x9d\x01\n" +
 	"\x1bAnalyzeInterferenceResponse\x12?\n" +
 	"\x05pairs\x18\x01 \x03(\v2).occccad.worker.v1.InterferencePairResultR\x05pairs\x12\x1a\n" +
 	"\bcomplete\x18\x02 \x01(\bR\bcomplete\x12!\n" +
@@ -14436,51 +14508,53 @@ var file_occccad_worker_v1_geometry_worker_proto_depIdxs = []int32{
 	148, // 254: occccad.worker.v1.AnalyzeInterferenceRequest.pairs:type_name -> occccad.worker.v1.AnalysisPair
 	129, // 255: occccad.worker.v1.InterferencePairResult.first_witness:type_name -> occccad.worker.v1.Vec3
 	129, // 256: occccad.worker.v1.InterferencePairResult.second_witness:type_name -> occccad.worker.v1.Vec3
-	150, // 257: occccad.worker.v1.AnalyzeInterferenceResponse.pairs:type_name -> occccad.worker.v1.InterferencePairResult
-	152, // 258: occccad.worker.v1.ExchangeAppearance.faces:type_name -> occccad.worker.v1.ExchangeFaceColor
-	94,  // 259: occccad.worker.v1.ExchangeBody.brep:type_name -> occccad.worker.v1.ArtifactReference
-	153, // 260: occccad.worker.v1.ExchangeBody.appearance:type_name -> occccad.worker.v1.ExchangeAppearance
-	110, // 261: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
-	44,  // 262: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
-	56,  // 263: occccad.worker.v1.GeometryWorker.AnalyzeBooleanRegions:input_type -> occccad.worker.v1.AnalyzeBooleanRegionsRequest
-	59,  // 264: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:input_type -> occccad.worker.v1.ResolveLoftCorrespondenceRequest
-	39,  // 265: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
-	48,  // 266: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:input_type -> occccad.worker.v1.ComputeSketchCurvesRequest
-	42,  // 267: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:input_type -> occccad.worker.v1.ProjectExternalGeometryRequest
-	19,  // 268: occccad.worker.v1.GeometryWorker.SolveAssembly:input_type -> occccad.worker.v1.SolveAssemblyRequest
-	149, // 269: occccad.worker.v1.GeometryWorker.AnalyzeInterference:input_type -> occccad.worker.v1.AnalyzeInterferenceRequest
-	95,  // 270: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
-	100, // 271: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
-	101, // 272: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
-	112, // 273: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
-	114, // 274: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
-	116, // 275: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
-	122, // 276: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
-	124, // 277: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
-	126, // 278: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
-	111, // 279: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
-	104, // 280: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
-	58,  // 281: occccad.worker.v1.GeometryWorker.AnalyzeBooleanRegions:output_type -> occccad.worker.v1.AnalyzeBooleanRegionsResponse
-	61,  // 282: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:output_type -> occccad.worker.v1.ResolveLoftCorrespondenceResponse
-	40,  // 283: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
-	51,  // 284: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:output_type -> occccad.worker.v1.ComputeSketchCurvesResponse
-	43,  // 285: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:output_type -> occccad.worker.v1.ProjectExternalGeometryResponse
-	24,  // 286: occccad.worker.v1.GeometryWorker.SolveAssembly:output_type -> occccad.worker.v1.SolveAssemblyResponse
-	151, // 287: occccad.worker.v1.GeometryWorker.AnalyzeInterference:output_type -> occccad.worker.v1.AnalyzeInterferenceResponse
-	99,  // 288: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
-	104, // 289: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
-	102, // 290: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
-	113, // 291: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
-	115, // 292: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
-	117, // 293: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
-	123, // 294: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
-	125, // 295: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
-	127, // 296: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
-	279, // [279:297] is the sub-list for method output_type
-	261, // [261:279] is the sub-list for method input_type
-	261, // [261:261] is the sub-list for extension type_name
-	261, // [261:261] is the sub-list for extension extendee
-	0,   // [0:261] is the sub-list for field type_name
+	129, // 257: occccad.worker.v1.InterferencePairResult.section_points:type_name -> occccad.worker.v1.Vec3
+	129, // 258: occccad.worker.v1.InterferencePairResult.overlap_triangles:type_name -> occccad.worker.v1.Vec3
+	150, // 259: occccad.worker.v1.AnalyzeInterferenceResponse.pairs:type_name -> occccad.worker.v1.InterferencePairResult
+	152, // 260: occccad.worker.v1.ExchangeAppearance.faces:type_name -> occccad.worker.v1.ExchangeFaceColor
+	94,  // 261: occccad.worker.v1.ExchangeBody.brep:type_name -> occccad.worker.v1.ArtifactReference
+	153, // 262: occccad.worker.v1.ExchangeBody.appearance:type_name -> occccad.worker.v1.ExchangeAppearance
+	110, // 263: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
+	44,  // 264: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
+	56,  // 265: occccad.worker.v1.GeometryWorker.AnalyzeBooleanRegions:input_type -> occccad.worker.v1.AnalyzeBooleanRegionsRequest
+	59,  // 266: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:input_type -> occccad.worker.v1.ResolveLoftCorrespondenceRequest
+	39,  // 267: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
+	48,  // 268: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:input_type -> occccad.worker.v1.ComputeSketchCurvesRequest
+	42,  // 269: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:input_type -> occccad.worker.v1.ProjectExternalGeometryRequest
+	19,  // 270: occccad.worker.v1.GeometryWorker.SolveAssembly:input_type -> occccad.worker.v1.SolveAssemblyRequest
+	149, // 271: occccad.worker.v1.GeometryWorker.AnalyzeInterference:input_type -> occccad.worker.v1.AnalyzeInterferenceRequest
+	95,  // 272: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
+	100, // 273: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
+	101, // 274: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
+	112, // 275: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
+	114, // 276: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
+	116, // 277: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
+	122, // 278: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
+	124, // 279: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
+	126, // 280: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
+	111, // 281: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
+	104, // 282: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
+	58,  // 283: occccad.worker.v1.GeometryWorker.AnalyzeBooleanRegions:output_type -> occccad.worker.v1.AnalyzeBooleanRegionsResponse
+	61,  // 284: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:output_type -> occccad.worker.v1.ResolveLoftCorrespondenceResponse
+	40,  // 285: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
+	51,  // 286: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:output_type -> occccad.worker.v1.ComputeSketchCurvesResponse
+	43,  // 287: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:output_type -> occccad.worker.v1.ProjectExternalGeometryResponse
+	24,  // 288: occccad.worker.v1.GeometryWorker.SolveAssembly:output_type -> occccad.worker.v1.SolveAssemblyResponse
+	151, // 289: occccad.worker.v1.GeometryWorker.AnalyzeInterference:output_type -> occccad.worker.v1.AnalyzeInterferenceResponse
+	99,  // 290: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
+	104, // 291: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
+	102, // 292: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
+	113, // 293: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
+	115, // 294: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
+	117, // 295: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
+	123, // 296: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
+	125, // 297: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
+	127, // 298: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
+	281, // [281:299] is the sub-list for method output_type
+	263, // [263:281] is the sub-list for method input_type
+	263, // [263:263] is the sub-list for extension type_name
+	263, // [263:263] is the sub-list for extension extendee
+	0,   // [0:263] is the sub-list for field type_name
 }
 
 func init() { file_occccad_worker_v1_geometry_worker_proto_init() }

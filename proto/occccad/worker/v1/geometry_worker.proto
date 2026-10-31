@@ -1378,6 +1378,8 @@ message AnalyzeInterferenceRequest {
     repeated AnalysisPair pairs = 3;
     double clearance_mm = 4;
     double tolerance_mm = 5;
+    bool threshold_only = 6; // conservative separation proof; no invented distance
+    bool details = 7; // bounded transient graphics, at most one pair
 }
 message InterferencePairResult {
     string first_id = 1;
@@ -1391,6 +1393,12 @@ message InterferencePairResult {
     bool clearance_satisfied = 9;
     string diagnostic = 10;
     bool common_tested = 11;
+    bool distance_exact = 12;
+    string witness_kind = 13; // NONE, DISTANCE, CONTACT; never a penetration vector
+    string detail_status = 14;
+    repeated Vec3 section_points = 15; // consecutive pairs form display segments
+    repeated Vec3 overlap_triangles = 16; // triples; transient exact-common tessellation
+    string containment = 17; // FIRST_INSIDE_SECOND, SECOND_INSIDE_FIRST, COINCIDENT
 }
 message AnalyzeInterferenceResponse {
     repeated InterferencePairResult pairs = 1;

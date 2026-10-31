@@ -103,10 +103,13 @@ public:
     size_t resident_count() const noexcept;
     bool is_loaded(const GeometryId& id) const noexcept;
     InterferenceResult analyze_interference(const PlacedGeometry& first, const PlacedGeometry& second,
-        double clearance, double tolerance, const std::function<bool()>& cancelled = {});
+        double clearance, double tolerance, const std::function<bool()>& cancelled = {},
+        bool threshold_only = false, bool details = false);
 
 private:
     const TopoDS_Shape& analysis_shape(const GeometryId& id) const;
+    struct InterferenceCache;
+    std::shared_ptr<InterferenceCache> interference_cache_;
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
