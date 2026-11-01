@@ -1,3 +1,5 @@
+import {MeasurementPanel} from './measurement-panel';
+import {measurements,type Measurement,type MeasurementKind} from '../../cad/measurement/measurement';
 import {SpatialAnalysisPanel} from "./spatial-analysis-panel";
 import {spatialPathsForView,type SpatialAnalysis} from "../../cad/assembly/spatial-analysis";
 import {interferenceDisplayIndex,withInterferenceDetail,staticBodySelection} from "../../cad/assembly/static-interference";
@@ -180,6 +182,7 @@ export function Workbench() {
  const motionPanel=useRef<MotionPanelHandle>(null);
  const motionGestures=useRef(new Map<string,{owner:import('../../cad/assembly/mechanism-motion-session').MechanismMotionSession;bodyId:string;initialValues:Record<string,import("../../cad/assembly/motion-study").MotionQuantity>;completed?:boolean}>());
  const [motionDraft,setMotionDraft]=useState<import('../../cad/assembly/motion-study').MotionStudy>();
+ const [measurementEditor,setMeasurementEditor]=useState<{kind:MeasurementKind;id?:string}>();
  const [spatialEditor,setSpatialEditor]=useState<{kind:"CLASH"|"SECTION"|"DISTANCE";id?:string}>();
  const [staticInterferenceOpen,setStaticInterferenceOpen]=useState(false);
  const [motionClash,setMotionClash]=useState<{report:import('../../cad/assembly/static-interference').StaticInterferenceReport;index?:number}>();
@@ -1149,6 +1152,10 @@ export function Workbench() {
     if(command.isPending)return;
     const candidates = [...new Map(nodes.filter((node) => node.entityId && node.kind && node.capabilities?.includes("DELETE") &&
       node.presentationRole !== "INPUT_REFERENCE").map((node) => [`${node.documentId}:${node.kind}:${node.entityId}`, node])).values()];
+    if(candidates.some(node=>node.kind==='MEASUREMENT')){
+      if(!canEditRoot||!view||candidates.length!==1||candidates[0].documentId!==view.document.id)return;
+      command.mutate(()=>api.command(view.document.id,{type:'DELETE_MEASUREMENT',versionId:view.document.versionId,measurementId:candidates[0].entityId}));setMeasurementEditor(undefined);viewport.current?.showMeasurement();return;
+    }
     if(candidates.some(node=>node.kind==='SPATIAL_ANALYSIS')){
       if(!canEditRoot||!view?.product||candidates.length!==1||candidates[0].documentId!==view.document.id)return;
       command.mutate(()=>api.command(view.document.id,{type:'DELETE_SPATIAL_ANALYSIS',versionId:view.document.versionId,targetId:candidates[0].entityId}));setSpatialEditor(undefined);setStaticInterferenceOpen(false);viewport.current?.showStaticInterference();return;
@@ -1257,6 +1264,7 @@ export function Workbench() {
     setReconnectError(undefined);setAssemblyDefinitionDirty(false);setEditingAssemblyConstraint(undefined);setPendingAssemblyConstraint(undefined);
   };
   const closeCommandPanels=(nextCommand?:string)=>{
+    setMeasurementEditor(undefined);viewport.current?.showMeasurement();
     sketchCreationScope.current.cancel();
     setStaticInterferenceOpen(false);setSpatialEditor(undefined);viewport.current?.setSectionEdit();viewport.current?.showStaticInterference();
     closeAssemblyCandidate();stopConflictAnalysis();viewport.current?.showRemainingMotion();
@@ -1268,6 +1276,12 @@ export function Workbench() {
     setParameterManagerOpen(false);setPublicationManagerOpen(false);setDesignAssociationOpen(false);setExternalParameterID(undefined);
     setEditingParameterID(undefined);setEditingPublication(undefined);
     setEditingContextInput(undefined);setDesignInputsOpen(false);
+  };
+  const saveMeasurement=async(definition:Measurement,action='SAVE_MEASUREMENT')=>{
+    if(!view||!canEditRoot)throw new Error('当前文档不可编辑');
+    await viewport.current?.settleAssemblyInteraction();
+    const updated=await command.mutateAsync(()=>api.command(view.document.id,{type:action,versionId:view.document.versionId,measurement:definition,measurementId:definition.id}));
+    await refresh(updated);
   };
   const saveSpatial=async(definition:SpatialAnalysis,signal?:AbortSignal)=>{
     if(!view?.product||!canEditRoot)return;
@@ -1352,6 +1366,8 @@ onActivate:async(node,operation) => {
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             },
 onEdit:(node,operation) => {
+ if(view&&node.kind==='MEASUREMENT'&&node.documentId===view.document.id){const m=measurements(view).find(m=>m.id===node.entityId);if(m){closeCommandPanels();setMeasurementEditor({kind:m.kind,id:m.id})}return;}
+
  if(node.kind==="SPATIAL_ANALYSIS"&&node.documentId===view?.document.id){const a=view?.product?.spatialAnalyses?.find(a=>a.id===node.entityId);if(a){closeCommandPanels();setSpatialEditor({kind:a.kind==="BAND"?"DISTANCE":a.kind,id:a.id});setStaticInterferenceOpen(a.kind==="CLASH")}return;}
  if((node.kind==="MECHANISM"||node.kind==="MECHANISM_REFERENCE")&&node.entityId){
   setMotionSession(documentID);return motionPanel.current?.execute("enter",node.entityId,operation);
@@ -1423,6 +1439,8 @@ onDetach:(node) => {
                 editSketch(node.ownerEntityId, [{type:"DETACH_EXTERNAL_GEOMETRY", externalId:node.entityId}]);
             },
 onRefresh:(node) => {
+ if(view&&node.kind==='MEASUREMENT'&&node.documentId===view.document.id){const m=measurements(view).find(m=>m.id===node.entityId);if(m)command.mutate(()=>api.command(view.document.id,{type:'UPDATE_MEASUREMENT',versionId:view.document.versionId,measurement:m}));return;}
+
  if(view?.product&&node.documentId===view.document.id&&["SPATIAL_ANALYSIS","SPATIAL_ANALYSIS_GROUP"].includes(node.kind??"")){command.mutate(()=>api.command(view.document.id,{type:"UPDATE_SPATIAL_ANALYSES",versionId:view.document.versionId,spatialAnalysisIds:node.entityId?[node.entityId]:[]}));return;}
               if (node.kind === "CONTEXT_REFERENCE" && node.documentId) {
                 command.mutate(() => api.updateReferences(node.documentId!));
@@ -1477,8 +1495,8 @@ onToggleConstruction:(node)=>{
             }
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
-  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openSpatialAnalysis:kind=>{closeCommandPanels();setSpatialEditor({kind});setStaticInterferenceOpen(kind==="CLASH")},staticInterferenceAllowed:!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,setDeveloperOpen,openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMechanismAnalysisOpen,setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    setAssociationRepairOpen,associationRepairOpen,setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},spatialAnalysisKind:spatialEditor?.kind,formActive:Boolean(staticInterferenceOpen||spatialEditor||sketchInsertion||designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openMeasurement:kind=>setMeasurementEditor({kind}),measurementKind:measurementEditor?.kind,measurementAllowed:!activeInstancePath&&!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,openSpatialAnalysis:kind=>{closeCommandPanels();setSpatialEditor({kind});setStaticInterferenceOpen(kind==="CLASH")},staticInterferenceAllowed:!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,setDeveloperOpen,openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMechanismAnalysisOpen,setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
+    setAssociationRepairOpen,associationRepairOpen,setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},spatialAnalysisKind:spatialEditor?.kind,formActive:Boolean(measurementEditor||staticInterferenceOpen||spatialEditor||sketchInsertion||designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1689,6 +1707,7 @@ onToggleConstruction:(node)=>{
   const restoringPoses=restoringMechanism?Object.entries(Object.assign({},...restoredApplicationSources(view,restoringMechanism,applicationParams).map(id=>view.product?.kinematics?.mechanisms.find(m=>m.id===id)?.poses??{})) as Record<string,import("../../cad/assembly/motion-study").MotionPose>).map(([instanceId,p])=>({instanceId,...p})):undefined;
   return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><CommandFormContext.Provider value={{locate:items=>{store.setSelections(items);viewport.current?.focusSelections(items)}}}><section className="cad-workbench">
 
+    {measurementEditor&&<MeasurementPanel key={`${view.document.id}:${measurementEditor.kind}:${measurementEditor.id??'new'}`} view={view} kind={measurementEditor.kind} initial={measurements(view).find(m=>m.id===measurementEditor.id)} unit={lengthUnit} seed={store.selections} canSave={canEditRoot} blocked={!!(motionOpen||motionDisplay||motionPosePreview||replacementPreview||motionCommandActive||motionMutation.isPending||activeInstancePath)} onClose={()=>{setMeasurementEditor(undefined);setFeatureSelection(undefined);viewport.current?.showMeasurement();store.setPreselection(null)}} onSelectionSession={setFeatureSelection} onLocate={items=>{store.setSelections(items);viewport.current?.focusSelections(items)}} onShow={r=>viewport.current?.showMeasurement(r)} onSave={saveMeasurement} onEdit={m=>setMeasurementEditor({kind:m.kind,id:m.id})}/>}
     {spatialEditor&&spatialEditor.kind!=='CLASH'&&view.product&&<SpatialAnalysisPanel initializeSection={d=>viewport.current?.initializeSection(d)??d} onSectionSession={s=>viewport.current?.setSectionEdit(s)} onCancelSection={()=>viewport.current?.cancelSectionGesture()??false} positionSection={(s,frame,signal)=>viewport.current!.positionSectionOnSelection(s,frame,signal)} key={`${spatialEditor.id??'new'}:${view.document.versionId}:${spatialEditor.kind}`} view={view} kind={spatialEditor.kind} initial={view.product.spatialAnalyses?.find(a=>a.id===spatialEditor.id)?spatialPathsForView(view,view.product.spatialAnalyses.find(a=>a.id===spatialEditor.id)!):undefined} unit={lengthUnit} seed={store.selections} canSave={canEditRoot} onSave={saveSpatial} blocked={!!(motionOpen||motionDisplay||motionPosePreview||replacementPreview||command.isPending||motionCommandActive||motionMutation.isPending||activeInstancePath)} onClose={()=>{viewport.current?.setSectionEdit();setSpatialEditor(undefined);setFeatureSelection(undefined);store.setSelections([]);store.setPreselection(null);viewport.current?.showSpatialAnalysis()}} onSelectionSession={setFeatureSelection} onLocate={items=>{store.setSelections(items);viewport.current?.focusSelections(items)}} onShow={(r,id)=>viewport.current?.showSpatialAnalysis(r,id)??false} onPrepare={async()=>{await viewport.current?.settleAssemblyInteraction();viewport.current?.clearCommandPreview()}}/>}
     {staticInterferenceOpen&&view.product&&<StaticInterferencePanel key={`${spatialEditor?.id??"new"}:${view.document.versionId}`} initial={view.product.spatialAnalyses?.find(a=>a.id===spatialEditor?.id)?spatialPathsForView(view,view.product.spatialAnalyses.find(a=>a.id===spatialEditor?.id)!):undefined} canSave={canEditRoot} onSave={saveSpatial} view={view} unit={lengthUnit} seed={store.selections} blocked={!!(motionOpen||motionDisplay||motionPosePreview||replacementPreview||command.isPending||motionCommandActive||motionMutation.isPending||activeInstancePath)} onClose={()=>{setStaticInterferenceOpen(false);setSpatialEditor(undefined);setFeatureSelection(undefined);store.setSelections([]);store.setPreselection(null);viewport.current?.showStaticInterference()}} onSelectionSession={setFeatureSelection} onLocate={items=>{store.setSelections(items);viewport.current?.focusSelections(items)}} onShow={(r,i,isolate)=>viewport.current?.showStaticInterference(r,i,isolate)??false} onPrepare={async()=>{await viewport.current?.settleAssemblyInteraction();viewport.current?.clearCommandPreview();}}/>}
     {mechanismAnalysisOpen&&view.product&&<MechanismAnalysisPanel view={view} selection={store.selection} currentId={mechanismDefinition?.id??(store.selection?.kind==='kinematic-object'?store.selection.mechanismId:undefined)} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")&&!motionCommandActive&&!motionDisplay&&!motionMutation.isPending} onClose={()=>{viewport.current?.showMechanismAnalysis();viewport.current?.showRemainingMotion();setMechanismAnalysisOpen(false)}} onLocate={store.setSelections} onShow={(m,r,j)=>viewport.current?.showMechanismAnalysis(m,r,j)??false} onMotion={showAnalysisMotion} onRepair={(m,j)=>{setMechanismAnalysisOpen(false);void motionPanel.current?.repairJoint(m,j)}}/>}

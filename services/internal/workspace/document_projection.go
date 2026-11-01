@@ -20,6 +20,7 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 	}
 	normalizePartModel(&model)
 	presentParameters(&model)
+	service.projectMeasurements(ctx, summary.ID, summary.VersionID, model.Measurements)
 	view.Part = &model
 	view.BodyAppearances = map[string]ResolvedAppearance{}
 	for _, body := range model.Bodies {
@@ -80,6 +81,7 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	// Availability of a newer Head does not invalidate evidence for the accepted Revision.
 	// Keep currency on instances and UpdatePlan, separate from constraint evaluation.
 	service.projectSpatialStatus(ctx, summary.ID, summary.VersionID, &model)
+	service.projectMeasurements(ctx, summary.ID, summary.VersionID, model.Measurements)
 	view.Product = &model
 	if err := validateAssemblyDefinitionFormat(model); err != nil {
 		return view, err
@@ -161,6 +163,8 @@ func projectPartStructure(ctx context.Context, service *Service, root DocumentSt
 	// browser's current edit context. The client enables them only after
 	// loading the referenced document and proving Editor access.
 	root.Children = partStructureChildren(model, path, documentID, versionID, true)
+	service.projectMeasurements(ctx, documentID, versionID, model.Measurements)
+	root.Children = append(root.Children, measurementStructure(documentID, versionID, path, model.Measurements))
 	rootPath := root.InstancePath
 	applyInstancePath(root.Children, rootPath)
 	annotateStructure(&root, documentID, "")
@@ -308,6 +312,8 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 	applications := kinematicsStructure(documentID, versionID, path, model.Kinematics, model.Constraints, model.Instances)
 	service.projectSpatialStatus(ctx, documentID, versionID, &model)
 	applications.Children = append(applications.Children, spatialStructure(documentID, versionID, applications.ID, model.SpatialAnalyses))
+	service.projectMeasurements(ctx, documentID, versionID, model.Measurements)
+	applications.Children = append(applications.Children, measurementStructure(documentID, versionID, applications.ID, model.Measurements))
 	root.Children = append(root.Children, applications)
 	annotateStructure(&root, documentID, "")
 	applyOccurrenceVisibilityProjection(&root, model.VisibilityOverrides)

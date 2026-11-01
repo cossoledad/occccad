@@ -31,6 +31,8 @@ func partHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (map[
 			continue
 		}
 		switch change.Target.SlotID {
+		case measurementSlot:
+			result[change.Target], _ = json.Marshal(model.Measurements)
 		case "body.appearance":
 			if index := bodyIndex(model, change.Target.EntityID); index >= 0 {
 				result[change.Target], _ = json.Marshal(model.Bodies[index].Appearance)
@@ -144,6 +146,10 @@ func productHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (m
 			result[change.Target], _ = json.Marshal(model.SpatialAnalyses)
 			continue
 		}
+		if change.Target.SlotID == measurementSlot {
+			result[change.Target], _ = json.Marshal(model.Measurements)
+			continue
+		}
 		if change.Target.SlotID == "product.kinematics" {
 			result[change.Target], _ = json.Marshal(model.Kinematics)
 			continue
@@ -221,6 +227,10 @@ func applyPartHistoryValues(modelJSON json.RawMessage, values map[modelcore.Prop
 			continue
 		}
 		switch address.SlotID {
+		case measurementSlot:
+			if err := json.Unmarshal(value, &model.Measurements); err != nil {
+				return nil, err
+			}
 		case "body.appearance":
 			index := bodyIndex(model, address.EntityID)
 			if index < 0 {
@@ -491,6 +501,10 @@ func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.P
 		case "product.spatial-analyses":
 			model.SpatialAnalyses = nil
 			if err := json.Unmarshal(value, &model.SpatialAnalyses); err != nil {
+				return nil, err
+			}
+		case measurementSlot:
+			if err := json.Unmarshal(value, &model.Measurements); err != nil {
 				return nil, err
 			}
 		case "product.kinematics":

@@ -544,6 +544,7 @@ type Feature struct {
 }
 
 type PartModel struct {
+	Measurements      []Measurement                   `json:"measurements,omitempty"`
 	Metadata          *DocumentMetadata               `json:"metadata,omitempty"`
 	DefaultAppearance *SurfaceAppearance              `json:"defaultAppearance,omitempty"`
 	OriginVisible     *bool                           `json:"originVisible,omitempty"`
@@ -771,6 +772,7 @@ type AssemblyGroupMember struct {
 }
 
 type ProductModel struct {
+	Measurements           []Measurement          `json:"measurements,omitempty"`
 	Metadata               *DocumentMetadata      `json:"metadata,omitempty"`
 	DefaultAppearance      *SurfaceAppearance     `json:"defaultAppearance,omitempty"`
 	AppearanceOverrides    []OccurrenceAppearance `json:"appearanceOverrides,omitempty"`
@@ -1241,6 +1243,8 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	Measurement                *Measurement      `json:"measurement,omitempty"`
+	MeasurementID              string            `json:"measurementId,omitempty"`
 	FeatureIDs                 []string          `json:"featureIds,omitempty"`
 	ExpectedFeatureDigests     map[string]string `json:"expectedFeatureDigests,omitempty"`
 	ExpectedFeatureOrderDigest string            `json:"expectedFeatureOrderDigest,omitempty"`

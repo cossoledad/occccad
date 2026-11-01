@@ -26,6 +26,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 	}
 	switch request.Type {
+	case "SAVE_MEASUREMENT", "UPDATE_MEASUREMENT", "DELETE_MEASUREMENT":
+		values, err := service.prepareMeasurements(ctx, documentID, modelJSON, request)
+		return typeSetMeasurements, values, err
 	case "SAVE_SPATIAL_ANALYSIS", "UPDATE_SPATIAL_ANALYSES", "DELETE_SPATIAL_ANALYSIS":
 		if documentType != "PRODUCT" {
 			break

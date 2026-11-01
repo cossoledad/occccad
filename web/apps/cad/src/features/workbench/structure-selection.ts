@@ -21,6 +21,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     instanceId: instancePath?.segments[0]?.instanceId, treeNodeId: node.id,
   };
   switch (node.kind) {
+ case 'MEASUREMENT':return {...base,kind:'measurement'};
  case "SPATIAL_ANALYSIS":return {...base,kind:"spatial-analysis"};
     case "ASSEMBLY_GROUP_MEMBER_REFERENCE": {
       if(!node.entityId)return null;

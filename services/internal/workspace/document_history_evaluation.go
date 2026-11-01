@@ -24,7 +24,7 @@ func evaluatePartHistory(ctx context.Context, service *Service, input historyCom
 		// Display compensation uses the same frozen geometry as a display command.
 		// No parameter/publication preparation or solid evaluation is necessary.
 		displayOnly := len(input.changes.Changes) > 0
-		propertiesOnly := displayPropertiesOnly(input.changes)
+		propertiesOnly := displayPropertiesOnly(input.changes) || measurementsOnly(input.changes)
 		for _, change := range input.changes.Changes {
 			if !strings.HasPrefix(change.Target.SlotID, "display.") && change.Target.SlotID != "body.appearance" {
 				displayOnly = false
@@ -90,7 +90,7 @@ func evaluateProductHistory(ctx context.Context, service *Service, input history
 			if err = json.Unmarshal(before, &previous); err != nil {
 				return err
 			}
-			if !displayPropertiesOnly(input.changes) && !constraintVisibilityOnlyHistory(previous, model, input.changes) && !kinematicsOnlyHistory(previous, model, input.changes) && !spatialOnlyHistory(previous, model, input.changes) {
+			if !displayPropertiesOnly(input.changes) && !measurementsOnly(input.changes) && !constraintVisibilityOnlyHistory(previous, model, input.changes) && !kinematicsOnlyHistory(previous, model, input.changes) && !spatialOnlyHistory(previous, model, input.changes) {
 				if err = service.verifyAssemblyHistory(ctx, input.documentID, revisionID, input.requestID, model); err != nil {
 					return err
 				}

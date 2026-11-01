@@ -268,6 +268,7 @@ export const restApi = {
     {method:"POST",body:JSON.stringify({requestId:requestId()})}),
   getProductSolveResult: (id:string,solveRequestId:string) => request<AssemblySolveManifestResult>(
     `/api/documents/${id}/solve-results?requestId=${encodeURIComponent(solveRequestId)}`),
+  measure:(id:string,input:{revisionId:string;definition:import('./cad/measurement/measurement').Measurement},signal?:AbortSignal)=>request<import('./cad/measurement/measurement').MeasurementReport>(`/api/documents/${id}/measure`,{method:'POST',body:JSON.stringify(input),signal}),
   analyzeSpatial:(id:string,input:{revisionId:string;definition:import("./cad/assembly/spatial-analysis").SpatialAnalysis},signal?:AbortSignal)=>request<import("./cad/assembly/spatial-analysis").SpatialReport>(`/api/documents/${id}/spatial-analysis`,{method:"POST",body:JSON.stringify(input),signal}),
   getSpatialResult:(id:string,rev:string,analysisId:string,signal?:AbortSignal)=>request<import("./cad/assembly/spatial-analysis").SpatialReport>(`/api/documents/${id}/spatial-analyses/${analysisId}/result?revisionId=${encodeURIComponent(rev)}`,{signal}),
   analyzeStaticInterference:(id:string,input:import("./cad/assembly/static-interference").StaticInterferenceInput,signal?:AbortSignal)=>request<import("./cad/assembly/static-interference").StaticInterferenceReport>(`/api/documents/${id}/static-interference`,{method:"POST",body:JSON.stringify(input),signal}),

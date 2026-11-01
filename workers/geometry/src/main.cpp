@@ -775,6 +775,48 @@ public:
         return grpc::Status::OK;
     }
 
+    grpc::Status MeasureGeometry(grpc::ServerContext* context,
+        const worker_api::MeasureGeometryRequest* request,worker_api::MeasureGeometryResponse* response) override {
+        const int required=request->kind()=="ITEM"?1:request->kind()=="BETWEEN"?2:request->kind()=="ANGLE_POINTS"?3:0;
+        if(!required||request->operands_size()!=required||request->geometry_size()<1||request->geometry_size()>128)
+            return {grpc::StatusCode::INVALID_ARGUMENT,"invalid measurement scope"};
+        std::unique_lock<std::mutex> lock(mutex_,std::defer_lock);
+        while(!lock.try_lock()){if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"measurement cancelled"};std::this_thread::sleep_for(std::chrono::milliseconds(5));}
+        try {
+            occccad::kernel::OcctKernel kernel;
+            uint64_t bytes=0;std::unordered_map<std::string,occccad::kernel::PlacedGeometry> geometry;
+            std::unordered_map<std::string,std::string> loaded;
+            for(const auto& g:request->geometry()){
+                if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"measurement cancelled"};
+                if(g.id().empty()||geometry.count(g.id())||!g.has_brep()||!g.has_pose())return {grpc::StatusCode::INVALID_ARGUMENT,"invalid measurement geometry"};
+                const auto key=g.brep().SerializeAsString();std::string id;
+                if(loaded.count(key))id=loaded.at(key);
+                else {
+                    if(g.brep().size_bytes()>256ULL*1024*1024-bytes)return {grpc::StatusCode::RESOURCE_EXHAUSTED,"measurement B-Rep limit"};
+                    bytes+=g.brep().size_bytes();id=kernel.loadBrepr(read_artifact(g.brep()));loaded.emplace(key,id);
+                }
+                if(id!=g.geometry_id())return {grpc::StatusCode::INVALID_ARGUMENT,"measurement geometry digest mismatch"};
+                const auto& p=g.pose();geometry.emplace(g.id(),occccad::kernel::PlacedGeometry{id,{p.translation().x(),p.translation().y(),p.translation().z()},{p.rotation().x(),p.rotation().y(),p.rotation().z(),p.rotation().w()}});
+            }
+            size_t count=0;std::vector<std::vector<occccad::kernel::MeasurementElement>> operands;
+            for(const auto& op:request->operands()){
+                if(op.elements_size()<1||op.elements_size()>128||count+op.elements_size()>128)return {grpc::StatusCode::INVALID_ARGUMENT,"measurement element limit"};
+                operands.emplace_back();
+                for(const auto& e:op.elements()){
+                    if(!geometry.count(e.input_id()))return {grpc::StatusCode::INVALID_ARGUMENT,"measurement element missing"};
+                    operands.back().push_back({geometry.at(e.input_id()),e.kind(),e.local_id(),e.mode()});++count;
+                }
+            }
+            const auto r=kernel.measure_geometry(request->kind(),operands,[&]{return context->IsCancelled();});
+            if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"measurement cancelled"};
+            response->set_complete(r.complete);response->set_diagnostic(r.diagnostic);response->set_geometry_type(r.geometry_type);
+            for(const auto& [key,value]:r.values)(*response->mutable_values())[key]=value;
+            for(const auto& [key,p]:r.anchors){auto& v=(*response->mutable_anchors())[key];v.set_x(p.x);v.set_y(p.y);v.set_z(p.z);}
+            response->set_kernel_build("occt-" OCC_VERSION_COMPLETE "/measurement-v2");return grpc::Status::OK;
+        }catch(const Standard_Failure&){return {grpc::StatusCode::INTERNAL,"measurement input unavailable"};}
+        catch(const std::exception& e){return {grpc::StatusCode::INVALID_ARGUMENT,e.what()};}
+    }
+
     grpc::Status AnalyzeSpatialGeometry(grpc::ServerContext* context,
         const worker_api::AnalyzeSpatialGeometryRequest* request,worker_api::AnalyzeSpatialGeometryResponse* response) override {
         if(request->geometry_size()<1||request->geometry_size()>128||request->source_ids_size()<1||request->source_ids_size()>128||

@@ -6058,6 +6058,96 @@
         ]
       },
       "implementation": "form"
+    },
+    {
+      "id": "measure.item",
+      "name": "测量对象",
+      "helpText": "读取精确几何属性：长度、面积、体积、半径及坐标。",
+      "iconKey": "distance",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "not": {
+          "fact": "sketchActive",
+          "equals": true
+        }
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "not": {
+              "fact": "busy",
+              "equals": true
+            }
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "measure.between",
+      "name": "测量之间",
+      "helpText": "测量实际几何边界之间的最短距离与解析夹角。",
+      "iconKey": "distance",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "not": {
+          "fact": "sketchActive",
+          "equals": true
+        }
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "not": {
+              "fact": "busy",
+              "equals": true
+            }
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "measure.angle-points",
+      "name": "三点角度",
+      "helpText": "以第二点为顶点测量三个精确点的夹角。",
+      "iconKey": "angle",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "not": {
+          "fact": "sketchActive",
+          "equals": true
+        }
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "not": {
+              "fact": "busy",
+              "equals": true
+            }
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
+          }
+        ]
+      }
     }
   ],
   "groups": [
@@ -6946,6 +7036,30 @@
           "order": 30
         }
       ]
+    },
+    {
+      "id": "measurement",
+      "name": "测量",
+      "styleKey": "standard",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "measure.item",
+          "groupKey": "primary",
+          "order": 0
+        },
+        {
+          "commandId": "measure.between",
+          "groupKey": "primary",
+          "order": 1
+        },
+        {
+          "commandId": "measure.angle-points",
+          "groupKey": "primary",
+          "order": 2
+        }
+      ]
     }
   ],
   "tabs": [
@@ -7440,6 +7554,16 @@
       "tabId": "ASSEMBLY_DESIGN.model",
       "groupId": "assembly-space-analysis",
       "order": 35
+    },
+    {
+      "tabId": "PART_DESIGN.model",
+      "groupId": "measurement",
+      "order": 25
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.model",
+      "groupId": "measurement",
+      "order": 32
     }
   ]
 }

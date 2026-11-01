@@ -42,6 +42,7 @@ service GeometryWorker {
     // Immutable multi-input exact solid analysis. IDs distinguish placed instances.
     rpc AnalyzeInterference(AnalyzeInterferenceRequest) returns (AnalyzeInterferenceResponse);
     rpc AnalyzeSpatialGeometry(AnalyzeSpatialGeometryRequest) returns (AnalyzeSpatialGeometryResponse);
+    rpc MeasureGeometry(MeasureGeometryRequest) returns (MeasureGeometryResponse);
 
     // Neutral CAD exchange uses immutable ArtifactReference values. Large file
     // bytes never cross this unary gRPC boundary.
@@ -1452,4 +1453,28 @@ message AnalyzeSpatialGeometryResponse {
     repeated SpatialBodyResult bodies = 1;
     bool complete = 2;
     string kernel_build = 3;
+}
+
+// Locators are transient, resolved against these immutable B-Reps by the owner.
+// Results use owner coordinates, mm, mm^2, mm^3 and radians (key suffixes).
+message MeasurementElement {
+    string input_id = 1; // AnalysisGeometry.id (placed operand), not B-Rep digest.
+    string kind = 2; // BODY, FACE, EDGE, VERTEX
+    uint64 local_id = 3;
+    string mode = 4; // GEOMETRY, CENTER, AXIS
+}
+message MeasurementOperand { repeated MeasurementElement elements = 1; }
+message MeasureGeometryRequest {
+    string request_id = 1;
+    repeated AnalysisGeometry geometry = 2;
+    string kind = 3; // ITEM, BETWEEN, ANGLE_POINTS
+    repeated MeasurementOperand operands = 4;
+}
+message MeasureGeometryResponse {
+    bool complete = 1;
+    string diagnostic = 2;
+    string geometry_type = 3;
+    map<string, double> values = 4;
+    map<string, Vec3> anchors = 5;
+    string kernel_build = 6;
 }

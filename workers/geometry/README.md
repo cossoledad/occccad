@@ -15,6 +15,7 @@
 | SolveAssembly | body-local 几何与纯值方程；[算法](../../kernel/assembly/SOLVER_ALGORITHMS.md)，Product/Session 仍由 Go 管理 |
 | AnalyzeInterference | 不可变 BREP/Pose 的距离、实体关系和按需局部图形；[exact 输入](../../docs/architecture/current/geometry-representations.md#独立几何分析的-exact-输入)、[装配检查](../../docs/architecture/current/product-assembly.md#静态干涉与最小间隙) |
 | AnalyzeSpatialGeometry | 精确截面及有界距离区域显示；[空间分析对象与限制](../../docs/architecture/current/product-assembly.md#空间分析对象与手动更新) |
+| MeasureGeometry | 冻结 B-Rep/位姿/瞬时 locator 的精确属性、最短距离及三点角度；[几何测量](../../docs/architecture/current/geometric-measurement.md) |
 | InspectExchange / ImportExchange / ExportExchange | ArtifactReference 上的 STEP/BREP/XDE；[交换](../../docs/architecture/current/jobs-artifacts.md) |
 | GetTopology | 冷恢复/缓存精确面边点及提示；[几何制品](../../docs/architecture/current/geometry-representations.md) |
 

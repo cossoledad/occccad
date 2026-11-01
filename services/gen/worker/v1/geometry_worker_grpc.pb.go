@@ -29,6 +29,7 @@ const (
 	GeometryWorker_SolveAssembly_FullMethodName             = "/occccad.worker.v1.GeometryWorker/SolveAssembly"
 	GeometryWorker_AnalyzeInterference_FullMethodName       = "/occccad.worker.v1.GeometryWorker/AnalyzeInterference"
 	GeometryWorker_AnalyzeSpatialGeometry_FullMethodName    = "/occccad.worker.v1.GeometryWorker/AnalyzeSpatialGeometry"
+	GeometryWorker_MeasureGeometry_FullMethodName           = "/occccad.worker.v1.GeometryWorker/MeasureGeometry"
 	GeometryWorker_InspectExchange_FullMethodName           = "/occccad.worker.v1.GeometryWorker/InspectExchange"
 	GeometryWorker_ImportExchange_FullMethodName            = "/occccad.worker.v1.GeometryWorker/ImportExchange"
 	GeometryWorker_ExportExchange_FullMethodName            = "/occccad.worker.v1.GeometryWorker/ExportExchange"
@@ -67,6 +68,7 @@ type GeometryWorkerClient interface {
 	// Immutable multi-input exact solid analysis. IDs distinguish placed instances.
 	AnalyzeInterference(ctx context.Context, in *AnalyzeInterferenceRequest, opts ...grpc.CallOption) (*AnalyzeInterferenceResponse, error)
 	AnalyzeSpatialGeometry(ctx context.Context, in *AnalyzeSpatialGeometryRequest, opts ...grpc.CallOption) (*AnalyzeSpatialGeometryResponse, error)
+	MeasureGeometry(ctx context.Context, in *MeasureGeometryRequest, opts ...grpc.CallOption) (*MeasureGeometryResponse, error)
 	// Neutral CAD exchange uses immutable ArtifactReference values. Large file
 	// bytes never cross this unary gRPC boundary.
 	InspectExchange(ctx context.Context, in *InspectExchangeRequest, opts ...grpc.CallOption) (*InspectExchangeResponse, error)
@@ -193,6 +195,16 @@ func (c *geometryWorkerClient) AnalyzeSpatialGeometry(ctx context.Context, in *A
 	return out, nil
 }
 
+func (c *geometryWorkerClient) MeasureGeometry(ctx context.Context, in *MeasureGeometryRequest, opts ...grpc.CallOption) (*MeasureGeometryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MeasureGeometryResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_MeasureGeometry_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *geometryWorkerClient) InspectExchange(ctx context.Context, in *InspectExchangeRequest, opts ...grpc.CallOption) (*InspectExchangeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(InspectExchangeResponse)
@@ -310,6 +322,7 @@ type GeometryWorkerServer interface {
 	// Immutable multi-input exact solid analysis. IDs distinguish placed instances.
 	AnalyzeInterference(context.Context, *AnalyzeInterferenceRequest) (*AnalyzeInterferenceResponse, error)
 	AnalyzeSpatialGeometry(context.Context, *AnalyzeSpatialGeometryRequest) (*AnalyzeSpatialGeometryResponse, error)
+	MeasureGeometry(context.Context, *MeasureGeometryRequest) (*MeasureGeometryResponse, error)
 	// Neutral CAD exchange uses immutable ArtifactReference values. Large file
 	// bytes never cross this unary gRPC boundary.
 	InspectExchange(context.Context, *InspectExchangeRequest) (*InspectExchangeResponse, error)
@@ -365,6 +378,9 @@ func (UnimplementedGeometryWorkerServer) AnalyzeInterference(context.Context, *A
 }
 func (UnimplementedGeometryWorkerServer) AnalyzeSpatialGeometry(context.Context, *AnalyzeSpatialGeometryRequest) (*AnalyzeSpatialGeometryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AnalyzeSpatialGeometry not implemented")
+}
+func (UnimplementedGeometryWorkerServer) MeasureGeometry(context.Context, *MeasureGeometryRequest) (*MeasureGeometryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MeasureGeometry not implemented")
 }
 func (UnimplementedGeometryWorkerServer) InspectExchange(context.Context, *InspectExchangeRequest) (*InspectExchangeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InspectExchange not implemented")
@@ -594,6 +610,24 @@ func _GeometryWorker_AnalyzeSpatialGeometry_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GeometryWorker_MeasureGeometry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MeasureGeometryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GeometryWorkerServer).MeasureGeometry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GeometryWorker_MeasureGeometry_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GeometryWorkerServer).MeasureGeometry(ctx, req.(*MeasureGeometryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _GeometryWorker_InspectExchange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InspectExchangeRequest)
 	if err := dec(in); err != nil {
@@ -802,6 +836,10 @@ var GeometryWorker_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AnalyzeSpatialGeometry",
 			Handler:    _GeometryWorker_AnalyzeSpatialGeometry_Handler,
+		},
+		{
+			MethodName: "MeasureGeometry",
+			Handler:    _GeometryWorker_MeasureGeometry_Handler,
 		},
 		{
 			MethodName: "InspectExchange",

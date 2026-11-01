@@ -72,6 +72,7 @@ var workspaceCommandRegistry = mustWorkspaceRegistry()
 
 func mustWorkspaceRegistry() *modelcore.Registry {
 	registry, err := modelcore.NewRegistry(
+		measurementHandler{},
 		commandHandler{typeBodyCommand, "PART", applyBodyCommand},
 		commandHandler{typeDefinitionVisibility, "PART", applyDefinitionVisibility},
 		commandHandler{typeOccurrenceVisibility, "PRODUCT", applyOccurrenceVisibility},
@@ -2309,6 +2310,9 @@ type preparedDomainMutation struct {
 }
 
 func isPartMetadataCommand(command modelcore.DomainCommand) bool {
+	if command.TypeURI == typeSetMeasurements {
+		return true
+	}
 	if command.TypeURI == typeDefinitionVisibility || command.TypeURI == typeRenameFeature || command.TypeURI == typeSetBodyColor || command.TypeURI == typeSetProperties {
 		return true
 	}
@@ -2337,7 +2341,7 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if request.Type == "MOVE_FEATURE" && request.VersionID != "" && request.VersionID != prepared.headRevision {
 		return prepared, featureEditFailure{code: "FEATURE_EDIT_STALE"}
 	}
-	if (spatialMutation(request.Type) || request.Type == "SAVE_KINEMATICS" || request.Type == "APPLY_MOTION_FRAME" || request.Type == "ACTIVATE_MECHANISM" || request.Type == "EXIT_MECHANISM") && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
+	if (strings.HasSuffix(request.Type, "_MEASUREMENT") || spatialMutation(request.Type) || request.Type == "SAVE_KINEMATICS" || request.Type == "APPLY_MOTION_FRAME" || request.Type == "ACTIVATE_MECHANISM" || request.Type == "EXIT_MECHANISM") && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
 		return prepared, fmt.Errorf("%w: KINEMATICS_BASE_REVISION_CHANGED", ErrValidation)
 	}
 	if request.ExpectedUpdateRevision != "" && prepared.headRevision != request.ExpectedUpdateRevision {
@@ -2764,6 +2768,11 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	request.Type = strings.ToUpper(strings.TrimSpace(request.Type))
 	if request.Type == "UNDO" || request.Type == "REDO" || request.Type == "RESTORE" {
 		return CommandPreview{}, fmt.Errorf("%w: history commands cannot be previewed", ErrValidation)
+	}
+	// Measurement already has a read-only exact query. Do not route its
+	// annotation-only write through a Part rebuild or assembly pose preview.
+	if strings.HasSuffix(request.Type, "_MEASUREMENT") {
+		return CommandPreview{}, measurementError("MEASUREMENT_USE_READ_ONLY_QUERY")
 	}
 	finishPrepare := perf.Start(ctx, "preview-prepare")
 	prepared, err := service.prepareDomainMutation(ctx, documentID, request)

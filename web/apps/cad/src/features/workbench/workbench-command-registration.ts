@@ -17,6 +17,9 @@ import {selectionSummaryCommand} from "./commands/selection-summary";
 import {treeNodesForSelections} from "./tree-projection-index";
 
 export type WorkbenchCommandBindings={
+ openMeasurement?:(kind:import('../../cad/measurement/measurement').MeasurementKind)=>void;
+ measurementKind?:import('../../cad/measurement/measurement').MeasurementKind;
+ measurementAllowed?:boolean;
  openReplaceInstance?:(id?:string)=>void;
  setDesignAssociationOpen?:(open:boolean)=>void;setDeveloperOpen?:(open:boolean)=>void;setAssociationRepairOpen?:(open:boolean)=>void;associationRepairOpen?:boolean;
  openProperties?:()=>void;openOptions?:()=>void;
@@ -52,6 +55,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
  const deletionTargets=(invocation?:CadCommandInvocation)=>invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes;
  const resultDeletion=(invocation?:CadCommandInvocation)=>{const nodes=deletionTargets(invocation);return nodes.length>0&&nodes.every(node=>node.kind==="MOTION_RESULT"&&node.capabilities?.includes("DELETE"))};
  return [
+  ...(['ITEM','BETWEEN','ANGLE_POINTS'] as const).map(kind=>({id:'measure.'+({ITEM:'item',BETWEEN:'between',ANGLE_POINTS:'angle-points'}[kind]),execute:()=>{store.setActiveTool('select','once');bindings.openMeasurement?.(kind)},isEnabled:()=>Boolean(bindings.openMeasurement&&bindings.measurementAllowed&&!store.activeSketchID&&!command.isPending&&!moveReceiptPending),isActive:()=>bindings.measurementKind===kind})),
   {id:"edit.properties",execute:()=>bindings.openProperties?.(),isEnabled:()=>Boolean(view&&bindings.openProperties&&!command.isPending&&!store.activeSketchID)},
   globalOptionsCommand(bindings.openOptions),
 

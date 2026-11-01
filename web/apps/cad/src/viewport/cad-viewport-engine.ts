@@ -3,6 +3,8 @@ import {sectionClippingPlanes,sectionRepresentation} from "../cad/rendering/sect
 import {snapFrame} from "../cad/interaction/manipulator-snap";
 import {CommandInputError} from "../cad/command/operation-failure";
 import type {SpatialAnalysis,SpatialReport} from "../cad/assembly/spatial-analysis";
+import {MeasurementOverlay} from '../cad/measurement/measurement-overlay';
+import {measurements,type MeasurementReport} from '../cad/measurement/measurement';
 import {interferenceDisplayIndex,type StaticInterferenceReport} from "../cad/assembly/static-interference";
 import {contextScopeForView,contextResultMatchesActiveView} from "../api/context-edit-scope";
 import {SketchIntersectionTool} from "../cad/tool/sketch-intersection-tool";
@@ -330,6 +332,16 @@ export class CadViewportEngine {
     return new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(saved.positions,3));
   }
   private interferenceVisibility=new Map<THREE.Object3D,boolean>();
+  private measurementOverlay?:MeasurementOverlay;
+  private measurementPreview?:MeasurementReport;
+  showMeasurement(report?:MeasurementReport):void {this.measurementPreview=report;this.invalidate();}
+  private renderMeasurements(width:number,height:number):void {
+    const view=this.view;if(!view){this.measurementOverlay?.render('',[],this.sketchLengthUnit,this.camera,width,height,false);return;}
+    const preview=this.measurementPreview?.documentId===view.document.id&&this.measurementPreview.revisionId===view.document.versionId?this.measurementPreview:undefined;
+    const saved=measurements(view).filter(m=>m.id!==preview?.definition.id);
+    const items=preview?[...saved,{...preview.definition,result:preview.result,status:'CURRENT'}]:saved;
+    this.measurementOverlay?.render(view.document.id,items,this.sketchLengthUnit,this.camera,width,height,this.sectionSceneReady()&&!this.sketchPlane);
+  }
   private staticInterferenceCompatible(report:StaticInterferenceReport):boolean {
     if(this.view?.document.id!==report.documentId||this.view.document.versionId!==report.revisionId||(report.source!=='MECHANISM'&&(this.motionDisplay||this.mechanismDefinition||this.assemblyPosePreview))||this.motionDisplay?.clock||this.preview||this.moveCommitPending||this.moveManipulator?.isDragging())return false;
     this.content.updateMatrixWorld(true);
@@ -665,6 +677,7 @@ export class CadViewportEngine {
     this.studioEnvironment = createStudioEnvironment(this.renderer);
     this.scene.environment = this.studioEnvironment.texture;
     host.appendChild(this.renderer.domElement);
+    this.measurementOverlay=new MeasurementOverlay(host);
 
     this.moveInteraction = new AssemblyInteractionController({
       begin:(input,signal)=>{
@@ -1077,7 +1090,7 @@ export class CadViewportEngine {
       mesh.castShadow=(Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
       applyEdgeAppearance(binding.group,appearance,CATIA_VISUAL_THEME.edge,m=>this.materials.sectionLine(m));
       for(const child of binding.group.children){const materials=(child as THREE.Mesh).material;for(const m of Array.isArray(materials)?materials:materials?[materials]:[])m.userData.propertyPreview=Boolean(candidate)}
-      applySolidDisplaySettings(binding.group,this.solidDisplay);
+      applySolidDisplaySettings(binding.group,this.solidDisplay,this.featureSelection?.topologyPick);
     }
     this.refreshInteractionHighlights();this.invalidate();
   }
@@ -1126,7 +1139,7 @@ export class CadViewportEngine {
     this.referenceVisibility = { ...references };
     this.solidDisplay = { ...display };
     this.applyTreeVisibility();
-    for (const { group } of this.solidBindings.values()) applySolidDisplaySettings(group, display);
+    for (const { group } of this.solidBindings.values()) applySolidDisplaySettings(group, this.solidDisplay,this.featureSelection?.topologyPick);
     this.preselect(null, true);
     this.invalidate();
   }
@@ -2109,6 +2122,7 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    this.measurementOverlay?.dispose();
     this.sectionManipulator?.dispose();this.restoreSectionClipping();
     this.sketchIntersections.reset();
     this.captureDocumentView();
@@ -3172,7 +3186,7 @@ export class CadViewportEngine {
       group.add(points);
     }
     applyEdgeAppearance(group,scopedAppearance,CATIA_VISUAL_THEME.edge,m=>this.materials.sectionLine(m));
-    applySolidDisplaySettings(group, this.solidDisplay);
+    applySolidDisplaySettings(group, this.solidDisplay,this.featureSelection?.topologyPick);
     this.solidBindings.set(`${context.occurrencePath || "root"}/body:${context.bodyId}`, { group, mesh, artifact, context, appearance:scopedAppearance,defaultColor:color,renderedAppearanceDigest:JSON.stringify([scopedAppearance,false]) });
     return group;
   }
@@ -3330,7 +3344,9 @@ export class CadViewportEngine {
     if(this.releaseFeatureSketchPick){this.releaseFeatureSketchPick();this.releaseFeatureSketchPick=undefined;this.sketchModal.setOpen(false);}
 
     if(this.featureSelection?.localSketchId&&!session?.localSketchId)this.clearReferenceHover();
+    const previousTopologyPick=this.featureSelection?.topologyPick;
     this.featureSelection = session;
+    if(previousTopologyPick!==session?.topologyPick)for(const {group} of this.solidBindings.values())applySolidDisplaySettings(group,this.solidDisplay,session?.topologyPick);
     this.showProfileRegions(session);
     this.showBooleanRegions(session);
     if(this.loftConnections){this.loftConnections.removeFromParent();this.disposeGroup(this.loftConnections);this.loftConnections=undefined;}
@@ -4277,6 +4293,7 @@ export class CadViewportEngine {
         this.sketchManipulator?.updateScale(this.camera,viewportMetrics(this.renderer));
         this.updateScreenStableReferences();
         const metrics=viewportMetrics(this.renderer);
+        this.renderMeasurements(metrics.cssWidth,metrics.cssHeight);
         updateScreenLines(this.scene, this.camera, metrics.cssWidth, metrics.cssHeight);
         this.updateSketchParameterAnchor();
         this.updateCameraClipping();

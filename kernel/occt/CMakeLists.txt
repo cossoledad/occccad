@@ -9,6 +9,7 @@ add_library(occccad_occt_kernel STATIC
     src/exchange_graph.cpp
     src/sketch_curve.cpp
     src/dmu.cpp
+    src/measurement.cpp
 )
 
 target_include_directories(

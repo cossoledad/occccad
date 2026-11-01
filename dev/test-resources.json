@@ -682,6 +682,13 @@
     ]
   },
   {
+    "path": "services/internal/control/measurement_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#featureAssociationRuntimeService",
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#geometryRuntimeTestService"
+    ]
+  },
+  {
     "path": "services/internal/control/spatial_analysis_integration_test.go",
     "resources": [
       "fixture dependency: services/internal/control/feature_association_integration_test.go#featureAssociationRuntimeService",
