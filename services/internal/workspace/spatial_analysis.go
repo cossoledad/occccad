@@ -316,6 +316,7 @@ func (s *Service) rebaseSpatial(ctx context.Context, doc, rev string, a SpatialA
 	return a, err
 }
 func (s *Service) AnalyzeSpatial(ctx context.Context, doc string, r SpatialAnalysisRequest) (SpatialAnalysisReport, error) {
+	ctx = withAssemblyReadCache(ctx)
 	a := normalizeSpatial(r.Definition)
 	out := SpatialAnalysisReport{DocumentID: doc, RevisionID: r.RevisionID, Definition: a, Policy: spatialPolicy}
 	if err := validateSpatial(a); err != nil {

@@ -310,6 +310,25 @@ export class CadViewportEngine {
   private staticInterferenceReport?:StaticInterferenceReport;
   private staticInterferenceMarkers?:THREE.Group;
   private interferenceRoleGroups=new Set<THREE.Object3D>();
+  private analysisOutlinePositions=new WeakMap<THREE.BufferGeometry,{position:THREE.BufferAttribute|THREE.InterleavedBufferAttribute;version:number;index:THREE.BufferAttribute|null;indexVersion:number;positions:Float32Array}>();
+  private analysisOutlineBytes=0;
+  private analysisOutlineGeometry(geometry:THREE.BufferGeometry):THREE.BufferGeometry {
+    const position=geometry.getAttribute('position'),index=geometry.index;
+    const version=position instanceof THREE.InterleavedBufferAttribute?position.data.version:position.version,indexVersion=index?.version??-1;
+    let cache=this.analysisOutlinePositions??=new WeakMap(),saved=cache.get(geometry);
+    if(!saved||saved.position!==position||saved.version!==version||saved.index!==index||saved.indexVersion!==indexVersion){
+      const edges=new THREE.EdgesGeometry(geometry),positions=new Float32Array(edges.getAttribute('position').array);edges.dispose();
+      const budget=16*1024*1024;
+      if((this.analysisOutlineBytes??0)+positions.byteLength>budget){cache=this.analysisOutlinePositions=new WeakMap();this.analysisOutlineBytes=0;}
+      saved={position,version,index,indexVersion,positions};
+      if(positions.byteLength<=budget){cache.set(geometry,saved);this.analysisOutlineBytes=(this.analysisOutlineBytes??0)+positions.byteLength;}
+      // Collected/replaced WeakMap keys can conservatively over-count bytes;
+      // clearing early is safe and keeps retained CPU buffers within budget.
+    }
+    // Cache only immutable CPU positions. Each overlay owns/disposes its GPU
+    // geometry; WeakMap lifetime follows the actual source mesh, not an ID.
+    return new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(saved.positions,3));
+  }
   private interferenceVisibility=new Map<THREE.Object3D,boolean>();
   private staticInterferenceCompatible(report:StaticInterferenceReport):boolean {
     if(this.view?.document.id!==report.documentId||this.view.document.versionId!==report.revisionId||(report.source!=='MECHANISM'&&(this.motionDisplay||this.mechanismDefinition||this.assemblyPosePreview))||this.motionDisplay?.clock||this.preview||this.moveCommitPending||this.moveManipulator?.isDragging())return false;
@@ -340,7 +359,7 @@ export class CadViewportEngine {
       (this.interferenceRoleGroups??=new Set()).add(binding.group);
       const color=i===0?CATIA_VISUAL_THEME.selected:CATIA_VISUAL_THEME.hover;
 
-      const wire=new THREE.LineSegments(new THREE.EdgesGeometry(binding.mesh.geometry),new THREE.LineBasicMaterial({color,transparent:true,opacity:.6,depthTest:true,depthWrite:false}));wire.applyMatrix4(binding.mesh.matrixWorld);wire.renderOrder=1;group.add(wire);
+      const wire=new THREE.LineSegments(this.analysisOutlineGeometry(binding.mesh.geometry),new THREE.LineBasicMaterial({color,transparent:true,opacity:.6,depthTest:true,depthWrite:false}));wire.userData.analysisRole=id;wire.applyMatrix4(binding.mesh.matrixWorld);wire.renderOrder=1;group.add(wire);
     }
     if(pair.overlapTriangles?.length){
       const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(pair.overlapTriangles.flat(),3));
@@ -385,7 +404,7 @@ export class CadViewportEngine {
   private sectionManipulator?:SectionManipulator;
   private sectionRequested?:SectionEditSession;
   private sectionEdgeVisibility=new Map<THREE.Object3D,boolean>();
-  private sectionMaterials=new Map<THREE.Mesh,{original:THREE.Material|THREE.Material[];clones:THREE.Material[]}>();
+  private sectionMaterials=new Map<THREE.Mesh,{id:string;original:THREE.Material|THREE.Material[];clones:THREE.Material[]}>();
   setSectionEdit(session?:SectionEditSession):void {this.sectionRequested=session;this.syncSectionEdit()}
   cancelSectionGesture():boolean{return this.sectionManipulator?.cancelGesture()??false}
   private sectionSceneReady():boolean {return !this.editContext?.occurrencePath&&!this.pendingVisualSnapshot&&!this.motionDisplay&&!this.mechanismDefinition&&!this.assemblyPosePreview&&!this.preview&&!this.moveCommitPending&&!this.moveManipulator?.isDragging()}
@@ -408,13 +427,13 @@ export class CadViewportEngine {
   private previewSectionClipping(d?:SpatialAnalysis):void {
     const planes=d&&!this.sectionRequested?.picking?sectionClippingPlanes(d):[];
     for(const [object,visible] of this.sectionEdgeVisibility){object.visible=visible}this.sectionEdgeVisibility.clear();
-    for(const [mesh,state] of this.sectionMaterials){const binding=[...this.solidBindings].find(([,b])=>b.mesh===mesh);if(!planes.length||!binding||!this.sectionIncludes(d!,binding[0])){mesh.material=state.original;state.clones.forEach(m=>m.dispose());this.sectionMaterials.delete(mesh)}}
+    for(const [mesh,state] of this.sectionMaterials){const binding=this.solidBindings.get(state.id);if(!planes.length||binding?.mesh!==mesh||!this.sectionIncludes(d!,state.id)){mesh.material=state.original;state.clones.forEach(m=>m.dispose());this.sectionMaterials.delete(mesh)}}
     if(!d||!planes.length)return;
     for(const [id,b] of this.solidBindings){if(!this.sectionIncludes(d,id))continue;const mesh=b.mesh;
       // Screen-space edge shaders have no clipping contract. Suppress their
       // uncut silhouettes during the draft; exact section curves remain visible.
       for(const child of b.group.children)if(child!==mesh){this.sectionEdgeVisibility.set(child,child.visible);child.visible=false}
-      let state=this.sectionMaterials.get(mesh);if(!state){const original=mesh.material,clones=(Array.isArray(original)?original:[original]).map(m=>m.clone());state={original,clones};this.sectionMaterials.set(mesh,state);mesh.material=Array.isArray(original)?clones:clones[0]}
+      let state=this.sectionMaterials.get(mesh);if(!state){const original=mesh.material,clones=(Array.isArray(original)?original:[original]).map(m=>m.clone());state={id,original,clones};this.sectionMaterials.set(mesh,state);mesh.material=Array.isArray(original)?clones:clones[0]}
       for(const material of state.clones){const intersection=d.cutMode==='KEEP_OUTSIDE'&&d.sectionType!=='PLANE';if(material.clippingPlanes?.length!==planes.length||material.clipIntersection!==intersection)material.needsUpdate=true;material.clippingPlanes=planes;material.clipIntersection=intersection;}
     }
   }

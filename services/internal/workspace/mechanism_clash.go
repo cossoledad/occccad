@@ -43,7 +43,7 @@ func clashViolation(r StaticInterferenceReport) bool {
 }
 
 // The prepared scope retains missing inputs. They cannot disappear between samples.
-func (s *Service) checkFrozenInterference(ctx context.Context, frozen *frozenInterference, poses map[string]InstancePose, clearance float64, mechanism string, sequence uint64, displayDetails bool) (StaticInterferenceReport, error) {
+func (s *Service) checkFrozenInterference(ctx context.Context, frozen *frozenInterference, poses map[string]InstancePose, clearance float64, mechanism string, sequence uint64, displayDetails bool, previous ...*StaticInterferenceReport) (StaticInterferenceReport, error) {
 	out := frozen.report
 	out.Source = "MECHANISM"
 	out.MechanismID = mechanism
@@ -77,7 +77,12 @@ func (s *Service) checkFrozenInterference(ctx context.Context, frozen *frozenInt
 	}{frozen.report.InputDigest, mechanism, poses, clearance})
 	out.CheckedPairs = 0
 	out.Complete = false
-	if len(frozen.pairs) > 0 {
+	if len(previous) > 0 && previous[0] != nil && previous[0].InputDigest == out.InputDigest && previous[0].FrameSequence == sequence {
+		// The last STOP probe can already be the exact final checkpoint. Reuse
+		// only that same frozen input/pose/sequence, never a nearby sample.
+		out.Pairs = append([]geometry.InterferencePair{}, previous[0].Pairs...)
+		out.CheckedPairs, out.Complete, out.KernelBuild = previous[0].CheckedPairs, previous[0].Complete, previous[0].KernelBuild
+	} else if len(frozen.pairs) > 0 {
 		report, err := s.worker.AnalyzeInterference(ctx, newID("mechanism-clash"), inputs, frozen.pairs, clearance, out.ToleranceMM, geometry.InterferenceOptions{ThresholdOnly: true})
 		if err != nil {
 			return out, err
@@ -101,32 +106,31 @@ func (s *Service) checkFrozenInterference(ctx context.Context, frozen *frozenInt
 	// requests Common/Section graphics, using these same frozen BReps and poses.
 	// Graphics failure must not change the numerical stop/accept decision.
 	if displayDetails {
-		pairs := []geometry.AnalysisPair{}
+		byID := map[string]geometry.AnalysisGeometry{}
+		for _, input := range inputs {
+			byID[input.ID] = input
+		}
 		for i := range out.Pairs {
 			p := &out.Pairs[i]
-			if p.Complete && (p.Classification == "PENETRATION" || p.Classification == "CONTAINMENT" || p.Classification == "CONTACT") {
-				pairs = append(pairs, geometry.AnalysisPair{FirstID: p.FirstID, SecondID: p.SecondID})
-				p.DetailStatus = "UNAVAILABLE"
+			if !p.Complete || (p.Classification != "PENETRATION" && p.Classification != "CONTAINMENT" && p.Classification != "CONTACT") {
+				continue
 			}
-		}
-		if len(pairs) > 0 {
-			details, err := s.worker.AnalyzeInterference(ctx, newID("mechanism-clash-display"), inputs, pairs, clearance, out.ToleranceMM, geometry.InterferenceOptions{Details: true})
+			p.DetailStatus = "UNAVAILABLE"
+			// Details is a single-pair Worker contract. Send only its two exact
+			// inputs; unrelated occurrences never need reloading for graphics.
+			pair := geometry.AnalysisPair{FirstID: p.FirstID, SecondID: p.SecondID}
+			details, err := s.worker.AnalyzeInterference(ctx, newID("mechanism-clash-display"), []geometry.AnalysisGeometry{byID[p.FirstID], byID[p.SecondID]}, []geometry.AnalysisPair{pair}, clearance, out.ToleranceMM, geometry.InterferenceOptions{Details: true})
 			if ctx.Err() != nil {
 				return out, ctx.Err()
 			}
-			if err == nil {
-				byID := map[geometry.AnalysisPair]geometry.InterferencePair{}
-				for _, p := range details.Pairs {
-					byID[geometry.AnalysisPair{FirstID: p.FirstID, SecondID: p.SecondID}] = p
-				}
-				for i := range out.Pairs {
-					p := &out.Pairs[i]
-					if d, ok := byID[geometry.AnalysisPair{FirstID: p.FirstID, SecondID: p.SecondID}]; ok && d.Complete && d.Classification == p.Classification {
-						p.DetailStatus, p.SectionPoints, p.OverlapTriangles = d.DetailStatus, d.SectionPoints, d.OverlapTriangles
-					}
+			if err == nil && len(details.Pairs) == 1 {
+				d := details.Pairs[0]
+				if d.Complete && d.FirstID == p.FirstID && d.SecondID == p.SecondID && d.Classification == p.Classification {
+					p.DetailStatus, p.SectionPoints, p.OverlapTriangles = d.DetailStatus, d.SectionPoints, d.OverlapTriangles
 				}
 			}
 		}
 	}
+
 	return out, nil
 }

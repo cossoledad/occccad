@@ -127,6 +127,20 @@ struct OcctKernel::InterferenceCache {
     struct Prepared {TopoDS_Shape shape;Bnd_Box box;double volume=0;bool valid=false;};
     std::unordered_map<std::string,std::shared_ptr<Prepared>> prepared;
     std::unordered_map<std::string,InterferenceResult> pairs;
+    // Display evidence has its own bounded ownership. Never cache cancelled,
+    // partial or over-budget graphics, nor let display data evict exact inputs.
+    std::unordered_map<std::string,InterferenceResult> details;
+    std::unordered_map<std::string,SpatialGeometryResult> spatial;
+    size_t detail_bytes=0,spatial_bytes=0;
+    static constexpr size_t graphics_budget=8*1024*1024;
+    template<class Result>
+    void remember(std::unordered_map<std::string,Result>& values,size_t& bytes,
+                  const std::string& key,const Result& value,size_t graphics_bytes) {
+        const size_t size=sizeof(Result)+key.size()+96+graphics_bytes;
+        if(size>graphics_budget)return;
+        if(values.size()>=128 || bytes+size>graphics_budget){values.clear();bytes=0;}
+        if(values.emplace(key,value).second)bytes+=size;
+    }
 };
 InterferenceResult OcctKernel::analyze_interference(const PlacedGeometry& first,
     const PlacedGeometry& second,double clearance,double tolerance,const std::function<bool()>& cancelled,
@@ -155,6 +169,9 @@ InterferenceResult OcctKernel::analyze_interference(const PlacedGeometry& first,
             out.classification="SEPARATED";out.complete=true;out.clearance_satisfied=true;return out;
         }
         std::ostringstream key;key<<placement_key(first)<<'|'<<placement_key(second)<<'|'<<std::hexfloat<<tolerance;
+        if(details){auto found=cache.details.find(key.str());if(found!=cache.details.end()){
+            out=found->second;out.clearance_satisfied=(out.classification=="SEPARATED"||out.classification=="CONTACT")&&out.distance>=clearance;return out;
+        }}
         if(!details){auto found=cache.pairs.find(key.str());if(found!=cache.pairs.end()){
             out=found->second;out.clearance_satisfied=out.classification=="SEPARATED"||out.classification=="CONTACT" ? out.distance>=clearance:false;return out;
         }}
@@ -203,7 +220,12 @@ InterferenceResult OcctKernel::analyze_interference(const PlacedGeometry& first,
         if(cancelled&&cancelled()){out=InterferenceResult{};out.diagnostic="CANCELLED";return out;}
         out.complete=true;
         if(details){graphics(a,b,common_shape,out.common_volume>0,out,progress,cancelled);if(cancelled&&cancelled()){out=InterferenceResult{};out.diagnostic="CANCELLED";}}
-        else {if(cache.pairs.size()>=512)cache.pairs.clear();cache.pairs[key.str()]=out;}
+        if(out.complete){
+            auto numeric=out;numeric.section_points=std::vector<Vec3>{};numeric.overlap_triangles=std::vector<Vec3>{};numeric.detail_status="NOT_REQUESTED";
+            if(cache.pairs.size()>=512)cache.pairs.clear();cache.pairs[key.str()]=std::move(numeric);
+            if(details&&out.detail_status=="COMPLETE")cache.remember(cache.details,cache.detail_bytes,key.str(),out,
+                (out.section_points.size()+out.overlap_triangles.size())*sizeof(Vec3));
+        }
     } catch(const Standard_Failure& e) {out=InterferenceResult{};out.diagnostic=e.GetMessageString();}
       catch(const std::exception& e) {out=InterferenceResult{};out.diagnostic=e.what();}
     return out;
@@ -217,6 +239,14 @@ SpatialGeometryResult OcctKernel::analyze_spatial(const PlacedGeometry& input,
     try {
         if(!std::isfinite(o.accuracy)||o.accuracy<0.01||o.accuracy>1000)throw std::invalid_argument("INVALID_SPATIAL_ACCURACY");
         if(cancelled&&cancelled())throw std::runtime_error("CANCELLED");
+        if(!interference_cache_)interference_cache_=std::make_shared<InterferenceCache>();
+        auto& cache=*interference_cache_;
+        std::ostringstream signature;
+        signature<<o.kind<<'/'<<o.section_type<<'/'<<placement_key(input)<<'/'<<placement_key(o.frame)
+            <<'/'<<std::hexfloat<<o.size.x<<'/'<<o.size.y<<'/'<<o.size.z<<'/'<<o.minimum<<'/'<<o.maximum<<'/'<<o.accuracy;
+        for(const auto& target:target_inputs)signature<<'/'<<placement_key(target);
+        const auto key=signature.str();const auto saved=cache.spatial.find(key);
+        if(saved!=cache.spatial.end())return saved->second;
         auto source=placed(analysis_shape(input.geometry_id),input);
         if(!valid_solid(source))throw std::invalid_argument("INVALID_SOLID");
         Handle(AnalysisProgress) progress=new AnalysisProgress(cancelled);
@@ -250,6 +280,14 @@ SpatialGeometryResult OcctKernel::analyze_spatial(const PlacedGeometry& input,
             Bnd_Box bounds;BRepBndLib::Add(local,bounds,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
             const double extent=std::max({std::abs(x0),std::abs(y0),std::abs(z0),std::abs(x1),std::abs(y1),std::abs(z1),o.size.x,o.size.y,o.size.z,1.0})*4;
             TopoDS_Shape region=local;
+            // The enclosing BRep bounds are conservative; an empty slab/box
+            // needs no Boolean. Keep a padding at contact tolerance boundaries.
+            constexpr double bound_padding=1e-7;
+            const bool outside_box=o.section_type=="BOX" &&
+                (x1 < -o.size.x/2-bound_padding || x0 > o.size.x/2+bound_padding ||
+                 y1 < -o.size.y/2-bound_padding || y0 > o.size.y/2+bound_padding ||
+                 z1 < -o.size.z/2-bound_padding || z0 > o.size.z/2+bound_padding);
+            if(outside_box){if(cancelled&&cancelled())throw std::runtime_error("CANCELLED");out.complete=true;cache.remember(cache.spatial,cache.spatial_bytes,key,out,0);return out;}
             if(o.section_type=="BOX"){
                 auto box=BRepPrimAPI_MakeBox(gp_Pnt(-o.size.x/2,-o.size.y/2,-o.size.z/2),o.size.x,o.size.y,o.size.z).Shape();
                 BRepAlgoAPI_Common common;TopTools_ListOfShape a,b;a.Append(local);b.Append(box);common.SetArguments(a);common.SetTools(b);common.SetNonDestructive(true);common.SetRunParallel(false);common.Build(progress->Start());
@@ -258,6 +296,9 @@ SpatialGeometryResult OcctKernel::analyze_spatial(const PlacedGeometry& input,
             double area=0;gp_XYZ center(0,0,0);
             for(const auto& p:planes){
                 if(cancelled&&cancelled())throw std::runtime_error("CANCELLED");
+                if((p.normal.X()!=0 && (p.point.X()<x0-bound_padding || p.point.X()>x1+bound_padding)) ||
+                   (p.normal.Y()!=0 && (p.point.Y()<y0-bound_padding || p.point.Y()>y1+bound_padding)) ||
+                   (p.normal.Z()!=0 && (p.point.Z()<z0-bound_padding || p.point.Z()>z1+bound_padding)))continue;
                 auto face=BRepBuilderAPI_MakeFace(gp_Pln(p.point,p.normal),-extent,extent,-extent,extent).Shape();
                 BRepAlgoAPI_Common cross;TopTools_ListOfShape a,b;a.Append(region);b.Append(face);cross.SetArguments(a);cross.SetTools(b);cross.SetNonDestructive(true);cross.SetRunParallel(false);cross.Build(progress->Start());
                 if(!cross.IsDone()||cross.HasErrors()||(!cross.Shape().IsNull()&&!BRepCheck_Analyzer(cross.Shape()).IsValid()))throw std::runtime_error("SECTION_UNFINISHED");
@@ -308,6 +349,8 @@ SpatialGeometryResult OcctKernel::analyze_spatial(const PlacedGeometry& input,
             }
         } else throw std::invalid_argument("UNKNOWN_SPATIAL_ANALYSIS");
         if(cancelled&&cancelled())throw std::runtime_error("CANCELLED");out.complete=true;
+        cache.remember(cache.spatial,cache.spatial_bytes,key,out,
+            (out.segments.size()+out.triangles.size())*sizeof(Vec3)+out.regions.size()*sizeof(uint32_t));
     } catch(const Standard_Failure& e){out=SpatialGeometryResult{};out.diagnostic=e.GetMessageString()?e.GetMessageString():"SPATIAL_COMPUTATION_FAILED";}
       catch(const std::exception& e){out=SpatialGeometryResult{};out.diagnostic=e.what();}
     return out;

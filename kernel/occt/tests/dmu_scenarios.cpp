@@ -67,3 +67,34 @@ TEST(DMU,SpatialDistanceBandHasConservativeBoundaryAndExactSamples){
  o.maximum=3;r=k.analyze_spatial(at(box),{at(box,15)},o);ASSERT_TRUE(r.complete)<<r.diagnostic;EXPECT_TRUE(r.triangles.empty());
 }
 }
+
+namespace occccad::kernel {
+TEST(DMU,DisplayCachesPreserveScopeThresholdAndCancellation){
+ OcctKernel k;auto box=dmu_shape(k,BRepPrimAPI_MakeBox(10,10,10).Shape());const auto original=k.serializeBrepr(box);
+ auto detail=k.analyze_interference(at(box),at(box,8),0,1e-7,{},false,true);
+ ASSERT_TRUE(detail.complete);ASSERT_EQ(detail.detail_status,"COMPLETE");
+ auto warm=k.analyze_interference(at(box),at(box,8),1,1e-7,{},false,true);
+ EXPECT_EQ(warm.classification,detail.classification);EXPECT_DOUBLE_EQ(warm.common_volume,detail.common_volume);EXPECT_EQ(warm.overlap_triangles.size(),detail.overlap_triangles.size());EXPECT_FALSE(warm.clearance_satisfied);
+ auto numeric=k.analyze_interference(at(box),at(box,8),0,1e-7);
+ EXPECT_TRUE(numeric.complete);EXPECT_EQ(numeric.detail_status,"NOT_REQUESTED");EXPECT_TRUE(numeric.overlap_triangles.empty());
+ auto separated=k.analyze_interference(at(box),at(box,15),4,1e-7,{},false,true);EXPECT_TRUE(separated.clearance_satisfied);
+ separated=k.analyze_interference(at(box),at(box,15),6,1e-7,{},false,true);EXPECT_FALSE(separated.clearance_satisfied);EXPECT_DOUBLE_EQ(separated.distance,5);
+ auto moved=k.analyze_interference(at(box),at(box,7),0,1e-7,{},false,true);EXPECT_NEAR(moved.common_volume,300,1e-6);
+ auto cancelled=k.analyze_interference(at(box),at(box,8),0,1e-7,[]{return true;},false,true);EXPECT_FALSE(cancelled.complete);EXPECT_TRUE(cancelled.overlap_triangles.empty());
+ EXPECT_EQ(original,k.serializeBrepr(box));
+}
+TEST(DMU,SpatialCacheTracksSourceFrameTargetsAndAccuracy){
+ OcctKernel k;auto box=dmu_shape(k,BRepPrimAPI_MakeBox(10,10,10).Shape());const auto original=k.serializeBrepr(box);
+ SpatialGeometryOptions o;o.kind="SECTION";o.section_type="PLANE";o.frame=at(box,0,0,5);o.accuracy=1;
+ auto cold=k.analyze_spatial(at(box),{},o),warm=k.analyze_spatial(at(box),{},o);ASSERT_TRUE(cold.complete);ASSERT_TRUE(warm.complete);EXPECT_DOUBLE_EQ(cold.area,warm.area);EXPECT_EQ(cold.triangles.size(),warm.triangles.size());
+ o.frame=at(box,0,0,20);auto empty=k.analyze_spatial(at(box),{},o);EXPECT_TRUE(empty.complete);EXPECT_EQ(empty.area,0);EXPECT_TRUE(empty.triangles.empty());
+ auto moved=k.analyze_spatial(at(box,0,0,15),{},o);EXPECT_TRUE(moved.complete);EXPECT_NEAR(moved.area,100,1e-7);
+ auto cancelled=k.analyze_spatial(at(box,0,0,15),{},o,[]{return true;});EXPECT_FALSE(cancelled.complete);EXPECT_TRUE(cancelled.triangles.empty());
+ o.section_type="BOX";o.size={4,4,4};o.frame=at(box,100,100,100);empty=k.analyze_spatial(at(box),{},o);EXPECT_TRUE(empty.complete);EXPECT_EQ(empty.area,0);
+ o.frame=at(box,5,5,5);auto inside=k.analyze_spatial(at(box),{},o);EXPECT_TRUE(inside.complete);EXPECT_NEAR(inside.area,96,1e-6);
+ o.kind="BAND";o.minimum=0;o.maximum=7;o.accuracy=2;auto band=k.analyze_spatial(at(box),{at(box,15)},o);ASSERT_TRUE(band.complete);EXPECT_FALSE(band.triangles.empty());
+ auto far=k.analyze_spatial(at(box),{at(box,30)},o);EXPECT_TRUE(far.complete);EXPECT_TRUE(far.triangles.empty());
+ o.accuracy=.01;auto fine=k.analyze_spatial(at(box),{at(box,30)},o);EXPECT_TRUE(fine.complete);EXPECT_TRUE(fine.triangles.empty());
+ EXPECT_EQ(original,k.serializeBrepr(box));
+}
+}

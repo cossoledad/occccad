@@ -65,6 +65,8 @@ Live 用例创建独立验收文档，不重置数据库；其具体覆盖由测
 
 ## 故障与性能边界
 
+空间分析 CPU 微基准：在本目录运行 `node scripts/benchmark-spatial.mjs`，输出串行样本；使用合成显示网格，不测 GPU／网络／BREP，也不证明帧率。真实服务及 RPC 的测量入口见[空间分析](../../../docs/architecture/current/product-assembly.md#空间分析对象与手动更新)。
+
 API 请求诊断在内存保留最近 200 项，携带浏览器总耗时和 Server-Timing；侧栏显示最后完成请求的毫秒耗时，不是命令总时长或后端 CPU 时间。复杂失败使用现有诊断包和原请求回执恢复，不能重新生成未知提交的操作身份。
 
 GLB 按对象摘要去重，解码数据归视口，不回填 Query 模型。可丢弃 render pose 不回写权威快照。大树分页和渐进工作集未交付；完整工作集、解码/BVH 与工业容量边界见[显示制品](../../../docs/architecture/current/geometry-representations.md#验证与边界)。

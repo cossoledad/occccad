@@ -480,7 +480,11 @@ func (service *Service) UpdateMechanismSession(parent context.Context, document,
 		}
 	}
 	if err == nil && policy.Mode != "OFF" {
-		report, checkErr := service.checkFrozenInterference(ctx, frozen, e.state.Frame.UnitPoses, policy.ClearanceMM, e.snapshot.Mechanism.ID, req.Sequence, true)
+		var previous *StaticInterferenceReport
+		if clash != nil {
+			previous = &clash.Report
+		}
+		report, checkErr := service.checkFrozenInterference(ctx, frozen, e.state.Frame.UnitPoses, policy.ClearanceMM, e.snapshot.Mechanism.ID, req.Sequence, true, previous)
 		err = checkErr
 		if err == nil {
 			clash = &MechanismClashResult{Mode: policy.Mode, Sampled: true, Report: report}

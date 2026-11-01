@@ -690,6 +690,13 @@
     ]
   },
   {
+    "path": "services/internal/control/spatial_performance_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture",
+      "configured testsupport.Environment"
+    ]
+  },
+  {
     "path": "services/internal/control/static_interference_integration_test.go",
     "resources": [
       "fixture dependency: services/internal/control/feature_association_integration_test.go#featureAssociationRuntimeService",
