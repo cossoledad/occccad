@@ -566,6 +566,16 @@ func (pool *GeometryPool) AnalyzeInterference(ctx context.Context, request *work
 	return response, err
 }
 
+func (pool *GeometryPool) AnalyzeSpatialGeometry(ctx context.Context, request *workerv1.AnalyzeSpatialGeometryRequest) (*workerv1.AnalyzeSpatialGeometryResponse, error) {
+	client, worker, err := pool.selectClient("")
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.AnalyzeSpatialGeometry(outgoing(ctx), request)
+	pool.release(worker, "", err == nil)
+	return response, err
+}
+
 func (pool *GeometryPool) ImportExchange(ctx context.Context, request *workerv1.ImportExchangeRequest) (*workerv1.EvaluatePartResponse, error) {
 	client, worker, err := pool.selectClient(request.GetGeometryKey())
 	if err != nil {

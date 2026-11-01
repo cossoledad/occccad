@@ -21,6 +21,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     instanceId: instancePath?.segments[0]?.instanceId, treeNodeId: node.id,
   };
   switch (node.kind) {
+ case "SPATIAL_ANALYSIS":return {...base,kind:"spatial-analysis"};
     case "ASSEMBLY_GROUP_MEMBER_REFERENCE": {
       if(!node.entityId)return null;
       const target:SelectionItem=node.entityType==='FIX_TOGETHER'?{kind:'assembly-constraint',id:node.entityId,constraintId:node.entityId,constraintType:'FIX_TOGETHER',documentId:node.documentId,occurrencePath}: {kind:'instance',id:[occurrencePath,node.entityId].filter(Boolean).join('/'),instanceId:node.entityId,occurrencePath:[occurrencePath,node.entityId].filter(Boolean).join('/'),visualKey:'occurrence:'+ [occurrencePath,node.entityId].filter(Boolean).join('/')};

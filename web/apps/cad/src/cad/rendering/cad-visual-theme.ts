@@ -11,7 +11,7 @@ export const CATIA_VISUAL_THEME = {
   sketchPointHalo:colorNumber(palette.sketchPointHalo),
   constraint: colorNumber(palette.solved), gridMinor: colorNumber(palette.gridMinor), gridMajor: colorNumber(palette.gridMajor),
   reference:colorNumber(palette.reference),preview: colorNumber(palette.preview), commandPreview: colorNumber(palette.preview), snap: colorNumber(palette.snap),
-  analysisClash:colorNumber(palette.danger),analysisContact:colorNumber(palette.warning),
+  analysisClearance:colorNumber(palette.solved),analysisClash:colorNumber(palette.danger),analysisContact:colorNumber(palette.warning),
   hover: colorNumber(palette.hover), selected: colorNumber(palette.selected), selectedEmissive: 0x49331c,
   axisX: colorNumber(palette.axisX), axisY: colorNumber(palette.axisY), axisZ: colorNumber(palette.axisZ),
   navigation: colorNumber(palette.selected), navigationHighlight: colorNumber(palette.snap),

@@ -775,6 +775,7 @@ type ProductModel struct {
 	DefaultAppearance      *SurfaceAppearance     `json:"defaultAppearance,omitempty"`
 	AppearanceOverrides    []OccurrenceAppearance `json:"appearanceOverrides,omitempty"`
 	ConstraintNameCounters map[string]int         `json:"constraintNameCounters,omitempty"`
+	SpatialAnalyses        []SpatialAnalysis      `json:"spatialAnalyses,omitempty"`
 	Kinematics             KinematicsDefinitions  `json:"kinematics,omitzero"`
 	Instances              []ProductInstance      `json:"instances"`
 	VisibilityOverrides    []OccurrenceVisibility `json:"visibilityOverrides,omitempty"`
@@ -1258,6 +1259,8 @@ type CommandRequest struct {
 	Color                     string                       `json:"color,omitempty"`
 	MechanismApplication      *MechanismApplicationRequest `json:"mechanismApplication,omitempty"`
 	MotionApply               *MotionApplyRequest          `json:"motionApply,omitempty"`
+	SpatialAnalysis           *SpatialAnalysis             `json:"spatialAnalysis,omitempty"`
+	SpatialAnalysisIDs        []string                     `json:"spatialAnalysisIds,omitempty"`
 	Kinematics                *KinematicsDefinitions       `json:"kinematics,omitempty"`
 	DatumDefinition           *DatumTransform              `json:"datumDefinition,omitempty"`
 	DatumAngleExpression      string                       `json:"datumAngleExpression,omitempty"`

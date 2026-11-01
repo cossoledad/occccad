@@ -110,3 +110,7 @@ view.part.features.push({id:'fillet-input',type:'FILLET',name:'外边圆角',bod
 const filletHTML=render({kind:'feature',id:'fillet-input'});
 assert(filletHTML.includes('圆角半径')&&filletHTML.includes('3.14 mm')&&filletHTML.includes('Body.1'),'feature properties retain engineering dimensions and ownership');
 assert.equal(view.part.features.at(-1).length,3.14159265);
+const spatialView={document:{id:'product-spatial',type:'PRODUCT',name:'安装装配',versionId:'accepted',permission:'OWNER'},product:{instances:[],spatialAnalyses:[{id:'private-analysis-id',name:'安装截面',kind:'SECTION',status:'STALE'}]}};
+const spatialSelection={kind:'spatial-analysis',id:'private-analysis-id',entityId:'private-analysis-id',documentId:'product-spatial',versionId:'accepted'};
+const spatialHTML=renderToStaticMarkup(React.createElement(Properties,{view:spatialView,selection:spatialSelection,workbench:'ASSEMBLY_DESIGN',activeTool:'select',navigationProfile:'cad'}));
+assert(spatialHTML.includes('安装截面'));assert(spatialHTML.includes('待更新'));assert(spatialHTML.includes('手动更新'));assert(!spatialHTML.includes('private-analysis-id'));

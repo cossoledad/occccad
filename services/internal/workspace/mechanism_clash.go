@@ -21,10 +21,11 @@ type MechanismClashResult struct {
 	Report  StaticInterferenceReport `json:"report"`
 }
 type frozenInterference struct {
-	report StaticInterferenceReport
-	inputs []geometry.AnalysisGeometry
-	pairs  []geometry.AnalysisPair
-	roots  map[string]InstancePose
+	singleBody bool
+	report     StaticInterferenceReport
+	inputs     []geometry.AnalysisGeometry
+	pairs      []geometry.AnalysisPair
+	roots      map[string]InstancePose
 }
 
 var errMechanismClash = errors.New("mechanism collision stop")

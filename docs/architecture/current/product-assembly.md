@@ -84,17 +84,29 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 ## 静态干涉与最小间隙
 
-Product 的“干涉与间隙检查”独立只读，复用 `AnalyzeInterference`。范围支持全部零件、所选内部、所选与其余、两组之间；树／视图区使用同一选择会话，子装配展开为接受的叶零件，两组重叠时去重并排除自身。隐藏不排除；已消费 Body 排除，无活动实体的零件计入范围说明。同一叶 Part 内 Body 不互检，不同叶零件（包括同一模块内部）按 Body 配对。
+Product 的“空间分析 → 碰撞”计算独立只读，复用 `AnalyzeInterference`。范围支持全部零件、所选内部、所选与其余、两组之间；树／视图区使用同一选择会话，子装配展开为接受的叶零件，两组重叠时去重并排除自身。隐藏不排除；已消费 Body 排除，无活动实体的零件计入范围说明。同一叶 Part 内 Body 不互检，不同叶零件（包括同一模块内部）按 Body 配对。
 
 `static_interference.go` 从确切 Product Revision 的接受引用展开完整 InstancePath、Part Revision、ContextVariant、Body、精确 BREP 和组合位姿，不从显示行建立范围，不读取来源新 Head。失败 Variant、失败实体、缺失 BREP 与 displayFallback 不能充当有效输入；未完成配对保留 INCONCLUSIVE。零对、取消、超限或部分失败不报告全部通过；已有冲突与未完成分别表达。开始前预检 128 Body、8192 对、256 MiB 去重 BREP，不截断。
 
 OCCT 在私有几何上计算分离、接触、干涉及包含；包含通过真实残余差集校验，不以总体积相近代替。Worker 使用有界 BREP／已准备形状及精确配对缓存。阈值检查可用保守包围距离证明间隙满足，此时不生成虚假的精确距离或见证点；选中配对后按需求精确距离、真实 Section 交线及 Common 交叠体的临时网格。图形离散不参与工程分类；局部显示超限／失败不改变已完成的数值判定。包含／干涉不绘制虚构的穿透向量，当前没有穿透深度算法。接触提供可靠见证，未实现完整接触／间隙区域面。
 
-面板提供问题／类型过滤、按配对或零件组合浏览、工程数值和覆盖计数。行选择定位两个实体，分别用角色色显示；可临时只看这一对、剖切并查看冲突局部图形；“查看几何”将同一对话框收为紧凑尺寸，返回保留列表和选择。剖切是无封盖的显示裁剪，不改变数值输入。临时显隐在关闭、换范围、取消或版本变化时恢复，分析不写引用、位姿、Revision 或历史。图形必须匹配冻结的 Revision、几何与实际显示位姿；源、策略及内部诊断只进入 DEBUG。
+面板提供问题／类型过滤、按配对或零件组合浏览、工程数值和覆盖计数。行选择定位两个实体，用细线轮廓区分角色，并以三角线网格叠加交叠材料，保留原零件材质；可临时只看这一对、剖切并查看冲突局部图形；“查看几何”将同一对话框收为紧凑尺寸，返回保留列表和选择。剖切是无封盖的显示裁剪，不改变数值输入。临时显隐在关闭、换范围、取消或版本变化时恢复，分析不写引用、位姿、Revision 或历史。图形必须匹配冻结的 Revision、几何与实际显示位姿；源、策略及内部诊断只进入 DEBUG。
 
 可选择已保存机构的接受构型进行同样的只读检查，无需激活、求解或采用其位置；视口与报告位置不同则不显示标记。命令试动／录制内的采样检测及停止边界见[机构会话](kinematics-dmu.md#试动和录制会话)。
 
-入口：`POST /api/documents/{documentID}/static-interference`（Viewer 可读）、`services/internal/geometry/dmu.go`、`kernel/occt/src/dmu.cpp`、`static-interference-panel.tsx`；真实回归在 `static_interference_integration_test.go`，状态／图形在 `static-interference.scenario.mjs`，浏览器在 `assembly-engineering-live.spec.ts`。不提供连续碰撞保证、自动修复、结果保存／导出或结构树分析对象；最大资源规模和复杂导入实体仍需专项验证。
+入口：`POST /api/documents/{documentID}/static-interference`（Viewer 可读）、`services/internal/geometry/dmu.go`、`kernel/occt/src/dmu.cpp`、`static-interference-panel.tsx`；真实回归在 `static_interference_integration_test.go`，状态／图形在 `static-interference.scenario.mjs`，浏览器在 `assembly-engineering-live.spec.ts`。不提供连续碰撞保证、自动修复、穿透深度或报告导出；最大资源规模和复杂导入实体仍需专项验证。保存与手动更新见下节。
+
+## 空间分析对象与手动更新
+
+当前 owning Product 的“应用 → 空间分析”保存碰撞、切割、距离／距离区域对象；不混入机构定义或旧 Motion 静态分析分支。计算和查看只需读权限，保存／编辑／删除／更新经正式命令、Preview/Commit、CAS、ChangeSet 与 Undo/Redo。保存定义包含稳定 occurrence 路径、参数、局部切割框架和已接受结果引用；JSON 图形／报告存入独立不可变 `SPATIAL_ANALYSIS` 制品，读取校验所属文档、引用、SHA 与来源快照。取消不留下树节点。
+
+全部零件或所选范围沿既有接受装配解析，包含嵌套叶 Part、各接受 Revision、ContextVariant、Body 和组合位姿；不采用来源新 Head 或临时操纵位置。距离复用精确实体配对最小距离。切割通过数值位置／旋转定位，支持无限平面、双平面薄片和切割框；内核在私有精确 BREP 上求交，保留孔和独立截面，返回精确面积／重心及用于显示的离散边界／三角形。薄片面积为两截面之和，框为六面截面的总面积；表示宽高不裁断无限平面／薄片。三维切除仅为视口裁剪，不创建或修改实体，关闭后恢复。
+
+距离区域对不重叠的两组零件计算第一组表面到第二组实体集合的距离。OCCT 曲面参数采样点采用精确点到实体距离，包围盒仅剪枝；按显示精度有界细分三角网格，红色表示小于最小值、绿色表示区间内，灰色保留无法确定的边界。区域网格及边界是近似显示，不是精确几何分类或面积测量；没有证据时不染为合格。单次最多 16 个第一组实体、每实体一万个距离查询，深度／图形／时间超限明确未完成，不保存为已完成结果。总冻结资源仍受既有 128 Body／8192 配对／256 MiB BREP 门禁，图形另有总量限制。
+
+首轮统一手动更新：来源摘要包含有效定义、完整稳定路径、接受叶版本、位姿与相关 Product 输入赋值；排除分析自身保存产生的 Revision 和显示名称。现有依赖图登记分析对实例／关联输入的读取，当前投影将摘要不同标为“待更新”、缺失来源标为“来源不可用”。它不触发计算、求解、自动跟随或新回调系统。节点“更新分析”或分组“更新全部分析”显式重建；全部候选成功才原子替换结果，失败保留上次有效结果。旧结果可读但只有当前几何／位姿匹配才显示标记，取消、关闭、范围或版本变化使迟到响应失效。结果制品丢失可显式更新重建，不借用其他版本的结果。该定义／依赖／接受结果分离方式可供后续领域复用，尚未实现全局自动更新、冻结策略或通用更新调度器。
+
+入口：`spatial_analysis.go`、`spatial-analysis-panel.tsx`、`geometry/spatial.go`、Worker `AnalyzeSpatialGeometry` 与 OCCT `dmu.cpp`。回归：`spatial_analysis_integration_test.go`、原静态干涉测试、`static-interference.scenario.mjs`、`assembly-engineering-live.spec.ts`。CATIA 对照：`spaug_C2/spaugbt0303.htm`、`spaugbt0306.htm`，`cfyugspa_C2/cfyugspabt0201.htm`、`cfyugspabt0212.htm`、`cfyugspabt0103.htm`、`cfyugspabt0102.htm`；参考中的自动／冻结更新、完整二维测量编辑、连续碰撞与报告管理不代表当前能力。
 
 ## 发布与关联设计
 

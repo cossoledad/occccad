@@ -24,8 +24,9 @@ try{
  const nestedDmu=workbenchCommands(bindings).find(c=>c.id==='dmu.revolute');assert.equal(nestedDmu.isEnabled(),false);
  const viewer={...host,document:{...host.document,permission:'VIEWER'}};const viewerApply=workbenchCommands({...bindings,editingView:viewer,view:viewer}).find(c=>c.id==='dmu.apply');assert.equal(viewerApply.isEnabled(),false);
  let staticOpened=false;
- const staticBindings={...bindings,view:viewer,editingView:viewer,canEdit:false,canEditRoot:false,staticInterferenceAllowed:true,setStaticInterferenceOpen:v=>staticOpened=v};
- const staticCommand=workbenchCommands(staticBindings).find(c=>c.id==='assembly.static-interference');assert(staticCommand.isEnabled(),'a Viewer can analyze accepted geometry');staticCommand.execute();assert(staticOpened);
+ const staticBindings={...bindings,view:viewer,editingView:viewer,canEdit:false,canEditRoot:false,staticInterferenceAllowed:true,openSpatialAnalysis:kind=>staticOpened=kind};
+ const staticCommand=workbenchCommands(staticBindings).find(c=>c.id==='assembly.static-interference');assert(staticCommand.isEnabled(),'a Viewer can analyze accepted geometry');staticCommand.execute();assert.equal(staticOpened,"CLASH");
+ for(const [id,kind] of [["assembly.section","SECTION"],["assembly.distance-band","DISTANCE"]]){const c=workbenchCommands(staticBindings).find(c=>c.id===id);assert(c.isEnabled());c.execute();assert.equal(staticOpened,kind)}
  assert.equal(workbenchCommands({...staticBindings,staticInterferenceAllowed:false}).find(c=>c.id===staticCommand.id).isEnabled(),false,'temporary motion poses cannot open static checking');
  assert.equal(workbenchCommands({...staticBindings,moveReceiptPending:true}).find(c=>c.id===staticCommand.id).isEnabled(),false,'unknown movement must be resolved first');
  let repairOpened=false;

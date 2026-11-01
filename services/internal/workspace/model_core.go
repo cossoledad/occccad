@@ -77,6 +77,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeOccurrenceVisibility, "PRODUCT", applyOccurrenceVisibility},
 		commandHandler{typeConstraintVisibility, "PRODUCT", applyConstraintVisibility},
 		commandHandler{typeSetKinematics, "PRODUCT", applyKinematicsDefinition},
+		commandHandler{typeSetSpatialAnalyses, "PRODUCT", applySpatialAnalyses},
 		commandHandler{typeApplyMotionFrame, "PRODUCT", applyMotionFrame},
 		commandHandler{typeAdoptMechanismPose, "PRODUCT", applyMotionFrame},
 		commandHandler{typeCreatePattern, "PART", applyCreateFeature},
@@ -2336,7 +2337,7 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if request.Type == "MOVE_FEATURE" && request.VersionID != "" && request.VersionID != prepared.headRevision {
 		return prepared, featureEditFailure{code: "FEATURE_EDIT_STALE"}
 	}
-	if (request.Type == "SAVE_KINEMATICS" || request.Type == "APPLY_MOTION_FRAME" || request.Type == "ACTIVATE_MECHANISM" || request.Type == "EXIT_MECHANISM") && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
+	if (spatialMutation(request.Type) || request.Type == "SAVE_KINEMATICS" || request.Type == "APPLY_MOTION_FRAME" || request.Type == "ACTIVATE_MECHANISM" || request.Type == "EXIT_MECHANISM") && (request.VersionID == "" || request.VersionID != prepared.headRevision) {
 		return prepared, fmt.Errorf("%w: KINEMATICS_BASE_REVISION_CHANGED", ErrValidation)
 	}
 	if request.ExpectedUpdateRevision != "" && prepared.headRevision != request.ExpectedUpdateRevision {
@@ -3219,6 +3220,33 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 	metadata, _ := json.Marshal(model.Metadata)
 	nodes = append(nodes, modelcore.DependencyNode{Key: "appearance:document", Phase: 0, Type: "APPEARANCE", CanonicalInput: appearance}, modelcore.DependencyNode{Key: "metadata:document", Phase: 0, Type: "METADATA", CanonicalInput: metadata})
 	edges := make([]modelcore.DependencyEdge, 0, len(model.Constraints)*2)
+	for _, a := range model.SpatialAnalyses {
+		data, _ := json.Marshal(a)
+		key := modelcore.DependencyKey("spatial-analysis:" + a.ID)
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 5, Type: "SPATIAL_ANALYSIS", CanonicalInput: data})
+		for _, b := range model.ContextBindings {
+			used := a.Scope == "ALL" || a.Scope == "AGAINST_ALL"
+			for _, p := range append(append([]InstancePath{}, a.Selected...), a.SecondSelection...) {
+				if b.OwningInstancePath.Canonical == p.Canonical || strings.HasPrefix(b.OwningInstancePath.Canonical, p.Canonical+"/") {
+					used = true
+				}
+			}
+			if used {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("context-binding:" + b.ID), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		}
+		for _, i := range model.Instances {
+			used := a.Scope == "ALL" || a.Scope == "AGAINST_ALL"
+			for _, path := range append(append([]InstancePath{}, a.Selected...), a.SecondSelection...) {
+				if len(path.Segments) > 0 && path.Segments[0].InstanceID == i.ID {
+					used = true
+				}
+			}
+			if used {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + i.ID), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		}
+	}
 	for _, instance := range model.Instances {
 		data, _ := json.Marshal(instance)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("instance:" + instance.ID), Phase: 1, Type: "PRODUCT_INSTANCE", CanonicalInput: data})

@@ -1,3 +1,4 @@
+import {spatialStatus,spatialTitle} from "../../cad/assembly/spatial-analysis";
 import {sketchProfileFeedback,profileIssueText} from "../../cad/sketch/sketch-profile-analysis";
 import {inspectorOwnerDocumentId,inspectorTopologyData} from './inspector-object-data';
 import {referencePropertyRows} from './reference-properties';
@@ -39,6 +40,8 @@ export function Properties(p:PropertiesProps){
   add('name','实体',body?.name??resolved?.name??'引用实体暂不可用');add('path','所属位置',s.instancePath?.display??view.document.name);add('state','状态',body?.displayFallback?'计算失败，显示上次成功结果':body?.consumed?'已用于布尔运算':'参与输出');add('visible','显示',body?.visible===false?'隐藏':'可见');
  }else if(s.entityKind==='ASSEMBLY_GROUP_MEMBER_REFERENCE'){
   add('type','类型','固联组成员');add('owner','所属固联组',objectName(p.view,s.ownerEntityId,'固联组已丢失'));add('member','成员',objectName(p.view,s.entityId,'引用成员已丢失'));
+ }else if(s.kind==='spatial-analysis'){
+ const analysis=view.product?.spatialAnalyses?.find(a=>a.id===(s.entityId??s.id));add('name','名称',analysis?.name??'分析对象已丢失');add('type','类型',analysis?spatialTitle(analysis.kind):'空间分析');add('state','状态',spatialStatus(analysis?.status));add('update','更新方式','手动更新');
  }else if(s.kind==='kinematic-object'){
   const k=p.view.product?.kinematics,m=k?.mechanisms.find(m=>m.id===s.mechanismId||m.id===s.id),joint=m?.joints.find(j=>j.id===s.id||j.constraints?.some(c=>c.id===s.id)),relation=joint?.constraints?.find(c=>c.id===s.id),driver=k?.drivers?.find(d=>d.id===s.id),study=k?.studies.find(v=>v.id===s.id);
   add('type','类型',relation?'机构约束':joint?'接合':driver?'驱动命令':study?'模拟':'机构');add('name','名称',(relation??joint??driver??study??m)?.name??'引用定义已丢失');if(m&&m.id!==s.id)add('owner','所属机构',m.name);if(joint)add('kind','接合类型',engineeringLabel(joint.kind,'接合'));if(relation)add('state','当前状态',engineeringLabel(relation.evaluationStatus));

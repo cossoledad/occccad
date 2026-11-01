@@ -775,6 +775,53 @@ public:
         return grpc::Status::OK;
     }
 
+    grpc::Status AnalyzeSpatialGeometry(grpc::ServerContext* context,
+        const worker_api::AnalyzeSpatialGeometryRequest* request,worker_api::AnalyzeSpatialGeometryResponse* response) override {
+        if(request->geometry_size()<1||request->geometry_size()>128||request->source_ids_size()<1||request->source_ids_size()>128||
+           (request->kind()!="SECTION"&&request->kind()!="BAND")||request->target_ids_size()>128||
+           !std::isfinite(request->accuracy_mm())||request->accuracy_mm()<0.01||request->accuracy_mm()>1000||
+           (request->kind()=="BAND"&&(request->source_ids_size()>16||request->target_ids_size()<1)))
+            return {grpc::StatusCode::INVALID_ARGUMENT,"invalid spatial analysis scope"};
+        std::unique_lock<std::mutex> lock(mutex_,std::defer_lock);
+        while(!lock.try_lock()){if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"spatial analysis cancelled"};std::this_thread::sleep_for(std::chrono::milliseconds(5));}
+        uint64_t incoming=0;std::unordered_set<std::string> unique;
+        for(const auto& g:request->geometry()){
+            if(!g.has_brep())return {grpc::StatusCode::INVALID_ARGUMENT,"spatial B-Rep required"};
+            if(unique.insert(g.brep().SerializeAsString()).second){if(g.brep().size_bytes()>256ULL*1024*1024-incoming)return {grpc::StatusCode::RESOURCE_EXHAUSTED,"spatial byte limit"};incoming+=g.brep().size_bytes();}
+        }
+        if(!interference_kernel_||interference_bytes_+incoming>256ULL*1024*1024||interference_loaded_.size()+unique.size()>128){interference_kernel_=std::make_unique<occccad::kernel::OcctKernel>();interference_loaded_.clear();interference_bytes_=0;}
+        std::unordered_map<std::string,occccad::kernel::PlacedGeometry> inputs;
+        std::unordered_map<std::string,std::string> failures;
+        for(const auto& g:request->geometry()){
+            if(g.id().empty()||inputs.count(g.id()))return {grpc::StatusCode::INVALID_ARGUMENT,"duplicate spatial identity"};
+            const auto& p=g.pose();inputs.emplace(g.id(),occccad::kernel::PlacedGeometry{g.geometry_id(),{p.translation().x(),p.translation().y(),p.translation().z()},{p.rotation().x(),p.rotation().y(),p.rotation().z(),p.rotation().w()}});
+            try{const auto key=g.brep().SerializeAsString();const auto found=interference_loaded_.find(key);std::string id;
+                if(found!=interference_loaded_.end())id=found->second;else{id=interference_kernel_->loadBrepr(read_artifact(g.brep()));interference_loaded_.emplace(key,id);interference_bytes_+=g.brep().size_bytes();}
+                if(id!=g.geometry_id())throw std::runtime_error("spatial geometry digest mismatch");
+            }catch(const Standard_Failure& e){failures[g.id()]=e.GetMessageString()?e.GetMessageString():"SPATIAL_INPUT_UNAVAILABLE";}catch(const std::exception& e){failures[g.id()]=e.what();}
+        }
+        occccad::kernel::SpatialGeometryOptions options;options.kind=request->kind();options.section_type=request->section_type();
+        const auto& f=request->frame();options.frame.translation={f.translation().x(),f.translation().y(),f.translation().z()};options.frame.rotation={f.rotation().x(),f.rotation().y(),f.rotation().z(),f.rotation().w()};
+        options.size={request->size().x(),request->size().y(),request->size().z()};options.minimum=request->minimum_mm();options.maximum=request->maximum_mm();options.accuracy=request->accuracy_mm();
+        std::vector<occccad::kernel::PlacedGeometry> targets;bool bad_target=false;std::unordered_set<std::string> target_ids,source_ids;
+        for(const auto& id:request->target_ids()){if(!inputs.count(id)||!target_ids.insert(id).second)return {grpc::StatusCode::INVALID_ARGUMENT,"invalid spatial target"};targets.push_back(inputs.at(id));bad_target=bad_target||failures.count(id);}
+        size_t graphics_count=0;bool complete=true;
+        for(const auto& id:request->source_ids()){
+            if(!inputs.count(id)||!source_ids.insert(id).second||target_ids.count(id))return {grpc::StatusCode::INVALID_ARGUMENT,"invalid spatial source"};
+            if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"spatial analysis cancelled"};
+            occccad::kernel::SpatialGeometryResult value;
+            if(failures.count(id)||bad_target)value.diagnostic="SPATIAL_INPUT_UNAVAILABLE";
+            else value=interference_kernel_->analyze_spatial(inputs.at(id),targets,options,[&]{return context->IsCancelled();});
+            if(value.segments.size()+value.triangles.size()>120000-graphics_count){value=occccad::kernel::SpatialGeometryResult{};value.diagnostic="SPATIAL_GRAPHICS_LIMIT";}graphics_count+=value.segments.size()+value.triangles.size();
+            auto* body=response->add_bodies();body->set_id(id);body->set_complete(value.complete);body->set_diagnostic(value.diagnostic);body->set_area_mm2(value.area);
+            body->mutable_centroid()->set_x(value.centroid.x);body->mutable_centroid()->set_y(value.centroid.y);body->mutable_centroid()->set_z(value.centroid.z);
+            for(const auto& p:value.segments){auto* v=body->add_segments();v->set_x(p.x);v->set_y(p.y);v->set_z(p.z);}
+            for(const auto& p:value.triangles){auto* v=body->add_triangles();v->set_x(p.x);v->set_y(p.y);v->set_z(p.z);}
+            for(auto tag:value.regions)body->add_regions(tag);complete=complete&&value.complete;
+        }
+        response->set_complete(complete);response->set_kernel_build("occt-" OCC_VERSION_COMPLETE "/spatial-geometry-v1");return grpc::Status::OK;
+    }
+
     grpc::Status ResolveLoftCorrespondence(
         grpc::ServerContext* context, const worker_api::ResolveLoftCorrespondenceRequest* request,
         worker_api::ResolveLoftCorrespondenceResponse* response) override {

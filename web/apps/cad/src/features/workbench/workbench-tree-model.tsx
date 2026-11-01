@@ -47,7 +47,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
 	const component=node.entityId?sketch?.solve.components?.find((candidate)=>candidate.entityIds.includes(node.entityId!)):undefined;
   const featureStatus = node.evaluationStatus === "FAILED" ? "求值失败" : node.evaluationStatus === "BLOCKED" ? "上游失败" : node.evaluationStatus === "SUPPRESSED" ? "已抑制" : undefined;
   const inputLabel:Record<string,string>={POSITION:"定位点",PROFILE:"轮廓",SECTION:"截面",SECTION_POINT:"截面点",AXIS:"轴",SUPPORT:"支撑",TOOL:"工具",RANGE_START:"范围起始",SEED:"种子",TOPOLOGY:"拓扑引用",STAGE:"输入阶段",NEUTRAL_PLANE:"中性面",TERMINATION_PLANE:"终止平面",PATTERN_REFERENCE:"阵列参考"};
-  const displayName=node.kind==="APPLICATIONS"?"机构与模拟":node.inputRole&&node.kind!=="KINEMATICS_GROUP"?`${inputLabel[node.inputRole]??"输入"}${["SECTION","SECTION_POINT"].includes(node.inputRole)?` ${1+(node.inputOrder??0)}`:""} · ${node.name}`:node.name===node.entityId?engineeringLabel(node.entityType??node.kind,"引用对象已丢失"):node.name;
+  const displayName=node.kind==="APPLICATIONS"?"应用":node.inputRole&&node.kind!=="KINEMATICS_GROUP"?`${inputLabel[node.inputRole]??"输入"}${["SECTION","SECTION_POINT"].includes(node.inputRole)?` ${1+(node.inputOrder??0)}`:""} · ${node.name}`:node.name===node.entityId?engineeringLabel(node.entityType??node.kind,"引用对象已丢失"):node.name;
   const currentSelection=structureSelection(node,view);
   const contribution=currentSelection?.geometryKey?view.artifacts?.[currentSelection.geometryKey]?.visualization?.featureContributions?.[node.entityId??""]:undefined;
   const contributionStatus=contribution==="NO_CURRENT_CONTRIBUTION"?"无当前几何贡献":contribution==="MAPPING_MISSING"?"拓扑关联缺失":undefined;
@@ -64,7 +64,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
     sourceDisplayPath: node.sourceDisplayPath,
     plane: node.plane, ownerEntityId: node.ownerEntityId,
 	role: node.role, definitionDigest: node.definitionDigest, suppressed: node.suppressed, diagnostic: node.diagnostic??(node.kind==="SKETCH_ENTITY"&&node.entityId&&conflictEntities.has(node.entityId)?"CONFLICTING":component?.definitionStatus==="FULLY_CONSTRAINED"||component?.status==="SOLVED"?"FULLY_CONSTRAINED":undefined),
-    capabilities: canEdit ? [...new Set([...(node.capabilities??[]), ...(node.kind==="SKETCH"&&node.presentationRole!=="INPUT_REFERENCE"?["EDIT" as const,"RECONNECT" as const]:[]), ...(["SKETCH","SKETCH_GEOMETRY_SET","SKETCH_CONSTRAINT_SET","SKETCH_LOGICAL_CONSTRAINT_SET","SKETCH_DIMENSION_SET"].includes(node.kind)?["SUPPRESS" as const]:[])])] : undefined,
+    capabilities: canEdit ? [...new Set([...(node.capabilities??[]), ...(node.kind==="SKETCH"&&node.presentationRole!=="INPUT_REFERENCE"?["EDIT" as const,"RECONNECT" as const]:[]), ...(["SKETCH","SKETCH_GEOMETRY_SET","SKETCH_CONSTRAINT_SET","SKETCH_LOGICAL_CONSTRAINT_SET","SKETCH_DIMENSION_SET"].includes(node.kind)?["SUPPRESS" as const]:[])])] : node.kind==="SPATIAL_ANALYSIS"?["EDIT"]:undefined,
     selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view, editingView)) };
 }
 

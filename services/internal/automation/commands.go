@@ -17,6 +17,9 @@ import (
 type commandContract struct{ command, document, name, fields, required, handoff string }
 
 var commandContracts = []commandContract{
+	{"SAVE_SPATIAL_ANALYSIS", "PRODUCT", "保存空间分析", "spatialAnalysis versionId", "spatialAnalysis versionId", ""},
+	{"UPDATE_SPATIAL_ANALYSES", "PRODUCT", "更新空间分析", "spatialAnalysisIds versionId", "versionId", ""},
+	{"DELETE_SPATIAL_ANALYSIS", "PRODUCT", "删除空间分析", "targetId versionId", "targetId versionId", ""},
 	{"SET_PROPERTIES", "ANY", "修改属性", "properties", "properties", ""},
 	{"SET_BODY_COLOR", "PART", "设置实体颜色", "bodyId color", "bodyId color", ""},
 	{"ACTIVATE_MECHANISM", "PRODUCT", "激活机构", "mechanismApplication versionId", "mechanismApplication", ""},

@@ -1,6 +1,9 @@
 #include <internal/occt_kernel.hpp>
 #include <gtest/gtest.h>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <cmath>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepTools.hxx>
 #include <gp_Pln.hxx>
@@ -44,5 +47,23 @@ TEST(DMU,ThresholdProofDetailedOverlapAndContainmentWitnesses){
  r=k.analyze_interference(at(box),at(box),0,1e-7);EXPECT_EQ(r.containment,"COINCIDENT");
  // A genuine tiny solid overlap may not be removed by relative volume filtering.
  r=k.analyze_interference(at(box),at(box,9.999999),0,1e-7);ASSERT_TRUE(r.complete);EXPECT_EQ(r.classification,"PENETRATION");EXPECT_GT(r.common_volume,0);
+}
+}
+namespace occccad::kernel {
+TEST(DMU,SpatialSectionUsesExactMaterialAndFrame){
+ OcctKernel k;auto box=dmu_shape(k,BRepPrimAPI_MakeBox(10,10,10).Shape());auto before=k.serializeBrepr(box);
+ SpatialGeometryOptions o;o.kind="SECTION";o.section_type="PLANE";o.frame=at(box,0,0,5);o.accuracy=1;
+ auto r=k.analyze_spatial(at(box),{},o);ASSERT_TRUE(r.complete)<<r.diagnostic;EXPECT_NEAR(r.area,100,1e-7);EXPECT_NEAR(r.centroid.z,5,1e-7);EXPECT_FALSE(r.segments.empty());EXPECT_FALSE(r.triangles.empty());
+ auto drill=BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(5,5,0),gp_Dir(0,0,1)),2,10).Shape();auto hollow=dmu_shape(k,BRepAlgoAPI_Cut(BRepPrimAPI_MakeBox(10,10,10).Shape(),drill).Shape());
+ auto holed=k.analyze_spatial(at(hollow),{},o);ASSERT_TRUE(holed.complete)<<holed.diagnostic;EXPECT_NEAR(holed.area,100-4*std::acos(-1),1e-6);EXPECT_FALSE(holed.triangles.empty());
+ o.frame=at(box,5,5,5);o.frame.rotation={0,std::sin(std::acos(-1)/8),0,std::cos(std::acos(-1)/8)};auto tilted=k.analyze_spatial(at(box),{},o);ASSERT_TRUE(tilted.complete)<<tilted.diagnostic;EXPECT_NEAR(tilted.area,100*std::sqrt(2),1e-6);o.frame=at(box,0,0,5);
+ o.section_type="SLICE";o.size={10,10,2};r=k.analyze_spatial(at(box),{},o);ASSERT_TRUE(r.complete)<<r.diagnostic;EXPECT_NEAR(r.area,200,1e-7);
+ o.section_type="BOX";o.size={4,4,4};o.frame=at(box,5,5,5);r=k.analyze_spatial(at(box),{},o);ASSERT_TRUE(r.complete)<<r.diagnostic;EXPECT_NEAR(r.area,96,1e-6);EXPECT_EQ(before,k.serializeBrepr(box));
+ r=k.analyze_spatial(at(box),{},o,[]{return true;});EXPECT_FALSE(r.complete);EXPECT_TRUE(r.triangles.empty());
+}
+TEST(DMU,SpatialDistanceBandHasConservativeBoundaryAndExactSamples){
+ OcctKernel k;auto box=dmu_shape(k,BRepPrimAPI_MakeBox(10,10,10).Shape());SpatialGeometryOptions o;o.kind="BAND";o.minimum=2;o.maximum=7;o.accuracy=2;
+ auto r=k.analyze_spatial(at(box),{at(box,15)},o);ASSERT_TRUE(r.complete)<<r.diagnostic;ASSERT_FALSE(r.triangles.empty());EXPECT_EQ(r.regions.size()*3,r.triangles.size());EXPECT_TRUE(std::find(r.regions.begin(),r.regions.end(),1)!=r.regions.end());
+ o.maximum=3;r=k.analyze_spatial(at(box),{at(box,15)},o);ASSERT_TRUE(r.complete)<<r.diagnostic;EXPECT_TRUE(r.triangles.empty());
 }
 }

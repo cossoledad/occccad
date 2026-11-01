@@ -271,6 +271,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{documentID}/assembly-supports/inspect", server.inspectAssemblySupports)
 	mux.HandleFunc("POST /api/documents/{documentID}/mechanism-analysis", server.analyzeMechanism)
 	mux.HandleFunc("POST /api/documents/{documentID}/static-interference", server.analyzeStaticInterference)
+	mux.HandleFunc("POST /api/documents/{documentID}/spatial-analysis", server.analyzeSpatial)
+	mux.HandleFunc("GET /api/documents/{documentID}/spatial-analyses/{analysisID}/result", server.getSpatialResult)
 	mux.HandleFunc("GET /api/documents/{documentID}/assembly-engineering-evidence", server.assemblyEngineeringEvidence)
 	mux.HandleFunc("POST /api/documents/{documentID}/assembly-engineering-evidence/refresh", server.refreshAssemblyEngineeringEvidence)
 	mux.HandleFunc("GET /api/documents/{documentID}/assembly-replays/{replayID}", server.downloadAssemblyReplay)

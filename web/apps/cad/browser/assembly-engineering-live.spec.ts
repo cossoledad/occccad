@@ -93,7 +93,7 @@ async function clickClashInstance(page:Page,id:string){const canvas=page.locator
 
 test('clash exact local graphics, viewport scope, temporary isolate/section and late cancellation',async({page},testInfo)=>{
  test.setTimeout(240_000);page.setDefaultTimeout(20000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await observeClash(page);await login(page);const seed=await clashSeed(page);await page.goto('/documents/'+seed.id);
- await clashCommand(page,'干涉与间隙检查');let dialog=page.getByRole('dialog',{name:'干涉与间隙检查',exact:true});
+ await clashCommand(page,'碰撞');let dialog=page.getByRole('dialog',{name:'碰撞',exact:true});
  const before=await current(page,seed.id),history=await (await page.request.get(`/api/documents/${seed.id}/history`)).json();
  await dialog.getByRole('button',{name:/^检\s*查$/}).click();await expect(dialog.getByRole('status',{name:'干涉检查状态'})).toContainText('发现需要检查');
  const row=dialog.locator('tbody tr').filter({hasText:'干涉'});await expect(row).toHaveCount(1);let detailRelease!:()=>void,detailSeen!:()=>void;const detailHold=new Promise<void>(r=>detailRelease=r),detailStarted=new Promise<void>(r=>detailSeen=r);
@@ -112,7 +112,7 @@ test('clash exact local graphics, viewport scope, temporary isolate/section and 
  await clickClashInstance(page,seed.ground);await dialog.getByRole('button',{name:/^检\s*查$/}).click();await expect(dialog.getByRole('status',{name:'干涉检查状态'})).toContainText('发现需要检查');await expect(dialog.getByText('2 / 2 对已完成')).toBeVisible();
  await dialog.getByRole('button',{name:'关闭',exact:true}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__clashEngine.staticInterferenceMarkers?.children.length??0)).toBe(0);
  const after=await current(page,seed.id);expect(after.product).toEqual(before.product);expect(after.document.versionId).toBe(before.document.versionId);expect(await (await page.request.get(`/api/documents/${seed.id}/history`)).json()).toEqual(history);
- await page.setViewportSize({width:1100,height:720});await clashCommand(page,'干涉与间隙检查');dialog=page.getByRole('dialog',{name:'干涉与间隙检查',exact:true});const bounds=await dialog.boundingBox();expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(1100);
+ await page.setViewportSize({width:1100,height:720});await clashCommand(page,'碰撞');dialog=page.getByRole('dialog',{name:'碰撞',exact:true});const bounds=await dialog.boundingBox();expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(1100);
  let release!:()=>void;const hold=new Promise<void>(r=>release=r);let observed!:()=>void;const started=new Promise<void>(r=>observed=r);
  await page.route(`**/api/documents/${seed.id}/static-interference`,async route=>{const response=await route.fetch();observed();await hold;await route.fulfill({response}).catch(()=>{})});
  await dialog.getByRole('button',{name:/^检\s*查$/}).click();await started;await dialog.getByRole('button',{name:'取消计算',exact:true}).click();release();await expect(dialog.getByRole('status',{name:'干涉检查状态'})).toHaveText('已取消');await expect.poll(()=>page.evaluate(()=>(window as any).__clashEngine.staticInterferenceMarkers?.children.length??0)).toBe(0);await page.unroute(`**/api/documents/${seed.id}/static-interference`);
@@ -147,4 +147,54 @@ test('clash checked recording playback stops at a qualified sample and keeps its
  const position=Number(await input.inputValue()),time=Number(await recorder.getByRole('spinbutton',{name:'模拟定位时间',exact:true}).inputValue());expect(position).toBeGreaterThan(0);expect(position).toBeLessThanOrEqual(5.00001);expect(time).toBeCloseTo(position/35,2);
  await recorder.getByRole('button',{name:/^取\s*消$/}).click();await expect(trial).toHaveCount(0);
  const currentView=await current(page,seed.id);expect(currentView.product.kinematics.studies??[]).toHaveLength(0);
+});
+
+test('saved spatial analyses: wire clash, exact sections, distance bands and explicit update history',async({page},testInfo)=>{
+ test.setTimeout(240_000);page.setDefaultTimeout(20_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await observeClash(page);await login(page);const seed=await clashSeed(page);await page.goto('/documents/'+seed.id);
+ const before=await current(page,seed.id);
+ await clashCommand(page,'碰撞');let clash=page.getByRole('dialog',{name:'碰撞',exact:true});await clash.getByRole('button',{name:/^检\s*查$/}).click();await expect(clash.getByRole('status',{name:'干涉检查状态'})).toContainText('发现需要检查');
+ await clash.locator('tbody tr').filter({hasText:'干涉'}).click();await expect.poll(()=>page.evaluate(()=>{const g=(window as any).__clashEngine?.staticInterferenceMarkers;return g?.children.some((c:any)=>c.geometry?.type==='WireframeGeometry')})).toBeTruthy();
+ // Role and overlap evidence use wires; the original engineering materials remain intact.
+ expect(await page.evaluate(()=>(window as any).__clashEngine.staticInterferenceMarkers.children.some((c:any)=>c.isMesh&&!c.isLineSegments2))).toBeFalsy();
+ await clash.getByRole('textbox',{name:'分析名称'}).fill('安装碰撞');await clash.getByRole('button',{name:/^保\s*存$/}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses?.length).toBe(1);await clash.getByRole('button',{name:'关闭',exact:true}).click();
+ await clashCommand(page,'切割');let section=page.getByRole('dialog',{name:'切割',exact:true});await section.getByRole('textbox',{name:'分析名称'}).fill('安装截面');await section.getByRole('spinbutton',{name:'位置 Z',exact:true}).fill('5');await section.getByRole('button',{name:/^分\s*析$/}).click();await expect(section.getByRole('status').filter({hasText:'分析完成'})).toBeVisible();
+ await expect(section.locator('tbody tr')).toHaveCount(3);await expect(section.locator('tbody tr').first()).toContainText('100');
+ await section.getByRole('combobox',{name:'三维切除',exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('保留正侧 / 内部',{exact:true}).click();await section.getByRole('button',{name:/^分\s*析$/}).click();await expect(section.getByRole('status').filter({hasText:'分析完成'})).toBeVisible();
+ await expect.poll(()=>page.evaluate(()=>[...(window as any).__clashEngine.solidBindings.values()].filter((b:any)=>b.group.visible).length)).toBe(0);
+ await testInfo.attach('section-clipped',{body:await page.screenshot({path:testInfo.outputPath('spatial-section.png')}),contentType:'image/png'});
+ await section.getByRole('button',{name:/^保\s*存$/}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses?.length).toBe(2);await section.getByRole('button',{name:'关闭',exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>[...(window as any).__clashEngine.solidBindings.values()].filter((b:any)=>b.group.visible).length)).toBe(3);
+ await clashCommand(page,'距离和区域分析');let distance=page.getByRole('dialog',{name:'距离和区域分析',exact:true});await distance.getByRole('textbox',{name:'分析名称'}).fill('安装距离');await distance.getByRole('button',{name:/^分\s*析$/}).click();await expect(distance.getByRole('status').filter({hasText:'分析完成'})).toBeVisible();await distance.getByRole('button',{name:/^保\s*存$/}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses?.length).toBe(3);await distance.getByRole('button',{name:'关闭',exact:true}).click();
+ await clashCommand(page,'距离和区域分析');distance=page.getByRole('dialog',{name:'距离和区域分析',exact:true});await distance.getByRole('combobox',{name:'分析方式',exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('距离区域',{exact:true}).click();
+ await distance.getByRole('button',{name:'选择第一组',exact:true}).click();await clickClashInstance(page,seed.ground);await expect(distance.getByRole('list',{name:'第一组列表'})).toContainText('Clash验收块.1');
+ await distance.getByRole('button',{name:'选择第二组',exact:true}).click();await clickClashInstance(page,seed.moving);await expect(distance.getByRole('list',{name:'第二组列表'})).toContainText('Clash验收块.2');await distance.getByRole('button',{name:'选择第二组',exact:true}).click();
+ await distance.getByRole('spinbutton',{name:'最大距离',exact:true}).fill('5');await distance.getByRole('button',{name:/^分\s*析$/}).click();await expect(distance.getByRole('status').filter({hasText:'分析完成'})).toBeVisible();await expect.poll(()=>page.evaluate(()=>(window as any).__clashEngine.staticInterferenceMarkers?.children.some((c:any)=>c.geometry?.type==='WireframeGeometry'))).toBeTruthy();
+ await testInfo.attach('distance-band',{body:await page.screenshot({path:testInfo.outputPath('spatial-band.png')}),contentType:'image/png'});await distance.getByRole('button',{name:'关闭',exact:true}).click();
+ const accepted=await current(page,seed.id);expect(accepted.product.instances).toEqual(before.product.instances);expect(accepted.product.spatialAnalyses.every((a:any)=>a.status==='CURRENT')).toBeTruthy();
+ // Applications tree nodes survive reopen, and their editor restores evidence.
+ await page.reload();await page.getByRole('textbox',{name:'筛选模型结构',exact:true}).fill('安装截面');await page.getByText('安装截面',{exact:true}).dblclick();section=page.getByRole('dialog',{name:'切割',exact:true});await expect(section.getByRole('status').filter({hasText:'分析完成'})).toBeVisible();await expect(section.locator('tbody tr')).toHaveCount(3);await section.getByRole('button',{name:'关闭',exact:true}).click();
+ await page.evaluate(async({id,moving})=>{const {restApi:api}=await import('/src/api.ts');await api.command(id,{type:'MOVE_INSTANCE',instanceId:moving,translation:[12,0,0],rotation:[0,0,0,1]})},{id:seed.id,moving:seed.moving});await page.reload();await page.getByRole('textbox',{name:'筛选模型结构',exact:true}).fill('安装截面');await page.getByText('安装截面',{exact:true}).dblclick();section=page.getByRole('dialog',{name:'切割',exact:true});await expect(section.getByText('待更新',{exact:true})).toBeVisible();
+ await expect.poll(()=>page.evaluate(()=>(window as any).__clashEngine?.staticInterferenceMarkers?.children.length??0)).toBe(0);
+ const moved=await current(page,seed.id);await section.getByRole('button',{name:/^分\s*析$/}).click();await expect(section.getByRole('status').filter({hasText:'分析完成'})).toBeVisible();await section.getByRole('button',{name:/^保\s*存$/}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses.find((a:any)=>a.name==='安装截面').status).toBe('CURRENT');await section.getByRole('button',{name:'关闭',exact:true}).click();
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses.find((a:any)=>a.name==='安装截面').status).toBe('STALE');await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses.find((a:any)=>a.name==='安装截面').status).toBe('CURRENT');expect((await current(page,seed.id)).product.instances).toEqual(moved.product.instances);
+ // Update the entire saved category through its actual structure-tree action.
+ await page.getByRole('textbox',{name:'筛选模型结构',exact:true}).fill('空间分析');await page.getByText('空间分析',{exact:true}).filter({hasNot:page.locator('button')}).last().click({button:'right'});
+ await page.getByRole('menuitem',{name:'对象',exact:true}).hover();await page.getByRole('menuitem',{name:'更新全部分析',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses.every((a:any)=>a.status==='CURRENT')).toBeTruthy();expect((await current(page,seed.id)).product.instances).toEqual(moved.product.instances);
+ expect(errors).toEqual([]);await testInfo.attach('saved-spatial-document',{body:JSON.stringify({id:seed.id}),contentType:'application/json'});
+});
+
+test('spatial commands open and save without native crypto.randomUUID',async({page})=>{
+ test.setTimeout(180_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);const seed=await clashSeed(page);
+ // Match HTTP LAN capability availability before any application module loads.
+ await page.addInitScript(()=>Object.defineProperty(globalThis.crypto,'randomUUID',{configurable:true,value:undefined}));
+ await page.goto('/documents/'+seed.id);expect(await page.evaluate(()=>typeof crypto.randomUUID)).toBe('undefined');expect(await page.evaluate(()=>typeof crypto.getRandomValues)).toBe('function');
+ const before=await current(page,seed.id);
+ await clashCommand(page,'切割');let section=page.getByRole('dialog',{name:'切割',exact:true});await expect(section).toBeVisible();await section.getByRole('button',{name:'关闭',exact:true}).click();expect((await current(page,seed.id)).document.versionId).toBe(before.document.versionId);
+ for(const name of ['切割','距离和区域分析','碰撞']){
+  await clashCommand(page,name);const dialog=page.getByRole('dialog',{name,exact:true});await expect(dialog).toBeVisible();
+  if(name==='切割')await dialog.getByRole('spinbutton',{name:'位置 Z',exact:true}).fill('5');
+  await dialog.getByRole('button',{name:name==='碰撞'?/^检\s*查$/:/^分\s*析$/}).click();await expect(dialog.getByRole('button',{name:/^保\s*存$/})).toBeEnabled();
+  const count=(await current(page,seed.id)).product.spatialAnalyses?.length??0;await dialog.getByRole('button',{name:/^保\s*存$/}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses?.length).toBe(count+1);await dialog.getByRole('button',{name:'关闭',exact:true}).click();
+ }
+ const saved=await current(page,seed.id);expect(saved.product.spatialAnalyses).toHaveLength(3);expect(new Set(saved.product.spatialAnalyses.map((a:any)=>a.id)).size).toBe(3);for(const a of saved.product.spatialAnalyses)expect(a.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);expect(saved.product.instances).toEqual(before.product.instances);expect(errors).toEqual([]);
 });

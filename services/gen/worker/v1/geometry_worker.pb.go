@@ -12783,6 +12783,291 @@ func (x *ExchangeBody) GetAppearance() *ExchangeAppearance {
 	return nil
 }
 
+// Read-only exact sectioning and bounded surface distance-band visualization.
+type AnalyzeSpatialGeometryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Geometry      []*AnalysisGeometry    `protobuf:"bytes,2,rep,name=geometry,proto3" json:"geometry,omitempty"`
+	Kind          string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"` // SECTION or BAND
+	SourceIds     []string               `protobuf:"bytes,4,rep,name=source_ids,json=sourceIds,proto3" json:"source_ids,omitempty"`
+	TargetIds     []string               `protobuf:"bytes,5,rep,name=target_ids,json=targetIds,proto3" json:"target_ids,omitempty"`
+	Frame         *RigidPose             `protobuf:"bytes,6,opt,name=frame,proto3" json:"frame,omitempty"`
+	SectionType   string                 `protobuf:"bytes,7,opt,name=section_type,json=sectionType,proto3" json:"section_type,omitempty"` // PLANE, SLICE, BOX
+	Size          *Vec3                  `protobuf:"bytes,8,opt,name=size,proto3" json:"size,omitempty"`
+	MinimumMm     float64                `protobuf:"fixed64,9,opt,name=minimum_mm,json=minimumMm,proto3" json:"minimum_mm,omitempty"`
+	MaximumMm     float64                `protobuf:"fixed64,10,opt,name=maximum_mm,json=maximumMm,proto3" json:"maximum_mm,omitempty"`
+	AccuracyMm    float64                `protobuf:"fixed64,11,opt,name=accuracy_mm,json=accuracyMm,proto3" json:"accuracy_mm,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnalyzeSpatialGeometryRequest) Reset() {
+	*x = AnalyzeSpatialGeometryRequest{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[143]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnalyzeSpatialGeometryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnalyzeSpatialGeometryRequest) ProtoMessage() {}
+
+func (x *AnalyzeSpatialGeometryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[143]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnalyzeSpatialGeometryRequest.ProtoReflect.Descriptor instead.
+func (*AnalyzeSpatialGeometryRequest) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{143}
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetGeometry() []*AnalysisGeometry {
+	if x != nil {
+		return x.Geometry
+	}
+	return nil
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetSourceIds() []string {
+	if x != nil {
+		return x.SourceIds
+	}
+	return nil
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetTargetIds() []string {
+	if x != nil {
+		return x.TargetIds
+	}
+	return nil
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetFrame() *RigidPose {
+	if x != nil {
+		return x.Frame
+	}
+	return nil
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetSectionType() string {
+	if x != nil {
+		return x.SectionType
+	}
+	return ""
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetSize() *Vec3 {
+	if x != nil {
+		return x.Size
+	}
+	return nil
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetMinimumMm() float64 {
+	if x != nil {
+		return x.MinimumMm
+	}
+	return 0
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetMaximumMm() float64 {
+	if x != nil {
+		return x.MaximumMm
+	}
+	return 0
+}
+
+func (x *AnalyzeSpatialGeometryRequest) GetAccuracyMm() float64 {
+	if x != nil {
+		return x.AccuracyMm
+	}
+	return 0
+}
+
+type SpatialBodyResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Complete      bool                   `protobuf:"varint,2,opt,name=complete,proto3" json:"complete,omitempty"`
+	Diagnostic    string                 `protobuf:"bytes,3,opt,name=diagnostic,proto3" json:"diagnostic,omitempty"`
+	Segments      []*Vec3                `protobuf:"bytes,4,rep,name=segments,proto3" json:"segments,omitempty"`
+	Triangles     []*Vec3                `protobuf:"bytes,5,rep,name=triangles,proto3" json:"triangles,omitempty"`
+	Regions       []uint32               `protobuf:"varint,6,rep,packed,name=regions,proto3" json:"regions,omitempty"`          // per triangle: 0 below minimum, 1 within band, 2 boundary uncertainty
+	AreaMm2       float64                `protobuf:"fixed64,7,opt,name=area_mm2,json=areaMm2,proto3" json:"area_mm2,omitempty"` // exact planar section area; not band mesh area
+	Centroid      *Vec3                  `protobuf:"bytes,8,opt,name=centroid,proto3" json:"centroid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpatialBodyResult) Reset() {
+	*x = SpatialBodyResult{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[144]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpatialBodyResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpatialBodyResult) ProtoMessage() {}
+
+func (x *SpatialBodyResult) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[144]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpatialBodyResult.ProtoReflect.Descriptor instead.
+func (*SpatialBodyResult) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{144}
+}
+
+func (x *SpatialBodyResult) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SpatialBodyResult) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *SpatialBodyResult) GetDiagnostic() string {
+	if x != nil {
+		return x.Diagnostic
+	}
+	return ""
+}
+
+func (x *SpatialBodyResult) GetSegments() []*Vec3 {
+	if x != nil {
+		return x.Segments
+	}
+	return nil
+}
+
+func (x *SpatialBodyResult) GetTriangles() []*Vec3 {
+	if x != nil {
+		return x.Triangles
+	}
+	return nil
+}
+
+func (x *SpatialBodyResult) GetRegions() []uint32 {
+	if x != nil {
+		return x.Regions
+	}
+	return nil
+}
+
+func (x *SpatialBodyResult) GetAreaMm2() float64 {
+	if x != nil {
+		return x.AreaMm2
+	}
+	return 0
+}
+
+func (x *SpatialBodyResult) GetCentroid() *Vec3 {
+	if x != nil {
+		return x.Centroid
+	}
+	return nil
+}
+
+type AnalyzeSpatialGeometryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Bodies        []*SpatialBodyResult   `protobuf:"bytes,1,rep,name=bodies,proto3" json:"bodies,omitempty"`
+	Complete      bool                   `protobuf:"varint,2,opt,name=complete,proto3" json:"complete,omitempty"`
+	KernelBuild   string                 `protobuf:"bytes,3,opt,name=kernel_build,json=kernelBuild,proto3" json:"kernel_build,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnalyzeSpatialGeometryResponse) Reset() {
+	*x = AnalyzeSpatialGeometryResponse{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[145]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnalyzeSpatialGeometryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnalyzeSpatialGeometryResponse) ProtoMessage() {}
+
+func (x *AnalyzeSpatialGeometryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[145]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnalyzeSpatialGeometryResponse.ProtoReflect.Descriptor instead.
+func (*AnalyzeSpatialGeometryResponse) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{145}
+}
+
+func (x *AnalyzeSpatialGeometryResponse) GetBodies() []*SpatialBodyResult {
+	if x != nil {
+		return x.Bodies
+	}
+	return nil
+}
+
+func (x *AnalyzeSpatialGeometryResponse) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *AnalyzeSpatialGeometryResponse) GetKernelBuild() string {
+	if x != nil {
+		return x.KernelBuild
+	}
+	return ""
+}
+
 var File_occccad_worker_v1_geometry_worker_proto protoreflect.FileDescriptor
 
 const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
@@ -13986,7 +14271,41 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x04brep\x18\x01 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\x04brep\x12E\n" +
 	"\n" +
 	"appearance\x18\x02 \x01(\v2%.occccad.worker.v1.ExchangeAppearanceR\n" +
-	"appearance*\xeb\x01\n" +
+	"appearance\"\xb4\x03\n" +
+	"\x1dAnalyzeSpatialGeometryRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12?\n" +
+	"\bgeometry\x18\x02 \x03(\v2#.occccad.worker.v1.AnalysisGeometryR\bgeometry\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x1d\n" +
+	"\n" +
+	"source_ids\x18\x04 \x03(\tR\tsourceIds\x12\x1d\n" +
+	"\n" +
+	"target_ids\x18\x05 \x03(\tR\ttargetIds\x122\n" +
+	"\x05frame\x18\x06 \x01(\v2\x1c.occccad.worker.v1.RigidPoseR\x05frame\x12!\n" +
+	"\fsection_type\x18\a \x01(\tR\vsectionType\x12+\n" +
+	"\x04size\x18\b \x01(\v2\x17.occccad.worker.v1.Vec3R\x04size\x12\x1d\n" +
+	"\n" +
+	"minimum_mm\x18\t \x01(\x01R\tminimumMm\x12\x1d\n" +
+	"\n" +
+	"maximum_mm\x18\n" +
+	" \x01(\x01R\tmaximumMm\x12\x1f\n" +
+	"\vaccuracy_mm\x18\v \x01(\x01R\n" +
+	"accuracyMm\"\xb5\x02\n" +
+	"\x11SpatialBodyResult\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\bcomplete\x18\x02 \x01(\bR\bcomplete\x12\x1e\n" +
+	"\n" +
+	"diagnostic\x18\x03 \x01(\tR\n" +
+	"diagnostic\x123\n" +
+	"\bsegments\x18\x04 \x03(\v2\x17.occccad.worker.v1.Vec3R\bsegments\x125\n" +
+	"\ttriangles\x18\x05 \x03(\v2\x17.occccad.worker.v1.Vec3R\ttriangles\x12\x18\n" +
+	"\aregions\x18\x06 \x03(\rR\aregions\x12\x19\n" +
+	"\barea_mm2\x18\a \x01(\x01R\aareaMm2\x123\n" +
+	"\bcentroid\x18\b \x01(\v2\x17.occccad.worker.v1.Vec3R\bcentroid\"\x9d\x01\n" +
+	"\x1eAnalyzeSpatialGeometryResponse\x12<\n" +
+	"\x06bodies\x18\x01 \x03(\v2$.occccad.worker.v1.SpatialBodyResultR\x06bodies\x12\x1a\n" +
+	"\bcomplete\x18\x02 \x01(\bR\bcomplete\x12!\n" +
+	"\fkernel_build\x18\x03 \x01(\tR\vkernelBuild*\xeb\x01\n" +
 	"\x19AssemblyInteractionStatus\x12 \n" +
 	"\x1cASSEMBLY_INTERACTION_UNKNOWN\x10\x00\x12 \n" +
 	"\x1cASSEMBLY_INTERACTION_REACHED\x10\x01\x12$\n" +
@@ -14057,7 +14376,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x0eFREEDOM_PLANAR\x10\x04\x12\x15\n" +
 	"\x11FREEDOM_SPHERICAL\x10\x05\x12\x10\n" +
 	"\fFREEDOM_FREE\x10\x06\x12\x13\n" +
-	"\x0fFREEDOM_COUPLED\x10\a2\xec\x0e\n" +
+	"\x0fFREEDOM_COUPLED\x10\a2\xeb\x0f\n" +
 	"\x0eGeometryWorker\x12G\n" +
 	"\x04Ping\x12\x1e.occccad.worker.v1.PingRequest\x1a\x1f.occccad.worker.v1.PingResponse\x12_\n" +
 	"\fEvaluatePart\x12&.occccad.worker.v1.EvaluatePartRequest\x1a'.occccad.worker.v1.EvaluatePartResponse\x12z\n" +
@@ -14067,7 +14386,8 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x13ComputeSketchCurves\x12-.occccad.worker.v1.ComputeSketchCurvesRequest\x1a..occccad.worker.v1.ComputeSketchCurvesResponse\x12\x80\x01\n" +
 	"\x17ProjectExternalGeometry\x121.occccad.worker.v1.ProjectExternalGeometryRequest\x1a2.occccad.worker.v1.ProjectExternalGeometryResponse\x12b\n" +
 	"\rSolveAssembly\x12'.occccad.worker.v1.SolveAssemblyRequest\x1a(.occccad.worker.v1.SolveAssemblyResponse\x12t\n" +
-	"\x13AnalyzeInterference\x12-.occccad.worker.v1.AnalyzeInterferenceRequest\x1a..occccad.worker.v1.AnalyzeInterferenceResponse\x12h\n" +
+	"\x13AnalyzeInterference\x12-.occccad.worker.v1.AnalyzeInterferenceRequest\x1a..occccad.worker.v1.AnalyzeInterferenceResponse\x12}\n" +
+	"\x16AnalyzeSpatialGeometry\x120.occccad.worker.v1.AnalyzeSpatialGeometryRequest\x1a1.occccad.worker.v1.AnalyzeSpatialGeometryResponse\x12h\n" +
 	"\x0fInspectExchange\x12).occccad.worker.v1.InspectExchangeRequest\x1a*.occccad.worker.v1.InspectExchangeResponse\x12c\n" +
 	"\x0eImportExchange\x12(.occccad.worker.v1.ImportExchangeRequest\x1a'.occccad.worker.v1.EvaluatePartResponse\x12e\n" +
 	"\x0eExportExchange\x12(.occccad.worker.v1.ExportExchangeRequest\x1a).occccad.worker.v1.ExportExchangeResponse\x12_\n" +
@@ -14092,7 +14412,7 @@ func file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP() []byte {
 }
 
 var file_occccad_worker_v1_geometry_worker_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
-var file_occccad_worker_v1_geometry_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 143)
+var file_occccad_worker_v1_geometry_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 146)
 var file_occccad_worker_v1_geometry_worker_proto_goTypes = []any{
 	(AssemblyInteractionStatus)(0),            // 0: occccad.worker.v1.AssemblyInteractionStatus
 	(AssemblyAlignmentDirection)(0),           // 1: occccad.worker.v1.AssemblyAlignmentDirection
@@ -14249,6 +14569,9 @@ var file_occccad_worker_v1_geometry_worker_proto_goTypes = []any{
 	(*ExchangeFaceColor)(nil),                 // 152: occccad.worker.v1.ExchangeFaceColor
 	(*ExchangeAppearance)(nil),                // 153: occccad.worker.v1.ExchangeAppearance
 	(*ExchangeBody)(nil),                      // 154: occccad.worker.v1.ExchangeBody
+	(*AnalyzeSpatialGeometryRequest)(nil),     // 155: occccad.worker.v1.AnalyzeSpatialGeometryRequest
+	(*SpatialBodyResult)(nil),                 // 156: occccad.worker.v1.SpatialBodyResult
+	(*AnalyzeSpatialGeometryResponse)(nil),    // 157: occccad.worker.v1.AnalyzeSpatialGeometryResponse
 }
 var file_occccad_worker_v1_geometry_worker_proto_depIdxs = []int32{
 	129, // 0: occccad.worker.v1.RigidPose.translation:type_name -> occccad.worker.v1.Vec3
@@ -14514,47 +14837,56 @@ var file_occccad_worker_v1_geometry_worker_proto_depIdxs = []int32{
 	152, // 260: occccad.worker.v1.ExchangeAppearance.faces:type_name -> occccad.worker.v1.ExchangeFaceColor
 	94,  // 261: occccad.worker.v1.ExchangeBody.brep:type_name -> occccad.worker.v1.ArtifactReference
 	153, // 262: occccad.worker.v1.ExchangeBody.appearance:type_name -> occccad.worker.v1.ExchangeAppearance
-	110, // 263: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
-	44,  // 264: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
-	56,  // 265: occccad.worker.v1.GeometryWorker.AnalyzeBooleanRegions:input_type -> occccad.worker.v1.AnalyzeBooleanRegionsRequest
-	59,  // 266: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:input_type -> occccad.worker.v1.ResolveLoftCorrespondenceRequest
-	39,  // 267: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
-	48,  // 268: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:input_type -> occccad.worker.v1.ComputeSketchCurvesRequest
-	42,  // 269: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:input_type -> occccad.worker.v1.ProjectExternalGeometryRequest
-	19,  // 270: occccad.worker.v1.GeometryWorker.SolveAssembly:input_type -> occccad.worker.v1.SolveAssemblyRequest
-	149, // 271: occccad.worker.v1.GeometryWorker.AnalyzeInterference:input_type -> occccad.worker.v1.AnalyzeInterferenceRequest
-	95,  // 272: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
-	100, // 273: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
-	101, // 274: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
-	112, // 275: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
-	114, // 276: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
-	116, // 277: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
-	122, // 278: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
-	124, // 279: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
-	126, // 280: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
-	111, // 281: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
-	104, // 282: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
-	58,  // 283: occccad.worker.v1.GeometryWorker.AnalyzeBooleanRegions:output_type -> occccad.worker.v1.AnalyzeBooleanRegionsResponse
-	61,  // 284: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:output_type -> occccad.worker.v1.ResolveLoftCorrespondenceResponse
-	40,  // 285: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
-	51,  // 286: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:output_type -> occccad.worker.v1.ComputeSketchCurvesResponse
-	43,  // 287: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:output_type -> occccad.worker.v1.ProjectExternalGeometryResponse
-	24,  // 288: occccad.worker.v1.GeometryWorker.SolveAssembly:output_type -> occccad.worker.v1.SolveAssemblyResponse
-	151, // 289: occccad.worker.v1.GeometryWorker.AnalyzeInterference:output_type -> occccad.worker.v1.AnalyzeInterferenceResponse
-	99,  // 290: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
-	104, // 291: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
-	102, // 292: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
-	113, // 293: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
-	115, // 294: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
-	117, // 295: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
-	123, // 296: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
-	125, // 297: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
-	127, // 298: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
-	281, // [281:299] is the sub-list for method output_type
-	263, // [263:281] is the sub-list for method input_type
-	263, // [263:263] is the sub-list for extension type_name
-	263, // [263:263] is the sub-list for extension extendee
-	0,   // [0:263] is the sub-list for field type_name
+	147, // 263: occccad.worker.v1.AnalyzeSpatialGeometryRequest.geometry:type_name -> occccad.worker.v1.AnalysisGeometry
+	14,  // 264: occccad.worker.v1.AnalyzeSpatialGeometryRequest.frame:type_name -> occccad.worker.v1.RigidPose
+	129, // 265: occccad.worker.v1.AnalyzeSpatialGeometryRequest.size:type_name -> occccad.worker.v1.Vec3
+	129, // 266: occccad.worker.v1.SpatialBodyResult.segments:type_name -> occccad.worker.v1.Vec3
+	129, // 267: occccad.worker.v1.SpatialBodyResult.triangles:type_name -> occccad.worker.v1.Vec3
+	129, // 268: occccad.worker.v1.SpatialBodyResult.centroid:type_name -> occccad.worker.v1.Vec3
+	156, // 269: occccad.worker.v1.AnalyzeSpatialGeometryResponse.bodies:type_name -> occccad.worker.v1.SpatialBodyResult
+	110, // 270: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
+	44,  // 271: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
+	56,  // 272: occccad.worker.v1.GeometryWorker.AnalyzeBooleanRegions:input_type -> occccad.worker.v1.AnalyzeBooleanRegionsRequest
+	59,  // 273: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:input_type -> occccad.worker.v1.ResolveLoftCorrespondenceRequest
+	39,  // 274: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
+	48,  // 275: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:input_type -> occccad.worker.v1.ComputeSketchCurvesRequest
+	42,  // 276: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:input_type -> occccad.worker.v1.ProjectExternalGeometryRequest
+	19,  // 277: occccad.worker.v1.GeometryWorker.SolveAssembly:input_type -> occccad.worker.v1.SolveAssemblyRequest
+	149, // 278: occccad.worker.v1.GeometryWorker.AnalyzeInterference:input_type -> occccad.worker.v1.AnalyzeInterferenceRequest
+	155, // 279: occccad.worker.v1.GeometryWorker.AnalyzeSpatialGeometry:input_type -> occccad.worker.v1.AnalyzeSpatialGeometryRequest
+	95,  // 280: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
+	100, // 281: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
+	101, // 282: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
+	112, // 283: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
+	114, // 284: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
+	116, // 285: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
+	122, // 286: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
+	124, // 287: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
+	126, // 288: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
+	111, // 289: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
+	104, // 290: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
+	58,  // 291: occccad.worker.v1.GeometryWorker.AnalyzeBooleanRegions:output_type -> occccad.worker.v1.AnalyzeBooleanRegionsResponse
+	61,  // 292: occccad.worker.v1.GeometryWorker.ResolveLoftCorrespondence:output_type -> occccad.worker.v1.ResolveLoftCorrespondenceResponse
+	40,  // 293: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
+	51,  // 294: occccad.worker.v1.GeometryWorker.ComputeSketchCurves:output_type -> occccad.worker.v1.ComputeSketchCurvesResponse
+	43,  // 295: occccad.worker.v1.GeometryWorker.ProjectExternalGeometry:output_type -> occccad.worker.v1.ProjectExternalGeometryResponse
+	24,  // 296: occccad.worker.v1.GeometryWorker.SolveAssembly:output_type -> occccad.worker.v1.SolveAssemblyResponse
+	151, // 297: occccad.worker.v1.GeometryWorker.AnalyzeInterference:output_type -> occccad.worker.v1.AnalyzeInterferenceResponse
+	157, // 298: occccad.worker.v1.GeometryWorker.AnalyzeSpatialGeometry:output_type -> occccad.worker.v1.AnalyzeSpatialGeometryResponse
+	99,  // 299: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
+	104, // 300: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
+	102, // 301: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
+	113, // 302: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
+	115, // 303: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
+	117, // 304: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
+	123, // 305: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
+	125, // 306: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
+	127, // 307: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
+	289, // [289:308] is the sub-list for method output_type
+	270, // [270:289] is the sub-list for method input_type
+	270, // [270:270] is the sub-list for extension type_name
+	270, // [270:270] is the sub-list for extension extendee
+	0,   // [0:270] is the sub-list for field type_name
 }
 
 func init() { file_occccad_worker_v1_geometry_worker_proto_init() }
@@ -14592,7 +14924,7 @@ func file_occccad_worker_v1_geometry_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_occccad_worker_v1_geometry_worker_proto_rawDesc), len(file_occccad_worker_v1_geometry_worker_proto_rawDesc)),
 			NumEnums:      12,
-			NumMessages:   143,
+			NumMessages:   146,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

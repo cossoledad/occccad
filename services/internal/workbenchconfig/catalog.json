@@ -4956,7 +4956,7 @@
     },
     {
       "id": "assembly.static-interference",
-      "name": "干涉与间隙检查",
+      "name": "碰撞",
       "helpText": "检查当前已接受装配的干涉、接触与最小间隙。",
       "iconKey": "distance",
       "repeatable": false,
@@ -5415,7 +5415,9 @@
         "equals": false
       },
       "labels": {
-        "default": "更新支持元素"
+        "default": "更新支持元素",
+        "spatial": "更新分析",
+        "spatial-all": "更新全部分析"
       }
     },
     {
@@ -5988,6 +5990,74 @@
         ]
       },
       "implementation": "handler"
+    },
+    {
+      "id": "assembly.section",
+      "name": "切割",
+      "helpText": "切割",
+      "iconKey": "datum-plane",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "assembly.distance-band",
+      "name": "距离和区域分析",
+      "helpText": "距离和区域分析",
+      "iconKey": "distance",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "form"
     }
   ],
   "groups": [
@@ -6256,11 +6326,6 @@
         },
         {
           "commandId": "assembly.association-repair",
-          "groupKey": "primary",
-          "order": 115
-        },
-        {
-          "commandId": "assembly.static-interference",
           "groupKey": "primary",
           "order": 115
         }
@@ -6857,6 +6922,30 @@
           "order": 20
         }
       ]
+    },
+    {
+      "id": "assembly-space-analysis",
+      "name": "空间分析",
+      "styleKey": "assembly",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "assembly.static-interference",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "assembly.section",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "assembly.distance-band",
+          "groupKey": "primary",
+          "order": 30
+        }
+      ]
     }
   ],
   "tabs": [
@@ -7346,6 +7435,11 @@
       "tabId": "SKETCHER.model",
       "groupId": "part-knowledge",
       "order": 25
+    },
+    {
+      "tabId": "ASSEMBLY_DESIGN.model",
+      "groupId": "assembly-space-analysis",
+      "order": 35
     }
   ]
 }

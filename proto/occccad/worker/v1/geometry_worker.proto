@@ -41,6 +41,7 @@ service GeometryWorker {
     rpc SolveAssembly(SolveAssemblyRequest) returns (SolveAssemblyResponse);
     // Immutable multi-input exact solid analysis. IDs distinguish placed instances.
     rpc AnalyzeInterference(AnalyzeInterferenceRequest) returns (AnalyzeInterferenceResponse);
+    rpc AnalyzeSpatialGeometry(AnalyzeSpatialGeometryRequest) returns (AnalyzeSpatialGeometryResponse);
 
     // Neutral CAD exchange uses immutable ArtifactReference values. Large file
     // bytes never cross this unary gRPC boundary.
@@ -1421,4 +1422,34 @@ message ExchangeAppearance {
 message ExchangeBody {
     ArtifactReference brep = 1;
     ExchangeAppearance appearance = 2;
+}
+
+// Read-only exact sectioning and bounded surface distance-band visualization.
+message AnalyzeSpatialGeometryRequest {
+    string request_id = 1;
+    repeated AnalysisGeometry geometry = 2;
+    string kind = 3; // SECTION or BAND
+    repeated string source_ids = 4;
+    repeated string target_ids = 5;
+    RigidPose frame = 6;
+    string section_type = 7; // PLANE, SLICE, BOX
+    Vec3 size = 8;
+    double minimum_mm = 9;
+    double maximum_mm = 10;
+    double accuracy_mm = 11;
+}
+message SpatialBodyResult {
+    string id = 1;
+    bool complete = 2;
+    string diagnostic = 3;
+    repeated Vec3 segments = 4;
+    repeated Vec3 triangles = 5;
+    repeated uint32 regions = 6; // per triangle: 0 below minimum, 1 within band, 2 boundary uncertainty
+    double area_mm2 = 7; // exact planar section area; not band mesh area
+    Vec3 centroid = 8;
+}
+message AnalyzeSpatialGeometryResponse {
+    repeated SpatialBodyResult bodies = 1;
+    bool complete = 2;
+    string kernel_build = 3;
 }

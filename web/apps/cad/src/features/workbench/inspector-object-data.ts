@@ -31,6 +31,7 @@ export function inspectorObjectData(view: DocumentView, selection: Selection, fe
   const geometryKey = selection.geometryKey ?? body?.geometryKey ?? occurrence?.[0]?.geometryKey;
   let object: unknown;
   switch (selection.kind) {
+ case "spatial-analysis":object=product?.spatialAnalyses?.find(a=>a.id===id);break;
     case "kinematic-object": {
       const k=product?.kinematics,m=k?.mechanisms.find(m=>m.id===selection.mechanismId||m.id===id||m.joints.some(j=>j.id===id||j.constraints?.some(c=>c.id===id)));
       object=m?.joints.flatMap(j=>j.constraints??[]).find(c=>c.id===id)??m?.joints.find(j=>j.id===id)??(m?.id===id?m:undefined)??k?.drivers?.find(d=>d.id===id)??k?.studies.find(s=>s.id===id);

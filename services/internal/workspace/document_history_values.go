@@ -140,6 +140,10 @@ func productHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (m
 			result[change.Target], _ = json.Marshal(model.ConstraintNameCounters)
 			continue
 		}
+		if change.Target.SlotID == "product.spatial-analyses" {
+			result[change.Target], _ = json.Marshal(model.SpatialAnalyses)
+			continue
+		}
 		if change.Target.SlotID == "product.kinematics" {
 			result[change.Target], _ = json.Marshal(model.Kinematics)
 			continue
@@ -484,6 +488,11 @@ func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.P
 			}
 		}
 		switch address.SlotID {
+		case "product.spatial-analyses":
+			model.SpatialAnalyses = nil
+			if err := json.Unmarshal(value, &model.SpatialAnalyses); err != nil {
+				return nil, err
+			}
 		case "product.kinematics":
 			model.Kinematics = KinematicsDefinitions{}
 			if err := json.Unmarshal(value, &model.Kinematics); err != nil {

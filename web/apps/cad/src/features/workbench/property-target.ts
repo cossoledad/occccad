@@ -18,6 +18,10 @@ export function propertyEditorTarget(view:DocumentView,editingView:DocumentView|
   const root=!selection||((selection.kind==="part"||selection.kind==="product")&&!occurrence&&selection.documentId===view.document.id);
   const base:PropertyEditorTarget={target:{kind:"DOCUMENT",id:source.document.id},documentId:source.document.id,versionId:source.document.versionId,
     title:source.document.name,systemColor:view.product?palette.productSolid:palette.solid,scope:"文档内容",canEdit:own?canEdit:canEditRoot,canRename:true,canGraphics:true};
+  if(selection?.kind==="spatial-analysis"){
+    const id=selection.entityId??selection.id,object=view.product?.spatialAnalyses?.find(a=>a.id===id);
+    return {...base,selection,target:{kind:"SPATIAL_ANALYSIS",id},documentId:view.document.id,versionId:view.document.versionId,title:object?.name??"分析对象已丢失",name:object?.name,scope:"当前装配的空间分析",canEdit:false,canRename:false,canGraphics:false};
+  }
   if(selection?.kind==="kinematic-object"&&view.product?.kinematics){
     const k=view.product.kinematics,id=selection.entityId??selection.id;
     const object=[...k.mechanisms,...k.mechanisms.flatMap(m=>m.joints),...(k.drivers??[]),...k.studies].find(o=>o.id===id);

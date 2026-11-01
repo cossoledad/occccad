@@ -1,3 +1,4 @@
+import type {SpatialReport} from "../cad/assembly/spatial-analysis";
 import type {StaticInterferenceReport} from "../cad/assembly/static-interference";
 import {contextScopeForView,contextResultMatchesActiveView} from "../api/context-edit-scope";
 import {SketchIntersectionTool} from "../cad/tool/sketch-intersection-tool";
@@ -335,12 +336,12 @@ export class CadViewportEngine {
       const body=report.bodies.find(b=>b.id===id);if(!body||body.diagnosticCode)continue;
       const binding=this.solidBindings.get(`${body.instancePath.canonical}/body:${body.bodyId}`);if(!binding)continue;
       const color=i===0?CATIA_VISUAL_THEME.selected:CATIA_VISUAL_THEME.hover;
-      const mesh=new THREE.Mesh(binding.mesh.geometry.clone(),new THREE.MeshBasicMaterial({color,transparent:true,opacity:section?.85:.3,side:THREE.DoubleSide,clippingPlanes:clip?[clip]:null,depthTest:false,depthWrite:false,toneMapped:false}));
-      mesh.applyMatrix4(binding.mesh.matrixWorld);mesh.renderOrder=1;group.add(mesh);
+      if(section){const original=binding.mesh.material;const materials=(Array.isArray(original)?original:[original]).map(m=>{const material=new THREE.MeshBasicMaterial({color:(m as THREE.MeshStandardMaterial).color??CATIA_VISUAL_THEME.surface,side:THREE.DoubleSide,clippingPlanes:clip?[clip]:null});return material});const mesh=new THREE.Mesh(binding.mesh.geometry.clone(),Array.isArray(original)?materials:materials[0]);mesh.applyMatrix4(binding.mesh.matrixWorld);group.add(mesh)}
+      const wire=new THREE.LineSegments(new THREE.EdgesGeometry(binding.mesh.geometry),new THREE.LineBasicMaterial({color,transparent:true,opacity:.6,depthTest:true,depthWrite:false,clippingPlanes:clip?[clip]:null}));wire.applyMatrix4(binding.mesh.matrixWorld);wire.renderOrder=1;group.add(wire);
     }
     if(pair.overlapTriangles?.length){
-      const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(pair.overlapTriangles.flat(),3));geometry.computeVertexNormals();
-      const mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color:CATIA_VISUAL_THEME.analysisClash,side:THREE.DoubleSide,transparent:true,opacity:.8,depthTest:false,depthWrite:false,clippingPlanes:clip?[clip]:null}));mesh.renderOrder=3;group.add(mesh);
+      const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(pair.overlapTriangles.flat(),3));
+      const wire=new THREE.LineSegments(new THREE.WireframeGeometry(geometry),new THREE.LineBasicMaterial({color:CATIA_VISUAL_THEME.analysisClash,transparent:true,opacity:.85,depthTest:false,depthWrite:false,clippingPlanes:clip?[clip]:null}));geometry.dispose();wire.renderOrder=3;group.add(wire);
     }
     if(pair.sectionPoints?.length){const segments:Array<[THREE.Vector3,THREE.Vector3]>=[];for(let n=0;n<pair.sectionPoints.length;n+=2)segments.push([new THREE.Vector3().fromArray(pair.sectionPoints[n]),new THREE.Vector3().fromArray(pair.sectionPoints[n+1])]);const lines=makeOcclusionVisibleSegments(segments,pair.classification==='CONTACT'?CATIA_VISUAL_THEME.analysisContact:CATIA_VISUAL_THEME.analysisClash,3);lines.renderOrder=4;group.add(lines)}
     if(pair.complete&&['DISTANCE','CONTACT'].includes(pair.witnessKind??'')&&pair.distanceExact!==false&&Number.isFinite(pair.distanceMm)&&[...pair.firstWitness,...pair.secondWitness].every(Number.isFinite)){
@@ -349,6 +350,35 @@ export class CadViewportEngine {
       const points=new THREE.Points(new THREE.BufferGeometry().setFromPoints([a,b]),new THREE.PointsMaterial({color:CATIA_VISUAL_THEME.hover,size:9,sizeAttenuation:false,transparent:true,depthTest:false,depthWrite:false,toneMapped:false}));points.renderOrder=3;group.add(points);
     }
     this.staticInterferenceReport=report;this.staticInterferenceMarkers=group;this.analysisScene.add(group);this.invalidate();return true;
+  }
+  showSpatialAnalysis(report?:SpatialReport,id?:string):boolean {
+    if(!report){this.showStaticInterference();return true}
+    if(!this.staticInterferenceCompatible(report.check)){this.showStaticInterference();return false;}
+    if(report.definition.kind==='CLASH'||report.definition.kind==='DISTANCE'){
+      const index=id?report.check.pairs.findIndex(p=>JSON.stringify([p.firstId,p.secondId])===id):0;return this.showStaticInterference(report.check,index);
+    }
+    this.showStaticInterference();const group=new THREE.Group();group.name='spatial-analysis';
+    const d=report.definition,q=new THREE.Quaternion().fromArray(d.frame.rotation),origin=new THREE.Vector3().fromArray(d.frame.translation),normal=new THREE.Vector3(0,0,1).applyQuaternion(q);
+    const cutPlanes:THREE.Plane[]=[];
+    if(d.kind==='SECTION'){
+      if(d.sectionType==='PLANE'||d.sectionType==='SLICE')for(const offset of d.sectionType==='SLICE'?[-d.size[2]/2,d.size[2]/2]:[0]){
+        const plane=new THREE.Mesh(new THREE.PlaneGeometry(d.size[0],d.size[1]),new THREE.MeshBasicMaterial({color:CATIA_VISUAL_THEME.selected,side:THREE.DoubleSide,transparent:true,opacity:.06,depthWrite:false}));plane.position.copy(origin).addScaledVector(normal,offset);plane.quaternion.copy(q);group.add(plane);
+        const outline=new THREE.LineSegments(new THREE.EdgesGeometry(plane.geometry),new THREE.LineBasicMaterial({color:CATIA_VISUAL_THEME.selected,transparent:true,opacity:.6,depthWrite:false}));outline.position.copy(plane.position);outline.quaternion.copy(q);group.add(outline);
+      }
+      if(d.sectionType==='BOX'||d.sectionType==='SLICE'){const box=new THREE.BoxGeometry(...d.size);const outline=new THREE.LineSegments(new THREE.EdgesGeometry(box),new THREE.LineBasicMaterial({color:CATIA_VISUAL_THEME.selected,transparent:true,opacity:.65,depthWrite:false}));box.dispose();outline.position.copy(origin);outline.quaternion.copy(q);group.add(outline)}
+      if(d.cutMode!=='NONE'){
+        if(d.sectionType==='PLANE'){cutPlanes.push(new THREE.Plane().setFromNormalAndCoplanarPoint(normal.clone().multiplyScalar(d.cutMode==='KEEP_INSIDE'?1:-1),origin))}
+        else for(const [axis,size] of ([[new THREE.Vector3(0,0,1),d.size[2]],...(d.sectionType==='BOX'?[[new THREE.Vector3(1,0,0),d.size[0]],[new THREE.Vector3(0,1,0),d.size[1]]]:[])] as [THREE.Vector3,number][]))for(const side of [-1,1]){const n=axis.clone().applyQuaternion(q).multiplyScalar(side);cutPlanes.push(new THREE.Plane().setFromNormalAndCoplanarPoint(n.clone().negate(),origin.clone().addScaledVector(n,size/2)))}
+        if(d.cutMode==='KEEP_OUTSIDE'&&d.sectionType!=='PLANE')cutPlanes.forEach(p=>p.negate());
+        for(const b of report.check.bodies){const binding=this.solidBindings.get(b.id);if(!binding)continue;this.interferenceVisibility.set(binding.group,binding.group.visible);binding.group.visible=false;const original=binding.mesh.material,materials=(Array.isArray(original)?original:[original]).map(m=>{const n=new THREE.MeshBasicMaterial({color:(m as THREE.MeshStandardMaterial).color??CATIA_VISUAL_THEME.surface,side:THREE.DoubleSide});n.clippingPlanes=cutPlanes;n.clipIntersection=d.cutMode==='KEEP_OUTSIDE'&&d.sectionType!=='PLANE';return n});const mesh=new THREE.Mesh(binding.mesh.geometry.clone(),Array.isArray(original)?materials:materials[0]);mesh.applyMatrix4(binding.mesh.matrixWorld);group.add(mesh)}
+      }
+    }
+    for(const body of report.geometry?.bodies??[]){if(!body.complete||id&&body.id!==id)continue;
+      if(body.segments?.length){const segments:Array<[THREE.Vector3,THREE.Vector3]>=[];for(let i=0;i<body.segments.length;i+=2)segments.push([new THREE.Vector3().fromArray(body.segments[i]),new THREE.Vector3().fromArray(body.segments[i+1])]);const lines=makeOcclusionVisibleSegments(segments,CATIA_VISUAL_THEME.selected,1.5);group.add(lines)}
+      if(body.triangles?.length){for(const region of d.kind==='BAND'?[0,1,2]:[1]){const points=body.triangles.flatMap((p,i)=>d.kind!=='BAND'||body.regions?.[Math.floor(i/3)]===region?p:[]);if(!points.length)continue;const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(points,3));const color=d.kind==='SECTION'?CATIA_VISUAL_THEME.selected:region===0?CATIA_VISUAL_THEME.analysisClash:region===1?CATIA_VISUAL_THEME.analysisClearance:0x888888;
+        const wire=new THREE.LineSegments(new THREE.WireframeGeometry(geometry),new THREE.LineBasicMaterial({color,transparent:true,opacity:.75,depthTest:false,depthWrite:false}));wire.renderOrder=3;group.add(wire);geometry.dispose();}}
+    }
+    this.staticInterferenceMarkers=group;this.staticInterferenceReport=report.check;this.analysisScene.add(group);this.invalidate();return true;
   }
   private camera: CadCamera = new THREE.PerspectiveCamera(DEFAULT_PERSPECTIVE_FOV, 1, 0.1, 5000);
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });

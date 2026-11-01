@@ -13,7 +13,8 @@
 | ProjectExternalGeometry | 已解析支持到草图平面的权威投影；[Part/Sketch](../../docs/architecture/current/part-sketch.md) |
 | EvaluatePart / ResolveLoftCorrespondence / AnalyzeBooleanRegions | 每 Body 的冻结链/阶段续算、截面对应及独立精确布尔分区；[实体 Feature](../../docs/architecture/current/solid-features.md) |
 | SolveAssembly | body-local 几何与纯值方程；[算法](../../kernel/assembly/SOLVER_ALGORITHMS.md)，Product/Session 仍由 Go 管理 |
-| AnalyzeInterference | 不可变 BREP/Pose 的底层分析；[exact 输入与限制](../../docs/architecture/current/geometry-representations.md#独立几何分析的-exact-输入)，不代表已交付干涉应用 |
+| AnalyzeInterference | 不可变 BREP/Pose 的距离、实体关系和按需局部图形；[exact 输入](../../docs/architecture/current/geometry-representations.md#独立几何分析的-exact-输入)、[装配检查](../../docs/architecture/current/product-assembly.md#静态干涉与最小间隙) |
+| AnalyzeSpatialGeometry | 精确截面及有界距离区域显示；[空间分析对象与限制](../../docs/architecture/current/product-assembly.md#空间分析对象与手动更新) |
 | InspectExchange / ImportExchange / ExportExchange | ArtifactReference 上的 STEP/BREP/XDE；[交换](../../docs/architecture/current/jobs-artifacts.md) |
 | GetTopology | 冷恢复/缓存精确面边点及提示；[几何制品](../../docs/architecture/current/geometry-representations.md) |
 

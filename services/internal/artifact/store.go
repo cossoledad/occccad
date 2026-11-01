@@ -8,6 +8,7 @@ import (
 type Kind string
 
 const (
+	KindSpatialAnalysis  Kind = "SPATIAL_ANALYSIS"
 	KindBREP             Kind = "BREP"
 	KindGLB              Kind = "GLB"
 	KindTopologyManifest Kind = "TOPOLOGY_MANIFEST"

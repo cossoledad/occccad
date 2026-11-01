@@ -221,7 +221,7 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 		if err := json.Unmarshal(nextJSON, &model); err != nil {
 			return err
 		}
-		if len(model.ContextBindings) > 0 && prepared.command.TypeURI != typeReplaceInstance {
+		if len(model.ContextBindings) > 0 && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeReplaceInstance {
 			if _, err := service.contextVariantsForProductModel(ctx, model); err != nil {
 				return err
 			}
@@ -237,12 +237,12 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				}
 			}
 		}
-		if promoted && !candidate.definitionOnly && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeSetKinematics && (len(model.Constraints) > 0 || request.SessionID != "") {
+		if promoted && !candidate.definitionOnly && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetSpatialAnalyses && (len(model.Constraints) > 0 || request.SessionID != "") {
 			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, candidate.assemblyPreviewRequestID, canonicalModelHash(nextJSON)); err != nil {
 				return err
 			}
 		}
-		if !promoted && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeOccurrenceVisibility && prepared.command.TypeURI != typeConstraintVisibility && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetProductProperties {
+		if !promoted && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeOccurrenceVisibility && prepared.command.TypeURI != typeConstraintVisibility && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetProductProperties {
 			finishSolve := perf.Start(ctx, "assembly-solve")
 			drivenInstanceID := ""
 			var solveIntent *geometry.AssemblySolveIntent

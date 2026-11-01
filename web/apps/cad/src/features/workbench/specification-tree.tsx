@@ -300,7 +300,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               onClick: () => { setContextMenu(undefined); onDetach?.(node); } } : null,
             node.capabilities?.includes("RECONNECT") ? { key: "reconnect", icon: menuIcon('tree.reconnect'), label: node.kind==="SKETCH"?"更换草图支撑…":menuLabel('tree.reconnect'),
               onClick: () => { setContextMenu(undefined); onReconnect?.(node); } } : null,
-            node.capabilities?.includes("REFRESH") ? { key: "refresh", icon: menuIcon('tree.refresh'), label: menuLabel('tree.refresh'),
+            node.capabilities?.includes("REFRESH") ? { key: "refresh", icon: menuIcon('tree.refresh'), label: menuLabel('tree.refresh',node.kind==='SPATIAL_ANALYSIS'?'spatial':node.kind==='SPATIAL_ANALYSIS_GROUP'?'spatial-all':'default'),
               onClick: () => { setContextMenu(undefined); onRefresh?.(node); } } : null,
             visibility ? {key:"visibility",icon:menuIcon("tree.visibility"),label:menuLabel("tree.visibility",visibility.label),
               onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,visibility.scope,visibility.mode);}} : null,

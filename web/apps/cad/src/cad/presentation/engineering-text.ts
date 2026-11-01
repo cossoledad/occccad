@@ -18,10 +18,11 @@ export function objectName(view:DocumentView,id?:string,fallback='引用对象�
  if(!id)return fallback;
  const instance=view.product?.instances.find(i=>i.id===id);if(instance)return engineeringInstanceName(view,id);
  const f=view.part?.features.find(f=>f.id===id);if(f)return f.name||engineeringLabel(f.type,'特征');
- const object=[...(view.part?.bodies??[]),...(view.part?.datumPlanes??view.datumPlanes??[]),...(view.part?.datumAxes??view.datumAxes??[]),...(view.part?.axisSystems??view.axisSystems??[]),...(view.part?.publications??[]),...(view.product?.publications??[]),...(view.product?.constraints??[]),...(view.product?.kinematics?.mechanisms??[]).flatMap(m=>[m,...m.joints,...m.joints.flatMap(j=>j.constraints??[])])].find(o=>o.id===id);
+ const object=[...(view.part?.bodies??[]),...(view.part?.datumPlanes??view.datumPlanes??[]),...(view.part?.datumAxes??view.datumAxes??[]),...(view.part?.axisSystems??view.axisSystems??[]),...(view.part?.publications??[]),...(view.product?.publications??[]),...(view.product?.spatialAnalyses??[]),...(view.product?.constraints??[]),...(view.product?.kinematics?.mechanisms??[]).flatMap(m=>[m,...m.joints,...m.joints.flatMap(j=>j.constraints??[])])].find(o=>o.id===id);
  return object?.name||fallback;
 }
 export function selectionName(view:DocumentView,s:SelectionItem):string{
+ if(s.kind==='spatial-analysis')return view.product?.spatialAnalyses?.find(a=>a.id===(s.entityId??s.id))?.name??'分析对象已丢失';
  if(s.kind==='publication')return s.publication?.name??s.productPublication?.name??objectName(view,s.publicationId,'发布接口');
  if(s.kind==='instance')return engineeringInstanceName(view,s.instanceId??s.id);
  if(['face','edge','vertex'].includes(s.kind))return `${objectName(view,s.bodyId,'实体')} / ${engineeringLabel(s.kind.toUpperCase(),'几何元素')}`;
@@ -29,6 +30,6 @@ export function selectionName(view:DocumentView,s:SelectionItem):string{
  return objectName(view,s.entityId??s.id,engineeringLabel(s.kind.toUpperCase(),'所选对象'));
 }
 export function historyAction(type:string):string{
- const actions:Record<string,string>={CREATE_DOCUMENT:'新建文档',CREATE_SKETCH:'新建草图',EDIT_SKETCH:'编辑草图',PAD_SKETCH:'拉伸',CREATE_SOLID_FEATURE:'新建特征',EDIT_FEATURE:'编辑特征',DELETE_FEATURE:'删除特征',DELETE_OBJECTS:'删除对象',SET_FEATURE_SUPPRESSION:'更改特征启用状态',REASSIGN_SKETCH_SUPPORT:'更换草图支撑',MOVE_FEATURE:'调整特征顺序',SAVE_KINEMATICS:'编辑机构',ACTIVATE_MECHANISM:'进入机构',EXIT_MECHANISM:'退出机构',APPLY_MOTION_FRAME:'应用机构位置',INSERT_INSTANCE:'插入零件',MOVE_INSTANCE:'移动零件',ADD_ASSEMBLY_CONSTRAINT:'添加装配约束',EDIT_ASSEMBLY_CONSTRAINT:'编辑装配约束',RECONNECT_ASSEMBLY_CONSTRAINT:'重新指定支撑',LOCALIZE_CONTEXT_INPUT:'解除关联并保留',RESTORE_CONTEXT_INPUT_DEFAULT:'恢复零件默认',DELETE_CONTEXT_BINDING:'恢复零件默认',EDIT_CONTEXT_BINDING:'编辑关联输入',UPDATE_REFERENCES:'更新关联零件',REFRESH_ASSEMBLY_CONSTRAINTS:'重新计算装配',UNDO:'撤销',REDO:'重做',RENAME_OBJECT:'重命名对象',SET_OBJECT_PROPERTIES:'修改属性',SET_PARAMETER:'修改参数',IMPORT_FILE:'导入文件',CREATE_BODY:'新建实体',SET_DEFINITION_VISIBILITY:'更改显示状态',CREATE_DATUM_PLANE:'新建基准面',CREATE_DATUM_AXIS:'新建基准轴'};
+ const actions:Record<string,string>={SAVE_SPATIAL_ANALYSIS:'保存空间分析',UPDATE_SPATIAL_ANALYSES:'更新空间分析',DELETE_SPATIAL_ANALYSIS:'删除空间分析',CREATE_DOCUMENT:'新建文档',CREATE_SKETCH:'新建草图',EDIT_SKETCH:'编辑草图',PAD_SKETCH:'拉伸',CREATE_SOLID_FEATURE:'新建特征',EDIT_FEATURE:'编辑特征',DELETE_FEATURE:'删除特征',DELETE_OBJECTS:'删除对象',SET_FEATURE_SUPPRESSION:'更改特征启用状态',REASSIGN_SKETCH_SUPPORT:'更换草图支撑',MOVE_FEATURE:'调整特征顺序',SAVE_KINEMATICS:'编辑机构',ACTIVATE_MECHANISM:'进入机构',EXIT_MECHANISM:'退出机构',APPLY_MOTION_FRAME:'应用机构位置',INSERT_INSTANCE:'插入零件',MOVE_INSTANCE:'移动零件',ADD_ASSEMBLY_CONSTRAINT:'添加装配约束',EDIT_ASSEMBLY_CONSTRAINT:'编辑装配约束',RECONNECT_ASSEMBLY_CONSTRAINT:'重新指定支撑',LOCALIZE_CONTEXT_INPUT:'解除关联并保留',RESTORE_CONTEXT_INPUT_DEFAULT:'恢复零件默认',DELETE_CONTEXT_BINDING:'恢复零件默认',EDIT_CONTEXT_BINDING:'编辑关联输入',UPDATE_REFERENCES:'更新关联零件',REFRESH_ASSEMBLY_CONSTRAINTS:'重新计算装配',UNDO:'撤销',REDO:'重做',RENAME_OBJECT:'重命名对象',SET_OBJECT_PROPERTIES:'修改属性',SET_PARAMETER:'修改参数',IMPORT_FILE:'导入文件',CREATE_BODY:'新建实体',SET_DEFINITION_VISIBILITY:'更改显示状态',CREATE_DATUM_PLANE:'新建基准面',CREATE_DATUM_AXIS:'新建基准轴'};
  return actions[type]??'修改模型';
 }

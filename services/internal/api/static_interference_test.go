@@ -70,3 +70,53 @@ func TestStaticInterferenceViewerEntryIsReadOnly(t *testing.T) {
 		t.Fatal("unshared analysis allowed", response.Code)
 	}
 }
+
+func TestSpatialAnalysisViewerEntryRejectsInjectedGeometry(t *testing.T) {
+	db, e := database.Open(t.Context(), "sqlite:"+filepath.Join(t.TempDir(), "spatial-entry.db"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer db.Close()
+	if e = database.Migrate(t.Context(), db); e != nil {
+		t.Fatal(e)
+	}
+	domain := workspace.New(db, nil)
+	v, e := domain.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: access.DefaultUserID, Type: "PRODUCT", Name: "Spatial empty scope"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	viewer := uuid.NewString()
+	_, e = db.Exec(t.Context(), `INSERT INTO occccad.users(id,email,display_name,status,platform_role) VALUES($1,$2,'Space viewer','ACTIVE','MEMBER')`, viewer, viewer+"@example.test")
+	if e != nil {
+		t.Fatal(e)
+	}
+	acl := access.New(db)
+	_, e = acl.UpsertGrant(t.Context(), "DOCUMENT", v.Document.ID, access.DefaultUserID, access.ShareRequest{SubjectType: "USER", SubjectID: viewer, Role: access.RoleViewer})
+	if e != nil {
+		t.Fatal(e)
+	}
+	server := &Server{database: db, workspace: domain, access: acl}
+	a := workspace.SpatialAnalysis{Kind: "SECTION", Scope: "ALL", SectionType: "PLANE", CutMode: "NONE", Size: [3]float64{100, 100, 1}, Frame: workspace.InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, AccuracyMM: 1}
+	raw, _ := json.Marshal(workspace.SpatialAnalysisRequest{RevisionID: v.Document.VersionID, Definition: a})
+	call := func(data []byte) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/spatial-analysis", bytes.NewReader(data))
+		r.SetPathValue("documentID", v.Document.ID)
+		r = r.WithContext(access.WithPrincipal(r.Context(), access.User{ID: viewer}))
+		w := httptest.NewRecorder()
+		server.analyzeSpatial(w, r)
+		return w
+	}
+	result := call(raw)
+	if result.Code != 400 || !bytes.Contains(result.Body.Bytes(), []byte("SPATIAL_MATERIAL_MISSING")) {
+		t.Fatal("Viewer cannot analyze or empty scope passed", result.Code, result.Body.String())
+	}
+	forged := append(append([]byte{}, raw[:len(raw)-1]...), []byte(`,"geometry":[]}`)...)
+	w := call(forged)
+	if w.Code != 400 {
+		t.Fatal("injected geometry accepted", w.Code, w.Body.String())
+	}
+	var head string
+	if e = db.QueryRow(t.Context(), `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, v.Document.ID).Scan(&head); e != nil || head != v.Document.VersionID {
+		t.Fatal("Viewer analysis changed history", e)
+	}
+}

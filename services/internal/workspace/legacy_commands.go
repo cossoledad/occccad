@@ -26,6 +26,13 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 	}
 	switch request.Type {
+	case "SAVE_SPATIAL_ANALYSIS", "UPDATE_SPATIAL_ANALYSES", "DELETE_SPATIAL_ANALYSIS":
+		if documentType != "PRODUCT" {
+			break
+		}
+		analyses, err := service.prepareSpatialAnalyses(ctx, documentID, modelJSON, request)
+		return typeSetSpatialAnalyses, analyses, err
+
 	case "SET_PROPERTIES":
 		return service.adaptProperties(ctx, documentID, documentType, modelJSON, request)
 	case "SET_BODY_COLOR":

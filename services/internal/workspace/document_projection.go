@@ -79,6 +79,7 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	}
 	// Availability of a newer Head does not invalidate evidence for the accepted Revision.
 	// Keep currency on instances and UpdatePlan, separate from constraint evaluation.
+	service.projectSpatialStatus(ctx, summary.ID, summary.VersionID, &model)
 	view.Product = &model
 	if err := validateAssemblyDefinitionFormat(model); err != nil {
 		return view, err
@@ -304,7 +305,10 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 		}
 		root.Children = append(root.Children, group)
 	}
-	root.Children = append(root.Children, kinematicsStructure(documentID, versionID, path, model.Kinematics, model.Constraints, model.Instances))
+	applications := kinematicsStructure(documentID, versionID, path, model.Kinematics, model.Constraints, model.Instances)
+	service.projectSpatialStatus(ctx, documentID, versionID, &model)
+	applications.Children = append(applications.Children, spatialStructure(documentID, versionID, applications.ID, model.SpatialAnalyses))
+	root.Children = append(root.Children, applications)
 	annotateStructure(&root, documentID, "")
 	applyOccurrenceVisibilityProjection(&root, model.VisibilityOverrides)
 	projectOccurrenceNames(&root, model, occurrenceIdentity.Canonical)

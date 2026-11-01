@@ -81,4 +81,4 @@ Multi-Body 定向入口为 `TestMultiBodyIndependentGeometryAndHistory`（双 Bo
 
 ## 独立几何分析的 exact 输入
 
-底层独立几何分析使用完整 occurrence + Body 的 GeometryKey、带 SHA/size 的 BREP 引用及实例 Pose。当前机构应用已撤回静态/运动干涉入口，运动研究不再加载这些分析输入。`AnalyzeInterference` 经现有递归 Artifact staging 和 Router 加载多输入；Worker 请求内去重源 B-Rep，但保留实例身份，并在隔离形体上做距离/布尔。DisplayFallback 和显示 mesh 不参与实体判定，未完成/无效结果为 INCONCLUSIVE。当前包围盒只筛除 Boolean common 工作，最小距离仍逐 pair 精确计算；这些底层能力不代表 DMU 应用已交付，工程检查的任务顺序见 [CAD 核心主线](../../../plans/cad-core-roadmap.md)。
+独立几何分析使用完整 occurrence + Body 的 GeometryKey、带 SHA/size 的 BREP 引用及组合 Pose。`AnalyzeInterference` 与 `AnalyzeSpatialGeometry` 沿现有 Artifact staging 和 Router 冷加载不可变 BREP；源形体按内容去重，实例身份和位姿分别保留，分析在私有形体上执行。DisplayFallback 和显示 mesh 不参与精确实体判定，未完成／无效证据不表示通过。阈值快速检查可用保守包围盒证明满足间隙，并明确其距离非精确；需要数值／局部图形时求精确距离、Common 与 Section。距离区域的网格仅是近似显示。装配范围、保存／手动更新由[空间分析](product-assembly.md#空间分析对象与手动更新)拥有，合格机构帧的采样检查由[机构会话](kinematics-dmu.md#试动和录制会话)拥有；Worker 不管理接受版本、业务历史或更新调度。

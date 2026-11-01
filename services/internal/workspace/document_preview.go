@@ -238,7 +238,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 		}
 		var assemblyResult geometry.AssemblySolve
-		kinematicsPreview := prepared.command.TypeURI == typeSetKinematics
+		kinematicsPreview := prepared.command.TypeURI == typeSetKinematics || prepared.command.TypeURI == typeSetSpatialAnalyses
 		retainedFailure := false
 		warmStartKey := ""
 		if request.InteractionID != "" {

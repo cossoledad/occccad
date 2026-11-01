@@ -106,6 +106,8 @@ public:
         double clearance, double tolerance, const std::function<bool()>& cancelled = {},
         bool threshold_only = false, bool details = false);
 
+    SpatialGeometryResult analyze_spatial(const PlacedGeometry& source,const std::vector<PlacedGeometry>& targets,
+        const SpatialGeometryOptions& options,const std::function<bool()>& cancelled={});
 private:
     const TopoDS_Shape& analysis_shape(const GeometryId& id) const;
     struct InterferenceCache;

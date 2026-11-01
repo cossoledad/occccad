@@ -164,7 +164,7 @@ func (s *Service) analyzeInterference(ctx context.Context, doc string, r StaticI
 	if err != nil {
 		return out, err
 	}
-	if r.Scope == "SELECTED" && len(selected) < 2 || r.Scope == "AGAINST_ALL" && len(selected) == 0 || r.Scope == "BETWEEN" && (len(selected) == 0 || len(second) == 0) {
+	if r.Scope == "SELECTED" && len(selected) < 2 && !(len(capture) > 0 && capture[0].singleBody) || r.Scope == "AGAINST_ALL" && len(selected) == 0 || r.Scope == "BETWEEN" && (len(selected) == 0 || len(second) == 0) {
 		return out, fmt.Errorf("%w: STATIC_INTERFERENCE_SELECTION_REQUIRED", ErrValidation)
 	}
 	included := func(path string) bool {
@@ -357,7 +357,7 @@ func (s *Service) analyzeInterference(ctx context.Context, doc string, r StaticI
 	unique := map[string]bool{}
 	var bytes int64
 	for _, b := range out.Bodies {
-		if !used[b.ID] {
+		if !used[b.ID] && !(len(capture) > 0 && capture[0].singleBody && valid[b.ID].GeometryID != "") {
 			continue
 		}
 		g := valid[b.ID]

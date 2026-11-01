@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
-import {Alert,Button,Checkbox,InputNumber,Segmented,Space,Table,Tag,Select} from 'antd';
+import {Alert,Button,Checkbox,InputNumber,Segmented,Space,Table,Tag,Select,Input} from 'antd';
+import {defaultSpatial,spatialStatus,type SpatialAnalysis} from '../../cad/assembly/spatial-analysis';
 import {api} from '../../api/client';
 import type {DocumentView,InstancePath,SelectionItem} from '../../types';
 import {staticPartLeaves,staticPartPick,staticPartSelection,staticBodySelection,staticPairLabel,staticReportStatus,staticResultMatches,interferenceProblem,interferenceNumber,interferencePairKey,interferenceGroups,type InterferenceScope,type StaticInterferenceReport,type StaticInterferencePair} from '../../cad/assembly/static-interference';
@@ -11,10 +12,11 @@ import type {FeatureSelectionSession} from '../../cad/interaction/feature-select
 import {engineeringProblem} from '../../cad/command/operation-feedback';
 import {recordDeveloperEvidence} from '../../cad/command/developer-evidence';
 
-type Props={view:DocumentView;unit:'mm'|'cm'|'m'|'in';seed:SelectionItem[];blocked:boolean;onClose:()=>void;onSelectionSession:(s?:FeatureSelectionSession)=>void;onLocate:(items:SelectionItem[])=>void;onShow:(r?:StaticInterferenceReport,index?:number,isolate?:boolean,section?:boolean)=>boolean;onPrepare:()=>Promise<void>};
-export function StaticInterferencePanel({view,unit,seed,blocked,onClose,onSelectionSession,onLocate,onShow,onPrepare}:Props){
- const [mechanismId,setMechanismId]=useState<string>(),[scope,setScope]=useState<InterferenceScope>('ALL'),[selected,setSelected]=useState<InstancePath[]>(()=>[...new Map(seed.flatMap(s=>{const p=staticPartPick(view,s);return p?[[p.canonical,p] as const]:[]})).values()]);
- const [second,setSecond]=useState<InstancePath[]>([]),[active,setActive]=useState<0|1>(),[gap,setGap]=useState(0),[report,setReport]=useState<StaticInterferenceReport>(),[row,setRow]=useState<string>(),[busy,setBusy]=useState(false),[detailing,setDetailing]=useState(false),[error,setError]=useState<string>(),[status,setStatus]=useState('尚未检查'),[mismatch,setMismatch]=useState(false);
+type Props={initial?:SpatialAnalysis;canSave?:boolean;onSave?:(definition:SpatialAnalysis,signal?:AbortSignal)=>Promise<void>;view:DocumentView;unit:'mm'|'cm'|'m'|'in';seed:SelectionItem[];blocked:boolean;onClose:()=>void;onSelectionSession:(s?:FeatureSelectionSession)=>void;onLocate:(items:SelectionItem[])=>void;onShow:(r?:StaticInterferenceReport,index?:number,isolate?:boolean,section?:boolean)=>boolean;onPrepare:()=>Promise<void>};
+export function StaticInterferencePanel({initial,canSave,onSave,view,unit,seed,blocked,onClose,onSelectionSession,onLocate,onShow,onPrepare}:Props){
+ const [mechanismId,setMechanismId]=useState<string>(),[scope,setScope]=useState<InterferenceScope>(initial?.scope??'ALL'),[selected,setSelected]=useState<InstancePath[]>(()=>initial?.selected??[...new Map(seed.flatMap(s=>{const p=staticPartPick(view,s);return p?[[p.canonical,p] as const]:[]})).values()]);
+ const [second,setSecond]=useState<InstancePath[]>(initial?.secondSelection??[]),[active,setActive]=useState<0|1>(),[gap,setGap]=useState(initial?.clearanceMm??0),[report,setReport]=useState<StaticInterferenceReport>(),[row,setRow]=useState<string>(),[busy,setBusy]=useState(false),[detailing,setDetailing]=useState(false),[error,setError]=useState<string>(),[status,setStatus]=useState('尚未检查'),[mismatch,setMismatch]=useState(false);
+ const [name,setName]=useState(initial?.name??''),[saving,setSaving]=useState(false);
  const [viewing,setViewing]=useState(false);
  const [filter,setFilter]=useState('PROBLEMS'),[grouping,setGrouping]=useState('PAIRS'),[isolate,setIsolate]=useState(false),[section,setSection]=useState(false);
  const displayOptions=useRef({isolate,section});displayOptions.current={isolate,section};
@@ -24,6 +26,10 @@ export function StaticInterferencePanel({view,unit,seed,blocked,onClose,onSelect
  const details=useRef(new Map<string,StaticInterferencePair>());
  const cancel=()=>{generation.current.cancel();abort.current?.abort();detailAbort.current?.abort();detailEpoch.current++;setBusy(false);setDetailing(false);setReport(undefined);setRow(undefined);setStatus('已取消');callbacks.current.onShow()};
  useEffect(()=>{generation.current.cancel();generation.current.activate('static-interference',key);abort.current?.abort();detailAbort.current?.abort();detailEpoch.current++;details.current.clear();setBusy(false);setDetailing(false);setReport(undefined);setRow(undefined);setMismatch(false);setViewing(false);setError(undefined);setStatus('尚未检查');callbacks.current.onShow();callbacks.current.onLocate([]);return()=>{generation.current.cancel();abort.current?.abort();detailAbort.current?.abort();detailEpoch.current++;callbacks.current.onShow()}},[key]);
+ useEffect(()=>{if(!initial?.result)return;const controller=new AbortController(),context=current.current;
+ void api.getSpatialResult(view.document.id,view.document.versionId,initial.id,controller.signal).then(result=>{if(controller.signal.aborted||current.current!==context)return;setReport(result.check);setStatus(spatialStatus(initial.status));recordDeveloperEvidence('已保存碰撞结果',result)}).catch(e=>{if(!controller.signal.aborted)setError(engineeringProblem(e))});return()=>controller.abort();
+ },[initial?.id,view.document.versionId]);
+ const save=async()=>{if(!onSave||!report?.complete||report.revisionId!==view.document.versionId||mechanismId)return;setSaving(true);setError(undefined);const controller=new AbortController();abort.current=controller;try{await onSave({...defaultSpatial('CLASH'),...initial,name,scope,selected,secondSelection:second,clearanceMm:gap},controller.signal)}catch(e){recordDeveloperEvidence('保存碰撞检查失败',e);setError(engineeringProblem(e))}finally{setSaving(false)}};
  const selectedRevision=useRef(view.document.id+view.document.versionId);
  useEffect(()=>{const next=view.document.id+view.document.versionId;if(selectedRevision.current!==next){selectedRevision.current=next;setSelected([]);setSecond([])}},[view.document.id,view.document.versionId]);
  useEffect(()=>{
@@ -47,7 +53,7 @@ export function StaticInterferencePanel({view,unit,seed,blocked,onClose,onSelect
   }catch(e){if(!controller.signal.aborted&&generation.current.current(n)&&current.current===context){recordDeveloperEvidence('静态干涉检查失败',e);setStatus('检查未完成');setError(engineeringProblem(e))}}finally{if(generation.current.current(n))setBusy(false)}
  };
  const selectRow=async(pair:StaticInterferencePair)=>{
-  if(!report)return;const id=interferencePairKey(pair),epoch=++detailEpoch.current,context=current.current;
+  if(!report)return;if(report.revisionId!==view.document.versionId){setError('结果待更新，请先重新检查。');return;}const id=interferencePairKey(pair),epoch=++detailEpoch.current,context=current.current;
   detailAbort.current?.abort();setDetailing(false);setRow(id);setError(undefined);
   const bodies=[pair.firstId,pair.secondId].flatMap(id=>report.bodies.find(b=>b.id===id)??[]);onLocate(bodies.map(b=>staticBodySelection(view,b)));
   let shown=report;
@@ -70,8 +76,9 @@ export function StaticInterferencePanel({view,unit,seed,blocked,onClose,onSelect
  const pickField=(index:0|1,label:string)=>{const values=index===0?selected:second,set=index===0?setSelected:setSecond;return <FeaturePickField label={label} active={active===index} mode="multiple" onActivate={()=>setActive(index)} onCancel={()=>setActive(undefined)} onClear={()=>set([])} items={values.map(path=>({key:path.canonical,value:leaves.get(path.canonical)?.name??'引用组件已不可用',onClear:()=>set(old=>old.filter(p=>p.canonical!==path.canonical)),selections:[staticPartSelection(view,path)],onLocate:()=>onLocate([staticPartSelection(view,path)])}))} error={!values.length?'请选择零件或子装配':undefined}/>};
  const visible=(p:StaticInterferencePair)=>filter==='ALL'||filter==='PROBLEMS'&&interferenceProblem(p)||filter===p.classification||filter==='GAP'&&p.complete&&p.classification==='SEPARATED'&&!p.clearanceSatisfied;
  const rows=report?.pairs.filter(visible)??[],selectedPair=report?.pairs.find(p=>interferencePairKey(p)===row);
- return <CommandDialog id="static-interference" title="干涉与间隙检查" open size={viewing?'S':'L'} onClose={close} onCancelPick={()=>{if(active===undefined)return false;setActive(undefined);return true}} cancelText="关闭" confirmText={viewing?'返回列表':error?'重试':'检查'} onConfirm={viewing?()=>setViewing(false):run} confirmDisabled={!viewing&&(invalidGap||busy||blocked||selectionMissing)} commandStatus={<CommandStatus pending={busy} error={error} onRetry={()=>void (row&&report?selectRow(report.pairs.find(p=>interferencePairKey(p)===row)!):run())}/>} secondaryActions={busy?<Button onClick={cancel}>取消计算</Button>:undefined}>
-  <div hidden={viewing}>
+ return <CommandDialog id="static-interference" title="碰撞" open size={viewing?'S':'L'} onClose={close} onCancelPick={()=>{if(active===undefined)return false;setActive(undefined);return true}} cancelText="关闭" confirmText={viewing?'返回列表':error?'重试':'检查'} onConfirm={viewing?()=>setViewing(false):run} confirmDisabled={!viewing&&(invalidGap||busy||saving||blocked||selectionMissing)} commandStatus={<CommandStatus pending={busy} error={error} onRetry={()=>void (row&&report?selectRow(report.pairs.find(p=>interferencePairKey(p)===row)!):run())}/>} secondaryActions={busy?<Button onClick={cancel}>取消计算</Button>:canSave&&onSave?<Button loading={saving} disabled={!report?.complete||report.revisionId!==view.document.versionId||!!mechanismId||blocked} onClick={()=>void save()}>保存</Button>:undefined}>
+  <div hidden={viewing} inert={saving}>
+  {canSave&&<CommandField label="名称" width="name"><Input aria-label="分析名称" value={name} onChange={e=>setName(e.target.value)} placeholder="自动命名"/></CommandField>}
   {(view.product?.kinematics?.mechanisms?.length??0)>0&&<CommandField label="检查位置" width="content"><Select aria-label="检查位置" value={mechanismId??'PRODUCT'} options={[{value:'PRODUCT',label:'已接受装配'},...(view.product?.kinematics?.mechanisms??[]).map(m=>({value:m.id,label:m.name}))]} onChange={id=>setMechanismId(id==='PRODUCT'?undefined:id)}/></CommandField>}
   <CommandField label="检查范围" width="content"><Select aria-label="检查范围" value={scope} options={[{value:'ALL',label:'全部零件'},{value:'SELECTED',label:'所选零件内部'},{value:'AGAINST_ALL',label:'所选零件与其余零件'},{value:'BETWEEN',label:'两组零件之间'}]} onChange={v=>{setScope(v);setActive(v==='ALL'?undefined:0)}}/></CommandField>
   {scope!=='ALL'&&pickField(0,scope==='BETWEEN'?'第一组':'零件')}{scope==='BETWEEN'&&pickField(1,'第二组')}

@@ -90,7 +90,7 @@ func evaluateProductHistory(ctx context.Context, service *Service, input history
 			if err = json.Unmarshal(before, &previous); err != nil {
 				return err
 			}
-			if !displayPropertiesOnly(input.changes) && !constraintVisibilityOnlyHistory(previous, model, input.changes) && !kinematicsOnlyHistory(previous, model, input.changes) {
+			if !displayPropertiesOnly(input.changes) && !constraintVisibilityOnlyHistory(previous, model, input.changes) && !kinematicsOnlyHistory(previous, model, input.changes) && !spatialOnlyHistory(previous, model, input.changes) {
 				if err = service.verifyAssemblyHistory(ctx, input.documentID, revisionID, input.requestID, model); err != nil {
 					return err
 				}
