@@ -1,6 +1,6 @@
 # CAD 核心主线
 
-当前重点：装配空间分析的保存与手动更新。当前支持碰撞、切割和距离／距离区域，使用 Applications 下的稳定分析对象、已接受装配快照和派生结果制品；来源变化标为待更新，显式更新成功才替换结果。能力与边界见[空间分析](../docs/architecture/current/product-assembly.md#空间分析对象与手动更新)；机构试动保留[离散采样提示／停止](../docs/architecture/current/kinematics-dmu.md#试动和录制会话)。后续依据实机反馈完善复杂实体、显示精度与规模；全局自动／冻结更新和连续防穿透尚未实现。
+当前重点：装配空间分析的剖切交互收口。切割已接入局部移动／旋转手柄、平面与边缘拖动、数值同步、精确几何定位和简洁截面视图；拖动临时裁剪、松开计算，显式保存才写入历史。当前支持碰撞、切割和距离／距离区域，使用 Applications 下的稳定分析对象、已接受装配快照和派生结果制品；来源变化标为待更新，显式更新成功才替换结果。能力与边界见[空间分析](../docs/architecture/current/product-assembly.md#空间分析对象与手动更新)；机构试动保留[离散采样提示／停止](../docs/architecture/current/kinematics-dmu.md#试动和录制会话)。后续依据实机反馈完善复杂实体、显示精度与规模；全局自动／冻结更新和连续防穿透尚未实现。
 
 历史创建阶段性收口：独立 Part 与直接、可编辑、READY 的 Product ContextVariant 支持历史补草图及同 Body、单方向 FINITE 的 LINEAR_EXTRUDE ADD/REMOVE；沿用四种修饰插入、受约束移动、完整候选检查及历史。能力和边界见唯一 [Feature 能力表](../docs/architecture/current/solid-features.md#feature-能力表)，新增上下文交互仍待手工验收；默认构型发布失效时预览与提交共用发布解析门禁，历史输入为空不显示占位实体。
 

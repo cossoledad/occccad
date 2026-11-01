@@ -26,7 +26,7 @@ try{
  let staticOpened=false;
  const staticBindings={...bindings,view:viewer,editingView:viewer,canEdit:false,canEditRoot:false,staticInterferenceAllowed:true,openSpatialAnalysis:kind=>staticOpened=kind};
  const staticCommand=workbenchCommands(staticBindings).find(c=>c.id==='assembly.static-interference');assert(staticCommand.isEnabled(),'a Viewer can analyze accepted geometry');staticCommand.execute();assert.equal(staticOpened,"CLASH");
- for(const [id,kind] of [["assembly.section","SECTION"],["assembly.distance-band","DISTANCE"]]){const c=workbenchCommands(staticBindings).find(c=>c.id===id);assert(c.isEnabled());c.execute();assert.equal(staticOpened,kind)}
+ for(const [id,kind] of [["assembly.section","SECTION"],["assembly.distance-band","DISTANCE"]]){const c=workbenchCommands(staticBindings).find(c=>c.id===id);assert(c.isEnabled());c.execute();assert.equal(staticOpened,kind);assert.equal(c.isActive(),false);assert(workbenchCommands({...staticBindings,spatialAnalysisKind:kind}).find(c=>c.id===id).isActive());assert.equal(workbenchCommands({...staticBindings,spatialAnalysisKind:undefined}).find(c=>c.id===id).isActive(),false)}
  assert.equal(workbenchCommands({...staticBindings,staticInterferenceAllowed:false}).find(c=>c.id===staticCommand.id).isEnabled(),false,'temporary motion poses cannot open static checking');
  assert.equal(workbenchCommands({...staticBindings,moveReceiptPending:true}).find(c=>c.id===staticCommand.id).isEnabled(),false,'unknown movement must be resolved first');
  let repairOpened=false;

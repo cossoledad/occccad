@@ -452,7 +452,7 @@ func (service *Service) UpdateMechanismSession(parent context.Context, document,
 			if samples > 128 {
 				return fmt.Errorf("BUDGET_EXHAUSTED: collision samples")
 			}
-			report, checkErr := service.checkFrozenInterference(ctx, frozen, f.UnitPoses, policy.ClearanceMM, e.snapshot.Mechanism.ID, req.Sequence)
+			report, checkErr := service.checkFrozenInterference(ctx, frozen, f.UnitPoses, policy.ClearanceMM, e.snapshot.Mechanism.ID, req.Sequence, false)
 			if checkErr != nil {
 				return checkErr
 			}
@@ -480,7 +480,7 @@ func (service *Service) UpdateMechanismSession(parent context.Context, document,
 		}
 	}
 	if err == nil && policy.Mode != "OFF" {
-		report, checkErr := service.checkFrozenInterference(ctx, frozen, e.state.Frame.UnitPoses, policy.ClearanceMM, e.snapshot.Mechanism.ID, req.Sequence)
+		report, checkErr := service.checkFrozenInterference(ctx, frozen, e.state.Frame.UnitPoses, policy.ClearanceMM, e.snapshot.Mechanism.ID, req.Sequence, true)
 		err = checkErr
 		if err == nil {
 			clash = &MechanismClashResult{Mode: policy.Mode, Sampled: true, Report: report}

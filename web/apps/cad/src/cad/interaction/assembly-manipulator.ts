@@ -88,6 +88,9 @@ export class AssemblyManipulator {
   isAttached(): boolean { return this.visible; }
   isDragging(): boolean { return Boolean(this.drag); }
   isPivotDragging():boolean {return this.drag?.handle.operation==="pivot";}
+  setPivotEnabled(enabled:boolean):void {
+    for(const handle of this.handles)if(handle.operation==='pivot')for(const material of handle.materials)material.visible=enabled;
+  }
 
   updateScale(camera: THREE.Camera, metrics: ViewportMetrics): void {
     if (!this.visible) return;

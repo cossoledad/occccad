@@ -405,6 +405,12 @@ func TestClashScopesDetailsAndMechanismStopThroughRouter(t *testing.T) {
 	if !collision {
 		t.Fatal("prompt omitted the collision", prompt.Clash)
 	}
+	for _, p := range prompt.Clash.Report.Pairs {
+		if (p.Classification == "PENETRATION" || p.Classification == "CONTAINMENT") && (p.DetailStatus != "COMPLETE" || len(p.OverlapTriangles) == 0) {
+			t.Fatal("displayed checkpoint omitted exact overlap graphics", p)
+		}
+	}
+
 	for _, body := range prompt.Clash.Report.Bodies {
 		if body.GeometryKey != all.Bodies[0].GeometryKey {
 			t.Fatal("motion analysis adopted pending source geometry", body)

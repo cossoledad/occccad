@@ -43,7 +43,7 @@ func clashViolation(r StaticInterferenceReport) bool {
 }
 
 // The prepared scope retains missing inputs. They cannot disappear between samples.
-func (s *Service) checkFrozenInterference(ctx context.Context, frozen *frozenInterference, poses map[string]InstancePose, clearance float64, mechanism string, sequence uint64) (StaticInterferenceReport, error) {
+func (s *Service) checkFrozenInterference(ctx context.Context, frozen *frozenInterference, poses map[string]InstancePose, clearance float64, mechanism string, sequence uint64, displayDetails bool) (StaticInterferenceReport, error) {
 	out := frozen.report
 	out.Source = "MECHANISM"
 	out.MechanismID = mechanism
@@ -96,6 +96,37 @@ func (s *Service) checkFrozenInterference(ctx context.Context, frozen *frozenInt
 			}
 		}
 		out.Complete = report.Complete && len(out.Issues) == 0 && len(out.Pairs) > 0 && out.CheckedPairs == len(out.Pairs)
+	}
+	// Continuation probes stay numerical. Only the final displayed checkpoint
+	// requests Common/Section graphics, using these same frozen BReps and poses.
+	// Graphics failure must not change the numerical stop/accept decision.
+	if displayDetails {
+		pairs := []geometry.AnalysisPair{}
+		for i := range out.Pairs {
+			p := &out.Pairs[i]
+			if p.Complete && (p.Classification == "PENETRATION" || p.Classification == "CONTAINMENT" || p.Classification == "CONTACT") {
+				pairs = append(pairs, geometry.AnalysisPair{FirstID: p.FirstID, SecondID: p.SecondID})
+				p.DetailStatus = "UNAVAILABLE"
+			}
+		}
+		if len(pairs) > 0 {
+			details, err := s.worker.AnalyzeInterference(ctx, newID("mechanism-clash-display"), inputs, pairs, clearance, out.ToleranceMM, geometry.InterferenceOptions{Details: true})
+			if ctx.Err() != nil {
+				return out, ctx.Err()
+			}
+			if err == nil {
+				byID := map[geometry.AnalysisPair]geometry.InterferencePair{}
+				for _, p := range details.Pairs {
+					byID[geometry.AnalysisPair{FirstID: p.FirstID, SecondID: p.SecondID}] = p
+				}
+				for i := range out.Pairs {
+					p := &out.Pairs[i]
+					if d, ok := byID[geometry.AnalysisPair{FirstID: p.FirstID, SecondID: p.SecondID}]; ok && d.Complete && d.Classification == p.Classification {
+						p.DetailStatus, p.SectionPoints, p.OverlapTriangles = d.DetailStatus, d.SectionPoints, d.OverlapTriangles
+					}
+				}
+			}
+		}
 	}
 	return out, nil
 }

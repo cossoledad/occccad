@@ -52,6 +52,22 @@ export function staticResultMatches(view:DocumentView,input:StaticInterferenceIn
 
 export function interferenceProblem(p:StaticInterferencePair){return !p.complete||p.classification!=='SEPARATED'||!p.clearanceSatisfied}
 export function interferencePairKey(p:StaticInterferencePair){return JSON.stringify([p.firstId,p.secondId])}
+export function interferenceDisplayIndex(report:StaticInterferenceReport):number {
+ const overlap=report.pairs.findIndex(p=>p.complete&&['PENETRATION','CONTAINMENT'].includes(p.classification));
+ if(overlap>=0)return overlap;
+ const issue=report.pairs.findIndex(interferenceProblem);return issue>=0?issue:0;
+}
+/** Local graphics must come from the same accepted geometry and placement.
+ * The detail request digest differs from the original threshold-only request. */
+export function withInterferenceDetail(view:DocumentView,input:StaticInterferenceInput,report:StaticInterferenceReport,result:StaticInterferenceReport,pair:StaticInterferencePair):StaticInterferenceReport {
+ const key=interferencePairKey(pair),value=result.pairs[0];
+ if(!staticResultMatches(view,input,result)||result.pairs.length!==1||interferencePairKey(value)!==key)throw {code:'STATIC_INTERFERENCE_STALE'};
+ for(const id of [pair.firstId,pair.secondId]){
+  const before=report.bodies.find(b=>b.id===id),after=result.bodies.find(b=>b.id===id);
+  if(!before||!after||before.geometryKey!==after.geometryKey||before.revisionId!==after.revisionId||before.variantKey!==after.variantKey||JSON.stringify(before.pose)!==JSON.stringify(after.pose))throw {code:'STATIC_INTERFERENCE_STALE'};
+ }
+ return {...report,pairs:report.pairs.map(p=>interferencePairKey(p)===key?value:p)};
+}
 export function interferenceNumber(value:number):string {return new Intl.NumberFormat('zh-CN',{maximumSignificantDigits:9}).format(value)}
 export function interferenceGroups(r:StaticInterferenceReport){
  const result=new Map<string,{key:string;name:string;pairs:StaticInterferencePair[]}>();

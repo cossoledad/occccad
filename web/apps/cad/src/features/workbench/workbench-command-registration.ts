@@ -32,6 +32,7 @@ export type WorkbenchCommandBindings={
  setDesignInputsOpen?:(open:boolean)=>void;setConflictOpen:(open:boolean)=>void;setParameterManagerOpen:(open:boolean)=>void;setPublicationManagerOpen:(open:boolean)=>void;
  openSpatialAnalysis?:(kind:"CLASH"|"SECTION"|"DISTANCE")=>void;
  staticInterferenceAllowed?:boolean;
+ spatialAnalysisKind?:"CLASH"|"SECTION"|"DISTANCE";
  setMechanismAnalysisOpen?:(open:boolean)=>void;
  setInsertOpen:(open:boolean)=>void;setPatternOpen:(open:boolean)=>void;setReleaseOpen:(open:boolean)=>void;setVersionOpen:(open:boolean)=>void;
  setShareResource:(resource:ShareResource)=>void;
@@ -63,8 +64,8 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({id:"dmu.analyze-mechanism",execute:()=>bindings.setMechanismAnalysisOpen?.(true),isEnabled:()=>Boolean(bindings.setMechanismAnalysisOpen&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending)}),
       ({id:"assembly.motion-study",execute:()=>{store.setActiveTool("select","once");bindings.setMotionOpen?.(true);},isEnabled:()=>Boolean(view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&bindings.setMotionOpen),isActive:()=>Boolean(bindings.motionOpen)}),
       ({id:"assembly.association-repair",execute:()=>bindings.setAssociationRepairOpen?.(true),isEnabled:()=>Boolean(bindings.setAssociationRepairOpen&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!bindings.motionOpen),isActive:()=>bindings.associationRepairOpen??false}),
-      ({id:"assembly.static-interference",execute:()=>{store.setActiveTool("select","once");bindings.openSpatialAnalysis?.("CLASH")},isEnabled:()=>Boolean(bindings.openSpatialAnalysis&&bindings.staticInterferenceAllowed&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&!moveReceiptPending)}),
-      ...(["SECTION","DISTANCE"] as const).map(kind=>({id:kind==="SECTION"?"assembly.section":"assembly.distance-band",execute:()=>{store.setActiveTool("select","once");bindings.openSpatialAnalysis?.(kind)},isEnabled:()=>Boolean(bindings.openSpatialAnalysis&&bindings.staticInterferenceAllowed&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&!moveReceiptPending)})),
+      ({id:"assembly.static-interference",isActive:()=>bindings.spatialAnalysisKind==="CLASH",execute:()=>{store.setActiveTool("select","once");bindings.openSpatialAnalysis?.("CLASH")},isEnabled:()=>Boolean(bindings.openSpatialAnalysis&&bindings.staticInterferenceAllowed&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&!moveReceiptPending)}),
+      ...(["SECTION","DISTANCE"] as const).map(kind=>({id:kind==="SECTION"?"assembly.section":"assembly.distance-band",isActive:()=>bindings.spatialAnalysisKind===kind,execute:()=>{store.setActiveTool("select","once");bindings.openSpatialAnalysis?.(kind)},isEnabled:()=>Boolean(bindings.openSpatialAnalysis&&bindings.staticInterferenceAllowed&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&!moveReceiptPending)})),
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),
         isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),
       ({id:"assembly.move-receipt",execute:()=>viewport.current?.retryAssemblyMoveCommit(),

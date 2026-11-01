@@ -1,5 +1,9 @@
-import type {SpatialReport} from "../cad/assembly/spatial-analysis";
-import type {StaticInterferenceReport} from "../cad/assembly/static-interference";
+import {SectionManipulator,type SectionEditSession} from "../cad/interaction/section-manipulator";
+import {sectionClippingPlanes,sectionRepresentation} from "../cad/rendering/section-presentation";
+import {snapFrame} from "../cad/interaction/manipulator-snap";
+import {CommandInputError} from "../cad/command/operation-failure";
+import type {SpatialAnalysis,SpatialReport} from "../cad/assembly/spatial-analysis";
+import {interferenceDisplayIndex,type StaticInterferenceReport} from "../cad/assembly/static-interference";
 import {contextScopeForView,contextResultMatchesActiveView} from "../api/context-edit-scope";
 import {SketchIntersectionTool} from "../cad/tool/sketch-intersection-tool";
 import {SketchIntersectionCache} from "../cad/interaction/sketch-intersections";
@@ -305,6 +309,7 @@ export class CadViewportEngine {
   }
   private staticInterferenceReport?:StaticInterferenceReport;
   private staticInterferenceMarkers?:THREE.Group;
+  private interferenceRoleGroups=new Set<THREE.Object3D>();
   private interferenceVisibility=new Map<THREE.Object3D,boolean>();
   private staticInterferenceCompatible(report:StaticInterferenceReport):boolean {
     if(this.view?.document.id!==report.documentId||this.view.document.versionId!==report.revisionId||(report.source!=='MECHANISM'&&(this.motionDisplay||this.mechanismDefinition||this.assemblyPosePreview))||this.motionDisplay?.clock||this.preview||this.moveCommitPending||this.moveManipulator?.isDragging())return false;
@@ -315,33 +320,31 @@ export class CadViewportEngine {
       return p.distanceTo(new THREE.Vector3().fromArray(b.pose.translation))<1e-6&&1-Math.abs(q.dot(new THREE.Quaternion().fromArray(b.pose.rotation)))<1e-10;
     });
   }
-  showStaticInterference(report?:StaticInterferenceReport,index?:number,isolate=false,section=false):boolean {
+  showStaticInterference(report?:StaticInterferenceReport,index?:number,isolate=false):boolean {
+    const hadRoles=this.interferenceRoleGroups?.size;
+    this.interferenceRoleGroups?.clear();
     for(const [object,visible] of this.interferenceVisibility??[])object.visible=visible;
     this.interferenceVisibility?.clear();
     disposeMotionMarkers(this.staticInterferenceMarkers);this.staticInterferenceMarkers=undefined;this.staticInterferenceReport=undefined;
+    if(hadRoles&&this.highlightedRoots){this.refreshInteractionHighlights();this.invalidate()}
     if(!report){this.invalidate();return true}
     if(!this.staticInterferenceCompatible(report))return false;
-    const pair=index===undefined?undefined:report.pairs[index];if(!pair)return false;
+    const pair=report.pairs[index??interferenceDisplayIndex(report)];if(!pair)return false;
     const group=new THREE.Group();group.name='static-interference';
-    let clip:THREE.Plane|undefined;
-    if(section){
-      const bounds=new THREE.Box3();for(const id of [pair.firstId,pair.secondId]){const body=report.bodies.find(b=>b.id===id);const binding=body&&this.solidBindings.get(`${body.instancePath.canonical}/body:${body.bodyId}`);if(binding)bounds.expandByObject(binding.mesh)}
-      const center=bounds.getCenter(new THREE.Vector3()),normal=this.camera.getWorldDirection(new THREE.Vector3());
-      clip=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,center);
-    }
-    if(isolate||section){this.interferenceVisibility??=new Map();for(const [key,binding] of this.solidBindings){
-      const keep=[pair.firstId,pair.secondId].includes(key);if(section||!keep){this.interferenceVisibility.set(binding.group,binding.group.visible);binding.group.visible=false}
+    if(isolate){this.interferenceVisibility??=new Map();for(const [key,binding] of this.solidBindings){
+      if(![pair.firstId,pair.secondId].includes(key)){this.interferenceVisibility.set(binding.group,binding.group.visible);binding.group.visible=false}
     }}
     for(const [i,id] of [pair.firstId,pair.secondId].entries()){
       const body=report.bodies.find(b=>b.id===id);if(!body||body.diagnosticCode)continue;
       const binding=this.solidBindings.get(`${body.instancePath.canonical}/body:${body.bodyId}`);if(!binding)continue;
+      (this.interferenceRoleGroups??=new Set()).add(binding.group);
       const color=i===0?CATIA_VISUAL_THEME.selected:CATIA_VISUAL_THEME.hover;
-      if(section){const original=binding.mesh.material;const materials=(Array.isArray(original)?original:[original]).map(m=>{const material=new THREE.MeshBasicMaterial({color:(m as THREE.MeshStandardMaterial).color??CATIA_VISUAL_THEME.surface,side:THREE.DoubleSide,clippingPlanes:clip?[clip]:null});return material});const mesh=new THREE.Mesh(binding.mesh.geometry.clone(),Array.isArray(original)?materials:materials[0]);mesh.applyMatrix4(binding.mesh.matrixWorld);group.add(mesh)}
-      const wire=new THREE.LineSegments(new THREE.EdgesGeometry(binding.mesh.geometry),new THREE.LineBasicMaterial({color,transparent:true,opacity:.6,depthTest:true,depthWrite:false,clippingPlanes:clip?[clip]:null}));wire.applyMatrix4(binding.mesh.matrixWorld);wire.renderOrder=1;group.add(wire);
+
+      const wire=new THREE.LineSegments(new THREE.EdgesGeometry(binding.mesh.geometry),new THREE.LineBasicMaterial({color,transparent:true,opacity:.6,depthTest:true,depthWrite:false}));wire.applyMatrix4(binding.mesh.matrixWorld);wire.renderOrder=1;group.add(wire);
     }
     if(pair.overlapTriangles?.length){
       const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(pair.overlapTriangles.flat(),3));
-      const wire=new THREE.LineSegments(new THREE.WireframeGeometry(geometry),new THREE.LineBasicMaterial({color:CATIA_VISUAL_THEME.analysisClash,transparent:true,opacity:.85,depthTest:false,depthWrite:false,clippingPlanes:clip?[clip]:null}));geometry.dispose();wire.renderOrder=3;group.add(wire);
+      const wire=new THREE.LineSegments(new THREE.WireframeGeometry(geometry),new THREE.LineBasicMaterial({color:CATIA_VISUAL_THEME.analysisClash,transparent:true,opacity:.85,depthTest:false,depthWrite:false}));geometry.dispose();wire.renderOrder=3;group.add(wire);
     }
     if(pair.sectionPoints?.length){const segments:Array<[THREE.Vector3,THREE.Vector3]>=[];for(let n=0;n<pair.sectionPoints.length;n+=2)segments.push([new THREE.Vector3().fromArray(pair.sectionPoints[n]),new THREE.Vector3().fromArray(pair.sectionPoints[n+1])]);const lines=makeOcclusionVisibleSegments(segments,pair.classification==='CONTACT'?CATIA_VISUAL_THEME.analysisContact:CATIA_VISUAL_THEME.analysisClash,3);lines.renderOrder=4;group.add(lines)}
     if(pair.complete&&['DISTANCE','CONTACT'].includes(pair.witnessKind??'')&&pair.distanceExact!==false&&Number.isFinite(pair.distanceMm)&&[...pair.firstWitness,...pair.secondWitness].every(Number.isFinite)){
@@ -349,27 +352,26 @@ export class CadViewportEngine {
       const connector=makeOcclusionVisibleSegments([[a,b]],CATIA_VISUAL_THEME.selected,2);connector.renderOrder=2;group.add(connector);
       const points=new THREE.Points(new THREE.BufferGeometry().setFromPoints([a,b]),new THREE.PointsMaterial({color:CATIA_VISUAL_THEME.hover,size:9,sizeAttenuation:false,transparent:true,depthTest:false,depthWrite:false,toneMapped:false}));points.renderOrder=3;group.add(points);
     }
-    this.staticInterferenceReport=report;this.staticInterferenceMarkers=group;this.analysisScene.add(group);this.invalidate();return true;
+    this.staticInterferenceReport=report;this.staticInterferenceMarkers=group;this.analysisScene.add(group);this.neutralizeInterferenceSurfaces();this.invalidate();return true;
+  }
+  private neutralizeInterferenceSurfaces():void {
+    // Tree/list location retains semantic selection, while both roles use the
+    // same outline presentation as motion. Never overwrite engineering colors.
+    for(const group of this.interferenceRoleGroups??[])this.materials?.setInteractionState(group,'default');
   }
   showSpatialAnalysis(report?:SpatialReport,id?:string):boolean {
     if(!report){this.showStaticInterference();return true}
     if(!this.staticInterferenceCompatible(report.check)){this.showStaticInterference();return false;}
     if(report.definition.kind==='CLASH'||report.definition.kind==='DISTANCE'){
-      const index=id?report.check.pairs.findIndex(p=>JSON.stringify([p.firstId,p.secondId])===id):0;return this.showStaticInterference(report.check,index);
+      const index=id?report.check.pairs.findIndex(p=>JSON.stringify([p.firstId,p.secondId])===id):interferenceDisplayIndex(report.check);return this.showStaticInterference(report.check,index);
     }
     this.showStaticInterference();const group=new THREE.Group();group.name='spatial-analysis';
-    const d=report.definition,q=new THREE.Quaternion().fromArray(d.frame.rotation),origin=new THREE.Vector3().fromArray(d.frame.translation),normal=new THREE.Vector3(0,0,1).applyQuaternion(q);
+    const d=report.definition;
     const cutPlanes:THREE.Plane[]=[];
-    if(d.kind==='SECTION'){
-      if(d.sectionType==='PLANE'||d.sectionType==='SLICE')for(const offset of d.sectionType==='SLICE'?[-d.size[2]/2,d.size[2]/2]:[0]){
-        const plane=new THREE.Mesh(new THREE.PlaneGeometry(d.size[0],d.size[1]),new THREE.MeshBasicMaterial({color:CATIA_VISUAL_THEME.selected,side:THREE.DoubleSide,transparent:true,opacity:.06,depthWrite:false}));plane.position.copy(origin).addScaledVector(normal,offset);plane.quaternion.copy(q);group.add(plane);
-        const outline=new THREE.LineSegments(new THREE.EdgesGeometry(plane.geometry),new THREE.LineBasicMaterial({color:CATIA_VISUAL_THEME.selected,transparent:true,opacity:.6,depthWrite:false}));outline.position.copy(plane.position);outline.quaternion.copy(q);group.add(outline);
-      }
-      if(d.sectionType==='BOX'||d.sectionType==='SLICE'){const box=new THREE.BoxGeometry(...d.size);const outline=new THREE.LineSegments(new THREE.EdgesGeometry(box),new THREE.LineBasicMaterial({color:CATIA_VISUAL_THEME.selected,transparent:true,opacity:.65,depthWrite:false}));box.dispose();outline.position.copy(origin);outline.quaternion.copy(q);group.add(outline)}
+    if(d.kind==='SECTION'&&!this.sectionRequested){
+      group.add(sectionRepresentation(d));
+      cutPlanes.push(...sectionClippingPlanes(d));
       if(d.cutMode!=='NONE'){
-        if(d.sectionType==='PLANE'){cutPlanes.push(new THREE.Plane().setFromNormalAndCoplanarPoint(normal.clone().multiplyScalar(d.cutMode==='KEEP_INSIDE'?1:-1),origin))}
-        else for(const [axis,size] of ([[new THREE.Vector3(0,0,1),d.size[2]],...(d.sectionType==='BOX'?[[new THREE.Vector3(1,0,0),d.size[0]],[new THREE.Vector3(0,1,0),d.size[1]]]:[])] as [THREE.Vector3,number][]))for(const side of [-1,1]){const n=axis.clone().applyQuaternion(q).multiplyScalar(side);cutPlanes.push(new THREE.Plane().setFromNormalAndCoplanarPoint(n.clone().negate(),origin.clone().addScaledVector(n,size/2)))}
-        if(d.cutMode==='KEEP_OUTSIDE'&&d.sectionType!=='PLANE')cutPlanes.forEach(p=>p.negate());
         for(const b of report.check.bodies){const binding=this.solidBindings.get(b.id);if(!binding)continue;this.interferenceVisibility.set(binding.group,binding.group.visible);binding.group.visible=false;const original=binding.mesh.material,materials=(Array.isArray(original)?original:[original]).map(m=>{const n=new THREE.MeshBasicMaterial({color:(m as THREE.MeshStandardMaterial).color??CATIA_VISUAL_THEME.surface,side:THREE.DoubleSide});n.clippingPlanes=cutPlanes;n.clipIntersection=d.cutMode==='KEEP_OUTSIDE'&&d.sectionType!=='PLANE';return n});const mesh=new THREE.Mesh(binding.mesh.geometry.clone(),Array.isArray(original)?materials:materials[0]);mesh.applyMatrix4(binding.mesh.matrixWorld);group.add(mesh)}
       }
     }
@@ -379,6 +381,55 @@ export class CadViewportEngine {
         const wire=new THREE.LineSegments(new THREE.WireframeGeometry(geometry),new THREE.LineBasicMaterial({color,transparent:true,opacity:.75,depthTest:false,depthWrite:false}));wire.renderOrder=3;group.add(wire);geometry.dispose();}}
     }
     this.staticInterferenceMarkers=group;this.staticInterferenceReport=report.check;this.analysisScene.add(group);this.invalidate();return true;
+  }
+  private sectionManipulator?:SectionManipulator;
+  private sectionRequested?:SectionEditSession;
+  private sectionEdgeVisibility=new Map<THREE.Object3D,boolean>();
+  private sectionMaterials=new Map<THREE.Mesh,{original:THREE.Material|THREE.Material[];clones:THREE.Material[]}>();
+  setSectionEdit(session?:SectionEditSession):void {this.sectionRequested=session;this.syncSectionEdit()}
+  cancelSectionGesture():boolean{return this.sectionManipulator?.cancelGesture()??false}
+  private sectionSceneReady():boolean {return !this.editContext?.occurrencePath&&!this.pendingVisualSnapshot&&!this.motionDisplay&&!this.mechanismDefinition&&!this.assemblyPosePreview&&!this.preview&&!this.moveCommitPending&&!this.moveManipulator?.isDragging()}
+  private syncSectionEdit():void {
+    const s=this.sectionRequested,valid=s&&this.view?.document.id===s.documentId&&this.view.document.versionId===s.revisionId&&this.sectionSceneReady();
+    if(valid&&this.sectionManipulator&&!this.sectionManipulator.root.parent)this.analysisScene.add(this.sectionManipulator.root);
+    this.sectionManipulator?.setSession(valid?s:undefined);
+    if(!valid)this.sectionManipulator?.root.removeFromParent();
+  }
+  initializeSection(d:SpatialAnalysis):SpatialAnalysis {
+    this.content.updateMatrixWorld(true);const bounds=new THREE.Box3();
+    for(const [id,b] of this.solidBindings)if(this.sectionIncludes(d,id)&&!this.view?.resolvedInstances?.some(r=>`${r.occurrencePath}/body:${r.bodyId}`===id&&r.displayFallback))bounds.expandByObject(b.mesh);
+    if(bounds.isEmpty())return d;const size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3());
+    return {...d,frame:{...d.frame,translation:center.toArray()},size:[Math.max(1,size.x*1.2),Math.max(1,size.y*1.2),Math.max(1,size.z*.2)]};
+  }
+  private sectionIncludes(d:SpatialAnalysis,id:string):boolean {return d.scope==='ALL'||(d.selected??[]).some(p=>id.startsWith(p.canonical+'/body:')||id.startsWith(p.canonical+'/'))}
+  private restoreSectionClipping():void {
+    for(const [mesh,state] of this.sectionMaterials??[]){mesh.material=state.original;state.clones.forEach(m=>m.dispose())}this.sectionMaterials?.clear();for(const [object,visible] of this.sectionEdgeVisibility??[])object.visible=visible;this.sectionEdgeVisibility?.clear();
+  }
+  private previewSectionClipping(d?:SpatialAnalysis):void {
+    const planes=d&&!this.sectionRequested?.picking?sectionClippingPlanes(d):[];
+    for(const [object,visible] of this.sectionEdgeVisibility){object.visible=visible}this.sectionEdgeVisibility.clear();
+    for(const [mesh,state] of this.sectionMaterials){const binding=[...this.solidBindings].find(([,b])=>b.mesh===mesh);if(!planes.length||!binding||!this.sectionIncludes(d!,binding[0])){mesh.material=state.original;state.clones.forEach(m=>m.dispose());this.sectionMaterials.delete(mesh)}}
+    if(!d||!planes.length)return;
+    for(const [id,b] of this.solidBindings){if(!this.sectionIncludes(d,id))continue;const mesh=b.mesh;
+      // Screen-space edge shaders have no clipping contract. Suppress their
+      // uncut silhouettes during the draft; exact section curves remain visible.
+      for(const child of b.group.children)if(child!==mesh){this.sectionEdgeVisibility.set(child,child.visible);child.visible=false}
+      let state=this.sectionMaterials.get(mesh);if(!state){const original=mesh.material,clones=(Array.isArray(original)?original:[original]).map(m=>m.clone());state={original,clones};this.sectionMaterials.set(mesh,state);mesh.material=Array.isArray(original)?clones:clones[0]}
+      for(const material of state.clones){const intersection=d.cutMode==='KEEP_OUTSIDE'&&d.sectionType!=='PLANE';if(material.clippingPlanes?.length!==planes.length||material.clipIntersection!==intersection)material.needsUpdate=true;material.clippingPlanes=planes;material.clipIntersection=intersection;}
+    }
+  }
+  async positionSectionOnSelection(selection:SelectionItem,frame:SpatialAnalysis['frame'],signal:AbortSignal):Promise<SpatialAnalysis['frame']>{
+    const view=this.view,reference=assemblyGeometryRef(selection);if(!this.sectionSceneReady())throw new CommandInputError('请先结束位置预览或运动操作。');if(!view||!reference||!this.callbacks.inspectAssemblySupports)throw new CommandInputError('请选择当前装配中的平面、直线边或轴线。');
+    const result=await this.callbacks.inspectAssemblySupports(view.document.id,[reference],signal);
+    if(signal.aborted||!this.sectionSceneReady()||this.view?.document.id!==view.document.id||this.view.document.versionId!==view.document.versionId||result.versionId!==view.document.versionId)throw new CommandInputError('装配已更新，请重新选择定位对象。');
+    const support=result.supports[0],descriptor=support?.descriptor,group=this.instanceGroups.get(reference.instancePath?.segments[0]?.instanceId??reference.instanceId);
+    if(support?.status!=='RESOLVED'||!descriptor||descriptor.LengthUnit!=='mm'||!group)throw new CommandInputError('定位支撑不可用，请重新选择。');
+    if(!['PLANE','LINE','AXIS','CIRCLE','CYLINDER'].includes(descriptor.Kind))throw new CommandInputError('请选择平面、直线边、圆边或圆柱轴线。');
+    group.updateWorldMatrix(true,false);const q=group.getWorldQuaternion(new THREE.Quaternion()),origin=new THREE.Vector3().fromArray(descriptor.Origin).applyMatrix4(group.matrixWorld),normal=new THREE.Vector3().fromArray(descriptor.Direction).applyQuaternion(q).normalize();
+    let point=new THREE.Vector3().fromArray(support.snapHints?.center??descriptor.Origin).applyMatrix4(group.matrixWorld);
+    if(descriptor.Kind==='PLANE')point.addScaledVector(normal,-point.clone().sub(origin).dot(normal));else point=origin.clone().addScaledVector(normal,point.clone().sub(origin).dot(normal));
+    const orientation=snapFrame(normal,true,new THREE.Quaternion().fromArray(frame.rotation));if(!orientation||!point.toArray().every(Number.isFinite))throw new CommandInputError('该几何没有可用的定位方向。');
+    return {translation:point.toArray(),rotation:orientation.toArray()};
   }
   private camera: CadCamera = new THREE.PerspectiveCamera(DEFAULT_PERSPECTIVE_FOV, 1, 0.1, 5000);
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -714,7 +765,8 @@ export class CadViewportEngine {
       { enabled:()=>Boolean(this.activeSketchID&&this.activeToolID==="select"&&!this.featureSelection),
         preview:(from,to)=>this.showSketchMarquee(from,to),clear:()=>this.clearSketchMarquee(),select:(from,to,additive)=>this.selectSketchMarquee(from,to,additive) },
     );
-    this.interaction = new InteractionRouter(this.tools, this.selectionController, this.navigation);
+    this.sectionManipulator=new SectionManipulator(this.shaders,()=>this.camera,this.renderer.domElement,d=>this.previewSectionClipping(d),()=>this.invalidate());
+    this.interaction = new InteractionRouter(this.tools, this.selectionController, this.navigation,this.sectionManipulator);
     this.sketchModal=new SketchModalInputController(this.interaction,this.navigation,{
       blocked:()=>Boolean(this.sketchCommitPending||this.sketchReceipt||this.activeSketchID&&this.pendingVisualSnapshot),
       pick:(request,event)=>request.featureId!==this.activeSketchID?undefined:this.sketchReferenceAt(event.x,event.y,request.pick,request.retained?{target:"ENTITY",entityId:request.retained.id,subElement:"WHOLE"}:undefined,request.allowed)??undefined,
@@ -788,6 +840,7 @@ export class CadViewportEngine {
       editContext?.historicalBoundary, editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
+    if(this.sectionRequested&&(view.document.id!==this.sectionRequested.documentId||view.document.versionId!==this.sectionRequested.revisionId||editContext?.occurrencePath))this.setSectionEdit();
     if(this.staticInterferenceReport&&this.staticInterferenceReport.revisionId!==view.document.versionId)this.showStaticInterference();
     const motionView=editContext?.view??view;
     if(this.analysisMechanism&&this.view?.document.versionId!==motionView.document.versionId)this.analysisMechanism=undefined;
@@ -806,6 +859,7 @@ export class CadViewportEngine {
     if (this.renderGeometrySignature === signature && !this.pendingVisualSnapshot && this.view) {
       this.editContext=editContext;
       this.updateDisplayProjection(view);
+      this.syncSectionEdit();
       return;
     }
     const scope = (display?: DocumentDescriptor, editing?: ViewportEditContext) => JSON.stringify([
@@ -847,6 +901,7 @@ export class CadViewportEngine {
       this.renderReady(display, editContext && editing ? { ...editContext, view: editing } : undefined);
       this.renderGeometrySignature = signature;
       this.pendingVisualSnapshot = false;
+      this.syncSectionEdit();
     }).catch(error => {
       if (generation !== this.visualGeneration) return;
       this.visualError?.remove();
@@ -893,6 +948,7 @@ export class CadViewportEngine {
     this.visibilityResolver = visibilityResolverForView(view, editContext);
     this.moveManipulator.detach();
     this.moveTarget = undefined;
+    this.restoreSectionClipping();
     this.disposeGroup(this.content);
     this.clearProfileRegions();
     this.clearBooleanRegions();
@@ -2019,6 +2075,7 @@ export class CadViewportEngine {
         this.applyHighlight(object, "hover"); this.highlightedRoots.add(object);
       }
     }
+    this.neutralizeInterferenceSurfaces();
   }
 
   private clearInteractionState(): void {
@@ -2033,6 +2090,7 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    this.sectionManipulator?.dispose();this.restoreSectionClipping();
     this.sketchIntersections.reset();
     this.captureDocumentView();
     this.showMechanism();
@@ -4194,6 +4252,8 @@ export class CadViewportEngine {
         if(this.staticInterferenceReport&&!this.staticInterferenceCompatible(this.staticInterferenceReport))this.showStaticInterference();
         if(this.motionPresentation?.configurationPoses&&!this.matchesAnalysisPoses(this.motionPresentation.configurationPoses))this.showRemainingMotion();
         this.updateNavigationHUD();
+        if(this.sectionRequested){const s=this.sectionRequested,wanted=this.view?.document.id===s.documentId&&this.view.document.versionId===s.revisionId&&this.sectionSceneReady();if(Boolean(wanted)!==this.sectionManipulator?.root.visible)this.syncSectionEdit()}
+        this.sectionManipulator?.updateScale(viewportMetrics(this.renderer));
         this.moveManipulator.updateScale(this.camera, viewportMetrics(this.renderer));
         this.sketchManipulator?.updateScale(this.camera,viewportMetrics(this.renderer));
         this.updateScreenStableReferences();
