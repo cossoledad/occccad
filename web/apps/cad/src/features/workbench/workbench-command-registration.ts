@@ -17,6 +17,8 @@ import {selectionSummaryCommand} from "./commands/selection-summary";
 import {treeNodesForSelections} from "./tree-projection-index";
 
 export type WorkbenchCommandBindings={
+ openReferenceElement?:(kind:import("./reference-element-model").ReferenceElementKind)=>void;
+ openGeometricalSet?:()=>void;
  openMeasurement?:(kind:import('../../cad/measurement/measurement').MeasurementKind)=>void;
  measurementKind?:import('../../cad/measurement/measurement').MeasurementKind;
  measurementAllowed?:boolean;
@@ -94,17 +96,15 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isEnabled: () => Boolean(canEdit && !store.activeSketchID && editingView?.part?.features.some((feature) => isSolidFeature(feature))) }),
       ({ id: "part.revolve", execute: () => openSolidFeature("REVOLVE"), isEnabled: () => Boolean(canEdit && !store.activeSketchID) }),
       ({ id: "part.parameters", execute: () => setParameterManagerOpen(true),
-        isEnabled: () => Boolean(editingView?.part) }),
+        isEnabled: () => Boolean(editingView?.part || editingView?.product) }),
       ({id:"part.design-associations",execute:()=>bindings.setDesignAssociationOpen?.(true),isEnabled:()=>Boolean(canEditRoot&&editingView?.part&&["OWNER","EDITOR"].includes(editingView.document.permission)&&bindings.setDesignAssociationOpen)}),
       ({id:"part.design-inputs",execute:()=>bindings.setDesignInputsOpen?.(true),isEnabled:()=>Boolean(canEdit&&editingView?.part&&editingView.document.id===view?.document.id&&!store.activeSketchID&&!command.isPending)}),
       ({ id: "part.publications", execute: () => setPublicationManagerOpen(true),
 		 isEnabled: () => Boolean(editingView?.part || editingView?.product) }),
       ({ id: "product.publications", execute: () => setPublicationManagerOpen(true),
 		isEnabled: () => Boolean(editingView?.product) }),
-      ({ id: "part.datum-plane", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setEditingDatumId(undefined);setDatumEditor("plane"); },
-        isEnabled: () => Boolean(canEdit && !store.activeSketchID && !command.isPending) }),
-      ({ id: "part.datum-axis", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setEditingDatumId(undefined);setDatumEditor("axis"); },
-        isEnabled: () => Boolean(canEdit && !store.activeSketchID && !command.isPending) }),
+      ...(['point','line','plane'] as const).map(kind=>({id:kind==='point'?'part.reference-point':kind==='line'?'part.datum-axis':'part.datum-plane',execute:()=>bindings.openReferenceElement?.(kind),isEnabled:()=>Boolean(canEdit&&editingView?.part&&!store.activeSketchID&&!command.isPending&&bindings.openReferenceElement)})),
+      ({id:'part.geometrical-set',execute:()=>bindings.openGeometricalSet?.(),isEnabled:()=>Boolean(canEdit&&editingView?.part&&!store.activeSketchID&&!command.isPending&&bindings.openGeometricalSet)}),
       ({id:"product.replace",execute:invocation=>bindings.openReplaceInstance?.((invocation?.payload as {instanceId?:string}|undefined)?.instanceId),isEnabled:()=>Boolean(bindings.openReplaceInstance&&canEditRoot&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!bindings.motionOpen&&!command.isPending)}),
       ({ id: "product.insert", execute: () => setInsertOpen(true), isEnabled: () => Boolean(canEdit) }),
       ({ id: "product.pattern", execute: () => {store.setActiveTool("select","once");setPatternOpen(true);},
@@ -129,7 +129,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "view.right", execute: () => viewport.current?.setStandardView("RIGHT") }),
       ({ id: "view.iso", execute: () => viewport.current?.setStandardView("ISO") }),
 	  ({id:"debug.information",execute:()=>bindings.setDeveloperOpen?.(true),isEnabled:()=>true}),
-  ({ id: "debug.part", execute: () => editingView && api.downloadDiagnosticBundle(editingView.document.id), isEnabled: () => Boolean(editingView?.part) }),
+  ({ id: "debug.part", execute: () => editingView && api.downloadDiagnosticBundle(editingView.document.id), isEnabled: () => Boolean(editingView?.part || editingView?.product) }),
       ({ id: "debug.assembly", execute: () => editingView && api.downloadAssemblyDiagnostic(editingView.document.id), isEnabled: () => Boolean(editingView?.product) }),
  ...structureCommands(bindings.treeActions,treeNodes,showMessage,treeNodesForSelections(treeNodes,store.selections)),
  selectionSummaryCommand({getContext:()=>({documentId:editingView?.document.id??"",documentName:editingView?.document.name??view?.document.name,selectionCount:store.selections.length}),show:showMessage}),

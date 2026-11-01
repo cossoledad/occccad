@@ -69,7 +69,7 @@ func applyDefinitionVisibility(modelJSON, payloadJSON json.RawMessage) (json.Raw
 				}
 			}
 		}
-	case "ORIGIN", "PLANE", "DATUM_AXIS", "AXIS_SYSTEM", "DATUM_POINT", "AXIS":
+	case "PLANE", "DATUM_AXIS", "AXIS_SYSTEM", "DATUM_POINT", "AXIS", "REFERENCE_POINT", "GEOMETRICAL_SET":
 		slot := "display." + kind
 		if kind == "AXIS" {
 			slot += "." + input.Axis
@@ -96,6 +96,9 @@ func applyDefinitionVisibility(modelJSON, payloadJSON json.RawMessage) (json.Raw
 func visibleOrDefault(value *bool) bool { return value == nil || *value }
 
 func definitionVisibilityTargetExists(model PartModel, kind, id, ownerID string) bool {
+	if _, exists := partReferenceVisibility(&model, modelcore.PropertyAddress{EntityID: id, SlotID: "display." + strings.ToUpper(kind)}, nil, false); exists {
+		return true
+	}
 	switch strings.ToUpper(kind) {
 	case "BODY":
 		return bodyIndex(model, id) >= 0
@@ -167,6 +170,24 @@ func applyOccurrenceVisibility(modelJSON, payloadJSON json.RawMessage) (json.Raw
 // an AxisSystem rather than new object IDs or tree paths.
 func partReferenceVisibility(model *PartModel, address modelcore.PropertyAddress, value *bool, write bool) (*bool, bool) {
 	kind := strings.TrimPrefix(address.SlotID, "display.")
+	for i := range model.GeometricalSets {
+		if kind == "GEOMETRICAL_SET" && model.GeometricalSets[i].ID == address.EntityID {
+			prior := model.GeometricalSets[i].Visible
+			if write {
+				model.GeometricalSets[i].Visible = value
+			}
+			return prior, true
+		}
+	}
+	for i := range model.DatumPoints {
+		if kind == "REFERENCE_POINT" && model.DatumPoints[i].ID == address.EntityID {
+			prior := model.DatumPoints[i].Visible
+			if write {
+				model.DatumPoints[i].Visible = value
+			}
+			return prior, true
+		}
+	}
 	if kind == "ORIGIN" && address.EntityID == "origin" {
 		prior := model.OriginVisible
 		if write {

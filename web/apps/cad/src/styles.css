@@ -1006,3 +1006,8 @@ select {
 .measurement-saved>div {display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:6px 0;font-size:12px}
 .measurement-saved>div>span {flex:1;min-width:100px}
 .measurement-component-text {stroke:none!important}
+
+.measurement-stale .measurement-label rect {fill:#382e19;stroke:#d6ab55;stroke-dasharray:5 3}
+.measurement-stale line,.measurement-stale polyline {stroke:#d6ab55;stroke-dasharray:5 4;opacity:.65}
+.measurement-stale .measurement-label text {fill:#ffdfa1}
+.measurement-broken .measurement-label rect {stroke:#ed8c89;fill:#3c2528}

@@ -16,6 +16,7 @@ import (
 type datumFrame struct {
 	origin, direction, u [3]float64
 	plane                bool
+	point                bool
 }
 
 func datumReferences(d *DatumTransform) []DatumReference {
@@ -149,7 +150,8 @@ func datumRotate(v, axis [3]float64, angle float64) [3]float64 {
 }
 func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, requestID string, m *PartModel, limit int, targets ...string) error {
 	defs := datumDefinitions(m)
-	if len(defs) == 0 {
+	constructions := referenceConstructions(m)
+	if len(defs) == 0 && len(constructions) == 0 {
 		return nil
 	}
 	for _, d := range defs {
@@ -178,6 +180,60 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 			return fmt.Errorf("%w: DATUM_REFERENCE_CYCLE: %s", ErrValidation, id)
 		}
 		state[id] = 1
+		if construction := constructions[id]; construction != nil {
+			for _, ref := range construction.Inputs {
+				if err := validateDatumReference(ref); err != nil {
+					return err
+				}
+				if ref.FeatureID != "" {
+					if index, exists := indices[ref.FeatureID]; !exists {
+						return fmt.Errorf("%w: DATUM_REFERENCE_MISSING", ErrValidation)
+					} else if index >= limit {
+						state[id] = 0
+						return nil
+					}
+				}
+			}
+			frame, err := constructReference(construction, resolve)
+			if err != nil {
+				return err
+			}
+			found := false
+			for i := range m.DatumPoints {
+				if m.DatumPoints[i].ID == id {
+					if !frame.point {
+						return fmt.Errorf("%w: REFERENCE_POINT_REQUIRED", ErrValidation)
+					}
+					m.DatumPoints[i].Position = frame.origin
+					found = true
+				}
+			}
+			for i := range m.DatumAxes {
+				if m.DatumAxes[i].ID == id {
+					if frame.point || frame.plane {
+						return fmt.Errorf("%w: REFERENCE_LINE_REQUIRED", ErrValidation)
+					}
+					m.DatumAxes[i].Origin, m.DatumAxes[i].Direction = frame.origin, frame.direction
+					found = true
+				}
+			}
+			for i := range m.DatumPlanes {
+				if m.DatumPlanes[i].ID == id {
+					if !frame.plane {
+						return fmt.Errorf("%w: REFERENCE_PLANE_REQUIRED", ErrValidation)
+					}
+					m.DatumPlanes[i].Origin, m.DatumPlanes[i].Normal, m.DatumPlanes[i].UDirection = frame.origin, frame.direction, frame.u
+					found = true
+				}
+			}
+			if !found {
+				return fmt.Errorf("%w: DATUM_REFERENCE_MISSING", ErrValidation)
+			}
+			cache[id] = frame
+			state[id] = 2
+			recordEvaluation(ctx, "datum:"+id, false, "", 0)
+			return nil
+		}
 		d := defs[id]
 		if d == nil {
 			state[id] = 2
@@ -279,7 +335,7 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 		return nil
 	}
 	resolve = func(ref DatumReference) (datumFrame, error) {
-		if ref.Kind == "PLANE" || ref.Kind == "AXIS" {
+		if ref.Kind == "PLANE" || ref.Kind == "AXIS" || ref.Kind == "POINT" {
 			if err := visit(ref.EntityID); err != nil {
 				return datumFrame{}, err
 			}
@@ -291,7 +347,7 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 		case "PLANE":
 			for _, p := range m.DatumPlanes {
 				if p.ID == ref.EntityID {
-					return datumFrame{p.Origin, p.Normal, p.UDirection, true}, nil
+					return datumFrame{origin: p.Origin, direction: p.Normal, u: p.UDirection, plane: true}, nil
 				}
 			}
 		case "AXIS":
@@ -301,6 +357,13 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 				}
 			}
 		case "AXIS_SYSTEM", "POINT":
+			if ref.Kind == "POINT" {
+				for _, p := range m.DatumPoints {
+					if p.ID == ref.EntityID {
+						return datumFrame{origin: p.Position, point: true}, nil
+					}
+				}
+			}
 			for _, p := range m.AxisSystems {
 				if p.ID == ref.EntityID {
 					v := p.ZDirection
@@ -313,7 +376,7 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 					default:
 						return datumFrame{}, fmt.Errorf("%w: DATUM_AXIS_INVALID", ErrValidation)
 					}
-					return datumFrame{origin: p.Origin, direction: v}, nil
+					return datumFrame{origin: p.Origin, direction: v, point: ref.Kind == "POINT"}, nil
 				}
 			}
 		case "SKETCH_LINE":
@@ -373,8 +436,11 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 			if evidence.GeometryType == "PLANE" && r.Candidates[0].Type == modelcore.PersistentTopologyFace {
 				u, ok := stableSupportX(evidence.Direction, evidence.XDirection)
 				if ok {
-					return datumFrame{evidence.Origin, evidence.Direction, u, true}, nil
+					return datumFrame{origin: evidence.Origin, direction: evidence.Direction, u: u, plane: true}, nil
 				}
+			}
+			if r.Candidates[0].Type == modelcore.PersistentTopologyVertex || evidence.GeometryType == "CIRCLE" || evidence.GeometryType == "SPHERE" || evidence.GeometryType == "ELLIPSE" {
+				return datumFrame{origin: evidence.Origin, point: true}, nil
 			}
 			return datumFrame{}, fmt.Errorf("%w: DATUM_SOURCE_TYPE_MISMATCH", ErrValidation)
 		}
@@ -389,6 +455,11 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 		}
 	}
 	for _, p := range m.DatumAxes {
+		if err := visit(p.ID); err != nil {
+			return err
+		}
+	}
+	for _, p := range m.DatumPoints {
 		if err := visit(p.ID); err != nil {
 			return err
 		}
@@ -476,6 +547,13 @@ func appendEvaluatedDatumChanges(changes modelcore.ChangeSet, before, after Part
 			}
 		}
 	}
+	for _, b := range after.DatumPoints {
+		for _, a := range before.DatumPoints {
+			if a.ID == b.ID {
+				add(b.ID, "datum.point", a, b)
+			}
+		}
+	}
 	return changes
 }
 
@@ -514,6 +592,9 @@ func applyEditDatum(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, mo
 		}
 		p.Plane.Origin, p.Plane.UDirection, p.Plane.Normal = o, u, n
 		p.Plane.Visible = m.DatumPlanes[index].Visible
+		if p.Plane.GeometricalSetID == "" {
+			p.Plane.GeometricalSetID = m.DatumPlanes[index].GeometricalSetID
+		}
 		p.Plane.Size = m.DatumPlanes[index].Size
 		p.Plane.Plane = "CUSTOM"
 		before = m.DatumPlanes[index]
@@ -529,6 +610,9 @@ func applyEditDatum(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, mo
 		}
 		p.Axis.Direction = d
 		p.Axis.Visible = m.DatumAxes[index].Visible
+		if p.Axis.GeometricalSetID == "" {
+			p.Axis.GeometricalSetID = m.DatumAxes[index].GeometricalSetID
+		}
 		before = m.DatumAxes[index]
 		m.DatumAxes[index] = *p.Axis
 		after = *p.Axis
@@ -625,14 +709,14 @@ func datumPreviewReferences(c modelcore.DomainCommand, m PartModel) *ReferenceGe
 		}
 	}
 
-	if c.TypeURI != typeCreateDatumPlane && c.TypeURI != typeCreateDatumAxis && c.TypeURI != typeEditDatum {
+	if c.TypeURI != typeCreateDatumPlane && c.TypeURI != typeCreateDatumAxis && c.TypeURI != typeEditDatum && c.TypeURI != typeReferencePoint {
 		return nil
 	}
 	r := referenceGeometry(m)
 	return &r
 }
 func parameterPreviewCandidates(c modelcore.DomainCommand, m PartModel) []modelcore.ParameterDefinition {
-	if c.TypeURI != typeCreateSolidFeature && c.TypeURI != typeEditFeature && c.TypeURI != typeEditParameter && c.TypeURI != typeCreateDatumPlane && c.TypeURI != typeCreateDatumAxis && c.TypeURI != typeEditDatum {
+	if c.TypeURI != typeCreateSolidFeature && c.TypeURI != typeEditFeature && c.TypeURI != typeEditParameter && c.TypeURI != typeCreateDatumPlane && c.TypeURI != typeCreateDatumAxis && c.TypeURI != typeEditDatum && c.TypeURI != typeReferencePoint {
 		return nil
 	}
 	return m.Parameters

@@ -1170,7 +1170,7 @@ export const mockApi: CadApi = {
   setParameterExpression: async (documentID, parameterId, expression) => command(documentID, { type: "SET_PARAMETER_EXPRESSION", parameterId, expression }),
   renameParameter: async (documentID, parameterId, name) => command(documentID, { type: "RENAME_PARAMETER", parameterId, name }),
   setParameterExternal: async (documentID, parameterId, sourceDocumentId, publicationId, versionId) => command(documentID,
-    { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, versionId }),
+    { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, sourceVersionId:versionId }),
   createPublication: async (documentID, input) => command(documentID, { type: "CREATE_PUBLICATION", ...input }),
   editPublication: async (documentID, publicationId, input) => command(documentID, { type: "EDIT_PUBLICATION", publicationId, ...input }),
   redirectPublication: async (documentID, publicationId, input) => command(documentID, { type: "REDIRECT_PUBLICATION", publicationId, ...input }),

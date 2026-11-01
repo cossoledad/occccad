@@ -12,10 +12,14 @@ func TestDatumDeletionProtectsReferencesAndCompensates(t *testing.T) {
 	for _, kind := range []string{"DATUM_PLANE", "DATUM_AXIS"} {
 		t.Run(kind, func(t *testing.T) {
 			model := newPartModel()
-			model.DatumPlanes = append(model.DatumPlanes, DatumPlane{ID: "custom", Name: "Custom", Plane: "CUSTOM", Origin: [3]float64{1, 2, 3}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}, Size: 180})
-			model.DatumAxes = append(model.DatumAxes, DatumAxis{ID: "custom", Name: "Custom", Origin: [3]float64{1, 2, 3}, Direction: [3]float64{0, 1, 0}})
+			model.DatumPlanes = append(model.DatumPlanes, DatumPlane{ID: "custom-plane", Name: "Custom", Plane: "CUSTOM", Origin: [3]float64{1, 2, 3}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}, Size: 180})
+			model.DatumAxes = append(model.DatumAxes, DatumAxis{ID: "custom-axis", Name: "Custom", Origin: [3]float64{1, 2, 3}, Direction: [3]float64{0, 1, 0}})
 			original, _ := json.Marshal(model)
-			payload, _ := json.Marshal(deleteNodePayload{TargetKind: kind, TargetID: "custom"})
+			id := "custom-plane"
+			if kind == "DATUM_AXIS" {
+				id = "custom-axis"
+			}
+			payload, _ := json.Marshal(deleteNodePayload{TargetKind: kind, TargetID: id})
 			next, changes, err := applyDeletePartNode(original, payload)
 			if err != nil {
 				t.Fatal(err)
@@ -37,7 +41,7 @@ func TestDatumDeletionProtectsReferencesAndCompensates(t *testing.T) {
 			if len(result.DatumPlanes) != 4 || len(result.DatumAxes) != 1 {
 				t.Fatal("datum definition was not restored")
 			}
-			model.Features = []Feature{{ID: "consumer", Type: "REVOLVE", AxisEntityID: "DATUM_AXIS:custom", NeutralPlaneID: "custom"}}
+			model.Features = []Feature{{ID: "consumer", Type: "REVOLVE", AxisEntityID: "DATUM_AXIS:custom-axis", NeutralPlaneID: "custom-plane"}}
 			original, _ = json.Marshal(model)
 			if _, _, err := applyDeletePartNode(original, payload); err == nil {
 				t.Fatal("accepted deletion of referenced datum")
@@ -52,7 +56,7 @@ func TestDatumDeletionProtectsReferencesAndCompensates(t *testing.T) {
 	}
 	model.DatumPlanes = append(model.DatumPlanes, DatumPlane{ID: "custom", Plane: "CUSTOM"})
 	nodes := partStructureChildren(model, "root", "doc", "revision", true)
-	if slices.Contains(nodes[0].Children[0].Capabilities, "DELETE") || !slices.Contains(nodes[0].Children[3].Capabilities, "DELETE") {
+	if slices.Contains(mustStructureNode(t, nodes, "PLANE", "datum-xy").Capabilities, "DELETE") || !slices.Contains(mustStructureNode(t, nodes, "PLANE", "custom").Capabilities, "DELETE") {
 		t.Fatal("datum deletion capabilities disagree with model")
 	}
 }

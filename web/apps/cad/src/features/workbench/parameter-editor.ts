@@ -1,10 +1,12 @@
 import {CommandInputError} from "../../cad/command/operation-failure";
 import {formatDisplayNumber} from "../../utils/display-number";
-import type { ParameterDefinition } from "../../types";
+import type { DocumentView, ParameterDefinition } from "../../types";
 
 const unitScale: Record<string, number> = {
   mm: 1000, cm: 100, m: 1, in: 1 / 0.0254,
   deg: 180 / Math.PI, rad: 1,
+  mm2:1e6, cm2:1e4, m2:1, in2:1/.00064516,
+  mm3:1e9, cm3:1e6, m3:1, in3:1/.000016387064,
 };
 
 export function parameterDisplayValue(parameter: ParameterDefinition, preferredLengthUnit?: "mm" | "cm" | "m" | "in"): string {
@@ -15,6 +17,7 @@ export function parameterDisplayValue(parameter: ParameterDefinition, preferredL
 
 export function parameterSourceText(parameter: ParameterDefinition, inputUnit?: string, exact=false): string {
   if (parameter.source.expression) return parameter.source.expression.sourceText;
+  if (parameter.source.produced) return "测量输出";
   if (parameter.source.external) return "关联发布参数";
   if (!parameter.source.literal) return "";
   const unit = inputUnit ?? parameter.displayUnit;
@@ -26,8 +29,8 @@ export function parameterSourceText(parameter: ParameterDefinition, inputUnit?: 
 export function parseParameterSource(source: string, defaultUnit?: string):
   { kind: "LITERAL"; value: number; unit: string } | { kind: "EXPRESSION"; expression: string } {
   const normalized = source.trim();
-  const literal = normalized.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)\s*(mm|cm|m|in|deg|rad)$/i);
-  if (defaultUnit && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) {
+  const literal = normalized.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)\s*(mm[23]?|cm[23]?|m[23]?|in[23]?|deg|rad)$/i);
+  if (defaultUnit !== undefined && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) {
     const value = Number(normalized);
     if (!Number.isFinite(value)) throw new CommandInputError("数值必须有限");
     return { kind: "LITERAL", value, unit: defaultUnit };
@@ -77,3 +80,5 @@ export function insertParameterReference(source:string,key:string,caret?:{start:
   const end=Math.max(start,Math.min(source.length,caret?.end??start));
   return source.slice(0,start)+key+source.slice(end);
 }
+
+export const documentParameters=(view:DocumentView|undefined):ParameterDefinition[]=>view?.part?.parameters??view?.product?.parameters??[];

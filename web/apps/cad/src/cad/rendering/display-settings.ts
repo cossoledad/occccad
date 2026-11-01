@@ -1,10 +1,10 @@
 export type SolidDisplaySettings = { mode: "shaded" | "wireframe"; edges: boolean; vertices: boolean };
 export const DEFAULT_SOLID_DISPLAY: SolidDisplaySettings = { mode: "shaded", edges: true, vertices: true };
-export type ReferenceVisibility = { planes: boolean; axes: boolean; coordinateSystems: boolean };
-export const DEFAULT_REFERENCE_VISIBILITY: ReferenceVisibility = { planes: true, axes: true, coordinateSystems: true };
+export type ReferenceVisibility = { planes: boolean; axes: boolean; points:boolean; coordinateSystems: boolean };
+export const DEFAULT_REFERENCE_VISIBILITY: ReferenceVisibility = { planes: true, axes: true, points:true, coordinateSystems: true };
 export function normalizeReferenceVisibility(value: unknown): ReferenceVisibility {
   const input = value && typeof value === "object" ? value as Partial<ReferenceVisibility> : {};
-  return { planes: input.planes !== false, axes: input.axes !== false, coordinateSystems: input.coordinateSystems !== false };
+  return { points:input.points!==false,planes: input.planes !== false, axes: input.axes !== false, coordinateSystems: input.coordinateSystems !== false };
 }
 export function normalizeSolidDisplaySettings(value: unknown): SolidDisplaySettings {
   // Migrate the old presets while preserving independent edge/point preferences.
@@ -17,6 +17,7 @@ export function normalizeSolidDisplaySettings(value: unknown): SolidDisplaySetti
     edges: input.edges !== false, vertices: input.vertices !== false };
 }
 export function referenceCategory(kind: unknown, axis?: unknown): keyof ReferenceVisibility | undefined {
+  if(kind==="reference-point")return "points";
   if (kind === "plane") return "planes";
   if (kind === "datum-point" || kind === "axis-system" || (kind === "axis" && axis !== "DATUM")) return "coordinateSystems";
   if (kind === "axis") return "axes";

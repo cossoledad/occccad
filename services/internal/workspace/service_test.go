@@ -857,20 +857,21 @@ func TestPartStructureNestsConsumedSketchUnderPad(t *testing.T) {
 		{ID: "sketch-2", Type: "SKETCH", Name: "Sketch 2"},
 	}}
 	children := partStructureChildren(model, "document:part-1", "part-1", "version-1", true)
-	if len(children) < 2 || children[1].Kind != "BODY" || len(children[1].Children) != 2 {
+	body := mustStructureNode(t, children, "BODY", "")
+	if len(body.Children) != 2 {
 		t.Fatalf("unexpected part structure: %#v", children)
 	}
-	pad := children[1].Children[0]
+	pad := body.Children[0]
 	if pad.Kind != "PAD" || len(pad.Children) != 1 || pad.Children[0].EntityID != "sketch-1" {
 		t.Fatalf("pad must own its consumed sketch: %#v", pad)
 	}
-	if children[1].Children[1].EntityID != "sketch-2" {
-		t.Fatalf("unconsumed sketch must remain in PartBody: %#v", children[1].Children)
+	if body.Children[1].EntityID != "sketch-2" {
+		t.Fatalf("unconsumed sketch must remain in PartBody: %#v", body.Children)
 	}
-	if len(children[0].Children) != 4 || children[0].Children[3].Kind != "AXIS_SYSTEM" {
-		t.Fatalf("Origin must contain three planes and one axis system: %#v", children[0])
+	if children[0].Kind != "PLANE" || children[1].Kind != "PLANE" || children[2].Kind != "PLANE" {
+		t.Fatal("standard planes must be direct children")
 	}
-	axisSystem := children[0].Children[3]
+	axisSystem := mustStructureNode(t, children, "AXIS_SYSTEM", "")
 	if len(axisSystem.Children) != 4 || axisSystem.Children[0].Kind != "DATUM_POINT" || axisSystem.Children[1].Axis != "X" || axisSystem.Children[2].Axis != "Y" || axisSystem.Children[3].Axis != "Z" {
 		t.Fatalf("axis system must expose independently selectable X/Y/Z axes: %#v", axisSystem)
 	}
@@ -884,8 +885,8 @@ func TestSketchStructureProjectsEntitiesConstraintsAndDeleteCapabilities(t *test
 		Constraints: []SketchConstraint{{ID: "constraint-1", Kind: "PARALLEL", References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "line-1", SubElement: "DIRECTION"}, {Target: "SKETCH_X_AXIS", SubElement: "DIRECTION"}}}},
 	}}}}
 	children := partStructureChildren(model, "document:part-1", "part-1", "version-1", true)
-	sketch := children[1].Children[0]
-	if len(sketch.Capabilities) != 1 || sketch.Capabilities[0] != "DELETE" || len(sketch.Children) != 3 {
+	sketch := mustStructureNode(t, children, "SKETCH", "sketch-1")
+	if !slices.Contains(sketch.Capabilities, "DELETE") || !slices.Contains(sketch.Capabilities, "INSERT_AFTER") || len(sketch.Children) != 3 {
 		t.Fatalf("sketch must expose delete capability and two child sets and its support reference: %#v", sketch)
 	}
 	if sketch.Children[2].Kind != "DATUM_INPUT_REFERENCE" || sketch.Children[2].EntityID != "datum-xy" {
@@ -903,7 +904,7 @@ func TestSketchStructureProjectsEntitiesConstraintsAndDeleteCapabilities(t *test
 	if constraint.Kind != "SKETCH_CONSTRAINT" || constraint.EntityID != "constraint-1" || constraint.EntityType != "PARALLEL" || !slices.Contains(constraint.Capabilities, "DELETE") || !slices.Contains(constraint.Capabilities, "SUPPRESS") {
 		t.Fatalf("unexpected constraint projection: %#v", constraint)
 	}
-	if len(children[0].Children[0].Capabilities) != 0 || len(children[0].Children[3].Capabilities) != 0 {
+	if len(mustStructureNode(t, children, "PLANE", "datum-xy").Capabilities) != 0 || len(mustStructureNode(t, children, "AXIS_SYSTEM", "").Capabilities) != 0 {
 		t.Fatal("datum planes and axis systems must never expose delete capability")
 	}
 }

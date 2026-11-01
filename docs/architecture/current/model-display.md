@@ -14,7 +14,7 @@ Body 是稳定的历史和独立求值单元。`ADD/REMOVE/INTERSECT` 在指定 
 
 ## 显示模型
 
-定义级 Body、Sketch、SketchEntity，以及 Origin、基准面、基准轴、轴系、原点和 XYZ 子轴的本地显隐随 Part Revision 保存；Product occurrence 保存 `InstancePath + EntityKind + EntityId` 的 `SHOW/HIDE/INHERIT` 覆盖。有效状态遵循 `parentEffectiveVisible AND localVisible AND displayEligible`，实体/草图层级为 occurrence → Part → Body → Sketch → SketchEntity；参考元素按 Part → Origin → 基准/轴系 → 原点/XYZ 子轴继承。XYZ 共用轴系稳定 ID，以显式 X/Y/Z 子槽区分显示地址。树收纳、输入引用和 Publication 不参与显示继承。隐藏祖先不会覆盖子对象的本地值；树给出本地设置、有效状态及阻断来源。工作台只提供“隐藏/显示”，由唯一 EditSession 自动确定范围：Instance 行以及当前编辑 occurrence 以外的 Body/Sketch/SketchEntity 使用宿主 Product 的完整路径覆盖；当前 Part 编辑 occurrence 内的定义对象使用 Part 定义显示命令。匹配必须同时满足 DocumentId 和完整 occurrence 路径，共享 Part 的其他 occurrence 不进入定义编辑范围。编辑中的精确 occurrence 通过同一 VisibilityResolver 投影目标当前定义的显示值，不采用该对象的宿主覆盖；退出目标后重新使用持久宿主覆盖，其他 occurrence 保持各自已接受快照。菜单不再暴露两种显隐或恢复继承项，底层 INHERIT 合同保留。编辑隐藏草图的临时显示仅属于会话，退出编辑后恢复持久状态。隐藏元素不参与普通拾取、悬浮或捕捉，但仍参与求解、Profile 和实体求值。装配约束的对象显示属性随所属 Product Revision 保存，隐藏标记及引线不会抑制约束、改变已接受状态或组件位姿。组件移动导致约束锚点变化并重建标记时，创建阶段即从同一 VisibilityResolver 应用有效可见性，隐藏标记不会重新显示或进入普通拾取。无独立几何结果的历史 Feature 不提供显隐命令。
+定义级 Body、Sketch、SketchEntity，以及几何图形集、参考点、基准面、基准轴、轴系、原点和 XYZ 子轴的本地显隐随 Part Revision 保存；Product occurrence 保存 `InstancePath + EntityKind + EntityId` 的 `SHOW/HIDE/INHERIT` 覆盖。有效状态遵循 `parentEffectiveVisible AND localVisible AND displayEligible`，实体/草图层级为 occurrence → Part → Body → Sketch → SketchEntity；参考元素按 Part → 嵌套几何图形集 → 点/线/面继承，标准平面直属 Part；轴系仍继承到自身原点/XYZ 子轴。XYZ 共用轴系稳定 ID，以显式 X/Y/Z 子槽区分显示地址。树收纳、输入引用和 Publication 不参与显示继承。隐藏祖先不会覆盖子对象的本地值；树给出本地设置、有效状态及阻断来源。工作台只提供“隐藏/显示”，由唯一 EditSession 自动确定范围：Instance 行以及当前编辑 occurrence 以外的 Body/Sketch/SketchEntity 使用宿主 Product 的完整路径覆盖；当前 Part 编辑 occurrence 内的定义对象使用 Part 定义显示命令。匹配必须同时满足 DocumentId 和完整 occurrence 路径，共享 Part 的其他 occurrence 不进入定义编辑范围。编辑中的精确 occurrence 通过同一 VisibilityResolver 投影目标当前定义的显示值，不采用该对象的宿主覆盖；退出目标后重新使用持久宿主覆盖，其他 occurrence 保持各自已接受快照。菜单不再暴露两种显隐或恢复继承项，底层 INHERIT 合同保留。编辑隐藏草图的临时显示仅属于会话，退出编辑后恢复持久状态。隐藏元素不参与普通拾取、悬浮或捕捉，但仍参与求解、Profile 和实体求值。装配约束的对象显示属性随所属 Product Revision 保存，隐藏标记及引线不会抑制约束、改变已接受状态或组件位姿。组件移动导致约束锚点变化并重建标记时，创建阶段即从同一 VisibilityResolver 应用有效可见性，隐藏标记不会重新显示或进入普通拾取。无独立几何结果的历史 Feature 不提供显隐命令。
 
 显示隐藏命令使用已有 Domain Command、Revision、CAS 和 Undo/Redo；没有几何影响种子时，ChangeSet 保存空 JSON 数组 `[]`，满足 `change_sets.impact_seeds` 的非空约束。视觉投影更新复用已加载对象，并以语义地址更新可见性和交互候选。几何依赖输入剔除纯显示字段，显示改动不要求重算 BREP、naming.pb 或完整 GLB。辅助基准/临时隔离仍是独立会话显示状态，尚未统一为定义级显示属性。
 
@@ -56,7 +56,7 @@ Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果
 
 显示制品复用时，SelectionIndex 从当前权威快照投影选择身份：根 Part 同步 Revision，拓扑仅在原 GeometryKey 仍存在时同步；Product 继续按完整 occurrence 解析各自 Revision。基准几何位置/方向/增删变化进入显示几何签名，显示属性不进入。旧对象不因复用 GPU 资源而继续携带旧投影版本。
 
-Origin/基准的纯 `display.*` 补偿与重放沿用冻结的 Body 制品，不进入参数、Publication 或实体求值。显示命令不追加基准求值槽，避免同一次显隐同时写 `display.PLANE` 与整份 `datum.plane`，使 Undo/Redo 保持与普通显示命令相同的几何复用规则。
+参考元素的纯 `display.*` 补偿与重放沿用冻结的 Body 制品，不进入参数、Publication 或实体求值。显示命令不追加基准求值槽，避免同一次显隐同时写 `display.PLANE` 与整份 `datum.plane`，使 Undo/Redo 保持与普通显示命令相同的几何复用规则。
 
 放样侧面的 `MERGED/SPLIT` 历史可直接引用多个 `PROFILE_EDGE/PROFILE_REGION/PROFILE_POINT` 截面输入。显示贡献索引把这些输入作为生成 Feature 的支撑，面仍归生成它的 Loft；已有实体拓扑的真正合并继续保留多个贡献者，不能只按结果锚点或最近 Feature 归属。这是 Naming 到 GLB 的派生投影，不改持久 SemanticRef、历史或几何。显示规则进入 evaluator 缓存版本；旧冻结 GLB 在沿正式求值链重算后更新。回归入口：[放样贡献与冷重建](../../../services/internal/control/loft_association_integration_test.go)、[实际拾取与树高亮](../../../web/apps/cad/browser/solid-feature-live.spec.ts)。
 

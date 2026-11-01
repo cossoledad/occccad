@@ -233,6 +233,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/folders/{folderID}/restore", server.restoreFolder)
 	mux.HandleFunc("GET /api/folders/{folderID}/breadcrumbs", server.folderBreadcrumbs)
 	mux.HandleFunc("GET /api/documents/{documentID}", server.getDocument)
+	mux.HandleFunc("GET /api/documents/{documentID}/annotation-layouts", server.annotationLayouts)
+	mux.HandleFunc("PUT /api/documents/{documentID}/annotation-layouts/{measurementID}", server.saveAnnotationLayout)
 	mux.HandleFunc("GET /api/documents/{documentID}/representations/{objectID}", server.downloadRepresentation)
 	mux.HandleFunc("GET /api/documents/{documentID}/design-session", server.productDesignSession)
 	mux.HandleFunc("GET /api/documents/{documentID}/context-catalog", server.productContextCatalog)

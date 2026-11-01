@@ -69,7 +69,7 @@ export function MeasurementPanel({view,kind,initial,unit,seed,canSave,blocked,on
    {blocked&&<Alert type="info" title="请先结束位置预览或运动操作。"/>}
    {initial&&initial.status!=='CURRENT'&&<Alert type="info" title={`${measurementStatus(initial.status)}，旧结果仅供参考。`} action={<Button disabled={!canSave||saving||blocked} onClick={()=>void save(true,'UPDATE_MEASUREMENT')}>更新测量</Button>}/>}
    {summary&&<div className="measurement-results" aria-label="测量结果"><Tag color="cyan">精确几何</Tag>{initial&&<Tag>{measurementStatus(initial.status)}</Tag>}
-    <dl>{Object.entries(report!.result.values).map(([key,value])=><div key={key}><dt>{measurementValueLabel(key)}</dt><dd>{measurementValue(key,value,unit)}</dd></div>)}</dl>
+    <dl>{Object.entries(report!.result.values).map(([key,value])=><div key={key}><dt>{measurementValueLabel(key)}</dt><dd>{measurementValue(key,value,unit)}{initial?.outputCurrency?.[key]&&initial.outputCurrency[key]!=="CURRENT"&&<Tag color="warning">上次值 · 待更新</Tag>}</dd></div>)}</dl>
     {Object.entries(report!.result.anchors).filter(([key])=>['first','second','position','center','centroid','vertex','axisOrigin','apex'].includes(key)).map(([key,p])=><div key={key} className="measurement-coordinate"><span>{{first:'点 1',second:'点 2',position:'坐标',center:'几何中心',centroid:'几何形心',vertex:'顶点',axisOrigin:'轴线上一点',apex:'锥顶'}[key]}</span><output>{p.map(v=>measurementValue('xMm',v,unit)).join(', ')}</output></div>)}
     <Button size="small" onClick={()=>void navigator.clipboard.writeText(Object.entries(report!.result.values).map(([k,v])=>`${measurementValueLabel(k)}: ${measurementValue(k,v,unit)}`).join('\n')).catch(()=>setError('复制失败，请直接选择结果文字。'))}>复制结果</Button>
    </div>}

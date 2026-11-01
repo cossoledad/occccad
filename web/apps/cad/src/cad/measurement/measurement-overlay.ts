@@ -1,6 +1,7 @@
 import {Camera,Vector3} from 'three';
 import type {Vec3} from '../../types';
 import {measurementSummary,measurementValue,type Measurement,type MeasurementUnit} from './measurement';
+import type {AnnotationLayouts} from './annotation-layout';
 
 type Point=[number,number];
 const NS='http://www.w3.org/2000/svg';
@@ -9,14 +10,14 @@ export type MeasurementDrawing={anchor:Vec3;segments:Array<[Vec3,Vec3]>;points:V
 /** Pure geometry presentation. All authority values/anchors come from Worker;
  * arrow sizes, offsets and angle arc radius are display-only choices. */
 export function measurementDrawing(m:Measurement,unit:MeasurementUnit):MeasurementDrawing|undefined{
- const r=m.result;if(!r?.complete)return;const a=r.anchors;
+ const r=m.result;if(!r?.complete)return;const a=m.displayAnchors??r.anchors;
  const point=a.vertex??a.centroid??a.position??a.center??a.first??a.start;
  if(!point)return;
  const out:MeasurementDrawing={anchor:point,segments:[],points:[],text:measurementSummary(m,unit)};
  if(m.kind==='BETWEEN'&&a.first&&a.second){
   out.dimension=[a.first,a.second];out.anchor=a.first.map((v,i)=>(v+a.second[i])/2) as Vec3;out.points=[a.first,a.second];
   if(r.values.angleRad!==undefined)out.text+=` · ${measurementValue('angleRad',r.values.angleRad,unit)}`;
-  if(m.showComponents){let p=[...a.first] as Vec3;out.components=[];for(let i=0;i<3;i++){const next=[...p] as Vec3;next[i]=a.second[i];out.components.push({axis:i,first:p,second:next,value:next[i]-p[i]});p=next;}}
+  if(m.showComponents&&!['deltaXMm','deltaYMm','deltaZMm'].some(key=>m.outputCurrency?.[key]&&m.outputCurrency[key]!=='CURRENT')){let p=[...a.first] as Vec3;out.components=[];for(let i=0;i<3;i++){const next=[...p] as Vec3;next[i]=a.second[i];out.components.push({axis:i,first:p,second:next,value:next[i]-p[i]});p=next;}}
  }else if(m.kind==='ANGLE_POINTS'&&a.first&&a.vertex&&a.second){
   const center=new Vector3().fromArray(a.vertex),u=new Vector3().fromArray(a.first).sub(center),v=new Vector3().fromArray(a.second).sub(center);
   const radius=Math.min(u.length(),v.length())*.28,angle=u.angleTo(v);u.normalize();v.normalize();
@@ -26,7 +27,7 @@ export function measurementDrawing(m:Measurement,unit:MeasurementUnit):Measureme
  }else{
   if(a.start&&a.end){out.segments.push([a.start,a.end]);out.points.push(a.start,a.end)}
   if(a.center&&a.start&&r.values.radiusMm!==undefined){out.segments.push([a.center,a.start]);out.points.push(a.center);out.text+=` · R ${measurementValue('radiusMm',r.values.radiusMm,unit)}`}
-  if(a.bboxMin&&a.bboxMax){
+  if(a.bboxMin&&a.bboxMax&&!['sizeXMm','sizeYMm','sizeZMm'].some(key=>m.outputCurrency?.[key]&&m.outputCurrency[key]!=='CURRENT')){
    const lo=a.bboxMin,hi=a.bboxMax,corners=Array.from({length:8},(_,i)=>[i&1?hi[0]:lo[0],i&2?hi[1]:lo[1],i&4?hi[2]:lo[2]] as Vec3);
    for(let i=0;i<8;i++)for(const bit of [1,2,4])if(!(i&bit))out.segments.push([corners[i],corners[i|bit]]);
   }
@@ -41,8 +42,17 @@ export class MeasurementOverlay {
  private readonly root=svg('svg',{'class':'measurement-overlay','aria-label':'几何测量标注'});
  private offsets=new Map<string,Point>();
  private documentId='';
+ private layoutDocumentId='';
+ private layouts:AnnotationLayouts={};
  private sourceKey='';
  private dragging?:{cancel:()=>void};
+ private saveOffset?: (id:string,offset:Point|undefined)=>void;
+ setLayouts(documentId:string,layouts:AnnotationLayouts,save?:(id:string,offset:Point|undefined)=>void){
+  this.layoutDocumentId=documentId;this.layouts=layouts;
+  this.saveOffset=save;
+  if(documentId===this.documentId)this.hydrateLayouts();
+ }
+ private hydrateLayouts(){for(const [id,layout] of Object.entries(this.layouts)){if(layout.offset)this.offsets.set(id,layout.offset);else this.offsets.delete(id)}}
  constructor(host:HTMLElement){host.append(this.root)}
  dispose(){this.dragging?.cancel();this.root.remove();this.offsets.clear()}
  render(documentId:string,items:Measurement[],unit:MeasurementUnit,camera:Camera,width:number,height:number,enabled=true){
@@ -50,6 +60,7 @@ export class MeasurementOverlay {
   if(sourceKey!==this.sourceKey){this.dragging?.cancel();this.sourceKey=sourceKey;const live=new Set(items.map(m=>m.id||'preview'));for(const key of this.offsets.keys())if(!live.has(key))this.offsets.delete(key)}
   if(documentId!==this.documentId||!enabled){this.dragging?.cancel();if(documentId!==this.documentId)this.offsets.clear();this.documentId=documentId}
   if(this.dragging)return;
+  if(documentId===this.layoutDocumentId)this.hydrateLayouts();
   this.root.replaceChildren();this.root.setAttribute('viewBox',`0 0 ${width} ${height}`);
   if(!enabled)return;
   const occupied:Array<{x:number;y:number;w:number;h:number}>=[];
@@ -57,9 +68,10 @@ export class MeasurementOverlay {
   const line=(parent:SVGElement,a:Point,b:Point,cls:string)=>{const n=svg('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],class:cls});parent.append(n);return n};
   const arrow=(parent:SVGElement,p:Point,d:Point)=>{const l=Math.hypot(...d);if(l<.1)return;const x=d[0]/l,y=d[1]/l;parent.append(svg('polygon',{points:`${p[0]},${p[1]} ${p[0]+x*8-y*3},${p[1]+y*8+x*3} ${p[0]+x*8+y*3},${p[1]+y*8-x*3}`,class:'measurement-arrow'}))};
   for(const [index,m] of items.entries()){
-   if(!m.visible||m.status!=='CURRENT')continue;const drawing=measurementDrawing(m,unit);if(!drawing)continue;
+   if(!m.visible)continue;const drawing=measurementDrawing(m,unit);if(!drawing)continue;
+   const stale=m.status!=='CURRENT';if(stale){drawing.text=`上次值 · ${drawing.text} · ${m.status==='BROKEN'?'来源断裂':'待更新'}`;drawing.components=undefined}
    const anchor=project(drawing.anchor);if(!anchor)continue;
-   const group=svg('g',{'data-measurement-id':m.id||'preview',class:m.id?'measurement-retained':'measurement-preview'});this.root.append(group);
+   const group=svg('g',{'data-measurement-id':m.id||'preview',class:`${m.id?'measurement-retained':'measurement-preview'}${stale?' measurement-stale':''}${m.status==='BROKEN'?' measurement-broken':''}`});this.root.append(group);
    for(const [a,b] of drawing.segments){const x=project(a),y=project(b);if(x&&y)line(group,x,y,'measurement-support-line')}
    let labelAnchor=anchor;
    if(drawing.dimension){
@@ -83,12 +95,12 @@ export class MeasurementOverlay {
    const label=svg('g',{transform:`translate(${x} ${y})`,class:'measurement-label',tabindex:0,role:'img','aria-label':text});
    label.append(svg('rect',{width:w,height:h,rx:5}));const title=svg('title');title.textContent=`${text}；拖动可调整标签位置，双击复位`;label.append(title);
    const t=svg('text',{x:10,y:19});t.textContent=text.length*7.5+24>w?text.slice(0,Math.max(8,Math.floor((w-40)/7.5)))+'…':text;label.append(t);group.append(label);
-   label.addEventListener('dblclick',e=>{e.stopPropagation();this.offsets.delete(key);x=Math.max(8,Math.min(width-w-8,labelAnchor[0]+26));y=Math.max(8,Math.min(height-h-8,labelAnchor[1]-38));label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2))});
+   label.addEventListener('dblclick',e=>{e.stopPropagation();this.offsets.delete(key);if(m.id)this.saveOffset?.(m.id,undefined);x=Math.max(8,Math.min(width-w-8,labelAnchor[0]+26));y=Math.max(8,Math.min(height-h-8,labelAnchor[1]-38));label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2))});
    label.addEventListener('pointerdown',e=>{
     if(e.button!==0)return;e.preventDefault();e.stopPropagation();label.setPointerCapture(e.pointerId);
     const start:Point=[e.clientX,e.clientY],base:Point=[x,y],previous=this.offsets.get(key);
     const move=(event:PointerEvent)=>{event.stopPropagation();const box=this.root.getBoundingClientRect(),sx=width/box.width,sy=height/box.height;x=Math.max(8,Math.min(width-w-8,base[0]+(event.clientX-start[0])*sx));y=Math.max(8,Math.min(height-h-8,base[1]+(event.clientY-start[1])*sy));label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2));this.offsets.set(key,[x-labelAnchor[0],y-labelAnchor[1]])};
-    const finish=(event?:Event,cancel=false)=>{event?.stopPropagation();if(cancel){if(previous)this.offsets.set(key,previous);else this.offsets.delete(key);label.setAttribute('transform',`translate(${base[0]} ${base[1]})`);leader.setAttribute('x2',String(base[0]));leader.setAttribute('y2',String(base[1]+h/2))}this.dragging=undefined;label.removeEventListener('pointermove',move);label.removeEventListener('pointerup',up);label.removeEventListener('pointercancel',cancelled);label.removeEventListener('lostpointercapture',cancelled);window.removeEventListener('blur',cancelled);window.removeEventListener('keydown',keyDown,true);if(label.hasPointerCapture(e.pointerId))label.releasePointerCapture(e.pointerId)};
+    const finish=(event?:Event,cancel=false)=>{event?.stopPropagation();if(cancel){if(previous)this.offsets.set(key,previous);else this.offsets.delete(key);label.setAttribute('transform',`translate(${base[0]} ${base[1]})`);leader.setAttribute('x2',String(base[0]));leader.setAttribute('y2',String(base[1]+h/2))}if(!cancel&&m.id)this.saveOffset?.(m.id,this.offsets.get(key));this.dragging=undefined;label.removeEventListener('pointermove',move);label.removeEventListener('pointerup',up);label.removeEventListener('pointercancel',cancelled);label.removeEventListener('lostpointercapture',cancelled);window.removeEventListener('blur',cancelled);window.removeEventListener('keydown',keyDown,true);if(label.hasPointerCapture(e.pointerId))label.releasePointerCapture(e.pointerId)};
     const up=(event:PointerEvent)=>finish(event),cancelled=(event:Event)=>finish(event,true),keyDown=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();finish(event,true)}};
     this.dragging={cancel:()=>finish(undefined,true)};label.addEventListener('pointermove',move);label.addEventListener('pointerup',up);label.addEventListener('pointercancel',cancelled);label.addEventListener('lostpointercapture',cancelled);window.addEventListener('blur',cancelled);window.addEventListener('keydown',keyDown,true);
    });

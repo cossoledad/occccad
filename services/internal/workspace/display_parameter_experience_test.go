@@ -9,8 +9,9 @@ import (
 func TestReferenceVisibilityHistoryAndGeometryIndependence(t *testing.T) {
 	model := newPartModel()
 	initial, _ := json.Marshal(model)
-	targets := []definitionVisibilityPayload{{EntityKind: "ORIGIN", EntityID: "origin"}, {EntityKind: "PLANE", EntityID: model.DatumPlanes[0].ID}, {EntityKind: "AXIS_SYSTEM", EntityID: model.AxisSystems[0].ID}, {EntityKind: "DATUM_POINT", EntityID: model.AxisSystems[0].ID}, {EntityKind: "AXIS", EntityID: model.AxisSystems[0].ID, Axis: "X"}}
+	targets := []definitionVisibilityPayload{{EntityKind: "PLANE", EntityID: model.DatumPlanes[0].ID}, {EntityKind: "AXIS_SYSTEM", EntityID: model.AxisSystems[0].ID}, {EntityKind: "DATUM_POINT", EntityID: model.AxisSystems[0].ID}, {EntityKind: "AXIS", EntityID: model.AxisSystems[0].ID, Axis: "X"}}
 	model.DatumAxes = append(model.DatumAxes, DatumAxis{ID: "datum-test", Name: "axis", Direction: [3]float64{1, 0, 0}})
+	normalizePartModel(&model)
 	initial, _ = json.Marshal(model)
 	targets = append(targets, definitionVisibilityPayload{EntityKind: "DATUM_AXIS", EntityID: "datum-test"})
 	for _, input := range targets {

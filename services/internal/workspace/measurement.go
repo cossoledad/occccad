@@ -2,8 +2,6 @@ package workspace
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +18,7 @@ import (
 
 const typeSetMeasurements = "occccad://document/measurements/set"
 const measurementPolicy = "exact-boundary-owner-frame-v1"
-const measurementEvaluatorVersion = "measurement-v2"
+const measurementEvaluatorVersion = "measurement-v3-facets"
 const measurementSlot = "document.measurements"
 
 // Display picks may carry locators. Saved definitions contain only typed stable
@@ -36,19 +34,25 @@ type MeasurementSupport struct {
 	LocalID          uint64                         `json:"localId,omitempty"`
 }
 type Measurement struct {
-	ID             string               `json:"id"`
-	Name           string               `json:"name"`
-	Kind           string               `json:"kind"`
-	Supports       []MeasurementSupport `json:"supports"`
-	Visible        bool                 `json:"visible"`
-	ShowComponents bool                 `json:"showComponents"`
-	Result         *MeasurementEvidence `json:"result,omitempty"`
-	Status         string               `json:"status,omitempty"`
+	ID             string                `json:"id"`
+	Name           string                `json:"name"`
+	Kind           string                `json:"kind"`
+	Supports       []MeasurementSupport  `json:"supports"`
+	Visible        bool                  `json:"visible"`
+	ShowComponents bool                  `json:"showComponents"`
+	Result         *MeasurementEvidence  `json:"result,omitempty"`
+	Status         string                `json:"status,omitempty"`
+	OutputCurrency map[string]string     `json:"outputCurrency,omitempty"`
+	DisplayAnchors map[string][3]float64 `json:"displayAnchors,omitempty"`
 }
 type MeasurementEvidence struct {
-	SourceRevisionID string `json:"sourceRevisionId"`
-	SourceStamp      string `json:"sourceStamp"`
-	Policy           string `json:"policy"`
+	EvaluatorVersion string                     `json:"evaluatorVersion,omitempty"`
+	Reads            []modelcore.DependencyRead `json:"reads,omitempty"`
+	InputStamps      map[string]string          `json:"inputStamps,omitempty"`
+	AnchorFrame      InstancePose               `json:"anchorFrame"`
+	SourceRevisionID string                     `json:"sourceRevisionId"`
+	SourceStamp      string                     `json:"sourceStamp"`
+	Policy           string                     `json:"policy"`
 	geometry.MeasurementResult
 }
 type MeasurementRequest struct {
@@ -128,15 +132,68 @@ func applyMeasurements(raw, payload json.RawMessage) (json.RawMessage, modelcore
 	if err = json.Unmarshal(raw, &fields); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
+	doc, err := readParameterDocument(raw)
+	if err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	beforeParameters := append([]modelcore.ParameterDefinition(nil), doc.Parameters...)
+	if err = rejectRemovedMeasurementConsumers(doc.Parameters, before, next); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	for _, p := range doc.Parameters {
+		if source := p.Source.Produced; source != nil {
+			for _, publication := range doc.Publications {
+				if publication.Target.ParameterID == p.ParameterID {
+					found := false
+					for _, m := range next {
+						if m.ID == source.EntityID {
+							found = true
+						}
+					}
+					if !found {
+						return nil, modelcore.ChangeSet{}, measurementError("MEASUREMENT_OUTPUT_PUBLISHED")
+					}
+				}
+			}
+		}
+	}
+	if err = syncMeasurementParameters(&doc.Parameters, next); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	fields["parameters"], _ = json.Marshal(doc.Parameters)
 	fields["measurements"], _ = json.Marshal(next)
 	out, err := json.Marshal(fields)
-	return out, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}}, err
+	changes, _ := appendParameterLifecycleChanges([]modelcore.ModelChange{change}, nil, beforeParameters, doc.Parameters)
+	seeds := []modelcore.DependencyKey{}
+	for _, prior := range before {
+		for _, current := range next {
+			if current.ID == prior.ID && !reflect.DeepEqual(prior.Result, current.Result) {
+				seeds = append(seeds, modelcore.DependencyKey("measurement:"+current.ID))
+			}
+		}
+	}
+	return out, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, err
 }
 func measurementsOnly(c modelcore.ChangeSet) bool {
 	if len(c.Changes) == 0 || len(c.ImpactSeeds) > 0 {
 		return false
 	}
 	for _, v := range c.Changes {
+		if v.Target.SlotID == "parameter.entity" {
+			valid := true
+			for _, raw := range []json.RawMessage{v.Before, v.After} {
+				if len(raw) == 0 || string(raw) == "null" {
+					continue
+				}
+				var p modelcore.ParameterDefinition
+				if json.Unmarshal(raw, &p) != nil || p.Source.Produced == nil || p.Source.Produced.Kind != "MEASUREMENT" {
+					valid = false
+				}
+			}
+			if valid {
+				continue
+			}
+		}
 		if v.Target.SlotID != measurementSlot || v.Target.EntityID != "document" {
 			return false
 		}
@@ -164,9 +221,21 @@ type frozenMeasurement struct {
 	operands   [][]geometry.MeasurementElement
 	definition Measurement
 	stamp      string
+	stamps     map[string]string
+	frame      InstancePose
+	reads      []modelcore.DependencyRead
+}
+
+type measurementSnapshotKey struct{}
+type measurementSnapshot struct {
+	documentID, revisionID, kind string
+	raw                          json.RawMessage
 }
 
 func (s *Service) measurementModel(ctx context.Context, doc, rev string) (string, json.RawMessage, error) {
+	if snapshot, ok := ctx.Value(measurementSnapshotKey{}).(measurementSnapshot); ok && snapshot.documentID == doc && snapshot.revisionID == rev {
+		return snapshot.kind, snapshot.raw, nil
+	}
 	var kind string
 	var raw []byte
 	err := s.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.documents d JOIN occccad.document_versions v ON v.document_id=d.id WHERE d.id=$1 AND v.id=$2 AND d.deleted_at IS NULL`, doc, rev).Scan(&kind, &raw)
@@ -179,6 +248,8 @@ func (s *Service) freezeMeasurement(ctx context.Context, doc, rev string, m Meas
 	f := frozenMeasurement{definition: m}
 	f.definition.Result = nil
 	f.definition.Status = ""
+	f.definition.OutputCurrency = nil
+	f.definition.DisplayAnchors = nil
 	required := measurementCount(m.Kind)
 	if required == 0 || len(m.Supports) != required {
 		return f, measurementError("MEASUREMENT_INPUT_INVALID")
@@ -190,14 +261,19 @@ func (s *Service) freezeMeasurement(ctx context.Context, doc, rev string, m Meas
 	ctx = withAssemblyReadCache(ctx)
 	items := []expandedOccurrence{{DocumentID: doc, RevisionID: rev, DocumentType: kind, Pose: InstancePose{Rotation: [4]float64{0, 0, 0, 1}}}}
 	if kind == "PRODUCT" {
-		items, err = s.expandProductContext(ctx, doc, rev)
+		var candidate ProductModel
+		if err = json.Unmarshal(raw, &candidate); err != nil {
+			return f, err
+		}
+		items, err = s.expandProductContext(ctx, doc, rev, candidate)
 		if err != nil {
 			return f, err
 		}
 	}
 	parts := map[string]PartModel{}
 	inputs := map[string]geometry.AnalysisGeometry{}
-	stampRows := []any{}
+	reads := []modelcore.DependencyRead{}
+	placements := []analysisPlacement{}
 	elementCount := 0
 	inputBytes := int64(0)
 	inputDigests := map[string]bool{}
@@ -355,11 +431,8 @@ func (s *Service) freezeMeasurement(ctx context.Context, doc, rev string, m Meas
 					f.inputs = append(f.inputs, input)
 				}
 				op = append(op, element)
-				stampRows = append(stampRows, struct {
-					ID, GeometryKey string
-					Pose            InstancePose
-					Element         geometry.MeasurementElement
-				}{id, b.GeometryKey, item.Pose, element})
+				reads = append(reads, modelcore.DependencyRead{DocumentID: item.DocumentID, Occurrence: item.Path.Canonical, EntityID: b.ID, Facet: modelcore.IntrinsicGeometry, Slot: fmt.Sprintf("operand:%d", i), Digest: b.GeometryKey, RevisionID: item.RevisionID}, modelcore.DependencyRead{DocumentID: item.DocumentID, Occurrence: item.Path.Canonical, EntityID: b.ID, Facet: modelcore.TopologySupport, Slot: fmt.Sprintf("operand:%d", i), Digest: resolvedDigest(element), RevisionID: item.RevisionID})
+				placements = append(placements, analysisPlacement{item.DocumentID, item.Path.Canonical, b.ID, item.RevisionID, item.Pose})
 			}
 		}
 		if source.SourceRevisionID == "" {
@@ -386,9 +459,13 @@ func (s *Service) freezeMeasurement(ctx context.Context, doc, rev string, m Meas
 	if n > 128 || len(f.inputs) > 128 || totalBytes > 256*1024*1024 {
 		return f, measurementError("MEASUREMENT_SCOPE_LIMIT")
 	}
-	stampJSON, _ := json.Marshal([]any{measurementPolicy, measurementEvaluatorVersion, m.Kind, stampRows})
-	digest := sha256.Sum256(stampJSON)
-	f.stamp = hex.EncodeToString(digest[:])
+	f.stamps, f.frame, err = measurementInputStamps(m.Kind, reads, placements)
+	f.reads = reads
+	if err != nil {
+		return f, err
+	}
+	facet := measurementPrimaryFacet(m)
+	f.stamp = f.stamps[facet]
 	return f, nil
 }
 func (s *Service) Measure(ctx context.Context, doc string, r MeasurementRequest) (MeasurementReport, error) {
@@ -409,7 +486,7 @@ func (s *Service) Measure(ctx context.Context, doc string, r MeasurementRequest)
 	if err != nil {
 		return MeasurementReport{}, err
 	}
-	evidence := MeasurementEvidence{SourceRevisionID: r.RevisionID, SourceStamp: f.stamp, Policy: measurementPolicy, MeasurementResult: result}
+	evidence := MeasurementEvidence{EvaluatorVersion: measurementEvaluatorVersion, Reads: f.reads, InputStamps: f.stamps, AnchorFrame: f.frame, SourceRevisionID: r.RevisionID, SourceStamp: f.stamp, Policy: measurementPolicy, MeasurementResult: result}
 	return MeasurementReport{DocumentID: doc, RevisionID: r.RevisionID, Definition: f.definition, Result: evidence}, nil
 }
 func (s *Service) prepareMeasurements(ctx context.Context, doc string, raw json.RawMessage, r CommandRequest) ([]Measurement, error) {
@@ -417,6 +494,7 @@ func (s *Service) prepareMeasurements(ctx context.Context, doc string, raw json.
 	if err != nil {
 		return nil, err
 	}
+	clearMeasurementProjection(values)
 	if r.Type == "DELETE_MEASUREMENT" {
 		index := slices.IndexFunc(values, func(m Measurement) bool { return m.ID == r.MeasurementID })
 		if index < 0 {
@@ -430,6 +508,8 @@ func (s *Service) prepareMeasurements(ctx context.Context, doc string, raw json.
 	m := *r.Measurement
 	m.Result = nil
 	m.Status = ""
+	m.OutputCurrency = nil
+	m.DisplayAnchors = nil
 	index := slices.IndexFunc(values, func(v Measurement) bool { return v.ID == m.ID })
 	if m.ID != "" && index < 0 {
 		return nil, ErrNotFound
@@ -485,15 +565,41 @@ func (s *Service) projectMeasurements(ctx context.Context, doc, rev string, valu
 			}
 			continue
 		}
-		if f.stamp == m.Result.SourceStamp && m.Result.Policy == measurementPolicy {
-			m.Status = "CURRENT"
+		m.Status = modelcore.DerivedCurrency(m.Result.SourceStamp, f.stamp, true)
+		m.OutputCurrency = map[string]string{}
+		for key := range m.Result.Values {
+			facet := measurementOutputFacet(m.Kind, key)
+			m.OutputCurrency[key] = modelcore.DerivedCurrency(m.Result.InputStamps[facet], f.stamps[facet], true)
+		}
+		if m.Status == "CURRENT" {
+			transform := composeInstancePose(f.frame, inverseRelativePose(InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, m.Result.AnchorFrame))
+			m.DisplayAnchors = map[string][3]float64{}
+			for key, point := range m.Result.Anchors {
+				if key == "direction" || key == "firstDirection" || key == "secondDirection" {
+					m.DisplayAnchors[key] = rotateByPose(transform, point)
+				} else {
+					m.DisplayAnchors[key] = pointByPose(transform, point)
+				}
+			}
 		}
 	}
 }
-func measurementStructure(doc, rev, parent string, values []Measurement) DocumentStructureNode {
-	group := DocumentStructureNode{ID: parent + "/measurements", Kind: "MEASUREMENT_GROUP", Name: "测量", DocumentID: doc, VersionID: rev}
+func measurementStructure(doc, rev, parent string, values []Measurement, parameters []modelcore.ParameterDefinition) DocumentStructureNode {
+	group := DocumentStructureNode{ID: parent + "/measurements", Kind: "MEASUREMENT_GROUP", Name: "测量", DocumentID: doc, VersionID: rev, Capabilities: []string{"REFRESH"}}
 	for _, m := range values {
-		group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/" + m.ID, Kind: "MEASUREMENT", EntityID: m.ID, EntityType: m.Kind, Name: m.Name, DocumentID: doc, OwnerDocumentID: doc, VersionID: rev, EvaluationStatus: m.Status, CurrencyStatus: m.Status, Capabilities: []string{"EDIT", "REFRESH", "DELETE"}})
+		node := DocumentStructureNode{ID: group.ID + "/" + m.ID, Kind: "MEASUREMENT", EntityID: m.ID, EntityType: m.Kind, Name: m.Name, DocumentID: doc, OwnerDocumentID: doc, VersionID: rev, EvaluationStatus: m.Status, CurrencyStatus: m.Status, LocalVisible: boolPointer(m.Visible), Capabilities: []string{"EDIT", "REFRESH", "DELETE"}}
+		for _, p := range parameters {
+			if p.Source.Produced == nil || p.Source.Produced.EntityID != m.ID {
+				continue
+			}
+			child := DocumentStructureNode{ID: node.ID + "/parameter:" + p.ParameterID, Kind: "PARAMETER", EntityID: p.ParameterID, Name: measurementOutputLabel(p.PropertySlot), ParameterAlias: p.Key, OwnerEntityID: m.ID, DocumentID: doc, OwnerDocumentID: doc, VersionID: rev, CurrencyStatus: p.CurrencyStatus, EvaluationStatus: p.CurrencyStatus, Capabilities: []string{"EDIT"}}
+			if p.EvaluatedValue != nil {
+				value, _ := quantityInDisplayUnit(*p.EvaluatedValue, p.DisplayUnit)
+				child.Name += fmt.Sprintf(" = %.7g %s", value, p.DisplayUnit)
+			}
+			node.Children = append(node.Children, child)
+		}
+		group.Children = append(group.Children, node)
 	}
 	return group
 }

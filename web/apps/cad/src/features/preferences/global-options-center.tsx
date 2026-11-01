@@ -47,7 +47,7 @@ export function GlobalOptionsProvider({children,activeDocumentID}:PropsWithChild
    <Checkbox disabled={draft.solidDisplay.mode==="wireframe"} checked={draft.solidDisplay.mode==="wireframe"||draft.solidDisplay.edges} onChange={e=>patch({solidDisplay:{...draft.solidDisplay,edges:e.target.checked}})}>显示边线</Checkbox>
    <Checkbox checked={draft.solidDisplay.vertices} onChange={e=>patch({solidDisplay:{...draft.solidDisplay,vertices:e.target.checked}})}>显示交点</Checkbox>
    <Typography.Title level={5}>基准与草图</Typography.Title>
-   {([["planes","基准面"],["axes","基准轴"],["coordinateSystems","坐标系"]] as const).map(([key,label])=><Checkbox key={key} checked={draft.referenceVisibility[key]} onChange={e=>patch({referenceVisibility:{...draft.referenceVisibility,[key]:e.target.checked}})}>{label}</Checkbox>)}
+   {([["points","参考点"],["axes","参考线"],["planes","参考面"],["coordinateSystems","坐标系"]] as const).map(([key,label])=><Checkbox key={key} checked={draft.referenceVisibility[key]} onChange={e=>patch({referenceVisibility:{...draft.referenceVisibility,[key]:e.target.checked}})}>{label}</Checkbox>)}
    <Checkbox checked={draft.gridVisibility.sketch} onChange={e=>patch({gridVisibility:{...draft.gridVisibility,sketch:e.target.checked}})}>显示草图网格</Checkbox>
   </Space>}
   {page==="creation"&&<Space orientation="vertical" className="global-options-fields">

@@ -180,6 +180,24 @@ func definitionEntities(snapshot workspace.ModelSnapshot, requestedKind string) 
 		}
 		rows = append(rows, Entity{EntityRef{snapshot.DocumentID, snapshot.RevisionID, kind, id}, p})
 	}
+	addParameters := func(parameters []modelcore.ParameterDefinition, ownerBodies map[string]string) {
+		for _, p := range parameters {
+			name := p.DisplayName
+			if name == "" {
+				name = p.Label
+			}
+			if name == "" {
+				name = p.Key
+			}
+			properties := map[string]any{"name": name, "type": p.ValueType, "parameterAlias": p.Key, "ownerId": p.OwnerFeatureID, "bodyId": ownerBodies[p.OwnerFeatureID], "value": p.EvaluatedValue, "unit": p.DisplayUnit, "definition": p}
+			if p.EvaluatedValue != nil {
+				if scale, err := modelcore.NewQuantity(1, p.DisplayUnit); err == nil && scale.Dimension.Equal(p.EvaluatedValue.Dimension) {
+					properties["displayValue"] = p.EvaluatedValue.SIValue / scale.SIValue
+				}
+			}
+			add("PARAMETER", p.ParameterID, properties)
+		}
+	}
 	if snapshot.DocumentType == "PART" {
 		var part workspace.PartModel
 		if err := json.Unmarshal(snapshot.Model, &part); err != nil {
@@ -218,27 +236,18 @@ func definitionEntities(snapshot workspace.ModelSnapshot, requestedKind string) 
 				}
 			}
 		}
-		for _, p := range part.Parameters {
-			name := p.DisplayName
-			if name == "" {
-				name = p.Label
-			}
-			if name == "" {
-				name = p.Key
-			}
-			properties := map[string]any{"name": name, "type": p.ValueType, "parameterAlias": p.Key, "ownerId": p.OwnerFeatureID, "bodyId": ownerBodies[p.OwnerFeatureID], "value": p.EvaluatedValue, "unit": p.DisplayUnit, "definition": p}
-			if p.EvaluatedValue != nil {
-				if scale, err := modelcore.NewQuantity(1, p.DisplayUnit); err == nil && scale.Dimension.Equal(p.EvaluatedValue.Dimension) {
-					properties["displayValue"] = p.EvaluatedValue.SIValue / scale.SIValue
-				}
-			}
-			add("PARAMETER", p.ParameterID, properties)
-		}
+		addParameters(part.Parameters, ownerBodies)
 		for _, p := range part.DatumPlanes {
 			add("DATUM_PLANE", p.ID, map[string]any{"name": p.Name, "plane": p.Plane, "type": "DATUM_PLANE", "definition": p})
 		}
 		for _, item := range part.DatumAxes {
 			add("DATUM_AXIS", item.ID, map[string]any{"name": item.Name, "type": "DATUM_AXIS", "definition": item})
+		}
+		for _, item := range part.DatumPoints {
+			add("REFERENCE_POINT", item.ID, map[string]any{"name": item.Name, "type": "REFERENCE_POINT", "ownerId": item.GeometricalSetID, "definition": item})
+		}
+		for _, item := range part.GeometricalSets {
+			add("GEOMETRICAL_SET", item.ID, map[string]any{"name": item.Name, "type": "GEOMETRICAL_SET", "ownerId": item.ParentID, "definition": item})
 		}
 		for _, item := range part.Publications {
 			add("PUBLICATION", item.ID, map[string]any{"name": item.Name, "type": item.Type, "definition": item})
@@ -254,6 +263,7 @@ func definitionEntities(snapshot workspace.ModelSnapshot, requestedKind string) 
 		if err := json.Unmarshal(snapshot.Model, &product); err != nil {
 			return nil, err
 		}
+		addParameters(product.Parameters, nil)
 		for _, i := range product.Instances {
 			add("INSTANCE", i.ID, map[string]any{"name": i.Name, "type": "INSTANCE", "referencedDocumentId": i.ReferencedDocumentID, "referencedRevisionId": i.ReferencedVersionID, "referenceMode": i.ReferenceMode, "definition": i})
 		}

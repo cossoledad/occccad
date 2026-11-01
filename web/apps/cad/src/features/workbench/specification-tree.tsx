@@ -1,3 +1,4 @@
+import {treeRevealState,treeRevealPath,revealExpansion,type TreeRevealIntent} from "./tree-reveal";
 import {solidFeatureNames} from "./solid-feature-model";
 import {historicalCreationTypes,type HistoricalCreationType} from "./historical-creation";
 import {useOperationFeedback} from "../../cad/command/operation-feedback";
@@ -20,7 +21,7 @@ import { ContextMenuIcon } from "../../components/context-menu-icon";
 import { registerDocumentState, type DocumentSessions } from "../../cad/document/document-session";
 import { useDocumentState } from "../../cad/document/document-session-context";
 
-const treeState = registerDocumentState<{ query: string; expanded: string[]; knownBranches: string[] }>("workbench.tree");
+const treeState = registerDocumentState<{ query: string; expanded: string[]; knownBranches: string[]; automatic?:string[]; revealedSequence?:number }>("workbench.tree");
 
 export type SpecificationTreeNode = {
   axis?:string;
@@ -117,12 +118,16 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   const menuLabel=(id:string,variant="default",count=0)=>{const command=declaration(id);return (command?.labels?.[variant]??command?.name??"操作").replace("{count}",String(count));};
   const menuIcon=(id:string)=><ContextMenuIcon><CadIcon name={declaration(id)?.iconKey??""}/></ContextMenuIcon>;
   const [savedTree, setSavedTree] = useDocumentState(documentSessions, hostDocumentId, treeState, () => ({ query: "", expanded: [], knownBranches: [] }));
+  const [reveal]=useDocumentState(documentSessions,hostDocumentId,treeRevealState,():{sequence:number;intent?:TreeRevealIntent}=>({sequence:0}));
   const query = savedTree.query;
   const setQuery = (query: string) => setSavedTree(current => ({ ...current, query }));
   const [focusedKey, setFocusedKey] = useState<string>();
   const expanded = useMemo(() => new Set(savedTree.expanded), [savedTree.expanded]);
-  const setExpanded = (next: Set<string> | ((previous: Set<string>) => Set<string>)) => setSavedTree(current => ({ ...current,
-    expanded: [...(typeof next === "function" ? next(new Set(current.expanded)) : next)] }));
+  const setExpanded = (next:Set<string>|((previous:Set<string>)=>Set<string>))=>setSavedTree(current=>{
+    const previous=new Set(current.expanded),value=typeof next==='function'?next(new Set(previous)):next;
+    const changed=new Set([...current.expanded,...value].filter(key=>previous.has(key)!==value.has(key)));
+    return {...current,expanded:[...value],automatic:current.automatic?.filter(key=>!changed.has(key))};
+  });
   const [contextMenu, setContextMenu] = useState<{ nodeKey: string; selectionSignature: string }>();
   const anchorKey = useRef<string | undefined>(undefined);
   const scrollElement = useRef<HTMLElement>(null);
@@ -150,6 +155,15 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   }, [selectionToken]);
   const virtualizer = useVirtualizer({ count: visible.length, getScrollElement: () => scrollElement.current,
     estimateSize: () => 27, overscan: 14, getItemKey: (index) => visible[index]?.node.key ?? index });
+  const pendingReveal=useRef<string|undefined>(undefined);
+  useEffect(()=>{
+    if(!reveal.intent||reveal.sequence===savedTree.revealedSequence)return;
+    const path=treeRevealPath(nodes,reveal.intent);if(!path)return;
+    const state=revealExpansion(savedTree.expanded,savedTree.automatic??[],path);
+    pendingReveal.current=path.at(-1);setFocusedKey(path.at(-1));
+    setSavedTree(current=>({...current,expanded:state.expanded,automatic:state.automatic,query:'',revealedSequence:reveal.sequence}));
+  },[nodes,reveal.sequence,reveal.intent,savedTree.revealedSequence]);
+  useEffect(()=>{const key=pendingReveal.current;if(!key)return;const index=visibleKeys.indexOf(key);if(index>=0){virtualizer.scrollToIndex(index,{align:'auto'});pendingReveal.current=undefined}},[visibleKeys,virtualizer]);
 
   const toggle = (key: string) => setExpanded((current) => {
     const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next;

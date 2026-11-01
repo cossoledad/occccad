@@ -1,9 +1,9 @@
 import {CATIA_VISUAL_THEME} from "./cad-visual-theme";
 import * as THREE from "three";
-import type { DatumAxis, DatumPlane, Vec3 } from "../../types";
+import type { DatumAxis, DatumPlane, DatumPoint, Vec3 } from "../../types";
 import { makeDatumReferenceLine, makeOcclusionVisibleSegments } from "./interaction-highlight";
 
-export type DatumPreview = { showFrame?:boolean; axis?: DatumAxis; plane?: DatumPlane; translation?: Vec3; rotation?: [number, number, number, number] };
+export type DatumPreview = { showFrame?:boolean; point?:DatumPoint; axis?: DatumAxis; plane?: DatumPlane; translation?: Vec3; rotation?: [number, number, number, number] };
 
 export const DATUM_AXIS_PIXELS = 72;
 export const DATUM_PLANE_PIXELS=46;

@@ -211,11 +211,14 @@ func (s *Service) spatialSourceStamp(ctx context.Context, doc, rev string, a Spa
 		}
 	}
 	type source struct {
-		Path, Document, Revision string
-		Pose                     InstancePose
-		Bindings                 []ContextBinding
+		Path, Document string
+		Geometry       []string
+		Pose           InstancePose
+		Bindings       []ContextBinding
 	}
 	sources := []source{}
+	reads := []modelcore.DependencyRead{}
+	var base *InstancePose
 	for _, v := range items {
 		if v.DocumentType != "PART" {
 			continue
@@ -259,18 +262,42 @@ func (s *Service) spatialSourceStamp(ctx context.Context, doc, rev string, a Spa
 				}
 			}
 		}
-		sources = append(sources, source{v.Path.Canonical, v.DocumentID, v.RevisionID, v.Pose, bindings})
+		_, raw, err := s.measurementModel(ctx, v.DocumentID, v.RevisionID)
+		if err != nil {
+			return "", err
+		}
+		var part PartModel
+		if err = json.Unmarshal(raw, &part); err != nil {
+			return "", err
+		}
+		geometries := []string{}
+		for _, body := range part.Bodies {
+			if body.Consumed {
+				continue
+			}
+			geometries = append(geometries, body.ID+"/"+body.GeometryKey)
+		}
+		slices.Sort(geometries)
+		pose := v.Pose
+		if base == nil {
+			copy := pose
+			base = &copy
+		}
+		if a.Kind == "CLASH" || a.Kind == "DISTANCE" {
+			pose = inverseRelativePose(pose, *base)
+		}
+		sources = append(sources, source{v.Path.Canonical, v.DocumentID, geometries, pose, bindings})
+		reads = append(reads, modelcore.DependencyRead{DocumentID: v.DocumentID, Occurrence: v.Path.Canonical, EntityID: v.DocumentID, Facet: modelcore.IntrinsicGeometry, Digest: resolvedDigest(geometries), RevisionID: v.RevisionID}, modelcore.DependencyRead{DocumentID: v.DocumentID, Occurrence: v.Path.Canonical, EntityID: v.DocumentID, Facet: modelcore.Placement, Digest: resolvedDigest(pose)}, modelcore.DependencyRead{DocumentID: v.DocumentID, Occurrence: v.Path.Canonical, EntityID: v.DocumentID, Facet: modelcore.Configuration, Digest: resolvedDigest(bindings)})
 	}
 	// Definition path snapshots are checked/rebased independently; the stamp uses stable paths.
 	d := spatialDefinition(a)
 	d.Selected = nil
 	d.SecondSelection = nil
-	return resolvedDigest(struct {
-		Policy           string
+	reads = append(reads, modelcore.DependencyRead{DocumentID: doc, EntityID: "analysis-scope", Facet: modelcore.ScopeMembership, Digest: resolvedDigest(sources)})
+	return analysisInputStamp("spatial-v3-facets", spatialPolicy, struct {
 		Definition       SpatialAnalysis
-		Sources          []source
 		Selected, Second []string
-	}{spatialPolicy, d, sources, spatialCanonicals(a.Selected), spatialCanonicals(a.SecondSelection)}), nil
+	}{d, spatialCanonicals(a.Selected), spatialCanonicals(a.SecondSelection)}, reads)
 }
 func spatialCanonicals(paths []InstancePath) []string {
 	out := []string{}

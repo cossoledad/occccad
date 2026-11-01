@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/occccad/occccad/internal/geometry"
@@ -97,6 +98,18 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		diagnostic.stage("GEOMETRY")
 		finishGeometry := perf.Start(ctx, "geometry-evaluate")
 		bodyID := previewBodyID(prepared.command.Payload, model)
+		if partConsumesMeasurementOutputs(model) {
+			graph, _, err := buildPartEvaluation(model, "", "", nil, nil)
+			if err != nil {
+				return CommandPreview{}, err
+			}
+			blocked := derivedBlockedFeatures(model, graph)
+			for _, feature := range model.Features {
+				if feature.BodyID == bodyID && blocked[feature.ID] {
+					return CommandPreview{}, fmt.Errorf("%w: update the source measurement before editing this dependent Body", ErrDerivedInputUpdateRequired)
+				}
+			}
+		}
 		var geometryKey string
 		var repairRequired []FeaturePreviewIssue
 		if requiresOrderedEvaluation(prepared.command) {
@@ -238,7 +251,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 		}
 		var assemblyResult geometry.AssemblySolve
-		kinematicsPreview := prepared.command.TypeURI == typeSetKinematics || prepared.command.TypeURI == typeSetSpatialAnalyses
+		kinematicsPreview := prepared.command.TypeURI == typeSetKinematics || prepared.command.TypeURI == typeSetSpatialAnalyses || parameterChangesOnly(previewChanges)
 		retainedFailure := false
 		warmStartKey := ""
 		if request.InteractionID != "" {
@@ -312,7 +325,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 		}
 
 		result := CommandPreview{PreviewID: previewID, ExpiresAt: expiresAt.Format(time.RFC3339Nano), BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
-			ModelHash: canonicalModelHash(nextJSON), AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
+			ParameterCandidates: model.Parameters, ModelHash: canonicalModelHash(nextJSON), AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
 		if retainedFailure {
 			result.EvaluationOutcome = "DEFINITION_ONLY"
 			result.AssemblyComponents = nil

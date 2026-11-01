@@ -112,12 +112,15 @@ export type CommandPreview = {
     second?: { status: "CONNECTED" | "NOT_CONNECTED"; diagnosticCode?: string; diagnostic?: string } };
 };
 
+export type GeometricalSet={id:string;name:string;parentId?:string;visible?:boolean};
+export type ReferenceConstruction={mode:string;inputs?:DatumReference[];coordinates:Vec3;direction:Vec3;ratio:number;offset:number;angle:number;coefficients:[number,number,number,number]};
+export type DatumPoint={id:string;name:string;geometricalSetId:string;visible?:boolean;construction:ReferenceConstruction;position:Vec3};
 export type DatumReference = {kind:"PLANE"|"AXIS"|"AXIS_SYSTEM"|"POINT"|"SKETCH_LINE"|"TOPOLOGY";entityId?:string;axis?:"X"|"Y"|"Z";featureId?:string;selection?:PersistentSelection;sourceVersionId?:string};
 export type DatumTransform = {source:DatumReference;rotationAxis?:DatumReference;translationDirection?:DatumReference;angle:number;distance:number};
-export type DatumPlane = {visible?:boolean; id: string; name: string; definition?:DatumTransform; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };
-export type DatumAxis = {visible?:boolean; id: string; name: string; definition?:DatumTransform; origin: Vec3; direction: Vec3 };
+export type DatumPlane = { geometricalSetId?:string;construction?:ReferenceConstruction;visible?:boolean; id: string; name: string; definition?:DatumTransform; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };
+export type DatumAxis = { geometricalSetId?:string;construction?:ReferenceConstruction;visible?:boolean; id: string; name: string; definition?:DatumTransform; origin: Vec3; direction: Vec3 };
 export type AxisSystem = {visible?:boolean;pointVisible?:boolean;axisVisibility?:Partial<Record<"X"|"Y"|"Z",boolean>>; id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
-export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[] };
+export type ReferenceGeometry = {datumPoints?:DatumPoint[]; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[] };
 export type VisualPrimitive = {
  patternId?:string;patternMemberSlot?:number;sketchMemberId?:string;pointReference?:SketchGeometryRef;
   id: string; displayEntityId?: string; featureId: string; kind: "POINTS" | "POLYLINE" | "LINE_SEGMENTS" | "TRIANGLES";
@@ -387,7 +390,7 @@ export type DocumentStructureNode = {
   subject?: EntityRef;
   occurrence?: OccurrenceRef;
   snapshot?: SnapshotScope;
-  kind: "MEASUREMENT" | "MEASUREMENT_GROUP" | "SPATIAL_ANALYSIS" | "SPATIAL_ANALYSIS_GROUP" | "KINEMATICS_GROUP" | "MECHANISM_REFERENCE" | "APPLICATIONS" | "MECHANISM" | "MECHANISM_JOINT" | "MOTION_DRIVER" | "MOTION_STUDY" | "INTERFERENCE_ANALYSIS" | "JOINT_EXPANSION" | "JOINT_SUPPORT" | "JOINT_SOURCE" | "MOTION_ASSOCIATION" | "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "DATUM_POINT" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_GROUP" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_GROUP_MEMBER_REFERENCE" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "MEASUREMENT" | "MEASUREMENT_GROUP" | "SPATIAL_ANALYSIS" | "SPATIAL_ANALYSIS_GROUP" | "KINEMATICS_GROUP" | "MECHANISM_REFERENCE" | "APPLICATIONS" | "MECHANISM" | "MECHANISM_JOINT" | "MOTION_DRIVER" | "MOTION_STUDY" | "INTERFERENCE_ANALYSIS" | "JOINT_EXPANSION" | "JOINT_SUPPORT" | "JOINT_SOURCE" | "MOTION_ASSOCIATION" | "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "DATUM_POINT" | "GEOMETRICAL_SET" | "REFERENCE_POINT" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_GROUP" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_GROUP_MEMBER_REFERENCE" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   presentationRole?: "DEFINITION" | "FEATURE_INPUT" | "INPUT_REFERENCE" | "GROUP";
   ownerDocumentId?: string;
   bodyId?: string;
@@ -452,12 +455,13 @@ export type DocumentView = {featureOrderDigest?:string;baseView?:DocumentView;co
   datumPlanes?: DatumPlane[];
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];
-  part?: { measurements?:import('./cad/measurement/measurement').Measurement[]; metadata?:{name:string;description:string}; defaultAppearance?:SurfaceAppearance; originVisible?:boolean; bodies: PartBody[]; activeBodyId: string; units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
-  product?: { measurements?:import('./cad/measurement/measurement').Measurement[]; spatialAnalyses?:import("./cad/assembly/spatial-analysis").SpatialAnalysis[]; metadata?:{name:string;description:string}; defaultAppearance?:SurfaceAppearance;appearanceOverrides?:OccurrenceAppearance[]; kinematics?:import("./cad/assembly/motion-study").KinematicsDefinitions; instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[]; contextBindings?:ContextBinding[];
+  part?: { geometricalSets?:GeometricalSet[];datumPoints?:DatumPoint[]; measurements?:import('./cad/measurement/measurement').Measurement[]; metadata?:{name:string;description:string}; defaultAppearance?:SurfaceAppearance; originVisible?:boolean; bodies: PartBody[]; activeBodyId: string; units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
+  product?: { parameters?: ParameterDefinition[]; measurements?:import('./cad/measurement/measurement').Measurement[]; spatialAnalyses?:import("./cad/assembly/spatial-analysis").SpatialAnalysis[]; metadata?:{name:string;description:string}; defaultAppearance?:SurfaceAppearance;appearanceOverrides?:OccurrenceAppearance[]; kinematics?:import("./cad/assembly/motion-study").KinematicsDefinitions; instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[]; contextBindings?:ContextBinding[];
     visibilityOverrides?: Array<{instancePath:InstancePath;entityKind:string;entityId:string;mode:"SHOW"|"HIDE"}> };
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
   resolvedInstances?: ResolvedInstance[];
+  referenceDisplayScopes?:Array<{documentId:string;versionId:string;instancePath:InstancePath;translation:Vec3;rotation:[number,number,number,number];referenceGeometry:ReferenceGeometry}>;
   constraintDisplayScopes?: Array<{documentId:string;versionId:string;instancePath:InstancePath;treeNodeId:string;constraints:AssemblyConstraint[]}>;
   structureTree?: DocumentStructureNode;
   referenceUpdates?: ReferenceUpdate[];
@@ -477,10 +481,10 @@ export type ExternalParameterRef = { sourceDocumentId: string; revision: { mode:
   resolvedRevisionId: string; resolvedValue: Quantity; resolvedValueDigest: string;
   resolutionSnapshot?:{sourceRevisionId:string;publicationId:string;contractDigest:string;valueDigest:string;status:string} };
 export type ParameterDefinition = { parameterId: string; key: string; label: string; ownerFeatureId?: string; propertySlot?: string;
-  lifecycle?: "FEATURE_REQUIRED" | "SKETCH_DIMENSION" | "USER"; displayName?: string; displayAlias?: string; qualifiedDisplayPath?: string;
+  lifecycle?: "FEATURE_REQUIRED" | "SKETCH_DIMENSION" | "USER" | "DATUM_REQUIRED" | "ANALYSIS_OUTPUT"; displayName?: string; displayAlias?: string; qualifiedDisplayPath?: string;
   valueType: "QUANTITY" | "REAL";
-  dimension: Dimension; displayUnit: string; role: string; source: { literal?: Quantity; expression?: { sourceText: string }; external?: ExternalParameterRef };
-  evaluatedValue?: Quantity };
+  dimension: Dimension; displayUnit: string; role: string; source: { produced?:{kind:string;entityId:string;outputSlot:string}; literal?: Quantity; expression?: { sourceText: string }; external?: ExternalParameterRef };
+  evaluatedValue?: Quantity;currencyStatus?:string };
 
 export type Publication = { id: string; name: string; type: "POINT" | "AXIS" | "PLANE" | "FRAME" | "CURVE" | "SURFACE" | "BODY" | "PARAMETER";
   semanticPurpose?: string; compatibilityVersion: string;
@@ -488,14 +492,14 @@ export type Publication = { id: string; name: string; type: "POINT" | "AXIS" | "
     persistentSelection?: PersistentSelection; sourceVersionId?: string; featureId?: string; outputSlot?: string; parameterId?: string };
   contract: { geometryKind?: string; valueType?: "QUANTITY" | "REAL"; dimension?: Dimension; unitPolicy?: string;
     bounds?: { minimum?: Quantity; maximum?: Quantity }; symmetry?: string };
-  resolution: { nativeSketch?:{sketchId:string;entityId:string;geometry:NonNullable<SketchExternalGeometry["snapshot"]>;origin:Vec3;xDirection:Vec3;normal:Vec3};status: "CONNECTED" | "BROKEN_PUBLICATION" | "PENDING"; diagnosticCode?: string; diagnostic?: string;
+  resolution: { currencyStatus?:string;nativeSketch?:{sketchId:string;entityId:string;geometry:NonNullable<SketchExternalGeometry["snapshot"]>;origin:Vec3;xDirection:Vec3;normal:Vec3};status: "CONNECTED" | "BROKEN_PUBLICATION" | "PENDING"; diagnosticCode?: string; diagnostic?: string;
     resolvedVersionId?: string; geometryKey?: string; geometryId?: string; topologyKind?: "FACE" | "EDGE" | "VERTEX";
     geometryKind?: string; symmetry?: string; localId?: number; radius?: number;
     origin?: Vec3; xDirection?: Vec3; yDirection?: Vec3; zDirection?: Vec3; sourceDigest?: string; value?: Quantity;
     valueDigest?: string; manifestDigest?: string; namingPolicyDigest?: string; evaluatorVersion?: string; workerId?: string; occtVersion?: string } };
 
 export type ProductPublication = { id:string;name:string;type:Publication["type"];semanticPurpose?:string;compatibilityVersion:string;
-  target:{instancePath:InstancePath;publicationId:string};contract:Publication["contract"];resolution:Publication["resolution"] };
+  target:{instancePath:InstancePath;publicationId:string;parameterId?:string};contract:Publication["contract"];resolution:Publication["resolution"] };
 export type ContextInput = { default?:{external?:SketchExternalGeometry["snapshot"];parameterSource?:ParameterDefinition["source"];plane?:DatumPlane;axis?:DatumAxis}; id:string;name:string;type:Publication["type"];required?:boolean;
   target:{kind:"PARAMETER"|"DATUM"|"SKETCH_EXTERNAL_GEOMETRY"|"FEATURE_INPUT";targetId:string};contract:Publication["contract"] };
 export type ContextInputLocalValue={type:Publication["type"];value?:Quantity;geometryKind?:string;origin?:Vec3;direction?:Vec3;xDirection?:Vec3;radius?:number;parameterStart?:number;parameterEnd?:number};
@@ -572,6 +576,7 @@ export type SelectionItem =
   | (SelectionIdentity & { kind: "measurement" | "spatial-analysis" | "kinematic-object" | "part" | "product" | "feature" | "publication" | "external-reference" | "context-input" | "context-binding" | "parameter" })
   | (SelectionIdentity & { kind: "plane"; plane: PlaneName | "CUSTOM"; datumPlane?: DatumPlane })
   | (SelectionIdentity & {kind:"datum-point"})
+  | (SelectionIdentity & {kind:"reference-point"})
   | (SelectionIdentity & { kind: "axis-system" })
   | (SelectionIdentity & { kind: "axis"; axis: "X" | "Y" | "Z" | "DATUM" })
   | (SelectionIdentity & { kind: "sketch" })

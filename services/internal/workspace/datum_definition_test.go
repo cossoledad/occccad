@@ -121,7 +121,7 @@ func TestDatumEditAndDerivedChangesCompensate(t *testing.T) {
 	}
 	var result PartModel
 	json.Unmarshal(restored, &result)
-	if result.DatumAxes[0].Name != "Axis" || result.DatumAxes[0].Definition != nil || len(result.Parameters) != 0 {
+	if result.DatumAxes[0].Name != "Axis" || result.DatumAxes[0].Definition != nil || len(result.Parameters) != 6 || result.DatumAxes[0].Construction == nil || result.DatumAxes[0].Construction.Direction != [3]float64{0, 0, 1} {
 		t.Fatal("datum compensation lost original definition", result)
 	}
 	after := m

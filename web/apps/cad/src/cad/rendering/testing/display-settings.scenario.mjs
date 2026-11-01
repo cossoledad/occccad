@@ -13,8 +13,8 @@ try {
   const { updateScreenLines, screenSpaceEndpoint } = await server.ssrLoadModule("/src/cad/rendering/screen-space-lines.ts");
   const { CadMaterialFactory } = await server.ssrLoadModule("/src/cad/rendering/cad-material-factory.ts");
 
-  assert.deepEqual(normalizeReferenceVisibility(undefined), { planes:true, axes:true, coordinateSystems:true });
-  assert.deepEqual(normalizeReferenceVisibility({axes:false}), { planes:true, axes:false, coordinateSystems:true });
+  assert.deepEqual(normalizeReferenceVisibility(undefined), { points:true,planes:true, axes:true, coordinateSystems:true });
+  assert.deepEqual(normalizeReferenceVisibility({axes:false}), { points:true,planes:true, axes:false, coordinateSystems:true });
   assert.deepEqual(normalizeSolidDisplaySettings("obsolete"), {mode:"shaded",edges:true,vertices:true});
   assert.deepEqual(normalizeSolidDisplaySettings("smooth"), {mode:"shaded",edges:false,vertices:false});
   assert.deepEqual(normalizeSolidDisplaySettings("wireframe"), {mode:"wireframe",edges:true,vertices:false});
@@ -22,6 +22,7 @@ try {
   assert.equal(referenceCategory("axis", "DATUM"), "axes");
   assert.equal(referenceCategory("axis", "X"), "coordinateSystems");
   assert.equal(referenceCategory("plane"), "planes");
+  assert.equal(referenceCategory("reference-point"),"points");
 
   const factory = new CadMaterialFactory(null);
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(), factory.surface());

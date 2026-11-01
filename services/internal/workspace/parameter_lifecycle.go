@@ -16,15 +16,14 @@ type createUserParameterPayload struct {
 }
 
 func applyCreateUserParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
-	var model PartModel
 	var payload createUserParameterPayload
-	if err := json.Unmarshal(modelJSON, &model); err != nil {
+	model, err := readParameterDocument(modelJSON)
+	if err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	normalizePartModel(&model)
 	parameter := payload.Parameter
 	if parameter.ParameterID == "" || !validParameterKey(parameter.Key) || parameter.Lifecycle != "USER" ||
 		parameter.OwnerFeatureID != "" || parameter.Source.Literal == nil || parameter.Source.Expression != nil || parameter.Source.External != nil {
@@ -36,24 +35,23 @@ func applyCreateUserParameter(modelJSON, payloadJSON json.RawMessage) (json.RawM
 		}
 	}
 	model.Parameters = append(model.Parameters, parameter)
-	if err := validateAndResolvePartParameters(&model); err != nil {
+	if err := model.resolve(); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	next, _ := json.Marshal(model)
-	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: parameter.ParameterID, SlotID: "parameter.entity"}, nil, model.Parameters[len(model.Parameters)-1])
+	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: parameter.ParameterID, SlotID: "parameter.entity"}, nil, parameterHistoryDefinition(model.Parameters[len(model.Parameters)-1]))
 	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"parameter:" + modelcore.DependencyKey(parameter.ParameterID)}}, nil
 }
 
 func applyDeleteParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
-	var model PartModel
 	var payload deleteParameterPayload
-	if err := json.Unmarshal(modelJSON, &model); err != nil {
+	model, err := readParameterDocument(modelJSON)
+	if err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	normalizePartModel(&model)
 	index := -1
 	for i := range model.Parameters {
 		if model.Parameters[i].ParameterID == payload.ParameterID {
@@ -65,6 +63,13 @@ func applyDeleteParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter does not exist", ErrValidation)
 	}
 	parameter := model.Parameters[index]
+	if model.product != nil {
+		for _, publication := range model.product.Publications {
+			if publication.Target.ParameterID == parameter.ParameterID {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter is used by Publication %s", ErrValidation, publication.ID)
+			}
+		}
+	}
 	if parameter.Lifecycle == "SKETCH_DIMENSION" {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: sketch dimension parameter must be removed through its constraint", ErrValidation)
 	}
@@ -93,10 +98,10 @@ func applyDeleteParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		}
 	}
 	model.Parameters = append(model.Parameters[:index], model.Parameters[index+1:]...)
-	if err := validateAndResolvePartParameters(&model); err != nil {
+	if err := model.resolve(); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: payload.ParameterID, SlotID: "parameter.entity"}, parameter, nil)
+	change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: payload.ParameterID, SlotID: "parameter.entity"}, parameterHistoryDefinition(parameter), nil)
 	next, _ := json.Marshal(model)
 	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{read}}, nil
 }

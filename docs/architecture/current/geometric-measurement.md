@@ -1,6 +1,6 @@
 # 几何测量
 
-Part/Product 共用三条命令：测量对象、测量之间、三点角度。临时计算只读；显式保留才创建 Revision。保留对象可重开、命名、隐藏、更新、删除及撤销重做，来源变化时保留旧证据并标记过期。测量不驱动模型或装配求解。
+Part/Product 共用三条命令：测量对象、测量之间、三点角度。临时计算只读；显式保留才创建 Revision。保留对象可重开、命名、隐藏、更新、删除及撤销重做，来源变化时保留旧证据并标记过期。测量产生只读数量参数，可通过公式驱动其他 Body；来源变化后，依赖过期输出的几何暂停计算，保留上次显示，显式更新测量后恢复。
 
 源码入口：[Workspace](../../../services/internal/workspace/measurement.go)、[OCCT](../../../kernel/occt/src/measurement.cpp)、[面板](../../../web/apps/cad/src/features/workbench/measurement-panel.tsx)、[标注](../../../web/apps/cad/src/cad/measurement/measurement-overlay.ts)。[CATIA 来源与有意差异](../../references/catia-measurement.md)是参考行为，不代表已交付其全部模式。
 
@@ -51,11 +51,13 @@ sequenceDiagram
   WS-->>UI: 新 Revision + retained measurement
 ```
 
-共同 versioned handler `occccad://document/measurements/set` 写 `document.measurements` PropertySlot。REST 命令为 `SAVE_MEASUREMENT`、`UPDATE_MEASUREMENT`、`DELETE_MEASUREMENT`，必须带当前 versionId。新/变更定义由服务器重新计算，不采信浏览器提供的结果。临时预览使用只读 measure 查询，通用 PreviewCommand 不接受测量写入，避免误入 Part 重建或装配姿态预览。仅名称/显示变化复用已接受证据；显式更新才替换证据。纯测量写入及其历史补偿不触发 Part 几何求值或装配姿态变化，ChangeSet 没有几何 impact seed。
+共同 versioned handler `occccad://document/measurements/set` 写 `document.measurements` PropertySlot。REST 命令为 `SAVE_MEASUREMENT`、`UPDATE_MEASUREMENT`、`DELETE_MEASUREMENT`，必须带当前 versionId。共同 `UPDATE_DERIVED` 适配测量、空间分析及整组更新；结果在事务外计算，单次 CAS 接受整批证据，失败保留原结果。新/变更定义由服务器重新计算，不采信浏览器提供的结果。临时预览使用只读 measure 查询，通用 PreviewCommand 不接受测量写入，避免误入 Part 重建或装配姿态预览。仅名称/显示变化复用已接受证据；显式更新才替换证据。未被公式消费的测量写入沿用冻结几何；已有测量结果更新会产生 `measurement:<id>` 影响种子。存在消费关系时按依赖图分阶段计算 Body，不能用单 Body 预览跳过下游门禁。测量不改变装配姿态。
 
-结果是小型派生证据：source Revision、来源 stamp、算法 policy、kernel build、单位后缀明确的数值及少量锚点。没有把 B-Rep、Mesh 或尺寸线采样数组塞入参数模型。当前无需数据库迁移。
+结果是小型派生证据：source Revision、来源 stamp、算法 policy、kernel build、单位后缀明确的数值及少量锚点。没有把 B-Rep、Mesh 或尺寸线采样数组塞入参数模型。输出参数由测量 UUID 和输出槽确定性派生 `ParameterId`，`source.produced` 指向生产者，禁止修改值/来源，别名可重命名。已被公式或发布接口使用的输出不能随测量直接删除；消失的结果槽保留为不可用，不能继续提供旧值。
 
-`CURRENT / STALE / BROKEN / MISSING / UNKNOWN` 是只读投影，分别表示当前来源与证据一致、来源变化需更新、来源无法解析、没有结果及暂时无法判断。stamp 包含有效 Body 几何键、严格解析后的拓扑位置、occurrence 身份与 owning frame 位姿，以及测量类型/策略和 evaluator 版本，不包含无关名称和测量集合自身的 Revision。保存自身、重命名和隐藏不会使结果过期。拓扑歧义、删除、替换不能靠几何邻近或名称修复。读取不会自动重算数值或写历史；过期证据可在面板查看，但不作为当前视区标注。
+`CURRENT / STALE / BROKEN / MISSING / UNKNOWN` 是只读投影，分别表示当前来源与证据一致、来源变化需更新、来源无法解析、没有结果及暂时无法判断。共享依赖引擎见[模型与参数](model-history.md#参数依赖与增量求值)。测量声明 intrinsic、relative、frame 三类输入摘要：Body 几何键/拓扑支持决定内在属性；相对位姿决定对象间距离/角度；绝对 owner frame 决定 XYZ/分量/包围尺寸。Revision 仅作证据，不单独使结果过期。无关参数、重命名、显隐及保存自身不会使结果过期。单面面积在刚体移动后仍有效，标签锚点施加新旧 owner frame 的差变换；坐标类输出独立标为待更新。方向向量与位置锚点的含义保留在原始结果中。
+
+公式只消费 CURRENT 测量输出。Part evaluator 按全图排序 Body，来源 Body 先计算，刷新测量时效，再计算消费者；过期输出使下游 BLOCKED，保留上次显示。禁止同一 Body 最终结果测量反过来驱动该 Body 的反馈；跨 Body 依赖允许且仍检查循环。发布接口区分连接状态和 `currencyStatus`，过期值可查看，跨文档显式接受时拒绝。读取不自动重算测量或写历史。
 
 ## 计算边界与协议
 
@@ -72,11 +74,13 @@ sequenceDiagram
 - 三点角度：两条臂、端点/顶点及短角度弧；弧半径按较短臂的 28% 选择，仅是显示参数。
 - 标签：字体、箭头、端点保持 CSS 像素尺寸，主标签深底浅字，辅助线半透明。位于相机裁剪范围外的锚点不绘制；标签限制在视口内，默认尝试避开其他标签，可拖动并双击复位。
 
-底牌拖动拥有 pointer capture、up/cancel/lost capture、blur 和 Esc；Esc 还原拖动前位置。拖动只改变 session 内偏移，不请求测量或写 Revision。偏移按文档/测量 ID 区分，离开文档或销毁视口即释放；没有跨浏览器保存位置。覆盖层为明确可读的穿透标注，不宣称表达真实遮挡。相机移动重新投影，切换文档、失效来源、Sketch/位置预览或机构状态会清理/隐藏不相容标注。普通模型的选中与悬停仍走既有 Selection 生命周期。
+底牌拖动拥有 pointer capture、up/cancel/lost capture、blur 和 Esc；Esc 还原拖动前位置。拖动不请求测量、不写 Revision/Undo。`document_presentation` 保存文档/测量 ID 下的 CSS 像素偏移，GET/PUT `annotation-layouts` 使用独立 version CAS；双击复位也保存，重开恢复。Viewer 可读布局；编辑者能持久保存。单对象请求合并、冲突后显式重试，不跨文档采用迟到响应。它不进入几何缓存、参数或分析摘要。删除测量后布局不再投影；Undo 恢复同一身份时可恢复该布局。
+
+过期测量仍绘制上次见证点、琥珀色虚线及“上次值 / 待更新”；断裂来源用红色；过期分量不伪装为当前坐标。隐藏是统一显示命令，依然可更新及消费有效输出。相机移动重新投影，Sketch/位置预览或机构状态隐藏不相容标注。普通模型选择和悬停仍走既有 Selection 生命周期。
 
 ## 限制及验证入口
 
-当前不支持 ContextVariant 专用拓扑、Datum/Sketch 解析几何、任意自定义测量坐标系、网格近似测量、最大距离/垂直偏差、厚度、任意曲线交点切角、有向补角、测量值驱动参数、从结果创建几何、自动更新和批量更新。轴线与面或有限边的混合最短距离也未实现，会明确失败。根 Product 中的嵌套常规 occurrence 可测；打开嵌套编辑/机构姿态后不把显示预览当作已接受来源。
+当前不支持 ContextVariant 专用拓扑、Datum/Sketch 解析几何、任意自定义测量坐标系、网格近似测量、最大距离/垂直偏差、厚度、任意曲线交点切角、有向补角、从结果创建几何、自动更新。轴线与面或有限边的混合最短距离也未实现，会明确失败。根 Product 中的嵌套常规 occurrence 可测；打开嵌套编辑/机构姿态后不把显示预览当作已接受来源。
 
 没有双向高亮所有已保存测量的关联支持，也没有全局标签最优排布；当前选择字段复用现有高亮，标签采用有限避让。需要 CAD 工程图级排版或大量常驻标注时须专项设计，不把现有 128 个定义上限理解成性能保证。
 

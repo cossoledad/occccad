@@ -120,6 +120,27 @@ func ensureFeatureParameters(model *PartModel) {
 		}
 	}
 
+	constructions := referenceConstructions(model)
+	ids := []string{}
+	for id := range constructions {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		managedPrefixes["parameter:"+id+":"] = struct{}{}
+		for _, slot := range referenceParameterSlots(constructions[id]) {
+			q, err := modelcore.NewQuantity(slot.value, slot.unit)
+			if err != nil {
+				continue
+			}
+			add(id, slot.slot, slot.label, slot.unit, slot.value, q.Dimension, false)
+		}
+		for i := range model.Parameters {
+			if model.Parameters[i].OwnerFeatureID == id {
+				model.Parameters[i].Lifecycle = "DATUM_REQUIRED"
+			}
+		}
+	}
 	filtered := model.Parameters[:0]
 	for _, parameter := range model.Parameters {
 		managed := false
@@ -207,28 +228,25 @@ func quantityInDisplayUnit(value modelcore.Quantity, unit string) (float64, erro
 	return value.SIValue / one.SIValue, nil
 }
 
-func validateAndResolvePartParameters(model *PartModel) error {
-	if err := validatePartStructure(*model); err != nil {
-		return err
-	}
-	if err := validateSketchReferenceParameterDependencies(*model); err != nil {
-		return err
-	}
-	nodes := make([]modelcore.DependencyNode, 0, len(model.Parameters)*2)
+func resolveParameterDefinitions(parameters []modelcore.ParameterDefinition) (map[string]modelcore.Quantity, error) {
+	nodes := make([]modelcore.DependencyNode, 0, len(parameters)*2)
 	edges := []modelcore.DependencyEdge{}
 	definitions := map[string]modelcore.ParameterDefinition{}
 	keys := map[string]string{}
-	for _, parameter := range model.Parameters {
+	for _, parameter := range parameters {
 		if parameter.ParameterID == "" {
-			return fmt.Errorf("%w: parameter id is required", ErrValidation)
+			return nil, fmt.Errorf("%w: parameter id is required", ErrValidation)
 		}
 		if _, exists := definitions[parameter.ParameterID]; exists {
-			return fmt.Errorf("%w: duplicate parameter id", ErrValidation)
+			return nil, fmt.Errorf("%w: duplicate parameter id", ErrValidation)
 		}
 		if parameter.Key == "" || keys[parameter.Key] != "" {
-			return fmt.Errorf("%w: parameter key must be non-empty and unique", ErrValidation)
+			return nil, fmt.Errorf("%w: parameter key must be non-empty and unique", ErrValidation)
 		}
 		sourceCount := 0
+		if parameter.Source.Produced != nil {
+			sourceCount++
+		}
 		if parameter.Source.Literal != nil {
 			sourceCount++
 		}
@@ -239,34 +257,34 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			sourceCount++
 		}
 		if sourceCount != 1 && !(parameter.Role == "MEASURED" && sourceCount == 0) {
-			return fmt.Errorf("%w: parameter %s must have exactly one source", ErrValidation, parameter.ParameterID)
+			return nil, fmt.Errorf("%w: parameter %s must have exactly one source", ErrValidation, parameter.ParameterID)
 		}
 		if parameter.ValueType != modelcore.ValueQuantity {
-			return fmt.Errorf("%w: %w: parameter %s is not a quantity", ErrValidation, modelcore.ErrParameterType, parameter.ParameterID)
+			return nil, fmt.Errorf("%w: %w: parameter %s is not a quantity", ErrValidation, modelcore.ErrParameterType, parameter.ParameterID)
 		}
 		if parameter.Source.Expression != nil && (!parameter.Source.Expression.ResultDimension.Equal(parameter.Dimension) ||
 			parameter.Source.Expression.ResultType != parameter.ValueType) {
-			return fmt.Errorf("%w: %w: parameter %s expression result type changed", ErrValidation, modelcore.ErrUnitMismatch, parameter.ParameterID)
+			return nil, fmt.Errorf("%w: %w: parameter %s expression result type changed", ErrValidation, modelcore.ErrUnitMismatch, parameter.ParameterID)
 		}
 		if external := parameter.Source.External; external != nil {
 			validMode := external.Revision.Mode == "PINNED" || external.Revision.Mode == "FOLLOW_HEAD" || external.Revision.Mode == "FOLLOW_WORKSPACE_WITH_ACCEPT"
 			if external.SourceDocumentID == "" || external.PublicationID == "" || external.ContractVersion == "" || !validMode ||
 				external.Revision.RevisionID == "" || external.ResolvedRevisionID == "" ||
 				external.Revision.RevisionID != external.ResolvedRevisionID {
-				return fmt.Errorf("%w: EXTERNAL_PARAMETER_REFERENCE_INCOMPLETE", ErrValidation)
+				return nil, fmt.Errorf("%w: EXTERNAL_PARAMETER_REFERENCE_INCOMPLETE", ErrValidation)
 			}
 			if external.ExpectedType != parameter.ValueType || !external.ExpectedDimension.Equal(parameter.Dimension) ||
 				!external.ResolvedValue.Dimension.Equal(parameter.Dimension) {
-				return fmt.Errorf("%w: EXTERNAL_PARAMETER_CONTRACT_INCOMPATIBLE", ErrValidation)
+				return nil, fmt.Errorf("%w: EXTERNAL_PARAMETER_CONTRACT_INCOMPATIBLE", ErrValidation)
 			}
 			if external.ResolvedValueDigest == "" || external.ResolvedValueDigest != resolvedDigest(external.ResolvedValue) {
-				return fmt.Errorf("%w: EXTERNAL_PARAMETER_VALUE_DIGEST_MISMATCH", ErrValidation)
+				return nil, fmt.Errorf("%w: EXTERNAL_PARAMETER_VALUE_DIGEST_MISMATCH", ErrValidation)
 			}
 			snapshot := external.ResolutionSnapshot
 			if snapshot.Status != "CONNECTED" || snapshot.SourceRevisionID != external.ResolvedRevisionID ||
 				snapshot.PublicationID != external.PublicationID || snapshot.ContractDigest == "" ||
 				snapshot.ValueDigest != external.ResolvedValueDigest {
-				return fmt.Errorf("%w: EXTERNAL_PARAMETER_RESOLUTION_SNAPSHOT_INCOMPLETE", ErrValidation)
+				return nil, fmt.Errorf("%w: EXTERNAL_PARAMETER_RESOLUTION_SNAPSHOT_INCOMPLETE", ErrValidation)
 			}
 		}
 		keys[parameter.Key] = parameter.ParameterID
@@ -291,14 +309,14 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			}
 		}
 	}
-	for _, parameter := range model.Parameters {
+	for _, parameter := range parameters {
 		if parameter.Source.Expression == nil {
 			continue
 		}
 		for _, read := range parameter.Source.Expression.Reads {
 			readID := strings.TrimPrefix(string(read), "parameter:")
 			if _, exists := definitions[readID]; !exists {
-				return fmt.Errorf("%w: %w: %s", ErrValidation, modelcore.ErrParameterMissing, readID)
+				return nil, fmt.Errorf("%w: %w: %s", ErrValidation, modelcore.ErrParameterMissing, readID)
 			}
 			// The earlier pass only emitted edges to definitions already seen.
 			found := false
@@ -315,7 +333,7 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	}
 	graph, err := modelcore.NewDependencyGraph(nodes, edges)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrValidation, err)
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 	values := map[string]modelcore.Quantity{}
 	for _, key := range graph.TopologicalOrder() {
@@ -325,37 +343,84 @@ func validateAndResolvePartParameters(model *PartModel) error {
 		id := strings.TrimPrefix(string(key), "parameter:")
 		parameter := definitions[id]
 		if parameter.Role == "MEASURED" {
-			for i := range model.Parameters {
-				if model.Parameters[i].ParameterID == id {
-					model.Parameters[i].EvaluatedValue = nil
+			for i := range parameters {
+				if parameters[i].ParameterID == id {
+					parameters[i].EvaluatedValue = nil
 				}
 			}
 			continue
 		}
 		var value modelcore.Quantity
-		if parameter.Source.Literal != nil {
+		if producer := parameter.Source.Produced; producer != nil {
+			if producer.Kind != "MEASUREMENT" || producer.EntityID == "" || producer.OutputSlot == "" || parameter.Role != "OUTPUT" {
+				return nil, fmt.Errorf("%w: invalid parameter producer", ErrValidation)
+			}
+			if parameter.CurrencyStatus != "CURRENT" || parameter.EvaluatedValue == nil {
+				continue
+			}
+			value = *parameter.EvaluatedValue
+		} else if parameter.Source.Literal != nil {
 			value = *parameter.Source.Literal
 		} else if parameter.Source.Expression != nil {
 			value, err = modelcore.EvaluateExpression(*parameter.Source.Expression, values)
 			if err != nil {
-				return fmt.Errorf("%w: %w", ErrValidation, err)
+				unavailable := false
+				for _, read := range parameter.Source.Expression.Reads {
+					if _, ok := values[strings.TrimPrefix(string(read), "parameter:")]; !ok {
+						unavailable = true
+					}
+				}
+				if unavailable {
+					for i := range parameters {
+						if parameters[i].ParameterID == id {
+							parameters[i].EvaluatedValue = nil
+							parameters[i].CurrencyStatus = "BLOCKED"
+						}
+					}
+					continue
+				}
+				return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 			}
 		} else if parameter.Source.External != nil {
 			value = parameter.Source.External.ResolvedValue
 		} else {
-			return fmt.Errorf("%w: parameter %s has no source", ErrValidation, id)
+			return nil, fmt.Errorf("%w: parameter %s has no source", ErrValidation, id)
 		}
 		if !value.Dimension.Equal(parameter.Dimension) {
-			return fmt.Errorf("%w: %w: parameter %s dimension mismatch", ErrValidation, modelcore.ErrUnitMismatch, id)
+			return nil, fmt.Errorf("%w: %w: parameter %s dimension mismatch", ErrValidation, modelcore.ErrUnitMismatch, id)
 		}
 		values[id] = value
-		for index := range model.Parameters {
-			if model.Parameters[index].ParameterID == id {
+		for index := range parameters {
+			if parameters[index].ParameterID == id {
 				resolved := value
-				model.Parameters[index].EvaluatedValue = &resolved
+				parameters[index].EvaluatedValue = &resolved
+				if parameters[index].Source.Produced == nil {
+					parameters[index].CurrencyStatus = ""
+				}
 				break
 			}
 		}
+	}
+	return values, nil
+}
+
+func validateAndResolvePartParameters(model *PartModel) error {
+	refreshPartMeasurementCurrency(model)
+	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
+		return err
+	}
+	if err := validatePartStructure(*model); err != nil {
+		return err
+	}
+	if err := validateSketchReferenceParameterDependencies(*model); err != nil {
+		return err
+	}
+	values, err := resolveParameterDefinitions(model.Parameters)
+	if err != nil {
+		return err
+	}
+	if err := applyReferenceParameterValues(model, values); err != nil {
+		return err
 	}
 	for id, d := range datumDefinitions(model) {
 		var e error
@@ -366,8 +431,12 @@ func validateAndResolvePartParameters(model *PartModel) error {
 		d.Distance = values["parameter:"+id+":datum:distance"].SIValue * 1000
 	}
 
+	blockedOwners := blockedParameterOwners(*model)
 	for index := range model.Features {
 		feature := &model.Features[index]
+		if blockedOwners[feature.ID] {
+			continue
+		}
 		if feature.Type == "HOLE" {
 			for _, p := range holeParameters(*feature) {
 				q := values["parameter:"+feature.ID+":"+p.slot]
@@ -446,6 +515,9 @@ func validateAndResolvePartParameters(model *PartModel) error {
 }
 
 func validatePartStructure(model PartModel) error {
+	if err := validateGeometricalSets(model); err != nil {
+		return err
+	}
 	bodies := map[string]bool{}
 	for _, b := range model.Bodies {
 		if b.ID == "" || bodies[b.ID] || strings.TrimSpace(b.Name) == "" {
@@ -624,6 +696,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	for _, datum := range model.DatumPlanes {
 		datum.Visible = nil
 		datum.Name = ""
+		datum.GeometricalSetID = ""
 		data, _ := json.Marshal(datum)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 2, Type: "DATUM_PLANE", CanonicalInput: data})
 	}
@@ -638,13 +711,21 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	for _, datum := range model.DatumAxes {
 		datum.Visible = nil
 		datum.Name = ""
+		datum.GeometricalSetID = ""
 		data, _ := json.Marshal(datum)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 2, Type: "DATUM_AXIS", CanonicalInput: data})
+	}
+	for _, point := range model.DatumPoints {
+		point.Name = ""
+		point.Visible = nil
+		point.GeometricalSetID = ""
+		data, _ := json.Marshal(point)
+		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + point.ID), Phase: 2, Type: "REFERENCE_POINT", CanonicalInput: data})
 	}
 	for _, parameter := range model.Parameters {
 		source, _ := json.Marshal(parameter.Source)
 		key := modelcore.DependencyKey("parameter:" + parameter.ParameterID)
-		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 1, Type: "PARAMETER", CanonicalInput: source})
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 1, Type: "PARAMETER", CanonicalInput: source, Derived: parameter.Source.Produced != nil})
 		if parameter.Source.External != nil {
 			externalKey := modelcore.DependencyKey("external-parameter:" + parameter.ParameterID)
 			nodes = append(nodes, modelcore.DependencyNode{Key: externalKey, Phase: 0,
@@ -949,7 +1030,21 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		}
 	}
 	edges = uniqueEdges
-	graph, err := modelcore.NewDependencyGraph(nodes, edges)
+	for id, construction := range referenceConstructions(&model) {
+		target := modelcore.DependencyKey("datum:" + id)
+		for _, ref := range construction.Inputs {
+			edges = append(edges, modelcore.DependencyEdge{Source: datumReferenceDependency(ref), Target: target, Kind: modelcore.ReadGeometry})
+		}
+		for _, parameter := range model.Parameters {
+			if parameter.OwnerFeatureID == id {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Target: target, Kind: modelcore.ReadValue})
+			}
+		}
+	}
+	measurementNodes, measurementEdges := partMeasurementGraph(model)
+	nodes = append(nodes, measurementNodes...)
+	edges = append(edges, measurementEdges...)
+	graph, err := modelcore.ScheduleEvaluationGraph(nodes, edges)
 	if err != nil {
 		return nil, modelcore.EvaluationManifest{}, err
 	}

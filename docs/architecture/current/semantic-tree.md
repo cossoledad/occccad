@@ -8,7 +8,7 @@
 
 ## 领域与投影合同
 
-领域对象身份、所有权、依赖和求值顺序只来自 `PartModel` / `ProductModel`、命令和已解析 Revision。树是可操作投影；父子入口表达阅读关系，不改变 Sketch 所有权或 Feature 顺序。`Part → Body → Feature` 保留三层；Solid 是 Body 在给定快照下的几何结果，不进入建模历史。Origin、Parameters、外部引用和 Publication 仅在有实际内容时出现。BREP、mesh.glb、naming.pb 留在 Inspector 的文件区域。
+领域对象身份、所有权、依赖和求值顺序只来自 `PartModel` / `ProductModel`、命令和已解析 Revision。树是可操作投影；父子入口表达阅读关系，不改变 Sketch 所有权或 Feature 顺序。`Part → Body → Feature` 保留三层；Solid 是 Body 在给定快照下的几何结果，不进入建模历史。标准 XY/XZ/YZ Plane 直接属于 Part，轴系保留自身原点/XYZ 子轴；自建参考点/线/面放在真实几何图形集下。Parameters、外部引用和 Publication 仅在有实际内容时出现。BREP、mesh.glb、naming.pb 留在 Inspector 的文件区域。
 
 Sketch 保留一个业务对象。未使用的 Sketch 位于其所属 Body；同 Body 单次使用可收纳到使用它的 Feature；跨 Body 或多次使用时，原 Sketch 保留所属 Body 的主入口，使用方显示只读输入引用。引用入口不能获得删除 Sketch 的能力。删除 Feature 输入关系、删除 Sketch 本体和删除引用入口是三种领域意图；未有命令的意图明确禁用。Feature 名称与图标可反映 ADD/REMOVE，但 `BodyOperation` 和生成器保持统一。`NEW_BODY` 创建恰好一个 Body；普通 ADD/REMOVE/INTERSECT 始终使用指定 Body，允许一个 Body 包含多个合法 Solid。Preview 给出最终 BodyId；Feature 编辑不得重新分配 Body。
 
@@ -27,6 +27,12 @@ Part 独立打开与 Product 内 Part 使用同一个投影函数。Product 追�
 Selection/Hover、宿主文档、唯一 Edit Target、完整 occurrence、会话工作 Body、In Work Object、临时显隐、持久 suppression 是不同状态。Instance 双击只是激活其下文档根的快捷入口；真正编辑态只属于一个精确 Part/Product 根。`ActiveBodyID` 继续作为旧 Revision 可读的建模默认值，会话工作 Body 不改写它；定义级 Body/Sketch/SketchEntity 显隐与 Product occurrence 覆盖是可保存的显示元数据，临时隔离仍留在前端。普通选择和树展开不写 Revision；正式定义/occurrence 显隐命令会写入元数据 Revision，但不重算几何。删除、抑制、重排由服务端领域命令验证；未实现的 Feature 顺序编辑和 occurrence 顺序编辑禁用。
 
 Product 更新依赖必须由 `ProductModel.instances` 和服务端 UpdatePlan 提供，不得由树是否加载或诊断文字决定。普通模型刷新不传播 selection；“定位 occurrence”或“新标签打开”才传选择意图。ContextReference、ContextInput、ContextBinding 和 Publication 是明确的可检查入口，断裂后仍保留；连接、时效、求值和加载状态分别表达。
+
+## 展开与定位
+
+空的 Mechanisms、Simulations、Spatial analyses、Measurements 以及整个 Applications 不生成占位节点。树展开属于 DocumentSession：手动展开分支和自动定位分支分别保存。成功创建只定位新建的主要业务对象；编辑显式发出 stable document/entity/occurrence 的 reveal intent。消费意图时只展开目标祖先链，滚动虚拟行，替换上次自动展开并保留手动分支。后台刷新、普通选择及渲染不无限展开。测量输出参数嵌在测量对象下，参考元素嵌入其使用参数，节点仍以稳定 ParameterId 编辑或重命名。
+
+参考元素的所有权、构造和边界见[参考元素](reference-elements.md)。几何图形集的显示继承不以树路径作为身份，标准平面不再受 Origin 分组控制。
 
 ## 当前限制
 

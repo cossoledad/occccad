@@ -77,15 +77,17 @@ type DatumTransform struct {
 	Distance             float64         `json:"distance"` // mm
 }
 type DatumPlane struct {
-	Visible    *bool           `json:"visible,omitempty"`
-	Definition *DatumTransform `json:"definition,omitempty"`
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	Plane      string          `json:"plane"`
-	Origin     [3]float64      `json:"origin"`
-	Normal     [3]float64      `json:"normal"`
-	UDirection [3]float64      `json:"uDirection"`
-	Size       float64         `json:"size"`
+	GeometricalSetID string                 `json:"geometricalSetId,omitempty"`
+	Construction     *ReferenceConstruction `json:"construction,omitempty"`
+	Visible          *bool                  `json:"visible,omitempty"`
+	Definition       *DatumTransform        `json:"definition,omitempty"`
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name"`
+	Plane            string                 `json:"plane"`
+	Origin           [3]float64             `json:"origin"`
+	Normal           [3]float64             `json:"normal"`
+	UDirection       [3]float64             `json:"uDirection"`
+	Size             float64                `json:"size"`
 }
 
 type AxisSystem struct {
@@ -101,12 +103,14 @@ type AxisSystem struct {
 }
 
 type DatumAxis struct {
-	Visible    *bool           `json:"visible,omitempty"`
-	Definition *DatumTransform `json:"definition,omitempty"`
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	Origin     [3]float64      `json:"origin"`
-	Direction  [3]float64      `json:"direction"`
+	GeometricalSetID string                 `json:"geometricalSetId,omitempty"`
+	Construction     *ReferenceConstruction `json:"construction,omitempty"`
+	Visible          *bool                  `json:"visible,omitempty"`
+	Definition       *DatumTransform        `json:"definition,omitempty"`
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name"`
+	Origin           [3]float64             `json:"origin"`
+	Direction        [3]float64             `json:"direction"`
 }
 
 type NativeSketchPublication struct {
@@ -156,6 +160,7 @@ type PublicationResolution struct {
 	ParameterEnd       *float64                 `json:"parameterEnd,omitempty"`
 	LengthUnit         string                   `json:"lengthUnit,omitempty"`
 	Status             string                   `json:"status"` // CONNECTED | BROKEN_PUBLICATION
+	CurrencyStatus     string                   `json:"currencyStatus,omitempty"`
 	DiagnosticCode     string                   `json:"diagnosticCode,omitempty"`
 	Diagnostic         string                   `json:"diagnostic,omitempty"`
 	ResolvedVersionID  string                   `json:"resolvedVersionId,omitempty"`
@@ -192,6 +197,7 @@ type Publication struct {
 }
 
 type ReferenceGeometry struct {
+	DatumPoints []DatumPoint `json:"datumPoints,omitempty"`
 	DatumPlanes []DatumPlane `json:"datumPlanes"`
 	AxisSystems []AxisSystem `json:"axisSystems"`
 	DatumAxes   []DatumAxis  `json:"datumAxes"`
@@ -544,6 +550,8 @@ type Feature struct {
 }
 
 type PartModel struct {
+	GeometricalSets   []GeometricalSet                `json:"geometricalSets,omitempty"`
+	DatumPoints       []DatumPoint                    `json:"datumPoints,omitempty"`
 	Measurements      []Measurement                   `json:"measurements,omitempty"`
 	Metadata          *DocumentMetadata               `json:"metadata,omitempty"`
 	DefaultAppearance *SurfaceAppearance              `json:"defaultAppearance,omitempty"`
@@ -594,6 +602,7 @@ type PublicationRef struct {
 }
 
 type ProductPublicationTarget struct {
+	ParameterID   string       `json:"parameterId,omitempty"`
 	InstancePath  InstancePath `json:"instancePath"`
 	PublicationID string       `json:"publicationId"`
 }
@@ -772,18 +781,19 @@ type AssemblyGroupMember struct {
 }
 
 type ProductModel struct {
-	Measurements           []Measurement          `json:"measurements,omitempty"`
-	Metadata               *DocumentMetadata      `json:"metadata,omitempty"`
-	DefaultAppearance      *SurfaceAppearance     `json:"defaultAppearance,omitempty"`
-	AppearanceOverrides    []OccurrenceAppearance `json:"appearanceOverrides,omitempty"`
-	ConstraintNameCounters map[string]int         `json:"constraintNameCounters,omitempty"`
-	SpatialAnalyses        []SpatialAnalysis      `json:"spatialAnalyses,omitempty"`
-	Kinematics             KinematicsDefinitions  `json:"kinematics,omitzero"`
-	Instances              []ProductInstance      `json:"instances"`
-	VisibilityOverrides    []OccurrenceVisibility `json:"visibilityOverrides,omitempty"`
-	Constraints            []AssemblyConstraint   `json:"constraints,omitempty"`
-	Publications           []ProductPublication   `json:"publications,omitempty"`
-	ContextBindings        []ContextBinding       `json:"contextBindings,omitempty"`
+	Parameters             []modelcore.ParameterDefinition `json:"parameters,omitempty"`
+	Measurements           []Measurement                   `json:"measurements,omitempty"`
+	Metadata               *DocumentMetadata               `json:"metadata,omitempty"`
+	DefaultAppearance      *SurfaceAppearance              `json:"defaultAppearance,omitempty"`
+	AppearanceOverrides    []OccurrenceAppearance          `json:"appearanceOverrides,omitempty"`
+	ConstraintNameCounters map[string]int                  `json:"constraintNameCounters,omitempty"`
+	SpatialAnalyses        []SpatialAnalysis               `json:"spatialAnalyses,omitempty"`
+	Kinematics             KinematicsDefinitions           `json:"kinematics,omitzero"`
+	Instances              []ProductInstance               `json:"instances"`
+	VisibilityOverrides    []OccurrenceVisibility          `json:"visibilityOverrides,omitempty"`
+	Constraints            []AssemblyConstraint            `json:"constraints,omitempty"`
+	Publications           []ProductPublication            `json:"publications,omitempty"`
+	ContextBindings        []ContextBinding                `json:"contextBindings,omitempty"`
 }
 
 type OccurrenceVisibility struct {
@@ -1158,6 +1168,7 @@ type DocumentView struct {
 	Artifacts               map[string]Artifact              `json:"artifacts,omitempty"`
 	ResolvedInstances       []ResolvedInstance               `json:"resolvedInstances,omitempty"`
 	ConstraintDisplayScopes []ConstraintDisplayScope         `json:"constraintDisplayScopes,omitempty"`
+	ReferenceDisplayScopes  []ReferenceDisplayScope          `json:"referenceDisplayScopes,omitempty"`
 	StructureTree           *DocumentStructureNode           `json:"structureTree,omitempty"`
 	ReferenceUpdates        []ReferenceUpdate                `json:"referenceUpdates,omitempty"`
 	FollowedDocumentIDs     []string                         `json:"followedDocumentIds,omitempty"`
@@ -1243,11 +1254,14 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
-	Measurement                *Measurement      `json:"measurement,omitempty"`
-	MeasurementID              string            `json:"measurementId,omitempty"`
-	FeatureIDs                 []string          `json:"featureIds,omitempty"`
-	ExpectedFeatureDigests     map[string]string `json:"expectedFeatureDigests,omitempty"`
-	ExpectedFeatureOrderDigest string            `json:"expectedFeatureOrderDigest,omitempty"`
+	GeometricalSetID           string                 `json:"geometricalSetId,omitempty"`
+	ReferenceConstruction      *ReferenceConstruction `json:"referenceConstruction,omitempty"`
+	SourceVersionID            string                 `json:"sourceVersionId,omitempty"`
+	Measurement                *Measurement           `json:"measurement,omitempty"`
+	MeasurementID              string                 `json:"measurementId,omitempty"`
+	FeatureIDs                 []string               `json:"featureIds,omitempty"`
+	ExpectedFeatureDigests     map[string]string      `json:"expectedFeatureDigests,omitempty"`
+	ExpectedFeatureOrderDigest string                 `json:"expectedFeatureOrderDigest,omitempty"`
 
 	ContextInputMapping       map[string]string            `json:"contextInputMapping,omitempty"`
 	ConnectInputPoint         bool                         `json:"connectInputPoint,omitempty"`

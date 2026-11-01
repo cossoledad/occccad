@@ -26,6 +26,41 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 	}
 	switch request.Type {
+	case "CREATE_GEOMETRICAL_SET", "EDIT_GEOMETRICAL_SET", "DELETE_GEOMETRICAL_SET":
+		if documentType != "PART" {
+			break
+		}
+		action := map[string]string{"CREATE_GEOMETRICAL_SET": "CREATE", "EDIT_GEOMETRICAL_SET": "EDIT", "DELETE_GEOMETRICAL_SET": "DELETE"}[request.Type]
+		id := request.TargetID
+		if action == "CREATE" {
+			id = commandEntityID("geometrical-set", request.RequestID)
+		}
+		return typeGeometricalSet, geometricalSetPayload{Action: action, Set: GeometricalSet{ID: id, Name: request.Name, ParentID: request.GeometricalSetID}}, nil
+	case "CREATE_REFERENCE_POINT", "EDIT_REFERENCE_POINT":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		normalizePartModel(&model)
+		construction := request.ReferenceConstruction
+		if construction == nil {
+			construction = &ReferenceConstruction{Mode: "POINT_COORDINATES", Coordinates: request.Origin}
+		}
+		id, action := request.TargetID, "EDIT"
+		if request.Type == "CREATE_REFERENCE_POINT" {
+			id, action = commandEntityID("datum-point", request.RequestID), "CREATE"
+		}
+		sources, err := referenceParameterSources(model, construction, request.ParameterExpressions)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeReferencePoint, referencePointPayload{Action: action, Point: DatumPoint{ID: id, Name: request.Name, GeometricalSetID: request.GeometricalSetID, Construction: construction}, ParameterSources: sources}, nil
+	case "UPDATE_DERIVED":
+		payload, err := service.prepareDerivedUpdate(ctx, documentID, documentType, modelJSON, request)
+		return typeUpdateDerived, payload, err
 	case "SAVE_MEASUREMENT", "UPDATE_MEASUREMENT", "DELETE_MEASUREMENT":
 		values, err := service.prepareMeasurements(ctx, documentID, modelJSON, request)
 		return typeSetMeasurements, values, err
@@ -84,6 +119,22 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		k, e := service.bindKinematics(ctx, documentID, request.VersionID, modelJSON, *request.Kinematics)
 		return typeSetKinematics, k, e
 	case "SET_DEFINITION_VISIBILITY":
+		if request.TargetKind == "MEASUREMENT" {
+			values, err := measurementValues(modelJSON)
+			if err != nil {
+				return "", nil, err
+			}
+			for i := range values {
+				if values[i].ID == request.TargetID {
+					values[i].Visible = request.Visible
+					values[i].Status = ""
+					values[i].OutputCurrency = nil
+					values[i].DisplayAnchors = nil
+					return typeSetMeasurements, values, nil
+				}
+			}
+			return "", nil, fmt.Errorf("%w: measurement does not exist", ErrValidation)
+		}
 		if documentType == "PRODUCT" {
 			return typeConstraintVisibility, definitionVisibilityPayload{EntityKind: request.TargetKind, EntityID: request.TargetID, Visible: request.Visible}, nil
 		}
@@ -163,15 +214,15 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		return typeRenameFeature, renameFeaturePayload{FeatureID: request.TargetID, Name: request.Name}, nil
 	case "CREATE_PARAMETER":
-		if documentType != "PART" {
+		if documentType != "PART" && documentType != "PRODUCT" {
 			break
 		}
 		quantity, err := modelcore.NewQuantity(request.Value, request.Unit)
 		if err != nil {
 			return "", nil, fmt.Errorf("%w: %v", ErrValidation, err)
 		}
-		var model PartModel
-		if err := json.Unmarshal(modelJSON, &model); err != nil {
+		model, err := readParameterDocument(modelJSON)
+		if err != nil {
 			return "", nil, err
 		}
 		alias := strings.TrimSpace(request.Name)
@@ -764,6 +815,10 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PART" {
 			break
 		}
+		if request.ReferenceConstruction != nil {
+			request.Normal = [3]float64{0, 0, 1}
+			request.UDirection = [3]float64{1, 0, 0}
+		}
 		finiteVector := func(value [3]float64) bool { return finite(value[0]) && finite(value[1]) && finite(value[2]) }
 		length := func(value [3]float64) float64 {
 			return math.Sqrt(value[0]*value[0] + value[1]*value[1] + value[2]*value[2])
@@ -783,6 +838,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		plane := DatumPlane{ID: commandEntityID("plane", request.RequestID), Name: name, Plane: "CUSTOM",
 			Origin: request.Origin, Normal: request.Normal, UDirection: request.UDirection, Size: 180}
 		plane.Definition = request.DatumDefinition
+		plane.GeometricalSetID = request.GeometricalSetID
+		plane.Construction = request.ReferenceConstruction
+		if plane.Definition == nil && plane.Construction == nil {
+			plane.Construction = &ReferenceConstruction{Mode: "PLANE_COORDINATES", Coordinates: plane.Origin, Direction: plane.Normal}
+		}
 		var model PartModel
 		if err := json.Unmarshal(modelJSON, &model); err != nil {
 			return "", nil, err
@@ -792,6 +852,12 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err != nil {
 			return "", nil, err
 		}
+		if plane.Construction != nil {
+			sources, err = referenceParameterSources(model, plane.Construction, request.ParameterExpressions)
+			if err != nil {
+				return "", nil, err
+			}
+		}
 		if strings.HasPrefix(request.Type, "EDIT_") {
 			plane.ID = request.TargetID
 			return typeEditDatum, editDatumPayload{Plane: &plane, ParameterSources: sources}, nil
@@ -800,6 +866,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 	case "CREATE_DATUM_AXIS", "EDIT_DATUM_AXIS":
 		if documentType != "PART" {
 			break
+		}
+		if request.ReferenceConstruction != nil {
+			request.Direction = [3]float64{0, 0, 1}
 		}
 		magnitude := math.Sqrt(request.Direction[0]*request.Direction[0] + request.Direction[1]*request.Direction[1] + request.Direction[2]*request.Direction[2])
 		if !finite(request.Origin[0]) || !finite(request.Origin[1]) || !finite(request.Origin[2]) || !finite(magnitude) || magnitude < 1e-9 {
@@ -812,6 +881,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		axis := DatumAxis{ID: commandEntityID("axis", request.RequestID), Name: name, Origin: request.Origin,
 			Direction: [3]float64{request.Direction[0] / magnitude, request.Direction[1] / magnitude, request.Direction[2] / magnitude}}
 		axis.Definition = request.DatumDefinition
+		axis.GeometricalSetID = request.GeometricalSetID
+		axis.Construction = request.ReferenceConstruction
+		if axis.Definition == nil && axis.Construction == nil {
+			axis.Construction = &ReferenceConstruction{Mode: "LINE_COORDINATES", Coordinates: axis.Origin, Direction: axis.Direction}
+		}
 		var model PartModel
 		if err := json.Unmarshal(modelJSON, &model); err != nil {
 			return "", nil, err
@@ -820,6 +894,12 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		sources, err := datumParameterSources(model, request.DatumDefinition, request.DatumAngleExpression, request.DatumDistanceExpression, request.TargetID)
 		if err != nil {
 			return "", nil, err
+		}
+		if axis.Construction != nil {
+			sources, err = referenceParameterSources(model, axis.Construction, request.ParameterExpressions)
+			if err != nil {
+				return "", nil, err
+			}
 		}
 		if strings.HasPrefix(request.Type, "EDIT_") {
 			axis.ID = request.TargetID
@@ -862,7 +942,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		return typeImportExchange, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("import", documentID+"/"+request.RequestID), Type: "IMPORT_BODY", Name: "Import " + name, GeometryKey: request.GeometryKey, FileName: name, SourceFormat: format}}, nil
 	case "SET_PARAMETER_VALUE":
-		if documentType != "PART" {
+		if documentType != "PART" && documentType != "PRODUCT" {
 			break
 		}
 		quantity, err := modelcore.NewQuantity(request.Value, request.Unit)
@@ -871,14 +951,13 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		return typeSetParameterLiteral, parameterSourcePayload{ParameterID: request.ParameterID, Source: modelcore.ValueSource{Literal: &quantity}}, nil
 	case "EDIT_PARAMETER":
-		if documentType != "PART" {
+		if documentType != "PART" && documentType != "PRODUCT" {
 			break
 		}
-		var model PartModel
-		if err := json.Unmarshal(modelJSON, &model); err != nil {
+		model, err := readParameterDocument(modelJSON)
+		if err != nil {
 			return "", nil, err
 		}
-		normalizePartModel(&model)
 		var expected *modelcore.ParameterDefinition
 		names := map[string]modelcore.ParameterBinding{}
 		for i := range model.Parameters {
@@ -893,7 +972,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		payload := editParameterPayload{ParameterID: request.ParameterID, Key: request.Name}
 		if strings.TrimSpace(request.Expression) != "" {
-			source, err := resolveQualifiedParameterSource(model, request.Expression)
+			source, err := resolveDocumentParameterSource(model, request.Expression)
 			if err != nil {
 				return "", nil, err
 			}
@@ -911,19 +990,18 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		return typeEditParameter, payload, nil
 	case "DELETE_PARAMETER":
-		if documentType != "PART" {
+		if documentType != "PART" && documentType != "PRODUCT" {
 			break
 		}
 		return typeDeleteParameter, deleteParameterPayload{ParameterID: request.ParameterID}, nil
 	case "SET_PARAMETER_EXPRESSION":
-		if documentType != "PART" {
+		if documentType != "PART" && documentType != "PRODUCT" {
 			break
 		}
-		var model PartModel
-		if err := json.Unmarshal(modelJSON, &model); err != nil {
+		model, err := readParameterDocument(modelJSON)
+		if err != nil {
 			return "", nil, err
 		}
-		normalizePartModel(&model)
 		names := map[string]modelcore.ParameterBinding{}
 		var expected *modelcore.ParameterDefinition
 		for index := range model.Parameters {
@@ -936,7 +1014,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if expected == nil {
 			return "", nil, fmt.Errorf("%w: parameter does not exist", ErrValidation)
 		}
-		source, err := resolveQualifiedParameterSource(model, request.Expression)
+		source, err := resolveDocumentParameterSource(model, request.Expression)
 		if err != nil {
 			return "", nil, err
 		}
@@ -946,19 +1024,18 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		return typeSetParameterExpression, parameterSourcePayload{ParameterID: request.ParameterID, Source: modelcore.ValueSource{Expression: &expression}}, nil
 	case "RENAME_PARAMETER":
-		if documentType != "PART" {
+		if documentType != "PART" && documentType != "PRODUCT" {
 			break
 		}
 		return typeRenameParameter, renameParameterPayload{ParameterID: request.ParameterID, Key: request.Name}, nil
 	case "SET_PARAMETER_EXTERNAL":
-		if documentType != "PART" {
+		if documentType != "PART" && documentType != "PRODUCT" {
 			break
 		}
-		var model PartModel
-		if err := json.Unmarshal(modelJSON, &model); err != nil {
+		model, err := readParameterDocument(modelJSON)
+		if err != nil {
 			return "", nil, err
 		}
-		normalizePartModel(&model)
 		var parameter *modelcore.ParameterDefinition
 		for index := range model.Parameters {
 			if model.Parameters[index].ParameterID == request.ParameterID {
@@ -974,13 +1051,21 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			mode = "FOLLOW_HEAD"
 		}
 		reference, err := service.resolveExternalParameterRefWithMode(ctx, documentID, request.SourceDocumentID,
-			request.VersionID, request.PublicationID, mode, *parameter, model)
+			request.SourceVersionID, request.PublicationID, mode, *parameter, parameterPartContext(model))
 		if err != nil {
 			return "", nil, err
 		}
 		return typeSetParameterExternal, parameterSourcePayload{ParameterID: request.ParameterID,
 			Source: modelcore.ValueSource{External: &reference}}, nil
 	case "CREATE_PUBLICATION", "REDIRECT_PUBLICATION":
+		if documentType == "PRODUCT" && request.Type == "CREATE_PUBLICATION" && request.TargetKind == "PARAMETER" {
+			var model ProductModel
+			if err := json.Unmarshal(modelJSON, &model); err != nil {
+				return "", nil, err
+			}
+			publication, err := productParameterPublication(model, request)
+			return typeCreateProductPublication, productPublicationPayload{Publication: publication}, err
+		}
 		if documentType != "PART" {
 			break
 		}
@@ -1754,6 +1839,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err := service.updateProductReferences(ctx, &model, request.AcceptedSourceRevisions); err != nil {
 			return "", nil, err
 		}
+		parameters := parameterPartContext(&parameterDocument{product: &model, Parameters: model.Parameters})
+		if err := service.updatePartReferences(ctx, documentID, &parameters, request.AcceptedSourceRevisions); err != nil {
+			return "", nil, err
+		}
+		model.Parameters = parameters.Parameters[:len(model.Parameters)]
 		return typeUpdateReferences, updateReferencesPayload{Model: model}, nil
 	case "DELETE_NODE":
 		kind := strings.ToUpper(strings.TrimSpace(request.TargetKind))
@@ -1763,7 +1853,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, fmt.Errorf("%w: delete target identity is required", ErrValidation)
 		}
 		if documentType == "PART" {
-			if kind != "FEATURE" && kind != "SKETCH_PATTERN_DEFINITION" && kind != "SKETCH_ENTITY" && kind != "SKETCH_EXTERNAL_GEOMETRY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" {
+			if kind != "FEATURE" && kind != "SKETCH_PATTERN_DEFINITION" && kind != "SKETCH_ENTITY" && kind != "SKETCH_EXTERNAL_GEOMETRY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" && kind != "REFERENCE_POINT" && kind != "GEOMETRICAL_SET" {
 				break
 			}
 			if ((kind == "SKETCH_ENTITY" || kind == "SKETCH_EXTERNAL_GEOMETRY") || kind == "SKETCH_CONSTRAINT" || kind == "SKETCH_PATTERN_DEFINITION") && owner == "" {
@@ -1789,7 +1879,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, fmt.Errorf("%w: delete target identity is required", ErrValidation)
 			}
 			if documentType == "PART" {
-				if kind != "FEATURE" && kind != "SKETCH_PATTERN_DEFINITION" && kind != "SKETCH_ENTITY" && kind != "SKETCH_EXTERNAL_GEOMETRY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" {
+				if kind != "FEATURE" && kind != "SKETCH_PATTERN_DEFINITION" && kind != "SKETCH_ENTITY" && kind != "SKETCH_EXTERNAL_GEOMETRY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" && kind != "REFERENCE_POINT" && kind != "GEOMETRICAL_SET" {
 					valid = false
 					break
 				}

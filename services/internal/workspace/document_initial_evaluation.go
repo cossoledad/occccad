@@ -33,6 +33,10 @@ func prepareProductDocument(revisionID string, modelJSON []byte) ([]byte, string
 	if err = json.Unmarshal(modelJSON, &model); err != nil {
 		return nil, "", nil, manifest, err
 	}
+	if err = resolveProductParameters(&model, revisionID); err != nil {
+		return nil, "", nil, manifest, err
+	}
+	modelJSON, _ = json.Marshal(model)
 	modelHash = canonicalModelHash(modelJSON)
 	graph, manifest, err = buildProductEvaluation(model, revisionID, modelHash, nil, nil)
 	return modelJSON, modelHash, graph, manifest, err

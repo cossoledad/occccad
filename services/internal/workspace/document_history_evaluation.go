@@ -24,7 +24,10 @@ func evaluatePartHistory(ctx context.Context, service *Service, input historyCom
 		// Display compensation uses the same frozen geometry as a display command.
 		// No parameter/publication preparation or solid evaluation is necessary.
 		displayOnly := len(input.changes.Changes) > 0
-		propertiesOnly := displayPropertiesOnly(input.changes) || measurementsOnly(input.changes)
+		propertiesOnly := displayPropertiesOnly(input.changes) || measurementsOnly(input.changes) || derivedOnly(input.changes) || geometricalSetChangesOnly(input.changes)
+		if partConsumesMeasurementOutputs(model) && derivedOnly(input.changes) {
+			propertiesOnly = false
+		}
 		for _, change := range input.changes.Changes {
 			if !strings.HasPrefix(change.Target.SlotID, "display.") && change.Target.SlotID != "body.appearance" {
 				displayOnly = false
@@ -64,6 +67,15 @@ func evaluatePartHistory(ctx context.Context, service *Service, input historyCom
 				return readErr
 			}
 			retainFailedBodyDisplay(&model, previous, input.headRevision)
+			refreshPartMeasurementCurrency(&model)
+			if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
+				return err
+			}
+			if _, err := resolveParameterDefinitions(model.Parameters); err != nil {
+				return err
+			}
+			refreshPartParameterPublications(&model, revisionID)
+			clearMeasurementProjection(model.Measurements)
 			input.modelJSON, _ = json.Marshal(model)
 			modelHash = canonicalModelHash(input.modelJSON)
 			graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, input.changes.ImpactSeeds, nil)
@@ -82,6 +94,9 @@ func evaluateProductHistory(ctx context.Context, service *Service, input history
 	failure := func() error {
 		var model ProductModel
 		if err = json.Unmarshal(input.modelJSON, &model); err == nil {
+			if err = resolveProductParameters(&model, revisionID); err != nil {
+				return err
+			}
 			var before json.RawMessage
 			if err = service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, input.headRevision).Scan(&before); err != nil {
 				return err
@@ -90,12 +105,16 @@ func evaluateProductHistory(ctx context.Context, service *Service, input history
 			if err = json.Unmarshal(before, &previous); err != nil {
 				return err
 			}
-			if !displayPropertiesOnly(input.changes) && !measurementsOnly(input.changes) && !constraintVisibilityOnlyHistory(previous, model, input.changes) && !kinematicsOnlyHistory(previous, model, input.changes) && !spatialOnlyHistory(previous, model, input.changes) {
+			if !parameterChangesOnly(input.changes) && !displayPropertiesOnly(input.changes) && !measurementsOnly(input.changes) && !derivedOnly(input.changes) && !constraintVisibilityOnlyHistory(previous, model, input.changes) && !kinematicsOnlyHistory(previous, model, input.changes) && !spatialOnlyHistory(previous, model, input.changes) {
 				if err = service.verifyAssemblyHistory(ctx, input.documentID, revisionID, input.requestID, model); err != nil {
 					return err
 				}
 			}
 			input.changes = appendAssemblyEvaluationChanges(input.changes, previous, model)
+			if err := service.refreshProductMeasurementParameters(ctx, input.documentID, input.headRevision, revisionID, &model); err != nil {
+				return err
+			}
+			clearMeasurementProjection(model.Measurements)
 			input.modelJSON, err = json.Marshal(model)
 			if err != nil {
 				return err

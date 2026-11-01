@@ -4,7 +4,7 @@ export type MeasurementKind='ITEM'|'BETWEEN'|'ANGLE_POINTS';
 export type MeasurementMode='GEOMETRY'|'CENTER'|'AXIS';
 export type MeasurementSupport={kind:'BODY'|'OCCURRENCE'|'FACE'|'EDGE'|'VERTEX';bodyId?:string;instancePath?:InstancePath;persistentSelection?:PersistentSelection;sourceRevisionId?:string;mode:MeasurementMode;geometryKey?:string;localId?:number};
 export type MeasurementEvidence={sourceRevisionId:string;sourceStamp:string;policy:string;complete:boolean;diagnostic?:string;geometryType?:string;values:Record<string,number>;anchors:Record<string,Vec3>;kernelBuild:string};
-export type Measurement={id:string;name:string;kind:MeasurementKind;supports:MeasurementSupport[];visible:boolean;showComponents:boolean;result?:MeasurementEvidence;status?:string};
+export type Measurement={id:string;name:string;kind:MeasurementKind;supports:MeasurementSupport[];visible:boolean;showComponents:boolean;result?:MeasurementEvidence;status?:string;outputCurrency?:Record<string,string>;displayAnchors?:Record<string,Vec3>};
 export type MeasurementReport={documentId:string;revisionId:string;definition:Measurement;result:MeasurementEvidence};
 export type MeasurementUnit='mm'|'cm'|'m'|'in';
 export const measurementTitle=(kind:MeasurementKind)=>({ITEM:'测量对象',BETWEEN:'测量之间',ANGLE_POINTS:'三点角度'}[kind]);

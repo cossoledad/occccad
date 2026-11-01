@@ -27,6 +27,7 @@ type DependencyNode struct {
 	Phase          uint16          `json:"phase"`
 	Type           string          `json:"type"`
 	CanonicalInput json.RawMessage `json:"canonicalInput"`
+	Derived        bool            `json:"derived,omitempty"`
 }
 type DependencyEdge struct {
 	Source DependencyKey `json:"source"`
@@ -36,6 +37,47 @@ type DependencyEdge struct {
 type DependencyGraph struct {
 	Nodes map[DependencyKey]DependencyNode `json:"nodes"`
 	Edges []DependencyEdge                 `json:"edges"`
+}
+
+// ScheduleEvaluationGraph allows derived outputs to feed later consumers while
+// retaining fixed phase validation for ordinary modeling dependencies. Domain
+// historical-source checks still constrain which feature stages may be read.
+func ScheduleEvaluationGraph(nodes []DependencyNode, edges []DependencyEdge) (*DependencyGraph, error) {
+	flat := append([]DependencyNode(nil), nodes...)
+	for i := range flat {
+		flat[i].Phase = 0
+	}
+	graph, err := NewDependencyGraph(flat, edges)
+	if err != nil {
+		return nil, err
+	}
+	original := map[DependencyKey]DependencyNode{}
+	for _, node := range nodes {
+		original[node.Key] = node
+	}
+	incoming := map[DependencyKey][]DependencyKey{}
+	for _, edge := range edges {
+		incoming[edge.Target] = append(incoming[edge.Target], edge.Source)
+	}
+	tainted := map[DependencyKey]bool{}
+	for _, key := range graph.TopologicalOrder() {
+		node := original[key]
+		tainted[key] = node.Derived
+		for _, source := range incoming[key] {
+			previous := original[source]
+			if tainted[source] || node.Derived {
+				if previous.Phase > node.Phase {
+					node.Phase = previous.Phase
+				}
+			}
+			tainted[key] = tainted[key] || tainted[source]
+		}
+		original[key] = node
+	}
+	for i := range nodes {
+		nodes[i] = original[nodes[i].Key]
+	}
+	return NewDependencyGraph(nodes, edges)
 }
 
 func NewDependencyGraph(nodes []DependencyNode, edges []DependencyEdge) (*DependencyGraph, error) {

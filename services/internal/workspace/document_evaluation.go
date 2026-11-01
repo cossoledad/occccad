@@ -48,6 +48,11 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 		if err := json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
 			return err
 		}
+		// A single-Body preview cannot certify downstream consumers of a
+		// measurement. Reuse immutable artifacts through the staged evaluator.
+		if partConsumesMeasurementOutputs(model) {
+			promoted = false
+		}
 		for i := range model.ContextInputs {
 			if model.ContextInputs[i].Target.Kind != "SKETCH_EXTERNAL_GEOMETRY" {
 				if err := captureContextInputDefault(model, &model.ContextInputs[i]); err != nil {
@@ -62,6 +67,9 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 		normalizePartModel(&model)
 		normalizePartModel(&beforeModel)
 		metadataOnly := isPartMetadataCommand(prepared.command)
+		if (prepared.command.TypeURI == typeSetMeasurements || prepared.command.TypeURI == typeUpdateDerived) && partConsumesMeasurementOutputs(model) {
+			metadataOnly = false
+		}
 		if !promoted && !metadataOnly {
 			if err := resolveRuntimeParameters(ctx, &model); err != nil {
 				return err
@@ -174,7 +182,7 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 					}
 				}
 				var failed *solidEvaluationFailure
-				if !errors.As(err, &failed) || (prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetFeatureSuppression && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch && prepared.command.TypeURI != typeEditDatum) {
+				if !errors.Is(err, ErrDerivedInputUpdateRequired) && (!errors.As(err, &failed) || (prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetFeatureSuppression && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch && prepared.command.TypeURI != typeEditDatum)) {
 					return err
 				}
 				revisionState, evaluationStatus = "FAILED", "FAILED"
@@ -195,6 +203,15 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 				return err
 			}
 		}
+		refreshPartMeasurementCurrency(&model)
+		if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
+			return err
+		}
+		if _, err := resolveParameterDefinitions(model.Parameters); err != nil {
+			return err
+		}
+		refreshPartParameterPublications(&model, revisionID)
+		clearMeasurementProjection(model.Measurements)
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
@@ -221,7 +238,10 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 		if err := json.Unmarshal(nextJSON, &model); err != nil {
 			return err
 		}
-		if len(model.ContextBindings) > 0 && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetMeasurements && prepared.command.TypeURI != typeReplaceInstance {
+		if err := resolveProductParameters(&model, revisionID); err != nil {
+			return err
+		}
+		if len(model.ContextBindings) > 0 && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetMeasurements && prepared.command.TypeURI != typeUpdateDerived && prepared.command.TypeURI != typeReplaceInstance {
 			if _, err := service.contextVariantsForProductModel(ctx, model); err != nil {
 				return err
 			}
@@ -237,12 +257,12 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				}
 			}
 		}
-		if promoted && !candidate.definitionOnly && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetMeasurements && (len(model.Constraints) > 0 || request.SessionID != "") {
+		if promoted && !parameterChangesOnly(changes) && !candidate.definitionOnly && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetMeasurements && prepared.command.TypeURI != typeUpdateDerived && (len(model.Constraints) > 0 || request.SessionID != "") {
 			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, candidate.assemblyPreviewRequestID, canonicalModelHash(nextJSON)); err != nil {
 				return err
 			}
 		}
-		if !promoted && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeOccurrenceVisibility && prepared.command.TypeURI != typeConstraintVisibility && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetMeasurements && prepared.command.TypeURI != typeSetProductProperties {
+		if !promoted && !parameterChangesOnly(changes) && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeOccurrenceVisibility && prepared.command.TypeURI != typeConstraintVisibility && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetMeasurements && prepared.command.TypeURI != typeUpdateDerived && prepared.command.TypeURI != typeSetProductProperties {
 			finishSolve := perf.Start(ctx, "assembly-solve")
 			drivenInstanceID := ""
 			var solveIntent *geometry.AssemblySolveIntent
@@ -312,6 +332,10 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				return err
 			}
 		}
+		if err := service.refreshProductMeasurementParameters(ctx, documentID, prepared.headRevision, revisionID, &model); err != nil {
+			return err
+		}
+		clearMeasurementProjection(model.Measurements)
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		if replacementSolveID != "" && len(model.Constraints) > 0 {

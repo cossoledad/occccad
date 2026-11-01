@@ -7,15 +7,15 @@ const server = await createServer({ appType: "custom", logLevel: "silent", serve
 
 try {
   const { VisibilityResolver, visibilityResolverForView } = await server.ssrLoadModule("/src/cad/interaction/visibility-resolver.ts");
-  const referenceTree={kind:"PART",documentId:"part",entityId:"part",children:[{kind:"ORIGIN",documentId:"part",entityId:"origin",localVisible:true,children:[
-    {kind:"AXIS_SYSTEM",documentId:"part",entityId:"system",children:[{kind:"AXIS",documentId:"part",entityId:"system",axis:"X",localVisible:false},{kind:"AXIS",documentId:"part",entityId:"system",axis:"Y",localVisible:true}]},
-    {kind:"PLANE",documentId:"part",entityId:"xy",localVisible:true}]}]};
+  const referenceTree={kind:"PART",documentId:"part",entityId:"part",children:[{kind:"GEOMETRICAL_SET",documentId:"part",entityId:"references",localVisible:true,children:[
+    {kind:"AXIS_SYSTEM",documentId:"part",entityId:"system",ownerEntityId:"references",children:[{kind:"AXIS",documentId:"part",entityId:"system",axis:"X",localVisible:false},{kind:"AXIS",documentId:"part",entityId:"system",axis:"Y",localVisible:true}]},
+    {kind:"PLANE",documentId:"part",entityId:"xy",ownerEntityId:"references",localVisible:true}]}]};
   let references=new VisibilityResolver(referenceTree);
   const address={documentId:"part",occurrencePath:"",kind:"AXIS",entityId:"system"};
   assert.equal(references.resolve({...address,axis:"X"}).effectiveVisible,false);
   assert.equal(references.resolve({...address,axis:"Y"}).effectiveVisible,true,"axis child states are distinct");
   referenceTree.children[0].localVisible=false;references=new VisibilityResolver(referenceTree);
-  assert.equal(references.resolve({...address,axis:"Y"},{id:"sketch",occurrencePath:""}).effectiveVisible,false,"projection/sketch edit cannot reveal domain-hidden Origin");
+  assert.equal(references.resolve({...address,axis:"Y"},{id:"sketch",occurrencePath:""}).effectiveVisible,false,"projection/sketch edit cannot reveal domain-hidden geometrical set");
   assert.equal(references.resolve({...address,kind:"PLANE",entityId:"xy"}).effectiveVisible,false);
   const THREE=await server.ssrLoadModule("three");
   const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
@@ -23,7 +23,7 @@ try {
   axisObject.userData={kind:"axis",id:"system:X",entityId:"system",axis:"X",documentId:"part"};helpers.add(axisObject);
   const engine=Object.assign(Object.create(CadViewportEngine.prototype),{helpers,content:new THREE.Group(),referenceVisibility:{planes:true,axes:true,coordinateSystems:true},treeVisibilityOverrides:{},visibilityResolver:references,
     tools:{activeToolID:"sketch.project"},sketchPlane:{},sketchView:()=>({document:{id:"part"}}),editingSketchScope:()=>undefined,refreshSceneGround:()=>{},refreshInteractionHighlights:()=>{}});
-  engine.applyTreeVisibility();assert.equal(axisObject.visible,false,"projection honors persistent hidden Origin");
+  engine.applyTreeVisibility();assert.equal(axisObject.visible,false,"projection honors persistent hidden geometrical set");
   referenceTree.children[0].localVisible=true;referenceTree.children[0].children[0].children[0].localVisible=true;engine.visibilityResolver=new VisibilityResolver(referenceTree);
   engine.referenceVisibility.coordinateSystems=false;engine.applyTreeVisibility();assert.equal(axisObject.visible,true,"projection exposes available standard axes without changing preferences");
   const occurrence = (id, instanceMode) => {

@@ -27,19 +27,44 @@ func parameterPresentation(model PartModel, parameter modelcore.ParameterDefinit
 	}
 	if feature == nil {
 		parameter.DisplayName, parameter.QualifiedDisplayPath = parameter.Label, parameter.Label
-		name := ""
+		name, setID := "", ""
 		for _, p := range model.DatumPlanes {
 			if p.ID == parameter.OwnerFeatureID {
-				name = p.Name
+				name, setID = p.Name, p.GeometricalSetID
 			}
 		}
 		for _, p := range model.DatumAxes {
 			if p.ID == parameter.OwnerFeatureID {
-				name = p.Name
+				name, setID = p.Name, p.GeometricalSetID
+			}
+		}
+		for _, p := range model.DatumPoints {
+			if p.ID == parameter.OwnerFeatureID {
+				name, setID = p.Name, p.GeometricalSetID
+			}
+		}
+		for _, m := range model.Measurements {
+			if m.ID == parameter.OwnerFeatureID {
+				name = m.Name
 			}
 		}
 		if name != "" {
-			parameter.QualifiedDisplayPath = "Origin\\" + name + "\\" + parameter.Label
+			parts := []string{name, parameter.Label}
+			sets := map[string]GeometricalSet{}
+			for _, set := range model.GeometricalSets {
+				sets[set.ID] = set
+			}
+			seen := map[string]bool{}
+			for setID != "" && !seen[setID] {
+				seen[setID] = true
+				set, ok := sets[setID]
+				if !ok {
+					break
+				}
+				parts = append([]string{set.Name}, parts...)
+				setID = set.ParentID
+			}
+			parameter.QualifiedDisplayPath = strings.Join(parts, "\\")
 		}
 		return parameter
 	}

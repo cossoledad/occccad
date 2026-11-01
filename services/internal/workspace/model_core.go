@@ -63,7 +63,12 @@ type commandHandler struct {
 
 func (handler commandHandler) TypeURI() string                   { return handler.typeURI }
 func (handler commandHandler) SupportedSchemaVersions() []uint32 { return []uint32{1} }
-func (handler commandHandler) TargetDocumentTypes() []string     { return []string{handler.documentType} }
+func (handler commandHandler) TargetDocumentTypes() []string {
+	if handler.documentType == "PARAMETRIC" {
+		return []string{"PART", "PRODUCT"}
+	}
+	return []string{handler.documentType}
+}
 func (handler commandHandler) Apply(model, payload json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
 	return handler.apply(model, payload)
 }
@@ -73,6 +78,9 @@ var workspaceCommandRegistry = mustWorkspaceRegistry()
 func mustWorkspaceRegistry() *modelcore.Registry {
 	registry, err := modelcore.NewRegistry(
 		measurementHandler{},
+		commandHandler{typeUpdateDerived, "PARAMETRIC", applyDerivedUpdate},
+		commandHandler{typeGeometricalSet, "PART", applyGeometricalSet},
+		commandHandler{typeReferencePoint, "PART", applyReferencePoint},
 		commandHandler{typeBodyCommand, "PART", applyBodyCommand},
 		commandHandler{typeDefinitionVisibility, "PART", applyDefinitionVisibility},
 		commandHandler{typeOccurrenceVisibility, "PRODUCT", applyOccurrenceVisibility},
@@ -100,13 +108,13 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeSetProperties, "PART", applyPartProperties},
 		commandHandler{typeSetProductProperties, "PRODUCT", applyProductProperties},
 		commandHandler{typeRepairImportNaming, "PART", applyRepairImportNaming},
-		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
-		commandHandler{typeSetParameterExpression, "PART", applyParameterSource},
-		commandHandler{typeRenameParameter, "PART", applyRenameParameter},
-		commandHandler{typeEditParameter, "PART", applyEditParameter},
-		commandHandler{typeCreateUserParameter, "PART", applyCreateUserParameter},
-		commandHandler{typeDeleteParameter, "PART", applyDeleteParameter},
-		commandHandler{typeSetParameterExternal, "PART", applyParameterSource},
+		commandHandler{typeSetParameterLiteral, "PARAMETRIC", applyParameterSource},
+		commandHandler{typeSetParameterExpression, "PARAMETRIC", applyParameterSource},
+		commandHandler{typeRenameParameter, "PARAMETRIC", applyRenameParameter},
+		commandHandler{typeEditParameter, "PARAMETRIC", applyEditParameter},
+		commandHandler{typeCreateUserParameter, "PARAMETRIC", applyCreateUserParameter},
+		commandHandler{typeDeleteParameter, "PARAMETRIC", applyDeleteParameter},
+		commandHandler{typeSetParameterExternal, "PARAMETRIC", applyParameterSource},
 		commandHandler{typeCreatePublication, "PART", applyCreatePublication},
 		commandHandler{typeEditPublication, "PART", applyEditPublication},
 		commandHandler{typeRedirectPublication, "PART", applyRedirectPublication},
@@ -241,6 +249,11 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 	normalizePartModel(&model)
 	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
 	switch payload.TargetKind {
+	case "REFERENCE_POINT":
+		return deleteReferencePoint(model, payload.TargetID)
+	case "GEOMETRICAL_SET":
+		raw, _ := json.Marshal(geometricalSetPayload{Action: "DELETE", Set: GeometricalSet{ID: payload.TargetID}})
+		return applyGeometricalSet(modelJSON, raw)
 	case "DATUM_PLANE", "DATUM_AXIS":
 		return deleteDatum(model, payload.TargetKind, payload.TargetID)
 	case "FEATURE":
@@ -520,9 +533,9 @@ func appendParameterLifecycleChanges(changes []modelcore.ModelChange, seeds []mo
 		kind := modelcore.ChangeCreate
 		var beforeValue, afterValue any
 		if hadPrior {
-			kind, beforeValue = modelcore.ChangeDelete, prior
+			kind, beforeValue = modelcore.ChangeDelete, parameterHistoryDefinition(prior)
 		} else {
-			afterValue = current
+			afterValue = parameterHistoryDefinition(current)
 		}
 		change, _ := modelcore.NewChange(kind, modelcore.PropertyAddress{EntityID: id, SlotID: "parameter.entity"}, beforeValue, afterValue)
 		changes = append(changes, change)
@@ -1403,10 +1416,17 @@ func applyCreateDatumPlane(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 		}
 		payload.Plane.Name = nextAutomaticName("Plane", names)
 	}
+	if payload.Plane.Definition != nil && payload.Plane.Construction != nil {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: ambiguous reference definition", ErrValidation)
+	}
+	containerChanges, err := referenceContainer(&model, &payload.Plane.GeometricalSetID, payload.Plane.ID)
+	if err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	model.DatumPlanes = append(model.DatumPlanes, payload.Plane)
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Plane.ID, SlotID: "datum.plane"}, nil, payload.Plane)
 	applyDatumParameterSources(&model, payload.Plane.ID, payload.ParameterSources)
-	changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change}, []modelcore.DependencyKey{"datum:" + modelcore.DependencyKey(payload.Plane.ID)}, beforeParameters, model.Parameters)
+	changes, seeds := appendParameterLifecycleChanges(append(containerChanges, change), []modelcore.DependencyKey{"datum:" + modelcore.DependencyKey(payload.Plane.ID)}, beforeParameters, model.Parameters)
 	next, _ := json.Marshal(model)
 	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 }
@@ -1439,10 +1459,17 @@ func applyCreateDatumAxis(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		}
 		payload.Axis.Name = nextAutomaticName("Axis", names)
 	}
+	if payload.Axis.Definition != nil && payload.Axis.Construction != nil {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: ambiguous reference definition", ErrValidation)
+	}
+	containerChanges, err := referenceContainer(&model, &payload.Axis.GeometricalSetID, payload.Axis.ID)
+	if err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	model.DatumAxes = append(model.DatumAxes, payload.Axis)
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Axis.ID, SlotID: "datum.axis"}, nil, payload.Axis)
 	applyDatumParameterSources(&model, payload.Axis.ID, payload.ParameterSources)
-	changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change}, []modelcore.DependencyKey{"datum:" + modelcore.DependencyKey(payload.Axis.ID)}, beforeParameters, model.Parameters)
+	changes, seeds := appendParameterLifecycleChanges(append(containerChanges, change), []modelcore.DependencyKey{"datum:" + modelcore.DependencyKey(payload.Axis.ID)}, beforeParameters, model.Parameters)
 	next, _ := json.Marshal(model)
 	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 }
@@ -1584,20 +1611,19 @@ func applyEditFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, 
 }
 
 func applyParameterSource(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
-	var model PartModel
 	var payload parameterSourcePayload
-	if err := json.Unmarshal(modelJSON, &model); err != nil {
+	model, err := readParameterDocument(modelJSON)
+	if err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	normalizePartModel(&model)
 	for index := range model.Parameters {
 		if model.Parameters[index].ParameterID != payload.ParameterID {
 			continue
 		}
-		if model.Parameters[index].Role == "MEASURED" {
+		if model.Parameters[index].Source.Produced != nil || model.Parameters[index].Role == "MEASURED" {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: reference dimension is measured; switch its driving mode explicitly before editing its preserved source", ErrValidation)
 		}
 		before := model.Parameters[index].Source
@@ -1605,7 +1631,7 @@ func applyParameterSource(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: external parameter requires explicit Detach before source editing", ErrValidation)
 		}
 		model.Parameters[index].Source = payload.Source
-		if err := validateAndResolvePartParameters(&model); err != nil {
+		if err := model.resolve(); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
 		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.ParameterID, SlotID: "parameter.source"}, before, payload.Source)
@@ -1625,15 +1651,14 @@ type editParameterPayload struct {
 // Alias and source share one revision and one validation boundary. Expressions
 // retain bound ParameterIds while their readable source text follows aliases.
 func applyEditParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
-	var model PartModel
 	var payload editParameterPayload
-	if err := json.Unmarshal(modelJSON, &model); err != nil {
+	model, err := readParameterDocument(modelJSON)
+	if err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	normalizePartModel(&model)
 	payload.Key = strings.TrimSpace(payload.Key)
 	if !validParameterKey(payload.Key) {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter alias must be an ASCII identifier", ErrValidation)
@@ -1651,7 +1676,7 @@ func applyEditParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	if index < 0 {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter does not exist", ErrValidation)
 	}
-	if model.Parameters[index].Role == "MEASURED" && !reflect.DeepEqual(model.Parameters[index].Source, payload.Source) {
+	if (model.Parameters[index].Source.Produced != nil || model.Parameters[index].Role == "MEASURED") && !reflect.DeepEqual(model.Parameters[index].Source, payload.Source) {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: reference dimension preserves its driving source; use its dimension definition editor to switch mode", ErrValidation)
 	}
 	if model.Parameters[index].Source.External != nil && payload.Source.External == nil {
@@ -1672,7 +1697,7 @@ func applyEditParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 			expression.SourceText = formatted
 		}
 	}
-	if err := validateAndResolvePartParameters(&model); err != nil {
+	if err := model.resolve(); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	changes := []modelcore.ModelChange{}
@@ -1694,15 +1719,14 @@ func applyEditParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 }
 
 func applyRenameParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
-	var model PartModel
 	var payload renameParameterPayload
-	if err := json.Unmarshal(modelJSON, &model); err != nil {
+	model, err := readParameterDocument(modelJSON)
+	if err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	normalizePartModel(&model)
 	payload.Key = strings.TrimSpace(payload.Key)
 	if !validParameterKey(payload.Key) {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter key must be an ASCII identifier", ErrValidation)
@@ -1738,7 +1762,7 @@ func applyRenameParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 			}
 			expression.SourceText = formatted
 		}
-		if err := validateAndResolvePartParameters(&model); err != nil {
+		if err := model.resolve(); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
 		change, _ := modelcore.NewChange(modelcore.ChangeUpdate,
@@ -2252,6 +2276,18 @@ func applyUpdateReferences(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 		return nil, modelcore.ChangeSet{}, err
 	}
 	changes := []modelcore.ModelChange{}
+	seeds := []modelcore.DependencyKey{"product:references"}
+	priorParameters := map[string]modelcore.ValueSource{}
+	for _, p := range before.Parameters {
+		priorParameters[p.ParameterID] = p.Source
+	}
+	for _, p := range payload.Model.Parameters {
+		if prior, ok := priorParameters[p.ParameterID]; ok && resolvedDigest(prior) != resolvedDigest(p.Source) {
+			change, _ := modelcore.NewChange(modelcore.ChangeBind, modelcore.PropertyAddress{EntityID: p.ParameterID, SlotID: "parameter.source"}, prior, p.Source)
+			changes = append(changes, change)
+			seeds = append(seeds, modelcore.DependencyKey("parameter:"+p.ParameterID))
+		}
+	}
 	beforeInstances := map[string]ProductInstance{}
 	for _, value := range before.Instances {
 		beforeInstances[value.ID] = value
@@ -2295,7 +2331,7 @@ func applyUpdateReferences(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 		}
 	}
 	next, _ := json.Marshal(payload.Model)
-	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: []modelcore.DependencyKey{"product:references"}}, nil
+	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 }
 
 type preparedDomainMutation struct {
@@ -2310,7 +2346,7 @@ type preparedDomainMutation struct {
 }
 
 func isPartMetadataCommand(command modelcore.DomainCommand) bool {
-	if command.TypeURI == typeSetMeasurements {
+	if command.TypeURI == typeGeometricalSet || command.TypeURI == typeSetMeasurements || command.TypeURI == typeUpdateDerived {
 		return true
 	}
 	if command.TypeURI == typeDefinitionVisibility || command.TypeURI == typeRenameFeature || command.TypeURI == typeSetBodyColor || command.TypeURI == typeSetProperties {
@@ -3229,6 +3265,9 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 	metadata, _ := json.Marshal(model.Metadata)
 	nodes = append(nodes, modelcore.DependencyNode{Key: "appearance:document", Phase: 0, Type: "APPEARANCE", CanonicalInput: appearance}, modelcore.DependencyNode{Key: "metadata:document", Phase: 0, Type: "METADATA", CanonicalInput: metadata})
 	edges := make([]modelcore.DependencyEdge, 0, len(model.Constraints)*2)
+	parameterNodes, parameterEdges := parameterGraph(model.Parameters)
+	nodes = append(nodes, parameterNodes...)
+	edges = append(edges, parameterEdges...)
 	for _, a := range model.SpatialAnalyses {
 		data, _ := json.Marshal(a)
 		key := modelcore.DependencyKey("spatial-analysis:" + a.ID)
@@ -3317,6 +3356,18 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 	}
 	publicationIDs, publicationNames := map[string]bool{}, map[string]bool{}
 	for _, publication := range model.Publications {
+		if publication.Target.ParameterID != "" {
+			if publication.ID == "" || publicationIDs[publication.ID] || publicationNames[scopedNameKey(publication.Name)] || len(publication.Target.InstancePath.Segments) > 0 || publication.Target.PublicationID != "" {
+				return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: invalid parameter Publication identity", ErrValidation)
+			}
+			publicationIDs[publication.ID], publicationNames[scopedNameKey(publication.Name)] = true, true
+			data, _ := json.Marshal(publication)
+			key := modelcore.DependencyKey("product-publication:" + publication.ID)
+			nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 3, Type: "PRODUCT_PUBLICATION", CanonicalInput: data})
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("parameter:" + publication.Target.ParameterID), Target: key, Kind: modelcore.ReadValue})
+			continue
+		}
+
 		name := scopedNameKey(publication.Name)
 		if publication.ID == "" || publicationIDs[publication.ID] || name == "" || publicationNames[name] || len(publication.Target.InstancePath.Segments) == 0 || len(publication.Target.InstancePath.Segments) > instancePathMaxDepth {
 			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product Publication identity or relative occurrence path is invalid", ErrValidation)
@@ -3382,7 +3433,10 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		}
 
 	}
-	graph, err := modelcore.NewDependencyGraph(nodes, edges)
+	measurementNodes, measurementEdges := productMeasurementGraph(model)
+	nodes = append(nodes, measurementNodes...)
+	edges = append(edges, measurementEdges...)
+	graph, err := modelcore.ScheduleEvaluationGraph(nodes, edges)
 	if err != nil {
 		return nil, modelcore.EvaluationManifest{}, err
 	}

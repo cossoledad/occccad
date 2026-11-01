@@ -2,8 +2,8 @@ package workspace
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/occccad/occccad/internal/modelcore"
 	"sort"
 )
 
@@ -16,14 +16,20 @@ type ParameterUpdateNode struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 }
 
-type parameterUpdateSource struct{ documentID, revisionID string }
+type parameterUpdateSource struct {
+	documentID, revisionID string
+	ref                    *modelcore.ExternalParameterRef
+}
 
 func partUpdateSources(model PartModel) []parameterUpdateSource {
 	var sources []parameterUpdateSource
 	for _, parameter := range model.Parameters {
+		if parameter.Lifecycle == "PUBLICATION_FORWARD" {
+			continue
+		}
 		ref := parameter.Source.External
 		if ref != nil && ref.Revision.Mode != "PINNED" && ref.Revision.Mode != "ISOLATED" {
-			sources = append(sources, parameterUpdateSource{ref.SourceDocumentID, ref.ResolvedRevisionID})
+			sources = append(sources, parameterUpdateSource{ref.SourceDocumentID, ref.ResolvedRevisionID, ref})
 		}
 	}
 
@@ -34,6 +40,7 @@ func partUpdateSources(model PartModel) []parameterUpdateSource {
 func buildParameterUpdateOrder(roots []string, read func(string) (string, PartModel, error)) ([]ParameterUpdateNode, error) {
 	state := map[string]int{}
 	nodes := map[string]ParameterUpdateNode{}
+	models := map[string]PartModel{}
 	var order []ParameterUpdateNode
 	var visit func(string) error
 	visit = func(id string) error {
@@ -51,6 +58,7 @@ func buildParameterUpdateOrder(roots []string, read func(string) (string, PartMo
 		if err != nil {
 			return err
 		}
+		models[id] = model
 		node := ParameterUpdateNode{DocumentID: id, RevisionID: revision}
 		seen := map[string]bool{}
 		for _, source := range partUpdateSources(model) {
@@ -58,7 +66,7 @@ func buildParameterUpdateOrder(roots []string, read func(string) (string, PartMo
 				return err
 			}
 			dependency := nodes[source.documentID]
-			node.NeedsUpdate = node.NeedsUpdate || dependency.NeedsUpdate || dependency.RevisionID != source.revisionID
+			node.NeedsUpdate = node.NeedsUpdate || dependency.NeedsUpdate || (dependency.RevisionID != source.revisionID && parameterReferenceChanged(source.ref, models[source.documentID]))
 			if !seen[source.documentID] {
 				node.Dependencies = append(node.Dependencies, source.documentID)
 				seen[source.documentID] = true
@@ -102,10 +110,14 @@ func (service *Service) productParameterUpdateOrder(ctx context.Context, product
 		if err != nil {
 			return "", model, err
 		}
-		if kind != "PART" {
-			return "", model, fmt.Errorf("%w: cross-Product parameter propagation requires a nested update plan", ErrValidation)
+		if kind != "PART" && kind != "PRODUCT" {
+			return "", model, fmt.Errorf("%w: parameter document type unsupported", ErrValidation)
 		}
-		err = json.Unmarshal(raw, &model)
+		doc, err := readParameterDocument(raw)
+		if err != nil {
+			return "", model, err
+		}
+		model = parameterPartContext(doc)
 		return revision, model, err
 	})
 }
@@ -176,4 +188,15 @@ func (service *Service) AcceptParametricProductUpdate(ctx context.Context, docum
 	request.UpdatePlanDigest = digest
 	request.ValidatedUpdatePlanDigest = current.Digest
 	return service.ApplyCommand(ctx, documentID, request)
+}
+
+func parameterReferenceChanged(ref *modelcore.ExternalParameterRef, source PartModel) bool {
+	for _, pub := range source.Publications {
+		if pub.ID != ref.PublicationID {
+			continue
+		}
+		r := pub.Resolution
+		return pub.Type != "PARAMETER" || pub.CompatibilityVersion != ref.ContractVersion || resolvedDigest(pub.Contract) != ref.ResolutionSnapshot.ContractDigest || r.Status != "CONNECTED" || (r.CurrencyStatus != "" && r.CurrencyStatus != "CURRENT") || r.Value == nil || resolvedDigest(*r.Value) != ref.ResolvedValueDigest
+	}
+	return true
 }

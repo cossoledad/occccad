@@ -334,11 +334,12 @@ export class CadViewportEngine {
   private interferenceVisibility=new Map<THREE.Object3D,boolean>();
   private measurementOverlay?:MeasurementOverlay;
   private measurementPreview?:MeasurementReport;
+  setMeasurementLayouts(documentId:string,layouts:import("../cad/measurement/annotation-layout").AnnotationLayouts,save?:(id:string,offset:[number,number]|undefined)=>void):void {this.measurementOverlay?.setLayouts(documentId,layouts,save);this.invalidate()}
   showMeasurement(report?:MeasurementReport):void {this.measurementPreview=report;this.invalidate();}
   private renderMeasurements(width:number,height:number):void {
     const view=this.view;if(!view){this.measurementOverlay?.render('',[],this.sketchLengthUnit,this.camera,width,height,false);return;}
     const preview=this.measurementPreview?.documentId===view.document.id&&this.measurementPreview.revisionId===view.document.versionId?this.measurementPreview:undefined;
-    const saved=measurements(view).filter(m=>m.id!==preview?.definition.id);
+    const saved=measurements(view).filter(m=>m.id!==preview?.definition.id).map(m=>({...m,visible:this.visibilityResolver?.resolve({documentId:view.document.id,occurrencePath:'',kind:'MEASUREMENT',entityId:m.id}).effectiveVisible??m.visible}));
     const items=preview?[...saved,{...preview.definition,result:preview.result,status:'CURRENT'}]:saved;
     this.measurementOverlay?.render(view.document.id,items,this.sketchLengthUnit,this.camera,width,height,this.sectionSceneReady()&&!this.sketchPlane);
   }
@@ -863,8 +864,9 @@ export class CadViewportEngine {
       value.part.datumPlanes.map(plane=>[plane.id,plane.origin,plane.normal,plane.uDirection,plane.size]),
       value.part.axisSystems.map(axis=>[axis.id,axis.origin,axis.xDirection,axis.yDirection,axis.zDirection]),
       value.part.datumAxes?.map(axis=>[axis.id,axis.origin,axis.direction]),
+      value.part.datumPoints?.map(point=>[point.id,point.position]),
     ];
-    return JSON.stringify([view.document.id, view.document.type, part(view),
+    return JSON.stringify([view.document.id, view.document.type, part(view),view.referenceDisplayScopes?.map(scope=>[scope.documentId,scope.instancePath.canonical,scope.translation,scope.rotation,scope.referenceGeometry.datumPoints?.map(p=>[p.id,p.position]),scope.referenceGeometry.datumPlanes.map(p=>[p.id,p.origin,p.normal,p.uDirection,p.size]),scope.referenceGeometry.datumAxes?.map(a=>[a.id,a.origin,a.direction]),scope.referenceGeometry.axisSystems.map(a=>[a.id,a.origin,a.xDirection,a.yDirection,a.zDirection])]),
       view.resolvedInstances?.map((resolved) => [resolved.occurrencePath,resolved.bodyId, resolved.geometryKey, resolved.displayFallback, resolved.translation, resolved.rotation,
         resolved.ownedSketchIds]),
       view.product?.instances.map((instance) => [instance.id, instance.translation, instance.rotation]),
@@ -1154,7 +1156,7 @@ export class CadViewportEngine {
   updateDisplayProjection(view: DocumentDescriptor): void {
     if (!this.view || this.view.document.id !== view.document.id) return;
     this.view = {...this.view,document:view.document,structureTree:view.structureTree,part:view.part,product:view.product,bodyAppearances:view.bodyAppearances,
-      contextVariants:view.contextVariants,constraintDisplayScopes:view.constraintDisplayScopes,resolvedInstances:view.resolvedInstances};
+      contextVariants:view.contextVariants,constraintDisplayScopes:view.constraintDisplayScopes,referenceDisplayScopes:view.referenceDisplayScopes,resolvedInstances:view.resolvedInstances};
     this.selectionIndex.setSemanticProjection(selection=>this.view?refreshOccurrenceSelection(this.view,selection):selection);
     // Geometry reuse must not reuse the old semantic snapshot. Pick closures
     // share the binding context; update it without replacing GPU resources.
@@ -1200,7 +1202,7 @@ export class CadViewportEngine {
     const documentId = entry.documentId;
     const occurrencePath = entry.occurrencePath ?? "";
     if (!documentId) return undefined;
-    const referenceKind=entry.kind==="plane"?"PLANE":entry.kind==="axis-system"?"AXIS_SYSTEM":entry.kind==="datum-point"?"DATUM_POINT":entry.kind==="axis"?(entry.axis==="DATUM"?"DATUM_AXIS":"AXIS"):undefined;
+    const referenceKind=entry.kind==="plane"?"PLANE":entry.kind==="axis-system"?"AXIS_SYSTEM":entry.kind==="datum-point"?"DATUM_POINT":entry.kind==="reference-point"?"REFERENCE_POINT":entry.kind==="axis"?(entry.axis==="DATUM"?"DATUM_AXIS":"AXIS"):undefined;
     if(referenceKind&&entry.entityId)return {documentId,occurrencePath,kind:referenceKind,entityId:entry.entityId,axis:entry.kind==="axis"?entry.axis:undefined};
     if(entry.kind==="assembly-constraint"&&entry.constraintId)return {documentId,occurrencePath,kind:"ASSEMBLY_CONSTRAINT",entityId:entry.constraintId};
     if (entry.kind === "body" && entry.bodyId) return {documentId, occurrencePath, kind:"BODY", entityId:entry.bodyId};
@@ -1235,7 +1237,7 @@ export class CadViewportEngine {
       const featureReference = projectionReference || this.featureSelection && !this.featureSelection.localSketchId &&
         (entry.ownerDocumentId ?? entry.documentId) === this.featureSelection.documentId &&
         (entry.occurrencePath ?? "") === (this.featureSelection.occurrencePath ?? "") &&
-        (this.featureSelection.role === "plane" && entry.kind === "plane" || ["axis","direction"].includes(this.featureSelection.role) && ["axis","axis-system"].includes(entry.kind??"") || this.featureSelection.role === "point" && ["axis-system","datum-point"].includes(entry.kind??""));
+        (this.featureSelection.role === "plane" && entry.kind === "plane" || ["axis","direction"].includes(this.featureSelection.role) && ["axis","axis-system"].includes(entry.kind??"") || this.featureSelection.role === "point" && ["axis-system","datum-point","reference-point"].includes(entry.kind??""));
       if(object.userData.patternCenterMarker){ object.visible=this.featureSelection?.role==="point"&&!this.featureSelection.localSketchId;return; }
       if (category) object.visible = (this.referenceVisibility[category] || !!featureReference) &&
         !(root === this.helpers && this.sketchPlane && !featureReference) && (address ? semanticVisible !== false : hidden !== false);
@@ -2197,21 +2199,7 @@ export class CadViewportEngine {
 
   private renderPart(view: DocumentView): void {
     const rootPath = `document:${view.document.id}`;
-    for (const datum of view.datumPlanes ?? []) this.addDatumPlane(datum, this.helpers, true, {
-      documentId: view.document.id, versionId: view.document.versionId,
-      geometryKey: view.artifact?.geometryKey ?? "", occurrencePath: "",
-      treeNodeId: `${rootPath}/origin/plane:${datum.id}`,
-    });
-    for (const axis of view.axisSystems ?? []) this.addAxisSystem(axis, this.helpers, {
-      documentId: view.document.id, versionId: view.document.versionId,
-      geometryKey: view.artifact?.geometryKey ?? "", occurrencePath: "",
-      treeNodeId: `${rootPath}/origin/axis:${axis.id}`,
-    });
-    for (const axis of view.datumAxes ?? view.part?.datumAxes ?? []) this.addDatumAxis(axis, this.helpers, {
-      documentId: view.document.id, versionId: view.document.versionId,
-      geometryKey: view.artifact?.geometryKey ?? "", occurrencePath: "",
-      treeNodeId: `${rootPath}/origin/datum-axis:${axis.id}`,
-    });
+    this.addReferenceGeometry({datumPoints:view.part?.datumPoints,datumPlanes:view.datumPlanes??view.part?.datumPlanes??[],axisSystems:view.axisSystems??view.part?.axisSystems??[],datumAxes:view.datumAxes??view.part?.datumAxes??[]},this.helpers,{documentId:view.document.id,versionId:view.document.versionId,geometryKey:view.artifact?.geometryKey??'',occurrencePath:'',treeNodeId:rootPath});
     for (const body of view.part?.bodies ?? []) {
       if (body.consumed) continue;
       const displayKey = body.geometryKey || body.displayFallback?.geometryKey;
@@ -2284,11 +2272,18 @@ export class CadViewportEngine {
         };
         if (resolved.geometryKey && !referencedOccurrences.has(resolved.occurrencePath)) {
           const prefix=this.editContext?.historicalBoundary&&this.editContext.occurrencePath===resolved.occurrencePath?this.editContext.view.part:undefined;
-          this.addReferenceGeometry(prefix?{datumPlanes:prefix.datumPlanes,datumAxes:prefix.datumAxes??[],axisSystems:prefix.axisSystems}:artifact.visualization.referenceGeometry, resolvedGroup, visualContext); referencedOccurrences.add(resolved.occurrencePath);
+          this.addReferenceGeometry(prefix?{datumPoints:prefix.datumPoints,datumPlanes:prefix.datumPlanes,datumAxes:prefix.datumAxes??[],axisSystems:prefix.axisSystems}:artifact.visualization.referenceGeometry, resolvedGroup, visualContext); referencedOccurrences.add(resolved.occurrencePath);
         }
         if (resolved.geometryKey) this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext, true,
           new Set(resolved.ownedSketchIds ?? []));
         if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
+      }
+      for(const scope of view.referenceDisplayScopes??[]){
+        const occurrence=scope.instancePath.canonical;if(scope.instancePath.segments[0]?.instanceId!==instance.id||referencedOccurrences.has(occurrence))continue;
+        const referenceGroup=new THREE.Group();referenceGroup.userData={occurrencePath:occurrence};referenceGroup.position.fromArray(scope.translation).sub(new THREE.Vector3().fromArray(instance.translation)).applyQuaternion(instanceRotation.clone().invert());referenceGroup.quaternion.copy(instanceRotation.clone().invert().multiply(new THREE.Quaternion().fromArray(scope.rotation)));
+        const prefix=this.editContext?.historicalBoundary&&this.editContext.occurrencePath===occurrence?this.editContext.view.part:undefined;
+        this.addReferenceGeometry(prefix?{datumPoints:prefix.datumPoints,datumPlanes:prefix.datumPlanes,datumAxes:prefix.datumAxes??[],axisSystems:prefix.axisSystems}:scope.referenceGeometry,referenceGroup,{documentId:scope.documentId,versionId:scope.versionId,geometryKey:'',treeNodeId:'',occurrencePath:occurrence,instancePath:scope.instancePath,instanceId:instance.id});
+        group.add(referenceGroup);referencedOccurrences.add(occurrence);
       }
       // Publications also expose layout Parts with no solid artifact. Display
       // their accepted exact sketch snapshots, retaining original entity IDs.
@@ -2715,16 +2710,27 @@ export class CadViewportEngine {
     this.selectionIndex.register(systemSelection, system);
   }
 
+  private referenceTreeNode(context:SolidContext,entityId:string):string {
+    const visit=(node:DocumentStructureNode|undefined):string|undefined=>{if(!node)return;if(node.entityId===entityId&&node.documentId===context.documentId&&(node.instancePath?.canonical??'')===(context.occurrencePath??'')&&node.presentationRole!=='INPUT_REFERENCE')return node.id;for(const child of node.children??[]){const result=visit(child);if(result)return result}};
+    return visit(this.view?.structureTree)??"";
+  }
   private addReferenceGeometry(reference: ReferenceGeometry | undefined, parent: THREE.Group, context: SolidContext): void {
     if (!reference) return;
+    for(const point of reference.datumPoints??[]){
+      const mesh=new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]),this.materials.point(CATIA_VISUAL_THEME.reference,6,false));
+      mesh.position.fromArray(point.position);
+      const selection={...context,kind:'reference-point' as const,id:`${context.occurrencePath||'root'}:${point.id}`,entityId:point.id,treeNodeId:this.referenceTreeNode(context,point.id)};
+      mesh.userData=selection;mesh.renderOrder=110;mesh.raycast=(raycaster,hits)=>{const previous=raycaster.params.Points!.threshold;raycaster.params.Points!.threshold=this.datumAxisPickToleranceWorld*2;try{raycastDatumPoint.call(mesh,raycaster,hits)}finally{raycaster.params.Points!.threshold=previous}};
+      parent.add(mesh);this.selectionIndex.register(selection,mesh);this.selectionIndex.registerPick(mesh,()=>selection,230,11);
+    }
     for (const datum of reference.datumPlanes ?? []) this.addDatumPlane(datum, parent, false, {
-      ...context, treeNodeId: context.treeNodeId.replace(/\/body$/, `/origin/plane:${datum.id}`),
+      ...context, treeNodeId: this.referenceTreeNode(context,datum.id),
     });
     for (const axis of reference.axisSystems ?? []) this.addAxisSystem(axis, parent, {
-      ...context, treeNodeId: context.treeNodeId.replace(/\/body$/, `/origin/axis:${axis.id}`),
+      ...context, treeNodeId: this.referenceTreeNode(context,axis.id),
     });
     for (const axis of reference.datumAxes ?? []) this.addDatumAxis(axis, parent, {
-      ...context, treeNodeId: context.treeNodeId.replace(/\/body$/, `/origin/datum-axis:${axis.id}`),
+      ...context, treeNodeId: this.referenceTreeNode(context,axis.id),
     });
   }
 
@@ -3202,7 +3208,8 @@ export class CadViewportEngine {
       const placement = new THREE.Group();
       placement.position.fromArray(preview.translation ?? [0,0,0]);
       placement.quaternion.fromArray(preview.rotation ?? [0,0,0,1]);
-      let reference: THREE.Group | THREE.Mesh | undefined;
+      let reference: THREE.Group | THREE.Mesh | THREE.Points | undefined;
+      if(preview.point){reference=new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3().fromArray(preview.point.position)]),this.materials.point(CATIA_VISUAL_THEME.commandPreview,7,false));reference.renderOrder=110;}
       if (preview.axis) reference = makeDatumAxisReference(preview.axis, CATIA_VISUAL_THEME.commandPreview);
       if (preview.plane) {
         const p = preview.plane;
@@ -3218,7 +3225,7 @@ export class CadViewportEngine {
           reference=frame;
         }
       }
-      if (reference) { placement.add(reference); this.helpers.add(placement); if(!preview.showFrame)this.screenStableReferences.set(reference, preview.axis?DATUM_AXIS_PIXELS:DATUM_PLANE_PIXELS); this.datumPreviewGroup = placement; }
+      if (reference) { placement.add(reference); this.helpers.add(placement); if(!preview.showFrame&&!preview.point)this.screenStableReferences.set(reference, preview.axis?DATUM_AXIS_PIXELS:DATUM_PLANE_PIXELS); this.datumPreviewGroup = placement; }
       updateHighlightLineResolution(placement,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);
     }
     this.emitDebugState(); this.invalidate();
@@ -4012,7 +4019,7 @@ export class CadViewportEngine {
         const type = this.reconnectExternalID ? "RECONNECT_EXTERNAL_GEOMETRY" as const : "ADD_EXTERNAL_GEOMETRY" as const;
         const scope=this.sketchView();if(!scope||(selection.ownerDocumentId??selection.documentId)!==scope.document.id||(selection.occurrencePath??"")!==(this.editContext?.occurrencePath??"")||selection.versionId!==scope.document.versionId)throw new Error("投影引用不属于当前草图的文档、Revision 或 occurrence");
         let source:Partial<import("../types").SketchOperation>;
-        if(selection.kind==="axis"||selection.kind==="axis-system"||selection.kind==="datum-point"){
+        if(selection.kind==="axis"||selection.kind==="axis-system"||selection.kind==="datum-point"||selection.kind==="reference-point"){
           const ref:import("../types").DatumReference={kind:selection.kind==="axis"?(selection.axis==="DATUM"?"AXIS":"AXIS_SYSTEM"):"POINT",entityId:selection.entityId,...(selection.kind==="axis"&&selection.axis!=="DATUM"?{axis:selection.axis}:{})};source={datumReference:ref};
         }else if(selection.kind==="edge"||selection.kind==="vertex")source={geometryKey:selection.geometryKey,topologyId:selection.topologyId,topologyKind:selection.kind.toUpperCase() as "EDGE"|"VERTEX"};else throw new Error("投影来源不支持");
         const result=await this.commitSketchOperations([{...source,type,externalId:externalID,sourceVersionId:selection.versionId} as import("../types").SketchOperation]);

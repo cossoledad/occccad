@@ -15,6 +15,7 @@ export function publicationSelectionTarget(view:DocumentView,s:SelectionItem|und
  if(!s||!view.part||!selectionInSnapshot(s,view.document.id,view.document.versionId,path))return;
  const scope={sourceDocumentId:view.document.id,versionId:view.document.versionId,instancePath:path};
  if(s.kind==='plane'&&s.entityId&&view.part.datumPlanes?.some(p=>p.id===s.entityId))return {...scope,publicationType:'PLANE',targetKind:'PLANE',targetId:s.entityId};
+ if(s.kind==='reference-point'&&s.entityId&&view.part.datumPoints?.some(p=>p.id===s.entityId))return {...scope,publicationType:'POINT',targetKind:'REFERENCE_POINT',targetId:s.entityId};
  if(s.kind==='axis-system'&&s.entityId&&view.part.axisSystems?.some(p=>p.id===s.entityId))return {...scope,publicationType:'FRAME',targetKind:'AXIS_SYSTEM',targetId:s.entityId};
  if(s.kind==='axis'&&s.entityId&&(s.axis==='DATUM'?view.part.datumAxes?.some(p=>p.id===s.entityId):view.part.axisSystems?.some(p=>p.id===s.entityId)))return {...scope,publicationType:'AXIS',targetKind:s.axis==='DATUM'?'DATUM_AXIS':'AXIS',targetId:s.entityId,axis:s.axis==='DATUM'?undefined:s.axis};
  if((s.kind==='face'||s.kind==='edge')&&s.geometryKey&&view.part.bodies.some(b=>b.geometryKey===s.geometryKey))return {...scope,publicationType:s.kind==='face'?'SURFACE':'CURVE',targetKind:s.kind.toUpperCase(),geometryKey:s.geometryKey,topologyId:s.topologyId};

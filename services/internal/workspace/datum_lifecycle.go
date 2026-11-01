@@ -14,6 +14,16 @@ func isStandardDatumPlane(id string) bool {
 
 // Reference geometry deletion shares the ordinary node command and its compensation slots.
 func deleteDatum(model PartModel, kind, id string) (json.RawMessage, modelcore.ChangeSet, error) {
+	for owner, c := range referenceConstructions(&model) {
+		if owner == id {
+			continue
+		}
+		for _, ref := range c.Inputs {
+			if ref.EntityID == id {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is referenced by %s", ErrValidation, owner)
+			}
+		}
+	}
 	for _, publication := range model.Publications {
 		if publication.Target.Kind == "DATUM" && publication.Target.DatumID == id {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is published by %s", ErrValidation, publication.ID)

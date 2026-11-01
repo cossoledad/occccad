@@ -465,7 +465,7 @@ func appendSketchParameterDefinitionChanges(changes []modelcore.ModelChange, see
 		if prior.Key == parameter.Key && prior.Role == parameter.Role && prior.DisplayUnit == parameter.DisplayUnit && prior.Dimension.Equal(parameter.Dimension) {
 			continue
 		}
-		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: parameter.ParameterID, SlotID: "parameter.entity"}, prior, parameter)
+		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: parameter.ParameterID, SlotID: "parameter.entity"}, parameterHistoryDefinition(prior), parameterHistoryDefinition(parameter))
 		changes = append(changes, change)
 		seeds = append(seeds, "parameter:"+modelcore.DependencyKey(parameter.ParameterID))
 		changed[parameter.ParameterID] = true

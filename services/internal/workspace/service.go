@@ -1274,12 +1274,13 @@ func normalizePartModel(model *PartModel) {
 			feature.Sketch.Support.Status = "CONNECTED"
 		}
 	}
+	normalizeReferenceConstructions(model)
 	ensureFeatureParameters(model)
 }
 
 func referenceGeometry(model PartModel) ReferenceGeometry {
 	normalizePartModel(&model)
-	return ReferenceGeometry{DatumPlanes: model.DatumPlanes, AxisSystems: model.AxisSystems, DatumAxes: model.DatumAxes}
+	return ReferenceGeometry{DatumPlanes: model.DatumPlanes, AxisSystems: model.AxisSystems, DatumAxes: model.DatumAxes, DatumPoints: model.DatumPoints}
 }
 
 func visualizationManifest(model PartModel) VisualizationManifest {
@@ -2603,7 +2604,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			OwnerEntityID: input.Target.TargetID, DocumentID: documentID, VersionID: versionID,
 			Capabilities: []string{"EDIT", "DELETE"}, ContextInput: &copy})
 	}
-	result := append([]DocumentStructureNode{origin}, bodies...)
+	result := append(referenceStructure(model, origin.Children, path, documentID, versionID, editable), bodies...)
 	if len(parameters.Children) > 0 {
 		result = append(result, parameters)
 	}
@@ -2948,6 +2949,7 @@ func (service *Service) resolveProduct(
 			return err
 		}
 		normalizePartModel(&model)
+		captureReferenceDisplayScope(ctx, documentID, versionID, instancePath, parent, model)
 		for _, body := range model.Bodies {
 			key := body.GeometryKey
 			if key == "" && body.DisplayFallback != nil {

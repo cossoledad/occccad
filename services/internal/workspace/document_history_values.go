@@ -16,6 +16,13 @@ func partHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (map[
 		return nil, err
 	}
 	for _, change := range set.Changes {
+		if value, handled, err := referenceObjectHistory(&model, change.Target, nil, false); handled {
+			if err != nil {
+				return nil, err
+			}
+			result[change.Target] = value
+			continue
+		}
 		if value, handled, err := partPropertyHistory(&model, change.Target, nil, false); handled {
 			if err != nil {
 				return nil, err
@@ -85,7 +92,7 @@ func partHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (map[
 		case "parameter.entity":
 			for _, parameter := range model.Parameters {
 				if parameter.ParameterID == change.Target.EntityID {
-					result[change.Target], _ = json.Marshal(parameter)
+					result[change.Target], _ = json.Marshal(parameterHistoryDefinition(parameter))
 				}
 			}
 		case "parameter.key":
@@ -127,6 +134,13 @@ func productHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (m
 		return nil, err
 	}
 	for _, change := range set.Changes {
+		if value, handled, err := parameterHistory(&model.Parameters, change.Target, nil, false); handled {
+			if err != nil {
+				return nil, err
+			}
+			result[change.Target] = value
+			continue
+		}
 		if value, handled, err := productPropertyHistory(&model, change.Target, nil, false); handled {
 			if err != nil {
 				return nil, err
@@ -210,6 +224,12 @@ func applyPartHistoryValues(modelJSON json.RawMessage, values map[modelcore.Prop
 		return nil, err
 	}
 	for address, value := range values {
+		if _, handled, err := referenceObjectHistory(&model, address, value, true); handled {
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
 		if _, handled, err := partPropertyHistory(&model, address, value, true); handled {
 			if err != nil {
 				return nil, err
@@ -473,6 +493,7 @@ func applyPartHistoryValues(modelJSON json.RawMessage, values map[modelcore.Prop
 	if err := validateAndResolvePartParameters(&model); err != nil {
 		return nil, err
 	}
+	clearMeasurementProjection(model.Measurements)
 	return json.Marshal(model)
 }
 func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.PropertyAddress]json.RawMessage) (json.RawMessage, error) {
@@ -482,6 +503,12 @@ func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.P
 		return nil, err
 	}
 	for address, value := range values {
+		if _, handled, err := parameterHistory(&model.Parameters, address, value, true); handled {
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
 		if _, handled, err := productPropertyHistory(&model, address, value, true); handled {
 			if err != nil {
 				return nil, err
@@ -628,5 +655,12 @@ func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.P
 			}
 		}
 	}
+	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
+		return nil, err
+	}
+	if _, err := resolveParameterDefinitions(model.Parameters); err != nil {
+		return nil, err
+	}
+	clearMeasurementProjection(model.Measurements)
 	return json.Marshal(model)
 }

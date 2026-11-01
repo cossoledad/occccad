@@ -1,3 +1,8 @@
+import {ParameterExternalEditor} from "./parameter-external-editor";
+import {ReferenceElementEditor} from "./reference-element-editor";
+import {createdObjectReveal,requestTreeReveal} from "./tree-reveal";
+import {AnnotationLayoutSession} from "../../cad/measurement/annotation-layout";
+import {annotationLayoutAPI} from "../../api/document-presentation";
 import {MeasurementPanel} from './measurement-panel';
 import {measurements,type Measurement,type MeasurementKind} from '../../cad/measurement/measurement';
 import {SpatialAnalysisPanel} from "./spatial-analysis-panel";
@@ -108,7 +113,7 @@ import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } from "./product-edit-context";
 import { assemblyAutomaticPreviewAllowed, createAssemblyPreviewActor } from "./assembly-preview-machine";
-import { isLengthParameter, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
+import {documentParameters, isLengthParameter, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
 import {kinematicKinds,motionSelectionTargets,qualifyMotionSelections,deleteMotionObjects,renameMotionObject} from "../../cad/assembly/motion-definitions";
 import {MechanismAnalysisPanel} from "./mechanism-analysis-panel";
 import {MotionStudyPanel,type MotionPanelHandle} from "./motion-study-panel";
@@ -160,6 +165,7 @@ export function Workbench() {
   const operationFeedback=useOperationFeedback();
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
   const viewport = useRef<CadViewportHandle>(null);
+  const [measurementLayouts,setMeasurementLayouts]=useState<{documentId:string;layouts:import("../../cad/measurement/annotation-layout").AnnotationLayouts;save?:(id:string,offset:[number,number]|undefined)=>void}>();
   const [assistantOpen,setAssistantOpen]=useState(false);
   useEffect(()=>setAssistantOpen(false),[documentID]);
   const [assistantDisplayed,setAssistantDisplayed]=useState<{documentId:string;revisionId:string}>();
@@ -249,8 +255,11 @@ export function Workbench() {
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [associationRepairOpen,setAssociationRepairOpen]=useState(false);
   const [datumEditor, setDatumEditor] = useState<"plane" | "axis">();
+  const [referenceEditor,setReferenceEditor]=useState<{kind:import("./reference-element-model").ReferenceElementKind;id?:string}>();
+  const [geometricalSetEditor,setGeometricalSetEditor]=useState<{id?:string;name:string;parentId:string}>();
  const [editingDatumId,setEditingDatumId]=useState<string>();
  const [parameterSearch,setParameterSearch]=useState("");
+ const [parameterFilter,setParameterFilter]=useState("ALL");
   const [datumPreview, setDatumPreview] = useState<DatumPreview>();
   const [parameterManagerOpen, setParameterManagerOpen] = useState(false);
   const [publicationManagerOpen, setPublicationManagerOpen] = useState(false);
@@ -417,7 +426,7 @@ export function Workbench() {
   const command = useMutation({
     onMutate:async()=>{await viewport.current?.settleAssemblyInteraction();},
     mutationFn: (operation: () => Promise<DocumentView>) => operation(),
-    onSuccess: (updated) => { store.setSelection(null); void refresh(updated); }, onError: (error) => operationFeedback(error,"命令")
+    onSuccess: (updated) => { const projection=updated.contextProduct??updated;const before=client.getQueryData<DocumentView>(queryKeys.document(projection.document.id));const intent=createdObjectReveal(before,projection);if(intent)requestTreeReveal(documentSessions,documentID,intent);store.setSelection(null); void refresh(updated); }, onError: (error) => operationFeedback(error,"命令")
   });
   const motionMutation=useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),onError:(error)=>operationFeedback(error,"机械装置")});
   const moveCommand = useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),
@@ -504,7 +513,7 @@ export function Workbench() {
     setSolidEditor(undefined);
     setBooleanDialog(undefined);
     setSketchInsertion(undefined);
-    setDatumEditor(undefined); setDatumPreview(undefined);setSupportSketch(undefined);
+    setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined); setDatumPreview(undefined);setSupportSketch(undefined);
     historyGeneration.current++;setHistoryResult(undefined);setFeatureInputs(undefined);setFeatureSelection(undefined);
   }, [editingView?.document.id,editingView?.document.versionId,activeInstancePath]);
   useEffect(()=>{if(solidEditor||booleanDialog||datumEditor||store.activeSketchID){historyGeneration.current++;setHistoryResult(undefined);setFeatureInputs(undefined);}},[solidEditor,booleanDialog,datumEditor,store.activeSketchID]);
@@ -757,6 +766,10 @@ export function Workbench() {
   const liveMotionOwner=motionPanel.current?.motionSession();
   const liveMotionCanPause=Boolean(liveMotionOwner?.active&&liveMotionOwner.checkpoint?.qualified&&liveMotionOwner.identity?.baseRevisionId===view?.document.versionId);
   const canEditRoot = (!motionDisplay||liveMotionCanPause) && (view?.document.permission === "OWNER" || view?.document.permission === "EDITOR");
+  useEffect(()=>{
+    const session=new AnnotationLayoutSession(documentID,annotationLayoutAPI,layouts=>setMeasurementLayouts({documentId:documentID,layouts,save:canEditRoot?session.set:undefined}),retry=>{message.warning({content:<span>标注位置尚未保存。<Button type="link" size="small" onClick={retry}>重试</Button></span>,duration:0})});
+    void session.load();return ()=>session.dispose();
+  },[documentID,message,canEditRoot]);
   const canCreateHistorical=canEdit&&(!activeInstancePath?view?.document.type==="PART":canEditRoot&&!!editingView&&!!contextScopeForView(editingView));
   const canDeleteMotionResult=!motionDisplay&&!motionCommandActive&&store.selections.length>0&&store.selections.every(s=>s.kind==="kinematic-object"&&s.entityKind==="MOTION_RESULT"&&motionJobs.data?.some(j=>j.id===s.id&&["SUCCEEDED","FAILED","CANCELED"].includes(j.state)));
   // Route rendering precedes the layout cleanup of the previous tab. A sketch
@@ -1109,14 +1122,14 @@ export function Workbench() {
     endHistoryResult();
     if(node.kind==="SKETCH_PATTERN_DEFINITION"&&node.ownerEntityId){
       const owner=editingView.part?.features.find(f=>f.id===node.ownerEntityId),pattern=owner?.sketch?.patterns?.find(p=>p.id===node.entityId);
-      if(owner&&pattern){const plane=featureSketchPlane(editingView,owner);if(plane)store.beginSketch(owner.id,occurrenceSketchPlane(plane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation));setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"SKETCH",profile:owner.id,bodyId:owner.bodyId,pattern:{...pattern,sourceKind:"SKETCH_FRAME",source:{bodyId:owner.bodyId!,featureId:owner.id}}}});}return;
+      if(owner&&pattern){const plane=featureSketchPlane(editingView,owner);if(plane)store.beginSketch(owner.id,occurrenceSketchPlane(plane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation));setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"SKETCH",profile:owner.id,bodyId:owner.bodyId,pattern:{...pattern,sourceKind:"SKETCH_FRAME",source:{bodyId:owner.bodyId!,featureId:owner.id}}}});}return;
     }
     if(!node.definitionDigest)return;
     const feature = editingView.part?.features.find(candidate => candidate.id === node.entityId);
     if (feature && ["HOLE", "SOLID_PATTERN", "SKETCH_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase())) {
-      setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature, digest: node.definitionDigest});
+      setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature, digest: node.definitionDigest});
     } else if (feature?.type === "BOOLEAN") {
-      setDatumEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({feature, digest: node.definitionDigest});
+      setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({feature, digest: node.definitionDigest});
     }
   };
   const profileRepair = profileRegionRepairFeature(editingView);
@@ -1136,7 +1149,7 @@ export function Workbench() {
     openFeatureEditor(node);
   };
   const openSolidFeature = (generator: "LINEAR_EXTRUDE" | "REVOLVE", operation: "NEW_BODY" | "ADD" | "REMOVE" = "ADD") => {
-    setDatumEditor(undefined);setBooleanDialog(undefined); store.setActiveTool("select","once");
+    setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setBooleanDialog(undefined); store.setActiveTool("select","once");
     const sketch = store.selections.find(s=>s.kind==="sketch");
     setSolidEditor({feature:{id:"",type:generator,bodyId:sketch?.bodyId??workingBodyID,operation,length:40,length2:10,angle:360,extent:"FINITE",reversed:defaultSolidReversed(generator,operation)}});
   };
@@ -1269,7 +1282,7 @@ export function Workbench() {
     setStaticInterferenceOpen(false);setSpatialEditor(undefined);viewport.current?.setSectionEdit();viewport.current?.showStaticInterference();
     closeAssemblyCandidate();stopConflictAnalysis();viewport.current?.showRemainingMotion();
     if(nextCommand!=="dmu.apply"||!motionDisplay)motionPanel.current?.closeCommand();
-    setAssociationRepairOpen(false);setFeatureMove(undefined);setConflictOpen(false);setSupportSketch(undefined);setSketchInsertion(undefined);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setDatumPreview(undefined);
+    setAssociationRepairOpen(false);setFeatureMove(undefined);setConflictOpen(false);setSupportSketch(undefined);setSketchInsertion(undefined);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setDatumPreview(undefined);
     setFeatureSelection(undefined);setNewPartTarget(undefined);
     setPropertyTargets(undefined);setReplacementOpen(false);setReplacementPreview(undefined);
     setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
@@ -1366,6 +1379,9 @@ onActivate:async(node,operation) => {
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             },
 onEdit:(node,operation) => {
+ if(node.documentId&&node.entityId)requestTreeReveal(documentSessions,documentID,{documentId:node.documentId,entityId:node.entityId,kind:node.kind,occurrence:node.instancePath?.canonical,reason:"EDIT"});
+ if(node.kind==='REFERENCE_POINT'&&node.entityId){closeCommandPanels();setReferenceEditor({kind:'point',id:node.entityId});return;}
+ if(node.kind==='GEOMETRICAL_SET'&&node.entityId){const set=editingView?.part?.geometricalSets?.find(s=>s.id===node.entityId);if(set){closeCommandPanels();setGeometricalSetEditor({id:set.id,name:set.name,parentId:set.parentId??''})}return;}
  if(view&&node.kind==='MEASUREMENT'&&node.documentId===view.document.id){const m=measurements(view).find(m=>m.id===node.entityId);if(m){closeCommandPanels();setMeasurementEditor({kind:m.kind,id:m.id})}return;}
 
  if(node.kind==="SPATIAL_ANALYSIS"&&node.documentId===view?.document.id){const a=view?.product?.spatialAnalyses?.find(a=>a.id===node.entityId);if(a){closeCommandPanels();setSpatialEditor({kind:a.kind==="BAND"?"DISTANCE":a.kind,id:a.id});setStaticInterferenceOpen(a.kind==="CLASH")}return;}
@@ -1395,7 +1411,7 @@ onEdit:(node,operation) => {
                 if (constraint) openAssemblyConstraintEditor(constraint);
               } else if (node.selection?.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
               else if (node.kind === "PARAMETER" && node.entityId) openParameterEditor(node.entityId);
- else if((node.kind==="PLANE"||node.kind==="DATUM_AXIS")&&node.entityId){const input=editingView?.part?.contextInputs?.find(p=>p.target.kind==='DATUM'&&p.target.targetId===node.entityId);if(input&&view?.product?.contextBindings?.some(b=>b.owningInstancePath.canonical===activeInstancePath&&b.contextInputId===input.id)){setDesignAssociationOpen(true);return;}setEditingDatumId(node.entityId);setDatumEditor(node.kind==="PLANE"?"plane":"axis");}
+ else if((node.kind==="PLANE"||node.kind==="DATUM_AXIS")&&node.entityId){const input=editingView?.part?.contextInputs?.find(p=>p.target.kind==='DATUM'&&p.target.targetId===node.entityId);if(input&&view?.product?.contextBindings?.some(b=>b.owningInstancePath.canonical===activeInstancePath&&b.contextInputId===input.id)){setDesignAssociationOpen(true);return;}const datum=node.kind==='PLANE'?editingView?.part?.datumPlanes.find(p=>p.id===node.entityId):editingView?.part?.datumAxes?.find(p=>p.id===node.entityId);if(datum?.construction){closeCommandPanels();setReferenceEditor({kind:node.kind==='PLANE'?'plane':'line',id:node.entityId});return;}setEditingDatumId(node.entityId);setDatumEditor(node.kind==="PLANE"?"plane":"axis");}
               else if (node.kind === "PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PART");
               else if (node.kind === "PRODUCT_PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PRODUCT");
               else openFeatureEditor(node);
@@ -1439,9 +1455,9 @@ onDetach:(node) => {
                 editSketch(node.ownerEntityId, [{type:"DETACH_EXTERNAL_GEOMETRY", externalId:node.entityId}]);
             },
 onRefresh:(node) => {
- if(view&&node.kind==='MEASUREMENT'&&node.documentId===view.document.id){const m=measurements(view).find(m=>m.id===node.entityId);if(m)command.mutate(()=>api.command(view.document.id,{type:'UPDATE_MEASUREMENT',versionId:view.document.versionId,measurement:m}));return;}
-
- if(view?.product&&node.documentId===view.document.id&&["SPATIAL_ANALYSIS","SPATIAL_ANALYSIS_GROUP"].includes(node.kind??"")){command.mutate(()=>api.command(view.document.id,{type:"UPDATE_SPATIAL_ANALYSES",versionId:view.document.versionId,spatialAnalysisIds:node.entityId?[node.entityId]:[]}));return;}
+ if(view&&node.documentId===view.document.id&&['MEASUREMENT','MEASUREMENT_GROUP','SPATIAL_ANALYSIS','SPATIAL_ANALYSIS_GROUP'].includes(node.kind??'')){
+ const targetKind=node.kind?.startsWith('MEASUREMENT')?'MEASUREMENT':'SPATIAL_ANALYSIS';
+ command.mutate(()=>api.command(view.document.id,{type:'UPDATE_DERIVED',versionId:view.document.versionId,targetKind,targetId:node.entityId}));return;}
               if (node.kind === "CONTEXT_REFERENCE" && node.documentId) {
                 command.mutate(() => api.updateReferences(node.documentId!));
                 return;
@@ -1496,7 +1512,7 @@ onToggleConstruction:(node)=>{
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
   const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openMeasurement:kind=>setMeasurementEditor({kind}),measurementKind:measurementEditor?.kind,measurementAllowed:!activeInstancePath&&!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,openSpatialAnalysis:kind=>{closeCommandPanels();setSpatialEditor({kind});setStaticInterferenceOpen(kind==="CLASH")},staticInterferenceAllowed:!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,setDeveloperOpen,openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMechanismAnalysisOpen,setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    setAssociationRepairOpen,associationRepairOpen,setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},spatialAnalysisKind:spatialEditor?.kind,formActive:Boolean(measurementEditor||staticInterferenceOpen||spatialEditor||sketchInsertion||designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+    setAssociationRepairOpen,associationRepairOpen,openReferenceElement:kind=>{closeCommandPanels();setReferenceEditor({kind});},openGeometricalSet:()=>{closeCommandPanels();setGeometricalSetEditor({name:"",parentId:""});},setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},spatialAnalysisKind:spatialEditor?.kind,formActive:Boolean(referenceEditor||geometricalSetEditor||measurementEditor||staticInterferenceOpen||spatialEditor||sketchInsertion||designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1572,15 +1588,15 @@ onToggleConstruction:(node)=>{
       {onSuccess:()=>setEditingPublication(undefined)});
   };
   const openParameterEditor = (parameterID: string) => {
-	const parameter = editingView?.part?.parameters?.find((candidate) => candidate.parameterId === parameterID);
+	const parameter = documentParameters(editingView).find((candidate) => candidate.parameterId === parameterID);
 	if (!parameter) return;
 	parameterForm.setFieldsValue({key:parameter.displayAlias ?? "",source:parameterSourceText(parameter, isLengthParameter(parameter) ? lengthUnit : parameter.displayUnit)}); setEditingParameterID(parameterID);
   };
   const boundContextParameter=(id?:string)=>editingView?contextParameterBinding(editingView,id):undefined;
   const parameterDraftSource=Form.useWatch("source",parameterForm),parameterDraftKey=Form.useWatch("key",parameterForm);
- const previewParameter=editingView?.part?.parameters?.find(p=>p.parameterId===editingParameterID);
+ const previewParameter=documentParameters(editingView).find(p=>p.parameterId===editingParameterID);
  let parameterPreviewInput:Record<string,unknown>|undefined;
- try{if(editingParameterID&&editingView&&previewParameter&&previewParameter.role!=="MEASURED"&&!boundContextParameter(editingParameterID)&&!previewParameter.source.external&&typeof parameterDraftSource==="string"){
+ try{if(editingParameterID&&editingView&&previewParameter&&previewParameter.role!=="MEASURED"&&!previewParameter.source.produced&&!boundContextParameter(editingParameterID)&&!previewParameter.source.external&&typeof parameterDraftSource==="string"){
  const parsed=parseParameterSource(parameterEditSource(previewParameter,parameterDraftSource,isLengthParameter(previewParameter)?lengthUnit:previewParameter.displayUnit),isLengthParameter(previewParameter)?lengthUnit:previewParameter.displayUnit);
  if(parsed.kind==="LITERAL"||parsed.expression)parameterPreviewInput={type:"EDIT_PARAMETER",parameterId:editingParameterID,name:parameterDraftKey?.trim()||previewParameter.key,...(parsed.kind==="LITERAL"?{value:parsed.value,unit:parsed.unit}:{expression:parsed.expression})};
  }}catch{}
@@ -1588,8 +1604,8 @@ onToggleConstruction:(node)=>{
   const commitParameterEdit = async () => {
 	if (!editingView || !editingParameterID) return;
 	const values = await parameterForm.validateFields();
-	const current = editingView.part?.parameters?.find((candidate) => candidate.parameterId === editingParameterID);
-    if(current?.role==="MEASURED"||current?.source.external||boundContextParameter(editingParameterID)){
+	const current = documentParameters(editingView).find((candidate) => candidate.parameterId === editingParameterID);
+    if(current?.source.produced||current?.role==="MEASURED"||current?.source.external||boundContextParameter(editingParameterID)){
       await command.mutateAsync(()=>api.command(editingView.document.id,{type:"RENAME_PARAMETER",parameterId:editingParameterID,name:values.key.trim()||current?.key}));
       setEditingParameterID(undefined);return;
     }
@@ -1604,13 +1620,13 @@ onToggleConstruction:(node)=>{
 		name: values.key.trim() || current?.key, ...(source.kind === "LITERAL" ? { value: source.value, unit: source.unit } : { expression: source.expression })}),
 		{onSuccess:()=>setEditingParameterID(undefined)});
   };
-  const editingParameterDefinition=editingView?.part?.parameters?.find(parameter=>parameter.parameterId===editingParameterID);
-  const parameterSourceReadonly=editingParameterDefinition?.role==="MEASURED"||Boolean(editingParameterDefinition?.source.external)||Boolean(boundContextParameter(editingParameterID));
+  const editingParameterDefinition=documentParameters(editingView).find(parameter=>parameter.parameterId===editingParameterID);
+  const parameterSourceReadonly=Boolean(editingParameterDefinition?.source.produced)||editingParameterDefinition?.role==="MEASURED"||Boolean(editingParameterDefinition?.source.external)||Boolean(boundContextParameter(editingParameterID));
   const endInteractionForActivation = () => {
     setDesignAssociationOpen(false);setPublicationManagerOpen(false);setFeatureSelection(undefined);
     viewport.current?.cancelAssemblyInteraction();stopConflictAnalysis();
     assemblyDialogLifecycle.current.invalidate();
-    setDatumEditor(undefined);setSolidEditor(undefined); setBooleanDialog(undefined);
+    setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setSolidEditor(undefined); setBooleanDialog(undefined);
     assemblyPreviewActor.current?.send({ type: "CANCEL", sequence: assemblyPreviewSequence.current });
     assemblyPreviewAbort.current?.abort(); assemblyPreviewSequence.current += 1; assemblyPreviewID.current = undefined;
     viewport.current?.clearCommandPreview();
@@ -1791,7 +1807,7 @@ onToggleConstruction:(node)=>{
           type="warning" showIcon message="当前几何暂不能用于关联建模"
           description="当前几何的引用信息暂不可用，请重新计算或重新选择。"
           action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>修复导入引用</Button> : undefined} />}
-        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} onDocumentDisplayed={(documentId,revisionId)=>setAssistantDisplayed({documentId,revisionId})} onSceneMetrics={globalOptions?.setMetrics} applicationDisplay={motionOpen||motionRepair||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={replacementPreview?.document.versionId===view.document.versionId?replacementPreview:motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen||motionRepair?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
+        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} measurementLayouts={measurementLayouts?.documentId===documentID?measurementLayouts:undefined} onDocumentDisplayed={(documentId,revisionId)=>setAssistantDisplayed({documentId,revisionId})} onSceneMetrics={globalOptions?.setMetrics} applicationDisplay={motionOpen||motionRepair||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={replacementPreview?.document.versionId===view.document.versionId?replacementPreview:motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen||motionRepair?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
           failureAction={inputRepair&&canEdit&&!motionDisplay ? {description:profileRepair?`草图已闭合，但 ${profileRepair.name??"特征"} 的原轮廓区域已失效，请重新选择。`:terminationRepair?`${terminationRepair.name??"特征"} 的终止平面不可用，请检查或重新选择。`:`${holeRepair!.name??"孔"} 的定位点已失效，请重新选择。`,label:profileRepair?(store.activeSketchID?"结束草图并修复区域":"修复轮廓区域"):terminationRepair?"修复终止平面":"修复孔位",disabled:command.isPending||!!sketchReceipt||!!solidEditor||!!supportSketch||!!datumEditor||!!booleanDialog,onClick:repairProfileRegion}:undefined}
           editingView={motionDisplay?undefined:replacementPreview?.document.versionId===view.document.versionId&&baseEditingView&&activeInstancePath?acceptedContextView(baseEditingView,replacementPreview,activeInstancePath):editingView} activeInstancePath={motionDisplay?undefined:activeInstancePath} activeInstanceTranslation={replacementPreview?.resolvedInstances?.find(i=>i.occurrencePath===activeInstancePath)?.translation??activeResolvedInstance?.translation}
           liveDefinitionProjection={Boolean(canEdit && editSession?.hostDocumentId===view.document.id && activeInstancePath &&
@@ -1999,14 +2015,16 @@ onToggleConstruction:(node)=>{
         return api.command(target.documentId,{type:"SET_PROPERTIES",versionId:target.versionId,properties});
       });setPropertyTargets(undefined)}}
       onOpenOriginal={id=>{setPropertyTargets(undefined);void openDocumentTab(id,client,api.openDocument,navigate)}}/>}
-	<CommandDialog id="parameter-manager" bodyClassName="parameter-dialog-body" scrollBody={false} open={parameterManagerOpen} title="参数" size="L"
+	<CommandDialog id="parameter-manager" bodyClassName="parameter-dialog-body" scrollBody={false} open={parameterManagerOpen} title="参数与公式" size="L"
 		onClose={() => setParameterManagerOpen(false)} onConfirm={() => setParameterManagerOpen(false)}>
 		<div className="parameter-manager" aria-label="文档参数">
+            {view.product&&<Select aria-label="参数所属文档" style={{width:'100%'}} value={activeInstancePath??''} options={(()=>{const options:{value:string;label:string;node:SpecificationTreeNode}[]=[];const walk=(nodes:SpecificationTreeNode[])=>{for(const node of nodes){if(['PART','PRODUCT','INSTANCE'].includes(node.kind??'')&&node.documentId&&node.documentType&&!options.some(option=>option.value===(node.instancePath?.canonical??'')))options.push({value:node.instancePath?.canonical??'',label:node.instancePath?.display||(node.documentId===view.document.id?view.document.name:node.documentId!),node});if(node.children)walk(node.children)}};walk(treeNodes);return options})()} onChange={async(value)=>{const find=(nodes:SpecificationTreeNode[]):SpecificationTreeNode|undefined=>{for(const node of nodes){if(['PART','PRODUCT','INSTANCE'].includes(node.kind??'')&&(node.instancePath?.canonical??'')===value)return node;const child=node.children&&find(node.children);if(child)return child}};const node=find(treeNodes);if(node){await activateDocumentNode(node);setParameterFilter('ALL')}}}/>}
+            <Select aria-label="参数筛选" value={parameterFilter} onChange={setParameterFilter} options={[{value:'ALL',label:'全部参数'},{value:'USER',label:'用户参数'},{value:'OUTPUT',label:'测量结果'},{value:'SELECTED',label:'所选对象的参数'}]}/>
 			<Form form={createUserParameterForm} layout="inline" initialValues={{value:0,unit:"mm"}}>
 				<Form.Item name="name"><Input placeholder="别名（可选）" /></Form.Item>
 				<Form.Item name="value" rules={[{required:true}]}><InputNumber placeholder="初始值" /></Form.Item>
-				<Form.Item name="unit"><Select style={{width:105}} options={[{value:"mm",label:"mm"},{value:"deg",label:"deg"},{value:"",label:"无量纲"}]} /></Form.Item>
-				<Form.Item><Button disabled={!canEdit || !editingView?.part} onClick={async()=>{
+				<Form.Item name="unit"><Select style={{width:105}} options={[{value:"mm",label:"mm"},{value:"deg",label:"deg"},{value:"mm2",label:"mm²"},{value:"mm3",label:"mm³"},{value:"",label:"无量纲"}]} /></Form.Item>
+				<Form.Item><Button disabled={!canEdit || !editingView} onClick={async()=>{
 					const values=await createUserParameterForm.validateFields(); if(!editingView)return;
 					command.mutate(()=>api.command(editingView.document.id,{type:"CREATE_PARAMETER",name:values.name?.trim(),
 						value:values.value,unit:values.unit}),{onSuccess:()=>createUserParameterForm.resetFields()});
@@ -2014,8 +2032,8 @@ onToggleConstruction:(node)=>{
 			</Form>
 			<Input.Search aria-label="搜索参数" placeholder="搜索参数、别名或所属对象" value={parameterSearch} onChange={e=>setParameterSearch(e.target.value)}/><div className="parameter-manager-header"><span>参数 / 别名</span><span>来源</span><span>计算值</span><span /></div>
             <div className="parameter-manager-list" role="region" aria-label="参数列表">
-			{(editingView?.part?.parameters ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 Part 尚无参数" />
-				: (editingView?.part?.parameters ?? []).filter(p=>[p.key,p.displayAlias,p.qualifiedDisplayPath,p.label].some(text=>text?.toLowerCase().includes(parameterSearch.trim().toLowerCase()))).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
+			{(documentParameters(editingView)).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前文档尚无参数" />
+				: (documentParameters(editingView)).filter(p=>parameterFilter==='ALL'||parameterFilter==='USER'&&p.lifecycle==='USER'||parameterFilter==='OUTPUT'&&!!p.source.produced||parameterFilter==='SELECTED'&&[store.selection?.entityId,store.selection&&'featureId' in store.selection?store.selection.featureId:undefined,store.selection?.id].includes(p.ownerFeatureId??'')).filter(p=>[p.key,p.displayAlias,p.qualifiedDisplayPath,p.label].some(text=>text?.toLowerCase().includes(parameterSearch.trim().toLowerCase()))).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
 					<span><strong>{parameter.qualifiedDisplayPath ?? parameter.displayName ?? parameter.label}</strong>
 						{parameter.displayAlias && <Typography.Text type="secondary">{parameter.displayAlias}</Typography.Text>}
 						</span>
@@ -2025,7 +2043,7 @@ onToggleConstruction:(node)=>{
 								title={engineeringLabel(update.status)}>{engineeringLabel(update.status)}</Tag>)(editingView.referenceUpdates.find((item) => item.consumerKind === "EXTERNAL_PARAMETER" && item.consumerId === parameter.parameterId)!)}</Space>
 					<Typography.Text>{parameterDisplayValue(parameter, lengthUnit)}</Typography.Text>
 					<Space><Button size="small" disabled={!canEdit} onClick={() => publishParameter(parameter)}>发布</Button>
-					<Button size="small" disabled={!canEdit} onClick={() => { setParameterManagerOpen(false);setExternalParameterID(parameter.parameterId);setDesignAssociationOpen(true); }}>引用</Button>
+					<Button size="small" disabled={!canEdit||!!parameter.source.produced} onClick={() => { setParameterManagerOpen(false);setExternalParameterID(parameter.parameterId); }}>引用</Button>
 					<Button size="small" disabled={!canEdit} onClick={() => openParameterEditor(parameter.parameterId)}>编辑</Button>
 					<Button size="small" danger disabled={!canEdit || parameter.lifecycle !== "USER"}
 						title={parameter.lifecycle === "SKETCH_DIMENSION" ? "请通过尺寸约束删除" : parameter.lifecycle !== "USER" ? "Feature 必需参数不能独立删除" : undefined}
@@ -2035,6 +2053,7 @@ onToggleConstruction:(node)=>{
 			<small className="cad-command-hint">可插入参数引用或输入表达式，重命名不影响已有关系。</small>
 		</div>
 	</CommandDialog>
+ {externalParameterID&&!designAssociationOpen&&editingView&&documentParameters(editingView).find(p=>p.parameterId===externalParameterID)&&<ParameterExternalEditor view={editingView} parameter={documentParameters(editingView).find(p=>p.parameterId===externalParameterID)!} onClose={()=>setExternalParameterID(undefined)} onApply={refresh}/>}
  {designAssociationOpen&&editingView?.part&&<DesignAssociationDialog root={view} owner={editingView} initialParameterId={externalParameterID} path={activeResolvedInstance?.instancePath} activeSketchId={store.activeSketchID} canEdit={canEditRoot&&["OWNER","EDITOR"].includes(editingView.document.permission)} onClose={()=>{setDesignAssociationOpen(false);setReplacementPreview(undefined);setExternalParameterID(undefined);setFeatureSelection(undefined);viewport.current?.clearCommandPreview()}} onPreviewView={setReplacementPreview} onApply={async updated=>{await refresh(updated);await client.invalidateQueries({queryKey:queryKeys.document(editingView.document.id)})}} onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}} onSelectionSession={setFeatureSelection} onLocate={selection=>store.setSelections([selection])} onOpenSource={id=>{setDesignAssociationOpen(false);setFeatureSelection(undefined);viewport.current?.clearCommandPreview();void openDocumentTab(id,client,api.openDocument,navigate)}}/>}
 	<CommandDialog id="publication-manager" open={publicationManagerOpen} title="发布接口" size="L"
 		onClose={() => setPublicationManagerOpen(false)} onConfirm={() => setPublicationManagerOpen(false)} onCancelPick={()=>{if(!pickingPublication)return false;setPickingPublication(false);return true}}>
@@ -2082,12 +2101,12 @@ onToggleConstruction:(node)=>{
     <Checkbox checked={editingContextInput?.required??false} onChange={event=>setEditingContextInput(current=>current?{...current,required:event.target.checked}:current)}>必需输入</Checkbox>
   </CommandDialog>
 	<CommandDialog size="S" id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
-		confirmLoading={command.isPending} confirmDisabled={!parameterSourceReadonly&&parameterInputPreview.pending||Boolean(parameterInputPreview.error)} onConfirm={commitParameterEdit}>
+		confirmLoading={command.isPending} confirmDisabled={!canEdit||!parameterSourceReadonly&&parameterInputPreview.pending||Boolean(parameterInputPreview.error)} onConfirm={commitParameterEdit}>
 		<Form form={parameterForm} layout="vertical">
 			<Form.Item name="key" label="可读别名（可选）" rules={[{pattern:/^$|^[A-Za-z_][A-Za-z0-9_]*$/,
 				message:"请输入 ASCII 标识符"}]}><Input /></Form.Item>
-			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={editingView?.part?.parameters??[]} excludeId={editingParameterID} unit={lengthUnit} placeholder="40 或 r_1 + 5"/></Form.Item>
-            <ContextInputSource view={editingView} binding={boundContextParameter(editingParameterID)}/>{parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":boundContextParameter(editingParameterID)?.local?"本实例的本地输入。":boundContextParameter(editingParameterID)?"值来自产品关联；独立打开零件可编辑默认输入。":"外部来源作用于共享定义，当前仅编辑名称。"}</small>}
+			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={documentParameters(editingView)} excludeId={editingParameterID} unit={lengthUnit} placeholder="40 或 r_1 + 5"/></Form.Item>
+            <ContextInputSource view={editingView} binding={boundContextParameter(editingParameterID)}/>{parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.source.produced?"此值由测量计算，更新测量后同步；可以修改别名。":editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":boundContextParameter(editingParameterID)?.local?"本实例的本地输入。":boundContextParameter(editingParameterID)?"值来自产品关联；独立打开零件可编辑默认输入。":"外部来源作用于共享定义，当前仅编辑名称。"}</small>}
 			{parameterInputPreview.pending&&<Typography.Text type="secondary">正在检查表达式…</Typography.Text>}{parameterInputPreview.error&&<Alert type="error" message={parameterInputPreview.error}/>}{parameterInputPreview.parameterCandidates?.find(p=>p.parameterId===editingParameterID)&&<Typography.Text>计算值：{parameterDisplayValue(parameterInputPreview.parameterCandidates.find(p=>p.parameterId===editingParameterID)!,lengthUnit)}</Typography.Text>}
 
  <small className="cad-command-hint">长度增量需输入单位，如 r_1 + 5 mm。可使用参数引用，重命名不影响已有关系。</small>
@@ -2157,6 +2176,11 @@ onToggleConstruction:(node)=>{
         <Form.Item name="description" label="说明" rules={[{ max: 500 }]}><Input.TextArea rows={2} /></Form.Item>
         <small className="cad-command-hint">新零件将插入当前装配原点，实例按零件名称和序号命名。</small>
       </Form>
+    </CommandDialog>
+    {referenceEditor&&editingView?.part&&<ReferenceElementEditor key={editingView.document.id+referenceEditor.kind+(referenceEditor.id??'')+(activeInstancePath??'')} kind={referenceEditor.kind} id={referenceEditor.id} view={editingView} unit={lengthUnit} occurrencePath={activeInstancePath} placement={{translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}} onClose={()=>setReferenceEditor(undefined)} onSelectionSession={setFeatureSelection} onPreview={setDatumPreview} onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}/>}
+    <CommandDialog id="geometrical-set-edit" open={!!geometricalSetEditor} size="S" title={geometricalSetEditor?.id?'编辑几何图形集':'创建几何图形集'} onClose={()=>setGeometricalSetEditor(undefined)} confirmLoading={command.isPending} onConfirm={()=>{if(!editingView||!geometricalSetEditor)return;const set=geometricalSetEditor;command.mutate(()=>api.command(editingView.document.id,{type:set.id?'EDIT_GEOMETRICAL_SET':'CREATE_GEOMETRICAL_SET',targetId:set.id,name:set.name,geometricalSetId:set.parentId}),{onSuccess:()=>setGeometricalSetEditor(undefined)})}}>
+      <CommandField label="名称"><Input value={geometricalSetEditor?.name??''} placeholder="自动命名" onChange={event=>setGeometricalSetEditor(current=>current?{...current,name:event.target.value}:current)}/></CommandField>
+      <CommandField label="父集合"><Select value={geometricalSetEditor?.parentId??''} options={[{value:'',label:'Part'},...(editingView?.part?.geometricalSets??[]).filter(set=>set.id!==geometricalSetEditor?.id).map(set=>({value:set.id,label:set.name}))]} onChange={value=>setGeometricalSetEditor(current=>current?{...current,parentId:value}:current)}/></CommandField>
     </CommandDialog>
     {datumEditor && editingView?.part && <DatumEditor key={editingView.document.id+datumEditor+(editingDatumId??"")+(activeInstancePath ?? "")} kind={datumEditor} datumId={editingDatumId} view={editingView} seed={store.selections} unit={lengthUnit}
       occurrencePath={activeInstancePath} placement={{translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}}

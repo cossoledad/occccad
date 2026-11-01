@@ -132,7 +132,7 @@ async function executeDocumentCommand(documentId: string, command: Record<string
 }
 
 export const restApi = {
- bindTopologySelection:(id:string,input:{sourceVersionId:string;geometryKey:string;kind:"EDGE"|"FACE";localId:number})=>request<import("./types").PersistentSelection>(`/api/documents/${id}/persistent-selections/bind`,{method:"POST",body:JSON.stringify(input)}),
+ bindTopologySelection:(id:string,input:{sourceVersionId:string;geometryKey:string;kind:"EDGE"|"FACE"|"VERTEX";localId:number})=>request<import("./types").PersistentSelection>(`/api/documents/${id}/persistent-selections/bind`,{method:"POST",body:JSON.stringify(input)}),
   session: () => request<{ user: User; authenticationMode: string }>("/api/session"),
 	toolbarCatalog: () => request<ToolbarCatalog>("/api/ui/toolbars"),
   login: (email: string, password: string) => request<{ user: User }>("/api/auth/login", {
@@ -385,7 +385,7 @@ export const restApi = {
     restApi.command(documentId, { type: "RENAME_PARAMETER", parameterId, name }),
   setParameterExternal: (documentId: string, parameterId: string, sourceDocumentId: string, publicationId: string, versionId?: string,
       referenceMode:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED"="FOLLOW_HEAD") =>
-    restApi.command(documentId, { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, versionId, referenceMode }),
+    restApi.command(documentId, { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, sourceVersionId:versionId, referenceMode }),
   createPublication: (documentId: string, input: { name?: string; publicationType: string; semanticPurpose?: string;
       compatibilityVersion?: string; sourceDocumentId?:string;instancePath?:import("./types").InstancePath;targetKind: string; sketchId?:string;targetId?: string; axis?: string; geometryKey?: string;
       topologyId?: number; versionId?: string }) =>

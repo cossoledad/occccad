@@ -303,34 +303,7 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 				broken("PUBLICATION_TARGET_MISSING", "datum target no longer exists")
 			}
 		case "PARAMETER":
-			found := false
-			for _, parameter := range model.Parameters {
-				if parameter.ParameterID != publication.Target.ParameterID || parameter.EvaluatedValue == nil {
-					continue
-				}
-				if publication.Contract.Dimension == nil || parameter.ValueType != publication.Contract.ValueType ||
-					!parameter.Dimension.Equal(*publication.Contract.Dimension) {
-					broken("PUBLICATION_PARAMETER_CONTRACT_INCOMPATIBLE", "published parameter type or dimension changed")
-					found = true
-					continue
-				}
-				value := *parameter.EvaluatedValue
-				if bounds := publication.Contract.Bounds; bounds != nil &&
-					((bounds.Minimum != nil && value.SIValue < bounds.Minimum.SIValue) ||
-						(bounds.Maximum != nil && value.SIValue > bounds.Maximum.SIValue)) {
-					broken("PUBLICATION_PARAMETER_OUT_OF_BOUNDS", "published parameter value is outside its contract bounds")
-					found = true
-					continue
-				}
-				publication.Resolution = PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revisionID, Value: &value, ValueDigest: resolvedDigest(value), SourceDigest: resolvedDigest(struct {
-					ID    string
-					Value modelcore.Quantity
-				}{parameter.ParameterID, value})}
-				found = true
-			}
-			if !found {
-				broken("PUBLICATION_PARAMETER_MISSING", "published parameter no longer exists")
-			}
+			publication.Resolution = parameterPublicationResolution(model.Parameters, publication.Target.ParameterID, publication.Contract, revisionID)
 		case "FEATURE_OUTPUT":
 			prefix, ok := publicationFeaturePrefix(*model, publication.Target.FeatureID)
 			if !ok {
@@ -408,6 +381,12 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 }
 
 func resolveDatumPublication(model *PartModel, publication *Publication, revisionID string) bool {
+	for _, point := range model.DatumPoints {
+		if point.ID == publication.Target.DatumID && publication.Type == "POINT" {
+			publication.Resolution = PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revisionID, GeometryKind: "POINT", Origin: point.Position, SourceDigest: resolvedDigest(point.Position)}
+			return true
+		}
+	}
 	for _, plane := range model.DatumPlanes {
 		if plane.ID != publication.Target.DatumID || publication.Type != "PLANE" {
 			continue
@@ -420,7 +399,7 @@ func resolveDatumPublication(model *PartModel, publication *Publication, revisio
 		if !ok {
 			return false
 		}
-		publication.Resolution = PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revisionID, Origin: plane.Origin, XDirection: x, YDirection: cross3(n, x), ZDirection: n, SourceDigest: resolvedDigest(plane)}
+		publication.Resolution = PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revisionID, Origin: plane.Origin, XDirection: x, YDirection: cross3(n, x), ZDirection: n, SourceDigest: resolvedDigest(struct{ Origin, X, Normal [3]float64 }{plane.Origin, x, n})}
 		return true
 	}
 	for _, axis := range model.DatumAxes {
@@ -435,7 +414,7 @@ func resolveDatumPublication(model *PartModel, publication *Publication, revisio
 		if !ok {
 			return false
 		}
-		publication.Resolution = PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revisionID, Origin: axis.Origin, XDirection: x, YDirection: cross3(z, x), ZDirection: z, SourceDigest: resolvedDigest(axis)}
+		publication.Resolution = PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revisionID, Origin: axis.Origin, XDirection: x, YDirection: cross3(z, x), ZDirection: z, SourceDigest: resolvedDigest(struct{ Origin, Direction [3]float64 }{axis.Origin, z})}
 		return true
 	}
 	for _, frame := range model.AxisSystems {
@@ -576,6 +555,9 @@ func (service *Service) publicationFromRequest(ctx context.Context, documentID s
 	case "PLANE":
 		publication.Target = PublicationTarget{Kind: "DATUM", DatumID: request.TargetID}
 		publication.Contract = PublicationContract{GeometryKind: "PLANE", Symmetry: "NORMAL_UNORIENTED"}
+	case "REFERENCE_POINT":
+		publication.Target = PublicationTarget{Kind: "DATUM", DatumID: request.TargetID}
+		publication.Contract = PublicationContract{GeometryKind: "POINT", Symmetry: "NONE"}
 	case "DATUM_AXIS", "AXIS":
 		publication.Target = PublicationTarget{Kind: "DATUM", DatumID: request.TargetID, Axis: strings.ToUpper(request.Axis)}
 		publication.Contract = PublicationContract{GeometryKind: "AXIS", Symmetry: "DIRECTION_UNORIENTED"}
@@ -681,12 +663,28 @@ func (service *Service) resolveExternalParameterRefWithMode(ctx context.Context,
 	} else if err != nil {
 		return modelcore.ExternalParameterRef{}, err
 	}
-	if sourceType != "PART" {
-		return modelcore.ExternalParameterRef{}, fmt.Errorf("%w: EXTERNAL_PARAMETER_SOURCE_NOT_PART", ErrValidation)
+	if sourceType != "PART" && sourceType != "PRODUCT" {
+		return modelcore.ExternalParameterRef{}, fmt.Errorf("%w: EXTERNAL_PARAMETER_SOURCE_UNSUPPORTED", ErrValidation)
 	}
 	var sourceModel PartModel
 	if err := json.Unmarshal(sourceModelJSON, &sourceModel); err != nil {
 		return modelcore.ExternalParameterRef{}, err
+	}
+	if sourceType == "PRODUCT" {
+		var product ProductModel
+		if err := json.Unmarshal(sourceModelJSON, &product); err != nil {
+			return modelcore.ExternalParameterRef{}, err
+		}
+		if err := service.refreshProductMeasurementParameters(ctx, sourceDocumentID, sourceVersionID, sourceVersionID, &product); err != nil {
+			return modelcore.ExternalParameterRef{}, err
+		}
+		sourceDoc := &parameterDocument{product: &product, Parameters: product.Parameters}
+		for i := range product.Publications {
+			if product.Publications[i].Type == "PARAMETER" {
+				product.Publications[i].Resolution.ResolvedVersionID = sourceVersionID
+			}
+		}
+		sourceModel = parameterPartContext(sourceDoc)
 	}
 	for _, publication := range sourceModel.Publications {
 		if publication.ID != publicationID {
@@ -698,6 +696,9 @@ func (service *Service) resolveExternalParameterRefWithMode(ctx context.Context,
 		}
 		if publication.Resolution.Status != "CONNECTED" || publication.Resolution.Value == nil {
 			return modelcore.ExternalParameterRef{}, fmt.Errorf("%w: BROKEN_PUBLICATION: %s", ErrValidation, publication.Resolution.Diagnostic)
+		}
+		if currency := publication.Resolution.CurrencyStatus; currency != "" && currency != "CURRENT" {
+			return modelcore.ExternalParameterRef{}, fmt.Errorf("%w: EXTERNAL_PARAMETER_SOURCE_UPDATE_REQUIRED: %s", ErrValidation, currency)
 		}
 		if publication.Resolution.ResolvedVersionID != sourceVersionID {
 			return modelcore.ExternalParameterRef{}, fmt.Errorf("%w: PUBLICATION_PROVENANCE_MISMATCH", ErrValidation)
@@ -751,6 +752,53 @@ func (service *Service) externalParameterTargetReaches(ctx context.Context, curr
 		if parameter.ParameterID != parameterID {
 			continue
 		}
+		if produced := parameter.Source.Produced; produced != nil && produced.Kind == "MEASUREMENT" {
+			for _, measurement := range model.Measurements {
+				if measurement.ID != produced.EntityID {
+					continue
+				}
+				for _, support := range measurement.Supports {
+					owner, source := currentDocumentID, model
+					if path := support.InstancePath; path != nil && len(path.Segments) > 0 {
+						segment := path.Segments[len(path.Segments)-1]
+						owner = segment.ReferencedDocumentID
+						if owner == targetDocumentID {
+							source = targetModel
+						} else {
+							_, raw, err := service.measurementModel(ctx, owner, segment.ResolvedVersionID)
+							if err != nil {
+								return false, err
+							}
+							doc, err := readParameterDocument(raw)
+							if err != nil {
+								return false, err
+							}
+							source = parameterPartContext(doc)
+						}
+					}
+					bodyID := support.BodyID
+					if support.Selection != nil {
+						bodyID = support.Selection.SourceBodyID
+					}
+					owners := map[string]bool{}
+					for _, feature := range source.Features {
+						if !feature.Suppressed && (support.Kind == "OCCURRENCE" || feature.BodyID == bodyID) {
+							owners[feature.ID] = true
+						}
+					}
+					for _, input := range source.Parameters {
+						if !owners[input.OwnerFeatureID] {
+							continue
+						}
+						reaches, err := service.externalParameterTargetReaches(ctx, owner, source, input.ParameterID, targetDocumentID, targetParameterID, targetModel, visited, depth+1)
+						if err != nil || reaches {
+							return reaches, err
+						}
+					}
+				}
+			}
+			return false, nil
+		}
 		if expression := parameter.Source.Expression; expression != nil {
 			for _, read := range expression.Reads {
 				reaches, err := service.externalParameterTargetReaches(ctx, currentDocumentID, model,
@@ -781,9 +829,11 @@ func (service *Service) externalParameterTargetReaches(ctx context.Context, curr
 			} else if err != nil {
 				return false, err
 			}
-			if err := json.Unmarshal(nestedJSON, &nested); err != nil {
+			doc, err := readParameterDocument(nestedJSON)
+			if err != nil {
 				return false, err
 			}
+			nested = parameterPartContext(doc)
 		}
 		for _, publication := range nested.Publications {
 			if publication.ID != reference.PublicationID || publication.Type != "PARAMETER" {

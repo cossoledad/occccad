@@ -249,12 +249,22 @@ func (s *Service) recoverAction(ctx context.Context, actor, document string, a A
 		kind, slot = "BODY", "body.entity"
 	case "CREATE_PARAMETER":
 		kind, slot = "PARAMETER", "parameter.entity"
+	case "CREATE_REFERENCE_POINT":
+		kind, slot = "REFERENCE_POINT", "datum.point"
+	case "CREATE_GEOMETRICAL_SET":
+		kind, slot = "GEOMETRICAL_SET", "geometrical-set.entity"
 	case "CREATE_DATUM_PLANE":
 		kind, slot = "DATUM_PLANE", "datum.plane"
 	case "CREATE_DATUM_AXIS":
 		kind, slot = "DATUM_AXIS", "datum.axis"
 	case "CREATE_PUBLICATION":
 		kind, slot = "PUBLICATION", "publication.entity"
+		for _, change := range receipt.Changes {
+			if change.Kind == "CREATE" && change.SlotID == "product-publication.entity" {
+				slot = change.SlotID
+				break
+			}
+		}
 	case "CREATE_PRODUCT_PUBLICATION":
 		kind, slot = "PUBLICATION", "product-publication.entity"
 	case "CREATE_CONTEXT_INPUT":

@@ -118,6 +118,11 @@ func kinematicsStructure(doc, revision, path string, k KinematicsDefinitions, co
 		}
 		simulations.Children = append(simulations.Children, sn)
 	}
-	root.Children = []DocumentStructureNode{mechanisms, simulations}
+	if len(mechanisms.Children) > 0 {
+		root.Children = append(root.Children, mechanisms)
+	}
+	if len(simulations.Children) > 0 {
+		root.Children = append(root.Children, simulations)
+	}
 	return root
 }

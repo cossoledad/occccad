@@ -179,7 +179,35 @@ func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *P
 			}
 		}
 	}
-	for i := range m.Bodies {
+	var stageGraph *modelcore.DependencyGraph
+	order := make([]int, len(m.Bodies))
+	for i := range order {
+		order[i] = i
+	}
+	if partConsumesMeasurementOutputs(*m) {
+		var err error
+		stageGraph, _, err = buildPartEvaluation(*m, "", "", nil, nil)
+		if err != nil {
+			return err
+		}
+		order = measurementBodyOrder(*m, stageGraph)
+	}
+	for _, i := range order {
+		if stageGraph != nil {
+			if err := validateAndResolvePartParameters(m); err != nil {
+				return err
+			}
+			blocked := derivedBlockedFeatures(*m, stageGraph)
+			for j := range m.Features {
+				if m.Features[j].BodyID == m.Bodies[i].ID && blocked[m.Features[j].ID] {
+					m.Features[j].EvaluationStatus = "BLOCKED"
+					m.Features[j].Diagnostic = ErrDerivedInputUpdateRequired.Error() + ": update the source measurement"
+					if failure == nil {
+						failure = fmt.Errorf("%w: %s", ErrDerivedInputUpdateRequired, m.Features[j].ID)
+					}
+				}
+			}
+		}
 		blockedBody := false
 		for _, f := range m.Features {
 			if f.BodyID == m.Bodies[i].ID && isBodyFeature(f.Type) && (f.EvaluationStatus == "FAILED" || f.EvaluationStatus == "BLOCKED") {
@@ -210,6 +238,11 @@ func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *P
 			continue
 		}
 		m.Bodies[i].GeometryKey = key
+	}
+	if stageGraph != nil {
+		if err := validateAndResolvePartParameters(m); err != nil {
+			return err
+		}
 	}
 	if failure != nil {
 		return &solidEvaluationFailure{cause: failure}

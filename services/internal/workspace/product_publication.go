@@ -377,6 +377,9 @@ func (service *Service) resolveProductPublications(ctx context.Context, product 
 	}
 	for index := range product.Publications {
 		forwarding := &product.Publications[index]
+		if forwarding.Target.ParameterID != "" {
+			continue
+		}
 		broken := func(code, diagnostic string) {
 			forwarding.Resolution = PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: code, Diagnostic: diagnostic}
 		}

@@ -10,6 +10,89 @@ import (
 	"testing"
 )
 
+func TestMeasurementOutputDrivenBodyWaitAndUpdateThroughRouter(t *testing.T) {
+	s, _, _, _, _ := featureAssociationRuntimeService(t)
+	view, err := s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Measurement driven bodies"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq := 0
+	run := func(request workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		request.ActorID = p6Actor
+		request.VersionID = view.Document.VersionID
+		request.RequestID = fmt.Sprintf("%s-derived-%d", view.Document.ID, seq)
+		next, err := s.ApplyCommand(t.Context(), view.Document.ID, request)
+		if err != nil {
+			t.Fatal(request.Type, err)
+		}
+		view = next
+	}
+	run(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	sketch := view.Part.Features[0].ID
+	run(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 0, Y: 0}, Second: &workspace.SketchPoint2{X: 10, Y: 10}}}})
+	run(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "NEW_BODY", Length: 10})
+	sourceFeature := view.Part.Features[len(view.Part.Features)-1]
+	run(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sketch, Generator: "LINEAR_EXTRUDE", Operation: "NEW_BODY", Length: 1})
+	targetFeature := view.Part.Features[len(view.Part.Features)-1]
+	m := workspace.Measurement{Kind: "ITEM", Visible: true, Supports: []workspace.MeasurementSupport{{Kind: "BODY", BodyID: sourceFeature.BodyID, Mode: "GEOMETRY"}}}
+	run(workspace.CommandRequest{Type: "SAVE_MEASUREMENT", Measurement: &m})
+	saved := view.Part.Measurements[0]
+	outputKey := ""
+	for _, p := range view.Part.Parameters {
+		if p.Source.Produced != nil && p.Source.Produced.EntityID == saved.ID && p.Source.Produced.OutputSlot == "sizeZMm" {
+			outputKey = p.Key
+		}
+	}
+	if outputKey == "" {
+		t.Fatal("measurement output parameter missing")
+	}
+	run(workspace.CommandRequest{Type: "SET_PARAMETER_EXPRESSION", ParameterID: "parameter:" + targetFeature.ID + ":length", Expression: outputKey})
+	for _, f := range view.Part.Features {
+		if f.ID == targetFeature.ID && math.Abs(f.Length-10) > 1e-8 {
+			t.Fatal("measurement did not drive target", f)
+		}
+	}
+	run(workspace.CommandRequest{Type: "SET_PARAMETER_VALUE", ParameterID: "parameter:" + sourceFeature.ID + ":length", Value: 20, Unit: "mm"})
+	if view.Part.Measurements[0].Status != "STALE" {
+		t.Fatal("source change did not invalidate measurement", view.Part.Measurements)
+	}
+	for _, body := range view.Part.Bodies {
+		if body.ID == targetFeature.BodyID && (body.GeometryKey != "" || body.DisplayFallback == nil) {
+			t.Fatal("dependent Body used stale value or lost its last display", body)
+		}
+	}
+	for _, f := range view.Part.Features {
+		if f.ID == targetFeature.ID && f.EvaluationStatus != "BLOCKED" {
+			t.Fatal("dependent feature not blocked", f)
+		}
+	}
+	saved = view.Part.Measurements[0]
+	run(workspace.CommandRequest{Type: "UPDATE_MEASUREMENT", Measurement: &saved})
+	if view.Part.Measurements[0].Status != "CURRENT" {
+		t.Fatal("measurement update remains stale", view.Part.Measurements)
+	}
+	for _, f := range view.Part.Features {
+		if f.ID == targetFeature.ID && (math.Abs(f.Length-20) > 1e-8 || f.EvaluationStatus == "BLOCKED") {
+			t.Fatal("target failed to recover", f)
+		}
+	}
+	for _, body := range view.Part.Bodies {
+		if body.ID == targetFeature.BodyID && (body.GeometryKey == "" || body.DisplayFallback != nil) {
+			t.Fatal("dependent Body not recovered", body)
+		}
+	}
+	run(workspace.CommandRequest{Type: "UNDO"})
+	if view.Part.Measurements[0].Status != "STALE" {
+		t.Fatal("measurement update undo", view.Part.Measurements)
+	}
+	run(workspace.CommandRequest{Type: "REDO"})
+	if view.Part.Measurements[0].Status != "CURRENT" {
+		t.Fatal("measurement update redo", view.Part.Measurements)
+	}
+}
+
 func TestMeasurementPartProductHistoryAndAcceptedOccurrencesThroughRouter(t *testing.T) {
 	s, _, db, _, _ := featureAssociationRuntimeService(t)
 	ctx := t.Context()
@@ -118,12 +201,69 @@ func TestMeasurementPartProductHistoryAndAcceptedOccurrencesThroughRouter(t *tes
 	if root.Product.Measurements[0].Visible {
 		t.Fatal("visibility")
 	}
+	var areaPath workspace.InstancePath
+	for _, resolved := range root.ResolvedInstances {
+		if len(resolved.InstancePath.Segments) > 0 && resolved.InstancePath.Segments[len(resolved.InstancePath.Segments)-1].InstanceID == second {
+			areaPath = resolved.InstancePath
+		}
+	}
+	areaSupport := stored.Supports[0]
+	areaSupport.InstancePath = &areaPath
+	areaDefinition := workspace.Measurement{Kind: "ITEM", Visible: true, Supports: []workspace.MeasurementSupport{areaSupport}}
+	run(&root, workspace.CommandRequest{Type: "SAVE_MEASUREMENT", Measurement: &areaDefinition})
+	areaBefore := root.Product.Measurements[1]
+	if areaBefore.Status != "CURRENT" || math.Abs(areaBefore.Result.Values["areaMm2"]-100) > 1e-6 {
+		t.Fatal("Product face area", areaBefore)
+	}
+	analysis := workspace.SpatialAnalysis{Kind: "CLASH", Scope: "ALL"}
+	run(&root, workspace.CommandRequest{Type: "SAVE_SPATIAL_ANALYSIS", SpatialAnalysis: &analysis})
+	if root.Product.SpatialAnalyses[0].Status != "CURRENT" {
+		t.Fatal("initial interference currency", root.Product.SpatialAnalyses)
+	}
+	run(&root, workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: "DisplayIndependent", Value: 1, Unit: "mm"})
+	if root.Product.Measurements[1].Status != "CURRENT" || root.Product.SpatialAnalyses[0].Status != "CURRENT" {
+		t.Fatal("unrelated Product parameter invalidated analyses")
+	}
+	run(&root, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: second, Translation: [3]float64{45, 0, 0}, Rotation: [4]float64{0, 0, 0, 1}})
+	areaAfter := root.Product.Measurements[1]
+	if root.Product.Measurements[0].Status != "STALE" || root.Product.SpatialAnalyses[0].Status != "STALE" || areaAfter.Status != "CURRENT" || !reflect.DeepEqual(areaBefore.Result, areaAfter.Result) {
+		t.Fatal("placement facets invalidated intrinsic area or kept pair analyses current", root.Product.Measurements, root.Product.SpatialAnalyses)
+	}
+	if areaAfter.OutputCurrency["sizeXMm"] != "STALE" || math.Abs(areaAfter.DisplayAnchors["centroid"][0]-areaBefore.Result.Anchors["centroid"][0]-10) > 1e-6 {
+		t.Fatal("area label did not follow rigid pose or stale coordinate accepted", areaAfter)
+	}
+	outputID := ""
+	for _, p := range root.Product.Parameters {
+		if p.Source.Produced != nil && p.Source.Produced.EntityID == saved.ID && p.PropertySlot == "distanceMm" {
+			outputID = p.ParameterID
+		}
+	}
+	run(&root, workspace.CommandRequest{Type: "CREATE_PUBLICATION", PublicationType: "PARAMETER", TargetKind: "PARAMETER", TargetID: outputID})
+	publication := root.Product.Publications[len(root.Product.Publications)-1]
+	if publication.Resolution.Status != "CONNECTED" || publication.Resolution.CurrencyStatus != "STALE" {
+		t.Fatal("stale output publication", publication)
+	}
+	consumer := create("PRODUCT", "Measurement output consumer")
+	run(&consumer, workspace.CommandRequest{Type: "CREATE_PARAMETER", Value: 1, Unit: "mm"})
+	_, e = s.ApplyCommand(ctx, consumer.Document.ID, workspace.CommandRequest{Type: "SET_PARAMETER_EXTERNAL", ActorID: p6Actor, VersionID: consumer.Document.VersionID, RequestID: consumer.Document.ID + "-reject-stale", ParameterID: consumer.Product.Parameters[0].ParameterID, SourceDocumentID: root.Document.ID, PublicationID: publication.ID})
+	if e == nil {
+		t.Fatal("stale Product output accepted externally")
+	}
+	run(&root, workspace.CommandRequest{Type: "UPDATE_DERIVED", TargetKind: "ALL"})
+	if root.Product.Measurements[0].Status != "CURRENT" || root.Product.Measurements[1].OutputCurrency["sizeXMm"] != "CURRENT" || root.Product.SpatialAnalyses[0].Status != "CURRENT" {
+		t.Fatal("batch update did not update all producers")
+	}
+	run(&root, workspace.CommandRequest{Type: "UNDO"})
+	if root.Product.Measurements[0].Status != "STALE" || root.Product.SpatialAnalyses[0].Status != "STALE" {
+		t.Fatal("batch update undo")
+	}
+	run(&root, workspace.CommandRequest{Type: "DELETE_PRODUCT_PUBLICATION", PublicationID: publication.ID})
 	run(&root, workspace.CommandRequest{Type: "DELETE_MEASUREMENT", MeasurementID: saved.ID})
-	if len(root.Product.Measurements) != 0 {
+	if len(root.Product.Measurements) != 1 {
 		t.Fatal("delete")
 	}
 	run(&root, workspace.CommandRequest{Type: "UNDO"})
-	if len(root.Product.Measurements) != 1 {
+	if len(root.Product.Measurements) != 2 {
 		t.Fatal("undo delete")
 	}
 	nested := create("PRODUCT", "Measurement nested occurrences")
@@ -135,7 +275,7 @@ func TestMeasurementPartProductHistoryAndAcceptedOccurrencesThroughRouter(t *tes
 		supports = append(supports, workspace.MeasurementSupport{Kind: "BODY", BodyID: r.BodyID, InstancePath: &p, Mode: "GEOMETRY"})
 	}
 	report, e = s.Measure(ctx, nested.Document.ID, workspace.MeasurementRequest{RevisionID: nested.Document.VersionID, Definition: workspace.Measurement{Kind: "BETWEEN", Supports: supports}})
-	if e != nil || !report.Result.Complete || math.Abs(report.Result.Values["distanceMm"]-25) > 1e-6 || math.Abs(report.Result.Values["deltaYMm"]-25) > 1e-6 {
+	if e != nil || !report.Result.Complete || math.Abs(report.Result.Values["distanceMm"]-35) > 1e-6 || math.Abs(report.Result.Values["deltaYMm"]-35) > 1e-6 {
 		t.Fatal("nested pose applied incorrectly", report, e)
 	}
 	// A forged referenced document with the same textual path must not resolve.

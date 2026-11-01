@@ -150,8 +150,13 @@ func (service *Service) projectPartReferenceUpdates(ctx context.Context, model P
 			if err := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1 AND document_id=$2`, head, sourceID).Scan(&raw); err != nil {
 				item.Status, item.DiagnosticCode, item.Diagnostic = "BROKEN", "REFERENCE_CANDIDATE_MISSING", "candidate revision is unavailable"
 			} else {
-				var source PartModel
-				_ = json.Unmarshal(raw, &source)
+				doc, err := readParameterDocument(raw)
+				if err != nil {
+					item.Status = "BROKEN"
+					updates = append(updates, item)
+					return
+				}
+				source := parameterPartContext(doc)
 				found := false
 				for _, candidate := range source.Publications {
 					if candidate.ID != publication.PublicationID {
@@ -163,6 +168,19 @@ func (service *Service) projectPartReferenceUpdates(ctx context.Context, model P
 						item.Status, item.DiagnosticCode, item.Diagnostic = "BROKEN", "PUBLICATION_CONTRACT_INCOMPATIBLE", "candidate Publication contract is incompatible"
 					} else if candidate.Resolution.Status != "CONNECTED" {
 						item.Status, item.DiagnosticCode, item.Diagnostic = "BROKEN", candidate.Resolution.DiagnosticCode, candidate.Resolution.Diagnostic
+					} else if kind == "EXTERNAL_PARAMETER" {
+						for _, parameter := range model.Parameters {
+							if parameter.ParameterID != id || parameter.Source.External == nil {
+								continue
+							}
+							if !parameterReferenceChanged(parameter.Source.External, source) {
+								item.Status = "CURRENT"
+							}
+							if currency := candidate.Resolution.CurrencyStatus; currency != "" && currency != "CURRENT" {
+								item.Status = "UPDATE_BLOCKED"
+								item.DiagnosticCode = "EXTERNAL_PARAMETER_SOURCE_UPDATE_REQUIRED"
+							}
+						}
 					}
 				}
 				if !found {

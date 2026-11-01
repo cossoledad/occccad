@@ -26,6 +26,8 @@ type Dimension struct {
 var (
 	Dimensionless   = Dimension{}
 	LengthDimension = Dimension{Length: 1}
+	AreaDimension   = Dimension{Length: 2}
+	VolumeDimension = Dimension{Length: 3}
 	AngleDimension  = Dimension{Semantic: "ANGLE"}
 )
 
@@ -88,7 +90,9 @@ var units = map[string]struct {
 }{
 	"": {1, Dimensionless}, "1": {1, Dimensionless},
 	"m": {1, LengthDimension}, "mm": {0.001, LengthDimension}, "cm": {0.01, LengthDimension},
-	"in":  {0.0254, LengthDimension},
+	"in": {0.0254, LengthDimension},
+	"m2": {1, AreaDimension}, "mm2": {1e-6, AreaDimension}, "cm2": {1e-4, AreaDimension}, "in2": {0.00064516, AreaDimension},
+	"m3": {1, VolumeDimension}, "mm3": {1e-9, VolumeDimension}, "cm3": {1e-6, VolumeDimension}, "in3": {0.000016387064, VolumeDimension},
 	"rad": {1, AngleDimension}, "deg": {math.Pi / 180, AngleDimension},
 }
 
@@ -113,14 +117,22 @@ type ParameterDefinition struct {
 	Dimension            Dimension   `json:"dimension"`
 	DisplayUnit          string      `json:"displayUnit"`
 	Role                 string      `json:"role"`
+	CurrencyStatus       string      `json:"currencyStatus,omitempty"`
 	Source               ValueSource `json:"source"`
 	EvaluatedValue       *Quantity   `json:"evaluatedValue,omitempty"`
 }
 
 type ValueSource struct {
+	Produced   *ParameterProducer    `json:"produced,omitempty"`
 	Literal    *Quantity             `json:"literal,omitempty"`
 	Expression *TypedExpression      `json:"expression,omitempty"`
 	External   *ExternalParameterRef `json:"external,omitempty"`
+}
+
+type ParameterProducer struct {
+	Kind       string `json:"kind"`
+	EntityID   string `json:"entityId"`
+	OutputSlot string `json:"outputSlot"`
 }
 
 type ReferenceSelector struct {

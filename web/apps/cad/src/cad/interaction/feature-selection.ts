@@ -54,7 +54,7 @@ export function featureSelectionHit(raw: Selection, session: FeatureSelectionSes
     if (session.role === "body")
         return raw.bodyId && ["face", "edge", "vertex", "body", "solid", "pad", "feature", "import"].includes(raw.kind) ? raw : null;
     if(session.role==="sketch-point")return raw.kind==="visual"&&raw.visualType==="POINT"&&!!session.sketchPoints?.some(p=>p.sketchId===raw.featureId&&p.entityId===raw.entityId)?raw:null;
-    if (session.role === "point") return ["axis-system","datum-point"].includes(raw.kind)||raw.kind==="visual"&&raw.visualType==="POINT"?raw:null;
+    if (session.role === "point") return ["axis-system","datum-point","reference-point"].includes(raw.kind)||raw.kind==="vertex"&&session.topologyPick==="VERTEX"||raw.kind==="visual"&&raw.visualType==="POINT"?raw:null;
     if(session.role==="direction")return raw.kind==="axis"||raw.kind==="edge"||raw.kind==="visual"&&raw.visualType==="CURVE"?raw:null;
     if (session.role === "axis")
         return raw.kind === "axis" || raw.kind === "visual" && raw.visualType === "CURVE" ? raw : null;

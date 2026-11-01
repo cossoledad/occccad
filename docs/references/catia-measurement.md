@@ -22,6 +22,21 @@ MCP 简化来源：库 `English`，library ID `6d5aed22-2df7-427c-83ae-0b4926af1
 
 另外直接查看本机同目录 `images/gameasurebetween03.gif`、`gameasureitem01.gif`、`gameasureitem08.gif`。可观察到所选对象橙色轮廓、绿色见证点/测量线、带底色的读数及到对象的引线；局部坐标结果采用多行 XYZ。图片只能证明手册插图的呈现，不能证明运行中的拾取容差、遮挡策略、拖动手感或计算性能。
 
-occccad 采用共同“测量”工具栏、统一命令表单、明确字段 1/2 和三点顶点、精确 B-Rep 来源、显式保留/手动更新。采用与现有深色视区匹配的青色线、浅色文字与深色底牌，文字和箭头保持 CSS 像素尺寸；世界坐标锚点随相机投影。标签位置属于本地呈现状态。
+occccad 采用共同“测量”工具栏、统一命令表单、明确字段 1/2 和三点顶点、精确 B-Rep 来源、显式保留/手动更新。采用与现有深色视区匹配的青色线、浅色文字与深色底牌，文字和箭头保持 CSS 像素尺寸；世界坐标锚点随相机投影。标签位置属于独立可保存呈现状态，不写建模历史。
 
-第一条闭环不引入 CATIA 的完整选择/计算模式菜单：没有网格近似兜底、截图拾取点、任意曲线切角、补角拖动、最大垂直偏差、测厚、其他轴系或公式驱动。它们与当前算法的语义差异必须保留，不能用同名但不同定义的数值填充。物理质量、密度、惯量明确不在本次范围。已实现合同及未解决问题归[几何测量](../architecture/current/geometric-measurement.md)。
+当前实现不引入 CATIA 的完整选择/计算模式菜单：没有网格近似兜底、截图拾取点、任意曲线切角、补角拖动、最大垂直偏差、测厚、其他轴系。它们与当前算法的语义差异必须保留，不能用同名但不同定义的数值填充。物理质量、密度、惯量明确不在本次范围。已实现合同及未解决问题归[几何测量](../architecture/current/geometric-measurement.md)。
+
+## 参数与参考元素
+
+后续对照读取本机 `control/*.viewdoc` 所指向的以下 `online/` 页面，并查看公式和点构造页面的手册插图。它们只证明手册定义/插图，没有验证真实 CATIA 模型或跨文档求值性能。
+
+| 页面 | 手册事实与本项目选择 |
+|---|---|
+| `cfyugkwr_C2/cfyugkwr3400.htm` | Formula Editor 集中浏览参数、值/公式及过滤；本项目用共同参数模型和当前 EditSession，不建立可绕过文档事务的全局可写参数表。 |
+| `cfyugkwr_C2/cfyugkwrparameters0009.htm` | Product 可使用发布参数与公式关系；本项目用稳定 Publication、接受的来源 Revision 与显式更新，不静默读取远端 Head 作为当前值。 |
+| `cfyugkwr_C2/cfyugkwrparameters0008.htm` | 关联测量生成可在公式中引用的参数；本项目只读输出槽、过期门禁及分阶段 Body evaluator 是自己的实现。 |
+| `prtug_C2/prtugwd0210.htm` | Reference Elements Toolbar 的主要入口为 Point、Line、Plane；本项目规范为参考点、参考线、参考面。 |
+| `cfyug_C2/cfyugpoint3D.htm`、`cfyugline3D.htm`、`cfyugplane3D.htm` | 构造方式影响字段、输入和几何语义；本项目实现明确列出的子集，不以同名近似值替代缺失模式。 |
+| `cfyug_C2/cfyuggeomsets.htm` | Geometrical Set 用于组织几何元素；本项目采用真实无序集合、独立于 Body 历史顺序，暂未提供 CATIA 的全部移动/排序命令。 |
+
+“刚体移动不使面积过期，但使坐标输出过期”、共享 facet 指纹、当前值传播截止及独立布局 CAS 是结合本项目架构的工程设计，不声称是手册公开的 CATIA 内部算法。

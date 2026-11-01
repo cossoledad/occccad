@@ -1895,23 +1895,31 @@
     },
     {
       "id": "part.parameters",
-      "name": "参数",
-      "helpText": "集中查看、编辑并复用当前 Part 的参数。",
+      "name": "参数与公式",
+      "helpText": "查看、编辑并复用当前 Part 或 Product 的参数与公式。",
       "iconKey": "parameters",
       "repeatable": false,
       "visibleWhen": {
-        "all": [
+        "any": [
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
           }
         ]
       },
       "enabledWhen": {
-        "all": [
+        "any": [
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
           }
         ]
       },
@@ -2275,8 +2283,8 @@
     },
     {
       "id": "part.datum-plane",
-      "name": "基准面",
-      "helpText": "以所选平面为参考创建偏置基准面。",
+      "name": "参考面",
+      "helpText": "通过偏移、三点、方程等方式创建参考面。",
       "iconKey": "datum-plane",
       "repeatable": false,
       "visibleWhen": {
@@ -2311,8 +2319,8 @@
     },
     {
       "id": "part.datum-axis",
-      "name": "基准轴",
-      "helpText": "以显式原点和方向创建基准轴。",
+      "name": "参考线",
+      "helpText": "通过两点、点与方向等方式创建参考线。",
       "iconKey": "datum-axis",
       "repeatable": false,
       "visibleWhen": {
@@ -6148,6 +6156,78 @@
           }
         ]
       }
+    },
+    {
+      "id": "part.reference-point",
+      "name": "参考点",
+      "helpText": "创建参考点。",
+      "iconKey": "point",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.geometrical-set",
+      "name": "几何图形集",
+      "helpText": "创建几何图形集。",
+      "iconKey": "reference",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
     }
   ],
   "groups": [
@@ -6303,6 +6383,11 @@
       "orientation": "horizontal",
       "commands": [
         {
+          "commandId": "part.parameters",
+          "groupKey": "primary",
+          "order": 5
+        },
+        {
           "commandId": "product.publications",
           "groupKey": "primary",
           "order": 10
@@ -6423,11 +6508,16 @@
     },
     {
       "id": "part-datums",
-      "name": "基准",
+      "name": "参考元素",
       "styleKey": "part",
       "position": "top-left",
       "orientation": "horizontal",
       "commands": [
+        {
+          "commandId": "part.reference-point",
+          "groupKey": "primary",
+          "order": 5
+        },
         {
           "commandId": "part.datum-plane",
           "groupKey": "primary",
@@ -6437,6 +6527,11 @@
           "commandId": "part.datum-axis",
           "groupKey": "primary",
           "order": 20
+        },
+        {
+          "commandId": "part.geometrical-set",
+          "groupKey": "primary",
+          "order": 30
         }
       ]
     },

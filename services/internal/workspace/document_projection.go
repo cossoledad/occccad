@@ -21,6 +21,9 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 	normalizePartModel(&model)
 	presentParameters(&model)
 	service.projectMeasurements(ctx, summary.ID, summary.VersionID, model.Measurements)
+	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
+		return view, err
+	}
 	view.Part = &model
 	view.BodyAppearances = map[string]ResolvedAppearance{}
 	for _, body := range model.Bodies {
@@ -62,6 +65,7 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	if err := json.Unmarshal(modelJSON, &model); err != nil {
 		return view, err
 	}
+	presentDocumentParameters(model.Parameters)
 	for index := range model.Instances {
 		instance := &model.Instances[index]
 		if instance.ReferenceMode == "" {
@@ -82,6 +86,11 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	// Keep currency on instances and UpdatePlan, separate from constraint evaluation.
 	service.projectSpatialStatus(ctx, summary.ID, summary.VersionID, &model)
 	service.projectMeasurements(ctx, summary.ID, summary.VersionID, model.Measurements)
+	if err := resolveProductParameters(&model, summary.VersionID); err != nil {
+		return view, err
+	}
+	presentDocumentParameters(model.Parameters)
+	view.ReferenceUpdates = service.projectPartReferenceUpdates(ctx, parameterPartContext(&parameterDocument{product: &model, Parameters: model.Parameters}))
 	view.Product = &model
 	if err := validateAssemblyDefinitionFormat(model); err != nil {
 		return view, err
@@ -92,6 +101,7 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	}
 	view.Artifacts = map[string]Artifact{}
 	view.ResolvedInstances = []ResolvedInstance{}
+	ctx = context.WithValue(ctx, referenceDisplayScopesKey{}, &view.ReferenceDisplayScopes)
 	ctx, occurrenceRules := withOccurrenceRules(ctx)
 	if err := service.resolveProduct(ctx, summary.VersionID, InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, summary.Name,
 		InstancePath{RootDocumentID: summary.ID}, "document:"+summary.ID,
@@ -164,7 +174,12 @@ func projectPartStructure(ctx context.Context, service *Service, root DocumentSt
 	// loading the referenced document and proving Editor access.
 	root.Children = partStructureChildren(model, path, documentID, versionID, true)
 	service.projectMeasurements(ctx, documentID, versionID, model.Measurements)
-	root.Children = append(root.Children, measurementStructure(documentID, versionID, path, model.Measurements))
+	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
+		return DocumentStructureNode{}, err
+	}
+	if len(model.Measurements) > 0 {
+		root.Children = append(root.Children, measurementStructure(documentID, versionID, path, model.Measurements, model.Parameters))
+	}
 	rootPath := root.InstancePath
 	applyInstancePath(root.Children, rootPath)
 	annotateStructure(&root, documentID, "")
@@ -182,6 +197,9 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 		return DocumentStructureNode{}, err
 	}
 	root.Children = make([]DocumentStructureNode, 0, len(model.Instances))
+	if len(model.Parameters) > 0 {
+		root.Children = append(root.Children, documentParameterStructure(model.Parameters, path, documentID, versionID))
+	}
 	for _, instance := range model.Instances {
 		resolvedVersionID := instance.ReferencedVersionID
 		mode := strings.ToUpper(instance.ReferenceMode)
@@ -311,10 +329,19 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 	}
 	applications := kinematicsStructure(documentID, versionID, path, model.Kinematics, model.Constraints, model.Instances)
 	service.projectSpatialStatus(ctx, documentID, versionID, &model)
-	applications.Children = append(applications.Children, spatialStructure(documentID, versionID, applications.ID, model.SpatialAnalyses))
+	if len(model.SpatialAnalyses) > 0 {
+		applications.Children = append(applications.Children, spatialStructure(documentID, versionID, applications.ID, model.SpatialAnalyses))
+	}
 	service.projectMeasurements(ctx, documentID, versionID, model.Measurements)
-	applications.Children = append(applications.Children, measurementStructure(documentID, versionID, applications.ID, model.Measurements))
-	root.Children = append(root.Children, applications)
+	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
+		return DocumentStructureNode{}, err
+	}
+	if len(model.Measurements) > 0 {
+		applications.Children = append(applications.Children, measurementStructure(documentID, versionID, applications.ID, model.Measurements, model.Parameters))
+	}
+	if len(applications.Children) > 0 {
+		root.Children = append(root.Children, applications)
+	}
 	annotateStructure(&root, documentID, "")
 	applyOccurrenceVisibilityProjection(&root, model.VisibilityOverrides)
 	projectOccurrenceNames(&root, model, occurrenceIdentity.Canonical)
