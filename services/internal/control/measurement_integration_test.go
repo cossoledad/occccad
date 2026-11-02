@@ -289,3 +289,88 @@ func TestMeasurementPartProductHistoryAndAcceptedOccurrencesThroughRouter(t *tes
 		t.Fatal("forged typed occurrence was accepted")
 	}
 }
+
+func TestMeasurementPartRepeatedSavesThroughRouter(t *testing.T) {
+	s, db, _, _, _ := featureAssociationRuntimeService(t)
+	ctx := t.Context()
+	seq := 0
+	create := func(kind, name string) workspace.DocumentView {
+		v, e := s.CreateDocument(ctx, workspace.CreateDocumentRequest{ActorID: p6Actor, Type: kind, Name: name})
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	run := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		r.ActorID = p6Actor
+		r.VersionID = v.Document.VersionID
+		r.RequestID = fmt.Sprintf("%s-measure-%d", v.Document.ID, seq)
+		next, e := s.ApplyCommand(ctx, v.Document.ID, r)
+		if e != nil {
+			t.Fatal(r.Type, e)
+		}
+		*v = next
+	}
+	part := create("PART", "Measurement exact cube")
+	run(&part, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	sid := part.Part.Features[0].ID
+	run(&part, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sid, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -5, Y: -5}, Second: &workspace.SketchPoint2{X: 5, Y: 5}}}})
+	run(&part, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sid, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 10})
+	body := part.Part.Bodies[0]
+	m := workspace.Measurement{Kind: "ITEM", Visible: true, Supports: []workspace.MeasurementSupport{{Kind: "BODY", BodyID: body.ID, Mode: "GEOMETRY"}}}
+	report, e := s.Measure(ctx, part.Document.ID, workspace.MeasurementRequest{RevisionID: part.Document.VersionID, Definition: m})
+	if e != nil || !report.Result.Complete || math.Abs(report.Result.Values["volumeMm3"]-1000) > 1e-6 {
+		t.Fatal("exact Part through Router", report, e)
+	}
+	var head string
+	_ = db.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, part.Document.ID).Scan(&head)
+	if head != part.Document.VersionID {
+		t.Fatal("read-only measurement advanced Head")
+	}
+	run(&part, workspace.CommandRequest{Type: "SAVE_MEASUREMENT", Measurement: &m})
+	if len(part.Part.Measurements) != 1 || part.Part.Measurements[0].Status != "CURRENT" {
+		t.Fatal("Part save made itself stale", part.Part.Measurements)
+	}
+	run(&part, workspace.CommandRequest{Type: "UNDO"})
+	if len(part.Part.Measurements) != 0 {
+		t.Fatal("Part undo")
+	}
+	run(&part, workspace.CommandRequest{Type: "REDO"})
+	if part.Part.Measurements[0].Status != "CURRENT" {
+		t.Fatal("Part redo")
+	}
+	face := workspace.Measurement{Kind: "ITEM", Visible: true, Supports: []workspace.MeasurementSupport{{Kind: "FACE", BodyID: body.ID, GeometryKey: body.GeometryKey, LocalID: 1, Mode: "GEOMETRY"}}}
+	run(&part, workspace.CommandRequest{Type: "SAVE_MEASUREMENT", Measurement: &face})
+	// Multiple retained measurements, then a second Body and measurements
+	// bound by an earlier read-only query (the panel's save path).
+	for _, kind := range []string{"EDGE", "VERTEX"} {
+		definition := workspace.Measurement{Kind: "ITEM", Visible: true, Supports: []workspace.MeasurementSupport{{Kind: kind, BodyID: body.ID, GeometryKey: body.GeometryKey, LocalID: 1, Mode: "GEOMETRY"}}}
+		query, err := s.Measure(ctx, part.Document.ID, workspace.MeasurementRequest{RevisionID: part.Document.VersionID, Definition: definition})
+		if err != nil || !query.Result.Complete {
+			t.Fatal(kind, query, err)
+		}
+		run(&part, workspace.CommandRequest{Type: "SAVE_MEASUREMENT", Measurement: &query.Definition})
+	}
+	run(&part, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sid, Generator: "LINEAR_EXTRUDE", Operation: "NEW_BODY", Length: 20})
+	secondBody := part.Part.Bodies[len(part.Part.Bodies)-1]
+	for _, kind := range []string{"ITEM", "BETWEEN", "ANGLE_POINTS"} {
+		supports := []workspace.MeasurementSupport{{Kind: "BODY", BodyID: secondBody.ID, Mode: "GEOMETRY"}}
+		if kind == "BETWEEN" {
+			supports = append(supports, workspace.MeasurementSupport{Kind: "BODY", BodyID: body.ID, Mode: "GEOMETRY"})
+		}
+		if kind == "ANGLE_POINTS" {
+			supports = nil
+			for _, id := range []uint64{1, 2, 3} {
+				supports = append(supports, workspace.MeasurementSupport{Kind: "VERTEX", BodyID: secondBody.ID, GeometryKey: secondBody.GeometryKey, LocalID: id, Mode: "GEOMETRY"})
+			}
+		}
+		query, err := s.Measure(ctx, part.Document.ID, workspace.MeasurementRequest{RevisionID: part.Document.VersionID, Definition: workspace.Measurement{Kind: kind, Visible: true, Supports: supports}})
+		if err != nil || !query.Result.Complete {
+			t.Fatal(kind, query, err)
+		}
+		run(&part, workspace.CommandRequest{Type: "SAVE_MEASUREMENT", Measurement: &query.Definition})
+	}
+
+}

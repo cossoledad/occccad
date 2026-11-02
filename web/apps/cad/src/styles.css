@@ -1011,3 +1011,11 @@ select {
 .measurement-stale line,.measurement-stale polyline {stroke:#d6ab55;stroke-dasharray:5 4;opacity:.65}
 .measurement-stale .measurement-label text {fill:#ffdfa1}
 .measurement-broken .measurement-label rect {stroke:#ed8c89;fill:#3c2528}
+
+.measurement-retained {pointer-events:visiblePainted;cursor:pointer}
+.measurement-retained.measurement-hover {color:#fff490}
+.measurement-retained.measurement-selected {color:#ffae63}
+.measurement-hover .measurement-label rect,.measurement-selected .measurement-label rect {stroke:currentColor;stroke-width:2}
+.measurement-hover .measurement-dimension,.measurement-selected .measurement-dimension {stroke-width:2.5}
+.measurement-hover .measurement-witness,.measurement-selected .measurement-witness {stroke:currentColor;stroke-width:2}
+.measurement-selected .measurement-label rect {fill:#42301f}

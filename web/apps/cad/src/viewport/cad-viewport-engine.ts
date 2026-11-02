@@ -4,7 +4,7 @@ import {snapFrame} from "../cad/interaction/manipulator-snap";
 import {CommandInputError} from "../cad/command/operation-failure";
 import type {SpatialAnalysis,SpatialReport} from "../cad/assembly/spatial-analysis";
 import {MeasurementOverlay} from '../cad/measurement/measurement-overlay';
-import {measurements,type MeasurementReport} from '../cad/measurement/measurement';
+import {measurements,measurementSelection,measurementInteraction,type MeasurementReport} from '../cad/measurement/measurement';
 import {interferenceDisplayIndex,type StaticInterferenceReport} from "../cad/assembly/static-interference";
 import {contextScopeForView,contextResultMatchesActiveView} from "../api/context-edit-scope";
 import {SketchIntersectionTool} from "../cad/tool/sketch-intersection-tool";
@@ -678,7 +678,10 @@ export class CadViewportEngine {
     this.studioEnvironment = createStudioEnvironment(this.renderer);
     this.scene.environment = this.studioEnvironment.texture;
     host.appendChild(this.renderer.domElement);
-    this.measurementOverlay=new MeasurementOverlay(host);
+    this.measurementOverlay=new MeasurementOverlay(host,{
+      hover:id=>{if(this.featureSelection||!this.view)return;if(id)this.preselect(measurementSelection(this.view,id)??null,true);else if(this.preselected?.kind==='measurement')this.preselect(null,true)},
+      select:(id,toggle)=>{if(this.featureSelection||!this.view)return;const selection=measurementSelection(this.view,id);if(!selection)return;this.selectMany(toggle?this.selected.some(s=>selectionKey(s)===selectionKey(selection))?this.selected.filter(s=>selectionKey(s)!==selectionKey(selection)):[...this.selected,selection]:[selection],true)},
+    });
 
     this.moveInteraction = new AssemblyInteractionController({
       begin:(input,signal)=>{
@@ -2082,6 +2085,7 @@ export class CadViewportEngine {
   }
 
   private refreshInteractionHighlights(): void {
+    if(this.view){const state=measurementInteraction(this.view,this.selected,this.preselected);this.measurementOverlay?.setInteraction(state.selected,state.hovered)}
     if(this.featureSelection?.localSketchId){
       const retained=this.featureSelection.selections.flatMap(s=>s.sketchReference?[s.sketchReference]:[]);
       const hovered=this.preselected?.sketchReference;

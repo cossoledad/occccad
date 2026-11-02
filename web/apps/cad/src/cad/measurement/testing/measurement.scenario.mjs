@@ -26,5 +26,15 @@ try{
  const group=new THREE.Group(),edge=new THREE.LineSegments(),points=new THREE.Points();group.add(edge,points);group.visible=false;group.userData.appearanceEdges=false;
  const settings={mode:'shaded',edges:false,vertices:false};applySolidDisplaySettings(group,settings,'VERTEX');assert(points.visible);assert(!edge.visible);assert(!group.visible,'pick display must not reveal hidden Bodies');
  applySolidDisplaySettings(group,settings,'EDGE');assert(edge.visible,'pick field may reveal edges hidden by appearance');assert(!points.visible);applySolidDisplaySettings(group,settings);assert(!edge.visible&&!points.visible);assert.deepEqual(settings,{mode:'shaded',edges:false,vertices:false});
+ const node={id:'document:root/measurements/m',kind:'MEASUREMENT',entityId:'m',documentId:'root',instancePath:{rootDocumentId:'root',canonical:'',segments:[]}};
+ const annotated={...view,product:{instances:[],measurements:[{id:'m',visible:true}]},structureTree:{id:'document:root',kind:'PRODUCT',children:[node]}};
+ const selected=m.measurementSelection(annotated,'m');assert.equal(selected.treeNodeId,node.id);assert.equal(selected.kind,'measurement');
+ assert.deepEqual(m.measurementInteraction(annotated,[selected],selected),{selected:['m'],hovered:'m'});
+ assert.deepEqual(m.measurementInteraction(annotated,[{...selected,documentId:'other',ownerDocumentId:'other'},{...selected,versionId:'old'},{...selected,occurrencePath:'child'}],{...selected,versionId:'old'}),{selected:[],hovered:undefined});
+ assert.equal(m.measurementSelection({...annotated,product:{instances:[],measurements:[{id:'m',visible:false}]}},'m'),undefined);
+ const {treeNodeIcon}=await server.ssrLoadModule('/src/features/workbench/tree-node-descriptors.tsx');
+ for(const [status,label] of [['STALE','待更新'],['CURRENT','已更新'],['BROKEN','来源不可用'],['UNKNOWN','状态暂不可用']]){
+  const icon=treeNodeIcon({kind:'MEASUREMENT',currencyStatus:status});assert.equal(icon.props.children[1].props['aria-label'],'状态 '+label);
+ }
  console.log('Measurement stable picks, owner witnesses, units and angle presentation passed.');
 }finally{await server.close()}

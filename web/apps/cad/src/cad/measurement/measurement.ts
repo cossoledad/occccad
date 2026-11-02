@@ -9,6 +9,22 @@ export type MeasurementReport={documentId:string;revisionId:string;definition:Me
 export type MeasurementUnit='mm'|'cm'|'m'|'in';
 export const measurementTitle=(kind:MeasurementKind)=>({ITEM:'测量对象',BETWEEN:'测量之间',ANGLE_POINTS:'三点角度'}[kind]);
 export const measurements=(view:DocumentView)=>view.part?.measurements??view.product?.measurements??[];
+
+export function measurementSelection(view:DocumentView,id:string):SelectionItem|undefined {
+ if(!measurements(view).some(m=>m.id===id&&m.visible))return;
+ const find=(node:import('../../types').DocumentStructureNode|undefined):import('../../types').DocumentStructureNode|undefined=>{
+  if(!node)return;
+  if(node.kind==='MEASUREMENT'&&node.entityId===id&&node.documentId===view.document.id&&!(node.instancePath?.segments.length))return node;
+  for(const child of node.children??[]){const result=find(child);if(result)return result}
+ };
+ const node=find(view.structureTree);if(!node)return;
+ return {kind:'measurement',id,entityId:id,documentId:view.document.id,ownerDocumentId:view.document.id,versionId:view.document.versionId,entityRef:node.subject,snapshotScope:node.snapshot,instancePath:node.instancePath,occurrencePath:'',rootDocumentId:node.instancePath?.rootDocumentId,treeNodeId:node.id};
+}
+
+export function measurementInteraction(view:DocumentView,selected:readonly SelectionItem[],hovered?:SelectionItem|null){
+ const match=(s:SelectionItem)=>s.kind==='measurement'&&(s.ownerDocumentId??s.documentId)===view.document.id&&!(s.instancePath?.segments.length)&&!(s.occurrencePath)&&(!s.versionId||s.versionId===view.document.versionId);
+ return {selected:selected.filter(match).map(s=>s.entityId??s.id),hovered:hovered&&match(hovered)?hovered.entityId??hovered.id:undefined};
+}
 export const measurementStatus=(status?:string)=>({CURRENT:'已更新',STALE:'待更新',BROKEN:'来源不可用',MISSING:'尚无结果',UNKNOWN:'状态暂不可用'}[status??'']??'待更新');
 export const defaultMeasurement=(kind:MeasurementKind):Measurement=>({id:'',name:'',kind,supports:[],visible:true,showComponents:false});
 export const measurementCount=(kind:MeasurementKind)=>kind==='ITEM'?1:kind==='BETWEEN'?2:3;

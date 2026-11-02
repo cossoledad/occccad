@@ -41,3 +41,29 @@ func TestDerivedEvaluationSchedulingAndCycle(t *testing.T) {
 		t.Fatal("ordinary phase violation accepted")
 	}
 }
+
+func TestDependencyGraphOperandReadsAreUniqueRelations(t *testing.T) {
+	nodes := []DependencyNode{{Key: "feature:body-tip", Phase: 1}, {Key: "measurement:three-points", Phase: 2, Derived: true}}
+	geometry := DependencyEdge{Source: nodes[0].Key, Target: nodes[1].Key, Kind: ReadGeometry}
+	value := geometry
+	value.Kind = ReadValue
+	graph, err := ScheduleEvaluationGraph(nodes, []DependencyEdge{geometry, geometry, value, geometry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graph.Edges) != 2 || graph.Edges[0] != geometry || graph.Edges[1] != value {
+		t.Fatal("operand multiplicity leaked into dependency relations", graph.Edges)
+	}
+	canonical, err := NewDependencyGraph(nodes, []DependencyEdge{geometry, value})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, _ := graph.Digest()
+	expected, _ := canonical.Digest()
+	if actual != expected {
+		t.Fatal("duplicate reads changed dependency snapshot")
+	}
+	if len(graph.DirtyClosure([]DependencyKey{nodes[0].Key})) != 2 {
+		t.Fatal("deduplication lost downstream propagation")
+	}
+}

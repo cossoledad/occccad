@@ -81,7 +81,17 @@ func ScheduleEvaluationGraph(nodes []DependencyNode, edges []DependencyEdge) (*D
 }
 
 func NewDependencyGraph(nodes []DependencyNode, edges []DependencyEdge) (*DependencyGraph, error) {
-	graph := &DependencyGraph{Nodes: map[DependencyKey]DependencyNode{}, Edges: append([]DependencyEdge(nil), edges...)}
+	// An edge describes a dependency relation, not the number of operands that
+	// read it. Definitions retain operand multiplicity. All graph consumers,
+	// including persistence and snapshot digests, use this same unique set.
+	graph := &DependencyGraph{Nodes: map[DependencyKey]DependencyNode{}, Edges: []DependencyEdge{}}
+	seenEdges := map[DependencyEdge]bool{}
+	for _, edge := range edges {
+		if !seenEdges[edge] {
+			seenEdges[edge] = true
+			graph.Edges = append(graph.Edges, edge)
+		}
+	}
 	for _, node := range nodes {
 		if node.Key == "" {
 			return nil, fmt.Errorf("dependency key is required")
@@ -91,7 +101,7 @@ func NewDependencyGraph(nodes []DependencyNode, edges []DependencyEdge) (*Depend
 		}
 		graph.Nodes[node.Key] = node
 	}
-	for _, edge := range edges {
+	for _, edge := range graph.Edges {
 		source, sourceOK := graph.Nodes[edge.Source]
 		target, targetOK := graph.Nodes[edge.Target]
 		if !sourceOK || !targetOK {

@@ -45,15 +45,26 @@ export class MeasurementOverlay {
  private layoutDocumentId='';
  private layouts:AnnotationLayouts={};
  private sourceKey='';
+ private frameKey='';
  private dragging?:{cancel:()=>void};
  private saveOffset?: (id:string,offset:Point|undefined)=>void;
+ private selected=new Set<string>();
+ private hovered?:string;
+ setInteraction(selected:readonly string[],hovered?:string){this.selected=new Set(selected);this.hovered=hovered;this.applyInteraction()}
+ private applyInteraction(){for(const group of this.root.querySelectorAll<SVGGElement>('.measurement-retained')){const id=group.dataset.measurementId!;group.classList.toggle('measurement-selected',this.selected.has(id));group.classList.toggle('measurement-hover',id===this.hovered);group.querySelector('.measurement-label')?.setAttribute('aria-pressed',String(this.selected.has(id)))}}
  setLayouts(documentId:string,layouts:AnnotationLayouts,save?:(id:string,offset:Point|undefined)=>void){
   this.layoutDocumentId=documentId;this.layouts=layouts;
   this.saveOffset=save;
   if(documentId===this.documentId)this.hydrateLayouts();
  }
  private hydrateLayouts(){for(const [id,layout] of Object.entries(this.layouts)){if(layout.offset)this.offsets.set(id,layout.offset);else this.offsets.delete(id)}}
- constructor(host:HTMLElement){host.append(this.root)}
+ constructor(host:HTMLElement,private interaction?:{hover:(id?:string)=>void;select:(id:string,toggle:boolean)=>void}){
+  host.append(this.root);
+  const id=(target:EventTarget|null)=>target instanceof Element?target.closest('.measurement-retained')?.getAttribute('data-measurement-id')??undefined:undefined;
+  this.root.addEventListener('pointermove',e=>{if(!this.dragging)this.interaction?.hover(id(e.target))});
+  this.root.addEventListener('pointerleave',()=>{if(!this.dragging)this.interaction?.hover()});
+  this.root.addEventListener('pointerdown',e=>{const value=id(e.target);if(value&&e.button===0){e.preventDefault();e.stopPropagation();this.interaction?.select(value,e.ctrlKey||e.metaKey)}});
+ }
  dispose(){this.dragging?.cancel();this.root.remove();this.offsets.clear()}
  render(documentId:string,items:Measurement[],unit:MeasurementUnit,camera:Camera,width:number,height:number,enabled=true){
   const sourceKey=JSON.stringify(items.map(m=>[m.id,m.result?.sourceStamp,m.status,m.visible,m.showComponents]));
@@ -61,6 +72,8 @@ export class MeasurementOverlay {
   if(documentId!==this.documentId||!enabled){this.dragging?.cancel();if(documentId!==this.documentId)this.offsets.clear();this.documentId=documentId}
   if(this.dragging)return;
   if(documentId===this.layoutDocumentId)this.hydrateLayouts();
+  const frameKey=JSON.stringify([documentId,sourceKey,unit,width,height,enabled,camera.projectionMatrix.elements,camera.matrixWorldInverse.elements,items.map(m=>[m.name,m.displayAnchors,m.result?.anchors,m.outputCurrency]),[...this.offsets]]);
+  if(frameKey===this.frameKey)return;this.frameKey=frameKey;
   this.root.replaceChildren();this.root.setAttribute('viewBox',`0 0 ${width} ${height}`);
   if(!enabled)return;
   const occupied:Array<{x:number;y:number;w:number;h:number}>=[];
@@ -92,18 +105,22 @@ export class MeasurementOverlay {
    if(!this.offsets.has(key))for(let attempt=0;attempt<12&&occupied.some(r=>x<r.x+r.w+4&&x+w+4>r.x&&y<r.y+r.h+4&&y+h+4>r.y);attempt++){y+=h+6;if(y+h>height-8){y=8;x=Math.min(width-w-8,x+w/2)}}
    occupied.push({x,y,w,h});offset=[x-labelAnchor[0],y-labelAnchor[1]];
    const leader=line(group,labelAnchor,[x,y+h/2],'measurement-leader');
-   const label=svg('g',{transform:`translate(${x} ${y})`,class:'measurement-label',tabindex:0,role:'img','aria-label':text});
+   const label=svg('g',{transform:`translate(${x} ${y})`,class:'measurement-label',tabindex:0,role:m.id?'button':'img','aria-label':text});
    label.append(svg('rect',{width:w,height:h,rx:5}));const title=svg('title');title.textContent=`${text}；拖动可调整标签位置，双击复位`;label.append(title);
    const t=svg('text',{x:10,y:19});t.textContent=text.length*7.5+24>w?text.slice(0,Math.max(8,Math.floor((w-40)/7.5)))+'…':text;label.append(t);group.append(label);
    label.addEventListener('dblclick',e=>{e.stopPropagation();this.offsets.delete(key);if(m.id)this.saveOffset?.(m.id,undefined);x=Math.max(8,Math.min(width-w-8,labelAnchor[0]+26));y=Math.max(8,Math.min(height-h-8,labelAnchor[1]-38));label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2))});
    label.addEventListener('pointerdown',e=>{
     if(e.button!==0)return;e.preventDefault();e.stopPropagation();label.setPointerCapture(e.pointerId);
     const start:Point=[e.clientX,e.clientY],base:Point=[x,y],previous=this.offsets.get(key);
-    const move=(event:PointerEvent)=>{event.stopPropagation();const box=this.root.getBoundingClientRect(),sx=width/box.width,sy=height/box.height;x=Math.max(8,Math.min(width-w-8,base[0]+(event.clientX-start[0])*sx));y=Math.max(8,Math.min(height-h-8,base[1]+(event.clientY-start[1])*sy));label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2));this.offsets.set(key,[x-labelAnchor[0],y-labelAnchor[1]])};
-    const finish=(event?:Event,cancel=false)=>{event?.stopPropagation();if(cancel){if(previous)this.offsets.set(key,previous);else this.offsets.delete(key);label.setAttribute('transform',`translate(${base[0]} ${base[1]})`);leader.setAttribute('x2',String(base[0]));leader.setAttribute('y2',String(base[1]+h/2))}if(!cancel&&m.id)this.saveOffset?.(m.id,this.offsets.get(key));this.dragging=undefined;label.removeEventListener('pointermove',move);label.removeEventListener('pointerup',up);label.removeEventListener('pointercancel',cancelled);label.removeEventListener('lostpointercapture',cancelled);window.removeEventListener('blur',cancelled);window.removeEventListener('keydown',keyDown,true);if(label.hasPointerCapture(e.pointerId))label.releasePointerCapture(e.pointerId)};
+    let moved=false;
+    const move=(event:PointerEvent)=>{event.stopPropagation();moved ||= Math.hypot(event.clientX-start[0],event.clientY-start[1])>3;const box=this.root.getBoundingClientRect(),sx=width/box.width,sy=height/box.height;x=Math.max(8,Math.min(width-w-8,base[0]+(event.clientX-start[0])*sx));y=Math.max(8,Math.min(height-h-8,base[1]+(event.clientY-start[1])*sy));label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2));this.offsets.set(key,[x-labelAnchor[0],y-labelAnchor[1]])};
+    const finish=(event?:Event,cancel=false)=>{event?.stopPropagation();if(cancel){if(previous)this.offsets.set(key,previous);else this.offsets.delete(key);label.setAttribute('transform',`translate(${base[0]} ${base[1]})`);leader.setAttribute('x2',String(base[0]));leader.setAttribute('y2',String(base[1]+h/2))}if(!cancel&&m.id&&moved)this.saveOffset?.(m.id,this.offsets.get(key));this.dragging=undefined;label.removeEventListener('pointermove',move);label.removeEventListener('pointerup',up);label.removeEventListener('pointercancel',cancelled);label.removeEventListener('lostpointercapture',cancelled);window.removeEventListener('blur',cancelled);window.removeEventListener('keydown',keyDown,true);if(label.hasPointerCapture(e.pointerId))label.releasePointerCapture(e.pointerId)};
     const up=(event:PointerEvent)=>finish(event),cancelled=(event:Event)=>finish(event,true),keyDown=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();finish(event,true)}};
     this.dragging={cancel:()=>finish(undefined,true)};label.addEventListener('pointermove',move);label.addEventListener('pointerup',up);label.addEventListener('pointercancel',cancelled);label.addEventListener('lostpointercapture',cancelled);window.addEventListener('blur',cancelled);window.addEventListener('keydown',keyDown,true);
+    if(m.id)this.interaction?.select(m.id,e.ctrlKey||e.metaKey);
    });
+   label.addEventListener('keydown',e=>{if(m.id&&(e.key==='Enter'||e.key===' ')){e.preventDefault();e.stopPropagation();this.interaction?.select(m.id,e.ctrlKey||e.metaKey)}});
   }
+  this.applyInteraction();
  }
 }
