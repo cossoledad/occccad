@@ -86,10 +86,10 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, allowHistoricalCreation, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onReplace, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, highlightedKeys, editSession, activeDocumentId, activeInstancePath, workingBodyId, allowHistoricalCreation, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onReplace, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   documentSessions?: DocumentSessions; hostDocumentId?: string;
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
-  selectionToken: string; highlightedKey?: string; editSession?: EditSession;
+  selectionToken: string; highlightedKey?: string;highlightedKeys?:string[]; editSession?: EditSession;
   activeDocumentId?: string; activeInstancePath?: string; workingBodyId?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
@@ -247,7 +247,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
         });
         const isWorkingBody = node.kind === "BODY" && node.bodyId === workingBodyId &&
           node.documentId === activeDocumentId && (node.instancePath?.canonical ?? "") === (activeInstancePath ?? "");
-        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${descendantHints.has(node.key) && !isSelected ? "selected-descendant" : ""} ${isActiveDocument ? "active-document" : ""} ${isWorkingBody ? "working-body" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.hidden ? "display-hidden" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
+        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${descendantHints.has(node.key) && !isSelected ? "selected-descendant" : ""} ${isActiveDocument ? "active-document" : ""} ${isWorkingBody ? "working-body" : ""} ${(highlightedKey === node.key||highlightedKeys?.includes(node.key)) ? "highlighted" : ""} ${node.hidden ? "display-hidden" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
           role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
           data-default-command={defaultCommand} data-action-enabled={actionEnabled} aria-keyshortcuts={defaultCommand==="tree.edit"?"Enter":undefined}
           data-working-body={isWorkingBody||undefined} aria-selected={isSelected} data-tree-key={node.key}

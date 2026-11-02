@@ -24,12 +24,46 @@ export function publicationSelectionTarget(view:DocumentView,s:SelectionItem|und
  if(s.kind==='body'&&view.part.bodies.some(b=>b.id===(s.bodyId??s.entityId)))return {...scope,publicationType:'BODY',targetKind:'BODY',targetId:s.bodyId??s.entityId};
  if(s.kind==='pad'||s.kind==='import'||s.kind==='feature'){
   const feature=view.part.features.find(f=>f.id===(s.entityId??s.id)&&isSolidFeature(f));
-  if(feature?.bodyId)return {...scope,publicationType:'BODY',targetKind:'BODY',targetId:feature.bodyId};
+  if(feature?.bodyId&&!feature.suppressed&&!['FAILED','BLOCKED'].includes(feature.evaluationStatus??''))return {...scope,publicationType:'BODY',targetKind:'BODY',targetId:feature.bodyId};
  }
  if(s.kind==='visual'){
   const entity=view.part.features.find(f=>f.id===s.featureId)?.sketch?.entities.find(e=>e.id===s.entityId);
   if(entity&&['POINT','LINE','CIRCLE','ARC'].includes(entity.kind))return {...scope,publicationType:entity.kind==='POINT'?'POINT':'CURVE',targetKind:'SKETCH_ENTITY',targetId:entity.id,sketchId:s.featureId};
  }
+}
+
+/** Geometry picked in Product stays owned by its occurrence; no hidden Part port. */
+export function publicationElementTarget(view:DocumentView,pick:SelectionItem|undefined,ownerPath?:InstancePath){
+ if(!view.product||!pick||pick.kind==='publication')return;
+ let path=pick.instancePath;
+ if(!path?.segments.length)return;
+ if(ownerPath){
+  if(path.rootDocumentId!==ownerPath.rootDocumentId||path.segments.length<=ownerPath.segments.length)return;
+  const prefix={...path,canonical:path.segments.slice(0,ownerPath.segments.length).map(p=>p.instanceId).join('/'),segments:path.segments.slice(0,ownerPath.segments.length)};
+  if(!samePath(prefix,ownerPath))return;
+  const segments=path.segments.slice(ownerPath.segments.length);
+  path={rootDocumentId:view.document.id,canonical:segments.map(p=>p.instanceId).join('/'),display:segments.map(p=>p.instanceName).join('/'),segments};
+ }
+ if(path.rootDocumentId!==view.document.id||path.segments[0].ownerVersionId!==view.document.versionId)return;
+ const leaf=path.segments.at(-1)!;
+ const local={...pick,instancePath:path,occurrencePath:path.canonical};
+ if(!selectionInSnapshot(local,leaf.referencedDocumentId,leaf.resolvedVersionId,path))return;
+ let partNode:NonNullable<DocumentView['structureTree']>|undefined;
+ const visit=(n:NonNullable<DocumentView['structureTree']>)=>{if(n.kind==='PART'&&n.documentId===leaf.referencedDocumentId&&n.versionId===leaf.resolvedVersionId&&n.instancePath?.canonical===path!.canonical)partNode=n;n.children?.forEach(visit)};
+ if(view.structureTree)visit(view.structureTree);if(!partNode)return;
+ const nodes:NonNullable<DocumentView['structureTree']>[]=[];const collect=(n:typeof partNode)=>{if(n){nodes.push(n);n.children?.forEach(collect)}};collect(partNode);
+ const scope={instancePath:path,sourceDocumentId:leaf.referencedDocumentId,sourceVersionId:leaf.resolvedVersionId};
+ const entity=pick.entityId??pick.id;
+ if((pick.kind==='face'||pick.kind==='edge'||pick.kind==='vertex')&&pick.geometryKey&&nodes.some(n=>n.kind==='BODY'&&n.geometryKey===pick.geometryKey&&n.bodyId===pick.bodyId))return {...scope,publicationType:pick.kind==='face'?'SURFACE':pick.kind==='edge'?'CURVE':'POINT',targetKind:pick.kind.toUpperCase(),geometryKey:pick.geometryKey,topologyId:pick.topologyId};
+ if(pick.kind==='plane'&&nodes.some(n=>n.kind==='PLANE'&&n.entityId===entity))return {...scope,publicationType:'PLANE',targetKind:'PLANE',targetId:entity};
+ if(pick.kind==='axis'&&nodes.some(n=>n.entityId===entity&&['DATUM_AXIS','AXIS'].includes(n.kind)))return {...scope,publicationType:'AXIS',targetKind:pick.axis==='DATUM'?'DATUM_AXIS':'AXIS',targetId:entity,axis:pick.axis==='DATUM'?undefined:pick.axis};
+ if(pick.kind==='reference-point'&&nodes.some(n=>n.kind==='DATUM_POINT'&&n.entityId===entity))return {...scope,publicationType:'POINT',targetKind:'REFERENCE_POINT',targetId:entity};
+ if(pick.kind==='axis-system'&&nodes.some(n=>n.kind==='AXIS'&&n.entityId===entity))return {...scope,publicationType:'FRAME',targetKind:'AXIS_SYSTEM',targetId:entity};
+ if(pick.kind==='parameter'&&nodes.some(n=>n.kind==='PARAMETER'&&n.entityId===entity))return {...scope,publicationType:'PARAMETER',targetKind:'PARAMETER',targetId:entity};
+ if(pick.kind==='visual'&&pick.featureId&&pick.entityId&&nodes.some(n=>n.entityId===pick.entityId&&n.ownerEntityId===pick.featureId))return {...scope,publicationType:pick.visualType==='POINT'?'POINT':'CURVE',targetKind:'SKETCH_ENTITY',targetId:pick.entityId,sketchId:pick.featureId};
+ const body=nodes.find(n=>n.kind==='BODY'&&(n.bodyId===pick.bodyId||n.entityId===entity));
+ if(pick.kind==='body'&&body)return {...scope,publicationType:'BODY',targetKind:'BODY',targetId:body.bodyId??body.entityId};
+ if(['pad','import','feature'].includes(pick.kind)){const f=nodes.find(n=>n.entityId===entity&&['PAD','REVOLVE','IMPORT','FEATURE'].includes(n.kind));if(f?.bodyId&&!f.suppressed&&!['FAILED','BLOCKED'].includes(f.evaluationStatus??''))return {...scope,publicationType:'BODY',targetKind:'BODY',targetId:f.bodyId}}
 }
 
 export function publicationForwardTarget(view:DocumentView,pick:SelectionItem|undefined,ownerPath?:InstancePath){

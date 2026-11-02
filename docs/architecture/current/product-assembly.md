@@ -124,9 +124,17 @@ OCCT 在私有几何上计算分离、接触、干涉及包含；包含通过真
 
 “设计输入”在独立 Part 中准备参数、平面/轴及草图点、直线/圆/圆弧的本地输入和默认值，支持定位、改名、必需标记与受保护删除。默认草图几何来自同一接收草图的已求解原生图元；点输入可原子建立外部槽位与普通 POINT 的重合关系，供原 Hole 使用。“应用并继续”每次提交一个输入，随后取消只丢弃未应用草稿，已应用项可逐次撤销。
 
-Publication 是对外设计接口：消费者引用“安装面、定位轴、设计参数”的稳定 PublicationId，源几何可以在同一接口下替换，消费者不必直接依赖内部 Feature 的组织。Part 提供参数、基准、原生草图元素及精确拓扑发布；Product 提供本地参数及下级组件公开接口的转发，维持模块封装。
+Publication 是对外设计接口：消费者引用“安装面、定位轴、设计参数”的稳定 PublicationId，源几何可以在同一接口下替换，消费者不必直接依赖内部 Feature 的组织。Part 提供参数、基准、原生草图元素及精确拓扑发布；Product 提供本地参数、组件几何的直接发布及下级组件接口的转发。直接发布由 Product 持有，Part 无需预先发布，也不修改共享 Part 或生成隐藏接口。
 
 发布管理器以名称、元素和状态列表为主体，默认连续拾取：点击树/视区元素、选择参数或浏览组件发布后立即新增，无需填写名称或再次确认。列表提供移除；编辑已有接口时才展开名称和目标字段，兼容目标与名称一次提交并保留 PublicationId 和对外契约。每次新增、移除和应用修改形成一项可撤销历史；关闭保留已提交项目，只丢弃未应用的编辑草稿。改名不改变源几何名称或绑定身份。来源改动仍遵循消费者已有的版本接受策略；固定消费者继续使用旧快照。组件替换后可在原 Product 发布中明确选择替代组件的公开元素，恢复该模块接口；上层消费者接受更新后沿用原公开 ID，无需逐个重选支撑。不会按同名或相似形状自动匹配接口，也不提前求解替换影响。
+
+Product 发布目标互斥：本地 ParameterId、`InstancePath + Element`、`InstancePath + PublicationId`。直接元素复用 Part 的 PublicationTarget，保存稳定 Body/Feature/Datum/Parameter 身份或 PersistentSelection；完整路径冻结来源 occurrence 和接受的 Revision。上下文实例使用其已接受输入生成的实际几何，不能用共享 Part 默认结果替代。转发则消费下级公开接口，供模块封装和组件替换后重连。名称与路径只作显示，不用于匹配替代组件。
+
+发布别名、元素路径、持久身份分别表示“接口用途”“来自哪里”“如何恢复”。`ElementPresentation` 统一投影 `Body / Feature / 面、边线、顶点` 等路径，管理器、结构树、选择名称和属性面板共用该语义；实例名称按完整路径限定。修改别名不重命名源元素，修改源名称不改变 PublicationId 或拓扑锚点。
+
+几何连通性按当前接受结果判定：精确拓扑锚点在最终 Body 中唯一恢复才为 Connected；缺失、歧义或来源文档替换保留发布定义和别名，标记 Broken Link，并清除可用于显示/计算的旧几何定位器。抑制生成圆角面的 Feature 会使该面发布失效；撤销或恢复原锚点可重新连通，显式更换兼容元素也保留接口 ID。新 Head 未被接受时，只报告来源待更新，固定及已接受消费者继续使用原快照。单个失效发布不使无关上下文几何消失，消费它的约束或输入独立报告失效。
+
+发布结果在提交、预览及历史恢复的最终实例位姿下刷新。拓扑解析使用与显示相同的不可变制品，避免 exact-only 与 display GeometryKey 不同导致高亮失配。加载时可基于该 Revision 已接受的 Body 制品重建显示定位器，更新的是读模型，不改写 Revision；`SourceGeometryKey` 仅冻结经过所属 Part/上下文验证的创建证据，跨版本身份仍由 PersistentSelection 保证。发布一般几何与某工具能否解析该几何分开：例如曲面可以保留发布接口，具体约束仍按自己的解析能力验证。
 
 “发布接口”管理稳定 Publication；“引用设计信息”在已激活 Part occurrence 中创建或复用本地输入，并管理绑定、定位、重连、固定与恢复跟随。新端口与 Product 绑定复用设计事务，预览和取消不创建模型对象。“应用并继续引用”一次提交一项，保留接收草图并更新修订、目录和预览基线；随后取消只丢弃未应用草稿，已应用项可逐次撤销。Part 发布与 Product 转发、重定向使用同一选择字段，核对目标文档、修订和完整实例路径；子装配接口可继续转发，定位仍指向确切 occurrence，改名不改变接口身份。参数的既有定义级 ExternalParameterRef 仍作用于共享 Part，保持独立语义。
 
@@ -149,9 +157,9 @@ Product 只保存来源和值：ContextBinding 冻结来源 Revision、完整 oc
 
 “替换组件”只从当前 owning Product 的直接 Instance 右键菜单进入。它复用插入组件的文件夹、最近文档、共享文档和缩略图资源浏览器，单选一个 Part 或 Product，确认时获取并冻结所选文档的确切 Revision。命令检查当前 Product CAS、可访问的来源快照和循环引用，保留 InstanceId、名称、引用策略及当前位姿，不接受其他 occurrence 的待更新 Head。
 
-替换是一次明确的模型编辑，不要求事先映射接口或求解所有关联。几何支撑保留指向原文档的 typed identity，换成其他文档后对应约束进入 Broken；仍然只依赖完整 occurrence 的关系进入 NotUpdated，等待显式更新。受影响 ContextBinding 与转发 Publication 保留原对象身份、接受证据及诊断，进入断裂状态；更新计划报告阻塞，缺失接收 occurrence 不使整个文档打不开。测量、空间分析继续按各自依赖指纹判定时效。替换不按名称、拓扑序号或形状猜测新的支撑，也不自动恢复关联或推进新组件自身的未接受输入。ChangeSet 和 Undo/Redo 恢复原来源、关系、状态与位姿。
+替换是一次明确的模型编辑，不要求事先映射接口或求解所有关联。几何支撑保留指向原文档的 typed identity，换成其他文档后对应约束进入 Broken；仍然只依赖完整 occurrence 的关系进入 NotUpdated，等待显式更新。受影响 ContextBinding 与直接／转发 Publication 保留原对象身份、接受证据及诊断，进入断裂状态；更新计划报告阻塞，缺失接收 occurrence 不使整个文档打不开。测量、空间分析继续按各自依赖指纹判定时效。替换不按名称、拓扑序号或形状猜测新的支撑，也不自动恢复关联或推进新组件自身的未接受输入。ChangeSet 和 Undo/Redo 恢复原来源、关系、状态与位姿。
 
-CATIA 发布参考：`online/cfyugprt_C2/cfyugprtpublish.htm` 包含发布列表、名称与元素编辑、参数选择及 Product Browse。其名称关联与重命名影响提示不替代本系统稳定 ID/显式接受语义。实现与回归入口：`publication-manager.tsx`、`publication.go`、`product_context.go`、`publication_editing_integration_test.go`。
+CATIA 发布参考：`online/cfyugprt_C2/cfyugprtpublish.htm` 包含拾取即入列表、别名与源元素名称的区别、悬浮/选中联动、元素替换及 Product Browse；截图 `tests/test.data/assembly-screenshots/03.png` 对照元素路径与“没有元素”状态。其名称关联与重命名影响提示不替代本系统稳定 ID/显式接受语义。实现与回归入口：`publication-manager.tsx`、`publication.go`、`product_context.go`、`product_publication_element.go`、`publication_editing_integration_test.go`。
 
 CATIA 参考：`online/asmug_C2/asmuggs10.htm`、`online/asmug_C2/asmugat0103.htm` 使用选择组件、选择替代文档、提交后检查关联状态的流程；公开接口可能帮助重连，普通接触约束可能断裂。这些页面也提供工具栏及影响对话框；本软件本轮采用右键单组件替换与现有资源浏览器，关联重连留在既有编辑器中显式完成。
 

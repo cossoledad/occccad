@@ -1,3 +1,4 @@
+import {elementPresentation} from '../../cad/presentation/element-presentation';
 import {spatialStatus,spatialTitle} from "../../cad/assembly/spatial-analysis";
 import {sketchProfileFeedback,profileIssueText} from "../../cad/sketch/sketch-profile-analysis";
 import {inspectorOwnerDocumentId,inspectorTopologyData} from './inspector-object-data';
@@ -26,11 +27,14 @@ export function Properties(p:PropertiesProps){
   if(!parameter)return <Typography.Text type="secondary">该参数已不可用，请重新选择。</Typography.Text>;
   add('name','参数',parameter.qualifiedDisplayPath??parameter.displayName??parameter.label??'参数');add('source','表达式 / 输入',parameterSourceText(parameter));add('value','当前值',parameterDisplayValue(parameter));add('owner','所属对象',parameter.ownerFeatureId?objectName(view,parameter.ownerFeatureId):'文档参数');add('state','状态','可用');
   if(p.onEditParameter)add('edit','操作',<Button size="small" onClick={()=>p.onEditParameter?.(parameter.parameterId)}>编辑参数</Button>);
- }else if(s.publication){add('type','类型','发布引用');add('name','名称',s.publication.name);add('geometry','几何类型',engineeringLabel(s.publication.type,'几何对象'));add('state','关联状态',engineeringLabel(s.publication.resolution?.status,'待检查'));if(p.onEditPublication)add('edit','操作',<Button size="small" onClick={()=>p.onEditPublication?.(s.publication!.id,view.document.type==='PRODUCT'?'PRODUCT':'PART')}>编辑发布引用</Button>);
+ }else if(s.kind==='publication'){
+  const pub=s.productPublication??s.publication;if(pub){add('type','类型','发布引用');add('name','名称',pub.name);add('element','元素',elementPresentation(p.view,s)?.path??'来源不可用');add('geometry','几何类型',engineeringLabel(pub.type,'几何对象'));add('state','关联状态',engineeringLabel(pub.resolution.status,'待检查'));if(p.onEditPublication)add('edit','操作',<Button size="small" onClick={()=>p.onEditPublication?.(pub.id,s.productPublication?'PRODUCT':'PART')}>编辑发布引用</Button>)}
+
  }else if(['face','edge','vertex'].includes(s.kind)){
   const topology=inspectorTopologyData(s,p.topology);
   if(p.readErrors?.topology)return <Typography.Text type="secondary">无法读取该几何的属性，请重新选择或重试。</Typography.Text>;
   if(p.topologyLoading||!topology)return <Spin size="small" tip="正在读取几何属性…"/>;
+  if(topology.element)add('element','元素',[s.instancePath?.display||view.document.name,topology.element.path].filter(Boolean).join(' / '));
   add('type','类型',engineeringLabel(topology.kind,'几何元素'));add('geometry','几何形状',engineeringLabel(topology.geometryType,'曲面或曲线'));add('owner','所属对象',objectName(view,s.bodyId,'实体'));if(s.instancePath?.display)add('path','所属位置',s.instancePath.display);if(topology.persistentSelection)add('feature','生成步骤',definition&&s.associatedFeatureIds?.length?s.associatedFeatureIds.map(id=>objectName(view,id,'生成步骤暂不可用')).join('、'):'生成步骤暂不可用');
   if(topology.point)add('point','位置 (mm)',topology.point.map(v=>number(v)).join(', '));
   const props:Record<string,string>={area:'面积 (mm²)',length:'长度 (mm)',radius:'半径 (mm)',diameter:'直径 (mm)',volume:'体积 (mm³)',center:'中心 (mm)',centroid:'形心 (mm)',normal:'法向',direction:'方向',axis:'轴线方向',axisOrigin:'轴线上一点 (mm)',axisPoint:'轴线上一点 (mm)',origin:'原点 (mm)',closed:'闭合',periodic:'周期曲线',majorRadius:'主半径 (mm)',minorRadius:'次半径 (mm)',referenceRadius:'参考半径 (mm)',semiAngle:'半锥角 (°)',apex:'顶点 (mm)',axisDirection:'轴线方向',xDirection:'X 方向',yDirection:'Y 方向'};

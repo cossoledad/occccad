@@ -7,23 +7,25 @@ import {engineeringLabel,selectionName} from '../../cad/presentation/engineering
 import type {DocumentView,InstancePath,SelectionItem} from '../../types';
 import type {FeatureSelectionSession} from '../../cad/interaction/feature-selection';
 import {FeaturePickField} from './feature-pick-field';
-import {publicationForwardTarget,publicationSelectionTarget} from './publication-target';
+import {publicationElementTarget,publicationForwardTarget,publicationSelectionTarget} from './publication-target';
 import {structureSelection} from './structure-selection';
 import {documentParameters} from './parameter-editor';
 
 type Target=Record<string,unknown>;
-export function PublicationManager({view,root,ownerPath,initialId,seed,canEdit,onApply,onClose,onSelectionSession,onLocate}:{
+export function PublicationManager({view,root,ownerPath,initialId,seed,canEdit,onApply,onClose,onSelectionSession,onLocate,onHover}:{
  view:DocumentView;root:DocumentView;ownerPath?:InstancePath;initialId?:string;seed?:SelectionItem;canEdit:boolean;
- onApply:(input:Target)=>Promise<DocumentView>;onClose:()=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;onLocate:(selection:SelectionItem)=>void;
+ onApply:(input:Target)=>Promise<DocumentView>;onClose:()=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void;onLocate:(selection:SelectionItem)=>void;onHover:(selection?:SelectionItem)=>void;
 }){
  const publications:Array<import('../../types').Publication|import('../../types').ProductPublication>=view.part?.publications??view.product?.publications??[];
  const initial=publications.find(p=>p.id===initialId);
  const [editing,setEditing]=useState(initialId),[name,setName]=useState(initial?.name??''),[purpose,setPurpose]=useState(initial?.semanticPurpose??'');
  const [pick,setPick]=useState<SelectionItem>(),[target,setTarget]=useState<Target>(),[targetName,setTargetName]=useState<string>(),[picking,setPicking]=useState(!initialId);
+ const [selected,setSelected]=useState(initialId);
  const [busy,setBusy]=useState(false),[error,setError]=useState<string>();
  const base=useRef(view.document.versionId),alive=useRef(true),inFlight=useRef(false),seeded=useRef(false),session=useRef(onSelectionSession);session.current=onSelectionSession;
  const sourceTarget=(s:SelectionItem):Target|undefined=>{
   const local=publicationSelectionTarget(view,s,ownerPath);if(local)return local;
+  const element=publicationElementTarget(view,s,ownerPath);if(element)return element;
   const forward=publicationForwardTarget(view,s,ownerPath);if(forward)return {targetId:forward.publicationId,instancePath:forward.instancePath};
  };
  const choose=(s:SelectionItem,t=sourceTarget(s),label=selectionName(root,s))=>{
@@ -32,17 +34,17 @@ export function PublicationManager({view,root,ownerPath,initialId,seed,canEdit,o
    const forward=t.instancePath&&!t.targetKind;
    const input:Target={type:forward?'CREATE_PRODUCT_PUBLICATION':'CREATE_PUBLICATION',...t};
    if(forward){input.publicationId=t.targetId;delete input.targetId;}
-   void run(input,()=>{setPick(undefined);setPicking(true)});
+   void run(input,updated=>{const added=(updated.part?.publications??updated.product?.publications??[]).find(p=>!publications.some(before=>before.id===p.id));setSelected(added?.id);setPick(undefined);setPicking(true)});
    return;
   }
   setPick(s);setTarget(t);setTargetName(label);setPicking(false);setError(undefined);
  };
- useEffect(()=>{alive.current=true;if(!seeded.current){seeded.current=true;if(seed&&!initialId)choose(seed)}return()=>{alive.current=false;session.current()};},[]);
+ useEffect(()=>{alive.current=true;if(!seeded.current){seeded.current=true;if(seed&&!initialId)choose(seed)}return()=>{alive.current=false;onHover();session.current()};},[]);
  useEffect(()=>{
   if(!picking||busy||!canEdit||view.document.versionId!==base.current){onSelectionSession();return;}
-  onSelectionSession({role:'geometry',documentId:view.document.id,versionId:base.current,selections:pick?[pick]:[],accept:s=>!inFlight.current&&!!sourceTarget(s),onPick:s=>choose(s)});
+  onSelectionSession({role:'geometry',documentId:view.document.id,versionId:base.current,selections:selected&&selectionForId(selected)?[selectionForId(selected)!]:pick?[pick]:[],accept:s=>!inFlight.current&&!!sourceTarget(s),onPick:s=>choose(s)});
   return()=>onSelectionSession();
- },[picking,busy,view.document.versionId,canEdit,editing]);
+ },[picking,busy,view.document.versionId,canEdit,editing,selected,root]);
  const descendants=useMemo(()=>{
   const rows:Array<{value:string;label:string;pick:SelectionItem;target:Target}>=[];
   const visit=(node:NonNullable<DocumentView['structureTree']>)=>{
@@ -57,6 +59,7 @@ export function PublicationManager({view,root,ownerPath,initialId,seed,canEdit,o
  const edit=(id:string)=>{const p=publications.find(p=>p.id===id);if(!p)return;setEditing(id);setName(p.name);setPurpose(p.semanticPurpose??'');setPick(undefined);setTarget(undefined);setTargetName(undefined);setPicking(false);setError(undefined);base.current=view.document.versionId;};
  const targetLabel=(id:string)=>{
   const p=publications.find(p=>p.id===id);if(!p)return '来源不可用';
+  if(p.resolution.element){const prefix='instancePath' in p.target?p.target.instancePath.display:undefined;return [prefix,p.resolution.element.path].filter(Boolean).join(' / ')}
   const t=p.target;
   if('parameterId' in t&&t.parameterId)return documentParameters(view).find(p=>p.parameterId===t.parameterId)?.displayName??'参数';
   if('instancePath' in t&&t.instancePath?.segments.length){const source=descendants.find(r=>r.target.targetId===t.publicationId&&(r.target.instancePath as InstancePath).canonical===t.instancePath.canonical);return source?.label??`${t.instancePath.display} / 来源不可用`;}
@@ -65,12 +68,16 @@ export function PublicationManager({view,root,ownerPath,initialId,seed,canEdit,o
   if('sketchId' in t&&t.sketchId)return view.part?.features.find(f=>f.id===t.sketchId)?.name??'草图元素';
   return engineeringLabel('kind' in t?t.kind:'TOPOLOGY','几何元素');
  };
- const locate=(id:string)=>{const visit=(n:NonNullable<DocumentView['structureTree']>):SelectionItem|undefined=>((n.kind==='PUBLICATION'||n.kind==='PRODUCT_PUBLICATION')&&n.entityId===id&&n.documentId===view.document.id?structureSelection(n,root):undefined)??n.children?.map(visit).find(Boolean);const s=root.structureTree&&visit(root.structureTree);if(s)onLocate(s);};
+ const selectionForId=(id:string)=>{const visit=(n:NonNullable<DocumentView['structureTree']>):SelectionItem|undefined=>((n.kind==='PUBLICATION'||n.kind==='PRODUCT_PUBLICATION')&&n.entityId===id&&n.documentId===view.document.id&&(n.instancePath?.canonical??'')===(ownerPath?.canonical??'')?structureSelection(n,root):undefined)??n.children?.map(visit).find(Boolean);return root.structureTree&&visit(root.structureTree)};
+ const locate=(id:string)=>{setSelected(id);const s=selectionForId(id);if(s)onLocate(s)};
+ useEffect(()=>{if(selected){const s=selectionForId(selected);if(s)onLocate(s)}},[selected,root]);
+
  const run=async(input:Target,after:(updated:DocumentView)=>void)=>{if(inFlight.current||!canEdit||view.document.versionId!==base.current)return;inFlight.current=true;setBusy(true);setError(undefined);try{const updated=await onApply({...input,versionId:base.current});if(alive.current){base.current=updated.document.versionId;after(updated);}}catch(cause){if(alive.current)setError(engineeringProblem(cause));}finally{inFlight.current=false;if(alive.current)setBusy(false);}};
- return <CommandDialog id="publication-manager" open title="发布接口" size="M" footer={false} onClose={onClose} onConfirm={onClose} onCancelPick={()=>{if(!picking)return false;setPicking(false);return true;}}>
+ return <CommandDialog id="publication-manager" open title="发布接口" size="L" footer={false} onClose={onClose} onConfirm={onClose} onCancelPick={()=>{if(!picking)return false;setPicking(false);return true;}}>
   <Table size="small" rowKey="id" dataSource={publications} pagination={false} scroll={{y:220}} locale={{emptyText:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚无发布元素"/>}}
-   onRow={p=>({onClick:()=>locate(p.id),onDoubleClick:()=>{if(canEdit&&!busy)edit(p.id)}})}
-   columns={[{title:'名称',dataIndex:'name',ellipsis:true},{title:'发布元素',render:(_,p)=>targetLabel(p.id),ellipsis:true},{title:'状态',width:85,render:(_,p)=><Tag color={p.resolution.status==='CONNECTED'?'success':'error'}>{engineeringLabel(p.resolution.status)}</Tag>},{title:'操作',width:125,render:(_,p)=><Space size={0}><Button size="small" type="link" disabled={!canEdit||busy} onClick={e=>{e.stopPropagation();edit(p.id);locate(p.id)}}>编辑</Button><Button size="small" type="link" danger disabled={!canEdit||busy} onClick={e=>{e.stopPropagation();void run({type:view.part?'DELETE_PUBLICATION':'DELETE_PRODUCT_PUBLICATION',publicationId:p.id},updated=>{if(editing===p.id)reset(updated.document.versionId)})}}>移除</Button></Space>}]}/>
+   rowClassName={p=>selected===p.id?'ant-table-row-selected':''}
+   onRow={p=>({onMouseEnter:()=>onHover(selectionForId(p.id)),onMouseLeave:()=>onHover(),onClick:()=>locate(p.id),onDoubleClick:()=>{if(canEdit&&!busy)edit(p.id)}})}
+   columns={[{title:'名称',dataIndex:'name',width:180,ellipsis:true},{title:'发布元素',render:(_,p)=>targetLabel(p.id),ellipsis:true},{title:'状态',width:85,render:(_,p)=><Tag color={p.resolution.status==='CONNECTED'?'success':'error'}>{engineeringLabel(p.resolution.status)}</Tag>},{title:'操作',width:125,render:(_,p)=><Space size={0}><Button size="small" type="link" disabled={!canEdit||busy} onClick={e=>{e.stopPropagation();edit(p.id);locate(p.id)}}>编辑</Button><Button size="small" type="link" danger disabled={!canEdit||busy} onClick={e=>{e.stopPropagation();void run({type:view.part?'DELETE_PUBLICATION':'DELETE_PRODUCT_PUBLICATION',publicationId:p.id},updated=>{if(editing===p.id)reset(updated.document.versionId)})}}>移除</Button></Space>}]}/>
   <div className={editing?'publication-definition':undefined} style={editing?undefined:{display:'grid',gap:10,marginTop:12}}>
    {editing&&<><Space><strong>编辑发布</strong><Button size="small" disabled={busy} onClick={()=>reset()}>新增发布</Button></Space>
    <FeaturePickField compact label="发布元素" value={targetName??targetLabel(editing)} selected active={picking} onActivate={()=>{if(!busy){base.current=view.document.versionId;setPicking(true)}}} onLocate={pick?()=>onLocate(pick):()=>locate(editing)} onClear={target?()=>{setTarget(undefined);setPick(undefined);setTargetName(undefined)}:undefined}/></>}

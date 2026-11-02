@@ -178,15 +178,18 @@ export function bindPublicationSelection(selection: SelectionItem, root?: Docume
     const forwarded = node.productPublication;
     const resolution = source?.resolution ?? forwarded?.resolution;
     const occurrencePath = source ? node.instancePath?.canonical ?? "" : forwarded?.target.instancePath.canonical ?? "";
+    // Implicit binding may only use a port owned by the geometry document.
+    // Product-owned ports are selected explicitly, never impersonate Part ports.
+    if(node.documentId!==selection.documentId){node.children?.forEach(visit);return;}
     const topologyMatches = resolution?.status === "CONNECTED" && resolution.topologyKind?.toLowerCase() === selection.kind &&
       "topologyId" in selection && resolution.localId === selection.topologyId &&
-      resolution.geometryKey === selection.geometryKey && resolution.resolvedVersionId === selection.versionId &&
+      resolution.geometryKey === selection.geometryKey && (node.versionId??resolution.resolvedVersionId) === selection.versionId &&
       (source?.target.persistentSelection?.sourceBodyId
         ? source.target.persistentSelection.sourceBodyId === selection.bodyId
         : matchingBodyIds.size === 1 && matchingBodyIds.has(selection.bodyId ?? ""));
     const datumID = source?.target.datumId ?? resolution?.geometryId;
     const datumMatches = resolution?.status === "CONNECTED" &&
-      (["plane", "axis", "axis-system"].includes(selection.kind) && datumID && selection.entityId === datumID);
+      (["plane", "axis", "axis-system", "reference-point"].includes(selection.kind) && datumID && selection.entityId === datumID && (node.versionId??resolution.resolvedVersionId)===selection.versionId);
     if ((source || forwarded) && occurrencePath === (selection.occurrencePath ?? "") && (topologyMatches || datumMatches)) {
       const publication: Publication = source ?? {
         id: forwarded!.id, name: forwarded!.name, type: forwarded!.type, semanticPurpose: forwarded!.semanticPurpose,

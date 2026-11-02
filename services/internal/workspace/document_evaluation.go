@@ -305,6 +305,9 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				return err
 			}
 		}
+		if !displayPropertiesOnly(changes) && !measurementsOnly(changes) && !derivedOnly(changes) {
+			service.resolveProductPublications(ctx, &model)
+		}
 		if err := service.refreshProductMeasurementParameters(ctx, documentID, prepared.headRevision, revisionID, &model); err != nil {
 			return err
 		}

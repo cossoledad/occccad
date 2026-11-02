@@ -269,12 +269,24 @@ func resolvedDigest(value any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (service *Service) resolvePartPublications(ctx context.Context, documentID, requestID, revisionID string, model *PartModel) error {
+func (service *Service) resolvePartPublications(ctx context.Context, documentID, requestID, revisionID string, model *PartModel, frozenBodies ...bool) error {
+	bodyKey := func(bodyID string) (string, error) {
+		if len(frozenBodies) > 0 && frozenBodies[0] {
+			for _, b := range model.Bodies {
+				if b.ID == bodyID {
+					return b.GeometryKey, nil
+				}
+			}
+			return "", nil
+		}
+		return service.evaluateBodyPrefix(ctx, requestID+"/publication-body", *model, bodyID, true)
+	}
 	for index := range model.Publications {
 		recordEvaluation(ctx, "publication:"+model.Publications[index].ID, false, "", 0)
 		publication := &model.Publications[index]
+		element := partElementPresentation(*model, publication.Target)
 		broken := func(code, diagnostic string) {
-			publication.Resolution = PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: code, Diagnostic: diagnostic}
+			publication.Resolution = PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: code, Diagnostic: diagnostic, Element: &element}
 		}
 		switch publication.Target.Kind {
 		case "SKETCH_ENTITY":
@@ -289,7 +301,7 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 				broken("PUBLICATION_BODY_MISSING", "published Body no longer exists")
 				continue
 			}
-			key, err := service.evaluateBodyPrefix(ctx, requestID+"/publication/"+publication.ID, *model, publication.Target.BodyID)
+			key, err := bodyKey(publication.Target.BodyID)
 			if err != nil {
 				return err
 			}
@@ -321,7 +333,7 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 				broken("PUBLICATION_FEATURE_OUTPUT_MISSING", "published feature output no longer exists")
 				continue
 			}
-			key, err := service.evaluateBodyPrefix(ctx, requestID+"/publication/"+publication.ID, prefix, prefix.Features[len(prefix.Features)-1].BodyID)
+			key, err := service.evaluateBodyPrefix(ctx, requestID+"/publication/"+publication.ID, prefix, prefix.Features[len(prefix.Features)-1].BodyID, true)
 			if err != nil {
 				return err
 			}
@@ -334,11 +346,21 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 				SourceDigest:     resolvedDigest(struct{ Feature, Key string }{publication.Target.FeatureID, key}),
 				EvaluatorVersion: artifact.EvaluatorVersion, WorkerID: artifact.WorkerID, OCCTVersion: artifact.OCCTVersion}
 		case "TOPOLOGY":
-			finalGeometryKey, err := service.evaluateBodyPrefix(ctx, requestID+"/publication-body", *model, publication.Target.PersistentSelection.SourceBodyID)
+			// The resolved topology and the viewport must share one immutable
+			// artifact. Exact-only and display artifacts have distinct keys.
+			if bodyIndex(*model, publication.Target.PersistentSelection.SourceBodyID) < 0 {
+				broken("PUBLICATION_BODY_MISSING", "published Body no longer exists")
+				continue
+			}
+			finalGeometryKey, err := bodyKey(publication.Target.PersistentSelection.SourceBodyID)
 			if err != nil {
 				return err
 			}
-			resolution, manifestDigest, err := service.resolveSelectionAgainstGeometry(ctx, documentID, publication.Target.SourceVersionID, finalGeometryKey, *publication.Target.PersistentSelection)
+			if finalGeometryKey == "" {
+				broken("PUBLICATION_BODY_EMPTY", "published Body has no geometry")
+				continue
+			}
+			resolution, manifestDigest, err := service.resolvePublicationSelection(ctx, documentID, publication.Target, finalGeometryKey)
 			if err != nil {
 				return err
 			}
@@ -357,8 +379,7 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 			}
 			exact, descriptorErr := assemblyGeometryFromProperties(geometry.AssemblyGeometry{}, properties)
 			if descriptorErr != nil {
-				broken("PUBLICATION_EXACT_GEOMETRY_UNAVAILABLE", descriptorErr.Error())
-				continue
+				exact = geometry.AssemblyGeometry{Kind: properties.GeometryType, Direction: [3]float64{0, 0, 1}, XDirection: [3]float64{1, 0, 0}}
 			}
 			z := exact.Direction
 			if exact.Kind == "SPHERE" || exact.Kind == "POINT" {
@@ -381,6 +402,7 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 				NamingPolicyDigest: modelcore.TopologyNamingPolicyDigest, EvaluatorVersion: artifact.EvaluatorVersion,
 				WorkerID: artifact.WorkerID, OCCTVersion: artifact.OCCTVersion}
 		}
+		publication.Resolution.Element = &element
 		if publication.Resolution.Status == "CONNECTED" {
 			if publication.Target.Kind != "TOPOLOGY" {
 				publication.Resolution.GeometryKind = publication.Contract.GeometryKind
@@ -595,7 +617,7 @@ func (service *Service) publicationFromRequest(ctx context.Context, documentID s
 				return Publication{}, err
 			}
 		}
-		selection, err := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{SourceVersionID: sourceVersionID, GeometryKey: request.GeometryKey, Kind: strings.ToUpper(request.TargetKind), LocalID: request.TopologyID})
+		selection, err := service.bindPublicationGeometry(ctx, documentID, model, request)
 		if err != nil {
 			return Publication{}, err
 		}
@@ -611,7 +633,7 @@ func (service *Service) publicationFromRequest(ctx context.Context, documentID s
 		if publicationType != expected {
 			return Publication{}, fmt.Errorf("%w: publication type %s is incompatible with %s", ErrValidation, publicationType, request.TargetKind)
 		}
-		publication.Target = PublicationTarget{Kind: "TOPOLOGY", PersistentSelection: &selection, SourceVersionID: sourceVersionID}
+		publication.Target = PublicationTarget{Kind: "TOPOLOGY", PersistentSelection: &selection, SourceVersionID: sourceVersionID, SourceGeometryKey: request.GeometryKey}
 		publication.Contract = PublicationContract{GeometryKind: geometryKind, Symmetry: symmetry}
 	case "BODY":
 		if publicationType != "BODY" {

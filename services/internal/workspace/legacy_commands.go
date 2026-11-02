@@ -1061,7 +1061,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		return typeSetParameterExternal, parameterSourcePayload{ParameterID: request.ParameterID,
 			Source: modelcore.ValueSource{External: &reference}}, nil
 	case "CREATE_PUBLICATION", "REDIRECT_PUBLICATION":
-		if documentType == "PRODUCT" && request.Type == "CREATE_PUBLICATION" && request.TargetKind == "PARAMETER" {
+		if documentType == "PRODUCT" && request.Type == "CREATE_PUBLICATION" && request.TargetKind == "PARAMETER" && (request.InstancePath == nil || len(request.InstancePath.Segments) == 0) {
 			var model ProductModel
 			if err := json.Unmarshal(modelJSON, &model); err != nil {
 				return "", nil, err
@@ -1069,6 +1069,15 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			publication, err := productParameterPublication(model, request)
 			return typeCreateProductPublication, productPublicationPayload{Publication: publication}, err
 		}
+		if documentType == "PRODUCT" && request.Type == "CREATE_PUBLICATION" && request.InstancePath != nil && len(request.InstancePath.Segments) > 0 {
+			var model ProductModel
+			if err := json.Unmarshal(modelJSON, &model); err != nil {
+				return "", nil, err
+			}
+			publication, err := service.productElementPublicationFromRequest(ctx, documentID, model, request, commandEntityID("product-publication", request.RequestID))
+			return typeCreateProductPublication, productPublicationPayload{Publication: publication}, err
+		}
+
 		if documentType != "PART" {
 			break
 		}
@@ -1456,7 +1465,13 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if err := json.Unmarshal(modelJSON, &model); err != nil {
 				return "", nil, err
 			}
-			if request.TargetKind == "PARAMETER" {
+			if request.InstancePath != nil && len(request.InstancePath.Segments) > 0 && request.TargetKind != "" {
+				p, err := service.productElementPublicationFromRequest(ctx, documentID, model, request, request.PublicationID)
+				if err != nil {
+					return "", nil, err
+				}
+				payload.Target = &p
+			} else if request.TargetKind == "PARAMETER" {
 				p, err := productParameterPublication(model, request)
 				if err != nil {
 					return "", nil, err

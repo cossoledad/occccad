@@ -23,6 +23,12 @@ Feature / Body / profile entity stable IDs
 - Complete history covers every live final topology element exactly once and rejects conflicting live/tombstone or duplicate semantic/local identities.
 - Ambiguity is a result, not permission to select the first candidate. Deleted topology remains a tombstone; repair is explicit Reconnect.
 
+## 用户可见元素名称
+
+`ElementPresentation` 是现有稳定模型与拓扑 Naming 的显示投影，包含可读名称、所属 Body/Feature 身份及相对元素路径。Part 的精确拓扑属性和 Publication 解析由 `partElementPresentation` 根据语义锚点取名称；前端 `elementPresentation` 按完整 occurrence 限定，并用当前快照的 FeatureAssociation 显示几何来源。Publication.name 是用户可编辑的接口别名，独立于源几何名称。
+
+路径随源名称变化更新；它没有数组位置、mesh/local 序号或几何近似作为恢复键，不另建第二套持久 Naming。源元素不可用时可保留文字定位，但不保留可参与高亮或求解的旧拓扑定位器。拓扑发布冻结创建制品的验证证据，恢复时仍检查 Body、语义锚点、创建证据和目标 Naming 完整性；歧义不能自动挑选候选。
+
 ## 当前边界
 
 Linear Extrude/Boolean、旋转、导入根及局部修改已有命名路径；各自依据真实历史或冻结身份提供完整性证据，详细范围见下文与[实体 Feature](solid-features.md)。`topology_history_complete=false` 的结果不可作为完整持久拓扑输入，不能仅按特征类别推断安全性。

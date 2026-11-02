@@ -3357,7 +3357,7 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 	publicationIDs, publicationNames := map[string]bool{}, map[string]bool{}
 	for _, publication := range model.Publications {
 		if publication.Target.ParameterID != "" {
-			if publication.ID == "" || publicationIDs[publication.ID] || publicationNames[scopedNameKey(publication.Name)] || len(publication.Target.InstancePath.Segments) > 0 || publication.Target.PublicationID != "" {
+			if publication.ID == "" || publicationIDs[publication.ID] || publicationNames[scopedNameKey(publication.Name)] || len(publication.Target.InstancePath.Segments) > 0 || publication.Target.PublicationID != "" || publication.Target.Element != nil {
 				return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: invalid parameter Publication identity", ErrValidation)
 			}
 			publicationIDs[publication.ID], publicationNames[scopedNameKey(publication.Name)] = true, true
@@ -3376,6 +3376,20 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		instanceID := publication.Target.InstancePath.Segments[0].InstanceID
 		if !instanceIDs[instanceID] {
 			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product Publication occurrence is missing", ErrValidation)
+		}
+
+		if (publication.Target.Element == nil) == (publication.Target.PublicationID == "") {
+			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product publication needs exactly one element or public interface", ErrValidation)
+		}
+		if publication.Target.Element != nil {
+			target := *publication.Target.Element
+			if target.PersistentSelection != nil && target.PersistentSelection.SourceDocumentID != publication.Target.InstancePath.Segments[len(publication.Target.InstancePath.Segments)-1].ReferencedDocumentID {
+				return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product publication source mismatch", ErrValidation)
+			}
+			probe := Publication{ID: publication.ID, Name: publication.Name, Type: publication.Type, CompatibilityVersion: publication.CompatibilityVersion, Contract: publication.Contract, Target: target}
+			if err := validatePublicationDefinitions(PartModel{Publications: []Publication{probe}}); err != nil {
+				return nil, modelcore.EvaluationManifest{}, err
+			}
 		}
 		data, _ := json.Marshal(publication)
 		key := modelcore.DependencyKey("product-publication:" + publication.ID)

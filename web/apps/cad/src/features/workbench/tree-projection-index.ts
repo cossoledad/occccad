@@ -11,12 +11,14 @@ type Index = {
 };
 const cache = new WeakMap<SpecificationTreeNode[], Index>();
 
-function topologyLocator(selection: SelectionItem): string | undefined {
-  if (!(selection.kind === "face" || selection.kind === "edge" || selection.kind === "vertex") ||
-      !selection.geometryKey || !selection.versionId) return undefined;
-  return JSON.stringify([selection.kind, selection.documentId ?? "", selection.bodyId ?? "",
-    selection.instancePath?.canonical ?? selection.occurrencePath ?? "",
-    selection.versionId, selection.contextVariantKey ?? "", selection.geometryKey, selection.topologyId]);
+function elementLocator(selection: SelectionItem): string | undefined {
+ if(!selection.versionId)return;
+ const path=selection.instancePath?.canonical??selection.occurrencePath??'';
+ const scope=[selection.kind,selection.documentId??'',path?selection.instancePath?.rootDocumentId??'':'',path,selection.versionId,selection.contextVariantKey??''];
+ if(selection.kind==='face'||selection.kind==='edge'||selection.kind==='vertex')return selection.geometryKey?JSON.stringify([...scope,selection.bodyId??'',selection.geometryKey,selection.topologyId]):undefined;
+ if(['plane','axis','axis-system','reference-point','parameter'].includes(selection.kind))return JSON.stringify([...scope,selection.entityId??selection.id,selection.kind==='axis'?selection.axis:'']);
+ if(selection.kind==='body')return JSON.stringify([...scope,selection.bodyId??selection.entityId,selection.geometryKey]);
+ if(selection.kind==='visual')return JSON.stringify([...scope,selection.featureId,selection.entityId]);
 }
 
 function indexTree(nodes: SpecificationTreeNode[]): Index {
@@ -29,8 +31,8 @@ function indexTree(nodes: SpecificationTreeNode[]): Index {
     if (node.selection) {
       const key = selectionKey(node.selection);
       result.bySelection.set(key, [...(result.bySelection.get(key) ?? []), node.key]);
-      if (node.selection.kind === "publication" && node.selection.highlightTarget) {
-        const locator = topologyLocator(node.selection.highlightTarget);
+      if (node.selection.kind === "publication" && node.selection.highlightTarget && node.selection.documentId===node.selection.highlightTarget.documentId) {
+        const locator = elementLocator(node.selection.highlightTarget);
         if (locator) result.publicationsByLocator.set(locator,
           [...(result.publicationsByLocator.get(locator) ?? []), node.key]);
       }
@@ -56,7 +58,8 @@ export function treeKeysForSelections(nodes: SpecificationTreeNode[], selections
   const keys = new Set<string>();
   for (const selection of selections) {
     for (const key of index.bySelection.get(selectionKey(selection)) ?? []) keys.add(key);
-    const locator = topologyLocator(selection);
+    if(selection.kind==='publication'&&selection.highlightTarget)for(const key of index.bySelection.get(selectionKey(selection.highlightTarget))??[])keys.add(key);
+    const locator = elementLocator(selection);
     if (locator) for (const key of index.publicationsByLocator.get(locator) ?? []) keys.add(key);
   }
   return [...keys];
@@ -71,7 +74,7 @@ export function treeNodesForSelections(nodes:SpecificationTreeNode[],selections:
 export function ancestorHintKeysForSelections(nodes: SpecificationTreeNode[], selections: readonly SelectionItem[]): string[] {
   const index = indexTree(nodes);
   const result = new Set<string>();
-  for (const selection of selections) {
+  for (const selection of selections.flatMap(s=>s.kind==='publication'&&s.highlightTarget?[s,s.highlightTarget]:[s])) {
     if(["face","edge","vertex"].includes(selection.kind))for(const id of selection.associatedFeatureIds??[]) {
       for(const node of index.byNode.values()) {
         const target=node.selection;

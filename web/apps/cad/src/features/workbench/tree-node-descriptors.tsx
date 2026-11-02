@@ -68,7 +68,7 @@ export function treeNodeIcon(node:Pick<DocumentStructureNode,'kind'|'diagnostic'
  else if(node.diagnostic==='REDUNDANT'){label='约束冗余';color='var(--color-warning)';badge=<InfoCircleOutlined/>}
  else if(node.diagnostic==='FULLY_CONSTRAINED'){label='完全约束';color='var(--color-success)';badge=<CheckCircleOutlined/>}
  else if(node.diagnostic==='UNDER_CONSTRAINED'){label='欠约束';color='var(--color-text-secondary)';badge=<InfoCircleOutlined/>}
- else if(node.connectionStatus==='BROKEN'||node.connectionStatus==='NOT_CONNECTED'){label='引用已失效';color='var(--color-danger)';badge=<CloseCircleOutlined/>}
+ else if(node.connectionStatus==='BROKEN'||node.connectionStatus==='BROKEN_PUBLICATION'||node.connectionStatus==='NOT_CONNECTED'){label='引用已失效';color='var(--color-danger)';badge=<CloseCircleOutlined/>}
  else if(node.currencyStatus==='OUTDATED'||hint){label=hint??'需要更新';color='var(--color-text-secondary)';badge=<InfoCircleOutlined/>}
  return <span className="tree-object-icon"><span className="tree-type-icon">{typeIcon}</span>{badge&&<span className="tree-status-badge" aria-label={`状态 ${label}`} title={label} style={{color}}>{badge}</span>}</span>;
 }

@@ -282,6 +282,9 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 				return CommandPreview{}, err
 			}
 		}
+		if !displayPropertiesOnly(previewChanges) && !measurementsOnly(previewChanges) && !derivedOnly(previewChanges) {
+			service.resolveProductPublications(ctx, &model)
+		}
 		nextJSON, err = json.Marshal(model)
 		if err != nil {
 			return CommandPreview{}, err

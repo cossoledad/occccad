@@ -2108,6 +2108,17 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 			if resolveErr != nil {
 				return result, resolveErr
 			}
+
+			var raw []byte
+			if e := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE document_id=$1 AND id=$2`, documentID, versionID).Scan(&raw); e != nil {
+				return result, e
+			}
+			var model PartModel
+			if e := json.Unmarshal(raw, &model); e != nil {
+				return result, e
+			}
+			element := partElementPresentation(model, PublicationTarget{Kind: "TOPOLOGY", PersistentSelection: &selection})
+			result.Element = &element
 			result.PersistentSelection, result.NamingResolution = &selection, &resolution
 			result.NamingStatus = string(resolution.Status)
 		} else if diagnostic, ok := namingDiagnostic(bindErr); ok {
@@ -2504,10 +2515,12 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		}
 		bodies = append(bodies, body)
 	}
-	publications := DocumentStructureNode{ID: path + "/publications", Kind: "PUBLICATION_SET", Name: "Publications",
+	publications := DocumentStructureNode{ID: path + "/publications", Kind: "PUBLICATION_SET", Name: "发布",
 		DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
 	for _, publication := range model.Publications {
 		publicationCopy := publication
+		element := partElementPresentation(model, publication.Target)
+		publicationCopy.Resolution.Element = &element
 		diagnostic := ""
 		if publication.Resolution.Status != "CONNECTED" {
 			diagnostic = strings.TrimSpace(publication.Resolution.DiagnosticCode + ": " + publication.Resolution.Diagnostic)
@@ -2518,7 +2531,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			GeometryKey: publication.Resolution.GeometryKey, TopologyID: publication.Resolution.LocalID,
 			Diagnostic: diagnostic, ResolutionStatus: publication.Resolution.Status,
 			ConnectionStatus: publication.Resolution.Status,
-			SourceRevisionID: publication.Resolution.ResolvedVersionID, Publication: &publicationCopy}
+			SourceRevisionID: publication.Resolution.ResolvedVersionID, SourceDisplayPath: partElementPresentation(model, publication.Target).Path, Publication: &publicationCopy}
 		if editable {
 			node.Capabilities = []string{"EDIT", "DELETE"}
 		}

@@ -21,6 +21,13 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 	}
 	normalizePartModel(&model)
 	presentParameters(&model)
+	if err := service.projectFrozenPublications(ctx, summary.ID, summary.VersionID, &model); err != nil {
+		return view, err
+	}
+	for i := range model.Publications {
+		e := partElementPresentation(model, model.Publications[i].Target)
+		model.Publications[i].Resolution.Element = &e
+	}
 	service.projectMeasurements(ctx, summary.ID, summary.VersionID, model.Measurements)
 	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
 		return view, err
@@ -93,6 +100,12 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	model.Parameters = productParameterDefinitions(model)
 	presentDocumentParameters(model.Parameters)
 	view.ReferenceUpdates = service.projectPartReferenceUpdates(ctx, parameterPartContext(&parameterDocument{product: &model, Parameters: model.Parameters}))
+	for i := range model.Publications {
+		if len(model.Publications[i].Target.InstancePath.Segments) > 0 {
+			model.Publications[i].Target.InstancePath.Segments[0].OwnerVersionID = summary.VersionID
+		}
+	}
+	service.resolveProductPublications(ctx, &model)
 	view.Product = &model
 	if err := validateAssemblyDefinitionFormat(model); err != nil {
 		return view, err
@@ -174,6 +187,9 @@ func projectPartStructure(ctx context.Context, service *Service, root DocumentSt
 	// Capabilities describe domain operations, not authorization or the
 	// browser's current edit context. The client enables them only after
 	// loading the referenced document and proving Editor access.
+	if err := service.projectFrozenPublications(ctx, documentID, versionID, &model); err != nil {
+		return root, err
+	}
 	root.Children = partStructureChildren(model, path, documentID, versionID, true)
 	service.projectMeasurements(ctx, documentID, versionID, model.Measurements)
 	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
@@ -245,10 +261,14 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 		root.Children = append(root.Children, instanceNode)
 	}
 	if len(model.Publications) > 0 {
-		group := DocumentStructureNode{ID: path + "/publications", Kind: "PRODUCT_PUBLICATION_SET", Name: "Publications",
+		group := DocumentStructureNode{ID: path + "/publications", Kind: "PRODUCT_PUBLICATION_SET", Name: "发布",
 			DocumentID: documentID, VersionID: versionID, InstancePath: root.InstancePath, Children: []DocumentStructureNode{}}
 		for _, publication := range model.Publications {
 			copy := publication
+			if len(copy.Target.InstancePath.Segments) > 0 {
+				copy.Target.InstancePath.Segments = append([]InstancePathSegment(nil), copy.Target.InstancePath.Segments...)
+				copy.Target.InstancePath.Segments[0].OwnerVersionID = versionID
+			}
 			sourceDocumentID := ""
 			if segments := publication.Target.InstancePath.Segments; len(segments) > 0 {
 				sourceDocumentID = segments[len(segments)-1].ReferencedDocumentID

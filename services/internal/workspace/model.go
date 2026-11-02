@@ -19,6 +19,7 @@ type MeshEdge = visual.Edge
 type TopologyPoint = visual.Point
 
 type TopologyElementProperties struct {
+	Element             *ElementPresentation           `json:"element,omitempty"`
 	GeometryKey         string                         `json:"geometryKey"`
 	GeometryID          string                         `json:"geometryId"`
 	Kind                string                         `json:"kind"`
@@ -123,6 +124,7 @@ type NativeSketchPublication struct {
 }
 
 type PublicationTarget struct {
+	SourceGeometryKey   string                         `json:"sourceGeometryKey,omitempty"`
 	SketchID            string                         `json:"sketchId,omitempty"`
 	EntityID            string                         `json:"entityId,omitempty"`
 	EntityKind          string                         `json:"entityKind,omitempty"`
@@ -152,6 +154,7 @@ type PublicationBounds struct {
 }
 
 type PublicationResolution struct {
+	Element            *ElementPresentation     `json:"element,omitempty"`
 	NativeSketch       *NativeSketchPublication `json:"nativeSketch,omitempty"`
 	HalfAngle          float64                  `json:"halfAngle,omitempty"`
 	ConeLeaf           int32                    `json:"coneLeaf,omitempty"`
@@ -602,9 +605,10 @@ type PublicationRef struct {
 }
 
 type ProductPublicationTarget struct {
-	ParameterID   string       `json:"parameterId,omitempty"`
-	InstancePath  InstancePath `json:"instancePath"`
-	PublicationID string       `json:"publicationId"`
+	Element       *PublicationTarget `json:"element,omitempty"`
+	ParameterID   string             `json:"parameterId,omitempty"`
+	InstancePath  InstancePath       `json:"instancePath"`
+	PublicationID string             `json:"publicationId"`
 }
 
 type ProductPublication struct {

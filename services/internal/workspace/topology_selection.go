@@ -51,6 +51,10 @@ func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductMo
 		if _, err := service.resolveAssemblyPublication(ctx, product, reference); err != nil {
 			return err
 		}
+		// The publication owns its geometry binding, including Product ports.
+		// Rebinding it as raw topology would target the wrong owner/Revision.
+		reference.Resolution = nil
+		return nil
 	}
 	if reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX" {
 		return nil
@@ -226,6 +230,8 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 				reference.Resolution = &ResolutionSnapshot{PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
 				return modelcore.SelectionSourceUnavailable, nil
 			}
+			reference.Resolution = nil
+			return modelcore.SelectionResolved, nil
 		}
 		instance, _, occurrenceErr := service.assemblyReferenceOccurrence(ctx, *product, *reference)
 		if occurrenceErr != nil {

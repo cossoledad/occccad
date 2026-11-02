@@ -111,6 +111,9 @@ func evaluateProductHistory(ctx context.Context, service *Service, input history
 				}
 			}
 			input.changes = appendAssemblyEvaluationChanges(input.changes, previous, model)
+			if !displayPropertiesOnly(input.changes) && !measurementsOnly(input.changes) && !derivedOnly(input.changes) {
+				service.resolveProductPublications(ctx, &model)
+			}
 			if err := service.refreshProductMeasurementParameters(ctx, input.documentID, input.headRevision, revisionID, &model); err != nil {
 				return err
 			}

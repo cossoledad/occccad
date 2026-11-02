@@ -146,8 +146,13 @@ func (service *Service) publicationAtRevision(ctx context.Context, documentID, r
 		if err := json.Unmarshal(raw, &model); err != nil {
 			return Publication{}, err
 		}
+		if err := service.projectFrozenPublications(ctx, documentID, revisionID, &model); err != nil {
+			return Publication{}, err
+		}
 		for _, publication := range model.Publications {
 			if publication.ID == publicationID {
+				element := partElementPresentation(model, publication.Target)
+				publication.Resolution.Element = &element
 				return publication, nil
 			}
 		}
@@ -204,6 +209,8 @@ func applyPublicationDescriptor(reference *AssemblyGeometryRef, publication Publ
 	if publication.Target.Kind == "DATUM" {
 		reference.GeometryID, reference.Axis = publication.Target.DatumID, publication.Target.Axis
 	}
+	reference.PersistentSelection = nil
+	reference.SourceVersionID = ""
 	if publication.Target.Kind == "TOPOLOGY" {
 		reference.PersistentSelection = publication.Target.PersistentSelection
 		reference.SourceVersionID = publication.Target.SourceVersionID
@@ -232,6 +239,8 @@ func (service *Service) resolveAssemblyPublication(ctx context.Context, product 
 	}
 	resolution := publication.Resolution
 	reference.PublicationResolution = &resolution
+	reference.PublicationRef.PersistentSelection = nil
+	reference.PublicationRef.SelectionSourceVersionID = publication.Target.SourceVersionID
 	if publication.Target.PersistentSelection != nil {
 		copy := *publication.Target.PersistentSelection
 		reference.PublicationRef.PersistentSelection = &copy
@@ -275,6 +284,12 @@ func (service *Service) variantPublicationForAssembly(ctx context.Context, produ
 	for _, forwarding := range child.Publications {
 		if forwarding.ID != publicationID {
 			continue
+		}
+
+		if forwarding.Target.Element != nil {
+			scoped := relativePublicationVariants(variants, instanceID)
+			p, e := service.resolveProductElementPublication(ctx, child, forwarding.Target.InstancePath, forwarding, scoped)
+			return p, true, e
 		}
 		candidate, ok, err := service.variantPublicationAtPath(ctx, child, forwarding.Target.InstancePath,
 			forwarding.Target.PublicationID, variants, instanceID, InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, 0)
@@ -347,6 +362,14 @@ func (service *Service) variantPublicationAtPath(ctx context.Context, product Pr
 		if forwarding.ID != publicationID {
 			continue
 		}
+
+		if forwarding.Target.Element != nil {
+			p, e := service.resolveProductElementPublication(ctx, nested, forwarding.Target.InstancePath, forwarding, relativePublicationVariants(variants, canonical))
+			if e != nil {
+				return Publication{}, false, e
+			}
+			return publicationThroughRigidPose(p, pose), true, nil
+		}
 		candidate, ok, err := service.variantPublicationAtPath(ctx, nested, forwarding.Target.InstancePath,
 			forwarding.Target.PublicationID, variants, canonical, pose, depth+1)
 		if err != nil || !ok {
@@ -371,7 +394,7 @@ func (service *Service) resolveProductPublications(ctx context.Context, product 
 			continue
 		}
 		broken := func(code, diagnostic string) {
-			forwarding.Resolution = PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: code, Diagnostic: diagnostic}
+			forwarding.Resolution = PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: code, Diagnostic: diagnostic, Element: forwarding.Resolution.Element}
 		}
 		// The stable occurrence path survives accepting a newer child Revision.
 		// Refresh its snapshot fields against this candidate's accepted edges;
@@ -379,6 +402,22 @@ func (service *Service) resolveProductPublications(ctx context.Context, product 
 		currentPath, err := service.refreshProductInstancePath(ctx, *product, forwarding.Target.InstancePath)
 		if err != nil {
 			broken("PRODUCT_PUBLICATION_TARGET_MISSING", err.Error())
+			continue
+		}
+
+		if forwarding.Target.Element != nil {
+			original := forwarding.Target.InstancePath.Segments
+			if len(original) != len(currentPath.Segments) || original[len(original)-1].ReferencedDocumentID != currentPath.Segments[len(currentPath.Segments)-1].ReferencedDocumentID {
+				broken("PUBLICATION_SOURCE_DOCUMENT_CHANGED", "published component was replaced")
+				continue
+			}
+			p, e := service.resolveProductElementPublication(ctx, *product, currentPath, *forwarding, variantByInstance)
+			if e != nil {
+				broken("PRODUCT_PUBLICATION_ELEMENT_UNAVAILABLE", e.Error())
+				continue
+			}
+			forwarding.Target.InstancePath = currentPath
+			forwarding.Resolution = p.Resolution
 			continue
 		}
 		publication, path, err := service.publicationAtRelativePath(ctx, *product, currentPath, forwarding.Target.PublicationID)
@@ -412,8 +451,20 @@ func (service *Service) resolveProductPublications(ctx context.Context, product 
 }
 
 func (service *Service) publicationAtRelativePath(ctx context.Context, root ProductModel, path InstancePath, publicationID string) (Publication, InstancePath, error) {
+	selected, canonical, pose, err := service.productOccurrenceAtPath(ctx, root, path)
+	if err != nil {
+		return Publication{}, InstancePath{}, err
+	}
+	publication, err := service.publicationAtRevision(ctx, selected.ReferencedDocumentID, selected.ReferencedVersionID, publicationID)
+	if err == nil {
+		publication = publicationThroughRigidPose(publication, pose)
+	}
+	return publication, canonical, err
+}
+
+func (service *Service) productOccurrenceAtPath(ctx context.Context, root ProductModel, path InstancePath) (ProductInstance, InstancePath, InstancePose, error) {
 	if strings.TrimSpace(path.RootDocumentID) == "" || len(path.Segments) == 0 || len(path.Segments) > instancePathMaxDepth {
-		return Publication{}, InstancePath{}, fmt.Errorf("%w: invalid Product Publication InstancePath", ErrValidation)
+		return ProductInstance{}, InstancePath{}, InstancePose{}, fmt.Errorf("%w: invalid Product Publication InstancePath", ErrValidation)
 	}
 	model := root
 	canonical := InstancePath{RootDocumentID: path.RootDocumentID}
@@ -423,7 +474,7 @@ func (service *Service) publicationAtRelativePath(ctx context.Context, root Prod
 	var selected ProductInstance
 	for depth, requested := range path.Segments {
 		if requested.OwnerDocumentID != ownerDocumentID || requested.OwnerVersionID == "" || requested.OwnerVersionID != ownerVersionID {
-			return Publication{}, InstancePath{}, fmt.Errorf("%w: InstancePath owner does not match the referenced Product", ErrValidation)
+			return ProductInstance{}, InstancePath{}, InstancePose{}, fmt.Errorf("%w: InstancePath owner does not match the referenced Product", ErrValidation)
 		}
 		found := false
 		for _, instance := range model.Instances {
@@ -433,10 +484,10 @@ func (service *Service) publicationAtRelativePath(ctx context.Context, root Prod
 			}
 		}
 		if !found {
-			return Publication{}, InstancePath{}, fmt.Errorf("%w: PRODUCT_PUBLICATION_OCCURRENCE_MISSING", ErrValidation)
+			return ProductInstance{}, InstancePath{}, InstancePose{}, fmt.Errorf("%w: PRODUCT_PUBLICATION_OCCURRENCE_MISSING", ErrValidation)
 		}
 		if requested.ReferencedDocumentID != selected.ReferencedDocumentID || requested.ResolvedVersionID != selected.ReferencedVersionID {
-			return Publication{}, InstancePath{}, fmt.Errorf("%w: InstancePath reference does not match the selected member", ErrValidation)
+			return ProductInstance{}, InstancePath{}, InstancePose{}, fmt.Errorf("%w: InstancePath reference does not match the selected member", ErrValidation)
 		}
 		canonical = appendInstancePath(canonical, InstancePathSegment{OwnerDocumentID: ownerDocumentID,
 			OwnerVersionID: ownerVersionID, InstanceID: selected.ID, InstanceName: selected.Name,
@@ -448,24 +499,20 @@ func (service *Service) publicationAtRelativePath(ctx context.Context, root Prod
 		var documentType string
 		var raw []byte
 		if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2`, selected.ReferencedDocumentID, selected.ReferencedVersionID).Scan(&documentType, &raw); err != nil {
-			return Publication{}, InstancePath{}, err
+			return ProductInstance{}, InstancePath{}, InstancePose{}, err
 		}
 		if documentType != "PRODUCT" {
-			return Publication{}, InstancePath{}, fmt.Errorf("%w: InstancePath continues through a Part", ErrValidation)
+			return ProductInstance{}, InstancePath{}, InstancePose{}, fmt.Errorf("%w: InstancePath continues through a Part", ErrValidation)
 		}
 		if err := json.Unmarshal(raw, &model); err != nil {
-			return Publication{}, InstancePath{}, err
+			return ProductInstance{}, InstancePath{}, InstancePose{}, err
 		}
 		ownerDocumentID, ownerVersionID = selected.ReferencedDocumentID, selected.ReferencedVersionID
 	}
 	if path.Canonical != "" && path.Canonical != canonical.Canonical {
-		return Publication{}, InstancePath{}, fmt.Errorf("%w: InstancePath canonical identity does not match its typed segments", ErrValidation)
+		return ProductInstance{}, InstancePath{}, InstancePose{}, fmt.Errorf("%w: InstancePath canonical identity does not match its typed segments", ErrValidation)
 	}
-	publication, err := service.publicationAtRevision(ctx, selected.ReferencedDocumentID, selected.ReferencedVersionID, publicationID)
-	if err == nil {
-		publication = publicationThroughRigidPose(publication, pose)
-	}
-	return publication, canonical, err
+	return selected, canonical, pose, nil
 }
 
 func publicationThroughRigidPose(publication Publication, pose InstancePose) Publication {

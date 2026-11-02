@@ -339,6 +339,11 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 		// Reprojection uses a request key, not that evaluation's synthetic
 		// Revision; replacing its provenance would destabilize UpdatePlan.
 		projection.Publications = variant.Publications
+		for i := range projection.Publications {
+			element := partElementPresentation(projection, projection.Publications[i].Target)
+			projection.Publications[i].Resolution.Element = &element
+		}
+		variant.Publications = projection.Publications
 		collections := DocumentView{}
 		projectPartCollections(&collections, projection)
 		variant.ReplicationSources, variant.SketchPatternMembers = collections.ReplicationSources, collections.SketchPatternMembers
@@ -375,12 +380,9 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 		variant.Status, variant.DiagnosticCode, variant.Diagnostic = "FAILED", "CONTEXT_VARIANT_PUBLICATION_EVALUATION_FAILED", err.Error()
 		return variant, nil
 	}
-	for _, publication := range model.Publications {
-		if publication.Resolution.Status != "CONNECTED" {
-			variant.Status, variant.DiagnosticCode, variant.Diagnostic = "FAILED", "CONTEXT_VARIANT_PUBLICATION_BROKEN", publication.Resolution.Diagnostic
-			return variant, nil
-		}
-	}
+	// Broken public interfaces are inspectable reference states. They do not
+	// invalidate unrelated geometry in this occurrence; consumers gate their own links.
+
 	err := service.evaluatePartBodies(ctx, "context-variant/"+variant.VariantKey, &model)
 	if err != nil {
 		var geometryFailure *solidEvaluationFailure

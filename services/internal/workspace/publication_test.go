@@ -352,3 +352,28 @@ func TestPublicationUseIncludesAssemblyEndpointsAndProductParameters(t *testing.
 		t.Fatal(use, err)
 	}
 }
+
+func TestElementPresentationTracksNamesWithoutChangingIdentity(t *testing.T) {
+	model := newPartModel()
+	model.Bodies[0].Name = "PartBody"
+	model.Features = []Feature{{ID: "fillet", Name: "Fillet.1", BodyID: model.Bodies[0].ID}}
+	selection := typedTestSelection(modelcore.PersistentTopologyFace, "ROUND_FACE", "CYLINDER")
+	selection.SourceBodyID = model.Bodies[0].ID
+	selection.Anchor.FeatureID = "fillet"
+	target := PublicationTarget{Kind: "TOPOLOGY", PersistentSelection: &selection, SourceVersionID: "source"}
+	before, _ := json.Marshal(target)
+	p := partElementPresentation(model, target)
+	if p.Name != "面" || p.Path != "PartBody / Fillet.1 / 面" || p.FeatureID != "fillet" {
+		t.Fatal(p)
+	}
+	model.Features[0].Name = "Mounting round"
+	next := partElementPresentation(model, target)
+	after, _ := json.Marshal(target)
+	if next.Path != "PartBody / Mounting round / 面" || string(before) != string(after) {
+		t.Fatal("display rename changed stable target", next)
+	}
+	model.Features[0].Suppressed = true
+	if partElementPresentation(model, target).Path != next.Path {
+		t.Fatal("suppression erased readable source")
+	}
+}

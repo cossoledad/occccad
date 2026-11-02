@@ -30,6 +30,8 @@ Feature 必需参数带稳定 ParameterId、OwnerFeatureId、PropertySlot 和生
 
 Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果；Feature 输出用 `FEATURE_OUTPUT + FeatureId + OutputSlot` 表示其历史输出。旧 `FEATURE_OUTPUT` Revision 仍按原语义读取，不在加载时转换。选择实体 Feature 发布时取其所属 Body 的当前结果；显式 `FEATURE_OUTPUT` 仍保留历史输出语义。默认名称在所属 Part/Product 的 Publication 命名空间分配 `Body.1`、`Face.1` 等，与拓扑 localId 无关。精确面、边、顶点发布保存 PersistentSelection；顶点作为 POINT，显示框架只用于呈现，不赋予点一个几何方向。树、管理器和属性面板共用编辑/删除入口；Part 与 Product 转发 Publication 均可重定向，服务端检查目标连通、所属路径和合同兼容，保留 PublicationId 与名称。删除 Body/Feature 时先检查同一 Part 的 Publication 目标；删除 Publication 时服务端扫描当前主工作区的 ContextReference、Part/Product 外部参数、装配约束各支撑、ContextBinding 和转发 Publication。发现依赖则拒绝；删除 Publication 本体保留目标几何。该检查当前是主工作区快照预检，尚无跨工作区并发的锁定索引；完整引用查看仍未闭环。
 
+发布的显示联动复用 `structureSelection`、SelectionIndex 和拓扑覆盖层。树与管理器的发布行悬浮/选中都解析为确切源元素；Product 直接发布包含完整嵌套 occurrence，不能在重复实例间串选。原始几何拾取保留自身所属文档；自动绑定只允许该文档拥有的 Part 发布，不能把 Product 接口 ID 冒充为 Part 接口。Part 内同一父级的发布可随几何联动，Product 的跨组件接口通过显式选择定位。Broken 发布保留树节点及失效角标，不回落到旧几何或当前同编号元素。别名/可读路径与持久拓扑身份的区别见[持久命名](persistent-naming.md#用户可见元素名称)。
+
 ## 数据与边界
 
 所选关系数据库（PostgreSQL/SQLite）保存模型和轻量显示元数据；ArtifactStore 保存 per-Body BREP/GLB/Naming；WebSocket 承载命令、Preview 与状态；HTTP 承载制品下载。没有 Part 级持久聚合几何，也没有改变 XDE Definition/Occurrence。历史 Revision 不自动合并 Body、不重写 Naming。现有开发数据若依赖旧自动分 Body 的建模意图，应显式重建或按维护者批准的数据边界重置；本次没有执行数据删除。

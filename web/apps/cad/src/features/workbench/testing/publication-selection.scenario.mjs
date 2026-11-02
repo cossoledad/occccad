@@ -56,7 +56,7 @@ try {
   assert.equal(productReference.instanceId,"instance-a");
   assert.equal(productReference.publicationRef.publicationId,"publication-face","forwarded geometry binds the stable source Publication at its exact occurrence");
   assert.equal(productReference.instancePath.canonical,"instance-a");
-  const rawFace = { kind: "face", id: "pick", topologyId: 7, geometryKey: "geometry-key", versionId: "revision-2", occurrencePath: "instance-a",
+  const rawFace = {instancePath, kind: "face", id: "pick", topologyId: 7, geometryKey: "geometry-key", versionId: "revision-2", occurrencePath: "instance-a",
     instanceId: "instance-a", documentId: "part", bodyId: "body-a" };
   const promoted = bindPublicationSelection(rawFace, view.structureTree);
   assert.equal(promoted.publicationId, "publication-face", "viewport picks should acquire the unique Publication identity");
@@ -136,3 +136,32 @@ try{
  const localBinding={id:'binding',contextInputId:'local',local:{type:'POINT'},sourceInstancePath:{segments:[]},owningInstancePath:{canonical:'plate',segments:[{instanceId:'plate',referencedDocumentId:'receiver',resolvedVersionId:'accepted'}]}};
  assert.equal(bindingSourceSelection(localBinding).id,'local');assert.equal(bindingSourceSelection(localBinding).kind,'context-input');assert.equal(bindingSourceSelection(localBinding).documentId,'receiver');
 }finally{await moduleServer.close()}
+
+const directServer=await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
+try{
+ const {structureSelection}=await directServer.ssrLoadModule('/src/features/workbench/structure-selection.ts');
+ const {publicationElementTarget}=await directServer.ssrLoadModule('/src/features/workbench/publication-target.ts');
+ const {treeNodeIcon}=await directServer.ssrLoadModule('/src/features/workbench/tree-node-descriptors.tsx');
+ const {renderToStaticMarkup}=await import('react-dom/server');
+ const {elementPresentation}=await directServer.ssrLoadModule('/src/cad/presentation/element-presentation.ts');
+ const child={ownerDocumentId:'module',ownerVersionId:'mr',instanceId:'part',instanceName:'Part.1',referencedDocumentId:'part-doc',resolvedVersionId:'pr'};
+ const relative={rootDocumentId:'module',canonical:'part',display:'Part.1',segments:[child]};
+ const outer={rootDocumentId:'root',canonical:'module-a',display:'Module.1',segments:[{ownerDocumentId:'root',ownerVersionId:'rr',instanceId:'module-a',instanceName:'Module.1',referencedDocumentId:'module',resolvedVersionId:'mr'}]};
+ const full={rootDocumentId:'root',canonical:'module-a/part',display:'Module.1/Part.1',segments:[...outer.segments,child]};
+ const element={kind:'TOPOLOGY',sourceVersionId:'pr',persistentSelection:{sourceBodyId:'body'}};
+ const port={id:'port',name:'Mounting',type:'SURFACE',compatibilityVersion:'1.0.0',contract:{geometryKind:'SURFACE'},target:{instancePath:relative,publicationId:'',element},resolution:{status:'CONNECTED',geometryKey:'g',topologyKind:'FACE',localId:3,resolvedVersionId:'pr',element:{name:'面',path:'Body.1 / Fillet.1 / 面',bodyId:'body',featureId:'fillet'}}};
+ const body={id:'body-node',kind:'BODY',entityId:'body',bodyId:'body',name:'Body.1',documentId:'part-doc',versionId:'pr',geometryKey:'g',instancePath:full};
+ const node={id:'port-node',kind:'PRODUCT_PUBLICATION',entityId:'port',name:'Mounting',documentId:'module',versionId:'mr',instancePath:outer,productPublication:port};
+ const view={document:{id:'root',name:'Root',versionId:'rr'},structureTree:{id:'root',kind:'PRODUCT',children:[node,body]},resolvedInstances:[],contextVariants:[{owningInstancePath:full,variantKey:'variant'}]};
+ const selected=structureSelection(node,view);
+ assert.equal(selected.documentId,'module');assert.equal(selected.highlightTarget.documentId,'part-doc');assert.equal(selected.highlightTarget.versionId,'pr');assert.equal(selected.highlightTarget.instancePath.canonical,'module-a/part');assert.equal(selected.highlightTarget.contextVariantKey,'variant');
+ assert.equal(elementPresentation(view,selected).path,'Module.1/Part.1 / Body.1 / Fillet.1 / 面');
+ const broken=structureSelection({...node,productPublication:{...port,resolution:{...port.resolution,status:'BROKEN_PUBLICATION',geometryKey:undefined,localId:undefined}}},view);assert.equal(broken.highlightTarget,undefined,'broken links never highlight old or forwarded geometry');
+ assert.match(renderToStaticMarkup(treeNodeIcon({kind:'PRODUCT_PUBLICATION',connectionStatus:'BROKEN_PUBLICATION'})),/状态 引用已失效/);
+ const partNode={id:'part-node',kind:'PART',documentId:'part-doc',versionId:'pr',instancePath:relative,children:[{...body,instancePath:relative}]};
+ const moduleView={document:{id:'module',versionId:'mr'},product:{instances:[]},structureTree:{id:'module',kind:'PRODUCT',children:[partNode]}};
+ const raw={...selected.highlightTarget,contextVariantKey:undefined,instancePath:relative,occurrencePath:'part'};
+ const target=publicationElementTarget(moduleView,raw);
+ assert.equal(target.targetKind,'FACE');assert.equal(target.instancePath.canonical,'part');assert.equal(target.geometryKey,'g');assert.equal(target.topologyId,3);
+ assert.equal(publicationElementTarget(moduleView,{...raw,versionId:'other'}),undefined);assert.equal(publicationElementTarget(moduleView,{...raw,geometryKey:'other'}),undefined);
+}finally{await directServer.close()}

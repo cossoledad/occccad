@@ -486,20 +486,21 @@ export type ParameterDefinition = { parameterId: string; key: string; label: str
   dimension: Dimension; displayUnit: string; role: string; source: { produced?:{kind:string;entityId:string;outputSlot:string}; literal?: Quantity; expression?: { sourceText: string }; external?: ExternalParameterRef };
   evaluatedValue?: Quantity;currencyStatus?:string };
 
+export type ElementPresentation = {name:string;path:string;bodyId?:string;featureId?:string};
 export type Publication = { id: string; name: string; type: "POINT" | "AXIS" | "PLANE" | "FRAME" | "CURVE" | "SURFACE" | "BODY" | "PARAMETER";
   semanticPurpose?: string; compatibilityVersion: string;
   target: { kind: "DATUM" | "TOPOLOGY" | "BODY_RESULT" | "FEATURE_OUTPUT" | "PARAMETER" | "SKETCH_ENTITY"; sketchId?:string;entityId?:string;entityKind?:string; bodyId?: string; datumId?: string; axis?: "X" | "Y" | "Z";
-    persistentSelection?: PersistentSelection; sourceVersionId?: string; featureId?: string; outputSlot?: string; parameterId?: string };
+    persistentSelection?: PersistentSelection; sourceVersionId?: string;sourceGeometryKey?:string; featureId?: string; outputSlot?: string; parameterId?: string };
   contract: { geometryKind?: string; valueType?: "QUANTITY" | "REAL"; dimension?: Dimension; unitPolicy?: string;
     bounds?: { minimum?: Quantity; maximum?: Quantity }; symmetry?: string };
-  resolution: { currencyStatus?:string;nativeSketch?:{sketchId:string;entityId:string;geometry:NonNullable<SketchExternalGeometry["snapshot"]>;origin:Vec3;xDirection:Vec3;normal:Vec3};status: "CONNECTED" | "BROKEN_PUBLICATION" | "PENDING"; diagnosticCode?: string; diagnostic?: string;
+  resolution: { element?:ElementPresentation;currencyStatus?:string;nativeSketch?:{sketchId:string;entityId:string;geometry:NonNullable<SketchExternalGeometry["snapshot"]>;origin:Vec3;xDirection:Vec3;normal:Vec3};status: "CONNECTED" | "BROKEN_PUBLICATION" | "PENDING"; diagnosticCode?: string; diagnostic?: string;
     resolvedVersionId?: string; geometryKey?: string; geometryId?: string; topologyKind?: "FACE" | "EDGE" | "VERTEX";
     geometryKind?: string; symmetry?: string; localId?: number; radius?: number;
     origin?: Vec3; xDirection?: Vec3; yDirection?: Vec3; zDirection?: Vec3; sourceDigest?: string; value?: Quantity;
     valueDigest?: string; manifestDigest?: string; namingPolicyDigest?: string; evaluatorVersion?: string; workerId?: string; occtVersion?: string } };
 
 export type ProductPublication = { id:string;name:string;type:Publication["type"];semanticPurpose?:string;compatibilityVersion:string;
-  target:{instancePath:InstancePath;publicationId:string;parameterId?:string};contract:Publication["contract"];resolution:Publication["resolution"] };
+  target:{instancePath:InstancePath;publicationId:string;parameterId?:string;element?:Publication["target"]};contract:Publication["contract"];resolution:Publication["resolution"] };
 export type ContextInput = { default?:{external?:SketchExternalGeometry["snapshot"];parameterSource?:ParameterDefinition["source"];plane?:DatumPlane;axis?:DatumAxis}; id:string;name:string;type:Publication["type"];required?:boolean;
   target:{kind:"PARAMETER"|"DATUM"|"SKETCH_EXTERNAL_GEOMETRY"|"FEATURE_INPUT";targetId:string};contract:Publication["contract"] };
 export type ContextInputLocalValue={type:Publication["type"];value?:Quantity;geometryKind?:string;origin?:Vec3;direction?:Vec3;xDirection?:Vec3;radius?:number;parameterStart?:number;parameterEnd?:number};
@@ -589,6 +590,7 @@ export type SelectionItem =
 export type Selection = SelectionItem | null;
 
 export type TopologyElementProperties = {
+  element?:ElementPresentation;
   geometryKey: string; geometryId: string; kind: "FACE" | "EDGE" | "VERTEX"; localId: number;
   geometryType: string; bbox?: { min: Vec3; max: Vec3 }; point?: Vec3;
   properties: Record<string, number | boolean | string | Vec3>; workerId: string; occtVersion: string;
