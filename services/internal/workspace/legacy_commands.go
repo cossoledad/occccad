@@ -1096,8 +1096,20 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PART" {
 			break
 		}
-		return typeEditPublication, publicationEditPayload{PublicationID: request.PublicationID, Name: request.Name,
-			SemanticPurpose: request.SemanticPurpose, CompatibilityVersion: request.CompatibilityVersion}, nil
+		payload := publicationEditPayload{PublicationID: request.PublicationID, Name: request.Name, SemanticPurpose: request.SemanticPurpose, CompatibilityVersion: request.CompatibilityVersion}
+		if request.TargetKind != "" {
+			var model PartModel
+			if err := json.Unmarshal(modelJSON, &model); err != nil {
+				return "", nil, err
+			}
+			normalizePartModel(&model)
+			publication, err := service.publicationFromRequest(ctx, documentID, model, request, request.PublicationID)
+			if err != nil {
+				return "", nil, err
+			}
+			payload.Target = &publication
+		}
+		return typeEditPublication, payload, nil
 	case "DELETE_PUBLICATION":
 		if documentType != "PART" {
 			break
@@ -1438,8 +1450,35 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PRODUCT" {
 			break
 		}
-		return typeEditProductPublication, productPublicationEditPayload{PublicationID: request.PublicationID,
-			Name: request.Name, SemanticPurpose: request.SemanticPurpose}, nil
+		payload := productPublicationEditPayload{PublicationID: request.PublicationID, Name: request.Name, SemanticPurpose: request.SemanticPurpose}
+		if request.TargetKind == "PARAMETER" || request.InstancePath != nil {
+			var model ProductModel
+			if err := json.Unmarshal(modelJSON, &model); err != nil {
+				return "", nil, err
+			}
+			if request.TargetKind == "PARAMETER" {
+				p, err := productParameterPublication(model, request)
+				if err != nil {
+					return "", nil, err
+				}
+				p.ID = request.PublicationID
+				payload.Target = &p
+			} else {
+				if request.InstancePath.RootDocumentID != documentID || request.TargetID == "" {
+					return "", nil, fmt.Errorf("%w: source Publication path and identity required", ErrValidation)
+				}
+				child, path, err := service.publicationAtRelativePath(ctx, model, *request.InstancePath, request.TargetID)
+				if err != nil {
+					return "", nil, err
+				}
+				if child.Resolution.Status != "CONNECTED" {
+					return "", nil, fmt.Errorf("%w: source Publication is broken", ErrValidation)
+				}
+				p := productPublicationFromPath(path, child, request.PublicationID, request.Name, request.SemanticPurpose)
+				payload.Target = &p
+			}
+		}
+		return typeEditProductPublication, payload, nil
 	case "CREATE_CONTEXT_BINDING":
 		if documentType != "PRODUCT" {
 			break
@@ -1842,11 +1881,12 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err := service.updateProductReferences(ctx, &model, request.AcceptedSourceRevisions); err != nil {
 			return "", nil, err
 		}
-		parameters := parameterPartContext(&parameterDocument{product: &model, Parameters: model.Parameters})
+		allParameters := productParameterDefinitions(model)
+		parameters := parameterPartContext(&parameterDocument{product: &model, Parameters: allParameters})
 		if err := service.updatePartReferences(ctx, documentID, &parameters, request.AcceptedSourceRevisions); err != nil {
 			return "", nil, err
 		}
-		model.Parameters = parameters.Parameters[:len(model.Parameters)]
+		setProductParameterDefinitions(&model, parameters.Parameters[:len(allParameters)])
 		return typeUpdateReferences, updateReferencesPayload{Model: model}, nil
 	case "DELETE_NODE":
 		kind := strings.ToUpper(strings.TrimSpace(request.TargetKind))

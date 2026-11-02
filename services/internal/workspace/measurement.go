@@ -160,7 +160,12 @@ func applyMeasurements(raw, payload json.RawMessage) (json.RawMessage, modelcore
 	if err = syncMeasurementParameters(&doc.Parameters, next); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	fields["parameters"], _ = json.Marshal(doc.Parameters)
+	storedParameters := doc.Parameters
+	if doc.product != nil {
+		setProductParameterDefinitions(doc.product, doc.Parameters)
+		storedParameters = doc.product.Parameters
+	}
+	fields["parameters"], _ = json.Marshal(storedParameters)
 	fields["measurements"], _ = json.Marshal(next)
 	out, err := json.Marshal(fields)
 	changes, _ := appendParameterLifecycleChanges([]modelcore.ModelChange{change}, nil, beforeParameters, doc.Parameters)

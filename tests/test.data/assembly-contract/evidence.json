@@ -4506,7 +4506,7 @@
         "offset.plane-plane"
       ],
       "layer": "ui",
-      "expectation": "Real command catalog/search/registry open analysis; actual React panel default engineering information excludes UUID/budget/equations, retains copyable technical report and one close path; SSR is not browser acceptance",
+      "expectation": "Real command catalog/search/registry open analysis; actual React panel keeps stable paginated rows, hides technical IDs and redundant completion/detail text, exposes exact-Revision row edit/suppress and location actions, and retains one close path; SSR/hooks are not browser acceptance",
       "baseline": true,
       "evidenceScope": "representative-shared-foundation",
       "evidenceKind": "real-typescript-production-state-and-components",

@@ -166,6 +166,14 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		}
 		resolveDiagnosticAssemblyQuantities(model, diagnosticCapture)
 	}
+	if excluded == nil {
+		excluded = map[string]bool{}
+	}
+	for _, c := range model.Constraints {
+		if c.QuantityParameter != nil && c.QuantityParameter.EvaluatedValue == nil {
+			excluded[c.ID] = true
+		}
+	}
 	if len(model.Constraints) == 0 {
 		return nil
 	}
@@ -259,6 +267,9 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	for index := range model.Constraints {
 		if model.Constraints[index].Suppressed || excluded[model.Constraints[index].ID] {
 			continue
+		}
+		if model.Constraints[index].EvaluationStatus == modelcore.AssemblyConstraintBroken && diagnosticCapture == nil {
+			continue // Unavailable supports have already supplied the exact broken evidence.
 		}
 		if err := applyVariantPublication(&model.Constraints[index].First); err != nil {
 			if !reportCompileFailure(model.Constraints[index].ID, "FIRST", "PUBLICATION", err) {

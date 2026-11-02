@@ -18,6 +18,68 @@ type parameterDocument struct {
 	product       *ProductModel
 }
 
+// Constraint quantities keep their owning constraint's single persistent slot,
+// while every parameter consumer sees the same document-wide namespace.
+func productParameterDefinitions(model ProductModel) []modelcore.ParameterDefinition {
+	parameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
+	for _, c := range model.Constraints {
+		if c.QuantityParameter == nil {
+			continue
+		}
+		p := *c.QuantityParameter
+		p.OwnerFeatureID, p.Lifecycle = c.ID, "ASSEMBLY_REQUIRED"
+		p.Label = constraintDisplayName(c, func(id string) string {
+			for _, i := range model.Instances {
+				if i.ID == id {
+					return i.Name
+				}
+			}
+			return id
+		}, model.Constraints...)
+		p.QualifiedDisplayPath = p.Label
+		p.Role = "DRIVING"
+		if c.Mode == "MEASURED" {
+			p.Role, p.EvaluatedValue = "MEASURED", nil
+			if c.MeasuredValue != nil && !c.Suppressed && c.EvaluationStatus == modelcore.AssemblyConstraintVerified {
+				spec, _ := assemblyQuantitySpecification(c)
+				q, err := modelcore.NewQuantity(*c.MeasuredValue, spec.unit)
+				if err == nil {
+					p.EvaluatedValue = &q
+				}
+			}
+		}
+		parameters = append(parameters, p)
+	}
+	return parameters
+}
+
+func setProductParameterDefinitions(model *ProductModel, parameters []modelcore.ParameterDefinition) {
+	owned := map[string]int{}
+	for i, c := range model.Constraints {
+		if c.QuantityParameter != nil {
+			owned[c.QuantityParameter.ParameterID] = i
+		}
+	}
+	model.Parameters = nil
+	for _, p := range parameters {
+		if i, ok := owned[p.ParameterID]; ok {
+			p.Role = "DRIVING" // Preserved source; measured evidence lives on the constraint.
+			model.Constraints[i].QuantityParameter = &p
+		} else {
+			model.Parameters = append(model.Parameters, p)
+		}
+	}
+}
+
+func productParameterHistory(model *ProductModel, address modelcore.PropertyAddress, value json.RawMessage, write bool) (json.RawMessage, bool, error) {
+	parameters := productParameterDefinitions(*model)
+	result, handled, err := parameterHistory(&parameters, address, value, write)
+	if handled && write && err == nil {
+		setProductParameterDefinitions(model, parameters)
+	}
+	return result, handled, err
+}
+
 func parameterPartContext(d *parameterDocument) PartModel {
 	if d.part != nil {
 		return *d.part
@@ -38,7 +100,7 @@ func resolveProductParameters(model *ProductModel, revisionID string) error {
 	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
 		return err
 	}
-	if _, err := resolveParameterDefinitions(model.Parameters); err != nil {
+	if err := resolveAssemblyQuantities(model); err != nil {
 		return err
 	}
 	for i := range model.Publications {
@@ -46,13 +108,13 @@ func resolveProductParameters(model *ProductModel, revisionID string) error {
 		if publication.Target.ParameterID == "" {
 			continue
 		}
-		publication.Resolution = parameterPublicationResolution(model.Parameters, publication.Target.ParameterID, publication.Contract, revisionID)
+		publication.Resolution = parameterPublicationResolution(productParameterDefinitions(*model), publication.Target.ParameterID, publication.Contract, revisionID)
 	}
 	return nil
 }
 
 func productParameterPublication(model ProductModel, request CommandRequest) (ProductPublication, error) {
-	for _, p := range model.Parameters {
+	for _, p := range productParameterDefinitions(model) {
 		if p.ParameterID != request.TargetID {
 			continue
 		}
@@ -82,7 +144,7 @@ func readParameterDocument(raw json.RawMessage) (*parameterDocument, error) {
 		if err := json.Unmarshal(raw, d.product); err != nil {
 			return nil, err
 		}
-		d.Parameters = d.product.Parameters
+		d.Parameters = productParameterDefinitions(*d.product)
 		d.Publications = parameterPartContext(&parameterDocument{product: d.product, Parameters: d.Parameters}).Publications
 	} else {
 		d.part = &PartModel{}
@@ -104,8 +166,12 @@ func (d *parameterDocument) resolve() error {
 		d.Parameters = d.part.Parameters
 		return nil
 	}
-	_, err := resolveParameterDefinitions(d.Parameters)
-	return err
+	setProductParameterDefinitions(d.product, d.Parameters)
+	if err := resolveProductParameters(d.product, ""); err != nil {
+		return err
+	}
+	d.Parameters = productParameterDefinitions(*d.product)
+	return nil
 }
 
 func (d *parameterDocument) MarshalJSON() ([]byte, error) {
@@ -113,7 +179,7 @@ func (d *parameterDocument) MarshalJSON() ([]byte, error) {
 		d.part.Parameters = d.Parameters
 		return json.Marshal(d.part)
 	}
-	d.product.Parameters = d.Parameters
+	setProductParameterDefinitions(d.product, d.Parameters)
 	return json.Marshal(d.product)
 }
 
@@ -183,6 +249,7 @@ func parameterHistory(parameters *[]modelcore.ParameterDefinition, address model
 	}
 	var err error
 	if address.SlotID == "parameter.source" {
+		(*parameters)[index].Source = modelcore.ValueSource{}
 		err = json.Unmarshal(value, &(*parameters)[index].Source)
 	} else {
 		err = json.Unmarshal(value, &(*parameters)[index].Key)
@@ -196,6 +263,38 @@ func parameterChangesOnly(changes modelcore.ChangeSet) bool {
 	}
 	for _, change := range changes.Changes {
 		if !strings.HasPrefix(change.Target.SlotID, "parameter.") {
+			return false
+		}
+	}
+	return true
+}
+
+func productParameterChangesOnly(model ProductModel, changes modelcore.ChangeSet) bool {
+	if !parameterChangesOnly(changes) {
+		return false
+	}
+	dirty := map[string]bool{}
+	for _, c := range changes.Changes {
+		if c.Target.SlotID != "parameter.key" {
+			dirty[c.Target.EntityID] = true
+		}
+	}
+	parameters := productParameterDefinitions(model)
+	for changed := true; changed; {
+		changed = false
+		for _, p := range parameters {
+			if !dirty[p.ParameterID] && p.Source.Expression != nil {
+				for _, read := range p.Source.Expression.Reads {
+					if dirty[strings.TrimPrefix(string(read), "parameter:")] {
+						dirty[p.ParameterID], changed = true, true
+						break
+					}
+				}
+			}
+		}
+	}
+	for _, c := range model.Constraints {
+		if c.QuantityParameter != nil && dirty[c.QuantityParameter.ParameterID] {
 			return false
 		}
 	}

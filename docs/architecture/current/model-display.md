@@ -28,7 +28,7 @@ Feature 必需参数带稳定 ParameterId、OwnerFeatureId、PropertySlot 和生
 
 参数、基准与原生草图发布的关联消费者、稳定本地槽位和接受更新语义统一见[发布与关联设计](product-assembly.md#发布与关联设计)。
 
-Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果；Feature 输出用 `FEATURE_OUTPUT + FeatureId + OutputSlot` 表示其历史输出。旧 `FEATURE_OUTPUT` Revision 仍按原语义读取，不在加载时转换。默认名称在所属 Part/Product 的 Publication 命名空间分配 `Body.1`、`Face.1` 等，与拓扑 localId 无关。树、管理器和属性面板共用编辑/删除入口；Part 与 Product 转发 Publication 均可重定向，服务端检查目标连通、所属路径和合同兼容，保留 PublicationId 与名称。删除 Body/Feature 时先检查同一 Part 的 Publication 目标；删除 Publication 时服务端扫描当前主工作区的 ContextReference、外部参数、ContextBinding 和转发 Publication。发现依赖则拒绝；删除 Publication 本体保留目标几何。该检查当前是主工作区快照预检，尚无跨工作区并发的锁定索引；完整引用查看仍未闭环。
+Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果；Feature 输出用 `FEATURE_OUTPUT + FeatureId + OutputSlot` 表示其历史输出。旧 `FEATURE_OUTPUT` Revision 仍按原语义读取，不在加载时转换。选择实体 Feature 发布时取其所属 Body 的当前结果；显式 `FEATURE_OUTPUT` 仍保留历史输出语义。默认名称在所属 Part/Product 的 Publication 命名空间分配 `Body.1`、`Face.1` 等，与拓扑 localId 无关。精确面、边、顶点发布保存 PersistentSelection；顶点作为 POINT，显示框架只用于呈现，不赋予点一个几何方向。树、管理器和属性面板共用编辑/删除入口；Part 与 Product 转发 Publication 均可重定向，服务端检查目标连通、所属路径和合同兼容，保留 PublicationId 与名称。删除 Body/Feature 时先检查同一 Part 的 Publication 目标；删除 Publication 时服务端扫描当前主工作区的 ContextReference、Part/Product 外部参数、装配约束各支撑、ContextBinding 和转发 Publication。发现依赖则拒绝；删除 Publication 本体保留目标几何。该检查当前是主工作区快照预检，尚无跨工作区并发的锁定索引；完整引用查看仍未闭环。
 
 ## 数据与边界
 

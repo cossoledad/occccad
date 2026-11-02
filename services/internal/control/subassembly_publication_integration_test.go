@@ -63,6 +63,10 @@ func TestSubassemblyPublicInterfacesDriveHoleThroughTwoRigidLevels(t *testing.T)
 	accept := func(v *workspace.DocumentView) {
 		t.Helper()
 		p := plan(*v)
+		p2 := plan(*v)
+		if p.Digest != p2.Digest {
+			t.Fatal("update plan changed between cold and cached context evaluation")
+		}
 		if !p.CanAccept {
 			t.Fatalf("cannot accept %+v", p.Entries)
 		}

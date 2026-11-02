@@ -289,3 +289,66 @@ func TestBodyAndParameterPublicationsParticipateInHistoryTreeAndDirtyClosure(t *
 		t.Fatalf("Publication structure nodes = %#v", children)
 	}
 }
+
+func TestPublicationEditChangesNameAndElementAtomically(t *testing.T) {
+	for _, kind := range []string{"PART", "PRODUCT"} {
+		t.Run(kind, func(t *testing.T) {
+			p := Publication{ID: "stable-port", Name: "Mounting", Type: "PLANE", CompatibilityVersion: "1.0.0", Contract: PublicationContract{GeometryKind: "PLANE", Symmetry: "NORMAL_UNORIENTED"}, Target: PublicationTarget{Kind: "DATUM", DatumID: "datum-xy"}, Resolution: PublicationResolution{Status: "CONNECTED"}}
+			var raw, payload json.RawMessage
+			var next json.RawMessage
+			var changes modelcore.ChangeSet
+			var err error
+			if kind == "PART" {
+				m := newPartModel()
+				m.Publications = []Publication{p}
+				raw, _ = json.Marshal(m)
+				p.Target.DatumID = "datum-xz"
+				payload, _ = json.Marshal(publicationEditPayload{PublicationID: p.ID, Name: "Installation", Target: &p})
+				next, changes, err = applyEditPublication(raw, payload)
+			} else {
+				m := ProductModel{Publications: []ProductPublication{{ID: p.ID, Name: p.Name, Type: p.Type, CompatibilityVersion: p.CompatibilityVersion, Contract: p.Contract, Target: ProductPublicationTarget{PublicationID: "old"}}}}
+				raw, _ = json.Marshal(m)
+				target := m.Publications[0]
+				target.Target.PublicationID = "explicitly-selected"
+				payload, _ = json.Marshal(productPublicationEditPayload{PublicationID: p.ID, Name: "Installation", Target: &target})
+				next, changes, err = applyEditProductPublication(raw, payload)
+			}
+			if err != nil || len(changes.Changes) != 1 {
+				t.Fatal(string(next), changes, err)
+			}
+			values, err := modelValues(kind, next, changes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reverse, err := changes.Compensate(values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, err := applyModelValues(kind, next, reverse)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(restored), `"name":"Mounting"`) || !strings.Contains(string(next), `"name":"Installation"`) {
+				t.Fatal(string(restored), string(next))
+			}
+		})
+	}
+}
+
+func TestPublicationUseIncludesAssemblyEndpointsAndProductParameters(t *testing.T) {
+	model := ProductModel{Instances: []ProductInstance{{ID: "instance", ReferencedDocumentID: "source"}}, Constraints: []AssemblyConstraint{{ID: "mate", First: AssemblyGeometryRef{InstanceID: "instance", PublicationRef: &PublicationRef{PublicationID: "mount"}}}}}
+	raw, _ := json.Marshal(model)
+	use, err := publicationUseInModel("PRODUCT", raw, "source", "mount")
+	if err != nil || use != "AssemblyConstraint mate" {
+		t.Fatal(use, err)
+	}
+	if use, err = publicationUseInModel("PRODUCT", raw, "different-source", "mount"); err != nil || use != "" {
+		t.Fatal("same port ID in another document", use, err)
+	}
+	model.Constraints = nil
+	model.Parameters = []modelcore.ParameterDefinition{{ParameterID: "input", Source: modelcore.ValueSource{External: &modelcore.ExternalParameterRef{SourceDocumentID: "source", PublicationID: "length"}}}}
+	raw, _ = json.Marshal(model)
+	if use, err = publicationUseInModel("PRODUCT", raw, "source", "length"); err != nil || use != "Parameter input" {
+		t.Fatal(use, err)
+	}
+}

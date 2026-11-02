@@ -192,7 +192,7 @@
     "cases": {
         "m4.snapshot.current-render-bindings": "2cf466b297cebc506e71131b83e478f67d79a90ab157781005769533526985ab",
         "m4.target.diagonal-projection": "4d3ce3035c222d9e0aaa48336ec934cdb8711b1f989c858732fa4b7c8bdf84d1",
-        "m5.engineering.command-panel": "36cb34d61ea6d75c4dc342cbf23cac5fd90a827a5a77c08a93a65596ae81d1d8",
+        "m5.engineering.command-panel": "17a4b147b21fad9710f4c2f63280a5a1d3d20b9aa532dbb467fbb2ee9519eee6",
         "m5.engineering.server-catalog": "4b86612944053224fb3e78a908c03b77f8e75d8b08947dcebe4703677ce6cff0",
         "m4.snapshot.metadata-only-router": "4fd0062803f8b81db7d71766d651a8adfeef0a4bec65c0175176bed84e19ec52",
         "m4.snap.precise-frame": "ef7d69c790c1de856d72069c5f36537466f7dedc9a13126d60d0a61f900163bd",
@@ -871,7 +871,7 @@
     "assertions": {
         "m4.snapshot.current-render-bindings": "973b49dea9e0648957ab217ad7cceab407616282b965c666bc698aa969dd0ca8",
         "m4.target.diagonal-projection": "93e6f1d756a244cd2e0def0399b12a70ee53cd74d04324e42414a8be6b698482",
-        "m5.engineering.command-panel": "3f815c21ee65cfb25a006080c20691cc4a16d8859dace0800ec62309335d5370",
+        "m5.engineering.command-panel": "f8880f9914610c1ef367792c4a56a3e025f9f7b25d76b161d12784c9cac24377",
         "m5.engineering.server-catalog": "4cbe6fa37955432b3213674164441074a52a06e2ed9f57865f20258f03a56b0c",
         "m4.snapshot.metadata-only-router": "2e9107f2330b2f224e0caadf3885e4aeb57c9f1722d8d8b1b3a89d6b025f0639",
         "m4.snap.precise-frame": "0531a46c32c76513bc401d274e442749692051dc11e1cfd35e24b4bff6e18f49",
@@ -2547,5 +2547,10 @@
         "reviewedAssertionCaseIds": [
             "composition.edit-intent.production-ui"
         ]
+    },
+    "publicationAndAnalysisUiReview20261102": {
+        "caseId": "m5.engineering.command-panel",
+        "authorization": "User explicitly removed solver details, completion prose and the duplicate selected-constraint block, and requested row edit/suppress actions.",
+        "reason": "Reviewed this one UI expectation and assertion source after the production component SSR/hook scenario passed. Added stable exact-Revision row action callbacks. Mathematical semantics, capabilities, other case declarations/assertions, tolerances and coverage floors are unchanged. Browser evidence is recorded separately; no automatic bless."
     }
 }

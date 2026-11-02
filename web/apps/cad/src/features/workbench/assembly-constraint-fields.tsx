@@ -3,7 +3,7 @@ import {FeaturePickField} from "./feature-pick-field";
 import {CommandGroup,CommandField,CommandFormItem,CommandVector} from "../../cad/overlay/command-form";
 import {engineeringLabel} from "../../cad/presentation/engineering-text";
 import {engineeringProblem} from "../../cad/command/operation-feedback";
-import {Collapse, Form, Input, Select, Switch, Typography} from "antd";
+import {Form, Input, Select, Switch, Typography} from "antd";
 import type {AssemblyConstraint, AssemblyGeometryRef, AssemblyGroupMember, CommandPreview, DocumentView} from "../../types";
 import {CadNumberInput as InputNumber} from "../../cad/overlay/cad-number-input";
 import {AssemblyGroupMemberList} from "./assembly-group-member-list";
@@ -67,7 +67,7 @@ export function AssemblyConstraintFields({ kind, references, supportIssues,exact
       <div className="assembly-fixed-space"><span>在空间中固定</span><CommandFormItem name="fixMode" noStyle getValueProps={value=>({checked:value!=="RELATIVE"})} getValueFromEvent={checked=>checked?"SPACE":"RELATIVE"}><Switch aria-label="在空间中固定" /></CommandFormItem></div>
       {([['fixedTranslation',`位置（${lengthUnit}）`],['fixedAngles','旋转（deg）']] as const).map(([field,label])=><CommandVector key={field} label={label}>
         {["X","Y","Z"].map((axis,index)=><CommandFormItem key={axis} name={[field,index]} width="coordinate" label={axis} rules={[{required:true,type:"number"}]}>
-          <InputNumber aria-label={field==='fixedTranslation'?`${axis}（${lengthUnit}）`:`绕 ${axis} 旋转（deg）`}  /></CommandFormItem>)}
+          <InputNumber aria-label={field==='fixedTranslation'?`${axis}（${lengthUnit}）`:`绕 ${axis} 旋转（deg）`} onBlur={onValueCommit}/></CommandFormItem>)}
       </CommandVector>)}
     </div>}
     {directionApplicable && <CommandFormItem name="directionRelation" label="方向" width="enum"><Select onChange={onValueCommit} options={relation === "PERPENDICULAR" ? [{value:"SAME",label:"正向（90°）"},{value:"OPPOSITE",label:"反向（270°）"}] : [
@@ -84,14 +84,11 @@ export function AssemblyConstraintFields({ kind, references, supportIssues,exact
         <QuantityInput fallback={sourceExpression?.trim()||String(sourceValue??0)} unit={kind==='ANGLE'?'deg':lengthUnit} onBlur={onValueCommit}/>
       </CommandFormItem>
       {constraint?.mode==='MEASURED'&&<Typography.Text type="secondary">当前测量：{constraint.measuredValue===undefined?'不可测':kind==='ANGLE'?`${constraint.measuredValue*180/Math.PI}°`:`${constraint.measuredValue} mm`}</Typography.Text>}
-      <Collapse ghost size="small" items={[{key:'parameters',label:'参数选项',forceRender:true,children:<>
-        <CommandFormItem name="quantityKey" label="参数名称"><Input onBlur={onValueCommit}/></CommandFormItem>
-        <CommandFormItem name="constraintMode" label="模式" width="enum"><Select onChange={onValueCommit} options={[{value:'DRIVING',label:'驱动'},{value:'MEASURED',label:'参考测量'}]}/></CommandFormItem>
-      </>}]}/>
+      <CommandFormItem name="constraintMode" label="模式" width="enum"><Select options={[{value:'DRIVING',label:'驱动'},{value:'MEASURED',label:'参考测量'}]}/></CommandFormItem>
     </>}
   </>;
 }
 
 function QuantityInput({value,onChange,fallback,unit,onBlur,...props}:{value?:string;onChange?:(value:string)=>void;fallback:string;unit:string;onBlur:()=>void}){
- return <Input {...props} aria-label="数值或公式" value={value??fallback} onChange={event=>onChange?.(event.target.value)} onBlur={onBlur} placeholder="数值或公式" suffix={unit} title="可输入数值、带单位数值或参数公式"/>;
+ return <Input {...props} aria-label="数值或公式" value={value??fallback} onChange={event=>onChange?.(event.target.value)} onBlur={onBlur} onPressEnter={event=>{if(!event.nativeEvent.isComposing){event.preventDefault();event.stopPropagation();event.currentTarget.blur();}}} placeholder="数值或公式" suffix={unit} title="可输入数值、带单位数值或参数公式"/>;
 }

@@ -193,7 +193,7 @@ func materializeLocalInput(m *PartModel, input ContextInput, value *ContextInput
 			p := &m.DatumPlanes[i]
 			if value.Type == "PLANE" && p.ID == input.Target.TargetID {
 				p.Origin, p.Normal, p.UDirection = value.Origin, value.Direction, value.XDirection
-				p.Definition = nil
+				p.Definition, p.Construction = nil, nil
 				return nil
 			}
 		}
@@ -201,7 +201,7 @@ func materializeLocalInput(m *PartModel, input ContextInput, value *ContextInput
 			p := &m.DatumAxes[i]
 			if value.Type == "AXIS" && p.ID == input.Target.TargetID {
 				p.Origin, p.Direction = value.Origin, value.Direction
-				p.Definition = nil
+				p.Definition, p.Construction = nil, nil
 				return nil
 			}
 		}

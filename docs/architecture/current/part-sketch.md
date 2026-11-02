@@ -95,6 +95,8 @@ Profile Builder 排除 Construction/Point，以正式连接等价类构建 Line/
 
 基准面/轴沿用已有 Datum 身份和框架，支持自由坐标及关联定义。关联定义保存来源基准、绕引用直线旋转、沿引用方向平移；先按右手方向旋转原点与框架，再平移。标准面/轴、自定义基准、上游草图直线和精确实体平面/直线边按角色解析；实体来源保存 PersistentSelection、source Revision 和明确的 Body 特征阶段。角度和距离分别使用 `datum:angle / datum:distance` 的稳定 ParameterDefinition/checked AST，数值框架是求值结果。现有依赖图拒绝缺失、循环及通过基准间接读取下游阶段；失效引用不回退为自由框架。创建/编辑复用权威 PreviewCommand，取消不写 Head；参数更新将最终基准框架和草图支撑纳入已有 ChangeSet、CAS、Undo/Redo。树中自定义基准可编辑/删除，标准基准与被引用基准受保护；普通单击仍只选择。
 
+参考点/线/面的构造编辑统一支持数值、带单位字面量和表达式，来源使用已有 ParameterDefinition/checked AST；坐标与方向采用一行向量布局，参数引用在同一输入中完成。选择实体平面、直线边、圆/椭圆或球中心前按角色检查精确类型，绑定保留 PersistentSelection、源 Revision 和 Body 阶段。新建对象没有 ID 时跳过自引用比较，已有对象仍禁止引用自身。输入问题留在对应命令中，不与全局通知重复呈现。
+
 Origin 的轴系增加显式原点入口，标准 X/Y/Z 与原点的树/视图选择共用文档、Revision 和 occurrence 身份。Part 原点随实例位姿变换，不是装配世界原点。
 
 Sketch support 使用明确的右手框架。默认／自定义基准面保存 `origin + normal + uDirection`；实体面支撑保存 PersistentSelection、来源 Revision、Body、明确的 `sourceFeatureId` 阶段、origin/X/normal、定向规则和依赖快照。来源阶段取自实际上游 Body tip，不用语义 Anchor.FeatureID 替代；解析读取目标草图之前的完整 Body 前缀，并以保存的来源阶段重建历史 Naming。采用实际实体面的有向法向，将保存的 X 方向投影到新平面，退化时沿用确定的稳定方向规则，不翻转法向或退回默认平面。Visualization、拾取、草图编辑与 Profile 共用该框架；依赖保留基准、拓扑来源、来源阶段及当前前缀的真实关系。

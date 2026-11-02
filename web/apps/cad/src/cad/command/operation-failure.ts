@@ -7,6 +7,15 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const reasons:Record<string,string>={
+    PUBLICATION_IN_USE:"此发布仍被其他对象引用，请先更换或移除引用。",
+    DATUM_TOPOLOGY_STAGE_INVALID:"参考几何的来源阶段不可用，请重新选择。",
+    DATUM_SOURCE_TYPE_MISMATCH:"所选几何类型不适用于此构造，请重新选择。",
+    DATUM_REFERENCE_UNRESOLVED:"参考几何已失效，请重新选择。",
+    DATUM_DOWNSTREAM_REFERENCE:"此参考会形成循环，请选择上游元素。",
+    REFERENCE_CONSTRUCTION_INVALID:"参考元素无法按当前输入构造，请检查几何关系与数值。",
+    PARAMETER_SOURCE_NOT_CURRENT:"公式的来源尚待更新，请先更新来源。",
+    PARAMETER_REFERENCE_MEASURED:"参考测量不能作为装配的驱动参数。",
+
  SPATIAL_BAND_OVERLAP:"距离区域的两组零件不能重叠，请调整选择。",
     SPATIAL_ANALYSIS_LIMIT:'每个装配最多保留 128 个空间分析',
     SPATIAL_TYPE_INVALID:'请选择有效的分析类型和范围',

@@ -98,6 +98,7 @@ try{
  const selection=structureSelection(node,view);
  assert.equal(selection.productPublication.id,'public-hole','public Product interface must not unwrap to its private native source');
  assert.equal(publicationForwardTarget(view,selection).publicationId,'public-hole');
+ assert.equal(publicationForwardTarget(view,{...selection,kind:'face',topologyId:3}).publicationId,'public-hole','geometry picks already bound to a public port use the same scoped interface');
  assert(!publicationForwardTarget(view,{...selection,versionId:'stale'}));
  const outer={rootDocumentId:'assembly',canonical:'module-2',segments:[{ownerDocumentId:'assembly',ownerVersionId:'root1',instanceId:'module-2',referencedDocumentId:'module',resolvedVersionId:'m1'}]};
  const globalPath={rootDocumentId:'assembly',canonical:'module-2/adapter',segments:[...outer.segments,...inner.segments]};

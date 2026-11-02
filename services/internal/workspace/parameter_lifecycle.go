@@ -39,7 +39,13 @@ func applyCreateUserParameter(modelJSON, payloadJSON json.RawMessage) (json.RawM
 		return nil, modelcore.ChangeSet{}, err
 	}
 	next, _ := json.Marshal(model)
-	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: parameter.ParameterID, SlotID: "parameter.entity"}, nil, parameterHistoryDefinition(model.Parameters[len(model.Parameters)-1]))
+	for _, p := range model.Parameters {
+		if p.ParameterID == parameter.ParameterID {
+			parameter = p
+			break
+		}
+	}
+	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: parameter.ParameterID, SlotID: "parameter.entity"}, nil, parameterHistoryDefinition(parameter))
 	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"parameter:" + modelcore.DependencyKey(parameter.ParameterID)}}, nil
 }
 

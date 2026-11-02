@@ -27,10 +27,11 @@ type publicationPayload struct {
 }
 
 type publicationEditPayload struct {
-	PublicationID        string `json:"publicationId"`
-	Name                 string `json:"name"`
-	SemanticPurpose      string `json:"semanticPurpose"`
-	CompatibilityVersion string `json:"compatibilityVersion"`
+	PublicationID        string       `json:"publicationId"`
+	Name                 string       `json:"name"`
+	SemanticPurpose      string       `json:"semanticPurpose"`
+	CompatibilityVersion string       `json:"compatibilityVersion"`
+	Target               *Publication `json:"target,omitempty"`
 }
 
 type publicationDeletePayload struct {
@@ -74,6 +75,13 @@ func applyEditPublication(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 			continue
 		}
 		before := model.Publications[index]
+		if payload.Target != nil {
+			if payload.Target.ID != before.ID || !publicationContractsCompatible(before, *payload.Target) {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: PUBLICATION_CONTRACT_INCOMPATIBLE", ErrValidation)
+			}
+			model.Publications[index] = *payload.Target
+			model.Publications[index].CompatibilityVersion = before.CompatibilityVersion
+		}
 		model.Publications[index].Name = strings.TrimSpace(payload.Name)
 		model.Publications[index].SemanticPurpose = strings.TrimSpace(payload.SemanticPurpose)
 		if version := strings.TrimSpace(payload.CompatibilityVersion); version != "" {
@@ -208,6 +216,9 @@ func validatePublicationDefinitions(model PartModel) error {
 			expectedPublication := "SURFACE"
 			if publication.Type == "CURVE" {
 				expectedType, expectedPublication = modelcore.PersistentTopologyEdge, "CURVE"
+			}
+			if publication.Type == "POINT" {
+				expectedType, expectedPublication = modelcore.PersistentTopologyVertex, "POINT"
 			}
 			if publication.Type != expectedPublication || publication.Contract.GeometryKind != expectedPublication ||
 				publication.Target.PersistentSelection.ExpectedType != expectedType {
@@ -350,7 +361,7 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 				continue
 			}
 			z := exact.Direction
-			if exact.Kind == "SPHERE" {
+			if exact.Kind == "SPHERE" || exact.Kind == "POINT" {
 				z = [3]float64{0, 0, 1}
 			} // Cosmetic local frame, not a sphere axis.
 			x, xOK := stableSupportX(z, exact.XDirection)
@@ -466,12 +477,19 @@ func publicationFeaturePrefix(model PartModel, featureID string) (PartModel, boo
 }
 
 func rejectExplicitBrokenPublication(command modelcore.DomainCommand, model PartModel) error {
-	if command.TypeURI != typeCreatePublication && command.TypeURI != typeRedirectPublication {
+	if command.TypeURI != typeCreatePublication && command.TypeURI != typeRedirectPublication && command.TypeURI != typeEditPublication {
 		return nil
 	}
 	var payload publicationPayload
 	if json.Unmarshal(command.Payload, &payload) != nil {
 		return nil
+	}
+	if command.TypeURI == typeEditPublication {
+		var edit publicationEditPayload
+		if err := json.Unmarshal(command.Payload, &edit); err != nil || edit.Target == nil {
+			return nil
+		}
+		payload.Publication = *edit.Target
 	}
 	for _, publication := range model.Publications {
 		if publication.ID == payload.Publication.ID && publication.Resolution.Status != "CONNECTED" {
@@ -570,7 +588,7 @@ func (service *Service) publicationFromRequest(ctx context.Context, documentID s
 			symmetry = "DIRECTION_UNORIENTED"
 		}
 		publication.Contract = PublicationContract{GeometryKind: publicationType, Symmetry: symmetry}
-	case "FACE", "EDGE":
+	case "FACE", "EDGE", "VERTEX":
 		sourceVersionID := strings.TrimSpace(request.VersionID)
 		if sourceVersionID == "" {
 			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&sourceVersionID); err != nil {
@@ -586,6 +604,9 @@ func (service *Service) publicationFromRequest(ctx context.Context, documentID s
 		symmetry := "NONE"
 		if strings.EqualFold(request.TargetKind, "EDGE") {
 			expected, geometryKind, symmetry = "CURVE", "CURVE", "PARAMETER_DIRECTION"
+		}
+		if strings.EqualFold(request.TargetKind, "VERTEX") {
+			expected, geometryKind = "POINT", "POINT"
 		}
 		if publicationType != expected {
 			return Publication{}, fmt.Errorf("%w: publication type %s is incompatible with %s", ErrValidation, publicationType, request.TargetKind)

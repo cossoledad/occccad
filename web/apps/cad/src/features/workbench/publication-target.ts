@@ -12,16 +12,20 @@ export function selectionInSnapshot(s:SelectionItem,documentId:string,revisionId
  return samePath(s.instancePath,path);
 }
 export function publicationSelectionTarget(view:DocumentView,s:SelectionItem|undefined,path?:InstancePath){
- if(!s||!view.part||!selectionInSnapshot(s,view.document.id,view.document.versionId,path))return;
+ if(!s||!selectionInSnapshot(s,view.document.id,view.document.versionId,path))return;
  const scope={sourceDocumentId:view.document.id,versionId:view.document.versionId,instancePath:path};
+ if(s.kind==='parameter'&&(view.part?.parameters??view.product?.parameters)?.some(p=>p.parameterId===s.id))return {...scope,publicationType:'PARAMETER',targetKind:'PARAMETER',targetId:s.id};
+ if(!view.part)return;
  if(s.kind==='plane'&&s.entityId&&view.part.datumPlanes?.some(p=>p.id===s.entityId))return {...scope,publicationType:'PLANE',targetKind:'PLANE',targetId:s.entityId};
  if(s.kind==='reference-point'&&s.entityId&&view.part.datumPoints?.some(p=>p.id===s.entityId))return {...scope,publicationType:'POINT',targetKind:'REFERENCE_POINT',targetId:s.entityId};
  if(s.kind==='axis-system'&&s.entityId&&view.part.axisSystems?.some(p=>p.id===s.entityId))return {...scope,publicationType:'FRAME',targetKind:'AXIS_SYSTEM',targetId:s.entityId};
  if(s.kind==='axis'&&s.entityId&&(s.axis==='DATUM'?view.part.datumAxes?.some(p=>p.id===s.entityId):view.part.axisSystems?.some(p=>p.id===s.entityId)))return {...scope,publicationType:'AXIS',targetKind:s.axis==='DATUM'?'DATUM_AXIS':'AXIS',targetId:s.entityId,axis:s.axis==='DATUM'?undefined:s.axis};
- if((s.kind==='face'||s.kind==='edge')&&s.geometryKey&&view.part.bodies.some(b=>b.geometryKey===s.geometryKey))return {...scope,publicationType:s.kind==='face'?'SURFACE':'CURVE',targetKind:s.kind.toUpperCase(),geometryKey:s.geometryKey,topologyId:s.topologyId};
+ if((s.kind==='face'||s.kind==='edge'||s.kind==='vertex')&&s.geometryKey&&view.part.bodies.some(b=>b.geometryKey===s.geometryKey))return {...scope,publicationType:s.kind==='face'?'SURFACE':s.kind==='edge'?'CURVE':'POINT',targetKind:s.kind.toUpperCase(),geometryKey:s.geometryKey,topologyId:s.topologyId};
  if(s.kind==='body'&&view.part.bodies.some(b=>b.id===(s.bodyId??s.entityId)))return {...scope,publicationType:'BODY',targetKind:'BODY',targetId:s.bodyId??s.entityId};
- if((s.kind==='pad'||s.kind==='import'||s.kind==='feature')&&view.part.features.some(f=>f.id===(s.entityId??s.id)&&isSolidFeature(f)))return {...scope,publicationType:'BODY',targetKind:'FEATURE_OUTPUT',targetId:s.entityId??s.id};
- if(s.kind==='parameter'&&view.part.parameters?.some(p=>p.parameterId===s.id))return {...scope,publicationType:'PARAMETER',targetKind:'PARAMETER',targetId:s.id};
+ if(s.kind==='pad'||s.kind==='import'||s.kind==='feature'){
+  const feature=view.part.features.find(f=>f.id===(s.entityId??s.id)&&isSolidFeature(f));
+  if(feature?.bodyId)return {...scope,publicationType:'BODY',targetKind:'BODY',targetId:feature.bodyId};
+ }
  if(s.kind==='visual'){
   const entity=view.part.features.find(f=>f.id===s.featureId)?.sketch?.entities.find(e=>e.id===s.entityId);
   if(entity&&['POINT','LINE','CIRCLE','ARC'].includes(entity.kind))return {...scope,publicationType:entity.kind==='POINT'?'POINT':'CURVE',targetKind:'SKETCH_ENTITY',targetId:entity.id,sketchId:s.featureId};
@@ -42,7 +46,7 @@ export function publicationForwardTarget(view:DocumentView,pick:SelectionItem|un
   const relative={rootDocumentId:view.document.id,canonical:segments.map(p=>p.instanceId).join('/'),display:segments.map(p=>p.instanceName).join('/'),segments};
   s={...s,instanceId:segments[0].instanceId,instancePath:relative,occurrencePath:relative.canonical};
  }
- if(!view.product||s?.kind!=='publication'||!s.publicationId||!s.instancePath?.segments.length)return false;
+ if(!view.product||!s?.publicationId||!s.instancePath?.segments.length)return false;
  const path=s.instancePath,leaf=path.segments.at(-1)!;
  if(path.rootDocumentId!==view.document.id||path.segments[0].ownerVersionId!==view.document.versionId)return false;
  const visit=(node:NonNullable<DocumentView['structureTree']>):boolean=>{

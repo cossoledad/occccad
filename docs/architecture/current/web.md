@@ -130,8 +130,12 @@ Viewport 按统一 RAF 时钟批量更新既有 occurrence；帧间插值只作�
 
 命令目录按当前编辑目标和应用上下文控制入口。机构分析只在进入一个具体机构后对该机构工作，普通装配工具栏与搜索不暴露该入口；替换组件只有直接 Instance 的树右键入口。产品版本命令、面板、API 与数据模型已移除。
 
-装配约束共用 `assembly-constraint-fields`、`assembly-quantity-input` 与 `assembly-dialog-status`：主表单为支撑、关系和一个数值/公式输入框，参数名称与驱动/参考模式放入折叠选项。输入单位、带单位字面量和公式经同一 `assemblyEditIntent` 进入 Preview 与 commit；隐藏表单字段仍保留既有定义。非法本地数值显示在字段旁，不发起无效预览；支撑错误留在对应选择框，整体错误、等待状态与重试集中到对话框底部，自由度详情按需展开。取消、旧预览丢弃、定义待更新保存、CAS 及编辑会话生命周期仍由原状态机负责。
+装配约束共用 `assembly-constraint-fields`、`assembly-quantity-input` 与 `assembly-dialog-status`：主表单为支撑、关系、数值/公式和驱动/参考模式，不提供参数名称或求解详情。输入期间仅使旧候选失效并取消迟到请求，不请求预览、不反复恢复或改变位姿；失焦或 Enter 后按完整最终意图预览。取消未失焦草稿后重开命令重新建立候选。输入单位、字面量和公式经同一 `assemblyEditIntent` 进入 Preview 与 commit；非法输入留在字段旁，支撑错误留在选择框，整体错误与重试集中在底部。数量参数由“参数与公式”编辑别名和来源，约束分析列表直接提供定位、编辑和停用，打开编辑器会退出分析面板；不再重复列出已选约束状态、分析完成说明或求解自由度摘要。剩余运动保留可选方向显示、范围排除与失败诊断。取消、CAS、定义待更新保存和会话生命周期仍由原状态机负责。
+
+发布由 `publication-manager.tsx` 统一 Part/Product 的列表和定义编辑，支持当前选择、明确拾取、参数选择与组件发布浏览。列表选择定位公开元素，编辑时明确选择更换目标；名称和目标一次提交，关闭不提交未应用草稿。参考元素复用单个表达式输入及内联别名补全，不再并排提供“插入参数引用”选择器；坐标、方向按向量并排，选择错误在当前对话框内显示。新建拓扑引用仅在已有目标 ID 时检查自引用，不能将两个缺省 ID 误判为同一对象。
 
 CATIA 对照页面为 `online/cfyugasm_C2/cfyugasmut0303.htm`、`cfyugasmut0304.htm`：约束属性集中呈现支撑、相关方向、数值、Measure 模式和求值状态。统一公式输入与诊断位置是本软件基于既有参数模型的设计取舍。
+
+发布参考页面为 `online/cfyugprt_C2/cfyugprtpublish.htm`（Publishing Elements）：名称/元素/状态列表、元素替换、参数选择和 Product 下级发布浏览。稳定 ID、逐项应用与跨文档显式接受是本软件的实现合同，手册对照不等于 CATIA 运行验证。
 
 结构树与属性的具体规则见[语义树](semantic-tree.md)、[对象属性](object-scene-properties.md)。定向浏览器入口为 `browser/workbench-ux-live.spec.ts`；测试代码存在不等于已运行验收。

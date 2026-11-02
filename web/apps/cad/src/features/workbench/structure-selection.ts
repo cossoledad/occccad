@@ -128,6 +128,11 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
           id: `${targetOccurrence || "root"}:${targetId}:${source.target.axis ?? "DATUM"}`,
           entityId: targetId, documentId: node.sourceDocumentId ?? node.documentId, versionId: resolution.resolvedVersionId, instancePath: targetPath,
           occurrencePath: targetOccurrence };
+        if (source.type === "POINT" || source.type === "FRAME") highlightTarget = {
+          kind: source.type === "POINT" ? "reference-point" : "axis-system",
+          id: `${targetOccurrence || "root"}:${targetId}`, entityId: targetId,
+          documentId: node.sourceDocumentId ?? node.documentId, versionId: resolution.resolvedVersionId,
+          instancePath: targetPath, occurrencePath: targetOccurrence };
       }
       if (forwarded && view.structureTree) {
         const canonical=[instancePath?.canonical,forwarded.target.instancePath.canonical].filter(Boolean).join('/');

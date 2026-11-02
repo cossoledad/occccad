@@ -251,7 +251,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 		}
 		var assemblyResult geometry.AssemblySolve
-		kinematicsPreview := prepared.command.TypeURI == typeSetKinematics || prepared.command.TypeURI == typeSetSpatialAnalyses || parameterChangesOnly(previewChanges)
+		kinematicsPreview := prepared.command.TypeURI == typeSetKinematics || prepared.command.TypeURI == typeSetSpatialAnalyses || productParameterChangesOnly(model, previewChanges)
 		retainedFailure := false
 		warmStartKey := ""
 		if request.InteractionID != "" {
@@ -316,7 +316,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 		}
 
 		result := CommandPreview{PreviewID: previewID, ExpiresAt: expiresAt.Format(time.RFC3339Nano), BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
-			ParameterCandidates: model.Parameters, ModelHash: canonicalModelHash(nextJSON), AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
+			ParameterCandidates: productParameterDefinitions(model), ModelHash: canonicalModelHash(nextJSON), AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
 		if retainedFailure {
 			result.EvaluationOutcome = "DEFINITION_ONLY"
 			result.AssemblyComponents = nil

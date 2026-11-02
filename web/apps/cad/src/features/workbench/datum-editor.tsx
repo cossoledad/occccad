@@ -3,13 +3,12 @@ import {CommandField,CommandVector,CommandStatus,fieldErrorText} from "../../cad
 import {FeaturePickScope} from "../../cad/interaction/feature-selection";
 import {engineeringProblem} from "../../cad/command/operation-feedback";
 import {Alert,Input,Segmented} from "antd";
-import {CadNumberInput as InputNumber} from '../../cad/overlay/cad-number-input';
 import {useEffect,useRef,useState} from "react";
 import {api} from "../../api/client";
 import {CommandDialog} from "../../cad/overlay/floating-panel";
 import type {FeatureSelectionSession} from "../../cad/interaction/feature-selection";
 import type {DatumPreview} from "../../cad/rendering/datum-reference";
-import type {DatumReference,DatumTransform,DocumentView,SelectionItem,Vec3} from "../../types";
+import type {DatumReference,DatumTransform,DocumentView,SelectionItem,Vec3,ReferenceConstruction} from "../../types";
 import {displayLengthToMillimeters,millimetersToDisplayLength} from "../../state/ui-preferences";
 import {finiteVector,planarFaceFrame,planeFrame,unitVector} from "./datum-definition";
 import {isSolidFeature} from "./workbench-tree-model";
@@ -26,8 +25,9 @@ export function DatumEditor({kind,view,seed,unit,datumId,occurrencePath,placemen
 }) {
  const existing=kind==="plane"?view.part?.datumPlanes.find(p=>p.id===datumId):view.part?.datumAxes?.find(p=>p.id===datumId);
  const [mode,setMode]=useState(existing&&!existing.definition?"CUSTOM":"REFERENCE"),[name,setName]=useState(existing?.name??"");
- const [origin,setOrigin]=useState<Vec3>((existing?.origin??[0,0,0]).map(v=>millimetersToDisplayLength(v,unit)) as Vec3);
- const [direction,setDirection]=useState<Vec3>(existing&&"normal" in existing?existing.normal:existing&&"direction" in existing?existing.direction:[0,0,1]);
+ const [origin]=useState<Vec3>((existing?.origin??[0,0,0]).map(v=>millimetersToDisplayLength(v,unit)) as Vec3);
+ const [direction]=useState<Vec3>(existing&&"normal" in existing?existing.normal:existing&&"direction" in existing?existing.direction:[0,0,1]);
+ const [customValues,setCustomValues]=useState<Record<string,string>>(()=>Object.fromEntries([...origin.map((v,i)=>['reference:'+['x','y','z'][i],String(v)]),...direction.map((v,i)=>['reference:d'+['x','y','z'][i],String(v)])]));
  const [refs,setRefs]=useState<Partial<Record<Slot,DatumReference>>>(existing?.definition??{});
  const initial=(slot:string,fallback:number,inputUnit:string)=>{const p=view.part?.parameters?.find(p=>p.ownerFeatureId===datumId&&p.propertySlot===slot);return p?parameterSourceText(p,inputUnit,true):String(fallback);};
  const [angle,setAngle]=useState(initial("datum:angle",existing?.definition?.angle??0,"deg"));
@@ -83,6 +83,15 @@ export function DatumEditor({kind,view,seed,unit,datumId,occurrencePath,placemen
   const n=unitVector(direction);if(!finiteVector(center))throw new CommandInputError("原点需要有限数值");
   const frame=kind==="plane"?planeFrame(center,n,existing&&"uDirection" in existing?existing.uDirection:undefined):{origin:center,direction:n};
   input={requestId:intent.current,type:`${datumId?"EDIT":"CREATE"}_DATUM_${kind.toUpperCase()}`,targetId:datumId,name:name.trim(),...frame};
+  if(mode==='CUSTOM'){
+   const construction:ReferenceConstruction={mode:kind==='plane'?'PLANE_COORDINATES':'LINE_COORDINATES',inputs:[],coordinates:center,direction:n,ratio:.5,offset:0,angle:0,coefficients:[0,0,1,0]},expressions:Record<string,string>={};
+   for(const [slot,source] of Object.entries(customValues)){
+    const length=!slot.startsWith('reference:d'),parsed=parseParameterSource(source,length?unit:'');
+    if(parsed.kind==='EXPRESSION'){if(!parsed.expression)throw new CommandInputError('请输入数值或公式');expressions[slot]=parsed.expression;}
+    else {if(length&&!['mm','cm','m','in'].includes(parsed.unit)||!length&&parsed.unit!=='')throw new CommandInputError('坐标需要长度，方向需要无量纲数值');const vector=length?construction.coordinates:construction.direction;const axis=slot.at(-1)!;vector[['x','y','z'].indexOf(axis)]=length?displayLengthToMillimeters(parsed.value,parsed.unit as typeof unit):parsed.value;}
+   }
+   input.referenceConstruction=construction;input.parameterExpressions=expressions;
+  }
   if(mode==="REFERENCE"){
    parameterSlot="source";if(!refs.source)throw new CommandInputError("请选择源基准");
    parameterSlot="angle";const a=parseParameterSource(angle,"deg");
@@ -108,12 +117,13 @@ export function DatumEditor({kind,view,seed,unit,datumId,occurrencePath,placemen
   if(ref.kind==="AXIS"||ref.kind==="AXIS_SYSTEM")return [{...context,kind:"axis",id:ref.entityId!,entityId:ref.entityId!,axis:ref.kind==="AXIS"?"DATUM":ref.axis!}];
   if(ref.kind==="SKETCH_LINE")return [{...context,kind:"visual",id:ref.entityId!,entityId:ref.entityId!,featureId:ref.featureId!,visualType:"CURVE"}];return [];
  };
- const vector=(title:string,values:Vec3,set:(value:Vec3)=>void)=><CommandVector label={title}>{["X","Y","Z"].map((axis,i)=><CommandField key={axis} label={<>{axis}</>} width="coordinate"><InputNumber aria-label={`${title} ${axis}`} value={Number.isFinite(values[i])?values[i]:null} onChange={v=>set(values.map((x,j)=>i===j?v??NaN:x) as Vec3)}/></CommandField>)}</CommandVector>;
+ const vector=(title:string,prefix:string)=><CommandVector label={title}>{['x','y','z'].map(axis=><CommandField key={axis} label={axis.toUpperCase()} width="coordinate"><ParameterReferenceInput value={customValues['reference:'+prefix+axis]} onChange={value=>setCustomValues(current=>({...current,['reference:'+prefix+axis]:value}))} parameters={view.part?.parameters??[]} unit={prefix?undefined:unit}/></CommandField>)}</CommandVector>;
+
  return <CommandDialog id={`datum-${kind}`} open size="M" title={`${datumId?"编辑":"创建"}基准${kind==="plane"?"面":"轴"}`} onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={loading||preview.pending} error={preview.error} onRetry={preview.retry}/>} confirmLoading={busy} confirmDisabled={!input||!preview.previewId||preview.pending||loading} onConfirm={async()=>{if(!input||!preview.previewId||busy)return;setBusy(true);try{await onApply({...input,previewId:preview.previewId});onClose();}catch(cause){setError(engineeringProblem(cause));setBusy(false);}}}>
   <CommandField  label={<>名称</>} error={parameterSlot==="name"?parameterError:undefined} width="name"><Input placeholder="自动命名" value={name} onChange={e=>setName(e.target.value)}/></CommandField>
   <Segmented block value={mode} options={[{label:"关联参考",value:"REFERENCE"},{label:"自由坐标",value:"CUSTOM"}]} onChange={v=>{setMode(v);activate();}}/>
-  {mode==="CUSTOM"?<>{vector(`原点（${unit}）`,origin,setOrigin)}{vector(kind==="plane"?"法向":"方向",direction,setDirection)}</>:<>
-   {(["source","rotationAxis","translationDirection"] as Slot[]).map(slot=><FeaturePickField key={slot} selected={Boolean(refs[slot])} label={slot==="source"?"源基准":slot==="rotationAxis"?"旋转轴":"平移方向"} value={refs[slot]?label(refs[slot]):slot==="source"?"未选择":"默认"} active={picking===slot} onActivate={()=>activate(slot)} error={parameterSlot===slot?parameterError:undefined} selections={datumSelection(refs[slot])} onClear={refs[slot]?()=>setRefs(old=>({...old,[slot]:undefined})):undefined}/>)}
+  {mode==="CUSTOM"?<>{vector(`原点（${unit}）`,'')}{vector(kind==="plane"?"法向":"方向",'d')}</>:<>
+   {(["source","rotationAxis","translationDirection"] as Slot[]).map(slot=><FeaturePickField compact key={slot} selected={Boolean(refs[slot])} label={slot==="source"?"源基准":slot==="rotationAxis"?"旋转轴":"平移方向"} value={refs[slot]?label(refs[slot]):slot==="source"?"未选择":"默认"} active={picking===slot} onActivate={()=>activate(slot)} error={parameterSlot===slot?parameterError:undefined} selections={datumSelection(refs[slot])} onClear={refs[slot]?()=>setRefs(old=>({...old,[slot]:undefined})):undefined}/>)}
    <CommandField  label={<>旋转角度（deg）</>} error={parameterSlot==="angle"?parameterError:undefined} width="expression"><ParameterReferenceInput value={angle} onChange={setAngle} parameters={view.part?.parameters??[]} placeholder="倾角 或 30 deg"/></CommandField>
    <CommandField  label={<>平移距离（{unit}）</>} error={parameterSlot==="distance"?parameterError:undefined} width="expression"><ParameterReferenceInput value={distance} onChange={setDistance} parameters={view.part?.parameters??[]} unit={unit} placeholder="高度 或 20 mm"/></CommandField>
   </>}

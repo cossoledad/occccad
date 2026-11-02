@@ -235,17 +235,17 @@ func TestBottomSupportParametricDatumLifecycleThroughRouter(t *testing.T) {
 	if view.Part.DatumPlanes[i].Visible == nil || *view.Part.DatumPlanes[i].Visible {
 		t.Fatal("plane visibility Redo")
 	}
-	apply(workspace.CommandRequest{Type: "SET_DEFINITION_VISIBILITY", TargetKind: "ORIGIN", TargetID: "origin", Visible: false})
-	if view.Part.OriginVisible == nil || *view.Part.OriginVisible || view.Part.Bodies[0].GeometryKey != key {
-		t.Fatalf("Origin visibility=%v geometry=%s want=%s", view.Part.OriginVisible, view.Part.Bodies[0].GeometryKey, key)
+	apply(workspace.CommandRequest{Type: "SET_DEFINITION_VISIBILITY", TargetKind: "DATUM_POINT", TargetID: system, Visible: false})
+	if view.Part.AxisSystems[0].PointVisible == nil || *view.Part.AxisSystems[0].PointVisible || view.Part.Bodies[0].GeometryKey != key {
+		t.Fatalf("axis origin visibility=%v geometry=%s want=%s", view.Part.AxisSystems[0].PointVisible, view.Part.Bodies[0].GeometryKey, key)
 	}
 	apply(workspace.CommandRequest{Type: "UNDO"})
-	if view.Part.OriginVisible != nil && !*view.Part.OriginVisible {
-		t.Fatal("Origin Undo")
+	if view.Part.AxisSystems[0].PointVisible != nil && !*view.Part.AxisSystems[0].PointVisible {
+		t.Fatal("axis origin Undo")
 	}
 	apply(workspace.CommandRequest{Type: "REDO"})
-	if view.Part.OriginVisible == nil || *view.Part.OriginVisible {
-		t.Fatal("Origin Redo")
+	if view.Part.AxisSystems[0].PointVisible == nil || *view.Part.AxisSystems[0].PointVisible {
+		t.Fatal("axis origin Redo")
 	}
 	apply(workspace.CommandRequest{Type: "SET_DEFINITION_VISIBILITY", TargetKind: "AXIS", TargetID: system, Axis: "X", Visible: false})
 	if view.Part.AxisSystems[0].AxisVisibility["X"] {
@@ -253,7 +253,7 @@ func TestBottomSupportParametricDatumLifecycleThroughRouter(t *testing.T) {
 	}
 	cold = workspace.NewWithArtifacts(db, client, artifacts)
 	reopened, e = cold.GetDocument(t.Context(), view.Document.ID, p6Actor)
-	if e != nil || reopened.Part.OriginVisible == nil || *reopened.Part.OriginVisible || reopened.Part.AxisSystems[0].AxisVisibility["X"] {
+	if e != nil || reopened.Part.AxisSystems[0].PointVisible == nil || *reopened.Part.AxisSystems[0].PointVisible || reopened.Part.AxisSystems[0].AxisVisibility["X"] {
 		t.Fatal("cold display state", e)
 	}
 	check(60, 50, 12)

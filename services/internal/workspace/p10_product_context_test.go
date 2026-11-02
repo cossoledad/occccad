@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/occccad/occccad/internal/modelcore"
 	"math"
 	"strings"
@@ -359,5 +360,55 @@ func TestRebasedLocalAssignmentIsReadableButNotEditable(t *testing.T) {
 	bindStructureVariants(&root, []ContextVariantSnapshot{{OwningInstancePath: binding.OwningInstancePath, VariantKey: "failed", Status: "FAILED"}})
 	if root.GeometryKey != "" || root.Snapshot.GeometryKey != "" {
 		t.Fatal("failed contextual input exposes default geometry", root)
+	}
+}
+
+// Accepted frames override default constructions only in the occurrence copy.
+func TestContextDatumMaterializationOverridesDefaultConstruction(t *testing.T) {
+	for _, kind := range []string{"PLANE", "AXIS"} {
+		for _, local := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/local=%t", kind, local), func(t *testing.T) {
+				m := newPartModel()
+				mode := "PLANE_COORDINATES"
+				if kind == "AXIS" {
+					mode = "LINE_COORDINATES"
+				}
+				construction := &ReferenceConstruction{Mode: mode, Coordinates: [3]float64{99, 0, 0}, Direction: [3]float64{0, 0, 1}}
+				if kind == "PLANE" {
+					m.DatumPlanes = append(m.DatumPlanes, DatumPlane{ID: "port", Construction: construction})
+				} else {
+					m.DatumAxes = append(m.DatumAxes, DatumAxis{ID: "port", Construction: construction})
+				}
+				input := ContextInput{ID: "input", Type: kind, Target: ContextInputTarget{Kind: "DATUM", TargetID: "port"}}
+				m.ContextInputs = []ContextInput{input}
+				binding := ContextBinding{ContextInputID: input.ID, Transform: InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, Accepted: ContextBindingResolutionSnapshot{Status: "CONNECTED"}, Resolution: PublicationResolution{Status: "CONNECTED", Origin: [3]float64{10, 20, 30}, ZDirection: [3]float64{0, 0, 1}, XDirection: [3]float64{1, 0, 0}}}
+				var err error
+				if local {
+					err = materializeLocalInput(&m, input, &ContextInputLocalValue{Type: kind, Origin: binding.Resolution.Origin, Direction: binding.Resolution.ZDirection, XDirection: binding.Resolution.XDirection})
+				} else {
+					err = materializeContextBindingVariant(&m, binding)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := (&Service{}).resolveDatumDefinitions(t.Context(), "doc", "request", &m, 0); err != nil {
+					t.Fatal(err)
+				}
+				if kind == "PLANE" {
+					p := m.DatumPlanes[len(m.DatumPlanes)-1]
+					if p.Origin != binding.Resolution.Origin || p.Construction != nil {
+						t.Fatal("accepted plane was overwritten", p)
+					}
+				} else {
+					p := m.DatumAxes[len(m.DatumAxes)-1]
+					if p.Origin != binding.Resolution.Origin || p.Construction != nil {
+						t.Fatal("accepted axis was overwritten", p)
+					}
+				}
+				if construction.Coordinates != [3]float64{99, 0, 0} {
+					t.Fatal("shared default mutated")
+				}
+			})
+		}
 	}
 }

@@ -42,6 +42,28 @@ func publicationUseInModel(documentType string, raw []byte, sourceDocumentID, pu
 		if err := json.Unmarshal(raw, &model); err != nil {
 			return "", err
 		}
+		for _, parameter := range productParameterDefinitions(model) {
+			if external := parameter.Source.External; external != nil && external.SourceDocumentID == sourceDocumentID && external.PublicationID == publicationID {
+				return "Parameter " + parameter.ParameterID, nil
+			}
+		}
+		for _, constraint := range model.Constraints {
+			for _, ref := range []*AssemblyGeometryRef{&constraint.First, constraint.Second, constraint.AngleAxis} {
+				if ref == nil || ref.PublicationRef == nil || ref.PublicationRef.PublicationID != publicationID {
+					continue
+				}
+				if ref.InstancePath != nil && pathReferencesDocument(*ref.InstancePath, sourceDocumentID) {
+					return "AssemblyConstraint " + constraint.ID, nil
+				}
+				if ref.InstancePath == nil {
+					for _, i := range model.Instances {
+						if i.ID == ref.InstanceID && i.ReferencedDocumentID == sourceDocumentID {
+							return "AssemblyConstraint " + constraint.ID, nil
+						}
+					}
+				}
+			}
+		}
 		for _, binding := range model.ContextBindings {
 			if binding.Publication.PublicationID == publicationID && pathReferencesDocument(binding.SourceInstancePath, sourceDocumentID) {
 				return "ContextBinding " + binding.ID, nil

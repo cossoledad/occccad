@@ -114,9 +114,10 @@ type renameInstancePayload struct {
 }
 
 type productPublicationEditPayload struct {
-	PublicationID   string `json:"publicationId"`
-	Name            string `json:"name"`
-	SemanticPurpose string `json:"semanticPurpose,omitempty"`
+	PublicationID   string              `json:"publicationId"`
+	Name            string              `json:"name"`
+	SemanticPurpose string              `json:"semanticPurpose,omitempty"`
+	Target          *ProductPublication `json:"target,omitempty"`
 }
 
 type contextInputPayload struct {
@@ -196,6 +197,14 @@ func applyEditProductPublication(modelJSON, payloadJSON json.RawMessage) (json.R
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: Product Publication does not exist", ErrValidation)
 	}
 	old := model.Publications[oldIndex]
+	if payload.Target != nil {
+		replacement := *payload.Target
+		if replacement.ID != old.ID || replacement.Type != old.Type || resolvedDigest(replacement.Contract) != resolvedDigest(old.Contract) {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: PUBLICATION_CONTRACT_INCOMPATIBLE", ErrValidation)
+		}
+		replacement.CompatibilityVersion = old.CompatibilityVersion
+		model.Publications[oldIndex] = replacement
+	}
 	if err := ensureUniqueScopedName(payload.Name, names, old.Name); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}

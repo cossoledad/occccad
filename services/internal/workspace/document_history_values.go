@@ -134,7 +134,7 @@ func productHistoryValues(modelJSON json.RawMessage, set modelcore.ChangeSet) (m
 		return nil, err
 	}
 	for _, change := range set.Changes {
-		if value, handled, err := parameterHistory(&model.Parameters, change.Target, nil, false); handled {
+		if value, handled, err := productParameterHistory(&model, change.Target, nil, false); handled {
 			if err != nil {
 				return nil, err
 			}
@@ -503,7 +503,7 @@ func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.P
 		return nil, err
 	}
 	for address, value := range values {
-		if _, handled, err := parameterHistory(&model.Parameters, address, value, true); handled {
+		if _, handled, err := productParameterHistory(&model, address, value, true); handled {
 			if err != nil {
 				return nil, err
 			}
@@ -658,7 +658,7 @@ func applyProductHistoryValues(modelJSON json.RawMessage, values map[modelcore.P
 	if err := syncMeasurementParameters(&model.Parameters, model.Measurements); err != nil {
 		return nil, err
 	}
-	if _, err := resolveParameterDefinitions(model.Parameters); err != nil {
+	if err := resolveProductParameters(&model, ""); err != nil {
 		return nil, err
 	}
 	clearMeasurementProjection(model.Measurements)

@@ -331,6 +331,9 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 		if err := service.resolveVariantModel(ctx, owner.DocumentID, variant.VariantKey, &projection, bindings); err != nil {
 			return ContextVariantSnapshot{}, err
 		}
+		// Match evaluatePartBodies normalization on a cache miss, including free
+		// datum constructions derived from accepted context frames.
+		normalizePartModel(&projection)
 		projection.Bodies = variant.Bodies
 		// Publications belong to the same accepted evaluation as cached bodies.
 		// Reprojection uses a request key, not that evaluation's synthetic
@@ -632,7 +635,7 @@ func materializeContextBindingVariant(model *PartModel, binding ContextBinding) 
 				p.Origin = pointByPose(binding.Transform, value.Origin)
 				p.Normal = rotateByPose(binding.Transform, value.ZDirection)
 				p.UDirection = rotateByPose(binding.Transform, value.XDirection)
-				p.Definition = nil
+				p.Definition, p.Construction = nil, nil
 				return nil
 			}
 		}
@@ -641,7 +644,7 @@ func materializeContextBindingVariant(model *PartModel, binding ContextBinding) 
 			if input.Type == "AXIS" && p.ID == input.Target.TargetID {
 				p.Origin = pointByPose(binding.Transform, value.Origin)
 				p.Direction = rotateByPose(binding.Transform, value.ZDirection)
-				p.Definition = nil
+				p.Definition, p.Construction = nil, nil
 				return nil
 			}
 		}

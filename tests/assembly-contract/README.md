@@ -102,6 +102,8 @@ mise run contract --purpose gaps --family Offset --adapters go,web,web-catalog
 
 `baseline.assertionReview20261011` 记录显示绑定、候选生命周期、两位数值显示、原生测试资源与历史证据的逐项审查。仅同步已审查断言源码摘要，案例身份、目标预期、证据映射与实现下限保持原合同；移动手柄生命周期断言同样纳入源码锁。本次 `mechanismRecordingReview20261011` 记录调度器新增暂态完整检查点断言及单一源摘要的审查；普通拖动门禁、目标语义、数值预期与覆盖下限保持。该审查不是新的执行报告；实际执行范围以当次生成报告为准，证据限制见[验证合同](../../docs/architecture/current/validation.md)。
 
+`baseline.publicationAndAnalysisUiReview20261102` 仅审查 `m5.engineering.command-panel` 的界面声明与断言源码：按用户要求移除冗余说明，列表直接编辑/停用，并新增实际行回调的稳定 ID/精确 Revision 断言。数学合同、其他案例、容差与覆盖下限保持；定向组件场景和真实浏览器的执行证据分别保存在本次检查报告中。
+
 ## 报告与性能边界
 
 报告派生自目录和实际结果，保存 commit/dirty、schema/version、命令/环境/选择、预期/观察、证据层与未执行/缺测/失败/阻塞。PASS 数量从报告生成，不永久手写多份。测试存在、历史运行、本次执行及维护者反馈分别标记。

@@ -3,7 +3,7 @@ import {expect,type Page} from '@playwright/test';
 type TreeNode={id:string;name:string;children?:TreeNode[]};
 /** Expand semantic ancestors using the real tree controls. This does not filter
  * rows or install a product-only testing route. */
-export function treeNavigator(page:Page){return async(text:string)=>{
+export function treeNavigator(page:Page){return async(text:string,targetSuffix?:string)=>{
  if(!text.trim())return;
  const tree=await page.evaluate(async()=>{
   // @ts-ignore Vite application module, shared by live and explicit Mock tests.
@@ -13,9 +13,10 @@ export function treeNavigator(page:Page){return async(text:string)=>{
  }) as TreeNode|undefined;
  if(!tree)throw new Error('No document structure');
  const expand=new Set<string>();
+ let targetKey:string|undefined;
  const subtree=(node:TreeNode)=>{if(node.children?.length){expand.add(node.id);node.children.forEach(subtree)}};
  const visit=(node:TreeNode,parents:TreeNode[])=>{
-  if(node.name.toLocaleLowerCase().includes(text.trim().toLocaleLowerCase())){parents.forEach(p=>expand.add(p.id));subtree(node)}
+  if(targetSuffix?node.id.endsWith(targetSuffix):node.name.toLocaleLowerCase().includes(text.trim().toLocaleLowerCase())){parents.forEach(p=>expand.add(p.id));if(!targetSuffix)subtree(node);targetKey??=node.id}
   node.children?.forEach(child=>visit(child,[...parents,node]));
  };visit(tree,[]);
  const scroll=page.locator('.specification-tree');
@@ -45,4 +46,14 @@ export function treeNavigator(page:Page){return async(text:string)=>{
   if(!expanded)throw new Error('Tree row stayed detached: '+key);
  }
  await scroll.evaluate(el=>{el.scrollTop=0});
+ if(targetSuffix){
+  if(!targetKey)throw new Error('No semantic tree target: '+targetSuffix);
+  const row=page.locator(`[role=treeitem][data-tree-key=${JSON.stringify(targetKey)}]`);
+  for(let tries=0;await row.count()===0&&tries<100;tries++){
+   await scroll.evaluate(el=>{el.scrollTop+=Math.max(80,el.clientHeight*.8)});await page.waitForTimeout(20);
+  }
+  await expect(row).toBeAttached();
+  await row.evaluate(el=>{const owner=el.closest('.specification-tree');if(owner)owner.scrollTop+=el.getBoundingClientRect().top-owner.getBoundingClientRect().top-owner.clientHeight/2;});
+  await expect(row).toBeInViewport();
+ }
 };}

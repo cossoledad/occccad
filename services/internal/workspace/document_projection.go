@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/occccad/occccad/internal/modelcore"
 	"slices"
 
 	perf "github.com/occccad/occccad/internal/performance"
@@ -89,6 +90,7 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	if err := resolveProductParameters(&model, summary.VersionID); err != nil {
 		return view, err
 	}
+	model.Parameters = productParameterDefinitions(model)
 	presentDocumentParameters(model.Parameters)
 	view.ReferenceUpdates = service.projectPartReferenceUpdates(ctx, parameterPartContext(&parameterDocument{product: &model, Parameters: model.Parameters}))
 	view.Product = &model
@@ -321,6 +323,13 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 			if isAssemblyGroup(constraint) {
 				node.Children = assemblyGroupReferenceNodes(node.ID, documentID, "", constraint, func(id string) string { return names[id] }, model.Constraints)
 			}
+			if constraint.QuantityParameter != nil {
+				for _, p := range productParameterDefinitions(model) {
+					if p.ParameterID == constraint.QuantityParameter.ParameterID {
+						node.Children = append(node.Children, documentParameterStructure([]modelcore.ParameterDefinition{p}, node.ID, documentID, versionID).Children...)
+					}
+				}
+			}
 			group.Children = append(group.Children, node)
 		}
 		root.Children = append(root.Children, group)
@@ -340,8 +349,8 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 	if len(applications.Children) > 0 {
 		root.Children = append(root.Children, applications)
 	}
-	if len(model.Parameters) > 0 {
-		root.Children = append(root.Children, documentParameterStructure(model.Parameters, path, documentID, versionID))
+	if parameters := productParameterDefinitions(model); len(parameters) > 0 {
+		root.Children = append(root.Children, documentParameterStructure(parameters, path, documentID, versionID))
 	}
 	annotateStructure(&root, documentID, "")
 	applyOccurrenceVisibilityProjection(&root, model.VisibilityOverrides)

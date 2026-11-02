@@ -181,8 +181,6 @@
 
 .assembly-dialog-status { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; font-size:12px; color:var(--color-text-secondary); }
 .assembly-dialog-status.has-error { color:var(--color-danger); }
-.assembly-dialog-status details { flex-basis:100%; }
-.assembly-dialog-status summary { cursor:pointer; }
 .assembly-dialog-status p { margin:4px 0; }
 
 .assembly-constraint-form .command-group { gap:8px; padding-top:8px; }

@@ -1,3 +1,4 @@
+import {PublicationManager} from "./publication-manager";
 import {AssemblyDialogStatus} from "./assembly-dialog-status";
 import {ParameterExternalEditor} from "./parameter-external-editor";
 import {ReferenceElementEditor} from "./reference-element-editor";
@@ -17,7 +18,6 @@ import {DesignInputDialog} from "./design-input-dialog";
 import {ReplaceInstanceDialog} from "./replace-instance-dialog";
 import {ContextInputSource,boundContextParameter as contextParameterBinding} from './context-input-source';
 import {FeaturePickField} from './feature-pick-field';
-import {publicationSelectionTarget,publicationForwardTarget} from './publication-target';
 import {DesignAssociationDialog} from "./design-association-dialog";
 import {setContextEditScope,acceptedContextView,baseDocumentView,contextScopeForView,viewContextKey,commandForView} from "../../api/context-edit-scope";
 import {CommandFormContext,CommandField} from "../../cad/overlay/command-form";
@@ -262,8 +262,6 @@ export function Workbench() {
   const [datumPreview, setDatumPreview] = useState<DatumPreview>();
   const [parameterManagerOpen, setParameterManagerOpen] = useState(false);
   const [publicationManagerOpen, setPublicationManagerOpen] = useState(false);
-  const [publicationPick,setPublicationPick]=useState<import("../../types").SelectionItem>();
-  const [pickingPublication,setPickingPublication]=useState(false);
   const [designAssociationOpen,setDesignAssociationOpen]=useState(false);
   const [externalParameterID, setExternalParameterID] = useState<string>();
   const [editingParameterID, setEditingParameterID] = useState<string>();
@@ -314,8 +312,6 @@ export function Workbench() {
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const [parameterForm] = Form.useForm<{ key: string; source: string }>();
   const [createUserParameterForm] = Form.useForm<{name?:string;value:number;unit:string}>();
-  const [publicationForm] = Form.useForm<{ name: string; semanticPurpose: string }>();
-  const [publicationEditForm] = Form.useForm<{name:string;semanticPurpose:string}>();
 
   const [replacementOpen,setReplacementOpen]=useState(false);
   const [replacementInstanceId,setReplacementInstanceId]=useState<string>();
@@ -424,8 +420,8 @@ export function Workbench() {
   }, [client, documentID, message]);
   const command = useMutation({
     onMutate:async()=>{await viewport.current?.settleAssemblyInteraction();},
-    mutationFn: (operation: () => Promise<DocumentView>) => operation(),
-    onSuccess: (updated) => { const projection=updated.contextProduct??updated;const before=client.getQueryData<DocumentView>(queryKeys.document(projection.document.id));const intent=createdObjectReveal(before,projection);if(intent)requestTreeReveal(documentSessions,documentID,intent);store.setSelection(null); void refresh(updated); }, onError: (error) => operationFeedback(error,"命令")
+    mutationFn: (operation: (() => Promise<DocumentView>) & {inlineFailure?:boolean}) => operation(),
+    onSuccess: (updated) => { const projection=updated.contextProduct??updated;const before=client.getQueryData<DocumentView>(queryKeys.document(projection.document.id));const intent=createdObjectReveal(before,projection);if(intent)requestTreeReveal(documentSessions,documentID,intent);store.setSelection(null); void refresh(updated); }, onError: (error,operation) => {if(!operation.inlineFailure)operationFeedback(error,"命令");}
   });
   const motionMutation=useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),onError:(error)=>operationFeedback(error,"机械装置")});
   const moveCommand = useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),
@@ -583,12 +579,15 @@ export function Workbench() {
       const first=contactRelationOptions(contactCapabilities)[0];if(first)assemblyConstraintForm.setFieldValue("contactKind",first);
     }
   },[assemblyExactTypes,pendingAssemblyConstraint?.kind,assemblyContactKind,assemblyConstraintForm,assemblyCapabilityQuery.data]);
-  const invalidateAssemblyDefinition = () => {
+  const assemblyTextEditing=useRef(false);
+  if(!editingAssemblyConstraint&&!pendingAssemblyConstraint)assemblyTextEditing.current=false;
+  const invalidateAssemblyDefinition = (preview=true) => {
+    assemblyTextEditing.current=!preview;
     assemblyDialogLifecycle.current.invalidate();
     assemblyCandidate.current.invalidate();
     assemblyPreviewSequence.current+=1;assemblyPreviewAbort.current?.abort();assemblyPreviewID.current=undefined;
-    viewport.current?.clearCommandPreview();setAssemblyPreviewEvaluation(undefined);setAssemblyDefinitionDirty(true);
-    assemblyPreviewActor.current?.send({type:"CHANGE"});setAssemblyPreviewCommit(value=>value+1);
+    if(preview)viewport.current?.clearCommandPreview();setAssemblyPreviewEvaluation(undefined);setAssemblyDefinitionDirty(true);
+    assemblyPreviewActor.current?.send({type:"CHANGE"});if(preview)setAssemblyPreviewCommit(value=>value+1);
   };
   useEffect(()=>{
     if(!editingGroup||!editingView||!groupPicking)return;
@@ -869,6 +868,7 @@ export function Workbench() {
   }, [store.selection, replacingAssemblyReference, editingAssemblyConstraint, pendingAssemblyConstraint,removedAssemblySupports]);
 
   useEffect(() => {
+    if(assemblyTextEditing.current)return;
     const previewState = assemblyPreviewActor.current?.getSnapshot().value;
     if (previewState && !assemblyAutomaticPreviewAllowed(previewState)) return;
     const constraint = editingAssemblyConstraint;
@@ -971,6 +971,7 @@ export function Workbench() {
     if (!editingView) return; command.mutate(() => direction === "undo" ? api.undo(editingView.document.id) : api.redo(editingView.document.id));
   };
   const openAssemblyConstraintEditor = (constraint: AssemblyConstraint, reconnect = false) => {
+    assemblyTextEditing.current=false;setConflictOpen(false);
     assemblyDialogLifecycle.current.invalidate();
     assemblyCandidate.current.invalidate();assemblyPreviewSequence.current++;assemblyPreviewAbort.current?.abort();assemblyPreviewID.current=undefined;
     assemblyDraftBase.current=editingView ? {documentId:editingView.document.id,revision:editingView.document.versionId} : undefined;
@@ -1515,74 +1516,13 @@ onToggleConstruction:(node)=>{
 
 
   const selected = selectedFeature(editingView ?? {} as DocumentView, store.selection);
-  const publicationPath=activeResolvedInstance?.instancePath;
-  const publicationTarget = () => editingView?publicationSelectionTarget(editingView,publicationPick,publicationPath):undefined;
-  const validForward=(pick:import("../../types").SelectionItem|undefined)=>!!editingView&&!!publicationForwardTarget(editingView,pick,publicationPath);
-  useEffect(()=>{
-    if(!publicationManagerOpen)return;
-    setPublicationPick(undefined);setPickingPublication(true);
-    return()=>{setFeatureSelection(undefined);setPickingPublication(false)};
-  },[publicationManagerOpen,editingView?.document.id,editingView?.document.versionId,publicationPath?.canonical]);
-  useEffect(()=>{
-    if(!publicationManagerOpen||!pickingPublication||!editingView)return;
-    const accepts=(pick:import("../../types").SelectionItem)=>editingView.part?!!publicationSelectionTarget(editingView,pick,publicationPath):validForward(pick);
-    setFeatureSelection({role:'geometry',documentId:editingView.document.id,versionId:editingView.document.versionId,selections:publicationPick?[publicationPick]:[],accept:accepts,onPick:pick=>{if(accepts(pick)){setPublicationPick(pick);setPickingPublication(false)}}});
-    return()=>setFeatureSelection(undefined);
-  },[publicationManagerOpen,pickingPublication,editingView?.document.id,editingView?.document.versionId,publicationPath?.canonical]);
-  const createSelectedPublication = async () => {
-    if (!editingView) return;
-    const target = publicationTarget();
-    if (!target) { message.warning("请先选择基准、面、边或 PartBody"); return; }
-    const values = await publicationForm.validateFields();
-    command.mutate(() => api.createPublication(editingView.document.id, { ...target, ...values }),
-      { onSuccess: () => publicationForm.resetFields() });
-  };
-  const forwardSelectedPublication = async () => {
-    const target=editingView&&publicationForwardTarget(editingView,publicationPick,publicationPath);
-    if (!editingView?.product || !target) {
-      message.warning("请选择子实例的发布接口"); return;
-    }
-    const values = await publicationForm.validateFields();
-    command.mutate(() => api.createProductPublication(editingView.document.id, target.instanceId,
-      target.publicationId, values.name, values.semanticPurpose, target.instancePath));
-  };
-
   const publishParameter = (parameter: ParameterDefinition) => {
     if (!editingView) return;
     command.mutate(() => api.createPublication(editingView.document.id, {
       semanticPurpose: parameter.label, publicationType: "PARAMETER", targetKind: "PARAMETER", targetId: parameter.parameterId }));
   };
-  const redirectPublicationToSelection = (publicationId: string, publicationType: string) => {
-    if (!editingView) return;
-    const target = publicationTarget();
-    if (!target || target.publicationType !== publicationType) {
-      message.warning("请选择与该接口兼容的对象"); return;
-    }
-    command.mutate(() => api.redirectPublication(editingView.document.id, publicationId, target));
-  };
-  const redirectProductPublicationToSelection = (publicationId: string) => {
-    const source = publicationPick;
-    const target=editingView&&publicationForwardTarget(editingView,source,publicationPath);
-    if (!target || !editingView?.product) {
-      message.warning("请选择当前装配中的来源接口"); return;
-    }
-    command.mutate(() => api.command(editingView.document.id, {type:"REDIRECT_PRODUCT_PUBLICATION",
-      publicationId, targetId:target.publicationId, instancePath:target.instancePath}));
-  };
-  const openPublicationEditor = (publicationID: string, kind: "PART" | "PRODUCT") => {
-    const publication = kind === "PART" ? editingView?.part?.publications?.find((item) => item.id === publicationID)
-      : editingView?.product?.publications?.find((item) => item.id === publicationID);
-    if (!publication) return;
-    publicationEditForm.setFieldsValue({name:publication.name,semanticPurpose:publication.semanticPurpose ?? ""});
-    setEditingPublication({id:publicationID,kind});
-  };
-  const commitPublicationEdit = async () => {
-    if (!editingView || !editingPublication) return;
-    const values = await publicationEditForm.validateFields();
-    command.mutate(() => editingPublication.kind === "PART"
-      ? api.editPublication(editingView.document.id, editingPublication.id, values)
-      : api.editProductPublication(editingView.document.id, editingPublication.id, values.name, values.semanticPurpose),
-      {onSuccess:()=>setEditingPublication(undefined)});
+  const openPublicationEditor = (id:string,kind:"PART"|"PRODUCT") => {
+    setEditingPublication({id,kind});setPublicationManagerOpen(true);
   };
   const openParameterEditor = (parameterID: string) => {
 	const parameter = documentParameters(editingView).find((candidate) => candidate.parameterId === parameterID);
@@ -1670,8 +1610,6 @@ onToggleConstruction:(node)=>{
 
   const assemblyPreviewPending = assemblyPreviewSnapshot.matches("pending");
   const assemblyPreviewFailed = assemblyPreviewSnapshot.matches("failed");
-  const motionComponents = assemblyPreviewSnapshot.matches("succeeded") ? assemblyPreviewSnapshot.context.components : undefined;
-  const freedomNames = ["固定", "转动", "滑动", "圆柱", "平面", "球面", "自由", "耦合"];
   const supportQueryError=assemblySupportQuery.error??assemblyCapabilityQuery.error??angleAxisQuery.error;
   const unsupportedPair=!editingGroup&&assemblyExactTypes?.length&&!assemblySupportsReady&&assemblyInspection?.supports.every(s=>s.status==='RESOLVED')&&!assemblyTargetSupports?.some(s=>s.constraintEligible!==true);
   const assemblyDialogError=reconnectError??(supportQueryError?engineeringProblem(supportQueryError):undefined)??(unsupportedPair?'所选几何不支持此关系':undefined)??(assemblyPreviewFailed?engineeringProblem({code:assemblyPreviewSnapshot.context.errorCode,message:assemblyPreviewSnapshot.context.error}):undefined);
@@ -1680,11 +1618,7 @@ onToggleConstruction:(node)=>{
     error={assemblyDialogError}
     warning={assemblyPreviewSnapshot.matches('definitionReady')?'计算未完成，可保存为待更新':undefined}
     summary={assemblyPreviewSnapshot.matches('succeeded')?'约束已满足':undefined}
-    onRetry={()=>{if(supportQueryError){void assemblySupportQuery.refetch();void assemblyCapabilityQuery.refetch();if(angleAxis)void angleAxisQuery.refetch()}else invalidateAssemblyDefinition()}}
-    details={motionComponents?.length?<div aria-label="装配求解结果">{motionComponents.map(component=><div key={component.componentId}>
-      <p>剩余相对自由度：{component.relativeDof} · 整体自由度：{component.gaugeDof}</p>
-      {component.freedoms.filter(f=>!f.relativeToBodyId||f.bodyId!==f.relativeToBodyId).map(f=><p key={f.bodyId}>{editingView?.product?.instances.find(i=>i.id===f.bodyId)?.name??'引用零件已丢失'}：{freedomNames[f.kind]}（{f.translationDof} 平移 / {f.rotationDof} 转动）</p>)}
-    </div>)}</div>:undefined}/>;
+    onRetry={()=>{if(supportQueryError){void assemblySupportQuery.refetch();void assemblyCapabilityQuery.refetch();if(angleAxis)void angleAxisQuery.refetch()}else invalidateAssemblyDefinition()}}/>;
 
 
   const activeTabIDs=new Set(activeTabs.map(tab=>tab.id));
@@ -1905,7 +1839,7 @@ onToggleConstruction:(node)=>{
           treeNodeId:`${view?.constraintDisplayScopes?.find(scope=>scope.documentId===target.id && scope.instancePath.canonical===activeInstancePath)?.treeNodeId??`document:${updated.document.id}`}/assembly-constraints/constraint:${constraint.id}`});},
 		  onError:(cause)=>{assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)});}}));
       }}>
-      <Form className="assembly-constraint-form" form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>
+      <Form className="assembly-constraint-form" form={assemblyConstraintForm} layout="vertical" onValuesChange={changed=>invalidateAssemblyDefinition(!Object.keys(changed).some(key=>["quantityInput","fixedTranslation","fixedAngles"].includes(key)))}>
         {editingAssemblyConstraint?.kind === "ANGLE" && <AssemblyAngleParameters value={editingAssemblyConstraint} view={editingView}
           error={axisInspection?.supports.slice(1).find(s=>s.constraintEligible!==true)?.constraintDiagnostic} axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis} picking={replacingAssemblyReference===2} onLocate={()=>{if(resolvedAngleAxis)viewport.current?.focusAssemblyReference(resolvedAngleAxis)}}
           onChange={value=>{invalidateAssemblyDefinition();if(!angleRelationSupportsMeasured(value.angleRelation))assemblyConstraintForm.setFieldValue("constraintMode","DRIVING");if(value.angleRelation === "PERPENDICULAR") assemblyConstraintForm.setFieldValue("directionRelation", assemblyConstraintForm.getFieldValue("directionRelation") === "OPPOSITE" ? "OPPOSITE" : "SAME");setEditingAssemblyConstraint({...editingAssemblyConstraint,...value});}}
@@ -1947,7 +1881,7 @@ onToggleConstruction:(node)=>{
         command.mutate(() => commitAssemblyCandidate(target,key,input,sequence), assemblyDialogLifecycle.current.bindCallbacks<DocumentView>(dialogGeneration,{ onSuccess: (updated) => { assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});if(updated.product?.constraints?.at(-1)?.evaluationStatus === "NOT_UPDATED")message.info("约束已保存，等待更新");viewport.current?.clearCommandPreview(false); assemblyPreviewID.current=undefined; setReconnectError(undefined); setAssemblyDefinitionDirty(false); setPendingAssemblyConstraint(undefined); },
 		  onError:(cause)=>{assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)});} }));
       }}>
-      <Form className="assembly-constraint-form" form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>
+      <Form className="assembly-constraint-form" form={assemblyConstraintForm} layout="vertical" onValuesChange={changed=>invalidateAssemblyDefinition(!Object.keys(changed).some(key=>["quantityInput","fixedTranslation","fixedAngles"].includes(key)))}>
         {pendingAssemblyConstraint?.kind === "angle" && <AssemblyAngleParameters value={pendingAssemblyConstraint} view={editingView}
           error={axisInspection?.supports.slice(1).find(s=>s.constraintEligible!==true)?.constraintDiagnostic} axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis} picking={replacingAssemblyReference===2} onLocate={()=>{if(resolvedAngleAxis)viewport.current?.focusAssemblyReference(resolvedAngleAxis)}}
           onChange={value=>{invalidateAssemblyDefinition();if(!angleRelationSupportsMeasured(value.angleRelation))assemblyConstraintForm.setFieldValue("constraintMode","DRIVING");if(value.angleRelation === "PERPENDICULAR") assemblyConstraintForm.setFieldValue("directionRelation", assemblyConstraintForm.getFieldValue("directionRelation") === "OPPOSITE" ? "OPPOSITE" : "SAME");setPendingAssemblyConstraint({...pendingAssemblyConstraint,...value});}}
@@ -2016,44 +1950,8 @@ onToggleConstruction:(node)=>{
 	</CommandDialog>
  {externalParameterID&&!designAssociationOpen&&editingView&&documentParameters(editingView).find(p=>p.parameterId===externalParameterID)&&<ParameterExternalEditor view={editingView} parameter={documentParameters(editingView).find(p=>p.parameterId===externalParameterID)!} onClose={()=>setExternalParameterID(undefined)} onApply={refresh}/>}
  {designAssociationOpen&&editingView?.part&&<DesignAssociationDialog root={view} owner={editingView} initialParameterId={externalParameterID} path={activeResolvedInstance?.instancePath} activeSketchId={store.activeSketchID} canEdit={canEditRoot&&["OWNER","EDITOR"].includes(editingView.document.permission)} onClose={()=>{setDesignAssociationOpen(false);setReplacementPreview(undefined);setExternalParameterID(undefined);setFeatureSelection(undefined);viewport.current?.clearCommandPreview()}} onPreviewView={setReplacementPreview} onApply={async updated=>{await refresh(updated);await client.invalidateQueries({queryKey:queryKeys.document(editingView.document.id)})}} onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}} onSelectionSession={setFeatureSelection} onLocate={selection=>store.setSelections([selection])} onOpenSource={id=>{setDesignAssociationOpen(false);setFeatureSelection(undefined);viewport.current?.clearCommandPreview();void openDocumentTab(id,client,api.openDocument,navigate)}}/>}
-	<CommandDialog id="publication-manager" open={publicationManagerOpen} title="发布接口" size="L"
-		onClose={() => setPublicationManagerOpen(false)} onConfirm={() => setPublicationManagerOpen(false)} onCancelPick={()=>{if(!pickingPublication)return false;setPickingPublication(false);return true}}>
-    <FeaturePickField label="发布对象" value={publicationPick&&editingView?selectionName(editingView,publicationPick):undefined} selected={!!publicationPick} active={pickingPublication} onActivate={()=>setPickingPublication(true)} onCancel={()=>setPickingPublication(false)} onClear={publicationPick?()=>setPublicationPick(undefined):undefined} onLocate={publicationPick?()=>store.setSelections([publicationPick]):undefined}/>
-		<Form form={publicationForm} layout="inline" initialValues={{ name: "", semanticPurpose: "" }}>
-			<Form.Item name="name"><Input placeholder="自动命名（可选）" /></Form.Item>
-			<Form.Item name="semanticPurpose"><Input placeholder="语义用途" /></Form.Item>
-			<Form.Item><Button type="primary" disabled={!canEdit || (editingView?.document.type === "PART" ? !publicationTarget() : !validForward(publicationPick))} loading={command.isPending}
-				onClick={() => void (editingView?.document.type === "PRODUCT" ? forwardSelectedPublication() : createSelectedPublication())}>
-				{editingView?.document.type === "PRODUCT" ? "转发所选接口" : "发布当前选择"}</Button></Form.Item>
-		</Form>
-		<div className="parameter-manager" aria-label="文档发布接口">
-			{editingView?.document.type === "PRODUCT" ? ((editingView.product?.publications ?? []).length === 0
-				? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前产品尚无转发接口" />
-				: (editingView.product?.publications ?? []).map((publication) => <div className="parameter-manager-row" key={publication.id}>
-					<span><Typography.Text strong>{publication.name}</Typography.Text></span>
-					<span>{engineeringLabel(publication.type,"几何引用")} · {publication.target.instancePath.display}</span>
-					<Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{engineeringLabel(publication.resolution.status)}</Tag>
-					<Space><Button size="small" disabled={!canEdit} onClick={() => openPublicationEditor(publication.id,"PRODUCT")}>编辑</Button>
-					<Button size="small" disabled={!canEdit} onClick={() => redirectProductPublicationToSelection(publication.id)}>重定向</Button>
-					<Button danger size="small" disabled={!canEdit} onClick={() => command.mutate(() => api.deleteProductPublication(editingView.document.id, publication.id))}>删除</Button></Space>
-				</div>)) : (editingView?.part?.publications ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前零件尚无发布接口" />
-				: (editingView?.part?.publications ?? []).map((publication) => <div className="parameter-manager-row" key={publication.id}>
-					<span><Typography.Text strong>{publication.name}</Typography.Text></span>
-					<span>{engineeringLabel(publication.type,"几何引用")} · {engineeringLabel(publication.target.kind,"关联对象")}</span>
-					<Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{engineeringLabel(publication.resolution.status)}</Tag>
-					<Space><Button size="small" disabled={!canEdit} onClick={() => openPublicationEditor(publication.id,"PART")}>编辑</Button>
-					<Button size="small" disabled={!canEdit} onClick={() => redirectPublicationToSelection(publication.id, publication.type)}>重定向</Button>
-					<Button danger size="small" disabled={!canEdit} onClick={() => editingView && command.mutate(() => api.deletePublication(editingView.document.id, publication.id))}>删除</Button></Space>
-				</div>)}
-			<small className="cad-command-hint">发布目标丢失后可重新选择目标。</small>
-		</div>
-		{editingView?.product && <><Divider>实例名称</Divider>
-			{editingView.product.instances.map((instance)=><div className="parameter-manager-row" key={instance.id}>
-				<span><Typography.Text strong editable={canEdit?{onChange:(name)=>command.mutate(()=>api.renameInstance(editingView.document.id,instance.id,name))}:false}>{instance.name}</Typography.Text>
-				</span>
-				<span>{"零件"}</span><Tag>{engineeringLabel(instance.referenceMode??"FOLLOW_HEAD")}</Tag><span />
-			</div>)}</>}
-	</CommandDialog>
+ {publicationManagerOpen&&editingView&&<PublicationManager key={`${editingView.document.id}/${activeInstancePath??''}/${editingPublication?.id??''}`} view={editingView} root={view} ownerPath={activeResolvedInstance?.instancePath} initialId={editingPublication?.id} seed={store.selection??undefined} canEdit={canEdit} onClose={()=>{setPublicationManagerOpen(false);setEditingPublication(undefined);setFeatureSelection(undefined)}} onSelectionSession={setFeatureSelection} onLocate={selection=>store.setSelections([selection])} onApply={input=>command.mutateAsync(Object.assign(()=>api.command(editingView.document.id,input),{inlineFailure:true}))}/>}
+
 	<CommandDialog id="context-input-edit" open={Boolean(editingContextInput)} title="编辑上下文输入" size="S"
     onClose={()=>setEditingContextInput(undefined)} confirmLoading={command.isPending}
     confirmDisabled={!canEdit||!editingContextInput?.name.trim()}
@@ -2073,13 +1971,7 @@ onToggleConstruction:(node)=>{
  <small className="cad-command-hint">长度增量需输入单位，如 r_1 + 5 mm。可使用参数引用，重命名不影响已有关系。</small>
 		</Form>
 	</CommandDialog>
-	<CommandDialog size="S" id="publication-edit" open={Boolean(editingPublication)} title="编辑发布引用"
-		onClose={() => setEditingPublication(undefined)} confirmLoading={command.isPending} onConfirm={commitPublicationEdit}>
-		<Form form={publicationEditForm} layout="vertical">
-			<Form.Item name="name" label="名称" rules={[{required:true}]}><Input /></Form.Item>
-			<Form.Item name="semanticPurpose" label="用途"><Input /></Form.Item>
-		</Form>
-	</CommandDialog>
+
     {developerOpen&&<DeveloperInfoPanel view={motionDisplay?.view??editingView??view} selection={store.selection} feature={selected} onClose={()=>setDeveloperOpen(false)}/> }
     {insertOpen && editingView?.document.type === "PRODUCT" && <InsertDocumentDialog key={activeID}
       targetFolderID={editingView.document.folderId} targetID={activeID} rootID={documentID} busy={command.isPending}
@@ -2099,14 +1991,14 @@ onToggleConstruction:(node)=>{
     {supportSketch&&editingView?.part&&<SketchSupportEditor key={editingView.document.id+supportSketch.id} view={editingView} feature={supportSketch} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext}
       onSelectionSession={setFeatureSelection} onInputs={setFeatureInputs} onFrame={frame=>setDatumPreview(frame?{...frame,translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}:undefined)}
       onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"NEW_BODY",supportSketch.id);else viewport.current?.clearCommandPreview();}}
-      onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}
+      onApply={input=>command.mutateAsync(Object.assign(()=>api.command(editingView.document.id,input),{inlineFailure:true}))}
       onClose={()=>{viewport.current?.clearCommandPreview();setDatumPreview(undefined);setSupportSketch(undefined);}}/>}
     {designInputsOpen&&editingView?.part&&!activeInstancePath&&<DesignInputDialog view={editingView} onClose={()=>{setDesignInputsOpen(false);setFeatureSelection(undefined)}} onApply={refresh} onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}} onSelectionSession={setFeatureSelection} onLocate={s=>store.setSelections([s])}/>}
     {replacementOpen&&view.product&&<ReplaceInstanceDialog key={view.document.id} view={view} initialInstanceId={replacementInstanceId} onApply={refresh} onClose={()=>{setReplacementOpen(false);setReplacementPreview(undefined);setFeatureSelection(undefined)}}/>}
     {featureMove&&editingView?.part&&<FeatureMoveDialog key={editingView.document.id+featureMove.features.map(f=>f.id).join("/")} view={editingView} features={featureMove.features} digests={featureMove.digests} orderDigest={featureMove.orderDigest}
       onClose={()=>{viewport.current?.clearCommandPreview();setFeatureMove(undefined)}}
       onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}}
-      onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}/>}
+      onApply={input=>command.mutateAsync(Object.assign(()=>api.command(editingView.document.id,input),{inlineFailure:true}))}/>}
     {solidEditor && editingView?.part && <SolidFeatureEditor key={editingView.document.id+solidEditor.feature.id+solidEditor.feature.type+(solidEditor.insertion?.intentId??"")} view={editingView} feature={solidEditor.feature} digest={solidEditor.digest} insertion={solidEditor.insertion} unit={lengthUnit} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifact={featureInputChanged}
       intentRequestId={handoffEditorIntent(assistantHandoff.current,editingView.document.id,editingView.document.versionId,solidEditor.feature.type)}
       onClose={()=>{const handoff=assistantHandoff.current;assistantHandoff.current=undefined;if(handoff&&handoff.state!=="COMMITTED")void finishAssistantHandoff(handoff,handoff.state==="UNKNOWN"?"UNKNOWN":"CANCELLED");viewport.current?.clearCommandPreview();setSolidEditor(undefined);}}
@@ -2122,7 +2014,7 @@ onToggleConstruction:(node)=>{
     {booleanDialog && editingView?.part && <BooleanFeatureDialog key={editingView.document.id+":"+(booleanDialog.feature?.id??"new")} view={editingView} initial={booleanDialog.feature} digest={booleanDialog.digest} bodyId={workingBodyID} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifacts={setFeatureInputs}
       onClose={()=>{viewport.current?.clearCommandPreview();setBooleanDialog(undefined);}}
       onPreview={(artifact,operation)=>{if(artifact)viewport.current?.previewArtifact(artifact,operation);else viewport.current?.clearCommandPreview();}}
-      onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))} />}
+      onApply={input=>command.mutateAsync(Object.assign(()=>api.command(editingView.document.id,input),{inlineFailure:true}))} />}
     {patternOpen && editingView?.document.type === "PRODUCT" && <InstancePatternDialog
       view={editingView} seed={store.selection} onSelectionSession={setFeatureSelection}
       parentOccurrencePath={activeInstancePath} parentRotation={activeResolvedInstance?.rotation}
@@ -2138,7 +2030,7 @@ onToggleConstruction:(node)=>{
         <small className="cad-command-hint">新零件将插入当前装配原点，实例按零件名称和序号命名。</small>
       </Form>
     </CommandDialog>
-    {referenceEditor&&editingView?.part&&<ReferenceElementEditor key={editingView.document.id+referenceEditor.kind+(referenceEditor.id??'')+(activeInstancePath??'')} kind={referenceEditor.kind} id={referenceEditor.id} view={editingView} unit={lengthUnit} occurrencePath={activeInstancePath} placement={{translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}} onClose={()=>setReferenceEditor(undefined)} onSelectionSession={setFeatureSelection} onPreview={setDatumPreview} onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}/>}
+    {referenceEditor&&editingView?.part&&<ReferenceElementEditor key={editingView.document.id+referenceEditor.kind+(referenceEditor.id??'')+(activeInstancePath??'')} kind={referenceEditor.kind} id={referenceEditor.id} view={editingView} unit={lengthUnit} occurrencePath={activeInstancePath} placement={{translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}} onClose={()=>setReferenceEditor(undefined)} onSelectionSession={setFeatureSelection} onPreview={setDatumPreview} onApply={input=>command.mutateAsync(Object.assign(()=>api.command(editingView.document.id,input),{inlineFailure:true}))}/>}
     <CommandDialog id="geometrical-set-edit" open={!!geometricalSetEditor} size="S" title={geometricalSetEditor?.id?'编辑几何图形集':'创建几何图形集'} onClose={()=>setGeometricalSetEditor(undefined)} confirmLoading={command.isPending} onConfirm={()=>{if(!editingView||!geometricalSetEditor)return;const set=geometricalSetEditor;command.mutate(()=>api.command(editingView.document.id,{type:set.id?'EDIT_GEOMETRICAL_SET':'CREATE_GEOMETRICAL_SET',targetId:set.id,name:set.name,geometricalSetId:set.parentId}),{onSuccess:()=>setGeometricalSetEditor(undefined)})}}>
       <CommandField label="名称"><Input value={geometricalSetEditor?.name??''} placeholder="自动命名" onChange={event=>setGeometricalSetEditor(current=>current?{...current,name:event.target.value}:current)}/></CommandField>
       <CommandField label="父集合"><Select value={geometricalSetEditor?.parentId??''} options={[{value:'',label:'Part'},...(editingView?.part?.geometricalSets??[]).filter(set=>set.id!==geometricalSetEditor?.id).map(set=>({value:set.id,label:set.name}))]} onChange={value=>setGeometricalSetEditor(current=>current?{...current,parentId:value}:current)}/></CommandField>
@@ -2146,7 +2038,7 @@ onToggleConstruction:(node)=>{
     {datumEditor && editingView?.part && <DatumEditor key={editingView.document.id+datumEditor+(editingDatumId??"")+(activeInstancePath ?? "")} kind={datumEditor} datumId={editingDatumId} view={editingView} seed={store.selections} unit={lengthUnit}
       occurrencePath={activeInstancePath} placement={{translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}}
       onClose={()=>setDatumEditor(undefined)} onSelectionSession={setFeatureSelection} onPreview={setDatumPreview}
-      onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))} />}
+      onApply={input=>command.mutateAsync(Object.assign(()=>api.command(editingView.document.id,input),{inlineFailure:true}))} />}
     <CommandDialog size="S" id="version" open={versionOpen} title="创建命名版本" onClose={() => setVersionOpen(false)}
       onConfirm={async () => createVersion(await versionForm.validateFields())}>
       <Form form={versionForm} layout="vertical"><Form.Item name="name" label="版本名称" rules={[{ required: true }]}><Input placeholder="V1 - Initial concept" /></Form.Item>

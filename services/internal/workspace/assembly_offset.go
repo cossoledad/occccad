@@ -95,6 +95,9 @@ func editAssemblyQuantity(model *ProductModel, index int, expression *string, ke
 				names[p.Key] = modelcore.ParameterBinding{ParameterID: p.ParameterID, Dimension: p.Dimension}
 			}
 		}
+		for _, p := range model.Parameters {
+			names[p.Key] = modelcore.ParameterBinding{ParameterID: p.ParameterID, Dimension: p.Dimension}
+		}
 		compiled, err := modelcore.CompileExpression(*expression, names, spec.dimension, spec.unit)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
@@ -113,7 +116,7 @@ func editAssemblyQuantity(model *ProductModel, index int, expression *string, ke
 func resolveAssemblyQuantities(model *ProductModel) error {
 	// Reuse the existing Quantity evaluator, dimension/dependency checks and
 	// cycle gate; the temporary input has parameters only, no Part/CAD bodies.
-	input := PartModel{}
+	input := PartModel{Parameters: append([]modelcore.ParameterDefinition(nil), model.Parameters...)}
 	keys := map[string]string{}
 	for _, c := range model.Constraints {
 		if p := assemblyQuantityParameter(c); p != nil {
@@ -121,10 +124,28 @@ func resolveAssemblyQuantities(model *ProductModel) error {
 			keys[p.ParameterID] = p.Key
 		}
 	}
+	for _, p := range input.Parameters {
+		keys[p.ParameterID] = p.Key
+	}
+	measured := map[string]bool{}
+	for _, c := range model.Constraints {
+		if c.Mode == "MEASURED" && c.QuantityParameter != nil {
+			measured[c.QuantityParameter.ParameterID] = true
+		}
+	}
+	for _, p := range input.Parameters {
+		if p.Source.Expression != nil {
+			for _, read := range p.Source.Expression.Reads {
+				if measured[strings.TrimPrefix(string(read), "parameter:")] {
+					return fmt.Errorf("%w: PARAMETER_REFERENCE_MEASURED", ErrValidation)
+				}
+			}
+		}
+	}
 	if len(input.Parameters) == 0 {
 		return nil
 	}
-	if err := validateAndResolvePartParameters(&input); err != nil {
+	if _, err := resolveParameterDefinitions(input.Parameters); err != nil {
 		return err
 	}
 	byID := map[string]modelcore.ParameterDefinition{}
@@ -141,6 +162,9 @@ func resolveAssemblyQuantities(model *ProductModel) error {
 		}
 		byID[p.ParameterID] = p
 	}
+	for i, p := range model.Parameters {
+		model.Parameters[i] = byID[p.ParameterID]
+	}
 	for i := range model.Constraints {
 		c := &model.Constraints[i]
 		parameter := assemblyQuantityParameter(*c)
@@ -152,6 +176,12 @@ func resolveAssemblyQuantities(model *ProductModel) error {
 			return fmt.Errorf("%w: invalid assembly Quantity ownership/dimension", ErrValidation)
 		}
 		p := byID[parameter.ParameterID]
+		if p.EvaluatedValue == nil {
+			c.QuantityParameter = &p
+			c.EvaluationStatus, c.EvaluationSummary = modelcore.AssemblyConstraintNotUpdated, "PARAMETER_SOURCE_NOT_CURRENT"
+			c.MeasuredValue = nil
+			continue
+		}
 		value, err := quantityInDisplayUnit(*p.EvaluatedValue, spec.unit)
 		if err != nil || !finite(value) {
 			return fmt.Errorf("%w: assembly Quantity must evaluate to finite %s", ErrValidation, spec.dimension.Semantic)
@@ -174,7 +204,7 @@ func resolveAssemblyQuantities(model *ProductModel) error {
 }
 
 func nextAssemblyParameterAlias(model ProductModel, base string) string {
-	parameters := []modelcore.ParameterDefinition{}
+	parameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
 	for _, c := range model.Constraints {
 		if c.QuantityParameter != nil {
 			parameters = append(parameters, *c.QuantityParameter)
