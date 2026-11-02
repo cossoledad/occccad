@@ -90,5 +90,5 @@ export function AssemblyConstraintFields({ kind, references, supportIssues,exact
 }
 
 function QuantityInput({value,onChange,fallback,unit,onBlur,...props}:{value?:string;onChange?:(value:string)=>void;fallback:string;unit:string;onBlur:()=>void}){
- return <Input {...props} aria-label="数值或公式" value={value??fallback} onChange={event=>onChange?.(event.target.value)} onBlur={onBlur} onPressEnter={event=>{if(!event.nativeEvent.isComposing){event.preventDefault();event.stopPropagation();event.currentTarget.blur();}}} placeholder="数值或公式" suffix={unit} title="可输入数值、带单位数值或参数公式"/>;
+ return <Input {...props} aria-label="数值或公式" value={value??fallback} onChange={event=>onChange?.(event.target.value)} onBlur={onBlur} onPressEnter={event=>{if(!event.nativeEvent.isComposing){event.preventDefault();event.stopPropagation();event.currentTarget.blur();}}} placeholder="数值或公式" suffix={unit}/>;
 }

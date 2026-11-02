@@ -41,7 +41,7 @@ test('layout publications drive plate Hole through UI references and accepted up
  await treeNavigator(page)('Point.1');
  await command(page,'发布接口');const publisher=page.getByRole('dialog',{name:'发布接口',exact:true});
  await page.locator('[role=treeitem][data-tree-key$="entity:source-0"]').click();
- await publisher.getByPlaceholder('自动命名（可选）').fill('Position.1');await publisher.getByRole('button',{name:/^发\s*布$/,exact:true}).click();
+ await expect.poll(async()=>(await current(page,seed.layout)).part.publications.some((p:any)=>p.target.entityId==='source-0')).toBe(true);const createdPort=(await current(page,seed.layout)).part.publications.find((p:any)=>p.target.entityId==='source-0');await publisher.locator('tbody tr').filter({hasText:createdPort.name}).getByRole('button',{name:/编\s*辑/}).click();await publisher.getByRole('textbox',{name:'名称',exact:true}).fill('Position.1');await publisher.getByRole('button',{name:'应用修改',exact:true}).click();
  await expect.poll(async()=>{const v=await current(page,seed.layout);return v.part.publications.some((p:any)=>p.name==='Position.1')}).toBe(true);
  await publisher.getByRole('button',{name:'关闭',exact:true}).click();await expect(publisher).toHaveCount(0);
  await page.goto(`/documents/${seed.root}`);await expect(page.locator('canvas')).toBeVisible();await observeViewport(page);
@@ -178,7 +178,7 @@ test('subassembly public interface forwarding, layered update and original Hole 
  await page.goto(`/documents/${seed.module}`);await expect(page.locator('canvas')).toBeVisible();await command(page,'发布接口');
  let publisher=page.getByRole('dialog',{name:'发布接口',exact:true});await treeNavigator(page)('Layout position');
  await page.locator(`[role=treeitem][data-tree-key$="publication:${seed.adapterPoint}"]`).click();
- await expect(publisher.getByRole('button',{name:/^发\s*布$/,exact:true})).toBeEnabled();await publisher.getByPlaceholder('自动命名（可选）').fill('Module hole position');await publisher.getByRole('button',{name:/^发\s*布$/,exact:true}).click();
+ await expect.poll(async()=>(await current(page,seed.module)).product.publications.some((p:any)=>p.target.publicationId===seed.adapterPoint)).toBe(true);const newPort=(await current(page,seed.module)).product.publications.find((p:any)=>p.target.publicationId===seed.adapterPoint);await publisher.locator('tbody tr').filter({hasText:newPort.name}).getByRole('button',{name:/编\s*辑/}).click();await publisher.getByRole('textbox',{name:'名称',exact:true}).fill('Module hole position');await publisher.getByRole('button',{name:'应用修改',exact:true}).click();
  await expect.poll(async()=>(await current(page,seed.module)).product.publications.some((p:any)=>p.name==='Module hole position')).toBe(true);
  await publisher.getByRole('button',{name:'关闭',exact:true}).click();
  await page.goto(`/documents/${seed.root}`);await expect(page.locator('canvas')).toBeVisible();await observeViewport(page);

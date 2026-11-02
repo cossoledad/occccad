@@ -586,7 +586,9 @@ export function Workbench() {
     assemblyDialogLifecycle.current.invalidate();
     assemblyCandidate.current.invalidate();
     assemblyPreviewSequence.current+=1;assemblyPreviewAbort.current?.abort();assemblyPreviewID.current=undefined;
-    if(preview)viewport.current?.clearCommandPreview();setAssemblyPreviewEvaluation(undefined);setAssemblyDefinitionDirty(true);
+    // Invalidating a candidate does not invalidate the last displayed pose.
+    // The next result redirects from that frame; explicit cancel restores the baseline.
+    setAssemblyPreviewEvaluation(undefined);setAssemblyDefinitionDirty(true);
     assemblyPreviewActor.current?.send({type:"CHANGE"});if(preview)setAssemblyPreviewCommit(value=>value+1);
   };
   useEffect(()=>{
@@ -1945,7 +1947,6 @@ onToggleConstruction:(node)=>{
 						onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"DELETE_PARAMETER",parameterId:parameter.parameterId}))}>删除</Button></Space>
 				</div>)}
             </div>
-			<small className="cad-command-hint">可插入参数引用或输入表达式，重命名不影响已有关系。</small>
 		</div>
 	</CommandDialog>
  {externalParameterID&&!designAssociationOpen&&editingView&&documentParameters(editingView).find(p=>p.parameterId===externalParameterID)&&<ParameterExternalEditor view={editingView} parameter={documentParameters(editingView).find(p=>p.parameterId===externalParameterID)!} onClose={()=>setExternalParameterID(undefined)} onApply={refresh}/>}
@@ -1964,11 +1965,9 @@ onToggleConstruction:(node)=>{
 		<Form form={parameterForm} layout="vertical">
 			<Form.Item name="key" label="可读别名（可选）" rules={[{pattern:/^$|^[A-Za-z_][A-Za-z0-9_]*$/,
 				message:"请输入 ASCII 标识符"}]}><Input /></Form.Item>
-			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={documentParameters(editingView)} excludeId={editingParameterID} unit={lengthUnit} placeholder="40 或 r_1 + 5"/></Form.Item>
-            <ContextInputSource view={editingView} binding={boundContextParameter(editingParameterID)}/>{parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.source.produced?"此值由测量计算，更新测量后同步；可以修改别名。":editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":boundContextParameter(editingParameterID)?.local?"本实例的本地输入。":boundContextParameter(editingParameterID)?"值来自产品关联；独立打开零件可编辑默认输入。":"外部来源作用于共享定义，当前仅编辑名称。"}</small>}
-			{parameterInputPreview.pending&&<Typography.Text type="secondary">正在检查表达式…</Typography.Text>}{parameterInputPreview.error&&<Alert type="error" message={parameterInputPreview.error}/>}{parameterInputPreview.parameterCandidates?.find(p=>p.parameterId===editingParameterID)&&<Typography.Text>计算值：{parameterDisplayValue(parameterInputPreview.parameterCandidates.find(p=>p.parameterId===editingParameterID)!,lengthUnit)}</Typography.Text>}
-
- <small className="cad-command-hint">长度增量需输入单位，如 r_1 + 5 mm。可使用参数引用，重命名不影响已有关系。</small>
+			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={documentParameters(editingView)} excludeId={editingParameterID} unit={lengthUnit}/></Form.Item>
+            <ContextInputSource view={editingView} binding={boundContextParameter(editingParameterID)}/>
+			{parameterInputPreview.error&&<Alert type="error" title={parameterInputPreview.error}/>}
 		</Form>
 	</CommandDialog>
 
@@ -2027,7 +2026,6 @@ onToggleConstruction:(node)=>{
       <Form form={newPartForm} layout="vertical">
         <Form.Item name="name" label="零件名称" rules={[{ max: 120 }]}><Input placeholder="留空自动分配 Part1、Part2…" /></Form.Item>
         <Form.Item name="description" label="说明" rules={[{ max: 500 }]}><Input.TextArea rows={2} /></Form.Item>
-        <small className="cad-command-hint">新零件将插入当前装配原点，实例按零件名称和序号命名。</small>
       </Form>
     </CommandDialog>
     {referenceEditor&&editingView?.part&&<ReferenceElementEditor key={editingView.document.id+referenceEditor.kind+(referenceEditor.id??'')+(activeInstancePath??'')} kind={referenceEditor.kind} id={referenceEditor.id} view={editingView} unit={lengthUnit} occurrencePath={activeInstancePath} placement={{translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}} onClose={()=>setReferenceEditor(undefined)} onSelectionSession={setFeatureSelection} onPreview={setDatumPreview} onApply={input=>command.mutateAsync(Object.assign(()=>api.command(editingView.document.id,input),{inlineFailure:true}))}/>}
