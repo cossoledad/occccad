@@ -85,3 +85,51 @@ func TestMeasurementPathContinuationChecksTypedIdentity(t *testing.T) {
 		t.Fatal("replacement silently rebound measurement")
 	}
 }
+
+func TestMeasurementGroupVisibilityUsesOneReversibleEdit(t *testing.T) {
+	for _, kind := range []string{"PART", "PRODUCT"} {
+		t.Run(kind, func(t *testing.T) {
+			values := []Measurement{{ID: "00000000-0000-7000-8000-000000000001", Name: "First", Kind: "ITEM", Supports: []MeasurementSupport{{Kind: "BODY", BodyID: "body", Mode: "GEOMETRY"}}, Visible: true}, {ID: "00000000-0000-7000-8000-000000000002", Name: "Second", Kind: "ITEM", Supports: []MeasurementSupport{{Kind: "BODY", BodyID: "body", Mode: "GEOMETRY"}}, Visible: false}}
+			for i := range values {
+				values[i].Result = &MeasurementEvidence{SourceRevisionID: "before", SourceStamp: "stamp", Policy: measurementPolicy, MeasurementResult: geometry.MeasurementResult{Complete: true, KernelBuild: "kernel", Values: map[string]float64{"volumeMm3": 10}, Anchors: map[string][3]float64{"centroid": {1, 2, 3}}}}
+			}
+			before, _ := json.Marshal(map[string]any{"measurements": values})
+			service := &Service{}
+			uri, payload, err := service.adaptLegacyCommand(t.Context(), "document", kind, before, CommandRequest{Type: "SET_DEFINITION_VISIBILITY", TargetKind: "MEASUREMENT_GROUP", TargetID: "measurements", Visible: false})
+			if err != nil || uri != typeSetMeasurements {
+				t.Fatal(uri, err)
+			}
+			raw, _ := json.Marshal(payload)
+			next, changes, err := applyMeasurements(before, raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hidden, _ := measurementValues(next)
+			for _, m := range hidden {
+				if m.Visible {
+					t.Fatal("group left an annotation visible")
+				}
+			}
+			node := measurementStructure("doc", "rev", "root", hidden, nil)
+			if node.EntityID != "measurements" || node.LocalVisible == nil || *node.LocalVisible {
+				t.Fatal("group projection disagrees")
+			}
+			changes, err = reconcilePersistedChanges(kind, before, next, changes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original, err := modelValues(kind, before, changes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			undone, err := applyModelValues(kind, next, original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, _ := measurementValues(undone)
+			if !restored[0].Visible || restored[1].Visible {
+				t.Fatal("Undo lost individual display states", restored)
+			}
+		})
+	}
+}

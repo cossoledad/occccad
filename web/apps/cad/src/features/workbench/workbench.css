@@ -80,8 +80,6 @@
 .workbench-command-result small { display: block; color: var(--color-text-secondary); font-size: 12px; }
 .workbench-command-result > span small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .workbench-search-hint { margin: 12px 0 0; font-size: 12px; color: var(--color-text-secondary); }
-.workbench-tree-filter { padding: 6px 10px; }
-.workbench-tree-filter .ant-input-affix-wrapper { font-size: 12px; }
 .workbench-tree-empty { padding: 16px; color: var(--wb-muted); font-size: 12px; }
 @media (max-width: 1100px) {
   .workbench-content.with-inspector { grid-template-columns: min(var(--structure-width), 250px) minmax(160px, 1fr) 260px; }
@@ -163,9 +161,7 @@
 .workbench-structure { grid-column:1; grid-row:1; z-index:2; pointer-events:none; background:transparent; border:0; color:var(--tree-foreground); text-shadow:var(--tree-shadow); }
 .workbench-tree-collapse.ant-btn { position:absolute;right:8px;top:8px;color:var(--tree-foreground);pointer-events:auto;z-index:3;touch-action:none;user-select:none;cursor:ew-resize; }
 .workbench-layout[data-tree-resizing] * { cursor:ew-resize !important; user-select:none !important; }
-.workbench-structure .workbench-tree-filter { margin-right:40px; }
 .workbench-structure .specification-tree,.workbench-structure .specification-tree-virtual-row { pointer-events:none; }
-.workbench-structure .specification-tree-row,.workbench-structure .workbench-tree-filter { pointer-events:auto; }
 .workbench-structure .specification-tree-row { color:var(--tree-foreground); text-shadow:var(--tree-shadow); }
 .workbench-structure .specification-tree-row:hover { color:var(--tree-foreground); background:#8bbde435; }
 .workbench-structure .specification-tree-row.selected { color:#183c59; background:#d7eaffd9; text-shadow:none; }
@@ -174,3 +170,22 @@
 .workbench-structure .specification-tree-depth-guide,.workbench-structure .specification-tree-virtual-row.nested::after,.workbench-structure .specification-tree-junction.leaf::before { background:var(--tree-guide); }
 .workbench-structure .ant-input-affix-wrapper { color:var(--tree-foreground); background:var(--tree-control); border-color:var(--tree-guide); }
 .workbench-structure .ant-input,.workbench-structure .ant-input::placeholder,.workbench-structure .ant-input-clear-icon { color:var(--tree-muted); }
+
+.workbench-structure .specification-tree-row { pointer-events:auto; }
+.workbench-structure .specification-tree { scrollbar-width:thin; scrollbar-color:var(--tree-guide) transparent; }
+.workbench-structure .specification-tree::-webkit-scrollbar { width:8px; height:8px; }
+.workbench-structure .specification-tree::-webkit-scrollbar-track,
+.workbench-structure .specification-tree::-webkit-scrollbar-corner { background:transparent; }
+.workbench-structure .specification-tree::-webkit-scrollbar-thumb { background:var(--tree-guide); border:2px solid transparent; background-clip:padding-box; border-radius:8px; }
+.workbench-structure .specification-tree::-webkit-scrollbar-thumb:hover { background-color:var(--tree-muted); }
+
+.assembly-dialog-status { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; font-size:12px; color:var(--color-text-secondary); }
+.assembly-dialog-status.has-error { color:var(--color-danger); }
+.assembly-dialog-status details { flex-basis:100%; }
+.assembly-dialog-status summary { cursor:pointer; }
+.assembly-dialog-status p { margin:4px 0; }
+
+.assembly-constraint-form .command-group { gap:8px; padding-top:8px; }
+.feature-pick-field.is-compact .feature-pick-content { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; }
+.feature-pick-field.is-compact .feature-pick-value { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.feature-pick-field.is-compact .feature-pick-actions { grid-column:2; grid-row:1 / span 2; align-self:center; }

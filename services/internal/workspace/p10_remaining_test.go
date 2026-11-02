@@ -86,35 +86,6 @@ func TestContextVariantIdentitySharesToyCarWheelInputsAcrossOccurrences(t *testi
 	}
 }
 
-func TestToyCarReleaseManifestFreezesFourWheelOccurrencePaths(t *testing.T) {
-	paths := []InstancePath{
-		testInstancePath("toy-car", "wheel-fl", "Wheel.FL", "wheel-product", "wheel-v1"),
-		testInstancePath("toy-car", "wheel-fr", "Wheel.FR", "wheel-product", "wheel-v1"),
-		testInstancePath("toy-car", "wheel-rl", "Wheel.RL", "wheel-product", "wheel-v1"),
-		testInstancePath("toy-car", "wheel-rr", "Wheel.RR", "wheel-product", "wheel-v1"),
-	}
-	manifest := ProductReleaseManifest{SchemaVersion: 1, RootProductDocumentID: "toy-car", RootProductRevisionID: "toy-car-v1",
-		RootSnapshotDigest: "snapshot", EvaluatorVersion: evaluatorVersion, NamingPolicyDigest: modelcore.TopologyNamingPolicyDigest,
-		Gates: []ProductReleaseGate{{Code: "PRODUCT_REFERENCES_CURRENT", Status: "PASSED"}}}
-	seen := map[string]bool{}
-	for _, path := range paths {
-		if seen[path.Canonical] {
-			t.Fatalf("duplicate stable Wheel occurrence path %q", path.Canonical)
-		}
-		seen[path.Canonical] = true
-		manifest.Occurrences = append(manifest.Occurrences, ProductReleaseOccurrence{InstancePath: path,
-			DocumentID: "wheel-product", DocumentType: "PRODUCT", RevisionID: "wheel-v1",
-			Pose: InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, EvaluationManifestDigest: "wheel-evaluation"})
-	}
-	manifest.Digest = resolvedDigest(func() ProductReleaseManifest { value := manifest; value.Digest = ""; return value }())
-	before := manifest.Digest
-	workspaceHead := "wheel-v2"
-	_ = workspaceHead
-	if got := resolvedDigest(func() ProductReleaseManifest { value := manifest; value.Digest = ""; return value }()); got != before {
-		t.Fatalf("an external Workspace Head variable changed the frozen release: %s != %s", got, before)
-	}
-}
-
 func testInstancePath(root, instanceID, name, documentID, revisionID string) InstancePath {
 	return appendInstancePath(InstancePath{RootDocumentID: root}, InstancePathSegment{OwnerDocumentID: root,
 		OwnerVersionID: "toy-car-v1", InstanceID: instanceID, InstanceName: name,

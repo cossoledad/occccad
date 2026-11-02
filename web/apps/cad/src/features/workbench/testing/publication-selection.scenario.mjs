@@ -131,32 +131,7 @@ try{
   assert.equal(publicInterfaceForPick(v,[entry],raw),entry);
   assert(!publicInterfaceForPick(v,[entry],{...raw,versionId:'wrong'}));
  }
- const {replacementImpact,replacementCompatible,replacementInputCompatible,receiverMappingComplete,receiverMappingProblem}=await moduleServer.ssrLoadModule('/src/features/workbench/instance-replacement-model.ts');
- const old={id:'old',name:'Mount',type:'POINT',compatibilityVersion:'1',contract:{geometryKind:'POINT',dimension:{length:1}},resolution:{status:'CONNECTED'}};
- assert(replacementCompatible(old,{...old,id:'new'}));
- assert(!replacementCompatible(old,{...old,contract:{...old.contract,dimension:{length:2}}}));
- assert(!replacementCompatible(old,{...old,resolution:{status:'BROKEN_PUBLICATION'}}));
- const bind={id:'binding',name:'Hole input',contextInputId:'local',referenceMode:'FOLLOW_WORKSPACE_WITH_ACCEPT',owningInstancePath:{segments:[{instanceId:'plate'}]},sourceInstancePath:{segments:[{instanceId:'a'}]},publication:{publicationId:'old'}};
- const impactView={product:{instances:[],contextBindings:[bind,{...bind,id:'other',sourceInstancePath:{segments:[{instanceId:'a2'}]}}],publications:[{name:'Public mount',target:{instancePath:bind.sourceInstancePath,publicationId:'old'}}],constraints:[{name:'Mate',first:{instanceId:'a',publicationRef:{publicationId:'plane'}},second:{instanceId:'a2',publicationRef:{publicationId:'unrelated'}}}]}};
- const impact=replacementImpact(impactView,'a');assert.deepEqual(impact.used,['old','plane']);assert.equal(impact.bindings.length,1);assert.equal(impact.constraints.length,1);assert.equal(impact.forwarding.length,1);assert.equal(impact.blocked.length,0);
- assert.equal(replacementImpact({product:{constraints:[{name:'Rigid group',kind:'FIX_TOGETHER',groupMembers:[{instanceId:'a'},{instanceId:'a2'}]}]}},'a').constraints.length,1);
- assert(replacementImpact({product:{contextBindings:[{...bind,referenceMode:'PINNED'}]}},'a').blocked.length);
- assert(replacementImpact({product:{contextBindings:[{...bind,owningInstancePath:bind.sourceInstancePath}]}},'a').blocked.length);
- const input=(id,name,required=false)=>({id,name,type:'POINT',required,contract:{geometryKind:'POINT',symmetry:'NONE'},target:{kind:'SKETCH_EXTERNAL_GEOMETRY',targetId:'sketch'}});
- const oldInputs=[input('old1','Position.1'),input('old2','Position.2')],nextInputs=[input('new1','Position.1',true),input('new2','Position.2',true),input('optional','Extra')];
- assert(replacementInputCompatible(oldInputs[0],nextInputs[0]));
- assert(receiverMappingComplete(oldInputs,nextInputs,['old1','old2'],{old1:'new1',old2:'new2'}));
- assert(!receiverMappingComplete(oldInputs,nextInputs,['old1','old2'],{old1:'new1',old2:'new1'}),'distinct old ports cannot collapse into one local slot');
- assert.equal(receiverMappingProblem(oldInputs,nextInputs,{old1:'new1',old2:'new1'}),'输入“Position.1”与“Position.2”同时对应“Position.1”，请选择不同目标');
- assert.equal(receiverMappingProblem(oldInputs,nextInputs,{old1:'new1',old2:'new2'}),undefined);
- assert(replacementImpact({product:{contextBindings:[{...bind,local:{type:'POINT'},sourceInstancePath:{segments:[]}}]}},'plate').blocked.some(p=>p.includes('本地输入')));
  const {bindingSourceSelection}=await moduleServer.ssrLoadModule('/src/features/workbench/context-input-source.tsx');
- const localBinding={...bind,local:{type:'POINT'},sourceInstancePath:{segments:[]},owningInstancePath:{canonical:'plate',segments:[{instanceId:'plate',referencedDocumentId:'receiver',resolvedVersionId:'accepted'}]}};
+ const localBinding={id:'binding',contextInputId:'local',local:{type:'POINT'},sourceInstancePath:{segments:[]},owningInstancePath:{canonical:'plate',segments:[{instanceId:'plate',referencedDocumentId:'receiver',resolvedVersionId:'accepted'}]}};
  assert.equal(bindingSourceSelection(localBinding).id,'local');assert.equal(bindingSourceSelection(localBinding).kind,'context-input');assert.equal(bindingSourceSelection(localBinding).documentId,'receiver');
-
- assert(!receiverMappingComplete(oldInputs,[...nextInputs,input('required','Extra',true)],['old1','old2'],{old1:'new1',old2:'new2'}));
- const receiverImpact=replacementImpact({product:{contextBindings:[bind]},contextVariants:[{owningInstancePath:bind.owningInstancePath,part:{contextInputs:oldInputs}}]},'plate');
- assert.equal(receiverImpact.blocked.length,0);assert.equal(receiverImpact.incoming.length,1);assert.deepEqual(receiverImpact.receiverInputs,oldInputs);assert.deepEqual(receiverImpact.used,[]);
-
-
 }finally{await moduleServer.close()}

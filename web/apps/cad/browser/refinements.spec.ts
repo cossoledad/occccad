@@ -1,3 +1,4 @@
+import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import { expect, test } from "@playwright/test";
 
@@ -6,7 +7,7 @@ test("numeric focus, unitless length and Boolean preview lifecycle", async ({ pa
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (/THREE.WebGLProgram|Shader Error/.test(message.text())) errors.push(message.text()); });
   await page.goto("/documents/mock-part-bracket");
-  await page.getByRole("textbox", { name: "筛选模型结构" }).fill("Sketch 1");
+  await treeNavigator(page)("Sketch 1");
   await page.getByRole("treeitem").filter({hasText:"Sketch 1"}).click();
   await page.getByRole("button", {name:"拉伸",exact:true}).click();
   const dialog = page.getByRole("dialog", {name:"实体特征",exact:true});

@@ -1,9 +1,10 @@
+import {treeNavigator} from "./tree-helpers";
 import {expect,test} from "@playwright/test";
 test("Body color command persists, restores with undo and resets",async({page})=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
  await page.goto("/documents/mock-part-bracket");await expect(page.locator("canvas")).toBeVisible();
  const body=await page.evaluate(async()=>{const {api}=await import("/src/api/client.ts");return (await api.getDocument("mock-part-bracket")).part!.bodies[0];});
- await page.getByRole("textbox",{name:"筛选模型结构"}).fill(body.name);
+ await treeNavigator(page)(body.name);
  const row=page.getByRole("treeitem").filter({hasText:body.name}).last();
  await row.click({button:"right"});await page.getByRole("menuitem",{name:"属性…",exact:true}).click();
  const dialog=page.getByRole("dialog",{name:/^属性 ·/});await expect(dialog).toBeVisible();

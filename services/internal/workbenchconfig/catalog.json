@@ -1123,23 +1123,6 @@
       ],
       "className": "cad-command-icon family-solid"
     },
-    "release": {
-      "elements": [
-        {
-          "tag": "path",
-          "attributes": {
-            "d": "M10 2l6 3v5c0 4-2.5 6.5-6 8-3.5-1.5-6-4-6-8V5z"
-          }
-        },
-        {
-          "tag": "path",
-          "attributes": {
-            "d": "M7 10l2 2 4-5"
-          }
-        }
-      ],
-      "className": "cad-command-icon family-assembly"
-    },
     "debug": {
       "elements": [
         {
@@ -1850,30 +1833,6 @@
       "name": "发布接口",
       "helpText": "管理装配引用的发布几何。",
       "iconKey": "publication",
-      "repeatable": false,
-      "visibleWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          }
-        ]
-      },
-      "enabledWhen": {
-        "all": [
-          {
-            "fact": "targetType",
-            "equals": "PRODUCT"
-          }
-        ]
-      },
-      "implementation": "handler"
-    },
-    {
-      "id": "product.release",
-      "name": "产品版本",
-      "helpText": "打开不可变产品版本中心。",
-      "iconKey": "release",
       "repeatable": false,
       "visibleWhen": {
         "all": [
@@ -5952,6 +5911,10 @@
           {
             "fact": "targetType",
             "equals": "PRODUCT"
+          },
+          {
+            "fact": "motionActive",
+            "equals": true
           }
         ]
       },
@@ -5978,7 +5941,7 @@
     {
       "id": "product.replace",
       "name": "替换组件",
-      "helpText": "通过公开接口替换所选直接组件。",
+      "helpText": "用所选文档替换当前组件，保留实例位置和关联诊断。",
       "iconKey": "insert",
       "repeatable": false,
       "visibleWhen": {
@@ -6391,16 +6354,6 @@
           "commandId": "product.publications",
           "groupKey": "primary",
           "order": 10
-        },
-        {
-          "commandId": "product.release",
-          "groupKey": "primary",
-          "order": 20
-        },
-        {
-          "commandId": "product.replace",
-          "groupKey": "primary",
-          "order": 15
         }
       ]
     },
@@ -7100,11 +7053,6 @@
           "commandId": "assembly.motion-study",
           "groupKey": "primary",
           "order": 10
-        },
-        {
-          "commandId": "dmu.analyze-mechanism",
-          "groupKey": "primary",
-          "order": 20
         }
       ]
     },

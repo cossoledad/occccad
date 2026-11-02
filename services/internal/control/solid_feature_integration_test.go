@@ -51,7 +51,9 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	artifacts := artifact.NewService(db, store, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 	diagnostics := openDevelopmentDiagnostics(t)
@@ -259,18 +261,28 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	assertArchivedRevision := func(v workspace.DocumentView, mode string) {
 		t.Helper()
 		items, e := diagnostics.List(t.Context(), doc, 50)
-		if e != nil { t.Fatal(e) }
+		if e != nil {
+			t.Fatal(e)
+		}
 		for _, item := range items {
 			_, raw, e := diagnostics.Read(t.Context(), doc, item.ID, "")
-			if e != nil { t.Fatal(e) }
+			if e != nil {
+				t.Fatal(e)
+			}
 			var record workspace.OperationDiagnostic
-			if e = json.Unmarshal(raw, &record); e != nil { t.Fatal(e) }
-			if record.ResultRevisionID != v.Document.VersionID { continue }
+			if e = json.Unmarshal(raw, &record); e != nil {
+				t.Fatal(e)
+			}
+			if record.ResultRevisionID != v.Document.VersionID {
+				continue
+			}
 			if record.Outcome != "ACCEPTED_FAILED_REVISION" || record.Mode != mode || record.Stage != "COMMITTED" || record.BaseRevisionID == "" || len(record.Candidate) == 0 {
 				t.Fatal("accepted failure lost its committed snapshot")
 			}
 			var persistedRaw []byte
-			if e = db.QueryRow(t.Context(), `SELECT model_json FROM occccad.document_versions WHERE id=$1`, record.ResultRevisionID).Scan(&persistedRaw); e != nil { t.Fatal(e) }
+			if e = db.QueryRow(t.Context(), `SELECT model_json FROM occccad.document_versions WHERE id=$1`, record.ResultRevisionID).Scan(&persistedRaw); e != nil {
+				t.Fatal(e)
+			}
 			var persisted, candidate any
 			if json.Unmarshal(persistedRaw, &persisted) != nil || json.Unmarshal(record.Candidate, &candidate) != nil || !reflect.DeepEqual(persisted, candidate) {
 				t.Fatal("archive candidate differs from the committed failed Revision")
@@ -301,7 +313,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFallback(reopened)
-	if _, e := service.ExchangeExportGraph(t.Context(), doc, ""); e == nil {
+	if _, e := service.ExchangeExportGraph(t.Context(), doc); e == nil {
 		t.Fatal("failed Part exported stale result")
 	}
 	view = apply(workspace.CommandRequest{Type: "RENAME_FEATURE", TargetID: chamfer.ID, Name: "Failed chamfer"})
@@ -469,7 +481,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	}
 	view = apply(workspace.CommandRequest{Type: "UNDO"})
 	assertReady(view)
-	graph, e := service.ExchangeExportGraph(t.Context(), doc, "", view.Document.VersionID)
+	graph, e := service.ExchangeExportGraph(t.Context(), doc, view.Document.VersionID)
 	if e != nil {
 		t.Fatal(e)
 	}

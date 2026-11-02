@@ -85,3 +85,5 @@ sequenceDiagram
 没有双向高亮所有已保存测量的关联支持，也没有全局标签最优排布；当前选择字段复用现有高亮，标签采用有限避让。需要 CAD 工程图级排版或大量常驻标注时须专项设计，不把现有 128 个定义上限理解成性能保证。
 
 邻近测试：`Measurement.*` 原生场景、`measurement_test.go`、`measurement.scenario.mjs`；真实调用链为 `TestMeasurementPartProductHistoryAndAcceptedOccurrencesThroughRouter`；浏览器为 `measurement-live.spec.ts`。运行入口使用 `mise run check --scope geometry --match Measurement`、`--scope services --level integration --match TestMeasurement`、`pnpm --dir web/apps/cad exec playwright test --config playwright.live.config.ts measurement-live.spec.ts`。这些入口/测试存在不代表当次已经通过，执行结论以当次报告为准。
+
+测量组（“测量”根节点）提供批量隐藏/显示，与单个测量共用正式显示命令。隐藏不删除输出参数，也不改变测量定义、精确结果或依赖证据；一次命令可撤销，组的显隐标记与成员实际可见状态保持一致。

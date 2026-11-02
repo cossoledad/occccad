@@ -56,7 +56,9 @@ func newCompositionControlFixture(t *testing.T, options ...grpc.DialOption) *com
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	store := artifact.NewService(db, local, developmentStaging)
 	return &compositionControlFixture{db: db, client: client, store: store, service: workspace.NewWithArtifacts(db, client, store), actor: "00000000-0000-7000-8000-000000000001", fixtureDir: directory}
 }
@@ -426,10 +428,6 @@ func TestContactAnalyticSupportsAndHistoryThroughRouter(t *testing.T) {
 			if len(manifest.Bodies) != 2 {
 				t.Fatal("CAD Body support was confused with solver motion units")
 			}
-			release, e := cold.CreateProductRelease(t.Context(), id, workspace.CreateProductReleaseRequest{RequestID: id + "-contact-release", Name: "Frozen " + c.name, ActorID: f.actor})
-			if e != nil {
-				t.Fatal(e)
-			}
 			suppressed := true
 			apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{targetID}, Suppressed: &suppressed})
 			apply(workspace.CommandRequest{Type: "UNDO"})
@@ -440,11 +438,11 @@ func TestContactAnalyticSupportsAndHistoryThroughRouter(t *testing.T) {
 			if !product.Product.Constraints[len(product.Product.Constraints)-1].Suppressed {
 				t.Fatal("Redo did not restore suppressed Contact")
 			}
-			frozen, e := cold.ReplayProductRelease(t.Context(), id, release.ID, id+"-contact-release-replay")
-			if e != nil || frozen.Assembly == nil {
-				t.Fatal("Contact Release lost frozen evidence", e)
+			frozen, e := cold.ReplayAssemblySolveManifest(t.Context(), id, digest, id+"-contact-snapshot-replay")
+			if e != nil || frozen.ManifestDigest == "" {
+				t.Fatal("Contact SolveManifest lost frozen evidence", e)
 			}
-			if e = f.db.QueryRow(t.Context(), `SELECT manifest FROM occccad.product_solve_manifests WHERE digest=$1`, frozen.Assembly.ManifestDigest).Scan(&raw); e != nil {
+			if e = f.db.QueryRow(t.Context(), `SELECT manifest FROM occccad.product_solve_manifests WHERE digest=$1`, frozen.ManifestDigest).Scan(&raw); e != nil {
 				t.Fatal(e)
 			}
 			if e = json.Unmarshal(raw, &manifest); e != nil {
@@ -455,12 +453,12 @@ func TestContactAnalyticSupportsAndHistoryThroughRouter(t *testing.T) {
 				if d.ID == targetID {
 					foundFrozen = true
 					if d.Suppressed || d.ContactKind != c.relation {
-						t.Fatal("Head suppression changed frozen Release definition")
+						t.Fatal("Head suppression changed frozen SolveManifest definition")
 					}
 				}
 			}
 			if !foundFrozen {
-				t.Fatal("Release lost Contact definition")
+				t.Fatal("SolveManifest lost Contact definition")
 			}
 		})
 	}

@@ -1,3 +1,4 @@
+import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
 async function openCommand(page:Page, query:string, title:string) {
@@ -64,12 +65,12 @@ test("datum editors preview arbitrary geometry, copy references and delete throu
  await expectViewport(viewportProbe(page,"viewport-datum-preview")).toContainText('"origin":[8,9,10]');
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).__datumFixture.commits[0].datumDefinition.source)).toMatchObject({kind:"TOPOLOGY",selection:{anchor:{outputSlot:"FIXTURE_PLANAR_FACE"},expectedType:"FACE"}});
- const filter=page.getByRole("textbox",{name:"筛选模型结构"});await filter.fill("Plane");
+ const revealTree=treeNavigator(page);await revealTree("Plane");
  const copiedPlane=page.getByRole("treeitem").filter({hasText:/^Plane$/});
  await expect(copiedPlane).toBeVisible();await copiedPlane.click({button:"right"});
  await page.getByRole("menuitem",{name:"删除",exact:true}).click();
  await expect.poll(async()=>page.evaluate(async()=>{const {api}=await import("/src/api/client.ts");return (await api.getDocument("mock-part-bracket")).part!.datumPlanes.filter(p=>p.plane==="CUSTOM").length;})).toBe(0);
- await filter.fill("");
+ await revealTree("");
  await page.evaluate(async()=>{
   const {api}=await import("/src/api/client.ts");const {useWorkbenchStore}=await import("/src/state/workbench-store.ts");const view=await api.getDocument("mock-part-bracket");
   useWorkbenchStore.getState().setSelection({kind:"axis",axis:"X",id:"root:axis-system-default:X",entityId:view.axisSystems![0].id,documentId:view.document.id,versionId:view.document.versionId});
@@ -82,7 +83,7 @@ test("datum editors preview arbitrary geometry, copy references and delete throu
  await expectViewport(viewportProbe(page,"viewport-datum-preview")).toContainText('"origin":[0,5,0]');
  await page.screenshot({path:testInfo.outputPath("datum-axis-preview.png")});
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
- await filter.fill("Axis");
+ await revealTree("Axis");
  const custom=page.getByRole("treeitem").filter({hasText:/^Axis$/});
  await expect(custom).toBeVisible();await custom.click();
  await expect(page.getByRole("complementary",{name:"属性与历史"})).toContainText("0, 5, 0");

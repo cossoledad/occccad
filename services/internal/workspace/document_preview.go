@@ -260,16 +260,7 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 		// The adapter has already qualified the independent mechanism. Product
 		// equations belong to Product application/exit, never this confirmation.
 		solveRequestID := "preview/" + prepared.requestID
-		if prepared.command.TypeURI == typeReplaceInstance {
-			var p replaceInstancePayload
-			if err = json.Unmarshal(prepared.command.Payload, &p); err != nil {
-				return CommandPreview{}, err
-			}
-			solveRequestID, err = service.settleInstanceReplacement(ctx, documentID, prepared.headRevision, solveRequestID, &model, p, &assemblyResult)
-			if err != nil {
-				return CommandPreview{}, err
-			}
-		} else if !kinematicsPreview {
+		if !kinematicsPreview && prepared.command.TypeURI != typeReplaceInstance {
 			if err = service.solveAssembly(ctx, documentID, prepared.headRevision, "preview/"+prepared.requestID, driven, solveIntent, &model, warmStartKey, &assemblyResult); err != nil {
 				if retained := acceptAssemblyEvaluationFailure(&model, err, retainsAssemblyDefinition(prepared.command.TypeURI)); retained == nil {
 					retainedFailure = true

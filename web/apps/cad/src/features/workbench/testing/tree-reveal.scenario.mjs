@@ -8,6 +8,7 @@ try{
  assert.deepEqual(treeRevealPath(nodes,{documentId:'part',entityId:'p',kind:'PARAMETER',occurrence:'a'}),['root','a','a:p']);
  assert.equal(treeRevealPath(nodes,{documentId:'another',entityId:'same'}),undefined);
  assert.deepEqual(revealExpansion(['root','manual','old-auto'],['root','old-auto'],['root','new','target']),{expanded:['manual','root','new'],automatic:['root','new']});
+ assert.deepEqual(revealExpansion(['manual'],[],['root','instance'],true),{expanded:['manual','root','instance'],automatic:['root','instance']});
  const before={document:{id:'doc'},structureTree:{id:'root',kind:'PART',documentId:'doc',entityId:'doc',children:[]}};
  const after=structuredClone(before);after.structureTree.children=[{id:'measurement-group',kind:'MEASUREMENT_GROUP',children:[{id:'m',kind:'MEASUREMENT',documentId:'doc',entityId:'m',capabilities:['EDIT'],children:[{id:'p',kind:'PARAMETER',documentId:'doc',entityId:'p',capabilities:['EDIT']}]}]}];
  assert.equal(createdObjectReveal(before,after).entityId,'m');assert.equal(createdObjectReveal(after,after),undefined);

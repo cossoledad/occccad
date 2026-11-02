@@ -44,13 +44,13 @@ CAD 自动化提供操作目录、快照查询和持久任务，模型控制沿�
 
 `GET /api/ui/toolbars` 返回 `internal/workbenchconfig/catalog.json` 的完整校验配置及派生 Toolbar 投影，包括文档、Tab、组、命令、条件和图标。目录读取不访问模型数据库或 Worker；命令实现由浏览器 registry 注册并校验，不能将配置解释为脚本。文档适配器和扩展方式见[公共框架](../../../docs/architecture/current/document-command-framework.md)。
 
-文档交换使用独立资源：`POST /api/exchange/imports?format=STEP|BREP&fileName=...` 把原始 request body 流式写入 ArtifactStore，限制由 `OCCCCAD_EXCHANGE_MAX_BYTES` 配置（默认 16 GiB）；`POST /api/exchange/exports` 提交 `{documentId, format, releaseId?}`，带 ReleaseId 时从冻结 Release GeometryKey 导出而不要求当前 Head 未移动；Product occurrence placement 保留 translation 和 quaternion rotation。`GET /api/jobs` 恢复当前用户最近 100 条可见任务，`POST /api/jobs/{jobID}/cancel|retry` 执行发起者或管理员动作，任务完成后从 `GET /api/jobs/{jobID}/download` 流式下载。导入不要求先创建 Part，不使用 multipart，也不让大文件经过 WebSocket 或 gRPC bytes。
+文档交换使用独立资源：`POST /api/exchange/imports?format=STEP|BREP&fileName=...` 把原始 request body 流式写入 ArtifactStore，限制由 `OCCCCAD_EXCHANGE_MAX_BYTES` 配置（默认 16 GiB）；`POST /api/exchange/exports` 提交 `{documentId, format}`，任务绑定提交时的根 Revision，Head 改变后拒绝导出；Product occurrence placement 保留 translation 和 quaternion rotation。`GET /api/jobs` 恢复当前用户最近 100 条可见任务，`POST /api/jobs/{jobID}/cancel|retry` 执行发起者或管理员动作，任务完成后从 `GET /api/jobs/{jobID}/download` 流式下载。导入不要求先创建 Part，不使用 multipart，也不让大文件经过 WebSocket 或 gRPC bytes。
 
 `GET|POST /api/documents/{documentID}/workspaces` 用于列出 Workspace 或从所属 Revision 创建 Branch。CAD 编辑只使用 `workspace.command.execute.v1` 与 `workspace.preview.request.v1` / `workspace.preview.cancel.v1`；旧 HTTP commands/command-previews 路由已删除。Preview 共用 adapter、typed handler 和求值，返回 base Revision、候选身份及 Artifact 引用，受 Editor ACL、显式取消和 15 秒 deadline 约束，不推进 Workspace。`SET_PARAMETER_VALUE` 接受 `parameterId/value/unit`，`SET_PARAMETER_EXPRESSION` 接受 `parameterId/expression`，`RENAME_PARAMETER` 接受 `parameterId/name`。表达式在服务端绑定稳定 ParameterId，Worker 不解析用户 source text。草图五类驱动尺寸与 Linear Extrude length 使用同一参数/依赖合同。
 
 `POST /api/documents/{rootProductId}/part-components` 实现 Product 树“新建零件”：可用 typed `targetProductInstancePath` 指向嵌套 Product，空名称由服务端分配 `PartN`。Part 初始 Revision、目标 occurrence 和祖先 Product Revision 以一个 ProductDesignTransaction 原子提交；当前唯一 placement mode 为 `PRODUCT_ORIGIN`。
 
-Product API 包括 `GET|POST /api/documents/{rootProductId}/product-update-plan[/accept]`、`GET|POST .../releases`、`POST .../releases/{releaseId}/replay`、`POST .../solve-manifests/{digest}/replay` 与 `GET .../solve-results?requestId=`。Update accept 必须携带刚读取的 plan digest；Release gate 冻结 occurrence/ContextBinding/ContextVariant/Evaluation/SolveManifest closure，replay 与 request lookup 不读取可变 Workspace Head。
+Product API 包括 `GET|POST /api/documents/{rootProductId}/product-update-plan[/accept]`、`POST .../solve-manifests/{digest}/replay` 与 `GET .../solve-results?requestId=`。Update accept 必须携带刚读取的 plan digest；产品版本 API 已移除；SolveManifest replay 与 request lookup 使用冻结清单，不读取可变 Workspace Head。
 
 `CREATE_SKETCH` 除 DatumPlane 外还接受当前 Part Revision 的 `FACE` raw pick（`versionId/geometryKey/topologyId`）。服务端先绑定 PersistentSelection 并验证平面类型，再保存确定性 support frame；后续上游编辑通过 naming resolver 和草图之前的完整 body-prefix 制品更新 frame/dependency snapshot。浏览器和持久模型都不把 local face ID 当成长期支撑身份。
 

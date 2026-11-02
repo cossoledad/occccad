@@ -111,7 +111,6 @@ func (server *Server) startExchangeExport(writer http.ResponseWriter, request *h
 	var input struct {
 		DocumentID string `json:"documentId"`
 		Format     string `json:"format"`
-		ReleaseID  string `json:"releaseId,omitempty"`
 	}
 	if !decodeJSON(writer, request, &input) {
 		return
@@ -131,27 +130,16 @@ func (server *Server) startExchangeExport(writer http.ResponseWriter, request *h
 		return
 	}
 	fileName, versionID := view.Document.Name, &view.Document.VersionID
-	if input.ReleaseID != "" {
-		release, releaseErr := server.workspace.GetProductRelease(request.Context(), input.DocumentID, input.ReleaseID)
-		if releaseErr != nil {
-			writeWorkspaceResult(writer, workspace.DocumentView{}, releaseErr)
-			return
-		}
-		fileName, versionID = release.Name, nil
-	}
 	idempotencyKey := strings.TrimSpace(request.Header.Get("X-Request-ID"))
 	if idempotencyKey == "" {
 		identity := view.Document.VersionID
-		if input.ReleaseID != "" {
-			identity = input.ReleaseID
-		}
 		idempotencyKey = fmt.Sprintf("export-%s-%s-%s", view.Document.ID, identity, format)
 	}
 	job, err := server.jobs.Enqueue(request.Context(), jobs.EnqueueRequest{Type: "EXCHANGE_EXPORT",
 		DocumentID: view.Document.ID, VersionID: versionID,
 		RequestedBy: principal(request).ID, IdempotencyKey: idempotencyKey,
 		UserVisible: true,
-		Payload:     map[string]any{"fileName": fileName + extension, "format": format, "requestId": idempotencyKey, "releaseId": input.ReleaseID}})
+		Payload:     map[string]any{"fileName": fileName + extension, "format": format, "requestId": idempotencyKey}})
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return

@@ -22,7 +22,7 @@ Publication 用稳定目标身份，支持输出及转发；PersistentSelection 
 
 普通 FOLLOW_HEAD 仍自动跟随，参数更新仍需明确“更新关联零件”。面板复用原计划接受、重试、Refresh、Edit/Reconnect 与权威预览/确认，重算按钮不会隐式接受待更新参数。接受及普通 `UPDATE_REFERENCES` 检查确切来源 Part 的求值状态；FAILED 来源阻塞并指出 Part、Revision 和失败 Feature，保留原合法快照。待更新参数消费者先按原参数计划求值再检查结果。合法零件更新导致的 Broken/NotUpdated 仍按原合同保留，不增加全部 Verified 的接受门槛，不采用失败姿态。
 
-入口：[面板与版本范围](../../../web/apps/cad/src/features/workbench/association-repair-panel.tsx)、[原更新计划](../../../services/internal/workspace/product_update_release.go)。回归：[真实 Router/Worker](../../../services/internal/control/association_repair_integration_test.go)、[实际视图区重选](../../../web/apps/cad/browser/association-repair-live.spec.ts)。本入口不编排嵌套更新，不刷新 DOF，不扩展柔性装配或求解算法。
+入口：[面板与版本范围](../../../web/apps/cad/src/features/workbench/association-repair-panel.tsx)、[原更新计划](../../../services/internal/workspace/product_update.go)。回归：[真实 Router/Worker](../../../services/internal/control/association_repair_integration_test.go)、[实际视图区重选](../../../web/apps/cad/browser/association-repair-live.spec.ts)。本入口不编排嵌套更新，不刷新 DOF，不扩展柔性装配或求解算法。
 
 ## 定义与求值
 
@@ -36,7 +36,7 @@ Literal/表达式保存 Quantity、稳定 AST 参数引用与维度。参数、�
 
 Fix Together 保存 GroupId、成员及捕获关系；先解有效内部约束，再从成功结果冻结相对关系用于组外。嵌套/重叠确定性编排，循环拒绝；失败不覆盖捕获基准。组停用不删除内部独立约束。
 
-已接纳集合与未接纳定义分离。支持失败可保留 Broken，可解析但不可行/未收敛按命令合同保存 Impossible/NotUpdated；失败位姿不提交，不伪造 Verified、不偷偷 suppressed。Release 检查全部需要满足的活动定义，而不只检查最终子集。
+已接纳集合与未接纳定义分离。支持失败可保留 Broken，可解析但不可行/未收敛按命令合同保存 Impossible/NotUpdated；失败位姿不提交，不伪造 Verified、不偷偷 suppressed。求解清单继续保存全部定义与最终采用集合。
 
 ## 编辑候选
 
@@ -137,21 +137,19 @@ OCCT 在私有几何上计算分离、接触、干涉及包含；包含通过真
 
 当前 owning Product 的直接 Part occurrence 可把同一输入赋为“来源关联”或“本地输入”，两者互斥。固定版本仍保留来源关系；“解除并保留”从权威已接受结果捕获 SI 参数值、接收 Part 坐标系的平面/轴或有限精确点/曲线，清除赋值中的来源路径、Publication、来源版本及几何定位器，不再读取该来源。原 ContextInput、草图普通点、约束与下游 Feature 身份保留，共享 Part 默认值和重复实例不变。直接子零件限制仅作用于修改入口；已保存模块的 LOCAL 输入可随完整路径重基后在上级装配展开、投影及冷重建。失败 Variant 不显示共享默认实体。曲线复用现有解析线段、圆/圆弧及精确投影；不支持无法自包含的曲线、曲面/实体或显示折线。原来源组件若仍作为独立 Product 成员存在，其自身引用更新与本地输入无关。
 
-关联管理的输入行提供固定、解除并保留、恢复零件默认和重新关联。“恢复零件默认”撤销该实例的赋值，采用其已接受 Part 版本的定义，不读取 Part 新 Head；具有设计输入的实例（含模块内实例）即使已恢复全部默认，仍提供该已接受版本的完整视图；“重新关联”复用现有兼容检查并替换本地快照。结构树/API 的删除绑定与恢复默认共用同一操作：校验当前修订及完整候选，刷新转发 Publication 并记录完整 ChangeSet。两者和本地化均预览完整候选，检查受影响几何、约束及转发接口，成功后一次提交，取消或失败保留原结果。状态与精确本地快照进入规范摘要、VariantKey、依赖图和同一 ChangeSet；本地输入的更新计划不查询旧来源，撤销/重做恢复来源或本地状态。Required 仍只沿用组件替换的满足检查，不因解除关联新增全局规则。
+关联管理的输入行提供固定、解除并保留、恢复零件默认和重新关联。“恢复零件默认”撤销该实例的赋值，采用其已接受 Part 版本的定义，不读取 Part 新 Head；具有设计输入的实例（含模块内实例）即使已恢复全部默认，仍提供该已接受版本的完整视图；“重新关联”复用现有兼容检查并替换本地快照。结构树/API 的删除绑定与恢复默认共用同一操作：校验当前修订及完整候选，刷新转发 Publication 并记录完整 ChangeSet。两者和本地化均预览完整候选，检查受影响几何、约束及转发接口，成功后一次提交，取消或失败保留原结果。状态与精确本地快照进入规范摘要、VariantKey、依赖图和同一 ChangeSet；本地输入的更新计划不查询旧来源，撤销/重做恢复来源或本地状态。Required 标记保留在输入定义；输入赋值由各自命令验证。
 
 Product 只保存来源和值：ContextBinding 冻结来源 Revision、完整 occurrence 路径、相对变换及发布契约，ContextVariant 由基础 Part 和已接受输入重建。独立打开使用保存的本地默认输入。来源改变、失效或重定向经 UpdatePlan 显示可更新/阻塞状态；完整健康候选才接受，失败保留原已接受结果。已有绑定的改名与固定只使用已接受输入，不要求失效来源仍可选择；重连沿用原绑定和本地槽位，保留下游身份。PINNED 使用确切旧来源与变换，不读取来源 Head；恢复跟随后仍需接受更新。直接重复实例复用同一 Part 端口，各自绑定和投影独立。上下文编辑合同见[编辑会话](product-edit-context.md#编辑会话)。
 
 子装配消费者保存模块的公开 PublicationId 与模块 occurrence 路径，不绕过接口绑定内部布局。各 owning Product 的 UpdatePlan 只更新自身引用和绑定；来源装配内部待更新或受阻时，父计划携带来源计划摘要并保留已接受结果，可从关联管理或更新修复入口转到来源装配。先在来源装配接受内部来源，再在父装配接受模块和本地输入；普通 FOLLOW_HEAD 仍可跟随已计算版本，关联输入保持显式接受，PINNED 输入和固定模块不读取新 Head。接受输入的全部 Binding 快照进入同一 ChangeSet，撤销/重做同时恢复孔位、来源及引用。
 
-“替换组件”由装配工具和直接组件的结构树菜单进入，独立于发布管理。当前替换 owning Product 的一个直接来源组件（Part→Part、Product→Product），或一个直接接收 Part（Part→Part）；仅对实际被 ContextBinding、当前装配约束和对外转发接口使用的 Publication 指定对应关系。名称只推荐唯一兼容候选，命令冻结装配基线、新组件确切 Revision、旧/新 PublicationId 和影响集合，权威校验类型、兼容版本、契约、量纲及解析状态。实例名称、策略和初始位姿保留；候选求值与求解成功后才可采用，视图区展示候选组件和关联结果，取消恢复原显示且不写 Head。替换不调用整装配 UPDATE_REFERENCES，其他实例和无关已接受输入保持原版本；后台自动跟随也不会接受含待确认组件或关联输入的计划。Product 接口、Binding 与约束保持身份；来源替换保留接收端本地端口和下游 Feature，接收替换采用新件自身的内部身份。全部迁移与求解变化进入一次正式 ChangeSet，撤销/重做恢复完整关系。
+“替换组件”只从当前 owning Product 的直接 Instance 右键菜单进入。它复用插入组件的文件夹、最近文档、共享文档和缩略图资源浏览器，单选一个 Part 或 Product，确认时获取并冻结所选文档的确切 Revision。命令检查当前 Product CAS、可访问的来源快照和循环引用，保留 InstanceId、名称、引用策略及当前位姿，不接受其他 occurrence 的待更新 Head。
 
-替换输入按完整 occurrence 路径和稳定实例 ID 取得两端，不依赖实例或 Binding 的排列。接收定义采用 Product 已接受的实例版本，各 Binding 保留自己的已接受来源和值快照。候选在现有求值与装配求解之间最多重算四轮，直到受影响输入的相对变换与最终位姿一致；预览、直接提交与预览采用共用最终检查，不一致时拒绝并保留原模型。只更新本次迁移的输入，其他已接受绑定和待接受版本不变。来源快照在每次新操作或明确重选时重新获取，在本次映射、预览和确认期间冻结；后台刷新不改变候选版本。
+替换是一次明确的模型编辑，不要求事先映射接口或求解所有关联。几何支撑保留指向原文档的 typed identity，换成其他文档后对应约束进入 Broken；仍然只依赖完整 occurrence 的关系进入 NotUpdated，等待显式更新。受影响 ContextBinding 与转发 Publication 保留原对象身份、接受证据及诊断，进入断裂状态；更新计划报告阻塞，缺失接收 occurrence 不使整个文档打不开。测量、空间分析继续按各自依赖指纹判定时效。替换不按名称、拓扑序号或形状猜测新的支撑，也不自动恢复关联或推进新组件自身的未接受输入。ChangeSet 和 Undo/Redo 恢复原来源、关系、状态与位姿。
 
-接收端以明确的旧/新 ContextInputId 对应覆盖全部已有绑定，校验类型、契约、量纲和本地目标唯一性。同名唯一兼容只作推荐；新件额外可选输入使用其本地默认值，额外必需输入未满足则拒绝。保留实例和 Binding 身份、策略、已接受来源版本、值及来源路径；根据每条绑定接受时的来源世界框架换算新接收坐标，不推进上游待接受输入或其他实例。新件使用自己的端口、草图和 Feature 身份，不复制旧件内部对象。初始关联实体失败时，仅允许用不依赖关联输入或失败 Feature 的独立安装基准先摆放一次；随后仍完整求值并检查实际 Variant 的约束和对外接口，不能满足则原子拒绝。
+CATIA 参考：`online/asmug_C2/asmuggs10.htm`、`online/asmug_C2/asmugat0103.htm` 使用选择组件、选择替代文档、提交后检查关联状态的流程；公开接口可能帮助重连，普通接触约束可能断裂。这些页面也提供工具栏及影响对话框；本软件本轮采用右键单组件替换与现有资源浏览器，关联重连留在既有编辑器中显式完成。
 
-含本地输入的接收件暂不替换，须先恢复默认或重新关联；重复输入对应明确指出冲突输入及目标。不迁移固定 ContextBinding，也不支持接收件同时作为其他 ContextBinding 来源、深层私有引用、原始拓扑/基准支撑或机构关系，不支持批量或跨类型替换；被选来源提供固定输入时要求先明确处理该关联，不能隐式解除固定或改绑。FIX 的整个 occurrence 与现有直接实例固联组沿用实例身份。未使用的接口无需映射；缺失、不可用或不兼容接口、关联几何失败及约束迁移失败均拒绝候选并保留原装配。
-
-实现入口：workspace 的 publication、context_input_geometry、product_context、product_design_transaction、product_update_release、context_local_input、instance_replacement、receiver_replacement、context_editing；Web 的 design-input-dialog、design-association-dialog、replace-instance-dialog 与 context-edit-scope。真实回归入口为 control/publication_layout_integration_test、control/subassembly_publication_integration_test、browser/publication-layout-live.spec。它们是验证入口，执行范围以本轮报告为准。
+实现入口：workspace 的 publication、context_input_geometry、product_context、product_design_transaction、product_update、context_local_input、instance_replacement、context_editing；Web 的 design-input-dialog、design-association-dialog、replace-instance-dialog 与 context-edit-scope。真实回归入口为 control/publication_layout_integration_test、control/subassembly_publication_integration_test、browser/publication-layout-live.spec。它们是验证入口，执行范围以本轮报告为准。
 
 接收 Part 限定当前 owning Product 的直接子实例；来源为直接 Part 发布或直接子 Product 的公开接口。支持逐层公开转发与各层独立接受，不提供任意深层上下文编辑、深层或批量组件替换、跨层原子更新编排、Wire、曲面/实体 Feature 输入或 Skeleton 文档类型。删除发布的跨工作区并发预检限制见[建模与显示](model-display.md#参数与-publication)。
 
@@ -159,11 +157,11 @@ Product 只保存来源和值：ContextBinding 冻结来源 Revision、完整 oc
 
 新 DocumentView 即使 GeometryKey/pose 不变，也同步 owner/version/referenceMode、InstancePath、选择与操纵绑定；开始手势从当前权威快照按稳定 occurrence 冻结，旧路径严格拒绝。约束显示按 owner/occurrence/ConstraintId 增量 reconcile，增删、模式、抑制、评价、支持与标签独立失效，请求帧并清理拾取/高亮，无 GLB 下载或完整 BVH 重建。单一手柄吸附复用可见拾取与精确查询；中心重定位不是模型移动，手势框架冻结。
 
-SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence、参数解析值、模式/激活、组阶段、分支/基准及 policy/profile/build；失败试算和采用结果分别记录在操作诊断与 SolveManifestResult。Replay 不查询最新几何、不依赖 Session。开发数据只支持当前 DefinitionVersion=2、Quantity 和 assembly-m4m5-reference-retraction-v13/canonical JSON 摘要；旧实验定义、Offset 符号约定、pair-Rigid 持久记录和 policy 明确拒绝，不做读取修补、换号、组迁移或多代投影。Rigid 快捷创建仍生成当前正式组，内核刚性原语继续使用。已有旧开发数据可能无法读取，未自动重置。当前格式的 JSONB 数值规范化、篡改拒绝、Revision、CAS、Undo/Redo 与 Release 冻结完整保留；记录实际重放 build，不承诺跨版本逐位一致。
+SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence、参数解析值、模式/激活、组阶段、分支/基准及 policy/profile/build；失败试算和采用结果分别记录在操作诊断与 SolveManifestResult。Replay 不查询最新几何、不依赖 Session。开发数据只支持当前 DefinitionVersion=2、Quantity 和 assembly-m4m5-reference-retraction-v13/canonical JSON 摘要；旧实验定义、Offset 符号约定、pair-Rigid 持久记录和 policy 明确拒绝，不做读取修补、换号、组迁移或多代投影。Rigid 快捷创建仍生成当前正式组，内核刚性原语继续使用。已有旧开发数据可能无法读取，未自动重置。当前格式的 JSONB 数值规范化、篡改拒绝、Revision、CAS、Undo/Redo 与求解快照重放完整保留；记录实际重放 build，不承诺跨版本逐位一致。
 
 ## 入口与限制
 
-- services/internal/workspace：product_context、product_design_transaction、product_update_release、assembly_solve、assembly_interaction、assembly_interaction_continuation、assembly_conflict、assembly_engineering、assembly_solve_manifest。
+- services/internal/workspace：product_context、product_design_transaction、product_update、assembly_solve、assembly_interaction、assembly_interaction_continuation、assembly_conflict、assembly_engineering、assembly_solve_manifest。
 - kernel/assembly：solver.hpp、solver.cpp 与算法文档。
 - Web：assembly-interaction、motion-presentation、assembly-conflict-panel、cad-viewport-engine。
 - 定向测试、报告和人工步骤见装配验证，不把测试存在或历史通过当作当前执行。
@@ -189,3 +187,5 @@ NotUpdated 通过 `evaluationFailure.diagnosticId` 关联归档的真实失败�
 完整 `.3dreplay` 仅有 snapshot 表引用这一数值来源；普通求解与回放共用 Go 编译器，按端点所属 occurrence/身份生成短 `g000000` ID，C++ 在 nominal 分支冻结后绑定几何/刚体/cluster 索引，残差和 Jacobian 循环不用长字符串拼接查找。持久身份、提交 digest 和结果的稳定 constraint ID 仍保留。默认输出计数、逐约束残差、秩/退化、候选和阶段耗时，完整矩阵/轨迹按需开启。
 
 离线入口使用同一生产适配器/C++ Worker，无数据库、S3、BREP 或在线解析。支持当前已接受集合、显式加入 NotUpdated、全部未停用驱动约束、保留固定/第三轴/组边界的完整关联子系统，以及真实失败当次的顺序回放。调试初值/分支/预算记录在派生结果，不覆盖原文件或文档。可行、偏好未收敛、输入错误、数值未收敛、执行失败分别呈现；只有已编译分支及固定姿态下、无可动参数的明确矛盾证据分类为已证矛盾，不将超时、秩亏或局部失败认定全局无解。工具、字段和限制见[CLI](../../../services/cmd/occccad-3dreplay/README.md)。
+
+产品版本（ProductRelease）当前已移除：无创建、列表、重放及发布版本导出入口或存储表；后续重新设计。普通 Revision、命名版本、文档历史、接受引用和独立 SolveManifest 重放保留。

@@ -1,3 +1,4 @@
+import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from '@playwright/test';
 
@@ -120,14 +121,14 @@ async function command(page:Page,name:string){
 
 
 async function enter(page:Page,existing=false){
- if(existing){const name=await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms[0]?.name??'测试机构');const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill(name);const row=page.getByRole('treeitem').filter({has:page.getByText(name+'，自由度=0',{exact:true})}).first();await expect(row).toHaveAttribute('data-action-enabled','true');await row.dblclick();await filter.fill('');}
+ if(existing){const name=await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms[0]?.name??'测试机构');const revealTree=treeNavigator(page);await revealTree(name);const row=page.getByRole('treeitem').filter({has:page.getByText(name+'，自由度=0',{exact:true})}).first();await expect(row).toHaveAttribute('data-action-enabled','true');await row.dblclick();await revealTree('');}
  else {await command(page,'运动机构');await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);}
  await expect(page.getByRole('tab',{name:'机构与 DMU',exact:true})).toBeVisible();
  await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toHaveCount(0);
 }
 async function openResult(page:Page){
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('结果.1');
- const row=page.getByRole('treeitem').filter({hasText:/^结果\.1 ·/});await expect(row).toHaveAttribute('data-action-enabled','true');await row.dblclick();await filter.fill('');
+ const revealTree=treeNavigator(page);await revealTree('结果.1');
+ const row=page.getByRole('treeitem').filter({hasText:/^结果\.1 ·/});await expect(row).toHaveAttribute('data-action-enabled','true');await row.dblclick();await revealTree('');
  await expect(page.getByRole('dialog',{name:'仿真与回放',exact:true})).toBeVisible();
 }
 async function start(page:Page){
@@ -140,9 +141,9 @@ test('tree edit enters an existing mechanism application without leaving a phant
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await fixture(page,true);await enter(page,true);
  await expect(page.getByRole('dialog')).toHaveCount(0);
  await command(page,'旋转接合');await expect(page.getByRole('dialog',{name:/旋转/})).toBeVisible();await page.keyboard.press('Escape');
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('测试机构');
+ const revealTree=treeNavigator(page);await revealTree('测试机构');
  const row=page.getByRole('treeitem').filter({hasText:'测试机构，自由度=0'}).last();await row.focus();await page.keyboard.press('Enter');
- await expect(page.getByRole('dialog')).toHaveCount(0);await filter.fill('');
+ await expect(page.getByRole('dialog')).toHaveCount(0);await revealTree('');
  await command(page,'旋转接合');await expect(page.getByRole('dialog',{name:/旋转/})).toBeVisible();await page.keyboard.press('Escape');
  expect(errors).toEqual([]);
 });
@@ -154,8 +155,8 @@ test('joint toolbar is flat and prismatic plane direction is saved independently
  for(const name of ['旋转接合','棱形接合','圆柱接合','平面接合','刚性接合','球面接合'])await expect(definition.getByRole('button',{name,exact:true})).toBeVisible();
  await expect(definition.locator('[aria-haspopup="menu"]')).toHaveCount(0);
  await command(page,'棱形接合');const dialog=page.getByRole('dialog',{name:/^棱形\./});
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});
- for(const label of ['试验轴线 0','试验轴线 1','试验定位面 0','试验定位面 1']){await filter.fill(label);await page.getByText(label,{exact:true}).click();}
+ const revealTree=treeNavigator(page);
+ for(const label of ['试验轴线 0','试验轴线 1','试验定位面 0','试验定位面 1']){await revealTree(label);await page.getByText(label,{exact:true}).click();}
  await dialog.getByRole('combobox',{name:'平面方向',exact:true}).click();await page.locator('.ant-select-item-option-content').getByText('相对',{exact:true}).click();
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
  await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
@@ -169,11 +170,11 @@ test('mechanism entry creates without selection, edits selected mechanisms and d
  await command(page,'运动机构');await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(2);
  await expect(page.getByRole('dialog')).toHaveCount(0);await command(page,'退出机构');
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);
- const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
- await filter.fill('测试机构');await tree.getByText('测试机构，自由度=0',{exact:true}).first().click();await command(page,'运动机构');
+ const revealTree=treeNavigator(page),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ await revealTree('测试机构');await tree.getByText('测试机构，自由度=0',{exact:true}).first().click();await command(page,'运动机构');
  await expect(page.locator('[data-application-id="m"]')).toBeVisible();
  expect(await page.evaluate(()=>(window as any).__motionFixture.saved.at(-1).kinematics.mechanisms.length)).toBe(1);
- await filter.fill('');await command(page,'退出机构');
+ await revealTree('');await command(page,'退出机构');
  await command(page,'运动机构');await command(page,'旋转接合');await page.keyboard.press('Escape');await command(page,'退出机构');
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1)?.kinematics.mechanisms.length)).toBe(1);expect(errors).toEqual([]);
 });
@@ -181,11 +182,11 @@ test('mechanism entry creates without selection, edits selected mechanisms and d
 test('filtered tree picks advance roles and preview axes before locating planes',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);await enter(page,true);await command(page,'旋转接合');
  const dialog=page.getByRole('dialog',{name:/^旋转\./});await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeDisabled();
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});
+ const revealTree=treeNavigator(page);
  // A plane is never accepted by the axial role.
- await filter.fill('试验平面 0');await page.getByText('试验平面 0',{exact:true}).click();await expect(dialog.locator('.feature-pick-field').filter({hasText:'第一轴线'})).toContainText('未选择');
+ await revealTree('试验平面 0');await page.getByText('试验平面 0',{exact:true}).click();await expect(dialog.locator('.feature-pick-field').filter({hasText:'第一轴线'})).toContainText('未选择');
  for(const label of ['试验圆柱面 0','试验圆柱面 1','试验定位面 0','试验定位面 1']){
-  await filter.fill(label);const item=page.getByText(label,{exact:true});
+  await revealTree(label);const item=page.getByText(label,{exact:true});
   const role=label.includes('圆柱')?'轴线':'定位平面';const before=['试验圆柱面 0','试验圆柱面 1','试验定位面 0','试验定位面 1'].indexOf(label);
   if(label==='试验圆柱面 0'){
    await page.evaluate(()=>(window as any).__motionFixture.failInspection=true);await item.click();
@@ -200,8 +201,8 @@ test('filtered tree picks advance roles and preview axes before locating planes'
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
  await dialog.getByRole('button',{name:'移除第一轴线',exact:true}).click();await expect(dialog.locator('.feature-pick-field').filter({hasText:'第一定位平面'})).toContainText('先选轴线');
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeDisabled();
- await filter.fill('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:'选择第一定位平面',exact:true})).toHaveAttribute('aria-pressed','true');
- await filter.fill('试验定位面 0');await page.getByText('试验定位面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
+ await revealTree('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:'选择第一定位平面',exact:true})).toHaveAttribute('aria-pressed','true');
+ await revealTree('试验定位面 0');await page.getByText('试验定位面 0',{exact:true}).click();await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(1);
  const joint=await page.evaluate(()=>(window as any).__motionFixture.saved[0].kinematics.mechanisms[0].joints.at(-1));expect(joint.first.instanceId).not.toBe(joint.second.instanceId);expect(joint.first.axis.derivedRole).toBe('cylinder-axis');expect(joint.first.plane.topologyId).toBe(3);expect(errors).toEqual([]);
@@ -223,7 +224,7 @@ test('dialog replay uses whole frames and publishes the selected frame',async({p
  await page.keyboard.press('Escape');await expect(page.locator('.workbench-status')).not.toContainText('机构回放');
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);
  await command(page,'旋转接合');await expect(page.getByRole('dialog',{name:/^旋转\./})).toBeVisible();await page.keyboard.press('Escape');
- await page.getByRole('textbox',{name:'筛选模型结构'}).fill('结果.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^结果\.1 ·/).dblclick();await expect(result).toBeVisible();
+ await treeNavigator(page)('结果.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^结果\.1 ·/).dblclick();await expect(result).toBeVisible();
  await expect(page.getByRole('dialog')).toHaveCount(1);await expect(page.getByRole('button',{name:'播放',exact:true})).toHaveCount(1);
  await result.getByRole('button',{name:'终点',exact:true}).click();await expect(result.getByText(/5\/5/)).toBeVisible();
  await result.getByRole('button',{name:'起点',exact:true}).click();await expect(result.getByText(/1\/5/)).toBeVisible();
@@ -242,7 +243,7 @@ test('simulation dialog owns calculation cancellation while close preserves the 
  const dialog=page.getByRole('dialog',{name:'仿真与回放',exact:true});await expect(dialog.getByRole('button',{name:'停止计算',exact:true})).toBeEnabled();
  await dialog.getByRole('button',{name:/^确\s*定$/,exact:true}).click();await expect(dialog).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).__motionFixture.jobs[0].state)).toBe('RUNNING');expect(await page.evaluate(()=>(window as any).__motionFixture.canceled??[])).toEqual([]);
- await page.getByRole('textbox',{name:'筛选模型结构'}).fill('结果.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^结果\.1 ·/).dblclick();await dialog.getByRole('button',{name:'停止计算',exact:true}).click();await expect(dialog.getByRole('button',{name:'停止计算',exact:true})).toHaveCount(0);
+ await treeNavigator(page)('结果.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^结果\.1 ·/).dblclick();await dialog.getByRole('button',{name:'停止计算',exact:true}).click();await expect(dialog.getByRole('button',{name:'停止计算',exact:true})).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).__motionFixture.canceled)).toEqual(['fixture-run-1']);await page.keyboard.press('Escape');expect(errors).toEqual([]);
 });
 
@@ -251,22 +252,22 @@ test('late results and preview responses cannot reopen an exited session',async(
  await page.evaluate(()=>(window as any).__motionFixture.blocked=true);await start(page);
  await expect.poll(()=>page.evaluate(()=>typeof (window as any).__motionFixture.release)).toBe('function');await page.keyboard.press('Escape');await command(page,'退出机构');await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();await page.evaluate(()=>(window as any).__motionFixture.release());
  await enter(page,true);await expect(page.locator('.workbench-status').getByText(/机构回放/)).toHaveCount(0);
- await page.evaluate(()=>(window as any).__motionFixture.previewBlocked=true);await command(page,'固定件');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await expect.poll(()=>page.evaluate(()=>typeof (window as any).__motionFixture.previewRelease)).toBe('function');
+ await page.evaluate(()=>(window as any).__motionFixture.previewBlocked=true);await command(page,'固定件');await treeNavigator(page)('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await expect.poll(()=>page.evaluate(()=>typeof (window as any).__motionFixture.previewRelease)).toBe('function');
  await page.keyboard.press('Escape');await command(page,'退出机构');await page.evaluate(()=>(window as any).__motionFixture.previewRelease());await expect(page.getByRole('dialog')).toHaveCount(0);await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);expect(errors).toEqual([]);
 });
 
 
 test('entered definitions use standard rename and deletion commands',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page);await enter(page);
- await command(page,'固定件');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await page.getByRole('dialog',{name:/^固定零件\./}).getByRole('button',{name:/^确\s*定$/}).click();
+ await command(page,'固定件');await treeNavigator(page)('试验圆柱面 0');await page.getByText('试验圆柱面 0',{exact:true}).click();await page.getByRole('dialog',{name:/^固定零件\./}).getByRole('button',{name:/^确\s*定$/}).click();
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length),{timeout:30_000}).toBe(2);
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('固定零件.1 (');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^固定零件\.1 \(/).click({button:'right'});
+ const revealTree=treeNavigator(page);await revealTree('固定零件.1 (');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^固定零件\.1 \(/).click({button:'right'});
  await page.getByRole('menuitem',{name:'属性…',exact:true}).click();const rename=page.getByRole('dialog',{name:/^属性 ·/});
  await expect(rename.getByRole('textbox',{name:/名称$/})).toHaveValue('固定零件.1');await rename.getByRole('textbox',{name:/名称$/}).fill('圆柱固定');
  await rename.getByRole('button',{name:/^确\s*定$/}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(3);
- await filter.fill('圆柱固定');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^圆柱固定 \(/).dblclick();
+ await revealTree('圆柱固定');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^圆柱固定 \(/).dblclick();
  await expect(page.getByRole('dialog',{name:'圆柱固定',exact:true})).toBeVisible();await page.keyboard.press('Escape');
- await filter.fill('机械装置.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText('机械装置.1，自由度=0',{exact:true}).click({button:'right'});await page.getByRole('menuitem',{name:'删除',exact:true}).click();
+ await revealTree('机械装置.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText('机械装置.1，自由度=0',{exact:true}).click({button:'right'});await page.getByRole('menuitem',{name:'删除',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>(window as any).__motionFixture.saved.at(-1).kinematics.mechanisms.length)).toBe(0);
  await expect(page.locator('.workbench-status')).toContainText('机构编辑');await expect(page.locator('.workbench-status')).not.toContainText('机械装置.1');expect(errors).toEqual([]);
 });
@@ -281,16 +282,16 @@ test('basic mechanism command catalog excludes retired functions and simulation 
  }
  await command(page,'转换为产品约束');const plan=page.getByRole('dialog',{name:'转换为产品约束',exact:true});await plan.getByRole('button',{name:'生成／刷新转换计划'}).click();
  await expect(plan).toContainText('机械装置已确认位姿');await expect(plan.locator('li').filter({hasText:'→ ()'})).toHaveCount(0);await page.keyboard.press('Escape');
- await page.getByRole('textbox',{name:'筛选模型结构'}).fill('旋转研究');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText('旋转研究',{exact:true}).dblclick();
+ await treeNavigator(page)('旋转研究');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText('旋转研究',{exact:true}).dblclick();
  await expect(page.getByRole('dialog',{name:'模拟',exact:true})).toBeVisible();await expect(page.getByRole('dialog',{name:'使用命令进行模拟',exact:true}).getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();await expect(page.getByRole('dialog')).toHaveCount(2);await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);expect(errors).toEqual([]);
 });
 
 
 test('joint relation children edit their owner through the shared tree command',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await fixture(page,true);await enter(page,true);
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('重合.1');const coincidence=page.getByRole('treeitem').filter({hasText:/重合\.1 \(/}).first();await expect(coincidence).toHaveAttribute('data-action-enabled','true');await coincidence.dblclick();
+ const revealTree=treeNavigator(page);await revealTree('重合.1');const coincidence=page.getByRole('treeitem').filter({hasText:/重合\.1 \(/}).first();await expect(coincidence).toHaveAttribute('data-action-enabled','true');await coincidence.dblclick();
  const dialog=page.getByRole('dialog',{name:'轴接合',exact:true});await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'选择第一轴线',exact:true})).toHaveAttribute('aria-pressed','true');await page.keyboard.press('Escape');await expect(dialog).toBeVisible();await page.keyboard.press('Escape');
- await filter.fill('偏移.1');const offset=page.getByRole('treeitem').filter({hasText:/偏移\.1 \(/}).first();await expect(offset).toHaveAttribute('data-action-enabled','true');await offset.dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'选择第一定位平面',exact:true})).toHaveAttribute('aria-pressed','true');await page.keyboard.press('Escape');await expect(dialog).toBeVisible();await page.keyboard.press('Escape');
+ await revealTree('偏移.1');const offset=page.getByRole('treeitem').filter({hasText:/偏移\.1 \(/}).first();await expect(offset).toHaveAttribute('data-action-enabled','true');await offset.dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'选择第一定位平面',exact:true})).toHaveAttribute('aria-pressed','true');await page.keyboard.press('Escape');await expect(dialog).toBeVisible();await page.keyboard.press('Escape');
  expect(await page.evaluate(()=>(window as any).__motionFixture.saved.length)).toBe(0);expect(errors).toEqual([]);
 });
 
@@ -339,7 +340,7 @@ CadViewportEngine.prototype.commitApplicationDisplay=function(){
  const after=await read();expect(after.document.versionId).toBe(before.document.versionId);expect(after.product!.kinematics).toEqual(before.product!.kinematics);
  expect(await page.evaluate(()=>(window as any).__motionFixture.saved)).toHaveLength(0);
  await page.evaluate(async()=>{(window as any).__motionFixture.permission='VIEWER';const {queryClient}=await import('/src/app/providers.tsx');await queryClient.invalidateQueries()});
- const tree=page.getByRole('complementary',{name:'模型结构',exact:true});await page.getByRole('textbox',{name:'筛选模型结构'}).fill('结果.1');
+ const tree=page.getByRole('complementary',{name:'模型结构',exact:true});await treeNavigator(page)('结果.1');
  await tree.getByText('结果.1 · 完成',{exact:true}).click({button:'right'});await page.getByRole('menuitem',{name:'删除',exact:true}).click();
  await expect(tree.getByText('结果.1 · 完成',{exact:true})).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).__motionFixture.deleted)).toBe('fixture-run-1');

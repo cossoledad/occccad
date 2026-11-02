@@ -38,8 +38,8 @@ export type WorkbenchCommandBindings={
  openSpatialAnalysis?:(kind:"CLASH"|"SECTION"|"DISTANCE")=>void;
  staticInterferenceAllowed?:boolean;
  spatialAnalysisKind?:"CLASH"|"SECTION"|"DISTANCE";
- setMechanismAnalysisOpen?:(open:boolean)=>void;
- setInsertOpen:(open:boolean)=>void;setPatternOpen:(open:boolean)=>void;setReleaseOpen:(open:boolean)=>void;setVersionOpen:(open:boolean)=>void;
+ setMechanismAnalysisOpen?:(open:boolean)=>void;mechanismId?:string;
+ setInsertOpen:(open:boolean)=>void;setPatternOpen:(open:boolean)=>void;setVersionOpen:(open:boolean)=>void;
  setShareResource:(resource:ShareResource)=>void;
  setSolidEditor:(value:{feature:Feature;digest?:string}|undefined)=>void;
  setBooleanDialog:(value:{feature?:Feature;digest?:string}|undefined)=>void;
@@ -52,7 +52,7 @@ const sketchToolCommands:WorkbenchToolID[]=["sketch.intersection","sketch.edit.s
   "sketch.constraint.horizontal_distance","sketch.constraint.vertical_distance","sketch.constraint.radius","sketch.constraint.major_radius","sketch.constraint.minor_radius","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
 
 export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[]{
- const {store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage}=bindings;
+ const {store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage}=bindings;
  const deletionNodes=deletableTreeNodesForSelections(treeNodes,store.selections);
  const deletionTargets=(invocation?:CadCommandInvocation)=>invocation?.payload?structureInvocation(invocation).nodes??deletionNodes:deletionNodes;
  const resultDeletion=(invocation?:CadCommandInvocation)=>{const nodes=deletionTargets(invocation);return nodes.length>0&&nodes.every(node=>node.kind==="MOTION_RESULT"&&node.capabilities?.includes("DELETE"))};
@@ -67,7 +67,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "assembly.move", continues:bindings.motionOpen?["dmu.run","dmu.study","tree.edit","assembly.move","tool.select"]:undefined,execute: async invocation => {const preparation=bindings.prepareAssemblyMove?.();if(preparation)await preparation;if(invocation?.operation&&!invocation.operation.current)return;store.setActiveTool("assembly.move", "continuous")},
         isEnabled: () => Boolean(canEditRoot&&(!bindings.motionOpen||bindings.motionCommandEnabled?.("move"))), isActive: () => store.activeToolID === "assembly.move" }),
       ...(["exit","ground","revolute","prismatic","cylindrical","planar","rigid","spherical","mechanism","study","apply","run"] as const).map(action=>({id:"dmu."+action,continues:action==="apply"?["dmu.run","dmu.apply"]:undefined,execute:(invocation:CadCommandInvocation|undefined)=>{store.setActiveTool("select","once");return bindings.onMotionCommand?.(action,invocation?.operation)},isEnabled:()=>Boolean(bindings.motionOpen&&view?.product&&!command.isPending&&bindings.onMotionCommand&&editingView?.document.id===view.document.id&&!store.activeSketchID&&(bindings.motionCommandEnabled?.(action)??(action==="apply"?["OWNER","EDITOR"].includes(view.document.permission??""):canEditRoot)))})),
-      ({id:"dmu.analyze-mechanism",execute:()=>bindings.setMechanismAnalysisOpen?.(true),isEnabled:()=>Boolean(bindings.setMechanismAnalysisOpen&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending)}),
+      ({id:"dmu.analyze-mechanism",execute:()=>bindings.setMechanismAnalysisOpen?.(true),isEnabled:()=>Boolean(bindings.setMechanismAnalysisOpen&&bindings.motionOpen&&bindings.mechanismId&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending)}),
       ({id:"assembly.motion-study",execute:()=>{store.setActiveTool("select","once");bindings.setMotionOpen?.(true);},isEnabled:()=>Boolean(view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&bindings.setMotionOpen),isActive:()=>Boolean(bindings.motionOpen)}),
       ({id:"assembly.association-repair",execute:()=>bindings.setAssociationRepairOpen?.(true),isEnabled:()=>Boolean(bindings.setAssociationRepairOpen&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!bindings.motionOpen),isActive:()=>bindings.associationRepairOpen??false}),
       ({id:"assembly.static-interference",isActive:()=>bindings.spatialAnalysisKind==="CLASH",execute:()=>{store.setActiveTool("select","once");bindings.openSpatialAnalysis?.("CLASH")},isEnabled:()=>Boolean(bindings.openSpatialAnalysis&&bindings.staticInterferenceAllowed&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&!moveReceiptPending)}),
@@ -109,7 +109,6 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({ id: "product.insert", execute: () => setInsertOpen(true), isEnabled: () => Boolean(canEdit) }),
       ({ id: "product.pattern", execute: () => {store.setActiveTool("select","once");setPatternOpen(true);},
         isEnabled: () => Boolean(canEdit) }),
-      ({ id: "product.release", execute: () => setReleaseOpen(true), isEnabled: () => Boolean(canEditRoot) }),
       ...(["fix", "fix_together", "contact", "coincident", "concentric", "angle", "parallel", "perpendicular", "distance"] as const).map((constraint) => ({
         id: `assembly.${constraint}`,
         execute: (invocation:CadCommandInvocation|undefined) => store.setActiveTool(`assembly.${constraint}`, invocation?.continuous ? "continuous" : "once"),

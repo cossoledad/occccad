@@ -494,32 +494,6 @@ CREATE TABLE product_instances (
     CHECK (referenced_version_id IS NULL OR (length(referenced_version_id)=36 AND substr(referenced_version_id,9,1)='-' AND substr(referenced_version_id,14,1)='-' AND substr(referenced_version_id,19,1)='-' AND substr(referenced_version_id,24,1)='-' AND length(replace(referenced_version_id,'-',''))=32 AND replace(referenced_version_id,'-','') NOT GLOB '*[^0-9a-f]*'))
 );
 
-CREATE TABLE product_releases (
-    id TEXT DEFAULT (uuidv7()) NOT NULL,
-    root_product_document_id TEXT NOT NULL,
-    root_product_revision_id TEXT NOT NULL,
-    name text NOT NULL,
-    request_id text NOT NULL,
-    request_digest text NOT NULL,
-    manifest_digest text NOT NULL,
-    manifest TEXT NOT NULL,
-    gate_status text NOT NULL,
-    created_by TEXT NOT NULL,
-    created_at TEXT DEFAULT (now()) NOT NULL,
-    CONSTRAINT product_releases_gate_status_check CHECK ((gate_status IN ('PASSED', 'FAILED'))),
-    CONSTRAINT product_releases_pkey PRIMARY KEY (id),
-    CONSTRAINT product_releases_root_product_document_id_name_key UNIQUE (root_product_document_id, name),
-    CONSTRAINT product_releases_root_product_document_id_request_id_key UNIQUE (root_product_document_id, request_id),
-    CONSTRAINT product_releases_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
-    CONSTRAINT product_releases_root_product_document_id_fkey FOREIGN KEY (root_product_document_id) REFERENCES documents(id) ON DELETE CASCADE,
-    CONSTRAINT product_releases_root_product_revision_id_fkey FOREIGN KEY (root_product_revision_id) REFERENCES document_versions(id) ON DELETE RESTRICT,
-    CHECK (id IS NULL OR (length(id)=36 AND substr(id,9,1)='-' AND substr(id,14,1)='-' AND substr(id,19,1)='-' AND substr(id,24,1)='-' AND length(replace(id,'-',''))=32 AND replace(id,'-','') NOT GLOB '*[^0-9a-f]*')),
-    CHECK (root_product_document_id IS NULL OR (length(root_product_document_id)=36 AND substr(root_product_document_id,9,1)='-' AND substr(root_product_document_id,14,1)='-' AND substr(root_product_document_id,19,1)='-' AND substr(root_product_document_id,24,1)='-' AND length(replace(root_product_document_id,'-',''))=32 AND replace(root_product_document_id,'-','') NOT GLOB '*[^0-9a-f]*')),
-    CHECK (root_product_revision_id IS NULL OR (length(root_product_revision_id)=36 AND substr(root_product_revision_id,9,1)='-' AND substr(root_product_revision_id,14,1)='-' AND substr(root_product_revision_id,19,1)='-' AND substr(root_product_revision_id,24,1)='-' AND length(replace(root_product_revision_id,'-',''))=32 AND replace(root_product_revision_id,'-','') NOT GLOB '*[^0-9a-f]*')),
-    CHECK (manifest IS NULL OR json_valid(manifest)),
-    CHECK (created_by IS NULL OR (length(created_by)=36 AND substr(created_by,9,1)='-' AND substr(created_by,14,1)='-' AND substr(created_by,19,1)='-' AND substr(created_by,24,1)='-' AND length(replace(created_by,'-',''))=32 AND replace(created_by,'-','') NOT GLOB '*[^0-9a-f]*'))
-);
-
 CREATE TABLE product_solve_manifests (
     digest text NOT NULL,
     schema_version integer NOT NULL,

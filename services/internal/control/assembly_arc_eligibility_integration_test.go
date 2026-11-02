@@ -135,10 +135,6 @@ func TestTrimmedArcEligibilityAndUnderlyingCircleThroughRouter(t *testing.T) {
 	if err != nil || replayed.Status != "CONVERGED" {
 		t.Fatal("explicit whole-circle cold replay", err, replayed)
 	}
-	release, err := cold.CreateProductRelease(t.Context(), id, workspace.CreateProductReleaseRequest{ActorID: f.actor, RequestID: id + "-arc-release", Name: "Explicit underlying circle"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	suppressed := true
 	apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{definition.ID}, Suppressed: &suppressed})
 	apply(workspace.CommandRequest{Type: "UNDO"})
@@ -149,11 +145,11 @@ func TestTrimmedArcEligibilityAndUnderlyingCircleThroughRouter(t *testing.T) {
 	if restored := product.Product.Constraints[len(product.Product.Constraints)-1]; !restored.Suppressed || restored.Second.DerivedRole != "underlying-circle" {
 		t.Fatal("Redo lost explicit source or activation", restored)
 	}
-	frozen, err := cold.ReplayProductRelease(t.Context(), id, release.ID, id+"-arc-release-replay")
-	if err != nil || frozen.Assembly == nil {
-		t.Fatal("frozen underlying circle Release", err, frozen)
+	frozen, err := cold.ReplayAssemblySolveManifest(t.Context(), id, digest, id+"-arc-snapshot-replay")
+	if err != nil || frozen.ManifestDigest == "" {
+		t.Fatal("frozen underlying circle SolveManifest", err, frozen)
 	}
-	if err = f.db.QueryRow(t.Context(), `SELECT manifest FROM occccad.product_solve_manifests WHERE digest=$1`, frozen.Assembly.ManifestDigest).Scan(&raw); err != nil {
+	if err = f.db.QueryRow(t.Context(), `SELECT manifest FROM occccad.product_solve_manifests WHERE digest=$1`, frozen.ManifestDigest).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	if err = json.Unmarshal(raw, &manifest); err != nil {
@@ -164,11 +160,11 @@ func TestTrimmedArcEligibilityAndUnderlyingCircleThroughRouter(t *testing.T) {
 		if def.ID == definition.ID {
 			frozenDefinition = true
 			if def.Suppressed || def.Second == nil || def.Second.DerivedRole != "underlying-circle" {
-				t.Fatal("later Head activation leaked into frozen Release", def)
+				t.Fatal("later Head activation leaked into frozen SolveManifest", def)
 			}
 		}
 	}
 	if !frozenDefinition {
-		t.Fatal("Release lost explicit underlying-circle definition")
+		t.Fatal("SolveManifest lost explicit underlying-circle definition")
 	}
 }

@@ -197,7 +197,6 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		FolderID  string `json:"folderId"`
 		Format    string `json:"format"`
 		RequestID string `json:"requestId"`
-		ReleaseID string `json:"releaseId"`
 	}
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		return err
@@ -221,7 +220,7 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if job.VersionID != nil && current.Document.VersionID != *job.VersionID {
 			return errors.New("document head changed after the export job was submitted")
 		}
-		graph, err := h.workspace.ExchangeExportGraph(ctx, *job.DocumentID, payload.ReleaseID, current.Document.VersionID)
+		graph, err := h.workspace.ExchangeExportGraph(ctx, *job.DocumentID, current.Document.VersionID)
 		if err != nil {
 			return err
 		}

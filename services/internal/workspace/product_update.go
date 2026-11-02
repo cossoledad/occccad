@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
-	"strings"
 
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -68,6 +68,12 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		return ProductUpdatePlan{}, fmt.Errorf("%w: PRODUCT_UPDATE_BINDING_LIMIT_EXCEEDED", ErrValidation)
 	}
 	for _, binding := range bindings {
+		if binding.Accepted.Status == "BROKEN" {
+			plan.CanAccept = false
+			plan.HasUpdates = true
+			plan.Entries = append(plan.Entries, ProductUpdatePlanEntry{Kind: "CONTEXT_BINDING", BindingID: binding.ID, Name: binding.Name, ReferenceMode: binding.ReferenceMode, SourceDisplayPath: binding.SourceInstancePath.Display, OwningDisplayPath: binding.OwningInstancePath.Display, AcceptedRevisionID: binding.Accepted.SourceRevisionID, Connection: "BROKEN", Currency: "UPDATE_BLOCKED", Evaluation: "BLOCKED_BY_UPSTREAM", DiagnosticCode: binding.Resolution.DiagnosticCode, Diagnostic: binding.Resolution.Diagnostic})
+			continue
+		}
 		projectedBinding := binding
 		if path, refreshErr := service.refreshProductInstancePath(ctx, rootModel, projectedBinding.OwningInstancePath); refreshErr == nil {
 			projectedBinding.OwningInstancePath = path
@@ -507,6 +513,11 @@ func (service *Service) acceptedContextVariants(ctx context.Context, items []exp
 	for _, path := range paths {
 		owner, ok := occurrenceByCanonical(items, path)
 		if !ok {
+			// A replaced subassembly can remove an old receiver occurrence.
+			// The original binding remains in the tree for explicit repair.
+			if slices.ContainsFunc(grouped[path], func(b ContextBinding) bool { return b.Accepted.Status == "BROKEN" }) {
+				continue
+			}
 			return nil, fmt.Errorf("%w: ContextBinding owner is outside the Product snapshot", ErrValidation)
 		}
 		variant, err := service.contextVariantSnapshot(ctx, owner, grouped[path])
@@ -639,209 +650,6 @@ func materializeContextBindingVariant(model *PartModel, binding ContextBinding) 
 	return fmt.Errorf("%w: CONTEXT_CONSUMER_UNSUPPORTED", ErrValidation)
 }
 
-func (service *Service) CreateProductRelease(ctx context.Context, rootDocumentID string, request CreateProductReleaseRequest) (ProductRelease, error) {
-	request.RequestID, request.ActorID = requestID(request.RequestID), actorID(request.ActorID)
-	name, _, err := validateNameAndDescription(request.Name, "", "release")
-	if err != nil {
-		return ProductRelease{}, err
-	}
-	rawRequest, _ := json.Marshal(request)
-	requestDigest := modelcore.ValueDigest(rawRequest)
-	var existingRaw []byte
-	var existingID, existingName, existingCreated, storedDigest string
-	if err := service.database.QueryRow(ctx, `SELECT id::text,name,created_at::text,request_digest,manifest
-		FROM occccad.product_releases WHERE root_product_document_id=$1 AND request_id=$2`, rootDocumentID, request.RequestID).
-		Scan(&existingID, &existingName, &existingCreated, &storedDigest, &existingRaw); err == nil {
-		if storedDigest != requestDigest {
-			return ProductRelease{}, fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
-		}
-		var manifest ProductReleaseManifest
-		_ = json.Unmarshal(existingRaw, &manifest)
-		return ProductRelease{ID: existingID, Name: existingName, CreatedAt: existingCreated, Manifest: manifest}, nil
-	} else if !errors.Is(err, database.ErrNoRows) {
-		return ProductRelease{}, err
-	}
-	revisionID, items, err := service.productContextRoot(ctx, rootDocumentID)
-	if err != nil {
-		return ProductRelease{}, err
-	}
-	plan, err := service.GetProductUpdatePlan(ctx, rootDocumentID)
-	if err != nil {
-		return ProductRelease{}, err
-	}
-	manifest := ProductReleaseManifest{SchemaVersion: 1, RootProductDocumentID: rootDocumentID,
-		RootProductRevisionID: revisionID, RootSnapshotDigest: resolvedDigest(items), ContextVariants: plan.ContextVariants,
-		EvaluatorVersion: evaluatorVersion, NamingPolicyDigest: modelcore.TopologyNamingPolicyDigest}
-	gates := []ProductReleaseGate{{Code: "ROOT_SNAPSHOT_RESOLVED", Status: "PASSED"}}
-	variantsByPath := map[string]ContextVariantSnapshot{}
-	for _, variant := range plan.ContextVariants {
-		variantsByPath[variant.OwningInstancePath.Canonical] = variant
-	}
-	// Update plans own direct edges; Release still checks currency through the
-	// entire followed tree. PINNED freezes its subtree, including live inner edges.
-	referencesCurrent := true
-	followed := map[string]bool{"": true}
-	for _, item := range items {
-		follows := true
-		if item.Path.Canonical != "" {
-			parent := ""
-			if slash := strings.LastIndex(item.Path.Canonical, "/"); slash >= 0 {
-				parent = item.Path.Canonical[:slash]
-			}
-			follows = followed[parent] && item.ReferenceMode != "PINNED"
-			followed[item.Path.Canonical] = follows
-		}
-		var head string
-		var partJSON []byte
-		var evaluationJSON []byte
-		var state string
-		if err := service.database.QueryRow(ctx, `SELECT v.model_json,v.evaluation_manifest,v.state,d.head_version_id::text FROM occccad.document_versions v
-            JOIN occccad.documents d ON d.id=v.document_id WHERE v.id=$1 AND v.document_id=$2`, item.RevisionID, item.DocumentID).Scan(&partJSON, &evaluationJSON, &state, &head); err != nil {
-			return ProductRelease{}, err
-		}
-		if follows && head != item.RevisionID {
-			referencesCurrent = false
-		}
-		occurrence := ProductReleaseOccurrence{InstancePath: item.Path, DocumentID: item.DocumentID, DocumentType: item.DocumentType,
-			RevisionID: item.RevisionID, Pose: item.Pose, EvaluationManifestDigest: modelcore.ValueDigest(evaluationJSON)}
-		if item.DocumentType == "PART" {
-			var part PartModel
-			if err := json.Unmarshal(partJSON, &part); err != nil {
-				return ProductRelease{}, err
-			}
-			occurrence.Bodies = part.Bodies
-		}
-		if variant, ok := variantsByPath[item.Path.Canonical]; ok {
-			occurrence.Bodies = variant.Bodies
-			occurrence.EvaluationManifestDigest = variant.EvaluationManifestDigest
-		}
-		manifest.Occurrences = append(manifest.Occurrences, occurrence)
-		if state != "READY" {
-			gates = append(gates, ProductReleaseGate{Code: "OCCURRENCE_EVALUATION_READY", Status: "FAILED", Diagnostic: item.Path.Display + " is not READY"})
-		}
-		manifest.ContextBindings = append(manifest.ContextBindings, item.ContextBindings...)
-	}
-	if !plan.CanAccept || plan.HasUpdates || !referencesCurrent {
-		gates = append(gates, ProductReleaseGate{Code: "PRODUCT_REFERENCES_CURRENT", Status: "FAILED", Diagnostic: "Product Update Plan must be current and unblocked"})
-	} else {
-		gates = append(gates, ProductReleaseGate{Code: "PRODUCT_REFERENCES_CURRENT", Status: "PASSED"})
-	}
-	var rootRaw []byte
-	if err := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, revisionID).Scan(&rootRaw); err != nil {
-		return ProductRelease{}, err
-	}
-	var root ProductModel
-	_ = json.Unmarshal(rootRaw, &root)
-	manifest.ProductPublications = root.Publications
-	constraintsReady := true
-	var inactiveConstraintIDs []string
-	for _, constraint := range root.Constraints {
-		if constraint.Suppressed {
-			inactiveConstraintIDs = append(inactiveConstraintIDs, constraint.ID)
-			continue
-		}
-		if constraint.EvaluationStatus != modelcore.AssemblyConstraintVerified {
-			constraintsReady = false
-		}
-	}
-	if constraintsReady {
-		gates = append(gates, ProductReleaseGate{Code: "ASSEMBLY_CONSTRAINTS_VERIFIED", Status: "PASSED"})
-	} else {
-		gates = append(gates, ProductReleaseGate{Code: "ASSEMBLY_CONSTRAINTS_VERIFIED", Status: "FAILED", Diagnostic: "one or more assembly constraints are not Verified"})
-	}
-	if len(inactiveConstraintIDs) > 0 {
-		sort.Strings(inactiveConstraintIDs)
-		gates = append(gates, ProductReleaseGate{Code: "ASSEMBLY_INACTIVE_DEFINITIONS", Status: "PASSED", Diagnostic: fmt.Sprintf("excluded from active verification because suppressed; definitions retained in SolveManifest: %v", inactiveConstraintIDs)})
-	}
-	if len(root.Constraints) > 0 {
-		if err := service.database.QueryRow(ctx, `SELECT digest FROM occccad.product_solve_manifests m WHERE
-			m.root_product_document_id=$1 AND m.root_product_revision_id=$2 AND m.manifest->>'purpose'='COMMIT' AND EXISTS (
-				SELECT 1 FROM occccad.product_solve_results r WHERE r.manifest_digest=m.digest AND r.status='CONVERGED')
-			ORDER BY m.created_at DESC LIMIT 1`, rootDocumentID, revisionID).Scan(&manifest.AssemblySolveManifest); errors.Is(err, database.ErrNoRows) {
-			gates = append(gates, ProductReleaseGate{Code: "SOLVE_MANIFEST_REPLAYABLE", Status: "FAILED", Diagnostic: "no successful SolveManifest exists for the root model"})
-		} else if err != nil {
-			return ProductRelease{}, err
-		} else {
-			gates = append(gates, ProductReleaseGate{Code: "SOLVE_MANIFEST_REPLAYABLE", Status: "PASSED"})
-		}
-	}
-	manifest.Gates = gates
-	for _, gate := range gates {
-		if gate.Status == "FAILED" {
-			return ProductRelease{}, fmt.Errorf("%w: RELEASE_GATE_FAILED: %s: %s", ErrValidation, gate.Code, gate.Diagnostic)
-		}
-	}
-	manifest.Digest = resolvedDigest(func() ProductReleaseManifest { value := manifest; value.Digest = ""; return value }())
-	manifestRaw, _ := json.Marshal(manifest)
-	var id, created string
-	if err := service.database.QueryRow(ctx, `INSERT INTO occccad.product_releases(root_product_document_id,
-		root_product_revision_id,name,request_id,request_digest,manifest_digest,manifest,gate_status,created_by)
-		VALUES($1,$2,$3,$4,$5,$6,$7,'PASSED',$8) RETURNING id::text,created_at::text`, rootDocumentID, revisionID,
-		name, request.RequestID, requestDigest, manifest.Digest, manifestRaw, request.ActorID).Scan(&id, &created); err != nil {
-		return ProductRelease{}, err
-	}
-	return ProductRelease{ID: id, Name: name, CreatedAt: created, Manifest: manifest}, nil
-}
-
-func (service *Service) ListProductReleases(ctx context.Context, rootDocumentID string) ([]ProductRelease, error) {
-	rows, err := service.database.Query(ctx, `SELECT id::text,name,created_at::text,manifest FROM occccad.product_releases
-		WHERE root_product_document_id=$1 ORDER BY created_at DESC`, rootDocumentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := []ProductRelease{}
-	for rows.Next() {
-		var item ProductRelease
-		var raw []byte
-		if err := rows.Scan(&item.ID, &item.Name, &item.CreatedAt, &raw); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(raw, &item.Manifest); err != nil {
-			return nil, err
-		}
-		result = append(result, item)
-	}
-	return result, rows.Err()
-}
-
-func (service *Service) GetProductRelease(ctx context.Context, rootDocumentID, releaseID string) (ProductRelease, error) {
-	var result ProductRelease
-	var raw []byte
-	if err := service.database.QueryRow(ctx, `SELECT id::text,name,created_at::text,manifest FROM occccad.product_releases
-		WHERE id=$1 AND root_product_document_id=$2`, releaseID, rootDocumentID).
-		Scan(&result.ID, &result.Name, &result.CreatedAt, &raw); errors.Is(err, database.ErrNoRows) {
-		return ProductRelease{}, ErrNotFound
-	} else if err != nil {
-		return ProductRelease{}, err
-	}
-	if err := json.Unmarshal(raw, &result.Manifest); err != nil {
-		return ProductRelease{}, err
-	}
-	return result, nil
-}
-
-func (service *Service) ReplayProductRelease(ctx context.Context, rootDocumentID, releaseID, requestID string) (ProductReleaseReplay, error) {
-	release, err := service.GetProductRelease(ctx, rootDocumentID, releaseID)
-	if err != nil {
-		return ProductReleaseReplay{}, err
-	}
-	result := ProductReleaseReplay{ReleaseID: release.ID, ManifestDigest: release.Manifest.Digest,
-		Status: "REPLAYABLE_NO_ASSEMBLY_CONSTRAINTS"}
-	if release.Manifest.AssemblySolveManifest == "" {
-		return result, nil
-	}
-	solve, err := service.ReplayAssemblySolveManifest(ctx, rootDocumentID, release.Manifest.AssemblySolveManifest,
-		requestID+"/release/"+release.ID)
-	if err != nil {
-		return ProductReleaseReplay{}, err
-	}
-	result.Status, result.Assembly = solve.Status, &solve
-	return result, nil
-}
-
-// The owning Product commits only its direct reference edges. Descendant
-// definitions are accepted by their own owners before this plan is requested.
 func appendDirectReferenceUpdates(plan *ProductUpdatePlan, items []expandedOccurrence, loadHead func(string) (string, error)) map[string]string {
 	candidateOccurrenceRevisions := map[string]string{}
 	for _, occurrence := range items {

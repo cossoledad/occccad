@@ -242,9 +242,6 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{documentID}/part-components", server.createPartComponent)
 	mux.HandleFunc("GET /api/documents/{documentID}/product-update-plan", server.productUpdatePlan)
 	mux.HandleFunc("POST /api/documents/{documentID}/product-update-plan/accept", server.acceptProductUpdatePlan)
-	mux.HandleFunc("GET /api/documents/{documentID}/releases", server.listProductReleases)
-	mux.HandleFunc("POST /api/documents/{documentID}/releases", server.createProductRelease)
-	mux.HandleFunc("POST /api/documents/{documentID}/releases/{releaseID}/replay", server.replayProductRelease)
 	mux.HandleFunc("POST /api/documents/{documentID}/solve-manifests/{digest}/replay", server.replayProductSolveManifest)
 	mux.HandleFunc("GET /api/documents/{documentID}/solve-results", server.productSolveResult)
 	mux.HandleFunc("GET /api/documents/{documentID}/properties", server.documentProperties)
@@ -468,35 +465,6 @@ func (server *Server) acceptProductUpdatePlan(writer http.ResponseWriter, reques
 	server.writeDocumentResult(writer, request, result, err)
 }
 
-func (server *Server) createProductRelease(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
-		return
-	}
-	var input workspace.CreateProductReleaseRequest
-	if !decodeJSON(writer, request, &input) {
-		return
-	}
-	input.ActorID = principal(request).ID
-	result, err := server.workspace.CreateProductRelease(request.Context(), request.PathValue("documentID"), input)
-	if err != nil {
-		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, result)
-}
-
-func (server *Server) listProductReleases(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
-		return
-	}
-	result, err := server.workspace.ListProductReleases(request.Context(), request.PathValue("documentID"))
-	if err != nil {
-		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, map[string]any{"releases": result})
-}
-
 func (server *Server) replayProductSolveManifest(writer http.ResponseWriter, request *http.Request) {
 	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
 		return
@@ -526,25 +494,6 @@ func (server *Server) productSolveResult(writer http.ResponseWriter, request *ht
 		return
 	}
 	result, err := server.workspace.GetAssemblySolveResult(request.Context(), request.PathValue("documentID"), requestID)
-	if err != nil {
-		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, result)
-}
-
-func (server *Server) replayProductRelease(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
-		return
-	}
-	var input struct {
-		RequestID string `json:"requestId"`
-	}
-	if !decodeJSON(writer, request, &input) {
-		return
-	}
-	result, err := server.workspace.ReplayProductRelease(request.Context(), request.PathValue("documentID"),
-		request.PathValue("releaseID"), input.RequestID)
 	if err != nil {
 		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
 		return

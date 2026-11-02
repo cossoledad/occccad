@@ -1,7 +1,7 @@
 import {registerDocumentState,type DocumentSessions} from '../../cad/document/document-session';
 import type {DocumentStructureNode,DocumentView} from '../../types';
 
-export type TreeRevealIntent={documentId:string;entityId:string;occurrence?:string;kind?:string;reason:'CREATE'|'EDIT'|'LOCATE'};
+export type TreeRevealIntent={documentId:string;entityId:string;occurrence?:string;kind?:string;expandTarget?:boolean;reason:'CREATE'|'EDIT'|'LOCATE'|'ACTIVATE'};
 export const treeRevealState=registerDocumentState<{sequence:number;intent?:TreeRevealIntent}>('workbench.tree.reveal');
 export function requestTreeReveal(sessions:DocumentSessions,host:string,intent:TreeRevealIntent){const previous=sessions.read(host,treeRevealState);sessions.write(host,treeRevealState,{sequence:(previous?.sequence??0)+1,intent})}
 
@@ -13,8 +13,8 @@ export function treeRevealPath(nodes:RevealNode[],intent:TreeRevealIntent):strin
  }
 }
 
-export function revealExpansion(expanded:string[],automatic:string[],path:string[]){
- const ancestors=path.slice(0,-1),priorAuto=new Set(automatic),manual=new Set(expanded.filter(key=>!priorAuto.has(key)));
+export function revealExpansion(expanded:string[],automatic:string[],path:string[],expandTarget=false){
+ const ancestors=expandTarget?path:path.slice(0,-1),priorAuto=new Set(automatic),manual=new Set(expanded.filter(key=>!priorAuto.has(key)));
  return {expanded:[...new Set([...manual,...ancestors])],automatic:ancestors.filter(key=>!manual.has(key))};
 }
 

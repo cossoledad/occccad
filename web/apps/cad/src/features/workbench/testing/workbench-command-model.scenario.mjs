@@ -7,7 +7,6 @@ try {
   const { contextualToolbars, commandSection, searchCommands } = await server.ssrLoadModule("/src/features/workbench/workbench-command-model.ts");
   const { CommandRegistry } = await server.ssrLoadModule("/src/cad/command/command-registry.ts");
   const { mockToolbarCatalog } = await server.ssrLoadModule("/src/api/mock-toolbar-catalog.ts");
-  const { filterTree } = await server.ssrLoadModule("/src/features/workbench/tree-filter.ts");
   const catalog = mockToolbarCatalog.toolbars;
   const registry = new CommandRegistry();
   let executions = 0;
@@ -30,16 +29,5 @@ try {
   assert.equal(await registry.execute("unknown"), false);
   assert.equal(await registry.execute("part.pad"), true);
   assert.equal(executions, 2);
-  const leaf = { key: "stable:leaf", name: "Sketch A" };
-  const branch = { key: "stable:body", name: "Body", children: [leaf, { key: "stable:pad", name: "Pad" }] };
-  const roots = [{ key: "stable:root", name: "Part", children: [branch] }];
-  const filtered = filterTree(roots, "sketch a", (node) => node.name);
-  assert.equal(filtered[0].children[0].children[0], leaf);
-  assert.equal(filtered[0].key, "stable:root");
-  assert.equal(filtered[0].children[0].children.length, 1);
-  assert.equal(branch.children.length, 2, "filter must not mutate authoritative projection");
-  assert.equal(filterTree(roots, " BODY ", (node) => node.name)[0].children[0], branch);
-  assert.equal(filterTree(roots, "missing", (node) => node.name).length, 0);
-  assert.equal(filterTree(roots, "", (node) => node.name)[0], roots[0]);
-  console.log("Workbench context, discovery, execution gates and tree filtering passed.");
+  console.log("Workbench context, discovery, execution gates passed.");
 } finally { await server.close(); }

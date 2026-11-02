@@ -162,7 +162,9 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	store, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store, developmentStaging))
 	debugStore, err := debugartifact.NewStore(filepath.Join(testsupport.Environment(t).LogDirectory, "debug", "assembly-replays"), 50, time.Hour)
 	if err != nil {
@@ -519,20 +521,11 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		if len(manifest.Constraints) != 0 || len(manifest.Definitions) != 2 {
 			t.Fatalf("empty active set evidence incomplete: %+v", manifest)
 		}
-		release, err := service.CreateProductRelease(t.Context(), id, workspace.CreateProductReleaseRequest{RequestID: "inactive-release-" + id, Name: "Inactive constraints", ActorID: "00000000-0000-7000-8000-000000000001"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, gate := range release.Manifest.Gates {
-			if gate.Status != "PASSED" {
-				t.Fatalf("inactive constraints blocked Release: %+v", gate)
-			}
-		}
 		active := false
 		apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: ids, Suppressed: &active})
-		replayRelease, err := service.ReplayProductRelease(t.Context(), id, release.ID, "replay-release-"+id)
+		replaySolveManifest, err := service.ReplayAssemblySolveManifest(t.Context(), id, digest, "replay-snapshot-"+id)
 		if err != nil {
-			t.Fatalf("frozen inactive release changed after activation: %+v %v", replayRelease, err)
+			t.Fatalf("frozen inactive snapshot changed after activation: %+v %v", replaySolveManifest, err)
 		}
 
 	})

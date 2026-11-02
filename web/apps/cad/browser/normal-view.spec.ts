@@ -1,3 +1,4 @@
+import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
 async function camera(page:Page) {
@@ -13,8 +14,8 @@ test("normal view aligns datum and exact face in a rotated occurrence without ch
  await page.getByText("视图",{exact:true}).first().click();
  const normal=page.getByRole("toolbar",{name:"视图快捷操作"}).getByRole("button",{name:"法线视图",exact:true});
  await expect(normal).toBeDisabled();
- const filter=page.getByRole("textbox",{name:"筛选模型结构"});
- await filter.fill("XZ Plane");
+ const revealTree=treeNavigator(page);
+ await revealTree("XZ Plane");
  await page.getByRole("treeitem").filter({hasText:"XZ Plane"}).click();
  const before=await camera(page);
  await normal.click();
@@ -28,7 +29,7 @@ test("normal view aligns datum and exact face in a rotated occurrence without ch
   const view=await api.move("mock-product-frame","mock-instance-b",[45,0,10],[Math.SQRT1_2,0,0,Math.SQRT1_2]);
   await queryClient.invalidateQueries();return view.document.versionId;
  });
- await filter.fill("XY Plane");
+ await revealTree("XY Plane");
  await page.getByRole("treeitem").filter({hasText:"XY Plane"}).last().click();
  await page.getByText("视图",{exact:true}).first().click();
  await normal.click();

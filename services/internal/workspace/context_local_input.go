@@ -292,7 +292,7 @@ func (s *Service) checkInputAssignmentCandidate(ctx context.Context, m *ProductM
 		}
 	}
 
-	if e := validateReplacementConstraints(*m, owner); e != nil {
+	if e := validateAssignedInputConstraints(*m, owner); e != nil {
 		return e
 	}
 	s.resolveProductPublications(ctx, m, variants)
@@ -330,4 +330,24 @@ func validateContextAssignmentEdit(b ContextBinding) error {
 		return fmt.Errorf("%w: CONTEXT_DIRECT_RECEIVER_REQUIRED", ErrValidation)
 	}
 	return validateContextAssignment(b)
+}
+
+func validateAssignedInputConstraints(model ProductModel, instanceID string) error {
+	for _, c := range model.Constraints {
+		affected := false
+		for _, ref := range []*AssemblyGeometryRef{&c.First, c.Second, c.AngleAxis} {
+			if ref != nil && (ref.InstanceID == instanceID || ref.InstancePath != nil && len(ref.InstancePath.Segments) > 0 && ref.InstancePath.Segments[0].InstanceID == instanceID) {
+				affected = true
+			}
+		}
+		for _, m := range c.GroupMembers {
+			if m.InstanceID == instanceID || m.InstancePath != nil && len(m.InstancePath.Segments) > 0 && m.InstancePath.Segments[0].InstanceID == instanceID {
+				affected = true
+			}
+		}
+		if affected && (c.EvaluationStatus == modelcore.AssemblyConstraintBroken || c.EvaluationStatus == modelcore.AssemblyConstraintNotUpdated || c.EvaluationStatus == modelcore.AssemblyConstraintImpossible) {
+			return fmt.Errorf("%w: CONTEXT_INPUT_CONSTRAINT_FAILED: 约束“%s”无法迁移到新组件", ErrValidation, c.Name)
+		}
+	}
+	return nil
 }

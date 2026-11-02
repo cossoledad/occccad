@@ -1,6 +1,6 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
-import {Alert,Button,Empty,Select,Space,Table,Tag,Typography} from 'antd';
+import {Alert,Button,Empty,Space,Table,Tag,Typography} from 'antd';
 import {api} from '../../api/client';
 import type {DocumentView,SelectionItem} from '../../types';
 import type {Mechanism} from '../../cad/assembly/motion-study';
@@ -13,10 +13,10 @@ import {engineeringProblem} from '../../cad/command/operation-feedback';
 import {recordDeveloperEvidence} from '../../cad/command/developer-evidence';
 import {CommandDialog} from '../../cad/overlay/floating-panel';
 
-type Props={view:DocumentView;currentId?:string;selection?:SelectionItem|null;canEdit:boolean;onClose:()=>void;onLocate:(items:SelectionItem[])=>void;onRepair:(mechanismId:string,jointId:string)=>void;onShow:(mechanism?:Mechanism,report?:MechanismAnalysis,jointId?:string)=>boolean;onMotion:(motion?:MotionPresentation)=>void};
+type Props={view:DocumentView;currentId:string;selection?:SelectionItem|null;canEdit:boolean;onClose:()=>void;onLocate:(items:SelectionItem[])=>void;onRepair:(mechanismId:string,jointId:string)=>void;onShow:(mechanism?:Mechanism,report?:MechanismAnalysis,jointId?:string)=>boolean;onMotion:(motion?:MotionPresentation)=>void};
 export function MechanismAnalysisPanel({view,currentId,selection,canEdit,onClose,onLocate,onRepair,onShow,onMotion}:Props){
  const client=useQueryClient(),mechanisms=view.product?.kinematics?.mechanisms??[];
- const [id,setId]=useState(()=>currentId??(mechanisms.length===1?mechanisms[0].id:undefined));
+ const id=currentId;
  const [report,setReport]=useState<MechanismAnalysis>(),[status,setStatus]=useState('待分析'),[error,setError]=useState<string>(),[selected,setSelected]=useState<string>(),[mismatch,setMismatch]=useState(false);
  const cleanup=useRef<{timer:ReturnType<typeof setTimeout>;key:unknown[]}|undefined>(undefined);
  const controller=useRef<AbortController|undefined>(undefined),generation=useRef(0),context=useRef('');
@@ -64,7 +64,7 @@ export function MechanismAnalysisPanel({view,currentId,selection,canEdit,onClose
  const detail=report?.joints.find(r=>r.joint.id===selected);
  const known=report?.evidence.components.filter(c=>c.solved)??[],relative=known.reduce((n,c)=>n+c.relativeDof,0),overall=known.reduce((n,c)=>n+c.gaugeDof,0);
  return <CommandDialog id="mechanism-analysis" title="机构分析" open size="L" footer={false} onClose={onClose} onConfirm={onClose}><div className="mechanism-analysis-panel">
-  <Space wrap><Select aria-label="分析机构" value={id} placeholder="选择已保存机构" style={{minWidth:190}} options={mechanisms.map(m=>({value:m.id,label:m.name}))} onChange={setId}/><Button onClick={()=>void analyze(true)} disabled={!id||busy}>{error?'重试':'重新分析'}</Button>{busy&&<Button onClick={cancel}>取消计算</Button>}<Tag role="status" aria-label="机构分析状态">{status}</Tag></Space>
+  <Space wrap><Typography.Text strong>{mechanisms.find(m=>m.id===id)?.name}</Typography.Text><Button onClick={()=>void analyze(true)} disabled={!id||busy}>{error?'重试':'重新分析'}</Button>{busy&&<Button onClick={cancel}>取消计算</Button>}<Tag role="status" aria-label="机构分析状态">{status}</Tag></Space>
   {!mechanisms.length&&<Empty description="尚未保存机构，请先创建机构。"/>}
   {error&&<Alert type="error" title={error}/>}
   {report&&<>

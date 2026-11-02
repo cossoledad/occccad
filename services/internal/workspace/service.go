@@ -2531,7 +2531,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		}
 		publications.Children = append(publications.Children, node)
 	}
-	parameters := DocumentStructureNode{ID: path + "/parameters", Kind: "PARAMETER_SET", Name: "Parameters / Relations",
+	parameters := DocumentStructureNode{ID: path + "/parameters", Kind: "PARAMETER_SET", Name: "参数",
 		DocumentID: documentID, VersionID: versionID}
 	groups := map[string]int{}
 	for _, parameter := range model.Parameters {
@@ -2605,9 +2605,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			Capabilities: []string{"EDIT", "DELETE"}, ContextInput: &copy})
 	}
 	result := append(referenceStructure(model, origin.Children, path, documentID, versionID, editable), bodies...)
-	if len(parameters.Children) > 0 {
-		result = append(result, parameters)
-	}
+
 	if len(inputs.Children) > 0 {
 		result = append(result, inputs)
 	}
@@ -2616,6 +2614,9 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 	}
 	if len(publications.Children) > 0 {
 		result = append(result, publications)
+	}
+	if len(parameters.Children) > 0 {
+		result = append(result, parameters)
 	}
 	return result
 }

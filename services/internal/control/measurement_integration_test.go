@@ -291,7 +291,7 @@ func TestMeasurementPartProductHistoryAndAcceptedOccurrencesThroughRouter(t *tes
 }
 
 func TestMeasurementPartRepeatedSavesThroughRouter(t *testing.T) {
-	s, db, _, _, _ := featureAssociationRuntimeService(t)
+	s, _, db, _, _ := featureAssociationRuntimeService(t)
 	ctx := t.Context()
 	seq := 0
 	create := func(kind, name string) workspace.DocumentView {

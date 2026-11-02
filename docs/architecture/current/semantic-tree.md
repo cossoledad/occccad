@@ -30,7 +30,7 @@ Product 更新依赖必须由 `ProductModel.instances` 和服务端 UpdatePlan �
 
 ## 展开与定位
 
-空的 Mechanisms、Simulations、Spatial analyses、Measurements 以及整个 Applications 不生成占位节点。树展开属于 DocumentSession：手动展开分支和自动定位分支分别保存。成功创建只定位新建的主要业务对象；编辑显式发出 stable document/entity/occurrence 的 reveal intent。消费意图时只展开目标祖先链，滚动虚拟行，替换上次自动展开并保留手动分支。后台刷新、普通选择及渲染不无限展开。测量输出参数嵌在测量对象下，参考元素嵌入其使用参数，节点仍以稳定 ParameterId 编辑或重命名。
+空的 Mechanisms、Simulations、Spatial analyses、Measurements 以及整个 Applications 不生成占位节点。树展开属于 DocumentSession：手动展开分支和自动定位分支分别保存。成功创建只定位新建的主要业务对象；编辑显式发出 stable document/entity/occurrence 的 reveal intent。消费意图时只展开目标祖先链，滚动虚拟行，替换上次自动展开并保留手动分支。成功激活 occurrence（包括参数管理器切入 Part）也发出同一 reveal intent，并展开目标 Instance 本身；后台刷新、普通选择及渲染不无限展开。测量输出参数嵌在测量对象下，参考元素嵌入其使用参数，节点仍以稳定 ParameterId 编辑或重命名。
 
 参考元素的所有权、构造和边界见[参考元素](reference-elements.md)。几何图形集的显示继承不以树路径作为身份，标准平面不再受 Origin 分组控制。
 
@@ -41,3 +41,5 @@ Product 更新依赖必须由 `ProductModel.instances` 和服务端 UpdatePlan �
 ## 参照与有意差异
 
 CATIA V5 本机 B33 文档 `online/ccvug_C2/ccvugbt0500.htm` 与 `ccvugbt2500.htm` 展示 Define in Work Object，`ccvugbt2300.htm` 展示 Parameters/Relations 的树显示设置；Dassault 的 [3DEXPERIENCE 多 Body 建模示例](https://3dswym.3dexperience.3ds.com/idea/catia-user-community/catia-methodology-simple-mechanical-part-design_I4pE_Ey5QA-E00XrgvS4CA)同样区分 Body 组织与工作对象。这里借鉴设计历史、工作对象和 Product occurrence 的交互语义，但保留 occccad 的 per-Body 求值、Revision/Workspace、PINNED/FOLLOW、显式命令和可重建制品规则。CATIA 文档不是当前实现证据。
+
+结构树不提供筛选搜索，相关输入、查询状态和过滤算法已删除。参数节点统一显示“参数”，位于应用数据之后；Part 的参数入口同样排在文档子节点末尾。滚动轨道与拐角透明，窄滚动条随树主题适配，并保留虚拟行滚动。测量组支持与约束组一致的批量显示/隐藏，一次正式命令更新组内所有测量的可见状态，Undo 恢复各成员之前的状态；折叠与展开本身仍只属于会话。

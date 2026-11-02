@@ -88,8 +88,8 @@ func (service *Service) CommitImportedGraph(ctx context.Context, actor, folderID
 }
 
 // ExchangeExportGraph walks accepted immutable revisions, not the flattened
-// render list. Geometry overrides carry existing context/release evaluation.
-func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, releaseID string, expectedRevision ...string) (*geometry.ExchangeGraph, error) {
+// render list. Geometry overrides carry existing accepted context evaluation.
+func (service *Service) ExchangeExportGraph(ctx context.Context, documentID string, expectedRevision ...string) (*geometry.ExchangeGraph, error) {
 	ctx = withAssemblyReadCache(ctx)
 	var revision string
 	overrides := map[string][]PartBody{}
@@ -119,41 +119,22 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, rel
 		}
 	}
 
-	if releaseID != "" {
-		release, err := service.GetProductRelease(ctx, documentID, releaseID)
-		if err != nil {
-			return nil, err
-		}
-		revision = release.Manifest.RootProductRevisionID
-		var items []ResolvedInstance
-		var scopes []ConstraintDisplayScope
-		if err := service.resolveProduct(ctx, revision, InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, "", InstancePath{RootDocumentID: documentID}, "", map[string]bool{}, map[string]Artifact{}, &items, &scopes); err != nil {
-			return nil, err
-		}
-		collectAppearances(items)
-
-		for _, o := range release.Manifest.Occurrences {
-			if len(o.Bodies) > 0 {
-				overrides[o.InstancePath.Canonical] = o.Bodies
-			}
-		}
-	} else {
-		view, err := service.GetDocument(ctx, documentID)
-		if err != nil {
-			return nil, err
-		}
-		if len(expectedRevision) > 0 && expectedRevision[0] != "" && view.Document.VersionID != expectedRevision[0] {
-			return nil, fmt.Errorf("%w: export Head changed", ErrValidation)
-		}
-		revision = view.Document.VersionID
-		collectAppearances(view.ResolvedInstances)
-		if view.Part != nil {
-			overrides[""] = view.Part.Bodies
-		}
-		for _, o := range view.ResolvedInstances {
-			overrides[o.InstancePath.Canonical] = append(overrides[o.InstancePath.Canonical], PartBody{ID: o.BodyID, GeometryKey: o.GeometryKey})
-		}
+	view, err := service.GetDocument(ctx, documentID)
+	if err != nil {
+		return nil, err
 	}
+	if len(expectedRevision) > 0 && expectedRevision[0] != "" && view.Document.VersionID != expectedRevision[0] {
+		return nil, fmt.Errorf("%w: export Head changed", ErrValidation)
+	}
+	revision = view.Document.VersionID
+	collectAppearances(view.ResolvedInstances)
+	if view.Part != nil {
+		overrides[""] = view.Part.Bodies
+	}
+	for _, o := range view.ResolvedInstances {
+		overrides[o.InstancePath.Canonical] = append(overrides[o.InstancePath.Canonical], PartBody{ID: o.BodyID, GeometryKey: o.GeometryKey})
+	}
+
 	graph := &geometry.ExchangeGraph{}
 	type snapshot struct {
 		name, kind string

@@ -1,3 +1,4 @@
+import {treeNavigator} from "./tree-helpers";
 import {expect,test,type Page} from '@playwright/test';
 import {writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -117,7 +118,7 @@ test('edited Part tab returns to its referencing Product without a sketch contex
   return {partId:p.document.id,partName:p.document.name,productId:product.document.id,productName:product.document.name,sketchId,sketchName:find(p.structureTree).name};
  });
  await page.goto('/documents/'+seed.partId);await expect(page.locator('canvas')).toBeVisible();
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill(seed.sketchName);const sketchRow=page.getByRole('treeitem').filter({hasText:seed.sketchName}).first();await expect(sketchRow).toBeVisible();await sketchRow.dblclick();await expect(page.getByRole('button',{name:'退出草图',exact:true})).toBeVisible();
+ const revealTree=treeNavigator(page);await revealTree(seed.sketchName);const sketchRow=page.getByRole('treeitem').filter({hasText:seed.sketchName}).first();await expect(sketchRow).toBeVisible();await sketchRow.dblclick();await expect(page.getByRole('button',{name:'退出草图',exact:true})).toBeVisible();
  const changed=await page.evaluate(async seed=>{
   // @ts-ignore production Vite module
   const {restApi:api}=await import('/src/api.ts');const p=await api.command(seed.partId,{type:'EDIT_SKETCH',sketchId:seed.sketchId,operations:[{type:'ADD_ENTITY',entity:{id:crypto.randomUUID(),kind:'POINT',role:'CONSTRUCTION',point:{x:20,y:20}}}]});return p.document.versionId;
@@ -152,16 +153,16 @@ CadViewportEngine.prototype.commitApplicationDisplay=function(){
  await page.goto('/');
  const seed=await seedProduct(page);
  await page.goto('/documents/'+seed.id);await expect(page.locator('canvas')).toBeVisible({timeout:60_000});
- await page.getByRole('textbox',{name:'筛选模型结构'}).fill('机械装置.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^机械装置\.1，/).first().click();await command(page,'运动机构');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('');await expect(page.locator('[data-application-id="'+seed.mid+'"]')).toBeVisible();await expect(page.getByRole('button',{name:'旋转接合',exact:true})).toBeEnabled();
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});
- const edit=async()=>{await filter.fill('偏移.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^偏移\.1 \(/).first().dblclick();const d=page.getByRole('dialog',{name:'旋转.1',exact:true});await expect(d).toBeVisible();return d};
+ await treeNavigator(page)('机械装置.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^机械装置\.1，/).first().click();await command(page,'运动机构');await treeNavigator(page)('');await expect(page.locator('[data-application-id="'+seed.mid+'"]')).toBeVisible();await expect(page.getByRole('button',{name:'旋转接合',exact:true})).toBeEnabled();
+ const revealTree=treeNavigator(page);
+ const edit=async()=>{await revealTree('偏移.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^偏移\.1 \(/).first().dblclick();const d=page.getByRole('dialog',{name:'旋转.1',exact:true});await expect(d).toBeVisible();return d};
  const phase=async(stage:string)=>page.evaluate(s=>{(window as any).__dmuStage=s;sessionStorage.setItem('dmu-acceptance-stage',s)},stage);
  const collect=async()=>{frameLog.push(...await page.evaluate(()=>{const frames=(window as any).__dmuFrames;(window as any).__dmuFrames=[];return frames}));};
  const visibleZ=async(z:number)=>expect.poll(()=>page.evaluate(id=>{const f=(window as any).__dmuFrames.at(-1);return f?.poses[id]?.translation[2]},seed.rotor)).toBeCloseTo(z,5);
  await phase('cancel');let d=await edit();await d.getByRole('spinbutton').first().fill('15');await visibleZ(15);await page.keyboard.press('Escape');await visibleZ(7);
  await phase('confirm');d=await edit();await d.getByRole('spinbutton').first().fill('11');await visibleZ(11);await d.getByRole('button',{name:/^确\s*定$/}).click();await expect(d).toHaveCount(0);await visibleZ(11);
  let v=await current(page,seed.id);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation).toEqual([22,15,7]);expect(v.product.kinematics.mechanisms[0].poses[seed.rotor].translation[2]).toBeCloseTo(11,5);
- await filter.fill('');const tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ await revealTree('');const tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  for(const label of ['Applications','机械装置',/^机械装置\.1，/,'接合',/^旋转\.1 \(/,'固定零件',/^固定零件\.1 \(/]){
   const row=tree.getByRole('treeitem').filter({has:page.getByText(label,{exact:true})}).first();
   if(await row.getAttribute('aria-expanded')==='false')await row.getByRole('button',{name:'展开',exact:true}).click();
@@ -174,7 +175,7 @@ CadViewportEngine.prototype.commitApplicationDisplay=function(){
  v=await current(page,seed.id);expect(v.product.constraints??[]).toHaveLength(0);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation[2]).toBeCloseTo(11,5);
  await collect();await phase('reopen');await page.reload();await expect(page.locator('canvas')).toBeVisible({timeout:60_000});await visibleZ(11);v=await current(page,seed.id);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation[2]).toBeCloseTo(11,5);
  await phase('conversion');
- await filter.fill('机械装置.1');await tree.getByText(/^机械装置\.1，/).first().click();await command(page,'运动机构');await filter.fill('');await command(page,'转换为产品约束');const apply=page.getByRole('dialog',{name:'转换为产品约束',exact:true});
+ await revealTree('机械装置.1');await tree.getByText(/^机械装置\.1，/).first().click();await command(page,'运动机构');await revealTree('');await command(page,'转换为产品约束');const apply=page.getByRole('dialog',{name:'转换为产品约束',exact:true});
  await apply.getByRole('button',{name:'生成／刷新转换计划'}).click();await expect(apply.getByText(/自由度 1/)).toBeVisible();await apply.getByRole('button',{name:/^确\s*定$/}).click();await expect(apply).toHaveCount(0);
  v=await current(page,seed.id);expect(v.product.constraints).toHaveLength(3);expect(v.product.kinematics.drivers??[]).toHaveLength(0);expect(v.product.kinematics.studies??[]).toHaveLength(0);
  const source=v.product.kinematics.mechanisms[0].joints.flatMap((j:any)=>j.constraints.map((c:any)=>c.id));for(const c of v.product.constraints)expect(source).not.toContain(c.id);
@@ -199,9 +200,9 @@ test('new mechanisms bind real tree supports through inspection, preview and com
  await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);const ground=page.getByRole('dialog',{name:'固定零件.1',exact:true});
  await expect(ground.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await ground.getByRole('button',{name:/^确\s*定$/}).click();await expect(ground).toHaveCount(0);
  await command(page,'旋转接合');const joint=page.getByRole('dialog',{name:'旋转.1',exact:true});
- const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ const revealTree=treeNavigator(page),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  for(const [label,index,nextRole] of [['Z Axis',0,'第二轴线'],['Z Axis',1,'第一定位平面'],['XY Plane',0,'第二定位平面'],['XY Plane',1,undefined]] as const){
-  await filter.fill(label);const support=tree.getByText(label,{exact:true});await expect(support).toHaveCount(2);await support.nth(index).click();
+  await revealTree(label);const support=tree.getByText(label,{exact:true});await expect(support).toHaveCount(2);await support.nth(index).click();
   if(nextRole)await expect(joint.getByRole('button',{name:nextRole,exact:true})).toHaveClass(/ant-btn-primary/);
  }
  await joint.getByRole('spinbutton').first().fill('9');await expect(joint.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);
@@ -210,7 +211,7 @@ test('new mechanisms bind real tree supports through inspection, preview and com
  expect(m.poses[seed.rotor].translation[2]).toBeCloseTo(9,5);expect(m.evaluation).toMatchObject({relativeDof:1,gaugeDof:0,driverCount:0});
  expect(r.constraints).toHaveLength(2);
  for(const end of [r.first,r.second])for(const ref of [end.axis,end.plane]){expect(ref.instancePath.rootDocumentId).toBe(seed.id);expect(ref.instancePath.segments[0].instanceId).toBe(end.instanceId);expect(ref.geometryKey??'').toBe('');}
- await filter.fill('偏移.1');await expect(tree.getByText(/^偏移\.1 \(/)).toBeVisible();await page.screenshot({path:'../../../build/acceptance/dmu-created-by-ui.png'});
+ await revealTree('偏移.1');await expect(tree.getByText(/^偏移\.1 \(/)).toBeVisible();await page.screenshot({path:'../../../build/acceptance/dmu-created-by-ui.png'});
  await command(page,'退出机构');await expect(page.getByRole('tab',{name:'装配设计',exact:true})).toBeVisible();
  v=await current(page,seed.id);expect(v.product.instances.find((i:any)=>i.id===seed.rotor).translation[2]).toBeCloseTo(9,5);expect(v.product.constraints??[]).toHaveLength(0);expect(errors).toEqual([]);
 });
@@ -226,9 +227,9 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  await command(page,'运动机构');await expect(page.getByRole('button',{name:'固定件',exact:true})).toBeEnabled();
  await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^确\s*定$/}).click();
  await command(page,'旋转接合');const joint=page.getByRole('dialog',{name:'旋转.1',exact:true});
- const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ const revealTree=treeNavigator(page),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  for(const [label,index] of [['旋转圆柱面',0],['旋转圆柱面',1],['旋转定位面',0],['旋转定位面',1]] as const){
-  await filter.fill(label);const supports=tree.getByText(label,{exact:true});await expect(supports).toHaveCount(2);await supports.nth(index).click();
+  await revealTree(label);const supports=tree.getByText(label,{exact:true});await expect(supports).toHaveCount(2);await supports.nth(index).click();
  }
  await expect(joint.locator('.feature-pick-field').filter({hasText:'第一轴线'})).toContainText('圆柱面轴线');
  await expect(joint.locator('.feature-pick-field').filter({hasText:'第二轴线'})).toContainText('圆柱面轴线');
@@ -238,7 +239,7 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  let v=await current(page,seed.id);const m=v.product.kinematics.mechanisms[0],revolute=m.joints.find((j:any)=>j.kind==='REVOLUTE');
  expect(revolute.axialDirection).toBe('OPPOSITE');expect(revolute.constraints.find((c:any)=>c.kind==='DISTANCE').directionRelation).toBe('OPPOSITE');expect(revolute.constraints.find((c:any)=>c.kind==='COINCIDENT').directionRelation).toBe('OPPOSITE');expect(revolute.constraints).toHaveLength(2);for(const end of [revolute.first,revolute.second]){expect(end.axis.derivedRole).toBe('cylinder-axis');expect(end.axis.publicationRef).toBeTruthy();expect(end.plane.publicationRef).toBeTruthy();expect(end.axis.persistentSelection).toBeTruthy();}
  expect(v.product.constraints??[]).toHaveLength(0);
- await filter.fill('');
+ await revealTree('');
  const baseline=await current(page,seed.id);
  await command(page,'使用命令进行模拟');const trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true});
  await expect(trial.getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();
@@ -293,10 +294,10 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  expect(recorded.product.instances).toEqual(baseline.product.instances);expect(recorded.product.kinematics).not.toHaveProperty('laws');
  await command(page,'撤销');v=await current(page,seed.id);expect(v.product.kinematics.studies).toHaveLength(0);expect(v.product.kinematics.mechanisms[0].poses).toEqual(baseline.product.kinematics.mechanisms[0].poses);
  await command(page,'重做');v=await current(page,seed.id);expect(v.product.kinematics.studies[0].keyframes).toEqual(recorded.product.kinematics.studies[0].keyframes);
- await filter.fill('模拟.1');await tree.getByText('模拟.1',{exact:true}).dblclick();await expect(page.getByRole('dialog')).toHaveCount(2);
+ await revealTree('模拟.1');await tree.getByText('模拟.1',{exact:true}).dblclick();await expect(page.getByRole('dialog')).toHaveCount(2);
  await expect.poll(async()=>Number(await trial.getByRole('spinbutton',{name:'命令角度'}).inputValue())).toBeCloseTo(0,2);
  await recorder.getByRole('button',{name:/^取\s*消$/}).click();await expect(page.getByRole('dialog')).toHaveCount(0);expect((await current(page,seed.id)).document.versionId).toBe(v.document.versionId);
- await filter.fill('结果.');await expect(tree.getByText('结果.1 · 完成',{exact:true})).toBeVisible({timeout:120_000});
+ await revealTree('结果.');await expect(tree.getByText('结果.1 · 完成',{exact:true})).toBeVisible({timeout:120_000});
  await tree.getByText('结果.1 · 完成',{exact:true}).dblclick();const simulation=page.getByRole('dialog',{name:'仿真与回放',exact:true});await expect(simulation).toBeVisible();
  await expect(simulation.getByRole('button',{name:'删除',exact:true})).toHaveCount(0);
  await simulation.getByRole('spinbutton',{name:'定位时间 s'}).fill('0.37');await expect(simulation.getByRole('spinbutton',{name:'定位时间 s'})).toHaveValue('0.37');
@@ -304,7 +305,7 @@ test('cylindrical supports, command trial and recorded simulation share qualifie
  await conversion.getByRole('button',{name:'生成／刷新转换计划'}).click();await expect(conversion.getByText(/自由度 1/)).toBeVisible();await conversion.getByRole('button',{name:/^取\s*消$/}).click();
  await expect(simulation.getByRole('spinbutton',{name:'定位时间 s'})).toHaveValue('0.37');await page.keyboard.press('Escape');
  const beforeDelete=await current(page,seed.id);await tree.getByText('结果.1 · 完成',{exact:true}).click({button:'right'});await page.getByRole('menuitem',{name:'删除',exact:true}).click();await expect(tree.getByText('结果.1 · 完成',{exact:true})).toHaveCount(0);
- expect((await current(page,seed.id)).document.versionId).toBe(beforeDelete.document.versionId);await filter.fill('');
+ expect((await current(page,seed.id)).document.versionId).toBe(beforeDelete.document.versionId);await revealTree('');
  await command(page,'旋转接合');await expect(page.getByRole('dialog',{name:'旋转.2',exact:true})).toBeVisible();await page.keyboard.press('Escape');expect(errors).toEqual([]);
 });
 
@@ -384,8 +385,8 @@ test('joint limits own command creation and zero preserves recorded positions',a
  await page.goto('/');const seed=await seedProduct(page);
  await page.goto('/documents/'+seed.id+'?application=mechanism&mechanismId='+seed.mid);await expect(page.getByRole('button',{name:'移动组件',exact:true})).toBeEnabled({timeout:60_000});
  await expect(page.getByRole('button',{name:'角度命令',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'运动规律',exact:true})).toHaveCount(0);
- const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
- const joint=page.getByRole('dialog',{name:'旋转.1',exact:true}),openJoint=async()=>{await filter.fill('旋转.1');await tree.getByText(/^旋转\.1 \(/).first().dblclick();await expect(joint).toBeVisible()};
+ const revealTree=treeNavigator(page),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ const joint=page.getByRole('dialog',{name:'旋转.1',exact:true}),openJoint=async()=>{await revealTree('旋转.1');await tree.getByText(/^旋转\.1 \(/).first().dblclick();await expect(joint).toBeVisible()};
  await openJoint();await expect(joint.getByRole('checkbox',{name:'角度驱动',exact:true})).not.toBeChecked();await expect(joint.getByRole('spinbutton',{name:'角度下限 °',exact:true})).toBeDisabled();
  await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).check();await expect(joint.getByRole('checkbox',{name:'启用角度下限',exact:true})).toBeChecked();await expect(joint.getByRole('checkbox',{name:'启用角度上限',exact:true})).toBeDisabled();
  await joint.getByRole('spinbutton',{name:'角度下限 °',exact:true}).fill('-20');await joint.getByRole('spinbutton',{name:'角度上限 °',exact:true}).fill('50');
@@ -396,17 +397,17 @@ test('joint limits own command creation and zero preserves recorded positions',a
  await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);view=await current(page,seed.id);expect(view.product.kinematics.drivers??[]).toHaveLength(0);
  const undriven=view.product.kinematics.mechanisms[0].joints.find((j:any)=>j.id===seed.jid);expect(undriven.coordinates[0].lower).toEqual(stops.coordinates[0].lower);expect(undriven.coordinates[0].upper).toEqual(stops.coordinates[0].upper);
  await openJoint();await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).check();await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);view=await current(page,seed.id);expect(view.product.kinematics.drivers[0].id).not.toBe(oldDriver);
- await filter.fill('');await command(page,'模拟');const recorder=page.getByRole('dialog',{name:'模拟',exact:true}),trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true});
+ await revealTree('');await command(page,'模拟');const recorder=page.getByRole('dialog',{name:'模拟',exact:true}),trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true});
  await expect(trial.getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();await trial.getByRole('spinbutton',{name:'命令角度'}).fill('20');await expect(recorder.locator('tbody tr[data-row-key]')).toHaveCount(2);
  await trial.getByRole('spinbutton',{name:'命令角度'}).fill('10');await expect(recorder.locator('tbody tr[data-row-key]')).toHaveCount(3);await recorder.getByRole('button',{name:/^确\s*定$/}).click();await expect(recorder).toHaveCount(0);
  const saved=await current(page,seed.id),beforePoses=saved.product.kinematics.mechanisms[0].poses;
  await viewportEngine(page);const rendered=()=>page.evaluate(()=>Object.fromEntries([...(window as any).__dmuEngine.instanceGroups].map(([id,g]:any)=>[id,{translation:g.position.toArray(),rotation:g.quaternion.toArray()}])));
- const beforeRender=await rendered();await filter.fill('命令.1');await tree.getByText(/^命令\.1 \(/).first().dblclick();const editor=page.getByRole('dialog',{name:'命令.1',exact:true});
+ const beforeRender=await rendered();await revealTree('命令.1');await tree.getByText(/^命令\.1 \(/).first().dblclick();const editor=page.getByRole('dialog',{name:'命令.1',exact:true});
  await expect(editor.getByRole('spinbutton',{name:'命令当前值',exact:true})).toHaveValue('10.00');await expect(editor.getByRole('combobox')).toHaveCount(0);await editor.getByRole('button',{name:'置零',exact:true}).click();await expect(editor.getByRole('spinbutton',{name:'命令当前值',exact:true})).toHaveValue('0.00');
  expect(await rendered()).toEqual(beforeRender);await editor.getByRole('button',{name:/^确\s*定$/}).click();await expect(editor).toHaveCount(0);
  const zeroed=await current(page,seed.id);expect(zeroed.product.kinematics.studies).toEqual(saved.product.kinematics.studies);
  for(const [id,pose] of Object.entries(beforePoses) as any)for(let i=0;i<3;i++)expect(zeroed.product.kinematics.mechanisms[0].poses[id].translation[i]).toBeCloseTo(pose.translation[i],6);
- await filter.fill('模拟.1');await tree.getByText('模拟.1',{exact:true}).dblclick();await expect(trial.getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();await expect.poll(async()=>Number(await trial.getByRole('spinbutton',{name:'命令角度'}).inputValue())).toBeCloseTo(-10,2);
+ await revealTree('模拟.1');await tree.getByText('模拟.1',{exact:true}).dblclick();await expect(trial.getByRole('spinbutton',{name:'命令角度'})).toBeEnabled();await expect.poll(async()=>Number(await trial.getByRole('spinbutton',{name:'命令角度'}).inputValue())).toBeCloseTo(-10,2);
  await expect(trial.getByText('-30.00 °',{exact:true})).toBeVisible();await expect(trial.getByText('40.00 °',{exact:true})).toBeVisible();
  await trial.getByRole('spinbutton',{name:'命令角度'}).fill('60');await expect(trial.getByText('该位置未通过求解。',{exact:true})).toBeVisible();await expect.poll(async()=>Number(await trial.getByRole('spinbutton',{name:'命令角度'}).inputValue())).toBeCloseTo(-10,2);
  expect((await current(page,seed.id)).document.versionId).toBe(zeroed.document.versionId);await recorder.getByRole('button',{name:/^取\s*消$/}).click();await expect(recorder).toHaveCount(0);
@@ -421,12 +422,12 @@ test('cylindrical joint authors one angular and linear recording and pauses exac
  await page.goto('/');const seed=await seedProduct(page,false,true);
  await page.goto('/documents/'+seed.id);await command(page,'运动机构');await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);
  await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^确\s*定$/}).click();
- await command(page,'圆柱接合');const joint=page.getByRole('dialog',{name:'圆柱.1',exact:true}),filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
- await filter.fill('旋转圆柱面');const cylinders=tree.getByText('旋转圆柱面',{exact:true});await expect(cylinders).toHaveCount(2);
+ await command(page,'圆柱接合');const joint=page.getByRole('dialog',{name:'圆柱.1',exact:true}),revealTree=treeNavigator(page),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ await revealTree('旋转圆柱面');const cylinders=tree.getByText('旋转圆柱面',{exact:true});await expect(cylinders).toHaveCount(2);
  await cylinders.nth(0).click();await cylinders.nth(1).click();
  await expect(joint.getByRole('button',{name:'选择第一定位平面',exact:true})).toHaveCount(0);
  await joint.getByRole('checkbox',{name:'角度驱动',exact:true}).check();await joint.getByRole('checkbox',{name:'长度驱动',exact:true}).check();
- await expect(joint.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);await filter.fill('');
+ await expect(joint.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await joint.getByRole('button',{name:/^确\s*定$/}).click();await expect(joint).toHaveCount(0);await revealTree('');
  let v=await current(page,seed.id);const mechanism=v.product.kinematics.mechanisms[0],cylinder=mechanism.joints.find((j:any)=>j.kind==='CYLINDRICAL');
  expect(cylinder.constraints).toHaveLength(1);expect(cylinder.coordinates).toHaveLength(2);expect(v.product.kinematics.drivers).toHaveLength(2);expect(mechanism.evaluation.relativeDof).toBe(2);expect(v.product.constraints??[]).toHaveLength(0);
  await command(page,'模拟');const trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true}),recorder=page.getByRole('dialog',{name:'模拟',exact:true});
@@ -466,19 +467,19 @@ for(const definition of [
  await page.goto('/');const seed=await seedProduct(page,false);
  await page.goto('/documents/'+seed.id);await command(page,'运动机构');await command(page,'固定件');await pickVisibleInstance(page,seed.shaft);
  await page.getByRole('dialog',{name:'固定零件.1',exact:true}).getByRole('button',{name:/^确\s*定$/}).click();
- await command(page,definition.command);const dialog=page.getByRole('dialog',{name:definition.title,exact:true}),filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
+ await command(page,definition.command);const dialog=page.getByRole('dialog',{name:definition.title,exact:true}),revealTree=treeNavigator(page),tree=page.getByRole('complementary',{name:'模型结构',exact:true});
  if(definition.kind==='RIGID'){await pickVisibleInstance(page,seed.shaft);await pickVisibleInstance(page,seed.rotor)}
- else for(const label of definition.supports){await filter.fill(label);const supports=tree.getByText(label,{exact:true});await expect(supports).toHaveCount(2);await supports.nth(0).click();await supports.nth(1).click()}
+ else for(const label of definition.supports){await revealTree(label);const supports=tree.getByText(label,{exact:true});await expect(supports).toHaveCount(2);await supports.nth(0).click();await supports.nth(1).click()}
  if(definition.kind==='PRISMATIC'){await dialog.getByRole('checkbox',{name:'长度驱动',exact:true}).check();await expect(dialog.getByRole('checkbox',{name:'角度驱动',exact:true})).toHaveCount(0)}
  if(definition.kind==='PLANAR'){await dialog.getByRole('spinbutton',{name:'平面偏移 mm',exact:true}).fill('3');await dialog.getByRole('combobox',{name:'平面方向',exact:true}).click();await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter')}
  await expect(dialog.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await page.screenshot({path:`../../../build/acceptance/dmu-${definition.kind.toLowerCase()}-joint.png`});
- await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);await filter.fill('');
+ await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);await revealTree('');
  let view=await current(page,seed.id);const mechanism=view.product.kinematics.mechanisms[0],joint=mechanism.joints.find((j:any)=>j.kind===definition.kind);
  expect(joint.constraints).toHaveLength(definition.count);expect(mechanism.evaluation).toMatchObject({relativeDof:definition.dof,gaugeDof:0});expect(view.product.constraints??[]).toHaveLength(0);
  if(definition.kind==='RIGID'){
   expect(joint.constraints[0].groupMembers).toHaveLength(2);expect(mechanism.poses[seed.rotor].translation).toEqual([22,15,7]);
   const references:any[]=[];const visit=(node:any)=>{if(node.kind==='ASSEMBLY_GROUP_MEMBER_REFERENCE'&&node.mechanismId===mechanism.id)references.push(node);for(const child of node.children??[])visit(child)};visit(view.structureTree);expect(references).toHaveLength(2);
-  await filter.fill(references[0].name);await tree.getByText(references[0].name,{exact:true}).dblclick();await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);await filter.fill('');expect((await current(page,seed.id)).document.versionId).toBe(view.document.versionId);
+  await revealTree(references[0].name);await tree.getByText(references[0].name,{exact:true}).dblclick();await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);await revealTree('');expect((await current(page,seed.id)).document.versionId).toBe(view.document.versionId);
  }
  if(definition.kind==='SPHERICAL'){expect(joint.first.point.derivedRole).toBe('frame-origin');expect(joint.second.point.derivedRole).toBe('frame-origin');expect(mechanism.poses[seed.rotor].translation.every((v:number)=>Math.abs(v)<1e-5)).toBeTruthy()}
  if(definition.kind==='PRISMATIC'){
@@ -509,8 +510,8 @@ test('Product Fix Together continuously picks viewport members and moves the com
  await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
  const before=await current(page,seed.id),group=before.product.constraints.find((c:any)=>c.kind==='FIX_TOGETHER');expect(group.name).toBe('FixTogether.1');expect(group.groupMembers).toHaveLength(3);expect(group.groupRelations).toHaveLength(3);
  const references:any[]=[];const visit=(node:any)=>{if(node.kind==='ASSEMBLY_GROUP_MEMBER_REFERENCE')references.push(node);for(const child of node.children??[])visit(child)};visit(before.structureTree);expect(references).toHaveLength(3);expect(references.every(node=>!node.capabilities.includes('DELETE'))).toBeTruthy();
- const filter=page.getByRole('textbox',{name:'筛选模型结构'}),tree=page.getByRole('complementary',{name:'模型结构',exact:true}),reference=references.find(node=>node.entityId===seed.rotor);
- await filter.fill(reference.name);await tree.getByText(reference.name,{exact:true}).dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除成员 /})).toHaveCount(3);await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);await filter.fill('');expect((await current(page,seed.id)).document.versionId).toBe(before.document.versionId);
+ const revealTree=treeNavigator(page),tree=page.getByRole('complementary',{name:'模型结构',exact:true}),reference=references.find(node=>node.entityId===seed.rotor);
+ await revealTree(reference.name);await tree.getByText(reference.name,{exact:true}).dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByLabel('固联组成员').getByRole('button',{name:/^移除成员 /})).toHaveCount(3);await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);await revealTree('');expect((await current(page,seed.id)).document.versionId).toBe(before.document.versionId);
  await command(page,'移动组件');await pickVisibleInstance(page,seed.rotor);await dragAttachedComponent(page,4);
  const after=await current(page,seed.id);const baseline=before.product.instances.find((i:any)=>i.id===seed.shaft),moved=after.product.instances.find((i:any)=>i.id===seed.shaft);expect(moved.translation).not.toEqual(baseline.translation);
  expect(after.product.constraints[0].groupRelations).toEqual(group.groupRelations);await page.screenshot({path:'../../../build/acceptance/product-fix-together-viewport.png'});expect(errors).toEqual([]);
@@ -621,7 +622,7 @@ test('fixed constraint create and edit close after authoritative commits',async(
  await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
  const saved=await current(page,seed.id),fixed=saved.product.constraints.find((c:any)=>c.kind==='FIX');
  expect(fixed).toBeTruthy();expect(fixed.fixedPose.translation[0]).toBeCloseTo(7.654,8);
- await page.getByRole('textbox',{name:'筛选模型结构'}).fill(fixed.name);
+ await treeNavigator(page)(fixed.name);
  const row=page.getByRole('treeitem').filter({hasText:fixed.name}).last();
  await row.dblclick();await expect(dialog).toBeVisible();
  await expect(dialog.getByRole('spinbutton',{name:'X（mm）',exact:true})).toHaveValue('7.65');
@@ -666,7 +667,7 @@ test('saved mechanism analysis uses the command dialog, automatic physical evide
  let release:()=>void=()=>{},started:()=>void=()=>{};const held=new Promise<void>(r=>release=r),ready=new Promise<void>(r=>started=r);await page.route(`**/api/documents/${seed.id}/mechanism-analysis`,async route=>{const r=await route.fetch();started();await held;await route.fulfill({response:r})});
  await panel.getByRole('button',{name:'重新分析',exact:true}).click();await ready;await panel.getByRole('button',{name:'取消计算'}).click();release();await expect(panel).toContainText('已取消');await expect(panel).not.toContainText('相对自由度 1');await page.unroute(`**/api/documents/${seed.id}/mechanism-analysis`);
  await page.route(`**/api/documents/${seed.id}/mechanism-analysis`,route=>route.abort('failed'));await panel.getByRole('button',{name:'重新分析'}).click();await expect(panel).toContainText('分析未完成');await page.unroute(`**/api/documents/${seed.id}/mechanism-analysis`);await panel.getByRole('button',{name:/重\s*试/}).click();await expect(panel).toContainText('相对自由度 1');await panel.getByRole('button',{name:'关闭',exact:true}).click();
- await page.getByRole('textbox',{name:'筛选模型结构'}).fill('机械装置.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^机械装置\.1，/).first().click();await command(page,'运动机构');await page.getByRole('textbox',{name:'筛选模型结构'}).fill('');await expect(page.locator(`[data-application-id="${seed.mid}"]`)).toBeVisible();before=await current(page,seed.id);
+ await treeNavigator(page)('机械装置.1');await page.getByRole('complementary',{name:'模型结构',exact:true}).getByText(/^机械装置\.1，/).first().click();await command(page,'运动机构');await treeNavigator(page)('');await expect(page.locator(`[data-application-id="${seed.mid}"]`)).toBeVisible();before=await current(page,seed.id);
  await command(page,'机构分析');await expect(panel).toContainText('相对自由度 1');await panel.getByRole('button').filter({hasText:'绕图示轴旋转'}).click();await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.motionMarkers?.children.filter((c:any)=>c.name==='analysis-rotation-arc').length??0)).toBe(1);const visualHeader=await panel.locator('.cad-command-dialog-header').boundingBox();if(!visualHeader)throw new Error('Missing analysis header');await page.mouse.move(visualHeader.x+90,visualHeader.y+20);await page.mouse.down();await page.mouse.move(visualHeader.x+90,195,{steps:8});await page.mouse.up();const visibleArc=await page.evaluate(()=>{const e=(window as any).__dmuEngine,g=e.motionMarkers.children.find((c:any)=>c.name==='analysis-rotation-arc');g.updateWorldMatrix(true,true);const bounds=e.renderer.domElement.getBoundingClientRect(),a=g.position.clone().set(0,0,0),points=Array.from({length:48},(_,i)=>{const p=a.clone().set(Math.cos(i*Math.PI/24),Math.sin(i*Math.PI/24),0).applyMatrix4(g.matrixWorld).project(e.camera);return [p.x*bounds.width/2,p.y*bounds.height/2]});return {visible:g.visible,diameter:Math.max(Math.max(...points.map(p=>p[0]))-Math.min(...points.map(p=>p[0])),Math.max(...points.map(p=>p[1]))-Math.min(...points.map(p=>p[1]))),anchor:g.position.toArray(),scale:g.scale.toArray()}});expect(visibleArc.visible).toBeTruthy();expect(visibleArc.diameter).toBeGreaterThan(50);await testInfo.attach('rotation-guide',{body:JSON.stringify(visibleArc),contentType:'application/json'});await page.screenshot({path:testInfo.outputPath('engineering-mechanism-analysis.png')});expect((await current(page,seed.id)).product).toEqual(before.product);expect((await current(page,seed.id)).document.versionId).toBe(before.document.versionId);await panel.getByRole('button',{name:'关闭',exact:true}).click();await command(page,'退出机构');
  const viewerSeed=await page.evaluate(async seed=>{const {restApi:api}=await import('/src/api.ts');const email=`mechanism-viewer-${crypto.randomUUID()}@occccad.local`,password='MechanismViewer-123!';const u=await api.adminCreateUser({email,displayName:'机构分析只读',password,platformRole:'MEMBER',status:'ACTIVE'});for(const id of [seed.id,...seed.parts])await api.share('documents',id,'USER',u.id,'VIEWER');return {email,password}},seed);
  const context=await browser.newContext({baseURL:'http://127.0.0.1:5175',viewport:{width:1440,height:1000}}),viewer=await context.newPage();expect((await viewer.request.post('/api/auth/login',{data:viewerSeed})).ok()).toBeTruthy();await viewer.goto('/documents/'+seed.id);await command(viewer,'机构分析');const vp=viewer.getByRole('dialog',{name:'机构分析',exact:true});await vp.getByRole('combobox',{name:'分析机构'}).click();await viewer.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({hasText:'机械装置.1'}).click();await expect(vp).toContainText('相对自由度 1');await expect(vp.getByRole('button',{name:'修复支撑'}).last()).toBeDisabled();await context.close();expect(errors).toEqual([]);
@@ -751,15 +752,15 @@ test('command Escape clears contact picks and duplicate occurrences keep compact
  const geometry=await dialog.locator('.command-vector').first().evaluate(el=>Array.from(el.querySelectorAll('.ant-form-item')).map(row=>({label:row.querySelector('.ant-form-item-label')!.getBoundingClientRect().width,input:row.querySelector('.ant-input-number')!.getBoundingClientRect().width})));expect(geometry).toHaveLength(3);for(const field of geometry){expect(field.label).toBeLessThan(25);expect(field.input).toBeGreaterThan(50)}await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath('fixed-xyz-150-percent.png')});
  await page.evaluate(()=>document.documentElement.style.zoom='1');await page.setViewportSize({width:1440,height:1000});await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).fill('-23.456');await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).press('Tab');await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const saved=await current(page,seed.id),fixed=saved.product.constraints?.find((c:any)=>c.kind==='FIX');expect(fixed.name).toBe('Fix.1');expect(fixed.first.instanceId).toBe(third);expect(fixed.fixedPose.translation[0]).toBeCloseTo(-23.456,8);expect(saved.product.instances.find((i:any)=>i.id===seed.shaft).transform).toEqual((await current(page,seed.id)).product.instances.find((i:any)=>i.id===seed.shaft).transform);
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill(fixed.name);const fixedRow=page.getByRole('treeitem').filter({hasText:fixed.name}).last();await expect(fixedRow.locator('.tree-status-badge')).toHaveCount(1);expect(await fixedRow.innerText()).toBe(`${fixed.name} (${saved.product.instances.find((i:any)=>i.id===third).name})`);await fixedRow.click({button:'right',position:{x:110,y:12}});const menu=page.locator('.specification-tree-context-menu:visible');await expect(menu).toBeVisible();const b=await menu.boundingBox();expect(b!.width).toBeCloseTo(256,0);await page.getByRole('menuitem',{name:'对象',exact:true}).hover();await expect(page.locator('.cad-command-submenu:visible .ant-dropdown-menu')).toHaveCSS('width','256px');await page.keyboard.press('Escape');expect((await current(page,seed.id)).document.versionId).toBe(saved.document.versionId);
- await filter.fill('');await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(((await current(page,seed.id)).product.constraints??[]).length)).toBe(0);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>((await current(page,seed.id)).product.constraints?.find((c:any)=>c.id===fixed.id)?.name)).toBe('Fix.1');await page.reload();await expect(page.locator('canvas')).toBeVisible();expect((await current(page,seed.id)).product.constraints?.find((c:any)=>c.id===fixed.id)).toEqual(fixed);
+ const revealTree=treeNavigator(page);await revealTree(fixed.name);const fixedRow=page.getByRole('treeitem').filter({hasText:fixed.name}).last();await expect(fixedRow.locator('.tree-status-badge')).toHaveCount(1);expect(await fixedRow.innerText()).toBe(`${fixed.name} (${saved.product.instances.find((i:any)=>i.id===third).name})`);await fixedRow.click({button:'right',position:{x:110,y:12}});const menu=page.locator('.specification-tree-context-menu:visible');await expect(menu).toBeVisible();const b=await menu.boundingBox();expect(b!.width).toBeCloseTo(256,0);await page.getByRole('menuitem',{name:'对象',exact:true}).hover();await expect(page.locator('.cad-command-submenu:visible .ant-dropdown-menu')).toHaveCSS('width','256px');await page.keyboard.press('Escape');expect((await current(page,seed.id)).document.versionId).toBe(saved.document.versionId);
+ await revealTree('');await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(((await current(page,seed.id)).product.constraints??[]).length)).toBe(0);await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>((await current(page,seed.id)).product.constraints?.find((c:any)=>c.id===fixed.id)?.name)).toBe('Fix.1');await page.reload();await expect(page.locator('canvas')).toBeVisible();expect((await current(page,seed.id)).product.constraints?.find((c:any)=>c.id===fixed.id)).toEqual(fixed);
 });
 
 test('Fix Together collection stays compact and searchable with repeated long instance names',async({page},testInfo)=>{
  test.setTimeout(180_000);page.setDefaultTimeout(20_000);expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();await page.goto('/');const seed=await seedProduct(page,false);
  const extras=await page.evaluate(async({id,part})=>{const {restApi:api}=await import('/src/api.ts');let v=await api.getDocument(id);const added=[];for(const [x,y] of [[-25,-20],[0,-20],[25,-20],[-25,35],[0,35],[25,35]]){v=await api.command(id,{type:'INSERT_INSTANCE',referencedDocumentId:part});const instance=v.product!.instances.at(-1)!;v=await api.command(id,{type:'MOVE_INSTANCE',instanceId:instance.id,translation:[x,y,0],rotation:[0,0,0,1]});v=await api.command(id,{type:'SET_PROPERTIES',versionId:v.document.versionId,properties:{targets:[{kind:'INSTANCE',id:instance.id,instancePath:(()=>{let path;const walk=(n:any)=>{if(n.kind==='INSTANCE'&&n.entityId===instance.id)path=n.instancePath;for(const c of n.children??[])walk(c)};walk(v.structureTree);return path})()}],name:`重复的长名称组件 ${added.length+1}，用于检查多选列表的路径识别和宽度限制`}});added.push(instance.id)}return added},{id:seed.id,part:seed.parts[0]});
- await page.goto('/documents/'+seed.id);const baseline=await current(page,seed.id);await command(page,'固联组');const d=page.getByRole('dialog').filter({has:page.getByLabel('固联组成员')});await pickVisibleInstance(page,seed.shaft);const filter=page.getByRole('textbox',{name:'筛选模型结构'});
- for(const id of [seed.rotor,...extras]){await filter.fill('');await page.locator(`[role=treeitem][data-tree-key$="instance:${id}"]`).first().click()}
+ await page.goto('/documents/'+seed.id);const baseline=await current(page,seed.id);await command(page,'固联组');const d=page.getByRole('dialog').filter({has:page.getByLabel('固联组成员')});await pickVisibleInstance(page,seed.shaft);const revealTree=treeNavigator(page);
+ for(const id of [seed.rotor,...extras]){await revealTree('');await page.locator(`[role=treeitem][data-tree-key$="instance:${id}"]`).first().click()}
  const collection=d.getByRole('group',{name:'成员集',exact:true}),list=collection.getByRole('list',{name:'成员集列表',exact:true});await expect(list.getByRole('listitem')).toHaveCount(8);expect(await collection.locator('.feature-pick-field').count()).toBe(0);expect(await list.evaluate(e=>e.scrollHeight>e.clientHeight)).toBeTruthy();
  await page.setViewportSize({width:1024,height:768});await page.evaluate(()=>document.documentElement.style.zoom='1.25');await expect.poll(()=>list.evaluate(e=>e.clientHeight)).toBeLessThanOrEqual(161);const search=collection.getByRole('searchbox',{name:'筛选成员集'});await search.fill('重复的长名称');await expect(list.getByRole('listitem')).toHaveCount(6);await search.press('Enter');await expect(d).toBeVisible();expect((await current(page,seed.id)).document.versionId).toBe(baseline.document.versionId);await expect(list.locator('.feature-pick-item-name > span').first()).toHaveCSS('text-overflow','ellipsis');await search.fill('');
  await collection.getByRole('button',{name:'收起成员集',exact:true}).click();await expect(list).toHaveCount(0);await collection.getByRole('button',{name:'展开成员集',exact:true}).click();await expect(list.getByRole('listitem')).toHaveCount(8);await page.screenshot({path:testInfo.outputPath('compact-group-members.png')});await d.getByRole('button',{name:/^取\s*消$/}).click();expect((await current(page,seed.id)).document.versionId).toBe(baseline.document.versionId);

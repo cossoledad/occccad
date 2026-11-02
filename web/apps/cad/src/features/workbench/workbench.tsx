@@ -1,3 +1,4 @@
+import {AssemblyDialogStatus} from "./assembly-dialog-status";
 import {ParameterExternalEditor} from "./parameter-external-editor";
 import {ReferenceElementEditor} from "./reference-element-editor";
 import {createdObjectReveal,requestTreeReveal} from "./tree-reveal";
@@ -104,7 +105,7 @@ import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-s
 import { displayLengthToMillimeters, effectiveLengthUnit, millimetersToDisplayLength,
   useUIPreferences } from "../../state/ui-preferences";
 import { useApplicationContext } from "../../state/application-context";
-import type { AssemblyConstraint, AssemblyGeometryRef, AssemblyGroupMember, Artifact, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, ProductRelease, Selection, SketchOperation, SketchPlane, Vec3 } from "../../types";
+import type { AssemblyConstraint, AssemblyGeometryRef, AssemblyGroupMember, Artifact, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, Selection, SketchOperation, SketchPlane, Vec3 } from "../../types";
 import { WorkbenchLayout } from "./workbench-layout";
 import { WorkbenchCommands, WorkbenchViewControls } from "./workbench-commands";
 import { WorkbenchStatus } from "./workbench-status";
@@ -124,7 +125,6 @@ import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
 import { associatedTreeKeyForSelection, deletableTreeNodesForSelections, ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
 import { assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
   firstDisconnectedSupport, validateReconnectCandidate } from "../../cad/assembly/assembly-constraint-ux";
-import { ProductReleaseCenter } from "./product-release-center";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
@@ -252,7 +252,6 @@ export function Workbench() {
   const showAnalysisMotion = useCallback((motion?: Parameters<NonNullable<CadViewportHandle["showRemainingMotion"]>>[0]) => viewport.current?.showRemainingMotion(motion), []);
   const [newPartTarget, setNewPartTarget] = useState<SpecificationTreeNode>();
   const [versionOpen, setVersionOpen] = useState(false);
-  const [releaseOpen, setReleaseOpen] = useState(false);
   const [associationRepairOpen,setAssociationRepairOpen]=useState(false);
   const [datumEditor, setDatumEditor] = useState<"plane" | "axis">();
   const [referenceEditor,setReferenceEditor]=useState<{kind:import("./reference-element-model").ReferenceElementKind;id?:string}>();
@@ -322,7 +321,7 @@ export function Workbench() {
   const [replacementInstanceId,setReplacementInstanceId]=useState<string>();
   const [replacementPreview,setReplacementPreview]=useState<DocumentView>();
 
-  const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string; quantityExpression?:string;quantityKey?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupMembers?:string[];fixMode?:AssemblyConstraint["fixMode"];constraintMode?:string; fixedTranslation:Vec3; fixedAngles:Vec3 }>();
+  const [assemblyConstraintForm] = Form.useForm<{ quantityInput?:string;value: number; directionRelation: string; distanceRelation: string; quantityExpression?:string;quantityKey?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupMembers?:string[];fixMode?:AssemblyConstraint["fixMode"];constraintMode?:string; fixedTranslation:Vec3; fixedAngles:Vec3 }>();
 
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
@@ -679,8 +678,6 @@ export function Workbench() {
     ? view?.resolvedInstances?.find((instance) => instance.instancePath?.canonical === activeInstancePath) : undefined;
   const productUpdatePlan = useQuery({ queryKey: ["product-update-plan", documentID, view?.document.versionId],
     queryFn: () => api.getProductUpdatePlan(documentID), enabled: Boolean(view?.document.type === "PRODUCT") });
-  const productReleases = useQuery({ queryKey: ["product-releases", documentID],
-    queryFn: () => api.listProductReleases(documentID), enabled: Boolean(view?.document.type === "PRODUCT" && releaseOpen) });
   latestDocumentVersion.current = editingView?.document.versionId;
   const followedIDs = useMemo(() => [...new Set([
     ...followedDocumentIDs(view), ...(view?.referenceUpdates ?? []).map((item) => item.sourceDocumentId),
@@ -900,9 +897,10 @@ export function Workbench() {
     assemblyPreviewAbort.current?.abort();
     const controller=new AbortController();assemblyPreviewAbort.current=controller;
     const timer = window.setTimeout(() => {
-      const commandInput = assemblyEditIntent(kind.toUpperCase(),assemblyConstraintForm.getFieldsValue(true),references,lengthUnit,
+      let commandInput:ReturnType<typeof assemblyEditIntent>;
+      try{commandInput = assemblyEditIntent(kind.toUpperCase(),assemblyConstraintForm.getFieldsValue(true),references,lengthUnit,
         constraint && {...constraint,angleAxis:resolvedAngleAxis}, {angleRelation:pending?.angleRelation,angleAxis:resolvedAngleAxis,
-          reverseAngleAxis:pending?.reverseAngleAxis,angleReferenceDirection:pending?.angleReferenceDirection});
+          reverseAngleAxis:pending?.reverseAngleAxis,angleReferenceDirection:pending?.angleReferenceDirection});}catch{void assemblyConstraintForm.validateFields(["quantityInput"]).catch(()=>{});assemblyPreviewActor.current?.send({type:"RESET"});return;}
       const key=assemblyIntentKey(commandInput,editingView.document.id,editingView.document.versionId,activeInstancePath);
 	  void api.previewCommand(editingView.document.id, {...commandInput,
         interactionId:assemblyInteractionID.current},controller.signal).then((preview) => {
@@ -991,6 +989,7 @@ export function Workbench() {
     const instance = editingView?.product?.instances.find(value=>value.id===constraint.first?.instanceId);
     const fixedPose = constraint.fixedPose ?? {translation:instance?.translation ?? [0,0,0],rotation:instance?.rotation ?? [0,0,0,1]};
     assemblyConstraintForm.setFieldsValue({
+      quantityInput:undefined,
       ...assemblyPublicInitialFields(constraint.kind,[constraint.first,...(constraint.second?[constraint.second]:[])],constraint),
       fixMode:constraint.fixMode??"SPACE",
       fixedTranslation: fixedPose.translation.map(v=>millimetersToDisplayLength(v,lengthUnit)),
@@ -1232,11 +1231,7 @@ export function Workbench() {
     if (!editingView) return; await api.createVersion(editingView.document.id, values.name, values.description); setVersionOpen(false);
     await client.invalidateQueries({ queryKey: queryKeys.history(editingView.document.id) }); message.success("版本已创建");
   };
-  const createRelease = async (name: string) => {
-    const release: ProductRelease = await api.createProductRelease(documentID, name);
-    await client.invalidateQueries({ queryKey: ["product-releases", documentID] });
-    message.success(`产品版本 ${release.name} 已冻结`);
-  };
+
   const currentAssemblyCandidate = async (target:{id:string;versionId:string}, key:string, sequence:number, force=false) => {
     return assemblyCandidate.current.ensureCurrent(key, async input => {
       const controller=new AbortController();assemblyPreviewAbort.current?.abort();assemblyPreviewAbort.current=controller;
@@ -1285,7 +1280,7 @@ export function Workbench() {
     setAssociationRepairOpen(false);setFeatureMove(undefined);setConflictOpen(false);setSupportSketch(undefined);setSketchInsertion(undefined);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setDatumPreview(undefined);
     setFeatureSelection(undefined);setNewPartTarget(undefined);
     setPropertyTargets(undefined);setReplacementOpen(false);setReplacementPreview(undefined);
-    setInsertOpen(false);setPatternOpen(false);setReleaseOpen(false);setVersionOpen(false);setShareResource(undefined);
+    setInsertOpen(false);setPatternOpen(false);setVersionOpen(false);setShareResource(undefined);
     setParameterManagerOpen(false);setPublicationManagerOpen(false);setDesignAssociationOpen(false);setExternalParameterID(undefined);
     setEditingParameterID(undefined);setEditingPublication(undefined);
     setEditingContextInput(undefined);setDesignInputsOpen(false);
@@ -1511,8 +1506,10 @@ onToggleConstruction:(node)=>{
             }
   };
   const executeTree=(action:keyof StructureActions,payload:StructureInvocation)=>{void commandRegistry.execute(structureCommandIDs[action],{payload}).catch(error=>operationFeedback(error,"命令"));};
-  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openMeasurement:kind=>setMeasurementEditor({kind}),measurementKind:measurementEditor?.kind,measurementAllowed:!activeInstancePath&&!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,openSpatialAnalysis:kind=>{closeCommandPanels();setSpatialEditor({kind});setStaticInterferenceOpen(kind==="CLASH")},staticInterferenceAllowed:!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,setDeveloperOpen,openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMechanismAnalysisOpen,setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    setAssociationRepairOpen,associationRepairOpen,openReferenceElement:kind=>{closeCommandPanels();setReferenceEditor({kind});},openGeometricalSet:()=>{closeCommandPanels();setGeometricalSetEditor({name:"",parentId:""});},setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},spatialAnalysisKind:spatialEditor?.kind,formActive:Boolean(referenceEditor||geometricalSetEditor||measurementEditor||staticInterferenceOpen||spatialEditor||sketchInsertion||designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||releaseOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setReleaseOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+  const analysisMechanism=motionOpen?view?.product?.kinematics?.mechanisms.find(m=>m.id===mechanismDefinition?.id):undefined;
+  useEffect(()=>{setMechanismAnalysisOpen(false)},[view?.document.id,analysisMechanism?.id]);
+  const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openMeasurement:kind=>setMeasurementEditor({kind}),measurementKind:measurementEditor?.kind,measurementAllowed:!activeInstancePath&&!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,openSpatialAnalysis:kind=>{closeCommandPanels();setSpatialEditor({kind});setStaticInterferenceOpen(kind==="CLASH")},staticInterferenceAllowed:!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,setDeveloperOpen,openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMechanismAnalysisOpen,mechanismId:analysisMechanism?.id,setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
+    setAssociationRepairOpen,associationRepairOpen,openReferenceElement:kind=>{closeCommandPanels();setReferenceEditor({kind});},openGeometricalSet:()=>{closeCommandPanels();setGeometricalSetEditor({name:"",parentId:""});},setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},spatialAnalysisKind:spatialEditor?.kind,formActive:Boolean(referenceEditor||geometricalSetEditor||measurementEditor||staticInterferenceOpen||spatialEditor||sketchInsertion||designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1655,6 +1652,7 @@ onToggleConstruction:(node)=>{
       client.setQueryData(queryKeys.document(prepared.targetView.document.id), prepared.targetView);
       endInteractionForActivation();
       activationGate.current.commit(generation, prepared.session, setEditSession);
+      if(node.entityId)requestTreeReveal(documentSessions,documentID,{documentId:node.documentId,entityId:node.entityId,kind:node.kind,occurrence:node.instancePath?.canonical,expandTarget:true,reason:"ACTIVATE"});
     } catch (error) {
       if (activationGate.current.isCurrent(generation)&&(!operation||operation.current)) {
         operationFeedback(error,"操作");
@@ -1674,43 +1672,19 @@ onToggleConstruction:(node)=>{
   const assemblyPreviewFailed = assemblyPreviewSnapshot.matches("failed");
   const motionComponents = assemblyPreviewSnapshot.matches("succeeded") ? assemblyPreviewSnapshot.context.components : undefined;
   const freedomNames = ["固定", "转动", "滑动", "圆柱", "平面", "球面", "自由", "耦合"];
-  const assemblyPreviewEvidence = assemblyPreviewFailed ? <Alert type="error" showIcon
-    message="约束预览求解失败"
-    description={engineeringProblem({code:assemblyPreviewSnapshot.context.errorCode,message:assemblyPreviewSnapshot.context.error})}
-  /> : assemblyPreviewSnapshot.matches("definitionReady") ? <Alert type="warning" showIcon message="计算未完成，可确认保存为待更新" /> : motionComponents?.length ? <div aria-label="装配求解结果">
-    {motionComponents.map(component => <div key={component.componentId}>
-      <Typography.Text type="secondary">剩余相对自由度：{component.relativeDof}；整体自由度：{component.gaugeDof}</Typography.Text>
-      {component.preference.bodies.filter(body => body.role === 1).map(body => <div key={body.bodyId}>
-        第二元素变化：{formatDisplayNumber(body.translation)} mm / {formatDisplayNumber(body.rotation * 180 / Math.PI)}°
-      </div>)}
-      {component.freedoms.filter(freedom => !freedom.relativeToBodyId || freedom.bodyId !== freedom.relativeToBodyId).map(freedom => <div key={freedom.bodyId}>
-        {editingView?.product?.instances.find(instance => instance.id === freedom.bodyId)?.name ?? "引用零件已丢失"}：
-        {freedomNames[freedom.kind]}（{freedom.translationDof} 平移 / {freedom.rotationDof} 转动）
-        {freedom.relativeToBodyId && `，相对 ${editingView?.product?.instances.find(instance => instance.id === freedom.relativeToBodyId)?.name ?? "参考零件已丢失"}`}
-      </div>)}
-    </div>)}
-  </div> : undefined;
-  const assemblyPreviewFeedback = <>
-    {publicKind==="ANGLE"&&angleRelation==="DIRECTED"&&angleAxisQuery.isPending&&angleAxis&&<Alert type="info" message="正在解析参考轴的精确方向"/>}
-    {publicKind==="ANGLE"&&angleRelation==="DIRECTED"&&angleAxisQuery.error&&<Alert type="error" message="参考轴查询失败" description={engineeringProblem(angleAxisQuery.error)}/>}
-    {publicKind==="ANGLE"&&angleRelation==="DIRECTED"&&axisInspection?.supports.slice(1).filter(s=>s.status==="RESOLVED"&&s.constraintEligible!==true).map((support,index)=><Alert key={`axis-contract-${index}`} type="warning" message={support.constraintDiagnosticCode ?? "参考轴的约束适用性尚未确认"} description={support.constraintDiagnostic ?? "请选择适用的精确工程子元素。"}/>)}
-    {!editingGroup && (assemblySupportQuery.isPending || assemblyCapabilityQuery.isPending) && <Alert type="info" message="正在解析精确支持及约束能力" />}
-    {!editingGroup && (assemblySupportQuery.error || assemblyCapabilityQuery.error) && <Alert type="error" message="精确支持查询失败" description={engineeringProblem(assemblySupportQuery.error ?? assemblyCapabilityQuery.error)} />}
-    {!editingGroup && assemblyInspection?.supports.filter(s=>s.status!=="RESOLVED").map((support,index)=><Alert key={index} type="error" message="所选支撑不可用" description={engineeringProblem({code:support.diagnosticCode,message:support.diagnostic})} />)}
-    {!editingGroup && assemblyTargetSupports?.filter(s=>s.status==="RESOLVED"&&s.constraintEligible!==true).map((support,index)=><Alert key={`contract-${index}`} type="warning" message={support.constraintDiagnosticCode ?? "精确支持的约束适用性尚未确认"} description={support.constraintDiagnostic ?? "请明确选择 Underlying Circle 或适用的工程子元素；查询未确认时不能预览或提交。"}/>)}
-    {!editingGroup && assemblyExactTypes?.length && !assemblySupportsReady && assemblyInspection?.supports.every(s=>s.status==="RESOLVED") && <Alert type="warning" message="所选几何不支持此关系" description="请选择适用的几何类型，或更换接合关系。" />}
-    {assemblyPreviewEvidence}
-    {assemblyPreviewFailed && <Button onClick={async()=>{
-      const sequence=assemblyPreviewSequence.current;
-      await refresh();
-      if(sequence!==assemblyPreviewSequence.current)return;
-      const current=client.getQueryData<DocumentView>(queryKeys.document(activeID));
-      if(!current)return;
-      assemblyDraftBase.current={documentId:current.document.id,revision:current.document.versionId};
-      invalidateAssemblyDefinition();
-    }}>使用当前基线重新预览（保留草稿）</Button>}
-
-  </>;
+  const supportQueryError=assemblySupportQuery.error??assemblyCapabilityQuery.error??angleAxisQuery.error;
+  const unsupportedPair=!editingGroup&&assemblyExactTypes?.length&&!assemblySupportsReady&&assemblyInspection?.supports.every(s=>s.status==='RESOLVED')&&!assemblyTargetSupports?.some(s=>s.constraintEligible!==true);
+  const assemblyDialogError=reconnectError??(supportQueryError?engineeringProblem(supportQueryError):undefined)??(unsupportedPair?'所选几何不支持此关系':undefined)??(assemblyPreviewFailed?engineeringProblem({code:assemblyPreviewSnapshot.context.errorCode,message:assemblyPreviewSnapshot.context.error}):undefined);
+  const assemblyPreviewFeedback=<AssemblyDialogStatus
+    pending={assemblyPreviewPending||assemblySupportQuery.isFetching||assemblyCapabilityQuery.isFetching||angleAxisQuery.isFetching}
+    error={assemblyDialogError}
+    warning={assemblyPreviewSnapshot.matches('definitionReady')?'计算未完成，可保存为待更新':undefined}
+    summary={assemblyPreviewSnapshot.matches('succeeded')?'约束已满足':undefined}
+    onRetry={()=>{if(supportQueryError){void assemblySupportQuery.refetch();void assemblyCapabilityQuery.refetch();if(angleAxis)void angleAxisQuery.refetch()}else invalidateAssemblyDefinition()}}
+    details={motionComponents?.length?<div aria-label="装配求解结果">{motionComponents.map(component=><div key={component.componentId}>
+      <p>剩余相对自由度：{component.relativeDof} · 整体自由度：{component.gaugeDof}</p>
+      {component.freedoms.filter(f=>!f.relativeToBodyId||f.bodyId!==f.relativeToBodyId).map(f=><p key={f.bodyId}>{editingView?.product?.instances.find(i=>i.id===f.bodyId)?.name??'引用零件已丢失'}：{freedomNames[f.kind]}（{f.translationDof} 平移 / {f.rotationDof} 转动）</p>)}
+    </div>)}</div>:undefined}/>;
 
 
   const activeTabIDs=new Set(activeTabs.map(tab=>tab.id));
@@ -1726,7 +1700,7 @@ onToggleConstruction:(node)=>{
     {measurementEditor&&<MeasurementPanel key={`${view.document.id}:${measurementEditor.kind}:${measurementEditor.id??'new'}`} view={view} kind={measurementEditor.kind} initial={measurements(view).find(m=>m.id===measurementEditor.id)} unit={lengthUnit} seed={store.selections} canSave={canEditRoot} blocked={!!(motionOpen||motionDisplay||motionPosePreview||replacementPreview||motionCommandActive||motionMutation.isPending||activeInstancePath)} onClose={()=>{setMeasurementEditor(undefined);setFeatureSelection(undefined);viewport.current?.showMeasurement();store.setPreselection(null)}} onSelectionSession={setFeatureSelection} onLocate={items=>{store.setSelections(items);viewport.current?.focusSelections(items)}} onShow={r=>viewport.current?.showMeasurement(r)} onSave={saveMeasurement} onEdit={m=>setMeasurementEditor({kind:m.kind,id:m.id})}/>}
     {spatialEditor&&spatialEditor.kind!=='CLASH'&&view.product&&<SpatialAnalysisPanel initializeSection={d=>viewport.current?.initializeSection(d)??d} onSectionSession={s=>viewport.current?.setSectionEdit(s)} onCancelSection={()=>viewport.current?.cancelSectionGesture()??false} positionSection={(s,frame,signal)=>viewport.current!.positionSectionOnSelection(s,frame,signal)} key={`${spatialEditor.id??'new'}:${view.document.versionId}:${spatialEditor.kind}`} view={view} kind={spatialEditor.kind} initial={view.product.spatialAnalyses?.find(a=>a.id===spatialEditor.id)?spatialPathsForView(view,view.product.spatialAnalyses.find(a=>a.id===spatialEditor.id)!):undefined} unit={lengthUnit} seed={store.selections} canSave={canEditRoot} onSave={saveSpatial} blocked={!!(motionOpen||motionDisplay||motionPosePreview||replacementPreview||command.isPending||motionCommandActive||motionMutation.isPending||activeInstancePath)} onClose={()=>{viewport.current?.setSectionEdit();setSpatialEditor(undefined);setFeatureSelection(undefined);store.setSelections([]);store.setPreselection(null);viewport.current?.showSpatialAnalysis()}} onSelectionSession={setFeatureSelection} onLocate={items=>{store.setSelections(items);viewport.current?.focusSelections(items)}} onShow={(r,id)=>viewport.current?.showSpatialAnalysis(r,id)??false} onPrepare={async()=>{await viewport.current?.settleAssemblyInteraction();viewport.current?.clearCommandPreview()}}/>}
     {staticInterferenceOpen&&view.product&&<StaticInterferencePanel key={`${spatialEditor?.id??"new"}:${view.document.versionId}`} initial={view.product.spatialAnalyses?.find(a=>a.id===spatialEditor?.id)?spatialPathsForView(view,view.product.spatialAnalyses.find(a=>a.id===spatialEditor?.id)!):undefined} canSave={canEditRoot} onSave={saveSpatial} view={view} unit={lengthUnit} seed={store.selections} blocked={!!(motionOpen||motionDisplay||motionPosePreview||replacementPreview||command.isPending||motionCommandActive||motionMutation.isPending||activeInstancePath)} onClose={()=>{setStaticInterferenceOpen(false);setSpatialEditor(undefined);setFeatureSelection(undefined);store.setSelections([]);store.setPreselection(null);viewport.current?.showStaticInterference()}} onSelectionSession={setFeatureSelection} onLocate={items=>{store.setSelections(items);viewport.current?.focusSelections(items)}} onShow={(r,i,isolate)=>viewport.current?.showStaticInterference(r,i,isolate)??false} onPrepare={async()=>{await viewport.current?.settleAssemblyInteraction();viewport.current?.clearCommandPreview();}}/>}
-    {mechanismAnalysisOpen&&view.product&&<MechanismAnalysisPanel view={view} selection={store.selection} currentId={mechanismDefinition?.id??(store.selection?.kind==='kinematic-object'?store.selection.mechanismId:undefined)} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")&&!motionCommandActive&&!motionDisplay&&!motionMutation.isPending} onClose={()=>{viewport.current?.showMechanismAnalysis();viewport.current?.showRemainingMotion();setMechanismAnalysisOpen(false)}} onLocate={store.setSelections} onShow={(m,r,j)=>viewport.current?.showMechanismAnalysis(m,r,j)??false} onMotion={showAnalysisMotion} onRepair={(m,j)=>{setMechanismAnalysisOpen(false);void motionPanel.current?.repairJoint(m,j)}}/>}
+    {mechanismAnalysisOpen&&analysisMechanism&&view.product&&<MechanismAnalysisPanel view={view} selection={store.selection} currentId={analysisMechanism.id} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")&&!motionCommandActive&&!motionDisplay&&!motionMutation.isPending} onClose={()=>{viewport.current?.showMechanismAnalysis();viewport.current?.showRemainingMotion();setMechanismAnalysisOpen(false)}} onLocate={store.setSelections} onShow={(m,r,j)=>viewport.current?.showMechanismAnalysis(m,r,j)??false} onMotion={showAnalysisMotion} onRepair={(m,j)=>{setMechanismAnalysisOpen(false);void motionPanel.current?.repairJoint(m,j)}}/>}
     {view.product&&<MotionStudyPanel onClash={(report,index)=>{setMotionClash(report?{report,index}:undefined);if(report&&index!==undefined){const pair=report.pairs[index];if(pair){const selections=[pair.firstId,pair.secondId].flatMap(id=>{const body=report.bodies.find(b=>b.id===id);return body?[staticBodySelection(view,body)]:[]});store.setSelections(selections);viewport.current?.focusSelections(selections)}}}} ref={motionPanel} onRepairContext={setMotionRepair} sourceMechanismIds={motionSources.current} onDraft={setMotionDraft} captureViewpoint={()=>viewport.current?.captureMotionViewpoint()} previewViewpoint={(v,documentId)=>{if(!documentId||documentId===view.document.id)viewport.current?.previewMotionViewpoint(v)}} onCommit={async command=>{const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,command));await refresh(updated);return updated}} active={motionOpen} selection={store.selection} view={view} canEdit={["OWNER","EDITOR"].includes(view.document.permission??"")} onCommandState={setMotionCommandActive} onMechanism={m=>{setMechanismDefinition(m);if(m&&motionOpen&&motionSources.current.at(-1)===m.id){const url=new URL(window.location.href);url.searchParams.set("application","mechanism");url.searchParams.set("mechanismId",m.id);url.searchParams.set("applicationRevision",view.document.versionId);url.searchParams.set("mechanismSources",motionSources.current.join(','));window.history.replaceState(null,"",url)}}} onStatus={setMotionStatus} onSelectionSession={setFeatureSelection} onPreview={setMotionPosePreview} onSave={async (k,baseRevisionId)=>{if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");const updated=await motionMutation.mutateAsync(()=>api.command(view.document.id,{type:"SAVE_KINEMATICS",versionId:baseRevisionId??view.document.versionId,kinematics:k}));const created=updated.product?.kinematics?.mechanisms.find(m=>!view.product?.kinematics?.mechanisms.some(v=>v.id===m.id));const acceptedId=created?.id??mechanismDefinition?.id;if(acceptedId&&motionOpen)motionSources.current=[...motionSources.current.filter(id=>id!==acceptedId&&updated.product?.kinematics?.mechanisms.some(m=>m.id===id)),acceptedId];setMechanismDefinition(m=>updated.product?.kinematics?.mechanisms.find(v=>v.id===m?.id));setMotionPosePreview(undefined);await refresh(updated);return updated}} onSwitch={async input=>{
       if(motionMutation.isPending)throw new Error("当前机械装置命令尚未完成");
       input={...input,sourceMechanismIds:input.sourceMechanismIds??motionSources.current.filter(id=>view.product?.kinematics?.mechanisms.some(m=>m.id===id))};
@@ -1839,7 +1813,7 @@ onToggleConstruction:(node)=>{
             setAssemblyDefinitionDirty(true); setReconnectError(undefined); setReplacingAssemblyReference(undefined);
             // Mesh/display measurements are not authoritative parameter or
             // branch defaults. Wait for exact server inspection for sign rules.
-            assemblyConstraintForm.setFieldsValue({ value:0, directionRelation:"UNORIENTED", distanceRelation: "UNSIGNED",
+            assemblyConstraintForm.setFieldsValue({ quantityInput:undefined,value:0, directionRelation:"UNORIENTED", distanceRelation: "UNSIGNED",
               ...(kind === "distance" ? offsetInitialFields(undefined,references) : {}) });
             assemblyConstraintForm.setFieldsValue({...assemblyPublicInitialFields(kind.toUpperCase(),references),...(groupMembers?{groupMembers:[...new Set(groupMembers.map(member=>groupMemberToken(groupMemberForInstance(editingView,member))))]}:{}),...(kind==="angle"?assemblyQuantityInitialFields():{})});
             const instance=editingView.product?.instances.find(instance=>instance.id===references[0]?.instanceId);
@@ -1900,7 +1874,7 @@ onToggleConstruction:(node)=>{
         }}
         locate={reference=>{const node=assistantTarget(treeNodes,reference.documentId,reference.id);if(node?.selection)store.setSelections([node.selection]);else message.info("当前结果中暂时无法定位该对象")}}/>}
     </WorkbenchLayout>
-    <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" size="M"
+    <CommandDialog commandStatus={assemblyPreviewFeedback} id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" size="M"
       secondaryActions={editingAssemblyConstraint && <Space className="assembly-constraint-actions">
           <Button disabled={command.isPending} onClick={() => {
             if (!editingView) return;
@@ -1910,26 +1884,18 @@ onToggleConstruction:(node)=>{
             command.mutate(() => api.command(editingView.document.id, {type:"SET_ASSEMBLY_CONSTRAINT_STATE",
               constraintIds:[constraint.id], suppressed:!constraint.suppressed}), {onSuccess:()=>setEditingAssemblyConstraint(undefined)});
           }}>{editingAssemblyConstraint.suppressed ? "激活约束" : "停用约束"}</Button>
-          {editingAssemblyConstraint.kind === "ANGLE" && (!editingAssemblyConstraint.angleRelation || editingAssemblyConstraint.angleRelation === "DIRECTED" || editingAssemblyConstraint.angleRelation === "FREE") && <Button disabled={command.isPending} onClick={() => {
-            if (!editingView) return;
-            const constraint = editingAssemblyConstraint;
-            assemblyPreviewActor.current?.send({type:"CANCEL", sequence:assemblyPreviewSequence.current});
-            assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined;
-            command.mutate(() => api.command(editingView.document.id, {type:"SET_ASSEMBLY_CONSTRAINT_STATE",
-              constraintIds:[constraint.id], constraintMode:constraint.mode === "MEASURED" ? "DRIVING" : "MEASURED"}),
-              {onSuccess:()=>setEditingAssemblyConstraint(undefined)});
-          }}>{editingAssemblyConstraint.mode === "MEASURED" ? "改为驱动" : "改为测量"}</Button>}
+
         </Space>}
       onClose={closeAssemblyCandidate}
       onCancelPick={()=>{if(replacingAssemblyReference===undefined&&!replacingGroupMember&&!(editingGroup&&groupPicking))return false;setGroupPicking(false);setReplacingAssemblyReference(undefined);setReplacingGroupMember(undefined);setReconnectError(undefined);return true}} confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined || !!replacingGroupMember ||
         Boolean(editingAssemblyConstraint?.kind === "ANGLE" && editingAssemblyConstraint.angleRelation === "DIRECTED" && !editingAssemblyConstraint.angleAxis)} onConfirm={async()=>{
         if(!editingView||!editingAssemblyConstraint)return;
         const constraint=editingAssemblyConstraint, target=editingView.document;
+        await assemblyConstraintForm.validateFields();
         const intent=assemblyEditIntent(constraint.kind,assemblyConstraintForm.getFieldsValue(true),resolvedAssemblyReferences,lengthUnit,{...constraint,angleAxis:resolvedAngleAxis});
         const key=assemblyIntentKey(intent,target.id,target.versionId,activeInstancePath);
         const sequence=assemblyPreviewSequence.current;
         const dialogGeneration=assemblyDialogLifecycle.current.capture();
-        await assemblyConstraintForm.validateFields();
         const input=await currentAssemblyCandidate(target,key,sequence);
         if(!input){invalidateAssemblyDefinition();return;}
         if(sequence!==assemblyPreviewSequence.current || !(assemblyPreviewActor.current?.getSnapshot().matches("succeeded") || assemblyPreviewActor.current?.getSnapshot().matches("definitionReady")))return;
@@ -1939,9 +1905,9 @@ onToggleConstruction:(node)=>{
           treeNodeId:`${view?.constraintDisplayScopes?.find(scope=>scope.documentId===target.id && scope.instancePath.canonical===activeInstancePath)?.treeNodeId??`document:${updated.document.id}`}/assembly-constraints/constraint:${constraint.id}`});},
 		  onError:(cause)=>{assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)});}}));
       }}>
-      <Form form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>
+      <Form className="assembly-constraint-form" form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>
         {editingAssemblyConstraint?.kind === "ANGLE" && <AssemblyAngleParameters value={editingAssemblyConstraint} view={editingView}
-          axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis} picking={replacingAssemblyReference===2} onLocate={()=>{if(resolvedAngleAxis)viewport.current?.focusAssemblyReference(resolvedAngleAxis)}}
+          error={axisInspection?.supports.slice(1).find(s=>s.constraintEligible!==true)?.constraintDiagnostic} axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis} picking={replacingAssemblyReference===2} onLocate={()=>{if(resolvedAngleAxis)viewport.current?.focusAssemblyReference(resolvedAngleAxis)}}
           onChange={value=>{invalidateAssemblyDefinition();if(!angleRelationSupportsMeasured(value.angleRelation))assemblyConstraintForm.setFieldValue("constraintMode","DRIVING");if(value.angleRelation === "PERPENDICULAR") assemblyConstraintForm.setFieldValue("directionRelation", assemblyConstraintForm.getFieldValue("directionRelation") === "OPPOSITE" ? "OPPOSITE" : "SAME");setEditingAssemblyConstraint({...editingAssemblyConstraint,...value});}}
           onPick={()=>{store.setSelection(null);setReplacingAssemblyReference(2);store.setActiveTool("select","once");}} />}
 
@@ -1949,21 +1915,18 @@ onToggleConstruction:(node)=>{
         {editingAssemblyConstraint && <AssemblyConstraintFields kind={editingAssemblyConstraint.kind} view={editingView} lengthUnit={lengthUnit}
           groupPicking={groupPicking} onPickGroup={()=>setGroupPicking(true)} replacingMember={replacingGroupMember} onReplaceMember={token=>{setGroupPicking(true);setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
           onLocateMember={locateAssemblyMember}
-          exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
+          supportIssues={assemblyTargetSupports?.map(s=>s.status!=="RESOLVED"?engineeringProblem({code:s.diagnosticCode,message:s.diagnostic}):s.constraintEligible!==true?s.constraintDiagnostic??"请选择适用的支撑类型":undefined)} exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
           onRemove={removeAssemblySupport} references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second].map((r,i)=>removedAssemblySupports.has(i)?undefined:r)} replacing={replacingAssemblyReference}
-          constraint={editingAssemblyConstraint} previewEvaluation={assemblyPreviewEvaluation} dirty={assemblyDefinitionDirty}
+          constraint={editingAssemblyConstraint} previewEvaluation={assemblyPreviewEvaluation}
 
 		  onValueCommit={invalidateAssemblyDefinition}
           onLocate={(reference)=>{if(!viewport.current?.focusAssemblyReference(reference))setReconnectError("当前支持元素无法在视图区定位。");}}
-		  onRefresh={()=>refreshAssemblyConstraint(editingAssemblyConstraint.id)}
 		  onReplace={(index)=>{store.setSelection(null);setReconnectError(undefined);setReplacingAssemblyReference(index);store.setActiveTool("select","once");}} />}
 
-        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={reconnectError} />}
-        {assemblyPreviewFeedback}
 
       </Form>
     </CommandDialog>
-    <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" size="M"
+    <CommandDialog commandStatus={assemblyPreviewFeedback} id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" size="M"
       onClose={closeAssemblyCandidate}
       onCancelPick={()=>{if(replacingAssemblyReference===undefined&&!replacingGroupMember&&!(editingGroup&&groupPicking))return false;setGroupPicking(false);setReplacingAssemblyReference(undefined);setReplacingGroupMember(undefined);setReconnectError(undefined);return true}} confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined || !!replacingGroupMember ||
         Boolean(pendingAssemblyConstraint?.kind === "angle" && pendingAssemblyConstraint.angleRelation === "DIRECTED" && !pendingAssemblyConstraint.angleAxis)}
@@ -1971,12 +1934,12 @@ onToggleConstruction:(node)=>{
         if (!editingView || !pendingAssemblyConstraint) return;
         const pending = pendingAssemblyConstraint;
         const target=editingView.document;
+        await assemblyConstraintForm.validateFields();
         const intent=assemblyEditIntent(pending.kind.toUpperCase(),assemblyConstraintForm.getFieldsValue(true),resolvedAssemblyReferences,lengthUnit,undefined,
           {angleRelation:pending.angleRelation,angleAxis:resolvedAngleAxis,reverseAngleAxis:pending.reverseAngleAxis,angleReferenceDirection:pending.angleReferenceDirection});
         const key=assemblyIntentKey(intent,target.id,target.versionId,activeInstancePath);
         const sequence=assemblyPreviewSequence.current;
         const dialogGeneration=assemblyDialogLifecycle.current.capture();
-        await assemblyConstraintForm.validateFields();
         const input=await currentAssemblyCandidate(target,key,sequence);
         if(!input){invalidateAssemblyDefinition();return;}
         if(sequence!==assemblyPreviewSequence.current || !(assemblyPreviewActor.current?.getSnapshot().matches("succeeded") || assemblyPreviewActor.current?.getSnapshot().matches("definitionReady")))return;
@@ -1984,24 +1947,22 @@ onToggleConstruction:(node)=>{
         command.mutate(() => commitAssemblyCandidate(target,key,input,sequence), assemblyDialogLifecycle.current.bindCallbacks<DocumentView>(dialogGeneration,{ onSuccess: (updated) => { assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});if(updated.product?.constraints?.at(-1)?.evaluationStatus === "NOT_UPDATED")message.info("约束已保存，等待更新");viewport.current?.clearCommandPreview(false); assemblyPreviewID.current=undefined; setReconnectError(undefined); setAssemblyDefinitionDirty(false); setPendingAssemblyConstraint(undefined); },
 		  onError:(cause)=>{assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)});} }));
       }}>
-      <Form form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>
+      <Form className="assembly-constraint-form" form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>
         {pendingAssemblyConstraint?.kind === "angle" && <AssemblyAngleParameters value={pendingAssemblyConstraint} view={editingView}
-          axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis} picking={replacingAssemblyReference===2} onLocate={()=>{if(resolvedAngleAxis)viewport.current?.focusAssemblyReference(resolvedAngleAxis)}}
+          error={axisInspection?.supports.slice(1).find(s=>s.constraintEligible!==true)?.constraintDiagnostic} axisSourceType={axisInspection?.supports[0]?.exactType} axisExactType={axisInspection?.supports[1]?.exactType} onDerive={deriveAngleAxis} picking={replacingAssemblyReference===2} onLocate={()=>{if(resolvedAngleAxis)viewport.current?.focusAssemblyReference(resolvedAngleAxis)}}
           onChange={value=>{invalidateAssemblyDefinition();if(!angleRelationSupportsMeasured(value.angleRelation))assemblyConstraintForm.setFieldValue("constraintMode","DRIVING");if(value.angleRelation === "PERPENDICULAR") assemblyConstraintForm.setFieldValue("directionRelation", assemblyConstraintForm.getFieldValue("directionRelation") === "OPPOSITE" ? "OPPOSITE" : "SAME");setPendingAssemblyConstraint({...pendingAssemblyConstraint,...value});}}
           onPick={()=>{store.setSelection(null);setReplacingAssemblyReference(2);store.setActiveTool("select","once");}} />}
         {pendingAssemblyConstraint && <AssemblyConstraintFields kind={pendingAssemblyConstraint.kind.toUpperCase() as AssemblyConstraint["kind"]} view={editingView} lengthUnit={lengthUnit}
           groupPicking={groupPicking} onPickGroup={()=>setGroupPicking(true)} replacingMember={replacingGroupMember} onReplaceMember={token=>{setGroupPicking(true);setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
           onLocateMember={locateAssemblyMember}
-          exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
+          supportIssues={assemblyTargetSupports?.map(s=>s.status!=="RESOLVED"?engineeringProblem({code:s.diagnosticCode,message:s.diagnostic}):s.constraintEligible!==true?s.constraintDiagnostic??"请选择适用的支撑类型":undefined)} exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
           onRemove={removeAssemblySupport} references={pendingAssemblyConstraint.references.map((r,i)=>removedAssemblySupports.has(i)?undefined:r)} replacing={replacingAssemblyReference}
-          previewEvaluation={assemblyPreviewEvaluation} dirty
+          previewEvaluation={assemblyPreviewEvaluation}
           angleRelation={pendingAssemblyConstraint.angleRelation}
 		  onValueCommit={invalidateAssemblyDefinition}
           onLocate={(reference)=>{if(!viewport.current?.focusAssemblyReference(reference))setReconnectError("当前支持元素无法在视图区定位。");}}
 		  onReplace={(index)=>{store.setSelection(null);setReconnectError(undefined);setReplacingAssemblyReference(index);store.setActiveTool("select","once");}} />}
 
-        {reconnectError && <Alert type="error" showIcon message="无法使用该支持元素" description={reconnectError} />}
-        {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
     {propertyTargets&&<ObjectPropertiesDialog targets={propertyTargets} pending={command.isPending}
@@ -2141,7 +2102,7 @@ onToggleConstruction:(node)=>{
       onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}
       onClose={()=>{viewport.current?.clearCommandPreview();setDatumPreview(undefined);setSupportSketch(undefined);}}/>}
     {designInputsOpen&&editingView?.part&&!activeInstancePath&&<DesignInputDialog view={editingView} onClose={()=>{setDesignInputsOpen(false);setFeatureSelection(undefined)}} onApply={refresh} onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}} onSelectionSession={setFeatureSelection} onLocate={s=>store.setSelections([s])}/>}
-    {replacementOpen&&view.product&&<ReplaceInstanceDialog key={view.document.id} view={view} initialInstanceId={replacementInstanceId} onSelectionSession={setFeatureSelection} onLocate={s=>store.setSelections([s])} onPreview={setReplacementPreview} onApply={refresh} onClose={()=>{setReplacementOpen(false);setReplacementPreview(undefined);setFeatureSelection(undefined)}}/>}
+    {replacementOpen&&view.product&&<ReplaceInstanceDialog key={view.document.id} view={view} initialInstanceId={replacementInstanceId} onApply={refresh} onClose={()=>{setReplacementOpen(false);setReplacementPreview(undefined);setFeatureSelection(undefined)}}/>}
     {featureMove&&editingView?.part&&<FeatureMoveDialog key={editingView.document.id+featureMove.features.map(f=>f.id).join("/")} view={editingView} features={featureMove.features} digests={featureMove.digests} orderDigest={featureMove.orderDigest}
       onClose={()=>{viewport.current?.clearCommandPreview();setFeatureMove(undefined)}}
       onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}}
@@ -2191,10 +2152,6 @@ onToggleConstruction:(node)=>{
       <Form form={versionForm} layout="vertical"><Form.Item name="name" label="版本名称" rules={[{ required: true }]}><Input placeholder="V1 - Initial concept" /></Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} /></Form.Item></Form>
     </CommandDialog>
-    <ProductReleaseCenter canCreate={canEditRoot} error={productReleases.error} onRetry={()=>void productReleases.refetch()} open={releaseOpen} releases={productReleases.data ?? []} loading={productReleases.isLoading}
-      creating={command.isPending} onClose={() => setReleaseOpen(false)} onCreate={createRelease}
-      onReplay={async (release) => { const result = await api.replayProductRelease(documentID, release.id);
-        message.info(result.status==="VERIFIED"||result.status==="SUCCEEDED"||result.status==="CONVERGED"?"版本检查完成":"版本检查尚未通过，请检查关联零件和约束。"); }} />
     <ShareDialog resource={shareResource} onClose={() => setShareResource(undefined)} />
   </section></CommandFormContext.Provider></CommandProvider>;
 }

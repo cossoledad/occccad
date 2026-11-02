@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -119,19 +120,21 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		k, e := service.bindKinematics(ctx, documentID, request.VersionID, modelJSON, *request.Kinematics)
 		return typeSetKinematics, k, e
 	case "SET_DEFINITION_VISIBILITY":
-		if request.TargetKind == "MEASUREMENT" {
+		if request.TargetKind == "MEASUREMENT" || request.TargetKind == "MEASUREMENT_GROUP" {
 			values, err := measurementValues(modelJSON)
 			if err != nil {
 				return "", nil, err
 			}
 			for i := range values {
-				if values[i].ID == request.TargetID {
+				if values[i].ID == request.TargetID || request.TargetKind == "MEASUREMENT_GROUP" && request.TargetID == "measurements" {
 					values[i].Visible = request.Visible
 					values[i].Status = ""
 					values[i].OutputCurrency = nil
 					values[i].DisplayAnchors = nil
-					return typeSetMeasurements, values, nil
 				}
+			}
+			if request.TargetKind == "MEASUREMENT_GROUP" && request.TargetID == "measurements" || slices.ContainsFunc(values, func(m Measurement) bool { return m.ID == request.TargetID }) {
+				return typeSetMeasurements, values, nil
 			}
 			return "", nil, fmt.Errorf("%w: measurement does not exist", ErrValidation)
 		}

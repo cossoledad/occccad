@@ -118,9 +118,6 @@ func TestAssemblyDeferredDefinitionPreviewCommit(t *testing.T) {
 			if p.Document.VersionID != saved {
 				t.Fatal("retry generated another Revision")
 			}
-			if _, err = f.service.CreateProductRelease(t.Context(), p.Document.ID, workspace.CreateProductReleaseRequest{ActorID: f.actor, RequestID: saved + "-release", Name: "not ready"}); err == nil {
-				t.Fatal("NotUpdated released as satisfied")
-			}
 			cold, err := f.service.GetDocument(t.Context(), p.Document.ID)
 			if err != nil || cold.Product.Constraints[0].EvaluationFailure == nil {
 				t.Fatal("cold failure lost", err)

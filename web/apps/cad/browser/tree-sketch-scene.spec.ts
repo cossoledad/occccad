@@ -1,10 +1,11 @@
+import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test} from "@playwright/test";
 
 test("parameter double click, focused Enter and context edit share one editor",async({page})=>{
  const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));
  await page.goto("/documents/mock-part-bracket");await expect(page.locator("canvas")).toBeVisible();
- await page.getByRole("textbox",{name:"筛选模型结构"}).fill("Length");
+ await treeNavigator(page)("Length");
  const row=page.getByRole("treeitem").filter({hasText:"Length"}).last(),dialog=page.getByRole("dialog",{name:"编辑参数",exact:true});
  await row.dblclick();await expect(dialog).toBeVisible();await expect(dialog.getByLabel("值或表达式")).toBeVisible();
  await dialog.getByRole("button",{name:/取\s*消/}).click();await expect(dialog).not.toBeVisible();
@@ -23,7 +24,7 @@ test("sketch focus hides both scene grids and adapts sketch feedback to bright b
  await page.getByRole("button",{name:"选项",exact:true}).click();const options=page.getByRole("dialog",{name:"选项",exact:true});
  await options.getByRole("button",{name:/明\s*亮/}).click();await options.getByRole("button",{name:/确\s*定/}).click();
  await expect.poll(async()=>(await state()).sketchGridColor).not.toBe(before.sketchGridColor);
- await page.getByRole("textbox",{name:"筛选模型结构"}).fill("Sketch");
+ await treeNavigator(page)("Sketch");
  await page.getByRole("treeitem").filter({hasText:"Sketch"}).last().dblclick();await expect(page.getByRole("button",{name:"退出草图",exact:true})).toBeVisible();
  await expect.poll(async()=>{const s=await state();return [s.ground,s.world,s.sketch]}).toEqual([false,false,true]);
  await expectViewport(viewportProbe(page,"navigation-camera")).toHaveAttribute("data-transition-active","false");

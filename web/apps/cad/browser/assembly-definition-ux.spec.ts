@@ -1,3 +1,4 @@
+import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import {expect,test,type Page} from '@playwright/test';
 import {mkdir} from 'node:fs/promises';
@@ -17,7 +18,7 @@ test('fixed create and edit share compact parameters and cancel closes on the fi
   await api.command('mock-product-frame',{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'FIX',firstAssemblyRef:{instanceId:'mock-instance-a',kind:'BODY'},fixedPose:{translation:[1.234567,2,3],rotation:[0,0,0,1]}});
   await queryClient.invalidateQueries();
  });
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('FIX');
+ const revealTree=treeNavigator(page);await revealTree('FIX');
  const fixed=page.getByRole('treeitem').filter({hasText:/#FIX\./});
  const dialog=page.getByRole('dialog',{name:'约束定义',exact:true});
  for(let i=0;i<2;i++){
@@ -31,7 +32,7 @@ test('fixed create and edit share compact parameters and cancel closes on the fi
   await dialog.getByRole('spinbutton',{name:'X（mm）',exact:true}).fill('9.87654');
   await dialog.getByRole('button',{name:/^取\s*消$/}).click();await expect(dialog).toHaveCount(0);
  }
- await filter.fill('');
+ await revealTree('');
  await page.evaluate(async()=>{const {useWorkbenchStore}=await import('/src/state/workbench-store.ts');useWorkbenchStore.getState().setSelection({kind:'instance',id:'mock-instance-b',instanceId:'mock-instance-b',occurrencePath:'mock-instance-b'});});
  await command(page,'固定');await expect(dialog).toHaveCount(1);
  await expect(dialog.getByRole('spinbutton')).toHaveCount(6);
@@ -59,7 +60,7 @@ test('group members use existing group identity when selecting an overlapping co
    return view;
   };await queryClient.invalidateQueries();
  });
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('固联组.2');
+ const revealTree=treeNavigator(page);await revealTree('固联组.2');
  await page.getByRole('treeitem').filter({hasText:'固联组.2'}).dblclick();
  const dialog=page.getByRole('dialog',{name:'约束定义',exact:true}),list=dialog.getByLabel('固联组成员');
  await expect(dialog.getByText('固联组名称',{exact:true})).toHaveCount(0);
@@ -68,7 +69,7 @@ test('group members use existing group identity when selecting an overlapping co
  await expect(list.getByRole('button',{name:/^定位成员 /})).toHaveCount(2);
  await expect(list.getByRole('button',{name:/^选择成员 /})).toHaveCount(2);
  await list.getByRole('listitem').filter({hasText:'固联组.1'}).getByRole('button',{name:/^移除成员 /}).click();
- await filter.fill('');
+ await revealTree('');
  // Feed the same tree selection route used by component rows.
  const instance=page.locator('[role=treeitem][data-tree-key*="instance:mock-instance-b"]').first();
  await list.getByRole('button',{name:'选择成员集',exact:true}).click();await instance.click();await expect(list.getByText('固联组.1',{exact:true})).toBeVisible();

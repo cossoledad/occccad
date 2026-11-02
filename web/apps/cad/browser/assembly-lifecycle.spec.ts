@@ -1,3 +1,4 @@
+import {treeNavigator} from "./tree-helpers";
 import { expect, test } from "@playwright/test";
 
 // UI acceptance uses the isolated adapter; authoritative solving is tested separately.
@@ -6,7 +7,7 @@ test("assembly suppression is visible and reversible from the tree", async ({ pa
   page.on("pageerror",error=>errors.push(error.message));
   await page.goto("/documents/mock-product-frame");
   await expect(page.locator("canvas")).toBeVisible();
-  await page.getByRole("textbox",{name:"筛选模型结构"}).fill("COINCIDENT");
+  await treeNavigator(page)("COINCIDENT");
   const constraint=page.getByRole("treeitem").filter({hasText:"#COINCIDENT.1"});
   await expect(constraint).toBeVisible();
   await constraint.click({button:"right"});
@@ -39,8 +40,8 @@ test("fixed coordinates and stable angle parameters survive editing", async ({pa
       angleAxis:{instanceId:"mock-instance-b",kind:"PLANE",geometryId:"datum-xy"}});
     await queryClient.invalidateQueries();
   });
-  const filter=page.getByRole("textbox",{name:"筛选模型结构"});
-  await filter.fill("FIX");
+  const revealTree=treeNavigator(page);
+  await revealTree("FIX");
   const fixed=page.getByRole("treeitem").filter({hasText:/#FIX\./});
   await fixed.dblclick();
   const dialog=page.getByRole("dialog",{name:"约束定义",exact:true});
@@ -54,7 +55,7 @@ test("fixed coordinates and stable angle parameters survive editing", async ({pa
   await expect(dialog.getByRole("spinbutton",{name:"* X（mm）",exact:true})).toHaveValue("12");
   await expect(dialog.getByRole("spinbutton",{name:"* 绕 Z 旋转（deg）",exact:true})).toHaveValue("90");
   await dialog.getByRole("button",{name:/^取\s*消$/}).click();
-  await filter.fill("ANGLE");
+  await revealTree("ANGLE");
   const angle=page.getByRole("treeitem").filter({hasText:/#ANGLE\./});
   await angle.dblclick();
   await expect(dialog.getByText("尚未选择参考轴")).toHaveCount(0);

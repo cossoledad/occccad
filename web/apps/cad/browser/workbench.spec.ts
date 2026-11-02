@@ -1,8 +1,9 @@
+import {treeNavigator} from "./tree-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
 async function openPart(page: Page) {
   await page.goto("/documents/mock-part-bracket");
-  await expect(page.getByRole("textbox", { name: "筛选模型结构" })).toBeVisible();
+  await expect(page.getByRole("tree", { name: "Specification tree" })).toBeVisible();
   await expect(page.locator("canvas")).toBeVisible();
 }
 
@@ -12,7 +13,7 @@ test("switching from an edited Part sketch to its Product and back keeps the wor
  await page.goto('/documents/mock-product-frame');await expect(page.locator('canvas')).toBeVisible();
  await page.getByRole('button',{name:'文档中心',exact:true}).click();
  await page.locator('.document-card').filter({hasText:'Mounting Bracket'}).locator('.thumbnail-button').dblclick();
- const filter=page.getByRole('textbox',{name:'筛选模型结构'});await filter.fill('XY Plane');
+ const revealTree=treeNavigator(page);await revealTree('XY Plane');
  await page.getByRole('treeitem').filter({hasText:'XY Plane'}).click();
  await page.getByRole('button',{name:'草图',exact:true}).click();await expect(page.getByRole('button',{name:'退出草图',exact:true})).toBeVisible();
  for(let round=0;round<2;round++){
@@ -42,15 +43,15 @@ test("contextual commands, search, sketch tools and model tree", async ({ page }
   await parameters.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(parameters).toHaveCount(0);
 
-  const filter = page.getByRole("textbox", { name: "筛选模型结构" });
-  await filter.fill("XY Plane");
-  await expect(page.getByRole("treeitem")).toHaveCount(3);
+  const revealTree=treeNavigator(page);
+  await revealTree("XY Plane");
+
   const xy = page.getByRole("treeitem").filter({ hasText: "XY Plane" });
   await xy.click();
   await expect(xy).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "草图", exact: true }).click();
   await expect(page.getByRole("button", { name: "退出草图", exact: true })).toBeVisible();
-  await filter.fill("");
+  await revealTree("");
   await page.getByRole("button", { name: "直线", exact: true }).dblclick();
   await expect(page.locator(".workbench-current-tool")).toHaveText("直线 · 连续执行");
   await page.getByRole("button", { name: "选择", exact: true }).click();
@@ -64,11 +65,6 @@ test("contextual commands, search, sketch tools and model tree", async ({ page }
   await expect(page.getByRole("treeitem").nth(1)).toBeFocused();
   await page.keyboard.press("Home");
   await expect(root).toBeFocused();
-  expect(await filter.evaluate((element) => {
-    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
-    element.dispatchEvent(event);
-    return event.defaultPrevented;
-  })).toBe(false);
   expect(errors).toEqual([]);
 });
 
@@ -168,10 +164,10 @@ test("paged component browser, folder breadcrumbs, insertion recovery and histor
   await expect.poll(instanceCount).toBe(2);
   await page.keyboard.press("Control+y");
   await expect.poll(instanceCount).toBe(4);
-  const filter = page.getByRole("textbox", { name: "筛选模型结构" });
-  await filter.focus(); await page.keyboard.type("testing"); await page.keyboard.press("Control+z");
+  await page.getByRole("button",{name:"搜索工具",exact:true}).click();
+  await page.getByRole("textbox",{name:"搜索工具名称或用途"}).fill("testing");await page.keyboard.press("Control+z");
   await expect.poll(instanceCount).toBe(4);
-  await filter.fill(""); await page.locator(".workbench-status").click();
+  await page.keyboard.press("Escape"); await page.locator(".workbench-status").click();
   await page.keyboard.press("Control+k");
   await expect(page.getByRole("dialog", { name: "搜索工具", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");

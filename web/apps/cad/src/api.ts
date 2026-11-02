@@ -1,7 +1,7 @@
 import {contextCommand,contextEditScope,acceptedContextView} from "./api/context-edit-scope";
 import {useUIPreferences} from "./state/ui-preferences";
 import {documentRegistry} from "./cad/document/document-registry";
-import type { Artifact, Feature, FeatureInput, AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductRelease, ProductReleaseReplay, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
+import type { Artifact, Feature, FeatureInput, AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
 import { CommandPreviewIdentities } from "./api/command-preview-identity";
 const previewIdentities = new CommandPreviewIdentities();
@@ -257,13 +257,6 @@ export const restApi = {
   getProductUpdatePlan: (id:string) => request<ProductUpdatePlan>(`/api/documents/${id}/product-update-plan`),
   acceptProductUpdatePlan: (id:string,digest:string) => requestDocumentView(`/api/documents/${id}/product-update-plan/accept`,
     {method:"POST",body:JSON.stringify({requestId:requestId(),digest})}),
-  listProductReleases: async (id:string):Promise<ProductRelease[]> =>
-    (await request<{releases:ProductRelease[]}>(`/api/documents/${id}/releases`)).releases,
-  createProductRelease: (id:string,name:string) => request<ProductRelease>(`/api/documents/${id}/releases`,
-    {method:"POST",body:JSON.stringify({requestId:requestId(),name})}),
-  replayProductRelease: (id:string,releaseId:string) => request<ProductReleaseReplay>(
-    `/api/documents/${id}/releases/${encodeURIComponent(releaseId)}/replay`,
-    {method:"POST",body:JSON.stringify({requestId:requestId()})}),
   replayProductSolveManifest: (id:string,digest:string) => request<unknown>(`/api/documents/${id}/solve-manifests/${encodeURIComponent(digest)}/replay`,
     {method:"POST",body:JSON.stringify({requestId:requestId()})}),
   getProductSolveResult: (id:string,solveRequestId:string) => request<AssemblySolveManifestResult>(
@@ -485,8 +478,8 @@ export const restApi = {
     });
   },
   exchangeCapabilities: (): Promise<{ maxUploadBytes: number }> => request("/api/exchange/capabilities"),
-  startExport: (documentId: string, format: "STEP" | "BREP", releaseId?: string): Promise<Job> => request<Job>("/api/exchange/exports", {
-    method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format, releaseId }),
+  startExport: (documentId: string, format: "STEP" | "BREP"): Promise<Job> => request<Job>("/api/exchange/exports", {
+    method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format }),
   }),
   planMotionApply:(documentId:string,baseRevisionId:string,input:import("./cad/assembly/motion-study").MotionApplyRequest):Promise<import("./cad/assembly/motion-study").MotionApplyPlan>=>request(`/api/documents/${documentId}/motion-apply-plan`,{method:"POST",body:JSON.stringify({baseRevisionId,...input})}),
   prepareMechanismApplication:(documentId:string,input:import("./cad/assembly/motion-study").MechanismApplicationRequest):Promise<import("./cad/assembly/motion-study").MechanismApplication>=>request(`/api/documents/${documentId}/mechanism-application`,{method:"POST",body:JSON.stringify(input)}),

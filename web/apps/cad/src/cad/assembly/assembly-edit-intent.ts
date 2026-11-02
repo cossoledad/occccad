@@ -1,3 +1,4 @@
+import {assemblyQuantityInputFields} from "./assembly-quantity-input";
 import type { AssemblyConstraint, AssemblyGeometryRef, Vec3 } from "../../types";
 import { assemblyPublicCommandFields } from "./assembly-public";
 import { offsetCommandFields } from "./assembly-offset";
@@ -7,7 +8,7 @@ import { displayLengthToMillimeters } from "../../state/ui-preferences";
 
 export type AssemblyDraftFields = Parameters<typeof assemblyPublicCommandFields>[1] &
   Parameters<typeof assemblyQuantityCommandFields>[0] & {
-    value?: number; directionRelation?: string; distanceRelation?: string;
+    quantityInput?:string;value?: number; directionRelation?: string; distanceRelation?: string;
     fixedTranslation?: Vec3; fixedAngles?: Vec3; fixMode?: AssemblyConstraint['fixMode'];
   };
 
@@ -18,6 +19,7 @@ export function assemblyEditIntent(kind: string, fields: AssemblyDraftFields,
   references: AssemblyGeometryRef[], lengthUnit: Parameters<typeof displayLengthToMillimeters>[1],
   constraint?: AssemblyConstraint, options: Partial<AssemblyConstraint> = {}) {
   const source = constraint ?? options;
+  if(kind!=="ANGLE"||!source.angleRelation||["FREE","DIRECTED"].includes(source.angleRelation))fields=assemblyQuantityInputFields(kind,fields,lengthUnit);
   const raw = Number(fields.value ?? 0);
   const command = {
     type: constraint ? "EDIT_ASSEMBLY_CONSTRAINT" : "ADD_ASSEMBLY_CONSTRAINT",

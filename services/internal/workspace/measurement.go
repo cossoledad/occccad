@@ -585,7 +585,7 @@ func (s *Service) projectMeasurements(ctx context.Context, doc, rev string, valu
 	}
 }
 func measurementStructure(doc, rev, parent string, values []Measurement, parameters []modelcore.ParameterDefinition) DocumentStructureNode {
-	group := DocumentStructureNode{ID: parent + "/measurements", Kind: "MEASUREMENT_GROUP", Name: "测量", DocumentID: doc, VersionID: rev, Capabilities: []string{"REFRESH"}}
+	group := DocumentStructureNode{ID: parent + "/measurements", Kind: "MEASUREMENT_GROUP", EntityID: "measurements", LocalVisible: boolPointer(slices.ContainsFunc(values, func(m Measurement) bool { return m.Visible })), Name: "测量", DocumentID: doc, VersionID: rev, Capabilities: []string{"REFRESH"}}
 	for _, m := range values {
 		node := DocumentStructureNode{ID: group.ID + "/" + m.ID, Kind: "MEASUREMENT", EntityID: m.ID, EntityType: m.Kind, Name: m.Name, DocumentID: doc, OwnerDocumentID: doc, VersionID: rev, EvaluationStatus: m.Status, CurrencyStatus: m.Status, LocalVisible: boolPointer(m.Visible), Capabilities: []string{"EDIT", "REFRESH", "DELETE"}}
 		for _, p := range parameters {

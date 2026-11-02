@@ -203,7 +203,7 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 	if product.Product == nil {
 		t.Fatal("missing root Product")
 	}
-	graph, err := service.ExchangeExportGraph(t.Context(), product.Document.ID, "")
+	graph, err := service.ExchangeExportGraph(t.Context(), product.Document.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 				t.Fatal("host override escaped into shared sibling")
 			}
 		}
-		styledGraph, err := service.ExchangeExportGraph(t.Context(), product.Document.ID, "")
+		styledGraph, err := service.ExchangeExportGraph(t.Context(), product.Document.ID)
 		if err != nil {
 			t.Fatal(err)
 		}

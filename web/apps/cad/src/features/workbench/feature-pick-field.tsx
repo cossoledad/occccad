@@ -5,11 +5,11 @@ import type {SelectionItem} from '../../types';
 import {CommandField,useCommandForm} from '../../cad/overlay/command-form';
 
 export type FeaturePickItem={key:string;value:ReactNode;actionLabel?:string;searchText?:string;detail?:ReactNode;error?:boolean;state?:string;active?:boolean;disabled?:boolean;selections?:SelectionItem[];onLocate?:()=>void;onSelect?:()=>void;onActivate?:()=>void;onClear?:()=>void;actions?:ReactNode;settings?:ReactNode};
-type Props={label:string;value?:ReactNode;active:boolean;disabled?:boolean;onActivate?:()=>void;onCancel?:()=>void;onClear?:()=>void;onLocate?:()=>void;mode?:'single'|'multiple'|'ordered';selected?:boolean;selections?:SelectionItem[];detail?:ReactNode;error?:ReactNode;actions?:ReactNode;children?:ReactNode;items?:FeaturePickItem[]};
+type Props={compact?:boolean;label:string;value?:ReactNode;active:boolean;disabled?:boolean;onActivate?:()=>void;onCancel?:()=>void;onClear?:()=>void;onLocate?:()=>void;mode?:'single'|'multiple'|'ordered';selected?:boolean;selections?:SelectionItem[];detail?:ReactNode;error?:ReactNode;actions?:ReactNode;children?:ReactNode;items?:FeaturePickItem[]};
 
 /** One reference field. Collections have bounded compact rows, retaining the
  * owning command's accepted identities, ordering and replacement session. */
-export function FeaturePickField({label,value,active,disabled,onActivate,onCancel,onClear,onLocate,selected,mode='single',selections,detail,error,actions,children,items}:Props){
+export function FeaturePickField({compact=false,label,value,active,disabled,onActivate,onCancel,onClear,onLocate,selected,mode='single',selections,detail,error,actions,children,items}:Props){
  const form=useCommandForm(),[expanded,setExpanded]=useState(true),[query,setQuery]=useState(''),[settings,setSettings]=useState<string>();const rows=useRef<HTMLDivElement>(null);
  const hasValue=selected??Boolean(onClear||selections?.length),cancel=()=>onCancel?onCancel():form.cancelPick?.();
  const locate=(callback:(()=>void)|undefined,picks?:SelectionItem[])=>callback||picks?.length&&form.locate?()=>{cancel();if(callback)callback();else if(picks)form.locate?.(picks)}:undefined;
@@ -18,7 +18,7 @@ export function FeaturePickField({label,value,active,disabled,onActivate,onCance
  useEffect(()=>{if(invalidToken)setExpanded(true)},[invalidToken]);
  useEffect(()=>{if(!items?.length)setQuery('')},[items?.length]);
  useEffect(()=>{if(expanded)(rows.current?.querySelector('[data-item-active=true]')??rows.current?.querySelector('[data-item-error=true]'))?.scrollIntoView({block:'nearest'})},[expanded,busyItem?.key,invalidToken]);
- const compactAction=(name:string,title:string,icon:ReactNode,action:()=>void,blocked?:boolean)=><Tooltip title={title}><Button size="small" type="text" aria-label={name} disabled={disabled||blocked} icon={icon} onClick={action}/></Tooltip>;
+ const compactAction=(name:string,title:string,icon:ReactNode,action:()=>void,blocked?:boolean,pressed?:boolean)=><Tooltip title={title}><Button size="small" type="text" aria-label={name} aria-pressed={pressed} disabled={disabled||blocked} icon={icon} onClick={action}/></Tooltip>;
  if(items!==undefined){
   const visible=items.filter(item=>item.active||item.error||!query.trim()||(item.searchText??[typeof item.value==='string'?item.value:'',typeof item.detail==='string'?item.detail:''].join(' ')).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <div role="group" aria-label={label} className={`feature-pick-field feature-pick-collection ${active||busyItem?'is-active':''}`} data-pick-active={active||!!busyItem||undefined}>
@@ -51,14 +51,14 @@ export function FeaturePickField({label,value,active,disabled,onActivate,onCance
   </div>;
  }
  const locateSingle=locate(onLocate,selections);
- return <div className={`feature-pick-field ${active?'is-active':''}`} data-pick-active={active||undefined}>
+ return <div className={`feature-pick-field ${compact?'is-compact':''} ${active?'is-active':''}`} data-pick-active={active||undefined}>
   <CommandField label={label} width="selection" error={error}>
    <div className="feature-pick-content"><span className="feature-pick-value" title={typeof value==='string'?value:undefined}>{value||'未选择'}</span>
     {detail&&<small className="feature-pick-detail">{detail}</small>}
     <div className="feature-pick-actions">
-     {locateSingle&&<Button size="small" disabled={disabled||!hasValue} aria-label={`定位${label}`} onClick={locateSingle}>定位</Button>}
+     {compact?<>{locateSingle&&compactAction(`定位${label}`,'定位',<AimOutlined/>,locateSingle,!hasValue)}{onActivate&&compactAction(`选择${label}`,active?'取消选择':hasValue?'更换':'选择',<SwapOutlined/>,active?cancel:onActivate,false,active)}{onClear&&compactAction(`移除${label}`,'移除',<CloseOutlined/>,()=>{cancel();onClear()})}{actions}</>:<>{locateSingle&&<Button size="small" disabled={disabled||!hasValue} aria-label={`定位${label}`} onClick={locateSingle}>定位</Button>}
      {onActivate&&<Button size="small" disabled={disabled} aria-label={`选择${label}`} aria-pressed={active} type={active?'primary':'default'} onClick={active?cancel:onActivate}>{active?'取消选择':hasValue?mode==='single'?'更换':'增减':'选择'}</Button>}
-     {onClear&&<Button size="small" disabled={disabled} aria-label={`移除${label}`} onClick={()=>{cancel();onClear()}}>移除</Button>}{actions}
+     {onClear&&<Button size="small" disabled={disabled} aria-label={`移除${label}`} onClick={()=>{cancel();onClear()}}>移除</Button>}{actions}</>}
     </div>
    </div>{children}
   </CommandField>

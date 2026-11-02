@@ -1,3 +1,4 @@
+import {treeNavigator} from "./tree-helpers";
 import {worldScreen} from "./camera-helpers";
 import {expect,test,type Page} from "@playwright/test";
 
@@ -33,7 +34,7 @@ test("real properties history, face preview, conflict recovery and adaptive scen
 
  const dialog=page.getByRole("dialog",{name:/^属性 ·/});
  const body=()=>page.locator(`[role="treeitem"][data-tree-key$="/body:${seed.bodyId}"]`);
- const openBody=async()=>{await page.getByRole("textbox",{name:"筛选模型结构"}).fill(seed.bodyName);await body().click({button:"right"});await page.getByRole("menuitem",{name:"属性…",exact:true}).click();await expect(dialog).toBeVisible()};
+ const openBody=async()=>{await treeNavigator(page)(seed.bodyName);await body().click({button:"right"});await page.getByRole("menuitem",{name:"属性…",exact:true}).click();await expect(dialog).toBeVisible()};
  const save=async()=>{await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0)};
  const appearance=async()=>{const v=await current(page,seed.id);return v.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).appearance};
  await openBody();await dialog.getByRole("textbox",{name:"颜色 HEX",exact:true}).fill("#2176ff");await dialog.getByRole("spinbutton",{name:"表面透明度",exact:true}).fill("40");await save();
@@ -46,7 +47,7 @@ test("real properties history, face preview, conflict recovery and adaptive scen
  await dialog.getByRole("textbox",{name:"颜色 HEX",exact:true}).fill("#ff2200");await expect(page.locator("[data-property-preview]")).toHaveCount(1);
  await dialog.getByRole("button",{name:/取\s*消/}).click();expect((await current(page,seed.id)).document.versionId).toBe(beforeCancel);expect((await appearance()).color).toBe("#2176ff");
  // A top face is selected using the production raycaster, then bound to Naming.
- await page.getByRole("textbox",{name:"筛选模型结构"}).fill("");
+ await treeNavigator(page)("");
  const screen=await worldScreen(page,[10,-5,-5]);await page.mouse.click(screen.x,screen.y);await page.keyboard.press("Alt+Enter");await expect(dialog).toBeVisible();
  await expect(dialog).toContainText("所选面");await dialog.getByRole("textbox",{name:"颜色 HEX",exact:true}).fill("#000000");await dialog.getByRole("spinbutton",{name:"表面透明度",exact:true}).fill("75");await save();
  await expect.poll(async()=>(await appearance()).faces?.length??0).toBe(1);
@@ -60,7 +61,7 @@ test("real properties history, face preview, conflict recovery and adaptive scen
   await api.command(id,{type:"SET_PROPERTIES",versionId:v.document.versionId,properties:{targets:[{kind:"BODY",id:bodyId}],name:"Concurrent body name"}});
  },seed);
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toContainText("属性尚未保存");
- await dialog.getByRole("button",{name:"加载最新版本并保留修改",exact:true}).click();await expect(dialog.getByRole("textbox",{name:"颜色 HEX",exact:true})).toHaveValue("#43a047");await save();
+ await expect(dialog.getByRole("button",{name:/加载最新/})).toHaveCount(0);await dialog.getByRole("button",{name:/取\s*消/}).click();await openBody();await dialog.getByRole("textbox",{name:"颜色 HEX",exact:true}).fill("#43a047");await save();
  const final=await current(page,seed.id);expect(final.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).name).toBe("Concurrent body name");
  expect(final.part.bodies.find((b:{id:string})=>b.id===seed.bodyId).geometryKey).toBe(seed.key);
  const revision=final.document.versionId;

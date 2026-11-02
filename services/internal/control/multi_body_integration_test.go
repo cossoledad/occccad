@@ -47,7 +47,9 @@ func TestMultiBodyIndependentGeometryAndHistory(t *testing.T) {
 	}
 	t.Cleanup(func() { client.Close() })
 	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	store := artifact.NewService(db, local, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, store)
 	part, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Multi Body"})
@@ -174,7 +176,7 @@ func TestMultiBodyIndependentGeometryAndHistory(t *testing.T) {
 	if _, ok := view["artifact"]; ok {
 		t.Fatal("single Part artifact remains")
 	}
-	graph, e := service.ExchangeExportGraph(t.Context(), part.Document.ID, "")
+	graph, e := service.ExchangeExportGraph(t.Context(), part.Document.ID)
 	if e != nil {
 		t.Fatal(e)
 	}

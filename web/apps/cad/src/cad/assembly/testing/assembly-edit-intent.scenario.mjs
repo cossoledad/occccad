@@ -96,6 +96,17 @@ try {
   const command=assemblyEditIntent("ANGLE",{quantityExpression:"a + 5 deg",quantityKey:"angle_key",constraintMode:"MEASURED"},[first,second],"mm",undefined,{angleRelation:relation});
   assert.equal(command.quantityExpression,"a + 5 deg");assert.equal(command.quantityKey,"angle_key");assert.equal(command.constraintMode,"MEASURED");
  }
+ for(const [kind,unit,source,expected] of [['DISTANCE','cm','2.5',25],['DISTANCE','in','25.4 mm',25.4],['ANGLE','mm','1.5707963267948966 rad',Math.PI/2]]){
+  const input=assemblyEditIntent(kind,{quantityInput:source,quantityExpression:'old + 1',value:99},[first,second],unit);
+  assert.ok(Math.abs(input.value-expected)<1e-10);assert.equal(input.quantityExpression,'','literal replaces an old formula');
+ }
+ const expression=assemblyEditIntent('DISTANCE',{quantityInput:'Base + 5 mm',value:3},[first,second],'cm');assert.equal(expression.quantityExpression,'Base + 5 mm');
+ assert.throws(()=>assemblyEditIntent('DISTANCE',{quantityInput:'2 deg'},[first,second],'mm'));
+ assert.throws(()=>assemblyEditIntent('ANGLE',{quantityInput:'361'},[first,second],'mm'));
+ assert.throws(()=>assemblyEditIntent('DISTANCE',{quantityInput:''},[first,second],'mm'));
+ assert.throws(()=>assemblyEditIntent('DISTANCE',{quantityInput:'-2',distanceRelation:'UNSIGNED'},[first,second],'cm'));
+ const signed=assemblyEditIntent('DISTANCE',{quantityInput:'-2',distanceRelation:'SELECTED_PLANE_NORMAL_V1'},[first,second],'cm');assert.equal(signed.value,-20);
+ assert.doesNotThrow(()=>assemblyEditIntent('ANGLE',{quantityInput:'invalid hidden input'},[first,second],'mm',undefined,{angleRelation:'PARALLEL'}));
  // Reproduce actual TanStack ordering: mutation-level cache refresh runs before
  // observer/per-call success. Preview sequence changes must not suppress close.
  const {QueryClient,MutationObserver}=await server.ssrLoadModule("@tanstack/react-query");

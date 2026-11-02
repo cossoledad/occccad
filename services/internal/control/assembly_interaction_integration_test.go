@@ -153,10 +153,6 @@ func TestAssemblyInteractionRouterCommitHistory(t *testing.T) {
 			}
 		}
 	}
-	release, err := f.service.CreateProductRelease(t.Context(), p.Document.ID, workspace.CreateProductReleaseRequest{RequestID: "m4-release-" + p.Document.ID, Name: "M4 frozen result", ActorID: f.actor})
-	if err != nil {
-		t.Fatal("M4 Release", err)
-	}
 	historyBefore, err := f.service.ListHistory(t.Context(), p.Document.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -198,8 +194,8 @@ func TestAssemblyInteractionRouterCommitHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX", FirstAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: selected, Kind: "BODY"}, FixMode: "SPACE"})
-	if _, err = f.service.ReplayProductRelease(t.Context(), p.Document.ID, release.ID, "m4-release-replay-"+p.Document.ID); err != nil {
-		t.Fatal("frozen Release replay after Head change", err)
+	if _, err = f.service.ReplayAssemblySolveManifest(t.Context(), p.Document.ID, evidence.ManifestDigest, "m4-snapshot-replay-"+p.Document.ID); err != nil {
+		t.Fatal("frozen SolveManifest replay after Head change", err)
 	}
 	if _, err = f.service.UpdateAssemblyInteraction(t.Context(), p.Document.ID, f.actor, workspace.AssemblyInteractionUpdate{SessionID: stale.SessionID, Sequence: 1, Target: target, Final: true}); err == nil {
 		t.Fatal("external Head did not invalidate Session")

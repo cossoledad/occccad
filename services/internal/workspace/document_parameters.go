@@ -245,7 +245,7 @@ func presentDocumentParameters(parameters []modelcore.ParameterDefinition) {
 }
 
 func documentParameterStructure(parameters []modelcore.ParameterDefinition, path, documentID, versionID string) DocumentStructureNode {
-	root := DocumentStructureNode{ID: path + "/parameters", Kind: "PARAMETER_SET", Name: "参数与公式", DocumentID: documentID, VersionID: versionID}
+	root := DocumentStructureNode{ID: path + "/parameters", Kind: "PARAMETER_SET", Name: "参数", DocumentID: documentID, VersionID: versionID}
 	for _, p := range parameters {
 		name := p.DisplayName
 		if name == "" {

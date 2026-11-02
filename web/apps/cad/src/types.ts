@@ -530,13 +530,8 @@ export type ProductUpdatePlanEntry = {referenceMode?:"FOLLOW_HEAD"|"FOLLOW_WORKS
 export type ProductUpdatePlan = {rootProductDocumentId:string;rootProductRevisionId:string;digest:string;canAccept:boolean;
   parameterUpdates?:Array<{documentId:string;revisionId:string;needsUpdate:boolean;dependencies?:string[]}>;
   hasUpdates:boolean;entries:ProductUpdatePlanEntry[];contextVariants:ContextVariantSnapshot[];affectedConstraintIds?:string[]};
-export type ProductReleaseGate = {code:string;status:"PASSED"|"FAILED";diagnostic?:string};
-export type ProductRelease = {id:string;name:string;createdAt:string;manifest:{schemaVersion:number;digest:string;
-  rootProductDocumentId:string;rootProductRevisionId:string;rootSnapshotDigest:string;assemblySolveManifestDigest?:string;
-  gates:ProductReleaseGate[]}};
 export type AssemblySolveManifestResult = {manifestDigest:string;requestId:string;resultDigest?:string;status:string;
   diagnostic?:string;result:unknown};
-export type ProductReleaseReplay = {releaseId:string;manifestDigest:string;status:string;assembly?:AssemblySolveManifestResult};
 
 export type SelectionIdentity = {
   entityType?:string;

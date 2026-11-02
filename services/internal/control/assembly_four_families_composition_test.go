@@ -299,10 +299,6 @@ func runFourFamilyCase(t *testing.T, f *compositionControlFixture, parts map[str
 	if !foundComponent {
 		t.Fatal("frozen solve omitted moving motion evidence")
 	}
-	release, e := cold.CreateProductRelease(t.Context(), id, workspace.CreateProductReleaseRequest{ActorID: f.actor, RequestID: id + "-release", Name: test.capability})
-	if e != nil {
-		t.Fatal("release", e)
-	}
 	suppressed := true
 	apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{target}, Suppressed: &suppressed})
 	apply(workspace.CommandRequest{Type: "UNDO"})
@@ -313,12 +309,12 @@ func runFourFamilyCase(t *testing.T, f *compositionControlFixture, parts map[str
 	if !definition().Suppressed {
 		t.Fatal("Redo lost activation")
 	}
-	frozen, e := cold.ReplayProductRelease(t.Context(), id, release.ID, id+"-release-replay")
-	if e != nil || frozen.Assembly == nil {
-		t.Fatal("frozen Release", e)
+	frozen, e := cold.ReplayAssemblySolveManifest(t.Context(), id, digest, id+"-snapshot-replay")
+	if e != nil || frozen.ManifestDigest == "" {
+		t.Fatal("frozen SolveManifest", e)
 	}
 	var raw []byte
-	if e = f.db.QueryRow(t.Context(), `SELECT manifest FROM occccad.product_solve_manifests WHERE digest=$1`, frozen.Assembly.ManifestDigest).Scan(&raw); e != nil {
+	if e = f.db.QueryRow(t.Context(), `SELECT manifest FROM occccad.product_solve_manifests WHERE digest=$1`, frozen.ManifestDigest).Scan(&raw); e != nil {
 		t.Fatal(e)
 	}
 	var manifest workspace.AssemblySolveManifest
@@ -330,12 +326,12 @@ func runFourFamilyCase(t *testing.T, f *compositionControlFixture, parts map[str
 		if c.ID == target {
 			found = true
 			if c.Suppressed || c.Family != test.family || c.Value != definition().Value {
-				t.Fatal("Head overwrote frozen Release definition", c)
+				t.Fatal("Head overwrote frozen SolveManifest definition", c)
 			}
 		}
 	}
 	if !found {
-		t.Fatal("Release lost concrete definition")
+		t.Fatal("SolveManifest lost concrete definition")
 	}
 }
 
@@ -785,10 +781,6 @@ func TestSixFamiliesCoupledAcceptanceAndFrozenHistoryThroughRouter(t *testing.T)
 	if !foundGroupComponent {
 		t.Fatal("outer group motion evidence absent")
 	}
-	release, e := cold.CreateProductRelease(t.Context(), id, workspace.CreateProductReleaseRequest{ActorID: f.actor, RequestID: id + "-six-release", Name: "Six accepted"})
-	if e != nil {
-		t.Fatal(e)
-	}
 	var saved workspace.AssemblyConstraint
 	for _, g := range product.Product.Constraints {
 		if g.ID == groupID {
@@ -811,11 +803,8 @@ func TestSixFamiliesCoupledAcceptanceAndFrozenHistoryThroughRouter(t *testing.T)
 			t.Fatal("failed candidate pose entered accepted Revision")
 		}
 	}
-	if _, e = cold.CreateProductRelease(t.Context(), id, workspace.CreateProductReleaseRequest{ActorID: f.actor, RequestID: id + "-bad-release", Name: "Must reject active failed definition"}); e == nil {
-		t.Fatal("Release gate only checked accepted subset")
-	}
-	frozen, e := cold.ReplayProductRelease(t.Context(), id, release.ID, id+"-six-frozen-release")
-	if e != nil || frozen.Assembly == nil {
-		t.Fatal("failed Head polluted accepted six-family Release", e)
+	frozen, e := cold.ReplayAssemblySolveManifest(t.Context(), id, digest, id+"-six-frozen-snapshot")
+	if e != nil || frozen.ManifestDigest == "" {
+		t.Fatal("failed Head polluted accepted six-family SolveManifest", e)
 	}
 }

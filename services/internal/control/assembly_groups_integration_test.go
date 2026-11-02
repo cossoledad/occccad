@@ -250,17 +250,13 @@ func TestFixTogetherStagedInternalUpdateAndHistoryThroughRouter(t *testing.T) {
 	if err = json.Unmarshal(raw, &manifest); err != nil || len(manifest.GroupStages) != 1 {
 		t.Fatal("overlap stages were not frozen as one deterministic boundary", err, manifest)
 	}
-	release, err := cold.CreateProductRelease(t.Context(), id, workspace.CreateProductReleaseRequest{RequestID: id + "-group-release", Name: "Frozen groups", ActorID: f.actor})
-	if err != nil {
-		t.Fatal(err)
-	}
 	suppressed := true
 	apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{groupID, nestedID}, Suppressed: &suppressed})
-	frozen, err := cold.ReplayProductRelease(t.Context(), id, release.ID, id+"-group-release-replay")
-	if err != nil || frozen.Assembly == nil {
-		t.Fatal("group Release replay lost frozen evidence", err)
+	frozen, err := cold.ReplayAssemblySolveManifest(t.Context(), id, digest, id+"-group-snapshot-replay")
+	if err != nil || frozen.ManifestDigest == "" {
+		t.Fatal("group SolveManifest replay lost frozen evidence", err)
 	}
-	if err = f.db.QueryRow(t.Context(), `SELECT manifest FROM occccad.product_solve_manifests WHERE digest=$1`, frozen.Assembly.ManifestDigest).Scan(&raw); err != nil {
+	if err = f.db.QueryRow(t.Context(), `SELECT manifest FROM occccad.product_solve_manifests WHERE digest=$1`, frozen.ManifestDigest).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	if err = json.Unmarshal(raw, &manifest); err != nil {
@@ -268,7 +264,7 @@ func TestFixTogetherStagedInternalUpdateAndHistoryThroughRouter(t *testing.T) {
 	}
 	for _, definition := range manifest.Definitions {
 		if definition.ID == groupID && definition.Suppressed {
-			t.Fatal("new Head activation state altered frozen Release")
+			t.Fatal("new Head activation state altered frozen SolveManifest")
 		}
 	}
 }

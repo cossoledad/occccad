@@ -33,7 +33,7 @@ try {
  const noop=()=>{},store={activeToolID:'select',selections:[],setActiveTool(id){this.activeToolID=id;}};
  const part={document:{id:'part',type:'PART',permission:'OWNER'},part:{features:[],axisSystems:[]}};
  const bindings={store,editingView:part,view:part,canEdit:true,canEditRoot:true,command:{isPending:false},treeNodes:[],viewport:{current:{fit(){fitted++;},async settleAssemblyInteraction(){}}},closePanels(){closed++;},
- startSketch:noop,finishSketch:noop,normalToSelection:noop,openSolidFeature(){opened++;},deleteTreeNodes:noop,executeHistory:noop,setConflictOpen:noop,setParameterManagerOpen:noop,setPublicationManagerOpen:noop,setInsertOpen:noop,setPatternOpen:noop,setReleaseOpen:noop,setVersionOpen:noop,setShareResource:noop,setSolidEditor:noop,setBooleanDialog:noop,setDatumEditor:noop,setEditingDatumId:noop,showMessage:noop};
+ startSketch:noop,finishSketch:noop,normalToSelection:noop,openSolidFeature(){opened++;},deleteTreeNodes:noop,executeHistory:noop,setConflictOpen:noop,setParameterManagerOpen:noop,setPublicationManagerOpen:noop,setInsertOpen:noop,setPatternOpen:noop,setVersionOpen:noop,setShareResource:noop,setSolidEditor:noop,setBooleanDialog:noop,setDatumEditor:noop,setEditingDatumId:noop,showMessage:noop};
  let facts={hostType:'PART',targetType:'PART',sketchActive:false,canEdit:true,rootCanEdit:true,busy:false,selectionKind:'',selectionCount:0,hasWorkingBody:true};
  function render(identity){refCursor=effectCursor=0;queue=[];useWorkbenchCommandRegistration(registry,bindings,builtinCatalog,facts,identity);for(const effect of queue)effect();}
  render('A');await registry.execute('part.pad');assert.equal(opened,1);assert.equal(closed,1);

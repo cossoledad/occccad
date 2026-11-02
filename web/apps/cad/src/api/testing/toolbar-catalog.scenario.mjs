@@ -21,7 +21,7 @@ try {
   assert.equal(commands.some((item) => item.commandId === "navigation.profile.toggle"), false,
     "mouse navigation belongs to the global preference center");
   assert.equal(commands.find((item) => item.commandId === "part.publications")?.iconKey, "publication");
-  assert.equal(commands.find((item) => item.commandId === "product.release")?.iconKey, "release");
+  assert.equal(commands.some((item) => item.commandId === "product.release"), false);
   assert.deepEqual(toolbars.filter(bar=>bar.workbench==="PART_DESIGN").flatMap(bar=>bar.items).filter((item) => item.commandId.startsWith("view.")).map((item) => item.commandId),
     ["view.fit", "view.top", "view.front", "view.right", "view.iso", "view.normal", "view.selection-summary"]);
   for (const command of ["assembly.parallel", "assembly.perpendicular"]) {
@@ -38,7 +38,7 @@ try {
   const motionCommands=motionGroups.flatMap(g=>g.items).map(v=>v.commandId);
   for(const cmd of builtinCatalog.commands.filter(v=>v.id.startsWith('dmu.'))){
    assert(motionCommands.includes(cmd.id),`${cmd.id} needs a classified placement`);
-   assert.equal(matches(cmd.visibleWhen,facts),cmd.id==='dmu.analyze-mechanism','only saved-mechanism read-only inspection is available outside the DMU application');
+   assert.equal(matches(cmd.visibleWhen,facts),false,'DMU commands are scoped to the active application');
    assert.equal(matches(cmd.visibleWhen,{...facts,motionActive:true}),true);
   }
   const analysis=builtinCatalog.commands.find(c=>c.id==='dmu.analyze-mechanism');
@@ -55,7 +55,7 @@ try {
   assert.equal(builtinCatalog.commands.find(v=>v.id==='dmu.exit').implementation,'handler');
   for(const action of ['play','pause','previous','next','reset','cancel','results'])assert(!builtinCatalog.commands.some(v=>v.id==='dmu.'+action));
   assert(!builtinCatalog.commands.some(v=>v.id==='dmu.new'||v.id.startsWith('dmu.demo-')||['dmu.interference','dmu.check','dmu.trial','dmu.restore','dmu.import'].includes(v.id)));
-  const dmuGroup=toolbars.find(g=>g.id==='assembly-dmu');assert.equal(dmuGroup.name,'DMU');assert.deepEqual(dmuGroup.items.map(i=>i.commandId),['assembly.motion-study','dmu.analyze-mechanism']);
+  const dmuGroup=toolbars.find(g=>g.id==='assembly-dmu');assert.equal(dmuGroup.name,'DMU');assert.deepEqual(dmuGroup.items.map(i=>i.commandId),['assembly.motion-study']);
   assert(!toolbars.find(g=>g.id==='assembly-positioning').items.some(i=>i.commandId==='assembly.motion-study'));
   console.log("Toolbar category and preference-boundary tests passed.");
 } finally {

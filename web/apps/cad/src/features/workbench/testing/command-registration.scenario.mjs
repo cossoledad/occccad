@@ -16,10 +16,14 @@ try{
  const noop=()=>{};
  const bindings={store,editingView:part,view:host,canEdit:true,canEditRoot:true,command:{isPending:false},treeNodes:[],viewport:{current:{fit(){fits++;},clearCommandPreview:noop}},workingBodyID:'body-A',
   startSketch:noop,finishSketch:noop,normalToSelection:noop,openSolidFeature(){pads++;assert.equal(bindings.editingView.document.id,'target-part');},deleteTreeNodes:noop,executeHistory:noop,
-  setConflictOpen:noop,setParameterManagerOpen:noop,setPublicationManagerOpen:noop,setInsertOpen:noop,setPatternOpen:noop,setReleaseOpen:noop,setVersionOpen:noop,setShareResource:noop,setSolidEditor:noop,setBooleanDialog:noop,setDatumEditor:noop,setEditingDatumId:noop,showMessage:text=>messages.push(text)};
+  setConflictOpen:noop,setParameterManagerOpen:noop,setPublicationManagerOpen:noop,setInsertOpen:noop,setPatternOpen:noop,setVersionOpen:noop,setShareResource:noop,setSolidEditor:noop,setBooleanDialog:noop,setDatumEditor:noop,setEditingDatumId:noop,showMessage:text=>messages.push(text)};
  let dmuAction,dmuOperation;bindings.onMotionCommand=(action,operation)=>{dmuAction=action;dmuOperation=operation};bindings.setMotionOpen=()=>{};bindings.motionOpen=true;
  const dmu=workbenchCommands({...bindings,editingView:host}).find(c=>c.id==='dmu.revolute');assert(dmu.isEnabled());dmu.execute({operation:{current:true}});assert.equal(dmuAction,'revolute');assert.equal(dmuOperation.current,true,'forms receive framework-owned operation');
  const guarded=workbenchCommands({...bindings,editingView:host,motionCommandEnabled:()=>false}).find(c=>c.id==='dmu.run');assert.equal(guarded.isEnabled(),false,'application prerequisites flow through the registry');
+ const analyze=extra=>workbenchCommands({...bindings,setMechanismAnalysisOpen:noop,editingView:host,...extra}).find(c=>c.id==='dmu.analyze-mechanism');
+ assert.equal(analyze({motionOpen:false,mechanismId:'m'}).isEnabled(),false);
+ assert.equal(analyze({motionOpen:true,mechanismId:undefined}).isEnabled(),false);
+ assert.equal(analyze({motionOpen:true,mechanismId:'m'}).isEnabled(),true);
  const hidden=workbenchCommands({...bindings,motionOpen:false}).find(c=>c.id==='dmu.revolute');assert.equal(hidden.isEnabled(),false);
  const nestedDmu=workbenchCommands(bindings).find(c=>c.id==='dmu.revolute');assert.equal(nestedDmu.isEnabled(),false);
  const viewer={...host,document:{...host.document,permission:'VIEWER'}};const viewerApply=workbenchCommands({...bindings,editingView:viewer,view:viewer}).find(c=>c.id==='dmu.apply');assert.equal(viewerApply.isEnabled(),false);

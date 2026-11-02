@@ -1096,11 +1096,6 @@ func TestContextInputLocalizeDefaultsReconnectAndColdRebuild(t *testing.T) {
 	}
 	run(&root, workspace.CommandRequest{Type: "REDO"})
 	check(root, first, firstArt.Volume, 3)
-	// The local snapshot is explicitly protected from receiver replacement.
-	badReplace := workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-local-replace", Type: "REPLACE_INSTANCE", VersionID: root.Document.VersionID, InstanceID: first, ReferencedDocumentID: plate.Document.ID, ReplacementVersionID: plate.Document.VersionID}
-	if _, e := s.PreviewCommand(t.Context(), root.Document.ID, badReplace); e == nil || !strings.Contains(e.Error(), "REPLACEMENT_LOCAL_INPUT_UNSUPPORTED") {
-		t.Fatal("local assignment silently dropped by replacement", e)
-	}
 	for _, id := range bindingIDs[1] {
 		run(&root, workspace.CommandRequest{Type: "LOCALIZE_CONTEXT_INPUT", VersionID: root.Document.VersionID, ContextBindingID: id})
 	}

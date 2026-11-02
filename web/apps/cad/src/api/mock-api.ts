@@ -1054,15 +1054,6 @@ export const mockApi: CadApi = {
       canAccept: true, hasUpdates, entries, contextVariants: [] });
   },
   acceptProductUpdatePlan: async (documentID) => command(documentID, {type:"UPDATE_REFERENCES"}),
-  listProductReleases: async () => pause([]),
-  createProductRelease: async (documentID, name) => {
-    const root = getView(documentID);
-    return pause({id:id("mock-release"),name,createdAt:now(),manifest:{schemaVersion:1,
-      digest:`mock-release:${root.document.versionId}`,rootProductDocumentId:documentID,
-      rootProductRevisionId:root.document.versionId,rootSnapshotDigest:`mock-snapshot:${root.document.versionId}`,
-      gates:[{code:"MOCK_RELEASE",status:"PASSED" as const}]}});
-  },
-  replayProductRelease: async (_documentID, releaseId) => pause({releaseId,manifestDigest:"mock-release",status:"CONVERGED"}),
   replayProductSolveManifest: async (_documentID, digest) => pause({manifestDigest:digest,status:"CONVERGED"}),
   getProductSolveResult: async (_documentID, requestId) => pause({manifestDigest:"mock-manifest",requestId,
     resultDigest:"mock-result",status:"CONVERGED",result:{}}),
@@ -1225,7 +1216,7 @@ export const mockApi: CadApi = {
       createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };
     jobs.set(job.id, job); return pause(job);
   },
-  startExport: async (documentID, _format, _releaseId) => {
+  startExport: async (documentID, _format) => {
     const job: Job = { id: id("mock-job"), type: "EXCHANGE_EXPORT", state: "SUCCEEDED", documentId: documentID,
       progress: 100, resultObjectId: "mock-exchange", payload: { fileName: "mock.step", format: "STEP" },
       attemptCount: 1, maxAttempts: 3, createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };

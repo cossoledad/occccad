@@ -41,7 +41,9 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	local, developmentStaging, err := artifact.OpenConfigured(t.Context(), testsupport.Environment(t).DataDirectory)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	store := artifact.NewService(db, local, developmentStaging)
 	service := workspace.NewWithArtifacts(db, client, store)
 	actor := "00000000-0000-7000-8000-000000000001"
@@ -219,14 +221,10 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	if err != nil || replay.Status != "CONVERGED" {
 		t.Fatal(replay, err)
 	}
-	release, err := service.CreateProductRelease(t.Context(), id, workspace.CreateProductReleaseRequest{RequestID: id + "-offset-release", Name: "Frozen signed offset", ActorID: actor})
-	if err != nil {
-		t.Fatal(err)
-	}
 	literal = "4 mm"
 	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, Value: -2, QuantityExpression: &literal, DirectionRelation: "OPPOSITE", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
 	check(product, 4)
-	frozen, err := service.ReplayProductRelease(t.Context(), id, release.ID, id+"-offset-release-replay")
+	frozen, err := service.ReplayAssemblySolveManifest(t.Context(), id, digest, id+"-offset-snapshot-replay")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,13 +232,13 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	if len(raw) == 0 || edited.Product.Constraints[len(edited.Product.Constraints)-1].Value != -2 {
 		t.Fatal("frozen evidence missing")
 	}
-	if frozen.Assembly == nil {
-		t.Fatal("Release lost assembly evidence")
+	if frozen.ManifestDigest == "" {
+		t.Fatal("SolveManifest lost assembly evidence")
 	}
 	for _, body := range replay.Result.Bodies {
-		for _, f := range frozen.Assembly.Result.Bodies {
+		for _, f := range frozen.Result.Bodies {
 			if body.ID == f.ID && !reflect.DeepEqual(body.Pose, f.Pose) {
-				t.Fatal("Release pose changed after Head edit")
+				t.Fatal("SolveManifest pose changed after Head edit")
 			}
 		}
 	}

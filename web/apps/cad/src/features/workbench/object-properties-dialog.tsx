@@ -90,13 +90,13 @@ export function ObjectPropertiesDialog({targets,pending,onPreviewRequest,onPrevi
     {Boolean(projected?.unresolvedFaces||projected?.issues?.length)&&<Alert type="warning" title="部分外观引用已失效" description="请重新设置对应面的外观或清除分面覆盖；处理前不能导出 STEP。"/>}
     <Typography.Text type="secondary">修改表面属性会保留其他字段和已有分面赋色。</Typography.Text>
   </Space>;
-  const info=<Descriptions column={1} size="small" items={[{key:"scope",label:"作用范围",children:first.scope},{key:"object",label:"对象",children:first.title},{key:"path",label:"所在位置",children:first.target.instancePath?.display??"当前文档"}]}/>;
+  const info=<><Descriptions column={1} size="small" items={[{key:"scope",label:"作用范围",children:first.scope},{key:"object",label:"对象",children:first.title},{key:"path",label:"所在位置",children:first.target.instancePath?.display??"当前文档"}]}/>{targets.every(target=>target.target.kind==="INSTANCE")&&<CommandField label="属性基线" width="content"><Button aria-label="加载最新属性（保留修改）" type="link" disabled={pending} loading={refreshing} onClick={async()=>{setRefreshing(true);try{await onRefresh();setCommitError(undefined);setPreviewError(undefined);setRetry(v=>v+1)}catch(error){setCommitError(error instanceof Error?error.message:String(error))}finally{setRefreshing(false)}}}>加载最新属性（保留修改）</Button></CommandField>}</>;
   return <CommandDialog id="object-properties" open title={`属性 · ${single?first.title:`${targets.length} 个对象`}`} size="M" onClose={onClose} confirmLoading={pending} confirmDisabled={!editable||!valid||!(changedName||changedDescription||changedGraphics)} onConfirm={async()=>{try{await onApply(request)}catch(error){setCommitError(error instanceof Error?error.message:String(error));throw error}}}>
     <Typography.Paragraph type="secondary">{first.scope} · 确定后保存到文档历史</Typography.Paragraph>
     {!canModify&&<Alert type="info" title={sameOwner?first.reason??"当前对象只读":"批量修改需要同一写入文档。请分别编辑原始文档，或使用当前装配的实例覆盖。"}/>}
     {previewError&&<Alert type="error" title="外观预览失败" description={engineeringProblem(previewError)} action={<Button size="small" onClick={()=>setRetry(v=>v+1)}>重试</Button>}/>}
     {commitError&&<Alert type="error" title="属性尚未保存，修改已保留" description={engineeringProblem(commitError)}/>}
-    <Button type="link" disabled={pending} loading={refreshing} onClick={async()=>{setRefreshing(true);try{await onRefresh();setCommitError(undefined);setPreviewError(undefined);setRetry(v=>v+1)}catch(error){setCommitError(error instanceof Error?error.message:String(error))}finally{setRefreshing(false)}}}>加载最新版本并保留修改</Button>
+
     <Tabs defaultActiveKey={graphics&&first.target.kind!=="DOCUMENT"?"graphic":"basic"} items={[{key:"basic",label:"基本",children:basic},...(graphics?[{key:"graphic",label:"图形",children:graphic}]:[]),{key:"info",label:"信息",children:info}]}/>
   </CommandDialog>;
 }

@@ -180,6 +180,7 @@ func projectPartStructure(ctx context.Context, service *Service, root DocumentSt
 	if len(model.Measurements) > 0 {
 		root.Children = append(root.Children, measurementStructure(documentID, versionID, path, model.Measurements, model.Parameters))
 	}
+	root.Children = parametersAfterApplications(root.Children)
 	rootPath := root.InstancePath
 	applyInstancePath(root.Children, rootPath)
 	annotateStructure(&root, documentID, "")
@@ -197,9 +198,6 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 		return DocumentStructureNode{}, err
 	}
 	root.Children = make([]DocumentStructureNode, 0, len(model.Instances))
-	if len(model.Parameters) > 0 {
-		root.Children = append(root.Children, documentParameterStructure(model.Parameters, path, documentID, versionID))
-	}
 	for _, instance := range model.Instances {
 		resolvedVersionID := instance.ReferencedVersionID
 		mode := strings.ToUpper(instance.ReferenceMode)
@@ -342,6 +340,9 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 	if len(applications.Children) > 0 {
 		root.Children = append(root.Children, applications)
 	}
+	if len(model.Parameters) > 0 {
+		root.Children = append(root.Children, documentParameterStructure(model.Parameters, path, documentID, versionID))
+	}
 	annotateStructure(&root, documentID, "")
 	applyOccurrenceVisibilityProjection(&root, model.VisibilityOverrides)
 	projectOccurrenceNames(&root, model, occurrenceIdentity.Canonical)
@@ -371,4 +372,20 @@ func projectPartCollections(view *DocumentView, model PartModel) {
 			}
 		}
 	}
+}
+
+// Parameters remain a single document-level projection, after application data.
+func parametersAfterApplications(nodes []DocumentStructureNode) []DocumentStructureNode {
+	result := make([]DocumentStructureNode, 0, len(nodes))
+	for _, node := range nodes {
+		if node.Kind != "PARAMETER_SET" {
+			result = append(result, node)
+		}
+	}
+	for _, node := range nodes {
+		if node.Kind == "PARAMETER_SET" {
+			result = append(result, node)
+		}
+	}
+	return result
 }

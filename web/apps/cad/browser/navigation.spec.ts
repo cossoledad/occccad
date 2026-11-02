@@ -1,3 +1,4 @@
+import {treeNavigator} from "./tree-helpers";
 import {viewportProbe,expectViewport} from "./camera-helpers";
 import {setProjection} from "./camera-helpers";
 import { expect, test, type Page } from "@playwright/test";
@@ -139,8 +140,8 @@ test("orthographic detail navigation, isometric shortcut and sketch view round t
   await page.mouse.down({ button: "middle" }); await page.mouse.move(x + 40, y + 25, { steps: 3 }); await page.mouse.up({ button: "middle" });
   await expectViewport(projection).toHaveText(scale!);
   const beforeSketch = await projectedView(page);
-  const filter = page.getByRole("textbox", { name: "筛选模型结构" });
-  await filter.fill("XY Plane");
+  const revealTree=treeNavigator(page);
+  await revealTree("XY Plane");
   await page.getByRole("treeitem").filter({ hasText: "XY Plane" }).click();
   await page.getByRole("button", { name: "草图", exact: true }).click();
   await expect(page.getByRole("button", { name: "退出草图", exact: true })).toBeVisible();
@@ -178,8 +179,8 @@ test("switching documents clears the previous sketch camera session", async ({ p
   const assemblyCamera = await viewportProbe(page,"navigation-camera").textContent();
   await page.locator(".document-tab-switch").filter({ hasText: "Mounting Bracket" }).click();
   await expect(page.getByRole("button", { name: "草图", exact: true })).toBeVisible();
-  const filter = page.getByRole("textbox", { name: "筛选模型结构" });
-  await filter.fill("XY Plane");
+  const revealTree=treeNavigator(page);
+  await revealTree("XY Plane");
   await page.getByRole("treeitem").filter({ hasText: "XY Plane" }).click();
   await page.getByRole("button", { name: "草图", exact: true }).click();
   await expect(page.getByRole("button", { name: "退出草图", exact: true })).toBeVisible();
@@ -195,8 +196,8 @@ test("sketch normal view, persistent world context and exit selection synchroniz
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (/THREE.WebGLProgram|VALIDATE_STATUS|Shader Error/.test(message.text())) errors.push(message.text()); });
   await page.goto("/documents/mock-part-bracket");
-  const filter = page.getByRole("textbox", { name: "筛选模型结构" });
-  await filter.fill("Sketch 1");
+  const revealTree=treeNavigator(page);
+  await revealTree("Sketch 1");
   const sketch = page.getByRole("treeitem").filter({ hasText: "Sketch 1" });
   // This consumed sketch is hidden in the fixture. Explicitly show it so the
   // exit-selection assertion can require a visible highlight without bypassing

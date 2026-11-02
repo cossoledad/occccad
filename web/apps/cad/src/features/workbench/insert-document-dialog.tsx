@@ -13,10 +13,11 @@ type Scope = "all" | "recent" | "shared" | "folder" | "selected";
 const PAGE_SIZE = 12;
 
 /** A paged resource browser. Selection persists across pages and filters. */
-export function InsertDocumentDialog({ targetID, rootID, targetFolderID,busy, onClose, onInsertDocuments }: {
-  targetID: string; rootID: string;targetFolderID?:string; busy: boolean;
+export function InsertDocumentDialog({ targetID, rootID, targetFolderID,busy, replacementName, onClose, onInsertDocuments }: {
+  targetID: string; rootID: string;targetFolderID?:string; busy: boolean; replacementName?:string;
   onClose: () => void; onInsertDocuments: (ids: string[]) => Promise<unknown>;
 }) {
+  const replacing=replacementName!==undefined;
   const [scope, setScope] = useState<Scope>("folder");
   const [folderID, setFolderID] = useState(targetFolderID??"");
   const [query, setQuery] = useState("");
@@ -62,7 +63,7 @@ export function InsertDocumentDialog({ targetID, rootID, targetFolderID,busy, on
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { submittingRef.current = false; setSubmitting(false); }
   };
-  return <CommandDialog id="insert-components" open title="插入组件" size="L" onClose={onClose} confirmDisabled={!selected.length} confirmLoading={pending} onConfirm={confirm}><div className="insert-document-dialog">
+  return <CommandDialog id={replacing?"replace-instance":"insert-components"} open title={replacing?`替换组件 · ${replacementName}`:"插入组件"} confirmText={replacing?"替换":"确定"} size="L" onClose={onClose} confirmDisabled={!selected.length} confirmLoading={pending} onConfirm={confirm}><div className="insert-document-dialog">
     <div className="insert-browser" aria-busy={pending}>
       <nav className="insert-locations" aria-label="组件来源">
         {([{ id: "all", label: "全部文档", icon: <ApartmentOutlined /> }, { id: "recent", label: "最近打开", icon: <ClockCircleOutlined /> },
@@ -89,7 +90,7 @@ export function InsertDocumentDialog({ targetID, rootID, targetFolderID,busy, on
         {((scope !== "selected" && documents.error) || (scope === "folder" && (folders.error || breadcrumbs.error))) && <Alert type="error" showIcon title="无法加载文档"
           description={engineeringProblem(documents.error ?? folders.error ?? breadcrumbs.error)}
           action={<Button size="small" onClick={() => { void documents.refetch(); if (scope === "folder") { void folders.refetch(); if (folderID) void breadcrumbs.refetch(); } }}>重试</Button>} />}
-        {error && <Alert type="error" showIcon title="插入失败" description={engineeringProblem(error)} />}
+        {error && <Alert type="error" showIcon title={replacing?"替换失败":"插入失败"} description={engineeringProblem(error)} />}
         <div className="insert-result-scroll">
           {scope === "folder" && <div className="insert-folder-list">{folders.data?.map((folder) => <button key={folder.id} aria-label={folder.name}
             disabled={pending} onClick={() => changeLocation("folder", folder.id)}><FolderOutlined /><span>{folder.name}</span></button>)}</div>}
@@ -98,9 +99,9 @@ export function InsertDocumentDialog({ targetID, rootID, targetFolderID,busy, on
               const excluded = document.id === targetID || document.id === rootID;
               const isSelected = selected.some((item) => item.id === document.id);
               return <button key={document.id} className={`insert-document-card ${isSelected ? "selected" : ""}`}
-                aria-label={`选择 ${document.name}`} aria-pressed={isSelected} disabled={excluded || pending || (!isSelected && selected.length >= 128)}
+                aria-label={`选择 ${document.name}`} aria-pressed={isSelected} disabled={excluded || pending || (!replacing && !isSelected && selected.length >= 128)}
                 title={excluded ? "不能将当前装配或根装配插入自身" : document.name} onClick={() => {
-                  setSelected((current) => isSelected ? current.filter((item) => item.id !== document.id) : [...current, document]);
+                  setSelected((current) => isSelected ? current.filter((item) => item.id !== document.id) : replacing?[document]:[...current, document]);
                   setError(undefined);
                 }}>
                 <DocumentThumbnail document={document} /><strong>{document.name}</strong>
@@ -117,7 +118,7 @@ export function InsertDocumentDialog({ targetID, rootID, targetFolderID,busy, on
           <p>{lastSelected.description || "暂无说明"}</p>
           <dl><dt>所在位置</dt><dd>{lastSelected.folderId ? selectedFolder.isError ? "位置读取失败" : selectedFolder.isPending ? "加载中…" : selectedFolder.data?.map((folder) => folder.name).join(" / ") || "文件夹" : "我的文档"}</dd>
             <dt>最近修改</dt><dd>{new Date(lastSelected.lastUpdated).toLocaleString()}</dd>
-            <dt>引用方式</dt><dd>跟随最新版本；关联参数更新需确认</dd></dl>
+            <dt>引用方式</dt><dd>{replacing?"保留原实例的引用方式":"跟随最新版本；关联参数更新需确认"}</dd></dl>
         </> : <div className="insert-preview-empty"><ApartmentOutlined /><strong>组件预览</strong><p>选择文档以查看缩略图、位置和详细信息</p></div>}
       </aside>
     </div>

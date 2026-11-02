@@ -188,7 +188,7 @@ Activate/Deactivate（抑制）控制该定义是否参与更新，作用于六�
 - 非激活约束不进入硬方程、rigid-cluster 合并、rank/DOF 限制或活动冲突集合。组停用释放其组关系，但不删除或自动抑制组内独立定义的约束。
 - 停用对象保留可检查的引用状态；来源缺失仍可显示 NotConnected，但不以其 Broken 阻止其余活动约束求解。激活前重新解析当前快照，不能复用停用前 Verified。恢复时重新检查支持与兼容性；允许保存 Broken/Impossible/NotUpdated 定义，失败不写入候选姿态，后续抑制、重连或编辑可恢复。
 - Deactivated、Connected/NotConnected、NotUpdated/Broken/Impossible/Verified、Measure 是不同维度。树、属性、视口符号和分析计数都需显示停用；停用标记不抹去诊断证据。
-- Manifest/Release 冻结全部定义与激活状态，参与 solver 的 active set 可重建。Release gate 对活动约束要求 Verified，对停用定义显式记录排除理由；停用不伪造 Verified，也不使旧 Release 随新激活状态变化。
+- SolveManifest 冻结全部定义与激活状态，参与 solver 的 active set 可重建。停用不伪造 Verified，重放清单不随 Head 的激活状态变化。产品版本功能已移除。
 
 ## 尊重约束的连续三维操纵
 

@@ -119,3 +119,5 @@ mise run contract --purpose gaps --family Offset --adapters go,web,web-catalog
 7. 剩余运动行鼠标/键盘选择即显示方向；缩放/窗口变化后箭头尺寸稳定，模型遮挡/透明/高亮下可见；小数噪声显示零，单位转换和真实微小值保留。WebGL 外观仍需实机验证。
 
 装配主体能力按当前开发合同验证；实际闭环操纵、异常恢复和显示需结合具体输入验收，执行范围读取当次报告。机构范围和验证入口见[当前机构合同](../../docs/architecture/current/kinematics-dmu.md#范围及继续扩展的边界)，装配未解决问题见[模块限制](../../docs/architecture/current/product-assembly.md#入口与限制)。自动检查不代替实机视觉验收，不补造截图、测试版本或工业/性能结论。
+
+`productReleaseRemovalReview20261102` 对应用户明确要求移除 ProductRelease。仅把受影响 fixture 的发布包装改为直接重放不可变 SolveManifest，并删除发布专属门；共享 helper 的几何、支撑、历史、模式和激活断言保留。九组受影响 Go fixture 已在配置 SQLite 与 Release Router/Worker 实际执行，统一输入场景也已执行；只同步列出的断言摘要和发布措辞，数值目标、容差、稳定 case 身份与能力下限未变。它不宣称 PostgreSQL、全量浏览器或工业验收。

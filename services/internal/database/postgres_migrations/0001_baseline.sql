@@ -356,21 +356,6 @@ CREATE TABLE occccad.product_instances (
     CONSTRAINT product_instances_check CHECK ((referenced_version_id <> product_version_id))
 );
 
-CREATE TABLE occccad.product_releases (
-    id uuid DEFAULT uuidv7() NOT NULL,
-    root_product_document_id uuid NOT NULL,
-    root_product_revision_id uuid NOT NULL,
-    name text NOT NULL,
-    request_id text NOT NULL,
-    request_digest text NOT NULL,
-    manifest_digest text NOT NULL,
-    manifest jsonb NOT NULL,
-    gate_status text NOT NULL,
-    created_by uuid NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT product_releases_gate_status_check CHECK ((gate_status = ANY (ARRAY['PASSED'::text, 'FAILED'::text])))
-);
-
 CREATE TABLE occccad.product_solve_manifests (
     digest text NOT NULL,
     schema_version integer NOT NULL,
@@ -595,15 +580,6 @@ ALTER TABLE ONLY occccad.product_instances
 
 ALTER TABLE ONLY occccad.product_instances
     ADD CONSTRAINT product_instances_product_version_id_instance_key_key UNIQUE (product_version_id, instance_key);
-
-ALTER TABLE ONLY occccad.product_releases
-    ADD CONSTRAINT product_releases_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY occccad.product_releases
-    ADD CONSTRAINT product_releases_root_product_document_id_name_key UNIQUE (root_product_document_id, name);
-
-ALTER TABLE ONLY occccad.product_releases
-    ADD CONSTRAINT product_releases_root_product_document_id_request_id_key UNIQUE (root_product_document_id, request_id);
 
 ALTER TABLE ONLY occccad.product_solve_manifests
     ADD CONSTRAINT product_solve_manifests_pkey PRIMARY KEY (digest);
@@ -875,15 +851,6 @@ ALTER TABLE ONLY occccad.product_instances
 
 ALTER TABLE ONLY occccad.product_instances
     ADD CONSTRAINT product_instances_referenced_version_id_fkey FOREIGN KEY (referenced_version_id) REFERENCES occccad.document_versions(id);
-
-ALTER TABLE ONLY occccad.product_releases
-    ADD CONSTRAINT product_releases_created_by_fkey FOREIGN KEY (created_by) REFERENCES occccad.users(id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY occccad.product_releases
-    ADD CONSTRAINT product_releases_root_product_document_id_fkey FOREIGN KEY (root_product_document_id) REFERENCES occccad.documents(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY occccad.product_releases
-    ADD CONSTRAINT product_releases_root_product_revision_id_fkey FOREIGN KEY (root_product_revision_id) REFERENCES occccad.document_versions(id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY occccad.product_solve_manifests
     ADD CONSTRAINT product_solve_manifests_root_product_document_id_fkey FOREIGN KEY (root_product_document_id) REFERENCES occccad.documents(id) ON DELETE CASCADE;

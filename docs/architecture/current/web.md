@@ -26,7 +26,7 @@ flowchart TD
 
 ## 根场景与编辑上下文
 
-Product 始终显示根装配场景，宿主 Product 决定路由与活动标签，唯一 Edit Target 的 Reference Workspace 决定工作台、命令、历史和属性目标。Product 内只有携带完整 occurrence 路径的上下文编辑，不存在脱离 occurrence 的定义编辑切换；独立 Part 标签是另一个宿主工作空间。`ViewportEditContext`/`editingView` 将活动 Part 草图的拾取、约束、尺寸拖拽和编辑从根 Product 投影中分离；切换激活状态不产生空 Revision。创建 Part、Context Catalog、Pin/Follow 和产品版本中心的领域行为见[Product 架构](product-assembly.md)。
+Product 始终显示根装配场景，宿主 Product 决定路由与活动标签，唯一 Edit Target 的 Reference Workspace 决定工作台、命令、历史和属性目标。Product 内只有携带完整 occurrence 路径的上下文编辑，不存在脱离 occurrence 的定义编辑切换；独立 Part 标签是另一个宿主工作空间。`ViewportEditContext`/`editingView` 将活动 Part 草图的拾取、约束、尺寸拖拽和编辑从根 Product 投影中分离；切换激活状态不产生空 Revision。创建 Part、Context Catalog、Pin/Follow 和组件替换的领域行为见[Product 架构](product-assembly.md)。
 
 工作台目录的 Sketcher 状态必须同时属于当前宿主的 EditSession、活动 Part 和草图。切换标签的首次渲染不能借用上一标签尚未清理的草图状态；返回原 Part 可恢复其编辑会话，引用它的 Product 仍按自己的上下文呈现。
 
@@ -125,3 +125,13 @@ Assembly Design 的 `assembly.motion-study` 使用公共命令目录进入机构
 Viewport 按统一 RAF 时钟批量更新既有 occurrence；帧间插值只作显示，暂停、采用位置及产品转换在精确逻辑时间重新求解。取消、标题关闭和 Esc 恢复入口 accepted，版本/编辑上下文及代际门禁清理旧覆盖。结果从树进入，终态结果可隐藏；没有全局播放或结果选择工具栏。机构、坐标、零位、活动命令资格、录制与回放的完整当前合同归[机构主题](kinematics-dmu.md)，未执行验收与扩展归[完整设计](kinematics-dmu.md)。
 
 命令预览在同文档/Revision/编辑 occurrence 内跨上游输入阶段的显示重建保留；原输入或版本变化、取消和关闭清除候选与加载代际。阶段显示的迟到加载不能清掉当前预览，也不能在取消后重新显示旧候选。
+
+## 工作台交互收敛
+
+命令目录按当前编辑目标和应用上下文控制入口。机构分析只在进入一个具体机构后对该机构工作，普通装配工具栏与搜索不暴露该入口；替换组件只有直接 Instance 的树右键入口。产品版本命令、面板、API 与数据模型已移除。
+
+装配约束共用 `assembly-constraint-fields`、`assembly-quantity-input` 与 `assembly-dialog-status`：主表单为支撑、关系和一个数值/公式输入框，参数名称与驱动/参考模式放入折叠选项。输入单位、带单位字面量和公式经同一 `assemblyEditIntent` 进入 Preview 与 commit；隐藏表单字段仍保留既有定义。非法本地数值显示在字段旁，不发起无效预览；支撑错误留在对应选择框，整体错误、等待状态与重试集中到对话框底部，自由度详情按需展开。取消、旧预览丢弃、定义待更新保存、CAS 及编辑会话生命周期仍由原状态机负责。
+
+CATIA 对照页面为 `online/cfyugasm_C2/cfyugasmut0303.htm`、`cfyugasmut0304.htm`：约束属性集中呈现支撑、相关方向、数值、Measure 模式和求值状态。统一公式输入与诊断位置是本软件基于既有参数模型的设计取舍。
+
+结构树与属性的具体规则见[语义树](semantic-tree.md)、[对象属性](object-scene-properties.md)。定向浏览器入口为 `browser/workbench-ux-live.spec.ts`；测试代码存在不等于已运行验收。

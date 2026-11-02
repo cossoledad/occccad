@@ -873,10 +873,6 @@ select {
 }
 .specification-tree-node:first-child>.specification-tree-row>.specification-tree-icon { color: #79b8dc; }
 .specification-tree-label { overflow: hidden; max-width: 250px; text-overflow: ellipsis; white-space: nowrap; }
-.product-release-hero { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 16px; }
-.product-release-hero > .anticon { margin-top: 5px; color: #3f89b8; font-size: 28px; }
-.product-release-hero .ant-typography { margin-top: 0; margin-bottom: 4px; }
-.product-release-ok { color: #329064; font-size: 20px; }
 .inspector-overlay-content { height: calc(100% - 41px); overflow: auto; }
 
 

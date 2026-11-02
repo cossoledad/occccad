@@ -36,7 +36,7 @@
       },
       "historyReplay": {
         "state": "implemented",
-        "reason": "Commands compensate atomically; immutable manifests freeze definitions, exact values, branch intent and group stages for cold replay and Release",
+        "reason": "Commands compensate atomically; immutable manifests freeze definitions, exact values, branch intent and group stages for cold replay and SolveManifest replay",
         "source": "services/internal/workspace/assembly_solve_manifest.go"
       }
     },
@@ -6799,7 +6799,7 @@
         "fix.relative"
       ],
       "layer": "historyReplay",
-      "expectation": "DB/Router/Worker preview commit UndoRedo empty manifest replay frozen Release and Fix/Angle lifecycle",
+      "expectation": "DB/Router/Worker preview commit UndoRedo empty manifest replay frozen SolveManifest and Fix/Angle lifecycle",
       "baseline": true,
       "package": "./internal/control",
       "requires": [
@@ -7044,7 +7044,7 @@
         "offset.plane-plane"
       ],
       "layer": "resolution",
-      "expectation": "real DB/Router/Worker rotated Datum planes plus same shared multi-CAD-Body Part occurrences, exact second-Body outward face; signed Preview/edit/expression/UndoRedo/cold/replay/frozen Release/mode and activation; not all source-failure combinations",
+      "expectation": "real DB/Router/Worker rotated Datum planes plus same shared multi-CAD-Body Part occurrences, exact second-Body outward face; signed Preview/edit/expression/UndoRedo/cold/replay/frozen SolveManifest/mode and activation; not all source-failure combinations",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-database",
@@ -7061,7 +7061,7 @@
         "offset.plane-plane"
       ],
       "layer": "historyReplay",
-      "expectation": "real DB/Router/Worker rotated Datum planes plus same shared multi-CAD-Body Part occurrences, exact second-Body outward face; signed Preview/edit/expression/UndoRedo/cold/replay/frozen Release/mode and activation; not all source-failure combinations",
+      "expectation": "real DB/Router/Worker rotated Datum planes plus same shared multi-CAD-Body Part occurrences, exact second-Body outward face; signed Preview/edit/expression/UndoRedo/cold/replay/frozen SolveManifest/mode and activation; not all source-failure combinations",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-database",
@@ -7078,7 +7078,7 @@
         "offset.plane-plane"
       ],
       "layer": "lifecycle",
-      "expectation": "real DB/Router/Worker rotated Datum planes plus same shared multi-CAD-Body Part occurrences, exact second-Body outward face; signed Preview/edit/expression/UndoRedo/cold/replay/frozen Release/mode and activation; not all source-failure combinations",
+      "expectation": "real DB/Router/Worker rotated Datum planes plus same shared multi-CAD-Body Part occurrences, exact second-Body outward face; signed Preview/edit/expression/UndoRedo/cold/replay/frozen SolveManifest/mode and activation; not all source-failure combinations",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-database",
@@ -14415,7 +14415,7 @@
         "coincidence.point-curve"
       ],
       "layer": "domain",
-      "expectation": "Exact line finite support; real commands, independent geometry, activation and frozen replay/Release",
+      "expectation": "Exact line finite support; real commands, independent geometry, activation and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -14433,7 +14433,7 @@
         "coincidence.point-curve"
       ],
       "layer": "resolution",
-      "expectation": "Exact line finite support; real commands, independent geometry, activation and frozen replay/Release",
+      "expectation": "Exact line finite support; real commands, independent geometry, activation and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -14451,7 +14451,7 @@
         "coincidence.point-curve"
       ],
       "layer": "lifecycle",
-      "expectation": "Exact line finite support; real commands, independent geometry, activation and frozen replay/Release",
+      "expectation": "Exact line finite support; real commands, independent geometry, activation and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -14469,7 +14469,7 @@
         "coincidence.point-curve"
       ],
       "layer": "historyReplay",
-      "expectation": "Exact line finite support; real commands, independent geometry, activation and frozen replay/Release",
+      "expectation": "Exact line finite support; real commands, independent geometry, activation and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -14487,7 +14487,7 @@
         "coincidence.point-surface"
       ],
       "layer": "domain",
-      "expectation": "Exact plane finite support; real commands, independent geometry, activation and frozen replay/Release",
+      "expectation": "Exact plane finite support; real commands, independent geometry, activation and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -14505,7 +14505,7 @@
         "coincidence.point-surface"
       ],
       "layer": "resolution",
-      "expectation": "Exact plane finite support; real commands, independent geometry, activation and frozen replay/Release",
+      "expectation": "Exact plane finite support; real commands, independent geometry, activation and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -14523,7 +14523,7 @@
         "coincidence.point-surface"
       ],
       "layer": "lifecycle",
-      "expectation": "Exact plane finite support; real commands, independent geometry, activation and frozen replay/Release",
+      "expectation": "Exact plane finite support; real commands, independent geometry, activation and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -14541,7 +14541,7 @@
         "coincidence.point-surface"
       ],
       "layer": "historyReplay",
-      "expectation": "Exact plane finite support; real commands, independent geometry, activation and frozen replay/Release",
+      "expectation": "Exact plane finite support; real commands, independent geometry, activation and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -15985,7 +15985,7 @@
         "coincidence.plane-plane"
       ],
       "layer": "resolution",
-      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen replay/Release",
+      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16003,7 +16003,7 @@
         "coincidence.plane-plane"
       ],
       "layer": "lifecycle",
-      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen replay/Release",
+      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16021,7 +16021,7 @@
         "coincidence.plane-plane"
       ],
       "layer": "historyReplay",
-      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen replay/Release",
+      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16039,7 +16039,7 @@
         "offset.plane-plane"
       ],
       "layer": "resolution",
-      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen replay/Release",
+      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16057,7 +16057,7 @@
         "offset.plane-plane"
       ],
       "layer": "lifecycle",
-      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen replay/Release",
+      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16075,7 +16075,7 @@
         "offset.plane-plane"
       ],
       "layer": "historyReplay",
-      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen replay/Release",
+      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16093,7 +16093,7 @@
         "angle.free.plane-plane"
       ],
       "layer": "resolution",
-      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen replay/Release",
+      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16111,7 +16111,7 @@
         "angle.free.plane-plane"
       ],
       "layer": "lifecycle",
-      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen replay/Release",
+      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16129,7 +16129,7 @@
         "angle.free.plane-plane"
       ],
       "layer": "historyReplay",
-      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen replay/Release",
+      "expectation": "Nested Product second CAD Body Publication redirect/Broken/Undo/replacement, independent geometry and frozen SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16153,7 +16153,7 @@
         "contact.plane-plane-face"
       ],
       "layer": "domain",
-      "expectation": "Fix + group internal signedOffset/coaxial/Angle0 + group capture/external Face Contact180; rejected internal failure preserves capture; independent geometry, history/Release",
+      "expectation": "Fix + group internal signedOffset/coaxial/Angle0 + group capture/external Face Contact180; rejected internal failure preserves capture; independent geometry, history/SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16177,7 +16177,7 @@
         "contact.plane-plane-face"
       ],
       "layer": "workerSolver",
-      "expectation": "Fix + group internal signedOffset/coaxial/Angle0 + group capture/external Face Contact180; rejected internal failure preserves capture; independent geometry, history/Release",
+      "expectation": "Fix + group internal signedOffset/coaxial/Angle0 + group capture/external Face Contact180; rejected internal failure preserves capture; independent geometry, history/SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16201,7 +16201,7 @@
         "contact.plane-plane-face"
       ],
       "layer": "lifecycle",
-      "expectation": "Fix + group internal signedOffset/coaxial/Angle0 + group capture/external Face Contact180; rejected internal failure preserves capture; independent geometry, history/Release",
+      "expectation": "Fix + group internal signedOffset/coaxial/Angle0 + group capture/external Face Contact180; rejected internal failure preserves capture; independent geometry, history/SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16225,7 +16225,7 @@
         "contact.plane-plane-face"
       ],
       "layer": "historyReplay",
-      "expectation": "Fix + group internal signedOffset/coaxial/Angle0 + group capture/external Face Contact180; rejected internal failure preserves capture; independent geometry, history/Release",
+      "expectation": "Fix + group internal signedOffset/coaxial/Angle0 + group capture/external Face Contact180; rejected internal failure preserves capture; independent geometry, history/SolveManifest replay",
       "baseline": true,
       "evidenceScope": "specific-combination",
       "evidenceKind": "real-router-worker-postgresql",
@@ -16563,7 +16563,7 @@
         "coincidence.point-curve"
       ],
       "layer": "domain",
-      "expectation": "Real imported sphere seam keeps trimmed domain and resolved-but-ineligible diagnostic; implicit whole-circle Preview/command rejects atomically; explicit underlying-circle moves the selected sphere-centre occurrence to independently checked plane/radius; frozen domain, Undo/Redo, cold replay and Release isolated from later suppression",
+      "expectation": "Real imported sphere seam keeps trimmed domain and resolved-but-ineligible diagnostic; implicit whole-circle Preview/command rejects atomically; explicit underlying-circle moves the selected sphere-centre occurrence to independently checked plane/radius; frozen domain, Undo/Redo, cold replay and SolveManifest replay isolated from later suppression",
       "baseline": true,
       "package": "./internal/control",
       "requires": [
@@ -16581,7 +16581,7 @@
         "coincidence.point-curve"
       ],
       "layer": "resolution",
-      "expectation": "Real imported sphere seam keeps trimmed domain and resolved-but-ineligible diagnostic; implicit whole-circle Preview/command rejects atomically; explicit underlying-circle moves the selected sphere-centre occurrence to independently checked plane/radius; frozen domain, Undo/Redo, cold replay and Release isolated from later suppression",
+      "expectation": "Real imported sphere seam keeps trimmed domain and resolved-but-ineligible diagnostic; implicit whole-circle Preview/command rejects atomically; explicit underlying-circle moves the selected sphere-centre occurrence to independently checked plane/radius; frozen domain, Undo/Redo, cold replay and SolveManifest replay isolated from later suppression",
       "baseline": true,
       "package": "./internal/control",
       "requires": [
@@ -16599,7 +16599,7 @@
         "coincidence.point-curve"
       ],
       "layer": "workerSolver",
-      "expectation": "Real imported sphere seam keeps trimmed domain and resolved-but-ineligible diagnostic; implicit whole-circle Preview/command rejects atomically; explicit underlying-circle moves the selected sphere-centre occurrence to independently checked plane/radius; frozen domain, Undo/Redo, cold replay and Release isolated from later suppression",
+      "expectation": "Real imported sphere seam keeps trimmed domain and resolved-but-ineligible diagnostic; implicit whole-circle Preview/command rejects atomically; explicit underlying-circle moves the selected sphere-centre occurrence to independently checked plane/radius; frozen domain, Undo/Redo, cold replay and SolveManifest replay isolated from later suppression",
       "baseline": true,
       "package": "./internal/control",
       "requires": [
@@ -16617,7 +16617,7 @@
         "coincidence.point-curve"
       ],
       "layer": "lifecycle",
-      "expectation": "Real imported sphere seam keeps trimmed domain and resolved-but-ineligible diagnostic; implicit whole-circle Preview/command rejects atomically; explicit underlying-circle moves the selected sphere-centre occurrence to independently checked plane/radius; frozen domain, Undo/Redo, cold replay and Release isolated from later suppression",
+      "expectation": "Real imported sphere seam keeps trimmed domain and resolved-but-ineligible diagnostic; implicit whole-circle Preview/command rejects atomically; explicit underlying-circle moves the selected sphere-centre occurrence to independently checked plane/radius; frozen domain, Undo/Redo, cold replay and SolveManifest replay isolated from later suppression",
       "baseline": true,
       "package": "./internal/control",
       "requires": [
@@ -16635,7 +16635,7 @@
         "coincidence.point-curve"
       ],
       "layer": "historyReplay",
-      "expectation": "Real imported sphere seam keeps trimmed domain and resolved-but-ineligible diagnostic; implicit whole-circle Preview/command rejects atomically; explicit underlying-circle moves the selected sphere-centre occurrence to independently checked plane/radius; frozen domain, Undo/Redo, cold replay and Release isolated from later suppression",
+      "expectation": "Real imported sphere seam keeps trimmed domain and resolved-but-ineligible diagnostic; implicit whole-circle Preview/command rejects atomically; explicit underlying-circle moves the selected sphere-centre occurrence to independently checked plane/radius; frozen domain, Undo/Redo, cold replay and SolveManifest replay isolated from later suppression",
       "baseline": true,
       "package": "./internal/control",
       "requires": [
@@ -17362,7 +17362,7 @@
         "fix.relative"
       ],
       "layer": "lifecycle",
-      "expectation": "Valid Fix ADD/EDIT after exact resolution: child deadline/Unavailable/numerical failure produces strict definition-only Preview; explicit confirm saves NotUpdated without failed poses or second solve; real healthy Worker recovery, cold read, Undo/Redo, idempotence, Release rejection. Invalid permission/canceled RPC stays rejected on retry. Not a MOVE pose candidate.",
+      "expectation": "Valid Fix ADD/EDIT after exact resolution: child deadline/Unavailable/numerical failure produces strict definition-only Preview; explicit confirm saves NotUpdated without failed poses or second solve; real healthy Worker recovery, cold read, Undo/Redo, idempotence, NotUpdated recovery. Invalid permission/canceled RPC stays rejected on retry. Not a MOVE pose candidate.",
       "baseline": true
     }
   ]

@@ -305,44 +305,12 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				return err
 			}
 		}
-		replacementSolveID := ""
-		if prepared.command.TypeURI == typeReplaceInstance {
-			var p replaceInstancePayload
-			if err := json.Unmarshal(prepared.command.Payload, &p); err != nil {
-				return err
-			}
-			if promoted {
-				replacementSolveID = candidate.assemblyPreviewRequestID
-				if err := service.checkReplacementCandidate(ctx, &model, p); err != nil {
-					return err
-				}
-			} else {
-				replacementSolveID, err = service.settleInstanceReplacement(ctx, documentID, revisionID, prepared.requestID, &model, p, nil)
-				if err != nil {
-					return err
-				}
-			}
-			stampReplacementSnapshot(&model, p, revisionID)
-			raw, marshalErr := json.Marshal(updateReferencesPayload{Model: model})
-			if marshalErr != nil {
-				return marshalErr
-			}
-			_, changes, err = applyUpdateReferences(prepared.modelJSON, raw)
-			if err != nil {
-				return err
-			}
-		}
 		if err := service.refreshProductMeasurementParameters(ctx, documentID, prepared.headRevision, revisionID, &model); err != nil {
 			return err
 		}
 		clearMeasurementProjection(model.Measurements)
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
-		if replacementSolveID != "" && len(model.Constraints) > 0 {
-			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, replacementSolveID, modelHash); err != nil {
-				return err
-			}
-		}
 
 		var priorProduct ProductModel
 		_ = json.Unmarshal(prepared.modelJSON, &priorProduct)
