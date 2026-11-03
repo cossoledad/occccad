@@ -260,7 +260,12 @@ func previewProductDocument(ctx context.Context, service *Service, input documen
 		// The adapter has already qualified the independent mechanism. Product
 		// equations belong to Product application/exit, never this confirmation.
 		solveRequestID := "preview/" + prepared.requestID
-		if !kinematicsPreview && prepared.command.TypeURI != typeReplaceInstance {
+		if publicationDefinitionOnly(prepared.command.TypeURI) {
+			if err := service.refreshPublicationEditConsumers(ctx, &model); err != nil {
+				return CommandPreview{}, err
+			}
+		}
+		if !kinematicsPreview && !publicationDefinitionOnly(prepared.command.TypeURI) && prepared.command.TypeURI != typeReplaceInstance {
 			if err = service.solveAssembly(ctx, documentID, prepared.headRevision, "preview/"+prepared.requestID, driven, solveIntent, &model, warmStartKey, &assemblyResult); err != nil {
 				if retained := acceptAssemblyEvaluationFailure(&model, err, retainsAssemblyDefinition(prepared.command.TypeURI)); retained == nil {
 					retainedFailure = true

@@ -312,6 +312,10 @@ func TestProductDirectPublicationUsesContextGeometryAndNestedConsumer(t *testing
 	if port.Target.Element == nil || port.Target.Element.SourceGeometryKey != key || port.Resolution.GeometryKey != key || math.Abs(port.Resolution.Origin[2]-30) > 1e-8 {
 		t.Fatal("publication used definition geometry instead of context", port)
 	}
+	checked, err := s.InspectAssemblySupports(t.Context(), module.Document.ID, []workspace.AssemblyGeometryRef{{InstanceID: module.Product.Instances[1].ID, Kind: "FACE", PublicationRef: &workspace.PublicationRef{Scope: "LOCAL", PublicationID: port.ID, ExpectedType: "SURFACE", CompatibilityVersion: port.CompatibilityVersion}}})
+	if err != nil || checked.Supports[0].Status != "RESOLVED" || math.Abs(checked.Supports[0].Descriptor.Origin[2]-30) > 1e-8 {
+		t.Fatal("local context publication used base geometry", err, checked)
+	}
 	parent := create("PRODUCT", "Nested context consumer")
 	run(&parent, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: module.Document.ID})
 	run(&parent, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: receiver.Document.ID})

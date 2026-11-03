@@ -58,7 +58,6 @@ export function treeKeysForSelections(nodes: SpecificationTreeNode[], selections
   const keys = new Set<string>();
   for (const selection of selections) {
     for (const key of index.bySelection.get(selectionKey(selection)) ?? []) keys.add(key);
-    if(selection.kind==='publication'&&selection.highlightTarget)for(const key of index.bySelection.get(selectionKey(selection.highlightTarget))??[])keys.add(key);
     const locator = elementLocator(selection);
     if (locator) for (const key of index.publicationsByLocator.get(locator) ?? []) keys.add(key);
   }

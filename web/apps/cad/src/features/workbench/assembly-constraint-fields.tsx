@@ -24,13 +24,14 @@ const assemblyConstraintUI: Record<AssemblyConstraint["kind"], AssemblyConstrain
   DISTANCE: { supports: 2, direction: true, distanceDirection: true, value: "distance" },
 };
 
-export function AssemblyConstraintFields({ kind, references, supportIssues,exactTypes, sourceTypes, contactCapabilities, view, lengthUnit, constraint, previewEvaluation, replacing, onReplace, onRemove, onDerive, onLocate, onValueCommit, angleRelation,groupPicking,onPickGroup, replacingMember, onReplaceMember, onLocateMember }: {
+export function AssemblyConstraintFields({ kind, references, supportIssues,exactTypes, sourceTypes, contactCapabilities, view, lengthUnit, constraint, previewEvaluation, replacing, onReplace, onRemove, onDerive, onLocate, onSelectSupport, onHoverSupport, onValueCommit, angleRelation,groupPicking,onPickGroup, replacingMember, onReplaceMember, onLocateMember }: {
   kind: keyof typeof assemblyConstraintUI; references: Array<AssemblyGeometryRef | undefined>;
   supportIssues?:Array<string|undefined>;exactTypes?:string[];sourceTypes?:string[];contactCapabilities?:Array<{subtype:string}>;
   view?: DocumentView;
   lengthUnit: string;
   constraint?: AssemblyConstraint; replacing?: 0 | 1 | 2;
   previewEvaluation?: CommandPreview["constraintEvaluation"];
+  onSelectSupport?:(reference:AssemblyGeometryRef)=>void;onHoverSupport?:(reference:AssemblyGeometryRef|undefined)=>void;
   onReplace: (index: 0 | 1) => void; onRemove?:(index:0|1)=>void; onLocate: (reference: AssemblyGeometryRef) => void;
   onDerive: (index:0|1,role:string)=>void;
   onValueCommit: () => void; angleRelation?:AssemblyConstraint["angleRelation"];
@@ -59,7 +60,7 @@ export function AssemblyConstraintFields({ kind, references, supportIssues,exact
       const reference=references[index],base=assemblySupportPresentation(reference),preview=index===0?previewEvaluation?.first:previewEvaluation?.second;
       const support=preview?{...base,status:preview.status,diagnosticCode:preview.diagnosticCode,diagnostic:preview.diagnostic}:base;
       const presentation=describeAssemblyReference(reference,view);
-      return <FeaturePickField compact key={index} label={`支撑 ${index+1}`} value={presentation.primary} detail={reference?presentation.secondary:undefined} selected={!!reference} active={replacing===index} onActivate={()=>onReplace(index as 0|1)} onClear={reference&&onRemove?()=>onRemove(index as 0|1):undefined} onLocate={reference?()=>onLocate(reference):undefined} error={reference?(supportIssues?.[index]??(support.status!=="CONNECTED"&&support.diagnostic?engineeringProblem({code:support.diagnosticCode,message:support.diagnostic}):undefined)):undefined}>
+      return <FeaturePickField compact onSelect={reference&&onSelectSupport?()=>onSelectSupport(reference):undefined} onHover={onHoverSupport?active=>onHoverSupport(active?reference:undefined):undefined} key={index} label={`支撑 ${index+1}`} value={presentation.publication?<span className="assembly-publication-label" title={presentation.primary} style={{display:'flex',alignItems:'center',minWidth:0,width:'100%',gap:3}}><span style={{maxWidth:'42%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{presentation.owner}</span><span>{' : '}</span><strong style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{presentation.publication}</strong></span>:presentation.primary} detail={reference?(reference.derivedRole?presentation.secondary:exactTypes?.[index]?engineeringLabel(exactTypes[index],presentation.secondary):presentation.secondary):undefined} selected={!!reference} active={replacing===index} onActivate={()=>onReplace(index as 0|1)} onClear={reference&&onRemove?()=>onRemove(index as 0|1):undefined} onLocate={reference?()=>onLocate(reference):undefined} error={reference?(supportIssues?.[index]??(support.status!=="CONNECTED"&&support.diagnostic?engineeringProblem({code:support.diagnosticCode,message:support.diagnostic}):undefined)):undefined}>
        {reference&&derivedSupportOptions(sourceTypes?.[index]).length>0&&<CommandField label="支撑类型" width="enum"><Select aria-label={`支持元素 ${index+1} 的支撑类型`} value={reference.derivedRole??''} options={derivedSupportOptions(sourceTypes?.[index])} onChange={role=>onDerive(index as 0|1,role)}/></CommandField>}
       </FeaturePickField>;
     })}</CommandGroup>}

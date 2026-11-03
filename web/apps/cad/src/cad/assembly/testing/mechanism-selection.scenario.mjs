@@ -23,7 +23,7 @@ const replaced=changeJointSupport(defined,'first.axis',{instanceId:'c'});assert.
 assert.equal(nextJointSupportRole(defined,'first.axis'),undefined,'replacing a complete support does not activate another already bound field');
 assert.match(jointSupportLabel(view,{instanceId:'a',kind:'FACE',derivedRole:'cylinder-axis'}),/圆柱面轴线/);
 assert.match(jointSupportLabel(view,{instanceId:'a',kind:'PLANE',geometryId:'datum-xy'}),/XY 平面/);
-const publications={...view,structureTree:{kind:'PRODUCT',children:['b','a'].map(id=>({instancePath:path(id),children:[{kind:'PUBLICATION',entityId:'surface',name:id+' 的圆柱面'}]}))}};
+const publications={...view,structureTree:{kind:'PRODUCT',children:['b','a'].map(id=>({instancePath:path(id),children:[{kind:'PUBLICATION',entityId:'surface',documentId:'part',versionId:'part-r',instancePath:path(id),name:id+' 的圆柱面'}]}))}};
 assert.match(jointSupportLabel(publications,{instanceId:'a',kind:'FACE',derivedRole:'cylinder-axis',publicationRef:{publicationId:'surface'}}),/a 的圆柱面/,'identical publication IDs in different occurrences must retain their owner');
 const index=new SelectionIndex(),front=selection('b','face',99),axis=selection('b','face',2);
 const mesh=(z)=>{const m=new THREE.Mesh(new THREE.PlaneGeometry(10,10),new THREE.MeshBasicMaterial());m.position.z=z;m.updateMatrixWorld();return m};

@@ -3363,6 +3363,11 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		if constraint.Suppressed {
 			continue
 		}
+		for _, ref := range []*AssemblyGeometryRef{&constraint.First, constraint.Second, constraint.AngleAxis} {
+			if ref != nil && ref.PublicationRef != nil && ref.PublicationRef.Scope == "LOCAL" {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("product-publication:" + ref.PublicationRef.PublicationID), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		}
 		edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + constraint.First.InstanceID), Target: key, Kind: "READ_GEOMETRY"})
 		if constraint.Second != nil {
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + constraint.Second.InstanceID), Target: key, Kind: "READ_GEOMETRY"})
@@ -3407,7 +3412,7 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		}
 		data, _ := json.Marshal(publication)
 		key := modelcore.DependencyKey("product-publication:" + publication.ID)
-		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 3, Type: "PRODUCT_PUBLICATION", CanonicalInput: data})
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 3, Type: "PRODUCT_PUBLICATION", CanonicalInput: data, Derived: true})
 		edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + instanceID), Target: key, Kind: modelcore.ReadGeometry})
 	}
 	bindingIDs, bindingNames, boundInputs := map[string]bool{}, map[string]bool{}, map[string]bool{}

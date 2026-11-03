@@ -264,7 +264,7 @@ export type AssemblyGeometryRef = { capturedFrame?:{id:string;policy:string;leng
   geometryId?: string; axis?: string; geometryKey?: string; topologyId?: number; sourceVersionId?: string;
   persistentSelection?: PersistentSelection; resolution?: { sourceVersionId: string; targetVersionId: string;
     manifestDigest: string; policyDigest: string; result: SelectionResolution };
-  publicationRef?: { publicationId:string; expectedType:string; compatibilityVersion:string; persistentSelection?:PersistentSelection };
+  publicationRef?: { scope?:"LOCAL"|"OCCURRENCE"; ownerPath?:InstancePath; publicationId:string; expectedType:string; compatibilityVersion:string; persistentSelection?:PersistentSelection };
   publicationResolution?: Publication["resolution"] };
 export type AssemblyEvaluationFailure = { diagnosticId?:string;code:string;phase:string;retryable:boolean};
 export type AssemblyConstraint = {

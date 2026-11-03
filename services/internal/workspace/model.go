@@ -597,6 +597,10 @@ type ContextInput struct {
 }
 
 type PublicationRef struct {
+	// Empty scope denotes an occurrence interface, also used by ContextBinding.
+	// LOCAL is owned by the constraint's Product candidate, never its mutable Head.
+	Scope                    string                         `json:"scope,omitempty"`
+	OwnerPath                *InstancePath                  `json:"ownerPath,omitempty"`
 	PublicationID            string                         `json:"publicationId"`
 	ExpectedType             string                         `json:"expectedType"`
 	CompatibilityVersion     string                         `json:"compatibilityVersion"`

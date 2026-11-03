@@ -1,3 +1,5 @@
+import {assemblyReferenceInContext} from "../cad/assembly/assembly-reference";
+import {assemblyPublicationSelection,assemblyPublicationCandidates,type AssemblyPublicationChoice} from "../features/workbench/assembly-publication-selection";
 import {SectionManipulator,type SectionEditSession} from "../cad/interaction/section-manipulator";
 import {sectionClippingPlanes,sectionRepresentation} from "../cad/rendering/section-presentation";
 import {snapFrame} from "../cad/interaction/manipulator-snap";
@@ -107,6 +109,7 @@ import type {
 } from "../types";
 
 type Callbacks = {
+  publicationChoiceRequested?:(choice:AssemblyPublicationChoice)=>void;
   documentDisplayed?:(documentId:string,revisionId:string)=>void;
   sceneMetricsChanged?:(metrics:import("../cad/rendering/scene-settings").SceneMetrics)=>void;
   selectionsChanged: (selections: SelectionItem[]) => void;
@@ -539,6 +542,7 @@ export class CadViewportEngine {
   private highlightedRoots = new Set<THREE.Object3D>();
   private view?: DocumentView;
   private renderGeometrySignature?: string;
+  private publicationChoiceGeneration=0;
   private editContext?: ViewportEditContext;
   private sketchPlane?: SketchPlane;
   private activeSketchID?: string;
@@ -816,6 +820,7 @@ export class CadViewportEngine {
     this.input = new InputManager(this.renderer.domElement, this.sketchModal,{keyDown:this.sketchModal.modalKeyDown,keyUp:this.sketchModal.modalKeyUp,retainNavigationCapture:event=>this.navigation.retainsMouseCapture(event.pointerId,event.buttons)});
     this.input.subscribe(() => this.emitDebugState());
     this.tools.subscribe((toolID) => {
+      this.publicationChoiceGeneration++;
       this.activeToolID = toolID ?? "select";
       this.selectionMode = selectionModeForTool(this.activeToolID);
       this.preselect(null, true);
@@ -2578,6 +2583,16 @@ export class CadViewportEngine {
 
   private resolveAssemblyConstraintReference(reference: AssemblyGeometryRef,ownerOccurrence=""):
     { selection: SelectionItem; object: THREE.Object3D; anchor: THREE.Vector3 } | undefined {
+    if(reference.publicationRef&&this.view){
+      const selected=assemblyPublicationSelection(this.view,reference,ownerOccurrence),target=selected?.highlightTarget;
+      if(!selected||!target)return;
+      const raw=assemblyGeometryRef({...target,instanceId:target.instancePath?.segments[0]?.instanceId??reference.instanceId});
+      const actual=raw?this.resolveAssemblyConstraintReference(raw):undefined;
+      if(actual)return {...actual,selection:selected};
+      const object=this.selectionIndex.objectsFor(target)[0];
+      if(object)return {selection:selected,object,anchor:new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3())};
+      return;
+    }
     const scopedPath=ownerOccurrence ? `${ownerOccurrence}/${reference.instancePath?.canonical ?? reference.instanceId}` : reference.instancePath?.canonical;
     const instance = this.instanceGroups.get(ownerOccurrence.split("/")[0] || reference.instanceId);
     if (!instance) return undefined;
@@ -3940,6 +3955,17 @@ export class CadViewportEngine {
   private clearSketchManipulator():void {this.clearSnapPreview();this.sketchManipulatorChanged=undefined;this.sketchManipulator?.detach();this.invalidate();}
   private toolViewportPort(): ToolViewportPort {
     return {
+      assemblySelection:(pick,remainder=[])=>{
+       const view=this.view,owner=this.editContext?.view.document,scope=this.editContext?.occurrencePath??'';
+       const choices=view?assemblyPublicationCandidates(view,pick,scope):[];
+       if(choices.length>1){
+        const generation=++this.publicationChoiceGeneration,tool=this.tools.activeToolID,revision=view?.document.versionId;
+        this.callbacks.publicationChoiceRequested?.({choices,cancel:()=>{this.publicationChoiceGeneration++;this.callbacks.toolPromptChanged('装配约束：继续选择元素')},choose:chosen=>{if(this.publicationChoiceGeneration!==generation||this.tools.activeToolID!==tool||this.view?.document.versionId!==revision)return;this.tools.selectionInput([chosen,...remainder])}});
+        this.callbacks.toolPromptChanged('请选择发布接口');return;
+       }
+       const selection=choices[0]??pick,reference=assemblyReferenceInContext(selection,owner,scope);
+       return reference?{selection,reference}:undefined;
+      },
       showSketchManipulator:(origin,mode,changed)=>this.showSketchManipulator(origin,mode,changed),
       clearSketchManipulator:()=>this.clearSketchManipulator(),
       sketchManipulatorPointerDown:(id,x,y)=>{this.sketchManipulator?.updateScale(this.camera,viewportMetrics(this.renderer));return this.sketchManipulator?.pointerDown(id,x,y,this.camera,this.renderer.domElement)??false;},

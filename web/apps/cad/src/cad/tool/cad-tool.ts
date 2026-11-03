@@ -24,6 +24,7 @@ import { randomUUID } from "../../utils/random-uuid";
 import {sketchCommitResultUnknown,type SketchCommandAction} from "./sketch-command-session";
 
 export type ToolViewportPort = {
+  assemblySelection?:(selection:SelectionItem,remainder?:readonly SelectionItem[])=>{selection:SelectionItem;reference:AssemblyGeometryRef}|undefined;
   sketchPoint(x: number, y: number): Vec2 | null;
   reportSketchFailure?(message:string,unknown:boolean):void;
   sketchSnapReference(): SketchGeometryRef | undefined;
@@ -323,9 +324,12 @@ export class AssemblyConstraintTool implements CadTool {
       context.viewport.requestAssemblyConstraint('fix_together',[],members);context.viewport.finishToolUse();return SelectionInputResult.Accepted;
     }
     let result=SelectionInputResult.Unhandled;
-    for (const candidate of selections) {
-      const selection = selectionModeForTool(this.id).project(candidate);
-      const reference = selection && assemblyGeometryRef(selection);
+    for (const [index,candidate] of selections.entries()) {
+      const projected=selectionModeForTool(this.id).project(candidate);
+      const prepared=projected&&context.viewport.assemblySelection?.(projected,selections.slice(index+1));
+      if(projected&&context.viewport.assemblySelection&&!prepared)return SelectionInputResult.Accepted;
+      const selection=prepared?.selection??projected;
+      const reference=prepared?.reference??(selection&&assemblyGeometryRef(selection));
       if (!selection || !reference || (["fix", "rigid", "fix_together"].includes(this.kind) && reference.kind !== "BODY")) continue;
       if (this.kind === "fix") {
         context.viewport.retainSelections([selection]);

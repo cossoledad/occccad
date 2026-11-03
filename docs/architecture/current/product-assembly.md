@@ -132,6 +132,12 @@ Product 发布目标互斥：本地 ParameterId、`InstancePath + Element`、`In
 
 发布别名、元素路径、持久身份分别表示“接口用途”“来自哪里”“如何恢复”。`ElementPresentation` 统一投影 `Body / Feature / 面、边线、顶点` 等路径，管理器、结构树、选择名称和属性面板共用该语义；实例名称按完整路径限定。转发接口的来源列显示 `组件实例 : 下层发布别名`，直接元素显示 `实例 / Body / Feature / 面`，避免将转发显示为独立几何副本。新转发默认沿用来源别名，当前 Product 内冲突才分配后缀。修改别名不重命名源元素，修改源名称不改变 PublicationId 或拓扑锚点。
 
+装配约束的发布地址与几何定位独立：`PublicationRef.scope=LOCAL` 引用当前 owning Product 的候选发布；`OCCURRENCE` 引用 `ownerPath` 指定的组件接口。未指定 scope 的通用 PublicationRef 表示 occurrence 接口，继续供 ContextBinding 等使用。明确选中的 Product 发布保留自身 PublicationId，不拆成下级接口；InstanceId/InstancePath 由解析器确定实际运动组件，几何和发布拥有者可以不同。LOCAL 解析使用命令候选模型与已接受的来源/ContextVariant，不加载拥有者的可变 Head。Product 坐标下的发布几何先转换为运动组件局部描述，Worker 只施加一次位姿；两个不同接口解析为同一刚体时拒绝建立二元约束。
+
+本地发布到约束建立显式依赖；几何发布输出复用派生节点调度，允许 ContextBinding → Publication → Constraint 的正确拓扑顺序。重命名保持数值状态；重定向保留接口 ID，清除消费者旧测量和评价，使其待更新，不自动移动组件；显式更新重新求解。被约束引用的本地发布不能删除。替换只重接接口目标，本地消费者继续引用原 Product PublicationId；来源无法对应时传播 Broken。引用、消费者状态和派生运动路径进入同一 ChangeSet，Undo/Redo 一并恢复。
+
+树和视区分工明确：发布条目是主选择，`highlightTarget` 只定位实际几何，来源 Feature/祖先使用弱提示，不成为隐含编辑或删除对象。约束支撑字段显示“发布拥有者 : 别名”，点击/悬浮高亮接口及实际几何，定位仅展开接口祖先并调整相机。视区拾取优先采用当前 Product 的唯一匹配接口，再考虑下级接口；精确匹配包含来源 Revision、occurrence、Body、GeometryKey、拓扑和上下文。多个同层接口弹出紧凑候选选择，不按名称、数组顺序或相似形状猜测。显式选择某个发布条目始终保留该接口；候选选择在工具切换、取消或版本变化后失效。
+
 装配支撑检查、预览和对话框使用同一状态来源：发布端点读取 `PublicationResolution`，普通精确拓扑读取 `Resolution`。有效发布不要求重复生成普通拓扑解析快照；缺失或 Broken 发布仍报告真实诊断，组件替换导致的失效证据优先于旧发布快照。
 
 几何连通性按当前接受结果判定：精确拓扑锚点在最终 Body 中唯一恢复才为 Connected；缺失、歧义或来源文档替换保留发布定义和别名，标记 Broken Link，并清除可用于显示/计算的旧几何定位器。抑制生成圆角面的 Feature 会使该面发布失效；撤销或恢复原锚点可重新连通，显式更换兼容元素也保留接口 ID。新 Head 未被接受时，只报告来源待更新，固定及已接受消费者继续使用原快照。单个失效发布不使无关上下文几何消失，消费它的约束或输入独立报告失效。

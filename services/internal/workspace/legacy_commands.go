@@ -1634,18 +1634,21 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err := json.Unmarshal(modelJSON, &product); err != nil {
 			return "", nil, err
 		}
-		if err := service.bindAssemblyPick(ctx, &product, request.FirstAssemblyRef); err != nil {
+		if err := service.bindAssemblyPick(ctx, &product, request.FirstAssemblyRef, documentID); err != nil {
 			return "", nil, err
 		}
 		if request.SecondAssemblyRef != nil {
-			if err := service.bindAssemblyPick(ctx, &product, request.SecondAssemblyRef); err != nil {
+			if err := service.bindAssemblyPick(ctx, &product, request.SecondAssemblyRef, documentID); err != nil {
 				return "", nil, err
 			}
 		}
 		if request.AngleAxis != nil {
-			if err := service.bindAssemblyPick(ctx, &product, request.AngleAxis); err != nil {
+			if err := service.bindAssemblyPick(ctx, &product, request.AngleAxis, documentID); err != nil {
 				return "", nil, err
 			}
+		}
+		if kind != "FIX" && request.SecondAssemblyRef != nil && request.FirstAssemblyRef.InstanceID == request.SecondAssemblyRef.InstanceID {
+			return "", nil, fmt.Errorf("%w: ASSEMBLY_SAME_MOTION_INSTANCE", ErrValidation)
 		}
 		constraint := AssemblyConstraint{ID: commandEntityID("assembly-constraint", request.RequestID), ConnectionID: commandEntityID("assembly-connection", request.RequestID), Name: request.Name, Kind: kind, FixMode: request.FixMode, AngleRelation: request.AngleRelation, Mode: "DRIVING", First: *request.FirstAssemblyRef,
 			Second: request.SecondAssemblyRef, Value: request.Value, DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation),
@@ -1717,17 +1720,17 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, err
 		}
 		if request.FirstAssemblyRef != nil {
-			if err := service.bindAssemblyPick(ctx, &bindingModel, request.FirstAssemblyRef); err != nil {
+			if err := service.bindAssemblyPick(ctx, &bindingModel, request.FirstAssemblyRef, documentID); err != nil {
 				return "", nil, err
 			}
 		}
 		if request.SecondAssemblyRef != nil {
-			if err := service.bindAssemblyPick(ctx, &bindingModel, request.SecondAssemblyRef); err != nil {
+			if err := service.bindAssemblyPick(ctx, &bindingModel, request.SecondAssemblyRef, documentID); err != nil {
 				return "", nil, err
 			}
 		}
 		if request.AngleAxis != nil {
-			if err := service.bindAssemblyPick(ctx, &bindingModel, request.AngleAxis); err != nil {
+			if err := service.bindAssemblyPick(ctx, &bindingModel, request.AngleAxis, documentID); err != nil {
 				return "", nil, err
 			}
 		}

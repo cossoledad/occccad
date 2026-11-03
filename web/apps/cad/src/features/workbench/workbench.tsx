@@ -1,3 +1,5 @@
+import {assemblyReferenceInContext} from "../../cad/assembly/assembly-reference";
+import {assemblyPublicationSelection,assemblyPublicationCandidates,type AssemblyPublicationChoice} from "./assembly-publication-selection";
 import {PublicationManager} from "./publication-manager";
 import {AssemblyDialogStatus} from "./assembly-dialog-status";
 import {ParameterExternalEditor} from "./parameter-external-editor";
@@ -540,6 +542,10 @@ export function Workbench() {
   const [removedAssemblySupports,setRemovedAssemblySupports]=useState<ReadonlySet<number>>(()=>new Set());
   useEffect(()=>{setRemovedAssemblySupports(new Set());},[editingAssemblyConstraint?.id,pendingAssemblyConstraint?.kind]);
   const removeAssemblySupport=(index:0|1)=>{invalidateAssemblyDefinition();setRemovedAssemblySupports(old=>new Set(old).add(index));setReplacingAssemblyReference(undefined);store.setSelection(null);};
+  const [publicationChoice,setPublicationChoice]=useState<AssemblyPublicationChoice>();
+  useEffect(()=>{setPublicationChoice(undefined)},[view?.document.id,view?.document.versionId]);
+  const selectPublishedSupport=(ref:AssemblyGeometryRef)=>{if(!view)return;const s=assemblyPublicationSelection(view,ref,activeInstancePath??'');if(s){store.setSelections([s]);requestTreeReveal(documentSessions,documentID,{documentId:s.documentId!,entityId:s.publicationId!,occurrence:s.instancePath?.canonical,kind:s.productPublication?'PRODUCT_PUBLICATION':'PUBLICATION',reason:'LOCATE'});}};
+  const hoverPublishedSupport=(ref:AssemblyGeometryRef|undefined)=>{store.setPreselection(ref&&view?assemblyPublicationSelection(view,ref,activeInstancePath??'')??null:null)};
   const assemblyReferences = removedAssemblySupports.size?[]:editingAssemblyConstraint ? [editingAssemblyConstraint.first,editingAssemblyConstraint.second].filter((r):r is AssemblyGeometryRef=>!!r&&!!r.instanceId) : pendingAssemblyConstraint?.references ?? [];
   const assemblyInspectionReferences = [...assemblyReferences.map(reference=>({...reference,derivedRole:undefined})),...assemblyReferences];
   const assemblySupportQuery = useQuery({queryKey:["assembly-support-inspection",editingView?.document.id,editingView?.document.versionId,assemblyInspectionReferences],
@@ -832,8 +838,10 @@ export function Workbench() {
   }, [canEditRoot, client, documentID, message, view, productUpdatePlan.dataUpdatedAt, automaticUpdateEpoch]);
 
   useEffect(() => {
-    if (replacingAssemblyReference === undefined || !store.selection) return;
-    const reference = assemblyGeometryRef(store.selection);
+    if (replacingAssemblyReference === undefined || !store.selection || !view) return;
+    const candidates=assemblyPublicationCandidates(view,store.selection,activeInstancePath??'');
+    if(candidates.length>1){setPublicationChoice({choices:candidates,cancel:()=>{},choose:s=>store.setSelection(s)});return;}
+    const reference = assemblyReferenceInContext(candidates[0]??store.selection,editingView?.document,activeInstancePath??'');
     if (!reference) {
       setReconnectError("请选择点、轴、平面、面、边、顶点或实体。");
       return;
@@ -1731,7 +1739,7 @@ onToggleConstruction:(node)=>{
           sketchPlane={motionDisplay?undefined:store.sketchPlane} activeSketchID={motionDisplay?undefined:store.activeSketchID} activeToolID={motionDisplay?"select":store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
           propertyPreview={objectPreview} sceneSettings={sceneSettings} gridVisibility={{...gridVisibility,scene:true}} referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
           datumPreview={datumPreview} featureSelection={featureSelection} featureInputArtifacts={viewportInputs} featureInputBoundary={inputBoundary} preferredLengthUnit={lengthUnit} captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={editSketch} onSketchIntersections={(id,input,signal)=>api.sketchIntersections(id,input,signal)} onSketchPreview={(featureId,operations,signal)=>{if(!editingView||store.activeSketchID!==featureId)return Promise.reject(new Error("草图预览上下文已结束"));if(historicalSketchId&&activeInstancePath&&!contextScopeForView(editingView))return Promise.reject(new Error("关联输入尚未就绪"));return api.previewCommand(editingView.document.id,commandForView(editingView,{type:"EDIT_SKETCH",versionId:editingView.document.versionId,sketchId:featureId,operations}),signal);}} onSketchReceiptCheck={async receipt=>{const updated=await command.mutateAsync(()=>api.command(receipt.ownerDocumentId,{...(receipt.intent.context??commandForView(editingView!,{})),type:"EDIT_SKETCH",versionId:receipt.intent.baseVersionId,sketchId:receipt.featureId,operations:receipt.operations,requestId:receipt.intent.requestId}));await refresh(updated);return updated;}}
-          onSketchReceiptChange={setSketchReceipt} onSketchCommandStateChange={setSketchCommandState} onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
+          onSketchReceiptChange={setSketchReceipt} onSketchCommandStateChange={setSketchCommandState} onToolUseComplete={store.completeToolUse} onActiveToolChange={id=>{setPublicationChoice(undefined);store.setActiveTool(id)}}
 		  onAssemblyConstraint={(toolKind, references,groupMembers) => {
             const issue = references.flatMap((reference) => {
               if (!["FACE", "EDGE", "VERTEX"].includes(reference.kind)) return [];
@@ -1782,6 +1790,7 @@ onToggleConstruction:(node)=>{
               instancePoses:Object.entries(response.frame.unitPoses).map(([instanceId,pose])=>({instanceId,...pose})),interaction:{...response.interaction,status:response.accepted?(response.interaction?.status??'CONSTRAINED'):'FAILED',hardFeasible:response.frame.kinematicValid,targetConverged:response.accepted&&Boolean(response.interaction?.targetConverged),eligibleForCommit:false,targetError:response.interaction?.targetError??Number.NaN,targetOptimality:response.interaction?.targetOptimality??Number.NaN,targetSequence:input.sequence,diagnostic:response.failure?.message}};
           }}
           onAssemblyInteractionCancel={(ownerDocumentId,sessionId)=>{const gesture=motionGestures.current.get(sessionId);if(gesture){motionGestures.current.delete(sessionId);if(!gesture.completed&&gesture.owner.active)return gesture.owner.request({values:gesture.initialValues},false).then(()=>undefined);return Promise.resolve()}return api.cancelAssemblyInteraction(ownerDocumentId,sessionId)}}
+          onPublicationChoice={setPublicationChoice}
           onInspectAssemblySupports={(owner,references,signal)=>api.inspectAssemblySupports(owner,references,signal)}
           onOperationFailed={error=>operationFeedback(error,"装配操纵")}
           onAssemblyInteractionState={(state,reason)=>{
@@ -1811,6 +1820,9 @@ onToggleConstruction:(node)=>{
         }}
         locate={reference=>{const node=assistantTarget(treeNodes,reference.documentId,reference.id);if(node?.selection)store.setSelections([node.selection]);else message.info("当前结果中暂时无法定位该对象")}}/>}
     </WorkbenchLayout>
+    {publicationChoice&&<CommandDialog id="assembly-publication-choice" onConfirm={()=>{}} open title="选择发布接口" size="S" footer={false} onClose={()=>{publicationChoice.cancel();setPublicationChoice(undefined);store.setPreselection(null)}}>
+      <Space orientation="vertical" style={{width:'100%'}}>{publicationChoice.choices.map(s=><Button key={s.id} block onMouseEnter={()=>store.setPreselection(s)} onMouseLeave={()=>store.setPreselection(null)} onClick={()=>{const pending=publicationChoice;setPublicationChoice(undefined);store.setPreselection(null);pending.choose(s)}}>{s.documentId===view.document.id?view.document.name:s.instancePath?.display} : {s.productPublication?.name??s.publication?.name}</Button>)}</Space>
+    </CommandDialog>}
     <CommandDialog commandStatus={assemblyPreviewFeedback} id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" size="M"
       secondaryActions={editingAssemblyConstraint && <Space className="assembly-constraint-actions">
           <Button disabled={command.isPending} onClick={() => {
@@ -1853,11 +1865,11 @@ onToggleConstruction:(node)=>{
           groupPicking={groupPicking} onPickGroup={()=>setGroupPicking(true)} replacingMember={replacingGroupMember} onReplaceMember={token=>{setGroupPicking(true);setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
           onLocateMember={locateAssemblyMember}
           supportIssues={assemblyTargetSupports?.map(s=>s.status!=="RESOLVED"?engineeringProblem({code:s.diagnosticCode,message:s.diagnostic}):s.constraintEligible!==true?s.constraintDiagnostic??"请选择适用的支撑类型":undefined)} exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
-          onRemove={removeAssemblySupport} references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second].map((r,i)=>removedAssemblySupports.has(i)?undefined:(resolvedAssemblyReferences[i]??r))} replacing={replacingAssemblyReference}
+          onSelectSupport={selectPublishedSupport} onHoverSupport={hoverPublishedSupport} onRemove={removeAssemblySupport} references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second].map((r,i)=>removedAssemblySupports.has(i)?undefined:(resolvedAssemblyReferences[i]??r))} replacing={replacingAssemblyReference}
           constraint={editingAssemblyConstraint} previewEvaluation={assemblyPreviewEvaluation}
 
 		  onValueCommit={invalidateAssemblyDefinition}
-          onLocate={(reference)=>{if(!viewport.current?.focusAssemblyReference(reference))setReconnectError("当前支持元素无法在视图区定位。");}}
+          onLocate={(reference)=>{selectPublishedSupport(reference);if(!viewport.current?.focusAssemblyReference(reference,activeInstancePath??""))setReconnectError("当前支持元素无法在视图区定位。");}}
 		  onReplace={(index)=>{store.setSelection(null);setReconnectError(undefined);setReplacingAssemblyReference(index);store.setActiveTool("select","once");}} />}
 
 
@@ -1893,11 +1905,11 @@ onToggleConstruction:(node)=>{
           groupPicking={groupPicking} onPickGroup={()=>setGroupPicking(true)} replacingMember={replacingGroupMember} onReplaceMember={token=>{setGroupPicking(true);setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
           onLocateMember={locateAssemblyMember}
           supportIssues={assemblyTargetSupports?.map(s=>s.status!=="RESOLVED"?engineeringProblem({code:s.diagnosticCode,message:s.diagnostic}):s.constraintEligible!==true?s.constraintDiagnostic??"请选择适用的支撑类型":undefined)} exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
-          onRemove={removeAssemblySupport} references={pendingAssemblyConstraint.references.map((r,i)=>removedAssemblySupports.has(i)?undefined:(resolvedAssemblyReferences[i]??r))} replacing={replacingAssemblyReference}
+          onSelectSupport={selectPublishedSupport} onHoverSupport={hoverPublishedSupport} onRemove={removeAssemblySupport} references={pendingAssemblyConstraint.references.map((r,i)=>removedAssemblySupports.has(i)?undefined:(resolvedAssemblyReferences[i]??r))} replacing={replacingAssemblyReference}
           previewEvaluation={assemblyPreviewEvaluation}
           angleRelation={pendingAssemblyConstraint.angleRelation}
 		  onValueCommit={invalidateAssemblyDefinition}
-          onLocate={(reference)=>{if(!viewport.current?.focusAssemblyReference(reference))setReconnectError("当前支持元素无法在视图区定位。");}}
+          onLocate={(reference)=>{selectPublishedSupport(reference);if(!viewport.current?.focusAssemblyReference(reference,activeInstancePath??""))setReconnectError("当前支持元素无法在视图区定位。");}}
 		  onReplace={(index)=>{store.setSelection(null);setReconnectError(undefined);setReplacingAssemblyReference(index);store.setActiveTool("select","once");}} />}
 
       </Form>

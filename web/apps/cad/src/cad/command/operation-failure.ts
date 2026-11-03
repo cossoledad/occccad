@@ -7,6 +7,10 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const reasons:Record<string,string>={
+    ASSEMBLY_SAME_MOTION_INSTANCE:"两个支撑属于同一运动组件，请选择不同组件。",
+    PUBLICATION_OWNER_INVALID:"发布接口的所属装配不匹配，请重新选择。",
+    PUBLICATION_OWNER_REPLACED:"发布所属组件已替换，请重新连接接口。",
+    PUBLICATION_CONSTRAINT_GEOMETRY_REQUIRED:"请选择可用于装配约束的几何发布。",
     PUBLICATION_IN_USE:"此发布仍被其他对象引用，请先更换或移除引用。",
     PUBLICATION_SOURCE_AMBIGUOUS:"此元素有多个发布，请从“浏览组件发布”中选择接口。",
     DATUM_TOPOLOGY_STAGE_INVALID:"参考几何的来源阶段不可用，请重新选择。",

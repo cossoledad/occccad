@@ -54,7 +54,8 @@ try {
   const productPick = structureSelection({id:"product/forwarded",kind:"PRODUCT_PUBLICATION",entityId:forwarded.id,documentId:"product",productPublication:forwarded},view);
   const productReference = assemblyGeometryRef(productPick);
   assert.equal(productReference.instanceId,"instance-a");
-  assert.equal(productReference.publicationRef.publicationId,"publication-face","forwarded geometry binds the stable source Publication at its exact occurrence");
+  assert.equal(productReference.publicationRef.publicationId,"forwarded-surface","constraints preserve the chosen Product interface");
+  assert.equal(productReference.publicationRef.scope,"LOCAL");
   assert.equal(productReference.instancePath.canonical,"instance-a");
   const rawFace = {instancePath, kind: "face", id: "pick", topologyId: 7, geometryKey: "geometry-key", versionId: "revision-2", occurrencePath: "instance-a",
     instanceId: "instance-a", documentId: "part", bodyId: "body-a" };
@@ -74,7 +75,7 @@ try {
   assert(selectedKeys.includes("product/instance:instance-a/reference/publications/publication:publication-face"), "the Publication node should be highlighted");
   const presentation = describeAssemblyReference({ instanceId: "instance-a", kind: "FACE", geometryKey: "geometry-key",
     topologyId: 7, publicationRef: { publicationId: "publication-face", expectedType: "SURFACE", compatibilityVersion: "1.0.0" } }, view);
-  assert.equal(presentation.primary, "Part1(Part1.1) / Mounting Surface");
+  assert.equal(presentation.primary, "Part1.1 : Mounting Surface");
   assert.equal(presentation.publication, "Mounting Surface");
 } finally {
   await server.close();
@@ -170,6 +171,27 @@ try{
  assert.match(renderToStaticMarkup(treeNodeIcon({kind:'PRODUCT_PUBLICATION',connectionStatus:'BROKEN_PUBLICATION'})),/状态 引用已失效/);
  const partNode={id:'part-node',kind:'PART',documentId:'part-doc',versionId:'pr',instancePath:relative,children:[{...body,instancePath:relative}]};
  const moduleView={document:{id:'module',versionId:'mr'},product:{instances:[]},structureTree:{id:'module',kind:'PRODUCT',children:[partNode]}};
+
+ const {assemblyGeometryRef,assemblyReferenceInContext}=await directServer.ssrLoadModule('/src/cad/assembly/assembly-reference.ts');
+ const {assemblyPublicationSelection,assemblyPublicationCandidates}=await directServer.ssrLoadModule('/src/features/workbench/assembly-publication-selection.ts');
+ const {treeData,treeKeysForSelections}=await directServer.ssrLoadModule('/src/features/workbench/workbench-tree-model.tsx');
+ const owned=assemblyGeometryRef(selected);
+ assert.equal(owned.publicationRef.scope,'OCCURRENCE');assert.equal(owned.publicationRef.publicationId,'port');assert.equal(owned.publicationRef.ownerPath.canonical,'module-a');assert.equal(owned.instancePath.canonical,'module-a','geometry path must not replace the interface owner');
+ const local=assemblyReferenceInContext(selected,{id:'module',versionId:'mr'},'module-a');
+ assert.equal(local.publicationRef.scope,'LOCAL');assert.equal(local.publicationRef.publicationId,'port');assert.equal(local.instanceId,'part');assert.equal(local.instancePath.rootDocumentId,'module');
+ assert.equal(assemblyPublicationSelection(view,owned).id,'port');assert.equal(assemblyPublicationSelection(view,local,'module-a').id,'port');
+ const rootPort={id:'root-port-node',kind:'PRODUCT_PUBLICATION',entityId:'root-port',name:'Root mounting',documentId:'root',versionId:'rr',productPublication:{...port,id:'root-port',target:{instancePath:outer,publicationId:'port'}}};
+ view.structureTree.children.push(rootPort);
+ const rootPick=structureSelection(rootPort,view);
+ assert.equal(assemblyGeometryRef(rootPick).publicationRef.scope,'LOCAL');
+ assert.deepEqual(assemblyPublicationCandidates(view,selected.highlightTarget).map(s=>s.id),['root-port'],'the current Product interface precedes private descendants');
+ assert.deepEqual(assemblyPublicationCandidates(view,selected).map(s=>s.id),['port'],'explicit choices are never promoted to another interface');
+ assert.deepEqual(assemblyPublicationCandidates(view,selected.highlightTarget,'module-a').map(s=>s.id),['port']);
+ const duplicate={...rootPort,id:'alias-node',entityId:'alias-port',productPublication:{...rootPort.productPublication,id:'alias-port'}};view.structureTree.children.push(duplicate);
+ assert.equal(assemblyPublicationCandidates(view,selected.highlightTarget).length,2,'aliases require an explicit choice');
+ assert.equal(assemblyPublicationCandidates(view,{...selected.highlightTarget,versionId:'stale'}).length,0);
+ view.document.type='PRODUCT';view.product={instances:[],constraints:[],publications:[rootPort.productPublication,duplicate.productPublication]};
+ const keys=treeKeysForSelections(treeData(view,view),[rootPick]);assert(keys.includes('root-port-node'));assert(!keys.includes('port-node'));assert(!keys.includes('alias-node'));assert(!keys.includes('body-node'),'geometry provenance is not a primary selection');
  const raw={...selected.highlightTarget,contextVariantKey:undefined,instancePath:relative,occurrencePath:'part'};
  const target=publicationElementTarget(moduleView,raw);
  assert.equal(target.targetKind,'FACE');assert.equal(target.instancePath.canonical,'part');assert.equal(target.geometryKey,'g');assert.equal(target.topologyId,3);

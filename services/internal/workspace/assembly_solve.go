@@ -239,6 +239,10 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		if reference == nil || reference.PublicationRef == nil {
 			return nil
 		}
+		if reference.PublicationRef.Scope == "LOCAL" {
+			_, err := service.resolveLocalAssemblyPublication(ctx, model, reference, contextVariants)
+			return err
+		}
 		if reference.InstancePath != nil && len(reference.InstancePath.Segments) > 1 {
 			return nil // nested source is resolved at its own accepted occurrence
 		}

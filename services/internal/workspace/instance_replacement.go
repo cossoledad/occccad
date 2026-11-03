@@ -59,6 +59,34 @@ func (s *Service) prepareInstanceReplacement(ctx context.Context, documentID str
 		}
 		reconnectReplacedPublications(&model, old, model.Instances[index], ports)
 	}
+	// Local consumers retain the Product port, whose target may just have been
+	// reconnected. Refresh those endpoints without solving or moving components.
+	for i := range model.Constraints {
+		c := &model.Constraints[i]
+		affected := false
+		broken := false
+		for _, ref := range []*AssemblyGeometryRef{&c.First, c.Second, c.AngleAxis} {
+			if ref == nil || ref.PublicationRef == nil || ref.PublicationRef.Scope != "LOCAL" || ref.InstanceID != old.ID {
+				continue
+			}
+			affected = true
+			if _, err := s.resolveLocalAssemblyPublication(ctx, &model, ref, nil); err != nil {
+				broken = true
+				ref.PublicationResolution = &PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: "COMPONENT_REPLACED", Diagnostic: err.Error()}
+			}
+		}
+		if affected {
+			c.EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
+			for _, ref := range []*AssemblyGeometryRef{&c.First, c.Second, c.AngleAxis} {
+				if ref != nil && (ref.Resolution != nil && ref.Resolution.Result.SupportingElementStatus == modelcore.SupportingElementNotConnected || ref.PublicationResolution != nil && ref.PublicationResolution.Status != "CONNECTED") {
+					broken = true
+				}
+			}
+			if broken {
+				c.EvaluationStatus = modelcore.AssemblyConstraintBroken
+			}
+		}
+	}
 	return typeReplaceInstance, replaceInstancePayload{InstanceID: old.ID, ReferencedDocumentID: r.ReferencedDocumentID, ReferencedVersionID: r.ReplacementVersionID, Model: model}, nil
 }
 

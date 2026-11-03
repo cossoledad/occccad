@@ -19,7 +19,7 @@ const targets=motionSelectionTargets(view,[selected]);assert.equal(targets.lengt
 console.log('motion application: dependency deletion, immutable rename, source/formal constraints preserved, nested Body and shared-instance highlights passed');
 
 const {assemblyGeometryRef}=await import('../../../cad/assembly/assembly-reference.ts');
-const picked=assemblyGeometryRef({kind:'publication',id:'pub',publicationId:'pub',instanceId:'shaft',publication:{id:'pub',type:'SURFACE',compatibilityVersion:1,target:{persistentSelection:{anchor:{featureId:'stable'}}}},highlightTarget:{kind:'face',id:'surface',topologyId:1,geometryKey:'snapshot',instancePath:path('shaft','a')}});assert.equal(picked.instanceId,'shaft');assert.equal(picked.publicationRef.publicationId,'pub');assert.equal(picked.publicationRef.persistentSelection.anchor.featureId,'stable');
+const picked=assemblyGeometryRef({kind:'publication',id:'pub',publicationId:'pub',instanceId:'shaft',publication:{id:'pub',type:'SURFACE',compatibilityVersion:1,target:{persistentSelection:{anchor:{featureId:'stable'}}}},highlightTarget:{kind:'face',id:'surface',topologyId:1,geometryKey:'snapshot',instancePath:path('shaft','a')}});assert.equal(picked.instanceId,'shaft');assert.equal(picked.publicationRef.publicationId,'pub');assert.equal(picked.publicationRef.persistentSelection,undefined,'the public address is independent of its private topology');
 
 const {createServer}=await import('vite');const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
 try {

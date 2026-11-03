@@ -101,8 +101,9 @@ func applyRedirectProductPublication(modelJSON, payloadJSON json.RawMessage) (js
 		model.Publications[i] = replacement
 		change, _ := modelcore.NewChange(modelcore.ChangeBind,
 			modelcore.PropertyAddress{EntityID: current.ID, SlotID: "product-publication.entity"}, current, replacement)
+		consumerChanges := invalidateLocalPublicationConsumers(&model, current.ID)
 		next, _ := json.Marshal(model)
-		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change},
+		return next, modelcore.ChangeSet{Changes: append(consumerChanges, change),
 			ImpactSeeds: []modelcore.DependencyKey{"product-publication:" + modelcore.DependencyKey(current.ID)}}, nil
 	}
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: Product Publication does not exist", ErrValidation)
@@ -120,6 +121,9 @@ func applyDeleteProductPublication(modelJSON, payloadJSON json.RawMessage) (json
 	for index, item := range model.Publications {
 		if item.ID != payload.PublicationID {
 			continue
+		}
+		if localPublicationUsed(model, item.ID) {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: PUBLICATION_IN_USE", ErrValidation)
 		}
 		model.Publications = append(model.Publications[:index], model.Publications[index+1:]...)
 		next, _ := json.Marshal(model)
@@ -221,6 +225,28 @@ func applyPublicationDescriptor(reference *AssemblyGeometryRef, publication Publ
 func (service *Service) resolveAssemblyPublication(ctx context.Context, product *ProductModel, reference *AssemblyGeometryRef) (Publication, error) {
 	if reference == nil || reference.PublicationRef == nil {
 		return Publication{}, nil
+	}
+	if reference.PublicationRef.Scope == "LOCAL" {
+		return service.resolveLocalAssemblyPublication(ctx, product, reference, nil)
+	}
+	if reference.PublicationRef.Scope != "" && reference.PublicationRef.Scope != "OCCURRENCE" {
+		return Publication{}, fmt.Errorf("%w: PUBLICATION_OWNER_INVALID", ErrValidation)
+	}
+	if owner := reference.PublicationRef.OwnerPath; owner != nil {
+		if len(owner.Segments) == 0 {
+			return Publication{}, fmt.Errorf("%w: PUBLICATION_OWNER_INVALID", ErrValidation)
+		}
+		copy, err := service.refreshProductInstancePath(ctx, *product, *owner)
+		if err != nil {
+			return Publication{}, err
+		}
+		for i, segment := range copy.Segments {
+			if segment.ReferencedDocumentID != owner.Segments[i].ReferencedDocumentID {
+				return Publication{}, fmt.Errorf("%w: PUBLICATION_OWNER_REPLACED", ErrValidation)
+			}
+		}
+		reference.InstancePath, reference.InstanceID = &copy, owner.Segments[0].InstanceID
+		reference.PublicationRef.OwnerPath = &copy
 	}
 	instance, _, occurrenceErr := service.assemblyReferenceOccurrence(ctx, *product, *reference)
 	if occurrenceErr != nil {

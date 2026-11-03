@@ -242,3 +242,25 @@ func TestPublishedStraightEdgeRetainsFiniteExactDomain(t *testing.T) {
 		t.Fatal("unsupported ellipse descriptor advertised")
 	}
 }
+
+func TestAssemblyPublicationOwnerIdentityExcludesDisplayNames(t *testing.T) {
+	path := appendInstancePath(InstancePath{RootDocumentID: "root"}, InstancePathSegment{OwnerDocumentID: "root", OwnerVersionID: "r", InstanceID: "a", InstanceName: "Original", ReferencedDocumentID: "part", ResolvedVersionID: "p"})
+	a := AssemblyGeometryRef{InstanceID: "a", Kind: "FACE", InstancePath: &path, PublicationRef: &PublicationRef{Scope: "OCCURRENCE", PublicationID: "port", OwnerPath: &path}}
+	key := assemblyReferenceKey(a)
+	renamed := path
+	renamed.Display = "Renamed"
+	renamed.Segments = append([]InstancePathSegment(nil), path.Segments...)
+	renamed.Segments[0].InstanceName = "Renamed"
+	b := a
+	b.InstancePath = &renamed
+	port := *a.PublicationRef
+	port.OwnerPath = &renamed
+	b.PublicationRef = &port
+	if assemblyReferenceKey(b) != key {
+		t.Fatal("display rename changed mathematical endpoint identity")
+	}
+	renamed.Segments[0].ResolvedVersionID = "new"
+	if assemblyReferenceKey(b) == key {
+		t.Fatal("accepted owner Revision was omitted from endpoint identity")
+	}
+}

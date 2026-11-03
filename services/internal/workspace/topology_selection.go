@@ -40,9 +40,15 @@ type ResolvedTopologyProperties struct {
 	Properties *TopologyElementProperties    `json:"properties,omitempty"`
 }
 
-func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductModel, reference *AssemblyGeometryRef) error {
+func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductModel, reference *AssemblyGeometryRef, ownerDocumentID ...string) error {
 	if reference == nil {
 		return nil
+	}
+	if len(ownerDocumentID) > 0 && reference.PublicationRef != nil && reference.PublicationRef.OwnerPath != nil {
+		path := reference.PublicationRef.OwnerPath
+		if path.RootDocumentID != ownerDocumentID[0] || len(path.Segments) == 0 || path.Segments[0].OwnerDocumentID != ownerDocumentID[0] {
+			return fmt.Errorf("%w: PUBLICATION_OWNER_INVALID", ErrValidation)
+		}
 	}
 	if reference.CapturedFrame != nil {
 		return validateCapturedAssemblyFrame(*reference)
@@ -357,6 +363,11 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 		}
 		if axisErr != nil && ctx.Value(assemblyDiagnosticCaptureKey{}) == nil {
 			return axisErr
+		}
+		if constraint.Second != nil && constraint.Kind != "FIX" && constraint.First.InstanceID == constraint.Second.InstanceID {
+			constraint.EvaluationStatus = modelcore.AssemblyConstraintBroken
+			constraint.EvaluationSummary = "ASSEMBLY_SAME_MOTION_INSTANCE"
+			continue
 		}
 		if first != modelcore.SelectionResolved || second != modelcore.SelectionResolved || axis != modelcore.SelectionResolved {
 			constraint.EvaluationStatus = modelcore.AssemblyConstraintBroken

@@ -93,7 +93,7 @@ func reconnectReplacedPublications(model *ProductModel, old, next ProductInstanc
 		c := &model.Constraints[i]
 		changed := false
 		for _, ref := range []*AssemblyGeometryRef{&c.First, c.Second, c.AngleAxis} {
-			if ref == nil || ref.InstanceID != old.ID || ref.PublicationRef == nil || !accepts(ref.InstancePath) {
+			if ref == nil || ref.InstanceID != old.ID || ref.PublicationRef == nil || ref.PublicationRef.Scope == "LOCAL" || !accepts(ref.InstancePath) {
 				continue
 			}
 			port, ok := ports[ref.PublicationRef.PublicationID]
@@ -105,7 +105,7 @@ func reconnectReplacedPublications(model *ProductModel, old, next ProductInstanc
 				path := rebind(*ref.InstancePath)
 				updated.InstancePath = &path
 			}
-			updated.PublicationRef = &PublicationRef{PublicationID: port.ID, ExpectedType: port.Type, CompatibilityVersion: port.CompatibilityVersion}
+			updated.PublicationRef = &PublicationRef{Scope: ref.PublicationRef.Scope, OwnerPath: updated.InstancePath, PublicationID: port.ID, ExpectedType: port.Type, CompatibilityVersion: port.CompatibilityVersion}
 			updated.PersistentSelection, updated.Resolution, updated.PublicationResolution = nil, nil, nil
 			updated.CapturedFrame, updated.CapturedDirection = nil, nil
 			updated.GeometryKey, updated.TopologyID, updated.SourceVersionID = "", 0, ""

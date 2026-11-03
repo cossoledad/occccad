@@ -113,6 +113,7 @@ type Props = {
   onAssemblyInteractionState?:(state:AssemblyInteractionState,reason?:string)=>void;
   onOperationFailed?:(error:unknown)=>void;
   onInspectAssemblySupports?:(documentId:string,references:AssemblyGeometryRef[],signal:AbortSignal)=>Promise<import("../cad/interaction/manipulator-snap").SupportInspection>;
+  onPublicationChoice?:(choice:import("../features/workbench/assembly-publication-selection").AssemblyPublicationChoice)=>void;
   onAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[],members?:import("../types").AssemblyGroupMember[]) => void;
 };
 
@@ -168,6 +169,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       documentDisplayed:(documentId,revisionId)=>callbacks.current.onDocumentDisplayed?.(documentId,revisionId),
       operationFailed:error=>callbacks.current.onOperationFailed?.(error),
       inspectAssemblySupports:(documentId,references,signal)=>callbacks.current.onInspectAssemblySupports!(documentId,references,signal),
+      publicationChoiceRequested:choice=>callbacks.current.onPublicationChoice?.(choice),
       assemblyConstraintRequested: (kind, references,members) => callbacks.current.onAssemblyConstraint(kind, references,members),
       documentViewReady: (documentId, restoredCamera) => {
         const current = callbacks.current;

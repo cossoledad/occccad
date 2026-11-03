@@ -5,11 +5,11 @@ import type {SelectionItem} from '../../types';
 import {CommandField,useCommandForm} from '../../cad/overlay/command-form';
 
 export type FeaturePickItem={key:string;value:ReactNode;actionLabel?:string;searchText?:string;detail?:ReactNode;error?:boolean;state?:string;active?:boolean;disabled?:boolean;selections?:SelectionItem[];onLocate?:()=>void;onSelect?:()=>void;onActivate?:()=>void;onClear?:()=>void;actions?:ReactNode;settings?:ReactNode};
-type Props={compact?:boolean;label:string;value?:ReactNode;active:boolean;disabled?:boolean;onActivate?:()=>void;onCancel?:()=>void;onClear?:()=>void;onLocate?:()=>void;mode?:'single'|'multiple'|'ordered';selected?:boolean;selections?:SelectionItem[];detail?:ReactNode;error?:ReactNode;actions?:ReactNode;children?:ReactNode;items?:FeaturePickItem[]};
+type Props={onSelect?:()=>void;onHover?:(active:boolean)=>void;compact?:boolean;label:string;value?:ReactNode;active:boolean;disabled?:boolean;onActivate?:()=>void;onCancel?:()=>void;onClear?:()=>void;onLocate?:()=>void;mode?:'single'|'multiple'|'ordered';selected?:boolean;selections?:SelectionItem[];detail?:ReactNode;error?:ReactNode;actions?:ReactNode;children?:ReactNode;items?:FeaturePickItem[]};
 
 /** One reference field. Collections have bounded compact rows, retaining the
  * owning command's accepted identities, ordering and replacement session. */
-export function FeaturePickField({compact=false,label,value,active,disabled,onActivate,onCancel,onClear,onLocate,selected,mode='single',selections,detail,error,actions,children,items}:Props){
+export function FeaturePickField({onSelect,onHover,compact=false,label,value,active,disabled,onActivate,onCancel,onClear,onLocate,selected,mode='single',selections,detail,error,actions,children,items}:Props){
  const form=useCommandForm(),[expanded,setExpanded]=useState(true),[query,setQuery]=useState(''),[settings,setSettings]=useState<string>();const rows=useRef<HTMLDivElement>(null);
  const hasValue=selected??Boolean(onClear||selections?.length),cancel=()=>onCancel?onCancel():form.cancelPick?.();
  const locate=(callback:(()=>void)|undefined,picks?:SelectionItem[])=>callback||picks?.length&&form.locate?()=>{cancel();if(callback)callback();else if(picks)form.locate?.(picks)}:undefined;
@@ -53,7 +53,7 @@ export function FeaturePickField({compact=false,label,value,active,disabled,onAc
  const locateSingle=locate(onLocate,selections);
  return <div className={`feature-pick-field ${compact?'is-compact':''} ${active?'is-active':''}`} data-pick-active={active||undefined}>
   <CommandField label={label} width="selection" error={error}>
-   <div className="feature-pick-content"><span className="feature-pick-value" title={typeof value==='string'?value:undefined}>{value||'未选择'}</span>
+   <div className="feature-pick-content"><span className="feature-pick-value" role={onSelect?"button":undefined} tabIndex={onSelect?0:undefined} aria-label={onSelect?`高亮${label}`:undefined} onClick={onSelect} onMouseEnter={()=>onHover?.(true)} onMouseLeave={()=>onHover?.(false)} onKeyDown={e=>{if(onSelect&&!e.nativeEvent.isComposing&&(e.key==="Enter"||e.key===" ")){e.preventDefault();e.stopPropagation();onSelect()}}} title={typeof value==='string'?value:undefined}>{value||'未选择'}</span>
     {detail&&<small className="feature-pick-detail">{detail}</small>}
     <div className="feature-pick-actions">
      {compact?<>{locateSingle&&compactAction(`定位${label}`,'定位',<AimOutlined/>,locateSingle,!hasValue)}{onActivate&&compactAction(`选择${label}`,active?'取消选择':hasValue?'更换':'选择',<SwapOutlined/>,active?cancel:onActivate,false,active)}{onClear&&compactAction(`移除${label}`,'移除',<CloseOutlined/>,()=>{cancel();onClear()})}{actions}</>:<>{locateSingle&&<Button size="small" disabled={disabled||!hasValue} aria-label={`定位${label}`} onClick={locateSingle}>定位</Button>}

@@ -210,9 +210,13 @@ func applyEditProductPublication(modelJSON, payloadJSON json.RawMessage) (json.R
 	}
 	model.Publications[oldIndex].Name = strings.TrimSpace(payload.Name)
 	model.Publications[oldIndex].SemanticPurpose = strings.TrimSpace(payload.SemanticPurpose)
+	changes := []modelcore.ModelChange{}
+	if resolvedDigest(old.Target) != resolvedDigest(model.Publications[oldIndex].Target) {
+		changes = invalidateLocalPublicationConsumers(&model, old.ID)
+	}
 	next, _ := json.Marshal(model)
 	change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: old.ID, SlotID: "product-publication.entity"}, old, model.Publications[oldIndex])
-	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"product-publication:" + modelcore.DependencyKey(old.ID)}}, nil
+	return next, modelcore.ChangeSet{Changes: append(changes, change), ImpactSeeds: []modelcore.DependencyKey{"product-publication:" + modelcore.DependencyKey(old.ID)}}, nil
 }
 
 func applyCreateContextInput(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {

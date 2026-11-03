@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	"slices"
 )
 
 type assemblySupportResolutionError struct{ Status string }
@@ -76,7 +77,7 @@ func (service *Service) InspectAssemblySupports(ctx context.Context, documentID 
 	for _, reference := range references {
 		item := AssemblySupportInspection{Reference: reference, Status: "RESOLVED"}
 		bound := reference
-		err = service.bindAssemblyPick(ctx, view.Product, &bound)
+		err = service.bindAssemblyPick(ctx, view.Product, &bound, documentID)
 		if err == nil && bound.SourceVersionID == "" && bound.Kind != "BODY" {
 			var source *ProductInstance
 			source, _, err = service.assemblyReferenceOccurrence(ctx, *view.Product, bound)
@@ -120,7 +121,17 @@ func assemblyReferenceKey(reference AssemblyGeometryRef) string {
 		persistent, _ = json.Marshal(reference.PersistentSelection)
 	}
 	if reference.PublicationRef != nil {
-		publication, _ = json.Marshal(reference.PublicationRef)
+		public := *reference.PublicationRef
+		if public.OwnerPath != nil {
+			owner := *public.OwnerPath
+			owner.Display = ""
+			owner.Segments = slices.Clone(owner.Segments)
+			for i := range owner.Segments {
+				owner.Segments[i].InstanceName = ""
+			}
+			public.OwnerPath = &owner
+		}
+		publication, _ = json.Marshal(public)
 	}
 	capacity := 16 + len(persistent) + len(publication)
 	for _, value := range fields {

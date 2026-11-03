@@ -256,3 +256,157 @@ func TestReplacementReconnectsPublishedContextSourceThroughRouter(t *testing.T) 
 	}
 	assertInputValue(product, 0.02)
 }
+
+func TestLocalProductPublicationConstraintOwnershipThroughRouter(t *testing.T) {
+	s, _, _, _ := featureAssociationTestService(t)
+	seq := 0
+	create := func(kind, name string) workspace.DocumentView {
+		t.Helper()
+		v, e := s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{Type: kind, Name: name, ActorID: p6Actor})
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	run := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		r.ActorID = p6Actor
+		r.RequestID = fmt.Sprintf("%s-local-port-%d", v.Document.ID, seq)
+		r.VersionID = v.Document.VersionID
+		u, e := s.ApplyCommand(t.Context(), v.Document.ID, r)
+		if e != nil {
+			t.Fatal(r.Type, e)
+		}
+		*v = u
+	}
+	box := func(name string, publish bool) workspace.DocumentView {
+		t.Helper()
+		v := create("PART", name)
+		run(&v, workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+		sid := v.Part.Features[0].ID
+		run(&v, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sid, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: 0, Y: 0}, Second: &workspace.SketchPoint2{X: 10, Y: 10}}}})
+		run(&v, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", SketchID: sid, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 10})
+		if publish {
+			face := findP7TopologyPick(t, s, v, "FACE", func(_ workspace.TopologyElementProperties, p modelcore.PersistentSelection) bool {
+				return strings.HasPrefix(p.Anchor.OutputSlot, "END_CAP/")
+			})
+			run(&v, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Mounting", PublicationType: "SURFACE", TargetKind: "FACE", GeometryKey: activeBodyArtifact(t, v).GeometryKey, TopologyID: face.LocalID})
+		}
+		return v
+	}
+	part, replacement := box("Local interface source", true), box("Local interface replacement", true)
+	root := create("PRODUCT", "Local interface owner")
+	for i := 0; i < 3; i++ {
+		run(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID})
+	}
+	ids := []string{root.Product.Instances[0].ID, root.Product.Instances[1].ID, root.Product.Instances[2].ID}
+	for i, id := range ids {
+		run(&root, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: id, Translation: [3]float64{float64(i * 40), 0, float64(i*20 + 30)}, Rotation: [4]float64{0, 0, 0, 1}})
+	}
+	run(&root, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", InstanceID: ids[0], PublicationID: part.Part.Publications[0].ID, Name: "Assembly mounting"})
+	port := root.Product.Publications[0].ID
+	local := func() workspace.AssemblyGeometryRef {
+		return workspace.AssemblyGeometryRef{InstanceID: ids[2], Kind: "FACE", PublicationRef: &workspace.PublicationRef{Scope: "LOCAL", PublicationID: port, ExpectedType: "SURFACE", CompatibilityVersion: "1.0.0"}}
+	}
+	inspected, e := s.InspectAssemblySupports(t.Context(), root.Document.ID, []workspace.AssemblyGeometryRef{local()})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if r := inspected.Supports[0]; r.Status != "RESOLVED" || r.Reference.InstanceID != ids[0] || r.Descriptor == nil || r.Descriptor.Origin[2] != 10 {
+		t.Fatal("local port did not resolve to its body-local geometry", r)
+	}
+	// Two interface IDs do not imply two different rigid bodies.
+	run(&root, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", InstanceID: ids[0], PublicationID: part.Part.Publications[0].ID, Name: "Alternative root alias"})
+	f, g := local(), local()
+	g.InstanceID = ids[1]
+	g.PublicationRef.PublicationID = root.Product.Publications[1].ID
+	_, sameErr := s.ApplyCommand(t.Context(), root.Document.ID, workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ActorID: p6Actor, RequestID: root.Document.ID + "-same-body", VersionID: root.Document.VersionID, ConstraintKind: "DISTANCE", Value: 5, FirstAssemblyRef: &f, SecondAssemblyRef: &g})
+	if sameErr == nil || !strings.Contains(sameErr.Error(), "ASSEMBLY_SAME_MOTION_INSTANCE") {
+		t.Fatal("aliases bypassed moving-body validation", sameErr)
+	}
+	run(&root, workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX", FirstAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: ids[1], Kind: "BODY"}})
+	first := local()
+	run(&root, workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "DISTANCE", Value: 5, DistanceRelation: "SELECTED_PLANE_NORMAL_V1", FirstAssemblyRef: &first, SecondAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: ids[1], Kind: "PLANE", GeometryID: "datum-xy"}})
+	check := func(want string, instance string) {
+		t.Helper()
+		c := root.Product.Constraints[1]
+		if c.First.PublicationRef.Scope != "LOCAL" || c.First.PublicationRef.PublicationID != port || c.First.InstanceID != instance || string(c.EvaluationStatus) != want {
+			t.Fatal("public address/motion owner lost", c)
+		}
+	}
+	check("VERIFIED", ids[0])
+	seq++
+	_, e = s.ApplyCommand(t.Context(), root.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: root.Document.ID + "-in-use", VersionID: root.Document.VersionID, Type: "DELETE_PRODUCT_PUBLICATION", PublicationID: port})
+	if e == nil || !strings.Contains(e.Error(), "PUBLICATION_IN_USE") {
+		t.Fatal("used local port was deleted", e)
+	}
+	poses := []workspace.InstancePose{}
+	for _, i := range root.Product.Instances {
+		poses = append(poses, workspace.InstancePose{Translation: i.Translation, Rotation: i.Rotation})
+	}
+	run(&root, workspace.CommandRequest{Type: "EDIT_PRODUCT_PUBLICATION", PublicationID: port, Name: "Renamed mounting"})
+	check("VERIFIED", ids[0])
+	session, e := s.GetProductDesignSession(t.Context(), root.Document.ID, ids[2])
+	if e != nil {
+		t.Fatal(e)
+	}
+	run(&root, workspace.CommandRequest{Type: "EDIT_PRODUCT_PUBLICATION", PublicationID: port, Name: "Renamed mounting", TargetID: part.Part.Publications[0].ID, InstancePath: session.ActiveInstancePath})
+	check("NOT_UPDATED", ids[2])
+	// Creating another interface must not implicitly solve a pending relation.
+	run(&root, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", InstanceID: ids[0], PublicationID: part.Part.Publications[0].ID, Name: "Unrelated new interface"})
+	check("NOT_UPDATED", ids[2])
+	for i, v := range root.Product.Instances {
+		if v.Translation != poses[i].Translation {
+			t.Fatal("retarget moved a component")
+		}
+	}
+	run(&root, workspace.CommandRequest{Type: "UPDATE_REFERENCES"})
+	check("VERIFIED", ids[2])
+	run(&root, workspace.CommandRequest{Type: "UNDO"})
+	check("NOT_UPDATED", ids[2])
+	run(&root, workspace.CommandRequest{Type: "UNDO"})
+	check("NOT_UPDATED", ids[2])
+	run(&root, workspace.CommandRequest{Type: "UNDO"})
+	check("VERIFIED", ids[0])
+	run(&root, workspace.CommandRequest{Type: "REDO"})
+	check("NOT_UPDATED", ids[2])
+	run(&root, workspace.CommandRequest{Type: "REPLACE_INSTANCE", InstanceID: ids[2], ReferencedDocumentID: replacement.Document.ID, ReplacementVersionID: replacement.Document.VersionID})
+	check("NOT_UPDATED", ids[2])
+	if root.Product.Publications[0].Target.PublicationID != replacement.Part.Publications[0].ID {
+		t.Fatal("replaced source was not reconnected")
+	}
+	run(&root, workspace.CommandRequest{Type: "UPDATE_REFERENCES"})
+	check("VERIFIED", ids[2])
+	broken := box("No matching public interface", false)
+	run(&root, workspace.CommandRequest{Type: "REPLACE_INSTANCE", InstanceID: ids[2], ReferencedDocumentID: broken.Document.ID, ReplacementVersionID: broken.Document.VersionID})
+	check("BROKEN", ids[2])
+	if root.Product.Publications[0].Resolution.Status != "BROKEN_PUBLICATION" {
+		t.Fatal("broken root interface hidden")
+	}
+	run(&root, workspace.CommandRequest{Type: "UNDO"})
+	check("VERIFIED", ids[2])
+	// A child Product port keeps its own ID, independently from a root-owned port.
+	module := create("PRODUCT", "Published module")
+	run(&module, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID})
+	run(&module, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: module.Product.Instances[0].ID, Translation: [3]float64{0, 0, 11}, Rotation: [4]float64{0, 0, 0, 1}})
+	run(&module, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", InstanceID: module.Product.Instances[0].ID, PublicationID: part.Part.Publications[0].ID, Name: "Module mounting"})
+	outer := create("PRODUCT", "Module port owner")
+	run(&outer, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: module.Document.ID})
+	run(&outer, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: outer.Product.Instances[0].ID, Translation: [3]float64{0, 0, 30}, Rotation: [4]float64{0, 0, 0, 1}})
+	own, e := s.GetProductDesignSession(t.Context(), outer.Document.ID, outer.Product.Instances[0].ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	occurrence := workspace.AssemblyGeometryRef{Kind: "FACE", InstanceID: outer.Product.Instances[0].ID, PublicationRef: &workspace.PublicationRef{Scope: "OCCURRENCE", OwnerPath: own.ActiveInstancePath, PublicationID: module.Product.Publications[0].ID, ExpectedType: "SURFACE", CompatibilityVersion: "1.0.0"}}
+	r, e := s.InspectAssemblySupports(t.Context(), outer.Document.ID, []workspace.AssemblyGeometryRef{occurrence})
+	if e != nil || r.Supports[0].Status != "RESOLVED" || r.Supports[0].Descriptor.Origin[2] != 21 {
+		t.Fatal("module port pose applied incorrectly", e, r)
+	}
+	run(&outer, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", InstanceID: outer.Product.Instances[0].ID, PublicationID: module.Product.Publications[0].ID, Name: "Outer mounting"})
+	occurrence.PublicationRef = &workspace.PublicationRef{Scope: "LOCAL", PublicationID: outer.Product.Publications[0].ID, ExpectedType: "SURFACE", CompatibilityVersion: "1.0.0"}
+	r, e = s.InspectAssemblySupports(t.Context(), outer.Document.ID, []workspace.AssemblyGeometryRef{occurrence})
+	if e != nil || r.Supports[0].Status != "RESOLVED" || r.Supports[0].Descriptor.Origin[2] != 21 {
+		t.Fatal("local forwarding port applied pose twice", e, r)
+	}
+}
