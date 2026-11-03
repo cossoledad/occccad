@@ -257,8 +257,13 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				}
 			}
 		}
-		if promoted && !publicationDefinitionOnly(prepared.command.TypeURI) && !productParameterChangesOnly(model, changes) && !candidate.definitionOnly && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetMeasurements && prepared.command.TypeURI != typeUpdateDerived && (len(model.Constraints) > 0 || request.SessionID != "") {
+		if promoted && !assemblyConstraintUpdateCommand(prepared.command.TypeURI) && !publicationDefinitionOnly(prepared.command.TypeURI) && !productParameterChangesOnly(model, changes) && !candidate.definitionOnly && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetMeasurements && prepared.command.TypeURI != typeUpdateDerived && (len(model.Constraints) > 0 || request.SessionID != "") {
 			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, candidate.assemblyPreviewRequestID, canonicalModelHash(nextJSON)); err != nil {
+				return err
+			}
+		}
+		if assemblyConstraintUpdateCommand(prepared.command.TypeURI) {
+			if err := service.evaluateAssemblyConstraintUpdate(ctx, documentID, revisionID, prepared.requestID, prepared.command, &model); err != nil {
 				return err
 			}
 		}
@@ -267,7 +272,7 @@ func evaluateProductDocument(ctx context.Context, service *Service, input docume
 				return err
 			}
 		}
-		if !promoted && !publicationDefinitionOnly(prepared.command.TypeURI) && !productParameterChangesOnly(model, changes) && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeOccurrenceVisibility && prepared.command.TypeURI != typeConstraintVisibility && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetMeasurements && prepared.command.TypeURI != typeUpdateDerived && prepared.command.TypeURI != typeSetProductProperties {
+		if !promoted && !assemblyConstraintUpdateCommand(prepared.command.TypeURI) && !publicationDefinitionOnly(prepared.command.TypeURI) && !productParameterChangesOnly(model, changes) && prepared.command.TypeURI != typeReplaceInstance && prepared.command.TypeURI != typeOccurrenceVisibility && prepared.command.TypeURI != typeConstraintVisibility && prepared.command.TypeURI != typeSetKinematics && prepared.command.TypeURI != typeSetSpatialAnalyses && prepared.command.TypeURI != typeSetMeasurements && prepared.command.TypeURI != typeUpdateDerived && prepared.command.TypeURI != typeSetProductProperties {
 			finishSolve := perf.Start(ctx, "assembly-solve")
 			drivenInstanceID := ""
 			var solveIntent *geometry.AssemblySolveIntent

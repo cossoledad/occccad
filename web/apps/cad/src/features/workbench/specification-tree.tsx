@@ -86,7 +86,7 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, highlightedKeys, editSession, activeDocumentId, activeInstancePath, workingBodyId, allowHistoricalCreation, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onReplace, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, highlightedKeys, editSession, activeDocumentId, activeInstancePath, workingBodyId, allowHistoricalCreation, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onReplace, onMove, onInsertAfter, onProperties, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onUpdate, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   documentSessions?: DocumentSessions; hostDocumentId?: string;
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string;highlightedKeys?:string[]; editSession?: EditSession;
@@ -105,6 +105,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD") => void;
   onDetach?: (node: SpecificationTreeNode) => void;
   onReconnect?: (node: SpecificationTreeNode) => void;
+  onUpdate?: (node: SpecificationTreeNode) => void;
   onRefresh?: (node: SpecificationTreeNode) => void;
   onDelete?: (nodes: SpecificationTreeNode[]) => void;
   onToggleConstruction?: (node: SpecificationTreeNode) => void;
@@ -232,6 +233,8 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
         const entry = visible[item.index];
         const { node, depth, hasChildren } = entry;
         const visibility = treeVisibilityAction(node, editSession);
+        const assemblyNode = ["ASSEMBLY_CONSTRAINT", "ASSEMBLY_CONSTRAINT_SET"].includes(node.kind ?? "");
+        const assemblyActionEnabled = node.documentId === activeDocumentId && (node.instancePath?.canonical ?? "") === (activeInstancePath ?? "");
         const isExpanded = hasChildren && (depth === 0 || expanded.has(node.key));
         const isSelected = selected.has(node.key);
         const defaultCommand=defaultTreeCommand(node);
@@ -306,8 +309,12 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
               onClick: () => { setContextMenu(undefined); onDetach?.(node); } } : null,
             node.capabilities?.includes("RECONNECT") ? { key: "reconnect", icon: menuIcon('tree.reconnect'), label: node.kind==="SKETCH"?"更换草图支撑…":menuLabel('tree.reconnect'),
               onClick: () => { setContextMenu(undefined); onReconnect?.(node); } } : null,
-            node.capabilities?.includes("REFRESH") ? { key: "refresh", icon: menuIcon('tree.refresh'), label: menuLabel('tree.refresh',node.kind==='SPATIAL_ANALYSIS'?'spatial':node.kind==='SPATIAL_ANALYSIS_GROUP'?'spatial-all':'default'),
+            node.capabilities?.includes("REFRESH") ? { key: "refresh", icon: menuIcon('tree.refresh'), label: menuLabel('tree.refresh',assemblyNode?'constraint':node.kind==='SPATIAL_ANALYSIS'?'spatial':node.kind==='SPATIAL_ANALYSIS_GROUP'?'spatial-all':'default'),
+              disabled: assemblyNode && (!assemblyActionEnabled || Boolean(registry && !registry.state("tree.refresh", {payload:{node}}).enabled)),
               onClick: () => { setContextMenu(undefined); onRefresh?.(node); } } : null,
+            assemblyNode && onUpdate && node.capabilities?.includes("REFRESH") ? { key: "update", icon: menuIcon("tree.update"), label: menuLabel("tree.update"),
+              disabled: !assemblyActionEnabled || !node.capabilities?.includes("UPDATE") || Boolean(registry && !registry.state("tree.update", {payload:{node}}).enabled),
+              onClick: () => { setContextMenu(undefined); onUpdate(node); } } : null,
             visibility ? {key:"visibility",icon:menuIcon("tree.visibility"),label:menuLabel("tree.visibility",visibility.label),
               onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,visibility.scope,visibility.mode);}} : null,
             node.kind==="PARAMETER"&&node.parameterAlias ? {key:"copy-alias",icon:menuIcon('tree.copy-alias'),label:menuLabel('tree.copy-alias'),onClick:()=>{

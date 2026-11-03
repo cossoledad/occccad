@@ -7,6 +7,13 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const reasons:Record<string,string>={
+    ASSEMBLY_PREFERENCE_NOT_CONVERGED:"位置优化尚未收敛，未采用新位置。可通过约束分析检查。",
+    ASSEMBLY_UPDATE_INCOMPLETE:"约束尚未完成更新，请通过约束分析检查。",
+    ASSEMBLY_SOLVER_INCONSISTENT:"约束未能共同满足，请通过约束分析检查。",
+    ASSEMBLY_SOLVER_NON_CONVERGENT:"求解尚未收敛，未采用新位置。",
+    ASSEMBLY_SOLVER_NUMERICAL_FAILURE:"约束计算未完成，可重试。",
+    ASSEMBLY_SOLVER_INVALID_MODEL:"约束输入或支撑无效，请检查。",
+    ASSEMBLY_SOLVER_UNSATISFIED:"尚未找到满足全部约束的位置。",
     ASSEMBLY_SAME_MOTION_INSTANCE:"两个支撑属于同一运动组件，请选择不同组件。",
     PUBLICATION_OWNER_INVALID:"发布接口的所属装配不匹配，请重新选择。",
     PUBLICATION_OWNER_REPLACED:"发布所属组件已替换，请重新连接接口。",

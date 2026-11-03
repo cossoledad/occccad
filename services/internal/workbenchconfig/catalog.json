@@ -5383,9 +5383,20 @@
       },
       "labels": {
         "default": "更新支持元素",
+        "constraint": "刷新约束",
         "spatial": "更新分析",
         "spatial-all": "更新全部分析"
       }
+    },
+    {
+      "id": "tree.update",
+      "name": "更新",
+      "helpText": "求解所选待更新约束，使用装配已接受的引用版本。",
+      "iconKey": "reference",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {"all": []},
+      "enabledWhen": {"all": [{"fact": "canEdit", "equals": true}, {"fact": "busy", "equals": false}]}
     },
     {
       "id": "tree.construction",

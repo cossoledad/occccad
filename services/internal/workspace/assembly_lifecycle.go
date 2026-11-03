@@ -84,10 +84,10 @@ func applyAssemblyConstraintState(modelJSON, payloadJSON json.RawMessage) (json.
 func applyAssemblyMeasurements(model *ProductModel, result geometry.AssemblySolve, profile geometry.AssemblySolverProfile, exclusions ...map[string]bool) {
 	for i := range model.Constraints {
 		c := &model.Constraints[i]
-		c.MeasuredValue = nil
 		if len(exclusions) > 0 && exclusions[0][c.ID] {
 			continue
 		}
+		c.MeasuredValue = nil
 		if c.Suppressed || c.Mode != "MEASURED" || c.EvaluationStatus == modelcore.AssemblyConstraintImpossible || c.EvaluationStatus == modelcore.AssemblyConstraintBroken {
 			continue
 		}

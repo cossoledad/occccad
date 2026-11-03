@@ -126,7 +126,7 @@ import {DeveloperInfoPanel} from "./developer-info-panel";
 import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
 import { associatedTreeKeyForSelection, deletableTreeNodesForSelections, ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
 import { assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
-  firstDisconnectedSupport, validateReconnectCandidate } from "../../cad/assembly/assembly-constraint-ux";
+  firstDisconnectedSupport, validateReconnectCandidate, assemblyConstraintActionFailure } from "../../cad/assembly/assembly-constraint-ux";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
@@ -1049,15 +1049,14 @@ export function Workbench() {
     command.mutate(()=>api.command(editingView.document.id,{type:"SET_ASSEMBLY_CONSTRAINT_STATE",constraintIds:[definition.id],
       ...(action==="SUPPRESS"?{suppressed:true}:{constraintMode:"MEASURED"})}));
   };
-  const refreshAssemblyConstraint = (constraintID?: string) => {
-    if (editingView?.document.type !== "PRODUCT") return;
-    const operation = productUpdatePlan.data && editingView.document.id === documentID
-      ? () => api.acceptProductUpdatePlan(documentID, productUpdatePlan.data!.digest)
-      : () => api.updateReferences(editingView.document.id);
-    command.mutate(operation, { onSuccess: (updated) => {
-      if (!constraintID) return;
-      const refreshed = updated.product?.constraints?.find((constraint) => constraint.id === constraintID);
-      if (refreshed) { setEditingAssemblyConstraint({ ...refreshed }); setAssemblyDefinitionDirty(false); }
+  const updateAssemblyConstraints = (action: "REFRESH_ASSEMBLY_CONSTRAINTS" | "UPDATE_ASSEMBLY_CONSTRAINTS", node?: SpecificationTreeNode) => {
+    if (!canEdit || editingView?.document.type !== "PRODUCT" || (node && (node.documentId !== editingView.document.id ||
+      (node.instancePath?.canonical ?? "") !== (activeInstancePath ?? "")))) return;
+    command.mutate(() => api.command(editingView.document.id, {type: action, versionId: editingView.document.versionId,
+      ...(node?.kind === "ASSEMBLY_CONSTRAINT" ? {targetId: node.entityId} : {})}), {onSuccess: updated => {
+      const failure = assemblyConstraintActionFailure(action, updated.product?.constraints ?? [],
+        node?.kind === "ASSEMBLY_CONSTRAINT" ? node.entityId : undefined);
+      if (failure) operationFeedback(failure, "更新约束");
     }});
   };
   const repairRevisionCurrent=(revision:string)=>Boolean(view?.product&&view.document.versionId===revision&&editingView?.document.id===view.document.id&&!activeInstancePath);
@@ -1460,7 +1459,9 @@ onDetach:(node) => {
               if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.ownerEntityId && node.entityId)
                 editSketch(node.ownerEntityId, [{type:"DETACH_EXTERNAL_GEOMETRY", externalId:node.entityId}]);
             },
+onUpdate:(node) => updateAssemblyConstraints("UPDATE_ASSEMBLY_CONSTRAINTS", node),
 onRefresh:(node) => {
+ if(["ASSEMBLY_CONSTRAINT", "ASSEMBLY_CONSTRAINT_SET"].includes(node.kind??"")){updateAssemblyConstraints("REFRESH_ASSEMBLY_CONSTRAINTS", node);return;}
  if(view&&node.documentId===view.document.id&&['MEASUREMENT','MEASUREMENT_GROUP','SPATIAL_ANALYSIS','SPATIAL_ANALYSIS_GROUP'].includes(node.kind??'')){
  const targetKind=node.kind?.startsWith('MEASUREMENT')?'MEASUREMENT':'SPATIAL_ANALYSIS';
  command.mutate(()=>api.command(view.document.id,{type:'UPDATE_DERIVED',versionId:view.document.versionId,targetKind,targetId:node.entityId}));return;}
@@ -1468,7 +1469,10 @@ onRefresh:(node) => {
                 command.mutate(() => api.updateReferences(node.documentId!));
                 return;
               }
-              refreshAssemblyConstraint(node.entityId);
+              if (node.kind === "CONTEXT_BINDING" && node.documentId && node.documentId === editingView?.document.id) {
+                const plan = productUpdatePlan.data;
+                command.mutate(() => plan && node.documentId === documentID ? api.acceptProductUpdatePlan(documentID, plan.digest) : api.updateReferences(node.documentId!));
+              }
             },
 onDelete:deleteTreeNodes,
 onToggleVisibility:(node,scope)=>{
@@ -1689,6 +1693,7 @@ onToggleConstruction:(node)=>{
 			onReplace={canEditRoot&&!motionOpen?node=>{void commandRegistry.execute("product.replace",{payload:{instanceId:node.entityId}})}:undefined} onReconnect={node=>executeTree("onReconnect",{node})}
 			onDetach={node=>executeTree("onDetach",{node})}
             onRefresh={node=>executeTree("onRefresh",{node})}
+            onUpdate={node=>executeTree("onUpdate",{node})}
             onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={nodes=>executeTree("onDelete",{nodes})}
             onToggleVisibility={(node,scope,mode)=>executeTree("onToggleVisibility",{node,scope,visibilityMode:mode})}
             onToggleSuppression={node=>executeTree("onToggleSuppression",{node})}
@@ -1702,7 +1707,7 @@ onToggleConstruction:(node)=>{
           onClose={()=>setAssociationRepairOpen(false)} onOpenSource={id=>{setAssociationRepairOpen(false);void openDocumentTab(id,client,api.openDocument,navigate)}} onRetry={retryAssociationUpdates}
           onAccept={(revision,digest)=>{if(!repairRevisionCurrent(revision)||!canEditRoot||command.isPending||productUpdatePlan.isFetching||productUpdatePlan.data?.digest!==digest||productUpdatePlan.data.rootProductRevisionId!==revision)return;
             command.mutate(()=>api.acceptProductUpdatePlan(documentID,digest),{onError:error=>setProductUpdateFailure({documentId:documentID,revisionId:revision,diagnostic:String(error)})});}}
-          onRefresh={revision=>{if(repairRevisionCurrent(revision)&&canEditRoot&&!command.isPending&&!productUpdatePlan.isFetching&&productUpdatePlan.data?.rootProductRevisionId===revision&&!productUpdatePlan.data.hasUpdates)refreshAssemblyConstraint();}}
+          onRefresh={revision=>{if(repairRevisionCurrent(revision)&&canEditRoot&&!command.isPending&&!productUpdatePlan.isFetching&&productUpdatePlan.data?.rootProductRevisionId===revision&&!productUpdatePlan.data.hasUpdates)command.mutate(()=>api.acceptProductUpdatePlan(documentID,productUpdatePlan.data!.digest));}}
           onLocateInstance={(id,revision)=>{if(!repairRevisionCurrent(revision)||!view.product?.instances.some(i=>i.id===id))return;store.setSelection({kind:"instance",id,instanceId:id,documentId:view.document.id,occurrencePath:id,versionId:revision});viewport.current?.focusAssemblyReference({instanceId:id,kind:"BODY"});}}
           onLocateConstraint={locateAssociationConstraint}
           onEdit={(id,revision,reconnect)=>{if(!repairRevisionCurrent(revision)||!canEditRoot||command.isPending)return;const c=view.product?.constraints?.find(c=>c.id===id);if(!c)return;setAssociationRepairOpen(false);openAssemblyConstraintEditor(c,reconnect);}}/>}

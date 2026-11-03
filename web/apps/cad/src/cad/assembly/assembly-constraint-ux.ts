@@ -2,6 +2,16 @@ import type { AssemblyConstraint, AssemblyGeometryRef } from "../../types";
 
 export type AssemblyConstraintStatus = AssemblyConstraint["evaluationStatus"];
 
+export type AssemblyConstraintAction = "REFRESH_ASSEMBLY_CONSTRAINTS" | "UPDATE_ASSEMBLY_CONSTRAINTS";
+export function assemblyConstraintActionFailure(action: AssemblyConstraintAction, after: readonly AssemblyConstraint[], targetId?: string):
+  {code: string; message: string; diagnosticId?: string; phase?: string; retryable?: boolean} | undefined {
+  if (action === "REFRESH_ASSEMBLY_CONSTRAINTS") return;
+  const selected = after.filter(c => !targetId || c.id === targetId);
+  const incomplete = selected.find(c => !c.suppressed && c.evaluationStatus !== "VERIFIED");
+  if (incomplete) return {code: incomplete.evaluationFailure?.code ?? (incomplete.evaluationStatus === "BROKEN" ? "NOT_CONNECTED" : "ASSEMBLY_UPDATE_INCOMPLETE"),
+    message: incomplete.evaluationSummary ?? "", diagnosticId: incomplete.evaluationFailure?.diagnosticId, phase: incomplete.evaluationFailure?.phase, retryable: incomplete.evaluationFailure?.retryable};
+}
+
 export const ASSEMBLY_CONSTRAINT_STATUS: Record<AssemblyConstraintStatus, {
   label: string; color: string; glyph: number; description: string;
 }> = {

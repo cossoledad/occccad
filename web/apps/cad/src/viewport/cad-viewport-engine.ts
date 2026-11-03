@@ -672,7 +672,11 @@ export class CadViewportEngine {
     if(display.study){const viewpoint=motionViewpointAt(display.study,display.clock?.timeSeconds??display.timeSeconds??display.frame.timeSeconds);if(viewpoint)this.previewMotionViewpoint(viewpoint)}
     this.content.updateMatrixWorld(true);this.refreshInteractionHighlights();this.refreshContentBounds();this.showMechanism(this.mechanismDefinition,this.mechanismSelection);this.invalidate();
   }
-  private readonly transforms = new TransformTransitionSystem(() => this.invalidate());
+  private assemblyConstraintDisplayDirty = false;
+  private readonly transforms = new TransformTransitionSystem(() => {
+    this.assemblyConstraintDisplayDirty = true;
+    this.invalidate();
+  });
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks, private readonly documentSessions?: DocumentSessions) {
     this.scene.background = null;
@@ -2106,7 +2110,7 @@ export class CadViewportEngine {
     const withAssemblyReferences = (selections: readonly SelectionItem[]) => selections.filter(s=>!this.featureSelection?.localSketchId||!s.sketchReference).map(selection=>selection.highlightTarget??selection).flatMap((selection) =>
       selection.kind === "assembly-constraint" ? [selection, ...(this.assemblyConstraintReferences.get(this.assemblyMarkerKey(selection.documentId ?? "",selection.occurrencePath ?? "",selection.constraintId)) ?? [])]
         : selection.kind === 'kinematic-object' ? [selection,...[...this.assemblyConstraintMarkers].filter(([,entry])=>entry.selection.kind==='kinematic-object'&&(entry.selection.id===selection.id||entry.selection.ownerEntityId===selection.id||selection.id===this.mechanismDefinition?.id)).flatMap(([key,entry])=>[entry.selection,...(this.assemblyConstraintReferences.get(key)??[])])]
-        : selection.kind === "publication" && selection.highlightTarget ? [selection.highlightTarget] : [selection]);
+        : [selection]).map(selection=>selection.highlightTarget??selection);
     for (const object of this.selectionIndex.objectsForMany(this.featureSelection?.contextSelections ?? [])) {
       if (!this.objectVisible(object)) continue;
       this.applyHighlight(object, "context"); this.highlightedRoots.add(object);
@@ -2348,6 +2352,7 @@ export class CadViewportEngine {
 
   private addAssemblyConstraintMarkers(view: DocumentView): void {
     // A separate projection from geometry: never hydrate GLB or rebuild bodies.
+    this.assemblyConstraintDisplayDirty = false;
     this.assemblyConstraintMarkers ??= new Map();
     const live=new Set<string>();
     let scopes:Array<{view:DocumentDescriptor;occurrence:string;treeNodeId:string;instancePath?:import("../types").InstancePath}>=[{view,occurrence:"",treeNodeId:`document:${view.document.id}`},...(view.constraintDisplayScopes??[]).map(scope=>({
@@ -2366,6 +2371,16 @@ export class CadViewportEngine {
     for(const scope of scopes)this.reconcileAssemblyConstraintMarkers(scope.view,scope.occurrence,live,scope.treeNodeId,scope.instancePath);
     for(const [key,entry] of this.assemblyConstraintMarkers)if(!live.has(key))this.removeAssemblyConstraintMarker(key,entry);
     this.refreshInteractionHighlights();
+  }
+
+  private refreshAssemblyConstraintDisplay(): void {
+    if (!this.assemblyConstraintDisplayDirty) return;
+    this.assemblyConstraintDisplayDirty = false;
+    if (!this.view) return;
+    // Transform batches share one display frame. Resolve anchors after every
+    // participant has moved, including the final reconciliation frame.
+    this.content.updateMatrixWorld(true);
+    this.addAssemblyConstraintMarkers(this.view);
   }
 
   private assemblyMarkerKey(documentId:string,occurrence:string,constraintId:string) {
@@ -2402,7 +2417,8 @@ export class CadViewportEngine {
         return { reference, selection, object: instance, anchor: new THREE.Box3().setFromObject(instance).getCenter(new THREE.Vector3()), exact: false };
       }).filter((value): value is NonNullable<typeof value> => Boolean(value));
       if (!located.length) {const old=this.assemblyConstraintMarkers.get(key);if(old)this.removeAssemblyConstraintMarker(key,old);continue;}
-      const signature=JSON.stringify([constraint,located.map(l=>l.anchor.toArray())]);
+      const signature=JSON.stringify([constraint,located.map(l=>[l.anchor.toArray(),selectionKey(l.selection),
+        l.selection.highlightTarget ? selectionKey(l.selection.highlightTarget) : undefined,l.object.uuid,l.exact])]);
       const prior=this.assemblyConstraintMarkers.get(key);
       if(prior?.signature===signature)continue;
       if(prior)this.removeAssemblyConstraintMarker(key,prior,false);
@@ -2444,6 +2460,7 @@ export class CadViewportEngine {
         if (!value.exact || !['FACE', 'EDGE', 'VERTEX'].includes(value.reference.kind))
           this.selectionIndex.associate(selection, value.object);
         this.selectionIndex.associate(value.selection, group);
+        if (value.selection.highlightTarget) this.selectionIndex.associate(value.selection.highlightTarget, group);
       }
     }
   }
@@ -4325,6 +4342,7 @@ export class CadViewportEngine {
           this.motionClockFinished=clock.timeSeconds+Math.max(0,now-clock.startedAt)/1000>=(clock.frames.at(-1)?.timeSeconds??0);
         }
         if (this.viewTransition.update(now)) this.navigation.syncCamera(false);
+        this.refreshAssemblyConstraintDisplay();
         if(this.analysisMechanism&&!this.matchesAnalysisPoses(this.analysisMechanism.poses??{})){this.analysisMechanism=undefined;if(this.view)this.addAssemblyConstraintMarkers(this.view);}
         if(this.staticInterferenceReport&&!this.staticInterferenceCompatible(this.staticInterferenceReport))this.showStaticInterference();
         if(this.motionPresentation?.configurationPoses&&!this.matchesAnalysisPoses(this.motionPresentation.configurationPoses))this.showRemainingMotion();

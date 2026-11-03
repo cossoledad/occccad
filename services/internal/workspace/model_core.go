@@ -140,6 +140,8 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeAddAssemblyConstraint, "PRODUCT", applyAddAssemblyConstraint},
 		commandHandler{typeEditAssemblyConstraint, "PRODUCT", applyEditAssemblyConstraint},
 		commandHandler{typeSetAssemblyConstraintState, "PRODUCT", applyAssemblyConstraintState},
+		commandHandler{typeRefreshAssemblyConstraints, "PRODUCT", applyAssemblyConstraintUpdate},
+		commandHandler{typeUpdateAssemblyConstraints, "PRODUCT", applyAssemblyConstraintUpdate},
 		commandHandler{typeSetReferenceMode, "PRODUCT", applyReferenceMode},
 		commandHandler{typeUpdateReferences, "PRODUCT", applyUpdateReferences},
 		commandHandler{typeDeletePartNode, "PART", applyDeletePartNode},
@@ -2772,11 +2774,22 @@ func assemblyConstraintSolveIntent(command modelcore.DomainCommand, model Produc
 		if json.Unmarshal(command.Payload, &payload) == nil && payload.Constraint.Second != nil {
 			first, second = payload.Constraint.First.InstanceID, payload.Constraint.Second.InstanceID
 		}
-	case typeEditAssemblyConstraint:
-		var payload editAssemblyConstraintPayload
-		if json.Unmarshal(command.Payload, &payload) == nil {
+	case typeEditAssemblyConstraint, typeUpdateAssemblyConstraints:
+		var constraintID string
+		if command.TypeURI == typeEditAssemblyConstraint {
+			var payload editAssemblyConstraintPayload
+			if json.Unmarshal(command.Payload, &payload) == nil {
+				constraintID = payload.ConstraintID
+			}
+		} else {
+			var payload assemblyConstraintUpdatePayload
+			if json.Unmarshal(command.Payload, &payload) == nil && len(payload.ConstraintIDs) == 1 {
+				constraintID = payload.ConstraintIDs[0]
+			}
+		}
+		if constraintID != "" {
 			for _, constraint := range model.Constraints {
-				if constraint.ID == payload.ConstraintID && constraint.Second != nil {
+				if constraint.ID == constraintID && constraint.Second != nil {
 					first, second = constraint.First.InstanceID, constraint.Second.InstanceID
 					break
 				}

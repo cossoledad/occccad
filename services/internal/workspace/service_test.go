@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -1174,8 +1175,17 @@ func TestAssemblyConstraintStructureCapabilitiesExposeRecoveryActions(t *testing
 		}
 	}
 	verified := assemblyConstraintStructureCapabilities(AssemblyConstraint{First: AssemblyGeometryRef{Resolution: &connected}}, modelcore.AssemblyConstraintVerified)
-	if slices.Contains(verified, "RECONNECT") || slices.Contains(verified, "REFRESH") {
-		t.Fatalf("verified constraint must not advertise recovery actions: %#v", verified)
+	if slices.Contains(verified, "RECONNECT") || slices.Contains(verified, "UPDATE") || !slices.Contains(verified, "REFRESH") {
+		t.Fatalf("verified constraint may refresh links but has nothing to update: %#v", verified)
+	}
+	for _, suppressed := range []bool{false, true} {
+		caps := assemblyConstraintStructureCapabilities(AssemblyConstraint{Suppressed: suppressed}, modelcore.AssemblyConstraintNotUpdated)
+		if slices.Contains(caps, "UPDATE") == suppressed {
+			t.Fatalf("only an active pending constraint is updateable: %#v", caps)
+		}
+	}
+	if slices.Contains(capabilities, "UPDATE") {
+		t.Fatal("broken support must be refreshed or reconnected before update")
 	}
 	brokenWithoutSnapshot := assemblyConstraintStructureCapabilities(AssemblyConstraint{}, modelcore.AssemblyConstraintBroken)
 	if !slices.Contains(brokenWithoutSnapshot, "RECONNECT") {
@@ -1446,6 +1456,15 @@ func TestAssemblyConstraintCreateAndEditUseTheSameSolveIntent(t *testing.T) {
 	model := ProductModel{Constraints: []AssemblyConstraint{constraint}}
 	created := assemblyConstraintSolveIntent(modelcore.DomainCommand{TypeURI: typeAddAssemblyConstraint, Payload: addPayload}, model)
 	edited := assemblyConstraintSolveIntent(modelcore.DomainCommand{TypeURI: typeEditAssemblyConstraint, Payload: editPayload}, model)
+	updatePayload, _ := json.Marshal(assemblyConstraintUpdatePayload{ConstraintIDs: []string{constraint.ID}})
+	updated := assemblyConstraintSolveIntent(modelcore.DomainCommand{TypeURI: typeUpdateAssemblyConstraints, Payload: updatePayload}, model)
+	if updated == nil || edited == nil || !reflect.DeepEqual(updated, edited) {
+		t.Fatalf("update changed the edit motion policy: update=%#v edit=%#v", updated, edited)
+	}
+	batchPayload, _ := json.Marshal(assemblyConstraintUpdatePayload{ConstraintIDs: []string{constraint.ID, "other"}})
+	if assemblyConstraintSolveIntent(modelcore.DomainCommand{TypeURI: typeUpdateAssemblyConstraints, Payload: batchPayload}, model) != nil {
+		t.Fatal("batch update must not arbitrarily choose one constraint's reference")
+	}
 	if created == nil || edited == nil || created.PreferencePolicy != edited.PreferencePolicy ||
 		!slices.Equal(created.MovingBodyIDs, edited.MovingBodyIDs) ||
 		!slices.Equal(created.ReferenceBodyIDs, edited.ReferenceBodyIDs) {

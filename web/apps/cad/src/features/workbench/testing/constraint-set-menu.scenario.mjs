@@ -47,7 +47,7 @@ const calls = [];
 function menu(target, activeDocumentId = "product", editSession) {
   return dropdown(SpecificationTree({ nodes: [target], selectedKeys: [], selectionToken: "", activeDocumentId, editSession,
     onSelect() {}, onActivate() {}, onOpenDocumentTab() {}, onViewResult() {}, onEdit() {}, onProperties() {}, onCreatePart() {},
-    onReferenceMode() {}, onDetach() {}, onReconnect() {}, onRefresh() {}, onDelete() {}, onToggleSuppression() {},
+    onReferenceMode() {}, onDetach() {}, onReconnect() {}, onRefresh: node => calls.push(['refresh',node]), onUpdate: node => calls.push(['update',node]), onDelete() {}, onToggleSuppression() {},
     onToggleVisibility: (...args) => calls.push(args) })).props.menu.items.flatMap(function leaves(item) {
       return !item || item.type === "divider" ? [] : item.children ? item.children.flatMap(leaves) : [item];
     });
@@ -58,6 +58,18 @@ assert.equal(menu(node).some(item => item.key === "session-visibility"), false, 
 hide.onClick();
 assert.deepEqual(calls.at(-1), [node, "DEFINITION", undefined]);
 const hidden = { ...node, localVisible: false };
+const pending = {...node, capabilities:['REFRESH','UPDATE']};
+const refresh = menu(pending).find(item => item.key === 'refresh');
+const update = menu(pending).find(item => item.key === 'update');
+assert.equal(renderToStaticMarkup(refresh.label).replace(/<[^>]+>/g,''), '刷新约束');
+assert.equal(renderToStaticMarkup(update.label).replace(/<[^>]+>/g,''), '更新');
+assert.equal(refresh.disabled, false);assert.equal(update.disabled, false);
+refresh.onClick();assert.deepEqual(calls.at(-1), ['refresh',pending]);
+update.onClick();assert.deepEqual(calls.at(-1), ['update',pending]);
+const verified = {...node,capabilities:['REFRESH']};
+assert.equal(menu(verified).find(item=>item.key==='update').disabled,true,'up-to-date constraints keep a disabled Update');
+const nested = {...pending,instancePath:{canonical:'sub'}};
+assert.equal(menu(nested).find(item=>item.key==='refresh').disabled,true,'inactive occurrence cannot refresh shared definition');
 const show = menu(hidden).find(item => item.key === "visibility");
 assert.equal(renderToStaticMarkup(show.label).replace(/<[^>]+>/g,""), "显示"); show.onClick();
 assert.deepEqual(calls.at(-1), [hidden, "DEFINITION", undefined]);

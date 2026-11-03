@@ -1855,6 +1855,39 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 		}
 		return typeSetReferenceMode, referenceModePayload{request.InstanceID, mode, pinned}, nil
+	case "REFRESH_ASSEMBLY_CONSTRAINTS", "UPDATE_ASSEMBLY_CONSTRAINTS":
+		if documentType != "PRODUCT" {
+			break
+		}
+		var model ProductModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		ids := append([]string(nil), request.ConstraintIDs...)
+		if request.TargetID != "" && request.TargetID != "assembly-constraints" {
+			ids = append(ids, request.TargetID)
+		}
+		kind := typeRefreshAssemblyConstraints
+		if request.Type == "UPDATE_ASSEMBLY_CONSTRAINTS" {
+			kind = typeUpdateAssemblyConstraints
+		}
+		if len(ids) == 0 {
+			for _, c := range model.Constraints {
+				if kind == typeRefreshAssemblyConstraints || (!c.Suppressed && c.EvaluationStatus == modelcore.AssemblyConstraintNotUpdated) {
+					ids = append(ids, c.ID)
+				}
+			}
+		}
+		if kind == typeUpdateAssemblyConstraints {
+			for _, id := range ids {
+				for _, c := range model.Constraints {
+					if c.ID == id && (c.Suppressed || c.EvaluationStatus != modelcore.AssemblyConstraintNotUpdated) {
+						return "", nil, fmt.Errorf("%w: only active not-updated constraints can be updated; refresh broken supports first", ErrValidation)
+					}
+				}
+			}
+		}
+		return kind, assemblyConstraintUpdatePayload{ConstraintIDs: ids}, nil
 	case "UPDATE_REFERENCES":
 		if documentType == "PART" {
 			var model PartModel

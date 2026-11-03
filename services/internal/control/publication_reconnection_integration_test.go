@@ -4,12 +4,205 @@ package control
 
 import (
 	"fmt"
+	"math"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/occccad/occccad/internal/modelcore"
 	"github.com/occccad/occccad/internal/workspace"
 )
+
+func TestPublishedConstraintUpdateKeepsEditMotionIntentThroughRouter(t *testing.T) {
+	s, _, _, _ := featureAssociationTestService(t)
+	seq := 0
+	create := func(kind, name string) workspace.DocumentView {
+		t.Helper()
+		v, err := s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{Type: kind, Name: name, ActorID: p6Actor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	run := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		r.ActorID, r.RequestID, r.VersionID = p6Actor, fmt.Sprintf("%s-motion-intent-%d", v.Document.ID, seq), v.Document.VersionID
+		u, err := s.ApplyCommand(t.Context(), v.Document.ID, r)
+		if err != nil {
+			t.Fatal(r.Type, err)
+		}
+		*v = u
+	}
+	part := create("PART", "Published offset planes")
+	run(&part, workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Origin: [3]float64{67.12503050403349, -59.79204397838266, 0}, Normal: [3]float64{1, 0, 0}, UDirection: [3]float64{0, 1, 0}})
+	plane := part.Part.DatumPlanes[len(part.Part.DatumPlanes)-1].ID
+	for _, name := range []string{"Side", "Side alias"} {
+		run(&part, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: name, PublicationType: "PLANE", TargetKind: "PLANE", TargetID: plane})
+	}
+	run(&part, workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Origin: [3]float64{0, 0, 40}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
+	run(&part, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Cap", PublicationType: "PLANE", TargetKind: "PLANE", TargetID: part.Part.DatumPlanes[len(part.Part.DatumPlanes)-1].ID})
+	root := create("PRODUCT", "Update shares edit motion intent")
+	for i := 0; i < 2; i++ {
+		run(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID})
+	}
+	first, second := root.Product.Instances[0].ID, root.Product.Instances[1].ID
+	poses := []workspace.InstancePose{
+		{Translation: [3]float64{94.10862611200993, 125.78766620028934, 158.81853737030804}, Rotation: [4]float64{0.6578419006504448, 0.7531560487366549, 2.693256826748463e-9, 2.351175018768318e-9}},
+		{Translation: [3]float64{95.47413321906981, 115.72654148051812, 82.50369260134153}, Rotation: [4]float64{-0.9977262182519311, -0.06739728045477787, -3.5669520827410364e-9, 2.4188662608078585e-10}},
+	}
+	for i, p := range poses {
+		run(&root, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: root.Product.Instances[i].ID, Translation: p.Translation, Rotation: p.Rotation})
+	}
+	run(&root, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", InstanceID: first, PublicationID: part.Part.Publications[0].ID, Name: "Mount"})
+	port := root.Product.Publications[0].ID
+	session, err := s.GetProductDesignSession(t.Context(), root.Document.ID, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := workspace.AssemblyGeometryRef{InstanceID: first, Kind: "PLANE", PublicationRef: &workspace.PublicationRef{Scope: "LOCAL", PublicationID: port, ExpectedType: "PLANE", CompatibilityVersion: "1.0.0"}}
+	b := workspace.AssemblyGeometryRef{InstanceID: second, Kind: "PLANE", PublicationRef: &workspace.PublicationRef{Scope: "OCCURRENCE", OwnerPath: session.ActiveInstancePath, PublicationID: part.Part.Publications[2].ID, ExpectedType: "PLANE", CompatibilityVersion: "1.0.0"}}
+	run(&root, workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "COINCIDENT", FirstAssemblyRef: &a, SecondAssemblyRef: &b})
+	target := root.Product.Constraints[0].ID
+	if root.Product.Constraints[0].EvaluationStatus != modelcore.AssemblyConstraintVerified {
+		t.Fatal("edit policy baseline did not converge", root.Product.Constraints[0])
+	}
+	session, err = s.GetProductDesignSession(t.Context(), root.Document.ID, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(&root, workspace.CommandRequest{Type: "EDIT_PRODUCT_PUBLICATION", PublicationID: port, Name: "Mount", InstancePath: session.ActiveInstancePath, TargetID: part.Part.Publications[1].ID})
+	for i, p := range poses {
+		run(&root, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: root.Product.Instances[i].ID, Translation: p.Translation, Rotation: p.Rotation})
+	}
+	for _, selected := range []bool{true, false} {
+		request := workspace.CommandRequest{Type: "UPDATE_ASSEMBLY_CONSTRAINTS"}
+		if selected {
+			request.TargetID = target
+		}
+		run(&root, request)
+		if c := root.Product.Constraints[0]; c.EvaluationStatus != modelcore.AssemblyConstraintVerified || c.EvaluationFailure != nil {
+			t.Fatal("update dropped edit intent", selected, c)
+		}
+		for i, value := range root.Product.Instances[1].Translation {
+			if math.Abs(value-poses[1].Translation[i]) > 1e-8 {
+				t.Fatal("update moved the reference", selected)
+			}
+		}
+		for i, value := range root.Product.Instances[1].Rotation {
+			if math.Abs(value-poses[1].Rotation[i]) > 1e-8 {
+				t.Fatal("update rotated the reference", selected)
+			}
+		}
+		if math.Abs(root.Product.Instances[0].Translation[2]-poses[0].Translation[2]) < 1 {
+			t.Fatal("update did not adopt the solved pose")
+		}
+		run(&root, workspace.CommandRequest{Type: "UNDO"})
+		if root.Product.Constraints[0].EvaluationStatus != modelcore.AssemblyConstraintNotUpdated {
+			t.Fatal("undo did not restore pending state")
+		}
+	}
+}
+
+func TestConstraintRefreshAndUpdateUseAcceptedRevisionsThroughRouter(t *testing.T) {
+	s, _, _, _ := featureAssociationTestService(t)
+	seq := 0
+	create := func(kind, name string) workspace.DocumentView {
+		t.Helper()
+		v, err := s.CreateDocument(t.Context(), workspace.CreateDocumentRequest{Type: kind, Name: name, ActorID: p6Actor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	run := func(v *workspace.DocumentView, r workspace.CommandRequest) {
+		t.Helper()
+		seq++
+		r.ActorID, r.RequestID, r.VersionID = p6Actor, fmt.Sprintf("%s-refresh-%d", v.Document.ID, seq), v.Document.VersionID
+		u, err := s.ApplyCommand(t.Context(), v.Document.ID, r)
+		if err != nil {
+			t.Fatal(r.Type, err)
+		}
+		*v = u
+	}
+	part := create("PART", "Reference document name")
+	run(&part, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Base", PublicationType: "PLANE", TargetKind: "PLANE", TargetID: "datum-xy"})
+	run(&part, workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Origin: [3]float64{0, 0, 20}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
+	run(&part, workspace.CommandRequest{Type: "CREATE_PUBLICATION", Name: "Raised", PublicationType: "PLANE", TargetKind: "PLANE", TargetID: part.Part.DatumPlanes[len(part.Part.DatumPlanes)-1].ID})
+	root := create("PRODUCT", "Refresh and update")
+	for i := 0; i < 4; i++ {
+		run(&root, workspace.CommandRequest{Type: "INSERT_INSTANCE", ReferencedDocumentID: part.Document.ID})
+	}
+	ids := []string{}
+	for _, i := range root.Product.Instances {
+		ids = append(ids, i.ID)
+	}
+	run(&root, workspace.CommandRequest{Type: "RENAME_INSTANCE", InstanceID: ids[0], Name: "Mounting occurrence"})
+	if root.StructureTree.Children[0].Children[0].Name != part.Document.Name || root.StructureTree.Children[0].InstanceName != "Mounting occurrence" {
+		t.Fatal("Part reference must use document name independently of occurrence", root.StructureTree.Children[0])
+	}
+	for _, index := range []int{0, 2} {
+		run(&root, workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX", FirstAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: ids[index], Kind: "BODY"}})
+		run(&root, workspace.CommandRequest{Type: "CREATE_PRODUCT_PUBLICATION", InstanceID: ids[index], PublicationID: part.Part.Publications[0].ID, Name: fmt.Sprintf("Mounting %d", index)})
+		port := root.Product.Publications[len(root.Product.Publications)-1].ID
+		ref := workspace.AssemblyGeometryRef{InstanceID: ids[index], Kind: "PLANE", PublicationRef: &workspace.PublicationRef{Scope: "LOCAL", PublicationID: port, ExpectedType: "PLANE", CompatibilityVersion: "1.0.0"}}
+		run(&root, workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "DISTANCE", Value: 5, DistanceRelation: "SELECTED_PLANE_NORMAL_V1", FirstAssemblyRef: &ref, SecondAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: ids[index+1], Kind: "PLANE", GeometryID: "datum-xy"}})
+	}
+	for index, p := range root.Product.Publications {
+		session, err := s.GetProductDesignSession(t.Context(), root.Document.ID, ids[index*2])
+		if err != nil {
+			t.Fatal(err)
+		}
+		run(&root, workspace.CommandRequest{Type: "EDIT_PRODUCT_PUBLICATION", PublicationID: p.ID, Name: p.Name, InstancePath: session.ActiveInstancePath, TargetID: part.Part.Publications[1].ID})
+	}
+	first, other := root.Product.Constraints[1].ID, root.Product.Constraints[3].ID
+	before, _ := s.GetDocument(t.Context(), root.Document.ID)
+	placements := func(v workspace.DocumentView) []workspace.InstancePose {
+		result := []workspace.InstancePose{}
+		for _, i := range v.Product.Instances {
+			result = append(result, workspace.InstancePose{Translation: i.Translation, Rotation: i.Rotation})
+		}
+		return result
+	}
+	// A newer source Head must not be accepted by either constraint operation.
+	accepted := part.Document.VersionID
+	run(&part, workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: "NewSourceHead", Value: 1, Unit: "mm"})
+	check := func(firstStatus string) {
+		t.Helper()
+		if string(root.Product.Constraints[1].EvaluationStatus) != firstStatus || root.Product.Constraints[3].EvaluationStatus != modelcore.AssemblyConstraintNotUpdated {
+			t.Fatal(root.Product.Constraints)
+		}
+		for _, instance := range root.Product.Instances {
+			if instance.ReferencedVersionID != accepted {
+				t.Fatal("constraint operation accepted source Head", instance)
+			}
+		}
+	}
+	run(&root, workspace.CommandRequest{Type: "REFRESH_ASSEMBLY_CONSTRAINTS", TargetID: first})
+	check("NOT_UPDATED")
+	if !reflect.DeepEqual(placements(root), placements(before)) {
+		t.Fatal("refresh moved components")
+	}
+	run(&root, workspace.CommandRequest{Type: "UPDATE_ASSEMBLY_CONSTRAINTS", TargetID: first})
+	check("VERIFIED")
+	if root.Product.Instances[1].Translation == before.Product.Instances[1].Translation {
+		t.Fatal("update did not solve raised support")
+	}
+	if !reflect.DeepEqual(root.Product.Constraints[3], before.Product.Constraints[3]) {
+		t.Fatal("unselected pending constraint changed", other)
+	}
+	run(&root, workspace.CommandRequest{Type: "UNDO"})
+	check("NOT_UPDATED")
+	if !reflect.DeepEqual(placements(root), placements(before)) {
+		t.Fatal("undo did not restore poses")
+	}
+	run(&root, workspace.CommandRequest{Type: "REDO"})
+	check("VERIFIED")
+	run(&root, workspace.CommandRequest{Type: "UPDATE_ASSEMBLY_CONSTRAINTS"})
+	if root.Product.Constraints[3].EvaluationStatus != modelcore.AssemblyConstraintVerified {
+		t.Fatal("set update skipped pending constraint")
+	}
+}
 
 func TestPublishedGeometryForwardingAndReplacementThroughRouter(t *testing.T) {
 	s, _, _, _ := featureAssociationTestService(t)

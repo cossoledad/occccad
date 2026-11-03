@@ -26,7 +26,7 @@ func isolatedAssemblyFailure(err error) (*assemblySolveFailure, bool) {
 // Verified constraints are the accepted set. NotUpdated is a pending definition,
 // not an equation during movement. Definition updates explicitly retry pending
 // items in persisted insertion order; no user suppression flag is rewritten.
-func evaluateAssemblyAdmission(model *ProductModel, moving bool, evaluate assemblySetEvaluator) error {
+func evaluateAssemblyAdmission(model *ProductModel, moving bool, evaluate assemblySetEvaluator, retryTargets ...map[string]bool) error {
 	working, err := cloneAssemblyProduct(*model)
 	if err != nil {
 		return err
@@ -37,7 +37,9 @@ func evaluateAssemblyAdmission(model *ProductModel, moving bool, evaluate assemb
 	for _, c := range working.Constraints {
 		if !c.Suppressed && c.EvaluationStatus != modelcore.AssemblyConstraintVerified {
 			excluded[c.ID] = true
-			pending = append(pending, c.ID)
+			if len(retryTargets) == 0 || retryTargets[0] == nil || retryTargets[0][c.ID] {
+				pending = append(pending, c.ID)
+			}
 		}
 	}
 	excludeUnverified := func() {
@@ -83,7 +85,7 @@ func evaluateAssemblyAdmission(model *ProductModel, moving bool, evaluate assemb
 			pending = nil
 			for i := range working.Constraints {
 				c := &working.Constraints[i]
-				if c.Suppressed {
+				if c.Suppressed || (len(retryTargets) > 0 && retryTargets[0] != nil && excluded[c.ID] && !retryTargets[0][c.ID]) {
 					continue
 				}
 				excluded[c.ID] = true
@@ -133,6 +135,10 @@ func evaluateAssemblyAdmission(model *ProductModel, moving bool, evaluate assemb
 }
 
 func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevisionID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, evidence ...*geometry.AssemblySolve) error {
+	return service.solveAssemblyWithTargets(ctx, documentID, rootRevisionID, requestID, drivenInstanceID, intent, model, warmStartKey, nil, evidence...)
+}
+
+func (service *Service) solveAssemblyWithTargets(ctx context.Context, documentID, rootRevisionID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, targets map[string]bool, evidence ...*geometry.AssemblySolve) error {
 	if len(model.Constraints) == 0 {
 		return nil
 	}
@@ -147,5 +153,5 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 			targets = nil
 		}
 		return service.solveAssemblySet(ctx, documentID, rootRevisionID, id, drivenInstanceID, intent, candidate, warm, excluded, stage != "", targets...)
-	})
+	}, targets)
 }

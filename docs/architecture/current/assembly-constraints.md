@@ -17,6 +17,7 @@
 | `online/cfyugasm_C2/cfyugasmut0306.htm` | 多成员 Fix Together、组内先解、组外后解、组激活与停用 |
 | `online/cfyugasm_C2/cfyugasmrf0501.htm`、`cfyugasmut0311.htm` | 属性、Measure 适用范围、线接触 Internal/External、编辑/Reconnect |
 | `online/cfyugasm_C2/cfyugasmut0309.htm`、`cfyugasmut1500.htm` | Activate/Deactivate；Deactivated 与求值状态、Measure Mode 独立统计 |
+| `online/cfyugasm_C2/cfyugasmut0319.htm`、`cfyugasmut0200.htm`、`cfyugasmrf0200.htm` | Refreshing Constraints 重新检查支撑链接；Update 求解装配及其待更新元素 |
 | `online/cfyugasm_C2/cfyugasmut0403.htm` | Manipulate 轴向/平面平移、绕轴转动、几何指定方向、With respect to constraints |
 
 六类入口保持 Coincidence、Contact、Offset、Angle、Fix、Fix Together。下述系统合同优先于参照页面；来源差异记录为设计决策，不阻塞实现。目录区分实现覆盖与实际验证，组合数学证据不替代完整产品验收。任意曲面接触、摩擦/碰撞动力学、任意运动耦合与 Mechanism 时间积分不属于当前支持范围。
@@ -189,6 +190,19 @@ Activate/Deactivate（抑制）控制该定义是否参与更新，作用于六�
 - 停用对象保留可检查的引用状态；来源缺失仍可显示 NotConnected，但不以其 Broken 阻止其余活动约束求解。激活前重新解析当前快照，不能复用停用前 Verified。恢复时重新检查支持与兼容性；允许保存 Broken/Impossible/NotUpdated 定义，失败不写入候选姿态，后续抑制、重连或编辑可恢复。
 - Deactivated、Connected/NotConnected、NotUpdated/Broken/Impossible/Verified、Measure 是不同维度。树、属性、视口符号和分析计数都需显示停用；停用标记不抹去诊断证据。
 - SolveManifest 冻结全部定义与激活状态，参与 solver 的 active set 可重建。停用不伪造 Verified，重放清单不随 Head 的激活状态变化。产品版本功能已移除。
+
+## 刷新约束与更新
+
+CATIA `cfyugasmut0319.htm` 的案例是缺失组件重新插入后，发布支撑仍显示 Broken；Refresh Constraint 重新检查链接，使恢复的约束进入 NotUpdated，并不完成位置求解。它适用于单个约束、约束节点和约束集合。`cfyugasmut0200.htm`、`cfyugasmrf0200.htm` 的 Update 则更新装配约束及其他受影响元素，支持自动/手动更新。
+
+本软件的约束及约束根节点提供两个独立右键动作，不打开编辑器：
+
+- **刷新约束**（`REFRESH_ASSEMBLY_CONSTRAINTS`）：仅解析所选支撑与发布，使用 Product 已接受的 Revision，保持部件位置；仍缺失则保留 Broken，已恢复则进入 NotUpdated。已有 Verified 在支撑有效时保持 Verified。
+- **更新**（`UPDATE_ASSEMBLY_CONSTRAINTS`）：仅在存在启用的 NotUpdated 约束时可用。保留所有已接纳方程，按原 admission 机制重试所选待更新定义；其他未选中的待更新定义不参与求解。集合入口重试其中全部启用的 NotUpdated。冲突隔离、失败姿态保护与 Worker 权威求解保持原合同。
+
+两个动作均不接受源文档新 Head；接受引用版本仍属于 Product 更新计划。两者经过版本化 Domain Command、CAS 与 ChangeSet，链接状态和位置变化均支持 Undo/Redo。当前没有新增手动更新模式，日常自动求解成功后“更新”保持禁用；Broken 需先刷新恢复或通过编辑重新连接支撑。
+
+单个约束更新与编辑使用相同的 `MOVE_FIRST_MINIMIZE_REFERENCE` 策略：优先移动第一支撑所属运动单元，尽量保持第二支撑所属单元。集合中恰好一个待更新定义也沿用该策略；多个定义同时更新不任意挑选某个约束作为运动参考，继续使用全体名义最小运动。两种策略都保留硬约束、偏好收敛和 CAS 资格门。刷新和更新的正常结果通过结构树状态、视图区图标与支撑绑定反映，不弹出成功或操作提示；更新未完成才通过统一失败反馈报告原因。图标与实际面绑定按最新语义快照重建，并在部件位置过渡的显示帧中同步，不依赖相机移动或重新打开文档。
 
 ## 尊重约束的连续三维操纵
 

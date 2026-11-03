@@ -4,9 +4,9 @@ import type {ComponentProps} from 'react';
 import type {CadCommand,CadCommandInvocation,CommandOperation} from '../../../cad/command/command-registry';
 import type {SpecificationTree,SpecificationTreeNode} from '../specification-tree';
 type TreeActions=Pick<ComponentProps<typeof SpecificationTree>,
- 'onActivate'|'onOpenDocumentTab'|'onViewResult'|'onMove'|'onInsertAfter'|'onEdit'|'onProperties'|'onCreatePart'|'onReferenceMode'|'onDetach'|'onReconnect'|'onRefresh'|'onDelete'|'onToggleConstruction'|'onToggleVisibility'|'onToggleSuppression'>;
+ 'onActivate'|'onOpenDocumentTab'|'onViewResult'|'onMove'|'onInsertAfter'|'onEdit'|'onProperties'|'onCreatePart'|'onReferenceMode'|'onDetach'|'onReconnect'|'onRefresh'|'onUpdate'|'onDelete'|'onToggleConstruction'|'onToggleVisibility'|'onToggleSuppression'>;
 export type StructureActions={[Action in keyof TreeActions]?: (...args:[...Parameters<NonNullable<TreeActions[Action]>>,operation?:CommandOperation])=>void|Promise<void>};
-export const structureCommandIDs={onActivate:'tree.activate',onOpenDocumentTab:'tree.open-document',onViewResult:'tree.view-result',onEdit:'tree.edit',onMove:'tree.move',onInsertAfter:'tree.insert-after',onProperties:'tree.properties',onCreatePart:'tree.create-part',onReferenceMode:'tree.reference-mode',onDetach:'tree.detach',onReconnect:'tree.reconnect',onRefresh:'tree.refresh',onDelete:'edit.delete',onToggleConstruction:'tree.construction',onToggleVisibility:'tree.visibility',onToggleSuppression:'tree.suppression'} as const;
+export const structureCommandIDs={onActivate:'tree.activate',onOpenDocumentTab:'tree.open-document',onViewResult:'tree.view-result',onEdit:'tree.edit',onMove:'tree.move',onInsertAfter:'tree.insert-after',onProperties:'tree.properties',onCreatePart:'tree.create-part',onReferenceMode:'tree.reference-mode',onDetach:'tree.detach',onReconnect:'tree.reconnect',onRefresh:'tree.refresh',onUpdate:'tree.update',onDelete:'edit.delete',onToggleConstruction:'tree.construction',onToggleVisibility:'tree.visibility',onToggleSuppression:'tree.suppression'} as const;
 export type StructureInvocation={node?:SpecificationTreeNode;nodeKey?:string;nodes?:SpecificationTreeNode[];referenceMode?:'PINNED'|'FOLLOW_HEAD';scope?:'DEFINITION'|'OCCURRENCE';visibilityMode?:'SHOW'|'HIDE'|'INHERIT';modifierType?:HistoricalCreationType};
 export function structureInvocation(invocation?:CadCommandInvocation):StructureInvocation {
  if(!invocation?.payload||typeof invocation.payload!=='object')throw new Error('Missing structure command target');
@@ -32,11 +32,12 @@ export function structureCommands(actions:StructureActions={},currentNodes:reado
  };
  const command=(action:keyof StructureActions,execute:(target:StructureInvocation&{node:SpecificationTreeNode},operation?:CommandOperation)=>void|Promise<void>):CadCommand=>({id:structureCommandIDs[action],isEnabled:invocation=>{
    if(!actions[action])return false;
+   if(action==="onUpdate"){try{return Boolean(current(invocation).node.capabilities?.includes("UPDATE"));}catch{return false;}}
    if(action!=="onEdit"&&action!=="onMove"&&action!=="onInsertAfter")return true;
    try{const {node,nodes}=current(invocation,action==="onMove");return (action!=="onMove"||!nodes?.length||nodes.every(n=>n.presentationRole!=="INPUT_REFERENCE"&&n.capabilities?.includes("MOVE")&&n.documentId===node.documentId&&n.bodyId===node.bodyId&&(n.selection?.occurrencePath??"")===(node.selection?.occurrencePath??"")))&&node.presentationRole!=="INPUT_REFERENCE"&&Boolean(node.capabilities?.includes(action==="onMove"?"MOVE":action==="onInsertAfter"?"INSERT_AFTER":"EDIT"));}catch{return false;}
   },execute:invocation=>{
    const target=current(invocation,action==="onMove");
-   const capability:Partial<Record<keyof StructureActions,string>>={onInsertAfter:'INSERT_AFTER',onMove:'MOVE',onEdit:'EDIT',onCreatePart:'CREATE_PART',onDetach:'DETACH',onReconnect:'RECONNECT',onRefresh:'REFRESH',onToggleConstruction:'DELETE',onToggleSuppression:'SUPPRESS'};
+   const capability:Partial<Record<keyof StructureActions,string>>={onInsertAfter:'INSERT_AFTER',onMove:'MOVE',onEdit:'EDIT',onCreatePart:'CREATE_PART',onDetach:'DETACH',onReconnect:'RECONNECT',onRefresh:'REFRESH',onUpdate:'UPDATE',onToggleConstruction:'DELETE',onToggleSuppression:'SUPPRESS'};
    const required=action==='onReferenceMode'?(target.referenceMode==='PINNED'?'PIN_VERSION':'FOLLOW_HEAD'):capability[action];if(required&&!target.node.capabilities?.some(capability=>capability===required))throw new Error('Structure operation unavailable');
    return execute(target,invocation?.operation);
   }});
@@ -59,6 +60,7 @@ export function structureCommands(actions:StructureActions={},currentNodes:reado
   command('onDetach',({node})=>actions.onDetach?.(node)),
   command('onReconnect',({node})=>actions.onReconnect?.(node)),
   command('onRefresh',({node})=>actions.onRefresh?.(node)),
+  command('onUpdate',({node})=>actions.onUpdate?.(node)),
   command('onToggleConstruction',({node})=>actions.onToggleConstruction?.(node)),
   command('onToggleVisibility',({node,scope,visibilityMode})=>{if(!scope)throw new Error('Missing visibility scope');actions.onToggleVisibility?.(node,scope,visibilityMode);}),
   command('onToggleSuppression',({node})=>actions.onToggleSuppression?.(node)),

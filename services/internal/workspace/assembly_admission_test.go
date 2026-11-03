@@ -52,6 +52,30 @@ func admissionModel() ProductModel {
 	}}
 }
 
+func TestAssemblyAdmissionUpdatesOnlyRequestedPendingDefinitions(t *testing.T) {
+	for _, target := range []string{"conflict", "independent"} {
+		model := admissionModel()
+		unselected := 1
+		if target == "conflict" {
+			unselected = 2
+		}
+		before := model.Constraints[unselected]
+		var calls [][]string
+		if err := evaluateAssemblyAdmission(&model, false, scalarAssemblyEvaluator(&calls), map[string]bool{target: true}); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(before, model.Constraints[unselected]) {
+			t.Fatal("unselected pending definition changed", model.Constraints)
+		}
+		if target == "independent" && model.Constraints[2].EvaluationStatus != modelcore.AssemblyConstraintVerified {
+			t.Fatal("requested independent constraint was not admitted", model.Constraints)
+		}
+		if model.Instances[0].Translation[0] != 1 || model.Constraints[0].EvaluationStatus != modelcore.AssemblyConstraintVerified {
+			t.Fatal("update displaced an accepted equation", model)
+		}
+	}
+}
+
 func TestAssemblyAdmissionQuarantinesOnlyNewConflictAndAllowsDrag(t *testing.T) {
 	model := admissionModel()
 	var calls [][]string

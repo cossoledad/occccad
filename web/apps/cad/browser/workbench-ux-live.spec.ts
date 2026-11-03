@@ -273,3 +273,119 @@ test('Product publication remains the constraint address and primary tree select
  const point=await page.evaluate(({box,seed})=>{const e=(window as any).__cameraEngine;for(let y=20;y<box.height-20;y+=5)for(let x=20;x<box.width-20;x+=5){if(document.elementFromPoint(box.x+x,box.y+y)!==document.querySelector('canvas'))continue;const hit=e.hitTest(x,y);if(hit?.kind==='face'&&hit.instanceId===seed.instances[0].id&&hit.geometryKey===seed.key&&hit.topologyId===seed.face)return {x:box.x+x,y:box.y+y}}},{box,seed});if(!point)throw Error('No visible published face');await page.mouse.click(point.x,point.y);
  const choices=page.getByRole('dialog',{name:'选择发布接口',exact:true});await expect(choices).toBeVisible();await expect(choices.getByRole('button',{name:seed.name+' : Assembly face A',exact:true})).toBeVisible();await expect(choices.getByRole('button',{name:seed.name+' : Alternative face A',exact:true})).toBeVisible();await choices.getByRole('button',{name:seed.name+' : Assembly face A',exact:true}).click();await expect(choices).toHaveCount(0);await treeNavigator(page)(b.name,b.key);await row(b.key).click();await expect(dialog).toBeVisible();await expect(dialog).toContainText(seed.name+' : Assembly face A');await dialog.getByRole('button',{name:/取\s*消/}).click();expect(errors).toEqual([]);
 });
+
+test('constraint refresh and update are direct actions and tree states fit their content',async({page},info)=>{
+ test.setTimeout(180_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const requests=new Map<string,string>(),receipts=new Map<string,string>();
+ page.on('websocket',socket=>{
+  socket.on('framesent',frame=>{try{const m=JSON.parse(String(frame.payload));if(m.type==='workspace.command.execute.v1')requests.set(m.id,m.payload.command.type)}catch{}});
+  socket.on('framereceived',frame=>{try{const m=JSON.parse(String(frame.payload)),type=requests.get(m.correlationId);if(type&&(m.kind==='response'||m.kind==='error'))receipts.set(type,m.kind)}catch{}});
+ });
+ expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();await page.goto('/');
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');let part=await api.createDocument('PART','Mount document '+Date.now());const pid=part.document.id;
+  part=await api.command(pid,{type:'CREATE_SKETCH',plane:'XY'});const sketch=part.part!.features[0].id;
+  part=await api.command(pid,{type:'EDIT_SKETCH',sketchId:sketch,operations:[{type:'ADD_RECTANGLE',first:{x:-10,y:-10},second:{x:10,y:10}}]});
+  part=await api.command(pid,{type:'CREATE_SOLID_FEATURE',sketchId:sketch,generator:'LINEAR_EXTRUDE',operation:'ADD',length:10});
+  part=await api.command(pid,{type:'CREATE_PUBLICATION',name:'Base',publicationType:'PLANE',targetKind:'PLANE',targetId:'datum-xy'});
+  part=await api.command(pid,{type:'CREATE_DATUM_PLANE',origin:[0,0,20],normal:[0,0,1],uDirection:[1,0,0]});
+  part=await api.command(pid,{type:'CREATE_PUBLICATION',name:'Raised',publicationType:'PLANE',targetKind:'PLANE',targetId:part.part!.datumPlanes.at(-1)!.id});
+  let root=await api.createDocument('PRODUCT','Constraint actions '+Date.now());const id=root.document.id;
+  for(let i=0;i<2;i++)root=await api.command(id,{type:'INSERT_INSTANCE',referencedDocumentId:pid});const ids=root.product!.instances.map(i=>i.id);
+  root=await api.command(id,{type:'RENAME_INSTANCE',instanceId:ids[0],name:'Mount occurrence'});
+  root=await api.command(id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'FIX',firstAssemblyRef:{instanceId:ids[0],kind:'BODY'}});
+  root=await api.command(id,{type:'CREATE_PRODUCT_PUBLICATION',instanceId:ids[0],publicationId:part.part!.publications![0].id,name:'Mounting'});const port=root.product!.publications![0].id;
+  root=await api.command(id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'DISTANCE',value:5,distanceRelation:'SELECTED_PLANE_NORMAL_V1',firstAssemblyRef:{instanceId:ids[0],kind:'PLANE',publicationRef:{scope:'LOCAL',publicationId:port,expectedType:'PLANE',compatibilityVersion:'1.0.0'}},secondAssemblyRef:{instanceId:ids[1],kind:'PLANE',geometryId:'datum-xy'}});
+  const c=root.product!.constraints![1],session=await api.getProductDesignSession(id,ids[0]);
+  root=await api.command(id,{type:'EDIT_PRODUCT_PUBLICATION',publicationId:port,name:'Mounting',instancePath:session.activeInstancePath,targetId:part.part!.publications![1].id});
+  return {id,pid,docName:part.document.name,first:ids[0],constraint:c.id,constraintName:c.name,poses:root.product!.instances.map(i=>[i.translation,i.rotation])};
+ });
+ await page.goto('/documents/'+seed.id);await expect(page.locator('canvas')).toBeVisible();
+ const row=page.locator(`[role=treeitem][data-tree-key$="/constraint:${seed.constraint}"]`);
+ await treeNavigator(page)(seed.constraintName,`/constraint:${seed.constraint}`);await row.hover();
+ const fits=async(locator:typeof row)=>locator.evaluate(el=>{const r=el.getBoundingClientRect(),label=el.querySelector('.specification-tree-label')!.getBoundingClientRect();return {end:r.right-label.right,width:r.width,parent:el.parentElement!.getBoundingClientRect().width}});
+ let size=await fits(row);expect(size.end).toBeLessThan(9);expect(size.width).toBeLessThan(size.parent-15);
+ await row.click();await expect(row).toHaveAttribute('aria-selected','true');size=await fits(row);expect(size.end).toBeLessThan(9);
+ const actions=async()=>{await row.click({button:'right'});await page.getByRole('menuitem',{name:'对象',exact:true}).hover()};
+ await actions();await expect(page.getByRole('menuitem',{name:'刷新约束',exact:true})).toBeEnabled();await expect(page.getByRole('menuitem',{name:'更新',exact:true})).toBeEnabled();
+ await page.screenshot({path:info.outputPath('constraint-refresh-update-menu.png')});
+ await page.getByRole('menuitem',{name:'刷新约束',exact:true}).click();await expect.poll(()=>receipts.get('REFRESH_ASSEMBLY_CONSTRAINTS')).toBe('response');await expect(page.getByRole('dialog')).toHaveCount(0);
+ await expect(page.locator('.ant-message-notice')).toHaveCount(0);
+ let value=await current(page,seed.id);expect(value.product.constraints.find((c:any)=>c.id===seed.constraint).evaluationStatus).toBe('NOT_UPDATED');expect(value.product.instances.map((i:any)=>[i.translation,i.rotation])).toEqual(seed.poses);
+ await actions();await page.getByRole('menuitem',{name:'更新',exact:true}).click();await expect.poll(()=>receipts.get('UPDATE_ASSEMBLY_CONSTRAINTS')).toBe('response');
+ await expect.poll(async()=>(await current(page,seed.id)).product.constraints.find((c:any)=>c.id===seed.constraint).evaluationStatus).toBe('VERIFIED');await expect(page.getByRole('dialog')).toHaveCount(0);
+ await expect(page.locator('.ant-message-notice')).toHaveCount(0);
+ value=await current(page,seed.id);expect(value.product.instances[1].translation[2]).toBeCloseTo(seed.poses[1][0][2]+20,6);
+ await actions();await expect(page.getByRole('menuitem',{name:'更新',exact:true})).toHaveAttribute('aria-disabled','true');await page.keyboard.press('Escape');await page.keyboard.press('Escape');
+ const conflict=await page.evaluate(async(id)=>{const {restApi:api}=await import('/src/api.ts');const v=await api.getDocument(id),c=v.product!.constraints!.find(c=>c.kind==='DISTANCE')!;
+  const updated=await api.command(id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'DISTANCE',name:'Conflicting offset',firstAssemblyRef:c.first,secondAssemblyRef:c.second,distanceRelation:c.distanceRelation,value:c.value!+1});
+  const pending=updated.product!.constraints!.at(-1)!;return {id:pending.id,name:pending.name};},seed.id);
+ await page.reload();await expect(page.locator('canvas')).toBeVisible();await treeNavigator(page)(conflict.name,`/constraint:${conflict.id}`);
+ const conflictRow=page.locator(`[role=treeitem][data-tree-key$="/constraint:${conflict.id}"]`);await conflictRow.click({button:'right'});await page.getByRole('menuitem',{name:'对象',exact:true}).hover();await page.getByRole('menuitem',{name:'更新',exact:true}).click();
+ await expect(page.locator('.cad-operation-notification')).toContainText('更新约束未完成');await expect(page.getByRole('dialog')).toHaveCount(0);
+ expect((await current(page,seed.id)).product.constraints.find((c:any)=>c.id===conflict.id).evaluationStatus).toBe('NOT_UPDATED');await page.screenshot({path:info.outputPath('retained-update-failure-feedback.png')});
+ await treeNavigator(page)('Mount occurrence',`/instance:${seed.first}`);const instance=page.locator(`[role=treeitem][data-tree-key$="/instance:${seed.first}"]`);await instance.dblclick();
+ const reference=page.locator(`[role=treeitem][data-tree-key$="/instance:${seed.first}/reference"]`);await expect(reference).toContainText(seed.docName);await expect(reference).not.toContainText('Mount occurrence');await expect(reference).toHaveClass(/active-document/);
+ await reference.click();await reference.focus();expect((await fits(reference)).end).toBeLessThan(9);await page.screenshot({path:info.outputPath('compact-tree-and-constraint-actions.png')});expect(errors).toEqual([]);
+});
+
+test('updating a published face refreshes its glyph, anchors and face highlights',async({page},info)=>{
+ test.setTimeout(180_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();await page.goto('/');
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');let part=await api.createDocument('PART','Face binding source '+Date.now());const pid=part.document.id;
+  part=await api.command(pid,{type:'CREATE_SKETCH',plane:'XY'});const sid=part.part!.features[0].id;
+  part=await api.command(pid,{type:'EDIT_SKETCH',sketchId:sid,operations:[{type:'ADD_RECTANGLE',first:{x:-10,y:-10},second:{x:10,y:10}}]});
+  part=await api.command(pid,{type:'CREATE_SOLID_FEATURE',sketchId:sid,generator:'LINEAR_EXTRUDE',operation:'ADD',length:10});
+  const key=part.part!.bodies.find(b=>b.geometryKey)!.geometryKey!;let top=0,bottom=0;
+  for(let i=1;i<=Number(part.artifacts[key].topology.faces);i++){const p=await api.getTopologyProperties(pid,key,'FACE',i,part.document.versionId),slot=p.persistentSelection?.anchor.outputSlot??'';if(slot.startsWith('END_CAP/'))top=i;if(slot.startsWith('START_CAP/'))bottom=i}
+  if(!top||!bottom)throw Error('Cap faces missing');
+  for(const [face,name] of [[top,'Top'],[bottom,'Bottom']] as const)part=await api.command(pid,{type:'CREATE_PUBLICATION',name,publicationType:'SURFACE',targetKind:'FACE',geometryKey:key,topologyId:face});
+  let root=await api.createDocument('PRODUCT','Face binding update '+Date.now());const id=root.document.id;
+  for(let i=0;i<2;i++)root=await api.command(id,{type:'INSERT_INSTANCE',referencedDocumentId:pid});const ids=root.product!.instances.map(i=>i.id);
+  root=await api.command(id,{type:'MOVE_INSTANCE',instanceId:ids[1],translation:[40,0,0],rotation:[0,0,0,1]});
+  root=await api.command(id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'FIX',firstAssemblyRef:{instanceId:ids[1],kind:'BODY'}});
+  root=await api.command(id,{type:'CREATE_PRODUCT_PUBLICATION',instanceId:ids[0],publicationId:part.part!.publications![0].id,name:'Mount'});const port=root.product!.publications![0].id;
+  const session=await api.getProductDesignSession(id,ids[1]);
+  root=await api.command(id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'DISTANCE',value:5,distanceRelation:'SELECTED_PLANE_NORMAL_V1',firstAssemblyRef:{instanceId:ids[0],kind:'FACE',publicationRef:{scope:'LOCAL',publicationId:port,expectedType:'SURFACE',compatibilityVersion:'1.0.0'}},secondAssemblyRef:{instanceId:ids[1],kind:'FACE',publicationRef:{scope:'OCCURRENCE',ownerPath:session.activeInstancePath,publicationId:part.part!.publications![0].id,expectedType:'SURFACE',compatibilityVersion:'1.0.0'}}});
+  const constraint=root.product!.constraints![1];const owner=await api.getProductDesignSession(id,ids[0]);
+  root=await api.command(id,{type:'EDIT_PRODUCT_PUBLICATION',publicationId:port,name:'Mount',instancePath:owner.activeInstancePath,targetId:part.part!.publications![1].id});
+  return {id,target:constraint.id,name:constraint.name,port,bottom,top,moving:ids[0]};
+ });
+ await page.goto('/documents/'+seed.id);await expect(page.locator('canvas')).toBeVisible();await observeViewport(page);
+ await treeNavigator(page)(seed.name,`/constraint:${seed.target}`);const row=page.locator(`[role=treeitem][data-tree-key$="/constraint:${seed.target}"]`);
+ await expect.poll(()=>page.evaluate(id=>{const e=(window as any).__cameraEngine;return [...e.assemblyConstraintMarkers.values()].find((m:any)=>m.selection.id===id)?.group.children[0].material.uniforms.uGlyph.value},seed.target)).toBe(18);
+ await page.evaluate(seed=>{
+  const e=(window as any).__cameraEngine;
+  const sample=()=>{
+   const entry=[...e.assemblyConstraintMarkers.entries()].find(([,m]:any)=>m.selection.id===seed.target) as any;
+   if(!entry)return;const [key,m]=entry,refs=e.assemblyConstraintReferences.get(key),raw=refs?.map((s:any)=>s.highlightTarget??s)??[];
+   const anchors=raw.map((s:any)=>{const b=[...e.solidBindings.values()].find((b:any)=>b.context.occurrencePath===s.occurrencePath&&b.context.bodyId===s.bodyId&&b.artifact.geometryKey===s.geometryKey) as any;if(!b)return;
+    const center=b.group.position.clone().set(0,0,0);let count=0;for(let i=0;i<b.artifact.mesh.triangles.length;i++)if(b.artifact.mesh.faceIds[i]===s.topologyId)for(const v of b.artifact.mesh.triangles[i]){center.add(b.mesh.localToWorld(center.clone().fromArray(b.artifact.mesh.vertices[v])));count++}return count?center.multiplyScalar(1/count):undefined});
+   if(anchors.length!==2||anchors.some((a:any)=>!a))return;
+   const expected=anchors[0].clone().add(anchors[1]).multiplyScalar(.5);expected.z+=Math.max(4,anchors[0].distanceTo(anchors[1])*.08);
+   return {error:expected.distanceTo(m.group.position),glyph:m.group.children[0].material.uniforms.uGlyph.value,faces:raw.map((r:any)=>({instance:r.instanceId??r.instancePath?.segments[0]?.instanceId,face:r.topologyId})),logical:refs[0].publicationId};
+  };
+  (window as any).__constraintDisplaySample=sample;(window as any).__constraintDisplayFrames=[];
+  const original=e.refreshAssemblyConstraintDisplay;e.refreshAssemblyConstraintDisplay=function(){const changed=this.assemblyConstraintDisplayDirty;original.call(this);if(changed){const s=sample();if(s)(window as any).__constraintDisplayFrames.push(s)}};
+ },seed);
+ await row.click({button:'right'});await page.getByRole('menuitem',{name:'对象',exact:true}).hover();await page.getByRole('menuitem',{name:'更新',exact:true}).click();
+ await expect.poll(async()=>(await current(page,seed.id)).product.constraints.find((c:any)=>c.id===seed.target).evaluationStatus).toBe('VERIFIED');
+ await expect.poll(()=>page.evaluate(()=>{const s=(window as any).__constraintDisplaySample();return s?.glyph===8&&s.error<1e-7})).toBe(true);
+ // Exercise the shared display transition clock without another domain write.
+ // The normal Product projection may adopt its final pose immediately.
+ const transition=await page.evaluate(id=>{const e=(window as any).__cameraEngine,object=e.instanceGroups.get(id),pose={position:object.position.clone(),rotation:object.quaternion.clone(),scale:object.scale.clone()};
+  (window as any).__constraintRestorePose={object,target:pose};const target={...pose,position:pose.position.clone()};target.position.x+=6;e.transforms.applyBatch([{object,target}],'settle');return {x:target.position.x,revision:e.view.document.versionId};},seed.moving);
+ await expect.poll(()=>page.evaluate(id=>(window as any).__cameraEngine.instanceGroups.get(id).position.x,seed.moving)).toBeCloseTo(transition.x,7);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__constraintDisplayFrames.length)).toBeGreaterThan(0);
+ expect(await page.evaluate(()=>(window as any).__constraintDisplayFrames.every((s:any)=>s.error<1e-7))).toBe(true);
+ const originalX=await page.evaluate(()=>{const p=(window as any).__constraintRestorePose;(window as any).__cameraEngine.transforms.applyBatch([p],'rollback');return p.target.position.x});
+ await expect.poll(()=>page.evaluate(id=>(window as any).__cameraEngine.instanceGroups.get(id).position.x,seed.moving)).toBeCloseTo(originalX,7);
+ expect((await current(page,seed.id)).document.versionId).toBe(transition.revision);
+ expect((await page.evaluate(()=>(window as any).__constraintDisplaySample())).logical).toBe(seed.port);
+ expect((await page.evaluate(()=>(window as any).__constraintDisplaySample())).faces[0].face).toBe(seed.bottom);
+ await row.hover();await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.preselectedOverlays.length)).toBe(2);
+ await row.click();await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.selectedOverlays.length)).toBe(2);
+ expect(await page.evaluate(()=>{const e=(window as any).__cameraEngine,entry=[...e.assemblyConstraintMarkers.entries()].find(([,m]:any)=>m.selection.id===e.selected[0].id) as any;if(!entry)return false;return e.assemblyConstraintReferences.get(entry[0]).every((s:any)=>e.selectionIndex.objectsFor(s.highlightTarget??s).includes(entry[1].group))})).toBe(true);
+ await expect(page.locator('.ant-message-notice')).toHaveCount(0);await page.screenshot({path:info.outputPath('updated-constraint-face-bindings.png')});expect(errors).toEqual([]);
+});

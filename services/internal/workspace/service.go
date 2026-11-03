@@ -2932,8 +2932,9 @@ func assemblyConstraintStructureCapabilities(constraint AssemblyConstraint, stat
 	if status == modelcore.AssemblyConstraintBroken || firstDisconnected || secondDisconnected {
 		capabilities = append(capabilities, "RECONNECT")
 	}
-	if status != modelcore.AssemblyConstraintVerified {
-		capabilities = append(capabilities, "REFRESH")
+	capabilities = append(capabilities, "REFRESH")
+	if !constraint.Suppressed && status == modelcore.AssemblyConstraintNotUpdated {
+		capabilities = append(capabilities, "UPDATE")
 	}
 	return capabilities
 }

@@ -229,7 +229,7 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 			ResolvedVersionID: resolvedVersionID,
 		})
 		reference, err := service.buildDocumentStructure(ctx, resolvedVersionID, instanceNodePath+"/reference",
-			instance.Name, childIdentity, visiting)
+			"", childIdentity, visiting)
 		if err != nil {
 			return DocumentStructureNode{}, err
 		}
@@ -318,7 +318,7 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 		root.Children = append(root.Children, group)
 	}
 	if len(model.Constraints) > 0 {
-		group := DocumentStructureNode{ID: path + "/assembly-constraints", Kind: "ASSEMBLY_CONSTRAINT_SET", EntityID: "assembly-constraints", Name: "约束", DocumentID: documentID, LocalVisible: boolPointer(false), Capabilities: []string{"SUPPRESS"}, Suppressed: true}
+		group := DocumentStructureNode{ID: path + "/assembly-constraints", Kind: "ASSEMBLY_CONSTRAINT_SET", EntityID: "assembly-constraints", Name: "约束", DocumentID: documentID, VersionID: versionID, InstancePath: root.InstancePath, LocalVisible: boolPointer(false), Capabilities: []string{"SUPPRESS", "REFRESH"}, Suppressed: true}
 		names := make(map[string]string, len(model.Instances))
 		for _, instance := range model.Instances {
 			names[instance.ID] = instance.Name
@@ -336,9 +336,12 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 				name += " [停用]"
 			}
 			capabilities := assemblyConstraintStructureCapabilities(constraint, status)
+			if slices.Contains(capabilities, "UPDATE") && !slices.Contains(group.Capabilities, "UPDATE") {
+				group.Capabilities = append(group.Capabilities, "UPDATE")
+			}
 			node := DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,
 				Kind: "ASSEMBLY_CONSTRAINT", LocalVisible: boolPointer(visibleOrDefault(constraint.Visible)), Suppressed: constraint.Suppressed, Name: name, EntityID: constraint.ID, EntityType: constraint.Kind,
-				DocumentID: documentID, EvaluationStatus: string(status),
+				DocumentID: documentID, VersionID: versionID, InstancePath: root.InstancePath, EvaluationStatus: string(status),
 				Diagnostic: string(status) + ": " + summary, Capabilities: capabilities}
 			if isAssemblyGroup(constraint) {
 				node.Children = assemblyGroupReferenceNodes(node.ID, documentID, "", constraint, func(id string) string { return names[id] }, model.Constraints)
@@ -352,6 +355,7 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 			}
 			group.Children = append(group.Children, node)
 		}
+		applyInstancePath(group.Children, root.InstancePath)
 		root.Children = append(root.Children, group)
 	}
 	applications := kinematicsStructure(documentID, versionID, path, model.Kinematics, model.Constraints, model.Instances)

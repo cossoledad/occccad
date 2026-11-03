@@ -57,6 +57,23 @@ assert.equal(ux.assemblyStatusAfterPreviewFailure("SOLVING", false, [ux.assembly
 assert.equal(ux.assemblyStatusAfterPreviewFailure("SOLVING", true, [ux.assemblySupportPresentation(connected)]), "NOT_UPDATED");
 console.log("Assembly constraint UX tests passed.");
 
+const pending = {id:'mate',kind:'COINCIDENT',first:connected,second:connected,evaluationStatus:'NOT_UPDATED',
+  evaluationFailure:{code:'ASSEMBLY_PREFERENCE_NOT_CONVERGED',diagnosticId:'kept-diagnostic',phase:'SOLVING',retryable:false},evaluationSummary:'retained preference failure'};
+const actionFailure=ux.assemblyConstraintActionFailure;
+assert.equal(actionFailure('REFRESH_ASSEMBLY_CONSTRAINTS',[pending],'mate'),undefined);
+assert.equal(actionFailure('REFRESH_ASSEMBLY_CONSTRAINTS',[{...pending,evaluationStatus:'BROKEN'}],'mate'),undefined);
+assert.equal(actionFailure('UPDATE_ASSEMBLY_CONSTRAINTS',[pending],'mate').code,'ASSEMBLY_PREFERENCE_NOT_CONVERGED');
+assert.equal(actionFailure('UPDATE_ASSEMBLY_CONSTRAINTS',[pending],'mate').diagnosticId,'kept-diagnostic');
+assert.equal(actionFailure('UPDATE_ASSEMBLY_CONSTRAINTS',[{...pending,evaluationStatus:'VERIFIED'}],'mate'),undefined);
+const other={...pending,id:'other',evaluationStatus:'BROKEN'};
+assert.equal(actionFailure('UPDATE_ASSEMBLY_CONSTRAINTS',[{...pending,evaluationStatus:'VERIFIED'},other],'mate'),undefined,'a different constraint cannot mask a successful selected update');
+assert.equal(actionFailure('UPDATE_ASSEMBLY_CONSTRAINTS',[{...pending,evaluationFailure:undefined}],'mate').code,'ASSEMBLY_UPDATE_INCOMPLETE');
+assert.equal(actionFailure('UPDATE_ASSEMBLY_CONSTRAINTS',[{...pending,evaluationStatus:'BROKEN',evaluationFailure:undefined}],'mate').code,'NOT_CONNECTED');
+const failureSource=await readFile(new URL('../../../cad/command/operation-failure.ts',import.meta.url),'utf8');
+const failureJS=ts.transpileModule(failureSource,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const {normalizeOperationFailure}=await import(`data:text/javascript;base64,${Buffer.from(failureJS).toString('base64')}`);
+assert.equal(normalizeOperationFailure({code:'ASSEMBLY_PREFERENCE_NOT_CONVERGED',message:'raw solver evidence'}).message,'位置优化尚未收敛，未采用新位置。可通过约束分析检查。');
+
 const referenceSource = await readFile(new URL("../../../cad/assembly/assembly-reference.ts", import.meta.url), "utf8");
 const referenceOutput = ts.transpileModule(referenceSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
 const { assemblyGeometryRef } = await import(`data:text/javascript;base64,${Buffer.from(referenceOutput).toString("base64")}`);

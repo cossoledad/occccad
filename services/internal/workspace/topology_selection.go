@@ -309,6 +309,9 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 	}
 	for index := range product.Constraints {
 		constraint := &product.Constraints[index]
+		if len(exclusions) > 0 && exclusions[0][constraint.ID] {
+			continue
+		}
 		if isAssemblyGroup(*constraint) {
 			valid := true
 			for _, member := range constraint.GroupMembers {
@@ -322,10 +325,9 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 			}
 			if !valid {
 				constraint.EvaluationStatus, constraint.EvaluationSummary = modelcore.AssemblyConstraintBroken, "GROUP_MEMBER_MISSING"
+			} else if constraint.EvaluationStatus == modelcore.AssemblyConstraintBroken {
+				constraint.EvaluationStatus, constraint.EvaluationSummary = modelcore.AssemblyConstraintNotUpdated, "members resolved; awaiting authoritative solve"
 			}
-			continue
-		}
-		if len(exclusions) > 0 && exclusions[0][constraint.ID] {
 			continue
 		}
 		first, firstErr := resolveEndpoint(&constraint.First)
@@ -338,6 +340,8 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 			if firstErr != nil || secondErr != nil || axisErr != nil || first != modelcore.SelectionResolved || second != modelcore.SelectionResolved || axis != modelcore.SelectionResolved {
 				constraint.EvaluationStatus = modelcore.AssemblyConstraintBroken
 				constraint.EvaluationSummary = fmt.Sprintf("inactive support resolution: first=%s second=%s axis=%s", first, second, axis)
+			} else if constraint.EvaluationStatus == modelcore.AssemblyConstraintBroken {
+				constraint.EvaluationStatus, constraint.EvaluationSummary = modelcore.AssemblyConstraintNotUpdated, "inactive references resolved; authoritative solve required on activation"
 			}
 			continue
 		}
