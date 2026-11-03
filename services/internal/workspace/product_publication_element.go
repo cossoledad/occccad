@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/occccad/occccad/internal/modelcore"
 	"strings"
+
+	"github.com/occccad/occccad/internal/modelcore"
 )
 
 // Load the exact accepted occurrence, including its owning Product's inputs.
@@ -82,6 +83,9 @@ func (s *Service) productElementPublicationFromRequest(ctx context.Context, docu
 		return ProductPublication{}, err
 	}
 	leaf := path.Segments[len(path.Segments)-1]
+	if request.SourceDocumentID != "" && request.SourceDocumentID != leaf.ReferencedDocumentID || request.SourceVersionID != "" && request.SourceVersionID != leaf.ResolvedVersionID {
+		return ProductPublication{}, fmt.Errorf("%w: PRODUCT_PUBLICATION_SCOPE_CHANGED", ErrValidation)
+	}
 	local := request
 	local.VersionID = leaf.ResolvedVersionID
 	local.InstancePath = nil
@@ -93,20 +97,61 @@ func (s *Service) productElementPublicationFromRequest(ctx context.Context, docu
 		}
 		local.Name = nextScopedName(defaultPublicationBase(local.TargetKind, local.PublicationType), names)
 	}
-	p, err := s.publicationFromRequest(ctx, leaf.ReferencedDocumentID, part, local, id)
+	p, err := s.publicationFromSnapshot(ctx, leaf.ReferencedDocumentID, part, local, id)
 	if err != nil {
 		return ProductPublication{}, err
 	}
-	part.Publications = []Publication{p}
+	// Resolve the existing ports and the picked element in the same accepted
+	// Part/variant. A raw viewport hit must not bypass a reusable public port.
+	part.Publications = append(part.Publications, p)
 	if err = s.resolvePartPublications(ctx, leaf.ReferencedDocumentID, request.RequestID+"/element", leaf.ResolvedVersionID, &part, true); err != nil {
 		return ProductPublication{}, err
 	}
-	p = part.Publications[0]
+	p = part.Publications[len(part.Publications)-1]
 	if p.Resolution.Status != "CONNECTED" {
 		return ProductPublication{}, fmt.Errorf("%w: %s", ErrValidation, p.Resolution.DiagnosticCode)
 	}
+	var source *Publication
+	for i := range part.Publications[:len(part.Publications)-1] {
+		candidate := &part.Publications[i]
+		if samePublicationElement(*candidate, p) {
+			if source != nil {
+				return ProductPublication{}, fmt.Errorf("%w: PUBLICATION_SOURCE_AMBIGUOUS", ErrValidation)
+			}
+			source = candidate
+		}
+	}
+	if source != nil {
+		name := request.Name
+		if name == "" {
+			name = forwardedPublicationName(product, source.Name)
+		}
+		return productPublicationFromPath(path, publicationThroughRigidPose(*source, pose), id, name, request.SemanticPurpose), nil
+	}
 	p = publicationThroughRigidPose(p, pose)
 	return ProductPublication{ID: id, Name: p.Name, Type: p.Type, SemanticPurpose: p.SemanticPurpose, CompatibilityVersion: p.CompatibilityVersion, Contract: p.Contract, Target: ProductPublicationTarget{InstancePath: path, Element: &p.Target}, Resolution: p.Resolution}, nil
+}
+
+// Current exact resolution is selection evidence, never a persisted identity.
+// Once identified, the parent stores the child Publication ID instead.
+func samePublicationElement(a, b Publication) bool {
+	if a.Resolution.Status != "CONNECTED" || b.Resolution.Status != "CONNECTED" || a.Target.Kind != b.Target.Kind || a.Type != b.Type {
+		return false
+	}
+	x, y := a.Target, b.Target
+	switch x.Kind {
+	case "TOPOLOGY":
+		return a.Resolution.GeometryKey != "" && a.Resolution.GeometryKey == b.Resolution.GeometryKey && a.Resolution.LocalID != 0 && a.Resolution.LocalID == b.Resolution.LocalID && a.Resolution.TopologyKind == b.Resolution.TopologyKind
+	case "DATUM":
+		return x.DatumID == y.DatumID && x.Axis == y.Axis
+	case "BODY_RESULT":
+		return x.BodyID == y.BodyID
+	case "PARAMETER":
+		return x.ParameterID == y.ParameterID
+	case "SKETCH_ENTITY":
+		return x.SketchID == y.SketchID && x.EntityID == y.EntityID
+	}
+	return false
 }
 
 func (s *Service) resolveProductElementPublication(ctx context.Context, product ProductModel, path InstancePath, p ProductPublication, variants map[string]ContextVariantSnapshot) (Publication, error) {

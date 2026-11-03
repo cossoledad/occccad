@@ -2839,6 +2839,20 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 }
 
 func assemblySupportPreview(reference AssemblyGeometryRef) AssemblySupportPreviewEvaluation {
+	// Publication endpoints deliberately have no raw-topology Resolution:
+	// their owning interface resolves geometry across Part/Product boundaries.
+	if reference.PublicationRef != nil {
+		if r := reference.Resolution; r != nil && r.Result.SupportingElementStatus != modelcore.SupportingElementConnected {
+			return AssemblySupportPreviewEvaluation{Status: modelcore.SupportingElementNotConnected, DiagnosticCode: r.Result.DiagnosticCode, Diagnostic: r.Result.Diagnostic}
+		}
+		if p := reference.PublicationResolution; p != nil {
+			if p.Status == "CONNECTED" {
+				return AssemblySupportPreviewEvaluation{Status: modelcore.SupportingElementConnected}
+			}
+			return AssemblySupportPreviewEvaluation{Status: modelcore.SupportingElementNotConnected, DiagnosticCode: p.DiagnosticCode, Diagnostic: p.Diagnostic}
+		}
+		return AssemblySupportPreviewEvaluation{Status: modelcore.SupportingElementNotConnected, DiagnosticCode: "RESOLUTION_UNAVAILABLE", Diagnostic: "publication support has no resolution snapshot"}
+	}
 	if reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX" {
 		return AssemblySupportPreviewEvaluation{Status: modelcore.SupportingElementConnected}
 	}

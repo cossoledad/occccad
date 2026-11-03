@@ -1853,7 +1853,7 @@ onToggleConstruction:(node)=>{
           groupPicking={groupPicking} onPickGroup={()=>setGroupPicking(true)} replacingMember={replacingGroupMember} onReplaceMember={token=>{setGroupPicking(true);setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
           onLocateMember={locateAssemblyMember}
           supportIssues={assemblyTargetSupports?.map(s=>s.status!=="RESOLVED"?engineeringProblem({code:s.diagnosticCode,message:s.diagnostic}):s.constraintEligible!==true?s.constraintDiagnostic??"请选择适用的支撑类型":undefined)} exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
-          onRemove={removeAssemblySupport} references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second].map((r,i)=>removedAssemblySupports.has(i)?undefined:r)} replacing={replacingAssemblyReference}
+          onRemove={removeAssemblySupport} references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second].map((r,i)=>removedAssemblySupports.has(i)?undefined:(resolvedAssemblyReferences[i]??r))} replacing={replacingAssemblyReference}
           constraint={editingAssemblyConstraint} previewEvaluation={assemblyPreviewEvaluation}
 
 		  onValueCommit={invalidateAssemblyDefinition}
@@ -1893,7 +1893,7 @@ onToggleConstruction:(node)=>{
           groupPicking={groupPicking} onPickGroup={()=>setGroupPicking(true)} replacingMember={replacingGroupMember} onReplaceMember={token=>{setGroupPicking(true);setReplacingGroupMember(current=>current===token?undefined:token);store.setSelection(null);}}
           onLocateMember={locateAssemblyMember}
           supportIssues={assemblyTargetSupports?.map(s=>s.status!=="RESOLVED"?engineeringProblem({code:s.diagnosticCode,message:s.diagnostic}):s.constraintEligible!==true?s.constraintDiagnostic??"请选择适用的支撑类型":undefined)} exactTypes={assemblyExactTypes} sourceTypes={assemblySourceTypes} contactCapabilities={contactCapabilities} onDerive={deriveAssemblyReference}
-          onRemove={removeAssemblySupport} references={pendingAssemblyConstraint.references.map((r,i)=>removedAssemblySupports.has(i)?undefined:r)} replacing={replacingAssemblyReference}
+          onRemove={removeAssemblySupport} references={pendingAssemblyConstraint.references.map((r,i)=>removedAssemblySupports.has(i)?undefined:(resolvedAssemblyReferences[i]??r))} replacing={replacingAssemblyReference}
           previewEvaluation={assemblyPreviewEvaluation}
           angleRelation={pendingAssemblyConstraint.angleRelation}
 		  onValueCommit={invalidateAssemblyDefinition}

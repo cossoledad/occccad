@@ -2,6 +2,14 @@ import type {ContextCatalogPublication,DocumentView,InstancePath,SelectionItem} 
 import {isSolidFeature} from './workbench-tree-model';
 import {structureSelection} from './structure-selection';
 
+/** Existing public interfaces take precedence over private element snapshots. */
+export function publicationSourceTarget(view:DocumentView,s:SelectionItem,ownerPath?:InstancePath){
+ const local=publicationSelectionTarget(view,s,ownerPath);if(local)return local;
+ const forward=publicationForwardTarget(view,s,ownerPath);
+ if(forward)return {targetId:forward.publicationId,instancePath:forward.instancePath};
+ return publicationElementTarget(view,s,ownerPath);
+}
+
 function samePath(candidate:InstancePath|undefined,path:InstancePath):boolean{
  return !!candidate&&candidate.rootDocumentId===path.rootDocumentId&&candidate.canonical===path.canonical&&candidate.segments.length===path.segments.length&&candidate.segments.every((v,i)=>{const b=path.segments[i];return v.ownerDocumentId===b.ownerDocumentId&&v.ownerVersionId===b.ownerVersionId&&v.instanceId===b.instanceId&&v.referencedDocumentId===b.referencedDocumentId&&v.resolvedVersionId===b.resolvedVersionId});
 }

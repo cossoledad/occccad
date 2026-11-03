@@ -631,6 +631,13 @@
     ]
   },
   {
+    "path": "services/internal/control/publication_reconnection_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#featureAssociationTestService",
+      "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"
+    ]
+  },
+  {
     "path": "services/internal/control/publication_layout_integration_test.go",
     "resources": [
       "fixture dependency: services/internal/control/cut_hole_naming_integration_test.go#p6Actor"

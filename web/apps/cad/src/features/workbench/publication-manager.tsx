@@ -7,7 +7,7 @@ import {engineeringLabel,selectionName} from '../../cad/presentation/engineering
 import type {DocumentView,InstancePath,SelectionItem} from '../../types';
 import type {FeatureSelectionSession} from '../../cad/interaction/feature-selection';
 import {FeaturePickField} from './feature-pick-field';
-import {publicationElementTarget,publicationForwardTarget,publicationSelectionTarget} from './publication-target';
+import {publicationForwardTarget,publicationSourceTarget} from './publication-target';
 import {structureSelection} from './structure-selection';
 import {documentParameters} from './parameter-editor';
 
@@ -23,11 +23,7 @@ export function PublicationManager({view,root,ownerPath,initialId,seed,canEdit,o
  const [selected,setSelected]=useState(initialId);
  const [busy,setBusy]=useState(false),[error,setError]=useState<string>();
  const base=useRef(view.document.versionId),alive=useRef(true),inFlight=useRef(false),seeded=useRef(false),session=useRef(onSelectionSession);session.current=onSelectionSession;
- const sourceTarget=(s:SelectionItem):Target|undefined=>{
-  const local=publicationSelectionTarget(view,s,ownerPath);if(local)return local;
-  const element=publicationElementTarget(view,s,ownerPath);if(element)return element;
-  const forward=publicationForwardTarget(view,s,ownerPath);if(forward)return {targetId:forward.publicationId,instancePath:forward.instancePath};
- };
+ const sourceTarget=(s:SelectionItem):Target|undefined=>publicationSourceTarget(view,s,ownerPath);
  const choose=(s:SelectionItem,t=sourceTarget(s),label=selectionName(root,s))=>{
   if(!t||!canEdit||inFlight.current||view.document.versionId!==base.current)return;
   if(!editing){
@@ -50,7 +46,7 @@ export function PublicationManager({view,root,ownerPath,initialId,seed,canEdit,o
   const visit=(node:NonNullable<DocumentView['structureTree']>)=>{
    if(node.kind==='PUBLICATION'||node.kind==='PRODUCT_PUBLICATION'){
     const s=structureSelection(node,root),forward=s&&publicationForwardTarget(view,s,ownerPath);
-    if(s&&forward)rows.push({value:node.id,label:`${forward.instancePath.display} / ${node.name}`,pick:s,target:{targetId:forward.publicationId,instancePath:forward.instancePath}});
+    if(s&&forward)rows.push({value:node.id,label:`${forward.instancePath.display} : ${node.name}`,pick:s,target:{targetId:forward.publicationId,instancePath:forward.instancePath}});
    }
    node.children?.forEach(visit);
   };if(root.structureTree)visit(root.structureTree);return rows;
@@ -59,6 +55,7 @@ export function PublicationManager({view,root,ownerPath,initialId,seed,canEdit,o
  const edit=(id:string)=>{const p=publications.find(p=>p.id===id);if(!p)return;setEditing(id);setName(p.name);setPurpose(p.semanticPurpose??'');setPick(undefined);setTarget(undefined);setTargetName(undefined);setPicking(false);setError(undefined);base.current=view.document.versionId;};
  const targetLabel=(id:string)=>{
   const p=publications.find(p=>p.id===id);if(!p)return '来源不可用';
+  if('publicationId' in p.target&&p.target.publicationId){const t=p.target;const source=descendants.find(r=>r.target.targetId===t.publicationId&&(r.target.instancePath as InstancePath).canonical===t.instancePath.canonical);return source?.label??`${t.instancePath.display} : 来源不可用`;}
   if(p.resolution.element){const prefix='instancePath' in p.target?p.target.instancePath.display:undefined;return [prefix,p.resolution.element.path].filter(Boolean).join(' / ')}
   const t=p.target;
   if('parameterId' in t&&t.parameterId)return documentParameters(view).find(p=>p.parameterId===t.parameterId)?.displayName??'参数';

@@ -67,3 +67,14 @@ assert.deepEqual(assemblyGeometryRef({ kind: "face", id: "face", instanceId: "su
   geometryKey: "leaf-geometry", topologyId: 3 }), {
   instanceId: "sub", instancePath: nestedPath, kind: "FACE", geometryKey: "leaf-geometry", topologyId: 3
 });
+
+for(const kind of ['FACE','EDGE','VERTEX','PLANE','AXIS','FRAME','BODY']){
+ const published={instanceId:'p',kind,publicationRef:{publicationId:'port'},publicationResolution:{status:'CONNECTED'}};
+ assert.equal(ux.assemblySupportPresentation(published).status,'CONNECTED',kind+' publication uses its own checked snapshot');
+ assert.equal(ux.firstDisconnectedSupport({first:published,evaluationStatus:'NOT_UPDATED'}),undefined);
+ const missing={...published,publicationResolution:{status:'BROKEN_PUBLICATION',diagnosticCode:'PUBLICATION_MISSING',diagnostic:'missing'}};
+ assert.equal(ux.assemblySupportPresentation(missing).status,'NOT_CONNECTED');
+ assert.equal(ux.assemblySupportPresentation(missing).diagnosticCode,'PUBLICATION_MISSING');
+ const replaced={...published,resolution:broken.resolution};
+ assert.equal(ux.assemblySupportPresentation(replaced).status,'NOT_CONNECTED','raw failure must override a stale connected publication');
+}

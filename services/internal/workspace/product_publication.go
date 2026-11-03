@@ -568,3 +568,16 @@ func productPublicationFromPath(path InstancePath, child Publication, id, name, 
 		CompatibilityVersion: child.CompatibilityVersion, Contract: child.Contract,
 		Target: ProductPublicationTarget{InstancePath: path, PublicationID: child.ID}, Resolution: child.Resolution}
 }
+
+func forwardedPublicationName(product ProductModel, sourceName string) string {
+	names := make([]string, 0, len(product.Publications))
+	conflict := false
+	for _, p := range product.Publications {
+		names = append(names, p.Name)
+		conflict = conflict || scopedNameKey(p.Name) == scopedNameKey(sourceName)
+	}
+	if !conflict {
+		return sourceName
+	}
+	return nextScopedName(sourceName, names)
+}

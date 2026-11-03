@@ -165,7 +165,7 @@ export function bindPublicationSelection(selection: SelectionItem, root?: Docume
   const matches: Array<{ id: string; publication: Publication }> = [];
   const matchingBodyIds = new Set<string>();
   const scanBodies = (node: DocumentStructureNode) => {
-    if (node.kind === "BODY" && node.geometryKey === selection.geometryKey &&
+    if (node.kind === "BODY" && node.documentId === selection.documentId && node.geometryKey === selection.geometryKey &&
         node.versionId === selection.versionId &&
         (node.instancePath?.canonical ?? "") === (selection.occurrencePath ?? "") && node.bodyId) {
       matchingBodyIds.add(node.bodyId);
@@ -188,8 +188,10 @@ export function bindPublicationSelection(selection: SelectionItem, root?: Docume
         ? source.target.persistentSelection.sourceBodyId === selection.bodyId
         : matchingBodyIds.size === 1 && matchingBodyIds.has(selection.bodyId ?? ""));
     const datumID = source?.target.datumId ?? resolution?.geometryId;
+    const datumType = ({plane:'PLANE',axis:'AXIS','axis-system':'FRAME','reference-point':'POINT'} as Record<string,string>)[selection.kind];
+    const axisMatches = selection.kind !== 'axis' || (source?.target.axis ?? '') === (selection.axis === 'DATUM' ? '' : selection.axis ?? '');
     const datumMatches = resolution?.status === "CONNECTED" &&
-      (["plane", "axis", "axis-system", "reference-point"].includes(selection.kind) && datumID && selection.entityId === datumID && (node.versionId??resolution.resolvedVersionId)===selection.versionId);
+      datumType === (source?.type ?? forwarded?.type) && axisMatches && datumID && selection.entityId === datumID && (node.versionId??resolution.resolvedVersionId)===selection.versionId;
     if ((source || forwarded) && occurrencePath === (selection.occurrencePath ?? "") && (topologyMatches || datumMatches)) {
       const publication: Publication = source ?? {
         id: forwarded!.id, name: forwarded!.name, type: forwarded!.type, semanticPurpose: forwarded!.semanticPurpose,

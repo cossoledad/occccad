@@ -10,7 +10,8 @@ import (
 )
 
 // Replacing one occurrence accepts only the explicitly chosen snapshot. It does
-// not advance other references, guess publication correspondences or solve poses.
+// not advance other references or solve poses. Public interfaces are reconnected
+// against these two exact snapshots; private geometry is never shape-matched.
 func (s *Service) prepareInstanceReplacement(ctx context.Context, documentID string, raw json.RawMessage, r CommandRequest) (string, any, error) {
 	fail := func(code string) (string, any, error) { return "", nil, fmt.Errorf("%w: %s", ErrValidation, code) }
 	if r.VersionID == "" || r.ReplacementVersionID == "" {
@@ -51,6 +52,13 @@ func (s *Service) prepareInstanceReplacement(ctx context.Context, documentID str
 	model.Instances[index].ResolvedVersionID = r.ReplacementVersionID
 	model.Instances[index].HeadChanged = false
 	invalidateReplacedRelations(&model, documentID, r.VersionID, old, model.Instances[index])
+	if old.ReferencedDocumentID != r.ReferencedDocumentID {
+		ports, err := s.replacementPublicationMap(ctx, old, model.Instances[index])
+		if err != nil {
+			return "", nil, err
+		}
+		reconnectReplacedPublications(&model, old, model.Instances[index], ports)
+	}
 	return typeReplaceInstance, replaceInstancePayload{InstanceID: old.ID, ReferencedDocumentID: r.ReferencedDocumentID, ReferencedVersionID: r.ReplacementVersionID, Model: model}, nil
 }
 

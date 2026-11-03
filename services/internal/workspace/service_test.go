@@ -1194,6 +1194,30 @@ func TestAssemblySupportPreviewKeepsConnectionStateSeparateFromConstraintStatus(
 	}
 }
 
+func TestPublishedAssemblySupportPreviewUsesInterfaceResolution(t *testing.T) {
+	for _, kind := range []string{"FACE", "EDGE", "VERTEX", "PLANE", "AXIS", "FRAME", "BODY"} {
+		t.Run(kind, func(t *testing.T) {
+			ref := AssemblyGeometryRef{Kind: kind, PublicationRef: &PublicationRef{PublicationID: "port"}, PublicationResolution: &PublicationResolution{Status: "CONNECTED"}}
+			if got := assemblySupportPreview(ref); got.Status != modelcore.SupportingElementConnected || got.DiagnosticCode != "" {
+				t.Fatal("resolved publication rejected without raw snapshot", got)
+			}
+			ref.PublicationResolution = &PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: "PUBLICATION_MISSING", Diagnostic: "missing interface"}
+			if got := assemblySupportPreview(ref); got.Status != modelcore.SupportingElementNotConnected || got.DiagnosticCode != "PUBLICATION_MISSING" {
+				t.Fatal("broken publication accepted", got)
+			}
+			ref.PublicationResolution = nil
+			if got := assemblySupportPreview(ref); got.Status != modelcore.SupportingElementNotConnected || got.DiagnosticCode != "RESOLUTION_UNAVAILABLE" {
+				t.Fatal("unchecked publication accepted", got)
+			}
+			ref.PublicationResolution = &PublicationResolution{Status: "CONNECTED"}
+			ref.Resolution = &ResolutionSnapshot{Result: unavailableSelectionResolution("COMPONENT_REPLACED", "replaced")}
+			if got := assemblySupportPreview(ref); got.Status != modelcore.SupportingElementNotConnected || got.DiagnosticCode != "COMPONENT_REPLACED" {
+				t.Fatal("stale publication snapshot hid a replaced component", got)
+			}
+		})
+	}
+}
+
 func TestInstanceNameIsUniqueWithinOwningProduct(t *testing.T) {
 	t.Parallel()
 	model := ProductModel{Instances: []ProductInstance{

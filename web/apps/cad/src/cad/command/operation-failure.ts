@@ -8,6 +8,7 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const reasons:Record<string,string>={
     PUBLICATION_IN_USE:"此发布仍被其他对象引用，请先更换或移除引用。",
+    PUBLICATION_SOURCE_AMBIGUOUS:"此元素有多个发布，请从“浏览组件发布”中选择接口。",
     DATUM_TOPOLOGY_STAGE_INVALID:"参考几何的来源阶段不可用，请重新选择。",
     DATUM_SOURCE_TYPE_MISMATCH:"所选几何类型不适用于此构造，请重新选择。",
     DATUM_REFERENCE_UNRESOLVED:"参考几何已失效，请重新选择。",

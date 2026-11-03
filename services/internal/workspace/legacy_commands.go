@@ -1410,11 +1410,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		name := strings.TrimSpace(request.Name)
 		if name == "" {
-			existing := make([]string, 0, len(product.Publications))
-			for _, item := range product.Publications {
-				existing = append(existing, item.Name)
-			}
-			name = nextScopedName(defaultPublicationBase(child.Target.Kind, child.Type), existing)
+			name = forwardedPublicationName(product, child.Name)
 		}
 		publication := productPublicationFromPath(canonicalPath, child, commandEntityID("product-publication", request.RequestID), name, request.SemanticPurpose)
 		return typeCreateProductPublication, productPublicationPayload{Publication: publication}, nil

@@ -21,6 +21,12 @@ export type AssemblySupportPresentation = {
 
 export function assemblySupportPresentation(reference?: AssemblyGeometryRef): AssemblySupportPresentation {
   if (!reference) return { status: "NOT_CONNECTED", label: "需要重新选择", diagnosticCode: "MISSING_SUPPORT", diagnostic: "尚未选择支持元素。" };
+  const rawFailure=reference.resolution?.result.supportingElementStatus==='NOT_CONNECTED';
+  if(reference.publicationRef&&rawFailure){const r=reference.resolution!.result;return {status:'NOT_CONNECTED',label:'需要重新选择',diagnosticCode:r.diagnosticCode,diagnostic:r.diagnostic,evidenceDigest:r.evidenceDigest};}
+  if(reference.publicationRef&&reference.publicationResolution&&!rawFailure){
+    const p=reference.publicationResolution,connected=p.status==='CONNECTED';
+    return {status:connected?'CONNECTED':'NOT_CONNECTED',label:connected?'有效':'需要重新选择',diagnosticCode:connected?undefined:p.diagnosticCode,diagnostic:connected?undefined:p.diagnostic};
+  }
   if (!["FACE", "EDGE", "VERTEX"].includes(reference.kind)) return { status: "CONNECTED", label: "有效" };
   const result = reference.resolution?.result;
   if (!result && reference.geometryKey && reference.topologyId) {

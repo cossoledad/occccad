@@ -60,6 +60,14 @@ try {
     instanceId: "instance-a", documentId: "part", bodyId: "body-a" };
   const promoted = bindPublicationSelection(rawFace, view.structureTree);
   assert.equal(promoted.publicationId, "publication-face", "viewport picks should acquire the unique Publication identity");
+  const frameNode={kind:'PUBLICATION',entityId:'frame-point',documentId:'part',versionId:'revision-2',instancePath,publication:{id:'frame-point',type:'POINT',target:{kind:'DATUM',datumId:'frame'},resolution:{status:'CONNECTED',resolvedVersionId:'revision-2'}}};
+  const framePick={kind:'axis-system',id:'frame',entityId:'frame',documentId:'part',versionId:'revision-2',instancePath,occurrencePath:instancePath.canonical};
+  assert.equal(bindPublicationSelection(framePick,frameNode).publicationId,undefined,'a point on a frame must not capture publication of the full frame');
+  frameNode.publication.type='FRAME';
+  assert.equal(bindPublicationSelection(framePick,frameNode).publicationId,'frame-point');
+  frameNode.publication.type='AXIS';frameNode.publication.target.axis='X';
+  assert.equal(bindPublicationSelection({...framePick,kind:'axis',axis:'Y'},frameNode).publicationId,undefined,'frame axes have distinct semantic roles');
+  assert.equal(bindPublicationSelection({...framePick,kind:'axis',axis:'X'},frameNode).publicationId,'frame-point');
   const nodes = treeData(view, view);
   const selectedKeys = treeKeysForSelections(nodes, [promoted]);
   assert(!selectedKeys.includes("product/instance:instance-a/reference/body"), "published topology must not select a Body");
@@ -89,7 +97,7 @@ try {
 
 const moduleServer=await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
 try{
- const {publicationForwardTarget,publicInterfaceForPick}=await moduleServer.ssrLoadModule('/src/features/workbench/publication-target.ts');
+ const {publicationForwardTarget,publicationSourceTarget,publicInterfaceForPick}=await moduleServer.ssrLoadModule('/src/features/workbench/publication-target.ts');
  const {structureSelection}=await moduleServer.ssrLoadModule('/src/features/workbench/workbench-tree-model.tsx');
  const inner={rootDocumentId:'module',canonical:'adapter',display:'Adapter.1',segments:[{ownerDocumentId:'module',ownerVersionId:'m1',instanceId:'adapter',instanceName:'Adapter.1',referencedDocumentId:'adapterdoc',resolvedVersionId:'a1'}]};
  const forwarded={id:'public-hole',name:'Hole location',type:'POINT',compatibilityVersion:'1.0.0',contract:{geometryKind:'POINT'},target:{instancePath:{rootDocumentId:'adapterdoc',canonical:'layout',segments:[]},publicationId:'native'},resolution:{status:'CONNECTED'}};
@@ -99,6 +107,8 @@ try{
  assert.equal(selection.productPublication.id,'public-hole','public Product interface must not unwrap to its private native source');
  assert.equal(publicationForwardTarget(view,selection).publicationId,'public-hole');
  assert.equal(publicationForwardTarget(view,{...selection,kind:'face',topologyId:3}).publicationId,'public-hole','geometry picks already bound to a public port use the same scoped interface');
+ assert.equal(publicationSourceTarget(view,{...selection,kind:'face',topologyId:3}).targetId,'public-hole','raw geometry carrying a public identity must forward it rather than create a private copy');
+ assert.equal(publicationSourceTarget(view,{...selection,kind:'face',topologyId:3}).targetKind,undefined);
  assert(!publicationForwardTarget(view,{...selection,versionId:'stale'}));
  const outer={rootDocumentId:'assembly',canonical:'module-2',segments:[{ownerDocumentId:'assembly',ownerVersionId:'root1',instanceId:'module-2',referencedDocumentId:'module',resolvedVersionId:'m1'}]};
  const globalPath={rootDocumentId:'assembly',canonical:'module-2/adapter',segments:[...outer.segments,...inner.segments]};

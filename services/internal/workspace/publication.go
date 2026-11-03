@@ -547,6 +547,12 @@ func (service *Service) publicationFromRequest(ctx context.Context, documentID s
 			return Publication{}, err
 		}
 	}
+	return service.publicationFromSnapshot(ctx, documentID, model, request, publicationID)
+}
+
+// The caller has validated the owning command's CAS and exact source snapshot.
+// Product geometry may belong to an accepted Part Revision older than its Head.
+func (service *Service) publicationFromSnapshot(ctx context.Context, documentID string, model PartModel, request CommandRequest, publicationID string) (Publication, error) {
 	publicationType := strings.ToUpper(strings.TrimSpace(request.PublicationType))
 	if publicationType == "" {
 		return Publication{}, fmt.Errorf("%w: publication type is required", ErrValidation)
