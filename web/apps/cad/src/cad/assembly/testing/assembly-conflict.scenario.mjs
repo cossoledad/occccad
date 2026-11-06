@@ -7,9 +7,9 @@ assert.equal(assemblyConflictCurrent({...report,status:"STALE"},"p","r1"),false)
 const gate=new AssemblyConflictResponseGate();const first=gate.begin("p","r1");gate.invalidate();
 assert.equal(gate.accepts(first,report),false);const current=gate.begin("p","r2");
 assert.equal(gate.accepts(first,report),false);assert.equal(gate.accepts(current,{...report,baseRevisionId:"r2"}),true);
-const member={constraintId:"c",repairActions:["EDIT","SUPPRESS","MEASURE","RECONNECT"]};
-assert.deepEqual(assemblyConflictRepairs(member,{id:"c",kind:"FIX_TOGETHER"}),["EDIT","SUPPRESS","RECONNECT"]);
-assert.deepEqual(assemblyConflictRepairs(member,{id:"c",kind:"ANGLE",angleRelation:"PARALLEL"}),["EDIT","SUPPRESS","RECONNECT"]);
+const member={constraintId:"c",repairActions:["EDIT","SUPPRESS","MEASURE"]};
+assert.deepEqual(assemblyConflictRepairs(member,{id:"c",kind:"FIX_TOGETHER"}),["EDIT","SUPPRESS"]);
+assert.deepEqual(assemblyConflictRepairs(member,{id:"c",kind:"ANGLE",angleRelation:"PARALLEL"}),["EDIT","SUPPRESS"]);
 assert.equal(assemblyConflictRepairs(member,{id:"c",kind:"ANGLE",angleRelation:"DIRECTED"}).includes("MEASURE"),true);
 assert.deepEqual(assemblyConflictRepairs(member,{id:"other",kind:"DISTANCE"}),[]);
 assert.match(assemblyConflictEvidenceLabel({kind:"REDUNDANT"}),/不要求删除/);

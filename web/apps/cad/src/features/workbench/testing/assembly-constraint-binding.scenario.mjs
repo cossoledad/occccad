@@ -23,7 +23,7 @@ try {
    productPublication:{id:'port',name:'Mount',type:'SURFACE',target:{instancePath:path('a'),element:{kind:'TOPOLOGY',bodyId:'body-a'}},resolution:{status:'CONNECTED',topologyKind:'FACE',localId:face,geometryKey:'shape-a',resolvedVersionId:'part-v1'}}}]}});
  Object.assign(engine,{content,helpers:new THREE.Group(),instanceGroups:new Map([['a',a],['b',b]]),solidBindings:new Map([['a',binding('a',a,meshA)],['b',binding('b',b,meshB)]]),
   selectionIndex:index,assemblyConstraintMarkers:new Map(),assemblyConstraintReferences:new Map(),selected:[],preselected:null,selectedOverlays:[],preselectedOverlays:[],highlightedRoots:new Set(),
-  renderer:{domElement:{clientWidth:800,clientHeight:600}},invalidate(){},materials:{constraintGlyph:(glyph,color)=>{const m=new THREE.PointsMaterial({color});m.userData.glyph=glyph;return m},setInteractionState(){}},callbacks:{}});
+  renderer:{domElement:{clientWidth:800,clientHeight:600}},refreshSceneGround(){},invalidate(){},materials:{constraintGlyph:(glyph,color)=>{const m=new THREE.PointsMaterial({color});m.userData.glyph=glyph;return m},setInteractionState(){}},callbacks:{}});
  engine.view=view(1,'r1','NOT_UPDATED');engine.addAssemblyConstraintMarkers(engine.view);
  const marker=()=>[...engine.assemblyConstraintMarkers.values()][0];
  assert.equal(marker().group.children[0].material.userData.glyph,18);

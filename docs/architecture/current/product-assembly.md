@@ -14,15 +14,13 @@ Publication 用稳定目标身份，支持输出及转发；PersistentSelection 
 
 接受前校验计划 digest、每个文档权限及 CAS，固定外部参数输入，不读取半途变化的 Head 作为结果。PINNED/ISOLATED 不传播，循环拒绝。失败不接纳失败候选，Product 保持原接受版本；已成功的子 Part 可保留独立 Revision，重新取得计划后恢复。该批次只更新参数外部引用，不顺带更新 Part 的其他 ContextReference。当前一次计划覆盖 Product 直接引用的 Part 及其递归参数依赖，嵌套 Product 仍沿用各自叶到根接受计划；未引入跨文档长事务。
 
-## 关联更新与修复
+## 关联更新与对象编辑
 
-工作台“关联更新与修复”聚焦当前 owning Product 直接引用的 Part。按零件分组、按稳定 occurrence 路径分别显示重复实例的名称、FOLLOW_HEAD/PINNED、已接受及候选 Revision、来源阻塞与实际诊断；PINNED 明确为固定版本。定位实例、约束或支持使用当前 Revision 与原 occurrence，不按同名零件或几何猜测合并。
+FOLLOW_HEAD 自动跟随已计算版本；跨 Part 参数重算仍通过“更新关联零件”显式接受。不存在独立“关联更新与修复”命令或面板。约束更换支撑从双击编辑进入；发布重定向使用发布编辑；参数和上下文输入在所属对象的引用编辑器中管理。约束树名称不追加 `[停用]`，停用状态由独立标记表达；Broken 约束保留编辑、刷新及删除，不提供单独 Reconnect 菜单。
 
-约束及支持状态来自当前已接受 Product Revision；缺少支持解析快照时显示“待检查”。UpdatePlan 的 `ASSEMBLY_SOLVE` 也是已接受状态，`affectedConstraintIds` 只是保守集合，不是候选版本的逐约束结论。本入口不做更新前影响预测；Revision 变化后旧计划操作失效，刷新前不允许接受或重算。
+内部 UpdatePlan 仍负责来源健康、确切 Revision、依赖顺序、计划摘要与 CAS。接受及普通 `UPDATE_REFERENCES` 检查来源 Part 的求值状态；FAILED 来源阻塞更新并保留原合法快照。待更新参数消费者先按参数计划求值，再检查结果。合法来源更新导致的 Broken/NotUpdated 按原合同保留，不增加全部 Verified 的门槛，不采用失败姿态。失败提示保留重试已授权的更新入口，成功不增加操作指导提示。
 
-普通 FOLLOW_HEAD 仍自动跟随，参数更新仍需明确“更新关联零件”。面板复用原计划接受、重试、Refresh、Edit/Reconnect 与权威预览/确认，重算按钮不会隐式接受待更新参数。接受及普通 `UPDATE_REFERENCES` 检查确切来源 Part 的求值状态；FAILED 来源阻塞并指出 Part、Revision 和失败 Feature，保留原合法快照。待更新参数消费者先按原参数计划求值再检查结果。合法零件更新导致的 Broken/NotUpdated 仍按原合同保留，不增加全部 Verified 的接受门槛，不采用失败姿态。
-
-入口：[面板与版本范围](../../../web/apps/cad/src/features/workbench/association-repair-panel.tsx)、[原更新计划](../../../services/internal/workspace/product_update.go)。回归：[真实 Router/Worker](../../../services/internal/control/association_repair_integration_test.go)、[实际视图区重选](../../../web/apps/cad/browser/association-repair-live.spec.ts)。本入口不编排嵌套更新，不刷新 DOF，不扩展柔性装配或求解算法。
+入口：[更新计划](../../../services/internal/workspace/product_update.go)、[工作台编排](../../../web/apps/cad/src/features/workbench/workbench.tsx)。真实回归：[Router/Worker 来源健康与历史](../../../services/internal/control/association_repair_integration_test.go)。骨架与消费对象引用的后续交互仅为[设计方案](../../../plans/skeleton-reference-workflow.md)，不代表新增骨架类型、任意深层编辑或带链接复制已交付。
 
 ## 定义与求值
 
@@ -161,7 +159,7 @@ Product 发布目标互斥：本地 ParameterId、`InstancePath + Element`、`In
 
 Product 只保存来源和值：ContextBinding 冻结来源 Revision、完整 occurrence 路径、相对变换及发布契约，ContextVariant 由基础 Part 和已接受输入重建。独立打开使用保存的本地默认输入。平面和轴的上下文副本以接受框架覆盖默认构造；共享 Part 默认定义不变。更新计划的首次求值和缓存投影执行相同规范化，避免等价输入产生不同计划摘要。来源改变、失效或重定向经 UpdatePlan 显示可更新/阻塞状态；完整健康候选才接受，失败保留原已接受结果。已有绑定的改名与固定只使用已接受输入，不要求失效来源仍可选择；重连沿用原绑定和本地槽位，保留下游身份。PINNED 使用确切旧来源与变换，不读取来源 Head；恢复跟随后仍需接受更新。直接重复实例复用同一 Part 端口，各自绑定和投影独立。上下文编辑合同见[编辑会话](product-edit-context.md#编辑会话)。
 
-子装配消费者保存模块的公开 PublicationId 与模块 occurrence 路径，不绕过接口绑定内部布局。各 owning Product 的 UpdatePlan 只更新自身引用和绑定；来源装配内部待更新或受阻时，父计划携带来源计划摘要并保留已接受结果，可从关联管理或更新修复入口转到来源装配。先在来源装配接受内部来源，再在父装配接受模块和本地输入；普通 FOLLOW_HEAD 仍可跟随已计算版本，关联输入保持显式接受，PINNED 输入和固定模块不读取新 Head。接受输入的全部 Binding 快照进入同一 ChangeSet，撤销/重做同时恢复孔位、来源及引用。
+子装配消费者保存模块的公开 PublicationId 与模块 occurrence 路径，不绕过接口绑定内部布局。各 owning Product 的 UpdatePlan 只更新自身引用和绑定；来源装配内部待更新或受阻时，父计划携带来源计划摘要并保留已接受结果，可从来源实例打开对应装配，并在关联输入编辑器中检查来源。先在来源装配接受内部来源，再在父装配接受模块和本地输入；普通 FOLLOW_HEAD 仍可跟随已计算版本，关联输入保持显式接受，PINNED 输入和固定模块不读取新 Head。接受输入的全部 Binding 快照进入同一 ChangeSet，撤销/重做同时恢复孔位、来源及引用。
 
 “替换组件”只从当前 owning Product 的直接 Instance 右键菜单进入。它复用插入组件的文件夹、最近文档、共享文档和缩略图资源浏览器，单选一个 Part 或 Product，确认时获取并冻结所选文档的确切 Revision。命令检查当前 Product CAS、可访问的来源快照和循环引用，保留 InstanceId、名称、引用策略及当前位姿，不接受其他 occurrence 的待更新 Head。
 

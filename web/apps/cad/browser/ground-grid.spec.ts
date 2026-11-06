@@ -5,7 +5,8 @@ test("bounded ground stays fixed in world space, respects depth and ends at its 
  await page.goto("/");
  const result=await page.evaluate(async()=>{
   // @ts-ignore Vite production sources and the real WebGL renderer.
-  const T=await import("/node_modules/.vite/deps/three.js");
+  const module=await (await fetch('/src/cad/rendering/scene-presentation.ts')).text(),path=module.match(/from\s+["']([^"']*three\.js[^"']*)["']/)?.[1];
+  if(!path)throw Error('Three.js module URL missing');const T=await import(path);
   // @ts-ignore Vite production source.
   const {PlaneGrid}=await import("/src/cad/rendering/plane-grid.ts");
   // @ts-ignore Vite production source.
@@ -25,7 +26,11 @@ test("bounded ground stays fixed in world space, respects depth and ends at its 
    scales.push({distance,lit:lit(data),base:grid.object.material.uniforms.uSpacing.value});
   }
   const distant=[];grid.setFootprint({center:new T.Vector2(1e9,-2e9),halfSize:100});for(const distance of [1,100]){camera.position.set(1e9+.17,-2e9+.23,distance);camera.lookAt(1e9+.17,-2e9+.23,0);distant.push(lit(draw()))}
-  const aligned=groundFootprint(new T.Box3(new T.Vector3(5,15,-5),new T.Vector3(25,35,5)),10);grid.setFootprint(aligned);
+  const viewingPlane=groundFootprint(new T.Box3(new T.Vector3(5,15,-5),new T.Vector3(25,35,5)),10);
+  if(viewingPlane.center.length()!==0||viewingPlane.halfSize<10000)throw Error('Viewing plane must be large and anchored at the origin');
+  // Exercise the grid primitive boundary at a visible scale independently of
+  // the much larger document viewing plane.
+  grid.setFootprint({center:new T.Vector2(50,50),halfSize:150});
   const edgeCamera=new T.OrthographicCamera(-200,200,200,-200,.1,1000);edgeCamera.position.set(50,50,200);edgeCamera.lookAt(50,50,0);edgeCamera.updateProjectionMatrix();
   grid.update(edgeCamera,400,frame);renderer.render(scene,edgeCamera);const edgePixels=pixels();
   const alignedEdges={visible:0,outside:0};for(let i=52;i<348;i++){

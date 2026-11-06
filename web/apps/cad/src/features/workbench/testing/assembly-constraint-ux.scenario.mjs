@@ -42,10 +42,8 @@ assert.deepEqual(ux.assemblySupportPresentation(connectedEdge), {
 assert.equal(ux.assemblySupportPresentation(connectedVertex).label, "有效");
 assert.equal(ux.assemblySupportPresentation(incompleteEdge).label, "需要重新选择");
 assert.equal(ux.assemblySupportPresentation(incompleteEdge).diagnosticCode, "TOPOLOGY_HISTORY_INCOMPLETE");
-assert.equal(ux.firstDisconnectedSupport({ first: incompleteEdge, second: connectedVertex, evaluationStatus: "BROKEN" }), 0);
 assert.equal(ux.assemblyStatusAfterPreviewFailure("RESOLVING_GEOMETRY", false,
   [ux.assemblySupportPresentation(incompleteEdge), ux.assemblySupportPresentation(connectedVertex)]), "BROKEN");
-assert.equal(ux.firstDisconnectedSupport({ first: connected, second: broken, evaluationStatus: "BROKEN" }), 1);
 assert.match(ux.validateReconnectCandidate({ instanceId: "a", kind: "PLANE" }, connected), /不同实例/);
 assert.equal(ux.validateReconnectCandidate({ instanceId: "c", kind: "PLANE" }, connected), undefined);
 assert.equal(ux.assemblyConstraintGlyph("VERIFIED", 12), 12);
@@ -88,7 +86,6 @@ assert.deepEqual(assemblyGeometryRef({ kind: "face", id: "face", instanceId: "su
 for(const kind of ['FACE','EDGE','VERTEX','PLANE','AXIS','FRAME','BODY']){
  const published={instanceId:'p',kind,publicationRef:{publicationId:'port'},publicationResolution:{status:'CONNECTED'}};
  assert.equal(ux.assemblySupportPresentation(published).status,'CONNECTED',kind+' publication uses its own checked snapshot');
- assert.equal(ux.firstDisconnectedSupport({first:published,evaluationStatus:'NOT_UPDATED'}),undefined);
  const missing={...published,publicationResolution:{status:'BROKEN_PUBLICATION',diagnosticCode:'PUBLICATION_MISSING',diagnostic:'missing'}};
  assert.equal(ux.assemblySupportPresentation(missing).status,'NOT_CONNECTED');
  assert.equal(ux.assemblySupportPresentation(missing).diagnosticCode,'PUBLICATION_MISSING');

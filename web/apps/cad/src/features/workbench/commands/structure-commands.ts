@@ -32,7 +32,7 @@ export function structureCommands(actions:StructureActions={},currentNodes:reado
  };
  const command=(action:keyof StructureActions,execute:(target:StructureInvocation&{node:SpecificationTreeNode},operation?:CommandOperation)=>void|Promise<void>):CadCommand=>({id:structureCommandIDs[action],isEnabled:invocation=>{
    if(!actions[action])return false;
-   if(action==="onUpdate"){try{return Boolean(current(invocation).node.capabilities?.includes("UPDATE"));}catch{return false;}}
+   if(action==="onUpdate"||action==="onReconnect"){try{return Boolean(current(invocation).node.capabilities?.includes(action==="onUpdate"?"UPDATE":"RECONNECT"));}catch{return false;}}
    if(action!=="onEdit"&&action!=="onMove"&&action!=="onInsertAfter")return true;
    try{const {node,nodes}=current(invocation,action==="onMove");return (action!=="onMove"||!nodes?.length||nodes.every(n=>n.presentationRole!=="INPUT_REFERENCE"&&n.capabilities?.includes("MOVE")&&n.documentId===node.documentId&&n.bodyId===node.bodyId&&(n.selection?.occurrencePath??"")===(node.selection?.occurrencePath??"")))&&node.presentationRole!=="INPUT_REFERENCE"&&Boolean(node.capabilities?.includes(action==="onMove"?"MOVE":action==="onInsertAfter"?"INSERT_AFTER":"EDIT"));}catch{return false;}
   },execute:invocation=>{

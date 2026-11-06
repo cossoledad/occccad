@@ -18,15 +18,15 @@ export function SceneOptionsFields({value,onChange,metrics}:{value:SceneSettings
   <Typography.Text type="secondary">渐变固定在屏幕上下方向，旋转模型时保持稳定。</Typography.Text>
  </Space>;
  const ground=<Space orientation="vertical" className="global-options-fields">
-  <CommandField label="地面位置" width="enum"><Select aria-label="地面位置" value={value.groundMode} onChange={groundMode=>patch({groundMode})} options={[{value:"AUTO",label:"自动贴合模型底部"},{value:"WORLD",label:"世界 XY 平面（Z=0）"},{value:"MANUAL",label:"指定高度"},{value:"OFF",label:"关闭地面"}]}/></CommandField>
-  {value.groundMode==="AUTO"&&<><Checkbox checked={value.groundLocked} disabled={!metrics&&!value.groundLocked} onChange={e=>patch({groundLocked:e.target.checked,groundHeight:metrics?.groundHeight??value.groundHeight})}>锁定当前地面高度</Checkbox>{!value.groundLocked&&number("groundOffset","地面偏移（mm）",-1e9,1e9)}<Button size="small" onClick={()=>patch({groundLocked:false,groundOffset:0})}>重新贴合模型</Button></>}
+  <CommandField label="地面位置" width="enum"><Select aria-label="地面位置" value={value.groundMode} onChange={groundMode=>patch({groundMode})} options={[{value:"AUTO",label:"初始模型底部"},{value:"WORLD",label:"世界 XY 平面（Z=0）"},{value:"MANUAL",label:"指定高度"},{value:"OFF",label:"关闭地面"}]}/></CommandField>
+  {value.groundMode==="AUTO"&&<><Checkbox checked={value.groundLocked} disabled={!metrics&&!value.groundLocked} onChange={e=>patch({groundLocked:e.target.checked,groundHeight:metrics?.groundHeight??value.groundHeight})}>在各文档使用固定高度</Checkbox>{!value.groundLocked&&number("groundOffset","地面偏移（mm）",-1e9,1e9)}<Button size="small" onClick={()=>patch({groundMode:"MANUAL",groundHeight:metrics?.modelGroundHeight??metrics?.groundHeight??value.groundHeight,groundLocked:false,groundOffset:0})}>重新贴合模型</Button></>}
   {(value.groundMode==="MANUAL"||value.groundLocked)&&number("groundHeight","地面高度（mm）",-1e9,1e9)}
   {metrics&&<Typography.Text type="secondary" aria-label="当前场景地面">当前高度 {formatDisplayNumber(metrics.groundHeight)} mm · 网格间距 {formatDisplayNumber(metrics.gridSpacing)} mm</Typography.Text>}
   <Checkbox checked={value.grid} onChange={e=>patch({grid:e.target.checked})}>显示地面网格</Checkbox>
   {number("gridSpacing","网格间距（mm）",.001,1e9)}
   <Checkbox checked={value.gridAutoColor} onChange={e=>patch({gridAutoColor:e.target.checked})}>网格颜色自动适应背景</Checkbox>
   {!value.gridAutoColor&&color("gridColor","网格颜色")}{slider("gridOpacity","网格强度",0,2)}
-  <Checkbox checked={value.worldGrid} onChange={e=>patch({worldGrid:e.target.checked})}>同时显示世界基准网格（Z=0）</Checkbox><Checkbox checked={value.shadows} onChange={e=>patch({shadows:e.target.checked})}>地面柔和阴影</Checkbox>{value.shadows&&slider("shadowOpacity","阴影强度",0,1)}
+  <Checkbox checked={value.worldGrid} onChange={e=>patch({worldGrid:e.target.checked})}>同时显示世界基准网格（Z=0）</Checkbox><Checkbox checked={value.shadows} onChange={e=>patch({shadows:e.target.checked})}>零件与地面阴影</Checkbox>{value.shadows&&slider("shadowOpacity","阴影强度",0,1)}
  </Space>;
  const lighting=<Space orientation="vertical" className="global-options-fields">
   <CommandField label="光照预设" width="enum"><Select aria-label="光照预设" value={value.lighting} onChange={v=>patch(lightingPreset(v))} options={[{value:"ENGINEERING",label:"工程"},{value:"SOFT",label:"柔和"},{value:"CONTOUR",label:"轮廓强调"}]}/></CommandField>

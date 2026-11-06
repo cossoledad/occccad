@@ -332,9 +332,6 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 			}
 			name := constraintDisplayName(constraint, func(id string) string { return names[id] }, model.Constraints...)
 			status, summary := constraint.EvaluationStatus, constraint.EvaluationSummary
-			if constraint.Suppressed {
-				name += " [停用]"
-			}
 			capabilities := assemblyConstraintStructureCapabilities(constraint, status)
 			if slices.Contains(capabilities, "UPDATE") && !slices.Contains(group.Capabilities, "UPDATE") {
 				group.Capabilities = append(group.Capabilities, "UPDATE")

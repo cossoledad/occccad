@@ -52,13 +52,6 @@ export function assemblySupportPresentation(reference?: AssemblyGeometryRef): As
   };
 }
 
-export function firstDisconnectedSupport(constraint: AssemblyConstraint): 0 | 1 | undefined {
-  if (constraint.kind === "FIX_TOGETHER") return undefined;
-  if (assemblySupportPresentation(constraint.first).status === "NOT_CONNECTED") return 0;
-  if (constraint.second && assemblySupportPresentation(constraint.second).status === "NOT_CONNECTED") return 1;
-  return undefined;
-}
-
 export function validateReconnectCandidate(candidate: AssemblyGeometryRef | undefined,
   other: AssemblyGeometryRef | undefined): string | undefined {
   if (!candidate) return "请选择点、轴、平面、面、边、顶点或实体。";

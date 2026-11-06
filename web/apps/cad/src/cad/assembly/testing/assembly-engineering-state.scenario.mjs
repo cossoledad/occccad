@@ -9,7 +9,8 @@ assert.equal(summary.total,3);assert.equal(summary.measured,1);assert.equal(summ
 assert.deepEqual(summary.issues,[broken]);assert.equal(summary.instances.length,2,"CAD Body/compiled group equations do not increase unit counts");
 assert.equal(summary.instances[0].state,"待计算","definition participation is not physical motion evidence");assert.match(summary.status,/待处理/);
 assert.match(engineeringConstraintName(broken,view),/支架 \/ 左侧/);assert.doesNotMatch(engineeringConstraintName(broken,view),/b ·/);
-assert.ok(engineeringMember(broken).repairActions.includes("RECONNECT"));
+assert.ok(engineeringMember(broken).repairActions.includes("EDIT"));
+assert.ok(!engineeringMember(broken).repairActions.includes("RECONNECT"));
 assert.match(engineeringReason({kind:"LOCALIZED_SUSPECT",oracle:"UNKNOWN"}),/未证明不可行/);
 assert.match(engineeringReason({kind:"REDUNDANT",oracle:"SAT"}),/不等于冲突/);
 assert.match(engineeringReason({kind:"CONFLICT",oracle:"UNSAT",evidence:"VERIFIED_IRREDUCIBLE"}),/不能同时满足/);

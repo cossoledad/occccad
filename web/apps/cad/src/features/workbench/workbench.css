@@ -185,6 +185,12 @@
 .assembly-dialog-status p { margin:4px 0; }
 
 .assembly-constraint-form .command-group { gap:8px; padding-top:8px; }
+.assembly-constraint-form .feature-pick-field.is-compact > .command-field { grid-template-columns:52px minmax(0,1fr); }
+.assembly-constraint-form .feature-pick-value { text-align:left; }
+.assembly-publication-label { display:flex; align-items:center; gap:3px; width:100%; min-width:0; }
+.assembly-publication-owner { flex:0 1 auto; min-width:0; max-width:70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.assembly-publication-separator { flex:none; }
+.assembly-publication-label strong { flex:0 0 auto; min-width:0; max-width:65%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .feature-pick-field.is-compact .feature-pick-content { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; }
 .feature-pick-field.is-compact .feature-pick-value { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .feature-pick-field.is-compact .feature-pick-actions { grid-column:2; grid-row:1 / span 2; align-self:center; }

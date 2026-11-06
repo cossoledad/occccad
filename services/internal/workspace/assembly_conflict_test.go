@@ -143,7 +143,7 @@ func TestAssemblyConflictThreeValuedEvidence(t *testing.T) {
 		if err != nil || r.Status != "UNKNOWN" || len(r.ScopeConstraintIDs) != 2 || r.Items[0].Kind != "SUPPORT_UNAVAILABLE" {
 			t.Fatal(r, err)
 		}
-		if !reflect.DeepEqual(r.Items[0].Members[0].RepairActions, []string{"EDIT", "SUPPRESS", "RECONNECT", "MEASURE"}) {
+		if !reflect.DeepEqual(r.Items[0].Members[0].RepairActions, []string{"EDIT", "SUPPRESS", "MEASURE"}) {
 			t.Fatal(r.Items)
 		}
 	})

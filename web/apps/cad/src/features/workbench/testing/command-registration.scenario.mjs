@@ -33,13 +33,7 @@ try{
  for(const [id,kind] of [["assembly.section","SECTION"],["assembly.distance-band","DISTANCE"]]){const c=workbenchCommands(staticBindings).find(c=>c.id===id);assert(c.isEnabled());c.execute();assert.equal(staticOpened,kind);assert.equal(c.isActive(),false);assert(workbenchCommands({...staticBindings,spatialAnalysisKind:kind}).find(c=>c.id===id).isActive());assert.equal(workbenchCommands({...staticBindings,spatialAnalysisKind:undefined}).find(c=>c.id===id).isActive(),false)}
  assert.equal(workbenchCommands({...staticBindings,staticInterferenceAllowed:false}).find(c=>c.id===staticCommand.id).isEnabled(),false,'temporary motion poses cannot open static checking');
  assert.equal(workbenchCommands({...staticBindings,moveReceiptPending:true}).find(c=>c.id===staticCommand.id).isEnabled(),false,'unknown movement must be resolved first');
- let repairOpened=false;
- const repairBindings={...bindings,motionOpen:false,editingView:host,setAssociationRepairOpen:value=>repairOpened=value};
- const repair=workbenchCommands(repairBindings).find(c=>c.id==='assembly.association-repair');
- assert(repair.isEnabled());repair.execute();assert(repairOpened);
- assert.equal(workbenchCommands({...repairBindings,editingView:part}).find(c=>c.id===repair.id).isEnabled(),false,'owning Product only');
- assert.equal(workbenchCommands({...repairBindings,view:part,editingView:part}).find(c=>c.id===repair.id).isEnabled(),false,'Part has no association panel');
- assert.equal(workbenchCommands({...repairBindings,motionOpen:true}).find(c=>c.id===repair.id).isEnabled(),false,'frozen motion context cannot open live repair');
+ assert.equal(workbenchCommands(bindings).some(c=>c.id==='assembly.association-repair'),false,'object editing owns association repairs');
  const resultNode={key:'result',documentId:host.document.id,kind:'MOTION_RESULT',entityId:'job',capabilities:['ACTIVATE','DELETE']};
  const artifactRegistry=new CommandRegistry();let dismissed=0;
  artifactRegistry.registerMany(workbenchCommands({...bindings,editingView:viewer,view:viewer,canEdit:false,canEditRoot:false,treeNodes:[resultNode],deleteTreeNodes:()=>dismissed++}));

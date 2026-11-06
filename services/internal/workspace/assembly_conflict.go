@@ -594,9 +594,6 @@ func conflictItem(defs map[string]AssemblyConstraint, ids []string, kind, eviden
 	for _, id := range ids {
 		c := defs[id]
 		actions := []string{"EDIT", "SUPPRESS"}
-		if c.EvaluationStatus == modelcore.AssemblyConstraintBroken {
-			actions = append(actions, "RECONNECT")
-		}
 		if assemblySupportsMeasurement(c) {
 			actions = append(actions, "MEASURE")
 		}

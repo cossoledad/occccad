@@ -2925,13 +2925,6 @@ func assemblyConstraintStructureCapabilities(constraint AssemblyConstraint, stat
 	} else {
 		capabilities = append(capabilities, "DEACTIVATE")
 	}
-	firstDisconnected := constraint.First.Resolution != nil && constraint.First.Resolution.Result.SupportingElementStatus == modelcore.SupportingElementNotConnected
-	secondDisconnected := constraint.Second != nil && constraint.Second.Resolution != nil && constraint.Second.Resolution.Result.SupportingElementStatus == modelcore.SupportingElementNotConnected
-	// BROKEN is authoritative evidence that at least one support failed even
-	// when an older snapshot has no endpoint-level resolution payload.
-	if status == modelcore.AssemblyConstraintBroken || firstDisconnected || secondDisconnected {
-		capabilities = append(capabilities, "RECONNECT")
-	}
 	capabilities = append(capabilities, "REFRESH")
 	if !constraint.Suppressed && status == modelcore.AssemblyConstraintNotUpdated {
 		capabilities = append(capabilities, "UPDATE")

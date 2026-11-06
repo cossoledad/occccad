@@ -138,6 +138,9 @@ func TestAssemblyConstraintStructureNamesAndSetVisibility(t *testing.T) {
 			t.Fatalf("constraint set lost identity/aggregate visibility: %+v", group)
 		}
 		for i, want := range []string{"接触.1", "固定.1", "接触.2", "固联组.1"} {
+			if strings.Contains(group.Children[i].Name, "[停用]") || group.Children[i].Suppressed != model.Constraints[i].Suppressed {
+				t.Fatalf("suppression must remain a state, not a name suffix: %+v", group.Children[i])
+			}
 			if model.Constraints[i].Kind == "FIX_TOGETHER" {
 				if group.Children[i].Name != want {
 					t.Fatalf("group name = %q, want %q without an empty support pair", group.Children[i].Name, want)
@@ -155,5 +158,9 @@ func TestAssemblyConstraintStructureNamesAndSetVisibility(t *testing.T) {
 	}
 	check(model, false)
 	model.Constraints[1].Visible = boolPointer(true)
+	check(model, true)
+	for i := range model.Constraints {
+		model.Constraints[i].Suppressed = true
+	}
 	check(model, true)
 }

@@ -23,7 +23,7 @@ export type WorkbenchCommandBindings={
  measurementKind?:import('../../cad/measurement/measurement').MeasurementKind;
  measurementAllowed?:boolean;
  openReplaceInstance?:(id?:string)=>void;
- setDesignAssociationOpen?:(open:boolean)=>void;setDeveloperOpen?:(open:boolean)=>void;setAssociationRepairOpen?:(open:boolean)=>void;associationRepairOpen?:boolean;
+ setDesignAssociationOpen?:(open:boolean)=>void;setDeveloperOpen?:(open:boolean)=>void;
  openProperties?:()=>void;openOptions?:()=>void;
 	prepareAssemblyMove?:()=>Promise<void>;
  setMotionOpen?:(open:boolean)=>void;motionOpen?:boolean;motionCommandEnabled?:(action:string)=>boolean;onMotionCommand?:(action:string,operation?:CommandOperation)=>void;
@@ -69,7 +69,6 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ...(["exit","ground","revolute","prismatic","cylindrical","planar","rigid","spherical","mechanism","study","apply","run"] as const).map(action=>({id:"dmu."+action,continues:action==="apply"?["dmu.run","dmu.apply"]:undefined,execute:(invocation:CadCommandInvocation|undefined)=>{store.setActiveTool("select","once");return bindings.onMotionCommand?.(action,invocation?.operation)},isEnabled:()=>Boolean(bindings.motionOpen&&view?.product&&!command.isPending&&bindings.onMotionCommand&&editingView?.document.id===view.document.id&&!store.activeSketchID&&(bindings.motionCommandEnabled?.(action)??(action==="apply"?["OWNER","EDITOR"].includes(view.document.permission??""):canEditRoot)))})),
       ({id:"dmu.analyze-mechanism",execute:()=>bindings.setMechanismAnalysisOpen?.(true),isEnabled:()=>Boolean(bindings.setMechanismAnalysisOpen&&bindings.motionOpen&&bindings.mechanismId&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending)}),
       ({id:"assembly.motion-study",execute:()=>{store.setActiveTool("select","once");bindings.setMotionOpen?.(true);},isEnabled:()=>Boolean(view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&bindings.setMotionOpen),isActive:()=>Boolean(bindings.motionOpen)}),
-      ({id:"assembly.association-repair",execute:()=>bindings.setAssociationRepairOpen?.(true),isEnabled:()=>Boolean(bindings.setAssociationRepairOpen&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!bindings.motionOpen),isActive:()=>bindings.associationRepairOpen??false}),
       ({id:"assembly.static-interference",isActive:()=>bindings.spatialAnalysisKind==="CLASH",execute:()=>{store.setActiveTool("select","once");bindings.openSpatialAnalysis?.("CLASH")},isEnabled:()=>Boolean(bindings.openSpatialAnalysis&&bindings.staticInterferenceAllowed&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&!moveReceiptPending)}),
       ...(["SECTION","DISTANCE"] as const).map(kind=>({id:kind==="SECTION"?"assembly.section":"assembly.distance-band",isActive:()=>bindings.spatialAnalysisKind===kind,execute:()=>{store.setActiveTool("select","once");bindings.openSpatialAnalysis?.(kind)},isEnabled:()=>Boolean(bindings.openSpatialAnalysis&&bindings.staticInterferenceAllowed&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&!moveReceiptPending)})),
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),

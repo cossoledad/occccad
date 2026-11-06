@@ -3,7 +3,7 @@ import {createServer} from "vite";
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try {
  const T=await server.ssrLoadModule("three");
- const {groundFootprint,includeVisibleSketchBounds,sceneGroundVisible}=await server.ssrLoadModule("/src/cad/rendering/scene-ground.ts");
+ const {groundFootprint,SceneGroundPlacement,includeVisibleSketchBounds,sceneGroundVisible}=await server.ssrLoadModule("/src/cad/rendering/scene-ground.ts");
  const {DEFAULT_SCENE_SETTINGS,sceneBackgroundIsLight,colorLuminance}=await server.ssrLoadModule("/src/cad/rendering/scene-settings.ts");
  const {sceneSketchColors,SketchColorAdapter}=await server.ssrLoadModule("/src/cad/rendering/sketch-colors.ts");
  const {PlaneGrid}=await server.ssrLoadModule("/src/cad/rendering/plane-grid.ts");
@@ -17,20 +17,28 @@ try {
  assert.deepEqual(bounds.min.toArray(),[80,200,-60]);assert.deepEqual(bounds.max.toArray(),[120,200,-40]);
  occurrence.visible=false;bounds.makeEmpty();includeVisibleSketchBounds(bounds,content);assert(bounds.isEmpty());occurrence.visible=true;
  const engine=Object.create(CadViewportEngine.prototype);
- Object.assign(engine,{content:new T.Group(),helpers:content,groundBounds:new T.Box3(),solidBindings:new Map(),sceneSettings:{...DEFAULT_SCENE_SETTINGS},groundFrame:{origin:new T.Vector3(),normal:new T.Vector3(0,0,1),u:new T.Vector3(1,0,0),v:new T.Vector3(0,1,0)},groundGrid:new PlaneGrid(0xffffff),worldGrid:new PlaneGrid(0xffffff),scenePresentation:{update(...args){engine.presentation=args}}});
+ Object.assign(engine,{content:new T.Group(),helpers:content,groundBounds:new T.Box3(),groundPlacement:new SceneGroundPlacement(),solidBindings:new Map(),sceneSettings:{...DEFAULT_SCENE_SETTINGS},groundFrame:{origin:new T.Vector3(),normal:new T.Vector3(0,0,1),u:new T.Vector3(1,0,0),v:new T.Vector3(0,1,0)},groundGrid:new PlaneGrid(0xffffff),worldGrid:new PlaneGrid(0xffffff),scenePresentation:{update(...args){engine.presentation=args}}});
  engine.refreshSceneGround();assert(engine.groundHeight<-60,"a sketch-only scene positions its floor below the sketch");
- const footprint=groundFootprint(engine.groundBounds,10);assert.deepEqual(footprint.center.toArray(),[100,200]);assert(footprint.halfSize>=80);
+ const footprint=engine.groundFootprint;assert.deepEqual(footprint.center.toArray(),[0,0]);assert(footprint.halfSize>=10000);
+ const initialHeight=engine.groundHeight;
+ occurrence.position.set(1000,2000,-500);engine.refreshSceneGround();
+ assert.equal(engine.groundHeight,initialHeight,"later geometry motion does not move the viewing plane");
+ assert.equal(engine.groundFootprint,footprint,"later bounds do not resize the ground");
+ assert(engine.modelGroundHeight<engine.groundHeight,"explicit refit uses the current model bottom");
+ engine.groundPlacement.resetHeight();engine.refreshSceneGround();assert(engine.groundHeight<initialHeight);
+ engine.view={document:{id:'another'}};engine.helpers=new T.Group();engine.refreshSceneGround();assert.equal(engine.groundHeight,0,"empty documents do not inherit a previous plane");
+ engine.helpers=content;engine.refreshSceneGround();const nextHeight=engine.groundHeight;assert(nextHeight<initialHeight,"first nonempty geometry initializes each document");
+ engine.sceneSettings={...DEFAULT_SCENE_SETTINGS,groundOffset:5};engine.refreshSceneGround();assert.equal(engine.groundHeight,nextHeight+5);
+ engine.sceneSettings={...DEFAULT_SCENE_SETTINGS,groundMode:'WORLD'};engine.refreshSceneGround();assert.equal(engine.groundHeight,0);
+ engine.sceneSettings={...DEFAULT_SCENE_SETTINGS,groundLocked:true,groundHeight:42};engine.refreshSceneGround();assert.equal(engine.groundHeight,42);
+ engine.sceneSettings={...DEFAULT_SCENE_SETTINGS,groundMode:'MANUAL',groundHeight:-23};engine.refreshSceneGround();assert.equal(engine.groundHeight,-23);
  for(const [origin,size,spacing] of [[[45,-5,0],[100,10,80],10],[[-73,-128,0],[17,32,5],3],[[1e9+23,-2e9+17,0],[15,3,6],.2],[[0,0,0],[100,100,100],10]]){
   const box=new T.Box3().setFromCenterAndSize(new T.Vector3(...origin),new T.Vector3(...size));
-  const square=groundFootprint(box,spacing),major=spacing*10;
-  const originalHalf=Math.ceil(Math.max(...size,spacing*5)*2/spacing)*spacing;
-  const limits=[square.center.x-square.halfSize,square.center.x+square.halfSize,square.center.y-square.halfSize,square.center.y+square.halfSize];
-  for(const edge of limits)assert(Math.abs(edge/major-Math.round(edge/major))<1e-6,'every edge ends on a document-origin major grid line');
-  assert(limits[0]<=origin[0]-originalHalf&&limits[1]>=origin[0]+originalHalf&&limits[2]<=origin[1]-originalHalf&&limits[3]>=origin[1]+originalHalf,'alignment only expands the original footprint');
-  const cells=Math.max(Math.ceil((origin[0]+originalHalf)/major)-Math.floor((origin[0]-originalHalf)/major),Math.ceil((origin[1]+originalHalf)/major)-Math.floor((origin[1]-originalHalf)/major));
-  assert.equal(square.halfSize*2,cells*major,'the aligned square is no larger than needed');
+  const square=groundFootprint(box,spacing);
+  assert.deepEqual(square.center.toArray(),[0,0]);assert(square.halfSize>=10000);
+  assert(square.halfSize>=Math.max(...box.min.toArray().map(Math.abs),...box.max.toArray().map(Math.abs)),"initial plane contains the model even far from the origin");
  }
- const empty=groundFootprint(new T.Box3(),10);assert.deepEqual(empty.center.toArray(),[0,0]);assert.equal(empty.halfSize,100);
+ const empty=groundFootprint(new T.Box3(),10);assert.deepEqual(empty.center.toArray(),[0,0]);assert.equal(empty.halfSize,10000);
  const camera=new T.PerspectiveCamera(35,1,.001,1e6);camera.up.set(0,0,1);
  for(const distance of [1,100,1e4]){
   camera.position.set(100,200-distance,200);camera.lookAt(100,200,-50);camera.updateProjectionMatrix();
@@ -38,7 +46,7 @@ try {
   const u=engine.groundGrid.object.material.uniforms;
   assert.equal(u.uSpacing.value,10);assert.equal(u.uBounds.value.z-u.uBounds.value.x,footprint.halfSize*2,"zoom does not resize the square");
  }
- engine.sketchPlane={};engine.refreshSceneGround();assert.equal(engine.presentation.at(-1),true,"the shadow receiver also hides while editing");
+ engine.sketchPlane={};engine.refreshSceneGround();assert.equal(engine.presentation[3],true,"the shadow receiver also hides while editing");
  assert.equal(sceneGroundVisible(true,true,true),false);assert.equal(sceneGroundVisible(true,true,false),true);assert.equal(sceneGroundVisible(false,true,false),false);
  for(const background of ["#ffffff","#f2f4f8","#dce5ef"])assert(sceneBackgroundIsLight({...DEFAULT_SCENE_SETTINGS,background:"SOLID",backgroundTop:background}));
  const dark=sceneSketchColors(DEFAULT_SCENE_SETTINGS),light=sceneSketchColors({...DEFAULT_SCENE_SETTINGS,background:"SOLID",backgroundTop:"#ffffff"});

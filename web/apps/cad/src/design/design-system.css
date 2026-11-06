@@ -133,6 +133,7 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--color-border);
 .command-field-enum .command-field-control { width:var(--ui-form-enum-width); max-width:100%; }
 .command-field-option .command-field-control { padding-top:4px; }
 .command-field-expression .command-field-control,.command-field-name .command-field-control { width:100%; }
+.command-field-selection > .command-field-control { width:100%; justify-self:stretch; }
 .command-field-error { display:block; color:var(--color-danger); font-size:12px; white-space:normal; overflow-wrap:anywhere; }
 .command-group { display:flex; flex-direction:column; gap:var(--ui-space-12); min-width:0; margin:0; padding:12px 0 0; border:0; border-top:1px solid var(--color-border); }
 .command-group legend { width:auto; padding:0 8px 0 0; font-size:12px; font-weight:500; }

@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'vite';
+const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
+try {
+ const T=await server.ssrLoadModule('three');
+ const {ScenePresentation}=await server.ssrLoadModule('/src/cad/rendering/scene-presentation.ts');
+ const {SceneGroundPlacement}=await server.ssrLoadModule('/src/cad/rendering/scene-ground.ts');
+ const {DEFAULT_SCENE_SETTINGS:defaults}=await server.ssrLoadModule('/src/cad/rendering/scene-settings.ts');
+ const scene=new T.Scene(),lights=new T.Group(),environment=new T.Group(),renderer={shadowMap:{}};
+ lights.add(new T.HemisphereLight(),new T.DirectionalLight(),new T.DirectionalLight(),new T.DirectionalLight());
+ scene.add(lights,environment);
+ const presentation=new ScenePresentation(scene,lights,environment,renderer),placement=new SceneGroundPlacement();
+ const bounds=new T.Box3(new T.Vector3(0,0,0),new T.Vector3(100,60,30));
+ const ground=placement.resolve('doc',bounds,defaults);
+ presentation.update(defaults,bounds,ground.height,false,ground.footprint);
+ assert.equal(renderer.shadowMap.enabled,true);assert.equal(environment.children[0].visible,true);
+ assert.equal(lights.children[1].castShadow,true);assert.equal(lights.children[1].shadow.intensity,defaults.shadowOpacity);
+ const floor=environment.children[0],position=floor.position.clone(),scale=floor.scale.clone(),lightPosition=lights.children[1].position.clone();
+ bounds.translate(new T.Vector3(200,-300,400));bounds.expandByScalar(200);
+ const moved=placement.resolve('doc',bounds,defaults);
+ presentation.update({...defaults,groundMode:'OFF'},bounds,moved.height,false,moved.footprint);
+ assert.equal(renderer.shadowMap.enabled,true,'object shadows remain available with the ground hidden');
+ assert.equal(floor.visible,false);assert.deepEqual(floor.position,position);assert.deepEqual(floor.scale,scale);
+ assert.notDeepEqual(lights.children[1].position,lightPosition,'shadow coverage follows displayed geometry independently');
+ presentation.update(defaults,bounds,moved.height,true,moved.footprint);
+ assert.equal(renderer.shadowMap.enabled,false,'sketch editing disables shadows');assert.equal(floor.visible,false);
+ presentation.update({...defaults,shadows:false},bounds,moved.height,false,moved.footprint);
+ assert.equal(renderer.shadowMap.enabled,false);assert.equal(lights.children[1].castShadow,false);
+ presentation.update(defaults,new T.Box3(),moved.height,false,moved.footprint);
+ assert.equal(renderer.shadowMap.enabled,false,'empty scenes do not allocate shadow passes');
+ presentation.dispose();
+} finally {await server.close();}

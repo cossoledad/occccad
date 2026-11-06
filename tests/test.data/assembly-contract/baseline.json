@@ -876,7 +876,7 @@
         "m4.snapshot.metadata-only-router": "2e9107f2330b2f224e0caadf3885e4aeb57c9f1722d8d8b1b3a89d6b025f0639",
         "m4.snap.precise-frame": "0531a46c32c76513bc401d274e442749692051dc11e1cfd35e24b4bff6e18f49",
         "m4.snap.body-local-hints": "f1be736cd0e1af0a57649ba234b283b20e72f42a7df63d8fda852a7139e2ca00",
-        "m5.engineering.overview": "a90d47927a491e473d0662eeb8b8a823cd4255413d88144e5efefe5692d2bd44",
+        "m5.engineering.overview": "6f84f668a3d92452af9ec34d1078c289179954a066de8b1362eb2f6d8bfa73cd",
         "m4.operation.failure-outlet": "44af86d7e9035d4c3c5226a5bc941fc90e8deadda557e845c6b7e8df90f13f02",
         "coincidence.point-point.geometry": "3cef053361270c88d898add465a9c3d06a4902d91d83bd7441bbf1d37752ac0f",
         "coincidence.point-plane.geometry": "5c8231db65eafc669aaaf66101ddd0b908ebadfb77c0c9a324a7159033e786c3",
@@ -1520,10 +1520,10 @@
         "m4.session.typed-target": "0bcb62f16a627985515eba3e806cc151234b6dd03fe3f095a9afb94be4c90854",
         "m4.session.router-commit-history": "72dcebe7fda0bd1baa79e59e80276715cf2468ecf019d5b2cb45e6ac81d42421",
         "m4.interaction.production-scheduler": "203c4b52b300e9cd5d3fead1233a127ef8fb278d48b8ab1d45739462f674ef7e",
-        "m5.conflict.three-valued-budget": "751e59cfa34ab46fb5873a7262ae676a40a005369f04176c99ab3246a3e00ffb",
+        "m5.conflict.three-valued-budget": "6139cbece6d56688cd607132ac9ecbbf827ec4e4816dcac14dfcc761486be2d3",
         "m5.conflict.certificates-provenance": "044eb3b88c8011f48165d1ac9a53729127fb46fd723c11a2104dd7a0be6ace52",
         "m5.conflict.router-readonly-repair": "a71269f7ca7dfb7abbff3b61f2e7d50794a39292e3d6c309f7e68f3368583d38",
-        "m5.conflict.production-response-repair-gate": "12485fcfb1e2daec21db96ea539af758b336daa2ee0bc853b30395226a9154ac",
+        "m5.conflict.production-response-repair-gate": "5cdae69f255fa2665c4a18e70a6c952a4bcc6c0b31f668de2336d7f4a001ef75",
         "m4.session.complete-component": "ef03b914eecd6a0786666c14fac020c55a73ca0894778ac063c5abbb680beb3d",
         "m4.session.cancel-strict-final-scope": "ddc4d4e1e7bf70ba0dd16cf18f367cbd6ede0ab7c89f3784caeb940200396d3e",
         "m4.session.relative-group-router": "c25347216e2d674d32d1642a0e4c83da8236f27bbc0d35dc49a4a9fef07c4c2a",
@@ -2552,5 +2552,15 @@
         "caseId": "m5.engineering.command-panel",
         "authorization": "User explicitly removed solver details, completion prose and the duplicate selected-constraint block, and requested row edit/suppress actions.",
         "reason": "Reviewed this one UI expectation and assertion source after the production component SSR/hook scenario passed. Added stable exact-Revision row action callbacks. Mathematical semantics, capabilities, other case declarations/assertions, tolerances and coverage floors are unchanged. Browser evidence is recorded separately; no automatic bless."
+    },
+    "constraintObjectEditingReview20261106": {
+        "authorization": "User explicitly removed the separate assembly Reconnect action; broken supports are replaced through normal constraint editing.",
+        "reason": "Reviewed only the three affected test assertions: Edit remains available and separate Reconnect is absent. Status counts, three-valued diagnostics, stale response gates, solver policies, mathematical targets, all case declarations and coverage floors remain unchanged.",
+        "execution": "Focused assembly-conflict and assembly-engineering scenarios passed; Services unit and source-health Router/Worker integration passed.",
+        "reviewedAssertionCaseIds": [
+            "m5.engineering.overview",
+            "m5.conflict.three-valued-budget",
+            "m5.conflict.production-response-repair-gate"
+        ]
     }
 }

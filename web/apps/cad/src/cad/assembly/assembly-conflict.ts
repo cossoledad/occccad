@@ -1,7 +1,7 @@
 import type { AssemblyConstraint, AssemblyGeometryRef, InstancePath } from "../../types";
 
 export type AssemblyConflictRequest = {analysisId:string;baseRevisionId:string;targetConstraintIds?:string[];maxProbes?:number;timeBudgetMs?:number};
-export type AssemblyConflictRepair = "EDIT" | "SUPPRESS" | "MEASURE" | "RECONNECT";
+export type AssemblyConflictRepair = "EDIT" | "SUPPRESS" | "MEASURE";
 export type AssemblyConflictMember = {constraintId:string;groupId?:string;equationIds?:string[];first:AssemblyGeometryRef;second?:AssemblyGeometryRef;angleAxis?:AssemblyGeometryRef;groupMembers?:Array<{instanceId?:string;instancePath?:InstancePath;groupId?:string}>;repairActions:AssemblyConflictRepair[]};
 export type AssemblyConflictItem = {kind:string;evidence:string;oracle:"SAT"|"UNSAT"|"UNKNOWN";constraintIds:string[];reason:string;members:AssemblyConflictMember[];irreducible:boolean};
 export type AssemblyConflictReport = {

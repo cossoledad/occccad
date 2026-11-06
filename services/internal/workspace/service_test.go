@@ -1169,7 +1169,7 @@ func TestAssemblyConstraintStructureCapabilitiesExposeRecoveryActions(t *testing
 	disconnected := ResolutionSnapshot{Result: modelcore.SelectionResolution{SupportingElementStatus: modelcore.SupportingElementNotConnected}}
 	constraint := AssemblyConstraint{First: AssemblyGeometryRef{Resolution: &connected}, Second: &AssemblyGeometryRef{Resolution: &disconnected}}
 	capabilities := assemblyConstraintStructureCapabilities(constraint, modelcore.AssemblyConstraintBroken)
-	for _, expected := range []string{"EDIT", "DELETE", "RECONNECT", "REFRESH"} {
+	for _, expected := range []string{"EDIT", "DELETE", "REFRESH"} {
 		if !slices.Contains(capabilities, expected) {
 			t.Fatalf("missing %s capability: %#v", expected, capabilities)
 		}
@@ -1188,8 +1188,8 @@ func TestAssemblyConstraintStructureCapabilitiesExposeRecoveryActions(t *testing
 		t.Fatal("broken support must be refreshed or reconnected before update")
 	}
 	brokenWithoutSnapshot := assemblyConstraintStructureCapabilities(AssemblyConstraint{}, modelcore.AssemblyConstraintBroken)
-	if !slices.Contains(brokenWithoutSnapshot, "RECONNECT") {
-		t.Fatalf("broken constraint without endpoint snapshot must remain reconnectable: %#v", brokenWithoutSnapshot)
+	if slices.Contains(brokenWithoutSnapshot, "RECONNECT") || !slices.Contains(brokenWithoutSnapshot, "EDIT") {
+		t.Fatalf("broken constraints reconnect through ordinary editing: %#v", brokenWithoutSnapshot)
 	}
 }
 

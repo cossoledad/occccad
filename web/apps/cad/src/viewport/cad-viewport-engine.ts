@@ -15,7 +15,7 @@ import type {CapturedSketchReference} from "../cad/sketch/sketch-point-capture";
 import {faceOutlineSegments} from "../cad/rendering/face-outline";
 import {frameDocuments} from "./display-receipt";
 import { ScenePresentation } from "../cad/rendering/scene-presentation";
-import { DEFAULT_SCENE_SETTINGS, groundLevel, normalizeSceneSettings,sceneGridColor, sceneBackgroundIsLight, type SceneSettings } from "../cad/rendering/scene-settings";
+import { DEFAULT_SCENE_SETTINGS, normalizeSceneSettings,sceneGridColor, sceneBackgroundIsLight, type SceneSettings } from "../cad/rendering/scene-settings";
 import {validMotionPose} from "../cad/assembly/motion-study";
 import {mechanismConstraints} from '../cad/assembly/mechanism-constraints';
 import {isExternalProjectionSource,projectionScopeForView} from "../cad/interaction/external-projection-selection";
@@ -56,7 +56,7 @@ import { makeFeatureEdges } from "../cad/rendering/feature-edges";
 import {booleanRegionStyle,booleanRoleColors} from "../cad/rendering/boolean-region-style";
 import { hideFeaturePreviewInput, makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { adaptiveGridSpacing, PlaneGrid } from "../cad/rendering/plane-grid";
-import { groundFootprint, includeVisibleSketchBounds, sceneGroundVisible, type SceneGridDisplay } from "../cad/rendering/scene-ground";
+import { SceneGroundPlacement, includeVisibleSketchBounds, sceneGroundVisible, type SceneGridDisplay } from "../cad/rendering/scene-ground";
 import { sceneSketchColors, SketchColorAdapter } from "../cad/rendering/sketch-colors";
 import { fitOrthographicView, updateOrthographicClipping, orientPlaneView, restoreView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
 import * as THREE from "three";
@@ -484,6 +484,9 @@ export class CadViewportEngine {
   private readonly scenePresentation:ScenePresentation;
   private sceneSettings:SceneSettings={...DEFAULT_SCENE_SETTINGS};
   private readonly groundBounds=new THREE.Box3();
+  private readonly groundPlacement=new SceneGroundPlacement();
+  private groundFootprint={center:new THREE.Vector2(),halfSize:10000};
+  private modelGroundHeight=0;
   private groundHeight=0;
   private sceneMetricsSignature="";
   private sceneGridDisplay?:SceneGridDisplay;
@@ -1107,6 +1110,7 @@ export class CadViewportEngine {
       mesh.material=surfaceAppearanceMaterials(mesh.geometry,artifact.mesh.faceIds,appearance,binding.defaultColor,(color,properties)=>this.materials.surface(color,properties));
       for(const m of Array.isArray(mesh.material)?mesh.material:[mesh.material])m.userData.propertyPreview=Boolean(candidate);
       mesh.castShadow=(Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
+      mesh.receiveShadow=true;
       applyEdgeAppearance(binding.group,appearance,CATIA_VISUAL_THEME.edge,m=>this.materials.sectionLine(m));
       for(const child of binding.group.children){const materials=(child as THREE.Mesh).material;for(const m of Array.isArray(materials)?materials:materials?[materials]:[])m.userData.propertyPreview=Boolean(candidate)}
       applySolidDisplaySettings(binding.group,this.solidDisplay,this.featureSelection?.topologyPick);
@@ -1115,6 +1119,7 @@ export class CadViewportEngine {
   }
 
   setSceneSettings(settings:SceneSettings):void {
+    if(settings.groundMode==='AUTO'&&(this.sceneSettings.groundMode!=='AUTO'||this.sceneSettings.groundLocked&&!settings.groundLocked))this.groundPlacement.resetHeight();
     this.sceneSettings=normalizeSceneSettings(settings);
     this.renderer.domElement.style.cursor = navigationCursor(this.navigation.snapshot, sceneBackgroundIsLight(this.sceneSettings));
     const s=this.sceneSettings;
@@ -1134,7 +1139,7 @@ export class CadViewportEngine {
     this.navigation.syncCamera(false);this.invalidate();
   }
   private refreshSceneGround():void {
-    if(!this.motionDisplay&&!this.moveInteraction?.sessionId&&!this.moveCommitPending){
+    {
       this.groundBounds.makeEmpty();this.content.updateMatrixWorld(true);
       for(const {group,mesh,artifact} of this.solidBindings.values()){
         if(!this.objectVisible(group)||artifact.topology.solids<1||artifact.historicalPreview||artifact.representationKind==="TRANSIENT_PREVIEW")continue;
@@ -1144,11 +1149,11 @@ export class CadViewportEngine {
       includeVisibleSketchBounds(this.groundBounds,this.content);
       includeVisibleSketchBounds(this.groundBounds,this.helpers);
     }
-    this.groundHeight=groundLevel(this.sceneSettings,this.groundBounds.isEmpty()?undefined:this.groundBounds.min.z,this.groundBounds.getSize(new THREE.Vector3()));
+    const placement=this.groundPlacement.resolve(this.view?.document.id??'',this.groundBounds,this.sceneSettings);
+    this.groundHeight=placement.height;this.modelGroundHeight=placement.modelHeight;this.groundFootprint=placement.footprint;
     this.groundFrame.origin.z=this.groundHeight;
-    const footprint=groundFootprint(this.groundBounds,this.sceneSettings.gridSpacing);
-    this.groundGrid.setFootprint(footprint);this.worldGrid.setFootprint(footprint);
-    this.scenePresentation?.update(this.sceneSettings,this.groundBounds,this.groundHeight,Boolean(this.sketchPlane));
+    this.groundGrid.setFootprint(placement.footprint);this.worldGrid.setFootprint(placement.footprint);
+    this.scenePresentation?.update(this.sceneSettings,this.groundBounds,this.groundHeight,Boolean(this.sketchPlane),placement.footprint);
   }
 
   private gridVisibility = {scene:true,sketch:true};
@@ -2381,6 +2386,7 @@ export class CadViewportEngine {
     // participant has moved, including the final reconciliation frame.
     this.content.updateMatrixWorld(true);
     this.addAssemblyConstraintMarkers(this.view);
+    this.refreshSceneGround();
   }
 
   private assemblyMarkerKey(documentId:string,occurrence:string,constraintId:string) {
@@ -3169,7 +3175,7 @@ export class CadViewportEngine {
     mesh.raycast = acceleratedRaycast;
     markNavigationPickable(mesh);
     mesh.castShadow = (Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
-    mesh.receiveShadow = false;
+    mesh.receiveShadow = true;
     const bodySelection = { kind: "body" as const, id: context.occurrencePath ? `${context.occurrencePath}:body:${context.bodyId}` : context.bodyId ?? "body", ...context };
     group.userData = bodySelection;
     this.selectionIndex.register(bodySelection, group);
@@ -4376,9 +4382,9 @@ export class CadViewportEngine {
         this.groundGrid.object.visible=false;this.worldGrid.object.visible=false;
         if(sceneGrid&&this.sceneSettings.grid&&this.sceneSettings.groundMode!=="OFF")this.groundGrid.update(this.camera,this.renderer.domElement.clientHeight,this.groundFrame);
         if(sceneGrid&&this.sceneSettings.worldGrid&&(this.sceneSettings.groundMode==="OFF"||this.groundHeight!==0||!this.sceneSettings.grid))this.worldGrid.update(this.camera,this.renderer.domElement.clientHeight);
-        const footprint=groundFootprint(this.groundBounds,this.sceneSettings.gridSpacing);
+        const footprint=this.groundFootprint;
         this.sceneGridDisplay={ground:this.groundGrid.object.visible,world:this.worldGrid.object.visible,sketch:this.sketchGrid.object.visible,height:this.groundHeight,center:footprint.center.toArray(),halfSize:footprint.halfSize,sketchGridColor:this.sketchColors.grid};
-        const sceneMetrics={groundHeight:this.groundHeight,gridSpacing:this.sceneSettings.gridSpacing};
+        const sceneMetrics={groundHeight:this.groundHeight,gridSpacing:this.sceneSettings.gridSpacing,modelGroundHeight:this.modelGroundHeight};
         const signature=JSON.stringify([sceneMetrics,this.sceneGridDisplay]);if(signature!==this.sceneMetricsSignature){this.sceneMetricsSignature=signature;this.callbacks.sceneMetricsChanged?.(sceneMetrics);this.emitDebugState();}
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);

@@ -1,4 +1,4 @@
-export type SceneMetrics={groundHeight:number;gridSpacing:number};
+export type SceneMetrics={groundHeight:number;gridSpacing:number;modelGroundHeight?:number};
 export type SceneSettings = {
   projection:"PERSPECTIVE"|"ORTHOGRAPHIC";
   groundMode: "AUTO" | "WORLD" | "MANUAL" | "OFF";
@@ -14,7 +14,7 @@ export type SceneSettings = {
 export const DEFAULT_SCENE_SETTINGS: Readonly<SceneSettings> = {
   projection:"PERSPECTIVE",groundMode:"AUTO",groundHeight:0,groundOffset:0,groundLocked:false,
   grid:true,worldGrid:false,gridSpacing:10,gridOpacity:1,gridColor:"#cbdced",gridAutoColor:true,
-  shadows:false,shadowOpacity:0.18,lighting:"ENGINEERING",brightness:1,ambient:1,fill:1,reflection:1,
+  shadows:true,shadowOpacity:0.35,lighting:"ENGINEERING",brightness:1,ambient:1,fill:1,reflection:1,
   azimuth:-126.87,elevation:54.46,background:"GRADIENT",backgroundTop:"#233346",backgroundBottom:"#70869b",
 };
 
@@ -27,7 +27,7 @@ export function normalizeSceneSettings(value:unknown):SceneSettings {
     groundMode:["AUTO","WORLD","MANUAL","OFF"].includes(v.groundMode??"")?v.groundMode!:d.groundMode,
     groundHeight:number(v.groundHeight,0,-1e12,1e12),groundOffset:number(v.groundOffset,0,-1e12,1e12),groundLocked:v.groundLocked===true,
     grid:v.grid!==false,worldGrid:v.worldGrid===true,gridSpacing:typeof v.gridSpacing==="number"&&v.gridSpacing>0?number(v.gridSpacing,d.gridSpacing,.001,1e12):d.gridSpacing,gridOpacity:number(v.gridOpacity,1,0,2),gridColor:color(v.gridColor,d.gridColor),gridAutoColor:v.gridAutoColor!==false,
-    shadows:v.shadows===true,shadowOpacity:number(v.shadowOpacity,d.shadowOpacity,0,1),
+    shadows:v.shadows!==false,shadowOpacity:number(v.shadowOpacity,d.shadowOpacity,0,1),
     lighting:["ENGINEERING","SOFT","CONTOUR"].includes(v.lighting??"")?v.lighting!:d.lighting,
     brightness:number(v.brightness,1,0,3),ambient:number(v.ambient,1,0,3),fill:number(v.fill,1,0,3),reflection:number(v.reflection,1,0,3),
     azimuth:number(v.azimuth,d.azimuth,-180,180),elevation:number(v.elevation,d.elevation,5,90),

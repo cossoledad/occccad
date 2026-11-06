@@ -26,7 +26,7 @@ export function assemblyEngineeringOverview(view?:DocumentDescriptor){
 export function engineeringMember(definition:AssemblyConstraint):AssemblyConflictMember {
   return {constraintId:definition.id,first:definition.first,second:definition.second,angleAxis:definition.angleAxis,
     groupId:definition.kind==="FIX_TOGETHER"?definition.id:undefined,groupMembers:definition.groupMembers,
-    repairActions:["EDIT","SUPPRESS",...(definition.evaluationStatus==="BROKEN"?["RECONNECT" as const]:[]),
+    repairActions:["EDIT","SUPPRESS",
       ...(definition.kind==="DISTANCE"||definition.kind==="ANGLE"&&["FREE","DIRECTED"].includes(definition.angleRelation??"FREE")?["MEASURE" as const]:[])]};
 }
 export function engineeringReason(item:AssemblyConflictItem):string {
