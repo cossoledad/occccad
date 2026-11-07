@@ -75,7 +75,7 @@ export function Properties(p:PropertiesProps){
    const lengthLabel=feature.type==='FILLET'?'圆角半径':feature.type==='CHAMFER'?'倒角距离':feature.type==='SHELL'?'壁厚':'长度';
    const owned=view.part?.parameters?.filter(v=>v.ownerFeatureId===feature.id)??[];
    if(owned.length)for(const parameter of owned)add(parameter.parameterId,parameter.propertySlot==='length'?lengthLabel:parameter.displayName??parameter.label??'参数',<><span>{parameterDisplayValue(parameter)}</span>{parameter.source.expression&&<small> · {parameter.source.expression.sourceText}</small>}</>);
-   else for(const [slot,label,unit] of [['length',lengthLabel,'mm'],['length2','第二方向长度','mm'],['diameter','直径','mm'],['depth','深度','mm'],['angle','角度','°']] as const){const value=feature[slot];if(typeof value==='number')add(slot,label,`${number(value)} ${unit}`)}
+   else for(const [slot,label,unit] of [['length',lengthLabel,'mm'],['length2','第二方向长度','mm'],['diameter','直径','mm'],['depth','深度','mm'],['angle','角度','°']] as const){if((slot==='length'||slot==='length2')&&['TO_PLANE','THROUGH_ALL'].includes(feature.extent??''))continue;const value=feature[slot];if(typeof value==='number')add(slot,label,`${number(value)} ${unit}`)}
    if(feature.diagnostic)add('issue','问题',engineeringProblem(feature.diagnostic));
   }
  }

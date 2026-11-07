@@ -546,7 +546,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	var result geometry.AssemblySolve
 	if existing, lookupErr := service.GetAssemblySolveResult(ctx, documentID, requestID); lookupErr == nil {
 		if existing.ManifestDigest != manifest.Digest {
-			return fmt.Errorf("%w: request id was already used for another SolveManifest", ErrValidation)
+			return fmt.Errorf("%w: SOLVE_MANIFEST_REQUEST_ID_CONFLICT: request id was already used for another SolveManifest", ErrValidation)
 		}
 		result = existing.Result
 		if diagnostic != nil {

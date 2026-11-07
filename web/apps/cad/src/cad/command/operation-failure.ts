@@ -7,6 +7,7 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const reasons:Record<string,string>={
+    SOLVE_MANIFEST_REQUEST_ID_CONFLICT:"预览输入已变化，请重新预览后确认。",
     ASSEMBLY_ANGLE_OUT_OF_RANGE:"角度应在 0° 到 360° 之间。",
     ASSEMBLY_OFFSET_NEGATIVE:"无符号偏移不能为负值，请修改数值或距离方向。",
     ASSEMBLY_PREFERENCE_NOT_CONVERGED:"位置优化尚未收敛，未采用新位置。可通过约束分析检查。",

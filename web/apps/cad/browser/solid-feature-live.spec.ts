@@ -803,7 +803,7 @@ test("to-plane extent picks datum and upstream face, cancels and repairs a lost 
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();
  const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);
  const revealTree=treeNavigator(page);
- const datumPick=async()=>{await revealTree(seed.datum.name);await page.getByRole("treeitem").filter({hasText:seed.datum.name}).last().click();};
+ const datumPick=async()=>{await revealTree(seed.datum.name,`plane:${seed.datum.id}`);await page.locator(`[role=treeitem][data-tree-key$="plane:${seed.datum.id}"]`).click();};
  const create=async()=>{
   await revealTree("");await openCommand(page,"拉伸");const dialog=page.getByRole("dialog",{name:"创建 拉伸",exact:true});
   await clickWorld(page,[10,0,0]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"轮廓"}).getByText("1 项",{exact:true})).toBeVisible();
@@ -866,7 +866,7 @@ test("to-plane cut selects a hole region and reverse datum termination",async({p
  await page.goto(`/documents/${seed.id}`);await expect(page.locator("canvas")).toBeVisible();await page.getByRole("button",{name:"顶视图",exact:true}).click();
  const box=await page.locator("canvas").boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.wheel(0,700);await openCommand(page,"切除");
  const dialog=page.getByRole("dialog",{name:"创建 拉伸",exact:true});await clickWorld(page,[3,0,30]);await expect(dialog.locator(".feature-pick-field").filter({hasText:"轮廓"}).getByText("1 项",{exact:true})).toBeVisible();
- await dialog.getByText("到平面",{exact:true}).click();await treeNavigator(page)(seed.end.name);await page.getByRole("treeitem").filter({hasText:seed.end.name}).last().click();
+ await dialog.getByText("到平面",{exact:true}).click();await treeNavigator(page)(seed.end.name,`plane:${seed.end.id}`);await page.locator(`[role=treeitem][data-tree-key$="plane:${seed.end.id}"]`).click();
  const reversed=dialog.getByRole("switch",{name:"反向",exact:true});if(!await reversed.isChecked())await reversed.click();
  await ready(page,dialog);expect((await current(page,seed.id)).document.versionId).toBe(seed.version);await page.screenshot({path:testInfo.outputPath("to-plane-reverse-cut-hole.png")});
  await dialog.getByRole("button",{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);

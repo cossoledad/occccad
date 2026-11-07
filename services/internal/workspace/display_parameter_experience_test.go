@@ -206,3 +206,28 @@ func TestAssemblyConstraintSetVisibilityAtomicHistory(t *testing.T) {
 		t.Fatal("invalid group identity accepted")
 	}
 }
+
+func TestGeometricTerminationHasNoDormantDrivingLengthParameter(t *testing.T) {
+	model := newPartModel()
+	model.Features = []Feature{{ID: "cut", BodyID: model.ActiveBodyID, Type: "LINEAR_EXTRUDE", Length: 40, Extent: "FINITE"}}
+	ensureFeatureParameters(&model)
+	if len(model.Parameters) != 1 {
+		t.Fatal(model.Parameters)
+	}
+	id := model.Parameters[0].ParameterID
+	for _, extent := range []string{"TO_PLANE", "THROUGH_ALL"} {
+		model.Features[0].Extent = extent
+		ensureFeatureParameters(&model)
+		if len(model.Parameters) != 0 {
+			t.Fatalf("%s exposes dormant length: %+v", extent, model.Parameters)
+		}
+		if model.Features[0].Length != 40 {
+			t.Fatal("inactive finite default was rewritten", model.Features[0].Length)
+		}
+	}
+	model.Features[0].Extent = "FINITE"
+	ensureFeatureParameters(&model)
+	if len(model.Parameters) != 1 || model.Parameters[0].ParameterID != id {
+		t.Fatal("finite mode did not restore the stable parameter slot", model.Parameters)
+	}
+}

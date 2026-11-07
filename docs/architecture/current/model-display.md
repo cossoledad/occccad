@@ -4,7 +4,7 @@
 
 ## 调用链与判定
 
-`CommandRequest` 经 WebSocket/Workspace 的 legacy adapter 映射到版本化 Domain Command；Part/Product 的不可变 Revision 保存模型，ChangeSet 用于 Undo/Redo。实体命令先把 Sketch/Profile、显式目标 Body 和 BodyOperation 固定在请求中；Preview 与 Commit 共用 `applyCreateFeature`、per-Body evaluation 和 OCCT `apply_body_operation`。Part 结构由同一个 `partStructureChildren` 投影到独立文档与 Product occurrence；`VisibilityResolver` 使用结构中的稳定主体、BodyId、完整 InstancePath 和本地显示属性求有效状态。Viewport 以语义地址绑定渲染对象，正常拾取、悬浮和草图捕捉按有效显示过滤。参数和 Publication 的树入口、管理器及属性调用正式命令。
+`CommandRequest` 经 WebSocket/Workspace 的 legacy adapter 映射到版本化 Domain Command；Part/Product 的不可变 Revision 保存模型，ChangeSet 用于 Undo/Redo。实体命令先把 Sketch/Profile、显式目标 Body 和 BodyOperation 固定在请求中；Preview 与 Commit 共用 `applyCreateFeature`、per-Body evaluation 和 OCCT `apply_body_operation`。Part 结构由同一个 `partStructureChildren` 投影到独立文档与 Product occurrence；`VisibilityResolver` 使用结构中的稳定主体、BodyId、完整 InstancePath 和本地显示属性求有效状态。Viewport 以语义地址绑定渲染对象，正常拾取、悬浮和草图捕捉按有效显示过滤。参数和 Publication 的树入口、管理器及属性调用正式命令。 通用特征/参数预览把 interactionId 用于整个编辑会话，把 requestId 用于一个不可变输入候选；同候选重试沿用 requestId，输入或基线改变必须分配新 requestId，不能用会话身份覆盖 SolveManifest。
 
 ## Body 与几何
 
@@ -67,3 +67,5 @@ Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果
 属性面板首先显示对象名称、工程属性、单位及可执行的恢复入口。DEBUG工具栏的“开发信息”独立非模态面板按需读取当前对象、最近结果／失败及现有查询调试；属性／历史不再包含开发区。`inspectorObjectData` 按所属文档和版本解析定义与权威拓扑响应；完整参数来源、AST、稳定引用、精确值和计算证据只在该开发面板展示，不按显示精度截断。数据只读，支持选择文本与区域内滚动；普通参数摘要不显示内部 ID 或属性槽。
 
 所有者文档与 Revision 必须匹配选择上下文。跨文档检查复用现有只读文档查询，不激活或打开标签。当前查询返回的 Head 不匹配历史/固定 Revision 时，明确提示完整定义尚未加载，不能以其他快照替代；已有精确拓扑响应和 occurrence 仍按各自上下文展示。读取失败保留选择数据和错误信息。菜单继续使用公共 `ContextMenuIcon`，没有图标的动作也保留固定空槽。
+
+到平面（TO_PLANE）和贯穿全部（THROUGH_ALL）的线性生成/切除不生成固定长度驱动参数，树、参数列表与属性不把保留的有限长度字段当成实际深度。定义仍保留有限长度供切回固定长度时使用；切回后恢复同一确定性参数槽 ID。几何终止时由真实目标/实体范围决定切除，不把残留 40 mm 强制改成上游 120 mm，也不以近似包围盒伪造深度输出。

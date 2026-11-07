@@ -27,7 +27,11 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
     const callback = useRef(onPreview);
     callback.current = onPreview;
     const key = input ? JSON.stringify([documentId, versionId, input]) : undefined;
-    const request=input?{...input,requestId:input.requestId??session.current.id,interactionId:input.interactionId??`feature/${session.current.id}`}:undefined;
+    // A session spans many drafts; a request identifies one immutable candidate.
+    // Retries of that candidate retain its ID, changed input gets a fresh one.
+    const candidateIdentity=useRef({key,id:randomUUID()});
+    if(candidateIdentity.current.key!==key)candidateIdentity.current={key,id:randomUUID()};
+    const request=input?{...input,requestId:input.requestId??candidateIdentity.current.id,interactionId:input.interactionId??`feature/${session.current.id}`}:undefined;
     const latest = useRef({ input:request, operation, key });
     latest.current = { input:request, operation, key };
     useEffect(() => {

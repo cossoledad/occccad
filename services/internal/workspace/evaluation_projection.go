@@ -11,6 +11,14 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
+// Plane/all-through termination is geometric, not driven by the stored finite length.
+func featureHasDrivingLength(feature Feature) bool {
+	if isLocalModifier(feature.Type) {
+		return feature.Type != "DRAFT"
+	}
+	return isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE" && feature.Extent != "TO_PLANE" && feature.Extent != "THROUGH_ALL"
+}
+
 func ensureFeatureParameters(model *PartModel) {
 	existing := map[string]int{}
 	for index, parameter := range model.Parameters {
@@ -73,7 +81,7 @@ func ensureFeatureParameters(model *PartModel) {
 				add(feature.ID, "pattern:"+parameter.slot, parameter.slot, parameter.unit, parameter.value, parameter.dimension, false)
 			}
 		}
-		if (isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE") || (isLocalModifier(feature.Type) && feature.Type != "DRAFT") {
+		if featureHasDrivingLength(feature) {
 			add(feature.ID, "length", "Length", "mm", feature.Length, modelcore.LengthDimension, false)
 		}
 		if strings.ToUpper(feature.Type) == "REVOLVE" || feature.Type == "DRAFT" {
@@ -466,7 +474,7 @@ func validateAndResolvePartParameters(model *PartModel) error {
 				return err
 			}
 		}
-		if (isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE") || (isLocalModifier(feature.Type) && feature.Type != "DRAFT") {
+		if featureHasDrivingLength(*feature) {
 			feature.Length = values["parameter:"+feature.ID+":length"].SIValue * 1000
 			if !positiveFinite(feature.Length) {
 				return fmt.Errorf("%w: extrude length must evaluate to a positive finite value", ErrValidation)

@@ -346,7 +346,7 @@ func (service *Service) ReplayAssemblySolveManifest(ctx context.Context, documen
 	requestID = requestID + "/solve-manifest-replay"
 	if existing, lookupErr := service.GetAssemblySolveResult(ctx, documentID, requestID); lookupErr == nil {
 		if existing.ManifestDigest != digest {
-			return AssemblySolveManifestResult{}, fmt.Errorf("%w: request id was already used for another SolveManifest", ErrValidation)
+			return AssemblySolveManifestResult{}, fmt.Errorf("%w: SOLVE_MANIFEST_REQUEST_ID_CONFLICT: request id was already used for another SolveManifest", ErrValidation)
 		}
 		return existing, nil
 	} else if !errors.Is(lookupErr, ErrNotFound) {
