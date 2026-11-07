@@ -12,6 +12,11 @@ export function applySolidDisplaySettings(group: THREE.Group, settings: SolidDis
       for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
         material.depthTest = settings.mode !== "wireframe";
       }
-    } else if (object instanceof THREE.Points) object.visible = topologyPick==='VERTEX' || settings.vertices;
+    } else if (object instanceof THREE.Points && !object.userData.cadTopologyOverlay) {
+      // Rendering and pickability differ: a hidden marker is still hoverable,
+      // but hiding its owning body/occurrence still removes it from picking.
+      object.visible = true;
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) material.visible = settings.vertices;
+    }
   }
 }

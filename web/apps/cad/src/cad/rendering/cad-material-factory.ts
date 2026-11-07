@@ -48,6 +48,14 @@ export class CadMaterialFactory {
     return material;
   }
 
+  /** Solid topology uses a round marker; sketch crosses keep their own contract. */
+  topologyPoint(color: number = this.theme.vertex, size = 7, depthTest = true): THREE.ShaderMaterial {
+    const material = this.point(color, size, depthTest);
+    material.uniforms.uMarkerShape.value = 2;
+    material.depthWrite = false;
+    return material;
+  }
+
   datumPlane(color: number): THREE.ShaderMaterial {
     return this.shaders.createMaterial("cad.datum.plane", {
       uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uOpacity: this.theme.datumOpacity,
@@ -104,6 +112,8 @@ export class CadMaterialFactory {
       if (!("material" in renderable) || !renderable.material) return;
       const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
       for (const material of materials) {
+        material.userData.cadInteractionState = state;
+        material.userData.cadInteractionRevision = (material.userData.cadInteractionRevision ?? 0) + 1;
         if(material.userData.dimensionDiagnosticColor!==undefined){(material as THREE.MeshBasicMaterial).color.setHex(material.userData.dimensionDiagnosticColor);continue;}
         if (material instanceof THREE.MeshStandardMaterial && material.userData.cadMaterial === "surface") {
           const baseColor = Number(material.userData.baseColor ?? this.theme.surface);

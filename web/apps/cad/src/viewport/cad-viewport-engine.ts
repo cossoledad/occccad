@@ -3230,7 +3230,7 @@ export class CadViewportEngine {
     if (topologyVertices.length > 0) {
       const pointGeometry = new THREE.BufferGeometry();
       pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(topologyVertices.flatMap((item) => item.point), 3));
-      const points = new THREE.Points(pointGeometry, this.materials.point(CATIA_VISUAL_THEME.vertex, 7));
+      const points = new THREE.Points(pointGeometry, this.materials.topologyPoint(CATIA_VISUAL_THEME.vertex, 7));
       markNavigationPickable(points);
       if(!artifact.historicalPreview)this.selectionIndex.registerPick(points, (hit) => {
         if(!materialAllowsPick(points.material))return null;
@@ -3723,10 +3723,11 @@ export class CadViewportEngine {
       const vertex = (binding.artifact.mesh.topologyVertices ?? []).find((item) => item.localId === selection.topologyId);
       if (vertex) {
         const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3().fromArray(vertex.point)]);
-        overlay = new THREE.Points(geometry, this.materials.point(color, layer === "selected" ? 11 : 9, false));
+        overlay = new THREE.Points(geometry, this.materials.topologyPoint(color, layer === "selected" ? 9 : 7, false));
       }
     }
     if (!overlay) return;
+    overlay.userData.cadTopologyOverlay = true;
     overlay.renderOrder = layer === "selected" ? 102 : 101;
     updateHighlightLineResolution(overlay, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
     binding.group.add(overlay);
@@ -4368,8 +4369,10 @@ export class CadViewportEngine {
         this.updateSketchParameterAnchor();
         this.updateCameraClipping();
         this.materials.surfaceDepth.render(this.renderer,this.scene,this.camera,this.sceneSettings.ambientOcclusion&&!this.sketchPlane&&this.solidDisplay.mode==='shaded',this.sceneSettings.aoIntensity);
-        this.sketchColorAdapter.applyOwned(this.content,this.sketchColors);
-        this.sketchColorAdapter.applyOwned(this.helpers,this.sketchColors);
+        const sketchView=this.sketchView();
+        const sketchScope=this.sketchPlane&&this.activeSketchID?{featureId:this.activeSketchID,documentId:sketchView?.document.id,versionId:sketchView?.document.versionId,occurrencePath:this.editContext?.occurrencePath??''}:null;
+        this.sketchColorAdapter.applyOwned(this.content,this.sketchColors,sketchScope);
+        this.sketchColorAdapter.applyOwned(this.helpers,this.sketchColors,sketchScope);
         this.sketchColorAdapter.apply(this.sketchContext,this.sketchColors);
         if(this.sketchPreviewLayer)this.sketchColorAdapter.apply(this.sketchPreviewLayer,this.sketchColors);
         if(this.sketchPlane)for(const root of [this.preview,this.referencePreview,this.referenceHover,this.snapPreview,this.dimensionDefinitionPreview])if(root)this.sketchColorAdapter.apply(root,this.sketchColors);

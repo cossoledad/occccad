@@ -783,10 +783,7 @@ select {
 .specification-tree { min-width: max-content; height: 100%; padding: 7px 16px 22px 4px; overflow: auto; pointer-events: none; user-select: none; }
 .specification-tree-virtual-space { position: relative; min-width: 280px; pointer-events: none; }
 .specification-tree-virtual-row { position: absolute; top: 0; left: 0; width: max-content; min-width: 100%; height: 27px; }
-.specification-tree-virtual-row.nested::after { content: ""; position: absolute; z-index: -1; top: 13px;
-  left: calc(var(--tree-depth) * 22px - 18px); width: 20px; height: 1px; background: rgb(226 235 239 / 74%); }
-.specification-tree-depth-guide { position: absolute; z-index: 0; top: 0; bottom: 0; width: 1px;
-  background: rgb(226 235 239 / 68%); filter: drop-shadow(0 1px 1px rgb(18 38 50 / 72%)); }
+.specification-tree-connectors { position:absolute; top:0; left:0; fill:none; stroke:var(--tree-guide,#9caebc); stroke-width:1; pointer-events:none; }
 .specification-tree-level { position: relative; padding: 0; margin: 0; list-style: none; }
 .specification-tree-level.nested { margin-left: 23px; padding-left: 13px; }
 .specification-tree-node { position: relative; min-height: 27px; }
@@ -847,18 +844,14 @@ select {
   background: transparent;
 }
 .specification-tree-junction { position: relative; cursor: default; }
-.specification-tree-junction.leaf::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border: 1px solid rgb(238 244 246 / 88%);
-  border-radius: 50%;
-  background: rgb(66 88 103 / 44%);
-  box-shadow: 0 1px 2px rgb(12 31 43 / 72%);
-}
-.specification-tree-junction.leaf::before { width: 3px; height: 3px; background: #dce8ec; }
 .specification-tree-junction.branch { cursor: pointer; color: rgb(238 244 246 / 92%); }
 .specification-tree-chevron { display: block; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.specification-tree-junction.branch { border-radius:4px; }
+.specification-tree-junction.branch:hover { background:var(--tree-control,#7d9ebc25); }
+@media (prefers-reduced-motion:no-preference) {
+  .specification-tree-chevron { transition:transform 140ms cubic-bezier(.2,.8,.2,1); }
+  .specification-tree-virtual-row { transition:transform 140ms cubic-bezier(.2,.8,.2,1); }
+}
 .specification-tree-junction.expanded .specification-tree-chevron { transform: rotate(90deg); }
 .specification-tree-icon { width: 20px; flex: 0 0 20px; margin-left: 3px; color: #c8d8df; text-align: center; font-size: 14px; line-height: 1; }
 .specification-tree-level.root>.specification-tree-node>.specification-tree-row>.specification-tree-icon { position: relative; }

@@ -15,6 +15,7 @@ import { selectionSetToken } from "../../cad/interaction/selection-identity";
 import type { DocumentStructureNode, InstancePath, Selection } from "../../types";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
 import { visibleTreeHintKeys } from "./tree-projection-index";
+import {visibleTreeLayout, type VisibleTreeNode} from './tree-layout';
 import { treeVisibilityAction } from "./tree-visibility-action";
 import { isEditTargetNode, type EditSession } from "./edit-session";
 import { ContextMenuIcon } from "../../components/context-menu-icon";
@@ -47,17 +48,6 @@ function titleText(title: ReactNode): string {
   if (Array.isArray(title)) return title.map(titleText).join(" ");
   if (isValidElement<{ children?: ReactNode }>(title)) return titleText(title.props.children);
   return "";
-}
-
-type VisibleNode = { node: SpecificationTreeNode; depth: number; hasChildren: boolean };
-
-function flatten(nodes: SpecificationTreeNode[], expanded: Set<string>, depth = 0, output: VisibleNode[] = []): VisibleNode[] {
-  for (const node of nodes) {
-    const hasChildren = Boolean(node.children?.length);
-    output.push({ node, depth, hasChildren });
-    if (hasChildren && (depth === 0 || expanded.has(node.key))) flatten(node.children!, expanded, depth + 1, output);
-  }
-  return output;
 }
 
 function indexNodes(nodes: SpecificationTreeNode[], output = new Map<string, SpecificationTreeNode>()): Map<string, SpecificationTreeNode> {
@@ -121,7 +111,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   const [contextMenu, setContextMenu] = useState<{ nodeKey: string; selectionSignature: string }>();
   const anchorKey = useRef<string | undefined>(undefined);
   const scrollElement = useRef<HTMLElement>(null);
-  const visible = useMemo(() => flatten(nodes, expanded), [nodes, expanded]);
+  const visible = useMemo(() => visibleTreeLayout(nodes, expanded), [nodes, expanded]);
   const nodeIndex = useMemo(() => indexNodes(nodes), [nodes]);
   const visibleKeys = useMemo(() => visible.map((entry) => entry.node.key), [visible]);
   const selected = useMemo(() => new Set(selectedKeys), [selectedKeys]);
@@ -178,7 +168,7 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
       for (const row of rows ?? []) if (row.dataset.treeKey === entry.node.key) row.focus();
     });
   };
-  const keyboardSelect = (event: KeyboardEvent, entry: VisibleNode) => {
+  const keyboardSelect = (event: KeyboardEvent, entry: VisibleTreeNode) => {
     if (["Enter", " ", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) event.stopPropagation();
     const index = visible.findIndex((item) => item.node.key === entry.node.key);
     if (event.key === "Enter") {event.preventDefault();if(!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.repeat&&!event.nativeEvent.isComposing)invokeDefault(entry.node);}
@@ -264,8 +254,11 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
           <span className="specification-tree-label">{node.title}</span>
         </div>;
         return <div key={node.key} className={`specification-tree-virtual-row ${depth > 0 ? "nested" : "root"}`} style={rowStyle}>
-          {Array.from({ length: depth }, (_, guide) => <i key={guide} className="specification-tree-depth-guide"
-            style={{ left: guide * 22 + 13 }} />)}
+          <svg className="specification-tree-connectors" width={depth * 22 + 18} height="27" aria-hidden="true">
+            {entry.continuationLevels.map(level => <path key={level} d={`M${level * 22 + 9} 0v27`} />)}
+            {depth > 0 && <path className="specification-tree-elbow" d={`M${(depth - 1) * 22 + 9} 0v9q0 4 4 4h9${entry.lastSibling ? '' : `M${(depth - 1) * 22 + 9} 9v18`}`} />}
+            {isExpanded && <path d={`M${depth * 22 + 9} 21v6`} />}
+          </svg>
           <Dropdown trigger={["contextMenu"]} placement="bottomLeft" classNames={{ root: "specification-tree-context-menu" }}
             open={contextMenu?.nodeKey === node.key}
             onOpenChange={(open) => { if (!open) setContextMenu(undefined); }}

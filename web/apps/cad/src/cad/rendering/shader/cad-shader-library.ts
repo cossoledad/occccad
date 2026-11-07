@@ -291,9 +291,9 @@ export class CadShaderLibrary {
           float alpha = (1.0 - smoothstep(0.065-aa, 0.065+aa, diagonal))
             * (1.0 - smoothstep(0.42, 0.5, max(abs(p.x), abs(p.y))));
           float dotAlpha=uMarkerShape>0.5?1.0-smoothstep(uCenterRadius-fwidth(length(p)),uCenterRadius+fwidth(length(p)),length(p)):0.0;
-          alpha=max(alpha,dotAlpha);
+          alpha=uMarkerShape>1.5?1.0-smoothstep(0.40-fwidth(length(p)),0.40+fwidth(length(p)),length(p)):max(alpha,dotAlpha);
           if (alpha < 0.01) discard;
-          gl_FragColor = vec4(mix(mix(uColor, uSelectedColor, uSelected),uCenterColor,dotAlpha), alpha*uOpacity);
+          gl_FragColor = vec4(mix(mix(uColor, uSelectedColor, uSelected),uCenterColor,uMarkerShape>1.5?0.0:dotAlpha), alpha*uOpacity);
           #include <colorspace_fragment>
         }
       `,

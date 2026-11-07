@@ -43,11 +43,19 @@ try {
     solid.visible = false;
     applySolidDisplaySettings(solid, settings);
     assert.equal(solid.visible, false, "mode must preserve tree hiding");
-    assert.deepEqual(solid.children.map(object => object.visible), expected);
+    assert.deepEqual([mesh.visible, edges.visible, points.material.visible], expected);
+    assert.equal(points.visible,true,'unpainted topology markers remain pickable');
     assert.equal(edges.material.depthTest, settings.mode !== "wireframe");
   }
 
   solid.visible = true;
+  applySolidDisplaySettings(solid,{mode:'shaded',edges:true,vertices:false},'VERTEX');
+  const vertexIndex=new SelectionIndex();vertexIndex.registerPick(points,()=>({kind:'vertex',id:'vertex'}));
+  solid.updateMatrixWorld(true);
+  const vertexRay=new THREE.Raycaster(new THREE.Vector3(.5,.5,5),new THREE.Vector3(0,0,-1));vertexRay.params.Points.threshold=.1;
+  assert.equal(points.material.visible,false,'a point selection tool does not reveal every vertex');
+  assert.equal(vertexIndex.pick(vertexRay)?.kind,'vertex','an unpainted vertex can still be hovered');
+  solid.visible=false;assert.equal(vertexIndex.pick(vertexRay),null,'hidden bodies never expose vertex picks');solid.visible=true;
   const axis = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(-1,0,-2), new THREE.Vector3(1,0,-2),
   ]), new THREE.LineBasicMaterial());
