@@ -58,7 +58,11 @@ try{
  // Even if an obsolete UI object is supplied, begin resolves the current
  // path from the authority, not by surgically changing the old version field.
  a.userData.instancePath=path("old");
+ const hovered={kind:"instance",id:"a",instanceId:"a"};
+ const notifications=[];engine.callbacks={preselectionChanged:s=>notifications.push(s)};
+ engine.preselect(hovered,true);assert.equal(engine.preselected,hovered);
  engine.beginMovePreviewGesture();
+ assert.equal(engine.preselected,null,"gesture start clears hover retained before pointerdown");assert.equal(notifications.at(-1),null);
  assert.equal(begun.baseRevisionId,"new");assert.deepEqual(begun.occurrencePath,path("new"));
  assert.equal(begun.occurrencePath.segments[0].referenceMode,"PINNED");
  assert.equal(hydrates,0);assert.equal(a.children[0].geometry,geometry);
@@ -80,5 +84,14 @@ try{
  assert.equal(manipulator.isAttached(),true,'receipt keeps the continuous move handle');
  assert.equal(engine.moveTarget.group,a);assert.equal(engine.activeToolID,'assembly.move');
  engine.beginMovePreviewGesture();assert.equal(begun.baseRevisionId,'new');
+ // All preselection sources share the drag/finalization gate, without
+ // changing the retained selection or leaving a sticky hover suppression flag.
+ const retained=[{kind:"instance",id:"a",instanceId:"a"}];engine.selected=retained;
+ engine.callbacks.preselectionChanged=s=>notifications.push(s);
+ const isDragging=manipulator.isDragging.bind(manipulator);manipulator.isDragging=()=>true;
+ engine.preselect(hovered,true);assert.equal(engine.preselected,null);assert.equal(engine.selected,retained);
+ manipulator.isDragging=isDragging;engine.moveFinalization=Promise.resolve();engine.preselect(hovered,true);assert.equal(engine.preselected,null,"final pose acceptance also owns feedback");
+ engine.moveFinalization=undefined;engine.moveCommitPending={};engine.preselect(hovered,true);assert.equal(engine.preselected,null,"pending commit cannot add hover");
+ engine.moveCommitPending=undefined;engine.preselect(hovered,true);assert.equal(engine.preselected,hovered,"hover resumes after release or cancellation");assert.equal(engine.selected,retained);
  manipulator.dispose();engine.transforms.stopAll();
 }finally{await server.close();}

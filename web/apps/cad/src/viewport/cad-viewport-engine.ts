@@ -1986,6 +1986,7 @@ export class CadViewportEngine {
   }
 
   private beginMovePreviewGesture():void{
+    if(this.preselected)this.preselect(null,true);
     this.manipulatorSnapCache?.cancelPending();
     if(this.moveCommitPending)return;
     this.showStaticInterference();
@@ -2110,6 +2111,9 @@ export class CadViewportEngine {
   }
 
   preselect(selection: Selection, notify = false): void {
+    // The move gesture owns visual feedback until its final pose is accepted.
+    // This also covers preselection arriving from the tree or other overlays.
+    if(this.moveManipulator?.isDragging()||this.moveFinalization||this.moveCommitPending)selection=null;
     if (sameSelection(this.preselected, selection)) return;
     this.preselected = selection;
     this.refreshInteractionHighlights();
@@ -4156,7 +4160,11 @@ export class CadViewportEngine {
         return [(p.x+1)*this.renderer.domElement.clientWidth/2,(1-p.y)*this.renderer.domElement.clientHeight/2];
       },
       requestAssemblyConstraint: (kind, references,members) => this.callbacks.assemblyConstraintRequested(kind, references,members),
-      moveManipulatorPointerDown: (pointerId, x, y) => !this.moveFinalization&&!this.moveCommitPending&&!this.moveInteraction.hasUncommittedFinal&&this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
+      moveManipulatorPointerDown: (pointerId, x, y) => {
+        const handled=!this.moveFinalization&&!this.moveCommitPending&&!this.moveInteraction.hasUncommittedFinal&&this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement);
+        if(handled)this.preselect(null,true); // pivot drags do not start a solve session
+        return handled;
+      },
       moveManipulatorPointerMove: (pointerId, x, y) => this.moveManipulator.pointerMove(pointerId, x, y, this.camera, this.renderer.domElement),
       moveManipulatorPointerUp: (pointerId, commit) => {
         this.manipulatorSnapCache.cancelPending();this.snapInput=undefined;

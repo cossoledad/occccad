@@ -101,6 +101,32 @@ async function seedProduct(page:Page,defineMechanism=true,publishSupports=false)
 
 // Production API, native Worker and real renderer. The trace records poses when
 // Three.js renders the scene, including writes between React effects.
+test('component move clears existing hover and rejects overlapping hover until commit or cancel',async({page},info)=>{
+ test.setTimeout(180000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ expect((await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}})).ok()).toBeTruthy();await page.goto('/');
+ const seed=await seedProduct(page,false);await page.goto('/documents/'+seed.id);await viewportEngine(page);await command(page,'移动组件');
+ for(const commit of [true,false]){
+  await pickVisibleInstance(page,seed.rotor);await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.moveManipulator.isAttached())).toBe(true);
+  const before=await current(page,seed.id);
+  const handle=await page.evaluate(()=>{
+   const e=(window as any).__dmuEngine,m=e.moveManipulator,r=e.renderer.domElement.getBoundingClientRect();m.object.updateWorldMatrix(true,true);
+   const h=m.handles.find((h:any)=>h.operation==='translate'&&h.axis==='X'),p=m.object.localToWorld(h.pick.position.clone().multiplyScalar(1.6)),start=p.clone().project(e.camera),end=p.clone().addScaledVector(h.pick.position.clone().normalize().applyQuaternion(m.object.quaternion),4).project(e.camera);
+   // A tree/overlay preselection is another real entrypoint into the same gate.
+   e.preselect(e.selected[0],true);return {x:r.x+(start.x+1)*r.width/2,y:r.y+(1-start.y)*r.height/2,endX:r.x+(end.x+1)*r.width/2,endY:r.y+(1-end.y)*r.height/2,hover:e.preselectedOverlays.length,selected:e.selectedOverlays.length};
+  });expect(handle.hover).toBeGreaterThan(0);expect(handle.selected).toBeGreaterThan(0);
+  await page.mouse.move(handle.x,handle.y);await page.mouse.down();await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.moveManipulator.isDragging())).toBe(true);
+  const frames=await page.evaluate(()=>{const e=(window as any).__dmuEngine;e.preselect(e.selected[0],true);return {hover:e.preselected,overlays:e.preselectedOverlays.length,selected:e.selectedOverlays.length}});expect(frames.hover).toBeNull();expect(frames.overlays).toBe(0);expect(frames.selected).toBeGreaterThan(0);
+  await page.mouse.move(handle.endX,handle.endY,{steps:8});expect(await page.evaluate(()=>{const e=(window as any).__dmuEngine;return e.preselected===null&&e.preselectedOverlays.length===0})).toBe(true);
+  await page.screenshot({path:info.outputPath(`moving-selected-only-${commit?'commit':'cancel'}.png`)});
+  if(!commit)await page.keyboard.press('Escape');await page.mouse.up();
+  await expect.poll(()=>page.evaluate(()=>{const e=(window as any).__dmuEngine;return !e.moveManipulator.isDragging()&&!e.moveFinalization&&!e.moveCommitPending})).toBe(true);
+  const after=await current(page,seed.id);if(commit)expect(after.document.versionId).not.toBe(before.document.versionId);else expect(after.document.versionId).toBe(before.document.versionId);
+  // Real viewport movement can establish hover again after either exit path.
+  const hoverPoint=await page.evaluate(id=>{const e=(window as any).__dmuEngine,c=e.renderer.domElement,r=c.getBoundingClientRect();for(let y=30;y<r.height-20;y+=12)for(let x=30;x<r.width-20;x+=12){if(document.elementFromPoint(r.x+x,r.y+y)!==c||e.moveManipulator.pick(x,y,e.camera,c))continue;if(e.hitTest(x,y)?.instanceId===id)return {x:r.x+x,y:r.y+y}}},seed.rotor);expect(hoverPoint).toBeTruthy();await page.mouse.move(hoverPoint!.x,hoverPoint!.y);await expect.poll(()=>page.evaluate(()=>(window as any).__dmuEngine.preselected!==null)).toBe(true);
+ }
+ expect(errors).toEqual([]);
+});
+
 test('edited Part tab returns to its referencing Product without a sketch context crash',async({page})=>{
  test.setTimeout(240_000);
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
