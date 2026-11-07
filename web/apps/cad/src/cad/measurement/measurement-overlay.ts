@@ -66,13 +66,14 @@ export class MeasurementOverlay {
   this.root.addEventListener('pointerdown',e=>{const value=id(e.target);if(value&&e.button===0){e.preventDefault();e.stopPropagation();this.interaction?.select(value,e.ctrlKey||e.metaKey)}});
  }
  dispose(){this.dragging?.cancel();this.root.remove();this.offsets.clear()}
- render(documentId:string,items:Measurement[],unit:MeasurementUnit,camera:Camera,width:number,height:number,enabled=true){
+ render(documentId:string,items:Measurement[],unit:MeasurementUnit,camera:Camera,width:number,height:number,enabled=true,interactive=true){
+  this.root.classList.toggle('measurement-picking',!interactive);if(!interactive)this.dragging?.cancel();
   const sourceKey=JSON.stringify(items.map(m=>[m.id,m.result?.sourceStamp,m.status,m.visible,m.showComponents]));
   if(sourceKey!==this.sourceKey){this.dragging?.cancel();this.sourceKey=sourceKey;const live=new Set(items.map(m=>m.id||'preview'));for(const key of this.offsets.keys())if(!live.has(key))this.offsets.delete(key)}
   if(documentId!==this.documentId||!enabled){this.dragging?.cancel();if(documentId!==this.documentId)this.offsets.clear();this.documentId=documentId}
   if(this.dragging)return;
   if(documentId===this.layoutDocumentId)this.hydrateLayouts();
-  const frameKey=JSON.stringify([documentId,sourceKey,unit,width,height,enabled,camera.projectionMatrix.elements,camera.matrixWorldInverse.elements,items.map(m=>[m.name,m.displayAnchors,m.result?.anchors,m.outputCurrency]),[...this.offsets]]);
+  const frameKey=JSON.stringify([documentId,sourceKey,unit,width,height,enabled,interactive,camera.projectionMatrix.elements,camera.matrixWorldInverse.elements,items.map(m=>[m.name,m.displayAnchors,m.result?.anchors,m.outputCurrency]),[...this.offsets]]);
   if(frameKey===this.frameKey)return;this.frameKey=frameKey;
   this.root.replaceChildren();this.root.setAttribute('viewBox',`0 0 ${width} ${height}`);
   if(!enabled)return;
@@ -105,7 +106,7 @@ export class MeasurementOverlay {
    if(!this.offsets.has(key))for(let attempt=0;attempt<12&&occupied.some(r=>x<r.x+r.w+4&&x+w+4>r.x&&y<r.y+r.h+4&&y+h+4>r.y);attempt++){y+=h+6;if(y+h>height-8){y=8;x=Math.min(width-w-8,x+w/2)}}
    occupied.push({x,y,w,h});offset=[x-labelAnchor[0],y-labelAnchor[1]];
    const leader=line(group,labelAnchor,[x,y+h/2],'measurement-leader');
-   const label=svg('g',{transform:`translate(${x} ${y})`,class:'measurement-label',tabindex:0,role:m.id?'button':'img','aria-label':text});
+   const label=svg('g',{transform:`translate(${x} ${y})`,class:'measurement-label',tabindex:interactive?0:-1,role:m.id&&interactive?'button':'img','aria-label':text});
    label.append(svg('rect',{width:w,height:h,rx:5}));const title=svg('title');title.textContent=`${text}；拖动可调整标签位置，双击复位`;label.append(title);
    const t=svg('text',{x:10,y:19});t.textContent=text.length*7.5+24>w?text.slice(0,Math.max(8,Math.floor((w-40)/7.5)))+'…':text;label.append(t);group.append(label);
    label.addEventListener('dblclick',e=>{e.stopPropagation();this.offsets.delete(key);if(m.id)this.saveOffset?.(m.id,undefined);x=Math.max(8,Math.min(width-w-8,labelAnchor[0]+26));y=Math.max(8,Math.min(height-h-8,labelAnchor[1]-38));label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2))});

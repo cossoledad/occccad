@@ -351,7 +351,7 @@ export class CadViewportEngine {
     const preview=this.measurementPreview?.documentId===view.document.id&&this.measurementPreview.revisionId===view.document.versionId?this.measurementPreview:undefined;
     const saved=measurements(view).filter(m=>m.id!==preview?.definition.id).map(m=>({...m,visible:this.visibilityResolver?.resolve({documentId:view.document.id,occurrencePath:'',kind:'MEASUREMENT',entityId:m.id}).effectiveVisible??m.visible}));
     const items=preview?[...saved,{...preview.definition,result:preview.result,status:'CURRENT'}]:saved;
-    this.measurementOverlay?.render(view.document.id,items,this.sketchLengthUnit,this.camera,width,height,this.sectionSceneReady()&&!this.sketchPlane);
+    this.measurementOverlay?.render(view.document.id,items,this.sketchLengthUnit,this.camera,width,height,this.sectionSceneReady()&&!this.sketchPlane,!this.featureSelection);
   }
   private staticInterferenceCompatible(report:StaticInterferenceReport):boolean {
     if(this.view?.document.id!==report.documentId||this.view.document.versionId!==report.revisionId||(report.source!=='MECHANISM'&&(this.motionDisplay||this.mechanismDefinition||this.assemblyPosePreview))||this.motionDisplay?.clock||this.preview||this.moveCommitPending||this.moveManipulator?.isDragging())return false;

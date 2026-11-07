@@ -1,20 +1,20 @@
 import {useEffect,useRef,useState} from 'react';
-import {Alert,Button,Checkbox,Input,Select,Space,Tag} from 'antd';
+import {Alert,Button,Checkbox,Input,Select,Tag} from 'antd';
 import type {DocumentView,SelectionItem} from '../../types';
 import {api} from '../../api/client';
 import {CommandDialog} from '../../cad/overlay/floating-panel';
 import {CommandField,CommandStatus} from '../../cad/overlay/command-form';
 import type {FeatureSelectionSession} from '../../cad/interaction/feature-selection';
 import {FeaturePickField} from './feature-pick-field';
-import {defaultMeasurement,measurementCount,measurementPick,measurementProblem,measurements,measurementStatus,measurementSummary,measurementSupportLabel,measurementTitle,measurementValue,measurementValueLabel,type Measurement,type MeasurementKind,type MeasurementMode,type MeasurementReport,type MeasurementUnit} from '../../cad/measurement/measurement';
+import {defaultMeasurement,measurementCount,measurementPick,measurementProblem,measurementStatus,measurementSupportLabel,measurementTitle,measurementValue,measurementValueLabel,type Measurement,type MeasurementKind,type MeasurementMode,type MeasurementReport,type MeasurementUnit} from '../../cad/measurement/measurement';
 import {recordDeveloperEvidence} from '../../cad/command/developer-evidence';
 
-type Props={view:DocumentView;kind:MeasurementKind;initial?:Measurement;unit:MeasurementUnit;seed:SelectionItem[];canSave:boolean;blocked:boolean;onClose:()=>void;onSelectionSession:(s?:FeatureSelectionSession)=>void;onShow:(r?:MeasurementReport)=>void;onLocate:(s:SelectionItem[])=>void;onSave:(m:Measurement,action?:'SAVE_MEASUREMENT'|'UPDATE_MEASUREMENT'|'DELETE_MEASUREMENT')=>Promise<void>;onEdit:(m:Measurement)=>void};
-export function MeasurementPanel({view,kind,initial,unit,seed,canSave,blocked,onClose,onSelectionSession,onShow,onLocate,onSave,onEdit}:Props){
+type Props={view:DocumentView;kind:MeasurementKind;initial?:Measurement;unit:MeasurementUnit;seed:SelectionItem[];canSave:boolean;blocked:boolean;onClose:()=>void;onSelectionSession:(s?:FeatureSelectionSession)=>void;onShow:(r?:MeasurementReport)=>void;onLocate:(s:SelectionItem[])=>void;onSave:(m:Measurement,action?:'SAVE_MEASUREMENT'|'UPDATE_MEASUREMENT')=>Promise<void>};
+export function MeasurementPanel({view,kind,initial,unit,seed,canSave,blocked,onClose,onSelectionSession,onShow,onLocate,onSave}:Props){
  const [draft,setDraft]=useState<Measurement>(()=>initial??{...defaultMeasurement(kind),supports:seed.flatMap(s=>measurementPick(view,s)??[]).slice(0,measurementCount(kind))});
  const [picks,setPicks]=useState<Array<SelectionItem|undefined>>(()=>initial?[]:seed.slice(0,measurementCount(kind)));
  const [active,setActive]=useState<number|undefined>(()=>draft.supports.length<measurementCount(kind)?draft.supports.length:undefined),[filter,setFilter]=useState(kind==='ANGLE_POINTS'?'VERTEX':'ANY');
- const [mode,setMode]=useState<MeasurementMode>('GEOMETRY'),[continuation,setContinuation]=useState('BETWEEN'),[keep,setKeep]=useState(!!initial),[busy,setBusy]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState<string>();
+ const [mode,setMode]=useState<MeasurementMode>('GEOMETRY'),[continuation,setContinuation]=useState('BETWEEN'),[keep,setKeep]=useState(canSave),[busy,setBusy]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState<string>();
  const [report,setReport]=useState<MeasurementReport|undefined>(()=>initial?.result?{documentId:view.document.id,revisionId:view.document.versionId,definition:initial,result:initial.result}:undefined);
  const serial=useRef(0),abort=useRef<AbortController|undefined>(undefined),mounted=useRef(true);
  const callbacks=useRef({onShow,onSelectionSession,onSave,onClose});callbacks.current={onShow,onSelectionSession,onSave,onClose};
@@ -43,7 +43,7 @@ export function MeasurementPanel({view,kind,initial,unit,seed,canSave,blocked,on
    setPicks(p=>{const next=[...p];next[active]=s;return next});setActive(active+1<measurementCount(draft.kind)?active+1:undefined);
   }});return()=>callbacks.current.onSelectionSession();
  },[active,scope,mode,filter,saving]);
- const save=async(close=true,action:'SAVE_MEASUREMENT'|'UPDATE_MEASUREMENT'='SAVE_MEASUREMENT')=>{
+ const save=async(close=true,action:'SAVE_MEASUREMENT'|'UPDATE_MEASUREMENT'=initial&&initial.status!=='CURRENT'?'UPDATE_MEASUREMENT':'SAVE_MEASUREMENT')=>{
   if(saving||blocked)return false;setActive(undefined);
   if(!keep&&close){onClose();return true}
   if(!canSave||!ready)return false;
@@ -54,27 +54,27 @@ export function MeasurementPanel({view,kind,initial,unit,seed,canSave,blocked,on
  const next=async()=>{
   if(keep&&canSave&&!await save(false))return;
   const retained=draft.kind==='BETWEEN'&&continuation!=='BETWEEN'?(continuation==='FAN'?0:1):undefined;
-  setDraft({...defaultMeasurement(draft.kind),supports:retained===undefined?[]:[draft.supports[retained]]});setPicks(retained===undefined?[]:[picks[retained]]);setActive(retained===undefined?0:1);setReport(undefined);
+  const supports=report?.result.complete?report.definition.supports:draft.supports;
+  setDraft({...defaultMeasurement(draft.kind),supports:retained===undefined?[]:[supports[retained]]});setPicks(retained===undefined?[]:[picks[retained]]);setActive(retained===undefined?0:1);setReport(undefined);
  };
  const summary=report?.result.complete?{...draft,result:report.result}:undefined;
- return <CommandDialog id="geometry-measurement" open title={measurementTitle(draft.kind)} size="M" onClose={onClose} onConfirm={async()=>{await save()}} confirmText={keep?'保留测量':'完成'} cancelText="关闭" confirmLoading={saving} confirmDisabled={blocked||busy||keep&&(!canSave||!ready||!summary)} onCancelPick={()=>{if(active===undefined)return false;setActive(undefined);return true}}
+ return <CommandDialog id="geometry-measurement" open title={measurementTitle(draft.kind)} size="M" onClose={onClose} onConfirm={async()=>{await save()}} confirmText="确定" cancelText="取消" confirmLoading={saving} confirmDisabled={blocked||busy||keep&&(!canSave||!ready||!summary)} onCancelPick={()=>{if(active===undefined)return false;setActive(undefined);return true}}
   commandStatus={<CommandStatus pending={busy} error={error}/>} secondaryActions={<Button disabled={!summary||busy||saving||blocked} onClick={()=>void next()}>{keep?'保留并继续':'继续测量'}</Button>}>
-  <div inert={saving}>
-   <CommandField label="名称" width="name"><Input aria-label="测量名称" placeholder="自动命名" value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))}/></CommandField>
-   <CommandField label="选择过滤" width="enum"><Select aria-label="测量选择过滤" value={filter} options={[['ANY','任意几何'],['VERTEX','顶点'],['EDGE','边'],['FACE','面'],['BODY','实体 / 组件']].map(([value,label])=>({value,label}))} onChange={setFilter}/></CommandField>
-   <CommandField label="下一选择" width="enum"><Select aria-label="测量取用方式" value={mode} options={[{value:'GEOMETRY',label:'实际几何边界'},{value:'CENTER',label:'圆心 / 球心'},{value:'AXIS',label:'解析轴线'}]} onChange={setMode}/></CommandField>
-   {Array.from({length:measurementCount(draft.kind)},(_,index)=>{const support=draft.supports[index],label=draft.kind==='ITEM'?'测量对象':draft.kind==='ANGLE_POINTS'?['第一点','角度顶点','第三点'][index]:`对象 ${index+1}`;return <FeaturePickField key={index} label={label} active={active===index} value={support?measurementSupportLabel(support,view):undefined} disabled={blocked||saving} onActivate={()=>setActive(index)} onCancel={()=>setActive(undefined)} onClear={support?()=>{setDraft(d=>({...d,supports:d.supports.slice(0,index)}));setPicks(p=>p.slice(0,index));setActive(index)}:undefined} onLocate={picks[index]?()=>onLocate([picks[index]!]):undefined}/>})}
+  <div className="measurement-form" inert={saving}>
+   <CommandField label="名称" width="name"><Input disabled={!canSave||!keep} aria-label="测量名称" placeholder="自动命名" value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))}/></CommandField>
+   <div className="measurement-pick-options"><CommandField label="选择过滤" width="enum"><Select aria-label="测量选择过滤" value={filter} options={[['ANY','任意几何'],['VERTEX','顶点'],['EDGE','边'],['FACE','面'],['BODY','实体 / 组件']].map(([value,label])=>({value,label}))} onChange={setFilter}/></CommandField>
+   <CommandField label="取用方式" width="enum"><Select aria-label="测量取用方式" value={mode} options={[{value:'GEOMETRY',label:'实际几何边界'},{value:'CENTER',label:'圆心 / 球心'},{value:'AXIS',label:'解析轴线'}]} onChange={setMode}/></CommandField></div>
+   {Array.from({length:measurementCount(draft.kind)},(_,index)=>{const support=draft.supports[index],label=draft.kind==='ITEM'?'测量对象':draft.kind==='ANGLE_POINTS'?['第一点','角度顶点','第三点'][index]:`对象 ${index+1}`;return <FeaturePickField compact key={index} label={label} active={active===index} value={support?measurementSupportLabel(support,view):undefined} disabled={blocked||saving} onActivate={()=>setActive(index)} onCancel={()=>setActive(undefined)} onClear={support?()=>{setDraft(d=>({...d,supports:d.supports.slice(0,index)}));setPicks(p=>p.slice(0,index));setActive(index)}:undefined} onLocate={picks[index]?()=>onLocate([picks[index]!]):undefined}/>})}
    {draft.kind==='ANGLE_POINTS'&&<p className="measurement-hint">第二个点为角度顶点，结果范围为 0°–180°。</p>}
    {draft.kind==='BETWEEN'&&<CommandField label="连续方式" width="enum"><Select aria-label="连续测量方式" value={continuation} options={[{value:'BETWEEN',label:'独立测量'},{value:'CHAIN',label:'链式 · 末项作为下一首项'},{value:'FAN',label:'扇形 · 固定首项'}]} onChange={setContinuation}/></CommandField>}
    {blocked&&<Alert type="info" title="请先结束位置预览或运动操作。"/>}
-   {initial&&initial.status!=='CURRENT'&&<Alert type="info" title={`${measurementStatus(initial.status)}，旧结果仅供参考。`} action={<Button disabled={!canSave||saving||blocked} onClick={()=>void save(true,'UPDATE_MEASUREMENT')}>更新测量</Button>}/>}
-   {summary&&<div className="measurement-results" aria-label="测量结果"><Tag color="cyan">精确几何</Tag>{initial&&<Tag>{measurementStatus(initial.status)}</Tag>}
+   {initial&&initial.status!=='CURRENT'&&<Alert type="info" title={`${measurementStatus(initial.status)}，显示上次结果。`}/>}
+   {summary&&<div className="measurement-results" role="region" aria-label="测量结果"><strong>测量结果</strong>
     <dl>{Object.entries(report!.result.values).map(([key,value])=><div key={key}><dt>{measurementValueLabel(key)}</dt><dd>{measurementValue(key,value,unit)}{initial?.outputCurrency?.[key]&&initial.outputCurrency[key]!=="CURRENT"&&<Tag color="warning">上次值 · 待更新</Tag>}</dd></div>)}</dl>
-    {Object.entries(report!.result.anchors).filter(([key])=>['first','second','position','center','centroid','vertex','axisOrigin','apex'].includes(key)).map(([key,p])=><div key={key} className="measurement-coordinate"><span>{{first:'点 1',second:'点 2',position:'坐标',center:'几何中心',centroid:'几何形心',vertex:'顶点',axisOrigin:'轴线上一点',apex:'锥顶'}[key]}</span><output>{p.map(v=>measurementValue('xMm',v,unit)).join(', ')}</output></div>)}
-    <Button size="small" onClick={()=>void navigator.clipboard.writeText(Object.entries(report!.result.values).map(([k,v])=>`${measurementValueLabel(k)}: ${measurementValue(k,v,unit)}`).join('\n')).catch(()=>setError('复制失败，请直接选择结果文字。'))}>复制结果</Button>
+    {Object.entries(report!.result.anchors).filter(([key])=>['first','second','position','center','centroid','vertex','axisOrigin','apex'].includes(key)&&!(key==='position'&&['xMm','yMm','zMm'].every(k=>k in report!.result.values))).map(([key,p])=><div key={key} className="measurement-coordinate"><span>{{first:'点 1',second:'点 2',position:'坐标',center:'几何中心',centroid:'几何形心',vertex:'顶点',axisOrigin:'轴线上一点',apex:'锥顶'}[key]}</span><output>{p.map(v=>measurementValue('xMm',v,unit)).join(', ')}</output></div>)}
+
    </div>}
-   <Space wrap><Checkbox checked={draft.showComponents} onChange={e=>setDraft(d=>({...d,showComponents:e.target.checked}))}>显示坐标分量</Checkbox><Checkbox checked={draft.visible} onChange={e=>setDraft(d=>({...d,visible:e.target.checked}))}>显示标注</Checkbox><Checkbox checked={keep} disabled={!canSave} onChange={e=>setKeep(e.target.checked)}>随文档保留</Checkbox></Space>
-   {measurements(view).length>0&&<div className="measurement-saved"><strong>已保留的测量</strong>{measurements(view).map(m=><div key={m.id}><Button type="link" onClick={()=>onEdit(m)}>{m.name}</Button><span>{m.status==='CURRENT'?measurementSummary(m,unit):measurementStatus(m.status)}</span><Button size="small" disabled={!canSave||saving||blocked} onClick={()=>void onSave({...m,visible:!m.visible}).catch(e=>setError(measurementProblem(e)))}>{m.visible?'隐藏':'显示'}</Button><Button size="small" disabled={!canSave||saving||blocked} onClick={()=>void onSave(m,'DELETE_MEASUREMENT').catch(e=>setError(measurementProblem(e)))}>删除</Button></div>)}</div>}
+   <div className="measurement-options"><Checkbox checked={keep} disabled={!canSave} onChange={e=>setKeep(e.target.checked)}>随文档保留</Checkbox><Checkbox checked={draft.visible} onChange={e=>setDraft(d=>({...d,visible:e.target.checked}))}>显示标注</Checkbox>{draft.kind==='BETWEEN'&&<Checkbox checked={draft.showComponents} onChange={e=>setDraft(d=>({...d,showComponents:e.target.checked}))}>显示坐标分量</Checkbox>}</div>
   </div>
  </CommandDialog>;
 }

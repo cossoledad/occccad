@@ -983,17 +983,6 @@ select {
 .measurement-component-1 {color:#a7d99d;fill:#a7d99d;stroke:#a7d99d!important}
 .measurement-component-2 {color:#9dc8f4;fill:#9dc8f4;stroke:#9dc8f4!important}
 .measurement-component-text {font-size:11px;paint-order:stroke;stroke-width:0}
-.measurement-results {margin:12px 0;padding:12px;border:1px solid var(--ui-border,#d9e0e5);border-radius:6px;background:var(--ui-surface-muted,#f5f8fa)}
-.measurement-results dl {margin:8px 0;font-variant-numeric:tabular-nums}
-.measurement-results dl>div {display:flex;justify-content:space-between;gap:12px;padding:3px 0}
-.measurement-results dt {color:var(--ui-text-secondary,#61717c)}
-.measurement-results dd {margin:0;font-weight:500;user-select:text}
-.measurement-coordinate {display:grid;grid-template-columns:70px 1fr;gap:8px;margin:5px 0;font-size:11px;font-variant-numeric:tabular-nums}
-.measurement-coordinate output {user-select:text;overflow-wrap:anywhere}
-.measurement-hint {font-size:12px;color:var(--ui-text-secondary,#61717c)}
-.measurement-saved {margin-top:16px;border-top:1px solid var(--ui-border,#d9e0e5);padding-top:10px}
-.measurement-saved>div {display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:6px 0;font-size:12px}
-.measurement-saved>div>span {flex:1;min-width:100px}
 .measurement-component-text {stroke:none!important}
 
 .measurement-stale .measurement-label rect {fill:#382e19;stroke:#d6ab55;stroke-dasharray:5 3}
@@ -1002,6 +991,7 @@ select {
 .measurement-broken .measurement-label rect {stroke:#ed8c89;fill:#3c2528}
 
 .measurement-retained {pointer-events:visiblePainted;cursor:pointer}
+.measurement-overlay.measurement-picking :is(.measurement-retained,.measurement-label) {pointer-events:none}
 .measurement-retained.measurement-hover {color:#fff490}
 .measurement-retained.measurement-selected {color:#ffae63}
 .measurement-hover .measurement-label rect,.measurement-selected .measurement-label rect {stroke:currentColor;stroke-width:2}

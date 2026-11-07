@@ -6,7 +6,9 @@ async function openMeasure(page:Page,name:string){
  await page.getByRole('button',{name:'搜索工具',exact:true}).click();
  await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill(name);
  await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:new RegExp(`^${name}$`)})}).click();
- return page.getByRole('dialog',{name,exact:true});
+ const dialog=page.getByRole('dialog',{name,exact:true});
+ if(['测量对象','测量之间','三点角度'].includes(name)){await expect(dialog.getByRole('checkbox',{name:'随文档保留',exact:true})).toBeChecked();await expect(dialog).not.toContainText('已保留的测量');await expect(dialog.getByRole('button',{name:'复制结果',exact:true})).toHaveCount(0)}
+ return dialog;
 }
 test('Part and Product exact measurement, paired picking, annotation drag and retained history',async({page},info)=>{
  test.setTimeout(240_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
@@ -28,30 +30,32 @@ test('Part and Product exact measurement, paired picking, annotation drag and re
  await page.goto(`/documents/${seed.pid}`);await expect(page.locator('canvas')).toBeVisible();let dialog=await openMeasure(page,'测量对象');
  await treeNavigator(page)(seed.bodyName);
  await page.locator(`[role="treeitem"][data-tree-key$="/body:${seed.bodyId}"]`).click();
- await expect(dialog.getByLabel('测量结果')).toContainText('2000 mm³');
+ await expect(dialog.getByLabel('测量结果')).toContainText('2000 mm³');await page.screenshot({path:info.outputPath('measurement-item-compact.png')});
+ const options=dialog.locator('.measurement-pick-options');expect(await options.locator('.command-field').evaluateAll(fields=>Math.abs(fields[0].getBoundingClientRect().top-fields[1].getBoundingClientRect().top)<1)).toBeTruthy();
  await expect(page.locator('.measurement-label')).toHaveCount(1);
  await dialog.getByRole('textbox',{name:'测量名称'}).fill('Box geometry');await dialog.getByRole('checkbox',{name:'随文档保留'}).check();
- await dialog.getByRole('button',{name:'保留测量',exact:true}).click();await expect(dialog).toHaveCount(0);
+ await dialog.getByRole('button',{name:/^确\s*定$/,exact:true}).click();await expect(dialog).toHaveCount(0);
  await expect.poll(async()=>(await current(seed.pid)).part.measurements?.length).toBe(1);
  await page.reload();await expect(page.locator('.measurement-label')).toHaveCount(1);
  const stored=(await current(seed.pid)).part.measurements[0];
  await treeNavigator(page)('Box geometry');await page.locator(`[role="treeitem"][data-tree-key$="/${stored.id}"]`).dblclick();
- dialog=page.getByRole('dialog',{name:'测量对象',exact:true});await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:'关闭',exact:true}).click();
+ dialog=page.getByRole('dialog',{name:'测量对象',exact:true});await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:/^取\s*消$/,exact:true}).click();
  // The point filter temporarily reveals vertices even when the user's display
  // preferences hide them. All three picks still use exact Naming supports.
  await treeNavigator(page)('');
  dialog=await openMeasure(page,'三点角度');
  const title=dialog.locator('.cad-command-dialog-header');
  await expect(dialog).toBeVisible();{const box=(await title.boundingBox())!;await page.mouse.move(box.x+50,box.y+15);await page.mouse.down();await page.mouse.move(65,220,{steps:6});await page.mouse.up()}
- for(const [index,p] of [[20,0,10],[20,10,10],[20,10,0]].entries()){const xy=await worldScreen(page,p);await page.mouse.click(xy.x,xy.y);if(index<2)await expect(dialog.locator('[data-pick-active=true]')).toContainText(index===0?'角度顶点':'第三点')}
+ for(const [index,p] of [[20,0,10],[20,10,10],[20,10,0]].entries()){const xy=await worldScreen(page,p);expect(await page.evaluate(p=>document.elementFromPoint(p.x,p.y)?.tagName,xy)).toBe('CANVAS');await page.mouse.click(xy.x,xy.y);if(index<2)await expect(dialog.locator('[data-pick-active=true]')).toContainText(index===0?'角度顶点':'第三点')}
  await expect(dialog.getByLabel('测量结果')).toContainText('90°');await expect(page.locator('.measurement-overlay polyline')).toHaveCount(1);await page.screenshot({path:info.outputPath('exact-three-point-angle.png')});
  const reset=(await title.boundingBox())!;await page.mouse.move(reset.x+50,reset.y+15);await page.mouse.down();await page.mouse.move(700,230,{steps:6});await page.mouse.up();
- await dialog.getByRole('button',{name:/完\s*成/}).click();
+ const temporaryHead=(await current(seed.pid)).document.versionId;await dialog.getByRole('checkbox',{name:'随文档保留',exact:true}).uncheck();await dialog.getByRole('button',{name:/^确\s*定$/}).click();expect((await current(seed.pid)).document.versionId).toBe(temporaryHead);
  // Face picks use the real raycaster. First pointerup retains the second field.
  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();dialog=await openMeasure(page,'测量之间');
+ {const header=dialog.locator('.cad-command-dialog-header'),box=(await header.boundingBox())!;await page.mouse.move(box.x+50,box.y+15);await page.mouse.down();await page.mouse.move(65,920,{steps:6});await page.mouse.up()}
  const first=await worldScreen(page,[10,5,10]);seed.version=(await current(seed.id)).document.versionId;await page.mouse.click(first.x,first.y);
  await expect(dialog.locator('[data-pick-active=true]')).toContainText('对象 2');
- const second=await worldScreen(page,[50,5,10]);await page.mouse.click(second.x,second.y);
+ const second=await worldScreen(page,[50,5,10]);expect(await page.evaluate(p=>document.elementFromPoint(p.x,p.y)?.tagName,second)).toBe('CANVAS');await page.mouse.click(second.x,second.y);
  await expect(dialog.getByLabel('测量结果')).toContainText('20 mm');await expect(page.locator('.measurement-label')).toHaveCount(1);
  expect((await current(seed.id)).document.versionId).toBe(seed.version);
  await dialog.getByRole('checkbox',{name:'显示坐标分量'}).check();await expect(page.locator('.measurement-component')).toHaveCount(3);
@@ -61,7 +65,7 @@ test('Part and Product exact measurement, paired picking, annotation drag and re
  const accepted=await label.getAttribute('transform'),drag=(await label.boundingBox())!;await page.mouse.move(drag.x+20,drag.y+12);await page.mouse.down();await page.mouse.move(drag.x+45,drag.y+35);await page.keyboard.press('Escape');await page.mouse.up();await expect(label).toHaveAttribute('transform',accepted!);await expect(dialog).toBeVisible();
  expect((await current(seed.id)).document.versionId).toBe(seed.version);
  await page.screenshot({path:info.outputPath('exact-distance-components.png')});
- await dialog.getByRole('textbox',{name:'测量名称'}).fill('Installation gap');await dialog.getByRole('checkbox',{name:'随文档保留'}).check();await dialog.getByRole('button',{name:'保留测量',exact:true}).click();await expect(dialog).toHaveCount(0);
+ await dialog.getByRole('textbox',{name:'测量名称'}).fill('Installation gap');await dialog.getByRole('checkbox',{name:'随文档保留'}).check();await dialog.getByRole('button',{name:/^确\s*定$/,exact:true}).click();await expect(dialog).toHaveCount(0);
  let saved=(await current(seed.id)).product.measurements[0];expect(saved.supports.every((s:any)=>s.persistentSelection&&!s.localId&&!s.geometryKey)).toBeTruthy();
  await page.reload();await expect(page.locator('.measurement-label')).toHaveCount(1);
  const retainedHead=(await current(seed.id)).document.versionId;
@@ -77,7 +81,7 @@ test('Part and Product exact measurement, paired picking, annotation drag and re
   // @ts-ignore production module
   const {restApi:api}=await import('/src/api.ts');const v=await api.getDocument(s.id);await api.command(s.id,{type:'MOVE_INSTANCE',versionId:v.document.versionId,instanceId:s.second,translation:[50,0,0],rotation:[0,0,0,1]});
  },seed);await page.reload();await expect(page.locator('.measurement-label')).toHaveCount(1);await expect(page.locator('.measurement-label')).toContainText('待更新');await expect.poll(async()=>(await current(seed.id)).product.measurements[0].status).toBe('STALE');
- await treeNavigator(page)('Installation gap');await page.locator(`[role="treeitem"][data-tree-key$="/${saved.id}"]`).dblclick();dialog=page.getByRole('dialog',{name:'测量之间',exact:true});await dialog.getByRole('button',{name:'更新测量',exact:true}).click();await expect(dialog).toHaveCount(0);
+ await treeNavigator(page)('Installation gap');await page.locator(`[role="treeitem"][data-tree-key$="/${saved.id}"]`).dblclick();dialog=page.getByRole('dialog',{name:'测量之间',exact:true});await dialog.getByRole('button',{name:/^确\s*定$/,exact:true}).click();await expect(dialog).toHaveCount(0);
  await expect(page.locator('.measurement-label')).toHaveCount(1);saved=(await current(seed.id)).product.measurements[0];expect(saved.result.values.distanceMm).toBeCloseTo(30,6);
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect(page.locator('.measurement-label')).toContainText('待更新');await page.getByRole('button',{name:'重做',exact:true}).click();await expect(page.locator('.measurement-label')).toHaveCount(1);
  await page.screenshot({path:info.outputPath('retained-distance-updated.png')});
@@ -91,8 +95,17 @@ test('Part and Product exact measurement, paired picking, annotation drag and re
  for(const [index,p] of [[10,5,10],[10,0,5]].entries()){const xy=await worldScreen(page,p);await page.mouse.click(xy.x,xy.y);if(index===0)await expect(dialog.locator('[data-pick-active=true]')).toContainText('对象 2')}
  await expect(dialog.locator('[data-pick-active=true]')).toHaveCount(0);
  await Promise.race([started,new Promise((_,reject)=>setTimeout(()=>reject(Error('Measurement response not observed')),15000))]);
- await dialog.getByRole('button',{name:'关闭',exact:true}).click();release();await page.unroute(pattern);await expect(dialog).toHaveCount(0);await expect(page.locator('.measurement-label')).toHaveCount(1);
- expect((await current(seed.id)).document.versionId).toBe(beforeCancel);expect(errors).toEqual([]);
+ await dialog.getByRole('button',{name:/^取\s*消$/,exact:true}).click();release();await page.unroute(pattern);await expect(dialog).toHaveCount(0);await expect(page.locator('.measurement-label')).toHaveCount(1);
+ expect((await current(seed.id)).document.versionId).toBe(beforeCancel);
+ // Default retention must also work across a chain's save/Revision boundary.
+ dialog=await openMeasure(page,'测量之间');await dialog.getByRole('textbox',{name:'测量名称'}).fill('Chain segment');await dialog.getByRole('combobox',{name:'连续测量方式'}).click();await page.locator('.ant-select-dropdown:visible').getByText('链式 · 末项作为下一首项',{exact:true}).click();
+ const members=await page.evaluate(async id=>{
+  // @ts-ignore production API module
+  const {restApi:api}=await import('/src/api.ts');const v=await api.getDocument(id),nodes:any[]=[];const visit=(n:any)=>{nodes.push(n);n.children?.forEach(visit)};visit(v.structureTree);return v.product!.instances.map(i=>nodes.find(n=>n.kind==='INSTANCE'&&n.entityId===i.id)?.id);
+ },seed.id);expect(members.every(Boolean)).toBeTruthy();
+ const pickMember=async(id:string)=>{await treeNavigator(page)('member',id);await page.locator(`[role=treeitem][data-tree-key=${JSON.stringify(id)}]`).click()};
+ await pickMember(members[0]);await pickMember(members[1]);await expect(dialog.getByLabel('测量结果')).toContainText('30 mm');await dialog.getByRole('button',{name:'保留并继续',exact:true}).click();await expect(dialog.locator('[data-pick-active=true]')).toContainText('对象 2');await expect(dialog.getByRole('checkbox',{name:'随文档保留',exact:true})).toBeChecked();await expect(dialog).not.toContainText('已保留的测量');
+ await pickMember(members[0]);await expect(dialog.getByLabel('测量结果')).toContainText('30 mm');await dialog.getByRole('button',{name:/^取\s*消$/,exact:true}).click();expect((await current(seed.id)).product.measurements).toHaveLength(2);expect(errors).toEqual([]);
 });
 
 test('Reference elements preview, tree picking, owned parameters and Product parameter scope',async({page},info)=>{
