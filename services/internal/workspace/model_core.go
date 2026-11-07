@@ -1926,7 +1926,7 @@ func validateInstanceConstraintReferences(constraint AssemblyConstraint) error {
 			return fmt.Errorf("%w: unknown offset sign convention", ErrValidation)
 		}
 		if (constraint.DistanceRelation == "" || constraint.DistanceRelation == "UNSIGNED") && constraint.Value < 0 {
-			return fmt.Errorf("%w: unsigned offset must be nonnegative", ErrValidation)
+			return fmt.Errorf("%w: ASSEMBLY_OFFSET_NEGATIVE: unsigned offset must be nonnegative", ErrValidation)
 		}
 	}
 	switch constraint.Kind {

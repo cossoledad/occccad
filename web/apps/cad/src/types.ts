@@ -481,7 +481,7 @@ export type ExternalParameterRef = { sourceDocumentId: string; revision: { mode:
   resolvedRevisionId: string; resolvedValue: Quantity; resolvedValueDigest: string;
   resolutionSnapshot?:{sourceRevisionId:string;publicationId:string;contractDigest:string;valueDigest:string;status:string} };
 export type ParameterDefinition = { parameterId: string; key: string; label: string; ownerFeatureId?: string; propertySlot?: string;
-  lifecycle?: "FEATURE_REQUIRED" | "SKETCH_DIMENSION" | "USER" | "DATUM_REQUIRED" | "ANALYSIS_OUTPUT"; displayName?: string; displayAlias?: string; qualifiedDisplayPath?: string;
+  lifecycle?: "FEATURE_REQUIRED" | "ASSEMBLY_REQUIRED" | "SKETCH_DIMENSION" | "USER" | "DATUM_REQUIRED" | "ANALYSIS_OUTPUT"; displayName?: string; displayAlias?: string; qualifiedDisplayPath?: string;
   valueType: "QUANTITY" | "REAL";
   dimension: Dimension; displayUnit: string; role: string; source: { produced?:{kind:string;entityId:string;outputSlot:string}; literal?: Quantity; expression?: { sourceText: string }; external?: ExternalParameterRef };
   evaluatedValue?: Quantity;currencyStatus?:string };

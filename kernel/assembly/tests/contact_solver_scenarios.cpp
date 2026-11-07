@@ -203,6 +203,31 @@ TEST(AssemblyContact, CylinderLineAllMaterialSidesAndSelectionOrders) {
                 support(ac::SupportKind::Cylinder,{ext ? 5. : 1.,0,0},Eigen::Vector3d::UnitZ(),3,pi/6,second),3,swapped);
         }
 }
+TEST(AssemblyContact, NearAxisAlignedCylinderContactPreservesAccurateMotionTangent) {
+    // A production Contact.1 snapshot: tiny nominal axis components used to
+    // amplify inverse column scaling and exhaust preference iterations.
+    Model model;
+    model.bodies={{"reference",{{-14.798220501352631,287.11306871825985,1.1006733302565408e-9},
+        {4.6037139418684104e-11,3.179580323567636e-12,-6.872784603657549e-11,1}}},
+        {"moving",{{-14.798220506144137,247.0470022572289,112.56171244670644},
+        {.48337345214012045,-3.0437766275802854e-11,-6.170226037999613e-11,.8754142480940911}}}};
+    model.geometry={{"cylinder","reference",CylinderGeometry{{49.365398739263476,-1.5309219717114078,40},{0,0,1},41.354936273124366,-1}},
+        {"cylinder","moving",CylinderGeometry{{0,0,40},{0,0,1},71.15843813501372,-1}}};
+    Constraint fix;fix.id="ground";fix.kind=ConstraintKind::Fix;fix.first={"reference",{}};
+    Constraint contact;contact.id="contact";contact.kind=ConstraintKind::Contact;
+    contact.first={"moving","cylinder"};contact.second=GeometryRef{"reference","cylinder"};
+    contact.contact_kind=ContactKind::Line;contact.contact_side=ContactSide::External;contact.contact_branch=1;
+    model.constraints={fix,contact};
+    SolverOptions options;options.solve_intent=SolveIntent{{"moving"},{"reference"},SolvePreferencePolicy::MoveFirstMinimizeReference};
+    const auto result=Solver{}.solve(model,options);
+    ASSERT_EQ(result.status,SolveStatus::Converged);
+    ASSERT_EQ(result.components.size(),1);
+    EXPECT_EQ(result.components[0].preference.status,PreferenceStatus::Converged);
+    EXPECT_LE(result.components[0].preference.total_optimality,options.preference_tolerance);
+    EXPECT_EQ(result.components[0].jacobian_rank,3);
+    EXPECT_EQ(result.components[0].relative_dof,3);
+    EXPECT_LE(result.normalized_residual,options.length_tolerance);
+}
 TEST(AssemblyContact, FixedImpossibleContactCannotAdoptCandidateGeometry) {
     Model model;
     model.bodies={{"plane",{}},{"sphere",{{0,0,7},{}}}};

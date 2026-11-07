@@ -1,4 +1,4 @@
-import { Select, Switch } from "antd";
+import { Select, Checkbox } from "antd";
 import {FeaturePickField} from "./feature-pick-field";
 import {CommandField} from "../../cad/overlay/command-form";
 import type { AssemblyGeometryRef, DocumentView } from "../../types";
@@ -14,14 +14,14 @@ export function AssemblyAngleParameters({value,view,error,onChange,onPick,axisSo
   const reference = value.angleAxis && describeAssemblyReference(value.angleAxis,view);
   return <div style={{display:"grid",gap:8,marginBottom:12}}>
     <CommandField label="角度关系" width="enum"><Select aria-label="角度关系" value={relation}
-      options={[{value:"FREE",label:"空间夹角（无指定轴）"},{value:"DIRECTED",label:"绕所选轴的角"},{value:"PARALLEL",label:"平行"},{value:"PERPENDICULAR",label:"垂直"}]}
+      options={[{value:"FREE",label:"空间角"},{value:"DIRECTED",label:"平面角"},{value:"PARALLEL",label:"平行"},{value:"PERPENDICULAR",label:"垂直"}]}
       onChange={angleRelation=>onChange(changeAngleRelation(value,angleRelation))} /></CommandField>
     {relation === "DIRECTED" && <>
       <FeaturePickField compact error={error} label="参考轴" value={reference?.primary??"未选择"} detail={reference?.secondary} selected={!!value.angleAxis} active={!!picking} onActivate={onPick} onLocate={value.angleAxis?onLocate:undefined} onClear={value.angleAxis?()=>onChange({...value,angleAxis:undefined}):undefined}>
        {value.angleAxis&&onDerive&&derivedSupportOptions(axisSourceType).length>0&&<CommandField label="方向类型" width="enum"><Select aria-label="参考轴的工程方向" value={value.angleAxis.derivedRole??""} options={derivedSupportOptions(axisSourceType)} onChange={onDerive}/></CommandField>}
       </FeaturePickField>
-      <Switch checkedChildren="参考轴反向" unCheckedChildren="参考轴正向" aria-label="反转参考轴" checked={Boolean(value.reverseAngleAxis)}
-        onChange={reverseAngleAxis=>onChange({...value,reverseAngleAxis})} />
+      <Checkbox aria-label="反转参考轴" checked={Boolean(value.reverseAngleAxis)}
+        onChange={event=>onChange({...value,reverseAngleAxis:event.target.checked})}>反转参考轴</Checkbox>
     </>}
   </div>;
 }

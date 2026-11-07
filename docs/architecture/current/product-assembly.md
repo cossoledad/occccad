@@ -30,7 +30,9 @@ FOLLOW_HEAD 自动跟随已计算版本；跨 Part 参数重算仍通过“更�
 
 Point/Axis/Plane/Cylinder/Circle/Sphere/Cone/Frame 及稳定派生角色经 B-Rep、Datum、Publication、持久选择解析，局部到 owning Product 只变换一次。Worker 长度用毫米、角度弧度；Quantity 源值 SI 在领域编译边界转换。mesh 不是权威支持。
 
-Literal/表达式保存 Quantity、稳定 AST 参数引用与维度。参数、方向、支持、模式原子编辑；Measured 保留驱动定义，独立 measuredValue，不加方程或移动组件，不可测时清除旧值。mode、suppressed、连接与评价状态正交，恢复保留模式并重新解析支持。
+创建空间角、平面角或偏移时，先以服务端 Measured 预览取得当前支撑的数值作为初值，再生成 Driving 候选；测量阶段不提交定义或采用新位姿，用户开始输入、取消或基线变化会阻止旧结果覆盖草稿。偏移保留所选方向的符号；不可测时不猜测显示网格上的距离。
+
+Literal/表达式保存 Quantity、稳定 AST 参数引用与维度。装配角度参数在参数列表、编辑初值与无单位数值输入中统一使用度，求解和 Quantity 的 SI 值仍为弧度；偏移使用当前长度显示单位。参数预览失败使用统一操作通知入口，错误元数据保留在开发证据中。参数、方向、支持、模式原子编辑；Measured 保留驱动定义，独立 measuredValue，不加方程或移动组件，不可测时清除旧值。mode、suppressed、连接与评价状态正交，恢复保留模式并重新解析支持。
 
 Fix Together 保存 GroupId、成员及捕获关系；先解有效内部约束，再从成功结果冻结相对关系用于组外。嵌套/重叠确定性编排，循环拒绝；失败不覆盖捕获基准。组停用不删除内部独立约束。
 

@@ -11,7 +11,7 @@ const unitScale: Record<string, number> = {
 
 export function parameterDisplayValue(parameter: ParameterDefinition, preferredLengthUnit?: "mm" | "cm" | "m" | "in"): string {
   if (!parameter.evaluatedValue) return "—";
-  const unit = preferredLengthUnit && isLengthParameter(parameter) ? preferredLengthUnit : parameter.displayUnit;
+  const unit = parameterInputUnit(parameter,preferredLengthUnit);
   return `${formatDisplayNumber(parameter.evaluatedValue.siValue * (unitScale[unit] ?? 1))} ${unit}`;
 }
 
@@ -20,7 +20,7 @@ export function parameterSourceText(parameter: ParameterDefinition, inputUnit?: 
   if (parameter.source.produced) return "测量输出";
   if (parameter.source.external) return "关联发布参数";
   if (!parameter.source.literal) return "";
-  const unit = inputUnit ?? parameter.displayUnit;
+  const unit = inputUnit ?? parameterInputUnit(parameter);
   const number=parameter.source.literal.siValue * (unitScale[unit] ?? 1);
   const value=exact?String(Number(number.toPrecision(12))):formatDisplayNumber(number);
   return inputUnit ? String(value) : `${value} ${unit}`;
@@ -82,3 +82,7 @@ export function insertParameterReference(source:string,key:string,caret?:{start:
 }
 
 export const documentParameters=(view:DocumentView|undefined):ParameterDefinition[]=>view?.part?.parameters??view?.product?.parameters??[];
+
+export function parameterInputUnit(parameter:ParameterDefinition,lengthUnit?:"mm"|"cm"|"m"|"in"):string {
+ return isLengthParameter(parameter)?lengthUnit??parameter.displayUnit:parameter.lifecycle==="ASSEMBLY_REQUIRED"&&parameter.dimension.Semantic==="ANGLE"?"deg":parameter.displayUnit;
+}

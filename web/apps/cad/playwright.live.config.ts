@@ -4,7 +4,7 @@ import {readDevelopmentEnvironment} from "../../../tools/development_environment
 
 Object.assign(process.env, readDevelopmentEnvironment(fileURLToPath(new URL("../../../", import.meta.url))));
 export default defineConfig({
- testDir:"./browser",outputDir:"../../../build/acceptance/playwright-live",testMatch:["tree-geometry-visual-live.spec.ts","tree-selection-live.spec.ts","visual-system-live.spec.ts","workbench-ux-live.spec.ts","scene-constraint-cleanup-live.spec.ts","measurement-live.spec.ts","document-center-live.spec.ts","publication-layout-live.spec.ts","solid-feature-live.spec.ts","assembly-engineering-live.spec.ts","motion-live.spec.ts","properties-live.spec.ts","automation-live.spec.ts"],workers:1,timeout:180_000,
+ testDir:"./browser",outputDir:"../../../build/acceptance/playwright-live",testMatch:["assembly-parameter-live.spec.ts","tree-geometry-visual-live.spec.ts","tree-selection-live.spec.ts","visual-system-live.spec.ts","workbench-ux-live.spec.ts","scene-constraint-cleanup-live.spec.ts","measurement-live.spec.ts","document-center-live.spec.ts","publication-layout-live.spec.ts","solid-feature-live.spec.ts","assembly-engineering-live.spec.ts","motion-live.spec.ts","properties-live.spec.ts","automation-live.spec.ts"],workers:1,timeout:180_000,
  expect:{timeout:20_000},
  use:{baseURL:"http://127.0.0.1:5175",viewport:{width:1440,height:1000},trace:"retain-on-failure",screenshot:"only-on-failure",
  launchOptions:{args:["--use-gl=angle","--use-angle=swiftshader","--enable-unsafe-swiftshader"]}},

@@ -946,7 +946,7 @@ select {
 .command-field-control > .ant-select-auto-complete {width:100%;}
 .publication-definition {display:grid;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--color-border);}
 
-.parameter-manager[aria-label="文档参数"] :is(.parameter-manager-header,.parameter-manager-row) {grid-template-columns:minmax(160px,1.3fr) minmax(100px,1fr) 100px 260px;}
+.parameter-manager[aria-label="文档参数"] :is(.parameter-manager-header,.parameter-manager-row) {grid-template-columns:minmax(130px,1.3fr) minmax(90px,1fr) 90px 110px;}
 
 
 
@@ -1008,3 +1008,8 @@ select {
 .measurement-hover .measurement-dimension,.measurement-selected .measurement-dimension {stroke-width:2.5}
 .measurement-hover .measurement-witness,.measurement-selected .measurement-witness {stroke:currentColor;stroke-width:2}
 .measurement-selected .measurement-label rect {fill:#42301f}
+
+.parameter-manager[aria-label="文档参数"] { gap:12px; }
+.parameter-create-form { display:grid; grid-template-columns:minmax(100px,1fr) minmax(80px,1fr) 85px auto; gap:8px; }
+.parameter-create-form .ant-form-item { min-width:0; margin:0; }
+.parameter-create-form :is(.ant-input-number,.ant-select) { width:100% !important; }

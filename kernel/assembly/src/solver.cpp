@@ -3142,8 +3142,8 @@ Eigen::MatrixXd orthogonal_kernel(const Eigen::MatrixXd& matrix, const SolverOpt
         return Eigen::MatrixXd::Identity(matrix.cols(), matrix.cols());
     // Equilibrate columns for rank detection, as in the physical DOF report.
     // Long support lever arms must not make an independent translation row
-    // disappear from the preference tangent. Undo this numerical scaling before
-    // orthonormalizing; the motion metric and objective weights stay unchanged.
+    // disappear from the preference tangent. Recover the physical subspace at
+    // that rank; the motion metric and objective weights stay unchanged.
     Eigen::VectorXd column_scales(matrix.cols());
     Eigen::MatrixXd equilibrated = matrix;
     for (Eigen::Index col = 0; col < matrix.cols(); ++col) {
@@ -3157,9 +3157,11 @@ Eigen::MatrixXd orthogonal_kernel(const Eigen::MatrixXd& matrix, const SolverOpt
     const Eigen::Index rank = (svd.singularValues().array() > threshold).count();
     const Eigen::Index freedom = matrix.cols() - rank;
     if (!freedom) return Eigen::MatrixXd(matrix.cols(), 0);
-    const Eigen::MatrixXd basis = column_scales.cwiseInverse().asDiagonal() * svd.matrixV().rightCols(freedom);
-    const Eigen::HouseholderQR<Eigen::MatrixXd> qr(basis);
-    return qr.householderQ() * Eigen::MatrixXd::Identity(matrix.cols(), freedom);
+    // Equilibration decides rank only. Undoing tiny column scales can make the
+    // null vectors nearly parallel and lose tangent accuracy during QR. Recover
+    // the physical orthonormal subspace directly, retaining the detected rank.
+    Eigen::JacobiSVD<Eigen::MatrixXd> physical(matrix, Eigen::ComputeFullV);
+    return physical.matrixV().rightCols(freedom);
 }
 Eigen::MatrixXd canonical_image(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
     FactorizationTimer timer;

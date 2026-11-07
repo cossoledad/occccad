@@ -80,7 +80,7 @@ import type { InstancePatternPreview } from "./instance-pattern";
 import "./workbench.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Alert, App, Button, Checkbox, Divider, Empty, Form, Input,
+  Alert, App, Button, Checkbox, Divider, Dropdown, Empty, Form, Input,
   Select, Space, Spin, Switch, Tag, Typography,
 } from "antd";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -115,7 +115,7 @@ import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } from "./product-edit-context";
 import { assemblyAutomaticPreviewAllowed, createAssemblyPreviewActor } from "./assembly-preview-machine";
-import {documentParameters, isLengthParameter, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
+import {documentParameters, parameterInputUnit,isLengthParameter, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
 import {kinematicKinds,motionSelectionTargets,qualifyMotionSelections,deleteMotionObjects,renameMotionObject} from "../../cad/assembly/motion-definitions";
 import {MechanismAnalysisPanel} from "./mechanism-analysis-panel";
 import {MotionStudyPanel,type MotionPanelHandle} from "./motion-study-panel";
@@ -257,7 +257,7 @@ export function Workbench() {
   const [referenceEditor,setReferenceEditor]=useState<{kind:import("./reference-element-model").ReferenceElementKind;id?:string}>();
   const [geometricalSetEditor,setGeometricalSetEditor]=useState<{id?:string;name:string;parentId:string}>();
  const [editingDatumId,setEditingDatumId]=useState<string>();
- const [parameterSearch,setParameterSearch]=useState("");
+
  const [parameterFilter,setParameterFilter]=useState("ALL");
   const [datumPreview, setDatumPreview] = useState<DatumPreview>();
   const [parameterManagerOpen, setParameterManagerOpen] = useState(false);
@@ -582,10 +582,12 @@ export function Workbench() {
       const first=contactRelationOptions(contactCapabilities)[0];if(first)assemblyConstraintForm.setFieldValue("contactKind",first);
     }
   },[assemblyExactTypes,pendingAssemblyConstraint?.kind,assemblyContactKind,assemblyConstraintForm,assemblyCapabilityQuery.data]);
+  const assemblyInitialQuantity=useRef(false);
   const assemblyTextEditing=useRef(false);
   if(!editingAssemblyConstraint&&!pendingAssemblyConstraint)assemblyTextEditing.current=false;
   const invalidateAssemblyDefinition = (preview=true) => {
     assemblyTextEditing.current=!preview;
+    if(!preview)assemblyInitialQuantity.current=false;
     assemblyDialogLifecycle.current.invalidate();
     assemblyCandidate.current.invalidate();
     assemblyPreviewSequence.current+=1;assemblyPreviewAbort.current?.abort();assemblyPreviewID.current=undefined;
@@ -908,12 +910,21 @@ export function Workbench() {
       try{commandInput = assemblyEditIntent(kind.toUpperCase(),assemblyConstraintForm.getFieldsValue(true),references,lengthUnit,
         constraint && {...constraint,angleAxis:resolvedAngleAxis}, {angleRelation:pending?.angleRelation,angleAxis:resolvedAngleAxis,
           reverseAngleAxis:pending?.reverseAngleAxis,angleReferenceDirection:pending?.angleReferenceDirection});}catch{void assemblyConstraintForm.validateFields(["quantityInput"]).catch(()=>{});assemblyPreviewActor.current?.send({type:"RESET"});return;}
+      const initialize=!!pending&&assemblyInitialQuantity.current&&(kind==="distance"||kind==="angle"&&angleRelationSupportsMeasured(pending.angleRelation));
+      if(initialize)commandInput={...commandInput,constraintMode:"MEASURED"};
       const key=assemblyIntentKey(commandInput,editingView.document.id,editingView.document.versionId,activeInstancePath);
 	  void api.previewCommand(editingView.document.id, {...commandInput,
         interactionId:assemblyInteractionID.current},controller.signal).then((preview) => {
 		if (!controller.signal.aborted&&sequence===assemblyPreviewSequence.current) {
           if(preview.baseVersionId!==editingView.document.versionId) {
             assemblyPreviewActor.current?.send({type:"REJECT",sequence,error:"STALE_PREVIEW_BASE：预览基线已变化；草稿已保留，请重新预览。"});return;
+          }
+          if(initialize){
+            const measured=preview.parameterCandidates?.find(p=>p.ownerFeatureId===preview.constraintEvaluation?.constraintId)?.evaluatedValue?.siValue;
+            if(measured===undefined||!Number.isFinite(measured))throw new CommandInputError("当前支撑无法测量，请检查支撑类型与方向");
+            assemblyInitialQuantity.current=false;
+            assemblyConstraintForm.setFieldsValue({value:kind==='angle'?measured*180/Math.PI:millimetersToDisplayLength(measured*1000,lengthUnit),quantityInput:undefined});
+            invalidateAssemblyDefinition();return;
           }
 		  assemblyPreviewID.current=preview.previewId;
           if(!assemblyCandidate.current.resolve(bindingGeneration,key,preview.previewId,commandInput,preview.expiresAt)) {
@@ -978,7 +989,7 @@ export function Workbench() {
     if (!editingView) return; command.mutate(() => direction === "undo" ? api.undo(editingView.document.id) : api.redo(editingView.document.id));
   };
   const openAssemblyConstraintEditor = (constraint: AssemblyConstraint) => {
-    assemblyTextEditing.current=false;setConflictOpen(false);
+    assemblyTextEditing.current=false;assemblyInitialQuantity.current=false;setConflictOpen(false);
     assemblyDialogLifecycle.current.invalidate();
     assemblyCandidate.current.invalidate();assemblyPreviewSequence.current++;assemblyPreviewAbort.current?.abort();assemblyPreviewID.current=undefined;
     assemblyDraftBase.current=editingView ? {documentId:editingView.document.id,revision:editingView.document.versionId} : undefined;
@@ -1526,17 +1537,18 @@ onToggleConstruction:(node)=>{
   const openParameterEditor = (parameterID: string) => {
 	const parameter = documentParameters(editingView).find((candidate) => candidate.parameterId === parameterID);
 	if (!parameter) return;
-	parameterForm.setFieldsValue({key:parameter.displayAlias ?? "",source:parameterSourceText(parameter, isLengthParameter(parameter) ? lengthUnit : parameter.displayUnit)}); setEditingParameterID(parameterID);
+	parameterForm.setFieldsValue({key:parameter.displayAlias ?? "",source:parameterSourceText(parameter, parameterInputUnit(parameter,lengthUnit))}); setEditingParameterID(parameterID);
   };
   const boundContextParameter=(id?:string)=>editingView?contextParameterBinding(editingView,id):undefined;
   const parameterDraftSource=Form.useWatch("source",parameterForm),parameterDraftKey=Form.useWatch("key",parameterForm);
  const previewParameter=documentParameters(editingView).find(p=>p.parameterId===editingParameterID);
  let parameterPreviewInput:Record<string,unknown>|undefined;
  try{if(editingParameterID&&editingView&&previewParameter&&previewParameter.role!=="MEASURED"&&!previewParameter.source.produced&&!boundContextParameter(editingParameterID)&&!previewParameter.source.external&&typeof parameterDraftSource==="string"){
- const parsed=parseParameterSource(parameterEditSource(previewParameter,parameterDraftSource,isLengthParameter(previewParameter)?lengthUnit:previewParameter.displayUnit),isLengthParameter(previewParameter)?lengthUnit:previewParameter.displayUnit);
+ const parsed=parseParameterSource(parameterEditSource(previewParameter,parameterDraftSource,parameterInputUnit(previewParameter,lengthUnit)),parameterInputUnit(previewParameter,lengthUnit));
  if(parsed.kind==="LITERAL"||parsed.expression)parameterPreviewInput={type:"EDIT_PARAMETER",parameterId:editingParameterID,name:parameterDraftKey?.trim()||previewParameter.key,...(parsed.kind==="LITERAL"?{value:parsed.value,unit:parsed.unit}:{expression:parsed.expression})};
  }}catch{}
  const parameterInputPreview=useFeaturePreview(editingView?.document.id??"",editingView?.document.versionId??"",parameterPreviewInput,undefined,()=>{});
+  useOperationFailureNotification(parameterInputPreview.failure,"编辑参数");
   const commitParameterEdit = async () => {
 	if (!editingView || !editingParameterID) return;
 	const values = await parameterForm.validateFields();
@@ -1545,12 +1557,12 @@ onToggleConstruction:(node)=>{
       await command.mutateAsync(()=>api.command(editingView.document.id,{type:"RENAME_PARAMETER",parameterId:editingParameterID,name:values.key.trim()||current?.key}));
       setEditingParameterID(undefined);return;
     }
-    if(current&&values.source===parameterSourceText(current,isLengthParameter(current)?lengthUnit:current.displayUnit)){
+    if(current&&values.source===parameterSourceText(current,parameterInputUnit(current,lengthUnit))){
       const name=values.key.trim()||current.key;
       if(name!==(current.displayAlias??current.key))await command.mutateAsync(()=>api.command(editingView.document.id,{type:"RENAME_PARAMETER",parameterId:editingParameterID,name}));
       setEditingParameterID(undefined);return;
     }
-	const source = parseParameterSource(current?parameterEditSource(current,values.source,isLengthParameter(current)?lengthUnit:current.displayUnit):values.source, current && isLengthParameter(current) ? lengthUnit : current?.displayUnit);
+	const source = parseParameterSource(current?parameterEditSource(current,values.source,parameterInputUnit(current,lengthUnit)):values.source, current ? parameterInputUnit(current,lengthUnit) : undefined);
 	if(!parameterInputPreview.previewId||parameterInputPreview.pending){message.warning("请等待表达式检查成功");return;}
  command.mutate(() => api.command(editingView.document.id, {previewId:parameterInputPreview.previewId,type: "EDIT_PARAMETER", parameterId: editingParameterID,
 		name: values.key.trim() || current?.key, ...(source.kind === "LITERAL" ? { value: source.value, unit: source.unit } : { expression: source.expression })}),
@@ -1739,6 +1751,7 @@ onToggleConstruction:(node)=>{
 			assemblyPreviewActor.current?.send({type:"START"});
             setEditingAssemblyConstraint(undefined);setReplacingGroupMember(undefined);
             setAssemblyDefinitionDirty(true); setReconnectError(undefined); setReplacingAssemblyReference(undefined);
+            assemblyInitialQuantity.current=kind==="distance"||kind==="angle";
             // Mesh/display measurements are not authoritative parameter or
             // branch defaults. Wait for exact server inspection for sign rules.
             assemblyConstraintForm.setFieldsValue({ quantityInput:undefined,value:0, directionRelation:"UNORIENTED", distanceRelation: "UNSIGNED",
@@ -1908,12 +1921,12 @@ onToggleConstruction:(node)=>{
         return api.command(target.documentId,{type:"SET_PROPERTIES",versionId:target.versionId,properties});
       });setPropertyTargets(undefined)}}
       onOpenOriginal={id=>{setPropertyTargets(undefined);void openDocumentTab(id,client,api.openDocument,navigate)}}/>}
-	<CommandDialog id="parameter-manager" bodyClassName="parameter-dialog-body" scrollBody={false} open={parameterManagerOpen} title="参数与公式" size="L"
+	<CommandDialog id="parameter-manager" bodyClassName="parameter-dialog-body" scrollBody={false} open={parameterManagerOpen} title="参数与公式" size="M"
 		onClose={() => setParameterManagerOpen(false)} onConfirm={() => setParameterManagerOpen(false)}>
 		<div className="parameter-manager" aria-label="文档参数">
             {view.product&&<Select aria-label="参数所属文档" style={{width:'100%'}} value={activeInstancePath??''} options={(()=>{const options:{value:string;label:string;node:SpecificationTreeNode}[]=[];const walk=(nodes:SpecificationTreeNode[])=>{for(const node of nodes){if(['PART','PRODUCT','INSTANCE'].includes(node.kind??'')&&node.documentId&&node.documentType&&!options.some(option=>option.value===(node.instancePath?.canonical??'')))options.push({value:node.instancePath?.canonical??'',label:node.instancePath?.display||(node.documentId===view.document.id?view.document.name:node.documentId!),node});if(node.children)walk(node.children)}};walk(treeNodes);return options})()} onChange={async(value)=>{const find=(nodes:SpecificationTreeNode[]):SpecificationTreeNode|undefined=>{for(const node of nodes){if(['PART','PRODUCT','INSTANCE'].includes(node.kind??'')&&(node.instancePath?.canonical??'')===value)return node;const child=node.children&&find(node.children);if(child)return child}};const node=find(treeNodes);if(node){await activateDocumentNode(node);setParameterFilter('ALL')}}}/>}
             <Select aria-label="参数筛选" value={parameterFilter} onChange={setParameterFilter} options={[{value:'ALL',label:'全部参数'},{value:'USER',label:'用户参数'},{value:'OUTPUT',label:'测量结果'},{value:'SELECTED',label:'所选对象的参数'}]}/>
-			<Form form={createUserParameterForm} layout="inline" initialValues={{value:0,unit:"mm"}}>
+			<Form className="parameter-create-form" form={createUserParameterForm} layout="inline" initialValues={{value:0,unit:"mm"}}>
 				<Form.Item name="name"><Input placeholder="别名（可选）" /></Form.Item>
 				<Form.Item name="value" rules={[{required:true}]}><InputNumber placeholder="初始值" /></Form.Item>
 				<Form.Item name="unit"><Select style={{width:105}} options={[{value:"mm",label:"mm"},{value:"deg",label:"deg"},{value:"mm2",label:"mm²"},{value:"mm3",label:"mm³"},{value:"",label:"无量纲"}]} /></Form.Item>
@@ -1923,10 +1936,10 @@ onToggleConstruction:(node)=>{
 						value:values.value,unit:values.unit}),{onSuccess:()=>createUserParameterForm.resetFields()});
 				}}>新建参数</Button></Form.Item>
 			</Form>
-			<Input.Search aria-label="搜索参数" placeholder="搜索参数、别名或所属对象" value={parameterSearch} onChange={e=>setParameterSearch(e.target.value)}/><div className="parameter-manager-header"><span>参数 / 别名</span><span>来源</span><span>计算值</span><span /></div>
+			<div className="parameter-manager-header"><span>参数 / 别名</span><span>来源</span><span>计算值</span><span /></div>
             <div className="parameter-manager-list" role="region" aria-label="参数列表">
 			{(documentParameters(editingView)).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前文档尚无参数" />
-				: (documentParameters(editingView)).filter(p=>parameterFilter==='ALL'||parameterFilter==='USER'&&p.lifecycle==='USER'||parameterFilter==='OUTPUT'&&!!p.source.produced||parameterFilter==='SELECTED'&&[store.selection?.entityId,store.selection&&'featureId' in store.selection?store.selection.featureId:undefined,store.selection?.id].includes(p.ownerFeatureId??'')).filter(p=>[p.key,p.displayAlias,p.qualifiedDisplayPath,p.label].some(text=>text?.toLowerCase().includes(parameterSearch.trim().toLowerCase()))).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
+				: (documentParameters(editingView)).filter(p=>parameterFilter==='ALL'||parameterFilter==='USER'&&p.lifecycle==='USER'||parameterFilter==='OUTPUT'&&!!p.source.produced||parameterFilter==='SELECTED'&&[store.selection?.entityId,store.selection&&'featureId' in store.selection?store.selection.featureId:undefined,store.selection?.id].includes(p.ownerFeatureId??'')).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
 					<span><strong>{parameter.qualifiedDisplayPath ?? parameter.displayName ?? parameter.label}</strong>
 						{parameter.displayAlias && <Typography.Text type="secondary">{parameter.displayAlias}</Typography.Text>}
 						</span>
@@ -1935,12 +1948,7 @@ onToggleConstruction:(node)=>{
 							<Tag color={update.status === "CURRENT" ? "success" : update.status === "UPDATE_AVAILABLE" ? "processing" : "error"}
 								title={engineeringLabel(update.status)}>{engineeringLabel(update.status)}</Tag>)(editingView.referenceUpdates.find((item) => item.consumerKind === "EXTERNAL_PARAMETER" && item.consumerId === parameter.parameterId)!)}</Space>
 					<Typography.Text>{parameterDisplayValue(parameter, lengthUnit)}</Typography.Text>
-					<Space><Button size="small" disabled={!canEdit} onClick={() => publishParameter(parameter)}>发布</Button>
-					<Button size="small" disabled={!canEdit||!!parameter.source.produced} onClick={() => { setParameterManagerOpen(false);setExternalParameterID(parameter.parameterId); }}>引用</Button>
-					<Button size="small" disabled={!canEdit} onClick={() => openParameterEditor(parameter.parameterId)}>编辑</Button>
-					<Button size="small" danger disabled={!canEdit || parameter.lifecycle !== "USER"}
-						title={parameter.lifecycle === "SKETCH_DIMENSION" ? "请通过尺寸约束删除" : parameter.lifecycle !== "USER" ? "Feature 必需参数不能独立删除" : undefined}
-						onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"DELETE_PARAMETER",parameterId:parameter.parameterId}))}>删除</Button></Space>
+					<Space wrap><Button size="small" disabled={!canEdit} onClick={() => openParameterEditor(parameter.parameterId)}>编辑</Button><Dropdown menu={{items:[{key:"publish",label:"发布",disabled:!canEdit,onClick:()=>publishParameter(parameter)},{key:"reference",label:"引用",disabled:!canEdit||!!parameter.source.produced,onClick:()=>{setParameterManagerOpen(false);setExternalParameterID(parameter.parameterId)}},{key:"delete",label:"删除",danger:true,disabled:!canEdit||parameter.lifecycle!=="USER",onClick:()=>command.mutate(()=>api.command(editingView!.document.id,{type:"DELETE_PARAMETER",parameterId:parameter.parameterId}))}]}}><Button size="small">更多</Button></Dropdown></Space>
 				</div>)}
             </div>
 		</div>
@@ -1961,9 +1969,9 @@ onToggleConstruction:(node)=>{
 		<Form form={parameterForm} layout="vertical">
 			<Form.Item name="key" label="可读别名（可选）" rules={[{pattern:/^$|^[A-Za-z_][A-Za-z0-9_]*$/,
 				message:"请输入 ASCII 标识符"}]}><Input /></Form.Item>
-			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={documentParameters(editingView)} excludeId={editingParameterID} unit={lengthUnit}/></Form.Item>
+			<Form.Item name="source" label={`值或表达式${editingParameterDefinition?`（${parameterInputUnit(editingParameterDefinition,lengthUnit)}）`:""}`} rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={documentParameters(editingView)} excludeId={editingParameterID} unit={lengthUnit}/></Form.Item>
             <ContextInputSource view={editingView} binding={boundContextParameter(editingParameterID)}/>
-			{parameterInputPreview.error&&<Alert type="error" title={parameterInputPreview.error}/>}
+
 		</Form>
 	</CommandDialog>
 

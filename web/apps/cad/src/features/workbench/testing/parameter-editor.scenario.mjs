@@ -3,7 +3,10 @@ import { createServer } from "vite";
 
 const server = await createServer({ server: { middlewareMode: true }, appType: "custom", logLevel: "silent" });
 try {
-  const { insertParameterReference, isLengthParameter, linearExtrudeLengthInput, linearExtrudeLengthEditInput, parameterEditSource, parameterDisplayValue, parameterSourceText, parseParameterSource } = await server.ssrLoadModule("/src/features/workbench/parameter-editor.ts");
+  const { parameterInputUnit, insertParameterReference, isLengthParameter, linearExtrudeLengthInput, linearExtrudeLengthEditInput, parameterEditSource, parameterDisplayValue, parameterSourceText, parseParameterSource } = await server.ssrLoadModule("/src/features/workbench/parameter-editor.ts");
+  const {normalizeOperationFailure}=await server.ssrLoadModule('/src/cad/command/operation-failure.ts');
+  assert.match(normalizeOperationFailure(new Error('validation: ASSEMBLY_ANGLE_OUT_OF_RANGE')).message,/360°/);
+  assert.match(normalizeOperationFailure({code:'VALIDATION_ERROR',message:'ASSEMBLY_OFFSET_NEGATIVE'}).message,/不能为负/);
   const parameter = {
     parameterId: "parameter:sketch-a:constraint:length:value", key: "base_width", label: "LENGTH",
     valueType: "QUANTITY", dimension: { Length: 1, Mass: 0, Time: 0, Current: 0, Temperature: 0, Amount: 0, Luminous: 0, Semantic: "" },
@@ -30,6 +33,10 @@ try {
   assert.throws(()=>linearExtrudeLengthInput("1e999","cm"));
   assert.throws(()=>linearExtrudeLengthInput("-20","cm"));
   assert.equal(isLengthParameter(parameter), true);
+  const angle={...parameter,lifecycle:'ASSEMBLY_REQUIRED',displayUnit:'rad',dimension:{...parameter.dimension,Length:0,Semantic:'ANGLE'},source:{literal:{siValue:Math.PI/3}},evaluatedValue:{siValue:Math.PI/3}};
+  assert.equal(parameterInputUnit(angle),'deg');assert.equal(parameterSourceText(angle),'60 deg');assert.equal(parameterSourceText(angle,parameterInputUnit(angle)),'60');assert.equal(parameterDisplayValue(angle),'60 deg');
+  assert.deepEqual(parseParameterSource('45',parameterInputUnit(angle)),{kind:'LITERAL',value:45,unit:'deg'});
+  assert.equal(parameterInputUnit({...angle,lifecycle:'USER'}),'rad','explicit user parameter units are preserved');
   assert.throws(() => linearExtrudeLengthInput("90 deg"), /mm、cm、m 或 in/);
   assert.equal(parameterSourceText({ ...parameter, source: { expression: { sourceText: "base_width / 2" } } }), "base_width / 2");
   assert.equal(parameterSourceText({ ...parameter, source: { external: { publicationId: "publication-width",

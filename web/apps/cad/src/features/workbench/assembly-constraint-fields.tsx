@@ -1,3 +1,4 @@
+import {formatDisplayNumber} from "../../utils/display-number";
 import {assemblyQuantityInputFields} from "../../cad/assembly/assembly-quantity-input";
 import {FeaturePickField} from "./feature-pick-field";
 import {CommandGroup,CommandField,CommandFormItem,CommandVector} from "../../cad/overlay/command-form";
@@ -82,7 +83,7 @@ export function AssemblyConstraintFields({ kind, references, supportIssues,exact
         if(source===undefined)return;
         assemblyQuantityInputFields(kind,{quantityInput:source,distanceRelation},lengthUnit);
       }}]}>
-        <QuantityInput fallback={sourceExpression?.trim()||String(sourceValue??0)} unit={kind==='ANGLE'?'deg':lengthUnit} onBlur={onValueCommit}/>
+        <QuantityInput fallback={sourceExpression?.trim()||formatDisplayNumber(sourceValue??0)} unit={kind==='ANGLE'?'deg':lengthUnit} onBlur={onValueCommit}/>
       </CommandFormItem>
       {constraint?.mode==='MEASURED'&&<Typography.Text type="secondary">当前测量：{constraint.measuredValue===undefined?'不可测':kind==='ANGLE'?`${constraint.measuredValue*180/Math.PI}°`:`${constraint.measuredValue} mm`}</Typography.Text>}
       <CommandFormItem name="constraintMode" label="模式" width="enum"><Select options={[{value:'DRIVING',label:'驱动'},{value:'MEASURED',label:'参考测量'}]}/></CommandFormItem>

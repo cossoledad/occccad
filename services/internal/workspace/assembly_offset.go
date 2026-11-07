@@ -22,7 +22,7 @@ func compileAssemblyOffset(c AssemblyConstraint, value *geometry.AssemblyConstra
 		return fmt.Errorf("%w: signed offset requires an exact plane", ErrValidation)
 	}
 	if (c.DistanceRelation == "" || c.DistanceRelation == "UNSIGNED") && c.Value < 0 {
-		return fmt.Errorf("%w: unsigned offset must be nonnegative", ErrValidation)
+		return fmt.Errorf("%w: ASSEMBLY_OFFSET_NEGATIVE: unsigned offset must be nonnegative", ErrValidation)
 	}
 	value.DistanceRelation = c.DistanceRelation
 	if c.Mode == "MEASURED" && first.Kind == "PLANE" && second.Kind == "PLANE" {
@@ -188,7 +188,7 @@ func resolveAssemblyQuantities(model *ProductModel) error {
 		}
 		if c.Kind == "ANGLE" {
 			if value < 0 || value > 2*math.Pi {
-				return fmt.Errorf("%w: angle Quantity must be in [0, 2pi]", ErrValidation)
+				return fmt.Errorf("%w: ASSEMBLY_ANGLE_OUT_OF_RANGE: angle Quantity must be in [0, 2pi]", ErrValidation)
 			}
 			if value == 2*math.Pi {
 				value = 0
