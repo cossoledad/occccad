@@ -871,7 +871,7 @@
     "assertions": {
         "m4.snapshot.current-render-bindings": "973b49dea9e0648957ab217ad7cceab407616282b965c666bc698aa969dd0ca8",
         "m4.target.diagonal-projection": "93e6f1d756a244cd2e0def0399b12a70ee53cd74d04324e42414a8be6b698482",
-        "m5.engineering.command-panel": "f8880f9914610c1ef367792c4a56a3e025f9f7b25d76b161d12784c9cac24377",
+        "m5.engineering.command-panel": "c9d9cc30f2ec2f51652b512f0b32cf6fe5c8e789759807bb37fa0d51399131c5",
         "m5.engineering.server-catalog": "4cbe6fa37955432b3213674164441074a52a06e2ed9f57865f20258f03a56b0c",
         "m4.snapshot.metadata-only-router": "2e9107f2330b2f224e0caadf3885e4aeb57c9f1722d8d8b1b3a89d6b025f0639",
         "m4.snap.precise-frame": "0531a46c32c76513bc401d274e442749692051dc11e1cfd35e24b4bff6e18f49",
@@ -1544,7 +1544,7 @@
         "m4.intent.rotation-budget-recovery": "182a0cf67e5be0657c077d9d5825c5dcbee5cbffba84e8a234d80a10dff35919",
         "m4.intent.router-cumulative-history": "d69bd5d4dc342a7b427739385f0334521ca427e6181af604fb38b0e14be019f2",
         "m4.intent.production-pointer-trace": "d96e1a67d6f31ddf27a3f2fd710947c6ff43e47a33ba9c3413cc5f91ba5f5edb",
-        "assembly.motion.presentation": "93790b57a343c8f2232721a2e41cf90eea66112e041658fb71246df7708b2fef",
+        "assembly.motion.presentation": "959cf57fd1df80bf18ed54339a98abe7df0a4a817ad653c84cf9b6cdf9f0ab1f",
         "lifecycle.deferred-definition.router-worker": "2c6079d99fc558ee7f6b6961a9a2a66cf87e3af34f86ae087df7eafd507e6af1"
     },
     "coverageFloor": {

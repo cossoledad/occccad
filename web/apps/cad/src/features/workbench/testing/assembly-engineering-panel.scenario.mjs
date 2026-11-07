@@ -70,6 +70,10 @@ function load(file){
   assert.equal(tree.props.size,"L");assert.equal(table.props.scroll.x,720);
   const row=table.props.dataSource.find(r=>r.name==="螺栓");table.props.onRow(row).onClick();tree=renderControlled();assert.equal(shown.at(-1).bodyId,"b");
   assert.doesNotMatch(JSON.stringify(tree),/显示运动方向|方向详情/);
+  const buttonNodes=node=>!node?[]:Array.isArray(node)?node.flatMap(buttonNodes):[...(node.type===Button?[node]:[]),...buttonNodes(node.props?.children)];
+  const translation=buttonNodes(tree).find(b=>b.props.children==='平移 1');assert(translation);translation.props.onClick();tree=renderControlled();assert.deepEqual(shown.at(-1).activeDirections,['translation:0']);assert.equal(buttonNodes(tree).find(b=>b.props.children==='平移 1').props['aria-pressed'],true);
+  buttonNodes(tree).find(b=>b.props.children==='平移 1').props.onClick();tree=renderControlled();assert.deepEqual(shown.at(-1).activeDirections,[],'press again removes only this directional emphasis');
+
   table=find(tree,Table);find(table.props.columns.at(-1).render(undefined,row),Button).props.onClick({stopPropagation(){}});renderControlled();assert.equal(shown.at(-1).bodyId,"b");assert.equal(located.at(-1),"b");
   table.props.onRow(row).onKeyDown({key:"Enter",preventDefault(){}});renderControlled();assert.equal(shown.at(-1).bodyId,"b");
   props.view={...view,document:{...view.document,versionId:"changed"}};renderControlled();assert.equal(shown.at(-1),undefined);

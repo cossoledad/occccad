@@ -483,7 +483,7 @@ export type ExternalParameterRef = { sourceDocumentId: string; revision: { mode:
 export type ParameterDefinition = { parameterId: string; key: string; label: string; ownerFeatureId?: string; propertySlot?: string;
   lifecycle?: "FEATURE_REQUIRED" | "ASSEMBLY_REQUIRED" | "SKETCH_DIMENSION" | "USER" | "DATUM_REQUIRED" | "ANALYSIS_OUTPUT"; displayName?: string; displayAlias?: string; qualifiedDisplayPath?: string;
   valueType: "QUANTITY" | "REAL";
-  dimension: Dimension; displayUnit: string; role: string; source: { produced?:{kind:string;entityId:string;outputSlot:string}; literal?: Quantity; expression?: { sourceText: string }; external?: ExternalParameterRef };
+  dimension: Dimension; displayUnit: string; role: string; source: { produced?:{kind:string;entityId:string;outputSlot:string}; literal?: Quantity; expression?: { sourceText: string; reads?:string[] }; external?: ExternalParameterRef };
   evaluatedValue?: Quantity;currencyStatus?:string };
 
 export type ElementPresentation = {name:string;path:string;bodyId?:string;featureId?:string};

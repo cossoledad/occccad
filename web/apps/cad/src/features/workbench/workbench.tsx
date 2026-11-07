@@ -1,3 +1,4 @@
+import {owningInstanceSelection} from "../../cad/assembly/instance-selection";
 import {assemblyReferenceInContext} from "../../cad/assembly/assembly-reference";
 import {assemblyPublicationSelection,assemblyPublicationCandidates,type AssemblyPublicationChoice} from "./assembly-publication-selection";
 import {PublicationManager} from "./publication-manager";
@@ -127,6 +128,7 @@ import { associatedTreeKeyForSelection, deletableTreeNodesForSelections, ancesto
 import { assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
   validateReconnectCandidate, assemblyConstraintActionFailure } from "../../cad/assembly/assembly-constraint-ux";
 
+const AssemblyDependencyPanel = lazy(() => import("./assembly-dependency-panel").then(module=>({default:module.AssemblyDependencyPanel})));
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
 
@@ -209,6 +211,7 @@ export function Workbench() {
  const [motionAcceptedFrame,setMotionAcceptedFrame]=useState<Array<import("../../cad/assembly/motion-study").MotionPose&{instanceId:string}>>();
  const [motionPosePreview,setMotionPosePreview]=useState<Array<import("../../cad/assembly/motion-study").MotionPose&{instanceId:string}>>();
   const [conflictOpen,setConflictOpen]=useState(false);
+  const [dependencyOpen,setDependencyOpen]=useState(false);
   const [conflictReport,setConflictReport]=useState<AssemblyConflictReport>();
   const [conflictContextCurrent,setConflictContextCurrent]=useState(false);
   const [conflictPending,setConflictPending]=useState(false);
@@ -359,6 +362,7 @@ export function Workbench() {
   }, [assemblyPreviewActor]);
 	const activeID = editSession?.editTarget.documentId ?? documentID;
 	const activeInstancePath = editSession?.editTarget.instancePath?.canonical;
+  useEffect(()=>setDependencyOpen(false),[activeID,activeInstancePath]);
   useEffect(()=>()=>assemblyDialogLifecycle.current.invalidate(),[documentID,activeID,activeInstancePath]);
   const activeDocument = useQuery({ queryKey: queryKeys.document(activeID), queryFn: () => api.getDocument(activeID),
     enabled: Boolean(editSession && activeID !== documentID) });
@@ -1052,6 +1056,12 @@ export function Workbench() {
       constraintType:definition.kind,documentId:editingView.document.id,occurrencePath:activeInstancePath}]);
     viewport.current?.focusAssemblyReference(member.first,activeInstancePath);
   };
+  const selectDependencyNode=(node:import("../../cad/assembly/assembly-dependencies").DependencyNode,revision:string)=>{
+    if(!editingView||revision!==editingView.document.versionId||node.missing)return;
+    if(node.instanceId&&editingView.product?.instances.some(i=>i.id===node.instanceId))store.setSelections([{kind:"instance",id:node.instanceId,instanceId:node.instanceId,documentId:editingView.document.id,occurrencePath:activeInstancePath?[activeInstancePath,node.instanceId].join("/"):node.instanceId}]);
+    else if(node.constraintId){const c=editingView.product?.constraints?.find(c=>c.id===node.constraintId);if(c)store.setSelections([{kind:"assembly-constraint",id:c.id,constraintId:c.id,constraintType:c.kind,documentId:editingView.document.id,occurrencePath:activeInstancePath}]);}
+    else if(node.parameterId&&editingView.product?.parameters?.some(p=>p.parameterId===node.parameterId))store.setSelections([{kind:"parameter",id:node.parameterId,entityId:node.parameterId,documentId:editingView.document.id,versionId:revision,occurrencePath:activeInstancePath}]);
+  };
   const repairConflictMember=(member:AssemblyConflictMember,action:AssemblyConflictRepair,revisionId:string)=>{
     if(!canEdit||!editingView||revisionId!==editingView.document.versionId)return;
     const definition=editingView.product?.constraints?.find(c=>c.id===member.constraintId);if(!definition)return;
@@ -1288,7 +1298,7 @@ export function Workbench() {
     setStaticInterferenceOpen(false);setSpatialEditor(undefined);viewport.current?.setSectionEdit();viewport.current?.showStaticInterference();
     closeAssemblyCandidate();stopConflictAnalysis();viewport.current?.showRemainingMotion();
     if(nextCommand!=="dmu.apply"||!motionDisplay)motionPanel.current?.closeCommand();
-    setFeatureMove(undefined);setConflictOpen(false);setSupportSketch(undefined);setSketchInsertion(undefined);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setDatumPreview(undefined);
+    setFeatureMove(undefined);setConflictOpen(false);setDependencyOpen(false);setSupportSketch(undefined);setSketchInsertion(undefined);setSolidEditor(undefined);setBooleanDialog(undefined);setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setDatumPreview(undefined);
     setFeatureSelection(undefined);setNewPartTarget(undefined);
     setPropertyTargets(undefined);setReplacementOpen(false);setReplacementPreview(undefined);
     setInsertOpen(false);setPatternOpen(false);setVersionOpen(false);setShareResource(undefined);
@@ -1523,7 +1533,7 @@ onToggleConstruction:(node)=>{
   const analysisMechanism=motionOpen?view?.product?.kinematics?.mechanisms.find(m=>m.id===mechanismDefinition?.id):undefined;
   useEffect(()=>{setMechanismAnalysisOpen(false)},[view?.document.id,analysisMechanism?.id]);
   const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openMeasurement:kind=>setMeasurementEditor({kind}),measurementKind:measurementEditor?.kind,measurementAllowed:!activeInstancePath&&!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,openSpatialAnalysis:kind=>{closeCommandPanels();setSpatialEditor({kind});setStaticInterferenceOpen(kind==="CLASH")},staticInterferenceAllowed:!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,setDeveloperOpen,openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMechanismAnalysisOpen,mechanismId:analysisMechanism?.id,setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    openReferenceElement:kind=>{closeCommandPanels();setReferenceEditor({kind});},openGeometricalSet:()=>{closeCommandPanels();setGeometricalSetEditor({name:"",parentId:""});},setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},spatialAnalysisKind:spatialEditor?.kind,formActive:Boolean(referenceEditor||geometricalSetEditor||measurementEditor||staticInterferenceOpen||spatialEditor||sketchInsertion||designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+    openReferenceElement:kind=>{closeCommandPanels();setReferenceEditor({kind});},openGeometricalSet:()=>{closeCommandPanels();setGeometricalSetEditor({name:"",parentId:""});},setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},spatialAnalysisKind:spatialEditor?.kind,formActive:Boolean(referenceEditor||geometricalSetEditor||measurementEditor||staticInterferenceOpen||spatialEditor||sketchInsertion||designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||dependencyOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,dependencyOpen,setDependencyOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
     JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
 
@@ -1708,12 +1718,22 @@ onToggleConstruction:(node)=>{
           current={Boolean(conflictContextCurrent&&editingView&&assemblyConflictCurrent(conflictReport,editingView.document.id,editingView.document.versionId))}
           error={conflictError} canEdit={canEdit&&!command.isPending} view={editingView} evidence={engineeringEvidence.evidence} motionStatus={engineeringEvidence.status} motionError={engineeringEvidence.error} onRefreshMotion={()=>void engineeringEvidence.refresh()} onCancelMotion={engineeringEvidence.cancel}
           onMotion={showAnalysisMotion}
+          selectedInstanceId={editingView&&store.selection?owningInstanceSelection(editingView,store.selection,activeInstancePath??'')?.instanceId:undefined}
+          onSelectInstance={id=>{if(editingView?.product?.instances.some(instance=>instance.id===id))store.setSelections([{kind:"instance",id,instanceId:id,documentId:editingView.document.id,occurrencePath:activeInstancePath?[activeInstancePath,id].join("/"):id}]);}}
           ownerOccurrence={activeInstancePath} lengthUnit={lengthUnit}
           onLocateInstance={id=>{if(!editingView?.product?.instances.some(instance=>instance.id===id))return;
             store.setSelections([{kind:"instance",id,instanceId:id,documentId:editingView.document.id,occurrencePath:activeInstancePath?[activeInstancePath,id].join("/"):id}]);
             viewport.current?.focusAssemblyReference({instanceId:id,kind:"BODY"},activeInstancePath);}}
           onAnalyze={ids=>void analyzeConflicts(ids)} onStop={stopConflictAnalysis}
           onClose={()=>{viewport.current?.showRemainingMotion();stopConflictAnalysis();setConflictOpen(false);}} onLocate={locateConflictMember} onRepair={repairConflictMember}/>
+        {dependencyOpen&&editingView?.product&&<Suspense fallback={<Spin size="small"/>}><AssemblyDependencyPanel key={`${editingView.document.id}/${activeInstancePath??''}`} view={editingView} ownerOccurrence={activeInstancePath} selection={store.selection} canEdit={canEdit&&!command.isPending}
+          onClose={()=>setDependencyOpen(false)} onSelect={selectDependencyNode}
+          onLocate={(node,revision)=>{selectDependencyNode(node,revision);if(revision!==editingView.document.versionId)return;
+            if(node.instanceId)viewport.current?.focusAssemblyReference({instanceId:node.instanceId,kind:"BODY"},activeInstancePath);
+            else if(node.constraintId){const c=editingView.product?.constraints?.find(c=>c.id===node.constraintId);if(c)viewport.current?.focusAssemblyReference(c.first,activeInstancePath);}
+            else if(node.parameterId)requestTreeReveal(documentSessions,documentID,{documentId:editingView.document.id,entityId:node.parameterId,occurrence:activeInstancePath,kind:"PARAMETER",reason:"LOCATE"});}}
+          onEdit={(id,revision)=>{if(revision!==editingView.document.versionId)return;const c=editingView.product?.constraints?.find(c=>c.id===id);if(c){setDependencyOpen(false);openAssemblyConstraintEditor(c);}}}
+          onToggle={(id,suppressed,revision)=>{if(canEdit&&revision===editingView.document.versionId)command.mutate(()=>api.command(editingView.document.id,{type:"SET_ASSEMBLY_CONSTRAINT_STATE",versionId:revision,constraintIds:[id],suppressed}));}}/></Suspense>}
         {historyResult&&<Alert style={{position:'absolute',zIndex:12,top:12,left:12}} type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/>}
         {view.document.type==="PRODUCT"&&productUpdatePlan.data?.parameterUpdates?.some(node=>node.needsUpdate)&&!productUpdateFailure&&<Alert
           style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)"}}

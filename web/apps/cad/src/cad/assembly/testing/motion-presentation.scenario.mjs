@@ -3,7 +3,7 @@ import {readFileSync} from "node:fs";
 import ts from "typescript";
 const source=readFileSync(new URL("../motion-presentation.ts",import.meta.url),"utf8");
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace('"../../utils/display-number"',JSON.stringify(new URL("../../../utils/display-number.ts",import.meta.url).href)).replace('"./assembly-engineering-state"',JSON.stringify(new URL("../assembly-engineering-state.ts",import.meta.url).href));
-const {motionPresentations,translationLabel,displayNumber,displayLength}=await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+const {motionPresentations,motionDegrees,translationLabel,displayNumber,displayLength}=await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 import {createServer} from "vite";
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 const {makeMotionMarkers,disposeMotionMarkers}=await server.ssrLoadModule("/src/cad/assembly/motion-markers.ts");
@@ -32,6 +32,11 @@ const marker=makeMotionMarkers(rows[1],10);assert.equal(marker.children.length,5
 assert.equal(marker.children[4].name,"analysis-rotation-arc");
 assert.equal(marker.children[4].children.filter(o=>o.geometry?.type==="ConeGeometry").length,2,"rotation uses a bidirectional arc instead of translation arrows");
 disposeMotionMarkers(marker);assert.equal(JSON.stringify(evidence),raw);
+const emphasized=makeMotionMarkers({...rows[1],activeDirections:['translation:1','rotation:0']},10);
+const shafts=emphasized.children.slice(0,4).map(a=>a.children.find(c=>c.isLine2));assert.deepEqual(shafts.map(s=>s.material.linewidth),[2,2,3,3]);assert.notEqual(shafts[0].material.color.getHex(),shafts[2].material.color.getHex());assert.equal(emphasized.children[4].children[0].material.linewidth,3,'the chosen real rotation axis is highlighted independently');disposeMotionMarkers(emphasized);
+const rigidGaugeMotion={...rows[1],gaugeDof:6,freedom:{...rows[1].freedom,kind:0,translationDof:0,rotationDof:0,translationDirections:[],rotations:[]}};
+assert.deepEqual([motionDegrees(rigidGaugeMotion).overall,motionDegrees(rigidGaugeMotion).translationDof,motionDegrees(rigidGaugeMotion).rotationDof],[true,3,3]);assert.equal(motionDegrees(rigidGaugeMotion).directions.length,6,'overall motion is distinct from zero relative motion');assert.equal(motionDegrees({...rigidGaugeMotion,freedom:undefined}),undefined,'unknown is never displayed as fixed');assert.equal(JSON.stringify(evidence),raw);
+
 for(const count of [0,1,100,500,1000]){const large={...view,product:{instances:Array.from({length:count},(_,i)=>({id:`b${i}`,name:"同名"})),constraints:[]}};const items=motionPresentations(large);assert.equal(items.length,count);assert.equal(new Set(items.map(i=>i.id)).size,count);assert.ok(items.every(i=>i.status==="待计算"));}
 try{
  const THREE=await import("three");

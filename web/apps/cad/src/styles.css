@@ -1003,3 +1003,29 @@ select {
 .parameter-create-form { display:grid; grid-template-columns:minmax(100px,1fr) minmax(80px,1fr) 85px auto; gap:8px; }
 .parameter-create-form .ant-form-item { min-width:0; margin:0; }
 .parameter-create-form :is(.ant-input-number,.ant-select) { width:100% !important; }
+
+/* Assembly analysis: compact, independently selectable freedom directions. */
+.assembly-freedom-detail { border-top: 1px solid var(--color-border); margin-top: 10px; padding-top: 10px; max-height: 200px; overflow: auto; }
+.assembly-freedom-reference { margin: 0 12px; color: var(--color-text-secondary); }
+.assembly-freedom-directions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.assembly-freedom-vector { display: grid; grid-template-columns: 72px minmax(0,1fr); gap: 4px 10px; padding: 6px 0; border-top: 1px solid var(--color-border); font-variant-numeric: tabular-nums; }
+
+.engineering-graph { height: min(470px, 48vh); min-height: 240px; width: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; }
+.engineering-graph .react-flow__node { width: 208px; border-radius: 5px; }
+.engineering-graph-node { display: grid; gap: 3px; padding: 9px 12px; border: 1px solid var(--color-border); border-radius: 5px; background: var(--color-surface); color: var(--color-text); }
+.engineering-graph-node strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; }
+.engineering-graph-caption,.engineering-graph-status { color: var(--color-text-secondary); font-size: 11px; }
+.engineering-graph .selected .engineering-graph-node { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
+.engineering-graph-node.warning { border-color: #c18b4b; }
+.engineering-graph-node.muted { opacity: .6; border-style: dashed; }
+.engineering-graph .react-flow__handle { width: 5px; height: 5px; background: #7f8d9a; border: 1px solid var(--color-surface); }
+.assembly-dependency-toolbar { margin-bottom: 8px; }
+.assembly-dependency-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 10px; }
+.assembly-dependency-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-height: 30px; padding-top: 8px; color: var(--color-text-secondary); }
+.assembly-dependency-summary .ant-typography { margin: 0; }
+
+.assembly-motion-workarea { display: grid; grid-template-columns: minmax(0,1fr) 250px; gap: 14px; }
+.assembly-motion-workarea .assembly-freedom-detail { border-top: 0; border-left: 1px solid var(--color-border); margin-top: 0; padding: 0 0 0 12px; max-height: 315px; }
+.assembly-motion-workarea .assembly-freedom-reference { display: block; margin: 5px 0; }
+.assembly-freedom-description { color: var(--color-text-secondary); margin: 6px 0; }
+@media (max-width: 900px) { .assembly-motion-workarea { grid-template-columns: minmax(0,1fr); } .assembly-motion-workarea .assembly-freedom-detail { border-left: 0; border-top: 1px solid var(--color-border); padding: 10px 0 0; } }

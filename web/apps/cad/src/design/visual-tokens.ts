@@ -5,6 +5,7 @@ export const palette = {
   canvas: "#eef1f4", surface: "#ffffff", subtle: "#f5f7f9", border: "#d9e0e6", ribbonDivider: "#d5dde4",
   text: "#2d3b48", textSecondary: "#5c6b78", textDisabled: "#9aa5af", muted: "#5c6b78", success: "#25846a", warning: "#a56a19", danger: "#c44658",
   viewportTop: "#dce1e5", viewportBottom: "#f0f2f4", solid: "#98a8b8", productSolid: "#94a6b8",
+  analysisFreedom: "#d2a312",
   edge: "#34434e", vertex: "#edf3fa", sketch: "#f0f5fc", construction: "#b4c9e2", external: "#80cfe6", sketchPointHalo:"#152333",
   reference:"#9eadd1",selected: "#f4ba62", hover: "#68d7e6", preview: "#aab9ff", snap: "#ffe099",
   sketchGrid: "#8dc7de", previewNew: "#8bb8e8", previewAdd: "#70c9ab", previewRemove: "#ebaa84",

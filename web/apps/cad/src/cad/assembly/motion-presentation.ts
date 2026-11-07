@@ -2,7 +2,19 @@ import {formatDisplayNumber} from "../../utils/display-number";
 import type {AssemblyBodyFreedom,DocumentView,Vec3} from "../../types";
 import {engineeringInstanceName,type AssemblyEngineeringEvidence} from "./assembly-engineering-state";
 
-export type MotionPresentation={configurationPoses?:Record<string,import("./motion-study").MotionPose>;id:string;bodyId:string;documentId:string;revisionId:string;ownerOccurrence:string;name:string;reference:string;description:string;status:"可运动"|"已定位"|"待计算"|"结果已失效";scope:string[];freedom?:AssemblyBodyFreedom;gaugeDof:number;frame:"OWNING_PRODUCT";unit:"mm"};
+export type MotionPresentation={activeDirections?:string[];configurationPoses?:Record<string,import("./motion-study").MotionPose>;id:string;bodyId:string;documentId:string;revisionId:string;ownerOccurrence:string;name:string;reference:string;description:string;status:"可运动"|"已定位"|"待计算"|"结果已失效";scope:string[];freedom?:AssemblyBodyFreedom;gaugeDof:number;frame:"OWNING_PRODUCT";unit:"mm"};
+export type MotionDirection={id:string;kind:"translation"|"rotation";label:string;direction:Vec3;axisPoint?:Vec3;pitch?:number};
+/** The static numerical anchor is not a ground. Show its component's admitted
+ * rigid gauge explicitly, without adding gauge dimensions to relative bases. */
+export function motionDegrees(motion:MotionPresentation){
+ const f=motion.freedom;if(!f)return undefined;
+ const overall=f.kind===0&&motion.gaugeDof===6;
+ const axes:Vec3[]=[[1,0,0],[0,1,0],[0,0,1]];
+ const translations=overall?axes:f.translationDirections;
+ const rotations=overall?axes.map(direction=>({direction,axisPoint:f.linearizationPose.translation,pitch:0})):f.rotations;
+ const directions:MotionDirection[]=[...translations.map((direction,i)=>({id:`translation:${i}`,kind:"translation" as const,label:`平移 ${i+1}`,direction})),...rotations.map((r,i)=>({id:`rotation:${i}`,kind:"rotation" as const,label:`转动 ${i+1}`,...r}))];
+ return {overall,translationDof:overall?3:f.translationDof,rotationDof:overall?3:f.rotationDof,directions};
+}
 const dot=(a:Vec3,b:Vec3)=>a.reduce((s,v,i)=>s+v*b[i],0);
 export const displayNumber=formatDisplayNumber;
 export function displayDirection(v:Vec3):string {return v.map(n=>displayNumber(n)).join(", ");}

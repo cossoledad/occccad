@@ -82,6 +82,19 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 入口：[只读刷新与证据门](../../../services/internal/workspace/assembly_engineering_refresh.go)、[当前页签](../../../web/apps/cad/src/features/workbench/assembly-conflict-panel.tsx)。回归：[真实 Router/Worker](../../../services/internal/control/assembly_engineering_refresh_integration_test.go)、[浏览器与 Viewer](../../../web/apps/cad/browser/assembly-engineering-live.spec.ts)。
 
+约束分析的“自由度”页列出平移／转动数量，按方向按钮独立切换三维高亮，并仅显示选中方向的向量、轴上点和有意义的螺距。常态方向为黄色，选中方向加粗并使用强调色；多方向可以同时突出。组件行与树／视区选择双向关联，定位仍使用现有精确 occurrence。无当前证据显示未知，不把未知当 0；静态相对证据与组件整体 gauge 分开：刚性组件的六维整体运动明确标记为整体，不与成员的相对基底简单相加。图示属于瞬时允许运动，不代表有限行程。
+
+## 装配依赖分析
+
+`assembly.dependencies` 是独立的只读 UI Command，通过声明式目录进入装配工具栏和命令搜索。选择组件可将其设为分析根；默认显示约束，支持逐层／全部展开、收起、重新设根、分类过滤，以及图内缩放、平移和临时移动节点。图中选择映射到既有结构树／视区选择；约束的编辑与启停复用原有编辑器和带版本的正式命令，Viewer 不能执行写入。隐藏三维图标与停用关系分开显示。
+
+模型投影采用当前编辑 Product 的直接刚性实例、约束（含角度参考轴及固联组成员）、上下文绑定，以及当前 Product 参数的已检查 `reads` 和外部参数发布引用。组件与约束为二部关系，约束连线不表示因果或求解顺序；上下文及公式连线保留来源方向。不按参数文本、显示名、位置或共享 Part 文档猜测关联实例。断链对象保持可见诊断节点；缺少已检查引用时明确标记不可用。孤立断链约束仍从装配根可达。已访问集合终止循环网络和重复展开，图节点身份由 owning document、occurrence 和稳定实体 ID 组成，Revision 用于操作资格验证。
+
+[GraphView](../../../web/apps/cad/src/components/graph-view.tsx) 隔离 React Flow 的渲染／手势状态；[装配投影](../../../web/apps/cad/src/cad/assembly/assembly-dependencies.ts) 不依赖图组件。React Flow 使用 MIT 许可，按需加载；展开、节点位置及缩放不形成 Revision 或 Undo/Redo。当前按连通层级排列，密集网络仍可能交叉，可临时整理布局。子装配内部关系需进入所属 Product；本页不递归抓取未接受的 Part Head，也不声称覆盖全部跨文档公式、所有建模上下文依赖或具有工业规模的图布局性能。
+
+CATIA 参考：`online/asmug_C2/asmugbt0608.htm`（Analyzing Degrees of Freedom）描述当前激活装配范围内的平移／转动方向、坐标与逐方向高亮；`online/asmug_C2/asmugbt0607.htm`（Analyzing Dependencies）描述组件—约束—关联组件的展开树、重新设根、激活切换、缩放，以及 Constraints／Associativity／Relations 分类。前者的黄色方向反馈与后者的操作组织用于交互参考，不据此推断 CATIA 的数值或图布局内部实现。本项目保留自身的证据门、刚性单元范围和正式引用身份；图组件依据 [React Flow MIT 许可与组件职责](https://reactflow.dev/) 选型，不使用 Pro 示例或额外布局引擎。
+
+
 ## 静态干涉与最小间隙
 
 Product 的“空间分析 → 碰撞”计算独立只读，复用 `AnalyzeInterference`。范围支持全部零件、所选内部、所选与其余、两组之间；树／视图区使用同一选择会话，子装配展开为接受的叶零件，两组重叠时去重并排除自身。隐藏不排除；已消费 Body 排除，无活动实体的零件计入范围说明。同一叶 Part 内 Body 不互检，不同叶零件（包括同一模块内部）按 Body 配对。

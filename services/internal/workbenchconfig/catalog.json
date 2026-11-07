@@ -1175,6 +1175,17 @@
           }
         }
       ]
+    },
+    "dependency": {
+      "className": "cad-command-icon family-assembly",
+      "elements": [
+        {
+          "tag": "path",
+          "attributes": {
+            "d": "M4.5 7v4H10m5.5-4v4H10v3M2 2h5v5H2zM13 2h5v5h-5zM7.5 14h5v4h-5z"
+          }
+        }
+      ]
     }
   },
   "commands": [
@@ -4888,6 +4899,40 @@
       "implementation": "handler"
     },
     {
+      "id": "assembly.dependencies",
+      "name": "依赖分析",
+      "helpText": "查看组件、约束、上下文关联与公式的依赖关系。",
+      "iconKey": "dependency",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "all": [
+              {
+                "fact": "targetType",
+                "equals": "PRODUCT"
+              }
+            ]
+          },
+          {
+            "not": {
+              "fact": "motionActive",
+              "equals": true
+            }
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PRODUCT"
+          }
+        ]
+      },
+      "implementation": "handler"
+    },
+    {
       "id": "assembly.static-interference",
       "name": "碰撞",
       "helpText": "检查当前已接受装配的干涉、接触与最小间隙。",
@@ -5361,8 +5406,21 @@
       "iconKey": "reference",
       "repeatable": false,
       "implementation": "handler",
-      "visibleWhen": {"all": []},
-      "enabledWhen": {"all": [{"fact": "canEdit", "equals": true}, {"fact": "busy", "equals": false}]}
+      "visibleWhen": {
+        "all": []
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      }
     },
     {
       "id": "tree.construction",
@@ -6428,6 +6486,11 @@
           "commandId": "assembly.move-receipt",
           "groupKey": "primary",
           "order": 120
+        },
+        {
+          "commandId": "assembly.dependencies",
+          "groupKey": "primary",
+          "order": 115
         }
       ]
     },

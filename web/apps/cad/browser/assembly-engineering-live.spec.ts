@@ -1,13 +1,45 @@
 import {treeNavigator} from "./tree-helpers";
 import {expect,test,type Page} from '@playwright/test';
+import {observeViewport} from './camera-helpers';
 async function login(page:Page,email=process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password=process.env.OCCCCAD_ADMIN_PASSWORD){expect(password).toBeTruthy();const r=await page.request.post('/api/auth/login',{data:{email,password}});expect(r.ok()).toBeTruthy();await page.goto('/');}
 async function current(page:Page,id:string){return (await page.request.get(`/api/documents/${id}`)).json();}
-async function openMotion(page:Page){await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill('约束分析');await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:/^约束分析$/})}).click();const dialog=page.getByRole('dialog',{name:/装配状态 ·/});await dialog.getByRole('tab',{name:'剩余运动',exact:true}).click();return dialog;}
+async function openMotion(page:Page){await page.getByRole('button',{name:'搜索工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索工具名称或用途'}).fill('约束分析');await page.locator('.workbench-command-result').filter({has:page.locator('strong',{hasText:/^约束分析$/})}).click();const dialog=page.getByRole('dialog',{name:/约束分析 ·/});await dialog.getByRole('tab',{name:'自由度',exact:true}).click();return dialog;}
 async function observeGuides(page:Page){
  // Same production-module observation used by the neighboring motion fixture.
  await page.route('**/src/viewport/cad-viewport-engine.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`\nconst show=CadViewportEngine.prototype.showRemainingMotion;CadViewportEngine.prototype.showRemainingMotion=function(...args){window.__engineeringEngine=this;return show.apply(this,args)};`});});
 }
 const guides=(page:Page)=>page.evaluate(()=>(window as any).__engineeringEngine?.motionMarkers?.children.length??0);
+
+test('assembly dependencies expand real constraints and checked formulas, locate objects and change activation',async({page},info)=>{
+ test.setTimeout(180000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  // @ts-ignore production API
+  const {restApi:api}=await import('/src/api.ts');let part=await api.createDocument('PART','Dependency part');part=await api.command(part.document.id,{type:'CREATE_SKETCH',plane:'XY'});const sketch=part.part!.features.at(-1)!.id;
+  await api.command(part.document.id,{type:'EDIT_SKETCH',sketchId:sketch,operations:[{type:'ADD_RECTANGLE',first:{x:-8,y:-6},second:{x:8,y:6}}]});await api.command(part.document.id,{type:'CREATE_SOLID_FEATURE',sketchId:sketch,generator:'LINEAR_EXTRUDE',operation:'ADD',length:5});
+  let v=await api.createDocument('PRODUCT','装配依赖分析验收');const id=v.document.id;for(let n=0;n<3;n++)v=await api.command(id,{type:'INSERT_INSTANCE',referencedDocumentId:part.document.id});const ids=v.product!.instances.map(i=>i.id);
+  v=await api.command(id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'FIX',fixMode:'SPACE',firstAssemblyRef:{kind:'BODY',instanceId:ids[0]}});
+  v=await api.command(id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'DISTANCE',name:'安装偏移',value:12,distanceRelation:'SELECTED_PLANE_NORMAL_V1',firstAssemblyRef:{kind:'PLANE',instanceId:ids[0],geometryId:'datum-xy'},secondAssemblyRef:{kind:'PLANE',instanceId:ids[1],geometryId:'datum-xy'}});const constraint=v.product!.constraints!.at(-1)!.id;
+  v=await api.command(id,{type:'ADD_ASSEMBLY_CONSTRAINT',constraintKind:'FIX_TOGETHER',name:'支架组',groupMembers:[{instanceId:ids[1]},{instanceId:ids[2]}]});
+  const previous=new Set(v.product!.parameters?.map(p=>p.parameterId));v=await api.command(id,{type:'CREATE_PARAMETER',name:'BaseLength',value:12,unit:'mm'});const base=v.product!.parameters!.find(p=>!previous.has(p.parameterId))!;
+  const beforeDerived=new Set(v.product!.parameters?.map(p=>p.parameterId));v=await api.command(id,{type:'CREATE_PARAMETER',name:'DoubleLength',value:24,unit:'mm'});const derived=v.product!.parameters!.find(p=>!beforeDerived.has(p.parameterId))!;
+  v=await api.command(id,{type:'SET_PARAMETER_EXPRESSION',parameterId:derived.parameterId,expression:`${base.key} * 2`});
+  return {id,ids,constraint,base:base.parameterId,derived:derived.parameterId,model:v.product,revision:v.document.versionId};
+ });
+ await page.goto('/documents/'+seed.id);await observeViewport(page);await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.solidBindings.size)).toBe(3);
+ await page.getByRole('button',{name:'依赖分析',exact:true}).click();const dialog=page.getByRole('dialog',{name:/依赖分析 ·/});await expect(dialog.getByLabel('装配依赖关系图')).toBeVisible();
+ await dialog.getByRole('button',{name:'展开全部',exact:true}).click();const offset=()=>dialog.locator('.react-flow__node').filter({has:page.getByTitle('安装偏移',{exact:true})});await expect(offset()).toHaveCount(1);
+ await offset().click();await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.selected[0]?.constraintId)).toBe(seed.constraint);
+ await expect(dialog.getByLabel('公式与参数')).not.toBeChecked();await dialog.getByLabel('公式与参数').check();await dialog.getByRole('button',{name:'展开全部',exact:true}).click();await expect(dialog.getByTitle('公式 · DoubleLength',{exact:true})).toBeVisible();await expect(dialog.getByTitle('BaseLength',{exact:true})).toBeVisible();
+ const graphViewport=dialog.locator('.react-flow__viewport'),beforeZoom=await graphViewport.getAttribute('style');await dialog.getByRole('button',{name:'放大关系图',exact:true}).click();await expect.poll(()=>graphViewport.getAttribute('style')).not.toBe(beforeZoom);await dialog.getByRole('button',{name:'适合窗口',exact:true}).click();
+ const beforeDrag=await offset().getAttribute('style'),box=await offset().boundingBox();if(!box)throw Error('constraint node not rendered');await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2+35,box.y+box.height/2+20,{steps:5});await page.mouse.up();await expect.poll(()=>offset().getAttribute('style')).not.toBe(beforeDrag);
+ await page.screenshot({path:info.outputPath('dependencies-constraints-and-formulas.png')});
+ let after=await current(page,seed.id);expect(after.document.versionId).toBe(seed.revision);expect(after.product).toEqual(seed.model);
+ await offset().click({button:'right'});await page.getByRole('menuitem',{name:'停用',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product.constraints.find((c:any)=>c.id===seed.constraint).suppressed).toBe(true);await expect(offset()).toContainText('停用');
+ await dialog.getByLabel('包含停用').uncheck();await expect(offset()).toHaveCount(0);await dialog.getByLabel('包含停用').check();await dialog.getByRole('button',{name:'展开全部',exact:true}).click();await offset().click({button:'right'});await page.getByRole('menuitem',{name:'启用',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product.constraints.find((c:any)=>c.id===seed.constraint).suppressed??false).toBe(false);
+ const instanceName=(await current(page,seed.id)).product.instances[1].name;const component=dialog.locator('.react-flow__node').filter({has:page.getByTitle(instanceName,{exact:true})});await component.click({button:'right'});await page.getByRole('menuitem',{name:'设为根',exact:true}).click();await expect(dialog.getByLabel('分析根组件')).toHaveAttribute('aria-expanded','false');
+ await dialog.getByRole('button',{name:'展开全部',exact:true}).click();await page.screenshot({path:info.outputPath('dependencies-component-root.png')});
+ await offset().click({button:'right'});await page.getByRole('menuitem',{name:'编辑',exact:true}).click();await expect(dialog).not.toBeVisible();await expect(page.getByRole('dialog',{name:/约束定义|编辑约束|偏移/}).first()).toBeVisible();await page.keyboard.press('Escape');expect(errors).toEqual([]);
+});
 
 test('read-only remaining motion refresh freezes metadata Revision, cancels stale markers and works for Viewer',async({page,browser},testInfo)=>{
  test.setTimeout(240_000);page.setDefaultTimeout(20000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await observeGuides(page);await login(page);
@@ -29,11 +61,16 @@ test('read-only remaining motion refresh freezes metadata Revision, cancels stal
  });
  const before=await current(page,seed.id);await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();let dialog=await openMotion(page);
  const state=()=>dialog.getByRole('status',{name:'剩余运动计算状态'});
- await expect(dialog.locator('tbody tr').first()).toContainText('待计算');await expect(dialog.getByRole('button',{name:'刷新剩余运动',exact:true})).toBeEnabled();
+ await expect(dialog.locator('tbody tr.ant-table-row').first()).toContainText('待计算');await expect(dialog.getByRole('button',{name:'刷新剩余运动',exact:true})).toBeEnabled();
  const refresh=async()=>{const revision=(await current(page,seed.id)).document.versionId;await expect(dialog).not.toContainText(revision);const response=page.waitForResponse(r=>r.url().includes('/assembly-engineering-evidence/refresh')&&r.request().method()==='POST');await dialog.getByRole('button',{name:/^(刷新剩余运动|重\s*试)$/}).click();const result=await response;expect(result.ok()).toBeTruthy();const evidence=await result.json();expect(evidence.revisionId).toBe(revision);expect(evidence.available).toBe(true);await expect(dialog.getByRole('button',{name:'刷新剩余运动',exact:true})).toBeEnabled();return evidence;};
- const calculated=await refresh();expect(calculated.components.filter((c:any)=>c.solved).flatMap((c:any)=>c.bodyIds)).toHaveLength(5);await expect(dialog.locator('tbody tr')).toHaveCount(5);await expect(dialog).not.toContainText('分析完成');
- const names=before.product.instances.map((i:any)=>i.name);const shaft=()=>dialog.locator('tbody tr').filter({hasText:names[1]});await shaft().click();await expect(dialog).toContainText('沿轴平移并绕该轴旋转');await expect.poll(()=>guides(page)).toBeGreaterThan(0);
+ const calculated=await refresh();expect(calculated.components.filter((c:any)=>c.solved).flatMap((c:any)=>c.bodyIds)).toHaveLength(5);await expect(dialog.locator('tbody tr.ant-table-row')).toHaveCount(5);await expect(dialog).not.toContainText('分析完成');
+ const names=before.product.instances.map((i:any)=>i.name);const shaft=()=>dialog.locator('tbody tr.ant-table-row').filter({hasText:names[1]});await shaft().click();await expect(dialog).toContainText('沿轴平移并绕该轴旋转');await expect.poll(()=>guides(page)).toBeGreaterThan(0);
+ const rotationButton=dialog.getByRole('button',{name:'转动 1',exact:true}),translationButton=dialog.getByRole('button',{name:'平移 1',exact:true});
+ await rotationButton.click();await expect(rotationButton).toHaveAttribute('aria-pressed','true');await expect(dialog.getByLabel('转动 1详情')).toContainText('轴上点');
+ await translationButton.click();await expect(translationButton).toHaveAttribute('aria-pressed','true');expect(await page.evaluate(()=>(window as any).__engineeringEngine.motionPresentation.activeDirections)).toEqual(['rotation:0','translation:0']);
  await page.screenshot({path:testInfo.outputPath('accepted-pose-motion-directions.png')});
+ await rotationButton.click();await expect(rotationButton).toHaveAttribute('aria-pressed','false');
+
  let after=await current(page,seed.id);expect(after.document.versionId).toBe(before.document.versionId);expect(after.product).toEqual(before.product);expect([after.document.canUndo,after.document.canRedo]).toEqual([before.document.canUndo,before.document.canRedo]);
  const peer=await page.context().newPage();await peer.goto('/');
  const edited=await peer.evaluate(async s=>{
@@ -60,7 +97,7 @@ test('read-only remaining motion refresh freezes metadata Revision, cancels stal
   // @ts-ignore production module
   const {restApi:api}=await import('/src/api.ts');return api.command(s.id,{type:'SET_DEFINITION_VISIBILITY',targetKind:'ASSEMBLY_CONSTRAINT',targetId:s.fixed,visible:true});
  },seed);
- await expect(dialog).not.toContainText(changed.document.versionId);release();await expect(dialog.locator('tbody tr').first()).toContainText('待计算');await expect.poll(()=>guides(page)).toBe(0);await page.unroute(pattern);await refresh();
+ await expect(dialog).not.toContainText(changed.document.versionId);release();await expect(dialog.locator('tbody tr.ant-table-row').first()).toContainText('待计算');await expect.poll(()=>guides(page)).toBe(0);await page.unroute(pattern);await refresh();
  const stale=await page.evaluate(async s=>{
   // @ts-ignore production API adapter supplies normal CSRF/session headers
   const {restApi:api}=await import('/src/api.ts');try{await api.refreshAssemblyEngineeringEvidence(s.id,s.version);return "accepted"}catch(error){return String(error)}
@@ -69,7 +106,9 @@ test('read-only remaining motion refresh freezes metadata Revision, cancels stal
  await page.reload();dialog=await openMotion(page);await expect(shaft()).toContainText('可运动');await shaft().click();await expect.poll(()=>guides(page)).toBeGreaterThan(0);
  // A genuine Viewer can compute without invoking any Domain Command.
  const viewerContext=await browser.newContext({baseURL:'http://127.0.0.1:5175',viewport:{width:1440,height:1000}});const viewer=await viewerContext.newPage();await observeGuides(viewer);await login(viewer,seed.email,seed.password);await viewer.goto(`/documents/${seed.id}`);const vd=await openMotion(viewer);await expect(vd.getByRole('button',{name:'刷新剩余运动',exact:true})).toBeEnabled();
- const priorViewer=await current(viewer,seed.id);expect(priorViewer.document.permission).toBe('VIEWER');const viewerResponse=viewer.waitForResponse(r=>r.url().includes('/assembly-engineering-evidence/refresh')&&r.request().method()==='POST');await vd.getByRole('button',{name:'刷新剩余运动',exact:true}).click();expect((await viewerResponse).ok()).toBeTruthy();await expect(vd.locator('tbody tr')).toHaveCount(5);const postViewer=await current(viewer,seed.id);expect(postViewer.product).toEqual(priorViewer.product);expect(postViewer.document.versionId).toBe(priorViewer.document.versionId);await viewerContext.close();
+ const priorViewer=await current(viewer,seed.id);expect(priorViewer.document.permission).toBe('VIEWER');const viewerResponse=viewer.waitForResponse(r=>r.url().includes('/assembly-engineering-evidence/refresh')&&r.request().method()==='POST');await vd.getByRole('button',{name:'刷新剩余运动',exact:true}).click();expect((await viewerResponse).ok()).toBeTruthy();await expect(vd.locator('tbody tr.ant-table-row')).toHaveCount(5);
+ await vd.getByRole('button',{name:'关闭',exact:true}).click();await viewer.getByRole('button',{name:'依赖分析',exact:true}).click();const dependencyViewer=viewer.getByRole('dialog',{name:/依赖分析 ·/});await dependencyViewer.getByRole('button',{name:'展开全部',exact:true}).click();const fixedLabel=priorViewer.product.constraints.find((c:any)=>c.id===seed.fixed).name;await dependencyViewer.locator('.react-flow__node').filter({has:viewer.getByTitle(fixedLabel,{exact:true})}).click({button:'right'});await expect(viewer.getByRole('menuitem',{name:'停用',exact:true})).toHaveAttribute('aria-disabled','true');await viewer.keyboard.press('Escape');
+ const postViewer=await current(viewer,seed.id);expect(postViewer.product).toEqual(priorViewer.product);expect(postViewer.document.versionId).toBe(priorViewer.document.versionId);await viewerContext.close();
  expect(errors).toEqual([]);await peer.close();
 });
 
@@ -97,7 +136,7 @@ test('clash exact local graphics, compact panel, temporary isolate and late canc
  await clashCommand(page,'碰撞');let dialog=page.getByRole('dialog',{name:'碰撞',exact:true});
  const before=await current(page,seed.id),history=await (await page.request.get(`/api/documents/${seed.id}/history`)).json();
  await dialog.getByRole('button',{name:/^检\s*查$/}).click();await expect(dialog.getByRole('status',{name:'干涉检查状态'})).toContainText('存在需要检查');
- const row=dialog.locator('tbody tr').filter({hasText:'干涉'});await expect(row).toHaveCount(1);let detailRelease!:()=>void,detailSeen!:()=>void;const detailHold=new Promise<void>(r=>detailRelease=r),detailStarted=new Promise<void>(r=>detailSeen=r);
+ const row=dialog.locator('tbody tr.ant-table-row').filter({hasText:'干涉'});await expect(row).toHaveCount(1);let detailRelease!:()=>void,detailSeen!:()=>void;const detailHold=new Promise<void>(r=>detailRelease=r),detailStarted=new Promise<void>(r=>detailSeen=r);
  await page.route(`**/api/documents/${seed.id}/static-interference`,async route=>{const response=await route.fetch();if(route.request().postDataJSON().detailPair){detailSeen();await detailHold}await route.fulfill({response}).catch(()=>{})});
  await row.click();await detailStarted;await dialog.getByRole('checkbox',{name:'只看这一对',exact:true}).check();detailRelease();
  await expect.poll(()=>page.evaluate(()=>{const e=(window as any).__clashEngine;return e?.staticInterferenceReport?.pairs.some((p:any)=>p.overlapTriangles?.length>0&&p.sectionPoints?.length>0)})).toBeTruthy();
@@ -140,7 +179,7 @@ test('clash checked recording playback stops at a qualified sample and keeps its
  const trial=page.getByRole('dialog',{name:'使用命令进行模拟',exact:true}),recorder=page.getByRole('dialog',{name:'模拟',exact:true}),input=trial.getByRole('spinbutton',{name:'命令长度',exact:true});
  await expect(input).toBeEnabled();await recorder.getByRole('checkbox',{name:'自动插入',exact:true}).uncheck();
  await input.fill('35');await expect.poll(async()=>Number(await input.inputValue())).toBeCloseTo(35,2);await expect(recorder.getByRole('button',{name:'插入',exact:true})).toBeEnabled();
- await recorder.getByRole('spinbutton',{name:'关键帧时间',exact:true}).fill('1');await recorder.getByRole('button',{name:'插入',exact:true}).click();await expect(recorder.locator('tbody tr')).toHaveCount(2);
+ await recorder.getByRole('spinbutton',{name:'关键帧时间',exact:true}).fill('1');await recorder.getByRole('button',{name:'插入',exact:true}).click();await expect(recorder.locator('tbody tr.ant-table-row')).toHaveCount(2);
  await recorder.getByRole('button',{name:'起点',exact:true}).click();await expect.poll(async()=>Number(await input.inputValue())).toBeCloseTo(0,2);
  await trial.getByRole('combobox',{name:'运动干涉检测'}).click();await page.locator('.ant-select-dropdown:visible').getByText('干涉时停止',{exact:true}).click();await expect(trial.getByText('当前采样位置无干涉',{exact:true})).toBeVisible();
  await recorder.getByRole('button',{name:'播放',exact:true}).click();await expect(trial.getByText('检测到干涉或间隙不足，目标未到达',{exact:true})).toBeVisible();await expect(recorder.getByRole('button',{name:'播放',exact:true})).toBeEnabled();
@@ -153,7 +192,7 @@ test('saved spatial analyses: wire clash, exact sections, distance bands and exp
  test.setTimeout(240_000);page.setDefaultTimeout(20_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await observeClash(page);await login(page);const seed=await clashSeed(page);await page.goto('/documents/'+seed.id);
  const before=await current(page,seed.id);
  await clashCommand(page,'碰撞');let clash=page.getByRole('dialog',{name:'碰撞',exact:true});await clash.getByRole('button',{name:/^检\s*查$/}).click();await expect(clash.getByRole('status',{name:'干涉检查状态'})).toContainText('存在需要检查');
- await clash.locator('tbody tr').filter({hasText:'干涉'}).click();await expect.poll(()=>page.evaluate(()=>{const g=(window as any).__clashEngine?.staticInterferenceMarkers;return g?.children.some((c:any)=>c.geometry?.type==='WireframeGeometry')})).toBeTruthy();
+ await clash.locator('tbody tr.ant-table-row').filter({hasText:'干涉'}).click();await expect.poll(()=>page.evaluate(()=>{const g=(window as any).__clashEngine?.staticInterferenceMarkers;return g?.children.some((c:any)=>c.geometry?.type==='WireframeGeometry')})).toBeTruthy();
  // Role and overlap evidence use wires; the original engineering materials remain intact.
  expect(await page.evaluate(()=>(window as any).__clashEngine.staticInterferenceMarkers.children.some((c:any)=>c.isMesh&&!c.isLineSegments2))).toBeFalsy();
  await clash.getByRole('textbox',{name:'分析名称'}).fill('安装碰撞');await clash.getByRole('button',{name:/^确\s*定$/}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses?.length).toBe(1);await expect(clash).toHaveCount(0);
@@ -171,7 +210,7 @@ test('saved spatial analyses: wire clash, exact sections, distance bands and exp
  await page.setViewportSize({width:1000,height:720});await expect.poll(async()=>{const small=(await sheet.boundingBox())!;return small.width<=720&&small.height<=468&&small.x+small.width<=1000&&small.y+small.height<=720}).toBeTruthy();await page.setViewportSize({width:1440,height:1000});
  await section.getByRole('spinbutton',{name:'位置 Z',exact:true}).fill('5');await section.getByRole('spinbutton',{name:'位置 Z',exact:true}).press('Tab');await expect(section.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await expect.poll(()=>svg.locator('path').evaluateAll(paths=>paths.some(p=>!!p.getAttribute('d')))).toBeTruthy();await expect(svg).toHaveAttribute('viewBox',initialBox!);
  await sheet.getByRole('button',{name:'关闭',exact:true}).click();await expect(section.getByRole('switch',{name:'截面视图',exact:true})).not.toBeChecked();}
- await expect(section.locator('tbody tr')).toHaveCount(3);await expect(section.locator('tbody tr').first()).toContainText('100');
+ await expect(section.locator('tbody tr.ant-table-row')).toHaveCount(3);await expect(section.locator('tbody tr.ant-table-row').first()).toContainText('100');
  await section.getByRole('combobox',{name:'三维切除',exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('内侧',{exact:true}).click();await expect(section.getByRole('switch',{name:'截面视图',exact:true})).toBeVisible();await expect(section.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();
  await expect.poll(()=>page.evaluate(()=>[...(window as any).__clashEngine.solidBindings.values()].filter((b:any)=>{const materials=Array.isArray(b.mesh.material)?b.mesh.material:[b.mesh.material];return materials.every((m:any)=>m.clippingPlanes?.length===1)}).length)).toBe(3);
  await testInfo.attach('section-clipped',{body:await page.screenshot({path:testInfo.outputPath('spatial-section.png')}),contentType:'image/png'});
@@ -189,7 +228,7 @@ test('saved spatial analyses: wire clash, exact sections, distance bands and exp
  // Applications tree nodes survive reopen, and their editor restores evidence.
  await page.reload();await treeNavigator(page)('安装截面');await page.getByText('安装截面',{exact:true}).dblclick();section=page.getByRole('dialog',{name:'切割',exact:true});await expect(section.getByRole('switch',{name:'截面视图',exact:true})).toBeVisible();await expect(section.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await expect(section.getByRole('spinbutton',{name:'切割宽',exact:true})).toHaveCount(0);await expect(section.getByRole('spinbutton',{name:'切割高',exact:true})).toHaveCount(0);await expect(section).not.toContainText('分析完成');
  {await section.getByRole('switch',{name:'截面视图',exact:true}).click();const sheet=page.getByRole('dialog',{name:'截面视图',exact:true});const svg=sheet.getByRole('img',{name:'剖切二维视图'});await expect(svg).toBeVisible();const initialBox=await svg.getAttribute('viewBox');await svg.hover();await page.mouse.wheel(0,-200);await expect(svg).not.toHaveAttribute('viewBox',initialBox!);await page.screenshot({path:testInfo.outputPath('section-independent-view.png')});await sheet.getByRole('button',{name:'关闭',exact:true}).click();}
- await expect(section.locator('tbody tr')).toHaveCount(3);await section.getByRole('button',{name:/^取\s*消$/,exact:true}).click();
+ await expect(section.locator('tbody tr.ant-table-row')).toHaveCount(3);await section.getByRole('button',{name:/^取\s*消$/,exact:true}).click();
  await page.evaluate(async({id,moving})=>{const {restApi:api}=await import('/src/api.ts');await api.command(id,{type:'MOVE_INSTANCE',instanceId:moving,translation:[12,0,0],rotation:[0,0,0,1]})},{id:seed.id,moving:seed.moving});await page.reload();await treeNavigator(page)('安装截面');await page.getByText('安装截面',{exact:true}).dblclick();section=page.getByRole('dialog',{name:'切割',exact:true});await expect(section.getByRole('button',{name:/^分\s*析$/})).toHaveCount(0);
  const moved=await current(page,seed.id);expect(moved.product.spatialAnalyses.find((a:any)=>a.name==='安装截面').status).toBe('STALE');await expect(section.getByRole('switch',{name:'截面视图',exact:true})).toBeVisible();await expect(section.getByRole('button',{name:/^确\s*定$/})).toBeEnabled();await section.getByRole('button',{name:/^确\s*定$/}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses.find((a:any)=>a.name==='安装截面').status).toBe('CURRENT');await expect(section).toHaveCount(0);
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses.find((a:any)=>a.name==='安装截面').status).toBe('STALE');await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await current(page,seed.id)).product.spatialAnalyses.find((a:any)=>a.name==='安装截面').status).toBe('CURRENT');expect((await current(page,seed.id)).product.instances).toEqual(moved.product.instances);

@@ -34,6 +34,7 @@ export type WorkbenchCommandBindings={
  startSketch:()=>void;finishSketch:()=>void;normalToSelection:(signal?:AbortSignal)=>void|Promise<void>;
  openSolidFeature:(generator:"LINEAR_EXTRUDE"|"REVOLVE",operation?:"NEW_BODY"|"ADD"|"REMOVE")=>void;
  deleteTreeNodes:(nodes:SpecificationTreeNode[])=>void;executeHistory:(direction:"undo"|"redo")=>void;
+ dependencyOpen?:boolean;setDependencyOpen?:(open:boolean)=>void;
  setDesignInputsOpen?:(open:boolean)=>void;setConflictOpen:(open:boolean)=>void;setParameterManagerOpen:(open:boolean)=>void;setPublicationManagerOpen:(open:boolean)=>void;
  openSpatialAnalysis?:(kind:"CLASH"|"SECTION"|"DISTANCE")=>void;
  staticInterferenceAllowed?:boolean;
@@ -73,6 +74,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ...(["SECTION","DISTANCE"] as const).map(kind=>({id:kind==="SECTION"?"assembly.section":"assembly.distance-band",isActive:()=>bindings.spatialAnalysisKind===kind,execute:()=>{store.setActiveTool("select","once");bindings.openSpatialAnalysis?.(kind)},isEnabled:()=>Boolean(bindings.openSpatialAnalysis&&bindings.staticInterferenceAllowed&&view?.product&&editingView?.document.id===view.document.id&&!store.activeSketchID&&!command.isPending&&!moveReceiptPending)})),
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),
         isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),
+      ({id:"assembly.dependencies",execute:()=>bindings.setDependencyOpen?.(true),isEnabled:()=>Boolean(editingView?.product&&bindings.setDependencyOpen),isActive:()=>Boolean(bindings.dependencyOpen)}),
       ({id:"assembly.move-receipt",execute:()=>viewport.current?.retryAssemblyMoveCommit(),
         isEnabled:()=>Boolean(moveReceiptPending)}),
       ({ id: "sketch.start", execute: startSketch,
