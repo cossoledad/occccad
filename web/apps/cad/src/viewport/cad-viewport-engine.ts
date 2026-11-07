@@ -1,3 +1,4 @@
+import {SectionCaps} from '../cad/rendering/section-caps';
 import {edgeFacingAttributes} from "../cad/rendering/edge-facing";
 import {assemblyReferenceInContext} from "../cad/assembly/assembly-reference";
 import {assemblyPublicationSelection,assemblyPublicationCandidates,type AssemblyPublicationChoice} from "../features/workbench/assembly-publication-selection";
@@ -366,6 +367,7 @@ export class CadViewportEngine {
     this.interferenceRoleGroups?.clear();
     for(const [object,visible] of this.interferenceVisibility??[])object.visible=visible;
     this.interferenceVisibility?.clear();
+    this.savedSectionCaps?.clear();this.savedSectionCaps=undefined;
     disposeMotionMarkers(this.staticInterferenceMarkers);this.staticInterferenceMarkers=undefined;this.staticInterferenceReport=undefined;
     if(hadRoles&&this.highlightedRoots){this.refreshInteractionHighlights();this.invalidate()}
     if(!report){this.invalidate();return true}
@@ -408,22 +410,25 @@ export class CadViewportEngine {
     }
     this.showStaticInterference();const group=new THREE.Group();group.name='spatial-analysis';
     const d=report.definition;
-    const cutPlanes:THREE.Plane[]=[];
+    const cutPlanes:THREE.Plane[]=[],cutMeshes:THREE.Mesh[]=[];
     if(d.kind==='SECTION'&&!this.sectionRequested){
       group.add(sectionRepresentation(d));
       cutPlanes.push(...sectionClippingPlanes(d));
       if(d.cutMode!=='NONE'){
-        for(const b of report.check.bodies){const binding=this.solidBindings.get(b.id);if(!binding)continue;this.interferenceVisibility.set(binding.group,binding.group.visible);binding.group.visible=false;const original=binding.mesh.material,materials=(Array.isArray(original)?original:[original]).map(m=>{const n=new THREE.MeshBasicMaterial({color:(m as THREE.MeshStandardMaterial).color??CATIA_VISUAL_THEME.surface,side:THREE.DoubleSide});n.clippingPlanes=cutPlanes;n.clipIntersection=d.cutMode==='KEEP_OUTSIDE'&&d.sectionType!=='PLANE';return n});const mesh=new THREE.Mesh(binding.mesh.geometry.clone(),Array.isArray(original)?materials:materials[0]);mesh.applyMatrix4(binding.mesh.matrixWorld);group.add(mesh)}
+        for(const b of report.check.bodies){const binding=this.solidBindings.get(b.id);if(!binding)continue;this.interferenceVisibility.set(binding.group,binding.group.visible);binding.group.visible=false;const original=binding.mesh.material,materials=(Array.isArray(original)?original:[original]).map(m=>{const n=new THREE.MeshBasicMaterial({color:(m as THREE.MeshStandardMaterial).color??CATIA_VISUAL_THEME.surface,side:THREE.DoubleSide});n.clippingPlanes=cutPlanes;n.clipIntersection=d.cutMode==='KEEP_OUTSIDE'&&d.sectionType!=='PLANE';return n});const mesh=new THREE.Mesh(binding.mesh.geometry.clone(),Array.isArray(original)?materials:materials[0]);mesh.applyMatrix4(binding.mesh.matrixWorld);group.add(mesh);cutMeshes.push(mesh)}
+        this.savedSectionCaps=new SectionCaps();this.savedSectionCaps.update(d,cutMeshes);group.add(this.savedSectionCaps.root);
       }
     }
     for(const body of report.geometry?.bodies??[]){if(!body.complete||id&&body.id!==id)continue;
       if(body.segments?.length){const segments:Array<[THREE.Vector3,THREE.Vector3]>=[];for(let i=0;i<body.segments.length;i+=2)segments.push([new THREE.Vector3().fromArray(body.segments[i]),new THREE.Vector3().fromArray(body.segments[i+1])]);const lines=makeOcclusionVisibleSegments(segments,CATIA_VISUAL_THEME.selected,1.5);group.add(lines)}
-      if(body.triangles?.length){for(const region of d.kind==='BAND'?[0,1,2]:[1]){const points=body.triangles.flatMap((p,i)=>d.kind!=='BAND'||body.regions?.[Math.floor(i/3)]===region?p:[]);if(!points.length)continue;const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(points,3));const color=d.kind==='SECTION'?CATIA_VISUAL_THEME.selected:region===0?CATIA_VISUAL_THEME.analysisClash:region===1?CATIA_VISUAL_THEME.analysisClearance:0x888888;
+      if(d.kind!=='SECTION'&&body.triangles?.length){for(const region of d.kind==='BAND'?[0,1,2]:[1]){const points=body.triangles.flatMap((p,i)=>d.kind!=='BAND'||body.regions?.[Math.floor(i/3)]===region?p:[]);if(!points.length)continue;const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(points,3));const color=region===0?CATIA_VISUAL_THEME.analysisClash:region===1?CATIA_VISUAL_THEME.analysisClearance:0x888888;
         const wire=new THREE.LineSegments(new THREE.WireframeGeometry(geometry),new THREE.LineBasicMaterial({color,transparent:true,opacity:.75,depthTest:false,depthWrite:false}));wire.renderOrder=3;group.add(wire);geometry.dispose();}}
     }
-    this.staticInterferenceMarkers=group;this.staticInterferenceReport=report.check;this.analysisScene.add(group);this.invalidate();return true;
+    this.staticInterferenceMarkers=group;this.staticInterferenceReport=report.check;(d.kind==='SECTION'?this.scene:this.analysisScene).add(group);this.invalidate();return true;
   }
   private sectionManipulator?:SectionManipulator;
+  private readonly sectionCaps=new SectionCaps();
+  private savedSectionCaps?:SectionCaps;
   private sectionRequested?:SectionEditSession;
   private sectionEdgeVisibility=new Map<THREE.Object3D,boolean>();
   private sectionMaterials=new Map<THREE.Mesh,{id:string;original:THREE.Material|THREE.Material[];clones:THREE.Material[]}>();
@@ -432,7 +437,7 @@ export class CadViewportEngine {
   private sectionSceneReady():boolean {return !this.editContext?.occurrencePath&&!this.pendingVisualSnapshot&&!this.motionDisplay&&!this.mechanismDefinition&&!this.assemblyPosePreview&&!this.preview&&!this.moveCommitPending&&!this.moveManipulator?.isDragging()}
   private syncSectionEdit():void {
     const s=this.sectionRequested,valid=s&&this.view?.document.id===s.documentId&&this.view.document.versionId===s.revisionId&&this.sectionSceneReady();
-    if(valid&&this.sectionManipulator&&!this.sectionManipulator.root.parent)this.analysisScene.add(this.sectionManipulator.root);
+    if(valid&&this.sectionManipulator&&!this.sectionManipulator.root.parent)this.scene.add(this.sectionManipulator.root);
     this.sectionManipulator?.setSession(valid?s:undefined);
     if(!valid)this.sectionManipulator?.root.removeFromParent();
   }
@@ -444,13 +449,14 @@ export class CadViewportEngine {
   }
   private sectionIncludes(d:SpatialAnalysis,id:string):boolean {return d.scope==='ALL'||(d.selected??[]).some(p=>id.startsWith(p.canonical+'/body:')||id.startsWith(p.canonical+'/'))}
   private restoreSectionClipping():void {
+    this.sectionCaps.clear();
     for(const [mesh,state] of this.sectionMaterials??[]){mesh.material=state.original;state.clones.forEach(m=>m.dispose())}this.sectionMaterials?.clear();for(const [object,visible] of this.sectionEdgeVisibility??[])object.visible=visible;this.sectionEdgeVisibility?.clear();
   }
   private previewSectionClipping(d?:SpatialAnalysis):void {
     const planes=d&&!this.sectionRequested?.picking?sectionClippingPlanes(d):[];
     for(const [object,visible] of this.sectionEdgeVisibility){object.visible=visible}this.sectionEdgeVisibility.clear();
     for(const [mesh,state] of this.sectionMaterials){const binding=this.solidBindings.get(state.id);if(!planes.length||binding?.mesh!==mesh||!this.sectionIncludes(d!,state.id)){mesh.material=state.original;state.clones.forEach(m=>m.dispose());this.sectionMaterials.delete(mesh)}}
-    if(!d||!planes.length)return;
+    if(!d||!planes.length){this.sectionCaps.clear();return;}
     for(const [id,b] of this.solidBindings){if(!this.sectionIncludes(d,id))continue;const mesh=b.mesh;
       // Screen-space edge shaders have no clipping contract. Suppress their
       // uncut silhouettes during the draft; exact section curves remain visible.
@@ -458,22 +464,27 @@ export class CadViewportEngine {
       let state=this.sectionMaterials.get(mesh);if(!state){const original=mesh.material,clones=(Array.isArray(original)?original:[original]).map(m=>m.clone());state={id,original,clones};this.sectionMaterials.set(mesh,state);mesh.material=Array.isArray(original)?clones:clones[0]}
       for(const material of state.clones){const intersection=d.cutMode==='KEEP_OUTSIDE'&&d.sectionType!=='PLANE';if(material.clippingPlanes?.length!==planes.length||material.clipIntersection!==intersection)material.needsUpdate=true;material.clippingPlanes=planes;material.clipIntersection=intersection;}
     }
+    const meshes=[...this.sectionMaterials.keys()].filter(mesh=>{for(let p:THREE.Object3D|null=mesh;p;p=p.parent)if(!p.visible)return false;return true});
+    this.sectionCaps.update(d,meshes);if(!this.sectionCaps.root.parent)this.scene.add(this.sectionCaps.root);
   }
   async positionSectionOnSelection(selection:SelectionItem,frame:SpatialAnalysis['frame'],signal:AbortSignal):Promise<SpatialAnalysis['frame']>{
-    const view=this.view,reference=assemblyGeometryRef(selection);if(!this.sectionSceneReady())throw new CommandInputError('请先结束位置预览或运动操作。');if(!view||!reference||!this.callbacks.inspectAssemblySupports)throw new CommandInputError('请选择当前装配中的平面、直线边或轴线。');
+    const view=this.view,reference=assemblyGeometryRef(selection);if(!this.sectionSceneReady())throw new CommandInputError('请先结束位置预览或运动操作。');if(!view||!reference||!this.callbacks.inspectAssemblySupports)throw new CommandInputError('请选择当前装配中的点、平面、直线边或轴线。');
     const result=await this.callbacks.inspectAssemblySupports(view.document.id,[reference],signal);
     if(signal.aborted||!this.sectionSceneReady()||this.view?.document.id!==view.document.id||this.view.document.versionId!==view.document.versionId||result.versionId!==view.document.versionId)throw new CommandInputError('装配已更新，请重新选择定位对象。');
     const support=result.supports[0],descriptor=support?.descriptor,group=this.instanceGroups.get(reference.instancePath?.segments[0]?.instanceId??reference.instanceId);
     if(support?.status!=='RESOLVED'||!descriptor||descriptor.LengthUnit!=='mm'||!group)throw new CommandInputError('定位支撑不可用，请重新选择。');
-    if(!['PLANE','LINE','AXIS','CIRCLE','CYLINDER'].includes(descriptor.Kind))throw new CommandInputError('请选择平面、直线边、圆边或圆柱轴线。');
-    group.updateWorldMatrix(true,false);const q=group.getWorldQuaternion(new THREE.Quaternion()),origin=new THREE.Vector3().fromArray(descriptor.Origin).applyMatrix4(group.matrixWorld),normal=new THREE.Vector3().fromArray(descriptor.Direction).applyQuaternion(q).normalize();
+    if(!['POINT','FRAME','PLANE','LINE','AXIS','CIRCLE','CYLINDER'].includes(descriptor.Kind))throw new CommandInputError('请选择点、平面、直线边、圆边或圆柱轴线。');
+    group.updateWorldMatrix(true,false);const origin=new THREE.Vector3().fromArray(descriptor.Origin).applyMatrix4(group.matrixWorld);
+    if(!origin.toArray().every(Number.isFinite))throw new CommandInputError('该几何没有可用的定位点。');
+    if(descriptor.Kind==='POINT'||descriptor.Kind==='FRAME')return {translation:origin.toArray(),rotation:[...frame.rotation]};
+    const q=group.getWorldQuaternion(new THREE.Quaternion()),normal=new THREE.Vector3().fromArray(descriptor.Direction).applyQuaternion(q).normalize();
     let point=new THREE.Vector3().fromArray(support.snapHints?.center??descriptor.Origin).applyMatrix4(group.matrixWorld);
     if(descriptor.Kind==='PLANE')point.addScaledVector(normal,-point.clone().sub(origin).dot(normal));else point=origin.clone().addScaledVector(normal,point.clone().sub(origin).dot(normal));
     const orientation=snapFrame(normal,true,new THREE.Quaternion().fromArray(frame.rotation));if(!orientation||!point.toArray().every(Number.isFinite))throw new CommandInputError('该几何没有可用的定位方向。');
     return {translation:point.toArray(),rotation:orientation.toArray()};
   }
   private camera: CadCamera = new THREE.PerspectiveCamera(DEFAULT_PERSPECTIVE_FOV, 1, 0.1, 5000);
-  private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+  private readonly renderer = new THREE.WebGLRenderer({ antialias: true, stencil:true, powerPreference: "high-performance" });
   private readonly shaders = new CadShaderLibrary();
   private readonly visualTheme:{[K in keyof typeof CATIA_VISUAL_THEME]:number}={...CATIA_VISUAL_THEME};
   private readonly materials = new CadMaterialFactory(this.shaders,this.visualTheme);
@@ -2154,6 +2165,7 @@ export class CadViewportEngine {
     this.captureDocumentView();
     this.showMechanism();
     disposeMotionMarkers(this.motionMarkers);
+    this.savedSectionCaps?.clear();
     disposeMotionMarkers(this.staticInterferenceMarkers);
     this.cancelMovePreviewGesture("viewport interaction reset");
     this.clearSketchMarquee();this.clearDimensionDefinitionPreview(false);

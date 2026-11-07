@@ -80,7 +80,7 @@ try {
   sessions.write("root", documentCameraState, snapshot);
   const engine = Object.create(CadViewportEngine.prototype), noop = () => {};
   let cameraSyncs = 0, ready = 0, animations = 0;
-  Object.assign(engine, { documentSessions: sessions, camera, navigation: { target, cancel: noop, syncCamera: () => cameraSyncs++, setEnabled: noop },
+  Object.assign(engine, { sectionCaps:{clear:noop}, documentSessions: sessions, camera, navigation: { target, cancel: noop, syncCamera: () => cameraSyncs++, setEnabled: noop },
     renderer: { domElement: { clientWidth: 1200, clientHeight: 600 } }, viewTransition: { cancel: noop, start: () => animations++ },
     content: new THREE.Group(), helpers: new THREE.Group(), sketchContext: new THREE.Group(), instanceGroups: new Map(),
     solidBindings: new Map(), selectable: new Set(), profileRegionBindings: [], assemblyConstraintReferences: new Map(), assemblyConstraintMarkers: new Map(),

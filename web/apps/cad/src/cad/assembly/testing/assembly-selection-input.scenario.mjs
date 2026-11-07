@@ -8,6 +8,7 @@ try {
   const {assemblyPublicInitialFields}=await server.ssrLoadModule('/src/cad/assembly/assembly-public.ts');
   assert.equal('groupName' in assemblyPublicInitialFields('FIX_TOGETHER',[]),false,'server naming counters own the default group name');
   assert.equal(assemblyGeometryRef({kind:"axis-system",id:"frame",entityId:"stable-frame",instanceId:"a"}).kind,"FRAME","whole Frame must not silently become its origin point");
+  assert.deepEqual(assemblyGeometryRef({kind:"reference-point",id:"point",entityId:"stable-point",instanceId:"a"}),{instanceId:"a",kind:"POINT",geometryId:"stable-point"});
   const face=(id)=>({kind:"face",id:"face-"+id,instanceId:id,geometryKey:"mesh-"+id,topologyId:2});
   const axis=(id)=>({kind:"axis",axis:"DATUM",id:"axis-"+id,entityId:"datum-"+id,instanceId:id});
   let selected=[],requests=[],pick=null,events=[];

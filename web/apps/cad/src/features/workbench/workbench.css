@@ -221,5 +221,8 @@
 
 .spatial-analysis-fields { display:flex; flex-direction:column; gap:12px; }
 .spatial-analysis-fields > .command-field,.spatial-analysis-fields > .command-vector { margin:0; }
-.section-result-canvas { margin-top:12px; overflow:hidden; border:1px solid var(--color-border); border-radius:4px; }
-.section-result-canvas svg { display:block; max-height:55vh; touch-action:none; }
+.cad-command-dialog:has(.section-result-body) { width:min(720px, 72vw) !important; height:min(560px, 65vh); }
+.section-result-body { display:flex; flex-direction:column; flex:1; }
+.section-result-canvas { flex:1; min-height:0; margin-top:12px; overflow:hidden; border:1px solid var(--color-border); border-radius:4px; }
+.section-result-canvas svg { display:block; touch-action:none; }
+.spatial-analysis-fields .ant-slider { min-width:160px; margin-inline:6px; }

@@ -43,10 +43,11 @@ try{
  // The panel uses the existing field/session epoch for immediate revision,
  // scope and explicit cancellation invalidation, including pending responses.
  const scope=new FeaturePickScope();scope.activate('static','rev/ALL/3');const n=scope.latest();assert(scope.current(n));scope.activate('static','rev/SELECTED/3');assert(!scope.current(n));const cancelled=scope.latest();scope.cancel();assert(!scope.current(cancelled));
+ const {SectionCaps}=await server.ssrLoadModule('/src/cad/rendering/section-caps.ts');
  const engine=Object.create(CadViewportEngine.prototype),content=new THREE.Group(),analysis=new THREE.Scene(),bindings=new Map();
  const originals=[];let disposedOriginal=0;
  for(const b of bodies){const group=new THREE.Group();group.position.fromArray(b.pose.translation);const mesh=new THREE.Mesh(new THREE.BoxGeometry(10,10,10),new THREE.MeshBasicMaterial());mesh.geometry.addEventListener('dispose',()=>disposedOriginal++);group.add(mesh);content.add(group);bindings.set(`${b.instancePath.canonical}/body:body`,{group,mesh,artifact:{geometryKey:'shared'}});originals.push(mesh.geometry)}
- Object.assign(engine,{view,content,analysisScene:analysis,solidBindings:bindings,moveManipulator:{isDragging:()=>false},invalidate(){}});
+ Object.assign(engine,{view,content,scene:new THREE.Scene(),sectionCaps:new SectionCaps(),analysisScene:analysis,solidBindings:bindings,moveManipulator:{isDragging:()=>false},invalidate(){}});
 const neutralized=[];engine.materials={setInteractionState:(group,state)=>neutralized.push([group,state])};
   assert(engine.showStaticInterference(report,0));assert.equal(analysis.children.length,1);assert.equal(neutralized.length,2);assert(neutralized.every(([,state])=>state==='default'),'tree/list and motion role surfaces preserve their engineering material');assert.equal(analysis.children[0].children.length,4,'two body roles, certified witnesses and connector');
  const witnesses=analysis.children[0].children.find(c=>c.isPoints);assert.equal(witnesses.material.transparent,true);assert(witnesses.renderOrder>Math.max(...analysis.children[0].children.filter(c=>c.isMesh).map(c=>c.renderOrder)),'witness points draw after both role surfaces and the connector');
@@ -67,7 +68,7 @@ const neutralized=[];engine.materials={setInteractionState:(group,state)=>neutra
  bindings.delete('other/body:third');
  const section={documentId:'assembly',revisionId:'rev',definition:{kind:'SECTION',frame:{translation:[0,0,5],rotation:[0,0,0,1]},size:[20,20,2],sectionType:'BOX',cutMode:'KEEP_OUTSIDE'},check:report,geometry:{bodies:[{id:bodies[0].id,complete:true,segments:[[0,0,5],[1,0,5]],triangles:[[0,0,5],[1,0,5],[0,1,5]],areaMm2:.5}]}};
  assert(engine.showSpatialAnalysis(section));assert.equal(bindings.values().next().value.group.visible,false);
- const clipped=analysis.children[0].children.filter(c=>c.isMesh&&c.material.clippingPlanes?.length);assert.equal(clipped.length,2);assert(clipped.every(c=>c.material.clipIntersection&&c.material.clippingPlanes.length===6));
+ const clipped=engine.scene.children[0].children.filter(c=>c.isMesh&&c.material.clippingPlanes?.length);assert.equal(clipped.length,2);assert(clipped.every(c=>c.material.clipIntersection&&c.material.clippingPlanes.length===6));
  engine.showSpatialAnalysis();assert.equal(bindings.values().next().value.group.visible,true);assert.equal(disposedOriginal,0);
  assert.equal(engine.showSpatialAnalysis({...section,check:{...report,revisionId:'old'}}),false);assert.equal(analysis.children.length,0);
 

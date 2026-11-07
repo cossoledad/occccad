@@ -323,6 +323,14 @@ func (resolver *assemblySupportResolver) resolve(reference AssemblyGeometryRef) 
 		}
 		part := resolved.model
 		found := false
+		if reference.Kind == "POINT" {
+			for _, point := range part.DatumPoints {
+				if point.ID == reference.GeometryID {
+					value.Origin, found = point.Position, true
+					break
+				}
+			}
+		}
 		for _, axis := range part.DatumAxes {
 			if axis.ID == reference.GeometryID && reference.Kind == "AXIS" {
 				value.Origin, value.Direction, found = axis.Origin, axis.Direction, true

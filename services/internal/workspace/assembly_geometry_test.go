@@ -220,6 +220,19 @@ func TestAssemblySupportResolverDistinguishesForwardedPublications(t *testing.T)
 	}
 }
 
+func TestAssemblySupportResolverUsesAcceptedDatumPoint(t *testing.T) {
+	product := ProductModel{Instances: []ProductInstance{{ID: "part-occurrence", ReferencedDocumentID: "part", ReferencedVersionID: "accepted"}}}
+	resolver := newAssemblySupportResolver(t.Context(), &Service{}, &product)
+	resolver.parts["part:accepted"] = assemblyResolvedPart{model: PartModel{DatumPoints: []DatumPoint{{ID: "point-stable-id", Position: [3]float64{3, 5, 7}}}}}
+	value, err := resolver.resolve(AssemblyGeometryRef{InstanceID: "part-occurrence", Kind: "POINT", GeometryID: "point-stable-id"})
+	if err != nil || value.Kind != "POINT" || value.Origin != [3]float64{3, 5, 7} || value.LengthUnit != "mm" {
+		t.Fatalf("accepted reference point unavailable: %+v %v", value, err)
+	}
+	if _, err := resolver.resolve(AssemblyGeometryRef{InstanceID: "part-occurrence", Kind: "POINT", GeometryID: "deleted-point"}); err == nil {
+		t.Fatal("missing point must not fall back to the instance origin")
+	}
+}
+
 func TestPublishedStraightEdgeRetainsFiniteExactDomain(t *testing.T) {
 	p := TopologyElementProperties{Kind: "EDGE", GeometryType: "LINE", Properties: map[string]any{"origin": [3]float64{2, 3, 4}, "direction": [3]float64{1, 0, 0}, "parameterUnit": "mm", "firstParameter": -7.5, "lastParameter": 22.5}}
 	got, err := assemblyGeometryFromProperties(geometry.AssemblyGeometry{}, p)

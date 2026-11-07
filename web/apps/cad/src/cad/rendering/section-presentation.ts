@@ -16,6 +16,7 @@ export function sectionRepresentation(d:SpatialAnalysis,editing=false):THREE.Gro
  if(d.sectionType!=='BOX'||editing)for(const z of offsets){
   const mesh=new THREE.Mesh(new THREE.PlaneGeometry(d.size[0],d.size[1]),new THREE.MeshBasicMaterial({color:theme.selected,side:THREE.DoubleSide,transparent:true,opacity:.045,depthWrite:false}));mesh.position.z=z;group.add(mesh);
   const outline=new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry),new THREE.LineBasicMaterial({color:theme.selected,transparent:true,opacity:.65,depthWrite:false}));outline.position.z=z;group.add(outline);
+  const hidden=new THREE.LineSegments(outline.geometry.clone(),new THREE.LineDashedMaterial({color:theme.selected,transparent:true,opacity:.16,depthTest:true,depthFunc:THREE.GreaterDepth,depthWrite:false,dashSize:2,gapSize:2}));hidden.position.z=z;hidden.computeLineDistances();hidden.userData.sectionOccluded=true;group.add(hidden);
  }
  if(d.sectionType!=='PLANE'){const box=new THREE.BoxGeometry(...d.size);const outline=new THREE.LineSegments(new THREE.EdgesGeometry(box),new THREE.LineBasicMaterial({color:theme.selected,transparent:true,opacity:.65,depthWrite:false}));box.dispose();group.add(outline)}
  return group;
