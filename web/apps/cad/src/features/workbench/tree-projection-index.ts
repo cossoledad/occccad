@@ -92,6 +92,21 @@ export function ancestorHintKeysForSelections(nodes: SpecificationTreeNode[], se
   return [...result];
 }
 
+/** Paint only the nearest visible representative of each selected/associated target. */
+export function visibleTreeHintKeys(nodes: SpecificationTreeNode[], selectedKeys: readonly string[], ancestorHintKeys: readonly string[], visibleKeys: readonly string[]): Set<string> {
+  const index = indexTree(nodes), selected = new Set(selectedKeys), visible = new Set(visibleKeys);
+  const targets = new Set([...ancestorHintKeys, ...selectedKeys]);
+  // Association hints include their ancestor chains. Keep the actual endpoints
+  // before projecting through collapsed branches, otherwise every parent lights up.
+  for (const key of [...targets]) for (const parent of index.parents.get(key) ?? []) targets.delete(parent);
+  const result = new Set<string>();
+  for (const key of targets) {
+    const representative = visible.has(key) ? key : [...(index.parents.get(key) ?? [])].reverse().find(parent => visible.has(parent));
+    if (representative && !selected.has(representative)) result.add(representative);
+  }
+  return result;
+}
+
 /** Exact semantic selection only; ancestor/publication highlight projections are not mutation targets. */
 export function deletableTreeNodesForSelections(nodes:SpecificationTreeNode[],selections:readonly SelectionItem[]):SpecificationTreeNode[] {
   const index=indexTree(nodes),result=new Map<string,SpecificationTreeNode>();

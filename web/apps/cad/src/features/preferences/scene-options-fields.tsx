@@ -1,7 +1,7 @@
 import {CommandField} from "../../cad/overlay/command-form";
 import {Button,Checkbox,ColorPicker,InputNumber,Select,Slider,Space,Tabs,Typography} from "antd";
 import {formatDisplayNumber} from "../../utils/display-number";
-import {DEFAULT_SCENE_SETTINGS,lightingPreset,sceneGridColor,type SceneSettings,type SceneMetrics} from "../../cad/rendering/scene-settings";
+import {DEFAULT_SCENE_SETTINGS,engineeringScenePreset,lightingPreset,sceneGridColor,type SceneSettings,type SceneMetrics} from "../../cad/rendering/scene-settings";
 
 export function SceneOptionsFields({value,onChange,metrics}:{value:SceneSettings;onChange:(value:SceneSettings)=>void;metrics?:SceneMetrics}) {
  const patch=(change:Partial<SceneSettings>)=>onChange({...value,...change});
@@ -11,7 +11,7 @@ export function SceneOptionsFields({value,onChange,metrics}:{value:SceneSettings
  const background=<Space orientation="vertical" className="global-options-fields">
   <CommandField label="投影方式" width="enum"><Select aria-label="投影方式" value={value.projection} onChange={projection=>patch({projection})} options={[{value:"PERSPECTIVE",label:"透视"},{value:"ORTHOGRAPHIC",label:"平行"}]}/></CommandField>
   <div className="scene-color-preview" aria-label="背景预览" style={{color:sceneGridColor(value),background:`linear-gradient(${value.background==="SOLID"?value.backgroundTop:value.background==="THEME"?DEFAULT_SCENE_SETTINGS.backgroundTop:value.backgroundTop},${value.background==="SOLID"?value.backgroundTop:value.background==="THEME"?DEFAULT_SCENE_SETTINGS.backgroundBottom:value.backgroundBottom})`}}><span style={{background:sceneGridColor(value)}}/>工作区</div>
-  <Space><Button onClick={()=>patch({background:"GRADIENT",backgroundTop:"#233346",backgroundBottom:"#70869b",gridAutoColor:true})}>深蓝</Button><Button onClick={()=>patch({background:"GRADIENT",backgroundTop:"#b7cbdc",backgroundBottom:"#eef3f8",gridAutoColor:true})}>明亮</Button><Button onClick={()=>patch({background:"GRADIENT",backgroundTop:"#202833",backgroundBottom:"#56616e",gridAutoColor:true})}>石墨</Button></Space>
+  <Space><Button onClick={()=>patch(engineeringScenePreset('NEUTRAL'))}>中性工程</Button><Button onClick={()=>patch(engineeringScenePreset('DARK'))}>深色工程</Button></Space>
   <CommandField label="背景方式" width="enum"><Select aria-label="背景方式" value={value.background} onChange={background=>patch({background})} options={[{value:"THEME",label:"默认工作室"},{value:"GRADIENT",label:"上下渐变"},{value:"SOLID",label:"纯色"}]}/></CommandField>
   {value.background!=="THEME"&&color("backgroundTop",value.background==="SOLID"?"背景颜色":"顶部颜色")}
   {value.background==="GRADIENT"&&color("backgroundBottom","底部颜色")}
@@ -31,6 +31,7 @@ export function SceneOptionsFields({value,onChange,metrics}:{value:SceneSettings
  const lighting=<Space orientation="vertical" className="global-options-fields">
   <CommandField label="光照预设" width="enum"><Select aria-label="光照预设" value={value.lighting} onChange={v=>patch(lightingPreset(v))} options={[{value:"ENGINEERING",label:"工程"},{value:"SOFT",label:"柔和"},{value:"CONTOUR",label:"轮廓强调"}]}/></CommandField>
   {slider("brightness","整体亮度")}{slider("ambient","环境补光")}{slider("fill","侧向补光")}{slider("reflection","环境反射强度")}
+  <Checkbox checked={value.ambientOcclusion} onChange={e=>patch({ambientOcclusion:e.target.checked})}>轻量环境遮蔽（AO）</Checkbox>{value.ambientOcclusion&&slider("aoIntensity","遮蔽强度",0,.8)}
   {slider("azimuth","主光方位角",-180,180,1)}{slider("elevation","主光仰角",5,90,1)}
  </Space>;
  return <Tabs items={[{key:"background",label:"背景",children:background},{key:"ground",label:"地面与网格",children:ground},{key:"lighting",label:"光照",children:lighting}]}/>;

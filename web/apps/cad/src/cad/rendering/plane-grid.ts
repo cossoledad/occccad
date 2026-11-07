@@ -38,14 +38,14 @@ export class PlaneGrid {
     this.spacing=style==="ground"?10:0;
     this.material = new THREE.ShaderMaterial({
       depthTest: style==="ground", depthWrite: false, transparent: true,
-      uniforms: { uBounds:{value:new THREE.Vector4()},uOrigin:{value:new THREE.Vector3()},uRight:{value:new THREE.Vector3()},uUp:{value:new THREE.Vector3()},uForward:{value:new THREE.Vector3()},uPerspective:{value:0},uBasePhase:{value:new THREE.Vector2()},uLevelPhaseA:{value:new THREE.Vector2()},uLevelPhaseB:{value:new THREE.Vector2()},uLevels:{value:new THREE.Vector2()},uLevelBlend:{value:0},uLevelOpacity:{value:0},uClip:{value:new THREE.Matrix4()},uSpacing: { value: 10 }, uOpacity:{value:1}, uSketch: { value: style === "sketch" ? 1 : 0 }, uColor: { value: new THREE.Color(color) } },
+      uniforms: {uFadeDistance:{value:1000}, uBounds:{value:new THREE.Vector4()},uOrigin:{value:new THREE.Vector3()},uRight:{value:new THREE.Vector3()},uUp:{value:new THREE.Vector3()},uForward:{value:new THREE.Vector3()},uPerspective:{value:0},uBasePhase:{value:new THREE.Vector2()},uLevelPhaseA:{value:new THREE.Vector2()},uLevelPhaseB:{value:new THREE.Vector2()},uLevels:{value:new THREE.Vector2()},uLevelBlend:{value:0},uLevelOpacity:{value:0},uClip:{value:new THREE.Matrix4()},uSpacing: { value: 10 }, uOpacity:{value:1}, uSketch: { value: style === "sketch" ? 1 : 0 }, uColor: { value: new THREE.Color(color) } },
       vertexShader: `varying vec2 vScreen;
         void main() { vScreen = position.xy; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
       fragmentShader: `varying vec2 vScreen;
         uniform vec3 uOrigin,uRight,uUp,uForward;
         uniform float uPerspective;
         uniform mat4 uClip;
-        uniform float uSpacing, uSketch, uOpacity;
+        uniform float uSpacing, uSketch, uOpacity,uFadeDistance;
         uniform vec3 uColor;
         uniform vec4 uBounds;
         uniform vec2 uBasePhase,uLevelPhaseA,uLevelPhaseB,uLevels;
@@ -85,7 +85,8 @@ export class PlaneGrid {
           float levelB=grid(point+uLevelPhaseB,uLevels.y,0.7);
           alpha=max(alpha,mix(levelA,levelB,uLevelBlend)*uLevelOpacity);
           gl_FragDepth = uSketch > 0.5 ? 0.0 : clamp(depth * 0.5 + 0.5,0.0,1.0);
-          gl_FragColor = vec4(uColor, clamp(alpha*uOpacity, 0.0, 0.85));
+          float fade=uSketch>0.5?1.0:1.0-smoothstep(uFadeDistance*0.4,uFadeDistance,length(ray*distance));
+          gl_FragColor = vec4(uColor, clamp(alpha*uOpacity*fade, 0.0, 0.85));
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,
@@ -124,6 +125,7 @@ export class PlaneGrid {
     const spacing=this.spacing>0?this.spacing:adaptiveGridSpacing(camera,height,frame.origin);
     const levels=groundGridLevels(spacing,worldUnitsPerCssPixel(camera,focus,{cssWidth:1,cssHeight:Math.max(1,height),devicePixelRatio:1}));
     const ground=this.material.uniforms.uSketch.value===0;
+    this.material.uniforms.uFadeDistance.value=Math.max(spacing*100,Math.abs(planeDistance)*8,worldUnitsPerCssPixel(camera,focus,{cssWidth:1,cssHeight:Math.max(1,height),devicePixelRatio:1})*height*5);
     // Rebase against the finest displayed lattice; retain a CPU-computed phase for each level.
     const relative=focus.clone().sub(frame.origin),period=(ground?Math.min(spacing,levels.lower):spacing)*10;
     const anchor=frame.origin.clone().addScaledVector(frame.u,Math.round(relative.dot(frame.u)/period)*period)

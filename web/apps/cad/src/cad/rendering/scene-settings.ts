@@ -5,6 +5,7 @@ export type SceneSettings = {
   groundHeight: number; groundOffset: number; groundLocked: boolean;
   grid: boolean; worldGrid: boolean; gridSpacing: number; gridOpacity: number; gridColor: string; gridAutoColor:boolean;
   shadows: boolean; shadowOpacity: number;
+  ambientOcclusion:boolean;aoIntensity:number;
   lighting: "ENGINEERING" | "SOFT" | "CONTOUR";
   brightness: number; ambient: number; fill: number; reflection: number;
   azimuth: number; elevation: number;
@@ -13,9 +14,10 @@ export type SceneSettings = {
 
 export const DEFAULT_SCENE_SETTINGS: Readonly<SceneSettings> = {
   projection:"PERSPECTIVE",groundMode:"AUTO",groundHeight:0,groundOffset:0,groundLocked:false,
-  grid:true,worldGrid:false,gridSpacing:10,gridOpacity:1,gridColor:"#cbdced",gridAutoColor:true,
-  shadows:true,shadowOpacity:0.35,lighting:"ENGINEERING",brightness:1,ambient:1,fill:1,reflection:1,
-  azimuth:-126.87,elevation:54.46,background:"GRADIENT",backgroundTop:"#233346",backgroundBottom:"#70869b",
+  grid:false,worldGrid:false,gridSpacing:10,gridOpacity:0.55,gridColor:"#8c979f",gridAutoColor:true,
+  shadows:true,shadowOpacity:0.28,lighting:"ENGINEERING",brightness:1,ambient:1,fill:1,reflection:1,
+  ambientOcclusion:false,aoIntensity:.35,
+  azimuth:-126.87,elevation:54.46,background:"THEME",backgroundTop:"#dce1e5",backgroundBottom:"#f0f2f4",
 };
 
 const number=(v:unknown,fallback:number,min:number,max:number)=>typeof v==="number"&&Number.isFinite(v)?Math.max(min,Math.min(max,v)):fallback;
@@ -26,8 +28,9 @@ export function normalizeSceneSettings(value:unknown):SceneSettings {
     projection:v.projection==="ORTHOGRAPHIC"?"ORTHOGRAPHIC":"PERSPECTIVE",
     groundMode:["AUTO","WORLD","MANUAL","OFF"].includes(v.groundMode??"")?v.groundMode!:d.groundMode,
     groundHeight:number(v.groundHeight,0,-1e12,1e12),groundOffset:number(v.groundOffset,0,-1e12,1e12),groundLocked:v.groundLocked===true,
-    grid:v.grid!==false,worldGrid:v.worldGrid===true,gridSpacing:typeof v.gridSpacing==="number"&&v.gridSpacing>0?number(v.gridSpacing,d.gridSpacing,.001,1e12):d.gridSpacing,gridOpacity:number(v.gridOpacity,1,0,2),gridColor:color(v.gridColor,d.gridColor),gridAutoColor:v.gridAutoColor!==false,
+    grid:v.grid===true,worldGrid:v.worldGrid===true,gridSpacing:typeof v.gridSpacing==="number"&&v.gridSpacing>0?number(v.gridSpacing,d.gridSpacing,.001,1e12):d.gridSpacing,gridOpacity:number(v.gridOpacity,d.gridOpacity,0,2),gridColor:color(v.gridColor,d.gridColor),gridAutoColor:v.gridAutoColor!==false,
     shadows:v.shadows!==false,shadowOpacity:number(v.shadowOpacity,d.shadowOpacity,0,1),
+    ambientOcclusion:v.ambientOcclusion===true,aoIntensity:number(v.aoIntensity,d.aoIntensity,0,.8),
     lighting:["ENGINEERING","SOFT","CONTOUR"].includes(v.lighting??"")?v.lighting!:d.lighting,
     brightness:number(v.brightness,1,0,3),ambient:number(v.ambient,1,0,3),fill:number(v.fill,1,0,3),reflection:number(v.reflection,1,0,3),
     azimuth:number(v.azimuth,d.azimuth,-180,180),elevation:number(v.elevation,d.elevation,5,90),
@@ -45,7 +48,7 @@ export function automaticGroundClearance(extent?:ModelExtent):number {
   if(largest===0)return 0;
   // Normalize before multiplication to avoid overflow for distant/large scenes.
   const mean=largest*Math.cbrt((dimensions[0]/largest)*(dimensions[1]/largest));
-  return Math.max(middle*.005,Math.min(middle*.08,mean*.08));
+  return Math.max(middle*.0005,Math.min(middle*.008,mean*.008));
 }
 export function groundLevel(settings:SceneSettings,minimumZ:number|undefined,extent?:ModelExtent):number {
   if(settings.groundMode==="WORLD")return 0;
@@ -75,5 +78,10 @@ export function sceneBackgroundIsLight(settings:SceneSettings):boolean {
   return contrast(colorLuminance("#20384f"))>contrast(colorLuminance("#f0f5fc"));
 }
 export function sceneGridColor(settings:SceneSettings):string {
-  return settings.gridAutoColor?(sceneBackgroundIsLight(settings)?"#354d65":"#cbdced"):settings.gridColor;
+  return settings.gridAutoColor?(sceneBackgroundIsLight(settings)?"#89949d":"#8e9da9"):settings.gridColor;
+}
+
+/** Presets change viewing preferences only; existing object colours are preserved. */
+export function engineeringScenePreset(style:'NEUTRAL'|'DARK'):Partial<SceneSettings>{
+ return {...lightingPreset('ENGINEERING'),background:style==='NEUTRAL'?'THEME':'GRADIENT',backgroundTop:style==='NEUTRAL'?'#dce1e5':'#233346',backgroundBottom:style==='NEUTRAL'?'#f0f2f4':'#506171',grid:false,worldGrid:false,gridOpacity:.55,gridAutoColor:true,shadows:true,shadowOpacity:.28};
 }

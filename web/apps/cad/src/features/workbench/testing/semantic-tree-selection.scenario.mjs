@@ -49,6 +49,17 @@ try {
     ], artifacts: { "geometry-2": { geometryKey: "geometry-2", representations: {
       VISUAL: { objectId: "mesh-object", size: 128, schemaVersion: 1 } } } } };
   const nodes = tree.treeData(view);
+  const {visibleTreeHintKeys} = await server.ssrLoadModule("/src/features/workbench/tree-projection-index.ts");
+  const branch = view.structureTree.children[0], otherBranch = view.structureTree.children[1];
+  const chain = [view.structureTree.id, branch.id, branch.children[0].id, branch.children[0].children[0].id, branch.children[0].children[0].children[0].id];
+  const otherChain = [view.structureTree.id, otherBranch.id, otherBranch.children[0].id, otherBranch.children[0].children[0].id, otherBranch.children[0].children[0].children[0].id];
+  for (let depth=2; depth<=chain.length; depth++) {
+    const visible = [...chain.slice(0, depth), otherBranch.id];
+    assert.deepEqual([...visibleTreeHintKeys(nodes, [], chain, visible)], [chain[depth-1]], "association highlights only its nearest visible representative");
+    assert.deepEqual([...visibleTreeHintKeys(nodes, [chain.at(-1)], chain.slice(0,-1), visible)], depth===chain.length?[]:[chain[depth-1]], "exact selection bubbles only when hidden by a collapsed ancestor");
+  }
+  assert.deepEqual([...visibleTreeHintKeys(nodes, [], [...chain, ...otherChain], [...chain, otherBranch.id])], [chain.at(-1), otherBranch.id], "multi-selection projects each branch independently");
+  assert.deepEqual([...visibleTreeHintKeys(nodes, [], [], chain)], [], "clearing selection removes all hints");
   const instances = view.structureTree.children;
   const first = tree.structureSelection(instances[0].children[0].children[0].children[0], view);
   const second = tree.structureSelection(instances[1].children[0].children[0].children[0], view);

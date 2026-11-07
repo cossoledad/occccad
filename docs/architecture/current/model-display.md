@@ -46,7 +46,7 @@ Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果
 
 生成、修改和支撑分别记录。组合历史中的 Removed 标记不能覆盖最终 Shape 中仍存在的同一 TShape；这种明确存活的面/边保留上游来源，不能被邻接补齐命名误标为局部修改生成。支撑域裁剪的限制面通过同类型 Modified 传播原面身份。圆角扇区的实际新增面经布尔、同域融合和容差副本的真实 History 传播，并补回根边到最终面的 Generated 关系，避免中间删除令组合 History 丢失新增封口来源。封口融合原面时，保留原拉伸和圆角两个来源；共用边另有真实邻接来源时保留额外候选，不要求面边的全部来源集合相同。Modified/Split/Merged 继承实际来源，多个生成来源保留候选；Generated 新过渡面主要定位其生成 Feature，读取整个 Body 不产生整 Body 贡献。阵列 MEMBER 语义槽位与 Naming 中精确 seed SemanticTopologyRef 摘要配对，成员及其下游过渡面保留 pattern/slot，不按位置匹配种子；过渡生成别名经精确源引用摘要恢复支撑及成员上下文。
 
-视图命中保持真实拓扑主选择；树关联/预选提示不进入命令目标。Feature 选择按当前 Face/Edge ID 集合渲染融合网格高亮，Body 选择才高亮整体。匹配必须同时满足文档、Revision、Body、GeometryKey、occurrence、variant 和显示阶段。历史结果通过 `feature-input{resultStage:true}` 按需重建，下载仍验证 Feature、Revision 和精确对象范围；历史预览不参与建模拾取。恢复按钮、编辑结束或上下文变化清除临时阶段显示。
+视图命中保持真实拓扑主选择；树关联/预选提示不进入命令目标。关联 Feature 可见时仅提示该节点；仅在分支折叠遮住目标时，提示才冒泡到最近的可见祖先，展开后回到目标，hover 离开不清除此提示。提示按完整 occurrence 和来源快照隔离，不把同一 Part 的其他实例当成已选对象。Feature 选择按当前 Face/Edge ID 集合渲染融合网格高亮，Body 选择才高亮整体。匹配必须同时满足文档、Revision、Body、GeometryKey、occurrence、variant 和显示阶段。历史结果通过 `feature-input{resultStage:true}` 按需重建，下载仍验证 Feature、Revision 和精确对象范围；历史预览不参与建模拾取。恢复按钮、编辑结束或上下文变化清除临时阶段显示。
 
 生成工具选源与整体 Body 阶段分开；视图生成来源有歧义时提示候选，定义列表给出明确选择。特征组合以明确起止步骤复用阶段差集；树多选同 Body 的生成特征及后续圆角/倒角时按历史顺序初始化范围，文档、Revision 和 occurrence 不一致则拒绝。已有实体阵列允许显式切换选源模式。该范围支持添加型拉伸/旋转及随后的圆角/倒角；此前 Body 材料不参与复制。当前生成工具阵列仍限已有 PAD/LINEAR_EXTRUDE/REVOLVE 能力，不以最终 Body、白名单扩展或全 Body 复制替代任意特征组重执行。阵列阶段可以作为下游局部加工输入，种子编辑与成员上的下游圆角分别提交定义并通过真实 Naming 重算。
 

@@ -15,7 +15,7 @@ try{
  const geometry=new T.BoxGeometry(2,2,2),glass=factory.surface(0x999999,{opacity:.4}),invisible=factory.surface(0,{opacity:0});
  const mesh=new T.Mesh(geometry,[glass,invisible]);mesh.position.set(3,4,5);scene.add(mesh);
  let target=null,renders=0;const viewport=new T.Vector4(0,0,800,600),scissor=viewport.clone();
- const renderer={getDrawingBufferSize:v=>v.set(1600,1200),getRenderTarget:()=>target,getViewport:v=>v.copy(viewport),getScissor:v=>v.copy(scissor),getScissorTest:()=>true,
+ const renderer={getPixelRatio:()=>2,getDrawingBufferSize:v=>v.set(1600,1200),getRenderTarget:()=>target,getViewport:v=>v.copy(viewport),getScissor:v=>v.copy(scissor),getScissorTest:()=>true,
   setRenderTarget:v=>target=v,setViewport(){},setScissor(){},setScissorTest(){},clear(){},render(depthScene){
    renders++;assert.notEqual(depthScene,scene);const proxy=depthScene.children[0];assert.equal(proxy.geometry,geometry);assert.deepEqual(proxy.matrix.elements,mesh.matrixWorld.elements);
    assert.equal(proxy.material[0].visible,true);assert.equal(proxy.material[1].visible,false,"zero-opacity faces never occlude edges");

@@ -43,17 +43,22 @@ export function applyEdgeAppearance(group:THREE.Group,appearance:SurfaceStyle|un
   group.userData.appearanceEdges=appearance?.edges;
   group.userData.appearancePickable=appearance?.pickable;
   const opacity=appearance?.edgeOpacityMode==="CLEAR"?1:appearance?.opacity??1;
-  const width=appearance?.edgeWidth??1;
+  const width=appearance?.edgeWidth??1.1;
   let wide=group.children.find(c=>c.userData.cadWideEdges) as LineSegments2|undefined;
-  const custom=Math.abs(width-1)>1e-6;
-  if(wide&&!custom){group.remove(wide);wide.geometry.dispose();wide.material.dispose();wide=undefined}
-  if(custom&&!wide){
+  // CAD edges keep CSS-pixel width at DPR 1/2. The original lines remain the
+  // stable picking primitives; their transparent shader does not draw twice.
+  if(!wide){
     const source=group.children.find(c=>c instanceof THREE.LineSegments) as THREE.LineSegments|undefined;
     const positions=source?.geometry.getAttribute("position");
     if(positions){
       const material=new LineMaterial({color:defaultColor,linewidth:width,transparent:true,depthTest:true,depthWrite:false});
       material.userData.cadEdgeAppearance=true;configureLine?.(material);
-      wide=new LineSegments2(new LineSegmentsGeometry().setPositions(Array.from(positions.array)),material);
+      const geometry=new LineSegmentsGeometry().setPositions(Array.from(positions.array));
+      for(const [attribute,name] of [['edgeNormalA','instanceEdgeNormalA'],['edgeNormalB','instanceEdgeNormalB']]){
+        const values=source!.geometry.getAttribute(attribute);
+        geometry.setAttribute(name,new THREE.InstancedBufferAttribute(values?new Float32Array(values.array):new Float32Array(positions.count/2*3),3));
+      }
+      wide=new LineSegments2(geometry,material);
       wide.renderOrder=1;
       wide.userData.cadWideEdges=true;wide.raycast=()=>{};group.add(wide);
       registerScreenLineUpdate(wide,(_camera,w,h)=>material.resolution.set(w,h));
@@ -67,7 +72,7 @@ export function applyEdgeAppearance(group:THREE.Group,appearance:SurfaceStyle|un
     if(!(child instanceof THREE.LineSegments||child instanceof THREE.Points))continue;
     for(const material of Array.isArray(child.material)?child.material:[child.material]){
       if(material instanceof THREE.ShaderMaterial){
-        if(material.uniforms.uOpacity)material.uniforms.uOpacity.value=custom&&child instanceof THREE.LineSegments?0:opacity;
+        if(material.uniforms.uOpacity)material.uniforms.uOpacity.value=wide&&child instanceof THREE.LineSegments?0:opacity;
         if(material.uniforms.uColor&&child instanceof THREE.LineSegments)material.uniforms.uColor.value.set(appearance?.edgeColor??defaultColor);
       }
       material.userData.cadPickable=appearance?.pickable!==false&&opacity>0;

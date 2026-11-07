@@ -15,8 +15,9 @@ export class ScenePresentation {
     [this.key,this.fill,this.rim]=lights.children.slice(1) as THREE.DirectionalLight[];
     this.floor.name="场景地面";this.floor.receiveShadow=true;this.floor.renderOrder=-10;
     this.floor.userData.sceneEnvironment=true;environment.add(this.floor);
-    this.key.shadow.mapSize.set(2048,2048);this.key.shadow.bias=-.00025;
-    this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+    this.key.shadow.mapSize.set(2048,2048);this.key.shadow.bias=-.00045;
+    this.key.shadow.radius=3;
+    this.renderer.shadowMap.type=THREE.PCFShadowMap;
     this.scene.add(this.key.target);
   }
   update(settings:SceneSettings,bounds:THREE.Box3,height:number,sketchEditing=false,footprint:GroundFootprint=groundFootprint(bounds,settings.gridSpacing)):void {
@@ -34,12 +35,12 @@ export class ScenePresentation {
     this.floor.position.set(footprint.center.x,footprint.center.y,height-1e-5);this.floor.scale.setScalar(footprint.halfSize*2);
     const shadows=!sketchEditing&&settings.shadows&&!bounds.isEmpty();
     this.floor.visible=shadows&&settings.groundMode!=="OFF";
-    this.floor.material.opacity=1;
+    this.floor.material.opacity=.4;
     this.key.shadow.intensity=settings.shadowOpacity;
     this.renderer.shadowMap.enabled=shadows;this.key.castShadow=shadows;
     const camera=this.key.shadow.camera;
     camera.left=camera.bottom=-radius*1.15;camera.right=camera.top=radius*1.15;camera.near=Math.max(radius*.001,.00001);camera.far=radius*6;camera.updateProjectionMatrix();
-    this.key.shadow.normalBias=radius/2048;
+    this.key.shadow.normalBias=radius/2048*2;
     this.key.shadow.needsUpdate=true;
   }
   dispose():void {this.key.shadow.dispose();this.scene.remove(this.key.target);}

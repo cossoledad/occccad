@@ -26,6 +26,7 @@ export class CadMaterialFactory {
     material.userData.cadMaterial = "surface";
     material.userData.baseColor = color;
     material.userData.cadPickable=properties.pickable!==false;
+    this.surfaceDepth.configureSurface(material);
     return material;
   }
 

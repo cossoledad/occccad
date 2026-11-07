@@ -29,11 +29,11 @@ try {
  assert.equal(materialAllowsPick(translucent,0),true);assert.equal(materialAllowsPick(translucent,1),false);
  const {groundLevel,normalizeSceneSettings,automaticGroundClearance}=await server.ssrLoadModule("/src/cad/rendering/scene-settings.ts");
  assert.equal(groundLevel(normalizeSceneSettings({}),-15),-15);
- assert.equal(groundLevel(normalizeSceneSettings({}),-15,{x:100,y:100,z:100}),-23,"automatic ground leaves a model-relative clearance");
- const cube=automaticGroundClearance({x:100,y:100,z:100});assert.equal(cube,8);
+ assert.equal(groundLevel(normalizeSceneSettings({}),-15,{x:100,y:100,z:100}),-15.8,"contact ground leaves a small scale-relative clearance");
+ const cube=automaticGroundClearance({x:100,y:100,z:100});assert.equal(cube,.8);
  for(const scale of [1e-6,.001,1,1000,1e6])assert.ok(Math.abs(automaticGroundClearance({x:100*scale,y:100*scale,z:100*scale})/scale-cube)<1e-8,"clearance scales with the model, independently of unit size");
- assert.equal(automaticGroundClearance({x:10000,y:2,z:2}),.16,"a long rod uses its section scale rather than its longest edge");
- assert.equal(automaticGroundClearance({x:1000,y:1000,z:1}),8,"thin sheets retain a modest footprint-relative gap");
+ assert.equal(automaticGroundClearance({x:10000,y:2,z:2}),.016,"a long rod uses its section scale rather than its longest edge");
+ assert.equal(automaticGroundClearance({x:1000,y:1000,z:1}),.8,"thin sheets retain a modest footprint-relative gap");
  assert.equal(automaticGroundClearance({x:0,y:0,z:0}),0);
  assert.equal(normalizeSceneSettings({gridSpacing:0}).gridSpacing,10,"old adaptive ground becomes a fixed world interval");
  assert.equal(groundLevel(normalizeSceneSettings({groundMode:"WORLD"}),-15),0);

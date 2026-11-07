@@ -16,8 +16,8 @@ export const CATIA_VISUAL_THEME = {
   axisX: colorNumber(palette.axisX), axisY: colorNumber(palette.axisY), axisZ: colorNumber(palette.axisZ),
   navigation: colorNumber(palette.selected), navigationHighlight: colorNumber(palette.snap),
   // Satin dielectric: broad highlights must not exaggerate tessellation normals.
-  surfaceRoughness: 0.5, surfaceMetalness: 0.04, surfaceEnvironmentIntensity: 0.36, datumOpacity: 0.09,
-  lightSky: 0xf1f5fc, lightGround: 0x667381, lightKey: 0xffffff, lightFill: 0xdae5f2, lightRim: 0xe4edff,
-  hemisphereIntensity: 0.5, keyIntensity: 1.0, fillIntensity: 0.25, rimIntensity: 0.26,
+  surfaceRoughness: 0.62, surfaceMetalness: 0.02, surfaceEnvironmentIntensity: 0.30, datumOpacity: 0.07,
+  lightSky: 0xf7f8fa, lightGround: 0x747b82, lightKey: 0xffffff, lightFill: 0xf0f3f6, lightRim: 0xffffff,
+  hemisphereIntensity: 0.56, keyIntensity: 1.0, fillIntensity: 0.36, rimIntensity: 0.20,
 } as const;
 export type CadVisualTheme = {[K in keyof typeof CATIA_VISUAL_THEME]:number};

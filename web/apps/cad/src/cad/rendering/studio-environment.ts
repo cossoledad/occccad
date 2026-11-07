@@ -4,7 +4,7 @@ import * as THREE from "three";
  * PMREM turns their finite area into roughness-dependent highlight bands. */
 export function makeStudioEnvironmentScene(): THREE.Scene {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color().setRGB(0.14, 0.16, 0.19);
+  scene.background = new THREE.Color().setRGB(0.18, 0.19, 0.20);
   const card = (name: string, width: number, height: number, position: THREE.Vector3,
     radiance: [number, number, number]) => {
     const material = new THREE.MeshBasicMaterial({
@@ -18,10 +18,10 @@ export function makeStudioEnvironmentScene(): THREE.Scene {
     scene.add(mesh);
   };
   // Broad, lower-contrast cards keep coarse curved meshes from reflecting sharp strips.
-  card("studio-key", 9, 7, new THREE.Vector3(-4, -5, 7), [2.2, 2.15, 2.05]);
-  card("studio-side", 4, 8, new THREE.Vector3(6, 2, 3), [1.5, 1.6, 1.75]);
-  card("studio-top", 5, 3, new THREE.Vector3(1, 4, 8), [1.8, 1.9, 2.1]);
-  card("studio-fill", 5, 5, new THREE.Vector3(-5, 4, 1), [0.65, 0.72, 0.85]);
+  card("studio-key", 11, 9, new THREE.Vector3(-4, -5, 7), [2.0, 2.0, 2.0]);
+  card("studio-side", 7, 9, new THREE.Vector3(6, 2, 3), [1.45, 1.48, 1.52]);
+  card("studio-top", 7, 5, new THREE.Vector3(1, 4, 8), [1.7, 1.72, 1.75]);
+  card("studio-fill", 7, 6, new THREE.Vector3(-5, 4, 1), [0.8, 0.82, 0.85]);
   scene.updateMatrixWorld(true);
   return scene;
 }
@@ -32,7 +32,7 @@ export function createStudioEnvironment(renderer: THREE.WebGLRenderer): THREE.We
   const scene = makeStudioEnvironmentScene();
   const generator = new THREE.PMREMGenerator(renderer);
   try {
-    return generator.fromScene(scene, 0.06, 0.1, 100, { size: 256 });
+    return generator.fromScene(scene, 0.03, 0.1, 100, { size: 256 });
   } finally {
     generator.dispose();
     scene.traverse(object => {

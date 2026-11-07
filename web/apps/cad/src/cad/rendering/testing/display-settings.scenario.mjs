@@ -15,7 +15,7 @@ try {
 
   assert.deepEqual(normalizeReferenceVisibility(undefined), { points:true,planes:true, axes:true, coordinateSystems:true });
   assert.deepEqual(normalizeReferenceVisibility({axes:false}), { points:true,planes:true, axes:false, coordinateSystems:true });
-  assert.deepEqual(normalizeSolidDisplaySettings("obsolete"), {mode:"shaded",edges:true,vertices:true});
+  assert.deepEqual(normalizeSolidDisplaySettings("obsolete"), {mode:"shaded",edges:true,vertices:false});
   assert.deepEqual(normalizeSolidDisplaySettings("smooth"), {mode:"shaded",edges:false,vertices:false});
   assert.deepEqual(normalizeSolidDisplaySettings("wireframe"), {mode:"wireframe",edges:true,vertices:false});
   assert.deepEqual(normalizeSolidDisplaySettings({mode:"shaded",edges:false,vertices:true}), {mode:"shaded",edges:false,vertices:true});

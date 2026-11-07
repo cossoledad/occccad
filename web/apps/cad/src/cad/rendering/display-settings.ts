@@ -1,5 +1,5 @@
 export type SolidDisplaySettings = { mode: "shaded" | "wireframe"; edges: boolean; vertices: boolean };
-export const DEFAULT_SOLID_DISPLAY: SolidDisplaySettings = { mode: "shaded", edges: true, vertices: true };
+export const DEFAULT_SOLID_DISPLAY: SolidDisplaySettings = { mode: "shaded", edges: true, vertices: false };
 export type ReferenceVisibility = { planes: boolean; axes: boolean; points:boolean; coordinateSystems: boolean };
 export const DEFAULT_REFERENCE_VISIBILITY: ReferenceVisibility = { planes: true, axes: true, points:true, coordinateSystems: true };
 export function normalizeReferenceVisibility(value: unknown): ReferenceVisibility {
@@ -14,7 +14,7 @@ export function normalizeSolidDisplaySettings(value: unknown): SolidDisplaySetti
   };
   const input = value && typeof value === "object" ? value as Partial<SolidDisplaySettings> : {};
   return { mode: input.mode === "wireframe" ? "wireframe" : "shaded",
-    edges: input.edges !== false, vertices: input.vertices !== false };
+    edges: input.edges !== false, vertices: input.vertices === true };
 }
 export function referenceCategory(kind: unknown, axis?: unknown): keyof ReferenceVisibility | undefined {
   if(kind==="reference-point")return "points";

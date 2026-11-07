@@ -14,6 +14,7 @@ import { isValidElement, useEffect, useMemo, useRef, useState, type CSSPropertie
 import { selectionSetToken } from "../../cad/interaction/selection-identity";
 import type { DocumentStructureNode, InstancePath, Selection } from "../../types";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
+import { visibleTreeHintKeys } from "./tree-projection-index";
 import { treeVisibilityAction } from "./tree-visibility-action";
 import { isEditTargetNode, type EditSession } from "./edit-session";
 import { ContextMenuIcon } from "../../components/context-menu-icon";
@@ -57,15 +58,6 @@ function flatten(nodes: SpecificationTreeNode[], expanded: Set<string>, depth = 
     if (hasChildren && (depth === 0 || expanded.has(node.key))) flatten(node.children!, expanded, depth + 1, output);
   }
   return output;
-}
-
-function ancestorsOf(nodes: SpecificationTreeNode[], target: string, parents: string[] = []): string[] | undefined {
-  for (const node of nodes) {
-    if (node.key === target) return parents;
-    const found = node.children ? ancestorsOf(node.children, target, [...parents, node.key]) : undefined;
-    if (found) return found;
-  }
-  return undefined;
 }
 
 function indexNodes(nodes: SpecificationTreeNode[], output = new Map<string, SpecificationTreeNode>()): Map<string, SpecificationTreeNode> {
@@ -133,11 +125,8 @@ export function SpecificationTree({ documentSessions, hostDocumentId, nodes, sel
   const nodeIndex = useMemo(() => indexNodes(nodes), [nodes]);
   const visibleKeys = useMemo(() => visible.map((entry) => entry.node.key), [visible]);
   const selected = useMemo(() => new Set(selectedKeys), [selectedKeys]);
-  const descendantHints = useMemo(() => {
-    const hints = new Set(ancestorHintKeys ?? []);
-    for (const key of selectedKeys) for (const parent of ancestorsOf(nodes, key) ?? []) hints.add(parent);
-    return hints;
-  }, [ancestorHintKeys, nodes, selectedKeys]);
+  const descendantHints = useMemo(() => visibleTreeHintKeys(nodes, selectedKeys, ancestorHintKeys ?? [], visibleKeys),
+    [ancestorHintKeys, nodes, selectedKeys, visibleKeys]);
   useEffect(() => {
     const available = branchKeys(nodes);
     setSavedTree(current => ({ ...current, knownBranches: [...available], expanded: [

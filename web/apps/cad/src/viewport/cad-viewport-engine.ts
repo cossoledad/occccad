@@ -1,3 +1,4 @@
+import {edgeFacingAttributes} from "../cad/rendering/edge-facing";
 import {assemblyReferenceInContext} from "../cad/assembly/assembly-reference";
 import {assemblyPublicationSelection,assemblyPublicationCandidates,type AssemblyPublicationChoice} from "../features/workbench/assembly-publication-selection";
 import {SectionManipulator,type SectionEditSession} from "../cad/interaction/section-manipulator";
@@ -686,7 +687,7 @@ export class CadViewportEngine {
     this.camera.position.set(300, -300, 300);
     this.camera.up.set(0, 0, 1);
     this.camera.layers.enable(CAD_GEOMETRY_LAYER);
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = false;
     this.renderer.localClippingEnabled=true;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -3206,6 +3207,9 @@ export class CadViewportEngine {
       const edgeGeometry = new THREE.BufferGeometry();
       edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
       edgeGeometry.userData.navigationEdgeIds = edgeIDs;
+      const facing=edgeFacingAttributes(artifact.mesh);
+      edgeGeometry.setAttribute('edgeNormalA',new THREE.Float32BufferAttribute(facing.first,3));
+      edgeGeometry.setAttribute('edgeNormalB',new THREE.Float32BufferAttribute(facing.second,3));
       const edges = new THREE.LineSegments(edgeGeometry, this.materials.edge());
       edges.renderOrder=1;
       markNavigationPickable(edges);
@@ -4363,7 +4367,7 @@ export class CadViewportEngine {
         updateScreenLines(this.scene, this.camera, metrics.cssWidth, metrics.cssHeight);
         this.updateSketchParameterAnchor();
         this.updateCameraClipping();
-        this.materials.surfaceDepth.render(this.renderer,this.scene,this.camera);
+        this.materials.surfaceDepth.render(this.renderer,this.scene,this.camera,this.sceneSettings.ambientOcclusion&&!this.sketchPlane&&this.solidDisplay.mode==='shaded',this.sceneSettings.aoIntensity);
         this.sketchColorAdapter.applyOwned(this.content,this.sketchColors);
         this.sketchColorAdapter.applyOwned(this.helpers,this.sketchColors);
         this.sketchColorAdapter.apply(this.sketchContext,this.sketchColors);
