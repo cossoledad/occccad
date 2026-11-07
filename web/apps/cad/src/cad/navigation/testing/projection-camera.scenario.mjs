@@ -20,6 +20,13 @@ try {
  const pose=saveView(perspective,target);restoreView(ortho,new T.Vector3(),pose);assert.ok(Math.abs(units(ortho)-units(perspective))<1e-10,"sketch return restores scale across projection changes");
  const bounds=new T.Box3(new T.Vector3(-40,-20,-15),new T.Vector3(50,90,55));fitPerspectiveView(perspective,target,bounds);const before=perspective.position.clone();updatePerspectiveClipping(perspective,target,bounds);assert.deepEqual(perspective.position,before,"clipping must not move perspective eye");
  for(let i=0;i<8;i++){const p=new T.Vector3(i&1?bounds.max.x:bounds.min.x,i&2?bounds.max.y:bounds.min.y,i&4?bounds.max.z:bounds.min.z).project(perspective);assert.ok(Math.abs(p.x)<=1&&Math.abs(p.y)<=1&&Math.abs(p.z)<=1,"fit includes all 8 corners")}
+ for(const scale of [1e-4,1,1e6]){
+  const c=new T.PerspectiveCamera(35,1.6,.001,1e9),b=new T.Box3(new T.Vector3(-5,-5,0).multiplyScalar(scale),new T.Vector3(31,5,10).multiplyScalar(scale)),focus=new T.Vector3(13,0,5).multiplyScalar(scale);
+  c.position.copy(focus).add(new T.Vector3(2,-37,17).multiplyScalar(scale));c.lookAt(focus);c.updateMatrixWorld(true);const position=c.position.clone();
+  updatePerspectiveClipping(c,focus,b,()=>{throw Error('ordinary views do not query a surface')});
+  assert(c.near>c.position.distanceTo(focus)*.005,'ordinary views retain depth precision at every model scale');assert.deepEqual(c.position,position);
+  for(let i=0;i<8;i++){const p=new T.Vector3(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z).project(c);assert(p.z>-1&&p.z<1,'all displayed bounds remain within the clip range')}
+ }
  const hud=new NavigationHUD();hud.update({catia:{showPivot:true,pivot:new T.Vector3(999,999,999),pointer:{x:100,y:200}}},perspective,800,600);assert.deepEqual(hud.screenPosition,{x:400,y:300},"HUD anchor independent of picked depth/position");
  const marker=hud.pivotMarker,p=marker.geometry.attributes.position,c=marker.geometry.attributes.color;
  assert.equal(p.count,10);assert.ok(p.getX(1)<0&&p.getX(2)>0,"X axis has a central gap");assert.ok(p.getY(5)<0&&p.getY(6)>0,"Y axis has a central gap");assert.ok(p.getZ(9)-p.getZ(8)<p.getX(3)-p.getX(0),"Z is shorter");assert.ok(c.getX(8)>.9&&c.getY(8)>.6&&c.getZ(8)<.2,"Z is yellow");for(const [width,height] of [[800,600],[1440,1000],[2048,1536]]){

@@ -1165,7 +1165,7 @@ export class CadViewportEngine {
     this.groundHeight=placement.height;this.modelGroundHeight=placement.modelHeight;this.groundFootprint=placement.footprint;
     this.groundFrame.origin.z=this.groundHeight;
     this.groundGrid.setFootprint(placement.footprint);this.worldGrid.setFootprint(placement.footprint);
-    this.scenePresentation?.update(this.sceneSettings,this.groundBounds,this.groundHeight,Boolean(this.sketchPlane),placement.footprint);
+    this.scenePresentation?.update(this.sceneSettings,this.groundBounds,this.groundHeight,Boolean(this.sketchPlane));
   }
 
   private gridVisibility = {scene:true,sketch:true};

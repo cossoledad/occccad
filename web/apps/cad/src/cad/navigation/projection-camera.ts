@@ -52,10 +52,16 @@ export function updatePerspectiveClipping(camera:THREE.PerspectiveCamera,target:
   // A bounding box crossing the eye does not mean a visible surface is at the eye.
   // Collapsing near in that case destroys depth precision and exposes back edges.
   // Query a real display surface only when the envelope is close/straddling.
-  const surfaceDepth=minDepth<focus*.01?visibleSurfaceDepth?.():undefined;
+  const closeEnvelope=minDepth<focus*.01;
+  const measuredDepth=closeEnvelope?visibleSurfaceDepth?.():undefined;
+  const surfaceDepth=measuredDepth!==undefined&&Number.isFinite(measuredDepth)&&measuredDepth>0?measuredDepth:undefined;
   const reference=surfaceDepth!==undefined&&Number.isFinite(surfaceDepth)&&surfaceDepth>0?Math.min(focus,surfaceDepth):focus;
-  const envelopeNear=surfaceDepth===undefined&&minDepth>0?minDepth*.1:Infinity;
-  camera.near=Math.max(1e-7,Math.min(reference*1e-4,envelopeNear,1));
+  const envelopeNear=minDepth>0?minDepth*.1:Infinity;
+  // Normal views use the available depth precision. A near/straddling envelope
+  // without a real surface hit retains the conservative close-view fallback.
+  // Positive envelope depth always protects off-axis geometry too.
+  const fraction=(!closeEnvelope||surfaceDepth!==undefined)?0.01:1e-4;
+  camera.near=Math.max(1e-7,Math.min(reference*fraction,envelopeNear));
   camera.far=Math.max(camera.near*100,maxDepth*2,focus*20);
   camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
 }
