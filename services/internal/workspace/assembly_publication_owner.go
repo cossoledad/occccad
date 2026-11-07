@@ -65,15 +65,31 @@ func (s *Service) resolveLocalAssemblyPublication(ctx context.Context, model *Pr
 	return port, nil
 }
 
-func localPublicationUsed(model ProductModel, id string) bool {
+func localPublicationConsumers(model ProductModel, id string) []DependencyObject {
+	var out []DependencyObject
 	for _, c := range model.Constraints {
 		for _, ref := range []*AssemblyGeometryRef{&c.First, c.Second, c.AngleAxis} {
 			if ref != nil && ref.PublicationRef != nil && ref.PublicationRef.Scope == "LOCAL" && ref.PublicationRef.PublicationID == id {
-				return true
+				name := c.Name
+				if name == "" {
+					name = constraintDisplayName(c, func(id string) string {
+						for _, i := range model.Instances {
+							if i.ID == id {
+								return i.Name
+							}
+						}
+						return "组件"
+					}, model.Constraints...)
+				}
+				out = append(out, DependencyObject{Kind: "ASSEMBLY_CONSTRAINT", ID: c.ID, Name: name})
+				break
 			}
 		}
 	}
-	return false
+	return out
+}
+func localPublicationUsed(model ProductModel, id string) bool {
+	return len(localPublicationConsumers(model, id)) > 0
 }
 
 // A changed public target invalidates its consumers without moving components.

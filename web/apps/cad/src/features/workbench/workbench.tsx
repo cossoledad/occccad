@@ -163,10 +163,13 @@ export function Workbench() {
   const newSketchSession = useRef<NewSketchSession | undefined>(undefined);
   const client = useQueryClient();
   const { message,modal } = App.useApp();
-  const operationFeedback=useOperationFeedback();
+  const operationFeedback=useOperationFeedback({locateDependency:object=>{
+    const find=(nodes:SpecificationTreeNode[]):SpecificationTreeNode|undefined=>{for(const n of nodes){if(n.entityId===object.id&&(n.ownerDocumentId??n.documentId)===view?.document.id&&!n.instancePath?.segments.length&&n.presentationRole!=="INPUT_REFERENCE"&&(object.kind==='FEATURE'||n.kind===object.kind))return n;const nested=n.children&&find(n.children);if(nested)return nested}};
+    const node=find(treeNodes);if(!node?.selection||!view)return;closeCommandPanels();store.setSelections([node.selection]);requestTreeReveal(documentSessions,documentID,{documentId:view.document.id,entityId:object.id,kind:node.kind as import('../../types').DocumentStructureNode['kind'],reason:'LOCATE'});viewport.current?.focusSelections([node.selection]);
+  }});
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
   const viewport = useRef<CadViewportHandle>(null);
-  const [measurementLayouts,setMeasurementLayouts]=useState<{documentId:string;layouts:import("../../cad/measurement/annotation-layout").AnnotationLayouts;save?:(id:string,offset:[number,number]|undefined)=>void}>();
+  const [measurementLayouts,setMeasurementLayouts]=useState<{documentId:string;layouts:import("../../cad/measurement/annotation-layout").AnnotationLayouts;save?:(id:string,position:[number,number,number]|undefined)=>void}>();
   const [assistantOpen,setAssistantOpen]=useState(false);
   useEffect(()=>setAssistantOpen(false),[documentID]);
   const [assistantDisplayed,setAssistantDisplayed]=useState<{documentId:string;revisionId:string}>();

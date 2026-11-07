@@ -1,6 +1,6 @@
 import {treeNavigator} from "./tree-helpers";
 import {expect,test,type Page} from '@playwright/test';
-import {worldScreen} from './camera-helpers';
+import {setProjection,worldScreen} from './camera-helpers';
 
 async function openMeasure(page:Page,name:string){
  await page.getByRole('button',{name:'搜索工具',exact:true}).click();
@@ -72,10 +72,26 @@ test('Part and Product exact measurement, paired picking, annotation drag and re
  const retainedLabel=page.locator('.measurement-label'),beforeLayout=await retainedLabel.getAttribute('transform'),retainedRect=(await retainedLabel.boundingBox())!;
  await page.mouse.move(retainedRect.x+30,retainedRect.y+12);await page.mouse.down();await page.mouse.move(retainedRect.x+95,retainedRect.y+48,{steps:7});await page.mouse.up();
  await expect(retainedLabel).not.toHaveAttribute('transform',beforeLayout!);
- const retainedTransform=await retainedLabel.getAttribute('transform');
  await expect.poll(async()=>{const result=await page.request.get(`/api/documents/${seed.id}/annotation-layouts`);return (await result.json())[saved.id]?.version??0}).toBe(1);
+ let layout=(await (await page.request.get(`/api/documents/${seed.id}/annotation-layouts`)).json())[saved.id];expect(layout.position).toHaveLength(3);expect(layout.position.every(Number.isFinite)).toBeTruthy();
+ const assertWorldLabel=async()=>{
+  const expected=await worldScreen(page,layout.position),canvas=(await page.locator('canvas').boundingBox())!;
+  await expect.poll(async()=>{const xy=(await retainedLabel.getAttribute('transform'))!.match(/translate\(([^ ]+) ([^)]+)\)/)!.slice(1).map(Number);return Math.hypot(xy[0]-(expected.x-canvas.x),xy[1]-(expected.y-canvas.y))}).toBeLessThan(.05);
+ };
+ await assertWorldLabel();const retainedTransform=await retainedLabel.getAttribute('transform');
+ const oldLeader=await page.locator('.measurement-leader').first().getAttribute('x1');
+ const cameraBefore=await page.evaluate(()=>{const e=(window as any).__cameraEngine;const before={position:e.camera.position.toArray(),rotation:e.camera.quaternion.toArray()};const axis=e.camera.position.clone().set(0,0,1);e.camera.position.sub(e.navigation.target).applyAxisAngle(axis,.5).add(e.navigation.target);e.camera.lookAt(e.navigation.target);e.camera.updateMatrixWorld(true);e.navigation.syncCamera();e.invalidate();return before});
+ await expect(retainedLabel).not.toHaveAttribute('transform',retainedTransform!);await assertWorldLabel();await expect(page.locator('.measurement-leader').first()).not.toHaveAttribute('x1',oldLeader!);
+ await page.screenshot({path:info.outputPath('measurement-world-label-after-rotation.png')});
+ await page.evaluate(before=>{const e=(window as any).__cameraEngine;e.camera.position.fromArray(before.position);e.camera.quaternion.fromArray(before.rotation);e.camera.updateMatrixWorld(true);e.navigation.syncCamera();e.invalidate()},cameraBefore);await assertWorldLabel();
+ await setProjection(page,'透视');await assertWorldLabel();
+ const perspectiveRect=(await retainedLabel.boundingBox())!;await page.mouse.move(perspectiveRect.x+20,perspectiveRect.y+12);await page.mouse.down();await page.mouse.move(perspectiveRect.x-20,perspectiveRect.y+36,{steps:6});await page.mouse.up();
+ await expect.poll(async()=>((await (await page.request.get(`/api/documents/${seed.id}/annotation-layouts`)).json())[saved.id]?.version??0)).toBe(2);
+ const previousPosition=layout.position;layout=(await (await page.request.get(`/api/documents/${seed.id}/annotation-layouts`)).json())[saved.id];expect(layout.position).not.toEqual(previousPosition);await assertWorldLabel();
+ await page.screenshot({path:info.outputPath('measurement-world-label-perspective.png')});await setProjection(page,'平行');await assertWorldLabel();
  expect((await current(seed.id)).document.versionId).toBe(retainedHead);
- await page.reload();await expect(page.locator('.measurement-label')).toHaveAttribute('transform',retainedTransform!);
+ expect((await (await page.request.get(`/api/documents/${seed.id}/annotation-layouts`)).json())[saved.id]).toEqual(layout);
+ await page.reload();await expect(retainedLabel).toHaveCount(1);await assertWorldLabel();
  await page.evaluate(async s=>{
 
   // @ts-ignore production module
@@ -91,8 +107,8 @@ test('Part and Product exact measurement, paired picking, annotation drag and re
  const pattern=`**/api/documents/${seed.id}/measure`;
  await page.route(pattern,async route=>{const response=await route.fetch();seen();await hold;await route.fulfill({response}).catch(()=>{})});
  dialog=await openMeasure(page,'测量之间');
- {const header=dialog.locator('.cad-command-dialog-header'),box=(await header.boundingBox())!;await page.mouse.move(box.x+50,box.y+15);await page.mouse.down();await page.mouse.move(700,230,{steps:6});await page.mouse.up()}
- for(const [index,p] of [[10,5,10],[10,0,5]].entries()){const xy=await worldScreen(page,p);await page.mouse.click(xy.x,xy.y);if(index===0)await expect(dialog.locator('[data-pick-active=true]')).toContainText('对象 2')}
+ {const header=dialog.locator('.cad-command-dialog-header'),box=(await header.boundingBox())!;await page.mouse.move(box.x+50,box.y+15);await page.mouse.down();await page.mouse.move(65,920,{steps:6});await page.mouse.up()}
+ for(const [index,p] of [[10,5,10],[60,5,10]].entries()){const xy=await worldScreen(page,p);expect(await page.evaluate(p=>document.elementFromPoint(p.x,p.y)?.tagName,xy)).toBe('CANVAS');await page.mouse.click(xy.x,xy.y);if(index===0)await expect(dialog.locator('[data-pick-active=true]')).toContainText('对象 2')}
  await expect(dialog.locator('[data-pick-active=true]')).toHaveCount(0);
  await Promise.race([started,new Promise((_,reject)=>setTimeout(()=>reject(Error('Measurement response not observed')),15000))]);
  await dialog.getByRole('button',{name:/^取\s*消$/,exact:true}).click();release();await page.unroute(pattern);await expect(dialog).toHaveCount(0);await expect(page.locator('.measurement-label')).toHaveCount(1);
@@ -148,4 +164,24 @@ test('Reference elements preview, tree picking, owned parameters and Product par
  await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeEnabled();await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  await expect.poll(async()=>((await (await page.request.get(`/api/documents/${productID}`)).json()).product.parameters[0].evaluatedValue.siValue)).toBe(.02);
  expect(errors).toEqual([]);
+});
+
+test('point coordinates and actionable dependency blockers preserve the measurement until references change',async({page},info)=>{
+ test.setTimeout(180_000);page.setDefaultTimeout(20_000);const login=await page.request.post('/api/auth/login',{data:{email:process.env.OCCCCAD_ADMIN_EMAIL??'admin@occccad.local',password:process.env.OCCCCAD_ADMIN_PASSWORD}});expect(login.ok()).toBeTruthy();await page.goto('/');
+ const id=await page.evaluate(async()=>{
+  // @ts-ignore production module
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','点坐标与依赖删除验收');const id=v.document.id;v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});const sketchId=v.part!.features.at(-1)!.id;await api.command(id,{type:'EDIT_SKETCH',sketchId,operations:[{type:'ADD_RECTANGLE',first:{x:0,y:0},second:{x:20,y:10}}]});await api.command(id,{type:'CREATE_SOLID_FEATURE',sketchId,generator:'LINEAR_EXTRUDE',operation:'ADD',length:10});return id;
+ });
+ await page.goto('/documents/'+id);const dialog=await openMeasure(page,'测量对象');await dialog.getByRole('textbox',{name:'测量名称'}).fill('安装点');await dialog.getByRole('combobox',{name:'测量选择过滤'}).click();await page.locator('.ant-select-dropdown:visible').getByText('顶点',{exact:true}).click();
+ {const header=dialog.locator('.cad-command-dialog-header'),box=(await header.boundingBox())!;await page.mouse.move(box.x+50,box.y+15);await page.mouse.down();await page.mouse.move(65,220,{steps:6});await page.mouse.up()}
+ const point=await worldScreen(page,[20,0,10]);await page.mouse.click(point.x,point.y);await expect(dialog.getByLabel('测量结果')).toContainText('20 mm');await expect(page.locator('.measurement-label')).toHaveAttribute('aria-label',/\(20, 0, 10\) mm/);await page.screenshot({path:info.outputPath('point-complete-coordinates.png')});await dialog.getByRole('button',{name:/^确\s*定$/}).click();await expect(dialog).toHaveCount(0);
+ const data=await page.evaluate(async id=>{
+  // @ts-ignore production module
+  const {restApi:api}=await import('/src/api.ts');let v=await api.getDocument(id);const m=v.part!.measurements![0],output=v.part!.parameters!.find(p=>p.source.produced?.entityId===m.id&&p.propertySlot==='xMm')!;v=await api.command(id,{type:'CREATE_PARAMETER',name:'mount_size',value:20,unit:'mm'});const consumer=v.part!.parameters!.find(p=>p.lifecycle==='USER')!;v=await api.setParameterExpression(id,consumer.parameterId,output.key);return {measurement:m.id,consumer:consumer.parameterId,consumerName:consumer.key,version:v.document.versionId};
+ },id);await page.reload();await treeNavigator(page)('安装点');const measured=page.locator(`[role=treeitem][data-tree-key$="/${data.measurement}"]`);await measured.click();await page.keyboard.press('Delete');const notice=page.locator('.cad-operation-notification');await expect(notice).toContainText('无法删除“安装点”');await expect(notice).toContainText(data.consumerName);await expect(notice).not.toContainText(data.consumer);expect((await (await page.request.get('/api/documents/'+id)).json()).document.versionId).toBe(data.version);
+ await page.screenshot({path:info.outputPath('dependency-block-actionable.png')});await notice.getByRole('button',{name:`定位 ${data.consumerName}`,exact:true}).click();await expect(page.locator(`[role=treeitem][data-tree-key$="/parameter:${data.consumer}"]`)).toHaveAttribute('aria-selected','true');
+ await page.evaluate(async({id,consumer})=>{
+  // @ts-ignore production module
+  const {restApi:api}=await import('/src/api.ts');await api.setParameterValue(id,consumer,20,'mm');
+ },{id,consumer:data.consumer});await page.reload();await treeNavigator(page)('安装点');await measured.click();await page.keyboard.press('Delete');await expect.poll(async()=>((await (await page.request.get('/api/documents/'+id)).json()).part.measurements??[]).length).toBe(0);await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>((await (await page.request.get('/api/documents/'+id)).json()).part.measurements??[])[0]?.id).toBe(data.measurement);
 });

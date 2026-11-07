@@ -249,3 +249,27 @@
 .section-result-canvas svg { cursor:grab; user-select:none; }
 .section-result-canvas svg[data-panning] { cursor:grabbing; }
 @media(max-width:520px) { .measurement-pick-options,.measurement-options { grid-template-columns:minmax(0,1fr); } }
+
+.dependency-block-list { margin:8px 0 0; padding:0; list-style:none; max-height:240px; overflow:auto; }
+.dependency-block-list li { display:flex; align-items:baseline; gap:8px; }
+.dependency-block-list .ant-btn { height:auto; padding-inline:0; white-space:normal; text-align:left; }
+.dependency-block-list small { color:var(--color-text-secondary); }
+
+.clash-form { display:flex; flex-direction:column; gap:12px; }
+.clash-form .command-field,.clash-form .feature-pick-field { margin:0; }
+.clash-summary { display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:12px; }
+.clash-summary small,.clash-skipped,.clash-selected-options small { color:var(--color-text-secondary); }
+.clash-results-toolbar { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+.clash-results-toolbar .ant-select { min-width:132px; }
+.clash-pair-names { display:flex; flex-direction:column; gap:4px; }
+.clash-pair-names > div { display:flex; align-items:baseline; gap:8px; min-width:0; }
+.clash-pair-names > div > span:first-child { flex:none; color:var(--color-text-secondary); font-size:11px; }
+.clash-pair-names > div > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.clash-pair-result { display:flex; flex-direction:column; gap:4px; }
+.clash-pair-result small { color:var(--color-text-secondary); font-variant-numeric:tabular-nums; }
+.clash-result-table tr[aria-selected=true] > td { background:var(--color-primary-soft); }
+.clash-result-table tbody tr { cursor:pointer; }
+.clash-issues { color:var(--color-warning); font-size:12px; }
+.clash-issues ul { padding-left:16px; margin:8px 0 0; }
+.clash-result-group summary { cursor:pointer; padding:4px 0; }
+.clash-selected-options { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }

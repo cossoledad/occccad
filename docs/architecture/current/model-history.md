@@ -122,6 +122,8 @@ HTTP transport DTO 在 API 边界转换为 `type_uri + schema_version + typed pa
 
 Part 支持草图、实体 Feature、STEP 基础实体与参数 literal/expression 更新；Product 支持插入、移动和引用策略。Specification Tree 是服务端模型投影：节点携带稳定领域 identity、owner 和允许的 capability，当前 Feature、Product Instance、Sketch Entity/Constraint 和自定义 DatumPlane/DatumAxis 可按模型状态开放 `DELETE`，而 Document、Body、Origin、标准平面、Axis System/Axis 和引用子树默认受保护。删除仍是版本化 Domain Command；删除草图实体会在同一 `sketch.model` 变更中级联删除全部引用约束，删除 Feature 则先检查下游依赖，自定义基准删除拒绝被草图/实体 Feature、Publication 或上下文引用使用的对象。实体 Feature 抑制/恢复通过专用 typed command 和同一 entity PropertySlot 补偿。Undo/Redo 以根 Domain Transaction 为稳定 identity：Revert 指向根 intent，Reapply 指向根 intent 并消费一个具体 Revert。服务端按 actor 折叠有序 action log 计算 capability，因此连续 Undo 两步可按逆序 Redo 两步；新 Domain/Restore 形成 redo boundary，但不删除历史。API 返回的 `canUndo/canRedo` 来自同一状态折叠，Web 按它置灰。字段 digest 或依赖冲突不会覆盖后续编辑。
 
+测量输出、用户参数和本地 Product Publication 的被引用删除共用 `DependencyBlockedError`：以 typed kind/稳定 ID/显示名列出直接消费者，去重、确定性排序，最多返回 32 项并保留总数。HTTP 与 Realtime 同样传递 `DEPENDENCY_IN_USE` 和 `dependency`；工作台通过统一操作反馈显示原因及定位按钮。它是拒绝删除的诊断，不是新的修复命令，不隐式级联、不改写公式、不产生部分 ChangeSet。其他 Feature、基准和跨文档发布仍使用各自删除校验，尚未全部接入此展示协议。
+
 尺寸标注位置属于浏览器显示偏好；拖动不形成模型命令、Revision 或历史。原 `UPDATE_CONSTRAINT_PLACEMENT` 草图操作已移除，不支持旧操作回放。创建尺寸时的初始标注位置继续作为定义中的显示默认值，改数量/表达式仍形成正式历史。
 
 ### 实时消息与同文档同步

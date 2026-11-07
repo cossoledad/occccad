@@ -1,8 +1,9 @@
+import {dependencyBlock,type DependencyBlock} from "./dependency-block";
 /** Explicit local validation, separate from untrusted service exceptions. */
 export class CommandInputError extends Error {readonly name="CommandInputError";}
-export type OperationFailure={message:string;details:string;code:string;requestId?:string;diagnosticId?:string;phase?:string;retryable:boolean;severity:"error"|"warning"};
+export type OperationFailure={message:string;details:string;code:string;requestId?:string;diagnosticId?:string;phase?:string;retryable:boolean;severity:"error"|"warning";dependency?:DependencyBlock};
 export function normalizeOperationFailure(error:unknown):OperationFailure {
-  const value=error as {message?:unknown;diagnostic?:unknown;diagnosticCode?:string;code?:string;requestId?:string;correlationId?:string;diagnosticId?:string;phase?:string;retryable?:boolean;terminationStage?:string;terminationReason?:string};
+  const value=error as {message?:unknown;dependency?:unknown;diagnostic?:unknown;diagnosticCode?:string;code?:string;requestId?:string;correlationId?:string;diagnosticId?:string;phase?:string;retryable?:boolean;terminationStage?:string;terminationReason?:string};
   const raw=typeof value?.message==="string"?value.message:typeof value?.diagnostic==="string"?value.diagnostic:String(error),code=value?.code??value?.diagnosticCode??raw.match(/\[([A-Z_]+)\]/)?.[1]??"OPERATION_FAILED";
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=value?.retryable??["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
@@ -97,9 +98,10 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
 
   const move=raw.match(/MOVE_FEATURE_BLOCKED\[[^\]\n]+\]\s+([^:\n]+):/);
   const insertion=raw.match(/INSERT_FEATURE_BLOCKED\[[^\]\n]+\]\s+([^:\n]+):/);
-  const message=error instanceof CommandInputError?error.message:move?(raw.includes("FEATURE_DELTA range membership/order is protected")?`调整顺序会改变 ${move[1]} 的加工范围，请保持整个范围及内部顺序。`:`${move[1]} 阻止本次顺序调整，请检查位置或依赖。`):insertion?(raw.includes("FEATURE_DELTA range membership/order is protected")?`插入会改变 ${insertion[1]} 的加工范围，请选择范围外的位置。`:`${insertion[1]} 未能通过插入检查，请调整位置或输入。`):reason?reasons[reason]:known.includes(raw)?raw:retryable?"操作未完成，可重试。":
+  const dependency=code==="DEPENDENCY_IN_USE"?dependencyBlock(value.dependency):undefined;
+  const message=dependency?`无法删除“${dependency.subject.name}”：仍被 ${dependency.consumers.slice(0,3).map(c=>`“${c.name}”`).join("、")}${dependency.total>3?`等 ${dependency.total} 个对象`:""} 引用。请先编辑引用对象，更换或移除来源。`:error instanceof CommandInputError?error.message:move?(raw.includes("FEATURE_DELTA range membership/order is protected")?`调整顺序会改变 ${move[1]} 的加工范围，请保持整个范围及内部顺序。`:`${move[1]} 阻止本次顺序调整，请检查位置或依赖。`):insertion?(raw.includes("FEATURE_DELTA range membership/order is protected")?`插入会改变 ${insertion[1]} 的加工范围，请选择范围外的位置。`:`${insertion[1]} 未能通过插入检查，请调整位置或输入。`):reason?reasons[reason]:known.includes(raw)?raw:retryable?"操作未完成，可重试。":
     ["FEATURE_EDIT_STALE","STALE_VERSION","VERSION_CONFLICT","CAS_CONFLICT","PREVIEW_STALE","PREVIEW_CANDIDATE_STALE_OR_MISMATCHED","MECHANISM_ANALYSIS_STALE"].some(key=>code===key||raw.includes(key))?"模型已发生变化，请重新预览后确认。":"操作未完成，原因尚无法确定。可重试或检查当前输入。";
-  return {message,details,code,requestId:value?.requestId??value?.correlationId,diagnosticId:value?.diagnosticId,phase:value?.phase,retryable,severity:retryable?"warning":"error"};
+  return {message,details,code,requestId:value?.requestId??value?.correlationId,diagnosticId:value?.diagnosticId,phase:value?.phase,retryable,severity:retryable||dependency?"warning":"error",dependency};
 }
 
 export function engineeringProblem(error:unknown):string{return normalizeOperationFailure(error).message;}

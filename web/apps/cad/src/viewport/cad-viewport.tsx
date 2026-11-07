@@ -33,7 +33,7 @@ export type CadViewportHandle = {
   cancelSectionGesture:()=>boolean;
   initializeSection:(definition:import("../cad/assembly/spatial-analysis").SpatialAnalysis)=>import("../cad/assembly/spatial-analysis").SpatialAnalysis;
   positionSectionOnSelection:(selection:SelectionItem,frame:import("../cad/assembly/spatial-analysis").SpatialAnalysis['frame'],signal:AbortSignal)=>Promise<import("../cad/assembly/spatial-analysis").SpatialAnalysis['frame']>;
-  setMeasurementLayouts:(documentId:string,layouts:import("../cad/measurement/annotation-layout").AnnotationLayouts,save?:(id:string,offset:[number,number]|undefined)=>void)=>void;
+  setMeasurementLayouts:(documentId:string,layouts:import("../cad/measurement/annotation-layout").AnnotationLayouts,save?:(id:string,position:[number,number,number]|undefined)=>void)=>void;
   showMeasurement:(report?:import('../cad/measurement/measurement').MeasurementReport)=>void;
   showSpatialAnalysis:(report?:import("../cad/assembly/spatial-analysis").SpatialReport,id?:string)=>boolean;
   showStaticInterference:(report?:import("../cad/assembly/static-interference").StaticInterferenceReport,index?:number,isolate?:boolean)=>boolean;
@@ -60,7 +60,7 @@ export type CadViewportHandle = {
 };
 
 type Props = {
-  measurementLayouts?:{documentId:string;layouts:import("../cad/measurement/annotation-layout").AnnotationLayouts;save?:(id:string,offset:[number,number]|undefined)=>void};
+  measurementLayouts?:{documentId:string;layouts:import("../cad/measurement/annotation-layout").AnnotationLayouts;save?:(id:string,position:[number,number,number]|undefined)=>void};
   failureAction?:{description:string;label:string;disabled?:boolean;onClick:()=>void};
   onSceneMetrics?:(metrics:import("../cad/rendering/scene-settings").SceneMetrics)=>void;
   onDocumentDisplayed?:(documentId:string,revisionId:string)=>void;

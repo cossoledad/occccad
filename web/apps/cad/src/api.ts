@@ -33,7 +33,7 @@ const mutationHeaders = (method = "GET"): Record<string, string> =>
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string,
-    readonly phase?: string, readonly retryable = false, readonly diagnosticId?:string,readonly requestId?:string) {
+    readonly phase?: string, readonly retryable = false, readonly diagnosticId?:string,readonly requestId?:string,readonly dependency?:import("./cad/command/dependency-block").DependencyBlock) {
     super(message);
     this.name = "ApiError";
   }
@@ -50,10 +50,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     status = response.status;
     serverTiming = response.headers.get("Server-Timing") ?? "";
     const body = await response.json().catch(() => ({})) as {
-      error?: string; code?: string; phase?: string; retryable?: boolean; diagnosticId?: string;
+      error?: string; code?: string; phase?: string; retryable?: boolean; diagnosticId?: string; dependency?:import("./cad/command/dependency-block").DependencyBlock;
     };
     if (!response.ok) throw new ApiError(body.error ?? `HTTP ${response.status}`, response.status,
-      body.code, body.phase, Boolean(body.retryable), body.diagnosticId, response.headers.get("X-Request-ID") ?? undefined);
+      body.code, body.phase, Boolean(body.retryable), body.diagnosticId, response.headers.get("X-Request-ID") ?? undefined,body.dependency);
     return body as T;
   } finally {
     recordClientPerformance({ name: `${init?.method ?? "GET"} ${path.split("?")[0]}`,

@@ -226,29 +226,6 @@ func syncMeasurementParameters(parameters *[]modelcore.ParameterDefinition, meas
 	return nil
 }
 
-func rejectRemovedMeasurementConsumers(parameters []modelcore.ParameterDefinition, before, after []Measurement) error {
-	remaining := map[string]bool{}
-	for _, m := range after {
-		remaining[m.ID] = true
-	}
-	removed := map[modelcore.DependencyKey]bool{}
-	for _, p := range parameters {
-		if source := p.Source.Produced; source != nil && source.Kind == "MEASUREMENT" && !remaining[source.EntityID] {
-			removed[modelcore.DependencyKey("parameter:"+p.ParameterID)] = true
-		}
-	}
-	for _, p := range parameters {
-		if p.Source.Expression != nil {
-			for _, read := range p.Source.Expression.Reads {
-				if removed[read] {
-					return fmt.Errorf("%w: MEASUREMENT_OUTPUT_IN_USE by %s", ErrValidation, p.ParameterID)
-				}
-			}
-		}
-	}
-	return nil
-}
-
 func measurementOutputLabel(key string) string {
 	labels := map[string]string{"distanceMm": "最小距离", "angleRad": "夹角", "lengthMm": "长度", "perimeterMm": "周长", "areaMm2": "面积", "volumeMm3": "体积", "radiusMm": "半径", "diameterMm": "直径", "majorRadiusMm": "长半径", "minorRadiusMm": "短半径", "arcAngleRad": "圆弧角度", "xMm": "X 坐标", "yMm": "Y 坐标", "zMm": "Z 坐标", "deltaXMm": "X 分量", "deltaYMm": "Y 分量", "deltaZMm": "Z 分量", "sizeXMm": "X 尺寸", "sizeYMm": "Y 尺寸", "sizeZMm": "Z 尺寸"}
 	if label := labels[key]; label != "" {

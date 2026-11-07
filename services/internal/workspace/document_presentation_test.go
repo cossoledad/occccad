@@ -3,6 +3,7 @@ package workspace
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"path/filepath"
 	"testing"
 
@@ -38,7 +39,19 @@ func TestAnnotationPresentationCASReopenAndHistoryIndependence(t *testing.T) {
 	if _, err := db.Exec(t.Context(), `UPDATE occccad.document_versions SET model_json=$2 WHERE id=$1`, view.Document.VersionID, raw); err != nil {
 		t.Fatal(err)
 	}
-	input := AnnotationLayout{Offset: &[2]float64{30, -20}}
+	input := AnnotationLayout{Position: &AnnotationPosition{-30, 20, -10}}
+	for _, raw := range []string{`{"position":[30,20]}`, `{"position":[1,2,3,4]}`} {
+		var invalid AnnotationLayout
+		if err := json.Unmarshal([]byte(raw), &invalid); err == nil {
+			t.Fatal("a screen position was accepted as a world point", raw)
+		}
+	}
+	for _, coordinate := range []float64{math.NaN(), math.Inf(1), 1e7} {
+		_, err := s.SaveAnnotationLayout(t.Context(), view.Document.ID, id, AnnotationLayout{Position: &AnnotationPosition{0, coordinate, 0}})
+		if !errors.Is(err, ErrValidation) {
+			t.Fatal("invalid world coordinate accepted", coordinate, err)
+		}
+	}
 	saved, err := s.SaveAnnotationLayout(t.Context(), view.Document.ID, id, input)
 	if err != nil || saved.Version != 1 {
 		t.Fatal(saved, err)
@@ -48,11 +61,11 @@ func TestAnnotationPresentationCASReopenAndHistoryIndependence(t *testing.T) {
 	}
 	reopened := NewWithArtifacts(db, nil, nil)
 	layouts, err := reopened.AnnotationLayouts(t.Context(), view.Document.ID)
-	if err != nil || *layouts[id].Offset != *input.Offset {
+	if err != nil || *layouts[id].Position != *input.Position {
 		t.Fatal(layouts, err)
 	}
 	reset, err := s.SaveAnnotationLayout(t.Context(), view.Document.ID, id, AnnotationLayout{Version: 1})
-	if err != nil || reset.Version != 2 || reset.Offset != nil {
+	if err != nil || reset.Version != 2 || reset.Position != nil {
 		t.Fatal(reset, err)
 	}
 	var head string

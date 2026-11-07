@@ -155,5 +155,5 @@ func (server *Server) downloadOperationDiagnostic(w http.ResponseWriter, r *http
 }
 func writeOperationError(w http.ResponseWriter, status int, err error) {
 	failure := realtimeDomainError(err)
-	writeJSON(w, status, map[string]any{"error": failure.Message, "code": failure.Code, "phase": failure.Phase, "retryable": failure.Retryable, "diagnosticId": failure.DiagnosticID})
+	writeJSON(w, status, map[string]any{"error": failure.Message, "code": failure.Code, "phase": failure.Phase, "retryable": failure.Retryable, "diagnosticId": failure.DiagnosticID, "dependency": failure.Dependency})
 }

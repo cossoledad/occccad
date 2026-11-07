@@ -122,8 +122,8 @@ func applyDeleteProductPublication(modelJSON, payloadJSON json.RawMessage) (json
 		if item.ID != payload.PublicationID {
 			continue
 		}
-		if localPublicationUsed(model, item.ID) {
-			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: PUBLICATION_IN_USE", ErrValidation)
+		if err := dependencyBlocked(DependencyObject{Kind: "PRODUCT_PUBLICATION", ID: item.ID, Name: item.Name}, localPublicationConsumers(model, item.ID)); err != nil {
+			return nil, modelcore.ChangeSet{}, err
 		}
 		model.Publications = append(model.Publications[:index], model.Publications[index+1:]...)
 		next, _ := json.Marshal(model)

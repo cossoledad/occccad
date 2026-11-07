@@ -344,7 +344,7 @@ export class CadViewportEngine {
   private interferenceVisibility=new Map<THREE.Object3D,boolean>();
   private measurementOverlay?:MeasurementOverlay;
   private measurementPreview?:MeasurementReport;
-  setMeasurementLayouts(documentId:string,layouts:import("../cad/measurement/annotation-layout").AnnotationLayouts,save?:(id:string,offset:[number,number]|undefined)=>void):void {this.measurementOverlay?.setLayouts(documentId,layouts,save);this.invalidate()}
+  setMeasurementLayouts(documentId:string,layouts:import("../cad/measurement/annotation-layout").AnnotationLayouts,save?:(id:string,position:[number,number,number]|undefined)=>void):void {this.measurementOverlay?.setLayouts(documentId,layouts,save);this.invalidate()}
   showMeasurement(report?:MeasurementReport):void {this.measurementPreview=report;this.invalidate();}
   private renderMeasurements(width:number,height:number):void {
     const view=this.view;if(!view){this.measurementOverlay?.render('',[],this.sketchLengthUnit,this.camera,width,height,false);return;}

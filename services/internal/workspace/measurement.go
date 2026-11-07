@@ -137,25 +137,8 @@ func applyMeasurements(raw, payload json.RawMessage) (json.RawMessage, modelcore
 		return nil, modelcore.ChangeSet{}, err
 	}
 	beforeParameters := append([]modelcore.ParameterDefinition(nil), doc.Parameters...)
-	if err = rejectRemovedMeasurementConsumers(doc.Parameters, before, next); err != nil {
+	if err = rejectRemovedMeasurementConsumers(doc, before, next); err != nil {
 		return nil, modelcore.ChangeSet{}, err
-	}
-	for _, p := range doc.Parameters {
-		if source := p.Source.Produced; source != nil {
-			for _, publication := range doc.Publications {
-				if publication.Target.ParameterID == p.ParameterID {
-					found := false
-					for _, m := range next {
-						if m.ID == source.EntityID {
-							found = true
-						}
-					}
-					if !found {
-						return nil, modelcore.ChangeSet{}, measurementError("MEASUREMENT_OUTPUT_PUBLISHED")
-					}
-				}
-			}
-		}
 	}
 	if err = syncMeasurementParameters(&doc.Parameters, next); err != nil {
 		return nil, modelcore.ChangeSet{}, err

@@ -40,11 +40,12 @@ type realtimeEnvelope struct {
 }
 
 type realtimeError struct {
-	DiagnosticID string `json:"diagnosticId,omitempty"`
-	Phase        string `json:"phase,omitempty"`
-	Code         string `json:"code"`
-	Message      string `json:"message"`
-	Retryable    bool   `json:"retryable"`
+	Dependency   *workspace.DependencyBlock `json:"dependency,omitempty"`
+	DiagnosticID string                     `json:"diagnosticId,omitempty"`
+	Phase        string                     `json:"phase,omitempty"`
+	Code         string                     `json:"code"`
+	Message      string                     `json:"message"`
+	Retryable    bool                       `json:"retryable"`
 }
 
 type realtimeClient struct {
@@ -583,6 +584,12 @@ func realtimeDomainError(err error) realtimeError {
 		code, retryable = "VALIDATION_FAILED", false
 	}
 	failure := realtimeError{Code: code, Message: err.Error(), Retryable: retryable}
+	var blocked interface {
+		DependencyConflict() *workspace.DependencyBlock
+	}
+	if errors.As(err, &blocked) {
+		failure.Dependency = blocked.DependencyConflict()
+	}
 	var diagnostic interface{ DiagnosticID() string }
 	if errors.As(err, &diagnostic) {
 		failure.DiagnosticID = diagnostic.DiagnosticID()

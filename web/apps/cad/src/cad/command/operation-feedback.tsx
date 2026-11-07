@@ -1,3 +1,4 @@
+import {dependencyKind,type DependencyObject} from "./dependency-block";
 import {App,Button} from "antd";
 import {recordDeveloperEvidence} from "./developer-evidence";
 import {useCallback,useEffect,useRef} from "react";
@@ -18,7 +19,8 @@ const gate=new OperationFailureGate();
 let noticeSequence=0;const activeNotices=new Map<string,string>();
 /** One Antd App-owned outlet for command/dialog/interaction failures. Raw
  * protocol messages live in details, never in the primary notification. */
-export function useOperationFeedback(){
+export function useOperationFeedback(options?:{locateDependency?:(object:DependencyObject)=>void}){
+ const optionsRef=useRef(options);optionsRef.current=options;
   const {notification}=App.useApp();
   return useCallback((error:unknown,scope="操作")=>{
     if(!gate.accept(error,scope))return;
@@ -28,8 +30,8 @@ export function useOperationFeedback(){
     const key=`failure:${scope}:${++noticeSequence}`,previous=activeNotices.get(scope);
     if(previous)notification.destroy(previous);activeNotices.set(scope,key);
     const dismiss=()=>{notification.destroy(key);if(activeNotices.get(scope)===key)activeNotices.delete(scope)};
-    notification[failure.severity]({className:"cad-operation-notification",placement:"bottomRight",duration:recovery?.retry||recovery?.cancel?0:6,key,title:`${scope}未完成`,description:<>
-      <div>{failure.message}</div>{recovery?.retry&&<Button size="small" onClick={()=>{dismiss();recovery.retry?.();}}>{recovery.retryLabel??"重试确认"}</Button>}{recovery?.cancel&&<Button size="small" onClick={()=>{dismiss();recovery.cancel?.();}}>取消并恢复</Button>}</>});
+    notification[failure.severity]({className:"cad-operation-notification",placement:"bottomRight",duration:failure.dependency||recovery?.retry||recovery?.cancel?0:6,key,title:failure.dependency?`无法删除“${failure.dependency.subject.name}”`:`${scope}未完成`,description:<>
+      {failure.dependency?<><div>请先编辑以下引用对象，更换或移除来源后再删除。</div><ul className="dependency-block-list">{failure.dependency.consumers.map(object=><li key={object.kind+object.id}>{optionsRef.current?.locateDependency?<Button type="link" size="small" aria-label={`定位 ${object.name}`} onClick={()=>{dismiss();optionsRef.current?.locateDependency?.(object)}}>{object.name}</Button>:<span>{object.name}</span>}<small>{dependencyKind(object.kind)}</small></li>)}</ul>{failure.dependency.total>failure.dependency.consumers.length&&<div>共 {failure.dependency.total} 个引用对象。</div>}</>:<div>{failure.message}</div>}{recovery?.retry&&<Button size="small" onClick={()=>{dismiss();recovery.retry?.();}}>{recovery.retryLabel??"重试确认"}</Button>}{recovery?.cancel&&<Button size="small" onClick={()=>{dismiss();recovery.cancel?.();}}>取消并恢复</Button>}</>});
     return dismiss;
   },[notification]);
 }

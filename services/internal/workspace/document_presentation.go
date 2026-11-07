@@ -12,9 +12,25 @@ import (
 
 var ErrPresentationConflict = errors.New("PRESENTATION_CONFLICT")
 
+// AnnotationPosition is a point in the owning document's model frame, in mm.
+// A two-dimensional screen location is not a valid annotation position.
+type AnnotationPosition [3]float64
+
+func (p *AnnotationPosition) UnmarshalJSON(raw []byte) error {
+	var coordinates []float64
+	if err := json.Unmarshal(raw, &coordinates); err != nil {
+		return err
+	}
+	if len(coordinates) != 3 {
+		return fmt.Errorf("%w: annotation position requires three coordinates", ErrValidation)
+	}
+	copy(p[:], coordinates)
+	return nil
+}
+
 type AnnotationLayout struct {
-	Version int64       `json:"version"`
-	Offset  *[2]float64 `json:"offset"`
+	Version  int64               `json:"version"`
+	Position *AnnotationPosition `json:"position"`
 }
 
 func (s *Service) annotationMeasurementIDs(ctx context.Context, doc string) (map[string]bool, error) {
@@ -38,7 +54,7 @@ func (s *Service) AnnotationLayouts(ctx context.Context, doc string) (map[string
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.database.Query(ctx, `SELECT object_id,version,payload FROM occccad.document_presentation WHERE document_id=$1 AND namespace='measurement.label'`, doc)
+	rows, err := s.database.Query(ctx, `SELECT object_id,version,payload FROM occccad.document_presentation WHERE document_id=$1 AND namespace='measurement.label.world'`, doc)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +70,7 @@ func (s *Service) AnnotationLayouts(ctx context.Context, doc string) (map[string
 		if !ids[id] {
 			continue
 		}
-		if err := json.Unmarshal(raw, &layout.Offset); err != nil {
+		if err := json.Unmarshal(raw, &layout.Position); err != nil {
 			return nil, err
 		}
 		out[id] = layout
@@ -68,10 +84,10 @@ func (s *Service) SaveAnnotationLayout(ctx context.Context, doc, id string, inpu
 	if input.Version < 0 || input.Version == math.MaxInt64 {
 		return AnnotationLayout{}, fmt.Errorf("%w: invalid presentation version", ErrValidation)
 	}
-	if input.Offset != nil {
-		for _, v := range input.Offset {
+	if input.Position != nil {
+		for _, v := range input.Position {
 			if math.IsNaN(v) || math.IsInf(v, 0) || math.Abs(v) > 1e6 {
-				return AnnotationLayout{}, fmt.Errorf("%w: invalid annotation offset", ErrValidation)
+				return AnnotationLayout{}, fmt.Errorf("%w: invalid annotation position", ErrValidation)
 			}
 		}
 	}
@@ -82,15 +98,15 @@ func (s *Service) SaveAnnotationLayout(ctx context.Context, doc, id string, inpu
 	if !ids[id] {
 		return AnnotationLayout{}, ErrNotFound
 	}
-	raw, err := json.Marshal(input.Offset)
+	raw, err := json.Marshal(input.Position)
 	if err != nil {
 		return AnnotationLayout{}, err
 	}
 	var version int64
 	if input.Version == 0 {
-		err = s.database.QueryRow(ctx, `INSERT INTO occccad.document_presentation(document_id,namespace,object_id,version,payload) VALUES($1,'measurement.label',$2,1,$3) ON CONFLICT(document_id,namespace,object_id) DO NOTHING RETURNING version`, doc, id, raw).Scan(&version)
+		err = s.database.QueryRow(ctx, `INSERT INTO occccad.document_presentation(document_id,namespace,object_id,version,payload) VALUES($1,'measurement.label.world',$2,1,$3) ON CONFLICT(document_id,namespace,object_id) DO NOTHING RETURNING version`, doc, id, raw).Scan(&version)
 	} else {
-		err = s.database.QueryRow(ctx, `UPDATE occccad.document_presentation SET payload=$3,version=version+1 WHERE document_id=$1 AND namespace='measurement.label' AND object_id=$2 AND version=$4 RETURNING version`, doc, id, raw, input.Version).Scan(&version)
+		err = s.database.QueryRow(ctx, `UPDATE occccad.document_presentation SET payload=$3,version=version+1 WHERE document_id=$1 AND namespace='measurement.label.world' AND object_id=$2 AND version=$4 RETURNING version`, doc, id, raw, input.Version).Scan(&version)
 	}
 	if errors.Is(err, database.ErrNoRows) {
 		return AnnotationLayout{}, ErrPresentationConflict
@@ -98,5 +114,5 @@ func (s *Service) SaveAnnotationLayout(ctx context.Context, doc, id string, inpu
 	if err != nil {
 		return AnnotationLayout{}, err
 	}
-	return AnnotationLayout{Version: version, Offset: input.Offset}, nil
+	return AnnotationLayout{Version: version, Position: input.Position}, nil
 }

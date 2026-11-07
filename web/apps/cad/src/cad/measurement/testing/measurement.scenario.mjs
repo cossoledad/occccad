@@ -3,7 +3,7 @@ import {createServer} from 'vite';
 const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
 try{
  const m=await server.ssrLoadModule('/src/cad/measurement/measurement.ts');
- const {measurementDrawing}=await server.ssrLoadModule('/src/cad/measurement/measurement-overlay.ts');
+ const {measurementDrawing,annotationWorldPosition}=await server.ssrLoadModule('/src/cad/measurement/measurement-overlay.ts');
  const path={rootDocumentId:'root',canonical:'sub/leaf',display:'Sub / Leaf',segments:[{ownerDocumentId:'root',ownerVersionId:'r1',instanceId:'sub',referencedDocumentId:'child',resolvedVersionId:'c1'},{ownerDocumentId:'child',ownerVersionId:'c1',instanceId:'leaf',referencedDocumentId:'part',resolvedVersionId:'p1'}]};
  const view={document:{id:'root',versionId:'r1'},product:{instances:[]}};
  const pick={kind:'face',id:'face',documentId:'part',ownerDocumentId:'part',versionId:'p1',instancePath:path,occurrencePath:path.canonical,bodyId:'main',geometryKey:'exact',topologyId:4};
@@ -16,6 +16,7 @@ try{
  const a=m.measurementPick(view,{...pick,kind:'body'},'GEOMETRY'),b=m.measurementPick(view,{...pick,kind:'body',instancePath:{...path,canonical:'other/leaf',segments:[{...path.segments[0],instanceId:'other'},path.segments[1]]}},'GEOMETRY');
  assert.notDeepEqual(a,b,'repeated Part/Body instances remain distinct');
  const result={complete:true,values:{distanceMm:5,deltaXMm:3,deltaYMm:4,deltaZMm:0},anchors:{first:[0,0,0],second:[3,4,0]}};
+ const point={...m.defaultMeasurement('ITEM'),result:{complete:true,values:{xMm:10,yMm:20,zMm:30},anchors:{position:[10,20,30]}}};assert.equal(m.measurementSummary(point,'cm'),'(1, 2, 3) cm');assert.equal(measurementDrawing(point,'mm').text,'(10, 20, 30) mm');
  const definition={...m.defaultMeasurement('BETWEEN'),result,showComponents:true};
  const drawing=measurementDrawing(definition,'mm');assert.deepEqual(drawing.dimension,[[0,0,0],[3,4,0]]);assert.deepEqual(drawing.components.map(c=>c.value),[3,4,0]);
  const inches=measurementDrawing(definition,'in');assert.deepEqual(inches.dimension,drawing.dimension);assert.notEqual(inches.text,drawing.text,'display units never transform witnesses');
@@ -23,6 +24,15 @@ try{
  assert.equal(m.measurementValue('areaMm2',100,'cm'),'1 cm²');assert.equal(m.measurementValue('volumeMm3',1000,'cm'),'1 cm³');assert.equal(m.measurementValue('angleRad',Math.PI,'mm'),'180°');
  assert.equal(measurementDrawing({...definition,result:{...result,complete:false}},'mm'),undefined,'unfinished computation has no markers');
  const THREE=await server.ssrLoadModule('three');const {applySolidDisplaySettings}=await server.ssrLoadModule('/src/cad/rendering/solid-render-mode.ts');
+ for(const camera of [new THREE.OrthographicCamera(-100,100,75,-75,.1,1000),new THREE.PerspectiveCamera(45,4/3,.1,1000)]){
+  camera.position.set(80,60,120);camera.lookAt(0,0,0);camera.updateMatrixWorld(true);camera.updateProjectionMatrix();
+  const reference=[5,3,-2],screen=[600,250],world=annotationWorldPosition(screen,reference,camera,800,600),projected=new THREE.Vector3().fromArray(world).project(camera);
+  assert.ok(Math.abs((projected.x+1)*400-screen[0])<1e-7&&Math.abs((1-projected.y)*300-screen[1])<1e-7,'world label projects to its dragged location');
+  const normal=camera.getWorldDirection(new THREE.Vector3()),delta=new THREE.Vector3().fromArray(world).sub(new THREE.Vector3().fromArray(reference));
+  assert.ok(Math.abs(delta.dot(normal))<1e-7,'drag keeps the camera-facing plane depth');
+  const retained=[...world];camera.position.applyAxisAngle(new THREE.Vector3(0,0,1),.7);camera.lookAt(0,0,0);camera.updateMatrixWorld(true);
+  const rotated=new THREE.Vector3().fromArray(world).project(camera);assert.ok(Math.abs(rotated.x-projected.x)>1e-3,'camera rotation reprojects a fixed world label');assert.deepEqual(world,retained);
+ }
  const group=new THREE.Group(),edge=new THREE.LineSegments(),points=new THREE.Points();group.add(edge,points);group.visible=false;group.userData.appearanceEdges=false;
  const settings={mode:'shaded',edges:false,vertices:false};applySolidDisplaySettings(group,settings,'VERTEX');assert(points.visible&&!points.material.visible,'point inputs use on-demand markers');assert(!edge.visible);assert(!group.visible,'pick display must not reveal hidden Bodies');
  applySolidDisplaySettings(group,settings,'EDGE');assert(edge.visible,'pick field may reveal edges hidden by appearance');assert(points.visible&&!points.material.visible);applySolidDisplaySettings(group,settings);assert(!edge.visible&&points.visible&&!points.material.visible);assert.deepEqual(settings,{mode:'shaded',edges:false,vertices:false});

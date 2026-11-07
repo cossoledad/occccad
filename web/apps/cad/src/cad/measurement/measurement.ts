@@ -64,7 +64,9 @@ export function measurementValue(key:string,value:number,unit:MeasurementUnit):s
  return `${measurementNumber(value/scale**power)} ${unit}${power===2?'²':power===3?'³':''}`;
 }
 export function measurementSummary(m:Measurement,unit:MeasurementUnit):string{
- const values=m.result?.values??{},key=['distanceMm','angleRad','lengthMm','areaMm2','volumeMm3','xMm'].find(k=>k in values);
+ const values=m.result?.values??{};
+ if(['xMm','yMm','zMm'].every(key=>key in values)){const scale={mm:1,cm:10,m:1000,in:25.4}[unit];return `(${['xMm','yMm','zMm'].map(key=>measurementNumber(values[key]/scale)).join(', ')}) ${unit}`}
+ const key=['distanceMm','angleRad','lengthMm','areaMm2','volumeMm3','xMm'].find(k=>k in values);
  return key?`${measurementValueLabel(key)} ${measurementValue(key,values[key],unit)}`:'尚无结果';
 }
 export function measurementProblem(error:unknown):string{

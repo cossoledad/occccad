@@ -1,17 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import {createServer} from "vite";
 
-const require = createRequire(new URL("../../../../package.json", import.meta.url));
-const ts = require("typescript");
-const sourceURL = new URL("../activity-model.ts", import.meta.url);
-const source = await readFile(sourceURL, "utf8");
-const output = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText.replace('"../../cad/command/operation-failure"',JSON.stringify(new URL("../../../cad/command/operation-failure.ts",import.meta.url).href));
-const moduleURL = `data:text/javascript;base64,${Buffer.from(`${output}\n//# sourceURL=${pathToFileURL(sourceURL.pathname)}`).toString("base64")}`;
-const activity = await import(moduleURL);
+const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
+try {
+const activity=await server.ssrLoadModule('/src/features/activity/activity-model.ts');
 
 const baseJob = {
   id: "job-1", type: "EXCHANGE_EXPORT", state: "RUNNING", progress: 45,
@@ -55,3 +47,4 @@ assert.equal(retrying.progress, 70);
 assert.match(retrying.description, /第 2 次尝试.*生成零件（0\/114）/);
 
 console.log("Activity center model tests passed.");
+} finally {await server.close();}

@@ -877,7 +877,7 @@
         "m4.snap.precise-frame": "0531a46c32c76513bc401d274e442749692051dc11e1cfd35e24b4bff6e18f49",
         "m4.snap.body-local-hints": "f1be736cd0e1af0a57649ba234b283b20e72f42a7df63d8fda852a7139e2ca00",
         "m5.engineering.overview": "6f84f668a3d92452af9ec34d1078c289179954a066de8b1362eb2f6d8bfa73cd",
-        "m4.operation.failure-outlet": "44af86d7e9035d4c3c5226a5bc941fc90e8deadda557e845c6b7e8df90f13f02",
+        "m4.operation.failure-outlet": "f95267bb98425d69b000d95eef4094e55d40736282279725df3bc439e642fc28",
         "coincidence.point-point.geometry": "3cef053361270c88d898add465a9c3d06a4902d91d83bd7441bbf1d37752ac0f",
         "coincidence.point-plane.geometry": "5c8231db65eafc669aaaf66101ddd0b908ebadfb77c0c9a324a7159033e786c3",
         "coincidence.axis-plane.geometry": "981c31b4ab1c75e84ff32b8bee1cf7085565c826c47a8de7738a7d160ea057dd",
@@ -2562,5 +2562,11 @@
             "m5.conflict.three-valued-budget",
             "m5.conflict.production-response-repair-gate"
         ]
+    },
+    "dependencyFeedbackReview20261107": {
+        "reviewedAssertionCaseIds": [
+            "m4.operation.failure-outlet"
+        ],
+        "reason": "Added typed dependency-block validation and persistent named-consumer notification assertions. Existing final-gesture failure, recovery, deduplication and diagnostic assertions remain intact. Focused operation-feedback scenario passed; stable cases, target expectations, numerical tolerances and coverage floors are unchanged. Only this reviewed assertion-source digest is updated."
     }
 }

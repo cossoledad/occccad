@@ -69,13 +69,6 @@ func applyDeleteParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter does not exist", ErrValidation)
 	}
 	parameter := model.Parameters[index]
-	if model.product != nil {
-		for _, publication := range model.product.Publications {
-			if publication.Target.ParameterID == parameter.ParameterID {
-				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter is used by Publication %s", ErrValidation, publication.ID)
-			}
-		}
-	}
 	if parameter.Lifecycle == "SKETCH_DIMENSION" {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: sketch dimension parameter must be removed through its constraint", ErrValidation)
 	}
@@ -83,26 +76,10 @@ func applyDeleteParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: required feature parameter cannot be deleted independently", ErrValidation)
 	}
 	read := modelcore.DependencyKey("parameter:" + payload.ParameterID)
-	for _, other := range model.Parameters {
-		if other.ParameterID == payload.ParameterID || other.Source.Expression == nil {
-			continue
-		}
-		for _, dependency := range other.Source.Expression.Reads {
-			if dependency == read {
-				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter is used by %s", ErrValidation, other.ParameterID)
-			}
-		}
+	if err := dependencyBlocked(DependencyObject{Kind: "PARAMETER", ID: parameter.ParameterID, Name: parameter.Key}, model.parameterConsumers(map[modelcore.DependencyKey]bool{read: true})); err != nil {
+		return nil, modelcore.ChangeSet{}, err
 	}
-	for _, publication := range model.Publications {
-		if publication.Target.ParameterID == payload.ParameterID {
-			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter is used by Publication %s", ErrValidation, publication.ID)
-		}
-	}
-	for _, input := range model.ContextInputs {
-		if input.Target.Kind == "PARAMETER" && input.Target.TargetID == payload.ParameterID {
-			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter is used by ContextInput %s", ErrValidation, input.ID)
-		}
-	}
+
 	model.Parameters = append(model.Parameters[:index], model.Parameters[index+1:]...)
 	if err := model.resolve(); err != nil {
 		return nil, modelcore.ChangeSet{}, err

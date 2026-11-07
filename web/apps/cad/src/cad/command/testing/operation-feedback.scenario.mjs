@@ -49,6 +49,8 @@ try{
  assert.equal(gate.accept(new Error("network"),"move",1000),true);
  assert.equal(normalizeOperationFailure({code:"TIMEOUT",message:"rpc timeout"}).retryable,true);
  assert.match(normalizeOperationFailure({code:"PREVIEW_CANDIDATE_STALE_OR_MISMATCHED",message:"digest mismatch"}).message,/模型已发生变化/);
+ const dependency={subject:{kind:'MEASUREMENT',id:'m',name:'测量.1'},consumers:[{kind:'ASSEMBLY_CONSTRAINT',id:'c',name:'Angle.3'}],total:1};
+ const rejection={code:'DEPENDENCY_IN_USE',message:'internal opaque parameter id',dependency};const explained=normalizeOperationFailure(rejection);assert.match(explained.message,/测量.1.*Angle.3/);assert.equal(explained.severity,'warning');assert.equal(explained.retryable,false);assert.equal(explained.dependency.consumers[0].id,'c');assert.equal(normalizeOperationFailure({...rejection,dependency:{...dependency,consumers:[{...dependency.consumers[0],kind:'UNTRUSTED'}]}}).dependency,undefined);
  const React=require("react"),{renderToStaticMarkup}=require("react-dom/server"),{App}=require("antd"),originalUseApp=App.useApp;
  const notices=[],diagnostics=[],dismissals=[];let retries=0,cancels=0,feedback;
  App.useApp=()=>({notification:{error:config=>notices.push(config),warning:config=>notices.push(config),destroy:key=>dismissals.push(key)},modal:{info:config=>diagnostics.push(config)},message:{success(){}}});
@@ -61,6 +63,7 @@ try{
   buttons[0].props.onClick();buttons[1].props.onClick();assert.equal(retries,1);assert.equal(cancels,1);assert.equal(dismissals.length,2);
   assert.equal(buttons.length,2,"notifications retain recovery actions without a developer dialog");assert.equal(diagnostics.length,0);
   assert.doesNotMatch(renderToStaticMarkup(recovery.description),/preserved-request|查看诊断|技术诊断/);
+  feedback({...rejection,requestId:'blocked-request'},'删除');const blockedNotice=notices.at(-1);assert.equal(blockedNotice.duration,0);assert.match(renderToStaticMarkup(blockedNotice.description),/Angle.3/);assert.doesNotMatch(renderToStaticMarkup(blockedNotice.description),/internal opaque/);
   feedback({code:"VALIDATION_FAILED",message:"ordinary failure",requestId:"ordinary-request"},"草图");assert.equal(notices.at(-1).duration,6);
   const clearOld=feedback({code:"PUBLICATION_SKETCH_ENTITY_UNAVAILABLE",message:"missing published entity",requestId:"source-old"},"关联");const oldKey=notices.at(-1).key;
   const clearCurrent=feedback({code:"PUBLICATION_CONTRACT_INCOMPATIBLE",message:"changed contract",requestId:"source-current"},"关联");const currentKey=notices.at(-1).key;

@@ -182,3 +182,21 @@ func TestRealtimeInlineViewHasIndependentByteBudget(t *testing.T) {
 		t.Fatal("realtime message budget changed")
 	}
 }
+
+func TestDependencyBlockRetainsIdentitiesInHTTPAndRealtime(t *testing.T) {
+	block := workspace.DependencyBlock{Subject: workspace.DependencyObject{Kind: "MEASUREMENT", ID: "m", Name: "测量.1"}, Consumers: []workspace.DependencyObject{{Kind: "ASSEMBLY_CONSTRAINT", ID: "c", Name: "Angle.3"}}, Total: 1}
+	err := &workspace.DependencyBlockedError{Block: block}
+	failure := realtimeDomainError(err)
+	if failure.Code != "DEPENDENCY_IN_USE" || failure.Retryable || failure.Dependency == nil || failure.Dependency.Consumers[0].ID != "c" {
+		t.Fatal(failure)
+	}
+	response := httptest.NewRecorder()
+	writeOperationError(response, 400, err)
+	var body struct {
+		Code       string                    `json:"code"`
+		Dependency workspace.DependencyBlock `json:"dependency"`
+	}
+	if e := json.Unmarshal(response.Body.Bytes(), &body); e != nil || body.Code != failure.Code || body.Dependency.Subject.ID != "m" || body.Dependency.Consumers[0].Name != "Angle.3" {
+		t.Fatal(response.Body.String(), e)
+	}
+}

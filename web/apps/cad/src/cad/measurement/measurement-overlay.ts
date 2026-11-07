@@ -4,11 +4,17 @@ import {measurementSummary,measurementValue,type Measurement,type MeasurementUni
 import type {AnnotationLayouts} from './annotation-layout';
 
 type Point=[number,number];
+/** The drag plane is parallel to the camera through the label's world point.
+ * Equal projected depth gives the same plane in both camera projections. */
+export function annotationWorldPosition(screen:Point,reference:Vec3,camera:Camera,width:number,height:number):Vec3 {
+ const depth=new Vector3().fromArray(reference).project(camera).z;
+ return new Vector3(screen[0]/width*2-1,1-screen[1]/height*2,depth).unproject(camera).toArray() as Vec3;
+}
 const NS='http://www.w3.org/2000/svg';
 function svg<K extends keyof SVGElementTagNameMap>(tag:K,attributes:Record<string,string|number>={}){const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attributes))n.setAttribute(k,String(v));return n;}
 export type MeasurementDrawing={anchor:Vec3;segments:Array<[Vec3,Vec3]>;points:Vec3[];arc?:Vec3[];dimension?:[Vec3,Vec3];text:string;components?:Array<{axis:number;first:Vec3;second:Vec3;value:number}>};
 /** Pure geometry presentation. All authority values/anchors come from Worker;
- * arrow sizes, offsets and angle arc radius are display-only choices. */
+ * arrow sizes, positions and angle arc radius are display-only choices. */
 export function measurementDrawing(m:Measurement,unit:MeasurementUnit):MeasurementDrawing|undefined{
  const r=m.result;if(!r?.complete)return;const a=m.displayAnchors??r.anchors;
  const point=a.vertex??a.centroid??a.position??a.center??a.first??a.start;
@@ -37,27 +43,28 @@ export function measurementDrawing(m:Measurement,unit:MeasurementUnit):Measureme
 }
 
 /** Viewport-owned screen overlay, with no model picking or scene ownership.
- * Labels keep CSS-pixel size, while every witness remains world-anchored. */
+ * Labels and witnesses remain world-anchored; glyphs keep CSS-pixel size. */
 export class MeasurementOverlay {
  private readonly root=svg('svg',{'class':'measurement-overlay','aria-label':'几何测量标注'});
- private offsets=new Map<string,Point>();
+ private positions=new Map<string,Vec3>();
+ private appliedLayouts=new Map<string,string>();
  private documentId='';
  private layoutDocumentId='';
  private layouts:AnnotationLayouts={};
  private sourceKey='';
  private frameKey='';
  private dragging?:{cancel:()=>void};
- private saveOffset?: (id:string,offset:Point|undefined)=>void;
+ private savePosition?: (id:string,position:Vec3|undefined)=>void;
  private selected=new Set<string>();
  private hovered?:string;
  setInteraction(selected:readonly string[],hovered?:string){this.selected=new Set(selected);this.hovered=hovered;this.applyInteraction()}
  private applyInteraction(){for(const group of this.root.querySelectorAll<SVGGElement>('.measurement-retained')){const id=group.dataset.measurementId!;group.classList.toggle('measurement-selected',this.selected.has(id));group.classList.toggle('measurement-hover',id===this.hovered);group.querySelector('.measurement-label')?.setAttribute('aria-pressed',String(this.selected.has(id)))}}
- setLayouts(documentId:string,layouts:AnnotationLayouts,save?:(id:string,offset:Point|undefined)=>void){
+ setLayouts(documentId:string,layouts:AnnotationLayouts,save?:(id:string,position:Vec3|undefined)=>void){
   this.layoutDocumentId=documentId;this.layouts=layouts;
-  this.saveOffset=save;
+  this.savePosition=save;
   if(documentId===this.documentId)this.hydrateLayouts();
  }
- private hydrateLayouts(){for(const [id,layout] of Object.entries(this.layouts)){if(layout.offset)this.offsets.set(id,layout.offset);else this.offsets.delete(id)}}
+ private hydrateLayouts(){for(const [id,layout] of Object.entries(this.layouts)){const stamp=JSON.stringify(layout);if(this.appliedLayouts.get(id)===stamp)continue;this.appliedLayouts.set(id,stamp);if(layout.position)this.positions.set(id,layout.position);else this.positions.delete(id)}}
  constructor(host:HTMLElement,private interaction?:{hover:(id?:string)=>void;select:(id:string,toggle:boolean)=>void}){
   host.append(this.root);
   const id=(target:EventTarget|null)=>target instanceof Element?target.closest('.measurement-retained')?.getAttribute('data-measurement-id')??undefined:undefined;
@@ -65,15 +72,15 @@ export class MeasurementOverlay {
   this.root.addEventListener('pointerleave',()=>{if(!this.dragging)this.interaction?.hover()});
   this.root.addEventListener('pointerdown',e=>{const value=id(e.target);if(value&&e.button===0){e.preventDefault();e.stopPropagation();this.interaction?.select(value,e.ctrlKey||e.metaKey)}});
  }
- dispose(){this.dragging?.cancel();this.root.remove();this.offsets.clear()}
+ dispose(){this.dragging?.cancel();this.root.remove();this.positions.clear();this.appliedLayouts.clear()}
  render(documentId:string,items:Measurement[],unit:MeasurementUnit,camera:Camera,width:number,height:number,enabled=true,interactive=true){
   this.root.classList.toggle('measurement-picking',!interactive);if(!interactive)this.dragging?.cancel();
   const sourceKey=JSON.stringify(items.map(m=>[m.id,m.result?.sourceStamp,m.status,m.visible,m.showComponents]));
-  if(sourceKey!==this.sourceKey){this.dragging?.cancel();this.sourceKey=sourceKey;const live=new Set(items.map(m=>m.id||'preview'));for(const key of this.offsets.keys())if(!live.has(key))this.offsets.delete(key)}
-  if(documentId!==this.documentId||!enabled){this.dragging?.cancel();if(documentId!==this.documentId)this.offsets.clear();this.documentId=documentId}
+  if(sourceKey!==this.sourceKey){this.dragging?.cancel();this.sourceKey=sourceKey;const live=new Set(items.map(m=>m.id||'preview'));for(const key of this.positions.keys())if(!live.has(key))this.positions.delete(key)}
+  if(documentId!==this.documentId||!enabled){this.dragging?.cancel();if(documentId!==this.documentId){this.positions.clear();this.appliedLayouts.clear();}this.documentId=documentId}
   if(this.dragging)return;
   if(documentId===this.layoutDocumentId)this.hydrateLayouts();
-  const frameKey=JSON.stringify([documentId,sourceKey,unit,width,height,enabled,interactive,camera.projectionMatrix.elements,camera.matrixWorldInverse.elements,items.map(m=>[m.name,m.displayAnchors,m.result?.anchors,m.outputCurrency]),[...this.offsets]]);
+  const frameKey=JSON.stringify([documentId,sourceKey,unit,width,height,enabled,interactive,camera.projectionMatrix.elements,camera.matrixWorldInverse.elements,items.map(m=>[m.name,m.displayAnchors,m.result?.anchors,m.outputCurrency]),[...this.positions]]);
   if(frameKey===this.frameKey)return;this.frameKey=frameKey;
   this.root.replaceChildren();this.root.setAttribute('viewBox',`0 0 ${width} ${height}`);
   if(!enabled)return;
@@ -101,21 +108,22 @@ export class MeasurementOverlay {
    for(const [i,p] of drawing.points.entries()){const xy=project(p);if(xy){group.append(svg('circle',{cx:xy[0],cy:xy[1],r:3.5,class:'measurement-witness'}));if(m.kind==='BETWEEN'){const t=svg('text',{x:xy[0]+7,y:xy[1]-7,class:'measurement-role'});t.textContent=String(i+1);group.append(t)}}}
    for(const c of drawing.components??[]){const a=project(c.first),b=project(c.second);if(a&&b){line(group,a,b,`measurement-component measurement-component-${c.axis}`);if(Math.hypot(b[0]-a[0],b[1]-a[1])>30){const t=svg('text',{x:(a[0]+b[0])/2+4,y:(a[1]+b[1])/2-5,class:`measurement-component-text measurement-component-${c.axis}`});t.textContent=`${'XYZ'[c.axis]} ${measurementValue('xMm',c.value,unit)}`;group.append(t)}}}
    const text=(m.name?m.name+' · ':'')+drawing.text,w=Math.min(width-24,Math.max(120,text.length*7.5+24)),h=30,key=m.id||'preview';
-   let offset=this.offsets.get(key)??[26,-38-index%3*12];
-   let x=Math.max(8,Math.min(width-w-8,labelAnchor[0]+offset[0])),y=Math.max(8,Math.min(height-h-8,labelAnchor[1]+offset[1]));
-   if(!this.offsets.has(key))for(let attempt=0;attempt<12&&occupied.some(r=>x<r.x+r.w+4&&x+w+4>r.x&&y<r.y+r.h+4&&y+h+4>r.y);attempt++){y+=h+6;if(y+h>height-8){y=8;x=Math.min(width-w-8,x+w/2)}}
-   occupied.push({x,y,w,h});offset=[x-labelAnchor[0],y-labelAnchor[1]];
+   const stored=this.positions.get(key),position=stored?project(stored):undefined;
+   if(stored&&!position)continue;
+   let x=position?.[0]??Math.max(8,Math.min(width-w-8,labelAnchor[0]+26)),y=position?.[1]??Math.max(8,Math.min(height-h-8,labelAnchor[1]-38-index%3*12));
+   if(!stored){for(let attempt=0;attempt<12&&occupied.some(r=>x<r.x+r.w+4&&x+w+4>r.x&&y<r.y+r.h+4&&y+h+4>r.y);attempt++){y+=h+6;if(y+h>height-8){y=8;x=Math.min(width-w-8,x+w/2)}}this.positions.set(key,annotationWorldPosition([x,y],drawing.anchor,camera,width,height))}
+   occupied.push({x,y,w,h});
    const leader=line(group,labelAnchor,[x,y+h/2],'measurement-leader');
    const label=svg('g',{transform:`translate(${x} ${y})`,class:'measurement-label',tabindex:interactive?0:-1,role:m.id&&interactive?'button':'img','aria-label':text});
    label.append(svg('rect',{width:w,height:h,rx:5}));const title=svg('title');title.textContent=`${text}；拖动可调整标签位置，双击复位`;label.append(title);
    const t=svg('text',{x:10,y:19});t.textContent=text.length*7.5+24>w?text.slice(0,Math.max(8,Math.floor((w-40)/7.5)))+'…':text;label.append(t);group.append(label);
-   label.addEventListener('dblclick',e=>{e.stopPropagation();this.offsets.delete(key);if(m.id)this.saveOffset?.(m.id,undefined);x=Math.max(8,Math.min(width-w-8,labelAnchor[0]+26));y=Math.max(8,Math.min(height-h-8,labelAnchor[1]-38));label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2))});
+   label.addEventListener('dblclick',e=>{e.stopPropagation();x=Math.max(8,Math.min(width-w-8,labelAnchor[0]+26));y=Math.max(8,Math.min(height-h-8,labelAnchor[1]-38));const world=annotationWorldPosition([x,y],drawing.anchor,camera,width,height);this.positions.set(key,world);if(m.id)this.savePosition?.(m.id,world);label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2))});
    label.addEventListener('pointerdown',e=>{
     if(e.button!==0)return;e.preventDefault();e.stopPropagation();label.setPointerCapture(e.pointerId);
-    const start:Point=[e.clientX,e.clientY],base:Point=[x,y],previous=this.offsets.get(key);
+    const start:Point=[e.clientX,e.clientY],base:Point=[x,y],previous=this.positions.get(key),dragCamera=camera.clone();
     let moved=false;
-    const move=(event:PointerEvent)=>{event.stopPropagation();moved ||= Math.hypot(event.clientX-start[0],event.clientY-start[1])>3;const box=this.root.getBoundingClientRect(),sx=width/box.width,sy=height/box.height;x=Math.max(8,Math.min(width-w-8,base[0]+(event.clientX-start[0])*sx));y=Math.max(8,Math.min(height-h-8,base[1]+(event.clientY-start[1])*sy));label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2));this.offsets.set(key,[x-labelAnchor[0],y-labelAnchor[1]])};
-    const finish=(event?:Event,cancel=false)=>{event?.stopPropagation();if(cancel){if(previous)this.offsets.set(key,previous);else this.offsets.delete(key);label.setAttribute('transform',`translate(${base[0]} ${base[1]})`);leader.setAttribute('x2',String(base[0]));leader.setAttribute('y2',String(base[1]+h/2))}if(!cancel&&m.id&&moved)this.saveOffset?.(m.id,this.offsets.get(key));this.dragging=undefined;label.removeEventListener('pointermove',move);label.removeEventListener('pointerup',up);label.removeEventListener('pointercancel',cancelled);label.removeEventListener('lostpointercapture',cancelled);window.removeEventListener('blur',cancelled);window.removeEventListener('keydown',keyDown,true);if(label.hasPointerCapture(e.pointerId))label.releasePointerCapture(e.pointerId)};
+    const move=(event:PointerEvent)=>{event.stopPropagation();moved ||= Math.hypot(event.clientX-start[0],event.clientY-start[1])>3;const box=this.root.getBoundingClientRect(),sx=width/box.width,sy=height/box.height;x=Math.max(8,Math.min(width-w-8,base[0]+(event.clientX-start[0])*sx));y=Math.max(8,Math.min(height-h-8,base[1]+(event.clientY-start[1])*sy));label.setAttribute('transform',`translate(${x} ${y})`);leader.setAttribute('x2',String(x));leader.setAttribute('y2',String(y+h/2));this.positions.set(key,annotationWorldPosition([x,y],previous??drawing.anchor,dragCamera,width,height))};
+    const finish=(event?:Event,cancel=false)=>{event?.stopPropagation();if(cancel){if(previous)this.positions.set(key,previous);else this.positions.delete(key);label.setAttribute('transform',`translate(${base[0]} ${base[1]})`);leader.setAttribute('x2',String(base[0]));leader.setAttribute('y2',String(base[1]+h/2))}if(!cancel&&m.id&&moved)this.savePosition?.(m.id,this.positions.get(key));this.dragging=undefined;label.removeEventListener('pointermove',move);label.removeEventListener('pointerup',up);label.removeEventListener('pointercancel',cancelled);label.removeEventListener('lostpointercapture',cancelled);window.removeEventListener('blur',cancelled);window.removeEventListener('keydown',keyDown,true);if(label.hasPointerCapture(e.pointerId))label.releasePointerCapture(e.pointerId)};
     const up=(event:PointerEvent)=>finish(event),cancelled=(event:Event)=>finish(event,true),keyDown=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();finish(event,true)}};
     this.dragging={cancel:()=>finish(undefined,true)};label.addEventListener('pointermove',move);label.addEventListener('pointerup',up);label.addEventListener('pointercancel',cancelled);label.addEventListener('lostpointercapture',cancelled);window.addEventListener('blur',cancelled);window.addEventListener('keydown',keyDown,true);
     if(m.id)this.interaction?.select(m.id,e.ctrlKey||e.metaKey);
