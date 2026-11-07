@@ -49,9 +49,11 @@ export class CadMaterialFactory {
   }
 
   /** Solid topology uses a round marker; sketch crosses keep their own contract. */
-  topologyPoint(color: number = this.theme.vertex, size = 7, depthTest = true): THREE.ShaderMaterial {
+  topologyPoint(color: number = this.theme.vertex, size = 4.5, depthTest = true): THREE.ShaderMaterial {
     const material = this.point(color, size, depthTest);
     material.uniforms.uMarkerShape.value = 2;
+    material.uniforms.uCenterRadius.value = .55/size;
+    material.uniforms.uCenterColor.value.setHex(this.theme.edge);
     material.depthWrite = false;
     return material;
   }

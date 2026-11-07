@@ -84,6 +84,7 @@ export class SurfaceDepthPass {
     this.visibleMaterial.clippingPlanes=enabled?[plane]:null;this.visibleMaterial.needsUpdate=true;
   }
   configureLine(material:LineMaterial):void {
+    if(material.userData.cadContour||material.userData.cadEdgeAppearance){material.alphaToCoverage=true;material.toneMapped=false;}
     material.onBeforeCompile=shader=>{
       Object.assign(shader.uniforms,this.uniforms);
       if(material.userData.cadContour||material.userData.cadEdgeAppearance){
@@ -100,9 +101,9 @@ export class SurfaceDepthPass {
         vec3 eye=projectionMatrix[2][3]==-1.0?normalize(-(modelViewMatrix*vec4(instanceStart,1.0)).xyz):vec3(0.0,0.0,1.0);
         float fa=dot(a,eye),fb=dot(b,eye);
         vCadContour=${material.userData.cadSilhouette?'length(b)<0.1?1.0:step(fa*fb,0.0)':'length(a)<0.1?0.65:(fa*fb<0.0?1.0:1.0-smoothstep(0.0,0.45,min(abs(fa),abs(fb))))'};`);
-      shader.fragmentShader=(material.userData.cadEdgeAppearance||material.userData.cadSilhouette?'varying float vCadContour;\n':'')+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replace("gl_FragColor = vec4( diffuseColor.rgb, alpha );",`gl_FragColor = vec4( diffuseColor.rgb, alpha * ${material.userData.cadContour?'1.0':'cadEdgeVisibility()'} ${material.userData.cadSilhouette?'* vCadContour':material.userData.cadEdgeAppearance?'* mix(0.40,0.90,vCadContour)':''} );`);
+      shader.fragmentShader=(material.userData.cadEdgeAppearance||material.userData.cadSilhouette?'varying float vCadContour;\n':'')+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replace("gl_FragColor = vec4( diffuseColor.rgb, alpha );",`gl_FragColor = vec4( diffuseColor.rgb, alpha * ${material.userData.cadContour?'1.0':'cadEdgeVisibility()'} ${material.userData.cadSilhouette?'* vCadContour':material.userData.cadEdgeAppearance?'* mix(0.78,1.0,vCadContour)':''} );`);
     };
-    material.customProgramCacheKey=()=>"cad-edge-depth-facing-v4-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour);
+    material.customProgramCacheKey=()=>"cad-edge-depth-facing-v5-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour);
   }
   configureSurface(material:THREE.MeshStandardMaterial):void{
     material.onBeforeCompile=shader=>{

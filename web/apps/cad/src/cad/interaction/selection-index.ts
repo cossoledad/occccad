@@ -5,7 +5,8 @@ import { selectionKey } from "./selection-identity";
 export type PickResolver = (intersection: THREE.Intersection) => Selection;
 export type SelectionHit = { selection: Selection; intersection?: THREE.Intersection };
 
-type PickBinding = { root: THREE.Object3D; resolve: PickResolver; priority: number; interactionLayer: number };
+type PickBinding = { root: THREE.Object3D; resolve: PickResolver; priority: number; interactionLayer: number; domain?: "sketch" };
+export type PickOptions = { preferSolidTopology?: boolean; depthTolerance?: number };
 
 // Scene objects and tree nodes share Selection identity through this index.
 // Topology elements are resolved lazily from hit indices, so the index remains
@@ -66,8 +67,8 @@ export class SelectionIndex {
     entries.add(object); this.objects.set(key, entries);
   }
 
-  registerPick(root: THREE.Object3D, resolve: PickResolver, priority = 0, interactionLayer = 0): void {
-    this.picks.push({ root, resolve, priority, interactionLayer });
+  registerPick(root: THREE.Object3D, resolve: PickResolver, priority = 0, interactionLayer = 0, domain?: "sketch"): void {
+    this.picks.push({ root, resolve, priority, interactionLayer, domain });
   }
 
   objectsFor(selection: Selection): readonly THREE.Object3D[] {
@@ -91,16 +92,16 @@ export class SelectionIndex {
 
   selectionForTreeNode(treeNodeId: string): Selection { const selection=this.tree.get(treeNodeId);return selection?this.projection(selection):null; }
 
-  pick(raycaster: THREE.Raycaster, accepts: (selection: Exclude<Selection, null>) => boolean = () => true): Selection {
-    return this.pickWithIntersection(raycaster, accepts).selection;
+  pick(raycaster: THREE.Raycaster, accepts: (selection: Exclude<Selection, null>) => boolean = () => true, options:PickOptions={}): Selection {
+    return this.pickWithIntersection(raycaster, accepts, options).selection;
   }
 
-  pickWithIntersection(raycaster:THREE.Raycaster,accepts:(selection:Exclude<Selection,null>)=>boolean=()=>true):SelectionHit {
-    return this.pickAll(raycaster,accepts,1)[0]??{selection:null};
+  pickWithIntersection(raycaster:THREE.Raycaster,accepts:(selection:Exclude<Selection,null>)=>boolean=()=>true,options:PickOptions={}):SelectionHit {
+    return this.pickAll(raycaster,accepts,1,options)[0]??{selection:null};
   }
 
   pickAll(raycaster: THREE.Raycaster,
-    accepts: (selection: Exclude<Selection, null>) => boolean = () => true, limit=256): SelectionHit[] {
+    accepts: (selection: Exclude<Selection, null>) => boolean = () => true, limit=256, options:PickOptions={}): SelectionHit[] {
     const visible = (root: THREE.Object3D) => {
       for (let object: THREE.Object3D | null = root; object; object = object.parent) if (!object.visible) return false;
       return true;
@@ -109,19 +110,32 @@ export class SelectionIndex {
     const roots = activePicks.map((binding) => binding.root);
     if (roots.length === 0) return [];
     const bindings = new Map(activePicks.map((binding) => [binding.root.uuid, binding]));
-    const candidates = raycaster.intersectObjects(roots, false).map((intersection) => {
+    const candidates = raycaster.intersectObjects(roots, false).flatMap((intersection) => {
       const binding = bindings.get(intersection.object.uuid);
-      return binding ? { intersection, binding } : undefined;
-    }).filter((value): value is { intersection: THREE.Intersection; binding: PickBinding } => Boolean(value));
-    candidates.sort((left, right) => left.binding.interactionLayer !== right.binding.interactionLayer
-      ? right.binding.interactionLayer - left.binding.interactionLayer
-      : Math.abs(left.intersection.distance - right.intersection.distance) < 0.75
-        ? right.binding.priority - left.binding.priority : left.intersection.distance - right.intersection.distance);
+      const raw=binding?.resolve(intersection),selection=raw?this.projection(raw):null;
+      if(!binding||!selection||!accepts(selection))return [];
+      // Outside sketch editing: vertex (50), edge (40), sketch point (35),
+      // sketch curve (30), sketch annotation (25), face (20). Explicit command
+      // filters still apply first; inactive corner glyphs cannot steal vertices.
+      const priority=options.preferSolidTopology&&selection.kind==="sketch-constraint"?Math.min(binding.priority,25)
+        :options.preferSolidTopology&&binding.domain==="sketch"&&selection.kind==="visual"
+          ? Math.min(binding.priority,selection.visualType==="POINT"?35:30):binding.priority;
+      return [{intersection,binding,selection,priority}];
+    });
+    candidates.sort((a,b)=>b.binding.interactionLayer-a.binding.interactionLayer||a.intersection.distance-b.intersection.distance);
+    // Anchor each depth band at its nearest hit. Pairwise "close enough"
+    // comparisons are non-transitive and depend on registration order.
+    const tolerance=Math.max(0,options.depthTolerance??0.75);
+    for(let start=0;start<candidates.length;){
+      let end=start+1;const first=candidates[start];
+      while(end<candidates.length&&candidates[end].binding.interactionLayer===first.binding.interactionLayer&&candidates[end].intersection.distance-first.intersection.distance<=tolerance)end++;
+      const band=candidates.slice(start,end).sort((a,b)=>b.priority-a.priority||a.intersection.distance-b.intersection.distance);
+      for(let i=0;i<band.length;i++)candidates[start+i]=band[i];start=end;
+    }
     const results:SelectionHit[]=[];const seen=new Set<string>();
     for (const candidate of candidates) {
-      const raw=candidate.binding.resolve(candidate.intersection);
-      const selection=raw?this.projection(raw):null;
-      if(selection&&accepts(selection)&&!seen.has(selectionKey(selection))){seen.add(selectionKey(selection));results.push({selection,intersection:candidate.intersection});if(results.length>=limit)break}
+      const selection=candidate.selection;
+      if(!seen.has(selectionKey(selection))){seen.add(selectionKey(selection));results.push({selection,intersection:candidate.intersection});if(results.length>=limit)break}
     }
     return results;
   }

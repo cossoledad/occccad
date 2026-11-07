@@ -2915,7 +2915,7 @@ export class CadViewportEngine {
         this.selectionIndex.register(selection, object, selection.treeNodeId);
         const pickables = object.children.length > 0 ? object.children : [object];
         for (const pickable of pickables) {
-          this.selectionIndex.registerPick(pickable, () => selection, type === "POINT" ? 75 : type === "CURVE" ? 70 : 30);
+          this.selectionIndex.registerPick(pickable, () => selection, type === "POINT" ? 75 : type === "CURVE" ? 70 : 30,0,isSketch?"sketch":undefined);
         }
         if (primitive.semantic === "SKETCH_CONSTRAINT") {
           constraintAssociations.push({ selection: selection as Extract<SelectionItem, { kind: "sketch-constraint" }>,
@@ -3057,7 +3057,7 @@ export class CadViewportEngine {
           const subElement=(["LINE","ARC","ELLIPTICAL_ARC"].includes(entity.kind)&&index<2)?(index===0?"START":"END"):entity.center?"CENTER":undefined;
           if(!subElement||patternMemberIDs.has(entity.id))return null;
           return {...entitySelection,visualType:"POINT",sketchReference:{target:"ENTITY",entityId:entity.id,subElement}};
-        },80);
+        },80,0,"sketch");
       }
       if (!object) continue;
       object.userData = { ...entitySelection, sketchEntityOverlay: true,patternMember:patternMemberIDs.has(entity.id) }; group.add(object);
@@ -3070,7 +3070,7 @@ export class CadViewportEngine {
       }
       this.selectable.set(`visual:${entitySelection.id}`, object);
       this.selectionIndex.register(entitySelection, object);
-      this.selectionIndex.registerPick(object, () => entitySelection, (type === "POINT" ? 75 : 70)+sketchGeometryPickPriority(entity.role));
+      this.selectionIndex.registerPick(object, () => entitySelection, (type === "POINT" ? 75 : 70)+sketchGeometryPickPriority(entity.role),0,"sketch");
     }
     // Locations are computed by the server using the production Profile
     // graph. Displaying them never creates or guesses endpoint connectivity.
@@ -3245,7 +3245,7 @@ export class CadViewportEngine {
     if (topologyVertices.length > 0) {
       const pointGeometry = new THREE.BufferGeometry();
       pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(topologyVertices.flatMap((item) => item.point), 3));
-      const points = new THREE.Points(pointGeometry, this.materials.topologyPoint(CATIA_VISUAL_THEME.vertex, 7));
+      const points = new THREE.Points(pointGeometry, this.materials.topologyPoint(CATIA_VISUAL_THEME.vertex, 4.5));
       markNavigationPickable(points);
       if(!artifact.historicalPreview)this.selectionIndex.registerPick(points, (hit) => {
         if(!materialAllowsPick(points.material))return null;
@@ -3534,7 +3534,8 @@ export class CadViewportEngine {
       this.featureSelection ? !!featureSelectionHit(selection, this.featureSelection) :
       this.activeToolID === "sketch.project"
         ? isExternalProjectionSource(selection, projectionScope) && allowsSelection(this.captureSettings, selection)
-        : allowsSelectionInContext(this.captureSettings, selection, this.activeSketchID));
+        : allowsSelectionInContext(this.captureSettings, selection, this.activeSketchID),
+      {preferSolidTopology:!this.activeSketchID,depthTolerance:worldPerPixel*5});
     const raw=hit.selection && bindPublicationSelection(hit.selection, this.view?.structureTree);
     if(captureManipulatorAnchor&&raw&&hit.intersection&&this.view)
       this.lastManipulatorPick={selection:raw,hit:hit.intersection,revisionId:this.view.document.versionId};
@@ -3743,7 +3744,7 @@ export class CadViewportEngine {
       const vertex = (binding.artifact.mesh.topologyVertices ?? []).find((item) => item.localId === selection.topologyId);
       if (vertex) {
         const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3().fromArray(vertex.point)]);
-        overlay = new THREE.Points(geometry, this.materials.topologyPoint(color, layer === "selected" ? 9 : 7, false));
+        overlay = new THREE.Points(geometry, this.materials.topologyPoint(color, layer === "selected" ? 6 : 5, false));
       }
     }
     if (!overlay) return;
