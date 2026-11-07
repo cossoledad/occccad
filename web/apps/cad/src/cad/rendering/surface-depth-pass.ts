@@ -1,6 +1,18 @@
 import * as THREE from "three";
 import type {LineMaterial} from "three/addons/lines/LineMaterial.js";
 
+type OpaqueDraw={groupOrder:number;renderOrder:number;object:THREE.Object3D;material:{id:number};z:number;id:number};
+/** Preserve explicit layers; CAD opaque ties use stable occurrence/Body keys.
+ * Transparent sorting, geometry and model-selection identity remain untouched. */
+export function stableCadOpaqueSort(a:OpaqueDraw,b:OpaqueDraw):number {
+  if(a.groupOrder!==b.groupOrder)return a.groupOrder-b.groupOrder;
+  if(a.renderOrder!==b.renderOrder)return a.renderOrder-b.renderOrder;
+  const ak=a.object.userData.cadSurfaceKey as string|undefined,bk=b.object.userData.cadSurfaceKey as string|undefined;
+  if(ak&&bk&&ak!==bk)return ak<bk?-1:1;
+  if(!!ak!==!!bk)return ak?1:-1;
+  return a.material.id-b.material.id||a.z-b.z||a.id-b.id;
+}
+
 /** Eight bounded samples, only on opaque surfaces. Not a physical illumination
  * solution: the optional view aid deliberately rejects far-depth silhouettes. */
 const CAD_AO_GLSL=`
@@ -49,6 +61,10 @@ export class SurfaceDepthPass {
   private readonly visibleMaterial=new THREE.MeshDepthMaterial({depthPacking:THREE.BasicDepthPacking,side:THREE.DoubleSide,colorWrite:false});
   private readonly invisibleMaterial=new THREE.MeshDepthMaterial({visible:false});
   private readonly proxies=new WeakMap<THREE.Mesh,THREE.Mesh>();
+  private opaqueTarget?:THREE.WebGLRenderTarget;
+  // Bounded raster-depth tie, not a model-space weld tolerance. Covers float
+  // transform/interpolation differences between coincident tessellations.
+  readonly opaqueUniforms={uCadOpaqueDepth:{value:this.target.depthTexture as THREE.DepthTexture|null},uCadOpaqueResolve:{value:false},uCadDepthEpsilon:{value:16/(2**24-1)}};
   readonly aoUniforms={uCadAOEnabled:{value:false},uCadAOIntensity:{value:.35},uCadAOScale:{value:1},uCadAONearFar:{value:new THREE.Vector2(.1,10000)},uCadAOPerspective:{value:1},uCadAOPixelRadius:{value:12}};
   readonly uniforms:{uCadSurfaceDepth:THREE.IUniform;uCadDepthSize:THREE.IUniform<THREE.Vector2>;uCadDepthEnabled:THREE.IUniform<boolean>};
   constructor(){
@@ -60,9 +76,9 @@ export class SurfaceDepthPass {
     this.visibleMaterial.onBeforeCompile=shader=>{
       shader.uniforms.uCadAONearFar=this.aoUniforms.uCadAONearFar;
       shader.vertexShader='varying float vCadViewDepth;\n'+shader.vertexShader.replace('#include <project_vertex>','#include <project_vertex>\nvCadViewDepth=-mvPosition.z;');
-      shader.fragmentShader='varying float vCadViewDepth; uniform vec2 uCadAONearFar;\n'+shader.fragmentShader.replace('gl_FragColor = vec4( vec3( 1.0 - fragCoordZ ), opacity );','gl_FragColor=packDepthToRGBA(clamp((vCadViewDepth-uCadAONearFar.x)/(uCadAONearFar.y-uCadAONearFar.x),0.0,1.0));');
+      shader.fragmentShader='varying float vCadViewDepth; uniform vec2 uCadAONearFar;\n'+shader.fragmentShader.replace('gl_FragColor = vec4( vec3( 1.0 - fragCoordZ ), opacity );','gl_FragDepth=fragCoordZ; gl_FragColor=packDepthToRGBA(clamp((vCadViewDepth-uCadAONearFar.x)/(uCadAONearFar.y-uCadAONearFar.x),0.0,1.0));');
     };
-    this.visibleMaterial.customProgramCacheKey=()=>'cad-linear-view-depth-v1';
+    this.visibleMaterial.customProgramCacheKey=()=>'cad-linear-view-depth-v2';
   }
   setSectionPlane(enabled:boolean,plane:THREE.Plane):void {
     this.visibleMaterial.clippingPlanes=enabled?[plane]:null;this.visibleMaterial.needsUpdate=true;
@@ -70,22 +86,40 @@ export class SurfaceDepthPass {
   configureLine(material:LineMaterial):void {
     material.onBeforeCompile=shader=>{
       Object.assign(shader.uniforms,this.uniforms);
-      if(material.userData.cadEdgeAppearance)shader.vertexShader='attribute vec3 instanceEdgeNormalA,instanceEdgeNormalB; varying float vCadContour;\n'+shader.vertexShader.replace('void main() {',`void main() {
+      if(material.userData.cadContour||material.userData.cadEdgeAppearance){
+        shader.uniforms.uCadLineDepthBias=this.opaqueUniforms.uCadDepthEpsilon;
+        shader.vertexShader='varying vec2 vCadLineClipZW;\n'+shader.vertexShader.replace('#include <clipping_planes_vertex>','vCadLineClipZW=gl_Position.zw;\n#include <clipping_planes_vertex>');
+        // A half-pixel slope allowance keeps the stroked edge on its own face
+        // without turning hidden edges into an x-ray overlay.
+        shader.fragmentShader='varying vec2 vCadLineClipZW; uniform float uCadLineDepthBias;\n'+shader.fragmentShader.replace('#include <clipping_planes_fragment>',`#include <clipping_planes_fragment>
+          float lineDepth=0.5*vCadLineClipZW.x/vCadLineClipZW.y+0.5;
+          gl_FragDepth=max(0.0,lineDepth-max(uCadLineDepthBias,0.5*fwidth(lineDepth)));`);
+      }
+      if(material.userData.cadEdgeAppearance||material.userData.cadSilhouette)shader.vertexShader='attribute vec3 instanceEdgeNormalA,instanceEdgeNormalB; varying float vCadContour;\n'+shader.vertexShader.replace('void main() {',`void main() {
         vec3 a=normalMatrix*instanceEdgeNormalA,b=normalMatrix*instanceEdgeNormalB;
         vec3 eye=projectionMatrix[2][3]==-1.0?normalize(-(modelViewMatrix*vec4(instanceStart,1.0)).xyz):vec3(0.0,0.0,1.0);
         float fa=dot(a,eye),fb=dot(b,eye);
-        vCadContour=length(a)<0.1?0.65:(fa*fb<0.0?1.0:1.0-smoothstep(0.0,0.45,min(abs(fa),abs(fb))));`);
-      shader.fragmentShader=(material.userData.cadEdgeAppearance?'varying float vCadContour;\n':'')+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replace("gl_FragColor = vec4( diffuseColor.rgb, alpha );",`gl_FragColor = vec4( diffuseColor.rgb, alpha * cadEdgeVisibility() ${material.userData.cadEdgeAppearance?'* mix(0.40,0.90,vCadContour)':''} );`);
+        vCadContour=${material.userData.cadSilhouette?'length(b)<0.1?1.0:step(fa*fb,0.0)':'length(a)<0.1?0.65:(fa*fb<0.0?1.0:1.0-smoothstep(0.0,0.45,min(abs(fa),abs(fb))))'};`);
+      shader.fragmentShader=(material.userData.cadEdgeAppearance||material.userData.cadSilhouette?'varying float vCadContour;\n':'')+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replace("gl_FragColor = vec4( diffuseColor.rgb, alpha );",`gl_FragColor = vec4( diffuseColor.rgb, alpha * ${material.userData.cadContour?'1.0':'cadEdgeVisibility()'} ${material.userData.cadSilhouette?'* vCadContour':material.userData.cadEdgeAppearance?'* mix(0.40,0.90,vCadContour)':''} );`);
     };
-    material.customProgramCacheKey=()=>"cad-edge-depth-facing-v2-"+Boolean(material.userData.cadEdgeAppearance);
+    material.customProgramCacheKey=()=>"cad-edge-depth-facing-v4-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour);
   }
   configureSurface(material:THREE.MeshStandardMaterial):void{
     material.onBeforeCompile=shader=>{
-      Object.assign(shader.uniforms,this.uniforms,this.aoUniforms);
+      Object.assign(shader.uniforms,this.uniforms,this.aoUniforms,this.opaqueUniforms);
       shader.uniforms.uCadLinearDepth={value:this.target.texture};
-      shader.fragmentShader=shader.fragmentShader.replace('#include <packing>','#include <packing>\n'+CAD_AO_GLSL+'\n').replace('#include <opaque_fragment>','outgoingLight *= cadAmbientOcclusion(vViewPosition.z);\n#include <opaque_fragment>');
+      // Match the depth pass at fragment centres; gl_FragCoord.z can differ
+      // under multisampling, especially for sloped orthographic surfaces.
+      shader.vertexShader='varying vec2 vCadClipZW;\n'+shader.vertexShader.replace('#include <project_vertex>','#include <project_vertex>\nvCadClipZW=gl_Position.zw;');
+      shader.fragmentShader='varying vec2 vCadClipZW; uniform sampler2D uCadOpaqueDepth; uniform bool uCadOpaqueResolve; uniform float uCadDepthEpsilon;\n'+shader.fragmentShader.replace('#include <packing>','#include <packing>\n'+CAD_AO_GLSL+'\n').replace('#include <clipping_planes_fragment>',`#include <clipping_planes_fragment>
+        float cadFragmentDepth=0.5*vCadClipZW.x/vCadClipZW.y+0.5;
+        gl_FragDepth=cadFragmentDepth;
+        if(uCadOpaqueResolve&&opacity>=1.0){
+          float nearest=texture2D(uCadOpaqueDepth,gl_FragCoord.xy/uCadDepthSize).r;
+          if(nearest<1.0&&abs(cadFragmentDepth-nearest)<=uCadDepthEpsilon)gl_FragDepth=nearest;
+        }`).replace('#include <opaque_fragment>','outgoingLight *= cadAmbientOcclusion(vViewPosition.z);\n#include <opaque_fragment>');
     };
-    material.customProgramCacheKey=()=>'cad-surface-ao-v2';
+    material.customProgramCacheKey=()=>'cad-surface-ao-stable-depth-v3';
   }
   render(renderer:THREE.WebGLRenderer,source:THREE.Scene,camera:THREE.Camera,ao=false,intensity=.35):void {
     const meshes:THREE.Mesh[]=[];let transparent=false;
@@ -97,11 +131,14 @@ export class SurfaceDepthPass {
       meshes.push(object);transparent ||= materials.some(m=>m.visible&&m.opacity>0&&m.opacity<1);
     });
     this.uniforms.uCadDepthEnabled.value=transparent;
+    const opaque=(m:THREE.Material)=>m.visible&&m.opacity>=1&&!m.transparent;
+    const resolve=meshes.filter(mesh=>(Array.isArray(mesh.material)?mesh.material:[mesh.material]).some(opaque)).length>1;
+    this.opaqueUniforms.uCadOpaqueResolve.value=resolve;
     this.aoUniforms.uCadAOEnabled.value=ao&&!transparent;
     this.visibleMaterial.colorWrite=ao&&!transparent;
     this.aoUniforms.uCadAOIntensity.value=intensity;
     this.scene.clear();
-    if(!transparent&&!ao)return;
+    if(!transparent&&!ao&&!resolve)return;
     const size=renderer.getDrawingBufferSize(new THREE.Vector2());
     if(!size.equals(this.uniforms.uCadDepthSize.value)){this.target.setSize(size.x,size.y);this.uniforms.uCadDepthSize.value.copy(size)}
     const c=camera as THREE.PerspectiveCamera|THREE.OrthographicCamera;
@@ -118,8 +155,17 @@ export class SurfaceDepthPass {
       proxy.matrix.copy(mesh.matrixWorld);this.scene.add(proxy);
     }
     const target=renderer.getRenderTarget(),viewport=renderer.getViewport(new THREE.Vector4()),scissor=renderer.getScissor(new THREE.Vector4()),scissorTest=renderer.getScissorTest();
-    try {renderer.setRenderTarget(this.target);renderer.setScissorTest(false);renderer.clear(true,true,false);renderer.render(this.scene,camera)}
+    try {
+      renderer.setRenderTarget(this.target);renderer.setScissorTest(false);renderer.clear(true,true,false);renderer.render(this.scene,camera);
+      this.opaqueUniforms.uCadOpaqueDepth.value=this.target.depthTexture;
+      if(resolve&&transparent){
+        if(!this.opaqueTarget){this.opaqueTarget=new THREE.WebGLRenderTarget(1,1,{minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,depthBuffer:true});this.opaqueTarget.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);}
+        if(this.opaqueTarget.width!==size.x||this.opaqueTarget.height!==size.y)this.opaqueTarget.setSize(size.x,size.y);
+        for(const mesh of meshes){const proxy=this.proxies.get(mesh)!;const depth=(m:THREE.Material)=>opaque(m)?this.visibleMaterial:this.invisibleMaterial;proxy.material=Array.isArray(mesh.material)?mesh.material.map(depth):depth(mesh.material);}
+        this.visibleMaterial.colorWrite=false;renderer.setRenderTarget(this.opaqueTarget);renderer.clear(true,true,false);renderer.render(this.scene,camera);this.opaqueUniforms.uCadOpaqueDepth.value=this.opaqueTarget.depthTexture;
+      }
+    }
     finally {renderer.setRenderTarget(target);renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(scissorTest)}
   }
-  dispose():void {this.scene.clear();this.target.dispose();this.target.depthTexture?.dispose();this.visibleMaterial.dispose();this.invisibleMaterial.dispose()}
+  dispose():void {this.scene.clear();this.target.dispose();this.target.depthTexture?.dispose();this.opaqueTarget?.dispose();this.opaqueTarget?.depthTexture?.dispose();this.visibleMaterial.dispose();this.invisibleMaterial.dispose()}
 }

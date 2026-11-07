@@ -27,8 +27,9 @@ try {
  assert.equal(hit.treeNodeId,"document:part/body:b/feature:fillet");
  const feature=id=>({kind:"pad",id,entityId:id,...context});
  e.addTopologyOverlay("selected",feature("blade"));
- const overlay=e.selectedOverlays.find(o=>o.isMesh);assert.equal(overlay.geometry.getAttribute("position").count,3,"blade highlights its current face only");
- e.addTopologyOverlay("selected",feature("fillet"));assert.equal(e.selectedOverlays.at(-1).geometry.getAttribute("position").count,3,"fillet does not highlight the Body or support face");
+ const contourXs=o=>[...o.geometry.getAttribute("instanceStart").array].filter((_,i)=>i%3===0);
+ const overlay=e.selectedOverlays.find(o=>o.isMesh);assert.equal(overlay.geometry.getAttribute("instanceStart").count,3,"blade highlights its current face only");assert(contourXs(overlay).every(x=>x>=0&&x<=1));
+ e.addTopologyOverlay("selected",feature("fillet"));assert.equal(e.selectedOverlays.at(-1).geometry.getAttribute("instanceStart").count,3,"fillet does not highlight the Body or support face");assert(contourXs(e.selectedOverlays.at(-1)).every(x=>x>=2&&x<=3));
  const count=e.selectedOverlays.length;
  e.addTopologyOverlay("selected",{...feature("blade"),occurrencePath:"b"});e.addTopologyOverlay("selected",{...feature("blade"),documentId:"other"});e.addTopologyOverlay("selected",{...feature("blade"),versionId:"old"});e.addTopologyOverlay("selected",{...feature("blade"),contextVariantKey:"other"});assert.equal(e.selectedOverlays.length,count);
  e.addTopologyOverlay("selected",feature("consumed"));assert.equal(e.selectedOverlays.length,count,"consumed never falls back to Body");

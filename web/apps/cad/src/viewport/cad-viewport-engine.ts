@@ -14,7 +14,8 @@ import {contextScopeForView,contextResultMatchesActiveView} from "../api/context
 import {SketchIntersectionTool} from "../cad/tool/sketch-intersection-tool";
 import {SketchIntersectionCache} from "../cad/interaction/sketch-intersections";
 import type {CapturedSketchReference} from "../cad/sketch/sketch-point-capture";
-import {faceOutlineSegments} from "../cad/rendering/face-outline";
+import {surfaceContourData} from "../cad/rendering/face-outline";
+import {stableCadOpaqueSort} from "../cad/rendering/surface-depth-pass";
 import {frameDocuments} from "./display-receipt";
 import { ScenePresentation } from "../cad/rendering/scene-presentation";
 import { DEFAULT_SCENE_SETTINGS, normalizeSceneSettings,sceneGridColor, sceneBackgroundIsLight, type SceneSettings } from "../cad/rendering/scene-settings";
@@ -700,6 +701,7 @@ export class CadViewportEngine {
     this.camera.layers.enable(CAD_GEOMETRY_LAYER);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = false;
+    this.renderer.setOpaqueSort(stableCadOpaqueSort);
     this.renderer.localClippingEnabled=true;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.autoClear = false;
@@ -3185,6 +3187,7 @@ export class CadViewportEngine {
     const group = new THREE.Group();
     const scopedAppearance = scopedSurfaceAppearance(appearance,artifact.geometryKey);
     const mesh = new THREE.Mesh(geometry, surfaceAppearanceMaterials(geometry,artifact.mesh.faceIds,scopedAppearance,color,(value,properties)=>this.materials.surface(value,properties)));
+    mesh.userData.cadSurfaceKey=JSON.stringify([context.documentId,context.occurrencePath,context.bodyId,context.displayStageFeatureId??'']);
     mesh.raycast = acceleratedRaycast;
     markNavigationPickable(mesh);
     mesh.castShadow = (Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
@@ -3668,6 +3671,16 @@ export class CadViewportEngine {
   }
 
   private addTopologyOverlay(layer: "selected" | "preselected", selection: SelectionItem, ids?:ReadonlySet<number>): void {
+    if(['body','instance','part','product'].includes(selection.kind)){
+      const targets=new Set(this.selectionIndex.objectsFor(selection));
+      for(const binding of this.solidBindings.values()){
+        if(!this.objectVisible(binding.group))continue;let matches=false;
+        for(let root:THREE.Object3D|null=binding.group;root;root=root.parent)if(targets.has(root)){matches=true;break}
+        if(!matches)continue;
+        for(const kind of ['face','edge'] as const){const values=new Set<number>(kind==='face'?binding.artifact.mesh.faceIds:(binding.artifact.mesh.edges??[]).map(e=>e.localId));values.delete(0);if(values.size)this.addTopologyOverlay(layer,{...binding.context,kind,id:selection.id,topologyId:[...values][0]},values)}
+      }
+      return;
+    }
     if(["pad","feature","import"].includes(selection.kind)) {
       const binding=[...this.solidBindings.values()].find(b=>sameDisplayContext(selection,b.context));
       if(!binding)return;
@@ -3714,22 +3727,17 @@ export class CadViewportEngine {
         if (!selectedIDs.has(binding.artifact.mesh.faceIds[index] ?? -1)) return;
         for (const vertex of triangle) positions.push(...binding.artifact.mesh.vertices[vertex]);
       });
-      if (positions.length > 0 && (Array.isArray(binding.mesh.material)?binding.mesh.material:[binding.mesh.material]).some(m=>m.userData.propertyPreview)) {
-        overlay=makeOcclusionVisibleSegments(faceOutlineSegments(positions),color,layer==="selected"?3:2);
-      } else if (positions.length > 0) {
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)); geometry.computeVertexNormals();
-        overlay = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-          color, transparent: true,
-          opacity: layer === "selected" ? 0.48 : 0.3, side: THREE.DoubleSide, depthWrite: false,
-          depthTest: false,
-          polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
-        }));
+      if (positions.length > 0) {
+        const data=surfaceContourData(positions),line=makeOcclusionVisibleSegments(data.segments,color,layer==='selected'?2.25:1.75);
+        line.geometry.setAttribute('instanceEdgeNormalA',new THREE.InstancedBufferAttribute(new Float32Array(data.first),3));
+        line.geometry.setAttribute('instanceEdgeNormalB',new THREE.InstancedBufferAttribute(new Float32Array(data.second),3));
+        line.material.depthTest=true;line.material.userData.cadContour=true;line.material.userData.cadSilhouette=true;this.materials.sectionLine(line.material);overlay=line;
       }
     } else if (selection.kind === "edge") {
       const group=new THREE.Group();
-      for(const edge of binding.artifact.mesh.edges??[])if(selectedIDs.has(edge.localId))group.add(makeOcclusionVisibleHighlightLine(
-        edge.points.map(point=>new THREE.Vector3().fromArray(point)),color,layer==="selected"?5:4));
+      for(const edge of binding.artifact.mesh.edges??[])if(selectedIDs.has(edge.localId)){
+        const line=makeOcclusionVisibleHighlightLine(edge.points.map(point=>new THREE.Vector3().fromArray(point)),color,layer==='selected'?2.25:1.75);line.material.depthTest=true;line.material.userData.cadContour=true;this.materials.sectionLine(line.material);group.add(line);
+      }
       if(group.children.length===1){overlay=group.children[0];group.remove(overlay);}else if(group.children.length)overlay=group;
     } else {
       const vertex = (binding.artifact.mesh.topologyVertices ?? []).find((item) => item.localId === selection.topologyId);

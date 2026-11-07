@@ -21,7 +21,7 @@ export class CadMaterialFactory {
       envMapIntensity: this.theme.surfaceEnvironmentIntensity,
       wireframe: false, depthTest: true, depthWrite: (properties.opacity??1)>=1,
       opacity:properties.opacity??1,transparent:(properties.opacity??1)<1,
-      polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+      polygonOffset: false,
     });
     material.userData.cadMaterial = "surface";
     material.userData.baseColor = color;
@@ -117,10 +117,10 @@ export class CadMaterialFactory {
         if(material.userData.dimensionDiagnosticColor!==undefined){(material as THREE.MeshBasicMaterial).color.setHex(material.userData.dimensionDiagnosticColor);continue;}
         if (material instanceof THREE.MeshStandardMaterial && material.userData.cadMaterial === "surface") {
           const baseColor = Number(material.userData.baseColor ?? this.theme.surface);
-          material.color.setHex(material.userData.propertyPreview ? baseColor : state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : baseColor);
-          material.emissive.setHex(state === "selected" ? this.theme.selectedEmissive : 0x000000);
-          material.emissiveIntensity = material.userData.propertyPreview?0:state === "selected" ? 0.32 : state === "hover" ? 0.12 : 0;
+          material.color.setHex(baseColor);
+          material.emissive.setHex(0x000000);material.emissiveIntensity=0;
         } else if (material instanceof LineMaterial) {
+          if(material.userData.cadContour)continue;
           const baseColor = Number(material.userData.baseColor ?? material.color.getHex());
           material.userData.baseColor = baseColor;
           material.color.setHex(material.userData.propertyPreview?baseColor:state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : state === "context" ? 0x6b929b : baseColor);

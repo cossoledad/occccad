@@ -24,6 +24,17 @@ try{
  assert.equal(pass.uniforms.uCadDepthEnabled.value,true);assert.deepEqual(pass.uniforms.uCadDepthSize.value.toArray(),[1600,1200]);
  const edge=factory.edge();assert.equal(edge.uniforms.uCadSurfaceDepth,pass.uniforms.uCadSurfaceDepth);
  glass.opacity=1;pass.render(renderer,scene,camera);assert.equal(renders,1,"opaque-only frames need no extra depth pass");assert.equal(pass.uniforms.uCadDepthEnabled.value,false);
+ // Two opaque bodies share one stable depth reference; visible glass must never
+ // become that reference, nor acquire opaque depth-write behaviour.
+ const opaqueScene=new T.Scene(),opaqueA=factory.surface(0x112233),opaqueB=factory.surface(0x445566),clear=factory.surface(0xffffff,{opacity:.3});
+ opaqueScene.add(new T.Mesh(geometry,opaqueA),new T.Mesh(geometry,opaqueB));
+ const draws=[],savedTarget={name:"caller-target"};target=savedTarget;
+ const stableRenderer={...renderer,render(depthScene){draws.push({target,visible:depthScene.children.map(p=>(Array.isArray(p.material)?p.material:[p.material]).some(m=>m.visible))})}};
+ pass.render(stableRenderer,opaqueScene,camera);assert.equal(draws.length,1);assert.equal(pass.opaqueUniforms.uCadOpaqueResolve.value,true);assert.equal(pass.opaqueUniforms.uCadOpaqueDepth.value,draws[0].target.depthTexture);assert.equal(target,savedTarget);
+ opaqueScene.add(new T.Mesh(geometry,clear));draws.length=0;
+ pass.render(stableRenderer,opaqueScene,camera);assert.equal(draws.length,2);assert.deepEqual(draws[0].visible,[true,true,true]);assert.deepEqual(draws[1].visible,[true,true,false]);assert.equal(pass.opaqueUniforms.uCadOpaqueDepth.value,draws[1].target.depthTexture);assert.equal(target,savedTarget);assert.equal(clear.depthWrite,false);
+ assert.throws(()=>pass.render({...stableRenderer,render(){throw Error("failed draw")}},opaqueScene,camera),/failed draw/);assert.equal(target,savedTarget,"restore caller render target after failure");
+ [opaqueA,opaqueB,clear].forEach(m=>m.dispose());
  const {makeSketchConstraintRenderable}=await server.ssrLoadModule("/src/cad/rendering/sketch-constraint-renderer.ts");
  const {updateScreenLines}=await server.ssrLoadModule("/src/cad/rendering/screen-space-lines.ts");
  const {buildSketchConstraintLayout}=await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-layout.ts");
