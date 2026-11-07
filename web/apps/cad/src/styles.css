@@ -1011,14 +1011,18 @@ select {
 .assembly-freedom-vector { display: grid; grid-template-columns: 72px minmax(0,1fr); gap: 4px 10px; padding: 6px 0; border-top: 1px solid var(--color-border); font-variant-numeric: tabular-nums; }
 
 .engineering-graph { height: min(470px, 48vh); min-height: 240px; width: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; }
-.engineering-graph .react-flow__node { width: 208px; border-radius: 5px; }
-.engineering-graph-node { display: grid; gap: 3px; padding: 9px 12px; border: 1px solid var(--color-border); border-radius: 5px; background: var(--color-surface); color: var(--color-text); }
-.engineering-graph-node strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; }
-.engineering-graph-caption,.engineering-graph-status { color: var(--color-text-secondary); font-size: 11px; }
-.engineering-graph .selected .engineering-graph-node { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
-.engineering-graph-node.warning { border-color: #c18b4b; }
-.engineering-graph-node.muted { opacity: .6; border-style: dashed; }
-.engineering-graph .react-flow__handle { width: 5px; height: 5px; background: #7f8d9a; border: 1px solid var(--color-surface); }
+.engineering-graph .react-flow__node { width: auto; border-radius: 3px; }
+.engineering-graph-node { display: flex; align-items: center; gap: 5px; height: 28px; padding: 3px 5px; border: 1px solid transparent; border-radius: 3px; background: var(--color-surface); color: var(--color-text); }
+.engineering-graph-node .cad-command-icon { flex: 0 0 16px; width: 16px; height: 16px; }
+.engineering-graph-node strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 400; }
+.engineering-graph-status { flex: 0 0 4px; width: 4px; height: 4px; margin-left: auto; border-radius: 50%; background: #6f8790; }
+.engineering-graph .react-flow__node:hover .engineering-graph-node { background: var(--color-bg-hover, var(--color-primary-soft)); }
+.engineering-graph .selected .engineering-graph-node { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.engineering-graph-node.warning { color: #a36a24; }
+.engineering-graph-node.warning .engineering-graph-status { background: #b57a2d; }
+.engineering-graph-node.muted { color: var(--color-text-secondary); opacity: .65; }
+.engineering-graph-node.muted .engineering-graph-status { background: transparent; border: 1px solid currentColor; }
+.engineering-graph .react-flow__handle { width: 1px; height: 1px; min-width: 0; min-height: 0; border: 0; background: transparent; opacity: 0; pointer-events: none; }
 .assembly-dependency-toolbar { margin-bottom: 8px; }
 .assembly-dependency-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 10px; }
 .assembly-dependency-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-height: 30px; padding-top: 8px; color: var(--color-text-secondary); }

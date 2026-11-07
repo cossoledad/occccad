@@ -90,7 +90,7 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 模型投影采用当前编辑 Product 的直接刚性实例、约束（含角度参考轴及固联组成员）、上下文绑定，以及当前 Product 参数的已检查 `reads` 和外部参数发布引用。组件与约束为二部关系，约束连线不表示因果或求解顺序；上下文及公式连线保留来源方向。不按参数文本、显示名、位置或共享 Part 文档猜测关联实例。断链对象保持可见诊断节点；缺少已检查引用时明确标记不可用。孤立断链约束仍从装配根可达。已访问集合终止循环网络和重复展开，图节点身份由 owning document、occurrence 和稳定实体 ID 组成，Revision 用于操作资格验证。
 
-[GraphView](../../../web/apps/cad/src/components/graph-view.tsx) 隔离 React Flow 的渲染／手势状态；[装配投影](../../../web/apps/cad/src/cad/assembly/assembly-dependencies.ts) 不依赖图组件。React Flow 使用 MIT 许可，按需加载；展开、节点位置及缩放不形成 Revision 或 Undo/Redo。当前按连通层级排列，密集网络仍可能交叉，可临时整理布局。子装配内部关系需进入所属 Product；本页不递归抓取未接受的 Part Head，也不声称覆盖全部跨文档公式、所有建模上下文依赖或具有工业规模的图布局性能。
+[GraphView](../../../web/apps/cad/src/components/graph-view.tsx) 隔离 React Flow 的渲染／手势状态；[装配投影](../../../web/apps/cad/src/cad/assembly/assembly-dependencies.ts) 不依赖图组件。React Flow 使用 MIT 许可，按需加载；展开、节点位置及缩放不形成 Revision 或 Undo/Redo。显示采用紧凑图标与名称的依赖展开树：装配根先列关系，再展开实际支撑；组件根先列自身关系。父节点按可见子树的上下边界纵向居中，从左侧中部向右展开，列距考虑标签宽度。重复业务对象可有多个临时显示 occurrence，选择与操作始终映射回同一个稳定实体；每个实体仅展开一次，其余作为终止引用，循环网络的显示规模由节点与边数约束。公式／上下文箭头仍表示真实来源方向，向左连线不反转语义；普通约束连线没有箭头。默认仅展示紧凑状态标记，完整状态见悬停与选中详情。选择保留已测尺寸与当前查看范围；仅在展开拓扑变化或整理布局时自动适合窗口，新增节点先测量再启用视区裁剪。节点位置不持久化，可重新整理布局。子装配内部关系需进入所属 Product；本页不递归抓取未接受的 Part Head，也不声称覆盖全部跨文档公式、所有建模上下文依赖或具有工业规模的图布局性能。
 
 CATIA 参考：`online/asmug_C2/asmugbt0608.htm`（Analyzing Degrees of Freedom）描述当前激活装配范围内的平移／转动方向、坐标与逐方向高亮；`online/asmug_C2/asmugbt0607.htm`（Analyzing Dependencies）描述组件—约束—关联组件的展开树、重新设根、激活切换、缩放，以及 Constraints／Associativity／Relations 分类。前者的黄色方向反馈与后者的操作组织用于交互参考，不据此推断 CATIA 的数值或图布局内部实现。本项目保留自身的证据门、刚性单元范围和正式引用身份；图组件依据 [React Flow MIT 许可与组件职责](https://reactflow.dev/) 选型，不使用 Pro 示例或额外布局引擎。
 

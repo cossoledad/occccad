@@ -2,7 +2,7 @@ import type {AssemblyConstraint,DocumentView,InstancePath} from '../../types';
 import {engineeringInstanceName} from './assembly-engineering-state';
 
 export type DependencyCategory='CONSTRAINT'|'ASSOCIATIVITY'|'RELATION';
-export type DependencyNode={id:string;kind:'assembly'|'component'|'constraint'|'association'|'parameter'|'formula'|'external';label:string;caption:string;category?:DependencyCategory;state?:string;suppressed?:boolean;hidden?:boolean;missing?:boolean;instanceId?:string;constraintId?:string;parameterId?:string;bindingId?:string;expression?:string;sourceDocumentId?:string;sourceRevisionId?:string};
+export type DependencyNode={id:string;kind:'assembly'|'component'|'constraint'|'association'|'parameter'|'formula'|'external';label:string;caption:string;category?:DependencyCategory;constraintKind?:AssemblyConstraint['kind'];state?:string;suppressed?:boolean;hidden?:boolean;missing?:boolean;instanceId?:string;constraintId?:string;parameterId?:string;bindingId?:string;expression?:string;sourceDocumentId?:string;sourceRevisionId?:string};
 export type DependencyEdge={id:string;source:string;target:string;category?:DependencyCategory;role:string;directed:boolean};
 export type AssemblyDependencyGraph={documentId:string;revisionId:string;ownerOccurrence:string;rootId:string;nodes:DependencyNode[];edges:DependencyEdge[]};
 const constraintTypes:Record<AssemblyConstraint['kind'],string>={FIX:'固定',RIGID:'固联',FIX_TOGETHER:'固联组',COINCIDENT:'重合',CONTACT:'接触',CONCENTRIC:'同轴',ANGLE:'角度',DISTANCE:'偏移'};
@@ -30,7 +30,7 @@ export function assemblyDependencies(view:DocumentView,ownerOccurrence=''):Assem
   const segment=path.segments[prefix.length];return segment?.ownerDocumentId===view.document.id?segment.instanceId:undefined;
  };
  const definitions=new Map((view.product?.constraints??[]).map(c=>[c.id,c]));
- const constraint=(id:string)=>{const c=definitions.get(id);return add({id:key('constraint',id),kind:'constraint',constraintId:id,label:c?.name??(c?constraintTypes[c.kind]:'缺失约束'),caption:c?`${constraintTypes[c.kind]}${c.mode==='MEASURED'?' · 测量':c.kind==='FIX'?c.fixMode==='RELATIVE'?' · 相对':' · 空间':''}`:'约束',category:'CONSTRAINT',state:c?.evaluationStatus,suppressed:c?.suppressed,hidden:c?.visible===false,missing:!c});};
+ const constraint=(id:string)=>{const c=definitions.get(id);return add({id:key('constraint',id),kind:'constraint',constraintId:id,label:c?.name??(c?constraintTypes[c.kind]:'缺失约束'),caption:c?`${constraintTypes[c.kind]}${c.mode==='MEASURED'?' · 测量':c.kind==='FIX'?c.fixMode==='RELATIVE'?' · 相对':' · 空间':''}`:'约束',category:'CONSTRAINT',constraintKind:c?.kind,state:c?.evaluationStatus,suppressed:c?.suppressed,hidden:c?.visible===false,missing:!c});};
  for(const c of definitions.values()){
   const target=constraint(c.id);let local=false;
   const support=(ref:AssemblyConstraint['first']|undefined,role:string)=>{if(!ref)return;const id=localInstance(ref.instancePath,ref.instanceId);if(id){local ||= instances.has(id);connect(component(id),target,role,'CONSTRAINT');}};
