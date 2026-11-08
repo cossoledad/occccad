@@ -7,7 +7,7 @@ export function profileRegionCandidates(view:DocumentView,upstream:Feature[],pro
  return upstream.flatMap(feature=>{
   if(profile&&feature.id!==profile)return [];
   const analysis=view.sketchAnalyses?.[feature.id], support=feature.sketch?.support;
-  if(!analysis?.geometryVerified||analysis.status!=="CLOSED"||!analysis.regionViews||!support||(support.status==="FAILED_SUPPORT"||support.status==="BLOCKED")||feature.suppressed)return [];
+  if(!analysis?.geometryVerified||!analysis.regionViews?.length||!support||(support.status==="FAILED_SUPPORT"||support.status==="BLOCKED")||feature.suppressed)return [];
   const datum=(view.datumPlanes??view.part?.datumPlanes)?.find(d=>d.id===support.datumPlaneId);
   const plane=support.type==="PLANAR_FACE"&&support.origin&&support.normal&&support.xDirection
    ? {datumPlaneId:`face:${feature.id}`,plane:"CUSTOM" as const,origin:support.origin,normal:support.normal,uDirection:support.xDirection}
@@ -25,6 +25,6 @@ export function profileRegionRepairFeature(view?:DocumentView):Feature|undefined
  return view?.part?.features.find(feature=>{
   if(feature.evaluationStatus!=="FAILED"||feature.profileSelection?.mode!=="REGIONS"||!feature.diagnostic?.includes("PROFILE_REGION_MISSING")||!feature.profile)return false;
   const analysis=view.sketchAnalyses?.[feature.profile];
-  return analysis?.geometryVerified&&analysis.status==="CLOSED"&&feature.profileSelection.regionIds?.some(id=>!analysis.regionIds?.includes(id));
+  return analysis?.geometryVerified&&!!analysis.regionIds?.length&&feature.profileSelection.regionIds?.some(id=>!analysis.regionIds?.includes(id));
  });
 }

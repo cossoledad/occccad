@@ -46,7 +46,7 @@ func sketchEntityDefinitionStatus(sketch SketchFeature, entity SketchEntity) str
 }
 
 func sketchPatternNodes(sketch SketchFeature, path, sketchID, documentID, versionID string, editable bool) []DocumentStructureNode {
-	entities, _ := evaluatedSketchPatternEntities(sketch)
+	entities, _ := evaluatedSketchEntities(sketch)
 	var nodes []DocumentStructureNode
 	for _, p := range sketch.Patterns {
 		node := DocumentStructureNode{ID: path + "/patterns/" + p.ID, Kind: "SKETCH_PATTERN_DEFINITION", Name: func() string {
@@ -80,6 +80,30 @@ func sketchPatternNodes(sketch SketchFeature, path, sketchID, documentID, versio
 				continue
 			}
 			node.Children = append(node.Children, DocumentStructureNode{ID: node.ID + "/entity:" + e.ID, Kind: "SKETCH_PATTERN_ENTITY", Name: labels[e.ID], EntityID: e.ID, OwnerEntityID: sketchID, PatternID: p.ID, LocalVisible: e.Visible, EntityType: e.Kind, Role: e.Role, DocumentID: documentID, VersionID: versionID, Diagnostic: sketchEntityDefinitionStatus(sketch, e)})
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
+// Definitions, generated display children and diagnostics share one tree route.
+func sketchDerivedNodes(sketch SketchFeature, path, sketchID, documentID, versionID string, editable bool) []DocumentStructureNode {
+	nodes := sketchPatternNodes(sketch, path, sketchID, documentID, versionID, editable)
+	for _, offset := range sketch.Offsets {
+		name := offset.Name
+		if name == "" {
+			name = "关联偏移"
+		}
+		node := DocumentStructureNode{ID: path + "/offsets/" + offset.ID, Kind: "SKETCH_OFFSET_DEFINITION", Name: name, EntityID: offset.ID, OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Suppressed: offset.Suppressed}
+		if editable {
+			node.Capabilities = []string{"EDIT", "DELETE", "SUPPRESS", "DETACH"}
+		}
+		entities, _, err := evaluateSketchOffset(sketch, offset)
+		if err != nil {
+			node.Diagnostic = err.Error()
+		}
+		for _, entity := range entities {
+			node.Children = append(node.Children, DocumentStructureNode{ID: node.ID + "/entity:" + entity.ID, Kind: "SKETCH_OFFSET_ENTITY", Name: automaticTypePrefix(entity.Kind), EntityID: entity.ID, OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, EntityType: entity.Kind, Role: entity.Role})
 		}
 		nodes = append(nodes, node)
 	}

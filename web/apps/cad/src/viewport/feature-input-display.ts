@@ -82,6 +82,7 @@ export function historicalPartDisplay(view: DocumentView, after: string, inputs:
   const datumPlanes = view.part.datumPlanes.filter(d => available(d.id)), datumAxes = view.part.datumAxes?.filter(d => available(d.id));
   return { ...view, artifact: undefined, datumPlanes, datumAxes, axisSystems:view.part.axisSystems, artifacts: Object.fromEntries(inputs.map(a => [a.geometryKey, a])),
     sketchAnalyses: Object.fromEntries(Object.entries(view.sketchAnalyses ?? {}).filter(([id]) => ids.has(id))),
+    sketchDerivedEntities:Object.fromEntries(Object.entries(view.sketchDerivedEntities??{}).filter(([id])=>ids.has(id))),
     part: { ...view.part, features, datumPlanes, datumAxes,
       bodies: view.part.bodies.map(b => ({ ...b, geometryKey: inputs.find(a => a.bodyId === b.id)?.geometryKey, displayFallback: undefined, consumed: false })) } };
 }

@@ -66,6 +66,35 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
     PATTERN_RANGE_EMPTY:"所选范围没有有效的材料差集。",
     PATTERN_RANGE_HISTORY_INCOMPLETE:"加工范围的拓扑引用不完整，请先修复来源。",
     HOLE_NO_MATERIAL_INTERSECTION:"孔的所选方向没有可切除的目标材料，请检查起点、方向和阵列位置。",
+    SWEEP_PROFILE_MUST_BE_NORMAL_AT_PATH_START:"截面平面须经过路径起点且垂直于起始切向，请调整草图支撑或反转路径。",
+    SWEEP_G0_REQUIRES_LINE_MITER_OR_SKETCH_FILLET:"曲线尖角需要先添加草图圆角；直线尖角可选择斜接。",
+    SWEEP_REQUIRES_SINGLE_CHAIN:"请选择一条正式连接、无分叉的路径。",
+    SWEEP_SELF_INTERSECTION_OR_INVALID_SOLID:"扫掠结果发生自交或无法形成有效实体，请调整截面或路径。",
+    SWEEP_COMPLEXITY_BUDGET:"截面与路径组合超过当前计算预算，请减少曲线数量。",
+    CURVE_CHAIN_SOURCE_MISSING:"线链中的曲线已失效，请明确重新选择曲线。",
+    CURVE_CHAIN_DIRECTION_MISSING:"线链的方向标记已失效，请重设线链方向并检查预览。",
+    CURVE_CHAIN_DIRECTION_CONFLICT:"合并线链的方向标记互相冲突，请重设线链方向。",
+    THIN_SOURCE_CURVE_BUDGET:"单条薄壁轮廓最多支持 512 条曲线，请缩小输入范围。",
+    CURVE_CHAIN_BRANCH:"所选曲线存在分叉，请选择无分叉线链。",
+    CURVE_CHAIN_CONNECTION_INCONSISTENT:"线链连接没有求解到同一点，请先修复草图约束。",
+    CURVE_CHAIN_SOURCE_UNAVAILABLE:"线链草图或支撑不可用，请先修复来源。",
+    THIN_UNSUPPORTED_CURVE:"薄壁截面目前支持直线、圆弧和圆，请更换来源曲线。",
+    THIN_OFFSET_FAILED:"厚度无法形成有效截面，请减小厚度或调整转角和线链。",
+    THIN_GENERATED_CURVE_BUDGET:"薄壁截面超过 4096 条生成曲线的预算，请缩小输入范围。",
+    THIN_CHAIN_SELECTION_REQUIRED:"请选择薄壁使用的连通曲线。",
+    ASSOCIATED_TERMINATION_INCOMPLETE_COVERAGE:"终止目标未完整覆盖所选轮廓，请更换目标或调整轮廓。",
+    ASSOCIATED_TERMINATION_CROSSES_PROFILE:"终止目标穿过起始轮廓，请调整起始偏移或目标。",
+    ASSOCIATED_TERMINATION_AMBIGUOUS_START:"起始轮廓对应多个终止区间，请拆分区域或更换目标。",
+    ASSOCIATED_TERMINATION_TARGET_BEHIND:"终止目标位于反向，请调整方向或起始偏移。",
+    ASSOCIATED_TERMINATION_FACE_BUDGET:"终止目标超过 4096 个命名面的计算预算，请简化目标。",
+    TERMINATION_SURFACE_UNRESOLVED:"原终止曲面已失效，请明确重新选择上游曲面。",
+    TO_SURFACE_TARGET_REQUIRED:"请选择当前特征之前的实体曲面。",
+    TO_NEXT_REQUIRES_TARGET_BODY:"到下一面需要已有目标实体，请先选择目标实体。",
+    PATTERN_REEXECUTION_BUDGET:"成员重执行超过1024次生成器预算，请减少成员或种子，或跳过部分槽位。",
+    PATTERN_MEMBER_FAILED:"阵列成员重执行失败，请查看成员槽位并修复来源、终止限制，或明确跳过该成员。",
+    LOFT_SUPPORT_UNRESOLVED:"连续性支撑面已失效，请重新选择当前上游支撑。",
+    LOFT_SUPPORT_REQUIRES_PARALLEL_ANALYTIC_EXTRUSION:"连续性当前支持平面、圆柱和线性挤出曲面的同方向延续，请调整支撑或端部方向。",
+    LOFT_SUPPORT_DOES_NOT_COVER_PROFILE_BOUNDARY:"所选支撑没有完整覆盖截面边界，请补选支撑或修复截面。",
     PATTERN_REEXECUTION_UNSUPPORTED:"此来源暂不支持工具复制，请选择受支持的特征。",
     PATTERN_HOLE_TOOL_CONTRACT_INVALID:"孔工具仅可在同一实体内切除材料。",
     PATTERN_INDEPENDENT_TOOL_UNAVAILABLE:"该来源没有可复制的新增工具，请检查成员数量和跳过项。",
@@ -91,7 +120,8 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
 
     PATTERN_SEEDS_REQUIRE_SAME_BODY_OPERATION:"种子必须属于同一实体，并具有一致的添加或切除语义。",PATTERN_SEED_SET_INVALID:"种子集合无效，最多选择32个同实体的实体特征。",PATTERN_SEED_DUPLICATE:"同一种子不能重复添加。",
     MISSING_SUPPORT:"尚未选择支撑，请选择所需对象。",INSTANCE_UNAVAILABLE:"支撑所属零件已不可用，请检查关联零件或重新选择支撑。",SUPPORT_SNAPSHOT_STALE:"原支撑需要重新检查，请刷新后重新选择。",RESOLUTION_UNAVAILABLE:"当前支撑尚未完成检查，请重新计算或重新选择。",SOURCE_UNAVAILABLE:"引用来源暂不可用，请检查上游对象。",NOT_CONNECTED:"引用已断开，请重新选择支撑。",SUPPORT_UNAVAILABLE:"支撑暂不可用，请检查来源或重新选择。",
-    PROFILE_REGION_MISSING:"原轮廓区域已不存在，请重新选择区域。",PROFILE_REGION_AMBIGUOUS:"轮廓变化后无法唯一对应，请重新选择区域。",FAILED_SUPPORT:"草图支撑已失效，请重新指定支撑。",SKETCH_SUPPORT_UNAVAILABLE:"草图支撑不可用，请重新选择支撑。",TYPE_MISMATCH:"所选几何类型不符合要求，请重新选择。",AMBIGUOUS:"存在多个对应对象，请明确重新选择。",OUTSIDE_CURRENT_TIP:"原选几何已不存在，请重新选择支撑。",PROFILE_NOT_CLOSED:"轮廓尚未闭合，请补齐或修复草图。",NO_MATERIAL_INTERSECTION:"切削范围没有与目标实体相交，请检查方向、位置和深度。",HOLE_RECESS_DIAMETER_INVALID:"沉孔直径必须大于主孔直径。",HOLE_RECESS_DEPTH_INVALID:"沉孔深度必须为有效正值。",HOLE_COUNTERSINK_ANGLE_INVALID:"锥面夹角必须大于 0° 且小于 180°。",TO_PLANE_HOLE_RECESS_INTERSECTION:"终止平面截入沉孔段，请更换终止面或减小入口尺寸。",TO_PLANE_DIRECTION_PARALLEL:"孔或拉伸方向与终止平面平行，请更换平面或方向。",TO_PLANE_TARGET_BEHIND:"终止平面位于反向，请更换平面或反向。",TO_PLANE_CROSSES_PROFILE:"终止平面穿过起始截面，请更换平面。",TO_PLANE_ZERO_THICKNESS:"终止位置没有有效厚度，请更换平面。",HOLE_RECESS_EXCEEDS_DEPTH:"沉孔或锥段深度必须小于盲孔总深度。",HOLE_DIAMETER_INVALID:"孔直径必须为有效正值。",HOLE_DEPTH_INVALID:"孔深度必须为有效正值。",HOLE_KIND_INVALID:"孔型不受支持。",HOLE_POINT_MISSING:"定位点已丢失，请重新选择草图点。",TERMINATION_TARGET_UNAVAILABLE:"终止平面不可用，请重新选择。",MECHANISM_COMPLETE_INPUT_UNAVAILABLE:"部分接合或支撑需要修复，暂时无法确定自由度。",ANALYSIS_POSE_CHANGED:"当前构型尚无可靠的运动分析结果。",NUMERICAL_NONCONVERGENCE:"尚未找到满足当前要求的结果，请检查参数、支撑和位置。",EXECUTION_FAILURE:"计算未能完成，请重试。",FORBIDDEN:"没有执行此操作的权限。",NOT_FOUND:"所需对象已不存在，请刷新后重新选择。",ASSEMBLY_INTERACTION_UNCONFIRMED:"移动的保存结果尚未确认，可重试确认，或取消恢复。",VALIDATION_FAILED:"当前输入无法完成操作，请检查参数与所选支撑。",VALIDATION_ERROR:"当前输入无法完成操作，请检查参数与所选支撑。",
+    PROFILE_REGION_MISSING:"原轮廓区域已不存在，请重新选择区域。",PROFILE_REGION_AMBIGUOUS:"轮廓变化后无法唯一对应，请重新选择区域。",FAILED_SUPPORT:"草图支撑已失效，请重新指定支撑。",SKETCH_SUPPORT_UNAVAILABLE:"草图支撑不可用，请重新选择支撑。",TYPE_MISMATCH:"所选几何类型不符合要求，请重新选择。",AMBIGUOUS:"存在多个对应对象，请明确重新选择。",OUTSIDE_CURRENT_TIP:"原选几何已不存在，请重新选择支撑。",PROFILE_NOT_CLOSED:"轮廓尚未闭合，请补齐或修复草图。",NO_MATERIAL_INTERSECTION:"切削范围没有与目标实体相交，请检查方向、位置和深度。",HOLE_RECESS_DIAMETER_INVALID:"沉孔直径必须大于主孔直径。",HOLE_RECESS_DEPTH_INVALID:"沉孔深度必须为有效正值。",HOLE_COUNTERSINK_ANGLE_INVALID:"锥面夹角必须大于 0° 且小于 180°。",TO_PLANE_HOLE_RECESS_INTERSECTION:"终止平面截入沉孔段，请更换终止面或减小入口尺寸。",TO_PLANE_DIRECTION_PARALLEL:"孔或拉伸方向与终止平面平行，请更换平面或方向。",TO_PLANE_TARGET_BEHIND:"终止平面位于反向，请更换平面或反向。",TO_PLANE_CROSSES_PROFILE:"终止平面穿过起始截面，请更换平面。",TO_PLANE_ZERO_THICKNESS:"终止位置没有有效厚度，请更换平面。",HOLE_RECESS_EXCEEDS_DEPTH:"沉孔或锥段深度必须小于盲孔总深度。",HOLE_DIAMETER_INVALID:"孔直径必须为有效正值。",HOLE_DEPTH_INVALID:"孔深度必须为有效正值。",HOLE_KIND_INVALID:"孔型不受支持。",HOLE_POSITION_NO_MATERIAL_INTERSECTION:"孔位没有与目标实体形成有效切除，请检查位置、方向和深度。",
+    HOLE_POINT_MISSING:"定位点已丢失，请重新选择草图点。",TERMINATION_TARGET_UNAVAILABLE:"终止平面不可用，请重新选择。",MECHANISM_COMPLETE_INPUT_UNAVAILABLE:"部分接合或支撑需要修复，暂时无法确定自由度。",ANALYSIS_POSE_CHANGED:"当前构型尚无可靠的运动分析结果。",NUMERICAL_NONCONVERGENCE:"尚未找到满足当前要求的结果，请检查参数、支撑和位置。",EXECUTION_FAILURE:"计算未能完成，请重试。",FORBIDDEN:"没有执行此操作的权限。",NOT_FOUND:"所需对象已不存在，请刷新后重新选择。",ASSEMBLY_INTERACTION_UNCONFIRMED:"移动的保存结果尚未确认，可重试确认，或取消恢复。",VALIDATION_FAILED:"当前输入无法完成操作，请检查参数与所选支撑。",VALIDATION_ERROR:"当前输入无法完成操作，请检查参数与所选支撑。",
   };
   const reason=Object.keys(reasons).find(key=>code===key||raw.includes(key));
   const known=[...Object.values(reasons),"当前没有执行此操作的权限。","操作未完成，可重试。","模型已发生变化，请重新预览后确认。","操作未完成，原因尚无法确定。可重试或检查当前输入。"];
@@ -101,7 +131,7 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const dependency=code==="DEPENDENCY_IN_USE"?dependencyBlock(value.dependency):undefined;
   const message=dependency?`无法删除“${dependency.subject.name}”：仍被 ${dependency.consumers.slice(0,3).map(c=>`“${c.name}”`).join("、")}${dependency.total>3?`等 ${dependency.total} 个对象`:""} 引用。请先编辑引用对象，更换或移除来源。`:error instanceof CommandInputError?error.message:move?(raw.includes("FEATURE_DELTA range membership/order is protected")?`调整顺序会改变 ${move[1]} 的加工范围，请保持整个范围及内部顺序。`:`${move[1]} 阻止本次顺序调整，请检查位置或依赖。`):insertion?(raw.includes("FEATURE_DELTA range membership/order is protected")?`插入会改变 ${insertion[1]} 的加工范围，请选择范围外的位置。`:`${insertion[1]} 未能通过插入检查，请调整位置或输入。`):reason?reasons[reason]:known.includes(raw)?raw:retryable?"操作未完成，可重试。":
     ["FEATURE_EDIT_STALE","STALE_VERSION","VERSION_CONFLICT","CAS_CONFLICT","PREVIEW_STALE","PREVIEW_CANDIDATE_STALE_OR_MISMATCHED","MECHANISM_ANALYSIS_STALE"].some(key=>code===key||raw.includes(key))?"模型已发生变化，请重新预览后确认。":"操作未完成，原因尚无法确定。可重试或检查当前输入。";
-  return {message,details,code,requestId:value?.requestId??value?.correlationId,diagnosticId:value?.diagnosticId,phase:value?.phase,retryable,severity:retryable||dependency?"warning":"error",dependency};
+  return {message,details,code,requestId:value?.requestId??value?.correlationId,diagnosticId:value?.diagnosticId,phase:value?.phase,retryable,severity:retryable||dependency||code==='FEATURE_DOWNSTREAM_REPAIR_REQUIRED'?"warning":"error",dependency};
 }
 
 export function engineeringProblem(error:unknown):string{return normalizeOperationFailure(error).message;}

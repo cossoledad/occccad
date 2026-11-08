@@ -17,6 +17,7 @@ import {selectionSummaryCommand} from "./commands/selection-summary";
 import {treeNodesForSelections} from "./tree-projection-index";
 
 export type WorkbenchCommandBindings={
+ openSketchDiagnostics?:()=>void;
  openReferenceElement?:(kind:import("./reference-element-model").ReferenceElementKind)=>void;
  openGeometricalSet?:()=>void;
  openMeasurement?:(kind:import('../../cad/measurement/measurement').MeasurementKind)=>void;
@@ -75,6 +76,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({id:"assembly.analyze",execute:()=>setConflictOpen(true),
         isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),
       ({id:"assembly.dependencies",execute:()=>bindings.setDependencyOpen?.(true),isEnabled:()=>Boolean(editingView?.product&&bindings.setDependencyOpen),isActive:()=>Boolean(bindings.dependencyOpen)}),
+      ({id:'part.dependencies',execute:()=>bindings.setDependencyOpen?.(true),isEnabled:()=>Boolean(editingView?.part&&bindings.setDependencyOpen),isActive:()=>Boolean(bindings.dependencyOpen&&editingView?.part)}),
       ({id:"assembly.move-receipt",execute:()=>viewport.current?.retryAssemblyMoveCommit(),
         isEnabled:()=>Boolean(moveReceiptPending)}),
       ({ id: "sketch.start", execute: startSketch,
@@ -83,6 +85,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
         isEnabled: () => Boolean(store.sketchPlane || store.selection && ["plane","face"].includes(store.selection.kind)) }),
       ({ id: "sketch.finish", execute: finishSketch,
          isEnabled: () => Boolean(canEdit && !command.isPending) }),
+      ({id:"sketch.diagnostics",execute:()=>bindings.openSketchDiagnostics?.(),isEnabled:()=>Boolean(store.activeSketchID&&!command.isPending&&bindings.openSketchDiagnostics)}),
       ...sketchToolCommands.map((toolID)=>({id:toolID,execute:(invocation:CadCommandInvocation|undefined)=>store.setActiveTool(toolID,defaultSketchToolMode(toolID,invocation?.continuous)),
         isEnabled:()=>Boolean(canEdit&&store.sketchPlane&&(toolID!=="sketch.project"||!selectedNamingIssue)),isActive:()=>store.activeToolID===toolID})),
       ...(["LINEAR","CIRCULAR","MIRROR"] as const).map(kind=>({id:`part.pattern.${kind.toLowerCase()}`,execute:()=>{
@@ -90,12 +93,13 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
         setSolidEditor({feature:{id:"",type:store.activeSketchID?"SKETCH":"SOLID_PATTERN",profile:store.activeSketchID,bodyId:workingBodyID,operation:"ADD",pattern:{id:"",kind,mirrorPlaneId:kind==="MIRROR"?"datum-yz":undefined,axisEntityId:kind==="MIRROR"||store.activeSketchID?undefined:`AXIS_SYSTEM:${editingView?.part?.axisSystems[0]?.id??"axis-system-default"}:${kind==="CIRCULAR"?"Z":"X"}`,distribution:kind==="CIRCULAR"?"FULL_CIRCLE":"FIXED_STEP",count:kind==="MIRROR"?2:6,spacing:kind==="MIRROR"?0:10,angle:kind==="MIRROR"?0:90,phase:0,origin:[0,0,0],direction:kind==="CIRCULAR"?[0,0,1]:[1,0,0],sourceKind:store.activeSketchID?"SKETCH_FRAME":"AUTO",source:{bodyId:workingBodyID??"",featureId:store.activeSketchID??""}}}});
       },isEnabled:()=>Boolean(canEdit&&!command.isPending&&(kind!=="MIRROR"||!store.activeSketchID))})),
       ({id:"part.hole",execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"HOLE",bodyId:workingBodyID,operation:"REMOVE",extent:"BLIND",diameter:5,depth:10,reversed:true}});},isEnabled:()=>canEdit&&!command.isPending&&!store.activeSketchID&&!!editingView?.part?.features.some(isSolidFeature)}),
+      ({id:"part.sweep",execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"SWEEP",bodyId:workingBodyID,operation:"ADD",sweep:{path:{sketchId:"",entityIds:[]},frameMode:"CORRECTED_FRENET",cornerMode:"MITER"}}});},isEnabled:()=>canEdit&&!command.isPending&&!store.activeSketchID}),
       ({id:"part.loft",execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"LOFT",bodyId:workingBodyID,operation:"ADD",sections:[]}});},isEnabled:()=>canEdit&&!command.isPending&&!store.activeSketchID}),
       ...modifierTypes.map(type=>({id:`part.${type.toLowerCase()}`, execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:defaultModifierFeature(type,store.selection?.bodyId??workingBodyID)});},isEnabled:()=>canEdit&&!command.isPending&&!store.activeSketchID})),
       ({ id: "part.boolean", execute: () => {setDatumEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({});}, isEnabled: () => canEdit&&!command.isPending && !store.activeSketchID }),
-      ({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isEnabled: () => Boolean(canEdit && !store.activeSketchID) }),
-      ({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isEnabled: () => Boolean(canEdit && !store.activeSketchID && editingView?.part?.features.some((feature) => isSolidFeature(feature))) }),
-      ({ id: "part.revolve", execute: () => openSolidFeature("REVOLVE"), isEnabled: () => Boolean(canEdit && !store.activeSketchID) }),
+      ({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isEnabled: () => Boolean(canEdit && !command.isPending) }),
+      ({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isEnabled: () => Boolean(canEdit && !command.isPending && editingView?.part?.features.some((feature) => isSolidFeature(feature))) }),
+      ({ id: "part.revolve", execute: () => openSolidFeature("REVOLVE"), isEnabled: () => Boolean(canEdit && !command.isPending) }),
       ({ id: "part.parameters", execute: () => setParameterManagerOpen(true),
         isEnabled: () => Boolean(editingView?.part || editingView?.product) }),
       ({id:"part.design-associations",execute:()=>bindings.setDesignAssociationOpen?.(true),isEnabled:()=>Boolean(canEditRoot&&editingView?.part&&["OWNER","EDITOR"].includes(editingView.document.permission)&&bindings.setDesignAssociationOpen)}),

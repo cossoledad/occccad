@@ -10,7 +10,7 @@ export function sketchProfileFeedback(analysis?: SketchProfileAnalysis): {
   if (!analysis) return { summary: "轮廓待检查", issues: [], locations: [] };
   const status = { EMPTY: "无实体轮廓", OPEN: "开放轮廓，可继续编辑", INVALID: "轮廓需要修复", CLOSED: analysis.geometryVerified ? "轮廓已闭合" : "闭环待检查" }[analysis.status];
   return {
-    summary: `${status}${analysis.status === "CLOSED" && analysis.geometryVerified ? ` · ${analysis.regionCount} 个区域 / ${analysis.loopCount} 个闭环` : ""}`,
+    summary: `${status}${analysis.geometryVerified&&analysis.regionCount>0 ? ` · ${analysis.regionCount} 个${analysis.status==='CLOSED'?'':'可用'}区域 / ${analysis.loopCount} 个闭环` : ""}`,
     issues: analysis.issues,
     locations: analysis.issues.flatMap(issue => issue.position ? [[issue.position.x, issue.position.y] as Vec2] : []),
   };

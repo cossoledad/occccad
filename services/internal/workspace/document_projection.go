@@ -383,12 +383,12 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 func projectPartCollections(view *DocumentView, model PartModel) {
 	view.ReplicationSources = replicationSources(model)
 	view.FeatureOrderDigest = featureOrderDigest(model)
-	view.SketchPatternMembers = map[string][]SketchEntity{}
+	view.SketchDerivedEntities = map[string][]SketchEntity{}
 	for _, feature := range model.Features {
-		if feature.Sketch == nil || len(feature.Sketch.Patterns) == 0 {
+		if feature.Sketch == nil || (len(feature.Sketch.Patterns) == 0 && len(feature.Sketch.Offsets) == 0) {
 			continue
 		}
-		members, err := evaluatedSketchPatternEntities(*feature.Sketch)
+		members, err := evaluatedSketchEntities(*feature.Sketch)
 		if err != nil {
 			continue
 		}
@@ -396,9 +396,12 @@ func projectPartCollections(view *DocumentView, model PartModel) {
 		for _, p := range feature.Sketch.Patterns {
 			patterns[p.ID] = true
 		}
+		for _, offset := range feature.Sketch.Offsets {
+			patterns[offset.ID] = true
+		}
 		for _, member := range members {
 			if patterns[member.CreatedByOperationID] {
-				view.SketchPatternMembers[feature.ID] = append(view.SketchPatternMembers[feature.ID], member)
+				view.SketchDerivedEntities[feature.ID] = append(view.SketchDerivedEntities[feature.ID], member)
 			}
 		}
 	}

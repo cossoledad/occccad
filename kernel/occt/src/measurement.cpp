@@ -1,3 +1,4 @@
+#include <internal/mass_properties.hpp>
 #include <internal/occt_kernel.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -110,7 +111,7 @@ void item(const std::vector<Support>& ss,MeasurementResult& r,const std::functio
         BRepAdaptor_Curve c(TopoDS::Edge(shape));add_point(r,"start",c.Value(c.FirstParameter()));add_point(r,"end",c.Value(c.LastParameter()));
         if(s.arc_angle)r.values["arcAngleRad"]=*s.arc_angle;
     }else{
-        BRepGProp::SurfaceProperties(shape,props);r.values["areaMm2"]=props.Mass();
+        BRepGProp::SurfaceProperties(shape,props,1e-10);r.values["areaMm2"]=props.Mass();
         if(ss.size()==1&&s.shape.ShapeType()==TopAbs_FACE){
             // Periodic parameter seams are not physical face boundaries.
             // LinearProperties(face) would count both uses of a cylinder seam.
@@ -124,7 +125,7 @@ void item(const std::vector<Support>& ss,MeasurementResult& r,const std::functio
             }
             r.values["perimeterMm"]=perimeter;
         }else{
-            BRepGProp::VolumeProperties(shape,props);r.values["volumeMm3"]=std::abs(props.Mass());
+            detail::volume_properties(shape,props,true);r.values["volumeMm3"]=std::abs(props.Mass());
         }
     }
     if(std::abs(props.Mass())>1e-20)add_point(r,"centroid",props.CentreOfMass());

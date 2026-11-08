@@ -923,5 +923,130 @@
     "resources": [
       "configured live application"
     ]
+  },
+  {
+    "path": "services/internal/api/part_dependencies_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging"
+    ]
+  },
+  {
+    "path": "services/internal/control/associated_extrude_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/feature_insert_generators_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/feature_repair_context_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/profile_available_regions_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/sketch_design_input_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/sketch_inference_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/sketch_linked_offset_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/thin_feature_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/sweep_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/engineering_hole_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/loft_boundary_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/pattern_reexecution_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
+  },
+  {
+    "path": "services/internal/control/sketch_solid_workflow_integration_test.go",
+    "resources": [
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured testsupport.Environment",
+      "configured ArtifactStore and staging",
+      "managed production Geometry Worker and Router"
+    ]
   }
 ]

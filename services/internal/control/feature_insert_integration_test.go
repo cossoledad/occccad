@@ -604,24 +604,18 @@ func TestInsertSketchGeneratorSourceAndRangeGuardsThroughRouter(t *testing.T) {
 		sketch := x.historicalSketch(x.base.ID, false, false)
 		x.apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch.ID, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &workspace.SketchPoint2{X: -2, Y: -2}, Second: &workspace.SketchPoint2{X: 2, Y: 2}}}})
 		create := x.historicalExtrude(sketch, "ADD", 25, false)
-		for _, extent := range []string{"SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE"} {
-			bad := create
-			bad.Extent = extent
-			x.reject(bad, "finite LINEAR_EXTRUDE")
-		}
+		bad = create
+		bad.Extent = "UNKNOWN_EXTENT"
+		x.reject(bad, "extent")
 		bad = create
 		bad.Operation = "NEW_BODY"
-		x.reject(bad, "finite LINEAR_EXTRUDE")
+		x.reject(bad, "specified Body")
 		bad = create
-		bad.Generator = "REVOLVE"
-		bad.Angle = 90
-		x.reject(bad, "finite LINEAR_EXTRUDE")
+		bad.Generator = "UNKNOWN_GENERATOR"
+		x.reject(bad, "generator")
 		bad = create
 		bad.AfterFeatureID = x.base.ID
-		x.reject(bad, "immediately after")
-		bad = create
-		bad.SketchID = x.v.Part.Features[0].ID
-		x.reject(bad, "immediately after")
+		x.reject(bad, "") // The selected sketch is now downstream of the insertion.
 		bad = create
 		bad.GeometryKey = activeBodyArtifact(t, x.v).GeometryKey
 		x.reject(bad, "GeometryKey")
@@ -805,11 +799,23 @@ func TestInsertModifierLifecycleThroughRouter(t *testing.T) {
 	if input.SourceFeatureID != x.base.ID || math.Abs(input.Artifact.Volume-8000) > 1e-6 || input.Artifact.GeometryKey == activeBodyArtifact(t, x.v).GeometryKey {
 		t.Fatal("not the exact base stage")
 	}
+	emptyRequest := workspace.FeatureInputRequest{VersionID: head, AfterFeatureID: x.v.Part.Features[0].ID, BodyID: x.base.BodyID}
+	empty, e := x.s.GetFeatureInput(tctx, x.v.Document.ID, emptyRequest)
+	if e != nil || empty.SourceFeatureID != "" || len(empty.Artifact.Mesh.Triangles) != 0 || empty.Selection != nil {
+		t.Fatal("empty input leaked a downstream solid", e, empty.SourceFeatureID)
+	}
+	for _, kind := range []string{"FACE", "EDGE"} {
+		pick := emptyRequest
+		pick.GeometryKey, pick.Kind, pick.LocalID = empty.Artifact.GeometryKey, kind, 1
+		if _, e := x.s.GetFeatureInput(tctx, x.v.Document.ID, pick); e == nil {
+			t.Fatal("empty prefix authorized topology", kind)
+		}
+	}
 	for _, r := range []workspace.FeatureInputRequest{
 		{VersionID: head, AfterFeatureID: x.base.ID, BodyID: x.base.BodyID, GeometryKey: activeBodyArtifact(t, x.v).GeometryKey, Kind: "EDGE", LocalID: 1},
 		{VersionID: head, FeatureID: x.base.ID, ResultStage: true, GeometryKey: input.Artifact.GeometryKey, Kind: "EDGE", LocalID: 1},
 		{VersionID: head, AfterFeatureID: x.base.ID, BodyID: x.base.BodyID, ResultStage: true},
-		{VersionID: head, AfterFeatureID: x.v.Part.Features[0].ID, BodyID: x.base.BodyID},
+		{VersionID: head, AfterFeatureID: x.v.Part.Features[0].ID, BodyID: x.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Kind: "EDGE", LocalID: 1},
 		{VersionID: head, AfterFeatureID: x.base.ID, BodyID: "wrong-body"},
 		{VersionID: head, AfterFeatureID: x.base.ID, BodyID: x.base.BodyID, GeometryKey: input.Artifact.GeometryKey, Kind: "VERTEX", LocalID: 1},
 	} {
@@ -1217,7 +1223,7 @@ func TestInsertDraftHistoricalNeutralPlaneThroughRouter(t *testing.T) {
 	n.SourceVersionID = "00000000-0000-7000-8000-000000000099"
 	f.NeutralPlane = &n
 	wrong.Feature = &f
-	x.reject(wrong, "neutral plane")
+	x.reject(wrong, "exact upstream insertion stage")
 	inputRequest := workspace.FeatureInputRequest{VersionID: x.v.Document.VersionID, AfterFeatureID: anchor.ID, BodyID: target, ReferenceBodyID: other}
 	display, e := x.s.GetFeatureInputGeometry(ctx, x.v.Document.ID, inputRequest)
 	if e != nil || display.SourceFeatureID != reference.ID || display.Artifact.GeometryKey != referenceKey || display.Artifact.BodyID != other {

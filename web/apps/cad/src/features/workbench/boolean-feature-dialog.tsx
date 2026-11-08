@@ -1,8 +1,8 @@
+import {useFeatureDialogFeedback} from './use-feature-dialog-feedback';
 import {CommandField,CommandStatus} from "../../cad/overlay/command-form";
 import {recordDeveloperEvidence} from "../../cad/command/developer-evidence";
-import {engineeringProblem} from "../../cad/command/operation-feedback";
 
-import { Alert, Button, Segmented, Switch, Tooltip } from "antd";
+import { Button, Segmented, Switch, Tooltip } from "antd";
 import {booleanRoleColors} from "../../cad/rendering/boolean-region-style";
 import {EyeOutlined} from "@ant-design/icons";
 import {selectBooleanRegion,matchBooleanRegion,type BooleanRegionRef,type BooleanRegionsAnalysis,type BooleanRegionCell} from "./boolean-region-model";
@@ -34,12 +34,12 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occu
     const stages = booleanInputStages(view.part!.features, initial?.id);
     const [target, setTarget] = useState(initial?.bodyId ?? bodyId), [operation, setOperation] = useState<Feature["operation"]>(initial?.operation ?? "REMOVE");
     const [tools, setTools] = useState(initial?.tools ?? []), [keep, setKeep] = useState(initial?.keepTools ?? false), [suppressed, setSuppressed] = useState(initial?.suppressed ?? false);
-    const [role, setRole] = useState<"target" | "tools" | "regions" | undefined>(initial?.booleanResult?.mode==='EXPLICIT'?'regions':'tools'), [error, setError] = useState<string>(), [committing, setCommitting] = useState(false);
+    const [role, setRole] = useState<"target" | "tools" | "regions" | undefined>(initial?.booleanResult?.mode==='EXPLICIT'?'regions':'tools'), [error, setError] = useState<unknown>(), [committing, setCommitting] = useState(false);
     const [replacing,setReplacing]=useState<string>();
     const [resultMode,setResultMode]=useState<'ALL'|'EXPLICIT'>(initial?.booleanResult?.mode??'ALL');
     const [retained,setRetained]=useState<BooleanRegionRef[]>(initial?.booleanResult?.regions??[]);
     const [analysisState,setAnalysisState]=useState<{key:string;value:BooleanRegionsAnalysis}>();
-    const [analysisPending,setAnalysisPending]=useState(false),[analysisError,setAnalysisError]=useState<string>(),[analysisRetry,setAnalysisRetry]=useState(0);
+    const [analysisPending,setAnalysisPending]=useState(false),[analysisError,setAnalysisError]=useState<unknown>(),[analysisRetry,setAnalysisRetry]=useState(0);
     const [replacingRegion,setReplacingRegion]=useState<number>(),[focusId,setFocusId]=useState<string>(),[isolateId,setIsolateId]=useState<string>(),[focusRequest,setFocusRequest]=useState(0);
     const initializeAll=useRef(false),originalInputs=useRef<Artifact[]|undefined>(undefined),modeRef=useRef(resultMode),operationRef=useRef(operation);modeRef.current=resultMode;operationRef.current=operation;
     const analysisKey=JSON.stringify([view.document.id,view.document.versionId,initial?.id,target,tools]);
@@ -62,7 +62,7 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occu
             setAnalysisState({key:analysisKey,value});
             callbacks.current.onInputArtifacts(value.inputs);
             if(initializeAll.current){initializeAll.current=false;setRetained(value.regions.filter(c=>c.operations.includes(operationRef.current!)).map(c=>c.reference));}
-        }).catch(cause=>{if(alive)setAnalysisError(engineeringProblem(cause))}).finally(()=>{if(alive)setAnalysisPending(false)});
+        }).catch(cause=>{if(alive)setAnalysisError(cause)}).finally(()=>{if(alive)setAnalysisPending(false)});
         return()=>{alive=false;controller.abort()};
     },[resultMode,analysisKey,analysisRetry]);
     const cancelPick=()=>{if(!role)return false;setRole(undefined);setReplacing(undefined);setReplacingRegion(undefined);setFocusId(undefined);setIsolateId(undefined);return true};
@@ -79,7 +79,7 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occu
         void api.getFeatureInput(view.document.id, { versionId: version.current, featureId: initial.id }, controller.signal).then(context => {
             if(alive){originalInputs.current=context.artifacts??[context.artifact];if(modeRef.current==='ALL')callbacks.current.onInputArtifacts(originalInputs.current);}
         }).catch(cause => { if (alive)
-            setError(engineeringProblem(cause)); }).finally(() => { if (alive)
+            setError(cause); }).finally(() => { if (alive)
             setLoading(false); });
         return () => { alive = false; controller.abort(); };
     }, []);
@@ -137,28 +137,28 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occu
     definition.booleanResult=resultMode==='EXPLICIT'?{mode:'EXPLICIT',regions:[...new Map(resolved.flatMap(r=>r.cell?[r.cell.reference]:[]).map(ref=>[ref.cellDigest,ref])).values()]}:undefined;
     const input: Record<string, unknown> | undefined = valid && resultReady ? initial ? { type: "EDIT_FEATURE", targetId: initial.id, expectedFeatureDigest: digest, feature: definition, requestId: intent.current } : { type: "CREATE_BOOLEAN_FEATURE", bodyId: target, operation, tools, keepTools: keep, booleanResult:definition.booleanResult, requestId: intent.current } : undefined;
     const preview = useFeaturePreview(view.document.id, view.document.versionId, input, operation, (artifact,op)=>{if(resultMode==='ALL')onPreview(artifact,op);else onPreview();});
+    const feedback=useFeatureDialogFeedback(error??analysisError??preview.failure??(!analysisPending&&analysis&&!retained.length?"至少保留一个结果区域":undefined),"布尔运算",undefined,preview.repairRequired,analysisError?()=>setAnalysisRetry(n=>n+1):preview.failure?preview.retry:undefined);
     const apply = async () => { if (!input || !preview.previewId || preview.pending || committing)
         return; setCommitting(true); try {
         await onApply({ ...input, previewId: preview.previewId });
         onClose();
     }
     catch (cause) {
-        setError(engineeringProblem(cause));
+        setError(cause);
         setCommitting(false);
     } };
-    return <CommandDialog id="boolean-feature" title={initial ? "编辑布尔" : "布尔运算"} open size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={loading||analysisPending||preview.pending} error={analysisError??preview.error} onRetry={analysisError?()=>setAnalysisRetry(v=>v+1):preview.retry}/>} onConfirm={apply} confirmDisabled={!input || !preview.previewId || preview.pending || committing} confirmLoading={committing}>
-  <fieldset disabled={committing} className="instance-pattern-fields feature-input-fields">
+    return <CommandDialog id="boolean-feature" title={initial ? "编辑布尔" : "布尔运算"} open size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={loading||analysisPending||preview.pending}/>} onConfirm={apply} confirmDisabled={!input || !preview.previewId || preview.pending || committing} confirmLoading={committing}>
+  <fieldset disabled={committing} onBlurCapture={feedback.onBlurCapture} className="instance-pattern-fields feature-input-fields">
    <FeaturePickField label="目标实体" value={target?roleName(view.part?.bodies.find(b => b.id === target)?.name??"实体已丢失",'target'):undefined} selected={!!target} active={role === "target"} onActivate={() => {setReplacingRegion(undefined);setReplacing(undefined);setRole("target")}} onClear={target?()=>setTarget(undefined):undefined}/>
    <CommandField  label={<>运算</>} width="content"><Segmented value={operation} options={[{ value: "ADD", label: "并集" }, { value: "REMOVE", label: "差集" }, { value: "INTERSECT", label: "交集" }]} onChange={value => { setOperation(value as Feature["operation"]); if (value === "INTERSECT")
         setTools(previous => previous.slice(0, 1)); }}/></CommandField>
    <FeaturePickField mode="multiple" label="工具实体" active={role==='tools'&&!replacing} onActivate={()=>{setReplacingRegion(undefined);setReplacing(undefined);setRole('tools')}} onClear={tools.length?()=>setTools([]):undefined} items={tools.map((tool,i)=>({key:tool.bodyId,actionLabel:`工具 ${i+1}`,value:roleName(view.part?.bodies.find(b=>b.id===tool.bodyId)?.name??'实体已丢失','tool'),searchText:view.part?.bodies.find(b=>b.id===tool.bodyId)?.name,error:!view.part?.bodies.some(b=>b.id===tool.bodyId),active:role==='tools'&&replacing===tool.bodyId,onActivate:()=>{setReplacingRegion(undefined);setReplacing(tool.bodyId);setRole('tools')},onClear:()=>setTools(previous=>previous.filter(t=>t.bodyId!==tool.bodyId)),selections:[{...occurrenceContext,kind:'body' as const,id:tool.bodyId,bodyId:tool.bodyId,documentId:view.document.id,versionId:version.current,occurrencePath}]}))}/>
 
-   <CommandField label="结果区域" width="content" error={resultMode==='EXPLICIT'&&tools.length!==1?'选择区域需要一个工具实体':undefined}><Segmented aria-label="结果区域" value={resultMode} options={[{value:'ALL',label:'全部'},{value:'EXPLICIT',label:'选择区域',disabled:tools.length!==1}]} onChange={value=>{
+   <CommandField label="结果区域" width="content"><Segmented aria-label="结果区域" value={resultMode} options={[{value:'ALL',label:'全部'},{value:'EXPLICIT',label:'选择区域',disabled:tools.length!==1}]} onChange={value=>{
        const mode=value as 'ALL'|'EXPLICIT';setResultMode(mode);onPreview();
        setReplacingRegion(undefined);if(mode==='EXPLICIT'){initializeAll.current=!analysis;if(analysis)setRetained(analysis.regions.filter(c=>c.eligible).map(c=>c.reference));setRole('regions')}else{initializeAll.current=false;setRole(undefined);callbacks.current.onInputArtifacts(originalInputs.current);}
    }}/></CommandField>
    {resultMode==='EXPLICIT'&&<FeaturePickField label="结果区域" mode="multiple" active={role==='regions'} onActivate={()=>{setReplacing(undefined);setReplacingRegion(undefined);setRole('regions')}} onClear={retained.length?()=>setRetained([]):undefined}
-      error={!analysisPending&&analysis&&!retained.length?'至少保留一个结果区域':undefined}
       items={[
         ...failedRegions.map(index=>({key:`missing:${index}`,value:`失效区域 ${index+1}`,error:true,detail:resolved[index].status==='AMBIGUOUS'?'无法唯一对应':analysis?.regions.some(c=>matchBooleanRegion(retained[index],[{...c,eligible:true}]).status==='RESOLVED')?'不属于当前运算结果':'原区域已不存在',active:replacingRegion===index,onActivate:()=>{setReplacing(undefined);setReplacingRegion(index);setRole('regions')},onClear:()=>setRetained(previous=>previous.filter((_,i)=>i!==index))})),
         ...(analysis?.regions??[]).filter(c=>c.eligible).map((cell,index)=>{
@@ -170,7 +170,7 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occu
    <CommandField  label={<>保留工具实体</>} width="option"><Switch checked={keep} onChange={setKeep}/></CommandField>
    {initial && <CommandField  label={<>抑制</>} width="option"><Switch checked={suppressed} onChange={setSuppressed}/></CommandField>}
 
-   {error&&<Alert type="error" title={error}/>}
+
 
   </fieldset>
 

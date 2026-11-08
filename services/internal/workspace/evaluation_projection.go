@@ -16,7 +16,7 @@ func featureHasDrivingLength(feature Feature) bool {
 	if isLocalModifier(feature.Type) {
 		return feature.Type != "DRAFT"
 	}
-	return isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE" && feature.Extent != "TO_PLANE" && feature.Extent != "THROUGH_ALL"
+	return (feature.Type == "PAD" || feature.Type == "LINEAR_EXTRUDE") && !associatedExtrudeExtent(feature.Extent) && feature.Extent != "THROUGH_ALL"
 }
 
 func ensureFeatureParameters(model *PartModel) {
@@ -81,6 +81,12 @@ func ensureFeatureParameters(model *PartModel) {
 				add(feature.ID, "pattern:"+parameter.slot, parameter.slot, parameter.unit, parameter.value, parameter.dimension, false)
 			}
 		}
+		for _, p := range loftBoundaryParameters(feature) {
+			add(feature.ID, p.slot, p.label, p.unit, p.value, p.dimension, false)
+		}
+		for _, p := range append(extrudeParameters(feature), thinWallParameters(feature)...) {
+			add(feature.ID, p.slot, p.label, "mm", p.value, modelcore.LengthDimension, false)
+		}
 		if featureHasDrivingLength(feature) {
 			add(feature.ID, "length", "Length", "mm", feature.Length, modelcore.LengthDimension, false)
 		}
@@ -91,6 +97,9 @@ func ensureFeatureParameters(model *PartModel) {
 			add(feature.ID, "length2", "Second length", "mm", feature.Length2, modelcore.LengthDimension, false)
 		}
 		if feature.Sketch != nil {
+			for _, offset := range feature.Sketch.Offsets {
+				add(feature.ID, "offset:"+offset.ID+":distance", "偏移距离", "mm", offset.Distance, modelcore.LengthDimension, false)
+			}
 			for _, pattern := range feature.Sketch.Patterns {
 				for _, parameter := range patternParameters(&pattern.PatternDefinition) {
 					slot := "pattern:" + pattern.ID + ":" + parameter.slot
@@ -461,6 +470,14 @@ func validateAndResolvePartParameters(model *PartModel) error {
 					feature.RecessDiameter = value
 				case "recessDepth":
 					feature.RecessDepth = value
+				case "drillTipAngle":
+					feature.DrillTipAngle = value
+				case "thread:majorDiameter":
+					feature.Thread.MajorDiameter = value
+				case "thread:pitch":
+					feature.Thread.Pitch = value
+				case "thread:depth":
+					feature.Thread.Depth = value
 				case "countersinkAngle":
 					feature.CountersinkAngle = value
 				}
@@ -469,9 +486,37 @@ func validateAndResolvePartParameters(model *PartModel) error {
 				return err
 			}
 		}
+		for _, p := range loftBoundaryParameters(*feature) {
+			value, err := quantityInDisplayUnit(values["parameter:"+feature.ID+":"+p.slot], "1")
+			if err != nil {
+				return err
+			}
+			if p.slot == "loft:startMagnitude" {
+				feature.LoftStart.Magnitude = value
+			} else {
+				feature.LoftEnd.Magnitude = value
+			}
+		}
 		if feature.Pattern != nil {
 			if err := resolvePatternParameters(feature.ID, "pattern:", &feature.Pattern.PatternDefinition, values); err != nil {
 				return err
+			}
+		}
+		if feature.ThinWall != nil {
+			feature.ThinWall.Thickness = values["parameter:"+feature.ID+":thin:thickness"].SIValue * 1000
+			if feature.ThinWall.Mode == "TWO_SIDED" {
+				feature.ThinWall.Thickness2 = values["parameter:"+feature.ID+":thin:thickness2"].SIValue * 1000
+			}
+			if err := validateThinWall(*feature); err != nil {
+				return err
+			}
+		}
+		for _, p := range extrudeParameters(*feature) {
+			v := values["parameter:"+feature.ID+":"+p.slot].SIValue * 1000
+			if p.slot == "startOffset" {
+				feature.StartOffset = v
+			} else {
+				feature.EndOffset = v
 			}
 		}
 		if featureHasDrivingLength(*feature) {
@@ -493,6 +538,13 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			}
 		}
 		if feature.Sketch != nil {
+			for i := range feature.Sketch.Offsets {
+				offset := &feature.Sketch.Offsets[i]
+				offset.Distance = values["parameter:"+feature.ID+":offset:"+offset.ID+":distance"].SIValue * 1000
+			}
+			if err := validateSketchOffsets(*feature.Sketch); err != nil {
+				return err
+			}
 			for i := range feature.Sketch.Patterns {
 				pattern := &feature.Sketch.Patterns[i]
 				if err := resolvePatternParameters(feature.ID, "pattern:"+pattern.ID+":", &pattern.PatternDefinition, values); err != nil {
@@ -833,8 +885,32 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + tool.FeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
-		if feature.Type == "HOLE" && feature.HolePoint != nil {
-			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.HolePoint.SketchID), Target: key, Kind: modelcore.ReadGeometry})
+		for _, b := range []*LoftBoundaryDefinition{feature.LoftStart, feature.LoftEnd} {
+			if b == nil {
+				continue
+			}
+			for _, p := range b.Supports {
+				source := p.SourceFeatureID
+				if tip := bodyTips[p.Selection.SourceBodyID]; tip != "" {
+					source = tip
+				}
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + source), Target: key, Kind: modelcore.ReadTopology})
+			}
+			if parts := strings.Split(b.DirectionEntityID, ":"); len(parts) > 1 {
+				prefix := "datum:"
+				if parts[0] == "SKETCH_LINE" {
+					prefix = "feature:"
+				}
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(prefix + parts[1]), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		}
+		if feature.Sweep != nil {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("profile:" + feature.Sweep.Path.SketchID), Target: key, Kind: modelcore.ReadGeometry})
+		}
+		if feature.Type == "HOLE" {
+			for _, p := range holePositions(feature) {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + p.SketchID), Target: key, Kind: modelcore.ReadGeometry})
+			}
 		}
 		if feature.Pattern != nil {
 			for _, seed := range patternSeeds(feature.Pattern) {
@@ -911,6 +987,14 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			} else {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + p.MirrorPlaneID), Target: key, Kind: modelcore.ReadGeometry})
 			}
+		}
+		if feature.TerminationSurface != nil {
+			p := feature.TerminationSurface
+			source := p.SourceFeatureID
+			if tip := bodyTips[p.Selection.SourceBodyID]; tip != "" {
+				source = tip
+			}
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + source), Target: key, Kind: modelcore.ReadTopology})
 		}
 		if feature.Extent == "TO_PLANE" {
 			if p := feature.TerminationPlane; p != nil {

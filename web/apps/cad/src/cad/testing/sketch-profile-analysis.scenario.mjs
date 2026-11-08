@@ -23,6 +23,7 @@ try {
   assert.match(openMarkup, /完全约束/);
   assert.doesNotMatch(openMarkup, /轮廓已闭合/);
   assert.deepEqual(sketchProfileFeedback(open).locations, [[10, 20]]);
+  assert.match(sketchProfileFeedback({...open,geometryVerified:true,regionCount:1,loopCount:2}).summary,/1 个可用区域/);
   assert.match(openMarkup, /10, 20 mm/);
   assert.equal(JSON.stringify(openView), before, "display leaves authoritative state unchanged");
   const closedMarkup = markup({ ...view, sketchAnalyses: { s: { status: "CLOSED", geometryVerified: true, regionCount: 2, loopCount: 4, issues: [] } } });

@@ -236,7 +236,7 @@ func TestAutomationCurrentPartCommandInputs(t *testing.T) {
 		}
 		properties := schema["properties"].(map[string]any)
 		values := properties["extent"].(map[string]any)["enum"].([]string)
-		if !slices.Contains(values, "TO_PLANE") {
+		if !slices.Contains(values, "TO_PLANE") || !slices.Contains(values, "TO_NEXT") || !slices.Contains(values, "TO_SURFACE") {
 			t.Fatal("stale extent schema", name, values)
 		}
 		if name == "workspace.Feature" {

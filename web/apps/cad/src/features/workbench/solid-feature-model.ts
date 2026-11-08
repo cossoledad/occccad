@@ -1,7 +1,7 @@
 import {CommandInputError} from "../../cad/command/operation-failure";
 import type { Feature } from "../../types";
 import { linearExtrudeLengthInput, parseParameterSource } from "./parameter-editor";
-const bodyFeatureTypes = new Set(["HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
+const bodyFeatureTypes = new Set(["SWEEP", "HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
 export function isSolidStage(feature:Feature):boolean {return bodyFeatureTypes.has(feature.type.toUpperCase());}
 export function consecutiveSolidFeatures(features:Feature[],ids:string[]):Feature[]|undefined {
     if(!ids.length||new Set(ids).size!==ids.length)return;
@@ -11,7 +11,7 @@ export function consecutiveSolidFeatures(features:Feature[],ids:string[]):Featur
     const start=history.findIndex(f=>f.id===members[0].id);
     return history.slice(start,start+members.length).every(f=>selected.has(f.id))?members:undefined;
 }
-export const solidFeatureNames: Record<string, string> = { HOLE:"孔", FILLET: "圆角", CHAMFER: "倒角", DRAFT: "拔模", SHELL: "抽壳", LOFT: "放样", REVOLVE: "旋转", PAD: "拉伸", LINEAR_EXTRUDE: "拉伸" };
+export const solidFeatureNames: Record<string, string> = { SWEEP:"扫掠", HOLE:"孔", FILLET: "圆角", CHAMFER: "倒角", DRAFT: "拔模", SHELL: "抽壳", LOFT: "放样", REVOLVE: "旋转", PAD: "拉伸", LINEAR_EXTRUDE: "拉伸" };
 export const modifierTypes = ["FILLET", "CHAMFER", "DRAFT", "SHELL"] as const;
 export type ModifierType = typeof modifierTypes[number];
 export function defaultModifierFeature(type: ModifierType, bodyId?: string): Feature {
@@ -28,13 +28,21 @@ export function booleanDefinitionReady(target: string | undefined, operation: Fe
 }
 // Unchanged text must preserve the original Quantity/expression, including digits
 // beyond the display precision. A changed value uses the shared unit parser.
-export function solidParameterEdit(slot: "length" | "length2" | "angle" | "diameter" | "depth" | "recessDiameter" | "recessDepth" | "countersinkAngle", text: string, initialText: string, unit: string): {
+export function solidParameterEdit(slot: "length" | "length2" | "startOffset" | "endOffset" | "thin:thickness" | "thin:thickness2" | "angle" | "diameter" | "depth" | "recessDiameter" | "recessDepth" | "countersinkAngle" | "drillTipAngle" | "thread:majorDiameter" | "thread:pitch" | "thread:depth" | "loft:startMagnitude" | "loft:endMagnitude", text: string, initialText: string, unit: string): {
     value?: number;
     expression?: string;
 } {
     if (text === initialText)
         return {};
-    if (slot !== "angle" && slot!=="countersinkAngle") {
+    if(slot==='loft:startMagnitude'||slot==='loft:endMagnitude') {const parsed=parseParameterSource(text,'1');if(parsed.kind==='EXPRESSION'){if(!parsed.expression)throw new CommandInputError('请输入影响系数或公式');return {expression:parsed.expression}};if(!['','1'].includes(parsed.unit)||!Number.isFinite(parsed.value)||parsed.value<.01||parsed.value>10)throw new CommandInputError('影响系数须为0.01至10的无量纲值');return {value:parsed.value};}
+    if(slot==='startOffset' ||slot==='endOffset') {
+        const parsed=parseParameterSource(text,unit);
+        if(parsed.kind==='EXPRESSION'){if(!parsed.expression)throw new CommandInputError('请输入偏移或表达式');return {expression:parsed.expression};}
+        const scale=({mm:1,cm:10,m:1000,in:25.4} as Record<string,number>)[parsed.unit];
+        if(!scale||!Number.isFinite(parsed.value))throw new CommandInputError('请输入有限长度偏移');
+        return {value:parsed.value*scale};
+    }
+    if (slot !== "angle" && slot!=="countersinkAngle"&&slot!=="drillTipAngle") {
         const result = linearExtrudeLengthInput(text, unit);
         return { value: result.length, expression: result.lengthExpression };
     }

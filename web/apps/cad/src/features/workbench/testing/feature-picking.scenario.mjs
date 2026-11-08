@@ -43,13 +43,15 @@ try {
  const regionSketch={...sketch,sketch:{...sketch.sketch,support:{type:"DATUM_PLANE",datumPlaneId:"xy"}}};
  const regionView={...view,datumPlanes:[{id:"xy",plane:"XY",origin:[0,0,0],normal:[0,0,1],uDirection:[1,0,0]}],sketchAnalyses:{sketch:{geometryVerified:true,status:"CLOSED",regionViews:[{id:"formal-region",outer:[{x:0,y:0},{x:1,y:0},{x:0,y:1}]}]}}};
  assert.equal(profileRegionCandidates(regionView,[regionSketch]).length,1);
+ assert.equal(profileRegionCandidates({...regionView,sketchAnalyses:{sketch:{...regionView.sketchAnalyses.sketch,status:'OPEN'}}},[regionSketch]).length,1,'verified closed components remain pickable beside unfinished curves');
  assert.equal(profileRegionCandidates(regionView,[regionSketch],"different-sketch").length,0);
  assert.equal(profileRegionCandidates(regionView,[{...regionSketch,suppressed:true}]).length,0);
  assert.equal(profileRegionCandidates(regionView,[{...regionSketch,sketch:{support:{...regionSketch.sketch.support,status:"FAILED_SUPPORT"}}}]).length,0,"failed support cannot use a remembered plane");
  const brokenRegionFeature={id:"extrude",type:"LINEAR_EXTRUDE",profile:"sketch",evaluationStatus:"FAILED",diagnostic:"PROFILE_REGION_MISSING: old-region",profileSelection:{mode:"REGIONS",regionIds:["old-region"]}};
  const repairView={...regionView,sketchAnalyses:{sketch:{...regionView.sketchAnalyses.sketch,regionIds:["formal-region"]}},part:{...view.part,features:[regionSketch,brokenRegionFeature]}};
  assert.equal(profileRegionRepairFeature(repairView),brokenRegionFeature,"closed profile with lost binding offers explicit repair");
- assert.equal(profileRegionRepairFeature({...repairView,sketchAnalyses:{sketch:{...repairView.sketchAnalyses.sketch,status:"OPEN"}}}),undefined,"an open sketch must first regain a legal profile");
+ assert.equal(profileRegionRepairFeature({...repairView,sketchAnalyses:{sketch:{...repairView.sketchAnalyses.sketch,status:"OPEN"}}}),brokenRegionFeature,"available exact regions permit repair without closing unrelated components");
+ assert.equal(profileRegionRepairFeature({...repairView,sketchAnalyses:{sketch:{...repairView.sketchAnalyses.sketch,status:'OPEN',geometryVerified:false}}}),undefined,'unverified remembered regions cannot authorize repair');
  assert.equal(profileRegionRepairFeature({...repairView,part:{...repairView.part,features:[{...brokenRegionFeature,diagnostic:"invalid radius"}]}}),undefined,"geometric failures are not presented as missing regions");
  assert.equal(profileRegionRepairFeature({...repairView,sketchAnalyses:{sketch:{...repairView.sketchAnalyses.sketch,regionIds:["old-region"]}}}),undefined,"a restored binding needs no manual repair");
  const {selectionKey}=await server.ssrLoadModule("/src/cad/interaction/selection-identity.ts");
@@ -163,7 +165,7 @@ try {
  for(const forbidden of ["final","future-final","fallback"])assert.equal(isExternalProjectionSource({...upstreamEdge,geometryKey:forbidden},scope),false,"tree and viewport projection share the same prefix gate");
  assert.equal(isExternalProjectionSource({...upstreamEdge,versionId:"old"},scope),false);
  assert.equal(isExternalProjectionSource({...upstreamEdge,kind:"axis",entityId:"late-plane"},scope),false);
- assert.deepEqual(historicalCreationTypes(true,true),["EXTRUDE_ADD","EXTRUDE_REMOVE"]);
+ assert.deepEqual(historicalCreationTypes(true,true),["EXTRUDE_ADD","EXTRUDE_REMOVE","REVOLVE","HOLE","LOFT","SWEEP"]);
  assert.deepEqual(historicalCreationTypes(true,false),[],"Product sketches have no historical generator entry");
  assert.deepEqual(historicalCreationTypes(false,false),["FILLET","CHAMFER","DRAFT","SHELL"],"existing context modifier insertion remains available");
  assert(historicalCreationTypes(false,true).includes("SKETCH"));

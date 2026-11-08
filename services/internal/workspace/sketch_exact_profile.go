@@ -15,6 +15,21 @@ func (service *Service) buildExactProfileRegions(ctx context.Context, feature Fe
 	if err != nil {
 		return nil, err
 	}
+	return service.classifyExactProfileLoops(ctx, feature.ID, loops, requestID)
+}
+
+func (service *Service) buildAvailableProfileRegions(ctx context.Context, feature Feature, requestID string) ([]geometry.ProfileRegion, error) {
+	loops, err := buildAvailableProfileLoops(feature, true)
+	if err != nil {
+		return nil, err
+	}
+	return service.classifyExactProfileLoops(ctx, feature.ID, loops, requestID)
+}
+
+func (service *Service) classifyExactProfileLoops(ctx context.Context, featureID string, loops []profileLoop, requestID string) ([]geometry.ProfileRegion, error) {
+	if len(loops) == 0 {
+		return []geometry.ProfileRegion{}, nil
+	}
 	input := []geometry.ProfileLoop{}
 	for _, loop := range loops {
 		for _, curve := range loop.value.Curves {
@@ -27,7 +42,7 @@ func (service *Service) buildExactProfileRegions(ctx context.Context, feature Fe
 	if service.worker == nil {
 		return nil, fmt.Errorf("%w: exact profile worker unavailable", ErrValidation)
 	}
-	regions, err := preparedResult(ctx, &service.prepared, "profile:"+feature.ID, input, func() ([]geometry.ProfileRegion, error) {
+	regions, err := preparedResult(ctx, &service.prepared, "profile:"+featureID, input, func() ([]geometry.ProfileRegion, error) {
 		return service.worker.ClassifySketchProfile(ctx, requestID, input)
 	})
 	if err != nil {
@@ -45,26 +60,23 @@ func (service *Service) buildExactProfileRegions(ctx context.Context, feature Fe
 func (service *Service) projectExactSketchAnalyses(ctx context.Context, model PartModel) map[string]SketchProfileAnalysis {
 	output := projectSketchAnalyses(model)
 	for _, feature := range model.Features {
-		if feature.Sketch == nil {
+		if feature.Sketch == nil || feature.Suppressed || feature.Sketch.Support.Status == "FAILED_SUPPORT" || feature.Sketch.Support.Status == "BLOCKED" {
 			continue
 		}
 		analysis := output[feature.ID]
 		// Connectivity diagnostics are model facts. Curved region validation is
 		// performed on the same accepted curves and same kernel as the solid gate.
-		if analysis.Status == "EMPTY" || analysis.Status == "OPEN" {
+		if analysis.Status == "EMPTY" {
 			continue
 		}
-		hasTopologyIssue := false
+		issues := []SketchProfileIssue{}
 		for _, issue := range analysis.Issues {
 			if issue.Code != "INVALID_REGION" {
-				hasTopologyIssue = true
+				issues = append(issues, issue)
 			}
 		}
-		if hasTopologyIssue {
-			continue
-		}
-		regions, err := service.buildExactProfileRegions(ctx, feature, "profile-analysis/"+feature.ID)
-		analysis.GeometryVerified = service.worker != nil
+		regions, err := service.buildAvailableProfileRegions(ctx, feature, "profile-analysis/"+feature.ID)
+		analysis.GeometryVerified = service.worker != nil && len(regions) > 0
 		analysis.RegionCount = 0
 		analysis.LoopCount = 0
 		analysis.RegionViews = nil
@@ -72,10 +84,12 @@ func (service *Service) projectExactSketchAnalyses(ctx context.Context, model Pa
 		analysis.Regions = nil
 		if err != nil {
 			analysis.Status = "INVALID"
-			analysis.Issues = []SketchProfileIssue{{Code: "INVALID_REGION", Message: err.Error(), EntityIDs: []string{}}}
+			analysis.Issues = append(issues, SketchProfileIssue{Code: "INVALID_REGION", Message: err.Error(), EntityIDs: []string{}})
 		} else {
-			analysis.Status = "CLOSED"
-			analysis.Issues = []SketchProfileIssue{}
+			if len(issues) == 0 {
+				analysis.Status = "CLOSED"
+			}
+			analysis.Issues = issues
 			analysis.Regions = regions
 			analysis.RegionCount = len(regions)
 			for _, r := range regions {

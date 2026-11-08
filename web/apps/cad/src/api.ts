@@ -279,6 +279,13 @@ export const restApi = {
     return result;
   },
   sketchIntersections:(id:string,input:{versionId:string;sketchId:string;entityIds:string[]},signal?:AbortSignal)=>request<import('./cad/interaction/sketch-intersections').SketchIntersections>(`/api/documents/${id}/sketch-intersections`,{method:'POST',body:JSON.stringify(contextCommand(id,input)),signal}),
+  getPartDependencies:(id:string,input:{versionId:string}&Partial<import('./api/context-edit-scope').ContextEditScope>,signal?:AbortSignal)=>request<import('./cad/part/part-dependency-graph').PartDependencies>(`/api/documents/${id}/part-dependencies`,{method:'POST',body:JSON.stringify(contextCommand(id,input)),signal}),
+  getFeatureRepairContext:async(id:string,input:{versionId:string;featureId:string;compareVersionId?:string;maxRevisions?:number}&Partial<import('./api/context-edit-scope').ContextEditScope>,signal?:AbortSignal)=>{
+    const result=await request<import('./cad/part/feature-repair-context').FeatureRepairContext>(`/api/documents/${id}/feature-repair-context`,{method:'POST',body:JSON.stringify(contextCommand(id,input)),signal});
+    for(const a of result.snapshot?.artifacts??[])for(const rep of Object.values(a.representations))if(rep.url)rep.url=apiURL(rep.url);
+    return result;
+  },
+  discardFeatureRepairContext:(id:string,displayId:string)=>request<void>(`/api/documents/${id}/feature-repair-context/${encodeURIComponent(displayId)}`,{method:'DELETE'}),
   getFeatureInput: async (id: string, input: {versionId:string;featureId?:string;afterFeatureId?:string;resultStage?:boolean;bodyId?:string;referenceBodyId?:string;geometryKey?:string;kind?:string;localId?:number}&Partial<import('./api/context-edit-scope').ContextEditScope>, signal?:AbortSignal) => {
     const scopedInput=contextCommand(id,input);
     const result=await request<FeatureInput>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(scopedInput),signal});

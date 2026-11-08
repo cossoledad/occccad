@@ -9,22 +9,33 @@ import (
 )
 
 func validateHole(f Feature, earlier map[string]Feature) error {
+	if f.StartOffset != 0 || f.EndOffset != 0 || f.TerminationSurface != nil {
+		return fmt.Errorf("%w: HOLE_EXTRUDE_FIELDS_UNSUPPORTED", ErrValidation)
+	}
 	if k := holeKind(f); k != "SIMPLE" && k != "COUNTERBORE" && k != "COUNTERSINK" {
 		return fmt.Errorf("%w: HOLE_KIND_INVALID", ErrValidation)
 	}
 	if err := validateTerminationPlane(f, earlier); err != nil {
 		return err
 	}
-	p := f.HolePoint
-	if f.Sketch != nil || f.ProfileMemberSlot != nil || f.KeepTools || f.Operation != "REMOVE" || f.Profile != "" || f.ProfileSelection != nil || f.NeutralPlane != nil || f.NeutralPlaneID != "" || f.AxisEntityID != "" || len(f.Tools) > 0 || len(f.Selections) > 0 || len(f.Sections) > 0 || f.Pattern != nil || (f.Extent != "BLIND" && f.Extent != "THROUGH_ALL" && f.Extent != "TO_PLANE") {
-		return fmt.Errorf("%w: HOLE_DEFINITION_INVALID", ErrValidation)
+	if err := validateHolePositionSet(f); err != nil {
+		return err
 	}
-	if p == nil || p.AxisEntityID != "" || p.Reference.Target != "ENTITY" || p.Reference.SubElement != "POINT" || p.Reference.EntityID == "" || p.Reference.PointID != "" || p.Reference.ControlPointIndex != nil || p.Reference.ControlPointID != "" {
-		return fmt.Errorf("%w: HOLE_EXPLICIT_SKETCH_POINT_REQUIRED", ErrValidation)
+	if err := validateHoleEngineering(f); err != nil {
+		return err
 	}
-	source, ok := earlier[p.SketchID]
-	if !ok || source.Type != "SKETCH" || source.Sketch == nil {
-		return fmt.Errorf("%w: HOLE_POINT_MUST_BE_UPSTREAM_SKETCH", ErrValidation)
+	for _, position := range holePositions(f) {
+		p := &position
+		if f.Sketch != nil || f.ProfileMemberSlot != nil || f.KeepTools || f.Operation != "REMOVE" || f.Profile != "" || f.ProfileSelection != nil || f.NeutralPlane != nil || f.NeutralPlaneID != "" || f.AxisEntityID != "" || len(f.Tools) > 0 || len(f.Selections) > 0 || len(f.Sections) > 0 || f.Pattern != nil || (f.Extent != "BLIND" && f.Extent != "THROUGH_ALL" && f.Extent != "TO_PLANE") {
+			return fmt.Errorf("%w: HOLE_DEFINITION_INVALID", ErrValidation)
+		}
+		if p == nil || p.AxisEntityID != "" || p.Reference.Target != "ENTITY" || p.Reference.SubElement != "POINT" || p.Reference.EntityID == "" || p.Reference.PointID != "" || p.Reference.ControlPointIndex != nil || p.Reference.ControlPointID != "" {
+			return fmt.Errorf("%w: HOLE_EXPLICIT_SKETCH_POINT_REQUIRED", ErrValidation)
+		}
+		source, ok := earlier[p.SketchID]
+		if !ok || source.Type != "SKETCH" || source.Sketch == nil {
+			return fmt.Errorf("%w: HOLE_POINT_MUST_BE_UPSTREAM_SKETCH", ErrValidation)
+		}
 	}
 	target := false
 	for _, prior := range earlier {
@@ -41,6 +52,20 @@ func validateHole(f Feature, earlier map[string]Feature) error {
 // Structural identity remains valid after point deletion. Resolution is separate
 // so a legal sketch edit can leave an inspectable, explicitly repairable Hole.
 func holePointState(model PartModel, f Feature) FeatureInputResolution {
+	if len(holePositions(f)) == 0 {
+		return singleHolePointState(model, f)
+	}
+	for _, p := range holePositions(f) {
+		single := f
+		single.HolePoint = &p
+		state := singleHolePointState(model, single)
+		if state.Status != modelcore.SelectionResolved {
+			return state
+		}
+	}
+	return FeatureInputResolution{Status: modelcore.SelectionResolved}
+}
+func singleHolePointState(model PartModel, f Feature) FeatureInputResolution {
 	missing := FeatureInputResolution{Status: modelcore.SelectionMissing, DiagnosticCode: "HOLE_POINT_MISSING", Diagnostic: "定位草图点已失效，请明确重新选择"}
 	if f.HolePoint == nil {
 		return missing
@@ -68,7 +93,10 @@ func holePointState(model PartModel, f Feature) FeatureInputResolution {
 }
 
 func holeInput(model PartModel, f Feature) (geometry.ProfilePad, error) {
-	state := holePointState(model, f)
+	return holeGroupInput(model, f)
+}
+func singleHoleInput(model PartModel, f Feature) (geometry.ProfilePad, error) {
+	state := singleHolePointState(model, f)
 	if state.Status != modelcore.SelectionResolved {
 		return geometry.ProfilePad{}, fmt.Errorf("%w: %s: %s", ErrValidation, state.DiagnosticCode, state.Diagnostic)
 	}
@@ -109,6 +137,12 @@ func holeParameters(f Feature) []holeParameter {
 	if f.Extent == "BLIND" {
 		result = append(result, holeParameter{"depth", "Depth", "mm", f.Depth, modelcore.LengthDimension})
 	}
+	if f.DrillTipAngle != 0 {
+		result = append(result, holeParameter{"drillTipAngle", "Drill tip included angle", "deg", f.DrillTipAngle, modelcore.AngleDimension})
+	}
+	if f.Thread != nil {
+		result = append(result, holeParameter{"thread:majorDiameter", "Thread nominal diameter", "mm", f.Thread.MajorDiameter, modelcore.LengthDimension}, holeParameter{"thread:pitch", "Thread pitch", "mm", f.Thread.Pitch, modelcore.LengthDimension}, holeParameter{"thread:depth", "Thread annotation depth", "mm", f.Thread.Depth, modelcore.LengthDimension})
+	}
 	if holeKind(f) != "SIMPLE" {
 		result = append(result, holeParameter{"recessDiameter", "Recess diameter", "mm", f.RecessDiameter, modelcore.LengthDimension})
 	}
@@ -127,6 +161,19 @@ func validateHoleDimensions(f Feature) error {
 	if f.Extent == "BLIND" && !positiveFinite(f.Depth) {
 		return fmt.Errorf("%w: HOLE_DEPTH_INVALID", ErrValidation)
 	}
+	if err := validateHoleEngineering(f); err != nil {
+		return err
+	}
+	if t := f.Thread; t != nil && (!positiveFinite(t.Pitch) || !positiveFinite(t.MajorDiameter) || t.MajorDiameter < f.Diameter || !positiveFinite(t.Depth)) {
+		return fmt.Errorf("%w: HOLE_THREAD_ANNOTATION_INVALID", ErrValidation)
+	}
+	cylinder := holeCylinderDepth(f)
+	if f.Extent == "BLIND" && !positiveFinite(cylinder) {
+		return fmt.Errorf("%w: HOLE_TIP_EXCEEDS_DEPTH", ErrValidation)
+	}
+	if f.Thread != nil && f.Extent == "BLIND" && f.Thread.Depth > cylinder {
+		return fmt.Errorf("%w: HOLE_THREAD_EXCEEDS_CYLINDER", ErrValidation)
+	}
 	if holeKind(f) == "SIMPLE" {
 		return nil
 	}
@@ -144,7 +191,7 @@ func validateHoleDimensions(f Feature) error {
 		}
 		depth = (f.RecessDiameter - f.Diameter) / (2 * math.Tan(f.CountersinkAngle*math.Pi/360))
 	}
-	if !positiveFinite(depth) || f.Extent == "BLIND" && depth >= f.Depth {
+	if !positiveFinite(depth) || f.Extent == "BLIND" && depth >= cylinder {
 		return fmt.Errorf("%w: HOLE_RECESS_EXCEEDS_DEPTH", ErrValidation)
 	}
 	return nil

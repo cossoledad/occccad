@@ -140,23 +140,36 @@ func buildProfileRegions(feature Feature) ([]geometry.ProfileRegion, error) {
 }
 
 func buildProfileLoops(feature Feature, exact bool) ([]profileLoop, error) {
+	return buildProfileLoopsWithPolicy(feature, exact, false)
+}
+
+// Explicit regions may consume complete formal components while unrelated
+// components are still open. Branches are never welded or automatically cut.
+func buildAvailableProfileLoops(feature Feature, exact bool) ([]profileLoop, error) {
+	return buildProfileLoopsWithPolicy(feature, exact, true)
+}
+
+func buildProfileLoopsWithPolicy(feature Feature, exact, partial bool) ([]profileLoop, error) {
 	if feature.Sketch == nil {
 		return nil, fmt.Errorf("%w: sketch model is missing", ErrValidation)
 	}
 	if feature.Sketch.Solve.Status == "CONFLICTING" {
 		return nil, fmt.Errorf("%w: sketch constraints must be resolved before profile evaluation", ErrValidation)
 	}
-	if len(feature.Sketch.Patterns) > 0 {
-		entities, err := evaluatedSketchPatternEntities(*feature.Sketch)
+	if !partial {
+		if issues := sketchOffsetIssues(*feature.Sketch); len(issues) > 0 {
+			return nil, fmt.Errorf("%w: %s", ErrValidation, issues[0].Message)
+		}
+	}
+	if len(feature.Sketch.Patterns) > 0 || len(feature.Sketch.Offsets) > 0 {
+		entities, err := evaluatedSketchEntities(*feature.Sketch)
 		if err != nil {
 			return nil, err
 		}
 		projected := *feature.Sketch
 		projected.Entities = entities
 		projected.Constraints = append([]SketchConstraint(nil), feature.Sketch.Constraints...)
-		for _, pattern := range feature.Sketch.Patterns {
-			projected.Constraints = append(projected.Constraints, sketchPatternConnectivity(*feature.Sketch, pattern)...)
-		}
+		projected.Constraints = append(projected.Constraints, sketchDerivedConnectivity(*feature.Sketch)...)
 		feature.Sketch = &projected
 	}
 	dsu := profileConnectivity(feature)
@@ -181,17 +194,24 @@ func buildProfileLoops(feature Feature, exact bool) ([]profileLoop, error) {
 		edges = append(edges, profileEdge{entity: entity, start: start, end: end, startNode: dsu.find(entity.ID + "/START"), endNode: dsu.find(entity.ID + "/END")})
 	}
 	if len(edges) == 0 && len(loops) == 0 {
+		if partial {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("%w: sketch has no closed PROFILE curves", ErrValidation)
 	}
 	adjacency := map[string][]int{}
 	nodePoints := map[string]SketchPoint2{}
+	badNodes := map[string]bool{}
 	for index, edge := range edges {
 		for _, endpoint := range []struct {
 			node  string
 			point SketchPoint2
 		}{{edge.startNode, edge.start}, {edge.endNode, edge.end}} {
 			if prior, ok := nodePoints[endpoint.node]; ok && math.Hypot(prior.X-endpoint.point.X, prior.Y-endpoint.point.Y) > profileTolerance {
-				return nil, fmt.Errorf("%w: coincident profile endpoints did not solve to the same point", ErrValidation)
+				if !partial {
+					return nil, fmt.Errorf("%w: coincident profile endpoints did not solve to the same point", ErrValidation)
+				}
+				badNodes[endpoint.node] = true
 			}
 			nodePoints[endpoint.node] = endpoint.point
 		}
@@ -200,10 +220,35 @@ func buildProfileLoops(feature Feature, exact bool) ([]profileLoop, error) {
 	}
 	for node, incident := range adjacency {
 		if len(incident) != 2 {
-			return nil, fmt.Errorf("%w: profile is open or has a T-junction at %s (degree %d)", ErrValidation, node, len(incident))
+			if !partial {
+				return nil, fmt.Errorf("%w: profile is open or has a T-junction at %s (degree %d)", ErrValidation, node, len(incident))
+			}
+			badNodes[node] = true
 		}
 	}
 	visited := make([]bool, len(edges))
+	// Exclude the whole connected component of an invalid endpoint. A loop
+	// sharing a branch with an unfinished line requires explicit geometry edits.
+	queue := make([]string, 0, len(badNodes))
+	for node := range badNodes {
+		queue = append(queue, node)
+	}
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		for _, index := range adjacency[node] {
+			if visited[index] {
+				continue
+			}
+			visited[index] = true
+			for _, next := range []string{edges[index].startNode, edges[index].endNode} {
+				if !badNodes[next] {
+					badNodes[next] = true
+					queue = append(queue, next)
+				}
+			}
+		}
+	}
 	for {
 		seed := -1
 		for index, edge := range edges {

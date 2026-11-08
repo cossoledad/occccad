@@ -25,6 +25,7 @@ type interactionCandidate struct {
 	contextKey                                                        string
 	booleanAnalysis                                                   *booleanAnalysisSnapshot
 	definitionOnly                                                    bool
+	displayOnly                                                       bool
 	assemblyPreviewRequestID                                          string
 	id, documentID, actorID, headRevision, commandType, payloadDigest string
 	headSequence                                                      uint64
@@ -167,6 +168,9 @@ func (cache *interactionCandidateCache) takeDiagnosed(id, documentID string, pre
 		if check.mismatch {
 			return interactionCandidate{}, check.reason
 		}
+	}
+	if value.displayOnly {
+		return interactionCandidate{}, "display_only_candidate"
 	}
 	actual := candidateIntentDigest(prepared.command.Payload)
 	if value.payloadDigest != actual {

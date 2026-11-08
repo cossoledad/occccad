@@ -3,7 +3,7 @@ import { createServer } from "vite";
 
 const server = await createServer({ server: { middlewareMode: true }, appType: "custom", logLevel: "silent" });
 try {
-  const { parameterInputUnit, insertParameterReference, isLengthParameter, linearExtrudeLengthInput, linearExtrudeLengthEditInput, parameterEditSource, parameterDisplayValue, parameterSourceText, parseParameterSource } = await server.ssrLoadModule("/src/features/workbench/parameter-editor.ts");
+  const { parameterCompletions,parameterInputUnit, insertParameterReference, isLengthParameter, linearExtrudeLengthInput, linearExtrudeLengthEditInput, parameterEditSource, parameterDisplayValue, parameterSourceText, parseParameterSource } = await server.ssrLoadModule("/src/features/workbench/parameter-editor.ts");
   const {normalizeOperationFailure}=await server.ssrLoadModule('/src/cad/command/operation-failure.ts');
   assert.match(normalizeOperationFailure(new Error('validation: ASSEMBLY_ANGLE_OUT_OF_RANGE')).message,/360°/);
   assert.match(normalizeOperationFailure({code:'VALIDATION_ERROR',message:'ASSEMBLY_OFFSET_NEGATIVE'}).message,/不能为负/);
@@ -17,6 +17,10 @@ try {
   assert.equal(insertParameterReference(" + 5 mm","r_1",{start:0,end:0}),"r_1 + 5 mm");
   assert.equal(insertParameterReference("r_2 + 5 mm","r_1",{start:0,end:3}),"r_1 + 5 mm");
   assert.throws(()=>insertParameterReference("","bad key"));
+  assert.equal(parameterCompletions('2 * base + 5 mm',[parameter],undefined,8)[0].value,'2 * base_width + 5 mm');
+  assert.equal(parameterCompletions('base_width + 5 mm',[parameter],undefined,4).length,0,'an already complete identifier is retained');
+  assert.equal(parameterCompletions('base + 5 mm',[parameter],parameter.parameterId,4).length,0,'self references are not suggested');
+  assert.equal(parameterCompletions('base_wid + 5 mm',[parameter],undefined,4)[0].value,'base_width + 5 mm','completion replaces the whole token, not the formula tail');
   assert.equal(parameterSourceText(parameter), "20 mm");
   assert.equal(parameterDisplayValue(parameter), "20 mm");
   assert.deepEqual(parseParameterSource("40 mm"), { kind: "LITERAL", value: 40, unit: "mm" });

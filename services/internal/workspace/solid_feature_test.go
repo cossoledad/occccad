@@ -103,7 +103,7 @@ func TestSolidDefinitionEditParametersAndUndo(t *testing.T) {
 	}
 	var model PartModel
 	_ = json.Unmarshal(restored, &model)
-	if model.Features[1].Length != 10 || model.Features[1].Extent != "" || len(model.Parameters) != 1 {
+	if model.Features[1].Length != 10 || model.Features[1].Extent != "" || len(model.Parameters) != 2 {
 		t.Fatalf("incorrect restore: %+v", model.Features[1])
 	}
 }

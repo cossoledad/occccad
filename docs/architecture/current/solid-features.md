@@ -2,6 +2,8 @@
 
 返回[Part/Sketch](part-sketch.md)。当前行为以代码为准，范围和修复方式由本文维护。
 
+按[整体设计流程](part-design-workflow.md)进入建模；生成算法见[实体生成器](solid-generators.md)，成员复用和重执行见[特征复制](feature-replication.md)。本页保留唯一能力表、历史位置和通用编辑/修复合同。
+
 ## Feature 能力表
 
 这是唯一 Feature 能力表；表述是代码合同，验证入口不表示当轮已执行。共享链为正式创建/编辑、Quantity/表达式与稳定参数、权威预览/取消、上游重算、抑制/删除保护、Undo/Redo 和重开。空白或不适用的参数不强行建立接口；导入基础实体的例外见表。
@@ -9,15 +11,16 @@
 | Feature | 当前定义、编辑与修复 | 阵列／镜像来源 |
 |---|---|---|
 | SKETCH | 支持独立 Part／直接 READY ContextVariant 历史补建，见[历史位置创建](#在历史位置创建)；稳定实体/端点、正式约束与尺寸表达式；支撑重指定、投影删除、交点分割及引用影响检查，见 [Part/Sketch](part-sketch.md) | 空间草图框架与草图内派生成员；成员修改须解除关联 |
-| PAD / LINEAR_EXTRUDE | 独立 Part／直接 READY ContextVariant 支持草图后有限 ADD/REMOVE 历史创建；整草图或显式区域；有限、对称、双侧、贯穿切除及到平面；区域/终止面失效显式重选 | 有限工具；添加/净切除材料范围起点；关联终止仅实体阶段 |
-| REVOLVE | 草图/区域、稳定轴、角度、反向；编辑轴与区域，失效不自动换区 | 有限工具；添加/净切除范围起点 |
-| LOFT | 2–32 有序截面，至少一个单区域无孔闭合轮廓；首尾支持稳定点；编辑顺序、对应、接缝和相位；形状尺寸由截面参数管理，丢失输入需重选 | ADD/REMOVE 工具及相应范围起点，非任意截面重执行 |
-| HOLE | 单个上游显式 POINT；普通/圆柱沉孔/锥沉孔，盲孔/单向贯穿/到平面；孔位、孔型与尺寸可编辑，丢点或终止面失效重选 | 三孔型 BLIND / 单向 THROUGH_ALL 切削工具；BLIND 可作净切除范围起点，到平面仅实体阶段 |
+| PAD / LINEAR_EXTRUDE | 独立 Part／直接 READY ContextVariant 支持合法上游位置历史创建；整草图或显式区域；有限、对称、双侧、贯穿切除、到平面/下一面/曲面及起始/终止偏移；开放线链/闭合边界薄壁；区域/终止/线链失效显式重选 | 有限工具、添加/净切除材料范围起点及生成器成员重执行；关联终止逐位置重新计算 |
+| REVOLVE | 草图/区域、稳定轴、角度、反向；编辑轴与区域，失效不自动换区 | 有限工具、添加/净切除范围起点及生成器成员重执行 |
+| LOFT | 2–32有序截面；自由放样支持点端、对应、接缝和相位；端部法向/方向及解析挤出支撑的 G1/G2，影响系数有参数/公式 | ADD/REMOVE 工具、范围起点和生成器成员重执行；连续性支撑仍须逐位置满足 |
+| SWEEP | 正式草图单路径；闭合截面及内孔、光滑曲线/直线斜接、两种标架、方向锚点；独立实体/加料/切除/交集，路径缺失显式修复 | 有限工具、材料范围起点及生成器成员重执行 |
+| HOLE | 单点或多点共享参数；普通/圆柱沉孔/锥沉孔，盲孔/单向贯穿/到平面；可选钻尖及圆柱/总深度定义；螺纹工程标注，逐点修复 | 三孔型 BLIND / 单向 THROUGH_ALL 切削工具；BLIND 可作净切除范围起点；含到平面的合法孔可选成员重执行 |
 | FILLET / CHAMFER | 恒半径/等距，稳定边集；支持历史阶段插入，部分/全部丢失可逐项替换或移除 | 添加/净切除范围内修饰步骤，或明确实体阶段 |
 | DRAFT | 稳定面集、上游中性平面、角度/反向；支持历史阶段插入，面和中性面显式修复 | 添加/净切除范围内修饰步骤；须通过对应包含检查，无独立工具 |
 | SHELL | 开口面集、恒定厚度、内/外偏置；支持历史阶段插入和面集修复，算法边界见[抽壳](shell-algorithm.md) | 仅实体阶段 |
 | BOOLEAN | 同 Part 目标/工具阶段，并/差/交；编辑来源，单工具支持显式结果区域及修复；无尺寸参数 | 仅实体阶段 |
-| SOLID_PATTERN | 多种子线性/圆周/镜像、稳定成员槽位与跳过；成员丢失后修复下游；数量/步距/角度表达式 | 有效新增成员工具，继承 ADD/REMOVE；数量1或全部新增槽位跳过时仅实体阶段 |
+| SOLID_PATTERN | 多种子线性/圆周/镜像、稳定槽位与跳过；可复制工具/阶段/材料范围，或在成员位置重执行五类生成器；数量/步距/角度表达式 | 有效新增成员工具，继承 ADD/REMOVE；数量1或全部新增槽位跳过时仅实体阶段 |
 | SKETCH_PATTERN | 单草图空间框架复制，成员可供拉伸/旋转/放样；分布表达式与成员身份 | 草图框架，不是实体切削工具 |
 | IMPORT_BODY | 冻结导入定义；正式命名建立及整体删除保护，无参数化几何编辑/任意抑制 | 仅实体阶段 |
 
@@ -27,7 +30,7 @@
 
 实体生成、跨 Body 组合与局部修改复用 Feature、参数、ChangeSet、CAS、补偿历史及 per-Body BREP/Visual/Naming。算法成功后仍检查有效实体和完整命名，具体阶段见[求值链](part-feature-evaluation.md)。Body 不因材料不连通而改身份。
 
-旋转以真实扫掠历史命名；轴上不属于最终结果的辅助边/点不进入输出。Loft 使用真实 OCCT AddVertex 点端和精确轮廓；自动比较循环起点、方向和圆相位后保存 stable seam、反向、相位与 correspondenceResolved，重算不重新猜对应。法向符号按截面位移统一，框架比较不移动输入。上限为64条轮廓边、一亿次候选比较；自交或构造失败拒绝。
+旋转、Sweep 和自由/约束放样的精确构造、对应及连续性边界见[实体生成器](solid-generators.md)。生成结果仍经过统一有效实体与完整 Naming 门禁。
 
 圆角优先通用 OCCT，失败时可按稳定边顺序构造并合成真实历史；凸解析支撑与单条凹平面叶根的有界延伸/裁剪见 `kernel/occt/src/fillet_boundary.cpp`。保持半径、材料、连接及法向检查，不以提高容差接纳候选。凹根多边交会及与既有曲面相接不进入平面补充路径。最多128面、64条选边；不是任意大半径或任意角区保证。抽壳算法和历史仅由[抽壳算法](shell-algorithm.md)维护。
 
@@ -60,9 +63,11 @@ Boolean 并/差最多32工具，交集一个；工具定义保存 Body+Feature �
 
 ## 在历史位置创建
 
-结构树实体步骤的对象菜单“在此步骤后插入”开放圆角、倒角、拔模和抽壳；独立 Part 或当前可编辑、READY 的直接 Product ContextVariant 还可补建草图，草图节点后可创建同 Body、单方向 FINITE 的 LINEAR_EXTRUDE ADD/REMOVE。复用草图支撑选择、绘制工具和生成器面板，简洁显示 Body / 锚点之后；默认参数与普通创建一致。上下文只存在于该次面板；取消、提交、Revision 或编辑目标改变后退出，不建立持久历史游标。补建草图及修饰的锚点必须是当前 Revision 中指定 Body 的有效、未抑制实体阶段，有限拉伸的锚点则必须是其定位草图；最终 Body 失败时也不借 displayFallback 授权。
+结构树的对象菜单“在此步骤后插入”开放圆角、倒角、拔模、抽壳，以及独立 Part 或当前可编辑 READY 的直接 Product ContextVariant 中的草图、拉伸添加/切除、旋转、Sweep、孔和放样。生成器可消费该位置之前的合法草图，保留同 Body 的添加、切除或交集；双侧、对称、贯穿与到平面沿各生成器的普通合同验证，不再限定紧随草图的有限拉伸。新 Body 仍通过单独的 Body 生命周期创建，不在旧 Body 的插入命令内隐式创建。
 
-`afterFeatureId` 是全局数组插入边界，`SourceFeatureID` 是该前缀中来源 Body 的实际实体阶段，不能将草图边界或语义 Anchor 当作实体阶段。`feature-input` 的独立 `afterFeatureId + bodyId + versionId` 模式重建精确前缀：圆角/倒角选边，拔模/抽壳选目标 Body 的面。GeometryKey、来源 Revision、Body、实际 SourceFeatureID 与 PersistentSelection 在创建端再次验证。拔模实体中性面也经该接口绑定，`referenceBodyId` 单独指定同 Part 来源 Body，按同一全局历史前缀取其有效阶段；显示与下载使用相同授权。标准/自定义基准面按递归依赖顺序检查。ContextVariant 插入按冻结的 Product Revision、Variant 和 occurrence 重建已接受投影的目标/参考 Body 前缀，GeometryKey 与显示/拾取阶段一致；正式 PersistentSelection、实际来源阶段和 CreationEvidence 仍用独立定义校验，不保存投影拓扑或回写投影参数。预览、直接提交及携带预览确认共用此校验，过期上下文拒绝。该模式与编辑输入、只读 `ResultStage` 不混用，不能用最终结果、下游或 displayFallback 冒充历史输入。
+显示和拾取统一使用冻结 Revision、occurrence 与全局插入前缀；取消、提交、Revision 或目标改变后退出，不建立持久历史游标。普通生成器面板支持编辑或创建输入草图再返回。既有生成器的新输入插在消费者之前，新历史生成器的新输入创建后，其插入边界推进到新草图；保留原 Feature/Parameter ID、原始数量文本和最新接受快照。首个实体之前复用既有空 Body 的只读可视化前缀制品：SourceFeatureID 为空，不授权捕获后续实体面或边。
+
+`afterFeatureId` 是全局数组插入边界，`SourceFeatureID` 是该前缀中来源 Body 的实际实体阶段，不能将草图边界或语义 Anchor 当作实体阶段。`feature-input` 的独立 `afterFeatureId + bodyId + versionId` 模式重建精确前缀：圆角/倒角选边，拔模/抽壳选目标 Body 的面。GeometryKey、来源 Revision、Body、实际 SourceFeatureID 与 PersistentSelection 在创建端再次验证。目标 Body 的首个生成器前可读取空前缀，但空前缀不能授权拓扑拾取；跨 Body 参考必须有该前缀中的真实上游实体阶段。拔模实体中性面也经该接口绑定，`referenceBodyId` 单独指定同 Part 来源 Body，按同一全局历史前缀取其有效阶段；显示与下载使用相同授权。标准/自定义基准面按递归依赖顺序检查。ContextVariant 插入按冻结的 Product Revision、Variant 和 occurrence 重建已接受投影的目标/参考 Body 前缀，GeometryKey 与显示/拾取阶段一致；正式 PersistentSelection、实际来源阶段和 CreationEvidence 仍用独立定义校验，不保存投影拓扑或回写投影参数。预览、直接提交及携带预览确认共用此校验，过期上下文拒绝。该模式与编辑输入、只读 `ResultStage` 不混用，不能用最终结果、下游或 displayFallback 冒充历史输入。
 
 原 `CREATE_SKETCH`、`CREATE_SOLID_FEATURE` 和 `CREATE_MODIFY_FEATURE` 携带临时插入信息，在内存候选中直接插入并同步全局数组/Order；按稳定 ID 读取新定义。新 Feature、参数与后续 Order 变化进入同一 ChangeSet/Transaction，沿既有预览、幂等、CAS、补偿历史与缓存提交。原定义和参数身份不变。插入和移动复用候选依赖、实际来源阶段、全 Part 引用/几何检查；下游或跨 Body 失败指出阻塞对象并原子拒绝。固定节点保持相对顺序，允许以其合法输出为锚点，不套用移动的固定边界规则；已有 FEATURE_DELTA 的有序成员集合不能改变。
 
@@ -70,58 +75,7 @@ Boolean 并/差最多32工具，交集一个；工具定义保存 Body+Feature �
 
 上下文 FACE 支撑经 `contextDefinitionPick` 唯一对应到独立阶段；正式 PersistentSelection、来源 Revision／实际阶段、CreationEvidence 和右手框架都取自独立定义，显示 GeometryKey 只校验已接受投影。预览检查独立默认构型与受影响重复实例，确认沿 `commitContextPartEdit` 重放独立定义并在既有双文档事务中原子提交；接受输入保持原快照，不顺带读取来源 Head。采用预览也不回写投影模型。取消、目标切换、作用域变化和迟到回执不能恢复旧输入或预览。
 
-入口为 `services/internal/workspace/feature_insert.go`、既有 `applyCreateFeature`、`historical-creation.ts`、`sketch-support-editor.tsx` 与 `solid-feature-editor.tsx`。定向 Router/Worker 回归为 `feature_insert_integration_test.go`，选择回归为 `feature-picking.scenario.mjs`。覆盖支撑、区域、范围保护、下游／跨 Body 原子失败、独立提交、Undo/Redo、重开及热冷 BREP/Naming。历史草图／拉伸的浏览器交互仍待手工验收；不开放任意深层／PINNED／非 READY 上下文、旋转、Hole、Loft、NEW_BODY、关联终止或跨 Body 历史创建，不扩大历史移动的固定边界。
-
-## 独立 Hole
-
-`HOLE` 是一个独立 Feature，支持普通孔、圆柱沉孔与锥沉孔，复用创建/编辑、Preview/Commit、ChangeSet 和历史链。定位保存同 Part 合法上游普通 Sketch 的单个显式 POINT 稳定引用，轴沿已求解支撑的有向法向，可反向；不保存视口坐标，不生成隐藏圆草图或额外切除 Feature。孔位通过原草图尺寸/约束修改，多点草图必须明确选点；端点、圆心、原点与阵列派生点不属于定位输入。
-
-三种孔都管理主孔直径，盲孔还管理从定位平面起算的平底总深度；单向贯穿只切除该平面沿选定方向的目标 Body 材料，不改变普通拉伸的贯穿语义。圆柱沉孔增加沉孔直径和沉孔深度；锥沉孔增加沉孔直径和**完整锥面夹角**（0° < α < 180°），锥段深度为 `(沉孔直径 − 主孔直径) / (2 tan(α/2))`，面板显示派生值。沉孔直径必须大于主孔直径，沉孔深度必须为正，盲孔沉孔段必须短于总深度；非法组合、无材料交集和无效结果拒绝。
-
-所有活动尺寸沿用 Quantity、单位、表达式、依赖和 managed ParameterID；孔型/终止模式切换移除非活动参数，共有参数身份及自定义别名保留，Undo/Redo 恢复原定义。evaluator 构造一个精确切削工具，由主圆柱与原生圆柱/圆锥通过真实 OCCT 历史融合，再进入既有 Boolean/Naming。主孔壁、沉孔壁、台阶、锥面、孔口和孔底按实际构造与裁剪命名，保留定位草图与点的完整来源身份；确定的尺寸修改延续引用，孔型切换后消失的角色保留失败定义，要求明确重选，不自动换面。Hole 编辑若仅下游失败，预览显示权威孔阶段并指出实际待修复特征，提交仍完整求值；孔自身或上游失败不允许确认。
-
-定位草图、点实体和目标上游阶段进入依赖、删除/循环检查及缓存；合法删点留下 `HOLE_POINT_MISSING`，下游按依赖阻塞。编辑器保留待修复输入并提供“修复孔位”；草图支撑失效沿[已有支撑重指定](part-sketch.md#支撑与外部几何)修复。取消和预览不写 Head，修复保持 Hole ID、名称、Body 与历史位置。同 Body 的合法 `BLIND` / `THROUGH_ALL` 三种孔型可作为 `GENERATOR_TOOL`，执行线性／圆周阵列与镜像，详见[参数化阵列](#参数化阵列)。单向贯穿按成员重建主孔切削范围，入口沉孔保留尺寸；有限 BLIND 可与后续修饰组成净切除 `FEATURE_DELTA`；显式 `BODY_STAGE` 保持复制整个已求值阶段的原意。到平面 Hole 不作为复制工具；尚无钻尖、螺纹、多点孔组。
-
-源码入口：`workspace/hole.go`、`evaluation_projection.go`、`occt_kernel.cpp` 的 `add_hole_recess` 与 `solid-feature-editor.tsx`。定向回归入口：`GeometryExchange.Hole*`、`TestEngineeringHole*`、`TestHoleLifecycleThroughRouter`、`TestHoleToPlane*` 和 `solid-feature-live.spec.ts` 的 Hole 场景；覆盖精确体积/方向、表达式、引用延续/失效修复、抽壳外壁支撑、历史与冷重建。执行结果以当轮交付为准；当前环境是 SQLite、Release OCCT 7.9.1 与 Chromium/SwiftShader，不代表 PostgreSQL 或全部几何组合验收。
-
-## 到平面关联终止
-
-单方向直线拉伸／切除及 Hole 的 `TO_PLANE` 目标为标准/自定义基准面，或同 Part 合法上游实体平面的无限延伸支撑平面，包含已有跨 Body 场景。显式区域集合、外环和孔沿用精确 Profile Builder；目标不受有限面的边界限制。定义保存 `terminationPlaneId` 或 `terminationPlane`（PersistentSelection、来源 Revision、Body 与实际来源阶段），不以语义 Anchor 代替阶段，也不保存一次测得的长度作为终止条件。
-
-Hole 主孔从定位草图平面沿所选法向终止，入口圆柱沉孔/锥沉孔保留尺寸；不保存测得孔深，也不创建深度参数。完整精确入口工具必须严格位于终止面之前，平面截入沉孔段或较宽孔口也拒绝。外部目标先经 Publication → ContextInput → 本地基准面接入，不直接绑定外部实体面。
-
-每次求值从当前合法上游前缀解析目标框架；Proto/Worker 接收当前精确平面，OCCT 以棱柱和支撑半空间求交形成平行或倾斜端面。每个选中区域的所有点沿指定方向都须有正终止距离；平行、反向、穿过起始轮廓、零厚度或无效结果明确失败。端面、侧面与边/点使用真实生成及裁剪历史进入原 Naming 门禁。目标移动或旋转进入依赖和缓存，删除、循环及非平面目标由权威校验拒绝。
-
-面板明确显示“到平面”，可拾取和重选基准面/实体平面。失效目标保留原定义及解析状态，失败提示提供“修复终止平面”入口；候选来自当前特征之前的合法阶段，不能绑定下游或 displayFallback。显式修复须解析全部必需输入，沿原 Preview/EDIT_FEATURE、ChangeSet 与历史提交，保持 Feature ID、名称、Body 和位置。合法上游变化可留下可检查的 FAILED/BLOCKED；服务、权限、制品错误继续返回实际错误。圆边变为椭圆等几何类型变化仍按现有引用合同要求明确重选。
-
-`GENERATOR_TOOL` 和 `FEATURE_DELTA` 不接受此终止模式，线性/圆周阵列及镜像共用此能力限制。`BODY_STAGE` 仍可刚体复制已经求值的实体阶段，不在每个成员位置重新终止。未包含到下一面、有限面边界、任意曲面、双向关联、终止偏移。
-
-定向入口：`services/internal/control/to_plane_integration_test.go` 的真实 Router/Worker 生命周期、目标失效与修复、历史/冷重建；`GeometryExchange.ToPlane*` 的精确体积、内孔、多区域、正反方向、Naming 与非法距离；`solid-feature-live.spec.ts` 的 `to-plane` 实际拾取和修复。
-
-## 参数化阵列
-
-`CREATE_PATTERN` 创建 `SOLID_PATTERN` 或 `SKETCH_PATTERN`；编辑、预览、抑制、删除、补偿历史和 per-Body 制品沿用 Feature 链。共同定义为稳定源引用、`PatternDefinition` 分布及逻辑槽位；实体多种子在 `additionalSources` 保存其余各项的正式阶段／工具／材料范围定义，逐项进入依赖、删除及范围保护、缓存和 Worker，作为同一 Feature 一次预览／提交／历史操作。种子限定同 Body、同添加／切除语义，最多32项；不以首个种子代替其余输入。空间草图阵列仍一次引用一个草图，草图内几何可多选。控制面只计算刚体变换，三类几何分别求值。长度、角度、相位、数量使用既有 Quantity、ParameterID 和 checkedAST，不由浏览器逐成员发命令。
-
-数量包含槽位 0，求值后必须是 1–256 的整数。线性支持固定步距和总跨度；圆周另支持整圆均布（步角为 360/N，不生成重复终点）。数量为 1 不除以零。跳过成员不重新编号；暂时超出当前数量的跳过槽位保留，恢复数量后仍跳过。成员身份来自 PatternId、槽位、源身份；位置和显示顺序不参与身份。成员消失后的下游引用明确失败，不按相近几何改绑。编辑实体阵列／镜像时，仅下游失败且目标和上游阶段成功的候选可预览有效目标阶段，显示待修复特征；提交仍完整求值并保存真实 FAILED/BLOCKED，随后由原下游编辑器明确重选。当前操作或上游无效不能确认。
-
-- `GENERATOR_TOOL` 复用同 Body 明确上游拉伸/旋转/放样生成工具、盲孔及单向贯穿普通孔／圆柱沉孔／锥沉孔的切削工具及已求值实体阵列／镜像工具。能力按有效新增成员判断：数量为1或所有额外槽位均跳过时不可作为工具，恢复成员后重新可用；继续复制阵列时只复制其新增成员工具，排除槽位 0，继承添加／切除语义与真实历史。切除阵列构造并变换切削工具，再与当前上游 Body 做差，不复制已经打孔的主体。有限、对称、双侧拉伸及有限旋转可复用；普通拉伸贯穿、到平面及通用逐位置特征重执行不支持。
-- `FEATURE_DELTA` 保存稳定 `startFeatureId` 与结束 `source.featureId`。起点限同 Body 有限拉伸（含对称/双侧）、旋转、放样及三种 BLIND Hole，后续只能是连续的 FILLET/CHAMFER/DRAFT。设 B0 为起点前 Body，B1 为末端 Body：ADD 提取 `B1\B0` 并验证 `B0\B1` 在既有容差内为空；REMOVE 提取 `C=B0\B1` 并验证 `B1\B0` 为空。工具须非空且为有效实体集合，包含检查来自真实差集，不比较两者总体积。允许内圆角局部加回材料，只检查最终为合法净切除；正反拔模均按实际几何判断。范围不是通用重执行，THROUGH_ALL/TO_PLANE、Boolean、Shell 和 Pattern 不作起点。AUTO 从末端修饰识别范围，种子行显示起止名称；全部接受引用进入依赖、删除和历史范围保护。
-- `BODY_STAGE` 复用指定上游实体阶段。`COMBINE` 使用现有布尔；添加材料可选择 `INDEPENDENT`，在同一 Body 保留独立 Solid，不按数量创建 Body/Part。槽位 0 是已存在的上游种子，不能跳过或由阵列相位搬移；实体阵列的相位应设在种子参数上。草图和空间草图阵列可直接设置相位、跳过槽位 0。
-- `SKETCH_FRAME` 复用已求值二维草图与变换后框架，正式 Profile 引用保存阵列 FeatureId 和 `profileMemberSlot`；放样截面分别保存 `memberSlot`。同一阵列的多个成员可作为不同截面，不新增三维草图求解器或文档。每个槽位在树与同一 GLB 快照中拥有独立的关联草图身份和显示组；视图区或树选择成员后，下游命令写入明确槽位，不能把整个阵列当作单个轮廓。源 EntityId 保留在成员命名空间内，供截面接缝引用。
-
-`DocumentView.replicationSources` 由领域模型派生工具、材料范围起点/修饰步骤与实体阶段能力及推荐来源，前端拾取和列表共享此读模型；命令可传临时 `AUTO` 意图，由控制面按精确上游前缀解析并持久化既有明确来源类型、范围和运算。已接受定义不随能力变化自动改义，显式 `BODY_STAGE` 仍复制整个阶段，不能把它当成切削工具。创建/编辑仍由领域校验及真实 Worker 验证。多个显式种子中，材料范围已包含的生成工具或较早同起点范围仅保留为正式输入、依赖和删除保护，求值复制最大已选范围，添加范围避免重复工具重叠；净切除范围避免原始刀具再次切掉内圆角保留材料。包含关系只按精确历史 ID 判断；独立种子及显式整个实体阶段不被改义。新增操作先实现独立工具与完整 Naming，再声明来源能力。圆角、倒角等局部修改不冒充独立工具；切除与整体阶段不能混用。复制成员拾取不自动跳回种子。
-
-实体镜像保存为同一 `SOLID_PATTERN` 的 `MIRROR` 分布，固定保留槽位 0 并生成槽位 1；引用标准/基准面或上游实体平面，反射矩阵由实时引用求值，不以界面中的缓存方向为真相。实体平面复用拔模的持久面解析与 feature-input 上游显示，进入依赖和删除保护。旋转与反射共用正交等距变换、工具来源、组合运算及成员 Naming；无新增持久命名或几何求解架构。仅实现实体特征镜像，不新增草图阵列镜像或装配镜像。
-
-内核阶段检查点留存可复用的生成工具、实体阶段与材料范围基线，供后续追加阵列续算。每个合法范围起点在尚无消费者时也保存私有 Shape、Naming 和完整性状态；净切除工具从两侧真实布尔历史命名，提取和复制使用私有副本，避免污染检查点。盲孔保留沉孔构造后的完整工具及 Naming；单向贯穿孔同时保留原孔型、起点、有向轴、入口尺寸及稳定的成员变换/命名链，即使当时没有复制消费者也进入检查点。求值和阶段缓存版本隔离旧检查点。
-
-单向贯穿成员按完整变换链在同一个冻结的阵列前 Body 中重建：以精确 BREP 在成员轴向框架的界限确定足够主孔长度，只加容差余量，起点不后移，不复制种子阶段的有限长度或使用固定超长工具。沉孔入口随成员变换，尺寸不随厚度改变、不自动贴面。混合种子分别保留有限工具和贯穿定义，二次复制组合变换且只继承新增成员、排除槽位 0；若整个目标均位于成员起点后方则明确拒绝。贯穿复制在私有目标/工具副本上执行布尔，避免取消预览或相反孔轴的相交运算污染共享检查点；真实复制与布尔历史共同进入 Naming。
-
-复用种子几何，以 `BRepBuilderAPI_Transform` 真实历史合成 Boolean/同域合并 Naming。拓扑预算为源命名输出数乘成员数不超过 100000；成员身份稳定不保证布尔后的面永不分裂，仍执行完整性、缺失与歧义门禁。任意特征组、拉伸贯穿／到平面逐成员重新终止、路径阵列、逐成员变尺寸、任意局部特征重执行未包含；这些对象仍可在合法时明确选取已求值实体阶段。
-
-入口：Part 和草图工具栏的“阵列”（面板内切换线性／圆周），Part 工具栏的“镜像”；空间草图成员可在视图区和树中分别选择，用于独立拉伸、旋转和放样。实体与空间草图阵列在树中编辑/抑制/删除；草图内阵列也有独立树节点，解除关联仍由阵列面板执行。空间与实体阵列默认绑定标准轴，方向、轴和圆周中心支持视图区拾取，反向改变分布步进符号。中心和方向的源引用进入依赖图及删除保护。
-
-定向入口：`GeometryExchange.BlindEngineeringHoleToolsReplicateFromWarmCheckpoints`、`GeometryExchange.DirectionalThroughHoleToolsRebuildAgainstFrozenPatternTarget`、`GeometryExchange.FiniteRemovalRangesPreserveInnerFilletsAndWarmNaming`、`draft_pattern_integration_test.go` 的有限加工范围场景、`services/internal/control/hole_pattern_integration_test.go` 与 `solid-feature-live.spec.ts` 的 `finite Hole` 场景，分别检查完整沉孔工具体积／成员 Naming、真实命令历史与温缓存／冷重建、视图区与结构树拾取及成员失效后的原编辑器修复。运行结果以当轮交付为准。
+入口为 `services/internal/workspace/feature_insert.go`、既有 `applyCreateFeature`、`historical-creation.ts`、`sketch-support-editor.tsx` 与 `solid-feature-editor.tsx`。定向 Router/Worker 回归为 `feature_insert_integration_test.go`，选择回归为 `feature-picking.scenario.mjs`。覆盖支撑、区域、范围保护、下游／跨 Body 原子失败、独立提交、Undo/Redo、重开及热冷 BREP/Naming。已有浏览器覆盖历史旋转及首个生成器输入往返；不开放深层／PINNED／非 READY 上下文、历史 NEW_BODY 或跨 Body 历史创建。其余组合以当次检验为准，不扩大历史移动的固定边界。
 
 ## 阶段、命名与历史
 
@@ -170,4 +124,12 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 - `services/internal/control/*_integration_test.go`：solid_feature、feature_input_repair、loft、hole、hole_pattern、draft_pattern、replication_loft_mirror、to_plane、boolean_regions、feature_move/insert 对应真实 Router/Worker 链；`solid-feature-live.spec.ts` 验证视图区/树拾取、预览取消、编辑修复与历史。
 - `mise run check --scope geometry`、`--scope workspace`、`--scope services`、`--scope web`；运行与共享资源见[测试入口](../../../tests/README.md)。测试存在、定向通过、浏览器验收分别举证。
 
-已知限制：不支持 Sweep、到下一面/任意曲面终止、范围以外的切除组合、任意历史插入、跨 Body 移动和任意特征重执行。复杂拓扑分裂/合并可能必须显式重选。常规建模与正式历史链已接通，不代表所有曲面/参数组合或所有 Feature×复制×修复组合完成验收；未运行组合属于验证缺口，不写成保证。
+已知限制：不支持任意自由曲面 G2、完整放样导向曲线、建模螺纹、曲线 G0 尖角 Sweep、任意局部特征范围重执行、部分覆盖终止、跨 Body 移动及不受约束的历史插入。复杂拓扑分裂/合并可能必须显式重选。常规建模与正式历史链已接通，不代表所有曲面/参数组合或所有 Feature×复制×修复组合完成验收；未运行组合属于验证缺口，不写成保证。
+
+历史生成器扩展的回归入口为 `TestInsertExpandedGeneratorsAndExtentsThroughRouter`、`TestInsertInputSketchBeforeFirstGeneratorThroughRouter`、原 `TestInsertSketchGeneratorSourceAndRangeGuardsThroughRouter`；浏览器覆盖历史旋转的上游显示/拾取及既有首个生成器的新输入往返。测试存在不代表任何后续修改已复验。
+
+## 表单、拾取与操作反馈
+
+实体特征不提供尺寸手柄；尺寸、单位和公式在紧凑表单中编辑。轮廓范围仍区分整草图和显式区域，列表保留缺失项及逐项修复，但不常驻解释性段落。Sweep 的路径草图、路径曲线与薄壁线链均用视区拾取字段，不使用几何下拉列表；运算、连续性等离散参数仍使用分段按钮或枚举。
+
+创建、编辑、Boolean、Pattern、调整顺序及历史对照的异步错误走全局 operation feedback；保留原 code/request/diagnostic 身份与重试，输入数量在失焦或确认时报告，避免打字过程中反复弹出。下游需修复是同一全局出口的警告，当前有效预览仍可按原语义确认。已选引用的失效状态和修复操作留在列表中，错误不在表单重复显示。

@@ -26,9 +26,9 @@ const rightRoot={...root,contextVariants:[{...root.contextVariants[0],owningInst
 const right=m.acceptedContextView(left,rightRoot,'right');assert.equal(right.baseView,base);assert.equal(right.datumPlanes[0].id,'right-plane');
 assert.equal(m.acceptedContextView(left,rightRoot,'left'),base,'missing occurrence must restore independent view');
 const projectedGeometry={...projected,activeBodyId:'body',bodies:[{id:'body',geometryKey:'left'}]};
-const complete=m.acceptedContextView({...base,artifact:{geometryKey:'default'},replicationSources:{base:{}},sketchPatternMembers:{base:[]}}, {...root,contextVariants:[{...root.contextVariants[0],part:projectedGeometry,replicationSources:{projected:{}},sketchPatternMembers:{projected:[]}}]},'left');
+const complete=m.acceptedContextView({...base,artifact:{geometryKey:'default'},replicationSources:{base:{}},sketchDerivedEntities:{base:[]}}, {...root,contextVariants:[{...root.contextVariants[0],part:projectedGeometry,replicationSources:{projected:{}},sketchDerivedEntities:{projected:[]}}]},'left');
 assert.equal(complete.artifact,root.artifacts.left,'primary artifact must belong to the accepted body');
-assert.deepEqual(Object.keys(complete.replicationSources),['projected']);assert.deepEqual(Object.keys(complete.sketchPatternMembers),['projected']);
+assert.deepEqual(Object.keys(complete.replicationSources),['projected']);assert.deepEqual(Object.keys(complete.sketchDerivedEntities),['projected']);
 
 const path={rootDocumentId:'product',canonical:'left',segments:[{instanceId:'left',resolvedVersionId:'base-1'}]};
 const readyRoot={...root,product:{instances:[{id:'left',referenceMode:'FOLLOW_HEAD'}]},contextVariants:[{...root.contextVariants[0],variantKey:'left-v',owningInstancePath:path}]};

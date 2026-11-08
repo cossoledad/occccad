@@ -311,6 +311,9 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 			[]modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.TargetID)}, beforeParameters, model.Parameters)
 		next, _ := json.Marshal(model)
 		return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
+	case "SKETCH_OFFSET_DEFINITION":
+		data, _ := json.Marshal(editSketchPayload{SketchID: payload.OwnerEntityID, Operations: []SketchOperation{{Type: "DELETE_OFFSET", OffsetID: payload.TargetID}}})
+		return applyEditSketch(modelJSON, data)
 	case "SKETCH_PATTERN_DEFINITION":
 		return applyEditSketch(modelJSON, mustPatternDeletePayload(payload.OwnerEntityID, payload.TargetID))
 	case "SKETCH_ENTITY", "SKETCH_EXTERNAL_GEOMETRY":
@@ -470,6 +473,9 @@ func applyEditSketch(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, m
 		if err := applySketchPatternParameterSources(&model, feature.ID, before, payload.Operations); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
+		if err := applySketchOffsetParameterSources(&model, feature.ID, before, payload.Operations); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
 		if err := applySketchDimensionLifecycle(&model, payload.SketchID, before, payload.Operations); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
@@ -587,6 +593,10 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 			placements = sketchDimensionPlacements(sketch)
 		}
 		switch operation.Type {
+		case "CREATE_OFFSET", "EDIT_OFFSET", "DELETE_OFFSET", "DETACH_OFFSET":
+			if err := applySketchOffsetOperation(sketch, operation); err != nil {
+				return err
+			}
 		case "CREATE_PATTERN", "EDIT_PATTERN", "DELETE_PATTERN", "DETACH_PATTERN":
 			if err := applySketchPatternOperation(sketch, operation); err != nil {
 				return err
@@ -880,7 +890,7 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 
 func isSolidGenerator(featureType string) bool {
 	switch strings.ToUpper(featureType) {
-	case "PAD", "LINEAR_EXTRUDE", "REVOLVE":
+	case "PAD", "LINEAR_EXTRUDE", "REVOLVE", "SWEEP":
 		return true
 	default:
 		return false
@@ -892,6 +902,9 @@ func isDimensionalConstraint(kind string) bool {
 }
 
 func validateSketch(sketch SketchFeature) error {
+	if err := validateSketchOffsets(sketch); err != nil {
+		return err
+	}
 	if err := validateSketchPatterns(sketch); err != nil {
 		return err
 	}
@@ -1073,8 +1086,8 @@ func validateSketch(sketch SketchFeature) error {
 				}
 			}
 		}
-		if constraint.AngleSector != nil && (constraint.Kind != "ANGLE" || !constraint.Reference && constraint.Value != nil && (*constraint.Value <= 0 || *constraint.Value >= 360)) {
-			return fmt.Errorf("%w: angle region requires an angle between 0 and 360 degrees", ErrValidation)
+		if constraint.AngleSector != nil && (constraint.Kind != "ANGLE" || !constraint.Reference && constraint.Value != nil && (*constraint.Value < 0 || *constraint.Value >= 360)) {
+			return fmt.Errorf("%w: directed angle must be in [0, 360) degrees", ErrValidation)
 		}
 		if constraint.Reference && !isDimensionalConstraint(constraint.Kind) {
 			return fmt.Errorf("%w: only dimensions can be reference measurements", ErrValidation)
@@ -1259,6 +1272,12 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	beforeModel := model
 	beforeModel.Features = append([]Feature(nil), model.Features...)
 	if err := resolveAutomaticPatternSource(model, &payload.Feature); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := resolveSweepDirection(model, &payload.Feature); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := resolveThinDirections(model, &payload.Feature); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	if payload.Feature.Name == "" {
@@ -1584,7 +1603,7 @@ func applyEditFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, 
 	if payload.Definition != nil {
 		return editSolidDefinition(model, feature, *payload.Definition, payload.ParameterSources)
 	}
-	if feature == nil || !isSolidGenerator(feature.Type) || strings.EqualFold(feature.Type, "REVOLVE") {
+	if feature == nil || (feature.Type != "PAD" && feature.Type != "LINEAR_EXTRUDE") {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: only Linear Extrude can be edited", ErrValidation)
 	}
 	definition := payload.LinearExtrude
@@ -3106,7 +3125,13 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 	if err := validateSketchCornerGeometry(sketch); err != nil {
 		return err
 	}
-	components, err := service.solveSketchComponents(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
+	// Component diagnostics consume the same frozen geometry/constraints as the
+	// accepted solve. Keep them in the bounded preparation cache as well; editing
+	// a downstream solid must not repeat native component RPCs for unchanged input.
+	// @ marks an internal preparation entry, rather than a second graph node.
+	components, err := preparedResult(ctx, &service.prepared, "@sketch-components:"+model.Features[featureIndex].ID, input, func() ([]SketchSolveComponent, error) {
+		return service.solveSketchComponents(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
+	})
 	if err != nil {
 		return err
 	}

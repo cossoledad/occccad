@@ -37,8 +37,8 @@ export function acceptedContextView(input:DocumentView,root:DocumentView,path:st
  const variant=root.contextVariants?.find(v=>v.owningInstancePath.canonical===path&&v.baseDocumentId===base.document.id);
  if(!variant)return base;
  const common={...base,baseView:base,contextOccurrencePath:path,contextProduct:root,document:{...base.document,versionId:variant.baseRevisionId}};
- if(variant.status!=='READY'||!variant.part)return {...common,part:undefined,datumPlanes:[],datumAxes:[],axisSystems:[],sketchAnalyses:{},artifacts:{},artifact:undefined,replicationSources:undefined,sketchPatternMembers:undefined};
+ if(variant.status!=='READY'||!variant.part)return {...common,part:undefined,datumPlanes:[],datumAxes:[],axisSystems:[],sketchAnalyses:{},artifacts:{},artifact:undefined,replicationSources:undefined,sketchDerivedEntities:undefined};
  const artifacts={...base.artifacts,...root.artifacts};
  const activeBody=variant.part.bodies?.find(b=>b.id===variant.part!.activeBodyId);
- return {...common,artifact:activeBody?.geometryKey?artifacts[activeBody.geometryKey]:undefined,replicationSources:variant.replicationSources,sketchPatternMembers:variant.sketchPatternMembers,part:variant.part,datumPlanes:variant.part.datumPlanes,datumAxes:variant.part.datumAxes,axisSystems:variant.part.axisSystems,sketchAnalyses:variant.sketchAnalyses,artifacts};
+ return {...common,artifact:activeBody?.geometryKey?artifacts[activeBody.geometryKey]:undefined,replicationSources:variant.replicationSources,sketchDerivedEntities:variant.sketchDerivedEntities,part:variant.part,datumPlanes:variant.part.datumPlanes,datumAxes:variant.part.datumAxes,axisSystems:variant.part.axisSystems,sketchAnalyses:variant.sketchAnalyses,artifacts};
 }

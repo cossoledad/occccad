@@ -122,7 +122,7 @@ func TestLegacyVerticalSliceUsesTypedHandlersAndStableParameterFacades(t *testin
 	if err := json.Unmarshal(next, &model); err != nil {
 		t.Fatal(err)
 	}
-	if len(model.Parameters) != 1 {
+	if len(model.Parameters) != 2 {
 		t.Fatalf("expected pad length facade, got %#v", model.Parameters)
 	}
 	if model.Parameters[0].ParameterID == model.Parameters[0].Key {
@@ -992,8 +992,8 @@ func TestDeleteNodeHandlersProtectInfrastructureAndDeleteOwnedModelNodes(t *test
 	}
 	padPayload, _ := json.Marshal(deleteNodePayload{TargetKind: "FEATURE", TargetID: "pad-1"})
 	withoutPad, changes, err := applyDeletePartNode(partJSON, padPayload)
-	if err != nil || len(changes.Changes) != 2 || changes.Changes[0].Kind != modelcore.ChangeDelete ||
-		changes.Changes[1].Target.SlotID != "parameter.entity" {
+	if err != nil || len(changes.Changes) != 3 || changes.Changes[0].Kind != modelcore.ChangeDelete ||
+		changes.Changes[1].Target.SlotID != "parameter.entity" || changes.Changes[2].Target.SlotID != "parameter.entity" {
 		t.Fatalf("owned feature must delete its entity and parameter facade: err=%v changes=%#v", err, changes)
 	}
 	var nextPart PartModel

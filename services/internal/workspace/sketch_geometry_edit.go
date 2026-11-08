@@ -25,7 +25,14 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 		return fmt.Errorf("%w: select sketch geometry", ErrValidation)
 	}
 	if op.Type == "DELETE_ENTITIES" {
-		members, err := evaluatedSketchPatternEntities(*sketch)
+		for _, offset := range sketch.Offsets {
+			for _, id := range offset.EntityIDs {
+				if selected[id] {
+					return fmt.Errorf("%w: source belongs to linked offset %s; delete or detach that definition first", ErrValidation, offset.ID)
+				}
+			}
+		}
+		members, err := evaluatedSketchEntities(*sketch)
 		if err != nil {
 			return err
 		}

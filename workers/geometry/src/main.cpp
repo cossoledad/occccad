@@ -940,7 +940,10 @@ public:
             return {grpc::StatusCode::INVALID_ARGUMENT, "request_id and sketch are required"};
         }
         try {
-            const auto result = sketch_solver_->solve(read_sketch(request->sketch()));
+            const auto input=read_sketch(request->sketch());
+            const auto solve_started=std::chrono::steady_clock::now();
+            const auto result = sketch_solver_->solve(input);
+            response->set_kernel_solve_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-solve_started).count());
             response->set_status(solve_status(result.status));
             response->set_degrees_of_freedom(result.degrees_of_freedom);
             response->set_diagnostic(result.diagnostic);
@@ -1742,7 +1745,12 @@ public:
                         "profile pads require feature_id, body_id, and profile_feature_id");
                 }
                 occccad::kernel::ProfilePadSpec pad;
-                pad.hole_kind=input.hole_kind();pad.recess_diameter=input.recess_diameter();pad.recess_depth=input.recess_depth();pad.countersink_angle=input.countersink_angle();
+                const auto read_boundary=[](const worker_api::LoftBoundarySpec& b){occccad::kernel::LoftBoundarySpec out;if(b.supports_size()>128)throw std::invalid_argument("LOFT_SUPPORT_BUDGET");out.condition=b.condition();out.magnitude=b.magnitude();out.reversed=b.reversed();out.direction={b.direction().x(),b.direction().y(),b.direction().z()};for(const auto& r:b.supports())out.supports.push_back({r.feature_id(),r.output_slot(),{r.source_ids().begin(),r.source_ids().end()}});return out;};
+ pad.loft_start=read_boundary(input.loft_start());pad.loft_end=read_boundary(input.loft_end());
+ pad.drill_tip_angle=input.drill_tip_angle();pad.depth_convention=input.depth_convention();
+ if(input.hole_positions_size()>128)throw std::invalid_argument("HOLE_POSITION_BUDGET");
+ for(const auto& p:input.hole_positions()){occccad::kernel::HolePositionSpec position;position.profile_feature_id=p.profile_feature_id();position.region.id=p.region().id();position.region.outer=read_loop(p.region().outer());for(const auto& h:p.region().holes())position.region.holes.push_back(read_loop(h));position.origin={p.origin().x(),p.origin().y(),p.origin().z()};position.normal={p.normal().x(),p.normal().y(),p.normal().z()};position.u_direction={p.u_direction().x(),p.u_direction().y(),p.u_direction().z()};pad.hole_positions.push_back(std::move(position));}
+ pad.hole_kind=input.hole_kind();pad.recess_diameter=input.recess_diameter();pad.recess_depth=input.recess_depth();pad.countersink_angle=input.countersink_angle();
                 pad.explicit_boolean_regions=input.explicit_boolean_regions();
                 for(const auto& ref:input.boolean_regions())pad.boolean_regions.push_back({ref.boundary_unique(),{ref.boundary().begin(),ref.boundary().end()},ref.input_digest(),ref.cell_digest()});
                 if(pad.explicit_boolean_regions&&(input.generator()!="BOOLEAN"||input.tools_size()!=1))throw std::invalid_argument("BOOLEAN_REGIONS_REQUIRE_ONE_TOOL");
@@ -1785,6 +1793,19 @@ public:
                                       input.neutral_normal().z()};
                 pad.termination_origin = {input.termination_origin().x(), input.termination_origin().y(), input.termination_origin().z()};
                 pad.termination_normal = {input.termination_normal().x(), input.termination_normal().y(), input.termination_normal().z()};
+                pad.start_offset = input.start_offset(); pad.end_offset = input.end_offset();
+                for(const auto& value:input.profile_origins()) {
+                    occccad::kernel::ProfileOrigin origin;origin.derived_id=value.derived_id();
+                    for(const auto& source:value.sources())origin.sources.push_back({source.feature_id(),source.output_slot(),{source.source_ids().begin(),source.source_ids().end()}});
+                    pad.profile_origins.push_back(std::move(origin));
+                }
+                if(input.has_sweep_path()) {
+ const auto& p=input.sweep_path(); if(p.curves_size()>256)throw std::invalid_argument("SWEEP_PATH_BUDGET");
+ auto& path=pad.sweep_path;path.sketch_id=p.sketch_id();path.chain_id=p.chain_id();path.closed=p.closed();path.frame_mode=p.frame_mode();path.corner_mode=p.corner_mode();
+ path.plane_origin={p.plane_origin().x(),p.plane_origin().y(),p.plane_origin().z()};path.plane_normal={p.plane_normal().x(),p.plane_normal().y(),p.plane_normal().z()};path.plane_u_direction={p.plane_u_direction().x(),p.plane_u_direction().y(),p.plane_u_direction().z()};
+ for(const auto& c:p.curves())path.curves.push_back(exact_sketch_curve(c));
+ }
+ pad.termination_surface = {input.termination_surface().feature_id(), input.termination_surface().output_slot(), {input.termination_surface().source_ids().begin(), input.termination_surface().source_ids().end()}};
                 pad.extent = input.extent();
                 pad.second_length = input.second_length();
                 pad.plane_origin = {input.plane_origin().x(), input.plane_origin().y(),

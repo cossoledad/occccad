@@ -129,6 +129,14 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 					return err
 				}
 				for _, feature := range model.Features {
+					if feature.ID == edit.FeatureID && feature.Type == "LOFT" && !feature.Suppressed {
+						if _, _, err := service.loftBoundaryInput(ctx, prepared.requestID+"/validate-loft-start", model, feature, feature.LoftStart); err != nil {
+							return err
+						}
+						if _, _, err := service.loftBoundaryInput(ctx, prepared.requestID+"/validate-loft-end", model, feature, feature.LoftEnd); err != nil {
+							return err
+						}
+					}
 					if feature.ID == edit.FeatureID && feature.Type == "HOLE" && !feature.Suppressed {
 						if _, err := holeInput(model, feature); err != nil {
 							return err
@@ -139,8 +147,13 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 							return err
 						}
 					}
+					if feature.ID == edit.FeatureID && feature.Extent == "TO_SURFACE" && !feature.Suppressed {
+						if _, _, err := service.resolveTerminationSurface(ctx, prepared.requestID+"/validate-termination", model, feature); err != nil {
+							return err
+						}
+					}
 
-					if feature.ID == edit.FeatureID && isSolidGenerator(feature.Type) && feature.ProfileSelection != nil && feature.ProfileSelection.Mode == "REGIONS" && !feature.Suppressed {
+					if feature.ID == edit.FeatureID && isSolidGenerator(feature.Type) && (feature.ThinWall != nil || feature.ProfileSelection != nil && feature.ProfileSelection.Mode == "REGIONS") && !feature.Suppressed {
 						if _, _, err := service.featureProfileRegions(ctx, model, feature, prepared.requestID+"/validate-profile"); err != nil {
 							return err
 						}

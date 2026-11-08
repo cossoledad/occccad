@@ -23,6 +23,7 @@ import type { DocumentSessions } from "../cad/document/document-session";
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
 export type CadViewportHandle = {
+  showRepairComparison:(snapshot?:import('../cad/part/feature-repair-context').FeatureRepairSnapshot)=>void;
   retryDocumentDisplay:()=>void;
   captureMotionViewpoint:()=>import('../cad/assembly/motion-study').MotionViewpoint|undefined;
   previewMotionViewpoint:(viewpoint:import('../cad/assembly/motion-study').MotionViewpoint)=>void;
@@ -267,6 +268,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     previewArtifact: (artifact, operation, sketchFeatureId) => engine.current?.previewArtifact(artifact, operation, sketchFeatureId),
     clearCommandPreview: (restore) => engine.current?.clearCommandPreview(restore),
     editDimension: (selection) => engine.current?.requestDimensionEdit(selection),
+    showRepairComparison:snapshot=>engine.current?.showRepairComparison(snapshot),
     measureAssemblyConstraint: (kind, references) => engine.current?.measureAssemblyConstraint(kind, references) ?? 0,
     previewAssemblyPoses: (poses,mode) => engine.current?.previewAssemblyPoses(poses,mode),
     previewInsertPattern: (input) => { patternPreview.current = input; engine.current?.previewInsertPattern(input); },
@@ -291,7 +293,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   return <><div ref={host} className="cad-viewport-canvas" data-property-preview={props.propertyPreview?.versionId} />
     {failedDisplay && <div className="cad-failed-body-notice" role="status">{props.failureAction ? <>{props.failureAction.description}<button type="button" disabled={props.failureAction.disabled} onClick={props.failureAction.onClick}>{props.failureAction.label}</button></> : props.featureInputArtifacts?.length ? "部分特征需要修复。" : "部分特征计算失败：红色半透明实体为上次成功结果，请修复结构树中标记的特征。"}</div>}
     {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="advanced"&&<SketchCommandPanel state={sketchCommand} prompt={toolPrompt} onAction={action=>engine.current?.commandAction(action)} />}
-    {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="inline"&&<SketchInlineParameterInput state={sketchCommand} lengthUnit={props.preferredLengthUnit} onEditing={editing=>engine.current?.setSketchParameterEditing(editing)} onAction={action=>engine.current?.commandAction(action)} />}
+    {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="inline"&&<SketchInlineParameterInput state={sketchCommand} lengthUnit={props.preferredLengthUnit} parameters={(props.editingView??props.view).part?.parameters} onEditing={editing=>engine.current?.setSketchParameterEditing(editing)} onAction={action=>engine.current?.commandAction(action)} />}
     {dimensionEditor && <SketchDimensionEditor key={`${dimensionEditor.epoch}:${dimensionEditor.featureId}:${dimensionEditor.mode === "edit" ? dimensionEditor.constraintId : dimensionEditor.kind}`}
       preferredLengthUnit={props.preferredLengthUnit} request={dimensionEditor} view={props.editingView??props.view} onClose={()=>setDimensionEditor(current=>current?.epoch===dimensionEditor.epoch?undefined:current)}
       onPreview={(operations,signal)=>engine.current?.previewDimensionDefinition(dimensionEditor.featureId,operations,signal)??Promise.resolve()}

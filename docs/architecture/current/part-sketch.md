@@ -2,6 +2,8 @@
 
 > 返回[当前架构目录](README.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
 
+整体建模先读[草图与实体流程](part-design-workflow.md)，再按本页进入草图数据/求解、区域、支撑及派生关系。实体能力由独立能力表维护。
+
 Part 中的 `SKETCH` Feature 保存版本化 `SketchFeature v2`：Datum/PLANAR_FACE support、具有稳定 ID 的 Point/Line/Circle/Arc/Ellipse/EllipticalArc/Spline、独立 ExternalGeometry、显式 GeometryRef、Constraint 和最近一次权威 solve 状态。线段、圆弧和开放曲线持有可稳定引用的端点；端点相接必须由 Coincident 明确表达，不能以浮点坐标接近替代模型关系。
 
 ## Part 与 Body
@@ -73,9 +75,13 @@ PlaneGCS 适配器按 `DogLeg → Levenberg-Marquardt → BFGS` 执行确定性�
 
 Sketch Move/Rotate/Copy 共用现有 manipulator 的平面模式、屏幕缩放与冻结手势基线。选集由工具持有，手柄和派生几何挂统一只读 preview layer；中心只编辑操作基点，释放一次提交原有 Transform/Copy command。失败恢复手柄，未知结果沿原 request/base version 查询；不改装配求解合同、不解除驱动关系以让变换成功。
 
+普通直线、圆、矩形及中心矩形按指针位置绘制，不提供绘制中的数值尺寸框，也不因数字按键创建驱动尺寸。正式长度、角度、半径和参数公式由尺寸工具或尺寸编辑器管理，保持 ParameterId、Source/checkedAST、连接、历史和引用更换语义。无方向候选的绘图使用本地近似预览；方向候选通过只读生产 Preview 求解，保持单飞与最新候选合并。确认等待同一候选并提交相同几何/约束身份；取消或 Revision/occurrence 变化丢弃迟到结果。显式尺寸驱动后续实体的真实 Router/Worker 检验为 `TestSketchDimensionsDriveSolidThroughRouter`。
+退出草图后可启动拉伸、切除或旋转，继承所属 Body 与当前明确区域；Sketcher 不混合实体命令。生成器面板可编辑普通输入草图，新建或既有拉伸/旋转均可选择支撑后创建输入草图；既有生成器的新输入插在其历史位置之前；结束后保留原始数量文本、单位和未提交 intent，并基于最新 Revision 重新预览。显式区域仍按原 ID 修复，不静默换区；新建输入草图才初始化其当前区域。取消生成器仅丢弃其草稿，期间已提交的草图修改保留在正式历史。切换所属文档或 occurrence 结束往返；未知草图回执阻止切换。该往返不接管助手确认会话，尚未扩展到放样多截面往返。实现见 `solid-sketch-workflow.ts`、`SolidFeatureEditor` 和 `Workbench`，浏览器覆盖新建/取消支撑、编辑草图、原始表达式保留及返回后的提交/取消。
+
+
 ## Profile 与 Feature
 
-Profile Builder 排除 Construction/Point，以正式连接等价类构建 Line/Arc/EllipticalArc/开放 Spline 端点图，并把 Circle/Ellipse/闭合 Spline 作为闭环；拓扑遍历拒绝开放端/T-junction，生成循环序列和反向无关的稳定 ProfileLoop identity。生产 Extrude 和 GetDocument 通过 `buildProfileLoops(feature,true)` 只按正式连接构建环，然后向 Worker `ComputeSketchCurves PROFILE` 提交同一组真实曲线，由 OCCT 精确分类外环/孔/岛及验证交叉、重叠和退化；不使用显示采样多边形作为权威区域。OCCT 分类保留输入环原有方向，孔环反向以该原方向为基准，不依赖构造临时面时内核可能调整的方向。ProfileRegion identity 基于外环身份。旧近似多边形 helper 仅用于局部测试/预览。实体求值采用两阶段协议：`LINEAR_EXTRUDE` 或 `REVOLVE` 先从 ProfileRegion 产生临时 Tool Shape，再以 `NEW_BODY / ADD / REMOVE / INTERSECT` 对指定 Body 执行采用、Fuse、Cut 或 Common。OCCT 适配层对空结果、无材料变化、无效 B-Rep 和游离拓扑给出领域诊断；有效多 Solid 结果保留在同一 Body；连续拉伸不再各自产生互相穿透但未合并的实体。旋转轴使用稳定引用，可指向任意 Sketch Line（包括 Profile/Construction 及其他草图中的直线）、AxisSystem 的 X/Y/Z 方向或 DatumAxis；三维参考轴必须位于轮廓草图的支撑平面，服务端将其投影到草图局部框架后再交给 Worker，不能静默使用与轮廓异面的轴。旋转面板作为选择收集器保持打开并等待用户拾取直线或轴；角度、轴引用和反向意图进入 Feature 与求值 digest。当前支持独立多 Body；跨 Body 组合通过独立 Boolean Feature 明确工具输出阶段。轮廓输入语义见下节。
+Profile Builder 排除 Construction/Point，以正式连接等价类构建 Line/Arc/EllipticalArc/开放 Spline 端点图，并把 Circle/Ellipse/闭合 Spline 作为闭环；整草图消费拒绝开放端/T-junction；显式区域可使用与开放/分叉分量独立的正式闭环，含坏端点的整个连接分量不可用，不按坐标补连接或猜分区。循环序列和反向无关的 ProfileLoop identity 保持原合同。生产 Extrude 和 GetDocument 通过 `buildProfileLoops(feature,true)` 只按正式连接构建环，然后向 Worker `ComputeSketchCurves PROFILE` 提交同一组真实曲线，由 OCCT 精确分类外环/孔/岛及验证交叉、重叠和退化；不使用显示采样多边形作为权威区域。OCCT 分类保留输入环原有方向，孔环反向以该原方向为基准，不依赖构造临时面时内核可能调整的方向。ProfileRegion identity 基于外环身份。旧近似多边形 helper 仅用于局部测试/预览。实体求值采用两阶段协议：`LINEAR_EXTRUDE` 或 `REVOLVE` 先从 ProfileRegion 产生临时 Tool Shape，再以 `NEW_BODY / ADD / REMOVE / INTERSECT` 对指定 Body 执行采用、Fuse、Cut 或 Common。OCCT 适配层对空结果、无材料变化、无效 B-Rep 和游离拓扑给出领域诊断；有效多 Solid 结果保留在同一 Body；连续拉伸不再各自产生互相穿透但未合并的实体。旋转轴使用稳定引用，可指向任意 Sketch Line（包括 Profile/Construction 及其他草图中的直线）、AxisSystem 的 X/Y/Z 方向或 DatumAxis；三维参考轴必须位于轮廓草图的支撑平面，服务端将其投影到草图局部框架后再交给 Worker，不能静默使用与轮廓异面的轴。旋转面板作为选择收集器保持打开并等待用户拾取直线或轴；角度、轴引用和反向意图进入 Feature 与求值 digest。当前支持独立多 Body；跨 Body 组合通过独立 Boolean Feature 明确工具输出阶段。轮廓输入语义见下节。
 
 ### 显式轮廓区域
 
@@ -85,9 +91,9 @@ Profile Builder 排除 Construction/Point，以正式连接等价类构建 Line/
 
 删除并重画外环边会生成新的区域身份：草图重新闭合后，原显式选择仍须重选。视口区分“草图未闭合”和“草图已闭合但区域引用失效”，后者提供“修复轮廓区域”入口；草图编辑中可“结束草图并修复区域”，进入原 Feature 编辑器明确替换失效项。修复内孔边而外环身份未变时沿原区域自动恢复。`profile_reclosure_integration_test.go` 和浏览器 `closed sketch after boundary replacement` 分别覆盖这两种边界及原特征恢复。
 
-新建默认收集显式区域；预选普通草图会把当前全部区域冻结为集合，面板明确显示“固定集合”。视图区按后端 `SketchProfileAnalysis.regionViews` 提供的外环／孔显示采样面拾取、高亮和增减，采样只用于显示，提交重新经过精确 Builder。编辑恢复有效项并保留失效行，支持明确替换或移除；“全选当前区域”是用户主动替换集合。整草图与显式集合由用户切换，不自动转义。候选限定目标特征之前的同文档、Revision 和 occurrence；预览及取消不推进 Head，变更集合不能采用旧候选。
+新建默认收集显式区域；预选普通草图会把当前全部区域冻结为集合，面板列出选定区域。视图区按后端 `SketchProfileAnalysis.regionViews` 提供的外环／孔显示采样面拾取、高亮和增减，采样只用于显示，提交重新经过精确 Builder。编辑恢复有效项并保留失效行，支持明确替换或移除；“全选当前区域”是用户主动替换集合。整草图与显式集合由用户切换，不自动转义。候选限定目标特征之前的同文档、Revision 和 occurrence；预览及取消不推进 Head，变更集合不能采用旧候选。
 
-源码入口：`profile_selection.go`、`sketch_exact_profile.go`、`solid-feature-editor.tsx`、`profile-region-selection.ts`。定向真实 Router/Worker 回归 `profile_region_selection_integration_test.go` 覆盖独立／多区域、孔及岛、增加第三区域时 BREP/Naming 保持、尺寸更新、失效替换／移除、下游恢复、取消、Undo/Redo、重开和冷重建；浏览器 `solid-feature-live.spec.ts` 的 `explicit profile regions` 覆盖实际区域拾取、孔内过滤、编辑、修复及拉伸／切除／旋转体积。边界为当前合法闭合 Profile；不支持任意相交曲线自动分区、开放实体轮廓。空间草图阵列成员继续使用已有整草图输入，尚未提供成员的区域拾取投影；放样未扩展。当前定向证据使用共享 SQLite、Release Worker 和 Chromium/SwiftShader，未代表任意拓扑拆并、复杂曲线及目标设备实机验收。
+源码入口：`profile_selection.go`、`sketch_exact_profile.go`、`solid-feature-editor.tsx`、`profile-region-selection.ts`。定向真实 Router/Worker 回归 `profile_region_selection_integration_test.go` 覆盖独立／多区域、孔及岛、增加第三区域时 BREP/Naming 保持、尺寸更新、失效替换／移除、下游恢复、取消、Undo/Redo、重开和冷重建；浏览器 `solid-feature-live.spec.ts` 的 `explicit profile regions` 覆盖实际区域拾取、孔内过滤、编辑、修复及拉伸／切除／旋转体积。显式区域先从正式连接图提取独立闭合分量，再由同一精确 Worker 分类外环/孔/岛；开放线和分叉的诊断仍保留。`sketchAnalyses` 在 OPEN/INVALID 时也可提供已精确验证的 `regionViews/regionIds`，`geometryVerified` 仅认证这些候选，不表示整张草图闭合。WHOLE_SKETCH 和放样仍采用严格完整轮廓检查；闭环集合的交叉/重叠/自交仍由精确门禁拒绝。未支持任意相交曲线自动分区、开放实体轮廓。空间草图阵列成员继续使用已有整草图输入，尚未提供成员的区域拾取投影；放样未扩展。当前定向证据使用共享 SQLite、Release Worker 和 Chromium/SwiftShader，未代表任意拓扑拆并、复杂曲线及目标设备实机验收。
 
 ## 支撑与外部几何
 
@@ -119,7 +125,7 @@ ExternalGeometry 与普通 Sketch Entity 分开持久化。每项保存稳定 Ex
 
 GeometryId 是精确 Body B-Rep 的 SHA-256 内容标识，不绑定 Worker；`geometry_key` 标识带 evaluator 策略和可视化几何内容的求值结果；纯显隐元数据及可读名称不进入该键，因此两个结果可以共享 GeometryId，但拥有不同的可视化制品。几何输出包括 B-Rep、GLB、三角形、边折线、包围盒、拓扑计数和体积。几何大数据仅保存在 ArtifactStore/S3；数据库保存轻量索引与摘要。Body 的 ADD/REMOVE/INTERSECT 在 OCCT 布尔完成后统一同域面和同域边，再进行 B-Rep 校验和内容寻址；因此相交且等高的拉伸不会把连续顶面暴露成多个共面选择区域。
 
-命名、history 和完整 Shape gate 见[持久命名](persistent-naming.md)；Revolve/Import 未声明完整 naming，不得作为已完整支持的持久拓扑来源。
+命名、history、旋转与导入根命名及完整 Shape gate 见[持久命名](persistent-naming.md)和[实体 Feature](solid-features.md)；只有实际通过完整命名门禁的制品可以成为持久拓扑来源。
 
 几何驻留按不可变 GeometryKey/GeometryId 路由，详见[Router 与制品](jobs-artifacts.md)。
 
@@ -154,7 +160,7 @@ DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投�
 
 ## 草图关联阵列
 
-`SketchFeature.patterns` 保存选定种子 EntityId 和与[实体/空间阵列](solid-features.md#参数化阵列)共用的分布定义。PlaneGCS 只求解种子；Profile 与显示消费解后派生成员，不复制成员驱动尺寸或 Fixed 约束。一个有效阵列最多派生 4096 个实体，同一源实体不能同时归属多个启用的草图内阵列。二维阵列必须保持草图平面。
+`SketchFeature.patterns` 保存选定种子 EntityId 和与[实体/空间阵列](feature-replication.md#参数化阵列)共用的分布定义。PlaneGCS 只求解种子；Profile 与显示消费解后派生成员，不复制成员驱动尺寸或 Fixed 约束。一个有效阵列最多派生 4096 个实体，同一源实体不能同时归属多个启用的草图内阵列。二维阵列必须保持草图平面。
 
 `EDIT_SKETCH` 的 `CREATE_PATTERN / EDIT_PATTERN / DELETE_PATTERN / DETACH_PATTERN` 是原子领域操作，阵列参数拥有稳定 managed ParameterID。成员默认只读；`DETACH_PATTERN` 才生成独立几何并复制必要的 Coincident 连接，原种子转为 Construction。删除阵列恢复普通种子，不保留无关联成员。选中种子或任一派生成员执行 Delete、删除工具或框选删除时，`DELETE_ENTITIES` 在权威端归并为删除所属阵列定义；同阵列多成员只删除一次，混选普通几何仍正常删除。派生成员的 `sketchPatternMembers` 是 DocumentView 显示投影，不进入持久模型或求解自由度。
 
@@ -164,9 +170,25 @@ DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投�
 
 ## 当前限制与修复边界
 
-- 拉伸／切除和旋转支持[显式区域集合](#显式轮廓区域)；空间草图阵列成员尚无区域拾取投影。
+- 拉伸／切除、旋转和 Sweep 支持[显式区域集合](#显式轮廓区域)；空间草图阵列成员尚无区域拾取投影。
 - 草图支撑主动更换与失效重指定见[支撑与外部几何](#支撑与外部几何)；关联基准自身失效仍沿原子拒绝合同，未引入通用基准修复工具。
-- 当前草图的精确修剪圆/椭圆弧投影已有实现；面边界组、Section、Silhouette、一般 B-spline 投影未交付。关联偏移、完整样条曲率/G2/G3、通用三维线框/曲面建模也不属于当前支持范围。
-- Sweep、到下一面等其余关联终止条件，以及已支持范围以外的生成器历史创建、跨 Body/任意非连续集合移动尚无完整用户闭环；工具协议或历史阶段显示不能替代这些能力。单点工程 [Hole](solid-features.md#独立-hole)及有限孔的[阵列/镜像复用](solid-features.md#参数化阵列)、单方向拉伸／切除[到平面](solid-features.md#到平面关联终止)、同 Body [连续实体特征受约束移动](solid-features.md#调整特征顺序)及[历史草图／有限拉伸及四种局部修改插入](solid-features.md#在历史位置创建)的范围与修复合同由对应主题说明。
+- 当前草图的精确修剪圆/椭圆弧投影已有实现；面边界组、Section、Silhouette、一般 B-spline 投影未交付。完整样条曲率/G2/G3、通用三维线框/曲面建模也不属于当前支持范围。
+- 当前实体范围与修复由[唯一能力表](solid-features.md#feature-能力表)、[生成器算法](solid-generators.md)和[特征复制](feature-replication.md)维护；已包括 Sweep、更多关联终止、薄壁、工程孔、受限放样连续性及生成器成员重执行。跨 Body/任意非连续集合移动、任意历史插入、任意局部特征重执行仍不支持。
 
 交互验证入口：`sketch-capture-angle.scenario.mjs`、`services/internal/control/sketch_interaction_integration_test.go` 与 `solid-feature-live.spec.ts` 的 `sketch interaction` 场景。分别验证捕获/选择状态与迟到响应、真实 Router/Worker 的精确分割/角度求解与历史、浏览器拾取/尺寸/取消及重开；测试存在不代表当次已执行，结果以交付记录为准。
+
+## 关联偏移
+
+`Sketch.Offsets[]` 保存稳定定义 ID、普通本地源实体 ID、有符号距离、MITER/ROUND 连接及抑制状态。距离拥有稳定 `parameter:<sketch>:offset:<id>:distance`，复用 Quantity、受检表达式、依赖图和原子 EDIT_SKETCH；默认偏移工具创建关联定义，也可显式选择独立副本。结构树双击定义可更换源曲线、编辑距离/连接、删除或解除关联；源曲线也可在视图区点选增减。
+
+求解器只求解普通源几何，偏移结果在同一接受快照上通过原精确 Line/Circle/Arc 算法派生，生成 ID 由定义和源身份决定；不是隐藏固定约束，也不承诺双向驱动。统一 `sketchDerivedEntities` 投影供显示、只读检查与树使用，轮廓 Builder 使用相同派生几何及正式端点连接。生成曲线不可直接拖动、标注或修剪；须显式解除关联，保留输出实体 ID 与连接后转为普通几何。关联距离被其他表达式引用时，删除/解除关联沿参数缺失检查原子拒绝，须先处理依赖。
+
+源尺寸变化导致退化、自交或断链时，保留定义并报告 OFFSET_FAILED，不复用旧输出；整草图生成失败，显式区域仍可使用其他有效组件。删除仍被引用的源曲线须先删除或解除偏移。Ellipse/Spline 精确偏移、派生结果作为另一偏移源及双向 GCS 约束尚不支持；每草图最多 4096 个偏移输出预算。回归入口 `TestLinkedOffset*`、`sketch-edit.scenario.mjs` 与真实浏览器关联偏移场景。
+
+## 方向推断与草图诊断
+
+普通直线在绘制时按物理夹角和 CSS 像素距离共同推断 H/V，以及邻近普通本地直线的 Parallel/Perpendicular。状态区先显示候选关系和支撑，确认后创建普通正式约束；候选沿现有合并预览队列求解，确认复用同一几何和约束 ID。已有端点捕获优先，避免叠加另一方向意图。工具选项可单独关闭方向推断或关闭自动连接/推断；Alt 临时关闭，确认时再次检查当前按键状态。推断只扫描附近最多 128 条普通直线；不承诺远处几何或任意派生输出的自动方向关系。
+
+“草图诊断”读取接受快照的整体与分量 DoF、约束程度、冲突、冗余及抑制状态；采用与装配约束诊断一致的“待处理问题 / 全部约束 / 自由度”页签、计数、搜索和状态筛选表格。行选中高亮，定位按钮才移动视图；编辑、停用/启用使用原约束入口。定位使用正式 Entity/Constraint ID，可打开既有约束编辑，普通约束的启用/抑制沿 EDIT_SKETCH 与历史链；生成操作内部关系只读。UNRESOLVED 的零计数不显示为完全约束，冗余与约束程度保持正交。当前提供计数和关系定位，未返回可动方向的零空间向量，不能把分量定位解释成独立拖动方向。
+
+绘图与编辑候选的作用域包含 Part Revision、Root Product Revision、ContextVariant、occurrence 和活动草图；仅 Part Head 不变不足以继续使用旧上下文候选。入口为 `sketch-direction-inference.ts`、`sketch-diagnostics.ts`、`SketchDiagnosticsPanel`；真实求解回归 `TestSketchDirectionInferenceSolvesThroughRouter`，交互回归 `direction inference is visible`。

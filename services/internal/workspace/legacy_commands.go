@@ -22,9 +22,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PART" {
 			return "", nil, fmt.Errorf("%w: historical creation requires a Part", ErrValidation)
 		}
-		if request.Type == "CREATE_SOLID_FEATURE" && (request.Feature != nil || request.Generator != "LINEAR_EXTRUDE" || request.Operation != "ADD" && request.Operation != "REMOVE" || request.Extent != "" && request.Extent != "FINITE") {
-			return "", nil, fmt.Errorf("%w: historical generator requires finite LINEAR_EXTRUDE ADD/REMOVE", ErrValidation)
-		}
+
 	}
 	switch request.Type {
 	case "CREATE_GEOMETRICAL_SET", "EDIT_GEOMETRICAL_SET", "DELETE_GEOMETRICAL_SET":
@@ -593,14 +591,17 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		feature := Feature{ID: commandEntityID("boolean", request.RequestID), BodyID: request.BodyID, Type: "BOOLEAN", Name: numberedFeatureName(model.Features, "BOOLEAN", "Boolean"), Operation: request.Operation, Tools: request.Tools, KeepTools: request.KeepTools, BooleanResult: request.BooleanResult}
 		return typeCreateBooleanFeature, createFeaturePayload{Feature: feature}, nil
 	case "CREATE_SOLID_FEATURE":
-		if documentType == "PART" && request.Feature != nil && (request.Feature.Type == "LOFT" || request.Feature.Type == "HOLE") {
+		if documentType == "PART" && request.Feature != nil && (request.Feature.Type == "LOFT" || request.Feature.Type == "HOLE" || request.Feature.Type == "SWEEP") {
 			var model PartModel
 			if err := json.Unmarshal(modelJSON, &model); err != nil {
 				return "", nil, err
 			}
 			feature := *request.Feature
 			feature.ID = commandEntityID(strings.ToLower(feature.Type), request.RequestID)
-			feature.Name = numberedFeatureName(model.Features, feature.Type, map[string]string{"LOFT": "Loft", "HOLE": "Hole"}[feature.Type])
+			feature.Name = numberedFeatureName(model.Features, feature.Type, map[string]string{"LOFT": "Loft", "HOLE": "Hole", "SWEEP": "Sweep"}[feature.Type])
+			if err := service.qualifyLoftBoundaries(ctx, documentID, &feature); err != nil {
+				return "", nil, err
+			}
 			if err := service.prepareLoftDefinition(ctx, request.RequestID, model, &feature); err != nil {
 				return "", nil, err
 			}
@@ -608,7 +609,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if err != nil {
 				return "", nil, err
 			}
-			return typeCreateSolidFeature, createFeaturePayload{Feature: feature, ParameterSources: sources}, nil
+			return typeCreateSolidFeature, createFeaturePayload{Feature: feature, ParameterSources: sources, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
 		}
 		if documentType != "PART" {
 			break
@@ -621,7 +622,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if operation != "NEW_BODY" && operation != "ADD" && operation != "REMOVE" && operation != "INTERSECT" {
 			return "", nil, fmt.Errorf("%w: invalid BodyOperation %s", ErrValidation, operation)
 		}
-		if request.Extent == "TO_PLANE" && request.Length == 0 {
+		if associatedExtrudeExtent(request.Extent) && request.Length == 0 {
 			request.Length = 1
 		}
 		if generator == "LINEAR_EXTRUDE" && strings.TrimSpace(request.LengthExpression) == "" && !positiveFinite(request.Length) {
@@ -662,7 +663,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		feature := Feature{BodyID: request.BodyID, ID: commandEntityID(prefix, request.RequestID), Type: generator,
 			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID, ProfileMemberSlot: request.ProfileMemberSlot, ProfileSelection: request.ProfileSelection,
-			TerminationPlaneID: request.TerminationPlaneID, TerminationPlane: request.TerminationPlane, Length: request.Length, Angle: request.Angle, Extent: request.Extent, Length2: request.Length2, Operation: operation,
+			TerminationPlaneID: request.TerminationPlaneID, TerminationPlane: request.TerminationPlane, TerminationSurface: request.TerminationSurface, ThinWall: request.ThinWall, StartOffset: request.StartOffset, EndOffset: request.EndOffset, Length: request.Length, Angle: request.Angle, Extent: request.Extent, Length2: request.Length2, Operation: operation,
 			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed}
 		if err := service.qualifyTerminationPlane(ctx, documentID, &feature); err != nil {
 			return "", nil, err
@@ -768,6 +769,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if request.Feature != nil {
 			definition := *request.Feature
 			if err := service.qualifyTerminationPlane(ctx, documentID, &definition); err != nil {
+				return "", nil, err
+			}
+			if err := service.qualifyLoftBoundaries(ctx, documentID, &definition); err != nil {
 				return "", nil, err
 			}
 			if err := service.prepareLoftDefinition(ctx, request.RequestID, model, &definition); err != nil {

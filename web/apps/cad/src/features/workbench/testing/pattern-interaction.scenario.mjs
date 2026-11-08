@@ -36,7 +36,7 @@ try {
  assert.deepEqual(pickedPatternCenter(center),{sketchId:"seed",reference:center.sketchReference});
  const pattern={id:"pattern",type:"SKETCH_PATTERN",bodyId:"body"};
  const members=[0,1].map(slot=>({id:`document:part/body:body/sketch:pattern/member:${slot}`,kind:"SKETCH_PATTERN_MEMBER",entityId:`member-${slot}`,patternId:"pattern",patternMemberSlot:slot}));
- const view={document:{id:"part",versionId:"v",type:"PART"},part:{features:[sketch,pattern],bodies:[{id:"body"}],axisSystems:[{id:"axis",name:"坐标系",origin:[4,5,6],xDirection:[1,0,0],yDirection:[0,1,0],zDirection:[0,0,1]}],datumPlanes:[{id:"plane",name:"基准面",plane:"CUSTOM",origin:[2,3,4],normal:[0,0,1],uDirection:[1,0,0],size:30}]},sketchPatternMembers:{seed:[member]},structureTree:{kind:"PART",children:members}};
+ const view={document:{id:"part",versionId:"v",type:"PART"},part:{features:[sketch,pattern],bodies:[{id:"body"}],axisSystems:[{id:"axis",name:"坐标系",origin:[4,5,6],xDirection:[1,0,0],yDirection:[0,1,0],zDirection:[0,0,1]}],datumPlanes:[{id:"plane",name:"基准面",plane:"CUSTOM",origin:[2,3,4],normal:[0,0,1],uDirection:[1,0,0],size:30}]},sketchDerivedEntities:{seed:[member]},structureTree:{kind:"PART",children:members}};
  assert.equal(patternReferenceName(view,'AXIS_SYSTEM:axis:X'),'坐标系 / X 轴');
  const restoredAxis=patternAxisPick(view,'AXIS_SYSTEM:axis:X','instance',{contextVariantKey:'context'});
  assert.equal(restoredAxis.axis,'X');assert.equal(restoredAxis.entityId,'axis');assert.equal(restoredAxis.occurrencePath,'instance');assert.equal(restoredAxis.contextVariantKey,'context');

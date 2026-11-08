@@ -39,8 +39,9 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     case "SKETCH_PATTERN_MEMBER":
     case "SKETCH":
     case "SKETCH_INPUT_REFERENCE":
-      if(node.kind==="SKETCH_INPUT_REFERENCE"&&node.inputEntityId&&node.entityId)return {...base,kind:"visual",id:`${occurrencePath||"root"}:${node.entityId}:${node.inputEntityId}`,featureId:node.entityId,entityId:node.inputEntityId,visualType:node.inputRole==="AXIS"?"CURVE":"POINT"};
+      if(node.kind==="SKETCH_INPUT_REFERENCE"&&node.inputEntityId&&node.entityId)return {...base,kind:"visual",id:`${occurrencePath||"root"}:${node.entityId}:${node.inputEntityId}`,featureId:node.entityId,entityId:node.inputEntityId,visualType:["AXIS","SWEEP_PATH","THIN_CHAIN"].includes(node.inputRole??"")?"CURVE":"POINT"};
       return { ...base, kind: "sketch", id: node.entityId ?? node.id };
+    case "SKETCH_OFFSET_DEFINITION":
     case "SKETCH_PATTERN_DEFINITION": return {...base,kind:"feature",id:node.entityId??node.id};
     case "PAD":
     case "REVOLVE":
@@ -67,6 +68,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     case "DATUM_AXIS":
       return { ...base, kind: "axis", axis: node.axis ?? "DATUM",
         id: `${occurrencePath || "root"}:${node.entityId}:${node.axis ?? "DATUM"}` };
+    case "SKETCH_OFFSET_ENTITY":
     case "SKETCH_PATTERN_ENTITY":
     case "SKETCH_ENTITY":
     case "SKETCH_EXTERNAL_GEOMETRY":

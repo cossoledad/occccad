@@ -41,6 +41,7 @@ export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, 
   const [activeTab,setTab]=useWorkbenchTab(documentSessions,hostDocumentId,workbench,tabs);
   const tabID=activeTab?.id;
   const [searchOpen, setSearchOpen] = useState(false);
+  const focusToolAfterSearch=useRef(false);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   useLayoutEffect(() => {
     const removeSearch = registry.bindUI("ui.command-search", () => { setQuery(""); setSearchOpen(true); });
@@ -87,12 +88,13 @@ export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, 
      {pages.length>1&&<Button className="workbench-page-control" aria-label="下一页命令" disabled={currentPage===pages.length-1} onClick={()=>setPage(currentPage+1)}><RightOutlined/><span className="workbench-page-count" aria-label={`第${currentPage+1}/${pages.length}页`}>{currentPage+1}/{pages.length}</span></Button>}
     </div>
     <Modal width={640} title={declaration("ui.command-search")?.name} open={searchOpen} onCancel={() => setSearchOpen(false)} footer={null} destroyOnHidden
-      afterOpenChange={(open) => { if (open) document.getElementById("workbench-tool-search")?.focus(); }}>
+      focusable={{focusTriggerAfterClose:false}} afterOpenChange={(open) => { if (open) document.getElementById("workbench-tool-search")?.focus(); else if(focusToolAfterSearch.current){focusToolAfterSearch.current=false;if(!document.querySelector('[role="dialog"]')&&!document.activeElement?.closest('[data-quantity-input="true"]'))document.querySelector<HTMLCanvasElement>('canvas')?.focus({preventScroll:true});} }}>
       <Input id="workbench-tool-search" aria-label="搜索工具名称或用途" prefix={<SearchOutlined />} allowClear
         placeholder="输入工具名称或用途…" value={query} onChange={(event) => setQuery(event.target.value)} />
       <div className="workbench-command-results">
         {results.map((item) => <button key={item.commandId} className="workbench-command-result"
           disabled={!item.state.enabled && !uiHelp.active} title={item.helpText} onClick={() => {
+            focusToolAfterSearch.current=!uiHelp.active&&declaration(item.commandId)?.implementation==="tool";
             setSearchOpen(false);
             if (uiHelp.active) { uiHelp.explain({ toolbarName: item.toolbarName, commandName: item.name, helpText: item.helpText }); return; }
             void registry.execute(item.commandId, { continuous: false }).catch((error) => feedback(error,"命令"));

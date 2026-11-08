@@ -6,6 +6,7 @@ import {useCallback,useEffect,useRef} from "react";
 import {normalizeOperationFailure} from "./operation-failure";
 export {normalizeOperationFailure,engineeringProblem} from "./operation-failure";
 export type {OperationFailure} from "./operation-failure";
+export type OperationRecovery={retry?:()=>void;retryLabel?:string;cancel?:()=>void};
 export class OperationFailureGate {
   private seen=new Map<string,number>();private objects=new WeakSet<object>();
   accept(error:unknown,scope:string,now=Date.now()):boolean {
@@ -13,6 +14,11 @@ export class OperationFailureGate {
     const failure=normalizeOperationFailure(error),key=`${scope}:${failure.requestId??failure.code+failure.details}`;
     if(now-(this.seen.get(key)??-Infinity)<5000)return false;
     this.seen.set(key,now);if(this.seen.size>128)this.seen.delete(this.seen.keys().next().value!);return true;
+  }
+  retry(error:unknown,scope:string):void{
+    if(error&&typeof error==='object')this.objects.delete(error);
+    const failure=normalizeOperationFailure(error);
+    this.seen.delete(`${scope}:${failure.requestId??failure.code+failure.details}`);
   }
 }
 const gate=new OperationFailureGate();
@@ -22,29 +28,30 @@ let noticeSequence=0;const activeNotices=new Map<string,string>();
 export function useOperationFeedback(options?:{locateDependency?:(object:DependencyObject)=>void}){
  const optionsRef=useRef(options);optionsRef.current=options;
   const {notification}=App.useApp();
-  return useCallback((error:unknown,scope="操作")=>{
+  return useCallback((error:unknown,scope="操作",actions?:OperationRecovery)=>{
     if(!gate.accept(error,scope))return;
     const failure=normalizeOperationFailure(error);
     recordDeveloperEvidence(scope,{error,failure});
-    const recovery=error as {retry?:()=>void;retryLabel?:string;cancel?:()=>void};
+    const recovery=actions??error as OperationRecovery;
     const key=`failure:${scope}:${++noticeSequence}`,previous=activeNotices.get(scope);
     if(previous)notification.destroy(previous);activeNotices.set(scope,key);
     const dismiss=()=>{notification.destroy(key);if(activeNotices.get(scope)===key)activeNotices.delete(scope)};
-    notification[failure.severity]({className:"cad-operation-notification",placement:"bottomRight",duration:failure.dependency||recovery?.retry||recovery?.cancel?0:6,key,title:failure.dependency?`无法删除“${failure.dependency.subject.name}”`:`${scope}未完成`,description:<>
-      {failure.dependency?<><div>请先编辑以下引用对象，更换或移除来源后再删除。</div><ul className="dependency-block-list">{failure.dependency.consumers.map(object=><li key={object.kind+object.id}>{optionsRef.current?.locateDependency?<Button type="link" size="small" aria-label={`定位 ${object.name}`} onClick={()=>{dismiss();optionsRef.current?.locateDependency?.(object)}}>{object.name}</Button>:<span>{object.name}</span>}<small>{dependencyKind(object.kind)}</small></li>)}</ul>{failure.dependency.total>failure.dependency.consumers.length&&<div>共 {failure.dependency.total} 个引用对象。</div>}</>:<div>{failure.message}</div>}{recovery?.retry&&<Button size="small" onClick={()=>{dismiss();recovery.retry?.();}}>{recovery.retryLabel??"重试确认"}</Button>}{recovery?.cancel&&<Button size="small" onClick={()=>{dismiss();recovery.cancel?.();}}>取消并恢复</Button>}</>});
+    notification[failure.severity]({className:"cad-operation-notification",placement:"bottomRight",duration:failure.dependency||recovery?.retry||recovery?.cancel?0:6,key,title:failure.code==='FEATURE_DOWNSTREAM_REPAIR_REQUIRED'?`${scope}预览`:failure.dependency?`无法删除“${failure.dependency.subject.name}”`:`${scope}未完成`,description:<>
+      {failure.dependency?<><div>请先编辑以下引用对象，更换或移除来源后再删除。</div><ul className="dependency-block-list">{failure.dependency.consumers.map(object=><li key={object.kind+object.id}>{optionsRef.current?.locateDependency?<Button type="link" size="small" aria-label={`定位 ${object.name}`} onClick={()=>{dismiss();optionsRef.current?.locateDependency?.(object)}}>{object.name}</Button>:<span>{object.name}</span>}<small>{dependencyKind(object.kind)}</small></li>)}</ul>{failure.dependency.total>failure.dependency.consumers.length&&<div>共 {failure.dependency.total} 个引用对象。</div>}</>:<div>{failure.message}</div>}{recovery?.retry&&<Button size="small" onClick={()=>{dismiss();gate.retry(error,scope);recovery.retry?.();}}>{recovery.retryLabel??"重试确认"}</Button>}{recovery?.cancel&&<Button size="small" onClick={()=>{dismiss();recovery.cancel?.();}}>取消并恢复</Button>}</>});
     return dismiss;
   },[notification]);
 }
 
 /** Async operation state uses the same outlet as rejected commands. Repeated
  * renders (including StrictMode) do not repost a retained failure. */
-export function useOperationFailureNotification(error:unknown,scope:string){
+export function useOperationFailureNotification(error:unknown,scope:string,actions?:OperationRecovery){
   const feedback=useOperationFeedback(),last=useRef<string|undefined>(undefined),dismiss=useRef<(()=>void)|undefined>(undefined),mounted=useRef(false);
+  const recovery=useRef(actions);recovery.current=actions;
   useEffect(()=>{
     if(!error){dismiss.current?.();dismiss.current=undefined;last.current=undefined;return;}
     const failure=normalizeOperationFailure(error),key=JSON.stringify([scope,failure.code,failure.details,failure.requestId]);
     if(last.current===key)return;
-    last.current=key;dismiss.current?.();dismiss.current=feedback(error,scope);
+    last.current=key;dismiss.current?.();dismiss.current=feedback(error,scope,recovery.current?{retry:recovery.current.retry?()=>recovery.current?.retry?.():undefined,retryLabel:recovery.current.retryLabel,cancel:recovery.current.cancel?()=>recovery.current?.cancel?.():undefined}:undefined);
   },[error,scope,feedback]);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;queueMicrotask(()=>{if(!mounted.current)dismiss.current?.()})}},[]);
 }

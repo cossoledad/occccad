@@ -6,6 +6,7 @@ type ReplicationSource struct {
 	SourceKind     string `json:"sourceKind,omitempty"`
 	StartFeatureID string `json:"startFeatureId,omitempty"`
 	Operation      string `json:"operation,omitempty"`
+	Reexecution    bool   `json:"reexecution"`
 	Tool           bool   `json:"tool"`
 	RangeStart     bool   `json:"rangeStart"`
 	RangeModifier  bool   `json:"rangeModifier"`
@@ -28,7 +29,7 @@ func replicationSource(f Feature) ReplicationSource {
 		if !c.Tool {
 			c.Diagnostic = "PATTERN_REEXECUTION_UNSUPPORTED"
 		}
-	case "PAD", "LINEAR_EXTRUDE", "REVOLVE", "LOFT":
+	case "PAD", "LINEAR_EXTRUDE", "REVOLVE", "LOFT", "SWEEP":
 		c.Tool = (f.Extent == "" || f.Extent == "FINITE" || f.Extent == "SYMMETRIC" || f.Extent == "TWO_SIDED") && (f.Operation == "ADD" || f.Operation == "REMOVE" || f.Operation == "NEW_BODY" || f.Operation == "")
 		c.RangeStart = c.Tool
 		if !c.Tool {
@@ -38,6 +39,20 @@ func replicationSource(f Feature) ReplicationSource {
 		c.RangeModifier = true
 	default:
 		c.Diagnostic = "PATTERN_INDEPENDENT_TOOL_UNAVAILABLE"
+	}
+	if f.Type == "PAD" || f.Type == "LINEAR_EXTRUDE" || f.Type == "REVOLVE" || f.Type == "SWEEP" || f.Type == "LOFT" || f.Type == "HOLE" {
+		c.Reexecution = f.Operation == "ADD" || f.Operation == "REMOVE" || f.Operation == "NEW_BODY" || f.Operation == ""
+		if f.Type == "HOLE" {
+			kind := holeKind(f)
+			c.Reexecution = f.Operation == "REMOVE" && (f.Extent == "BLIND" || f.Extent == "THROUGH_ALL" || f.Extent == "TO_PLANE") && (kind == "SIMPLE" || kind == "COUNTERBORE" || kind == "COUNTERSINK") && validateHoleDimensions(f) == nil
+		}
+		if c.Reexecution {
+			c.Diagnostic = ""
+		}
+		c.Operation = f.Operation
+		if c.Operation == "NEW_BODY" || c.Operation == "" {
+			c.Operation = "ADD"
+		}
 	}
 	return c
 }
@@ -57,6 +72,8 @@ func replicationSources(model PartModel) map[string]ReplicationSource {
 			if c.Operation == "NEW_BODY" || c.Operation == "" {
 				c.Operation = "ADD"
 			}
+		} else if c.Reexecution {
+			c.SourceKind = "FEATURE_REEXECUTION"
 		} else if f.Sketch != nil && !f.Suppressed {
 			c.SourceKind = "SKETCH_FRAME"
 		} else if c.RangeModifier {

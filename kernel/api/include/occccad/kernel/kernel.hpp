@@ -140,6 +140,31 @@ struct FeatureTopologyRef {
     std::string feature_id, output_slot;
     std::vector<std::string> source_ids;
 };
+struct ProfileOrigin {
+    std::string derived_id;
+    std::vector<FeatureTopologyRef> sources;
+};
+struct LoftBoundarySpec {
+ std::string condition;
+ Vec3 direction;
+ bool reversed{};
+ double magnitude{1};
+ std::vector<FeatureTopologyRef> supports;
+};
+
+struct HolePositionSpec {
+ std::string profile_feature_id;
+ ProfileRegionSpec region;
+ Vec3 origin,normal,u_direction;
+};
+
+struct SweepPathSpec {
+    std::string sketch_id, chain_id;
+    std::vector<ProfileCurveSpec> curves;
+    Vec3 plane_origin, plane_normal, plane_u_direction;
+    bool closed{};
+    std::string frame_mode{"CORRECTED_FRENET"}, corner_mode{"MITER"};
+};
 struct BodyToolTopology {
     std::string feature_id, output_slot;
     std::vector<std::string> source_ids;
@@ -211,6 +236,14 @@ struct ProfilePadSpec {
     std::string profile_feature_id;
     std::vector<BodyToolInput> tools;
     Vec3 termination_origin, termination_normal;
+    double start_offset{}, end_offset{};
+    FeatureTopologyRef termination_surface;
+    std::vector<ProfileOrigin> profile_origins;
+    SweepPathSpec sweep_path;
+    LoftBoundarySpec loft_start,loft_end;
+    std::vector<HolePositionSpec> hole_positions;
+    double drill_tip_angle{0};
+    std::string depth_convention;
     std::string extent;
     double second_length{};
     std::vector<FeatureTopologyRef> selections;

@@ -33,6 +33,8 @@ const descriptors: Partial<Record<Kind, Descriptor>> = {
   DATUM_INPUT_REFERENCE: { icon: <GatewayOutlined /> },
   FEATURE_INPUT_REFERENCE: { icon: <GatewayOutlined /> },
   SKETCH_INPUT_REFERENCE: { icon: <GatewayOutlined /> },
+  SKETCH_OFFSET_DEFINITION: {icon:<NodeIndexOutlined />},
+  SKETCH_OFFSET_ENTITY: {icon:<NodeIndexOutlined />},
   SKETCH_PATTERN_DEFINITION: {icon:<NodeIndexOutlined />},
   SKETCH_PATTERN_MEMBER: {icon:<NodeIndexOutlined />},
   SKETCH_PATTERN_ENTITY: {icon:<NodeIndexOutlined />},
@@ -56,7 +58,7 @@ const descriptors: Partial<Record<Kind, Descriptor>> = {
 
 export function treeNodeIcon(node:Pick<DocumentStructureNode,'kind'|'diagnostic'|'evaluationStatus'|'operation'|'entityType'|'suppressed'|'connectionStatus'|'currencyStatus'>,hint?:string):ReactNode {
  const assembly=node.kind==='ASSEMBLY_CONSTRAINT'||node.kind==='JOINT_EXPANSION';
- const glyph=({GROUND:'fixed',REVOLUTE:'rotate',PRISMATIC:'move',CYLINDRICAL:'rotate',PLANAR:'datum-plane',RIGID:'link',SPHERICAL:'rotate',ELLIPSE:'circle',ELLIPTICAL_ARC:'arc',CONCENTRIC:'concentric',COLLINEAR:'parallel',MIDPOINT:'midpoint',POINT_ON_OBJECT:'point-on-object',MAJOR_RADIUS:'radius',MINOR_RADIUS:'radius',POINT:'point',LINE:'line',CIRCLE:'circle',ARC:'arc',SPLINE:'spline',SKETCH:'sketch',PAD:'pad',LINEAR_EXTRUDE:'pad',REVOLVE:'revolve',FILLET:'radius',CHAMFER:'angle',DRAFT:'angle',SHELL:'pocket',LOFT:'pad',BOOLEAN:'link',SOLID_PATTERN:'pattern',SKETCH_PATTERN:'pattern',COINCIDENT:'coincident',PARALLEL:'parallel',PERPENDICULAR:'perpendicular',TANGENT:'tangent',FIXED:'fixed',EQUAL:'equal',HORIZONTAL:'horizontal',VERTICAL:'vertical',ANGLE:'angle',RADIUS:'radius',DIAMETER:'diameter',DISTANCE:'distance',LENGTH:'length',SYMMETRY:'symmetry'} as Record<string,string>)[node.entityType??node.kind];
+ const glyph=({GROUND:'fixed',REVOLUTE:'rotate',PRISMATIC:'move',CYLINDRICAL:'rotate',PLANAR:'datum-plane',RIGID:'link',SPHERICAL:'rotate',ELLIPSE:'circle',ELLIPTICAL_ARC:'arc',CONCENTRIC:'concentric',COLLINEAR:'parallel',MIDPOINT:'midpoint',POINT_ON_OBJECT:'point-on-object',MAJOR_RADIUS:'radius',MINOR_RADIUS:'radius',POINT:'point',LINE:'line',CIRCLE:'circle',ARC:'arc',SPLINE:'spline',SKETCH:'sketch',PAD:'pad',LINEAR_EXTRUDE:'pad',REVOLVE:'revolve',FILLET:'radius',CHAMFER:'angle',DRAFT:'angle',SHELL:'pocket',SWEEP:'pad',LOFT:'pad',BOOLEAN:'link',SOLID_PATTERN:'pattern',SKETCH_PATTERN:'pattern',COINCIDENT:'coincident',PARALLEL:'parallel',PERPENDICULAR:'perpendicular',TANGENT:'tangent',FIXED:'fixed',EQUAL:'equal',HORIZONTAL:'horizontal',VERTICAL:'vertical',ANGLE:'angle',RADIUS:'radius',DIAMETER:'diameter',DISTANCE:'distance',LENGTH:'length',SYMMETRY:'symmetry'} as Record<string,string>)[node.entityType??node.kind];
  const assemblyGlyph=({FIX:'fixed',FIX_TOGETHER:'link',DISTANCE:'distance',ANGLE:'angle',COINCIDENT:'coincident',CONCENTRIC:'concentric',PARALLEL:'parallel',PERPENDICULAR:'perpendicular',CONTACT:'coincident'} as Record<string,string>)[node.entityType??'']??'coincident';
  const typeIcon=node.kind==='SPATIAL_ANALYSIS'?<CadIcon name={node.entityType==='SECTION'?'datum-plane':'distance'}/>:assembly?<CadIcon name={assemblyGlyph}/>:['PAD','LINEAR_EXTRUDE'].includes(node.entityType??node.kind)&&node.operation==='REMOVE'?<CadIcon name="pocket"/>:glyph?<CadIcon name={glyph}/>:node.entityType==='HOLE'?<AimOutlined/>:descriptors[node.kind]?.icon??<NodeIndexOutlined/>;
  let label='',color='',badge:ReactNode;

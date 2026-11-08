@@ -190,7 +190,13 @@ func TestSketchReferenceAngleSectorAllowsZero(t *testing.T) {
 		t.Fatal("zero reference angle is a measurement", err)
 	}
 	s.Constraints[0].Reference = false
-	if err := validateSketch(s); err == nil {
-		t.Fatal("zero driving angle bypassed the existing dimension gate")
+	if err := validateSketch(s); err != nil {
+		t.Fatal("zero driving angle is an explicit direction", err)
+	}
+	for _, value := range []float64{-1, 360} {
+		s.Constraints[0].Value = &value
+		if err := validateSketch(s); err == nil {
+			t.Fatal("directed sector accepted angle outside [0, 360)", value)
+		}
 	}
 }

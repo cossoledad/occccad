@@ -23,19 +23,31 @@ func isBodyFeature(kind string) bool {
 }
 
 func validateSolidStage(f Feature, earlier map[string]Feature) error {
+	if err := validateLoftBoundaries(f, earlier); err != nil {
+		return err
+	}
+	if err := validateSweep(f, earlier); err != nil {
+		return err
+	}
+	if err := validateThinWall(f); err != nil {
+		return err
+	}
 	if f.Type != "BOOLEAN" && f.BooleanResult != nil {
 		return fmt.Errorf("%w: Boolean regions require Boolean feature", ErrValidation)
 	}
 	if f.Type == "HOLE" {
 		return validateHole(f, earlier)
 	}
-	if f.HolePoint != nil || f.HoleKind != "" || f.RecessDiameter != 0 || f.RecessDepth != 0 || f.CountersinkAngle != 0 || f.Diameter != 0 || f.Depth != 0 {
+	if len(f.HolePoints) > 0 || f.Thread != nil || f.DrillTipAngle != 0 || f.DepthConvention != "" || f.HolePoint != nil || f.HoleKind != "" || f.RecessDiameter != 0 || f.RecessDepth != 0 || f.CountersinkAngle != 0 || f.Diameter != 0 || f.Depth != 0 {
 		return fmt.Errorf("%w: hole parameters require HOLE", ErrValidation)
 	}
-	if f.Extent == "TO_PLANE" {
+	if associatedExtrudeExtent(f.Extent) {
 		if (f.Type != "PAD" && f.Type != "LINEAR_EXTRUDE") || (f.Operation != "ADD" && f.Operation != "REMOVE" && f.Operation != "NEW_BODY") {
 			return fmt.Errorf("%w: TO_PLANE requires a single-direction linear extrude or cut", ErrValidation)
 		}
+	}
+	if err := validateExtrudeTermination(f, earlier); err != nil {
+		return err
 	}
 	if err := validateTerminationPlane(f, earlier); err != nil {
 		return err
@@ -82,7 +94,7 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 		}
 	}
 	if isSolidGenerator(f.Type) {
-		if f.Extent != "" && f.Extent != "FINITE" && f.Extent != "SYMMETRIC" && f.Extent != "TWO_SIDED" && f.Extent != "THROUGH_ALL" && f.Extent != "TO_PLANE" {
+		if f.Extent != "" && f.Extent != "FINITE" && f.Extent != "SYMMETRIC" && f.Extent != "TWO_SIDED" && f.Extent != "THROUGH_ALL" && f.Extent != "TO_PLANE" && f.Extent != "TO_NEXT" && f.Extent != "TO_SURFACE" {
 			return fmt.Errorf("%w: invalid extrude extent", ErrValidation)
 		}
 		if f.Extent == "THROUGH_ALL" && (f.Type == "REVOLVE" || f.Operation != "REMOVE") {
@@ -184,6 +196,12 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 	if err := resolveAutomaticPatternSource(model, &replacement); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
+	if err := resolveSweepDirection(model, &replacement); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := resolveThinDirections(model, &replacement); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	// Identity and history position belong to the existing feature. Target is an explicit input.
 	before := *current
 	if current.Type != "BOOLEAN" && replacement.BodyID != current.BodyID {
@@ -210,6 +228,38 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 			oldValue, newValue = before.RecessDiameter, replacement.RecessDiameter
 		case "recessDepth":
 			oldValue, newValue = before.RecessDepth, replacement.RecessDepth
+		case "loft:startMagnitude", "loft:endMagnitude":
+			old, new := before.LoftStart, replacement.LoftStart
+			if slot == "loft:endMagnitude" {
+				old, new = before.LoftEnd, replacement.LoftEnd
+			}
+			if old != nil {
+				oldValue = old.Magnitude
+			}
+			if new != nil {
+				newValue = new.Magnitude
+			}
+		case "drillTipAngle":
+			oldValue, newValue = before.DrillTipAngle, replacement.DrillTipAngle
+		case "thread:majorDiameter", "thread:pitch", "thread:depth":
+			if before.Thread != nil {
+				if slot == "thread:majorDiameter" {
+					oldValue = before.Thread.MajorDiameter
+				} else if slot == "thread:pitch" {
+					oldValue = before.Thread.Pitch
+				} else {
+					oldValue = before.Thread.Depth
+				}
+			}
+			if replacement.Thread != nil {
+				if slot == "thread:majorDiameter" {
+					newValue = replacement.Thread.MajorDiameter
+				} else if slot == "thread:pitch" {
+					newValue = replacement.Thread.Pitch
+				} else {
+					newValue = replacement.Thread.Depth
+				}
+			}
 		case "countersinkAngle":
 			oldValue, newValue = before.CountersinkAngle, replacement.CountersinkAngle
 		case "diameter":
@@ -220,6 +270,23 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 			oldValue, newValue = before.Length, replacement.Length
 		case "length2":
 			oldValue, newValue = before.Length2, replacement.Length2
+		case "thin:thickness", "thin:thickness2":
+			if before.ThinWall != nil {
+				oldValue = before.ThinWall.Thickness
+				if slot == "thin:thickness2" {
+					oldValue = before.ThinWall.Thickness2
+				}
+			}
+			if replacement.ThinWall != nil {
+				newValue = replacement.ThinWall.Thickness
+				if slot == "thin:thickness2" {
+					newValue = replacement.ThinWall.Thickness2
+				}
+			}
+		case "startOffset":
+			oldValue, newValue = before.StartOffset, replacement.StartOffset
+		case "endOffset":
+			oldValue, newValue = before.EndOffset, replacement.EndOffset
 		case "angle":
 			oldValue, newValue = before.Angle, replacement.Angle
 		default:
@@ -330,6 +397,17 @@ func featureParameterExpressions(model PartModel, feature Feature, expressions m
 		names[p.Key] = modelcore.ParameterBinding{ParameterID: p.ParameterID, Dimension: p.Dimension}
 	}
 	for slot, text := range expressions {
+		if slot == "startOffset" || slot == "endOffset" || slot == "thin:thickness" || slot == "thin:thickness2" {
+			active := false
+			for _, p := range append(extrudeParameters(feature), thinWallParameters(feature)...) {
+				if p.slot == slot {
+					active = true
+				}
+			}
+			if !active {
+				return nil, fmt.Errorf("%w: inactive feature parameter %s", ErrValidation, slot)
+			}
+		}
 		if feature.Type == "HOLE" {
 			found := false
 			for _, p := range holeParameters(feature) {
@@ -348,9 +426,20 @@ func featureParameterExpressions(model PartModel, feature Feature, expressions m
 					dimension = p.dimension
 				}
 			}
+		} else if slot == "loft:startMagnitude" || slot == "loft:endMagnitude" {
+			active := false
+			for _, p := range loftBoundaryParameters(feature) {
+				if p.slot == slot {
+					active = true
+				}
+			}
+			if !active {
+				return nil, fmt.Errorf("%w: inactive loft boundary magnitude", ErrValidation)
+			}
+			dimension = modelcore.Dimensionless
 		} else if slot == "angle" {
 			dimension = modelcore.AngleDimension
-		} else if slot != "length" && slot != "length2" {
+		} else if slot != "length" && slot != "length2" && slot != "startOffset" && slot != "endOffset" && slot != "thin:thickness" && slot != "thin:thickness2" {
 			found := false
 			if feature.Pattern != nil {
 				for _, p := range patternParameters(&feature.Pattern.PatternDefinition) {
@@ -547,7 +636,7 @@ func bindLoftPointSketches(sections []LoftSection, earlier map[string]Feature) (
 		if !ok || sketch.Suppressed || sketch.Sketch == nil || len(sketch.Sketch.ExternalGeometry) > 0 {
 			continue
 		}
-		entities, err := evaluatedSketchPatternEntities(*sketch.Sketch)
+		entities, err := evaluatedSketchEntities(*sketch.Sketch)
 		if err != nil {
 			return nil, err
 		}

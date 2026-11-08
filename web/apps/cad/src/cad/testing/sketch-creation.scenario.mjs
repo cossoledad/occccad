@@ -21,11 +21,12 @@ try {
   const line=new LineSketchTool();line.activate(context);
   click(line,5,7);line.pointerMove(pointer(13,11,"move"),context);
   const before=operations.length;
-  for(const value of ["2","0","Tab","9","0"])assert.equal(key(line,value),"consumed");
+  for(const value of ["2","0","Tab","9","0"])assert.equal(key(line,value),"ignored");
   assert.equal(operations.length,before,"typing and pointer motion are preview only");
   key(line,"Enter");
   const first=operations.at(-1)[0].entity;
-  close(first.start.x,5);close(first.start.y,7);close(first.end.x,5);close(first.end.y,27);
+  close(first.start.x,5);close(first.start.y,7);close(first.end.x,13);close(first.end.y,11);
+  assert(!operations.at(-1).some(op=>op.parameterSource||["LENGTH","ANGLE","RADIUS"].includes(op.constraint?.kind)),"drawing does not create driving dimensions");
   assert.equal(completions,1,"confirmed creation publishes completion while mode owns continuation");
   click(line,30,10);click(line,40,10);
   assert.notEqual(operations.at(-1)[0].entity.id,first.id,"continuous creations use unique identities");
@@ -34,13 +35,14 @@ try {
   snap={target:"ENTITY",entityId:"boundary",subElement:"END"};
   click(line,0,0);line.pointerMove(pointer(12,0,"move"),context);
   key(line,"5");key(line,"Enter");
-  assert.equal(operations.at(-1).filter(op=>op.constraint).length,1,"numeric endpoint cannot silently inherit cursor snap");
+  assert.equal(operations.at(-1).filter(op=>op.constraint?.kind==='COINCIDENT').length,2,"both mouse endpoints retain their explicit captured references");
+  assert(!operations.at(-1).some(op=>op.constraint?.kind==='LENGTH'),'numeric keys do not create a driving dimension');
   assert.equal(operations.at(-1)[1].constraint.references[0].subElement,"START");snap=undefined;
 
   click(line,0,0);const validCount=operations.length;
   for(const value of ["-","2","Enter"])key(line,value);
-  assert.equal(operations.length,validCount,"invalid numeric creation must not commit");
-  assert(prompts.at(-1).includes("退化"));key(line,"Escape");
+  assert.equal(operations.length,validCount,"a degenerate mouse endpoint must not commit");
+  assert(prompts.at(-1).includes("终点"));key(line,"Escape");
   click(line,0,0);click(line,1,1);assert.equal(operations.length,validCount+1,"cancel clears invalid input");
 
   for(const [Tool,points] of [[LineSketchTool,[[0,0],[4,3]]],[CircleSketchTool,[[0,0],[4,0]]],

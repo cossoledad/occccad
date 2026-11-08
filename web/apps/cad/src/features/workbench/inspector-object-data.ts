@@ -50,7 +50,7 @@ export function inspectorObjectData(view: DocumentView, selection: Selection, fe
     case "sketch-constraint": object = selectedFeature?.sketch?.constraints.find(item => item.id === selection.constraintId); break;
     case "visual": object = selectedFeature?.sketch?.entities.find(item => item.id === id) ??
       selectedFeature?.sketch?.externalGeometry?.find(item => item.id === id) ??
-      definitionView?.sketchPatternMembers?.[featureID]?.find(item => item.id === id); break;
+      definitionView?.sketchDerivedEntities?.[featureID]?.find(item => item.id === id); break;
     case "instance": object = view.product?.instances.find(item => item.id === id); break;
     case "assembly-constraint": object = product?.constraints?.find(item => item.id === selection.constraintId) ??
       view.constraintDisplayScopes?.find(scope => scope.documentId === ownerID && scope.versionId === selection.versionId &&

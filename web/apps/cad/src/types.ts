@@ -36,6 +36,7 @@ export type FeatureInputResolution = { status: "RESOLVED" | "MISSING" | "AMBIGUO
 export type FeatureInput = {
  referenceGeometry?:{datumPlanes:DatumPlane[];datumAxes:DatumAxis[];axisSystems:AxisSystem[]};
  pointPick?:FeatureInputResolution;
+ loftStartPicks?:NonNullable<FeatureInput["neutralPick"]>[];loftEndPicks?:NonNullable<FeatureInput["neutralPick"]>[];
  terminationPick?:FeatureInput["neutralPick"];
   versionId: string; sourceFeatureId: string; artifact: Artifact; artifacts?: Artifact[];
   picks: Array<FeatureInputResolution & {index: number; kind: string; localId?: number}>;
@@ -50,7 +51,7 @@ export type Artifact = {
   naming?: NamingAvailability;
   geometryKey: string;
   geometryId: string;
-  representationKind: "PERSISTENT" | "TRANSIENT_PREVIEW";
+  representationKind: "PERSISTENT" | "TRANSIENT_PREVIEW" | "HISTORICAL_COMPARISON";
   representations: Record<string,{objectId:string;digest:string;schemaVersion:number;size:number;contentType:string;url?:string}>;
   triangleCount:number;
   displayVertexCount:number;
@@ -151,11 +152,18 @@ export type DocumentProperties = {
 
 export type PatternDefinition = { directionReference?:SketchGeometryRef; reversed?:boolean; centerReference?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef}; axisEntityId?:string; id:string; kind:"LINEAR"|"CIRCULAR"|"MIRROR"; mirrorPlaneId?:string; mirrorPlane?:NonNullable<Feature["selections"]>[number]; distribution:"FIXED_STEP"|"TOTAL_SPAN"|"FULL_CIRCLE"; count:number; spacing?:number; angle?:number; phase?:number; origin:Vec3; direction:Vec3; skippedSlots?:number[]; suppressed?:boolean };
 export type SketchPattern = PatternDefinition & {name?:string;entityIds:string[]};
+export type ThinWallDefinition={input:"REGIONS"|"CHAINS";mode:"ONE_SIDED"|"TWO_SIDED"|"SYMMETRIC";side:"LEFT"|"RIGHT";join:"MITER"|"ROUND";thickness:number;thickness2?:number;entityIds?:string[];reversed?:boolean;directions?:Array<{entityId:string;reversed?:boolean}>};
+export type LoftBoundaryDefinition={condition:"NORMAL"|"DIRECTION"|"G1"|"G2";magnitude:number;directionEntityId?:string;reversed?:boolean;supports?:NonNullable<Feature["selections"]>};
 export type Feature = {
+ loftStart?:LoftBoundaryDefinition;loftEnd?:LoftBoundaryDefinition;
+ sweep?:{path:{sketchId:string;entityIds:string[];direction?:{entityId:string;reversed:boolean};reversed?:boolean};frameMode:"CORRECTED_FRENET"|"FRENET";cornerMode:"MITER"|"G1_ONLY"};
+ thinWall?:ThinWallDefinition;
  order?:number;
+ holePoints?:NonNullable<PatternDefinition["centerReference"]>[];drillTipAngle?:number;depthConvention?:"CYLINDER"|"TIP";thread?:{mode:"ANNOTATION";designation:string;hand:"RIGHT"|"LEFT";majorDiameter:number;pitch:number;depth:number};
  holePoint?:PatternDefinition["centerReference"];diameter?:number;depth?:number;holeKind?:"SIMPLE"|"COUNTERBORE"|"COUNTERSINK";recessDiameter?:number;recessDepth?:number;countersinkAngle?:number;
  terminationPlaneId?:string;terminationPlane?:NonNullable<Feature["selections"]>[number];
-  pattern?:PatternDefinition & {additionalSources?:Array<{source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA";startFeatureId?:string}>;startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
+ terminationSurface?:NonNullable<Feature["selections"]>[number];startOffset?:number;endOffset?:number;
+  pattern?:PatternDefinition & {additionalSources?:Array<{source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"|"FEATURE_REEXECUTION";startFeatureId?:string}>;startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"AUTO"|"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"|"FEATURE_REEXECUTION"};
   profileSelection?: {mode:"WHOLE_SKETCH"|"REGIONS";regionIds?:string[]};
   profileMemberSlot?:number;
   evaluationStatus?: "FAILED" | "BLOCKED" | "SUPPRESSED";
@@ -165,7 +173,7 @@ export type Feature = {
   selections?:{selection:PersistentSelection;sourceVersionId:string;sourceFeatureId?:string}[];
   neutralPlaneId?:string;
   neutralPlane?: NonNullable<Feature["selections"]>[number];
-  extent?: "FINITE"|"TWO_SIDED"|"SYMMETRIC"|"THROUGH_ALL"|"TO_PLANE"|"BLIND";
+  extent?: "FINITE"|"TWO_SIDED"|"SYMMETRIC"|"THROUGH_ALL"|"TO_PLANE"|"TO_NEXT"|"TO_SURFACE"|"BLIND";
   length2?:number;
   tools?: {bodyId:string; featureId:string}[];
   booleanResult?:import("./features/workbench/boolean-region-model").BooleanResultSelection;
@@ -175,7 +183,7 @@ export type Feature = {
   visible?: boolean;
   importDefinitionId?: string;
   id: string;
-  type: "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT" | "HOLE";
+  type: "SWEEP" | "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT" | "HOLE";
   name?: string;
   plane?: PlaneName | "CUSTOM";
   sketch?: SketchFeature;
@@ -207,8 +215,9 @@ export type SketchSupport = {
   persistentSelection?: PersistentSelection; sourceVersionId?: string; origin?: Vec3; xDirection?: Vec3; normal?: Vec3;
   orientationRule?: string; status?: "CONNECTED" | "FAILED_SUPPORT" | "BLOCKED"; diagnosticCode?: string; diagnostic?: string;
   dependencySnapshot?: { geometryKey: string; manifestDigest: string; policyDigest: string; evidenceDigest?: string } };
-export type SketchFeature = { patterns?:SketchPattern[]; schemaVersion: 2; support: SketchSupport; entities: SketchEntity[]; externalGeometry?:SketchExternalGeometry[]; constraints: SketchConstraint[]; solve: { status: string; definitionStatus?: "FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED"; degreesOfFreedom: number; diagnostic?: string; conflictingConstraintIds?: string[]; redundantConstraintIds?: string[]; components?: Array<{entityIds:string[];constraintIds:string[];status:string;definitionStatus?:"FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED";degreesOfFreedom:number}> } };
-export type SketchOperation = {type:"CREATE_INTERSECTION"|"SPLIT_INTERSECTION";operationId:string;entityIds:string[];parameters:number[];mode?:string}| {type:"CREATE_PATTERN"|"EDIT_PATTERN";pattern:SketchPattern;patternId?:string;patternParameterExpressions?:Record<string,string>} | {type:"DELETE_PATTERN"|"DETACH_PATTERN";patternId:string} | { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint; parameterSource?: string; parameterKey?: string }
+export type SketchOffset={id:string;name?:string;entityIds:string[];distance:number;join:"MITER"|"ROUND";suppressed?:boolean};
+export type SketchFeature = { offsets?:SketchOffset[]; patterns?:SketchPattern[]; schemaVersion: 2; support: SketchSupport; entities: SketchEntity[]; externalGeometry?:SketchExternalGeometry[]; constraints: SketchConstraint[]; solve: { status: string; definitionStatus?: "FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED"; degreesOfFreedom: number; diagnostic?: string; conflictingConstraintIds?: string[]; redundantConstraintIds?: string[]; components?: Array<{entityIds:string[];constraintIds:string[];status:string;definitionStatus?:"FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED";degreesOfFreedom:number}> } };
+export type SketchOperation = {type:"CREATE_OFFSET"|"EDIT_OFFSET";offset:SketchOffset;offsetId?:string;parameterSource?:string}|{type:"DELETE_OFFSET"|"DETACH_OFFSET";offsetId:string}|{type:"CREATE_INTERSECTION"|"SPLIT_INTERSECTION";operationId:string;entityIds:string[];parameters:number[];mode?:string}| {type:"CREATE_PATTERN"|"EDIT_PATTERN";pattern:SketchPattern;patternId?:string;patternParameterExpressions?:Record<string,string>} | {type:"DELETE_PATTERN"|"DETACH_PATTERN";patternId:string} | { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint; parameterSource?: string; parameterKey?: string }
   | { type: "UPDATE_CONSTRAINT"; constraintId: string; constraint: SketchConstraint; parameterSource?: string; parameterKey?: string; restoreMode?: "ORIGINAL" | "MEASUREMENT" }
   | {type:"ADD_EXTERNAL_GEOMETRY";externalId:string;geometryKey?:string;topologyId?:number;topologyKind?:"EDGE"|"VERTEX";datumReference?:DatumReference;sourceVersionId:string}
   | {type:"RECONNECT_EXTERNAL_GEOMETRY";externalId:string;geometryKey?:string;topologyId?:number;topologyKind?:"EDGE"|"VERTEX";datumReference?:DatumReference;sourceVersionId:string}
@@ -236,7 +245,7 @@ export type SketchOperation = {type:"CREATE_INTERSECTION"|"SPLIT_INTERSECTION";o
   | {type:"CHAMFER_ENTITIES";parameterSource?:string;operationId:string;entityIds:[string,string];firstReference:SketchGeometryRef;secondReference:SketchGeometryRef;point:SketchPoint2;chamferMode:"EQUAL"|"TWO_LENGTHS"|"LENGTH_ANGLE";chamferFirst:number;chamferSecond?:number;chamferAngle?:number;trimMode:"TRIM"|"KEEP"}
   | {type:"EXTEND_ENTITY";operationId:string;entityIds:string[];firstReference:SketchGeometryRef;boundaryIds:[]|[string];point:SketchPoint2;detachConstraintIds?:string[]}
   | {type:"ARC_COMPLEMENT"|"CLOSE_CURVE";operationId:string;entityIds:string[];detachConstraintIds?:string[]}
-  | {type:"OFFSET_ENTITIES";operationId:string;entityIds:string[];value:number;mode:"MITER"|"ROUND"};
+  | {type:"OFFSET_ENTITIES";operationId:string;entityIds:string[];value:number;mode:"MITER"|"ROUND";parameterSource?:string};
 
 export type HistoryEntry = {
   position: number;
@@ -390,7 +399,7 @@ export type DocumentStructureNode = {
   subject?: EntityRef;
   occurrence?: OccurrenceRef;
   snapshot?: SnapshotScope;
-  kind: "MEASUREMENT" | "MEASUREMENT_GROUP" | "SPATIAL_ANALYSIS" | "SPATIAL_ANALYSIS_GROUP" | "KINEMATICS_GROUP" | "MECHANISM_REFERENCE" | "APPLICATIONS" | "MECHANISM" | "MECHANISM_JOINT" | "MOTION_DRIVER" | "MOTION_STUDY" | "INTERFERENCE_ANALYSIS" | "JOINT_EXPANSION" | "JOINT_SUPPORT" | "JOINT_SOURCE" | "MOTION_ASSOCIATION" | "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "DATUM_POINT" | "GEOMETRICAL_SET" | "REFERENCE_POINT" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_GROUP" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_GROUP_MEMBER_REFERENCE" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "MEASUREMENT" | "MEASUREMENT_GROUP" | "SPATIAL_ANALYSIS" | "SPATIAL_ANALYSIS_GROUP" | "KINEMATICS_GROUP" | "MECHANISM_REFERENCE" | "APPLICATIONS" | "MECHANISM" | "MECHANISM_JOINT" | "MOTION_DRIVER" | "MOTION_STUDY" | "INTERFERENCE_ANALYSIS" | "JOINT_EXPANSION" | "JOINT_SUPPORT" | "JOINT_SOURCE" | "MOTION_ASSOCIATION" | "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "SKETCH_OFFSET_DEFINITION" | "SKETCH_OFFSET_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "DATUM_POINT" | "GEOMETRICAL_SET" | "REFERENCE_POINT" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_GROUP" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_GROUP_MEMBER_REFERENCE" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   presentationRole?: "DEFINITION" | "FEATURE_INPUT" | "INPUT_REFERENCE" | "GROUP";
   ownerDocumentId?: string;
   bodyId?: string;
@@ -448,8 +457,8 @@ export type SketchProfileAnalysis = {
 
 export type DocumentView = {featureOrderDigest?:string;baseView?:DocumentView;contextOccurrencePath?:string;contextProduct?:DocumentView;
   bodyAppearances?: Record<string, ResolvedAppearance>;
- replicationSources?:Record<string,{sourceKind?:"SKETCH_FRAME"|"GENERATOR_TOOL"|"FEATURE_DELTA";startFeatureId?:string;operation?:Feature["operation"];tool:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
-  sketchPatternMembers?:Record<string,SketchEntity[]>;
+ replicationSources?:Record<string,{sourceKind?:"SKETCH_FRAME"|"GENERATOR_TOOL"|"FEATURE_DELTA"|"FEATURE_REEXECUTION";startFeatureId?:string;operation?:Feature["operation"];tool:boolean;reexecution?:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
+  sketchDerivedEntities?:Record<string,SketchEntity[]>;
   document: DocumentSummary;
   sketchAnalyses?: Record<string, SketchProfileAnalysis>;
   datumPlanes?: DatumPlane[];
@@ -520,7 +529,7 @@ export type ContextCatalogPublication = { instancePath:InstancePath;documentId:s
   displayPath:string;selectable:boolean;diagnostic?:string };
 export type ContextCatalog = { rootProductDocumentId:string;rootProductRevisionId:string;activeInstancePath?:InstancePath;
   expectedType?:string;digest:string;publications:ContextCatalogPublication[] };
-export type ContextVariantSnapshot = {replicationSources?:DocumentView["replicationSources"];sketchPatternMembers?:DocumentView["sketchPatternMembers"];part?:DocumentView["part"];sketchAnalyses?:DocumentView["sketchAnalyses"];variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
+export type ContextVariantSnapshot = {replicationSources?:DocumentView["replicationSources"];sketchDerivedEntities?:DocumentView["sketchDerivedEntities"];part?:DocumentView["part"];sketchAnalyses?:DocumentView["sketchAnalyses"];variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
   bindingIds:string[];bindingDigest:string;evaluationManifestDigest?:string;bodies:PartBody[];status:"READY"|"FAILED";
   publications?:Publication[];diagnosticCode?:string;diagnostic?:string};
 export type ProductUpdatePlanEntry = {referenceMode?:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED";kind:"CONTEXT_BINDING"|"OCCURRENCE_REFERENCE"|"ASSEMBLY_SOLVE";bindingId:string;name:string;sourceDisplayPath:string;owningDisplayPath:string;

@@ -69,6 +69,10 @@ func selectFeatureProfileRegions(feature Feature, regions []geometry.ProfileRegi
 }
 
 func (s *Service) featureProfileRegions(ctx context.Context, model PartModel, feature Feature, requestID string) (Feature, []geometry.ProfileRegion, error) {
+	if feature.ThinWall != nil {
+		sketch, regions, _, err := s.thinProfileRegions(ctx, model, feature, requestID)
+		return sketch, regions, err
+	}
 	earlier := map[string]Feature{}
 	for _, f := range model.Features {
 		if f.ID == feature.ID {
@@ -80,7 +84,12 @@ func (s *Service) featureProfileRegions(ctx context.Context, model PartModel, fe
 	if err != nil {
 		return Feature{}, nil, err
 	}
-	regions, err := s.buildExactProfileRegions(ctx, sketch, requestID)
+	var regions []geometry.ProfileRegion
+	if feature.ProfileSelection != nil && feature.ProfileSelection.Mode == "REGIONS" {
+		regions, err = s.buildAvailableProfileRegions(ctx, sketch, requestID)
+	} else {
+		regions, err = s.buildExactProfileRegions(ctx, sketch, requestID)
+	}
 	if err != nil {
 		return sketch, nil, err
 	}

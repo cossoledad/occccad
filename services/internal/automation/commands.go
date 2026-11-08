@@ -50,7 +50,7 @@ var commandContracts = []commandContract{
 	{"PAD_SKETCH", "PART", "拉伸草图", "bodyId length sketchId", "bodyId sketchId length", ""},
 	{"CREATE_MODIFY_FEATURE", "PART", "创建圆角、倒角、拔模或抽壳", "afterFeatureId feature geometryKey parameterExpressions versionId", "feature", ""},
 	{"CREATE_BOOLEAN_FEATURE", "PART", "创建布尔特征", "bodyId booleanResult keepTools operation tools", "bodyId operation tools", ""},
-	{"CREATE_SOLID_FEATURE", "PART", "创建拉伸、切除、旋转、放样或孔", "afterFeatureId versionId geometryKey angle axisEntityId bodyId extent feature generator length length2 lengthExpression operation parameterExpressions profileMemberSlot profileSelection reversed sketchId terminationPlane terminationPlaneId", "", ""},
+	{"CREATE_SOLID_FEATURE", "PART", "创建拉伸、切除、旋转、扫掠、放样或孔", "afterFeatureId versionId geometryKey angle axisEntityId bodyId extent feature generator length length2 lengthExpression operation parameterExpressions profileMemberSlot profileSelection reversed sketchId terminationPlane terminationPlaneId terminationSurface startOffset endOffset thinWall", "", ""},
 	{"SET_FEATURE_SUPPRESSION", "PART", "停用或启用特征", "expectedFeatureDigest suppressed targetId", "targetId suppressed expectedFeatureDigest", ""},
 	{"CREATE_PATTERN", "PART", "创建阵列或镜像", "feature parameterExpressions", "feature", ""},
 	{"MOVE_FEATURE", "PART", "调整特征顺序", "featureIds expectedFeatureDigests expectedFeatureOrderDigest anchorFeatureId expectedFeatureDigest placement targetId", "targetId anchorFeatureId placement expectedFeatureDigest", ""},
@@ -111,7 +111,7 @@ func commandOperations() []Operation {
 		op := Operation{ID: "command." + strings.ToLower(contract.command), Name: contract.name, DocumentType: contract.document, CommandType: contract.command, Handoff: contract.handoff,
 			Description: contract.command + ". Existing versioned domain command; lengths mm, angles degrees unless an explicit unit is provided. Nested types: cad_describe_type. " + contract.handoff}
 		if contract.command == "CREATE_SOLID_FEATURE" {
-			op.Description += " Linear extrusion/cut requires sketchId, bodyId, generator=LINEAR_EXTRUDE, operation=ADD|REMOVE|NEW_BODY|INTERSECT, extent=FINITE|SYMMETRIC|TWO_SIDED|THROUGH_ALL|TO_PLANE; TO_PLANE requires a formal termination plane, other linear modes require a positive length (also for THROUGH_ALL). Hole uses feature.type=HOLE with an explicit upstream sketch point and BLIND|THROUGH_ALL extent. Prefer part.cut for a through cut without a length argument. CUT is not an operation value."
+			op.Description += " Loft end conditions use feature.loftStart/loftEnd with condition=NORMAL|DIRECTION|G1|G2, magnitude=0.01..10 (dimensionless), stable directionEntityId and formal supports; G1/G2 require analytic extrusion support faces. Linear extrusion/cut requires sketchId, bodyId, generator=LINEAR_EXTRUDE, operation=ADD|REMOVE|NEW_BODY|INTERSECT, extent=FINITE|SYMMETRIC|TWO_SIDED|THROUGH_ALL|TO_PLANE|TO_NEXT|TO_SURFACE. TO_PLANE requires a formal termination plane; TO_SURFACE requires an upstream persistent face; TO_NEXT requires the current target Body. Signed startOffset/endOffset are along the extrusion direction; endOffset only applies to associated termination. Finite modes require a positive length (also for THROUGH_ALL). Hole uses feature.type=HOLE with holePoint or holePoints (1..128 unique formal upstream explicit points, mutually exclusive), optional drillTipAngle (degrees, blind only) plus depthConvention=CYLINDER|TIP, and thread engineering metadata mode=ANNOTATION (no helical geometry) and BLIND|THROUGH_ALL extent. Prefer part.cut for a through cut without a length argument. Thin walls use thinWall input=REGIONS|CHAINS, mode=ONE_SIDED|TWO_SIDED|SYMMETRIC (total thickness), side=LEFT|RIGHT, join=MITER|ROUND and thickness in mm; CHAINS uses stable entityIds and persisted direction anchors. Sweep uses feature.type=SWEEP, profile and sweep.path {sketchId,entityIds}, frameMode=CORRECTED_FRENET|FRENET, cornerMode=MITER|G1_ONLY. Paths use a single formal connected sketch chain. The profile plane must contain the path start and be normal to its tangent. CUT is not an operation value."
 		}
 		if contract.command == "REASSIGN_SKETCH_SUPPORT" {
 			op.Description += " Datum support uses plane or datumPlaneId at the command baseline; face support requires the existing sketch support editor to pick an exact legal upstream stage, never an invented topologyId."
@@ -357,10 +357,14 @@ func DescribeType(name string) (map[string]any, error) {
 // These discriminator values mirror the existing handlers, not CAD recipes.
 // All nested geometry/constraint fields still come from their actual DTO types.
 var contractEnums = map[string][]string{
+	"workspace.ThinWallDefinition.input":       {"REGIONS", "CHAINS"},
+	"workspace.ThinWallDefinition.mode":        {"ONE_SIDED", "TWO_SIDED", "SYMMETRIC"},
+	"workspace.ThinWallDefinition.side":        {"LEFT", "RIGHT"},
+	"workspace.ThinWallDefinition.join":        {"MITER", "ROUND"},
 	"workspace.CommandRequest.generator":       {"LINEAR_EXTRUDE", "REVOLVE"},
 	"workspace.CommandRequest.operation":       {"NEW_BODY", "ADD", "REMOVE", "INTERSECT"},
-	"workspace.CommandRequest.extent":          {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE"},
-	"workspace.Feature.extent":                 {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE", "BLIND"},
+	"workspace.CommandRequest.extent":          {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE", "TO_NEXT", "TO_SURFACE"},
+	"workspace.Feature.extent":                 {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE", "TO_NEXT", "TO_SURFACE", "BLIND"},
 	"workspace.Feature.holeKind":               {"SIMPLE", "COUNTERBORE", "COUNTERSINK"},
 	"workspace.CommandRequest.placement":       {"BEFORE", "AFTER"},
 	"workspace.PatternDefinition.kind":         {"LINEAR", "CIRCULAR", "MIRROR"},

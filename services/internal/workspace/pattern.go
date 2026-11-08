@@ -35,6 +35,33 @@ type PatternDefinition struct {
 }
 
 const maxPatternMembers = 256
+const maxPatternReexecutionCalls = 1024
+
+func validatePatternReexecutionBudget(p *FeaturePattern) error {
+	if p == nil || !positiveFinite(p.Count) || p.Count > maxPatternMembers || math.Trunc(p.Count) != p.Count {
+		return nil
+	}
+	sources := 0
+	for _, s := range patternSeeds(p) {
+		if s.SourceKind == "FEATURE_REEXECUTION" {
+			sources++
+		}
+	}
+	skipped := map[int]bool{}
+	for _, slot := range p.SkippedSlots {
+		skipped[slot] = true
+	}
+	members := 0
+	for slot := 1; slot < int(p.Count); slot++ {
+		if !skipped[slot] {
+			members++
+		}
+	}
+	if members*sources > maxPatternReexecutionCalls {
+		return fmt.Errorf("%w: PATTERN_REEXECUTION_BUDGET", ErrValidation)
+	}
+	return nil
+}
 
 type PatternSeed struct {
 	Source         FeatureStageRef `json:"source"`
@@ -51,7 +78,7 @@ type FeaturePattern struct {
 	ResultMode        string        `json:"resultMode,omitempty"` // COMBINE | INDEPENDENT
 	PatternDefinition
 	Source         FeatureStageRef `json:"source"`
-	SourceKind     string          `json:"sourceKind"`               // SKETCH_FRAME, GENERATOR_TOOL, BODY_STAGE, FEATURE_DELTA
+	SourceKind     string          `json:"sourceKind"`               // SKETCH_FRAME, GENERATOR_TOOL, BODY_STAGE, FEATURE_DELTA, FEATURE_REEXECUTION
 	StartFeatureID string          `json:"startFeatureId,omitempty"` // inclusive start of finite material range
 }
 
@@ -122,6 +149,9 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 		return fmt.Errorf("%w: pattern identity required", ErrValidation)
 	}
 	p := f.Pattern
+	if err := validatePatternReexecutionBudget(p); err != nil {
+		return err
+	}
 	if len(p.AdditionalSources) > 0 {
 		if f.Type != "SOLID_PATTERN" || len(p.AdditionalSources) > 31 {
 			return fmt.Errorf("%w: PATTERN_SEED_SET_INVALID", ErrValidation)
@@ -202,6 +232,10 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 			}
 			if f.Operation != source.Operation && !(source.Operation == "NEW_BODY" && f.Operation == "ADD") {
 				return fmt.Errorf("%w: pattern operation must match seed tool", ErrValidation)
+			}
+		} else if p.SourceKind == "FEATURE_REEXECUTION" {
+			if !replicationSource(source).Reexecution || f.Operation != materialRangeOperation(source) {
+				return fmt.Errorf("%w: PATTERN_REEXECUTION_SOURCE_INVALID", ErrValidation)
 			}
 		} else if p.SourceKind == "FEATURE_DELTA" {
 			start, valid := earlier[p.StartFeatureID]
@@ -307,7 +341,7 @@ func visualizationSketchFeatures(model PartModel) []Feature {
 			if err != nil {
 				continue
 			}
-			entities, err := evaluatedSketchPatternEntities(*member.Sketch)
+			entities, err := evaluatedSketchEntities(*member.Sketch)
 			if err != nil {
 				continue
 			}

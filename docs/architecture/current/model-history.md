@@ -149,6 +149,24 @@ Part 与 Product 共用 `ParameterDefinition`、参数命令、预览、history 
 
 共同派生输入合同位于 `modelcore/derived.go`：typed facet + 稳定文档/实体/occurrence/slot + 输入摘要，附 Revision 证据；指纹包含 evaluator、policy 和规范定义。measurement/spatial adapters 声明实际读集。距离/干涉读取相对位姿；截面/距离区域读取所属 frame；面积读取内在几何。纯显示与名称不进入几何摘要。`ScheduleEvaluationGraph` 先检查完整边端点和循环，再安排 derived producer 下游阶段，普通历史阶段约束仍保留。`UPDATE_DERIVED` 统一接受测量与空间分析适配器的批量结果，历史、失败及 CAS 沿用公共事务；当前显式请求才重算，不包含全局自动更新调度或跨 Workspace 事务。跨文档参数批量接受仍按文档排序，独立端口构成文档级环的复杂交叉设计会保守拒绝；这与本地/跨文档参数来源的实际环检查分开。
 
+### Part 依赖只读视图
+
+`POST /api/documents/{id}/part-dependencies` 从当前接受的 Part 及同一 `buildPartEvaluation` 投影有向节点、typed edges 和图 digest；不维护另一份依赖真相。请求绑定 Revision，直接 Product occurrence 同时绑定根 Revision、ContextVariant 和 InstancePath，读取校验 Part 与根 Product 权限，Viewer 可用；过期或不完整 scope 拒绝。读取不修改 Head 或最近打开时间。
+
+工作台“零件依赖”复用 GraphView，支持读取来源、影响范围、双向关系及有界显示；定位沿当前语义树和 occurrence，编辑/修复仍进入原对象命令。节点覆盖参数、基准、草图、轮廓、实体阶段、投影及发布/上下文输入等正式图节点。Feature 输入明细保留选定区域、孔点和拓扑定义；区域 AVAILABLE/MISSING 来自该接受快照的精确分析，拓扑 DEFINED 仅表示保存了 PersistentSelection，精确解析仍由 FeatureInput/修复执行，不冒充已重新解析。根因候选由实际 FAILED/失效状态及来源关系投影，不能仅因草图开放而认定所有区域不可用。默认最多显示 200 个相关对象，可显式扩大至 1000；布局、显示筛选和定位不写 Revision。
+
+入口：`part_dependencies.go`、`part-dependency-graph.ts`、`part-dependency-panel.tsx`。定向检查覆盖正式图一致、区域缺失、权限与快照、方向/显示预算及重复 occurrence 隔离；浏览器覆盖依赖图 → 定位 → 原特征显式修复。
+
+### 健康历史对照与当前引用修复
+
+“零件依赖”选中 Feature、草图或其投影后，可打开健康历史对照。`feature-repair-context` 读取当前精确 scope，再沿不可变父版本链检查健康定义；默认检查 64 个版本，可扩大至 256，也可明确选择所属文档的已接受历史版本。直接 ContextVariant 使用对应根 Product 的历史及相同 InstancePath，不读取来源新 Head 或其它 occurrence。响应记录检查范围、历史 Part/根 Revision、Variant 和时间；没有找到仅表示本次检查范围内无候选。支撑失效、矛盾/未解草图及失败实体不冒充健康定义。
+
+草图按历史已接受几何和支撑框架显示；实体按历史定义使用当前 evaluator 重建，界面明确说明这一区别，不承诺旧内核制品逐位相同。显示复用有界 transient 缓存，但凭据 `displayOnly` 不能提升为 Domain Command，只授权当前用户的 VISUAL；不提供 BREP/Naming 绑定，历史图元不进入当前选择索引。查看期间阻止建模输入而保留导航，关闭/切回清理显示与凭据；比较不能改写任何 Head、Revision 或历史记录。当前版本/根 scope 变化丢弃迟到结果。
+
+引用与数量对照使用原稳定 ID/ParameterId，依赖图给出可能受影响的下游；“使用当前输入修复”返回原特征、支撑或投影命令，由当前合法输入显式替换并做新的权威 Preview。不会把历史显示几何作为新的引用或自动回滚草图。比较入口要求先结束几何编辑；这避免丢失未提交的命令草稿。历史比较目前针对普通 Sketch/实体 Feature 和既有直接 READY ContextVariant，未扩展到任意深层上下文或未接受版本。
+
+入口：`feature_repair_context.go`、`feature-repair-panel.tsx`、`feature-repair-context.ts`。真实 Router/Worker 覆盖区域、支撑/投影及重复 occurrence 的历史来源、只读/快照与 Head 保持；浏览器覆盖历史几何开关、当前模型恢复和随后显式修复。
+
 ## 实现与验证入口
 
 - [Workspace 模型](../../../services/internal/workspace/model.go)

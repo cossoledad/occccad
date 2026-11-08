@@ -399,6 +399,7 @@ type SketchSolveComponent struct {
 }
 type SketchFeature struct {
 	Patterns         []SketchPattern          `json:"patterns,omitempty"`
+	Offsets          []SketchOffset           `json:"offsets,omitempty"`
 	SchemaVersion    uint32                   `json:"schemaVersion"`
 	Support          SketchSupport            `json:"support"`
 	Entities         []SketchEntity           `json:"entities"`
@@ -407,6 +408,8 @@ type SketchFeature struct {
 	Solve            SketchSolveState         `json:"solve"`
 }
 type SketchOperation struct {
+	Offset                      *SketchOffset                    `json:"offset,omitempty"`
+	OffsetID                    string                           `json:"offsetId,omitempty"`
 	Support                     *SketchSupport                   `json:"support,omitempty"`
 	DatumReference              *DatumReference                  `json:"datumReference,omitempty"`
 	PatternParameterExpressions map[string]string                `json:"patternParameterExpressions,omitempty"`
@@ -507,6 +510,13 @@ type ProfileRegionSelection struct {
 }
 
 type Feature struct {
+	LoftStart          *LoftBoundaryDefinition `json:"loftStart,omitempty"`
+	LoftEnd            *LoftBoundaryDefinition `json:"loftEnd,omitempty"`
+	Sweep              *SweepDefinition        `json:"sweep,omitempty"`
+	HolePoints         []PatternPointReference `json:"holePoints,omitempty"`
+	DrillTipAngle      float64                 `json:"drillTipAngle,omitempty"`
+	DepthConvention    string                  `json:"depthConvention,omitempty"`
+	Thread             *HoleThreadDefinition   `json:"thread,omitempty"`
 	HoleKind           string                  `json:"holeKind,omitempty"`
 	RecessDiameter     float64                 `json:"recessDiameter,omitempty"`
 	RecessDepth        float64                 `json:"recessDepth,omitempty"`
@@ -515,6 +525,10 @@ type Feature struct {
 	Diameter           float64                 `json:"diameter,omitempty"`
 	Depth              float64                 `json:"depth,omitempty"`
 	TerminationPlaneID string                  `json:"terminationPlaneId,omitempty"`
+	ThinWall           *ThinWallDefinition     `json:"thinWall,omitempty"`
+	TerminationSurface *FeatureSelection       `json:"terminationSurface,omitempty"`
+	StartOffset        float64                 `json:"startOffset,omitempty"`
+	EndOffset          float64                 `json:"endOffset,omitempty"`
 	TerminationPlane   *FeatureSelection       `json:"terminationPlane,omitempty"`
 	ProfileSelection   *ProfileRegionSelection `json:"profileSelection,omitempty"`
 	Pattern            *FeaturePattern         `json:"pattern,omitempty"`
@@ -824,7 +838,7 @@ type ReferenceUpdate struct {
 
 type ContextVariantSnapshot struct {
 	ReplicationSources       map[string]ReplicationSource     `json:"replicationSources,omitempty"`
-	SketchPatternMembers     map[string][]SketchEntity        `json:"sketchPatternMembers,omitempty"`
+	SketchDerivedEntities    map[string][]SketchEntity        `json:"sketchDerivedEntities,omitempty"`
 	SketchAnalyses           map[string]SketchProfileAnalysis `json:"sketchAnalyses,omitempty"`
 	Part                     *PartModel                       `json:"part,omitempty"`
 	VariantKey               string                           `json:"variantKey"`
@@ -1112,7 +1126,7 @@ type DocumentView struct {
 	CommandPreview          *CommandPreview                  `json:"commandPreview,omitempty"`
 	BodyAppearances         map[string]ResolvedAppearance    `json:"bodyAppearances,omitempty"`
 	ReplicationSources      map[string]ReplicationSource     `json:"replicationSources,omitempty"`
-	SketchPatternMembers    map[string][]SketchEntity        `json:"sketchPatternMembers,omitempty"`
+	SketchDerivedEntities   map[string][]SketchEntity        `json:"sketchDerivedEntities,omitempty"`
 	Document                DocumentSummary                  `json:"document"`
 	DatumPlanes             []DatumPlane                     `json:"datumPlanes,omitempty"`
 	AxisSystems             []AxisSystem                     `json:"axisSystems,omitempty"`
@@ -1224,6 +1238,10 @@ type CommandRequest struct {
 	AnchorFeatureID            string                       `json:"anchorFeatureId,omitempty"`
 	Placement                  string                       `json:"placement,omitempty"`
 	TerminationPlaneID         string                       `json:"terminationPlaneId,omitempty"`
+	ThinWall                   *ThinWallDefinition          `json:"thinWall,omitempty"`
+	TerminationSurface         *FeatureSelection            `json:"terminationSurface,omitempty"`
+	StartOffset                float64                      `json:"startOffset,omitempty"`
+	EndOffset                  float64                      `json:"endOffset,omitempty"`
 	TerminationPlane           *FeatureSelection            `json:"terminationPlane,omitempty"`
 	ExpectedHead               *CommandBaseline             `json:"expectedHead,omitempty"`
 	Properties                 *PropertyUpdateRequest       `json:"properties,omitempty"`

@@ -14,7 +14,8 @@ import (
 func resolveSketchCornerOperationValues(model PartModel, operations []SketchOperation) ([]SketchOperation, error) {
 	result := append([]SketchOperation(nil), operations...)
 	for i, op := range result {
-		if (op.Type != "FILLET_ENTITIES" && op.Type != "CHAMFER_ENTITIES") || op.ParameterSource == nil {
+		offsetOperation := op.Type == "CREATE_OFFSET" || op.Type == "EDIT_OFFSET" || op.Type == "OFFSET_ENTITIES"
+		if (op.Type != "FILLET_ENTITIES" && op.Type != "CHAMFER_ENTITIES" && !offsetOperation) || op.ParameterSource == nil {
 			continue
 		}
 		sourceText := strings.TrimSpace(*op.ParameterSource)
@@ -50,10 +51,18 @@ func resolveSketchCornerOperationValues(model PartModel, operations []SketchOper
 			}
 		}
 		value := quantity.SIValue * 1000
-		if !finite(value) || value <= 0 {
+		if !finite(value) || (!offsetOperation && value <= 0) || (offsetOperation && value == 0) {
 			return nil, fmt.Errorf("%w: corner primary length must be positive", ErrValidation)
 		}
-		if op.Type == "FILLET_ENTITIES" {
+		if offsetOperation {
+			if op.Offset != nil {
+				offset := *op.Offset
+				offset.Distance = value
+				op.Offset = &offset
+			} else {
+				op.Value = &value
+			}
+		} else if op.Type == "FILLET_ENTITIES" {
 			op.Value = &value
 		} else {
 			op.ChamferFirst = value

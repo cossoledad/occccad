@@ -98,3 +98,37 @@ Measure Between、Measure Item、视区读数及更新机制的具体对照归[�
 本机 B33 `control/BasEnglishC2.viewdoc` → `online/basug_C2/basugbt1305.htm`（Viewing Objects against the Ground）定义地面用于识别上下方向，初始位置平行/相切于文档底部，可显示/隐藏及重定位。该页没有给出数值间隙或尺寸公式。
 
 本软件采用有限正方地面，按可见实体与草图范围计算尺寸及底部间隙；草图编辑时隐藏三维地面并使用背景适配的草图配色。这些是本软件的交互与数值策略，参考 CATIA 的空间定位目的，不宣称尺寸公式或草图自动隐藏行为直接来自该页。当前实现见[全局场景](../architecture/current/object-scene-properties.md)。
+
+## 草图与实体连续建模参考
+
+本机索引 `control/PrtEnglishC2.viewdoc` → `online/prtug_C2/prtugbt0501.htm`：Pad 定义中的草图往返、数值与 LIM1/LIM2 操纵器；`control/DysEnglishC2.viewdoc` → `online/dysug_C2/dysugbt1020.htm`：Profile Offset 的关联和几何/尺寸关系选项。参考操作目的，本项目仍由参数模型、正式命令、不可变 Revision 和可重建制品决定语义。
+
+- [Onshape Automatic Inferencing](https://cad.onshape.com/help/Content/Sketch/automatic_inferencing.htm)：显示方向候选及支撑后建立关系，并提供临时关闭方式；本项目沿既有 Alt 约定提供临时关闭。
+- [Onshape Sketch Basics](https://cad.onshape.com/help/Content/Sketch/sketch_basics.htm)：绘图输入数值或表达式、自动关系与后续实体消费的连续流程。
+- [Onshape Extrude](https://cad.onshape.com/help/Content/PartStudio/extrude.htm)：数值与拖动操纵器、起点偏移和多种终止方式。
+- [SOLIDWORKS Automatic Relations](https://help.solidworks.com/2024/English/SolidWorks/sldworks/t_Using_Automatic_Relations.htm)：关系候选显示与自动关系开关。
+
+以上是产品行为来源；当前交付范围及未支持情况分别由 [Part/Sketch](../architecture/current/part-sketch.md) 和 [实体 Feature](../architecture/current/solid-features.md) 维护，手册检索不等于真实模型验收。
+
+## 薄壁参考
+
+2026-11-07 先由本机 `control/PrtEnglishC2.viewdoc` 定位 `online/prtug_C2/prtugbt0501.htm` 的 Thick 入口，再读取其链接 `online/prtug_C2/prtugbt0526.htm`（Creating Thin Solids）。手册分别演示两侧厚度、Neutral fiber 总厚度均分及 Merge Ends。当前实现借鉴双侧/对称厚度的区分；Merge Ends、任意曲面偏置等仍未实现，手册行为不作为本项目保证。
+
+## 草图与实体一体化扩展参考
+
+以下是手册参考行为，当前支持合同分别见[生成器](../architecture/current/solid-generators.md)和[特征复制](../architecture/current/feature-replication.md)。本机 CATIA 来源均先从 `control/PrtEnglishC2.viewdoc` 或对应工作台目录定位，再读取 online 页面；未使用 CATIA 自动化或真实模型作验收。
+
+| 来源 | 参考点 | 本项目采用及边界 |
+|---|---|---|
+| CATIA `online/prtug_C2/prtugbt0507.htm` Creating Ribs；`prtugbt0508.htm` Creating Slots | 截面沿中心曲线生成或去除材料 | Sweep 区分截面/路径，保存方向；当前限正式平面草图路径及两类标架，不声称覆盖所有商业姿态/扭转选项 |
+| CATIA `online/cfyugprt_C2/cfyugprthole1.htm` Creating Holes；`cfyugprthole3.htm` Threaded Holes | 孔型、深度与 Thread Definition 的独立参数 | 孔组、钻尖深度约定、工程标注分别表达；无螺纹标准查表或螺旋牙型承诺 |
+| [Onshape Loft 官方帮助](https://cad.onshape.com/help/Content/PartStudio/loft.htm) | 端部法向/方向控制与匹配相邻面切向/曲率分开 | 区分端部方向与 G1/G2 支撑；当前连续性限解析挤出延续，不把端部方向称为整段导向曲线 |
+| [Onshape Sweep 官方帮助](https://cad.onshape.com/help/Content/PartStudio/sweep.htm) | 分别选择截面、路径和姿态控制 | 复用正式轮廓与路径输入、原子预览/提交和草图往返；缩放、扭转律不在当前范围 |
+
+商业行为只影响交互与合同设计，不证明本项目的求值、Naming、性能或容量。当前实际检查、样本数和未运行组合见[验证记录](../validation/sketch-solid-workflow.md)。
+
+## 草图诊断与精简操作（2026-11-08）
+
+本机 `control/DysEnglishC2.viewdoc` → `online/dysug_C2/dysugbt0520.htm`（Analyzing Sketched Geometry）说明 Geometry、Use-edges、Diagnostic 页签及表格选择与草图高亮；`online/dysug_C2/dysugbt0518.htm` 提供约束状态与完整分析入口。这里仅是手册参考，没有进行 CATIA 实际模型验证。
+
+本项目采用既有装配约束诊断的“待处理问题 / 全部约束 / 自由度”结构、行选择高亮与显式定位，并保留正式约束编辑/停用。该结构不是照搬 CATIA 的三个页签，也不新增 Use-edges 分析。绘制尺寸框和实体尺寸手柄按本轮产品要求移除，商业参考中的相关能力不代表当前产品范围。

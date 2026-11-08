@@ -14,6 +14,7 @@ export type { SketchReferenceSelectionRequest, SketchReferenceSelectionBindings 
 import type { DocumentView, SketchConstraint, SketchGeometryRef, SketchOperation, SketchEntity, Vec2 } from "../../types";
 import { CommandDialog } from "../overlay/floating-panel";
 import { parameterSourceText, parseParameterSource } from "../../features/workbench/parameter-editor";
+import { ParameterReferenceInput } from "../../features/workbench/parameter-reference-input";
 import {constraintDefinition,isDimensionConstraintKind} from "./sketch-constraint-definition";
 import {preselectedSketchReference} from "../interaction/sketch-reference-pick";
 import {sketchEntityPoint,splineEditablePointIDs,splineEditablePoints} from "./sketch-geometry";
@@ -63,6 +64,9 @@ export function referenceMatches(a:SketchGeometryRef,b:SketchGeometryRef):boolea
 }
 export function validReferenceReplacement(constraint:SketchConstraint,slot:number,candidate:SketchGeometryRef,entities:SketchEntity[]):boolean {
  return !constraint.references.some((ref,index)=>index!==slot&&referenceMatches(ref,candidate))&&constraintReferenceChoices(constraint,slot,entities).some(choice=>referenceMatches(choice,candidate));
+}
+export function canReplaceConstraintReferences(constraint:SketchConstraint):boolean {
+ return !constraint.internal&&!['MIRROR','SAME_SUPPORT'].includes(constraint.kind);
 }
 const entityLabels:Record<SketchEntity["kind"],string>={POINT:"点",LINE:"直线",CIRCLE:"圆",ARC:"圆弧",ELLIPSE:"椭圆",ELLIPTICAL_ARC:"椭圆弧",SPLINE:"样条"};
 const roleLabels:Record<SketchGeometryRef["subElement"],string>={POINT:"点",START:"起点",END:"终点",CENTER:"中心",CONTROL:"编辑点",WHOLE:"整体",DIRECTION:"方向"};
@@ -177,8 +181,8 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
   {unknown&&<Typography.Paragraph aria-live="polite">请求已发出；结果待确认。重试使用同一请求查询结果，草稿暂不可修改。关闭面板不撤销已发请求。</Typography.Paragraph>}
   {deleting?<Typography.Paragraph>{logical?"确认后正式删除此关系。":"确认后正式删除关系及其尺寸参数；存在表达式依赖时操作将原子拒绝。"}</Typography.Paragraph>:<>
    {!logical&&<CommandFormItem className="sketch-dimension-value" label={`值或表达式（${inputUnit}）`}>
-    <Input autoFocus aria-label="尺寸值或表达式" value={source} disabled={pending||unknown||reference||readonly}
-     onFocus={e=>selectInitialDimensionValue(e.currentTarget,valueFocused)} onChange={e=>setSource(e.target.value)}/>
+    <ParameterReferenceInput autoFocus label="尺寸值或表达式" value={source} parameters={view.part?.parameters??[]} excludeId={parameter?.parameterId} unit={inputUnit==='deg'?undefined:inputUnit} disabled={pending||unknown||reference||readonly}
+     onFocus={e=>selectInitialDimensionValue(e.currentTarget,valueFocused)} onChange={setSource} onConfirm={()=>void submit().catch(cause=>setPreviewError(engineeringProblem(cause)))}/>
    </CommandFormItem>}
    <ContextInputSource view={view} binding={contextBinding}/>
    {kind==="ANGLE"&&angleSector&&<CommandFormItem label="弧线方向" layout="horizontal"><Select aria-label="弧线方向" value={angleSector.clockwise?"CW":"CCW"} options={[{value:"CCW",label:"逆时针"},{value:"CW",label:"顺时针"}]} onChange={v=>{const next={...angleSector,clockwise:v==="CW"};setAngleSector(next);if(!parameter?.source.expression){const measured=measureSketchDimension(kind,references,sketch?.entities??[],next);if(measured!==undefined)setSource(String(measured));}}}/></CommandFormItem>}
@@ -191,7 +195,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
       onMouseLeave={()=>{if(selecting===undefined)onHighlightReference?.(request.featureId,undefined,index);}}>
      <FeaturePickField label={definition.pickLabels[index]??"引用对象"} value={sketchReferenceLabel(ref,sketch?.entities??[])} selected active={selecting===index} disabled={pending||unknown}
       onLocate={onLocateReference?()=>{cancelSelection();onLocateReference(request.featureId,ref,index)}:undefined}
-      onActivate={logical&&onSelectReference?()=>replace(index):undefined} onCancel={cancelSelection}/>
+      onActivate={onSelectReference&&canReplaceConstraintReferences(draft)?()=>replace(index):undefined} onCancel={cancelSelection}/>
 
     </div>)}
    </div>

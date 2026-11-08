@@ -1,6 +1,8 @@
 import {inlineEditorPosition,inlineParameterPrefix} from "../../utils/inline-editor-position";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Button, Input, type InputRef } from "antd";
+import { Button, type InputRef } from "antd";
+import type {ParameterDefinition} from '../../types';
+import {ParameterReferenceInput} from '../../features/workbench/parameter-reference-input';
 import {MinusOutlined,PlusOutlined} from '@ant-design/icons';
 import type { SketchCommandAction, SketchCommandState } from "../tool/sketch-command-session";
 import type { DisplayLengthUnit } from "../../state/ui-preferences";
@@ -9,14 +11,13 @@ export function defaultSketchToolMode(_toolId:string,doubleClick=false):"once"|"
  return doubleClick?"continuous":"once";
 }
 
-export function SketchParameterValueInput({field,pending,onChange,inputRef}:{field:SketchCommandState["fields"][number];pending:boolean;onChange:(value:string)=>void;inputRef?:React.Ref<InputRef>}) {
- return <Input ref={inputRef} autoFocus variant="borderless" size="small" aria-label={field.label} value={field.value} placeholder={field.placeholder??"值或表达式"} disabled={pending}
- onChange={event=>onChange(event.target.value)}/>;
+export function SketchParameterValueInput({field,pending,onChange,inputRef,parameters=[]}:{field:SketchCommandState["fields"][number];pending:boolean;onChange:(value:string)=>void;inputRef?:React.Ref<InputRef>;parameters?:ParameterDefinition[]}) {
+ return <ParameterReferenceInput inputRef={inputRef} autoFocus compact label={field.label} value={field.value} placeholder={field.placeholder??"值或表达式"} disabled={pending} parameters={parameters} onChange={onChange}/>;
 }
 
 /** Parameter annotation, not a command card. Editing affects only the actor's
  * existing draft; blur never confirms and Escape still cancels the command. */
-export function SketchInlineParameterInput({state,lengthUnit="mm",onAction,onEditing}:{state:SketchCommandState;lengthUnit?:DisplayLengthUnit;onAction:(action:SketchCommandAction)=>void;onEditing?:(editing:boolean)=>void}) {
+export function SketchInlineParameterInput({state,lengthUnit="mm",onAction,onEditing,parameters}:{state:SketchCommandState;lengthUnit?:DisplayLengthUnit;onAction:(action:SketchCommandAction)=>void;onEditing?:(editing:boolean)=>void;parameters?:ParameterDefinition[]}) {
  const host=useRef<HTMLDivElement>(null);
  const [position,setPosition]=useState({x:12,y:12});
  const frozenAnchor=useRef<{id:string;anchor?:[number,number]}>({id:""});
@@ -75,6 +76,7 @@ export function SketchInlineParameterInput({state,lengthUnit="mm",onAction,onEdi
   onLostPointerCapture={()=>{drag.current=undefined;}}
   onKeyDownCapture={event=>{
    if(event.nativeEvent.isComposing||event.nativeEvent.keyCode===229||event.repeat)return;
+   if((event.key==='Enter'||event.key==='Escape')&&(event.target as HTMLElement)?.getAttribute?.('aria-expanded')==='true')return;
    if(event.key==="Escape"){event.preventDefault();event.stopPropagation();onAction({type:"cancel"});}
    else if(event.key==="Enter"){event.preventDefault();event.stopPropagation();confirm();}
    else if(event.key==="Tab"&&state.fields.length>1){event.preventDefault();event.stopPropagation();onAction({type:"input",index:(request.fieldIndex+(event.shiftKey?state.fields.length-1:1))%state.fields.length});}
@@ -85,8 +87,8 @@ export function SketchInlineParameterInput({state,lengthUnit="mm",onAction,onEdi
   <Button size="small" type="text" aria-label={`编辑${field.label}`} onClick={()=>{cursor.current='all';setEditing(true)}}>{field.value}</Button>
   <Button size="small" type="text" aria-label={`增加${field.label}`} disabled={pending||Number(field.value)>=request.counter.max} icon={<PlusOutlined/>} onClick={()=>onAction({type:'field',index:request.fieldIndex,value:String(Math.min(request.counter!.max,Number(field.value)+1))})}/>
  </div>:editing?<div className="cad-inline-editor">
-    <span className="cad-inline-prefix" aria-label={request.dimension?"拖动尺寸标注":field.label} style={{cursor:request.dimension?"move":"default"}}>{inlineParameterPrefix(field.label)}</span>
-    <SketchParameterValueInput field={field} pending={pending} inputRef={input} onChange={value=>onAction({type:"field",index:request.fieldIndex,value})}/>
+    <span className="cad-inline-prefix" aria-label={request.dimension?"拖动尺寸标注":undefined} aria-hidden={!request.dimension||undefined} style={{cursor:request.dimension?"move":"default"}}>{inlineParameterPrefix(field.label)}</span>
+    <SketchParameterValueInput field={field} pending={pending} inputRef={input} parameters={parameters} onChange={value=>onAction({type:"field",index:request.fieldIndex,value})}/>
     {suffix&&<small>{suffix.trim()}</small>}
   </div>:<Button ref={value} type="text" size="small" disabled={pending} className={request.dimension?"cad-inline-hit":"cad-inline-value"} onClick={()=>{if(suppressClick.current){suppressClick.current=false;return;}cursor.current="all";setEditing(true);}} aria-label={`编辑${field.label} ${field.value}${suffix}`}>{field.label} {field.value}{suffix}</Button>}
   {state.error&&<div className="cad-inline-error" role="alert">{state.error}</div>}

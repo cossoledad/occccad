@@ -1,8 +1,8 @@
 import {FeaturePickField} from "./feature-pick-field";
 import {CommandField} from "../../cad/overlay/command-form";
-import {engineeringProblem} from "../../cad/command/operation-feedback";
+import {useFeatureDialogFeedback} from "./use-feature-dialog-feedback";
 import {CadNumberInput as InputNumber} from "../../cad/overlay/cad-number-input";
-import { Alert, Button, Segmented, Switch } from "antd";
+import { Button, Segmented, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
 import {owningInstanceSelection} from "../../cad/assembly/instance-selection";
@@ -29,7 +29,7 @@ export function InstancePatternDialog({ view, seed, onSelectionSession, parentOc
   const [newCount, setNewCount] = useState<number | null>(1);
   const [spacing, setSpacing] = useState<number | null>(10);
   const [reversed, setReversed] = useState(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<unknown>();
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const input: InstancePatternPreview | undefined = sourceInstance && newCount !== null && spacing !== null
@@ -40,11 +40,12 @@ export function InstancePatternDialog({ view, seed, onSelectionSession, parentOc
     onPreview(valid ? input : undefined);
     return () => onPreview(undefined);
   }, [sourceInstance?.id, axis, newCount, spacing, reversed, parentOccurrencePath, parentRotation, onPreview]);
+  useFeatureDialogFeedback(error,"多实例化");
   const apply = async (close: boolean) => {
     if (!input || !valid || busy || submittingRef.current) return;
     submittingRef.current = true; setSubmitting(true); setError(undefined);
     try { await onApply(input); if (close) onClose(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(cause); }
     finally { submittingRef.current = false; setSubmitting(false); }
   };
   return <CommandDialog id="product-pattern" open title="多实例化" size="S"
@@ -56,7 +57,6 @@ export function InstancePatternDialog({ view, seed, onSelectionSession, parentOc
       <CommandField  label={<>方向轴</>} width="content"><Segmented value={axis} options={["X", "Y", "Z"]} disabled={busy}
         onChange={(value) => setAxis(value as PatternAxis)} /></CommandField>
       <CommandField  label={<>反向</>} width="option"><Switch checked={reversed} disabled={busy} onChange={setReversed} /></CommandField>
-      {error && <Alert type="error" showIcon title="创建失败" description={engineeringProblem(error)} />}
     </div>
   </CommandDialog>;
 }

@@ -25,7 +25,7 @@ export class VisibilityResolver {
   }
 
   private index(node: DocumentStructureNode, editing?: DefinitionScope): void {
-    const kind = ["SKETCH_INPUT_REFERENCE","SKETCH_PATTERN_MEMBER"].includes(node.kind) ? "SKETCH" : node.kind==="SKETCH_PATTERN_ENTITY"?"SKETCH_ENTITY":node.kind;
+    const kind = ["SKETCH_INPUT_REFERENCE","SKETCH_PATTERN_MEMBER"].includes(node.kind) ? "SKETCH" : ["SKETCH_PATTERN_ENTITY","SKETCH_OFFSET_ENTITY"].includes(node.kind)?"SKETCH_ENTITY":node.kind;
     if ((!editing || (node.subject?.documentId ?? node.documentId) === editing.documentId && !node.instancePath?.canonical) && (((DISPLAY_KINDS as readonly string[]).includes(kind) && node.entityId) ||
         (kind === "PART" && node.documentId))) {
       const address: DisplayAddress = {

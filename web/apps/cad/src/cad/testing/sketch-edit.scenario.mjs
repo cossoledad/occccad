@@ -99,7 +99,9 @@ try{
   assert.deepEqual(extendOperation.boundaryIds,["external-limit"]);assert.deepEqual(extendOperation.point,{x:20,y:1});
   const offset=new SketchEditTool("offset");offset.selectionInput([selectCorner("a"),selectCorner("b")],context);key(offset,"Enter");
   key(offset,"-");key(offset,"2");key(offset,"m");key(offset,"Enter");
-  assert.equal(operations.at(-1)[0].type,"OFFSET_ENTITIES");assert.equal(operations.at(-1)[0].value,-2);assert.equal(operations.at(-1)[0].mode,"ROUND");
+  assert.equal(operations.at(-1)[0].type,"CREATE_OFFSET");assert.equal(operations.at(-1)[0].offset.distance,-2);assert.equal(operations.at(-1)[0].offset.join,"ROUND");
+  assert.equal(operations.at(-1)[0].parameterSource,"-2 mm");
+  const independent=new SketchEditTool("offset");independent.selectionInput([selectCorner("a")],context);key(independent,"Enter");independent.commandAction({type:"option",name:"offsetLink",value:"INDEPENDENT"},context);key(independent,"Enter");assert.equal(operations.at(-1)[0].type,"OFFSET_ENTITIES");
   const invalidOffset=new SketchEditTool("offset");invalidOffset.selectionInput([selectCorner("ellipse")],context);
   const invalidOffsetCount=operations.length;key(invalidOffset,"Enter");key(invalidOffset,"Enter");assert.equal(operations.length,invalidOffsetCount,"ellipse exact equidistant is rejected rather than polyline approximated");
   const complement=new SketchEditTool("complement");complement.selectionInput([selectCorner("b")],context);key(complement,"Enter");key(complement,"u");key(complement,"Enter");

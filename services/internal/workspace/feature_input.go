@@ -72,6 +72,8 @@ func featureInputStageError(model PartModel, stage string, err error) error {
 
 type FeatureInput struct {
 	ReferenceGeometry *ReferenceGeometry      `json:"referenceGeometry,omitempty"`
+	LoftStartPicks    []FeatureNeutralPick    `json:"loftStartPicks,omitempty"`
+	LoftEndPicks      []FeatureNeutralPick    `json:"loftEndPicks,omitempty"`
 	PointPick         *FeatureInputResolution `json:"pointPick,omitempty"`
 	TerminationPick   *FeatureNeutralPick     `json:"terminationPick,omitempty"`
 	NeutralPick       *FeatureNeutralPick     `json:"neutralPick,omitempty"`
@@ -181,7 +183,7 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 	}
 	// Non-plane inputs authorize their complete declared context (including
 	// Boolean tools). The download gate separately checks the requested Body.
-	planeConsumer := feature.Type == "DRAFT" || feature.Extent == "TO_PLANE" || (feature.Type == "SOLID_PATTERN" && feature.Pattern != nil && feature.Pattern.Kind == "MIRROR")
+	planeConsumer := feature.Type == "LOFT" || feature.Type == "DRAFT" || feature.Extent == "TO_PLANE" || feature.Extent == "TO_SURFACE" || (feature.Type == "SOLID_PATTERN" && feature.Pattern != nil && feature.Pattern.Kind == "MIRROR")
 	if !resolve && !planeConsumer {
 		request.BodyID = ""
 	}
@@ -293,13 +295,35 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		result.NeutralPick = state
 		result.Artifacts = append(result.Artifacts, artifacts...)
 	}
-	if feature.Extent == "TO_PLANE" {
-		state, artifacts, err := s.featurePlaneInput(ctx, request, *view.Part, index, key, stage, feature.BodyID, feature.TerminationPlaneID, feature.TerminationPlane, resolve)
+	if feature.Extent == "TO_PLANE" || feature.Extent == "TO_SURFACE" {
+		pick := feature.TerminationPlane
+		if feature.Extent == "TO_SURFACE" {
+			pick = feature.TerminationSurface
+		}
+		state, artifacts, err := s.featurePlaneInput(ctx, request, *view.Part, index, key, stage, feature.BodyID, feature.TerminationPlaneID, pick, resolve)
 		if err != nil {
 			return FeatureInput{}, err
 		}
 		result.TerminationPick = state
 		result.Artifacts = append(result.Artifacts, artifacts...)
+	}
+	for end, b := range []*LoftBoundaryDefinition{feature.LoftStart, feature.LoftEnd} {
+		if b == nil {
+			continue
+		}
+		for _, p := range b.Supports {
+			pick := p
+			state, artifacts, err := s.featurePlaneInput(ctx, request, *view.Part, index, key, stage, feature.BodyID, "", &pick, resolve)
+			if err != nil {
+				return FeatureInput{}, err
+			}
+			if end == 0 {
+				result.LoftStartPicks = append(result.LoftStartPicks, *state)
+			} else {
+				result.LoftEndPicks = append(result.LoftEndPicks, *state)
+			}
+			result.Artifacts = append(result.Artifacts, artifacts...)
+		}
 	}
 	if !resolve {
 		return result, nil

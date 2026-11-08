@@ -21,12 +21,14 @@ try {
  const stale=session.begin(1);currentVersion="v2";assert.equal(session.accept(stale,replacement),false,"version change invalidates pick");
  const older=session.begin(1),latest=session.begin(1);assert.equal(session.accept(older,replacement),false);assert.equal(session.accept(latest,replacement),true);
  assert.equal(accepted.length,2);assert.equal(highlights.at(-1),undefined);assert(cancelled.length>=2);
- const {dimensionSourceInput,dimensionDefinitionOperation,logicalDefinitionOperation,constraintReferenceChoices,validReferenceReplacement,sketchReferenceLabel,SketchDimensionCommitSession,dimensionDisplayValue}=await server.ssrLoadModule("/src/cad/sketch/sketch-dimension-editor.tsx");
+ const {dimensionSourceInput,dimensionDefinitionOperation,logicalDefinitionOperation,constraintReferenceChoices,validReferenceReplacement,canReplaceConstraintReferences,sketchReferenceLabel,SketchDimensionCommitSession,dimensionDisplayValue}=await server.ssrLoadModule("/src/cad/sketch/sketch-dimension-editor.tsx");
  const {measureSketchDimension,sketchReferencePoint,buildSketchConstraintLayout}=await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-layout.ts");
  const {resolveSketchReference}=await server.ssrLoadModule("/src/cad/interaction/sketch-reference-pick.ts");
  assert.equal(dimensionSourceInput("-12","mm"),"-12 mm");assert.equal(dimensionSourceInput("2 * width","mm"),"2 * width");assert.throws(()=>dimensionSourceInput("","mm"));
  const ref=id=>({target:"ENTITY",entityId:id,subElement:"POINT"});
  const original={id:"dim",parameterId:"stable-param",kind:"HORIZONTAL_DISTANCE",unit:"mm",value:-12,references:[ref("a"),ref("b")]};
+ assert(canReplaceConstraintReferences(original),'ordinary dimensions expose the same reference replacement session');
+ assert(!canReplaceConstraintReferences({...original,internal:true}),'generated dimensions keep their operation ownership');
  const definition={...original,reference:true,references:[ref("b"),ref("a")]};
  const op=dimensionDefinitionOperation(definition,original,"999","-12 mm","width",false,"ORIGINAL");
  assert.equal(op.type,"UPDATE_CONSTRAINT");assert.equal(op.constraintId,"dim");assert.equal(op.constraint.parameterId,"stable-param");assert.equal(op.parameterSource,undefined);assert.equal(op.parameterKey,"width");assert.deepEqual(op.constraint.references,definition.references);

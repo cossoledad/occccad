@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v55-finite-removal-ranges"
+const evaluatorVersion = "part-solid-generators-v66-spline-integrals"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1319,7 +1319,7 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				return [3]float64{point.X, point.Y, 0}
 			}
 		}
-		patternEntities, patternErr := evaluatedSketchPatternEntities(*feature.Sketch)
+		patternEntities, patternErr := evaluatedSketchEntities(*feature.Sketch)
 		if patternErr != nil {
 			continue
 		} // Failed candidates never reach an accepted artifact.
@@ -1824,6 +1824,23 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
 			spec.Sections = sections
+			var startTools, endTools []geometry.BodyToolInput
+			spec.LoftStart, startTools, err = service.loftBoundaryInput(ctx, reqID, fullModel, feature, feature.LoftStart)
+			if err != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+			}
+			spec.LoftEnd, endTools, err = service.loftBoundaryInput(ctx, reqID, fullModel, feature, feature.LoftEnd)
+			if err != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+			}
+			seenTools := map[string]bool{}
+			for _, tool := range append(startTools, endTools...) {
+				key := tool.BodyID + "/" + tool.BRep.SHA256
+				if !seenTools[key] {
+					spec.Tools = append(spec.Tools, tool)
+					seenTools[key] = true
+				}
+			}
 			solidFeatures = append(solidFeatures, spec)
 			bodyTipFeatureID = feature.ID
 		case "FILLET", "CHAMFER", "DRAFT", "SHELL":
@@ -1879,8 +1896,16 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			}
 		case "SKETCH", "SKETCH_PATTERN":
 			sketches[feature.ID] = feature
-		case "PAD", "LINEAR_EXTRUDE", "REVOLVE":
-			sketch, regions, err := service.featureProfileRegions(ctx, fullModel, feature, reqID+"/profile/"+feature.ID)
+		case "PAD", "LINEAR_EXTRUDE", "REVOLVE", "SWEEP":
+			var sketch Feature
+			var regions []geometry.ProfileRegion
+			var origins []geometry.ProfileOrigin
+			var err error
+			if feature.ThinWall != nil {
+				sketch, regions, origins, err = service.thinProfileRegions(ctx, fullModel, feature, reqID+"/profile/"+feature.ID)
+			} else {
+				sketch, regions, err = service.featureProfileRegions(ctx, fullModel, feature, reqID+"/profile/"+feature.ID)
+			}
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
@@ -1892,6 +1917,14 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 				plane = "XY"
 			}
 			generator := "LINEAR_EXTRUDE"
+			var sweepPath *geometry.SweepPath
+			if feature.Type == "SWEEP" {
+				generator = "SWEEP"
+				sweepPath, err = service.sweepPath(ctx, fullModel, feature)
+				if err != nil {
+					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+				}
+			}
 			angle := 0.0
 			axisStart, axisEnd := [2]float64{}, [2]float64{}
 			if strings.EqualFold(feature.Type, "REVOLVE") {
@@ -1924,8 +1957,17 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 					return "", fmt.Errorf("FEATURE_FAILED[%s]: TO_PLANE_TARGET_UNRESOLVED: %w", feature.ID, err)
 				}
 			}
+			var endSurface *modelcore.SemanticTopologyRef
+			var terminationTools []geometry.BodyToolInput
+			if feature.Extent == "TO_SURFACE" {
+				endSurface, terminationTools, err = service.resolveTerminationSurface(ctx, reqID, fullModel, feature)
+				if err != nil {
+					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+				}
+			}
 			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID,
 				InputFeatureID: bodyTipFeatureID, ProfileFeatureID: sketch.ID,
+				StartOffset: feature.StartOffset, EndOffset: feature.EndOffset, TerminationSurface: endSurface, Tools: terminationTools, ProfileOrigins: origins, SweepPath: sweepPath,
 				TerminationOrigin: endOrigin, TerminationNormal: endNormal,
 				Regions: regions, Length: feature.Length, Extent: feature.Extent, Length2: feature.Length2,
 				Plane: plane, BodyOperation: operation, Generator: generator, RevolveAngle: angle,
@@ -2365,14 +2407,17 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 		}
 		if editable {
 			node.Capabilities = []string{"DELETE", "SUPPRESS"}
+			if !constraint.Internal && constraint.Kind != "MIRROR" && constraint.Kind != "SAME_SUPPORT" {
+				node.Capabilities = append(node.Capabilities, "EDIT")
+			}
 		}
 		parent.Children = append(parent.Children, node)
 	}
 	constraints.Children = append(constraints.Children, logical, dimensions)
 	if len(externals.Children) > 0 {
-		return append([]DocumentStructureNode{geometry, externals, constraints}, sketchPatternNodes(sketch, path, sketchID, documentID, versionID, editable)...)
+		return append([]DocumentStructureNode{geometry, externals, constraints}, sketchDerivedNodes(sketch, path, sketchID, documentID, versionID, editable)...)
 	}
-	return append([]DocumentStructureNode{geometry, constraints}, sketchPatternNodes(sketch, path, sketchID, documentID, versionID, editable)...)
+	return append([]DocumentStructureNode{geometry, constraints}, sketchDerivedNodes(sketch, path, sketchID, documentID, versionID, editable)...)
 }
 
 func partStructureChildren(model PartModel, path, documentID, versionID string, editable bool) []DocumentStructureNode {

@@ -1,3 +1,4 @@
+import {creationQuantity} from "../sketch/sketch-quantity";
 import {engineeringProblem} from "../command/operation-failure";
 import {recordDeveloperEvidence} from "../command/developer-evidence";
 import { constraintDefinition } from "../sketch/sketch-constraint-definition";
@@ -14,7 +15,7 @@ import {SKETCH_INPUT_POLICY} from "../sketch/sketch-input-policy";
 
 export type SketchEditKind="delete"|"copy"|"move"|"mirror"|"split"|"trim"|"quick_trim"|"fillet"|"chamfer"|"extend"|"complement"|"close"|"offset"|"spline_insert"|"spline_delete"|"spline_close"|"spline_control"|"construction";
 type SketchScope=NonNullable<ReturnType<NonNullable<ToolContext["viewport"]["currentSketchIdentity"]>>>;
-const scopeKey=(scope:SketchScope|undefined)=>scope&&`${scope.documentId}/${scope.sketchId}/${scope.versionId}/${scope.occurrencePath??""}`;
+const scopeKey=(scope:SketchScope|undefined)=>scope&&`${scope.documentId}/${scope.sketchId}/${scope.versionId}/${scope.occurrencePath??""}/${scope.contextKey??""}`;
 const point=(value:Vec2):SketchPoint2=>({x:value[0],y:value[1]});
 const labels:Record<SketchEditKind,string>={delete:"删除",copy:"复制",move:"移动",mirror:"镜像",split:"分割",trim:"修剪保留范围",quick_trim:"快速修剪",fillet:"圆角",chamfer:"倒角",extend:"延伸",complement:"补弧",close:"闭合曲线",offset:"偏移",spline_insert:"样条插入拟合点/结点",spline_delete:"样条删除拟合点/结点",spline_close:"样条开/闭合",spline_control:"转为控制点样条",construction:"构造线"};
 
@@ -150,6 +151,8 @@ export class SketchEditTool implements CadTool{
   private splinePointReference?:SketchGeometryRef;
   private extendReference?:SketchGeometryRef;
   private branchPoint?:Vec2;
+  private offsetUnit?:"mm"|"cm"|"m"|"in";
+  private offsetLink:"LINKED"|"INDEPENDENT"="LINKED";
   private offsetMode:"MITER"|"ROUND"="MITER";
   private cornerRefs:SketchGeometryRef[]=[];
   private cornerPoint?:Vec2;
@@ -467,7 +470,7 @@ export class SketchEditTool implements CadTool{
     }
     if(this.kind==="fillet"||this.kind==="chamfer")option("cornerTrimMode","邻接几何",this.cornerTrimMode,[["TRIM","修剪两侧"],["KEEP","保留原元素"]]);
     if(this.kind==="chamfer")option("chamferMode","倒角定义",this.chamferMode,[["EQUAL","等长度"],["TWO_LENGTHS","双长度"],["LENGTH_ANGLE","长度加角度"]]);
-    if(this.kind==="offset")option("offsetMode","连接方式",this.offsetMode,[["MITER","斜接"],["ROUND","圆角"]]);
+    if(this.kind==="offset"){option("offsetMode","连接方式",this.offsetMode,[["MITER","斜接"],["ROUND","圆角"]]);option("offsetLink","偏移关系",this.offsetLink,[["LINKED","关联偏移"],["INDEPENDENT","独立副本"]]);}
     const role=!defining?"选择源对象":this.transformTool&&context.viewport.showSketchManipulator?"拖动手柄；松开执行，中心调整基点":this.kind==="mirror"?this.axis?"预览与确认":"选择镜像轴":this.kind==="extend"?!this.extendReference?"选择端点":!this.boundaries.length?"选择边界":"选择目标交点分支":this.kind==="fillet"||this.kind==="chamfer"?this.cornerRefs.length<2?"选择角点端部":"选择内外侧分支":this.kind==="trim"||this.kind==="quick_trim"?"命中曲线区间":"定义参数与位置";
     const canConfirm=this.transformPointer===undefined&&this.phase!=="committing"&&this.phase!=="unknown"&&this.previewStatus!=="pending"&&this.previewStatus!=="failed"&&(!defining||!this.transformTool||!context.viewport.showSketchManipulator||Math.hypot(...this.translation)>SKETCH_INPUT_POLICY.minimumGeometryLength||Math.abs(this.angle)>1e-10)&&(!defining?this.selected.size>0||this.batch.length>0:this.kind==="mirror"?Boolean(this.axis):this.kind==="fillet"||this.kind==="chamfer"?Boolean(this.cornerPoint&&this.cornerRefs.length===2):true);
     context.viewport.setSketchCommandState?.({toolId:this.id,operation:labels[this.kind],presentation:"inline",phase:this.phase,role,count:{accepted:this.selected.size},selectedIds:[...this.selected],references:[...this.cornerRefs,...this.boundaries,...this.axis?[this.axis]:[]],input:defining&&fields.length?{id:this.operationID!,fieldIndex:this.field}:undefined,recovery:this.recovery(context),completion:!defining&&this.selected.size?{label:"完成"}:defining&&!fields.length&&canConfirm?{label:"执行"}:undefined,fields:(defining?fields:[]).map((label,index)=>({label,unit:this.kind==="offset"||this.kind==="move"||this.kind==="copy"?"length":"scalar",value:this.fields[index],placeholder:this.kind==="fillet"||this.kind==="chamfer"||this.kind==="offset"?"5":this.kind==="split"||this.kind==="quick_trim"?"0.5":"0"})),options,canConfirm,next:!defining?"点选可增减对象；点击下一步或 Enter":role,error:this.error,preview:this.previewStatus==="pending"?"pending":this.previewStatus==="failed"?"unavailable":this.verifiedCandidateGeneration===this.candidateGeneration?"authoritative":"approximate"});
@@ -486,7 +489,7 @@ export class SketchEditTool implements CadTool{
     if(action.type==="option") {
       if(action.name==="copy"){this.copy=action.value==="true";if(this.armed)this.preview(context);this.prompt(context);return;}
       if(action.name==="advancedTrim"){this.advancedTrim=action.value==="advanced";this.prompt(context);return;}
-      const allowed:Record<string,string[]>={policy:["GEOMETRY_ONLY","INTERNAL"],mirrorMode:["LINKED","INDEPENDENT"],cornerTrimMode:["TRIM","KEEP"],chamferMode:["EQUAL","TWO_LENGTHS","LENGTH_ANGLE"],offsetMode:["MITER","ROUND"],trimMode:["DELETE_HIT","KEEP_HIT","BREAK"],boundaryMode:["automatic","explicit"]};
+      const allowed:Record<string,string[]>={policy:["GEOMETRY_ONLY","INTERNAL"],mirrorMode:["LINKED","INDEPENDENT"],cornerTrimMode:["TRIM","KEEP"],chamferMode:["EQUAL","TWO_LENGTHS","LENGTH_ANGLE"],offsetMode:["MITER","ROUND"],offsetLink:["LINKED","INDEPENDENT"],trimMode:["DELETE_HIT","KEEP_HIT","BREAK"],boundaryMode:["automatic","explicit"]};
       if(!allowed[action.name]?.includes(action.value))return;
       (this as unknown as Record<string,string>)[action.name]=action.value;
       if(action.name==="boundaryMode")this.boundaries=[];
@@ -497,6 +500,7 @@ export class SketchEditTool implements CadTool{
   }
   activate(context:ToolContext):void{
     this.phase="selection";
+    this.offsetUnit=context.viewport.currentLengthUnit?.()??"mm";
     this.direct=this.kind==="mirror"?{kind:"mirror",route:"axis-first",stage:"axis"}:this.kind==="fillet"||this.kind==="chamfer"?{kind:"corner",stage:"curves",clicks:[],inputId:randomUUID()}:this.kind==="extend"?{kind:"extend",stage:"curve"}:this.kind==="split"?{kind:"split"}:this.kind==="trim"||this.kind==="quick_trim"?{kind:"trim"}:undefined;
     if(this.direct?.kind==="corner")this.fields[0]=this.recentCornerSource;
     if(this.direct?.kind==="trim")this.trimMode="DELETE_HIT";
@@ -539,7 +543,7 @@ export class SketchEditTool implements CadTool{
       context.viewport.setToolPrompt(`${labels[this.kind]}：Enter 确认；U 显式解除受影响的整体/端点关系（当前 ${this.detach.length}）；原端点不得静默重连，Esc 取消`);return;
     }
     if(this.kind==="offset"){
-      context.viewport.setToolPrompt(`二维独立偏移：正值沿曲线有向左法向（线段 START→END 左侧、逆时针圆/弧向内，顺时针弧向外）；距离 mm: ${this.fields[0]||"5"}；M ${this.offsetMode==="MITER"?"斜接":"圆角连接"}；仅独立副本，无持续距离关联；Enter 确认，Esc 取消；凹角、自交与半径退化由权威计算验证`);return;
+      context.viewport.setToolPrompt(`二维偏移：正值沿曲线有向左法向（线段 START→END 左侧、逆时针圆/弧向内，顺时针弧向外）；距离 mm: ${this.fields[0]||"5"}；M ${this.offsetMode==="MITER"?"斜接":"圆角连接"}；${this.offsetLink==="LINKED"?"关联距离，可用公式；双击结构树偏移定义可编辑或解除关联":"独立副本"}；Enter 确认，Esc 取消；凹角、自交与半径退化由权威计算验证`);return;
     }
     if(this.kind==="fillet"||this.kind==="chamfer"){
       const mode=this.kind==="fillet"?`半径 mm: ${this.fields[0]||"5"}`:
@@ -818,6 +822,7 @@ export class SketchEditTool implements CadTool{
   }
   pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult{if(event.pointerId===this.transformPointer){context.viewport.sketchManipulatorPointerUp?.(event.pointerId,false);this.transformPointer=undefined;this.cancel(context);return InputResult.Consumed;}if(event.pointerId!==this.captured)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
   private applyFields():boolean{
+    if(this.kind==="offset"){try{creationQuantity(this.fields[0]||"5",this.offsetUnit??"mm",5);return true;}catch{return false;}}
     const values=this.fields.map(value=>value===""?undefined:Number(value));if(values.some(value=>value!==undefined&&!Number.isFinite(value)))return false;
     if(this.kind==="move"||this.kind==="copy")this.translation=[values[0]??this.translation[0],values[1]??this.translation[1]];
     return true;
@@ -919,8 +924,8 @@ export class SketchEditTool implements CadTool{
     }else if(this.kind==="complement"||this.kind==="close"){
       operation={type:this.kind==="complement"?"ARC_COMPLEMENT":"CLOSE_CURVE",...base,...(this.detach.length?{detachConstraintIds:[...this.detach]}:{})};
     }else if(this.kind==="offset"){
-      const value=Number(this.fields[0]||"5");if(!Number.isFinite(value)){context.viewport.setToolPrompt("偏移距离必须为有限有符号模型长度");return;}
-      operation={type:"OFFSET_ENTITIES",...base,value,mode:this.offsetMode};
+      const quantity=creationQuantity(this.fields[0]||"5",this.offsetUnit??"mm",5)!;
+      operation=this.offsetLink==="LINKED"?{type:"CREATE_OFFSET",offset:{id:this.operationID!,entityIds:base.entityIds,distance:quantity.value,join:this.offsetMode},parameterSource:quantity.source}:{type:"OFFSET_ENTITIES",...base,value:quantity.value,mode:this.offsetMode,parameterSource:quantity.source};
     }else     if(this.kind==="mirror"){
       if(!this.axis||!this.axisPoints(context)){context.viewport.setToolPrompt("先选择有效镜像轴；M 切换关联或独立副本");return;}
       operation={type:"MIRROR_ENTITIES",...base,axis:this.axis,mirrorMode:this.mirrorMode,...(this.mirrorMode==="INDEPENDENT"?{constraintPolicy:this.policy}:{})};

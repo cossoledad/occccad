@@ -1,3 +1,4 @@
+import {featureSketchPlane} from "../../cad/sketch/sketch-support-frame";
 import {owningInstanceSelection} from "../../cad/assembly/instance-selection";
 import {assemblyReferenceInContext} from "../../cad/assembly/assembly-reference";
 import {assemblyPublicationSelection,assemblyPublicationCandidates,type AssemblyPublicationChoice} from "./assembly-publication-selection";
@@ -14,7 +15,7 @@ import {SpatialAnalysisPanel} from "./spatial-analysis-panel";
 import {spatialPathsForView,type SpatialAnalysis} from "../../cad/assembly/spatial-analysis";
 import {interferenceDisplayIndex,withInterferenceDetail,staticBodySelection} from "../../cad/assembly/static-interference";
 import {StaticInterferencePanel} from "./static-interference-panel";
-import {consecutiveSolidFeatures} from "./solid-feature-model";
+import {consecutiveSolidFeatures,isSolidStage} from "./solid-feature-model";
 import {CommandInputError} from "../../cad/command/operation-failure";
 import {defaultModifierFeature} from "./solid-feature-model";
 import {DesignInputDialog} from "./design-input-dialog";
@@ -74,8 +75,11 @@ import {SketchSupportEditor} from "./sketch-support-editor";
 import {profileRegionRepairFeature} from "./profile-region-selection";
 import {FeatureMoveDialog} from "./feature-move-dialog";
 import { SolidFeatureEditor, type FeatureInsertionContext } from "./solid-feature-editor";
+import {resumeSolidSketchDraft,solidSketchWorkflowMatches,type SolidFeatureDraft,type SolidSketchWorkflow} from './solid-sketch-workflow';
 import {createdSketchFeature} from "./historical-creation";
 import { BooleanFeatureDialog } from "./boolean-feature-dialog";
+import {SketchDiagnosticsPanel} from "./sketch-diagnostics-panel";
+import {SketchOffsetEditor} from "./sketch-offset-editor";
 import { InstancePatternDialog } from "./instance-pattern-dialog";
 import type { InstancePatternPreview } from "./instance-pattern";
 import "./workbench.css";
@@ -107,7 +111,7 @@ import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-s
 import { displayLengthToMillimeters, effectiveLengthUnit, millimetersToDisplayLength,
   useUIPreferences } from "../../state/ui-preferences";
 import { useApplicationContext } from "../../state/application-context";
-import type { AssemblyConstraint, AssemblyGeometryRef, AssemblyGroupMember, Artifact, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, Selection, SketchOperation, SketchPlane, Vec3 } from "../../types";
+import type { AssemblyConstraint, AssemblyGeometryRef, AssemblyGroupMember, Artifact, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, Selection, SelectionItem, SketchOperation, SketchPlane, Vec3 } from "../../types";
 import { WorkbenchLayout } from "./workbench-layout";
 import { WorkbenchCommands, WorkbenchViewControls } from "./workbench-commands";
 import { WorkbenchStatus } from "./workbench-status";
@@ -129,23 +133,13 @@ import { assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
   validateReconnectCandidate, assemblyConstraintActionFailure } from "../../cad/assembly/assembly-constraint-ux";
 
 const AssemblyDependencyPanel = lazy(() => import("./assembly-dependency-panel").then(module=>({default:module.AssemblyDependencyPanel})));
+const PartDependencyPanel=lazy(()=>import('./part-dependency-panel').then(module=>({default:module.PartDependencyPanel})));
+const FeatureRepairPanel=lazy(()=>import('./feature-repair-panel').then(module=>({default:module.FeatureRepairPanel})));
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
 
 function sketchPlane(datum: DatumPlane): SketchPlane {
   return { datumPlaneId: datum.id, plane: datum.plane, origin: datum.origin, normal: datum.normal, uDirection: datum.uDirection };
-}
-
-function featureSketchPlane(view: DocumentView, feature: Feature): SketchPlane | undefined {
-	const support = feature.sketch?.support;
- if(support?.status==="FAILED_SUPPORT"||support?.status==="BLOCKED")return;
-	if (support?.type === "PLANAR_FACE" && support.origin && support.normal && support.xDirection) {
-		return { datumPlaneId: `face:${support.persistentSelection?.anchor.featureId ?? feature.id}`,
-			plane: "CUSTOM", origin: support.origin, normal: support.normal, uDirection: support.xDirection };
-	}
-  const datum = view.datumPlanes?.find((candidate) => candidate.id === feature.sketch?.support.datumPlaneId)
-    ?? view.part?.datumPlanes.find((candidate) => candidate.id === feature.sketch?.support.datumPlaneId);
-  return datum ? sketchPlane(datum) : undefined;
 }
 
 function occurrenceSketchPlane(plane: SketchPlane, translation?: Vec3, rotation: [number,number,number,number] = [0,0,0,1]): SketchPlane {
@@ -212,6 +206,7 @@ export function Workbench() {
  const [motionPosePreview,setMotionPosePreview]=useState<Array<import("../../cad/assembly/motion-study").MotionPose&{instanceId:string}>>();
   const [conflictOpen,setConflictOpen]=useState(false);
   const [dependencyOpen,setDependencyOpen]=useState(false);
+  const [repairComparison,setRepairComparison]=useState<import('../../cad/part/part-dependency-graph').PartDependencyNode>();
   const [conflictReport,setConflictReport]=useState<AssemblyConflictReport>();
   const [conflictContextCurrent,setConflictContextCurrent]=useState(false);
   const [conflictPending,setConflictPending]=useState(false);
@@ -241,12 +236,17 @@ export function Workbench() {
   const activationGate = useRef(new EditActivationGate());
   const [developerOpen,setDeveloperOpen]=useState(false);
   const [insertOpen, setInsertOpen] = useState(false);
+  const [sketchDiagnosticsOpen,setSketchDiagnosticsOpen]=useState(false);
+  const [offsetEditor,setOffsetEditor]=useState<{sketchId:string;offsetId:string}>();
   const [supportSketch,setSupportSketch]=useState<Feature>();
   const [sketchInsertion,setSketchInsertion]=useState<FeatureInsertionContext>();
   const sketchCreationScope=useRef(new FeaturePickScope());
   const [sketchStage,setSketchStage]=useState<{sketchId:string;scopeKey:string;inputs:Artifact[]}>();
   const [featureMove,setFeatureMove]=useState<{features:Feature[];digests:Record<string,string>;orderDigest:string}>();
-  const [solidEditor,setSolidEditor]=useState<{feature:Feature;digest?:string;insertion?:FeatureInsertionContext}>();
+  const [solidEditor,setSolidEditor]=useState<{feature:Feature;digest?:string;insertion?:FeatureInsertionContext;resume?:SolidFeatureDraft}>();
+  const [solidSketchWorkflow,setSolidSketchWorkflow]=useState<SolidSketchWorkflow>();
+  const [creatingSolidSketch,setCreatingSolidSketch]=useState(false);
+  const solidSketchCreated=useRef(false);
   const [featureSelection,setFeatureSelection]=useState<FeatureSelectionSession>();
   const [featureInputs,setFeatureInputs]=useState<Artifact[]>();
   const [historyResult,setHistoryResult]=useState<string>();
@@ -328,6 +328,7 @@ export function Workbench() {
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
   const store = useWorkbenchStore();
+  useEffect(()=>setSketchDiagnosticsOpen(false),[store.activeSketchID]);
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
 	useLayoutEffect(() => {
 	  documentSessions.open(documentID);
@@ -513,11 +514,13 @@ export function Workbench() {
   useEffect(()=>{setMotionDisplay(undefined);if(motionOpen&&(activeInstancePath||store.activeSketchID))setMotionOpen(false)},[view?.document.id,view?.document.versionId,activeInstancePath,store.activeSketchID,motionOpen]);
   useEffect(() => {
     setSolidEditor(undefined);
+    setRepairComparison(undefined);
     setBooleanDialog(undefined);
     setSketchInsertion(undefined);
-    setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined); setDatumPreview(undefined);setSupportSketch(undefined);
+    setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined); setDatumPreview(undefined);setSupportSketch(undefined);setOffsetEditor(undefined);
     historyGeneration.current++;setHistoryResult(undefined);setFeatureInputs(undefined);setFeatureSelection(undefined);
   }, [editingView?.document.id,editingView?.document.versionId,activeInstancePath]);
+  useEffect(()=>{setSolidSketchWorkflow(undefined);setCreatingSolidSketch(false);},[editingView?.document.id,view?.document.id,activeInstancePath]);
   useEffect(()=>{if(solidEditor||booleanDialog||datumEditor||store.activeSketchID){historyGeneration.current++;setHistoryResult(undefined);setFeatureInputs(undefined);}},[solidEditor,booleanDialog,datumEditor,store.activeSketchID]);
   const engineeringEvidence=useAssemblyEngineering(editingView?.document.id,editingView?.document.versionId,conflictOpen&&Boolean(editingView?.product));
 
@@ -786,7 +789,7 @@ export function Workbench() {
   // belongs to the active edit session; a previous Part's store state must not
   // select an impossible Product/Sketcher catalog context during that render.
   const sketchContextActive=Boolean(editSession&&editingView?.part&&store.sketchPlane&&store.activeSketchID);
-  const sketchInteractionBusy=command.isPending||sketchReceipt?.status==="committing";
+  const sketchInteractionBusy=command.isPending||!!sketchReceipt;
   const commandFacts={canDeleteMotionResult,rootTarget:Boolean(view&&editingView?.document.id===view.document.id),motionActive:Boolean(motionOpen&&view&&editingView?.document.id===view.document.id&&!sketchContextActive),isMock:isMockMode,moveReceiptPending,hostType:view?.document.type??"PART",targetType:editingView?.document.type??"PART",sketchActive:sketchContextActive,canEdit,rootCanEdit:canEditRoot,busy:sketchInteractionBusy,selectionKind:store.selection?.kind??"",selectionCount:store.selections.length,hasWorkingBody:Boolean(workingBodyID)};
   const activeTabs=toolbarCatalog.data?contextTabs(toolbarCatalog.data,commandFacts):[];
  const activeWorkbench=activeTabs[0]?.workbench??"";
@@ -1088,13 +1091,59 @@ export function Workbench() {
     if (!selection) return;
     store.setSelection(selection);
   };
+  const partDependencyTreeNode=(node:import('../../cad/part/part-dependency-graph').PartDependencyNode):SpecificationTreeNode|undefined=>{
+    const find=(nodes:SpecificationTreeNode[]):SpecificationTreeNode|undefined=>{
+      for(const n of nodes){
+        if(n.documentId===editingView?.document.id&&n.entityId===node.entityId&&n.presentationRole!=='INPUT_REFERENCE'&&(n.selection?.occurrencePath??'')===(activeInstancePath??'')&&(!node.ownerFeatureId||!n.ownerEntityId||n.ownerEntityId===node.ownerFeatureId))return n;
+        const child=n.children&&find(n.children);if(child)return child;
+      }
+    };return find(treeNodes);
+  };
+  const locatePartDependency=(node:import('../../cad/part/part-dependency-graph').PartDependencyNode,revision:string)=>{
+    if(!editingView||revision!==editingView.document.versionId)return;
+    const target=partDependencyTreeNode(node);if(!target)return;
+    requestTreeReveal(documentSessions,documentID,{documentId:editingView.document.id,entityId:target.entityId!,occurrence:activeInstancePath,kind:target.kind as import('../../types').DocumentStructureNode['kind'],reason:'LOCATE'});
+    if(target.selection){store.setSelections([target.selection]);viewport.current?.focusSelections([target.selection]);}
+  };
   const finishSketch = () => {
-    if (command.isPending) return;
+    if (sketchInteractionBusy) return;
     const sketchID = store.activeSketchID;
+    if(solidSketchWorkflow?.sketchId===sketchID)commandRegistry.cancel();
     const discard = newSketchSession.current && canDiscardNewSketch(newSketchSession.current, editingView);
     store.endSketch();
     if (discard) store.setSelection(null);
     else if (sketchID && editingView) selectFeature(editingView, sketchID);
+    if(solidSketchWorkflow&&editingView&&view&&solidSketchWorkflow.sketchId===sketchID&&solidSketchWorkflowMatches(solidSketchWorkflow,editingView,view.document.id,activeInstancePath))restoreSolidSketchEditor(solidSketchWorkflow,editingView);
+  };
+  const restoreSolidSketchEditor=(workflow:SolidSketchWorkflow,current:DocumentView)=>{
+    const resume=resumeSolidSketchDraft(workflow,current);
+    setSolidSketchWorkflow(undefined);setCreatingSolidSketch(false);
+    if(!resume){void message.warning('原特征已变化，请从结构树重新打开。');return;}
+    const feature=resume.feature.id?current.part!.features.find(f=>f.id===resume.feature.id)!:resume.feature;
+    const node=feature.id?findStructureEntity(current.structureTree,feature.id):undefined;
+    setSolidEditor({feature,resume,digest:node?.definitionDigest,insertion:workflow.insertion?{...workflow.insertion,afterFeatureId:workflow.created&&workflow.sketchId?workflow.sketchId:workflow.insertion.afterFeatureId,versionId:current.document.versionId,context:contextScopeForView(current)}:undefined});
+  };
+  const enterSolidSketch=(draft:SolidFeatureDraft,sketchId?:string)=>{
+    if(!editingView?.part||!view||sketchInteractionBusy||assistantHandoff.current)return;
+    const workflow:SolidSketchWorkflow={documentId:editingView.document.id,rootDocumentId:view.document.id,occurrencePath:activeInstancePath,draft,insertion:solidEditor?.insertion,sketchId};
+    if(!sketchId){
+      if(solidEditor?.insertion)workflow.inputInsertion=solidEditor.insertion;
+      else if(draft.feature.id){
+        const index=editingView.part.features.findIndex(f=>f.id===draft.feature.id);
+        const anchor=editingView.part.features.slice(0,index).reverse().find(f=>f.bodyId===draft.feature.bodyId&&!f.suppressed&&(f.sketch||isSolidStage(f)));
+        if(!anchor){void message.warning('原特征之前没有可用输入位置，请先创建输入草图。');return;}
+        workflow.inputInsertion={afterFeatureId:anchor.id,bodyId:anchor.bodyId!,versionId:editingView.document.versionId,context:contextScopeForView(editingView),occurrencePath:activeInstancePath,intentId:randomUUID(),label:`${editingView.part.bodies.find(b=>b.id===anchor.bodyId)?.name} / ${anchor.name}`};
+      }
+    }
+    commandRegistry.cancel();
+    if(sketchId){
+      const sketch=editingView.part.features.find(f=>f.id===sketchId),plane=sketch&&featureSketchPlane(editingView,sketch);
+      if(!plane)return;
+      setSolidSketchWorkflow(workflow);setSolidEditor(undefined);viewport.current?.clearCommandPreview();setFeatureSelection(undefined);setFeatureInputs(undefined);
+      store.beginSketch(sketchId,occurrenceSketchPlane(plane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation));
+    }else{
+      setSolidSketchWorkflow(workflow);solidSketchCreated.current=false;setSolidEditor(undefined);setCreatingSolidSketch(true);viewport.current?.clearCommandPreview();setFeatureSelection(undefined);setFeatureInputs(undefined);
+    }
   };
   const startSketch = () => {
     if (selectedNamingIssue) { operationFeedback(selectedNamingIssue,"操作"); return; }
@@ -1140,22 +1189,31 @@ export function Workbench() {
   const openFeatureEditor = (node: SpecificationTreeNode) => {
     if (!editingView || !node.entityId || !node.capabilities?.includes("EDIT")) return;
     endHistoryResult();
+    if(node.kind==="SKETCH_OFFSET_DEFINITION"&&node.ownerEntityId){
+      closeCommandPanels();
+      const owner=editingView.part?.features.find(f=>f.id===node.ownerEntityId);
+      if(owner?.sketch?.offsets?.some(o=>o.id===node.entityId)){const plane=featureSketchPlane(editingView,owner);if(plane)store.beginSketch(owner.id,occurrenceSketchPlane(plane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation));store.setActiveTool("select","once");setOffsetEditor({sketchId:owner.id,offsetId:node.entityId});}return;
+    }
     if(node.kind==="SKETCH_PATTERN_DEFINITION"&&node.ownerEntityId){
       const owner=editingView.part?.features.find(f=>f.id===node.ownerEntityId),pattern=owner?.sketch?.patterns?.find(p=>p.id===node.entityId);
       if(owner&&pattern){const plane=featureSketchPlane(editingView,owner);if(plane)store.beginSketch(owner.id,occurrenceSketchPlane(plane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation));setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"SKETCH",profile:owner.id,bodyId:owner.bodyId,pattern:{...pattern,sourceKind:"SKETCH_FRAME",source:{bodyId:owner.bodyId!,featureId:owner.id}}}});}return;
     }
     if(!node.definitionDigest)return;
     const feature = editingView.part?.features.find(candidate => candidate.id === node.entityId);
-    if (feature && ["HOLE", "SOLID_PATTERN", "SKETCH_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase())) {
+    if (feature && ["SWEEP", "HOLE", "SOLID_PATTERN", "SKETCH_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase())) {
       setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature, digest: node.definitionDigest});
     } else if (feature?.type === "BOOLEAN") {
       setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({feature, digest: node.definitionDigest});
     }
   };
   const profileRepair = profileRegionRepairFeature(editingView);
-  const terminationRepair = editingView?.part?.features.find(f=>f.extent==="TO_PLANE"&&f.evaluationStatus==="FAILED"&&f.diagnostic?.includes("TO_PLANE"));
-  const holeRepair=editingView?.part?.features.find(f=>f.type==="HOLE"&&f.evaluationStatus==="FAILED"&&f.diagnostic?.includes("HOLE_POINT"));
-  const inputRepair = profileRepair ?? terminationRepair ?? holeRepair;
+  const terminationRepair = editingView?.part?.features.find(f=>["TO_PLANE","TO_NEXT","TO_SURFACE"].includes(f.extent??"")&&f.evaluationStatus==="FAILED"&&/TO_PLANE|TERMINATION|TO_NEXT|TO_SURFACE/.test(f.diagnostic??""));
+  const holeRepair=editingView?.part?.features.find(f=>f.type==="HOLE"&&f.evaluationStatus==="FAILED"&&/HOLE_POINT|HOLE_POSITION/.test(f.diagnostic??""));
+  const thinRepair=editingView?.part?.features.find(f=>f.thinWall&&f.evaluationStatus==="FAILED"&&/THIN_|CURVE_CHAIN/.test(f.diagnostic??""));
+  const sweepRepair=editingView?.part?.features.find(f=>f.sweep&&f.evaluationStatus==="FAILED"&&/SWEEP_|CURVE_CHAIN/.test(f.diagnostic??""));
+  const loftRepair=editingView?.part?.features.find(f=>(f.loftStart||f.loftEnd)&&f.evaluationStatus==="FAILED");
+  const replayRepair=editingView?.part?.features.find(f=>f.pattern&&f.evaluationStatus==="FAILED"&&f.diagnostic?.includes("PATTERN_MEMBER_FAILED"));
+  const inputRepair = profileRepair ?? replayRepair ?? loftRepair ?? sweepRepair ?? thinRepair ?? terminationRepair ?? holeRepair;
   const repairProfileRegion = () => {
     if(!inputRepair||!editingView||!canEdit||command.isPending||sketchReceipt)return;
     const find=(nodes:SpecificationTreeNode[]):SpecificationTreeNode|undefined=>{
@@ -1169,9 +1227,13 @@ export function Workbench() {
     openFeatureEditor(node);
   };
   const openSolidFeature = (generator: "LINEAR_EXTRUDE" | "REVOLVE", operation: "NEW_BODY" | "ADD" | "REMOVE" = "ADD") => {
+    if(sketchInteractionBusy)return;
+    const activeSketch=editingView?.part?.features.find(f=>f.id===useWorkbenchStore.getState().activeSketchID);
+    if(activeSketch)finishSketch();
     setDatumEditor(undefined);setReferenceEditor(undefined);setGeometricalSetEditor(undefined);setBooleanDialog(undefined); store.setActiveTool("select","once");
-    const sketch = store.selections.find(s=>s.kind==="sketch");
-    setSolidEditor({feature:{id:"",type:generator,bodyId:sketch?.bodyId??workingBodyID,operation,length:40,length2:10,angle:360,extent:"FINITE",reversed:defaultSolidReversed(generator,operation)}});
+    const sketch = useWorkbenchStore.getState().selections.find(s=>s.kind==="sketch");
+    setSolidSketchWorkflow(undefined);
+    setSolidEditor({feature:{id:"",type:generator,profile:activeSketch?.id,profileSelection:activeSketch?{mode:'REGIONS',regionIds:[...(editingView?.sketchAnalyses?.[activeSketch.id]?.regionIds??[])]}:undefined,bodyId:activeSketch?.bodyId??sketch?.bodyId??workingBodyID,operation,length:40,length2:10,angle:360,extent:"FINITE",reversed:defaultSolidReversed(generator,operation)}});
   };
   const createPartComponent = (values: { name?: string; description?: string }) => {
     if (view?.document.type !== "PRODUCT" || !newPartTarget) return;
@@ -1293,6 +1355,10 @@ export function Workbench() {
     setReconnectError(undefined);setAssemblyDefinitionDirty(false);setEditingAssemblyConstraint(undefined);setPendingAssemblyConstraint(undefined);
   };
   const closeCommandPanels=(nextCommand?:string)=>{
+    setSketchDiagnosticsOpen(false);
+    setOffsetEditor(undefined);
+    setRepairComparison(undefined);
+    if(nextCommand&&!nextCommand.startsWith('sketch.')&&!nextCommand.startsWith('view.')&&nextCommand!=='tool.select'){setSolidSketchWorkflow(undefined);setCreatingSolidSketch(false);}
     setMeasurementEditor(undefined);viewport.current?.showMeasurement();
     sketchCreationScope.current.cancel();
     setStaticInterferenceOpen(false);setSpatialEditor(undefined);viewport.current?.setSectionEdit();viewport.current?.showStaticInterference();
@@ -1331,13 +1397,17 @@ onInsertAfter:(node,type)=>{
  if(!editingView?.part||!canEdit||command.isPending||store.activeSketchID||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.capabilities?.includes("INSERT_AFTER"))return;
  const anchor=editingView.part.features.find(f=>f.id===node.entityId);if(!anchor)return;
  const insertion={context:contextScopeForView(editingView),intentId:randomUUID(),afterFeatureId:anchor.id,bodyId:anchor.bodyId!,versionId:editingView.document.versionId,occurrencePath:activeInstancePath,label:`${editingView.part.bodies.find(b=>b.id===anchor.bodyId)?.name} / ${anchor.name}`};
- if(["SKETCH","EXTRUDE_ADD","EXTRUDE_REMOVE"].includes(type)&&!canCreateHistorical)return;
+ if(!["FILLET","CHAMFER","DRAFT","SHELL"].includes(type)&&!canCreateHistorical)return;
  closeCommandPanels();endHistoryResult();
  if(type==="SKETCH"){setSketchInsertion(insertion);return;}
  if(type==="EXTRUDE_ADD"||type==="EXTRUDE_REMOVE"){
-   if(!anchor.sketch)return;
    const operation=type==="EXTRUDE_ADD"?"ADD":"REMOVE";
-   setSolidEditor({feature:{id:"",type:"LINEAR_EXTRUDE",profile:anchor.id,profileSelection:{mode:"REGIONS",regionIds:[...(editingView.sketchAnalyses?.[anchor.id]?.regionIds??[])]},bodyId:anchor.bodyId,operation,length:10,extent:"FINITE",reversed:defaultSolidReversed("LINEAR_EXTRUDE",operation)},insertion});return;
+   setSolidEditor({feature:{id:"",type:"LINEAR_EXTRUDE",profile:anchor.sketch?anchor.id:undefined,profileSelection:anchor.sketch?{mode:"REGIONS",regionIds:[...(editingView.sketchAnalyses?.[anchor.id]?.regionIds??[])]}:undefined,bodyId:anchor.bodyId,operation,length:10,extent:"FINITE",reversed:defaultSolidReversed("LINEAR_EXTRUDE",operation)},insertion});return;
+ }
+ if(type==="SWEEP"){setSolidEditor({feature:{id:"",type,bodyId:anchor.bodyId,operation:"ADD",sweep:{path:{sketchId:"",entityIds:[]},frameMode:"CORRECTED_FRENET",cornerMode:"MITER"}},insertion});return;}
+ if(type==="REVOLVE"||type==="HOLE"||type==="LOFT"){
+   const feature:Feature=type==="HOLE"?{id:"",type,bodyId:anchor.bodyId,operation:"REMOVE",extent:"BLIND",diameter:5,depth:10,reversed:true}:type==="LOFT"?{id:"",type,bodyId:anchor.bodyId,operation:"ADD",sections:[]}: {id:"",type,bodyId:anchor.bodyId,operation:"ADD",profile:anchor.sketch?anchor.id:undefined,profileSelection:anchor.sketch?{mode:"REGIONS",regionIds:[...(editingView.sketchAnalyses?.[anchor.id]?.regionIds??[])]}:undefined,angle:360,extent:"FINITE"};
+   setSolidEditor({feature,insertion});return;
  }
  setSolidEditor({feature:defaultModifierFeature(type,anchor.bodyId),insertion});
 },
@@ -1465,6 +1535,7 @@ onDetach:(node) => {
                 command.mutate(() => api.detachContextReference(node.documentId!, node.entityId!));
                 return;
               }
+              if(node.kind==="SKETCH_OFFSET_DEFINITION"&&node.ownerEntityId&&node.entityId){editSketch(node.ownerEntityId,[{type:"DETACH_OFFSET",offsetId:node.entityId}]);return;}
               if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.ownerEntityId && node.entityId)
                 editSketch(node.ownerEntityId, [{type:"DETACH_EXTERNAL_GEOMETRY", externalId:node.entityId}]);
             },
@@ -1500,6 +1571,7 @@ onToggleVisibility:(node,scope)=>{
               throw new Error("显示目标当前不可用，请重新选择。");
             },
 onToggleSuppression:(node)=>{
+              if(node.kind==="SKETCH_OFFSET_DEFINITION"&&node.documentId===editingView?.document.id&&node.ownerEntityId){const offset=editingView?.part?.features.find(f=>f.id===node.ownerEntityId)?.sketch?.offsets?.find(o=>o.id===node.entityId);if(offset)editSketch(node.ownerEntityId,[{type:"EDIT_OFFSET",offsetId:offset.id,offset:{...offset,suppressed:!offset.suppressed}}]);return;}
               if(node.kind==="SKETCH_PATTERN_DEFINITION"&&node.documentId===editingView?.document.id&&node.ownerEntityId){
                 const pattern=editingView?.part?.features.find(f=>f.id===node.ownerEntityId)?.sketch?.patterns?.find(p=>p.id===node.entityId);
                 if(pattern)editSketch(node.ownerEntityId,[{type:"EDIT_PATTERN",patternId:pattern.id,pattern:{...pattern,suppressed:!pattern.suppressed}}]);return;
@@ -1533,9 +1605,9 @@ onToggleConstruction:(node)=>{
   const analysisMechanism=motionOpen?view?.product?.kinematics?.mechanisms.find(m=>m.id===mechanismDefinition?.id):undefined;
   useEffect(()=>{setMechanismAnalysisOpen(false)},[view?.document.id,analysisMechanism?.id]);
   const configuredToolbars=useWorkbenchCommandRegistration(commandRegistry,{openMeasurement:kind=>setMeasurementEditor({kind}),measurementKind:measurementEditor?.kind,measurementAllowed:!activeInstancePath&&!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,openSpatialAnalysis:kind=>{closeCommandPanels();setSpatialEditor({kind});setStaticInterferenceOpen(kind==="CLASH")},staticInterferenceAllowed:!motionOpen&&!motionDisplay&&!motionPosePreview&&!replacementPreview&&!motionCommandActive&&!motionMutation.isPending,setDeveloperOpen,openProperties:()=>openObjectProperties(),openOptions:globalOptions?.open,prepareAssemblyMove:async()=>{const owner=motionPanel.current?.motionSession();if(owner)await owner.prepareSpatial()},setMechanismAnalysisOpen,mechanismId:analysisMechanism?.id,setMotionOpen,motionOpen,motionCommandEnabled:action=>motionPanel.current?.enabled(action)??false,onMotionCommand:(action,operation)=>{motionPanel.current?.execute(action,undefined,operation)},treeActions,closePanels:closeCommandPanels,toolContinuation:Boolean(pendingAssemblyConstraint||editingAssemblyConstraint),
-    openReferenceElement:kind=>{closeCommandPanels();setReferenceEditor({kind});},openGeometricalSet:()=>{closeCommandPanels();setGeometricalSetEditor({name:"",parentId:""});},setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},spatialAnalysisKind:spatialEditor?.kind,formActive:Boolean(referenceEditor||geometricalSetEditor||measurementEditor||staticInterferenceOpen||spatialEditor||sketchInsertion||designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||dependencyOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,dependencyOpen,setDependencyOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
+    openReferenceElement:kind=>{closeCommandPanels();setReferenceEditor({kind});},openGeometricalSet:()=>{closeCommandPanels();setGeometricalSetEditor({name:"",parentId:""});},setDesignAssociationOpen,setDesignInputsOpen,openReplaceInstance:(id)=>{setReplacementInstanceId(id??store.selection?.instanceId);setReplacementOpen(true)},spatialAnalysisKind:spatialEditor?.kind,openSketchDiagnostics:()=>{store.setActiveTool("select","once");setSketchDiagnosticsOpen(true)},formActive:Boolean(sketchDiagnosticsOpen||offsetEditor||repairComparison||creatingSolidSketch||referenceEditor||geometricalSetEditor||measurementEditor||staticInterferenceOpen||spatialEditor||sketchInsertion||designInputsOpen||replacementOpen||designAssociationOpen||featureMove||supportSketch||motionCommandActive||conflictOpen||dependencyOpen||solidEditor||booleanDialog||datumEditor||propertyTargets||newPartTarget||insertOpen||patternOpen||versionOpen||shareResource||parameterManagerOpen||publicationManagerOpen||externalParameterID||editingParameterID||editingPublication||editingContextInput||pendingAssemblyConstraint||editingAssemblyConstraint),store,editingView,view,canEdit,canEditRoot,command,selectedNamingIssue,conflictOpen,dependencyOpen,setDependencyOpen,moveReceiptPending,workingBodyID,treeNodes,viewport,startSketch,finishSketch,normalToSelection,openSolidFeature,deleteTreeNodes,executeHistory,setConflictOpen,setParameterManagerOpen,setPublicationManagerOpen,setInsertOpen,setPatternOpen,setVersionOpen,setShareResource,setSolidEditor,setBooleanDialog,setDatumEditor,setEditingDatumId,showMessage:text=>{void message.info(text);}},toolbarCatalog.data,
     commandFacts,
-    JSON.stringify([documentID,activeID,editSession?.activationGeneration,store.activeSketchID,workingBodyID]));
+    JSON.stringify([documentID,activeID,editSession?.activationGeneration,workingBodyID]));
 
 
   const selected = selectedFeature(editingView ?? {} as DocumentView, store.selection);
@@ -1628,7 +1700,7 @@ onToggleConstruction:(node)=>{
   const retryAssociationUpdates=()=>{setProductUpdateFailure(undefined);automaticUpdateSignature.current="";void productUpdatePlan.refetch().finally(()=>setAutomaticUpdateEpoch(value=>value+1));};
   useOperationFailureNotification(associationUpdateBlocked?{diagnostic:productUpdateFailure??blockedAssociationEntry?.diagnostic,diagnosticCode:productUpdateFailure?undefined:blockedAssociationEntry?.diagnosticCode,retry:retryAssociationUpdates,retryLabel:'重试更新'}:undefined,'更新关联零件');
   const drawInputs=useMemo(()=>sketchStage&&sketchStage.sketchId===historicalSketchId&&sketchStage.scopeKey===historicalScopeKey?sketchStage.inputs:[],[sketchStage,historicalSketchId,historicalScopeKey]);
-  const inputBoundary=useMemo(()=>historicalSketchId?{afterFeatureId:historicalSketchId,versionId:editingView!.document.versionId,context:contextScopeForView(editingView!),occurrencePath:activeInstancePath}:sketchInsertion??(solidEditor?.feature.type==="LINEAR_EXTRUDE"?solidEditor.insertion:undefined),[historicalSketchId,historicalScopeKey,activeInstancePath,sketchInsertion,solidEditor?.insertion,solidEditor?.feature.type]);
+  const inputBoundary=useMemo(()=>historicalSketchId?{afterFeatureId:historicalSketchId,versionId:editingView!.document.versionId,context:contextScopeForView(editingView!),occurrencePath:activeInstancePath}:(creatingSolidSketch?solidSketchWorkflow?.inputInsertion:undefined)??sketchInsertion??solidEditor?.insertion,[historicalSketchId,historicalScopeKey,activeInstancePath,sketchInsertion,solidEditor?.insertion,creatingSolidSketch,solidSketchWorkflow?.inputInsertion]);
   const viewportInputs=historicalSketchId?drawInputs:featureInputs;
   if (document.isLoading || view && !editSession) return <div className="workbench-loading"><Spin size="large" description="正在打开工作台…" /></div>;
   if (!view) return <Empty description="无法打开文档"><Space><Button onClick={()=>void document.refetch()}>重试</Button><Button onClick={()=>navigate("/")}>返回文档中心</Button></Space></Empty>;
@@ -1654,6 +1726,12 @@ onToggleConstruction:(node)=>{
   const applicationParams=new URLSearchParams(window.location.search);
   const restoringMechanism=!mechanismDefinition&&!motionAcceptedFrame&&applicationParams.get('application')==='mechanism'?view.product?.kinematics?.mechanisms.find(m=>m.id===applicationParams.get('mechanismId')):undefined;
   const restoringPoses=restoringMechanism?Object.entries(Object.assign({},...restoredApplicationSources(view,restoringMechanism,applicationParams).map(id=>view.product?.kinematics?.mechanisms.find(m=>m.id===id)?.poses??{})) as Record<string,import("../../cad/assembly/motion-study").MotionPose>).map(([instanceId,p])=>({instanceId,...p})):undefined;
+  const diagnosticSelections=(entityIds:string[],constraintIds:string[],revision:string):SelectionItem[]=>{
+    const feature=editingView?.part?.features.find(f=>f.id===store.activeSketchID);
+    if(!editingView||!feature?.sketch||revision!==editingView.document.versionId)return [];
+    const common={...featureOccurrenceContext,featureId:feature.id,documentId:editingView.document.id,ownerDocumentId:editingView.document.id,versionId:revision,occurrencePath:activeInstancePath};
+    return [...feature.sketch.entities.filter(e=>entityIds.includes(e.id)).map(e=>({...common,kind:'visual' as const,id:`diagnostic:${e.id}`,entityId:e.id,visualType:e.kind==='POINT'?'POINT' as const:'CURVE' as const})),...feature.sketch.constraints.filter(c=>constraintIds.includes(c.id)).map(c=>({...common,kind:'sketch-constraint' as const,id:`diagnostic:${c.id}`,constraintId:c.id,constraintType:c.kind}))];
+  };
   return <CommandProvider registry={commandRegistry} catalog={toolbarCatalog.data}><CommandFormContext.Provider value={{locate:items=>{store.setSelections(items);viewport.current?.focusSelections(items)}}}><section className="cad-workbench">
 
     {measurementEditor&&<MeasurementPanel key={`${view.document.id}:${measurementEditor.kind}:${measurementEditor.id??'new'}`} view={view} kind={measurementEditor.kind} initial={measurements(view).find(m=>m.id===measurementEditor.id)} unit={lengthUnit} seed={store.selections} canSave={canEditRoot} blocked={!!(motionOpen||motionDisplay||motionPosePreview||replacementPreview||motionCommandActive||motionMutation.isPending||activeInstancePath)} onClose={()=>{setMeasurementEditor(undefined);setFeatureSelection(undefined);viewport.current?.showMeasurement();store.setPreselection(null)}} onSelectionSession={setFeatureSelection} onLocate={items=>{store.setSelections(items);viewport.current?.focusSelections(items)}} onShow={r=>viewport.current?.showMeasurement(r)} onSave={saveMeasurement}/>}
@@ -1676,7 +1754,7 @@ onToggleConstruction:(node)=>{
       commands={<WorkbenchCommands documentSessions={documentSessions} hostDocumentId={documentID} toolbars={visibleToolbars} workbench={activeWorkbench} catalog={toolbarCatalog.data} tabs={activeTabs} />}
       status={<WorkbenchStatus assistantOpen={assistantOpen} onAssistantToggle={!isMockMode?()=>setAssistantOpen(value=>!value):undefined} busy={sketchInteractionBusy} canEdit={motionOpen&&!motionDisplay?canEditRoot:canEdit} selectionCount={store.selections.length}
         sketchReceipt={sketchReceipt} onSketchReceiptCheck={()=>void viewport.current?.retrySketchReceipt()} sketchCommand={store.activeSketchID?sketchCommandState:undefined} onSketchAction={action=>viewport.current?.sketchCommandAction(action)}
-        toolName={activeToolName} prompt={motionOpen?motionStatus:undefined} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
+        toolName={activeToolName} prompt={motionOpen?motionStatus:solidSketchWorkflow&&store.activeSketchID?'结束草图后返回特征定义；已确认的草图修改保留在历史中。':undefined} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
       tree={<SpecificationTree key={documentID} documentSessions={documentSessions} hostDocumentId={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
             ancestorHintKeys={ancestorHintKeysForSelections(treeNodes, store.selections)}
             selectionToken={selectionSetToken(store.selections)}
@@ -1686,7 +1764,7 @@ onToggleConstruction:(node)=>{
             activeDocumentId={activeID}
             activeInstancePath={activeInstancePath}
             workingBodyId={workingBodyID}
-            allowHistoricalCreation={canCreateHistorical}
+            allowHistoricalCreation={canCreateHistorical&&!store.activeSketchID}
             onViewResult={node=>executeTree("onViewResult",{node})}
             onSelect={(nodes) => {
               const selections = [...new Map(nodes.flatMap((node) => node.selection ? [[selectionKey(node.selection), node.selection] as const] : [])).values()];
@@ -1697,7 +1775,7 @@ onToggleConstruction:(node)=>{
             onActivate={node=>executeTree("onActivate",{node})}
 			onEdit={node=>executeTree("onEdit",{node})}
             onMove={(node,nodes)=>executeTree("onMove",{node,nodes})}
-            onInsertAfter={(node,modifierType)=>executeTree("onInsertAfter",{node,modifierType})}
+            onInsertAfter={store.activeSketchID?undefined:(node,modifierType)=>executeTree("onInsertAfter",{node,modifierType})}
             onProperties={node=>executeTree("onProperties",{node})}
 			onCreatePart={node=>executeTree("onCreatePart",{node})}
 			onReferenceMode={(node,mode)=>executeTree("onReferenceMode",{node,referenceMode:mode})}
@@ -1734,6 +1812,15 @@ onToggleConstruction:(node)=>{
             else if(node.parameterId)requestTreeReveal(documentSessions,documentID,{documentId:editingView.document.id,entityId:node.parameterId,occurrence:activeInstancePath,kind:"PARAMETER",reason:"LOCATE"});}}
           onEdit={(id,revision)=>{if(revision!==editingView.document.versionId)return;const c=editingView.product?.constraints?.find(c=>c.id===id);if(c){setDependencyOpen(false);openAssemblyConstraintEditor(c);}}}
           onToggle={(id,suppressed,revision)=>{if(canEdit&&revision===editingView.document.versionId)command.mutate(()=>api.command(editingView.document.id,{type:"SET_ASSEMBLY_CONSTRAINT_STATE",versionId:revision,constraintIds:[id],suppressed}));}}/></Suspense>}
+        {dependencyOpen&&editingView?.part&&<Suspense fallback={<Spin size="small"/>}><PartDependencyPanel key={`${editingView.document.id}/${activeInstancePath??''}`} view={editingView} selection={store.selection} canEdit={canEdit&&!sketchInteractionBusy} comparisonAllowed={!solidEditor&&!booleanDialog&&!datumEditor&&!supportSketch&&!store.activeSketchID&&!sketchInteractionBusy&&!moveReceiptPending} onCompare={(node,revision)=>{if(revision===editingView.document.versionId){setDependencyOpen(false);setRepairComparison(node);}}} onClose={()=>setDependencyOpen(false)} onLocate={locatePartDependency} onEdit={(node,revision)=>{if(!canEdit||sketchInteractionBusy||revision!==editingView.document.versionId)return;const target=partDependencyTreeNode(node);if(target?.capabilities?.includes('EDIT')){setDependencyOpen(false);void executeTree('onEdit',{node:target});}}}/></Suspense>}
+        {repairComparison&&editingView?.part&&<Suspense fallback={<Spin size="small"/>}><FeatureRepairPanel key={`${viewContextKey(editingView)}/${repairComparison.key}`} view={editingView} featureId={repairComparison.ownerFeatureId??repairComparison.entityId!} unit={lengthUnit} canEdit={canEdit&&!sketchInteractionBusy} onClose={()=>setRepairComparison(undefined)} onPreview={snapshot=>viewport.current?.showRepairComparison(snapshot)} onRepair={()=>{
+          const target=partDependencyTreeNode(repairComparison),feature=editingView.part!.features.find(f=>f.id===(repairComparison.ownerFeatureId??repairComparison.entityId));
+          setRepairComparison(undefined);viewport.current?.showRepairComparison();
+          if(!feature)return;
+          if(feature.sketch&&['FAILED_SUPPORT','BLOCKED'].includes(feature.sketch.support.status??'')){store.endSketch();setSupportSketch(feature);return;}
+          if(target?.capabilities?.includes('RECONNECT')&&target.kind==='SKETCH_EXTERNAL_GEOMETRY'){void executeTree('onReconnect',{node:target});return;}
+          if(target?.capabilities?.includes('EDIT'))void executeTree('onEdit',{node:target});
+        }}/></Suspense>}
         {historyResult&&<Alert style={{position:'absolute',zIndex:12,top:12,left:12}} type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/>}
         {view.document.type==="PRODUCT"&&productUpdatePlan.data?.parameterUpdates?.some(node=>node.needsUpdate)&&!productUpdateFailure&&<Alert
           style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)"}}
@@ -1745,7 +1832,7 @@ onToggleConstruction:(node)=>{
           description="当前几何的引用信息暂不可用，请重新计算或重新选择。"
           action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>修复导入引用</Button> : undefined} />}
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} measurementLayouts={measurementLayouts?.documentId===documentID?measurementLayouts:undefined} onDocumentDisplayed={(documentId,revisionId)=>setAssistantDisplayed({documentId,revisionId})} onSceneMetrics={globalOptions?.setMetrics} applicationDisplay={motionOpen||motionRepair||restoringMechanism?applicationDisplay(motionDisplay?.view??view,mechanismDefinition??restoringMechanism,motionDisplay,motionPosePreview,motionAcceptedFrame??restoringPoses):undefined} view={replacementPreview?.document.versionId===view.document.versionId?replacementPreview:motionDisplay?.view??view} motionDisplay={motionDisplay} mechanism={motionOpen||motionRepair?mechanismDefinition:undefined} mechanismSelection={store.selection?.kind==="kinematic-object"?store.selection.id:undefined} documentSessions={documentSessions}
-          failureAction={inputRepair&&canEdit&&!motionDisplay ? {description:profileRepair?`草图已闭合，但 ${profileRepair.name??"特征"} 的原轮廓区域已失效，请重新选择。`:terminationRepair?`${terminationRepair.name??"特征"} 的终止平面不可用，请检查或重新选择。`:`${holeRepair!.name??"孔"} 的定位点已失效，请重新选择。`,label:profileRepair?(store.activeSketchID?"结束草图并修复区域":"修复轮廓区域"):terminationRepair?"修复终止平面":"修复孔位",disabled:command.isPending||!!sketchReceipt||!!solidEditor||!!supportSketch||!!datumEditor||!!booleanDialog,onClick:repairProfileRegion}:undefined}
+          failureAction={inputRepair&&canEdit&&!motionDisplay ? {description:profileRepair?`${profileRepair.name??"特征"} 的原轮廓区域已失效，请从可用闭合区域重新选择。`:replayRepair?`${replayRepair.name??"阵列"} 的成员 ${replayRepair.diagnostic?.match(/PATTERN_MEMBER_FAILED:(\d+):/)?.[1]??""} 重执行失败，请修复来源或限制，或明确跳过该槽位。`:loftRepair?`${loftRepair.name??"放样"} 的端部方向、支撑或连续性不可用，请检查条件并重选支撑。`:sweepRepair?`${sweepRepair.name??"扫掠"} 的路径、方向或截面不可用，请检查并重新选择。`:thinRepair?`${thinRepair.name??"薄壁特征"} 的线链、方向或厚度不可用，请检查并重新选择来源。`:terminationRepair?`${terminationRepair.name??"特征"} 的终止限制不可用，请检查方向、偏移或重新选择目标。`:`${holeRepair!.name??"孔"} 的定位点已失效，请重新选择。`,label:profileRepair?(store.activeSketchID?"结束草图并修复区域":"修复轮廓区域"):replayRepair?"修复阵列成员":loftRepair?"修复放样条件":sweepRepair?"修复扫掠路径":thinRepair?"修复薄壁输入":terminationRepair?terminationRepair.extent==="TO_PLANE"?"修复终止平面":"修复终止限制":"修复孔位",disabled:command.isPending||!!sketchReceipt||!!solidEditor||!!supportSketch||!!datumEditor||!!booleanDialog,onClick:repairProfileRegion}:undefined}
           editingView={motionDisplay?undefined:replacementPreview?.document.versionId===view.document.versionId&&baseEditingView&&activeInstancePath?acceptedContextView(baseEditingView,replacementPreview,activeInstancePath):editingView} activeInstancePath={motionDisplay?undefined:activeInstancePath} activeInstanceTranslation={replacementPreview?.resolvedInstances?.find(i=>i.occurrencePath===activeInstancePath)?.translation??activeResolvedInstance?.translation}
           liveDefinitionProjection={Boolean(canEdit && editSession?.hostDocumentId===view.document.id && activeInstancePath &&
             !pinnedReferenceInPath(view.structureTree,activeInstancePath))}
@@ -2003,6 +2090,17 @@ onToggleConstruction:(node)=>{
       targetFolderID={editingView.document.folderId} targetID={activeID} rootID={documentID} busy={command.isPending}
       onClose={() => setInsertOpen(false)}
       onInsertDocuments={(ids) => command.mutateAsync(() => api.insertMany(activeID, ids))} />}
+    {creatingSolidSketch&&solidSketchWorkflow&&editingView?.part&&<SketchSupportEditor key={`solid-sketch:${editingView.document.id}`} creation insertion={solidSketchWorkflow.inputInsertion} view={editingView} feature={{id:'',type:'SKETCH',bodyId:solidSketchWorkflow.draft.feature.bodyId}} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext}
+      onSelectionSession={setFeatureSelection} onInputs={setFeatureInputs} onFrame={frame=>setDatumPreview(frame?{...frame,translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}:undefined)} onPreview={()=>{}}
+      onApply={async input=>{
+        const generation=sketchCreationScope.current.latest(),workflow=solidSketchWorkflow;
+        const updated=await command.mutateAsync(()=>api.command(editingView.document.id,input));
+        if(!sketchCreationScope.current.current(generation))return updated;
+        const sketch=createdSketchFeature(editingView,updated),plane=sketch&&featureSketchPlane(updated,sketch);
+        if(!sketch||!plane)throw new CommandInputError('已创建草图，但无法进入编辑，请从结构树打开。');
+        solidSketchCreated.current=true;setSolidSketchWorkflow({...workflow,created:true,sketchId:sketch.id});
+        newSketchSession.current=undefined;store.beginSketch(sketch.id,occurrenceSketchPlane(plane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation));return updated;
+      }} onClose={()=>{setCreatingSolidSketch(false);setFeatureSelection(undefined);setFeatureInputs(undefined);setDatumPreview(undefined);if(!solidSketchCreated.current)restoreSolidSketchEditor(solidSketchWorkflow,editingView);}}/>}
     {sketchInsertion&&editingView?.part&&<SketchSupportEditor key={editingView.document.id+(sketchInsertion.intentId??sketchInsertion.afterFeatureId+sketchInsertion.versionId)} view={editingView} feature={{id:"",type:"SKETCH",bodyId:sketchInsertion.bodyId}} insertion={sketchInsertion} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext}
       onSelectionSession={setFeatureSelection} onInputs={setFeatureInputs} onFrame={frame=>setDatumPreview(frame?{...frame,translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}:undefined)} onPreview={()=>{}}
       onApply={async input=>{
@@ -2025,7 +2123,12 @@ onToggleConstruction:(node)=>{
       onClose={()=>{viewport.current?.clearCommandPreview();setFeatureMove(undefined)}}
       onPreview={artifact=>{if(artifact)viewport.current?.previewArtifact(artifact,"ADD");else viewport.current?.clearCommandPreview()}}
       onApply={input=>command.mutateAsync(Object.assign(()=>api.command(editingView.document.id,input),{inlineFailure:true}))}/>}
-    {solidEditor && editingView?.part && <SolidFeatureEditor key={editingView.document.id+solidEditor.feature.id+solidEditor.feature.type+(solidEditor.insertion?.intentId??"")} view={editingView} feature={solidEditor.feature} digest={solidEditor.digest} insertion={solidEditor.insertion} unit={lengthUnit} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifact={featureInputChanged}
+    {sketchDiagnosticsOpen&&editingView?.part&&store.activeSketchID&&editingView.part.features.find(f=>f.id===store.activeSketchID)?.sketch&&<SketchDiagnosticsPanel feature={editingView.part.features.find(f=>f.id===store.activeSketchID)!} revision={editingView.document.versionId} canEdit={canEdit&&!sketchInteractionBusy&&!command.isPending} onClose={()=>setSketchDiagnosticsOpen(false)}
+      onSelect={(entityIds,constraintIds,revision)=>{if(revision===editingView.document.versionId)store.setSelections(diagnosticSelections(entityIds,constraintIds,revision));}}
+      onLocate={(entityIds,constraintIds,revision)=>{if(revision!==editingView.document.versionId)return;const selections=diagnosticSelections(entityIds,constraintIds,revision);store.setSelections(selections);viewport.current?.focusSelections(selections);}} onEdit={(constraintId,revision)=>{if(revision!==editingView.document.versionId)return;setSketchDiagnosticsOpen(false);viewport.current?.editDimension({...featureOccurrenceContext,kind:'sketch-constraint',id:`diagnostic:${constraintId}`,constraintId,constraintType:editingView.part!.features.find(f=>f.id===store.activeSketchID)!.sketch!.constraints.find(c=>c.id===constraintId)?.kind??'COINCIDENT',featureId:store.activeSketchID!,documentId:editingView.document.id,ownerDocumentId:editingView.document.id,versionId:revision,occurrencePath:activeInstancePath});}}
+      onSuppress={async(constraintId,suppressed,revision)=>{if(revision!==editingView.document.versionId)throw new CommandInputError('草图版本已变化，请重新选择约束。');return editSketch(store.activeSketchID!,[{type:'UPDATE_CONSTRAINT_SUPPRESSION',constraintId,suppressed}]);}}/>}
+    {offsetEditor&&editingView?.part&&<SketchOffsetEditor key={editingView.document.id+offsetEditor.sketchId+offsetEditor.offsetId+(activeInstancePath??"")} view={editingView} {...offsetEditor} unit={lengthUnit} onSelectionSession={setFeatureSelection} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onClose={()=>{viewport.current?.clearCommandPreview();setFeatureSelection(undefined);setOffsetEditor(undefined);}} onPreview={(artifact,operation,sketchId)=>{if(artifact)viewport.current?.previewArtifact(artifact,operation,sketchId);else viewport.current?.clearCommandPreview();}} onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))}/> }
+    {solidEditor && editingView?.part && <SolidFeatureEditor key={editingView.document.id+solidEditor.feature.id+solidEditor.feature.type+(solidEditor.insertion?.intentId??"")} view={editingView} feature={solidEditor.feature} digest={solidEditor.digest} insertion={solidEditor.insertion} resume={solidEditor.resume} unit={solidEditor.resume?.unit??lengthUnit} onSketch={assistantHandoff.current?undefined:enterSolidSketch} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifact={featureInputChanged}
       intentRequestId={handoffEditorIntent(assistantHandoff.current,editingView.document.id,editingView.document.versionId,solidEditor.feature.type)}
       onClose={()=>{const handoff=assistantHandoff.current;assistantHandoff.current=undefined;if(handoff&&handoff.state!=="COMMITTED")void finishAssistantHandoff(handoff,handoff.state==="UNKNOWN"?"UNKNOWN":"CANCELLED");viewport.current?.clearCommandPreview();setSolidEditor(undefined);}}
       onPreview={(artifact,operation,sketchFeatureId)=>{if(artifact)viewport.current?.previewArtifact(artifact,operation,sketchFeatureId);else viewport.current?.clearCommandPreview();}}

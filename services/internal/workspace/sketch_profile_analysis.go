@@ -28,9 +28,9 @@ type SketchProfileAnalysis struct {
 	LoopCount        int                       `json:"loopCount"`
 	RegionIDs        []string                  `json:"regionIds,omitempty"`
 	Issues           []SketchProfileIssue      `json:"issues"`
-	// Regions come directly from the production Profile Builder, not from a
-	// second display-only connectivity implementation. CLOSED is its gate, not
-	// a claim that a downstream OCCT Shape operation has already succeeded.
+	// Regions are the exact available formal components. OPEN/INVALID may retain
+	// usable regions alongside diagnostics for unrelated unfinished components.
+	// They do not certify that a downstream solid operation will succeed.
 	Regions []geometry.ProfileRegion `json:"-"`
 }
 
@@ -56,6 +56,14 @@ func analyzeSketchProfile(feature Feature) SketchProfileAnalysis {
 	analysis := SketchProfileAnalysis{Status: "EMPTY", Issues: []SketchProfileIssue{}}
 	if feature.Sketch == nil {
 		return analysis
+	}
+	if len(feature.Sketch.Patterns) > 0 || len(feature.Sketch.Offsets) > 0 {
+		analysis.Issues = append(analysis.Issues, sketchOffsetIssues(*feature.Sketch)...)
+		projected := *feature.Sketch
+		projected.Entities, _ = evaluatedSketchEntities(*feature.Sketch)
+		projected.Constraints = append(append([]SketchConstraint(nil), feature.Sketch.Constraints...), sketchDerivedConnectivity(*feature.Sketch)...)
+		projected.Patterns, projected.Offsets = nil, nil
+		feature.Sketch = &projected
 	}
 	connectivity := profileConnectivity(feature)
 	type endpoint struct {
@@ -101,6 +109,9 @@ func analyzeSketchProfile(feature Feature) SketchProfileAnalysis {
 		}
 	}
 	if len(entityIDs) == 0 {
+		if len(analysis.Issues) > 0 {
+			analysis.Status = "INVALID"
+		}
 		return analysis
 	}
 	sort.Strings(entityIDs)

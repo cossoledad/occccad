@@ -348,7 +348,7 @@ func TestHoleAdmissionAndReplicationThroughRouter(t *testing.T) {
 	cases["wrong-half"] = f
 	f = valid
 	f.Extent = "TO_PLANE"
-	cases["unsupported-extent"] = f
+	cases["missing-termination"] = f
 	head := view.Document.VersionID
 	for name, f := range cases {
 		if _, e := service.PreviewCommand(t.Context(), view.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: view.Document.ID + "-bad-" + name, Type: "CREATE_SOLID_FEATURE", Feature: &f}); e == nil {
@@ -366,21 +366,23 @@ func TestHoleAdmissionAndReplicationThroughRouter(t *testing.T) {
 	}
 	apply(workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &valid})
 	hole := view.Part.Features[len(view.Part.Features)-1]
-	if caps := view.ReplicationSources[hole.ID]; !caps.Tool || caps.RangeStart || caps.RangeModifier || !caps.BodyStage {
+	if caps := view.ReplicationSources[hole.ID]; !caps.Tool || !caps.RangeStart || !caps.Reexecution || caps.RangeModifier || !caps.BodyStage {
 		t.Fatal("wrong Hole replication capabilities", caps)
 	}
-	for _, kind := range []string{"FEATURE_DELTA", "BODY_STAGE"} {
+	for _, kind := range []string{"GENERATOR_TOOL", "FEATURE_DELTA", "FEATURE_REEXECUTION", "BODY_STAGE"} {
 		pattern := &workspace.Feature{Type: "SOLID_PATTERN", BodyID: base.BodyID, Operation: "ADD", Pattern: &workspace.FeaturePattern{PatternDefinition: workspace.PatternDefinition{Kind: "LINEAR", Distribution: "FIXED_STEP", Count: 2, Spacing: 30, Direction: [3]float64{1, 0, 0}}, Source: workspace.FeatureStageRef{BodyID: base.BodyID, FeatureID: hole.ID}, SourceKind: kind, ResultMode: "COMBINE"}}
+		want := 2 * (12000 - 20*math.Pi)
+		if kind != "BODY_STAGE" {
+			pattern.Operation = "REMOVE"
+			pattern.Pattern.Spacing = 6
+			want = 12000 - 40*math.Pi
+		}
 		if kind == "FEATURE_DELTA" {
 			pattern.Pattern.StartFeatureID = hole.ID
 		}
 		candidate, e := service.PreviewCommand(t.Context(), view.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: view.Document.ID + "-pattern-" + kind, Type: "CREATE_PATTERN", Feature: pattern})
-		if kind == "BODY_STAGE" {
-			if e != nil || candidate.Artifact == nil || math.Abs(candidate.Artifact.Volume-2*(12000-20*math.Pi)) > 1e-5 {
-				t.Fatal("Body stage copy", e)
-			}
-		} else if e == nil || !strings.Contains(e.Error(), map[string]string{"GENERATOR_TOOL": "PATTERN_REEXECUTION_UNSUPPORTED", "FEATURE_DELTA": "PATTERN_RANGE_INVALID"}[kind]) {
-			t.Fatal("Hole tool replication accepted", kind, e)
+		if e != nil || candidate.Artifact == nil || math.Abs(candidate.Artifact.Volume-want) > 1e-5 {
+			t.Fatal("Hole replication", kind, e, candidate.Artifact)
 		}
 	}
 	if _, e = service.ApplyCommand(t.Context(), view.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: view.Document.ID + "-delete-location", Type: "DELETE_NODE", TargetKind: "FEATURE", TargetID: sketch}); e == nil {

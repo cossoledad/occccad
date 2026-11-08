@@ -44,6 +44,10 @@ try {
   assert.deepEqual(solidGeneratorParameters({generator:"REVOLVE",angle:"Alpha / 2"},"mm"),{angle:360,parameterExpressions:{angle:"Alpha / 2"}});
   assert.deepEqual(solidGeneratorParameters({generator:"LINEAR_EXTRUDE",extent:"TWO_SIDED",angle:360,length2:"2 cm"},"mm"),{length2:20,parameterExpressions:{}});
   assert.equal(solidParameterEdit("recessDepth","0.3 cm","1","mm").value,3);
+  assert.equal(solidParameterEdit("startOffset","-0.3 cm","0","mm").value,-3);
+  assert.equal(solidParameterEdit("endOffset","0 mm","-1","mm").value,0);
+  assert.equal(solidParameterEdit("endOffset","-Wall / 2","0","mm").expression,"-Wall / 2");
+  assert.throws(()=>solidParameterEdit("startOffset","20 deg","0","mm"),/有限长度/);
   assert.equal(solidParameterEdit("countersinkAngle",`${Math.PI / 2} rad`,"60","mm").value,90);
   assert.equal(solidParameterEdit("countersinkAngle","Angle/2","60","mm").expression,"Angle/2");
   assert.throws(()=>solidParameterEdit("countersinkAngle","2 mm","90","mm"));

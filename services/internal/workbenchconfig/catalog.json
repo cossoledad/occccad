@@ -1354,6 +1354,10 @@
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           }
         ]
       },
@@ -1390,6 +1394,10 @@
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           }
         ]
       },
@@ -1426,6 +1434,10 @@
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           }
         ]
       },
@@ -1462,6 +1474,10 @@
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           }
         ]
       },
@@ -1498,6 +1514,10 @@
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           }
         ]
       },
@@ -1534,6 +1554,10 @@
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           }
         ]
       },
@@ -1570,6 +1594,10 @@
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           }
         ]
       },
@@ -1606,6 +1634,10 @@
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           }
         ]
       },
@@ -1642,6 +1674,50 @@
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "implementation": "form"
+    },
+    {
+      "id": "part.sweep",
+      "name": "扫掠",
+      "helpText": "沿正式草图路径扫掠闭合截面，支持加料、切除和独立实体。",
+      "iconKey": "pad",
+      "repeatable": false,
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           }
         ]
       },
@@ -1678,6 +1754,10 @@
           {
             "fact": "targetType",
             "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           }
         ]
       },
@@ -2050,7 +2130,7 @@
     {
       "id": "sketch.line",
       "name": "直线",
-      "helpText": "连续创建两点直线；长度/角度数值输入，Tab 切换，Enter 确认。",
+      "helpText": "用两个点创建直线；方向约束可自动推断，Enter 确认。",
       "iconKey": "line",
       "repeatable": true,
       "visibleWhen": {
@@ -3302,7 +3382,7 @@
     {
       "id": "sketch.edit.offset",
       "name": "偏移",
-      "helpText": "线段、圆、圆弧及连续链独立偏移；有符号距离，M 斜接/圆角，退化和自交拒绝。",
+      "helpText": "线段、圆、圆弧及连续链关联偏移，距离可用公式；可选独立副本，M 切换斜接/圆角。双击偏移定义编辑或解除关联。",
       "iconKey": "reference",
       "repeatable": false,
       "visibleWhen": {
@@ -6226,6 +6306,57 @@
         ]
       },
       "implementation": "form"
+    },
+    {
+      "id": "part.dependencies",
+      "name": "零件依赖",
+      "helpText": "查看参数、基准、草图、轮廓与实体的读取来源、影响范围及失效输入。",
+      "iconKey": "dependency",
+      "repeatable": false,
+      "visibleWhen": {
+        "fact": "targetType",
+        "equals": "PART"
+      },
+      "enabledWhen": {
+        "fact": "targetType",
+        "equals": "PART"
+      },
+      "implementation": "handler"
+    },
+    {
+      "id": "sketch.diagnostics",
+      "name": "草图诊断",
+      "helpText": "查看当前接受草图的自由度分量、冲突与冗余约束，定位几何并打开正式约束编辑。",
+      "iconKey": "reference",
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          }
+        ]
+      }
     }
   ],
   "groups": [
@@ -6343,6 +6474,11 @@
           "order": 90
         },
         {
+          "commandId": "part.sweep",
+          "groupKey": "primary",
+          "order": 99
+        },
+        {
           "commandId": "part.loft",
           "groupKey": "primary",
           "order": 100
@@ -6418,6 +6554,11 @@
           "commandId": "part.design-inputs",
           "groupKey": "primary",
           "order": 25
+        },
+        {
+          "commandId": "part.dependencies",
+          "groupKey": "primary",
+          "order": 40
         }
       ]
     },
@@ -7138,6 +7279,20 @@
           "order": 2
         }
       ]
+    },
+    {
+      "id": "sketch-diagnostics",
+      "name": "草图分析",
+      "styleKey": "sketch",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "sketch.diagnostics",
+          "groupKey": "primary",
+          "order": 10
+        }
+      ]
     }
   ],
   "tabs": [
@@ -7156,7 +7311,7 @@
       "modeLabel": "Part Design",
       "workbench": "PART_DESIGN",
       "section": "view",
-      "order": 1,
+      "order": 3,
       "domain": "SOLID"
     },
     {
@@ -7165,7 +7320,7 @@
       "modeLabel": "Part Design",
       "workbench": "PART_DESIGN",
       "section": "document",
-      "order": 2,
+      "order": 4,
       "domain": "SOLID"
     },
     {
@@ -7183,7 +7338,7 @@
       "modeLabel": "Sketcher",
       "workbench": "SKETCHER",
       "section": "view",
-      "order": 1,
+      "order": 3,
       "domain": "SKETCH"
     },
     {
@@ -7192,7 +7347,7 @@
       "modeLabel": "Sketcher",
       "workbench": "SKETCHER",
       "section": "document",
-      "order": 2,
+      "order": 4,
       "domain": "SKETCH"
     },
     {
@@ -7210,7 +7365,7 @@
       "modeLabel": "Assembly Design",
       "workbench": "ASSEMBLY_DESIGN",
       "section": "view",
-      "order": 2,
+      "order": 3,
       "domain": "ASSEMBLY"
     },
     {
@@ -7219,7 +7374,7 @@
       "modeLabel": "Assembly Design",
       "workbench": "ASSEMBLY_DESIGN",
       "section": "document",
-      "order": 3,
+      "order": 4,
       "domain": "ASSEMBLY"
     },
     {
@@ -7228,7 +7383,7 @@
       "modeLabel": "Part Design",
       "workbench": "PART_DESIGN",
       "section": "debug",
-      "order": 3,
+      "order": 5,
       "domain": "SOLID"
     },
     {
@@ -7237,7 +7392,7 @@
       "modeLabel": "Sketcher",
       "workbench": "SKETCHER",
       "section": "debug",
-      "order": 3,
+      "order": 5,
       "domain": "SKETCH"
     },
     {
@@ -7246,7 +7401,7 @@
       "modeLabel": "Assembly Design",
       "workbench": "ASSEMBLY_DESIGN",
       "section": "debug",
-      "order": 4,
+      "order": 5,
       "domain": "ASSEMBLY"
     },
     {
@@ -7284,6 +7439,60 @@
       "section": "debug",
       "order": 4,
       "domain": "KINEMATICS_DMU"
+    },
+    {
+      "id": "PART_DESIGN.measurement",
+      "name": "测量",
+      "modeLabel": "Part Design",
+      "workbench": "PART_DESIGN",
+      "section": "measurement",
+      "domain": "SOLID",
+      "order": 1
+    },
+    {
+      "id": "PART_DESIGN.parameters",
+      "name": "参数与接口",
+      "modeLabel": "Part Design",
+      "workbench": "PART_DESIGN",
+      "section": "parameters",
+      "domain": "SOLID",
+      "order": 2
+    },
+    {
+      "id": "SKETCHER.measurement",
+      "name": "测量",
+      "modeLabel": "Sketcher",
+      "workbench": "SKETCHER",
+      "section": "measurement",
+      "domain": "SKETCH",
+      "order": 1
+    },
+    {
+      "id": "SKETCHER.parameters",
+      "name": "参数与接口",
+      "modeLabel": "Sketcher",
+      "workbench": "SKETCHER",
+      "section": "parameters",
+      "domain": "SKETCH",
+      "order": 2
+    },
+    {
+      "id": "ASSEMBLY_DESIGN.measurement",
+      "name": "测量",
+      "modeLabel": "Assembly Design",
+      "workbench": "ASSEMBLY_DESIGN",
+      "section": "measurement",
+      "domain": "ASSEMBLY",
+      "order": 1
+    },
+    {
+      "id": "ASSEMBLY_DESIGN.parameters",
+      "name": "参数与接口",
+      "modeLabel": "Assembly Design",
+      "workbench": "ASSEMBLY_DESIGN",
+      "section": "parameters",
+      "domain": "ASSEMBLY",
+      "order": 2
     }
   ],
   "contexts": [
@@ -7303,6 +7512,8 @@
       },
       "tabs": [
         "PART_DESIGN.model",
+        "PART_DESIGN.measurement",
+        "PART_DESIGN.parameters",
         "PART_DESIGN.view",
         "PART_DESIGN.document",
         "PART_DESIGN.debug"
@@ -7324,6 +7535,8 @@
       },
       "tabs": [
         "SKETCHER.model",
+        "SKETCHER.measurement",
+        "SKETCHER.parameters",
         "SKETCHER.view",
         "SKETCHER.document",
         "SKETCHER.debug"
@@ -7361,6 +7574,8 @@
       },
       "tabs": [
         "ASSEMBLY_DESIGN.model",
+        "ASSEMBLY_DESIGN.measurement",
+        "ASSEMBLY_DESIGN.parameters",
         "ASSEMBLY_DESIGN.view",
         "ASSEMBLY_DESIGN.document",
         "ASSEMBLY_DESIGN.debug"
@@ -7396,6 +7611,8 @@
       },
       "tabs": [
         "ASSEMBLY_DESIGN.model",
+        "ASSEMBLY_DESIGN.measurement",
+        "ASSEMBLY_DESIGN.parameters",
         "ASSEMBLY_DESIGN.view",
         "ASSEMBLY_DESIGN.document",
         "ASSEMBLY_DESIGN.debug"
@@ -7469,12 +7686,12 @@
       "order": 20
     },
     {
-      "tabId": "ASSEMBLY_DESIGN.model",
+      "tabId": "ASSEMBLY_DESIGN.parameters",
       "groupId": "product-interface",
       "order": 20
     },
     {
-      "tabId": "PART_DESIGN.model",
+      "tabId": "PART_DESIGN.parameters",
       "groupId": "part-knowledge",
       "order": 30
     },
@@ -7514,9 +7731,9 @@
       "order": 50
     },
     {
-      "tabId": "SKETCHER.model",
+      "tabId": "SKETCHER.measurement",
       "groupId": "sketch-dimensional-constraints",
-      "order": 60
+      "order": 0
     },
     {
       "tabId": "PART_DESIGN.document",
@@ -7624,7 +7841,7 @@
       "order": 50
     },
     {
-      "tabId": "SKETCHER.model",
+      "tabId": "SKETCHER.parameters",
       "groupId": "part-knowledge",
       "order": 25
     },
@@ -7634,14 +7851,19 @@
       "order": 35
     },
     {
-      "tabId": "PART_DESIGN.model",
+      "tabId": "PART_DESIGN.measurement",
       "groupId": "measurement",
       "order": 25
     },
     {
-      "tabId": "ASSEMBLY_DESIGN.model",
+      "tabId": "ASSEMBLY_DESIGN.measurement",
       "groupId": "measurement",
       "order": 32
+    },
+    {
+      "tabId": "SKETCHER.model",
+      "groupId": "sketch-diagnostics",
+      "order": 25
     }
   ]
 }

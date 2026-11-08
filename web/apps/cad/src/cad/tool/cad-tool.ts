@@ -1,3 +1,4 @@
+import {inferSketchDirection,type SketchDirectionInference} from "../sketch/sketch-direction-inference";
 import {chooseSketchAngleSector} from "../sketch/sketch-angle";
 import {normalizeSketchCaptureOperations} from "../sketch/sketch-point-capture";
 import {engineeringProblem} from "../command/operation-failure";
@@ -20,6 +21,7 @@ import { sketchEntityPoint, splineEditablePoints, splineEditablePointIDs, sample
 import { SKETCH_INPUT_POLICY, type SketchReferenceGeometry } from "../sketch/sketch-input-policy";
 import { copySketchSelection, pasteSketchClipboard, localSketchSelection } from "./sketch-edit-tool";
 import { randomUUID } from "../../utils/random-uuid";
+import {SketchCreationPreview} from '../sketch/sketch-creation-preview';
 
 import {sketchCommitResultUnknown,type SketchCommandAction} from "./sketch-command-session";
 
@@ -40,6 +42,7 @@ export type ToolViewportPort = {
   clearToolPreview(): void;
   commitSketchOperations(operations: SketchOperation[], intent?: SketchCommitIntent): Promise<SketchCommitResult> | void;
   previewSketchOperations?(operations:SketchOperation[],signal?:AbortSignal):Promise<{featureId:string;versionId:string;entities:SketchEntity[]}>;
+  showSketchCreationCandidate?(operations:SketchOperation[],entities:SketchEntity[]):void;
   currentSketchReferenceEntities?():readonly SketchEntity[];
   showSketchEditCandidate?(candidate:import("../sketch/sketch-edit-preview").SketchEditCandidatePreview):void;
   setSketchCommandState?(state: SketchCommandState | undefined): void;
@@ -68,11 +71,12 @@ export type ToolViewportPort = {
   currentSelections?(): readonly SelectionItem[];
   currentSelectionSource?():SelectionInputSource;
   currentLengthUnit?():DisplayLengthUnit;
+  currentModifiers?():{alt:boolean;shift:boolean;ctrl:boolean;meta:boolean};
   projectSketchPoint?(point:Vec2):Vec2|undefined;
   consumeActivationSelection?():void;
   currentSketchEntities?(): readonly SketchEntity[];
   currentSketchConstraints?(): readonly SketchConstraint[];
-  currentSketchIdentity?(): {documentId:string;sketchId:string;versionId:string;occurrencePath?:string}|undefined;
+  currentSketchIdentity?(): {documentId:string;sketchId:string;versionId:string;occurrencePath?:string;contextKey?:string;rootDocumentId?:string}|undefined;
   currentProjectionScope?(): import("../interaction/external-projection-selection").ProjectionScope|undefined;
   showSketchEntityPreview?(entities:readonly SketchEntity[]):void;
   retainSelections(selections: SelectionItem[]): void;
@@ -215,7 +219,7 @@ export class SelectTool implements CadTool {
       const operations:SketchOperation[]=[...new Set(selectedConstraints.map(selection=>selection.constraintId))].map(constraintId=>({type:"DELETE_CONSTRAINT",constraintId}));
       if(entities.length)operations.push({type:"DELETE_ENTITIES",entityIds:entities.map(entity=>entity.id)});
       this.deletionPending=true;const generation=++this.deletionGeneration;
-      const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath]);};const submittedOwner=owner();
+      const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath,scope?.rootDocumentId]);};const submittedOwner=owner();
       const current=()=>generation===this.deletionGeneration&&owner()===submittedOwner;
       try {
         const result=context.viewport.commitSketchOperations(operations);
@@ -239,7 +243,7 @@ export class ProjectExternalGeometrySketchTool implements CadTool {
   private submit(context:ToolContext):void {
     if(!this.draft||this.pending)return;
     const generation=++this.generation;this.pending=true;
-    const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath]);};const initialOwner=owner();
+    const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath,scope?.rootDocumentId]);};const initialOwner=owner();
     const accepted=()=>{if(generation!==this.generation)return;if(owner()!==initialOwner){this.cancel(context);return;}this.pending=false;this.draft=undefined;context.viewport.finishToolUse();};
     const failed=(error:unknown)=>{if(generation!==this.generation)return;if(owner()!==initialOwner){this.cancel(context);return;}this.pending=sketchCommitResultUnknown(error);context.viewport.setToolPrompt(`${this.pending?"投影结果待确认；请查询原提交结果或取消":"投影失败；保留已选引用，Enter 重试或重新选择"}：${engineeringProblem(error)}`);};
     try{const result=context.viewport.commitExternalProjection(this.draft);if(result&&typeof result.then==="function")void Promise.resolve(result).then(accepted,failed);else accepted();}catch(error){failed(error);}
@@ -384,7 +388,7 @@ abstract class SketchCreationTool implements CadTool {
   protected submitCreation(context:ToolContext,invoke:(submission:ToolContext)=>void,accepted:()=>void,exit=false):void{
     if(this.creationPending)return;
     const generation=++this.creationGeneration;this.creationPending=true;
-    const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath]);};const submissionOwner=owner();
+    const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath,scope?.rootDocumentId]);};const submissionOwner=owner();
     const promises:Promise<SketchCommitResult>[]=[];
     const submission:ToolContext={...context,viewport:{...context.viewport,
       commitSketchOperations:(operations,intent)=>{const result=context.viewport.commitSketchOperations(normalizeSketchCaptureOperations(operations,context.viewport.currentSketchConstraints?.()),intent);if(result&&typeof result.then==="function")promises.push(Promise.resolve(result));return result;},
@@ -395,7 +399,7 @@ abstract class SketchCreationTool implements CadTool {
     try{invoke(submission);if(promises.length)void Promise.all(promises).then(success,failure);else success();}catch(error){failure(error);}
   }
 
-  private automaticConstraints = true;
+  protected automaticConstraints = true;
   protected capturedSnap(event:CadPointerEvent,context:ToolContext):SketchGeometryRef|undefined {
     return this.automaticConstraints&&!event.state.modifiers?.alt?context.viewport.sketchSnapReference():undefined;
   }
@@ -421,9 +425,12 @@ abstract class TwoClickSketchTool extends SketchCreationTool {
   private capturedPointerID?: number;
   private cursor?: Vec2;
   private cursorSnap?:SketchGeometryRef;
-  private fields: [string, string] = ["", ""];
-  private field = 0;
-  private replacing = false;
+  private inputError?:string;
+  private authority=new SketchCreationPreview();
+  private confirmingPreview=false;
+  private directionInference=true;
+  private inferenceSuppressed=false;
+  private inference?:SketchDirectionInference;
   abstract preview(first: Vec2, second: Vec2, context: ToolContext): void;
   abstract commit(first: Vec2, second: Vec2, context: ToolContext,
     snaps: { first?: SketchGeometryRef; second?: SketchGeometryRef }): void;
@@ -439,44 +446,74 @@ abstract class TwoClickSketchTool extends SketchCreationTool {
     this.cursorSnap=target?{target:"ENTITY",entityId:target.id,subElement:"POINT"}:undefined;
     this.preview(this.first,this.cursor,context);this.updatePrompt(context);return SelectionInputResult.Accepted;
   }
-  activate(context: ToolContext): void { context.viewport.setToolPrompt(`${this.firstPrompt}；C 辅助几何，A 自动连接，Alt 临时禁用连接，右键结束`); }
+  activate(context: ToolContext): void { context.viewport.setToolPrompt(this.firstPrompt); }
 
-  private resolvedPoint(point: Vec2): Vec2 | undefined {
+  private resolvedPoint(point: Vec2, context:ToolContext): Vec2 | undefined {
+    this.inference=undefined;
     if (!this.first) return point;
-    const dx = point[0] - this.first[0], dy = point[1] - this.first[1];
-    const first = this.fields[0] === "" ? undefined : Number(this.fields[0]);
-    const second = this.fields[1] === "" ? undefined : Number(this.fields[1]);
-    if ((first !== undefined && !Number.isFinite(first)) || (second !== undefined && !Number.isFinite(second))) return undefined;
-    if (this.id.startsWith("sketch.rectangle")) return [this.first[0] + (first ?? dx), this.first[1] + (second ?? dy)];
-    const length = first ?? Math.hypot(dx, dy), angle = second === undefined ? Math.atan2(dy, dx) : second * Math.PI / 180;
-    if (length < SKETCH_INPUT_POLICY.minimumGeometryLength) return undefined;
-    return [this.first[0] + length * Math.cos(angle), this.first[1] + length * Math.sin(angle)];
+    if(this.id.startsWith('sketch.rectangle'))return point;
+    if(Math.hypot(point[0]-this.first[0],point[1]-this.first[1])<SKETCH_INPUT_POLICY.minimumGeometryLength)return;
+    if(this.id==='sketch.line'&&this.directionInference&&this.automaticConstraints&&!this.inferenceSuppressed&&!this.cursorSnap&&context.viewport.projectSketchPoint){
+      this.inference=inferSketchDirection(this.first,point,context.viewport.currentSketchEntities?.()??[],p=>context.viewport.projectSketchPoint!(p),false);
+    }
+    return this.inference?.point??point;
   }
-  private updatePrompt(context: ToolContext): void {
-    const labels = this.id.startsWith("sketch.rectangle") ? ["宽度 mm", "高度 mm"] : [this.id === "sketch.circle" ? "半径 mm" : "长度 mm", "角度°"];
-    context.viewport.setToolPrompt(`${this.secondPrompt}；${labels.map((label, index) => `${index === this.field ? "▶" : ""}${label}: ${this.fields[index] || "鼠标"}`).join("，")}；Tab 切换，Enter 确认，C 辅助几何`);
+  private updatePrompt(context:ToolContext):void {
+    context.viewport.setToolPrompt(this.secondPrompt);
+    if(this.first)context.viewport.setSketchCommandState?.({toolId:this.id,operation:this.firstPrompt.split('：')[0],phase:this.creationPending||this.confirmingPreview?'committing':this.inputError?'failed':'definition',role:this.inference?`推断：${this.inference.label}`:this.secondPrompt,selectedIds:[],references:[],presentation:'inline',preview:this.authority.current?.status==='ready'?'authoritative':this.authority.current?.status==='pending'?'pending':this.authority.current?.status==='failed'?'unavailable':'approximate',fields:[],options:this.id==='sketch.line'?[{name:'directionInference',label:'方向约束推断',value:this.directionInference?'true':'false',choices:[{value:'true',label:'开启'},{value:'false',label:'关闭'}]},{name:'autoRelations',label:'自动连接与推断',value:this.automaticConstraints?'true':'false',choices:[{value:'true',label:'开启'},{value:'false',label:'关闭'}]}]:[],canConfirm:!this.creationPending&&!this.confirmingPreview,completion:{label:'创建'},next:'创建',error:this.inputError});
+  }
+
+  private creationOperations(first:Vec2,resolved:Vec2,context:ToolContext,snap?:SketchGeometryRef):SketchOperation[]{
+    let operations:SketchOperation[]=[];
+    this.commit(first,resolved,{viewport:{...context.viewport,finishToolUse:()=>{},commitSketchOperations:value=>{operations=value}}},{first:this.firstSnap,second:snap});
+    if(this.inference){const line=operations.find(op=>op.type==='ADD_ENTITY'&&op.entity.kind==='LINE');if(line?.type==='ADD_ENTITY')operations.push({type:'ADD_CONSTRAINT',constraint:{id:randomUUID(),kind:this.inference.kind,references:[{target:'ENTITY',entityId:line.entity.id,subElement:'WHOLE'},...(this.inference.reference?[this.inference.reference]:[])]}});}
+    return normalizeSketchCaptureOperations(operations,context.viewport.currentSketchConstraints?.());
+  }
+  private prepareAuthority(resolved:Vec2,context:ToolContext){
+    if(!this.first||!this.inference||!context.viewport.previewSketchOperations){this.authority.cancel();return;}
+    const scope=JSON.stringify(context.viewport.currentSketchIdentity?.()),first=this.first,key=JSON.stringify([scope,first,resolved,this.firstSnap,this.role,this.inference,this.cursorSnap]);
+    return this.authority.select(key,()=>this.creationOperations(first,resolved,context), (operations,signal)=>context.viewport.previewSketchOperations!(operations,signal),()=>scope===JSON.stringify(context.viewport.currentSketchIdentity?.()),()=>{
+      const candidate=this.authority.current;if(candidate?.status==='ready')context.viewport.showSketchCreationCandidate?.(candidate.operations!,candidate.entities!);
+      else if(candidate?.status==='failed'){this.inputError=engineeringProblem(candidate.error);context.viewport.clearToolPreview();}
+      this.updatePrompt(context);
+    });
+  }
+  private updatePreview(resolved:Vec2,context:ToolContext){
+    if(!this.first)return;
+    const candidate=this.prepareAuthority(resolved,context);
+    if(candidate?.status==='ready')context.viewport.showSketchCreationCandidate?.(candidate.operations!,candidate.entities!);
+    else {context.viewport.clearToolPreview();this.preview(this.first,resolved,context);}
+    this.updatePrompt(context);
   }
   private confirm(point: Vec2, snap: SketchGeometryRef | undefined, context: ToolContext): boolean {
-    const resolved = this.resolvedPoint(point);
+    if(this.creationPending||this.confirmingPreview)return false;
+    const modifiers=context.viewport.currentModifiers?.();if(modifiers)this.inferenceSuppressed=modifiers.alt;
+    snap=this.automaticConstraints&&!this.inferenceSuppressed?(snap??context.viewport.sketchSnapReference()):undefined;
+    this.cursorSnap=snap;
+    const resolved = this.resolvedPoint(point,context);
     if (!this.first || !resolved || Math.hypot(resolved[0] - this.first[0], resolved[1] - this.first[1]) < SKETCH_INPUT_POLICY.minimumGeometryLength ||
       (this.id.startsWith("sketch.rectangle") && (Math.abs(resolved[0] - this.first[0]) < SKETCH_INPUT_POLICY.minimumGeometryLength || Math.abs(resolved[1] - this.first[1]) < SKETCH_INPUT_POLICY.minimumGeometryLength))) {
-      context.viewport.setToolPrompt("不能创建退化几何；输入有效数值或重新选择终点"); return false;
+      this.inputError??="请选择不同的终点";
+      this.updatePrompt(context);context.viewport.setToolPrompt(this.inputError);return false;
     }
-    const first = this.first, firstSnap = this.firstSnap;
-    // A numeric target is not the snapped endpoint, so it must not inherit its constraint.
-    const secondSnap = this.fields.some(value => value !== "") ? undefined : snap;
-    context.viewport.clearToolPreview();this.submitCreation(context,submission=>this.commit(first,resolved,submission,{first:firstSnap,second:secondSnap}),()=>{
-      this.first=undefined;this.firstSnap=undefined;this.cursor=undefined;this.cursorSnap=undefined;this.fields=["",""];this.field=0;this.replacing=false;this.activate(context);
-    });return true;
+    const submit=(operations:SketchOperation[])=>{context.viewport.clearToolPreview();this.submitCreation(context,submission=>submission.viewport.commitSketchOperations(operations),()=>{
+      this.authority.cancel();
+      this.first=undefined;this.firstSnap=undefined;this.cursor=undefined;this.cursorSnap=undefined;this.inputError=undefined;context.viewport.setSketchCommandState?.(undefined);this.activate(context);
+    });if(this.first)this.updatePrompt(context);};
+    const candidate=this.prepareAuthority(resolved,context);
+    if(candidate){this.confirmingPreview=true;this.updatePrompt(context);void this.authority.resolve(candidate).then(operations=>{this.confirmingPreview=false;submit(operations);},cause=>{if(this.authority.current!==candidate)return;this.confirmingPreview=false;this.inputError=engineeringProblem(cause);this.updatePrompt(context);});}
+    else submit(this.creationOperations(this.first,resolved,context,snap));return true;
   }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
-    if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
+    if(this.creationPending||this.confirmingPreview){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if (this.endOnRightClick(event, context)) return InputResult.Consumed;
     if (event.button !== 0 || this.capturedPointerID !== undefined || event.state.buttons.middle || event.state.buttons.right || !context.viewport.hasActiveSketch()) return InputResult.Ignored;
     const point = context.viewport.sketchPoint(event.x, event.y);
     if (!point) return InputResult.Ignored;
     this.capturedPointerID = event.pointerId;
+    this.inferenceSuppressed=!!event.state.modifiers?.alt;this.cursorSnap=this.capturedSnap(event,context);
     if (!this.first) {
+
       this.first = point; this.cursor = point;
       this.firstSnap = this.capturedSnap(event,context);
       this.preview(point, point, context); this.updatePrompt(context);
@@ -492,35 +529,39 @@ abstract class TwoClickSketchTool extends SketchCreationTool {
     this.cancel(context); return InputResult.Consumed;
   }
   pointerMove(event: CadPointerEvent, context: ToolContext): InputResult {
-    if(this.creationPending)return InputResult.Consumed;
+    if(this.creationPending||this.confirmingPreview)return InputResult.Consumed;
     if (event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
     const point = context.viewport.sketchPoint(event.x, event.y);
     if (!point) return InputResult.Ignored;
+    this.inferenceSuppressed=!!event.state.modifiers?.alt;
     this.cursor = point;this.cursorSnap=this.capturedSnap(event,context);
-    const resolved = this.resolvedPoint(point);
-    if (this.first && resolved) this.preview(this.first, resolved, context);
+    const resolved = this.resolvedPoint(point,context);
+    if (this.first && resolved) this.updatePreview(resolved, context);
     return InputResult.Consumed;
   }
   keyDown(event: CadKeyboardEvent, context: ToolContext): InputResult {
-    if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
-    const shared = this.creationKey(event, context); if (shared !== InputResult.Ignored) return shared;
+    if(this.creationPending||this.confirmingPreview){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
+    const shared = this.creationKey(event, context); if (shared !== InputResult.Ignored) {if(this.first){const resolved=this.resolvedPoint(this.cursor??this.first,context);if(resolved)this.updatePreview(resolved,context);this.updatePrompt(context);}return shared;}
     if (event.editableTarget || event.state?.modifiers.ctrl || event.state?.modifiers.meta || event.state?.modifiers.alt) return InputResult.Ignored;
     if (!this.first) return InputResult.Ignored;
     if (event.key === "Escape") { this.cancel(context); return InputResult.Consumed; }
     if (event.key === "Enter") { this.confirm(this.cursor ?? this.first, this.cursorSnap, context); return InputResult.Consumed; }
-    if (event.key === "Tab") { this.field = this.field === 0 ? 1 : 0; this.replacing = true; }
-    else if (event.key === "Backspace") { this.fields[this.field] = this.fields[this.field].slice(0, -1); this.replacing = false; }
-    else if (/^[0-9.\-+]$/.test(event.key)) { this.fields[this.field] = (this.replacing ? "" : this.fields[this.field]) + event.key; this.replacing = false; }
-    else return InputResult.Ignored;
-    this.updatePrompt(context);
-    const resolved = this.resolvedPoint(this.cursor ?? this.first);
-    if (resolved) this.preview(this.first, resolved, context);
-    return InputResult.Consumed;
+    return InputResult.Ignored;
+  }
+
+  commandAction(action:SketchCommandAction,context:ToolContext):void {
+    if(action.type==='cancel'){this.cancel(context);context.viewport.finishToolUse(true);return;}
+    if(this.creationPending||this.confirmingPreview)return;
+    if(!this.first)return;
+    if(action.type==='option'&&['directionInference','autoRelations'].includes(action.name)){if(action.name==='directionInference')this.directionInference=action.value==='true';else this.automaticConstraints=action.value==='true';}
+    else if(action.type==='confirm'){this.confirm(this.cursor??this.first,this.cursorSnap,context);return;}
+    const resolved=this.resolvedPoint(this.cursor??this.first,context);if(resolved)this.updatePreview(resolved,context);else this.authority.cancel();this.updatePrompt(context);
   }
   deactivate(context: ToolContext): void { this.cancel(context); }
   cancel(context: ToolContext): void {
     this.invalidateCreationSubmission();this.capturedPointerID = undefined; this.first = undefined; this.firstSnap = undefined; this.cursor = undefined;this.cursorSnap=undefined;
-    this.fields = ["", ""]; this.field = 0; this.replacing = false;
+    this.authority.cancel();this.confirmingPreview=false;this.inference=undefined;
+    this.inputError=undefined;context.viewport.setSketchCommandState?.(undefined);
     context.viewport.clearToolPreview(); this.activate(context);
   }
 }
@@ -987,7 +1028,7 @@ export class ThreePointArcSketchTool extends ThreePointCircleSketchTool {
 export class CenterRectangleSketchTool extends TwoClickSketchTool {
   readonly id="sketch.rectangle.center";
   readonly firstPrompt="中心矩形：单击中心";
-  readonly secondPrompt="中心矩形：单击角点，数值输入为半宽/半高；Esc 取消";
+  readonly secondPrompt="中心矩形：单击角点；Esc 取消";
   private corners(center:Vec2,corner:Vec2):Vec2[]{return[[2*center[0]-corner[0],2*center[1]-corner[1]],[corner[0],2*center[1]-corner[1]],corner,[2*center[0]-corner[0],corner[1]]];}
   preview(center:Vec2,corner:Vec2,context:ToolContext):void{const points=this.corners(center,corner);context.viewport.showPolylinePreview(points,true);
     context.viewport.showReferenceDimensions([{kind:"LINE",start:points[0],end:points[1]},{kind:"LINE",start:points[1],end:points[2]}]);}

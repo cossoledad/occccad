@@ -16,9 +16,9 @@ export function CommandFormItem({width='expression',...props}:FormItemProps&{wid
 /** Three named components share available width without full field-label columns. */
 export function CommandVector({label,children}:PropsWithChildren<{label:ReactNode}>){return <fieldset className="command-vector"><legend>{label}</legend><div className="command-vector-fields">{children}</div></fieldset>}
 export function CommandGroup({label,children}:PropsWithChildren<{label:ReactNode}>){return <fieldset className="command-group"><legend>{label}</legend>{children}</fieldset>}
-export function CommandStatus({pending,error,onRetry}:{pending?:boolean;error?:ReactNode;onRetry?:()=>void}){
+export function CommandStatus({pending,error,onRetry,retryText='重新预览'}:{pending?:boolean;error?:ReactNode;onRetry?:()=>void;retryText?:string}){
  if(!pending&&!error)return null;
- return <div className="command-status" role="status">{pending?<><Spin size="small"/>计算中…</>:<><span className="command-field-error" role="alert">{error}</span>{onRetry&&<Button size="small" onClick={onRetry}>重新预览</Button>}</>}</div>;
+ return <div className="command-status" role="status">{pending?<><Spin size="small"/>计算中…</>:<><span className="command-field-error" role="alert">{error}</span>{onRetry&&<Button size="small" onClick={onRetry}>{retryText}</Button>}</>}</div>;
 }
 /** Local validation is authored by the owning form; it is not a service error.
  * Preserve its exact reason without passing it through the protocol mapper. */

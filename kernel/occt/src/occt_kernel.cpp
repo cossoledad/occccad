@@ -1,3 +1,13 @@
+#include <internal/mass_properties.hpp>
+#include <BSplCLib.hxx>
+#include <GeomConvert.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <TColgp_Array2OfPnt.hxx>
+#include <TColStd_Array2OfReal.hxx>
+#include <BRepBuilderAPI_Sewing.hxx>
+#include <BRepBuilderAPI_MakeSolid.hxx>
+#include <BRepLib.hxx>
+#include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <internal/shell_history.hpp>
@@ -7,6 +17,7 @@
 #include <BRepAlgoAPI_Check.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BOPAlgo_CellsBuilder.hxx>
+#include <BOPAlgo_Splitter.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBndLib.hxx>
@@ -303,7 +314,7 @@ void append_surface_properties(const TopoDS_Face& face, FaceInfo& output) {
     output.properties.push_back(boolean_property("uPeriodic", surface.IsUPeriodic()));
     output.properties.push_back(boolean_property("vPeriodic", surface.IsVPeriodic()));
     GProp_GProps area;
-    BRepGProp::SurfaceProperties(face, area);
+    BRepGProp::SurfaceProperties(face, area, 1e-10);
     output.properties.push_back(number_property("area", area.Mass()));
     output.properties.push_back(vector_property("snapCenter", area.CentreOfMass().XYZ()));
     // Read-only interaction hints from actual topological boundaries, never
@@ -812,12 +823,49 @@ std::vector<NamedShape> map_named_history(const std::vector<NamedShape>& sources
     return mapped;
 }
 
-ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
+// Pick the exact split cell adjacent to the entire profile cap. A remote cap
+// surviving in that cell proves incomplete termination; sampling rays cannot
+// establish this coverage contract.
+struct AssociatedTrim { TopoDS_Shape shape; std::vector<NamedShape> names, caps; };
+AssociatedTrim trim_associated_prism(const TopoDS_Shape& prism,
+        const TopoDS_Shape& start, const TopoDS_Shape& far,
+        const std::vector<NamedShape>& names, const TopoDS_Shape& stop,
+        const std::vector<NamedShape>& stop_names) {
+    BOPAlgo_Splitter split; split.SetNonDestructive(Standard_True);
+    split.AddArgument(prism); split.AddTool(stop); split.Perform();
+    if (split.HasErrors()) throw std::runtime_error("ASSOCIATED_TERMINATION_SPLIT_FAILED");
+    const SemanticTopologyRef marker{"", "cap", {}};
+    const auto starts=map_named_shapes(std::vector<NamedShape>{{marker,start}},split,split.Shape());
+    if(starts.empty())throw std::runtime_error("ASSOCIATED_TERMINATION_START_HISTORY_MISSING");
+    TopoDS_Shape chosen; std::size_t owners=0;
+    for(TopExp_Explorer solid(split.Shape(),TopAbs_SOLID);solid.More();solid.Next()) {
+        TopTools_IndexedMapOfShape faces;TopExp::MapShapes(solid.Current(),TopAbs_FACE,faces);
+        const auto count=std::count_if(starts.begin(),starts.end(),[&](const auto& named){return faces.Contains(named.shape);});
+        if(count) {
+            if(count!=starts.size())throw std::invalid_argument("ASSOCIATED_TERMINATION_CROSSES_PROFILE");
+            chosen=solid.Current();++owners;
+        }
+    }
+    if(owners!=1)throw std::invalid_argument("ASSOCIATED_TERMINATION_AMBIGUOUS_START");
+    if(!map_named_shapes(std::vector<NamedShape>{{marker,far}},split,chosen).empty())
+        throw std::invalid_argument("ASSOCIATED_TERMINATION_INCOMPLETE_COVERAGE");
+    auto caps=map_named_shapes(stop_names,split,chosen);
+    TopTools_IndexedMapOfShape original_faces;TopExp::MapShapes(prism,TopAbs_FACE,original_faces);
+    auto original=map_named_shapes(names,split,chosen);
+    caps.erase(std::remove_if(caps.begin(),caps.end(),[&](const auto& cap){
+        return cap.shape.ShapeType()!=TopAbs_FACE||std::any_of(original.begin(),original.end(),[&](const auto& member){return member.shape.ShapeType()==TopAbs_FACE&&member.shape.IsSame(cap.shape);});
+    }),caps.end());
+    if(caps.empty())throw std::runtime_error("ASSOCIATED_TERMINATION_CAP_HISTORY_MISSING");
+    return {chosen,std::move(original),std::move(caps)};
+}
+
+ToolBuild make_profile_tool(const ProfilePadSpec& spec,
+        const TopoDS_Shape& termination_shape={}, const std::vector<NamedShape>& termination_names={}) {
     if (spec.regions.empty())
         throw std::invalid_argument("solid feature requires at least one profile region");
     const std::string generator = spec.generator.empty() ? "LINEAR_EXTRUDE" : spec.generator;
     if (generator == "LINEAR_EXTRUDE") {
-        if(spec.extent!="TO_PLANE") validate_positive(spec.pad_length, "extrude length");
+        if(spec.extent!="TO_PLANE"&&spec.extent!="TO_NEXT"&&spec.extent!="TO_SURFACE") validate_positive(spec.pad_length, "extrude length");
     } else if (generator == "REVOLVE") {
         validate_positive(spec.revolve_angle, "revolve angle");
         if (spec.revolve_angle > 2.0 * 3.14159265358979323846 + 1.0e-12)
@@ -831,6 +879,32 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
     const ProfileFrame frame = profile_frame(spec);
     ToolBuild result;
     result.feature_id = spec.feature_id;
+    std::map<std::string,std::vector<SemanticTopologyRef>> origins;
+    if(spec.profile_origins.size()>32768)throw std::invalid_argument("DERIVED_PROFILE_ORIGIN_BUDGET");
+    for(const auto& origin:spec.profile_origins) {
+        if(origin.derived_id.empty()||origin.sources.empty()||origin.sources.size()>512||origins.count(origin.derived_id))throw std::invalid_argument("DERIVED_PROFILE_ORIGIN_INVALID");
+        auto& refs=origins[origin.derived_id];
+        for(const auto& source:origin.sources) {
+            if(source.feature_id.empty()||source.output_slot.empty()||source.source_ids.empty())throw std::invalid_argument("DERIVED_PROFILE_ORIGIN_INVALID");
+            refs.push_back({source.feature_id,source.output_slot,source.source_ids});
+        }
+    }
+    const auto source_refs=[&](const SemanticTopologyRef& source) {
+        std::vector<SemanticTopologyRef> refs;
+        if(origins.empty())return std::vector<SemanticTopologyRef>{source};
+        for(const auto& id:source.source_ids) {
+            const auto found=origins.find(id);if(found==origins.end())throw std::invalid_argument("DERIVED_PROFILE_ORIGIN_MISSING");
+            refs.insert(refs.end(),found->second.begin(),found->second.end());
+        }
+        const auto key=[](const auto& ref){return std::tie(ref.feature_id,ref.output_slot,ref.source_ids);};
+        std::sort(refs.begin(),refs.end(),[&](const auto& x,const auto& y){return key(x)<key(y);});
+        refs.erase(std::unique(refs.begin(),refs.end(),[&](const auto& x,const auto& y){return key(x)==key(y);}),refs.end());
+        return refs;
+    };
+    const auto record_profile=[&](ToolBuild& build,const SemanticTopologyRef& source,const SemanticTopologyRef& output,const TopoDS_Shape& shape) {
+        if(shape.IsNull())return;
+        build.named.push_back({output,shape});build.generated.push_back({source_refs(source),output,TopologyLineageKind::generated,{}});
+    };
     for (const auto& region : spec.regions) {
         std::vector<std::pair<const ProfileCurveSpec*, TopoDS_Edge>> profile_edges;
         const auto build_wire = [&](const ProfileLoopSpec& loop) {
@@ -838,7 +912,8 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
             for (const auto& curve : loop.curves) {
                 auto edge = make_profile_edge(curve, frame);
                 wire.Add(edge);
-                profile_edges.emplace_back(&curve, edge);
+                if (!wire.IsDone()) throw std::invalid_argument("PROFILE_WIRE_INVALID");
+                profile_edges.emplace_back(&curve, wire.Edge());
             }
             if (!wire.IsDone())
                 throw std::runtime_error("profile wire construction failed: " + loop.id);
@@ -863,37 +938,9 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
         std::vector<TopoDS_Edge> named_face_edges;
         for (const auto& [curve, source_edge] : profile_edges) {
             (void)curve;
-            Bnd_Box source_box;
-            BRepBndLib::Add(source_edge, source_box);
-            const auto source_bounds = to_bbox(source_box);
-            GProp_GProps source_properties;
-            BRepGProp::LinearProperties(source_edge, source_properties);
-            std::vector<TopoDS_Edge> matches;
-            for (const auto& candidate : face_edges) {
-                Bnd_Box candidate_box;
-                BRepBndLib::Add(candidate, candidate_box);
-                const auto bounds = to_bbox(candidate_box);
-                GProp_GProps properties;
-                BRepGProp::LinearProperties(candidate, properties);
-                const auto close = [](const double left, const double right) {
-                    return std::abs(left - right) <= 1.0e-7;
-                };
-                const auto& a = source_properties.CentreOfMass();
-                const auto& b = properties.CentreOfMass();
-                if (classify_curve(candidate) == classify_curve(source_edge) &&
-                    close(source_properties.Mass(), properties.Mass()) && close(a.X(), b.X()) &&
-                    close(a.Y(), b.Y()) && close(a.Z(), b.Z()) &&
-                    close(source_bounds.min.x, bounds.min.x) &&
-                    close(source_bounds.min.y, bounds.min.y) &&
-                    close(source_bounds.min.z, bounds.min.z) &&
-                    close(source_bounds.max.x, bounds.max.x) &&
-                    close(source_bounds.max.y, bounds.max.y) &&
-                    close(source_bounds.max.z, bounds.max.z))
-                    matches.push_back(candidate);
-            }
-            if (matches.size() != 1U)
-                throw std::runtime_error("profile edge identity was not preserved: " + region.id);
-            named_face_edges.push_back(matches.front());
+            const auto found=std::find_if(face_edges.begin(),face_edges.end(),[&](const auto& edge){return edge.IsSame(source_edge);});
+            if(found==face_edges.end())throw std::runtime_error("profile edge construction history missing: "+region.id);
+            named_face_edges.push_back(*found);
         }
         struct NamedProfileVertex {
             TopoDS_Vertex shape;
@@ -919,13 +966,9 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
             if (first.IsNull() || last.IsNull())
                 continue;
             const auto* curve = profile_edges[edge_index].first;
-            const auto expected_start = profile_point(frame, profile_curve_endpoint(*curve, true));
-            const auto first_point = BRep_Tool::Pnt(first);
-            const auto last_point = BRep_Tool::Pnt(last);
-            const bool first_is_start = first_point.Distance(expected_start) <=
-                                        last_point.Distance(expected_start);
-            add_profile_vertex(first_is_start ? first : last, curve->entity_id + "/START");
-            add_profile_vertex(first_is_start ? last : first, curve->entity_id + "/END");
+            const bool negative=(curve->kind=="ARC"||curve->kind=="ELLIPTICAL_ARC")&&curve->end_angle<curve->start_angle;
+            add_profile_vertex(negative?last:first, curve->entity_id + "/START");
+            add_profile_vertex(negative?first:last, curve->entity_id + "/END");
         }
         for (auto& vertex : profile_vertices) {
             std::sort(vertex.endpoint_ids.begin(), vertex.endpoint_ids.end());
@@ -938,9 +981,9 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
                 SemanticTopologyRef{spec.feature_id, "START_CAP/" + region.id, {region.id}};
             const auto end_ref =
                 SemanticTopologyRef{spec.feature_id, "END_CAP/" + region.id, {region.id}};
-            append_generated(result, profile_source(spec, "PROFILE_REGION", region.id), start_ref,
+            record_profile(result, profile_source(spec, "PROFILE_REGION", region.id), start_ref,
                              prism.FirstShape());
-            append_generated(result, profile_source(spec, "PROFILE_REGION", region.id), end_ref,
+            record_profile(result, profile_source(spec, "PROFILE_REGION", region.id), end_ref,
                              prism.LastShape());
             for (std::size_t edge_index = 0; edge_index < profile_edges.size(); ++edge_index) {
                 const auto* curve = profile_edges[edge_index].first;
@@ -951,14 +994,14 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
                 const auto source_ref = profile_source(spec, "PROFILE_EDGE", curve->entity_id);
                 const auto sides = prism.Generated(named_face_edges[edge_index]);
                 for (TopTools_ListIteratorOfListOfShape it(sides); it.More(); it.Next()) {
-                    append_generated(result, source_ref, side_ref, it.Value());
+                    record_profile(result, source_ref, side_ref, it.Value());
                 }
-                append_generated(
+                record_profile(
                     result, source_ref,
                     {spec.feature_id, "START_BOUNDARY_FROM_PROFILE_EDGE/" + curve->entity_id,
                      {region.id, curve->entity_id}},
                     prism.FirstShape(named_face_edges[edge_index]));
-                append_generated(
+                record_profile(
                     result, source_ref,
                     {spec.feature_id, "END_BOUNDARY_FROM_PROFILE_EDGE/" + curve->entity_id,
                      {region.id, curve->entity_id}},
@@ -971,19 +1014,19 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
                 const auto suffix = make_geometry_id(identity.str()).substr(7, 16);
                 const SemanticTopologyRef source_ref{
                     spec.profile_feature_id, "PROFILE_VERTEX/" + suffix, vertex.endpoint_ids};
-                append_generated(
+                record_profile(
                     result, source_ref,
                     {spec.feature_id, "START_VERTEX_FROM_PROFILE_ENDPOINTS/" + suffix,
                      vertex.endpoint_ids},
                     prism.FirstShape(vertex.shape));
-                append_generated(
+                record_profile(
                     result, source_ref,
                     {spec.feature_id, "END_VERTEX_FROM_PROFILE_ENDPOINTS/" + suffix,
                      vertex.endpoint_ids},
                     prism.LastShape(vertex.shape));
                 const auto vertical = prism.Generated(vertex.shape);
                 for (TopTools_ListIteratorOfListOfShape it(vertical); it.More(); it.Next())
-                    append_generated(
+                    record_profile(
                         result, source_ref,
                         {spec.feature_id, "VERTICAL_FROM_PROFILE_ENDPOINTS/" + suffix,
                          vertex.endpoint_ids},
@@ -995,13 +1038,35 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
             gp_Vec direction(frame.normal);if(spec.reversed)direction.Reverse();
             double length=spec.pad_length;
             gp_Pln termination;
+            const bool associated=spec.extent=="TO_NEXT"||spec.extent=="TO_SURFACE";
+            TopoDS_Shape stop=termination_shape;auto stop_names=termination_names;
+            if(associated) {
+                if(stop.IsNull()||stop_names.empty())throw std::invalid_argument("ASSOCIATED_TERMINATION_TARGET_MISSING");
+                if(stop_names.size()>4096)throw std::invalid_argument("ASSOCIATED_TERMINATION_FACE_BUDGET");
+                Bnd_Box box;BRepBndLib::AddOptimal(stop,box,Standard_False,Standard_False);
+                if(box.IsVoid()||box.IsOpen())throw std::invalid_argument("ASSOCIATED_TERMINATION_UNBOUNDED_SOURCE");
+                const auto bounds=to_bbox(box);double high=0;
+                for(double x:{bounds.min.x,bounds.max.x})for(double y:{bounds.min.y,bounds.max.y})for(double z:{bounds.min.z,bounds.max.z})
+                    high=std::max(high,gp_Vec(frame.origin,gp_Pnt(x,y,z)).Dot(direction));
+                length=high+std::abs(spec.end_offset)+std::max(1.0,high*.01);
+                if(high<=1e-7)throw std::invalid_argument("ASSOCIATED_TERMINATION_TARGET_BEHIND");
+                if(spec.extent=="TO_SURFACE") {
+                    // The selected face supplies its exact underlying surface,
+                    // including its location. Its trimming wire is not a limit.
+                    if(stop.ShapeType()!=TopAbs_FACE)throw std::invalid_argument("TO_SURFACE_REQUIRES_FACE");
+                    const auto surface=BRep_Tool::Surface(TopoDS::Face(stop));
+                    BRepBuilderAPI_MakeFace support(surface,1e-7);
+                    if(!support.IsDone())throw std::invalid_argument("TO_SURFACE_SUPPORT_FAILED");
+                    stop=support.Face();stop_names={{termination_names.front().ref,stop}};
+                }
+            }
             if(spec.extent=="TO_PLANE") {
                 for(double v : {spec.termination_origin.x,spec.termination_origin.y,spec.termination_origin.z,
                                 spec.termination_normal.x,spec.termination_normal.y,spec.termination_normal.z})
                     if(!std::isfinite(v))throw std::invalid_argument("TO_PLANE_FRAME_INVALID");
                 gp_Vec n(spec.termination_normal.x,spec.termination_normal.y,spec.termination_normal.z);
                 if(n.Magnitude()<1e-12)throw std::invalid_argument("TO_PLANE_FRAME_INVALID");
-                termination=gp_Pln(gp_Pnt(spec.termination_origin.x,spec.termination_origin.y,spec.termination_origin.z),gp_Dir(n));
+                termination=gp_Pln(gp_Pnt(spec.termination_origin.x,spec.termination_origin.y,spec.termination_origin.z).Translated(direction.Multiplied(spec.end_offset)),gp_Dir(n));
                 const double denominator=gp_Vec(termination.Axis().Direction()).Dot(direction);
                 if(std::abs(denominator)<1e-10)throw std::invalid_argument("TO_PLANE_DIRECTION_PARALLEL");
                 // Tight OCCT bounds of the exact face in the target frame bound
@@ -1027,6 +1092,38 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
             generated = prism.Shape();
             const auto first_named=result.named.size();
             name_sweep(prism);
+            if(associated) {
+                const std::vector<NamedShape> region_names(result.named.begin()+first_named,result.named.end());
+                auto trimmed=trim_associated_prism(generated,prism.FirstShape(),prism.LastShape(),region_names,stop,stop_names);
+                if(spec.end_offset!=0) {
+                    gp_Trsf move;move.SetTranslation(direction.Normalized().Multiplied(spec.end_offset));
+                    BRep_Builder builder;TopoDS_Compound shifted;builder.MakeCompound(shifted);std::vector<NamedShape> shifted_names;
+                    for(const auto& cap:trimmed.caps) {
+                        BRepBuilderAPI_Transform transform(cap.shape,move,Standard_True);
+                        builder.Add(shifted,transform.Shape());shifted_names.push_back({cap.ref,transform.Shape()});
+                    }
+                    trimmed=trim_associated_prism(generated,prism.FirstShape(),prism.LastShape(),region_names,shifted,shifted_names);
+                }
+                const SemanticTopologyRef cap_ref{spec.feature_id,"END_CAP/"+region.id,{region.id}};
+                TopTools_IndexedMapOfShape cap_edges,cap_vertices;
+                for(const auto& cap:trimmed.caps) {
+                    trimmed.names.push_back({cap_ref,cap.shape});
+                    auto sources=source_refs(profile_source(spec,"PROFILE_REGION",region.id));sources.push_back(cap.ref);
+                    result.generated.push_back({std::move(sources),cap_ref,TopologyLineageKind::generated,{}});
+                    TopExp::MapShapes(cap.shape,TopAbs_EDGE,cap_edges);TopExp::MapShapes(cap.shape,TopAbs_VERTEX,cap_vertices);
+                }
+                std::vector<NamedShape> ends;
+                for(const auto& source:trimmed.names) {
+                    const std::string side="SIDE_FROM_PROFILE_EDGE/",vertical="VERTICAL_FROM_PROFILE_ENDPOINTS/";
+                    if(source.ref.output_slot.rfind(side,0)==0)for(TopExp_Explorer e(source.shape,TopAbs_EDGE);e.More();e.Next())if(cap_edges.Contains(e.Current()))
+                        ends.push_back({{spec.feature_id,"END_BOUNDARY_FROM_PROFILE_EDGE/"+source.ref.output_slot.substr(side.size()),source.ref.source_ids},e.Current()});
+                    if(source.ref.output_slot.rfind(vertical,0)==0)for(TopExp_Explorer v(source.shape,TopAbs_VERTEX);v.More();v.Next())if(cap_vertices.Contains(v.Current()))
+                        ends.push_back({{spec.feature_id,"END_VERTEX_FROM_PROFILE_ENDPOINTS/"+source.ref.output_slot.substr(vertical.size()),source.ref.source_ids},v.Current()});
+                }
+                trimmed.names.insert(trimmed.names.end(),ends.begin(),ends.end());
+                result.named.erase(result.named.begin()+first_named,result.named.end());
+                result.named.insert(result.named.end(),trimmed.names.begin(),trimmed.names.end());generated=trimmed.shape;
+            }
             if(spec.extent=="TO_PLANE") {
                 const TopoDS_Face cap=BRepBuilderAPI_MakeFace(termination).Face();
                 const gp_Pnt start=BRep_Tool::Pnt(TopExp::FirstVertex(face_edges.front()));
@@ -1100,9 +1197,124 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
     return result;
 }
 
+ToolBuild make_sweep_tool(const ProfilePadSpec& spec, const PartRuntimeOptions* runtime) {
+    const auto& path=spec.sweep_path;
+    if(path.sketch_id.empty()||path.chain_id.empty()||path.curves.empty()||path.curves.size()>256||spec.regions.empty())throw std::invalid_argument("SWEEP_PATH_REQUIRED");
+    if((path.frame_mode!="CORRECTED_FRENET"&&path.frame_mode!="FRENET")||(path.corner_mode!="MITER"&&path.corner_mode!="G1_ONLY"))throw std::invalid_argument("SWEEP_DEFINITION_INVALID");
+    ProfilePadSpec path_spec;path_spec.plane_origin=path.plane_origin;path_spec.plane_normal=path.plane_normal;path_spec.plane_u_direction=path.plane_u_direction;
+    const auto path_frame=profile_frame(path_spec), frame=profile_frame(spec);
+    BRepBuilderAPI_MakeWire wire;
+    std::vector<TopoDS_Edge> path_edges;
+    std::vector<gp_Pnt> starts,ends;std::vector<gp_Vec> tangents,end_tangents;
+    bool lines=true,g1=true;
+    for(const auto& c:path.curves) {
+        auto edge=make_profile_edge(c,path_frame);
+        BRepAdaptor_Curve curve(edge);gp_Pnt a,b;gp_Vec ta,tb;
+        const bool backward=edge.Orientation()==TopAbs_REVERSED;
+        curve.D1(backward?curve.LastParameter():curve.FirstParameter(),a,ta);
+        curve.D1(backward?curve.FirstParameter():curve.LastParameter(),b,tb);
+        if(backward){ta.Reverse();tb.Reverse();}
+        if(ta.Magnitude()<1e-10||tb.Magnitude()<1e-10)throw std::invalid_argument("SWEEP_PATH_SINGULAR");
+        ta.Normalize();tb.Normalize();
+        if(!ends.empty()) {
+            if(ends.back().Distance(a)>1e-7)throw std::invalid_argument("SWEEP_PATH_DISCONNECTED");
+            if(end_tangents.back().Dot(ta)<=0||end_tangents.back().Crossed(ta).Magnitude()>topology_angular_tolerance_radians)g1=false;
+        }
+        starts.push_back(a);ends.push_back(b);tangents.push_back(ta);end_tangents.push_back(tb);
+        lines=lines&&c.kind=="LINE";
+        wire.Add(edge);if(!wire.IsDone())throw std::invalid_argument("SWEEP_PATH_WIRE_INVALID");
+        path_edges.push_back(wire.Edge());
+    }
+    if(path.closed) {
+        if(ends.back().Distance(starts.front())>1e-7)throw std::invalid_argument("SWEEP_PATH_DISCONNECTED");
+        if(end_tangents.back().Dot(tangents.front())<=0||end_tangents.back().Crossed(tangents.front()).Magnitude()>topology_angular_tolerance_radians)g1=false;
+    }
+    if(gp_Vec(frame.normal).Crossed(tangents.front()).Magnitude()>topology_angular_tolerance_radians||std::abs(gp_Vec(frame.origin,starts.front()).Dot(gp_Vec(frame.normal)))>1e-7)
+        throw std::invalid_argument("SWEEP_PROFILE_MUST_BE_NORMAL_AT_PATH_START");
+    if(!g1&&(!lines||path.corner_mode!="MITER"))throw std::invalid_argument("SWEEP_G0_REQUIRES_LINE_MITER_OR_SKETCH_FILLET");
+    std::size_t edges_count=0;for(const auto& r:spec.regions){edges_count+=r.outer.curves.size();for(const auto& h:r.holes)edges_count+=h.curves.size();}
+    if(edges_count*path_edges.size()>4096)throw std::invalid_argument("SWEEP_COMPLEXITY_BUDGET");
+    ToolBuild result;result.feature_id=spec.feature_id;
+    auto merge=[&](ToolBuild part) {
+        if(result.shape.IsNull()) {result=std::move(part);return;}
+        BRepAlgoAPI_Fuse fuse(result.shape,part.shape);fuse.Build();if(!fuse.IsDone())throw std::invalid_argument("SWEEP_REGION_FUSE_FAILED");
+        result.named.insert(result.named.end(),part.named.begin(),part.named.end());result.named=map_named_shapes(result.named,fuse,fuse.Shape());
+        result.generated.insert(result.generated.end(),part.generated.begin(),part.generated.end());result.shape=fuse.Shape();
+    };
+    if(!g1) {
+        // The miter section is the intersection of two exactly transported
+        // prisms with their shared tangent-bisector plane. All identity mapping
+        // below follows construction/Boolean history, without nearest geometry.
+        for(std::size_t i=0;i<path_edges.size();++i) {
+            if(runtime&&runtime->cancelled&&runtime->cancelled())throw std::runtime_error("CANCELLED");
+            const auto& t=tangents[i];
+            const double angle=std::atan2(gp_Vec(path_frame.normal).Dot(tangents.front().Crossed(t)),tangents.front().Dot(t));
+            gp_Trsf rotation;rotation.SetRotation(gp_Ax1(starts.front(),path_frame.normal),angle);
+            const auto section_origin=frame.origin.Transformed(rotation).Translated(gp_Vec(starts.front(),starts[i]));
+            const auto n=frame.normal.Transformed(rotation),u=frame.u_direction.Transformed(rotation);
+            double radius=1;for(const auto& r:spec.regions)for(const auto& c:r.outer.curves) {const auto e=make_profile_edge(c,frame);Bnd_Box box;BRepBndLib::Add(e,box);const auto b=to_bbox(box);for(double x:{b.min.x,b.max.x})for(double y:{b.min.y,b.max.y})for(double z:{b.min.z,b.max.z})radius=std::max(radius,gp_Pnt(x,y,z).Distance(starts.front()));}
+            const bool has_start=i>0||path.closed,has_end=i+1<path_edges.size()||path.closed;
+            gp_Vec sn=t,en=t;
+            if(has_start)sn+=end_tangents[(i+path_edges.size()-1)%path_edges.size()];
+            if(has_end)en+=tangents[(i+1)%path_edges.size()];
+            if(sn.Magnitude()<1e-4||en.Magnitude()<1e-4)throw std::invalid_argument("SWEEP_MITER_REVERSAL");
+            sn.Normalize();en.Normalize();const double cosine=std::min(std::abs(sn.Dot(t)),std::abs(en.Dot(t)));
+            if(cosine<1e-4)throw std::invalid_argument("SWEEP_MITER_ANGLE_LIMIT");
+            const double extra=has_start||has_end?2*radius/cosine+1:0;
+            auto segment=spec;segment.generator="LINEAR_EXTRUDE";segment.extent="FINITE";segment.reversed=false;
+            // The profile orientation may oppose the path tangent. Prism length
+            // is positive, and the explicit reversed flag retains that intent.
+            segment.reversed=n.Dot(gp_Dir(t))<0;
+            const auto origin=section_origin.Translated(t.Multiplied(has_start?-extra:0));
+            segment.plane_origin={origin.X(),origin.Y(),origin.Z()};segment.plane_normal={n.X(),n.Y(),n.Z()};segment.plane_u_direction={u.X(),u.Y(),u.Z()};
+            segment.pad_length=starts[i].Distance(ends[i])+(has_start?extra:0)+(has_end?extra:0);
+            auto part=make_profile_tool(segment);
+            const auto path_id=path.curves[i].entity_id;
+            for(auto& named:part.named){named.ref.output_slot="SWEEP_SEGMENT/"+path_id+"/"+named.ref.output_slot;named.ref.source_ids.push_back(path_id);}
+            for(auto& lineage:part.generated){lineage.result.output_slot="SWEEP_SEGMENT/"+path_id+"/"+lineage.result.output_slot;lineage.result.source_ids.push_back(path_id);lineage.sources.push_back({path.sketch_id,"PATH_EDGE/"+path_id,{path_id}});}
+            const auto clip=[&](const gp_Pnt& p,const gp_Vec& normal,bool start) {
+                auto plane=BRepBuilderAPI_MakeFace(gp_Pln(p,gp_Dir(normal))).Face();
+                auto half=BRepPrimAPI_MakeHalfSpace(plane, p.Translated(normal.Multiplied(start?1:-1))).Solid();
+                auto source=part.named;
+                const auto other=start?(i+path_edges.size()-1)%path_edges.size():(i+1)%path_edges.size();
+                std::vector<std::string> ids{path_id,path.curves[other].entity_id};std::sort(ids.begin(),ids.end());
+                const auto suffix=make_geometry_id(ids[0]+"\0"+ids[1]).substr(7,16);
+                source.push_back({{spec.feature_id,"SWEEP_MITER/"+suffix,ids},plane});
+                BRepAlgoAPI_Common common(part.shape,half);common.Build();if(!common.IsDone())throw std::invalid_argument("SWEEP_MITER_FAILED");
+                part.named=map_named_shapes(source,common,common.Shape());part.shape=common.Shape();
+                part.generated.push_back({{{path.sketch_id,"PATH_VERTEX/"+suffix,ids}},{spec.feature_id,"SWEEP_MITER/"+suffix,ids},TopologyLineageKind::generated,{}});
+            };
+            if(has_start)clip(starts[i],sn,true);if(has_end)clip(ends[i],en,false);
+            merge(std::move(part));
+        }
+    } else {
+        for(const auto& region:spec.regions) {
+            if(runtime&&runtime->cancelled&&runtime->cancelled())throw std::runtime_error("CANCELLED");
+            std::vector<std::pair<std::string,TopoDS_Edge>> edges;
+            auto loop=[&](const ProfileLoopSpec& l){BRepBuilderAPI_MakeWire b;for(const auto& c:l.curves){b.Add(make_profile_edge(c,frame));if(!b.IsDone())throw std::invalid_argument("SWEEP_PROFILE_WIRE_INVALID");edges.push_back({c.entity_id,b.Edge()});}return b.Wire();};
+            BRepBuilderAPI_MakeFace face(gp_Pln(gp_Ax3(frame.origin,frame.normal,frame.u_direction)),loop(region.outer),true);
+            for(const auto& h:region.holes)face.Add(loop(h));face.Build();if(!face.IsDone()||!BRepCheck_Analyzer(face.Face()).IsValid())throw std::invalid_argument("SWEEP_PROFILE_INVALID");
+            BRepOffsetAPI_MakePipe pipe(wire.Wire(),face.Face(),path.frame_mode=="FRENET"?GeomFill_IsFrenet:GeomFill_IsCorrectedFrenet,Standard_False);
+            pipe.Build();if(!pipe.IsDone())throw std::invalid_argument("SWEEP_CONSTRUCTION_FAILED");
+            ToolBuild part;part.feature_id=spec.feature_id;part.shape=pipe.Shape();
+            TopTools_IndexedMapOfShape members;TopExp::MapShapes(part.shape,members);
+            const auto record=[&](std::vector<SemanticTopologyRef> inputs,const SemanticTopologyRef& out,const TopoDS_Shape& shape){if(!shape.IsNull()&&members.Contains(shape)){part.named.push_back({out,shape});part.generated.push_back({inputs,out,TopologyLineageKind::generated,{}});}};
+            const SemanticTopologyRef source=profile_source(spec,"PROFILE_REGION",region.id);
+            if(!path.closed) {record({source},{spec.feature_id,"START_CAP/"+region.id,{region.id}},pipe.FirstShape());record({source},{spec.feature_id,"END_CAP/"+region.id,{region.id}},pipe.LastShape());}
+            for(std::size_t i=0;i<path_edges.size();++i)for(const auto& [id,edge]:edges) {
+                const auto pid=path.curves[i].entity_id;const std::vector<SemanticTopologyRef> inputs{profile_source(spec,"PROFILE_EDGE",id),{path.sketch_id,"PATH_EDGE/"+pid,{pid}}};
+                record(inputs,{spec.feature_id,"SWEEP_SIDE/"+pid+"/"+id,{region.id,pid,id}},pipe.Generated(path_edges[i],edge));
+            }
+            merge(std::move(part));
+        }
+    }
+    if(result.shape.IsNull()||!BRepCheck_Analyzer(result.shape).IsValid()||!BRepAlgoAPI_Check(result.shape,Standard_True,Standard_True).IsValid())throw std::invalid_argument("SWEEP_SELF_INTERSECTION_OR_INVALID_SOLID");
+    return result;
+}
+
 double shape_volume(const TopoDS_Shape& shape) {
     GProp_GProps properties;
-    BRepGProp::VolumeProperties(shape, properties);
+    detail::volume_properties(shape, properties);
     return properties.Mass();
 }
 
@@ -1146,7 +1358,7 @@ std::string ref_key(const SemanticTopologyRef& ref) {
 }
 
 ToolBuild make_hole_tool(const ProfilePadSpec& spec, const TopoDS_Shape& target,
-                         const gp_Trsf& placement = gp_Trsf());
+                         const gp_Trsf& placement = gp_Trsf(), bool require_material=false);
 ToolBuild rebuild_through_hole(const ThroughHoleTool& source, const TopoDS_Shape& target);
 
 gp_Trsf pattern_transform(const PatternPlacement& placement) {
@@ -1264,7 +1476,7 @@ SelectionEvidence face_evidence(const TopoDS_Face& face) {
     SelectionEvidence evidence;
     evidence.geometry_type = std::to_string(classify_surface(face));
     GProp_GProps properties;
-    BRepGProp::SurfaceProperties(face, properties);
+    BRepGProp::SurfaceProperties(face, properties, 1e-10);
     evidence.measure_si = properties.Mass() * 1.0e-6;
     evidence.measure_dimension = "AREA";
     evidence.centroid = to_vec3(properties.CentreOfMass());
@@ -1947,8 +2159,115 @@ std::vector<LoftSectionSpec> resolve_loft_sections(const std::vector<LoftSection
     return result;
 }
 
-ToolBuild make_loft_tool(const ProfilePadSpec& spec) {
+std::vector<NamedShape> frozen_loft_supports(const ProfilePadSpec& spec) {
+    std::vector<NamedShape> out;
+    if(spec.tools.size()>32)throw std::invalid_argument("LOFT_SUPPORT_BUDGET");
+    for(const auto& source:spec.tools) {
+        if(source.geometry_id!=make_geometry_id(source.brep.data(),source.brep.size()))throw std::invalid_argument("LOFT_SUPPORT_SNAPSHOT_MISMATCH");
+        std::string bytes(source.brep.begin(),source.brep.end());std::istringstream stream(bytes,std::ios::binary);BRep_Builder builder;TopoDS_Shape shape;BRepTools::Read(shape,stream,builder);
+        if(stream.bad()||shape.IsNull())throw std::invalid_argument("LOFT_SUPPORT_BREP_INVALID");validate_body_solid_set(shape);
+        TopTools_IndexedMapOfShape faces,edges,vertices;TopExp::MapShapes(shape,TopAbs_FACE,faces);TopExp::MapShapes(shape,TopAbs_EDGE,edges);TopExp::MapShapes(shape,TopAbs_VERTEX,vertices);
+        if(source.topology.size()!=static_cast<std::size_t>(faces.Extent()+edges.Extent()+vertices.Extent()))throw std::invalid_argument("LOFT_SUPPORT_NAMING_INCOMPLETE");
+        std::set<std::pair<int,std::uint64_t>> locators;std::set<std::string> refs;
+        for(const auto& item:source.topology){const auto count=item.type==TopologyType::FACE?faces.Extent():item.type==TopologyType::EDGE?edges.Extent():item.type==TopologyType::VERTEX?vertices.Extent():0;
+            SemanticTopologyRef ref{item.feature_id,item.output_slot,item.source_ids};
+            if(!item.local_id||item.local_id>static_cast<std::uint64_t>(count)||!locators.insert({static_cast<int>(item.type),item.local_id}).second||!refs.insert(ref_key(ref)).second)throw std::invalid_argument("LOFT_SUPPORT_NAMING_INVALID");
+            if(item.type==TopologyType::FACE)out.push_back({ref,faces(static_cast<int>(item.local_id))});
+        }
+    }
+    return out;
+}
+
+ToolBuild make_constrained_loft(const ProfilePadSpec& spec,const std::vector<LoftSectionSpec>& sections,const PartRuntimeOptions* runtime) {
+    const auto count=loft_boundary_count(sections);
+    if(spec.ruled||std::any_of(sections.begin(),sections.end(),[](const auto& s){return !s.point_id.empty();}))throw std::invalid_argument("LOFT_BOUNDARY_REQUIRES_PROFILE_SECTIONS");
+    const auto supports=frozen_loft_supports(spec);
+    std::vector<std::vector<TopoDS_Edge>> edges;std::vector<TopoDS_Face> caps;std::vector<double> params{0};std::vector<gp_Vec> directions;
+    for(std::size_t i=0;i<sections.size();++i){
+        auto boundary=loft_edges(sections[i],count);BRepBuilderAPI_MakeWire wire;
+        for(const auto& edge:boundary){wire.Add(edge);if(!wire.IsDone())throw std::invalid_argument("LOFT_BOUNDARY_WIRE_INVALID");}
+        const auto frame=loft_frame(sections[i]);BRepBuilderAPI_MakeFace face(gp_Pln(gp_Ax3(frame.origin,frame.normal,frame.u_direction)),wire.Wire(),true);face.Build();if(!face.IsDone())throw std::invalid_argument("LOFT_BOUNDARY_PROFILE_INVALID");
+        caps.push_back(face.Face());edges.push_back(std::move(boundary));
+        if(i){const double d=loft_section_center(sections[i-1]).Distance(loft_section_center(sections[i]));if(d<1e-7)throw std::invalid_argument("LOFT_BOUNDARY_SECTION_SPACING");params.push_back(params.back()+d);}
+    }
+    for(std::size_t i=0;i<sections.size();++i){
+        const auto& condition=i==0?spec.loft_start:i+1==sections.size()?spec.loft_end:LoftBoundarySpec{};
+        gp_Vec travel(loft_section_center(sections[i?i-1:0]),loft_section_center(sections[std::min(i+1,sections.size()-1)]));
+        gp_Vec direction(loft_frame(sections[i]).normal);
+        const gp_Vec supplied(condition.direction.x,condition.direction.y,condition.direction.z);
+        if(supplied.Magnitude()>1e-9)direction=supplied;
+        else if(condition.condition=="DIRECTION")throw std::invalid_argument("LOFT_DIRECTION_REQUIRED");
+        direction.Normalize();if(supplied.Magnitude()<=1e-9&&direction.Dot(travel)<0)direction.Reverse();if(condition.reversed)direction.Reverse();
+        if(std::abs(direction.Dot(gp_Vec(loft_frame(sections[i]).normal)))<1e-6)throw std::invalid_argument("LOFT_BOUNDARY_DIRECTION_TANGENT_TO_SECTION");
+        if(!condition.condition.empty()&&(condition.magnitude<.01||condition.magnitude>10||!std::isfinite(condition.magnitude)))throw std::invalid_argument("LOFT_BOUNDARY_MAGNITUDE_INVALID");
+        direction*=condition.condition.empty()?1:condition.magnitude;directions.push_back(direction);
+        if(condition.condition=="G1"||condition.condition=="G2") {
+            if(condition.supports.empty()||condition.supports.size()>128)throw std::invalid_argument("LOFT_CONTINUITY_SUPPORT_REQUIRED");
+            std::vector<TopoDS_Face> selected;
+            for(const auto& ref:condition.supports){std::vector<TopoDS_Face> found;for(const auto& n:supports)if(same_ref(n.ref,{ref.feature_id,ref.output_slot,ref.source_ids}))found.push_back(TopoDS::Face(n.shape));if(found.size()!=1)throw std::invalid_argument("LOFT_SUPPORT_UNRESOLVED");
+                BRepAdaptor_Surface surface(found[0]);const gp_Dir d(direction);bool compatible=false;
+                if(surface.GetType()==GeomAbs_Plane)compatible=std::abs(surface.Plane().Axis().Direction().Dot(d))<1e-9;
+                if(surface.GetType()==GeomAbs_Cylinder)compatible=gp_Vec(surface.Cylinder().Axis().Direction()).Crossed(gp_Vec(d)).Magnitude()<=topology_angular_tolerance_radians;
+                if(surface.GetType()==GeomAbs_SurfaceOfExtrusion)compatible=gp_Vec(surface.Direction()).Crossed(gp_Vec(d)).Magnitude()<=topology_angular_tolerance_radians;
+                if(!compatible)throw std::invalid_argument("LOFT_SUPPORT_REQUIRES_PARALLEL_ANALYTIC_EXTRUSION");selected.push_back(found[0]);
+            }
+            for(const auto& edge:edges[i]){GProp_GProps p;BRepGProp::LinearProperties(edge,p);bool covered=false;double best=0;
+                for(const auto& face:selected){BRepAlgoAPI_Common common(edge,face);common.Build();if(!common.IsDone())continue;GProp_GProps overlap;BRepGProp::LinearProperties(common.Shape(),overlap);best=std::max(best,overlap.Mass());if(std::abs(p.Mass()-overlap.Mass())<=1e-7){covered=true;break;}}
+                if(!covered)throw std::invalid_argument("LOFT_SUPPORT_DOES_NOT_COVER_PROFILE_BOUNDARY: "+sections[i].sketch_id+" length="+std::to_string(p.Mass())+" common="+std::to_string(best));
+            }
+        } else if(!condition.condition.empty()&&condition.condition!="NORMAL"&&condition.condition!="DIRECTION")throw std::invalid_argument("LOFT_BOUNDARY_CONDITION_INVALID");
+    }
+    const int vd=spec.loft_start.condition=="G2"||spec.loft_end.condition=="G2"?5:3;
+    BRepBuilderAPI_Sewing sewing(1e-7,Standard_True,Standard_True,Standard_True,Standard_False);
+    ToolBuild tool;tool.feature_id=spec.feature_id;
+    for(const auto i:{std::size_t(0),sections.size()-1}){sewing.Add(caps[i]);append_generated(tool,{sections[i].sketch_id,"PROFILE_REGION/"+sections[i].region.id,{sections[i].region.id}},{spec.feature_id,i==0?"LOFT_START_CAP":"LOFT_END_CAP",{sections[i].sketch_id}},caps[i]);}
+    std::size_t control_budget=0;
+    for(std::size_t j=0;j<count;++j){
+        std::vector<Handle(Geom_BSplineCurve)> curves;int degree=1;
+        for(std::size_t i=0;i<sections.size();++i){double a,b;const auto source=BRep_Tool::Curve(edges[i][j],a,b);auto curve=GeomConvert::CurveToBSplineCurve(new Geom_TrimmedCurve(source,a,b));if(edges[i][j].Orientation()==TopAbs_REVERSED)curve->Reverse();
+            if(curve->IsPeriodic())curve->SetNotPeriodic();curve->Segment(curve->FirstParameter(),curve->LastParameter());auto knots=curve->Knots();BSplCLib::Reparametrize(0,1,knots);curve->SetKnots(knots);degree=std::max(degree,curve->Degree());curves.push_back(curve);}
+        std::map<double,int> common;
+        for(auto& c:curves){c->IncreaseDegree(degree);for(int k=1;k<=c->NbKnots();++k)common[c->Knot(k)]=std::max(common[c->Knot(k)],c->Multiplicity(k));}
+        if(common.size()>1024)throw std::invalid_argument("LOFT_BOUNDARY_CONTROL_BUDGET");
+        TColStd_Array1OfReal uk(1,common.size());TColStd_Array1OfInteger um(1,common.size());int ki=1;for(const auto& [k,m]:common){uk(ki)=k;um(ki++)=m;}
+        for(auto& c:curves)c->InsertKnots(uk,um,0,Standard_False);
+        const int nu=curves.front()->NbPoles();for(const auto& c:curves)if(c->NbPoles()!=nu)throw std::invalid_argument("LOFT_BOUNDARY_BASIS_MISMATCH");
+        control_budget+=nu*(vd+1)*(sections.size()-1);if(control_budget>65536)throw std::invalid_argument("LOFT_BOUNDARY_CONTROL_BUDGET");
+        for(std::size_t span=0;span+1<sections.size();++span){
+            if(runtime&&runtime->cancelled&&runtime->cancelled())throw std::runtime_error("EVALUATION_CANCELLED");
+            const double h=params[span+1]-params[span];TColgp_Array2OfPnt poles(1,nu,1,vd+1);TColStd_Array2OfReal weights(1,nu,1,vd+1);
+            for(int u=1;u<=nu;++u){const auto p=curves[span]->Pole(u),q=curves[span+1]->Pole(u);const auto a=directions[span].Multiplied(h/vd),b=directions[span+1].Multiplied(h/vd);
+                for(int v=1;v<=vd+1;++v){const bool start=v<=((vd+1)/2);const double offset=start?v-1:vd+1-v;const auto base=start?p:q;const auto delta=(start?a:-b).Multiplied(offset);poles(u,v)=base.Translated(delta);weights(u,v)=start?curves[span]->Weight(u):curves[span+1]->Weight(u);}
+            }
+            TColStd_Array1OfReal vk(1,2);vk(1)=params[span];vk(2)=params[span+1];TColStd_Array1OfInteger vm(1,2);vm.Init(vd+1);
+            Handle(Geom_BSplineSurface) surface=new Geom_BSplineSurface(poles,weights,uk,vk,um,vm,degree,vd,Standard_False,Standard_False);
+            // Equality of every homogeneous U-basis coefficient proves the
+            // complete boundary jet, rather than finitely sampled normals.
+            for(const auto end:{false,true}){const int row=end?vd+1:1,step=end?-1:1;const auto d=directions[end?span+1:span];
+                for(int u=1;u<=nu;++u){const double w0=surface->Weight(u,row),w1=surface->Weight(u,row+step);const auto p0=surface->Pole(u,row),p1=surface->Pole(u,row+step);
+                    const gp_Vec derivative=gp_Vec(p0,p1).Multiplied((end?-1:1)*vd/h);if(std::abs(w0-w1)>1e-12||derivative.Subtracted(d).Magnitude()>1e-8)throw std::invalid_argument("LOFT_BOUNDARY_FIRST_JET_FAILED");
+                    if(vd==5){const auto p2=surface->Pole(u,row+2*step);const auto second=gp_Vec(p0,p1).Subtracted(gp_Vec(p1,p2));if(std::abs(w0-surface->Weight(u,row+2*step))>1e-12||second.Magnitude()>1e-8)throw std::invalid_argument("LOFT_BOUNDARY_SECOND_JET_FAILED");}
+                }
+            }
+            BRepBuilderAPI_MakeFace face(surface,1e-7);if(!face.IsDone())throw std::invalid_argument("LOFT_BOUNDARY_SURFACE_FAILED");sewing.Add(face.Face());
+            const auto& ca=loft_curves(sections[span]);const auto& cb=loft_curves(sections[span+1]);const auto ida=ca[loft_circle(sections[span])?0:j].entity_id,idb=cb[loft_circle(sections[span+1])?0:j].entity_id;
+            const std::vector<std::string> ids{sections[span].sketch_id,ida,sections[span+1].sketch_id,idb};std::string key;for(const auto& id:ids)key+=id+"|";
+            SemanticTopologyRef ref{spec.feature_id,"LOFT_BOUNDARY_SIDE/"+make_geometry_id(key).substr(7),ids};
+            tool.named.push_back({ref,face.Face()});std::vector<SemanticTopologyRef> inputs{{sections[span].sketch_id,"PROFILE_EDGE/"+ida,{ida}},{sections[span+1].sketch_id,"PROFILE_EDGE/"+idb,{idb}}};
+            if(span==0)for(const auto& r:spec.loft_start.supports)inputs.push_back({r.feature_id,r.output_slot,r.source_ids});if(span+2==sections.size())for(const auto& r:spec.loft_end.supports)inputs.push_back({r.feature_id,r.output_slot,r.source_ids});
+            tool.generated.push_back({inputs,ref,TopologyLineageKind::generated,{}});
+        }
+    }
+    sewing.Perform();const auto sewn=sewing.SewedShape();if(sewn.IsNull()||sewn.ShapeType()!=TopAbs_SHELL)throw std::invalid_argument("LOFT_BOUNDARY_SEWING_FAILED");
+    for(auto& n:tool.named){if(sewing.IsModified(n.shape))n.shape=sewing.Modified(n.shape);else if(sewing.IsModifiedSubShape(n.shape))n.shape=sewing.ModifiedSubShape(n.shape);}
+    BRepBuilderAPI_MakeSolid solid(TopoDS::Shell(sewn));if(!solid.IsDone())throw std::invalid_argument("LOFT_BOUNDARY_SOLID_FAILED");auto shape=solid.Solid();if(!BRepLib::OrientClosedSolid(shape))throw std::invalid_argument("LOFT_BOUNDARY_ORIENTATION_FAILED");tool.shape=shape;
+    validate_body_solid_set(tool.shape);if(!BRepAlgoAPI_Check(tool.shape,Standard_True,Standard_True).IsValid())throw std::invalid_argument("LOFT_SELF_INTERFERENCE");
+    auto closure=complete_boolean_topology_naming(tool.shape,tool.named,spec.feature_id);tool.generated.insert(tool.generated.end(),closure.begin(),closure.end());return tool;
+}
+
+ToolBuild make_loft_tool(const ProfilePadSpec& spec,const PartRuntimeOptions* runtime=nullptr) {
     const auto sections = resolve_loft_sections(spec.sections);
+    if(!spec.loft_start.condition.empty()||!spec.loft_end.condition.empty())return make_constrained_loft(spec,sections,runtime);
     const auto count = loft_boundary_count(sections);
     BRepOffsetAPI_ThruSections algorithm(Standard_True, spec.ruled, 1e-7);
     algorithm.CheckCompatibility(Standard_False);
@@ -2132,7 +2451,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
 bool material_range_start(const ProfilePadSpec& spec) {
     if (spec.generator=="HOLE")
         return spec.extent=="BLIND" && spec.body_operation=="REMOVE";
-    return (spec.generator=="LINEAR_EXTRUDE" || spec.generator=="REVOLVE" || spec.generator=="LOFT") &&
+    return (spec.generator=="LINEAR_EXTRUDE" || spec.generator=="REVOLVE" || spec.generator=="LOFT" || spec.generator=="SWEEP") &&
         (spec.body_operation=="ADD" || spec.body_operation=="NEW_BODY" || spec.body_operation=="REMOVE") &&
         (spec.extent.empty() || spec.extent=="FINITE" || spec.extent=="SYMMETRIC" || spec.extent=="TWO_SIDED");
 }
@@ -3034,9 +3353,22 @@ ToolBuild add_hole_recess(ToolBuild tool, const ProfilePadSpec& spec) {
 }
 
 ToolBuild make_hole_tool(const ProfilePadSpec& spec, const TopoDS_Shape& target,
-                         const gp_Trsf& placement) {
+                         const gp_Trsf& placement,bool require_material) {
     if (spec.body_operation!="REMOVE" || target.IsNull())
         throw std::invalid_argument("HOLE_REQUIRES_TARGET_BODY");
+    if(!spec.hole_positions.empty()) {
+        if(spec.hole_positions.size()>128)throw std::invalid_argument("HOLE_POSITION_BUDGET");
+        ToolBuild group;group.feature_id=spec.feature_id;std::set<std::string> ids;
+        for(const auto& p:spec.hole_positions) {
+            if(!ids.insert(p.region.id).second)throw std::invalid_argument("HOLE_POSITION_DUPLICATE");
+            auto single=spec;single.hole_positions.clear();single.profile_feature_id=p.profile_feature_id;single.regions={p.region};single.plane_origin=p.origin;single.plane_normal=p.normal;single.plane_u_direction=p.u_direction;
+            auto tool=make_hole_tool(single,target,placement,require_material);
+            if(group.shape.IsNull()){group=std::move(tool);continue;}
+            BRepAlgoAPI_Fuse fuse(group.shape,tool.shape);fuse.Build();if(!fuse.IsDone())throw std::invalid_argument("HOLE_GROUP_FUSE_FAILED");
+            group.named.insert(group.named.end(),tool.named.begin(),tool.named.end());group.named=map_named_shapes(group.named,fuse,fuse.Shape());group.generated.insert(group.generated.end(),tool.generated.begin(),tool.generated.end());group.shape=fuse.Shape();
+        }
+        return group;
+    }
     if (spec.regions.size()!=1 || spec.regions[0].outer.curves.size()!=1 ||
         !spec.regions[0].holes.empty() || spec.regions[0].outer.curves[0].kind!="CIRCLE")
         throw std::invalid_argument("HOLE_SINGLE_CIRCLE_REQUIRED");
@@ -3067,7 +3399,121 @@ ToolBuild make_hole_tool(const ProfilePadSpec& spec, const TopoDS_Shape& target,
     } else if (spec.extent=="TO_PLANE") {
         generator_spec.extent="TO_PLANE";
     } else throw std::invalid_argument("HOLE_EXTENT_INVALID");
-    return add_hole_recess(make_profile_tool(generator_spec),spec);
+    auto effective=spec;
+    double tip_height=0;
+    if(spec.drill_tip_angle!=0) {
+        if(spec.extent!="BLIND"||!std::isfinite(spec.drill_tip_angle)||spec.drill_tip_angle<=0||spec.drill_tip_angle>=std::acos(-1.0)||(spec.depth_convention!="TIP"&&spec.depth_convention!="CYLINDER"))throw std::invalid_argument("HOLE_DRILL_TIP_INVALID");
+        tip_height=spec.regions[0].outer.curves[0].radius/std::tan(spec.drill_tip_angle/2);
+        if(spec.depth_convention=="TIP")generator_spec.pad_length-=tip_height;
+        if(generator_spec.pad_length<=1e-7)throw std::invalid_argument("HOLE_TIP_EXCEEDS_DEPTH");
+        effective.pad_length=generator_spec.pad_length;
+    }
+    auto tool=make_profile_tool(generator_spec);
+    if(tip_height>0) {
+        const auto frame=profile_frame(spec);gp_Dir axis=frame.normal;if(spec.reversed)axis.Reverse();
+        const auto origin=frame.origin.Translated(gp_Vec(axis).Multiplied(generator_spec.pad_length));
+        BRepPrimAPI_MakeCone cone(gp_Ax2(origin,axis,frame.u_direction),spec.regions[0].outer.curves[0].radius,0,tip_height);
+        const auto source=profile_source(spec,"PROFILE_EDGE",spec.regions[0].outer.curves[0].entity_id);
+        append_generated(tool,source,{spec.feature_id,"HOLE_DRILL_TIP",{spec.regions[0].id,spec.regions[0].outer.curves[0].entity_id}},cone.Cone().LateralFace());
+        BRepAlgoAPI_Fuse fuse(tool.shape,cone.Shape());fuse.Build();if(!fuse.IsDone())throw std::invalid_argument("HOLE_DRILL_TIP_FAILED");
+        tool.named=map_named_shapes(tool.named,fuse,fuse.Shape());tool.shape=fuse.Shape();
+    }
+    tool=add_hole_recess(std::move(tool),effective);
+    if(require_material){TopTools_ListOfShape objects,targets;objects.Append(tool.shape);targets.Append(target);BRepAlgoAPI_Common common;common.SetArguments(objects);common.SetTools(targets);common.SetNonDestructive(Standard_True);common.Build();if(!common.IsDone()||shape_volume(common.Shape())<=1e-9)throw std::invalid_argument("HOLE_POSITION_NO_MATERIAL_INTERSECTION:"+spec.profile_feature_id+":"+spec.regions[0].outer.curves[0].entity_id);}
+    return tool;
+}
+
+ToolBuild build_generator_tool(const ProfilePadSpec& spec,const TopoDS_Shape& input_shape,const std::vector<NamedShape>& input_named,const PartRuntimeOptions* runtime) {
+ if(spec.generator=="SWEEP")return make_sweep_tool(spec,runtime);
+ if(spec.generator=="LOFT")return make_loft_tool(spec,runtime);
+ if(spec.generator=="HOLE")return make_hole_tool(spec,input_shape,gp_Trsf(),true);
+                auto generator_spec = spec;
+                if (spec.generator == "LINEAR_EXTRUDE" || spec.generator.empty()) {
+                    auto frame = profile_frame(spec);
+                    gp_Vec axis(frame.normal);
+                    if (spec.reversed)
+                        axis.Reverse();
+                    double start = spec.start_offset, length = spec.pad_length;
+                    if (spec.extent == "SYMMETRIC")
+                        start -= length / 2;
+                    else if (spec.extent == "TWO_SIDED") {
+                        validate_positive(spec.second_length, "second length");
+                        start -= spec.second_length;
+                        length += spec.second_length;
+                    } else if (spec.extent == "THROUGH_ALL") {
+                        if (spec.body_operation != "REMOVE" || input_shape.IsNull())
+                            throw std::invalid_argument("THROUGH_ALL_REQUIRES_CUT_TARGET");
+                        Bnd_Box box;
+                        BRepBndLib::Add(input_shape, box);
+                        const auto bounds = to_bbox(box);
+                        double low = std::numeric_limits<double>::infinity(), high = -low;
+                        for (double x : {bounds.min.x, bounds.max.x})
+                            for (double y : {bounds.min.y, bounds.max.y})
+                                for (double z : {bounds.min.z, bounds.max.z}) {
+                                    double projection =
+                                        gp_Vec(frame.origin, gp_Pnt(x, y, z)).Dot(axis);
+                                    low = std::min(low, projection);
+                                    high = std::max(high, projection);
+                                }
+                        const double margin = std::max(1e-5, (high - low) * 1e-6);
+                        start += low - margin;
+                        length = high - low + 2 * margin;
+                    } else if (!spec.extent.empty() && spec.extent != "FINITE" && spec.extent != "TO_PLANE" && spec.extent!="TO_NEXT" && spec.extent!="TO_SURFACE")
+                        throw std::invalid_argument("INVALID_EXTRUDE_EXTENT");
+                    auto origin = frame.origin.Translated(axis.Multiplied(start));
+                    generator_spec.plane_origin = {origin.X(), origin.Y(), origin.Z()};
+                    generator_spec.plane_normal = {frame.normal.X(), frame.normal.Y(),
+                                                   frame.normal.Z()};
+                    generator_spec.plane_u_direction = {
+                        frame.u_direction.X(), frame.u_direction.Y(), frame.u_direction.Z()};
+                    generator_spec.pad_length = length;
+                }
+                TopoDS_Shape stop;std::vector<NamedShape> stop_names;
+                if(spec.extent=="TO_NEXT") {
+                    if(input_shape.IsNull())throw std::invalid_argument("TO_NEXT_REQUIRES_TARGET_BODY");
+                    stop=input_shape;for(const auto& named:input_named)if(named.shape.ShapeType()==TopAbs_FACE)stop_names.push_back(named);
+                } else if(spec.extent=="TO_SURFACE") {
+                    if(spec.tools.size()!=1)throw std::invalid_argument("TO_SURFACE_SOURCE_REQUIRED");
+                    const auto refs=frozen_loft_supports(spec);std::size_t found=0;
+                    for(const auto& named:refs)if(same_ref(named.ref,{spec.termination_surface.feature_id,spec.termination_surface.output_slot,spec.termination_surface.source_ids})){stop=named.shape;stop_names.push_back(named);++found;}
+                    if(found!=1)throw std::invalid_argument("TO_SURFACE_REFERENCE_UNRESOLVED");
+                    const BRepAdaptor_Surface surface(TopoDS::Face(stop));
+                    if(surface.GetType()==GeomAbs_Plane) {
+                        // The underlying plane extends beyond the selected
+                        // trimming wire. Compute exact ray bounds over the
+                        // consumer profile, as for a datum termination plane.
+                        const auto plane=surface.Plane();const auto origin=plane.Location();const auto normal=plane.Axis().Direction();
+                        generator_spec.extent="TO_PLANE";
+                        generator_spec.termination_origin={origin.X(),origin.Y(),origin.Z()};
+                        generator_spec.termination_normal={normal.X(),normal.Y(),normal.Z()};
+                    }
+                }
+                return make_profile_tool(generator_spec,stop,stop_names);
+}
+
+bool reexecution_generator(const std::string& type) {
+ return type=="LINEAR_EXTRUDE"||type=="REVOLVE"||type=="SWEEP"||type=="LOFT"||type=="HOLE";
+}
+ProfilePadSpec reexecution_definition(const ProfilePadSpec& source,const ProfilePadSpec& pattern,const PatternPlacement& member) {
+ auto out=source;const auto transform=pattern_transform(member);const bool reflection=transform.IsNegative();
+ out.feature_id=pattern.feature_id+"/reexecution/"+std::to_string(member.slot)+"/"+source.feature_id;
+ const auto point=[&](const Vec3& value){const auto p=gp_Pnt(value.x,value.y,value.z).Transformed(transform);return Vec3{p.X(),p.Y(),p.Z()};};
+ const auto direction=[&](const Vec3& value,bool normal){gp_Vec d(value.x,value.y,value.z);d.Transform(transform);if(normal&&reflection)d.Reverse();return Vec3{d.X(),d.Y(),d.Z()};};
+ const auto frame=profile_frame(source);out.plane_origin=point({frame.origin.X(),frame.origin.Y(),frame.origin.Z()});out.plane_normal=direction({frame.normal.X(),frame.normal.Y(),frame.normal.Z()},true);out.plane_u_direction=direction({frame.u_direction.X(),frame.u_direction.Y(),frame.u_direction.Z()},false);
+ if(reflection&&(source.generator=="LINEAR_EXTRUDE"||source.generator=="REVOLVE"||source.generator=="HOLE"))out.reversed=!out.reversed;
+ for(auto& p:out.hole_positions){p.origin=point(p.origin);p.normal=direction(p.normal,true);p.u_direction=direction(p.u_direction,false);}
+ for(auto& section:out.sections){section.origin=point(section.origin);section.normal=direction(section.normal,true);section.u_direction=direction(section.u_direction,false);section.point=point(section.point);}
+ if(!out.sweep_path.curves.empty()){auto& path=out.sweep_path;path.plane_origin=point(path.plane_origin);path.plane_normal=direction(path.plane_normal,true);path.plane_u_direction=direction(path.plane_u_direction,false);}
+ // Termination/support faces, datum planes and explicitly referenced end
+ // directions remain fixed external inputs. Only generator-local frames move.
+ return out;
+}
+ToolBuild name_reexecution_member(ToolBuild source,const ProfilePadSpec& pattern,const PatternPlacement& member,const std::string& seed_id) {
+ const auto local=source.feature_id;
+ const auto ref=[&](const SemanticTopologyRef& r){if(r.feature_id!=local)return r;return SemanticTopologyRef{pattern.feature_id,"MEMBER/"+std::to_string(member.slot)+"/"+make_geometry_id(ref_key(r)),r.source_ids};};
+ for(auto& named:source.named)named.ref=ref(named.ref);
+ for(auto& lineage:source.generated){lineage.result=ref(lineage.result);for(auto& input:lineage.sources)input=ref(input);lineage.sources.push_back({seed_id,"FEATURE_DEFINITION",{seed_id}});}
+ source.feature_id=pattern.feature_id;return source;
 }
 
 ToolBuild rebuild_through_hole(const ThroughHoleTool& recipe, const TopoDS_Shape& target) {
@@ -3965,7 +4411,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         throw std::invalid_argument("PATTERN_HOLE_TOOL_CONTRACT_INVALID");
                 }
                 required_pattern_tools.insert(source.feature_id);
-            } else
+            } else if(source.source_kind!="FEATURE_REEXECUTION")
                 required_pattern_bodies.insert(source.feature_id);
             if (source.source_kind == "FEATURE_DELTA")
                 range_starts.insert(source.start_feature_id);
@@ -3994,10 +4440,14 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         check_cancel();
         const auto exact_started=std::chrono::steady_clock::now();
         try {
-            if(spec.extent=="TO_PLANE") {
+            if(spec.extent=="TO_PLANE"||spec.extent=="TO_NEXT"||spec.extent=="TO_SURFACE") {
                 if(spec.generator!="LINEAR_EXTRUDE" && spec.generator!="HOLE" && !spec.generator.empty())throw std::invalid_argument("TO_PLANE_REQUIRES_LINEAR_EXTRUDE");
                 if(spec.body_operation!="ADD" && spec.body_operation!="NEW_BODY" && spec.body_operation!="REMOVE")throw std::invalid_argument("TO_PLANE_OPERATION_UNSUPPORTED");
             }
+            if(!std::isfinite(spec.start_offset)||!std::isfinite(spec.end_offset))throw std::invalid_argument("EXTRUDE_OFFSET_INVALID");
+            if((spec.start_offset!=0||spec.end_offset!=0)&&(spec.generator!="LINEAR_EXTRUDE"&&!spec.generator.empty()))throw std::invalid_argument("EXTRUDE_OFFSET_REQUIRES_LINEAR_EXTRUDE");
+            if(spec.end_offset!=0&&spec.extent!="TO_PLANE"&&spec.extent!="TO_NEXT"&&spec.extent!="TO_SURFACE")throw std::invalid_argument("END_OFFSET_REQUIRES_ASSOCIATED_TERMINATION");
+            if(spec.start_offset!=0&&spec.extent=="THROUGH_ALL")throw std::invalid_argument("THROUGH_ALL_START_OFFSET_UNSUPPORTED");
             const auto input_shape = result;
             const auto input_id = result_id;
             const auto input_named = live_named;
@@ -4023,10 +4473,16 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 TopoDS_Compound seed_shapes,fixed_shapes;seed_builder.MakeCompound(seed_shapes);seed_builder.MakeCompound(fixed_shapes);
                 bool has_fixed=false;
                 std::set<std::string> source_ids;
+                std::vector<ProfilePadSpec> replay_definitions;
                 for(const auto& source:sources){
                 if(!source_ids.insert(source.feature_id).second)throw std::invalid_argument("PATTERN_SEED_DUPLICATE");
                 auto spec=pattern_spec;spec.pattern_source_feature_id=source.feature_id;spec.pattern_source_kind=source.source_kind;spec.pattern_start_feature_id=source.start_feature_id;
                 ToolBuild resolved;
+                if(source.source_kind=="FEATURE_REEXECUTION") {
+                    const auto found=std::find_if(specs.begin(),specs.begin()+spec_index,[&](const auto& input){return input.feature_id==source.feature_id;});
+                    if(found==specs.begin()+spec_index||!reexecution_generator(found->generator)||found->body_id!=pattern_spec.body_id||!source.start_feature_id.empty()||(found->body_operation=="REMOVE"?"REMOVE":"ADD")!=pattern_spec.body_operation||found->body_operation=="INTERSECT")throw std::invalid_argument("PATTERN_REEXECUTION_SOURCE_INVALID");
+                    replay_definitions.push_back(*found);continue;
+                }
                 const auto& stages = spec.pattern_source_kind == "GENERATOR_TOOL" ? pattern_tools : pattern_bodies;
                 if (spec.pattern_source_kind != "GENERATOR_TOOL" && spec.pattern_source_kind != "BODY_STAGE" && spec.pattern_source_kind != "FEATURE_DELTA")
                     throw std::invalid_argument("PATTERN_SOURCE_KIND_INVALID");
@@ -4069,6 +4525,26 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 if (has_fixed) aggregate.fixed_shape=fixed_shapes;
                 tool=make_pattern_tool(aggregate,pattern_spec,input_shape);
                 stats.generator_calls+=tool.through_holes.size();
+                if(replay_definitions.size()*(pattern_spec.pattern_placements.size()-1)>1024)throw std::invalid_argument("PATTERN_REEXECUTION_BUDGET");
+                for(const auto& source:replay_definitions)for(const auto& member:pattern_spec.pattern_placements) {
+                    if(!member.slot)continue;check_cancel();
+                    const auto definition=reexecution_definition(source,pattern_spec,member);
+                    ToolBuild part;
+                    try {part=build_generator_tool(definition,input_shape,input_named,&runtime);
+                        TopTools_ListOfShape members,targets;members.Append(part.shape);targets.Append(input_shape);
+                        if(pattern_spec.body_operation=="REMOVE"){BRepAlgoAPI_Common common;common.SetArguments(members);common.SetTools(targets);common.SetNonDestructive(Standard_True);common.Build();if(!common.IsDone()||shape_volume(common.Shape())<=1e-9)throw std::invalid_argument("PATTERN_MEMBER_NO_MATERIAL_INTERSECTION");}
+                        else {BRepAlgoAPI_Cut added;added.SetArguments(members);added.SetTools(targets);added.SetNonDestructive(Standard_True);added.Build();if(!added.IsDone()||shape_volume(added.Shape())<=1e-9)throw std::invalid_argument("PATTERN_MEMBER_NO_MATERIAL_CHANGE");}
+                    }
+                    catch(const std::exception& error){throw std::invalid_argument("PATTERN_MEMBER_FAILED:"+std::to_string(member.slot)+":"+source.feature_id+":"+error.what());}
+                    ++stats.generator_calls;
+                    validate_body_solid_set(part.shape);auto closure=complete_boolean_topology_naming(part.shape,part.named,definition.feature_id);part.generated.insert(part.generated.end(),closure.begin(),closure.end());
+                    part=name_reexecution_member(std::move(part),pattern_spec,member,source.feature_id);
+                    if(tool.named.size()+part.named.size()>100000)throw std::invalid_argument("PATTERN_TOPOLOGY_BUDGET");
+                    seed_builder.Add(tool.shape,part.shape);
+                    if(tool.fixed_shape.IsNull()){TopoDS_Compound fixed;seed_builder.MakeCompound(fixed);tool.fixed_shape=fixed;}
+                    seed_builder.Add(tool.fixed_shape,part.shape);tool.fixed_named.insert(tool.fixed_named.end(),part.named.begin(),part.named.end());
+                    tool.named.insert(tool.named.end(),part.named.begin(),part.named.end());tool.generated.insert(tool.generated.end(),part.generated.begin(),part.generated.end());
+                }
             } else if (spec.generator == "BOOLEAN") {
                 if (result.IsNull() || spec.tools.empty() || spec.tools.size() > 32 ||
                     (spec.body_operation == "INTERSECT" && spec.tools.size() != 1))
@@ -4126,58 +4602,19 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         tool.shape = combine.Shape();
                     }
                 }
+            } else if (spec.generator == "SWEEP") {
+                tool=build_generator_tool(spec,input_shape,input_named,&runtime);
             } else if (spec.generator == "LOFT") {
-                tool = make_loft_tool(spec);
+                tool = build_generator_tool(spec,input_shape,input_named,&runtime);
             } else if (spec.generator=="HOLE") {
-                tool=make_hole_tool(spec,input_shape);
+                tool=build_generator_tool(spec,input_shape,input_named,&runtime);
                 if (spec.extent=="THROUGH_ALL") tool.through_holes.push_back({spec,{}});
             } else {
-                auto generator_spec = spec;
-                if (spec.generator == "LINEAR_EXTRUDE" || spec.generator.empty()) {
-                    auto frame = profile_frame(spec);
-                    gp_Vec axis(frame.normal);
-                    if (spec.reversed)
-                        axis.Reverse();
-                    double start = 0, length = spec.pad_length;
-                    if (spec.extent == "SYMMETRIC")
-                        start = -length / 2;
-                    else if (spec.extent == "TWO_SIDED") {
-                        validate_positive(spec.second_length, "second length");
-                        start = -spec.second_length;
-                        length += spec.second_length;
-                    } else if (spec.extent == "THROUGH_ALL") {
-                        if (spec.body_operation != "REMOVE" || result.IsNull())
-                            throw std::invalid_argument("THROUGH_ALL_REQUIRES_CUT_TARGET");
-                        Bnd_Box box;
-                        BRepBndLib::Add(result, box);
-                        const auto bounds = to_bbox(box);
-                        double low = std::numeric_limits<double>::infinity(), high = -low;
-                        for (double x : {bounds.min.x, bounds.max.x})
-                            for (double y : {bounds.min.y, bounds.max.y})
-                                for (double z : {bounds.min.z, bounds.max.z}) {
-                                    double projection =
-                                        gp_Vec(frame.origin, gp_Pnt(x, y, z)).Dot(axis);
-                                    low = std::min(low, projection);
-                                    high = std::max(high, projection);
-                                }
-                        const double margin = std::max(1e-5, (high - low) * 1e-6);
-                        start = low - margin;
-                        length = high - low + 2 * margin;
-                    } else if (!spec.extent.empty() && spec.extent != "FINITE" && spec.extent != "TO_PLANE")
-                        throw std::invalid_argument("INVALID_EXTRUDE_EXTENT");
-                    auto origin = frame.origin.Translated(axis.Multiplied(start));
-                    generator_spec.plane_origin = {origin.X(), origin.Y(), origin.Z()};
-                    generator_spec.plane_normal = {frame.normal.X(), frame.normal.Y(),
-                                                   frame.normal.Z()};
-                    generator_spec.plane_u_direction = {
-                        frame.u_direction.X(), frame.u_direction.Y(), frame.u_direction.Z()};
-                    generator_spec.pad_length = length;
-                }
-                tool = make_profile_tool(generator_spec);
+                tool = build_generator_tool(spec,input_shape,input_named,&runtime);
             }
             topology_history_complete = topology_history_complete && tool.topology_history_complete;
             const bool reusable_tool = !modifier && spec.generator!="BOOLEAN" &&
-                spec.extent!="TO_PLANE" && (spec.extent!="THROUGH_ALL" || spec.generator=="HOLE") &&
+                spec.extent!="TO_PLANE" && spec.extent!="TO_NEXT" && spec.extent!="TO_SURFACE" && (spec.extent!="THROUGH_ALL" || spec.generator=="HOLE") &&
                 (spec.generator!="HOLE" || spec.extent=="BLIND" || spec.extent=="THROUGH_ALL") && !tool.shape.IsNull();
             if (required_pattern_tools.count(spec.feature_id) && !reusable_tool)
                 throw std::invalid_argument("PATTERN_INDEPENDENT_TOOL_UNAVAILABLE");
@@ -4675,7 +5112,7 @@ const TopologyInfo& OcctKernel::getTopology(const GeometryId& id) {
 
 double OcctKernel::getVolume(const GeometryId& id) {
     GProp_GProps properties;
-    BRepGProp::VolumeProperties(impl_->find(id), properties);
+    detail::volume_properties(impl_->find(id), properties);
     return properties.Mass();
 }
 

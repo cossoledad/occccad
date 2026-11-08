@@ -23,3 +23,14 @@ Node `pnpm --dir web/apps/cad test -- sketch` 按路径片段 OR 筛选，--list
 CTest 的完整归属由 `dev/validation.json` 的 ctestScopes 拥有：assembly/assembly-corpus → assembly，geometry/worker（包括全部 NamingArtifact 用例）→ geometry，sketch → sketch。每次 CTest 发现会审计实际注册用例恰有一个验证归属；不能仅构建 Naming 二进制或运行 fixture 生产者就声称 Naming 回归通过。
 
 services unit 使用 `./cmd/...`、`./internal/...`、`./gen/...` 三个源码根，避免让 Go 的 `./...` 遍历运行数据/日志目录；定向发现再将命中包显式传给 go test。所有受版本控制及非忽略的 Go 源码必须落在这些根中，工具审计会阻止遗漏；原生包集合对比用于确认覆盖未缩减。
+
+## 草图与 Solid Feature 组合检验
+
+从[整体设计流程](../docs/architecture/current/part-design-workflow.md)进入合同，从[验证记录](../docs/validation/sketch-solid-workflow.md)查看具体证据与测量边界。资源统一登记在 `dev/test-resources.json`；不另设测试数据库或桶。
+
+- `services/internal/control/sketch_solid_workflow_integration_test.go`：主草图局部区域/关联偏移/抽壳、多 Body 共享参数、重复 occurrence 的薄壁/重执行/Sweep/孔组、历史 Sweep 及冷 Naming。
+- `associated_extrude`、`thin_feature`、`sweep`、`engineering_hole`、`loft_boundary`、`pattern_reexecution` 的 integration 文件：各生成器参数、失败/修复、预览、补偿历史、重开与冷重建；重执行文件还输出分阶段小样本测量。
+- `sketch_design_input`、`sketch_inference`、`sketch_linked_offset`、`profile_available_regions`、`feature_repair_context`、`feature_insert_generators`：显式尺寸/公式、诊断、来源和历史边界；`TestSketchDimensionsDriveSolidThroughRouter` 不依赖绘制时的数值框。
+- `kernel/occt/tests/geometry_exchange_scenarios.cpp`：精确体积、导数、实体有效性、真实拓扑历史、取消与检查点；`web/apps/cad/browser/solid-feature-live.spec.ts`：真实视区/树拾取、工作台连续操作和显示。
+
+Go match 使用正则；Web 单元选择使用路径片段，多个选择由路由负责，不能把正则当作 Web 路径片段。普通 `--level unit` 不启动集成或浏览器。需要实际交互时使用已安装浏览器和正常配置的 Control/API/Jobs，原始输出留在 build。

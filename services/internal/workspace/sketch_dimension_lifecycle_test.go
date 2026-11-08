@@ -85,6 +85,29 @@ func TestSketchReferenceLifecyclePreservesSourceAndExplicitRestore(t *testing.T)
 		t.Fatal("unmeasurable retained value")
 	}
 }
+
+func TestSketchDimensionReferenceReplacementPreservesIdentityAndOwnership(t *testing.T) {
+	m := dimensionLifecycleModel(t)
+	c := m.Features[0].Sketch.Constraints[0]
+	c.References = []SketchGeometryRef{c.References[1], c.References[0]}
+	updated, _, err := dimensionLifecycleEdit(t, m, SketchOperation{Type: "UPDATE_CONSTRAINT", ConstraintID: c.ID, Constraint: &c})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Features[0].Sketch.Constraints[0].ParameterID != m.Features[0].Sketch.Constraints[0].ParameterID {
+		t.Fatal("replacement changed ParameterId")
+	}
+	a, _ := json.Marshal(m.Parameters[0].Source)
+	b, _ := json.Marshal(updated.Parameters[0].Source)
+	if string(a) != string(b) {
+		t.Fatal("replacement rewrote source")
+	}
+	m.Features[0].Sketch.Constraints[0].Internal = true
+	c.Internal = true
+	if _, _, err = dimensionLifecycleEdit(t, m, SketchOperation{Type: "UPDATE_CONSTRAINT", ConstraintID: c.ID, Constraint: &c}); err == nil {
+		t.Fatal("generated dimension lost operation ownership")
+	}
+}
 func TestSketchDimensionExpressionAndReferenceDependency(t *testing.T) {
 	m := dimensionLifecycleModel(t)
 	c := m.Features[0].Sketch.Constraints[0]

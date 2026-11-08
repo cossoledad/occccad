@@ -323,8 +323,8 @@ func (s *Service) validateOrderHistoricalStages(ctx context.Context, documentID 
 		if len(targets) > 0 && !slices.Contains(targets, f.ID) {
 			continue
 		}
-		picks := append([]FeatureSelection(nil), f.Selections...)
-		for _, p := range []*FeatureSelection{f.NeutralPlane, f.TerminationPlane} {
+		picks := append(append([]FeatureSelection(nil), f.Selections...), loftBoundaryPicks(f)...)
+		for _, p := range []*FeatureSelection{f.NeutralPlane, f.TerminationPlane, f.TerminationSurface} {
 			if p != nil {
 				picks = append(picks, *p)
 			}

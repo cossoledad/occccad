@@ -3128,6 +3128,14 @@ TEST(GeometryExchange, LoftMainFanPerpendicularToolAndCut) {
         // Numerical volume integration of the large stock is checked to
         // 1e-4 mm^3 (under 5e-10 relative), independently of shape tolerances.
         EXPECT_NEAR(kernel.getVolume(result.geometry_id), 216000 - 72, 1e-4);
+        MeasurementElement measured;
+        measured.geometry.geometry_id = result.geometry_id;
+        measured.geometry.rotation = {0, 0, 0, 1};
+        measured.kind = "BODY";
+        measured.mode = "GEOMETRY";
+        const auto item = kernel.measure_geometry("ITEM", {{measured}});
+        ASSERT_TRUE(item.complete) << item.diagnostic;
+        EXPECT_NEAR(item.values.at("volumeMm3"), 216000 - 72, 1e-4);
         EXPECT_TRUE(result.feature_results.back().topology_history_complete);
     }
     auto invalid = resolved;
@@ -3353,6 +3361,67 @@ TEST(GeometryExchange, ToPlaneRejectsInvalidDirectionAndNonPositiveRegionDistanc
         pad.termination_origin=target.first;pad.termination_normal=target.second;
         EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({pad}),std::exception);
     }
+}
+
+TEST(GeometryExchange, ExtrudeOffsetsAndNextTerminationUseEntireExactProfile) {
+    OcctKernel kernel;ProfilePadSpec stock;stock.feature_id="stock";stock.body_id="body";
+    stock.profile_feature_id="stock-profile";stock.regions={rectangular_region("stock-region",-10,-10,10,10)};stock.pad_length=20;
+    auto cut=stock;cut.feature_id="next-cut";cut.input_feature_id="stock";cut.profile_feature_id="cut-profile";
+    cut.body_operation="REMOVE";cut.extent="TO_NEXT";cut.regions={rectangular_region("cut-region",-1,-1,1,1)};
+    cut.plane_origin={0,0,5};cut.plane_normal={0,0,1};cut.plane_u_direction={1,0,0};
+    const auto next=kernel.evaluateProfilePadsWithHistory({stock,cut});
+    EXPECT_NEAR(kernel.getVolume(next.geometry_id),8000-4*15,1e-6);EXPECT_TRUE(next.feature_results.back().topology_history_complete);
+    cut.start_offset=2;cut.end_offset=-3;
+    const auto offset=kernel.evaluateProfilePadsWithHistory({stock,cut});
+    EXPECT_NEAR(kernel.getVolume(offset.geometry_id),8000-4*10,1e-6);EXPECT_TRUE(offset.feature_results.back().topology_history_complete);
+    const auto cold=kernel.evaluateProfilePadsWithHistory({stock,cut});EXPECT_EQ(kernel.serializeBrepr(offset.geometry_id),kernel.serializeBrepr(cold.geometry_id));
+    cut.extent="TO_PLANE";cut.termination_origin={0,0,20};cut.termination_normal={0,0,1};
+    const auto plane=kernel.evaluateProfilePadsWithHistory({stock,cut});EXPECT_NEAR(kernel.getVolume(plane.geometry_id),8000-4*10,1e-6);
+    cut.extent="TO_NEXT";cut.regions={rectangular_region("partial",9,-1,11,1)};
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock,cut}),std::exception);
+    cut.regions={rectangular_region("crossing",-1,-1,1,1)};cut.start_offset=0;cut.end_offset=0;cut.plane_origin.z=25;
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock,cut}),std::exception);
+    auto finite=stock;finite.start_offset=-4;const auto shifted=kernel.evaluateProfilePadsWithHistory({finite});
+    EXPECT_NEAR(kernel.getVolume(shifted.geometry_id),8000,1e-6);EXPECT_NEAR(kernel.getBoundingBox(shifted.geometry_id).min.z,-4,1e-6);
+}
+
+TEST(GeometryExchange, ToSurfaceUsesImmutableSelectedUnderlyingCylinderAndNaming) {
+    OcctKernel kernel;ProfilePadSpec cylinder;cylinder.feature_id="cylinder";cylinder.body_id="source-body";cylinder.profile_feature_id="axis-profile";
+    cylinder.generator="REVOLVE";cylinder.revolve_angle=2*3.14159265358979323846;cylinder.axis_start={-1,0};cylinder.axis_end={21,0};
+    cylinder.regions={rectangular_region("axial-region",0,0,20,10)};
+    const auto source=kernel.evaluateProfilePadsWithHistory({cylinder});BodyToolInput snapshot;snapshot.body_id="source-body";snapshot.feature_id="cylinder";
+    snapshot.geometry_id=source.geometry_id;snapshot.brep=kernel.serializeBrepr(source.geometry_id);
+    FeatureTopologyRef surface;
+    for(const auto& output:source.feature_results.back().semantic_outputs) {
+        snapshot.topology.push_back({output.semantic_ref.feature_id,output.semantic_ref.output_slot,output.semantic_ref.source_ids,
+            output.topology_type==PersistentTopologyType::face?TopologyType::FACE:output.topology_type==PersistentTopologyType::edge?TopologyType::EDGE:TopologyType::VERTEX,output.local_id});
+        if(output.evidence.geometry_type=="CYLINDER")surface={output.semantic_ref.feature_id,output.semantic_ref.output_slot,output.semantic_ref.source_ids};
+    }
+    ASSERT_FALSE(surface.feature_id.empty());
+    ProfilePadSpec pad;pad.feature_id="curved-end";pad.body_id="body";pad.body_operation="NEW_BODY";pad.profile_feature_id="profile";
+    pad.regions={rectangular_region("region",2,-2,4,2)};pad.plane_origin={0,0,-20};pad.plane_normal={0,0,1};pad.plane_u_direction={1,0,0};
+    pad.extent="TO_SURFACE";pad.termination_surface=surface;pad.tools={snapshot};
+    const auto result=kernel.evaluateProfilePadsWithHistory({pad});
+    const double circular_area=2*(2*std::sqrt(96.0)+100*std::asin(.2));
+    EXPECT_NEAR(kernel.getVolume(result.geometry_id),160-circular_area,1e-5);
+    bool cap=false;for(const auto& output:result.feature_results.back().semantic_outputs)if(output.semantic_ref.output_slot.rfind("END_CAP/",0)==0){cap=true;EXPECT_EQ(output.evidence.geometry_type,"CYLINDER");}
+    EXPECT_TRUE(cap);EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+    pad.end_offset=2;const auto offset=kernel.evaluateProfilePadsWithHistory({pad});EXPECT_NEAR(kernel.getVolume(offset.geometry_id),176-circular_area,1e-5);
+    pad.tools[0].topology.pop_back();EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({pad}),std::exception);pad.tools={snapshot};
+    pad.termination_surface.output_slot="missing";EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({pad}),std::exception);
+}
+
+TEST(GeometryExchange, ToSurfacePlaneExtendsBeyondFiniteFaceBoundary) {
+    OcctKernel kernel;ProfilePadSpec source;source.feature_id="inclined-source";source.body_id="source-body";source.profile_feature_id="source-sketch";
+    source.regions={rectangular_region("source-region",-2,-2,2,2)};source.extent="TO_PLANE";source.termination_origin={0,0,10};source.termination_normal={-.25,0,1};
+    const auto evaluated=kernel.evaluateProfilePadsWithHistory({source});BodyToolInput snapshot;snapshot.body_id=source.body_id;snapshot.feature_id=source.feature_id;snapshot.geometry_id=evaluated.geometry_id;snapshot.brep=kernel.serializeBrepr(evaluated.geometry_id);
+    FeatureTopologyRef surface;
+    for(const auto& o:evaluated.feature_results.back().semantic_outputs) {
+        snapshot.topology.push_back({o.semantic_ref.feature_id,o.semantic_ref.output_slot,o.semantic_ref.source_ids,o.topology_type==PersistentTopologyType::face?TopologyType::FACE:o.topology_type==PersistentTopologyType::edge?TopologyType::EDGE:TopologyType::VERTEX,o.local_id});
+        if(o.semantic_ref.output_slot.rfind("END_CAP/",0)==0)surface={o.semantic_ref.feature_id,o.semantic_ref.output_slot,o.semantic_ref.source_ids};
+    }
+    ProfilePadSpec pad;pad.feature_id="far-profile";pad.body_id="body";pad.profile_feature_id="far-sketch";pad.regions={rectangular_region("far-region",20,-1,22,1)};pad.extent="TO_SURFACE";pad.termination_surface=surface;pad.tools={snapshot};
+    const auto result=kernel.evaluateProfilePadsWithHistory({pad});EXPECT_NEAR(kernel.getVolume(result.geometry_id),4*15.25,1e-6);EXPECT_TRUE(result.feature_results.back().topology_history_complete);
 }
 
 } // namespace
@@ -4196,5 +4265,100 @@ TEST(GeometryExchange, RemovalRangeRejectsAddedMaterialDespiteLowerTotalVolume) 
         catch(const std::invalid_argument& e) {if(std::string(e.what()).find("PATTERN_RANGE_ADDS_MATERIAL")!=std::string::npos)++rejected;else throw;}
     }
     EXPECT_EQ(rejected,1);
+}
+
+TEST(GeometryExchange, SweepSmoothMiterClosedAndAnnularHaveColdStableNaming) {
+ const double pi=std::acos(-1.0);
+ for(const std::string mode:{"STRAIGHT","SMOOTH","MITER","CLOSED","ANNULAR"}) {
+  SCOPED_TRACE(mode);ProfilePadSpec spec;spec.feature_id="sweep";spec.body_id="body";spec.profile_feature_id="section";spec.generator="SWEEP";spec.body_operation="ADD";
+  spec.plane_normal={1,0,0};spec.plane_u_direction={0,1,0};
+  ProfileCurveSpec circle;circle.entity_id="outer";circle.kind="CIRCLE";circle.radius=1;
+  ProfileRegionSpec region;region.id="region";region.outer.id="loop";region.outer.curves={circle};
+  auto& path=spec.sweep_path;path.sketch_id="path";path.chain_id="chain";path.plane_normal={0,0,1};path.plane_u_direction={1,0,0};
+  ProfileCurveSpec a;a.entity_id="a";a.kind="LINE";a.end={10,0};path.curves={a};double want=10*pi;
+  if(mode=="SMOOTH"){ProfileCurveSpec arc;arc.entity_id="b";arc.kind="ARC";arc.center={10,5};arc.radius=5;arc.start_angle=-pi/2;arc.end_angle=0;path.curves.push_back(arc);want=pi*(10+5*pi/2);}
+  if(mode=="MITER"){auto line=a;line.entity_id="b";line.start={10,0};line.end={10,10};path.curves.push_back(line);want=20*pi;}
+  if(mode=="CLOSED"){auto c=circle;c.entity_id="path-circle";c.radius=10;path.curves={c};path.closed=true;spec.plane_origin={10,0,0};spec.plane_normal={0,1,0};spec.plane_u_direction={1,0,0};want=20*pi*pi;}
+  if(mode=="ANNULAR"){auto inner=circle;inner.entity_id="inner";inner.radius=.5;inner.reversed=true;region.holes.push_back({"inner-loop",{inner}});want*=.75;}
+  spec.regions={region};OcctKernel kernel;const auto hot=kernel.evaluateProfilePadsWithHistory({spec});
+  EXPECT_NEAR(kernel.getVolume(hot.geometry_id),want,1e-5);ASSERT_EQ(hot.feature_results.size(),1U);EXPECT_TRUE(hot.feature_results[0].topology_history_complete);
+  OcctKernel cold;const auto rebuilt=cold.evaluateProfilePadsWithHistory({spec});EXPECT_EQ(hot.geometry_id,rebuilt.geometry_id);EXPECT_EQ(hot.feature_results[0].topology_history.evidence_digest,rebuilt.feature_results[0].topology_history.evidence_digest);
+  auto wrong=spec;wrong.plane_normal={0,0,1};wrong.plane_u_direction={1,0,0};EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({wrong}),std::invalid_argument);
+ }
+}
+
+TEST(GeometryExchange, EngineeringHoleGroupDrillDepthAndColdIdentity) {
+ const double pi=std::acos(-1.0),tip=1/std::tan(pi/3);
+ ProfilePadSpec stock;stock.feature_id="stock";stock.body_id="body";stock.profile_feature_id="base";stock.pad_length=20;stock.generator="LINEAR_EXTRUDE";stock.body_operation="ADD";
+ ProfileRegionSpec base;base.id="base-region";base.outer.id="base-loop";
+ const std::vector<Vec2> points{{-5,-5},{15,-5},{15,5},{-5,5}};
+ for(int i=0;i<4;i++){ProfileCurveSpec c;c.kind="LINE";c.entity_id="edge-"+std::to_string(i);c.start=points[i];c.end=points[(i+1)%4];base.outer.curves.push_back(c);}stock.regions={base};
+ ProfilePadSpec hole;hole.feature_id="hole";hole.body_id="body";hole.generator="HOLE";hole.body_operation="REMOVE";hole.extent="BLIND";hole.pad_length=5;hole.reversed=true;hole.drill_tip_angle=2*pi/3;hole.depth_convention="CYLINDER";
+ for(const std::string id:{"a","b"}){HolePositionSpec p;p.profile_feature_id="positions";p.origin={id=="a"?0.:10.,0,20};p.normal={0,0,1};p.u_direction={1,0,0};p.region.id="hole/"+id;p.region.outer.id="loop/"+id;ProfileCurveSpec c;c.entity_id=id;c.kind="CIRCLE";c.radius=1;p.region.outer.curves={c};hole.hole_positions.push_back(p);}
+ for(const std::string kind:{"SIMPLE","COUNTERBORE","COUNTERSINK"}) {
+  SCOPED_TRACE(kind);hole.hole_kind=kind;hole.recess_diameter=4;hole.recess_depth=1;hole.countersink_angle=pi/2;
+  double extra=kind=="SIMPLE"?0:kind=="COUNTERBORE"?3*pi:4*pi/3;
+  OcctKernel k;const auto out=k.evaluateProfilePadsWithHistory({stock,hole});EXPECT_NEAR(k.getVolume(out.geometry_id),4000-2*(5*pi+pi*tip/3+extra),1e-5);EXPECT_TRUE(out.feature_results.back().topology_history_complete);
+  auto total=hole;total.depth_convention="TIP";total.pad_length+=tip;OcctKernel cold;const auto other=cold.evaluateProfilePadsWithHistory({stock,total});EXPECT_NEAR(cold.getVolume(other.geometry_id),k.getVolume(out.geometry_id),1e-5);
+  auto outside=hole;outside.hole_positions.back().origin.x=100;EXPECT_THROW(k.evaluateProfilePadsWithHistory({stock,outside}),std::invalid_argument);
+  OcctKernel again;const auto rebuilt=again.evaluateProfilePadsWithHistory({stock,hole});EXPECT_EQ(out.geometry_id,rebuilt.geometry_id);EXPECT_EQ(out.feature_results.back().topology_history.evidence_digest,rebuilt.feature_results.back().topology_history.evidence_digest);
+ }
+}
+
+TEST(GeometryExchange, LoftEndJetsMatchExactCylindricalSupportsAndColdNaming) {
+ const double pi=std::acos(-1.0);
+ for(const std::string condition:{"G1","G2"}) {
+  SCOPED_TRACE(condition);OcctKernel kernel;ProfilePadSpec loft;loft.feature_id="blend";loft.body_id="blend-body";loft.generator="LOFT";loft.body_operation="ADD";
+  for(int i=0;i<2;i++) {
+   ProfilePadSpec cylinder;cylinder.feature_id=i?"end-cylinder":"start-cylinder";cylinder.body_id=cylinder.feature_id+"-body";cylinder.profile_feature_id=cylinder.feature_id+"-sketch";cylinder.generator="LINEAR_EXTRUDE";cylinder.pad_length=10;cylinder.plane_origin={0,0,i?30.:0.};cylinder.plane_normal={0,0,1};cylinder.plane_u_direction={1,0,0};
+   ProfileCurveSpec c;c.entity_id="circle";c.kind="CIRCLE";c.radius=i?5:10;ProfileRegionSpec r;r.id="region";r.outer={"loop",{c}};cylinder.regions={r};
+   const auto result=kernel.evaluateProfilePadsWithHistory({cylinder});BodyToolInput source;source.body_id=cylinder.body_id;source.feature_id=cylinder.feature_id;source.geometry_id=result.geometry_id;source.brep=kernel.serializeBrepr(result.geometry_id);
+   FeatureTopologyRef support;
+   for(const auto& output:result.feature_results.back().semantic_outputs) {const auto& ref=output.semantic_ref;source.topology.push_back({ref.feature_id,ref.output_slot,ref.source_ids,output.topology_type==PersistentTopologyType::face?TopologyType::FACE:output.topology_type==PersistentTopologyType::edge?TopologyType::EDGE:TopologyType::VERTEX,output.local_id});if(ref.output_slot.find("SIDE_FROM_PROFILE_EDGE/")==0)support={ref.feature_id,ref.output_slot,ref.source_ids};}
+   ASSERT_FALSE(support.feature_id.empty());loft.tools.push_back(source);
+   LoftSectionSpec section;section.sketch_id=i?"upper":"lower";section.region=r;section.origin={0,0,i?30.:10.};section.normal={0,0,1};section.u_direction={1,0,0};loft.sections.push_back(section);
+   auto& boundary=i?loft.loft_end:loft.loft_start;boundary.condition=condition;boundary.supports={support};
+  }
+  const auto result=kernel.evaluateProfilePadsWithHistory({loft});const double blendIntegral=condition=="G2"?181./462:13./35;
+  EXPECT_NEAR(kernel.getVolume(result.geometry_id),20*pi*(50+25*blendIntegral),1e-5);
+  MeasurementElement measured;measured.geometry.geometry_id=result.geometry_id;measured.geometry.rotation={0,0,0,1};measured.kind="BODY";measured.mode="GEOMETRY";const auto item=kernel.measure_geometry("ITEM",{{measured}});ASSERT_TRUE(item.complete)<<item.diagnostic;EXPECT_NEAR(item.values.at("volumeMm3"),kernel.getVolume(result.geometry_id),1e-5);EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+  auto shape=loft_shape(kernel,result.geometry_id);bool tested=false;
+  for(TopExp_Explorer faces(shape,TopAbs_FACE);faces.More();faces.Next()) {BRepAdaptor_Surface face(TopoDS::Face(faces.Current()));if(face.GetType()!=GeomAbs_BSplineSurface)continue;tested=true;
+   for(double u:{.13,.43,.77})for(double v:{face.FirstVParameter(),face.LastVParameter()}) {gp_Pnt p;gp_Vec du,dv,duu,dvv,duv;face.D2(u,v,p,du,dv,duu,dvv,duv);EXPECT_NEAR(dv.X(),0,1e-7);EXPECT_NEAR(dv.Y(),0,1e-7);EXPECT_GT(dv.Z(),0);if(condition=="G2"){EXPECT_LT(dvv.Magnitude(),1e-7);EXPECT_LT(duv.Magnitude(),1e-7);}}
+  }EXPECT_TRUE(tested);
+  OcctKernel cold;const auto rebuilt=cold.evaluateProfilePadsWithHistory({loft});EXPECT_EQ(result.geometry_id,rebuilt.geometry_id);EXPECT_EQ(result.feature_results.back().topology_history.evidence_digest,rebuilt.feature_results.back().topology_history.evidence_digest);
+  auto nearly=loft;nearly.loft_start.direction={1e-6,0,1};EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({nearly}),std::invalid_argument);
+  auto wrong=loft;wrong.loft_start.direction={1,0,1};EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({wrong}),std::invalid_argument);
+  auto missing=loft;missing.tools.pop_back();EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({missing}),std::invalid_argument);
+ }
+}
+
+TEST(GeometryExchange, PatternReexecutionResolvesEveryMemberAgainstFrozenSlopedTarget) {
+ const double pi=std::acos(-1.0);OcctKernel kernel;
+ ProfilePadSpec stock;stock.feature_id="stock";stock.body_id="body";stock.profile_feature_id="stock-profile";stock.generator="LINEAR_EXTRUDE";stock.plane="XZ";stock.pad_length=50;stock.body_operation="ADD";
+ ProfileRegionSpec wedge;wedge.id="wedge";wedge.outer.id="wedge-loop";const std::vector<Vec2> p{{0,0},{30,0},{30,20},{0,10}};for(int i=0;i<4;i++){ProfileCurveSpec c;c.entity_id="wedge-"+std::to_string(i);c.kind="LINE";c.start=p[i];c.end=p[(i+1)%4];wedge.outer.curves.push_back(c);}stock.regions={wedge};
+ ProfilePadSpec cut;cut.feature_id="cut";cut.body_id="body";cut.profile_feature_id="cut-profile";cut.generator="LINEAR_EXTRUDE";cut.body_operation="REMOVE";cut.extent="TO_NEXT";cut.plane="XY";ProfileCurveSpec c;c.kind="CIRCLE";c.entity_id="circle";c.center={5,-10};c.radius=1;cut.regions={{"cut-region",{"cut-loop",{c}}, {}}};
+ const std::array<double,12> identity{1,0,0,0,0,1,0,0,0,0,1,0};ProfilePadSpec pattern;pattern.feature_id="pattern";pattern.body_id="body";pattern.generator="SOLID_PATTERN";pattern.body_operation="REMOVE";pattern.pattern_source_feature_id="cut";pattern.pattern_source_kind="FEATURE_REEXECUTION";
+ for(const bool reflected:{false,true}){auto a=identity,b=identity;if(reflected){a[0]=-1;a[3]=30;pattern.pattern_placements={{0,identity},{1,a}};}else{a[3]=10;b[3]=20;pattern.pattern_placements={{0,identity},{1,a},{2,b}};}
+ PartRuntimeStats stats;PartRuntimeOptions runtime;runtime.stats=&stats;runtime.stage_keys={"reexecution/stock","reexecution/cut"};kernel.evaluateProfilePadsWithHistory({stock,cut},{},nullptr,runtime);runtime.stage_keys.push_back(reflected?"reexecution/reflected":"reexecution/linear");const auto result=kernel.evaluateProfilePadsWithHistory({stock,cut,pattern},{},nullptr,runtime);
+ EXPECT_NEAR(kernel.getVolume(result.geometry_id),22500-(reflected?30:45)*pi,1e-5);EXPECT_EQ(stats.generator_calls,reflected?1U:2U);EXPECT_EQ(stats.stages_reused,2U);EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+ std::set<std::string> members;for(const auto& out:result.feature_results.back().semantic_outputs){EXPECT_EQ(out.semantic_ref.feature_id.find("/reexecution/"),std::string::npos);if(out.semantic_ref.feature_id=="pattern")members.insert(out.semantic_ref.output_slot.substr(0,8));}EXPECT_TRUE(members.count("MEMBER/1"));if(!reflected)EXPECT_TRUE(members.count("MEMBER/2"));
+ OcctKernel cold;const auto rebuilt=cold.evaluateProfilePadsWithHistory({stock,cut,pattern});EXPECT_EQ(result.geometry_id,rebuilt.geometry_id);EXPECT_EQ(result.feature_results.back().topology_history.evidence_digest,rebuilt.feature_results.back().topology_history.evidence_digest);
+ if(!reflected){runtime.stage_keys.back()="reexecution/cancel-attempt";runtime.force_cold=true;runtime.cancelled=[&](){return stats.generator_calls>=3;};EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({stock,cut,pattern},{},nullptr,runtime),std::runtime_error);runtime.cancelled={};runtime.force_cold=false;const auto after_cancel=kernel.evaluateProfilePadsWithHistory({stock,cut,pattern},{},nullptr,runtime);EXPECT_EQ(stats.stages_executed,1U);EXPECT_EQ(stats.stages_reused,2U);EXPECT_EQ(after_cancel.geometry_id,rebuilt.geometry_id);EXPECT_EQ(after_cancel.feature_results.back().topology_history.evidence_digest,rebuilt.feature_results.back().topology_history.evidence_digest);}
+
+ }
+}
+TEST(GeometryExchange, PatternReexecutionActuallyRebuildsAllSupportedGenerators) {
+ const double pi=std::acos(-1.0);const std::array<double,12> identity{1,0,0,0,0,1,0,0,0,0,1,0};
+ for(const std::string kind:{"LINEAR_EXTRUDE","REVOLVE","SWEEP","LOFT","HOLE"}) {
+ SCOPED_TRACE(kind);OcctKernel kernel;ProfilePadSpec source;source.feature_id="source";source.body_id="body";source.profile_feature_id="profile";source.generator=kind;source.pad_length=2;source.body_operation="ADD";
+ ProfileCurveSpec circle;circle.kind="CIRCLE";circle.entity_id="circle";circle.radius=1;ProfileRegionSpec region;region.id="region";region.outer={"loop",{circle}};source.regions={region};std::vector<ProfilePadSpec> specs;double want=6*pi;
+ if(kind=="REVOLVE"){source.regions[0].outer.curves[0].center={5,0};source.revolve_angle=2*pi;source.axis_start={0,-10};source.axis_end={0,10};want=30*pi*pi;}
+ if(kind=="SWEEP"){source.plane_normal={1,0,0};source.plane_u_direction={0,1,0};auto& path=source.sweep_path;path.sketch_id="path";path.chain_id="chain";path.plane_normal={0,0,1};path.plane_u_direction={1,0,0};ProfileCurveSpec c;c.entity_id="line";c.kind="LINE";c.end={10,0};path.curves={c};want=30*pi;}
+ if(kind=="LOFT"){for(int i=0;i<2;i++){LoftSectionSpec section;section.sketch_id="section-"+std::to_string(i);section.region=region;section.region.outer.curves[0].radius=i?2:1;section.origin={0,0,i?10.:0.};section.normal={0,0,1};section.u_direction={1,0,0};source.sections.push_back(section);}want=70*pi;}
+ if(kind=="HOLE"){ProfilePadSpec stock;stock.feature_id="stock";stock.body_id="body";stock.profile_feature_id="stock-profile";stock.generator="LINEAR_EXTRUDE";stock.pad_length=20;stock.regions={rectangular_region("stock-region",-5,-5,75,45)};specs.push_back(stock);source.body_operation="REMOVE";source.extent="BLIND";source.pad_length=5;source.reversed=true;source.plane_origin={0,0,20};source.plane_normal={0,0,1};source.plane_u_direction={1,0,0};want=80000-15*pi;}
+ specs.push_back(source);ProfilePadSpec pattern;pattern.feature_id="pattern";pattern.body_id="body";pattern.generator="SOLID_PATTERN";pattern.body_operation=source.body_operation;pattern.pattern_source_feature_id="source";pattern.pattern_source_kind="FEATURE_REEXECUTION";auto a=identity,b=identity;a[7]=20;b[7]=40;pattern.pattern_placements={{0,identity},{1,a},{2,b}};specs.push_back(pattern);
+ PartRuntimeStats stats;PartRuntimeOptions runtime;runtime.stats=&stats;const auto result=kernel.evaluateProfilePadsWithHistory(specs,{},nullptr,runtime);EXPECT_NEAR(kernel.getVolume(result.geometry_id),want,1e-5);EXPECT_EQ(stats.generator_calls,kind=="HOLE"?4U:3U);EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+ }
 }
 }

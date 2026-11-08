@@ -553,7 +553,7 @@ func circularCutProfile(part workspace.PartModel, feature workspace.Feature) (*w
 			}
 		}
 	}
-	if generator.Type != "PAD" && generator.Type != "LINEAR_EXTRUDE" {
+	if generator.ThinWall != nil || generator.Type != "PAD" && generator.Type != "LINEAR_EXTRUDE" {
 		return nil, nil, nil
 	}
 	for i := range part.Features {
@@ -622,6 +622,8 @@ func (s *Service) cutSpansBody(ctx context.Context, part workspace.PartModel, bo
 	default:
 		return false, evidence, errors.New("该切割范围暂不能进行贯穿性检查")
 	}
+	start += generator.StartOffset
+	end += generator.StartOffset
 	evidence["geometryKey"], evidence["bodyAxisRange"], evidence["cutterAxisRange"] = key, [2]float64{low, high}, [2]float64{start, end}
 	return start <= low+tolerance && end >= high-tolerance && end > start, evidence, nil
 }

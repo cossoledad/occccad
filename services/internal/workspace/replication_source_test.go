@@ -226,7 +226,17 @@ func TestBlindHoleReplicationCapabilitiesAndAutomaticSource(t *testing.T) {
 		if e := resolveAutomaticPatternSource(PartModel{Features: []Feature{through}}, &pattern); e != nil || pattern.Operation != "REMOVE" || pattern.Pattern.SourceKind != "GENERATOR_TOOL" {
 			t.Fatal("through AUTO", kind, pattern, e)
 		}
-		for _, extent := range []string{"TO_PLANE", "FINITE", ""} {
+		associated := hole
+		associated.Extent = "TO_PLANE"
+		capability = replicationSource(associated)
+		if capability.Tool || !capability.Reexecution || capability.Diagnostic != "" {
+			t.Fatal("associated Hole must advertise reexecution without a frozen tool", capability)
+		}
+		pattern.Pattern.SourceKind = "AUTO"
+		if e := resolveAutomaticPatternSource(PartModel{Features: []Feature{associated}}, &pattern); e != nil || pattern.Operation != "REMOVE" || pattern.Pattern.SourceKind != "FEATURE_REEXECUTION" {
+			t.Fatal("associated AUTO must reexecute the Hole recipe", pattern, e)
+		}
+		for _, extent := range []string{"FINITE", ""} {
 			bad := hole
 			bad.Extent = extent
 			capability := replicationSource(bad)
@@ -239,8 +249,8 @@ func TestBlindHoleReplicationCapabilitiesAndAutomaticSource(t *testing.T) {
 			}
 		}
 		for _, bad := range []Feature{func() Feature { x := hole; x.Depth = 0; return x }(), func() Feature { x := hole; x.HoleKind = "UNKNOWN"; return x }(), func() Feature { x := hole; x.Operation = "ADD"; return x }()} {
-			if replicationSource(bad).Tool {
-				t.Fatal("invalid Hole became a tool", bad)
+			if capability := replicationSource(bad); capability.Tool || capability.Reexecution {
+				t.Fatal("invalid Hole became a replication source", bad, capability)
 			}
 		}
 	}

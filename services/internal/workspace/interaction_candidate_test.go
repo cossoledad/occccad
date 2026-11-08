@@ -43,6 +43,22 @@ func TestInteractionCandidatePromotionRequiresExactAuthorityBoundary(t *testing.
 	}
 }
 
+func TestDisplayOnlyComparisonCannotPromoteEvenWithMatchingCommand(t *testing.T) {
+	p := preparedDomainMutation{actorID: "actor", headRevision: "head", command: modelcore.DomainCommand{TypeURI: "edit", Payload: json.RawMessage(`{}`)}}
+	s := &Service{}
+	s.interactionCandidates.put(interactionCandidate{id: "comparison", documentID: "doc", actorID: p.actorID, headRevision: p.headRevision, commandType: p.command.TypeURI, payloadDigest: candidateIntentDigest(p.command.Payload), displayOnly: true, visualObjectIDs: map[string]bool{"visual": true}, expiresAt: time.Now().Add(time.Minute)})
+	if _, reason := s.interactionCandidates.takeDiagnosed("comparison", "doc", p); reason != "display_only_candidate" {
+		t.Fatal(reason)
+	}
+	if !s.PreviewVisualAllowed("doc", "actor", "comparison", "visual") || s.PreviewVisualAllowed("doc", "actor", "comparison", "brep") || s.PreviewVisualAllowed("doc", "other", "comparison", "visual") {
+		t.Fatal("display access scope")
+	}
+	s.DiscardPreview("doc", "actor", "comparison")
+	if s.PreviewVisualAllowed("doc", "actor", "comparison", "visual") {
+		t.Fatal("comparison survived revocation")
+	}
+}
+
 func TestInteractionCandidateDiagnosticsPreserveStrictIntent(t *testing.T) {
 	if paths := candidateChangedPaths([]byte(`{"axis":null}`), []byte(`{}`)); len(paths) != 1 || paths[0] != "$.axis" {
 		t.Fatal("omission and null were conflated", paths)

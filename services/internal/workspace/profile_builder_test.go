@@ -12,6 +12,50 @@ func profileSketch(entities []SketchEntity, constraints []SketchConstraint) Feat
 		Entities: entities, Constraints: constraints}}
 }
 
+func TestAvailableProfileLoopsPreserveClosedComponents(t *testing.T) {
+	f := profileSketch([]SketchEntity{{ID: "outer", Kind: "CIRCLE", Role: "PROFILE", Center: &SketchPoint2{}, Radius: 10}}, nil)
+	before, err := buildProfileLoops(f, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Sketch.Entities = append(f.Sketch.Entities, SketchEntity{ID: "unfinished", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{X: 20}, End: &SketchPoint2{X: 30}})
+	if _, err = buildProfileLoops(f, true); err == nil {
+		t.Fatal("whole sketch ignored open geometry")
+	}
+	available, err := buildAvailableProfileLoops(f, true)
+	if err != nil || len(available) != 1 || available[0].value.ID != before[0].value.ID {
+		t.Fatal("independent open component changed closed identity", err)
+	}
+	// A branched rectangle is wholly unavailable, rather than being silently
+	// cut into a different region. The independent circle remains available.
+	ops, err := rectangleMacro("branched", SketchPoint2{X: 40}, SketchPoint2{X: 50, Y: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var corner SketchGeometryRef
+	for _, op := range ops {
+		if op.Entity != nil {
+			f.Sketch.Entities = append(f.Sketch.Entities, *op.Entity)
+			if corner.EntityID == "" {
+				corner = SketchGeometryRef{Target: "ENTITY", EntityID: op.Entity.ID, SubElement: "START"}
+			}
+		}
+		if op.Constraint != nil {
+			f.Sketch.Constraints = append(f.Sketch.Constraints, *op.Constraint)
+		}
+	}
+	f.Sketch.Entities = append(f.Sketch.Entities, SketchEntity{ID: "branch", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{X: 40}, End: &SketchPoint2{X: 35}})
+	f.Sketch.Constraints = append(f.Sketch.Constraints, SketchConstraint{ID: "branch-join", Kind: "COINCIDENT", References: []SketchGeometryRef{corner, {Target: "ENTITY", EntityID: "branch", SubElement: "START"}}})
+	available, err = buildAvailableProfileLoops(f, true)
+	if err != nil || len(available) != 1 || available[0].value.ID != before[0].value.ID {
+		t.Fatal("branched component leaked into available loops", err)
+	}
+	f.Sketch.Solve.Status = "CONFLICTING"
+	if _, err = buildAvailableProfileLoops(f, true); err == nil {
+		t.Fatal("partial profile bypassed sketch solve failure")
+	}
+}
+
 func TestBuildProfileRegionsClassifiesCircleHole(t *testing.T) {
 	feature := profileSketch([]SketchEntity{
 		{ID: "outer", Kind: "CIRCLE", Role: "PROFILE", Center: &SketchPoint2{}, Radius: 20},

@@ -67,13 +67,15 @@ func insertFeatureCandidate(m *PartModel, p createFeaturePayload) error {
 	}
 	anchor := m.Features[i]
 	switch {
-	case isLocalModifier(p.Feature.Type), p.Feature.Type == "SKETCH" && p.Feature.Sketch != nil:
+	case p.Feature.Type == "SKETCH" && p.Feature.Sketch != nil:
+		// A sketch boundary can share an earlier solid input with subsequent sketches.
+	case isLocalModifier(p.Feature.Type):
 		if !isBodyFeature(anchor.Type) {
 			return insertionBlocked(anchor, "sketch/modifier creation requires a solid boundary")
 		}
-	case p.Feature.Type == "LINEAR_EXTRUDE":
-		if anchor.Sketch == nil || p.Feature.Profile != anchor.ID || (p.Feature.Operation != "ADD" && p.Feature.Operation != "REMOVE") || (p.Feature.Extent != "" && p.Feature.Extent != "FINITE") || p.Feature.ProfileMemberSlot != nil {
-			return insertionBlocked(p.Feature, "only finite ADD/REMOVE extrusion immediately after its sketch is supported")
+	case historicalGenerator(p.Feature.Type):
+		if p.Feature.Operation != "ADD" && p.Feature.Operation != "REMOVE" && p.Feature.Operation != "INTERSECT" {
+			return insertionBlocked(p.Feature, "historical generator requires an operation on the anchor Body")
 		}
 	default:
 		return insertionBlocked(p.Feature, "historical creation type is unsupported")
@@ -118,7 +120,7 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 	if !insert {
 		return nil
 	}
-	validType := c.TypeURI == typeCreateModifierFeature && isLocalModifier(p.Feature.Type) || c.TypeURI == typeCreateSketch && p.Feature.Type == "SKETCH" || c.TypeURI == typeCreateSolidFeature && p.Feature.Type == "LINEAR_EXTRUDE"
+	validType := c.TypeURI == typeCreateModifierFeature && isLocalModifier(p.Feature.Type) || c.TypeURI == typeCreateSketch && p.Feature.Type == "SKETCH" || c.TypeURI == typeCreateSolidFeature && historicalGenerator(p.Feature.Type)
 	if !validType || p.InsertionVersionID != head {
 		return insertionBlocked(p.Feature, "insertion Revision or command type is invalid")
 	}
@@ -242,19 +244,31 @@ func (s *Service) validateInsertionSource(ctx context.Context, documentID, head 
 			return err
 		}
 	}
-	if pick := p.Feature.NeutralPlane; pick != nil {
+	references := []*FeatureSelection{p.Feature.NeutralPlane, p.Feature.TerminationPlane, p.Feature.TerminationSurface}
+	boundaryRefs := loftBoundaryPicks(p.Feature)
+	for i := range boundaryRefs {
+		references = append(references, &boundaryRefs[i])
+	}
+	for _, pick := range references {
+		if pick == nil {
+			continue
+		}
 		planeKey, stage, err := s.insertionStage(ctx, before, head, p.AfterFeatureID, p.Feature.BodyID, pick.Selection.SourceBodyID)
 		if err != nil {
 			return err
 		}
 		if pick.Selection.SourceDocumentID != documentID || pick.SourceVersionID != head || pick.SourceFeatureID != stage || pick.Selection.ExpectedType != modelcore.PersistentTopologyFace {
-			return insertionBlocked(p.Feature, "neutral plane must belong to its exact upstream insertion stage")
+			return insertionBlocked(p.Feature, "reference plane must belong to its exact upstream insertion stage")
 		}
 		resolution, err := s.resolveFeaturePick(ctx, *pick, planeKey)
 		if err != nil {
 			return err
 		}
-		state, err := featureInputResolution(resolution, "PLANE")
+		geometryType := "PLANE"
+		if pick == p.Feature.TerminationSurface || p.Feature.Type == "LOFT" {
+			geometryType = ""
+		}
+		state, err := featureInputResolution(resolution, geometryType)
 		if err != nil {
 			return err
 		}
@@ -290,9 +304,11 @@ func (s *Service) insertionStage(ctx context.Context, model PartModel, revision,
 			stage = f.ID
 		}
 	}
-	if stage == "" {
+	if stage == "" && sourceBody != targetBody {
 		return "", "", fmt.Errorf("%w: reference Body has no solid at the insertion stage", ErrValidation)
 	}
+	// An empty Body uses the existing visual-only prefix artifact contract.
+	// Its empty source stage cannot authorize a face or edge selection.
 	key, err := s.evaluateBodyPrefix(ctx, "insertion-input/"+revision+"/"+after, prefix, sourceBody, true)
 	if err != nil {
 		return "", "", featureInputStageError(prefix, stage, err)
@@ -399,4 +415,10 @@ func referenceGeometryBefore(model PartModel, limit int) (ReferenceGeometry, err
 	}
 	refs.AxisSystems = append(refs.AxisSystems, model.AxisSystems...)
 	return refs, nil
+}
+
+// Historical generators use the ordinary definition/order/evaluation contract.
+// Creation of another Body remains a separate explicit lifecycle command.
+func historicalGenerator(kind string) bool {
+	return isSolidGenerator(kind) || kind == "HOLE" || kind == "LOFT"
 }

@@ -82,7 +82,7 @@ func TestSketchCatalogRetainsExistingCapabilities(t *testing.T) {
 			t.Fatalf("missing sketch command %s", id)
 		}
 	}
-	for id, text := range map[string]string{"sketch.point": "C 切换", "sketch.line": "Tab", "sketch.polyline": "T 切换", "sketch.spline": "拟合点"} {
+	for id, text := range map[string]string{"sketch.point": "C 切换", "sketch.line": "两个点", "sketch.polyline": "T 切换", "sketch.spline": "拟合点"} {
 		if !strings.Contains(commands[id].HelpText, text) {
 			t.Fatalf("lost help for %s", id)
 		}
@@ -195,6 +195,67 @@ func TestDMUSimulationIsOneDialogCommand(t *testing.T) {
 		for _, command := range group.Commands {
 			if retired[command.CommandID] {
 				t.Fatal("retired playback placement")
+			}
+		}
+	}
+}
+
+func TestModelingMeasurementAndParametersAreSeparateCategories(t *testing.T) {
+	c, err := Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs := map[string]Tab{}
+	for _, tab := range c.Tabs {
+		tabs[tab.ID] = tab
+	}
+	groups := map[string]Group{}
+	for _, group := range c.Groups {
+		groups[group.ID] = group
+	}
+	if _, exists := groups["sketch-generators"]; exists {
+		t.Fatal("solid commands mixed into Sketcher")
+	}
+	for _, workbench := range []string{"PART_DESIGN", "SKETCHER", "ASSEMBLY_DESIGN"} {
+		for _, category := range []string{"model", "measurement", "parameters", "view"} {
+			if _, exists := tabs[workbench+"."+category]; !exists {
+				t.Fatalf("missing category %s.%s", workbench, category)
+			}
+		}
+	}
+	for _, context := range c.Contexts {
+		if context.ID == "KINEMATICS_DMU" {
+			continue
+		}
+		found := map[string]bool{}
+		for _, id := range context.Tabs {
+			found[tabs[id].Section] = true
+		}
+		for _, category := range []string{"model", "measurement", "parameters", "view"} {
+			if !found[category] {
+				t.Fatalf("context %s hides category %s", context.ID, category)
+			}
+		}
+	}
+	for _, placement := range c.Placements {
+		tab := tabs[placement.TabID]
+		if tab.Workbench == "SKETCHER" && placement.GroupID == "measurement" {
+			t.Fatal("3D measurement is unavailable in Sketcher; use dimensional tools")
+		}
+		if placement.GroupID == "sketch-dimensional-constraints" && tab.Section != "measurement" {
+			t.Fatal("Sketcher dimensions must be in the measurement category")
+		}
+		if placement.GroupID == "measurement" && tab.Section != "measurement" {
+			t.Fatalf("measurement mixed into %s", tab.ID)
+		}
+		if (placement.GroupID == "part-knowledge" || placement.GroupID == "product-interface") && tab.Section != "parameters" {
+			t.Fatalf("interfaces mixed into %s", tab.ID)
+		}
+		if tab.Workbench == "SKETCHER" && tab.Section == "model" {
+			for _, item := range groups[placement.GroupID].Commands {
+				if strings.HasPrefix(item.CommandID, "part.") && item.CommandID != "part.pattern.linear" {
+					t.Fatalf("solid command in Sketcher: %s", item.CommandID)
+				}
 			}
 		}
 	}

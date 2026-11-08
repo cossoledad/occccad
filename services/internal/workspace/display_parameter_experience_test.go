@@ -211,15 +211,17 @@ func TestGeometricTerminationHasNoDormantDrivingLengthParameter(t *testing.T) {
 	model := newPartModel()
 	model.Features = []Feature{{ID: "cut", BodyID: model.ActiveBodyID, Type: "LINEAR_EXTRUDE", Length: 40, Extent: "FINITE"}}
 	ensureFeatureParameters(&model)
-	if len(model.Parameters) != 1 {
+	if len(model.Parameters) != 2 {
 		t.Fatal(model.Parameters)
 	}
-	id := model.Parameters[0].ParameterID
-	for _, extent := range []string{"TO_PLANE", "THROUGH_ALL"} {
+	id := "parameter:cut:length"
+	for _, extent := range []string{"TO_PLANE", "TO_NEXT", "TO_SURFACE", "THROUGH_ALL"} {
 		model.Features[0].Extent = extent
 		ensureFeatureParameters(&model)
-		if len(model.Parameters) != 0 {
-			t.Fatalf("%s exposes dormant length: %+v", extent, model.Parameters)
+		for _, p := range model.Parameters {
+			if p.PropertySlot == "length" {
+				t.Fatalf("%s exposes dormant length: %+v", extent, p)
+			}
 		}
 		if model.Features[0].Length != 40 {
 			t.Fatal("inactive finite default was rewritten", model.Features[0].Length)
@@ -227,7 +229,13 @@ func TestGeometricTerminationHasNoDormantDrivingLengthParameter(t *testing.T) {
 	}
 	model.Features[0].Extent = "FINITE"
 	ensureFeatureParameters(&model)
-	if len(model.Parameters) != 1 || model.Parameters[0].ParameterID != id {
+	found := false
+	for _, p := range model.Parameters {
+		if p.ParameterID == id {
+			found = true
+		}
+	}
+	if len(model.Parameters) != 2 || !found {
 		t.Fatal("finite mode did not restore the stable parameter slot", model.Parameters)
 	}
 }

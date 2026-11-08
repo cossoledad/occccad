@@ -81,6 +81,15 @@ export function insertParameterReference(source:string,key:string,caret?:{start:
   return source.slice(0,start)+key+source.slice(end);
 }
 
+/** Complete the identifier under the caret, preserving the rest of a formula. */
+export function parameterCompletions(source:string,parameters:readonly ParameterDefinition[],excludeId?:string,caret=source.length):Array<{parameter:ParameterDefinition;value:string}> {
+ const at=Math.max(0,Math.min(source.length,caret)),word=source.slice(0,at).match(/[A-Za-z_][A-Za-z0-9_]*$/)?.[0];
+ if(!word)return [];
+ const end=at+(source.slice(at).match(/^[A-Za-z0-9_]*/)?.[0].length??0),start=at-word.length;
+ return parameters.filter(p=>p.parameterId!==excludeId&&p.key.toLowerCase().startsWith(word.toLowerCase())&&p.key!==source.slice(start,end))
+  .map(parameter=>({parameter,value:source.slice(0,start)+parameter.key+source.slice(end)}));
+}
+
 export const documentParameters=(view:DocumentView|undefined):ParameterDefinition[]=>view?.part?.parameters??view?.product?.parameters??[];
 
 export function parameterInputUnit(parameter:ParameterDefinition,lengthUnit?:"mm"|"cm"|"m"|"in"):string {

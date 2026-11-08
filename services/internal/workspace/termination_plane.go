@@ -9,31 +9,33 @@ import (
 // Qualify creation picks with the actual immutable Body tip. A face's semantic
 // anchor can originate much earlier and must never stand in for that stage.
 func (s *Service) qualifyTerminationPlane(ctx context.Context, documentID string, f *Feature) error {
-	p := f.TerminationPlane
-	if p == nil {
-		return nil
+	for _, target := range []**FeatureSelection{&f.TerminationPlane, &f.TerminationSurface} {
+		p := *target
+		if p == nil {
+			continue
+		}
+		if p.Selection.SourceDocumentID != documentID {
+			return fmt.Errorf("%w: termination plane must belong to the same Part", ErrValidation)
+		}
+		if p.SourceFeatureID != "" {
+			continue
+		}
+		key, err := s.featureStageAtVersion(ctx, documentID, p.SourceVersionID, "", p.Selection.SourceBodyID)
+		if err != nil {
+			return err
+		}
+		manifest, _, err := s.topologyManifestForGeometryKey(ctx, key)
+		if err != nil {
+			return err
+		}
+		tip := manifest.Tips[p.Selection.SourceBodyID]
+		if !topologyHistoryComplete(manifest) || tip == nil {
+			return fmt.Errorf("%w: termination source stage unavailable", ErrValidation)
+		}
+		copy := *p
+		copy.SourceFeatureID = tip.FeatureId
+		*target = &copy
 	}
-	if p.Selection.SourceDocumentID != documentID {
-		return fmt.Errorf("%w: termination plane must belong to the same Part", ErrValidation)
-	}
-	if p.SourceFeatureID != "" {
-		return nil
-	}
-	key, err := s.featureStageAtVersion(ctx, documentID, p.SourceVersionID, "", p.Selection.SourceBodyID)
-	if err != nil {
-		return err
-	}
-	manifest, _, err := s.topologyManifestForGeometryKey(ctx, key)
-	if err != nil {
-		return err
-	}
-	tip := manifest.Tips[p.Selection.SourceBodyID]
-	if !topologyHistoryComplete(manifest) || tip == nil {
-		return fmt.Errorf("%w: termination source stage unavailable", ErrValidation)
-	}
-	copy := *p
-	copy.SourceFeatureID = tip.FeatureId
-	f.TerminationPlane = &copy
 	return nil
 }
 
@@ -89,7 +91,11 @@ func (s *Service) featurePlaneInput(ctx context.Context, r FeatureInputRequest, 
 	if err != nil {
 		return nil, nil, err
 	}
-	input, err := featureInputResolution(resolution, "PLANE")
+	geometryType := "PLANE"
+	if model.Features[index].TerminationSurface == pick || model.Features[index].Type == "LOFT" {
+		geometryType = ""
+	}
+	input, err := featureInputResolution(resolution, geometryType)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -70,13 +70,46 @@ type LoftSection struct {
 	SeamAngle                  float64
 }
 type PatternSource struct{ FeatureID, SourceKind, StartFeatureID string }
+type ProfileOrigin struct {
+	DerivedID string
+	Sources   []modelcore.SemanticTopologyRef
+}
+type SweepPath struct {
+	SketchID, ChainID                         string
+	Curves                                    []ProfileCurve
+	PlaneOrigin, PlaneNormal, PlaneUDirection [3]float64
+	Closed                                    bool
+	FrameMode, CornerMode                     string
+}
+
+type HolePosition struct {
+	ProfileFeatureID           string
+	Region                     ProfileRegion
+	Origin, Normal, UDirection [3]float64
+}
+
+type LoftBoundary struct {
+	Condition string
+	Direction [3]float64
+	Reversed  bool
+	Magnitude float64
+	Supports  []modelcore.SemanticTopologyRef
+}
 
 type ProfilePad struct {
+	LoftStart, LoftEnd                                  *LoftBoundary
+	HolePositions                                       []HolePosition
+	DrillTipAngle                                       float64
+	DepthConvention                                     string
 	HoleKind                                            string
 	RecessDiameter, RecessDepth, CountersinkAngle       float64
 	BooleanResult                                       *modelcore.BooleanResultSelection
 	AdditionalPatternSources                            []PatternSource
 	TerminationOrigin, TerminationNormal                [3]float64
+	StartOffset, EndOffset                              float64
+	TerminationSurface                                  *modelcore.SemanticTopologyRef
+	ProfileOrigins                                      []ProfileOrigin
+	SweepPath                                           *SweepPath
 	PatternResultMode                                   string
 	PatternSourceFeatureID, PatternSourceKind           string
 	PatternStartFeatureID                               string
@@ -144,7 +177,24 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 		for _, ref := range pad.Selections {
 			value.Selections = append(value.Selections, &workerv1.SemanticTopologyRef{FeatureId: ref.FeatureID, OutputSlot: ref.OutputSlot, SourceIds: ref.SourceIDs})
 		}
+		if p := pad.SweepPath; p != nil {
+			value.SweepPath = &workerv1.SweepPathSpec{SketchId: p.SketchID, ChainId: p.ChainID, Closed: p.Closed, FrameMode: p.FrameMode, CornerMode: p.CornerMode, PlaneOrigin: &workerv1.Vec3{X: p.PlaneOrigin[0], Y: p.PlaneOrigin[1], Z: p.PlaneOrigin[2]}, PlaneNormal: &workerv1.Vec3{X: p.PlaneNormal[0], Y: p.PlaneNormal[1], Z: p.PlaneNormal[2]}, PlaneUDirection: &workerv1.Vec3{X: p.PlaneUDirection[0], Y: p.PlaneUDirection[1], Z: p.PlaneUDirection[2]}}
+			for _, c := range p.Curves {
+				value.SweepPath.Curves = append(value.SweepPath.Curves, profileCurveProto(c))
+			}
+		}
 		value.TerminationOrigin = &workerv1.Vec3{X: pad.TerminationOrigin[0], Y: pad.TerminationOrigin[1], Z: pad.TerminationOrigin[2]}
+		value.StartOffset, value.EndOffset = pad.StartOffset, pad.EndOffset
+		for _, origin := range pad.ProfileOrigins {
+			p := &workerv1.ProfileOrigin{DerivedId: origin.DerivedID}
+			for _, ref := range origin.Sources {
+				p.Sources = append(p.Sources, &workerv1.SemanticTopologyRef{FeatureId: ref.FeatureID, OutputSlot: ref.OutputSlot, SourceIds: ref.SourceIDs})
+			}
+			value.ProfileOrigins = append(value.ProfileOrigins, p)
+		}
+		if ref := pad.TerminationSurface; ref != nil {
+			value.TerminationSurface = &workerv1.SemanticTopologyRef{FeatureId: ref.FeatureID, OutputSlot: ref.OutputSlot, SourceIds: ref.SourceIDs}
+		}
 		value.TerminationNormal = &workerv1.Vec3{X: pad.TerminationNormal[0], Y: pad.TerminationNormal[1], Z: pad.TerminationNormal[2]}
 		value.NeutralOrigin = &workerv1.Vec3{X: pad.NeutralOrigin[0], Y: pad.NeutralOrigin[1], Z: pad.NeutralOrigin[2]}
 		value.NeutralNormal = &workerv1.Vec3{X: pad.NeutralNormal[0], Y: pad.NeutralNormal[1], Z: pad.NeutralNormal[2]}
@@ -166,6 +216,24 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 				item.Holes = append(item.Holes, loopProto(hole))
 			}
 			value.Regions = append(value.Regions, item)
+		}
+		boundaryProto := func(b *LoftBoundary) *workerv1.LoftBoundarySpec {
+			if b == nil {
+				return nil
+			}
+			out := &workerv1.LoftBoundarySpec{Condition: b.Condition, Magnitude: b.Magnitude, Reversed: b.Reversed, Direction: &workerv1.Vec3{X: b.Direction[0], Y: b.Direction[1], Z: b.Direction[2]}}
+			for _, r := range b.Supports {
+				out.Supports = append(out.Supports, &workerv1.SemanticTopologyRef{FeatureId: r.FeatureID, OutputSlot: r.OutputSlot, SourceIds: r.SourceIDs})
+			}
+			return out
+		}
+		value.LoftStart = boundaryProto(pad.LoftStart)
+		value.LoftEnd = boundaryProto(pad.LoftEnd)
+		value.DrillTipAngle = pad.DrillTipAngle
+		value.DepthConvention = pad.DepthConvention
+		for _, p := range pad.HolePositions {
+			region := profilePadsProto([]ProfilePad{{Regions: []ProfileRegion{p.Region}}})[0].Regions[0]
+			value.HolePositions = append(value.HolePositions, &workerv1.HolePositionSpec{ProfileFeatureId: p.ProfileFeatureID, Region: region, Origin: &workerv1.Vec3{X: p.Origin[0], Y: p.Origin[1], Z: p.Origin[2]}, Normal: &workerv1.Vec3{X: p.Normal[0], Y: p.Normal[1], Z: p.Normal[2]}, UDirection: &workerv1.Vec3{X: p.UDirection[0], Y: p.UDirection[1], Z: p.UDirection[2]}})
 		}
 		value.Ruled = pad.Ruled
 		for _, section := range pad.Sections {
@@ -690,7 +758,12 @@ func (client *Client) SolveSketch(ctx context.Context, requestID string, model S
 		}
 		input.DragTargets = append(input.DragTargets, &workerv1.SketchDragTarget{Reference: ref, Point: &workerv1.Vec2{X: target.X, Y: target.Y}})
 	}
+	finishRPC := perf.Start(ctx, "sketch-rpc")
 	response, err := client.worker.SolveSketch(ctx, &workerv1.SolveSketchRequest{RequestId: requestID, Sketch: input})
+	finishRPC()
+	if response != nil {
+		perf.RecordDuration(ctx, "sketch-kernel", time.Duration(response.KernelSolveMs*float64(time.Millisecond)))
+	}
 	if err != nil {
 		return SketchSolve{}, fmt.Errorf("solve sketch: %w", err)
 	}
@@ -925,7 +998,9 @@ func (client *Client) EvaluatePartFromArtifact(
 		request.BaseBrepArtifact = artifactProto(baseBRep)
 	}
 	var header metadata.MD
+	finishRPC := perf.Start(ctx, "part-rpc")
 	response, err := client.worker.EvaluatePart(ctx, request, grpc.Header(&header))
+	finishRPC()
 	if err != nil {
 		return nil, fmt.Errorf("evaluate Part feature chain: %w", err)
 	}
@@ -937,6 +1012,8 @@ func (client *Client) EvaluateProfilePart(ctx context.Context, requestID, geomet
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	var header metadata.MD
+	finishRPC := perf.Start(ctx, "part-memory-rpc")
+	defer finishRPC()
 	response, err := client.worker.EvaluatePart(ctx, &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
 		ProfilePads: profilePadsProto(pads), BaseBrepData: baseBRep, LinearDeflection: 0.1, AngularDeflection: 0.5,
 		TopologyPolicy: topologyNamingPolicyProto(), ImportSeed: firstImportSeed(seeds), ForceCold: PartRuntime(ctx).ForceCold, ExactOnly: PartRuntime(ctx).ExactOnly, RuntimeAffinity: PartRuntime(ctx).Affinity}, grpc.Header(&header))
@@ -965,7 +1042,9 @@ func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, reque
 		request.BaseBrepArtifact = artifactProto(baseBRep)
 	}
 	var header metadata.MD
+	finishRPC := perf.Start(ctx, "part-rpc")
 	response, err := client.worker.EvaluatePart(ctx, request, grpc.Header(&header))
+	finishRPC()
 	if err != nil {
 		return nil, fmt.Errorf("evaluate Part profile feature chain: %w", err)
 	}

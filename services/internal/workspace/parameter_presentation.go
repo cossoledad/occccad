@@ -85,12 +85,32 @@ func parameterPresentation(model PartModel, parameter modelcore.ParameterDefinit
 		group, name = "孔", "沉孔直径"
 	case "recessDepth":
 		group, name = "孔", "沉孔深度"
+	case "loft:startMagnitude":
+		group, name = "放样起端", "影响系数"
+	case "loft:endMagnitude":
+		group, name = "放样末端", "影响系数"
+	case "drillTipAngle":
+		group, name = "孔", "钻尖夹角"
+	case "thread:majorDiameter":
+		group, name = "螺纹标注", "公称直径"
+	case "thread:pitch":
+		group, name = "螺纹标注", "螺距"
+	case "thread:depth":
+		group, name = "螺纹标注", "标注深度"
 	case "countersinkAngle":
 		group, name = "孔", "锥面夹角"
 	case "diameter":
 		group, name = "孔", "直径"
 	case "depth":
 		group, name = "孔", "深度"
+	case "thin:thickness":
+		group, name = "薄壁", "厚度"
+	case "thin:thickness2":
+		group, name = "薄壁", "第二侧厚度"
+	case "startOffset":
+		group, name = "起始限制", "偏移"
+	case "endOffset":
+		group, name = "终止限制", "偏移"
 	case "length":
 		group, name = "第一限制", "长度"
 	default:

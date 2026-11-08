@@ -28,8 +28,18 @@ func featureInputs(f Feature) []featureInput {
 		}
 	}
 	add("PROFILE", f.Profile, "", f.ProfileMemberSlot)
-	if f.HolePoint != nil {
-		add("POSITION", f.HolePoint.SketchID, f.HolePoint.Reference.EntityID, nil)
+	if f.Sweep != nil {
+		for _, id := range f.Sweep.Path.EntityIDs {
+			add("SWEEP_PATH", f.Sweep.Path.SketchID, id, nil)
+		}
+	}
+	if f.ThinWall != nil {
+		for _, id := range f.ThinWall.EntityIDs {
+			add("THIN_CHAIN", f.Profile, id, f.ProfileMemberSlot)
+		}
+	}
+	for _, p := range holePositions(f) {
+		add("POSITION", p.SketchID, p.Reference.EntityID, nil)
 	}
 	if f.TerminationPlaneID != "" {
 		out = append(out, featureInput{Role: "TERMINATION_PLANE", EntityKind: "PLANE", FeatureID: f.TerminationPlaneID})
@@ -37,6 +47,24 @@ func featureInputs(f Feature) []featureInput {
 	if p := f.TerminationPlane; p != nil {
 		add("TERMINATION_PLANE", p.Selection.Anchor.FeatureID, "", nil)
 		add("STAGE", p.SourceFeatureID, "", nil)
+	}
+	if p := f.TerminationSurface; p != nil {
+		add("TERMINATION_SURFACE", p.Selection.Anchor.FeatureID, "", nil)
+		add("STAGE", p.SourceFeatureID, "", nil)
+	}
+	for i, b := range []*LoftBoundaryDefinition{f.LoftStart, f.LoftEnd} {
+		if b == nil {
+			continue
+		}
+		role := "LOFT_START_SUPPORT"
+		if i == 1 {
+			role = "LOFT_END_SUPPORT"
+		}
+		for _, p := range b.Supports {
+			add(role, p.Selection.Anchor.FeatureID, "", nil)
+			add("STAGE", p.SourceFeatureID, "", nil)
+		}
+		axis(b.DirectionEntityID)
 	}
 	for order, s := range f.Sections {
 		start := len(out)

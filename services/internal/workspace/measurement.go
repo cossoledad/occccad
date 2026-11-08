@@ -18,7 +18,7 @@ import (
 
 const typeSetMeasurements = "occccad://document/measurements/set"
 const measurementPolicy = "exact-boundary-owner-frame-v1"
-const measurementEvaluatorVersion = "measurement-v3-facets"
+const measurementEvaluatorVersion = "measurement-v5-spline-integrals"
 const measurementSlot = "document.measurements"
 
 // Display picks may carry locators. Saved definitions contain only typed stable

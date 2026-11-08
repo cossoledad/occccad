@@ -19,7 +19,7 @@ export function normalizeSketchCaptureOperations(operations:SketchOperation[],ex
  return operations.flatMap(op=>{
   if(op.type==='ADD_RECTANGLE'||op.type==='CREATE_POLYGON'){
    const a=op.firstReference as CapturedSketchReference|undefined,b=op.type==='ADD_RECTANGLE'?op.secondReference as CapturedSketchReference|undefined:undefined;
-   return [{...op,...(a?{firstReference:cleanCaptureReference(a),firstCapture:a.capture}:{}),...(b?{secondReference:cleanCaptureReference(b),secondCapture:b.capture}:{})}];
+   return [{...op,...(a?{firstReference:cleanCaptureReference(a),firstCapture:a.capture??op.firstCapture}:{}),...(b?{secondReference:cleanCaptureReference(b),secondCapture:b.capture??(op.type==='ADD_RECTANGLE'?op.secondCapture:undefined)}:{})}];
   }
   if(op.type!=='ADD_CONSTRAINT'||op.constraint.kind!=='COINCIDENT')return [op];
   const target=op.constraint.references[1] as CapturedSketchReference|undefined,capture=target?.capture;if(!capture)return [op];

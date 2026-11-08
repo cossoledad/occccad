@@ -8,6 +8,9 @@ import (
 // Distance measures supporting lines, not nearest points on finite segments.
 // Its nonnegative magnitude deliberately carries no camera-dependent sign.
 func validSketchDimensionValue(kind string, value float64) bool {
+	if kind == "ANGLE" {
+		return finite(value) && value >= 0 && value <= 360
+	}
 	return finite(value) && (kind == "HORIZONTAL_DISTANCE" || kind == "VERTICAL_DISTANCE" || value > 0 || (kind == "DISTANCE" && value == 0))
 }
 

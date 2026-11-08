@@ -31,6 +31,9 @@ func replaceSketchConstraint(sketch *SketchFeature, operation SketchOperation) e
 		replacement.ParameterID = prior.ParameterID
 		replacement.Internal = prior.Internal
 		replacement.SelfMirrorMode = prior.SelfMirrorMode
+		if oldDimension && prior.Internal && (replacement.Kind != prior.Kind || !reflect.DeepEqual(replacement.References, prior.References)) {
+			return fmt.Errorf("%w: generated dimension references belong to their source operation", ErrValidation)
+		}
 		if !oldDimension {
 			if (replacement.Kind == "MIRROR" || replacement.Kind == "SAME_SUPPORT") && replacement.Kind != prior.Kind {
 				return fmt.Errorf("%w: generated relation must be created by its formal geometry operation", ErrValidation)

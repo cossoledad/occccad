@@ -97,7 +97,9 @@ try{
  assert.equal(await registry.execute('assembly.coincident'),false,'host Product does not authorize assembly on an edited Part');
  facts={...facts,sketchActive:true};store.sketchPlane={};
  assert.equal(contextTabs(catalog,facts)[0].workbench,'SKETCHER');
- assert.equal(await registry.execute('part.pad'),false);
+ assert.equal(await registry.execute('part.pad'),false,'solid generation is unavailable while drawing');assert.equal(pads,1);
+ for(const id of ['part.pad','part.pocket','part.revolve','part.sweep','part.loft','part.hole','part.fillet','part.chamfer','part.shell','part.draft','part.boolean'])assert.equal(registry.state(id).visible,false,`${id} must not appear in Sketcher search`);
+ facts.busy=true;assert.equal(await registry.execute('part.pad'),false,'pending or unknown sketch receipt gates handoff');facts.busy=false;
  assert.equal(await registry.execute('sketch.constraint.coincident'),true);assert.equal(active,'sketch.constraint.coincident');
  facts={...facts,targetType:'PRODUCT',sketchActive:false};bindings.editingView=host;
  assert.equal(contextTabs(catalog,facts)[0].workbench,'ASSEMBLY_DESIGN');

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -92,6 +93,14 @@ func TestSketchSupportReassignmentThroughRouter(t *testing.T) {
 		t.Fatal("unrelated body blocked")
 	}
 	failedHead := view.Document.VersionID
+	comparison, comparisonErr := service.GetFeatureRepairContext(t.Context(), view.Document.ID, workspace.FeatureRepairRequest{PartDependencyRequest: workspace.PartDependencyRequest{VersionID: failedHead}, FeatureID: sketchID, ActorID: p6Actor})
+	if comparisonErr != nil || comparison.Snapshot == nil || comparison.Snapshot.SketchFrame == nil || comparison.Snapshot.Feature.Sketch.Support.Status == "FAILED_SUPPORT" || !reflect.DeepEqual(comparison.Snapshot.Feature.Sketch.Entities, original.Sketch.Entities) {
+		t.Fatal("healthy support/sketch comparison", comparisonErr, comparison)
+	}
+	if !slices.ContainsFunc(comparison.Downstream, func(n workspace.PartDependencyNode) bool { return n.EntityID == child.ID }) {
+		t.Fatal("repair impact omitted consumer")
+	}
+	service.DiscardPreview(view.Document.ID, p6Actor, comparison.DisplayID)
 	if !reflect.DeepEqual(saved(sketchID).Sketch.Entities, original.Sketch.Entities) || saved(sketchID).Sketch.ExternalGeometry[0].Snapshot != nil {
 		t.Fatal("failed support changed design or retained old projection")
 	}
