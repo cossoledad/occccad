@@ -86,8 +86,8 @@ public:
     const TopologyInfo& getTopology(const GeometryId& id) override;
     double getVolume(const GeometryId& id) override;
 
-    TessellationResult tessellate(const GeometryId& id, double linear_deflection = 0.1,
-                                  double angular_deflection = 0.5, bool parallel = true) override;
+    TessellationResult tessellate(const GeometryId& id, double linear_deflection = visual_linear_deflection_mm,
+                                  double angular_deflection = visual_angular_deflection_radians, bool parallel = true) override;
 
     GeometryId chamfer(const GeometryId& id, const std::vector<uint64_t>& edge_local_ids,
                        double distance) override;

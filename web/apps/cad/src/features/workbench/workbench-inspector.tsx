@@ -7,7 +7,7 @@ import {formatDisplayNumber as number} from '../../utils/display-number';
 import {Button,Descriptions,List,Space,Spin,Tag,Typography} from 'antd';
 import type {DocumentProperties,DocumentView,Feature,HistoryEntry,Selection,SketchPlane,TopologyElementProperties} from '../../types';
 import {parameterDisplayValue,parameterSourceText} from './parameter-editor';
-import {engineeringLabel,featureName,historyAction,objectName,selectionName} from '../../cad/presentation/engineering-text';
+import {engineeringLabel,geometryFeatureNames,topologyGeometryLabel,featureName,historyAction,objectName,selectionName} from '../../cad/presentation/engineering-text';
 import {engineeringInstanceName,engineeringConstraintName} from '../../cad/assembly/assembly-engineering-state';
 import {describeAssemblyReference} from '../../cad/assembly/assembly-reference-presentation';
 import {engineeringProblem} from '../../cad/command/operation-feedback';
@@ -35,7 +35,7 @@ export function Properties(p:PropertiesProps){
   if(p.readErrors?.topology)return <Typography.Text type="secondary">无法读取该几何的属性，请重新选择或重试。</Typography.Text>;
   if(p.topologyLoading||!topology)return <Spin size="small" tip="正在读取几何属性…"/>;
   if(topology.element)add('element','元素',[s.instancePath?.display||view.document.name,topology.element.path].filter(Boolean).join(' / '));
-  add('type','类型',engineeringLabel(topology.kind,'几何元素'));add('geometry','几何形状',engineeringLabel(topology.geometryType,'曲面或曲线'));add('owner','所属对象',objectName(view,s.bodyId,'实体'));if(s.instancePath?.display)add('path','所属位置',s.instancePath.display);if(topology.persistentSelection)add('feature','生成步骤',definition&&s.associatedFeatureIds?.length?s.associatedFeatureIds.map(id=>objectName(view,id,'生成步骤暂不可用')).join('、'):'生成步骤暂不可用');
+  add('type','类型',engineeringLabel(topology.kind,'几何元素'));add('geometry','几何形状',topologyGeometryLabel(topology.kind,topology.geometryType));add('owner','所属对象',objectName(view,s.result?.featureId??s.bodyId,s.result?'几何结果':'实体'));if(s.instancePath?.display)add('path','所属位置',s.instancePath.display);if(topology.persistentSelection)add('feature','生成步骤',definition&&s.associatedFeatureIds?.length?s.associatedFeatureIds.map(id=>objectName(view,id,'生成步骤暂不可用')).join('、'):'生成步骤暂不可用');
   if(topology.point)add('point','位置 (mm)',topology.point.map(v=>number(v)).join(', '));
   const props:Record<string,string>={area:'面积 (mm²)',length:'长度 (mm)',radius:'半径 (mm)',diameter:'直径 (mm)',volume:'体积 (mm³)',center:'中心 (mm)',centroid:'形心 (mm)',normal:'法向',direction:'方向',axis:'轴线方向',axisOrigin:'轴线上一点 (mm)',axisPoint:'轴线上一点 (mm)',origin:'原点 (mm)',closed:'闭合',periodic:'周期曲线',majorRadius:'主半径 (mm)',minorRadius:'次半径 (mm)',referenceRadius:'参考半径 (mm)',semiAngle:'半锥角 (°)',apex:'顶点 (mm)',axisDirection:'轴线方向',xDirection:'X 方向',yDirection:'Y 方向'};
   for(const [key,value] of Object.entries(topology.properties??{}))if(props[key])add(key,props[key],Array.isArray(value)?value.map(v=>typeof v==='number'?number(v):'—').join(', '):typeof value==='number'?number(key==='semiAngle'?value*180/Math.PI:value):typeof value==='boolean'?value?'是':'否':'—');
@@ -62,7 +62,8 @@ export function Properties(p:PropertiesProps){
   const c=view.part?.features.find(f=>f.id===s.featureId)?.sketch?.constraints.find(c=>c.id===s.constraintId);add('type','约束',engineeringLabel(c?.kind??s.constraintType,'草图约束'));add('sketch','所属草图',featureName(view,s.featureId,'草图'));if(c&&'value'in c&&typeof c.value==='number')add('value','数值',`${number(c.value)} ${c.unit==='deg'?'°':c.unit??'mm'}`);
  }else{
   const refs=referencePropertyRows(view,s,p.diagnostics);if(refs)return <Descriptions column={1} size="small" bordered items={refs}/>;
-  add('name','名称',feature?.name??selectionName(view,s));add('type','类型',engineeringLabel(feature?.type??s.kind.toUpperCase(),'几何对象'));
+  add('name','名称',feature?.name??selectionName(view,s));add('type','类型',feature?.geometry?geometryFeatureNames[feature.geometry.kind]:engineeringLabel(feature?.type??s.kind.toUpperCase(),'几何对象'));
+  if(feature?.result)add('resultDomain','结果类型',engineeringLabel(feature.result.domain,'几何结果'));
   if(feature?.evaluationStatus)add('state','状态',engineeringLabel(feature.evaluationStatus));
   if(feature?.sketch){const sketch=feature.sketch;const profile=sketchProfileFeedback(view.sketchAnalyses?.[feature.id]);add('profile','轮廓',<Space orientation="vertical" size={2}><span>{profile.summary}</span>{profile.issues.map((issue,i)=><Typography.Text key={i} type="warning">{profileIssueText(issue.code)}{issue.position?`（${number(issue.position.x)}, ${number(issue.position.y)} mm）`:''}</Typography.Text>)}</Space>);add('entities','草图元素',sketch.entities.length);add('constraints','约束',sketch.constraints.length);add('solve','求解',`${engineeringLabel(sketch.solve.status,'待求解')} · ${sketch.solve.degreesOfFreedom} 个自由度`);add('support','草图支撑',engineeringLabel(sketch.support.status,'可用'));}
   if(feature&&!feature.sketch){

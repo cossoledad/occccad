@@ -7,6 +7,7 @@ try {
  const {SelectionIndex}=await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
  const {DEFAULT_SOLID_DISPLAY}=await server.ssrLoadModule("/src/cad/rendering/display-settings.ts");
  const {featureContribution}=await server.ssrLoadModule("/src/cad/interaction/feature-association.ts");
+ const {structureSelection}=await server.ssrLoadModule("/src/features/workbench/structure-selection.ts");
  const {treeKeysForSelections,ancestorHintKeysForSelections}=await server.ssrLoadModule("/src/features/workbench/tree-projection-index.ts");
  const {patternSourceCandidates}=await server.ssrLoadModule("/src/features/workbench/feature-picking.ts");
  const {featureSelectionHit}=await server.ssrLoadModule("/src/cad/interaction/feature-selection.ts");
@@ -46,5 +47,26 @@ try {
  assert.deepEqual(patternSourceCandidates(hit,stages,"BODY_STAGE",capabilities).map(f=>f.id),["fillet"]);
  const session={role:"face",documentId:"part",versionId:"v",bodyId:"b",occurrencePath:"a",geometryKey:"input"};assert.equal(featureSelectionHit(hit,session),null,"history editor cannot pick downstream geometry");
  const historical=engine();historical.makeSolid({...artifact,historicalPreview:true},0xffffff,context).updateMatrixWorld(true);assert.equal(historical.selectionIndex.pick(new THREE.Raycaster(new THREE.Vector3(.2,.2,1),new THREE.Vector3(0,0,-1))),null,"historical preview is display only");
+ const independent=engine(),result={featureId:'surface',resultId:'result'};
+ independent.materials.engineeringSurface=()=>new THREE.MeshBasicMaterial({side:THREE.DoubleSide});
+ const resultContext={documentId:'part',versionId:'v',geometryKey:'surface-key',occurrencePath:'',displayStageFeatureId:'surface',result};
+ const resultArtifact={...artifact,geometryKey:'surface-key',geometryDomain:'SHEET_SET',visualization:undefined};
+ const resultGroup=independent.makeSolid(resultArtifact,0xffffff,resultContext);
+ const definition={document:{id:'part',versionId:'v'},part:{features:[{id:'surface',type:'GEOMETRY',result:{id:'result',domain:'SHEET_SET',geometryKey:'surface-key'}}]}};
+ const node={kind:'FEATURE',id:'tree-surface',entityId:'surface',entityType:'GEOMETRY',documentId:'part',versionId:'v'};
+ const resultSelection=structureSelection(node,definition);
+ assert.deepEqual(resultSelection.result,result);assert.equal(resultSelection.geometryKey,'surface-key');assert.equal(resultSelection.displayStageFeatureId,'surface');
+ for(const layer of ['selected','preselected']){
+  independent.addTopologyOverlay(layer,resultSelection);
+  const overlays=layer==='selected'?independent.selectedOverlays:independent.preselectedOverlays;
+  assert.equal(overlays.length,2,'tree results highlight their faces and edges without Body contribution metadata');
+  assert(overlays.every(o=>o.parent===resultGroup));
+  assert.equal(overlays[0].geometry.getAttribute('instanceStart').count,6,'all faces in the owned result are highlighted');
+ }
+ const retained=independent.selectedOverlays.length;
+ for(const patch of [{versionId:'old'},{documentId:'other',ownerDocumentId:'other'},{result:{...result,resultId:'other'}},{entityId:'other'},{geometryKey:'other-key'}])independent.addTopologyOverlay('selected',{...resultSelection,...patch});
+ assert.equal(independent.selectedOverlays.length,retained,'result hover never crosses its owner, Revision, output or geometry snapshot');
+ resultGroup.visible=false;independent.addTopologyOverlay('selected',resultSelection);assert.equal(independent.selectedOverlays.length,retained,'hidden results have no overlay');
+ for(const patch of [{versionId:'old'},{documentId:'other'}])assert.equal(structureSelection({...node,...patch},definition).result,undefined,'stale or foreign tree nodes cannot borrow current Part results');
  console.log("Feature contribution overlays, topology primary selection, member and occurrence isolation, explicit pattern roles and history picking passed");
 }finally{await server.close();}

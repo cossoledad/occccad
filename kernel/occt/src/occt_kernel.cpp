@@ -71,7 +71,7 @@
 #include <IFSelect_ReturnStatus.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Poly_PolygonOnTriangulation.hxx>
-#include <GCPnts_TangentialDeflection.hxx>
+#include <Poly_Polygon3D.hxx>
 #include <occccad/kernel/mesh_glb.hpp>
 #include <Precision.hxx>
 #include <STEPControl_Reader.hxx>
@@ -5428,15 +5428,21 @@ TessellationResult OcctKernel::tessellate(const GeometryId& geometry_id, const d
                 const auto edge = TopoDS::Edge(edge_map(id));
                 const auto& uses = boundaries[id-1];
                 if (uses.empty()) {
-                    // Only truly unattached curves have an independent discretization.
+                    // Free curves use the very same mesher and deflection policy as
+                    // face boundaries. A second sampler produces visibly different
+                    // chords when a source curve overlaps its extruded surface.
                     if (BRep_Tool::Degenerated(edge)) continue;
                     BRepAdaptor_Curve curve(edge);
                     if (!std::isfinite(curve.FirstParameter()) || !std::isfinite(curve.LastParameter()))
                         throw std::runtime_error("VISUAL_UNBOUNDED_CURVE");
-                    GCPnts_TangentialDeflection sample(curve, angular_deflection, linear_deflection);
+                    TopLoc_Location location;
+                    const auto meshed = TopoDS::Edge(copy.ModifiedShape(edge));
+                    const auto polygon = BRep_Tool::Polygon3D(meshed, location);
+                    if (polygon.IsNull() || polygon->NbNodes() < 2)
+                        throw std::runtime_error("VISUAL_MISSING_CURVE:" + std::to_string(id));
                     EdgePolyline line{static_cast<uint64_t>(id), {}};
-                    for (int i = 1; i <= sample.NbPoints(); ++i) line.points.push_back(to_vec3(sample.Value(i)));
-                    if (line.points.size()<2) throw std::runtime_error("VISUAL_EMPTY_CURVE");
+                    for (int i = 1; i <= polygon->NbNodes(); ++i)
+                        line.points.push_back(to_vec3(polygon->Nodes()(i).Transformed(location.Transformation())));
                     result.edges.push_back(std::move(line));
                     continue;
                 }

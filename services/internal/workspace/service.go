@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v71-engineering-surfaces"
+const evaluatorVersion = "part-solid-generators-v72-unified-visual-meshing"
 
 var (
 	ErrNotFound   = errors.New("document not found")

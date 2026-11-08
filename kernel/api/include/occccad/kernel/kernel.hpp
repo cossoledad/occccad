@@ -16,6 +16,10 @@
 
 namespace occccad::kernel {
 
+// Display approximation only; exact geometry and modeling tolerances are unchanged.
+inline constexpr double visual_linear_deflection_mm = 0.02;
+inline constexpr double visual_angular_deflection_radians = 0.12;
+
 struct GeometryFeatureSpec;
 struct GeometryFeatureInput;
 
@@ -417,8 +421,8 @@ public:
     virtual double getVolume(const GeometryId& id) = 0;
 
     // Tessellation
-    virtual TessellationResult tessellate(const GeometryId& id, double linear_deflection = 0.1,
-                                          double angular_deflection = 0.5, bool parallel = true) = 0;
+    virtual TessellationResult tessellate(const GeometryId& id, double linear_deflection = visual_linear_deflection_mm,
+                                          double angular_deflection = visual_angular_deflection_radians, bool parallel = true) = 0;
 
     // Feature operations (return new GeometryId)
     virtual GeometryId chamfer(const GeometryId& id, const std::vector<uint64_t>& edge_local_ids,

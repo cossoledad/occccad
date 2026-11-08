@@ -2,7 +2,8 @@ import type {Feature,GeometricFeatureDefinition,GeometryKind,GeometricInput,Geom
 import {randomUUID} from '../../utils/random-uuid';
 import {referenceInputName} from './reference-element-model';
 import {CommandInputError} from '../../cad/command/operation-failure';
-export const geometryNames:Record<GeometryKind,string>={IMPORTED:"导入几何",LINE:'直线',CIRCLE:'圆',ARC:'圆弧',SPLINE:'样条',POINT_ON_CURVE:'曲线上点',EXTRACT:'提取',BOUNDARY:'边界',COMPOSITE:'复合曲线',SURFACE_EXTRUDE:'拉伸曲面',THICKEN:'加厚',TRANSLATE:'平移',ROTATE:'旋转',MIRROR:'镜像',SPLIT:'分割',TRIM:'裁剪',EXTEND:'延伸',G1_CONNECT:'连接曲线',OFFSET:'偏移曲线',PROJECT:'投影',INTERSECTION:'交线',SURFACE_SWEEP:'曲面扫掠',SURFACE_LOFT:'曲面放样',SURFACE_FILL:'填充曲面',SURFACE_TRIM:'裁剪曲面',SURFACE_EXTEND:'延长曲面',SURFACE_JOIN:'连接曲面',SURFACE_SEW:'缝合曲面',SURFACE_OFFSET:'偏移曲面',CLOSE_SURFACE:'封闭曲面'};
+import {geometryFeatureNames} from '../../cad/presentation/engineering-text';
+export const geometryNames=geometryFeatureNames;
 export const geometryCommands=(Object.keys(geometryNames) as GeometryKind[]).filter(kind=>kind!=="IMPORTED").map(kind=>({kind,id:`geometry.${kind.toLowerCase().replaceAll('_','-')}`}));
 export const geometryBodyKind=(kind:GeometryKind)=>kind==='THICKEN'||kind==='CLOSE_SURFACE';
 export const geometryMultipleKind=(kind:GeometryKind)=>['COMPOSITE','SURFACE_LOFT','SURFACE_FILL','SURFACE_JOIN','SURFACE_SEW'].includes(kind);

@@ -3,7 +3,7 @@ import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url),{createServer}=await import(require.resolve('vite'));
 const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
 try{
- const {engineeringLabel,objectName}=await server.ssrLoadModule('/src/cad/presentation/engineering-text.ts');
+ const {engineeringLabel,objectName,topologyGeometryLabel}=await server.ssrLoadModule('/src/cad/presentation/engineering-text.ts');
  const {describeAssemblyReference}=await server.ssrLoadModule('/src/cad/assembly/assembly-reference-presentation.ts');
  const {normalizeOperationFailure}=await server.ssrLoadModule('/src/cad/command/operation-failure.ts');
  const {motionPresentations}=await server.ssrLoadModule('/src/cad/assembly/motion-presentation.ts');
@@ -13,6 +13,10 @@ try{
  const subset={...view,product:{...view.product,instances:view.product.instances.slice(1)}};
  const rows=motionPresentations(subset,undefined,'',view);assert.match(rows[0].name,/第 2 个实例/);assert.match(rows[1].name,/第 3 个实例/);
  assert.equal(engineeringLabel('UNRECOGNIZED_ENUM'),'待检查');
+ for(const [type,label] of [['EXTRUSION_SURFACE','拉伸曲面'],['REVOLUTION_SURFACE','旋转曲面'],['OFFSET_SURFACE','偏移曲面'],['OFFSET_CURVE','偏移曲线'],['OTHER_SURFACE','其他曲面'],['OTHER_CURVE','其他曲线']])assert.equal(engineeringLabel(type),label);
+ assert.equal(topologyGeometryLabel('EDGE','BSPLINE'),'样条曲线');assert.equal(topologyGeometryLabel('FACE','BSPLINE'),'样条曲面');
+ assert.equal(topologyGeometryLabel('EDGE','BEZIER'),'贝塞尔曲线');assert.equal(topologyGeometryLabel('FACE','BEZIER'),'贝塞尔曲面');
+ assert.equal(topologyGeometryLabel('FACE','NEW_UNKNOWN_FAMILY'),'曲面类型未识别');assert.equal(topologyGeometryLabel('EDGE','NEW_UNKNOWN_FAMILY'),'曲线类型未识别');
  const reference=describeAssemblyReference({instanceId:'missing',kind:'FACE',geometryId:'secret-geometry-id',persistentSelection:{anchor:{featureId:'feature-uuid',outputSlot:'secret-semantic'}}},view);
  assert.match(reference.primary,/丢失/);assert.doesNotMatch(reference.secondary,/secret|uuid/);
  const error={code:'VALIDATION_FAILED',message:'PROFILE_REGION_MISSING / uuid / rpc snapshot'};const display=normalizeOperationFailure(error);assert.match(display.message,/原轮廓区域.*重新选择/);assert.equal(display.details,error.message);

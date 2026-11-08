@@ -1,9 +1,11 @@
 import {elementPresentation} from './element-presentation';
-import type {DocumentView,SelectionItem} from '../../types';
+import type {DocumentView,SelectionItem,GeometryKind} from '../../types';
 import {engineeringInstanceName} from '../assembly/assembly-engineering-state';
 
 // Presentation vocabulary only. Never use these strings as identity or input.
+export const geometryFeatureNames:Record<GeometryKind,string>={IMPORTED:'导入几何',LINE:'直线',CIRCLE:'圆',ARC:'圆弧',SPLINE:'样条',POINT_ON_CURVE:'曲线上点',EXTRACT:'提取',BOUNDARY:'边界',COMPOSITE:'复合曲线',SURFACE_EXTRUDE:'拉伸曲面',THICKEN:'加厚',TRANSLATE:'平移',ROTATE:'旋转',MIRROR:'镜像',SPLIT:'分割',TRIM:'裁剪',EXTEND:'延伸',G1_CONNECT:'连接曲线',OFFSET:'偏移曲线',PROJECT:'投影',INTERSECTION:'交线',SURFACE_SWEEP:'曲面扫掠',SURFACE_LOFT:'曲面放样',SURFACE_FILL:'填充曲面',SURFACE_TRIM:'裁剪曲面',SURFACE_EXTEND:'延长曲面',SURFACE_JOIN:'连接曲面',SURFACE_SEW:'缝合曲面',SURFACE_OFFSET:'偏移曲面',CLOSE_SURFACE:'封闭曲面'};
 const labels:Record<string,string>={
+ EXTRUSION_SURFACE:'拉伸曲面',REVOLUTION_SURFACE:'旋转曲面',OFFSET_SURFACE:'偏移曲面',OFFSET_CURVE:'偏移曲线',OTHER_SURFACE:'其他曲面',OTHER_CURVE:'其他曲线',GEOMETRY:'几何特征',POINT_SET:'点集',WIRE_SET:'曲线集',SHEET_SET:'曲面集',MIXED_SET:'混合几何',SOLID_SET:'实体集',
  READY:'可用',OK:'已满足',CURRENT:'已是最新',UPDATE_AVAILABLE:'有可用更新',UPDATE_BLOCKED:'更新受阻',SURFACE:'曲面',CURVE:'曲线',PARAMETER:'参数',PARAMETER_SET:'参数集',EXTERNAL:'外接触',INTERNAL:'内接触',PART:'零件',PRODUCT:'装配',BODY:'实体',FACE:'面',EDGE:'边',VERTEX:'顶点',POINT:'点',LINE:'直线',CIRCLE:'圆',ARC:'圆弧',ELLIPSE:'椭圆',ELLIPTICAL_ARC:'椭圆弧',SPLINE:'样条',POLYLINE:'折线',PLANE:'平面',AXIS:'轴线',FRAME:'坐标系',CYLINDER:'圆柱面',CONE:'圆锥面',SPHERE:'球面',TORUS:'圆环面',BSPLINE:'样条曲面',BSPLINE_SURFACE:'样条曲面',BSPLINE_CURVE:'样条曲线',BEZIER:'贝塞尔曲面',BEZIER_SURFACE:'贝塞尔曲面',BEZIER_CURVE:'贝塞尔曲线',HYPERBOLA:'双曲线',PARABOLA:'抛物线',SURFACE_OF_EXTRUSION:'拉伸曲面',SURFACE_OF_REVOLUTION:'旋转曲面',CUSTOM:'自定义',DATUM:'基准',
  SKETCH:'草图',PAD:'拉伸',LINEAR_EXTRUDE:'拉伸',REVOLVE:'旋转',LOFT:'放样',HOLE:'孔',SIMPLE:'普通孔',COUNTERBORE:'圆柱沉孔',COUNTERSINK:'锥沉孔',FILLET:'圆角',CHAMFER:'倒角',SHELL:'抽壳',DRAFT:'拔模',BOOLEAN:'布尔运算',PATTERN:'阵列',MIRROR:'镜像',SKETCH_PATTERN:'草图阵列',SOLID_PATTERN:'实体阵列',IMPORT_BODY:'导入实体',IMPORT:'导入实体',
  GROUND:'固定零件',REVOLUTE:'旋转接合',PRISMATIC:'棱形接合',CYLINDRICAL:'圆柱接合',PLANAR:'平面接合',RIGID:'刚性接合',SPHERICAL:'球面接合',FIX:'固定',FIX_TOGETHER:'固联组',COINCIDENT:'重合',CONCENTRIC:'同轴',DISTANCE:'偏移',ANGLE:'角度',CONTACT:'接触',PARALLEL:'平行',PERPENDICULAR:'垂直',TANGENT:'相切',HORIZONTAL:'水平',VERTICAL:'竖直',EQUAL:'相等',MIDPOINT:'中点',SYMMETRY:'对称',MIRROR_RELATION:'镜像关系',
@@ -12,6 +14,10 @@ const labels:Record<string,string>={
  SUCCESS:'已完成',SUCCEEDED:'已完成',PENDING:'等待处理',QUEUED:'等待处理',RUNNING:'正在计算',CANCELLED:'已取消',CANCELED:'已取消',CONFLICT:'需要处理冲突',REUSE:'沿用已有关系',OWNER:'所有者',EDITOR:'可编辑',VIEWER:'只读',DRAFT_STATE:'草稿',RELEASED:'已发布',ARCHIVED:'已停用',
 };
 export function engineeringLabel(value:string|undefined,fallback='待检查'):string{return value?labels[value]??fallback:fallback;}
+export function topologyGeometryLabel(kind:string,type:string|undefined):string{
+ if(type==='BSPLINE'||type==='BEZIER')return engineeringLabel(`${type}_${kind==='FACE'?'SURFACE':'CURVE'}`);
+ return engineeringLabel(type,kind==='FACE'?'曲面类型未识别':kind==='EDGE'?'曲线类型未识别':'点');
+}
 export function featureName(view:DocumentView,id?:string,fallback='引用特征已丢失'):string{
  const f=view.part?.features.find(f=>f.id===id);return f?.name|| (f?engineeringLabel(f.type,'特征'):fallback);
 }

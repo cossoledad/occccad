@@ -2428,14 +2428,14 @@ private:
         const auto& topology=kernel_.getTopology(geometry_id);
         topology_cached_.insert(geometry_id);
         const double linear_deflection =
-            requested_linear_deflection > 0.0 ? requested_linear_deflection : 0.1;
+            requested_linear_deflection > 0.0 ? requested_linear_deflection : occccad::kernel::visual_linear_deflection_mm;
         const double angular_deflection =
-            requested_angular_deflection > 0.0 ? requested_angular_deflection : 0.5;
+            requested_angular_deflection > 0.0 ? requested_angular_deflection : occccad::kernel::visual_angular_deflection_radians;
         // Geometry identity freezes local topology order. Naming is deliberately
         // kept outside this cache and bound to these IDs by the response manifest.
         std::ostringstream policy;
         policy.precision(std::numeric_limits<double>::max_digits10);
-        policy << geometry_id << ":visual-boundary-v1:" << linear_deflection << ':' << angular_deflection;
+        policy << geometry_id << ":visual-boundary-v2:" << linear_deflection << ':' << angular_deflection;
         const auto key = policy.str();
         auto found = visual_cache_.find(key);
         const bool visual_hit = !force_cold && found != visual_cache_.end();

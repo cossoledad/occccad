@@ -136,7 +136,7 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 		m := instance.mesh.mesh
 		edgeColor, edgeWidth, edgeOpacity := thumbnailEdgeStyle(instance.appearance)
 		if instance.domain == "WIRE_SET" {
-			edgeColor = color.RGBA{255, 209, 132, 255}
+			edgeColor = color.RGBA{169, 155, 255, 255}
 			edgeWidth = 1.8
 			edgeOpacity = 1
 		}

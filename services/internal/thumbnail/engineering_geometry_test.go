@@ -35,20 +35,20 @@ func TestEngineeringThumbnailIncludesWiresPointsAndInheritedVisibility(t *testin
 		t.Fatal(err)
 	}
 	image := decode(t, png)
-	white, warm := 0, 0
+	white, curve := 0, 0
 	for y := 0; y < Height; y++ {
 		for x := 0; x < Width; x++ {
 			r, g, b, _ := image.At(x, y).RGBA()
 			if r > 55000 && g > 55000 && b > 55000 {
 				white++
 			}
-			if r > g+4000 && g > b+4000 {
-				warm++
+			if b > r+6000 && r > g+1500 {
+				curve++
 			}
 		}
 	}
-	if white < 2 || warm < 20 {
-		t.Fatalf("point cross or engineering curve missing: white=%d warm=%d", white, warm)
+	if white < 2 || curve < 20 {
+		t.Fatalf("point cross or engineering curve missing: white=%d curve=%d", white, curve)
 	}
 	view.Part.GeometricalSets[0].Visible = &hidden
 	scene, err = collectScene(context.Background(), view)

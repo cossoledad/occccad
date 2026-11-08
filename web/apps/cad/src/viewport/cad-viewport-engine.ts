@@ -3743,7 +3743,19 @@ export class CadViewportEngine {
     }
     if(["pad","feature","import"].includes(selection.kind)) {
       const binding=[...this.solidBindings.values()].find(b=>sameDisplayContext(selection,b.context));
-      if(!binding)return;
+      if(!binding||!this.objectVisible(binding.group))return;
+      if(binding.context.result){
+        if(binding.context.result.featureId!==(selection.entityId??selection.id))return;
+        // Independent results own their whole display snapshot. Material Body
+        // features below still require their exact current contribution mapping.
+        for(const kind of ['face','edge','vertex'] as const){
+          if(kind==='vertex'&&binding.artifact.geometryDomain!=='POINT_SET')continue;
+          const locators=new Set<number>(kind==='face'?binding.artifact.mesh.faceIds:kind==='edge'?(binding.artifact.mesh.edges??[]).map(e=>e.localId):(binding.artifact.mesh.topologyVertices??[]).map(v=>v.localId));
+          locators.delete(0);
+          if(locators.size)this.addTopologyOverlay(layer,{...binding.context,kind,id:selection.id,topologyId:[...locators][0]},locators);
+        }
+        return;
+      }
       const contribution=featureContribution(binding.artifact.visualization?.featureAssociations,selection.entityId??selection.id);
       for(const kind of ["face","edge"] as const) {
         const locators=new Set(contribution.elements.filter(e=>e.kind===kind.toUpperCase()).map(e=>e.localId));
@@ -3800,9 +3812,9 @@ export class CadViewportEngine {
       }
       if(group.children.length===1){overlay=group.children[0];group.remove(overlay);}else if(group.children.length)overlay=group;
     } else {
-      const vertex = (binding.artifact.mesh.topologyVertices ?? []).find((item) => item.localId === selection.topologyId);
-      if (vertex) {
-        const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3().fromArray(vertex.point)]);
+      const vertices = (binding.artifact.mesh.topologyVertices ?? []).filter(item=>selectedIDs.has(item.localId));
+      if (vertices.length) {
+        const geometry = new THREE.BufferGeometry().setFromPoints(vertices.map(vertex=>new THREE.Vector3().fromArray(vertex.point)));
         const material=binding.artifact.geometryDomain==='POINT_SET'?this.materials.engineeringPoint(false):this.materials.topologyPoint(color, layer === "selected" ? 6 : 5, false);
         if(binding.artifact.geometryDomain==='POINT_SET')material.uniforms.uColor.value.setHex(color);
         overlay = new THREE.Points(geometry, material);

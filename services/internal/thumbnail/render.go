@@ -18,7 +18,7 @@ import (
 const (
 	Width           = 640
 	Height          = 400
-	RendererVersion = "png-v9-engineering-geometry"
+	RendererVersion = "png-v10-engineering-curves"
 	ContentType     = "image/png"
 	samples         = 2
 	// Bound scene preparation independently of pixel count and the job deadline.

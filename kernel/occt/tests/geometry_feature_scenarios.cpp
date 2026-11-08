@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
 #include <set>
 #include <sstream>
 
@@ -73,6 +74,78 @@ ProfilePadSpec thickener(const GeometryFeatureInput& source, double thickness = 
     return p;
 }
 }  // namespace
+TEST(GeometryFeature, SourceCurvesAndExtrusionsShareVisualMeshingPolicy) {
+    const auto distance = [](const Vec3& p, const Vec3& a, const Vec3& b) {
+        const Vec3 d{b.x - a.x, b.y - a.y, b.z - a.z};
+        const double length = d.x * d.x + d.y * d.y + d.z * d.z;
+        const double t =
+            length > 0
+                ? std::clamp(((p.x - a.x) * d.x + (p.y - a.y) * d.y + (p.z - a.z) * d.z) / length,
+                             0.0, 1.0)
+                : 0;
+        return std::hypot(p.x - a.x - t * d.x, p.y - a.y - t * d.y, p.z - a.z - t * d.z);
+    };
+    const auto deviation = [&](const std::vector<Vec3>& from, const std::vector<Vec3>& to) {
+        double worst = 0;
+        for (size_t i = 1; i < from.size(); ++i)
+            for (int j = 0; j <= 4; ++j) {
+                const double t = j / 4.0;
+                const Vec3 p{from[i - 1].x * (1 - t) + from[i].x * t,
+                             from[i - 1].y * (1 - t) + from[i].y * t,
+                             from[i - 1].z * (1 - t) + from[i].z * t};
+                double best = std::numeric_limits<double>::infinity();
+                for (size_t k = 1; k < to.size(); ++k)
+                    best = std::min(best, distance(p, to[k - 1], to[k]));
+                worst = std::max(worst, best);
+            }
+        return worst;
+    };
+    for (const bool circle : {false, true}) {
+        OcctKernel k;
+        GeometryFeatureSpec s;
+        s.feature_id = "profile";
+        s.operation = circle ? "CIRCLE" : "SPLINE";
+        if (circle) {
+            s.curve.points = {{"center", {0, 0, 0}}};
+            s.curve.radius = 32;
+            s.curve.normal = {0, 0, 1};
+            s.curve.x_direction = {1, 0, 0};
+        } else
+            s.curve.points = {
+                {"a", {0, 0, 0}}, {"b", {8, 12, 0}}, {"c", {20, -12, 0}}, {"d", {32, 0, 0}}};
+        const auto curve = k.evaluateGeometryFeature(s);
+        GeometryFeatureSpec extrude;
+        extrude.feature_id = "sheet";
+        extrude.operation = "SURFACE_EXTRUDE";
+        extrude.inputs = {input(k, curve)};
+        extrude.parameters.direction = {0, 0, 1};
+        extrude.parameters.distance = 80;
+        const auto sheet = k.evaluateGeometryFeature(extrude);
+        const auto originalCurve = k.serializeBrepr(curve.geometry_id),
+                   originalSheet = k.serializeBrepr(sheet.geometry_id);
+        const auto coarse = k.tessellate(curve.geometry_id, .1, .5);
+        const auto fine = k.tessellate(curve.geometry_id);
+        const auto surface = k.tessellate(sheet.geometry_id);
+        ASSERT_EQ(fine.edges.size(), 1U);
+        ASSERT_EQ(coarse.edges.size(), 1U);
+        EXPECT_GT(fine.edges.front().points.size(), coarse.edges.front().points.size());
+        const auto boundary =
+            std::find_if(surface.edges.begin(), surface.edges.end(), [](const auto& edge) {
+                return std::all_of(edge.points.begin(), edge.points.end(),
+                                   [](const auto& p) { return std::abs(p.z) < 1e-8; });
+            });
+        ASSERT_NE(boundary, surface.edges.end());
+        const auto error = std::max(deviation(fine.edges.front().points, boundary->points),
+                                    deviation(boundary->points, fine.edges.front().points));
+        EXPECT_LE(error, visual_linear_deflection_mm);
+        EXPECT_EQ(k.serializeBrepr(curve.geometry_id), originalCurve);
+        EXPECT_EQ(k.serializeBrepr(sheet.geometry_id), originalSheet);
+        std::cout << (circle ? "circle" : "spline") << " source points "
+                  << coarse.edges.front().points.size() << " -> "
+                  << fine.edges.front().points.size() << ", surface boundary "
+                  << boundary->points.size() << ", sampled display gap " << error << " mm\n";
+    }
+}
 TEST(GeometryFeature, SheetExtrudeThickenAndColdNamingHaveIndependentOwners) {
     OcctKernel k;
     const auto curve = k.evaluateGeometryFeature(line("line"));

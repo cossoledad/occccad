@@ -105,6 +105,12 @@ const splitHTML=renderToStaticMarkup(React.createElement(Properties,{...props,se
 assert(splitHTML.includes('Loft')&&!splitHTML.includes('later-shell'),'a split anchor is not the feature owning the current boundary');
 const unknownOwnerHTML=renderToStaticMarkup(React.createElement(Properties,{...props,selection:{...face,associatedFeatureIds:undefined},topology:surface}));
 assert(unknownOwnerHTML.includes('生成步骤暂不可用'),'missing contribution evidence must not be replaced by the semantic anchor');
+view.part.features.push({id:'engineering-surface',type:'GEOMETRY',name:'样条拉伸',geometry:{kind:'SURFACE_EXTRUDE'},result:{id:'result',domain:'SHEET_SET',geometryKey:'selected-key'}});
+const resultSelection={...face,result:{featureId:'engineering-surface',resultId:'result'}};
+const extrudedHTML=renderToStaticMarkup(React.createElement(Properties,{...props,selection:resultSelection,topology:{...surface,geometryType:'EXTRUSION_SURFACE'}}));
+assert(extrudedHTML.includes('拉伸曲面')&&extrudedHTML.includes('样条拉伸')&&!extrudedHTML.includes('曲面或曲线'),'exact topology family and independent owner are presented separately');
+const geometryHTML=render({kind:'feature',id:'engineering-surface',entityId:'engineering-surface'});
+assert(geometryHTML.includes('拉伸曲面')&&geometryHTML.includes('曲面集'),'Feature operation and result domain have concrete labels');
 
 view.part.features.push({id:'fillet-input',type:'FILLET',name:'外边圆角',bodyId:'a',length:3.14159265});
 const filletHTML=render({kind:'feature',id:'fillet-input'});

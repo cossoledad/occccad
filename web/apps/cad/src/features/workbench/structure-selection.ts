@@ -48,6 +48,12 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     case "IMPORT":
     case "FEATURE_INPUT_REFERENCE":
     case "FEATURE":
+      if(!occurrencePath&&base.documentId===view.document.id&&base.versionId===view.document.versionId){
+        const feature=view.part?.features.find(f=>f.id===base.entityId&&f.type==='GEOMETRY');
+        if(feature?.result&&!feature.suppressed&&!['FAILED','BLOCKED','SUPPRESSED'].includes(feature.evaluationStatus??''))
+          return {...base,kind:'feature',geometryKey:feature.result.geometryKey,
+            result:{featureId:feature.id,resultId:feature.result.id},displayStageFeatureId:feature.id};
+      }
       return { ...base, kind: node.kind === "IMPORT" ? "import" : "pad", id: node.entityId ?? node.id };
     case "DATUM_INPUT_REFERENCE":
       if(node.entityType==="PLANE")return structureSelection({...node,kind:"PLANE"},view);

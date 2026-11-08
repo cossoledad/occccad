@@ -17,7 +17,7 @@ func (c *Client) EvaluateGeometryFeature(ctx context.Context, requestID, key str
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	options := PartRuntime(ctx)
-	request := &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: key, GeometryFeature: spec, TopologyPolicy: topologyNamingPolicyProto(), LinearDeflection: .1, AngularDeflection: .5, BrepOutputKey: brepOutput, GlbOutputKey: visualOutput, ForceCold: options.ForceCold, ExactOnly: options.ExactOnly, RuntimeAffinity: options.Affinity}
+	request := &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: key, GeometryFeature: spec, TopologyPolicy: topologyNamingPolicyProto(), LinearDeflection: VisualLinearDeflectionMM, AngularDeflection: VisualAngularDeflectionRadians, BrepOutputKey: brepOutput, GlbOutputKey: visualOutput, ForceCold: options.ForceCold, ExactOnly: options.ExactOnly, RuntimeAffinity: options.Affinity}
 	if options.ExactOnly {
 		request.GlbOutputKey = ""
 	}
