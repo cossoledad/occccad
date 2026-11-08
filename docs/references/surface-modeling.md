@@ -50,6 +50,35 @@ GSD 目录进一步列出导向/隐式截面扫掠、变偏移、更多曲线派
 
 MCP 返回的关键原文已取至 `has_more=false`；目录页另外读取了本机 HTML。手册中的默认数值只证明参考软件行为，不成为本项目默认容差或验收阈值。
 
+## 现有命令的 CATIA 操作对照
+
+下表核对每个现有曲线/曲面命令及参考元素的输入流程；原文经 MCP 分页读至 `has_more=false`，路径均沿用上面的本机根目录。采用的是可重用几何与角色选择的工程步骤；本项目按用户要求不沿用 CATIA 的预选、默认法向或自动换型。各行的实现边界以 [current](../architecture/current/wireframe-surfaces.md) 为准。
+
+| 本项目命令 | CATIA 页面与参考行为 | 当前采用及范围 |
+|---|---|---|
+| 参考点、曲线上点 | `online/cfyug_C2/cfyugpoint3D.htm`：按坐标、曲线/平面、两点之间或中心构造 | 坐标保留于独立参考点；曲线上点选曲线并设置弧长比例；未覆盖任意曲面上点 |
+| 参考线、直线 | `online/cfyug_C2/cfyugline3D.htm`：两点、点与方向、支撑法向等构造 | 有限直线选两端点；参考轴独立构造，可供下游方向/旋转轴引用；未覆盖全部相切/角度线型 |
+| 参考面 | `online/cfyug_C2/cfyugplane3D.htm`：偏移、过点平行、三点、绕轴成角或方程 | 所需点、面和轴为空时等待拾取；不预选 XY；只显示所选构造方式需要的量值 |
+| 圆、圆弧 | `online/cfyug_C2/cfyugcircle3D.htm`：圆心、支撑、半径及圆弧范围 | 选择圆心和支撑面，再设置半径/角度；未覆盖三点和多种相切构造 |
+| 样条 | `online/sdgug_C2/sdgugbt0104.htm`：逐点选择，点列替换/移除/插入，闭合及可选切线/曲率约束 | 空点列开始，连续选择、插前/插后、更换/移除；插值或有理控制点；未提供逐点切线/曲率约束 |
+| 提取 | `online/cfyug_C2/cfyugextract.htm`：选择对象及传播方式 | 明确选定边、面或整体结果；未提供相切传播菜单 |
+| 边界 | `online/cfyug_C2/cfyugboundary.htm`：曲面边界及传播/界限 | 选择曲面后提取自由边界；未提供局部起止界限 |
+| 复合曲线 | `online/cfyug_C2/cfyugjoin.htm`：成员列表、连接/相切/流形检查 | 列表显示、移除及反向；只接收连通无分叉 Wire，不实现曲面 Join |
+| 投影 | `online/cfyug_C2/cfyugprojections.htm`：对象、支撑及方向方式 | 曲线、支撑、关联方向分别拾取；无手填方向分量 |
+| 交线 | `online/cfyug_C2/cfyugintersections.htm`：选择两个相交支撑 | 依次选择两个有限面/基准面；多支路须满足稳定 Naming |
+| 偏移曲线 | `online/cfyug_C2/cfyugparallelcurves.htm`：曲线、支撑及距离/侧向 | 选择曲线与平面，距离可为表达式；未实现一般空间支撑曲面偏移 |
+| 连接曲线 | `online/cfyug_C2/cfyugconnectcurves.htm`：连接端点/曲线及连续性 | 选择两曲线，反向控制连接端，设置切线系数；限现有 G1 Bezier |
+| 分割 | `online/cfyug_C2/cfyugsplitGSD.htm`：切割对象与保留侧 | 统一曲线选择与预览；当前仍按弧长比例分割，不声称支持 CATIA 切割对象/保留侧 |
+| 裁剪 | `online/cfyug_C2/cfyugtrimGSD.htm`：互裁对象与保留区域 | 当前仍保留单曲线弧长区间；通用互裁和区域选择留在后续阶段 |
+| 延伸 | `online/cfyug_C2/cfyugextrapolcurves.htm`：端点、待延伸曲线及长度/终止对象 | 曲线、起端/末端/两端和长度；限直线/圆，未实现 up-to 或通用曲线外推 |
+| 平移 | `online/cfyug_C2/cfyugtranslateGSD.htm`：对象、方向和距离 | 方向引用直线、轴或平面法向；上游变化后重新解析 |
+| 旋转 | `online/cfyug_C2/cfyugrotateGSD.htm`：对象、轴和角度 | 所选轴的原点和方向共同驱动旋转，不保存独立原点分量 |
+| 镜像 | `online/cfyug_C2/cfyugsymmetryGSD.htm`：点/线/面作为对称参考 | 当前只支持关联平面镜像，未扩展到点/线对称 |
+| 拉伸曲面 | `online/cfyug_C2/cfyugextrude.htm`：轮廓、直线方向或平面法向、限值和反向 | 轮廓与方向分别选择，上游方向线可驱动重算；当前为单向长度，无双向/up-to 限值 |
+| 加厚 | `online/prtug_C2/prtugbt0710.htm`：曲面、厚度与方向形成材料 | 选曲面及有符号常厚度；新实体/添加/切除/交集；未提供双侧独立厚度 |
+
+用户指定的 [Extrude 原文](catia-manual://page/v1?library=6d5aed22-2df7-427c-83ae-0b4926af15ef&path=online%2Fcfyug_C2%2Fcfyugextrude.htm&sha256=870676f500d411ab224e4076e26b40092f28e0d2dd65fe017ed3ca6ab024e60f&anchor=CATCCSModelHeader.CATHybridPartExtrude&block=cc747fddb4934109067b)同时描述了上下文菜单中的分量向量与默认轮廓法向；本项目操作表单选择显式关联对象，是本轮产品取舍。手册对照没有验证 CATIA 实际模型或证明本项目具备表中尚未实现的选项。
+
 ## 其他商业 CAD
 
 | 软件 | 已核对的公开行为 | 本项目可采用的设计要点 |

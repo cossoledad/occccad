@@ -34,7 +34,10 @@ try {
  const region={kind:"profile-region",id:"display",featureId:"sketch",regionId:"formal-region",documentId:"part",versionId:"v",bodyId:"body"};
  const regionSession={...session,role:"profile-region",sketchIds:["sketch"]};
  assert.equal(featureSelectionHit(region,regionSession),region,"region picks retain backend region identity");
- assert.equal(featureSelectionHit(line,regionSession),null,"a curve or entire sketch cannot implicitly fill the region set");
+ assert.equal(featureSelectionHit(line,regionSession),null,"a viewport curve cannot implicitly fill the region set");
+ const wholeSketch={kind:'sketch',id:'sketch',entityId:'sketch',documentId:'part',versionId:'v'};
+ assert.equal(featureSelectionHit(wholeSketch,regionSession),wholeSketch,'explicit Sketch selection gathers its current regions');
+ assert.equal(featureSelectionHit({...wholeSketch,id:'downstream',entityId:'downstream'},regionSession),null);
  assert.equal(featureSelectionHit({...region,featureId:"downstream"},regionSession),null,"downstream regions are excluded");
  assert.equal(featureSelectionHit({...region,documentId:"foreign"},regionSession),null);
  assert.equal(featureSelectionHit({...region,versionId:"stale"},regionSession),null);

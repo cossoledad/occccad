@@ -6,7 +6,7 @@ export const referenceModes:Record<ReferenceElementKind,Array<{value:string;labe
  line:[{value:'LINE_TWO_POINTS',label:'两点',roles:['point','point']},{value:'LINE_POINT_DIRECTION',label:'点与方向',roles:['point','direction']},{value:'LINE_NORMAL_PLANE',label:'过点垂直于平面',roles:['point','plane']},{value:'LINE_COORDINATES',label:'原点与方向',roles:[]}],
  plane:[{value:'PLANE_OFFSET',label:'偏移平面',roles:['plane']},{value:'PLANE_PARALLEL_POINT',label:'过点平行',roles:['plane','point']},{value:'PLANE_THREE_POINTS',label:'经过三点',roles:['point','point','point']},{value:'PLANE_ANGLE',label:'绕轴成角',roles:['plane','direction']},{value:'PLANE_EQUATION',label:'平面方程',roles:[]},{value:'PLANE_COORDINATES',label:'原点与法向',roles:[]}],
 };
-export function defaultReferenceConstruction(kind:ReferenceElementKind):ReferenceConstruction{return {mode:referenceModes[kind][0].value,inputs:kind==='plane'?[{kind:'PLANE',entityId:'datum-xy'}]:[],coordinates:[0,0,0],direction:[0,0,1],ratio:.5,offset:0,angle:0,coefficients:[0,0,1,0]}}
+export function defaultReferenceConstruction(kind:ReferenceElementKind):ReferenceConstruction{return {mode:referenceModes[kind][0].value,inputs:[],coordinates:[0,0,0],direction:[0,0,1],ratio:.5,offset:0,angle:0,coefficients:[0,0,1,0]}}
 export function referenceFields(c:ReferenceConstruction):Array<{slot:string;label:string;unit:'mm'|'deg'|'';value:number}>{
  const coordinate=['POINT_COORDINATES','LINE_COORDINATES','PLANE_COORDINATES'].includes(c.mode);
  const fields:Array<{slot:string;label:string;unit:'mm'|'deg'|'';value:number}>=[];
@@ -28,6 +28,7 @@ export function setReferenceValue(c:ReferenceConstruction,slot:string,value:numb
 }
 export function referenceInputName(view:DocumentView,ref:DatumReference|undefined):string{
  if(!ref)return '未选择';const part=view.part;
+ if(ref.kind==='SKETCH_LINE')return (part?.features.find(f=>f.id===ref.featureId)?.name??'草图')+' · 直线';
  const value=part?.datumPoints?.find(p=>p.id===ref.entityId)??part?.datumPlanes.find(p=>p.id===ref.entityId)??part?.datumAxes?.find(p=>p.id===ref.entityId)??part?.axisSystems.find(p=>p.id===ref.entityId);
  return value?value.name+(ref.axis?' · '+ref.axis:''):ref.kind==='TOPOLOGY'?'关联拓扑元素':'来源不可用';
 }

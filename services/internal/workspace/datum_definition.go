@@ -413,12 +413,17 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 				return datumFrame{}, fmt.Errorf("%w: DATUM_DOWNSTREAM_REFERENCE", ErrValidation)
 			}
 			anchorIndex, ok := indices[ref.Selection.Anchor.FeatureID]
-			if !ok || anchorIndex > index || m.Features[index].BodyID != ref.Selection.SourceBodyID || !isBodyFeature(m.Features[index].Type) || m.Features[index].Suppressed {
+			source := m.Features[index]
+			ownerMatches := source.BodyID == ref.Selection.SourceBodyID && isBodyFeature(source.Type)
+			if result := ref.Selection.SourceResult; result != nil {
+				ownerMatches = source.Type == "GEOMETRY" && result.FeatureID == source.ID && result.ResultID == "result"
+			}
+			if !ok || anchorIndex > index || !ownerMatches || source.Suppressed {
 				return datumFrame{}, fmt.Errorf("%w: DATUM_TOPOLOGY_STAGE_INVALID", ErrValidation)
 			}
 			prefix := *m
 			prefix.Features = append([]Feature(nil), m.Features[:index+1]...)
-			key, err := s.evaluateBodyPrefix(ctx, requestID+"/datum/"+ref.FeatureID, prefix, ref.Selection.SourceBodyID)
+			key, err := s.featureStageInModel(ctx, prefix, "", ref.FeatureID, ref.Selection.SourceBodyID)
 			if err != nil {
 				return datumFrame{}, err
 			}

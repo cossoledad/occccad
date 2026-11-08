@@ -14,24 +14,20 @@ import { patternRangeEnds, patternSourceCandidates, selectedSketch, selectedAxis
 import { parameterSourceText, parseParameterSource } from "./parameter-editor";
 import {ParameterReferenceInput} from './parameter-reference-input';
 import { useFeaturePreview } from "./use-feature-preview";
-import { pickedPatternCenter, sketchPatternDefaultReferences } from "./pattern-selection";
+import { pickedPatternCenter } from "./pattern-selection";
 import { api } from "../../api/client";
 import {objectName,selectionName} from "../../cad/presentation/engineering-text";
 import {patternAxisPick,patternReferencePick,patternReferenceName} from "./pattern-selection";
 import { randomUUID } from "../../utils/random-uuid";
 
-export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurrencePath, occurrenceContext, onClose, onApply, onPreview, onSelectionSession, onInputArtifact }: Parameters<typeof SolidFeatureEditor>[0]) {
+export function PatternFeatureEditor({ view, feature, digest, unit, occurrencePath, occurrenceContext, onClose, onApply, onPreview, onSelectionSession, onInputArtifact }: Parameters<typeof SolidFeatureEditor>[0]) {
   const internal=feature.type==="SKETCH";
   const upstream=view.part!.features.slice(0,feature.id?view.part!.features.findIndex(f=>f.id===feature.id):undefined);
-  const initialRange={status:"NONE" as const};
   const sourceSketch=view.part?.features.find(f=>f.id===feature.profile)?.sketch;
   const existingPattern=sourceSketch?.patterns?.find(p=>p.id===feature.pattern?.id);
-  const [entityIds,setEntityIds]=useState<string[]>(existingPattern?.entityIds??seed.flatMap(s=>s.kind==="visual"&&s.featureId===feature.profile&&sourceSketch?.entities.some(e=>e.id===s.entityId)?[s.entityId]:[]));
+  const [entityIds,setEntityIds]=useState<string[]>(existingPattern?.entityIds??[]);
   const [editingPattern,setEditingPattern]=useState<string|undefined>(existingPattern?.id);
-  const [draft,setDraft]=useState<Feature>(()=>{
-    if(internal&&!existingPattern)return {...feature,pattern:{...sketchPatternDefaultReferences(feature.profile!,feature.pattern!.kind),...feature.pattern!}};
-    return feature;
-  });
+  const [draft,setDraft]=useState<Feature>(feature);
   const [role,setRoleState]=useState<FeaturePickRole|undefined>(internal?"geometry":feature.type==="SKETCH_PATTERN"?"profile":"body");
   const boundSlot=(slot:string)=>boundContextParameter(view,view.part?.parameters?.find(p=>p.ownerFeatureId===feature.id&&p.propertySlot===`pattern:${slot}`)?.parameterId);
   const [inputArtifacts,setInputArtifacts]=useState<Artifact[]>();
@@ -146,16 +142,6 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
  if(s.kind==='body')return upstream.some(f=>f.bodyId===s.bodyId&&caps[f.id]?.bodyStage);
  const sketch=selectedSketch(view,s,upstream);return !!(!mirror&&sketch&&caps[sketch.id]?.sourceKind)||patternSourceCandidates(s,upstream,'AUTO',caps).length>0;
  }:undefined,onPick:s=>pickRef.current(s)}:undefined);return()=>onSelectionSession();},[role,view.document.id,occurrencePath,referenceToken,pickGeneration]);
-  useEffect(()=>{
-   if(internal||feature.id||initialRange.status!=="NONE")return;
-   const candidates=seed.map(s=>patternSourceCandidates(s,upstream,'AUTO',caps));
-   if(candidates.some(items=>items.length>1)){setError('所选几何关联多个特征，请从结构树明确选择种子');return;}
-   const selected=candidates.flat();
-   const unique=upstream.filter(f=>selected.some(s=>s.id===f.id));
-   if(unique.length&&unique.every(f=>!f.sketch&&f.bodyId===unique[0].bodyId&&caps[f.id]?.operation===caps[unique[0].id]?.operation))setSeeds(unique.map(f=>({source:{bodyId:f.bodyId!,featureId:f.id},sourceKind:'AUTO'})));
-   else if(unique.length>1)setError('种子必须属于同一实体，并具有一致的添加或切除语义');
-   else if(seed[0])pickRef.current(seed[0]);
-  },[]);
   let input:Record<string,unknown>|undefined,parameterError:string|undefined;
   try {
     const candidate={...pattern},expressions:Record<string,string>={};
@@ -171,6 +157,7 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
     if(!Number.isInteger(candidate.count)||candidate.count<1||candidate.count>256)throw new CommandInputError("数量应为 1–256 的整数（包含种子）");
     candidate.skippedSlots=skipped.trim()?skipped.split(",").map(value=>{if(!/^\d+$/.test(value.trim()))throw new CommandInputError("跳过槽位应为整数，以逗号分隔");return Number(value);}):[];
     if(internal&&candidate.kind==="CIRCULAR"&&!candidate.centerReference)throw new CommandInputError("请选择阵列中心点");
+    if(candidate.kind==="CIRCULAR"&&!internal&&!candidate.axisEntityId)throw new CommandInputError("请选择阵列轴");
     if(candidate.kind==="LINEAR"&&!candidate.axisEntityId&&!candidate.directionReference)throw new CommandInputError("请选择阵列方向");
     if(candidate.sourceKind==="FEATURE_DELTA"&&!patternRangeEnds(upstream,candidate.startFeatureId,caps).some(f=>f.id===candidate.source.featureId))throw new CommandInputError("请选择材料范围的起始特征和结束步骤");
     if(mirror&&!candidate.mirrorPlaneId&&!candidate.mirrorPlane)throw new CommandInputError("请选择镜像平面");
@@ -187,7 +174,7 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
   return <CommandDialog id="pattern-feature-editor" open title={`${(feature.id||editingPattern)?"编辑":"创建"}${mirror?"镜像":"阵列"}`} size="S" onClose={onClose} onCancelPick={cancelPick} commandStatus={<CommandStatus pending={!!binding||preview.pending}/>} onConfirm={apply} confirmLoading={busy} confirmDisabled={!preview.previewId||preview.pending||busy||!input}>
 
     <fieldset disabled={busy} onBlurCapture={feedback.onBlurCapture} className="instance-pattern-fields feature-input-fields">
-      {!mirror&&<CommandField label="方式" width="content"><Segmented aria-label="阵列方式" value={pattern.kind} options={[{value:'LINEAR',label:'线性'},{value:'CIRCULAR',label:'圆周'}]} onChange={kind=>{update({...(internal||draft.type==='SKETCH_PATTERN'?sketchPatternDefaultReferences(feature.profile??'',kind as 'LINEAR'|'CIRCULAR'):{directionReference:undefined,centerReference:undefined}),kind:kind as 'LINEAR'|'CIRCULAR',distribution:kind==='CIRCULAR'?'FULL_CIRCLE':'FIXED_STEP',axisEntityId:internal?undefined:`AXIS_SYSTEM:${view.part?.axisSystems[0]?.id??'axis-system-default'}:${kind==='CIRCULAR'?'Z':'X'}`});setRole(undefined)}}/></CommandField>}
+      {!mirror&&<CommandField label="方式" width="content"><Segmented aria-label="阵列方式" value={pattern.kind} options={[{value:'LINEAR',label:'线性'},{value:'CIRCULAR',label:'圆周'}]} onChange={kind=>{update({directionReference:undefined,centerReference:undefined,kind:kind as 'LINEAR'|'CIRCULAR',distribution:kind==='CIRCULAR'?'FULL_CIRCLE':'FIXED_STEP',axisEntityId:undefined});setRole(undefined)}}/></CommandField>}
 
       {internal&&<>
         <Select placeholder="新建阵列" value={editingPattern} allowClear options={sourceSketch?.patterns?.map(p=>({value:p.id,label:`${p.kind==="CIRCULAR"?"圆周":"线性"}阵列 · ${p.count}`}))} onChange={id=>{setEditingPattern(id);const p=sourceSketch?.patterns?.find(p=>p.id===id);if(p){update(p);setEntityIds(p.entityIds);setSkipped((p.skippedSlots??[]).join(","));const fields={count:String(p.count),spacing:String(p.spacing??10),angle:String(p.angle??90),phase:String(p.phase??0)};for(const slot of ["count","spacing","angle","phase"] as const){const parameter=view.part?.parameters?.find(value=>value.ownerFeatureId===feature.profile&&value.propertySlot===`pattern:${p.id}:${slot}`);if(parameter)fields[slot]=parameterSourceText(parameter,slot==="count"?"1":slot==="spacing"?unit:"deg",true);}original.current=fields;setText(fields);}}}/>

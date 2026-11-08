@@ -28,6 +28,9 @@ func featureInputs(f Feature) []featureInput {
 		}
 	}
 	if f.Geometry != nil {
+		for _, input := range geometryReferences(f.Geometry) {
+			appendGeometryReferenceInput(&out, "GEOMETRY_REFERENCE", input)
+		}
 		for _, input := range f.Geometry.Inputs {
 			if input.Kind == "PLANE" {
 				out = append(out, featureInput{Role: "GEOMETRY_SUPPORT", EntityKind: "PLANE", FeatureID: input.PlaneID})
@@ -41,7 +44,7 @@ func featureInputs(f Feature) []featureInput {
 			}
 			for _, p := range c.Points {
 				if p.Reference != nil {
-					add("CURVE_POINT", geometryInputFeatureID(*p.Reference), "", nil)
+					appendGeometryReferenceInput(&out, "CURVE_POINT", *p.Reference)
 				}
 				if p.PointID != "" {
 					out = append(out, featureInput{Role: "CURVE_POINT", EntityKind: "POINT", FeatureID: p.PointID})

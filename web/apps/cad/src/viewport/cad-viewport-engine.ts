@@ -4302,7 +4302,7 @@ export class CadViewportEngine {
 
   private fittedView(camera=this.camera.clone(),target=this.navigation.target.clone()):SavedView {
     const box = this.visibleContentBounds();
-    if (box.isEmpty()||box.getSize(new THREE.Vector3()).length()<1e-9) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
+    if (box.isEmpty()||box.getSize(new THREE.Vector3()).length()<1e-9) box.setFromCenterAndSize(box.isEmpty()?new THREE.Vector3():box.getCenter(new THREE.Vector3()), new THREE.Vector3(180, 180, 100));
     if(camera instanceof THREE.PerspectiveCamera)fitPerspectiveView(camera,target,box);
     else fitOrthographicView(camera,target,box);
     return saveView(camera,target);
@@ -4392,6 +4392,13 @@ export class CadViewportEngine {
       const geometry = object.geometry;
       if (!geometry.boundingBox) geometry.computeBoundingBox();
       if (geometry.boundingBox) bounds.union(geometry.boundingBox.clone().applyMatrix4(object.matrixWorld));
+    });
+    // Root Part references live in helpers rather than the B-Rep content.
+    // Their finite point positions participate in Fit; screen-sized planes
+    // and axes must not expand the frame with their zoom-dependent glyphs.
+    this.helpers.updateMatrixWorld(true);
+    this.helpers.traverseVisible(object=>{
+      if(object.userData.kind==='reference-point')bounds.expandByPoint(object.getWorldPosition(new THREE.Vector3()));
     });
     if (this.commandPreview) bounds.union(new THREE.Box3().setFromObject(this.commandPreview));
     return bounds;

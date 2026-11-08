@@ -1,7 +1,34 @@
 import {api} from '../../api/client';
 import {CommandInputError} from '../../cad/command/operation-failure';
 import type {DocumentView,Feature,GeometricInput,SelectionItem} from '../../types';
-import {sketchGeometryInput} from './geometric-feature-model';
+import {sketchGeometryInput,type GeometryReferenceRole} from './geometric-feature-model';
+
+export function acceptsGeometryReference(view:DocumentView,s:SelectionItem,role:GeometryReferenceRole):boolean{
+ const feature=view.part?.features.find(f=>f.id===(s.result?.featureId??s.entityId??s.id));
+ if(role==='point')return s.kind==='vertex'||['reference-point','datum-point','axis-system'].includes(s.kind)||s.entityKind==='REFERENCE_POINT'||s.kind==='visual'&&s.visualType==='POINT'&&!!s.sketchReference||feature?.result?.domain==='POINT_SET';
+ if(s.kind==='plane'||s.kind==='face'||feature?.result?.domain==='SHEET_SET')return role==='plane'||role==='direction';
+ if(role==='plane')return false;
+ if(s.kind==='axis'||s.kind==='edge'||feature?.result?.domain==='WIRE_SET')return true;
+ return s.kind==='visual'&&s.visualType==='CURVE'&&!!view.part?.features.find(f=>f.id===s.featureId)?.sketch?.entities.some(e=>e.id===s.entityId&&e.kind==='LINE');
+}
+
+export async function bindGeometryReference(view:DocumentView,s:SelectionItem,versionId:string,role:GeometryReferenceRole):Promise<GeometricInput>{
+ if((s.ownerDocumentId??s.documentId)!==view.document.id||s.versionId&&s.versionId!==versionId)throw new CommandInputError('所选对象的文档或版本已变化');
+ let input:GeometricInput;
+ if(role==='point'&&(s.kind==='reference-point'||s.kind==='datum-point'||s.kind==='axis-system'||s.entityKind==='REFERENCE_POINT'))input={kind:'DATUM',datum:{kind:'POINT',entityId:s.entityId??s.id}};
+ else if(s.kind==='axis')input={kind:'DATUM',datum:s.axis==='DATUM'?{kind:'AXIS',entityId:s.entityId??s.id}:{kind:'AXIS_SYSTEM',entityId:s.entityId??s.id,axis:s.axis}};
+ else if(role==='point'&&s.kind==='visual'&&s.visualType==='POINT'&&s.sketchReference)input={kind:'POINT',point:{sketchId:s.featureId,reference:s.sketchReference}};
+ else if(role!=='point'&&s.kind==='visual'&&s.visualType==='CURVE')input={kind:'DATUM',datum:{kind:'SKETCH_LINE',featureId:s.featureId,entityId:s.entityId}};
+ else input=await bindGeometricInput(view,s,versionId);
+ if(input.kind==='TOPOLOGY'){
+  const selection=input.selection!.selection,type=selection.creationEvidence.geometryType;
+  if(role==='point'&&selection.expectedType!=='VERTEX')throw new CommandInputError('请选择点或顶点');
+  if(role==='plane'&&(selection.expectedType!=='FACE'||type!=='PLANE'))throw new CommandInputError('请选择平面');
+  if(role==='axis'&&(selection.expectedType!=='EDGE'||type!=='LINE'))throw new CommandInputError('请选择直线或参考轴');
+  if(role==='direction'&&!(selection.expectedType==='EDGE'&&type==='LINE'||selection.expectedType==='FACE'&&type==='PLANE'))throw new CommandInputError('请选择直线、轴或平面法向');
+ }
+ return input;
+}
 
 export async function bindGeometricInput(view:DocumentView,s:SelectionItem,versionId:string,features:Feature[]=view.part?.features??[]):Promise<GeometricInput>{
  if((s.ownerDocumentId??s.documentId)!==view.document.id||(s.versionId&&s.versionId!==versionId))throw new CommandInputError('所选对象的文档或版本已变化');

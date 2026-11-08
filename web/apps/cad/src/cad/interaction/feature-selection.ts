@@ -58,7 +58,12 @@ export function featureSelectionHit(raw: Selection, session: FeatureSelectionSes
     if(session.role==="direction")return raw.kind==="axis"||raw.kind==="edge"||raw.kind==="visual"&&raw.visualType==="CURVE"?raw:null;
     if (session.role === "axis")
         return raw.kind === "axis" || raw.kind === "visual" && raw.visualType === "CURVE" ? raw : null;
-    if(session.role === "profile-region") return raw.kind === "profile-region" && !!session.sketchIds?.includes(raw.featureId) ? raw : null;
+    if(session.role === "profile-region") {
+        if(raw.kind === "profile-region" && session.sketchIds?.includes(raw.featureId))return raw;
+        // Selecting the Sketch itself is an explicit request for its current
+        // regions. A viewport curve hit must still retain the individual role.
+        return raw.kind === "sketch" && session.sketchIds?.includes(raw.entityId??raw.id)?raw:null;
+    }
     if (session.role === "geometry") return raw.kind === "visual" && !!session.sketchIds?.includes(raw.featureId) ? raw : null;
     if (session.role === "seam")
         return raw.kind === "visual" && raw.visualType === "CURVE" && session.sketchIds?.includes(raw.featureId) ? raw : null;

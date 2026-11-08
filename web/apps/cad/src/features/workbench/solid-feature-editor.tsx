@@ -38,12 +38,11 @@ export function SolidFeatureEditor(props: Parameters<typeof SolidFeatureDefiniti
     const unit=useRef(props.resume?.unit??props.unit).current;
     return props.feature.pattern ? <PatternFeatureEditor {...props} unit={unit}/> : <SolidFeatureDefinitionEditor {...props} unit={unit}/>;
 }
-function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occurrencePath, occurrenceContext, intentRequestId, insertion, resume, onSketch, onClose, onApply, onPreview, onSelectionSession, onInputArtifact }: {
+function SolidFeatureDefinitionEditor({ view, feature, digest, unit, occurrencePath, occurrenceContext, intentRequestId, insertion, resume, onSketch, onClose, onApply, onPreview, onSelectionSession, onInputArtifact }: {
     view: DocumentView;
     feature: Feature;
     digest?: string;
     unit: DisplayLengthUnit;
-    seed: SelectionItem[];
     occurrencePath?: string;
     occurrenceContext?: Pick<SelectionItem, "instancePath" | "contextVariantKey" | "rootDocumentId">;
     intentRequestId?:string;
@@ -246,6 +245,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
      }).catch(cause=>{if(alive.current&&pickOwner.current.current(ticket))setError(cause)}).finally(()=>{if(alive.current&&pickOwner.current.current(ticket))setBinding(n=>Math.max(0,n-1))});
     };
     const pick = (selection: SelectionItem, chosenRole: FeaturePickRole|undefined = current.current.role) => {
+		if(chosenRole==='profile-region'&&selection.kind==='sketch')chosenRole='profile';
         if (!chosenRole || (selection.ownerDocumentId ?? selection.documentId) !== view.document.id || (selection.occurrencePath ?? "") !== (occurrencePath ?? "") || selection.versionId && selection.versionId !== version.current || committing || !validRevision)
             return;
         if(chosenRole==='geometry'&&thinChains){
@@ -355,32 +355,6 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             setRole(undefined);
         }
     };
-    const seedOnce = useRef(false);
-    useEffect(() => {
-        if (seedOnce.current || feature.id || insertion || resume)
-            return;
-        seedOnce.current = true;
-        if(modifier)setBinding(0);
-        if(hole){
-            const points=seed.filter(s=>s.kind==="visual"&&s.visualType==="POINT"&&upstream.some(f=>f.id===s.featureId&&f.type==="SKETCH"&&!f.suppressed&&f.sketch?.entities.some(e=>e.id===s.entityId&&e.kind==="POINT"&&!e.sourceEntityId&&!e.suppressed)));
-            if(points.length===1)pick(points[0],"sketch-point");
-        }
-        else if (modifier)
-            seed.forEach(s => pick(s, pickRole));
-        else if (loft)
-            seed.forEach(s => pick(s, "profile"));
-        else {
-            const sketch = seed.map(s => selectedSketch(view, s, upstream)).find(Boolean);
-            if (sketch)
-                edit({ ...(thinChains&&sketch.id!==draft.profile?{thinWall:{...draft.thinWall!,entityIds:[],directions:undefined}}:{}),profile: sketch.id, profileMemberSlot:sketch.type==="SKETCH_PATTERN"?sketch.profileMemberSlot:undefined, profileSelection:explicitRegions?{mode:"REGIONS",regionIds:[...(view.sketchAnalyses?.[sketch.id]?.regionIds??[])]}:draft.profileSelection });
-            const axis = seed.find(s => selectedAxis(view, s, upstream));
-            if (axis)
-                pick(axis, "axis");
-            else if (sketch && feature.type === "REVOLVE")
-                setRole("axis");
-        }
-        return()=>{if(modifier)seedOnce.current=false;};
-    }, []);
     const pickRef = useRef(pick);
     pickRef.current = pick;
     const axisParts = draft.axisEntityId?.split(":");

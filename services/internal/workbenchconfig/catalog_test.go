@@ -142,7 +142,7 @@ func TestDebugCatalogSeparatesDiagnosticCommands(t *testing.T) {
 			debugTabs[tab.ID] = true
 		}
 	}
-	if len(debugTabs) != 5 || !debugTabs["WIREFRAME_SURFACE.debug"] {
+	if len(debugTabs) != 4 {
 		t.Fatal("missing context-specific DEBUG tabs", debugTabs)
 	}
 	commands := map[string]Command{}
@@ -208,6 +208,19 @@ func TestModelingMeasurementAndParametersAreSeparateCategories(t *testing.T) {
 	tabs := map[string]Tab{}
 	for _, tab := range c.Tabs {
 		tabs[tab.ID] = tab
+	}
+	if tabs["PART_DESIGN.model"].Name != "实体" || tabs["PART_DESIGN.wireframe-surface"].Name != "线框与曲面" || tabs["PART_DESIGN.wireframe-surface"].Workbench != "PART_DESIGN" {
+		t.Fatal("solid and surface must be sibling tabs of Part Design")
+	}
+	for _, context := range c.Contexts {
+		if context.ID == "WIREFRAME_SURFACE" {
+			t.Fatal("surface commands must not switch workbench contexts")
+		}
+		if context.ID == "PART_DESIGN" {
+			if len(context.Tabs) < 2 || context.Tabs[0] != "PART_DESIGN.model" || context.Tabs[1] != "PART_DESIGN.wireframe-surface" {
+				t.Fatal("Part Design hides the surface tab", context.Tabs)
+			}
+		}
 	}
 	groups := map[string]Group{}
 	for _, group := range c.Groups {

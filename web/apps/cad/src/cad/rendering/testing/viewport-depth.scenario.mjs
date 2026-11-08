@@ -7,10 +7,12 @@ try{
  const {CadShaderLibrary}=await server.ssrLoadModule("/src/cad/rendering/shader/cad-shader-library.ts");
  const factory=new CadMaterialFactory(new CadShaderLibrary()),pass=factory.surfaceDepth;
  const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
- const boundsEngine=Object.create(CadViewportEngine.prototype);boundsEngine.content=new T.Group();boundsEngine.screenStableReferences=new Map();
+ const boundsEngine=Object.create(CadViewportEngine.prototype);boundsEngine.content=new T.Group();boundsEngine.helpers=new T.Group();boundsEngine.screenStableReferences=new Map();
  const solid=new T.Mesh(new T.BoxGeometry(20,20,20)),reference=new T.Group(),axis=new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(),new T.Vector3(1,0,0)]));
  reference.add(axis);boundsEngine.content.add(solid,reference);boundsEngine.screenStableReferences.set(reference,64);
  const fitted=boundsEngine.visibleContentBounds();reference.scale.setScalar(10000);assert.deepEqual(boundsEngine.visibleContentBounds(),fitted,"Fit must not depend on a helper's last screen scale");
+ const point=new T.Points(new T.BufferGeometry().setFromPoints([new T.Vector3()]));point.userData.kind='reference-point';point.position.set(400,30,20);boundsEngine.helpers.add(point);
+ assert.equal(boundsEngine.visibleContentBounds().max.x,400,'a finite construction point outside the B-Rep participates in Fit');point.visible=false;assert.deepEqual(boundsEngine.visibleContentBounds(),fitted,'hidden reference points do not expand Fit');
  const scene=new T.Scene(),camera=new T.OrthographicCamera(-40/3,40/3,10,-10,.1,100);
  const geometry=new T.BoxGeometry(2,2,2),glass=factory.surface(0x999999,{opacity:.4}),invisible=factory.surface(0,{opacity:0});
  const mesh=new T.Mesh(geometry,[glass,invisible]);mesh.position.set(3,4,5);scene.add(mesh);

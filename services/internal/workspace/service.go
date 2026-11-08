@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v67-geometric-results"
+const evaluatorVersion = "part-solid-generators-v68-associative-geometry-references"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1812,7 +1812,7 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
-			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "THICKEN", BodyOperation: feature.Operation, GeometryGenerator: spec})
+			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "THICKEN", BodyOperation: feature.Operation, GeometryGenerator: spec.GeometryFeatureSpec})
 			bodyTipFeatureID = feature.ID
 		case "HOLE":
 			spec, err := holeInput(fullModel, feature)

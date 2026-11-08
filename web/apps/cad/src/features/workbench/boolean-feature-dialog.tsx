@@ -17,12 +17,11 @@ import { FeaturePickField } from "./feature-pick-field";
 import { useFeaturePreview } from "./use-feature-preview";
 import { randomUUID } from "../../utils/random-uuid";
 function roleName(name:string,role:keyof typeof booleanRoleColors){return <span className="boolean-role-name" title={name}><i aria-hidden style={{background:booleanRoleColors[role]}}/><span>{name}</span></span>}
-export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occurrencePath, occurrenceContext, onClose, onApply, onPreview, onSelectionSession, onInputArtifacts }: {
+export function BooleanFeatureDialog({ view, initial, digest, bodyId, occurrencePath, occurrenceContext, onClose, onApply, onPreview, onSelectionSession, onInputArtifacts }: {
     view: DocumentView;
     initial?: Feature;
     digest?: string;
     bodyId?: string;
-    seed: SelectionItem[];
     occurrencePath?: string;
     occurrenceContext?: Pick<SelectionItem, "instancePath" | "contextVariantKey" | "rootDocumentId">;
     onClose: () => void;
@@ -106,18 +105,6 @@ export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occu
     };
     const pickRef = useRef(pick);
     pickRef.current = pick;
-    const seedOnce = useRef(false);
-    useEffect(() => {
-        if (seedOnce.current || initial)
-            return;
-        seedOnce.current = true;
-        const picked = seed.filter(s => (s.ownerDocumentId ?? s.documentId) === view.document.id && (s.occurrencePath ?? "") === (occurrencePath ?? "")).map(s => bodyStage(s, stages)).filter((s): s is NonNullable<typeof s> => !!s);
-        if (!picked.length)
-            return;
-        const selectedTarget = picked[0].bodyId;
-        setTarget(selectedTarget);
-        setTools([...new Map(picked.slice(1).filter(t => t.bodyId !== selectedTarget).map(t => [t.bodyId, t])).values()]);
-    }, []);
     const selectedBodies = [target, ...tools.map(t => t.bodyId)].filter((id): id is string => !!id);
     const token=JSON.stringify([selectedBodies,role,replacing,analysis,retained,focusId,isolateId,focusRequest]);
     useEffect(()=>{

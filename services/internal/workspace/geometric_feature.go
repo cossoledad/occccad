@@ -23,13 +23,15 @@ type FeatureGeometryResult struct {
 	GeometryKey string `json:"geometryKey"`
 }
 type GeometricInput struct {
-	Kind      string            `json:"kind"` // RESULT | TOPOLOGY | SKETCH | PLANE
-	FeatureID string            `json:"featureId,omitempty"`
-	ResultID  string            `json:"resultId,omitempty"`
-	EntityIDs []string          `json:"entityIds,omitempty"` // fixed sketch members
-	Selection *FeatureSelection `json:"selection,omitempty"`
-	PlaneID   string            `json:"planeId,omitempty"`
-	Reversed  bool              `json:"reversed,omitempty"`
+	Kind      string                 `json:"kind"` // RESULT | TOPOLOGY | SKETCH | PLANE | DATUM | POINT
+	Datum     *DatumReference        `json:"datum,omitempty"`
+	Point     *PatternPointReference `json:"point,omitempty"`
+	FeatureID string                 `json:"featureId,omitempty"`
+	ResultID  string                 `json:"resultId,omitempty"`
+	EntityIDs []string               `json:"entityIds,omitempty"` // fixed sketch members
+	Selection *FeatureSelection      `json:"selection,omitempty"`
+	PlaneID   string                 `json:"planeId,omitempty"`
+	Reversed  bool                   `json:"reversed,omitempty"`
 }
 type GeometryControlPoint struct {
 	Reference *GeometricInput `json:"reference,omitempty"`
@@ -38,6 +40,7 @@ type GeometryControlPoint struct {
 	PointID   string          `json:"pointId,omitempty"` // existing datum point, evaluated in this candidate
 }
 type GeometryCurveDefinition struct {
+	Support        *GeometricInput        `json:"support,omitempty"`
 	FramePlaneID   string                 `json:"framePlaneId,omitempty"`
 	Points         []GeometryControlPoint `json:"points"`
 	Normal         [3]float64             `json:"normal"`
@@ -62,10 +65,13 @@ type GeometryOperationParameters struct {
 	Tension   float64    `json:"tension"`
 }
 type GeometricFeatureDefinition struct {
-	Kind       string                      `json:"kind"`
-	Inputs     []GeometricInput            `json:"inputs,omitempty"`
-	Curve      *GeometryCurveDefinition    `json:"curve,omitempty"`
-	Parameters GeometryOperationParameters `json:"parameters"`
+	Direction   *GeometricInput             `json:"direction,omitempty"`
+	Axis        *GeometricInput             `json:"axis,omitempty"`
+	MirrorPlane *GeometricInput             `json:"mirrorPlane,omitempty"`
+	Kind        string                      `json:"kind"`
+	Inputs      []GeometricInput            `json:"inputs,omitempty"`
+	Curve       *GeometryCurveDefinition    `json:"curve,omitempty"`
+	Parameters  GeometryOperationParameters `json:"parameters"`
 }
 
 var geometryKinds = map[string]int{
@@ -84,6 +90,12 @@ func geometryResultReference(f Feature) *modelcore.GeometryResultReference {
 	return &modelcore.GeometryResultReference{FeatureID: f.ID, ResultID: f.Result.ID}
 }
 func geometryInputFeatureID(i GeometricInput) string {
+	if i.Datum != nil {
+		return i.Datum.FeatureID
+	}
+	if i.Point != nil {
+		return i.Point.SketchID
+	}
 	if i.Selection != nil {
 		if i.Selection.Selection.SourceResult != nil {
 			return i.Selection.Selection.SourceResult.FeatureID
@@ -100,6 +112,17 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 		return nil
 	}
 	d := f.Geometry
+	if d.Curve != nil && d.Curve.Support != nil && !slices.Contains([]string{"CIRCLE", "ARC"}, d.Kind) {
+		return fmt.Errorf("%w: GEOMETRY_REFERENCE_ROLE_INVALID", ErrValidation)
+	}
+	if d.Direction != nil && !slices.Contains([]string{"SURFACE_EXTRUDE", "TRANSLATE", "PROJECT"}, d.Kind) || d.Axis != nil && d.Kind != "ROTATE" || d.MirrorPlane != nil && d.Kind != "MIRROR" {
+		return fmt.Errorf("%w: GEOMETRY_REFERENCE_ROLE_INVALID", ErrValidation)
+	}
+	for _, reference := range geometryReferences(d) {
+		if err := validateGeometryReference(reference, earlier, model); err != nil {
+			return err
+		}
+	}
 	count, ok := geometryKinds[d.Kind]
 	if !ok || (f.Type != "GEOMETRY" && f.Type != "THICKEN") || (f.Type == "THICKEN") != (d.Kind == "THICKEN") {
 		return fmt.Errorf("%w: GEOMETRY_KIND_INVALID", ErrValidation)
@@ -111,6 +134,9 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 		return fmt.Errorf("%w: THICKEN_OPERATION_INVALID", ErrValidation)
 	}
 	for _, input := range d.Inputs {
+		if input.Datum != nil || input.Point != nil {
+			return fmt.Errorf("%w: GEOMETRY_INPUT_KIND_INVALID", ErrValidation)
+		}
 		switch input.Kind {
 		case "RESULT":
 			source, exists := earlier[input.FeatureID]
@@ -141,7 +167,7 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 				return fmt.Errorf("%w: GEOMETRY_INPUT_MUST_PRECEDE_FEATURE", ErrValidation)
 			}
 			if r := input.Selection.Selection.SourceResult; r != nil {
-				if source.Type != "GEOMETRY" || r.ResultID != "result" {
+				if source.Type != "GEOMETRY" || r.ResultID != "result" || input.Selection.SourceFeatureID != r.FeatureID {
 					return fmt.Errorf("%w: GEOMETRY_RESULT_OWNER_INVALID", ErrValidation)
 				}
 			} else if source.BodyID != input.Selection.Selection.SourceBodyID {
@@ -159,18 +185,19 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 		if d.Curve == nil || len(d.Curve.Points) == 0 || len(d.Curve.Points) > 4096 {
 			return fmt.Errorf("%w: GEOMETRY_CURVE_DEFINITION_REQUIRED", ErrValidation)
 		}
+		if d.Curve.Support != nil && d.Curve.FramePlaneID != "" {
+			return fmt.Errorf("%w: CURVE_FRAME_CONFLICT", ErrValidation)
+		}
 		if d.Curve.FramePlaneID != "" && !slices.ContainsFunc(model.DatumPlanes, func(p DatumPlane) bool { return p.ID == d.Curve.FramePlaneID }) {
 			return fmt.Errorf("%w: CURVE_FRAME_MISSING", ErrValidation)
 		}
 		seen := map[string]bool{}
 		for _, p := range d.Curve.Points {
 			if p.Reference != nil {
-				if p.PointID != "" || (p.Reference.Kind != "RESULT" && p.Reference.Kind != "TOPOLOGY") {
+				if p.PointID != "" {
 					return fmt.Errorf("%w: CURVE_POINT_REFERENCE_INVALID", ErrValidation)
 				}
-				check := f
-				check.Geometry = &GeometricFeatureDefinition{Kind: "EXTRACT", Inputs: []GeometricInput{*p.Reference}}
-				if err := validateGeometricFeature(check, earlier, model); err != nil {
+				if err := validateGeometryReference(*p.Reference, earlier, model); err != nil {
 					return err
 				}
 				if p.Reference.Selection != nil && p.Reference.Selection.Selection.ExpectedType != modelcore.PersistentTopologyVertex {
@@ -244,7 +271,7 @@ func geometryParameters(d *GeometricFeatureDefinition) []geometricParameter {
 
 		if d.Kind == "CIRCLE" || d.Kind == "ARC" {
 			add("radius", "Radius", "mm", &c.Radius)
-			if c.FramePlaneID == "" {
+			if c.FramePlaneID == "" && c.Support == nil {
 				vector("normal", &c.Normal, "1")
 				vector("xDirection", &c.XDirection, "1")
 			}
@@ -256,13 +283,15 @@ func geometryParameters(d *GeometricFeatureDefinition) []geometricParameter {
 	}
 	switch d.Kind {
 	case "SURFACE_EXTRUDE", "TRANSLATE", "ROTATE", "MIRROR", "PROJECT":
-		vector("direction", &d.Parameters.Direction, "1")
+		if d.Direction == nil && d.Axis == nil && d.MirrorPlane == nil {
+			vector("direction", &d.Parameters.Direction, "1")
+		}
 	}
 	switch d.Kind {
 	case "SURFACE_EXTRUDE", "THICKEN", "TRANSLATE", "OFFSET", "EXTEND":
 		add("distance", "Distance", "mm", &d.Parameters.Distance)
 	}
-	if d.Kind == "ROTATE" || d.Kind == "MIRROR" {
+	if (d.Kind == "ROTATE" || d.Kind == "MIRROR") && d.Axis == nil && d.MirrorPlane == nil {
 		vector("origin", &d.Parameters.Origin, "mm")
 	}
 	if d.Kind == "ROTATE" {
@@ -318,12 +347,13 @@ func geometryDomain(e *workerv1.EvaluatePartResponse) string {
 	return "POINT_SET"
 }
 func geometryVec(v [3]float64) *workerv1.Vec3 { return &workerv1.Vec3{X: v[0], Y: v[1], Z: v[2]} }
-func (s *Service) evaluateGeometrySpec(ctx context.Context, requestID string, spec *workerv1.GeometryFeatureSpec) (string, error) {
+func (s *Service) evaluateGeometrySpec(ctx context.Context, requestID string, spec *workerv1.GeometryFeatureSpec, dependencies ...any) (string, error) {
 	frozen, _ := json.Marshal(struct {
 		Spec              *workerv1.GeometryFeatureSpec
 		Policy, Evaluator string
 		Exact             bool
-	}{spec, modelcore.TopologyNamingPolicyDigest, evaluatorVersion, geometry.PartRuntime(ctx).ExactOnly})
+		Dependencies      []any
+	}{spec, modelcore.TopologyNamingPolicyDigest, evaluatorVersion, geometry.PartRuntime(ctx).ExactOnly, dependencies})
 	key := modelcore.ValueDigest(frozen)
 	var exists bool
 	if err := s.database.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).Scan(&exists); err != nil {
@@ -427,15 +457,54 @@ func (s *Service) geometrySource(ctx context.Context, requestID string, model Pa
 	}
 	return result, nil
 }
-func (s *Service) geometryFeatureSpec(ctx context.Context, requestID string, model PartModel, f Feature) (*workerv1.GeometryFeatureSpec, error) {
+func (s *Service) geometryFeatureSpec(ctx context.Context, requestID string, model PartModel, f Feature) (*compiledGeometryFeature, error) {
 	d := f.Geometry
 	if d == nil {
 		return nil, fmt.Errorf("%w: GEOMETRY_DEFINITION_REQUIRED", ErrValidation)
 	}
-	spec := &workerv1.GeometryFeatureSpec{FeatureId: f.ID, ResultId: "result", Operation: d.Kind, Parameters: &workerv1.GeometryOperationDefinition{Direction: geometryVec(d.Parameters.Direction), Origin: geometryVec(d.Parameters.Origin), Distance: d.Parameters.Distance, Angle: d.Parameters.Angle * math.Pi / 180, Start: d.Parameters.Start, End: d.Parameters.End, Side: d.Parameters.Side, Tension: d.Parameters.Tension}}
+	spec := &compiledGeometryFeature{GeometryFeatureSpec: &workerv1.GeometryFeatureSpec{FeatureId: f.ID, ResultId: "result", Operation: d.Kind, Parameters: &workerv1.GeometryOperationDefinition{Direction: geometryVec(d.Parameters.Direction), Origin: geometryVec(d.Parameters.Origin), Distance: d.Parameters.Distance, Angle: d.Parameters.Angle * math.Pi / 180, Start: d.Parameters.Start, End: d.Parameters.End, Side: d.Parameters.Side, Tension: d.Parameters.Tension}}}
+	resolve := func(input GeometricInput) (datumFrame, error) {
+		frame, snapshot, err := s.geometryReferenceFrame(ctx, requestID, model, input)
+		if err == nil {
+			spec.References = append(spec.References, snapshot)
+		}
+		return frame, err
+	}
+	for _, reference := range []struct {
+		role  string
+		input *GeometricInput
+	}{{"direction", d.Direction}, {"axis", d.Axis}, {"mirror", d.MirrorPlane}} {
+		role, input := reference.role, reference.input
+		if input == nil {
+			continue
+		}
+		frame, err := resolve(*input)
+		if err != nil {
+			return nil, err
+		}
+		if frame.point || role == "axis" && frame.plane || role == "mirror" && !frame.plane {
+			return nil, fmt.Errorf("%w: GEOMETRY_REFERENCE_TYPE_MISMATCH", ErrValidation)
+		}
+		spec.Parameters.Direction = geometryVec(frame.direction)
+		if role != "direction" {
+			spec.Parameters.Origin = geometryVec(frame.origin)
+		}
+	}
 	if c := d.Curve; c != nil {
 		spec.Curve = &workerv1.GeometryCurveDefinition{Normal: geometryVec(c.Normal), XDirection: geometryVec(c.XDirection), Radius: c.Radius, StartAngle: c.StartAngle * math.Pi / 180, EndAngle: c.EndAngle * math.Pi / 180, Degree: c.Degree, Knots: c.Knots, Multiplicities: c.Multiplicities, Weights: c.Weights, Closed: c.Closed}
 		var frame *DatumPlane
+		if c.Support != nil {
+			resolved, err := resolve(*c.Support)
+			if err != nil {
+				return nil, err
+			}
+			if !resolved.plane {
+				return nil, fmt.Errorf("%w: CURVE_FRAME_REQUIRES_PLANE", ErrValidation)
+			}
+			frame = &DatumPlane{ID: geometryReferenceSource(*c.Support), Origin: resolved.origin, Normal: resolved.direction, UDirection: resolved.u}
+			spec.Curve.Normal = geometryVec(frame.Normal)
+			spec.Curve.XDirection = geometryVec(frame.UDirection)
+		}
 		if c.FramePlaneID != "" {
 			for i := range model.DatumPlanes {
 				if model.DatumPlanes[i].ID == c.FramePlaneID {
@@ -461,7 +530,7 @@ func (s *Service) geometryFeatureSpec(ctx context.Context, requestID string, mod
 			}
 			if p.Reference != nil {
 				var e error
-				position, sources, e = s.geometryPointPosition(ctx, requestID, model, *p.Reference)
+				position, sources, e = s.geometryPointPosition(ctx, requestID, model, *p.Reference, &spec.References)
 				if e != nil {
 					return nil, e
 				}
@@ -474,10 +543,30 @@ func (s *Service) geometryFeatureSpec(ctx context.Context, requestID string, mod
 				position = model.DatumPoints[i].Position
 				sources = []*workerv1.SemanticTopologyRef{{FeatureId: p.PointID, OutputSlot: "datum.point", SourceIds: []string{p.PointID}}}
 			}
+			if c.Support != nil && (d.Kind == "CIRCLE" || d.Kind == "ARC") {
+				delta := 0.0
+				for j := range 3 {
+					delta += (position[j] - frame.Origin[j]) * frame.Normal[j]
+				}
+				if math.Abs(delta) > 1e-6 {
+					return nil, fmt.Errorf("%w: CURVE_POINT_NOT_ON_SUPPORT", ErrValidation)
+				}
+			}
 			spec.Curve.Points = append(spec.Curve.Points, &workerv1.GeometryControlPoint{Id: p.ID, Position: geometryVec(position), Sources: sources})
 		}
 	}
-	for _, input := range d.Inputs {
+	for index, input := range d.Inputs {
+		if d.Kind == "OFFSET" && index == 1 && input.Kind != "PLANE" {
+			frame, err := resolve(input)
+			if err != nil {
+				return nil, err
+			}
+			if !frame.plane {
+				return nil, fmt.Errorf("%w: CURVE_FRAME_REQUIRES_PLANE", ErrValidation)
+			}
+			spec.Inputs = append(spec.Inputs, &workerv1.GeometryFeatureInput{Plane: &workerv1.GeometryPlane{Id: geometryReferenceSource(input), Origin: geometryVec(frame.origin), Normal: geometryVec(frame.direction), UDirection: geometryVec(frame.u)}})
+			continue
+		}
 		resolved, e := s.geometrySource(ctx, requestID+"/"+f.ID, model, input)
 		if e != nil {
 			return nil, e
@@ -503,7 +592,7 @@ func (s *Service) evaluateGeometricFeature(ctx context.Context, requestID string
 	if err != nil {
 		return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", id, err)
 	}
-	key, err := s.evaluateGeometrySpec(ctx, requestID, spec)
+	key, err := s.evaluateGeometrySpec(ctx, requestID, spec.GeometryFeatureSpec, spec.References, f.Geometry)
 	if err != nil {
 		return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", id, err)
 	}
@@ -598,6 +687,7 @@ func qualifyGeometryInputs(documentID string, f Feature) error {
 		return nil
 	}
 	inputs = append(inputs, f.Geometry.Inputs...)
+	inputs = append(inputs, geometryReferences(f.Geometry)...)
 	if c := f.Geometry.Curve; c != nil {
 		for _, p := range c.Points {
 			if p.Reference != nil {
@@ -606,6 +696,9 @@ func qualifyGeometryInputs(documentID string, f Feature) error {
 		}
 	}
 	for _, i := range inputs {
+		if i.Datum != nil && i.Datum.Selection != nil && i.Datum.Selection.SourceDocumentID != documentID {
+			return fmt.Errorf("%w: cross-document geometry requires an accepted context input", ErrValidation)
+		}
 		if i.Selection != nil && i.Selection.Selection.SourceDocumentID != documentID {
 			return fmt.Errorf("%w: cross-document geometry requires an accepted context input", ErrValidation)
 		}
@@ -673,10 +766,33 @@ func (s *Service) geometricFeatureInput(ctx context.Context, documentID string, 
 func geometryCross(a, b [3]float64) [3]float64 {
 	return [3]float64{a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]}
 }
-func (s *Service) geometryPointPosition(ctx context.Context, requestID string, model PartModel, input GeometricInput) ([3]float64, []*workerv1.SemanticTopologyRef, error) {
+func (s *Service) geometryPointPosition(ctx context.Context, requestID string, model PartModel, input GeometricInput, snapshots ...*[]any) ([3]float64, []*workerv1.SemanticTopologyRef, error) {
+	if input.Kind == "POINT" || input.Kind == "DATUM" {
+		frame, snapshot, err := s.geometryReferenceFrame(ctx, requestID, model, input)
+		if err != nil {
+			return [3]float64{}, nil, err
+		}
+		if !frame.point {
+			return [3]float64{}, nil, fmt.Errorf("%w: CURVE_POINT_REQUIRES_VERTEX", ErrValidation)
+		}
+		for _, out := range snapshots {
+			*out = append(*out, snapshot)
+		}
+		owner := geometryInputFeatureID(input)
+		if input.Datum != nil {
+			owner = input.Datum.EntityID
+		}
+		return frame.origin, []*workerv1.SemanticTopologyRef{{FeatureId: owner, OutputSlot: "point", SourceIds: []string{geometryReferenceSource(input)}}}, nil
+	}
 	source, err := s.geometrySource(ctx, requestID+"/point", model, input)
 	if err != nil {
 		return [3]float64{}, nil, err
+	}
+	for _, out := range snapshots {
+		*out = append(*out, struct {
+			Reference GeometricInput
+			Source    *workerv1.GeometryFeatureInput
+		}{input, source})
 	}
 	// The source snapshot already passed owner/stage validation. Locate its
 	// single declared point using Naming; display points never supply position.

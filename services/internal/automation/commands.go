@@ -379,7 +379,7 @@ var contractEnums = map[string][]string{
 	"workspace.Feature.type":                    {"SKETCH", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "SWEEP", "LOFT", "HOLE", "BOOLEAN", "SOLID_PATTERN", "SKETCH_PATTERN", "GEOMETRY", "THICKEN"},
 	"workspace.Feature.operation":               {"NEW_BODY", "ADD", "REMOVE", "INTERSECT"},
 	"workspace.CommandRequest.sketchOwnerKind":  {"BODY", "GEOMETRICAL_SET"},
-	"workspace.GeometricInput.kind":             {"RESULT", "SKETCH", "TOPOLOGY", "PLANE"},
+	"workspace.GeometricInput.kind":             {"RESULT", "SKETCH", "TOPOLOGY", "PLANE", "DATUM", "POINT"},
 	"workspace.GeometricFeatureDefinition.kind": {"LINE", "CIRCLE", "ARC", "SPLINE", "POINT_ON_CURVE", "EXTRACT", "BOUNDARY", "COMPOSITE", "PROJECT", "INTERSECTION", "OFFSET", "G1_CONNECT", "SPLIT", "TRIM", "EXTEND", "TRANSLATE", "ROTATE", "MIRROR", "SURFACE_EXTRUDE", "THICKEN"},
 }
 

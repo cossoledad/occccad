@@ -4,7 +4,6 @@ import type { ToolbarCatalogEntry } from '../../types';
 export type CadWorkbenchID=string;
 
 export type ContextFacts = {
- surfaceActive?:boolean;
  canDeleteMotionResult?:boolean;rootTarget?:boolean;motionActive?:boolean;isMock:boolean;moveReceiptPending:boolean;hostType: string; targetType: string; sketchActive: boolean; canEdit: boolean; rootCanEdit: boolean;
  busy: boolean; selectionKind: string; selectionCount: number; hasWorkingBody: boolean;
 };
