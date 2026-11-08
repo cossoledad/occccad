@@ -69,10 +69,12 @@ type meshInstance struct {
 	mesh       *preparedMesh
 	pose       pose
 	appearance workspace.ResolvedAppearance
+	domain     string
 }
 type sceneLine struct {
 	points       []vec
 	construction bool
+	engineering  bool
 }
 type renderScene struct {
 	meshes    []meshInstance
@@ -120,7 +122,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if len(a.Mesh.Triangles) > 0 {
+		if len(a.Mesh.Triangles) > 0 || len(a.Mesh.Edges) > 0 {
 			prepared := cache[a.GeometryKey]
 			if prepared == nil || a.GeometryKey == "" {
 				var err error
@@ -130,7 +132,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				}
 				cache[a.GeometryKey] = prepared
 			}
-			s.meshes = append(s.meshes, meshInstance{prepared, p, appearance})
+			s.meshes = append(s.meshes, meshInstance{mesh: prepared, pose: p, appearance: appearance, domain: a.GeometryDomain})
 			// Only referenced finite vertices influence framing; unused mesh vertices do not.
 			for i, t := range a.Mesh.Triangles {
 				if i%1024 == 0 {
@@ -144,6 +146,35 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				for _, index := range t {
 					s.include(p.point(a.Mesh.Vertices[index]))
 				}
+			}
+		}
+		for _, edge := range a.Mesh.Edges {
+			for i, point := range edge.Points {
+				if i%1024 == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+				}
+				s.include(p.point(point))
+			}
+		}
+		if a.GeometryDomain == "POINT_SET" {
+			vertices += len(a.Mesh.TopologyVertices)
+			if vertices > maxVertices {
+				return errSceneBudget
+			}
+			for i, point := range a.Mesh.TopologyVertices {
+				if i%1024 == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+				}
+				v := p.point(point.Point)
+				if !valid(v) {
+					continue
+				}
+				s.include(v)
+				s.lines = append(s.lines, sceneLine{points: []vec{v}, engineering: true})
 			}
 		}
 		for _, primitive := range a.Visualization.Primitives {
@@ -175,7 +206,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				points := make([]vec, 0, len(primitive.Positions))
 				flush := func() {
 					if len(points) > 0 {
-						s.lines = append(s.lines, sceneLine{points, primitive.Role == "CONSTRUCTION"})
+						s.lines = append(s.lines, sceneLine{points: points, construction: primitive.Role == "CONSTRUCTION"})
 						points = nil
 					}
 				}
@@ -215,7 +246,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				}
 			}
 		}
-	} else if view.Part != nil && len(view.Part.Bodies) > 0 {
+	} else if view.Part != nil {
 		for _, body := range view.Part.Bodies {
 			if !body.Visible {
 				continue
@@ -226,9 +257,36 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				}
 			}
 		}
-	} else if view.Part != nil {
-		if err := appendSketchFallback(ctx, s, view.Part.Features); err != nil {
-			return nil, err
+		for _, feature := range view.Part.Features {
+			if feature.Type != "GEOMETRY" || feature.Result == nil || feature.Suppressed || feature.EvaluationStatus != "" || feature.Visible != nil && !*feature.Visible || !workspace.GeometryFeatureVisible(*view.Part, feature) {
+				continue
+			}
+			if a, ok := view.Artifacts[feature.Result.GeometryKey]; ok {
+				a.GeometryDomain = feature.Result.Domain
+				if err := appendArtifact(a, newPose(vec{}, [4]float64{}), workspace.ResolvedAppearance{}); err != nil {
+					return nil, err
+				}
+			}
+		}
+		hasModelDisplay := len(s.meshes)+len(s.lines) > 0
+		for _, point := range view.Part.DatumPoints {
+			if point.Visible != nil && !*point.Visible || !workspace.GeometryFeatureVisible(*view.Part, workspace.Feature{GeometricalSetID: point.GeometricalSetID}) || !valid(point.Position) {
+				continue
+			}
+			vertices++
+			if vertices > maxVertices {
+				return nil, errSceneBudget
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			s.include(point.Position)
+			s.lines = append(s.lines, sceneLine{points: []vec{point.Position}, engineering: true})
+		}
+		if !hasModelDisplay {
+			if err := appendSketchFallback(ctx, s, view.Part.Features); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return s, ctx.Err()

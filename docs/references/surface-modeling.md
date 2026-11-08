@@ -63,7 +63,7 @@ MCP 返回的关键原文已取至 `has_more=false`；目录页另外读取了�
 | 样条 | `online/sdgug_C2/sdgugbt0104.htm`：逐点选择，点列替换/移除/插入，闭合及可选切线/曲率约束 | 空点列开始，连续选择、插前/插后、更换/移除；插值或有理控制点；未提供逐点切线/曲率约束 |
 | 提取 | `online/cfyug_C2/cfyugextract.htm`：选择对象及传播方式 | 明确选定边、面或整体结果；未提供相切传播菜单 |
 | 边界 | `online/cfyug_C2/cfyugboundary.htm`：曲面边界及传播/界限 | 选择曲面后提取自由边界；未提供局部起止界限 |
-| 复合曲线 | `online/cfyug_C2/cfyugjoin.htm`：成员列表、连接/相切/流形检查 | 列表显示、移除及反向；只接收连通无分叉 Wire，不实现曲面 Join |
+| 复合曲线 | `online/cfyug_C2/cfyugjoin.htm`：成员列表、连接/相切/流形检查 | 列表显示、移除及反向；只接收连通无分叉 Wire；曲面连接为独立命令 |
 | 投影 | `online/cfyug_C2/cfyugprojections.htm`：对象、支撑及方向方式 | 曲线、支撑、关联方向分别拾取；无手填方向分量 |
 | 交线 | `online/cfyug_C2/cfyugintersections.htm`：选择两个相交支撑 | 依次选择两个有限面/基准面；多支路须满足稳定 Naming |
 | 偏移曲线 | `online/cfyug_C2/cfyugparallelcurves.htm`：曲线、支撑及距离/侧向 | 选择曲线与平面，距离可为表达式；未实现一般空间支撑曲面偏移 |
@@ -76,6 +76,16 @@ MCP 返回的关键原文已取至 `has_more=false`；目录页另外读取了�
 | 镜像 | `online/cfyug_C2/cfyugsymmetryGSD.htm`：点/线/面作为对称参考 | 当前只支持关联平面镜像，未扩展到点/线对称 |
 | 拉伸曲面 | `online/cfyug_C2/cfyugextrude.htm`：轮廓、直线方向或平面法向、限值和反向 | 轮廓与方向分别选择，上游方向线可驱动重算；当前为单向长度，无双向/up-to 限值 |
 | 加厚 | `online/prtug_C2/prtugbt0710.htm`：曲面、厚度与方向形成材料 | 选曲面及有符号常厚度；新实体/添加/切除/交集；未提供双侧独立厚度 |
+| 曲面扫掠 | `online/sdgug_C2/sdgugbt0204.htm`：显式/隐式截面，guide/spine、限界、扭转处理和姿态 | C 只采用显式截面及单条 G1 路径，不合并多导向/法则等输入 |
+| 曲面放样 | `online/cfyug_C2/cfyugloft.htm`：截面列表、反向、闭合点、coupling、支撑连续性 | C 支持顺序/反向/直纹和一致边数的对应；闭合点及 guide/coupling 保留为后续能力 |
+| 填充曲面 | `online/sdgug_C2/sdgugbt0206.htm`：闭合边界、逐边支撑、偏差 | C 限 G0，检验算法边界误差；不自动外推、裁边或相切补偿 |
+| 裁剪曲面 | `online/cfyug_C2/cfyugtrimGSD.htm`：可选点决定保留区域，歧义时指定保留/移除，自动外推可关闭 | C 使用显式关联点与真实切割交线确定保留区域，不保存点击坐标或分区编号 |
+| 延长曲面 | `online/cfyug_C2/cfyugextrapolsurfaces.htm`：边界/源面、长度/up-to、Tangent/Curvature、近似边界开关 | C 限矩形参数域的等参数自由边，按物理长度 G1 外推，不宣称任意修剪面通用外推 |
+| 连接、缝合 | `online/cfyug_C2/cfyugjoin.htm`：连接/流形/相切检查、合并距离及 federation | C 区分关联面集与共享边界 Shell，检查连接和流形；不实现 federation/自动删除错误子面 |
+| 偏移曲面 | `online/sdgug_C2/sdgugbt0203.htm`：有符号距离、反向、平滑及子面失败管理 | C 限常量偏移，失败整体拒绝；不静默删除错误面 |
+| 封闭曲面 | `online/prtug_C2/prtugbt0709.htm`：所选曲面形成实体特征 | C 要求已缝合的闭合壳，复用原实体操作；不默认补盖 |
+
+C 阶段上述八篇原文经 MCP 按同一 article ID 分页读至 `has_more=false`；这验证的是参考操作语义。本项目算法接纳范围由实现和测试确定，未运行商业 CAD 的实际模型对比。
 
 用户指定的 [Extrude 原文](catia-manual://page/v1?library=6d5aed22-2df7-427c-83ae-0b4926af15ef&path=online%2Fcfyug_C2%2Fcfyugextrude.htm&sha256=870676f500d411ab224e4076e26b40092f28e0d2dd65fe017ed3ca6ab024e60f&anchor=CATCCSModelHeader.CATHybridPartExtrude&block=cc747fddb4934109067b)同时描述了上下文菜单中的分量向量与默认轮廓法向；本项目操作表单选择显式关联对象，是本轮产品取舍。手册对照没有验证 CATIA 实际模型或证明本项目具备表中尚未实现的选项。
 

@@ -184,6 +184,7 @@ struct ImportedTopologyIdentity {
     std::uint64_t local_id{};
 };
 struct ImportTopologySeed {
+    std::string result_id;
     std::string feature_id;
     std::string body_id;
     std::string brep_sha256;

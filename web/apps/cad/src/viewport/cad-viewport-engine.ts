@@ -1127,11 +1127,11 @@ export class CadViewportEngine {
       if(binding.renderedAppearanceDigest===digest)continue;
       binding.renderedAppearanceDigest=digest;
       for(const m of Array.isArray(mesh.material)?mesh.material:[mesh.material])m.dispose();
-      mesh.material=surfaceAppearanceMaterials(mesh.geometry,artifact.mesh.faceIds,appearance,binding.defaultColor,(color,properties)=>this.materials.surface(color,properties));
-      for(const m of Array.isArray(mesh.material)?mesh.material:[mesh.material])m.userData.propertyPreview=Boolean(candidate);
-      mesh.castShadow=artifact.geometryDomain!=='SHEET_SET'&&(Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
-      mesh.receiveShadow=artifact.geometryDomain!=='SHEET_SET';
-      applyEdgeAppearance(binding.group,appearance,CATIA_VISUAL_THEME.edge,m=>this.materials.sectionLine(m));
+      mesh.material=surfaceAppearanceMaterials(mesh.geometry,artifact.mesh.faceIds,appearance,binding.defaultColor,(color,properties)=>artifact.geometryDomain==='SHEET_SET'||artifact.geometryDomain==='MIXED_SET'?this.materials.engineeringSurface(color,properties):this.materials.surface(color,properties));
+      for(const m of Array.isArray(mesh.material)?mesh.material:[mesh.material]){m.userData.propertyPreview=Boolean(candidate);if(artifact.geometryDomain==='SHEET_SET'||artifact.geometryDomain==='MIXED_SET')m.shadowSide=THREE.DoubleSide;}
+      mesh.castShadow=(Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
+      mesh.receiveShadow=true;
+      applyEdgeAppearance(binding.group,appearance,binding.group.userData.cadEngineeringCurve?this.visualTheme.engineeringCurve:CATIA_VISUAL_THEME.edge,m=>this.materials.sectionLine(m));
       for(const child of binding.group.children){const materials=(child as THREE.Mesh).material;for(const m of Array.isArray(materials)?materials:materials?[materials]:[])m.userData.propertyPreview=Boolean(candidate)}
       applySolidDisplaySettings(binding.group,this.solidDisplay,this.featureSelection?.topologyPick);
     }
@@ -1148,7 +1148,9 @@ export class CadViewportEngine {
     this.worldGrid.setStyle(sceneGridColor(s),s.gridOpacity*.55,s.gridSpacing);
     this.sketchColors=sceneSketchColors(s);
     this.sketchGrid.setStyle(new THREE.Color(this.sketchColors.grid).getStyle(),SKETCH_ELEMENT_STYLE.gridOpacity);
-    Object.assign(this.visualTheme,{selected:this.sketchColors.selected,hover:this.sketchColors.hover,constraint:this.sketchColors.solved});
+    Object.assign(this.visualTheme,{selected:this.sketchColors.selected,hover:this.sketchColors.hover,constraint:this.sketchColors.solved,engineeringCurve:sceneBackgroundIsLight(s)?CATIA_VISUAL_THEME.engineeringCurveLight:CATIA_VISUAL_THEME.engineeringCurve});
+    for(const binding of this.solidBindings.values())if(binding.group.userData.cadEngineeringCurve)applyEdgeAppearance(binding.group,binding.appearance,this.visualTheme.engineeringCurve,m=>this.materials.sectionLine(m));
+    this.refreshInteractionHighlights();
     this.background.setColors(s.background==="THEME"?undefined:s.backgroundTop,s.background==="SOLID"?s.backgroundTop:s.background==="GRADIENT"?s.backgroundBottom:undefined);
     this.refreshSceneGround();this.invalidate();
   }
@@ -1162,7 +1164,7 @@ export class CadViewportEngine {
     {
       this.groundBounds.makeEmpty();this.content.updateMatrixWorld(true);
       for(const {group,mesh,artifact} of this.solidBindings.values()){
-        if(!this.objectVisible(group)||artifact.topology.solids<1||artifact.historicalPreview||artifact.representationKind==="TRANSIENT_PREVIEW")continue;
+        if(!this.objectVisible(group)||artifact.mesh.triangles.length===0||artifact.historicalPreview||artifact.representationKind==="TRANSIENT_PREVIEW")continue;
         const box=new THREE.Box3(new THREE.Vector3().fromArray(artifact.bbox.min),new THREE.Vector3().fromArray(artifact.bbox.max));
         this.groundBounds.union(box.applyMatrix4(mesh.matrixWorld));
       }
@@ -1247,6 +1249,7 @@ export class CadViewportEngine {
     const referenceKind=entry.kind==="plane"?"PLANE":entry.kind==="axis-system"?"AXIS_SYSTEM":entry.kind==="datum-point"?"DATUM_POINT":entry.kind==="reference-point"?"REFERENCE_POINT":entry.kind==="axis"?(entry.axis==="DATUM"?"DATUM_AXIS":"AXIS"):undefined;
     if(referenceKind&&entry.entityId)return {documentId,occurrencePath,kind:referenceKind,entityId:entry.entityId,axis:entry.kind==="axis"?entry.axis:undefined};
     if(entry.kind==="assembly-constraint"&&entry.constraintId)return {documentId,occurrencePath,kind:"ASSEMBLY_CONSTRAINT",entityId:entry.constraintId};
+    if (entry.kind === "feature" && entry.result) return {documentId,occurrencePath,kind:"FEATURE",entityId:entry.result.featureId};
     if (entry.kind === "body" && entry.bodyId) return {documentId, occurrencePath, kind:"BODY", entityId:entry.bodyId};
     if (entry.kind === "sketch" && entry.id) return {documentId, occurrencePath, kind:"SKETCH", entityId:entry.id, bodyId:entry.bodyId};
     if (entry.kind === "visual" && entry.featureId && entry.entityId) return {documentId, occurrencePath,
@@ -2825,7 +2828,7 @@ export class CadViewportEngine {
   private addReferenceGeometry(reference: ReferenceGeometry | undefined, parent: THREE.Group, context: SolidContext): void {
     if (!reference) return;
     for(const point of reference.datumPoints??[]){
-      const mesh=new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]),this.materials.point(CATIA_VISUAL_THEME.reference,6,false));
+      const mesh=new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]),this.materials.engineeringPoint(false));
       mesh.position.fromArray(point.position);
       const selection={...context,kind:'reference-point' as const,id:`${context.occurrencePath||'root'}:${point.id}`,entityId:point.id,treeNodeId:this.referenceTreeNode(context,point.id)};
       mesh.userData=selection;mesh.renderOrder=110;mesh.raycast=(raycaster,hits)=>{const previous=raycaster.params.Points!.threshold;raycaster.params.Points!.threshold=this.datumAxisPickToleranceWorld*2;try{raycastDatumPoint.call(mesh,raycaster,hits)}finally{raycaster.params.Points!.threshold=previous}};
@@ -3231,20 +3234,25 @@ export class CadViewportEngine {
 
   private makeSolid(artifact: Artifact, color: number, context: SolidContext, appearance?: import("../types").ResolvedAppearance): THREE.Group {
     context={...context,displayStageFeatureId:artifact.displayStageFeatureId??context.displayStageFeatureId};
+    if(context.result&&artifact.mesh.triangles.length)color=CATIA_VISUAL_THEME.engineeringSurface;
     const geometry = makeGeometry(artifact);
     geometry.userData.navigationFaceIds = artifact.mesh.faceIds;
     const group = new THREE.Group();
     const scopedAppearance = scopedSurfaceAppearance(appearance,artifact.geometryKey);
-    const mesh = new THREE.Mesh(geometry, surfaceAppearanceMaterials(geometry,artifact.mesh.faceIds,scopedAppearance,color,(value,properties)=>this.materials.surface(value,properties)));
+    const mesh = new THREE.Mesh(geometry, surfaceAppearanceMaterials(geometry,artifact.mesh.faceIds,scopedAppearance,color,(value,properties)=>artifact.geometryDomain==='SHEET_SET'||artifact.geometryDomain==='MIXED_SET'?this.materials.engineeringSurface(value,properties):this.materials.surface(value,properties)));
     mesh.userData.cadSurfaceKey=JSON.stringify([context.documentId,context.occurrencePath,context.bodyId,context.displayStageFeatureId??'']);
     mesh.raycast = acceleratedRaycast;
     markNavigationPickable(mesh);
-    // Retained construction sheets can share a skin with a material Body;
-    // duplicate shadow casters/receivers stripe the coincident skin.
-    mesh.castShadow = artifact.geometryDomain!=='SHEET_SET'&&(Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
-    mesh.receiveShadow = artifact.geometryDomain!=='SHEET_SET';
+    // Open sheets cast from both sides and participate in scene lighting.
+    // The display depth bias remains confined to retained construction sheets.
+    if(artifact.geometryDomain==='SHEET_SET'||artifact.geometryDomain==='MIXED_SET')for(const material of Array.isArray(mesh.material)?mesh.material:[mesh.material])material.shadowSide=THREE.DoubleSide;
+    mesh.castShadow = (Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
+    mesh.receiveShadow = true;
     const bodySelection:SelectionItem=context.result?{kind:'feature',id:context.result.featureId,entityId:context.result.featureId,...context}:{kind:'body',id:context.occurrencePath?`${context.occurrencePath}:body:${context.bodyId}`:context.bodyId??'body',...context};
     group.userData = {...bodySelection,geometryDomain:artifact.geometryDomain};
+    const engineeringCurve=artifact.geometryDomain==='WIRE_SET';
+    const edgeColor=engineeringCurve?this.visualTheme.engineeringCurve:CATIA_VISUAL_THEME.edge;
+    if(engineeringCurve)group.userData.cadEngineeringCurve=true;
     this.selectionIndex.register(bodySelection, group);
     this.selectionIndex.registerVisualKey(`body:${bodySelection.id}`, group);
     const occurrenceParts = context.occurrencePath.split("/").filter(Boolean);
@@ -3296,7 +3304,7 @@ export class CadViewportEngine {
     if (topologyVertices.length > 0) {
       const pointGeometry = new THREE.BufferGeometry();
       pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(topologyVertices.flatMap((item) => item.point), 3));
-      const points = new THREE.Points(pointGeometry, this.materials.topologyPoint(CATIA_VISUAL_THEME.vertex, 4.5));
+      const points = new THREE.Points(pointGeometry, artifact.geometryDomain==='POINT_SET'?this.materials.engineeringPoint():this.materials.topologyPoint(CATIA_VISUAL_THEME.vertex, 4.5));
       markNavigationPickable(points);
       if(!artifact.historicalPreview)this.selectionIndex.registerPick(points, (hit) => {
         if(!materialAllowsPick(points.material))return null;
@@ -3308,7 +3316,7 @@ export class CadViewportEngine {
       }, 50);
       group.add(points);
     }
-    applyEdgeAppearance(group,scopedAppearance,CATIA_VISUAL_THEME.edge,m=>this.materials.sectionLine(m));
+    applyEdgeAppearance(group,scopedAppearance,edgeColor,m=>this.materials.sectionLine(m));
     applySolidDisplaySettings(group, this.solidDisplay,this.featureSelection?.topologyPick);
     this.solidBindings.set(geometryBindingKey(context.occurrencePath,context.bodyId,context.result), { group, mesh, artifact, context, appearance:scopedAppearance,defaultColor:color,renderedAppearanceDigest:JSON.stringify([scopedAppearance,false]) });
     return group;
@@ -3795,7 +3803,9 @@ export class CadViewportEngine {
       const vertex = (binding.artifact.mesh.topologyVertices ?? []).find((item) => item.localId === selection.topologyId);
       if (vertex) {
         const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3().fromArray(vertex.point)]);
-        overlay = new THREE.Points(geometry, this.materials.topologyPoint(color, layer === "selected" ? 6 : 5, false));
+        const material=binding.artifact.geometryDomain==='POINT_SET'?this.materials.engineeringPoint(false):this.materials.topologyPoint(color, layer === "selected" ? 6 : 5, false);
+        if(binding.artifact.geometryDomain==='POINT_SET')material.uniforms.uColor.value.setHex(color);
+        overlay = new THREE.Points(geometry, material);
       }
     }
     if (!overlay) return;

@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v68-associative-geometry-references"
+const evaluatorVersion = "part-solid-generators-v71-engineering-surfaces"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -871,7 +871,7 @@ func (service *Service) CommitImportedPart(ctx context.Context, actor, folderID,
 		return DocumentView{}, err
 	}
 	if !exists {
-		if err := service.storeEvaluation(ctx, geometryKey, evaluation, visualizationManifest(newPartModel())); err != nil {
+		if err := service.storeEvaluationDomain(ctx, geometryKey, evaluation, visualizationManifest(newPartModel()), false, true); err != nil {
 			return DocumentView{}, err
 		}
 	}
@@ -1800,7 +1800,7 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			continue
 		}
 		switch strings.ToUpper(feature.Type) {
-		case "THICKEN":
+		case "THICKEN", "CLOSE_SURFACE":
 			sourceModel := fullModel
 			for i, f := range fullModel.Features {
 				if f.ID == feature.ID {
@@ -1812,7 +1812,7 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
-			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "THICKEN", BodyOperation: feature.Operation, GeometryGenerator: spec.GeometryFeatureSpec})
+			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: feature.Type, BodyOperation: feature.Operation, GeometryGenerator: spec.GeometryFeatureSpec})
 			bodyTipFeatureID = feature.ID
 		case "HOLE":
 			spec, err := holeInput(fullModel, feature)
@@ -2317,6 +2317,9 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 		visible := visibleOrDefault(feature.Visible)
 		node.LocalVisible = &visible
 	}
+	if feature.Type == "GEOMETRY" {
+		node.LocalVisible = boolPointer(visibleOrDefault(feature.Visible))
+	}
 	if node.Name == "" {
 		node.Name = strings.Title(strings.ToLower(kind))
 	}
@@ -2326,7 +2329,7 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 	if deletable {
 		node.Capabilities = []string{"DELETE"}
 	}
-	if childrenEditable && ((isBodyFeature(feature.Type) || feature.Type == "SKETCH_PATTERN" || feature.Type == "GEOMETRY") && feature.Type != "IMPORT_BODY") {
+	if childrenEditable && ((isBodyFeature(feature.Type) || feature.Type == "SKETCH_PATTERN" || feature.Type == "GEOMETRY") && feature.Type != "IMPORT_BODY" && !(feature.Geometry != nil && feature.Geometry.Kind == "IMPORTED")) {
 		node.Capabilities = append(node.Capabilities, "EDIT", "SUPPRESS")
 	}
 	node.Suppressed = feature.Suppressed

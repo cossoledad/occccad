@@ -239,3 +239,46 @@ func TestGeometricTerminationHasNoDormantDrivingLengthParameter(t *testing.T) {
 		t.Fatal("finite mode did not restore the stable parameter slot", model.Parameters)
 	}
 }
+
+func TestIndependentGeometryVisibilityHistoryAndCanonicalInputs(t *testing.T) {
+	model := newPartModel()
+	feature := testGeometryLine()
+	feature.GeometricalSetID = "set"
+	model.GeometricalSets = []GeometricalSet{{ID: "set", Name: "Geometry"}}
+	model.Features = []Feature{feature}
+	normalizePartModel(&model)
+	before, _ := json.Marshal(model)
+	definition, _ := json.Marshal(geometryFeatureDefinition(model.Features[0]))
+	payload, _ := json.Marshal(definitionVisibilityPayload{EntityKind: "FEATURE", EntityID: feature.ID, Visible: false})
+	next, changes, err := applyDefinitionVisibility(before, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hidden PartModel
+	json.Unmarshal(next, &hidden)
+	if hidden.Features[0].Visible == nil || *hidden.Features[0].Visible || len(changes.ImpactSeeds) != 0 {
+		t.Fatal("independent visibility must only change display")
+	}
+	canonical, _ := json.Marshal(geometryFeatureDefinition(hidden.Features[0]))
+	if string(canonical) != string(definition) {
+		t.Fatal("visibility changed geometry definition")
+	}
+	values, err := modelValues("PART", before, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := applyModelValues("PART", next, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var undo PartModel
+	json.Unmarshal(restored, &undo)
+	if undo.Features[0].Visible != nil {
+		t.Fatal("undo did not restore default display")
+	}
+	model.Features[0].Type = "PAD"
+	solid, _ := json.Marshal(model)
+	if _, _, err := applyDefinitionVisibility(solid, payload); err == nil {
+		t.Fatal("material-history feature gained independent display")
+	}
+}

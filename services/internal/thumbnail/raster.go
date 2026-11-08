@@ -113,6 +113,9 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 					shades[corner] = illumination(instance.pose.rotate(normal))
 				}
 				base := instance.appearance.Color
+				if base == "" && (instance.domain == "SHEET_SET" || instance.domain == "MIXED_SET") {
+					base = "#819db4"
+				}
 				if i < len(m.FaceIDs) {
 					if face := instance.appearance.Faces[uint64(m.FaceIDs[i])]; face != "" {
 						base = face
@@ -132,6 +135,11 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 	for _, instance := range s.meshes {
 		m := instance.mesh.mesh
 		edgeColor, edgeWidth, edgeOpacity := thumbnailEdgeStyle(instance.appearance)
+		if instance.domain == "WIRE_SET" {
+			edgeColor = color.RGBA{255, 209, 132, 255}
+			edgeWidth = 1.8
+			edgeOpacity = 1
+		}
 		if edgeOpacity <= 0 {
 			continue
 		}
@@ -173,7 +181,21 @@ func (r *raster) draw(ctx context.Context, s *renderScene) error {
 		}
 		if len(line.points) == 1 {
 			p := r.screen(line.points[0])
-			r.line(p, p, c, 4*samples, 1)
+			if line.engineering {
+				radius := 3.5 * float64(samples)
+				for pass := 0; pass < 2; pass++ {
+					width := 2.7 * float64(samples)
+					value := color.RGBA{27, 37, 48, 255}
+					if pass == 1 {
+						width = 1.2 * float64(samples)
+						value = color.RGBA{255, 255, 255, 255}
+					}
+					r.line(screenPoint{p.x - radius, p.y - radius, p.z}, screenPoint{p.x + radius, p.y + radius, p.z}, value, width, 1)
+					r.line(screenPoint{p.x - radius, p.y + radius, p.z}, screenPoint{p.x + radius, p.y - radius, p.z}, value, width, 1)
+				}
+			} else {
+				r.line(p, p, c, 4*samples, 1)
+			}
 		}
 		for j := 1; j < len(line.points); j++ {
 			if j%128 == 0 {

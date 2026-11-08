@@ -1639,6 +1639,17 @@ public:
         result.curve.knots={c.knots().begin(),c.knots().end()};result.curve.multiplicities={c.multiplicities().begin(),c.multiplicities().end()};result.curve.weights={c.weights().begin(),c.weights().end()};result.curve.closed=c.closed();
         const auto& p=input.parameters();result.parameters.direction=vec(p.direction());result.parameters.origin=vec(p.origin());result.parameters.distance=p.distance();result.parameters.angle=p.angle();result.parameters.start=p.start();result.parameters.end=p.end();result.parameters.side=p.side();result.parameters.tension=p.tension();
         const auto& w=input.sketch_wire();result.sketch_wire.sketch_id=w.sketch_id();result.sketch_wire.origin=vec(w.origin());result.sketch_wire.normal=vec(w.normal());result.sketch_wire.u_direction=vec(w.u_direction());for(const auto& c2:w.curves())result.sketch_wire.curves.push_back(exact_sketch_curve(c2));
+        const auto& surface=input.surface();result.surface.ruled=surface.ruled();result.surface.frame_mode=surface.frame_mode();result.surface.tolerance=surface.tolerance();result.surface.has_keep_point=surface.has_keep_point();result.surface.keep_point=vec(surface.keep_point());
+        if(input.has_import_seed()){
+            auto seed=input.import_seed();if(seed.has_identity_artifact()){
+                const auto data=read(seed.identity_artifact());worker_api::ImportTopologySeed full;
+                if(!full.ParseFromArray(data.data(),static_cast<int>(data.size()))||full.feature_id()!=seed.feature_id()||full.brep_sha256()!=seed.brep_sha256()||full.body_id()!=seed.body_id()||full.result_id()!=seed.result_id())throw std::invalid_argument("IMPORT_SEED_ARTIFACT_MISMATCH");seed=std::move(full);
+            }
+            if(seed.occt_version()!=OCC_VERSION_COMPLETE||seed.policy_id()!="occccad.import.frozen-brep.v1")throw std::invalid_argument("IMPORT_SEED_CONTRACT_MISMATCH");
+            occccad::kernel::ImportTopologySeed frozen;frozen.feature_id=seed.feature_id();frozen.body_id=seed.body_id();frozen.result_id=seed.result_id();frozen.brep_sha256=seed.brep_sha256();
+            for(const auto& entry:seed.identities())frozen.identities.push_back({entry.stable_id(),static_cast<occccad::kernel::PersistentTopologyType>(entry.topology_type()),entry.local_id()});
+            result.import_seed=std::move(frozen);result.import_brep=read(input.import_brep());
+        }
         return result;
     }
 
@@ -1880,10 +1891,11 @@ public:
                 if (input.has_identity_artifact()) {
                     const auto data = input_artifact(input.identity_artifact());
                     worker_api::ImportTopologySeed full;
-                    if (!full.ParseFromArray(data.data(), static_cast<int>(data.size())) || full.feature_id()!=input.feature_id() || full.brep_sha256()!=input.brep_sha256())
+                    if (!full.ParseFromArray(data.data(), static_cast<int>(data.size())) || full.feature_id()!=input.feature_id() || full.brep_sha256()!=input.brep_sha256() || full.body_id()!=input.body_id() || full.result_id()!=input.result_id())
                         throw std::invalid_argument("IMPORT_SEED_ARTIFACT_MISMATCH");
                     input = std::move(full);
                 }
+                if(input.body_id().empty() || !input.result_id().empty())throw std::invalid_argument("IMPORT_SEED_CONTRACT_MISMATCH");
                 if (input.occt_version() != OCC_VERSION_COMPLETE || input.policy_id() != "occccad.import.frozen-brep.v1")
                     throw std::invalid_argument("IMPORT_SEED_CONTRACT_MISMATCH");
                 seed.feature_id = input.feature_id();
@@ -2101,7 +2113,7 @@ public:
                 for (const auto& child : def.children)
                     occurrence(child, item->add_children());
                 if (def.kind == "PART" && !request->component_output_prefix().empty()) {
-                    const auto repaired = preparation.repairImportedSolid(def.geometry_id);
+                    const auto repaired = preparation.repairImportedGeometry(def.geometry_id);
                     // A repair can change topology before persistent IDs are allocated.
                     // Do not attach source face colors by ordinal to repaired topology.
                     if (repaired != def.geometry_id && !def.appearance.faces.empty())
@@ -2151,9 +2163,9 @@ public:
                 }
                 if (geometry_id.empty())
                     throw std::invalid_argument("STEP_PART_DEFINITION_REQUIRED");
-                geometry_id = kernel_.repairImportedSolid(geometry_id);
+                geometry_id = kernel_.repairImportedGeometry(geometry_id);
             } else {
-                geometry_id = kernel_.repairImportedSolid(
+                geometry_id = kernel_.repairImportedGeometry(
                     kernel_.loadBrepr(read_artifact(request->source())));
             }
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
@@ -2311,7 +2323,7 @@ public:
                 };
                 item.appearance = appearance(def.appearance());
                 if (item.kind == "PART") {
-                    if (def.bodies_size() > 0) {
+                    if (def.bodies_size() > 0 || def.geometries_size() > 0) {
                         std::vector<occccad::kernel::PlacedGeometry> bodies;
                         for (const auto& source : def.bodies()) {
                             occccad::kernel::PlacedGeometry body;
@@ -2319,11 +2331,16 @@ public:
                             bodies.push_back(body);
                             item.bodies.push_back({body.geometry_id, appearance(source.appearance())});
                         }
-                        if (bodies.size() == 1) {
+                        for(const auto& source:def.geometries()){
+                            if(!source.has_result()||source.result().feature_id().empty()||source.result().result_id().empty())throw std::invalid_argument("EXCHANGE_GEOMETRY_OWNER_REQUIRED");
+                            occccad::kernel::PlacedGeometry result;result.geometry_id=preparation.loadBrepr(read_artifact(source.brep()));bodies.push_back(result);
+                        }
+                        if (bodies.size() == 1 && def.geometries_size()==0) {
                             item.geometry_id = bodies.front().geometry_id;
                             item.appearance = item.bodies.front().appearance;
                             item.bodies.clear();
-                        } else item.geometry_id = preparation.combine(bodies);
+                        } else if(bodies.size()==1)item.geometry_id=bodies.front().geometry_id;
+                        else item.geometry_id = preparation.combine(bodies);
                     } else item.geometry_id = preparation.loadBrepr(read_artifact(def.brep()));
                 }
                 for (const auto& child : def.children())
@@ -2402,9 +2419,9 @@ private:
             if(brep_buffer)*brep_buffer=brep;
             if(!brep_output_key.empty())publish(brep_output_key,brep,"application/vnd.opencascade.brep",response->mutable_brep_artifact());
             response->set_geometry_id(geometry_id);response->set_geometry_key(geometry_key);
-            fill_bbox(bbox,response->mutable_bbox());response->set_volume(topology.solid_count>0?kernel_.getVolume(geometry_id):0);
+            fill_bbox(bbox,response->mutable_bbox());response->set_volume(topology.geometry_domain=="SOLID_SET"?kernel_.getVolume(geometry_id):0);
             auto* summary=response->mutable_topology();summary->set_face_count(topology.face_count);summary->set_edge_count(topology.edge_count);
-            summary->set_vertex_count(topology.vertex_count);summary->set_solid_count(topology.solid_count);
+            summary->set_vertex_count(topology.vertex_count);summary->set_solid_count(topology.solid_count);summary->set_geometry_domain(topology.geometry_domain);
             response->set_occt_version(OCC_VERSION_COMPLETE);response->set_representation_kind("EXACT_STAGE");
             return;
         }
@@ -2478,14 +2495,14 @@ private:
                            response->mutable_glb_artifact());
 
         fill_bbox(bbox, response->mutable_bbox());
-        response->set_volume(topology.solid_count>0?kernel_.getVolume(geometry_id):0);
+        response->set_volume(topology.geometry_domain=="SOLID_SET"?kernel_.getVolume(geometry_id):0);
         response->set_cache_hit(false);
         response->set_occt_version(OCC_VERSION_COMPLETE);
         auto* summary = response->mutable_topology();
         summary->set_face_count(topology.face_count);
         summary->set_edge_count(topology.edge_count);
         summary->set_vertex_count(topology.vertex_count);
-        summary->set_solid_count(topology.solid_count);
+        summary->set_solid_count(topology.solid_count);summary->set_geometry_domain(topology.geometry_domain);
         response->set_triangle_count(mesh.triangles.size());
         response->set_display_vertex_count(mesh.vertices.size());
         response->set_representation_kind(brep_output_key.empty() ? "TRANSIENT_PREVIEW" : "PERSISTENT");

@@ -1,8 +1,8 @@
 # 线框与曲面的分析与设计
 
-状态：A、B 已进入实现并形成有界基础能力，交付合同与限制以[当前实现](../docs/architecture/current/wireframe-surfaces.md)为准。首批方向由用户确认为**机械零件与工程曲面**：关联曲线 → 曲面构造 → 裁剪/连接/缝合 → 加厚或封闭成实体；后续 C–E 仍为设计/候选，尚非完整工程曲面版本。
+状态：A–C 已进入实现并形成有界工程能力，交付合同与限制以[当前实现](../docs/architecture/current/wireframe-surfaces.md)为准。首批方向由用户确认为**机械零件与工程曲面**：关联曲线 → 曲面构造 → 裁剪/连接/缝合 → 加厚或封闭成实体；C 按用户明确的工程曲面清单实施；D/E 仍为设计/候选，尚非商业 CAD 全能力对齐。
 
-任务从[CAD 核心主线](cad-core-roadmap.md)进入；商业行为与具体来源归[曲面建模参考](../docs/references/surface-modeling.md)。本文保留整体模型、后续阶段与验收设计；第 2 节是实施前核对快照，不能覆盖 current。A、B 当前交付限于独立 Part、有限曲线操作及拉伸曲面/加厚，未完成的 Product、发布、交换与通用曲面编辑归后续阶段。
+任务从[CAD 核心主线](cad-core-roadmap.md)进入；商业行为与具体来源归[曲面建模参考](../docs/references/surface-modeling.md)。本文保留整体模型、后续阶段与验收设计；第 2 节是实施前核对快照，不能覆盖 current。A–C 当前交付限于独立 Part 及有界操作，Product、发布和一般曲面编辑继续留在后续阶段。
 
 ## 1. 推荐方向
 
@@ -93,7 +93,7 @@ GeometryResult 的精确几何、网格、Naming、质量报告仍是带来源�
 | Join / Sew | 区分组织连接、拓扑共享和几何修复；检查自由边、连通域和非流形 | Sewing 及实际 Modified 历史；修复/近似需显式策略和偏差，不能静默放宽容差 |
 | Offset / Thicken / Close | 偏移产生曲面；加厚产生有厚度的实体；封闭将合格闭壳转实体 | Offset、ThickSolid、MakeSolid 等；凹角、自交、法向、内外壳和厚度奇异需验证 |
 
-候选 API 在设计时核对 OCCT 7.9.1 头文件；A、B 之外的组合尚未证明鲁棒性、完整 Naming 或性能。可以提取当前生成器中可复用的构造/历史组件，但不能仅切换一个 `solid=false` 参数就宣称曲面功能完成。
+候选 API 在设计时核对 OCCT 7.9.1 头文件；A–C 的有界实现与验证入口归 current；其余组合尚未证明鲁棒性、完整 Naming 或性能。可以提取当前生成器中可复用的构造/历史组件，但不能仅切换一个 `solid=false` 参数就宣称曲面功能完成。
 
 Composite Curve 默认保留精确成员与有序链，不重拟合；断开的来源需明确多结果。Surface Join 默认要求连通并保留面片身份，Sew 建立共享拓扑，Heal/近似重拟合则改变几何，须单独选择并报告偏差。导向与截面必须满足声明的相交/覆盖关系，不能通过最近点吸附让约束看似成立。
 
@@ -163,8 +163,8 @@ STEP/BREP 交换需支持 Wire/Sheet/Solid 及混合内容分类，保留 Part/P
 |---|---|---|
 | A：最短完整链 | 所有权/结果/引用/制品基础；草图或有限线框 → Surface Extrude → Thicken → 原 Body 修改 | 正式预览/提交、参数更新、失败修复、Undo/Redo、冷读取及 Naming；空 Body/仅曲面 Part 可显示和选择 |
 | B：关联曲线网络 | Extract、Boundary、有限线/圆弧/3D 样条、点在曲线、Composite、投影/交线、平面内 Offset、限定端点/方向的 G1 连接、曲线 Split/Trim/Extend 与基本变换 | 多支路和方向稳定，原 Sweep 能消费正式曲线输入；缺失/分裂不猜绑 |
-| C：首个工程曲面版本 | Surface Revolve、单路径 Sweep、开放/闭合截面 Loft、G0 Fill；Surface Split/Trim/Extend、Join/Sew、有限范围常量 Offset、Close；开放几何 STEP/BREP 交换、基础测量及发布互用 | 导流罩/薄壁壳体从构造到实体完整流程；自由边、非流形、周期缝、自交及交换缺口有真实验收。此门之前不称为完整工程曲面版本 |
-| D：形状与质量控制 | guide / spine / coupling 扩展、逐边支撑 G1、受限 G2、Boundary / Blend、曲率与斑马纹分析 | 逐能力公开适用输入；定量验证全边要求和误差证据，超限不降级；法则/双导向按独立子项接纳 |
+| C：工程曲面版本 | 单路径 Sweep、开放/闭合截面 Loft、G0 Fill；Surface Trim/Extend、Join/Sew、有限范围常量 Offset、Close；开放及混合 STEP/BREP 交换 | 按用户确认范围实施，具体接纳域以 current 为准；从曲面构造到实体、参数历史和冷热命名贯通，几何/交互/交换分层验收，不扩大为工业模型保证 |
+| D：形状与质量控制 | Surface Revolve、一般 Split/互裁与外推、测量/发布/Product 互用；guide / spine / coupling 扩展、逐边支撑 G1、受限 G2、Boundary / Blend、曲率与斑马纹分析 | 逐能力公开适用输入；定量验证全边要求和误差证据，超限不降级；法则/双导向按独立子项接纳 |
 | E：后续候选 | 自由曲面匹配/控制点编辑、更复杂偏移修补、Law/Isoparametric、Ordered Geometrical Set、Class-A 专项 | 单独设计与测量，不扩大 A–D 承诺；SubD/点云/展开另立领域评审 |
 
 阶段是实现优先级，不是将质量和历史推迟到末期；A 起即有域校验、来源 Naming、基本分析、参数化及历史。先完成 A 的可运行闭环，再扩展 B/C，避免先堆数十个无完整下游能力的命令。

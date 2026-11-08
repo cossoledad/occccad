@@ -1,7 +1,7 @@
 import {CommandInputError} from "../../cad/command/operation-failure";
 import type { Feature } from "../../types";
 import { linearExtrudeLengthInput, parseParameterSource } from "./parameter-editor";
-const bodyFeatureTypes = new Set(["THICKEN","SWEEP", "HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
+const bodyFeatureTypes = new Set(["THICKEN","CLOSE_SURFACE","SWEEP", "HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
 export function isSolidStage(feature:Feature):boolean {return bodyFeatureTypes.has(feature.type.toUpperCase());}
 export function consecutiveSolidFeatures(features:Feature[],ids:string[]):Feature[]|undefined {
     if(!ids.length||new Set(ids).size!==ids.length)return;
@@ -11,7 +11,7 @@ export function consecutiveSolidFeatures(features:Feature[],ids:string[]):Featur
     const start=history.findIndex(f=>f.id===members[0].id);
     return history.slice(start,start+members.length).every(f=>selected.has(f.id))?members:undefined;
 }
-export const solidFeatureNames: Record<string, string> = { THICKEN:"加厚",SWEEP:"扫掠", HOLE:"孔", FILLET: "圆角", CHAMFER: "倒角", DRAFT: "拔模", SHELL: "抽壳", LOFT: "放样", REVOLVE: "旋转", PAD: "拉伸", LINEAR_EXTRUDE: "拉伸" };
+export const solidFeatureNames: Record<string, string> = { THICKEN:"加厚",CLOSE_SURFACE:"封闭曲面",SWEEP:"扫掠", HOLE:"孔", FILLET: "圆角", CHAMFER: "倒角", DRAFT: "拔模", SHELL: "抽壳", LOFT: "放样", REVOLVE: "旋转", PAD: "拉伸", LINEAR_EXTRUDE: "拉伸" };
 export const modifierTypes = ["FILLET", "CHAMFER", "DRAFT", "SHELL"] as const;
 export type ModifierType = typeof modifierTypes[number];
 export function defaultModifierFeature(type: ModifierType, bodyId?: string): Feature {

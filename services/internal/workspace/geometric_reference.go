@@ -17,7 +17,7 @@ func geometryReferences(d *GeometricFeatureDefinition) []GeometricInput {
 		return nil
 	}
 	var out []GeometricInput
-	for _, ref := range []*GeometricInput{d.Direction, d.Axis, d.MirrorPlane} {
+	for _, ref := range []*GeometricInput{d.Direction, d.Axis, d.MirrorPlane, d.KeepPoint} {
 		if ref != nil {
 			out = append(out, *ref)
 		}

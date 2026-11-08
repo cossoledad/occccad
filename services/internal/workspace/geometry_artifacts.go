@@ -100,8 +100,8 @@ func (s *Service) storeEvaluation(ctx context.Context, key string, e *workerv1.E
 func (s *Service) storeGeometryEvaluation(ctx context.Context, key string, e *workerv1.EvaluatePartResponse) error {
 	return s.storeEvaluationDomain(ctx, key, e, VisualizationManifest{}, false)
 }
-func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *workerv1.EvaluatePartResponse, v VisualizationManifest, solid bool) error {
-	if !solid && (e.GetTopology().GetSolidCount() != 0 || e.GetTopology().GetFaceCount()+e.GetTopology().GetEdgeCount()+e.GetTopology().GetVertexCount() == 0 || e.GetEvaluationManifest() == nil) {
+func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *workerv1.EvaluatePartResponse, v VisualizationManifest, solid bool, imported ...bool) error {
+	if !solid && (e.GetTopology().GetFaceCount()+e.GetTopology().GetEdgeCount()+e.GetTopology().GetVertexCount() == 0 || e.GetEvaluationManifest() == nil && len(imported) == 0) {
 		return fmt.Errorf("%w: independent geometry result required", ErrValidation)
 	}
 	if (e.GetRepresentationKind() != "PERSISTENT" && e.GetRepresentationKind() != "EXACT_STAGE") || solid && (e.GetTopology().GetSolidCount() == 0 || e.GetVolume() <= 0) {
@@ -140,7 +140,7 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 		worker := s.worker.WorkerFor(key)
 		v.Primitives = nil
 		v.FeatureAssociations = nil
-		return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, Volume: e.Volume, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount}, Visualization: v}, objects)
+		return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, Volume: e.Volume, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount, "domain": geometryDomain(e)}, Visualization: v}, objects)
 	}
 	ref := e.GetGlbArtifact()
 	if ref == nil || ref.GetSizeBytes() > uint64(^uint64(0)>>1) {
@@ -154,7 +154,7 @@ func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *work
 	}
 	objects["VISUAL"] = visual
 	worker := s.worker.WorkerFor(key)
-	return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, Volume: e.Volume, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount}, TriangleCount: e.TriangleCount, DisplayVertexCount: e.DisplayVertexCount, Visualization: v}, objects)
+	return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, Volume: e.Volume, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount, "domain": geometryDomain(e)}, TriangleCount: e.TriangleCount, DisplayVertexCount: e.DisplayVertexCount, Visualization: v}, objects)
 }
 func (s *Service) ensureVisualizationArtifact(ctx context.Context, model PartModel) (string, error) {
 	v := visualizationManifest(model)
@@ -255,6 +255,9 @@ func (s *Service) loadArtifact(ctx context.Context, key string) (Artifact, error
 		a.GeometryDomain = "SHEET_SET"
 	} else if n, ok := a.Topology["edges"].(float64); ok && n > 0 {
 		a.GeometryDomain = "WIRE_SET"
+	}
+	if domain, ok := a.Topology["domain"].(string); ok && domain != "" {
+		a.GeometryDomain = domain
 	}
 	a.GLBBytes = int(a.Representations["VISUAL"].Size)
 	a.BRepBytes = int(a.Representations["BREP"].Size)

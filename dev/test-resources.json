@@ -1054,5 +1054,11 @@
     "resources": [
       "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#newSketchWorkflowFixture"
     ]
+  },
+  {
+    "path": "services/internal/workspace/surface_feature_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#newSketchWorkflowFixture"
+    ]
   }
 ]

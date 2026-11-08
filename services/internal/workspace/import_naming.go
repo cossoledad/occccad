@@ -33,6 +33,7 @@ type importedIdentity struct {
 }
 type importDefinition struct {
 	FeatureID   string             `json:"featureId"`
+	ResultID    string             `json:"resultId,omitempty"`
 	BodyID      string             `json:"bodyId"`
 	GeometryKey string             `json:"geometryKey"`
 	BRepSHA256  string             `json:"brepSha256"`
@@ -53,7 +54,10 @@ func (service *Service) allocateImportDefinition(ctx context.Context, documentID
 	if !errors.Is(err, database.ErrNoRows) {
 		return "", err
 	}
-	var topology struct{ Faces, Edges, Vertices, Solids int }
+	var topology struct {
+		Faces, Edges, Vertices, Solids int
+		Domain                         string
+	}
 	var topologyJSON []byte
 	var digest *string
 	var occt string
@@ -64,13 +68,17 @@ func (service *Service) allocateImportDefinition(ctx context.Context, documentID
 	if err = json.Unmarshal(topologyJSON, &topology); err != nil {
 		return "", err
 	}
-	if topology.Solids < 1 || topology.Faces == 0 {
+	if topology.Faces+topology.Edges+topology.Vertices == 0 || feature.Type == "IMPORT_BODY" && (topology.Solids < 1 || topology.Faces == 0 || topology.Domain != "SOLID_SET") {
 		return "", fmt.Errorf("%w: IMPORT_NAMING_REQUIRES_VALID_SOLID_DEFINITION", ErrValidation)
 	}
 	if digest == nil {
 		return "", fmt.Errorf("IMPORT_BREP_UNAVAILABLE")
 	}
 	def := importDefinition{FeatureID: feature.ID, BodyID: feature.BodyID, GeometryKey: feature.GeometryKey, BRepSHA256: *digest, Policy: importPolicy, OCCTVersion: occt, Units: "mm", Source: source}
+	if feature.Type == "GEOMETRY" {
+		def.ResultID = "result"
+		def.BodyID = ""
+	}
 	for _, group := range []struct {
 		kind  string
 		count int
@@ -128,17 +136,17 @@ func (service *Service) importSeed(ctx context.Context, feature Feature) (*worke
 	if err := json.Unmarshal(raw, &def); err != nil {
 		return nil, err
 	}
-	if def.FeatureID != feature.ID || def.GeometryKey != feature.GeometryKey || def.Policy != importPolicy || def.Units != "mm" {
+	if def.FeatureID != feature.ID || (feature.Type == "GEOMETRY" && (def.ResultID != "result" || def.BodyID != "")) || (feature.Type == "IMPORT_BODY" && def.ResultID != "") || def.GeometryKey != feature.GeometryKey || def.Policy != importPolicy || def.Units != "mm" {
 		return nil, fmt.Errorf("%w: IMPORT_DEFINITION_MISMATCH", ErrValidation)
 	}
 	object, err := service.artifacts.Get(ctx, objectID)
 	if err != nil {
 		return nil, err
 	}
-	return &workerv1.ImportTopologySeed{FeatureId: feature.ID, BodyId: def.BodyID, BrepSha256: def.BRepSHA256, IdentityArtifact: &workerv1.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size), ContentType: object.ContentType}}, nil
+	return &workerv1.ImportTopologySeed{FeatureId: feature.ID, BodyId: def.BodyID, ResultId: def.ResultID, BrepSha256: def.BRepSHA256, IdentityArtifact: &workerv1.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size), ContentType: object.ContentType}}, nil
 }
 func importDefinitionSeed(def importDefinition) (*workerv1.ImportTopologySeed, error) {
-	seed := &workerv1.ImportTopologySeed{FeatureId: def.FeatureID, BodyId: def.BodyID, BrepSha256: def.BRepSHA256, OcctVersion: def.OCCTVersion, PolicyId: def.Policy}
+	seed := &workerv1.ImportTopologySeed{FeatureId: def.FeatureID, BodyId: def.BodyID, ResultId: def.ResultID, BrepSha256: def.BRepSHA256, OcctVersion: def.OCCTVersion, PolicyId: def.Policy}
 	for _, entry := range def.Identities {
 		kind := map[string]workerv1.PersistentTopologyType{"FACE": workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_FACE, "EDGE": workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_EDGE, "VERTEX": workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_VERTEX}[entry.Kind]
 		if kind == 0 {

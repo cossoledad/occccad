@@ -111,7 +111,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	slog.Info("exchange preparation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	phaseStarted = time.Now()
 	if count == 0 {
-		return errors.New("exchange source contains no importable solids")
+		return errors.New("exchange source contains no importable geometry")
 	}
 	if err := h.queue.UpdateProgressDetail(ctx, job.ID, h.workerID, 15, &jobs.ProgressDetail{Phase: "EVALUATING", Total: count}); err != nil {
 		return err
@@ -148,8 +148,8 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 				if err != nil {
 					return fmt.Errorf("component %d (%s): %w", index+1, component.Name, err)
 				}
-				if evaluation.GetTopology().GetSolidCount() < 1 {
-					return fmt.Errorf("%w: prepared definition has no Solid", workspace.ErrValidation)
+				if evaluation.GetTopology().GetFaceCount()+evaluation.GetTopology().GetEdgeCount()+evaluation.GetTopology().GetVertexCount() == 0 {
+					return fmt.Errorf("%w: prepared definition has no geometry", workspace.ErrValidation)
 				}
 				results[index] = imported{key, evaluation}
 				return evaluated()

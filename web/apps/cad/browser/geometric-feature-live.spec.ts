@@ -1,4 +1,5 @@
 import {expect,test,type Page} from '@playwright/test';
+import fs from 'node:fs';
 import {worldScreen,observeViewport} from './camera-helpers';
 import {treeNavigator} from './tree-helpers';
 
@@ -89,4 +90,94 @@ test('Associative curve tools preserve input roles and display point results',as
  await pickTree(seed.curve,'Base rail');await command(page,'偏移曲线');dialog=page.getByRole('dialog',{name:'偏移曲线',exact:true});await pickTree(seed.curve,'Base rail');await page.getByRole('treeitem',{name:'XY Plane',exact:true}).click();await ready(page,dialog);
  await dialog.getByRole('button',{name:'移除曲线',exact:true}).click();await expect(dialog).toContainText('XY Plane');await expect(dialog.getByRole('button',{name:/确\s*定/})).toBeDisabled();await dialog.getByRole('button',{name:'选择曲线',exact:true}).click();await pickTree(seed.curve,'Base rail');await ready(page,dialog);await page.screenshot({path:info.outputPath('curve-input-roles.png')});await dialog.getByRole('button',{name:/确\s*定/}).click();await expect(dialog).toHaveCount(0);
  const offset=(await document(page,seed.id)).part.features.at(-1);expect(offset.geometry.inputs[0].kind).toBe('RESULT');expect(offset.geometry.inputs[1].kind).toBe('PLANE');expect(offset.result.domain).toBe('WIRE_SET');
+});
+
+test('Engineering surfaces: empty dialogs, viewport picks, ordered loft, sewing and close',async({page},info)=>{
+ test.setTimeout(300_000);const errors:string[]=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(/Shader Error|VALIDATE_STATUS|THREE.WebGLProgram/.test(m.text()))errors.push(m.text())});
+ await login(page);
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Engineering surfaces C acceptance');const id=v.document.id;
+  const p={direction:[0,0,1],origin:[0,0,0],distance:20,angle:0,start:.5,end:1,tension:1};
+  const create=async(name:string,geometry:any)=>{v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name,geometry:{parameters:{...p},...geometry}}});return v.part!.features.at(-1)!};
+  const profile=await create('C Profile',{kind:'LINE',curve:{points:[{id:'a',position:[0,0,0]},{id:'b',position:[30,0,0]}]}});
+  const rail=await create('C Rail',{kind:'LINE',curve:{points:[{id:'a',position:[0,0,0]},{id:'b',position:[0,0,20]}]}});
+  v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY',sketchOwnerKind:'GEOMETRICAL_SET'});const sketch=v.part!.features.at(-1)!;
+  v=await api.command(id,{type:'EDIT_SKETCH',sketchId:sketch.id,operations:[{type:'ADD_RECTANGLE',first:{x:40,y:0},second:{x:50,y:10}}]});
+  const ids=v.part!.features.find(f=>f.id===sketch.id)!.sketch!.entities.map(e=>e.id);
+  const bottom=await create('C Bottom',{kind:'EXTRACT',inputs:[{kind:'SKETCH',featureId:sketch.id,entityIds:ids}]});
+  const top=await create('C Top',{kind:'TRANSLATE',inputs:[{kind:'RESULT',featureId:bottom.id,resultId:'result'}],direction:{kind:'RESULT',featureId:rail.id,resultId:'result'},parameters:{...p,distance:20}});
+  const cutLine=await create('C Cut line',{kind:'LINE',curve:{points:[{id:'a',position:[15,-10,0]},{id:'b',position:[15,10,0]}]}});
+  const cutter=await create('C Cutter',{kind:'SURFACE_EXTRUDE',inputs:[{kind:'RESULT',featureId:cutLine.id,resultId:'result'}],direction:{kind:'RESULT',featureId:rail.id,resultId:'result'}});
+  v=await api.command(id,{type:'CREATE_REFERENCE_POINT',name:'C Keep point',referenceConstruction:{mode:'POINT_COORDINATES',coordinates:[5,0,5]}});const keep=v.part!.datumPoints!.at(-1)!;
+  const point=await create('C Curve point',{kind:'POINT_ON_CURVE',inputs:[{kind:'RESULT',featureId:profile.id,resultId:'result'}]});
+  return {id,profile,rail,bottom,top,cutter,keep,point};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await geometryTab(page);
+ const pick=async(f:any)=>selectTree(page,f.id,f.name);
+ const open=async(name:string)=>{const before=(await document(page,seed.id)).document.versionId;await command(page,name);const d=page.getByRole('dialog',{name,exact:true});await expect(d.getByRole('button',{name:/确\s*定/})).toBeDisabled();await expect(d).not.toContainText('更多');expect((await document(page,seed.id)).document.versionId).toBe(before);return d};
+ const confirm=async(d:ReturnType<Page['getByRole']>)=>{await ready(page,d);await d.getByRole('button',{name:/确\s*定/}).click();await expect(d).toHaveCount(0);const v=await document(page,seed.id),f=v.part.features.at(-1);expect(f.evaluationStatus).toBeFalsy();return f};
+ let d=await open('曲面扫掠');await clickWorld(page,[10,0,0]);await pick(seed.rail);const sweep=await confirm(d);
+ d=await open('曲面放样');await pick(seed.bottom);await expect(d.getByRole('button',{name:/确\s*定/})).toBeDisabled();await pick(seed.top);await ready(page,d);
+ await d.getByRole('button',{name:'上移截面 2',exact:true}).click();await ready(page,d);await d.getByRole('button',{name:'下移截面 1',exact:true}).click();await ready(page,d);await page.screenshot({path:info.outputPath('engineering-loft-list.png')});const walls=await confirm(d);
+ const caps=[];for(const source of [seed.bottom,seed.top]){d=await open('填充曲面');await pick(source);caps.push(await confirm(d))}
+ d=await open('连接曲面');for(const f of [walls,...caps])await pick(f);const join=await confirm(d);expect(join.geometry.inputs).toHaveLength(3);
+ d=await open('缝合曲面');for(const f of [walls,...caps])await pick(f);const shell=await confirm(d);
+ d=await open('封闭曲面');await pick(shell);const closed=await confirm(d);expect(closed.type).toBe('CLOSE_SURFACE');
+ let current=await document(page,seed.id);expect(Object.values(current.artifacts).some((a:any)=>a.geometryDomain==='SOLID_SET'&&Math.abs(a.volume-2000)<1e-4)).toBe(true);
+ d=await open('延长曲面');await pick(sweep);await clickWorld(page,[10,0,20]);await page.screenshot({path:info.outputPath('engineering-extension-boundary.png')});const extended=await confirm(d);expect(extended.geometry.inputs[1].kind).toBe('TOPOLOGY');
+ d=await open('偏移曲面');await pick(sweep);const offset=await confirm(d);expect(offset.geometry.parameters.distance).toBe(2);
+ d=await open('裁剪曲面');await pick(sweep);await pick(seed.cutter);await selectTree(page,seed.keep.id,seed.keep.name,'point');await ready(page,d);await page.screenshot({path:info.outputPath('engineering-trim-keep-point.png')});const trim=await confirm(d);expect(trim.geometry.keepPoint.kind).toBe('DATUM');
+ // Both standalone points and datum points have an outlined cross; body corners
+ // retain round markers, and engineering wires remain visible with edges off.
+ await observeViewport(page);const display=await page.evaluate(()=>{
+  const e=(window as any).__cameraEngine;e.selectMany([],true);e.preselect(null,true);const data:any[]=[];
+  for(const b of e.solidBindings.values()){const points=b.group.children.filter((o:any)=>o.isPoints);data.push({domain:b.artifact.geometryDomain,pointShapes:points.map((o:any)=>o.material.uniforms.uMarkerShape.value),color:b.mesh.material.color?.getHexString(),cast:b.mesh.castShadow,receive:b.mesh.receiveShadow,side:b.mesh.material.side,wire:b.group.children.find((o:any)=>o.userData.cadWideEdges)?.material.linewidth})}
+  const reference:any[]=[];e.scene.traverse((o:any)=>{if(o.userData.kind==='reference-point')reference.push(o.material.uniforms.uMarkerShape.value)});return {data,reference};
+ });
+ expect(display.reference.every(v=>v===3)).toBe(true);expect(display.data.filter(v=>v.domain==='POINT_SET').every(v=>v.pointShapes.includes(3))).toBe(true);
+ expect(display.data.filter(v=>v.domain==='SHEET_SET').every(v=>v.cast&&v.receive&&v.side===2)).toBe(true);expect(display.data.filter(v=>v.domain==='WIRE_SET').every(v=>v.wire>=2)).toBe(true);
+ await page.screenshot({path:info.outputPath('engineering-surfaces-display.png')});
+ const before=(await document(page,seed.id)).document.versionId;d=await open('封闭曲面');await pick(sweep);await expect(page.locator('.ant-notification')).toBeVisible();await expect(d.getByRole('button',{name:/确\s*定/})).toBeDisabled();await d.getByRole('button',{name:/取\s*消/}).click();expect((await document(page,seed.id)).document.versionId).toBe(before);
+ await page.reload();await expect(page.locator('canvas')).toBeVisible();current=await document(page,seed.id);expect(current.part.features.find((f:any)=>f.id===trim.id).result).toBeTruthy();expect(errors).toEqual([]);
+});
+
+test('Engineering surface display: curved sheets, point glyphs, dark theme and real thumbnails',async({browser},info)=>{
+ const context=await browser.newContext({baseURL:'http://127.0.0.1:5175',viewport:{width:1440,height:1000},deviceScaleFactor:2});
+ try{
+  const page=await context.newPage(),errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(/Shader Error|VALIDATE_STATUS|THREE.WebGLProgram/.test(m.text()))errors.push(m.text())});await login(page);
+  const seed=await page.evaluate(async()=>{
+   const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Engineering curved sheet and points');const id=v.document.id;
+   const parameters={direction:[0,0,1],origin:[0,0,0],distance:10,angle:0,start:.5,end:1,tension:1};
+   const create=async(name:string,geometry:any)=>{v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name,geometry:{parameters:{...parameters},...geometry}}});const f=v.part!.features.at(-1)!;if(!f.result)throw new Error(f.diagnostic??'Missing geometry');return f};
+   const circles=[];for(const [z,radius] of [[0,5],[10,10],[20,5]])circles.push(await create('Section '+z,{kind:'CIRCLE',curve:{points:[{id:'center',position:[0,0,z]}],normal:[0,0,1],xDirection:[1,0,0],radius}}));
+   const sheet=await create('Curved surface',{kind:'SURFACE_LOFT',inputs:circles.map(f=>({kind:'RESULT',featureId:f.id,resultId:'result'})),surface:{ruled:false,tolerance:.000001}});
+   for(const f of circles)v=await api.command(id,{type:'SET_DEFINITION_VISIBILITY',targetKind:'FEATURE',targetId:f.id,visible:false});
+   const curve=await create('Engineering curve',{kind:'LINE',curve:{points:[{id:'a',position:[18,-8,10]},{id:'b',position:[18,8,10]}]}});
+   const point=await create('Independent point',{kind:'POINT_ON_CURVE',inputs:[{kind:'RESULT',featureId:curve.id,resultId:'result'}]});
+   v=await api.command(id,{type:'CREATE_REFERENCE_POINT',name:'Reference cross',referenceConstruction:{mode:'POINT_COORDINATES',coordinates:[-18,0,10]}});
+   return {id,sheet:sheet.id,curve:curve.id,point:point.id,revision:v.document.versionId};
+  });
+  await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await geometryTab(page);await observeViewport(page);
+  await expect.poll(()=>page.evaluate(()=>[...(window as any).__cameraEngine.solidBindings.values()].some((b:any)=>b.artifact.geometryDomain==='SHEET_SET'))).toBe(true);
+  await selectTree(page,seed.curve,'Engineering curve');
+  const row=page.locator(`[role=treeitem][data-tree-key$="/feature:${seed.curve}"]`);
+  await row.click({button:'right'});await page.getByRole('menuitem',{name:'隐藏',exact:true}).click();
+  await expect.poll(()=>page.evaluate(id=>[...(window as any).__cameraEngine.solidBindings.values()].find((b:any)=>b.context.result?.featureId===id)?.group.visible,seed.curve)).toBe(false);
+  await row.click({button:'right'});await page.getByRole('menuitem',{name:'显示',exact:true}).click();
+  await expect.poll(()=>page.evaluate(id=>[...(window as any).__cameraEngine.solidBindings.values()].find((b:any)=>b.context.result?.featureId===id)?.group.visible,seed.curve)).toBe(true);
+  const stableRevision=(await document(page,seed.id)).document.versionId;await page.mouse.click(1100,250);
+  const normal=await page.evaluate(()=>{const e=(window as any).__cameraEngine;e.setDisplaySettings(e.referenceVisibility,{...e.solidDisplay,vertices:false,edges:false});const sheet=[...e.solidBindings.values()].find((b:any)=>b.artifact.geometryDomain==='SHEET_SET'),wire=[...e.solidBindings.values()].find((b:any)=>b.artifact.geometryDomain==='WIRE_SET'),point=[...e.solidBindings.values()].find((b:any)=>b.artifact.geometryDomain==='POINT_SET');return {shadows:e.renderer.shadowMap.enabled,bounds:!e.groundBounds.isEmpty(),roughness:sheet.mesh.material.roughness,metalness:sheet.mesh.material.metalness,wireVisible:wire.group.children.find((o:any)=>o.userData.cadWideEdges).visible,wireColor:wire.group.children.find((o:any)=>o.userData.cadWideEdges).material.color.getHexString(),pointShape:point.group.children.find((o:any)=>o.isPoints).material.uniforms.uMarkerShape.value}});
+  expect(normal).toMatchObject({shadows:true,bounds:true,roughness:.78,metalness:0,wireVisible:true,wireColor:'9a6010',pointShape:3});
+  await page.mouse.move(1430,990);await page.screenshot({path:info.outputPath('engineering-curved-light-dpr2.png')});
+  await clickWorld(page,[18,0,10]);await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.selected[0]?.kind)).toBe('vertex');await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.selectedOverlays.at(-1)?.material.uniforms.uMarkerShape.value)).toBe(3);
+  await page.getByRole('button',{name:'选项',exact:true}).click();const options=page.getByRole('dialog',{name:'选项',exact:true});await options.getByRole('menuitem',{name:'场景',exact:true}).click();await options.getByRole('button',{name:'深色工程',exact:true}).click();await options.getByRole('button',{name:'关闭',exact:true}).click();
+  await expect(page.locator('.workbench-content')).not.toHaveClass(/light-scene/);
+  await page.evaluate(()=>{const e=(window as any).__cameraEngine;e.selectMany([],true);e.preselect(null,true);e.setSceneSettings({...e.sceneSettings,projection:'ORTHOGRAPHIC'});e.camera.position.sub(e.navigation.target).applyAxisAngle(e.camera.up,Math.PI).add(e.navigation.target);e.camera.lookAt(e.navigation.target);e.navigation.syncCamera(false);e.invalidate()});
+  await page.mouse.move(1430,990);await page.screenshot({path:info.outputPath('engineering-curved-dark-dpr2.png')});
+  const dark=await page.evaluate(()=>{const e=(window as any).__cameraEngine;return {dpr:e.renderer.getPixelRatio(),wire:[...e.solidBindings.values()].find((b:any)=>b.artifact.geometryDomain==='WIRE_SET').group.children.find((o:any)=>o.userData.cadWideEdges).material.color.getHexString()}});expect(dark).toEqual({dpr:2,wire:'ffd184'});
+  await expect.poll(async()=>{const r=await page.request.get(`/api/documents/${seed.id}/preview`);expect(r.ok()).toBe(true);return r.headers()['x-occccad-thumbnail-state']},{timeout:30_000}).toBe('ready');
+  const thumbnail=await page.request.get(`/api/documents/${seed.id}/preview`);fs.writeFileSync(info.outputPath('engineering-curved-thumbnail.png'),await thumbnail.body());
+  expect((await document(page,seed.id)).document.versionId).toBe(stableRevision);expect(errors).toEqual([]);
+ }finally{await context.close()}
 });

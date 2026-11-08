@@ -86,7 +86,7 @@ func appendSketchFallback(ctx context.Context, s *renderScene, features []worksp
 			for _, p := range points {
 				s.include(p)
 			}
-			s.lines = append(s.lines, sceneLine{points, entity.Role == "CONSTRUCTION"})
+			s.lines = append(s.lines, sceneLine{points: points, construction: entity.Role == "CONSTRUCTION"})
 		}
 	}
 	return nil

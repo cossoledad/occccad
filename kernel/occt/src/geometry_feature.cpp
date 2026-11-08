@@ -56,7 +56,7 @@
 #include <gp_Ax2.hxx>
 #include <gp_Pln.hxx>
 
-#include <internal/geometry_feature.hpp>
+#include <internal/geometry_feature_support.hpp>
 #include <occccad/kernel/geometry_id.hpp>
 
 #include <algorithm>
@@ -67,8 +67,8 @@
 #include <stdexcept>
 
 namespace occccad::kernel::detail {
-namespace {
-constexpr double tolerance = 1e-7, pi = 3.14159265358979323846;
+namespace geometry_features {
+constexpr double pi = 3.14159265358979323846;
 gp_Pnt point(const Vec3& v) {
     if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z))
         throw std::invalid_argument("GEOMETRY_NONFINITE_COORDINATE");
@@ -121,8 +121,7 @@ bool contains(const TopoDS_Shape& parent, const TopoDS_Shape& child) {
     return false;
 }
 void add(GeometryFeatureBuild& b, const SemanticTopologyRef& r, const TopoDS_Shape& shape,
-         std::vector<SemanticTopologyRef> sources = {},
-         std::vector<SemanticTopologyRef> roles = {}) {
+         std::vector<SemanticTopologyRef> sources, std::vector<SemanticTopologyRef> roles) {
     if (shape.IsNull() || !contains(b.shape, shape))
         return;
     if (shape.ShapeType() != TopAbs_FACE && shape.ShapeType() != TopAbs_EDGE &&
@@ -215,6 +214,35 @@ TopoDS_Edge single_edge(const GeometryFeatureBuild& b) {
         throw std::invalid_argument("SINGLE_CURVE_REQUIRED");
     return TopoDS::Edge(e.front());
 }
+bool internally_g1(const TopoDS_Edge& edge, double linear_tol, double angular_tol,
+                   const std::function<bool()>& cancelled) {
+    BRepAdaptor_Curve curve(edge);
+    const int count = curve.NbIntervals(GeomAbs_C1);
+    if (count > 4096)
+        throw std::invalid_argument("GEOMETRY_INPUT_BUDGET");
+    if (count <= 1)
+        return true;
+    TColStd_Array1OfReal spans(1, count + 1);
+    curve.Intervals(spans, GeomAbs_C1);
+    for (int i = 2; i <= count; ++i) {
+        if (cancelled && cancelled())
+            throw std::runtime_error("EVALUATION_CANCELLED");
+        const double u = spans(i);
+        const auto left = curve.Trim(spans(i - 1), u, linear_tol),
+                   right = curve.Trim(u, spans(i + 1), linear_tol);
+        gp_Pnt a, b;
+        gp_Vec ta, tb;
+        left->D1(u, a, ta);
+        right->D1(u, b, tb);
+        if (a.Distance(b) > linear_tol || ta.Magnitude() <= 1e-10 || tb.Magnitude() <= 1e-10)
+            return false;
+        ta.Normalize();
+        tb.Normalize();
+        if (ta.Dot(tb) <= 0 || ta.Crossed(tb).Magnitude() > angular_tol)
+            return false;
+    }
+    return true;
+}
 double fraction_parameter(const TopoDS_Edge& e, double fraction) {
     if (!std::isfinite(fraction) || fraction < 0 || fraction > 1)
         throw std::invalid_argument("CURVE_FRACTION_OUT_OF_RANGE");
@@ -235,39 +263,6 @@ double fraction_parameter(const TopoDS_Edge& e, double fraction) {
 gp_Pnt curve_point(const TopoDS_Edge& e, double fraction) {
     BRepAdaptor_Curve c(e);
     return c.Value(fraction_parameter(e, fraction));
-}
-template <class Builder>
-void history(GeometryFeatureBuild& b, const GeometryFeatureBuild& source, Builder& operation,
-             const std::string& id, const std::string& role) {
-    for (const auto& n : source.named) {
-        if (contains(b.shape, n.shape))
-            add(b, derived(id, role + "/retained", {n.ref}), n.shape, {n.ref});
-        for (const auto& entry : std::vector<std::pair<std::string, TopTools_ListOfShape>>{
-                 {"modified", operation.Modified(n.shape)},
-                 {"generated", operation.Generated(n.shape)}}) {
-            std::vector<TopoDS_Shape> same;
-            for (TopTools_ListIteratorOfListOfShape it(entry.second); it.More(); it.Next())
-                if (contains(b.shape, it.Value()) &&
-                    (it.Value().ShapeType() == TopAbs_FACE ||
-                     it.Value().ShapeType() == TopAbs_EDGE ||
-                     it.Value().ShapeType() == TopAbs_VERTEX) &&
-                    std::none_of(same.begin(), same.end(),
-                                 [&](const auto& shape) { return shape.IsSame(it.Value()); }))
-                    same.push_back(it.Value());
-            std::map<TopAbs_ShapeEnum, size_t> counts;
-            for (const auto& s : same)
-                ++counts[s.ShapeType()];
-            for (const auto& s : same) {
-                if (counts[s.ShapeType()] > 1)
-                    throw std::invalid_argument("GEOMETRY_HISTORY_BRANCH_AMBIGUOUS:" + role + "/" +
-                                                entry.first + "/" + std::to_string(s.ShapeType()));
-                add(b,
-                    derived(id, role + "/" + entry.first + "/" + std::to_string(s.ShapeType()),
-                            {n.ref}),
-                    s, {n.ref});
-            }
-        }
-    }
 }
 TopoDS_Edge sketch_edge(const ProfileCurveSpec& source, const GeometrySketchWire& frame) {
     const auto c = canonicalize_sketch_curve(source);
@@ -329,7 +324,7 @@ void validate_result(const GeometryFeatureBuild& b, const std::string& op) {
             throw std::invalid_argument("GEOMETRY_RESULT_UNBOUNDED");
     const auto solids = members(b.shape, TopAbs_SOLID), faces = members(b.shape, TopAbs_FACE),
                edges = members(b.shape, TopAbs_EDGE), vertices = members(b.shape, TopAbs_VERTEX);
-    if (op == "THICKEN") {
+    if (op == "THICKEN" || op == "CLOSE_SURFACE") {
         BRepAlgoAPI_Check check(b.shape, Standard_True, Standard_True);
         if (!check.IsValid()) {
             std::string statuses;
@@ -347,11 +342,11 @@ void validate_result(const GeometryFeatureBuild& b, const std::string& op) {
         for (auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
             if (TopExp_Explorer(b.shape, type, TopAbs_SOLID).More())
                 throw std::invalid_argument("THICKEN_LOOSE_TOPOLOGY");
-    } else if (!solids.empty())
+    } else if (op != "IMPORTED" && !solids.empty())
         throw std::invalid_argument("GEOMETRY_RESULT_DOMAIN_MISMATCH");
     if (faces.empty() && edges.empty() && vertices.empty())
         throw std::invalid_argument("GEOMETRY_RESULT_EMPTY");
-    if (op != "THICKEN" && (!faces.empty() || !edges.empty())) {
+    if (op != "THICKEN" && op != "CLOSE_SURFACE" && (!faces.empty() || !edges.empty())) {
         GProp_GProps measure;
         if (!faces.empty())
             BRepGProp::SurfaceProperties(b.shape, measure);
@@ -363,7 +358,8 @@ void validate_result(const GeometryFeatureBuild& b, const std::string& op) {
     if (faces.size() + edges.size() + vertices.size() > 100000)
         throw std::invalid_argument("GEOMETRY_TOPOLOGY_BUDGET");
 }
-}  // namespace
+}  // namespace geometry_features
+using namespace geometry_features;
 
 GeometryFeatureBuild read_geometry_input(const GeometryFeatureInput& input) {
     GeometryFeatureBuild out;
@@ -454,7 +450,9 @@ void complete_geometry_naming(GeometryFeatureBuild& b, const std::string& id) {
         }
         for (const auto& group : groups) {
             if (group.second.size() != 1)
-                throw std::invalid_argument("GEOMETRY_HISTORY_BRANCH_AMBIGUOUS");
+                throw std::invalid_argument(
+                    "GEOMETRY_HISTORY_BRANCH_AMBIGUOUS:" + std::to_string(type) + "/" +
+                    std::to_string(group.second.size()));
             const auto& p = group.second.front();
             add(b, derived(id, "boundary/" + std::to_string(type), p.second), p.first, p.second);
         }
@@ -475,6 +473,33 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
             throw std::runtime_error("EVALUATION_CANCELLED");
     };
     check();
+    if (s.operation == "IMPORTED") {
+        if (!s.import_seed || s.import_seed->feature_id != s.feature_id ||
+            s.import_seed->result_id != s.result_id || !s.import_seed->body_id.empty() ||
+            !s.inputs.empty() ||
+            make_geometry_id(s.import_brep.data(), s.import_brep.size()) !=
+                "sha256:" + s.import_seed->brep_sha256)
+            throw std::invalid_argument("IMPORT_SEED_SNAPSHOT_MISMATCH");
+        GeometryFeatureInput input;
+        input.source.feature_id = s.feature_id;
+        input.source.brep = s.import_brep;
+        for (const auto& n : s.import_seed->identities) {
+            if (n.stable_id.empty())
+                throw std::invalid_argument("IMPORT_SEED_INVALID_IDENTITY_MAP");
+            const auto type = n.topology_type == PersistentTopologyType::face   ? TopologyType::FACE
+                              : n.topology_type == PersistentTopologyType::edge ? TopologyType::EDGE
+                              : n.topology_type == PersistentTopologyType::vertex
+                                  ? TopologyType::VERTEX
+                                  : TopologyType::COMPOUND;
+            input.source.topology.push_back(
+                {s.feature_id, "import.topology", {n.stable_id}, type, n.local_id});
+        }
+        auto out = read_geometry_input(input);
+        validate_result(out, s.operation);
+        complete_geometry_naming(out, s.feature_id);
+        check();
+        return out;
+    }
     const auto& p = s.parameters;
     for (double v : {p.distance, p.angle, p.start, p.end, p.tension})
         if (!std::isfinite(v))
@@ -508,8 +533,10 @@ GeometryFeatureBuild build_geometry_feature(const GeometryFeatureSpec& s,
         if (inputs.size() != n)
             throw std::invalid_argument("GEOMETRY_INPUT_COUNT_INVALID");
     };
-    if (s.operation == "LINE" || s.operation == "CIRCLE" || s.operation == "ARC" ||
-        s.operation == "SPLINE") {
+    if (is_surface_feature(s.operation)) {
+        out = build_surface_feature(s, inputs, cancelled);
+    } else if (s.operation == "LINE" || s.operation == "CIRCLE" || s.operation == "ARC" ||
+               s.operation == "SPLINE") {
         require(0);
         std::set<std::string> ids;
         std::vector<SemanticTopologyRef> sources;

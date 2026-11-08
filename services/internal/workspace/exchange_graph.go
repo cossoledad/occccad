@@ -235,8 +235,18 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 					}
 					def.Bodies = append(def.Bodies, &workerv1.ExchangeBody{Brep: &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType}, Appearance: exchangeAppearance(appearance)})
 				}
-				if len(def.Bodies) == 0 {
-					return "", fmt.Errorf("%w: Part has no exportable Body", ErrValidation)
+				for _, feature := range part.Features {
+					if feature.Type != "GEOMETRY" || feature.Suppressed || feature.Visible != nil && !*feature.Visible || feature.Result == nil || feature.Result.GeometryKey == "" || !GeometryFeatureVisible(part, feature) {
+						continue
+					}
+					ref, err := service.brepArtifactReference(ctx, feature.Result.GeometryKey)
+					if err != nil {
+						return "", err
+					}
+					def.Geometries = append(def.Geometries, &workerv1.ExchangeGeometry{Result: &workerv1.GeometryResultReference{FeatureId: feature.ID, ResultId: feature.Result.ID}, Brep: &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType}})
+				}
+				if len(def.Bodies)+len(def.Geometries) == 0 {
+					return "", fmt.Errorf("%w: Part has no exportable geometry", ErrValidation)
 				}
 			}
 		} else {
@@ -339,4 +349,30 @@ func exchangeInstanceName(instance ProductInstance) string {
 		return instance.ImportedName.Source
 	}
 	return instance.Name
+}
+
+// Geometrical-set visibility is inherited, just as in viewport and thumbnails.
+func GeometryFeatureVisible(part PartModel, f Feature) bool {
+	seen := map[string]bool{}
+	for id := f.GeometricalSetID; id != ""; {
+		if seen[id] {
+			return false
+		}
+		seen[id] = true
+		found := false
+		for _, set := range part.GeometricalSets {
+			if set.ID == id {
+				if set.Visible != nil && !*set.Visible {
+					return false
+				}
+				id = set.ParentID
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }

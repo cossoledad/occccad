@@ -110,7 +110,7 @@
 #include <gp_Vec.hxx>
 
 #include <internal/occt_kernel.hpp>
-#include <internal/geometry_feature.hpp>
+#include <internal/geometry_feature_support.hpp>
 #include <internal/fillet_boundary.hpp>
 #include <internal/mesh_boundary.hpp>
 #include <internal/shell_corner.hpp>
@@ -1234,6 +1234,7 @@ ToolBuild make_exact_sweep_tool(const ProfilePadSpec& spec, const PartRuntimeOpt
     for (BRepTools_WireExplorer it(spine); it.More(); it.Next()) {
         const auto e = it.Current();
         BRepAdaptor_Curve c(e);
+        if(!detail::geometry_features::internally_g1(e,1e-7,topology_angular_tolerance_radians,runtime?runtime->cancelled:std::function<bool()>{}))throw std::invalid_argument("SWEEP_SPATIAL_PATH_REQUIRES_G1");
         const bool reversed = e.Orientation() == TopAbs_REVERSED;
         gp_Pnt a, z;
         gp_Vec ta, tz;
@@ -1388,6 +1389,7 @@ ToolBuild make_sweep_tool(const ProfilePadSpec& spec, const PartRuntimeOptions* 
             if(end_tangents.back().Dot(ta)<=0||end_tangents.back().Crossed(ta).Magnitude()>topology_angular_tolerance_radians)g1=false;
         }
         starts.push_back(a);ends.push_back(b);tangents.push_back(ta);end_tangents.push_back(tb);
+        if(!detail::geometry_features::internally_g1(edge,1e-7,topology_angular_tolerance_radians,runtime?runtime->cancelled:std::function<bool()>{}))g1=false;
         lines=lines&&c.kind=="LINE";
         wire.Add(edge);if(!wire.IsDone())throw std::invalid_argument("SWEEP_PATH_WIRE_INVALID");
         path_edges.push_back(wire.Edge());
@@ -4339,6 +4341,19 @@ std::vector<GeometryId> OcctKernel::splitSolids(const GeometryId& id) {
     return result;
 }
 
+GeometryId OcctKernel::repairImportedGeometry(const GeometryId& id) {
+    const auto& shape=impl_->find(id);const auto info=getTopologySummary(id);
+    if(info.geometry_domain=="SOLID_SET")return repairImportedSolid(id);
+    if(info.face_count+info.edge_count+info.vertex_count==0||!BRepCheck_Analyzer(shape).IsValid())
+        throw std::invalid_argument("IMPORT_INVALID_OPEN_GEOMETRY");
+    Bnd_Box bounds;BRepBndLib::Add(shape,bounds);
+    if(bounds.IsVoid()||bounds.IsWhole()||bounds.IsOpenXmin()||bounds.IsOpenXmax()||bounds.IsOpenYmin()||bounds.IsOpenYmax()||bounds.IsOpenZmin()||bounds.IsOpenZmax())
+        throw std::invalid_argument("IMPORT_INVALID_OPEN_GEOMETRY");
+    // Open geometry must retain its domain: no implicit sewing, capping, or
+    // tolerance growth before allocating the frozen identity map.
+    return id;
+}
+
 GeometryId OcctKernel::repairImportedSolid(const GeometryId& id) {
     const TopoDS_Shape original = impl_->find(id);
     TopTools_IndexedMapOfShape solids;
@@ -4501,7 +4516,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     if (import_seed && !restored) {
         const auto& seed = *import_seed;
         const std::string bytes(base_brep.begin(), base_brep.end());
-        if (base_brep.empty() || seed.feature_id.empty() || seed.body_id.empty() ||
+        if (base_brep.empty() || seed.feature_id.empty() || seed.body_id.empty() || !seed.result_id.empty() ||
             make_geometry_id(bytes) != "sha256:" + seed.brep_sha256)
             throw std::invalid_argument("IMPORT_SEED_SNAPSHOT_MISMATCH");
         TopTools_IndexedMapOfShape solids, faces, edges, vertices;
@@ -4769,8 +4784,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         tool.shape = combine.Shape();
                     }
                 }
-            } else if (spec.generator == "THICKEN") {
-                if(!spec.geometry_generator || spec.geometry_generator->operation!="THICKEN" || spec.geometry_generator->feature_id!=spec.feature_id)
+            } else if ((spec.generator == "THICKEN" || spec.generator == "CLOSE_SURFACE")) {
+                if(!spec.geometry_generator || spec.geometry_generator->operation!=spec.generator || spec.geometry_generator->feature_id!=spec.feature_id)
                     throw std::invalid_argument("THICKEN_DEFINITION_REQUIRED");
                 auto built=detail::build_geometry_feature(*spec.geometry_generator,runtime.cancelled);
                 tool.shape=built.shape;tool.feature_id=spec.feature_id;
@@ -5218,7 +5233,7 @@ ProfileEvaluationResult OcctKernel::evaluateGeometryFeature(const GeometryFeatur
     const PartRuntimeOptions& runtime) {
     const auto began=std::chrono::steady_clock::now();
     auto built=detail::build_geometry_feature(spec,runtime.cancelled);
-    if(spec.operation=="THICKEN")throw std::invalid_argument("THICKEN_REQUIRES_BODY_FEATURE_PIPELINE");
+    if(spec.operation=="THICKEN"||spec.operation=="CLOSE_SURFACE")throw std::invalid_argument("THICKEN_REQUIRES_BODY_FEATURE_PIPELINE");
     ProfileEvaluationResult result;
     result.geometry_id=impl_->store(built.shape);
     FeatureResult f;f.feature_id=spec.feature_id;f.result_id=spec.result_id;
@@ -5232,7 +5247,10 @@ ProfileEvaluationResult OcctKernel::evaluateGeometryFeature(const GeometryFeatur
     for(size_t i=0;i<built.named.size();++i){
         const auto& n=built.named[i];const auto type=persistent_topology_type(n.shape);const auto local=maps[n.shape.ShapeType()].FindIndex(n.shape);
         if(local==0)throw std::runtime_error("GEOMETRY_NAMING_INVALID_LOCATOR");
-        auto evidence=topology_evidence(n.shape);append_semantic_role(evidence,n.ref,type);
+        // Naming identity uses IsSame; evidence must use the final face occurrence
+        // after sewing/orientation, just as the material-history pipeline does.
+        const auto occurrence=n.shape.ShapeType()==TopAbs_FACE?maps[TopAbs_FACE](local):n.shape;
+        auto evidence=topology_evidence(occurrence);append_semantic_role(evidence,n.ref,type);
         for(const auto neighbor:adjacency[i])evidence.adjacent.push_back(names[neighbor].ref);
         sort_refs(evidence.adjacent);
         f.semantic_outputs.push_back({n.ref,type,static_cast<uint64_t>(local),evidence});
@@ -5259,7 +5277,12 @@ TopologyInfo OcctKernel::getTopologySummary(const GeometryId& id) {
     const auto& shape=impl_->find(id);TopologyInfo out;
     const auto count=[&](TopAbs_ShapeEnum type){TopTools_IndexedMapOfShape map;TopExp::MapShapes(shape,type,map);return static_cast<uint32_t>(map.Extent());};
     out.face_count=count(TopAbs_FACE);out.edge_count=count(TopAbs_EDGE);
-    out.vertex_count=count(TopAbs_VERTEX);out.solid_count=count(TopAbs_SOLID);return out;
+    out.vertex_count=count(TopAbs_VERTEX);out.solid_count=count(TopAbs_SOLID);
+    out.geometry_domain=out.solid_count?"SOLID_SET":out.face_count?"SHEET_SET":out.edge_count?"WIRE_SET":"POINT_SET";
+    if((out.solid_count&&TopExp_Explorer(shape,TopAbs_FACE,TopAbs_SOLID).More())||
+       (out.face_count&&TopExp_Explorer(shape,TopAbs_EDGE,TopAbs_FACE).More())||
+       (out.edge_count&&TopExp_Explorer(shape,TopAbs_VERTEX,TopAbs_EDGE).More()))out.geometry_domain="MIXED_SET";
+    return out;
 }
 const TopologyInfo& OcctKernel::getTopology(const GeometryId& id) {
     const auto cached = impl_->topologies.find(id);
@@ -5281,6 +5304,7 @@ const TopologyInfo& OcctKernel::getTopology(const GeometryId& id) {
     info.edge_count = static_cast<uint32_t>(edge_map.Extent());
     info.vertex_count = static_cast<uint32_t>(vertex_map.Extent());
     info.solid_count = static_cast<uint32_t>(solid_map.Extent());
+    info.geometry_domain = getTopologySummary(id).geometry_domain;
 
     for (int index = 1; index <= face_map.Extent(); ++index) {
         const TopoDS_Face& face = TopoDS::Face(face_map(index));

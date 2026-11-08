@@ -3,7 +3,8 @@ import type { EditSession } from "./edit-session";
 import type { SpecificationTreeNode } from "./specification-tree";
 
 export function treeVisibilityAction(node: SpecificationTreeNode, session?: EditSession) {
-  if (!canToggleNodeVisibility(node.kind)) return undefined;
+  const independentGeometry = node.kind === "FEATURE" && !node.bodyId && node.localVisible !== undefined && node.presentationRole !== "INPUT_REFERENCE";
+  if (!canToggleNodeVisibility(node.kind) && !independentGeometry) return undefined;
   const occurrence = node.instancePath?.canonical ?? "";
   const isEditingDefinition = node.documentId === session?.editTarget.documentId &&
     occurrence === (session?.editTarget.instancePath?.canonical ?? "");

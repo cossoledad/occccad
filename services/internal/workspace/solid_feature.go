@@ -19,7 +19,7 @@ func isLocalModifier(kind string) bool {
 }
 
 func isBodyFeature(kind string) bool {
-	return kind == "THICKEN" || kind == "HOLE" || kind == "SOLID_PATTERN" || kind == "LOFT" || isLocalModifier(kind) || isSolidGenerator(kind) || kind == "IMPORT_BODY" || kind == "BOOLEAN"
+	return isGeometryBodyFeature(kind) || kind == "HOLE" || kind == "SOLID_PATTERN" || kind == "LOFT" || isLocalModifier(kind) || isSolidGenerator(kind) || kind == "IMPORT_BODY" || kind == "BOOLEAN"
 }
 
 func validateSolidStage(f Feature, earlier map[string]Feature) error {
@@ -189,7 +189,7 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 }
 
 func editSolidDefinition(model PartModel, current *Feature, replacement Feature, sources map[string]modelcore.ValueSource) (json.RawMessage, modelcore.ChangeSet, error) {
-	if current == nil || (!isBodyFeature(current.Type) && current.Type != "SKETCH_PATTERN" && current.Type != "GEOMETRY") || current.Type == "IMPORT_BODY" || replacement.Type != current.Type {
+	if current == nil || (!isBodyFeature(current.Type) && current.Type != "SKETCH_PATTERN" && current.Type != "GEOMETRY") || current.Type == "IMPORT_BODY" || current.Geometry != nil && current.Geometry.Kind == "IMPORTED" || replacement.Type != current.Type {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: unsupported Feature definition edit", ErrValidation)
 	}
 	replacement.ID = current.ID

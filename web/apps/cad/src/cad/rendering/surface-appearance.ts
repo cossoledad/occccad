@@ -43,7 +43,7 @@ export function applyEdgeAppearance(group:THREE.Group,appearance:SurfaceStyle|un
   group.userData.appearanceEdges=appearance?.edges;
   group.userData.appearancePickable=appearance?.pickable;
   const opacity=appearance?.edgeOpacityMode==="CLEAR"?1:appearance?.opacity??1;
-  const width=appearance?.edgeWidth??1.35;
+  const width=appearance?.edgeWidth??(group.userData.cadEngineeringCurve?2.1:1.35);
   let wide=group.children.find(c=>c.userData.cadWideEdges) as LineSegments2|undefined;
   // CAD edges keep CSS-pixel width at DPR 1/2. The original lines remain the
   // stable picking primitives; their transparent shader does not draw twice.

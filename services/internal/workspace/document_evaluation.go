@@ -189,7 +189,7 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 						return parseErr
 					}
 					for _, feature := range model.Features {
-						if feature.ID == edit.FeatureID && (feature.Type == "GEOMETRY" || feature.Type == "THICKEN") && feature.EvaluationStatus == "FAILED" {
+						if feature.ID == edit.FeatureID && (feature.Type == "GEOMETRY" || isGeometryBodyFeature(feature.Type)) && feature.EvaluationStatus == "FAILED" {
 							return err
 						}
 						if feature.ID != edit.FeatureID || feature.Type != "BOOLEAN" || feature.Suppressed {

@@ -487,6 +487,18 @@ message GeometryFeatureSpec {
     GeometryCurveDefinition curve = 5;
     GeometryOperationDefinition parameters = 6;
     GeometrySketchWire sketch_wire = 7;
+    GeometrySurfaceDefinition surface = 8;
+    ImportTopologySeed import_seed = 9; // IMPORTED: frozen first-registration identities
+    ArtifactReference import_brep = 10;
+}
+
+// Evaluated values of an engineering surface definition. References (including
+// the point selecting a retained region) stay in the immutable domain model.
+message GeometrySurfaceDefinition {
+    bool ruled = 1;
+    string frame_mode = 2; // CORRECTED_FRENET | FRENET for a single-path sweep
+    double tolerance = 3; // mm; explicit construction/connection tolerance
+    Vec3 keep_point = 4; // exact resolved design point; required for trimming
 }
 
 message PartStageExecution {
@@ -1069,7 +1081,12 @@ message ExchangeDefinition {
     ArtifactReference brep = 4; // PART only, definition-local
     repeated ExchangeOccurrence children = 5;
     repeated ExchangeBody bodies = 6; // Export-only Part-local bodies.
+    repeated ExchangeGeometry geometries = 8; // Independent feature results, never fake Bodies.
     ExchangeAppearance appearance = 7; // Import snapshot, scoped to brep SHA-256.
+}
+message ExchangeGeometry {
+    GeometryResultReference result = 1;
+    ArtifactReference brep = 2;
 }
 message ExchangeGraph {
     repeated ExchangeDefinition definitions = 1;
@@ -1161,6 +1178,7 @@ message TopologySummary {
     uint32 edge_count = 2;
     uint32 vertex_count = 3;
     uint32 solid_count = 4;
+    string geometry_domain = 5; // SOLID_SET | SHEET_SET | WIRE_SET | POINT_SET | MIXED_SET
 }
 
 // ---------------------------------------------------------------------------
@@ -1458,6 +1476,7 @@ message ImportTopologySeed {
     string occt_version = 5;
     string policy_id = 6;
     ArtifactReference identity_artifact = 7; // Full ImportTopologySeed protobuf; identities omitted in RPC.
+    string result_id = 8; // Exclusive with body_id, for imported independent geometry.
 }
 message ImportedTopologyIdentity {
     string stable_id = 1;

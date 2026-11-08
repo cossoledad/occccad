@@ -45,7 +45,7 @@ export type FeatureInput = {
 };
 
 export type Artifact = {
- result?:GeometryResultReference;geometryDomain?:"POINT_SET"|"WIRE_SET"|"SHEET_SET"|"SOLID_SET";
+ result?:GeometryResultReference;geometryDomain?:"POINT_SET"|"WIRE_SET"|"SHEET_SET"|"SOLID_SET"|"MIXED_SET";
  displayStageFeatureId?:string;historicalPreview?:boolean;
   visualNamingDigest?: string;
   bodyId?: string;
@@ -158,10 +158,10 @@ export type LoftBoundaryDefinition={condition:"NORMAL"|"DIRECTION"|"G1"|"G2";mag
 export type GeometryResultReference={featureId:string;resultId:string};
 export type GeometricInput={kind:"RESULT"|"TOPOLOGY"|"SKETCH"|"PLANE"|"DATUM"|"POINT";datum?:DatumReference;point?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef};featureId?:string;resultId?:string;entityIds?:string[];selection?:NonNullable<Feature["selections"]>[number];planeId?:string;reversed?:boolean};
 export type GeometryControlPoint={id:string;position:Vec3;pointId?:string;reference?:GeometricInput};
-export type GeometryKind="LINE"|"CIRCLE"|"ARC"|"SPLINE"|"POINT_ON_CURVE"|"EXTRACT"|"BOUNDARY"|"COMPOSITE"|"SURFACE_EXTRUDE"|"THICKEN"|"TRANSLATE"|"ROTATE"|"MIRROR"|"SPLIT"|"TRIM"|"EXTEND"|"G1_CONNECT"|"OFFSET"|"PROJECT"|"INTERSECTION";
-export type GeometricFeatureDefinition={kind:GeometryKind;direction?:GeometricInput;axis?:GeometricInput;mirrorPlane?:GeometricInput;inputs?:GeometricInput[];curve?:{support?:GeometricInput;framePlaneId?:string;points:GeometryControlPoint[];normal:Vec3;xDirection:Vec3;radius?:number;startAngle?:number;endAngle?:number;degree?:number;knots?:number[];multiplicities?:number[];weights?:number[];closed?:boolean};parameters:{direction:Vec3;origin:Vec3;distance:number;angle:number;start:number;end:number;side?:"START"|"END"|"BOTH";tension:number}};
+export type GeometryKind="IMPORTED"|"LINE"|"CIRCLE"|"ARC"|"SPLINE"|"POINT_ON_CURVE"|"EXTRACT"|"BOUNDARY"|"COMPOSITE"|"SURFACE_EXTRUDE"|"THICKEN"|"TRANSLATE"|"ROTATE"|"MIRROR"|"SPLIT"|"TRIM"|"EXTEND"|"G1_CONNECT"|"OFFSET"|"PROJECT"|"INTERSECTION"|"SURFACE_SWEEP"|"SURFACE_LOFT"|"SURFACE_FILL"|"SURFACE_TRIM"|"SURFACE_EXTEND"|"SURFACE_JOIN"|"SURFACE_SEW"|"SURFACE_OFFSET"|"CLOSE_SURFACE";
+export type GeometricFeatureDefinition={surface?:{ruled:boolean;frameMode?:"FRENET"|"CORRECTED_FRENET";tolerance:number};keepPoint?:GeometricInput;kind:GeometryKind;direction?:GeometricInput;axis?:GeometricInput;mirrorPlane?:GeometricInput;inputs?:GeometricInput[];curve?:{support?:GeometricInput;framePlaneId?:string;points:GeometryControlPoint[];normal:Vec3;xDirection:Vec3;radius?:number;startAngle?:number;endAngle?:number;degree?:number;knots?:number[];multiplicities?:number[];weights?:number[];closed?:boolean};parameters:{direction:Vec3;origin:Vec3;distance:number;angle:number;start:number;end:number;side?:"START"|"END"|"BOTH";tension:number}};
 export type Feature = {
- geometricalSetId?:string;geometry?:GeometricFeatureDefinition;result?:{id:string;domain:"POINT_SET"|"WIRE_SET"|"SHEET_SET";geometryKey:string};
+ geometricalSetId?:string;geometry?:GeometricFeatureDefinition;result?:{id:string;domain:"POINT_SET"|"WIRE_SET"|"SHEET_SET"|"SOLID_SET"|"MIXED_SET";geometryKey:string};
  loftStart?:LoftBoundaryDefinition;loftEnd?:LoftBoundaryDefinition;
  sweep?:{path:{geometry?:GeometricInput;sketchId:string;entityIds:string[];direction?:{entityId:string;reversed:boolean};reversed?:boolean};frameMode:"CORRECTED_FRENET"|"FRENET";cornerMode:"MITER"|"G1_ONLY"};
  thinWall?:ThinWallDefinition;
@@ -190,7 +190,7 @@ export type Feature = {
   visible?: boolean;
   importDefinitionId?: string;
   id: string;
-  type: "GEOMETRY" | "THICKEN" | "SWEEP" | "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT" | "HOLE";
+  type: "GEOMETRY" | "THICKEN" | "CLOSE_SURFACE" | "SWEEP" | "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT" | "HOLE";
   name?: string;
   plane?: PlaneName | "CUSTOM";
   sketch?: SketchFeature;

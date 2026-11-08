@@ -64,6 +64,7 @@ public:
     // Preserve each located Solid occurrence; component ordinal is not a persistent topology ID.
     std::vector<GeometryId> splitSolids(const GeometryId& id) override;
     GeometryId repairImportedSolid(const GeometryId& id) override;
+    GeometryId repairImportedGeometry(const GeometryId& id) override;
     GeometryId combine(const std::vector<PlacedGeometry>& components) override;
     void unload(const GeometryId& id) override;
 

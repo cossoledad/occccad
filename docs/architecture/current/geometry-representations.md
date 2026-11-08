@@ -31,7 +31,7 @@ Worker 输出通过摘要/长度验证后登记 READY 对象；GLB 业务显示�
 
 当前角色为 `BREP`、`VISUAL`、`NAMING`。源文件、交换导出、缩略图、导入 identity 继续使用统一 Artifact 对象模型，但不必全部成为一个 Part 几何结果的角色。
 
-结果接纳按域区分：Body 保持非空有效 Solid 集及正体积门禁；Point/Wire/Sheet 不要求实体体积，但要求有效、非空、有界且完整 Naming。开放结果在既有数值列中的 `volume=0` 是占位，消费者须按 `geometryDomain` 判断不适用，不能据此显示为零质量实体。
+结果接纳按域区分：Body 保持非空有效 Solid 集及正体积门禁；Point/Wire/Sheet 及冻结导入 Mixed 不要求实体体积，但要求有效、非空、有界且完整 Naming。开放/混合结果在既有数值列中的 `volume=0` 是占位，消费者须按 `geometryDomain` 判断不适用，不能据此显示为零质量实体。
 
 ## 唯一显示载荷
 

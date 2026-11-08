@@ -7237,6 +7237,402 @@
           }
         ]
       }
+    },
+    {
+      "id": "geometry.surface-sweep",
+      "name": "曲面扫掠",
+      "helpText": "曲面扫掠",
+      "iconKey": "spline",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.surface-loft",
+      "name": "曲面放样",
+      "helpText": "曲面放样",
+      "iconKey": "reference",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.surface-fill",
+      "name": "填充曲面",
+      "helpText": "填充曲面",
+      "iconKey": "datum-plane",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.surface-trim",
+      "name": "裁剪曲面",
+      "helpText": "裁剪曲面",
+      "iconKey": "pocket",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.surface-extend",
+      "name": "延长曲面",
+      "helpText": "延长曲面",
+      "iconKey": "length",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.surface-join",
+      "name": "连接曲面",
+      "helpText": "连接曲面",
+      "iconKey": "link",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.surface-sew",
+      "name": "缝合曲面",
+      "helpText": "缝合曲面",
+      "iconKey": "coincident",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.surface-offset",
+      "name": "偏移曲面",
+      "helpText": "偏移曲面",
+      "iconKey": "parallel",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.close-surface",
+      "name": "封闭曲面",
+      "helpText": "封闭曲面",
+      "iconKey": "pad",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
     }
   ],
   "groups": [
@@ -8315,7 +8711,7 @@
     },
     {
       "id": "surface-create",
-      "name": "曲面与实体",
+      "name": "曲面构造",
       "styleKey": "part",
       "position": "top-left",
       "orientation": "horizontal",
@@ -8326,7 +8722,70 @@
           "order": 0
         },
         {
+          "commandId": "geometry.surface-sweep",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "geometry.surface-loft",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "geometry.surface-fill",
+          "groupKey": "primary",
+          "order": 30
+        }
+      ]
+    },
+    {
+      "id": "surface-operations",
+      "name": "曲面编辑",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "geometry.surface-trim",
+          "groupKey": "primary",
+          "order": 0
+        },
+        {
+          "commandId": "geometry.surface-extend",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "geometry.surface-join",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "geometry.surface-sew",
+          "groupKey": "primary",
+          "order": 30
+        },
+        {
+          "commandId": "geometry.surface-offset",
+          "groupKey": "primary",
+          "order": 40
+        }
+      ]
+    },
+    {
+      "id": "surface-solid",
+      "name": "实体化",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
           "commandId": "geometry.thicken",
+          "groupKey": "primary",
+          "order": 0
+        },
+        {
+          "commandId": "geometry.close-surface",
           "groupKey": "primary",
           "order": 10
         }
@@ -8921,27 +9380,37 @@
     {
       "tabId": "PART_DESIGN.wireframe-surface",
       "groupId": "surface-derived",
-      "order": 30
-    },
-    {
-      "tabId": "PART_DESIGN.wireframe-surface",
-      "groupId": "surface-edit",
-      "order": 40
-    },
-    {
-      "tabId": "PART_DESIGN.wireframe-surface",
-      "groupId": "surface-transform",
       "order": 50
     },
     {
       "tabId": "PART_DESIGN.wireframe-surface",
-      "groupId": "surface-create",
+      "groupId": "surface-edit",
       "order": 60
     },
     {
       "tabId": "PART_DESIGN.wireframe-surface",
-      "groupId": "part-datums",
+      "groupId": "surface-transform",
       "order": 70
+    },
+    {
+      "tabId": "PART_DESIGN.wireframe-surface",
+      "groupId": "surface-create",
+      "order": 30
+    },
+    {
+      "tabId": "PART_DESIGN.wireframe-surface",
+      "groupId": "part-datums",
+      "order": 80
+    },
+    {
+      "tabId": "PART_DESIGN.wireframe-surface",
+      "groupId": "surface-operations",
+      "order": 40
+    },
+    {
+      "tabId": "PART_DESIGN.wireframe-surface",
+      "groupId": "surface-solid",
+      "order": 45
     }
   ]
 }

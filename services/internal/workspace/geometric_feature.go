@@ -64,7 +64,14 @@ type GeometryOperationParameters struct {
 	Side      string     `json:"side,omitempty"`
 	Tension   float64    `json:"tension"`
 }
+type GeometrySurfaceDefinition struct {
+	Ruled     bool    `json:"ruled"`
+	FrameMode string  `json:"frameMode,omitempty"`
+	Tolerance float64 `json:"tolerance"` // mm, explicit construction/connection policy
+}
 type GeometricFeatureDefinition struct {
+	Surface     *GeometrySurfaceDefinition  `json:"surface,omitempty"`
+	KeepPoint   *GeometricInput             `json:"keepPoint,omitempty"`
 	Direction   *GeometricInput             `json:"direction,omitempty"`
 	Axis        *GeometricInput             `json:"axis,omitempty"`
 	MirrorPlane *GeometricInput             `json:"mirrorPlane,omitempty"`
@@ -75,13 +82,21 @@ type GeometricFeatureDefinition struct {
 }
 
 var geometryKinds = map[string]int{
-	"LINE": 0, "CIRCLE": 0, "ARC": 0, "SPLINE": 0,
+	"IMPORTED": 0, "LINE": 0, "CIRCLE": 0, "ARC": 0, "SPLINE": 0,
 	"POINT_ON_CURVE": 1, "EXTRACT": 1, "BOUNDARY": 1, "COMPOSITE": -1,
 	"SURFACE_EXTRUDE": 1, "THICKEN": 1,
 	"TRANSLATE": 1, "ROTATE": 1, "MIRROR": 1,
 	"SPLIT": 1, "TRIM": 1, "EXTEND": 1, "G1_CONNECT": 2,
 	"OFFSET": 2, "PROJECT": 2, "INTERSECTION": 2,
+	"SURFACE_SWEEP": 2, "SURFACE_LOFT": -1, "SURFACE_FILL": -1,
+	"SURFACE_TRIM": 2, "SURFACE_EXTEND": 2, "SURFACE_JOIN": -1,
+	"SURFACE_SEW": -1, "SURFACE_OFFSET": 1, "CLOSE_SURFACE": 1,
 }
+
+func isEngineeringSurface(kind string) bool {
+	return strings.HasPrefix(kind, "SURFACE_") && kind != "SURFACE_EXTRUDE" || kind == "CLOSE_SURFACE"
+}
+func isGeometryBodyFeature(kind string) bool { return kind == "THICKEN" || kind == "CLOSE_SURFACE" }
 
 func geometryResultReference(f Feature) *modelcore.GeometryResultReference {
 	if f.Result == nil {
@@ -106,12 +121,34 @@ func geometryInputFeatureID(i GeometricInput) string {
 }
 func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartModel) error {
 	if f.Geometry == nil {
-		if f.Type == "GEOMETRY" || f.Type == "THICKEN" {
+		if f.Type == "GEOMETRY" || isGeometryBodyFeature(f.Type) {
 			return fmt.Errorf("%w: GEOMETRY_DEFINITION_REQUIRED", ErrValidation)
 		}
 		return nil
 	}
 	d := f.Geometry
+	if d.Kind == "IMPORTED" && (f.Type != "GEOMETRY" || f.ImportDefinitionID == "" || f.GeometryKey == "" || len(d.Inputs) != 0 || d.Curve != nil || d.Surface != nil) {
+		return fmt.Errorf("%w: IMPORT_DEFINITION_REQUIRED", ErrValidation)
+	}
+	if isEngineeringSurface(d.Kind) {
+		if d.Surface == nil || (math.IsNaN(d.Surface.Tolerance) || math.IsInf(d.Surface.Tolerance, 0)) || d.Surface.Tolerance < 1e-7 || d.Surface.Tolerance > 1e-2 {
+			return fmt.Errorf("%w: SURFACE_TOLERANCE_OUT_OF_RANGE", ErrValidation)
+		}
+		if d.Kind == "SURFACE_LOFT" && (len(d.Inputs) < 2 || len(d.Inputs) > 32) {
+			return fmt.Errorf("%w: SURFACE_LOFT_SECTION_COUNT_INVALID", ErrValidation)
+		}
+		if d.Kind == "SURFACE_SWEEP" && !slices.Contains([]string{"CORRECTED_FRENET", "FRENET"}, d.Surface.FrameMode) {
+			return fmt.Errorf("%w: SURFACE_SWEEP_FRAME_REQUIRED", ErrValidation)
+		}
+		if d.Kind == "SURFACE_TRIM" && d.KeepPoint == nil {
+			return fmt.Errorf("%w: SURFACE_TRIM_KEEP_POINT_REQUIRED", ErrValidation)
+		}
+	} else if d.Surface != nil {
+		return fmt.Errorf("%w: SURFACE_DEFINITION_UNEXPECTED", ErrValidation)
+	}
+	if d.KeepPoint != nil && d.Kind != "SURFACE_TRIM" {
+		return fmt.Errorf("%w: GEOMETRY_REFERENCE_ROLE_INVALID", ErrValidation)
+	}
 	if d.Curve != nil && d.Curve.Support != nil && !slices.Contains([]string{"CIRCLE", "ARC"}, d.Kind) {
 		return fmt.Errorf("%w: GEOMETRY_REFERENCE_ROLE_INVALID", ErrValidation)
 	}
@@ -124,13 +161,13 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 		}
 	}
 	count, ok := geometryKinds[d.Kind]
-	if !ok || (f.Type != "GEOMETRY" && f.Type != "THICKEN") || (f.Type == "THICKEN") != (d.Kind == "THICKEN") {
+	if !ok || (f.Type != "GEOMETRY" && !isGeometryBodyFeature(f.Type)) || isGeometryBodyFeature(f.Type) != isGeometryBodyFeature(d.Kind) || isGeometryBodyFeature(f.Type) && f.Type != d.Kind {
 		return fmt.Errorf("%w: GEOMETRY_KIND_INVALID", ErrValidation)
 	}
 	if count >= 0 && len(d.Inputs) != count || count < 0 && (len(d.Inputs) == 0 || len(d.Inputs) > 128) {
 		return fmt.Errorf("%w: GEOMETRY_INPUT_COUNT_INVALID", ErrValidation)
 	}
-	if f.Type == "THICKEN" && !slices.Contains([]string{"NEW_BODY", "ADD", "REMOVE", "INTERSECT"}, f.Operation) {
+	if isGeometryBodyFeature(f.Type) && !slices.Contains([]string{"NEW_BODY", "ADD", "REMOVE", "INTERSECT"}, f.Operation) {
 		return fmt.Errorf("%w: THICKEN_OPERATION_INVALID", ErrValidation)
 	}
 	for _, input := range d.Inputs {
@@ -181,7 +218,7 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 			return fmt.Errorf("%w: GEOMETRY_INPUT_KIND_INVALID", ErrValidation)
 		}
 	}
-	if count == 0 {
+	if count == 0 && d.Kind != "IMPORTED" {
 		if d.Curve == nil || len(d.Curve.Points) == 0 || len(d.Curve.Points) > 4096 {
 			return fmt.Errorf("%w: GEOMETRY_CURVE_DEFINITION_REQUIRED", ErrValidation)
 		}
@@ -247,6 +284,9 @@ func geometryParameters(d *GeometricFeatureDefinition) []geometricParameter {
 			add(slot+":"+axis, label+" "+strings.ToUpper(axis), unit, &values[i])
 		}
 	}
+	if d.Surface != nil {
+		add("tolerance", "Tolerance", "mm", &d.Surface.Tolerance)
+	}
 	if c := d.Curve; c != nil {
 		for i := range c.Points {
 			p := &c.Points[i]
@@ -288,7 +328,7 @@ func geometryParameters(d *GeometricFeatureDefinition) []geometricParameter {
 		}
 	}
 	switch d.Kind {
-	case "SURFACE_EXTRUDE", "THICKEN", "TRANSLATE", "OFFSET", "EXTEND":
+	case "SURFACE_EXTRUDE", "THICKEN", "TRANSLATE", "OFFSET", "EXTEND", "SURFACE_EXTEND", "SURFACE_OFFSET":
 		add("distance", "Distance", "mm", &d.Parameters.Distance)
 	}
 	if (d.Kind == "ROTATE" || d.Kind == "MIRROR") && d.Axis == nil && d.MirrorPlane == nil {
@@ -335,6 +375,9 @@ func geometryParameterValue(d *GeometricFeatureDefinition, slot string) (float64
 }
 
 func geometryDomain(e *workerv1.EvaluatePartResponse) string {
+	if domain := e.GetTopology().GetGeometryDomain(); domain != "" {
+		return domain
+	}
 	if e.GetTopology().GetSolidCount() > 0 {
 		return "SOLID_SET"
 	}
@@ -463,12 +506,38 @@ func (s *Service) geometryFeatureSpec(ctx context.Context, requestID string, mod
 		return nil, fmt.Errorf("%w: GEOMETRY_DEFINITION_REQUIRED", ErrValidation)
 	}
 	spec := &compiledGeometryFeature{GeometryFeatureSpec: &workerv1.GeometryFeatureSpec{FeatureId: f.ID, ResultId: "result", Operation: d.Kind, Parameters: &workerv1.GeometryOperationDefinition{Direction: geometryVec(d.Parameters.Direction), Origin: geometryVec(d.Parameters.Origin), Distance: d.Parameters.Distance, Angle: d.Parameters.Angle * math.Pi / 180, Start: d.Parameters.Start, End: d.Parameters.End, Side: d.Parameters.Side, Tension: d.Parameters.Tension}}}
+	if d.Kind == "IMPORTED" {
+		seed, err := s.importSeed(ctx, f)
+		if err != nil {
+			return nil, err
+		}
+		ref, err := s.brepArtifactReference(ctx, f.GeometryKey)
+		if err != nil {
+			return nil, err
+		}
+		spec.ImportSeed = seed
+		spec.ImportBrep = &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType}
+		return spec, nil
+	}
 	resolve := func(input GeometricInput) (datumFrame, error) {
 		frame, snapshot, err := s.geometryReferenceFrame(ctx, requestID, model, input)
 		if err == nil {
 			spec.References = append(spec.References, snapshot)
 		}
 		return frame, err
+	}
+	if d.Surface != nil {
+		spec.Surface = &workerv1.GeometrySurfaceDefinition{Ruled: d.Surface.Ruled, FrameMode: d.Surface.FrameMode, Tolerance: d.Surface.Tolerance}
+		if d.KeepPoint != nil {
+			frame, err := resolve(*d.KeepPoint)
+			if err != nil {
+				return nil, err
+			}
+			if !frame.point {
+				return nil, fmt.Errorf("%w: SURFACE_TRIM_KEEP_POINT_REQUIRED", ErrValidation)
+			}
+			spec.Surface.KeepPoint = geometryVec(frame.origin)
+		}
 	}
 	for _, reference := range []struct {
 		role  string
@@ -600,12 +669,7 @@ func (s *Service) evaluateGeometricFeature(ctx context.Context, requestID string
 	if err != nil {
 		return "", err
 	}
-	domain := "POINT_SET"
-	if r, ok := a.Topology["faces"].(float64); ok && r > 0 {
-		domain = "SHEET_SET"
-	} else if r, ok := a.Topology["edges"].(float64); ok && r > 0 {
-		domain = "WIRE_SET"
-	}
+	domain := a.GeometryDomain
 	model.Features[index].Result = &FeatureGeometryResult{ID: "result", Domain: domain, GeometryKey: key}
 	model.Features[index].EvaluationStatus = ""
 	model.Features[index].Diagnostic = ""
@@ -706,7 +770,7 @@ func qualifyGeometryInputs(documentID string, f Feature) error {
 	return nil
 }
 func geometryKindLabel(kind string) string {
-	labels := map[string]string{"LINE": "直线", "CIRCLE": "圆", "ARC": "圆弧", "SPLINE": "样条", "POINT_ON_CURVE": "曲线上点", "EXTRACT": "提取", "BOUNDARY": "边界", "COMPOSITE": "复合曲线", "SURFACE_EXTRUDE": "拉伸曲面", "THICKEN": "加厚", "TRANSLATE": "平移", "ROTATE": "旋转", "MIRROR": "镜像", "SPLIT": "分割", "TRIM": "裁剪", "EXTEND": "延伸", "G1_CONNECT": "连接曲线", "OFFSET": "偏移曲线", "PROJECT": "投影", "INTERSECTION": "交线"}
+	labels := map[string]string{"LINE": "直线", "CIRCLE": "圆", "ARC": "圆弧", "SPLINE": "样条", "POINT_ON_CURVE": "曲线上点", "EXTRACT": "提取", "BOUNDARY": "边界", "COMPOSITE": "复合曲线", "SURFACE_EXTRUDE": "拉伸曲面", "THICKEN": "加厚", "TRANSLATE": "平移", "ROTATE": "旋转", "MIRROR": "镜像", "SPLIT": "分割", "TRIM": "裁剪", "EXTEND": "延伸", "G1_CONNECT": "连接曲线", "OFFSET": "偏移曲线", "PROJECT": "投影", "INTERSECTION": "交线", "SURFACE_SWEEP": "曲面扫掠", "SURFACE_LOFT": "曲面放样", "SURFACE_FILL": "填充曲面", "SURFACE_TRIM": "裁剪曲面", "SURFACE_EXTEND": "延长曲面", "SURFACE_JOIN": "连接曲面", "SURFACE_SEW": "缝合曲面", "SURFACE_OFFSET": "偏移曲面", "CLOSE_SURFACE": "封闭曲面"}
 	if label := labels[kind]; label != "" {
 		return label
 	}

@@ -594,7 +594,7 @@ func validatePartStructure(model PartModel) error {
 		if b.CreatedByFeatureID != "" {
 			found := false
 			for _, f := range model.Features {
-				if f.ID == b.CreatedByFeatureID && f.BodyID == b.ID && (isSolidGenerator(f.Type) || f.Type == "LOFT" || f.Type == "THICKEN") {
+				if f.ID == b.CreatedByFeatureID && f.BodyID == b.ID && (isSolidGenerator(f.Type) || f.Type == "LOFT" || isGeometryBodyFeature(f.Type)) {
 					found = true
 					break
 				}
@@ -933,7 +933,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				}
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(prefix + source), Target: key, Kind: modelcore.ReadGeometry})
 			}
-			if feature.Type == "THICKEN" && bodyTipFeatureID != "" {
+			if isGeometryBodyFeature(feature.Type) && bodyTipFeatureID != "" {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}

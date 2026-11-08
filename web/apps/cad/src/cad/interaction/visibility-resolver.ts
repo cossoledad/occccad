@@ -1,6 +1,6 @@
 import type { DocumentStructureNode, DocumentView } from "../../types";
 
-export const DISPLAY_KINDS = ["INSTANCE","PART","BODY","SKETCH","SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT","MEASUREMENT","GEOMETRICAL_SET","REFERENCE_POINT"] as const;
+export const DISPLAY_KINDS = ["INSTANCE","PART","BODY","SKETCH","SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT","MEASUREMENT","GEOMETRICAL_SET","REFERENCE_POINT","FEATURE"] as const;
 export type DisplayKind = typeof DISPLAY_KINDS[number];
 export type DisplayAddress = { documentId: string; occurrencePath: string; kind: DisplayKind; entityId: string; axis?: string; ownerEntityId?: string; bodyId?: string };
 export type EffectiveVisibility = { definitionVisible: boolean; localVisible: boolean; effectiveVisible: boolean; blockedBy?: DisplayAddress; mode: "INHERIT" | "SHOW" | "HIDE"; displayEligible: boolean };
@@ -26,7 +26,7 @@ export class VisibilityResolver {
 
   private index(node: DocumentStructureNode, editing?: DefinitionScope): void {
     const kind = ["SKETCH_INPUT_REFERENCE","SKETCH_PATTERN_MEMBER"].includes(node.kind) ? "SKETCH" : ["SKETCH_PATTERN_ENTITY","SKETCH_OFFSET_ENTITY"].includes(node.kind)?"SKETCH_ENTITY":node.kind;
-    if ((!editing || (node.subject?.documentId ?? node.documentId) === editing.documentId && !node.instancePath?.canonical) && (((DISPLAY_KINDS as readonly string[]).includes(kind) && node.entityId) ||
+    if ((kind!=="FEATURE"||node.localVisible!==undefined&&!node.bodyId) && (!editing || (node.subject?.documentId ?? node.documentId) === editing.documentId && !node.instancePath?.canonical) && (((DISPLAY_KINDS as readonly string[]).includes(kind) && node.entityId) ||
         (kind === "PART" && node.documentId))) {
       const address: DisplayAddress = {
         documentId: node.subject?.documentId ?? node.documentId ?? "",
@@ -80,7 +80,7 @@ export class VisibilityResolver {
   private parent(address: DisplayAddress): DisplayAddress | undefined {
     const common = {documentId: address.documentId, occurrencePath: address.occurrencePath};
     if(["AXIS","DATUM_POINT"].includes(address.kind))return {...common,kind:"AXIS_SYSTEM",entityId:address.ownerEntityId??address.entityId};
-    if(["PLANE","DATUM_AXIS","AXIS_SYSTEM","REFERENCE_POINT","GEOMETRICAL_SET"].includes(address.kind))return address.ownerEntityId?{...common,kind:"GEOMETRICAL_SET",entityId:address.ownerEntityId}:{...common,kind:"PART",entityId:address.documentId};
+    if(["PLANE","DATUM_AXIS","AXIS_SYSTEM","REFERENCE_POINT","GEOMETRICAL_SET","FEATURE"].includes(address.kind))return address.ownerEntityId?{...common,kind:"GEOMETRICAL_SET",entityId:address.ownerEntityId}:{...common,kind:"PART",entityId:address.documentId};
     if(address.kind==="ORIGIN")return {...common,kind:"PART",entityId:address.documentId};
     if(address.kind==="ASSEMBLY_CONSTRAINT"&&address.occurrencePath)return this.instances.get(address.occurrencePath);
     if (address.kind === "SKETCH_ENTITY" && address.ownerEntityId) return {...common, kind: "SKETCH", entityId: address.ownerEntityId, bodyId: address.bodyId};

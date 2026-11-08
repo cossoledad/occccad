@@ -591,7 +591,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		feature := Feature{ID: commandEntityID("boolean", request.RequestID), BodyID: request.BodyID, Type: "BOOLEAN", Name: numberedFeatureName(model.Features, "BOOLEAN", "Boolean"), Operation: request.Operation, Tools: request.Tools, KeepTools: request.KeepTools, BooleanResult: request.BooleanResult}
 		return typeCreateBooleanFeature, createFeaturePayload{Feature: feature}, nil
 	case "CREATE_GEOMETRY_FEATURE":
-		if documentType != "PART" || request.Feature == nil || request.Feature.Type != "GEOMETRY" || request.Feature.Geometry == nil {
+		if documentType != "PART" || request.Feature == nil || request.Feature.Type != "GEOMETRY" || request.Feature.Geometry == nil || request.Feature.Geometry.Kind == "IMPORTED" {
 			return "", nil, fmt.Errorf("%w: GEOMETRY_DEFINITION_REQUIRED", ErrValidation)
 		}
 		if request.AfterFeatureID != "" {
@@ -620,7 +620,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		return typeCreateGeometryFeature, createFeaturePayload{Feature: feature, ParameterSources: sources}, nil
 	case "CREATE_SOLID_FEATURE":
-		if documentType == "PART" && request.Feature != nil && (request.Feature.Type == "LOFT" || request.Feature.Type == "HOLE" || request.Feature.Type == "SWEEP" || request.Feature.Type == "THICKEN") {
+		if documentType == "PART" && request.Feature != nil && (request.Feature.Type == "LOFT" || request.Feature.Type == "HOLE" || request.Feature.Type == "SWEEP" || isGeometryBodyFeature(request.Feature.Type)) {
 			var model PartModel
 			if err := json.Unmarshal(modelJSON, &model); err != nil {
 				return "", nil, err
@@ -630,7 +630,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, err
 			}
 			feature.ID = commandEntityID(strings.ToLower(feature.Type), request.RequestID)
-			feature.Name = numberedFeatureName(model.Features, feature.Type, map[string]string{"LOFT": "Loft", "HOLE": "Hole", "SWEEP": "Sweep", "THICKEN": "Thicken"}[feature.Type])
+			feature.Name = numberedFeatureName(model.Features, feature.Type, map[string]string{"LOFT": "Loft", "HOLE": "Hole", "SWEEP": "Sweep", "THICKEN": "Thicken", "CLOSE_SURFACE": "CloseSurface"}[feature.Type])
 			if err := service.qualifyLoftBoundaries(ctx, documentID, &feature); err != nil {
 				return "", nil, err
 			}

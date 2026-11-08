@@ -4,6 +4,7 @@ import { colorNumber, palette } from "../../design/visual-tokens";
 export const CATIA_VISUAL_THEME = {
   backgroundTop: colorNumber(palette.viewportTop), backgroundBottom: colorNumber(palette.viewportBottom), backgroundVignette: 0.12,
   surface: colorNumber(palette.solid), productSurface: colorNumber(palette.productSolid), placeholder: 0x8493a3,
+  engineeringCurve: 0xffd184, engineeringCurveLight: 0x9a6010, engineeringSurface: 0x819db4, engineeringPoint: 0xffffff,
   edge: colorNumber(palette.edge), vertex: colorNumber(palette.vertex),
   sketchProfile: colorNumber(palette.sketch), sketchConstruction: colorNumber(palette.construction), sketchExternal: colorNumber(palette.external),
   sketchSolved: colorNumber(palette.solved), sketchInvalid: colorNumber(palette.invalid), sketchRedundant: colorNumber(palette.redundant),

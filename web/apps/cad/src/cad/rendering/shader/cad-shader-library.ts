@@ -292,10 +292,18 @@ export class CadShaderLibrary {
             * (1.0 - smoothstep(0.42, 0.5, max(abs(p.x), abs(p.y))));
           float dotAlpha=uMarkerShape>0.5?1.0-smoothstep(uCenterRadius-fwidth(length(p)),uCenterRadius+fwidth(length(p)),length(p)):0.0;
           alpha=uMarkerShape>1.5?1.0-smoothstep(0.40-fwidth(length(p)),0.40+fwidth(length(p)),length(p)):max(alpha,dotAlpha);
-          if (alpha < 0.01) discard;
+          if (uMarkerShape<2.5 && alpha < 0.01) discard;
           vec3 color=mix(uColor,uSelectedColor,uSelected);
           float rim=smoothstep(0.40-uCenterRadius-fwidth(length(p))*0.5,0.40-uCenterRadius+fwidth(length(p))*0.5,length(p));
           color=mix(color,uCenterColor,uMarkerShape>1.5?rim:dotAlpha);
+          if(uMarkerShape>2.5){
+            // A thin dark silhouette keeps the white cross legible on a sheet.
+            float extent=1.0-smoothstep(0.40,0.48,max(abs(p.x),abs(p.y)));
+            float inner=1.0-smoothstep(0.065-aa,0.065+aa,diagonal);
+            alpha=(1.0-smoothstep(0.15-aa,0.15+aa,diagonal))*extent;
+            color=mix(uCenterColor,mix(uColor,uSelectedColor,uSelected),inner);
+            if(alpha<0.01)discard;
+          }
           gl_FragColor = vec4(color, alpha*uOpacity);
           #include <colorspace_fragment>
         }

@@ -97,7 +97,7 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 
 ## 导入根命名
 
-有效 Solid/Compound 的 STEP/BREP Definition 生成完整 Face/Edge/Vertex 根命名。XDE Definition 保持一个 Part；多 Solid 不再触发业务拆分或伪造装配。导入 Definition 先检查有效性，必要时在拷贝上运行 ShapeFix（mm：precision 1e-6、min 1e-7、max 1e-3），针对相邻圆柱面拆分造成的周期参数边界未闭合，仅在参数坐标系一致、两面各只有一条三维闭合边界且仅共享一条边时合并面片；不拼接近似同轴曲面。修复后再次检查有效 Solid 集、数量保持且无游离拓扑，再冻结实际 BREP SHA-256；修复失败返回组件诊断，不丢弃坏实体。准备与修复发生在身份分配之前，已冻结的历史快照不重写。ImportExchange 负责规范化精确快照，提交 ImportBody 前控制面分配独立随机 topology ID，写入不可变 `identity.pb` Artifact，并由 `import_definitions` 索引；Feature 的 `importDefinitionId` 引用该重放输入。定义记录绑定 Feature/Body、原始源对象和源 Definition ID（新 Jobs 导入）、精确 BREP digest、OCCT 版本、导入策略及毫米单位。旧文档修复可仅依据其已冻结的精确 BREP，不虚构已丢失的原始源文件。
+有效 Solid/Compound 和开放/混合 STEP/BREP Definition 均生成完整 Face/Edge/Vertex 根命名。XDE Definition 保持一个 Part；多 Solid 不再触发业务拆分或伪造装配。纯实体 Definition 先检查有效性，必要时在拷贝上运行 ShapeFix（mm：precision 1e-6、min 1e-7、max 1e-3），针对相邻圆柱面拆分造成的周期参数边界未闭合，仅在参数坐标系一致、两面各只有一条三维闭合边界且仅共享一条边时合并面片；不拼接近似同轴曲面。修复后再次检查有效 Solid 集、数量保持且无游离拓扑，再冻结实际 BREP SHA-256；修复失败返回组件诊断，不丢弃坏实体。准备与修复发生在身份分配之前，已冻结的历史快照不重写。ImportExchange 负责规范化精确快照，提交 ImportBody 或几何图形集 IMPORTED 结果前，控制面分配独立随机 topology ID，写入不可变 `identity.pb` Artifact，并由 `import_definitions` 索引；Feature 的 `importDefinitionId` 引用该重放输入。定义记录绑定 Feature/Body 或 Feature/resultId、原始源对象和源 Definition ID（新 Jobs 导入）、精确 BREP digest、OCCT 版本、导入策略及毫米单位。旧文档修复可仅依据其已冻结的精确 BREP，不虚构已丢失的原始源文件。
 
 身份分配先按文档/Feature/策略冻结；并发或失败重试读取同一获胜记录，不能重新分配已发布身份。随机 ID 不由 local ID、数组位置或几何坐标派生。定位映射只在冻结 BREP 摘要内有效，Worker 同时校验 OCCT 版本/策略，内核校验摘要、有效 Solid 集与无散落拓扑、覆盖、重复身份与 locator。更换输入快照不按编号或最近几何继承身份。定义表及其引用的源对象、精确几何是重放输入，不能作为显示缓存回收；几何/邻接 evidence 在由该冻结映射生成的 topology manifest 中物化。导入根的邻接以 Face→Edge、Face→Vertex、Edge→Vertex 的包含索引，以及共享边/顶点的反向索引生成，避免对全部拓扑做两两扫描；身份覆盖/重复检查使用集合，输出仍按原 canonical 顺序排列，不改变引用与历史语义。
 
@@ -105,7 +105,9 @@ EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named 
 
 已有无定义的导入由 `REPAIR_IMPORT_NAMING`（typed URI `occccad://part/exchange/repair-naming`）显式建立命名。工作台告警提供“建立导入命名”入口。修复保留原 Feature 和 BREP，通过正常 Transaction、CAS、entity ChangeSet 和新 Revision 提交；Undo/Redo 使用同一冻结定义，旧 Revision 不改写。已命名 Feature 不能以修复操作重新分配身份；缺失定义的历史快照仍使用 [IMPORT-DIAGNOSTICS](jobs-artifacts.md#持久任务与制品) 的明确诊断。
 
-当前回归入口包括 kernel/occt/tests/geometry_exchange_scenarios.cpp、services/internal/control/import_naming_integration_test.go、import_naming_diagnostics_test.go 和 workspace/import_naming_test.go。开放壳和混合散落拓扑不属于此 Solid/Compound 导入能力，源文件替换/新版内核迁移也未实现自动身份对照。
+开放/混合输入不经过实体修复：检查有效、非空、有界的冻结 BREP，以独立结果的 `resultId` 为 owner，通过 `GeometryFeatureSpec.import_seed/import_brep` 冷重放并生成完整 Naming，不伪造 Body。纯实体 Body 入口继续要求有效 Solid 集和无游离拓扑；混合内容不自动拆分材料 Body，详见[线框与曲面](wireframe-surfaces.md#开放几何交换)。
+
+当前回归入口包括 kernel/occt/tests/geometry_exchange_scenarios.cpp、surface_feature_scenarios.cpp、services/internal/control/import_naming_integration_test.go、import_naming_diagnostics_test.go、workspace/import_naming_test.go 和 surface_feature_integration_test.go。源文件替换/新版内核迁移未实现自动身份对照。
 
 完整 Naming 的唯一持久载荷为 `naming.pb`；RPC 和数据库不重复保存 FeatureResults。导入 identity 也通过 ArtifactReference 重放。数据边界见[几何制品](geometry-representations.md)。
 

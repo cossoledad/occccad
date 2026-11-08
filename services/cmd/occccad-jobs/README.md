@@ -6,9 +6,9 @@ occccad-jobs 是当前数据库持久任务的消费者进程，适合脱离 HTT
 
 | 任务类型 | 输入 | 输出/副作用 |
 |---|---|---|
-| `EXCHANGE_IMPORT` | ArtifactStore 中的 STEP/BREP 对象 | 一次解析 XDE Definition/Occurrence graph；唯一 Part 并行求值/命名，按依赖创建共享、嵌套 Product |
+| `EXCHANGE_IMPORT` | ArtifactStore 中的 STEP/BREP 对象 | 一次解析 XDE Definition/Occurrence graph；唯一 Part 的实体、开放及混合几何并行求值/命名，按依赖创建共享、嵌套 Product |
 | `EXCHANGE_EXPORT` | Part 或 Product 当前 Head 的 B-Rep 引用 | 生成 STEP/BREP，并把结果对象 ID 写回任务 |
-| `THUMBNAIL_RENDER` | 文档与版本 | 使用 `png-v8-empty-scene` 生成 `640×400` 正交等轴测 PNG 并更新 `document_previews` |
+| `THUMBNAIL_RENDER` | 文档与版本 | 使用 `png-v9-engineering-geometry` 生成 `640×400` 正交等轴测 PNG 并更新 `document_previews` |
 | `MOTION_STUDY` | 不可变 MOTION_SNAPSHOT 制品 | SolveAssembly/AnalyzeInterference 经 Router 执行，保存 MOTION_RUN；不修改 Product Head |
 
 Worker 不提供网络 API，不接受用户认证请求，也不是通用分布式工作流引擎。

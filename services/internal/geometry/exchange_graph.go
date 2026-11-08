@@ -38,6 +38,17 @@ func ValidateExchangeGraph(graph *ExchangeGraph) error {
 				return err
 			}
 		}
+		seenResults := map[string]bool{}
+		for _, result := range def.Geometries {
+			if result == nil || result.Brep == nil || result.Result == nil || result.Result.FeatureId == "" || result.Result.ResultId == "" || def.Kind != "PART" {
+				return fmt.Errorf("invalid exchange geometry owner")
+			}
+			key := result.Result.FeatureId + "/" + result.Result.ResultId
+			if seenResults[key] {
+				return fmt.Errorf("duplicate exchange geometry result")
+			}
+			seenResults[key] = true
+		}
 		definitions[def.Id] = i
 	}
 	state := map[string]int{}

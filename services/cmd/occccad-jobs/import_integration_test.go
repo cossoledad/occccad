@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -501,4 +502,117 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("%s: %d unique definitions, hierarchical Product, all FACE bindings valid, monotonic progress; elapsed=%s", filepath.Base(sourcePath), expected, time.Since(started).Round(time.Second))
+	if generated {
+		verifyEngineeringOpenImportJobs(t, h, actor, folder.ID, runID)
+	}
+}
+
+// The complete handler path must accept non-material definitions after the
+// Worker has normalized them, including frozen naming and queued-job results.
+func verifyEngineeringOpenImportJobs(t *testing.T, h handler, actor, folderID, runID string) {
+	t.Helper()
+	ctx := t.Context()
+	view, err := h.workspace.CreateDocument(ctx, workspace.CreateDocumentRequest{RequestID: uuid.NewString(), ActorID: actor, Name: "Engineering exchange", Type: "PART", FolderID: &folderID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := view.Document.ID
+	apply := func(feature workspace.Feature) workspace.Feature {
+		t.Helper()
+		kind := "CREATE_GEOMETRY_FEATURE"
+		if feature.Type == "THICKEN" {
+			kind = "CREATE_SOLID_FEATURE"
+		}
+		view, err = h.workspace.ApplyCommand(ctx, id, workspace.CommandRequest{RequestID: uuid.NewString(), ActorID: actor, Type: kind, Feature: &feature})
+		if err != nil {
+			t.Fatal(err)
+		}
+		f := view.Part.Features[len(view.Part.Features)-1]
+		if f.EvaluationStatus != "" {
+			t.Fatal(f.Diagnostic)
+		}
+		return f
+	}
+	wire := apply(workspace.Feature{Type: "GEOMETRY", Geometry: &workspace.GeometricFeatureDefinition{Kind: "LINE", Curve: &workspace.GeometryCurveDefinition{Points: []workspace.GeometryControlPoint{{ID: "start"}, {ID: "end", Position: [3]float64{20, 0, 0}}}}}})
+	input := func(f workspace.Feature) workspace.GeometricInput {
+		return workspace.GeometricInput{Kind: "RESULT", FeatureID: f.ID, ResultID: "result"}
+	}
+	sheet := apply(workspace.Feature{Type: "GEOMETRY", Geometry: &workspace.GeometricFeatureDefinition{Kind: "SURFACE_EXTRUDE", Inputs: []workspace.GeometricInput{input(wire)}, Parameters: workspace.GeometryOperationParameters{Direction: [3]float64{0, 0, 1}, Distance: 10}}})
+	apply(workspace.Feature{Type: "GEOMETRY", Geometry: &workspace.GeometricFeatureDefinition{Kind: "POINT_ON_CURVE", Inputs: []workspace.GeometricInput{input(wire)}, Parameters: workspace.GeometryOperationParameters{Start: .5}}})
+	execute := func(kind string, sourceID string, format string) jobs.Job {
+		t.Helper()
+		request := uuid.NewString()
+		payload, _ := json.Marshal(map[string]string{"fileName": "engineering." + strings.ToLower(format), "folderId": folderID, "format": format, "requestId": request})
+		var jobID string
+		var doc, revision, inputObject any
+		if kind == "EXCHANGE_EXPORT" {
+			doc = id
+			revision = view.Document.VersionID
+		} else {
+			inputObject = sourceID
+		}
+		if err := h.database.QueryRow(ctx, `INSERT INTO occccad.jobs(job_type,requested_by_user_id,document_id,version_id,input_object_id,payload,idempotency_key,user_visible,state,lease_owner,lease_expires_at,attempt_count) VALUES($1,$2,$3,$4,$5,$6,$7,true,'RUNNING',$8,now()+interval '1 hour',1) RETURNING id::text`, kind, actor, doc, revision, inputObject, payload, request, h.workerID).Scan(&jobID); err != nil {
+			t.Fatal(err)
+		}
+		job, err := h.queue.Get(ctx, jobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.execute(ctx, job); err != nil {
+			t.Fatal(kind, format, err)
+		}
+		done, err := h.queue.Get(ctx, jobID)
+		if err != nil || done.State != "SUCCEEDED" || done.Progress != 100 {
+			t.Fatal("unfinished exchange job", done, err)
+		}
+		return done
+	}
+	for _, mixed := range []bool{false, true} {
+		if mixed {
+			apply(workspace.Feature{Type: "THICKEN", Operation: "NEW_BODY", Geometry: &workspace.GeometricFeatureDefinition{Kind: "THICKEN", Inputs: []workspace.GeometricInput{input(sheet)}, Parameters: workspace.GeometryOperationParameters{Distance: 2}}})
+		}
+		for _, format := range []string{"STEP", "BREP"} {
+			t.Run(fmt.Sprintf("engineering/%t/%s", mixed, format), func(t *testing.T) {
+				exported := execute("EXCHANGE_EXPORT", "", format)
+				if exported.ResultObjectID == nil {
+					t.Fatal("export missing file")
+				}
+				object, reader, err := h.artifacts.Open(ctx, *exported.ResultObjectID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				source, err := h.artifacts.Put(ctx, artifact.KindExchangeSource, object.ContentType, reader)
+				reader.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				imported := execute("EXCHANGE_IMPORT", source.ID, format)
+				if imported.DocumentID == nil {
+					t.Fatal("import missing document")
+				}
+				opened, err := h.workspace.GetDocument(ctx, *imported.DocumentID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if opened.Part == nil || len(opened.Part.Features) != 1 {
+					t.Fatal("independent import did not create one Part definition")
+				}
+				f := opened.Part.Features[0]
+				if f.Type != "GEOMETRY" || f.Geometry.Kind != "IMPORTED" || f.BodyID != "" || f.Result == nil {
+					t.Fatal("independent import gained a fake material owner")
+				}
+				a := opened.Artifacts[f.Result.GeometryKey]
+				if a.GeometryDomain != "MIXED_SET" || !a.Naming.CanBind || a.Volume != 0 {
+					t.Fatal("import domain/naming/physical-measure policy", a.GeometryDomain, a.Naming, a.Volume)
+				}
+				solids, _ := a.Topology["solids"].(float64)
+				if (solids > 0) != mixed {
+					t.Fatal("solid/open domain lost")
+				}
+				if _, err := h.workspace.BindPersistentSelection(ctx, opened.Document.ID, workspace.BindPersistentSelectionRequest{SourceVersionID: opened.Document.VersionID, GeometryKey: a.GeometryKey, Kind: "FACE", LocalID: 1}); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
 }

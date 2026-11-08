@@ -82,6 +82,15 @@ try {
   assert.equal(hiddenDefinition.resolve(body("first")).effectiveVisible, false);
   assert.equal(hiddenDefinition.resolve(body("second")).effectiveVisible, true, "another occurrence keeps its accepted definition");
   assert.equal(visibilityResolverForView(host, { view: editingPart, occurrencePath: "first", liveDefinitionProjection: false }).resolve(body("first")).effectiveVisible, false);
+  const geometricNode={kind:"FEATURE",documentId:"part",entityId:"geometry",ownerEntityId:"set",localVisible:true};
+  const geometricSet={kind:"GEOMETRICAL_SET",documentId:"part",entityId:"set",localVisible:false,children:[geometricNode]};
+  const geometryRoot={kind:"PART",documentId:"part",entityId:"part",children:[geometricSet]};
+  const geometryAddress={documentId:"part",occurrencePath:"",kind:"FEATURE",entityId:"geometry"};
+  assert.equal(new VisibilityResolver(geometryRoot).resolve(geometryAddress).effectiveVisible,false,"geometry inherits its set visibility");
+  geometricSet.localVisible=true;assert.equal(new VisibilityResolver(geometryRoot).resolve(geometryAddress).effectiveVisible,true);
+  geometricNode.localVisible=false;assert.equal(new VisibilityResolver(geometryRoot).resolve(geometryAddress).effectiveVisible,false,"individual geometry can be hidden");
+  const {treeVisibilityAction}=await server.ssrLoadModule("/src/features/workbench/tree-visibility-action.ts");
+  assert.equal(treeVisibilityAction(geometricNode).label,"show");assert.equal(treeVisibilityAction({kind:"FEATURE",bodyId:"body",localVisible:true}),undefined,"a material-history feature has no independent display");
   console.log("Semantic visibility resolver scenarios passed.");
 } finally {
   await server.close();

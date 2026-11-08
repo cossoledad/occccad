@@ -1,13 +1,13 @@
 # 线框与曲面 Feature
 
-当前交付独立 Part 中的关联曲线、拉伸曲面、加厚实体，以及原实体扫掠对正式三维曲线的消费。它们共用 Part Feature 历史、参数、Domain Command、预览及制品管线。操作见[使用指南](../../guides/wireframe-surfaces.md)；后续曲面构造、修剪缝合及交换范围见[阶段设计](../../../plans/wireframe-surface-design.md)。
+当前交付独立 Part 中的关联曲线、工程曲面构造/编辑、加厚与封闭成实体、开放及混合几何 STEP/BREP 交换，以及原实体扫掠对正式三维曲线的消费。它们共用 Part Feature 历史、参数、Domain Command、预览及制品管线。操作见[使用指南](../../guides/wireframe-surfaces.md)；阶段与后续范围见[阶段设计](../../../plans/wireframe-surface-design.md)。
 
-源码入口：Workspace `geometric_feature.go`、`geometric_reference.go`、`evaluation_projection.go`、`part_bodies.go`；协议 `geometry_worker.proto`；OCCT `geometry_feature.cpp`；Web `geometric-feature-editor.tsx`、`geometric-input-selection.ts`。先按操作名搜索，不默认展开整个实体 evaluator。
+源码入口：Workspace `geometric_feature.go`、`geometric_reference.go`、`evaluation_projection.go`、`part_bodies.go`；协议 `geometry_worker.proto`；OCCT `geometry_feature.cpp`、`surface_feature.cpp`；Web `geometric-feature-editor.tsx`、`geometric-input-selection.ts`。先按操作名搜索，不默认展开整个实体 evaluator。
 
 ## 所有权、输入与结果
 
 - `GEOMETRY` Feature 和“线框与曲面”标签新建的 Sketch 归 `geometricalSetId`；实体特征归 `bodyId`，两者互斥。普通几何图形集只组织和控制显隐，全 Part DAG 决定依赖，集合顺序不构成材料前驱。首次创建可原子建立默认集合；既有草图不隐式搬移。
-- `features[].result = {id, domain, geometryKey}` 是派生引用，正式输出角色为 `result`；`POINT_SET / WIRE_SET / SHEET_SET` 独立于 Body。`THICKEN` 是原 Body 管线中的实体生成器，仍接纳非空有效 Solid 集，支持新 Body、添加、切除及交集的领域操作。
+- `features[].result = {id, domain, geometryKey}` 是派生引用，正式输出角色为 `result`；`POINT_SET / WIRE_SET / SHEET_SET` 独立于 Body；导入混合内容保留为 `MIXED_SET`。`THICKEN / CLOSE_SURFACE` 是原 Body 管线中的实体生成器，仍接纳非空有效 Solid 集，支持新 Body、添加、切除及交集的领域操作。
 - 输入分别为固定 Sketch entity ID 集、整个动态 `FeatureId + ResultId` 结果、固定拓扑 `PersistentSelection` 或显式 DatumPlane。`sourceBodyId` 与 `sourceResult` 恰有一个，拓扑绑定记录来源 Revision/Feature 和证据；不能保存 localId、数组位置、显示名或屏幕坐标作为身份。
 - 构造点可引用参考点、草图的稳定点/端点/圆心或正式点结果/顶点；方向可引用参考轴、坐标系轴、草图直线、精确直线边或平面法向。旋转轴另带来源原点，镜像及圆/圆弧支撑引用平面。所有引用进入原 DAG、删除保护及上游顺序检查。
 - 控制点拥有稳定 ID；插点不挪用其他点的权重槽，替换来源保留本地点 ID。UI 只编辑半径、长度、角度、弧长比例及权重等量值/表达式，不创建独立坐标或向量参数。领域 API 仍可显式定义坐标曲线和数值框架；引用方式不为已关联方向额外建立 XYZ 槽。二维 PlaneGCS 不承担三维约束求解。
@@ -30,6 +30,14 @@ Worker 只接收冻结精确 BREP/Naming、规范曲线或显式平面；来源�
 | 平移、旋转、镜像 | 选择对象后选择方向/旋转轴/镜像平面，调整距离或角度；保留关联框架和真实变换历史 |
 | 拉伸曲面 | 固定草图曲线或正式有限 Wire 沿关联直线、参考轴或平面法向及长度产生侧面；开放或闭合轮廓均不自动封盖、不参与材料布尔 |
 | 加厚 | 有界 Sheet 的有符号常厚度生成有效 Solid，再进入原 Body 操作与修改链；单面采用简单偏移，多面采用求交连接及封边，保存真实历史；自交、退化、开放壳或厚度失败拒绝 |
+| 曲面扫掠 | 显式截面和单条 G1 路径，检查各边连接及样条内部的单侧切线；截面须在路径起点法平面内，修正标架/曲率标架可选。保持实际路径×截面生成历史，不自动移动截面或平滑尖角 |
+| 曲面放样 | 2–32 个有序开放/闭合截面，开闭状态及边数须一致；逐截面反向/重排，平滑或直纹。保留输入对应，不自动增删边、选择闭合点或引导线 |
+| G0 填充 | 连通闭合边界，最多 256 段；以算法测得的 G0 边界误差检查显式容差，不提供支撑相切/曲率条件 |
+| 裁剪曲面 | 源曲面、有限切割曲面或基准平面、关联保留点；保留点必须位于唯一面片内部，由真实交线隔开的连通区域确定保留部分。未相交、点在边界或不在源面上明确失败；不隐式外推 |
+| 延长曲面 | 单面矩形参数域，选择该源面自身的等参数自由边界及物理长度；G1 外推并保留源域。一般修剪面、孔、非等参数边及周期缝拒绝，不丢弃原修剪边界 |
+| 连接、缝合 | 显式成员及连接容差；连接验证连续/流形后组织原面片，缝合建立共享边界的 Shell。连接不等同于已缝合；封闭前使用缝合。断开、多重边、自交拒绝 |
+| 偏移曲面 | 有限曲面集的有符号常量偏移及真实修改历史；失败不删除子面、不自动平滑或放大容差 |
+| 封闭曲面 | 单个已缝合闭合壳，检查自由边、流形、内外方向、自交及正体积后进入原 Body 管线；不自动补盖。支持新实体、添加、切除及交集 |
 | 原实体扫掠 | 新增正式三维边/连通 G1 Wire 路径，精确冻结输入；截面起点和法向需匹配路径，曲率标架/修正标架可选。空间尖角拒绝，既有平面草图直线斜接另保留 |
 
 ## 交互与求值
@@ -40,12 +48,20 @@ Worker 只接收冻结精确 BREP/Naming、规范曲线或显式平面；来源�
 
 创建与编辑共用紧凑拾取字段、数量/表达式和全局错误反馈，不使用来源下拉列表或“更多”折叠区；点列可定位已选点。命名沿用树的统一改名，容器沿用上下文/默认集合。
 
-预览与提交走同一权威 evaluator；预览不写 Head，确认绑定 actor、Revision、payload 和 preview token，提交继续 CAS 与幂等。方向、支撑和点的引用在冻结模型内解析为 Worker 数值输入；缓存同时记录正式引用、解析框架及 BREP/Naming 来源快照。上游参数改变重建消费者；自身无效编辑拒绝，已有下游失效按原失败/阻塞合同呈现，用户可重选输入。Undo/Redo 使用 ChangeSet 补偿和重放。集合显隐、改名等组织动作不改变几何身份。
+预览与提交走同一权威 evaluator；预览不写 Head，确认绑定 actor、Revision、payload 和 preview token，提交继续 CAS 与幂等。方向、支撑和点的引用在冻结模型内解析为 Worker 数值输入；缓存同时记录正式引用、解析框架及 BREP/Naming 来源快照。上游参数改变重建消费者；自身无效编辑拒绝，已有下游失效按原失败/阻塞合同呈现，用户可重选输入。Undo/Redo 使用 ChangeSet 补偿和重放。独立几何与集合均可单独显隐；显隐、改名等组织动作不改变几何身份或触发几何重建。
 
-每项独立结果拥有 BREP / GLB / Naming，下载授权按冻结 Revision 的 Body 或 FeatureResult 引用检查。GLB 可只有线/点，不制造空面或假三角形；开放面双面显示并避让共面深度，不投射/接收阴影，避免与加厚实体叠加出条纹；曲线/点独立命中。`geometryDomain` 决定物理量是否适用：开放结果的内部 `volume=0` 只是存储占位，不能作为实体体积或质量展示。格式与门禁分别见[制品](geometry-representations.md)、[Naming](persistent-naming.md)。
+每项独立结果拥有 BREP / GLB / Naming，下载授权按冻结 Revision 的 Body 或 FeatureResult 引用检查。GLB 可只有线/点，不制造空面或假三角形；工程曲线使用随明暗背景调整的暖色和屏幕固定线宽，工程点/参考点使用带深色描边的白色叉号，与草图点及实体顶点区分；开放面采用哑光蓝灰色、双面光照和阴影，并避让共面显示深度；仅曲面场景也建立阴影范围。缩略图收集可见独立结果、真实线/点和参考点，继承集合显隐，不依赖实体三角形。曲线/点独立命中。`geometryDomain` 决定物理量是否适用：开放结果的内部 `volume=0` 只是存储占位，不能作为实体体积或质量展示。格式与门禁分别见[制品](geometry-representations.md)、[Naming](persistent-naming.md)。
+
+## 开放几何交换
+
+STEP/BREP 导出冻结同一 Revision 的有效 Body 与可见独立 FeatureResult，分别携带 BREP 引用；不制造 Body、不用显示网格替代精确几何。STEP 保留原 Part/Product 交换图，BREP 为形状交换；源集合隐藏会排除其独立结果，但不删除模型依赖。
+
+导入在精确规范快照上分配首次注册的稳定 Face/Edge/Vertex 身份，绑定 BREP SHA、OCCT 版本和命名策略；重新导入是新身份根。纯 Solid 继续进入 `IMPORT_BODY`。开放或混合内容进入几何图形集中的只读 `GEOMETRY / IMPORTED` 定义，其命名种子以 `resultId` 为所有者，不能通过普通创建/编辑命令伪造。后续可通过正式拓扑选择消费；原导入根不可修改，仍可隐藏或删除。
+
+混合输入完整保存在一个 `MIXED_SET` 中，当前不自动分拆为可编辑材料 Body；需要材料历史时使用独立实体来源，或提取面并缝合/封闭。开放输入不隐式修补、缝合或封闭；无效输入拒绝。实体颜色延续原交换合同；独立线/点和曲面的专属颜色未形成跨软件交换合同，参数历史也不随 STEP/BREP 传递。`MIXED_SET` 的体积存储值同样不作为材料体积。
 
 ## 验证入口与未交付边界
 
-内核 `geometry_feature_scenarios.cpp` 检查解析面积/体积、完整拓扑命名、方向、周期边界、三维有理样条、投影/交线、参数更新、冷重建及原实体扫掠/修改。Workspace `geometric_feature_test.go`、`geometric_reference_test.go` 检查所有权/参数/依赖/历史；`geometric_feature_integration_test.go` 通过真实 Router/Worker 验证预览不写 Head、提交、参数传播、引用、Undo/Redo、冷读取及实体互用。`geometric-feature-live.spec.ts` 是真实浏览器创建、拾取、编辑、重开、取消和全局错误场景。执行结果以当次 `build/agent-check/` 与浏览器报告为准，不由测试文件存在推导通过。
+内核 `geometry_feature_scenarios.cpp`、`surface_feature_scenarios.cpp` 检查面积/体积、完整命名、周期缝、有序放样、裁剪分区、自由边、参数更新、取消及冷重建。Workspace `geometric_feature_test.go`、`geometric_reference_test.go` 检查所有权/参数/依赖/历史；`geometric_feature_integration_test.go`、`surface_feature_integration_test.go` 使用生产 Worker 验证预览、参数传播、引用、Undo/Redo、冷重建和 STEP/BREP 线/点/面/混合往返。Jobs `import_integration_test.go` 另验证开放/混合 STEP/BREP 的导出及导入 Job 完整调用链。缩略图见 `thumbnail/engineering_geometry_test.go`；浏览器见 `geometric-feature-live.spec.ts`。执行结果以当次 `build/agent-check/` 与浏览器报告为准，不由测试文件存在推导通过。
 
-当前只接入独立 Part 的线框/曲面显示及编辑；Product occurrence 的开放结果显示、READY ContextVariant、Publication/跨零件消费、完整测量和开放/混合几何 STEP/BREP 交换尚未接入。Surface Revolve/Sweep/Loft/Fill、曲面 Split/Trim/Extend、Join/Sew/Offset/Close 属后续阶段。法向/自由边专用叠加、UV 等参数线、曲率梳/斑马纹、有序集合及吸收显示尚未交付；源几何按集合可见性保留。尚无工业模型成功率、全局误差界或容量/性能承诺。
+当前只接入独立 Part 的线框/曲面显示及编辑；Product occurrence 的开放结果显示、READY ContextVariant、Publication/跨零件消费及完整测量仍未接入。Surface Revolve、一般曲面 Split/互裁、Up-to 外推、guide/spine/coupling、支撑 G1/G2、复杂偏移修补均在后续范围。法向/自由边专用叠加、UV 等参数线、曲率梳/斑马纹、有序集合及吸收显示未交付；源几何按集合可见性保留。拓扑历史无法唯一命名时拒绝，未经工业模型成功率、全局误差界或容量/性能认证。原生算法内部不能保证即时取消，提交前和循环阶段仍检查取消。

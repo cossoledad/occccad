@@ -333,6 +333,7 @@ struct TopologyInfo {
     uint32_t edge_count;
     uint32_t vertex_count;
     uint32_t solid_count;
+    std::string geometry_domain;
     std::vector<FaceInfo> faces;
     std::vector<EdgeInfo> edges;
     std::vector<VertexInfo> vertices;
@@ -398,6 +399,7 @@ public:
     // Preserve each located Solid occurrence; component ordinal is not a persistent topology ID.
     virtual std::vector<GeometryId> splitSolids(const GeometryId& id) = 0;
     virtual GeometryId repairImportedSolid(const GeometryId& id) = 0;
+    virtual GeometryId repairImportedGeometry(const GeometryId& id) { return repairImportedSolid(id); }
     virtual GeometryId combine(const std::vector<PlacedGeometry>& components) = 0;
     virtual void unload(const GeometryId& id) = 0;
 

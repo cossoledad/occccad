@@ -30,6 +30,13 @@ export class CadMaterialFactory {
     return material;
   }
 
+  engineeringSurface(color:number,properties:GraphicProperties={}):THREE.MeshStandardMaterial {
+    const material=this.surface(color,{...properties,roughness:properties.roughness??.78,metalness:properties.metalness??0});
+    material.envMapIntensity=.18;
+    material.shadowSide=THREE.DoubleSide;
+    return material;
+  }
+
   edge(color: number = this.theme.edge): THREE.ShaderMaterial {
     const material=this.withSharedCadUniforms(this.shaders.createMaterial("cad.edge", {
       uColor: new THREE.Color(color),
@@ -54,6 +61,15 @@ export class CadMaterialFactory {
     material.uniforms.uMarkerShape.value = 2;
     material.uniforms.uCenterRadius.value = .55/size;
     material.uniforms.uCenterColor.value.setHex(this.theme.edge);
+    material.depthWrite = false;
+    return material;
+  }
+
+  /** Independent engineering points are outlined white crosses, in CSS pixels. */
+  engineeringPoint(depthTest = true): THREE.ShaderMaterial {
+    const material = this.point(this.theme.engineeringPoint, 11, depthTest);
+    material.uniforms.uMarkerShape.value = 3;
+    material.uniforms.uCenterColor.value.setHex(0x1b2530);
     material.depthWrite = false;
     return material;
   }

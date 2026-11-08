@@ -1328,7 +1328,7 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 			}
 		}
 	}
-	if (isSolidGenerator(payload.Feature.Type) || payload.Feature.Type == "LOFT" || payload.Feature.Type == "THICKEN") && payload.Feature.Operation == "NEW_BODY" {
+	if (isSolidGenerator(payload.Feature.Type) || payload.Feature.Type == "LOFT" || isGeometryBodyFeature(payload.Feature.Type)) && payload.Feature.Operation == "NEW_BODY" {
 		bodyChanges = createFeatureBody(&model, &payload.Feature)
 	}
 	if !geometricOwner && bodyIndex(model, payload.Feature.BodyID) < 0 {
@@ -2495,7 +2495,18 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	}
 	if command == typeImportExchange || command == typeRepairImportNaming {
 		input := payload.(createFeaturePayload)
-		if input.Feature.BodyID == "" {
+		if command == typeImportExchange {
+			a, loadErr := service.loadArtifact(ctx, input.Feature.GeometryKey)
+			if loadErr != nil {
+				return prepared, loadErr
+			}
+			if a.GeometryDomain != "SOLID_SET" {
+				input.Feature.Type = "GEOMETRY"
+				input.Feature.BodyID = ""
+				input.Feature.Geometry = &GeometricFeatureDefinition{Kind: "IMPORTED"}
+			}
+		}
+		if input.Feature.BodyID == "" && input.Feature.Type != "GEOMETRY" {
 			var m PartModel
 			_ = json.Unmarshal(prepared.modelJSON, &m)
 			normalizePartModel(&m)
@@ -2505,7 +2516,9 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 		if err != nil {
 			return prepared, err
 		}
-		input.BodyAppearance, err = service.importedAppearance(ctx, input.Feature, request.ImportSource)
+		if input.Feature.Type == "IMPORT_BODY" {
+			input.BodyAppearance, err = service.importedAppearance(ctx, input.Feature, request.ImportSource)
+		}
 		if err != nil {
 			return prepared, err
 		}
