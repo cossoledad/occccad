@@ -16,7 +16,7 @@ Loft 使用真实 OCCT AddVertex 点端和精确轮廓；自动比较循环起�
 
 定位草图、点实体和目标上游阶段进入依赖、删除/循环检查及缓存；合法删点留下 `HOLE_POINT_MISSING`，下游按依赖阻塞。编辑器保留待修复输入并提供“修复孔位”；草图支撑失效沿[已有支撑重指定](part-sketch.md#支撑与外部几何)修复。取消和预览不写 Head，修复保持 Hole ID、名称、Body 与历史位置。同 Body 的合法 `BLIND` / `THROUGH_ALL` 三种孔型可作为 `GENERATOR_TOOL`，执行线性／圆周阵列与镜像，详见[参数化阵列](feature-replication.md#参数化阵列)。单向贯穿按成员重建主孔切削范围，入口沉孔保留尺寸；有限 BLIND 可与后续修饰组成净切除 `FEATURE_DELTA`；显式 `BODY_STAGE` 保持复制整个已求值阶段的原意。到平面 Hole 不作为固定复制工具，可选成员重执行；钻尖、孔组与工程螺纹标注见下文。
 
-源码入口：`workspace/hole.go`、`evaluation_projection.go`、`occt_kernel.cpp` 的 `add_hole_recess` 与 `solid-feature-editor.tsx`。定向回归入口：`GeometryExchange.Hole*`、`TestEngineeringHole*`、`TestHoleLifecycleThroughRouter`、`TestHoleToPlane*` 和 `solid-feature-live.spec.ts` 的 Hole 场景；覆盖精确体积/方向、表达式、引用延续/失效修复、抽壳外壁支撑、历史与冷重建。执行结果以当轮交付为准；当前环境是 SQLite、Release OCCT 7.9.1 与 Chromium/SwiftShader，不代表 PostgreSQL 或全部几何组合验收。
+源码入口：`workspace/hole.go`、`evaluation_projection.go`、`occt_kernel.cpp` 的 `add_hole_recess` 与 `solid-feature-editor.tsx`。定向回归入口：`GeometryExchange.Hole*`、`TestEngineeringHole*`、`TestHoleLifecycleThroughRouter`、`TestHoleToPlane*` 和 `solid-feature-live.spec.ts` 的 Hole 场景；覆盖精确体积/方向、表达式、引用延续/失效修复、抽壳外壁支撑、历史与冷重建。运行与环境见[测试入口](../../../tests/README.md)，执行范围以当次报告为准。
 
 ## 到平面关联终止
 
@@ -40,7 +40,7 @@ OCCT 精确分割后，只接受与整个起始端面相邻的唯一实体单元
 
 `startOffset`、`endOffset` 是正式长度 Quantity/表达式，保存稳定 `parameter:<FeatureId>:<slot>`。正值沿已反向处理的拉伸方向，负值沿相反方向；起始偏移移动草图构造平面，有限/双侧/对称长度仍定义实际扫掠区间。终止偏移沿拉伸方向平移已经确定的终止边界，正值延长、负值提前，不是曲面法向偏置；再次精确分割验证。有限模式不暴露终止偏移；关联模式不暴露有限长度；既有贯穿切除保持其范围合同，不提供起始偏移。Hole 不接受这两个直线生成器字段。
 
-面板选择模式、目标与带单位偏移，预览不推进 Head；编辑保留 Feature/Parameter、Body 和历史位置。目标失效保留原引用，可在输入阶段显式重选；同位置、同形状的另一个 Body 不会自动代替。失败提示提供终止限制修复入口。关联生成器暂不充当 GENERATOR_TOOL/FEATURE_DELTA 种子，BODY_STAGE 仍可复制结果；通用成员重执行仍是后续任务。
+面板选择模式、目标与带单位偏移，预览不推进 Head；编辑保留 Feature/Parameter、Body 和历史位置。目标失效保留原引用，可在输入阶段显式重选；同位置、同形状的另一个 Body 不会自动代替。失败提示提供终止限制修复入口。关联生成器暂不充当 GENERATOR_TOOL/FEATURE_DELTA 种子，BODY_STAGE 仍可复制结果；支持的生成器可在成员位置重新求值，适用范围见[成员重执行](feature-replication.md#在成员位置重执行生成器)。
 
 验收入口：`ExtrudeOffsetsAndNextTerminationUseEntireExactProfile`、`ToSurfaceUsesImmutableSelectedUnderlyingCylinderAndNaming`、`ToSurfacePlaneExtendsBeyondFiniteFaceBoundary`；真实 Router/Worker 的 `TestAssociatedExtrudeLifecycleThroughRouter` 与 `TestCurvedTerminationUpdatesAndRequiresExplicitRepairThroughRouter` 覆盖公式、上游变化、缺失引用不猜绑、显式修复、Undo/Redo、重开及冷 BREP/Naming。浏览器 `associated next termination`、`surface termination picks` 分别验收数量操作与实际曲面拾取；各次执行结果以检查报告为准。
 

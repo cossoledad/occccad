@@ -7459,15 +7459,6 @@
       "order": 2
     },
     {
-      "id": "SKETCHER.measurement",
-      "name": "测量",
-      "modeLabel": "Sketcher",
-      "workbench": "SKETCHER",
-      "section": "measurement",
-      "domain": "SKETCH",
-      "order": 1
-    },
-    {
       "id": "SKETCHER.parameters",
       "name": "参数与接口",
       "modeLabel": "Sketcher",
@@ -7535,7 +7526,6 @@
       },
       "tabs": [
         "SKETCHER.model",
-        "SKETCHER.measurement",
         "SKETCHER.parameters",
         "SKETCHER.view",
         "SKETCHER.document",
@@ -7731,9 +7721,9 @@
       "order": 50
     },
     {
-      "tabId": "SKETCHER.measurement",
+      "tabId": "SKETCHER.model",
       "groupId": "sketch-dimensional-constraints",
-      "order": 0
+      "order": 60
     },
     {
       "tabId": "PART_DESIGN.document",

@@ -75,9 +75,9 @@ PlaneGCS 适配器按 `DogLeg → Levenberg-Marquardt → BFGS` 执行确定性�
 
 Sketch Move/Rotate/Copy 共用现有 manipulator 的平面模式、屏幕缩放与冻结手势基线。选集由工具持有，手柄和派生几何挂统一只读 preview layer；中心只编辑操作基点，释放一次提交原有 Transform/Copy command。失败恢复手柄，未知结果沿原 request/base version 查询；不改装配求解合同、不解除驱动关系以让变换成功。
 
-普通直线、圆、矩形及中心矩形按指针位置绘制，不提供绘制中的数值尺寸框，也不因数字按键创建驱动尺寸。正式长度、角度、半径和参数公式由尺寸工具或尺寸编辑器管理，保持 ParameterId、Source/checkedAST、连接、历史和引用更换语义。无方向候选的绘图使用本地近似预览；方向候选通过只读生产 Preview 求解，保持单飞与最新候选合并。确认等待同一候选并提交相同几何/约束身份；取消或 Revision/occurrence 变化丢弃迟到结果。显式尺寸驱动后续实体的真实 Router/Worker 检验为 `TestSketchDimensionsDriveSolidThroughRouter`。
-退出草图后可启动拉伸、切除或旋转，继承所属 Body 与当前明确区域；Sketcher 不混合实体命令。生成器面板可编辑普通输入草图，新建或既有拉伸/旋转均可选择支撑后创建输入草图；既有生成器的新输入插在其历史位置之前；结束后保留原始数量文本、单位和未提交 intent，并基于最新 Revision 重新预览。显式区域仍按原 ID 修复，不静默换区；新建输入草图才初始化其当前区域。取消生成器仅丢弃其草稿，期间已提交的草图修改保留在正式历史。切换所属文档或 occurrence 结束往返；未知草图回执阻止切换。该往返不接管助手确认会话，尚未扩展到放样多截面往返。实现见 `solid-sketch-workflow.ts`、`SolidFeatureEditor` 和 `Workbench`，浏览器覆盖新建/取消支撑、编辑草图、原始表达式保留及返回后的提交/取消。
+普通直线、圆、矩形及中心矩形按指针创建，不因数字按键生成尺寸约束；显式尺寸与几何约束同属草图功能。方向候选使用只读权威预览，确认复用同一几何/约束 ID；作用域及诊断见[方向推断](#方向推断与草图诊断)。正式尺寸、表达式、引用更换及下游实体回归为 `TestSketchDimensionsDriveSolidThroughRouter`。
 
+实体表单的输入草图往返由 `solid-sketch-workflow.ts` 保存草稿数量原文、单位、意图和 occurrence；既有特征的新输入在自身之前创建。返回基于最新 Revision 重新预览，原区域按稳定 ID 恢复/修复，仅新建输入初始化其当前区域。已确认草图操作不因取消实体而撤销；文档/occurrence 改变结束往返，未知回执阻止切换。尚不接管助手确认会话或放样多截面往返。操作步骤见[交互指南](../../guides/sketch-interaction.md#草图与实体往返)。
 
 ## Profile 与 Feature
 
@@ -189,6 +189,6 @@ DocumentView 的 `sketchAnalyses` 是统一 Profile Builder 的只读分析投�
 
 普通直线在绘制时按物理夹角和 CSS 像素距离共同推断 H/V，以及邻近普通本地直线的 Parallel/Perpendicular。状态区先显示候选关系和支撑，确认后创建普通正式约束；候选沿现有合并预览队列求解，确认复用同一几何和约束 ID。已有端点捕获优先，避免叠加另一方向意图。工具选项可单独关闭方向推断或关闭自动连接/推断；Alt 临时关闭，确认时再次检查当前按键状态。推断只扫描附近最多 128 条普通直线；不承诺远处几何或任意派生输出的自动方向关系。
 
-“草图诊断”读取接受快照的整体与分量 DoF、约束程度、冲突、冗余及抑制状态；采用与装配约束诊断一致的“待处理问题 / 全部约束 / 自由度”页签、计数、搜索和状态筛选表格。行选中高亮，定位按钮才移动视图；编辑、停用/启用使用原约束入口。定位使用正式 Entity/Constraint ID，可打开既有约束编辑，普通约束的启用/抑制沿 EDIT_SKETCH 与历史链；生成操作内部关系只读。UNRESOLVED 的零计数不显示为完全约束，冗余与约束程度保持正交。当前提供计数和关系定位，未返回可动方向的零空间向量，不能把分量定位解释成独立拖动方向。
+“草图诊断”读取接受快照的整体/分量 DoF、约束程度、冲突、冗余及抑制状态，沿用装配诊断的问题/约束/自由度表格。稳定 Entity/Constraint ID 用于选中高亮、定位和编辑；停用/启用走 EDIT_SKETCH 与历史链，生成关系只读。UNRESOLVED 零计数不显示为完全约束，冗余与约束程度保持正交；当前未返回零空间方向向量，不能把分量定位解释成独立拖动方向。
 
 绘图与编辑候选的作用域包含 Part Revision、Root Product Revision、ContextVariant、occurrence 和活动草图；仅 Part Head 不变不足以继续使用旧上下文候选。入口为 `sketch-direction-inference.ts`、`sketch-diagnostics.ts`、`SketchDiagnosticsPanel`；真实求解回归 `TestSketchDirectionInferenceSolvesThroughRouter`，交互回归 `direction inference is visible`。

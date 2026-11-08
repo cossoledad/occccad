@@ -26,7 +26,7 @@ services unit 使用 `./cmd/...`、`./internal/...`、`./gen/...` 三个源码�
 
 ## 草图与 Solid Feature 组合检验
 
-从[整体设计流程](../docs/architecture/current/part-design-workflow.md)进入合同，从[验证记录](../docs/validation/sketch-solid-workflow.md)查看具体证据与测量边界。资源统一登记在 `dev/test-resources.json`；不另设测试数据库或桶。
+从[整体设计流程](../docs/architecture/current/part-design-workflow.md)进入合同，从[检验与测量](../docs/validation/sketch-solid-workflow.md)查看具体证据与测量边界。资源统一登记在 `dev/test-resources.json`；不另设测试数据库或桶。
 
 - `services/internal/control/sketch_solid_workflow_integration_test.go`：主草图局部区域/关联偏移/抽壳、多 Body 共享参数、重复 occurrence 的薄壁/重执行/Sweep/孔组、历史 Sweep 及冷 Naming。
 - `associated_extrude`、`thin_feature`、`sweep`、`engineering_hole`、`loft_boundary`、`pattern_reexecution` 的 integration 文件：各生成器参数、失败/修复、预览、补偿历史、重开与冷重建；重执行文件还输出分阶段小样本测量。

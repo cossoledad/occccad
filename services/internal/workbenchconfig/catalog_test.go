@@ -217,7 +217,11 @@ func TestModelingMeasurementAndParametersAreSeparateCategories(t *testing.T) {
 		t.Fatal("solid commands mixed into Sketcher")
 	}
 	for _, workbench := range []string{"PART_DESIGN", "SKETCHER", "ASSEMBLY_DESIGN"} {
-		for _, category := range []string{"model", "measurement", "parameters", "view"} {
+		categories := []string{"model", "parameters", "view"}
+		if workbench != "SKETCHER" {
+			categories = append(categories, "measurement")
+		}
+		for _, category := range categories {
 			if _, exists := tabs[workbench+"."+category]; !exists {
 				t.Fatalf("missing category %s.%s", workbench, category)
 			}
@@ -231,7 +235,13 @@ func TestModelingMeasurementAndParametersAreSeparateCategories(t *testing.T) {
 		for _, id := range context.Tabs {
 			found[tabs[id].Section] = true
 		}
-		for _, category := range []string{"model", "measurement", "parameters", "view"} {
+		categories := []string{"model", "parameters", "view"}
+		if context.ID != "SKETCHER" {
+			categories = append(categories, "measurement")
+		} else if found["measurement"] {
+			t.Fatal("empty measurement category in Sketcher")
+		}
+		for _, category := range categories {
 			if !found[category] {
 				t.Fatalf("context %s hides category %s", context.ID, category)
 			}
@@ -240,10 +250,10 @@ func TestModelingMeasurementAndParametersAreSeparateCategories(t *testing.T) {
 	for _, placement := range c.Placements {
 		tab := tabs[placement.TabID]
 		if tab.Workbench == "SKETCHER" && placement.GroupID == "measurement" {
-			t.Fatal("3D measurement is unavailable in Sketcher; use dimensional tools")
+			t.Fatal("3D measurement is unavailable in Sketcher")
 		}
-		if placement.GroupID == "sketch-dimensional-constraints" && tab.Section != "measurement" {
-			t.Fatal("Sketcher dimensions must be in the measurement category")
+		if placement.GroupID == "sketch-dimensional-constraints" && (tab.Workbench != "SKETCHER" || tab.Section != "model") {
+			t.Fatal("dimensions are sketch constraints, not measurement commands")
 		}
 		if placement.GroupID == "measurement" && tab.Section != "measurement" {
 			t.Fatalf("measurement mixed into %s", tab.ID)

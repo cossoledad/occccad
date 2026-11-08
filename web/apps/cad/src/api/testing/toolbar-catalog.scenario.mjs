@@ -30,6 +30,10 @@ try {
   const {contextTabs,builtinCatalog,matches}=await server.ssrLoadModule("/src/cad/command/workbench-catalog.ts");
   const facts={targetType:'PRODUCT',hostType:'PRODUCT',rootTarget:true,motionActive:false,sketchActive:false,canEdit:true,rootCanEdit:true,busy:false,isMock:true,moveReceiptPending:false,selectionKind:'',selectionCount:0,hasWorkingBody:false};
   assert.deepEqual(contextTabs(builtinCatalog,facts).map(t=>t.name),['装配设计','测量','参数与接口','视图','文档与协作','DEBUG']);
+  const sketchTabs=contextTabs(builtinCatalog,{...facts,targetType:'PART',sketchActive:true});
+  assert.deepEqual(sketchTabs.map(t=>t.name),['草图','参数与接口','视图','文档与协作','DEBUG']);
+  const dimensions=toolbars.find(bar=>bar.id==='sketch-dimensional-constraints');
+  assert.deepEqual(dimensions.tabIds,['SKETCHER.model']);assert.equal(dimensions.section,'model');
   assert(!contextTabs(builtinCatalog,{...facts,rootTarget:false}).some(t=>t.domain==='KINEMATICS_DMU'),'nested Product editing cannot create a host mechanism');
   assert(matches(builtinCatalog.commands.find(v=>v.id==='tree.edit').enabledWhen,{...facts,canEdit:false,motionActive:true,selectionKind:'tree'}),'mechanism group member references delegate editing through the tree command');
   assert(!contextTabs(builtinCatalog,{...facts,motionActive:true}).some(t=>t.domain==='ASSEMBLY'));

@@ -1475,8 +1475,11 @@ test('sketch drawing stays pointer based and categories separate solid generatio
  await login(page);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  const seed=await page.evaluate(async()=>{const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Simple sketch workflow');const id=v.document.id;v=await api.command(id,{type:'CREATE_PARAMETER',name:'thickness',value:4,unit:'mm'});v=await api.command(id,{type:'CREATE_SKETCH',plane:'XY'});return {id,sketch:v.part!.features.at(-1)!.id,head:v.document.versionId}});
  await enterLiveSketch(page,seed);
- for(const label of ['草图','测量','参数与接口','视图'])await expect(page.getByRole('tab',{name:label,exact:true})).toBeVisible();
- await page.getByRole('tab',{name:'测量',exact:true}).click();await expect(page.getByRole('button',{name:'线性尺寸',exact:true})).toBeVisible();
+ for(const label of ['草图','参数与接口','视图'])await expect(page.getByRole('tab',{name:label,exact:true})).toBeVisible();
+ await expect(page.getByRole('tab',{name:'测量',exact:true})).toHaveCount(0);
+ const dimension=page.getByRole('button',{name:'线性尺寸',exact:true});
+ for(let i=0;i<5&&!await dimension.isVisible();i++)await page.getByRole('button',{name:'下一页命令',exact:true}).click();
+ await expect(dimension).toBeVisible();await expect(page.getByRole('tab',{name:'草图',exact:true})).toHaveAttribute('aria-selected','true');
  await page.getByRole('tab',{name:'参数与接口',exact:true}).click();await expect(page.getByRole('button',{name:'参数与公式',exact:true})).toBeVisible();
  await page.getByRole('tab',{name:'草图',exact:true}).click();await expect(page.getByRole('button',{name:'拉伸',exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'搜索工具',exact:true}).click();const search=page.getByRole('dialog',{name:'搜索工具',exact:true});await search.getByRole('textbox').fill('拉伸');await expect(search.locator('strong',{hasText:/^拉伸$/})).toHaveCount(0);await page.keyboard.press('Escape');
