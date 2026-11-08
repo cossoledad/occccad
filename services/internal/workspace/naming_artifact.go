@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"github.com/occccad/occccad/internal/modelcore"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
@@ -14,10 +15,12 @@ type topologyManifest struct {
 	Locators       map[string]namingLocator
 	FeatureResults []*workerv1.FeatureResult
 	Tips           map[string]*workerv1.FeatureResult
+	Results        map[modelcore.GeometryResultReference]*workerv1.FeatureResult
 }
 
 type namingLocator struct {
 	BodyID string
+	Result *modelcore.GeometryResultReference
 	Output *workerv1.SemanticTopologyOutput
 }
 
@@ -30,10 +33,37 @@ func (m *topologyManifest) GetFeatureResults() []*workerv1.FeatureResult {
 func (m *topologyManifest) bodyTips() map[string]*workerv1.FeatureResult { return m.Tips }
 
 func unpackNaming(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
-	if len(m.Bodies) != 1 || m.Bodies[0].BodyId == "" || m.GeometryId == "" || m.SchemaVersion != 2 || m.CoordinateSpace != "PART_LOCAL" || m.LengthUnit != "mm" {
+	if len(m.Bodies)+len(m.Results) != 1 || m.GeometryId == "" || m.SchemaVersion != 2 || m.CoordinateSpace != "PART_LOCAL" || m.LengthUnit != "mm" {
 		return nil, fmt.Errorf("unsupported naming artifact contract")
 	}
-	out := &topologyManifest{GeometryID: m.GeometryId, BRepSHA256: m.BrepSha256, Locators: map[string]namingLocator{}, Tips: map[string]*workerv1.FeatureResult{}}
+	var ownerBody string
+	var ownerResult *workerv1.GeometryResultReference
+	var transitions []uint32
+	var tipTransition uint32
+	var tipOutputs []*workerv1.NamingTopologyLocator
+	if len(m.Bodies) == 1 {
+		b := m.Bodies[0]
+		ownerBody = b.BodyId
+		transitions = b.Transitions
+		tipTransition = b.TipTransition
+		tipOutputs = b.Tip
+		if ownerBody == "" {
+			return nil, fmt.Errorf("invalid naming body identity")
+		}
+	} else {
+		r := m.Results[0]
+		ownerResult = r.Reference
+		transitions = r.Transitions
+		tipTransition = r.TipTransition
+		tipOutputs = r.Tip
+		if ownerResult == nil || ownerResult.FeatureId == "" || ownerResult.ResultId == "" {
+			return nil, fmt.Errorf("invalid naming result identity")
+		}
+	}
+	matchesOwner := func(body string, r *workerv1.GeometryResultReference) bool {
+		return body == ownerBody && ((ownerResult == nil && r == nil) || (ownerResult != nil && r != nil && ownerResult.FeatureId == r.FeatureId && ownerResult.ResultId == r.ResultId))
+	}
+	out := &topologyManifest{GeometryID: m.GeometryId, BRepSHA256: m.BrepSha256, Locators: map[string]namingLocator{}, Tips: map[string]*workerv1.FeatureResult{}, Results: map[modelcore.GeometryResultReference]*workerv1.FeatureResult{}}
 	var failure error
 	ref := func(id uint32) *workerv1.SemanticTopologyRef {
 		if id == 0 || uint64(id) > uint64(len(m.SemanticRefs)) {
@@ -109,7 +139,7 @@ func unpackNaming(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
 		return evidence[id-1]
 	}
 	for _, t := range m.Transitions {
-		if t.BodyId != m.Bodies[0].BodyId {
+		if !matchesOwner(t.BodyId, t.Result) {
 			return nil, fmt.Errorf("cross-body naming transition")
 		}
 		h := &workerv1.TopologyHistory{SchemaVersion: 1, FeatureId: t.FeatureId, InputGeometryId: t.InputGeometryId, ResultGeometryId: t.ResultGeometryId, EvidenceDigest: t.EvidenceDigest, PolicyDigest: m.PolicyDigest}
@@ -133,30 +163,30 @@ func unpackNaming(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
 			}
 			h.Ambiguous = append(h.Ambiguous, v)
 		}
-		out.FeatureResults = append(out.FeatureResults, &workerv1.FeatureResult{FeatureId: t.FeatureId, BodyId: t.BodyId, InputFeatureId: t.InputFeatureId, ProfileFeatureId: t.ProfileFeatureId, ResultGeometryId: t.ResultGeometryId, TopologyHistory: h, TopologyHistoryComplete: t.Complete, Diagnostics: t.Diagnostics})
+		out.FeatureResults = append(out.FeatureResults, &workerv1.FeatureResult{FeatureId: t.FeatureId, BodyId: t.BodyId, Result: t.Result, InputFeatureId: t.InputFeatureId, ProfileFeatureId: t.ProfileFeatureId, ResultGeometryId: t.ResultGeometryId, TopologyHistory: h, TopologyHistoryComplete: t.Complete, Diagnostics: t.Diagnostics})
 	}
 	seen := map[uint32]bool{}
 	locators := map[string]bool{}
-	for _, b := range m.Bodies {
-		if b.BodyId == "" || out.Tips[b.BodyId] != nil || b.TipTransition == 0 || uint64(b.TipTransition) > uint64(len(out.FeatureResults)) {
+	{
+		if tipTransition == 0 || uint64(tipTransition) > uint64(len(out.FeatureResults)) {
 			return nil, fmt.Errorf("invalid naming body tip")
 		}
-		tip := out.FeatureResults[b.TipTransition-1]
-		if tip.BodyId != b.BodyId {
+		tip := out.FeatureResults[tipTransition-1]
+		if !matchesOwner(tip.BodyId, tip.Result) {
 			return nil, fmt.Errorf("tip belongs to another body")
 		}
 		var previous uint32
-		for _, id := range b.Transitions {
-			if id <= previous || uint64(id) > uint64(len(out.FeatureResults)) || seen[id] || out.FeatureResults[id-1].BodyId != b.BodyId {
+		for _, id := range transitions {
+			if id <= previous || uint64(id) > uint64(len(out.FeatureResults)) || seen[id] || !matchesOwner(out.FeatureResults[id-1].BodyId, out.FeatureResults[id-1].Result) {
 				return nil, fmt.Errorf("invalid body transition chain")
 			}
 			seen[id] = true
 			previous = id
 		}
-		if previous != b.TipTransition {
+		if previous != tipTransition {
 			return nil, fmt.Errorf("body tip not at end of transition chain")
 		}
-		for _, o := range b.Tip {
+		for _, o := range tipOutputs {
 			key := fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)
 			if o.LocalId == 0 || o.TopologyType < 1 || o.TopologyType > 3 || locators[key] {
 				return nil, fmt.Errorf("invalid or duplicate tip locator")
@@ -165,9 +195,19 @@ func unpackNaming(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
 			tip.SemanticOutputs = append(tip.SemanticOutputs, &workerv1.SemanticTopologyOutput{TopologyType: o.TopologyType, LocalId: o.LocalId, SemanticRef: ref(o.SemanticRef), Evidence: ev(o.Evidence)})
 		}
 		for _, o := range tip.SemanticOutputs {
-			out.Locators[fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)] = namingLocator{b.BodyId, o}
+			out.Locators[fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)] = namingLocator{BodyID: ownerBody, Output: o}
 		}
-		out.Tips[b.BodyId] = tip
+		if ownerResult != nil {
+			r := modelcore.GeometryResultReference{FeatureID: ownerResult.FeatureId, ResultID: ownerResult.ResultId}
+			out.Results[r] = tip
+			for _, o := range tip.SemanticOutputs {
+				locator := out.Locators[fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)]
+				locator.Result = &r
+				out.Locators[fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)] = locator
+			}
+		} else {
+			out.Tips[ownerBody] = tip
+		}
 	}
 	if len(seen) != len(m.Transitions) {
 		return nil, fmt.Errorf("unowned naming transition")
@@ -176,4 +216,17 @@ func unpackNaming(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
 		return nil, failure
 	}
 	return out, nil
+}
+
+func (m *topologyManifest) selectionTip(selection modelcore.PersistentSelection) *workerv1.FeatureResult {
+	if selection.SourceResult != nil {
+		return m.Results[*selection.SourceResult]
+	}
+	return m.Tips[selection.SourceBodyID]
+}
+func selectionOwnsFeature(selection modelcore.PersistentSelection, f *workerv1.FeatureResult) bool {
+	if r := selection.SourceResult; r != nil {
+		return f.Result != nil && f.BodyId == "" && f.Result.FeatureId == r.FeatureID && f.Result.ResultId == r.ResultID
+	}
+	return f.Result == nil && f.BodyId == selection.SourceBodyID
 }

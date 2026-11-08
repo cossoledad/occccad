@@ -372,7 +372,7 @@ export const restApi = {
   cancelAssemblyInteraction: (documentId: string, sessionId: string) => realtime.cancelAssemblyInteraction(documentId, sessionId),
   analyzeAssemblyConflicts:(documentId:string,input:AssemblyConflictRequest,signal?:AbortSignal)=>realtime.analyzeAssemblyConflicts(documentId,input,signal),
   cancelAssemblyConflicts:(documentId:string,analysisId:string)=>realtime.cancelAssemblyConflicts(documentId,analysisId),
-  createSketch: (documentId: string, support: { bodyId?: string; afterFeatureId?:string; plane?: string; datumPlaneId?: string; targetKind?: "FACE";
+  createSketch: (documentId: string, support: { bodyId?: string;geometricalSetId?:string;sketchOwnerKind?:"GEOMETRICAL_SET"; afterFeatureId?:string; plane?: string; datumPlaneId?: string; targetKind?: "FACE";
       geometryKey?: string; topologyId?: number; versionId?: string }) =>
     restApi.command(documentId, { type: "CREATE_SKETCH", ...support }),
   editSketch: (documentId: string, sketchId: string, operations: SketchOperation[]) =>

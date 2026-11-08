@@ -84,7 +84,7 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
  ) SELECT EXISTS(SELECT 1 FROM reachable r JOIN occccad.document_versions v ON v.id=r.id
  CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body
  JOIN occccad.geometry_representations a ON (a.geometry_key=body->>'geometryKey' OR (a.role='VISUAL' AND a.geometry_key=body->'displayFallback'->>'geometryKey' AND COALESCE(body->>'geometryKey','')='')) WHERE a.object_id=$3
- AND ($4='' OR body->>'id'=$4))`, r.PathValue("documentID"), version, id, r.URL.Query().Get("bodyId")).Scan(&allowed)
+ AND ($4='' OR body->>'id'=$4)) OR EXISTS(SELECT 1 FROM reachable r JOIN occccad.document_versions v ON v.id=r.id CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'features') feature JOIN occccad.geometry_representations a ON a.geometry_key=feature->'result'->>'geometryKey' WHERE a.object_id=$3 AND $4='')`, r.PathValue("documentID"), version, id, r.URL.Query().Get("bodyId")).Scan(&allowed)
 	}
 	if err != nil {
 		writeError(w, http.StatusNotFound, "representation unavailable")

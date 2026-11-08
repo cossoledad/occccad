@@ -6357,6 +6357,958 @@
           }
         ]
       }
+    },
+    {
+      "id": "geometry.line",
+      "name": "直线",
+      "helpText": "直线",
+      "iconKey": "line",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.circle",
+      "name": "圆",
+      "helpText": "圆",
+      "iconKey": "circle",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.arc",
+      "name": "圆弧",
+      "helpText": "圆弧",
+      "iconKey": "arc",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.spline",
+      "name": "样条",
+      "helpText": "样条",
+      "iconKey": "spline",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.point-on-curve",
+      "name": "曲线上点",
+      "helpText": "曲线上点",
+      "iconKey": "point",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.extract",
+      "name": "提取",
+      "helpText": "提取",
+      "iconKey": "reference",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.boundary",
+      "name": "边界",
+      "helpText": "边界",
+      "iconKey": "reference",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.composite",
+      "name": "复合曲线",
+      "helpText": "复合曲线",
+      "iconKey": "link",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.surface-extrude",
+      "name": "拉伸曲面",
+      "helpText": "拉伸曲面",
+      "iconKey": "pad",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.thicken",
+      "name": "加厚",
+      "helpText": "加厚",
+      "iconKey": "pad",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.translate",
+      "name": "平移",
+      "helpText": "平移",
+      "iconKey": "move",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.rotate",
+      "name": "旋转",
+      "helpText": "旋转",
+      "iconKey": "rotate",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.mirror",
+      "name": "镜像",
+      "helpText": "镜像",
+      "iconKey": "mirror",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.split",
+      "name": "分割",
+      "helpText": "分割",
+      "iconKey": "line",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.trim",
+      "name": "裁剪",
+      "helpText": "裁剪",
+      "iconKey": "delete",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.extend",
+      "name": "延伸",
+      "helpText": "延伸",
+      "iconKey": "line",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.g1-connect",
+      "name": "连接曲线",
+      "helpText": "连接曲线",
+      "iconKey": "tangent",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.offset",
+      "name": "偏移曲线",
+      "helpText": "偏移曲线",
+      "iconKey": "copy",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.project",
+      "name": "投影",
+      "helpText": "投影",
+      "iconKey": "project",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.intersection",
+      "name": "交线",
+      "helpText": "交线",
+      "iconKey": "coincident",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "part.wireframe-surface",
+      "name": "线框与曲面",
+      "helpText": "线框与曲面",
+      "iconKey": "spline",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "part.solid-workbench",
+      "name": "零件设计",
+      "helpText": "零件设计",
+      "iconKey": "pad",
+      "repeatable": false,
+      "implementation": "handler",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
     }
   ],
   "groups": [
@@ -7293,6 +8245,192 @@
           "order": 10
         }
       ]
+    },
+    {
+      "id": "enter-surface",
+      "name": "线框与曲面",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "part.wireframe-surface",
+          "groupKey": "primary",
+          "order": 0
+        }
+      ]
+    },
+    {
+      "id": "exit-surface",
+      "name": "零件设计",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "part.solid-workbench",
+          "groupKey": "primary",
+          "order": 0
+        }
+      ]
+    },
+    {
+      "id": "surface-curves",
+      "name": "曲线",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "geometry.line",
+          "groupKey": "variants:geometry-primitives",
+          "order": 0
+        },
+        {
+          "commandId": "geometry.circle",
+          "groupKey": "variants:geometry-primitives",
+          "order": 10
+        },
+        {
+          "commandId": "geometry.arc",
+          "groupKey": "variants:geometry-primitives",
+          "order": 20
+        },
+        {
+          "commandId": "geometry.spline",
+          "groupKey": "variants:geometry-primitives",
+          "order": 30
+        },
+        {
+          "commandId": "geometry.point-on-curve",
+          "groupKey": "primary",
+          "order": 40
+        }
+      ],
+      "variants": {
+        "variants:geometry-primitives": "曲线"
+      }
+    },
+    {
+      "id": "surface-derived",
+      "name": "关联曲线",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "geometry.extract",
+          "groupKey": "variants:geometry-extraction",
+          "order": 0
+        },
+        {
+          "commandId": "geometry.boundary",
+          "groupKey": "variants:geometry-extraction",
+          "order": 10
+        },
+        {
+          "commandId": "geometry.composite",
+          "groupKey": "primary",
+          "order": 20
+        },
+        {
+          "commandId": "geometry.project",
+          "groupKey": "variants:geometry-projection",
+          "order": 30
+        },
+        {
+          "commandId": "geometry.intersection",
+          "groupKey": "variants:geometry-projection",
+          "order": 40
+        }
+      ],
+      "variants": {
+        "variants:geometry-extraction": "提取与边界",
+        "variants:geometry-projection": "投影与交线"
+      }
+    },
+    {
+      "id": "surface-edit",
+      "name": "编辑曲线",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "geometry.offset",
+          "groupKey": "primary",
+          "order": 0
+        },
+        {
+          "commandId": "geometry.g1-connect",
+          "groupKey": "primary",
+          "order": 10
+        },
+        {
+          "commandId": "geometry.split",
+          "groupKey": "variants:geometry-trim",
+          "order": 20
+        },
+        {
+          "commandId": "geometry.trim",
+          "groupKey": "variants:geometry-trim",
+          "order": 30
+        },
+        {
+          "commandId": "geometry.extend",
+          "groupKey": "variants:geometry-trim",
+          "order": 40
+        }
+      ],
+      "variants": {
+        "variants:geometry-trim": "修剪"
+      }
+    },
+    {
+      "id": "surface-transform",
+      "name": "变换",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "geometry.translate",
+          "groupKey": "variants:geometry-transform",
+          "order": 0
+        },
+        {
+          "commandId": "geometry.rotate",
+          "groupKey": "variants:geometry-transform",
+          "order": 10
+        },
+        {
+          "commandId": "geometry.mirror",
+          "groupKey": "variants:geometry-transform",
+          "order": 20
+        }
+      ],
+      "variants": {
+        "variants:geometry-transform": "变换"
+      }
+    },
+    {
+      "id": "surface-create",
+      "name": "曲面与实体",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "geometry.surface-extrude",
+          "groupKey": "primary",
+          "order": 0
+        },
+        {
+          "commandId": "geometry.thicken",
+          "groupKey": "primary",
+          "order": 10
+        }
+      ]
     }
   ],
   "tabs": [
@@ -7484,6 +8622,60 @@
       "section": "parameters",
       "domain": "ASSEMBLY",
       "order": 2
+    },
+    {
+      "id": "WIREFRAME_SURFACE.model",
+      "name": "建模",
+      "modeLabel": "线框与曲面",
+      "workbench": "WIREFRAME_SURFACE",
+      "section": "model",
+      "order": 0,
+      "domain": "GEOMETRY"
+    },
+    {
+      "id": "WIREFRAME_SURFACE.view",
+      "name": "视图",
+      "modeLabel": "线框与曲面",
+      "workbench": "WIREFRAME_SURFACE",
+      "section": "view",
+      "order": 3,
+      "domain": "GEOMETRY"
+    },
+    {
+      "id": "WIREFRAME_SURFACE.document",
+      "name": "文档与协作",
+      "modeLabel": "线框与曲面",
+      "workbench": "WIREFRAME_SURFACE",
+      "section": "document",
+      "order": 4,
+      "domain": "GEOMETRY"
+    },
+    {
+      "id": "WIREFRAME_SURFACE.debug",
+      "name": "DEBUG",
+      "modeLabel": "线框与曲面",
+      "workbench": "WIREFRAME_SURFACE",
+      "section": "debug",
+      "order": 5,
+      "domain": "GEOMETRY"
+    },
+    {
+      "id": "WIREFRAME_SURFACE.measurement",
+      "name": "测量",
+      "modeLabel": "线框与曲面",
+      "workbench": "WIREFRAME_SURFACE",
+      "section": "measurement",
+      "domain": "GEOMETRY",
+      "order": 1
+    },
+    {
+      "id": "WIREFRAME_SURFACE.parameters",
+      "name": "参数与接口",
+      "modeLabel": "线框与曲面",
+      "workbench": "WIREFRAME_SURFACE",
+      "section": "parameters",
+      "domain": "GEOMETRY",
+      "order": 2
     }
   ],
   "contexts": [
@@ -7498,6 +8690,12 @@
           {
             "fact": "sketchActive",
             "equals": false
+          },
+          {
+            "not": {
+              "fact": "surfaceActive",
+              "equals": true
+            }
           }
         ]
       },
@@ -7631,6 +8829,33 @@
         "KINEMATICS_DMU.view",
         "KINEMATICS_DMU.document",
         "KINEMATICS_DMU.debug"
+      ]
+    },
+    {
+      "id": "WIREFRAME_SURFACE",
+      "when": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "surfaceActive",
+            "equals": true
+          }
+        ]
+      },
+      "tabs": [
+        "WIREFRAME_SURFACE.model",
+        "WIREFRAME_SURFACE.view",
+        "WIREFRAME_SURFACE.document",
+        "WIREFRAME_SURFACE.debug",
+        "WIREFRAME_SURFACE.measurement",
+        "WIREFRAME_SURFACE.parameters"
       ]
     }
   ],
@@ -7854,6 +9079,86 @@
       "tabId": "SKETCHER.model",
       "groupId": "sketch-diagnostics",
       "order": 25
+    },
+    {
+      "tabId": "PART_DESIGN.model",
+      "groupId": "enter-surface",
+      "order": 50
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.view",
+      "groupId": "view-navigation",
+      "order": 90
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.document",
+      "groupId": "history",
+      "order": 70
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.document",
+      "groupId": "collaboration",
+      "order": 80
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.debug",
+      "groupId": "debug",
+      "order": 10
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.measurement",
+      "groupId": "measurement",
+      "order": 25
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.parameters",
+      "groupId": "part-knowledge",
+      "order": 30
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.model",
+      "groupId": "selection",
+      "order": 0
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.model",
+      "groupId": "part-sketch",
+      "order": 10
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.model",
+      "groupId": "surface-curves",
+      "order": 20
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.model",
+      "groupId": "surface-derived",
+      "order": 30
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.model",
+      "groupId": "surface-edit",
+      "order": 40
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.model",
+      "groupId": "surface-transform",
+      "order": 50
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.model",
+      "groupId": "surface-create",
+      "order": 60
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.model",
+      "groupId": "part-datums",
+      "order": 70
+    },
+    {
+      "tabId": "WIREFRAME_SURFACE.model",
+      "groupId": "exit-surface",
+      "order": 80
     }
   ]
 }

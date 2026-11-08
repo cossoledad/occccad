@@ -75,6 +75,7 @@ type ProfileOrigin struct {
 	Sources   []modelcore.SemanticTopologyRef
 }
 type SweepPath struct {
+	ExactPath                                 *workerv1.GeometryFeatureInput
 	SketchID, ChainID                         string
 	Curves                                    []ProfileCurve
 	PlaneOrigin, PlaneNormal, PlaneUDirection [3]float64
@@ -97,6 +98,7 @@ type LoftBoundary struct {
 }
 
 type ProfilePad struct {
+	GeometryGenerator                                   *workerv1.GeometryFeatureSpec
 	LoftStart, LoftEnd                                  *LoftBoundary
 	HolePositions                                       []HolePosition
 	DrillTipAngle                                       float64
@@ -149,7 +151,7 @@ func topologyNamingPolicyProto() *workerv1.TopologyNamingPolicy {
 func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 	result := make([]*workerv1.ProfilePadSpec, 0, len(pads))
 	for _, pad := range pads {
-		value := &workerv1.ProfilePadSpec{FeatureId: pad.FeatureID, BodyId: pad.BodyID,
+		value := &workerv1.ProfilePadSpec{GeometryGenerator: pad.GeometryGenerator, FeatureId: pad.FeatureID, BodyId: pad.BodyID,
 			InputFeatureId: pad.InputFeatureID, ProfileFeatureId: pad.ProfileFeatureID,
 			PadLength: pad.Length, Units: "mm", Plane: pad.Plane,
 			HoleKind: pad.HoleKind, RecessDiameter: pad.RecessDiameter, RecessDepth: pad.RecessDepth, CountersinkAngle: pad.CountersinkAngle,
@@ -178,7 +180,7 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 			value.Selections = append(value.Selections, &workerv1.SemanticTopologyRef{FeatureId: ref.FeatureID, OutputSlot: ref.OutputSlot, SourceIds: ref.SourceIDs})
 		}
 		if p := pad.SweepPath; p != nil {
-			value.SweepPath = &workerv1.SweepPathSpec{SketchId: p.SketchID, ChainId: p.ChainID, Closed: p.Closed, FrameMode: p.FrameMode, CornerMode: p.CornerMode, PlaneOrigin: &workerv1.Vec3{X: p.PlaneOrigin[0], Y: p.PlaneOrigin[1], Z: p.PlaneOrigin[2]}, PlaneNormal: &workerv1.Vec3{X: p.PlaneNormal[0], Y: p.PlaneNormal[1], Z: p.PlaneNormal[2]}, PlaneUDirection: &workerv1.Vec3{X: p.PlaneUDirection[0], Y: p.PlaneUDirection[1], Z: p.PlaneUDirection[2]}}
+			value.SweepPath = &workerv1.SweepPathSpec{ExactPath: p.ExactPath, SketchId: p.SketchID, ChainId: p.ChainID, Closed: p.Closed, FrameMode: p.FrameMode, CornerMode: p.CornerMode, PlaneOrigin: &workerv1.Vec3{X: p.PlaneOrigin[0], Y: p.PlaneOrigin[1], Z: p.PlaneOrigin[2]}, PlaneNormal: &workerv1.Vec3{X: p.PlaneNormal[0], Y: p.PlaneNormal[1], Z: p.PlaneNormal[2]}, PlaneUDirection: &workerv1.Vec3{X: p.PlaneUDirection[0], Y: p.PlaneUDirection[1], Z: p.PlaneUDirection[2]}}
 			for _, c := range p.Curves {
 				value.SweepPath.Curves = append(value.SweepPath.Curves, profileCurveProto(c))
 			}

@@ -98,10 +98,16 @@ type TopologySelectionEvidence struct {
 	EvidenceDigest   string                `json:"evidenceDigest,omitempty"`
 }
 
+type GeometryResultReference struct {
+	FeatureID string `json:"featureId"`
+	ResultID  string `json:"resultId"`
+}
+
 type PersistentSelection struct {
 	SchemaVersion    uint32                    `json:"schemaVersion"`
 	SourceDocumentID string                    `json:"sourceDocumentId"`
 	SourceBodyID     string                    `json:"sourceBodyId"`
+	SourceResult     *GeometryResultReference  `json:"sourceResult,omitempty"`
 	Anchor           SemanticTopologyRef       `json:"anchor"`
 	ExpectedType     PersistentTopologyType    `json:"expectedType"`
 	Selector         SelectionRecipe           `json:"selector"`
@@ -112,8 +118,11 @@ func (selection PersistentSelection) Validate() error {
 	if selection.SchemaVersion != TopologyNamingSchemaVersion {
 		return fmt.Errorf("unsupported persistent selection schema version %d", selection.SchemaVersion)
 	}
-	if selection.SourceDocumentID == "" || selection.SourceBodyID == "" {
-		return fmt.Errorf("persistent selection source document and body are required")
+	if selection.SourceDocumentID == "" || (selection.SourceBodyID == "") == (selection.SourceResult == nil) {
+		return fmt.Errorf("persistent selection requires a document and exactly one body or feature result owner")
+	}
+	if r := selection.SourceResult; r != nil && (r.FeatureID == "" || r.ResultID == "") {
+		return fmt.Errorf("persistent selection result identity is incomplete")
 	}
 	if selection.Anchor.FeatureID == "" || selection.Anchor.OutputSlot == "" {
 		return fmt.Errorf("persistent selection semantic anchor is required")

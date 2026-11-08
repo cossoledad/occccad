@@ -256,6 +256,11 @@ func referenceContainerIDs(model PartModel) []string {
 	for _, p := range model.DatumAxes {
 		out = append(out, p.GeometricalSetID)
 	}
+	for _, f := range model.Features {
+		if f.GeometricalSetID != "" {
+			out = append(out, f.GeometricalSetID)
+		}
+	}
 	for _, p := range model.DatumPoints {
 		out = append(out, p.GeometricalSetID)
 	}

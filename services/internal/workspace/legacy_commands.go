@@ -301,7 +301,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				if e != nil {
 					return "", nil, e
 				}
-				return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: "CUSTOM", Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: support, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}}}, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
+				return typeCreateSketch, createFeaturePayload{OwnerKind: request.SketchOwnerKind, Feature: Feature{BodyID: request.BodyID, GeometricalSetID: request.GeometricalSetID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: "CUSTOM", Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: support, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}}}, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
 			}
 			// Persistent evidence identifies the face; its immutable source
 			// manifest may predate orientation fixes. Read the exact B-Rep
@@ -322,14 +322,14 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if err != nil {
 				return "", nil, err
 			}
-			tip := manifest.Tips[selection.SourceBodyID]
+			tip := manifest.selectionTip(selection)
 			if tip == nil {
 				return "", nil, fmt.Errorf("%w: source stage missing", ErrValidation)
 			}
 			support := SketchSupport{SourceFeatureID: tip.FeatureId, Type: "PLANAR_FACE", Plane: "CUSTOM", PersistentSelection: &selection,
 				SourceVersionID: sourceVersionID, Origin: selection.CreationEvidence.Origin, XDirection: xDirection,
 				Normal: normal, OrientationRule: sketchSupportOrientationRule, Status: "CONNECTED"}
-			return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH",
+			return typeCreateSketch, createFeaturePayload{OwnerKind: request.SketchOwnerKind, Feature: Feature{BodyID: request.BodyID, GeometricalSetID: request.GeometricalSetID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH",
 				Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: "CUSTOM",
 				Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: support, Entities: []SketchEntity{},
 					Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
@@ -353,7 +353,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, fmt.Errorf("%w: selected datum plane does not exist", ErrValidation)
 			}
 		}
-		return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
+		return typeCreateSketch, createFeaturePayload{OwnerKind: request.SketchOwnerKind, Feature: Feature{BodyID: request.BodyID, GeometricalSetID: request.GeometricalSetID, ID: commandEntityID("sketch", request.RequestID), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}, AfterFeatureID: request.AfterFeatureID, InsertionVersionID: request.VersionID, InsertionGeometryKey: request.GeometryKey}, nil
 	case "REASSIGN_SKETCH_SUPPORT":
 		if documentType != "PART" {
 			break
@@ -590,15 +590,47 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		feature := Feature{ID: commandEntityID("boolean", request.RequestID), BodyID: request.BodyID, Type: "BOOLEAN", Name: numberedFeatureName(model.Features, "BOOLEAN", "Boolean"), Operation: request.Operation, Tools: request.Tools, KeepTools: request.KeepTools, BooleanResult: request.BooleanResult}
 		return typeCreateBooleanFeature, createFeaturePayload{Feature: feature}, nil
+	case "CREATE_GEOMETRY_FEATURE":
+		if documentType != "PART" || request.Feature == nil || request.Feature.Type != "GEOMETRY" || request.Feature.Geometry == nil {
+			return "", nil, fmt.Errorf("%w: GEOMETRY_DEFINITION_REQUIRED", ErrValidation)
+		}
+		if request.AfterFeatureID != "" {
+			return "", nil, fmt.Errorf("%w: geometric sets have no insertion cursor", ErrValidation)
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		feature := *request.Feature
+		feature.ID = commandEntityID("geometry", request.RequestID)
+		if feature.Name == "" {
+			label := geometryKindLabel(feature.Geometry.Kind)
+			used := []string{}
+			for _, f := range model.Features {
+				used = append(used, f.Name)
+			}
+			feature.Name = nextScopedName(label+".", used)
+		}
+		if err := qualifyGeometryInputs(documentID, feature); err != nil {
+			return "", nil, err
+		}
+		sources, err := featureParameterExpressions(model, feature, request.ParameterExpressions)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeCreateGeometryFeature, createFeaturePayload{Feature: feature, ParameterSources: sources}, nil
 	case "CREATE_SOLID_FEATURE":
-		if documentType == "PART" && request.Feature != nil && (request.Feature.Type == "LOFT" || request.Feature.Type == "HOLE" || request.Feature.Type == "SWEEP") {
+		if documentType == "PART" && request.Feature != nil && (request.Feature.Type == "LOFT" || request.Feature.Type == "HOLE" || request.Feature.Type == "SWEEP" || request.Feature.Type == "THICKEN") {
 			var model PartModel
 			if err := json.Unmarshal(modelJSON, &model); err != nil {
 				return "", nil, err
 			}
 			feature := *request.Feature
+			if err := qualifyGeometryInputs(documentID, feature); err != nil {
+				return "", nil, err
+			}
 			feature.ID = commandEntityID(strings.ToLower(feature.Type), request.RequestID)
-			feature.Name = numberedFeatureName(model.Features, feature.Type, map[string]string{"LOFT": "Loft", "HOLE": "Hole", "SWEEP": "Sweep"}[feature.Type])
+			feature.Name = numberedFeatureName(model.Features, feature.Type, map[string]string{"LOFT": "Loft", "HOLE": "Hole", "SWEEP": "Sweep", "THICKEN": "Thicken"}[feature.Type])
 			if err := service.qualifyLoftBoundaries(ctx, documentID, &feature); err != nil {
 				return "", nil, err
 			}
@@ -768,6 +800,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		if request.Feature != nil {
 			definition := *request.Feature
+			if err := qualifyGeometryInputs(documentID, definition); err != nil {
+				return "", nil, err
+			}
 			if err := service.qualifyTerminationPlane(ctx, documentID, &definition); err != nil {
 				return "", nil, err
 			}

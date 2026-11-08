@@ -209,7 +209,14 @@ func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 		states = next
 	}
 	index.Features = uniqueAssociationIDs(index.Features)
+	tips := make([]*workerv1.FeatureResult, 0, len(m.Tips)+len(m.Results))
 	for _, tip := range m.Tips {
+		tips = append(tips, tip)
+	}
+	for _, tip := range m.Results {
+		tips = append(tips, tip)
+	}
+	for _, tip := range tips {
 		for _, o := range tip.SemanticOutputs {
 			a, ok := states[associationRefKey(o.SemanticRef)]
 			if !ok {

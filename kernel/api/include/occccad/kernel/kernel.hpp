@@ -8,12 +8,16 @@
 
 #include <cstdint>
 #include <optional>
+#include <memory>
 #include <array>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace occccad::kernel {
+
+struct GeometryFeatureSpec;
+struct GeometryFeatureInput;
 
 // ---------------------------------------------------------------------------
 // Geometry Identity
@@ -164,6 +168,7 @@ struct SweepPathSpec {
     Vec3 plane_origin, plane_normal, plane_u_direction;
     bool closed{};
     std::string frame_mode{"CORRECTED_FRENET"}, corner_mode{"MITER"};
+    std::shared_ptr<GeometryFeatureInput> exact_path;
 };
 struct BodyToolTopology {
     std::string feature_id, output_slot;
@@ -175,6 +180,7 @@ struct BodyToolInput {
     std::string body_id, feature_id, geometry_id;
     std::vector<uint8_t> brep;
     std::vector<BodyToolTopology> topology;
+    std::string result_id; // nonempty means FeatureOutput(feature_id,result_id)
 };
 // Rebuildable volume reference. Boundary proof comes only from exact source
 // topology/history; the frozen digest disambiguates identical proofs only for
@@ -208,6 +214,7 @@ struct PatternPlacement {
 };
 struct PatternSourceSpec {std::string feature_id, source_kind, start_feature_id;};
 struct ProfilePadSpec {
+    std::shared_ptr<GeometryFeatureSpec> geometry_generator;
     std::string hole_kind;
     double recess_diameter{}, recess_depth{}, countersink_angle{}; // mm, mm, included radians
     bool explicit_boolean_regions{};

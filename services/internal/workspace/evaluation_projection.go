@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -71,6 +72,9 @@ func ensureFeatureParameters(model *PartModel) {
 	}
 	for _, feature := range model.Features {
 		managedPrefixes["parameter:"+feature.ID+":"] = struct{}{}
+		for _, p := range geometryParameters(feature.Geometry) {
+			add(feature.ID, p.slot, p.label, p.unit, *p.value, p.dimension, false)
+		}
 		if feature.Type == "HOLE" {
 			for _, p := range holeParameters(feature) {
 				add(feature.ID, p.slot, p.label, p.unit, p.value, p.dimension, false)
@@ -194,6 +198,7 @@ func geometryFeatureDefinition(feature Feature) Feature {
 	feature.Visible = nil
 	feature.EvaluationStatus = ""
 	feature.Diagnostic = ""
+	feature.Result = nil
 	feature.Name = ""
 	if feature.Sketch != nil {
 		copySketch := *feature.Sketch
@@ -454,6 +459,9 @@ func validateAndResolvePartParameters(model *PartModel) error {
 		if blockedOwners[feature.ID] {
 			continue
 		}
+		if err := resolveGeometryParameters(feature, values); err != nil {
+			return err
+		}
 		if feature.Type == "HOLE" {
 			for _, p := range holeParameters(*feature) {
 				q := values["parameter:"+feature.ID+":"+p.slot]
@@ -586,7 +594,7 @@ func validatePartStructure(model PartModel) error {
 		if b.CreatedByFeatureID != "" {
 			found := false
 			for _, f := range model.Features {
-				if f.ID == b.CreatedByFeatureID && f.BodyID == b.ID && (isSolidGenerator(f.Type) || f.Type == "LOFT") {
+				if f.ID == b.CreatedByFeatureID && f.BodyID == b.ID && (isSolidGenerator(f.Type) || f.Type == "LOFT" || f.Type == "THICKEN") {
 					found = true
 					break
 				}
@@ -601,6 +609,15 @@ func validatePartStructure(model PartModel) error {
 		return fmt.Errorf("%w: active Body is missing", ErrValidation)
 	}
 	for _, f := range model.Features {
+		if f.GeometricalSetID != "" {
+			if f.BodyID != "" || (f.Type != "GEOMETRY" && f.Sketch == nil) || !slices.ContainsFunc(model.GeometricalSets, func(g GeometricalSet) bool { return g.ID == f.GeometricalSetID }) {
+				return fmt.Errorf("%w: GEOMETRY_FEATURE_OWNER_INVALID", ErrValidation)
+			}
+			continue
+		}
+		if f.Type == "GEOMETRY" {
+			return fmt.Errorf("%w: GEOMETRY_FEATURE_OWNER_REQUIRED", ErrValidation)
+		}
 		if !bodies[f.BodyID] {
 			return fmt.Errorf("%w: feature %s has no owning Body", ErrValidation, f.ID)
 		}
@@ -647,7 +664,7 @@ func validatePartStructure(model PartModel) error {
 				}
 				if support.SourceFeatureID != "" {
 					stage, exists := features[support.SourceFeatureID]
-					if !exists || stage.BodyID != support.PersistentSelection.SourceBodyID || !isBodyFeature(stage.Type) {
+					if !exists || stage.BodyID != support.PersistentSelection.SourceBodyID || (!isBodyFeature(stage.Type) && (stage.Type != "GEOMETRY" || support.PersistentSelection.SourceResult == nil)) {
 						return fmt.Errorf("%w: support stage must precede sketch %s", ErrValidation, feature.ID)
 					}
 				}
@@ -698,6 +715,9 @@ func validatePartStructure(model PartModel) error {
 			}
 		}
 		if err := validateFeaturePattern(feature, features); err != nil {
+			return err
+		}
+		if err := validateGeometricFeature(feature, features, model); err != nil {
 			return err
 		}
 		if err := validateSolidStage(feature, features); err != nil {
@@ -904,8 +924,25 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(prefix + parts[1]), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
+		if feature.Geometry != nil {
+			for _, input := range featureInputs(feature) {
+				prefix := "feature:"
+				source := input.FeatureID
+				if input.EntityKind != "FEATURE" {
+					prefix = "datum:"
+				}
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(prefix + source), Target: key, Kind: modelcore.ReadGeometry})
+			}
+			if feature.Type == "THICKEN" && bodyTipFeatureID != "" {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		}
 		if feature.Sweep != nil {
-			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("profile:" + feature.Sweep.Path.SketchID), Target: key, Kind: modelcore.ReadGeometry})
+			source := "profile:" + feature.Sweep.Path.SketchID
+			if feature.Sweep.Path.Geometry != nil {
+				source = "feature:" + geometryInputFeatureID(*feature.Sweep.Path.Geometry)
+			}
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(source), Target: key, Kind: modelcore.ReadGeometry})
 		}
 		if feature.Type == "HOLE" {
 			for _, p := range holePositions(feature) {

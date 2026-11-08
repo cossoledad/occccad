@@ -44,11 +44,12 @@ var commandContracts = []commandContract{
 	{"SET_ACTIVE_BODY", "PART", "激活实体", "bodyId name visible", "bodyId", ""},
 	{"RENAME_FEATURE", "PART", "重命名特征", "name targetId", "targetId name", ""},
 	{"CREATE_PARAMETER", "ANY", "创建参数", "name unit value", "value unit", ""},
-	{"CREATE_SKETCH", "PART", "创建草图", "afterFeatureId bodyId datumPlaneId geometryKey plane targetKind versionId", "bodyId", ""},
+	{"CREATE_SKETCH", "PART", "创建草图", "afterFeatureId bodyId datumPlaneId geometryKey plane targetKind versionId sketchOwnerKind geometricalSetId", "", ""},
 	{"REASSIGN_SKETCH_SUPPORT", "PART", "更换草图支撑", "bodyId datumPlaneId geometryKey plane sketchId targetKind versionId", "sketchId", ""},
 	{"EDIT_SKETCH", "PART", "编辑草图几何、尺寸和约束", "operations sketchId", "sketchId operations", ""},
 	{"PAD_SKETCH", "PART", "拉伸草图", "bodyId length sketchId", "bodyId sketchId length", ""},
 	{"CREATE_MODIFY_FEATURE", "PART", "创建圆角、倒角、拔模或抽壳", "afterFeatureId feature geometryKey parameterExpressions versionId", "feature", ""},
+	{"CREATE_GEOMETRY_FEATURE", "PART", "创建关联曲线或拉伸曲面", "afterFeatureId feature parameterExpressions", "feature", ""},
 	{"CREATE_BOOLEAN_FEATURE", "PART", "创建布尔特征", "bodyId booleanResult keepTools operation tools", "bodyId operation tools", ""},
 	{"CREATE_SOLID_FEATURE", "PART", "创建拉伸、切除、旋转、扫掠、放样或孔", "afterFeatureId versionId geometryKey angle axisEntityId bodyId extent feature generator length length2 lengthExpression operation parameterExpressions profileMemberSlot profileSelection reversed sketchId terminationPlane terminationPlaneId terminationSurface startOffset endOffset thinWall", "", ""},
 	{"SET_FEATURE_SUPPRESSION", "PART", "停用或启用特征", "expectedFeatureDigest suppressed targetId", "targetId suppressed expectedFeatureDigest", ""},
@@ -111,7 +112,10 @@ func commandOperations() []Operation {
 		op := Operation{ID: "command." + strings.ToLower(contract.command), Name: contract.name, DocumentType: contract.document, CommandType: contract.command, Handoff: contract.handoff,
 			Description: contract.command + ". Existing versioned domain command; lengths mm, angles degrees unless an explicit unit is provided. Nested types: cad_describe_type. " + contract.handoff}
 		if contract.command == "CREATE_SOLID_FEATURE" {
-			op.Description += " Loft end conditions use feature.loftStart/loftEnd with condition=NORMAL|DIRECTION|G1|G2, magnitude=0.01..10 (dimensionless), stable directionEntityId and formal supports; G1/G2 require analytic extrusion support faces. Linear extrusion/cut requires sketchId, bodyId, generator=LINEAR_EXTRUDE, operation=ADD|REMOVE|NEW_BODY|INTERSECT, extent=FINITE|SYMMETRIC|TWO_SIDED|THROUGH_ALL|TO_PLANE|TO_NEXT|TO_SURFACE. TO_PLANE requires a formal termination plane; TO_SURFACE requires an upstream persistent face; TO_NEXT requires the current target Body. Signed startOffset/endOffset are along the extrusion direction; endOffset only applies to associated termination. Finite modes require a positive length (also for THROUGH_ALL). Hole uses feature.type=HOLE with holePoint or holePoints (1..128 unique formal upstream explicit points, mutually exclusive), optional drillTipAngle (degrees, blind only) plus depthConvention=CYLINDER|TIP, and thread engineering metadata mode=ANNOTATION (no helical geometry) and BLIND|THROUGH_ALL extent. Prefer part.cut for a through cut without a length argument. Thin walls use thinWall input=REGIONS|CHAINS, mode=ONE_SIDED|TWO_SIDED|SYMMETRIC (total thickness), side=LEFT|RIGHT, join=MITER|ROUND and thickness in mm; CHAINS uses stable entityIds and persisted direction anchors. Sweep uses feature.type=SWEEP, profile and sweep.path {sketchId,entityIds}, frameMode=CORRECTED_FRENET|FRENET, cornerMode=MITER|G1_ONLY. Paths use a single formal connected sketch chain. The profile plane must contain the path start and be normal to its tangent. CUT is not an operation value."
+			op.Description += " Loft end conditions use feature.loftStart/loftEnd with condition=NORMAL|DIRECTION|G1|G2, magnitude=0.01..10 (dimensionless), stable directionEntityId and formal supports; G1/G2 require analytic extrusion support faces. Linear extrusion/cut requires sketchId, bodyId, generator=LINEAR_EXTRUDE, operation=ADD|REMOVE|NEW_BODY|INTERSECT, extent=FINITE|SYMMETRIC|TWO_SIDED|THROUGH_ALL|TO_PLANE|TO_NEXT|TO_SURFACE. TO_PLANE requires a formal termination plane; TO_SURFACE requires an upstream persistent face; TO_NEXT requires the current target Body. Signed startOffset/endOffset are along the extrusion direction; endOffset only applies to associated termination. Finite modes require a positive length (also for THROUGH_ALL). Hole uses feature.type=HOLE with holePoint or holePoints (1..128 unique formal upstream explicit points, mutually exclusive), optional drillTipAngle (degrees, blind only) plus depthConvention=CYLINDER|TIP, and thread engineering metadata mode=ANNOTATION (no helical geometry) and BLIND|THROUGH_ALL extent. Prefer part.cut for a through cut without a length argument. Thin walls use thinWall input=REGIONS|CHAINS, mode=ONE_SIDED|TWO_SIDED|SYMMETRIC (total thickness), side=LEFT|RIGHT, join=MITER|ROUND and thickness in mm; CHAINS uses stable entityIds and persisted direction anchors. Sweep uses feature.type=SWEEP, profile and sweep.path {sketchId,entityIds}, frameMode=CORRECTED_FRENET|FRENET, cornerMode=MITER|G1_ONLY. Paths use a single formal connected sketch chain, or sweep.path.geometry for a frozen finite 3D edge/G1 wire; spatial corners are unsupported. The profile plane must contain the path start and be normal to its tangent. CUT is not an operation value."
+		}
+		if contract.command == "CREATE_GEOMETRY_FEATURE" {
+			op.Description += " Independent Part only: feature.type=GEOMETRY, geometric set ownership and typed geometry definition. Inputs are fixed sketch entity IDs, whole Feature/result roles, existing bound PersistentSelections or datum planes; never invent topology identities. Split/Trim use normalized arc length, Extend supports lines/circles, Offset requires a plane. Thicken uses CREATE_SOLID_FEATURE with feature.type=THICKEN and a Sheet input."
 		}
 		if contract.command == "REASSIGN_SKETCH_SUPPORT" {
 			op.Description += " Datum support uses plane or datumPlaneId at the command baseline; face support requires the existing sketch support editor to pick an exact legal upstream stage, never an invented topologyId."
@@ -357,23 +361,26 @@ func DescribeType(name string) (map[string]any, error) {
 // These discriminator values mirror the existing handlers, not CAD recipes.
 // All nested geometry/constraint fields still come from their actual DTO types.
 var contractEnums = map[string][]string{
-	"workspace.ThinWallDefinition.input":       {"REGIONS", "CHAINS"},
-	"workspace.ThinWallDefinition.mode":        {"ONE_SIDED", "TWO_SIDED", "SYMMETRIC"},
-	"workspace.ThinWallDefinition.side":        {"LEFT", "RIGHT"},
-	"workspace.ThinWallDefinition.join":        {"MITER", "ROUND"},
-	"workspace.CommandRequest.generator":       {"LINEAR_EXTRUDE", "REVOLVE"},
-	"workspace.CommandRequest.operation":       {"NEW_BODY", "ADD", "REMOVE", "INTERSECT"},
-	"workspace.CommandRequest.extent":          {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE", "TO_NEXT", "TO_SURFACE"},
-	"workspace.Feature.extent":                 {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE", "TO_NEXT", "TO_SURFACE", "BLIND"},
-	"workspace.Feature.holeKind":               {"SIMPLE", "COUNTERBORE", "COUNTERSINK"},
-	"workspace.CommandRequest.placement":       {"BEFORE", "AFTER"},
-	"workspace.PatternDefinition.kind":         {"LINEAR", "CIRCULAR", "MIRROR"},
-	"workspace.PatternDefinition.distribution": {"FIXED_STEP", "TOTAL_SPAN", "FULL_CIRCLE"},
-	"workspace.SketchOperation.type":           {"ADD_ENTITY", "ADD_CONSTRAINT", "ADD_RECTANGLE", "CREATE_POLYGON", "CREATE_PATTERN", "EDIT_PATTERN", "DELETE_PATTERN", "DETACH_PATTERN", "OFFSET_ENTITIES", "FILLET_ENTITIES", "CHAMFER_ENTITIES", "APPLY_DRAG_RESULT", "DELETE_ENTITIES", "COPY_ENTITIES", "TRANSFORM_ENTITIES", "MIRROR_ENTITIES", "SPLIT_ENTITY", "REPLACE_CURVE_INTERVALS", "ADD_EXTERNAL_GEOMETRY", "RECONNECT_EXTERNAL_GEOMETRY", "DETACH_EXTERNAL_GEOMETRY", "UPDATE_ENTITY_ROLE", "EDIT_SPLINE_POINT", "SET_SPLINE_CLOSED", "CONVERT_SPLINE_TO_CONTROL", "UPDATE_ENTITY_POINT", "UPDATE_ENTITY_SUPPRESSION", "UPDATE_CONSTRAINT_SUPPRESSION", "DELETE_CONSTRAINT", "UPDATE_CONSTRAINT", "UPDATE_CONSTRAINT_VALUE"},
-	"workspace.SketchEntity.role":              {"PROFILE", "CONSTRUCTION"},
-	"workspace.SketchEntity.kind":              {"POINT", "LINE", "CIRCLE", "ARC", "ELLIPSE", "ELLIPTICAL_ARC", "SPLINE"},
-	"workspace.Feature.type":                   {"SKETCH", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT", "HOLE", "BOOLEAN", "SOLID_PATTERN", "SKETCH_PATTERN"},
-	"workspace.Feature.operation":              {"NEW_BODY", "ADD", "REMOVE", "INTERSECT"},
+	"workspace.ThinWallDefinition.input":        {"REGIONS", "CHAINS"},
+	"workspace.ThinWallDefinition.mode":         {"ONE_SIDED", "TWO_SIDED", "SYMMETRIC"},
+	"workspace.ThinWallDefinition.side":         {"LEFT", "RIGHT"},
+	"workspace.ThinWallDefinition.join":         {"MITER", "ROUND"},
+	"workspace.CommandRequest.generator":        {"LINEAR_EXTRUDE", "REVOLVE"},
+	"workspace.CommandRequest.operation":        {"NEW_BODY", "ADD", "REMOVE", "INTERSECT"},
+	"workspace.CommandRequest.extent":           {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE", "TO_NEXT", "TO_SURFACE"},
+	"workspace.Feature.extent":                  {"FINITE", "SYMMETRIC", "TWO_SIDED", "THROUGH_ALL", "TO_PLANE", "TO_NEXT", "TO_SURFACE", "BLIND"},
+	"workspace.Feature.holeKind":                {"SIMPLE", "COUNTERBORE", "COUNTERSINK"},
+	"workspace.CommandRequest.placement":        {"BEFORE", "AFTER"},
+	"workspace.PatternDefinition.kind":          {"LINEAR", "CIRCULAR", "MIRROR"},
+	"workspace.PatternDefinition.distribution":  {"FIXED_STEP", "TOTAL_SPAN", "FULL_CIRCLE"},
+	"workspace.SketchOperation.type":            {"ADD_ENTITY", "ADD_CONSTRAINT", "ADD_RECTANGLE", "CREATE_POLYGON", "CREATE_PATTERN", "EDIT_PATTERN", "DELETE_PATTERN", "DETACH_PATTERN", "OFFSET_ENTITIES", "FILLET_ENTITIES", "CHAMFER_ENTITIES", "APPLY_DRAG_RESULT", "DELETE_ENTITIES", "COPY_ENTITIES", "TRANSFORM_ENTITIES", "MIRROR_ENTITIES", "SPLIT_ENTITY", "REPLACE_CURVE_INTERVALS", "ADD_EXTERNAL_GEOMETRY", "RECONNECT_EXTERNAL_GEOMETRY", "DETACH_EXTERNAL_GEOMETRY", "UPDATE_ENTITY_ROLE", "EDIT_SPLINE_POINT", "SET_SPLINE_CLOSED", "CONVERT_SPLINE_TO_CONTROL", "UPDATE_ENTITY_POINT", "UPDATE_ENTITY_SUPPRESSION", "UPDATE_CONSTRAINT_SUPPRESSION", "DELETE_CONSTRAINT", "UPDATE_CONSTRAINT", "UPDATE_CONSTRAINT_VALUE"},
+	"workspace.SketchEntity.role":               {"PROFILE", "CONSTRUCTION"},
+	"workspace.SketchEntity.kind":               {"POINT", "LINE", "CIRCLE", "ARC", "ELLIPSE", "ELLIPTICAL_ARC", "SPLINE"},
+	"workspace.Feature.type":                    {"SKETCH", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "SWEEP", "LOFT", "HOLE", "BOOLEAN", "SOLID_PATTERN", "SKETCH_PATTERN", "GEOMETRY", "THICKEN"},
+	"workspace.Feature.operation":               {"NEW_BODY", "ADD", "REMOVE", "INTERSECT"},
+	"workspace.CommandRequest.sketchOwnerKind":  {"BODY", "GEOMETRICAL_SET"},
+	"workspace.GeometricInput.kind":             {"RESULT", "SKETCH", "TOPOLOGY", "PLANE"},
+	"workspace.GeometricFeatureDefinition.kind": {"LINE", "CIRCLE", "ARC", "SPLINE", "POINT_ON_CURVE", "EXTRACT", "BOUNDARY", "COMPOSITE", "PROJECT", "INTERSECTION", "OFFSET", "G1_CONNECT", "SPLIT", "TRIM", "EXTEND", "TRANSLATE", "ROTATE", "MIRROR", "SURFACE_EXTRUDE", "THICKEN"},
 }
 
 func validateTyped(t reflect.Type, value any, depth int) error {

@@ -10,6 +10,7 @@
 #include <occccad/kernel/dmu.hpp>
 #include <occccad/kernel/measurement.hpp>
 #include <occccad/kernel/topology_naming.hpp>
+#include <occccad/kernel/geometry_feature.hpp>
 
 #include <memory>
 #include <functional>
@@ -75,6 +76,8 @@ public:
     ProfileEvaluationResult evaluateProfilePadsWithHistory(
         const std::vector<ProfilePadSpec>& specs, const std::vector<uint8_t>& base_brep = {},
         const ImportTopologySeed* import_seed = nullptr,
+        const PartRuntimeOptions& runtime = {});
+    ProfileEvaluationResult evaluateGeometryFeature(const GeometryFeatureSpec& spec,
         const PartRuntimeOptions& runtime = {});
 
     TopologyInfo getTopologySummary(const GeometryId& id);

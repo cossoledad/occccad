@@ -137,7 +137,7 @@ func applyFeatureSuppression(modelJSON, payloadJSON json.RawMessage) (json.RawMe
 		if f.ID != payload.FeatureID {
 			continue
 		}
-		if (!isBodyFeature(f.Type) && f.Type != "SKETCH_PATTERN") || f.Type == "IMPORT_BODY" {
+		if (!isBodyFeature(f.Type) && f.Type != "SKETCH_PATTERN" && f.Type != "GEOMETRY") || f.Type == "IMPORT_BODY" {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: feature does not support suppression", ErrValidation)
 		}
 		before := featureHistoryDefinition(*f)

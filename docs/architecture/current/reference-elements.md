@@ -20,12 +20,12 @@ Part 提供共同“参考元素”工具栏：参考点、参考线、参考面
 
 ## 集合与历史
 
-`PartModel.geometricalSets[]` 是真实容器，具有稳定 ID、名称、可选 ParentID 和可见性。点/线/面保存 `geometricalSetId`；首次创建参考元素时，若无集合则在同一命令中建立默认集合。表单可以选择已有集合。集合可新建、改名、改父级和删除空集合，校验父级存在、兄弟名称和循环。成员变更不以复制几何或修改其稳定身份实现；当前没有拖拽成员搬移或解散非空集合命令。
+`PartModel.geometricalSets[]` 是真实容器，具有稳定 ID、名称、可选 ParentID 和可见性。参考点/线/面、[几何 Feature 及其上下文新建的 Sketch](wireframe-surfaces.md) 保存 `geometricalSetId`；首次创建可在同一命令中建立默认集合。表单可以选择已有集合。集合可新建、改名、改父级和删除空集合，校验父级存在、兄弟名称和循环。非空检查同时覆盖参考元素、草图和几何 Feature；成员变更不以复制几何或修改其稳定身份实现。当前没有拖拽成员搬移或解散非空集合命令。
 
-集合是无序组织，不是实体 Body 的 Feature 求值序列；参数/参考依赖决定计算顺序。标准平面不进入集合；集合不承担曲面/曲线 evaluator，保留未来几何图形领域的容器基础。集合的纯组织或显隐变更复用既有几何制品。
+集合是无序组织，不是实体 Body 的材料求值序列；全 Part 参数/参考/Feature 依赖决定计算顺序。标准平面不进入集合；几何构造由 Feature evaluator 执行。集合的纯组织或显隐变更复用既有几何制品。
 
 ## 边界与验收
 
-当前不是 CATIA 全部 Point/Line/Plane 构造集合：不包含曲线上参数点、曲面内点、任意切线/法线、曲面/曲线几何图形 Feature、独立坐标系选择、有限构造线段或任意跨文档直接输入。测量仍只接受其自身支持集合，创建参考元素不自动扩展测量的 Datum/Sketch 支持。
+当前不是 CATIA 全部 Point/Line/Plane 构造集合：参考构造本身不包含曲面内点、任意切线/法线、独立坐标系选择或任意跨文档直接输入。有限线段和曲线上点由几何 Feature 另行提供，不能混同无限参考线。测量仍只接受其自身支持集合，创建参考元素不自动扩展测量的 Datum/Sketch 支持。
 
 命令链验证入口为 `TestReferenceElementsCommandPreviewParametersReopenAndHistory`，数学与树合同由邻近 reference 测试覆盖。浏览器验收在 `measurement-live.spec.ts` 的 reference 场景中覆盖真实预览、树拾取、编辑及重开；测试存在不代表当次已执行通过。

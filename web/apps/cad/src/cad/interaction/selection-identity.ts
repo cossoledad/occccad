@@ -19,6 +19,7 @@ export const selectionKey = (selection: SelectionItem): string => {
   selection.kind === "face" || selection.kind === "edge" || selection.kind === "vertex"
     ? selection.geometryKey ?? "" : "",
   "topologyId" in selection ? selection.topologyId : "",
+  selection.result?[selection.result.featureId,selection.result.resultId]:null,
   selection.displayStageFeatureId??"",
   selection.kind === "axis" ? selection.axis : "",
   selection.kind === "visual" ? selection.featureId : "",

@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v66-spline-integrals"
+const evaluatorVersion = "part-solid-generators-v67-geometric-results"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1800,6 +1800,20 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 			continue
 		}
 		switch strings.ToUpper(feature.Type) {
+		case "THICKEN":
+			sourceModel := fullModel
+			for i, f := range fullModel.Features {
+				if f.ID == feature.ID {
+					sourceModel.Features = append([]Feature(nil), fullModel.Features[:i]...)
+					break
+				}
+			}
+			spec, err := service.geometryFeatureSpec(ctx, reqID, sourceModel, feature)
+			if err != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+			}
+			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "THICKEN", BodyOperation: feature.Operation, GeometryGenerator: spec})
+			bodyTipFeatureID = feature.ID
 		case "HOLE":
 			spec, err := holeInput(fullModel, feature)
 			if err != nil {
@@ -2112,7 +2126,7 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 	var documentType string
 	var allowed bool
 	err := service.database.QueryRow(ctx, `SELECT d.document_type,
-		EXISTS(SELECT 1 FROM occccad.document_versions v CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body WHERE v.document_id=d.id AND body->>'geometryKey'=$2)
+		(EXISTS(SELECT 1 FROM occccad.document_versions v CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body WHERE v.document_id=d.id AND body->>'geometryKey'=$2) OR EXISTS(SELECT 1 FROM occccad.document_versions v CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'features') feature WHERE v.document_id=d.id AND feature->'result'->>'geometryKey'=$2))
 		FROM occccad.documents d WHERE d.id=$1 AND d.deleted_at IS NULL`, documentID, geometryKey).Scan(&documentType, &allowed)
 	if errors.Is(err, database.ErrNoRows) {
 		finishAuthorize()
@@ -2312,7 +2326,7 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 	if deletable {
 		node.Capabilities = []string{"DELETE"}
 	}
-	if childrenEditable && ((isBodyFeature(feature.Type) || feature.Type == "SKETCH_PATTERN") && feature.Type != "IMPORT_BODY") {
+	if childrenEditable && ((isBodyFeature(feature.Type) || feature.Type == "SKETCH_PATTERN" || feature.Type == "GEOMETRY") && feature.Type != "IMPORT_BODY") {
 		node.Capabilities = append(node.Capabilities, "EDIT", "SUPPRESS")
 	}
 	node.Suppressed = feature.Suppressed

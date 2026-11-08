@@ -25,6 +25,7 @@ const (
 	typeCreatePad              = "occccad://part/pad/create"
 	typeCreateBooleanFeature   = "occccad://part/boolean/create"
 	typeCreateModifierFeature  = "occccad://part/modifier/create"
+	typeCreateGeometryFeature  = "occccad://part/geometry-feature/create"
 	typeCreateSolidFeature     = "occccad://part/solid-generator/create"
 	typeSetFeatureSuppression  = "occccad://part/feature/suppression/set"
 	typeEditFeature            = "occccad://part/feature/edit"
@@ -94,6 +95,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
 		commandHandler{typeCreatePad, "PART", applyCreateFeature},
 		commandHandler{typeCreateSolidFeature, "PART", applyCreateFeature},
+		commandHandler{typeCreateGeometryFeature, "PART", applyCreateFeature},
 		commandHandler{typeCreateBooleanFeature, "PART", applyCreateFeature},
 		commandHandler{typeCreateModifierFeature, "PART", applyCreateFeature},
 		commandHandler{typeEditFeature, "PART", applyEditFeature},
@@ -1251,6 +1253,7 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 }
 
 type createFeaturePayload struct {
+	OwnerKind            string                           `json:"ownerKind,omitempty"`
 	AfterFeatureID       string                           `json:"afterFeatureId,omitempty"`
 	InsertionVersionID   string                           `json:"insertionVersionId,omitempty"`
 	InsertionGeometryKey string                           `json:"insertionGeometryKey,omitempty"`
@@ -1300,7 +1303,21 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		}
 	}
 	var bodyChanges []modelcore.ModelChange
-	if payload.Feature.BodyID == "" {
+	if payload.OwnerKind != "" && (payload.OwnerKind != "GEOMETRICAL_SET" || payload.Feature.Sketch == nil) {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: FEATURE_OWNER_KIND_INVALID", ErrValidation)
+	}
+	geometricOwner := payload.Feature.Type == "GEOMETRY" || payload.Feature.Sketch != nil && (payload.Feature.GeometricalSetID != "" || payload.OwnerKind == "GEOMETRICAL_SET")
+	if geometricOwner {
+		if payload.Feature.BodyID != "" {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: GEOMETRY_FEATURE_OWNER_AMBIGUOUS", ErrValidation)
+		}
+		var err error
+		bodyChanges, err = referenceContainer(&model, &payload.Feature.GeometricalSetID, payload.Feature.ID)
+		if err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+	}
+	if payload.Feature.BodyID == "" && !geometricOwner {
 		payload.Feature.BodyID = model.ActiveBodyID
 		if isSolidGenerator(payload.Feature.Type) && payload.Feature.Profile != "" {
 			for _, feature := range model.Features {
@@ -1311,10 +1328,10 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 			}
 		}
 	}
-	if (isSolidGenerator(payload.Feature.Type) || payload.Feature.Type == "LOFT") && payload.Feature.Operation == "NEW_BODY" {
+	if (isSolidGenerator(payload.Feature.Type) || payload.Feature.Type == "LOFT" || payload.Feature.Type == "THICKEN") && payload.Feature.Operation == "NEW_BODY" {
 		bodyChanges = createFeatureBody(&model, &payload.Feature)
 	}
-	if bodyIndex(model, payload.Feature.BodyID) < 0 {
+	if !geometricOwner && bodyIndex(model, payload.Feature.BodyID) < 0 {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: target Body does not exist", ErrValidation)
 	}
 	if payload.AfterFeatureID != "" {

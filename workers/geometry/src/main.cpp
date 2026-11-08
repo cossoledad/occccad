@@ -250,6 +250,10 @@ void fill_feature_result(const occccad::kernel::FeatureResult& source,
     target->set_profile_feature_id(source.profile_feature_id);
     target->set_result_geometry_id(source.result_geometry_id);
     target->set_topology_history_complete(source.topology_history_complete);
+    if(!source.result_id.empty()) {
+        target->mutable_result()->set_feature_id(source.feature_id);
+        target->mutable_result()->set_result_id(source.result_id);
+    }
     for (const auto& output : source.semantic_outputs) {
         auto* value = target->add_semantic_outputs();
         fill_semantic_ref(output.semantic_ref, value->mutable_semantic_ref());
@@ -1569,22 +1573,30 @@ public:
     occccad::kernel::BodyToolInput tool;
     tool.body_id = source.body_id();
     tool.feature_id = source.feature_id();
+    tool.result_id = source.result().result_id();
     tool.brep = read(source.brep());
     const auto bytes = read(source.naming());
     worker_api::PartTopologyManifest naming;
     if (!naming.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())) ||
-        naming.schema_version() != 2 || naming.bodies_size() != 1 ||
-        naming.brep_sha256() != source.brep().sha256() ||
-        naming.bodies(0).body_id() != tool.body_id ||
-        naming.bodies(0).tip_transition() == 0 ||
-        naming.bodies(0).tip_transition() >
-            static_cast<unsigned>(naming.transitions_size()))
-        throw std::invalid_argument("BOOLEAN_TOOL_NAMING_SNAPSHOT_MISMATCH");
-    const auto& tip = naming.transitions(naming.bodies(0).tip_transition() - 1);
-    if (tip.feature_id() != tool.feature_id || !tip.complete())
-        throw std::invalid_argument("BOOLEAN_TOOL_STAGE_MISMATCH");
-    tool.geometry_id = naming.geometry_id();
-    for (const auto& output : naming.bodies(0).tip()) {
+        naming.schema_version() != 2 || naming.brep_sha256() != source.brep().sha256())
+        throw std::invalid_argument("GEOMETRY_INPUT_NAMING_SNAPSHOT_MISMATCH");
+    uint32_t tip_transition=0;
+    const google::protobuf::RepeatedPtrField<worker_api::NamingTopologyLocator>* tip_outputs=nullptr;
+    if(source.has_result()) {
+        if(!tool.body_id.empty() || source.result().feature_id()!=tool.feature_id || tool.result_id.empty() || naming.bodies_size()!=0 || naming.results_size()!=1 || naming.results(0).reference().SerializeAsString()!=source.result().SerializeAsString())
+            throw std::invalid_argument("GEOMETRY_INPUT_RESULT_MISMATCH");
+        tip_transition=naming.results(0).tip_transition();tip_outputs=&naming.results(0).tip();
+    } else {
+        if(tool.body_id.empty() || naming.results_size()!=0 || naming.bodies_size()!=1 || naming.bodies(0).body_id()!=tool.body_id)
+            throw std::invalid_argument("BOOLEAN_TOOL_NAMING_SNAPSHOT_MISMATCH");
+        tip_transition=naming.bodies(0).tip_transition();tip_outputs=&naming.bodies(0).tip();
+    }
+    if(tip_transition==0 || tip_transition>static_cast<unsigned>(naming.transitions_size()))throw std::invalid_argument("GEOMETRY_INPUT_STAGE_INVALID");
+    const auto& tip=naming.transitions(static_cast<int>(tip_transition)-1);
+    if(tip.feature_id()!=tool.feature_id || !tip.complete() || tip.body_id()!=tool.body_id || tip.result().SerializeAsString()!=source.result().SerializeAsString())
+        throw std::invalid_argument("GEOMETRY_INPUT_STAGE_MISMATCH");
+    tool.geometry_id=naming.geometry_id();
+    for (const auto& output : *tip_outputs) {
         if (output.semantic_ref() == 0 ||
             output.semantic_ref() >
                 static_cast<unsigned>(naming.semantic_refs_size()))
@@ -1604,6 +1616,32 @@ public:
     }
     return tool;
     }
+    template<class Reader>
+    occccad::kernel::GeometryFeatureInput read_geometry_input(const worker_api::GeometryFeatureInput& input,Reader&& read) {
+        occccad::kernel::GeometryFeatureInput result;
+        const auto vec=[](const worker_api::Vec3& v){return occccad::kernel::Vec3{v.x(),v.y(),v.z()};};
+        if(input.has_plane()) {
+            if(input.has_source() || input.members_size()!=0)throw std::invalid_argument("GEOMETRY_PLANE_INPUT_AMBIGUOUS");
+            const auto& p=input.plane();result.plane=occccad::kernel::GeometryPlane{vec(p.origin()),vec(p.normal()),vec(p.u_direction()),p.id()};
+        } else result.source=read_boolean_source(input.source(),read);
+        if(input.members_size()>4096)throw std::invalid_argument("GEOMETRY_MEMBER_BUDGET");
+        for(const auto& member:input.members())result.members.push_back({member.feature_id(),member.output_slot(),{member.source_ids().begin(),member.source_ids().end()}});
+        result.reversed=input.reversed();return result;
+    }
+    template<class Reader>
+    occccad::kernel::GeometryFeatureSpec read_geometry_feature(const worker_api::GeometryFeatureSpec& input,Reader&& read) {
+        if(input.inputs_size()>128 || input.curve().points_size()>4096 || input.curve().knots_size()>4096 || input.sketch_wire().curves_size()>4096)throw std::invalid_argument("GEOMETRY_INPUT_BUDGET");
+        const auto vec=[](const worker_api::Vec3& v){return occccad::kernel::Vec3{v.x(),v.y(),v.z()};};
+        occccad::kernel::GeometryFeatureSpec result;result.feature_id=input.feature_id();result.result_id=input.result_id();result.operation=input.operation();
+        for(const auto& v:input.inputs())result.inputs.push_back(read_geometry_input(v,read));
+        const auto& c=input.curve();for(const auto& v:c.points()){occccad::kernel::GeometryControlPoint point{v.id(),vec(v.position()),{}};for(const auto& r:v.sources())point.sources.push_back({r.feature_id(),r.output_slot(),{r.source_ids().begin(),r.source_ids().end()}});result.curve.points.push_back(std::move(point));}
+        result.curve.normal=vec(c.normal());result.curve.x_direction=vec(c.x_direction());result.curve.radius=c.radius();result.curve.start_angle=c.start_angle();result.curve.end_angle=c.end_angle();result.curve.degree=c.degree();
+        result.curve.knots={c.knots().begin(),c.knots().end()};result.curve.multiplicities={c.multiplicities().begin(),c.multiplicities().end()};result.curve.weights={c.weights().begin(),c.weights().end()};result.curve.closed=c.closed();
+        const auto& p=input.parameters();result.parameters.direction=vec(p.direction());result.parameters.origin=vec(p.origin());result.parameters.distance=p.distance();result.parameters.angle=p.angle();result.parameters.start=p.start();result.parameters.end=p.end();result.parameters.side=p.side();result.parameters.tension=p.tension();
+        const auto& w=input.sketch_wire();result.sketch_wire.sketch_id=w.sketch_id();result.sketch_wire.origin=vec(w.origin());result.sketch_wire.normal=vec(w.normal());result.sketch_wire.u_direction=vec(w.u_direction());for(const auto& c2:w.curves())result.sketch_wire.curves.push_back(exact_sketch_curve(c2));
+        return result;
+    }
+
     grpc::Status AnalyzeBooleanRegions(grpc::ServerContext* context,const worker_api::AnalyzeBooleanRegionsRequest* request,
         worker_api::AnalyzeBooleanRegionsResponse* response) override {
         if(request->request_id().empty()||request->output_prefix().empty()||!request->has_target()||!request->has_tool())return {grpc::StatusCode::INVALID_ARGUMENT,"Boolean partition inputs required"};
@@ -1639,7 +1677,7 @@ public:
             return {grpc::StatusCode::INVALID_ARGUMENT, "request_id and geometry_key are required"};
         }
         if (!request->has_rectangular_pad() && request->rectangular_pads().empty() &&
-            request->profile_pads().empty() && !request->has_import_seed()) {
+            request->profile_pads().empty() && !request->has_import_seed() && !request->has_geometry_feature()) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "feature chain requires at least one pad"};
         }
 
@@ -1720,7 +1758,7 @@ public:
             if (request->has_base_brep_artifact())
                 base_brep = input_artifact(request->base_brep_artifact());
             std::vector<occccad::kernel::ProfilePadSpec> profile_specs;
-            if (!request->profile_pads().empty() || request->has_import_seed()) {
+            if (!request->profile_pads().empty() || request->has_import_seed() || request->has_geometry_feature()) {
                 const auto& policy = request->topology_policy();
                 if (policy.schema_version() != occccad::kernel::topology_naming_schema_version ||
                     policy.policy_id() != occccad::kernel::topology_naming_policy_id ||
@@ -1746,6 +1784,7 @@ public:
                 }
                 occccad::kernel::ProfilePadSpec pad;
                 const auto read_boundary=[](const worker_api::LoftBoundarySpec& b){occccad::kernel::LoftBoundarySpec out;if(b.supports_size()>128)throw std::invalid_argument("LOFT_SUPPORT_BUDGET");out.condition=b.condition();out.magnitude=b.magnitude();out.reversed=b.reversed();out.direction={b.direction().x(),b.direction().y(),b.direction().z()};for(const auto& r:b.supports())out.supports.push_back({r.feature_id(),r.output_slot(),{r.source_ids().begin(),r.source_ids().end()}});return out;};
+ if(input.has_geometry_generator())pad.geometry_generator=std::make_shared<occccad::kernel::GeometryFeatureSpec>(read_geometry_feature(input.geometry_generator(),input_artifact));
  pad.loft_start=read_boundary(input.loft_start());pad.loft_end=read_boundary(input.loft_end());
  pad.drill_tip_angle=input.drill_tip_angle();pad.depth_convention=input.depth_convention();
  if(input.hole_positions_size()>128)throw std::invalid_argument("HOLE_POSITION_BUDGET");
@@ -1801,7 +1840,7 @@ public:
                 }
                 if(input.has_sweep_path()) {
  const auto& p=input.sweep_path(); if(p.curves_size()>256)throw std::invalid_argument("SWEEP_PATH_BUDGET");
- auto& path=pad.sweep_path;path.sketch_id=p.sketch_id();path.chain_id=p.chain_id();path.closed=p.closed();path.frame_mode=p.frame_mode();path.corner_mode=p.corner_mode();
+ auto& path=pad.sweep_path;if(p.has_exact_path())path.exact_path=std::make_shared<occccad::kernel::GeometryFeatureInput>(read_geometry_input(p.exact_path(),input_artifact));path.sketch_id=p.sketch_id();path.chain_id=p.chain_id();path.closed=p.closed();path.frame_mode=p.frame_mode();path.corner_mode=p.corner_mode();
  path.plane_origin={p.plane_origin().x(),p.plane_origin().y(),p.plane_origin().z()};path.plane_normal={p.plane_normal().x(),p.plane_normal().y(),p.plane_normal().z()};path.plane_u_direction={p.plane_u_direction().x(),p.plane_u_direction().y(),p.plane_u_direction().z()};
  for(const auto& c:p.curves())path.curves.push_back(exact_sketch_curve(c));
  }
@@ -1869,8 +1908,10 @@ public:
             const auto exact_started=std::chrono::steady_clock::now();
             const double queue_ms=std::chrono::duration<double,std::milli>(acquired-started).count();
             occccad::kernel::ProfileEvaluationResult profile_evaluation;
-            const auto geometry_id =
-                (profile_specs.empty() && !request->has_import_seed())
+            if(request->has_geometry_feature() && (!profile_specs.empty() || request->has_import_seed() || !specs.empty() || !base_brep.empty()))throw std::invalid_argument("GEOMETRY_REQUEST_VARIANT_AMBIGUOUS");
+            const auto geometry_id = request->has_geometry_feature()
+                ? (profile_evaluation=kernel_.evaluateGeometryFeature(read_geometry_feature(request->geometry_feature(),input_artifact),runtime),profile_evaluation.geometry_id)
+                : (profile_specs.empty() && !request->has_import_seed())
                     ? kernel_.evaluateRectangularPads(specs, base_brep)
                     : (profile_evaluation =
                            kernel_.evaluateProfilePadsWithHistory(profile_specs, base_brep, request->has_import_seed() ? &seed : nullptr,runtime),
@@ -1898,13 +1939,17 @@ public:
                             request->angular_deflection(), response, request->brep_output_key(),
                             request->glb_output_key(),request->exact_only(),request->force_cold(),&cached_brep,&cached_glb,[context](){return context->IsCancelled();});
             stats->set_display_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-display_started).count());
-            if (!profile_specs.empty() || request->has_import_seed()) {
+            if (!profile_specs.empty() || request->has_import_seed() || request->has_geometry_feature()) {
                 auto* manifest = response->mutable_evaluation_manifest();
                 manifest->set_schema_version(occccad::kernel::topology_naming_schema_version);
                 manifest->set_topology_policy_id(request->topology_policy().policy_id());
                 manifest->set_topology_evaluator_version(
                     request->topology_policy().evaluator_version());
                 manifest->set_topology_policy_digest(request->topology_policy().policy_digest());
+                if(request->has_geometry_feature()) {
+                    auto* identity=manifest->add_features();identity->set_feature_id(request->geometry_feature().feature_id());
+                    identity->mutable_result()->set_feature_id(request->geometry_feature().feature_id());identity->mutable_result()->set_result_id(request->geometry_feature().result_id());
+                }
                 if (request->has_import_seed()) {
                     auto* identity = manifest->add_features();
                     identity->set_feature_id(seed.feature_id);
@@ -1919,7 +1964,7 @@ public:
                 }
                 const auto naming_started=std::chrono::steady_clock::now();
                 std::string topology_bytes;
-                const auto naming_key=prefix+"|"+response->brep_artifact().sha256();
+                const auto naming_key=prefix+request->geometry_feature().SerializeAsString()+"|"+response->brep_artifact().sha256();
                 const auto naming_hit=naming_cache_.find(naming_key);
                 if(!request->force_cold()&&naming_hit!=naming_cache_.end()&&naming_hit->second.geometry_id==geometry_id) {
                     topology_bytes=naming_hit->second.bytes;naming_hit->second.used=++cache_clock_;
@@ -2357,7 +2402,7 @@ private:
             if(brep_buffer)*brep_buffer=brep;
             if(!brep_output_key.empty())publish(brep_output_key,brep,"application/vnd.opencascade.brep",response->mutable_brep_artifact());
             response->set_geometry_id(geometry_id);response->set_geometry_key(geometry_key);
-            fill_bbox(bbox,response->mutable_bbox());response->set_volume(kernel_.getVolume(geometry_id));
+            fill_bbox(bbox,response->mutable_bbox());response->set_volume(topology.solid_count>0?kernel_.getVolume(geometry_id):0);
             auto* summary=response->mutable_topology();summary->set_face_count(topology.face_count);summary->set_edge_count(topology.edge_count);
             summary->set_vertex_count(topology.vertex_count);summary->set_solid_count(topology.solid_count);
             response->set_occt_version(OCC_VERSION_COMPLETE);response->set_representation_kind("EXACT_STAGE");
@@ -2433,7 +2478,7 @@ private:
                            response->mutable_glb_artifact());
 
         fill_bbox(bbox, response->mutable_bbox());
-        response->set_volume(kernel_.getVolume(geometry_id));
+        response->set_volume(topology.solid_count>0?kernel_.getVolume(geometry_id):0);
         response->set_cache_hit(false);
         response->set_occt_version(OCC_VERSION_COMPLETE);
         auto* summary = response->mutable_topology();

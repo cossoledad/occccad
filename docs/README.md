@@ -13,7 +13,7 @@ React/Three.js → Go API / Command → Workspace CAS → 不可变 Revision
 ```
 
 - Document 是身份，Workspace 拥有可变 Head，Revision 冻结模型；业务写入经过幂等 Command/Transaction/ChangeSet，Preview 不持久化。
-- Part → Body → Feature 保存参数化历史；Sketch 求解后识别 Profile。Product 的 InstancePath 标识 occurrence，引用文档与编辑宿主分离。
+- Part 的 Body 与几何图形集共享 Feature 历史，分别拥有实体特征和曲线/曲面特征；Sketch 求解后识别 Profile。Product 的 InstancePath 标识 occurrence，引用文档与编辑宿主分离。
 - PersistentSelection 跨 Revision 引用拓扑，Publication 提供稳定接口；显示名、mesh/local ID 只作当前显示证据。
 - 产品约束与机构关系分别拥有定义及位姿，复用数值引擎。数据库支持 PostgreSQL/SQLite；人工运行、Agent 与真实集成共用 `.env` 的资源，短期单元对象由测试拥有；逻辑模块不自动成为微服务。
 
@@ -26,6 +26,7 @@ React/Three.js → Go API / Command → Workspace CAS → 不可变 Revision
 | 进程、Router、Job、交换 | [运行](architecture/current/runtime.md)、[Jobs](architecture/current/jobs-artifacts.md)、[Worker](architecture/current/worker-contracts.md) | `services/`、`workers/geometry/` |
 | Command、参数、CAS、Undo/Redo | [模型历史](architecture/current/model-history.md) | `services/internal/workspace/`、`modelcore/` |
 | Sketch、Profile、Body、特征 | [整体设计流程](architecture/current/part-design-workflow.md)、[Part/Sketch](architecture/current/part-sketch.md)、[实体 Feature](architecture/current/solid-features.md) | `kernel/occt/`、`workers/geometry/sketch/` |
+| 关联曲线、开放曲面、加厚 | [线框与曲面](architecture/current/wireframe-surfaces.md)、[操作](guides/wireframe-surfaces.md) | Workspace、`kernel/occt/src/geometry_feature.cpp`、Web Geometry Editor |
 | 持久身份、几何与显示 | [Naming](architecture/current/persistent-naming.md)、[制品](architecture/current/geometry-representations.md) | `kernel/api/`、`kernel/occt/`、Workspace |
 | Product、约束、机构 | [Product](architecture/current/product-assembly.md)、[约束](architecture/current/assembly-constraints.md)、[DMU](architecture/current/kinematics-dmu.md) | Workspace、`kernel/assembly/` |
 | Part/Product 几何测量、视区标注 | [几何测量](architecture/current/geometric-measurement.md)、[CATIA 对照](references/catia-measurement.md) | Workspace、`kernel/occt/`、Web Measurement |

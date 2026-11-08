@@ -8,6 +8,7 @@ add_library(occccad_occt_kernel STATIC
     src/shell_corner.cpp
     src/exchange_graph.cpp
     src/sketch_curve.cpp
+    src/geometry_feature.cpp
     src/dmu.cpp
     src/measurement.cpp
 )

@@ -133,6 +133,14 @@ func TestAutomationEveryCommandHasDiscoverableContract(t *testing.T) {
 }
 func TestAutomationNestedCommandContractsValidateRealDTOs(t *testing.T) {
 	catalog := NewCatalog()
+	geometry, err := catalog.Compile("command.create_geometry_feature", 1, []byte(`{"feature":{"id":"","type":"GEOMETRY","geometry":{"kind":"LINE","curve":{"points":[{"id":"a","position":[0,0,0]},{"id":"b","position":[30,0,0]}]}}}}`))
+	if err != nil || geometry.Feature == nil || geometry.Feature.Geometry.Kind != "LINE" {
+		t.Fatal("geometry command lost typed definition", geometry, err)
+	}
+	sketch, err := catalog.Compile("command.create_sketch", 1, []byte(`{"plane":"XY","sketchOwnerKind":"GEOMETRICAL_SET"}`))
+	if err != nil || sketch.SketchOwnerKind != "GEOMETRICAL_SET" {
+		t.Fatal("geometry-owned sketch contract missing", sketch, err)
+	}
 	valid := `{"sketchId":"sketch-stable","operations":[{"type":"ADD_ENTITY","entity":{"id":"circle-stable","kind":"CIRCLE","role":"PROFILE","center":{"x":0,"y":0},"radius":5}}]}`
 	command, err := catalog.Compile("command.edit_sketch", 1, []byte(valid))
 	if err != nil || command.Type != "EDIT_SKETCH" || command.Operations[0].Entity.Radius != 5 {

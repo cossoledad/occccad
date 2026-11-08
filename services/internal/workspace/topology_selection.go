@@ -20,11 +20,12 @@ import (
 const topologySelectionResolverVersion = "semantic-continuation-v1"
 
 type BindPersistentSelectionRequest struct {
-	BodyID          string `json:"bodyId"`
-	SourceVersionID string `json:"sourceVersionId"`
-	GeometryKey     string `json:"geometryKey"`
-	Kind            string `json:"kind"`
-	LocalID         uint64 `json:"localId"`
+	Result          *modelcore.GeometryResultReference `json:"result,omitempty"`
+	BodyID          string                             `json:"bodyId"`
+	SourceVersionID string                             `json:"sourceVersionId"`
+	GeometryKey     string                             `json:"geometryKey"`
+	Kind            string                             `json:"kind"`
+	LocalID         uint64                             `json:"localId"`
 }
 
 type ResolvePersistentSelectionRequest struct {
@@ -606,7 +607,7 @@ func manifestOutput(manifest *topologyManifest, kind modelcore.PersistentTopolog
 	return entry.Output, entry.BodyID
 }
 func manifestSemanticOutput(manifest *topologyManifest, selection modelcore.PersistentSelection) *workerv1.SemanticTopologyOutput {
-	tip := manifest.bodyTips()[selection.SourceBodyID]
+	tip := manifest.selectionTip(selection)
 	if tip == nil {
 		return nil
 	}
@@ -644,7 +645,7 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 	current := map[string]modelcore.SemanticTopologyRef{refKey(selection.Anchor): selection.Anchor}
 	seenAnchor := false
 	for _, feature := range manifest.GetFeatureResults() {
-		if feature.GetBodyId() != selection.SourceBodyID {
+		if !selectionOwnsFeature(selection, feature) {
 			continue
 		}
 		for _, lineage := range feature.GetTopologyHistory().GetLineage() {
@@ -695,7 +696,7 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 	}
 	if !seenAnchor {
 		for _, feature := range manifest.GetFeatureResults() {
-			if feature.BodyId != selection.SourceBodyID {
+			if !selectionOwnsFeature(selection, feature) {
 				continue
 			}
 			for _, output := range feature.GetSemanticOutputs() {
@@ -711,7 +712,7 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 		result.Diagnostic = "anchor feature is not part of the target body tip"
 		return result
 	}
-	tip := manifest.bodyTips()[selection.SourceBodyID]
+	tip := manifest.selectionTip(selection)
 	if tip == nil {
 		return result
 	}
@@ -786,18 +787,14 @@ func (service *Service) BindPersistentSelection(ctx context.Context, documentID 
 	if request.SourceVersionID == "" || request.GeometryKey == "" || request.LocalID == 0 {
 		return modelcore.PersistentSelection{}, fmt.Errorf("%w: sourceVersionId, geometryKey and localId are required", ErrValidation)
 	}
-	if request.BodyID == "" {
-		err := service.database.QueryRow(ctx, `SELECT body->>'id' FROM occccad.document_versions v
-        CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body
-        WHERE v.id=$2 AND v.document_id=$1 AND body->>'geometryKey'=$3`, documentID, request.SourceVersionID, request.GeometryKey).Scan(&request.BodyID)
-		if errors.Is(err, database.ErrNoRows) {
-			return modelcore.PersistentSelection{}, ErrNotFound
-		}
-		if err != nil {
-			return modelcore.PersistentSelection{}, err
-		}
+	if err := service.inferSelectionOwner(ctx, documentID, &request); err != nil {
+		return modelcore.PersistentSelection{}, err
 	}
-	manifest, geometryKey, _, err := service.topologyManifestForVersion(ctx, documentID, request.SourceVersionID, request.BodyID)
+	owner := modelcore.PersistentSelection{SourceBodyID: request.BodyID, SourceResult: request.Result}
+	if (request.BodyID == "") == (request.Result == nil) {
+		return modelcore.PersistentSelection{}, fmt.Errorf("%w: SELECTION_OWNER_AMBIGUOUS", ErrValidation)
+	}
+	manifest, geometryKey, _, err := service.selectionManifestForVersion(ctx, documentID, request.SourceVersionID, owner)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return modelcore.PersistentSelection{}, fmt.Errorf("%w: PERSISTENT_SELECTION_UNAVAILABLE", ErrValidation)
@@ -810,11 +807,12 @@ func (service *Service) BindPersistentSelection(ctx context.Context, documentID 
 	if geometryKey != request.GeometryKey {
 		return modelcore.PersistentSelection{}, fmt.Errorf("%w: geometryKey does not belong to source revision", ErrValidation)
 	}
-	output, bodyID := manifestOutput(manifest, kind, request.LocalID)
-	if output == nil || bodyID != request.BodyID {
+	entry, exists := manifest.Locators[fmt.Sprintf("%d:%d", namingTopologyType(kind), request.LocalID)]
+	output, bodyID := entry.Output, entry.BodyID
+	if !exists || output == nil || bodyID != request.BodyID || (request.Result == nil) != (entry.Result == nil) || (request.Result != nil && *request.Result != *entry.Result) {
 		return modelcore.PersistentSelection{}, ErrNotFound
 	}
-	selection := modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: documentID, SourceBodyID: bodyID, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: kind, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: selectionEvidence(output.GetEvidence())}
+	selection := modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: documentID, SourceBodyID: bodyID, SourceResult: request.Result, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: kind, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: selectionEvidence(output.GetEvidence())}
 	return selection, selection.Validate()
 }
 
@@ -828,7 +826,7 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	if request.PolicyDigest != modelcore.TopologyNamingPolicyDigest {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "RESOLVER_POLICY_MISMATCH"}, nil
 	}
-	sourceManifest, _, _, err := service.topologyManifestForVersion(ctx, documentID, request.SourceVersionID, request.Selection.SourceBodyID)
+	sourceManifest, _, _, err := service.selectionManifestForVersion(ctx, documentID, request.SourceVersionID, request.Selection)
 	if err != nil {
 		if diagnostic, ok := namingDiagnostic(err); ok {
 			return unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic), nil
@@ -848,7 +846,7 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	if request.Selection.CreationEvidence.EvidenceDigest != "" && request.Selection.CreationEvidence.EvidenceDigest != sourceOutput.GetEvidence().GetEvidenceDigest() {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "CREATION_EVIDENCE_MISMATCH"}, nil
 	}
-	manifest, geometryKey, digest, err := service.topologyManifestForVersion(ctx, documentID, request.TargetVersionID, request.Selection.SourceBodyID)
+	manifest, geometryKey, digest, err := service.selectionManifestForVersion(ctx, documentID, request.TargetVersionID, request.Selection)
 	if err != nil {
 		if diagnostic, ok := namingDiagnostic(err); ok {
 			return unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic), nil

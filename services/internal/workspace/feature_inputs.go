@@ -27,8 +27,33 @@ func featureInputs(f Feature) []featureInput {
 			out = append(out, featureInput{Role: "AXIS", EntityKind: parts[0], FeatureID: parts[1], EntityID: strings.Join(parts[2:], ":")})
 		}
 	}
+	if f.Geometry != nil {
+		for _, input := range f.Geometry.Inputs {
+			if input.Kind == "PLANE" {
+				out = append(out, featureInput{Role: "GEOMETRY_SUPPORT", EntityKind: "PLANE", FeatureID: input.PlaneID})
+			} else {
+				add("GEOMETRY_INPUT", geometryInputFeatureID(input), "", nil)
+			}
+		}
+		if c := f.Geometry.Curve; c != nil {
+			if c.FramePlaneID != "" {
+				out = append(out, featureInput{Role: "CURVE_FRAME", EntityKind: "PLANE", FeatureID: c.FramePlaneID})
+			}
+			for _, p := range c.Points {
+				if p.Reference != nil {
+					add("CURVE_POINT", geometryInputFeatureID(*p.Reference), "", nil)
+				}
+				if p.PointID != "" {
+					out = append(out, featureInput{Role: "CURVE_POINT", EntityKind: "POINT", FeatureID: p.PointID})
+				}
+			}
+		}
+	}
 	add("PROFILE", f.Profile, "", f.ProfileMemberSlot)
 	if f.Sweep != nil {
+		if f.Sweep.Path.Geometry != nil {
+			add("SWEEP_PATH", geometryInputFeatureID(*f.Sweep.Path.Geometry), "", nil)
+		}
 		for _, id := range f.Sweep.Path.EntityIDs {
 			add("SWEEP_PATH", f.Sweep.Path.SketchID, id, nil)
 		}

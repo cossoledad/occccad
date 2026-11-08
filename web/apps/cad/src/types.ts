@@ -45,6 +45,7 @@ export type FeatureInput = {
 };
 
 export type Artifact = {
+ result?:GeometryResultReference;geometryDomain?:"POINT_SET"|"WIRE_SET"|"SHEET_SET"|"SOLID_SET";
  displayStageFeatureId?:string;historicalPreview?:boolean;
   visualNamingDigest?: string;
   bodyId?: string;
@@ -154,9 +155,15 @@ export type PatternDefinition = { directionReference?:SketchGeometryRef; reverse
 export type SketchPattern = PatternDefinition & {name?:string;entityIds:string[]};
 export type ThinWallDefinition={input:"REGIONS"|"CHAINS";mode:"ONE_SIDED"|"TWO_SIDED"|"SYMMETRIC";side:"LEFT"|"RIGHT";join:"MITER"|"ROUND";thickness:number;thickness2?:number;entityIds?:string[];reversed?:boolean;directions?:Array<{entityId:string;reversed?:boolean}>};
 export type LoftBoundaryDefinition={condition:"NORMAL"|"DIRECTION"|"G1"|"G2";magnitude:number;directionEntityId?:string;reversed?:boolean;supports?:NonNullable<Feature["selections"]>};
+export type GeometryResultReference={featureId:string;resultId:string};
+export type GeometricInput={kind:"RESULT"|"TOPOLOGY"|"SKETCH"|"PLANE";featureId?:string;resultId?:string;entityIds?:string[];selection?:NonNullable<Feature["selections"]>[number];planeId?:string;reversed?:boolean};
+export type GeometryControlPoint={id:string;position:Vec3;pointId?:string;reference?:GeometricInput};
+export type GeometryKind="LINE"|"CIRCLE"|"ARC"|"SPLINE"|"POINT_ON_CURVE"|"EXTRACT"|"BOUNDARY"|"COMPOSITE"|"SURFACE_EXTRUDE"|"THICKEN"|"TRANSLATE"|"ROTATE"|"MIRROR"|"SPLIT"|"TRIM"|"EXTEND"|"G1_CONNECT"|"OFFSET"|"PROJECT"|"INTERSECTION";
+export type GeometricFeatureDefinition={kind:GeometryKind;inputs?:GeometricInput[];curve?:{framePlaneId?:string;points:GeometryControlPoint[];normal:Vec3;xDirection:Vec3;radius?:number;startAngle?:number;endAngle?:number;degree?:number;knots?:number[];multiplicities?:number[];weights?:number[];closed?:boolean};parameters:{direction:Vec3;origin:Vec3;distance:number;angle:number;start:number;end:number;side?:"START"|"END"|"BOTH";tension:number}};
 export type Feature = {
+ geometricalSetId?:string;geometry?:GeometricFeatureDefinition;result?:{id:string;domain:"POINT_SET"|"WIRE_SET"|"SHEET_SET";geometryKey:string};
  loftStart?:LoftBoundaryDefinition;loftEnd?:LoftBoundaryDefinition;
- sweep?:{path:{sketchId:string;entityIds:string[];direction?:{entityId:string;reversed:boolean};reversed?:boolean};frameMode:"CORRECTED_FRENET"|"FRENET";cornerMode:"MITER"|"G1_ONLY"};
+ sweep?:{path:{geometry?:GeometricInput;sketchId:string;entityIds:string[];direction?:{entityId:string;reversed:boolean};reversed?:boolean};frameMode:"CORRECTED_FRENET"|"FRENET";cornerMode:"MITER"|"G1_ONLY"};
  thinWall?:ThinWallDefinition;
  order?:number;
  holePoints?:NonNullable<PatternDefinition["centerReference"]>[];drillTipAngle?:number;depthConvention?:"CYLINDER"|"TIP";thread?:{mode:"ANNOTATION";designation:string;hand:"RIGHT"|"LEFT";majorDiameter:number;pitch:number;depth:number};
@@ -183,7 +190,7 @@ export type Feature = {
   visible?: boolean;
   importDefinitionId?: string;
   id: string;
-  type: "SWEEP" | "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT" | "HOLE";
+  type: "GEOMETRY" | "THICKEN" | "SWEEP" | "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT" | "HOLE";
   name?: string;
   plane?: PlaneName | "CUSTOM";
   sketch?: SketchFeature;
@@ -559,7 +566,7 @@ export type SelectionIdentity = {
   highlightTarget?: SelectionItem;
   associatedFeatureIds?:string[];
   sourceFeatureIds?:string[];
-  displayStageFeatureId?:string;
+  result?:GeometryResultReference;displayStageFeatureId?:string;
   treeNodeId?: string;
   expandTreeDescendants?: boolean;
   documentId?: string;
@@ -612,7 +619,7 @@ export type TopologyElementProperties = {
 export type SemanticTopologyRef = { featureId: string; outputSlot: string; sourceIds?: string[] };
 export type SelectionEvidence = { geometryType?: string; measureSI?: number; measureDimension?: string;
   centroid?: Vec3; origin?: Vec3; direction?: Vec3; adjacent?: SemanticTopologyRef[]; evidenceDigest?: string };
-export type PersistentSelection = { schemaVersion: number; sourceDocumentId: string; sourceBodyId: string;
+export type PersistentSelection = { schemaVersion: number; sourceDocumentId: string; sourceBodyId: string;sourceResult?:GeometryResultReference;
   anchor: SemanticTopologyRef; expectedType: "FACE" | "EDGE" | "VERTEX";
   selector: { kind: string; operands?: SemanticTopologyRef[] }; creationEvidence: SelectionEvidence };
 export type SelectionResolution = { status: string; supportingElementStatus: "CONNECTED" | "NOT_CONNECTED";

@@ -13,6 +13,7 @@ import (
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 	"github.com/occccad/occccad/internal/visual"
 )
@@ -94,7 +95,16 @@ func (s *Service) persistGeometry(ctx context.Context, key string, a Artifact, o
 	return tx.Commit(ctx)
 }
 func (s *Service) storeEvaluation(ctx context.Context, key string, e *workerv1.EvaluatePartResponse, v VisualizationManifest) error {
-	if (e.GetRepresentationKind() != "PERSISTENT" && e.GetRepresentationKind() != "EXACT_STAGE") || e.GetTopology().GetSolidCount() == 0 || e.GetVolume() <= 0 {
+	return s.storeEvaluationDomain(ctx, key, e, v, true)
+}
+func (s *Service) storeGeometryEvaluation(ctx context.Context, key string, e *workerv1.EvaluatePartResponse) error {
+	return s.storeEvaluationDomain(ctx, key, e, VisualizationManifest{}, false)
+}
+func (s *Service) storeEvaluationDomain(ctx context.Context, key string, e *workerv1.EvaluatePartResponse, v VisualizationManifest, solid bool) error {
+	if !solid && (e.GetTopology().GetSolidCount() != 0 || e.GetTopology().GetFaceCount()+e.GetTopology().GetEdgeCount()+e.GetTopology().GetVertexCount() == 0 || e.GetEvaluationManifest() == nil) {
+		return fmt.Errorf("%w: independent geometry result required", ErrValidation)
+	}
+	if (e.GetRepresentationKind() != "PERSISTENT" && e.GetRepresentationKind() != "EXACT_STAGE") || solid && (e.GetTopology().GetSolidCount() == 0 || e.GetVolume() <= 0) {
 		return fmt.Errorf("%w: persistent solid result required", ErrValidation)
 	}
 	brep, err := s.adoptEvaluationObject(ctx, e.BrepArtifact, artifactstore.KindBREP)
@@ -238,6 +248,14 @@ func (s *Service) loadArtifact(ctx context.Context, key string) (Artifact, error
 		}
 		a.Representations[role] = r
 	}
+	a.GeometryDomain = "POINT_SET"
+	if n, ok := a.Topology["solids"].(float64); ok && n > 0 {
+		a.GeometryDomain = "SOLID_SET"
+	} else if n, ok := a.Topology["faces"].(float64); ok && n > 0 {
+		a.GeometryDomain = "SHEET_SET"
+	} else if n, ok := a.Topology["edges"].(float64); ok && n > 0 {
+		a.GeometryDomain = "WIRE_SET"
+	}
 	a.GLBBytes = int(a.Representations["VISUAL"].Size)
 	a.BRepBytes = int(a.Representations["BREP"].Size)
 	a.Naming = NamingAvailability{Status: "UNAVAILABLE", CanBind: false, DiagnosticCode: "TOPOLOGY_NAMING_UNAVAILABLE", Diagnostic: "当前几何没有拓扑命名；需要先建立导入命名。"}
@@ -322,4 +340,12 @@ func representationSchema(role string) int {
 		return 2
 	}
 	return 1
+}
+
+func (s *Service) geometryRepresentationReference(ctx context.Context, key, role string) (geometry.ArtifactReference, error) {
+	object, err := s.representationObject(ctx, key, role)
+	if err != nil {
+		return geometry.ArtifactReference{}, err
+	}
+	return geometry.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, SHA256: object.SHA256, Size: object.Size, ContentType: object.ContentType}, nil
 }

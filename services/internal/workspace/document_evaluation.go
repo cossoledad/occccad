@@ -61,6 +61,11 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 			}
 		}
 		diagnosticModel = &model
+		for _, f := range model.Features {
+			if err := qualifyGeometryInputs(documentID, f); err != nil {
+				return err
+			}
+		}
 		if err := service.validateInsertionSource(ctx, documentID, prepared.headRevision, prepared.command, beforeModel, commandReadScope(input.request)); err != nil {
 			return err
 		}
@@ -184,6 +189,9 @@ func evaluatePartDocument(ctx context.Context, service *Service, input documentE
 						return parseErr
 					}
 					for _, feature := range model.Features {
+						if feature.ID == edit.FeatureID && (feature.Type == "GEOMETRY" || feature.Type == "THICKEN") && feature.EvaluationStatus == "FAILED" {
+							return err
+						}
 						if feature.ID != edit.FeatureID || feature.Type != "BOOLEAN" || feature.Suppressed {
 							continue
 						}

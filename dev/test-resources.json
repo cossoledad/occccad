@@ -1048,5 +1048,11 @@
       "configured ArtifactStore and staging",
       "managed production Geometry Worker and Router"
     ]
+  },
+  {
+    "path": "services/internal/workspace/geometric_feature_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#newSketchWorkflowFixture"
+    ]
   }
 ]

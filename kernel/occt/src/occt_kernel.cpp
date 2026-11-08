@@ -48,6 +48,7 @@
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepTools.hxx>
+#include <BRepTools_WireExplorer.hxx>
 #include <BRepTools_History.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
@@ -109,6 +110,7 @@
 #include <gp_Vec.hxx>
 
 #include <internal/occt_kernel.hpp>
+#include <internal/geometry_feature.hpp>
 #include <internal/fillet_boundary.hpp>
 #include <internal/mesh_boundary.hpp>
 #include <internal/shell_corner.hpp>
@@ -1197,12 +1199,177 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec,
     return result;
 }
 
+std::string ref_key(const SemanticTopologyRef& ref);
+bool topology_contains(const TopoDS_Shape& owner, const TopoDS_Shape& member);
+
+ToolBuild make_exact_sweep_tool(const ProfilePadSpec& spec, const PartRuntimeOptions* runtime) {
+    const auto& path = spec.sweep_path;
+    if (!path.exact_path || !path.curves.empty() || spec.regions.empty())
+        throw std::invalid_argument("SWEEP_EXACT_PATH_INVALID");
+    auto source = detail::read_geometry_input(*path.exact_path);
+    if (TopExp_Explorer(source.shape, TopAbs_FACE).More())
+        throw std::invalid_argument("SWEEP_PATH_REQUIRES_CURVES");
+    TopTools_IndexedMapOfShape input_edges;
+    TopExp::MapShapes(source.shape, TopAbs_EDGE, input_edges);
+    if (input_edges.Extent() < 1 || input_edges.Extent() > 256)
+        throw std::invalid_argument("SWEEP_PATH_BUDGET");
+    BRepBuilderAPI_MakeWire builder;
+    std::vector<std::pair<TopoDS_Edge, SemanticTopologyRef>> edges;
+    for (int i = 1; i <= input_edges.Extent(); ++i) {
+        const auto e = TopoDS::Edge(input_edges(i));
+        const auto n =
+            std::find_if(source.named.begin(), source.named.end(),
+                         [&](const auto& candidate) { return candidate.shape.IsSame(e); });
+        if (n == source.named.end())
+            throw std::invalid_argument("SWEEP_PATH_NAMING_INCOMPLETE");
+        builder.Add(e);
+        if (!builder.IsDone())
+            throw std::invalid_argument("SWEEP_PATH_DISCONNECTED");
+        edges.push_back({builder.Edge(), n->ref});
+    }
+    size_t count = 0;
+    gp_Pnt first, last;
+    gp_Vec first_tangent, previous_tangent;
+    const auto spine = builder.Wire();
+    for (BRepTools_WireExplorer it(spine); it.More(); it.Next()) {
+        const auto e = it.Current();
+        BRepAdaptor_Curve c(e);
+        const bool reversed = e.Orientation() == TopAbs_REVERSED;
+        gp_Pnt a, z;
+        gp_Vec ta, tz;
+        c.D1(reversed ? c.LastParameter() : c.FirstParameter(), a, ta);
+        c.D1(reversed ? c.FirstParameter() : c.LastParameter(), z, tz);
+        if (reversed) {
+            ta.Reverse();
+            tz.Reverse();
+        }
+        if (ta.Magnitude() < 1e-10 || tz.Magnitude() < 1e-10)
+            throw std::invalid_argument("SWEEP_PATH_SINGULAR");
+        ta.Normalize();
+        tz.Normalize();
+        if (count) {
+            if (a.Distance(last) > 1e-7)
+                throw std::invalid_argument("SWEEP_PATH_DISCONNECTED");
+            if (ta.Dot(previous_tangent) <= 0 ||
+                ta.Crossed(previous_tangent).Magnitude() > topology_angular_tolerance_radians)
+                throw std::invalid_argument("SWEEP_SPATIAL_PATH_REQUIRES_G1");
+        } else {
+            first = a;
+            first_tangent = ta;
+        }
+        last = z;
+        previous_tangent = tz;
+        ++count;
+    }
+    if (count != edges.size())
+        throw std::invalid_argument("SWEEP_PATH_BRANCHING");
+    const bool closed = BRep_Tool::IsClosed(spine);
+    if (closed &&
+        (first_tangent.Dot(previous_tangent) <= 0 ||
+         first_tangent.Crossed(previous_tangent).Magnitude() > topology_angular_tolerance_radians))
+        throw std::invalid_argument("SWEEP_SPATIAL_PATH_REQUIRES_G1");
+    const auto frame = profile_frame(spec);
+    if (gp_Vec(frame.normal).Crossed(first_tangent).Magnitude() >
+            topology_angular_tolerance_radians ||
+        std::abs(gp_Vec(frame.origin, first).Dot(gp_Vec(frame.normal))) > 1e-7)
+        throw std::invalid_argument("SWEEP_PROFILE_MUST_BE_NORMAL_AT_PATH_START");
+    ToolBuild tool;
+    tool.feature_id = spec.feature_id;
+    for (const auto& region : spec.regions) {
+        if (runtime && runtime->cancelled && runtime->cancelled())
+            throw std::runtime_error("EVALUATION_CANCELLED");
+        std::vector<std::pair<std::string, TopoDS_Edge>> profile_edges;
+        const auto loop = [&](const ProfileLoopSpec& l) {
+            BRepBuilderAPI_MakeWire w;
+            for (const auto& curve : l.curves) {
+                w.Add(make_profile_edge(curve, frame));
+                if (!w.IsDone())
+                    throw std::invalid_argument("SWEEP_PROFILE_WIRE_INVALID");
+                profile_edges.push_back({curve.entity_id, w.Edge()});
+            }
+            return w.Wire();
+        };
+        BRepBuilderAPI_MakeFace face(gp_Pln(gp_Ax3(frame.origin, frame.normal, frame.u_direction)),
+                                     loop(region.outer), Standard_True);
+        for (const auto& h : region.holes)
+            face.Add(loop(h));
+        face.Build();
+        if (!face.IsDone() || !BRepCheck_Analyzer(face.Face()).IsValid())
+            throw std::invalid_argument("SWEEP_PROFILE_INVALID");
+        BRepOffsetAPI_MakePipe pipe(
+            spine, face.Face(),
+            path.frame_mode == "FRENET" ? GeomFill_IsFrenet : GeomFill_IsCorrectedFrenet,
+            Standard_False);
+        pipe.Build();
+        if (!pipe.IsDone())
+            throw std::invalid_argument("SWEEP_CONSTRUCTION_FAILED");
+        ToolBuild part;
+        part.feature_id = spec.feature_id;
+        part.shape = pipe.Shape();
+        const auto record = [&](const std::vector<SemanticTopologyRef>& sources,
+                                const std::string& slot, const TopoDS_Shape& shape) {
+            if (shape.IsNull() || !topology_contains(part.shape, shape))
+                return;
+            SemanticTopologyRef ref{spec.feature_id, slot, {}};
+            for (const auto& source : sources) {
+                ref.source_ids.push_back(source.feature_id + "/" + source.output_slot);
+                ref.source_ids.insert(ref.source_ids.end(), source.source_ids.begin(),
+                                      source.source_ids.end());
+            }
+            std::sort(ref.source_ids.begin(), ref.source_ids.end());
+            ref.source_ids.erase(std::unique(ref.source_ids.begin(), ref.source_ids.end()),
+                                 ref.source_ids.end());
+            part.named.push_back({ref, shape});
+            part.generated.push_back({sources, ref, TopologyLineageKind::generated, {}});
+        };
+        const auto source_region = profile_source(spec, "PROFILE_REGION", region.id);
+        if (!closed) {
+            record({source_region}, "START_CAP/" + region.id, pipe.FirstShape());
+            record({source_region}, "END_CAP/" + region.id, pipe.LastShape());
+        }
+        for (const auto& path_edge : edges)
+            for (const auto& profile_edge : profile_edges) {
+                const auto slot = "SWEEP_SIDE/" +
+                                  make_geometry_id(ref_key(path_edge.second)).substr(7) + "/" +
+                                  profile_edge.first;
+                record({path_edge.second, profile_source(spec, "PROFILE_EDGE", profile_edge.first)},
+                       slot, pipe.Generated(path_edge.first, profile_edge.second));
+            }
+        if (tool.shape.IsNull())
+            tool = std::move(part);
+        else {
+            BRepAlgoAPI_Fuse fuse(tool.shape, part.shape);
+            fuse.Build();
+            if (!fuse.IsDone())
+                throw std::invalid_argument("SWEEP_REGION_FUSE_FAILED");
+            tool.named.insert(tool.named.end(), part.named.begin(), part.named.end());
+            tool.named = map_named_shapes(tool.named, fuse, fuse.Shape());
+            tool.generated.insert(tool.generated.end(), part.generated.begin(),
+                                  part.generated.end());
+            tool.shape = fuse.Shape();
+        }
+    }
+    if (tool.shape.IsNull() || !BRepCheck_Analyzer(tool.shape).IsValid() ||
+        !BRepAlgoAPI_Check(tool.shape, Standard_True, Standard_True).IsValid())
+        throw std::invalid_argument("SWEEP_SELF_INTERSECTION_OR_INVALID_SOLID");
+    return tool;
+}
+
 ToolBuild make_sweep_tool(const ProfilePadSpec& spec, const PartRuntimeOptions* runtime) {
-    const auto& path=spec.sweep_path;
-    if(path.sketch_id.empty()||path.chain_id.empty()||path.curves.empty()||path.curves.size()>256||spec.regions.empty())throw std::invalid_argument("SWEEP_PATH_REQUIRED");
-    if((path.frame_mode!="CORRECTED_FRENET"&&path.frame_mode!="FRENET")||(path.corner_mode!="MITER"&&path.corner_mode!="G1_ONLY"))throw std::invalid_argument("SWEEP_DEFINITION_INVALID");
-    ProfilePadSpec path_spec;path_spec.plane_origin=path.plane_origin;path_spec.plane_normal=path.plane_normal;path_spec.plane_u_direction=path.plane_u_direction;
-    const auto path_frame=profile_frame(path_spec), frame=profile_frame(spec);
+    const auto& path = spec.sweep_path;
+    if ((path.frame_mode != "CORRECTED_FRENET" && path.frame_mode != "FRENET") ||
+        (path.corner_mode != "MITER" && path.corner_mode != "G1_ONLY"))
+        throw std::invalid_argument("SWEEP_DEFINITION_INVALID");
+    if (path.exact_path)
+        return make_exact_sweep_tool(spec, runtime);
+    if (path.sketch_id.empty() || path.chain_id.empty() || path.curves.empty() ||
+        path.curves.size() > 256 || spec.regions.empty())
+        throw std::invalid_argument("SWEEP_PATH_REQUIRED");
+    ProfilePadSpec path_spec;
+    path_spec.plane_origin = path.plane_origin;
+    path_spec.plane_normal = path.plane_normal;
+    path_spec.plane_u_direction = path.plane_u_direction;
+    const auto path_frame = profile_frame(path_spec), frame = profile_frame(spec);
     BRepBuilderAPI_MakeWire wire;
     std::vector<TopoDS_Edge> path_edges;
     std::vector<gp_Pnt> starts,ends;std::vector<gp_Vec> tangents,end_tangents;
@@ -4602,6 +4769,15 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         tool.shape = combine.Shape();
                     }
                 }
+            } else if (spec.generator == "THICKEN") {
+                if(!spec.geometry_generator || spec.geometry_generator->operation!="THICKEN" || spec.geometry_generator->feature_id!=spec.feature_id)
+                    throw std::invalid_argument("THICKEN_DEFINITION_REQUIRED");
+                auto built=detail::build_geometry_feature(*spec.geometry_generator,runtime.cancelled);
+                tool.shape=built.shape;tool.feature_id=spec.feature_id;
+                for(const auto& n:built.named) {
+                    tool.named.push_back({n.ref,n.shape});
+                    tool.generated.push_back({n.sources,n.ref,TopologyLineageKind::generated,{}});
+                }
             } else if (spec.generator == "SWEEP") {
                 tool=build_generator_tool(spec,input_shape,input_named,&runtime);
             } else if (spec.generator == "LOFT") {
@@ -5036,6 +5212,37 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
 GeometryId OcctKernel::evaluateProfilePads(const std::vector<ProfilePadSpec>& specs,
                                            const std::vector<uint8_t>& base_brep) {
     return evaluateProfilePadsWithHistory(specs, base_brep).geometry_id;
+}
+
+ProfileEvaluationResult OcctKernel::evaluateGeometryFeature(const GeometryFeatureSpec& spec,
+    const PartRuntimeOptions& runtime) {
+    const auto began=std::chrono::steady_clock::now();
+    auto built=detail::build_geometry_feature(spec,runtime.cancelled);
+    if(spec.operation=="THICKEN")throw std::invalid_argument("THICKEN_REQUIRES_BODY_FEATURE_PIPELINE");
+    ProfileEvaluationResult result;
+    result.geometry_id=impl_->store(built.shape);
+    FeatureResult f;f.feature_id=spec.feature_id;f.result_id=spec.result_id;
+    f.result_geometry_id=result.geometry_id;f.topology_history_complete=true;
+    auto& h=f.topology_history;h.feature_id=spec.feature_id;h.result_geometry_id=result.geometry_id;h.policy_digest=topology_policy_digest();
+    const auto naming_started=std::chrono::steady_clock::now();
+    std::map<TopAbs_ShapeEnum,TopTools_IndexedMapOfShape> maps;
+    for(auto type:{TopAbs_FACE,TopAbs_EDGE,TopAbs_VERTEX})TopExp::MapShapes(built.shape,type,maps[type]);
+    std::vector<NamedShape> names;for(const auto& n:built.named)names.push_back({n.ref,n.shape});
+    const auto adjacency=imported_adjacency(names);
+    for(size_t i=0;i<built.named.size();++i){
+        const auto& n=built.named[i];const auto type=persistent_topology_type(n.shape);const auto local=maps[n.shape.ShapeType()].FindIndex(n.shape);
+        if(local==0)throw std::runtime_error("GEOMETRY_NAMING_INVALID_LOCATOR");
+        auto evidence=topology_evidence(n.shape);append_semantic_role(evidence,n.ref,type);
+        for(const auto neighbor:adjacency[i])evidence.adjacent.push_back(names[neighbor].ref);
+        sort_refs(evidence.adjacent);
+        f.semantic_outputs.push_back({n.ref,type,static_cast<uint64_t>(local),evidence});
+        h.lineage.push_back({n.sources,n.ref,TopologyLineageKind::generated,evidence});
+    }
+    size_t total=0;for(const auto& m:maps)total+=static_cast<size_t>(m.second.Extent());
+    if(total!=f.semantic_outputs.size())throw std::runtime_error("GEOMETRY_NAMING_INCOMPLETE");
+    h.evidence_digest=topology_history_digest(h);result.feature_results.push_back(std::move(f));
+    if(runtime.stats){auto& stats=*runtime.stats;stats={};stats.stages_executed=1;stats.generator_calls=1;stats.executed_feature_ids.push_back(spec.feature_id);stats.exact_ms=std::chrono::duration<double,std::milli>(naming_started-began).count();stats.naming_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-naming_started).count();}
+    return result;
 }
 
 BoundingBox OcctKernel::getBoundingBox(const GeometryId& id) {

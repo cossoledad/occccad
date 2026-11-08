@@ -435,6 +435,58 @@ message EvaluatePartRequest {
     bool force_cold = 14; // bypass response, stage and display caches; same operators
     bool exact_only = 15; // internal stage: BREP + Naming, no tessellation/GLB
     string runtime_affinity = 16; // scheduling hint only; never part of shape identity
+    GeometryFeatureSpec geometry_feature = 17;
+}
+
+// Independent, finite point/wire/sheet evaluation in the same Part pipeline.
+// Inputs are frozen BREP/Naming snapshots. Selectors are semantic, never local IDs.
+message GeometryResultReference { string feature_id = 1; string result_id = 2; }
+message GeometryFeatureInput {
+    BodyToolInput source = 1;
+    repeated SemanticTopologyRef members = 2; // empty means explicitly the whole result
+    bool reversed = 3;
+    GeometryPlane plane = 4; // explicit infinite datum domain, exclusive with source
+}
+message GeometryPlane { Vec3 origin = 1; Vec3 normal = 2; Vec3 u_direction = 3; string id = 4; }
+message GeometryControlPoint { string id = 1; Vec3 position = 2; repeated SemanticTopologyRef sources = 3; }
+message GeometryCurveDefinition {
+    repeated GeometryControlPoint points = 1;
+    Vec3 normal = 2;
+    Vec3 x_direction = 3;
+    double radius = 4;
+    double start_angle = 5; // radians
+    double end_angle = 6;
+    uint32 degree = 7;
+    repeated double knots = 8;
+    repeated uint32 multiplicities = 9;
+    repeated double weights = 10;
+    bool closed = 11;
+}
+message GeometryOperationDefinition {
+    Vec3 direction = 1;
+    Vec3 origin = 2;
+    double distance = 3; // mm
+    double angle = 4; // radians
+    double start = 5; // normalized arc length, [0,1]
+    double end = 6;
+    string side = 7; // START | END | BOTH; selected retained interval for TRIM
+    double tension = 8; // positive endpoint tangent scale for G1 connection
+}
+message GeometrySketchWire {
+    string sketch_id = 1;
+    repeated ProfileCurve curves = 2;
+    Vec3 origin = 3;
+    Vec3 normal = 4;
+    Vec3 u_direction = 5;
+}
+message GeometryFeatureSpec {
+    string feature_id = 1;
+    string result_id = 2; // stable declared output role, normally "result"
+    string operation = 3;
+    repeated GeometryFeatureInput inputs = 4;
+    GeometryCurveDefinition curve = 5;
+    GeometryOperationDefinition parameters = 6;
+    GeometrySketchWire sketch_wire = 7;
 }
 
 message PartStageExecution {
@@ -539,6 +591,7 @@ message BodyToolInput {
     ArtifactReference naming = 2;
     string body_id = 3;
     string feature_id = 4;
+    GeometryResultReference result = 5; // exclusive with body_id
 }
 
 // Boundary proof and frozen identity are rebuildable analysis values, never
@@ -651,6 +704,7 @@ message ProfilePadSpec {
     string depth_convention = 47; // CYLINDER | TIP
     LoftBoundarySpec loft_start = 48;
     LoftBoundarySpec loft_end = 49;
+    GeometryFeatureSpec geometry_generator = 50; // typed solid bridge, currently THICKEN
 
 
 }
@@ -686,6 +740,7 @@ message SweepPathSpec {
     bool closed = 7;
     string frame_mode = 8; // CORRECTED_FRENET | FRENET
     string corner_mode = 9; // G1_ONLY | MITER (line corners)
+    GeometryFeatureInput exact_path = 10; // finite 3D wire result, exclusive with curves
 }
 
 message PatternSource {
@@ -792,6 +847,7 @@ message PersistentSelection {
     PersistentTopologyType expected_type = 5;
     SelectionRecipe selector = 6;
     SelectionEvidence creation_evidence = 7;
+    GeometryResultReference source_result = 8; // exclusive with source_body_id
 }
 
 message ResolvedTopologyElement {
@@ -855,6 +911,7 @@ message TopologyNamingPolicy {
 message FeatureEvaluationIdentity {
     string feature_id = 1;
     string body_id = 2;
+    GeometryResultReference result = 5;
     string input_feature_id = 3;
     string profile_feature_id = 4;
 }
@@ -887,6 +944,7 @@ message FeatureResult {
     string input_feature_id = 7;
     string profile_feature_id = 8;
     bool topology_history_complete = 9;
+    GeometryResultReference result = 10;
 }
 
 // v2 storage contract. Domain SelectionEvidence remains a transient RPC/value object.
@@ -944,12 +1002,19 @@ message NamingTransition {
     string evidence_digest = 10;
     bool complete = 11;
     repeated string diagnostics = 12;
+    GeometryResultReference result = 13;
 }
 message NamingBody {
     string body_id = 1;
     repeated uint32 transitions = 2; // 1-based transition table IDs in evaluation order.
     uint32 tip_transition = 3;
     repeated NamingTopologyLocator tip = 4; // Only current tip has a full locator snapshot.
+}
+message NamingGeometryResult {
+    GeometryResultReference reference = 1;
+    repeated uint32 transitions = 2;
+    uint32 tip_transition = 3;
+    repeated NamingTopologyLocator tip = 4;
 }
 
 message PartTopologyManifest {
@@ -961,6 +1026,7 @@ message PartTopologyManifest {
     repeated NamingEvidence evidence = 7;
     repeated NamingTransition transitions = 8;
     repeated NamingBody bodies = 9;
+    repeated NamingGeometryResult results = 14;
     string geometry_id = 10;
     string coordinate_space = 11; // PART_LOCAL
     string length_unit = 12; // mm (positions); measures explicitly SI.

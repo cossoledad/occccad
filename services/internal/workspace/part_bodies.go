@@ -56,7 +56,7 @@ func normalizeBodies(m *PartModel) {
 		if m.Features[i].Order == 0 {
 			m.Features[i].Order = i + 1
 		}
-		if m.Features[i].BodyID == "" {
+		if m.Features[i].BodyID == "" && m.Features[i].GeometricalSetID == "" && m.Features[i].Type != "GEOMETRY" {
 			m.Features[i].BodyID = m.ActiveBodyID
 		}
 	}
@@ -179,6 +179,21 @@ func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *P
 			}
 		}
 	}
+	for i := range m.Features {
+		if m.Features[i].Type != "GEOMETRY" {
+			continue
+		}
+		m.Features[i].Result = nil
+		if m.Features[i].Suppressed || m.Features[i].EvaluationStatus == "BLOCKED" || m.Features[i].EvaluationStatus == "FAILED" {
+			continue
+		}
+		if _, err := s.evaluateGeometricFeature(ctx, requestID+"/geometry/"+m.Features[i].ID, m, m.Features[i].ID); err != nil {
+			markSolidFailure(m, m.Features[i].ID, err.Error())
+			if failure == nil {
+				failure = err
+			}
+		}
+	}
 	var stageGraph *modelcore.DependencyGraph
 	order := make([]int, len(m.Bodies))
 	for i := range order {
@@ -276,6 +291,18 @@ func (s *Service) bodyArtifacts(ctx context.Context, m PartModel) (map[string]Ar
 			a = fallbackVisualArtifact(a)
 		}
 		result[key] = a
+	}
+	for _, f := range m.Features {
+		if f.Result == nil || f.Result.GeometryKey == "" || f.Suppressed {
+			continue
+		}
+		a, err := s.loadArtifact(ctx, f.Result.GeometryKey)
+		if err != nil {
+			return nil, err
+		}
+		a.Result = geometryResultReference(f)
+		a.GeometryDomain = f.Result.Domain
+		result[a.GeometryKey] = a
 	}
 	return result, nil
 }

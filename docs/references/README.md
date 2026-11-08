@@ -4,4 +4,6 @@
 
 [CATIA 几何测量](catia-measurement.md)记录 Measure Between/Item、显示定制、三点角度与关联更新的具体 SourceLocation，以及手册插图观察和本项目取舍。
 
+[曲线与曲面建模](surface-modeling.md)记录 CATIA WFS/GSD、SOLIDWORKS、Creo、Onshape、NX、Rhino 的公开功能/操作对照及 OCCT 算法候选边界；本项目的待实施设计由 CAD 主线链接。
+
 外部行为用于设计对照，不代表本项目已实现，也不直接决定内部架构。对应事实见[current](../architecture/current/README.md)，目标与有意差异见[target](../architecture/target/README.md)。

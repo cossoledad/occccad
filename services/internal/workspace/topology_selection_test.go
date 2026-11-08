@@ -157,7 +157,7 @@ func testBodyTips(m *topologyManifest) *topologyManifest {
 		m.Tips[f.BodyId] = f
 		m.GeometryID = f.ResultGeometryId
 		for _, o := range f.SemanticOutputs {
-			m.Locators[fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)] = namingLocator{f.BodyId, o}
+			m.Locators[fmt.Sprintf("%d:%d", o.TopologyType, o.LocalId)] = namingLocator{BodyID: f.BodyId, Output: o}
 		}
 	}
 	return m

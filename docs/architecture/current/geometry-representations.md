@@ -2,7 +2,7 @@
 
 返回[当前架构](README.md)。本文描述当前唯一持久数据链，不提供旧数据库内联载荷兼容层。
 
-Part Revision 通过 `bodies[].geometryKey` 引用独立 Body 结果，DocumentView 的 `artifacts` 按 GeometryKey 提供轻量描述；没有 Part 级合并 GLB 或唯一 geometryKey。属性面板按 Body 展示当前 Revision 的 BREP / mesh.glb / naming.pb 索引、字节大小、schema 与 digest，并通过受权限保护的 HTTP 文件接口逐项下载。请求的 `bodyId`（若提供）也必须匹配该 Revision 的真实归属；历史 Revision 与冻结 Product 子树同样可验证。
+Part Revision 通过 `bodies[].geometryKey` 和 `features[].result.geometryKey` 分别引用独立 Body 与[几何 Feature 输出](wireframe-surfaces.md)，DocumentView 的 `artifacts` 按 GeometryKey 提供轻量描述；没有 Part 级合并 GLB 或唯一 geometryKey。摘要携带互斥的 `bodyId` / `result` 归属及 `geometryDomain`。属性面板的既有 Body 制品入口与受权限保护的 HTTP 下载保留；授权也识别冻结 Revision 的 FeatureResult，不能只检查当前 Head。请求的 `bodyId`（若提供）必须匹配真实归属；历史 Revision 与冻结 Product 子树同样验证，后者的开放结果显示尚未接入。
 
 ## 所有权与数据流
 
@@ -31,12 +31,15 @@ Worker 输出通过摘要/长度验证后登记 READY 对象；GLB 业务显示�
 
 当前角色为 `BREP`、`VISUAL`、`NAMING`。源文件、交换导出、缩略图、导入 identity 继续使用统一 Artifact 对象模型，但不必全部成为一个 Part 几何结果的角色。
 
+结果接纳按域区分：Body 保持非空有效 Solid 集及正体积门禁；Point/Wire/Sheet 不要求实体体积，但要求有效、非空、有界且完整 Naming。开放结果在既有数值列中的 `volume=0` 是占位，消费者须按 `geometryDomain` 判断不适用，不能据此显示为零质量实体。
+
 ## 唯一显示载荷
 
 持久实体显示只读取 `mesh.glb`，没有 protobuf Mesh → 数据库 JSON → DocumentView Mesh 的第二条路径。当前为 [Visual/Naming v2 契约](visual-naming-artifacts.md)：
 
 - 标准 glTF POSITION/NORMAL/indices，加上多个 mesh/primitive；
 - FACE 三角形、EDGE 折线、VERTEX 点统一使用 1-based topology localId，mapping 与数值均为 binary accessor；
+- Wire/Point 文件可以没有 FACE primitive；不写零 count 面 accessor、不构造假三角形；
 - `OCCCCAD_cad.schemaVersion=2` 只保留单位、坐标空间、轻量 Geometry/Naming 关联；删除旧语义哈希 `stableIds`；
 - `OCCCCAD_visualization.schemaVersion=2` 的 positions/indices 使用 accessor，辅助显示也生成标准 glTF primitive。显示变体替换自己拥有的二进制后缀，不累计历史草图数组。
 
@@ -62,7 +65,7 @@ Worker 的 `fill_evaluation` 统一调度离散与编码，`make_glb` 消费快�
 
 ## Naming、RPC 与预览
 
-每个 Body 的完整 `PartTopologyManifest` 只存在自己的 `naming.pb`，采用共享 SemanticRef/Evidence 表、逐 Feature transition 与显式 Body Tip locator 索引；历史 Feature 不再持久保存完整快照。`PartEvaluationManifest` 只携带策略摘要、轻量 Feature identity 及 Naming ArtifactReference，不再重复传完整 FeatureResults。导入重放 RPC 传 identity ArtifactReference，Worker 校验并读取 seed，而非让大型 identities 数组再次穿过请求。
+每个 Body 或几何 FeatureResult 的完整 `PartTopologyManifest` 只存在自己的 `naming.pb`，采用共享 SemanticRef/Evidence 表、transition 与显式 owner 的 locator 索引；Body 历史 Feature 不重复保存完整快照。文件严格拥有一个 Body 或一个 FeatureResult，不能混合所有者。`PartEvaluationManifest` 只携带策略摘要、轻量 Feature identity 及 Naming ArtifactReference，不重复传完整 FeatureResults。导入重放 RPC 传 identity ArtifactReference，Worker 校验并读取 seed，而非让大型 identities 数组再次穿过请求。
 
 `EvaluatePartResponse` 的持久结果标记为 `PERSISTENT`，只返回几何摘要、计数及 ArtifactReference；移除了 BREP/GLB 内联字段，`preview_mesh` 只允许临时预览。声明中的 Tessellate 输出也只使用引用，不再定义三套内联字节载荷；这不代表独立 Tessellate RPC 已实现。
 

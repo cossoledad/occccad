@@ -43,6 +43,11 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			}
 		}
 		diagnosticModel = &model
+		for _, f := range model.Features {
+			if err := qualifyGeometryInputs(documentID, f); err != nil {
+				return CommandPreview{}, err
+			}
+		}
 		if err := service.validateInsertionSource(ctx, documentID, prepared.headRevision, prepared.command, beforeModel, commandReadScope(request)); err != nil {
 			return CommandPreview{}, err
 		}
@@ -112,7 +117,11 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 		}
 		var geometryKey string
 		var repairRequired []FeaturePreviewIssue
-		if requiresOrderedEvaluation(prepared.command) {
+		geometryFeatureID := previewGeometryFeatureID(prepared.command.Payload, model)
+		if geometryFeatureID != "" {
+			bodyID = ""
+			geometryKey, err = service.evaluateGeometricFeature(ctx, "preview/"+prepared.requestID, &model, geometryFeatureID)
+		} else if requiresOrderedEvaluation(prepared.command) {
 			err = service.evaluateOrderedBodies(ctx, documentID, "preview/"+prepared.requestID, &model, orderMutationBlocker(prepared.command))
 			if i := bodyIndex(model, bodyID); i >= 0 {
 				geometryKey = model.Bodies[i].GeometryKey
@@ -168,6 +177,9 @@ func previewPartDocument(ctx context.Context, service *Service, input documentPr
 			return CommandPreview{}, err
 		}
 		artifact.BodyID = bodyID
+		if geometryFeatureID != "" {
+			artifact.Result = &modelcore.GeometryResultReference{FeatureID: geometryFeatureID, ResultID: "result"}
+		}
 		bodyName := ""
 		bodyAssignment := "TARGET_BODY"
 		if index := bodyIndex(model, bodyID); index >= 0 {

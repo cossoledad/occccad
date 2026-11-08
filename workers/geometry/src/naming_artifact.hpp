@@ -10,13 +10,18 @@ namespace occccad::worker {
 // FeatureResult is evaluator working memory. Only this interned v2 representation is persisted.
 inline void pack_naming(const std::vector<v1::FeatureResult>& features,
                         v1::PartTopologyManifest& out) {
-    if (features.empty() || features.front().body_id().empty()) throw std::invalid_argument("NAMING_REQUIRES_ONE_BODY");
+    if (features.empty()) throw std::invalid_argument("NAMING_OWNER_REQUIRED");
+    const auto& first=features.front();
+    const bool geometric=first.has_result();
+    if(geometric ? (!first.body_id().empty() || first.result().feature_id().empty() || first.result().result_id().empty()) : first.body_id().empty())
+        throw std::invalid_argument("NAMING_OWNER_INVALID");
     for (const auto& feature : features)
-        if (feature.body_id()!=features.front().body_id()) throw std::invalid_argument("NAMING_CROSS_BODY_TRANSITION");
+        if (feature.body_id()!=first.body_id() || feature.has_result()!=geometric || feature.result().SerializeAsString()!=first.result().SerializeAsString())
+            throw std::invalid_argument("NAMING_CROSS_OWNER_TRANSITION");
     out.set_schema_version(2);
     out.set_coordinate_space("PART_LOCAL");
     out.set_length_unit("mm");
-    std::map<std::string, uint32_t> refs, evidence, bodies;
+    std::map<std::string, uint32_t> refs, evidence;
     auto ref = [&](const v1::SemanticTopologyRef& value) {
         const auto key = value.SerializeAsString();
         auto [it, added] = refs.emplace(key, refs.size() + 1);
@@ -81,21 +86,15 @@ inline void pack_naming(const std::vector<v1::FeatureResult>& features,
             *out.add_evidence() = packed;
         return it->second;
     };
-    // Tips are selected per Body, never by the last global FeatureResult.
-    std::map<std::string, size_t> tips;
-    for (size_t i = 0; i < features.size(); ++i)
-        tips[features[i].body_id()] = i;
+    const auto write_snapshot = [&](auto* body) {
     for (size_t i = 0; i < features.size(); ++i) {
         const auto& f = features[i];
         const auto& h = f.topology_history();
-        auto [it, added] = bodies.emplace(f.body_id(), bodies.size());
-        if (added)
-            out.add_bodies()->set_body_id(f.body_id());
-        auto* body = out.mutable_bodies(it->second);
         auto* t = out.add_transitions();
         body->add_transitions(out.transitions_size());
         t->set_feature_id(f.feature_id());
         t->set_body_id(f.body_id());
+        if(f.has_result())*t->mutable_result()=f.result();
         t->set_input_feature_id(f.input_feature_id());
         t->set_profile_feature_id(f.profile_feature_id());
         t->set_input_geometry_id(h.input_geometry_id());
@@ -126,7 +125,7 @@ inline void pack_naming(const std::vector<v1::FeatureResult>& features,
                 p->add_candidates(ref(c));
             p->set_diagnostic_code(a.diagnostic_code());
         }
-        if (tips.at(f.body_id()) == i) {
+        if (i+1 == features.size()) {
             body->set_tip_transition(out.transitions_size());
             for (const auto& o : f.semantic_outputs()) {
                 auto* p = body->add_tip();
@@ -137,5 +136,8 @@ inline void pack_naming(const std::vector<v1::FeatureResult>& features,
             }
         }
     }
+    };
+    if(geometric){auto* result=out.add_results();*result->mutable_reference()=first.result();write_snapshot(result);}
+    else {auto* body=out.add_bodies();body->set_body_id(first.body_id());write_snapshot(body);}
 }
 }  // namespace occccad::worker

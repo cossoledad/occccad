@@ -243,7 +243,7 @@ func (s *Service) recoverAction(ctx context.Context, actor, document string, a A
 	switch command {
 	case "CREATE_SKETCH":
 		kind, slot = "SKETCH", "entity"
-	case "PAD_SKETCH", "CREATE_MODIFY_FEATURE", "CREATE_SOLID_FEATURE", "CREATE_PATTERN", "CREATE_BOOLEAN_FEATURE", "IMPORT_EXCHANGE":
+	case "PAD_SKETCH", "CREATE_MODIFY_FEATURE", "CREATE_SOLID_FEATURE", "CREATE_GEOMETRY_FEATURE", "CREATE_PATTERN", "CREATE_BOOLEAN_FEATURE", "IMPORT_EXCHANGE":
 		kind, slot = "FEATURE", "entity"
 	case "CREATE_BODY":
 		kind, slot = "BODY", "body.entity"

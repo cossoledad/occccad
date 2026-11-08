@@ -215,7 +215,7 @@ func (service *Service) topologyManifestForGeometryKey(ctx context.Context, geom
 
 func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, documentID, sourceVersionID, geometryKey string,
 	selection modelcore.PersistentSelection) (modelcore.SelectionResolution, string, error) {
-	source, _, _, err := service.topologyManifestForVersion(ctx, documentID, sourceVersionID, selection.SourceBodyID)
+	source, _, _, err := service.selectionManifestForVersion(ctx, documentID, sourceVersionID, selection)
 	if err != nil {
 		return modelcore.SelectionResolution{}, "", err
 	}
@@ -348,11 +348,14 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 				stage = f.ID
 			}
 		}
+		if r := support.PersistentSelection.SourceResult; r != nil {
+			stage = r.FeatureID
+		}
 		if stage == "" {
 			failSupport(feature, "SUPPORT_SOURCE_BODY_EMPTY", "source Body has no solid before sketch")
 			continue
 		}
-		geometryKey, err := service.evaluateBodyPrefix(ctx, requestID+"/support/"+feature.ID, prefix, support.PersistentSelection.SourceBodyID)
+		geometryKey, err := service.featureStageInModel(ctx, prefix, "", stage, support.PersistentSelection.SourceBodyID)
 		if err != nil {
 			matches := featureFailurePattern.FindAllStringSubmatch(err.Error(), -1)
 			modelFailure := status.Code(err) == codes.InvalidArgument || errors.Is(err, ErrValidation) && (strings.Contains(err.Error(), "PROFILE_REGION_MISSING") || strings.Contains(err.Error(), "PROFILE_REGION_AMBIGUOUS") || strings.Contains(err.Error(), "PERSISTENT_SELECTION_OUTSIDE_CURRENT_TIP"))

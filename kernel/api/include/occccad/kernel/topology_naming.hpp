@@ -174,6 +174,7 @@ struct FeatureResult {
     TopologyHistory topology_history;
     std::vector<std::string> diagnostics;
     bool topology_history_complete{};
+    std::string result_id; // exclusive with body_id
 };
 
 // Locators are valid only for the frozen BREP digest; IDs are allocated by the domain.

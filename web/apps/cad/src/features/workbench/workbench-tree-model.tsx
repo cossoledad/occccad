@@ -7,7 +7,7 @@ import type { DocumentStructureNode, DocumentView, Feature, Selection, Selection
 import type { SpecificationTreeNode } from "./specification-tree";
 
 export function isSolidFeature(feature: Feature): boolean {
-  return ["HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase());
+  return ["THICKEN","SWEEP", "HOLE", "SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase());
 }
 
 export function findStructureEntity(node: DocumentStructureNode | undefined, entityID: string): DocumentStructureNode | undefined {

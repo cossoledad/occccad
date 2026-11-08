@@ -7,6 +7,7 @@ import (
 )
 
 type CurveChainReference struct {
+	Geometry  *GeometricInput      `json:"geometry,omitempty"`
 	SketchID  string               `json:"sketchId"`
 	EntityIDs []string             `json:"entityIds"`
 	Direction *CurveChainDirection `json:"direction,omitempty"`
@@ -52,6 +53,9 @@ func resolveSweepDirection(model PartModel, f *Feature) error {
 	if f.Type != "SWEEP" {
 		return nil
 	}
+	if f.Sweep != nil && f.Sweep.Path.Geometry != nil {
+		return nil
+	}
 	_, chain, err := sweepChain(model, *f)
 	if err != nil {
 		return err
@@ -75,7 +79,17 @@ func validateSweep(f Feature, earlier map[string]Feature) error {
 	if f.Sweep == nil || (f.Sweep.FrameMode != "CORRECTED_FRENET" && f.Sweep.FrameMode != "FRENET") || (f.Sweep.CornerMode != "MITER" && f.Sweep.CornerMode != "G1_ONLY") {
 		return fmt.Errorf("%w: SWEEP_DEFINITION_INVALID", ErrValidation)
 	}
-	if source, ok := earlier[f.Sweep.Path.SketchID]; !ok || source.Sketch == nil {
+	if input := f.Sweep.Path.Geometry; input != nil {
+		if f.Sweep.Path.SketchID != "" || len(f.Sweep.Path.EntityIDs) != 0 || f.Sweep.Path.Direction != nil || (input.Kind != "RESULT" && input.Kind != "TOPOLOGY") {
+			return fmt.Errorf("%w: SWEEP_PATH_VARIANT_AMBIGUOUS", ErrValidation)
+		}
+		check := f
+		check.Type = "GEOMETRY"
+		check.Geometry = &GeometricFeatureDefinition{Kind: "EXTRACT", Inputs: []GeometricInput{*input}}
+		if err := validateGeometricFeature(check, earlier, PartModel{}); err != nil {
+			return err
+		}
+	} else if source, ok := earlier[f.Sweep.Path.SketchID]; !ok || source.Sketch == nil {
 		return fmt.Errorf("%w: SWEEP_PATH_REQUIRES_EARLIER_SKETCH", ErrValidation)
 	}
 	if f.Extent != "" || f.Length != 0 || f.Length2 != 0 || f.Angle != 0 || f.Reversed || f.AxisEntityID != "" {
@@ -86,6 +100,15 @@ func validateSweep(f Feature, earlier map[string]Feature) error {
 func (service *Service) sweepPath(ctx context.Context, model PartModel, f Feature) (*geometry.SweepPath, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if f.Sweep != nil && f.Sweep.Path.Geometry != nil {
+		input := *f.Sweep.Path.Geometry
+		input.Reversed = input.Reversed != f.Sweep.Path.Reversed
+		source, err := service.geometrySource(ctx, "sweep-path/"+f.ID, model, input)
+		if err != nil {
+			return nil, err
+		}
+		return &geometry.SweepPath{ExactPath: source, FrameMode: f.Sweep.FrameMode, CornerMode: f.Sweep.CornerMode}, nil
 	}
 	source, chain, err := sweepChain(model, f)
 	if err != nil {

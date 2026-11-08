@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -95,6 +96,13 @@ func (s *Service) featureStageAtVersion(ctx context.Context, documentID, version
 		return "", err
 	}
 	normalizePartModel(&model)
+	if stageID != "" {
+		for _, f := range model.Features {
+			if f.ID == stageID && f.Type == "GEOMETRY" {
+				return s.featureStageInModel(ctx, model, versionID, stageID, "", display...)
+			}
+		}
+	}
 	index := -1
 	for i, f := range model.Features {
 		if (stageID == "" || f.ID == stageID) && f.BodyID == bodyID && isBodyFeature(f.Type) && !f.Suppressed {
@@ -112,6 +120,12 @@ func (s *Service) featureStageAtVersion(ctx context.Context, documentID, version
 }
 
 func (s *Service) resolveFeaturePick(ctx context.Context, pick FeatureSelection, targetKey string) (modelcore.SelectionResolution, error) {
+	if r := pick.Selection.SourceResult; r != nil {
+		if pick.SourceFeatureID != "" && pick.SourceFeatureID != r.FeatureID {
+			return unavailableSelectionResolution("RESULT_STAGE_MISMATCH", "selected result and source stage disagree"), nil
+		}
+		pick.SourceFeatureID = r.FeatureID
+	}
 	// Rebuild either the explicit stage or the historical revision's final
 	// Body stage under the current evaluator. Derived artifacts from an older
 	// evaluator are not the business truth and cannot prevent an exact rebuild.
@@ -178,6 +192,9 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 		return FeatureInput{}, fmt.Errorf("%w: feature missing", ErrValidation)
 	}
 	feature := view.Part.Features[index]
+	if feature.Type == "GEOMETRY" {
+		return s.geometricFeatureInput(ctx, documentID, request, *view.Part, feature)
+	}
 	if feature.Sketch != nil && !request.ResultStage {
 		return s.sketchSupportInput(ctx, view, request, index)
 	}
@@ -347,6 +364,13 @@ func (s *Service) getFeatureInput(ctx context.Context, documentID string, reques
 }
 
 func (s *Service) featureStageInModel(ctx context.Context, model PartModel, revision, stage, body string, display ...bool) (string, error) {
+	for _, f := range model.Features {
+		if f.ID == stage && f.Type == "GEOMETRY" {
+			options := geometry.PartRuntime(ctx)
+			options.ExactOnly = len(display) == 0 || !display[0]
+			return s.evaluateGeometricFeature(geometry.WithPartRuntime(ctx, options), "feature-result/"+revision+"/"+stage, &model, stage)
+		}
+	}
 	index := -1
 	for i, f := range model.Features {
 		if (stage == "" || f.ID == stage) && f.BodyID == body && isBodyFeature(f.Type) && !f.Suppressed {

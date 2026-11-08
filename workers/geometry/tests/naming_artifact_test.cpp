@@ -104,3 +104,10 @@ TEST(NamingArtifact, RejectsCrossBodyArtifact) {
  api::PartTopologyManifest out;
  EXPECT_THROW(occccad::worker::pack_naming(features,out),std::invalid_argument);
 }
+
+TEST(NamingArtifact, IndependentFeatureResultsNeverAcquireBodyIdentity) {
+    api::FeatureResult f;f.set_feature_id("curve");f.mutable_result()->set_feature_id("curve");f.mutable_result()->set_result_id("result");f.set_topology_history_complete(true);
+    auto* o=f.add_semantic_outputs();o->set_local_id(1);o->set_topology_type(api::PERSISTENT_TOPOLOGY_TYPE_EDGE);o->mutable_semantic_ref()->set_feature_id("curve");o->mutable_semantic_ref()->set_output_slot("curve");o->mutable_evidence()->set_geometry_type("LINE");
+    api::PartTopologyManifest packed;occccad::worker::pack_naming({f},packed);EXPECT_EQ(packed.bodies_size(),0);ASSERT_EQ(packed.results_size(),1);EXPECT_EQ(packed.results(0).reference().feature_id(),"curve");EXPECT_EQ(packed.results(0).tip_size(),1);EXPECT_TRUE(packed.transitions(0).body_id().empty());EXPECT_EQ(packed.transitions(0).result().result_id(),"result");
+    f.set_body_id("body");api::PartTopologyManifest ambiguous;EXPECT_THROW(occccad::worker::pack_naming({f},ambiguous),std::invalid_argument);
+}

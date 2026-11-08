@@ -2,6 +2,8 @@
 
 本文拥有实体求值阶段顺序及 Sketcher 的显示边界。Part/Body/Sketch 模型见[Part/Sketch](part-sketch.md)，各特征范围及失败 Revision 合同见[实体 Feature](solid-features.md)，命名历史与解析规则见[Naming](persistent-naming.md)。
 
+独立曲线/曲面共用 Part DAG、参数、候选与制品流程，但不执行材料布尔及 Solid 体积门禁；其域、归属与限制归[线框与曲面](wireframe-surfaces.md)。`THICKEN` 将有界 Sheet 显式实体化后进入下述原 Body 管线，后续修改继续使用同一门禁。
+
 ## 权威求值链
 
 ```text

@@ -57,7 +57,7 @@ void compute_mesh_normals(TessellationResult& mesh) {
 }
 
 std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string& association_json) {
-    if (mesh.vertices.empty() || mesh.triangles.empty()) {
+    if (mesh.triangles.empty() && mesh.edges.empty() && mesh.topology_vertices.empty()) {
         throw std::invalid_argument("cannot encode an empty mesh as GLB");
     }
 
@@ -92,39 +92,50 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
                << ',' << hi[1] << ',' << hi[2] << ']';
         return accessor(offset, vertices.size(), "VEC3", 5126, bounds.str());
     };
-    const auto positions = points(mesh.vertices);
-    if (mesh.normals.size() != mesh.vertices.size()) throw std::invalid_argument("GLB missing snapshot normals");
-    const auto& normals = mesh.normals;
-    const auto normal_offset = binary.size();
-    for (const auto& n : normals) {
-        if (!std::isfinite(n.x) || !std::isfinite(n.y) || !std::isfinite(n.z)) throw std::invalid_argument("nonfinite GLB normal");
-        append_float(binary, n.x);
-        append_float(binary, n.y);
-        append_float(binary, n.z);
-    }
-    const auto normal_accessor = accessor(normal_offset, normals.size(), "VEC3", 5126);
-    size_t offset = binary.size();
-    for (const auto& t : mesh.triangles) {
-        if (t.v0 >= mesh.vertices.size() || t.v1 >= mesh.vertices.size() || t.v2 >= mesh.vertices.size()) throw std::invalid_argument("GLB triangle index");
-        append_u32(binary, t.v0);
-        append_u32(binary, t.v1);
-        append_u32(binary, t.v2);
-    }
-    const auto indices = accessor(offset, mesh.triangles.size() * 3, "SCALAR", 5125);
-    if (mesh.face_ids.size() != mesh.triangles.size())
-        throw std::invalid_argument("GLB face mapping count mismatch");
-    offset = binary.size();
-    for (auto id : mesh.face_ids) {
-        if (id == 0)
-            throw std::invalid_argument("zero face locator");
-        append_u32(binary, id);
-    }
-    const auto faces = accessor(offset, mesh.face_ids.size(), "SCALAR", 5125);
     std::ostringstream primitives;
-    primitives << "{\"attributes\":{\"POSITION\":" << positions << ",\"NORMAL\":" << normal_accessor
-               << "},\"indices\":" << indices
-               << ",\"mode\":4,\"extensions\":{\"OCCCCAD_cad\":{\"kind\":\"FACE\",\"localIds\":"
-               << faces << "}}}";
+    bool has_primitive = false;
+    size_t offset = 0;
+    if (!mesh.triangles.empty()) {
+        if (mesh.vertices.empty())
+            throw std::invalid_argument("GLB faces require positions");
+        const auto positions = points(mesh.vertices);
+        if (mesh.normals.size() != mesh.vertices.size())
+            throw std::invalid_argument("GLB missing snapshot normals");
+        const auto& normals = mesh.normals;
+        const auto normal_offset = binary.size();
+        for (const auto& n : normals) {
+            if (!std::isfinite(n.x) || !std::isfinite(n.y) || !std::isfinite(n.z))
+                throw std::invalid_argument("nonfinite GLB normal");
+            append_float(binary, n.x);
+            append_float(binary, n.y);
+            append_float(binary, n.z);
+        }
+        const auto normal_accessor = accessor(normal_offset, normals.size(), "VEC3", 5126);
+        offset = binary.size();
+        for (const auto& t : mesh.triangles) {
+            if (t.v0 >= mesh.vertices.size() || t.v1 >= mesh.vertices.size() ||
+                t.v2 >= mesh.vertices.size())
+                throw std::invalid_argument("GLB triangle index");
+            append_u32(binary, t.v0);
+            append_u32(binary, t.v1);
+            append_u32(binary, t.v2);
+        }
+        const auto indices = accessor(offset, mesh.triangles.size() * 3, "SCALAR", 5125);
+        if (mesh.face_ids.size() != mesh.triangles.size())
+            throw std::invalid_argument("GLB face mapping count mismatch");
+        offset = binary.size();
+        for (auto id : mesh.face_ids) {
+            if (id == 0)
+                throw std::invalid_argument("zero face locator");
+            append_u32(binary, id);
+        }
+        const auto faces = accessor(offset, mesh.face_ids.size(), "SCALAR", 5125);
+        primitives << "{\"attributes\":{\"POSITION\":" << positions
+                   << ",\"NORMAL\":" << normal_accessor << "},\"indices\":" << indices
+                   << ",\"mode\":4,\"extensions\":{\"OCCCCAD_cad\":{\"kind\":\"FACE\",\"localIds\":"
+                   << faces << "}}}";
+        has_primitive = true;
+    }
     // One indexed LINES primitive keeps JSON/accessor overhead independent of edge count.
     std::vector<Vec3> edge_points;
     std::vector<uint32_t> edge_indices, edge_ids;
@@ -153,11 +164,15 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
         for (auto id : edge_ids)
             append_u32(binary, id);
         const auto ids = accessor(offset, edge_ids.size(), "SCALAR", 5125);
-        primitives << ",{\"attributes\":{\"POSITION\":" << position
+        if (has_primitive)
+            primitives << ',';
+        primitives << "{\"attributes\":{\"POSITION\":" << position
                    << "},\"indices\":" << line_indices
                    << ",\"mode\":1,\"extensions\":{\"OCCCCAD_cad\":{\"kind\":\"EDGE\",\"localIds\":"
                    << ids << "}}}";
     }
+    if (!edge_points.empty())
+        has_primitive = true;
     if (!mesh.topology_vertices.empty()) {
         std::vector<Vec3> vertices;
         for (const auto& vertex : mesh.topology_vertices)
@@ -170,8 +185,10 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
             append_u32(binary, vertex.local_id);
         }
         const auto ids = accessor(offset, vertices.size(), "SCALAR", 5125);
+        if (has_primitive)
+            primitives << ',';
         primitives
-            << ",{\"attributes\":{\"POSITION\":" << position
+            << "{\"attributes\":{\"POSITION\":" << position
             << "},\"mode\":0,\"extensions\":{\"OCCCCAD_cad\":{\"kind\":\"VERTEX\",\"localIds\":"
             << ids << "}}}";
     }

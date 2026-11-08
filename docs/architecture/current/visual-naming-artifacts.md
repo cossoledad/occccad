@@ -11,20 +11,20 @@
 - 所有 bufferView 位于 GLB BIN chunk，按 4 字节对齐。当前实现读取紧密排列的 FLOAT/UINT32 accessor；不接受外部 URI。未来 accessor 编码能力扩展必须同步消费者或升级版本。
 - `OCCCCAD_visualization.schemaVersion=2` 的辅助显示 primitive 将 `positions` / `indices` 改为 accessor 索引，其余字段只保存选择与显示 metadata。辅助显示同时生成标准 glTF primitive；扩展中的所有权范围标记允许更新时替换二进制后缀。运行时会展开为原有显示对象，HTTP/WS DocumentView 不携带这些数组。
 - 删除 `stableIds`。SemanticTopologyRef 的序列化哈希既不是 stable ID，也不是 Visual 的职责。
-- 每个 Body 使用自己的 GLB；glTF 的多个 mesh/primitive 为 Material、LOD 等组预留扩展。拾取的 Body 归属来自 Revision 的 Body/Geometry binding，持久拓扑身份仍来自对应 Body 的 Naming。需要新解码语义的功能必须声明 required extension 或升级 schema，不能默默把 LOD 候选全部绘制；当前没有新增材质、LOD 或 PMI 功能。
+- 每个 Body 或几何 FeatureResult 使用自己的 GLB；Wire/Point 允许仅有 EDGE/VERTEX primitive，不含零 count 面 accessor。拾取归属来自 Revision 的 `bodyId` / `result` binding，持久拓扑身份来自同一 owner 的 Naming。多个 mesh/primitive 为 Material、LOD 等组预留扩展；需要新解码语义的功能必须声明 required extension 或升级 schema，不能默默把 LOD 候选全部绘制。
 
 ## Naming: PartTopologyManifest schema_version 2
 
 文件 schema 与 Naming policy / evaluator 版本分离。改变存储布局不改变 SemanticTopologyRef 的业务身份、匹配容差和 history digest 算法。
 
-- `geometry_id` 与 `brep_sha256` 共同校验对应 Body 的冻结结果和精确 BREP，`coordinate_space=PART_LOCAL`，`length_unit=mm`。坐标/原点/质心采用 mm，方向是无量纲向量；measure 明确为 SI（AREA=m²、LENGTH=m、NONE 无量纲）。
+- `geometry_id` 与 `brep_sha256` 共同校验对应 owner 的冻结结果和精确 BREP，`coordinate_space=PART_LOCAL`，`length_unit=mm`。坐标/原点/质心采用 mm，方向是无量纲向量；measure 明确为 SI（AREA=m²、LENGTH=m、NONE 无量纲）。
 - `semantic_refs`、`evidence` 是共享表，引用使用 1-based ID，0 无效。只按完整值 intern，不按几何 hash 合并不同 Feature/Definition 身份。Evidence 邻接只引用 semantic table ID。
 - Evidence 使用 Plane / Cylinder / Line / Circle / Point / Spline / Other oneof。公共质心、SI measure、digest、endpoint role 与几何专属 frame/range 分离。当前只保存 evaluator 已提供的证据，不伪造半径等尚未输出的数据。
 - Curve range 保留解析曲线的原始参数：直线 LINE_MM；圆/椭圆 ANGLE_RADIANS；Spline 及其余曲线 NATIVE_CURVE_PARAMETER，指该冻结曲线的原生参数域，不是归一化弧长。位置和参数不能混用。
 - `transitions` 保存 Feature/Body/input/profile 身份、输入/输出 Geometry、lineage/split/merge/deleted/ambiguous、完整性与诊断。source/result/evidence 全部通过表引用。
-- `bodies` 当前严格要求恰好一项，显式列出该 Body 的有序 transition ID、tip_transition 和最终 tip 的 typed locator → semantic/evidence 映射；serializer/loader 拒绝跨 Body transition。一个 Naming 文件不能组织整个 Part。只有该 Body 当前 tip 保存完整 locator snapshot；历史 Feature 不重复保存整个拓扑快照。
+- `bodies` 或 `results` 恰有一个 owner，互斥。前者保存 Body 的有序 transition ID 与 tip；后者以 `feature_id + result_id` 保存几何输出。两者都有 typed locator → semantic/evidence 映射，transition 的归属字段必须一致；serializer/loader 拒绝跨 owner 或混合文件。一个 Naming 文件不能组织整个 Part；Body 历史 Feature 不重复保存整个拓扑快照。
 - 历史语义恢复沿 transition；不是按 localId 或最近几何匹配。当前没有任意历史节点几何 snapshot 查询接口；需要历史 Revision 时读取该不可变 Revision 的 Naming Artifact。未来可增加可选 checkpoint/delta，不能退回每个 Feature 无条件全量快照。
-- Loader 拒绝越界表引用、错误 Body 归属、重复 locator、未知 schema/单位/参数约定。内存 domain view 按 Body Tip 查询，不能使用全局最后一个 Feature。
+- Loader 拒绝越界表引用、错误 owner 归属、重复 locator、未知 schema/单位/参数约定。内存 domain view 按 Body Tip 或精确 FeatureResult 查询，不能使用全局最后一个 Feature。
 
 ## 演进与边界
 

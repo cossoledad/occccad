@@ -18,6 +18,24 @@ func referenceStructure(model PartModel, legacy []DocumentStructureNode, path, d
 		}
 		legacy = append(legacy, DocumentStructureNode{ID: path + "/point:" + p.ID, Kind: "REFERENCE_POINT", EntityID: p.ID, Name: p.Name, DocumentID: doc, VersionID: revision, LocalVisible: boolPointer(visibleOrDefault(p.Visible)), Capabilities: caps})
 	}
+	dependents := map[string]bool{}
+	for _, f := range model.Features {
+		for _, input := range featureInputIDs(f) {
+			dependents[input] = true
+		}
+	}
+	for _, f := range model.Features {
+		if f.GeometricalSetID == "" {
+			continue
+		}
+		containers[f.ID] = f.GeometricalSetID
+		digest, _ := featureDefinitionDigest(model, f.ID)
+		node := featureStructureNode(f, path+"/geometrical-set:"+f.GeometricalSetID, doc, revision, digest, editable && !dependents[f.ID], editable)
+		if f.Result != nil {
+			node.GeometryKey = f.Result.GeometryKey
+		}
+		legacy = append(legacy, node)
+	}
 	children := map[string][]DocumentStructureNode{}
 	for _, node := range legacy {
 		container := containers[node.EntityID]

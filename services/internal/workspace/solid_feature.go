@@ -19,7 +19,7 @@ func isLocalModifier(kind string) bool {
 }
 
 func isBodyFeature(kind string) bool {
-	return kind == "HOLE" || kind == "SOLID_PATTERN" || kind == "LOFT" || isLocalModifier(kind) || isSolidGenerator(kind) || kind == "IMPORT_BODY" || kind == "BOOLEAN"
+	return kind == "THICKEN" || kind == "HOLE" || kind == "SOLID_PATTERN" || kind == "LOFT" || isLocalModifier(kind) || isSolidGenerator(kind) || kind == "IMPORT_BODY" || kind == "BOOLEAN"
 }
 
 func validateSolidStage(f Feature, earlier map[string]Feature) error {
@@ -189,7 +189,7 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 }
 
 func editSolidDefinition(model PartModel, current *Feature, replacement Feature, sources map[string]modelcore.ValueSource) (json.RawMessage, modelcore.ChangeSet, error) {
-	if current == nil || (!isBodyFeature(current.Type) && current.Type != "SKETCH_PATTERN") || current.Type == "IMPORT_BODY" || replacement.Type != current.Type {
+	if current == nil || (!isBodyFeature(current.Type) && current.Type != "SKETCH_PATTERN" && current.Type != "GEOMETRY") || current.Type == "IMPORT_BODY" || replacement.Type != current.Type {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: unsupported Feature definition edit", ErrValidation)
 	}
 	replacement.ID = current.ID
@@ -204,7 +204,7 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 	}
 	// Identity and history position belong to the existing feature. Target is an explicit input.
 	before := *current
-	if current.Type != "BOOLEAN" && replacement.BodyID != current.BodyID {
+	if current.Type != "BOOLEAN" && (replacement.BodyID != current.BodyID || replacement.GeometricalSetID != current.GeometricalSetID) {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: editing a generator cannot change Body identity", ErrValidation)
 	}
 	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
@@ -290,7 +290,12 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 		case "angle":
 			oldValue, newValue = before.Angle, replacement.Angle
 		default:
-			found := false
+			oldGeometry, oldExists := geometryParameterValue(before.Geometry, slot)
+			newGeometry, newExists := geometryParameterValue(replacement.Geometry, slot)
+			found := oldExists && newExists
+			if found {
+				oldValue, newValue = oldGeometry, newGeometry
+			}
 			if replacement.Pattern != nil && before.Pattern != nil {
 				for _, p := range patternParameters(&replacement.Pattern.PatternDefinition) {
 					if slot == "pattern:"+p.slot {
@@ -397,6 +402,30 @@ func featureParameterExpressions(model PartModel, feature Feature, expressions m
 		names[p.Key] = modelcore.ParameterBinding{ParameterID: p.ParameterID, Dimension: p.Dimension}
 	}
 	for slot, text := range expressions {
+		if feature.Geometry != nil {
+			found := false
+			for _, p := range geometryParameters(feature.Geometry) {
+				if p.slot != slot {
+					continue
+				}
+				found = true
+				qualified, err := resolveQualifiedParameterSource(model, text)
+				if err != nil {
+					return nil, err
+				}
+				expression, err := modelcore.CompileExpression(qualified, names, p.dimension, p.unit)
+				if err != nil {
+					return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+				}
+				sources[slot] = modelcore.ValueSource{Expression: &expression}
+				break
+			}
+			if !found {
+				return nil, fmt.Errorf("%w: unknown geometry parameter %s", ErrValidation, slot)
+			}
+			continue
+		}
+
 		if slot == "startOffset" || slot == "endOffset" || slot == "thin:thickness" || slot == "thin:thickness2" {
 			active := false
 			for _, p := range append(extrudeParameters(feature), thinWallParameters(feature)...) {
@@ -537,6 +566,7 @@ func markSolidFailure(model *PartModel, featureID, diagnostic string) {
 }
 
 func featureHistoryDefinition(feature Feature) Feature {
+	feature.Result = nil
 	feature.EvaluationStatus = ""
 	feature.Diagnostic = ""
 	return feature

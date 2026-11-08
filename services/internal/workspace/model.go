@@ -37,6 +37,9 @@ type TopologyElementProperties struct {
 }
 
 type Artifact struct {
+	Result         *modelcore.GeometryResultReference `json:"result,omitempty"`
+	GeometryDomain string                             `json:"geometryDomain,omitempty"`
+
 	DisplayStageFeatureID string                    `json:"displayStageFeatureId,omitempty"`
 	VisualNamingDigest    string                    `json:"visualNamingDigest,omitempty"`
 	BodyID                string                    `json:"bodyId,omitempty"`
@@ -510,6 +513,10 @@ type ProfileRegionSelection struct {
 }
 
 type Feature struct {
+	GeometricalSetID string                      `json:"geometricalSetId,omitempty"`
+	Geometry         *GeometricFeatureDefinition `json:"geometry,omitempty"`
+	Result           *FeatureGeometryResult      `json:"result,omitempty"`
+
 	LoftStart          *LoftBoundaryDefinition `json:"loftStart,omitempty"`
 	LoftEnd            *LoftBoundaryDefinition `json:"loftEnd,omitempty"`
 	Sweep              *SweepDefinition        `json:"sweep,omitempty"`
@@ -1224,6 +1231,7 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	SketchOwnerKind            string                       `json:"sketchOwnerKind,omitempty"`
 	GeometricalSetID           string                       `json:"geometricalSetId,omitempty"`
 	ReferenceConstruction      *ReferenceConstruction       `json:"referenceConstruction,omitempty"`
 	SourceVersionID            string                       `json:"sourceVersionId,omitempty"`

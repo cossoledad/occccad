@@ -6,6 +6,7 @@
 |---|---|
 | [工作台 UI](workbench.md) | 视觉 tokens、公共控件、布局、焦点及尺寸显示 |
 | [草图交互生命周期](sketch-interaction.md) | 工具阶段、选择/输入、提交回执与人工验收 |
+| [线框与曲面](wireframe-surfaces.md) | 关联曲线、拉伸曲面、加厚及空间路径扫掠 |
 | [鼠标导航](../../web/apps/cad/src/cad/navigation/README.md) | 导航模式、状态机、相机与手势来源 |
 
 运行与浏览器验证见 [Web README](../../web/apps/cad/README.md)；历史结果见[验证记录](../validation/README.md)。

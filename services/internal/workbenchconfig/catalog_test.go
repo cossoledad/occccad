@@ -142,7 +142,7 @@ func TestDebugCatalogSeparatesDiagnosticCommands(t *testing.T) {
 			debugTabs[tab.ID] = true
 		}
 	}
-	if len(debugTabs) != 4 {
+	if len(debugTabs) != 5 || !debugTabs["WIREFRAME_SURFACE.debug"] {
 		t.Fatal("missing context-specific DEBUG tabs", debugTabs)
 	}
 	commands := map[string]Command{}
