@@ -23,6 +23,19 @@ try {
     group.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); });
     original.dispose();
   }
+  {
+    const original = new THREE.BoxGeometry(10, 10, 10), result = new THREE.BoxGeometry(10, 10, 5);
+    const cadEdges = [{ localId: 73, points: [[1, 2, 3], [4, 5, 6], [7, 8, 9]] }];
+    const group = makeFeaturePreview(result, "REMOVE", original, { result: cadEdges, original: [] });
+    assert.deepEqual(Array.from(group.getObjectByName("feature-preview-result-edges").geometry.getAttribute("position").array),
+      [1, 2, 3, 4, 5, 6, 4, 5, 6, 7, 8, 9], "preview must display the authoritative CAD boundary samples");
+    assert.equal(group.getObjectByName("feature-preview-original-edges").geometry.getAttribute("position").count, 0,
+      "an explicitly empty CAD boundary must not trigger triangle-edge reconstruction");
+    let originalDisposed = 0; original.addEventListener("dispose", () => originalDisposed++);
+    group.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); });
+    assert.equal(originalDisposed, 0, "preview owns its outlines, not the source body's buffers");
+    original.dispose();
+  }
   const root = new THREE.Group(), geometry = new THREE.BoxGeometry(10, 10, 10);
   for (const group of geometry.groups) group.materialIndex %= 2;
   const accepted = new THREE.MeshBasicMaterial(), hidden = new THREE.MeshBasicMaterial({visible:false});

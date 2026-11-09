@@ -103,6 +103,8 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 
 EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named topology，再复用原生 Add/Remove/Intersect、OCCT history 与同域合并传播。初始输出有完整邻接、类型、几何 evidence 和有向法向；后续 split/merge/deletion 使用同一 resolver，分裂多候选保留 Ambiguous。缓存身份包含完整 seed，依赖图将 ImportBody 作为 Body Tip，后续草图/实体读取其命名和几何。
 
+已接纳 Body 的 Naming 可提供该冻结 ImportBody 根 transition，免除每次重新测量未变化的导入几何。恢复仍验证原始 BREP、策略、owner、typed locator、完整历史与全部已分配身份；根历史 digest 参与阶段缓存身份，后续 Tip transition 不改变根身份。精确拓扑及朝向相同、语义引用相同时复用对应证据；新拓扑继续测量，最终邻接重新索引。导入根、实体最终输出及独立几何结果共用包含/共享边界索引，保持 canonical 邻接及 history digest；不以数值相似度或 local 编号继承身份。求值与取消边界见[零件增量求值](part-feature-evaluation.md#零件增量求值)。
+
 已有无定义的导入由 `REPAIR_IMPORT_NAMING`（typed URI `occccad://part/exchange/repair-naming`）显式建立命名。工作台告警提供“建立导入命名”入口。修复保留原 Feature 和 BREP，通过正常 Transaction、CAS、entity ChangeSet 和新 Revision 提交；Undo/Redo 使用同一冻结定义，旧 Revision 不改写。已命名 Feature 不能以修复操作重新分配身份；缺失定义的历史快照仍使用 [IMPORT-DIAGNOSTICS](jobs-artifacts.md#持久任务与制品) 的明确诊断。
 
 开放/混合输入不经过实体修复：检查有效、非空、有界的冻结 BREP，以独立结果的 `resultId` 为 owner，通过 `GeometryFeatureSpec.import_seed/import_brep` 冷重放并生成完整 Naming，不伪造 Body。纯实体 Body 入口继续要求有效 Solid 集和无游离拓扑；混合内容不自动拆分材料 Body，详见[线框与曲面](wireframe-surfaces.md#开放几何交换)。

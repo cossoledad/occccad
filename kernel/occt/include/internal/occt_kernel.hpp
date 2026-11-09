@@ -13,6 +13,7 @@
 #include <occccad/kernel/geometry_feature.hpp>
 
 #include <memory>
+#include <optional>
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -28,8 +29,16 @@ struct PartRuntimeStats {
     size_t stages_executed = 0, stages_reused = 0, generator_calls = 0,
            modifier_calls = 0, body_operation_calls = 0, stage_cache_bytes = 0, stage_evictions = 0;
     double exact_ms = 0, naming_ms = 0;
+    double base_ms = 0, adjacency_ms = 0;
+    size_t volume_integrations = 0, face_evidence_computed = 0, face_evidence_reused = 0;
+    bool base_stage_restored = false;
     std::vector<std::string> executed_feature_ids, reused_feature_ids;
     std::vector<PartStageExecution> stages;
+};
+struct PartBaseStage {
+    GeometryId geometry_id;
+    double volume = 0;
+    FeatureResult root;
 };
 struct PartRuntimeOptions {
     // Keys are canonical frozen prefix digests, including naming context/policy.
@@ -37,6 +46,7 @@ struct PartRuntimeOptions {
     bool force_cold = false;
     std::function<bool()> cancelled;
     PartRuntimeStats* stats = nullptr;
+    std::optional<PartBaseStage> base_stage;
 };
 
 /// OCCT-backed implementation of ICadKernel.
@@ -84,10 +94,14 @@ public:
     TopologyInfo getTopologySummary(const GeometryId& id);
     BoundingBox getBoundingBox(const GeometryId& id) override;
     const TopologyInfo& getTopology(const GeometryId& id) override;
+    const TopologyInfo& getTopologyProperties(const GeometryId& id, const std::string& kind,
+                                             uint64_t local_id, bool* cache_hit = nullptr);
     double getVolume(const GeometryId& id) override;
 
     TessellationResult tessellate(const GeometryId& id, double linear_deflection = visual_linear_deflection_mm,
                                   double angular_deflection = visual_angular_deflection_radians, bool parallel = true) override;
+    TessellationResult tessellate(const GeometryId& id, double linear_deflection,
+                                  double angular_deflection, bool parallel, std::function<bool()> cancelled);
 
     GeometryId chamfer(const GeometryId& id, const std::vector<uint64_t>& edge_local_ids,
                        double distance) override;

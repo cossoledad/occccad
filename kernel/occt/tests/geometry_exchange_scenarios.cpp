@@ -12,6 +12,7 @@
 #include <occccad/kernel/mesh_glb.hpp>
 
 #include <gtest/gtest.h>
+#include <atomic>
 
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
@@ -1590,6 +1591,7 @@ TEST(GeometryExchange, XdeSolidCompoundIsOneNamedPartDefinition) {
 }
 
 TEST(GeometryExchange, ImportedNamingAdjacencyMatchesTopologicalOracle) {
+    for (bool cut : {false, true}) {
     for (const auto& shape : {BRepPrimAPI_MakeBox(20, 30, 40).Shape(), BRepPrimAPI_MakeCylinder(10, 20).Shape()}) {
         std::ostringstream stream;
         BRepTools::Write(shape, stream);
@@ -1598,11 +1600,16 @@ TEST(GeometryExchange, ImportedNamingAdjacencyMatchesTopologicalOracle) {
         OcctKernel kernel;
         auto seed = imported_box_seed(kernel, bytes);
         std::reverse(seed.identities.begin(), seed.identities.end());
-        const auto evaluation = kernel.evaluateProfilePadsWithHistory({}, bytes, &seed);
-        const auto& outputs = evaluation.feature_results.front().semantic_outputs;
+        ProfilePadSpec pocket;
+        pocket.feature_id="pocket";pocket.body_id=seed.body_id;pocket.profile_feature_id="profile";
+        pocket.input_feature_id=seed.feature_id;pocket.body_operation="REMOVE";pocket.pad_length=10;
+        pocket.regions={rectangular_region("pocket-region",2,2,6,6)};
+        const auto evaluation = kernel.evaluateProfilePadsWithHistory(cut?std::vector<ProfilePadSpec>{pocket}:std::vector<ProfilePadSpec>{}, bytes, &seed);
+        const auto& outputs = evaluation.feature_results.back().semantic_outputs;
         TopoDS_Shape restored;
         BRep_Builder builder;
-        std::istringstream input(serialized);
+        const auto result_bytes=kernel.serializeBrepr(evaluation.geometry_id);
+        std::istringstream input(std::string(result_bytes.begin(),result_bytes.end()));
         BRepTools::Read(restored, input, builder);
         TopTools_IndexedMapOfShape faces, edges, vertices;
         TopExp::MapShapes(restored, TopAbs_FACE, faces);
@@ -1613,6 +1620,7 @@ TEST(GeometryExchange, ImportedNamingAdjacencyMatchesTopologicalOracle) {
                 output.topology_type == PersistentTopologyType::edge ? edges : vertices;
             return map(static_cast<int>(output.local_id));
         };
+        const auto key=[](const SemanticTopologyRef& ref){std::string out=ref.feature_id+"/"+ref.output_slot;for(const auto& id:ref.source_ids)out+='\0'+id;return out;};
         // Independent pairwise oracle: same-dimensional objects share a
         // boundary; different dimensions require actual containment.
         const auto adjacent = [](const TopoDS_Shape& a, const TopoDS_Shape& b) {
@@ -1635,15 +1643,100 @@ TEST(GeometryExchange, ImportedNamingAdjacencyMatchesTopologicalOracle) {
             std::set<std::string> expected, actual;
             for (std::size_t j = 0; j < outputs.size(); ++j)
                 if (i != j && adjacent(resolve(outputs[i]), resolve(outputs[j])))
-                    expected.insert(outputs[j].semantic_ref.source_ids.front());
+                    expected.insert(key(outputs[j].semantic_ref));
             for (const auto& neighbor : outputs[i].evidence.adjacent) {
-                EXPECT_EQ(neighbor.feature_id, seed.feature_id);
-                actual.insert(neighbor.source_ids.front());
+                actual.insert(key(neighbor));
             }
             EXPECT_EQ(actual.size(), outputs[i].evidence.adjacent.size());
             EXPECT_EQ(actual, expected);
         }
     }
+    }
+}
+
+TEST(GeometryExchange, FrozenImportStageRestoresEvidenceAndKeepsColdHistory) {
+    OcctKernel source;
+    const auto bytes=source.serializeBrepr(source.createBox(20,20,10));
+    const auto seed=imported_box_seed(source,bytes);
+    const auto root=source.evaluateProfilePadsWithHistory({},bytes,&seed);
+    PartRuntimeOptions runtime;
+    runtime.base_stage=PartBaseStage{root.geometry_id,source.getVolume(root.geometry_id),root.feature_results.front()};
+    PartRuntimeStats stats;runtime.stats=&stats;
+    ProfilePadSpec pocket;pocket.feature_id="pocket";pocket.body_id=seed.body_id;pocket.profile_feature_id="profile";
+    pocket.input_feature_id=seed.feature_id;pocket.body_operation="REMOVE";pocket.pad_length=6;
+    pocket.regions={rectangular_region("region",2,2,6,6)};
+    OcctKernel fresh;
+    const auto hydrated=fresh.evaluateProfilePadsWithHistory({},bytes,&seed,runtime);
+    EXPECT_TRUE(stats.base_stage_restored);EXPECT_EQ(stats.face_evidence_computed,0U);EXPECT_EQ(stats.volume_integrations,0U);
+    EXPECT_EQ(hydrated.geometry_id,root.geometry_id);
+    const auto fast=fresh.evaluateProfilePadsWithHistory({pocket},bytes,&seed,runtime);
+    EXPECT_TRUE(stats.base_stage_restored);EXPECT_GT(stats.face_evidence_reused,0U);
+    const auto frozen=fresh.serializeBrepr(fast.geometry_id);
+    EXPECT_NEAR(fresh.getVolume(fast.geometry_id),4000-96,1e-7);
+    runtime.force_cold=true;
+    const auto cold=fresh.evaluateProfilePadsWithHistory({pocket},bytes,&seed,runtime);
+    EXPECT_EQ(cold.geometry_id,fast.geometry_id);
+    EXPECT_EQ(cold.feature_results.back().topology_history.evidence_digest,fast.feature_results.back().topology_history.evidence_digest);
+    EXPECT_EQ(frozen,fresh.serializeBrepr(cold.geometry_id));
+    runtime.force_cold=false;runtime.base_stage->geometry_id="sha256:wrong";
+    EXPECT_THROW(fresh.evaluateProfilePadsWithHistory({pocket},bytes,&seed,runtime),std::invalid_argument);
+    runtime.base_stage->geometry_id=root.geometry_id;
+    runtime.base_stage->root.semantic_outputs.front().semantic_ref.source_ids={"different-allocation"};
+    EXPECT_THROW(fresh.evaluateProfilePadsWithHistory({pocket},bytes,&seed,runtime),std::invalid_argument);
+    runtime.base_stage->volume=9000;
+    EXPECT_THROW(fresh.evaluateProfilePadsWithHistory({pocket},bytes,&seed,runtime),std::invalid_argument);
+    EXPECT_NEAR(fresh.getVolume(root.geometry_id),4000,1e-7) << "rejected source evidence must not poison resident mass facts";
+}
+
+TEST(GeometryExchange, MultiSolidMaterialUsesAuthoritativeResultIntegral) {
+    for(double offset:{5.,20.})for(const auto& op:{std::string("ADD"),std::string("REMOVE")}) {
+        SCOPED_TRACE(std::to_string(offset)+op);
+        OcctKernel kernel;
+        const auto box=kernel.createBox(10,10,10);
+        const auto source=kernel.combine({{box,{0,0,0},{0,0,0,1}},{box,{offset,0,0},{0,0,0,1}}});
+        const auto bytes=kernel.serializeBrepr(source);const auto seed=imported_box_seed(kernel,bytes);
+        ProfilePadSpec spec;spec.feature_id="material";spec.body_id=seed.body_id;spec.profile_feature_id="sketch";
+        spec.input_feature_id=seed.feature_id;spec.body_operation=op;spec.pad_length=10;
+        spec.regions={rectangular_region("region",12,0,22,10)};
+        const auto result=kernel.evaluateProfilePadsWithHistory({spec},bytes,&seed);
+        OcctKernel oracle;const auto loaded=oracle.loadBrepr(kernel.serializeBrepr(result.geometry_id));
+        const double expected=op=="ADD"?(offset==5?2700.:2800.):(offset==5?1700.:1800.);
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id),expected,1e-7);
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id),oracle.getVolume(loaded),1e-7);
+        EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+    }
+}
+
+TEST(GeometryExchange, MeshingCancellationDoesNotReturnPartialGeometry) {
+    OcctKernel kernel;
+    const auto id=kernel.createBox(20,30,40);
+    const auto before=kernel.serializeBrepr(id);
+    std::atomic<int> checks{0};
+    EXPECT_THROW(kernel.tessellate(id,.02,.12,true,[&]{return ++checks>=2;}),std::runtime_error);
+    EXPECT_GE(checks.load(),2);
+    EXPECT_EQ(kernel.serializeBrepr(id),before);
+    const auto mesh=kernel.tessellate(id,.02,.12);
+    EXPECT_GT(mesh.triangles.size(),0U);EXPECT_EQ(mesh.face_ids.size(),mesh.triangles.size());
+}
+
+TEST(GeometryExchange, TopologyPropertiesAreLazyAndRevisionLocal) {
+    OcctKernel kernel;
+    const auto id=kernel.createBox(20,30,40);
+    const auto bytes=kernel.serializeBrepr(id);
+    bool hit=true;
+    EXPECT_THROW(kernel.getTopologyProperties(id,"FACE",7),std::invalid_argument);
+    const auto face=kernel.getTopologyProperties(id,"FACE",1,&hit);
+    EXPECT_FALSE(hit);EXPECT_EQ(face.face_count,6U);ASSERT_EQ(face.faces.size(),1U);
+    EXPECT_TRUE(face.edges.empty());EXPECT_TRUE(face.vertices.empty());
+    kernel.getTopologyProperties(id,"FACE",1,&hit);EXPECT_TRUE(hit);
+    const auto edge=kernel.getTopologyProperties(id,"EDGE",1,&hit);
+    EXPECT_FALSE(hit);ASSERT_EQ(edge.edges.size(),1U);EXPECT_TRUE(edge.faces.empty());
+    const auto& full=kernel.getTopology(id);ASSERT_EQ(full.faces.size(),6U);
+    EXPECT_EQ(full.faces.front().surface_type,face.faces.front().surface_type);
+    EXPECT_EQ(full.faces.front().properties.size(),face.faces.front().properties.size());
+    EXPECT_THROW(kernel.getTopologyProperties(id,"FACE",7),std::invalid_argument);
+    EXPECT_THROW(kernel.getTopologyProperties(id,"UNKNOWN",1),std::invalid_argument);
+    kernel.unload(id);const auto restored=kernel.loadBrepr(bytes);kernel.getTopologyProperties(restored,"FACE",1,&hit);EXPECT_FALSE(hit);
 }
 
 TEST(GeometryExchange, ImportedNamingSnapshotAndColdIdentity) {
@@ -3313,6 +3406,38 @@ TEST(GeometryExchange, IncrementalStagesResumeEditEvictAndColdNaming) {
     EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime),std::invalid_argument);
     c.pad_length=20;runtime.stage_keys.back()="tip-from-16";kernel.set_runtime_cache_budget(128*1024*1024);
     EXPECT_EQ(kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime).geometry_id,cold.geometry_id);
+}
+
+TEST(GeometryExchange, CompactCheckpointResumesButRebuildsPatternContext) {
+    OcctKernel kernel;
+    auto generator=[](const std::string& id,double x,double width,double length){
+        ProfilePadSpec p;p.feature_id=id;p.body_id="body";p.profile_feature_id="sketch-"+id;
+        p.regions={rectangular_region("region-"+id,x,x,x+width,x+width)};p.pad_length=length;return p;
+    };
+    const auto a=generator("base",0,20,5),b=generator("stem",5,10,15),c=generator("tip",7,6,20);
+    PartRuntimeStats stats;PartRuntimeOptions runtime;runtime.stats=&stats;
+    runtime.stage_keys={"compact-base","compact-stem"};
+    kernel.evaluateProfilePadsWithHistory({a,b},{},nullptr,runtime);
+    const auto prefix_bytes=kernel.runtime_cache_bytes();
+    runtime.stage_keys.push_back("compact-tip");
+    const auto accepted=kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime);
+    const auto full_tip_bytes=kernel.runtime_cache_bytes()-prefix_bytes;
+    ASSERT_GT(full_tip_bytes,1U);
+    kernel.set_runtime_cache_budget(full_tip_bytes-1);
+    kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime);
+    const auto resumed=kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime);
+    ASSERT_EQ(stats.stages_reused,3U) << "compact accepted Tip must remain reusable";
+    EXPECT_EQ(resumed.geometry_id,accepted.geometry_id);
+    ProfilePadSpec pattern;pattern.feature_id="array";pattern.body_id="body";pattern.generator="SOLID_PATTERN";
+    pattern.pattern_source_kind="GENERATOR_TOOL";pattern.pattern_source_feature_id="stem";
+    pattern.pattern_placements={{0,{1,0,0,0,0,1,0,0,0,0,1,0}},{1,{1,0,0,25,0,1,0,0,0,0,1,0}}};
+    runtime.stage_keys.push_back("compact-array");
+    const auto rebuilt=kernel.evaluateProfilePadsWithHistory({a,b,c,pattern},{},nullptr,runtime);
+    EXPECT_LT(stats.stages_reused,3U) << "Pattern must not borrow a Tip lacking construction context";
+    runtime.force_cold=true;
+    const auto cold=kernel.evaluateProfilePadsWithHistory({a,b,c,pattern},{},nullptr,runtime);
+    EXPECT_EQ(cold.geometry_id,rebuilt.geometry_id);
+    EXPECT_EQ(cold.feature_results.back().topology_history.evidence_digest,rebuilt.feature_results.back().topology_history.evidence_digest);
 }
 
 } // namespace occccad::kernel

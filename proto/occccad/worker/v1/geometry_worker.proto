@@ -436,6 +436,15 @@ message EvaluatePartRequest {
     bool exact_only = 15; // internal stage: BREP + Naming, no tessellation/GLB
     string runtime_affinity = 16; // scheduling hint only; never part of shape identity
     GeometryFeatureSpec geometry_feature = 17;
+    PartBaseStage base_stage = 18; // frozen upstream evidence; never a cached result of this operation
+}
+
+// Produced from an accepted immutable geometry artifact. The naming snapshot
+// must match the exact input BREP, owner, import allocation and naming policy.
+message PartBaseStage {
+    ArtifactReference naming = 1;
+    string geometry_id = 2;
+    double volume = 3; // mm^3, from that same authoritative stage summary
 }
 
 // Independent, finite point/wire/sheet evaluation in the same Part pipeline.
@@ -551,6 +560,12 @@ message PartRuntimeStats {
     double encoding_ms = 19;
     uint64 response_cache_bytes = 20;
     uint64 visual_cache_bytes = 21;
+    double base_ms = 22;
+    double adjacency_ms = 23;
+    uint64 volume_integrations = 24;
+    uint64 face_evidence_computed = 25;
+    uint64 face_evidence_reused = 26;
+    bool base_stage_restored = 27;
 }
 
 message ProfileCurve {

@@ -1,5 +1,6 @@
 #pragma once
 #include <occccad/worker/v1/geometry_worker.pb.h>
+#include <occccad/kernel/topology_naming.hpp>
 
 #include <map>
 #include <stdexcept>
@@ -7,6 +8,42 @@
 #include <vector>
 
 namespace occccad::worker {
+// Restore typed geometry evidence from the immutable v2 artifact. This is the
+// inverse of pack_naming, not a reconstruction from display coordinates.
+inline kernel::SelectionEvidence read_naming_evidence(const v1::NamingEvidence& source,
+                                                     const v1::PartTopologyManifest& manifest) {
+    kernel::SelectionEvidence out;
+    const auto vec=[](const v1::Vec3& v){return kernel::Vec3{v.x(),v.y(),v.z()};};
+    out.centroid=vec(source.centroid());out.evidence_digest=source.evidence_digest();
+    out.measure_dimension=source.measure_dimension();out.endpoint_role=source.endpoint_role();
+    if(source.has_measure_si())out.measure_si=source.measure_si();
+    if(source.has_radius_mm())out.radius_mm=source.radius_mm();
+    if(source.has_minor_radius_mm())out.minor_radius_mm=source.minor_radius_mm();
+    if(source.has_half_angle_radians())out.half_angle_radians=source.half_angle_radians();
+    if(source.has_cone_leaf())out.cone_leaf=source.cone_leaf();
+    if(source.has_material_side())out.material_side=source.material_side();
+    if(source.has_x_direction())out.x_direction=vec(source.x_direction());
+    for(auto id:source.adjacent()) {
+        if(!id||id>static_cast<unsigned>(manifest.semantic_refs_size()))throw std::invalid_argument("NAMING_EVIDENCE_REF_INVALID");
+        const auto& r=manifest.semantic_refs(id-1);
+        out.adjacent.push_back({r.feature_id(),r.output_slot(),{r.source_ids().begin(),r.source_ids().end()}});
+    }
+    const v1::NamingFrame* frame=nullptr;const v1::NamingCurveRange* range=nullptr;
+    switch(source.geometry_case()) {
+        case v1::NamingEvidence::kPlane:out.geometry_type="PLANE";frame=&source.plane();break;
+        case v1::NamingEvidence::kCylinder:out.geometry_type="CYLINDER";frame=&source.cylinder();break;
+        case v1::NamingEvidence::kPoint:out.geometry_type="POINT";out.origin=vec(source.point().position());break;
+        case v1::NamingEvidence::kLine:out.geometry_type=source.line().family();frame=&source.line().frame();range=&source.line().range();break;
+        case v1::NamingEvidence::kCircle:out.geometry_type=source.circle().family();frame=&source.circle().frame();range=&source.circle().range();break;
+        case v1::NamingEvidence::kSpline:out.geometry_type=source.spline().family();frame=&source.spline().frame();range=&source.spline().range();break;
+        case v1::NamingEvidence::kOther:out.geometry_type=source.other().family();frame=&source.other().frame();range=&source.other().range();break;
+        default:throw std::invalid_argument("NAMING_EVIDENCE_GEOMETRY_MISSING");
+    }
+    if(frame){out.origin=vec(frame->origin());out.direction=vec(frame->direction());}
+    if(range){if(range->has_start())out.parameter_start=range->start();if(range->has_end())out.parameter_end=range->end();}
+    return out;
+}
+
 // FeatureResult is evaluator working memory. Only this interned v2 representation is persisted.
 inline void pack_naming(const std::vector<v1::FeatureResult>& features,
                         v1::PartTopologyManifest& out) {

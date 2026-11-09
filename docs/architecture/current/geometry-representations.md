@@ -55,11 +55,13 @@ local ID 和三角形序号仍只是该 GeometryKey 的临时拾取定位。持�
 
 附面 Edge 遍历全部有向 EdgeUse，从同次 `PolygonOnTriangulation` 取节点；包含周期面的双接缝、位置变换和退化极点。所有邻接 use 的节点序列须按原模型边/点容差正向或反向一致，验证后才选取确定顺序的显示折线；不独立采样、不全局焊接、不放大显示容差。退化边确认收缩为一点后不产生零长显示线。无邻接面的孤立曲线读取同次剖分生成的 `Polygon3D`，不再通过另一套采样器重建。默认显示线性偏差为 0.02 mm，角偏差为 0.12 rad；曲线、曲面、实体及交换导入共用该策略，缓存含精度与离散策略版本。相同路径的拉伸用例中使用同源边节点，不承诺任意修剪/曲面精化后的独立制品都具有相同节点。`GetTopology` 保持精确属性查询，保留的 `render_points` 字段为空，不触发剖分。
 
+普通显示只读取拓扑计数，不顺带计算全部面的精确面积、质心和全部边长。`GetTopology` 按请求的类型/local pick 计算并缓存对应精确属性；显式全量查询仍返回完整属性。缓存属于冻结 GeometryId，卸载时清除。前端实体预览直接使用同一 GLB 的 CAD Edge 折线，不从三角网格重新推导轮廓；预览不构建未参与拾取的 BVH。普通实体继续构建拾取结构，正反边分类只保存 CAD 边界节点需要的法线。
+
 Worker 的 `fill_evaluation` 统一调度离散与编码，`make_glb` 消费快照法线。Worker 仍通过互斥锁串行管理同一驻留内核；整 Body 剖分和曲面抽壳布尔复用 OCCT 内部至多 4 路并行，不拆分相邻 Face。快照以 `shared_ptr<const ...>` 缓存，编码/提取目前按稳定顺序执行。不同 Worker 可并发计算独立输入。
 
 两级易失缓存分别保存冻结请求的完整求值结果和 GeometryId/精度/离散策略对应的可视化快照，各最多 8 项、64 MiB 计数预算；超大结果正常计算但不缓存。请求键包含真实输入、命名策略及精度，不以调用者 geometryKey 代替输入身份。串行门合并排队的相同请求，命中后复用 BREP/GLB/Naming 字节并写入当前 attempt 路径，不重复求值或编码。Naming 仍由该请求的实际命名历史绑定到同一 GeometryId；Go 在现有 GLB 制品装配阶段加入 Naming digest。前端要求带 Naming 的制品具有完整关联，成套 hydrate 后切换，显示/hover/selected 读取同一 mesh.edges。
 
-`visual_snapshot` 日志记录剖分、面提取、边界提取/验证、法线、编码耗时及顶点/三角形/边节点/GLB 字节数，缓存命中另有标识。缓存预算不包含驻留 BREP 与计算峰值；尚未实现进程整体按字节淘汰或 OCCT 算法中途强制取消。
+`visual_snapshot` 日志记录剖分、面提取、边界提取/验证、法线、编码耗时及顶点/三角形/边节点/GLB 字节数，缓存命中另有标识。剖分与 Part Boolean 已接入 OCCT progress 协作取消，编码及缓存接纳前再次检查取消；其余原生算法不保证中途响应。缓存预算不包含驻留 BREP 与计算峰值；尚未实现进程整体按字节淘汰。
 
 定向验证包括 `CurvedVisualSnapshotUsesEveryAdjacentMeshBoundary`（圆柱、球面接缝、修剪曲面、圆角、嵌套变换、串并行字节一致与 BREP 精度抽样）、真实 Worker 缓存/抽壳测试，以及 `OCCCCAD_TEST_CURVED_GLB` 注入真实 C++ GLB 的前端 `multi-body` 场景（接缝拾取、hover/selected 折线及过期快照隔离）。这些检查不替代实机 WebGL 验收，也不构成任意曲面的全局 Hausdorff 误差证明。
 

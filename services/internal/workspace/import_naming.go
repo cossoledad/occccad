@@ -143,7 +143,7 @@ func (service *Service) importSeed(ctx context.Context, feature Feature) (*worke
 	if err != nil {
 		return nil, err
 	}
-	return &workerv1.ImportTopologySeed{FeatureId: feature.ID, BodyId: def.BodyID, ResultId: def.ResultID, BrepSha256: def.BRepSHA256, IdentityArtifact: &workerv1.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size), ContentType: object.ContentType}}, nil
+	return &workerv1.ImportTopologySeed{FeatureId: feature.ID, BodyId: def.BodyID, ResultId: def.ResultID, BrepSha256: def.BRepSHA256, OcctVersion: def.OCCTVersion, PolicyId: def.Policy, IdentityArtifact: &workerv1.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, Sha256: object.SHA256, SizeBytes: uint64(object.Size), ContentType: object.ContentType}}, nil
 }
 func importDefinitionSeed(def importDefinition) (*workerv1.ImportTopologySeed, error) {
 	seed := &workerv1.ImportTopologySeed{FeatureId: def.FeatureID, BodyId: def.BodyID, ResultId: def.ResultID, BrepSha256: def.BRepSHA256, OcctVersion: def.OCCTVersion, PolicyId: def.Policy}

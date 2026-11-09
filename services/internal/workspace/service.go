@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v73-surface-shape-control"
+const evaluatorVersion = "part-solid-generators-v74-local-material-evaluation"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -2036,6 +2036,10 @@ func (service *Service) buildBody(ctx context.Context, reqID string, model PartM
 		attempt := reqID + "/" + newID("artifact-attempt")
 		options := geometry.PartRuntime(ctx)
 		options.Affinity = "body-runtime:" + model.ActiveBodyID
+		options.BaseStage, err = service.importBaseStage(ctx, baseKey, base, importSeed, fullModel)
+		if err != nil {
+			return "", err
+		}
 		workerContext := geometry.WithPartRuntime(ctx, options)
 		evaluation, err = service.worker.EvaluateProfilePartFromArtifact(workerContext, reqID, key, solidFeatures, base,
 			artifactstore.StagingKey(attempt, "shape.brep"), artifactstore.StagingKey(attempt, "mesh.glb"), importSeed)

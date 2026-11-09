@@ -1,0 +1,238 @@
+{
+  "schema": "occccad.part-performance-sample.v1",
+  "measuredAtUTC": "2026-11-09T16:00:11.948Z",
+  "source": {
+    "baseCommit": "a134c20cf90d7a645c638b7ec77e00f36a0c533a",
+    "includesUncommittedChanges": true,
+    "backendInputsSHA256": "7af279b516d75dc3f4a9423777e88ac66bdbd27ab78316a5b94f542b4de54128",
+    "workerSHA256": "c4fb2e334e21226a1312d6fb9cf09db8605ae525531bfc01e8e3fa2c4a386e59"
+  },
+  "environment": {
+    "cpu": "AMD Ryzen 9 9950X",
+    "logicalCPUs": 32,
+    "system": "Linux 6.18.54.1-microsoft-standard-WSL2",
+    "occt": "7.9.1",
+    "profile": "release",
+    "storage": "configured SQLite and LOCAL ArtifactStore",
+    "browserRenderer": "Playwright Chromium / SwiftShader"
+  },
+  "input": {
+    "frozenBrepSHA256": "72ad7ec1e5ee4c2ce8762751e01b86e5c0d3bdd88591f831eb329e0b87761e11",
+    "bytes": 4937629,
+    "solids": 1,
+    "faces": 827,
+    "edges": 2169,
+    "vertices": 1390,
+    "cubicBSplineFaces": 256,
+    "volumeMm3": 620928.4707158272,
+    "profile": {
+      "kind": "CIRCLE",
+      "center": [
+        0,
+        0
+      ],
+      "radiusMm": 15.596120225694847,
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "xDirection": [
+        1,
+        0,
+        0
+      ],
+      "normal": [
+        0,
+        -1,
+        0
+      ]
+    },
+    "operation": "LINEAR_EXTRUDE REMOVE reversed=true",
+    "displayLinearDeflectionMm": 0.02,
+    "displayAngularDeflectionRad": 0.12
+  },
+  "scope": {
+    "formalPreview": "browser production API -> Go -> production Router -> C++ Worker -> OCCT -> artifacts -> preview response; excludes subsequent GLB display",
+    "first": "fresh dev runtime; first new feature intent on an accepted import; frozen root facts restored; result executed, not a result cache hit",
+    "display": "previewArtifact -> commandPreview becomes available, including GLB fetch/decode; separate from formalPreview",
+    "samplesAreSerial": true,
+    "performanceSamplesHadConcurrentBuildOrTest": false,
+    "forceColdReplayTimed": false,
+    "targetHeadUnchanged": true
+  },
+  "before": {
+    "formalPreviewMs": [
+      89124.5,
+      85631
+    ],
+    "workerFirst": [
+      {
+        "stages_executed": 1,
+        "generator_calls": 1,
+        "body_operation_calls": 1,
+        "queue_ms": 0.19653,
+        "exact_ms": 35788.742275,
+        "naming_ms": 15939.946807999999,
+        "display_ms": 22166.330316,
+        "artifact_io_ms": 116.400013,
+        "input_prepare_ms": 31.395457,
+        "peak_rss_bytes": 858042368,
+        "response_cache_bytes": 57260948,
+        "visual_cache_bytes": 61624488
+      }
+    ],
+    "displayMs": 6170,
+    "largestDisplayLongTaskMs": 6023,
+    "cancellation": {
+      "abortAfterMs": 18000.8,
+      "observedDrainMs": 46040,
+      "cpuMsAfterAbort": 43980
+    }
+  },
+  "after": {
+    "formalPreview": [
+      {
+        "label": "first",
+        "lengthMm": 40,
+        "wallMs": 4751,
+        "workerRuns": [
+          {
+            "stages_executed": 1,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.097138,
+            "exact_ms": 560.949025,
+            "naming_ms": 1392.883771,
+            "display_ms": 1641.399996,
+            "artifact_io_ms": 135.777092,
+            "stage_cache_bytes": 106818272,
+            "input_prepare_ms": 123.915453,
+            "peak_rss_bytes": 611987456,
+            "mesh_ms": 1397.577633,
+            "encoding_ms": 33.699486,
+            "response_cache_bytes": 29322261,
+            "visual_cache_bytes": 62429148,
+            "base_ms": 520.630615,
+            "adjacency_ms": 3.440055,
+            "volume_integrations": 1,
+            "face_evidence_computed": 8,
+            "face_evidence_reused": 822,
+            "base_stage_restored": true
+          }
+        ]
+      },
+      {
+        "label": "changed",
+        "lengthMm": 41,
+        "wallMs": 4210.5,
+        "workerRuns": [
+          {
+            "stages_executed": 1,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.105106,
+            "exact_ms": 523.516032,
+            "naming_ms": 1284.4185810000001,
+            "display_ms": 1368.19182,
+            "artifact_io_ms": 127.999021,
+            "stage_cache_bytes": 90708664,
+            "stage_evictions": 8,
+            "input_prepare_ms": 49.368234,
+            "peak_rss_bytes": 708575232,
+            "mesh_ms": 1110.707951,
+            "encoding_ms": 26.991618,
+            "response_cache_bytes": 57952795,
+            "visual_cache_bytes": 61624488,
+            "base_ms": 469.742915,
+            "adjacency_ms": 3.688331,
+            "volume_integrations": 1,
+            "face_evidence_computed": 8,
+            "face_evidence_reused": 822,
+            "base_stage_restored": true
+          }
+        ]
+      },
+      {
+        "label": "changed-again",
+        "lengthMm": 42,
+        "wallMs": 4122.4000000003725,
+        "workerRuns": [
+          {
+            "stages_executed": 1,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.082311,
+            "exact_ms": 461.494633,
+            "naming_ms": 1294.5332700000001,
+            "display_ms": 1500.142615,
+            "artifact_io_ms": 126.905513,
+            "stage_cache_bytes": 90708664,
+            "stage_evictions": 1,
+            "input_prepare_ms": 45.696689,
+            "peak_rss_bytes": 782307328,
+            "mesh_ms": 1235.281911,
+            "encoding_ms": 28.338036,
+            "response_cache_bytes": 57261068,
+            "visual_cache_bytes": 61624488,
+            "base_ms": 406.916874,
+            "adjacency_ms": 3.569639,
+            "volume_integrations": 1,
+            "face_evidence_computed": 8,
+            "face_evidence_reused": 822,
+            "base_stage_restored": true
+          }
+        ]
+      },
+      {
+        "label": "identical",
+        "lengthMm": 42,
+        "wallMs": 36.40000000037253,
+        "workerRuns": []
+      }
+    ],
+    "displayMs": 750,
+    "largestDisplayLongTaskMs": 575,
+    "cancellation": [
+      {
+        "abortAfterMs": 750,
+        "clientMs": 751.0999999996275,
+        "cpuMsAfterAbort": 310,
+        "observedDrainMs": 1202
+      },
+      {
+        "abortAfterMs": 3000,
+        "clientMs": 3000.5999999996275,
+        "cpuMsAfterAbort": 380,
+        "observedDrainMs": 1402
+      }
+    ]
+  },
+  "correctness": {
+    "outputGeometryIdBefore": "sha256:929db317bf0d60aca91c9310fe8202d347dd23683044002e67f7b2dc8da119f7",
+    "outputGeometryIdAfter": "sha256:929db317bf0d60aca91c9310fe8202d347dd23683044002e67f7b2dc8da119f7",
+    "sameBrepSHA256": true,
+    "topology": {
+      "domain": "SOLID_SET",
+      "edges": 2171,
+      "faces": 828,
+      "solids": 1,
+      "vertices": 1392
+    },
+    "sameTopologyCounts": true,
+    "triangles": 740450,
+    "displayVertices": 395065,
+    "sameMeshCounts": true,
+    "volumeBeforeMm3": 590362.1608070469,
+    "volumeAfterMm3": 590362.1607578786,
+    "relativeVolumeDifference": 8.328508106338732e-11
+  },
+  "limits": [
+    "One real imported model and three distinct lengths; no P95 or capacity claim.",
+    "First means a new operation on an accepted import, not file import or forced cold evidence reconstruction.",
+    "Cancellation delays differ; CPU drain is sampled process CPU, not an OCCT interrupt-latency guarantee.",
+    "Browser timing includes development Vite and software WebGL; not device-independent frame-rate evidence.",
+    "Stage/response/visual cache counters do not bound total process RSS.",
+    "The original model is not included in the repository; use the frozen BREP digest to identify a matching source."
+  ]
+}

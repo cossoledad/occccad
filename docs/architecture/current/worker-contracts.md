@@ -35,6 +35,8 @@ Go command/evaluation
 
 直连 Worker 成功不能证明正式调用链可用。任何代理层漏转发都可能在运行时表现为 `Unimplemented`。
 
+`EvaluatePart.base_stage` 是可选的冻结导入根输入，包含 Naming ArtifactReference、原始 GeometryId 和体积。Naming 可包含同一 Body 的后续 transition，但只能恢复与 `import_seed` 和输入 BREP 绑定的唯一根 transition。服务端从显式 Body 的已接纳制品取引用，Worker 校验 SHA、单位、policy、owner 及 transition，再由内核核对完整分配与 locator；不从相似几何寻找身份。阶段键包含根历史摘要和原始质量，不依赖不断变化的整个 Tip Naming 文件摘要。无恢复输入及显式冷重放仍走权威初始化。实际规则与度量见[Part 求值](part-feature-evaluation.md#零件增量求值)。
+
 ## Job 与提交门禁
 
 Job key 应覆盖规范输入、依赖 Revision、evaluator/kernel/solver 版本和策略 digest。Worker 可以重复计算和重复上传同一不可变制品，但最终业务效果必须按 transaction/job identity 幂等提交。

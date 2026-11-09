@@ -1072,5 +1072,11 @@
     "resources": [
       "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#newSketchWorkflowFixture"
     ]
+  },
+  {
+    "path": "services/internal/control/part_feature_performance_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/feature_association_integration_test.go#featureAssociationRuntimeService"
+    ]
   }
 ]

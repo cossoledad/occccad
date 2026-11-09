@@ -1,10 +1,15 @@
 package geometry
 
-import "context"
+import (
+	"context"
+
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+)
 
 type PartRuntimeOptions struct {
 	ForceCold, ExactOnly bool
 	Affinity             string
+	BaseStage            *workerv1.PartBaseStage
 }
 type partRuntimeKey struct{}
 

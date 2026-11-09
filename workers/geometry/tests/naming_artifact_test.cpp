@@ -97,6 +97,12 @@ TEST(NamingArtifact, TypedEvidenceAndExplicitCurveParameters) {
     EXPECT_EQ(m.evidence(5).spline().range().convention(), "NATIVE_CURVE_PARAMETER");
     EXPECT_EQ(m.evidence(6).spline().family(), "BEZIER");
     EXPECT_EQ(m.evidence(7).other().range().convention(), "ANGLE_RADIANS");
+    for(size_t i=0;i<kinds.size();++i) {
+        const auto restored=occccad::worker::read_naming_evidence(m.evidence(static_cast<int>(i)),m);
+        EXPECT_EQ(restored.geometry_type,kinds[i]);EXPECT_DOUBLE_EQ(restored.origin.x,12);
+        EXPECT_DOUBLE_EQ(restored.centroid.x,12);
+        if(i>=2&&kinds[i]!="POINT") {ASSERT_TRUE(restored.parameter_start);ASSERT_TRUE(restored.parameter_end);EXPECT_DOUBLE_EQ(*restored.parameter_start,.25);EXPECT_DOUBLE_EQ(*restored.parameter_end,2.75);}
+    }
 }
 
 TEST(NamingArtifact, RejectsCrossBodyArtifact) {

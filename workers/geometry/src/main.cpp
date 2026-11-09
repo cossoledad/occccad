@@ -1928,10 +1928,64 @@ public:
             occccad::kernel::PartRuntimeOptions runtime;
             runtime.force_cold=request->force_cold();runtime.stats=&runtime_stats;
             runtime.cancelled=[context](){return context->IsCancelled();};
+            if(request->has_base_stage() && !runtime.force_cold) {
+                if(!request->has_import_seed() || base_brep.empty())throw std::invalid_argument("BASE_STAGE_REQUIRES_IMPORT");
+                const auto& source=request->base_stage();
+                const auto data=input_artifact(source.naming());
+                worker_api::PartTopologyManifest snapshot;
+                const auto geometry=occccad::kernel::make_geometry_id(base_brep.data(),base_brep.size());
+                if(!snapshot.ParseFromArray(data.data(),static_cast<int>(data.size())) || snapshot.schema_version()!=2 ||
+                   source.geometry_id()!=geometry ||
+                   snapshot.policy_digest()!=request->topology_policy().policy_digest() || snapshot.length_unit()!="mm" || snapshot.coordinate_space()!="PART_LOCAL" ||
+                   snapshot.bodies_size()!=1 || snapshot.results_size()!=0 || snapshot.bodies(0).body_id()!=seed.body_id)
+                    throw std::invalid_argument("BASE_STAGE_SNAPSHOT_MISMATCH");
+                const worker_api::NamingTransition* found_root=nullptr;
+                for(const auto& candidate:snapshot.transitions())if(candidate.feature_id()==seed.feature_id) {
+                    if(found_root)throw std::invalid_argument("BASE_STAGE_DUPLICATE_ROOT");
+                    found_root=&candidate;
+                }
+                if(!found_root)throw std::invalid_argument("BASE_STAGE_ROOT_MISSING");
+                const auto& transition=*found_root;
+                if(transition.feature_id()!=seed.feature_id || transition.body_id()!=seed.body_id || transition.result_geometry_id()!=geometry ||
+                   !transition.complete() || !transition.input_geometry_id().empty() || transition.has_result() ||
+                   transition.deleted_size()!=0 || transition.ambiguous_size()!=0)
+                    throw std::invalid_argument("BASE_STAGE_ROOT_MISMATCH");
+                occccad::kernel::PartBaseStage frozen;frozen.geometry_id=geometry;frozen.volume=source.volume();
+                auto& root=frozen.root;root.feature_id=seed.feature_id;root.body_id=seed.body_id;root.result_geometry_id=geometry;
+                root.topology_history_complete=true;root.topology_history.feature_id=seed.feature_id;
+                root.topology_history.result_geometry_id=geometry;root.topology_history.policy_digest=request->topology_policy().policy_digest();
+                root.topology_history.evidence_digest=transition.evidence_digest();
+                std::unordered_map<std::string,const worker_api::NamingLineage*> root_evidence;
+                for(const auto& lineage:transition.lineage()) {
+                    if(lineage.sources_size()!=0 || lineage.kind()!=worker_api::TOPOLOGY_LINEAGE_GENERATED || !lineage.result() ||
+                       lineage.result()>static_cast<unsigned>(snapshot.semantic_refs_size()) || !lineage.evidence() ||
+                       lineage.evidence()>static_cast<unsigned>(snapshot.evidence_size()) ||
+                       !root_evidence.emplace(snapshot.semantic_refs(lineage.result()-1).SerializeAsString(),&lineage).second)
+                        throw std::invalid_argument("BASE_STAGE_LOCATOR_INVALID");
+                }
+                if(root_evidence.size()!=seed.identities.size())throw std::invalid_argument("BASE_STAGE_COVERAGE_MISMATCH");
+                for(const auto& identity:seed.identities) {
+                    worker_api::SemanticTopologyRef ref;ref.set_feature_id(seed.feature_id);ref.set_output_slot("import.topology");ref.add_source_ids(identity.stable_id);
+                    const auto found=root_evidence.find(ref.SerializeAsString());
+                    if(found==root_evidence.end())throw std::invalid_argument("BASE_STAGE_IDENTITY_MISMATCH");
+                    occccad::kernel::SemanticTopologyOutput restored;
+                    restored.semantic_ref={ref.feature_id(),ref.output_slot(),{ref.source_ids().begin(),ref.source_ids().end()}};
+                    restored.topology_type=identity.topology_type;restored.local_id=identity.local_id;
+                    restored.evidence=occccad::worker::read_naming_evidence(snapshot.evidence(found->second->evidence()-1),snapshot);
+                    root.topology_history.lineage.push_back({{},restored.semantic_ref,occccad::kernel::TopologyLineageKind::generated,restored.evidence});
+                    root.semantic_outputs.push_back(std::move(restored));
+                }
+                runtime.base_stage=std::move(frozen);
+            }
             // Canonical keys include actual immutable source digests, stable Body /
             // Feature identity and the naming policy; transport IDs/outputs do not.
+            std::ostringstream base_facts;
+            if(runtime.base_stage)base_facts<<std::setprecision(std::numeric_limits<double>::max_digits10)
+                <<runtime.base_stage->geometry_id<<':'<<runtime.base_stage->volume<<':'
+                <<runtime.base_stage->root.topology_history.evidence_digest;
             std::string prefix=occccad::kernel::make_geometry_id(base_brep.data(),base_brep.size())+
-                request->topology_policy().SerializeAsString()+request->import_seed().SerializeAsString()+"stage-runtime-v5-finite-removal-ranges";
+                request->topology_policy().SerializeAsString()+request->import_seed().SerializeAsString()+
+                base_facts.str()+"stage-runtime-v7-frozen-root-facts";
             for(const auto& pad:request->profile_pads()) {
                 prefix=occccad::kernel::make_geometry_id(prefix+pad.SerializeAsString());
                 runtime.stage_keys.push_back(prefix);
@@ -1955,6 +2009,11 @@ public:
             stats->set_input_prepare_ms(std::chrono::duration<double,std::milli>(exact_started-acquired).count());
             stats->set_exact_ms(runtime_stats.exact_ms);
             stats->set_naming_ms(runtime_stats.naming_ms);
+            stats->set_base_ms(runtime_stats.base_ms);stats->set_adjacency_ms(runtime_stats.adjacency_ms);
+            stats->set_volume_integrations(runtime_stats.volume_integrations);
+            stats->set_face_evidence_computed(runtime_stats.face_evidence_computed);
+            stats->set_face_evidence_reused(runtime_stats.face_evidence_reused);
+            stats->set_base_stage_restored(runtime_stats.base_stage_restored);
             stats->set_stages_executed(runtime_stats.stages_executed);stats->set_stages_reused(runtime_stats.stages_reused);
             stats->set_generator_calls(runtime_stats.generator_calls);stats->set_modifier_calls(runtime_stats.modifier_calls);
             stats->set_body_operation_calls(runtime_stats.body_operation_calls);stats->set_stage_cache_bytes(runtime_stats.stage_cache_bytes);
@@ -2045,6 +2104,7 @@ public:
                 }
             }
 
+            if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"evaluation cancelled before result admission"};
             const auto bytes = response->ByteSizeLong() + response->brep_artifact().size_bytes()
                 + response->glb_artifact().size_bytes() + response->evaluation_manifest().topology_manifest_artifact().size_bytes();
             if (!request->force_cold() && bytes <= cache_budget_) {
@@ -2221,10 +2281,8 @@ public:
                     brep = read_artifact(request->brep_artifact());
                 geometry_id = kernel_.loadBrepr(brep);
             }
-            const bool topology_cache_hit =
-                topology_cached_.find(geometry_id) != topology_cached_.end();
-            const auto& topology = kernel_.getTopology(geometry_id);
-            topology_cached_.insert(geometry_id);
+            bool topology_cache_hit=false;
+            const auto& topology = kernel_.getTopologyProperties(geometry_id,request->topology_type(),request->local_id(),&topology_cache_hit);
             response->set_face_count(topology.face_count);
             response->set_edge_count(topology.edge_count);
             response->set_vertex_count(topology.vertex_count);
@@ -2444,8 +2502,9 @@ private:
             response->set_occt_version(OCC_VERSION_COMPLETE);response->set_representation_kind("EXACT_STAGE");
             return;
         }
-        const auto& topology=kernel_.getTopology(geometry_id);
-        topology_cached_.insert(geometry_id);
+        // Display consumes topology counts and the mesher's locators. Exact
+        // area/length/centroid properties belong to explicit inspection.
+        const auto topology=kernel_.getTopologySummary(geometry_id);
         const double linear_deflection =
             requested_linear_deflection > 0.0 ? requested_linear_deflection : occccad::kernel::visual_linear_deflection_mm;
         const double angular_deflection =
@@ -2466,7 +2525,7 @@ private:
         }
         else {
             auto computed = std::make_shared<VisualSnapshot>();
-            computed->mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection);
+            computed->mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection,true,cancelled);
             check_cancel();
             google::protobuf::Struct association;
             (*association.mutable_fields())["geometryId"].set_string_value(geometry_id);
@@ -2475,6 +2534,7 @@ private:
             check_cancel();
             const auto encoding = std::chrono::steady_clock::now();
             computed->glb = occccad::kernel::make_glb(computed->mesh, association_json);
+            check_cancel();
             const auto& m = computed->mesh;
             response->mutable_runtime_stats()->set_mesh_ms(m.timings.meshing_ms);
             response->mutable_runtime_stats()->set_encoding_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-encoding).count());
@@ -2604,7 +2664,6 @@ private:
     uint64_t cache_clock_=0;
     std::unordered_map<std::string, EvaluationCache> cache_;
     std::unordered_map<std::string, std::shared_ptr<const VisualSnapshot>> visual_cache_;
-    std::unordered_set<std::string> topology_cached_;
 };
 
 }  // namespace

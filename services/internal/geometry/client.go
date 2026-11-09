@@ -1035,6 +1035,7 @@ func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, reque
 	request.ForceCold = options.ForceCold
 	request.ExactOnly = options.ExactOnly
 	request.RuntimeAffinity = options.Affinity
+	request.BaseStage = options.BaseStage
 	if options.ExactOnly {
 		request.GlbOutputKey = ""
 	}

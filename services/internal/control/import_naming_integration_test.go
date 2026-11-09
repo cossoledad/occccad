@@ -3,6 +3,7 @@
 package control
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"testing"
@@ -75,6 +76,42 @@ func verifyImportedNaming(t *testing.T, db database.DB, client *geometry.Client,
 			first, second := workspace.SketchPoint2{X: x - 1, Y: y - 1}, workspace.SketchPoint2{X: x + 1, Y: y + 1}
 			part = apply(part.Document.ID, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch.ID, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &first, Second: &second}}})
 			part = apply(part.Document.ID, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Generator: "LINEAR_EXTRUDE", SketchID: sketch.ID, Operation: operation, Length: 1, Reversed: operation == "REMOVE"})
+			if normal == [3]float64{1, 0, 0} && operation == "ADD" {
+				var raw []byte
+				if e := db.QueryRow(t.Context(), `SELECT evaluation_manifest FROM occccad.document_versions WHERE id=$1`, part.Document.VersionID).Scan(&raw); e != nil {
+					t.Fatal(e)
+				}
+				var manifest struct {
+					Runtime struct {
+						WorkerRuns []struct {
+							Restored bool `json:"base_stage_restored"`
+						} `json:"workerRuns"`
+					} `json:"runtime"`
+				}
+				if e := json.Unmarshal(raw, &manifest); e != nil {
+					t.Fatal(e)
+				}
+				restored := false
+				for _, run := range manifest.Runtime.WorkerRuns {
+					restored = restored || run.Restored
+				}
+				if !restored {
+					t.Fatal("first operation did not restore the frozen import stage")
+				}
+				feature := part.Part.Features[len(part.Part.Features)-1]
+				cold, e := service.PreviewCommand(workspace.WithColdEvaluation(t.Context()), part.Document.ID, workspace.CommandRequest{
+					Type: "EDIT_FEATURE", ActorID: p6Actor, RequestID: part.Document.ID + "/import-cold-check",
+					TargetID: feature.ID, Feature: &feature, ExpectedFeatureDigest: findP6FeatureDigest(t, part.StructureTree, feature.ID),
+				})
+				if e != nil || cold.Artifact == nil {
+					t.Fatalf("import cold replay: %v", e)
+				}
+				for _, role := range []string{"BREP", "NAMING"} {
+					if activeBodyArtifact(t, part).Representations[role].Digest != cold.Artifact.Representations[role].Digest {
+						t.Fatalf("restored import %s differs from cold reconstruction", role)
+					}
+				}
+			}
 			expected := activeBodyArtifact(t, base).Volume + 4
 			if operation == "REMOVE" {
 				expected = activeBodyArtifact(t, base).Volume - 4

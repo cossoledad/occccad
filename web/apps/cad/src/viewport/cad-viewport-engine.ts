@@ -286,11 +286,19 @@ function constraintTreeNodeID(featureTreeNode: string, kind: ConstraintKind, con
   return `${featureTreeNode}/constraints/${group}/constraint:${constraintID}`;
 }
 
-function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
+function makeGeometry(artifact: Artifact, pickable = true): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(artifact.mesh.vertices.flat(), 3));
-  geometry.setIndex(artifact.mesh.triangles.flat());
-  if (artifact.mesh.normals) geometry.setAttribute("normal", new THREE.Float32BufferAttribute(artifact.mesh.normals.flat(),3));
+  const positions = new Float32Array(artifact.mesh.vertices.length * 3);
+  artifact.mesh.vertices.forEach((point, i) => positions.set(point, i * 3));
+  const indices = new Uint32Array(artifact.mesh.triangles.length * 3);
+  artifact.mesh.triangles.forEach((triangle, i) => indices.set(triangle, i * 3));
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  if (artifact.mesh.normals) {
+    const normals = new Float32Array(artifact.mesh.normals.length * 3);
+    artifact.mesh.normals.forEach((normal, i) => normals.set(normal, i * 3));
+    geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  }
   else geometry.computeVertexNormals();
   if(artifact.mesh.vertices.length)geometry.computeBoundingSphere();
   const accelerated = geometry as THREE.BufferGeometry & {
@@ -298,7 +306,7 @@ function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
   };
   accelerated.computeBoundsTree = computeBoundsTree;
   accelerated.disposeBoundsTree = disposeBoundsTree;
-  if(artifact.mesh.triangles.length)accelerated.computeBoundsTree({ indirect: true });
+  if(pickable && artifact.mesh.triangles.length)accelerated.computeBoundsTree({ indirect: true });
   return geometry;
 }
 
@@ -1736,7 +1744,8 @@ export class CadViewportEngine {
   private showPreviewArtifact(artifact: Artifact, operation: FeaturePreviewOperation): void {
     if(!artifact.mesh.triangles.length&&!artifact.mesh.edges?.length&&!artifact.mesh.topologyVertices?.length)return;
     const binding=this.solidBindings.get(geometryBindingKey(this.editContext?.occurrencePath,artifact.bodyId,artifact.result));
-    const group=artifact.mesh.triangles.length?makeFeaturePreview(makeGeometry(artifact),operation,binding?.mesh.geometry):makeCurvePreview(artifact,operation);
+    const group=artifact.mesh.triangles.length?makeFeaturePreview(makeGeometry(artifact,false),operation,binding?.mesh.geometry,
+      {result:artifact.mesh.edges??[],original:binding?.artifact.mesh.edges??[]}):makeCurvePreview(artifact,operation);
     if (binding) {
       this.previewBody = { group: binding.group, visible: binding.group.visible };
       binding.group.visible = binding.group.visible && !!this.featureSelection;
