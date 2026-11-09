@@ -1060,5 +1060,17 @@
     "resources": [
       "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#newSketchWorkflowFixture"
     ]
+  },
+  {
+    "path": "services/internal/control/surface_quality_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/control/assembly_composition_control_fixture_test.go#newCompositionControlFixture"
+    ]
+  },
+  {
+    "path": "services/internal/workspace/surface_shape_control_integration_test.go",
+    "resources": [
+      "fixture dependency: services/internal/workspace/sketch_workflow_integration_test.go#newSketchWorkflowFixture"
+    ]
   }
 ]

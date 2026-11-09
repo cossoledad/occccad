@@ -13,10 +13,10 @@ import {parseParameterSource,parameterSourceText} from './parameter-editor';
 import {useFeaturePreview} from './use-feature-preview';
 import {useFeatureDialogFeedback} from './use-feature-dialog-feedback';
 import {acceptsGeometryReference,bindGeometryReference,bindGeometricInput} from './geometric-input-selection';
-import {editGeometryPoint,geometryFields,geometryInputIdentity,geometryInputName,geometryInputRoles,geometryNames,geometryReady,geometryBodyKind,geometryMultipleKind,pointInput,sketchGeometryInput,splineControlMode,type GeometryReferenceRole,type PointEdit} from './geometric-feature-model';
+import {editGeometryPoint,geometryFields,geometryInputIdentity,geometryInputName,geometryInputRoles,geometryNames,geometryReady,geometryBodyKind,geometryMultipleKind,pointInput,sketchGeometryInput,splineControlMode,syncSurfaceControls,type GeometryReferenceRole,type PointEdit} from './geometric-feature-model';
 
 type Props={view:DocumentView;feature:Feature;digest?:string;unit:DisplayLengthUnit;onClose:()=>void;onApply:(input:Record<string,unknown>)=>Promise<unknown>;onPreview:(artifact?:Artifact,operation?:Feature['operation'])=>void;onSelectionSession:(session?:FeatureSelectionSession)=>void};
-type ReferenceField={key:'direction'|'axis'|'mirrorPlane'|'support'|'keepPoint';label:string;role:GeometryReferenceRole;input?:GeometricInput};
+import {SurfaceControlFields,surfaceReferenceFields,setGeometryReference,type GeometryReferenceField as ReferenceField} from './surface-control-fields';
 function referenceFields(feature:Feature):ReferenceField[]{
  const d=feature.geometry!;
  if(d.kind==='SURFACE_TRIM')return [{key:'keepPoint',label:'保留点',role:'point',input:d.keepPoint}];
@@ -31,11 +31,11 @@ function firstMissing(feature:Feature):string|undefined{
  if(d.kind==='SPLINE')return 'points';
  const point=d.curve?.points.find(p=>!pointInput(p));if(point)return `point:${point.id}`;
  const role=geometryInputRoles(d.kind).findIndex((_,i)=>!d.inputs?.[i]);if(role>=0)return `input:${role}`;
- const ref=referenceFields(feature).find(f=>!f.input);return ref?.key;
+ const ref=[...referenceFields(feature).map(f=>({...f,required:true})),...surfaceReferenceFields(feature)].find(f=>f.required&&!f.input);return ref?.key;
 }
 
 export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply,onPreview,onSelectionSession}:Props){
- const [draft,setDraft]=useState(()=>structuredClone(feature));
+ const [draft,setDraft]=useState(()=>{const f=structuredClone(feature);syncSurfaceControls(f.geometry!);return f});
  const draftRef=useRef(draft);draftRef.current=draft;
  const initial=()=>Object.fromEntries(geometryFields(structuredClone(feature.geometry!)).map(field=>{
   const p=view.part?.parameters?.find(p=>p.ownerFeatureId===feature.id&&p.propertySlot===field.slot);
@@ -50,19 +50,19 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
  const visuals=useRef(new Map<string,SelectionItem>());
  const callbacks=useRef({onPreview,onSelectionSession});callbacks.current={onPreview,onSelectionSession};
  const fieldToken=JSON.stringify([picking,pointEdit]);scope.current.activate(fieldToken,`${view.document.id}/${base}`);
- const kind=draft.geometry!.kind,roles=geometryInputRoles(kind),multiple=geometryMultipleKind(kind),refs=referenceFields(draft),inputs=draft.geometry!.inputs??[];
+ const kind=draft.geometry!.kind,roles=geometryInputRoles(kind),multiple=geometryMultipleKind(kind),refs=[...referenceFields(draft),...surfaceReferenceFields(draft,view)],inputs=draft.geometry!.inputs??[];
  const upstream=view.part!.features.slice(0,feature.id?view.part!.features.findIndex(f=>f.id===feature.id):undefined);
  const validRevision=base===view.document.versionId;
- const change=(update:(next:Feature)=>void)=>{const next=structuredClone(draftRef.current);update(next);draftRef.current=next;setDraft(next);setFailure(undefined)};
+ const change=(update:(next:Feature)=>void)=>{const next=structuredClone(draftRef.current);update(next);syncSurfaceControls(next.geometry!);draftRef.current=next;setDraft(next);setFailure(undefined)};
  const setPicking=(field?:string,edit:PointEdit={kind:'append'})=>{scope.current.cancel();setPickingState(field);setPointEdit(edit)};
- const roleFor=(field:string):GeometryReferenceRole|undefined=>field==='points'||field.startsWith('point:')?'point':refs.find(r=>r.key===field)?.role;
+ const roleFor=(field:string):GeometryReferenceRole|undefined=>field==='points'||field.startsWith('point:')?'point':(['point','plane','axis','direction'].includes(refs.find(r=>r.key===field)?.role??'')?refs.find(r=>r.key===field)?.role as GeometryReferenceRole:undefined);
  const accept=(s:SelectionItem,field=picking):boolean=>{
   if(!field||(s.ownerDocumentId??s.documentId)!==view.document.id||(s.occurrencePath??'')!==''||s.versionId&&s.versionId!==base)return false;
   const stage=s.result?.featureId??s.displayStageFeatureId;if(stage&&!upstream.some(f=>f.id===stage))return false;
   if(field==='body')return !!s.bodyId;
   const refRole=roleFor(field);if(refRole)return acceptsGeometryReference(view,s,refRole);
-  const role=roles[Number(field.split(':')[1])]?.role;if(!role)return false;
-  if(s.kind==='plane')return role==='plane'||role==='surface'&&(kind==='PROJECT'||kind==='INTERSECTION'||kind==='SURFACE_TRIM'&&field==='input:1');
+  const role=refs.find(r=>r.key===field)?.role??roles[Number(field.split(':')[1])]?.role;if(!role)return false;
+  if(s.kind==='plane')return role==='plane'||role==='surface'&&(kind==='PROJECT'||kind==='INTERSECTION'||kind==='SURFACE_TRIM'&&field==='input:1'||field.startsWith('boundary-support:'));
   if(role==='plane')return acceptsGeometryReference(view,s,'plane');
   if(s.kind==='edge')return role==='curve'||role==='geometry';
   if(s.kind==='face')return role==='surface'||role==='geometry';
@@ -89,9 +89,9 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
     else if(field.startsWith('point:')){editGeometryPoint(d,input,{kind:'replace',id:field.slice(6)})}
     else if(field.startsWith('input:')){const index=Number(field.split(':')[1]),list=d.inputs??[];if(multiple){if(!list.some(i=>geometryInputIdentity(i)===geometryInputIdentity(input)))list.push(input)}else list[index]=input;d.inputs=list}
     else if(field==='support'){d.curve!.support=input;delete d.curve!.framePlaneId;d.curve!.normal=[0,0,0];d.curve!.xDirection=[0,0,0]}
-    else {d[field as 'direction'|'axis'|'mirrorPlane'|'keepPoint']=input;if(field!=='keepPoint'){d.parameters.direction=[0,0,0];d.parameters.origin=[0,0,0]}}
+    else {setGeometryReference(f,field,input);if(['direction','axis','mirrorPlane'].includes(field)){d.parameters.direction=[0,0,0];d.parameters.origin=[0,0,0]}}
    });
-   if(field==='points'&&edit.kind==='append'||multiple)return;
+   if(field==='points'&&edit.kind==='append'||multiple&&field.startsWith('input:'))return;
    setPicking(field==='points'?undefined:firstMissing(draftRef.current));
   }).catch(error=>{if(alive.current&&scope.current.current(ticket))setFailure(error)}).finally(()=>{if(alive.current)setPending(n=>Math.max(0,n-1))});
  };
@@ -102,7 +102,7 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
  const selectionToken=JSON.stringify(selections);
  useEffect(()=>{
   if(!picking){callbacks.current.onSelectionSession();return}
-  const role=roleFor(picking),shapeRole=roles[Number(picking.split(':')[1])]?.role;
+  const role=roleFor(picking),shapeRole=refs.find(r=>r.key===picking)?.role??roles[Number(picking.split(':')[1])]?.role;
   callbacks.current.onSelectionSession({documentId:view.document.id,versionId:base,role:picking==='body'?'body':role==='point'?'point':role==='plane'?'plane':role==='axis'?'axis':role==='direction'?'direction':shapeRole==='curve'?'edge':'face',topologyPick:role==='point'?'VERTEX':role==='axis'||role==='direction'||shapeRole==='curve'?'EDGE':undefined,selections,accept:s=>accept(s,picking),onPick:s=>pickRef.current(s)});
   return()=>callbacks.current.onSelectionSession();
  },[fieldToken,selectionToken,base]);
@@ -120,11 +120,11 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
  }catch(error){problem=error}
  const preview=useFeaturePreview(view.document.id,base,input,draft.operation,onPreview);
  const feedback=useFeatureDialogFeedback(failure??preview.failure??(!validRevision?new CommandInputError('模型已改变，请重新打开命令'):undefined),geometryNames[kind],problem,preview.repairRequired,preview.retry);
- const fields=geometryFields(draft.geometry!);
+ const fields=geometryFields(draft.geometry!),mainFields=fields.filter(f=>!f.slot.startsWith("geometry:tension:"));
  const fieldInput=(field:typeof fields[number])=><CommandField key={field.slot} label={field.label+(field.unit?`（${field.unit==='mm'?unit:field.unit}）`:'')} width="expression"><ParameterReferenceInput value={values[field.slot]??String(field.unit==='mm'?millimetersToDisplayLength(field.value,unit):field.value)} parameters={view.part?.parameters??[]} unit={field.unit==='mm'?unit:undefined} onChange={v=>setValues(old=>({...old,[field.slot]:v}))} onBlur={()=>{setCommitted({...values});setFailure(undefined);feedback.reportValidation()}}/></CommandField>;
- const reverse=(field:string)=>change(f=>{const d=f.geometry!,value=field.startsWith('input:')?d.inputs![Number(field.split(':')[1])]:field==='support'?d.curve!.support:d[field as 'direction'|'axis'|'mirrorPlane'];if(value)value.reversed=!value.reversed});
- const referenceField=(field:ReferenceField)=><FeaturePickField compact key={field.key} label={field.label} value={geometryInputName(view,field.input)} selected={!!field.input} active={picking===field.key} onActivate={()=>setPicking(field.key)} onClear={field.input?()=>change(f=>{if(field.key==='support')delete f.geometry!.curve!.support;else delete f.geometry![field.key]}):undefined} selections={field.input?selections.filter(s=>s===visuals.current.get(geometryInputIdentity(field.input!))):undefined} actions={field.input&&field.role!=='plane'&&field.role!=='point'?<Button size="small" type={field.input.reversed?'primary':'text'} aria-pressed={!!field.input.reversed} onClick={()=>reverse(field.key)}>反向</Button>:undefined}/>;
- return <CommandDialog id="geometry-feature" open size={kind==='SPLINE'?'M':'S'} title={`${feature.id?'编辑':''}${geometryNames[kind]}`} onClose={onClose} onCancelPick={()=>{if(!picking)return false;setPicking();return true}} commandStatus={<CommandStatus pending={pending>0||preview.pending} onRetry={preview.retry}/>} confirmLoading={saving} confirmDisabled={!!problem||missing||!preview.previewId||preview.pending||pending>0||!validRevision||JSON.stringify(values)!==JSON.stringify(committed)} onConfirm={async()=>{if(!input||!preview.previewId||saving)return;setSaving(true);try{await onApply({...input,previewId:preview.previewId});onClose()}catch(error){setFailure(error);setSaving(false)}}}>
+ const reverse=(field:string)=>change(f=>{const d=f.geometry!,value=field.startsWith('input:')?d.inputs![Number(field.split(':')[1])]:refs.find(r=>r.key===field)?.input?structuredClone(refs.find(r=>r.key===field)!.input):undefined;if(value){value.reversed=!value.reversed;if(field.startsWith('input:'))d.inputs![Number(field.split(':')[1])]=value;else setGeometryReference(f,field,value)}});
+ const referenceField=(field:ReferenceField)=><FeaturePickField compact key={field.key} label={field.label} value={geometryInputName(view,field.input)} selected={!!field.input} active={picking===field.key} onActivate={()=>setPicking(field.key)} onClear={field.input?()=>change(f=>{setGeometryReference(f,field.key)}):undefined} selections={field.input?selections.filter(s=>s===visuals.current.get(geometryInputIdentity(field.input!))):undefined} actions={field.input&&(['curve','direction','axis'].includes(field.role)||field.key.startsWith('boundary-support:'))?<Button size="small" type={field.input.reversed?'primary':'text'} aria-pressed={!!field.input.reversed} onClick={()=>reverse(field.key)}>反向</Button>:undefined}/>;
+ return <CommandDialog id="geometry-feature" open size={['SPLINE','SURFACE_LOFT','SURFACE_BLEND','SURFACE_BOUNDARY','SURFACE_FILL'].includes(kind)?'M':'S'} title={`${feature.id?'编辑':''}${geometryNames[kind]}`} onClose={onClose} onCancelPick={()=>{if(!picking)return false;setPicking();return true}} commandStatus={<CommandStatus pending={pending>0||preview.pending} onRetry={preview.retry}/>} confirmLoading={saving} confirmDisabled={!!problem||missing||!preview.previewId||preview.pending||pending>0||!validRevision||JSON.stringify(values)!==JSON.stringify(committed)} onConfirm={async()=>{if(!input||!preview.previewId||saving)return;setSaving(true);try{await onApply({...input,previewId:preview.previewId});onClose()}catch(error){setFailure(error);setSaving(false)}}}>
   <fieldset disabled={saving} className="feature-input-fields geometric-feature-fields" onBlurCapture={feedback.onBlurCapture}>
    {roles.map((role,index)=><FeaturePickField compact key={index} label={role.label} value={multiple?`${inputs.length} 项`:geometryInputName(view,inputs[index])} active={picking===`input:${index}`} selected={multiple?!!inputs.length:!!inputs[index]} mode={multiple?'ordered':'single'} onActivate={()=>setPicking(`input:${index}`)} onClear={inputs[index]?()=>change(f=>{if(multiple)f.geometry!.inputs=[];else delete f.geometry!.inputs![index]}):undefined} items={multiple?inputs.map((i,n)=>({key:geometryInputIdentity(i),value:geometryInputName(view,i),onClear:()=>change(f=>{f.geometry!.inputs!.splice(n,1)}),actions:<><Button size="small" type={i.reversed?'primary':'text'} onClick={()=>reverse(`input:${n}`)}>反向</Button>{kind==='SURFACE_LOFT'&&<><Button size="small" type="text" aria-label={`上移截面 ${n+1}`} disabled={n===0} onClick={()=>change(f=>{const list=f.geometry!.inputs!;[list[n-1],list[n]]=[list[n],list[n-1]]})}>上移</Button><Button size="small" type="text" aria-label={`下移截面 ${n+1}`} disabled={n===inputs.length-1} onClick={()=>change(f=>{const list=f.geometry!.inputs!;[list[n+1],list[n]]=[list[n],list[n+1]]})}>下移</Button></>}</>})):undefined} actions={!multiple&&inputs[index]&&inputs[index].kind!=='PLANE'?<Button size="small" type={inputs[index].reversed?'primary':'text'} onClick={()=>reverse(`input:${index}`)}>反向</Button>:undefined}/>)}
    {kind!=='SPLINE'&&draft.geometry!.curve?.points.map((p,index)=><FeaturePickField compact key={p.id} label={kind==='LINE'?(index?'终点':'起点'):'圆心'} value={geometryInputName(view,pointInput(p))} selected={!!pointInput(p)} active={picking===`point:${p.id}`} onActivate={()=>setPicking(`point:${p.id}`)} onClear={pointInput(p)?()=>change(f=>{const point=f.geometry!.curve!.points.find(q=>q.id===p.id)!;delete point.pointId;delete point.reference}):undefined}/>)}
@@ -133,10 +133,11 @@ export function GeometricFeatureEditor({view,feature,digest,unit,onClose,onApply
     <FeaturePickField compact label="点列" mode="ordered" active={picking==='points'&&pointEdit.kind==='append'} selected={!!draft.geometry!.curve!.points.length} onActivate={()=>setPicking('points')} items={draft.geometry!.curve!.points.map((p,index)=>({key:p.id,actionLabel:`点 ${index+1}`,value:geometryInputName(view,pointInput(p)),active:picking===`point:${p.id}`||picking==='points'&&'id'in pointEdit&&pointEdit.id===p.id,onActivate:()=>setPicking(`point:${p.id}`),onClear:()=>change(f=>{const c=f.geometry!.curve!,at=c.points.findIndex(q=>q.id===p.id);c.points.splice(at,1);c.weights?.splice(at,1);splineControlMode(f.geometry!,splineMode==='CONTROL')}),selections:pointInput(p)?[visuals.current.get(geometryInputIdentity(pointInput(p)!))!].filter(Boolean):[],actions:<><Button size="small" type="text" aria-label={`在点 ${index+1} 前插入`} onClick={()=>setPicking('points',{kind:'before',id:p.id})}>插前</Button><Button size="small" type="text" aria-label={`在点 ${index+1} 后插入`} onClick={()=>setPicking('points',{kind:'after',id:p.id})}>插后</Button></>}))}/>
     {splineMode==='CONTROL'?<CommandField label="次数"><InputNumber min={1} max={Math.max(1,Math.min(25,draft.geometry!.curve!.points.length-1))} value={draft.geometry!.curve!.degree??3} onChange={n=>change(f=>splineControlMode(f.geometry!,true,n??3))}/></CommandField>:<CommandField label="闭合"><Switch aria-label="闭合样条" disabled={draft.geometry!.curve!.points.length<3} checked={draft.geometry!.curve!.closed} onChange={closed=>change(f=>{f.geometry!.curve!.closed=closed})}/></CommandField>}
    </>}
-   {refs.map(referenceField)}
-   {kind==='SURFACE_SWEEP'&&<CommandField label="截面姿态"><Segmented<'CORRECTED_FRENET'|'FRENET'> value={draft.geometry!.surface!.frameMode} options={[{label:'修正标架',value:'CORRECTED_FRENET'},{label:'曲率标架',value:'FRENET'}]} onChange={frameMode=>change(f=>{f.geometry!.surface!.frameMode=frameMode})}/></CommandField>}
-   {kind==='SURFACE_LOFT'&&<CommandField label="直纹"><Switch aria-label="直纹曲面" checked={draft.geometry!.surface!.ruled} onChange={ruled=>change(f=>{f.geometry!.surface!.ruled=ruled})}/></CommandField>}
-   {fields.length===1?fieldInput(fields[0]):fields.length>1&&<CommandGroup label="参数">{fields.map(fieldInput)}</CommandGroup>}
+   {referenceFields(draft).map(referenceField)}
+   <SurfaceControlFields view={view} feature={draft} change={change} renderPick={referenceField} renderTension={id=>{const field=fields.find(f=>f.slot===`geometry:tension:${id}`);return field?fieldInput(field):null}}/>
+   {kind==='SURFACE_SWEEP'&&!draft.geometry!.surface?.guide&&<CommandField label="截面姿态"><Segmented<'CORRECTED_FRENET'|'FRENET'> value={draft.geometry!.surface!.frameMode==='FRENET'?'FRENET':'CORRECTED_FRENET'} options={[{label:'修正标架',value:'CORRECTED_FRENET'},{label:'曲率标架',value:'FRENET'}]} onChange={frameMode=>change(f=>{f.geometry!.surface!.frameMode=frameMode})}/></CommandField>}
+   {kind==='SURFACE_LOFT'&&<CommandField label="直纹"><Switch aria-label="直纹曲面" disabled={!!(draft.geometry!.surface!.spine||draft.geometry!.surface!.guide)} checked={draft.geometry!.surface!.ruled} onChange={ruled=>change(f=>{f.geometry!.surface!.ruled=ruled})}/></CommandField>}
+   {mainFields.length===1?fieldInput(mainFields[0]):mainFields.length>1&&<CommandGroup label="参数">{mainFields.map(fieldInput)}</CommandGroup>}
    {kind==='EXTEND'&&<CommandField label="延伸端"><Segmented<'START'|'END'|'BOTH'> value={draft.geometry!.parameters.side} options={[{label:'起点',value:'START'},{label:'终点',value:'END'},{label:'两端',value:'BOTH'}]} onChange={side=>change(f=>{f.geometry!.parameters.side=side})}/></CommandField>}
    {geometryBodyKind(kind)&&<><CommandField label="实体操作"><Segmented value={draft.operation} options={[...(!feature.id?[{label:'新实体',value:'NEW_BODY'}]:[]),{label:'添加',value:'ADD'},{label:'切除',value:'REMOVE'},{label:'交集',value:'INTERSECT'}]} onChange={operation=>{change(f=>{f.operation=operation as Feature['operation']});if(operation!=='NEW_BODY'&&!draft.bodyId)setPicking('body')}}/></CommandField>{draft.operation!=='NEW_BODY'&&<FeaturePickField compact label="目标实体" value={view.part?.bodies.find(b=>b.id===draft.bodyId)?.name??'未选择'} active={picking==='body'} disabled={!!feature.id} selected={!!draft.bodyId} onActivate={()=>setPicking('body')} onClear={!feature.id&&draft.bodyId?()=>change(f=>{delete f.bodyId}):undefined}/>}</>}
   </fieldset>

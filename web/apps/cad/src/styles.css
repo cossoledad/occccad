@@ -1033,3 +1033,9 @@ select {
 .assembly-motion-workarea .assembly-freedom-reference { display: block; margin: 5px 0; }
 .assembly-freedom-description { color: var(--color-text-secondary); margin: 6px 0; }
 @media (max-width: 900px) { .assembly-motion-workarea { grid-template-columns: minmax(0,1fr); } .assembly-motion-workarea .assembly-freedom-detail { border-left: 0; border-top: 1px solid var(--color-border); padding: 10px 0 0; } }
+
+.shape-quality-result dl{display:grid;gap:8px;margin:12px 0}
+.shape-quality-result dl>div{display:flex;justify-content:space-between;gap:16px}
+.shape-quality-result dd{margin:0;font-variant-numeric:tabular-nums}
+.shape-quality-result p{margin:8px 0;color:var(--text-secondary);font-size:12px}
+.curvature-color-legend{height:8px;border-radius:3px;background:linear-gradient(to right,#3131f4,#2ff4f4,#31f431,#f4f431,#f43131)}

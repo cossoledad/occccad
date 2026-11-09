@@ -2,6 +2,9 @@
 #include <gtest/gtest.h>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <gp_Pln.hxx>
 #include <BRepTools.hxx>
 #include <gp_Elips.hxx>
 #include <sstream>
@@ -63,4 +66,78 @@ TEST(Measurement, EllipseRadiiAreNotCircleRadius){
     auto edge=body(id);edge.kind="EDGE";edge.local_id=1;
     const auto r=k.measure_geometry("ITEM",{{edge}});ASSERT_TRUE(r.complete)<<r.diagnostic;
     EXPECT_DOUBLE_EQ(r.values.at("majorRadiusMm"),8);EXPECT_DOUBLE_EQ(r.values.at("minorRadiusMm"),3);EXPECT_EQ(r.values.count("radiusMm"),0u);EXPECT_EQ(r.values.count("diameterMm"),0u);
+}
+
+TEST(Curvature, CircleCylinderAndPlaneUseExactDerivatives) {
+    OcctKernel k;
+    std::ostringstream stream;
+    BRepTools::Write(BRepPrimAPI_MakeCylinder(5, 20).Shape(), stream);
+    const auto raw = stream.str();
+    const auto id = k.loadBrepr(std::vector<uint8_t>(raw.begin(), raw.end()));
+    const auto& topology = k.getTopology(id);
+    uint64_t circle = 0, cylinder = 0, plane = 0;
+    for (const auto& e : topology.edges)
+        if (e.curve_type == 1)
+            circle = e.local_id;
+    for (const auto& f : topology.faces) {
+        if (f.surface_type == 1)
+            cylinder = f.local_id;
+        else
+            plane = f.local_id;
+    }
+    auto operand = body(id);
+    operand.kind = "EDGE";
+    operand.local_id = circle;
+    auto r = k.measure_geometry("CURVATURE", {{operand}}, {}, 64);
+    ASSERT_TRUE(r.complete) << r.diagnostic;
+    ASSERT_EQ(r.curvature.size(), 64U);
+    for (const auto& p : r.curvature) {
+        EXPECT_NEAR(p.maximum, .2, 1e-10);
+        EXPECT_FALSE(p.surface);
+    }
+    operand.kind = "FACE";
+    operand.local_id = cylinder;
+    r = k.measure_geometry("CURVATURE", {{operand}}, {}, 256);
+    ASSERT_TRUE(r.complete) << r.diagnostic;
+    for (const auto& p : r.curvature) {
+        EXPECT_TRUE(p.surface);
+        EXPECT_NEAR(std::max(std::abs(p.minimum), std::abs(p.maximum)), .2, 1e-10);
+        EXPECT_NEAR(p.gaussian, 0, 1e-10);
+    }
+    operand.local_id = plane;
+    r = k.measure_geometry("CURVATURE", {{operand}}, {}, 256);
+    ASSERT_TRUE(r.complete) << r.diagnostic;
+    for (const auto& p : r.curvature) {
+        EXPECT_NEAR(p.maximum, 0, 1e-12);
+        EXPECT_NEAR(p.minimum, 0, 1e-12);
+        EXPECT_LE(std::hypot(p.position.x, p.position.y), 5 + 1e-7);
+    }
+    r = k.measure_geometry("CURVATURE", {{operand}}, [] { return true; }, 256);
+    EXPECT_FALSE(r.complete);
+    EXPECT_TRUE(r.curvature.empty());
+    r = k.measure_geometry("CURVATURE", {{operand}}, {}, 8193);
+    EXPECT_FALSE(r.complete);
+    EXPECT_EQ(r.diagnostic, "CURVATURE_SAMPLE_COUNT_INVALID");
+}
+TEST(Curvature, TrimmedHoleIsExcludedFromSurfaceSamples) {
+    BRepBuilderAPI_MakePolygon outer, inner;
+    for (const auto& p : std::vector<gp_Pnt>{{-5, -5, 0}, {5, -5, 0}, {5, 5, 0}, {-5, 5, 0}})
+        outer.Add(p);
+    outer.Close();
+    for (const auto& p : std::vector<gp_Pnt>{{-2, -2, 0}, {-2, 2, 0}, {2, 2, 0}, {2, -2, 0}})
+        inner.Add(p);
+    inner.Close();
+    BRepBuilderAPI_MakeFace face(gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), outer.Wire());
+    face.Add(inner.Wire());
+    std::ostringstream stream;
+    BRepTools::Write(face.Face(), stream);
+    const auto text = stream.str();
+    OcctKernel k;
+    const auto id = k.loadBrepr({text.begin(), text.end()});
+    auto r = k.measure_geometry("CURVATURE", {{body(id)}}, {}, 256);
+    ASSERT_TRUE(r.complete) << r.diagnostic;
+    EXPECT_LT(r.curvature.size(), 256U);
+    EXPECT_GT(r.curvature.size(), 0U);
+    for (const auto& sample : r.curvature)
+        EXPECT_FALSE(std::abs(sample.position.x) < 2 && std::abs(sample.position.y) < 2);
 }

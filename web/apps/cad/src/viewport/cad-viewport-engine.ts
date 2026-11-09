@@ -1,3 +1,5 @@
+import {CurvatureOverlay} from '../cad/rendering/curvature-overlay';
+import type {ShapeQualityReport,CurvatureMode} from '../cad/analysis/shape-quality';
 import {geometryBindingKey,makeCurvePreview} from '../cad/rendering/geometry-feature-visual';
 import {viewContextKey} from "../api/context-edit-scope";
 import {SectionCaps} from '../cad/rendering/section-caps';
@@ -346,6 +348,14 @@ export class CadViewportEngine {
     return new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(saved.positions,3));
   }
   private interferenceVisibility=new Map<THREE.Object3D,boolean>();
+  private readonly curvatureOverlay=new CurvatureOverlay();
+  private curvatureScope?:{documentId:string;revisionId:string};
+  showShapeQuality(report?:ShapeQualityReport,mode:CurvatureMode='mean',gain=1):boolean {
+    this.curvatureOverlay.clear();this.curvatureScope=undefined;
+    const valid=!!report&&report.documentId===this.view?.document.id&&report.revisionId===this.view.document.versionId&&!this.editContext?.occurrencePath;
+    if(valid){this.curvatureOverlay.show(report!,mode,gain);this.curvatureScope={documentId:report!.documentId,revisionId:report!.revisionId}}
+    this.invalidate();return !report||valid;
+  }
   private measurementOverlay?:MeasurementOverlay;
   private measurementPreview?:MeasurementReport;
   setMeasurementLayouts(documentId:string,layouts:import("../cad/measurement/annotation-layout").AnnotationLayouts,save?:(id:string,position:[number,number,number]|undefined)=>void):void {this.measurementOverlay?.setLayouts(documentId,layouts,save);this.invalidate()}
@@ -767,6 +777,7 @@ export class CadViewportEngine {
     this.lighting.add(hemisphere, keyLight, fillLight, rimLight);
     this.scenePresentation=new ScenePresentation(this.scene,this.lighting,this.environment,this.renderer);
     this.sketchContext.renderOrder = 0; // Child semantic orders own sketch layering.
+    this.scene.add(this.curvatureOverlay.root);
     this.scene.add(this.environment, this.lighting, this.content, this.helpers, this.sketchContext, this.sketchGrid.object,this.groundGrid.object,this.worldGrid.object);
     this.sketchGrid.object.visible = false;
 
@@ -914,6 +925,7 @@ export class CadViewportEngine {
       editContext?.historicalBoundary, editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
+    if(this.curvatureScope&&(this.curvatureScope.documentId!==view.document.id||this.curvatureScope.revisionId!==view.document.versionId||editContext?.occurrencePath))this.showShapeQuality();
     if(this.sectionRequested&&(view.document.id!==this.sectionRequested.documentId||view.document.versionId!==this.sectionRequested.revisionId||editContext?.occurrencePath))this.setSectionEdit();
     if(this.staticInterferenceReport&&this.staticInterferenceReport.revisionId!==view.document.versionId)this.showStaticInterference();
     const motionView=editContext?.view??view;
@@ -2200,6 +2212,7 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    this.curvatureOverlay.dispose();
     this.measurementOverlay?.dispose();
     this.sectionManipulator?.dispose();this.restoreSectionClipping();
     this.sketchIntersections.reset();

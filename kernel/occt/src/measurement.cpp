@@ -1,4 +1,5 @@
 #include <internal/mass_properties.hpp>
+#include <internal/curvature.hpp>
 #include <internal/occt_kernel.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -143,10 +144,10 @@ void item(const std::vector<Support>& ss,MeasurementResult& r,const std::functio
     }
 }
 }
-MeasurementResult OcctKernel::measure_geometry(const std::string& kind,const std::vector<std::vector<MeasurementElement>>& operands,const std::function<bool()>& cancelled){
+MeasurementResult OcctKernel::measure_geometry(const std::string& kind,const std::vector<std::vector<MeasurementElement>>& operands,const std::function<bool()>& cancelled,uint32_t sample_count){
     MeasurementResult r;
     try{
-        const size_t required=kind=="ITEM"?1:kind=="BETWEEN"?2:kind=="ANGLE_POINTS"?3:0;
+        const size_t required=(kind=="ITEM"||kind=="CURVATURE")?1:kind=="BETWEEN"?2:kind=="ANGLE_POINTS"?3:0;
         if(!required||operands.size()!=required)throw std::invalid_argument("MEASUREMENT_INPUT_INVALID");
         size_t count=0;std::vector<std::vector<Support>> ss;
         for(const auto& operand:operands){
@@ -156,6 +157,7 @@ MeasurementResult OcctKernel::measure_geometry(const std::string& kind,const std
                 ss.back().push_back(prepare(analysis_shape(e.geometry.geometry_id),e));++count;
             }
         }
+        if(kind=="CURVATURE"){std::vector<TopoDS_Shape> shapes;for(const auto& support:ss[0])shapes.push_back(support.shape);return detail::analyze_curvature(shapes,sample_count,cancelled);}
         if(kind=="ITEM")item(ss[0],r,cancelled);
         else if(kind=="BETWEEN"){
             gp_Pnt a,b;

@@ -115,7 +115,7 @@ public:
         const SpatialGeometryOptions& options,const std::function<bool()>& cancelled={});
     MeasurementResult measure_geometry(const std::string& kind,
         const std::vector<std::vector<MeasurementElement>>& operands,
-        const std::function<bool()>& cancelled={});
+        const std::function<bool()>& cancelled={}, uint32_t sample_count=256);
 private:
     const TopoDS_Shape& analysis_shape(const GeometryId& id) const;
     struct InterferenceCache;

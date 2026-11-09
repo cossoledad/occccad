@@ -18,6 +18,7 @@ import {selectionSummaryCommand} from "./commands/selection-summary";
 import {treeNodesForSelections} from "./tree-projection-index";
 
 export type WorkbenchCommandBindings={
+ openShapeQuality?:()=>void;shapeQualityOpen?:boolean;
  openGeometryFeature?:(kind:import("../../types").GeometryKind)=>void;
  openSketchDiagnostics?:()=>void;
  openReferenceElement?:(kind:import("./reference-element-model").ReferenceElementKind)=>void;
@@ -99,6 +100,7 @@ export function workbenchCommands(bindings:WorkbenchCommandBindings):CadCommand[
       ({id:"part.loft",execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"LOFT",bodyId:workingBodyID,operation:"ADD",sections:[]}});},isEnabled:()=>canEdit&&!command.isPending&&!store.activeSketchID}),
       ...modifierTypes.map(type=>({id:`part.${type.toLowerCase()}`, execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:defaultModifierFeature(type,store.selection?.bodyId??workingBodyID)});},isEnabled:()=>canEdit&&!command.isPending&&!store.activeSketchID})),
       ({ id: "part.boolean", execute: () => {setDatumEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({});}, isEnabled: () => canEdit&&!command.isPending && !store.activeSketchID }),
+      {id:'geometry.curvature-analysis',execute:()=>bindings.openShapeQuality?.(),isActive:()=>!!bindings.shapeQualityOpen,isEnabled:()=>Boolean(bindings.openShapeQuality&&editingView?.part&&editingView.document.id===view?.document.id&&!store.activeSketchID&&!command.isPending)},
       ...geometryCommands.map(({id,kind})=>({id,execute:()=>bindings.openGeometryFeature?.(kind),isEnabled:()=>Boolean(canEdit&&editingView?.part&&editingView.document.id===view?.document.id&&!store.activeSketchID&&!command.isPending&&bindings.openGeometryFeature)})),
       ({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isEnabled: () => Boolean(canEdit && !command.isPending) }),
       ({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isEnabled: () => Boolean(canEdit && !command.isPending && editingView?.part?.features.some((feature) => isSolidFeature(feature))) }),

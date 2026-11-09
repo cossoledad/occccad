@@ -7327,6 +7327,94 @@
       }
     },
     {
+      "id": "geometry.surface-boundary",
+      "name": "边界曲面",
+      "helpText": "边界曲面",
+      "iconKey": "datum-plane",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.surface-blend",
+      "name": "桥接曲面",
+      "helpText": "桥接曲面",
+      "iconKey": "datum-plane",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          },
+          {
+            "fact": "canEdit",
+            "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
       "id": "geometry.surface-fill",
       "name": "填充曲面",
       "helpText": "填充曲面",
@@ -7622,6 +7710,46 @@
           {
             "fact": "canEdit",
             "equals": true
+          },
+          {
+            "fact": "busy",
+            "equals": false
+          },
+          {
+            "fact": "rootTarget",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "geometry.curvature-analysis",
+      "name": "曲率分析",
+      "helpText": "曲率分析",
+      "iconKey": "distance",
+      "repeatable": false,
+      "implementation": "form",
+      "visibleWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
+          }
+        ]
+      },
+      "enabledWhen": {
+        "all": [
+          {
+            "fact": "targetType",
+            "equals": "PART"
+          },
+          {
+            "fact": "sketchActive",
+            "equals": false
           },
           {
             "fact": "busy",
@@ -8732,9 +8860,19 @@
           "order": 20
         },
         {
-          "commandId": "geometry.surface-fill",
+          "commandId": "geometry.surface-boundary",
           "groupKey": "primary",
           "order": 30
+        },
+        {
+          "commandId": "geometry.surface-blend",
+          "groupKey": "primary",
+          "order": 40
+        },
+        {
+          "commandId": "geometry.surface-fill",
+          "groupKey": "primary",
+          "order": 50
         }
       ]
     },
@@ -8788,6 +8926,20 @@
           "commandId": "geometry.close-surface",
           "groupKey": "primary",
           "order": 10
+        }
+      ]
+    },
+    {
+      "id": "surface-quality",
+      "name": "形状分析",
+      "styleKey": "part",
+      "position": "top-left",
+      "orientation": "horizontal",
+      "commands": [
+        {
+          "commandId": "geometry.curvature-analysis",
+          "groupKey": "primary",
+          "order": 0
         }
       ]
     }
@@ -9411,6 +9563,16 @@
       "tabId": "PART_DESIGN.wireframe-surface",
       "groupId": "surface-solid",
       "order": 45
+    },
+    {
+      "tabId": "PART_DESIGN.wireframe-surface",
+      "groupId": "surface-quality",
+      "order": 50
+    },
+    {
+      "tabId": "PART_DESIGN.measurement",
+      "groupId": "surface-quality",
+      "order": 20
     }
   ]
 }

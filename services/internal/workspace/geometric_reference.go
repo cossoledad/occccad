@@ -25,6 +25,30 @@ func geometryReferences(d *GeometricFeatureDefinition) []GeometricInput {
 	if d.Curve != nil && d.Curve.Support != nil {
 		out = append(out, *d.Curve.Support)
 	}
+	if s := d.Surface; s != nil {
+		for _, ref := range []*GeometricInput{s.Spine, s.Guide} {
+			if ref != nil {
+				out = append(out, *ref)
+			}
+		}
+		for _, c := range s.Sections {
+			for _, p := range c.Couplings {
+				if p.Point != nil {
+					out = append(out, *p.Point)
+				}
+			}
+			for _, ref := range []*GeometricInput{c.ClosingPoint, c.StationPoint} {
+				if ref != nil {
+					out = append(out, *ref)
+				}
+			}
+		}
+		for _, c := range s.Boundaries {
+			if c.Support != nil {
+				out = append(out, *c.Support)
+			}
+		}
+	}
 	return out
 }
 
@@ -88,7 +112,7 @@ func validateGeometryReference(input GeometricInput, earlier map[string]Feature,
 	if input.Datum != nil || input.Point != nil {
 		return bad()
 	}
-	if input.Kind != "RESULT" && input.Kind != "TOPOLOGY" && input.Kind != "PLANE" {
+	if input.Kind != "RESULT" && input.Kind != "TOPOLOGY" && input.Kind != "PLANE" && input.Kind != "SKETCH" {
 		return bad()
 	}
 	f := Feature{Type: "GEOMETRY", Geometry: &GeometricFeatureDefinition{Kind: "EXTRACT", Inputs: []GeometricInput{input}}}

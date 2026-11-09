@@ -21,3 +21,18 @@ func (server *Server) measureGeometry(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, report)
 }
+func (server *Server) analyzeShapeQuality(w http.ResponseWriter, r *http.Request) {
+	if _, ok := server.requireDocument(w, r, access.RoleViewer); !ok {
+		return
+	}
+	var input workspace.ShapeQualityRequest
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	report, err := server.workspace.AnalyzeShapeQuality(r.Context(), r.PathValue("documentID"), input)
+	if err != nil {
+		writeTopologySelectionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}

@@ -39,11 +39,30 @@ struct GeometrySketchWire {
     std::vector<ProfileCurveSpec> curves;
     Vec3 origin, normal, u_direction;
 };
+struct GeometryCouplingPoint {
+    std::string id;
+    Vec3 position;
+};
+struct GeometrySectionControl {
+    std::string id;
+    uint32_t section_index{};  // locator within this immutable request, never persisted
+    std::optional<Vec3> closing_point, station_point;
+    std::vector<GeometryCouplingPoint> couplings;
+};
+struct GeometryBoundaryControl {
+    std::string id, continuity{"G0"};
+    uint32_t boundary_index{};
+    std::optional<GeometryFeatureInput> support;
+    double tension{1};
+};
 struct GeometrySurfaceDefinition {
     bool ruled{}, has_keep_point{};
     std::string frame_mode;
     double tolerance{};
     Vec3 keep_point;
+    std::optional<GeometryFeatureInput> spine, guide;
+    std::vector<GeometrySectionControl> sections;
+    std::vector<GeometryBoundaryControl> boundaries;
 };
 struct GeometryFeatureSpec {
     std::string feature_id, result_id{"result"}, operation;

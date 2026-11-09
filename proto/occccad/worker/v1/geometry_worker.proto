@@ -496,9 +496,31 @@ message GeometryFeatureSpec {
 // the point selecting a retained region) stay in the immutable domain model.
 message GeometrySurfaceDefinition {
     bool ruled = 1;
-    string frame_mode = 2; // CORRECTED_FRENET | FRENET for a single-path sweep
+    string frame_mode = 2; // CORRECTED_FRENET | FRENET | GUIDE_FRAME | GUIDE_BORDER
     double tolerance = 3; // mm; explicit construction/connection tolerance
     Vec3 keep_point = 4; // exact resolved design point; required for trimming
+    GeometryFeatureInput spine = 5;
+    GeometryFeatureInput guide = 6; // one guide; exact bounded border or auxiliary frame according to frame_mode
+    repeated GeometrySectionControl sections = 7;
+    repeated GeometryBoundaryControl boundaries = 8;
+}
+message GeometrySectionControl {
+    string id = 1;
+    uint32 section_index = 2; // ephemeral locator; domain stores a formal section reference
+    Vec3 closing_point = 3;
+    Vec3 station_point = 4;
+    repeated GeometryCouplingPoint couplings = 5;
+}
+message GeometryCouplingPoint {
+    string id = 1; // same explicit correspondence role across sections
+    Vec3 position = 2;
+}
+message GeometryBoundaryControl {
+    string id = 1;
+    uint32 boundary_index = 2;
+    GeometryFeatureInput support = 3;
+    string continuity = 4; // G0, G1, G2; no silent downgrade
+    double tension = 5;
 }
 
 message PartStageExecution {
@@ -1604,6 +1626,7 @@ message MeasureGeometryRequest {
     repeated AnalysisGeometry geometry = 2;
     string kind = 3; // ITEM, BETWEEN, ANGLE_POINTS
     repeated MeasurementOperand operands = 4;
+    uint32 sample_count = 5; // CURVATURE only, 16..4096, bounded exact-geometry sampling
 }
 message MeasureGeometryResponse {
     bool complete = 1;
@@ -1612,4 +1635,15 @@ message MeasureGeometryResponse {
     map<string, double> values = 4;
     map<string, Vec3> anchors = 5;
     string kernel_build = 6;
+    repeated CurvatureSample curvature = 7;
+    uint32 undefined_samples = 8;
+}
+message CurvatureSample {
+    Vec3 position = 1;
+    Vec3 normal = 2;
+    double minimum = 3; // principal curvatures 1/mm; curve curvature repeated in both
+    double maximum = 4;
+    double mean = 5;
+    double gaussian = 6; // 1/mm^2; 0 for curves
+    bool surface = 7;
 }

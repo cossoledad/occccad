@@ -15,8 +15,10 @@ export function defaultGeometricFeature(kind:GeometryKind):Feature{
 }
 export function geometryInputRoles(kind:GeometryKind):Array<{label:string;role:'curve'|'surface'|'geometry'|'plane'}>{
  if(['LINE','CIRCLE','ARC','SPLINE'].includes(kind))return [];
- if(kind==='SURFACE_SWEEP')return [{label:'轮廓',role:'curve'},{label:'路径',role:'curve'}];
+ if(kind==='SURFACE_SWEEP')return [{label:'轮廓',role:'curve'},{label:'Spine',role:'curve'}];
  if(kind==='SURFACE_LOFT')return [{label:'截面',role:'curve'}];
+ if(kind==='SURFACE_BOUNDARY')return ['第一边','第二边','第三边','第四边'].map(label=>({label,role:'curve' as const}));
+ if(kind==='SURFACE_BLEND')return [{label:'第一边界',role:'curve'},{label:'第二边界',role:'curve'}];
  if(kind==='SURFACE_FILL')return [{label:'边界',role:'curve'}];
  if(['SURFACE_JOIN','SURFACE_SEW','SURFACE_OFFSET','CLOSE_SURFACE'].includes(kind))return [{label:'曲面',role:'surface'}];
  if(kind==='SURFACE_TRIM')return [{label:'曲面',role:'surface'},{label:'切割对象',role:'surface'}];
@@ -50,6 +52,10 @@ export function geometryReady(d:GeometricFeatureDefinition):boolean{
  const roles=geometryInputRoles(d.kind),inputs=d.inputs??[];
  if(geometryMultipleKind(d.kind)?inputs.length<(d.kind==='SURFACE_LOFT'?2:1):roles.some((_,i)=>!inputs[i]))return false;
  if(d.kind==='SURFACE_TRIM'&&!d.keepPoint)return false;
+ if(d.surface?.spine&&(inputs.some(i=>!d.surface?.sections?.find(c=>surfaceInputIdentity(c.section)===surfaceInputIdentity(i))?.stationPoint)||d.surface.ruled))return false;
+ if(d.surface?.sections?.some(c=>c.couplings?.some(p=>!p.point)))return false;
+ if(d.surface?.guide&&d.kind==='SURFACE_LOFT'&&!d.surface.spine)return false;
+ if(d.surface?.boundaries?.some(c=>c.continuity!=='G0'&&!c.support))return false;
  if(d.curve){if(d.curve.points.length<(d.kind==='LINE'||d.kind==='SPLINE'?2:1)||d.curve.points.some(p=>!pointInput(p)))return false;if(['CIRCLE','ARC'].includes(d.kind)&&!d.curve.support)return false}
  if(['SURFACE_EXTRUDE','TRANSLATE','PROJECT'].includes(d.kind)&&!d.direction)return false;
  if(d.kind==='ROTATE'&&!d.axis||d.kind==='MIRROR'&&!d.mirrorPlane)return false;
@@ -65,7 +71,7 @@ export function geometryFields(d:GeometricFeatureDefinition):GeometryField[]{
  if(d.kind==='ROTATE')add('angle','角度','deg',d.parameters.angle,n=>d.parameters.angle=n);
  if(['POINT_ON_CURVE','SPLIT','TRIM'].includes(d.kind))add('start',d.kind==='TRIM'?'起始比例':'弧长比例','',d.parameters.start,n=>d.parameters.start=n);
  if(d.kind==='TRIM')add('end','终止比例','',d.parameters.end,n=>d.parameters.end=n);
- if(d.surface)add('tolerance','容差','mm',d.surface.tolerance,n=>d.surface!.tolerance=n);
+ if(d.surface){add('tolerance','容差','mm',d.surface.tolerance,n=>d.surface!.tolerance=n);d.surface.boundaries?.forEach(c=>{if(c.continuity!=='G0')add(`tension:${c.id}`,'张力','',c.tension,n=>c.tension=n)})}
  if(d.kind==='G1_CONNECT')add('tension','切线系数','',d.parameters.tension,n=>d.parameters.tension=n);
  return fields;
 }
@@ -90,4 +96,11 @@ export function editGeometryPoint(d:GeometricFeatureDefinition,input:GeometricIn
  const point:GeometryControlPoint={id:randomUUID(),position:[0,0,0],reference:input};let at=curve.points.length;
  if(edit.kind!=='append'){at=curve.points.findIndex(p=>p.id===edit.id);if(at<0)throw new CommandInputError('插入位置已改变');if(edit.kind==='after')at++}
  curve.points.splice(at,0,point);curve.weights?.splice(at,0,1);
+}
+
+export function surfaceInputIdentity(input:GeometricInput):string{return geometryInputIdentity({...input,reversed:undefined})}
+export function syncSurfaceControls(d:GeometricFeatureDefinition):void{
+ const surface=d.surface;if(!surface)return;const inputs=d.inputs??[];
+ if(['SURFACE_LOFT','SURFACE_SWEEP'].includes(d.kind))surface.sections=(d.kind==='SURFACE_SWEEP'?inputs.slice(0,1):inputs).filter(Boolean).map(input=>{const old=surface.sections?.find(c=>surfaceInputIdentity(c.section)===surfaceInputIdentity(input));return {...old,id:old?.id??randomUUID(),section:structuredClone(input),couplings:old?.couplings??surface.sections?.find(c=>c.couplings?.length)?.couplings?.map(p=>({id:p.id}))}});
+ if(['SURFACE_BOUNDARY','SURFACE_BLEND','SURFACE_FILL'].includes(d.kind))surface.boundaries=inputs.filter(Boolean).map(input=>{const old=surface.boundaries?.find(c=>surfaceInputIdentity(c.boundary)===surfaceInputIdentity(input));return {...old,id:old?.id??randomUUID(),boundary:structuredClone(input),continuity:old?.continuity??'G0',tension:old?.tension??1}});
 }

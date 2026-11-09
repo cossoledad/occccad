@@ -189,3 +189,69 @@ test('Engineering surface display: curved sheets, point glyphs, dark theme and r
   expect((await document(page,seed.id)).document.versionId).toBe(stableRevision);expect(errors).toEqual([]);
  }finally{await context.close()}
 });
+
+test('Shape control D: empty Blend, supported G2, exact curvature and disposable graphics',async({page},info)=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(/Shader Error|VALIDATE_STATUS|THREE.WebGLProgram/.test(m.text()))errors.push(m.text())});await login(page);
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Shape control D acceptance');const id=v.document.id,p={direction:[0,0,0],origin:[0,0,0],distance:0,angle:0,start:0,end:1,tension:1};
+  const create=async(name:string,kind:string,curve:any)=>{v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name,geometry:{kind,curve,parameters:p}}});return v.part!.features.at(-1)!};
+  const a=await create('D Boundary A','LINE',{points:[{id:'a',position:[0,0,0]},{id:'b',position:[30,0,0]}]});
+  const b=await create('D Boundary B','LINE',{points:[{id:'a',position:[0,20,8]},{id:'b',position:[30,20,8]}]});
+  const circle=await create('D Circle','CIRCLE',{points:[{id:'center',position:[-25,0,0]}],normal:[0,0,1],xDirection:[1,0,0],radius:10});return {id,a,b,circle};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await geometryTab(page);await selectTree(page,seed.a.id,seed.a.name!);await command(page,'桥接曲面');let d=page.getByRole('dialog',{name:'桥接曲面',exact:true});
+ await expect(d.getByRole('button',{name:/确\s*定/})).toBeDisabled();await expect(d.getByText('未选择',{exact:true})).toHaveCount(2);await selectTree(page,seed.a.id,seed.a.name!);await selectTree(page,seed.b.id,seed.b.name!);await ready(page,d);
+ const boundary=d.getByRole('group',{name:'边界 1',exact:true});await boundary.getByText('曲率 G2',{exact:true}).click();await expect(d.getByRole('button',{name:/确\s*定/})).toBeDisabled();await boundary.getByRole('button',{name:'选择支撑',exact:true}).click();await page.getByRole('treeitem',{name:'XY Plane',exact:true}).click();await ready(page,d);await expect(d).not.toContainText('更多');await page.screenshot({path:info.outputPath('shape-control-blend.png')});
+ await d.getByRole('button',{name:/确\s*定/}).click();await expect(d).toHaveCount(0);const v=await document(page,seed.id),blend=v.part.features.at(-1);expect(blend.geometry.kind).toBe('SURFACE_BLEND');expect(blend.geometry.surface.boundaries[0].support.kind).toBe('PLANE');const revision=v.document.versionId;
+ await command(page,'曲率分析');d=page.getByRole('dialog',{name:'曲率分析',exact:true});await expect(d.getByText('未选择',{exact:true})).toBeVisible();await selectTree(page,blend.id,blend.name);await expect(d.getByRole('region',{name:'曲率分析结果'})).toBeVisible();await expect(d).toContainText('256 个有效采样');await observeViewport(page);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.curvatureOverlay.root.children.length)).toBe(1);await d.getByText('密',{exact:true}).click();await expect(d).toContainText('1024 个有效采样');await page.screenshot({path:info.outputPath('surface-curvature-samples.png')});await d.getByText('高斯曲率',{exact:true}).click();await expect(d).toContainText('1/mm²');await d.getByRole('button',{name:/完\s*成/}).click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).__cameraEngine.curvatureOverlay.root.children.length)).toBe(0);expect((await document(page,seed.id)).document.versionId).toBe(revision);
+ await command(page,'曲率分析');d=page.getByRole('dialog',{name:'曲率分析',exact:true});await selectTree(page,seed.circle.id,seed.circle.name!);await expect(d.getByRole('region',{name:'曲率分析结果'})).toBeVisible();await expect(d).toContainText('0.1 1/mm');await page.screenshot({path:info.outputPath('curve-curvature-comb.png')});
+ await d.getByRole('button',{name:/完\s*成/}).click();await page.reload();await expect(page.locator('canvas')).toBeVisible();await observeViewport(page);expect((await document(page,seed.id)).document.versionId).toBe(revision);expect(errors).toEqual([]);
+});
+
+test('Shape control D: associative spine, orientation guide and manual point correspondence',async({page},info)=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
+ const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Spine and correspondence D acceptance');const id=v.document.id,p={direction:[0,0,0],origin:[0,0,0],distance:0,angle:0,start:0,end:1,tension:1};
+  const line=async(name:string,a:number[],b:number[])=>{v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name,geometry:{kind:'LINE',curve:{points:[{id:'a',position:a},{id:'b',position:b}]},parameters:p}}});return v.part!.features.at(-1)!};
+  const a=await line('D Section A',[0,0,0],[30,0,0]),b=await line('D Section B',[0,0,30],[40,0,30]),spine=await line('D Spine',[0,0,0],[0,0,30]),guide=await line('D Orientation guide',[30,0,0],[40,0,30]);
+  const points=[];for(const [name,coordinates] of [['D Station A',[0,0,0]],['D Station B',[0,0,30]],['D Coupling A',[12,0,0]],['D Coupling B',[25,0,30]]] as Array<[string,number[]]>){v=await api.command(id,{type:'CREATE_REFERENCE_POINT',name,referenceConstruction:{mode:'POINT_COORDINATES',coordinates}});points.push(v.part!.datumPoints!.at(-1)!)}return {id,a,b,spine,guide,points};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await geometryTab(page);await command(page,'曲面放样');const d=page.getByRole('dialog',{name:'曲面放样',exact:true});await selectTree(page,seed.a.id,seed.a.name!);await selectTree(page,seed.b.id,seed.b.name!);await ready(page,d);
+ await d.getByRole('button',{name:'选择Spine',exact:true}).click();await selectTree(page,seed.spine.id,seed.spine.name!);await expect(d.getByRole('button',{name:/确\s*定/})).toBeDisabled();for(const point of seed.points.slice(0,2))await selectTree(page,point.id,point.name!,'point');await ready(page,d);
+ await d.getByRole('button',{name:'选择导向曲线',exact:true}).click();await selectTree(page,seed.guide.id,seed.guide.name!);await ready(page,d);await d.getByRole('button',{name:'添加对应',exact:true}).click();await expect(d.getByRole('button',{name:/确\s*定/})).toBeDisabled();await d.getByRole('group',{name:'D Section A',exact:true}).getByRole('button',{name:'选择对应点 1',exact:true}).click();for(const point of seed.points.slice(2))await selectTree(page,point.id,point.name!,'point');await ready(page,d);await page.screenshot({path:info.outputPath('spine-manual-correspondence.png')});
+ await d.getByRole('button',{name:/确\s*定/}).click();await expect(d).toHaveCount(0);const v=await document(page,seed.id),feature=v.part.features.at(-1),controls=feature.geometry.surface.sections;expect(feature.geometry.surface.spine.featureId).toBe(seed.spine.id);expect(feature.geometry.surface.guide.featureId).toBe(seed.guide.id);expect(controls[0].couplings[0].id).toBe(controls[1].couplings[0].id);expect(controls.every((c:any)=>c.stationPoint?.datum&&c.couplings[0].point?.datum)).toBeTruthy();
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect.poll(async()=>(await document(page,seed.id)).part.features.some((f:any)=>f.id===feature.id)).toBeFalsy();await page.getByRole('button',{name:'重做',exact:true}).click();await expect.poll(async()=>(await document(page,seed.id)).part.features.some((f:any)=>f.id===feature.id)).toBeTruthy();await page.reload();await expect(page.locator('canvas')).toBeVisible();expect((await document(page,seed.id)).part.features.at(-1).geometry.surface.sections).toEqual(controls);expect(errors).toEqual([]);
+});
+
+test('Shape control D: exact border guide follows an upstream rail',async({page},info)=>{
+ await login(page);const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Border guide D acceptance');const id=v.document.id,p={direction:[0,0,0],origin:[0,0,0],distance:0,angle:0,start:0,end:1,tension:1};
+  const create=async(name:string,kind:string,curve:any)=>{v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name,geometry:{kind,curve,parameters:p}}});return v.part!.features.at(-1)!};
+  const profile=await create('D Linear profile','LINE',{points:[{id:'a',position:[0,0,0]},{id:'b',position:[10,0,0]}]}),spine=await create('D Straight spine','LINE',{points:[{id:'a',position:[0,0,0]},{id:'b',position:[0,0,20]}]});
+  const guide=await create('D Border rail','SPLINE',{points:[{id:'a',position:[10,0,0]},{id:'b',position:[15,4,5]},{id:'c',position:[8,4,15]},{id:'d',position:[20,0,20]}],degree:3,knots:[0,1],multiplicities:[4,4],weights:[1,1,1,1]});return {id,profile,spine,guide};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await geometryTab(page);await command(page,'曲面扫掠');const d=page.getByRole('dialog',{name:'曲面扫掠',exact:true});await selectTree(page,seed.profile.id,seed.profile.name!);await selectTree(page,seed.spine.id,seed.spine.name!);await ready(page,d);
+ await d.getByRole('button',{name:'选择导向曲线',exact:true}).click();await selectTree(page,seed.guide.id,seed.guide.name!);await ready(page,d);await d.getByText('贴合边界',{exact:true}).click();await ready(page,d);await page.screenshot({path:info.outputPath('exact-border-guide.png')});await d.getByRole('button',{name:/确\s*定/}).click();await expect(d).toHaveCount(0);
+ const before=await document(page,seed.id),feature=before.part.features.at(-1);expect(feature.geometry.surface.frameMode).toBe('GUIDE_BORDER');expect(feature.geometry.surface.guide.featureId).toBe(seed.guide.id);
+ await page.evaluate(async({id,guide})=>{const {restApi:api}=await import('/src/api.ts');const view=await api.getDocument(id),f=view.part!.features.find(f=>f.id===guide)!,find=(n:any):any=>n.entityId===guide?n:(n.children??[]).map(find).find(Boolean);const node=find(view.structureTree);f.geometry!.curve!.points[1].position[0]=18;await api.command(id,{type:'EDIT_FEATURE',targetId:guide,expectedFeatureDigest:node.definitionDigest,feature:f})},{id:seed.id,guide:seed.guide.id});
+ await expect.poll(async()=>(await document(page,seed.id)).part.features.at(-1).result.geometryKey).not.toBe(feature.result.geometryKey);await page.reload();await expect(page.locator('canvas')).toBeVisible();const after=await document(page,seed.id);expect(after.part.features.at(-1).evaluationStatus).toBeFalsy();expect(after.part.features.at(-1).geometry.surface.guide.featureId).toBe(seed.guide.id);
+});
+
+test('Shape control D: cancelling a pending topology pick drops its late result',async({page})=>{
+ await login(page);const seed=await page.evaluate(async()=>{
+  const {restApi:api}=await import('/src/api.ts');let v=await api.createDocument('PART','Curvature pick cancellation acceptance');const id=v.document.id;
+  v=await api.command(id,{type:'CREATE_GEOMETRY_FEATURE',feature:{id:'',type:'GEOMETRY',name:'Cancellation circle',geometry:{kind:'CIRCLE',curve:{points:[{id:'center',position:[0,0,0]}],normal:[0,0,1],xDirection:[1,0,0],radius:10},parameters:{direction:[0,0,0],origin:[0,0,0],distance:0,angle:0,start:0,end:1,tension:1}}}});return {id,circle:v.part!.features.at(-1)!};
+ });
+ await page.goto(`/documents/${seed.id}`);await expect(page.locator('canvas')).toBeVisible();await geometryTab(page);await command(page,'曲率分析');const d=page.getByRole('dialog',{name:'曲率分析',exact:true});await d.getByText('曲线',{exact:true}).click();
+ let release!:()=>void,entered=false;const gate=new Promise<void>(resolve=>release=resolve),kinds:string[]=[];
+ page.on('request',request=>{if(request.url().endsWith('/shape-quality'))kinds.push(request.postDataJSON().input.kind)});
+ await page.route('**/persistent-selections/bind',async route=>{entered=true;await gate;await route.continue().catch(()=>{})});
+ try{
+  await clickWorld(page,[10,0,0]);await expect.poll(()=>entered).toBeTruthy();await expect(d.getByRole('status')).toBeVisible();await page.keyboard.press('Escape');await expect(d).toBeVisible();await expect(d.getByRole('status')).toHaveCount(0);
+  await d.getByRole('button',{name:'选择对象',exact:true}).click();await selectTree(page,seed.circle.id,seed.circle.name!);await expect(d.getByRole('region',{name:'曲率分析结果'})).toBeVisible();await expect(d.getByRole('status')).toHaveCount(0);expect(kinds).toEqual(['RESULT']);
+  const response=page.waitForResponse(r=>r.url().endsWith('/persistent-selections/bind'));release();expect((await response).ok()).toBeTruthy();await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));expect(kinds).toEqual(['RESULT']);
+  await d.getByRole('button',{name:/完\s*成/}).click();
+ }finally{release();await page.unroute('**/persistent-selections/bind')}
+});

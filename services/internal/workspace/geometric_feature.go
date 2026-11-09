@@ -65,9 +65,31 @@ type GeometryOperationParameters struct {
 	Tension   float64    `json:"tension"`
 }
 type GeometrySurfaceDefinition struct {
-	Ruled     bool    `json:"ruled"`
-	FrameMode string  `json:"frameMode,omitempty"`
-	Tolerance float64 `json:"tolerance"` // mm, explicit construction/connection policy
+	Ruled      bool                      `json:"ruled"`
+	FrameMode  string                    `json:"frameMode,omitempty"`
+	Tolerance  float64                   `json:"tolerance"` // mm, explicit construction/connection policy
+	Spine      *GeometricInput           `json:"spine,omitempty"`
+	Guide      *GeometricInput           `json:"guide,omitempty"`
+	Sections   []GeometrySectionControl  `json:"sections,omitempty"`
+	Boundaries []GeometryBoundaryControl `json:"boundaries,omitempty"`
+}
+type GeometrySectionControl struct {
+	ID           string                  `json:"id"`
+	Section      GeometricInput          `json:"section"`
+	ClosingPoint *GeometricInput         `json:"closingPoint,omitempty"`
+	StationPoint *GeometricInput         `json:"stationPoint,omitempty"`
+	Couplings    []GeometryCouplingPoint `json:"couplings,omitempty"`
+}
+type GeometryCouplingPoint struct {
+	ID    string          `json:"id"`
+	Point *GeometricInput `json:"point"`
+}
+type GeometryBoundaryControl struct {
+	ID         string          `json:"id"`
+	Boundary   GeometricInput  `json:"boundary"`
+	Support    *GeometricInput `json:"support,omitempty"`
+	Continuity string          `json:"continuity"`
+	Tension    float64         `json:"tension"`
 }
 type GeometricFeatureDefinition struct {
 	Surface     *GeometrySurfaceDefinition  `json:"surface,omitempty"`
@@ -91,6 +113,7 @@ var geometryKinds = map[string]int{
 	"SURFACE_SWEEP": 2, "SURFACE_LOFT": -1, "SURFACE_FILL": -1,
 	"SURFACE_TRIM": 2, "SURFACE_EXTEND": 2, "SURFACE_JOIN": -1,
 	"SURFACE_SEW": -1, "SURFACE_OFFSET": 1, "CLOSE_SURFACE": 1,
+	"SURFACE_BOUNDARY": 4, "SURFACE_BLEND": 2,
 }
 
 func isEngineeringSurface(kind string) bool {
@@ -137,11 +160,14 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 		if d.Kind == "SURFACE_LOFT" && (len(d.Inputs) < 2 || len(d.Inputs) > 32) {
 			return fmt.Errorf("%w: SURFACE_LOFT_SECTION_COUNT_INVALID", ErrValidation)
 		}
-		if d.Kind == "SURFACE_SWEEP" && !slices.Contains([]string{"CORRECTED_FRENET", "FRENET"}, d.Surface.FrameMode) {
+		if d.Kind == "SURFACE_SWEEP" && !slices.Contains([]string{"CORRECTED_FRENET", "FRENET", "GUIDE_FRAME", "GUIDE_BORDER"}, d.Surface.FrameMode) {
 			return fmt.Errorf("%w: SURFACE_SWEEP_FRAME_REQUIRED", ErrValidation)
 		}
 		if d.Kind == "SURFACE_TRIM" && d.KeepPoint == nil {
 			return fmt.Errorf("%w: SURFACE_TRIM_KEEP_POINT_REQUIRED", ErrValidation)
+		}
+		if err := validateSurfaceControls(d); err != nil {
+			return err
 		}
 	} else if d.Surface != nil {
 		return fmt.Errorf("%w: SURFACE_DEFINITION_UNEXPECTED", ErrValidation)
@@ -286,6 +312,12 @@ func geometryParameters(d *GeometricFeatureDefinition) []geometricParameter {
 	}
 	if d.Surface != nil {
 		add("tolerance", "Tolerance", "mm", &d.Surface.Tolerance)
+		for i := range d.Surface.Boundaries {
+			c := &d.Surface.Boundaries[i]
+			if c.Continuity != "G0" {
+				add("tension:"+c.ID, "Tension", "1", &c.Tension)
+			}
+		}
 	}
 	if c := d.Curve; c != nil {
 		for i := range c.Points {
@@ -539,6 +571,10 @@ func (s *Service) geometryFeatureSpec(ctx context.Context, requestID string, mod
 			spec.Surface.KeepPoint = geometryVec(frame.origin)
 		}
 	}
+	if err := s.compileSurfaceControls(ctx, requestID, model, d, spec, resolve); err != nil {
+		return nil, err
+	}
+
 	for _, reference := range []struct {
 		role  string
 		input *GeometricInput
@@ -770,7 +806,7 @@ func qualifyGeometryInputs(documentID string, f Feature) error {
 	return nil
 }
 func geometryKindLabel(kind string) string {
-	labels := map[string]string{"LINE": "直线", "CIRCLE": "圆", "ARC": "圆弧", "SPLINE": "样条", "POINT_ON_CURVE": "曲线上点", "EXTRACT": "提取", "BOUNDARY": "边界", "COMPOSITE": "复合曲线", "SURFACE_EXTRUDE": "拉伸曲面", "THICKEN": "加厚", "TRANSLATE": "平移", "ROTATE": "旋转", "MIRROR": "镜像", "SPLIT": "分割", "TRIM": "裁剪", "EXTEND": "延伸", "G1_CONNECT": "连接曲线", "OFFSET": "偏移曲线", "PROJECT": "投影", "INTERSECTION": "交线", "SURFACE_SWEEP": "曲面扫掠", "SURFACE_LOFT": "曲面放样", "SURFACE_FILL": "填充曲面", "SURFACE_TRIM": "裁剪曲面", "SURFACE_EXTEND": "延长曲面", "SURFACE_JOIN": "连接曲面", "SURFACE_SEW": "缝合曲面", "SURFACE_OFFSET": "偏移曲面", "CLOSE_SURFACE": "封闭曲面"}
+	labels := map[string]string{"LINE": "直线", "CIRCLE": "圆", "ARC": "圆弧", "SPLINE": "样条", "POINT_ON_CURVE": "曲线上点", "EXTRACT": "提取", "BOUNDARY": "边界", "COMPOSITE": "复合曲线", "SURFACE_EXTRUDE": "拉伸曲面", "THICKEN": "加厚", "TRANSLATE": "平移", "ROTATE": "旋转", "MIRROR": "镜像", "SPLIT": "分割", "TRIM": "裁剪", "EXTEND": "延伸", "G1_CONNECT": "连接曲线", "OFFSET": "偏移曲线", "PROJECT": "投影", "INTERSECTION": "交线", "SURFACE_SWEEP": "曲面扫掠", "SURFACE_LOFT": "曲面放样", "SURFACE_FILL": "填充曲面", "SURFACE_TRIM": "裁剪曲面", "SURFACE_EXTEND": "延长曲面", "SURFACE_JOIN": "连接曲面", "SURFACE_SEW": "缝合曲面", "SURFACE_OFFSET": "偏移曲面", "CLOSE_SURFACE": "封闭曲面", "SURFACE_BOUNDARY": "边界曲面", "SURFACE_BLEND": "桥接曲面"}
 	if label := labels[kind]; label != "" {
 		return label
 	}

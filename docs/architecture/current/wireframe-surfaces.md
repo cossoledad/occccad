@@ -1,8 +1,8 @@
 # 线框与曲面 Feature
 
-当前交付独立 Part 中的关联曲线、工程曲面构造/编辑、加厚与封闭成实体、开放及混合几何 STEP/BREP 交换，以及原实体扫掠对正式三维曲线的消费。它们共用 Part Feature 历史、参数、Domain Command、预览及制品管线。操作见[使用指南](../../guides/wireframe-surfaces.md)；阶段与后续范围见[阶段设计](../../../plans/wireframe-surface-design.md)。
+当前交付独立 Part 中的关联曲线、工程曲面构造/编辑、形状控制与只读曲率分析、加厚与封闭成实体、开放及混合几何 STEP/BREP 交换，以及原实体扫掠对正式三维曲线的消费。它们共用 Part Feature 历史、参数、Domain Command、预览及制品管线。操作见[使用指南](../../guides/wireframe-surfaces.md)；阶段与后续范围见[阶段设计](../../../plans/wireframe-surface-design.md)。
 
-源码入口：Workspace `geometric_feature.go`、`geometric_reference.go`、`evaluation_projection.go`、`part_bodies.go`；协议 `geometry_worker.proto`；OCCT `geometry_feature.cpp`、`surface_feature.cpp`；Web `geometric-feature-editor.tsx`、`geometric-input-selection.ts`。先按操作名搜索，不默认展开整个实体 evaluator。
+源码入口：Workspace `geometric_feature.go`、`geometric_reference.go`、`evaluation_projection.go`、`part_bodies.go`；协议 `geometry_worker.proto`；OCCT `geometry_feature.cpp`、`surface_feature.cpp`、`surface_shape_control.cpp`、`curvature.cpp`；Web `geometric-feature-editor.tsx`、`geometric-input-selection.ts`。先按操作名搜索，不默认展开整个实体 evaluator。
 
 ## 所有权、输入与结果
 
@@ -31,14 +31,31 @@ Worker 只接收冻结精确 BREP/Naming、规范曲线或显式平面；来源�
 | 拉伸曲面 | 固定草图曲线或正式有限 Wire 沿关联直线、参考轴或平面法向及长度产生侧面；开放或闭合轮廓均不自动封盖、不参与材料布尔 |
 | 加厚 | 有界 Sheet 的有符号常厚度生成有效 Solid，再进入原 Body 操作与修改链；单面采用简单偏移，多面采用求交连接及封边，保存真实历史；自交、退化、开放壳或厚度失败拒绝 |
 | 曲面扫掠 | 显式截面和单条 G1 路径，检查各边连接及样条内部的单侧切线；截面须在路径起点法平面内，修正标架/曲率标架可选。保持实际路径×截面生成历史，不自动移动截面或平滑尖角 |
-| 曲面放样 | 2–32 个有序开放/闭合截面，开闭状态及边数须一致；逐截面反向/重排，平滑或直纹。保留输入对应，不自动增删边、选择闭合点或引导线 |
-| G0 填充 | 连通闭合边界，最多 256 段；以算法测得的 G0 边界误差检查显式容差，不提供支撑相切/曲率条件 |
+| 曲面放样 | 2–32 个有序开放/闭合截面，开闭状态及边数须一致；逐截面反向/重排，平滑或直纹。支持显式闭合点、内部点对应及可选 spine/站位点，不自动选择对应点；详见下节 |
+| 填充 | 无支撑时为连通闭合 G0 边界，最多 256 段，检查算法 G0 误差；有支撑时为四条有序单边的受限导数构造 |
+| Boundary / Blend | 边界曲面为四条有序单边，桥接曲面为两条同向单边；逐边选择 G0/G1/G2、支撑和参数化张力，接纳范围见下节 |
+| 曲率分析 | 冻结 Revision 的曲线/面片/独立结果；精确 BREP 导数计算曲率梳、主曲率/均值/高斯曲率采样点；只读，不保存分析或写 Revision |
 | 裁剪曲面 | 源曲面、有限切割曲面或基准平面、关联保留点；保留点必须位于唯一面片内部，由真实交线隔开的连通区域确定保留部分。未相交、点在边界或不在源面上明确失败；不隐式外推 |
 | 延长曲面 | 单面矩形参数域，选择该源面自身的等参数自由边界及物理长度；G1 外推并保留源域。一般修剪面、孔、非等参数边及周期缝拒绝，不丢弃原修剪边界 |
 | 连接、缝合 | 显式成员及连接容差；连接验证连续/流形后组织原面片，缝合建立共享边界的 Shell。连接不等同于已缝合；封闭前使用缝合。断开、多重边、自交拒绝 |
 | 偏移曲面 | 有限曲面集的有符号常量偏移及真实修改历史；失败不删除子面、不自动平滑或放大容差 |
 | 封闭曲面 | 单个已缝合闭合壳，检查自由边、流形、内外方向、自交及正体积后进入原 Body 管线；不自动补盖。支持新实体、添加、切除及交集 |
 | 原实体扫掠 | 新增正式三维边/连通 G1 Wire 路径，精确冻结输入；截面起点和法向需匹配路径，曲率标架/修正标架可选。空间尖角拒绝，既有平面草图直线斜接另保留 |
+
+## 形状控制与连续性接纳
+
+`surface` 的 spine、guide、section/boundary controls 均保留正式几何引用。每个截面/边界控制拥有 UUID，并引用原输入；对应组也有稳定 UUID，张力参数槽为 `geometry:tension:<controlId>`。重排/反向不迁移控制到别的行；移除输入会移除其控制。点、导向、spine、支撑进入原 DAG、缓存、删除保护、预览/提交及 Undo/Redo。Worker 的 `section_index / boundary_index` 仅定位本次冻结数组，持久模型不保存它们。
+
+- **Spine / 导向**：普通扫掠保留原 G1 Wire 路径；增加导向或使用 spine 放样时，首版限单条开放 G1 边。Spine 放样必须逐截面拾取站位点，点唯一位于 spine、按截面顺序排列，首末站位在两端，截面完整位于相应法平面。不自动平移、投影截面或外推。导向方式显式区分 `GUIDE_FRAME`（姿态）与 `GUIDE_BORDER`（贴合边界）。姿态模式限单条开放 G1 边，须通过每个开放截面的一个端点，控制标架，**不保证中间区段贴合导向边界**。贴合边界模式限直线 spine、单边直线截面与非有理多项式导向；截面从 spine 指向对应导向点。通过导向全部极点的正交投影构造 spine 边及精确直纹曲面，导向本身就是整条另一边界；Bernstein 导数系数确认沿 spine 严格前进，径向凸包确认不穿过 spine，未确认即拒绝。放样各截面按关联站位逐一验证，贴合边界暂不叠加闭合点/内部点对应。不混同 CATIA 的一般截面边界接触、双导向、法则或自动 spine。
+- **闭合点与点对应**：多边闭合截面选择已有连接顶点；单边完整周期曲线可选曲线内部闭合点。内部点对应限单边截面，每组覆盖全部截面，最多 16 组，按各截面的方向严格排序。精确投影只验证已声明点的所属和参数，不用最近几何恢复身份。对应点分割出带稳定构造角色的区间，再交给放样；错误顺序/多重投影/缺失组失败。
+- **Boundary / Blend / 带支撑 Fill**：当前限开放、有限、非有理的多项式边界，次数不超过 12、单输入至多 128 极点，公共基底和张量网另有预算。Boundary/带支撑 Fill 接受四条依次闭合的单边；Blend 接受两条同向单边。G1/G2 支撑为原边所属的单个矩形参数域曲面的等参数自由边，曲面转为非有理 B-spline 后提取完整边界导数；周期缝、一般修剪边和有理支撑拒绝。也可选显式基准平面，首版限单段多项式边界。边界自身须满足所需连续阶次。
+- **连续性构造与验证**：Blend 使用横向五次 Hermite；Boundary 使用张量 Hermite-Coons，逐边构造位置/一阶/二阶导数。G1 匹配支撑一阶边界导数，G2 再匹配二阶导数，允许显式张力对应的线性参数缩放；支撑侧反向为显式输入，不由上游几何改变时自动猜测。角点混合导数不兼容时拒绝，不放松约束。输出全边导数系数残差以归一化参数域中的 mm 检查，阈值为工程容差；每个 Bezier 区间的边界法向用 Bernstein 凸包及有界细分确认非零，未确认/超预算失败。最后检查 BREP 有效性及自交。此为受限构造与数值残差策略，未承诺任意参数化下的全局角度/曲率误差上界；不以采样法线或显示颜色替代该检查。
+
+### 只读曲率分析
+
+`POST /api/documents/{id}/shape-quality` 接受 `revisionId`、正式 `GeometricInput` 和 16–4096 的采样预算；仅独立 Part，选择精确边/面或整个几何结果，不消费草图显示折线。绑定/解析仍校验 owner、来源 Revision、Naming 与证据，Worker 复用正式 Router 的 `MeasureGeometry(kind=CURVATURE)`，只消费冻结 BREP。请求前后校验 Head，超时/取消及旧响应不能显示到新 Revision，不写 Domain Command 或持久测量。
+
+曲线在各 C2 区间按弧长取内部采样，内部 C2 断点不提供两侧合一曲率；曲面在有限 UV 域采样并排除修剪孔/外域。导数来自精确几何，曲率单位为 `1/mm`，高斯曲率为 `1/mm²`，反向面同步反转法向及有符号主曲率。上限为 16 个面、64 条曲线和 8192 个显示样本；奇异/未定义位置计数，不能伪装为零曲率。界面显示**采样最小/最大值**、有效数量与未定义数量；曲率梳长度是可调显示比例，曲面为彩色采样点，不是完整连续热力图，不证明极值或 G2。关闭、切换上下文或 Revision 改变时释放临时图形。
 
 ## 交互与求值
 
@@ -62,6 +79,6 @@ STEP/BREP 导出冻结同一 Revision 的有效 Body 与可见独立 FeatureResu
 
 ## 验证入口与未交付边界
 
-内核 `geometry_feature_scenarios.cpp`、`surface_feature_scenarios.cpp` 检查面积/体积、完整命名、周期缝、有序放样、裁剪分区、自由边、参数更新、取消及冷重建。Workspace `geometric_feature_test.go`、`geometric_reference_test.go` 检查所有权/参数/依赖/历史；`geometric_feature_integration_test.go`、`surface_feature_integration_test.go` 使用生产 Worker 验证预览、参数传播、引用、Undo/Redo、冷重建和 STEP/BREP 线/点/面/混合往返。Jobs `import_integration_test.go` 另验证开放/混合 STEP/BREP 的导出及导入 Job 完整调用链。缩略图见 `thumbnail/engineering_geometry_test.go`；浏览器见 `geometric-feature-live.spec.ts`。执行结果以当次 `build/agent-check/` 与浏览器报告为准，不由测试文件存在推导通过。
+内核 `geometry_feature_scenarios.cpp`、`surface_feature_scenarios.cpp` 检查面积/体积、完整命名、周期缝、有序放样、裁剪分区、自由边、参数更新、取消及冷重建。Workspace `geometric_feature_test.go`、`geometric_reference_test.go`、`surface_shape_control_test.go` 检查所有权/参数/依赖/历史；`geometric_feature_integration_test.go`、`surface_feature_integration_test.go`、`surface_shape_control_integration_test.go` 使用生产 Worker 验证预览、参数传播、引用、Undo/Redo、冷重建和 STEP/BREP 线/点/面/混合往返。Jobs `import_integration_test.go` 另验证开放/混合 STEP/BREP 的导出及导入 Job 完整调用链。缩略图见 `thumbnail/engineering_geometry_test.go`；Router 合同见 `control/surface_quality_integration_test.go`；曲率解析模型见 `measurement_scenarios.cpp`。浏览器见 `geometric-feature-live.spec.ts`。执行结果以当次 `build/agent-check/` 与浏览器报告为准，不由测试文件存在推导通过。
 
-当前只接入独立 Part 的线框/曲面显示及编辑；Product occurrence 的开放结果显示、READY ContextVariant、Publication/跨零件消费及完整测量仍未接入。Surface Revolve、一般曲面 Split/互裁、Up-to 外推、guide/spine/coupling、支撑 G1/G2、复杂偏移修补均在后续范围。法向/自由边专用叠加、UV 等参数线、曲率梳/斑马纹、有序集合及吸收显示未交付；源几何按集合可见性保留。拓扑历史无法唯一命名时拒绝，未经工业模型成功率、全局误差界或容量/性能认证。原生算法内部不能保证即时取消，提交前和循环阶段仍检查取消。
+当前只接入独立 Part 的线框/曲面显示及编辑；Product occurrence 的开放结果显示、READY ContextVariant、Publication/跨零件消费及完整测量仍未接入。Surface Revolve、一般曲面 Split/互裁、Up-to 外推、双/多导向、一般截面的边界接触/法则、自动 spine、一般支撑 G1/G2、有理高阶补面、复杂偏移修补均在后续范围。法向/自由边专用叠加、UV 等参数线、斑马纹、有序集合及吸收显示未交付；源几何按集合可见性保留。拓扑历史无法唯一命名时拒绝，未经工业模型成功率、全局误差界或容量/性能认证。原生算法内部不能保证即时取消，提交前和循环阶段仍检查取消。

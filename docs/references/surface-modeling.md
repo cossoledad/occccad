@@ -76,9 +76,9 @@ MCP 返回的关键原文已取至 `has_more=false`；目录页另外读取了�
 | 镜像 | `online/cfyug_C2/cfyugsymmetryGSD.htm`：点/线/面作为对称参考 | 当前只支持关联平面镜像，未扩展到点/线对称 |
 | 拉伸曲面 | `online/cfyug_C2/cfyugextrude.htm`：轮廓、直线方向或平面法向、限值和反向 | 轮廓与方向分别选择，上游方向线可驱动重算；当前为单向长度，无双向/up-to 限值 |
 | 加厚 | `online/prtug_C2/prtugbt0710.htm`：曲面、厚度与方向形成材料 | 选曲面及有符号常厚度；新实体/添加/切除/交集；未提供双侧独立厚度 |
-| 曲面扫掠 | `online/sdgug_C2/sdgugbt0204.htm`：显式/隐式截面，guide/spine、限界、扭转处理和姿态 | C 只采用显式截面及单条 G1 路径，不合并多导向/法则等输入 |
-| 曲面放样 | `online/cfyug_C2/cfyugloft.htm`：截面列表、反向、闭合点、coupling、支撑连续性 | C 支持顺序/反向/直纹和一致边数的对应；闭合点及 guide/coupling 保留为后续能力 |
-| 填充曲面 | `online/sdgug_C2/sdgugbt0206.htm`：闭合边界、逐边支撑、偏差 | C 限 G0，检验算法边界误差；不自动外推、裁边或相切补偿 |
+| 曲面扫掠 | `online/sdgug_C2/sdgugbt0204.htm`：显式/隐式截面，guide/spine、限界、扭转处理和姿态 | 显式截面和 G1 路径；D 增加单条姿态导向及直线截面/直线 spine 的精确边界导向，未交付一般截面接触、多导向/法则 |
+| 曲面放样 | `online/cfyug_C2/cfyugloft.htm`：截面列表、反向、闭合点、coupling、支撑连续性 | 顺序/反向/直纹；D 增加显式闭合点、内部点对应、spine/站位及姿态/有界边界导向 |
+| 填充曲面 | `online/sdgug_C2/sdgugbt0206.htm`：闭合边界、逐边支撑、偏差 | 一般闭合边界为 G0；D 对四条有序多项式边增加逐边 G1/受限 G2，不自动修补支撑 |
 | 裁剪曲面 | `online/cfyug_C2/cfyugtrimGSD.htm`：可选点决定保留区域，歧义时指定保留/移除，自动外推可关闭 | C 使用显式关联点与真实切割交线确定保留区域，不保存点击坐标或分区编号 |
 | 延长曲面 | `online/cfyug_C2/cfyugextrapolsurfaces.htm`：边界/源面、长度/up-to、Tangent/Curvature、近似边界开关 | C 限矩形参数域的等参数自由边，按物理长度 G1 外推，不宣称任意修剪面通用外推 |
 | 连接、缝合 | `online/cfyug_C2/cfyugjoin.htm`：连接/流形/相切检查、合并距离及 federation | C 区分关联面集与共享边界 Shell，检查连接和流形；不实现 federation/自动删除错误子面 |
@@ -88,6 +88,23 @@ MCP 返回的关键原文已取至 `has_more=false`；目录页另外读取了�
 C 阶段上述八篇原文经 MCP 按同一 article ID 分页读至 `has_more=false`；这验证的是参考操作语义。本项目算法接纳范围由实现和测试确定，未运行商业 CAD 的实际模型对比。
 
 用户指定的 [Extrude 原文](catia-manual://page/v1?library=6d5aed22-2df7-427c-83ae-0b4926af15ef&path=online%2Fcfyug_C2%2Fcfyugextrude.htm&sha256=870676f500d411ab224e4076e26b40092f28e0d2dd65fe017ed3ca6ab024e60f&anchor=CATCCSModelHeader.CATHybridPartExtrude&block=cc747fddb4934109067b)同时描述了上下文菜单中的分量向量与默认轮廓法向；本项目操作表单选择显式关联对象，是本轮产品取舍。手册对照没有验证 CATIA 实际模型或证明本项目具备表中尚未实现的选项。
+
+
+## 形状与质量控制对照
+
+本轮先搜索本机 `control/SdgEnglishC2.viewdoc`、`CfyEnglishC2.viewdoc`、`FssEnglishC2.viewdoc`，再通过手册工具将以下五篇以同一 article ID 分页读至 `has_more=false`。这些是参考行为；没有运行 CATIA 实际零件进行数值对比。
+
+| CATIA 原文 | 已核对的参考行为 |
+|---|---|
+| [Creating Swept Surfaces](catia-manual://page/v1?library=6d5aed22-2df7-427c-83ae-0b4926af15ef&path=online%2Fsdgug_C2%2Fsdgugbt0204.htm&sha256=e5e7e26e1c649f0c02a8942b314c7e269ec413408881f963181fa64db56c756c) | 多截面可选用户 spine、闭合点和手工 coupling；手册对 spine 法向与导向交点有明确要求。 |
+| [Creating Multi-sections Surfaces](catia-manual://page/v1?library=6d5aed22-2df7-427c-83ae-0b4926af15ef&path=online%2Fcfyug_C2%2Fcfyugloft.htm&sha256=5585b1788e493fafa38755a52e8a241633061f7c133f8af43e62e08a09361d61) | Spine 定义截面法平面，导向须与截面相交；商业功能另有边界接触、隐式截面及多导向。 |
+| [Creating Blended Surfaces](catia-manual://page/v1?library=6d5aed22-2df7-427c-83ae-0b4926af15ef&path=online%2Fcfyug_C2%2Fcfyugblendedsurfaces.htm&sha256=94a1721a6a3c822035f79c333b47c47af8b266c4642700b4155712ba46907779) | 两条边界与各自支撑，可选位置/相切/曲率和张力；对应、spine 等商业模式独立存在。 |
+| [Creating Fill Surfaces](catia-manual://page/v1?library=6d5aed22-2df7-427c-83ae-0b4926af15ef&path=online%2Fsdgug_C2%2Fsdgugbt0206.htm&sha256=dabd633402e1bb0f09893503123ddc5f83af2b79a2079579d7a15e00b6e3986b) | 逐边选择支撑与位置/相切/曲率；支撑需包含完整边界，另有内部约束及偏差控制。 |
+| [Performing a Surface Curvature Analysis](catia-manual://page/v1?library=6d5aed22-2df7-427c-83ae-0b4926af15ef&path=online%2Fcfyugfss_C2%2Fcfyugfssut0301.htm&sha256=60e27c6639c9740fa9d1d3a3e5041c0fbf8085e63dfe1681eb8e39cfb7d055ea) | 主曲率、均值和高斯曲率有不同单位；显示映射受采样/离散精度影响，不能代表连续极值。 |
+
+本项目的工程取舍：空输入、显式拾取及稳定点对应；单边 spine、辅助姿态导向及直线截面的精确边界导向；非有理多项式支撑的完整导数构造；有界曲率采样。Boundary 为本项目四边 Hermite-Coons 曲面命令，区别于已有“边界”自由边提取。CATIA 的通用支撑/边界接触能力不作为这些命令已实现的证明，具体范围以 [current](../architecture/current/wireframe-surfaces.md#形状控制与连续性接纳) 为准。
+
+OCCT 7.9.1 本机源码另确认：`BRepFill_PipeShell::Add` 的 `ContactOnBorder` 自动法则会清空已有截面，且以轮廓造平面面；直线开放轮廓会触及空面。当前姿态模式使用 `BRepFill_NoContact`，贴合边界模式另由本项目受限 B-spline 直纹构造实现，不启用该 OCCT 自动法则分支，也不把姿态模式宣称为贴合边界。G1/G2 使用本项目受限多项式导数构造，而非仅依赖 Filling 的采样误差或选项标签。
 
 ## 其他商业 CAD
 

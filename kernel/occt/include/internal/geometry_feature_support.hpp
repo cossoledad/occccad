@@ -3,6 +3,7 @@
 #include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Wire.hxx>
+#include <TopoDS_Face.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 
@@ -70,6 +71,9 @@ void history(GeometryFeatureBuild& b, const GeometryFeatureBuild& source, Builde
 }
 }  // namespace occccad::kernel::detail::geometry_features
 namespace occccad::kernel::detail {
+std::map<int, TopoDS_Edge> surface_rectangle_sides(const TopoDS_Face&,const std::string& prefix="SURFACE_EXTEND");
+GeometryFeatureBuild build_border_guide_surface(const GeometryFeatureSpec&,const std::vector<GeometryFeatureBuild>&,const std::function<bool()>&);
+GeometryFeatureBuild build_shape_control_surface(const GeometryFeatureSpec&, const std::vector<GeometryFeatureBuild>&, const std::function<bool()>&);
 bool is_surface_feature(const std::string& operation);
 GeometryFeatureBuild build_surface_feature(const GeometryFeatureSpec&,
                                            const std::vector<GeometryFeatureBuild>&,

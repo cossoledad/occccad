@@ -781,9 +781,10 @@ public:
 
     grpc::Status MeasureGeometry(grpc::ServerContext* context,
         const worker_api::MeasureGeometryRequest* request,worker_api::MeasureGeometryResponse* response) override {
-        const int required=request->kind()=="ITEM"?1:request->kind()=="BETWEEN"?2:request->kind()=="ANGLE_POINTS"?3:0;
+        const int required=(request->kind()=="ITEM"||request->kind()=="CURVATURE")?1:request->kind()=="BETWEEN"?2:request->kind()=="ANGLE_POINTS"?3:0;
         if(!required||request->operands_size()!=required||request->geometry_size()<1||request->geometry_size()>128)
             return {grpc::StatusCode::INVALID_ARGUMENT,"invalid measurement scope"};
+        if(request->kind()=="CURVATURE"&&(request->sample_count()<16||request->sample_count()>4096))return {grpc::StatusCode::INVALID_ARGUMENT,"invalid curvature sample budget"};
         std::unique_lock<std::mutex> lock(mutex_,std::defer_lock);
         while(!lock.try_lock()){if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"measurement cancelled"};std::this_thread::sleep_for(std::chrono::milliseconds(5));}
         try {
@@ -811,12 +812,14 @@ public:
                     operands.back().push_back({geometry.at(e.input_id()),e.kind(),e.local_id(),e.mode()});++count;
                 }
             }
-            const auto r=kernel.measure_geometry(request->kind(),operands,[&]{return context->IsCancelled();});
+            const auto r=kernel.measure_geometry(request->kind(),operands,[&]{return context->IsCancelled();},request->kind()=="CURVATURE"?request->sample_count():256);
             if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"measurement cancelled"};
             response->set_complete(r.complete);response->set_diagnostic(r.diagnostic);response->set_geometry_type(r.geometry_type);
             for(const auto& [key,value]:r.values)(*response->mutable_values())[key]=value;
             for(const auto& [key,p]:r.anchors){auto& v=(*response->mutable_anchors())[key];v.set_x(p.x);v.set_y(p.y);v.set_z(p.z);}
-            response->set_kernel_build("occt-" OCC_VERSION_COMPLETE "/measurement-v2");return grpc::Status::OK;
+            for(const auto& p:r.curvature){auto* v=response->add_curvature();v->mutable_position()->set_x(p.position.x);v->mutable_position()->set_y(p.position.y);v->mutable_position()->set_z(p.position.z);v->mutable_normal()->set_x(p.normal.x);v->mutable_normal()->set_y(p.normal.y);v->mutable_normal()->set_z(p.normal.z);v->set_minimum(p.minimum);v->set_maximum(p.maximum);v->set_mean(p.mean);v->set_gaussian(p.gaussian);v->set_surface(p.surface);}
+            response->set_undefined_samples(r.undefined_samples);
+            response->set_kernel_build(request->kind()=="CURVATURE"?"occt-" OCC_VERSION_COMPLETE "/curvature-v1":"occt-" OCC_VERSION_COMPLETE "/measurement-v2");return grpc::Status::OK;
         }catch(const Standard_Failure&){return {grpc::StatusCode::INTERNAL,"measurement input unavailable"};}
         catch(const std::exception& e){return {grpc::StatusCode::INVALID_ARGUMENT,e.what()};}
     }
@@ -1640,6 +1643,22 @@ public:
         const auto& p=input.parameters();result.parameters.direction=vec(p.direction());result.parameters.origin=vec(p.origin());result.parameters.distance=p.distance();result.parameters.angle=p.angle();result.parameters.start=p.start();result.parameters.end=p.end();result.parameters.side=p.side();result.parameters.tension=p.tension();
         const auto& w=input.sketch_wire();result.sketch_wire.sketch_id=w.sketch_id();result.sketch_wire.origin=vec(w.origin());result.sketch_wire.normal=vec(w.normal());result.sketch_wire.u_direction=vec(w.u_direction());for(const auto& c2:w.curves())result.sketch_wire.curves.push_back(exact_sketch_curve(c2));
         const auto& surface=input.surface();result.surface.ruled=surface.ruled();result.surface.frame_mode=surface.frame_mode();result.surface.tolerance=surface.tolerance();result.surface.has_keep_point=surface.has_keep_point();result.surface.keep_point=vec(surface.keep_point());
+        if(surface.sections_size()>32||surface.boundaries_size()>128)throw std::invalid_argument("SURFACE_CONTROL_BUDGET");
+        if(surface.has_spine())result.surface.spine=read_geometry_input(surface.spine(),read);
+        if(surface.has_guide())result.surface.guide=read_geometry_input(surface.guide(),read);
+        for(const auto& c:surface.sections()){
+            occccad::kernel::GeometrySectionControl control;control.id=c.id();control.section_index=c.section_index();
+            if(c.has_closing_point())control.closing_point=vec(c.closing_point());
+            if(c.has_station_point())control.station_point=vec(c.station_point());
+            if(c.couplings_size()>16)throw std::invalid_argument("SURFACE_COUPLING_LIMIT");
+            for(const auto& p:c.couplings())control.couplings.push_back({p.id(),vec(p.position())});
+            result.surface.sections.push_back(std::move(control));
+        }
+        for(const auto& c:surface.boundaries()){
+            occccad::kernel::GeometryBoundaryControl control;control.id=c.id();control.boundary_index=c.boundary_index();control.continuity=c.continuity();control.tension=c.tension();
+            if(c.has_support())control.support=read_geometry_input(c.support(),read);
+            result.surface.boundaries.push_back(std::move(control));
+        }
         if(input.has_import_seed()){
             auto seed=input.import_seed();if(seed.has_identity_artifact()){
                 const auto data=read(seed.identity_artifact());worker_api::ImportTopologySeed full;

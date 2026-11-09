@@ -1,6 +1,7 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Check.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
@@ -12,12 +13,14 @@
 #include <BRepOffsetAPI_MakeFilling.hxx>
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
+#include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom2d_Line.hxx>
+#include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomAbs_JoinType.hxx>
 #include <GeomFill_Trihedron.hxx>
 #include <GeomLib.hxx>
@@ -236,6 +239,292 @@ void profile_in_plane(const GeometryFeatureBuild& profile, const gp_Pnt& origin,
             throw std::invalid_argument("SURFACE_SWEEP_PROFILE_PLANE_UNVERIFIED");
     }
 }
+double point_parameter(const TopoDS_Edge& e, const Vec3& value, double tol) {
+    double a, b;
+    auto c = BRep_Tool::Curve(e, a, b);
+    GeomAPI_ProjectPointOnCurve projection(point(value), c, a, b);
+    std::vector<double> matches;
+    for (int i = 1; i <= projection.NbPoints(); ++i)
+        if (projection.Distance(i) <= tol) {
+            const auto p = projection.Parameter(i);
+            if (std::none_of(matches.begin(), matches.end(),
+                             [&](double q) { return std::abs(p - q) < 1e-9; }))
+                matches.push_back(p);
+        }
+    if (matches.size() != 1)
+        throw std::invalid_argument("SURFACE_CONTROL_POINT_NOT_UNIQUE_ON_CURVE");
+    return matches.front();
+}
+GeometryFeatureBuild closed_section_start(const GeometryFeatureSpec& s,
+                                          const GeometryFeatureBuild& input, size_t section_index) {
+    const GeometrySectionControl* ctl = nullptr;
+    for (const auto& c : s.surface.sections)
+        if (c.section_index == section_index) {
+            if (ctl || c.id.empty())
+                throw std::invalid_argument("SURFACE_SECTION_CONTROL_INVALID");
+            ctl = &c;
+        }
+    const auto connected = connected_curve(input);
+    if (!ctl || !ctl->closing_point)
+        return connected;
+    const auto w = wire(connected.shape);
+    if (!w.Closed())
+        throw std::invalid_argument("SURFACE_CLOSING_POINT_CLOSED_SECTION_REQUIRED");
+    std::vector<TopoDS_Edge> es;
+    for (BRepTools_WireExplorer it(w); it.More(); it.Next())
+        es.push_back(it.Current());
+    const auto p = point(*ctl->closing_point);
+    size_t start = es.size();
+    for (size_t i = 0; i < es.size(); ++i) {
+        TopoDS_Vertex a, b;
+        TopExp::Vertices(es[i], a, b, Standard_True);
+        if (BRep_Tool::Pnt(a).Distance(p) <= s.surface.tolerance) {
+            if (start != es.size())
+                throw std::invalid_argument("SURFACE_CLOSING_POINT_AMBIGUOUS");
+            start = i;
+        }
+    }
+    if (start != es.size()) {
+        GeometryFeatureBuild out;
+        BRepBuilderAPI_MakeWire make;
+        for (size_t i = 0; i < es.size(); ++i)
+            make.Add(es[(i + start) % es.size()]);
+        out.shape = make.Wire();
+        for (const auto& n : connected.named)
+            add(out, n.ref, n.shape, n.sources, n.roles);
+        return out;
+    }
+    if (es.size() != 1)
+        throw std::invalid_argument("SURFACE_CLOSING_POINT_SECTION_VERTEX_REQUIRED");
+    const auto e = es.front();
+    double a, b;
+    auto c = BRep_Tool::Curve(e, a, b);
+    if (!c->IsPeriodic() ||
+        std::abs(b - a - c->Period()) > BRepAdaptor_Curve(e).Resolution(s.surface.tolerance))
+        throw std::invalid_argument("SURFACE_CLOSING_POINT_PERIODIC_SECTION_REQUIRED");
+    const double param = point_parameter(e, *ctl->closing_point, s.surface.tolerance);
+    auto edge = BRepBuilderAPI_MakeEdge(c, param, param + c->Period()).Edge();
+    if (e.Orientation() == TopAbs_REVERSED)
+        edge.Reverse();
+    GeometryFeatureBuild out;
+    out.shape = BRepBuilderAPI_MakeWire(edge).Wire();
+    const auto source = named(connected, e).ref;
+    add(out, derived(s.feature_id, "section/" + ctl->id + "/edge", {source}), edge, {source});
+    TopoDS_Vertex first, last;
+    TopExp::Vertices(edge, first, last, Standard_True);
+    add(out, derived(s.feature_id, "section/" + ctl->id + "/closing", {source}), first, {source});
+    return out;
+}
+GeometryFeatureBuild closing_section(const GeometryFeatureSpec& s,
+                                     const GeometryFeatureBuild& input, size_t section_index) {
+    auto section = closed_section_start(s, input, section_index);
+    const GeometrySectionControl* control = nullptr;
+    for (const auto& c : s.surface.sections)
+        if (c.section_index == section_index)
+            control = &c;
+    if (!control || control->couplings.empty())
+        return section;
+    if (control->couplings.size() > 16)
+        throw std::invalid_argument("SURFACE_COUPLING_LIMIT");
+    const auto edge = single_edge(section);
+    const auto source = named(section, edge).ref;
+    double a, b;
+    auto c = BRep_Tool::Curve(edge, a, b);
+    const bool reverse = edge.Orientation() == TopAbs_REVERSED;
+    const double parameter_tolerance = BRepAdaptor_Curve(edge).Resolution(s.surface.tolerance);
+    std::vector<std::pair<std::string, double>> stops{{"start", reverse ? b : a}};
+    std::set<std::string> ids;
+    for (const auto& p : control->couplings) {
+        if (p.id.empty() || !ids.insert(p.id).second)
+            throw std::invalid_argument("SURFACE_COUPLING_ORDER_INVALID");
+        const double value = point_parameter(edge, p.position, s.surface.tolerance);
+        if ((!reverse && (value <= stops.back().second + parameter_tolerance ||
+                          value >= b - parameter_tolerance)) ||
+            (reverse && (value >= stops.back().second - parameter_tolerance ||
+                         value <= a + parameter_tolerance)))
+            throw std::invalid_argument("SURFACE_COUPLING_ORDER_INVALID");
+        stops.push_back({p.id, value});
+    }
+    stops.push_back({"end", reverse ? a : b});
+    GeometryFeatureBuild out;
+    BRepBuilderAPI_MakeWire wire_builder;
+    for (size_t i = 1; i < stops.size(); ++i) {
+        const auto& from = stops[i - 1];
+        const auto& to = stops[i];
+        auto part = BRepBuilderAPI_MakeEdge(c, std::min(from.second, to.second),
+                                            std::max(from.second, to.second))
+                        .Edge();
+        if (reverse)
+            part.Reverse();
+        wire_builder.Add(part);
+        if (!wire_builder.IsDone())
+            throw std::invalid_argument("SURFACE_COUPLING_SPLIT_FAILED");
+        out.shape = wire_builder.Wire();
+        part = wire_builder.Edge();
+        add(out,
+            derived(s.feature_id, "coupling/" + control->id + "/" + from.first + "/" + to.first,
+                    {source}),
+            part, {source});
+        TopoDS_Vertex first, last;
+        TopExp::Vertices(part, first, last, Standard_True);
+        add(out,
+            derived(s.feature_id, "coupling/" + control->id + "/point/" + from.first, {source}),
+            first, {source});
+        add(out, derived(s.feature_id, "coupling/" + control->id + "/point/" + to.first, {source}),
+            last, {source});
+    }
+    return out;
+}
+
+GeometryFeatureBuild controlled_pipe(const GeometryFeatureSpec& s,
+                                     const std::vector<GeometryFeatureBuild>& inputs,
+                                     const std::function<void()>& check) {
+    const bool is_loft = s.operation == "SURFACE_LOFT";
+    const auto spine_input =
+        connected_curve(is_loft ? read_geometry_input(*s.surface.spine) : inputs[1]);
+    const auto spine_edge = single_edge(spine_input);
+    if (wire(spine_input.shape).Closed())
+        throw std::invalid_argument("SURFACE_SPINE_OPEN_SINGLE_EDGE_REQUIRED");
+    if (!internally_g1(spine_edge, tolerance, topology_angular_tolerance_radians))
+        throw std::invalid_argument("SURFACE_SWEEP_G1_PATH_REQUIRED");
+    double a, b;
+    const auto spine_curve = BRep_Tool::Curve(spine_edge, a, b);
+    const bool reverse = spine_edge.Orientation() == TopAbs_REVERSED;
+    const double parameter_tolerance =
+        BRepAdaptor_Curve(spine_edge).Resolution(s.surface.tolerance);
+    std::vector<GeometryFeatureBuild> sections;
+    for (size_t i = 0; i < (is_loft ? inputs.size() : 1); ++i)
+        sections.push_back(closing_section(s, inputs[i], i));
+    std::vector<double> parameters;
+    std::vector<TopoDS_Vertex> stations;
+    const auto source = named(spine_input, spine_edge).ref;
+    GeometryFeatureBuild path;
+    BRepBuilderAPI_MakeWire path_builder;
+    if (is_loft) {
+        for (size_t i = 0; i < sections.size(); ++i) {
+            check();
+            const GeometrySectionControl* ctl = nullptr;
+            for (const auto& c : s.surface.sections)
+                if (c.section_index == i) {
+                    if (ctl)
+                        throw std::invalid_argument("SURFACE_SECTION_CONTROL_INVALID");
+                    ctl = &c;
+                }
+            if (!ctl || !ctl->station_point)
+                throw std::invalid_argument("SURFACE_SECTION_STATION_REQUIRED");
+            double p = point_parameter(spine_edge, *ctl->station_point, s.surface.tolerance);
+            if (i == 0) {
+                if (spine_curve->Value(p).Distance(spine_curve->Value(reverse ? b : a)) >
+                    s.surface.tolerance)
+                    throw std::invalid_argument("SURFACE_SPINE_SECTION_LIMITS_REQUIRED");
+                p = reverse ? b : a;
+            }
+            if (i + 1 == sections.size()) {
+                if (spine_curve->Value(p).Distance(spine_curve->Value(reverse ? a : b)) >
+                    s.surface.tolerance)
+                    throw std::invalid_argument("SURFACE_SPINE_SECTION_LIMITS_REQUIRED");
+                p = reverse ? a : b;
+            }
+            if (!parameters.empty() &&
+                ((!reverse && p <= parameters.back() + parameter_tolerance) ||
+                 (reverse && p >= parameters.back() - parameter_tolerance)))
+                throw std::invalid_argument("SURFACE_SPINE_STATION_ORDER_INVALID");
+            parameters.push_back(p);
+            stations.push_back(BRepBuilderAPI_MakeVertex(spine_curve->Value(p)).Vertex());
+            gp_Pnt q;
+            gp_Vec tangent;
+            spine_curve->D1(p, q, tangent);
+            if (tangent.Magnitude() < tolerance)
+                throw std::invalid_argument("SURFACE_SPINE_SINGULAR");
+            profile_in_plane(sections[i], q, tangent.Normalized(), s.surface.tolerance);
+        }
+        if (std::abs(parameters.front() - (reverse ? b : a)) > parameter_tolerance ||
+            std::abs(parameters.back() - (reverse ? a : b)) > parameter_tolerance)
+            throw std::invalid_argument("SURFACE_SPINE_SECTION_LIMITS_REQUIRED");
+        for (size_t i = 1; i < parameters.size(); ++i) {
+            auto edge = !reverse
+                            ? BRepBuilderAPI_MakeEdge(spine_curve, stations[i - 1], stations[i],
+                                                      parameters[i - 1], parameters[i])
+                                  .Edge()
+                            : BRepBuilderAPI_MakeEdge(spine_curve, stations[i], stations[i - 1],
+                                                      parameters[i], parameters[i - 1])
+                                  .Edge();
+            if (reverse)
+                edge.Reverse();
+            path_builder.Add(edge);
+        }
+        path.shape = path_builder.Wire();
+    } else {
+        path = spine_input;
+        const auto p = reverse ? b : a;
+        gp_Pnt q;
+        gp_Vec tangent;
+        spine_curve->D1(p, q, tangent);
+        profile_in_plane(sections[0], q, tangent.Normalized(), s.surface.tolerance);
+    }
+    BRepOffsetAPI_MakePipeShell pipe(wire(path.shape));
+    pipe.SetMode(s.surface.frame_mode == "FRENET");
+    pipe.SetTolerance(s.surface.tolerance, s.surface.tolerance, topology_angular_tolerance_radians);
+    pipe.SetMaxDegree(12);
+    pipe.SetMaxSegments(256);
+    std::optional<GeometryFeatureBuild> guide;
+    if (s.surface.guide) {
+        guide = connected_curve(read_geometry_input(*s.surface.guide));
+        if (wire(guide->shape).Closed() || members(guide->shape, TopAbs_EDGE).size() != 1)
+            throw std::invalid_argument("SURFACE_GUIDE_OPEN_SINGLE_EDGE_REQUIRED");
+        const auto ge = single_edge(*guide);
+        if (!internally_g1(ge, tolerance, topology_angular_tolerance_radians))
+            throw std::invalid_argument("SURFACE_GUIDE_G1_REQUIRED");
+        for (const auto& section : sections) {
+            const auto w = wire(section.shape);
+            if (w.Closed())
+                throw std::invalid_argument("SURFACE_GUIDE_OPEN_SECTION_REQUIRED");
+            TopoDS_Vertex first, last;
+            TopExp::Vertices(w, first, last);
+            BRepExtrema_DistShapeShape d0(guide->shape, first), d1(guide->shape, last);
+            if (!d0.IsDone() || !d1.IsDone() ||
+                std::min(d0.Value(), d1.Value()) > s.surface.tolerance ||
+                std::max(d0.Value(), d1.Value()) <= s.surface.tolerance)
+                throw std::invalid_argument("SURFACE_GUIDE_SECTION_ENDPOINT_REQUIRED");
+        }
+        pipe.SetMode(wire(guide->shape), Standard_False, BRepFill_NoContact);
+    }
+    size_t count = 0;
+    bool closed = false;
+    for (size_t i = 0; i < sections.size(); ++i) {
+        check();
+        const auto w = wire(sections[i].shape);
+        const auto n = members(w, TopAbs_EDGE).size();
+        if (i == 0) {
+            count = n;
+            closed = w.Closed();
+        } else if (n != count || w.Closed() != closed)
+            throw std::invalid_argument("SURFACE_LOFT_SECTION_CORRESPONDENCE_REQUIRED");
+        if (n > 64)
+            throw std::invalid_argument("SURFACE_CONTROL_BUDGET");
+        if (is_loft)
+            pipe.Add(w, stations[i], Standard_False, Standard_False);
+        else
+            pipe.Add(w, Standard_False, Standard_False);
+    }
+    pipe.Build();
+    check();
+    if (!pipe.IsDone() || pipe.Shape().IsNull())
+        throw std::invalid_argument("SURFACE_CONTROLLED_SWEEP_FAILED");
+    if (!std::isfinite(pipe.ErrorOnSurface()) || pipe.ErrorOnSurface() > s.surface.tolerance)
+        throw std::invalid_argument("SURFACE_APPROXIMATION_TOLERANCE_EXCEEDED");
+    GeometryFeatureBuild out;
+    out.shape = pipe.Shape();
+    std::vector<GeometryFeatureBuild> all = sections;
+    all.push_back(spine_input);
+    if (guide)
+        all.push_back(*guide);
+    joint_history(out, all, pipe, s.feature_id, "controlled-sweep");
+    named_boundary(out, pipe.FirstShape(), s.feature_id, "controlled-sweep/start");
+    named_boundary(out, pipe.LastShape(), s.feature_id, "controlled-sweep/end");
+    return out;
+}
+
 GeometryFeatureBuild sweep(const GeometryFeatureSpec& s,
                            const std::vector<GeometryFeatureBuild>& inputs,
                            const std::function<void()>& check) {
@@ -243,7 +532,10 @@ GeometryFeatureBuild sweep(const GeometryFeatureSpec& s,
                path_count = members(inputs[1].shape, TopAbs_EDGE).size();
     if (profile_count > 256 || path_count > 512 || profile_count * path_count > 8192)
         throw std::invalid_argument("SURFACE_SWEEP_PATH_BUDGET");
-    const auto profile_input = connected_curve(inputs[0]), path_input = connected_curve(inputs[1]);
+    if (s.surface.guide)
+        return controlled_pipe(s, inputs, check);
+    const auto profile_input = closing_section(s, inputs[0], 0),
+               path_input = connected_curve(inputs[1]);
     const auto profile = wire(profile_input.shape), path = wire(path_input.shape);
     std::vector<TopoDS_Edge> edges;
     for (BRepTools_WireExplorer it(path); it.More(); it.Next())
@@ -300,16 +592,20 @@ GeometryFeatureBuild sweep(const GeometryFeatureSpec& s,
     named_boundary(out, pipe.LastShape(), s.feature_id, "sweep/end");
     return out;
 }
-std::map<int, TopoDS_Edge> rectangle_sides(const TopoDS_Face& face);
+
 GeometryFeatureBuild loft(const GeometryFeatureSpec& s,
                           const std::vector<GeometryFeatureBuild>& inputs,
                           const std::function<void()>& check) {
+    if (s.surface.spine)
+        return controlled_pipe(s, inputs, check);
+    if (s.surface.guide)
+        throw std::invalid_argument("SURFACE_GUIDE_SPINE_REQUIRED");
     BRepOffsetAPI_ThruSections op(Standard_False, s.surface.ruled, s.surface.tolerance);
     op.CheckCompatibility(Standard_False);
     op.SetMutableInput(Standard_True);
     std::vector<GeometryFeatureBuild> sections;
-    for (const auto& input : inputs)
-        sections.push_back(connected_curve(input));
+    for (size_t i = 0; i < inputs.size(); ++i)
+        sections.push_back(closing_section(s, inputs[i], i));
     size_t edge_count = 0;
     bool closed = false;
     for (size_t i = 0; i < inputs.size(); ++i) {
@@ -339,7 +635,7 @@ GeometryFeatureBuild loft(const GeometryFeatureSpec& s,
         const auto faces = out.named;
         for (const auto& n : faces)
             if (n.shape.ShapeType() == TopAbs_FACE) {
-                const auto sides = rectangle_sides(TopoDS::Face(n.shape));
+                const auto sides = surface_rectangle_sides(TopoDS::Face(n.shape));
                 add(out, derived(s.feature_id, "loft/start", {n.ref}), sides.at(2), {n.ref});
                 add(out, derived(s.feature_id, "loft/end", {n.ref}), sides.at(3), {n.ref});
             }
@@ -456,57 +752,7 @@ GeometryFeatureBuild trim(const GeometryFeatureSpec& s,
 }
 // A rectangle side is a construction role in the source surface's parameter
 // chart, not a persistent position or the order OCCT happened to traverse it.
-std::map<int, TopoDS_Edge> rectangle_sides(const TopoDS_Face& face) {
-    double u0, u1, v0, v1;
-    BRepTools::UVBounds(face, u0, u1, v0, v1);
-    if (!std::isfinite(u0) || !std::isfinite(u1) || !std::isfinite(v0) || !std::isfinite(v1) ||
-        members(face, TopAbs_WIRE).size() != 1)
-        throw std::invalid_argument("SURFACE_EXTEND_RECTANGULAR_DOMAIN_REQUIRED");
-    std::map<int, TopoDS_Edge> sides;
-    for (const auto& shape : members(face, TopAbs_EDGE)) {
-        const auto edge = TopoDS::Edge(shape);
-        double first, last;
-        auto curve = BRep_Tool::CurveOnSurface(edge, face, first, last);
-        if (curve.IsNull())
-            throw std::invalid_argument("SURFACE_EXTEND_BOUNDARY_PCURVE_REQUIRED");
-        const auto line = Handle(Geom2d_Line)::DownCast(curve);
-        if (line.IsNull())
-            throw std::invalid_argument("SURFACE_EXTEND_ISOPARAMETRIC_BOUNDARY_REQUIRED");
-        const auto origin = line->Location();
-        const auto dir = line->Direction();
-        const double eps = 1e-8 * std::max({1., std::abs(u1 - u0), std::abs(v1 - v0)});
-        int side = -1;
-        if (std::abs(dir.X()) < 1e-10) {
-            if (std::abs(origin.X() - u0) <= eps)
-                side = 0;
-            else if (std::abs(origin.X() - u1) <= eps)
-                side = 1;
-        } else if (std::abs(dir.Y()) < 1e-10) {
-            if (std::abs(origin.Y() - v0) <= eps)
-                side = 2;
-            else if (std::abs(origin.Y() - v1) <= eps)
-                side = 3;
-        }
-        if (side < 0 || sides.count(side))
-            throw std::invalid_argument("SURFACE_EXTEND_RECTANGULAR_DOMAIN_REQUIRED");
-        sides.emplace(side, edge);
-    }
-    // Periodic charts have the same seam edge twice; the omitted alias is exact
-    // topology, and that seam is never a free boundary available to extend.
-    if (sides.size() == 3) {
-        if (!sides.count(0) && sides.count(1))
-            sides[0] = sides[1];
-        else if (!sides.count(1) && sides.count(0))
-            sides[1] = sides[0];
-        else if (!sides.count(2) && sides.count(3))
-            sides[2] = sides[3];
-        else if (!sides.count(3) && sides.count(2))
-            sides[3] = sides[2];
-    }
-    if (sides.size() != 4)
-        throw std::invalid_argument("SURFACE_EXTEND_RECTANGULAR_DOMAIN_REQUIRED");
-    return sides;
-}
+
 GeometryFeatureBuild extend(const GeometryFeatureSpec& s,
                             const std::vector<GeometryFeatureBuild>& inputs,
                             const std::function<void()>& check) {
@@ -525,7 +771,7 @@ GeometryFeatureBuild extend(const GeometryFeatureSpec& s,
     const auto edge = TopoDS::Edge(boundary->shape);
     if (!contains(face, edge) || BRep_Tool::IsClosed(edge, face))
         throw std::invalid_argument("SURFACE_EXTEND_FREE_BOUNDARY_REQUIRED");
-    const auto original = rectangle_sides(face);
+    const auto original = surface_rectangle_sides(face);
     int selected = -1;
     for (const auto& [side, e] : original)
         if (e.IsSame(edge))
@@ -544,7 +790,7 @@ GeometryFeatureBuild extend(const GeometryFeatureSpec& s,
     auto result = make.Face();
     if (face.Orientation() == TopAbs_REVERSED)
         result.Reverse();
-    const auto generated = rectangle_sides(result);
+    const auto generated = surface_rectangle_sides(result);
     GeometryFeatureBuild out;
     out.shape = result;
     const auto r = named(inputs[0], face).ref;
@@ -580,9 +826,10 @@ GeometryFeatureBuild close(const GeometryFeatureSpec& s,
 }
 }  // namespace
 bool is_surface_feature(const std::string& op) {
-    return op == "SURFACE_SWEEP" || op == "SURFACE_LOFT" || op == "SURFACE_FILL" ||
-           op == "SURFACE_TRIM" || op == "SURFACE_EXTEND" || op == "SURFACE_JOIN" ||
-           op == "SURFACE_SEW" || op == "SURFACE_OFFSET" || op == "CLOSE_SURFACE";
+    return op == "SURFACE_BOUNDARY" || op == "SURFACE_BLEND" || op == "SURFACE_SWEEP" ||
+           op == "SURFACE_LOFT" || op == "SURFACE_FILL" || op == "SURFACE_TRIM" ||
+           op == "SURFACE_EXTEND" || op == "SURFACE_JOIN" || op == "SURFACE_SEW" ||
+           op == "SURFACE_OFFSET" || op == "CLOSE_SURFACE";
 }
 GeometryFeatureBuild build_surface_feature(const GeometryFeatureSpec& s,
                                            const std::vector<GeometryFeatureBuild>& inputs,
@@ -592,6 +839,45 @@ GeometryFeatureBuild build_surface_feature(const GeometryFeatureSpec& s,
             throw std::runtime_error("EVALUATION_CANCELLED");
     };
     check();
+    const bool path_control = s.operation == "SURFACE_SWEEP" || s.operation == "SURFACE_LOFT";
+    if ((s.surface.spine && s.operation != "SURFACE_LOFT") ||
+        (!s.surface.sections.empty() && !path_control) || (s.surface.guide && !path_control) ||
+        (!s.surface.boundaries.empty() && s.operation != "SURFACE_FILL" &&
+         s.operation != "SURFACE_BOUNDARY" && s.operation != "SURFACE_BLEND"))
+        throw std::invalid_argument("SURFACE_CONTROL_ROLE_INVALID");
+    if (s.surface.ruled && (s.surface.spine || s.surface.guide))
+        throw std::invalid_argument("SURFACE_GUIDED_SMOOTH_REQUIRED");
+    const bool guide_frame =
+        s.surface.frame_mode == "GUIDE_FRAME" || s.surface.frame_mode == "GUIDE_BORDER";
+    if (s.surface.guide.has_value() != guide_frame)
+        throw std::invalid_argument("SURFACE_GUIDE_MODE_REQUIRED");
+    if (path_control && !s.surface.frame_mode.empty() && s.surface.frame_mode != "FRENET" &&
+        s.surface.frame_mode != "CORRECTED_FRENET" && !guide_frame)
+        throw std::invalid_argument("SURFACE_SWEEP_FRAME_REQUIRED");
+    std::set<uint32_t> control_sections;
+    std::set<std::string> control_ids;
+    const auto section_count = s.operation == "SURFACE_SWEEP" ? 1 : inputs.size();
+    for (const auto& c : s.surface.sections) {
+        if (c.id.empty() || c.section_index >= section_count ||
+            !control_sections.insert(c.section_index).second || !control_ids.insert(c.id).second)
+            throw std::invalid_argument("SURFACE_SECTION_CONTROL_INVALID");
+        if (c.station_point && !s.surface.spine)
+            throw std::invalid_argument("SURFACE_STATION_SPINE_REQUIRED");
+        if (!c.couplings.empty()) {
+            if (s.operation != "SURFACE_LOFT" || s.surface.sections.size() != section_count)
+                throw std::invalid_argument("SURFACE_COUPLING_ALL_SECTIONS_REQUIRED");
+            for (const auto& other : s.surface.sections) {
+                if (other.couplings.size() != c.couplings.size())
+                    throw std::invalid_argument("SURFACE_COUPLING_ALL_SECTIONS_REQUIRED");
+                for (size_t i = 0; i < c.couplings.size(); ++i)
+                    if (c.couplings[i].id != other.couplings[i].id)
+                        throw std::invalid_argument("SURFACE_COUPLING_ORDER_INVALID");
+            }
+        }
+    }
+    if (s.operation == "SURFACE_BOUNDARY" || s.operation == "SURFACE_BLEND" ||
+        (s.operation == "SURFACE_FILL" && !s.surface.boundaries.empty()))
+        return build_shape_control_surface(s, inputs, cancelled);
     size_t input_topology = 0;
     for (const auto& input : inputs) {
         check();
@@ -612,7 +898,9 @@ GeometryFeatureBuild build_surface_feature(const GeometryFeatureSpec& s,
         s.surface.tolerance > 1e-2)
         throw std::invalid_argument("SURFACE_TOLERANCE_OUT_OF_RANGE");
     GeometryFeatureBuild out;
-    if (s.operation == "SURFACE_SWEEP")
+    if (s.surface.frame_mode == "GUIDE_BORDER")
+        out = build_border_guide_surface(s, inputs, cancelled);
+    else if (s.operation == "SURFACE_SWEEP")
         out = sweep(s, inputs, check);
     else if (s.operation == "SURFACE_LOFT")
         out = loft(s, inputs, check);

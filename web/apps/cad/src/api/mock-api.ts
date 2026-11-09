@@ -854,6 +854,7 @@ export const mockApi: CadApi = {
   cancelAssemblyConflicts:async()=>undefined,
 	assemblyCapabilities: async () => { throw new Error("Exact assembly capabilities require the real server"); },
 	inspectAssemblySupports: async () => { throw new Error("Exact support inspection requires the real Worker; mock geometry is not authoritative"); },
+ shapeQuality:async()=>{throw new Error('曲率分析需要真实 Worker');},
  measure:async()=>{throw new Error('精确测量需要真实 Worker');},
  analyzeSpatial:async()=>{throw new Error("空间分析需要真实 Worker");},
  getSpatialResult:async()=>{throw new Error("空间分析需要真实制品存储");},

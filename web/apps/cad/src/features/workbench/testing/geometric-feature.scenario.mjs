@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'vite';
 const server=await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
 try{
- const {defaultGeometricFeature,geometryCommands,geometryFields,geometryReady,splineControlMode,editGeometryPoint,sketchGeometryInput,geometryInputIdentity}=await server.ssrLoadModule('/src/features/workbench/geometric-feature-model.ts');
+ const {defaultGeometricFeature,geometryCommands,geometryFields,geometryReady,splineControlMode,editGeometryPoint,sketchGeometryInput,geometryInputIdentity,syncSurfaceControls}=await server.ssrLoadModule('/src/features/workbench/geometric-feature-model.ts');
  const {bindGeometryReference}=await server.ssrLoadModule('/src/features/workbench/geometric-input-selection.ts');
  const {contextTabs,builtinCatalog}=await server.ssrLoadModule('/src/cad/command/workbench-catalog.ts');
  const facts={isMock:false,hostType:'PART',targetType:'PART',sketchActive:false,canEdit:true,rootCanEdit:true,busy:false,selectionKind:'',selectionCount:0,hasWorkingBody:false,moveReceiptPending:false};
@@ -31,5 +31,14 @@ try{
  const ref=await bindGeometryReference(view,{kind:'visual',visualType:'POINT',documentId:'part',versionId:'v',featureId:'sketch',entityId:'first',sketchReference:{target:'ENTITY',entityId:'first',subElement:'START',pointId:'stable-start'}},'v','point');
  assert.deepEqual(ref,{kind:'POINT',point:{sketchId:'sketch',reference:{target:'ENTITY',entityId:'first',subElement:'START',pointId:'stable-start'}}});
  assert.equal(geometryInputIdentity({...point('a'),reversed:true}),geometryInputIdentity(point('a')),'reverse changes orientation, not selected object identity');
+ const result=id=>({kind:'RESULT',featureId:id,resultId:'result'});
+ const loft=defaultGeometricFeature('SURFACE_LOFT').geometry;loft.inputs=[result('one'),result('two')];syncSurfaceControls(loft);
+ const first=loft.surface.sections[0].id,second=loft.surface.sections[1].id;
+ loft.surface.sections[0].closingPoint=point('close');loft.inputs.reverse();loft.inputs[0].reversed=true;syncSurfaceControls(loft);
+ assert.deepEqual(loft.surface.sections.map(c=>c.id),[second,first]);assert.equal(loft.surface.sections[1].closingPoint.datum.entityId,'close');
+ loft.surface.spine=result('spine');assert(!geometryReady(loft));loft.surface.sections.forEach(c=>c.stationPoint=point('station-'+c.id));assert(geometryReady(loft));
+ for(const c of loft.surface.sections)c.couplings=[{id:'paired',point:point(c.id)}];loft.inputs.push(result('third'));syncSurfaceControls(loft);assert.equal(loft.surface.sections[2].couplings[0].id,'paired');assert(!geometryReady(loft),'new section must complete the existing correspondence');
+ const blend=defaultGeometricFeature('SURFACE_BLEND').geometry;blend.inputs=[result('a'),result('b')];syncSurfaceControls(blend);const control=blend.surface.boundaries[0];control.continuity='G2';assert(!geometryReady(blend));control.support={kind:'PLANE',planeId:'xy'};assert(geometryReady(blend));assert(geometryFields(blend).some(f=>f.slot===`geometry:tension:${control.id}`));
+ blend.inputs.reverse();syncSurfaceControls(blend);assert.equal(blend.surface.boundaries[1].id,control.id);blend.inputs.pop();syncSurfaceControls(blend);assert(!blend.surface.boundaries.some(c=>c.id===control.id));
  console.log('geometry tabs, empty drafts, associative picks and ordered point edits: PASS');
 }finally{await server.close()}

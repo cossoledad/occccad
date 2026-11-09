@@ -23,6 +23,14 @@ type MeasurementResult struct {
 }
 
 func (c *Client) MeasureGeometry(ctx context.Context, id, kind string, inputs []AnalysisGeometry, operands [][]MeasurementElement) (MeasurementResult, error) {
+	req := measurementRequest(id, kind, inputs, operands)
+	reply, err := c.worker.MeasureGeometry(ctx, req)
+	if err != nil {
+		return MeasurementResult{}, fmt.Errorf("measurement: %w", err)
+	}
+	return validateMeasurementResult(reply, kind)
+}
+func measurementRequest(id, kind string, inputs []AnalysisGeometry, operands [][]MeasurementElement) *workerv1.MeasureGeometryRequest {
 	req := &workerv1.MeasureGeometryRequest{RequestId: id, Kind: kind}
 	for _, g := range inputs {
 		req.Geometry = append(req.Geometry, &workerv1.AnalysisGeometry{Id: g.ID, GeometryId: g.GeometryID, Brep: artifactProto(g.BRep), Pose: protoPose(g.Pose)})
@@ -34,17 +42,14 @@ func (c *Client) MeasureGeometry(ctx context.Context, id, kind string, inputs []
 		}
 		req.Operands = append(req.Operands, p)
 	}
-	reply, err := c.worker.MeasureGeometry(ctx, req)
-	if err != nil {
-		return MeasurementResult{}, fmt.Errorf("measurement: %w", err)
-	}
-	return validateMeasurementResult(reply, kind)
+	return req
 }
+
 func validateMeasurementResult(reply *workerv1.MeasureGeometryResponse, kind string) (MeasurementResult, error) {
 	bad := func() (MeasurementResult, error) {
 		return MeasurementResult{}, fmt.Errorf("invalid measurement response")
 	}
-	if reply == nil || reply.KernelBuild == "" || len(reply.Values) > 32 || len(reply.Anchors) > 16 {
+	if reply == nil || len(reply.Curvature) != 0 || reply.UndefinedSamples != 0 || reply.KernelBuild == "" || len(reply.Values) > 32 || len(reply.Anchors) > 16 {
 		return bad()
 	}
 	out := MeasurementResult{Complete: reply.Complete, Diagnostic: reply.Diagnostic, GeometryType: reply.GeometryType, KernelBuild: reply.KernelBuild, Values: reply.Values, Anchors: map[string][3]float64{}}
