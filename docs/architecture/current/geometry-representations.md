@@ -47,11 +47,15 @@ local ID 和三角形序号仍只是该 GeometryKey 的临时拾取定位。持�
 
 `OCCCCAD_visualization` 保存非实体 primitives、Feature/entity identity 和显示所需的基准几何。DocumentView 只返回角色索引和轻量摘要；后端缩略图及前端 VisualRepository 解码同一文件。解码的 Mesh 是消费者自己的内存工作集，不持久化，不塞回 TanStack Query 的 DocumentView。
 
-下载入口为 `GET /api/documents/{documentID}/representations/{objectID}?versionId=...`。先校验文档权限，再校验对象属于指定 Revision 及其冻结 Product 引用；ContextVariant 使用既有领域解析门验证。不能拿任意 object id 读取其他文档对象。响应支持 ETag 私有重验证。前端按对象/摘要合并下载，每次最多 4 路；检查长度、representation/CAD schema，支持 WebCrypto 的上下文还校验 SHA-256；过期 render 请求不覆盖新视图，切换文档时清除旧场景。释放视口时取消加载并释放缓存。
+下载入口为 `GET /api/documents/{documentID}/representations/{objectID}?versionId=...`。先校验文档权限，再校验对象属于指定 Revision 及其冻结 Product 引用；ContextVariant 使用既有领域解析门验证。不能拿任意 object id 读取其他文档对象。响应支持 ETag 私有重验证。GLB 可协商 `application/vnd.occccad.visual-delta`：客户端携带同文档已接纳基准的完整 representation URL，服务端分别验证目标和基准的权限、Revision/Body 范围，再生成字节复制、字面量和 UINT32 平移指令；它是无损 HTTP 编码，不是新的持久制品或拓扑身份。两端绑定完整 SHA/长度，客户端还原后再走原 GLB/Geometry/Naming 门禁。基准不可用时客户端重试完整目标；编码槽忙、超过 64 MiB 或收益不足时服务端直接发完整 GLB。编码与完整响应使用各自强 ETag，按 Accept 区分变体；服务端一次只生成一个增量包。
+
+前端按对象/摘要合并下载，每次最多 4 路；检查长度、representation/CAD schema，支持 WebCrypto 的上下文还校验 SHA-256；过期 render 请求不覆盖新视图，切换文档时清除旧场景。释放视口时取消加载并释放缓存。VisualRepository 保留最多 64 MiB 的已接纳基准字节；预览不能成为过期基准，提升为正式 Revision 后使用该 Revision 的授权 URL。大 GLB 在单条可取消 Web Worker 队列解码并预计算整件轮廓；传递 ArrayBuffer 所有权，避免 structured clone 触发惰性数组投影。单个 FACE primitive 的紧凑 FLOAT/UINT32 accessor 直接供渲染/BVH 使用，多个 primitive 只合并一次；旧数组接口按需展开。取消当前解码会终止其 Worker，排队任务的字节仍由调用方持有，迟到结果不能发布。
 
 ## 拓扑感知的离散快照
 
-内核 `OcctKernel::tessellate` 是精确几何可视化的唯一几何入口：对驻留精确 Shape 深拷贝（含几何，不复制旧剖分），对整个 Shape 进行一次 OCCT 剖分，然后固定面节点、三角形、法线、Edge 折线、Vertex 点和 localId 映射。源 Shape 和 Naming 不因显示精度变化而修改。解析曲面也启用内部偏差控制；剖分失败状态、缺失面/边界和邻接边界不一致均显式失败，不能发布部分成功。
+内核 `OcctKernel::tessellate` 是精确几何可视化的唯一几何入口：对驻留精确 Shape 深拷贝（含几何，不复制旧剖分），在隔离副本中进行 OCCT 增量剖分，然后固定面节点、三角形、法线、Edge 折线、Vertex 点和 localId 映射。源 Shape 和 Naming 不因显示精度变化而修改。解析曲面也启用内部偏差控制；剖分失败状态、缺失面/边界和邻接边界不一致均显式失败，不能发布部分成功。
+
+未变化面的复用只认同进程内相同 TShape、Location、朝向和显示精度，不按坐标/曲面近似匹配。不可变 face packet 保存剖分及全部有向边界，深拷贝后植入新的隔离 Shape；OCCT 仍检查并细化需要的面。复用后的全结果照常验证全部邻接边界，不一致先冷算，再按既有策略重试；不会放宽精度或发布部分网格。缓存最多两帧、128 MiB 保守计数预算（含去重后的源几何与剖分缓冲），策略变化/ForceCold 清除。首次没有可用面时仍完整划分，不把重复请求命中算作首次收益。
 
 附面 Edge 遍历全部有向 EdgeUse，从同次 `PolygonOnTriangulation` 取节点；包含周期面的双接缝、位置变换和退化极点。所有邻接 use 的节点序列须按原模型边/点容差正向或反向一致，验证后才选取确定顺序的显示折线；不独立采样、不全局焊接、不放大显示容差。退化边确认收缩为一点后不产生零长显示线。无邻接面的孤立曲线读取同次剖分生成的 `Polygon3D`，不再通过另一套采样器重建。默认显示线性偏差为 0.02 mm，角偏差为 0.12 rad；曲线、曲面、实体及交换导入共用该策略，缓存含精度与离散策略版本。相同路径的拉伸用例中使用同源边节点，不承诺任意修剪/曲面精化后的独立制品都具有相同节点。`GetTopology` 保持精确属性查询，保留的 `render_points` 字段为空，不触发剖分。
 
@@ -59,7 +63,7 @@ local ID 和三角形序号仍只是该 GeometryKey 的临时拾取定位。持�
 
 Worker 的 `fill_evaluation` 统一调度离散与编码，`make_glb` 消费快照法线。Worker 仍通过互斥锁串行管理同一驻留内核；整 Body 剖分和曲面抽壳布尔复用 OCCT 内部至多 4 路并行，不拆分相邻 Face。快照以 `shared_ptr<const ...>` 缓存，编码/提取目前按稳定顺序执行。不同 Worker 可并发计算独立输入。
 
-两级易失缓存分别保存冻结请求的完整求值结果和 GeometryId/精度/离散策略对应的可视化快照，各最多 8 项、64 MiB 计数预算；超大结果正常计算但不缓存。请求键包含真实输入、命名策略及精度，不以调用者 geometryKey 代替输入身份。串行门合并排队的相同请求，命中后复用 BREP/GLB/Naming 字节并写入当前 attempt 路径，不重复求值或编码。Naming 仍由该请求的实际命名历史绑定到同一 GeometryId；Go 在现有 GLB 制品装配阶段加入 Naming digest。前端要求带 Naming 的制品具有完整关联，成套 hydrate 后切换，显示/hover/selected 读取同一 mesh.edges。
+两级易失缓存分别保存冻结请求的完整求值结果和 GeometryId/精度/离散策略对应的可视化快照，各有 64 MiB 计数预算；超大结果正常计算但不缓存。请求键包含真实输入、命名策略及精度，不以调用者 geometryKey 代替输入身份。串行门合并排队的相同请求，命中后复用 BREP/GLB/Naming 字节并写入当前 attempt 路径，不重复求值或编码。BREP 与 GLB 字节通过不可变共享所有权借用，缓存/发布不再各复制一份；精确 Shape 的驻留计数按共享几何并集计量，避免同源结果被反复当作完整导入件收费。Naming 仍由该请求的实际命名历史绑定到同一 GeometryId；Go 在现有 GLB 制品装配阶段加入 Naming digest。前端要求带 Naming 的制品具有完整关联，成套 hydrate 后切换，显示/hover/selected 读取同一 mesh.edges。
 
 `visual_snapshot` 日志记录剖分、面提取、边界提取/验证、法线、编码耗时及顶点/三角形/边节点/GLB 字节数，缓存命中另有标识。剖分与 Part Boolean 已接入 OCCT progress 协作取消，编码及缓存接纳前再次检查取消；其余原生算法不保证中途响应。缓存预算不包含驻留 BREP 与计算峰值；尚未实现进程整体按字节淘汰。
 
@@ -82,7 +86,7 @@ Multi-Body 定向入口为 `TestMultiBodyIndependentGeometryAndHistory`（双 Bo
 其他定向入口包括真实 Router 的 Cut/Hole 和 Face/Edge/Vertex/导入命名历史回归、`TestRepresentationDownloadAuthorizationAndSnapshot`、`TestCppWorkerAcceptsPartNamingContract`、`TestS3WorkerExchangeRoundTrip`，以及前端 `mesh-glb` 场景。真实 C++ GLB 可通过 `OCCCCAD_TEST_GLB_FIXTURE` 同时交给 Go 缩略图与 TypeScript 解码器核对拾取映射。
 
 
-现有数据职责分层不构成 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、chunk、按字节预算、跨主机 Worker 数据面尚未实现。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE 支持基础 RGB [颜色材质](surface-appearance.md)，PMI 等完整 AP242 扩展尚未交付；WebSocket 控制面见独立分册。未发布格式的重建规则见[开发数据边界](../../../AGENTS.md#当前开发数据边界)；当前不提供旧内联数据回退。
+现有数据职责分层不构成 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、几何分块/按需装载、进程全局内存预算和跨主机 Worker 数据面尚未实现。现有模块缓存预算不等于全进程 RSS 上限。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE 支持基础 RGB [颜色材质](surface-appearance.md)，PMI 等完整 AP242 扩展尚未交付；WebSocket 控制面见独立分册。未发布格式的重建规则见[开发数据边界](../../../AGENTS.md#当前开发数据边界)；当前不提供旧内联数据回退。
 
 ## 独立几何分析的 exact 输入
 

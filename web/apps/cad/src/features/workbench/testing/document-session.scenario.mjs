@@ -86,7 +86,7 @@ try {
     solidBindings: new Map(), selectable: new Set(), profileRegionBindings: [], assemblyConstraintReferences: new Map(), assemblyConstraintMarkers: new Map(),
     screenStableReferences: new Map(), selectionIndex: { clear: noop }, selected: [], activeToolID: "select",
     transforms: { stopAll: noop }, moveManipulator: { detach: noop },
-    clearInsertPatternPreview: noop, clearCommandPreview: noop, clearInteractionState: noop, disposeGroup: noop,
+    clearInsertPatternPreview: noop, clearCommandPreview: noop, clearInteractionState: noop, disposeGroup: noop, disposeInteractionGeometry: noop,
     renderPart: noop, renderProduct: noop, showMechanism: noop, updateSketchContextVisibility: noop, applyTreeVisibility: noop,
     setDatumPreview: noop, refreshContentBounds: noop, selectMany: noop, select: noop, buildSketchContext: noop,
     emitDebugState: noop, invalidate: noop, refreshInteractionHighlights: noop,

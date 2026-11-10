@@ -3,6 +3,7 @@
 #endif
 #include <Standard_Version.hxx>
 #include "naming_artifact.hpp"
+#include "cancellation.hpp"
 
 #include <internal/occt_kernel.hpp>
 #include <occccad/assembly/solver.hpp>
@@ -1739,9 +1740,9 @@ public:
                 response->CopyFrom(cached->second.response);
                 const auto old_stats=response->runtime_stats();response->clear_runtime_stats();
                 response->set_geometry_key(request->geometry_key());
-                if (external_outputs && !cached->second.brep.empty()) {
-                    publish(request->brep_output_key(), cached->second.brep, "application/vnd.opencascade.brep", response->mutable_brep_artifact());
-                    if(!request->exact_only())publish(request->glb_output_key(), cached->second.glb, "model/gltf-binary", response->mutable_glb_artifact());
+                if (external_outputs && cached->second.brep && !cached->second.brep->empty()) {
+                    publish(request->brep_output_key(), *cached->second.brep, "application/vnd.opencascade.brep", response->mutable_brep_artifact());
+                    if(!request->exact_only())publish(request->glb_output_key(), *cached->second.glb, "model/gltf-binary", response->mutable_glb_artifact());
                     if (!cached->second.naming.empty()) publish(request->brep_output_key()+".naming.pb", cached->second.naming,
                         "application/vnd.occccad.topology-manifest.v2+protobuf", response->mutable_evaluation_manifest()->mutable_topology_manifest_artifact());
                     response->set_representation_kind(request->exact_only()?"EXACT_STAGE":"PERSISTENT"); response->clear_preview_mesh();
@@ -1927,7 +1928,9 @@ public:
             occccad::kernel::PartRuntimeStats runtime_stats;
             occccad::kernel::PartRuntimeOptions runtime;
             runtime.force_cold=request->force_cold();runtime.stats=&runtime_stats;
-            runtime.cancelled=[context](){return context->IsCancelled();};
+            const auto cancellation=std::make_shared<occccad::worker::CancellationPolling>([context](){return context->IsCancelled();});
+            runtime.cancelled=[cancellation](){return cancellation->poll();};
+            runtime.fresh_cancelled=[cancellation](){return cancellation->check();};
             if(request->has_base_stage() && !runtime.force_cold) {
                 if(!request->has_import_seed() || base_brep.empty())throw std::invalid_argument("BASE_STAGE_REQUIRES_IMPORT");
                 const auto& source=request->base_stage();
@@ -2002,13 +2005,15 @@ public:
                            kernel_.evaluateProfilePadsWithHistory(profile_specs, base_brep, request->has_import_seed() ? &seed : nullptr,runtime),
                        profile_evaluation.geometry_id);
             if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"evaluation cancelled before display"};
-            std::vector<uint8_t> cached_brep,cached_glb,cached_naming;
+            std::shared_ptr<const std::vector<uint8_t>> cached_brep,cached_glb;
+            std::vector<uint8_t> cached_naming;
             auto* stats=response->mutable_runtime_stats();
             stats->set_artifact_io_ms(input_io_ms);
             stats->set_queue_ms(queue_ms);
             stats->set_input_prepare_ms(std::chrono::duration<double,std::milli>(exact_started-acquired).count());
             stats->set_exact_ms(runtime_stats.exact_ms);
             stats->set_naming_ms(runtime_stats.naming_ms);
+            stats->set_naming_kernel_ms(runtime_stats.naming_ms);
             stats->set_base_ms(runtime_stats.base_ms);stats->set_adjacency_ms(runtime_stats.adjacency_ms);
             stats->set_volume_integrations(runtime_stats.volume_integrations);
             stats->set_face_evidence_computed(runtime_stats.face_evidence_computed);
@@ -2027,7 +2032,7 @@ public:
             const auto display_started=std::chrono::steady_clock::now();
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
-                            request->glb_output_key(),request->exact_only(),request->force_cold(),&cached_brep,&cached_glb,[context](){return context->IsCancelled();});
+                            request->glb_output_key(),request->exact_only(),request->force_cold(),&cached_brep,&cached_glb,runtime.cancelled,runtime.fresh_cancelled);
             stats->set_display_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-display_started).count());
             if (!profile_specs.empty() || request->has_import_seed() || request->has_geometry_feature()) {
                 auto* manifest = response->mutable_evaluation_manifest();
@@ -2090,7 +2095,8 @@ public:
                         if(bytes<=cache_budget_/2){naming_bytes_+=bytes;naming_cache_.emplace(naming_key,NamingSnapshot{geometry_id,topology_bytes,bytes,++cache_clock_});}
                     }
                 }
-                stats->set_naming_ms(stats->naming_ms()+std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-naming_started).count());
+                const auto packing_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-naming_started).count();
+                stats->set_naming_artifact_ms(packing_ms);stats->set_naming_ms(stats->naming_ms()+packing_ms);
                 const auto topology_id = occccad::kernel::make_geometry_id(topology_bytes);
                 manifest->set_topology_manifest_digest(
                     topology_id.rfind("sha256:", 0) == 0 ? topology_id.substr(7) : topology_id);
@@ -2128,6 +2134,7 @@ public:
             struct rusage usage{};if(getrusage(RUSAGE_SELF,&usage)==0)stats->set_peak_rss_bytes(static_cast<uint64_t>(usage.ru_maxrss)*1024);
 #endif
             stats->set_response_cache_bytes(cache_bytes_);stats->set_visual_cache_bytes(visual_bytes_);
+            stats->set_cancellation_polls(cancellation->polls());stats->set_cancellation_poll_ms(cancellation->milliseconds());
             log_rpc("EvaluatePart", request->request_id(), traceparent, "OK", started);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
@@ -2485,16 +2492,16 @@ private:
                          worker_api::EvaluatePartResponse* response,
                          const std::string& brep_output_key = {},
                          const std::string& glb_output_key = {}, bool exact_only = false, bool force_cold = false,
-                         std::vector<uint8_t>* brep_buffer=nullptr,std::vector<uint8_t>* glb_buffer=nullptr,std::function<bool()> cancelled={}) {
+                         std::shared_ptr<const std::vector<uint8_t>>* brep_buffer=nullptr,std::shared_ptr<const std::vector<uint8_t>>* glb_buffer=nullptr,std::function<bool()> cancelled={},std::function<bool()> fresh_cancelled={}) {
         const auto check_cancel=[&](){if(cancelled&&cancelled())throw std::runtime_error("EVALUATION_CANCELLED");};
         check_cancel();
         const auto publish=[&](const auto& key,const auto& bytes,const auto& type,auto* ref){const auto began=std::chrono::steady_clock::now();check_cancel();write_artifact(key,bytes,type,ref);auto* stats=response->mutable_runtime_stats();stats->set_artifact_io_ms(stats->artifact_io_ms()+std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count());};
         const auto bbox = kernel_.getBoundingBox(geometry_id);
         if(exact_only) {
             const auto topology=kernel_.getTopologySummary(geometry_id);
-            const auto brep=kernel_.serializeBrepr(geometry_id);
+            const auto brep=kernel_.borrowBrepr(geometry_id);
             if(brep_buffer)*brep_buffer=brep;
-            if(!brep_output_key.empty())publish(brep_output_key,brep,"application/vnd.opencascade.brep",response->mutable_brep_artifact());
+            if(!brep_output_key.empty())publish(brep_output_key,*brep,"application/vnd.opencascade.brep",response->mutable_brep_artifact());
             response->set_geometry_id(geometry_id);response->set_geometry_key(geometry_key);
             fill_bbox(bbox,response->mutable_bbox());response->set_volume(topology.geometry_domain=="SOLID_SET"?kernel_.getVolume(geometry_id):0);
             auto* summary=response->mutable_topology();summary->set_face_count(topology.face_count);summary->set_edge_count(topology.edge_count);
@@ -2525,7 +2532,7 @@ private:
         }
         else {
             auto computed = std::make_shared<VisualSnapshot>();
-            computed->mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection,true,cancelled);
+            computed->mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection,true,cancelled,fresh_cancelled);
             check_cancel();
             google::protobuf::Struct association;
             (*association.mutable_fields())["geometryId"].set_string_value(geometry_id);
@@ -2533,18 +2540,21 @@ private:
             if (!google::protobuf::util::MessageToJsonString(association,&association_json).ok()) throw std::runtime_error("GLB association serialization failed");
             check_cancel();
             const auto encoding = std::chrono::steady_clock::now();
-            computed->glb = occccad::kernel::make_glb(computed->mesh, association_json);
+            computed->glb = std::make_shared<const std::vector<uint8_t>>(occccad::kernel::make_glb(computed->mesh, association_json));
             check_cancel();
+            if(fresh_cancelled&&fresh_cancelled())throw std::runtime_error("EVALUATION_CANCELLED");
             const auto& m = computed->mesh;
             response->mutable_runtime_stats()->set_mesh_ms(m.timings.meshing_ms);
+            response->mutable_runtime_stats()->set_mesh_reused_faces(m.timings.reused_faces);
+            response->mutable_runtime_stats()->set_mesh_computed_faces(m.timings.computed_faces);
             response->mutable_runtime_stats()->set_encoding_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-encoding).count());
             size_t edge_points = 0; for (const auto& edge : m.edges) edge_points += edge.points.size();
             spdlog::info("visual_snapshot geometry={} mesh_ms={} faces_ms={} edges_ms={} normals_ms={} encoding_ms={} vertices={} triangles={} edges={} edge_points={} glb_bytes={}",
                 geometry_id, m.timings.meshing_ms, m.timings.faces_ms, m.timings.edges_ms, m.timings.normals_ms,
                 std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-encoding).count(),
-                m.vertices.size(),m.triangles.size(),m.edges.size(),edge_points,computed->glb.size());
+                m.vertices.size(),m.triangles.size(),m.edges.size(),edge_points,computed->glb->size());
             size_t edge_capacity = 0; for (const auto& edge : m.edges) edge_capacity += edge.points.capacity();
-            const auto bytes = computed->glb.capacity() + (m.vertices.capacity()+m.normals.capacity()+edge_capacity)*sizeof(occccad::kernel::Vec3)
+            const auto bytes = computed->glb->capacity() + (m.vertices.capacity()+m.normals.capacity()+edge_capacity)*sizeof(occccad::kernel::Vec3)
                 + m.triangles.capacity()*sizeof(occccad::kernel::Triangle) + m.face_ids.capacity()*sizeof(uint32_t)
                 + m.topology_vertices.capacity()*sizeof(occccad::kernel::TopologyPoint) + m.edges.capacity()*sizeof(occccad::kernel::EdgePolyline);
             snapshot = computed;
@@ -2559,18 +2569,18 @@ private:
         }
         const auto& mesh = snapshot->mesh;
         const auto& glb = snapshot->glb;
-        const auto brep = kernel_.serializeBrepr(geometry_id);
+        const auto brep = kernel_.borrowBrepr(geometry_id);
         if(brep_buffer)*brep_buffer=brep;
         if(glb_buffer)*glb_buffer=glb;
 
         response->set_geometry_id(geometry_id);
         response->set_geometry_key(geometry_key);
         if (!brep_output_key.empty())
-            publish(brep_output_key, brep, "application/vnd.opencascade.brep",
+            publish(brep_output_key, *brep, "application/vnd.opencascade.brep",
                            response->mutable_brep_artifact());
 
         if (!glb_output_key.empty())
-            publish(glb_output_key, glb, "model/gltf-binary",
+            publish(glb_output_key, *glb, "model/gltf-binary",
                            response->mutable_glb_artifact());
 
         fill_bbox(bbox, response->mutable_bbox());
@@ -2650,12 +2660,13 @@ private:
         occccad::geometry::sketch::make_plane_gcs_sketch_solver();
     struct EvaluationCache {
         worker_api::EvaluatePartResponse response;
-        std::vector<uint8_t> brep, glb, naming;
+        std::shared_ptr<const std::vector<uint8_t>> brep, glb;
+        std::vector<uint8_t> naming;
         size_t bytes=0;uint64_t used=0;
     };
     struct VisualSnapshot {
         occccad::kernel::TessellationResult mesh;
-        std::vector<uint8_t> glb;
+        std::shared_ptr<const std::vector<uint8_t>> glb;
         size_t bytes=0;mutable uint64_t used=0;
     };
     // Per-worker budgets, in addition to the resident exact model working set.

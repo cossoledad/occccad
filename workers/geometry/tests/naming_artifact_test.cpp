@@ -1,4 +1,5 @@
 #include "../src/naming_artifact.hpp"
+#include "../src/cancellation.hpp"
 
 #include <gtest/gtest.h>
 
@@ -6,6 +7,17 @@
 #include <fstream>
 
 namespace api = occccad::worker::v1;
+TEST(WorkerCancellation, PollingIsBoundedAndAdmissionIsFresh) {
+    int calls=0;int64_t now=0;bool cancelled=false;
+    occccad::worker::CancellationPolling token([&](){++calls;return cancelled;},[&](){return now;});
+    for(int i=0;i<10000;i++)EXPECT_FALSE(token.poll());
+    EXPECT_EQ(calls,1);cancelled=true;EXPECT_FALSE(token.poll());
+    EXPECT_TRUE(token.check());EXPECT_EQ(calls,2);
+    for(int i=0;i<10000;i++)EXPECT_TRUE(token.poll());
+    EXPECT_EQ(calls,2);
+    occccad::worker::CancellationPolling later([&](){++calls;return cancelled;},[&](){return now;});
+    cancelled=false;EXPECT_FALSE(later.poll());cancelled=true;now+=16000;EXPECT_TRUE(later.poll());
+}
 TEST(NamingArtifact, InternsEvidenceAndKeepsExplicitBodyTips) {
     api::SelectionEvidence evidence;
     evidence.set_geometry_type("PLANE");

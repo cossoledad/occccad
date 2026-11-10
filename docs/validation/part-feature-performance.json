@@ -234,5 +234,609 @@
     "Browser timing includes development Vite and software WebGL; not device-independent frame-rate evidence.",
     "Stage/response/visual cache counters do not bound total process RSS.",
     "The original model is not included in the repository; use the frozen BREP digest to identify a matching source."
-  ]
+  ],
+  "incrementalOptimization20261110": {
+    "measuredAtUTC": "2026-11-10T14:17:37Z",
+    "source": {
+      "baseCommit": "360dc55a02ce3c0559f373536263f6df2152b3be",
+      "includesUncommittedChanges": true,
+      "workerSHA256": "7c6e0ad34f5170a933ab3c562189382f906e30c52dbbfac5c5b2baab7f3659e1",
+      "formalPreviewBackendInputsSHA256": "73bb29cb2c3a70572731b257650cb0184489cbe4bd9052dd5946ff2e38900c3d",
+      "subsequentChanges": "HTTP Accept q-value guard, visibility-cache generation and decoder cancellation cleanup were validated separately after timing; native evaluator binary unchanged."
+    },
+    "scope": {
+      "formalPreview": "fresh dev runtime; existing accepted import; three newly executed feature intents, frozen import facts allowed, no result cache hit; no concurrent build or tests",
+      "meshReuse": "exact same source face/Location/orientation and precision; packets copied into isolated OCCT meshing shape; full boundary validation retained",
+      "interaction": "engine CPU only, excludes GPU completion and screenshot synchronization; Chromium SwiftShader 1440x1000; Part root then one whole occurrence in a two-occurrence Product",
+      "heap": "performance.memory coarsened browser buckets; neither precise JS allocation accounting nor process RSS",
+      "transport": "formal VisualRepository with SHA and Geometry/Naming association validation; includes fetch, reconstruction, decode and whole contour preparation, excludes scene/GPU rendering; second sample ran alongside focused web unit tests",
+      "unchangedHead": true
+    },
+    "before": [
+      {
+        "depthMm": 40,
+        "formalPreviewMs": 4488.600000000093,
+        "brepSHA256": "929db317bf0d60aca91c9310fe8202d347dd23683044002e67f7b2dc8da119f7",
+        "visualBytes": 22685124,
+        "workerRuns": [
+          {
+            "stages_executed": 1,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.088972,
+            "exact_ms": 532.942627,
+            "naming_ms": 1436.348593,
+            "display_ms": 1399.636954,
+            "artifact_io_ms": 138.401419,
+            "stage_cache_bytes": 90708664,
+            "executed_feature_ids": [
+              "extrude-0bc7d919-83fe-5457-a804-a6a8ffd3af6e"
+            ],
+            "stages": [
+              {
+                "feature_id": "extrude-0bc7d919-83fe-5457-a804-a6a8ffd3af6e",
+                "input_digest": "sha256:fe2632a173423cc80147def4d1c7031ad5c42bc63687a5b0c857b330cbd8f5d7",
+                "geometry_id": "sha256:929db317bf0d60aca91c9310fe8202d347dd23683044002e67f7b2dc8da119f7"
+              }
+            ],
+            "input_prepare_ms": 101.263829,
+            "peak_rss_bytes": 587456512,
+            "mesh_ms": 1156.126008,
+            "encoding_ms": 29.57085,
+            "response_cache_bytes": 28630532,
+            "visual_cache_bytes": 61624488,
+            "base_ms": 489.421849,
+            "adjacency_ms": 3.592974,
+            "volume_integrations": 1,
+            "face_evidence_computed": 8,
+            "face_evidence_reused": 822,
+            "base_stage_restored": true
+          }
+        ]
+      },
+      {
+        "depthMm": 41,
+        "formalPreviewMs": 4087.100000000093,
+        "brepSHA256": "62d7588e3620eefb02245b561196b41003419b195557080ce53cf09634491dda",
+        "visualBytes": 22685124,
+        "workerRuns": [
+          {
+            "stages_executed": 1,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.095785,
+            "exact_ms": 462.445971,
+            "naming_ms": 1403.729708,
+            "display_ms": 1323.152996,
+            "artifact_io_ms": 98.373864,
+            "stage_cache_bytes": 90708664,
+            "stage_evictions": 1,
+            "executed_feature_ids": [
+              "extrude-0bc7d919-83fe-5457-a804-a6a8ffd3af6e"
+            ],
+            "stages": [
+              {
+                "feature_id": "extrude-0bc7d919-83fe-5457-a804-a6a8ffd3af6e",
+                "input_digest": "sha256:fd878e307153de749f168dc1d43b6309166d1f6a94caf6a7ec4d3d857c0da5ee",
+                "geometry_id": "sha256:62d7588e3620eefb02245b561196b41003419b195557080ce53cf09634491dda"
+              }
+            ],
+            "input_prepare_ms": 38.274301,
+            "peak_rss_bytes": 698724352,
+            "mesh_ms": 1103.485615,
+            "encoding_ms": 22.680784,
+            "response_cache_bytes": 57261066,
+            "visual_cache_bytes": 61624488,
+            "base_ms": 431.145886,
+            "adjacency_ms": 3.60422,
+            "volume_integrations": 1,
+            "face_evidence_computed": 8,
+            "face_evidence_reused": 822,
+            "base_stage_restored": true
+          }
+        ]
+      },
+      {
+        "depthMm": 42,
+        "formalPreviewMs": 4104.399999999907,
+        "brepSHA256": "2ccfc328a875a44583e26ced82822daba02270a025d64ae80bdcca975baa84d1",
+        "visualBytes": 22685124,
+        "workerRuns": [
+          {
+            "stages_executed": 1,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.108504,
+            "exact_ms": 466.020782,
+            "naming_ms": 1403.7837279999999,
+            "display_ms": 1343.404364,
+            "artifact_io_ms": 97.39047199999999,
+            "stage_cache_bytes": 90708664,
+            "stage_evictions": 1,
+            "executed_feature_ids": [
+              "extrude-0bc7d919-83fe-5457-a804-a6a8ffd3af6e"
+            ],
+            "stages": [
+              {
+                "feature_id": "extrude-0bc7d919-83fe-5457-a804-a6a8ffd3af6e",
+                "input_digest": "sha256:747c571f90f8f97bb6433e216129cc037fa038dad555c64cfd37292af8f73385",
+                "geometry_id": "sha256:2ccfc328a875a44583e26ced82822daba02270a025d64ae80bdcca975baa84d1"
+              }
+            ],
+            "input_prepare_ms": 39.608947,
+            "peak_rss_bytes": 754794496,
+            "mesh_ms": 1124.108975,
+            "encoding_ms": 23.394199,
+            "response_cache_bytes": 57261068,
+            "visual_cache_bytes": 61624488,
+            "base_ms": 439.420693,
+            "adjacency_ms": 3.586206,
+            "volume_integrations": 1,
+            "face_evidence_computed": 8,
+            "face_evidence_reused": 822,
+            "base_stage_restored": true
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "depthMm": 40,
+        "formalPreviewMs": 2891.699999999255,
+        "brepSHA256": "929db317bf0d60aca91c9310fe8202d347dd23683044002e67f7b2dc8da119f7",
+        "visualBytes": 22685124,
+        "workerRuns": [
+          {
+            "stages_executed": 1,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.090624,
+            "exact_ms": 603.473436,
+            "naming_ms": 249.50496099999998,
+            "display_ms": 1350.367562,
+            "artifact_io_ms": 149.047611,
+            "stage_cache_bytes": 90708624,
+            "executed_feature_ids": [
+              "extrude-166acdc1-d45e-5b16-ad0e-0779beeb9874"
+            ],
+            "stages": [
+              {
+                "feature_id": "extrude-166acdc1-d45e-5b16-ad0e-0779beeb9874",
+                "input_digest": "sha256:7c54bbc41503557bad8044d6810f21b054d6d7be1184bb29be2b3e1f4e9cc575",
+                "geometry_id": "sha256:929db317bf0d60aca91c9310fe8202d347dd23683044002e67f7b2dc8da119f7"
+              }
+            ],
+            "input_prepare_ms": 91.858919,
+            "peak_rss_bytes": 613838848,
+            "mesh_ms": 1131.586565,
+            "encoding_ms": 32.882085,
+            "response_cache_bytes": 28630556,
+            "visual_cache_bytes": 61624488,
+            "base_ms": 138.685912,
+            "adjacency_ms": 3.292039,
+            "volume_integrations": 1,
+            "face_evidence_computed": 8,
+            "face_evidence_reused": 822,
+            "base_stage_restored": true,
+            "naming_kernel_ms": 142.848952,
+            "naming_artifact_ms": 106.656009,
+            "cancellation_polls": 58,
+            "cancellation_poll_ms": 5.328,
+            "mesh_computed_faces": 828
+          }
+        ]
+      },
+      {
+        "depthMm": 41,
+        "formalPreviewMs": 1556.8999999994412,
+        "brepSHA256": "62d7588e3620eefb02245b561196b41003419b195557080ce53cf09634491dda",
+        "visualBytes": 22685124,
+        "workerRuns": [
+          {
+            "stages_executed": 1,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.090064,
+            "exact_ms": 524.980083,
+            "naming_ms": 232.67755499999998,
+            "display_ms": 268.335409,
+            "artifact_io_ms": 103.80121299999999,
+            "stage_cache_bytes": 90708624,
+            "stage_evictions": 1,
+            "executed_feature_ids": [
+              "extrude-166acdc1-d45e-5b16-ad0e-0779beeb9874"
+            ],
+            "stages": [
+              {
+                "feature_id": "extrude-166acdc1-d45e-5b16-ad0e-0779beeb9874",
+                "input_digest": "sha256:22f1380ec4c4ee7bfbaa2c367257afcf02004dc9bfdc8829f238cb9c63bd3bd2",
+                "geometry_id": "sha256:62d7588e3620eefb02245b561196b41003419b195557080ce53cf09634491dda"
+              }
+            ],
+            "input_prepare_ms": 45.425497,
+            "peak_rss_bytes": 695173120,
+            "mesh_ms": 60.493136,
+            "encoding_ms": 32.537424,
+            "response_cache_bytes": 57261117,
+            "visual_cache_bytes": 61624488,
+            "base_ms": 47.33157,
+            "adjacency_ms": 3.330082,
+            "volume_integrations": 1,
+            "face_evidence_computed": 8,
+            "face_evidence_reused": 822,
+            "base_stage_restored": true,
+            "naming_kernel_ms": 144.040638,
+            "naming_artifact_ms": 88.636917,
+            "cancellation_polls": 23,
+            "cancellation_poll_ms": 2.041,
+            "mesh_reused_faces": 761,
+            "mesh_computed_faces": 67
+          }
+        ]
+      },
+      {
+        "depthMm": 42,
+        "formalPreviewMs": 1496.7999999998137,
+        "brepSHA256": "2ccfc328a875a44583e26ced82822daba02270a025d64ae80bdcca975baa84d1",
+        "visualBytes": 22685124,
+        "workerRuns": [
+          {
+            "stages_executed": 1,
+            "generator_calls": 1,
+            "body_operation_calls": 1,
+            "queue_ms": 0.090453,
+            "exact_ms": 515.013122,
+            "naming_ms": 211.347512,
+            "display_ms": 277.242421,
+            "artifact_io_ms": 100.10771,
+            "stage_cache_bytes": 90708624,
+            "stage_evictions": 1,
+            "executed_feature_ids": [
+              "extrude-166acdc1-d45e-5b16-ad0e-0779beeb9874"
+            ],
+            "stages": [
+              {
+                "feature_id": "extrude-166acdc1-d45e-5b16-ad0e-0779beeb9874",
+                "input_digest": "sha256:e226889c5ffd3a44a560aa12d92adede9535fabde0b27eddde7db22fb7a2a0bd",
+                "geometry_id": "sha256:2ccfc328a875a44583e26ced82822daba02270a025d64ae80bdcca975baa84d1"
+              }
+            ],
+            "input_prepare_ms": 40.963001,
+            "peak_rss_bytes": 741679104,
+            "mesh_ms": 63.603487,
+            "encoding_ms": 39.309262,
+            "response_cache_bytes": 57261122,
+            "visual_cache_bytes": 61624488,
+            "base_ms": 47.270106,
+            "adjacency_ms": 3.323391,
+            "volume_integrations": 1,
+            "face_evidence_computed": 8,
+            "face_evidence_reused": 822,
+            "base_stage_restored": true,
+            "naming_kernel_ms": 129.152387,
+            "naming_artifact_ms": 82.195125,
+            "cancellation_polls": 23,
+            "cancellation_poll_ms": 2.099,
+            "mesh_reused_faces": 761,
+            "mesh_computed_faces": 67
+          }
+        ]
+      }
+    ],
+    "interactions": {
+      "part": {
+        "before": {
+          "samples": [
+            {
+              "action": "hover-root",
+              "cpuMs": 2645.3000000000466,
+              "overlays": 2159,
+              "geometry": 19,
+              "heap": 1280000000
+            },
+            {
+              "action": "hover-clear",
+              "cpuMs": 19.199999999953434,
+              "overlays": 0,
+              "geometry": 19,
+              "heap": 1280000000
+            },
+            {
+              "action": "select-root",
+              "cpuMs": 4369.400000000023,
+              "overlays": 2159,
+              "geometry": 19,
+              "heap": 1280000000
+            },
+            {
+              "action": "hover-body-while-selected",
+              "cpuMs": 4655.5,
+              "overlays": 4318,
+              "geometry": 19,
+              "heap": 1280000000
+            },
+            {
+              "action": "clear-all",
+              "cpuMs": 2534.5,
+              "overlays": 0,
+              "geometry": 19,
+              "heap": 1280000000
+            }
+          ],
+          "errors": []
+        },
+        "after": {
+          "samples": [
+            {
+              "action": "hover-root",
+              "cpuMs": 36.90000000037253,
+              "overlays": 2,
+              "geometry": 19,
+              "heap": 225000000
+            },
+            {
+              "action": "hover-clear",
+              "cpuMs": 0.40000000037252903,
+              "overlays": 0,
+              "geometry": 20,
+              "heap": 225000000
+            },
+            {
+              "action": "select-root",
+              "cpuMs": 1,
+              "overlays": 2,
+              "geometry": 20,
+              "heap": 225000000
+            },
+            {
+              "action": "hover-body-while-selected",
+              "cpuMs": 0.30000000074505806,
+              "overlays": 4,
+              "geometry": 21,
+              "heap": 225000000
+            },
+            {
+              "action": "clear-all",
+              "cpuMs": 0.7000000001862645,
+              "overlays": 0,
+              "geometry": 20,
+              "heap": 225000000
+            }
+          ],
+          "errors": []
+        }
+      },
+      "product": {
+        "before": {
+          "samples": [
+            {
+              "action": "hover-root",
+              "cpuMs": 2831.5,
+              "overlays": 2159,
+              "geometry": 36,
+              "heap": 1280000000
+            },
+            {
+              "action": "hover-clear",
+              "cpuMs": 17.400000000023283,
+              "overlays": 0,
+              "geometry": 36,
+              "heap": 1280000000
+            },
+            {
+              "action": "select-root",
+              "cpuMs": 4588,
+              "overlays": 2159,
+              "geometry": 36,
+              "heap": 1280000000
+            },
+            {
+              "action": "hover-body-while-selected",
+              "cpuMs": 4909.400000000023,
+              "overlays": 4318,
+              "geometry": 36,
+              "heap": 1280000000
+            },
+            {
+              "action": "clear-all",
+              "cpuMs": 2454.5999999999767,
+              "overlays": 0,
+              "geometry": 36,
+              "heap": 1280000000
+            }
+          ],
+          "errors": []
+        },
+        "after": {
+          "samples": [
+            {
+              "action": "hover-root",
+              "cpuMs": 34.69999999925494,
+              "overlays": 2,
+              "geometry": 36,
+              "heap": 225000000
+            },
+            {
+              "action": "hover-clear",
+              "cpuMs": 0.20000000018626451,
+              "overlays": 0,
+              "geometry": 37,
+              "heap": 225000000
+            },
+            {
+              "action": "select-root",
+              "cpuMs": 1,
+              "overlays": 2,
+              "geometry": 37,
+              "heap": 225000000
+            },
+            {
+              "action": "hover-body-while-selected",
+              "cpuMs": 0.40000000037252903,
+              "overlays": 4,
+              "geometry": 38,
+              "heap": 225000000
+            },
+            {
+              "action": "clear-all",
+              "cpuMs": 0.5,
+              "overlays": 0,
+              "geometry": 37,
+              "heap": 225000000
+            }
+          ],
+          "errors": []
+        }
+      }
+    },
+    "transport": {
+      "baseMs": 959.7999999998137,
+      "displayMs": 683.9000000003725,
+      "buffers": 2221350,
+      "contours": 6563382,
+      "worker": [
+        {
+          "stages_executed": 1,
+          "generator_calls": 1,
+          "body_operation_calls": 1,
+          "queue_ms": 0.095905,
+          "exact_ms": 660.906443,
+          "naming_ms": 245.999876,
+          "display_ms": 289.948547,
+          "artifact_io_ms": 123.788261,
+          "stage_cache_bytes": 90708624,
+          "stage_evictions": 1,
+          "executed_feature_ids": [
+            "extrude-0cc33b0c-206f-52a3-9664-53a66d5621c8"
+          ],
+          "stages": [
+            {
+              "feature_id": "extrude-0cc33b0c-206f-52a3-9664-53a66d5621c8",
+              "input_digest": "sha256:daf3401faee65625e5e92a2a45bc514c55a58e87feed907b911b83da99672e61",
+              "geometry_id": "sha256:f4c43cbe06eef2ae857cc095f458a3e7d285d602466989cf1721d872d89c9f9a"
+            }
+          ],
+          "input_prepare_ms": 61.733481,
+          "peak_rss_bytes": 762556416,
+          "mesh_ms": 63.920414,
+          "encoding_ms": 39.712376,
+          "response_cache_bytes": 57261113,
+          "visual_cache_bytes": 61624488,
+          "base_ms": 67.702772,
+          "adjacency_ms": 3.193663,
+          "volume_integrations": 1,
+          "face_evidence_computed": 8,
+          "face_evidence_reused": 822,
+          "base_stage_restored": true,
+          "naming_kernel_ms": 149.803496,
+          "naming_artifact_ms": 96.19638,
+          "cancellation_polls": 24,
+          "cancellation_poll_ms": 2.306,
+          "mesh_reused_faces": 761,
+          "mesh_computed_faces": 67
+        }
+      ],
+      "downloads": [
+        {
+          "contentType": "model/gltf-binary",
+          "bytes": 22694604
+        },
+        {
+          "contentType": "application/vnd.occccad.visual-delta",
+          "bytes": 2652901
+        }
+      ],
+      "headUnchanged": true
+    },
+    "independentEncoding": {
+      "base": 22694604,
+      "baseSHA": "0cc03a3e7fac78b105b21839ccb22977d31576e3676f3cf870dcdc18c8ae8f6e",
+      "ms": 72.09547099999999,
+      "patch": 2652901,
+      "target": 22685124,
+      "targetSHA": "89db4151df5471bcb56fa0857e56bb68a9e93b449d93d72ef0b0b3591d77be88"
+    },
+    "nativeMeshSamples": [
+      {
+        "length": 40,
+        "geometry": "sha256:929db317bf0d60aca91c9310fe8202d347dd23683044002e67f7b2dc8da119f7",
+        "history": "sha256:2d0c02f5eede9ce5bff78256341975081a35926f18d74be5e3e67bcb04b65873",
+        "baseMs": 117.891651,
+        "exactMs": 574.097009,
+        "namingMs": 144.969831,
+        "evaluationMs": 845.525984,
+        "reusedFaces": 0,
+        "computedFaces": 828,
+        "meshMs": 1334.495577,
+        "visualMs": 1439.266813,
+        "triangles": 740450
+      },
+      {
+        "length": 41,
+        "geometry": "sha256:62d7588e3620eefb02245b561196b41003419b195557080ce53cf09634491dda",
+        "history": "sha256:4c414f89b882cf78a53ad9b18582b236080ecab444ff3efb0ce3a09397596ce0",
+        "baseMs": 43.114778,
+        "exactMs": 560.304537,
+        "namingMs": 149.280458,
+        "evaluationMs": 765.929524,
+        "reusedFaces": 761,
+        "computedFaces": 67,
+        "meshMs": 66.966625,
+        "visualMs": 144.176542,
+        "triangles": 740450
+      },
+      {
+        "length": 42,
+        "geometry": "sha256:2ccfc328a875a44583e26ced82822daba02270a025d64ae80bdcca975baa84d1",
+        "history": "sha256:fbd365fdcb1b6496a15408b82a06782688f5de4aca5a75534fdf671481d08dbc",
+        "baseMs": 40.772348,
+        "exactMs": 526.805144,
+        "namingMs": 135.176604,
+        "evaluationMs": 715.761074,
+        "reusedFaces": 761,
+        "computedFaces": 67,
+        "meshMs": 59.775765,
+        "visualMs": 137.298481,
+        "triangles": 740450
+      }
+    ],
+    "limits": [
+      "first new operation still meshes all faces without reusable packets",
+      "cache budgets do not bound OCCT process RSS",
+      "no industrial capacity, P95 or target GPU frame-rate claim",
+      "directed sample, not an arbitrary-feature or entire-vehicle benchmark"
+    ],
+    "cancellation": {
+      "headUnchanged": true,
+      "samples": [
+        {
+          "length": 52,
+          "delay": 1200,
+          "client": {
+            "ok": false,
+            "ms": 1200.7000000001863,
+            "abortedAt": 1200.2000000001863,
+            "error": "AbortError: Aborted",
+            "code": 20
+          },
+          "cpuMsAfterAbort": 50,
+          "observedDrainMs": 1201
+        },
+        {
+          "length": 53,
+          "delay": 750,
+          "client": {
+            "ok": false,
+            "ms": 750.4000000003725,
+            "abortedAt": 750.2000000001863,
+            "error": "AbortError: Aborted",
+            "code": 20
+          },
+          "cpuMsAfterAbort": 30,
+          "observedDrainMs": 1402
+        }
+      ],
+      "scope": "normal API cancellation, serial otherwise idle managed Worker, /proc CPU ticks assume 100Hz; observation includes idle confirmation and is not a universal interruption bound"
+    }
+  }
 }

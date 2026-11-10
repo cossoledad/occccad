@@ -12,7 +12,7 @@ try {
  const other=body.clone();other.position.x=10;
  Object.assign(engine,{helpers:new THREE.Group(),content:new THREE.Group(),instanceGroups:new Map([["a",body],["b",other]]),
   solidBindings:new Map(),selectionIndex:index,assemblyConstraintReferences:new Map(),assemblyConstraintMarkers:new Map(),selected:[],preselected:null,
-  highlightedRoots:new Set(),selectedOverlays:[],preselectedOverlays:[],
+  highlightedRoots:new Set(),overlaySignatures:new Map(),overlayMaterials:new Map(),selectedOverlays:[],preselectedOverlays:[],
   materials:{constraintGlyph:(_glyph,color)=>new THREE.PointsMaterial({color}),setInteractionState(){}},
   invalidate:()=>frames++,refreshSceneGround(){},updateSketchContextVisibility(){},treeVisibilityOverrides:{},referenceVisibility:{},
   moveInteraction:new AssemblyInteractionController({begin:async()=>{throw Error("display-only fixture has no gesture");},update:async()=>{throw Error("display-only fixture must not solve");},cancel:async()=>{},frame(){},state(){}}),

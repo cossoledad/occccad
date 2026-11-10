@@ -4,6 +4,7 @@ const server=await createServer({appType:"custom",logLevel:"silent",server:{midd
 try {
  const THREE=await server.ssrLoadModule("three");
  const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
+ const {InteractionGeometryCache}=await server.ssrLoadModule("/src/cad/rendering/interaction-geometry-cache.ts");
  const {SelectionIndex}=await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
  const {DEFAULT_SOLID_DISPLAY}=await server.ssrLoadModule("/src/cad/rendering/display-settings.ts");
  const {featureContribution}=await server.ssrLoadModule("/src/cad/interaction/feature-association.ts");
@@ -21,7 +22,7 @@ try {
  const artifact={geometryKey:"g",bodyId:"b",mesh:decoded.mesh,visualization:decoded.visualization};
  const view={document:{id:"part",versionId:"v"},structureTree:{id:"document:part",children:[{id:"document:part/body:b",children:[{id:"document:part/body:b/feature:blade",entityId:"blade"},{id:"document:part/body:b/feature:fillet",entityId:"fillet"}]}]}};
  const context={documentId:"part",versionId:"v",bodyId:"b",geometryKey:"g",occurrencePath:"a",treeNodeId:"document:part/body:b"};
- function engine(){const e=Object.create(CadViewportEngine.prototype);Object.assign(e,{view,renderer:{domElement:{clientWidth:800,clientHeight:600}},selectionIndex:new SelectionIndex(),selectable:new Map(),solidBindings:new Map(),solidDisplay:DEFAULT_SOLID_DISPLAY,selectedOverlays:[],preselectedOverlays:[],materials:{sectionLine(){},surface:()=>new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),edge:()=>new THREE.LineBasicMaterial(),topologyPoint:()=>new THREE.PointsMaterial(),point:()=>new THREE.PointsMaterial()}});return e;}
+ function engine(){const e=Object.create(CadViewportEngine.prototype);Object.assign(e,{view,renderer:{domElement:{clientWidth:800,clientHeight:600}},selectionIndex:new SelectionIndex(),selectable:new Map(),solidBindings:new Map(),solidDisplay:DEFAULT_SOLID_DISPLAY,selectedOverlays:[],preselectedOverlays:[],overlaySignatures:new Map(),overlayMaterials:new Map(),overlayEpoch:0,interactionGeometry:new InteractionGeometryCache(),materials:{sectionLine(){},surface:()=>new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),edge:()=>new THREE.LineBasicMaterial(),topologyPoint:()=>new THREE.PointsMaterial(),point:()=>new THREE.PointsMaterial()}});const original=e.addTopologyOverlay;e.addTopologyOverlay=function(...args){original.apply(this,args);const camera=new THREE.PerspectiveCamera();camera.position.z=10;camera.updateMatrixWorld(true);for(const root of [...this.selectedOverlays,...this.preselectedOverlays])root.traverse(o=>o.userData.cadUpdateContour?.(camera));};return e;}
  const e=engine();const group=e.makeSolid(artifact,0xffffff,context);group.updateMatrixWorld(true);
  const hit=e.selectionIndex.pick(new THREE.Raycaster(new THREE.Vector3(2.2,.2,1),new THREE.Vector3(0,0,-1)),selection=>selection.kind==="face");
  assert.equal(hit.kind,"face");assert.equal(hit.topologyId,2);assert.deepEqual(hit.associatedFeatureIds,["fillet"]);assert.equal(hit.patternMemberSlot,2);assert.equal(hit.patternId,"array");
@@ -35,7 +36,7 @@ try {
  e.addTopologyOverlay("selected",{...feature("blade"),occurrencePath:"b"});e.addTopologyOverlay("selected",{...feature("blade"),documentId:"other"});e.addTopologyOverlay("selected",{...feature("blade"),versionId:"old"});e.addTopologyOverlay("selected",{...feature("blade"),contextVariantKey:"other"});assert.equal(e.selectedOverlays.length,count);
  e.addTopologyOverlay("selected",feature("consumed"));assert.equal(e.selectedOverlays.length,count,"consumed never falls back to Body");
  assert.equal(featureContribution(associations,"consumed").status,"NO_CURRENT_CONTRIBUTION");assert.equal(featureContribution(undefined,"consumed").status,"MAPPING_MISSING");
- e.addTopologyOverlay("selected",{...context,kind:"edge",id:"edge",topologyId:1});assert.equal(e.selectedOverlays.at(-1).children.length,2,"all fused-mesh edge segments are highlighted");
+ e.addTopologyOverlay("selected",{...context,kind:"edge",id:"edge",topologyId:1});assert.equal(e.selectedOverlays.at(-1).geometry.getAttribute("instanceStart").count,2,"all fused-mesh edge segments are highlighted in one batch");
  const nodes=[{key:"body",children:[{key:"blade",selection:feature("blade")},{key:"fillet",selection:feature("fillet")}]}];
  assert.deepEqual(treeKeysForSelections(nodes,[hit]),[],"tree association must not promote primary face selection");assert(ancestorHintKeysForSelections(nodes,[hit]).includes("fillet"));assert(!ancestorHintKeysForSelections(nodes,[{...hit,occurrencePath:"b"}]).includes("fillet"));
  const stages=[{id:"blade",type:"PAD",bodyId:"b"},{id:"array",type:"SOLID_PATTERN",bodyId:"b"},{id:"fillet",type:"FILLET",bodyId:"b"}];

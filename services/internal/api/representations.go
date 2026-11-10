@@ -10,9 +10,9 @@ import (
 	"github.com/occccad/occccad/internal/workspace"
 )
 
-func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) {
+func (s *Server) authorizeRepresentation(w http.ResponseWriter, r *http.Request) bool {
 	if _, ok := s.requireDocument(w, r, access.RoleViewer); !ok {
-		return
+		return false
 	}
 	id := r.PathValue("objectID")
 	version := r.URL.Query().Get("versionId")
@@ -21,14 +21,14 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 		allowed = s.workspace.BooleanAnalysisRepresentationAllowed(r.Context(), r.PathValue("documentID"), principal(r).ID, analysisID, r.URL.Query().Get("booleanManifestDigest"), id, workspace.BooleanRegionsRequest{VersionID: version, FeatureID: r.URL.Query().Get("featureId"), BodyID: r.URL.Query().Get("bodyId"), Tool: workspace.FeatureStageRef{BodyID: r.URL.Query().Get("booleanToolBodyId"), FeatureID: r.URL.Query().Get("booleanToolFeatureId")}, Operation: r.URL.Query().Get("booleanOperation")})
 		if !allowed {
 			writeError(w, http.StatusNotFound, "Boolean analysis expired or representation outside input scope")
-			return
+			return false
 		}
 	}
 	if previewID := r.URL.Query().Get("previewId"); previewID != "" {
 		allowed = s.workspace.PreviewVisualAllowed(r.PathValue("documentID"), principal(r).ID, previewID, id)
 		if !allowed {
 			writeError(w, http.StatusNotFound, "preview expired or representation unavailable")
-			return
+			return false
 		}
 	}
 	if featureID := r.URL.Query().Get("featureId"); (featureID != "" || r.URL.Query().Get("afterFeatureId") != "") && !allowed {
@@ -40,11 +40,11 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 		if request.RootProductDocumentID != "" {
 			if _, err := s.access.RequireDocument(r.Context(), request.RootProductDocumentID, principal(r).ID, access.RoleViewer); err != nil {
 				writeAccessError(w, err)
-				return
+				return false
 			}
 			if err := json.Unmarshal([]byte(r.URL.Query().Get("instancePath")), &request.InstancePath); err != nil {
 				writeError(w, http.StatusBadRequest, "invalid occurrence")
-				return
+				return false
 			}
 		}
 		if !request.ResultStage {
@@ -53,7 +53,7 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 		input, inputErr := s.workspace.GetFeatureInputGeometry(r.Context(), r.PathValue("documentID"), request)
 		if inputErr != nil {
 			writeError(w, http.StatusNotFound, "feature input unavailable")
-			return
+			return false
 		}
 		for _, artifact := range append(input.Artifacts, input.Artifact) {
 			bodyID := r.URL.Query().Get("bodyId")
@@ -71,7 +71,7 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 		}
 		if !allowed {
 			writeError(w, http.StatusNotFound, "representation outside feature input")
-			return
+			return false
 		}
 	}
 	var err error
@@ -88,7 +88,7 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 	}
 	if err != nil {
 		writeError(w, http.StatusNotFound, "representation unavailable")
-		return
+		return false
 	}
 	if !allowed {
 		// Context variants are derived from accepted bindings, not merely from a base
@@ -114,8 +114,16 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 	}
 	if !allowed {
 		writeError(w, http.StatusNotFound, "representation unavailable for this document")
+		return false
+	}
+	return true
+}
+
+func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeRepresentation(w, r) {
 		return
 	}
+	id := r.PathValue("objectID")
 	object, reader, err := s.artifacts.Open(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "representation unavailable")
@@ -125,6 +133,10 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 	etag := `"` + object.SHA256 + `"`
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache")
+	payload, served := s.serveVisualDelta(w, r, object, reader)
+	if served {
+		return
+	}
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return
@@ -145,5 +157,5 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 		disposition = "attachment"
 	}
 	w.Header().Set("Content-Disposition", disposition+`; filename="`+filename+`"`)
-	_, _ = io.Copy(w, reader)
+	_, _ = io.Copy(w, payload)
 }

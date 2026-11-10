@@ -4,6 +4,7 @@ import {createServer} from "vite";
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try {
  const THREE=await server.ssrLoadModule("three");
+ const {InteractionGeometryCache}=await server.ssrLoadModule("/src/cad/rendering/interaction-geometry-cache.ts");
  const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
  const {SelectionIndex}=await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
  const {visibilityResolverForView}=await server.ssrLoadModule("/src/cad/interaction/visibility-resolver.ts");
@@ -78,7 +79,7 @@ try {
   const ray=new THREE.Raycaster(p.clone().add(new THREE.Vector3(20,0,0)),new THREE.Vector3(-1,0,0));ray.params.Line.threshold=.001;
   const picked=rendered.selectionIndex.pick(ray);
   assert.equal(picked.kind,"edge");assert.equal(picked.topologyId,edge.localId);assert.equal(picked.bodyId,"a");
-  Object.assign(rendered,{selectedOverlays:[],preselectedOverlays:[],renderer:{domElement:{clientWidth:800,clientHeight:600}}});
+  Object.assign(rendered,{interactionGeometry:new InteractionGeometryCache(),overlayMaterials:new Map(),overlaySignatures:new Map(),selectedOverlays:[],preselectedOverlays:[],renderer:{domElement:{clientWidth:800,clientHeight:600}}});
   for(const layer of ["selected","preselected"]) {
    rendered.addTopologyOverlay(layer,picked);
    const overlay=(layer==="selected"?rendered.selectedOverlays:rendered.preselectedOverlays).at(-1);

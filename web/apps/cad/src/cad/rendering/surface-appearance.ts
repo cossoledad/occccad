@@ -12,7 +12,7 @@ export function scopedSurfaceAppearance(appearance:ResolvedAppearance|undefined,
 // Keep index order intact: faceIndex remains the exact GLB triangle locator.
 // A palette entry includes all surface coefficients, including explicit zero.
 export function surfaceAppearanceMaterials(
-  geometry: THREE.BufferGeometry, faceIds: readonly number[], appearance: ResolvedAppearance | undefined,
+  geometry: THREE.BufferGeometry, faceIds: readonly number[] | Uint32Array, appearance: ResolvedAppearance | undefined,
   defaultColor: number, create: (color: number, properties?:GraphicProperties) => THREE.Material,
 ): THREE.Material | THREE.Material[] {
   geometry.clearGroups();

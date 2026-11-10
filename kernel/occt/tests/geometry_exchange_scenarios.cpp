@@ -1707,6 +1707,50 @@ TEST(GeometryExchange, MultiSolidMaterialUsesAuthoritativeResultIntegral) {
     }
 }
 
+TEST(GeometryExchange, FreshCancellationPreventsCheckpointAdmission) {
+    OcctKernel kernel;ProfilePadSpec spec;spec.feature_id="cancel";spec.body_id="body";spec.profile_feature_id="sketch";
+    spec.pad_length=10;spec.regions={rectangular_region("region",0,0,10,10)};
+    PartRuntimeOptions options;options.stage_keys={"cancelled-complete-stage"};options.cancelled=[](){return false;};options.fresh_cancelled=[](){return true;};
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({spec},{},nullptr,options),std::runtime_error);
+    EXPECT_EQ(kernel.runtime_cache_bytes(),0U);
+}
+
+TEST(GeometryExchange, BorrowedBrepSurvivesEvictionAndKernelLifetime) {
+    std::shared_ptr<const std::vector<uint8_t>> borrowed;
+    std::vector<uint8_t> original;
+    { OcctKernel kernel;const auto id=kernel.createBox(10,20,30);
+      borrowed=kernel.borrowBrepr(id);original=kernel.serializeBrepr(id);
+      EXPECT_EQ(borrowed,kernel.borrowBrepr(id));kernel.unload(id);EXPECT_EQ(*borrowed,original); }
+    EXPECT_EQ(*borrowed,original);OcctKernel restored;EXPECT_NEAR(restored.getVolume(restored.loadBrepr(*borrowed)),6000,1e-8);
+}
+
+TEST(GeometryExchange, MeshReusePreservesColdResultAndIsolatesSource) {
+    OcctKernel kernel;
+    const auto base=kernel.createBox(20,20,20);
+    const auto bytes=kernel.serializeBrepr(base);const auto seed=imported_box_seed(kernel,bytes);
+    const auto first=kernel.tessellate(base,.02,.12);
+    EXPECT_EQ(first.timings.reused_faces,0U);EXPECT_EQ(first.timings.computed_faces,6U);
+    EXPECT_EQ(kernel.loadBrepr(bytes),base);
+    const auto warm=kernel.tessellate(base,.02,.12);
+    EXPECT_EQ(warm.timings.reused_faces,6U);EXPECT_EQ(make_glb(first),make_glb(warm));
+    ProfilePadSpec cut;cut.feature_id="incremental-cut";cut.body_id=seed.body_id;cut.profile_feature_id="profile";
+    cut.input_feature_id=seed.feature_id;cut.body_operation="REMOVE";cut.pad_length=5;
+    cut.regions={rectangular_region("hole",5,5,10,10)};
+    const auto result=kernel.evaluateProfilePadsWithHistory({cut},bytes,&seed);
+    const auto incremental=kernel.tessellate(result.geometry_id,.02,.12);
+    EXPECT_GT(incremental.timings.reused_faces,0U);EXPECT_GT(incremental.timings.computed_faces,0U);
+    const auto resultBytes=kernel.serializeBrepr(result.geometry_id);
+    kernel.clear_runtime_cache();
+    const auto cold=kernel.tessellate(result.geometry_id,.02,.12);
+    EXPECT_EQ(cold.timings.reused_faces,0U);EXPECT_EQ(make_glb(incremental),make_glb(cold));
+    EXPECT_EQ(kernel.serializeBrepr(base),bytes);EXPECT_EQ(kernel.serializeBrepr(result.geometry_id),resultBytes);
+    const auto finer=kernel.tessellate(result.geometry_id,.01,.08);
+    EXPECT_EQ(finer.timings.reused_faces,0U);
+    kernel.clear_runtime_cache();
+    EXPECT_THROW(kernel.tessellate(result.geometry_id,.01,.08,true,[]{return false;},[]{return true;}),std::runtime_error);
+    EXPECT_EQ(kernel.tessellate(result.geometry_id,.01,.08).timings.reused_faces,0U) << "fresh cancellation cannot admit reusable packets";
+}
+
 TEST(GeometryExchange, MeshingCancellationDoesNotReturnPartialGeometry) {
     OcctKernel kernel;
     const auto id=kernel.createBox(20,30,40);

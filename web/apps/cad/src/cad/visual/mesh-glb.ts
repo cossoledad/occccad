@@ -1,3 +1,4 @@
+import { packedMesh, type MeshBuffers } from "./packed-mesh";
 import type { MeshData, VisualizationManifest, Vec3 } from "../../types";
 export type DecodedVisual = {
     mesh: MeshData;
@@ -30,7 +31,7 @@ export function decodeMeshGLB(buffer: ArrayBuffer): DecodedVisual {
     const cad = document.extensions?.OCCCCAD_cad;
     if (cad?.schemaVersion !== 2 || cad.units !== "mm" || cad.coordinateSpace !== "PART_LOCAL")
         throw new Error("Missing CAD GLB mapping");
-    const read = (index: number, components: number, type: number): number[] => {
+    const read = (index: number, components: number, type: number): Float32Array | Uint32Array => {
         if (!binary) throw new Error("Missing GLB binary");
         const a = document.accessors?.[index], v = document.bufferViews?.[a?.bufferView];
         if (!a || !v || a.componentType !== type || a.type !== (components === 3 ? "VEC3" : "SCALAR") || v.buffer !== 0 || v.byteStride)
@@ -38,56 +39,68 @@ export function decodeMeshGLB(buffer: ArrayBuffer): DecodedVisual {
         const start = (v.byteOffset ?? 0) + (a.byteOffset ?? 0), length = a.count * components * 4;
         if (!Number.isSafeInteger(start) || !Number.isSafeInteger(v.byteLength) || v.byteLength < 0 || !Number.isSafeInteger(a.byteOffset ?? 0) || (a.byteOffset ?? 0) < 0 || !Number.isSafeInteger(a.count) || a.count < 0 || !Number.isSafeInteger(length) || start < 0 || length > (v.byteLength - (a.byteOffset ?? 0)) || (v.byteOffset ?? 0) < 0 || (v.byteOffset ?? 0) + v.byteLength > binary!.byteLength || start + length > binary!.byteLength)
             throw new Error("Invalid GLB accessor bounds");
-        return Array.from({ length: a.count * components }, (_, i) => {
-            const n = type === 5126 ? binary!.getFloat32(start + i * 4, true) : binary!.getUint32(start + i * 4, true);
-            if (!Number.isFinite(n))
-                throw new Error("Nonfinite GLB coordinate");
-            return n;
-        });
+        if ((binary.byteOffset + start) % 4) throw new Error("Unaligned GLB accessor");
+        const values = type === 5126 ? new Float32Array(buffer, binary.byteOffset + start, a.count * components) : new Uint32Array(buffer, binary.byteOffset + start, a.count * components);
+        if (type === 5126 && values.some(n => !Number.isFinite(n))) throw new Error("Nonfinite GLB coordinate");
+        return values;
     };
-    const vectors = (values: number[]): Vec3[] => Array.from({ length: values.length / 3 }, (_, i) => [values[i * 3], values[i * 3 + 1], values[i * 3 + 2]]);
+    const vectors = (values: ArrayLike<number>): Vec3[] => Array.from({ length: values.length / 3 }, (_, i) => [values[i * 3], values[i * 3 + 1], values[i * 3 + 2]]);
     let completeNormals = true;
-    const normals: Vec3[] = [];
+    const faces: MeshBuffers[] = [];
     for (const source of document.meshes ?? []) for (const p of source.primitives ?? []) {
         const mapping = p.extensions?.OCCCCAD_cad;
         if (!mapping) continue;
-        const positions = vectors(read(p.attributes.POSITION, 3, 5126));
-        const indices = p.indices === undefined ? positions.map((_, i) => i) : read(p.indices, 1, 5125);
+        const positions = read(p.attributes.POSITION, 3, 5126) as Float32Array;
+        const vertexCount = positions.length / 3;
+        const indices = p.indices === undefined ? Uint32Array.from({length: vertexCount}, (_, i) => i) : read(p.indices, 1, 5125) as Uint32Array;
         const ids = read(mapping.localIds, 1, 5125), mode = p.mode ?? 4;
-        if (indices.some(i => i >= positions.length) || ids.some(id => !id)) throw new Error("Invalid primitive index or locator");
+        if (indices.some(i => i >= vertexCount) || ids.some(id => !id)) throw new Error("Invalid primitive index or locator");
         if (mapping.kind === "FACE") {
             if (mode !== 4 || indices.length % 3 || ids.length !== indices.length / 3) throw new Error("Invalid face mapping count");
+            let normals: Float32Array | undefined;
             if (p.attributes.NORMAL !== undefined) {
-                const values = vectors(read(p.attributes.NORMAL, 3, 5126));
-                if (values.length !== positions.length) throw new Error("Invalid normal count");
-                for (const n of values) normals.push(n);
+                normals = read(p.attributes.NORMAL, 3, 5126) as Float32Array;
+                if (normals.length !== positions.length) throw new Error("Invalid normal count");
             } else completeNormals = false;
-            const base = mesh.vertices.length;
-            for (const v of positions) mesh.vertices.push(v);
-            for (const t of vectors(indices.map(i => i + base))) mesh.triangles.push(t);
-            for (const id of ids) mesh.faceIds.push(id);
+            faces.push({positions, indices, normals, faceIds: ids as Uint32Array});
         } else if (mapping.kind === "EDGE") {
             if (![1, 3].includes(mode) || (mode === 1 && indices.length % 2) || ids.length !== (mode === 3 ? indices.length - 1 : indices.length / 2)) throw new Error("Invalid edge mapping");
+            const points = vectors(positions);
             for (let i = 0;i < ids.length;i++) {
                 const j = mode === 3 ? i : i * 2;
                 const previous = mesh.edges!.at(-1);
-                if (i > 0 && previous?.localId === ids[i] && previous.points.at(-1)!.every((v, axis) => v === positions[indices[j]][axis])) previous.points.push(positions[indices[j + 1]]);
-                else mesh.edges!.push({ localId: ids[i], points: [positions[indices[j]], positions[indices[j + 1]]] });
+                if (i > 0 && previous?.localId === ids[i] && previous.points.at(-1)!.every((v, axis) => v === points[indices[j]][axis])) previous.points.push(points[indices[j + 1]]);
+                else mesh.edges!.push({ localId: ids[i], points: [points[indices[j]], points[indices[j + 1]]] });
             }
         } else if (mapping.kind === "VERTEX") {
             if (mode !== 0 || ids.length !== indices.length) throw new Error("Invalid vertex mapping");
-            ids.forEach((id, i) => mesh.topologyVertices!.push({ localId: id, point: positions[indices[i]] }));
+            const points = vectors(positions);
+            ids.forEach((id, i) => mesh.topologyVertices!.push({ localId: id, point: points[indices[i]] }));
         } else throw new Error("Unknown topology kind");
     }
-    if (completeNormals && normals.length) mesh.normals = normals;
+    let buffers: MeshBuffers;
+    if (faces.length === 1) buffers = {...faces[0], normals: completeNormals ? faces[0].normals : undefined};
+    else {
+        const vertices = faces.reduce((n, f) => n + f.positions.length, 0), indices = faces.reduce((n, f) => n + f.indices.length, 0);
+        buffers = {positions: new Float32Array(vertices), indices: new Uint32Array(indices), faceIds: new Uint32Array(indices / 3), normals: completeNormals && vertices ? new Float32Array(vertices) : undefined};
+        let vp = 0, ip = 0;
+        for (const face of faces) {
+            buffers.positions.set(face.positions, vp);
+            buffers.indices.set(face.indices, ip);
+            if (vp) for (let i = ip; i < ip + face.indices.length; i++) buffers.indices[i] += vp / 3;
+            buffers.faceIds.set(face.faceIds, ip / 3);
+            if (buffers.normals) buffers.normals.set(face.normals!, vp);
+            vp += face.positions.length; ip += face.indices.length;
+        }
+    }
     if (visualization) {
         if (visualization.schemaVersion !== 2) throw new Error("Unsupported visualization schema");
         for (const p of visualization.primitives ?? []) {
             p.positions = p.positions === undefined ? [] : vectors(read(p.positions, 3, 5126));
-            if (p.indices !== undefined) p.indices = read(p.indices, 1, 5125);
+            if (p.indices !== undefined) p.indices = Array.from(read(p.indices, 1, 5125));
         }
     }
-    return { mesh, visualization, association: cad.association };
+    return { mesh: packedMesh(buffers, mesh.edges, mesh.topologyVertices), visualization, association: cad.association };
 }
 // Mock/corpus authoring only. Production GLBs are emitted by the Geometry Worker.
 export function encodeMeshGLB(mesh: MeshData, visualization?: VisualizationManifest): ArrayBuffer {

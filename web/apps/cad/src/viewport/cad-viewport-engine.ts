@@ -1,3 +1,5 @@
+import { meshTopologyIndex } from "../cad/rendering/mesh-topology-index";
+import { triangleCount } from "../cad/visual/packed-mesh";
 import {CurvatureOverlay} from '../cad/rendering/curvature-overlay';
 import type {ShapeQualityReport,CurvatureMode} from '../cad/analysis/shape-quality';
 import {geometryBindingKey,makeCurvePreview} from '../cad/rendering/geometry-feature-visual';
@@ -18,7 +20,12 @@ import {contextScopeForView,contextResultMatchesActiveView} from "../api/context
 import {SketchIntersectionTool} from "../cad/tool/sketch-intersection-tool";
 import {SketchIntersectionCache} from "../cad/interaction/sketch-intersections";
 import type {CapturedSketchReference} from "../cad/sketch/sketch-point-capture";
-import {surfaceContourData} from "../cad/rendering/face-outline";
+import {InteractionGeometryCache} from "../cad/rendering/interaction-geometry-cache";
+import {contourProjectionUpdater} from "../cad/rendering/contour-projection";
+import {LineSegmentsGeometry} from "three/addons/lines/LineSegmentsGeometry.js";
+import {makeHighlightLineMaterial} from "../cad/rendering/interaction-highlight";
+import {LineSegments2} from "three/addons/lines/LineSegments2.js";
+import type {LineMaterial} from "three/addons/lines/LineMaterial.js";
 import {stableCadOpaqueSort} from "../cad/rendering/surface-depth-pass";
 import {frameDocuments} from "./display-receipt";
 import { ScenePresentation } from "../cad/rendering/scene-presentation";
@@ -288,25 +295,26 @@ function constraintTreeNodeID(featureTreeNode: string, kind: ConstraintKind, con
 
 function makeGeometry(artifact: Artifact, pickable = true): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
-  const positions = new Float32Array(artifact.mesh.vertices.length * 3);
-  artifact.mesh.vertices.forEach((point, i) => positions.set(point, i * 3));
-  const indices = new Uint32Array(artifact.mesh.triangles.length * 3);
-  artifact.mesh.triangles.forEach((triangle, i) => indices.set(triangle, i * 3));
+  const packed = artifact.mesh.buffers;
+  const positions = packed?.positions ?? new Float32Array(artifact.mesh.vertices.length * 3);
+  if (!packed) artifact.mesh.vertices.forEach((point, i) => positions.set(point, i * 3));
+  const indices = packed?.indices ?? new Uint32Array(triangleCount(artifact.mesh) * 3);
+  if (!packed) artifact.mesh.triangles.forEach((triangle, i) => indices.set(triangle, i * 3));
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  if (artifact.mesh.normals) {
-    const normals = new Float32Array(artifact.mesh.normals.length * 3);
-    artifact.mesh.normals.forEach((normal, i) => normals.set(normal, i * 3));
+  if (packed?.normals || (!packed && artifact.mesh.normals)) {
+    const normals = packed?.normals ?? new Float32Array(artifact.mesh.normals!.length * 3);
+    if (!packed) artifact.mesh.normals!.forEach((normal, i) => normals.set(normal, i * 3));
     geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
   }
   else geometry.computeVertexNormals();
-  if(artifact.mesh.vertices.length)geometry.computeBoundingSphere();
+  if(positions.length)geometry.computeBoundingSphere();
   const accelerated = geometry as THREE.BufferGeometry & {
     computeBoundsTree: typeof computeBoundsTree; disposeBoundsTree: typeof disposeBoundsTree;
   };
   accelerated.computeBoundsTree = computeBoundsTree;
   accelerated.disposeBoundsTree = disposeBoundsTree;
-  if(pickable && artifact.mesh.triangles.length)accelerated.computeBoundsTree({ indirect: true });
+  if(pickable && triangleCount(artifact.mesh))accelerated.computeBoundsTree({ indirect: true });
   return geometry;
 }
 
@@ -576,6 +584,10 @@ export class CadViewportEngine {
   private preselected: Selection = null;
   private selectedOverlays: THREE.Object3D[] = [];
   private preselectedOverlays: THREE.Object3D[] = [];
+  private readonly interactionGeometry=new InteractionGeometryCache();
+  private readonly overlayMaterials=new Map<string,LineMaterial>();
+  private readonly overlaySignatures=new Map<string,string>();
+  private overlayEpoch=0;
   private highlightedRoots = new Set<THREE.Object3D>();
   private view?: DocumentView;
   private renderGeometrySignature?: string;
@@ -1044,6 +1056,7 @@ export class CadViewportEngine {
     this.moveTarget = undefined;
     this.restoreSectionClipping();
     this.disposeGroup(this.content);
+    this.disposeInteractionGeometry();
     this.clearProfileRegions();
     this.clearBooleanRegions();
     this.disposeGroup(this.helpers);
@@ -1147,7 +1160,7 @@ export class CadViewportEngine {
       if(binding.renderedAppearanceDigest===digest)continue;
       binding.renderedAppearanceDigest=digest;
       for(const m of Array.isArray(mesh.material)?mesh.material:[mesh.material])m.dispose();
-      mesh.material=surfaceAppearanceMaterials(mesh.geometry,artifact.mesh.faceIds,appearance,binding.defaultColor,(color,properties)=>artifact.geometryDomain==='SHEET_SET'||artifact.geometryDomain==='MIXED_SET'?this.materials.engineeringSurface(color,properties):this.materials.surface(color,properties));
+      mesh.material=surfaceAppearanceMaterials(mesh.geometry,(artifact.mesh.buffers?.faceIds ?? artifact.mesh.faceIds),appearance,binding.defaultColor,(color,properties)=>artifact.geometryDomain==='SHEET_SET'||artifact.geometryDomain==='MIXED_SET'?this.materials.engineeringSurface(color,properties):this.materials.surface(color,properties));
       for(const m of Array.isArray(mesh.material)?mesh.material:[mesh.material]){m.userData.propertyPreview=Boolean(candidate);if(artifact.geometryDomain==='SHEET_SET'||artifact.geometryDomain==='MIXED_SET')m.shadowSide=THREE.DoubleSide;}
       mesh.castShadow=(Array.isArray(mesh.material)?mesh.material:[mesh.material]).every(m=>!m.transparent);
       mesh.receiveShadow=true;
@@ -1184,7 +1197,7 @@ export class CadViewportEngine {
     {
       this.groundBounds.makeEmpty();this.content.updateMatrixWorld(true);
       for(const {group,mesh,artifact} of this.solidBindings.values()){
-        if(!this.objectVisible(group)||artifact.mesh.triangles.length===0||artifact.historicalPreview||artifact.representationKind==="TRANSIENT_PREVIEW")continue;
+        if(!this.objectVisible(group)||triangleCount(artifact.mesh)===0||artifact.historicalPreview||artifact.representationKind==="TRANSIENT_PREVIEW")continue;
         const box=new THREE.Box3(new THREE.Vector3().fromArray(artifact.bbox.min),new THREE.Vector3().fromArray(artifact.bbox.max));
         this.groundBounds.union(box.applyMatrix4(mesh.matrixWorld));
       }
@@ -1285,6 +1298,7 @@ export class CadViewportEngine {
   }
 
   private applyTreeVisibility(): void {
+    this.overlayEpoch++;
     this.restoreBooleanInputs();
     for (const root of [this.content, this.helpers]) root.traverse((object) => {
       const entry = object.userData as Partial<SelectionItem> & {visualizationPrimitive?: boolean; sketchFeatureID?: string};
@@ -1742,9 +1756,9 @@ export class CadViewportEngine {
   }
 
   private showPreviewArtifact(artifact: Artifact, operation: FeaturePreviewOperation): void {
-    if(!artifact.mesh.triangles.length&&!artifact.mesh.edges?.length&&!artifact.mesh.topologyVertices?.length)return;
+    if(!triangleCount(artifact.mesh)&&!artifact.mesh.edges?.length&&!artifact.mesh.topologyVertices?.length)return;
     const binding=this.solidBindings.get(geometryBindingKey(this.editContext?.occurrencePath,artifact.bodyId,artifact.result));
-    const group=artifact.mesh.triangles.length?makeFeaturePreview(makeGeometry(artifact,false),operation,binding?.mesh.geometry,
+    const group=triangleCount(artifact.mesh)?makeFeaturePreview(makeGeometry(artifact,false),operation,binding?.mesh.geometry,
       {result:artifact.mesh.edges??[],original:binding?.artifact.mesh.edges??[]}):makeCurvePreview(artifact,operation);
     if (binding) {
       this.previewBody = { group: binding.group, visible: binding.group.visible };
@@ -2262,6 +2276,7 @@ export class CadViewportEngine {
     this.disposeGroup(this.environment);
     this.disposeGroup(this.lighting);
     this.disposeGroup(this.content);
+    this.disposeInteractionGeometry();
     this.clearProfileRegions();
     this.clearBooleanRegions();
     this.disposeGroup(this.helpers);
@@ -2309,7 +2324,7 @@ export class CadViewportEngine {
         geometryKey:artifact.geometryKey,occurrencePath:"",treeNodeId:bodyTreeNodeId,displayStageFeatureId:artifact.displayStageFeatureId };
       if (body.geometryKey) this.addVisualPrimitives(artifact.visualization, this.helpers, context, true,
         new Set((view.part?.features??[]).filter(feature=>feature.type==="SKETCH_PATTERN"&&feature.bodyId===body.id&&!feature.suppressed).map(feature=>feature.id)));
-      if (artifact.mesh.triangles.length) {
+      if (triangleCount(artifact.mesh)) {
         const solid=body.geometryKey ? this.makeSolid(artifact,CATIA_VISUAL_THEME.surface,context,view.bodyAppearances?.[body.id]) : this.makeFailedBody(artifact,body.visible,context);
         this.content.add(solid);
       }
@@ -2364,7 +2379,7 @@ export class CadViewportEngine {
           .applyQuaternion(instanceRotation.clone().invert());
         const resolvedRotation = new THREE.Quaternion().fromArray(resolved.rotation ?? [0, 0, 0, 1]);
         resolvedGroup.quaternion.copy(instanceRotation.clone().invert().multiply(resolvedRotation));
-        if (artifact.mesh.triangles.length > 0) {
+        if (triangleCount(artifact.mesh) > 0) {
           const context: SolidContext = {
             bodyId:resolved.bodyId, documentId: resolved.documentId, versionId: resolved.instancePath.segments.at(-1)?.resolvedVersionId, geometryKey: artifact.geometryKey,
             contextVariantKey: view.contextVariants?.find((variant) => variant.owningInstancePath.canonical === resolved.occurrencePath)?.variantKey,
@@ -2572,11 +2587,11 @@ export class CadViewportEngine {
           candidate.artifact.geometryKey === reference.geometryKey);
         if (!binding || !reference.topologyId) return undefined;
         const normal = new THREE.Vector3(); let count = 0;
-        binding.artifact.mesh.triangles.forEach((triangle, index) => {
-          if ((binding.artifact.mesh.faceIds[index] ?? -1) !== reference.topologyId) return;
-          const a = new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[0]]);
-          const b = new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[1]]);
-          const c = new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[2]]);
+        const topology=meshTopologyIndex(binding.artifact.mesh),positions=topology.buffers.positions;
+        topology.forEachFaceTriangle(reference.topologyId,(ia,ib,ic) => {
+          const a = new THREE.Vector3().fromArray(positions,ia*3);
+          const b = new THREE.Vector3().fromArray(positions,ib*3);
+          const c = new THREE.Vector3().fromArray(positions,ic*3);
           normal.add(b.sub(a).cross(c.sub(a))); count++;
         });
         return count && normal.lengthSq() > 0 ? normal.transformDirection(binding.mesh.matrixWorld) : undefined;
@@ -2667,8 +2682,9 @@ export class CadViewportEngine {
       if (reference.kind !== "FACE") return undefined;
       const binding=[...this.solidBindings.values()].find((candidate)=>candidate.context.instanceId===reference.instanceId&&candidate.artifact.geometryKey===reference.geometryKey);
       if(!binding||!reference.topologyId)return undefined;const normal=new THREE.Vector3();const samples:THREE.Vector3[]=[];
-      binding.artifact.mesh.triangles.forEach((triangle,index)=>{if((binding.artifact.mesh.faceIds[index]??-1)!==reference.topologyId)return;
-        const a=new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[0]]),b=new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[1]]),c=new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[2]]);
+      const topology=meshTopologyIndex(binding.artifact.mesh),positions=topology.buffers.positions;
+      topology.forEachFaceTriangle(reference.topologyId,(ia,ib,ic)=>{
+        const a=new THREE.Vector3().fromArray(positions,ia*3),b=new THREE.Vector3().fromArray(positions,ib*3),c=new THREE.Vector3().fromArray(positions,ic*3);
         const sample=b.sub(a).cross(c.sub(a));if(sample.lengthSq()>1e-12){sample.normalize();samples.push(sample);normal.add(sample);}});
       if(!samples.length||normal.lengthSq()<1e-12)return undefined;normal.normalize();
       if(samples.some((sample)=>Math.abs(sample.dot(normal))<0.9999))return undefined;
@@ -2725,9 +2741,9 @@ export class CadViewportEngine {
       anchor:binding ? new THREE.Box3().setFromObject(binding.group).getCenter(new THREE.Vector3()) : instanceCenter()};
     if (reference.kind === "FACE" && binding && topologyId) {
       const anchor = new THREE.Vector3(); let count = 0;
-      binding.artifact.mesh.triangles.forEach((triangle, index) => {
-        if ((binding.artifact.mesh.faceIds[index] ?? -1) !== topologyId) return;
-        for (const vertexIndex of triangle) { anchor.add(binding.mesh.localToWorld(new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[vertexIndex]))); count++; }
+      const topology=meshTopologyIndex(binding.artifact.mesh),positions=topology.buffers.positions;
+      topology.forEachFaceTriangle(topologyId,(a,b,c) => {
+        for (const vertexIndex of [a,b,c]) { anchor.add(binding.mesh.localToWorld(new THREE.Vector3().fromArray(positions,vertexIndex*3))); count++; }
       });
       const selection: SelectionItem = { kind: "face", id: `${binding.context.occurrencePath}:${binding.artifact.geometryKey}:face:${topologyId}`,
         topologyId, ...binding.context };
@@ -3255,13 +3271,14 @@ export class CadViewportEngine {
   }
 
   private makeSolid(artifact: Artifact, color: number, context: SolidContext, appearance?: import("../types").ResolvedAppearance): THREE.Group {
+    this.overlayEpoch++;
     context={...context,displayStageFeatureId:artifact.displayStageFeatureId??context.displayStageFeatureId};
-    if(context.result&&artifact.mesh.triangles.length)color=CATIA_VISUAL_THEME.engineeringSurface;
+    if(context.result&&triangleCount(artifact.mesh))color=CATIA_VISUAL_THEME.engineeringSurface;
     const geometry = makeGeometry(artifact);
-    geometry.userData.navigationFaceIds = artifact.mesh.faceIds;
+    geometry.userData.navigationFaceIds = artifact.mesh.buffers?.faceIds ?? artifact.mesh.faceIds;
     const group = new THREE.Group();
     const scopedAppearance = scopedSurfaceAppearance(appearance,artifact.geometryKey);
-    const mesh = new THREE.Mesh(geometry, surfaceAppearanceMaterials(geometry,artifact.mesh.faceIds,scopedAppearance,color,(value,properties)=>artifact.geometryDomain==='SHEET_SET'||artifact.geometryDomain==='MIXED_SET'?this.materials.engineeringSurface(value,properties):this.materials.surface(value,properties)));
+    const mesh = new THREE.Mesh(geometry, surfaceAppearanceMaterials(geometry,(artifact.mesh.buffers?.faceIds ?? artifact.mesh.faceIds),scopedAppearance,color,(value,properties)=>artifact.geometryDomain==='SHEET_SET'||artifact.geometryDomain==='MIXED_SET'?this.materials.engineeringSurface(value,properties):this.materials.surface(value,properties)));
     mesh.userData.cadSurfaceKey=JSON.stringify([context.documentId,context.occurrencePath,context.bodyId,context.displayStageFeatureId??'']);
     mesh.raycast = acceleratedRaycast;
     markNavigationPickable(mesh);
@@ -3285,7 +3302,7 @@ export class CadViewportEngine {
     if(!artifact.historicalPreview)this.selectionIndex.registerPick(mesh, (hit) => {
       if(!materialAllowsPick(mesh.material,hit.face?.materialIndex??0))return null;
       const triangle = hit.faceIndex ?? -1;
-      const localID = triangle >= 0 ? (artifact.mesh.faceIds[triangle] ?? 0) : 0;
+      const localID = triangle >= 0 ? ((artifact.mesh.buffers?.faceIds ?? artifact.mesh.faceIds)[triangle] ?? 0) : 0;
       return localID > 0 ? {
         kind: "face", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:face:${localID}`,
         topologyId: localID, ...context, ...this.topologyAssociationContext(artifact,context,"face",localID)
@@ -3743,6 +3760,9 @@ export class CadViewportEngine {
   }
 
   private replaceTopologyOverlays(layer: "selected" | "preselected", selections: readonly SelectionItem[]): void {
+    const signature=this.overlayEpoch+':'+selections.map(selectionKey).join('\0');
+    const reusable=selections.every(selection=>['part','instance','body','face','edge','vertex','feature'].includes(selection.kind));
+    if(reusable&&this.overlaySignatures.get(layer)===signature)return;
     const property = layer === "selected" ? "selectedOverlays" : "preselectedOverlays";
     for (const previous of this[property]) {
       previous.parent?.remove(previous);
@@ -3750,6 +3770,13 @@ export class CadViewportEngine {
     }
     this[property] = [];
     for (const selection of selections) this.addTopologyOverlay(layer, selection);
+    this.overlaySignatures.set(layer,signature);
+  }
+
+  private disposeInteractionGeometry():void {
+    this.interactionGeometry.dispose();this.overlaySignatures.clear();
+    for(const material of this.overlayMaterials.values())material.dispose();this.overlayMaterials.clear();
+    this.selectedOverlays=[];this.preselectedOverlays=[];
   }
 
   private addTopologyOverlay(layer: "selected" | "preselected", selection: SelectionItem, ids?:ReadonlySet<number>): void {
@@ -3759,7 +3786,8 @@ export class CadViewportEngine {
         if(!this.objectVisible(binding.group))continue;let matches=false;
         for(let root:THREE.Object3D|null=binding.group;root;root=root.parent)if(targets.has(root)){matches=true;break}
         if(!matches)continue;
-        for(const kind of ['face','edge'] as const){const values=new Set<number>(kind==='face'?binding.artifact.mesh.faceIds:(binding.artifact.mesh.edges??[]).map(e=>e.localId));values.delete(0);if(values.size)this.addTopologyOverlay(layer,{...binding.context,kind,id:selection.id,topologyId:[...values][0]},values)}
+        for(const kind of ['face','edge'] as const)this.addMeshOverlay(layer,binding,kind);
+        if(binding.artifact.geometryDomain==='POINT_SET')this.addMeshOverlay(layer,binding,'vertex');
       }
       return;
     }
@@ -3772,9 +3800,7 @@ export class CadViewportEngine {
         // features below still require their exact current contribution mapping.
         for(const kind of ['face','edge','vertex'] as const){
           if(kind==='vertex'&&binding.artifact.geometryDomain!=='POINT_SET')continue;
-          const locators=new Set<number>(kind==='face'?binding.artifact.mesh.faceIds:kind==='edge'?(binding.artifact.mesh.edges??[]).map(e=>e.localId):(binding.artifact.mesh.topologyVertices??[]).map(v=>v.localId));
-          locators.delete(0);
-          if(locators.size)this.addTopologyOverlay(layer,{...binding.context,kind,id:selection.id,topologyId:[...locators][0]},locators);
+          this.addMeshOverlay(layer,binding,kind);
         }
         return;
       }
@@ -3813,28 +3839,35 @@ export class CadViewportEngine {
     const binding = [...this.solidBindings.values()].find(b => sameDisplayContext(selection,b.context));
     if (!binding || !selection.topologyId) return;
     const selectedIDs=ids??new Set([selection.topologyId]);
+    this.addMeshOverlay(layer,binding,selection.kind,selectedIDs);
+  }
+
+  private topologyOverlayMaterial(layer:'selected'|'preselected',silhouette:boolean):LineMaterial {
+    const key=layer+':'+silhouette;let material=this.overlayMaterials.get(key);
+    if(!material){
+      material=makeHighlightLineMaterial(layer==='selected'?CATIA_VISUAL_THEME.selected:CATIA_VISUAL_THEME.hover,layer==='selected'?2.25:1.75);
+      material.depthTest=true;material.userData.cadContour=true;material.userData.cadSilhouette=silhouette;
+      material.userData.cadSharedMaterial=true;this.materials.sectionLine(material);this.overlayMaterials.set(key,material);
+    }
+    return material;
+  }
+
+  private addMeshOverlay(layer:'selected'|'preselected',binding:SolidBinding,kind:'face'|'edge'|'vertex',ids?:ReadonlySet<number>):void {
     const color = layer === "selected" ? CATIA_VISUAL_THEME.selected : CATIA_VISUAL_THEME.hover;
     let overlay: THREE.Object3D | undefined;
-    if (selection.kind === "face") {
-      const positions: number[] = [];
-      binding.artifact.mesh.triangles.forEach((triangle, index) => {
-        if (!selectedIDs.has(binding.artifact.mesh.faceIds[index] ?? -1)) return;
-        for (const vertex of triangle) positions.push(...binding.artifact.mesh.vertices[vertex]);
-      });
-      if (positions.length > 0) {
-        const data=surfaceContourData(positions),line=makeOcclusionVisibleSegments(data.segments,color,layer==='selected'?2.25:1.75);
-        line.geometry.setAttribute('instanceEdgeNormalA',new THREE.InstancedBufferAttribute(new Float32Array(data.first),3));
-        line.geometry.setAttribute('instanceEdgeNormalB',new THREE.InstancedBufferAttribute(new Float32Array(data.second),3));
-        line.material.depthTest=true;line.material.userData.cadContour=true;line.material.userData.cadSilhouette=true;this.materials.sectionLine(line.material);overlay=line;
-      }
-    } else if (selection.kind === "edge") {
-      const group=new THREE.Group();
-      for(const edge of binding.artifact.mesh.edges??[])if(selectedIDs.has(edge.localId)){
-        const line=makeOcclusionVisibleHighlightLine(edge.points.map(point=>new THREE.Vector3().fromArray(point)),color,layer==='selected'?2.25:1.75);line.material.depthTest=true;line.material.userData.cadContour=true;this.materials.sectionLine(line.material);group.add(line);
-      }
-      if(group.children.length===1){overlay=group.children[0];group.remove(overlay);}else if(group.children.length)overlay=group;
+    if(kind==='face'||kind==='edge'){
+      if(kind==='face'&&!triangleCount(binding.artifact.mesh))return;
+      if(kind==='edge'&&!binding.artifact.mesh.edges?.length)return;
+      const lease=this.interactionGeometry.acquire(binding.artifact.mesh,kind,ids);
+      if((lease.geometry as import('three/addons/lines/LineSegmentsGeometry.js').LineSegmentsGeometry).instanceCount===0){lease.release();return;}
+      if(kind==='face'){
+        const line=new LineSegments2(new LineSegmentsGeometry(),this.topologyOverlayMaterial(layer,true));
+        line.geometry.boundingBox=lease.geometry.boundingBox?.clone()??null;line.geometry.boundingSphere=lease.geometry.boundingSphere?.clone()??null;
+        line.userData.cadUpdateContour=contourProjectionUpdater(line,lease.geometry);line.userData.cadOwnProjectedGeometry=true;overlay=line;
+      }else overlay=new LineSegments2(lease.geometry as LineSegmentsGeometry,this.topologyOverlayMaterial(layer,false));
+      overlay.userData.cadGeometryRelease=lease.release;
     } else {
-      const vertices = (binding.artifact.mesh.topologyVertices ?? []).filter(item=>selectedIDs.has(item.localId));
+      const vertices = (binding.artifact.mesh.topologyVertices ?? []).filter(item=>!ids||ids.has(item.localId));
       if (vertices.length) {
         const geometry = new THREE.BufferGeometry().setFromPoints(vertices.map(vertex=>new THREE.Vector3().fromArray(vertex.point)));
         const material=binding.artifact.geometryDomain==='POINT_SET'?this.materials.engineeringPoint(false):this.materials.topologyPoint(color, layer === "selected" ? 6 : 5, false);
@@ -4463,11 +4496,12 @@ export class CadViewportEngine {
   private disposeRenderable(root: THREE.Object3D): void {
     root.traverse((object) => {
       const renderable = object as THREE.Mesh;
-      renderable.geometry?.dispose();
+      if(typeof object.userData.cadGeometryRelease==='function'){object.userData.cadGeometryRelease();delete object.userData.cadGeometryRelease;if(object.userData.cadOwnProjectedGeometry)renderable.geometry?.dispose();delete object.userData.cadUpdateContour;}
+      else renderable.geometry?.dispose();
       const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
       materials.forEach((material) => {
         if (material?.userData.ownedTexture instanceof THREE.Texture) material.userData.ownedTexture.dispose();
-        material?.dispose();
+        if(!material?.userData.cadSharedMaterial)material?.dispose();
       });
     });
   }
@@ -4499,6 +4533,8 @@ export class CadViewportEngine {
         updateScreenLines(this.scene, this.camera, metrics.cssWidth, metrics.cssHeight);
         this.updateSketchParameterAnchor();
         this.updateCameraClipping();
+        this.scene.updateMatrixWorld(true);this.camera.updateMatrixWorld(true);
+        for(const root of [...this.selectedOverlays,...this.preselectedOverlays])root.traverse(object=>object.userData.cadUpdateContour?.(this.camera));
         this.materials.surfaceDepth.render(this.renderer,this.scene,this.camera,this.sceneSettings.ambientOcclusion&&!this.sketchPlane&&this.solidDisplay.mode==='shaded',this.sceneSettings.aoIntensity);
         const sketchView=this.sketchView();
         const sketchScope=this.sketchPlane&&this.activeSketchID?{featureId:this.activeSketchID,documentId:sketchView?.document.id,versionId:sketchView?.document.versionId,occurrencePath:this.editContext?.occurrencePath??''}:null;

@@ -92,7 +92,7 @@ try {
  for(const sequence of [coincident,[...coincident].reverse()])for(const scale of [.2,1,20])assert.equal(resolveSketchReference({x:20*scale,y:10*scale},sequence,([x,y])=>({x:x*scale,y:y*scale}),'ENTITY')?.entityId,'a','coincident profile geometry wins regardless of model order/zoom/dash phase');
  assert(sketchMarqueeContains([[0,0],[10,10]],{x:-1,y:-1},{x:11,y:11}));assert(!sketchMarqueeContains([[0,0],[20,20]],{x:-1,y:-1},{x:11,y:11}));assert(sketchMarqueeContains([[-10,5],[30,5]],{x:10,y:0},{x:0,y:10}),'crossing selects through-segment even when both endpoints are outside');
  // The actual viewport preview path uses immutable candidates, not local writes.
- Object.assign(engine,{helpers:new THREE.Group(),dimensionPreviewHidden:new Set(),dimensionPreviewGeneration:0,sketchModal:{visible:true},selected:[],preselected:null,selectionIndex:new SelectionIndex(),highlightedRoots:new Set(),callbacks:{},camera,viewTransition:{cancel(){this.cancelled=true;}}});
+ Object.assign(engine,{helpers:new THREE.Group(),dimensionPreviewHidden:new Set(),dimensionPreviewGeneration:0,sketchModal:{visible:true},selected:[],preselected:null,selectionIndex:new SelectionIndex(),highlightedRoots:new Set(),overlaySignatures:new Map(),overlayMaterials:new Map(),callbacks:{},camera,viewTransition:{cancel(){this.cancelled=true;}}});
  const geometry=new THREE.Group();geometry.userData={kind:'visual',featureId:'sketch'};engine.helpers.add(geometry);
  const promises=[];let geometryResult=[{...entities[0],end:{x:50,y:10}},entities[1]];
  engine.toolViewportPort=()=>({previewSketchOperations:(_ops,signal)=>new Promise(resolve=>promises.push({signal,resolve})),projectSketchPoint:()=>[123,234]});

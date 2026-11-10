@@ -9,8 +9,11 @@ const moduleURL=async(file,replacements=[])=>{
  for(const [from,to] of replacements)output=output.replace(from,to);
  return `data:text/javascript;base64,${Buffer.from(output).toString("base64")}`;
 };
-const codec=await moduleURL("../mesh-glb.ts"),{encodeMeshGLB,decodeMeshGLB}=await import(codec);
-const {VisualRepository}=await import(await moduleURL("../visual-repository.ts",[['"./mesh-glb"',JSON.stringify(codec)]]));
+const packed=await moduleURL("../packed-mesh.ts");
+const codec=await moduleURL("../mesh-glb.ts", [['"./packed-mesh"', JSON.stringify(packed)]]),{encodeMeshGLB,decodeMeshGLB}=await import(codec);
+const delta=await moduleURL("../visual-delta.ts");
+const decoder=await moduleURL("../visual-decoder.ts", [["'./mesh-glb'", JSON.stringify(codec)], ["'./packed-mesh'", JSON.stringify(packed)]]);
+const {VisualRepository}=await import(await moduleURL("../visual-repository.ts", [['"./visual-decoder"',JSON.stringify(decoder)],['"./visual-delta"',JSON.stringify(delta)]]));
 const mesh={vertices:[[0,0,0],[2,0,0],[0,3,0]],triangles:[[0,1,2]],faceIds:[1],edges:[{localId:7,points:[[0,0,0],[2,0,0]]}],topologyVertices:[{localId:9,point:[0,0,0]}]};
 const visualization={schemaVersion:2,referenceGeometry:{datumPlanes:[],axisSystems:[]},primitives:[]};
 const glb=encodeMeshGLB(mesh,visualization);
@@ -117,3 +120,34 @@ try {
  await assert.rejects(second.hydrate({...pairedView,artifact:{...pairedView.artifact,representations:{...pairedView.artifact.representations,VISUAL:{...pairedView.artifact.representations.VISUAL,size:missingNaming.byteLength,digest:createHash("sha256").update(new Uint8Array(missingNaming)).digest("hex")}}}}),/Naming digest mismatch/);
  second.dispose();
 } finally {globalThis.fetch=originalFetch}
+// Packed accessors share the original GLB instead of building nested face arrays.
+const packedDecoded=decodeMeshGLB(glb).mesh;
+assert.equal(packedDecoded.buffers.positions.buffer,glb);
+assert.equal(packedDecoded.buffers.indices.buffer,glb);
+assert.equal(typeof Object.getOwnPropertyDescriptor(packedDecoded,'vertices').get,'function');
+// Actual Repository negotiation, exact reconstruction, preview promotion and
+// unavailable-base fallback. The patch is independently authored on the wire.
+const large=n=>encodeMeshGLB({...mesh,vertices:Array.from({length:600},(_,i)=>[i,i%17,i%23]),faceIds:[n]});
+const baseGLB=large(1),targetGLB=large(2),thirdGLB=large(3);
+const sha=b=>createHash('sha256').update(new Uint8Array(b)).digest('hex');
+const literalPatch=(base,target)=>{
+ const out=new ArrayBuffer(85+target.byteLength),v=new DataView(out),bytes=new Uint8Array(out);bytes.set(new TextEncoder().encode('OCCDLT01'));
+ bytes.set(Buffer.from(sha(base),'hex'),8);bytes.set(Buffer.from(sha(target),'hex'),40);v.setUint32(72,target.byteLength,true);v.setUint32(76,1,true);bytes[80]=1;v.setUint32(81,target.byteLength,true);bytes.set(new Uint8Array(target),85);return out;
+};
+const largeView=(buffer,id,version,preview=false)=>({document:{id:'part',versionId:version},artifact:{bodyId:'body',representationKind:preview?'TRANSIENT_PREVIEW':'PERSISTENT',representations:{VISUAL:{objectId:id,digest:sha(buffer),schemaVersion:2,size:buffer.byteLength,contentType:'model/gltf-binary',url:preview?`/api/documents/part/representations/${id}?previewId=candidate`:undefined}}}});
+try {
+ let requests=[];const repository=new VisualRepository();
+ globalThis.fetch=async(url,options)=>{requests.push({url,options});return new Response(baseGLB)};
+ await repository.hydrate(largeView(baseGLB,'base','v1'));
+ const preview=repository.previewRepository();
+ globalThis.fetch=async(url,options)=>{requests.push({url,options});assert.match(url,/base=/);assert.match(options.headers.Accept,/visual-delta/);return new Response(literalPatch(baseGLB,targetGLB),{headers:{'Content-Type':'application/vnd.occccad.visual-delta'}})};
+ const next=await preview.hydrate(largeView(targetGLB,'target','v1',true));preview.dispose();
+ const promoted=await repository.hydrate(largeView(targetGLB,'target','v2'));
+ assert.equal(promoted.artifact.mesh,next.artifact.mesh,'verified promotion keeps immutable display buffers');
+ globalThis.fetch=async(url,options)=>{requests.push({url,options});if(new URL(url,'http://local').searchParams.has('base')){assert.equal(new URL(url,'http://local').searchParams.get('base'),'/api/documents/part/representations/target?versionId=v2','promoted base uses its accepted Revision URL');return new Response('base expired',{status:404})}return new Response(thirdGLB)};
+ const third=repository.previewRepository();await third.hydrate(largeView(thirdGLB,'third','v2',true));third.dispose();
+ const corrupt=repository.previewRepository();
+ globalThis.fetch=async()=>{const patch=literalPatch(targetGLB,thirdGLB);new Uint8Array(patch)[patch.byteLength-1]^=1;return new Response(patch,{headers:{'Content-Type':'application/vnd.occccad.visual-delta'}})};
+ await assert.rejects(corrupt.hydrate(largeView(thirdGLB,'corrupt','v2',true)),/digest mismatch/);corrupt.dispose();repository.dispose();
+}finally{globalThis.fetch=originalFetch}
+console.log('Packed ownership, negotiated byte-exact delta, accepted-base promotion, expiration fallback and digest rejection passed');

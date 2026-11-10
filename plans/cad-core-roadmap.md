@@ -8,7 +8,7 @@
 |---|---|---|
 | 工程曲面扩展 | A–D 的独立 Part 有界能力：关联曲线、工程曲面编辑/实体化/交换；姿态/有界边界导向、spine、显式点对应、Boundary/Blend、逐边多项式支撑 G1/受限 G2、只读曲率分析。后续按 current 限制推进通用导向/支撑、一般曲面编辑及测量/发布/Product 互用 | [当前边界](../docs/architecture/current/wireframe-surfaces.md)、[阶段设计](wireframe-surface-design.md)、[商业 CAD 对照](../docs/references/surface-modeling.md) |
 | 几何测量交互 | 依据实机反馈完善专用上下文来源、标签排布和选择语义；保持临时计算、保留/更新及标注历史边界 | [几何测量](../docs/architecture/current/geometric-measurement.md) |
-| 零件持续建模性能 | 扩大复杂 STEP 与长特征链样本，继续削减 Naming/显示固定成本、控制进程整体内存，并覆盖尚不能中断的积分/构造器；首个有效操作与修改参数分别测量 | [Part 求值](../docs/architecture/current/part-feature-evaluation.md#零件增量求值)、[测量边界](../docs/validation/part-feature-performance.md) |
+| 零件持续建模性能 | 在语义索引/共享检查点、未变面网格复用、无损传输和批量高亮基础上，扩大复杂 STEP/长特征链样本；继续削减首次完整剖分与精确布尔成本，建立进程整体内存控制，并覆盖尚不能中断的积分/构造器；首个有效操作与修改参数分别测量 | [Part 求值](../docs/architecture/current/part-feature-evaluation.md#零件增量求值)、[测量边界](../docs/validation/part-feature-performance.md) |
 | 空间分析与干涉性能 | 优化持续变化构型的精确交集成本及大装配规模；分别验证复杂实体、显示精度、失效、取消与只读边界 | [空间分析](../docs/architecture/current/product-assembly.md#空间分析对象与手动更新) |
 | 历史与上下文扩展 | 跨 Body 历史创建、更多受约束移动、深层上下文编辑及跨层更新编排；逐项明确合法来源、默认构型与 occurrence 一致性 | [实体 Feature](../docs/architecture/current/solid-features.md)、[编辑上下文](../docs/architecture/current/product-edit-context.md) |
 | 骨架与跨零件引用 | 从消费参数或几何输入建立引用，在所属对象内编辑/修复；新引用编辑器、带链接复制及深层编排仍待实施，复用内部 UpdatePlan | [流程设计](skeleton-reference-workflow.md) |

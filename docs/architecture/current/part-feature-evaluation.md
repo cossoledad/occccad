@@ -33,13 +33,13 @@ OCCT IsDone 不是接纳条件。结果须非空、有效、满足多 Solid Body
 
 输入与工具均为单 Solid 时，ADD/REMOVE 复用本次 Boolean 的交集分区，在新增或移除的材料区域执行原精度体积积分；以输入体积加减变化量得到结果体积。无材料变化仍按原阈值拒绝，边界接触不作为材料，空结果仍拒绝。差值接近整体数值抵消时，回退为结果整体积分。多个 Solid（包括重叠分量）的补集可能改变有向体积的分量重数，保留原输入/结果整体积分；INTERSECT 也保留输入/结果体积检查。结果仍执行有效 Solid 集、无游离拓扑、同域合并及完整 Naming 门禁；已验证的同一结果不重复检查。
 
-一次请求内按精确 OCCT occurrence（包含朝向）复用质量与几何证据；同一语义引用且拓扑未变时可沿用已接纳证据，邻接按本次结果重建。最终邻接使用包含/共享边界索引，不做全部拓扑两两扫描。上述索引不是持久身份，规则见 [Naming](persistent-naming.md)。
+一次请求内按精确 OCCT occurrence（包含朝向）复用质量与几何证据；同一语义引用且拓扑未变时可沿用已接纳证据，邻接按本次结果重建。最终邻接使用包含/共享边界索引，不做全部拓扑两两扫描。语义引用索引按完整 typed ref 查找，并保留重复候选的原顺序；不在每个输出/lineage 上线性扫描全部输入。上述索引不是持久身份，规则见 [Naming](persistent-naming.md)。
 
-前缀检查点带输入与策略 digest、历史、质量、命名及构造上下文。缓存超预算时可仅保留经过验证的 Tip 检查点；缺少成员重执行上下文的检查点不得服务 `SOLID_PATTERN`，须重新建立完整上下文。取消后不接纳检查点；淘汰与冷重建不改变结果语义。
+前缀检查点带输入与策略 digest、历史、质量、命名及构造上下文。已完成的 FeatureResult 以不可变前缀节点共享，追加只复制当前项；恢复时一次展开公共结果，避免每一步重新复制整个历史前缀。持久 Naming 的完整历史、顺序和摘要保持原合同。缓存超预算时可仅保留经过验证的 Tip 检查点；缺少成员重执行上下文的检查点不得服务 `SOLID_PATTERN`，须重新建立完整上下文。取消后不接纳检查点；淘汰与冷重建不改变结果语义。
 
-Boolean 和剖分通过 OCCT progress 协作取消，transport 状态轮询节流；制品发布前仍检查取消和过期资格。单次几何积分及部分构造器仍可能在返回后才响应取消，不承诺所有原生算法立即中断。
+Boolean 和剖分通过 OCCT progress 协作取消，算法内观察本地单调取消标记，真实 transport 状态至多每 16 ms 轮询一次；检查点/网格接纳和结果发布边界强制查询真实状态，制品提交仍检查取消和过期资格。单次几何积分及部分构造器仍可能在返回后才响应取消，不承诺所有原生算法立即中断。
 
-`PartRuntimeStats` 分开记录 base、exact、Naming、display、mesh、encoding、邻接、积分次数及证据复用；mesh/encoding 属于 display 的子阶段，不能相加。指定复杂导入件的测量与边界见[零件性能测量](../../validation/part-feature-performance.md)。
+`PartRuntimeStats` 分开记录 base、exact、Naming、display、mesh、encoding、邻接、积分次数及证据复用；Naming 再区分内核与制品装配，另记真实取消查询次数/耗时和网格复用/计算面数。mesh/encoding 属于 display 的子阶段，不能相加。指定复杂导入件的测量与边界见[零件性能测量](../../validation/part-feature-performance.md)。
 
 ## Sketcher 的显示上下文
 

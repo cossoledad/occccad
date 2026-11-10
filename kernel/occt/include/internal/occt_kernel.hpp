@@ -45,6 +45,8 @@ struct PartRuntimeOptions {
     std::vector<std::string> stage_keys;
     bool force_cold = false;
     std::function<bool()> cancelled;
+    // Unthrottled cancellation at immutable checkpoint admission boundaries.
+    std::function<bool()> fresh_cancelled;
     PartRuntimeStats* stats = nullptr;
     std::optional<PartBaseStage> base_stage;
 };
@@ -101,7 +103,7 @@ public:
     TessellationResult tessellate(const GeometryId& id, double linear_deflection = visual_linear_deflection_mm,
                                   double angular_deflection = visual_angular_deflection_radians, bool parallel = true) override;
     TessellationResult tessellate(const GeometryId& id, double linear_deflection,
-                                  double angular_deflection, bool parallel, std::function<bool()> cancelled);
+                                  double angular_deflection, bool parallel, std::function<bool()> cancelled, std::function<bool()> fresh_cancelled = {});
 
     GeometryId chamfer(const GeometryId& id, const std::vector<uint64_t>& edge_local_ids,
                        double distance) override;
@@ -109,6 +111,8 @@ public:
     GeometryId fillet(const GeometryId& id, const std::vector<uint64_t>& edge_local_ids,
                       double radius) override;
 
+    // Immutable byte ownership may outlive resident eviction or the kernel.
+    std::shared_ptr<const std::vector<uint8_t>> borrowBrepr(const GeometryId& id) const;
     std::vector<uint8_t> serializeBrepr(const GeometryId& id) override;
     GeometryId loadStepData(const std::vector<uint8_t>& data) override;
     std::vector<uint8_t> serializeStep(const GeometryId& id) override;

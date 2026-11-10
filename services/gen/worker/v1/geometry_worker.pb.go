@@ -4960,6 +4960,12 @@ type PartRuntimeStats struct {
 	FaceEvidenceComputed uint64                 `protobuf:"varint,25,opt,name=face_evidence_computed,json=faceEvidenceComputed,proto3" json:"face_evidence_computed,omitempty"`
 	FaceEvidenceReused   uint64                 `protobuf:"varint,26,opt,name=face_evidence_reused,json=faceEvidenceReused,proto3" json:"face_evidence_reused,omitempty"`
 	BaseStageRestored    bool                   `protobuf:"varint,27,opt,name=base_stage_restored,json=baseStageRestored,proto3" json:"base_stage_restored,omitempty"`
+	NamingKernelMs       float64                `protobuf:"fixed64,28,opt,name=naming_kernel_ms,json=namingKernelMs,proto3" json:"naming_kernel_ms,omitempty"`
+	NamingArtifactMs     float64                `protobuf:"fixed64,29,opt,name=naming_artifact_ms,json=namingArtifactMs,proto3" json:"naming_artifact_ms,omitempty"`
+	CancellationPolls    uint64                 `protobuf:"varint,30,opt,name=cancellation_polls,json=cancellationPolls,proto3" json:"cancellation_polls,omitempty"`
+	CancellationPollMs   float64                `protobuf:"fixed64,31,opt,name=cancellation_poll_ms,json=cancellationPollMs,proto3" json:"cancellation_poll_ms,omitempty"`
+	MeshReusedFaces      uint64                 `protobuf:"varint,32,opt,name=mesh_reused_faces,json=meshReusedFaces,proto3" json:"mesh_reused_faces,omitempty"`
+	MeshComputedFaces    uint64                 `protobuf:"varint,33,opt,name=mesh_computed_faces,json=meshComputedFaces,proto3" json:"mesh_computed_faces,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -5181,6 +5187,48 @@ func (x *PartRuntimeStats) GetBaseStageRestored() bool {
 		return x.BaseStageRestored
 	}
 	return false
+}
+
+func (x *PartRuntimeStats) GetNamingKernelMs() float64 {
+	if x != nil {
+		return x.NamingKernelMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetNamingArtifactMs() float64 {
+	if x != nil {
+		return x.NamingArtifactMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetCancellationPolls() uint64 {
+	if x != nil {
+		return x.CancellationPolls
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetCancellationPollMs() float64 {
+	if x != nil {
+		return x.CancellationPollMs
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetMeshReusedFaces() uint64 {
+	if x != nil {
+		return x.MeshReusedFaces
+	}
+	return 0
+}
+
+func (x *PartRuntimeStats) GetMeshComputedFaces() uint64 {
+	if x != nil {
+		return x.MeshComputedFaces
+	}
+	return 0
 }
 
 type ProfileCurve struct {
@@ -15606,7 +15654,8 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\finput_digest\x18\x02 \x01(\tR\vinputDigest\x12\x1f\n" +
 	"\vgeometry_id\x18\x03 \x01(\tR\n" +
 	"geometryId\x12\x16\n" +
-	"\x06reused\x18\x04 \x01(\bR\x06reused\"\xdd\b\n" +
+	"\x06reused\x18\x04 \x01(\bR\x06reused\"\xf2\n" +
+	"\n" +
 	"\x10PartRuntimeStats\x12'\n" +
 	"\x0fstages_executed\x18\x01 \x01(\rR\x0estagesExecuted\x12#\n" +
 	"\rstages_reused\x18\x02 \x01(\rR\fstagesReused\x12'\n" +
@@ -15637,7 +15686,13 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x13volume_integrations\x18\x18 \x01(\x04R\x12volumeIntegrations\x124\n" +
 	"\x16face_evidence_computed\x18\x19 \x01(\x04R\x14faceEvidenceComputed\x120\n" +
 	"\x14face_evidence_reused\x18\x1a \x01(\x04R\x12faceEvidenceReused\x12.\n" +
-	"\x13base_stage_restored\x18\x1b \x01(\bR\x11baseStageRestored\"\x93\x06\n" +
+	"\x13base_stage_restored\x18\x1b \x01(\bR\x11baseStageRestored\x12(\n" +
+	"\x10naming_kernel_ms\x18\x1c \x01(\x01R\x0enamingKernelMs\x12,\n" +
+	"\x12naming_artifact_ms\x18\x1d \x01(\x01R\x10namingArtifactMs\x12-\n" +
+	"\x12cancellation_polls\x18\x1e \x01(\x04R\x11cancellationPolls\x120\n" +
+	"\x14cancellation_poll_ms\x18\x1f \x01(\x01R\x12cancellationPollMs\x12*\n" +
+	"\x11mesh_reused_faces\x18  \x01(\x04R\x0fmeshReusedFaces\x12.\n" +
+	"\x13mesh_computed_faces\x18! \x01(\x04R\x11meshComputedFaces\"\x93\x06\n" +
 	"\fProfileCurve\x12\x1b\n" +
 	"\tentity_id\x18\x01 \x01(\tR\bentityId\x12\x1a\n" +
 	"\breversed\x18\x02 \x01(\bR\breversed\x12\x12\n" +

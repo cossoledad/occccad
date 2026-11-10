@@ -102,8 +102,9 @@ export class SurfaceDepthPass {
         float fa=dot(a,eye),fb=dot(b,eye);
         vCadContour=${material.userData.cadSilhouette?'length(b)<0.1?1.0:step(fa*fb,0.0)':'length(a)<0.1?0.65:(fa*fb<0.0?1.0:1.0-smoothstep(0.0,0.45,min(abs(fa),abs(fb))))'};`);
       shader.fragmentShader=(material.userData.cadEdgeAppearance||material.userData.cadSilhouette?'varying float vCadContour;\n':'')+EDGE_OCCLUSION_GLSL+shader.fragmentShader.replace("gl_FragColor = vec4( diffuseColor.rgb, alpha );",`gl_FragColor = vec4( diffuseColor.rgb, alpha * ${material.userData.cadContour?'1.0':'cadEdgeVisibility()'} ${material.userData.cadSilhouette?'* vCadContour':material.userData.cadEdgeAppearance?'* mix(0.78,1.0,vCadContour)':''} );`);
+      if(material.userData.cadSilhouette)shader.fragmentShader=shader.fragmentShader.replace('void main() {','void main() { if(vCadContour<0.5)discard;');
     };
-    material.customProgramCacheKey=()=>"cad-edge-depth-facing-v5-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour);
+    material.customProgramCacheKey=()=>"cad-edge-depth-facing-v6-"+Boolean(material.userData.cadEdgeAppearance)+'-'+Boolean(material.userData.cadSilhouette)+'-'+Boolean(material.userData.cadContour);
   }
   configureSurface(material:THREE.MeshStandardMaterial):void{
     material.onBeforeCompile=shader=>{

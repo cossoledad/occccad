@@ -36,4 +36,32 @@
 
 内核邻接与独立两两 oracle 对照、冻结根拒绝错误身份/摘要、多个 Solid（分离/重叠）的整体积分回退、惰性拓扑属性、取消不返回部分网格的回归，位于 `kernel/occt/tests/geometry_exchange_scenarios.cpp`。原始运行报告在 `build/agent-check/`；本机原模型测量及 CPU profile 在 `build/performance/import-cut-analysis/`。这些可清理文件不是功能的持久输入。
 
-当前仍有约 4–5 s 的首次响应成本，Naming、完整剖分及数据装配仍占明显比例。当前缓存预算也不覆盖 OCCT 全进程内存；单次积分及部分构造器仍不能中途取消。未对复杂导入件的所有局部修改器、INTERSECT 或长链规模给出性能保证，需要整体积分的分支仍可能较慢。继续扩大真实复杂 STEP 和长链样本后再确定下一轮优化，不从本样本推断任意模型都能立即完成。算法边界归[Part 求值](../architecture/current/part-feature-evaluation.md#零件增量求值)，后续入口归[CAD 核心主线](../../plans/cad-core-roadmap.md)。
+2026-11-10 的增量优化继续降低了首次与改参数成本，见下节。首次仍需完整剖分，精确 Boolean、Naming 打包、制品读写和 OCCT 全进程内存仍有优化空间；单次积分及部分构造器仍不能中途取消。未对复杂导入件的所有局部修改器、INTERSECT 或长链规模给出性能保证，需要整体积分的分支仍可能较慢。算法边界归[Part 求值](../architecture/current/part-feature-evaluation.md#零件增量求值)，后续入口归[CAD 核心主线](../../plans/cad-core-roadmap.md)。
+
+
+## 增量命名、显示与交互（2026-11-10）
+
+同机同一冻结输入和精度，正常 SQLite / LOCAL / Release Router。新运行时的三个串行预览分别执行生成器和布尔，不是相同结果缓存命中；后两次允许复用未变化面的离散数据。测量期间没有并行构建/测试。全部 BREP SHA 与此前 40/41/42 mm 样本一致，原文档 Head 保持。
+
+| 边界 | 本轮前 | 本轮后 |
+|---|---:|---:|
+| 首次新切除，API 至预览响应 | 4.489 s | 2.892 s |
+| 40 → 41 mm | 4.087 s | 1.557 s |
+| 41 → 42 mm | 4.104 s | 1.497 s |
+| Naming（含内核与打包） | 1.404～1.436 s | 0.211～0.250 s |
+| 改参数时的 mesh 子阶段 | 1.103～1.124 s | 0.060～0.064 s |
+| 切除 GLB 的 HTTP 载荷 | 22.69 MB | 2.65 MB |
+
+内核语义索引避免重复线性查找；检查点共享已完成的 FeatureResult 前缀，恢复时再展开。独立原生样本与调用链对照表明，一个主要墙钟损耗来自算法热循环反复查询 gRPC 取消状态：本轮改为 16 ms 有界轮询，本次首次实际查询 58 次、约 5.3 ms；接纳和发布仍强制查询。Naming 新计时分别给出内核约 0.129～0.144 s、制品打包约 0.082～0.107 s，不能将旧 Naming 整段都解释为命名算法 CPU。
+
+改深度时 828 个面中 761 个剖分被保留，67 个由 OCCT 计算；结果仍为 740450 三角形。严格复用依赖同源精确 TShape/位置/朝向和精度，失败走原边界校验及冷算。首次没有 face packet，mesh 仍约 1.132 s。BREP/GLB 字节改为不可变共享所有权，驻留预算按共享几何并集计量；这些模块预算不是全进程 RSS 上限。
+
+22.69 MB → 2.65 MB 是对授权的既有导入 GLB 做无损传输编码，包含索引常量偏移；不是降低精度或只校验部分文件。独立编码样本约 72 ms，浏览器正式 VisualRepository 路径已重建并校验目标 SHA。下载、Worker 解码及整件轮廓准备的两次样本约 0.59～0.68 s，和前节 commandPreview/GPU 呈现计时边界不同，不能直接作逐帧速度对比。
+
+前端整件高亮原来每次扫描三角形并创建约 2159 个覆盖对象；现在面/边各一个批次，并复用不可变 mesh 的空间轮廓、精确子集索引和共享租借缓冲。相机变化做保守候选筛选，原 shader 与深度/剖切门禁作最终判断，材料保持原外观。一个零件及其两个重复 occurrence 的 Product 样本中：首次整件 hover CPU 约 35～37 ms，重复选择/hover 约 0.2～1.0 ms；本轮前对应操作约 2.6～4.9 s。大 GLB 与整件轮廓准备在 Web Worker，渲染直接借用紧凑 accessor，不再先建立大量嵌套面数组。
+
+这里的 hover 数字只计引擎调用 CPU，不含 GPU 完成；Chromium/SwiftShader 的截图同步仍有明显成本，不能据此声称目标显卡 60 Hz。Product 测量选择其中一个完整 occurrence，并验证重复实例共享 mesh、各自覆盖；不是大装配或任意开放结果的容量验收。精确稳定引用、历史全量等价、冷算、取消和共享资源寿命继续独立检查。完整机器样本在同页 JSON 的 `incrementalOptimization20261110`；原始本机材料在 `build/performance/part-incremental/`。
+
+本轮另在 1.2 s 和 0.75 s 中止新操作，客户端均被取消且源 Head 未变；观察包含空闲确认，不作为所有构造器的中断上界，详细 CPU 样本见 JSON。
+
+新增验证入口：`MeshReusePreservesColdResultAndIsolatesSource`、`BorrowedBrepSurvivesEvictionAndKernelLifetime`，`TestVisualDeltaPreservesBytesAuthorizationAndVariantETag`，Web 的 `interaction-geometry` / `visual-decoder` / `mesh-glb` 场景；真实视图沿用 `surface-contours-live`、`Engineering surface display` 和 `Hole preview keeps one shaded result`。测试存在不代表执行，实际结果由本次 `build/agent-check/` 和浏览器报告确认。

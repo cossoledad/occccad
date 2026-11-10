@@ -4,6 +4,7 @@ const server=await createServer({appType:'custom',logLevel:'silent',server:{midd
 try {
  const THREE=await server.ssrLoadModule('three');
  const {CadViewportEngine}=await server.ssrLoadModule('/src/viewport/cad-viewport-engine.ts');
+ const {InteractionGeometryCache}=await server.ssrLoadModule('/src/cad/rendering/interaction-geometry-cache.ts');
  const {SelectionIndex}=await server.ssrLoadModule('/src/cad/interaction/selection-index.ts');
  const engine=Object.create(CadViewportEngine.prototype),index=new SelectionIndex();
  const content=new THREE.Group(),a=new THREE.Group(),b=new THREE.Group();b.position.x=10;content.add(a,b);
@@ -22,7 +23,7 @@ try {
   structureTree:{id:'document:root',kind:'PRODUCT',documentId:'root',versionId:revision,children:[{id:'document:root/publications/port',kind:'PRODUCT_PUBLICATION',entityId:'port',name:'Mount',documentId:'root',versionId:revision,
    productPublication:{id:'port',name:'Mount',type:'SURFACE',target:{instancePath:path('a'),element:{kind:'TOPOLOGY',bodyId:'body-a'}},resolution:{status:'CONNECTED',topologyKind:'FACE',localId:face,geometryKey:'shape-a',resolvedVersionId:'part-v1'}}}]}});
  Object.assign(engine,{content,helpers:new THREE.Group(),instanceGroups:new Map([['a',a],['b',b]]),solidBindings:new Map([['a',binding('a',a,meshA)],['b',binding('b',b,meshB)]]),
-  selectionIndex:index,assemblyConstraintMarkers:new Map(),assemblyConstraintReferences:new Map(),selected:[],preselected:null,selectedOverlays:[],preselectedOverlays:[],highlightedRoots:new Set(),
+  selectionIndex:index,assemblyConstraintMarkers:new Map(),assemblyConstraintReferences:new Map(),selected:[],preselected:null,selectedOverlays:[],preselectedOverlays:[],highlightedRoots:new Set(),overlaySignatures:new Map(),overlayMaterials:new Map(),interactionGeometry:new InteractionGeometryCache(),
   renderer:{domElement:{clientWidth:800,clientHeight:600}},refreshSceneGround(){},invalidate(){},materials:{sectionLine(){},constraintGlyph:(glyph,color)=>{const m=new THREE.PointsMaterial({color});m.userData.glyph=glyph;return m},setInteractionState(){}},callbacks:{}});
  engine.view=view(1,'r1','NOT_UPDATED');engine.addAssemblyConstraintMarkers(engine.view);
  const marker=()=>[...engine.assemblyConstraintMarkers.values()][0];
@@ -42,6 +43,8 @@ try {
  assert.notEqual(marker().group,oldMarker,'same-position retarget rebinds the marker');
  assert.equal(engine.assemblyConstraintReferences.values().next().value[0].highlightTarget.topologyId,2);
  assert.equal(engine.selectedOverlays.length,2);assert.ok(disposed,'obsolete face overlay is disposed');
+ content.updateMatrixWorld(true);const camera=new THREE.PerspectiveCamera();camera.position.set(0,0,10);camera.updateMatrixWorld(true);
+ for(const overlay of engine.selectedOverlays)overlay.userData.cadUpdateContour?.(camera);
  assert.equal(engine.selectedOverlays.find(o=>o.parent===a).geometry.attributes.instanceStart.getZ(0),-1,'highlight follows the new face');
  const refs=engine.assemblyConstraintReferences.values().next().value;
  assert.ok(index.objectsFor(refs[0].highlightTarget).includes(marker().group),'actual face picking associates the current constraint glyph');

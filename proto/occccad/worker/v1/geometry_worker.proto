@@ -566,6 +566,12 @@ message PartRuntimeStats {
     uint64 face_evidence_computed = 25;
     uint64 face_evidence_reused = 26;
     bool base_stage_restored = 27;
+    double naming_kernel_ms = 28;
+    double naming_artifact_ms = 29;
+    uint64 cancellation_polls = 30;
+    double cancellation_poll_ms = 31;
+    uint64 mesh_reused_faces = 32;
+    uint64 mesh_computed_faces = 33;
 }
 
 message ProfileCurve {

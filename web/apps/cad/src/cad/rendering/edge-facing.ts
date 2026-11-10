@@ -7,12 +7,16 @@ import type {MeshData} from '../../types';
  * Unmatched curve samples use the edge endpoints, or neutral contrast. */
 export function edgeFacingAttributes(mesh:MeshData):{first:number[];second:number[]}{
  const box=new THREE.Box3(),point=new THREE.Vector3();
- for(const vertex of mesh.vertices)box.expandByPoint(point.fromArray(vertex));
+ const packed=mesh.buffers;
+ if(packed)box.setFromBufferAttribute(new THREE.BufferAttribute(packed.positions,3));
+ else for(const vertex of mesh.vertices)box.expandByPoint(point.fromArray(vertex));
  const epsilon=Math.max(box.getSize(new THREE.Vector3()).length()*1e-6,1e-8);
  const key=(p:readonly number[])=>p.map(v=>Math.round(v/epsilon)).join(',');
  const wanted=new Set((mesh.edges??[]).flatMap(edge=>edge.points.map(key)));
  const normals=new Map<string,THREE.Vector3[]>();
- mesh.vertices.forEach((p,i)=>{const n=mesh.normals?.[i];if(!n)return;const k=key(p);if(!wanted.has(k))return;const normal=new THREE.Vector3(...n).normalize(),values=normals.get(k)??[];if(values.length<3&&!values.some(v=>v.dot(normal)>.999))values.push(normal);normals.set(k,values)});
+ const accept=(p:readonly number[],n:readonly number[])=>{const k=key(p);if(!wanted.has(k))return;const normal=new THREE.Vector3(n[0],n[1],n[2]).normalize(),values=normals.get(k)??[];if(values.length<3&&!values.some(v=>v.dot(normal)>.999))values.push(normal);normals.set(k,values)};
+ if(packed?.normals){const p=[0,0,0],n=[0,0,0];for(let i=0;i<packed.positions.length;i+=3){for(let a=0;a<3;a++){p[a]=packed.positions[i+a];n[a]=packed.normals[i+a]}accept(p,n)}}
+ else if(!packed)mesh.vertices.forEach((p,i)=>{const n=mesh.normals?.[i];if(n)accept(p,n)});
  const first:number[]=[],second:number[]=[];
  for(const edge of mesh.edges??[]){
   const fallback=normals.get(key(edge.points[0]??[]))??normals.get(key(edge.points.at(-1)??[]))??[];
