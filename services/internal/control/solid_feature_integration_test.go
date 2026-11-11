@@ -313,7 +313,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFallback(reopened)
-	if _, e := service.ExchangeExportGraph(t.Context(), doc); e == nil {
+	if _, e := service.ExchangeExportGraph(t.Context(), doc, workspace.ExchangeExportOptions{}); e == nil {
 		t.Fatal("failed Part exported stale result")
 	}
 	view = apply(workspace.CommandRequest{Type: "RENAME_FEATURE", TargetID: chamfer.ID, Name: "Failed chamfer"})
@@ -481,7 +481,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	}
 	view = apply(workspace.CommandRequest{Type: "UNDO"})
 	assertReady(view)
-	graph, e := service.ExchangeExportGraph(t.Context(), doc, view.Document.VersionID)
+	graph, e := service.ExchangeExportGraph(t.Context(), doc, workspace.ExchangeExportOptions{RevisionID: view.Document.VersionID})
 	if e != nil {
 		t.Fatal(e)
 	}

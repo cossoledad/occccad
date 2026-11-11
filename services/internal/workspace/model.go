@@ -513,9 +513,10 @@ type ProfileRegionSelection struct {
 }
 
 type Feature struct {
-	GeometricalSetID string                      `json:"geometricalSetId,omitempty"`
-	Geometry         *GeometricFeatureDefinition `json:"geometry,omitempty"`
-	Result           *FeatureGeometryResult      `json:"result,omitempty"`
+	ImportedAppearance *SurfaceAppearance          `json:"importedAppearance,omitempty"`
+	GeometricalSetID   string                      `json:"geometricalSetId,omitempty"`
+	Geometry           *GeometricFeatureDefinition `json:"geometry,omitempty"`
+	Result             *FeatureGeometryResult      `json:"result,omitempty"`
 
 	LoftStart          *LoftBoundaryDefinition `json:"loftStart,omitempty"`
 	LoftEnd            *LoftBoundaryDefinition `json:"loftEnd,omitempty"`
@@ -712,6 +713,7 @@ type ImportedOccurrenceName struct {
 
 type ProductInstance struct {
 	GraphicProperties
+	ImportedVisible      *bool                   `json:"importedVisible,omitempty"`
 	Color                string                  `json:"color,omitempty"`
 	ImportedName         *ImportedOccurrenceName `json:"importedName,omitempty"`
 	ID                   string                  `json:"id"`
@@ -1132,6 +1134,7 @@ type DocumentView struct {
 	FeatureOrderDigest      string                           `json:"featureOrderDigest,omitempty"`
 	CommandPreview          *CommandPreview                  `json:"commandPreview,omitempty"`
 	BodyAppearances         map[string]ResolvedAppearance    `json:"bodyAppearances,omitempty"`
+	ResultAppearances       map[string]ResolvedAppearance    `json:"resultAppearances,omitempty"`
 	ReplicationSources      map[string]ReplicationSource     `json:"replicationSources,omitempty"`
 	SketchDerivedEntities   map[string][]SketchEntity        `json:"sketchDerivedEntities,omitempty"`
 	Document                DocumentSummary                  `json:"document"`

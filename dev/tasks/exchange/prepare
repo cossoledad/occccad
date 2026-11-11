@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Prepare and verify the pinned NIST STEP corpus"
+#MISE quiet=true
+#USAGE flag "--json"
+#MISE raw_args=true
+set -euo pipefail
+exec dev/entry exchange:prepare "$@"

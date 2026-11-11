@@ -85,15 +85,7 @@ OCCT 使用文件接口：Go Geometry client 将远端引用按 RPC 下载到独
 
 Exchange HTTP 提交只等待完整上传和 Job 入队，随后立即关闭对话框；浏览器不会让提交请求等待几何处理。Jobs 在排队、领取、进度、重试与取消等生命周期状态转换的同一 SQL statement 或领取事务中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受。Web 顶部消息中心同时从 `GET /api/jobs` 恢复最近 100 条用户可见任务，因此错过瞬时通知或重新登录后仍能看到状态、失败原因、进度和下载/打开入口；仅在存在活动任务时每 2.5 秒刷新进度，终态仍由 WebSocket 立即提示。前端把持久 Job 投影为通用 ActivityItem，任务类型展示与动作注册集中在 activity 模块，未来其他持久消息来源可增加独立 projector 后合并，而不复制 Drawer 或任务状态机。
 
-STEP 交换使用 `STEPCAFControl_Reader/Writer` 和 XDE document。Definition identity 来自源 XDE label（仅在这份源文件的导入过程有效），不由几何 hash 推断；同一 Part/Sub Product 的多个 occurrence 引用同一文档。名称、局部平移/单位四元数、嵌套层级和共享引用进入已有 ProductInstance/PINNED Revision/typed InstancePath。几何内容寻址只复用 Artifact；相同几何的不同源 Definition 仍是不同 Part 文档与独立 Naming 身份。
-
-`InspectExchange` 返回临时 `ExchangeGraph`：definitions 含 id/name/kind、PART 的 BREP 引用或 PRODUCT 的 children；roots/children 含 occurrence id、definitionId、name 和 local placement。准备阶段每个唯一 Part 只写一份本地坐标 BREP，Jobs 仅对这些 Definition 并行求值和创建 Naming/Part，然后按依赖顺序提交 Product。根为一个单位 placement 的 Definition 时直接返回该文档；多个根或非单位根 placement 用源容器 Product 表达。图不是独立的长期业务模型。同级源名称冲突时，内部 InstanceName 添加确定性后缀保持已有唯一性规则，并以 importedName 保存源名与分配名；未被用户重命名的实例导出恢复源名。实例引用仍依赖 typed stable ID。
-
-`ImportExchange.definition_id` 选择 STEP Part Definition；空 ID 只接受唯一 Part 的图，不再按 transferable root ordinal 选择业务 Part。BREP 没有装配身份，作为一个 Part/合法 Solid Compound 导入，不伪造 Product；多 Solid Definition 的有效性、无散落拓扑、Naming 全覆盖与修复前后 Solid 数保持均受检验。
-
-导出从根 Revision 递归读取已接受的 Part/Product 引用，保留局部 placement；按 document + revision + 实际上下文几何/子定义结果复用 Definition。同一业务 Definition 的上下文变体必要时分开表达，避免互相覆盖。导出任务核对提交时的根 Revision，产品版本导出分支已移除。XDE writer 使用显式独立 label 创建业务定义，不用 AddShape 的几何匹配替代身份；BREP 导出仍将图合成为几何 Compound。
-
-图验证拒绝缺失/重复身份、悬空引用、环、非法 pose、不可达定义及超限；深度最多 128、定义最多 100000、定义内总引用最多 1000000，业务上下文现有展开上限仍独立生效。STEP 外部文件引用在 Transfer 前拒绝，避免访问未授权路径。共享定义不表示 OCCT/XDE 已实现 out-of-core；基础 RGB 颜色交换见[颜色材质](surface-appearance.md)，图片材质、层、PMI 和完整 AP242 尚未交付。
+STEP/BREP 的准备图、可读取文件的跳过/空 Part 策略、持久警告、隐藏对象过滤、协议配置和时间性能见[导入与导出](exchange.md)。
 
 ## 实现与验证入口
 

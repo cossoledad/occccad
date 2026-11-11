@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/exchange"
 )
 
 const jobColumns = `id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
@@ -18,27 +19,29 @@ var ErrNotCancelable = errors.New("job cannot be canceled in its current state")
 var ErrNotRetryable = errors.New("job cannot be retried in its current state")
 
 type Job struct {
-	ID                string          `json:"id"`
-	Type              string          `json:"type"`
-	State             string          `json:"state"`
-	DocumentID        *string         `json:"documentId,omitempty"`
-	VersionID         *string         `json:"versionId,omitempty"`
-	RequestedBy       string          `json:"requestedBy"`
-	InputObjectID     *string         `json:"inputObjectId,omitempty"`
-	ResultObjectID    *string         `json:"resultObjectId,omitempty"`
-	Payload           json.RawMessage `json:"payload"`
-	AttemptCount      int             `json:"attemptCount"`
-	MaxAttempts       int             `json:"maxAttempts"`
-	Progress          int             `json:"progress"`
-	ErrorCode         *string         `json:"errorCode,omitempty"`
-	ErrorMessage      *string         `json:"errorMessage,omitempty"`
-	CreatedAt         string          `json:"createdAt"`
-	StartedAt         *string         `json:"startedAt,omitempty"`
-	CompletedAt       *string         `json:"completedAt,omitempty"`
-	CancelRequestedAt *string         `json:"cancelRequestedAt,omitempty"`
-	UserVisible       bool            `json:"userVisible"`
-	CanCancel         bool            `json:"canCancel"`
-	CanRetry          bool            `json:"canRetry"`
+	ID                string             `json:"id"`
+	Type              string             `json:"type"`
+	State             string             `json:"state"`
+	DocumentID        *string            `json:"documentId,omitempty"`
+	VersionID         *string            `json:"versionId,omitempty"`
+	RequestedBy       string             `json:"requestedBy"`
+	InputObjectID     *string            `json:"inputObjectId,omitempty"`
+	ResultObjectID    *string            `json:"resultObjectId,omitempty"`
+	Payload           json.RawMessage    `json:"payload"`
+	AttemptCount      int                `json:"attemptCount"`
+	MaxAttempts       int                `json:"maxAttempts"`
+	Progress          int                `json:"progress"`
+	ErrorCode         *string            `json:"errorCode,omitempty"`
+	ErrorMessage      *string            `json:"errorMessage,omitempty"`
+	CreatedAt         string             `json:"createdAt"`
+	StartedAt         *string            `json:"startedAt,omitempty"`
+	CompletedAt       *string            `json:"completedAt,omitempty"`
+	CancelRequestedAt *string            `json:"cancelRequestedAt,omitempty"`
+	UserVisible       bool               `json:"userVisible"`
+	CanCancel         bool               `json:"canCancel"`
+	CanRetry          bool               `json:"canRetry"`
+	Warnings          []exchange.Warning `json:"warnings,omitempty"`
+	FileName          string             `json:"fileName,omitempty"`
 }
 
 type EnqueueRequest struct {
@@ -145,10 +148,45 @@ func (service *Service) Succeed(ctx context.Context, jobID, workerID, resultID s
 	return err
 }
 
-func (service *Service) SucceedImport(ctx context.Context, jobID, workerID, resultID string) error {
-	_, err := service.change(ctx, `UPDATE occccad.jobs SET state='SUCCEEDED',progress=100,document_id=NULLIF($3,'')::uuid,
+func (service *Service) SucceedImport(ctx context.Context, jobID, workerID, resultID string, report *exchange.Report) error {
+	return service.succeedExchange(ctx, jobID, workerID, resultID, true, report)
+}
+
+func (service *Service) SucceedExport(ctx context.Context, jobID, workerID, resultID string, report *exchange.Report) error {
+	return service.succeedExchange(ctx, jobID, workerID, resultID, false, report)
+}
+
+func (service *Service) succeedExchange(ctx context.Context, jobID, workerID, resultID string, importing bool, report *exchange.Report) error {
+	job, err := service.Get(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	payload := map[string]json.RawMessage{}
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return err
+	}
+	if payload == nil {
+		payload = map[string]json.RawMessage{}
+	}
+	if report != nil {
+		payload["exchange"], err = json.Marshal(report)
+		if err != nil {
+			return err
+		}
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	query := `UPDATE occccad.jobs SET state='SUCCEEDED',progress=100,document_id=NULLIF($3,'')::uuid,payload=$4,
  completed_at=now(),lease_owner=NULL,lease_expires_at=NULL WHERE id=$1 AND state='RUNNING'
- AND lease_owner=$2 AND cancel_requested_at IS NULL RETURNING `+jobColumns, "SUCCEEDED", "", "", jobID, workerID, resultID)
+ AND lease_owner=$2 AND cancel_requested_at IS NULL RETURNING `
+	if !importing {
+		query = `UPDATE occccad.jobs SET state='SUCCEEDED',progress=100,result_object_id=NULLIF($3,'')::uuid,payload=$4,
+ completed_at=now(),lease_owner=NULL,lease_expires_at=NULL WHERE id=$1 AND state='RUNNING'
+ AND lease_owner=$2 AND cancel_requested_at IS NULL RETURNING `
+	}
+	_, err = service.change(ctx, query+jobColumns, "SUCCEEDED", "", "", jobID, workerID, resultID, encoded)
 	if errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -327,6 +365,16 @@ func scan(row database.Row) (Job, error) {
 }
 
 func populateCapabilities(result *Job) {
+	var payload struct {
+		FileName string           `json:"fileName"`
+		Exchange *exchange.Report `json:"exchange"`
+	}
+	if json.Unmarshal(result.Payload, &payload) == nil {
+		result.FileName = payload.FileName
+		if result.State == "SUCCEEDED" && (result.Type == "EXCHANGE_IMPORT" || result.Type == "EXCHANGE_EXPORT") && payload.Exchange != nil {
+			result.Warnings = payload.Exchange.NotificationWarnings()
+		}
+	}
 	result.CanCancel = (result.State == "QUEUED" || result.State == "RETRY_WAIT" ||
 		(result.State == "RUNNING" && (result.Type != "EXCHANGE_IMPORT" || result.Progress < 70))) && result.CancelRequestedAt == nil
 	result.CanRetry = result.Type != "MOTION_STUDY" && (result.State == "FAILED" || result.State == "CANCELED")

@@ -176,6 +176,9 @@ func (a *App) WebTest(o Options) error {
 			}
 			args = append(args, "--config", "playwright.live.config.ts")
 		}
+		if o.Match != "" {
+			args = append(args, o.Match)
+		}
 	}
 	if os.Getenv("OCCCCAD_DEV_EVIDENCE_STREAM") == "1" {
 		return a.raw(a.web(), args...)

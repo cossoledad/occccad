@@ -195,6 +195,7 @@ func ensureFeatureParameters(model *PartModel) {
 }
 
 func geometryFeatureDefinition(feature Feature) Feature {
+	feature.ImportedAppearance = nil
 	feature.Visible = nil
 	feature.EvaluationStatus = ""
 	feature.Diagnostic = ""

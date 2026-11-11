@@ -362,6 +362,7 @@ struct ExchangeOccurrence {
     PlacedGeometry placement;
     std::string color{};
     std::optional<double> opacity{};
+    bool visible = true;
 };
 struct ExchangeFaceColor {
     uint64_t local_id;
@@ -376,6 +377,8 @@ struct ExchangeAppearance {
 struct ExchangeBody {
     GeometryId geometry_id;
     ExchangeAppearance appearance;
+    bool visible = true;
+    std::string name{};
 };
 struct ExchangeDefinition {
     std::string id, name, kind; // PART | PRODUCT
@@ -383,10 +386,19 @@ struct ExchangeDefinition {
     std::vector<ExchangeOccurrence> children;
     ExchangeAppearance appearance{};
     std::vector<ExchangeBody> bodies{};
+    bool empty = false;
+    bool visible = true;
+};
+struct ExchangeWarning {
+    std::string code, message, definition_id;
+    uint64_t count = 1;
 };
 struct ExchangeGraph {
     std::vector<ExchangeDefinition> definitions;
     std::vector<ExchangeOccurrence> roots;
+    std::vector<ExchangeWarning> warnings{};
+    std::string source_schema{};
+    std::string step_schema = "AP242";
 };
 
 // Abstract Kernel Interface

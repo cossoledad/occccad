@@ -46,5 +46,18 @@ const retrying = activity.projectJobActivity({ ...baseJob, type: "EXCHANGE_IMPOR
 assert.equal(retrying.progress, 70);
 assert.match(retrying.description, /第 2 次尝试.*生成零件（0\/114）/);
 
+const warningJob = { ...baseJob, type: "EXCHANGE_IMPORT", state: "SUCCEEDED", documentId: "empty-part", canCancel: false,
+  payload: { exchange: { schemaVersion: 1, warnings: [
+    { code: "STEP_PMI_SKIPPED", message: "PMI 未创建", count: 3 },
+    { code: "EXCHANGE_EMPTY_PART", message: "已创建空 Part 文档" },
+  ] } } };
+const warning = activity.projectJobActivity(warningJob);
+assert.equal(warning.status, "SUCCEEDED");
+assert.deepEqual(warning.actions, ["OPEN_DOCUMENT"]);
+assert.deepEqual(warning.warnings, ["PMI 未创建（3 项）", "已创建空 Part 文档"]);
+assert.deepEqual(activity.exchangeCompletionWarnings({ ...warningJob, state: "RUNNING" }), []);
+assert.deepEqual(activity.exchangeCompletionWarnings({ ...warningJob, state: "FAILED" }), []);
+assert.deepEqual(activity.exchangeCompletionWarnings({ ...warningJob, payload: { exchange: { warnings: [null, {}, { message: 7 }] } } }), []);
+
 console.log("Activity center model tests passed.");
 } finally {await server.close();}

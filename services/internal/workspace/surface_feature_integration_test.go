@@ -169,7 +169,7 @@ func TestSurfaceLoftFillSewCloseBodyAndOpenExchange(t *testing.T) {
 	if err := f.service.evaluatePartBodies(WithColdEvaluation(f.ctx), uuid.NewString(), &cold); err != nil {
 		t.Fatal(err)
 	}
-	graph, err := f.service.ExchangeExportGraph(f.ctx, f.documentID, v.Document.VersionID)
+	graph, err := f.service.ExchangeExportGraph(f.ctx, f.documentID, ExchangeExportOptions{RevisionID: v.Document.VersionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestSurfaceWirePointAndMixedGeometryExchange(t *testing.T) {
 	v, point := surfaceCreate(t, f, &GeometricFeatureDefinition{Kind: "POINT_ON_CURVE", Inputs: []GeometricInput{resultInput(wire)}, Parameters: GeometryOperationParameters{Start: .5}})
 	v, sheet := surfaceCreate(t, f, &GeometricFeatureDefinition{Kind: "SURFACE_EXTRUDE", Inputs: []GeometricInput{resultInput(wire)}, Parameters: GeometryOperationParameters{Direction: [3]float64{0, 0, 1}, Distance: 10}})
 	v = f.command(CommandRequest{Type: "CREATE_SOLID_FEATURE", Feature: &Feature{Type: "THICKEN", Operation: "NEW_BODY", Geometry: &GeometricFeatureDefinition{Kind: "THICKEN", Inputs: []GeometricInput{resultInput(sheet)}, Parameters: GeometryOperationParameters{Distance: 2}}}})
-	mixed, err := f.service.ExchangeExportGraph(f.ctx, f.documentID)
+	mixed, err := f.service.ExchangeExportGraph(f.ctx, f.documentID, ExchangeExportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

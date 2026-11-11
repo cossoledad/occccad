@@ -1,5 +1,24 @@
 [
   {
+    "path": "services/cmd/occccad-jobs/export_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured ArtifactStore"
+    ]
+  },
+  {
+    "path": "services/cmd/occccad-jobs/exchange_corpus_integration_test.go",
+    "resources": [
+      "configured Worker executable",
+      "configured testsupport.Environment",
+      "configured testsupport.OpenDevelopmentDatabase",
+      "configured ArtifactStore",
+      "pinned NIST STEP corpus (exchange corpus case only)"
+    ]
+  },
+  {
     "path": "services/cmd/occccad-jobs/import_integration_test.go",
     "resources": [
       "configured Worker executable",

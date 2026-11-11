@@ -49,6 +49,8 @@ export function DocumentCenter() {
   const [importProgress, setImportProgress] = useState(0);
   const [exportDocument, setExportDocument] = useState<DocumentSummary>();
   const [exportFormat, setExportFormat] = useState<"STEP" | "BREP">("STEP");
+  const [excludeHidden, setExcludeHidden] = useState(true);
+  const [stepSchema, setStepSchema] = useState<"AP242" | "AP214IS">("AP242");
   const [folderForm] = Form.useForm<FolderForm>();
   const [operationForm] = Form.useForm<{ name?: string; folderID?: string }>();
 
@@ -139,7 +141,7 @@ export function DocumentCenter() {
   const exportExchange = useMutation({
     mutationFn: async () => {
       if (!exportDocument) throw new Error("没有待导出的文档");
-      return api.startExport(exportDocument.id, exportFormat);
+      return api.startExport(exportDocument.id, exportFormat, { excludeHidden, stepSchema });
     },
     onSuccess: async (job) => {
       setExportDocument(undefined);
@@ -364,6 +366,11 @@ export function DocumentCenter() {
       <Typography.Paragraph type="secondary">选择用于交换或归档的输出格式。Part 与 Product 均可导出。</Typography.Paragraph>
       <Segmented block value={exportFormat} onChange={(value) => setExportFormat(value as "STEP" | "BREP")}
         options={[{ label: "STEP (.step)", value: "STEP" }, { label: "OpenCascade BREP (.brep)", value: "BREP" }]} />
+      {exportFormat === "STEP" && <Form.Item label="STEP 协议"><Select aria-label="STEP 协议" value={stepSchema} onChange={setStepSchema} getPopupContainer={trigger=>trigger.parentElement!}
+        options={[{value:"AP242",label:"AP242"},{value:"AP214IS",label:"AP214（兼容）"}]} /></Form.Item>}
+      <Checkbox checked={excludeHidden} onChange={(event) => setExcludeHidden(event.target.checked)}>不导出隐藏对象</Checkbox>
+      <Typography.Paragraph type="secondary">按文档保存的显隐状态导出，包含装配实例和零件内的独立几何。完全透明的对象仍会导出。</Typography.Paragraph>
+      {exportFormat==="STEP"&&!excludeHidden&&<Typography.Paragraph type="warning">包含隐藏对象时，重新打开 STEP 后这些对象可能显示。</Typography.Paragraph>}
       <Typography.Paragraph type="secondary">{exportFormat==="STEP"?"保留装配结构、实体及分面颜色和透明度。粗糙度、金属度和场景光照不会写入 STEP。":"BREP 仅保存几何，不携带颜色和透明度；保留外观请选择 STEP。"}</Typography.Paragraph>
     </Modal>
     <ShareDialog resource={shareResource} onClose={() => setShareResource(undefined)} />

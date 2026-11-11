@@ -1258,6 +1258,7 @@ type createFeaturePayload struct {
 	InsertionVersionID   string                           `json:"insertionVersionId,omitempty"`
 	InsertionGeometryKey string                           `json:"insertionGeometryKey,omitempty"`
 	BodyAppearance       *SurfaceAppearance               `json:"bodyAppearance,omitempty"`
+	BodyVisible          *bool                            `json:"bodyVisible,omitempty"`
 	Feature              Feature                          `json:"feature"`
 	ParameterSources     map[string]modelcore.ValueSource `json:"parameterSources,omitempty"`
 }
@@ -1346,14 +1347,19 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	} else {
 		model.Features = append(model.Features, payload.Feature)
 	}
-	if payload.BodyAppearance != nil {
+	if payload.BodyAppearance != nil || payload.BodyVisible != nil {
 		if payload.Feature.Type != "IMPORT_BODY" {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: appearance requires import", ErrValidation)
 		}
 		index := bodyIndex(model, payload.Feature.BodyID)
-		before := model.Bodies[index].Appearance
-		model.Bodies[index].Appearance = payload.BodyAppearance
-		change, err := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.Feature.BodyID, SlotID: "body.appearance"}, before, payload.BodyAppearance)
+		before := bodyDefinition(model.Bodies[index])
+		if payload.BodyAppearance != nil {
+			model.Bodies[index].Appearance = payload.BodyAppearance
+		}
+		if payload.BodyVisible != nil {
+			model.Bodies[index].Visible = *payload.BodyVisible
+		}
+		change, err := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.Feature.BodyID, SlotID: "body.entity"}, before, bodyDefinition(model.Bodies[index]))
 		if err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
@@ -2518,6 +2524,12 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 		}
 		if input.Feature.Type == "IMPORT_BODY" {
 			input.BodyAppearance, err = service.importedAppearance(ctx, input.Feature, request.ImportSource)
+			if request.ImportSource != nil {
+				input.BodyVisible = request.ImportSource.Visible
+			}
+		} else if request.ImportSource != nil {
+			input.Feature.Visible = request.ImportSource.Visible
+			input.Feature.ImportedAppearance, err = service.importedAppearance(ctx, input.Feature, request.ImportSource)
 		}
 		if err != nil {
 			return prepared, err

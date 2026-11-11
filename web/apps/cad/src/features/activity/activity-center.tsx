@@ -45,8 +45,9 @@ export function ActivityCenter() {
           return <section className={`activity-item activity-${item.status.toLowerCase()}`} key={item.id}>
             <div className="activity-item-heading"><div><Typography.Text strong>{item.title}</Typography.Text>
               <Typography.Text type="secondary" className="activity-time">{new Date(item.createdAt).toLocaleString()}</Typography.Text></div>
-              <Tag color={status.color}>{status.label}</Tag></div>
+              <Tag color={item.warnings.length ? "warning" : status.color}>{item.warnings.length ? "已完成，有警告" : status.label}</Tag></div>
             <Typography.Paragraph type={item.status === "FAILED" ? "danger" : "secondary"}>{item.description}</Typography.Paragraph>
+            {item.warnings.map((warning) => <Typography.Paragraph key={warning} type="warning">{warning}</Typography.Paragraph>)}
             {item.progress !== undefined && <Progress percent={item.progress} size="small"
               status={item.canceling ? "exception" : item.status === "RUNNING" ? "active" : "normal"} />}
             {item.actions.length > 0 && <Space wrap>

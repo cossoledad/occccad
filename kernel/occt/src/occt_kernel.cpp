@@ -4331,6 +4331,7 @@ struct OcctKernel::Impl {
     std::unordered_map<GeometryId, TopologyInfo> topologies;
     std::unordered_map<GeometryId, std::unordered_map<std::string, TopologyInfo>> topology_queries;
     size_t shape_bytes=0,shape_budget=128*1024*1024;
+    bool retain_operation_graph=false;
     size_t retained_shape_bytes() const {
         if (shapes.empty()) return 0;
         BRep_Builder builder; TopoDS_Compound combined; builder.MakeCompound(combined); size_t buffers=0;
@@ -4351,7 +4352,10 @@ struct OcctKernel::Impl {
     void adopt(const GeometryId& id,const TopoDS_Shape& shape,std::vector<uint8_t> bytes) {
         const auto previous=shapes.find(id);
         if(previous!=shapes.end()){previous->second.used=++clock;return;}
-        shapes.emplace(id,StoredGeometry{shape,std::make_shared<const std::vector<uint8_t>>(std::move(bytes)),++clock,{}});shape_bytes=retained_shape_bytes();
+        const auto incoming=bytes.capacity()+bytes.size()*16;
+        shapes.emplace(id,StoredGeometry{shape,std::make_shared<const std::vector<uint8_t>>(std::move(bytes)),++clock,{}});
+        if(retain_operation_graph){shape_bytes+=incoming;return;}
+        shape_bytes=retained_shape_bytes();
         trim_shapes(id);
     }
 
@@ -4375,7 +4379,8 @@ struct OcctKernel::Impl {
     }
 };
 
-OcctKernel::OcctKernel() : impl_(std::make_unique<Impl>()) {
+OcctKernel::OcctKernel(bool retain_operation_graph) : impl_(std::make_unique<Impl>()) {
+    impl_->retain_operation_graph=retain_operation_graph;
 }
 OcctKernel::~OcctKernel() = default;
 OcctKernel::OcctKernel(OcctKernel&&) noexcept = default;
@@ -5514,6 +5519,10 @@ BoundingBox OcctKernel::getBoundingBox(const GeometryId& id) {
 
 const TopoDS_Shape& OcctKernel::analysis_shape(const GeometryId& id) const {
     return impl_->find(id);
+}
+
+GeometryId OcctKernel::store_exchange_shape(const TopoDS_Shape& shape) {
+    return impl_->store(shape);
 }
 
 TopologyInfo OcctKernel::getTopologySummary(const GeometryId& id) {

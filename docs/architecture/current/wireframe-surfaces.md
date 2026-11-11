@@ -71,14 +71,14 @@ Worker 只接收冻结精确 BREP/Naming、规范曲线或显式平面；来源�
 
 ## 开放几何交换
 
-STEP/BREP 导出冻结同一 Revision 的有效 Body 与可见独立 FeatureResult，分别携带 BREP 引用；不制造 Body、不用显示网格替代精确几何。STEP 保留原 Part/Product 交换图，BREP 为形状交换；源集合隐藏会排除其独立结果，但不删除模型依赖。
+STEP/BREP 导出冻结同一 Revision 的有效 Body 与可见独立 FeatureResult，分别携带 BREP 引用；不制造 Body、不用显示网格替代精确几何。STEP 保留原 Part/Product 交换图，BREP 为形状交换；默认排除源集合隐藏的独立结果；可选择包含隐藏对象，不删除模型依赖。具体选项及格式边界见[导入与导出](exchange.md)。
 
 导入在精确规范快照上分配首次注册的稳定 Face/Edge/Vertex 身份，绑定 BREP SHA、OCCT 版本和命名策略；重新导入是新身份根。纯 Solid 继续进入 `IMPORT_BODY`。开放或混合内容进入几何图形集中的只读 `GEOMETRY / IMPORTED` 定义，其命名种子以 `resultId` 为所有者，不能通过普通创建/编辑命令伪造。后续可通过正式拓扑选择消费；原导入根不可修改，仍可隐藏或删除。
 
-混合输入完整保存在一个 `MIXED_SET` 中，当前不自动分拆为可编辑材料 Body；需要材料历史时使用独立实体来源，或提取面并缝合/封闭。开放输入不隐式修补、缝合或封闭；无效输入拒绝。实体颜色延续原交换合同；独立线/点和曲面的专属颜色未形成跨软件交换合同，参数历史也不随 STEP/BREP 传递。`MIXED_SET` 的体积存储值同样不作为材料体积。
+混合输入完整保存在一个 `MIXED_SET` 中，当前不自动分拆为可编辑材料 Body；需要材料历史时使用独立实体来源，或提取面并缝合/封闭。开放输入不隐式修补、缝合或封闭；不能进入有效 BREP/Naming 的可读取 Definition 创建空 Part 并警告。Body 与独立结果均承接导入整体/分面 RGB 和透明度；参数历史不随 STEP/BREP 传递。`MIXED_SET` 的体积存储值同样不作为材料体积。
 
 ## 验证入口与未交付边界
 
 内核 `geometry_feature_scenarios.cpp`、`surface_feature_scenarios.cpp` 检查面积/体积、完整命名、周期缝、有序放样、裁剪分区、自由边、参数更新、取消及冷重建。Workspace `geometric_feature_test.go`、`geometric_reference_test.go`、`surface_shape_control_test.go` 检查所有权/参数/依赖/历史；`geometric_feature_integration_test.go`、`surface_feature_integration_test.go`、`surface_shape_control_integration_test.go` 使用生产 Worker 验证预览、参数传播、引用、Undo/Redo、冷重建和 STEP/BREP 线/点/面/混合往返。Jobs `import_integration_test.go` 另验证开放/混合 STEP/BREP 的导出及导入 Job 完整调用链。缩略图见 `thumbnail/engineering_geometry_test.go`；Router 合同见 `control/surface_quality_integration_test.go`；曲率解析模型见 `measurement_scenarios.cpp`。浏览器见 `geometric-feature-live.spec.ts`。执行结果以当次 `build/agent-check/` 与浏览器报告为准，不由测试文件存在推导通过。
 
-当前只接入独立 Part 的线框/曲面显示及编辑；Product occurrence 的开放结果显示、READY ContextVariant、Publication/跨零件消费及完整测量仍未接入。Surface Revolve、一般曲面 Split/互裁、Up-to 外推、双/多导向、一般截面的边界接触/法则、自动 spine、一般支撑 G1/G2、有理高阶补面、复杂偏移修补均在后续范围。法向/自由边专用叠加、UV 等参数线、斑马纹、有序集合及吸收显示未交付；源几何按集合可见性保留。拓扑历史无法唯一命名时拒绝，未经工业模型成功率、全局误差界或容量/性能认证。原生算法内部不能保证即时取消，提交前和循环阶段仍检查取消。
+Part 和 Product occurrence 已接入独立结果显示及交换；READY ContextVariant 的独立结果求值、Publication/跨零件消费及完整测量仍待扩展。Surface Revolve、一般曲面 Split/互裁、Up-to 外推、双/多导向、一般截面的边界接触/法则、自动 spine、一般支撑 G1/G2、有理高阶补面、复杂偏移修补均在后续范围。法向/自由边专用叠加、UV 等参数线、斑马纹、有序集合及吸收显示未交付；源几何按集合可见性保留。拓扑历史无法唯一命名时拒绝，未经工业模型成功率、全局误差界或容量/性能认证。原生算法内部不能保证即时取消，提交前和循环阶段仍检查取消。

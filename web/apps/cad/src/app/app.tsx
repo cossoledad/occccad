@@ -8,6 +8,7 @@ import { realtime } from "../api/realtime-client";
 import { Brand } from "../components/brand";
 import { AuthScreen } from "../features/auth/auth-screen";
 import { ActivityCenter } from "../features/activity/activity-center";
+import { exchangeCompletionWarnings } from "../features/activity/activity-model";
 import { DocumentCenter } from "../features/documents/document-center";
 import { DocumentTabsController } from "../features/workbench/document-tabs-controller";
 import {GlobalOptionsProvider,GlobalOptionsButton} from "../features/preferences/global-options-center";
@@ -41,10 +42,14 @@ function ApplicationShell() {
       void client.invalidateQueries({ queryKey: queryKeys.jobs });
       if (job.type === "EXCHANGE_IMPORT" && ["SUCCEEDED", "FAILED", "CANCELED"].includes(job.state)) void client.invalidateQueries({ queryKey: ["documents"] });
       if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_IMPORT") {
-        notification.success({ key: job.id, message: "文档导入完成", description: "导入结果已写入文档中心。",
+        const warnings = exchangeCompletionWarnings(job);
+        notification[warnings.length ? "warning" : "success"]({ key: job.id, message: warnings.length ? "文档导入完成，有警告" : "文档导入完成",
+          description: <div>{job.fileName&&<p>{job.fileName}</p>}{warnings.length ? warnings.map((warning) => <p key={warning}>{warning}</p>) : "导入结果已写入文档中心。"}</div>,
+          duration: warnings.length ? 0 : undefined,
           btn: job.documentId ? <Button type="primary" onClick={() => { notification.destroy(job.id); navigate(`/documents/${job.documentId}`); }}>打开文档</Button> : undefined });
       } else if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_EXPORT") {
-        notification.success({ key: job.id, message: "文档导出完成", description: "交换文件已经生成，可以开始下载。",
+        const warnings = exchangeCompletionWarnings(job);
+        notification[warnings.length ? "warning" : "success"]({ key: job.id, message: warnings.length ? "文档导出完成，有警告" : "文档导出完成", description: <div>{job.fileName&&<p>{job.fileName}</p>}{warnings.length ? warnings.map(warning=><p key={warning}>{warning}</p>) : "交换文件已经生成，可以开始下载。"}</div>,duration:warnings.length ? 0 : undefined,
           btn: <Button type="primary" onClick={() => void api.downloadJob(job.id).catch((error) => message.error(error.message))}>下载文件</Button> });
       } else if (job.state === "FAILED") {
         notification.error({ key: job.id, message: job.type === "EXCHANGE_IMPORT" ? "文档导入失败" : "文档导出失败",

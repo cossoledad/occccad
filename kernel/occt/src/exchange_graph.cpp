@@ -16,8 +16,15 @@
 #include <Quantity_ColorRGBA.hxx>
 #include <TopoDS_Iterator.hxx>
 #include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <gp_Quaternion.hxx>
+#include <StepData_StepModel.hxx>
+#include <HeaderSection_FileSchema.hxx>
+#include <BRep_Tool.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
+#include <TopoDS.hxx>
+#include <DESTEP_Parameters.hxx>
 
 #include "internal/occt_kernel.hpp"
 
@@ -93,13 +100,13 @@ Quantity_ColorRGBA color_rgba(const std::string& color, const std::optional<doub
 ExchangeAppearance read_colors(const TopoDS_Shape& shape, const TDF_Label& label,
                               const Handle(XCAFDoc_ColorTool)& colors) {
     ExchangeAppearance out;
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(shape, TopAbs_FACE, faces);
     Quantity_ColorRGBA color;
-    if (colors->GetColor(label, XCAFDoc_ColorSurf, color) || colors->GetColor(label, XCAFDoc_ColorGen, color)) {
+    if (colors->GetColor(label, XCAFDoc_ColorSurf, color) || colors->GetColor(label, XCAFDoc_ColorGen, color) || (faces.IsEmpty() && colors->GetColor(label, XCAFDoc_ColorCurv, color))) {
         out.color = color_hex(color.GetRGB());
         if (color.Alpha() < 1.0f) out.opacity = color.Alpha();
     }
-    TopTools_IndexedMapOfShape faces;
-    TopExp::MapShapes(shape, TopAbs_FACE, faces);
     struct Style { std::string color; double opacity = 1; };
     std::map<uint64_t, Style> values;
     std::function<void(const TopoDS_Shape&, Style, unsigned)> visit;
@@ -138,7 +145,10 @@ std::optional<double> label_opacity(const TDF_Label& label, const Handle(XCAFDoc
 void write_colors(const TopoDS_Shape& shape, const TDF_Label& label, const ExchangeAppearance& appearance,
                   const Handle(XCAFDoc_ShapeTool)& shapes, const Handle(XCAFDoc_ColorTool)& colors,
                   const TDF_Label& owner = {}) {
-    if (!appearance.color.empty() || appearance.opacity) colors->SetColor(label, color_rgba(appearance.color, appearance.opacity), XCAFDoc_ColorSurf);
+    if (!appearance.color.empty() || appearance.opacity) {
+        colors->SetColor(label, color_rgba(appearance.color, appearance.opacity), XCAFDoc_ColorSurf);
+        if (!TopExp_Explorer(shape,TopAbs_FACE).More()) colors->SetColor(label,color_rgba(appearance.color,appearance.opacity),XCAFDoc_ColorCurv);
+    }
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(shape, TopAbs_FACE, faces);
     std::set<uint64_t> seen;
@@ -157,17 +167,65 @@ ExchangeGraph OcctKernel::readStepGraph(const std::string& path) {
     STEPCAFControl_Reader reader;
     reader.SetNameMode(true);
     reader.SetColorMode(true);
-    if (reader.ReadFile(path.c_str()) != IFSelect_RetDone)
+    // These categories have no application data model. Parsing their STEP
+    // references remains necessary, but building unused XDE PMI/views is not.
+    reader.SetGDTMode(false);
+    reader.SetViewMode(false);
+    reader.SetMatMode(false);
+    DESTEP_Parameters read_parameters;
+    read_parameters.ReadTessellated = DESTEP_Parameters::RWMode_Tessellated_Off;
+    read_parameters.ReadSubshapeNames = true;
+    if (reader.ReadFile(path.c_str(), read_parameters) != IFSelect_RetDone)
         throw std::invalid_argument("STEP_XDE_READ_FAILED");
     STEPConstruct_ExternRefs refs(reader.Reader().WS());
     refs.LoadExternRefs();
-    if (refs.NbExternRefs() > 0)
-        throw std::invalid_argument("STEP_EXTERNAL_FILES_UNSUPPORTED");
+    ExchangeGraph graph;
+    const auto model = reader.Reader().StepModel();
+    const auto schema = Handle(HeaderSection_FileSchema)::DownCast(model->HeaderEntity(STANDARD_TYPE(HeaderSection_FileSchema)));
+    if (!schema.IsNull()) {
+        for (int i = 1; i <= schema->NbSchemaIdentifiers(); ++i) {
+            if (!graph.source_schema.empty()) graph.source_schema += "; ";
+            graph.source_schema += schema->SchemaIdentifiersValue(i)->ToCString();
+        }
+    }
+    uint64_t pmi = 0, unknown = 0, tessellated = 0, layers = 0;
+    for (int i = 1; i <= model->NbEntities(); ++i) {
+        const auto entity = model->Value(i);
+        if (entity.IsNull()) continue;
+        const std::string type = entity->DynamicType()->Name();
+        if (type.find("StepDimTol_") == 0 || type.find("AnnotationOccurrence") != std::string::npos ||
+            type.find("DraughtingCallout") != std::string::npos) ++pmi;
+        if (type == "StepData_UndefinedEntity") ++unknown;
+        if (type == "StepVisual_TessellatedSolid" || type == "StepVisual_TessellatedShell" || type == "StepVisual_TriangulatedFace" || type == "StepVisual_ComplexTriangulatedFace") ++tessellated;
+        if (type == "StepVisual_PresentationLayerAssignment") ++layers;
+    }
+    if (pmi) graph.warnings.push_back({"STEP_PMI_SKIPPED", "PMI data was not created", "", pmi});
+    if (unknown) graph.warnings.push_back({"STEP_UNSUPPORTED_ENTITIES", "Unsupported STEP entities were skipped", "", unknown});
+    if (tessellated) graph.warnings.push_back({"STEP_TESSELLATED_GEOMETRY_SKIPPED", "Tessellated-only geometry has no editable BREP representation and was skipped", "", tessellated});
+    if (layers) graph.warnings.push_back({"STEP_LAYERS_SKIPPED", "Source layer assignments were not created", "", layers});
+    if (refs.NbExternRefs() > 0) {
+        // STEPCAF Transfer recursively opens filenames from the source. The
+        // standalone STEP reader only transfers embedded geometry, so preserve
+        // that content without resolving untrusted external paths or URLs.
+        graph.warnings.push_back({"STEP_EXTERNAL_REFERENCES_SKIPPED", "External files were not loaded; embedded geometry is imported as one Part without assembly metadata", "", static_cast<uint64_t>(refs.NbExternRefs())});
+        const auto transferred=reader.ChangeReader().TransferRoots();
+        if (!transferred) graph.warnings.push_back({"STEP_NO_TRANSFERABLE_GEOMETRY", "No embedded transferable geometry was produced", "", 1});
+        ExchangeDefinition embedded;
+        embedded.id="embedded-content";embedded.kind="PART";
+        const auto shape=reader.Reader().OneShape();
+        embedded.empty=shape.IsNull();
+        if (!embedded.empty) embedded.geometry_id=store_exchange_shape(shape);
+        graph.definitions.push_back(embedded);
+        graph.roots.push_back({"root",embedded.id,"",{}});
+        return graph;
+    }
+    // Supplementary curves may belong only to unsupported graphical PMI. A
+    // readable file with no XDE shape roots still gets an empty document; the
+    // presence of a GEOMETRIC_CURVE_SET alone is not evidence of corrupt BREP.
     if (!reader.Transfer(doc))
-        throw std::invalid_argument("STEP_XDE_TRANSFER_FAILED");
+        graph.warnings.push_back({"STEP_NO_TRANSFERABLE_GEOMETRY", "No transferable geometry was produced", "", 1});
     const auto tool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
     const auto colors = XCAFDoc_DocumentTool::ColorTool(doc->Main());
-    ExchangeGraph graph;
     std::map<std::string, int> state;
     std::function<std::string(TDF_Label, unsigned)> visit;
     visit = [&](TDF_Label label, unsigned depth) -> std::string {
@@ -185,6 +243,7 @@ ExchangeGraph OcctKernel::readStepGraph(const std::string& path) {
         ExchangeDefinition def;
         def.id = id;
         def.name = label_name(label, "Part");
+        def.visible = colors->IsVisible(label);
         if (tool->IsAssembly(label)) {
             def.kind = "PRODUCT";
             TDF_LabelSequence children;
@@ -195,19 +254,19 @@ ExchangeGraph OcctKernel::readStepGraph(const std::string& path) {
                 def.children.push_back({label_id(child), target,
                                         label_name(child, "Instance " + std::to_string(i)),
                                         pose(tool->GetLocation(child)), label_color(child, colors), label_opacity(child, colors)});
+                def.children.back().visible = colors->IsVisible(child);
             }
         } else {
             def.kind = "PART";
             auto shape = tool->GetShape(label);
-            if (shape.IsNull())
-                throw std::invalid_argument("EXCHANGE_EMPTY_DEFINITION");
+            if (shape.IsNull()) {
+                def.empty = true;
+            } else {
             def.appearance = read_colors(shape, label, colors);
             // Reference locations live on occurrences, never in definition geometry.
             shape.Location(TopLoc_Location());
-            std::ostringstream stream;
-            BRepTools::Write(shape, stream, false, false, TopTools_FormatVersion_CURRENT);
-            const auto bytes = stream.str();
-            def.geometry_id = loadBrepr({bytes.begin(), bytes.end()});
+            def.geometry_id = store_exchange_shape(shape);
+            }
         }
         graph.definitions.push_back(std::move(def));
         state[id] = 2;
@@ -220,9 +279,16 @@ ExchangeGraph OcctKernel::readStepGraph(const std::string& path) {
         const auto id = visit(label, 0);
         graph.roots.push_back({"root/" + label_id(label), id, label_name(label, "Root"),
                                pose(tool->GetLocation(label))});
+        graph.roots.back().visible = colors->IsVisible(label);
     }
-    if (graph.roots.empty())
-        throw std::invalid_argument("EXCHANGE_EMPTY_GRAPH");
+    if (graph.roots.empty()) {
+        ExchangeDefinition empty;
+        empty.id = "source-empty";
+        empty.kind = "PART";
+        empty.empty = true;
+        graph.definitions.push_back(empty);
+        graph.roots.push_back({"root", empty.id, "", {}});
+    }
     return graph;
 }
 std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
@@ -250,11 +316,11 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
         const auto& def = *definitions.at(id);
         const auto label = tool->NewShape();  // Never AddShape's geometry-based deduplication.
         if (def.kind == "PART") {
-            auto bytes = serializeBrepr(def.geometry_id);
-            std::istringstream stream(std::string(bytes.begin(), bytes.end()));
-            TopoDS_Shape shape;
-            BRep_Builder builder;
-            BRepTools::Read(shape, stream, builder);
+            // XDE/STEP indexes TopoDS identity as well as labels. Distinct
+            // business definitions can share BREP content but must not share a
+            // TShape, otherwise the writer coalesces names/styles/visibility.
+            // Copy topology directly; do not serialize and parse BREP again.
+            const auto shape = BRepBuilderAPI_Copy(analysis_shape(def.geometry_id), false, false).Shape();
             if (shape.IsNull() || !def.children.empty())
                 throw std::invalid_argument("EXCHANGE_INVALID_PART");
             tool->SetShape(label, shape);
@@ -268,6 +334,8 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
                 const auto sublabel = tool->AddSubShape(label, subshape);
                 if (sublabel.IsNull()) throw std::invalid_argument("EXCHANGE_BODY_SUBSHAPE_FAILED");
                 write_colors(subshape, sublabel, body.appearance, tool, colors, label);
+                if (!body.name.empty()) name(sublabel, body.name);
+                colors->SetVisibility(sublabel, body.visible);
                 children.Next();
             }
         } else if (def.kind == "PRODUCT") {
@@ -283,10 +351,12 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
                                                    location(child.placement));
                 name(instance, child.name);
                 if (!child.color.empty() || child.opacity) colors->SetColor(instance, color_rgba(child.color, child.opacity), XCAFDoc_ColorSurf);
+                colors->SetVisibility(instance, child.visible);
             }
         } else
             throw std::invalid_argument("EXCHANGE_INVALID_KIND");
         name(label, def.name);
+        colors->SetVisibility(label, def.visible);
         labels[id] = label;
         visiting.erase(id);
         return label;
@@ -308,11 +378,12 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
             const auto component = tool->AddComponent(container, label, rootLocation);
             name(component, root.name);
             if (!root.color.empty() || root.opacity) colors->SetColor(component, color_rgba(root.color, root.opacity), XCAFDoc_ColorSurf);
+            colors->SetVisibility(component, root.visible);
             continue;
         }
         const auto& p = root.placement;
         if (p.translation.x != 0 || p.translation.y != 0 || p.translation.z != 0 ||
-            p.rotation.x != 0 || p.rotation.y != 0 || p.rotation.z != 0 || !root.color.empty() || root.opacity) {
+            p.rotation.x != 0 || p.rotation.y != 0 || p.rotation.z != 0 || !root.color.empty() || root.opacity || !root.visible) {
             auto wrapper = tool->NewShape();
             TopoDS_Compound compound;
             BRep_Builder builder;
@@ -321,6 +392,7 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
             const auto component = tool->AddComponent(wrapper, label, rootLocation);
             name(component, root.name);
             if (!root.color.empty() || root.opacity) colors->SetColor(component, color_rgba(root.color, root.opacity), XCAFDoc_ColorSurf);
+            colors->SetVisibility(component, root.visible);
             name(wrapper, root.name);
             label = wrapper;
         }
@@ -332,7 +404,16 @@ std::vector<uint8_t> OcctKernel::writeStepGraph(const ExchangeGraph& graph) {
     STEPCAFControl_Writer writer;
     writer.SetNameMode(true);
     writer.SetColorMode(true);
-    if (!writer.Transfer(roots, STEPControl_AsIs))
+    DESTEP_Parameters parameters;
+    parameters.WriteSchema = graph.step_schema == "AP242" || graph.step_schema.empty()
+        ? DESTEP_Parameters::WriteMode_StepSchema_AP242DIS : DESTEP_Parameters::WriteMode_StepSchema_AP214IS;
+    if (!graph.step_schema.empty() && graph.step_schema != "AP242" && graph.step_schema != "AP214IS")
+        throw std::invalid_argument("EXCHANGE_INVALID_STEP_SCHEMA");
+    parameters.WriteUnit = UnitsMethods_LengthUnit_Millimeter;
+    parameters.WriteSubshapeNames = true;
+    parameters.WriteSurfaceCurMode = true;
+    parameters.WriteTessellated = DESTEP_Parameters::RWMode_Tessellated_Off;
+    if (!writer.Transfer(roots, parameters, STEPControl_AsIs))
         throw std::runtime_error("STEP_XDE_EXPORT_TRANSFER_FAILED");
     std::ostringstream stream;
     if (writer.WriteStream(stream) != IFSelect_RetDone)

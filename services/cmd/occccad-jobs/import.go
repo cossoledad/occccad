@@ -68,6 +68,7 @@ func (h handler) importProgress(ctx context.Context, job jobs.Job, phase string,
 }
 
 func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, folderID, format, requestID string) error {
+	started := time.Now()
 	if job.InputObjectID == nil {
 		return errors.New("exchange import has no source object")
 	}
@@ -101,17 +102,38 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	if err := workspace.ValidateImportGraph(inspection); err != nil {
 		return err
 	}
+	if inspection.KernelVersion == "" {
+		return errors.New("exchange preparation did not identify its kernel version")
+	}
+	report := &exchange.Report{SchemaVersion: 1, SourceSHA256: source.SHA256, SourceSchema: inspection.SourceSchema, KernelVersion: inspection.KernelVersion, Definitions: len(inspection.Definitions), TimingsMS: map[string]float64{}}
+	for _, warning := range inspection.Warnings {
+		report.Warnings = append(report.Warnings, exchange.Warning{Code: warning.Code, Message: exchange.WarningMessage(warning.Code, warning.Message), Detail: warning.Message, DefinitionID: warning.DefinitionId, Count: warning.Count})
+	}
 	components := []*workerv1.ExchangeDefinition{}
 	for _, def := range inspection.Definitions {
 		if def.Kind == "PART" {
 			components = append(components, def)
+			if def.Empty {
+				report.EmptyParts++
+			}
 		}
 	}
 	count := len(components)
+	report.TimingsMS["prepare"] = float64(time.Since(phaseStarted).Microseconds()) / 1000
 	slog.Info("exchange preparation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	phaseStarted = time.Now()
 	if count == 0 {
-		return errors.New("exchange source contains no importable geometry")
+		if err := h.queue.UpdateProgressDetail(ctx, job.ID, h.workerID, 70, &jobs.ProgressDetail{Phase: "CREATING_PARTS", Total: 1}); err != nil {
+			return err
+		}
+		view, err := h.workspace.CommitImportedEmptyPart(ctx, job.RequestedBy, folderID, requestID+"/empty", exchange.ImportedDocumentName(fileName), fileName)
+		if err != nil {
+			return err
+		}
+		report.EmptyParts = 1
+		report.Warnings = append(report.Warnings, exchange.Warning{Code: "EXCHANGE_EMPTY_PART", Message: exchange.WarningMessage("EXCHANGE_EMPTY_PART", ""), Count: 1})
+		report.TimingsMS["total"] = float64(time.Since(started).Microseconds()) / 1000
+		return h.queue.SucceedImport(ctx, job.ID, h.workerID, view.Document.ID, report)
 	}
 	if err := h.queue.UpdateProgressDetail(ctx, job.ID, h.workerID, 15, &jobs.ProgressDetail{Phase: "EVALUATING", Total: count}); err != nil {
 		return err
@@ -130,6 +152,9 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 				if err := groupContext.Err(); err != nil {
 					return err
 				}
+				if component.Empty {
+					return evaluated()
+				}
 				if component.GetBrep().GetObjectKey() == "" {
 					return errors.New("worker did not prepare definition-local import snapshots")
 				}
@@ -141,8 +166,16 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 					return errors.New("prepared component integrity mismatch")
 				}
 				input := geometry.ArtifactReference{Backend: snapshot.Backend, ObjectKey: snapshot.Key, SHA256: snapshot.SHA256, Size: snapshot.Size, ContentType: snapshot.ContentType}
-				digest := sha256.Sum256([]byte("exchange-xde-local-v1\x00" + source.SHA256 + "/" + component.Id))
+				digest := sha256.Sum256([]byte("exchange-xde-local-v2-exact-volume-spans\x00" + inspection.KernelVersion + "\x00" + source.SHA256 + "/" + component.Id + "/" + snapshot.SHA256))
 				key := "sha256:" + hex.EncodeToString(digest[:])
+				available, err := h.workspace.ReusableImportGeometry(groupContext, key, snapshot.SHA256)
+				if err != nil {
+					return err
+				}
+				if available {
+					results[index] = imported{key: key}
+					return evaluated()
+				}
 				prefix := fmt.Sprintf("%s/component-%d", job.ID, index+1)
 				evaluation, err := h.geometry.ImportExchange(groupContext, requestID+fmt.Sprintf("/component/%d", index+1), key, "BREP", input, "", artifact.StagingKey(prefix, "shape.brep"), artifact.StagingKey(prefix, "mesh.glb"))
 				if err != nil {
@@ -159,6 +192,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	if err := group.Wait(); err != nil {
 		return err
 	}
+	report.TimingsMS["evaluate"] = float64(time.Since(phaseStarted).Microseconds()) / 1000
 	slog.Info("exchange component evaluation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	phaseStarted = time.Now()
 	// Preserve the existing cancellation boundary before any document is created.
@@ -180,7 +214,13 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 				if strings.TrimSpace(name) == "" {
 					name = baseName
 				}
-				view, err := h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName, format, result.key, result.evaluation, &workspace.ImportSource{ObjectID: source.ID, SHA256: source.SHA256, Format: format, DefinitionID: components[index].Id, Appearance: components[index].Appearance, AppearanceBRepSHA256: components[index].GetBrep().GetSha256()})
+				var view workspace.DocumentView
+				var err error
+				if components[index].Empty {
+					view, err = h.workspace.CommitImportedEmptyPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName)
+				} else {
+					view, err = h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName, format, result.key, result.evaluation, &workspace.ImportSource{Visible: components[index].Visible, ObjectID: source.ID, SHA256: source.SHA256, Format: format, DefinitionID: components[index].Id, Appearance: components[index].Appearance, AppearanceBRepSHA256: components[index].GetBrep().GetSha256()})
+				}
 				if err != nil {
 					return err
 				}
@@ -198,6 +238,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 		return err
 	}
 	slog.Info("exchange Part creation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
+	report.TimingsMS["createParts"] = float64(time.Since(phaseStarted).Microseconds()) / 1000
 	phaseStarted = time.Now()
 	documents := map[string]workspace.DocumentView{}
 	for i, def := range components {
@@ -215,5 +256,7 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	}
 
 	slog.Info("exchange assembly completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
-	return h.queue.SucceedImport(ctx, job.ID, h.workerID, root.Document.ID)
+	report.TimingsMS["assemble"] = float64(time.Since(phaseStarted).Microseconds()) / 1000
+	report.TimingsMS["total"] = float64(time.Since(started).Microseconds()) / 1000
+	return h.queue.SucceedImport(ctx, job.ID, h.workerID, root.Document.ID, report)
 }

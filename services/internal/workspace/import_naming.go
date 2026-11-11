@@ -19,6 +19,7 @@ const typeRepairImportNaming = "occccad://part/exchange/repair-naming"
 
 // Source describes the original exchange object, not a display artifact.
 type ImportSource struct {
+	Visible              *bool                        `json:"-"`
 	AppearanceBRepSHA256 string                       `json:"-"`
 	Appearance           *workerv1.ExchangeAppearance `json:"-"`
 	ObjectID             string                       `json:"objectId"`

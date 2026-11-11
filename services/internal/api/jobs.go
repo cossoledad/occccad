@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
@@ -95,8 +96,12 @@ func (server *Server) startExchangeImport(writer http.ResponseWriter, request *h
 		return
 	}
 	requestID := strings.TrimSpace(request.Header.Get("X-Request-ID"))
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
+	idempotencyKey := "import-" + principal(request).ID + "-" + requestID
 	job, err := server.jobs.Enqueue(request.Context(), jobs.EnqueueRequest{Type: "EXCHANGE_IMPORT",
-		RequestedBy: principal(request).ID, InputObjectID: stored.ID, IdempotencyKey: requestID,
+		RequestedBy: principal(request).ID, InputObjectID: stored.ID, IdempotencyKey: idempotencyKey,
 		UserVisible: true,
 		Payload: map[string]any{"fileName": fileName, "folderId": folderID, "format": format,
 			"requestId": requestID}})
@@ -104,13 +109,21 @@ func (server *Server) startExchangeImport(writer http.ResponseWriter, request *h
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
+	var imported struct{ FileName, FolderID, Format string }
+	_ = json.Unmarshal(job.Payload, &imported)
+	if job.InputObjectID == nil || *job.InputObjectID != stored.ID || imported.FileName != fileName || imported.FolderID != folderID || imported.Format != format {
+		writeError(writer, http.StatusConflict, "import request ID was already used for different input")
+		return
+	}
 	writeJSON(writer, http.StatusAccepted, job)
 }
 
 func (server *Server) startExchangeExport(writer http.ResponseWriter, request *http.Request) {
 	var input struct {
-		DocumentID string `json:"documentId"`
-		Format     string `json:"format"`
+		DocumentID    string `json:"documentId"`
+		Format        string `json:"format"`
+		ExcludeHidden *bool  `json:"excludeHidden"`
+		StepSchema    string `json:"stepSchema"`
 	}
 	if !decodeJSON(writer, request, &input) {
 		return
@@ -120,6 +133,14 @@ func (server *Server) startExchangeExport(writer http.ResponseWriter, request *h
 		writeError(writer, http.StatusBadRequest, "format must be STEP or BREP")
 		return
 	}
+	if input.StepSchema == "" {
+		input.StepSchema = "AP242"
+	}
+	if input.StepSchema != "AP242" && input.StepSchema != "AP214IS" {
+		writeError(writer, http.StatusBadRequest, "stepSchema must be AP242 or AP214IS")
+		return
+	}
+	excludeHidden := input.ExcludeHidden == nil || *input.ExcludeHidden
 	if _, err := server.access.RequireDocument(request.Context(), input.DocumentID, principal(request).ID, access.RoleViewer); err != nil {
 		writeAccessError(writer, err)
 		return
@@ -133,15 +154,26 @@ func (server *Server) startExchangeExport(writer http.ResponseWriter, request *h
 	idempotencyKey := strings.TrimSpace(request.Header.Get("X-Request-ID"))
 	if idempotencyKey == "" {
 		identity := view.Document.VersionID
-		idempotencyKey = fmt.Sprintf("export-%s-%s-%s", view.Document.ID, identity, format)
+		idempotencyKey = fmt.Sprintf("export-%s-%s-%s-%s-%t-%s", principal(request).ID, view.Document.ID, identity, format, excludeHidden, input.StepSchema)
+	} else {
+		idempotencyKey = "export-" + principal(request).ID + "-" + idempotencyKey
 	}
 	job, err := server.jobs.Enqueue(request.Context(), jobs.EnqueueRequest{Type: "EXCHANGE_EXPORT",
 		DocumentID: view.Document.ID, VersionID: versionID,
 		RequestedBy: principal(request).ID, IdempotencyKey: idempotencyKey,
 		UserVisible: true,
-		Payload:     map[string]any{"fileName": fileName + extension, "format": format, "requestId": idempotencyKey}})
+		Payload:     map[string]any{"fileName": fileName + extension, "format": format, "requestId": idempotencyKey, "excludeHidden": excludeHidden, "stepSchema": input.StepSchema}})
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var exported struct {
+		Format, StepSchema string
+		ExcludeHidden      bool
+	}
+	_ = json.Unmarshal(job.Payload, &exported)
+	if job.DocumentID == nil || *job.DocumentID != input.DocumentID || job.VersionID == nil || *job.VersionID != *versionID || exported.Format != format || exported.StepSchema != input.StepSchema || exported.ExcludeHidden != excludeHidden {
+		writeError(writer, http.StatusConflict, "export request ID was already used for a different snapshot or options")
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, job)

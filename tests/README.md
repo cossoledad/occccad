@@ -1,6 +1,6 @@
 # occccad tests
 
-测试邻近所属实现：C++ CTest 在 kernel/Worker，Go 白盒在各包，Node scenarios 在 Web。根 tests 仅保存跨模块设施、[装配合同](assembly-contract/README.md)、[装配 corpus](assembly-corpus/README.md)、[静态数据](test.data/README.md)、Go conformance 和开发工具回归。
+测试邻近所属实现：C++ CTest 在 kernel/Worker，Go 白盒在各包，Node scenarios 在 Web。根 tests 仅保存跨模块设施、[装配合同](assembly-contract/README.md)、[装配 corpus](assembly-corpus/README.md)、[NIST STEP corpus](exchange-corpus/README.md)、[静态数据](test.data/README.md)、Go conformance 和开发工具回归。
 
 公开入口是 `mise run plan` / `mise run check`，准确选择、层级、状态、报告见[Agent 工作流](../docs/development/agent-workflow.md)，资源规则见[环境](../docs/development/environment.md)。
 

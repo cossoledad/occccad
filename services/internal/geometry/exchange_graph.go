@@ -16,6 +16,9 @@ func ValidateExchangeGraph(graph *ExchangeGraph) error {
 	if graph == nil || len(graph.Definitions) == 0 || len(graph.Definitions) > 100000 || len(graph.Roots) == 0 {
 		return fmt.Errorf("invalid exchange graph size")
 	}
+	if graph.StepSchema != "" && graph.StepSchema != "AP242" && graph.StepSchema != "AP214IS" {
+		return fmt.Errorf("invalid STEP export schema")
+	}
 	definitions := map[string]int{}
 	for i, def := range graph.Definitions {
 		if def == nil || def.Id == "" {
@@ -26,6 +29,9 @@ func ValidateExchangeGraph(graph *ExchangeGraph) error {
 		}
 		if def.Kind != "PART" && def.Kind != "PRODUCT" || def.Kind == "PART" && len(def.Children) > 0 {
 			return fmt.Errorf("invalid exchange definition kind")
+		}
+		if def.Empty && (def.Kind != "PART" || def.Brep != nil || len(def.Bodies)+len(def.Geometries) > 0) {
+			return fmt.Errorf("invalid empty exchange definition")
 		}
 		if err := validateExchangeAppearance(def.Appearance); err != nil {
 			return err

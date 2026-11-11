@@ -1220,7 +1220,7 @@ export const mockApi: CadApi = {
       createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };
     jobs.set(job.id, job); return pause(job);
   },
-  startExport: async (documentID, _format) => {
+  startExport: async (documentID, _format, _options = {}) => {
     const job: Job = { id: id("mock-job"), type: "EXCHANGE_EXPORT", state: "SUCCEEDED", documentId: documentID,
       progress: 100, resultObjectId: "mock-exchange", payload: { fileName: "mock.step", format: "STEP" },
       attemptCount: 1, maxAttempts: 3, createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };

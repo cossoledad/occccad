@@ -45,6 +45,12 @@
 #include <TopoDS_Solid.hxx>
 #include <OSD_ThreadPool.hxx>
 #include <OSD_Parallel.hxx>
+#include <STEPControl_Reader.hxx>
+#include <STEPConstruct_ExternRefs.hxx>
+#include <StepBasic_ProductDefinition.hxx>
+#include <StepData_StepModel.hxx>
+#include <StepData_StepWriter.hxx>
+#include <StepData_Protocol.hxx>
 
 #include <algorithm>
 #include <chrono>
@@ -1385,6 +1391,59 @@ TEST(GeometryExchange, XdeSharedDefinitionsNestedPlacementRoundTrip) {
     EXPECT_LT(bytes.size(),small.size()*15U); // 100 references must not copy 100 B-Reps.
 }
 
+TEST(GeometryExchange, XdeOperationRetainsEveryUniqueDefinition) {
+    OcctKernel source(true);
+    ExchangeGraph graph;
+    for (int i=1;i<=32;++i) {
+        const auto id="part-"+std::to_string(i);
+        graph.definitions.push_back({id,id,"PART",source.createBox(i,2,3),{}});
+        graph.roots.push_back({id,id,id,{}});
+    }
+    TemporaryStepFile file(source.writeStepGraph(graph));
+    OcctKernel target(true);
+    const auto imported=target.readStepGraph(file.path().string());
+    int parts=0;
+    for (const auto& definition:imported.definitions) {
+        if (definition.kind!="PART") continue;
+        ++parts;
+        ASSERT_EQ(definition.name.substr(0,5),"part-");
+        const auto index=std::stoi(definition.name.substr(5));
+        EXPECT_NEAR(target.getVolume(definition.geometry_id),index*6,1e-7);
+    }
+    EXPECT_EQ(parts,32);
+}
+
+TEST(GeometryExchange, ExternalReferencesKeepEmbeddedGeometryWithoutResolvingPaths) {
+    OcctKernel kernel(true);
+    ExchangeGraph source;
+    source.definitions.push_back({"part","Embedded","PART",kernel.createBox(10,10,10),{}});
+    source.roots.push_back({"root","part","Embedded",{}});
+    TemporaryStepFile original(kernel.writeStepGraph(source));
+    STEPControl_Reader reader;
+    ASSERT_EQ(reader.ReadFile(original.path().string().c_str()),IFSelect_RetDone);
+    const auto model=reader.StepModel();
+    Handle(StepBasic_ProductDefinition) product;
+    for (int i=1;i<=model->NbEntities();++i) {
+        product=Handle(StepBasic_ProductDefinition)::DownCast(model->Value(i));
+        if (!product.IsNull())break;
+    }
+    ASSERT_FALSE(product.IsNull());
+    STEPConstruct_ExternRefs references(reader.WS());
+    references.AddExternRef("/must-not-be-opened/occccad-reference.step",product,"STEP AP214");
+    references.WriteExternRefs(1);
+    StepData_StepWriter writer(model);
+    writer.SendModel(Handle(StepData_Protocol)::DownCast(model->Protocol()));
+    std::ostringstream stream;
+    ASSERT_TRUE(writer.Print(stream));
+    const auto bytes=stream.str();
+    TemporaryStepFile external(std::vector<uint8_t>(bytes.begin(),bytes.end()));
+    const auto imported=kernel.readStepGraph(external.path().string());
+    ASSERT_EQ(imported.definitions.size(),1U);
+    ASSERT_FALSE(imported.definitions[0].empty);
+    EXPECT_NEAR(kernel.getVolume(imported.definitions[0].geometry_id),1000,1e-7);
+    EXPECT_TRUE(std::any_of(imported.warnings.begin(),imported.warnings.end(),[](const auto& warning){return warning.code=="STEP_EXTERNAL_REFERENCES_SKIPPED";}));
+}
+
 TEST(GeometryExchange, XdeMultipleRootsPreserveSharedReferences) {
     OcctKernel kernel;
     occccad::kernel::ExchangeGraph graph;
@@ -1398,6 +1457,45 @@ TEST(GeometryExchange, XdeMultipleRootsPreserveSharedReferences) {
         EXPECT_EQ(def.children[0].definition_id,def.children[1].definition_id);
         EXPECT_EQ(def.children[1].name,"second");
         EXPECT_NEAR(def.children[1].placement.translation.x,10,1e-6);
+    }
+}
+
+TEST(GeometryExchange, XdeNormalizesSourceMetresToMillimetres) {
+    OcctKernel kernel(true);
+    ExchangeGraph graph;
+    graph.definitions.push_back({"part","Units","PART",kernel.createBox(1,2,3),{}});
+    graph.roots.push_back({"root","part","Units",{}});
+    const auto bytes=kernel.writeStepGraph(graph);
+    std::string content(bytes.begin(),bytes.end());
+    const std::string millimetres="SI_UNIT(.MILLI.,.METRE.)";
+    const auto offset=content.find(millimetres);
+    ASSERT_NE(offset,std::string::npos);
+    content.replace(offset,millimetres.size(),"SI_UNIT($,.METRE.)");
+    TemporaryStepFile file(std::vector<uint8_t>(content.begin(),content.end()));
+    const auto imported=kernel.readStepGraph(file.path().string());
+    ASSERT_EQ(imported.definitions.size(),1U);
+    const auto& id=imported.definitions[0].geometry_id;
+    const auto bounds=kernel.getBoundingBox(id);
+    EXPECT_NEAR(bounds.max.x-bounds.min.x,1000,1e-5);
+    EXPECT_NEAR(bounds.max.y-bounds.min.y,2000,1e-5);
+    EXPECT_NEAR(bounds.max.z-bounds.min.z,3000,1e-5);
+    EXPECT_NEAR(kernel.getVolume(id),6e9,1e-3);
+}
+
+TEST(GeometryExchange, XdeColorsPreserveWireAndPointAppearance) {
+    const std::vector<TopoDS_Shape> shapes={BRepBuilderAPI_MakeEdge(gp_Pnt(0,0,0),gp_Pnt(10,2,3)).Shape(),BRepBuilderAPI_MakeVertex(gp_Pnt(1,2,3)).Shape()};
+    for (const auto& shape:shapes) {
+        OcctKernel kernel(true);
+        std::ostringstream stream;BRepTools::Write(shape,stream);const auto bytes=stream.str();
+        ExchangeDefinition part{"part","Colored result","PART",kernel.loadBrepr({bytes.begin(),bytes.end()}),{}};
+        part.appearance.color="#12ab34";part.appearance.opacity=.4;
+        ExchangeGraph graph;graph.definitions.push_back(part);graph.roots.push_back({"root","part","Colored result",{}});
+        TemporaryStepFile file(kernel.writeStepGraph(graph));
+        const auto imported=kernel.readStepGraph(file.path().string());
+        ASSERT_EQ(imported.definitions.size(),1U);
+        EXPECT_EQ(imported.definitions[0].appearance.color,"#12ab34");
+        ASSERT_TRUE(imported.definitions[0].appearance.opacity);
+        EXPECT_NEAR(*imported.definitions[0].appearance.opacity,.4,1e-6);
     }
 }
 

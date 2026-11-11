@@ -57,7 +57,9 @@ struct PartRuntimeOptions {
 /// All OCCT types are confined to the implementation file.
 class OcctKernel : public ICadKernel {
 public:
-    OcctKernel();
+    // Exchange RPCs own a short-lived graph: keep every definition until the
+    // operation completes instead of evicting handles still in that graph.
+    explicit OcctKernel(bool retain_operation_graph = false);
     ~OcctKernel() override;
 
     // Non-copyable, movable
@@ -136,6 +138,7 @@ public:
         const std::function<bool()>& cancelled={}, uint32_t sample_count=256);
 private:
     const TopoDS_Shape& analysis_shape(const GeometryId& id) const;
+    GeometryId store_exchange_shape(const TopoDS_Shape& shape);
     struct InterferenceCache;
     std::shared_ptr<InterferenceCache> interference_cache_;
     struct Impl;

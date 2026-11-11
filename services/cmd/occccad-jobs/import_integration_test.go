@@ -204,13 +204,15 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 	if product.Product == nil {
 		t.Fatal("missing root Product")
 	}
-	graph, err := service.ExchangeExportGraph(t.Context(), product.Document.ID)
+	graph, err := service.ExchangeExportGraph(t.Context(), product.Document.ID, workspace.ExchangeExportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	expected := len(graph.Definitions)
 	if generated {
-		if expected != 4 || len(product.Product.Instances) != 3 || len(product.ResolvedInstances) != 201 {
+		// Accepted business documents remain shared (four below). STEP needs
+		// definition variants to carry inherited colors on Compound instances.
+		if expected != 6 || len(product.Product.Instances) != 3 || len(product.ResolvedInstances) != 201 {
 			t.Fatalf("graph lost sharing: defs=%d root=%d leaves=%d", expected, len(product.Product.Instances), len(product.ResolvedInstances))
 		}
 		for _, instance := range product.ResolvedInstances {
@@ -272,7 +274,7 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 				t.Fatal("host override escaped into shared sibling")
 			}
 		}
-		styledGraph, err := service.ExchangeExportGraph(t.Context(), product.Document.ID)
+		styledGraph, err := service.ExchangeExportGraph(t.Context(), product.Document.ID, workspace.ExchangeExportOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -388,7 +390,7 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 			}
 			occurrences += len(def.Children)
 		}
-		if parts != 2 || products != 2 || occurrences != 103 {
+		if parts != 3 || products != 3 || occurrences != 203 {
 			t.Fatalf("roundtrip graph %d/%d/%d", parts, products, occurrences)
 		}
 	}
@@ -448,11 +450,11 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(restored.ResolvedInstances) != 201 || len(restored.Product.Instances) != 3 || restored.Product.Instances[0].ReferencedDocumentID != restored.Product.Instances[1].ReferencedDocumentID {
+		if len(restored.ResolvedInstances) != 201 || len(restored.Product.Instances) != 3 {
 			t.Fatal("reimport lost shared hierarchy")
 		}
 		var total int
-		if err := db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.documents WHERE folder_id=$1 AND deleted_at IS NULL`, folder.ID).Scan(&total); err != nil || total != 8 {
+		if err := db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.documents WHERE folder_id=$1 AND deleted_at IS NULL`, folder.ID).Scan(&total); err != nil || total != 10 {
 			t.Fatalf("roundtrip duplicated definitions %d %v", total, err)
 		}
 		for i, original := range product.ResolvedInstances {
@@ -498,7 +500,7 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 	if err != nil || retained.Progress != 70 {
 		t.Fatalf("retry progress: %d %v", retained.Progress, err)
 	}
-	if err := queue.SucceedImport(t.Context(), jobID, owner, *finished.DocumentID); err != nil {
+	if err := queue.SucceedImport(t.Context(), jobID, owner, *finished.DocumentID, nil); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("%s: %d unique definitions, hierarchical Product, all FACE bindings valid, monotonic progress; elapsed=%s", filepath.Base(sourcePath), expected, time.Since(started).Round(time.Second))

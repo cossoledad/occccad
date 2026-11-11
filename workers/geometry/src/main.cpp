@@ -2155,8 +2155,9 @@ public:
             if (!request->has_source())
                 throw std::invalid_argument("exchange source artifact is required");
             std::lock_guard<std::mutex> lock(mutex_);
+            if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "exchange preparation cancelled"};
             const auto source = validate_artifact(request->source());
-            occccad::kernel::OcctKernel preparation;
+            occccad::kernel::OcctKernel preparation(true);
             occccad::kernel::ExchangeGraph graph;
             if (format == "STEP")
                 graph = preparation.readStepGraph(source.string());
@@ -2166,11 +2167,19 @@ public:
                 graph.roots.push_back({"root", "brep", "", {}});
             }
             auto* output = response->mutable_graph();
+            output->set_kernel_version(OCC_VERSION_COMPLETE);
+            output->set_source_schema(graph.source_schema);
+            auto warning = [&](const std::string& code, const std::string& message, const std::string& definition, uint64_t count = 1) {
+                auto* item = output->add_warnings();
+                item->set_code(code); item->set_message(message); item->set_definition_id(definition); item->set_count(count);
+            };
+            for (const auto& item : graph.warnings) warning(item.code, item.message, item.definition_id, item.count);
             auto occurrence = [](const auto& from, auto* to) {
                 to->set_id(from.id);
                 to->set_definition_id(from.definition_id);
                 to->set_name(from.name);
                 to->set_color(from.color);
+                to->set_visible(from.visible);
                 if (from.opacity) to->set_opacity(*from.opacity);
                 to->mutable_translation()->set_x(from.placement.translation.x);
                 to->mutable_translation()->set_y(from.placement.translation.y);
@@ -2188,6 +2197,8 @@ public:
                 item->set_id(def.id);
                 item->set_name(def.name);
                 item->set_kind(def.kind);
+                item->set_empty(def.empty);
+                item->set_visible(def.visible);
                 item->mutable_appearance()->set_color(def.appearance.color);
                 if (def.appearance.opacity) item->mutable_appearance()->set_opacity(*def.appearance.opacity);
                 for (const auto& color : def.appearance.faces) {
@@ -2199,11 +2210,36 @@ public:
                 for (const auto& child : def.children)
                     occurrence(child, item->add_children());
                 if (def.kind == "PART" && !request->component_output_prefix().empty()) {
-                    const auto repaired = preparation.repairImportedGeometry(def.geometry_id);
+                    if (def.empty || def.geometry_id.empty()) {
+                        warning("EXCHANGE_EMPTY_PART", "No supported geometry; an empty Part will be created", def.id);
+                        continue;
+                    }
+                    const auto summary = preparation.getTopologySummary(def.geometry_id);
+                    if (summary.face_count + summary.edge_count + summary.vertex_count == 0) {
+                        item->set_empty(true);
+                        warning("EXCHANGE_EMPTY_PART", "No supported geometry; an empty Part will be created", def.id);
+                        continue;
+                    }
+                    occccad::kernel::GeometryId repaired;
+                    try {
+                        repaired = preparation.repairImportedGeometry(def.geometry_id);
+                    } catch (const std::invalid_argument& error) {
+                        // A readable source may contain shapes that cannot enter
+                        // our validated BREP/Naming model. Keep its document and
+                        // other definitions; do not invent topology for this one.
+                        if (std::string(error.what()).find("IMPORT_") != 0) throw;
+                        item->set_empty(true);
+                        item->clear_appearance();
+                        warning("EXCHANGE_UNSUPPORTED_GEOMETRY", error.what(), def.id);
+                        warning("EXCHANGE_EMPTY_PART", "No supported geometry; an empty Part will be created", def.id);
+                        continue;
+                    }
                     // A repair can change topology before persistent IDs are allocated.
                     // Do not attach source face colors by ordinal to repaired topology.
-                    if (repaired != def.geometry_id && !def.appearance.faces.empty())
-                        throw std::invalid_argument("EXCHANGE_COLORED_FACE_REPAIR_UNSUPPORTED");
+                    if (repaired != def.geometry_id && !def.appearance.faces.empty()) {
+                        warning("EXCHANGE_FACE_APPEARANCE_SKIPPED_AFTER_REPAIR", "Face appearance was skipped after topology repair", def.id, def.appearance.faces.size());
+                        item->mutable_appearance()->clear_faces();
+                    }
                     write_artifact(request->component_output_prefix() + "/" +
                                        std::to_string(++ordinal) + ".brep",
                                    preparation.serializeBrepr(repaired),
@@ -2235,17 +2271,21 @@ public:
                     "request_id, geometry_key, source, and output keys are required"};
         }
         std::lock_guard<std::mutex> lock(mutex_);
+        if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "exchange import cancelled"};
         try {
             const auto format = exchange_format(request->format());
             const auto source = validate_artifact(request->source());
             occccad::kernel::GeometryId geometry_id;
             if (format == "STEP") {
-                const auto graph = kernel_.readStepGraph(source.string());
+                occccad::kernel::OcctKernel preparation(true);
+                const auto graph = preparation.readStepGraph(source.string());
                 for (const auto& def : graph.definitions) {
-                    if (def.kind == "PART" &&
+                    if (!def.geometry_id.empty() && def.kind == "PART" &&
                         (def.id == request->definition_id() ||
-                         (request->definition_id().empty() && graph.definitions.size() == 1)))
-                        geometry_id = def.geometry_id;
+                         (request->definition_id().empty() && graph.definitions.size() == 1))) {
+                        geometry_id = kernel_.loadBrepr(preparation.serializeBrepr(def.geometry_id));
+                        break;
+                    }
                 }
                 if (geometry_id.empty())
                     throw std::invalid_argument("STEP_PART_DEFINITION_REQUIRED");
@@ -2254,14 +2294,25 @@ public:
                 geometry_id = kernel_.repairImportedGeometry(
                     kernel_.loadBrepr(read_artifact(request->source())));
             }
+            const auto summary = kernel_.getTopologySummary(geometry_id);
+            if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "exchange import cancelled"};
+            if (summary.geometry_domain == "SOLID_SET") {
+                const auto mass_started = std::chrono::steady_clock::now();
+                spdlog::info("exchange_mass_properties geometry={} phase=started", geometry_id);
+                kernel_.getVolume(geometry_id);
+                spdlog::info("exchange_mass_properties geometry={} phase=completed duration_ms={}", geometry_id,
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-mass_started).count());
+            }
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
-                            request->glb_output_key());
+                            request->glb_output_key(),false,false,nullptr,nullptr,
+                            [context](){return context->IsCancelled();},[context](){return context->IsCancelled();});
             log_rpc("ImportExchange", request->request_id(), traceparent, "OK", started);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
             return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
         } catch (const std::exception& error) {
+            if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "exchange import cancelled"};
             return {grpc::StatusCode::INTERNAL, error.what()};
         }
     }
@@ -2364,7 +2415,8 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         try {
             const auto format = exchange_format(request->format());
-            occccad::kernel::OcctKernel preparation;
+            occccad::kernel::OcctKernel preparation(true);
+            if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "exchange export cancelled"};
             occccad::kernel::ExchangeGraph graph;
             auto occurrence = [](const auto& from) {
                 occccad::kernel::ExchangeOccurrence to;
@@ -2372,6 +2424,7 @@ public:
                 to.definition_id = from.definition_id();
                 to.name = from.name();
                 to.color = from.color();
+                to.visible = !from.has_visible() || from.visible();
                 if (from.has_opacity()) to.opacity = from.opacity();
                 to.placement.translation = {from.translation().x(), from.translation().y(),
                                             from.translation().z()};
@@ -2394,6 +2447,7 @@ public:
                 item.id = def.id();
                 item.name = def.name();
                 item.kind = def.kind();
+                item.visible = !def.has_visible() || def.visible();
                 auto appearance = [](const auto& from) {
                     occccad::kernel::ExchangeAppearance to;
                     to.color = from.color();
@@ -2413,15 +2467,17 @@ public:
                             occccad::kernel::PlacedGeometry body;
                             body.geometry_id = preparation.loadBrepr(read_artifact(source.brep()));
                             bodies.push_back(body);
-                            item.bodies.push_back({body.geometry_id, appearance(source.appearance())});
+                            item.bodies.push_back({body.geometry_id, appearance(source.appearance()), !source.has_visible() || source.visible(), source.name()});
                         }
                         for(const auto& source:def.geometries()){
                             if(!source.has_result()||source.result().feature_id().empty()||source.result().result_id().empty())throw std::invalid_argument("EXCHANGE_GEOMETRY_OWNER_REQUIRED");
                             occccad::kernel::PlacedGeometry result;result.geometry_id=preparation.loadBrepr(read_artifact(source.brep()));bodies.push_back(result);
+                            item.bodies.push_back({result.geometry_id, appearance(source.appearance()), !source.has_visible() || source.visible(), source.name()});
                         }
                         if (bodies.size() == 1 && def.geometries_size()==0) {
                             item.geometry_id = bodies.front().geometry_id;
                             item.appearance = item.bodies.front().appearance;
+                            item.visible = item.visible && item.bodies.front().visible;
                             item.bodies.clear();
                         } else if(bodies.size()==1)item.geometry_id=bodies.front().geometry_id;
                         else item.geometry_id = preparation.combine(bodies);
@@ -2433,6 +2489,7 @@ public:
             }
             for (const auto& root : request->graph().roots())
                 graph.roots.push_back(occurrence(root));
+            graph.step_schema = request->graph().step_schema();
             std::vector<uint8_t> data;
             if (format == "STEP")
                 data = preparation.writeStepGraph(graph);

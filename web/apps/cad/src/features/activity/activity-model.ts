@@ -18,6 +18,7 @@ export type ActivityItem = {
   completedAt?: string;
   canceling?: boolean;
   actions: ActivityAction[];
+  warnings: string[];
 };
 
 type JobPresentation = {
@@ -40,6 +41,19 @@ const fallbackPresentation: JobPresentation = {
 export function activityStatus(job: Job): ActivityStatus {
   if (job.state === "QUEUED" || job.state === "RETRY_WAIT") return "PENDING";
   return job.state;
+}
+
+// The completed job is the durable source for both toast and message center.
+// A failed/retried attempt must not display an earlier completion's warnings.
+export function exchangeCompletionWarnings(job: Pick<Job, "type" | "state" | "warnings"> & {payload?: Job["payload"]}): string[] {
+  if (job.state !== "SUCCEEDED" || !["EXCHANGE_IMPORT", "EXCHANGE_EXPORT"].includes(job.type)) return [];
+  const report = job.payload?.exchange;
+  const warnings = job.warnings ?? (report && typeof report === "object" && "warnings" in report && Array.isArray(report.warnings) ? report.warnings : []);
+  return [...new Set(warnings.flatMap((warning: unknown) => {
+    if (!warning || typeof warning !== "object" || !("message" in warning) || typeof warning.message !== "string" || !warning.message) return [];
+    const count = "count" in warning && typeof warning.count === "number" && warning.count > 1 ? `（${warning.count} 项）` : "";
+    return [warning.message + count];
+  }))];
 }
 
 export function projectJobActivity(job: Job): ActivityItem {
@@ -69,7 +83,8 @@ export function projectJobActivity(job: Job): ActivityItem {
   return { id: `job:${job.id}`, source: "JOB", sourceType: job.type, resourceId: job.id, documentId: job.documentId,
     title: presentation.title,
     description, status, progress: status === "PENDING" || status === "RUNNING" ? job.progress : undefined,
-    createdAt: job.createdAt, completedAt: job.completedAt, canceling: Boolean(job.cancelRequestedAt), actions };
+    createdAt: job.createdAt, completedAt: job.completedAt, canceling: Boolean(job.cancelRequestedAt), actions,
+    warnings: exchangeCompletionWarnings(job) };
 }
 
 // New durable message sources add their own projector and can be merged here;

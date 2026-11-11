@@ -16,9 +16,9 @@
 
 STEP 经 XDE `Quantity_ColorRGBA` 读取实体、分面与组件 RGB/opacity，包括黑色和完全透明。Inspect 输出 definition-local 冻结 BREP；Jobs 将颜色和透明度绑定到同一 BREP 摘要下已分配的拓扑身份，正式模型不保存 OCCT local ID、数组位置或 mesh 面号。
 
-无法证明分面属性与修复后拓扑对应时，以 `EXCHANGE_COLORED_FACE_REPAIR_UNSUPPORTED` 拒绝；外观与导入身份的 BREP 不一致时以 `IMPORT_COLOR_BREP_MISMATCH` 拒绝。无分面属性的导入保留原修复流程。
+无法证明分面属性与修复后拓扑对应时，保留几何和整体外观、跳过分面赋值，并发出 `EXCHANGE_FACE_APPEARANCE_SKIPPED_AFTER_REPAIR` 警告。外观与导入身份的冻结 BREP 不一致仍以 `IMPORT_COLOR_BREP_MISMATCH` 拒绝，不能按面号猜测。
 
-STEP 导出沿不可变 Part/Product 图解析当前接受的外观，支持多 Body、共享定义与 occurrence 样式。普通导入图保留共享；宿主显式颜色、透明度或分面继承遮罩需要上下文差异时，生成按有效交换外观去重的临时定义变体，保留层级与 placement，不写回业务模型。RGB 按 8 位 sRGB，透明度经 XDE/STEP 交换；不同 CAD 阅读器的显示效果仍需各自验证。粗糙度、金属度、边线、选择性和个人场景设置不属于这条 STEP 交换契约。原生 BREP 仅导出几何。
+STEP 导出沿不可变 Part/Product 图解析当前接受的外观，支持 Body、独立几何结果、共享定义与 occurrence 样式。独立导入结果以稳定拓扑锚点保存外观，Part 的 resultAppearances 和 Product 的 ReferenceDisplayScope.results 用于视区与缩略图。当有效颜色、透明度或分面继承遮罩需要上下文差异时，生成按有效交换外观去重的临时定义变体，保留层级与 placement，不写回业务模型。RGB 按 8 位 sRGB，透明度经 XDE/STEP 交换；不同 CAD 阅读器的显示效果仍需各自验证。粗糙度、金属度、边线、选择性和个人场景设置不属于这条 STEP 交换契约。原生 BREP 仅导出几何。
 
 分面属性沿真实 Modified/Split/Generated/Merged lineage 投影。删除面不再显示，合并冲突、失效引用和未解析关系不猜测。STEP 以 `APPEARANCE_TOPOLOGY_UNRESOLVED` 拒绝静默丢失未解析属性。
 
@@ -28,7 +28,7 @@ STEP 导出沿不可变 Part/Product 图解析当前接受的外观，支持多 
 
 Three.js 按连续三角形有效样式分组，保持三角顺序与拾取映射。纯外观更新复用现有 mesh/BVH，替换材质；选中面使用边界轮廓，避免遮住赋色预览。半透明材质关闭 depthWrite；opacity=0 或禁止选择的面不能由普通拾取命中，可从树恢复。边线可随整体透明度淡化或保持清晰，宽度为 CSS px。出现半透明实体时，`SurfaceDepthPass` 从可见 CAD 表面产生独立深度纹理；拓扑细线和自定义宽线比较当前片元与最近表面深度，无遮挡边线清晰，被透明表面挡住的边线减弱并带短虚线节奏。opacity=0 的面不写此纹理，线框/纯不透明场景跳过额外通道；预览和 occurrence 使用当前显示 placement，保持原 mesh/group/三角索引。该通道由视口持有，随尺寸更新并在销毁时释放；线框仍显示拓扑边。浏览器使用 Three.js 常规透明排序，复杂重叠/相交透明曲面可能有排序伪影，未实现 OIT 或物理玻璃。
 
-服务端缩略图使用同一模型外观投影：先不透明深度，再有界像素加权透明合成，最后边线。它不读取浏览器个人场景设置，不保证与实时视口逐像素一致。缺失当前 Head/renderer 版本预览时，预览 GET 幂等排入 `THUMBNAIL_RENDER`，返回带 `pending` 状态的空场景 PNG；列表仅对可见卡片加载，并对 pending 有界退避刷新，ready 后停止。因此直接经 Workspace 创建、未经过 API 写入回调的文档也无需进入编辑器触发预览。当前 renderer 为 `png-v10-engineering-curves`，空几何/预算回退使用深蓝渐变和淡透视地面，不绘制虚构零件。前端离线/Mock 回退同样为空场景。旧 renderer 制品按现有身份隔离，按需重建，不修改 Revision。GLB 仍是几何显示制品，直接下载 mesh.glb 不等于带完整文档外观的交换导出。
+服务端缩略图使用同一模型外观投影：先不透明深度，再有界像素加权透明合成，最后边线。它不读取浏览器个人场景设置，不保证与实时视口逐像素一致。缺失当前 Head/renderer 版本预览时，预览 GET 幂等排入 `THUMBNAIL_RENDER`，返回带 `pending` 状态的空场景 PNG；列表仅对可见卡片加载，并对 pending 有界退避刷新，ready 后停止。因此直接经 Workspace 创建、未经过 API 写入回调的文档也无需进入编辑器触发预览。当前 renderer 为 `png-v11-exchange-results`，空几何/预算回退使用深蓝渐变和淡透视地面，不绘制虚构零件。前端离线/Mock 回退同样为空场景。旧 renderer 制品按现有身份隔离，按需重建，不修改 Revision。GLB 仍是几何显示制品，直接下载 mesh.glb 不等于带完整文档外观的交换导出。
 
 ## 源码与验证入口
 

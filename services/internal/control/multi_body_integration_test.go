@@ -176,7 +176,7 @@ func TestMultiBodyIndependentGeometryAndHistory(t *testing.T) {
 	if _, ok := view["artifact"]; ok {
 		t.Fatal("single Part artifact remains")
 	}
-	graph, e := service.ExchangeExportGraph(t.Context(), part.Document.ID)
+	graph, e := service.ExchangeExportGraph(t.Context(), part.Document.ID, workspace.ExchangeExportOptions{Visibility: "ALL"})
 	if e != nil {
 		t.Fatal(e)
 	}

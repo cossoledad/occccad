@@ -48,7 +48,7 @@ func (service *Service) CommitImportedGraph(ctx context.Context, actor, folderID
 			if name != sourceName {
 				importedName = &ImportedOccurrenceName{Source: sourceName, Assigned: name}
 			}
-			result = append(result, ProductInstance{GraphicProperties: GraphicProperties{Opacity: child.Opacity}, Color: child.Color, ImportedName: importedName, ID: commandEntityID("instance", requestID+"/"+owner+"/"+child.Id), Name: name, ReferencedDocumentID: target.Document.ID, ReferencedVersionID: target.Document.VersionID, ReferenceMode: "PINNED", Translation: [3]float64{child.Translation.GetX(), child.Translation.GetY(), child.Translation.GetZ()}, Rotation: [4]float64{child.Rotation.GetX(), child.Rotation.GetY(), child.Rotation.GetZ(), child.Rotation.GetW()}})
+			result = append(result, ProductInstance{ImportedVisible: child.Visible, GraphicProperties: GraphicProperties{Opacity: child.Opacity}, Color: child.Color, ImportedName: importedName, ID: commandEntityID("instance", requestID+"/"+owner+"/"+child.Id), Name: name, ReferencedDocumentID: target.Document.ID, ReferencedVersionID: target.Document.VersionID, ReferenceMode: "PINNED", Translation: [3]float64{child.Translation.GetX(), child.Translation.GetY(), child.Translation.GetZ()}, Rotation: [4]float64{child.Rotation.GetX(), child.Rotation.GetY(), child.Rotation.GetZ(), child.Rotation.GetW()}})
 		}
 		return result, nil
 	}
@@ -76,7 +76,9 @@ func (service *Service) CommitImportedGraph(ctx context.Context, actor, folderID
 	}
 	if len(graph.Roots) == 1 {
 		root := graph.Roots[0]
-		if root.Color == "" && root.Opacity == nil && root.Translation.GetX() == 0 && root.Translation.GetY() == 0 && root.Translation.GetZ() == 0 && root.Rotation.GetX() == 0 && root.Rotation.GetY() == 0 && root.Rotation.GetZ() == 0 && (root.Rotation.GetW() == 1 || root.Rotation.GetW() == -1) {
+		definition := definitions[root.DefinitionId]
+		partVisibilityCovered := definition.Kind == "PART" && root.Visible != nil && definition.Visible != nil && *root.Visible == *definition.Visible
+		if (root.Visible == nil || *root.Visible || partVisibilityCovered) && root.Color == "" && root.Opacity == nil && root.Translation.GetX() == 0 && root.Translation.GetY() == 0 && root.Translation.GetZ() == 0 && root.Rotation.GetX() == 0 && root.Rotation.GetY() == 0 && root.Rotation.GetZ() == 0 && (root.Rotation.GetW() == 1 || root.Rotation.GetW() == -1) {
 			return build(root.DefinitionId)
 		}
 	}
@@ -89,7 +91,22 @@ func (service *Service) CommitImportedGraph(ctx context.Context, actor, folderID
 
 // ExchangeExportGraph walks accepted immutable revisions, not the flattened
 // render list. Geometry overrides carry existing accepted context evaluation.
-func (service *Service) ExchangeExportGraph(ctx context.Context, documentID string, expectedRevision ...string) (*geometry.ExchangeGraph, error) {
+type ExchangeExportOptions struct {
+	RevisionID string
+	Visibility string // VISIBLE_ONLY (default) | ALL
+	StepSchema string // AP242 (default) | AP214IS
+}
+
+func (service *Service) ExchangeExportGraph(ctx context.Context, documentID string, options ExchangeExportOptions) (*geometry.ExchangeGraph, error) {
+	if options.Visibility == "" {
+		options.Visibility = "VISIBLE_ONLY"
+	}
+	if options.StepSchema == "" {
+		options.StepSchema = "AP242"
+	}
+	if options.Visibility != "VISIBLE_ONLY" && options.Visibility != "ALL" || options.StepSchema != "AP242" && options.StepSchema != "AP214IS" {
+		return nil, fmt.Errorf("%w: invalid exchange options", ErrValidation)
+	}
 	ctx = withAssemblyReadCache(ctx)
 	var revision string
 	overrides := map[string][]PartBody{}
@@ -112,7 +129,7 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 						aliasDepth[rule.Path] = rule.OwnerDepth
 					}
 				}
-				if !rule.Imported && hasExchangeStyle(rule.Appearance) {
+				if hasExchangeStyle(rule.Appearance) {
 					bakeAppearances = true
 				}
 			}
@@ -123,24 +140,40 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 	if err != nil {
 		return nil, err
 	}
-	if len(expectedRevision) > 0 && expectedRevision[0] != "" && view.Document.VersionID != expectedRevision[0] {
+	if options.RevisionID != "" && view.Document.VersionID != options.RevisionID {
 		return nil, fmt.Errorf("%w: export Head changed", ErrValidation)
 	}
 	revision = view.Document.VersionID
 	collectAppearances(view.ResolvedInstances)
+	for _, rules := range resolvedRules {
+		for _, rule := range rules {
+			if hasExchangeStyle(rule.Appearance) {
+				bakeAppearances = true
+			}
+		}
+	}
 	if view.Part != nil {
 		overrides[""] = view.Part.Bodies
 	}
-	for _, o := range view.ResolvedInstances {
-		overrides[o.InstancePath.Canonical] = append(overrides[o.InstancePath.Canonical], PartBody{ID: o.BodyID, GeometryKey: o.GeometryKey})
-	}
 
-	graph := &geometry.ExchangeGraph{}
+	visibility := newExportVisibility(view.StructureTree)
+	unavailableContexts := map[string]bool{}
+	for _, variant := range view.ContextVariants {
+		if variant.Status != "READY" {
+			unavailableContexts[variant.OwningInstancePath.Canonical] = true
+		} else {
+			overrides[variant.OwningInstancePath.Canonical] = variant.Bodies
+		}
+	}
+	visibleOnly := options.Visibility == "VISIBLE_ONLY"
+	graph := &geometry.ExchangeGraph{StepSchema: options.StepSchema}
 	type snapshot struct {
 		name, kind string
 		model      []byte
 	}
 	snapshots := map[string]snapshot{}
+	parts := map[string]PartModel{}
+	products := map[string]ProductModel{}
 	built := map[string]bool{}
 	visiting := map[string]bool{}
 	var build func(string, string, string, int) (string, error)
@@ -161,19 +194,29 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 		}
 		def := &workerv1.ExchangeDefinition{Id: identity, Name: value.name, Kind: value.kind}
 		if value.kind == "PART" {
-			var part PartModel
-			if err := json.Unmarshal(value.model, &part); err != nil {
-				return "", err
+			if unavailableContexts[path] {
+				return "", fmt.Errorf("%w: CONTEXT_GEOMETRY_NOT_READY", ErrValidation)
 			}
-			if partHasFailedFeature(part) {
-				return "", fmt.Errorf("%w: failed Part has no authoritative export result", ErrValidation)
+			localVisible := visibility.localVisible(exportAddress{docID, path, "PART", docID})
+			def.Visible = &localVisible
+			part, parsed := parts[identity]
+			if !parsed {
+				if err := json.Unmarshal(value.model, &part); err != nil {
+					return "", err
+				}
+				parts[identity] = part
 			}
 			bodies := part.Bodies
 			if override, ok := overrides[path]; ok {
 				bodies = override
 			}
+			bodies, features, err := selectExchangePartContents(part, bodies, docID, path, visibility, visibleOnly)
+			if err != nil {
+				return "", err
+			}
 
 			effective := map[string]ResolvedAppearance{}
+			effectiveResults := map[string]ResolvedAppearance{}
 			if bakeAppearances {
 				for _, body := range bodies {
 					appearance, ok := resolvedAppearances[path][body.ID]
@@ -192,13 +235,36 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 				}
 				exchangeStyles := map[string]*workerv1.ExchangeAppearance{}
 				for id, style := range effective {
-					exchangeStyles[id] = exchangeAppearance(style)
+					exchangeStyles["body:"+id] = exchangeAppearance(style)
+				}
+				for _, feature := range features {
+					style, err := service.resultAppearance(ctx, feature, part.DefaultAppearance)
+					if err != nil {
+						return "", err
+					}
+					style, err = service.applyOccurrenceAppearance(ctx, docID, PartBody{GeometryKey: feature.Result.GeometryKey}, style, path, resolvedRules[path])
+					if err != nil {
+						return "", err
+					}
+					effectiveResults[feature.ID] = style
+					exchangeStyles["result:"+feature.ID] = exchangeAppearance(style)
 				}
 				encoded, _ := json.Marshal(exchangeStyles)
 				def.Id += "/appearance:" + modelcore.ValueDigest(encoded)
 			}
 			encoded, _ := json.Marshal(bodies)
 			def.Id += "/" + modelcore.ValueDigest(encoded)
+			encoded, _ = json.Marshal(features)
+			def.Id += "/results:" + modelcore.ValueDigest(encoded)
+			states := map[string]bool{"part": localVisible}
+			for _, body := range bodies {
+				states["body:"+body.ID] = visibility.resultLocalVisible(exportAddress{docID, path, "BODY", body.ID})
+			}
+			for _, feature := range features {
+				states["result:"+feature.ID] = visibility.resultLocalVisible(exportAddress{docID, path, "FEATURE", feature.ID})
+			}
+			encoded, _ = json.Marshal(states)
+			def.Id += "/visibility:" + modelcore.ValueDigest(encoded)
 			if !built[def.Id] {
 				for _, body := range bodies {
 					if body.GeometryKey == "" || body.Consumed {
@@ -233,35 +299,60 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 					if appearance.UnresolvedFaces > 0 || len(appearance.Issues) > 0 {
 						return "", fmt.Errorf("%w: APPEARANCE_TOPOLOGY_UNRESOLVED", ErrValidation)
 					}
-					def.Bodies = append(def.Bodies, &workerv1.ExchangeBody{Brep: &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType}, Appearance: exchangeAppearance(appearance)})
-				}
-				for _, feature := range part.Features {
-					if feature.Type != "GEOMETRY" || feature.Suppressed || feature.Visible != nil && !*feature.Visible || feature.Result == nil || feature.Result.GeometryKey == "" || !GeometryFeatureVisible(part, feature) {
-						continue
+					visible := visibility.resultLocalVisible(exportAddress{docID, path, "BODY", body.ID})
+					name := body.Name
+					for _, sourceBody := range part.Bodies {
+						if sourceBody.ID == body.ID {
+							name = sourceBody.Name
+							break
+						}
 					}
+					def.Bodies = append(def.Bodies, &workerv1.ExchangeBody{Name: name, Visible: &visible, Brep: &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType}, Appearance: exchangeAppearance(appearance)})
+				}
+				for _, feature := range features {
 					ref, err := service.brepArtifactReference(ctx, feature.Result.GeometryKey)
 					if err != nil {
 						return "", err
 					}
-					def.Geometries = append(def.Geometries, &workerv1.ExchangeGeometry{Result: &workerv1.GeometryResultReference{FeatureId: feature.ID, ResultId: feature.Result.ID}, Brep: &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType}})
+					visible := visibility.resultLocalVisible(exportAddress{docID, path, "FEATURE", feature.ID})
+					appearance, err := service.resultAppearance(ctx, feature, part.DefaultAppearance)
+					if err != nil {
+						return "", err
+					}
+					if bakeAppearances {
+						appearance = effectiveResults[feature.ID]
+					}
+					if appearance.UnresolvedFaces > 0 || len(appearance.Issues) > 0 {
+						return "", fmt.Errorf("%w: APPEARANCE_TOPOLOGY_UNRESOLVED", ErrValidation)
+					}
+					def.Geometries = append(def.Geometries, &workerv1.ExchangeGeometry{Name: feature.Name, Visible: &visible, Appearance: exchangeAppearance(appearance), Result: &workerv1.GeometryResultReference{FeatureId: feature.ID, ResultId: feature.Result.ID}, Brep: &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType}})
 				}
 				if len(def.Bodies)+len(def.Geometries) == 0 {
-					return "", fmt.Errorf("%w: Part has no exportable geometry", ErrValidation)
+					return "", nil
 				}
 			}
 		} else {
-			var model ProductModel
-			if err := json.Unmarshal(value.model, &model); err != nil {
-				return "", err
+			model, parsed := products[identity]
+			if !parsed {
+				if err := json.Unmarshal(value.model, &model); err != nil {
+					return "", err
+				}
+				products[identity] = model
 			}
 			for _, instance := range model.Instances {
 				childPath := instance.ID
 				if path != "" {
 					childPath = path + "/" + instance.ID
 				}
+				if visibleOnly && !visibility.instanceVisible(childPath) {
+					continue
+				}
 				target, err := build(instance.ReferencedDocumentID, instance.ReferencedVersionID, childPath, depth+1)
 				if err != nil {
 					return "", err
+				}
+				if target == "" {
+					continue
 				}
 				q := normalizedInstanceRotation(instance.Rotation)
 				instanceName := exchangeInstanceName(instance)
@@ -274,7 +365,11 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 					opacity = nil
 				}
 
-				def.Children = append(def.Children, &workerv1.ExchangeOccurrence{Id: instance.ID, Color: color, Opacity: opacity, Name: instanceName, DefinitionId: target, Translation: &workerv1.Vec3{X: instance.Translation[0], Y: instance.Translation[1], Z: instance.Translation[2]}, Rotation: &workerv1.Quaternion{X: q[0], Y: q[1], Z: q[2], W: q[3]}})
+				visible := visibility.localVisible(visibility.instances[childPath])
+				def.Children = append(def.Children, &workerv1.ExchangeOccurrence{Visible: &visible, Id: instance.ID, Color: color, Opacity: opacity, Name: instanceName, DefinitionId: target, Translation: &workerv1.Vec3{X: instance.Translation[0], Y: instance.Translation[1], Z: instance.Translation[2]}, Rotation: &workerv1.Quaternion{X: q[0], Y: q[1], Z: q[2], W: q[3]}})
+			}
+			if len(def.Children) == 0 {
+				return "", nil
 			}
 			// Equal business definition + equal accepted child evaluation shares XDE
 			// identity. Context variants never silently overwrite another occurrence.
@@ -291,7 +386,36 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID stri
 	if err != nil {
 		return nil, err
 	}
+	if root == "" {
+		return nil, fmt.Errorf("%w: EXCHANGE_NO_EXPORTABLE_CONTENT", ErrValidation)
+	}
 	graph.Roots = []*workerv1.ExchangeOccurrence{{Id: "root", DefinitionId: root, Rotation: &workerv1.Quaternion{W: 1}}}
+	if !visibleOnly {
+		var hidden uint64
+		for _, def := range graph.Definitions {
+			if def.Visible != nil && !*def.Visible {
+				hidden++
+			}
+			for _, body := range def.Bodies {
+				if body.Visible != nil && !*body.Visible {
+					hidden++
+				}
+			}
+			for _, result := range def.Geometries {
+				if result.Visible != nil && !*result.Visible {
+					hidden++
+				}
+			}
+			for _, occ := range def.Children {
+				if occ.Visible != nil && !*occ.Visible {
+					hidden++
+				}
+			}
+		}
+		if hidden > 0 {
+			graph.Warnings = append(graph.Warnings, &workerv1.ExchangeWarning{Code: "STEP_VISIBILITY_LIMITATION", Count: hidden})
+		}
+	}
 	if err := geometry.ValidateExchangeGraph(graph); err != nil {
 		return nil, err
 	}

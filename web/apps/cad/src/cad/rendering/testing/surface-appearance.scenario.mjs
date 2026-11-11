@@ -27,6 +27,15 @@ try {
  assert.deepEqual(Array.from(geometry.index.array),indices);
  const {materialAllowsPick}=await server.ssrLoadModule("/src/cad/rendering/surface-appearance.ts");
  assert.equal(materialAllowsPick(translucent,0),true);assert.equal(materialAllowsPick(translucent,1),false);
+ const {applyEdgeAppearance}=await server.ssrLoadModule("/src/cad/rendering/surface-appearance.ts");
+ const pointGroup=new THREE.Group();pointGroup.userData.cadEngineeringPoint=true;
+ const pointMaterial=new THREE.ShaderMaterial({uniforms:{uColor:{value:new THREE.Color()},uOpacity:{value:1}}});pointGroup.add(new THREE.Points(new THREE.BufferGeometry(),pointMaterial));
+ applyEdgeAppearance(pointGroup,{color:"#12ab34",opacity:.4},0x000000);
+ assert.equal(pointMaterial.uniforms.uColor.value.getHex(),0x12ab34);assert.equal(pointMaterial.uniforms.uOpacity.value,.4);
+ const wireGroup=new THREE.Group();wireGroup.userData.cadEngineeringCurve=true;
+ const lineGeometry=new THREE.BufferGeometry();lineGeometry.setAttribute("position",new THREE.Float32BufferAttribute([0,0,0,1,0,0],3));wireGroup.add(new THREE.LineSegments(lineGeometry,new THREE.LineBasicMaterial()));
+ applyEdgeAppearance(wireGroup,{color:"#12ab34"},0x000000);
+ assert.equal(wireGroup.children.find(c=>c.userData.cadWideEdges).material.color.getHex(),0x12ab34);
  const {groundLevel,normalizeSceneSettings,automaticGroundClearance}=await server.ssrLoadModule("/src/cad/rendering/scene-settings.ts");
  assert.equal(groundLevel(normalizeSceneSettings({}),-15),-15);
  assert.equal(groundLevel(normalizeSceneSettings({}),-15,{x:100,y:100,z:100}),-15.8,"contact ground leaves a small scale-relative clearance");

@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v75-incremental-visual-evaluation"
+const evaluatorVersion = "part-solid-generators-v76-exact-volume-spans"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -861,6 +861,25 @@ func (service *Service) CreateVersion(
 		return nil, err
 	}
 	return service.ListHistory(ctx, documentID)
+}
+
+// Empty imports still use the ordinary idempotent document transaction. They
+// have no fake Feature, geometry key or persistent topology allocation.
+func (service *Service) CommitImportedEmptyPart(ctx context.Context, actor, folderID, reqID, name, fileName string) (DocumentView, error) {
+	var folder *string
+	if folderID != "" {
+		folder = &folderID
+	}
+	return service.CreateDocument(ctx, CreateDocumentRequest{RequestID: reqID + "/document", Name: name,
+		Type: "PART", FolderID: folder, ActorID: actor, Description: "导入文件：" + fileName})
+}
+
+// Imported geometry is immutable. Retries reuse published source evaluations;
+// document creation still allocates independent persistent topology identities.
+func (service *Service) ReusableImportGeometry(ctx context.Context, key, brepSHA string) (bool, error) {
+	var available bool
+	err := service.database.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts a JOIN occccad.geometry_representations r ON r.geometry_key=a.geometry_key AND r.role='BREP' JOIN occccad.artifact_objects o ON o.id=r.object_id WHERE a.geometry_key=$1 AND o.sha256=$2)`, key, brepSHA).Scan(&available)
+	return available, err
 }
 
 func (service *Service) CommitImportedPart(ctx context.Context, actor, folderID, reqID, name,
@@ -3023,7 +3042,12 @@ func (service *Service) resolveProduct(
 			return err
 		}
 		normalizePartModel(&model)
-		captureReferenceDisplayScope(ctx, documentID, versionID, instancePath, parent, model)
+		if err := service.captureReferenceDisplayScope(ctx, documentID, versionID, instancePath, parent, model, artifacts, rules); err != nil {
+			return err
+		}
+		if capture, ok := ctx.Value(occurrenceRulesKey{}).(map[string][]occurrenceAppearanceRule); ok {
+			capture[instancePath.Canonical] = append([]occurrenceAppearanceRule(nil), rules...)
+		}
 		for _, body := range model.Bodies {
 			key := body.GeometryKey
 			if key == "" && body.DisplayFallback != nil {

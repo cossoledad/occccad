@@ -34,6 +34,17 @@ func projectPartDocument(ctx context.Context, service *Service, summary Document
 	}
 	view.Part = &model
 	view.BodyAppearances = map[string]ResolvedAppearance{}
+	view.ResultAppearances = map[string]ResolvedAppearance{}
+	for _, feature := range model.Features {
+		if feature.Result == nil {
+			continue
+		}
+		appearance, err := service.resultAppearance(ctx, feature, model.DefaultAppearance)
+		if err != nil {
+			return view, err
+		}
+		view.ResultAppearances[feature.ID] = appearance
+	}
 	for _, body := range model.Bodies {
 		appearance, err := service.bodyAppearanceWithDefaults(ctx, body, model.DefaultAppearance)
 		if err != nil {
@@ -174,6 +185,14 @@ func projectProductDocument(ctx context.Context, service *Service, summary Docum
 	bindStructureVariants(&structure, view.ContextVariants)
 	view.StructureTree = &structure
 	projectResolvedOccurrenceNames(view.ResolvedInstances, occurrenceRules)
+	visibility := newExportVisibility(view.StructureTree)
+	for i := range view.ReferenceDisplayScopes {
+		scope := &view.ReferenceDisplayScopes[i]
+		for j := range scope.Results {
+			result := &scope.Results[j]
+			result.Visible = visibility.visible(exportAddress{scope.DocumentID, scope.InstancePath.Canonical, "FEATURE", result.FeatureID})
+		}
+	}
 	return view, nil
 }
 
@@ -234,7 +253,8 @@ func projectProductStructure(ctx context.Context, service *Service, root Documen
 			return DocumentStructureNode{}, err
 		}
 		instanceNode := DocumentStructureNode{
-			ID: instanceNodePath, Kind: "INSTANCE", Name: fmt.Sprintf("%s(%s)", reference.ReferenceName, instance.Name),
+			LocalVisible: instance.ImportedVisible,
+			ID:           instanceNodePath, Kind: "INSTANCE", Name: fmt.Sprintf("%s(%s)", reference.ReferenceName, instance.Name),
 			ReferenceName: reference.ReferenceName, InstanceName: instance.Name, EntityID: instance.ID,
 			DocumentID: reference.DocumentID, DocumentType: reference.DocumentType,
 			VersionID: resolvedVersionID, ReferenceMode: mode, InstancePath: &childIdentity,

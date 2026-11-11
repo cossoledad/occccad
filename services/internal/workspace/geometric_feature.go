@@ -150,6 +150,9 @@ func validateGeometricFeature(f Feature, earlier map[string]Feature, model PartM
 		return nil
 	}
 	d := f.Geometry
+	if f.ImportedAppearance != nil && d.Kind != "IMPORTED" {
+		return fmt.Errorf("%w: IMPORT_APPEARANCE_REQUIRES_IMPORTED_RESULT", ErrValidation)
+	}
 	if d.Kind == "IMPORTED" && (f.Type != "GEOMETRY" || f.ImportDefinitionID == "" || f.GeometryKey == "" || len(d.Inputs) != 0 || d.Curve != nil || d.Surface != nil) {
 		return fmt.Errorf("%w: IMPORT_DEFINITION_REQUIRED", ErrValidation)
 	}

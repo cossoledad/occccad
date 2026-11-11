@@ -4,7 +4,7 @@
 
 | 领域 | 主题 | 当前边界 |
 |---|---|---|
-| 进程与计算 | [运行](runtime.md)、[Worker 合同](worker-contracts.md)、[Router/Jobs/交换](jobs-artifacts.md) | 本机 Router；跨主机调度与完整 AP242 未交付 |
+| 进程与计算 | [运行](runtime.md)、[Worker 合同](worker-contracts.md)、[Router/Jobs](jobs-artifacts.md)、[导入与导出](exchange.md) | 本机 Router；跨主机调度与完整 AP242 未交付 |
 | 模型与历史 | [命令/参数/历史](model-history.md) | CAS、幂等、补偿历史；semantic rebase、Configuration/Rule、完整协作仍缺 |
 | Part 与 Sketch | [整体设计流程](part-design-workflow.md) → [Part/Sketch](part-sketch.md)、[能力表](solid-features.md)、[生成器](solid-generators.md)、[特征复制](feature-replication.md)、[求值链](part-feature-evaluation.md) | 参数驱动草图/实体、输入往返、依赖与修复；具体算法和边界逐主题维护 |
 | 命名与显示制品 | [Naming/Resolver](persistent-naming.md)、[几何表示](geometry-representations.md)、[Visual/Naming 格式](visual-naming-artifacts.md)、[颜色材质](surface-appearance.md) | 绑定按 Revision 与 Body/FeatureResult；导入冻结身份不等于参数化来源历史，歧义须显式重连 |

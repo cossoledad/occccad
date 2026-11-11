@@ -206,6 +206,8 @@ func (a *App) Run(args []string) error {
 		add("base json verbose")
 	case "codegen":
 		add("check jobs verbose")
+	case "exchange:prepare":
+		add("json")
 	case "diagnose":
 		add("reference file document job attempt diagnostic replay profile json")
 	case "context":
@@ -309,6 +311,8 @@ func (a *App) Run(args []string) error {
 		return a.Reset(o)
 	case "codegen":
 		return a.Codegen(o)
+	case "exchange:prepare":
+		return a.PrepareExchangeCorpus()
 	case "docs:check":
 		return a.Docs(o)
 	case "diagnose":

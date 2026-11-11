@@ -159,6 +159,10 @@ func (s *Service) importedAppearance(ctx context.Context, feature Feature, sourc
 }
 
 func resolveAppearance(body PartBody, manifest *topologyManifest) ResolvedAppearance {
+	return resolveOutputAppearance(body, manifest, nil)
+}
+
+func resolveOutputAppearance(body PartBody, manifest *topologyManifest, result *modelcore.GeometryResultReference) ResolvedAppearance {
 	out := ResolvedAppearance{GeometryKey: body.GeometryKey}
 	if body.Appearance == nil {
 		return out
@@ -188,7 +192,7 @@ func resolveAppearance(body PartBody, manifest *topologyManifest) ResolvedAppear
 		styles[key] = values
 	}
 	for _, stage := range manifest.GetFeatureResults() {
-		if stage.BodyId != body.ID {
+		if result == nil && stage.BodyId != body.ID || result != nil && (stage.Result == nil || stage.Result.FeatureId != result.FeatureID || stage.Result.ResultId != result.ResultID) {
 			continue
 		}
 		for _, edge := range stage.GetTopologyHistory().GetLineage() {
@@ -239,7 +243,11 @@ func resolveAppearance(body PartBody, manifest *topologyManifest) ResolvedAppear
 	out.Faces = map[uint64]string{}
 	out.FaceProperties = map[uint64]GraphicProperties{}
 	out.FaceInherit = map[uint64][]string{}
-	if tip := manifest.bodyTips()[body.ID]; tip != nil {
+	tip := manifest.bodyTips()[body.ID]
+	if result != nil {
+		tip = manifest.Results[*result]
+	}
+	if tip != nil {
 		for _, face := range tip.SemanticOutputs {
 			if face.TopologyType != workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_FACE {
 				continue
@@ -267,6 +275,28 @@ func resolveAppearance(body PartBody, manifest *topologyManifest) ResolvedAppear
 		}
 	}
 	return out
+}
+
+func (s *Service) resultAppearance(ctx context.Context, feature Feature, defaults ...*SurfaceAppearance) (ResolvedAppearance, error) {
+	if feature.Result == nil {
+		return ResolvedAppearance{}, nil
+	}
+	key := feature.Result.GeometryKey
+	style := PartBody{GeometryKey: key, Appearance: feature.ImportedAppearance}
+	if len(defaults) > 0 {
+		style = withDefaultAppearance(style, defaults[0])
+	}
+	if style.Appearance == nil || len(style.Appearance.Faces) == 0 {
+		return resolveOutputAppearance(style, nil, nil), nil
+	}
+	raw, _ := json.Marshal(style.Appearance)
+	return assemblyRead(ctx, assemblyReadKey{"result-appearance", feature.ID, key + "/" + modelcore.ValueDigest(raw)}, func() (ResolvedAppearance, error) {
+		manifest, _, err := s.topologyManifestForGeometryKey(ctx, key)
+		if err != nil {
+			return ResolvedAppearance{}, err
+		}
+		return normalizeAppearanceProjection(resolveOutputAppearance(style, manifest, &modelcore.GeometryResultReference{FeatureID: feature.ID, ResultID: feature.Result.ID})), nil
+	})
 }
 func (s *Service) bodyAppearance(ctx context.Context, body PartBody) (ResolvedAppearance, error) {
 	if body.Appearance == nil || len(body.Appearance.Faces) == 0 {

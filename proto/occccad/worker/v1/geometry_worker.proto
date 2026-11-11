@@ -1116,6 +1116,7 @@ message ExchangeOccurrence {
     Quaternion rotation = 5;
     string color = 6; // optional sRGB override on this occurrence
     optional double opacity = 7; // 0 transparent, 1 opaque; absent inherits
+    optional bool visible = 8;
 }
 message ExchangeDefinition {
     string id = 1;
@@ -1126,14 +1127,29 @@ message ExchangeDefinition {
     repeated ExchangeBody bodies = 6; // Export-only Part-local bodies.
     repeated ExchangeGeometry geometries = 8; // Independent feature results, never fake Bodies.
     ExchangeAppearance appearance = 7; // Import snapshot, scoped to brep SHA-256.
+    bool empty = 9; // Readable source definition with no supported geometry. Create an empty Part.
+    optional bool visible = 10;
 }
 message ExchangeGeometry {
     GeometryResultReference result = 1;
     ArtifactReference brep = 2;
+    ExchangeAppearance appearance = 3;
+    optional bool visible = 4;
+    string name = 5;
 }
 message ExchangeGraph {
     repeated ExchangeDefinition definitions = 1;
     repeated ExchangeOccurrence roots = 2;
+    repeated ExchangeWarning warnings = 3;
+    string source_schema = 4;
+    string step_schema = 5; // Export profile: AP242 (default) | AP214IS.
+    string kernel_version = 6; // Actual preparation kernel, not Router "routed".
+}
+message ExchangeWarning {
+    string code = 1;
+    string message = 2;
+    string definition_id = 3; // Source locator, not a persistent business identity.
+    uint64 count = 4;
 }
 message InspectExchangeResponse {
     ExchangeGraph graph = 1;
@@ -1601,6 +1617,8 @@ message ExchangeAppearance {
 message ExchangeBody {
     ArtifactReference brep = 1;
     ExchangeAppearance appearance = 2;
+    optional bool visible = 3;
+    string name = 4;
 }
 
 // Read-only exact sectioning and bounded surface distance-band visualization.

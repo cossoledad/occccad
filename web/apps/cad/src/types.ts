@@ -375,6 +375,8 @@ export type AuditEvent = {
   requestId?: string; metadata: Record<string, unknown>; createdAt: string;
 };
 export type Job = {
+  fileName?: string;
+  warnings?: Array<{code: string; message: string; definitionId?: string; count?: number}>;
   id: string; type: string;
   state: "QUEUED" | "RUNNING" | "RETRY_WAIT" | "SUCCEEDED" | "FAILED" | "CANCELED";
   documentId?: string; versionId?: string; progress: number; errorCode?: string; errorMessage?: string;
@@ -469,6 +471,7 @@ export type SketchProfileAnalysis = {
 
 export type DocumentView = {featureOrderDigest?:string;baseView?:DocumentView;contextOccurrencePath?:string;contextProduct?:DocumentView;
   bodyAppearances?: Record<string, ResolvedAppearance>;
+  resultAppearances?: Record<string, ResolvedAppearance>;
  replicationSources?:Record<string,{sourceKind?:"SKETCH_FRAME"|"GENERATOR_TOOL"|"FEATURE_DELTA"|"FEATURE_REEXECUTION";startFeatureId?:string;operation?:Feature["operation"];tool:boolean;reexecution?:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
   sketchDerivedEntities?:Record<string,SketchEntity[]>;
   document: DocumentSummary;
@@ -482,7 +485,7 @@ export type DocumentView = {featureOrderDigest?:string;baseView?:DocumentView;co
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
   resolvedInstances?: ResolvedInstance[];
-  referenceDisplayScopes?:Array<{documentId:string;versionId:string;instancePath:InstancePath;translation:Vec3;rotation:[number,number,number,number];referenceGeometry:ReferenceGeometry}>;
+  referenceDisplayScopes?:Array<{documentId:string;versionId:string;instancePath:InstancePath;translation:Vec3;rotation:[number,number,number,number];referenceGeometry:ReferenceGeometry;results?:Array<{featureId:string;resultId:string;geometryKey:string;domain:string;visible:boolean;appearance:ResolvedAppearance}>}>;
   constraintDisplayScopes?: Array<{documentId:string;versionId:string;instancePath:InstancePath;treeNodeId:string;constraints:AssemblyConstraint[]}>;
   structureTree?: DocumentStructureNode;
   referenceUpdates?: ReferenceUpdate[];

@@ -938,6 +938,7 @@ export class CadViewportEngine {
       value.part.datumPoints?.map(point=>[point.id,point.position]),
     ];
     return JSON.stringify([view.document.id, view.document.type, part(view),view.referenceDisplayScopes?.map(scope=>[scope.documentId,scope.instancePath.canonical,scope.translation,scope.rotation,scope.referenceGeometry.datumPoints?.map(p=>[p.id,p.position]),scope.referenceGeometry.datumPlanes.map(p=>[p.id,p.origin,p.normal,p.uDirection,p.size]),scope.referenceGeometry.datumAxes?.map(a=>[a.id,a.origin,a.direction]),scope.referenceGeometry.axisSystems.map(a=>[a.id,a.origin,a.xDirection,a.yDirection,a.zDirection])]),
+      view.referenceDisplayScopes?.map(scope=>[scope.instancePath.canonical,scope.results?.map(r=>[r.featureId,r.resultId,r.geometryKey,r.visible])]),
       view.resolvedInstances?.map((resolved) => [resolved.occurrencePath,resolved.bodyId, resolved.geometryKey, resolved.displayFallback, resolved.translation, resolved.rotation,
         resolved.ownedSketchIds]),
       view.product?.instances.map((instance) => [instance.id, instance.translation, instance.rotation]),
@@ -1232,7 +1233,7 @@ export class CadViewportEngine {
 
   updateDisplayProjection(view: DocumentDescriptor): void {
     if (!this.view || this.view.document.id !== view.document.id) return;
-    this.view = {...this.view,document:view.document,structureTree:view.structureTree,part:view.part,product:view.product,bodyAppearances:view.bodyAppearances,
+    this.view = {...this.view,document:view.document,structureTree:view.structureTree,part:view.part,product:view.product,bodyAppearances:view.bodyAppearances,resultAppearances:view.resultAppearances,
       contextVariants:view.contextVariants,constraintDisplayScopes:view.constraintDisplayScopes,referenceDisplayScopes:view.referenceDisplayScopes,resolvedInstances:view.resolvedInstances};
     this.selectionIndex.setSemanticProjection(selection=>this.view?refreshOccurrenceSelection(this.view,selection):selection);
     // Geometry reuse must not reuse the old semantic snapshot. Pick closures
@@ -1244,9 +1245,9 @@ export class CadViewportEngine {
         binding.context.contextVariantKey=view.contextVariants?.find(variant=>variant.owningInstancePath.canonical===binding.context.occurrencePath)?.variantKey;}
       if(!binding.context.occurrencePath)binding.context.versionId=view.document.versionId;
       binding.group.userData=refreshOccurrenceSelection(view,binding.group.userData as SelectionItem);
-      const source=binding.context.occurrencePath?view.resolvedInstances?.find(r=>r.occurrencePath===binding.context.occurrencePath&&r.bodyId===binding.context.bodyId)?.appearance:view.bodyAppearances?.[binding.context.bodyId??""];
+      const source=binding.context.result ? (binding.context.occurrencePath ? view.referenceDisplayScopes?.find(s=>s.instancePath.canonical===binding.context.occurrencePath)?.results?.find(r=>r.featureId===binding.context.result?.featureId&&r.resultId===binding.context.result?.resultId)?.appearance : view.resultAppearances?.[binding.context.result.featureId]) : binding.context.occurrencePath?view.resolvedInstances?.find(r=>r.occurrencePath===binding.context.occurrencePath&&r.bodyId===binding.context.bodyId)?.appearance:view.bodyAppearances?.[binding.context.bodyId??""];
       const editing=this.editContext;
-      const local=editing?.view.document.id===binding.context.documentId&&editing?.occurrencePath===binding.context.occurrencePath?editing.view.bodyAppearances?.[binding.context.bodyId??""]:undefined;
+      const local=editing?.view.document.id===binding.context.documentId&&editing?.occurrencePath===binding.context.occurrencePath?(binding.context.result?editing.view.resultAppearances?.[binding.context.result.featureId]:editing.view.bodyAppearances?.[binding.context.bodyId??""]):undefined;
       binding.appearance=scopedSurfaceAppearance(local??source,binding.artifact.geometryKey);
 
     }
@@ -2334,7 +2335,7 @@ export class CadViewportEngine {
       const artifact=view.artifacts?.[feature.result.geometryKey];if(!artifact)continue;
       const nodeID=`${rootPath}/geometrical-set:${feature.geometricalSetId}/feature:${feature.id}`;
       const context:SolidContext={documentId:view.document.id,versionId:view.document.versionId,geometryKey:artifact.geometryKey,occurrencePath:'',treeNodeId:nodeID,result:{featureId:feature.id,resultId:feature.result.id},displayStageFeatureId:feature.id};
-      const object=this.makeSolid(artifact,CATIA_VISUAL_THEME.surface,context);object.visible=feature.visible!==false;
+      const object=this.makeSolid(artifact,CATIA_VISUAL_THEME.surface,context,view.resultAppearances?.[feature.id]);object.visible=feature.visible!==false;
       const seen=new Set<string>();let setId=feature.geometricalSetId;
       while(setId&&!seen.has(setId)){seen.add(setId);const set=view.part?.geometricalSets?.find(s=>s.id===setId);if(!set)break;if(set.visible===false)object.visible=false;setId=set.parentId;}
       this.content.add(object);
@@ -2403,10 +2404,15 @@ export class CadViewportEngine {
         if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
       }
       for(const scope of view.referenceDisplayScopes??[]){
-        const occurrence=scope.instancePath.canonical;if(scope.instancePath.segments[0]?.instanceId!==instance.id||referencedOccurrences.has(occurrence))continue;
+        const occurrence=scope.instancePath.canonical;if(scope.instancePath.segments[0]?.instanceId!==instance.id)continue;
         const referenceGroup=new THREE.Group();referenceGroup.userData={occurrencePath:occurrence};referenceGroup.position.fromArray(scope.translation).sub(new THREE.Vector3().fromArray(instance.translation)).applyQuaternion(instanceRotation.clone().invert());referenceGroup.quaternion.copy(instanceRotation.clone().invert().multiply(new THREE.Quaternion().fromArray(scope.rotation)));
+        for(const result of scope.results??[]){
+          const artifact=view.artifacts?.[result.geometryKey];if(!artifact)continue;
+          const context:SolidContext={documentId:scope.documentId,versionId:scope.versionId,geometryKey:result.geometryKey,treeNodeId:'',occurrencePath:occurrence,instancePath:scope.instancePath,instanceId:instance.id,result:{featureId:result.featureId,resultId:result.resultId},displayStageFeatureId:result.featureId};
+          const object=this.makeSolid(artifact,CATIA_VISUAL_THEME.productSurface,context,result.appearance);object.visible=result.visible;referenceGroup.add(object);
+        }
         const prefix=this.editContext?.historicalBoundary&&this.editContext.occurrencePath===occurrence?this.editContext.view.part:undefined;
-        this.addReferenceGeometry(prefix?{datumPoints:prefix.datumPoints,datumPlanes:prefix.datumPlanes,datumAxes:prefix.datumAxes??[],axisSystems:prefix.axisSystems}:scope.referenceGeometry,referenceGroup,{documentId:scope.documentId,versionId:scope.versionId,geometryKey:'',treeNodeId:'',occurrencePath:occurrence,instancePath:scope.instancePath,instanceId:instance.id});
+        if(!referencedOccurrences.has(occurrence))this.addReferenceGeometry(prefix?{datumPoints:prefix.datumPoints,datumPlanes:prefix.datumPlanes,datumAxes:prefix.datumAxes??[],axisSystems:prefix.axisSystems}:scope.referenceGeometry,referenceGroup,{documentId:scope.documentId,versionId:scope.versionId,geometryKey:'',treeNodeId:'',occurrencePath:occurrence,instancePath:scope.instancePath,instanceId:instance.id});
         group.add(referenceGroup);referencedOccurrences.add(occurrence);
       }
       // Publications also expose layout Parts with no solid artifact. Display
@@ -3292,6 +3298,7 @@ export class CadViewportEngine {
     const engineeringCurve=artifact.geometryDomain==='WIRE_SET';
     const edgeColor=engineeringCurve?this.visualTheme.engineeringCurve:CATIA_VISUAL_THEME.edge;
     if(engineeringCurve)group.userData.cadEngineeringCurve=true;
+    if(artifact.geometryDomain==='POINT_SET')group.userData.cadEngineeringPoint=true;
     this.selectionIndex.register(bodySelection, group);
     this.selectionIndex.registerVisualKey(`body:${bodySelection.id}`, group);
     const occurrenceParts = context.occurrencePath.split("/").filter(Boolean);

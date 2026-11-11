@@ -246,6 +246,19 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 				}
 			}
 		}
+		for _, scope := range view.ReferenceDisplayScopes {
+			for _, result := range scope.Results {
+				if !result.Visible {
+					continue
+				}
+				if a, ok := view.Artifacts[result.GeometryKey]; ok {
+					a.GeometryDomain = result.Domain
+					if err := appendArtifact(a, newPose(scope.Translation, scope.Rotation), result.Appearance); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
 	} else if view.Part != nil {
 		for _, body := range view.Part.Bodies {
 			if !body.Visible {
@@ -263,7 +276,7 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 			}
 			if a, ok := view.Artifacts[feature.Result.GeometryKey]; ok {
 				a.GeometryDomain = feature.Result.Domain
-				if err := appendArtifact(a, newPose(vec{}, [4]float64{}), workspace.ResolvedAppearance{}); err != nil {
+				if err := appendArtifact(a, newPose(vec{}, [4]float64{}), view.ResultAppearances[feature.ID]); err != nil {
 					return nil, err
 				}
 			}

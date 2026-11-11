@@ -22,6 +22,7 @@ import (
 	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/debugartifact"
+	"github.com/occccad/occccad/internal/exchange"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/thumbnail"
@@ -193,10 +194,12 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		return err
 	}
 	var payload struct {
-		FileName  string `json:"fileName"`
-		FolderID  string `json:"folderId"`
-		Format    string `json:"format"`
-		RequestID string `json:"requestId"`
+		FileName      string `json:"fileName"`
+		FolderID      string `json:"folderId"`
+		Format        string `json:"format"`
+		RequestID     string `json:"requestId"`
+		ExcludeHidden *bool  `json:"excludeHidden"`
+		StepSchema    string `json:"stepSchema"`
 	}
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		return err
@@ -213,14 +216,15 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if _, err := h.access.RequireDocument(ctx, *job.DocumentID, job.RequestedBy, access.RoleViewer); err != nil {
 			return fmt.Errorf("export document access changed: %w", err)
 		}
-		current, err := h.workspace.GetDocument(ctx, *job.DocumentID)
-		if err != nil {
-			return err
+		revision := ""
+		if job.VersionID != nil {
+			revision = *job.VersionID
 		}
-		if job.VersionID != nil && current.Document.VersionID != *job.VersionID {
-			return errors.New("document head changed after the export job was submitted")
+		visibility := "VISIBLE_ONLY"
+		if payload.ExcludeHidden != nil && !*payload.ExcludeHidden {
+			visibility = "ALL"
 		}
-		graph, err := h.workspace.ExchangeExportGraph(ctx, *job.DocumentID, current.Document.VersionID)
+		graph, err := h.workspace.ExchangeExportGraph(ctx, *job.DocumentID, workspace.ExchangeExportOptions{RevisionID: revision, Visibility: visibility, StepSchema: payload.StepSchema})
 		if err != nil {
 			return err
 		}
@@ -242,7 +246,13 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 95); err != nil {
 			return err
 		}
-		return h.queue.Succeed(ctx, job.ID, h.workerID, object.ID)
+		report := &exchange.Report{SchemaVersion: 1, Definitions: len(graph.Definitions)}
+		if strings.EqualFold(payload.Format, "STEP") {
+			for _, warning := range graph.Warnings {
+				report.Warnings = append(report.Warnings, exchange.Warning{Code: warning.Code, Message: exchange.WarningMessage(warning.Code, warning.Message), Count: warning.Count})
+			}
+		}
+		return h.queue.SucceedExport(ctx, job.ID, h.workerID, object.ID, report)
 	case "THUMBNAIL_RENDER":
 		if job.DocumentID == nil {
 			return errors.New("thumbnail job has no document")

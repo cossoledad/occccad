@@ -648,10 +648,25 @@ func (server *Server) dispatchRealtimeOutbox(ctx context.Context) {
 }
 
 func (server *Server) publishJobRealtimeBatch(ctx context.Context) error {
+	server.realtime.mu.RLock()
+	online := map[string]bool{}
+	for client := range server.realtime.connections {
+		if client.actor.ID != "" {
+			online[client.actor.ID] = true
+		}
+	}
+	server.realtime.mu.RUnlock()
+	users := make([]string, 0, len(online))
+	for user := range online {
+		users = append(users, user)
+	}
+	if len(users) == 0 {
+		return nil
+	}
 	rows, err := server.database.Query(ctx, `SELECT array_agg(e.id::text),e.aggregate_id::text,j.requested_by_user_id::text
 		FROM occccad.outbox_events e JOIN occccad.jobs j ON j.id=e.aggregate_id
-		WHERE e.aggregate_type='JOB' AND e.published_at IS NULL
-		GROUP BY e.aggregate_id,j.requested_by_user_id ORDER BY min(e.created_at) LIMIT 100`)
+		WHERE e.aggregate_type='JOB' AND e.published_at IS NULL AND j.requested_by_user_id=ANY($1)
+		GROUP BY e.aggregate_id,j.requested_by_user_id ORDER BY min(e.created_at) LIMIT 100`, users)
 	if err != nil {
 		return err
 	}

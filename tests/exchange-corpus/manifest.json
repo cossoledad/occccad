@@ -1,0 +1,561 @@
+{
+  "schema": "occccad.exchange-corpus.v1",
+  "packages": [
+    {
+      "id": "main",
+      "url": "https://www.nist.gov/system/files/documents/noindex/2024/06/19/NIST-PMI-STEP-Files.zip",
+      "sha256": "8fa78429e6d8d9b0d7681d223b6aa9ec98c3772185c55b1a0e3679b21c181911",
+      "files": [
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_01_asme1_rd.stp",
+          "sha256": "e081d518484d5c708c6729353237f94a7d97da2b74a10d60d4c0d146d67a5855",
+          "bytes": 235171,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_02_asme1_rc.stp",
+          "sha256": "e6df6d0ed68fd8a91bd3f8360c7047f2af3d61068b89050d84423fe8ddb93bcf",
+          "bytes": 1154600,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_03_asme1_rc.stp",
+          "sha256": "95a775b1acdbc34de11319cb83b4cf6c6fdd7de8cbfc4af2d0afe5d3565cfdf8",
+          "bytes": 252128,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_04_asme1_rd.stp",
+          "sha256": "cdb59a085a3364941b881f96b511265a7cb5f6e94180c4426bdc3025481f405a",
+          "bytes": 793048,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF  { 1 0 10303 403 3 1 4}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_05_asme1_rd.stp",
+          "sha256": "5140b8f41fa1d0a069ea978e28c92a597f47220d0a11e667b79ff5f7c7243b86",
+          "bytes": 326817,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_06_asme1_rd.stp",
+          "sha256": "5e30f0903f9470c14a98e70395ca005fe90bcd3fb704c381a80a69958838f169",
+          "bytes": 222799,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp",
+          "sha256": "a0bc551656780b26d7a0ee1beedbc07d43f41efa092f74f3c2d8383417f04481",
+          "bytes": 402531,
+          "schema": "('CONFIG_CONTROL_DESIGN')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_08_asme1_rc.stp",
+          "sha256": "4b7011b0b86cf6301058aa954b76a9587d23478b6dee2660f4a80caf0dfe8b73",
+          "bytes": 450741,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF  { 1 0 10303 403 3 1 4}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_09_asme1_rd.stp",
+          "sha256": "e29c09bd2d454601ff1a0d77c4c4ffaf2ed78eee71031ce49f7b7bb5a6d1d4e8",
+          "bytes": 263916,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_10_asme1_rb.stp",
+          "sha256": "2bd726f9fe86aeb96ab517ce876e5696e7951310df5c4fbca36276d65879067b",
+          "bytes": 323601,
+          "schema": "('CONFIG_CONTROL_DESIGN')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_11_asme1_rb.stp",
+          "sha256": "a5abfea460499dc31bc812aca68917948a117565fea4f5a080e36eb32f39650d",
+          "bytes": 7634,
+          "schema": "('CONFIG_CONTROL_DESIGN')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_01_asme1_ap203.stp",
+          "sha256": "a3058f47323c7e0e24249eeaa19939867e66b243058805f67cd1b93c41f6c806",
+          "bytes": 1190836,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF  { 1 0 10303 403 3 1 4}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp",
+          "sha256": "ae0049980cb11cb224447e1738b499d8e1c79423782b7a8e8489a4d5316660cc",
+          "bytes": 3361535,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_03_asme1_ap203.stp",
+          "sha256": "294444aadbe1b427013250cd07ece07d9e6b6c718ebd570622deccf5702178de",
+          "bytes": 2020297,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF  { 1 0 10303 403 3 1 4}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_04_asme1_ap203.stp",
+          "sha256": "d6d8f9b3439bb334b85b5c94edd613c02ccea2694407d9e79588991b068f1ebf",
+          "bytes": 1388915,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp",
+          "sha256": "9df8bf141d5e5b50856021b7c209dea93393dd5406bf0e85ccc70bb15f7d70a2",
+          "bytes": 1069563,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF  { 1 0 10303 403 3 1 4}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ctc_01_asme1_ap242-e1.stp",
+          "sha256": "85a5752da05f53c456ca3a9e038c90358e1d5a3141d1f0d6e5f0970f2356e821",
+          "bytes": 396445,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ctc_02_asme1_ap242-e2.stp",
+          "sha256": "99a0a2079ddeb64d05c2432cbe931fa17c89da60d8b0bcb0b11bd0ed94fa2e68",
+          "bytes": 1981342,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 3 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ctc_03_asme1_ap242-e2.stp",
+          "sha256": "196b665776e759282f80fc8fb27d7bceb995df77cf78b7ce48347535a4d6cb5f",
+          "bytes": 673846,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 3 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp",
+          "sha256": "20b43b54ce25d4ed17cff794084c406e831c687f5b62471d3371eef33669e355",
+          "bytes": 1287291,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp",
+          "sha256": "59bbc09a34621c03106e4c1b2a5bc909fdb67463117c16c4965ee7a6fe5c1521",
+          "bytes": 878030,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF {1 0 10303 442 1 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ftc_06_asme1_ap242-e2.stp",
+          "sha256": "b87afb7f25adc0d44d12e182209d50f0b085b533c0742fb8ffd58f4c87403447",
+          "bytes": 1971192,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 3 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp",
+          "sha256": "aa8115c12e12a99cc439477cbfd222916f9ec629fbb3c9002b18e0c264c9a892",
+          "bytes": 1478375,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 3 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e1-tg.stp",
+          "sha256": "841a9ac51a32fe25b872f283b0b8770c77fee4e34adc8499f88a6e1bafd8e578",
+          "bytes": 2120356,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF {1 0 10303 442 1 1 4 }')",
+          "tessellated": true,
+          "solidCount": 0
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e2.stp",
+          "sha256": "7b9283b4288d152fd181d76c39285d7c79fbba34fda1e14a41ac4a983f6d68b3",
+          "bytes": 4722264,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 3 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ftc_09_asme1_ap242-e1.stp",
+          "sha256": "f1215fe15a78085a9fa78dd81714caf774b59071be92580b04ebfdc19f52a1bd",
+          "bytes": 6109836,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF {1 0 10303 442 1 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ftc_10_asme1_ap242-e2.stp",
+          "sha256": "9d7711f48e81831c5d1838fdac5c11c0de1aa9b61f3c1d67930a7638b3b25e69",
+          "bytes": 1879881,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 3 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp",
+          "sha256": "20a92edf514ae0989d556f9c7b9f065aed741cfbb361b7fe4cb7938a1eb5c232",
+          "bytes": 1946454,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_stc_06_asme1_ap242-e3.stp",
+          "sha256": "71777c28da76da0e8a667e4cbe792d5f72c09b5c56440c9744d3d50ca96ecc8d",
+          "bytes": 1006401,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 4 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp",
+          "sha256": "2dddf9b8894bc241f7ffddf3dc4502baa3d49c374e8784039d14b86473d54832",
+          "bytes": 1945387,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF  {1 0 10303 442 4 1 4}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_stc_08_asme1_ap242-e3.stp",
+          "sha256": "64f24b914910ce8e20c9e4bd59637b4fd155715c7c7b51689466534ed7db1442",
+          "bytes": 2251152,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 4 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_stc_09_asme1_ap242-e3.stp",
+          "sha256": "737423afcb223b87d92a4ea7646a97d8d55fb21cc24ba2fb72b952336bcf1fad",
+          "bytes": 5287678,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF  { 1 0 10303 442 4 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "main",
+          "path": "NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp",
+          "sha256": "fba4f46cab1ce1402362038036884631b4a41afe1c9efc5681d358c39db7ed5f",
+          "bytes": 4875056,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 3 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        }
+      ]
+    },
+    {
+      "id": "ftc-definitions",
+      "url": "https://www.nist.gov/system/files/documents/noindex/2022/07/19/NIST_MBE_PMI_FTC_Definitions.zip",
+      "sha256": "3762211e6c5e6c75055f56366abe59c43d5824468fb313d7818ba8ee6b777c15",
+      "files": [
+        {
+          "package": "ftc-definitions",
+          "path": "NIST_MBE_PMI_FTC_Definitions/nist_ftc_06_asme1_rd.stp",
+          "sha256": "bf751dc227ead634776c4ef93fe6189109b62339bef57f83ad9dbfe2cd3f764b",
+          "bytes": 222784,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "ftc-definitions",
+          "path": "NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp",
+          "sha256": "b0eecb1ee17386ec0785a90dcdde52d6a152991db33aec0c69c7e1bbd30d42fa",
+          "bytes": 402549,
+          "schema": "('CONFIG_CONTROL_DESIGN')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "ftc-definitions",
+          "path": "NIST_MBE_PMI_FTC_Definitions/nist_ftc_08_asme1_rc.stp",
+          "sha256": "c0c59faae620c5cf1d1f5eba025b4e8666625bd0a7658ecd5625d3a8badc9a7b",
+          "bytes": 450747,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF  { 1 0 10303 403 3 1 4}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "ftc-definitions",
+          "path": "NIST_MBE_PMI_FTC_Definitions/nist_ftc_09_asme1_rd.stp",
+          "sha256": "d12866d3ab0fc260efd0f1a5c54af47950be513486f61f65513877045582afa8",
+          "bytes": 263934,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "ftc-definitions",
+          "path": "NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp",
+          "sha256": "7ab61ea7d6412b2df3b9b75123544d15810fe6792bf5adf7c820e6fe9e136424",
+          "bytes": 323619,
+          "schema": "('CONFIG_CONTROL_DESIGN')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "ftc-definitions",
+          "path": "NIST_MBE_PMI_FTC_Definitions/nist_ftc_11_asme1_rb.stp",
+          "sha256": "d94ee0bed48f06e94621a03b6b088e16fac1bf70607f0d31dfbe87a17bb2ec7e",
+          "bytes": 7652,
+          "schema": "('CONFIG_CONTROL_DESIGN')",
+          "tessellated": false,
+          "solidCount": 1
+        }
+      ]
+    },
+    {
+      "id": "ctc-definitions",
+      "url": "https://www.nist.gov/system/files/documents/noindex/2022/07/19/NIST_MBE_PMI_CTC_Definitions.zip",
+      "sha256": "79ebc74d99eb05c0d23de1c1d8730651fa2a24def56f647bac21dd439ec40690",
+      "files": [
+        {
+          "package": "ctc-definitions",
+          "path": "NIST_MBE_PMI_CTC_Definitions/nist_ctc_01_asme1_rd.stp",
+          "sha256": "bd5a73c58880ba9093f8dc653c87f4224d6a795459e7fb64f6fdc22ba76a02d3",
+          "bytes": 235156,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "ctc-definitions",
+          "path": "NIST_MBE_PMI_CTC_Definitions/nist_ctc_02_asme1_rc.stp",
+          "sha256": "cd669778fbf9f11fa386a7fe8afe5a70513e3e17a5000e645d237dd4525d2775",
+          "bytes": 1154618,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "ctc-definitions",
+          "path": "NIST_MBE_PMI_CTC_Definitions/nist_ctc_03_asme1_rc.stp",
+          "sha256": "d4158ed46a3fb1d83c85cfec2e640bbaff8c28b2b39e1e66cb87fba9b7985af3",
+          "bytes": 252113,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "ctc-definitions",
+          "path": "NIST_MBE_PMI_CTC_Definitions/nist_ctc_04_asme1_rd.stp",
+          "sha256": "f4f467dcf97e54ab2582ecd447d3bd55cd6a5590117a77889eacc1c4778917fe",
+          "bytes": 793056,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF  { 1 0 10303 403 3 1 4}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "ctc-definitions",
+          "path": "NIST_MBE_PMI_CTC_Definitions/nist_ctc_05_asme1_rd.stp",
+          "sha256": "edc5bb91c00a0fe6d1c76439130f6deabfef851e910538e8f23daf5dfe70f9e7",
+          "bytes": 326835,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2 }')",
+          "tessellated": false,
+          "solidCount": 1
+        }
+      ]
+    },
+    {
+      "id": "d2mi",
+      "url": "https://www.nist.gov/system/files/documents/el/msid/infotest/NIST-D2MI-Models.zip",
+      "sha256": "f20e36fb68633129dfedadf209ba4836bb0e42e18f12e7a2c28140ecdfb26cf3",
+      "files": [
+        {
+          "package": "d2mi",
+          "path": "NIST-D2MI-Models/827-9999-904 rev c.stp",
+          "sha256": "2b64cfca8286d694bb1ab8150f7856012c0e40eef6280abed425efcc2f2e5696",
+          "bytes": 3725845,
+          "schema": "('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF {1 0 10303 442 1 1 4 }')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "d2mi",
+          "path": "NIST-D2MI-Models/827-9999-905.stp",
+          "sha256": "a0619330351df8a333376a3b69838c0fe02ee41307e924d36b77c26ec1f71254",
+          "bytes": 12723,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "d2mi",
+          "path": "NIST-D2MI-Models/827-9999-906.stp",
+          "sha256": "1327cf9c4668b1d5bf15553ba4bba803abe93d1aa55d716eafedfa3daf6ac443",
+          "bytes": 100202,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "d2mi",
+          "path": "NIST-D2MI-Models/827-9999-907.stp",
+          "sha256": "695901fb8872583f7674e57870bbed1fd77f6be1d9db5b7599808c9316814f36",
+          "bytes": 12723,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        },
+        {
+          "package": "d2mi",
+          "path": "NIST-D2MI-Models/827-9999-908.stp",
+          "sha256": "121f75c0aae5d690475ee712eec121b975558266205a6b8612667689cacd9330",
+          "bytes": 100202,
+          "schema": "('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}')",
+          "tessellated": false,
+          "solidCount": 1
+        }
+      ]
+    }
+  ],
+  "sourcePage": "https://www.nist.gov/ctl/smart-connected-systems-division/smart-connected-manufacturing-systems-group/mbe-pmi-0",
+  "additionalArchives": [
+    {
+      "url": "https://www.nist.gov/document/nist-stc-pmi-v4",
+      "resolvedUrl": "https://www.nist.gov/system/files/documents/noindex/2024/06/18/NIST-STC-PMI-v4.zip",
+      "sha256": "bb4fb9939476542af6e90fd2616b4e897756916494a4c92f11404fc13dd1aba8",
+      "bytes": 51125067,
+      "stepFiles": []
+    },
+    {
+      "url": "https://www.nist.gov/document/nist-ftc-ctc-pmi-cad-models",
+      "resolvedUrl": "https://www.nist.gov/system/files/documents/noindex/2024/05/07/NIST-FTC-CTC-PMI-CAD-models.zip",
+      "sha256": "17e14dbf207f447f16e0182a7eda5254ee19afff591dd409b8b510103dd05d10",
+      "bytes": 60294624,
+      "stepFiles": [
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_01_asme1_rd.stp",
+          "sha256": "bd5a73c58880ba9093f8dc653c87f4224d6a795459e7fb64f6fdc22ba76a02d3",
+          "covered": true
+        },
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_02_asme1_rc.stp",
+          "sha256": "cd669778fbf9f11fa386a7fe8afe5a70513e3e17a5000e645d237dd4525d2775",
+          "covered": true
+        },
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_03_asme1_rc.stp",
+          "sha256": "d4158ed46a3fb1d83c85cfec2e640bbaff8c28b2b39e1e66cb87fba9b7985af3",
+          "covered": true
+        },
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_04_asme1_rd.stp",
+          "sha256": "f4f467dcf97e54ab2582ecd447d3bd55cd6a5590117a77889eacc1c4778917fe",
+          "covered": true
+        },
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_05_asme1_rd.stp",
+          "sha256": "edc5bb91c00a0fe6d1c76439130f6deabfef851e910538e8f23daf5dfe70f9e7",
+          "covered": true
+        },
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp",
+          "sha256": "bf751dc227ead634776c4ef93fe6189109b62339bef57f83ad9dbfe2cd3f764b",
+          "covered": true
+        },
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp",
+          "sha256": "b0eecb1ee17386ec0785a90dcdde52d6a152991db33aec0c69c7e1bbd30d42fa",
+          "covered": true
+        },
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_08_asme1_rc.stp",
+          "sha256": "c0c59faae620c5cf1d1f5eba025b4e8666625bd0a7658ecd5625d3a8badc9a7b",
+          "covered": true
+        },
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_09_asme1_rd.stp",
+          "sha256": "d12866d3ab0fc260efd0f1a5c54af47950be513486f61f65513877045582afa8",
+          "covered": true
+        },
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_10_asme1_rb.stp",
+          "sha256": "7ab61ea7d6412b2df3b9b75123544d15810fe6792bf5adf7c820e6fe9e136424",
+          "covered": true
+        },
+        {
+          "path": "NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_11_asme1_rb.stp",
+          "sha256": "d94ee0bed48f06e94621a03b6b088e16fac1bf70607f0d31dfbe87a17bb2ec7e",
+          "covered": true
+        }
+      ]
+    },
+    {
+      "url": "https://www.nist.gov/document/nist-htc-pmi-cad-models",
+      "resolvedUrl": "https://www.nist.gov/system/files/documents/noindex/2025/09/03/NIST-HTC-PMI-v2.zip",
+      "sha256": "6ac4b6fdf43bb0e4f5e5947079f38eb3244c1a9e286bf092879e7310fbcc9d31",
+      "bytes": 5952887,
+      "stepFiles": []
+    },
+    {
+      "url": "https://www.nist.gov/document/nist-cad-models-mtc-assembly",
+      "resolvedUrl": "https://www.nist.gov/system/files/documents/noindex/2025/09/04/NIST-MTC-Assembly.zip",
+      "sha256": "9aeb53e54f682ea1732857d06a7f0513c71667a2d84407396325fa6ce5340bbc",
+      "bytes": 15861580,
+      "stepFiles": []
+    }
+  ]
+}

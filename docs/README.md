@@ -23,7 +23,7 @@ React/Three.js → Go API / Command → Workspace CAS → 不可变 Revision
 
 | 问题 | 当前事实 | 源码归属 |
 |---|---|---|
-| 进程、Router、Job、交换 | [运行](architecture/current/runtime.md)、[Jobs](architecture/current/jobs-artifacts.md)、[Worker](architecture/current/worker-contracts.md) | `services/`、`workers/geometry/` |
+| 进程、Router、Job、交换 | [运行](architecture/current/runtime.md)、[Jobs](architecture/current/jobs-artifacts.md)、[交换](architecture/current/exchange.md)、[Worker](architecture/current/worker-contracts.md) | `services/`、`workers/geometry/` |
 | Command、参数、CAS、Undo/Redo | [模型历史](architecture/current/model-history.md) | `services/internal/workspace/`、`modelcore/` |
 | Sketch、Profile、Body、特征 | [整体设计流程](architecture/current/part-design-workflow.md)、[Part/Sketch](architecture/current/part-sketch.md)、[实体 Feature](architecture/current/solid-features.md) | `kernel/occt/`、`workers/geometry/sketch/` |
 | 关联曲线、开放曲面、加厚 | [线框与曲面](architecture/current/wireframe-surfaces.md)、[操作](guides/wireframe-surfaces.md) | Workspace、`kernel/occt/src/geometry_feature.cpp`、Web Geometry Editor |

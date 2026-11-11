@@ -40,6 +40,8 @@ export function materialAllowsPick(material:THREE.Material|THREE.Material[],mate
 }
 
 export function applyEdgeAppearance(group:THREE.Group,appearance:SurfaceStyle|undefined,defaultColor:number,configureLine?:(material:LineMaterial)=>void):void {
+  const primitiveColor=(group.userData.cadEngineeringCurve||group.userData.cadEngineeringPoint)?appearance?.color??defaultColor:defaultColor;
+  const edgeColor=appearance?.edgeColor??primitiveColor;
   group.userData.appearanceEdges=appearance?.edges;
   group.userData.appearancePickable=appearance?.pickable;
   const opacity=appearance?.edgeOpacityMode==="CLEAR"?1:appearance?.opacity??1;
@@ -65,7 +67,7 @@ export function applyEdgeAppearance(group:THREE.Group,appearance:SurfaceStyle|un
     }
   }
   if(wide){
-    wide.material.color.set(appearance?.edgeColor??defaultColor);wide.material.linewidth=width;wide.material.opacity=opacity;
+    wide.material.color.set(edgeColor);wide.material.linewidth=width;wide.material.opacity=opacity;
     wide.material.userData.baseColor=wide.material.color.getHex();wide.material.userData.baseLinewidth=width;wide.material.userData.baseOpacity=opacity;
   }
   for(const child of group.children){
@@ -73,7 +75,7 @@ export function applyEdgeAppearance(group:THREE.Group,appearance:SurfaceStyle|un
     for(const material of Array.isArray(child.material)?child.material:[child.material]){
       if(material instanceof THREE.ShaderMaterial){
         if(material.uniforms.uOpacity)material.uniforms.uOpacity.value=wide&&child instanceof THREE.LineSegments?0:opacity;
-        if(material.uniforms.uColor&&child instanceof THREE.LineSegments)material.uniforms.uColor.value.set(appearance?.edgeColor??defaultColor);
+        if(material.uniforms.uColor&&(child instanceof THREE.LineSegments||group.userData.cadEngineeringPoint))material.uniforms.uColor.value.set(edgeColor);
       }
       material.userData.cadPickable=appearance?.pickable!==false&&opacity>0;
     }

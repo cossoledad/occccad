@@ -486,8 +486,8 @@ export const restApi = {
     });
   },
   exchangeCapabilities: (): Promise<{ maxUploadBytes: number }> => request("/api/exchange/capabilities"),
-  startExport: (documentId: string, format: "STEP" | "BREP"): Promise<Job> => request<Job>("/api/exchange/exports", {
-    method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format }),
+  startExport: (documentId: string, format: "STEP" | "BREP", options: { excludeHidden?: boolean; stepSchema?: "AP242" | "AP214IS" } = {}): Promise<Job> => request<Job>("/api/exchange/exports", {
+    method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format, excludeHidden: options.excludeHidden ?? true, stepSchema: options.stepSchema ?? "AP242" }),
   }),
   planMotionApply:(documentId:string,baseRevisionId:string,input:import("./cad/assembly/motion-study").MotionApplyRequest):Promise<import("./cad/assembly/motion-study").MotionApplyPlan>=>request(`/api/documents/${documentId}/motion-apply-plan`,{method:"POST",body:JSON.stringify({baseRevisionId,...input})}),
   prepareMechanismApplication:(documentId:string,input:import("./cad/assembly/motion-study").MechanismApplicationRequest):Promise<import("./cad/assembly/motion-study").MechanismApplication>=>request(`/api/documents/${documentId}/mechanism-application`,{method:"POST",body:JSON.stringify(input)}),
